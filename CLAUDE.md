@@ -1,53 +1,88 @@
-# Rust++ — Claude Code Instructions
+# Cyrius — Claude Code Instructions
 
 ## Project Identity
 
-**Rust++** — Systems language for sovereign operating systems. Fork of rustc.
+**Cyrius** — Sovereign, self-hosting systems language. Assembly up. Fork of rustc.
 
 - **Type**: Compiler toolchain (forked from rust-lang/rust)
 - **License**: GPL-3.0-only (diverged code) | MIT/Apache-2.0 (upstream)
-- **Status**: Phase 0 — fork, build, understand
+- **Status**: Phase 2 — Assembly foundation (seed + stage 1)
 
 ## Goal
 
-Own the language. No crates.io. No external governance. ark is the package backend. Names belong to builders.
+Own the language. Own the toolchain. No crates.io. No external governance. Ark is the package backend. Names belong to builders. Assembly is the cornerstone. Cyrius writes the AGNOS kernel.
+
+## Bootstrap Chain
+
+```
+rustc 1.96.0-dev (built from source)
+  → cyrius-seed (Rust, 38 instructions, 102 tests)
+    → stage1a (2642-byte .cyr binary, 14 tests)
+      → generated ELF programs (144 bytes each)
+```
+
+## Project Structure
+
+- `seed/` — Stage 0 assembler (Rust, zero deps, emits x86_64 ELF)
+- `stage1/` — Stage 1 compiler (.cyr assembly, assembled by seed)
+- `upstream/` — rust-lang/rust submodule with Ark cargo patches
+- `docs/architecture/` — Cyrius spec, cargo codepath analysis, ADRs
+- `docs/development/` — Roadmap, process notes
+
+## Key References
+
+- `docs/architecture/cyrius.md` — Language vision and phases
+- `docs/architecture/cargo-codepaths.md` — Surgical map of crates.io in cargo
+- `docs/architecture/adr/001-registry-sovereignty.md` — Ark patches ADR
+- `../vidya` — Multi-language reference corpus (compiler bootstrapping, binary formats)
+- `../ark` — AGNOS unified package manager
 
 ## Development Process
 
-### Phase 0: Fork & Build
+### Phase 0: Fork & Build (Done)
+1. Fork rust-lang/rust ✓
+2. Build rustc from source ✓
+3. Map cargo registry resolution codepaths ✓
+4. Map `cargo publish` validation pipeline ✓
+5. Document findings ✓
 
-1. Fork rust-lang/rust
-2. Build the compiler from source
-3. Understand the crate resolution pipeline in cargo
-4. Identify the exact codepaths that validate against crates.io
-5. Document the architecture for AGNOS-specific changes
+### Phase 1: Registry Sovereignty (Done)
+1. Ark constants added to cargo ✓
+2. Default registry changed to Ark ✓
+3. Git/path deps allowed for non-crates.io registries ✓
+4. `publish = false` deps skip version requirement ✓
+5. ADR documented ✓
 
-### Phase 1: Registry Sovereignty
+### Phase 2: Assembly Foundation (In Progress)
+1. cyrius-seed — stage 0 assembler ✓
+2. stage1a — expression evaluator compiler ✓
+3. stage1b — control flow (if/else, while) ← next
+4. stage1c — memory + syscalls
+5. stage1d — functions
 
-1. Strip crates.io validation from cargo for `publish = false` crates
-2. Add ark as a native registry backend in cargo
-3. Git/path deps are first-class — no registry fallback validation
-4. `cargo publish` only validates deps that are actually being published
+### Phase 3: Self-Hosting Bootstrap
+1. Stage 1 compiles itself
+2. Eliminate Python/cmake/ninja from toolchain
+3. Assembly seed is the only external artifact
 
-### Phase 2: Language Extensions
-
+### Phase 4: Language Extensions
 1. Agent types as language primitives
 2. Capability annotations on functions
 3. Sandbox-aware borrow checker extensions
 4. OS-native IPC types
 
-### Phase 3+: Self-Hosting
-
-1. Rust++ compiles Rust++
-2. Rust++ stdlib (OS-aware, agent-aware)
-3. AGNOS codebase migration (incremental, backward compat)
+### Phase 5: Kernel
+1. Cyrius writes the AGNOS kernel
+2. Bare metal, interrupts, page tables — all in Cyrius
 
 ## Key Principles
 
-- **All existing Rust code must compile unchanged** — this is a superset, not a replacement
+- **Assembly is the cornerstone** — primitives map to machine reality
+- **All existing Rust code must compile unchanged** — superset, not replacement
 - **Don't diverge from upstream unnecessarily** — cherry-pick upstream improvements
-- **Fix the ecosystem, not the language** — the type system and borrow checker are correct
+- **Fix the ecosystem, not the language** — type system and borrow checker are correct
 - **Own the toolchain** — compiler, stdlib, package manager, build system
+- **Every divergence gets an ADR** — no undocumented changes
 
 ## DO NOT
 
