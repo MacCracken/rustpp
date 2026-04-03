@@ -1,0 +1,15 @@
+# bitwise.cyr — bitwise operations
+# Demonstrates: and, or, xor, not, shl, shr
+#
+# Computes various bitwise ops, exits with result
+
+_start:
+    mov rax, 0xFF       # rax = 255
+    and rax, 0x3F       # rax = 63  (mask lower 6 bits)
+    shr rax, 1          # rax = 31  (shift right)
+    or  rax, 0x20       # rax = 63  (set bit 5)
+    xor rax, 0x15       # rax = 42  (flip some bits: 63 ^ 21 = 42)
+
+    mov rdi, rax
+    mov rax, 60
+    syscall

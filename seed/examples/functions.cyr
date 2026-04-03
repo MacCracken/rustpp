@@ -1,0 +1,17 @@
+# functions.cyr — call and return
+# Demonstrates function calls with push/pop for register preservation
+#
+# Calls add_numbers(10, 32) which returns 42 in rdi
+
+_start:
+    mov rdi, 10
+    mov rsi, 32
+    call add_numbers
+    # rdi now contains 42
+    mov rax, 60
+    syscall
+
+# add_numbers: rdi = a, rsi = b, result in rdi
+add_numbers:
+    add rdi, rsi
+    ret

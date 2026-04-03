@@ -1,0 +1,38 @@
+# conditionals.cyr — branching with comparisons
+# Tests all conditional jumps
+#
+# Demonstrates: cmp, je, jne, jl, jg, jle, jge
+
+_start:
+    mov rax, 5
+    mov rbx, 10
+
+    cmp rax, rbx
+    jl less_than        # 5 < 10, should jump
+
+    # Should not reach here
+    mov rdi, 1
+    mov rax, 60
+    syscall
+
+less_than:
+    cmp rbx, rax
+    jg greater_than     # 10 > 5, should jump
+
+    mov rdi, 2
+    mov rax, 60
+    syscall
+
+greater_than:
+    cmp rax, rax
+    je equal            # 5 == 5, should jump
+
+    mov rdi, 3
+    mov rax, 60
+    syscall
+
+equal:
+    # All branches taken correctly
+    mov rdi, 42
+    mov rax, 60
+    syscall

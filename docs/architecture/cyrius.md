@@ -40,8 +40,10 @@ Assembly (the cornerstone)
   ↑
 rust-lang/rust (upstream — learn the type system, borrow checker)
   └─ Rust++ (fork, Phase 0-1: understand + strip crates.io)
-       └─ Cyrius (self-hosting, sovereign, kernel-native)
-            └─ AGNOS kernel
+       └─ cyrius-seed (stage 0 — assembler, emits raw ELF) ← WE ARE HERE
+            ���─ Cyrius stage 1 (written in seed's language)
+                 └─ Cyrius (self-hosting, sovereign, kernel-native)
+                      └─ AGNOS kernel
 ```
 
 ## Phases

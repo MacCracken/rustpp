@@ -1,0 +1,17 @@
+# stack.cyr — push/pop and stack manipulation
+# Demonstrates saving and restoring registers via the stack
+#
+# Saves 42 to stack, clobbers registers, restores and exits
+
+_start:
+    mov rax, 42
+    push rax            # save 42
+
+    # Clobber rax
+    mov rax, 0
+    mov rbx, 0
+    mov rcx, 0
+
+    pop rdi             # restore 42 into rdi
+    mov rax, 60
+    syscall

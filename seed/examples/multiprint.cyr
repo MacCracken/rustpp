@@ -1,0 +1,38 @@
+# multiprint.cyr — print multiple strings
+# Demonstrates: multiple labels, data sections, string escapes
+#
+# Prints three lines to stdout
+
+_start:
+    # Print line 1: "Cyrius Seed v0.1.0\n" = 19 bytes
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, line1
+    mov rdx, 19
+    syscall
+
+    # Print line 2: "Assembly is the cornerstone.\n" = 29 bytes
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, line2
+    mov rdx, 29
+    syscall
+
+    # Print line 3: "Sovereignty owned.\n" = 19 bytes
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, line3
+    mov rdx, 19
+    syscall
+
+    # Exit
+    mov rax, 60
+    mov rdi, 0
+    syscall
+
+line1:
+    db "Cyrius Seed v0.1.0\n"
+line2:
+    db "Assembly is the cornerstone.\n"
+line3:
+    db "Sovereignty owned.\n"

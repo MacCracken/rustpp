@@ -1,19 +1,20 @@
-# Rust++ Development Roadmap
+# Cyrius Development Roadmap
 
-> **Status**: Phase 0 — Fork | **Last Updated**: 2026-04-03
+> **Status**: Phase 0 — Seed assembler working | **Last Updated**: 2026-04-03
 
 ---
 
-## Phase 0 — Fork & Understand (NOW)
+## Phase 0 — Fork & Understand
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Fork rust-lang/rust as upstream submodule | Not started | `upstream/` directory |
-| 2 | Build rustc from source on AGNOS dev machine | Not started | `./x.py build` |
-| 3 | Run rust test suite | Not started | Prove the fork builds clean |
-| 4 | Map cargo registry resolution codepaths | Not started | `src/cargo/sources/registry/` |
-| 5 | Map `cargo publish` validation pipeline | Not started | Where it rejects git deps without version |
-| 6 | Document findings in `docs/architecture/` | Not started | |
+| 1 | Fork rust-lang/rust as upstream submodule | Done | `upstream/` — pinned at 5bbdeaa9 |
+| 2 | Build rustc from source | Done | `rustc 1.96.0-dev`, 5:19 build time |
+| 3 | Build cyrius-seed (stage 0 assembler) | Done | `seed/` — emits x86_64 ELF, 199-byte hello world |
+| 4 | Run rust test suite | Not started | Prove the fork builds clean |
+| 5 | Map cargo registry resolution codepaths | Not started | `src/cargo/sources/registry/` |
+| 6 | Map `cargo publish` validation pipeline | Not started | Where it rejects git deps without version |
+| 7 | Document findings in `docs/architecture/` | In progress | `cyrius.md`, `process-notes.md` |
 
 ## Phase 1 — Registry Sovereignty
 

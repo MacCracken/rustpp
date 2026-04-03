@@ -1,0 +1,23 @@
+# hello.cyr — first Cyrius program
+# Prints "Hello, Cyrius!\n" and exits
+#
+# Linux x86_64 syscalls:
+#   write = 1 (rdi=fd, rsi=buf, rdx=len)
+#   exit  = 60 (rdi=code)
+
+_start:
+    # write(1, msg, 15)
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, msg
+    mov rdx, 15
+    syscall
+
+    # exit(0)
+    mov rax, 60
+    mov rdi, 0
+    syscall
+
+msg:
+    db "Hello, Cyrius!"
+    db 0x0A

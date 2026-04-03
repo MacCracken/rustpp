@@ -1,0 +1,18 @@
+# loop.cyr — countdown loop
+# Counts from 10 down to 0, exits with the count of iterations
+#
+# Demonstrates: labels, jne, dec, cmp, xor
+
+_start:
+    xor rdi, rdi       # rdi = 0 (iteration counter)
+    mov rcx, 10        # rcx = 10 (countdown)
+
+loop:
+    inc rdi             # count iteration
+    dec rcx             # countdown--
+    cmp rcx, 0
+    jne loop            # if rcx != 0, keep going
+
+    # rdi = 10 (we counted 10 iterations)
+    mov rax, 60
+    syscall

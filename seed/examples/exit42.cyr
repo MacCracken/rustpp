@@ -1,0 +1,9 @@
+# exit42.cyr — simplest possible program
+# Exits with code 42
+#
+# Linux x86_64 syscall: exit = 60
+
+_start:
+    mov rax, 60
+    mov rdi, 42
+    syscall

@@ -1,0 +1,12 @@
+# arithmetic.cyr — basic math operations
+# Computes (10 + 20) * 2 - 18 = 42, exits with that code
+#
+# Demonstrates: mov, add, sub, shl, xor, inc, dec
+
+_start:
+    mov rdi, 10
+    add rdi, 20       # rdi = 30
+    shl rdi, 1        # rdi = 60
+    sub rdi, 18       # rdi = 42
+    mov rax, 60
+    syscall
