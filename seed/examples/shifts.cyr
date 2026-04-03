@@ -1,0 +1,50 @@
+# Shift operations — shl, shr, sar with imm and cl
+#
+# Demonstrates all shift variants:
+#   - shl reg, imm8   (logical left shift by constant)
+#   - shr reg, imm8   (logical right shift by constant)
+#   - sar reg, imm8   (arithmetic right shift — preserves sign)
+#   - shl reg, rcx    (shift by variable amount in CL)
+#   - sar reg, rcx    (arithmetic shift by variable)
+#
+# Computes (1 << 5) + 10 = 42, exits with result.
+
+_start:
+    # ── Constant shifts ──
+    mov rax, 1
+    shl rax, 5              # rax = 32
+    add rax, 10             # rax = 42
+    push rax                # save 42
+
+    # ── Arithmetic right shift preserves sign ──
+    mov rax, -128
+    sar rax, 1              # rax = -64 (sign preserved)
+    # Verify: -64 as unsigned = 0xFFFFFFFFFFFFFFC0
+    mov rbx, -64
+    cmp rax, rbx
+    jne fail
+
+    # ── Variable shift (shift by CL) ──
+    mov rax, 0xFF00
+    mov rcx, 8
+    shr rax, rcx            # rax = 0xFF (shift right by 8)
+    cmp rax, 0xFF
+    jne fail
+
+    # ── Variable arithmetic shift ──
+    mov rax, -256
+    mov rcx, 4
+    sar rax, rcx            # rax = -16
+    mov rbx, -16
+    cmp rax, rbx
+    jne fail
+
+    # Success: exit with 42
+    pop rdi
+    mov rax, 60
+    syscall
+
+fail:
+    mov rax, 60
+    mov rdi, 1
+    syscall

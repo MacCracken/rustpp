@@ -37,13 +37,14 @@ Cyrius learns from all of them. Every mistake documented in vidya's gotchas, eve
 
 ```
 Assembly (the cornerstone)
-  ↑
-rust-lang/rust (upstream — learn the type system, borrow checker)
-  └─ Rust++ (fork, Phase 0-1: understand + strip crates.io)
-       └─ cyrius-seed (stage 0 — assembler, emits raw ELF) ← WE ARE HERE
-            ���─ Cyrius stage 1 (written in seed's language)
-                 └─ Cyrius (self-hosting, sovereign, kernel-native)
-                      └─ AGNOS kernel
+  |
+rust-lang/rust (upstream -- learn the type system, borrow checker)
+  +-- Rust++ (fork, Phase 0-1: understand + strip crates.io)
+       +-- cyrius-seed (stage 0 -- assembler, 42 instructions)
+            +-- stage1a/1b (expressions, control flow) <-- WE ARE HERE
+                 +-- stage1c/1d (memory, syscalls, functions)
+                      +-- Cyrius (self-hosting, sovereign, kernel-native)
+                           +-- AGNOS kernel
 ```
 
 ## Phases

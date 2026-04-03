@@ -1,0 +1,57 @@
+# Byte operations — movb, movsx, movzx
+#
+# Demonstrates byte-level memory access:
+#   - movb [mem], reg   (store single byte without clobbering neighbors)
+#   - movzx reg, [mem]  (zero-extend byte load)
+#   - movsx reg, [mem]  (sign-extend byte load)
+#
+# Builds the string "Hi" byte-by-byte, writes it, exits 0.
+
+_start:
+    sub rsp, 16
+
+    # Zero the buffer
+    xor rax, rax
+    mov [rsp], rax
+
+    # Write 'H' (0x48) at byte 0
+    mov rax, 0x48
+    movb [rsp], rax
+
+    # Write 'i' (0x69) at byte 1
+    mov rax, 0x69
+    movb [rsp + 1], rax
+
+    # Write newline (0x0A) at byte 2
+    mov rax, 0x0A
+    movb [rsp + 2], rax
+
+    # Verify with movzx: read byte 0, should be 0x48 (72)
+    movzx rax, [rsp]
+    cmp rax, 0x48
+    jne fail
+
+    # Verify with movsx: read 0xFF as signed (-1)
+    mov rax, 0xFF
+    movb [rsp + 8], rax
+    movsx rbx, [rsp + 8]
+    # rbx should be -1 (0xFFFFFFFFFFFFFFFF)
+    cmp rbx, -1
+    jne fail
+
+    # Write "Hi\n" to stdout
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, rsp
+    mov rdx, 3
+    syscall
+
+    add rsp, 16
+    mov rax, 60
+    xor rdi, rdi
+    syscall
+
+fail:
+    mov rax, 60
+    mov rdi, 1
+    syscall

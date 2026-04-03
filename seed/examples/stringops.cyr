@@ -1,0 +1,40 @@
+# String operations — rep movsb, rep stosb, cld
+#
+# Demonstrates block memory operations:
+#   - cld              (clear direction flag — required before rep)
+#   - rep movsb        (memcpy: copy RCX bytes from [RSI] to [RDI])
+#   - rep stosb        (memset: fill RCX bytes at [RDI] with AL)
+#
+# Copies "OK\n" via rep movsb, writes it, exits 0.
+
+_start:
+    sub rsp, 64
+    cld                     # always clear DF before rep ops
+
+    # Zero first 32 bytes with rep stosb
+    lea rdi, [rsp + 0]
+    xor rax, rax
+    mov rcx, 32
+    rep stosb
+
+    # Write source string "OK\n" at rsp+0
+    mov rax, 0x0A4B4F      # "OK\n" in little-endian
+    mov [rsp], rax
+
+    # Copy 3 bytes from rsp+0 to rsp+32 with rep movsb
+    lea rsi, [rsp + 0]
+    lea rdi, [rsp + 32]
+    mov rcx, 3
+    rep movsb
+
+    # Write the copy to stdout
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rsp + 32]
+    mov rdx, 3
+    syscall
+
+    add rsp, 64
+    mov rax, 60
+    xor rdi, rdi
+    syscall

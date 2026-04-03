@@ -43,6 +43,8 @@ run_test "chain"       "var a = 10; var b = 20; var c = a + b + 12;" 42
 run_test "reuse"       "var x = 5; var y = x * x;"               25
 run_test "zero"        "var x = 0;"                               0
 run_test "complex"     "var a = 2; var b = 3; var c = a * b + a + b;" 11
+run_test "neg_divide"  "var x = 0 - 10; var y = x / 3;"           253
+run_test "div_chain"   "var x = 100 / 5 / 2;"                     10
 
 echo "==================="
 echo "$pass passed, $fail failed"

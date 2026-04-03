@@ -1,0 +1,53 @@
+# Stack frame example — exercises [reg + offset], lea, movzx, cqo
+#
+# Demonstrates proper stack frame usage with the new seed instructions:
+#   - mov [rbp - N], reg   (store locals via displacement)
+#   - mov reg, [rbp - N]   (load locals via displacement)
+#   - lea reg, [rsp + N]   (compute addresses without memory access)
+#   - movzx reg, [reg]     (zero-extend byte load)
+#   - cqo + idiv           (correct signed division)
+#
+# Computes: a=10, b=32, c=a+b (=42), stores to stack, exits with c.
+
+_start:
+    # prologue — set up stack frame
+    push rbp
+    mov rbp, rsp
+    sub rsp, 32
+
+    # store local variables on the stack
+    mov rax, 10
+    mov [rbp - 8], rax       # local a = 10
+    mov rax, 32
+    mov [rbp - 16], rax      # local b = 32
+
+    # load them back and add
+    mov rax, [rbp - 8]
+    mov rcx, [rbp - 16]
+    add rax, rcx
+    mov [rbp - 24], rax      # local c = a + b = 42
+
+    # use lea to compute address of c, then read through pointer
+    lea rcx, [rbp - 24]
+    mov rdi, [rcx]           # rdi = 42 (loaded via computed address)
+
+    # demonstrate movzx: read just the low byte of c
+    # c = 42 = 0x2A, so the low byte is 0x2A
+    lea rcx, [rbp - 24]
+    movzx rax, [rcx]         # rax = 0x2A (zero-extended byte)
+
+    # demonstrate cqo + idiv: 84 / 2 = 42
+    mov rax, 84
+    mov rcx, 2
+    cqo                      # sign-extend rax into rdx:rax
+    idiv rcx                 # rax = 84 / 2 = 42
+
+    # exit with the result (should be 42)
+    mov rdi, rax
+
+    # epilogue — tear down stack frame
+    mov rsp, rbp
+    pop rbp
+
+    mov rax, 60
+    syscall

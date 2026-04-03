@@ -1,0 +1,38 @@
+# Branchless programming — cmovcc, setcc, xchg
+#
+# Demonstrates conditional operations without branches:
+#   - sete/setne/setl/setg  (set byte to 0 or 1 based on flags)
+#   - cmove/cmovne/cmovg    (conditional register move)
+#   - xchg                  (atomic register swap)
+#
+# Computes max(10, 42) branchlessly, exits with result (42).
+
+_start:
+    # ── sete: boolean result ──
+    mov rax, 42
+    cmp rax, 42
+    xor rbx, rbx           # clear rbx (sete only sets low byte)
+    sete rbx                # rbx = 1 (42 == 42)
+
+    # ── setg: comparison result ──
+    mov rax, 100
+    cmp rax, 50
+    xor rcx, rcx
+    setg rcx                # rcx = 1 (100 > 50)
+
+    # ── cmovg: branchless max(10, 42) ──
+    mov rax, 10             # candidate 1
+    mov rdx, 42             # candidate 2
+    cmp rax, rdx
+    cmovl rax, rdx          # if 10 < 42, rax = 42
+    # rax is now 42
+
+    # ── xchg: swap two values ──
+    mov rbx, rax            # rbx = 42
+    mov rcx, 99
+    xchg rbx, rcx           # rbx = 99, rcx = 42
+
+    # Exit with max result (still in rax = 42)
+    mov rdi, rax
+    mov rax, 60
+    syscall

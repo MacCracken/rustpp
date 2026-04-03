@@ -40,7 +40,7 @@
 #   6=PLUS 7=MINUS  8=STAR 9=SLASH
 #   10=LPAREN 11=RPAREN 12=EOF
 #   13=LBRACE 14=RBRACE 15=IF 16=WHILE
-#   17=EQEQ 18=NEQ 19=LT 20=GT 21=LTE 22=GTE
+#   17=EQEQ 18=NEQ 19=LT 20=GT 21=LTE 22=GTE 23=ELSE
 
 # ================================================================
 # ENTRY POINT
@@ -242,16 +242,10 @@ emit_imul_rcx:
     pop rsi
     ret
 
-# emit_xor_rdx_rdx: emit "xor rdx, rdx" = 48 31 D2
-emit_xor_rdx_rdx:
-    push rsi
-    mov rsi, r15
-    add rsi, 0x2C00
-    add rsi, r13
-    mov rax, 0xD23148
-    mov [rsi], rax
-    add r13, 3
-    pop rsi
+# emit_cqo: emit "cqo" = 48 99 (sign-extend RAX into RDX:RAX)
+emit_cqo:
+    mov rax, 0x9948
+    call emit_2bytes
     ret
 
 # emit_idiv_rcx: emit "idiv rcx" = 48 F7 F9
@@ -834,6 +828,17 @@ lexer_id_end:
     pop rcx
     je lexer_id_is_while
 
+    # "else\0" = 0x00_65_73_6C_65
+    push rcx
+    mov rcx, rax
+    and rcx, 0xFFFFFFFFFF
+    push rbx
+    mov rbx, 0x0065736C65
+    cmp rcx, rbx
+    pop rbx
+    pop rcx
+    je lexer_id_is_else
+
     # regular identifier
     mov rcx, r10
     shl rcx, 3
@@ -861,6 +866,11 @@ lexer_id_is_if:
 
 lexer_id_is_while:
     mov rax, 16
+    call lexer_emit_kw
+    jmp lexer_loop
+
+lexer_id_is_else:
+    mov rax, 23
     call lexer_emit_kw
     jmp lexer_loop
 
@@ -1041,10 +1051,11 @@ parse_assign_stmt:
     pop r8
     ret
 
-# ── if (expr OP expr) { stmts } ──
+# ── if (expr OP expr) { stmts } [else { stmts }] ──
 parse_if_stmt:
     push r8
     push r9
+    push rbx
     inc r11              # consume IF
 
     # save last_var_idx
@@ -1061,7 +1072,7 @@ parse_if_stmt:
     # emit condition
     call emit_condition  # returns patch offset in rax
 
-    mov r8, rax          # r8 = patch offset
+    mov r8, rax          # r8 = condition-false patch offset
 
     # expect RPAREN
     call peek_tok_type
@@ -1075,7 +1086,7 @@ parse_if_stmt:
     jne parse_err
     inc r11
 
-    # parse body
+    # parse if-body
     call parse_program
 
     # expect RBRACE
@@ -1084,15 +1095,68 @@ parse_if_stmt:
     jne parse_err
     inc r11
 
-    # patch the forward jump
+    # check for else
+    call peek_tok_type
+    cmp rax, 23          # ELSE?
+    je parse_if_else
+
+    # no else: patch condition-false jump to here
+    mov rax, r8
+    call patch_rel32
+    jmp parse_if_done
+
+parse_if_else:
+    inc r11              # consume ELSE
+
+    # emit jmp to skip else body (from end of if-body)
+    # Use a dummy target 0 — we'll patch it after the else body
+    # emit_jmp_placeholder: emit E9 + 4-byte placeholder
+    push rsi
+    mov rsi, r15
+    add rsi, 0x2C00
+    add rsi, r13
+    mov rax, 0xE9
+    mov [rsi], rax
+    inc r13
+    mov rbx, r13         # rbx = patch offset for skip-else jmp
+    mov rsi, r15
+    add rsi, 0x2C00
+    add rsi, r13
+    xor rax, rax
+    mov [rsi], rax
+    add r13, 4
+    pop rsi
+
+    # patch condition-false jump to here (start of else body)
     mov rax, r8
     call patch_rel32
 
+    # expect LBRACE
+    call peek_tok_type
+    cmp rax, 13
+    jne parse_err
+    inc r11
+
+    # parse else-body
+    call parse_program
+
+    # expect RBRACE
+    call peek_tok_type
+    cmp rax, 14
+    jne parse_err
+    inc r11
+
+    # patch skip-else jump to here (after else body)
+    mov rax, rbx
+    call patch_rel32
+
+parse_if_done:
     # restore last_var_idx
     mov rsi, r15
     add rsi, 0x4810
     mov [rsi], r9
 
+    pop rbx
     pop r9
     pop r8
     ret
@@ -1285,7 +1349,7 @@ parse_term_div:
     call parse_factor
     call emit_mov_rcx_rax
     call emit_pop_rax
-    call emit_xor_rdx_rdx
+    call emit_cqo
     call emit_idiv_rcx
     jmp parse_term_loop
 

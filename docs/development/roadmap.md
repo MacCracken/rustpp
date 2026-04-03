@@ -35,9 +35,9 @@
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | cyrius-seed — stage 0 assembler | Done | Rust, 38 instructions, 102 tests, 9 examples |
+| 1 | cyrius-seed — stage 0 assembler | Done | Rust, 69 mnemonics, 195 tests, 14 examples |
 | 2 | stage1a — expression evaluator | Done | .cyr assembly, 14/14 tests, reads stdin → emits ELF |
-| 3 | stage1b — control flow (if/else, while) | Not started | Runtime codegen with branch instructions |
+| 3 | stage1b — control flow (if/else, while) | Done | Runtime codegen, 39/39 tests, 5235-byte binary |
 | 4 | stage1c — memory + syscalls | Not started | load8/store8, syscall() — needed for I/O |
 | 5 | stage1d — functions | Not started | fn/return, after this stage 2 is writable |
 

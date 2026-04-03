@@ -38,6 +38,7 @@ run_test "multiply"     "var x = 6 * 7;"                           42
 run_test "divide"       "var x = 84 / 2;"                          42
 run_test "precedence"   "var x = 2 + 3 * 4;"                      14
 run_test "left_assoc"   "var x = 10 - 3 - 2;"                     5
+run_test "neg_divide"   "var x = 0 - 10; var y = x / 3;"          253
 run_test "parens"       "var x = (2 + 3) * 4;"                    20
 run_test "nested_p"     "var x = ((1 + 2) * (3 + 4));"            21
 run_test "zero"         "var x = 0;"                               0
@@ -75,9 +76,18 @@ run_test "sum"          "var i = 0; var s = 0; while (i < 10) { i = i + 1; s = s
 run_test "countdown"    "var x = 100; while (x > 58) { x = x - 1; }" 58
 echo ""
 
+echo "-- If/Else --"
+run_test "else_taken"   "var x = 1; if (x == 2) { x = 10; } else { x = 42; }"  42
+run_test "else_skip"    "var x = 1; if (x == 1) { x = 42; } else { x = 99; }"  42
+run_test "else_gt"      "var x = 3; if (x > 5) { x = 10; } else { x = 20; }"  20
+run_test "else_neq"     "var x = 5; if (x != 5) { x = 10; } else { x = 42; }" 42
+run_test "else_assign"  "var x = 0; if (x == 0) { x = 1; } else { x = 2; } var y = x * 42;" 42
+echo ""
+
 echo "-- Nested Control Flow --"
 run_test "if_in_while"  "var i = 0; var x = 0; while (i < 20) { i = i + 1; if (i > 15) { x = x + 1; } }" 5
 run_test "while_if_eq"  "var i = 0; var c = 0; while (i < 10) { i = i + 1; if (i == 5) { c = c + 100; } }" 100
+run_test "else_in_while" "var i = 0; var x = 0; while (i < 5) { i = i + 1; if (i == 3) { x = x + 100; } else { x = x + 1; } }" 104
 
 echo ""
 echo "==================="

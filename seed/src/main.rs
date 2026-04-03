@@ -39,6 +39,11 @@ fn main() {
     }
 
     let code_size = elf.len() - 120; // ELF header + phdr = 120
-    eprintln!("cyrius-seed: {} -> {} ({} bytes code, {} bytes total)",
-        input_path, output_path, code_size, elf.len());
+    eprintln!(
+        "cyrius-seed: {} -> {} ({} bytes code, {} bytes total)",
+        input_path,
+        output_path,
+        code_size,
+        elf.len()
+    );
 }

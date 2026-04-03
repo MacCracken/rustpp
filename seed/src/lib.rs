@@ -5,19 +5,19 @@
 //!
 //! Bootstrap chain: rustc → seed (this) → stage 1 → self-hosting
 
-pub mod token;
-pub mod parse;
-pub mod encode;
 pub mod elf;
+pub mod encode;
 pub mod error;
+pub mod parse;
+pub mod token;
 
 use std::collections::HashMap;
 
-pub use error::{SeedError, Result};
-pub use token::{Token, tokenize};
-pub use parse::{Inst, parse};
-pub use encode::{inst_size, encode_inst};
 pub use elf::emit_elf;
+pub use encode::{encode_inst, inst_size};
+pub use error::{Result, SeedError};
+pub use parse::{parse, Inst};
+pub use token::{tokenize, Token};
 
 pub const BASE_ADDR: u64 = 0x400000;
 pub const ELF_HEADER_SIZE: u64 = 64;
@@ -35,7 +35,7 @@ pub fn assemble(source: &str) -> Result<Vec<u8>> {
     let mut offset = 0usize;
     for inst in &insts {
         if let Inst::LabelDef { name, line } = inst {
-            if let Some(_) = labels.get(name) {
+            if labels.contains_key(name) {
                 return Err(SeedError::DuplicateLabel {
                     name: name.clone(),
                     line: *line,
@@ -56,6 +56,10 @@ pub fn assemble(source: &str) -> Result<Vec<u8>> {
             Inst::Jg { label, line } => (label, *line),
             Inst::Jle { label, line } => (label, *line),
             Inst::Jge { label, line } => (label, *line),
+            Inst::Ja { label, line } => (label, *line),
+            Inst::Jae { label, line } => (label, *line),
+            Inst::Jb { label, line } => (label, *line),
+            Inst::Jbe { label, line } => (label, *line),
             Inst::Call { label, line } => (label, *line),
             Inst::MovRegLabel { label, line, .. } => (label, *line),
             _ => continue,

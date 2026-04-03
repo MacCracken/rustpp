@@ -16,9 +16,10 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ```
 rustc 1.96.0-dev (built from source)
-  → cyrius-seed (Rust, 38 instructions, 102 tests)
-    → stage1a (2642-byte .cyr binary, 14 tests)
-      → generated ELF programs (144 bytes each)
+  → cyrius-seed (Rust, 69 mnemonics, 195 tests)
+    → stage1a (2641-byte .cyr binary, 16 tests)
+      → stage1b (5235-byte .cyr binary, 39 tests)
+        → generated ELF programs (184-384 bytes)
 ```
 
 ## Project Structure
@@ -56,8 +57,8 @@ rustc 1.96.0-dev (built from source)
 ### Phase 2: Assembly Foundation (In Progress)
 1. cyrius-seed — stage 0 assembler ✓
 2. stage1a — expression evaluator compiler ✓
-3. stage1b — control flow (if/else, while) ← next
-4. stage1c — memory + syscalls
+3. stage1b — control flow (if/else, while) ✓
+4. stage1c — memory + syscalls ← next
 5. stage1d — functions
 
 ### Phase 3: Self-Hosting Bootstrap
