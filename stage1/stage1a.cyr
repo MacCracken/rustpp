@@ -1,0 +1,872 @@
+# ================================================================
+# Cyrius Stage 1a — Expression Evaluator Compiler
+# ================================================================
+#
+# Reads a simple language from stdin, emits an x86_64 ELF binary to stdout.
+# Language: var x = <expr>; where expr has +, -, *, /, parens, variables.
+# Exits the generated program with the last variable's value.
+#
+# Usage: echo 'var x = 42;' | ./stage1a > prog && chmod +x prog && ./prog
+#
+# Register conventions:
+#   r15 = heap base (from brk, never clobbered)
+#   r12 = input length (bytes read from stdin)
+#   r11 = parser cursor (current token index)
+#   r10 = token count (set by lexer)
+#   r13 = last expression value / output size
+#   r14 = variable count
+#
+# Memory layout (offsets from r15):
+#   0x0000  input_buf    [4096 bytes]
+#   0x1000  tok_types    [1024 bytes, 128 slots * 8 bytes]
+#   0x1400  tok_values   [1024 bytes, 128 slots * 8 bytes]
+#   0x1800  tok_names    [4096 bytes, packed null-terminated strings]
+#   0x2800  var_noffs    [512 bytes, 64 slots * 8 bytes, offsets into tok_names]
+#   0x2A00  var_vals     [512 bytes, 64 slots * 8 bytes]
+#   0x2C00  codebuf      [256 bytes]
+#   0x2D00  output_buf   [512 bytes]
+
+# ================================================================
+# ENTRY POINT
+# ================================================================
+
+_start:
+    call sys_init
+    call read_input
+    call lexer
+    call parser
+    call codegen
+    call emit_elf
+    call write_output
+    call sys_exit_ok
+
+# ================================================================
+# SYSCALL WRAPPERS
+# ================================================================
+
+sys_init:
+    # brk(0) — get current break
+    mov rax, 12
+    xor rdi, rdi
+    syscall
+    mov r15, rax
+    # brk(r15 + 0x8000) — extend by 32KB
+    mov rdi, r15
+    add rdi, 0x8000
+    mov rax, 12
+    syscall
+    # zero variable count
+    xor r14, r14
+    ret
+
+read_input:
+    # read(0, input_buf, 4096)
+    mov rax, 0
+    xor rdi, rdi
+    mov rsi, r15
+    mov rdx, 4096
+    syscall
+    mov r12, rax
+    ret
+
+write_output:
+    # write(1, output_buf, r13)
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, r15
+    add rsi, 0x2D00
+    mov rdx, r13
+    syscall
+    ret
+
+sys_exit_ok:
+    mov rax, 60
+    xor rdi, rdi
+    syscall
+
+sys_exit_err:
+    mov rax, 60
+    mov rdi, 1
+    syscall
+
+# ================================================================
+# LEXER
+# ================================================================
+# Token types (stored as qwords):
+#   1=NUM  2=IDENT  3=VAR  4=EQ  5=SEMI
+#   6=PLUS 7=MINUS  8=STAR 9=SLASH
+#   10=LPAREN 11=RPAREN 12=EOF
+
+lexer:
+    push r8
+    push r9
+    push rcx
+    push rbx
+    xor r8, r8          # r8 = source cursor
+    xor r10, r10         # r10 = token count
+    # r9 = tok_names cursor (offset from 0x1800)
+    xor r9, r9
+
+lexer_loop:
+    # bounds check
+    cmp r8, r12
+    jge lexer_eof
+
+    # read byte at input_buf[r8]
+    mov rsi, r15
+    add rsi, r8
+    mov rax, [rsi]
+    and rax, 0xFF
+
+    # skip whitespace (space=32, tab=9, newline=10, cr=13)
+    cmp rax, 32
+    je lexer_skip
+    cmp rax, 9
+    je lexer_skip
+    cmp rax, 10
+    je lexer_skip
+    cmp rax, 13
+    je lexer_skip
+
+    # check for digit (0x30-0x39)
+    cmp rax, 48
+    jl lexer_not_digit
+    cmp rax, 57
+    jg lexer_not_digit
+    jmp lexer_number
+
+lexer_not_digit:
+    # check for lowercase letter (0x61-0x7A)
+    cmp rax, 97
+    jl lexer_not_letter
+    cmp rax, 122
+    jg lexer_not_letter
+    jmp lexer_ident
+
+lexer_not_letter:
+    # single-char tokens
+    cmp rax, 61
+    je lexer_eq
+    cmp rax, 59
+    je lexer_semi
+    cmp rax, 43
+    je lexer_plus
+    cmp rax, 45
+    je lexer_minus
+    cmp rax, 42
+    je lexer_star
+    cmp rax, 47
+    je lexer_slash
+    cmp rax, 40
+    je lexer_lparen
+    cmp rax, 41
+    je lexer_rparen
+
+    # unknown char — skip it
+    jmp lexer_skip
+
+lexer_eq:
+    mov rax, 4
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_semi:
+    mov rax, 5
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_plus:
+    mov rax, 6
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_minus:
+    mov rax, 7
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_star:
+    mov rax, 8
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_slash:
+    mov rax, 9
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_lparen:
+    mov rax, 10
+    call lexer_emit_simple
+    jmp lexer_skip
+
+lexer_rparen:
+    mov rax, 11
+    call lexer_emit_simple
+    jmp lexer_skip
+
+# Emit a simple (no-value) token. Type in rax.
+lexer_emit_simple:
+    push rax
+    # tok_types[r10] = type
+    mov rcx, r10
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x1000
+    add rsi, rcx
+    pop rax
+    mov [rsi], rax
+    # tok_values[r10] = 0
+    mov rsi, r15
+    add rsi, 0x1400
+    add rsi, rcx
+    xor rax, rax
+    mov [rsi], rax
+    inc r10
+    ret
+
+lexer_skip:
+    inc r8
+    jmp lexer_loop
+
+# ── Number literal ──
+lexer_number:
+    # rax already has first digit
+    sub rax, 48          # digit value
+    mov rbx, rax         # rbx = accumulated number
+lexer_num_loop:
+    inc r8
+    cmp r8, r12
+    jge lexer_num_done
+    mov rsi, r15
+    add rsi, r8
+    mov rax, [rsi]
+    and rax, 0xFF
+    cmp rax, 48
+    jl lexer_num_done
+    cmp rax, 57
+    jg lexer_num_done
+    sub rax, 48
+    # rbx = rbx * 10 + digit
+    mov rcx, rbx
+    shl rbx, 3           # rbx * 8
+    add rbx, rcx         # rbx * 9
+    add rbx, rcx         # rbx * 10
+    add rbx, rax
+    jmp lexer_num_loop
+
+lexer_num_done:
+    # emit TOK_NUM with value rbx
+    mov rcx, r10
+    shl rcx, 3
+    # tok_types[r10] = 1 (NUM)
+    mov rsi, r15
+    add rsi, 0x1000
+    add rsi, rcx
+    mov rax, 1
+    mov [rsi], rax
+    # tok_values[r10] = rbx
+    mov rsi, r15
+    add rsi, 0x1400
+    add rsi, rcx
+    mov [rsi], rbx
+    inc r10
+    # don't increment r8 — it's already past the last digit
+    jmp lexer_loop
+
+# ── Identifier ──
+lexer_ident:
+    # save start of name in tok_names
+    mov rbx, r9          # rbx = name offset in tok_names
+lexer_id_loop:
+    # copy byte to tok_names[r9]
+    mov rsi, r15
+    add rsi, r8
+    mov rax, [rsi]
+    and rax, 0xFF
+    # check if still alphanumeric or underscore
+    cmp rax, 97
+    jl lexer_id_check2
+    cmp rax, 122
+    jle lexer_id_copy
+lexer_id_check2:
+    cmp rax, 48
+    jl lexer_id_end
+    cmp rax, 57
+    jle lexer_id_copy
+    cmp rax, 95
+    je lexer_id_copy
+    jmp lexer_id_end
+lexer_id_copy:
+    # store byte at tok_names[r9]
+    mov rsi, r15
+    add rsi, 0x1800
+    add rsi, r9
+    mov [rsi], rax
+    inc r9
+    inc r8
+    cmp r8, r12
+    jl lexer_id_loop
+lexer_id_end:
+    # null-terminate
+    mov rsi, r15
+    add rsi, 0x1800
+    add rsi, r9
+    xor rax, rax
+    mov [rsi], rax
+    inc r9
+
+    # check if this is "var" keyword
+    # compare 3 bytes at tok_names+rbx with "var"
+    mov rsi, r15
+    add rsi, 0x1800
+    add rsi, rbx
+    mov rax, [rsi]
+    # "var\0" = 0x00726176 in little-endian
+    and rax, 0xFFFFFFFF
+    mov rcx, 0x00726176
+    cmp rax, rcx
+    je lexer_id_is_var
+
+    # it's a regular identifier
+    mov rcx, r10
+    shl rcx, 3
+    # tok_types[r10] = 2 (IDENT)
+    mov rsi, r15
+    add rsi, 0x1000
+    add rsi, rcx
+    mov rax, 2
+    mov [rsi], rax
+    # tok_values[r10] = offset into tok_names
+    mov rsi, r15
+    add rsi, 0x1400
+    add rsi, rcx
+    mov [rsi], rbx
+    inc r10
+    jmp lexer_loop
+
+lexer_id_is_var:
+    # tok_types[r10] = 3 (VAR keyword)
+    mov rcx, r10
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x1000
+    add rsi, rcx
+    mov rax, 3
+    mov [rsi], rax
+    # tok_values = 0
+    mov rsi, r15
+    add rsi, 0x1400
+    add rsi, rcx
+    xor rax, rax
+    mov [rsi], rax
+    inc r10
+    jmp lexer_loop
+
+lexer_eof:
+    # emit TOK_EOF
+    mov rax, 12
+    call lexer_emit_simple
+    pop rbx
+    pop rcx
+    pop r9
+    pop r8
+    ret
+
+# ================================================================
+# PARSER — recursive descent, compile-time evaluation
+# ================================================================
+# r11 = current token index
+# r10 = token count (from lexer)
+# r13 = last statement result
+# r14 = variable count
+
+parser:
+    xor r11, r11         # parser cursor = 0
+    call parse_program
+    ret
+
+parse_program:
+    push r8
+parse_prog_loop:
+    # peek current token type
+    call peek_tok_type   # result in rax
+    cmp rax, 12          # TOK_EOF?
+    je parse_prog_done
+    call parse_statement
+    jmp parse_prog_loop
+parse_prog_done:
+    pop r8
+    ret
+
+parse_statement:
+    # expect: var IDENT = expr ;
+    push r8
+    push r9
+
+    # consume TOK_VAR (type=3)
+    call peek_tok_type
+    cmp rax, 3
+    jne parse_err
+    inc r11
+
+    # consume TOK_IDENT (type=2), save name offset
+    call peek_tok_type
+    cmp rax, 2
+    jne parse_err
+    call peek_tok_value  # rax = offset into tok_names
+    mov r8, rax          # r8 = name offset
+    inc r11
+
+    # consume TOK_EQ (type=4)
+    call peek_tok_type
+    cmp rax, 4
+    jne parse_err
+    inc r11
+
+    # parse expression — result in rax
+    call parse_expr
+
+    # save result
+    mov r9, rax          # r9 = value
+
+    # consume TOK_SEMI (type=5)
+    call peek_tok_type
+    cmp rax, 5
+    jne parse_err
+    inc r11
+
+    # store variable: var_noffs[r14] = r8, var_vals[r14] = r9
+    mov rcx, r14
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x2800
+    add rsi, rcx
+    mov [rsi], r8        # store name offset
+
+    mov rsi, r15
+    add rsi, 0x2A00
+    add rsi, rcx
+    mov [rsi], r9        # store value
+
+    inc r14              # variable count++
+    mov r13, r9          # r13 = last value (for codegen)
+
+    pop r9
+    pop r8
+    ret
+
+parse_err:
+    # write error message to stderr and exit
+    mov rax, 1
+    mov rdi, 2
+    mov rsi, err_syntax
+    mov rdx, 13
+    syscall
+    jmp sys_exit_err
+
+# ── Expression: term ((+|-) term)* ──
+parse_expr:
+    push r8
+    call parse_term
+    mov r8, rax          # r8 = accumulated result
+
+parse_expr_loop:
+    call peek_tok_type
+    cmp rax, 6           # TOK_PLUS?
+    je parse_expr_add
+    cmp rax, 7           # TOK_MINUS?
+    je parse_expr_sub
+    jmp parse_expr_done
+
+parse_expr_add:
+    inc r11
+    push r8
+    call parse_term
+    pop r8
+    add r8, rax
+    jmp parse_expr_loop
+
+parse_expr_sub:
+    inc r11
+    push r8
+    call parse_term
+    pop r8
+    sub r8, rax
+    jmp parse_expr_loop
+
+parse_expr_done:
+    mov rax, r8
+    pop r8
+    ret
+
+# ── Term: factor ((*|/) factor)* ──
+parse_term:
+    push r8
+    call parse_factor
+    mov r8, rax
+
+parse_term_loop:
+    call peek_tok_type
+    cmp rax, 8           # TOK_STAR?
+    je parse_term_mul
+    cmp rax, 9           # TOK_SLASH?
+    je parse_term_div
+    jmp parse_term_done
+
+parse_term_mul:
+    inc r11
+    push r8
+    call parse_factor
+    pop r8
+    # r8 = r8 * rax
+    push rdx
+    mov rcx, rax
+    mov rax, r8
+    imul rcx
+    mov r8, rax
+    pop rdx
+    jmp parse_term_loop
+
+parse_term_div:
+    inc r11
+    push r8
+    call parse_factor
+    pop r8
+    # r8 = r8 / rax
+    push rdx
+    mov rcx, rax
+    mov rax, r8
+    xor rdx, rdx
+    idiv rcx
+    mov r8, rax
+    pop rdx
+    jmp parse_term_loop
+
+parse_term_done:
+    mov rax, r8
+    pop r8
+    ret
+
+# ── Factor: NUMBER | IDENT | ( expr ) ──
+parse_factor:
+    call peek_tok_type
+
+    cmp rax, 1           # TOK_NUM?
+    je parse_factor_num
+    cmp rax, 2           # TOK_IDENT?
+    je parse_factor_ident
+    cmp rax, 10          # TOK_LPAREN?
+    je parse_factor_paren
+
+    # unexpected token
+    jmp parse_err
+
+parse_factor_num:
+    call peek_tok_value
+    inc r11
+    ret
+
+parse_factor_ident:
+    # look up variable by name offset
+    push r8
+    push r9
+    push rcx
+    call peek_tok_value  # rax = name offset in tok_names
+    mov r8, rax
+    inc r11
+
+    # search var_noffs for matching name
+    xor r9, r9           # r9 = search index
+parse_var_search:
+    cmp r9, r14
+    jge parse_var_undef
+
+    # get var_noffs[r9]
+    mov rcx, r9
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x2800
+    add rsi, rcx
+    mov rax, [rsi]       # rax = stored name offset
+
+    # compare strings at tok_names+rax and tok_names+r8
+    push r8
+    push r9
+    # rdi = tok_names + rax (stored name)
+    mov rdi, r15
+    add rdi, 0x1800
+    add rdi, rax
+    # rsi = tok_names + r8 (lookup name)
+    mov rsi, r15
+    add rsi, 0x1800
+    add rsi, r8
+    call strcmp
+    pop r9
+    pop r8
+    cmp rax, 0
+    je parse_var_found
+
+    inc r9
+    jmp parse_var_search
+
+parse_var_found:
+    # return var_vals[r9]
+    mov rcx, r9
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x2A00
+    add rsi, rcx
+    mov rax, [rsi]
+    pop rcx
+    pop r9
+    pop r8
+    ret
+
+parse_var_undef:
+    # undefined variable
+    mov rax, 1
+    mov rdi, 2
+    mov rsi, err_undef
+    mov rdx, 19
+    syscall
+    pop rcx
+    pop r9
+    pop r8
+    jmp sys_exit_err
+
+parse_factor_paren:
+    inc r11              # consume LPAREN
+    call parse_expr
+    push rax
+    # expect RPAREN
+    call peek_tok_type
+    cmp rax, 11
+    jne parse_err
+    inc r11              # consume RPAREN
+    pop rax
+    ret
+
+# ── Token peek helpers ──
+
+peek_tok_type:
+    # return tok_types[r11] in rax
+    push rcx
+    push rsi
+    mov rcx, r11
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x1000
+    add rsi, rcx
+    mov rax, [rsi]
+    pop rsi
+    pop rcx
+    ret
+
+peek_tok_value:
+    # return tok_values[r11] in rax
+    push rcx
+    push rsi
+    mov rcx, r11
+    shl rcx, 3
+    mov rsi, r15
+    add rsi, 0x1400
+    add rsi, rcx
+    mov rax, [rsi]
+    pop rsi
+    pop rcx
+    ret
+
+# ================================================================
+# CODEGEN — emit exit(r13) as machine code
+# ================================================================
+
+codegen:
+    push rcx
+    push rsi
+    # Write into codebuf at r15+0x2C00
+    mov rsi, r15
+    add rsi, 0x2C00
+
+    # mov rdi, <r13>  →  48 BF <imm64>  (10 bytes)
+    mov rax, 0xBF48
+    mov [rsi], rax
+    # write r13 as imm64 at offset 2
+    mov rcx, rsi
+    add rcx, 2
+    mov [rcx], r13
+
+    # mov rax, 60  →  48 B8 <imm64>  (10 bytes, at offset 10)
+    mov rcx, rsi
+    add rcx, 10
+    mov rax, 0xB848
+    mov [rcx], rax
+    mov rcx, rsi
+    add rcx, 12
+    mov rax, 60
+    mov [rcx], rax
+
+    # syscall  →  0F 05  (2 bytes, at offset 20)
+    mov rcx, rsi
+    add rcx, 20
+    mov rax, 0x050F
+    mov [rcx], rax
+
+    # nop nop (padding to 24 bytes, at offset 22)
+    mov rcx, rsi
+    add rcx, 22
+    mov rax, 0x9090
+    mov [rcx], rax
+
+    pop rsi
+    pop rcx
+    ret
+
+# ================================================================
+# ELF EMITTER — build output binary
+# ================================================================
+
+emit_elf:
+    push rcx
+    push rsi
+    push rdi
+    push rdx
+
+    # copy elf_template (120 bytes = 15 qwords) to output_buf
+    mov rdi, r15
+    add rdi, 0x2D00      # dst = output_buf
+    mov rsi, elf_template # src = template
+    mov rdx, 15           # 15 qwords
+    call memcpy_qwords
+
+    # patch p_filesz at output_buf offset 96: value = 144
+    mov rsi, r15
+    add rsi, 0x2D00
+    add rsi, 96
+    mov rax, 144
+    mov [rsi], rax
+
+    # patch p_memsz at output_buf offset 104: value = 144
+    mov rsi, r15
+    add rsi, 0x2D00
+    add rsi, 104
+    mov rax, 144
+    mov [rsi], rax
+
+    # copy codebuf (24 bytes = 3 qwords) to output_buf+120
+    mov rdi, r15
+    add rdi, 0x2D00
+    add rdi, 120          # dst = output_buf + 120
+    mov rsi, r15
+    add rsi, 0x2C00       # src = codebuf
+    mov rdx, 3            # 3 qwords
+    call memcpy_qwords
+
+    # set output size
+    mov r13, 144
+
+    pop rdx
+    pop rdi
+    pop rsi
+    pop rcx
+    ret
+
+# ================================================================
+# UTILITIES
+# ================================================================
+
+# memcpy_qwords: rdi=dst, rsi=src, rdx=count_in_qwords
+memcpy_qwords:
+    push rcx
+    push r8
+    push r9
+    xor rcx, rcx
+memcpy_qw_loop:
+    cmp rcx, rdx
+    je memcpy_qw_done
+    mov r8, rcx
+    shl r8, 3
+    # load src[rcx*8]
+    mov r9, rsi
+    add r9, r8
+    mov rax, [r9]
+    # store to dst[rcx*8]
+    mov r9, rdi
+    add r9, r8
+    mov [r9], rax
+    inc rcx
+    jmp memcpy_qw_loop
+memcpy_qw_done:
+    pop r9
+    pop r8
+    pop rcx
+    ret
+
+# strcmp: rdi=str1, rsi=str2, result in rax (0=equal)
+strcmp:
+    push rcx
+    push r8
+    push r9
+    xor rcx, rcx
+strcmp_loop:
+    # load str1[rcx]
+    mov r8, rdi
+    add r8, rcx
+    mov rax, [r8]
+    and rax, 0xFF
+    # load str2[rcx]
+    mov r9, rsi
+    add r9, rcx
+    mov r8, [r9]
+    and r8, 0xFF
+    # compare
+    cmp rax, r8
+    jne strcmp_neq
+    # if both zero, strings are equal
+    cmp rax, 0
+    je strcmp_eq
+    inc rcx
+    jmp strcmp_loop
+strcmp_eq:
+    xor rax, rax
+    pop r9
+    pop r8
+    pop rcx
+    ret
+strcmp_neq:
+    mov rax, 1
+    pop r9
+    pop r8
+    pop rcx
+    ret
+
+# ================================================================
+# CONSTANT DATA
+# ================================================================
+
+# ELF64 header + program header template (120 bytes = 15 qwords)
+# p_filesz at qword index 12, p_memsz at qword index 13
+# Entry point: 0x400078 (BASE + 120 bytes of headers)
+# Default file/mem size: 0x90 = 144 (120 headers + 24 code)
+elf_template:
+    dq 0x00010102464C457F
+    dq 0x0000000000000000
+    dq 0x00000001003E0002
+    dq 0x0000000000400078
+    dq 0x0000000000000040
+    dq 0x0000000000000000
+    dq 0x0038004000000000
+    dq 0x0000000000400001
+    dq 0x0000000500000001
+    dq 0x0000000000000000
+    dq 0x0000000000400000
+    dq 0x0000000000400000
+    dq 0x0000000000000090
+    dq 0x0000000000000090
+    dq 0x0000000000001000
+
+err_syntax:
+    db "syntax error\n"
+
+err_undef:
+    db "undefined variable\n"

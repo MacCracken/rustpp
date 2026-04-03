@@ -12,9 +12,9 @@
 | 2 | Build rustc from source | Done | `rustc 1.96.0-dev`, 5:19 build time |
 | 3 | Build cyrius-seed (stage 0 assembler) | Done | `seed/` — emits x86_64 ELF, 199-byte hello world |
 | 4 | Run rust test suite | Not started | Prove the fork builds clean |
-| 5 | Map cargo registry resolution codepaths | Not started | `src/cargo/sources/registry/` |
-| 6 | Map `cargo publish` validation pipeline | Not started | Where it rejects git deps without version |
-| 7 | Document findings in `docs/architecture/` | In progress | `cyrius.md`, `process-notes.md` |
+| 5 | Map cargo registry resolution codepaths | Done | `docs/architecture/cargo-codepaths.md` |
+| 6 | Map `cargo publish` validation pipeline | Done | 20 locations across 8 files identified |
+| 7 | Document findings in `docs/architecture/` | Done | `cyrius.md`, `process-notes.md`, `cargo-codepaths.md` |
 
 ## Phase 1 — Registry Sovereignty
 
