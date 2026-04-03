@@ -1,0 +1,24 @@
+# Build
+/target/
+/build/
+
+# Upstream rust source (managed as submodule)
+/upstream/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.*
