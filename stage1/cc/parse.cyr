@@ -659,7 +659,12 @@ fn PARSE_IF(S) {
 fn PARSE_WHILE(S) {
     STI(S, GTI(S) + 1);  # consume WHILE
     var saved_lv = GLVAR(S);
+    # Save and set loop context for break/continue
+    var saved_ltop = L64(S + 0x8F838);
+    var saved_brk = L64(S + 0x8F840);
     var loop_top = GCP(S);
+    S64(S + 0x8F838, loop_top);
+    S64(S + 0x8F840, 0);
     if (PEEKT(S) != 10) { ERR(S); }
     STI(S, GTI(S) + 1);
     var patch = ECOND(S);
@@ -672,6 +677,14 @@ fn PARSE_WHILE(S) {
     STI(S, GTI(S) + 1);
     EJMP(S, loop_top);
     EPATCH(S, patch);
+    # Patch break jump if one was emitted (0x8F840 holds patch offset, 0 if none)
+    var brk_patch = L64(S + 0x8F840);
+    if (brk_patch > 0) {
+        EPATCH(S, brk_patch);
+        S64(S + 0x8F840, 0);
+    }
+    S64(S + 0x8F838, saved_ltop);
+    S64(S + 0x8F840, saved_brk);
     SLVAR(S, saved_lv);
     return 0;
 }
@@ -999,6 +1012,24 @@ fn PARSE_STMT(S) {
     if (typ == 15) { PARSE_IF(S); return 0; }
     if (typ == 16) { PARSE_WHILE(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
+    # break/continue — placeholder (error if used, proves tokens work)
+    # break; — forward jump to after loop (single break per loop)
+    if (typ == 51) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 5) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        # Emit jmp placeholder, store patch offset at S+0x8F840
+        S64(S + 0x8F840, EJMP0(S));
+        return 0;
+    }
+    # continue; — jump to loop top
+    if (typ == 52) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 5) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        EJMP(S, L64(S + 0x8F838));
+        return 0;
+    }
     # asm { byte; byte; ... } — emit raw bytes (compile-time constants)
     if (typ == 48) {
         STI(S, GTI(S) + 1);

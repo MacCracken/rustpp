@@ -221,8 +221,9 @@ fn LEXID(S, p, npos) {
     }
     if (klen == 5) {
         if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }
-        # "load8" = 0x00003864616F6C
         if (kw & 0xFFFFFFFFFF == 0x003864616F6C) { ADDTOK(S, 25, 0); return p; }
+        # "break" = 0x6B61657262
+        if (kw & 0xFFFFFFFFFF == 0x6B61657262) { ADDTOK(S, 51, 0); return p; }
     }
     if (klen == 6) {
         # "return" = 0x006E7275746572
@@ -248,6 +249,8 @@ fn LEXID(S, p, npos) {
         # "store64" = 0x343665726F7473
         if (kw & 0xFFFFFFFFFFFFFF == 0x343665726F7473) { ADDTOK(S, 47, 0); return p; }
     }
+    # "continue" = 0x65756E69746E6F63 (8 bytes)
+    if (klen == 8) { if (kw == 0x65756E69746E6F63) { ADDTOK(S, 52, 0); return p; } }
     ADDTOK(S, 2, ws);
     return p;
 }

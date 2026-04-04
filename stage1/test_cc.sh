@@ -176,6 +176,11 @@ var x = 10 + y;" 42
 rm -f /tmp/cyr_inc_$$
 echo ""
 
+echo "-- Break/Continue (cc-only) --"
+run_test_cc "break"     'var x: i64 = 0; while (x < 100) { if (x == 42) { break; } x = x + 1; }' 42
+run_test_cc "continue"  'var s: i64 = 0; var i: i64 = 0; while (i < 10) { i = i + 1; if (i % 2 == 0) { continue; } s = s + i; } var r = s;' 25
+echo ""
+
 echo "-- Elif (cc-only) --"
 run_test_cc "elif_match" 'var x = 3; if (x == 1) { x = 10; } elif (x == 2) { x = 20; } elif (x == 3) { x = 42; } else { x = 99; }' 42
 run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x = 20; } else { x = 42; }' 42

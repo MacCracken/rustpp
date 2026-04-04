@@ -6,49 +6,84 @@
 #
 # Build: cat cc2.cyr | ./build/cc > cc2
 # Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
-# Heap layout (S = brk base, mirrors stage1f):
-#   0x00000  input_buf  [65536]
-#   0x10000  tok_types  [131072, 16384*8]
-#   0x30000  tok_values [131072, 16384*8]
-#   0x50000  tok_names  [32768]
-#   0x58000  var_noffs  [2048, 256*8]
-#   0x58800  var_sizes  [2048, 256*8]
-#   0x59000  codebuf    [65536]
-#   0x69000  str_data   [4096]
-#   0x69800  str_pos    [8]
-#   0x69808  data_size  [8]
-#   0x6A000  output_buf [131072]
-#   0x8A000  fixup_tbl  [8192, 512*16]
-#   0x8C000  fixup_cnt  [8]
-#   0x8C008  last_var   [8]
+# ================================================================
+# HEAP MAP — Authoritative offset registry
+# ================================================================
+# Every heap offset used by the compiler. Check here FIRST
+# before allocating new state. Collisions cause silent corruption.
 #
-# State vars (S + 0x8C100):
-#   +0  BL       input length
-#   +8  CP       code position (r13 equivalent)
-#   +16 VCNT     variable count (r14 equivalent)
-#   +24 TCNT     token count (r10 equivalent)
-#   +32 TI       token index / parser cursor (r11 equivalent)
-#   +40 NPOS     name buffer position (r9 equivalent)
+# --- Buffers ---
+#   0x00000  input_buf     [65536]       Input source text
+#   0x10000  tok_types     [131072]      16384 token type slots
+#   0x30000  tok_values    [131072]      16384 token value slots
+#   0x50000  tok_names     [32768]       Packed identifier strings
+#   0x58000  var_noffs     [2048]        256 variable name offsets
+#   0x58800  var_sizes     [2048]        256 variable sizes
+#   0x59000  codebuf       [65536]       Generated machine code
+#   0x69000  str_data      [4096]        String literal bytes
+#   0x69800  str_pos       [8]           Current string position
+#   0x69808  data_size     [8]           Total variable data bytes
+#   0x6A000  output_buf    [131072]      ELF output buffer
 #
-# Token types (same as stage1f):
-#   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI
-#   6=PLUS 7=MINUS 8=STAR 9=SLASH 10=LPAREN 11=RPAREN 12=EOF
-#   13=LBRACE 14=RBRACE 15=IF 16=WHILE 17=EQEQ 18=NEQ
-#   19=LT 20=GT 21=LTE 22=GTE 23=ELSE 31=COMMA 32=FN 33=RETURN
+# --- Fixup ---
+#   0x8A000  fixup_tbl     [8192]        512 fixup entries (16 bytes each)
+#   0x8C000  fixup_cnt     [8]           Fixup entry count
+#   0x8C008  last_var      [8]           Last assigned variable index
 #
-# Function state (S + 0x8C200):
-#   fn_names[1024]     S+0x8C200  128*8
-#   fn_offsets[1024]   S+0x8CA00  128*8
-#   fn_params[1024]    S+0x8D200  128*8
-#   fn_count           S+0x8DA00
-#   in_function        S+0x8DA08
-#   fn_local_count     S+0x8DA10
-#   saved_vcnt         S+0x8DA18
-#   ret_patches[512]   S+0x8DA20  64*8
-#   ret_patch_count    S+0x8DC20
-#   main_jmp_patch     S+0x8DC28
-#   fn_local_names[512] S+0x8DC30  64*8
-#   scratch            S+0x8DE30
+# --- Compiler state ---
+#   0x8C100  BL            [8]           Input length
+#   0x8C108  CP            [8]           Code position
+#   0x8C110  VCNT          [8]           Variable count
+#   0x8C118  TCNT          [8]           Token count
+#   0x8C120  TI            [8]           Token index (parser cursor)
+#   0x8C128  NPOS          [8]           Name buffer position
+#
+# --- Function state ---
+#   0x8C200  fn_names      [2048]        256 function name offsets
+#   0x8CA00  fn_offsets    [2048]        256 function code offsets
+#   0x8D200  fn_params     [2048]        256 function param counts
+#   0x8DA00  fn_count      [8]
+#   0x8DA08  in_function   [8]
+#   0x8DA10  fn_local_cnt  [8]
+#   0x8DA18  (unused)      [8]           Was saved_vcnt, removed
+#   0x8DA20  ret_patches   [512]         64 return patch offsets
+#   0x8DC20  ret_patch_cnt [8]
+#   0x8DC28  main_jmp_patch[8]
+#   0x8DC30  fn_local_names[512]         64 local variable name offsets
+#   0x8DE30  (end of fn_local_names)
+#
+# --- Struct state ---
+#   0x8DE30  var_types     [2048]        256 variable struct type IDs
+#   0x8E630  struct_names  [256]         32 struct name offsets
+#   0x8E730  struct_fcounts[256]         32 struct field counts
+#   0x8E830  struct_fnames [4096]        32*16 struct field name offsets
+#   0x8F830  struct_count  [8]
+#
+# --- Loop state ---
+#   0x8F838  loop_top      [8]           Current loop's top code position
+#   0x8F840  break_patch   [8]           Current loop's break jump patch offset
+#
+# --- Preprocessor scratch ---
+#   0x90000  include_fname [256]         Temp filename for include
+#   0x91000  include_buf   [65536]       Temp buffer for include expansion
+#
+# --- ELF output ---
+#   0x5C130  elf_out_len   [8]           Output length after EMITELF
+#
+# --- brk limit ---
+#   0xA2000  (end of heap allocation)
+#
+# NEXT FREE OFFSET: 0x8F848
+#
+# Token types:
+#   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
+#   10=LPAREN 11=RPAREN 12=EOF 13=LBRACE 14=RBRACE 15=IF 16=WHILE
+#   17=EQEQ 18=NEQ 19=LT 20=GT 21=LTE 22=GTE 23=ELSE
+#   24=SYSCALL 25=LOAD8 26=STORE8 27=AMPERSAND 28=LBRACKET 29=RBRACKET
+#   30=STRING 31=COMMA 32=FN 33=RETURN 34=PERCENT 35=PIPE 36=CARET
+#   37=TILDE 38=SHL 39=SHR 40=STRUCT 41=DOT 42=LOAD16 43=LOAD32
+#   44=LOAD64 45=STORE16 46=STORE32 47=STORE64 48=ASM 49=COLON
+#   50=ELIF 51=BREAK 52=CONTINUE
 
 
 # ================================================================
