@@ -1,0 +1,20 @@
+# tee — copy stdin to stdout AND stderr
+# Usage: echo "hello" | ./tee
+# Built by: cat tee.cyr | ./build/cc2 > tee && chmod +x tee
+
+fn tee() {
+    var buf[4096];
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &buf, 4096);
+        if (n <= 0) { go = 0; }
+        if (go == 1) {
+            syscall(1, 1, &buf, n);
+            syscall(1, 2, &buf, n);
+        }
+    }
+    return 0;
+}
+
+tee();
+syscall(60, 0);

@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Self-hosting: cc2==cc3 byte-identical, 51/51 tests
 - Error messages: `error at token N (type=T)` replaces bare "syntax error"
 - Progressive type annotations: `var x: i64 = 42`, `fn f(a: i64, b: i64)` — parsed, no enforcement
+- 6 real Linux programs: true (168B), false (168B), echo (240B), cat (440B), tee (488B), head (592B)
+  - All under 1KB, 108-233x smaller than GNU equivalents
+  - 14 program tests (functionality + size checks)
+- Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
 
 ## [1.1.0] - 2026-04-04

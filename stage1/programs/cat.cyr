@@ -1,0 +1,17 @@
+# cat — read stdin, write stdout
+# Usage: echo "hello" | ./cat
+# Built by: cat cat.cyr | ./build/cc2 > cat && chmod +x cat
+
+fn cat() {
+    var buf[4096];
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &buf, 4096);
+        if (n <= 0) { go = 0; }
+        if (go == 1) { syscall(1, 1, &buf, n); }
+    }
+    return 0;
+}
+
+cat();
+syscall(60, 0);

@@ -1,0 +1,2 @@
+# false — exit 1
+syscall(60, 1);

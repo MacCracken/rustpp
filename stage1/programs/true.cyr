@@ -1,0 +1,2 @@
+# true — exit 0
+syscall(60, 0);
