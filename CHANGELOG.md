@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- cc2.cyr — modular compiler split into 7 files using include
+  - cc2.cyr (139 lines entry), cc/util (75), cc/emit (168), cc/jump (43), cc/lex (387), cc/parse (1038), cc/fixup (120)
+  - Same binary output as monolithic cc.cyr (58912 bytes)
+  - Self-hosting: cc2==cc3 byte-identical, 51/51 tests
+
 ## [1.1.0] - 2026-04-04
 
 ### Added

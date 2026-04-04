@@ -36,7 +36,8 @@ cc.cyr self-hosting compiler with extensions beyond stage1f:
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Self-hosting rewrite (cc2.cyr) | Not started | Rewrite cc using structs, includes, multi-width — cleaner code |
+| 1 | cc2.cyr modular split | Done | 7 files via include, same binary, cc2==cc3 verified |
+| 1b | cc2 refactor (load64/structs) | Not started | Replace S64/L64 with load64/store64, introduce struct state |
 | 2 | Progressive type checking | Not started | Opt-in `var x: i64`, warnings not errors |
 | 3 | Benchmark suite (v2) | Not started | cc2 compile times, feature coverage metrics |
 | 4 | Agent/capability attributes | Not started | `#[agent]`, `#[capability(...)]` as ELF metadata |

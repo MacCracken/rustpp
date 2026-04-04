@@ -1,0 +1,139 @@
+# ================================================================
+# Cyrius Compiler v2 — Modular Self-Hosting Compiler
+# ================================================================
+# Same language as cc.cyr, split into modules using include.
+# Compiled by cc (stage1f's extended language).
+#
+# Build: cat cc2.cyr | ./build/cc > cc2
+# Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
+# Heap layout (S = brk base, mirrors stage1f):
+#   0x00000  input_buf  [65536]
+#   0x10000  tok_types  [131072, 16384*8]
+#   0x30000  tok_values [131072, 16384*8]
+#   0x50000  tok_names  [32768]
+#   0x58000  var_noffs  [2048, 256*8]
+#   0x58800  var_sizes  [2048, 256*8]
+#   0x59000  codebuf    [65536]
+#   0x69000  str_data   [4096]
+#   0x69800  str_pos    [8]
+#   0x69808  data_size  [8]
+#   0x6A000  output_buf [131072]
+#   0x8A000  fixup_tbl  [8192, 512*16]
+#   0x8C000  fixup_cnt  [8]
+#   0x8C008  last_var   [8]
+#
+# State vars (S + 0x8C100):
+#   +0  BL       input length
+#   +8  CP       code position (r13 equivalent)
+#   +16 VCNT     variable count (r14 equivalent)
+#   +24 TCNT     token count (r10 equivalent)
+#   +32 TI       token index / parser cursor (r11 equivalent)
+#   +40 NPOS     name buffer position (r9 equivalent)
+#
+# Token types (same as stage1f):
+#   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI
+#   6=PLUS 7=MINUS 8=STAR 9=SLASH 10=LPAREN 11=RPAREN 12=EOF
+#   13=LBRACE 14=RBRACE 15=IF 16=WHILE 17=EQEQ 18=NEQ
+#   19=LT 20=GT 21=LTE 22=GTE 23=ELSE 31=COMMA 32=FN 33=RETURN
+#
+# Function state (S + 0x8C200):
+#   fn_names[1024]     S+0x8C200  128*8
+#   fn_offsets[1024]   S+0x8CA00  128*8
+#   fn_params[1024]    S+0x8D200  128*8
+#   fn_count           S+0x8DA00
+#   in_function        S+0x8DA08
+#   fn_local_count     S+0x8DA10
+#   saved_vcnt         S+0x8DA18
+#   ret_patches[512]   S+0x8DA20  64*8
+#   ret_patch_count    S+0x8DC20
+#   main_jmp_patch     S+0x8DC28
+#   fn_local_names[512] S+0x8DC30  64*8
+#   scratch            S+0x8DE30
+
+
+# ================================================================
+# MODULES
+# ================================================================
+include "stage1/cc/util.cyr"
+include "stage1/cc/emit.cyr"
+include "stage1/cc/jump.cyr"
+include "stage1/cc/lex.cyr"
+include "stage1/cc/parse.cyr"
+include "stage1/cc/fixup.cyr"
+
+# ================================================================
+# MAIN
+# ================================================================
+
+# Allocate heap
+var S = syscall(12, 0);
+syscall(12, S + 0xA2000);
+
+# Zero state
+S64(S + 0x8C100, 0);
+S64(S + 0x8C108, 0);
+S64(S + 0x8C110, 0);
+S64(S + 0x8C118, 0);
+S64(S + 0x8C120, 0);
+S64(S + 0x8C128, 0);
+S64(S + 0x8C000, 0);
+S64(S + 0x8C008, 0 - 1);
+S64(S + 0x69800, 0);
+# Function state
+S64(S + 0x8DA00, 0);
+S64(S + 0x8DA08, 0);
+S64(S + 0x8DA10, 0);
+S64(S + 0x8DC20, 0);
+# Struct state
+S64(S + 0x8F830, 0);
+
+# Read input
+var bl = 0;
+var done = 0;
+while (done == 0) {
+    var n = syscall(0, 0, S + bl, 65536 - bl);
+    if (n <= 0) { done = 1; }
+    else {
+        bl = bl + n;
+        if (bl >= 65536) { done = 1; }
+    }
+}
+SBL(S, bl);
+
+# Preprocess includes
+PREPROCESS(S);
+
+# Lex
+LEX(S);
+
+# Emit initial jmp over fn bodies
+EB(S, 0xE9);
+var jmp_patch = GCP(S);
+EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+# Parse struct defs, then fn defs
+STI(S, 0);
+var topgo = 1;
+while (topgo == 1) {
+    if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
+    else { if (PEEKT(S) == 32) { PARSE_FN_DEF(S); }
+    else { topgo = 0; } }
+}
+
+# Patch jmp to land here (start of main code)
+EPATCH(S, jmp_patch);
+
+# Parse main code (top-level statements)
+PARSE_PROG(S);
+
+# Exit epilogue — load last var
+var lv = GLVAR(S);
+if (lv >= 0) { EVLOAD(S, lv); }
+EEXIT(S);
+
+# Fixup + ELF + write
+FIXUP(S);
+EMITELF(S);
+var olen = L64(S + 0x5C130);
+syscall(1, 1, S + 0x6A000, olen);
+syscall(60, 0);
