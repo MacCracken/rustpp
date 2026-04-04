@@ -176,6 +176,26 @@ var x = 10 + y;" 42
 rm -f /tmp/cyr_inc_$$
 echo ""
 
+echo "-- Error Messages (cc-only) --"
+# Test that errors include token position
+err_out=$(echo 'var x = ;' | "$CC" 2>&1 > /dev/null)
+if echo "$err_out" | grep -q "error at token"; then
+    echo "  PASS: error_position (reports token index)"
+    pass=$((pass + 1))
+else
+    echo "  FAIL: error_position (expected 'error at token', got: $err_out)"
+    fail=$((fail + 1))
+fi
+# Test that error includes token type
+if echo "$err_out" | grep -q "type="; then
+    echo "  PASS: error_type (reports token type)"
+    pass=$((pass + 1))
+else
+    echo "  FAIL: error_type (expected 'type=', got: $err_out)"
+    fail=$((fail + 1))
+fi
+echo ""
+
 echo "-- Self-Hosting --"
 echo -n "  "
 cat stage1/cc.cyr | "$CC" > /tmp/cyr_cc2_$$ 2>/dev/null

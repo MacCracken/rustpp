@@ -3,27 +3,12 @@
 # ================================================================
 
 fn S64(a, v) {
-    store8(a, v & 0xFF);
-    store8(a + 1, v >> 8 & 0xFF);
-    store8(a + 2, v >> 16 & 0xFF);
-    store8(a + 3, v >> 24 & 0xFF);
-    store8(a + 4, v >> 32 & 0xFF);
-    store8(a + 5, v >> 40 & 0xFF);
-    store8(a + 6, v >> 48 & 0xFF);
-    store8(a + 7, v >> 56 & 0xFF);
+    store64(a, v);
     return 0;
 }
 
 fn L64(a) {
-    var v = load8(a);
-    v = v | (load8(a + 1) << 8);
-    v = v | (load8(a + 2) << 16);
-    v = v | (load8(a + 3) << 24);
-    v = v | (load8(a + 4) << 32);
-    v = v | (load8(a + 5) << 40);
-    v = v | (load8(a + 6) << 48);
-    v = v | (load8(a + 7) << 56);
-    return v;
+    return load64(a);
 }
 
 # ================================================================
@@ -67,8 +52,29 @@ fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
 fn GMJP(S) { return L64(S + 0x8DC28); }
 fn SMJP(S, v) { S64(S + 0x8DC28, v); return 0; }
 
+# Print a number to stderr (decimal)
+fn PRNUM(n) {
+    var buf[24];
+    var i = 23;
+    var neg = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    if (n == 0) { store8(&buf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&buf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    if (neg == 1) { store8(&buf + i, 45); i = i - 1; }
+    syscall(1, 2, &buf + i + 1, 23 - i);
+    return 0;
+}
+
 fn ERR(S) {
-    syscall(1, 2, "syntax error\n", 13);
+    syscall(1, 2, "error at token ", 15);
+    PRNUM(GTI(S));
+    syscall(1, 2, " (type=", 7);
+    PRNUM(PEEKT(S));
+    syscall(1, 2, ")\n", 2);
     syscall(60, 1);
     return 0;
 }
