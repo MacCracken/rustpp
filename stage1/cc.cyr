@@ -210,6 +210,48 @@ fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
 # ================================================================
+# JUMP / PATCH HELPERS
+# ================================================================
+
+# Emit conditional jump (0F cc 00000000), return patch offset
+fn EJCC(S, cc) {
+    EB(S, 0x0F);
+    EB(S, cc);
+    var patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    return patch;
+}
+
+# Emit unconditional jmp to target (E9 rel32)
+fn EJMP(S, target) {
+    EB(S, 0xE9);
+    var cp = GCP(S);
+    var rel = target - cp - 4;
+    # Write rel32 via read-modify-write
+    var addr = S + 0x29000 + cp;
+    S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    SCP(S, cp + 4);
+    return 0;
+}
+
+# Emit jmp placeholder (E9 00000000), return patch offset
+fn EJMP0(S) {
+    EB(S, 0xE9);
+    var patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    return patch;
+}
+
+# Patch a previously emitted rel32 at codebuf offset to jump here
+fn EPATCH(S, off) {
+    var cp = GCP(S);
+    var rel = cp - off - 4;
+    var addr = S + 0x29000 + off;
+    S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    return 0;
+}
+
+# ================================================================
 # LEXER — tokenizes input at S+0 into tok arrays
 # ================================================================
 
@@ -317,6 +359,9 @@ fn LEXID(S, p, npos) {
     var kw = L64(S + 0x20000 + ws);
     var klen = npos - ws - 1;
     if (klen == 3) { if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; } }
+    if (klen == 2) { if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; } }
+    if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; } }
+    if (klen == 4) { if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; } }
     ADDTOK(S, 2, ws);
     return p;
 }
@@ -361,9 +406,32 @@ fn LEX(S) {
         else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
         else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
         else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }
+        else { if (c == 123) { ADDTOK(S, 13, 0); p = p + 1; }
+        else { if (c == 125) { ADDTOK(S, 14, 0); p = p + 1; }
+        # !=
+        else { if (c == 33) {
+            if (p + 1 < bl) {
+                if (load8(S + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
+                else { p = p + 1; }
+            } else { p = p + 1; }
+        }
+        # < or <=
+        else { if (c == 60) {
+            if (p + 1 < bl) {
+                if (load8(S + p + 1) == 61) { ADDTOK(S, 21, 0); p = p + 2; }
+                else { ADDTOK(S, 19, 0); p = p + 1; }
+            } else { ADDTOK(S, 19, 0); p = p + 1; }
+        }
+        # > or >=
+        else { if (c == 62) {
+            if (p + 1 < bl) {
+                if (load8(S + p + 1) == 61) { ADDTOK(S, 22, 0); p = p + 2; }
+                else { ADDTOK(S, 20, 0); p = p + 1; }
+            } else { ADDTOK(S, 20, 0); p = p + 1; }
+        }
         else { p = p + 1; }
-        } } } } } } }
-        } } } }
+        } } } } } } } }
+        } } } } } } } }
     }
     ADDTOK(S, 12, 0);
     return 0;
@@ -373,8 +441,32 @@ fn LEX(S) {
 # PARSER + CODEGEN — recursive descent, direct emission
 # ================================================================
 
-# Forward declarations needed: parse_expr calls parse_term calls parse_factor
-# In stage1f's language, forward calls work for fn definitions.
+# Compare two null-terminated strings in tok_names
+# Returns 1 if equal, 0 if not
+fn STREQ(S, a, b) {
+    var i = 0;
+    var go = 1;
+    while (go == 1) {
+        var ca = load8(S + 0x20000 + a + i);
+        var cb = load8(S + 0x20000 + b + i);
+        if (ca != cb) { return 0; }
+        if (ca == 0) { return 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Find variable by name offset, return index or -1
+fn FINDVAR(S, noff) {
+    var vcnt = GVCNT(S);
+    var vi = 0;
+    while (vi < vcnt) {
+        var stored = L64(S + 0x28000 + vi * 8);
+        if (STREQ(S, stored, noff) == 1) { return vi; }
+        vi = vi + 1;
+    }
+    return 0 - 1;
+}
 
 fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
@@ -389,20 +481,9 @@ fn PARSE_FACTOR(S) {
         # IDENT — variable load
         var noff = PEEKV(S);
         STI(S, GTI(S) + 1);
-        # Find variable index
-        var vcnt = GVCNT(S);
-        var vi = 0;
-        var found = 0 - 1;
-        while (vi < vcnt) {
-            # Compare names using packed qword
-            var stored = L64(S + 0x28000 + vi * 8);
-            var sname = L64(S + 0x20000 + stored);
-            var lname = L64(S + 0x20000 + noff);
-            if (sname == lname) { found = vi; vi = vcnt; }
-            else { vi = vi + 1; }
-        }
-        if (found < 0) { ERR(S); }
-        EVLOAD(S, found);
+        var idx = FINDVAR(S, noff);
+        if (idx < 0) { ERR(S); }
+        EVLOAD(S, idx);
         return 0;
     }
     if (typ == 10) {
@@ -501,13 +582,114 @@ fn PARSE_VAR(S) {
     return 0;
 }
 
+# Parse: IDENT = expr ;
+fn PARSE_ASSIGN(S) {
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 4) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    var idx = FINDVAR(S, noff);
+    if (idx < 0) { ERR(S); }
+    EVSTORE(S, idx);
+    SLVAR(S, idx);
+    if (PEEKT(S) != 5) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+# Parse condition: expr OP expr — emit cmp + inverted jcc, return patch offset
+fn ECOND(S) {
+    PARSE_EXPR(S);
+    EPUSHR(S);
+    var op = PEEKT(S);
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    EMOVCA(S);
+    EPOPR(S);
+    ECMPR(S);
+    # Inverted jump: == -> jne(0x85), != -> je(0x84), < -> jge(0x8D),
+    #   > -> jle(0x8E), <= -> jg(0x8F), >= -> jl(0x8C)
+    if (op == 17) { return EJCC(S, 0x85); }
+    if (op == 18) { return EJCC(S, 0x84); }
+    if (op == 19) { return EJCC(S, 0x8D); }
+    if (op == 20) { return EJCC(S, 0x8E); }
+    if (op == 21) { return EJCC(S, 0x8F); }
+    if (op == 22) { return EJCC(S, 0x8C); }
+    ERR(S);
+    return 0;
+}
+
+# Parse: if (cond) { stmts } [else { stmts }]
+fn PARSE_IF(S) {
+    STI(S, GTI(S) + 1);  # consume IF
+    var saved_lv = GLVAR(S);
+    if (PEEKT(S) != 10) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume (
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume )
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume {
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume }
+    if (PEEKT(S) == 23) {
+        # else
+        STI(S, GTI(S) + 1);
+        var skip = EJMP0(S);
+        EPATCH(S, patch);
+        if (PEEKT(S) != 13) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        PARSE_PROG(S);
+        if (PEEKT(S) != 14) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        EPATCH(S, skip);
+    } else {
+        EPATCH(S, patch);
+    }
+    SLVAR(S, saved_lv);
+    return 0;
+}
+
+# Parse: while (cond) { stmts }
+fn PARSE_WHILE(S) {
+    STI(S, GTI(S) + 1);  # consume WHILE
+    var saved_lv = GLVAR(S);
+    var loop_top = GCP(S);
+    if (PEEKT(S) != 10) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    EJMP(S, loop_top);
+    EPATCH(S, patch);
+    SLVAR(S, saved_lv);
+    return 0;
+}
+
+fn PARSE_STMT(S) {
+    var typ = PEEKT(S);
+    if (typ == 3) { PARSE_VAR(S); return 0; }
+    if (typ == 2) { PARSE_ASSIGN(S); return 0; }
+    if (typ == 15) { PARSE_IF(S); return 0; }
+    if (typ == 16) { PARSE_WHILE(S); return 0; }
+    ERR(S);
+    return 0;
+}
+
 fn PARSE_PROG(S) {
     var go = 1;
     while (go == 1) {
         var typ = PEEKT(S);
         if (typ == 12) { go = 0; }
-        else { if (typ == 3) { PARSE_VAR(S); }
-        else { ERR(S); } }
+        else { if (typ == 14) { go = 0; }
+        else { PARSE_STMT(S); } }
     }
     return 0;
 }
@@ -517,12 +699,9 @@ fn PARSE_PROG(S) {
 # ================================================================
 
 fn FIXUP(S) {
-    # Align code to 8
+    # Align code to 8 (don't write — leave as zeros, matching stage1f)
     var cp = GCP(S);
-    while (cp % 8 != 0) {
-        EB(S, 0x90);
-        cp = cp + 1;
-    }
+    cp = (cp + 7) & (0 - 8);
     SCP(S, cp);
     var acp = cp;
     # data_base = 0x400078 + aligned code size
