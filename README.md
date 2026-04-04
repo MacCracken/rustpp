@@ -1,63 +1,98 @@
 # Cyrius
 
-**Cyrius** — Sovereign, self-hosting systems language. Assembly up.
+**Sovereign, self-hosting systems language. Assembly up.**
 
-Fork of the Rust compiler with sovereign package management, self-hosting bootstrap chain, and no dependency on external registries or governance bodies. Designed to write the AGNOS kernel.
+A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external language dependencies. No Rust, no LLVM, no Python. Designed to write the AGNOS kernel.
 
-## Why
+## Quick Start
 
-Rust's type system and safety model are correct. Its ecosystem governance is a liability:
+```sh
+sh bootstrap/bootstrap.sh    # 41ms, produces compiler + assembler
 
-- **crates.io name squatting** — bots and speculators claim names, blocking legitimate projects
-- **Registry coupling** — `cargo publish` validates optional deps against a registry you don't use
-- **No sovereignty** — your project's ability to ship depends on a foundation you don't control
-- **Bootstrap dependency** — "building from source" requires downloading a pre-built binary compiler
+echo 'fn fact(n) {
+    var f = 1;
+    while (n > 1) { f = f * n; n = n - 1; }
+    return f;
+}
+var x = fact(10);' | ./build/stage1f > prog && chmod +x prog && ./prog
+# exit code: 120 (= 5!)
+```
 
-Cyrius fixes the ecosystem and owns the toolchain. All existing Rust code compiles unchanged.
-
-## What Changes
-
-| Rust | Cyrius |
-|------|--------|
-| crates.io is the default registry | Ark is the native package backend |
-| `cargo publish` validates all deps against crates.io | Git/path deps are first-class, no registry validation for `publish = false` |
-| Bootstrap requires Python + pre-built compiler | Assembly seed → stage 0 → stage 1 → self-hosting |
-| Packages, sandboxes, agents are library abstractions | OS primitives in the language (planned) |
-| Names belong to whoever squats first | Names belong to builders |
+**Requirements**: Linux x86_64 + `/bin/sh`. Nothing else.
 
 ## Bootstrap Chain
 
 ```
-rustc 1.96.0-dev (built from source)
-  → cyrius-seed (Rust, 38 instructions, 102 tests)
-    → stage1a (2642-byte .cyr binary, 14 tests)
-      → generated ELF programs (144 bytes each)
+bootstrap/asm (29KB committed binary)
+  → assembles stage1f.cyr → stage1f (12KB compiler)
+    → compiles asm.cyr → asm (29KB assembler, byte-identical)
+    → compiles cc.cyr → cc (43KB self-hosting compiler)
+      → cc compiles cc.cyr → cc2 (byte-identical ✓)
 ```
+
+## Benchmarks
+
+| Metric | Value |
+|--------|-------|
+| Full bootstrap | 41ms |
+| Self-compile (1467 lines) | 9ms |
+| Assembler throughput | 1.3M lines/sec |
+| Compiler throughput | 367K lines/sec |
+| Bootstrap binary | 29KB |
+| Self-hosting compiler | 43KB |
+| Total source (compiler + assembler) | 2577 lines |
+| External dependencies | 0 |
+
+## Language Features
+
+The stage1f language (compiled by cc.cyr):
+
+- Variables, arrays, assignment
+- Functions (up to 6 params, locals, forward calls)
+- if/else, while loops
+- Arithmetic: `+ - * / %`
+- Bitwise: `& | ^ ~ << >>`
+- Comparisons: `== != < > <= >=`
+- `syscall()`, `load8()`, `store8()`, `&var`
+- String literals with escapes
+- Hex literals (`0xFF`), comments (`#`)
 
 ## Status
 
 | Phase | Status |
 |-------|--------|
-| Phase 0 — Fork & Understand | Done |
-| Phase 1 — Registry Sovereignty (Ark) | Done |
-| Phase 2 — Assembly Foundation (seed + stage 1a) | In progress |
-| Phase 3 — Self-Hosting Bootstrap | Planned |
-| Phase 4 — Language Extensions | Planned |
-| Phase 5 — Kernel | Planned |
+| 0 — Fork & Understand | Done |
+| 1 — Registry Sovereignty (Ark) | Done |
+| 2 — Assembly Foundation (7 stages) | Done |
+| 3 — Self-Hosting Bootstrap | Done |
+| 4 — Language Extensions | **In progress** (cc.cyr self-hosting ✓, structs next) |
+| 5 — Multi-Architecture (aarch64) | Planned |
+| 6 — Kernel (AGNOS) | Planned |
+| 7 — Prove the Language | Planned |
+| 8 — Full Sovereignty | Planned |
 
 ## Structure
 
 ```
-seed/           Cyrius seed — stage 0 assembler (Rust, emits x86_64 ELF)
-stage1/         Stage 1 compiler (written in .cyr, assembled by seed)
-upstream/       rust-lang/rust submodule (with Ark cargo patches)
-docs/           Architecture docs, ADRs, roadmap
+bootstrap/       Root of trust (29KB binary + scripts)
+stage1/          Compiler stages + assembler (asm.cyr) + compiler (cc.cyr)
+build/           Generated binaries (gitignored)
+archive/seed/    Historical Rust seed (verification only)
+docs/            Architecture, roadmap, process notes
+```
+
+## Tests
+
+```sh
+sh stage1/test_stage1e.sh ./build/stage1f   # 63 compiler tests
+sh stage1/test_cc.sh ./build/cc             # 36 cc tests + self-hosting
+sh stage1/test_asm.sh ./build/asm           # 11 assembler tests (byte-exact)
 ```
 
 ## Part of AGNOS
 
-Cyrius is the future language of [AGNOS](https://agnosticos.org), the AI-Native General Operating System.
+Cyrius is the language of [AGNOS](https://agnosticos.org), the AI-Native General Operating System.
 
 ## License
 
-GPL-3.0-only (diverged portions) | MIT/Apache-2.0 (upstream Rust portions)
+GPL-3.0-only

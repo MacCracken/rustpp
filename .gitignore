@@ -1,14 +1,9 @@
 # ── Build artifacts ──
-/target/
 /build/
-/seed/target/
+/target/
 
-# ── Upstream rust build (massive) ──
-/upstream/build/
-/upstream/target/
-
-# ── Upstream bootstrap config (local to each machine) ──
-/upstream/bootstrap.toml
+# ── Archived Rust seed ──
+/archive/seed/target/
 
 # ── Assembled binaries from examples ──
 *.elf
@@ -32,6 +27,5 @@ Thumbs.db
 .env
 .env.*
 
-# ── Rust (archived) ──
+# ── Rust backup files ──
 **/*.rs.bk
-/archive/seed/target/

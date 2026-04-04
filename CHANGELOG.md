@@ -6,15 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-04
+
 ### Added
-- cc.cyr V2 — editable compiler in stage1f's language (1224 lines)
-  - Lexer: numbers (decimal + hex), identifiers, keywords, operators, comments
-  - Parser: recursive descent with direct x86_64 codegen
-  - Expressions with operator precedence (+ - * /)
-  - Control flow: if/else, while, all 6 comparison operators
-  - Functions: fn/return, up to 6 parameters, local variables, forward calls
-  - 11 byte-exact matches with stage1f reference compiler
-- Remaining for self-hosting: syscall, load8/store8, &var, arrays, strings, bitwise ops, hex literals, modulo, shifts
+- cc.cyr — self-hosting compiler (1467 lines, 43504-byte binary)
+  - Compiles itself byte-identical (cc → cc2, cmp cc cc2 passes)
+  - Full language: vars, arrays, fn/return/call (6 params, locals, forward refs),
+    if/else, while, expressions with precedence, syscall, load8/store8, &var,
+    strings with escapes, bitwise ops, shifts, modulo, hex literals, comments
+  - 12 byte-exact matches with stage1f reference compiler
+- Benchmark suite:
+  - Full bootstrap: 41ms
+  - Self-compile (1467 lines): 9ms
+  - Assembly (3983 lines): 3ms
+  - Throughput: stage1f 367K lines/sec, cc 163K lines/sec, asm 1.3M lines/sec
+
+### Changed
+- Phase 4 item 1 (cc.cyr) and item 2 (self-hosting) complete
+- Roadmap updated with Phase 5 (multi-arch), Phase 6 (kernel), Phase 7 (prove language), Phase 8 (full sovereignty)
+- upstream/ submodule fully removed (git rm)
 
 ## [0.3.0] - 2026-04-04
 

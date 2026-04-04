@@ -36,9 +36,8 @@ Seven-stage compiler chain from assembly seed to token-scaled compiler:
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | cc.cyr — base compiler (stage1f clone) | In progress | V2 done: vars, exprs, if/else, while, fn/return/call. Remaining: syscall, load8/store8, &var, arrays, strings, bitwise, hex, %, <<, >>, comments |
-| 2 | cc.cyr self-hosting | Not started | cc compiles itself → byte-identical |
-| 3 | Benchmark suite (v1) | Not started | Bootstrap time, compile times, binary sizes, test against stage1f |
+| 1 | cc.cyr — self-hosting compiler | Done | 1467 lines, 43504-byte binary, compiles itself byte-identical in 9ms |
+| 2 | Benchmark suite (v1) | Done | Bootstrap 41ms, self-compile 9ms, asm 1.3M lines/sec |
 | 4 | >6 function parameters | Not started | Stack-passed extras beyond System V's 6 regs |
 | 4 | Structs / composite types | Not started | Heap-allocated, compiler-computed offsets |
 | 5 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |

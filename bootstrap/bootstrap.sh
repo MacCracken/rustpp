@@ -10,7 +10,18 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$DIR")"
 
+# Validate inputs
+if [ ! -f "$DIR/asm" ]; then
+    echo "ERROR: bootstrap/asm not found" >&2
+    exit 1
+fi
+if [ ! -f "$ROOT/stage1/stage1f.cyr" ]; then
+    echo "ERROR: stage1/stage1f.cyr not found" >&2
+    exit 1
+fi
+
 mkdir -p "$ROOT/build"
+chmod +x "$DIR/asm"
 
 echo "=== Cyrius Bootstrap ==="
 echo "Seed: $DIR/asm ($(wc -c < "$DIR/asm") bytes)"
@@ -19,13 +30,17 @@ echo "Seed: $DIR/asm ($(wc -c < "$DIR/asm") bytes)"
 echo "Assembling stage1f..."
 cat "$ROOT/stage1/stage1f.cyr" | "$DIR/asm" > "$ROOT/build/stage1f"
 chmod +x "$ROOT/build/stage1f"
-echo "  -> build/stage1f ($(wc -c < "$ROOT/build/stage1f") bytes)"
+SZ=$(wc -c < "$ROOT/build/stage1f")
+echo "  -> build/stage1f ($SZ bytes)"
+if [ "$SZ" -lt 10000 ]; then echo "ERROR: stage1f output truncated" >&2; exit 1; fi
 
 # Step 2: Compile the assembler from source (self-hosting verification)
 echo "Compiling asm..."
 cat "$ROOT/stage1/asm.cyr" | "$ROOT/build/stage1f" > "$ROOT/build/asm"
 chmod +x "$ROOT/build/asm"
-echo "  -> build/asm ($(wc -c < "$ROOT/build/asm") bytes)"
+SZ=$(wc -c < "$ROOT/build/asm")
+echo "  -> build/asm ($SZ bytes)"
+if [ "$SZ" -lt 20000 ]; then echo "ERROR: asm output truncated" >&2; exit 1; fi
 
 # Step 3: Verify bootstrap closure
 echo "Verifying bootstrap closure..."
