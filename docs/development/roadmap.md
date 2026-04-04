@@ -40,9 +40,9 @@ Seven-stage compiler chain from assembly seed to token-scaled compiler:
 | 2 | Benchmark suite (v1) | Done | Bootstrap 41ms, self-compile 9ms, asm 1.3M lines/sec |
 | 3 | Structs / composite types | Done | struct def, init, field access (dot), field assign. 1688 lines, 136 functions. Stage1f fn table bumped to 256. |
 | 4 | >6 function parameters | Not started | Stack-passed extras beyond System V's 6 regs |
-| 5 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |
-| 6 | Multi-width load/store | Not started | load16/32/64, store16/32/64 intrinsics |
-| 7 | Module system | Not started | `include "file.cyr"` textual include |
+| 5 | Multi-width load/store | Done | load16/32/64, store16/32/64 intrinsics |
+| 6 | Module system (include) | Done | `include "file.cyr"` preprocessing, sys_open/read/close |
+| 7 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |
 | 8 | Inline assembly | Not started | `asm { }` blocks, register bindings |
 | 9 | Self-hosting rewrite (cc2.cyr) | Not started | Rewrite in extended language |
 | 10 | Progressive type checking | Not started | Opt-in annotations, warnings not errors |

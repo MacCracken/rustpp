@@ -11,7 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Multi-width load/store: `load16`, `load32`, `load64`, `store16`, `store32`, `store64` intrinsics
 - Stage1f function table expanded from 128 to 256 slots
 - cc.cyr: 1759 lines, 142 functions, 53912-byte binary
-- vidya: 66 entries in compiler_bootstrapping (+6 from session), struct/type/codegen patterns
+- Include directive: `include "file.cyr"` preprocessing with sys_open/read/close
+- Test suite expanded to 45 tests (was 36): structs, multi-width, includes, self-hosting
+- vidya: 68 entries in compiler_bootstrapping, struct/type/codegen/include patterns
 
 ### Fixed
 - cc self-hosting restored: cc2==cc3 byte-identical (36/36 tests pass)

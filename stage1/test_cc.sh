@@ -43,6 +43,23 @@ run_test() {
     rm -f /tmp/cyr_sf_$$ /tmp/cyr_cc_$$
 }
 
+# cc-only test: no stage1f comparison, just run and check exit code
+run_test_cc() {
+    name="$1"; src="$2"; expected="$3"
+    echo "$src" | "$CC" > /tmp/cyr_cc_$$ 2>/dev/null
+    chmod +x /tmp/cyr_cc_$$ 2>/dev/null
+    /tmp/cyr_cc_$$ > /dev/null 2>/dev/null
+    got=$?
+    rm -f /tmp/cyr_cc_$$
+    if [ "$got" -eq "$expected" ]; then
+        echo "  PASS: $name (exit=$got)"
+        pass=$((pass + 1))
+    else
+        echo "  FAIL: $name (expected=$expected, got=$got)"
+        fail=$((fail + 1))
+    fi
+}
+
 run_test_stdout() {
     name="$1"; src="$2"; expected_out="$3"; expected_exit="$4"
     echo "$src" | "$SF" > /tmp/cyr_sf_$$ 2>/dev/null
@@ -126,6 +143,27 @@ run_test "comment"      '# this is a comment
 var x = 42;'                                                       42
 echo ""
 
+echo "-- Structs (cc-only) --"
+run_test_cc "struct_init"  'struct Point { x; y; } var p = Point { 10, 32 }; var r = p.x + p.y;' 42
+run_test_cc "struct_assign" 'struct P { a; b; } var p = P { 0, 0 }; p.a = 42;' 42
+run_test_cc "struct_3field" 'struct RGB { r; g; b; } var c = RGB { 10, 20, 12 }; var x = c.r + c.g + c.b;' 42
+run_test_cc "struct_fn"    'struct P { x; y; } fn sum(a, b) { return a + b; } var p = P { 20, 22 }; var r = sum(p.x, p.y);' 42
+echo ""
+
+echo "-- Multi-Width Load/Store (cc-only) --"
+run_test_cc "load64"       'var buf[16]; store64(&buf, 42); var r = load64(&buf);' 42
+run_test_cc "load32"       'var buf[16]; store32(&buf, 42); var r = load32(&buf);' 42
+run_test_cc "load16"       'var buf[16]; store16(&buf, 42); var r = load16(&buf);' 42
+run_test_cc "mix_width"    'var buf[16]; store64(&buf, 0x2A); var r = load8(&buf);' 42
+echo ""
+
+echo "-- Include (cc-only) --"
+echo "var y = 32;" > /tmp/cyr_inc_$$
+run_test_cc "include_basic" "include \"/tmp/cyr_inc_$$\"
+var x = 10 + y;" 42
+rm -f /tmp/cyr_inc_$$
+echo ""
+
 echo "-- Self-Hosting --"
 echo -n "  "
 cat stage1/cc.cyr | "$CC" > /tmp/cyr_cc2_$$ 2>/dev/null
@@ -133,8 +171,17 @@ if cmp -s "$CC" /tmp/cyr_cc2_$$; then
     echo "PASS: cc compiles itself byte-identical"
     pass=$((pass + 1))
 else
-    echo "FAIL: cc self-compile differs"
-    fail=$((fail + 1))
+    # Check cc2==cc3 instead (true self-hosting for extended compiler)
+    chmod +x /tmp/cyr_cc2_$$
+    cat stage1/cc.cyr | /tmp/cyr_cc2_$$ > /tmp/cyr_cc3_$$ 2>/dev/null
+    if cmp -s /tmp/cyr_cc2_$$ /tmp/cyr_cc3_$$; then
+        echo "PASS: cc2==cc3 byte-identical (extended self-hosting)"
+        pass=$((pass + 1))
+    else
+        echo "FAIL: cc self-hosting broken"
+        fail=$((fail + 1))
+    fi
+    rm -f /tmp/cyr_cc3_$$
 fi
 rm -f /tmp/cyr_cc2_$$
 
