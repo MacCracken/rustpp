@@ -1,0 +1,29 @@
+# tr — translate characters (lowercase to uppercase)
+# Usage: echo "hello" | ./tr
+# Buffered I/O: reads 4096 bytes at a time
+
+fn tr() {
+    var buf[4096];
+    var obuf[4096];
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &buf, 4096);
+        if (n <= 0) { go = 0; }
+        if (go == 1) {
+            var i: i64 = 0;
+            while (i < n) {
+                var c: i64 = load8(&buf + i);
+                if (c >= 97) {
+                    if (c <= 122) { c = c - 32; }
+                }
+                store8(&obuf + i, c);
+                i = i + 1;
+            }
+            syscall(1, 1, &obuf, n);
+        }
+    }
+    return 0;
+}
+
+tr();
+syscall(60, 0);

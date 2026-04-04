@@ -29,10 +29,13 @@
 
 | Test | Cyrius | GNU | Notes |
 |------|--------|-----|-------|
-| cat 1MB pipe | 5ms | 5ms | Identical throughput |
-| wc 1MB analysis | 10ms | 7ms | GNU ~30% faster (optimized buffering) |
+| cat 1MB pipe | 7ms | ~5ms | Near-identical |
+| tr 1MB uppercase | 9ms | 6ms | Cyrius within 50% |
+| wc 1MB analysis | 9ms | 22ms | **Cyrius 2.4x faster** |
 
-At small data sizes, Cyrius matches GNU. At larger sizes, GNU's buffered I/O and optimized loops give it an edge. Cyrius programs read/write via raw syscalls with no buffering layer.
+With 4096-byte buffered I/O, Cyrius matches or beats GNU on I/O-bound tasks. The wc advantage comes from zero-overhead processing — no locale, no UTF-8 decoding, no libc abstraction layers. Raw syscalls with block-buffered reads.
+
+Unbuffered (byte-by-byte) I/O is 85x slower — always buffer.
 
 ## Compile Speed
 

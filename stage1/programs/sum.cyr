@@ -1,0 +1,71 @@
+# sum — read numbers from stdin (one per line), print total
+# Usage: seq 10 | ./sum  (outputs 55)
+
+fn parse_line_num(line, len) {
+    var val: i64 = 0;
+    var neg: i64 = 0;
+    var i: i64 = 0;
+    if (len > 0) {
+        if (load8(line) == 45) { neg = 1; i = 1; }
+    }
+    while (i < len) {
+        var c: i64 = load8(line + i);
+        if (c >= 48) {
+            if (c <= 57) {
+                val = val * 10 + (c - 48);
+            }
+        }
+        i = i + 1;
+    }
+    if (neg == 1) { val = 0 - val; }
+    return val;
+}
+
+fn print_num(n: i64) {
+    var pbuf[24];
+    var i: i64 = 23;
+    var neg: i64 = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    if (n == 0) { store8(&pbuf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&pbuf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    if (neg == 1) { store8(&pbuf + i, 45); i = i - 1; }
+    syscall(1, 1, &pbuf + i + 1, 23 - i);
+    return 0;
+}
+
+fn sum() {
+    var line[256];
+    var byte[1];
+    var len: i64 = 0;
+    var total: i64 = 0;
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &byte, 1);
+        if (n <= 0) {
+            if (len > 0) {
+                total = total + parse_line_num(&line, len);
+            }
+            go = 0;
+        }
+        if (go == 1) {
+            var c: i64 = load8(&byte);
+            if (c == 10) {
+                total = total + parse_line_num(&line, len);
+                len = 0;
+            } else {
+                store8(&line + len, c);
+                len = len + 1;
+            }
+        }
+    }
+    print_num(total);
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+sum();
+syscall(60, 0);

@@ -1,0 +1,67 @@
+# uniq — suppress adjacent duplicate lines
+# Usage: cat file | ./uniq
+
+fn lines_equal(a, alen, b, blen) {
+    if (alen != blen) { return 0; }
+    var i: i64 = 0;
+    while (i < alen) {
+        if (load8(a + i) != load8(b + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn uniq() {
+    var cur[4096];
+    var prev[4096];
+    var byte[1];
+    var clen: i64 = 0;
+    var plen: i64 = 0;
+    var has_prev: i64 = 0;
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &byte, 1);
+        if (n <= 0) {
+            # Flush last line
+            if (clen > 0) {
+                if (has_prev == 0) {
+                    syscall(1, 1, &cur, clen);
+                    syscall(1, 1, "\n", 1);
+                } elif (lines_equal(&cur, clen, &prev, plen) == 0) {
+                    syscall(1, 1, &cur, clen);
+                    syscall(1, 1, "\n", 1);
+                }
+            }
+            go = 0;
+        }
+        if (go == 1) {
+            var c: i64 = load8(&byte);
+            if (c == 10) {
+                # End of line — check against prev
+                if (has_prev == 0) {
+                    syscall(1, 1, &cur, clen);
+                    syscall(1, 1, "\n", 1);
+                } elif (lines_equal(&cur, clen, &prev, plen) == 0) {
+                    syscall(1, 1, &cur, clen);
+                    syscall(1, 1, "\n", 1);
+                }
+                # Copy cur to prev
+                var j: i64 = 0;
+                while (j < clen) {
+                    store8(&prev + j, load8(&cur + j));
+                    j = j + 1;
+                }
+                plen = clen;
+                clen = 0;
+                has_prev = 1;
+            } else {
+                store8(&cur + clen, c);
+                clen = clen + 1;
+            }
+        }
+    }
+    return 0;
+}
+
+uniq();
+syscall(60, 0);

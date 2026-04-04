@@ -111,7 +111,7 @@ EB(S, 0xE9);
 var jmp_patch = GCP(S);
 EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
 
-# Parse struct defs, then fn defs
+# Parse top-level declarations: struct, fn
 STI(S, 0);
 var topgo = 1;
 while (topgo == 1) {

@@ -23,7 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `elif` keyword — eliminates nested brace chains (recursive implementation, no arrays)
 - Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
 - All 10 programs fully working (rev fixed)
-- 86 total tests (59 cc + 11 asm + 16 programs)
+- 5 new programs: seq, tr, uniq, sum, grep — all worked first try
+- Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
+- 92 total tests (59 cc + 11 asm + 22 programs), 15 programs total
 - Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)

@@ -79,6 +79,30 @@ for p in true false echo cat head tee; do
     fi
 done
 
+# New programs
+for p in seq tr sum uniq grep; do build $p; done
+
+out=$("$TMPDIR/seq" | wc -l | tr -d ' ')
+check "seq count" "10" "$out"
+
+out=$("$TMPDIR/seq" | tail -1)
+check "seq last" "10" "$out"
+
+out=$(echo "hello world" | "$TMPDIR/tr")
+check "tr upper" "HELLO WORLD" "$out"
+
+out=$(printf "a\na\nb\nb\nc\n" | "$TMPDIR/uniq")
+check "uniq dedup" "a
+b
+c" "$out"
+
+out=$(printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" | "$TMPDIR/sum")
+check "sum 1-10" "55" "$out"
+
+out=$(printf "hello world\ngoodbye\nhello there\n" | "$TMPDIR/grep")
+check "grep hello" "hello world
+hello there" "$out"
+
 rm -rf "$TMPDIR"
 
 echo ""
