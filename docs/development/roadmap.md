@@ -43,29 +43,42 @@
 | 6 | stage1e — bitwise ops + self-hosting capacity | Done | % & | ^ ~ << >>, hex literals, comments, uppercase idents, 64KB buffers, 63/63 tests, 12344-byte binary |
 | 7 | stage1f — token-scaled compiler | Done | 16384 token slots (4x stage1e), needed for compiling the assembler |
 
-## Phase 3 — Self-Hosting Bootstrap
+## Phase 3 — Self-Hosting Bootstrap (Done)
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | asm.cyr — self-hosting assembler | Done | 43 mnemonics, 1128 lines, compiled by stage1f, 11 byte-exact matches with seed |
-| 2 | Bootstrap closure | Done | seed→stage1f→asm→stage1f_v2 byte-identical. Seed no longer needed for forward progress |
-| 3 | Eliminate Python/cmake/ninja from toolchain | Not started | Assembly seed is the only external artifact |
-| 4 | Cyrius compiles Cyrius | Not started | |
+| 2 | Bootstrap closure | Done | seed→stage1f→asm→stage1f_v2 byte-identical |
+| 3 | Commit bootstrap binary | Done | bootstrap/asm (29KB), SHA256 manifest, bootstrap.sh |
+| 4 | Archive Rust seed | Done | archive/seed/ — kept for verification, not in build path |
+| 5 | No Rust in build path | Done | sh bootstrap/bootstrap.sh — requires only Linux x86_64 + sh |
 
-## Phase 4 — Language Extensions
+## Phase 4 — Language Extensions (Internalized)
+
+**Goal**: Extend the Cyrius compiler from within — no Rust, no upstream fork. Progressive hybrid syntax: Cyrius-native first, Rust compatibility later.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | `#[agent]` attribute — marks a type as an AGNOS agent | Not started | |
-| 2 | `#[capability(...)]` — declares required capabilities | Not started | |
-| 3 | `#[sandbox]` — sandbox-aware lifetime annotations | Not started | |
-| 4 | Built-in IPC channel types | Not started | |
+| 1 | cc.cyr — base compiler (stage1f language clone) | Not started | Written in stage1f's language, self-hosting test |
+| 2 | >6 function parameters | Not started | Stack-passed extras beyond System V's 6 regs |
+| 3 | Structs / composite types | Not started | Heap-allocated, compiler-computed offsets, pass by pointer |
+| 4 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |
+| 5 | Multi-width load/store (16/32/64-bit) | Not started | Intrinsics: load16, load32, load64, store16, store32, store64 |
+| 6 | Module system | Not started | `include "file.cyr"` textual include |
+| 7 | Inline assembly | Not started | `asm { }` blocks, register bindings |
+| 8 | Self-hosting rewrite (cc2.cyr) | Not started | Rewrite compiler in its own extended language |
+| 9 | Progressive type checking | Not started | Opt-in type annotations, warnings not errors |
+| 10 | Agent/capability attributes | Not started | `#[agent]`, `#[capability(...)]` as ELF metadata |
 
 ## Phase 5 — Kernel
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | Cyrius writes the AGNOS kernel | Not started | Bare metal, no_std default |
+| 2 | Interrupt handlers | Not started | `#[interrupt]` attribute, auto save/restore |
+| 3 | Page table management | Not started | Structs + typed pointers + load64 |
+| 4 | Device I/O | Not started | Inline asm for in/out, volatile_load/store for MMIO |
+| 5 | Agent/capability enforcement | Not started | Kernel reads ELF metadata sections |
 | 2 | Cyrius stdlib (OS-aware, agent-aware) | Not started | |
 | 3 | AGNOS builds entirely with Cyrius | Not started | |
 

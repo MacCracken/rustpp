@@ -32,5 +32,6 @@ Thumbs.db
 .env
 .env.*
 
-# ── Rust ──
+# ── Rust (archived) ──
 **/*.rs.bk
+/archive/seed/target/

@@ -2,11 +2,11 @@
 
 ## Project Identity
 
-**Cyrius** — Sovereign, self-hosting systems language. Assembly up. Fork of rustc.
+**Cyrius** — Sovereign, self-hosting systems language. Assembly up.
 
-- **Type**: Compiler toolchain (forked from rust-lang/rust)
-- **License**: GPL-3.0-only (diverged code) | MIT/Apache-2.0 (upstream)
-- **Status**: Phase 2 — Assembly foundation (seed + stage 1)
+- **Type**: Self-hosting compiler toolchain
+- **License**: GPL-3.0-only
+- **Status**: Phase 3 done — Self-hosting bootstrap. No Rust dependency.
 
 ## Goal
 
@@ -15,23 +15,27 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 ## Bootstrap Chain
 
 ```
-rustc 1.96.0-dev (built from source)
-  → cyrius-seed (Rust, 69 mnemonics, 195 tests)
-    → stage1a (2641-byte .cyr binary, 16 tests)
-      → stage1b (5235-byte .cyr binary, 39 tests)
-        → stage1c (7581-byte .cyr binary, 37 tests)
-          → stage1d (11187-byte .cyr binary, 28 tests)
-            → stage1e (12344-byte .cyr binary, 63 tests)
-              → stage1f (12344-byte .cyr binary, token-scaled)
-                → asm.cyr (self-hosting assembler, 43 mnemonics)
-                  → stage1f_v2 (byte-identical to seed output ✓)
+bootstrap/asm (29KB committed binary — the root of trust)
+  → assembles stage1f.cyr → stage1f (12KB compiler)
+    → compiles asm.cyr → asm_v2 (byte-identical ✓)
+
+No Rust. No LLVM. No Python. Just sh + Linux x86_64.
+Build: sh bootstrap/bootstrap.sh
+```
+
+### Historical chain (how we got here)
+```
+stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
+  → stage1d (functions) → stage1e (bitwise ops) → stage1f (token-scaled)
+    → asm.cyr (self-hosting assembler) → bootstrap closure ✓
 ```
 
 ## Project Structure
 
-- `seed/` — Stage 0 assembler (Rust, zero deps, emits x86_64 ELF)
-- `stage1/` — Stage 1 compiler (.cyr assembly, assembled by seed)
-- `upstream/` — rust-lang/rust submodule with Ark cargo patches
+- `bootstrap/` — Root of trust: committed asm binary + bootstrap scripts
+- `stage1/` — Compiler stages (.cyr assembly) + self-hosting assembler (asm.cyr)
+- `build/` — Generated binaries (gitignored, created by bootstrap.sh)
+- `archive/seed/` — Historical Rust seed (for verification only, not needed to build)
 - `docs/architecture/` — Cyrius spec, cargo codepath analysis, ADRs
 - `docs/development/` — Roadmap, process notes
 
@@ -68,17 +72,22 @@ rustc 1.96.0-dev (built from source)
 6. stage1e — bitwise ops, self-hosting capacity ✓
 7. stage1f — token-scaled compiler (16384 slots) ✓
 
-### Phase 3: Self-Hosting Bootstrap (In Progress)
+### Phase 3: Self-Hosting Bootstrap (Done)
 1. asm.cyr — self-hosting assembler (43 mnemonics, 11 byte-exact matches) ✓
 2. Bootstrap closure — asm assembles stage1f, output matches seed ✓
-3. Eliminate Python/cmake/ninja from toolchain
-4. Assembly seed is the only external artifact
+3. Committed asm binary as root of trust (bootstrap/asm) ✓
+4. Rust seed archived, no longer in build path ✓
+5. No Rust, no LLVM, no Python in any build path ✓
 
-### Phase 4: Language Extensions
-1. Agent types as language primitives
-2. Capability annotations on functions
-3. Sandbox-aware borrow checker extensions
-4. OS-native IPC types
+### Phase 4: Language Extensions (Internalized)
+1. cc.cyr — editable compiler in stage1f's language (self-hosting clone)
+2. Structs / composite types
+3. Typed pointers + multi-width load/store
+4. Module system (include)
+5. Inline assembly
+6. Self-hosting rewrite in extended language
+7. Progressive type checking
+8. Agent/capability attributes
 
 ### Phase 5: Kernel
 1. Cyrius writes the AGNOS kernel
