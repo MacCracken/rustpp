@@ -42,8 +42,8 @@ rust-lang/rust (upstream -- learn the type system, borrow checker)
   +-- Rust++ (fork, Phase 0-1: understand + strip crates.io)
        +-- cyrius-seed (stage 0 -- assembler, 69 mnemonics)
             +-- stage1a/1b (expressions, control flow)
-                 +-- stage1c (syscalls, strings, arrays, I/O) <-- WE ARE HERE
-                      +-- stage1d (functions)
+                 +-- stage1c (syscalls, strings, arrays, I/O)
+                      +-- stage1d (functions, stack frames) <-- WE ARE HERE
                       +-- Cyrius (self-hosting, sovereign, kernel-native)
                            +-- AGNOS kernel
 ```

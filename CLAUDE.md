@@ -20,7 +20,8 @@ rustc 1.96.0-dev (built from source)
     → stage1a (2641-byte .cyr binary, 16 tests)
       → stage1b (5235-byte .cyr binary, 39 tests)
         → stage1c (7581-byte .cyr binary, 37 tests)
-          → generated ELF programs with I/O
+          → stage1d (11187-byte .cyr binary, 28 tests)
+            → generated ELF programs with functions + I/O
 ```
 
 ## Project Structure
@@ -60,7 +61,7 @@ rustc 1.96.0-dev (built from source)
 2. stage1a — expression evaluator compiler ✓
 3. stage1b — control flow (if/else, while) ✓
 4. stage1c — memory + syscalls ✓
-5. stage1d — functions
+5. stage1d — functions ✓
 
 ### Phase 3: Self-Hosting Bootstrap
 1. Stage 1 compiles itself

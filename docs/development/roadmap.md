@@ -10,7 +10,7 @@
 |---|------|--------|-------|
 | 1 | Fork rust-lang/rust as upstream submodule | Done | `upstream/` — pinned at 5bbdeaa9 |
 | 2 | Build rustc from source | Done | `rustc 1.96.0-dev`, 5:19 build time |
-| 3 | Build cyrius-seed (stage 0 assembler) | Done | `seed/` — 38 instructions, 102 tests |
+| 3 | Build cyrius-seed (stage 0 assembler) | Done | `seed/` — 69 mnemonics, 195 tests |
 | 4 | Run rust test suite | Not started | Prove the fork builds clean |
 | 5 | Map cargo registry resolution codepaths | Done | `docs/architecture/cargo-codepaths.md` |
 | 6 | Map `cargo publish` validation pipeline | Done | 20 locations across 8 files identified |
@@ -27,7 +27,7 @@
 | 3 | Relax publish validation for non-crates.io | Done | Git/path deps allowed for Ark |
 | 4 | Skip version requirement for `publish = false` deps | Done | `check_dep_has_version()` relaxed |
 | 5 | ADR documented | Done | `docs/architecture/adr/001-registry-sovereignty.md` |
-| 6 | Build and test patched cargo | Done | 102 seed tests pass with patched cargo |
+| 6 | Build and test patched cargo | Done | Seed tests pass with patched cargo |
 
 ## Phase 2 — Assembly Foundation (In Progress)
 
@@ -36,10 +36,10 @@
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | cyrius-seed — stage 0 assembler | Done | Rust, 69 mnemonics, 195 tests, 14 examples |
-| 2 | stage1a — expression evaluator | Done | .cyr assembly, 14/14 tests, reads stdin → emits ELF |
+| 2 | stage1a — expression evaluator | Done | .cyr assembly, 16/16 tests, reads stdin → emits ELF |
 | 3 | stage1b — control flow (if/else, while) | Done | Runtime codegen, 39/39 tests, 5235-byte binary |
 | 4 | stage1c — memory + syscalls | Done | syscall(), strings, &var, arrays, load8/store8, 37/37 tests, 7581-byte binary |
-| 5 | stage1d — functions | Not started | fn/return, after this stage 2 is writable |
+| 5 | stage1d — functions | Done | fn/return, 6-param System V ABI, stack locals, 28/28 tests, 11187-byte binary |
 
 ## Phase 3 — Self-Hosting Bootstrap
 
