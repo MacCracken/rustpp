@@ -39,17 +39,17 @@
 #
 # Function state (S + 0x8C200):
 #   fn_names[1024]     S+0x8C200  128*8
-#   fn_offsets[1024]   S+0x8C600  128*8
-#   fn_params[1024]    S+0x8CA00  128*8
-#   fn_count           S+0x8CE00
-#   in_function        S+0x8CE08
-#   fn_local_count     S+0x8CE10
-#   saved_vcnt         S+0x8CE18
-#   ret_patches[512]   S+0x8CE20  64*8
-#   ret_patch_count    S+0x8D020
-#   main_jmp_patch     S+0x8D028
-#   fn_local_names[512] S+0x8D030  64*8
-#   scratch            S+0x8D230
+#   fn_offsets[1024]   S+0x8CA00  128*8
+#   fn_params[1024]    S+0x8D200  128*8
+#   fn_count           S+0x8DA00
+#   in_function        S+0x8DA08
+#   fn_local_count     S+0x8DA10
+#   saved_vcnt         S+0x8DA18
+#   ret_patches[512]   S+0x8DA20  64*8
+#   ret_patch_count    S+0x8DC20
+#   main_jmp_patch     S+0x8DC28
+#   fn_local_names[512] S+0x8DC30  64*8
+#   scratch            S+0x8DE30
 
 # ================================================================
 # 64-BIT MEMORY HELPERS
@@ -107,18 +107,18 @@ fn GSPOS(S) { return L64(S + 0x69800); }
 fn SSPOS(S, v) { S64(S + 0x69800, v); return 0; }
 
 # Function state accessors
-fn GFNC(S) { return L64(S + 0x8CE00); }
-fn SFNC(S, v) { S64(S + 0x8CE00, v); return 0; }
-fn GINFN(S) { return L64(S + 0x8CE08); }
-fn SINFN(S, v) { S64(S + 0x8CE08, v); return 0; }
-fn GFLC(S) { return L64(S + 0x8CE10); }
-fn SFLC(S, v) { S64(S + 0x8CE10, v); return 0; }
-fn GSVC(S) { return L64(S + 0x8CE18); }
-fn SSVC(S, v) { S64(S + 0x8CE18, v); return 0; }
-fn GRPC(S) { return L64(S + 0x8D020); }
-fn SRPC(S, v) { S64(S + 0x8D020, v); return 0; }
-fn GMJP(S) { return L64(S + 0x8D028); }
-fn SMJP(S, v) { S64(S + 0x8D028, v); return 0; }
+fn GFNC(S) { return L64(S + 0x8DA00); }
+fn SFNC(S, v) { S64(S + 0x8DA00, v); return 0; }
+fn GINFN(S) { return L64(S + 0x8DA08); }
+fn SINFN(S, v) { S64(S + 0x8DA08, v); return 0; }
+fn GFLC(S) { return L64(S + 0x8DA10); }
+fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
+fn GSVC(S) { return L64(S + 0x8DA18); }
+fn SSVC(S, v) { S64(S + 0x8DA18, v); return 0; }
+fn GRPC(S) { return L64(S + 0x8DC20); }
+fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
+fn GMJP(S) { return L64(S + 0x8DC28); }
+fn SMJP(S, v) { S64(S + 0x8DC28, v); return 0; }
 
 fn ERR(S) {
     syscall(1, 2, "syntax error\n", 13);
@@ -609,24 +609,24 @@ fn LEX(S) {
 # STRUCT SUPPORT
 # ================================================================
 # Heap layout for structs (in scratch area):
-#   0x8D230  var_types[256]       2048 bytes — struct_id per global var (0=scalar)
-#   0x8DA30  struct_names[32]     256 bytes — name offset per struct
-#   0x8DB30  struct_fcounts[32]   256 bytes — field count per struct
-#   0x8DC30  struct_fnames[512]   4096 bytes — field name offsets (32 structs * 16 fields)
-#   0x8EC30  struct_count         8 bytes
+#   0x8DE30  var_types[256]       2048 bytes — struct_id per global var (0=scalar)
+#   0x8E630  struct_names[32]     256 bytes — name offset per struct
+#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct
+#   0x8E830  struct_fnames[512]   4096 bytes — field name offsets (32 structs * 16 fields)
+#   0x8F830  struct_count         8 bytes
 
-fn GSTC(S) { return L64(S + 0x8EC30); }
-fn SSTC(S, v) { S64(S + 0x8EC30, v); return 0; }
+fn GSTC(S) { return L64(S + 0x8F830); }
+fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
 
 # Get/set struct_id for global variable at index vi
-fn GVTYPE(S, vi) { return L64(S + 0x8D230 + vi * 8); }
-fn SVTYPE(S, vi, v) { S64(S + 0x8D230 + vi * 8, v); return 0; }
+fn GVTYPE(S, vi) { return L64(S + 0x8DE30 + vi * 8); }
+fn SVTYPE(S, vi, v) { S64(S + 0x8DE30 + vi * 8, v); return 0; }
 
 # Register a new struct, return index (1-based, 0 = not a struct)
 fn REGSTRUCT(S, noff) {
     var sc = GSTC(S);
-    S64(S + 0x8DA30 + sc * 8, noff);
-    S64(S + 0x8DB30 + sc * 8, 0);
+    S64(S + 0x8E630 + sc * 8, noff);
+    S64(S + 0x8E730 + sc * 8, 0);
     SSTC(S, sc + 1);
     return sc + 1;
 }
@@ -636,7 +636,7 @@ fn FINDSTRUCT(S, noff) {
     var sc = GSTC(S);
     var i = 0;
     while (i < sc) {
-        var sn = L64(S + 0x8DA30 + i * 8);
+        var sn = L64(S + 0x8E630 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i + 1; }
         i = i + 1;
     }
@@ -645,21 +645,21 @@ fn FINDSTRUCT(S, noff) {
 
 # Add field to struct (0-based struct index si)
 fn ADDFIELD(S, si, fnoff) {
-    var fc = L64(S + 0x8DB30 + si * 8);
-    S64(S + 0x8DC30 + si * 128 + fc * 8, fnoff);
-    S64(S + 0x8DB30 + si * 8, fc + 1);
+    var fc = L64(S + 0x8E730 + si * 8);
+    S64(S + 0x8E830 + si * 128 + fc * 8, fnoff);
+    S64(S + 0x8E730 + si * 8, fc + 1);
     return 0;
 }
 
 # Get field count for struct (0-based index)
-fn GETFCOUNT(S, si) { return L64(S + 0x8DB30 + si * 8); }
+fn GETFCOUNT(S, si) { return L64(S + 0x8E730 + si * 8); }
 
 # Find field index in struct (0-based struct index), return field index or -1
 fn FINDFIELD(S, si, fnoff) {
     var fc = GETFCOUNT(S, si);
     var i = 0;
     while (i < fc) {
-        var fn_off = L64(S + 0x8DC30 + si * 128 + i * 8);
+        var fn_off = L64(S + 0x8E830 + si * 128 + i * 8);
         if (STREQ(S, fn_off, fnoff) == 1) { return i; }
         i = i + 1;
     }
@@ -1066,7 +1066,7 @@ fn PARSE_VAR(S) {
     # Check if inside function → local variable
     if (GINFN(S) == 1) {
         var li = GFLC(S);
-        S64(S + 0x8D030 + li * 8, noff);
+        S64(S + 0x8DC30 + li * 8, noff);
         EFLSTORE(S, li);
         SFLC(S, li + 1);
     } else {
@@ -1181,8 +1181,8 @@ fn PARSE_WHILE(S) {
 fn REGFN(S, noff) {
     var fc = GFNC(S);
     S64(S + 0x8C200 + fc * 8, noff);
-    S64(S + 0x8C600 + fc * 8, 0 - 1);
-    S64(S + 0x8CA00 + fc * 8, 0);
+    S64(S + 0x8CA00 + fc * 8, 0 - 1);
+    S64(S + 0x8D200 + fc * 8, 0);
     SFNC(S, fc + 1);
     return fc;
 }
@@ -1309,7 +1309,7 @@ fn FINDLOCAL(S, noff) {
     var lc = GFLC(S);
     var i = 0;
     while (i < lc) {
-        var sn = L64(S + 0x8D030 + i * 8);
+        var sn = L64(S + 0x8DC30 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
@@ -1329,7 +1329,7 @@ fn PARSE_RETURN(S) {
     # Emit jmp to epilogue (record as return patch)
     var rp = EJMP0(S);
     var rpc = GRPC(S);
-    S64(S + 0x8CE20 + rpc * 8, rp);
+    S64(S + 0x8DA20 + rpc * 8, rp);
     SRPC(S, rpc + 1);
     return 0;
 }
@@ -1356,7 +1356,7 @@ fn PARSE_FNCALL(S, noff) {
     if (fi < 0) {
         fi = REGFN(S, noff);
     }
-    var foff = L64(S + 0x8C600 + fi * 8);
+    var foff = L64(S + 0x8CA00 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -1375,7 +1375,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     # Set fn offset to current CP
-    S64(S + 0x8C600 + fi * 8, GCP(S));
+    S64(S + 0x8CA00 + fi * 8, GCP(S));
     # Save compiler state
     SSVC(S, GVCNT(S));
     var saved_lv = GLVAR(S);
@@ -1396,7 +1396,7 @@ fn PARSE_FN_DEF(S) {
             var pnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
             var li = GFLC(S);
-            S64(S + 0x8D030 + li * 8, pnoff);
+            S64(S + 0x8DC30 + li * 8, pnoff);
             ESTOREPARM(S, pc, li);
             SFLC(S, li + 1);
             pc = pc + 1;
@@ -1406,7 +1406,7 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR(S); }
     STI(S, GTI(S) + 1);
-    S64(S + 0x8CA00 + fi * 8, pc);
+    S64(S + 0x8D200 + fi * 8, pc);
     # Parse body
     if (PEEKT(S) != 13) { ERR(S); }
     STI(S, GTI(S) + 1);
@@ -1417,7 +1417,7 @@ fn PARSE_FN_DEF(S) {
     var rpc = GRPC(S);
     var ri = 0;
     while (ri < rpc) {
-        EPATCH(S, L64(S + 0x8CE20 + ri * 8));
+        EPATCH(S, L64(S + 0x8DA20 + ri * 8));
         ri = ri + 1;
     }
     # Emit epilogue
@@ -1524,7 +1524,7 @@ fn FIXUP(S) {
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call — patch rel32
-            var target = L64(S + 0x8C600 + idx * 8);
+            var target = L64(S + 0x8CA00 + idx * 8);
             var rel = target - coff - 4;
             var pa = S + 0x59000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
@@ -1619,7 +1619,7 @@ fn EMITELF(S) {
 
 # Allocate heap
 var S = syscall(12, 0);
-syscall(12, S + 0x90000);
+syscall(12, S + 0x92000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -1632,12 +1632,12 @@ S64(S + 0x8C000, 0);
 S64(S + 0x8C008, 0 - 1);
 S64(S + 0x69800, 0);
 # Function state
-S64(S + 0x8CE00, 0);
-S64(S + 0x8CE08, 0);
-S64(S + 0x8CE10, 0);
-S64(S + 0x8D020, 0);
+S64(S + 0x8DA00, 0);
+S64(S + 0x8DA08, 0);
+S64(S + 0x8DA10, 0);
+S64(S + 0x8DC20, 0);
 # Struct state
-S64(S + 0x8EC30, 0);
+S64(S + 0x8F830, 0);
 
 # Read input
 var bl = 0;

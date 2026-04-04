@@ -11,8 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Stage1f function table expanded from 128 to 256 slots
 - vidya: function table overflow gotcha, self-hosting byte-identity gotcha, struct codegen patterns
 
-### Known Issues
-- cc self-hosting byte-identity broken (cc2 != cc from stage1f) — expected when extending beyond bootstrap compiler. Needs cc2==cc3 verification once codegen drift is resolved.
+### Fixed
+- cc self-hosting restored: cc2==cc3 byte-identical (36/36 tests pass)
+- Root cause: cc.cyr's own fn table was 128 slots with 136 functions — doubled to 256
 
 ## [1.0.0] - 2026-04-04
 
