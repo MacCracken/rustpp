@@ -90,22 +90,21 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 8. Agent/capability attributes
 
 ### Phase 5: Multi-Architecture
-1. Factor codegen into backend interface (shared parser, per-arch emission)
-2. aarch64 assembler + codegen backend + bootstrap binary
-3. Cross-compilation support
+1. Factor codegen into backend interface
+2. aarch64 assembler + codegen + bootstrap
+3. Cross-compilation
 
-### Phase 6: Kernel
-1. Cyrius writes the AGNOS kernel
-2. Bare metal, interrupts, page tables — all in Cyrius
+### Phase 6: Prove the Language
+1. Build real Linux binaries (cat, echo, wc)
+2. Migrate Ark package manager to Cyrius
+3. Benchmarks vs C, language ergonomics pass
 
-### Phase 7: Prove the Language
-1. Migrate Ark + AGNOS projects to Cyrius
-2. Benchmark suite (compile times, binary sizes, runtime perf)
-3. Language ergonomics pass
+### Phase 7: Kernel
+1. AGNOS kernel in Cyrius (bare metal, interrupts, page tables)
+2. Agent/capability enforcement
 
 ### Phase 8: Full Sovereignty
 1. AGNOS builds entirely with Cyrius on x86_64 + aarch64
-2. No external toolchain in any path
 
 ## Key Principles
 
@@ -115,6 +114,24 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 - **Every extension is built from within** — no forking someone else's compiler
 - **Byte-exact testing** — the gold standard for compiler correctness
 - **Every divergence gets an ADR** — no undocumented changes
+
+## Development Loop
+
+Every feature follows this cycle. Skipping steps costs more time than it saves.
+
+```
+1. RESEARCH  — Check vidya for existing patterns. If covered, go to 3.
+2. VIDYA     — Document patterns, gotchas, codegen examples BEFORE coding.
+3. PLAN      — Design from vidya patterns. Bite-sized: smallest testable unit.
+4. BUILD     — Implement. Scan for duplicate vars + brace balance before compiling.
+5. TEST      — Run test suite (sh stage1/test_cc.sh). Byte-exact where possible.
+6. AUDIT     — Full chain: bootstrap, all tests, self-hosting (cc2==cc3), SHA256.
+7. VIDYA     — Document what was learned. Bugs hit, patterns discovered, metrics.
+```
+
+**Why this works:** Vidya front-loads the thinking. By step 4, there's nothing to figure out — just translate patterns into code. Time invested in vidya saves 10x in implementation. Evidence: structs (no vidya, hours of debugging) vs pointers (full vidya coverage, 15 lines, worked first try).
+
+**Reference library:** `../vidya` — 141+ entries across compiler_bootstrapping, instruction_encoding, type_systems, code_generation, module_systems. Check it FIRST.
 
 ## DO NOT
 

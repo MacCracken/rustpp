@@ -115,21 +115,20 @@ Progressive hybrid syntax: Cyrius-native first, Rust compatibility later.
 - Factor codegen into backend interface (shared lexer/parser, per-arch emission)
 - aarch64 as second target — assembler, codegen backend, bootstrap binary
 - Cross-compilation: x86_64 host emits aarch64 and vice versa
-- Currently x86_64 only — aarch64 is the natural second target (fixed-width instructions, simpler encoding)
 
-### Phase 6 — Kernel
+### Phase 6 — Prove the Language
+- Build real Linux binaries in Cyrius (cat, echo, wc) — prove I/O, strings, file handling
+- Migrate Ark package manager to Cyrius — first real-world project
+- Benchmark suite: compile times, binary sizes, runtime perf vs C
+- Language ergonomics pass — fix pain points from real usage
+- The binaries are the proof that the language works
+
+### Phase 7 — Kernel
 - AGNOS kernel written entirely in Cyrius
 - Bare metal from day one — `no_std` is the default
 - Interrupts, page tables, device drivers — all in Cyrius
 - Agent/capability model enforced by the kernel
 - Both x86_64 and aarch64
-- The kernel is the proof that the language works
-
-### Phase 7 — Prove the Language
-- Migrate Ark package manager and AGNOS userland to Cyrius
-- Benchmark suite: compile times, binary sizes, runtime perf vs C/Rust
-- Language ergonomics pass — fix pain points found during real-world use
-- Documentation and tutorials for developer onboarding
 
 ### Phase 8 — Full Sovereignty
 - Cyrius compiles Cyrius from a committed binary seed on both architectures

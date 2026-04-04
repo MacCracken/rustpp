@@ -143,6 +143,18 @@ run_test "comment"      '# this is a comment
 var x = 42;'                                                       42
 echo ""
 
+echo "-- >6 Params (cc-only) --"
+run_test_cc "7param"    'fn f(a, b, c, d, e, g, h) { return a + b + c + d + e + g + h; } var x = f(1, 2, 3, 4, 5, 6, 21);' 42
+run_test_cc "8param"    'fn f(a, b, c, d, e, g, h, i) { return a + b + c + d + e + g + h + i; } var x = f(1, 2, 3, 4, 5, 6, 7, 14);' 42
+run_test_cc "9param"    'fn f(a, b, c, d, e, g, h, i, j) { return a + b + c + d + e + g + h + i + j; } var x = f(1, 2, 3, 4, 5, 6, 7, 8, 6);' 42
+echo ""
+
+echo "-- Pointers (cc-only) --"
+run_test_cc "deref"      'var x = 42; var p = &x; var r = *p;' 42
+run_test_cc "ptr_store"  'var x = 0; var p = &x; *p = 42; var r = x;' 42
+run_test_cc "ptr_arith"  'var buf[16]; store64(&buf, 10); store64(&buf + 8, 32); var r = *(&buf) + *(&buf + 8);' 42
+echo ""
+
 echo "-- Structs (cc-only) --"
 run_test_cc "struct_init"  'struct Point { x; y; } var p = Point { 10, 32 }; var r = p.x + p.y;' 42
 run_test_cc "struct_assign" 'struct P { a; b; } var p = P { 0, 0 }; p.a = 42;' 42
