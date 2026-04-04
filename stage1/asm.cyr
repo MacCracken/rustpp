@@ -1,0 +1,740 @@
+# ================================================================
+# Cyrius Self-Hosting Assembler V1
+# ================================================================
+# Reads .cyr assembly from stdin, emits x86_64 ELF to stdout.
+# Two-pass: pass 0 collects labels, pass 1 encodes.
+#
+# Architecture: all state in a heap block (S), passed to functions.
+# (stage1e requires fn before var; functions can't see globals)
+#
+# Heap layout from S:
+#   0x00000 BUF    [65536]  input
+#   0x10000 CODE   [65536]  machine code
+#   0x20000 LNPOS  [4096]   label name positions (512*8)
+#   0x21000 LNLEN  [4096]   label name lengths
+#   0x22000 LOFF   [4096]   label code offsets
+#   0x23000 OUT    [131072] ELF output
+#
+# State vars in S (at 0x43000+):
+#   +0  BL    input length
+#   +8  CP    code position
+#   +16 POS   parse cursor
+#   +24 PASS  0=labels, 1=encode
+#   +32 LC    label count
+#   +40 WS    word start
+#   +48 WL    word length
+#   +56 OL    output length
+#
+# Compiled by stage1f: cat asm.cyr | ./stage1f > asm
+
+# ================================================================
+# HELPERS — pure functions, no global refs
+# ================================================================
+
+# 64-bit store/load via byte ops
+fn S64(a, v) {
+    store8(a, v & 0xFF);
+    store8(a + 1, v >> 8 & 0xFF);
+    store8(a + 2, v >> 16 & 0xFF);
+    store8(a + 3, v >> 24 & 0xFF);
+    store8(a + 4, v >> 32 & 0xFF);
+    store8(a + 5, v >> 40 & 0xFF);
+    store8(a + 6, v >> 48 & 0xFF);
+    store8(a + 7, v >> 56 & 0xFF);
+    return 0;
+}
+
+fn L64(a) {
+    var v = load8(a);
+    v = v | (load8(a + 1) << 8);
+    v = v | (load8(a + 2) << 16);
+    v = v | (load8(a + 3) << 24);
+    v = v | (load8(a + 4) << 32);
+    v = v | (load8(a + 5) << 40);
+    v = v | (load8(a + 6) << 48);
+    v = v | (load8(a + 7) << 56);
+    return v;
+}
+
+# State accessors: S + 0x43000 + offset
+fn GBL(S) { return L64(S + 0x43000); }
+fn SBL(S, v) { S64(S + 0x43000, v); return 0; }
+fn GCP(S) { return L64(S + 0x43008); }
+fn SCP(S, v) { S64(S + 0x43008, v); return 0; }
+fn GPOS(S) { return L64(S + 0x43010); }
+fn SPOS(S, v) { S64(S + 0x43010, v); return 0; }
+fn GPASS(S) { return L64(S + 0x43018); }
+fn GLC(S) { return L64(S + 0x43020); }
+fn SLC(S, v) { S64(S + 0x43020, v); return 0; }
+fn GWS(S) { return L64(S + 0x43028); }
+fn SWS(S, v) { S64(S + 0x43028, v); return 0; }
+fn GWL(S) { return L64(S + 0x43030); }
+fn SWL(S, v) { S64(S + 0x43030, v); return 0; }
+fn GOL(S) { return L64(S + 0x43038); }
+fn SOL(S, v) { S64(S + 0x43038, v); return 0; }
+
+# Emit byte to CODE at CP
+fn EB(S, b) {
+    var cp = GCP(S);
+    if (GPASS(S) == 1) {
+        store8(S + 0x10000 + cp, b & 0xFF);
+    }
+    SCP(S, cp + 1);
+    return 0;
+}
+
+fn E4(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF);
+    EB(S, v >> 24 & 0xFF);
+    return 0;
+}
+
+fn E8(S, v) {
+    E4(S, v);
+    E4(S, v >> 32);
+    return 0;
+}
+
+# Emit byte to OUT at OL
+fn OB(S, b) {
+    var ol = GOL(S);
+    store8(S + 0x23000 + ol, b & 0xFF);
+    SOL(S, ol + 1);
+    return 0;
+}
+
+fn O4(S, v) {
+    OB(S, v & 0xFF);
+    OB(S, v >> 8 & 0xFF);
+    OB(S, v >> 16 & 0xFF);
+    OB(S, v >> 24 & 0xFF);
+    return 0;
+}
+
+fn O8(S, v) {
+    O4(S, v);
+    O4(S, v >> 32);
+    return 0;
+}
+
+fn ERR() {
+    syscall(1, 2, "asm error\n", 10);
+    syscall(60, 1);
+    return 0;
+}
+
+# ================================================================
+# PARSING — all take S as first param
+# ================================================================
+
+fn PEEK(S) {
+    var p = GPOS(S);
+    if (p >= GBL(S)) { return 0; }
+    return load8(S + p);
+}
+
+fn SKW(S) {
+    var go = 1;
+    while (go == 1) {
+        var p = GPOS(S);
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = load8(S + p);
+            if (c == 32) { SPOS(S, p + 1); }
+            else {
+                if (c == 9) { SPOS(S, p + 1); }
+                else { go = 0; }
+            }
+        }
+    }
+    return 0;
+}
+
+fn SKLN(S) {
+    var go = 1;
+    while (go == 1) {
+        var p = GPOS(S);
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = load8(S + p);
+            SPOS(S, p + 1);
+            if (c == 10) { go = 0; }
+        }
+    }
+    return 0;
+}
+
+fn ISAN(c) {
+    if (c >= 97) { if (c <= 122) { return 1; } }
+    if (c >= 65) { if (c <= 90) { return 1; } }
+    if (c >= 48) { if (c <= 57) { return 1; } }
+    if (c == 95) { return 1; }
+    return 0;
+}
+
+fn RW(S) {
+    var p = GPOS(S);
+    SWS(S, p);
+    var go = 1;
+    while (go == 1) {
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            if (ISAN(load8(S + p)) == 1) { p = p + 1; }
+            else { go = 0; }
+        }
+    }
+    SPOS(S, p);
+    SWL(S, p - GWS(S));
+    return 0;
+}
+
+# Pack word into 64-bit value
+fn WV(S) {
+    var ws = GWS(S);
+    var wl = GWL(S);
+    var v = 0;
+    var i = 0;
+    while (i < wl) {
+        if (i < 8) {
+            v = v | (load8(S + ws + i) << (i << 3));
+        }
+        i = i + 1;
+    }
+    return v;
+}
+
+# Parse hex number (called when 0x prefix detected)
+fn SHEX(S) {
+    var val = 0;
+    var go = 1;
+    while (go == 1) {
+        if (GPOS(S) >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = PEEK(S);
+            var hd = 0 - 1;
+            if (c >= 48) { if (c <= 57) { hd = c - 48; } }
+            if (c >= 97) { if (c <= 102) { hd = c - 87; } }
+            if (c >= 65) { if (c <= 70) { hd = c - 55; } }
+            if (hd >= 0) {
+                val = val << 4 | hd;
+                SPOS(S, GPOS(S) + 1);
+            } else { go = 0; }
+        }
+    }
+    return val;
+}
+
+# Parse decimal number
+fn SDEC(S) {
+    var val = 0;
+    var go = 1;
+    while (go == 1) {
+        if (GPOS(S) >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = PEEK(S);
+            if (c >= 48) {
+                if (c <= 57) {
+                    val = val * 10 + (c - 48);
+                    SPOS(S, GPOS(S) + 1);
+                } else { go = 0; }
+            } else { go = 0; }
+        }
+    }
+    return val;
+}
+
+# Parse number at POS (decimal or 0x hex)
+fn SNUM(S) {
+    var c = PEEK(S);
+    var neg = 0;
+    if (c == 45) {
+        neg = 1;
+        SPOS(S, GPOS(S) + 1);
+        c = PEEK(S);
+    }
+    var val = 0;
+    if (c == 48) {
+        var p1 = GPOS(S) + 1;
+        if (p1 < GBL(S)) {
+            if (load8(S + p1) == 120) {
+                SPOS(S, p1 + 1);
+                val = SHEX(S);
+                if (neg == 1) { return 0 - val; }
+                return val;
+            }
+        }
+    }
+    val = SDEC(S);
+    if (neg == 1) { return 0 - val; }
+    return val;
+}
+
+# ================================================================
+# REGISTER + LABEL
+# ================================================================
+
+fn PREG(S) {
+    var sv = GPOS(S);
+    RW(S);
+    var v = WV(S);
+    var wl = GWL(S);
+    if (wl == 3) {
+        if (v == 0x786172) { return 0; }
+        if (v == 0x786372) { return 1; }
+        if (v == 0x786472) { return 2; }
+        if (v == 0x786272) { return 3; }
+        if (v == 0x707372) { return 4; }
+        if (v == 0x706272) { return 5; }
+        if (v == 0x697372) { return 6; }
+        if (v == 0x696472) { return 7; }
+        if (v == 0x303172) { return 10; }
+        if (v == 0x313172) { return 11; }
+        if (v == 0x323172) { return 12; }
+        if (v == 0x333172) { return 13; }
+        if (v == 0x343172) { return 14; }
+        if (v == 0x353172) { return 15; }
+    }
+    if (wl == 2) {
+        if (v == 0x3872) { return 8; }
+        if (v == 0x3972) { return 9; }
+    }
+    SPOS(S, sv);
+    return 0 - 1;
+}
+
+fn CMPB(S, a, al, b) {
+    var bl = L64(S + 0x21000 + b * 8);
+    if (al != bl) { return 0; }
+    var ap = L64(S + 0x20000 + b * 8);
+    var i = 0;
+    while (i < al) {
+        if (load8(S + a + i) != load8(S + ap + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn ADDL(S, p, l) {
+    var lc = GLC(S);
+    S64(S + 0x20000 + lc * 8, p);
+    S64(S + 0x21000 + lc * 8, l);
+    S64(S + 0x22000 + lc * 8, GCP(S));
+    SLC(S, lc + 1);
+    return 0;
+}
+
+fn FNDL(S, p, l) {
+    var lc = GLC(S);
+    var i = 0;
+    while (i < lc) {
+        if (CMPB(S, p, l, i) == 1) {
+            return L64(S + 0x22000 + i * 8);
+        }
+        i = i + 1;
+    }
+    if (GPASS(S) == 1) { ERR(); }
+    return 0;
+}
+
+# ================================================================
+# ENCODING HELPERS
+# ================================================================
+
+fn REX(w, r, b) {
+    var v = 0x40;
+    if (w == 1) { v = v | 8; }
+    if (r >= 8) { v = v | 4; }
+    if (b >= 8) { v = v | 1; }
+    return v;
+}
+
+fn MODRM(md, rg, rm) {
+    return (md << 6) | ((rg & 7) << 3) | (rm & 7);
+}
+
+# reg,reg ALU: REX.W + op + ModRM(11,src,dst)
+fn EALURR(S, op, dst, src) {
+    EB(S, REX(1, src, dst));
+    EB(S, op);
+    EB(S, MODRM(3, src, dst));
+    return 0;
+}
+
+# reg,imm32 ALU: REX.W + 81 + ModRM(11,ext,dst) + imm32
+fn EALURI(S, ext, dst, imm) {
+    EB(S, REX(1, 0, dst));
+    EB(S, 0x81);
+    EB(S, MODRM(3, ext, dst));
+    E4(S, imm);
+    return 0;
+}
+
+# ================================================================
+# INSTRUCTION HANDLERS
+# ================================================================
+
+fn DO_MOV(S) {
+    SKW(S);
+    var dst = PREG(S);
+    if (dst < 0) { ERR(); }
+    SKW(S);
+    if (PEEK(S) == 44) { SPOS(S, GPOS(S) + 1); }
+    SKW(S);
+    # Try register
+    var sv = GPOS(S);
+    var src = PREG(S);
+    if (src >= 0) {
+        EB(S, REX(1, src, dst));
+        EB(S, 0x89);
+        EB(S, MODRM(3, src, dst));
+        return 0;
+    }
+    SPOS(S, sv);
+    # Check if immediate
+    var c = PEEK(S);
+    var isnum = 0;
+    if (c >= 48) { if (c <= 57) { isnum = 1; } }
+    if (c == 45) { isnum = 1; }
+    if (isnum == 1) {
+        var val = SNUM(S);
+        EB(S, REX(1, 0, dst));
+        EB(S, 0xB8 + (dst & 7));
+        E8(S, val);
+        return 0;
+    }
+    # Label reference
+    RW(S);
+    var addr = 0;
+    if (GPASS(S) == 1) {
+        addr = 0x400078 + FNDL(S, GWS(S), GWL(S));
+    }
+    EB(S, REX(1, 0, dst));
+    EB(S, 0xB8 + (dst & 7));
+    E8(S, addr);
+    return 0;
+}
+
+fn DO_ALU2(S, op) {
+    SKW(S);
+    var dst = PREG(S);
+    SKW(S);
+    if (PEEK(S) == 44) { SPOS(S, GPOS(S) + 1); }
+    SKW(S);
+    var sv = GPOS(S);
+    var src = PREG(S);
+    if (src >= 0) { EALURR(S, op, dst, src); return 0; }
+    SPOS(S, sv);
+    return dst;
+}
+
+fn DO_ADD(S) {
+    var dst = DO_ALU2(S, 0x01);
+    if (dst < 0) { return 0; }
+    var val = SNUM(S);
+    EALURI(S, 0, dst, val);
+    return 0;
+}
+
+fn DO_SUB(S) {
+    var dst = DO_ALU2(S, 0x29);
+    if (dst < 0) { return 0; }
+    var val = SNUM(S);
+    EALURI(S, 5, dst, val);
+    return 0;
+}
+
+fn DO_CMP(S) {
+    var dst = DO_ALU2(S, 0x39);
+    if (dst < 0) { return 0; }
+    var val = SNUM(S);
+    EALURI(S, 7, dst, val);
+    return 0;
+}
+
+fn DO_AND(S) {
+    var dst = DO_ALU2(S, 0x21);
+    if (dst < 0) { return 0; }
+    var val = SNUM(S);
+    EALURI(S, 4, dst, val);
+    return 0;
+}
+
+fn DO_XOR(S) {
+    DO_ALU2(S, 0x31);
+    return 0;
+}
+
+fn DO_OR(S) {
+    DO_ALU2(S, 0x09);
+    return 0;
+}
+
+fn DO_PUSH(S) {
+    SKW(S);
+    var r = PREG(S);
+    if (r >= 8) { EB(S, 0x41); }
+    EB(S, 0x50 + (r & 7));
+    return 0;
+}
+
+fn DO_POP(S) {
+    SKW(S);
+    var r = PREG(S);
+    if (r >= 8) { EB(S, 0x41); }
+    EB(S, 0x58 + (r & 7));
+    return 0;
+}
+
+fn DO_CALL(S) {
+    SKW(S);
+    RW(S);
+    var target = 0;
+    if (GPASS(S) == 1) {
+        target = FNDL(S, GWS(S), GWL(S));
+    }
+    EB(S, 0xE8);
+    E4(S, target - GCP(S) - 4);
+    return 0;
+}
+
+fn DO_RET(S) { EB(S, 0xC3); return 0; }
+
+fn DO_JMP(S) {
+    SKW(S);
+    RW(S);
+    var target = 0;
+    if (GPASS(S) == 1) {
+        target = FNDL(S, GWS(S), GWL(S));
+    }
+    EB(S, 0xE9);
+    E4(S, target - GCP(S) - 4);
+    return 0;
+}
+
+fn DO_JCC(S, cc) {
+    SKW(S);
+    RW(S);
+    var target = 0;
+    if (GPASS(S) == 1) {
+        target = FNDL(S, GWS(S), GWL(S));
+    }
+    EB(S, 0x0F);
+    EB(S, cc);
+    E4(S, target - GCP(S) - 4);
+    return 0;
+}
+
+fn DO_INC(S) {
+    SKW(S);
+    var r = PREG(S);
+    EB(S, REX(1, 0, r));
+    EB(S, 0xFF);
+    EB(S, MODRM(3, 0, r));
+    return 0;
+}
+
+fn DO_DEC(S) {
+    SKW(S);
+    var r = PREG(S);
+    EB(S, REX(1, 0, r));
+    EB(S, 0xFF);
+    EB(S, MODRM(3, 1, r));
+    return 0;
+}
+
+fn DO_SYSCALL(S) {
+    EB(S, 0x0F);
+    EB(S, 0x05);
+    return 0;
+}
+
+fn DO_NOP(S) { EB(S, 0x90); return 0; }
+
+fn DO_DB(S) {
+    SKW(S);
+    var c = PEEK(S);
+    if (c == 34) {
+        SPOS(S, GPOS(S) + 1);
+        var sgo = 1;
+        while (sgo == 1) {
+            if (GPOS(S) >= GBL(S)) { sgo = 0; }
+            if (sgo == 1) {
+                c = PEEK(S);
+                if (c == 34) {
+                    SPOS(S, GPOS(S) + 1);
+                    sgo = 0;
+                } else {
+                    if (c == 92) {
+                        SPOS(S, GPOS(S) + 1);
+                        var ec = PEEK(S);
+                        SPOS(S, GPOS(S) + 1);
+                        if (ec == 110) { EB(S, 10); }
+                        else {
+                            if (ec == 116) { EB(S, 9); }
+                            else {
+                                if (ec == 48) { EB(S, 0); }
+                                else { EB(S, ec); }
+                            }
+                        }
+                    } else {
+                        EB(S, c);
+                        SPOS(S, GPOS(S) + 1);
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+    var val = SNUM(S);
+    EB(S, val & 0xFF);
+    return 0;
+}
+
+fn DO_DQ(S) {
+    SKW(S);
+    var val = SNUM(S);
+    E8(S, val);
+    return 0;
+}
+
+# ================================================================
+# LINE DISPATCH
+# ================================================================
+
+fn DO_LINE(S) {
+    SKW(S);
+    if (GPOS(S) >= GBL(S)) { return 0; }
+    var c = PEEK(S);
+    if (c == 10) { SPOS(S, GPOS(S) + 1); return 0; }
+    if (c == 13) { SPOS(S, GPOS(S) + 1); return 0; }
+    if (c == 35) { SKLN(S); return 0; }
+    RW(S);
+    if (GWL(S) == 0) { SKLN(S); return 0; }
+    var lws = GWS(S);
+    var lwl = GWL(S);
+    SKW(S);
+    c = PEEK(S);
+    if (c == 58) {
+        if (GPASS(S) == 0) { ADDL(S, lws, lwl); }
+        SPOS(S, GPOS(S) + 1);
+        return 0;
+    }
+    SWS(S, lws);
+    SWL(S, lwl);
+    var v = WV(S);
+    if (v == 0x766F6D) { DO_MOV(S); SKLN(S); return 0; }
+    if (v == 0x646461) { DO_ADD(S); SKLN(S); return 0; }
+    if (v == 0x627573) { DO_SUB(S); SKLN(S); return 0; }
+    if (v == 0x726F78) { DO_XOR(S); SKLN(S); return 0; }
+    if (v == 0x706D63) { DO_CMP(S); SKLN(S); return 0; }
+    if (v == 0x646E61) { DO_AND(S); SKLN(S); return 0; }
+    if (v == 0x726F) { DO_OR(S); SKLN(S); return 0; }
+    if (v == 0x68737570) { DO_PUSH(S); SKLN(S); return 0; }
+    if (v == 0x706F70) { DO_POP(S); SKLN(S); return 0; }
+    if (v == 0x6C6C6163) { DO_CALL(S); SKLN(S); return 0; }
+    if (v == 0x746572) { DO_RET(S); SKLN(S); return 0; }
+    if (v == 0x6C6C6163737973) { DO_SYSCALL(S); SKLN(S); return 0; }
+    if (v == 0x706D6A) { DO_JMP(S); SKLN(S); return 0; }
+    if (v == 0x656A) { DO_JCC(S, 0x84); SKLN(S); return 0; }
+    if (v == 0x656E6A) { DO_JCC(S, 0x85); SKLN(S); return 0; }
+    if (v == 0x6C6A) { DO_JCC(S, 0x8C); SKLN(S); return 0; }
+    if (v == 0x676A) { DO_JCC(S, 0x8F); SKLN(S); return 0; }
+    if (v == 0x656C6A) { DO_JCC(S, 0x8E); SKLN(S); return 0; }
+    if (v == 0x65676A) { DO_JCC(S, 0x8D); SKLN(S); return 0; }
+    if (v == 0x636E69) { DO_INC(S); SKLN(S); return 0; }
+    if (v == 0x636564) { DO_DEC(S); SKLN(S); return 0; }
+    if (v == 0x706F6E) { DO_NOP(S); SKLN(S); return 0; }
+    if (v == 0x6264) { DO_DB(S); SKLN(S); return 0; }
+    if (v == 0x7164) { DO_DQ(S); SKLN(S); return 0; }
+    ERR();
+    return 0;
+}
+
+# ELF builder
+fn EELF(S) {
+    SOL(S, 0);
+    var cp = GCP(S);
+    var fsz = 120 + cp;
+    # ELF header
+    O8(S, 0x00010102464C457F);
+    O8(S, 0x0000000000000000);
+    O4(S, 0x003E0002);
+    O4(S, 0x00000001);
+    O8(S, 0x0000000000400078);
+    O8(S, 0x0000000000000040);
+    O8(S, 0x0000000000000000);
+    O4(S, 0x00000000);
+    O4(S, 0x00380040);
+    O4(S, 0x00400001);
+    O4(S, 0x00000000);
+    # Program header
+    O4(S, 0x00000001);
+    O4(S, 0x00000005);
+    O8(S, 0x0000000000000000);
+    O8(S, 0x0000000000400000);
+    O8(S, 0x0000000000400000);
+    O8(S, fsz);
+    O8(S, fsz);
+    O8(S, 0x0000000000001000);
+    # Code
+    var i = 0;
+    while (i < cp) {
+        OB(S, load8(S + 0x10000 + i));
+        i = i + 1;
+    }
+    return 0;
+}
+
+# ================================================================
+# MAIN
+# ================================================================
+
+# Allocate heap
+var S = syscall(12, 0);
+syscall(12, S + 0x44000);
+
+# Zero state block
+S64(S + 0x43000, 0);
+S64(S + 0x43008, 0);
+S64(S + 0x43010, 0);
+S64(S + 0x43018, 0);
+S64(S + 0x43020, 0);
+S64(S + 0x43028, 0);
+S64(S + 0x43030, 0);
+S64(S + 0x43038, 0);
+
+# Read input
+var done = 0;
+var bl = 0;
+while (done == 0) {
+    var n = syscall(0, 0, S + bl, 65536 - bl);
+    if (n <= 0) { done = 1; }
+    else {
+        bl = bl + n;
+        if (bl >= 65536) { done = 1; }
+    }
+}
+SBL(S, bl);
+
+# Pass 0: collect labels
+S64(S + 0x43018, 0);
+SCP(S, 0);
+SPOS(S, 0);
+while (GPOS(S) < GBL(S)) {
+    DO_LINE(S);
+}
+
+# Pass 1: encode
+S64(S + 0x43018, 1);
+SCP(S, 0);
+SPOS(S, 0);
+while (GPOS(S) < GBL(S)) {
+    DO_LINE(S);
+}
+
+# Build ELF and write
+EELF(S);
+syscall(1, 1, S + 0x23000, GOL(S));
+syscall(60, 0);

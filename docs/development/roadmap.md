@@ -40,6 +40,7 @@
 | 3 | stage1b — control flow (if/else, while) | Done | Runtime codegen, 39/39 tests, 5235-byte binary |
 | 4 | stage1c — memory + syscalls | Done | syscall(), strings, &var, arrays, load8/store8, 37/37 tests, 7581-byte binary |
 | 5 | stage1d — functions | Done | fn/return, 6-param System V ABI, stack locals, 28/28 tests, 11187-byte binary |
+| 6 | stage1e — bitwise ops + self-hosting capacity | Done | % & | ^ ~ << >>, hex literals, comments, uppercase idents, 64KB buffers, 63/63 tests, 12344-byte binary |
 
 ## Phase 3 — Self-Hosting Bootstrap
 
