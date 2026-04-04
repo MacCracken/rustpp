@@ -34,14 +34,17 @@ bootstrap/asm (29KB committed binary)
 
 | Metric | Value |
 |--------|-------|
-| Full bootstrap | 41ms |
-| Self-compile (1467 lines) | 9ms |
-| Assembler throughput | 1.3M lines/sec |
-| Compiler throughput | 367K lines/sec |
-| Bootstrap binary | 29KB |
-| Self-hosting compiler | 43KB |
-| Total source (compiler + assembler) | 2577 lines |
+| Full bootstrap | 40ms |
+| Self-compile (1960 lines) | 8ms |
+| Build 9 Linux programs | 27ms (3ms each) |
+| Compiler binary | 58KB |
+| 9 programs combined | 17KB |
+| Cyrius `true` vs GNU `true` | **233x smaller** |
+| Cyrius `cat` vs GNU `cat` | **10x smaller, same throughput** |
+| Total toolchain | 128KB |
 | External dependencies | 0 |
+
+See [full benchmarks](docs/benchmarks.md) for details.
 
 ## Language Features
 

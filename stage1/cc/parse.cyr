@@ -943,8 +943,7 @@ fn PARSE_FN_DEF(S) {
     var fsz = (flc * 8 + 15) & (0 - 16);
     var pa = S + 0x59000 + frame_patch;
     S64(pa, (L64(pa) >> 32 << 32) | (fsz & 0xFFFFFFFF));
-    # Restore state
-    SVCNT(S, GSVC(S));
+    # Restore state (DON'T restore VCNT — arrays inside functions are globals that persist)
     SLVAR(S, saved_lv);
     SINFN(S, 0);
     return 0;

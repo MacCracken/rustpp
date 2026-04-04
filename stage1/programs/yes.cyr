@@ -1,0 +1,14 @@
+# yes — repeatedly output "y\n"
+# Usage: ./yes | head -5
+
+fn yes() {
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(1, 1, "y\n", 2);
+        if (n <= 0) { go = 0; }
+    }
+    return 0;
+}
+
+yes();
+syscall(60, 0);

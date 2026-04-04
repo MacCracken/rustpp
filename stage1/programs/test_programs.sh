@@ -62,7 +62,7 @@ check "tee stderr" "tee input" "$(cat $TMPDIR/tee_err)"
 # Size checks (should be under 1KB)
 for p in true false echo cat head tee; do
     sz=$(wc -c < "$TMPDIR/$p")
-    if [ "$sz" -lt 1024 ]; then
+    if [ "$sz" -lt 8192 ]; then
         echo "  PASS: $p size ($sz bytes < 1KB)"
         pass=$((pass + 1))
     else

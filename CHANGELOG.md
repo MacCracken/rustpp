@@ -12,9 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Self-hosting: cc2==cc3 byte-identical, 51/51 tests
 - Error messages: `error at token N (type=T)` replaces bare "syntax error"
 - Progressive type annotations: `var x: i64 = 42`, `fn f(a: i64, b: i64)` — parsed, no enforcement
-- 6 real Linux programs: true (168B), false (168B), echo (240B), cat (440B), tee (488B), head (592B)
-  - All under 1KB, 108-233x smaller than GNU equivalents
+- 10 real Linux programs: true, false, echo, cat, head, tee, yes, nl, wc, rev
+  - 8 fully working, 2 with known data layout bugs (wc trailing byte, rev array ordering)
+  - 168-1696 bytes, 108-233x smaller than GNU equivalents
   - 14 program tests (functionality + size checks)
+
+### Fixed
+- Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
+- wc trailing byte: now outputs clean numbers
+- Programs: 8→9 fully working (rev still has multi-global edge case)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
 
