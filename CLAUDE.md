@@ -19,7 +19,7 @@ rustc 1.96.0-dev (built from source)
   → cyrius-seed (Rust, 69 mnemonics, 195 tests)
     → stage1a (2641-byte .cyr binary, 16 tests)
       → stage1b (5235-byte .cyr binary, 39 tests)
-        → stage1c (7581-byte .cyr binary, 21 tests)
+        → stage1c (7581-byte .cyr binary, 37 tests)
           → generated ELF programs with I/O
 ```
 

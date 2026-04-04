@@ -101,8 +101,46 @@ run_test "store8_load8" "var x = 0; store8(&x, 42); var y = load8(&x);" 42
 run_test "byte_roundtrip" "var buf[8]; store8(&buf, 99); var y = load8(&buf);" 99
 echo ""
 
+echo "-- Syscall variations --"
+run_test "syscall_exit" "syscall(60, 42);" 42
+run_test_stdout "syscall_3arg" 'syscall(1, 1, "AB\n", 3); var x = 0;' "AB" 0
+run_test "syscall_result" "var n = syscall(1, 1, \"x\", 1); var y = n;" 1
+echo ""
+
+echo "-- String escapes --"
+run_test_stdout "str_newline" 'syscall(1, 1, "a\nb\n", 4); var x = 0;' "a
+b" 0
+run_test_stdout "str_tab" 'syscall(1, 1, "a\tb\n", 4); var x = 0;' "a	b" 0
+run_test_stdout "str_backslash" 'syscall(1, 1, "a\\b\n", 4); var x = 0;' 'a\b' 0
+echo ""
+
+echo "-- Multiple strings --"
+run_test_stdout "two_strings" 'syscall(1, 1, "hi", 2); syscall(1, 1, "!\n", 2); var x = 0;' "hi!" 0
+run_test_stdout "three_strings" 'syscall(1, 1, "A", 1); syscall(1, 1, "B", 1); syscall(1, 1, "C\n", 2); var x = 0;' "ABC" 0
+echo ""
+
+echo "-- Pointer arithmetic --"
+run_test "ptr_arith" "var buf[16]; store8(&buf + 3, 42); var y = load8(&buf + 3);" 42
+run_test "ptr_arith2" "var buf[16]; store8(&buf, 10); store8(&buf + 1, 20); var y = load8(&buf) + load8(&buf + 1);" 30
+echo ""
+
+echo "-- Byte loop --"
+run_test "byte_fill" "var buf[8]; var i = 0; while (i < 8) { store8(&buf + i, i + 1); i = i + 1; } var y = load8(&buf + 7);" 8
+run_test "byte_sum" "var buf[4]; store8(&buf, 10); store8(&buf + 1, 20); store8(&buf + 2, 12); var s = load8(&buf) + load8(&buf + 1) + load8(&buf + 2); var y = s;" 42
+echo ""
+
+echo "-- Read from stdin --"
+run_test_pipe "echo_pipe" 'var buf[256]; var n = syscall(0, 0, &buf, 256); syscall(1, 1, &buf, n); var x = 0;' "hello" "hello" 0
+run_test_pipe "read_byte" 'var buf[8]; syscall(0, 0, &buf, 1); var c = load8(&buf); var x = c;' "A" "" 65
+echo ""
+
+echo "-- Cat program --"
+run_test_pipe "cat" 'var buf[4096]; var n = 1; while (n > 0) { n = syscall(0, 0, &buf, 4096); if (n > 0) { syscall(1, 1, &buf, n); } } var x = 0;' "Cyrius!" "Cyrius!" 0
+echo ""
+
 echo "-- Integration --"
 run_test_stdout "hello_world" 'syscall(1, 1, "hello world\n", 12); var x = 0;' "hello world" 0
+run_test_stdout "greeting" 'syscall(1, 1, "Cyrius stage1c\n", 15); var x = 0;' "Cyrius stage1c" 0
 echo ""
 
 echo "==================="

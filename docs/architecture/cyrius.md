@@ -40,9 +40,10 @@ Assembly (the cornerstone)
   |
 rust-lang/rust (upstream -- learn the type system, borrow checker)
   +-- Rust++ (fork, Phase 0-1: understand + strip crates.io)
-       +-- cyrius-seed (stage 0 -- assembler, 42 instructions)
-            +-- stage1a/1b (expressions, control flow) <-- WE ARE HERE
-                 +-- stage1c/1d (memory, syscalls, functions)
+       +-- cyrius-seed (stage 0 -- assembler, 69 mnemonics)
+            +-- stage1a/1b (expressions, control flow)
+                 +-- stage1c (syscalls, strings, arrays, I/O) <-- WE ARE HERE
+                      +-- stage1d (functions)
                       +-- Cyrius (self-hosting, sovereign, kernel-native)
                            +-- AGNOS kernel
 ```
