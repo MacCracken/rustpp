@@ -131,6 +131,7 @@ S64(S + 0x8DC20, 0);
 S64(S + 0x8F830, 0);
 # Condition patch state
 S64(S + 0x8F888, 0);
+S64(S + 0x8FA90, 0);
 
 # Read input
 var bl = 0;
@@ -162,11 +163,16 @@ var topgo = 1;
 while (topgo == 1) {
     if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
     else { if (PEEKT(S) == 32) { PARSE_FN_DEF(S); }
-    else { topgo = 0; } }
+    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
+    else { topgo = 0; } } }
 }
 
 # Patch jmp to land here (start of main code)
 EPATCH(S, jmp_patch);
+
+var save_ti = GTI(S);
+EMIT_GVAR_INITS(S);
+STI(S, save_ti);
 
 # Parse main code (top-level statements)
 PARSE_PROG(S);

@@ -4,7 +4,7 @@
 
 fn EB(S, b) {
     var cp = GCP(S);
-    store8(S + 0x59000 + cp, b & 0xFF);
+    store8(S + 0x10000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
