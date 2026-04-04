@@ -59,7 +59,15 @@ echo "tee input" | "$TMPDIR/tee" > "$TMPDIR/tee_out" 2>"$TMPDIR/tee_err"
 check "tee stdout" "tee input" "$(cat $TMPDIR/tee_out)"
 check "tee stderr" "tee input" "$(cat $TMPDIR/tee_err)"
 
-# Size checks (should be under 1KB)
+# rev
+build rev
+out=$(echo "hello" | "$TMPDIR/rev")
+check "rev hello" "olleh" "$out"
+out=$(printf "abc\n123\n" | "$TMPDIR/rev")
+check "rev multi" "cba
+321" "$out"
+
+# Size checks
 for p in true false echo cat head tee; do
     sz=$(wc -c < "$TMPDIR/$p")
     if [ "$sz" -lt 8192 ]; then

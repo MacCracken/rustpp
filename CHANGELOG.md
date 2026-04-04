@@ -20,7 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
 - wc trailing byte: now outputs clean numbers
-- Programs: 8→9 fully working (rev still has multi-global edge case)
+- All 10 programs fully working (rev fixed — duplicate var k split into separate function)
+- 83 total tests (56 cc + 11 asm + 16 programs)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
 

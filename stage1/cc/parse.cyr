@@ -523,6 +523,8 @@ fn PARSE_VAR(S) {
     PARSE_EXPR(S);
     # Check if inside function → local variable
     if (GINFN(S) == 1) {
+        # Reject duplicate local var names
+        if (FINDLOCAL(S, noff) >= 0) { ERRDUPVAR(S); }
         var li = GFLC(S);
         S64(S + 0x8DC30 + li * 8, noff);
         EFLSTORE(S, li);
@@ -877,7 +879,6 @@ fn PARSE_FN_DEF(S) {
     # Set fn offset to current CP
     S64(S + 0x8CA00 + fi * 8, GCP(S));
     # Save compiler state
-    SSVC(S, GVCNT(S));
     var saved_lv = GLVAR(S);
     SINFN(S, 1);
     SFLC(S, 0);

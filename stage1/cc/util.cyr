@@ -45,8 +45,6 @@ fn GINFN(S) { return L64(S + 0x8DA08); }
 fn SINFN(S, v) { S64(S + 0x8DA08, v); return 0; }
 fn GFLC(S) { return L64(S + 0x8DA10); }
 fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
-fn GSVC(S) { return L64(S + 0x8DA18); }
-fn SSVC(S, v) { S64(S + 0x8DA18, v); return 0; }
 fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
 fn GMJP(S) { return L64(S + 0x8DC28); }
@@ -66,6 +64,14 @@ fn PRNUM(n) {
     }
     if (neg == 1) { store8(&buf + i, 45); i = i - 1; }
     syscall(1, 2, &buf + i + 1, 23 - i);
+    return 0;
+}
+
+fn ERRDUPVAR(S) {
+    syscall(1, 2, "error: duplicate var at token ", 30);
+    PRNUM(GTI(S));
+    syscall(1, 2, "\n", 1);
+    syscall(60, 1);
     return 0;
 }
 
