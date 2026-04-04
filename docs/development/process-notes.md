@@ -4,6 +4,40 @@
 
 ---
 
+## Date: 2026-04-04 — Phase 4 Complete + Phase 6 Started
+
+### Language Extensions Shipped
+- Structs (definition, init, field access, field assignment)
+- Multi-width memory (load/store 16/32/64)
+- Pointers (*deref, *store)
+- >6 function parameters (stack-passed)
+- Include directive (file I/O preprocessing)
+- Inline assembly (raw byte emission)
+- Progressive type annotations (var x: i64, fn f(a: i64))
+- Elif keyword (eliminates brace-counting bug class)
+- Duplicate var detection at compile time
+- Error messages with token position
+
+### Real Programs Built
+15 Linux programs: true, false, echo, cat, head, tee, yes, nl, wc, rev, seq, tr, uniq, sum, grep. All under 10KB. Cyrius wc is 2.4x FASTER than GNU wc on 1MB.
+
+### Key Bugs Found and Fixed
+1. **VCNT restore erasing function-scope globals** — arrays inside functions were lost after function parsing. Fix: don't restore VCNT.
+2. **Duplicate var names** (hit 5 times!) — finally added compile-time detection.
+3. **Hex literal underscores** — stage1f doesn't support `_` in numbers.
+4. **Function table overflow** — 136 fns in 128-slot table. Bumped to 256.
+
+### Development Loop
+Research → vidya → plan → build → test → audit → vidya. Vidya front-loads thinking. Pointers took 15 lines because vidya had the patterns. Structs took hours because vidya didn't. The reference library IS the velocity.
+
+### Metrics
+- 92 tests, 0 failures
+- cc2: 1960 lines, 149 functions, 7 modules, self-hosting (cc2==cc3)
+- 74 vidya entries in compiler_bootstrapping alone
+- Bootstrap: 40ms. Self-compile: 8ms. 15 programs: 45ms total.
+
+---
+
 ## Date: 2026-04-04 — Phase 3 Complete: Rust Independence
 
 ### What We Did

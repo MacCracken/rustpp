@@ -64,10 +64,32 @@ The entire Cyrius toolchain — bootstrap, compiler, assembler, extended compile
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 56 | All pass |
+| Compiler (cc2) | 59 | All pass |
 | Assembler (asm) | 11 | All pass |
-| Programs | 14 | All pass |
-| **Total** | **81** | **0 failures** |
+| Programs | 22 | All pass |
+| **Total** | **92** | **0 failures** |
+
+## Programs
+
+15 Linux programs, all under 10KB:
+
+| Program | Size | Description |
+|---------|------|-------------|
+| true | 168 B | Exit 0 |
+| false | 168 B | Exit 1 |
+| echo | 240 B | Print string |
+| yes | 368 B | Repeat "y" |
+| head | 600 B | First N lines |
+| seq | 840 B | Number sequence |
+| tr | 8,880 B | Character translation (buffered) |
+| cat | 4,536 B | Copy stdin→stdout |
+| tee | 4,584 B | Copy stdin→stdout+stderr |
+| nl | 1,248 B | Number lines |
+| rev | 5,000 B | Reverse lines |
+| sum | 2,176 B | Sum numbers from stdin |
+| wc | 1,696 B | Count lines/words/bytes |
+| uniq | 9,864 B | Remove adjacent duplicates |
+| grep | 5,496 B | Match pattern in lines |
 
 ## Dependencies
 

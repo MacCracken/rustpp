@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **Status**: Phase 4 — Language Extensions | **Last Updated**: 2026-04-04
+> **Status**: Phase 6 — Prove the Language | **Last Updated**: 2026-04-04
 
 ---
 
@@ -26,22 +26,26 @@ cc.cyr self-hosting compiler with extensions beyond stage1f:
 - >6 function parameters: stack-passed args 7+, System V ABI
 - Modules: `include "file.cyr"` preprocessing
 - Inline assembly: `asm { 0xNN; ... }` raw byte emission
-- **Stats**: 1960 lines, 149 functions, 51 tests, cc2==cc3 self-hosting verified
+- **Stats**: 1960 lines, 149 fns, 59 tests, cc2==cc3 verified
+
+### Phase 4b — Language Maturity (Done)
+- cc2 modular split (7 files), load64/store64 refactor, error messages
+- Progressive type annotations, elif keyword, duplicate var detection
+- Benchmarks: wc 2.4x faster than GNU, 92 total tests
 
 ---
 
 ## In Progress
 
-### Phase 4b — Language Maturity
+### Phase 6 — Prove the Language
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | cc2.cyr modular split | Done | 7 files via include, same binary, cc2==cc3 verified |
-| 1b | cc2 refactor: load64 + errors | Done | S64/L64 → store64/load64 (-256B), error messages with token position |
-| 1c | cc2 refactor: struct state | Deferred | Accessor functions (GCP/SCP etc.) already provide abstraction. Needs heap-allocated struct support first. |
-| 2 | Progressive type checking (V1) | Done | `var x: i64`, `fn f(a: i64)` — annotations parsed, skipped, no enforcement |
-| 3 | Benchmark suite (v2) | Not started | cc2 compile times, feature coverage metrics |
-| 4 | Agent/capability attributes | Not started | `#[agent]`, `#[capability(...)]` as ELF metadata |
+| 1 | Linux CLI tools in Cyrius | Done | 15 programs: true, false, echo, cat, head, tee, yes, nl, wc, rev, seq, tr, uniq, sum, grep |
+| 2 | Buffered I/O | Done | 85x speedup, wc beats GNU by 2.4x |
+| 3 | Benchmark suite (v3) | Done | docs/benchmarks.md — sizes, runtimes, compile times vs GNU |
+| 4 | Migrate Ark package manager | Not started | First real-world project |
+| 5 | Language ergonomics pass | In progress | elif done, break/continue next |
 
 ---
 

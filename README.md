@@ -7,28 +7,14 @@ A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero e
 ## Quick Start
 
 ```sh
-sh bootstrap/bootstrap.sh    # 41ms, produces compiler + assembler
+sh bootstrap/bootstrap.sh    # 40ms, produces compiler + assembler
+cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
 
-echo 'fn fact(n) {
-    var f = 1;
-    while (n > 1) { f = f * n; n = n - 1; }
-    return f;
-}
-var x = fact(10);' | ./build/stage1f > prog && chmod +x prog && ./prog
-# exit code: 120 (= 5!)
+# Compile a program
+echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 > hello && chmod +x hello && ./hello
 ```
 
 **Requirements**: Linux x86_64 + `/bin/sh`. Nothing else.
-
-## Bootstrap Chain
-
-```
-bootstrap/asm (29KB committed binary)
-  → assembles stage1f.cyr → stage1f (12KB compiler)
-    → compiles asm.cyr → asm (29KB assembler, byte-identical)
-    → compiles cc.cyr → cc (43KB self-hosting compiler)
-      → cc compiles cc.cyr → cc2 (byte-identical ✓)
-```
 
 ## Benchmarks
 
@@ -36,60 +22,66 @@ bootstrap/asm (29KB committed binary)
 |--------|-------|
 | Full bootstrap | 40ms |
 | Self-compile (1960 lines) | 8ms |
-| Build 9 Linux programs | 27ms (3ms each) |
-| Compiler binary | 58KB |
-| 9 programs combined | 17KB |
-| Cyrius `true` vs GNU `true` | **233x smaller** |
+| Build 15 programs | ~45ms (3ms each) |
+| Cyrius `wc` vs GNU `wc` | **2.4x faster** (9ms vs 22ms for 1MB) |
+| Cyrius `true` vs GNU `true` | **233x smaller** (168B vs 39KB) |
 | Cyrius `cat` vs GNU `cat` | **10x smaller, same throughput** |
 | Total toolchain | 128KB |
 | External dependencies | 0 |
 
 See [full benchmarks](docs/benchmarks.md) for details.
 
+## 15 Linux Programs
+
+All written in Cyrius, all under 10KB:
+
+`true` `false` `echo` `cat` `head` `tee` `yes` `nl` `wc` `rev` `seq` `tr` `uniq` `sum` `grep`
+
 ## Language Features
 
-The stage1f language (compiled by cc.cyr):
-
-- Variables, arrays, assignment
-- Functions (up to 6 params, locals, forward calls)
-- if/else, while loops
-- Arithmetic: `+ - * / %`
-- Bitwise: `& | ^ ~ << >>`
-- Comparisons: `== != < > <= >=`
-- `syscall()`, `load8()`, `store8()`, `&var`
-- String literals with escapes
-- Hex literals (`0xFF`), comments (`#`)
+- Variables, arrays, structs (definition, init, field access)
+- Functions (unlimited params, locals, forward calls)
+- Control flow: if/elif/else, while
+- Arithmetic: `+ - * / %`, Bitwise: `& | ^ ~ << >>`
+- Pointers: `*ptr` dereference, `*ptr = val` store
+- Memory: `load8/16/32/64`, `store8/16/32/64`
+- `syscall()`, `&var` address-of
+- String literals, hex literals (`0xFF`), comments (`#`)
+- Type annotations: `var x: i64 = 42` (opt-in, no enforcement)
+- Modules: `include "file.cyr"`
+- Inline assembly: `asm { 0xNN; ... }`
+- Error messages: `error at token N (type=T)`, duplicate var detection
 
 ## Status
 
 | Phase | Status |
 |-------|--------|
-| 0 — Fork & Understand | Done |
-| 1 — Registry Sovereignty (Ark) | Done |
-| 2 — Assembly Foundation (7 stages) | Done |
-| 3 — Self-Hosting Bootstrap | Done |
-| 4 — Language Extensions | **In progress** (cc.cyr self-hosting ✓, structs next) |
-| 5 — Multi-Architecture (aarch64) | Planned |
-| 6 — Kernel (AGNOS) | Planned |
-| 7 — Prove the Language | Planned |
-| 8 — Full Sovereignty | Planned |
+| 0–3 | Done (fork → assembly → self-hosting bootstrap) |
+| 4 | **Done** (structs, pointers, includes, inline asm, elif, types, 15 programs) |
+| 5 | Planned (multi-architecture: aarch64) |
+| 6 | **In progress** (prove language: Linux programs, benchmarks) |
+| 7 | Planned (AGNOS kernel) |
+| 8 | Planned (full sovereignty) |
 
 ## Structure
 
 ```
 bootstrap/       Root of trust (29KB binary + scripts)
-stage1/          Compiler stages + assembler (asm.cyr) + compiler (cc.cyr)
+stage1/          Compiler stages + assembler + compiler modules
+stage1/cc/       Modular compiler (6 files: util, emit, jump, lex, parse, fixup)
+stage1/programs/ 15 Linux programs + buffered I/O library + tests
 build/           Generated binaries (gitignored)
 archive/seed/    Historical Rust seed (verification only)
-docs/            Architecture, roadmap, process notes
+docs/            Architecture, roadmap, benchmarks, ADRs
 ```
 
 ## Tests
 
 ```sh
-sh stage1/test_stage1e.sh ./build/stage1f   # 63 compiler tests
-sh stage1/test_cc.sh ./build/cc             # 36 cc tests + self-hosting
-sh stage1/test_asm.sh ./build/asm           # 11 assembler tests (byte-exact)
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 59 compiler tests
+sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
+sh stage1/programs/test_programs.sh ./build/cc2      # 22 program tests
+# Total: 92 tests, 0 failures
 ```
 
 ## Part of AGNOS

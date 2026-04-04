@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 4 — Self-hosting compiler (cc.cyr 1.0). No external language dependencies.
+- **Status**: Phase 6 — Proving the language. 15 programs, 92 tests, wc beats GNU.
 
 ## Goal
 
