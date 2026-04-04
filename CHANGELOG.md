@@ -8,12 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Structs: `struct Point { x; y; }` with initialization, field access (dot), field assignment
+- Multi-width load/store: `load16`, `load32`, `load64`, `store16`, `store32`, `store64` intrinsics
 - Stage1f function table expanded from 128 to 256 slots
-- vidya: function table overflow gotcha, self-hosting byte-identity gotcha, struct codegen patterns
+- cc.cyr: 1759 lines, 142 functions, 53912-byte binary
+- vidya: 66 entries in compiler_bootstrapping (+6 from session), struct/type/codegen patterns
 
 ### Fixed
 - cc self-hosting restored: cc2==cc3 byte-identical (36/36 tests pass)
 - Root cause: cc.cyr's own fn table was 128 slots with 136 functions — doubled to 256
+- Hex literal underscores (0xFF_FF) — not supported by stage1f lexer, removed
 
 ## [1.0.0] - 2026-04-04
 
