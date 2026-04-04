@@ -22,7 +22,9 @@ rustc 1.96.0-dev (built from source)
         → stage1c (7581-byte .cyr binary, 37 tests)
           → stage1d (11187-byte .cyr binary, 28 tests)
             → stage1e (12344-byte .cyr binary, 63 tests)
-              → generated ELF programs with bitwise ops, ready for self-hosting
+              → stage1f (12344-byte .cyr binary, token-scaled)
+                → asm.cyr (self-hosting assembler, 43 mnemonics)
+                  → stage1f_v2 (byte-identical to seed output ✓)
 ```
 
 ## Project Structure
@@ -57,18 +59,20 @@ rustc 1.96.0-dev (built from source)
 4. `publish = false` deps skip version requirement ✓
 5. ADR documented ✓
 
-### Phase 2: Assembly Foundation (In Progress)
+### Phase 2: Assembly Foundation (Done)
 1. cyrius-seed — stage 0 assembler ✓
 2. stage1a — expression evaluator compiler ✓
 3. stage1b — control flow (if/else, while) ✓
 4. stage1c — memory + syscalls ✓
 5. stage1d — functions ✓
 6. stage1e — bitwise ops, self-hosting capacity ✓
+7. stage1f — token-scaled compiler (16384 slots) ✓
 
-### Phase 3: Self-Hosting Bootstrap
-1. Stage 1 compiles itself
-2. Eliminate Python/cmake/ninja from toolchain
-3. Assembly seed is the only external artifact
+### Phase 3: Self-Hosting Bootstrap (In Progress)
+1. asm.cyr — self-hosting assembler (43 mnemonics, 11 byte-exact matches) ✓
+2. Bootstrap closure — asm assembles stage1f, output matches seed ✓
+3. Eliminate Python/cmake/ninja from toolchain
+4. Assembly seed is the only external artifact
 
 ### Phase 4: Language Extensions
 1. Agent types as language primitives

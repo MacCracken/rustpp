@@ -1,0 +1,9 @@
+# Test RSP-based memory (needs SIB byte)
+_start:
+    sub rsp, 16
+    mov rax, 42
+    mov [rsp], rax
+    mov rdi, [rsp]
+    add rsp, 16
+    mov rax, 60
+    syscall

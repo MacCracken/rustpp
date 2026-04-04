@@ -1,0 +1,18 @@
+# Test various displacement forms
+_start:
+    push rbp
+    mov rbp, rsp
+    sub rsp, 256
+    # disp8: [rbp - 8]
+    mov rax, 10
+    mov [rbp - 8], rax
+    # disp32: [rbp - 200] (outside -128..127)
+    mov rax, 32
+    mov [rbp - 200], rax
+    # Load both and add
+    mov rax, [rbp - 8]
+    mov rcx, [rbp - 200]
+    add rax, rcx
+    mov rdi, rax
+    mov rax, 60
+    syscall

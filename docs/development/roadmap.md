@@ -41,14 +41,16 @@
 | 4 | stage1c — memory + syscalls | Done | syscall(), strings, &var, arrays, load8/store8, 37/37 tests, 7581-byte binary |
 | 5 | stage1d — functions | Done | fn/return, 6-param System V ABI, stack locals, 28/28 tests, 11187-byte binary |
 | 6 | stage1e — bitwise ops + self-hosting capacity | Done | % & | ^ ~ << >>, hex literals, comments, uppercase idents, 64KB buffers, 63/63 tests, 12344-byte binary |
+| 7 | stage1f — token-scaled compiler | Done | 16384 token slots (4x stage1e), needed for compiling the assembler |
 
 ## Phase 3 — Self-Hosting Bootstrap
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Stage 1 compiles itself | Not started | The bootstrap closes |
-| 2 | Eliminate Python/cmake/ninja from toolchain | Not started | Assembly seed is the only external artifact |
-| 3 | Cyrius compiles Cyrius | Not started | |
+| 1 | asm.cyr — self-hosting assembler | Done | 43 mnemonics, 1128 lines, compiled by stage1f, 11 byte-exact matches with seed |
+| 2 | Bootstrap closure | Done | seed→stage1f→asm→stage1f_v2 byte-identical. Seed no longer needed for forward progress |
+| 3 | Eliminate Python/cmake/ninja from toolchain | Not started | Assembly seed is the only external artifact |
+| 4 | Cyrius compiles Cyrius | Not started | |
 
 ## Phase 4 — Language Extensions
 
