@@ -1,0 +1,40 @@
+# primes — print primes up to 100, exercises: &&, break, nested while, %
+# Usage: ./primes
+
+fn print_num(n: i64) {
+    var pbuf[24];
+    var i: i64 = 23;
+    if (n == 0) { store8(&pbuf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&pbuf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    syscall(1, 1, &pbuf + i + 1, 23 - i);
+    return 0;
+}
+
+fn is_prime(n: i64) {
+    if (n < 2) { return 0; }
+    var d: i64 = 2;
+    while (d * d <= n) {
+        if (n % d == 0) { return 0; }
+        d = d + 1;
+    }
+    return 1;
+}
+
+fn primes(max: i64) {
+    var n: i64 = 2;
+    while (n <= max) {
+        if (is_prime(n) == 1) {
+            print_num(n);
+            syscall(1, 1, "\n", 1);
+        }
+        n = n + 1;
+    }
+    return 0;
+}
+
+primes(100);
+syscall(60, 0);

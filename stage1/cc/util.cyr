@@ -50,6 +50,16 @@ fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
 fn GMJP(S) { return L64(S + 0x8DC28); }
 fn SMJP(S, v) { S64(S + 0x8DC28, v); return 0; }
 
+# Extra condition patches (for && chaining)
+fn GXPC(S) { return L64(S + 0x8F888); }
+fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }
+fn ADDXP(S, p) {
+    var c = GXPC(S);
+    S64(S + 0x8F848 + c * 8, p);
+    SXPC(S, c + 1);
+    return 0;
+}
+
 # Print a number to stderr (decimal)
 fn PRNUM(n) {
     var buf[24];

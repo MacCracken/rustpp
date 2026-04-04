@@ -187,6 +187,17 @@ run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x =
 run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
 echo ""
 
+echo "-- Logical && / || (cc-only) --"
+run_test_cc "and_true"    'var x = 1; var y = 2; var r = 0; if (x == 1 && y == 2) { r = 42; }' 42
+run_test_cc "and_false1"  'var x = 0; var y = 2; var r = 0; if (x == 1 && y == 2) { r = 99; }' 0
+run_test_cc "and_false2"  'var x = 1; var y = 3; var r = 0; if (x == 1 && y == 2) { r = 99; }' 0
+run_test_cc "or_true1"    'var x = 1; var y = 0; var r = 0; if (x == 1 || y == 1) { r = 42; }' 42
+run_test_cc "or_true2"    'var x = 0; var y = 1; var r = 0; if (x == 1 || y == 1) { r = 42; }' 42
+run_test_cc "or_false"    'var x = 0; var y = 0; var r = 0; if (x == 1 || y == 1) { r = 99; }' 0
+run_test_cc "and_while"   'var x = 0; var y = 10; while (x < 5 && y > 0) { x = x + 1; y = y - 1; } var r = x;' 5
+run_test_cc "and_else"    'var x = 0; var y = 0; var r = 0; if (x == 1 && y == 1) { r = 10; } else { r = 42; }' 42
+echo ""
+
 echo "-- Type Annotations (cc-only) --"
 run_test_cc "typed_var"  'var x: i64 = 42;' 42
 run_test_cc "typed_fn"   'fn add(a: i64, b: i64) { return a + b; } var x = add(20, 22);' 42

@@ -41,15 +41,16 @@ Assembly (the cornerstone)
       → asm.cyr (self-hosting assembler, 43 mnemonics)
         → bootstrap closure ✓ (byte-identical output)
           → bootstrap/asm (29KB committed binary — root of trust)
-            → stage1f (compiler) + asm (assembler)  ← WE ARE HERE
-              → cc.cyr (Phase 4 — language extensions)
-                → Cyrius (structs, types, modules, inline asm)
-                  → AGNOS kernel
+            → stage1f (compiler) + asm (assembler)
+              → cc.cyr → cc2 (modular, 7 modules, 150 fns)  ← WE ARE HERE
+                → 15 Linux programs (Phase 5 — proving the language)
+                  → kernel prerequisites (Phase 6)
+                    → AGNOS kernel (Phase 7+)
 ```
 
 ## Current State
 
-**Phase 3 is complete.** The bootstrap is fully self-hosting:
+**Phase 5 in progress — Prove the Language.** cc2 is the active modular compiler (7 modules, 150 functions, 94 tests).
 
 ```
 sh bootstrap/bootstrap.sh
@@ -61,14 +62,19 @@ Produces:
 Requires: Linux x86_64 + /bin/sh. Nothing else.
 ```
 
-The current language (compiled by stage1f) supports:
-- Variables, arrays, functions (6 params, 64 locals)
-- if/else, while loops
+The current language (compiled by cc2) supports:
+- Variables, arrays, functions (unlimited params, 64 locals)
+- if/else/elif, while loops, break/continue
 - Arithmetic: + - * / %
 - Bitwise: & | ^ ~ << >>
-- syscall(), load8(), store8(), &var
+- syscall(), load8/16/32/64(), store8/16/32/64(), &var
+- Structs with initialization, field access (dot), field assignment
+- Pointer dereference (*ptr read, *ptr = val write)
+- Include directive, inline asm blocks
+- Progressive type annotations (var x: i64 = 42)
 - Hex literals, string literals, comments
-- Enough to write a self-hosting assembler (proven)
+- Error messages with token position
+- 15 real Linux programs, buffered I/O (wc 2.4x faster than GNU)
 
 ## Phases
 
@@ -96,45 +102,61 @@ The current language (compiled by stage1f) supports:
 - Rust archived, upstream submodule deinited
 - Zero external language dependencies
 
-### Phase 4 (Next) — Language Extensions (Internalized)
+### Phase 4 (Done) — Language Extensions
 Language features added FROM WITHIN — no Rust, no upstream fork.
 
-1. **cc.cyr** — Editable compiler in stage1f's language (self-hosting clone)
-2. **Structs** — Composite types, heap-allocated, pass by pointer
-3. **Typed pointers** — `*T` syntax, scaled pointer arithmetic
-4. **Multi-width load/store** — load16/32/64, store16/32/64 intrinsics
-5. **Modules** — `include "file.cyr"` textual include
-6. **Inline assembly** — `asm { }` blocks with register bindings
-7. **Self-hosting rewrite** — Compiler rewrites itself in its own extended language
-8. **Progressive type checking** — Opt-in annotations, warnings not errors
-9. **Agent/capability attributes** — `#[agent]`, `#[capability(...)]` as ELF metadata
+- cc.cyr → cc2 modular self-hosting compiler (7 modules, 150 functions)
+- Structs, pointers (*deref, *store), >6 params, load/store 16/32/64
+- Include directive, inline asm (raw bytes), progressive type annotations
+- elif, break/continue, duplicate var detection, error messages with token position
+- Self-hosting: cc2==cc3 byte-identical, 94 tests
 
-Progressive hybrid syntax: Cyrius-native first, Rust compatibility later.
+### Phase 5 (In Progress) — Prove the Language
+- 15 Linux CLI programs (cat, echo, head, tee, wc, rev, nl, seq, tr, uniq, sum, grep, yes, true, false)
+- Proof programs: fizzbuzz, primes, sort
+- Buffered I/O (85x speedup, wc 2.4x faster than GNU)
+- Benchmarks: 10-233x smaller binaries than GNU equivalents
+- Logical && / || with short-circuit evaluation and chaining
+- Token arrays expanded 16384→32768 (handles compiler growth)
+- Migrate Ark to Cyrius — first real-world project
 
-### Phase 5 — Multi-Architecture
+### Phase 6 — Kernel Prerequisites
+Add features needed to touch bare metal (x86_64 first):
+- Fix codegen bug, typed pointers with scaling, nested structs
+- Inline asm with mnemonics (embed encoder from asm.cyr)
+- Bare metal ELF (custom base address, multiboot header)
+- Interrupt handler support, bitfield access, global initializers
+- Linker control (kernel at 0xFFFF800000000000)
+- Nice-to-haves: for loops, string stdlib, argv, heap allocator, type enforcement
+
+### Phase 7 — Kernel (x86_64)
+- Compile the Linux kernel with Cyrius — the proof that the language handles real kernel code
+- Boot the AGNOS kernel — hello from Cyrius
+- Multiboot2, serial console, GDT/IDT, page tables, timer/keyboard interrupts
+- Physical + virtual memory managers, process/task abstraction
+- Syscall interface, agent/capability enforcement
+- Initial kernel boot — full-featured AGNOS continues beyond Phase 11
+
+### Phase 8 — Audit, Refactor, Stabilize
+- Kernel audit round (memory safety, interrupt correctness, edge cases)
+- Compiler refactor (apply lessons from kernel development)
+- Performance pass, test suite expansion
+
+### Phase 9 — Multi-Architecture (aarch64)
 - Factor codegen into backend interface (shared lexer/parser, per-arch emission)
-- aarch64 as second target — assembler, codegen backend, bootstrap binary
-- Cross-compilation: x86_64 host emits aarch64 and vice versa
+- aarch64 assembler + codegen + bootstrap
+- aarch64 kernel port, cross-compilation
 
-### Phase 6 — Prove the Language
-- Build real Linux binaries in Cyrius (cat, echo, wc) — prove I/O, strings, file handling
-- Migrate Ark package manager to Cyrius — first real-world project
-- Benchmark suite: compile times, binary sizes, runtime perf vs C
-- Language ergonomics pass — fix pain points from real usage
-- The binaries are the proof that the language works
+### Phase 10 — Prove at Scale
+- Migrate Ark package manager to Cyrius
+- AGNOS userland tools
+- Benchmark suite vs C/Rust, language ergonomics pass
+- Documentation + tutorials
 
-### Phase 7 — Kernel
-- AGNOS kernel written entirely in Cyrius
-- Bare metal from day one — `no_std` is the default
-- Interrupts, page tables, device drivers — all in Cyrius
-- Agent/capability model enforced by the kernel
-- Both x86_64 and aarch64
-
-### Phase 8 — Full Sovereignty
-- Cyrius compiles Cyrius from a committed binary seed on both architectures
-- Cyrius stdlib (OS-aware, agent-aware, kernel-aware)
-- AGNOS builds entirely with Cyrius — kernel, userland, package manager
-- The entire stack is owned. No external toolchain in any path.
+### Phase 11 — Full Sovereignty
+- AGNOS builds entirely with Cyrius on both architectures
+- Full cross-bootstrap (x86_64 ↔ aarch64)
+- No external toolchain in any path — the entire stack is owned
 
 ## What Stays from Rust (Eventually)
 

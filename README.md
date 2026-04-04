@@ -41,7 +41,8 @@ All written in Cyrius, all under 10KB:
 
 - Variables, arrays, structs (definition, init, field access)
 - Functions (unlimited params, locals, forward calls)
-- Control flow: if/elif/else, while
+- Control flow: if/elif/else, while, break/continue
+- Logical: `&&`, `||` with short-circuit evaluation and chaining
 - Arithmetic: `+ - * / %`, Bitwise: `& | ^ ~ << >>`
 - Pointers: `*ptr` dereference, `*ptr = val` store
 - Memory: `load8/16/32/64`, `store8/16/32/64`
@@ -57,11 +58,14 @@ All written in Cyrius, all under 10KB:
 | Phase | Status |
 |-------|--------|
 | 0–3 | Done (fork → assembly → self-hosting bootstrap) |
-| 4 | **Done** (structs, pointers, includes, inline asm, elif, types, 15 programs) |
-| 5 | Planned (multi-architecture: aarch64) |
-| 6 | **In progress** (prove language: Linux programs, benchmarks) |
-| 7 | Planned (AGNOS kernel) |
-| 8 | Planned (full sovereignty) |
+| 4 | Done (structs, pointers, includes, inline asm, elif, types) |
+| 5 | **In progress** (prove language: 15 programs, &&/\|\|, benchmarks) |
+| 6 | Planned (kernel prerequisites: typed pointers, inline asm mnemonics, bare metal ELF) |
+| 7 | Planned (compile Linux kernel with Cyrius, boot AGNOS kernel) |
+| 8 | Planned (audit + refactor) |
+| 9 | Planned (multi-architecture: aarch64) |
+| 10 | Planned (prove at scale: migrate Ark, AGNOS userland) |
+| 11 | Planned (full sovereignty) |
 
 ## Structure
 
@@ -78,10 +82,10 @@ docs/            Architecture, roadmap, benchmarks, ADRs
 ## Tests
 
 ```sh
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 59 compiler tests
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 69 compiler tests
 sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
 sh stage1/programs/test_programs.sh ./build/cc2      # 22 program tests
-# Total: 92 tests, 0 failures
+# Total: 102 tests, 0 failures
 ```
 
 ## Part of AGNOS

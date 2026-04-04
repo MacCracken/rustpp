@@ -1,0 +1,88 @@
+# sort — bubble sort numbers from stdin, exercises: &&, load64/store64, arrays, nested while
+# Usage: printf "5\n3\n8\n1\n4\n" | ./sort
+
+fn parse_num(line, len) {
+    var val: i64 = 0;
+    var i: i64 = 0;
+    while (i < len) {
+        var c: i64 = load8(line + i);
+        if (c >= 48 && c <= 57) {
+            val = val * 10 + (c - 48);
+        }
+        i = i + 1;
+    }
+    return val;
+}
+
+fn print_num(n: i64) {
+    var pbuf[24];
+    var i: i64 = 23;
+    if (n == 0) { store8(&pbuf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&pbuf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    syscall(1, 1, &pbuf + i + 1, 23 - i);
+    return 0;
+}
+
+fn sort() {
+    var nums[8192];
+    var count: i64 = 0;
+    var line[256];
+    var byte[1];
+    var llen: i64 = 0;
+
+    # Read numbers
+    var go: i64 = 1;
+    while (go == 1) {
+        var n: i64 = syscall(0, 0, &byte, 1);
+        if (n <= 0) {
+            if (llen > 0) {
+                store64(&nums + count * 8, parse_num(&line, llen));
+                count = count + 1;
+            }
+            go = 0;
+        }
+        if (go == 1) {
+            var c: i64 = load8(&byte);
+            if (c == 10) {
+                store64(&nums + count * 8, parse_num(&line, llen));
+                count = count + 1;
+                llen = 0;
+            } else {
+                store8(&line + llen, c);
+                llen = llen + 1;
+            }
+        }
+    }
+
+    # Bubble sort
+    var i: i64 = 0;
+    while (i < count - 1) {
+        var j: i64 = 0;
+        while (j < count - i - 1) {
+            var a: i64 = load64(&nums + j * 8);
+            var b: i64 = load64(&nums + (j + 1) * 8);
+            if (a > b) {
+                store64(&nums + j * 8, b);
+                store64(&nums + (j + 1) * 8, a);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    # Print sorted
+    i = 0;
+    while (i < count) {
+        print_num(load64(&nums + i * 8));
+        syscall(1, 1, "\n", 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+sort();
+syscall(60, 0);

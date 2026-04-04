@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 6 — Proving the language. 15 programs, 92 tests, wc beats GNU.
+- **Status**: Phase 5 — Proving the language. 15 programs, 102 tests, &&/||, wc beats GNU.
 
 ## Goal
 
@@ -79,31 +79,41 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 4. Rust seed archived, no longer in build path ✓
 5. No Rust, no LLVM, no Python in any build path ✓
 
-### Phase 4: Language Extensions (Internalized)
-1. cc.cyr — editable compiler in stage1f's language (self-hosting clone)
-2. Structs / composite types
-3. Typed pointers + multi-width load/store
-4. Module system (include)
-5. Inline assembly
-6. Self-hosting rewrite in extended language
-7. Progressive type checking
-8. Agent/capability attributes
+### Phase 4: Language Extensions (Done)
+1. cc.cyr → cc2 modular self-hosting compiler (7 modules, 150 functions) ✓
+2. Structs, pointers, >6 params, load/store 16/32/64 ✓
+3. Include, inline asm, elif, break/continue, type annotations ✓
+4. Duplicate var detection, error messages with token position ✓
+5. Self-hosting: cc2==cc3 byte-identical, 94 tests ✓
 
-### Phase 5: Multi-Architecture
-1. Factor codegen into backend interface
-2. aarch64 assembler + codegen + bootstrap
-3. Cross-compilation
+### Phase 5: Prove the Language (In Progress)
+1. 15 Linux programs ✓, benchmarks ✓
+2. Codegen bug investigated — not a bug ✓
+3. Logical &&/|| with short-circuit and chaining ✓
+4. Token arrays expanded 16384→32768 ✓
+5. Migrate Ark to Cyrius — first real-world project
 
-### Phase 6: Prove the Language
-1. Build real Linux binaries (cat, echo, wc)
-2. Migrate Ark package manager to Cyrius
-3. Benchmarks vs C, language ergonomics pass
+### Phase 6: Kernel Prerequisites
+1. Typed pointers with scaling, nested structs, global initializers
+2. Inline asm with mnemonics, bare metal ELF, interrupt handlers
+3. Bitfield access, linker control
 
-### Phase 7: Kernel
-1. AGNOS kernel in Cyrius (bare metal, interrupts, page tables)
-2. Agent/capability enforcement
+### Phase 7: Kernel (x86_64)
+1. Compile Linux kernel with Cyrius — the proof
+2. Boot the AGNOS kernel — GDT, IDT, page tables, interrupts
+3. Agent/capability enforcement
+4. Initial boot — full-featured AGNOS continues beyond Phase 11
 
-### Phase 8: Full Sovereignty
+### Phase 8: Audit + Refactor
+1. Clean up from kernel learnings
+
+### Phase 9: Multi-Architecture (aarch64)
+1. Factor codegen, port kernel
+
+### Phase 10: Prove at Scale
+1. Migrate Ark + AGNOS projects to Cyrius
+
+### Phase 11: Full Sovereignty
 1. AGNOS builds entirely with Cyrius on x86_64 + aarch64
 
 ## Key Principles
@@ -120,18 +130,45 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 Every feature follows this cycle. Skipping steps costs more time than it saves.
 
 ```
-1. RESEARCH  — Check vidya for existing patterns. If covered, go to 3.
-2. VIDYA     — Document patterns, gotchas, codegen examples BEFORE coding.
-3. PLAN      — Design from vidya patterns. Bite-sized: smallest testable unit.
-4. BUILD     — Implement. Scan for duplicate vars + brace balance before compiling.
-5. TEST      — Run test suite (sh stage1/test_cc.sh). Byte-exact where possible.
-6. AUDIT     — Full chain: bootstrap, all tests, self-hosting (cc2==cc3), SHA256.
-7. VIDYA     — Document what was learned. Bugs hit, patterns discovered, metrics.
+1. RESEARCH    — Check vidya for existing patterns. If covered, skip to 3.
+2. VIDYA       — Document patterns, gotchas, codegen BEFORE coding.
+3. BUILD       — ONE change at a time. Before compiling, check:
+                 ☐ Duplicate var scan (python3 scanner)
+                 ☐ Brace balance (tr -cd '{}' | awk)
+                 ☐ Bridge compiler supports syntax used in source
+                 ☐ Heap offset map (no collisions — see cc2.cyr header)
+4. TEST        — After EACH change, not after the feature:
+                 ☐ Basic: 'var x = 42;' → 42
+                 ☐ Feature-specific test case
+                 ☐ Reconverge: cc2==cc3 byte-identical
+                 ☐ Full suite only after basic passes
+5. IF BROKEN   — Revert to last known good (git checkout).
+                 Apply ONE change. Test. Repeat.
+                 If 3 attempts fail: defer, document root cause, move on.
+6. AUDIT       — Full chain: bootstrap, all suites, self-hosting, SHA256.
+7. VIDYA+DOCS  — Document findings: bugs, gotchas, metrics, deferred items.
+                 Update: changelog, roadmap, README, benchmarks.
+8. ALIGN       — After every major phase event (feature shipped, phase complete,
+                 milestone hit): align ALL docs to current state.
+                 ☐ README.md (status table, test counts, features)
+                 ☐ CLAUDE.md (phase statuses, metrics)
+                 ☐ roadmap.md (phase items, done/in-progress markers)
+                 ☐ cyrius.md (current state, lineage, phase descriptions)
+                 ☐ benchmarks.md (test counts, program counts)
+                 ☐ CHANGELOG.md (unreleased section accurate)
+                 ☐ process-notes.md (metrics, phase header)
+                 Numbers drift fast. One pass catches all of them.
 ```
 
-**Why this works:** Vidya front-loads the thinking. By step 4, there's nothing to figure out — just translate patterns into code. Time invested in vidya saves 10x in implementation. Evidence: structs (no vidya, hours of debugging) vs pointers (full vidya coverage, 15 lines, worked first try).
+**Why this works:** Vidya front-loads thinking — pointers took 15 lines because the pattern existed. Building programs is the best compiler fuzzer — the VCNT bug, data layout bug, and bridge compiler bug were all found by programs, not test cases. One-step-at-a-time debugging found break/continue's heap collision in 2 minutes.
 
-**Reference library:** `../vidya` — 141+ entries across compiler_bootstrapping, instruction_encoding, type_systems, code_generation, module_systems. Check it FIRST.
+**Key lessons:**
+- `var x = fn(); return x;` works correctly (investigated — not a codegen bug, was a testing artifact)
+- Bridge compiler (build/cc) determines what syntax source files can use
+- Test after EVERY change, not after the feature is "done"
+- 3 failed attempts = defer and document, don't keep hammering
+
+**Reference library:** `../vidya` — 78+ entries in compiler_bootstrapping alone. Check it FIRST.
 
 ## DO NOT
 

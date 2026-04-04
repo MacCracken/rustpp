@@ -9,13 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - cc2.cyr — modular compiler split into 7 files using include
   - cc2.cyr (entry), cc/util, cc/emit, cc/jump, cc/lex, cc/parse, cc/fixup
-  - Self-hosting: cc2==cc3 byte-identical, 51/51 tests
+  - Self-hosting: cc2==cc3 byte-identical, 61 compiler tests
 - Error messages: `error at token N (type=T)` replaces bare "syntax error"
 - Progressive type annotations: `var x: i64 = 42`, `fn f(a: i64, b: i64)` — parsed, no enforcement
-- 10 real Linux programs: true, false, echo, cat, head, tee, yes, nl, wc, rev
-  - 8 fully working, 2 with known data layout bugs (wc trailing byte, rev array ordering)
-  - 168-1696 bytes, 108-233x smaller than GNU equivalents
-  - 14 program tests (functionality + size checks)
+- 15 real Linux programs: true, false, echo, cat, head, tee, yes, nl, wc, rev, seq, tr, uniq, sum, grep
+  - 168-9864 bytes, 10-233x smaller than GNU equivalents
+  - 22 program tests (functionality + size checks)
+
+- Logical `&&` and `||` — short-circuit evaluation with chaining (a && b && c)
+  - ECONDCMP/ECONDOP/ECONDOPT/ECOND_AND/ECOND_OR/PATCHXP functions
+  - Extra patch mechanism for && false-branch forwarding
+  - 8 new tests (both operators, while support, else paths)
+- Token arrays expanded 16384→32768 (relocated to end of heap, 4 offset changes)
+  - Unblocked by investigating `var x = fn(); return x;` — works correctly, was not a bug
 
 ### Fixed
 - Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
@@ -23,10 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `break` and `continue` — loop control (single break per loop, nested loop support)
 - `elif` keyword — eliminates nested brace chains (recursive implementation, no arrays)
 - Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
-- All 10 programs fully working (rev fixed)
-- 5 new programs: seq, tr, uniq, sum, grep — all worked first try
+- All 15 programs fully working (rev fixed, 5 new: seq, tr, uniq, sum, grep — all worked first try)
 - Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
-- 92 total tests (59 cc + 11 asm + 22 programs), 15 programs total
+- 102 total tests (69 cc + 11 asm + 22 programs), 15 programs total
 - Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)

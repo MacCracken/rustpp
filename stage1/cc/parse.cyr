@@ -558,18 +558,8 @@ fn PARSE_ASSIGN(S) {
     return 0;
 }
 
-# Parse condition: expr OP expr — emit cmp + inverted jcc, return patch offset
-fn ECOND(S) {
-    PARSE_EXPR(S);
-    EPUSHR(S);
-    var op = PEEKT(S);
-    STI(S, GTI(S) + 1);
-    PARSE_EXPR(S);
-    EMOVCA(S);
-    EPOPR(S);
-    ECMPR(S);
-    # Inverted jump: == -> jne(0x85), != -> je(0x84), < -> jge(0x8D),
-    #   > -> jle(0x8E), <= -> jg(0x8F), >= -> jl(0x8C)
+# Emit inverted jcc for comparison op, return patch offset
+fn ECONDOP(S, op) {
     if (op == 17) { return EJCC(S, 0x85); }
     if (op == 18) { return EJCC(S, 0x84); }
     if (op == 19) { return EJCC(S, 0x8D); }
@@ -580,12 +570,91 @@ fn ECOND(S) {
     return 0;
 }
 
+# Emit NON-inverted jcc (for || true-branch)
+fn ECONDOPT(S, op) {
+    if (op == 17) { return EJCC(S, 0x84); }
+    if (op == 18) { return EJCC(S, 0x85); }
+    if (op == 19) { return EJCC(S, 0x8C); }
+    if (op == 20) { return EJCC(S, 0x8D); }
+    if (op == 21) { return EJCC(S, 0x8E); }
+    if (op == 22) { return EJCC(S, 0x8F); }
+    ERR(S);
+    return 0;
+}
+
+# Parse one comparison: expr OP expr — emit cmp, return op token
+fn ECONDCMP(S) {
+    PARSE_EXPR(S);
+    EPUSHR(S);
+    var op = PEEKT(S);
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    EMOVCA(S);
+    EPOPR(S);
+    ECMPR(S);
+    return op;
+}
+
+# Parse condition: expr OP expr [&& expr OP expr]* [|| expr OP expr]*
+# Returns patch offset for false branch. Extra patches stored via ADDXP.
+fn ECOND(S) {
+    SXPC(S, 0);
+    var op = ECONDCMP(S);
+    # Check for && or ||
+    if (PEEKT(S) == 53) {
+        return ECOND_AND(S, op);
+    }
+    if (PEEKT(S) == 54) {
+        return ECOND_OR(S, op);
+    }
+    return ECONDOP(S, op);
+}
+
+fn ECOND_AND(S, op) {
+    var p1 = ECONDOP(S, op);
+    ADDXP(S, p1);
+    STI(S, GTI(S) + 1);
+    var op2 = ECONDCMP(S);
+    # Chain: support a && b && c
+    if (PEEKT(S) == 53) {
+        return ECOND_AND(S, op2);
+    }
+    return ECONDOP(S, op2);
+}
+
+fn ECOND_OR(S, op) {
+    var ptrue = ECONDOPT(S, op);
+    STI(S, GTI(S) + 1);
+    var op2 = ECONDCMP(S);
+    # Chain: support a || b || c
+    if (PEEKT(S) == 54) {
+        EPATCH(S, ptrue);
+        return ECOND_OR(S, op2);
+    }
+    var pfalse = ECONDOP(S, op2);
+    EPATCH(S, ptrue);
+    return pfalse;
+}
+
+# Patch all extra condition patches (from &&) to current position
+fn PATCHXP(S) {
+    var xc = GXPC(S);
+    var xi = 0;
+    while (xi < xc) {
+        EPATCH(S, L64(S + 0x8F848 + xi * 8));
+        xi = xi + 1;
+    }
+    SXPC(S, 0);
+    return 0;
+}
+
 # Parse: if (cond) { stmts } [else { stmts }]
 # Parse elif chain as recursive: each elif is essentially else { if (...) { } ... }
 fn PARSE_ELIF(S, cond_patch) {
     # Emit jmp-to-end for previous branch
     var skip = EJMP0(S);
-    # Patch previous condition-false to land here
+    # Patch previous condition-false to land here (+ any && extras)
+    PATCHXP(S);
     EPATCH(S, cond_patch);
     # Parse new condition
     if (PEEKT(S) != 10) { ERR(S); }
@@ -605,6 +674,7 @@ fn PARSE_ELIF(S, cond_patch) {
     } else { if (PEEKT(S) == 23) {
         STI(S, GTI(S) + 1);
         var skip2 = EJMP0(S);
+        PATCHXP(S);
         EPATCH(S, patch);
         if (PEEKT(S) != 13) { ERR(S); }
         STI(S, GTI(S) + 1);
@@ -613,6 +683,7 @@ fn PARSE_ELIF(S, cond_patch) {
         STI(S, GTI(S) + 1);
         EPATCH(S, skip2);
     } else {
+        PATCHXP(S);
         EPATCH(S, patch);
     } }
     # Patch our skip-to-end
@@ -641,6 +712,7 @@ fn PARSE_IF(S) {
         # else
         STI(S, GTI(S) + 1);
         var skip = EJMP0(S);
+        PATCHXP(S);
         EPATCH(S, patch);
         if (PEEKT(S) != 13) { ERR(S); }
         STI(S, GTI(S) + 1);
@@ -649,6 +721,7 @@ fn PARSE_IF(S) {
         STI(S, GTI(S) + 1);
         EPATCH(S, skip);
     } else {
+        PATCHXP(S);
         EPATCH(S, patch);
     } }
     SLVAR(S, saved_lv);
@@ -676,6 +749,7 @@ fn PARSE_WHILE(S) {
     if (PEEKT(S) != 14) { ERR(S); }
     STI(S, GTI(S) + 1);
     EJMP(S, loop_top);
+    PATCHXP(S);
     EPATCH(S, patch);
     # Patch break jump if one was emitted (0x8F840 holds patch offset, 0 if none)
     var brk_patch = L64(S + 0x8F840);

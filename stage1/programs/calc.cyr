@@ -1,0 +1,70 @@
+# calc — evaluate simple arithmetic from stdin: "3 + 4" → 7
+# Exercises: &&, elif, load8, print_num, parsing
+# Usage: echo "10 + 32" | ./calc
+
+fn skip_ws(buf, pos, len) {
+    while (pos < len && load8(buf + pos) == 32) {
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn parse_int(buf, pos, len) {
+    var val: i64 = 0;
+    while (pos < len && load8(buf + pos) >= 48 && load8(buf + pos) <= 57) {
+        val = val * 10 + (load8(buf + pos) - 48);
+        pos = pos + 1;
+    }
+    # Store pos in global for caller to read back
+    store64(&calc_pos, pos);
+    return val;
+}
+
+fn print_num(n: i64) {
+    var pbuf[24];
+    var i: i64 = 23;
+    var neg: i64 = 0;
+    if (n < 0) { neg = 1; n = 0 - n; }
+    if (n == 0) { store8(&pbuf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&pbuf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    if (neg == 1) { store8(&pbuf + i, 45); i = i - 1; }
+    syscall(1, 1, &pbuf + i + 1, 23 - i);
+    return 0;
+}
+
+fn calc() {
+    var buf[256];
+    var n: i64 = syscall(0, 0, &buf, 256);
+    if (n <= 0) { return 0; }
+
+    var pos: i64 = 0;
+    pos = skip_ws(&buf, pos, n);
+    var left: i64 = parse_int(&buf, pos, n);
+    pos = load64(&calc_pos);
+    pos = skip_ws(&buf, pos, n);
+
+    var op: i64 = load8(&buf + pos);
+    pos = pos + 1;
+    pos = skip_ws(&buf, pos, n);
+
+    var right: i64 = parse_int(&buf, pos, n);
+
+    var result: i64 = 0;
+    if (op == 43) { result = left + right; }
+    elif (op == 45) { result = left - right; }
+    elif (op == 42) { result = left * right; }
+    elif (op == 47) { result = left / right; }
+    elif (op == 37) { result = left % right; }
+
+    print_num(result);
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+var calc_pos = 0;
+calc();
+syscall(60, 0);
