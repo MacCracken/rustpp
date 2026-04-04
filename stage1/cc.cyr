@@ -1,0 +1,684 @@
+# ================================================================
+# Cyrius Compiler (cc) — Phase 4 Editable Compiler
+# ================================================================
+# Compiles the stage1f language to x86_64 ELF.
+# Written in stage1f's language, compiled by stage1f.
+# Goal: self-hosting, then extensible with new features.
+#
+# V0: var x = expr; with arithmetic (+,-,*,/)
+#
+# Heap layout (S = brk base, mirrors stage1f):
+#   0x00000  input_buf  [65536]
+#   0x10000  tok_types  [32768, 4096*8]
+#   0x18000  tok_values [32768, 4096*8]
+#   0x20000  tok_names  [32768]
+#   0x28000  var_noffs  [2048, 256*8]
+#   0x28800  var_sizes  [2048, 256*8]
+#   0x29000  codebuf    [65536]
+#   0x39000  str_data   [4096]
+#   0x39800  str_pos    [8]
+#   0x39808  data_size  [8]
+#   0x3A000  output_buf [131072]
+#   0x5A000  fixup_tbl  [8192, 512*16]
+#   0x5C000  fixup_cnt  [8]
+#   0x5C008  last_var   [8]
+#
+# State vars (S + 0x5C100):
+#   +0  BL       input length
+#   +8  CP       code position (r13 equivalent)
+#   +16 VCNT     variable count (r14 equivalent)
+#   +24 TCNT     token count (r10 equivalent)
+#   +32 TI       token index / parser cursor (r11 equivalent)
+#   +40 NPOS     name buffer position (r9 equivalent)
+#
+# Token types (same as stage1f):
+#   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI
+#   6=PLUS 7=MINUS 8=STAR 9=SLASH 10=LPAREN 11=RPAREN 12=EOF
+
+# ================================================================
+# 64-BIT MEMORY HELPERS
+# ================================================================
+
+fn S64(a, v) {
+    store8(a, v & 0xFF);
+    store8(a + 1, v >> 8 & 0xFF);
+    store8(a + 2, v >> 16 & 0xFF);
+    store8(a + 3, v >> 24 & 0xFF);
+    store8(a + 4, v >> 32 & 0xFF);
+    store8(a + 5, v >> 40 & 0xFF);
+    store8(a + 6, v >> 48 & 0xFF);
+    store8(a + 7, v >> 56 & 0xFF);
+    return 0;
+}
+
+fn L64(a) {
+    var v = load8(a);
+    v = v | (load8(a + 1) << 8);
+    v = v | (load8(a + 2) << 16);
+    v = v | (load8(a + 3) << 24);
+    v = v | (load8(a + 4) << 32);
+    v = v | (load8(a + 5) << 40);
+    v = v | (load8(a + 6) << 48);
+    v = v | (load8(a + 7) << 56);
+    return v;
+}
+
+# ================================================================
+# STATE ACCESSORS
+# ================================================================
+
+fn GBL(S) { return L64(S + 0x5C100); }
+fn SBL(S, v) { S64(S + 0x5C100, v); return 0; }
+fn GCP(S) { return L64(S + 0x5C108); }
+fn SCP(S, v) { S64(S + 0x5C108, v); return 0; }
+fn GVCNT(S) { return L64(S + 0x5C110); }
+fn SVCNT(S, v) { S64(S + 0x5C110, v); return 0; }
+fn GTCNT(S) { return L64(S + 0x5C118); }
+fn STCNT(S, v) { S64(S + 0x5C118, v); return 0; }
+fn GTI(S) { return L64(S + 0x5C120); }
+fn STI(S, v) { S64(S + 0x5C120, v); return 0; }
+fn GNPOS(S) { return L64(S + 0x5C128); }
+fn SNPOS(S, v) { S64(S + 0x5C128, v); return 0; }
+
+# Fixup count
+fn GFCNT(S) { return L64(S + 0x5C000); }
+fn SFCNT(S, v) { S64(S + 0x5C000, v); return 0; }
+# Last var index
+fn GLVAR(S) { return L64(S + 0x5C008); }
+fn SLVAR(S, v) { S64(S + 0x5C008, v); return 0; }
+# String pos
+fn GSPOS(S) { return L64(S + 0x39800); }
+fn SSPOS(S, v) { S64(S + 0x39800, v); return 0; }
+
+fn ERR(S) {
+    syscall(1, 2, "syntax error\n", 13);
+    syscall(60, 1);
+    return 0;
+}
+
+# ================================================================
+# CODE EMISSION (writes to codebuf at S+0x29000+CP)
+# ================================================================
+
+fn EB(S, b) {
+    var cp = GCP(S);
+    store8(S + 0x29000 + cp, b & 0xFF);
+    SCP(S, cp + 1);
+    return 0;
+}
+
+fn E2(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    return 0;
+}
+
+fn E8(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF);
+    EB(S, v >> 24 & 0xFF);
+    EB(S, v >> 32 & 0xFF);
+    EB(S, v >> 40 & 0xFF);
+    EB(S, v >> 48 & 0xFF);
+    EB(S, v >> 56 & 0xFF);
+    return 0;
+}
+
+# emit "mov rax, imm64" — 48 B8 <imm64>
+fn EMOVI(S, v) {
+    E2(S, 0xB848);
+    E8(S, v);
+    return 0;
+}
+
+# emit "mov rcx, imm64" — 48 B9 <imm64>
+fn EMOVC(S, v) {
+    E2(S, 0xB948);
+    E8(S, v);
+    return 0;
+}
+
+# emit 3-byte instruction from packed value
+fn E3(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF);
+    return 0;
+}
+
+# Standard codegen emissions (match stage1f exactly)
+fn EPUSHR(S) { EB(S, 0x50); return 0; }                  # push rax
+fn EPOPC(S) { EB(S, 0x59); return 0; }                   # pop rcx
+fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
+fn EMOVCA(S) { E3(S, 0xC18948); return 0; }              # mov rcx, rax
+fn EADDR(S) { E3(S, 0xC80148); return 0; }               # add rax, rcx
+fn ESUBR(S) { E3(S, 0xC82948); return 0; }               # sub rax, rcx
+fn EIMUL(S) { E3(S, 0xE9F748); return 0; }               # imul rcx
+fn ECQO(S) { E2(S, 0x9948); return 0; }                  # cqo
+fn EIDIV(S) { E3(S, 0xF9F748); return 0; }               # idiv rcx
+fn EMOVDR(S) { E3(S, 0xD08948); return 0; }              # mov rax, rdx (for mod)
+fn ELODC(S) { E3(S, 0x018B48); return 0; }               # mov rax, [rcx]
+fn ESTOC(S) { E3(S, 0x018948); return 0; }               # mov [rcx], rax
+fn ECMPR(S) { E3(S, 0xC83948); return 0; }               # cmp rax, rcx
+fn EMOVRDI(S) { E3(S, 0xC78948); return 0; }             # mov rdi, rax
+fn ESYSCALL(S) { E2(S, 0x050F); return 0; }              # syscall
+
+# Record fixup: (codebuf_offset=CP, var_index) in fixup table
+fn RECFIX(S, idx) {
+    var fc = GFCNT(S);
+    var addr = S + 0x5A000 + fc * 16;
+    S64(addr, GCP(S));
+    S64(addr + 8, idx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# emit var_store: mov rcx, <placeholder>; mov [rcx], rax + record fixup
+fn EVSTORE(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    ESTOC(S);
+    return 0;
+}
+
+# emit var_load: mov rcx, <placeholder>; mov rax, [rcx] + record fixup
+fn EVLOAD(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    ELODC(S);
+    return 0;
+}
+
+# emit exit epilogue: mov rdi, rax; mov rax, 60; syscall
+fn EEXIT(S) {
+    EMOVRDI(S);
+    EMOVI(S, 60);
+    ESYSCALL(S);
+    return 0;
+}
+
+# ================================================================
+# TOKEN ACCESS
+# ================================================================
+
+fn TOKTYP(S, i) { return L64(S + 0x10000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x18000 + i * 8); }
+fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
+fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
+
+# ================================================================
+# LEXER — tokenizes input at S+0 into tok arrays
+# ================================================================
+
+# Store a token
+fn ADDTOK(S, typ, val) {
+    var tc = GTCNT(S);
+    S64(S + 0x10000 + tc * 8, typ);
+    S64(S + 0x18000 + tc * 8, val);
+    STCNT(S, tc + 1);
+    return 0;
+}
+
+# Classify character: 0=other, 1=ws, 2=digit, 3=lower, 4=upper, 5=underscore
+fn CCLASS(c) {
+    if (c == 32) { return 1; }
+    if (c == 9) { return 1; }
+    if (c == 10) { return 1; }
+    if (c == 13) { return 1; }
+    if (c >= 48) { if (c <= 57) { return 2; } }
+    if (c >= 97) { if (c <= 122) { return 3; } }
+    if (c >= 65) { if (c <= 90) { return 4; } }
+    if (c == 95) { return 5; }
+    return 0;
+}
+
+fn ISALNUM(c) {
+    var cl = CCLASS(c);
+    if (cl >= 2) { return 1; }
+    return 0;
+}
+
+# Lex hex number after 0x prefix
+fn LEXHEX(S, p) {
+    var val = 0;
+    var go = 1;
+    while (go == 1) {
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = load8(S + p);
+            var hd = 0 - 1;
+            if (c >= 48) { if (c <= 57) { hd = c - 48; } }
+            if (c >= 97) { if (c <= 102) { hd = c - 87; } }
+            if (c >= 65) { if (c <= 70) { hd = c - 55; } }
+            if (hd >= 0) { val = val << 4 | hd; p = p + 1; }
+            else { go = 0; }
+        }
+    }
+    ADDTOK(S, 1, val);
+    return p;
+}
+
+# Lex decimal number
+fn LEXDEC(S, p) {
+    var c = load8(S + p);
+    var val = c - 48;
+    p = p + 1;
+    var go = 1;
+    while (go == 1) {
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            c = load8(S + p);
+            if (c >= 48) {
+                if (c <= 57) { val = val * 10 + (c - 48); p = p + 1; }
+                else { go = 0; }
+            } else { go = 0; }
+        }
+    }
+    ADDTOK(S, 1, val);
+    return p;
+}
+
+# Lex a number starting at p, return new p
+fn LEXNUM(S, p) {
+    var c = load8(S + p);
+    if (c == 48) {
+        if (p + 1 < GBL(S)) {
+            if (load8(S + p + 1) == 120) {
+                return LEXHEX(S, p + 2);
+            }
+        }
+    }
+    return LEXDEC(S, p);
+}
+
+# Lex an identifier starting at p, return new p. Stores token.
+fn LEXID(S, p, npos) {
+    var bl = GBL(S);
+    var ws = npos;
+    var go = 1;
+    while (go == 1) {
+        if (p >= bl) { go = 0; }
+        if (go == 1) {
+            var c = load8(S + p);
+            if (ISALNUM(c) == 1) {
+                store8(S + 0x20000 + npos, c);
+                npos = npos + 1;
+                p = p + 1;
+            } else { go = 0; }
+        }
+    }
+    store8(S + 0x20000 + npos, 0);
+    npos = npos + 1;
+    SNPOS(S, npos);
+    # Check keywords
+    var kw = L64(S + 0x20000 + ws);
+    var klen = npos - ws - 1;
+    if (klen == 3) { if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; } }
+    ADDTOK(S, 2, ws);
+    return p;
+}
+
+fn LEX(S) {
+    var p = 0;
+    var bl = GBL(S);
+    STCNT(S, 0);
+    SNPOS(S, 0);
+    while (p < bl) {
+        var c = load8(S + p);
+        var cl = CCLASS(c);
+        # Whitespace — skip
+        if (cl == 1) { p = p + 1; }
+        # Comment — skip to newline
+        else { if (c == 35) {
+            p = p + 1;
+            var cgo = 1;
+            while (cgo == 1) {
+                if (p >= bl) { cgo = 0; }
+                if (cgo == 1) {
+                    if (load8(S + p) == 10) { p = p + 1; cgo = 0; }
+                    else { p = p + 1; }
+                }
+            }
+        }
+        # Digit
+        else { if (cl == 2) { p = LEXNUM(S, p); }
+        # Letter (lower or upper) or underscore
+        else { if (cl >= 3) { p = LEXID(S, p, GNPOS(S)); }
+        # Single/double char tokens
+        else { if (c == 61) {
+            if (p + 1 < bl) {
+                if (load8(S + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
+                else { ADDTOK(S, 4, 0); p = p + 1; }
+            } else { ADDTOK(S, 4, 0); p = p + 1; }
+        }
+        else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
+        else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
+        else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
+        else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
+        else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
+        else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
+        else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }
+        else { p = p + 1; }
+        } } } } } } }
+        } } } }
+    }
+    ADDTOK(S, 12, 0);
+    return 0;
+}
+
+# ================================================================
+# PARSER + CODEGEN — recursive descent, direct emission
+# ================================================================
+
+# Forward declarations needed: parse_expr calls parse_term calls parse_factor
+# In stage1f's language, forward calls work for fn definitions.
+
+fn PARSE_FACTOR(S) {
+    var typ = PEEKT(S);
+    if (typ == 1) {
+        # NUM — emit mov rax, imm64
+        var val = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        EMOVI(S, val);
+        return 0;
+    }
+    if (typ == 2) {
+        # IDENT — variable load
+        var noff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        # Find variable index
+        var vcnt = GVCNT(S);
+        var vi = 0;
+        var found = 0 - 1;
+        while (vi < vcnt) {
+            # Compare names using packed qword
+            var stored = L64(S + 0x28000 + vi * 8);
+            var sname = L64(S + 0x20000 + stored);
+            var lname = L64(S + 0x20000 + noff);
+            if (sname == lname) { found = vi; vi = vcnt; }
+            else { vi = vi + 1; }
+        }
+        if (found < 0) { ERR(S); }
+        EVLOAD(S, found);
+        return 0;
+    }
+    if (typ == 10) {
+        # LPAREN — ( expr )
+        STI(S, GTI(S) + 1);
+        PARSE_EXPR(S);
+        if (PEEKT(S) != 11) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        return 0;
+    }
+    ERR(S);
+    return 0;
+}
+
+fn PARSE_TERM(S) {
+    PARSE_FACTOR(S);
+    var go = 1;
+    while (go == 1) {
+        var typ = PEEKT(S);
+        if (typ == 8) {
+            # STAR — multiply
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_FACTOR(S);
+            EMOVCA(S);
+            EPOPR(S);
+            EIMUL(S);
+        }
+        else { if (typ == 9) {
+            # SLASH — divide
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_FACTOR(S);
+            EMOVCA(S);
+            EPOPR(S);
+            ECQO(S);
+            EIDIV(S);
+        }
+        else { go = 0; }
+        }
+    }
+    return 0;
+}
+
+fn PARSE_EXPR(S) {
+    PARSE_TERM(S);
+    var go = 1;
+    while (go == 1) {
+        var typ = PEEKT(S);
+        if (typ == 6) {
+            # PLUS
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_TERM(S);
+            EMOVCA(S);
+            EPOPR(S);
+            EADDR(S);
+        }
+        else { if (typ == 7) {
+            # MINUS
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_TERM(S);
+            EMOVCA(S);
+            EPOPR(S);
+            ESUBR(S);
+        }
+        else { go = 0; }
+        }
+    }
+    return 0;
+}
+
+# Parse: var IDENT = expr ;
+fn PARSE_VAR(S) {
+    STI(S, GTI(S) + 1);  # consume VAR
+    # expect IDENT
+    if (PEEKT(S) != 2) { ERR(S); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # expect EQ
+    if (PEEKT(S) != 4) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    # parse expression
+    PARSE_EXPR(S);
+    # register variable
+    var vcnt = GVCNT(S);
+    S64(S + 0x28000 + vcnt * 8, noff);
+    S64(S + 0x28800 + vcnt * 8, 8);
+    EVSTORE(S, vcnt);
+    SLVAR(S, vcnt);
+    SVCNT(S, vcnt + 1);
+    # expect SEMI
+    if (PEEKT(S) != 5) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+fn PARSE_PROG(S) {
+    var go = 1;
+    while (go == 1) {
+        var typ = PEEKT(S);
+        if (typ == 12) { go = 0; }
+        else { if (typ == 3) { PARSE_VAR(S); }
+        else { ERR(S); } }
+    }
+    return 0;
+}
+
+# ================================================================
+# FIXUP — patch variable addresses after codegen
+# ================================================================
+
+fn FIXUP(S) {
+    # Align code to 8
+    var cp = GCP(S);
+    while (cp % 8 != 0) {
+        EB(S, 0x90);
+        cp = cp + 1;
+    }
+    SCP(S, cp);
+    var acp = cp;
+    # data_base = 0x400078 + aligned code size
+    var dbase = 0x400078 + acp;
+    # Compute total var bytes
+    var vcnt = GVCNT(S);
+    var totvar = 0;
+    var vi = 0;
+    while (vi < vcnt) {
+        totvar = totvar + L64(S + 0x28800 + vi * 8);
+        vi = vi + 1;
+    }
+    # Walk fixup table
+    var fcnt = GFCNT(S);
+    var fi = 0;
+    while (fi < fcnt) {
+        var faddr = S + 0x5A000 + fi * 16;
+        var coff = L64(faddr);
+        var idx = L64(faddr + 8);
+        # Compute cumulative offset for var[idx]
+        var cumul = 0;
+        vi = 0;
+        while (vi < idx) {
+            cumul = cumul + L64(S + 0x28800 + vi * 8);
+            vi = vi + 1;
+        }
+        var addr = dbase + cumul;
+        # Patch codebuf at coff
+        S64(S + 0x29000 + coff, addr);
+        fi = fi + 1;
+    }
+    # Store data_size
+    S64(S + 0x39808, totvar);
+    return 0;
+}
+
+# ================================================================
+# ELF EMISSION
+# ================================================================
+
+fn EMITELF(S) {
+    var cp = GCP(S);
+    var totvar = L64(S + 0x39808);
+    var spos = GSPOS(S);
+    var filesz = 120 + cp + totvar + spos;
+    # Align to 8
+    filesz = (filesz + 7) & (0 - 8);
+    var memsz = filesz + 4096;
+    # Write ELF to output_buf at S+0x3A000
+    var O = S + 0x3A000;
+    var op = 0;
+    # ELF header (64 bytes) — as qwords
+    S64(O + op, 0x00010102464C457F); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x00000001003E0002); op = op + 8;
+    S64(O + op, 0x0000000000400078); op = op + 8;
+    S64(O + op, 0x0000000000000040); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x0038004000000000); op = op + 8;
+    S64(O + op, 0x0000000000400001); op = op + 8;
+    # Program header (56 bytes)
+    # p_type=1, p_flags=7 (RWX for writable vars)
+    S64(O + op, 0x0000000700000001); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x0000000000400000); op = op + 8;
+    S64(O + op, 0x0000000000400000); op = op + 8;
+    S64(O + op, filesz); op = op + 8;
+    S64(O + op, memsz); op = op + 8;
+    S64(O + op, 0x0000000000001000); op = op + 8;
+    # Code (cp bytes)
+    var i = 0;
+    while (i < cp) {
+        store8(O + op, load8(S + 0x29000 + i));
+        op = op + 1;
+        i = i + 1;
+    }
+    # Variable data (zeroed)
+    i = 0;
+    while (i < totvar) {
+        store8(O + op, 0);
+        op = op + 1;
+        i = i + 1;
+    }
+    # String data
+    i = 0;
+    while (i < spos) {
+        store8(O + op, load8(S + 0x39000 + i));
+        op = op + 1;
+        i = i + 1;
+    }
+    # Align op to 8
+    while (op % 8 != 0) {
+        store8(O + op, 0);
+        op = op + 1;
+    }
+    S64(S + 0x5C130, op);
+    return 0;
+}
+
+# ================================================================
+# MAIN
+# ================================================================
+
+# Allocate heap
+var S = syscall(12, 0);
+syscall(12, S + 0x5D000);
+
+# Zero state
+S64(S + 0x5C100, 0);
+S64(S + 0x5C108, 0);
+S64(S + 0x5C110, 0);
+S64(S + 0x5C118, 0);
+S64(S + 0x5C120, 0);
+S64(S + 0x5C128, 0);
+S64(S + 0x5C000, 0);
+S64(S + 0x5C008, 0 - 1);
+S64(S + 0x39800, 0);
+
+# Read input
+var bl = 0;
+var done = 0;
+while (done == 0) {
+    var n = syscall(0, 0, S + bl, 65536 - bl);
+    if (n <= 0) { done = 1; }
+    else {
+        bl = bl + n;
+        if (bl >= 65536) { done = 1; }
+    }
+}
+SBL(S, bl);
+
+# Lex
+LEX(S);
+
+# Parse — emit initial jmp over fn bodies (matches stage1f)
+# stage1f emits: E9 00 00 00 00 (jmp +0 placeholder)
+EB(S, 0xE9);
+var jmp_patch = GCP(S);
+EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+# No functions in V0 — patch jmp to land here
+var here = GCP(S);
+var rel = here - jmp_patch - 4;
+S64(S + 0x29000 + jmp_patch, (L64(S + 0x29000 + jmp_patch) >> 32 << 32) | (rel & 0xFFFFFFFF));
+
+# Parse program
+STI(S, 0);
+PARSE_PROG(S);
+
+# Exit epilogue — load last var
+var lv = GLVAR(S);
+if (lv >= 0) { EVLOAD(S, lv); }
+EEXIT(S);
+
+# Fixup + ELF + write
+FIXUP(S);
+EMITELF(S);
+var olen = L64(S + 0x5C130);
+syscall(1, 1, S + 0x3A000, olen);
+syscall(60, 0);

@@ -1,6 +1,41 @@
-# Process Notes — Phase 0 Build
+# Process Notes
 
-> Observations from building rustc from source. These inform what Cyrius must fix.
+> Development observations across all phases.
+
+---
+
+## Date: 2026-04-04 — Phase 3 Complete: Rust Independence
+
+### What We Did
+
+1. Built stage1e (bitwise ops: % & | ^ ~ << >>, hex literals, comments, uppercase idents — 63 tests)
+2. Built stage1f (token scaling: 4096→16384 slots — mechanical offset change)
+3. Wrote asm.cyr (self-hosting assembler: 1128 lines, 43 mnemonics, two-pass, heap-based state)
+4. Achieved bootstrap closure: seed→stage1f→asm→stage1f_v2 byte-identical
+5. Committed bootstrap binary (bootstrap/asm, 29KB) + bootstrap.sh
+6. Archived Rust seed (archive/seed/), deinited upstream submodule (saved 13GB)
+7. Cyrius now bootstraps with: `sh bootstrap/bootstrap.sh` — no Rust, no LLVM, no Python
+
+### Key Bugs Found
+
+1. **Duplicate var names create separate stack slots** — declaring `var val` in two branches of the same function creates two separate local slots. The compiler allocates ALL var declarations during parsing regardless of control flow. Fix: split into separate functions (SHEX/SDEC for hex/decimal parsing).
+2. **fn-before-var ordering** — stage1f's parser requires all fn definitions before var declarations. Functions can't reference globals. Fix: heap-based state (S pointer + fixed offsets), passed as first param to every function.
+3. **Return value 0 vs -1 for try-parse** — DO_ALU2 returned 0 on success (reg,reg handled), but 0 is rax's register code. Caller treated 0 as "unhandled, try immediate." Fix: return -1 for "handled," positive register code for "unhandled."
+4. **Input buffer overflow** — stage1d.cyr (73KB) didn't fit in 64KB input buffer. Silent truncation, labels past the cutoff couldn't be found. Fix: increased to 128KB.
+
+### Architecture Decisions
+
+- **Heap state pattern**: All assembler state lives at fixed offsets from a heap base pointer (S). Every function takes S as its first parameter. This mirrors stage1f's own r15+offset pattern but at the high-level language layer.
+- **Packed word comparison**: Mnemonics dispatched by packing identifier bytes into a 64-bit value and comparing against precomputed constants — same technique stage1f's lexer uses for keywords.
+- **Incremental testing**: Each mnemonic addition verified by byte-exact comparison with seed output. Caught encoding errors immediately rather than at integration time.
+
+### What Worked Well
+
+- Bite-sized approach: V1 (8 mnemonics) → V2a (memory operands) → V2b (everything else). Each step tested independently.
+- Byte-exact comparison as gold standard — caught every encoding bug.
+- vidya reference material (instruction_encoding, compiler_bootstrapping) prevented several encoding mistakes.
+
+---
 
 ## Date: 2026-04-03
 

@@ -59,7 +59,7 @@
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | cc.cyr — base compiler (stage1f language clone) | Not started | Written in stage1f's language, self-hosting test |
+| 1 | cc.cyr — base compiler (stage1f language clone) | In progress | Lexer + parser + codegen working for literals. Byte-exact for `var x = 42;`. Variable refs in expressions next. |
 | 2 | >6 function parameters | Not started | Stack-passed extras beyond System V's 6 regs |
 | 3 | Structs / composite types | Not started | Heap-allocated, compiler-computed offsets, pass by pointer |
 | 4 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |
