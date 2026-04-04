@@ -33,6 +33,7 @@
 #   0x2C00  codebuf      [4096 bytes]
 #   0x3C00  string_data  [512 bytes, compiler-side string literals]
 #   0x3E00  string_pos   [8 bytes]
+#   0x3E08  data_size    [8 bytes, total variable data bytes]
 #   0x4000  output_buf   [6144 bytes]
 #   0x5800  fixup_table  [1024 bytes, 64 entries * 16]
 #   0x5C00  fixup_count  [8 bytes]

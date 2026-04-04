@@ -19,7 +19,8 @@ rustc 1.96.0-dev (built from source)
   → cyrius-seed (Rust, 69 mnemonics, 195 tests)
     → stage1a (2641-byte .cyr binary, 16 tests)
       → stage1b (5235-byte .cyr binary, 39 tests)
-        → generated ELF programs (184-384 bytes)
+        → stage1c (7581-byte .cyr binary, 21 tests)
+          → generated ELF programs with I/O
 ```
 
 ## Project Structure
@@ -58,7 +59,7 @@ rustc 1.96.0-dev (built from source)
 1. cyrius-seed — stage 0 assembler ✓
 2. stage1a — expression evaluator compiler ✓
 3. stage1b — control flow (if/else, while) ✓
-4. stage1c — memory + syscalls ← next
+4. stage1c — memory + syscalls ✓
 5. stage1d — functions
 
 ### Phase 3: Self-Hosting Bootstrap
