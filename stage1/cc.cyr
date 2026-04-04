@@ -194,7 +194,13 @@ fn ECMPR(S) { E3(S, 0xC83948); return 0; }               # cmp rax, rcx
 fn EMOVRDI(S) { E3(S, 0xC78948); return 0; }             # mov rdi, rax
 fn ESYSCALL(S) { E2(S, 0x050F); return 0; }              # syscall
 fn ELOAD8(S) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x00); return 0; }  # movzx rax, byte [rax]
+fn ELOAD16(S) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x00); return 0; }            # movzx eax, word [rax]
+fn ELOAD32(S) { EB(S, 0x8B); EB(S, 0x00); return 0; }                          # mov eax, [rax] (32-bit, zero-extends)
+fn ELOAD64(S) { E3(S, 0x008B48); return 0; }                                    # mov rax, [rax]
 fn ESTORE8(S) { E2(S, 0x0188); return 0; }              # mov byte [rcx], al
+fn ESTORE16(S) { EB(S, 0x66); E2(S, 0x0189); return 0; }                       # mov word [rcx], ax (0x66 prefix)
+fn ESTORE32(S) { E2(S, 0x0189); return 0; }                                     # mov dword [rcx], eax
+fn ESTORE64(S) { E3(S, 0x018948); return 0; }                                   # mov qword [rcx], rax
 fn EXORAA(S) { E3(S, 0xC03148); return 0; }             # xor rax, rax
 # Bitwise
 fn EANDR(S) { E3(S, 0xC82148); return 0; }              # and rax, rcx
@@ -456,9 +462,23 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x003865726F7473) { ADDTOK(S, 26, 0); return p; }
         # "struct" = 0x00746375727473
         if (kw & 0xFFFFFFFFFFFFFF == 0x746375727473) { ADDTOK(S, 40, 0); return p; }
+        # "load16" = 0x363164616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x363164616F6C) { ADDTOK(S, 42, 0); return p; }
+        # "load32" = 0x323364616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x323364616F6C) { ADDTOK(S, 43, 0); return p; }
+        # "load64" = 0x343664616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
     }
-    # "syscall" = 0x006C6C6163737973 (7 bytes)
-    if (klen == 7) { if (kw & 0xFFFFFFFFFFFFFF == 0x6C6C6163737973) { ADDTOK(S, 24, 0); return p; } }
+    if (klen == 7) {
+        # "syscall" = 0x006C6C6163737973
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C6C6163737973) { ADDTOK(S, 24, 0); return p; }
+        # "store16" = 0x363165726F7473
+        if (kw & 0xFFFFFFFFFFFFFF == 0x363165726F7473) { ADDTOK(S, 45, 0); return p; }
+        # "store32" = 0x323365726F7473
+        if (kw & 0xFFFFFFFFFFFFFF == 0x323365726F7473) { ADDTOK(S, 46, 0); return p; }
+        # "store64" = 0x343665726F7473
+        if (kw & 0xFFFFFFFFFFFFFF == 0x343665726F7473) { ADDTOK(S, 47, 0); return p; }
+    }
     ADDTOK(S, 2, ws);
     return p;
 }
@@ -809,29 +829,77 @@ fn PARSE_FACTOR(S) {
     if (typ == 25) {
         # load8(addr)
         STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 10) { ERR(S); }
-        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
         PARSE_EXPR(S);
-        if (PEEKT(S) != 11) { ERR(S); }
-        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
         ELOAD8(S);
+        return 0;
+    }
+    if (typ == 42) {
+        # load16(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        ELOAD16(S);
+        return 0;
+    }
+    if (typ == 43) {
+        # load32(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        ELOAD32(S);
+        return 0;
+    }
+    if (typ == 44) {
+        # load64(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        ELOAD64(S);
         return 0;
     }
     if (typ == 26) {
         # store8(addr, val)
         STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 10) { ERR(S); }
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPOPC(S); ESTORE8(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 45) {
+        # store16(addr, val)
         STI(S, GTI(S) + 1);
-        PARSE_EXPR(S);
-        EPUSHR(S);
-        if (PEEKT(S) != 31) { ERR(S); }
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPOPC(S); ESTORE16(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 46) {
+        # store32(addr, val)
         STI(S, GTI(S) + 1);
-        PARSE_EXPR(S);
-        EPOPC(S);
-        ESTORE8(S);
-        EXORAA(S);
-        if (PEEKT(S) != 11) { ERR(S); }
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPOPC(S); ESTORE32(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 47) {
+        # store64(addr, val)
         STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+        PARSE_EXPR(S); EPOPC(S); ESTORE64(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
         return 0;
     }
     if (typ == 37) {
@@ -1444,6 +1512,9 @@ fn PARSE_STMT(S) {
     if (typ == 24) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 26) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 25) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    if (typ == 45) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    if (typ == 46) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    if (typ == 47) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 2) {
         # Could be assignment or fn call as statement
         var noff = PEEKV(S);
