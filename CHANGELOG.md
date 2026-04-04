@@ -20,8 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
 - wc trailing byte: now outputs clean numbers
-- All 10 programs fully working (rev fixed — duplicate var k split into separate function)
-- 83 total tests (56 cc + 11 asm + 16 programs)
+- `elif` keyword — eliminates nested brace chains (recursive implementation, no arrays)
+- Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
+- All 10 programs fully working (rev fixed)
+- 86 total tests (59 cc + 11 asm + 16 programs)
+- Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
 

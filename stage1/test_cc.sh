@@ -176,6 +176,12 @@ var x = 10 + y;" 42
 rm -f /tmp/cyr_inc_$$
 echo ""
 
+echo "-- Elif (cc-only) --"
+run_test_cc "elif_match" 'var x = 3; if (x == 1) { x = 10; } elif (x == 2) { x = 20; } elif (x == 3) { x = 42; } else { x = 99; }' 42
+run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x = 20; } else { x = 42; }' 42
+run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
+echo ""
+
 echo "-- Type Annotations (cc-only) --"
 run_test_cc "typed_var"  'var x: i64 = 42;' 42
 run_test_cc "typed_fn"   'fn add(a: i64, b: i64) { return a + b; } var x = add(20, 22);' 42

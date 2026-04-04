@@ -581,6 +581,45 @@ fn ECOND(S) {
 }
 
 # Parse: if (cond) { stmts } [else { stmts }]
+# Parse elif chain as recursive: each elif is essentially else { if (...) { } ... }
+fn PARSE_ELIF(S, cond_patch) {
+    # Emit jmp-to-end for previous branch
+    var skip = EJMP0(S);
+    # Patch previous condition-false to land here
+    EPATCH(S, cond_patch);
+    # Parse new condition
+    if (PEEKT(S) != 10) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    # Check for more elif/else
+    if (PEEKT(S) == 50) {
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF(S, patch);
+    } else { if (PEEKT(S) == 23) {
+        STI(S, GTI(S) + 1);
+        var skip2 = EJMP0(S);
+        EPATCH(S, patch);
+        if (PEEKT(S) != 13) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        PARSE_PROG(S);
+        if (PEEKT(S) != 14) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        EPATCH(S, skip2);
+    } else {
+        EPATCH(S, patch);
+    } }
+    # Patch our skip-to-end
+    EPATCH(S, skip);
+    return 0;
+}
+
 fn PARSE_IF(S) {
     STI(S, GTI(S) + 1);  # consume IF
     var saved_lv = GLVAR(S);
@@ -594,7 +633,11 @@ fn PARSE_IF(S) {
     PARSE_PROG(S);
     if (PEEKT(S) != 14) { ERR(S); }
     STI(S, GTI(S) + 1);  # consume }
-    if (PEEKT(S) == 23) {
+    if (PEEKT(S) == 50) {
+        # elif
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF(S, patch);
+    } else { if (PEEKT(S) == 23) {
         # else
         STI(S, GTI(S) + 1);
         var skip = EJMP0(S);
@@ -607,7 +650,7 @@ fn PARSE_IF(S) {
         EPATCH(S, skip);
     } else {
         EPATCH(S, patch);
-    }
+    } }
     SLVAR(S, saved_lv);
     return 0;
 }

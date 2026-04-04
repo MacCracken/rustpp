@@ -214,7 +214,11 @@ fn LEXID(S, p, npos) {
         # "asm" = 0x006D7361
         if (kw & 0xFFFFFFFF == 0x006D7361) { ADDTOK(S, 48, 0); return p; }
     }
-    if (klen == 4) { if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; } }
+    if (klen == 4) {
+        if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }
+        # "elif" = 0x66696C65
+        if (kw & 0xFFFFFFFF == 0x66696C65) { ADDTOK(S, 50, 0); return p; }
+    }
     if (klen == 5) {
         if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }
         # "load8" = 0x00003864616F6C
