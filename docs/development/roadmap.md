@@ -38,8 +38,8 @@ Seven-stage compiler chain from assembly seed to token-scaled compiler:
 |---|------|--------|-------|
 | 1 | cc.cyr — self-hosting compiler | Done | 1467 lines, 43504-byte binary, compiles itself byte-identical in 9ms |
 | 2 | Benchmark suite (v1) | Done | Bootstrap 41ms, self-compile 9ms, asm 1.3M lines/sec |
+| 3 | Structs / composite types | Done | struct def, init, field access (dot), field assign. 1688 lines, 136 functions. Stage1f fn table bumped to 256. |
 | 4 | >6 function parameters | Not started | Stack-passed extras beyond System V's 6 regs |
-| 4 | Structs / composite types | Not started | Heap-allocated, compiler-computed offsets |
 | 5 | Typed pointers | Not started | `*T` syntax, scaled pointer arithmetic |
 | 6 | Multi-width load/store | Not started | load16/32/64, store16/32/64 intrinsics |
 | 7 | Module system | Not started | `include "file.cyr"` textual include |

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Structs: `struct Point { x; y; }` with initialization, field access (dot), field assignment
+- Stage1f function table expanded from 128 to 256 slots
+- vidya: function table overflow gotcha, self-hosting byte-identity gotcha, struct codegen patterns
+
+### Known Issues
+- cc self-hosting byte-identity broken (cc2 != cc from stage1f) — expected when extending beyond bootstrap compiler. Needs cc2==cc3 verification once codegen drift is resolved.
+
 ## [1.0.0] - 2026-04-04
 
 ### Added
