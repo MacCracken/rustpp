@@ -284,6 +284,7 @@ fn LEX(S) {
         else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
         else { if (c == 44) { ADDTOK(S, 31, 0); p = p + 1; }
         else { if (c == 46) { ADDTOK(S, 41, 0); p = p + 1; }
+        else { if (c == 58) { ADDTOK(S, 49, 0); p = p + 1; }
         else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
         else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
         else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
@@ -378,7 +379,7 @@ fn LEX(S) {
         else { p = p + 1; }
         } } } } } } } } }
         } } } } } } } } }
-        } } } } } } } }
+        } } } } } } } } }
     }
     ADDTOK(S, 12, 0);
     return 0;

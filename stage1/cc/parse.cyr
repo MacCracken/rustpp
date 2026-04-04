@@ -497,6 +497,11 @@ fn PARSE_VAR(S) {
     if (PEEKT(S) != 2) { ERR(S); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
+    # Optional type annotation: var x: type = ...
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);  # consume :
+        STI(S, GTI(S) + 1);  # consume type name (skip — no enforcement)
+    }
     # Check for array: var buf[N];
     if (PEEKT(S) == 28) {
         PARSE_ARRAY(S, noff);
@@ -890,6 +895,11 @@ fn PARSE_FN_DEF(S) {
             if (PEEKT(S) != 2) { ERR(S); }
             var pnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
+            # Optional type annotation: fn f(x: i64, ...)
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);  # consume :
+                STI(S, GTI(S) + 1);  # consume type (skip)
+            }
             var li = GFLC(S);
             S64(S + 0x8DC30 + li * 8, pnoff);
             # Only emit register params now (0-5)

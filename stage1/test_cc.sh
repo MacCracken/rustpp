@@ -176,6 +176,12 @@ var x = 10 + y;" 42
 rm -f /tmp/cyr_inc_$$
 echo ""
 
+echo "-- Type Annotations (cc-only) --"
+run_test_cc "typed_var"  'var x: i64 = 42;' 42
+run_test_cc "typed_fn"   'fn add(a: i64, b: i64) { return a + b; } var x = add(20, 22);' 42
+run_test_cc "typed_mixed" 'var x: i64 = 10; var y = 32; var r = x + y;' 42
+echo ""
+
 echo "-- Error Messages (cc-only) --"
 # Test that errors include token position
 err_out=$(echo 'var x = ;' | "$CC" 2>&1 > /dev/null)

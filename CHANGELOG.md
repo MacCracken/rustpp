@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - cc2.cyr (entry), cc/util, cc/emit, cc/jump, cc/lex, cc/parse, cc/fixup
   - Self-hosting: cc2==cc3 byte-identical, 51/51 tests
 - Error messages: `error at token N (type=T)` replaces bare "syntax error"
+- Progressive type annotations: `var x: i64 = 42`, `fn f(a: i64, b: i64)` — parsed, no enforcement
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
 
 ## [1.1.0] - 2026-04-04

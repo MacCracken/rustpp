@@ -39,7 +39,7 @@ cc.cyr self-hosting compiler with extensions beyond stage1f:
 | 1 | cc2.cyr modular split | Done | 7 files via include, same binary, cc2==cc3 verified |
 | 1b | cc2 refactor: load64 + errors | Done | S64/L64 → store64/load64 (-256B), error messages with token position |
 | 1c | cc2 refactor: struct state | Not started | Replace heap offset constants with struct field access |
-| 2 | Progressive type checking | Not started | Opt-in `var x: i64`, warnings not errors |
+| 2 | Progressive type checking (V1) | Done | `var x: i64`, `fn f(a: i64)` — annotations parsed, skipped, no enforcement |
 | 3 | Benchmark suite (v2) | Not started | cc2 compile times, feature coverage metrics |
 | 4 | Agent/capability attributes | Not started | `#[agent]`, `#[capability(...)]` as ELF metadata |
 
