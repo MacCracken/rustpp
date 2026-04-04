@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 3 done — Self-hosting bootstrap. No Rust dependency.
+- **Status**: Phase 4 — Language extensions. No external language dependencies.
 
 ## Goal
 
@@ -89,23 +89,35 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 7. Progressive type checking
 8. Agent/capability attributes
 
-### Phase 5: Kernel
+### Phase 5: Multi-Architecture
+1. Factor codegen into backend interface (shared parser, per-arch emission)
+2. aarch64 assembler + codegen backend + bootstrap binary
+3. Cross-compilation support
+
+### Phase 6: Kernel
 1. Cyrius writes the AGNOS kernel
 2. Bare metal, interrupts, page tables — all in Cyrius
+
+### Phase 7: Prove the Language
+1. Migrate Ark + AGNOS projects to Cyrius
+2. Benchmark suite (compile times, binary sizes, runtime perf)
+3. Language ergonomics pass
+
+### Phase 8: Full Sovereignty
+1. AGNOS builds entirely with Cyrius on x86_64 + aarch64
+2. No external toolchain in any path
 
 ## Key Principles
 
 - **Assembly is the cornerstone** — primitives map to machine reality
-- **All existing Rust code must compile unchanged** — superset, not replacement
-- **Don't diverge from upstream unnecessarily** — cherry-pick upstream improvements
-- **Fix the ecosystem, not the language** — type system and borrow checker are correct
 - **Own the toolchain** — compiler, stdlib, package manager, build system
+- **No external language dependencies** — bootstrap from a single committed binary
+- **Every extension is built from within** — no forking someone else's compiler
+- **Byte-exact testing** — the gold standard for compiler correctness
 - **Every divergence gets an ADR** — no undocumented changes
 
 ## DO NOT
 
 - **Do not commit or push** — the user handles all git operations
 - **NEVER use `gh` CLI** — use `curl` to GitHub API only
-- Do not break backward compatibility with existing Rust code
-- Do not diverge from upstream Rust without a documented reason
 - Do not add language features without an ADR (architectural decision record)
