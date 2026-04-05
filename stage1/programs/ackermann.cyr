@@ -1,0 +1,12 @@
+# ackermann — compute Ackermann function A(3,4) = 125
+# Exercises: deep recursion, for loops, function calls
+# Exit code = A(3,4) mod 256 = 125
+
+fn ack(m, n) {
+    if (m == 0) { return n + 1; }
+    if (n == 0) { return ack(m - 1, 1); }
+    return ack(m - 1, ack(m, n - 1));
+}
+
+var r = ack(3, 4);
+syscall(60, r);

@@ -1,0 +1,11 @@
+# gcd — compute GCD using Euclidean algorithm
+# Exercises: recursion, %, elif
+# Exit code = GCD(48, 18) = 6
+
+fn gcd(a, b) {
+    if (b == 0) { return a; }
+    return gcd(b, a % b);
+}
+
+var r = gcd(48, 18);
+syscall(60, r);

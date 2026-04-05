@@ -200,6 +200,18 @@ check "collatz 97" "97" "$?"
 out=$("$TMPDIR/brainfuck")
 check "brainfuck hello" "Hello World!" "$out"
 
+# Algorithm programs
+for p in ackermann struct_list gcd; do build $p; done
+
+"$TMPDIR/ackermann"
+check "ackermann A(3,4)" "125" "$?"
+
+"$TMPDIR/struct_list"
+check "struct_list sum" "15" "$?"
+
+"$TMPDIR/gcd"
+check "gcd(48,18)" "6" "$?"
+
 # Kernel ELF tests
 cat "kernel/agnos.cyr" | "$CC" > "$TMPDIR/agnos" 2>/dev/null
 python3 -c "

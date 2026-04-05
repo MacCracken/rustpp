@@ -1,0 +1,35 @@
+# struct_list — linked list simulation with nested structs + typed pointers
+# Exercises: nested structs, typed pointers, for loops, store64/load64
+# Builds a list of 5 nodes, sums values. Exit code = sum.
+
+struct Node { val; next; }
+
+var nodes[80];
+
+fn list_build() {
+    # Build 5 nodes: val=1,2,3,4,5
+    for (var i = 0; i < 5; i = i + 1) {
+        var p: *i64 = &nodes + i * 16;
+        store64(p, i + 1);
+        if (i < 4) {
+            store64(p + 1, &nodes + (i + 1) * 16);
+        } else {
+            store64(p + 1, 0);
+        }
+    }
+    return 0;
+}
+
+fn list_sum() {
+    var total: i64 = 0;
+    var p: *i64 = &nodes;
+    while (p != 0) {
+        total = total + load64(p);
+        p = load64(p + 1);
+    }
+    return total;
+}
+
+list_build();
+var r = list_sum();
+syscall(60, r);
