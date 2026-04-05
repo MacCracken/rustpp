@@ -221,6 +221,11 @@ check "struct_list sum" "15" "$?"
 "$TMPDIR/gcd"
 check "gcd(48,18)" "6" "$?"
 
+# Agnostik library integration test
+cat "stage1/programs/agnostik_test.cyr" | "$CC" > "$TMPDIR/agnostik_test" 2>/dev/null && chmod +x "$TMPDIR/agnostik_test"
+"$TMPDIR/agnostik_test" > /dev/null 2>&1
+check "agnostik libs" "0" "$?"
+
 # Kernel ELF tests
 cat "kernel/agnos.cyr" | "$CC" > "$TMPDIR/agnos" 2>/dev/null
 python3 -c "

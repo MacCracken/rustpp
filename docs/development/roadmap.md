@@ -1,10 +1,12 @@
 # Cyrius Development Roadmap
 
-> **Status**: Phase 9 — Multi-Architecture + Phase 8 Tier 1 Complete | **Last Updated**: 2026-04-05
+> **Status**: Phase 9 — Multi-Architecture + Agnostik Rewrite Started | **Last Updated**: 2026-04-04
 >
 > **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 10ms self-compile),
-> 46 programs, 8 stdlib libraries (53 functions), 58KB OS kernel,
-> 157 tests, 0 failures. Phase 8 Tier 1 language features complete.
+> 46 programs, 8 stdlib libraries (53 functions) + 6 agnostik libraries, 58KB OS kernel,
+> 147 tests (94 compiler + 53 programs), 0 failures. Phase 8 Tier 1 complete.
+> Agnostik rewrite in Cyrius: 6 modules, 54 integration tests passing.
+> Enum init ordering bug fixed (enums now work inside functions).
 > Zero external dependencies.
 
 ---
@@ -86,16 +88,18 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | 5 | Error message improvement | Medium | Line numbers, source context (not just token index) |
 | 6 | Block scoping | Low | Deferred — scope depth + token replay interaction needs investigation |
 
-### Phase 11 — Prove at Scale
+### Phase 11 — Prove at Scale (Crate Rewrites)
 
-**Goal**: Real-world projects in Cyrius. Prove the language handles production code.
+**Goal**: Rewrite AGNOS crates in Cyrius. Prove the language handles production system code.
 
-| # | Item | Priority | Notes |
-|---|------|----------|-------|
-| 1 | Migrate Ark package manager | High | First non-kernel project. Proves stdlib + I/O + file handling |
-| 2 | AGNOS userland tools | High | Prove the language handles real system code |
-| 3 | Benchmark suite vs C/Rust | Medium | Compile times, binary sizes, runtime perf — publishable data |
-| 4 | Documentation + tutorials | Medium | Developer onboarding, cyrius-guide.md expansion |
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | agnostik rewrite | Done | 6 modules (error, types, security, agent, audit, config), 54 tests |
+| 2 | agnosys rewrite | Not started | Syscall bindings — wraps the ~20 syscalls kybernet needs |
+| 3 | kybernet rewrite | Not started | PID 1 init: 8 modules, 20 syscalls, ~500 lines Cyrius |
+| 4 | Migrate Ark package manager | Not started | Proves stdlib + I/O + file handling |
+| 5 | Benchmark suite vs C/Rust | Not started | Compile times, binary sizes, runtime perf |
+| 6 | Documentation + tutorials | Not started | Developer onboarding, cyrius-guide.md expansion |
 
 ---
 

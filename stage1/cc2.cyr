@@ -238,10 +238,9 @@ while (topgo == 1) {
 # Patch jmp to land here (start of main code)
 EPATCH(S, jmp_patch);
 
-# Emit deferred global var + enum initializations
+# Emit enum initializations FIRST (before gvar inits, since gvar inits may call
+# functions that reference enum values)
 var gvar_save_ti = GTI(S);
-EMIT_GVAR_INITS(S);
-# Scan for enums and emit their init code
 STI(S, 0);
 var escan = 1;
 while (escan == 1) {
@@ -249,6 +248,8 @@ while (escan == 1) {
     else { if (PEEKT(S) == 12) { escan = 0; }
     else { STI(S, GTI(S) + 1); } }
 }
+# Emit deferred global var initializations
+EMIT_GVAR_INITS(S);
 STI(S, gvar_save_ti);
 
 # Parse main code (top-level statements)

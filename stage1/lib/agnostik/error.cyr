@@ -1,0 +1,73 @@
+# agnostik/error.cyr — error codes and error handling
+# Usage: include "stage1/lib/agnostik/error.cyr"
+# Requires: include "stage1/lib/string.cyr"
+# Requires: include "stage1/lib/fmt.cyr"
+#
+# Cyrius re-implementation of agnostik error.rs
+# Error codes match the Rust API (1001-1010) for compatibility.
+
+enum AgnostikError {
+    ERR_NONE = 0;
+    ERR_AGENT_NOT_FOUND = 1001;
+    ERR_PERMISSION_DENIED = 1002;
+    ERR_CONFIG = 1003;
+    ERR_TIMEOUT = 1004;
+    ERR_RESOURCE_EXHAUSTED = 1005;
+    ERR_INVALID_ARGUMENT = 1006;
+    ERR_NOT_SUPPORTED = 1007;
+    ERR_INTERNAL = 1008;
+    ERR_SERIALIZATION = 1009;
+    ERR_IO = 1010;
+}
+
+# Check if an error is retriable (only timeout and resource exhausted)
+fn err_is_retriable(code) {
+    if (code == ERR_TIMEOUT) { return 1; }
+    if (code == ERR_RESOURCE_EXHAUSTED) { return 1; }
+    return 0;
+}
+
+# Print error name to stdout
+fn err_print(code) {
+    if (code == ERR_NONE) { syscall(1, 1, "OK", 2); return 0; }
+    if (code == ERR_AGENT_NOT_FOUND) { syscall(1, 1, "AgentNotFound", 13); return 0; }
+    if (code == ERR_PERMISSION_DENIED) { syscall(1, 1, "PermissionDenied", 16); return 0; }
+    if (code == ERR_CONFIG) { syscall(1, 1, "ConfigError", 11); return 0; }
+    if (code == ERR_TIMEOUT) { syscall(1, 1, "Timeout", 7); return 0; }
+    if (code == ERR_RESOURCE_EXHAUSTED) { syscall(1, 1, "ResourceExhausted", 17); return 0; }
+    if (code == ERR_INVALID_ARGUMENT) { syscall(1, 1, "InvalidArgument", 15); return 0; }
+    if (code == ERR_NOT_SUPPORTED) { syscall(1, 1, "NotSupported", 12); return 0; }
+    if (code == ERR_INTERNAL) { syscall(1, 1, "Internal", 8); return 0; }
+    if (code == ERR_SERIALIZATION) { syscall(1, 1, "Serialization", 13); return 0; }
+    if (code == ERR_IO) { syscall(1, 1, "IoError", 7); return 0; }
+    syscall(1, 1, "Unknown(", 8);
+    fmt_int(code);
+    syscall(1, 1, ")", 1);
+    return 0;
+}
+
+# Print error to stderr
+fn err_eprint(code) {
+    if (code == ERR_NONE) { syscall(1, 2, "OK", 2); return 0; }
+    syscall(1, 2, "error: ", 7);
+    if (code == ERR_AGENT_NOT_FOUND) { syscall(1, 2, "agent not found", 15); return 0; }
+    if (code == ERR_PERMISSION_DENIED) { syscall(1, 2, "permission denied", 17); return 0; }
+    if (code == ERR_CONFIG) { syscall(1, 2, "configuration error", 19); return 0; }
+    if (code == ERR_TIMEOUT) { syscall(1, 2, "operation timed out", 19); return 0; }
+    if (code == ERR_RESOURCE_EXHAUSTED) { syscall(1, 2, "resource exhausted", 18); return 0; }
+    if (code == ERR_INVALID_ARGUMENT) { syscall(1, 2, "invalid argument", 16); return 0; }
+    if (code == ERR_NOT_SUPPORTED) { syscall(1, 2, "not supported", 13); return 0; }
+    if (code == ERR_INTERNAL) { syscall(1, 2, "internal error", 14); return 0; }
+    if (code == ERR_SERIALIZATION) { syscall(1, 2, "serialization error", 19); return 0; }
+    if (code == ERR_IO) { syscall(1, 2, "I/O error", 9); return 0; }
+    syscall(1, 2, "unknown error\n", 14);
+    return 0;
+}
+
+# Exit with error code and message to stderr
+fn err_fatal(code) {
+    err_eprint(code);
+    syscall(1, 2, "\n", 1);
+    syscall(60, 1);
+    return 0;
+}
