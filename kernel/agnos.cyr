@@ -113,38 +113,38 @@ fn pic_init() {
     # Mask all IRQs except IRQ0 (timer)
     asm { 0xB0; 0xFE; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0xFE
     asm { 0xB0; 0xFF; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0xFF
+    # Program PIT channel 0: mode 2 (rate generator), ~100 Hz
+    # Command: channel 0, lobyte/hibyte, mode 2, binary
+    # out 0x43, 0x34
+    asm { 0xB0; 0x34; 0xBA; 0x43; 0x00; 0x00; 0x00; 0xEE; }
+    # Divisor = 1193180 / 100 = 11932 = 0x2E9C
+    # out 0x40, low byte
+    asm { 0xB0; 0x9C; 0xBA; 0x40; 0x00; 0x00; 0x00; 0xEE; }
+    # out 0x40, high byte
+    asm { 0xB0; 0x2E; 0xBA; 0x40; 0x00; 0x00; 0x00; 0xEE; }
     return 0;
 }
 
 fn timer_isr_build() {
-    # Build a tiny ISR for timer: increment counter + send EOI + iretq
-    # push rax (50)
-    # mov rax, [counter_addr]; inc rax; mov [counter_addr], rax
-    # mov al, 0x20; out 0x20, al (EOI)
-    # pop rax (58)
-    # iretq (48 CF)
+    # Build timer ISR in data buffer: inc ticks, EOI, iretq
     var p = &timer_isr;
-    store8(p, 0x50);  # push rax
-    # We need the address of timer_ticks. Use a fixed approach:
-    # mov rax, [addr] where addr is &timer_ticks
-    # 48 A1 addr64 — absolute mov rax, [imm64]
-    store8(p + 1, 0x48);
-    store8(p + 2, 0xA1);
-    store64(p + 3, &timer_ticks);
-    # inc rax = 48 FF C0
-    store8(p + 11, 0x48);
-    store8(p + 12, 0xFF);
-    store8(p + 13, 0xC0);
-    # mov [addr], rax = 48 A3 addr64
-    store8(p + 14, 0x48);
-    store8(p + 15, 0xA3);
-    store64(p + 16, &timer_ticks);
-    # EOI: mov al, 0x20 (B0 20); mov edx, 0x20 (BA 20 00 00 00); out dx, al (EE)
-    store8(p + 24, 0xB0); store8(p + 25, 0x20);
-    store8(p + 26, 0xBA); store8(p + 27, 0x20); store8(p + 28, 0x00); store8(p + 29, 0x00); store8(p + 30, 0x00);
-    store8(p + 31, 0xEE);
-    # pop rax (58); iretq (48 CF)
-    store8(p + 32, 0x58);
+    var ta = &timer_ticks;
+    # push rax; push rcx; push rdx
+    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
+    # mov rcx, tick_addr (48 B9 imm64)
+    store8(p + 3, 0x48); store8(p + 4, 0xB9);
+    store64(p + 5, ta);
+    # mov rax, [rcx]; inc rax; mov [rcx], rax
+    store8(p + 13, 0x48); store8(p + 14, 0x8B); store8(p + 15, 0x01);
+    store8(p + 16, 0x48); store8(p + 17, 0xFF); store8(p + 18, 0xC0);
+    store8(p + 19, 0x48); store8(p + 20, 0x89); store8(p + 21, 0x01);
+    # EOI: mov al,0x20; mov edx,0x20; out dx,al
+    store8(p + 22, 0xB0); store8(p + 23, 0x20);
+    store8(p + 24, 0xBA); store8(p + 25, 0x20); store8(p + 26, 0x00);
+    store8(p + 27, 0x00); store8(p + 28, 0x00);
+    store8(p + 29, 0xEE);
+    # pop rdx; pop rcx; pop rax; iretq
+    store8(p + 30, 0x5A); store8(p + 31, 0x59); store8(p + 32, 0x58);
     store8(p + 33, 0x48); store8(p + 34, 0xCF);
     return 0;
 }
@@ -211,9 +211,10 @@ serial_println("Timer ISR installed", 19);
 asm { sti; }
 serial_println("Interrupts enabled", 18);
 
-# Wait a moment
-var wait = 0;
-while (wait < 100000) { wait = wait + 1; }
+# Wait using hlt — CPU wakes on interrupt
+asm { hlt; }
+asm { hlt; }
+asm { hlt; }
 
 # Report timer ticks
 serial_print("Timer ticks: ", 13);

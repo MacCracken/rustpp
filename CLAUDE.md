@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 7 started — AGNOS boots on QEMU. 38 programs, 137 tests, 181 functions.
+- **Status**: Phase 7 started — AGNOS boots on QEMU. 38 programs, 138 tests, 181 functions.
 
 ## Goal
 
@@ -91,7 +91,7 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 2. Codegen bug investigated — not a bug ✓
 3. Logical &&/||, for loops, typed pointers, nested structs, global initializers ��
 4. Bootstrap repair, codebuf/input buffer expansion ✓
-5. 38 programs (19 CLI + 8 proof), 137 tests ✓
+5. 38 programs (19 CLI + 8 proof), 138 tests ✓
 6. Migrate Ark to Cyrius — first real-world project
 
 ### Phase 6: Kernel Prerequisites (COMPLETE)

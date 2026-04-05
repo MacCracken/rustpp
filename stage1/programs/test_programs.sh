@@ -200,6 +200,18 @@ check "collatz 97" "97" "$?"
 out=$("$TMPDIR/brainfuck")
 check "brainfuck hello" "Hello World!" "$out"
 
+# Kernel ELF tests
+cat "kernel/agnos.cyr" | "$CC" > "$TMPDIR/agnos" 2>/dev/null
+python3 -c "
+import struct,sys
+with open('$TMPDIR/agnos','rb') as f: d=f.read()
+mb = struct.unpack_from('<I',d,84)[0]
+entry = struct.unpack_from('<I',d,24)[0]
+ok = mb == 0x1badb002 and entry == 0x100060 and len(d) > 1000
+sys.exit(0 if ok else 1)
+" 2>/dev/null
+check "agnos kernel" "0" "$?"
+
 rm -rf "$TMPDIR"
 
 echo ""

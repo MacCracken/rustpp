@@ -87,16 +87,15 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | # | Item | Notes |
 |---|------|-------|
 | 1 | Compile Linux kernel with Cyrius | The proof — Cyrius handles real kernel C replacement |
-| 2 | Multiboot2 header + bare metal boot | GRUB loads AGNOS kernel ELF |
-| 3 | Serial console output | First AGNOS proof of life |
-| 4 | GDT + IDT setup | Protected mode tables |
-| 5 | Page tables + higher-half mapping | Virtual memory |
-| 6 | Timer interrupt (PIT/APIC) | Preemptive scheduling foundation |
-| 7 | Keyboard interrupt | User input |
-| 8 | Physical memory manager | Page frame allocator |
-| 9 | Virtual memory manager | mmap equivalent |
-| 10 | Process/task abstraction | Agent model foundation |
-| 11 | Syscall interface | User-space boundary |
+| 2 | ~~Multiboot1 + bare metal boot~~ | Done | 32-bit ELF, multiboot1 header, QEMU boots |
+| 3 | ~~Serial console~~ | Done | Cyrius serial_print/serial_println from 64-bit code |
+| 4 | ~~32-to-64 shim~~ | Done | Page tables, PAE, LME, paging, far jump |
+| 5 | ~~GDT + IDT~~ | Done | Cyrius-built GDT (lgdt), IDT (256 vectors, lidt) |
+| 6 | ~~PIC remap~~ | Done | IRQ 0-7→32-39, 8-15→40-47 |
+| 7 | ~~Timer interrupt (PIT)~~ | Done | 100Hz PIT, ISR increments counter + EOI, hlt wakes on tick |
+| 8 | Keyboard interrupt | Not started | User input |
+| 9 | Page tables + higher-half mapping | Not started | Virtual memory |
+| 10 | Physical memory manager | Not started | Page frame allocator |
 | 12 | Agent/capability enforcement | `#[agent]`, `#[capability]` ELF metadata |
 
 > **Note**: Phase 7 is the initial kernel boot. Full-featured AGNOS (drivers, networking, full userland, multi-user) continues beyond Phase 11.
