@@ -73,8 +73,14 @@
 #   0xA2000  tok_types     [262144]      32768 token type slots (8 bytes each)
 #   0xE2000  tok_values    [262144]      32768 token value slots (8 bytes each)
 #
+# --- Token line numbers ---
+#   0x122000  tok_lines     [262144]      32768 token line numbers (8 bytes each)
+#
 # --- brk limit ---
-#   0x122000 (end of heap allocation)
+#   0x162000 (end of heap allocation)
+#
+# --- Lexer line tracking ---
+#   0x8FCB8  cur_line      [8]           Current line number during lexing
 #
 # --- Expression type state ---
 #   0x8F890  ptr_scale     [8]           Current expression's pointer scale (0=not pointer)
@@ -91,7 +97,7 @@
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
 #
-# NEXT FREE OFFSET: 0x8FCA8
+# NEXT FREE OFFSET: 0x8FCC0
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -120,7 +126,7 @@ include "src/arch/aarch64/fixup.cyr"
 
 # Allocate heap
 var S = syscall(12, 0);
-syscall(12, S + 0x122000);
+syscall(12, S + 0x162000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -146,6 +152,8 @@ S64(S + 0x8FC98, 0);
 
 # Kernel mode
 S64(S + 0x8FCA0, 0);
+# Lexer line tracking
+S64(S + 0x8FCB8, 1);
 
 # Read input
 var bl = 0;
