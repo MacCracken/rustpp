@@ -1,0 +1,47 @@
+# bench_alloc.cyr — allocator microbenchmarks
+# Tier 1: core stdlib performance baseline
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+fn work_alloc_8() { alloc(8); return 0; }
+fn work_alloc_64() { alloc(64); return 0; }
+fn work_alloc_1024() { alloc(1024); return 0; }
+
+fn work_alloc_burst() {
+    var i = 0;
+    while (i < 100) { alloc(64); i = i + 1; }
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("alloc/8B");
+    bench_run(b1, &work_alloc_8, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("alloc/64B");
+    bench_run(b2, &work_alloc_64, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("alloc/1KB");
+    bench_run(b3, &work_alloc_1024, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("alloc/burst_100x64");
+    bench_run(b4, &work_alloc_burst, 1000);
+    vec_push(all, b4);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

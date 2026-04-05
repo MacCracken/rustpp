@@ -1,0 +1,80 @@
+# bench_vec.cyr — vector microbenchmarks
+# Tier 1: core stdlib performance baseline
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+var _vec = 0;
+
+fn work_push_10() {
+    var v = vec_new();
+    var i = 0;
+    while (i < 10) { vec_push(v, i); i = i + 1; }
+    return 0;
+}
+
+fn work_push_100() {
+    var v = vec_new();
+    var i = 0;
+    while (i < 100) { vec_push(v, i); i = i + 1; }
+    return 0;
+}
+
+fn work_push_1000() {
+    var v = vec_new();
+    var i = 0;
+    while (i < 1000) { vec_push(v, i); i = i + 1; }
+    return 0;
+}
+
+fn work_get() {
+    vec_get(_vec, 50);
+    return 0;
+}
+
+fn work_find() {
+    vec_find(_vec, 50);
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+
+    # Pre-populate a vec for get/find benchmarks
+    _vec = vec_new();
+    var vi = 0;
+    while (vi < 100) { vec_push(_vec, vi); vi = vi + 1; }
+
+    var all = vec_new();
+
+    var b1 = bench_new("vec/push_10");
+    bench_run(b1, &work_push_10, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("vec/push_100");
+    bench_run(b2, &work_push_100, 1000);
+    vec_push(all, b2);
+
+    var b3 = bench_new("vec/push_1000");
+    bench_run(b3, &work_push_1000, 100);
+    vec_push(all, b3);
+
+    var b4 = bench_new("vec/get");
+    bench_run(b4, &work_get, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("vec/find_100");
+    bench_run(b5, &work_find, N);
+    vec_push(all, b5);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

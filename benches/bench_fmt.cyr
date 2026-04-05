@@ -1,0 +1,82 @@
+# bench_fmt.cyr — formatting microbenchmarks
+# Tier 2: stdlib formatting performance
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/str.cyr"
+include "lib/bench.cyr"
+
+fn work_fmt_int_small() {
+    var buf[8];
+    fmt_int_buf(42, &buf);
+    return 0;
+}
+
+fn work_fmt_int_large() {
+    var buf[24];
+    fmt_int_buf(1234567890, &buf);
+    return 0;
+}
+
+fn work_fmt_hex() {
+    var buf[24];
+    fmt_hex_buf(0xDEADBEEF, &buf);
+    return 0;
+}
+
+fn work_sprintf() {
+    var buf[64];
+    fmt_sprintf(&buf, "x=%d y=%d", 42, 99);
+    return 0;
+}
+
+fn work_str_from_int() {
+    str_from_int(42);
+    return 0;
+}
+
+fn work_str_cat() {
+    var a = str_from("hello");
+    var b = str_from(" world");
+    str_cat(a, b);
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("fmt/int_small");
+    bench_run(b1, &work_fmt_int_small, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("fmt/int_large");
+    bench_run(b2, &work_fmt_int_large, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("fmt/hex");
+    bench_run(b3, &work_fmt_hex, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("fmt/sprintf");
+    bench_run(b4, &work_sprintf, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("fmt/str_from_int");
+    bench_run(b5, &work_str_from_int, N);
+    vec_push(all, b5);
+
+    var b6 = bench_new("fmt/str_cat");
+    bench_run(b6, &work_str_cat, N);
+    vec_push(all, b6);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

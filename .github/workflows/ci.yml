@@ -113,6 +113,26 @@ jobs:
           fi
           echo "security scan complete"
 
+  # ── Benchmarks ──
+  benchmarks:
+    name: Benchmarks
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup compiler
+        run: chmod +x build/cc2
+      - name: Benchmark suite (tier 1+2)
+        run: sh scripts/bench-history.sh --tier2
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: |
+            bench-history.csv
+            BENCHMARKS.md
+          retention-days: 90
+
   # ── Tests (ubuntu) ──
   test:
     name: Test (ubuntu)

@@ -1,0 +1,92 @@
+# bench_tagged.cyr — tagged union microbenchmarks
+# Tier 2: Result/Option/Either performance
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/tagged.cyr"
+include "lib/bench.cyr"
+
+fn work_ok() {
+    Ok(42);
+    return 0;
+}
+
+fn work_err() {
+    Err(1);
+    return 0;
+}
+
+fn work_some() {
+    Some(42);
+    return 0;
+}
+
+fn work_unwrap() {
+    var r = Ok(42);
+    result_unwrap(r);
+    return 0;
+}
+
+fn work_unwrap_or() {
+    var n = None();
+    unwrap_or(n, 0);
+    return 0;
+}
+
+fn work_is_ok() {
+    var r = Ok(42);
+    is_ok(r);
+    return 0;
+}
+
+fn work_chain() {
+    var r = Ok(10);
+    if (is_ok(r) == 1) {
+        var v = result_unwrap(r);
+        Ok(v + 1);
+    }
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("tagged/Ok");
+    bench_run(b1, &work_ok, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("tagged/Err");
+    bench_run(b2, &work_err, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("tagged/Some");
+    bench_run(b3, &work_some, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("tagged/unwrap");
+    bench_run(b4, &work_unwrap, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("tagged/unwrap_or");
+    bench_run(b5, &work_unwrap_or, N);
+    vec_push(all, b5);
+
+    var b6 = bench_new("tagged/is_ok");
+    bench_run(b6, &work_is_ok, N);
+    vec_push(all, b6);
+
+    var b7 = bench_new("tagged/chain");
+    bench_run(b7, &work_chain, N);
+    vec_push(all, b7);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

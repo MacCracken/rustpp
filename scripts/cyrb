@@ -129,18 +129,26 @@ case "${1:-help}" in
     bench)
         shift
         if [ -z "$1" ]; then
-            echo "Usage: cyrb bench <bench.cyr>"
-            exit 1
+            # No args: run full bench suite with history tracking
+            exec "$REPO_ROOT/scripts/bench-history.sh"
         fi
-        tmpbin="/tmp/cyrb_bench_$$"
-        if compile "$1" "$tmpbin"; then
-            "$tmpbin"
-            rm -f "$tmpbin"
-        else
-            echo "FAIL: compile error" >&2
-            rm -f "$tmpbin"
-            exit 1
-        fi
+        case "$1" in
+            --tier1|--tier2|--tier3)
+                exec "$REPO_ROOT/scripts/bench-history.sh" "$1"
+                ;;
+            *)
+                # Single benchmark file
+                tmpbin="/tmp/cyrb_bench_$$"
+                if compile "$1" "$tmpbin"; then
+                    "$tmpbin"
+                    rm -f "$tmpbin"
+                else
+                    echo "FAIL: compile error" >&2
+                    rm -f "$tmpbin"
+                    exit 1
+                fi
+                ;;
+        esac
         ;;
 
     self)

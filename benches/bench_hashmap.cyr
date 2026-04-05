@@ -1,0 +1,91 @@
+# bench_hashmap.cyr — hashmap microbenchmarks
+# Tier 2: data structure performance
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/hashmap.cyr"
+include "lib/bench.cyr"
+
+var _map = 0;
+
+fn work_insert_10() {
+    var m = map_new();
+    map_set(m, "key0", 0); map_set(m, "key1", 1);
+    map_set(m, "key2", 2); map_set(m, "key3", 3);
+    map_set(m, "key4", 4); map_set(m, "key5", 5);
+    map_set(m, "key6", 6); map_set(m, "key7", 7);
+    map_set(m, "key8", 8); map_set(m, "key9", 9);
+    return 0;
+}
+
+fn work_lookup_hit() {
+    map_get(_map, "key5");
+    return 0;
+}
+
+fn work_lookup_miss() {
+    map_get(_map, "missing");
+    return 0;
+}
+
+fn work_has() {
+    map_has(_map, "key5");
+    return 0;
+}
+
+fn work_delete() {
+    var m = map_new();
+    map_set(m, "a", 1);
+    map_set(m, "b", 2);
+    map_set(m, "c", 3);
+    map_delete(m, "b");
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+
+    # Pre-populate map for lookups
+    _map = map_new();
+    var i = 0;
+    while (i < 10) {
+        var kbuf[8];
+        memcpy(&kbuf, "key", 3);
+        store8(&kbuf + 3, 48 + i);
+        store8(&kbuf + 4, 0);
+        map_set(_map, &kbuf, i);
+        i = i + 1;
+    }
+
+    var all = vec_new();
+
+    var b1 = bench_new("hashmap/insert_10");
+    bench_run(b1, &work_insert_10, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("hashmap/lookup_hit");
+    bench_run(b2, &work_lookup_hit, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("hashmap/lookup_miss");
+    bench_run(b3, &work_lookup_miss, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("hashmap/has");
+    bench_run(b4, &work_has, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("hashmap/delete");
+    bench_run(b5, &work_delete, N);
+    vec_push(all, b5);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

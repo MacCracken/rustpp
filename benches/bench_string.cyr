@@ -1,0 +1,91 @@
+# bench_string.cyr — string/memory microbenchmarks
+# Tier 1: core stdlib performance baseline
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+var _small = "hello";
+var _large = "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz01";
+
+fn work_strlen_small() { strlen(_small); return 0; }
+fn work_strlen_large() { strlen(_large); return 0; }
+
+fn work_memcpy_64() {
+    var dst[8];
+    memcpy(&dst, _large, 64);
+    return 0;
+}
+
+fn work_memset_64() {
+    var dst[8];
+    memset(&dst, 0, 64);
+    return 0;
+}
+
+fn work_memeq_64() {
+    memeq(_large, _large, 64);
+    return 0;
+}
+
+fn work_streq_small() {
+    streq(_small, "hello");
+    return 0;
+}
+
+fn work_memchr_64() {
+    memchr(_large, 48, 64);
+    return 0;
+}
+
+fn work_strchr() {
+    strchr(_large, 122);
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("string/strlen_small");
+    bench_run(b1, &work_strlen_small, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("string/strlen_large");
+    bench_run(b2, &work_strlen_large, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("string/memcpy_64");
+    bench_run(b3, &work_memcpy_64, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("string/memset_64");
+    bench_run(b4, &work_memset_64, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("string/memeq_64");
+    bench_run(b5, &work_memeq_64, N);
+    vec_push(all, b5);
+
+    var b6 = bench_new("string/streq_small");
+    bench_run(b6, &work_streq_small, N);
+    vec_push(all, b6);
+
+    var b7 = bench_new("string/memchr_64");
+    bench_run(b7, &work_memchr_64, N);
+    vec_push(all, b7);
+
+    var b8 = bench_new("string/strchr");
+    bench_run(b8, &work_strchr, N);
+    vec_push(all, b8);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);
