@@ -322,6 +322,16 @@ MANIFEST
         "$cyrlint" "$@"
         ;;
 
+    doc)
+        shift
+        cyrdoc="${TOOLS_DIR}/cyrdoc"
+        if [ ! -x "$cyrdoc" ]; then
+            echo "error: cyrdoc not found" >&2; exit 1
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrb doc [--check] <file.cyr>"; exit 1; fi
+        "$cyrdoc" "$@"
+        ;;
+
     # === Info commands ===
     version|--version|-v)
         echo "cyrb $VERSION"

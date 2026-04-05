@@ -1,0 +1,251 @@
+# cyrdoc — Cyrius documentation generator
+# Scans .cyr files for function signatures and preceding comments.
+# Outputs: markdown API reference or --check mode for CI.
+#
+# Usage:
+#   cyrdoc <file.cyr>           — generate markdown docs
+#   cyrdoc --check <file.cyr>   — check all public fns have doc comments
+
+include "stage1/lib/string.cyr"
+include "stage1/lib/fmt.cyr"
+include "stage1/lib/alloc.cyr"
+include "stage1/lib/io.cyr"
+include "stage1/lib/vec.cyr"
+include "stage1/lib/str.cyr"
+include "stage1/lib/args.cyr"
+
+var _undocumented = 0;
+var _documented = 0;
+var _total_fns = 0;
+
+fn is_fn_line(line, len) {
+    if (len < 3) { return 0; }
+    # Skip leading whitespace
+    var si = 0;
+    while (si < len) {
+        if (load8(line + si) != 32) { break; }
+        si = si + 1;
+    }
+    if (si + 2 >= len) { return 0; }
+    if (load8(line + si) == 102) {
+        if (load8(line + si + 1) == 110) {
+            if (load8(line + si + 2) == 32) { return 1; }
+        }
+    }
+    return 0;
+}
+
+fn is_comment_line(line, len) {
+    var si = 0;
+    while (si < len) {
+        if (load8(line + si) != 32) { break; }
+        si = si + 1;
+    }
+    if (si < len) {
+        if (load8(line + si) == 35) { return 1; }
+    }
+    return 0;
+}
+
+fn extract_fn_name(line, len, buf) {
+    # Find "fn " then extract name until (
+    var si = 0;
+    while (si < len - 2) {
+        if (load8(line + si) == 102) {
+            if (load8(line + si + 1) == 110) {
+                if (load8(line + si + 2) == 32) {
+                    var ns = si + 3;
+                    var ne = ns;
+                    while (ne < len) {
+                        var c = load8(line + ne);
+                        if (c == 40) { break; }
+                        if (c == 60) { break; }
+                        ne = ne + 1;
+                    }
+                    var nlen = ne - ns;
+                    memcpy(buf, line + ns, nlen);
+                    store8(buf + nlen, 0);
+                    return nlen;
+                }
+            }
+        }
+        si = si + 1;
+    }
+    store8(buf, 0);
+    return 0;
+}
+
+fn extract_fn_sig(line, len, buf) {
+    # Extract from "fn" to end of line (trimmed)
+    var si = 0;
+    while (si < len - 2) {
+        if (load8(line + si) == 102) {
+            if (load8(line + si + 1) == 110) {
+                if (load8(line + si + 2) == 32) {
+                    # Find the closing ) or {
+                    var se = si;
+                    while (se < len) {
+                        var c = load8(line + se);
+                        if (c == 123) { break; }
+                        se = se + 1;
+                    }
+                    # Trim trailing spaces
+                    while (se > si) {
+                        var tc = load8(line + se - 1);
+                        if (tc != 32) { if (tc != 123) { break; } }
+                        se = se - 1;
+                    }
+                    var slen = se - si;
+                    memcpy(buf, line + si, slen);
+                    store8(buf + slen, 0);
+                    return slen;
+                }
+            }
+        }
+        si = si + 1;
+    }
+    return 0;
+}
+
+fn process_file(filepath, check_mode) {
+    var buf = alloc(65536);
+    var n = file_read_all(filepath, buf, 65536);
+    if (n <= 0) { return 0; }
+
+    # Parse into lines
+    var lines = vec_new();
+    var line_starts = vec_new();
+    var li = 0;
+    while (li < n) {
+        vec_push(line_starts, li);
+        var le = li;
+        while (le < n) {
+            if (load8(buf + le) == 10) { break; }
+            le = le + 1;
+        }
+        vec_push(lines, le - li);
+        li = le + 1;
+    }
+
+    var num_lines = vec_len(lines);
+    var namebuf = alloc(128);
+    var sigbuf = alloc(256);
+
+    if (check_mode == 0) {
+        # Generate mode — output markdown
+        syscall(1, 1, "# API Reference: ", 18);
+        syscall(1, 1, filepath, strlen(filepath));
+        syscall(1, 1, "\n\n", 2);
+    }
+
+    var fi = 0;
+    while (fi < num_lines) {
+        var lstart = vec_get(line_starts, fi);
+        var llen = vec_get(lines, fi);
+
+        if (is_fn_line(buf + lstart, llen) == 1) {
+            _total_fns = _total_fns + 1;
+
+            # Check if previous line is a comment
+            var has_doc = 0;
+            var doc_start = 0;
+            var doc_len = 0;
+            if (fi > 0) {
+                var pstart = vec_get(line_starts, fi - 1);
+                var plen = vec_get(lines, fi - 1);
+                if (is_comment_line(buf + pstart, plen) == 1) {
+                    has_doc = 1;
+                    doc_start = pstart;
+                    doc_len = plen;
+                }
+            }
+
+            extract_fn_name(buf + lstart, llen, namebuf);
+            var nlen = strlen(namebuf);
+
+            # Skip private functions (start with _)
+            var is_private = 0;
+            if (nlen > 0) {
+                if (load8(namebuf) == 95) { is_private = 1; }
+            }
+
+            if (is_private == 0) {
+                if (check_mode == 1) {
+                    if (has_doc == 0) {
+                        _undocumented = _undocumented + 1;
+                        syscall(1, 2, "  undocumented: ", 16);
+                        syscall(1, 2, namebuf, nlen);
+                        syscall(1, 2, "\n", 1);
+                    } else {
+                        _documented = _documented + 1;
+                    }
+                } else {
+                    # Generate markdown entry
+                    extract_fn_sig(buf + lstart, llen, sigbuf);
+                    syscall(1, 1, "### `", 5);
+                    syscall(1, 1, sigbuf, strlen(sigbuf));
+                    syscall(1, 1, "`\n", 2);
+                    if (has_doc == 1) {
+                        # Print doc comment (strip leading # )
+                        var ds = doc_start;
+                        while (ds < doc_start + doc_len) {
+                            if (load8(buf + ds) != 32) { break; }
+                            ds = ds + 1;
+                        }
+                        if (load8(buf + ds) == 35) { ds = ds + 1; }
+                        if (load8(buf + ds) == 32) { ds = ds + 1; }
+                        var dlen = doc_start + doc_len - ds;
+                        if (dlen > 0) {
+                            syscall(1, 1, buf + ds, dlen);
+                            syscall(1, 1, "\n", 1);
+                        }
+                    }
+                    syscall(1, 1, "\n", 1);
+                }
+            }
+        }
+        fi = fi + 1;
+    }
+
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+
+    if (argc() < 2) {
+        println("cyrdoc — Cyrius documentation generator");
+        println("  cyrdoc <file.cyr>         — generate markdown");
+        println("  cyrdoc --check <file.cyr> — check for missing docs");
+        return 0;
+    }
+
+    var check_mode = 0;
+    var filepath = argv(1);
+    if (streq(filepath, "--check") == 1) {
+        check_mode = 1;
+        if (argc() < 3) { println("Usage: cyrdoc --check <file>"); return 1; }
+        filepath = argv(2);
+    }
+
+    process_file(filepath, check_mode);
+
+    if (check_mode == 1) {
+        var nb[24];
+        var nl = fmt_int_buf(_documented, &nb);
+        syscall(1, 1, &nb, nl);
+        syscall(1, 1, " documented, ", 13);
+        nl = fmt_int_buf(_undocumented, &nb);
+        syscall(1, 1, &nb, nl);
+        syscall(1, 1, " undocumented (", 15);
+        nl = fmt_int_buf(_total_fns, &nb);
+        syscall(1, 1, &nb, nl);
+        syscall(1, 1, " total)\n", 8);
+        return _undocumented;
+    }
+
+    return 0;
+}
+var r = main();
+syscall(60, r);

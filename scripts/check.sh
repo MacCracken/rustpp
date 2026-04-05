@@ -164,7 +164,27 @@ check "benchmarks" "$bench_result"
 rm -f /tmp/check_bench_$$ /tmp/check_bench_$$.cyr
 echo ""
 
-# ── 9. Documentation Check ──
+# ── 9. Doc Coverage ──
+echo "── Doc Coverage ──"
+CYRDOC="$ROOT/build/cyrdoc"
+if [ -x "$CYRDOC" ]; then
+    doc_undoc=0
+    for f in "$ROOT"/stage1/lib/*.cyr; do
+        u=$("$CYRDOC" --check "$f" 2>&1 | tail -1 | grep -oP '(\d+) undocumented' | grep -oP '^\d+' || echo 0)
+        doc_undoc=$((doc_undoc + u))
+    done
+    if [ "$doc_undoc" -gt 0 ]; then
+        echo "    $doc_undoc undocumented public functions in stdlib"
+        check "doc coverage (stdlib)" "1"
+    else
+        check "doc coverage (stdlib)" "0"
+    fi
+else
+    echo "    skip: cyrdoc not built"
+fi
+echo ""
+
+# ── 10. Documentation Files ──
 echo "── Documentation ──"
 doc_fail=0
 for doc in README.md CHANGELOG.md VERSION CONTRIBUTING.md SECURITY.md LICENSE; do
