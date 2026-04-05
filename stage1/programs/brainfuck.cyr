@@ -1,0 +1,54 @@
+# brainfuck — minimal brainfuck interpreter
+# Exercises: for loops, while, elif, load8/store8, arrays, nested loops
+# Runs a hardcoded "Hello World" BF program
+
+fn bf_fwd(prog, ip, plen) {
+    var nest: i64 = 1;
+    ip = ip + 1;
+    while (nest > 0) {
+        if (load8(prog + ip) == 91) { nest = nest + 1; }
+        if (load8(prog + ip) == 93) { nest = nest - 1; }
+        if (nest > 0) { ip = ip + 1; }
+    }
+    return ip;
+}
+
+fn bf_bak(prog, ip) {
+    var nest: i64 = 1;
+    ip = ip - 1;
+    while (nest > 0) {
+        if (load8(prog + ip) == 93) { nest = nest + 1; }
+        if (load8(prog + ip) == 91) { nest = nest - 1; }
+        if (nest > 0) { ip = ip - 1; }
+    }
+    return ip;
+}
+
+fn bf_run(prog, plen) {
+    var mem[256];
+    for (var z = 0; z < 256; z = z + 1) { store8(&mem + z, 0); }
+    var dp: i64 = 0;
+    var ip: i64 = 0;
+    while (ip < plen) {
+        var c = load8(prog + ip);
+        if (c == 62) { dp = dp + 1; }
+        elif (c == 60) { dp = dp - 1; }
+        elif (c == 43) { store8(&mem + dp, load8(&mem + dp) + 1); }
+        elif (c == 45) { store8(&mem + dp, load8(&mem + dp) - 1); }
+        elif (c == 46) { syscall(1, 1, &mem + dp, 1); }
+        elif (c == 91) {
+            if (load8(&mem + dp) == 0) { ip = bf_fwd(prog, ip, plen); }
+        }
+        elif (c == 93) {
+            if (load8(&mem + dp) != 0) { ip = bf_bak(prog, ip); }
+        }
+        ip = ip + 1;
+    }
+    return 0;
+}
+
+# "Hello World!\n" in brainfuck
+var prog = "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.";
+var plen = 106;
+bf_run(prog, plen);
+syscall(60, 0);

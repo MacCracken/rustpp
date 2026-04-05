@@ -1,0 +1,24 @@
+# xor — XOR encrypt/decrypt stdin with a key byte
+# Exercises: for loops, bitwise ^, buffered I/O
+# Usage: echo "secret" | ./xor | ./xor  (round-trip)
+
+fn xor_buf(buf, len, key) {
+    for (var i = 0; i < len; i = i + 1) {
+        var c = load8(buf + i);
+        store8(buf + i, c ^ key);
+    }
+    return 0;
+}
+
+var buf[4096];
+var key = 0x42;
+var done: i64 = 0;
+while (done == 0) {
+    var n = syscall(0, 0, &buf, 4096);
+    if (n <= 0) { done = 1; }
+    else {
+        xor_buf(&buf, n, key);
+        syscall(1, 1, &buf, n);
+    }
+}
+syscall(60, 0);

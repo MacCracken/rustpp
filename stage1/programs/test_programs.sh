@@ -169,6 +169,18 @@ check "points dist²" "25" "$?"
 "$TMPDIR/memset"
 check "memset 100" "100" "$?"
 
+# Crypto + algorithm programs
+for p in xor collatz brainfuck; do build $p; done
+
+out=$(echo "test" | "$TMPDIR/xor" | "$TMPDIR/xor")
+check "xor round-trip" "test" "$out"
+
+"$TMPDIR/collatz"  > /dev/null 2>/dev/null
+check "collatz 97" "97" "$?"
+
+out=$("$TMPDIR/brainfuck")
+check "brainfuck hello" "Hello World!" "$out"
+
 rm -rf "$TMPDIR"
 
 echo ""
