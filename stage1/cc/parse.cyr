@@ -1545,12 +1545,75 @@ fn ASM_INVLPG(S) {
     return 0;
 }
 
+fn PARSE_SWITCH(S) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    if (PEEKT(S) != 11) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    # Allocate hidden global to hold switch value
+    var swidx = GVCNT(S);
+    S64(S + 0x58000 + swidx * 8, 0);
+    S64(S + 0x58800 + swidx * 8, 8);
+    SVCNT(S, swidx + 1);
+    EVSTORE(S, swidx);
+    var ends[256];
+    var ec = 0;
+    var sgo = 1;
+    while (sgo == 1) {
+        if (PEEKT(S) == 58) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 1) { ERR(S); }
+            var val = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 49) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            EVLOAD(S, swidx);
+            EPUSHR(S);
+            EMOVI(S, val);
+            EMOVCA(S);
+            EPOPR(S);
+            ECMPR(S);
+            var skip = EJCC(S, 0x85);
+            var cgo = 1;
+            while (cgo == 1) {
+                if (PEEKT(S) == 58) { cgo = 0; }
+                else { if (PEEKT(S) == 59) { cgo = 0; }
+                else { if (PEEKT(S) == 14) { cgo = 0; }
+                else { if (PEEKT(S) == 12) { cgo = 0; }
+                else { PARSE_STMT(S); } } } }
+            }
+            store64(&ends + ec * 8, EJMP0(S));
+            ec = ec + 1;
+            EPATCH(S, skip);
+        }
+        else { if (PEEKT(S) == 59) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 49) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            while (PEEKT(S) != 14) {
+                if (PEEKT(S) == 12) { break; }
+                PARSE_STMT(S);
+            }
+        }
+        else { sgo = 0; } }
+    }
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
+    return 0;
+}
+
 fn PARSE_STMT(S) {
     var typ = PEEKT(S);
     if (typ == 3) { PARSE_VAR(S); return 0; }
     if (typ == 15) { PARSE_IF(S); return 0; }
     if (typ == 16) { PARSE_WHILE(S); return 0; }
     if (typ == 55) { PARSE_FOR(S); return 0; }
+    if (typ == 57) { PARSE_SWITCH(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
     # break; — forward jump to after loop (single break per loop)
     if (typ == 51) {

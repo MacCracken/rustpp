@@ -82,10 +82,10 @@ docs/            Architecture, roadmap, benchmarks, ADRs
 ## Tests
 
 ```sh
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 80 compiler tests
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 83 compiler tests
 sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
-sh stage1/programs/test_programs.sh ./build/cc2      # 50 program tests
-# Total: 141 tests, 0 failures
+sh stage1/programs/test_programs.sh ./build/cc2      # 52 program tests
+# Total: 146 tests, 0 failures
 ```
 
 ## Part of AGNOS

@@ -193,6 +193,11 @@ run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x =
 run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
 echo ""
 
+echo "-- Switch (cc-only) --"
+run_test_cc "switch_fn"   'fn f(n) { switch (n) { case 1: return 10; case 2: return 20; default: return 99; } return 0; } syscall(60, f(2));' 20
+run_test_cc "switch_def"  'fn f(n) { switch (n) { case 1: return 10; default: return 42; } return 0; } syscall(60, f(5));' 42
+run_test_cc "switch_lit"  'switch (3) { case 3: syscall(60, 42); } syscall(60, 0);' 42
+echo ""
 echo "-- For Loops (cc-only) --"
 run_test_cc "for_sum"     'var s = 0; for (var i = 1; i <= 10; i = i + 1) { s = s + i; } var r = s;' 55
 run_test_cc "for_fn"      'fn fact(n) { var r = 1; for (var i = 2; i <= n; i = i + 1) { r = r * i; } return r; } var x = fact(5);' 120

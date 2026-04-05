@@ -113,12 +113,12 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 |---|------|--------|---------|
 | 1 | Type enforcement (warnings → errors) | 2 sessions | Catch bugs at compile time |
 | 2 | Enums / tagged unions | 2 sessions | Error handling, state machines, kernel IPC |
-| 3 | Switch/match statement | 1 session | Cleaner dispatch than elif chains |
-| 4 | Heap allocator (malloc/free) | 2 sessions | Dynamic data structures |
-| 5 | Function pointers / callbacks | 1 session | Vtables, event handlers, agent model |
-| 6 | argc/argv access | 1 session | Real command-line programs |
+| 3 | ~~Switch/match~~ | Done | switch (expr) { case N: stmts; default: stmts; } |
+| 4 | ~~Heap allocator~~ | Done | Bump allocator from brk, alloc/reset/used |
+| 5 | Function pointers / callbacks | 1 session | Library ready, needs &fn_name compiler support |
+| 6 | ~~argc/argv access~~ | Done | /proc/self/cmdline, argc()/argv(n) |
 | 7 | Block scoping for variables | 2 sessions | Fix var-in-loop bug, proper scoping |
-| 8 | String type (length + pointer) | 1 session | Safe string operations |
+| 8 | ~~String type~~ | Done | Str struct (data+len), str_from/eq/cat/sub/print |
 
 **Tier 2 — Scale features (for larger codebases):**
 

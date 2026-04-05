@@ -47,6 +47,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - stage1/arch/aarch64/ with emit.cyr (53 fns), jump.cyr (4 fns), fixup.cyr (4 fns)
   - Cross-compiler cc2_aarch64 (84KB, emits aarch64 ELF64)
   - Codegen factored: shared frontend, per-arch backend via include swap
+- Language foundations (Phase 8 started):
+  - Heap allocator: stage1/lib/alloc.cyr — bump allocator from brk, alloc/reset/used
+  - String type: stage1/lib/str.cyr — Str struct (data+len), str_from/eq/cat/sub/print
+  - Function pointer library: stage1/lib/fnptr.cyr — fncall0/1/2 indirect calls
+  - argc/argv: stage1/lib/args.cyr — reads /proc/self/cmdline
+  - Cyrius language guide: docs/cyrius-guide.md
+  - Vidya: 17 type system patterns, 14 implementation patterns, 13 aarch64 entries
+  - 143 total tests (80 cc + 52 programs + 11 asm)
 - Inline asm mnemonics: 18 kernel instructions (cli, sti, hlt, mov crN, lgdt, lidt, iretq, etc.)
 - Bare metal ELF: `kernel;` directive, multiboot1 header, 32-bit ELF, base 0x100000
 - Bitfield access: PTE/GDT/IDT pack/unpack patterns proven

@@ -220,6 +220,7 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }
         # "elif" = 0x66696C65
         if (kw & 0xFFFFFFFF == 0x66696C65) { ADDTOK(S, 50, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x65736163) { ADDTOK(S, 58, 0); return p; }
     }
     if (klen == 5) {
         if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }
@@ -242,6 +243,7 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
         # "kernel" = 0x6C656E72656B
         if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x686374697773) { ADDTOK(S, 57, 0); return p; }
     }
     if (klen == 7) {
         # "syscall" = 0x006C6C6163737973
@@ -252,6 +254,7 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x323365726F7473) { ADDTOK(S, 46, 0); return p; }
         # "store64" = 0x343665726F7473
         if (kw & 0xFFFFFFFFFFFFFF == 0x343665726F7473) { ADDTOK(S, 47, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x746C7561666564) { ADDTOK(S, 59, 0); return p; }
     }
     # "continue" = 0x65756E69746E6F63 (8 bytes)
     if (klen == 8) { if (kw == 0x65756E69746E6F63) { ADDTOK(S, 52, 0); return p; } }
