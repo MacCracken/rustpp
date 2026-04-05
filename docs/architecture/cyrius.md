@@ -42,10 +42,11 @@ Assembly (the cornerstone)
         → bootstrap closure ✓ (byte-identical output)
           → bootstrap/asm (29KB committed binary — root of trust)
             → stage1f (compiler) + asm (assembler)
-              → cc.cyr → cc2 (modular, 7 modules, 173 fns)
-                → 27 programs (Phase 5 — proved the language) ✓
-                  → kernel prerequisites (Phase 6)  ← WE ARE HERE
-                    → AGNOS kernel (Phase 7+)
+              → cc.cyr → cc2 (modular, 7 modules, 181 fns)
+                → 38 programs, 137 tests (Phase 5) ✓
+                  → kernel prerequisites (Phase 6) ✓
+                    → boot_serial.cyr: "AGNOS" on QEMU  ← WE ARE HERE
+                      → AGNOS kernel (Phase 7+)
 ```
 
 ## Current State
@@ -112,19 +113,17 @@ Language features added FROM WITHIN — no Rust, no upstream fork.
 - Self-hosting: cc2==cc3 byte-identical, 94 tests
 
 ### Phase 5 (Done) — Prove the Language
-- 19 Linux CLI tools + 8 proof programs (27 total, 124 tests)
-- Logical &&/||, for loops, typed pointers, nested structs, global initializers
-- Bootstrap repair: codebuf/input buffer expansion, source reproduces binary
-- Buffered I/O (85x speedup, wc 2.4x faster than GNU)
-- Benchmarks: 10-233x smaller binaries than GNU equivalents
+- 38 programs (CLI tools + proof programs), 137 tests
+- &&/||, for loops, typed pointers, nested structs, global initializers
+- String stdlib, bootstrap repair, capacity expansions
+- Buffered I/O (wc 2.4x faster than GNU), 10-233x smaller binaries
 
-### Phase 6 (In Progress) — Kernel Prerequisites
-Done: typed pointers ✓, nested structs ✓, global initializers ✓, for loops ✓
-Remaining:
-- Inline asm with mnemonics (embed encoder from asm.cyr)
-- Bare metal ELF (custom base address, multiboot header)
-- Interrupt handler support, bitfield access, linker control
-- Nice-to-haves: string stdlib, argv, heap allocator, type enforcement
+### Phase 6 (Done) — Kernel Prerequisites
+All 9 items complete:
+- Inline asm with 18 kernel mnemonics (cli, sti, mov crN, lgdt, lidt, iretq, etc.)
+- Bare metal ELF: `kernel;` directive, multiboot1 header, 32-bit ELF, base 0x100000
+- Typed pointers, nested structs, global initializers, for loops
+- Bitfield access (PTE/GDT/IDT), linker control, ISR save/restore pattern
 
 ### Phase 7 — Kernel (x86_64)
 - Compile the Linux kernel with Cyrius — the proof that the language handles real kernel code

@@ -22,7 +22,7 @@ echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 
 |--------|-------|
 | Full bootstrap | 40ms |
 | Self-compile (1960 lines) | 8ms |
-| Build 35 programs | ~45ms (3ms each) |
+| Build 38 programs | ~45ms (3ms each) |
 | Cyrius `wc` vs GNU `wc` | **2.4x faster** (9ms vs 22ms for 1MB) |
 | Cyrius `true` vs GNU `true` | **233x smaller** (168B vs 39KB) |
 | Cyrius `cat` vs GNU `cat` | **10x smaller, same throughput** |
@@ -59,9 +59,9 @@ See [full benchmarks](docs/benchmarks.md) for details.
 |-------|--------|
 | 0–3 | Done (fork → assembly → self-hosting bootstrap) |
 | 4 | Done (structs, pointers, includes, inline asm, elif, types) |
-| 5 | **In progress** (prove language: 35 programs, &&/\|\|, benchmarks) |
-| 6 | **In progress** (kernel prereqs: typed ptrs ✓, nested structs ✓, global inits ✓, for loops ✓. Remaining: inline asm, bare metal ELF) |
-| 7 | Planned (compile Linux kernel with Cyrius, boot AGNOS kernel) |
+| 5 | Done (38 programs, &&/\|\|, for loops, typed ptrs, nested structs, global inits) |
+| 6 | Done (inline asm mnemonics, bare metal ELF, bitfields, ISR pattern, linker control) |
+| 7 | **Started** (boot_serial: 240B kernel prints "AGNOS" on QEMU. Next: GDT, IDT, 64-bit shim) |
 | 8 | Planned (audit + refactor) |
 | 9 | Planned (multi-architecture: aarch64) |
 | 10 | Planned (prove at scale: migrate Ark, AGNOS userland) |
@@ -84,8 +84,8 @@ docs/            Architecture, roadmap, benchmarks, ADRs
 ```sh
 sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 80 compiler tests
 sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
-sh stage1/programs/test_programs.sh ./build/cc2      # 44 program tests
-# Total: 135 tests, 0 failures
+sh stage1/programs/test_programs.sh ./build/cc2      # 46 program tests
+# Total: 137 tests, 0 failures
 ```
 
 ## Part of AGNOS

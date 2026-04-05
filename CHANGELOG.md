@@ -32,6 +32,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Bootstrap chain repaired: fixed codebuf offset split and orphaned GVAR references
   - Source now reproduces binary (cc2==cc3 byte-identical)
   - Bootstrap path: stage1f → cc.cyr → cc2 verified
+  - build/cc2 committed to git (no longer gitignored)
+- Typed pointers: `var p: *i64 = &buf; *(p + 1)` scales by element size
+- Nested structs: `struct Outer { x; inner: Inner; }` with chained dot access
+- Global initializers: two-pass declaration scanning, calc.cyr unblocked
+- String stdlib: stage1/lib/string.cyr (strlen, streq, memcpy, memset, memchr, strchr, print_num)
+- Inline asm mnemonics: 18 kernel instructions (cli, sti, hlt, mov crN, lgdt, lidt, iretq, etc.)
+- Bare metal ELF: `kernel;` directive, multiboot1 header, 32-bit ELF, base 0x100000
+- Bitfield access: PTE/GDT/IDT pack/unpack patterns proven
+- ISR save/restore: 14 GPR push/pop pattern for interrupt handlers
+- Phase 7 started: boot_serial.cyr (240 bytes) boots on QEMU, prints "AGNOS" to serial
+- 23 new programs: hexdump, basename, cols, tail, fib, sieve, points, memset, strtest,
+  toupper, count, rot13, bitfield, life, asmtest, xor, collatz, brainfuck,
+  kernel_hello, isr_stub, boot_serial, calc (unblocked)
 
 ### Fixed
 - Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
@@ -41,7 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
 - All 15 programs fully working (rev fixed, 5 new: seq, tr, uniq, sum, grep — all worked first try)
 - Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
-- 135 total tests (80 cc + 11 asm + 44 programs), 35 programs total
+- 137 total tests (80 cc + 11 asm + 46 programs), 38 programs total
 - Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)

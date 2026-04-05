@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 5 — Proving the language. 35 programs, 135 tests, &&/||, wc beats GNU.
+- **Status**: Phase 7 started — AGNOS boots on QEMU. 38 programs, 137 tests, 181 functions.
 
 ## Goal
 
@@ -91,19 +91,17 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 2. Codegen bug investigated — not a bug ✓
 3. Logical &&/||, for loops, typed pointers, nested structs, global initializers ��
 4. Bootstrap repair, codebuf/input buffer expansion ✓
-5. 35 programs (19 CLI + 8 proof), 135 tests ✓
+5. 38 programs (19 CLI + 8 proof), 137 tests ✓
 6. Migrate Ark to Cyrius — first real-world project
 
-### Phase 6: Kernel Prerequisites (In Progress)
-Done: typed pointers ✓, nested structs ✓, global initializers ✓, for loops ✓
-Remaining:
-1. Inline asm with mnemonics, bare metal ELF, interrupt handlers
-2. Bitfield access, linker control
+### Phase 6: Kernel Prerequisites (COMPLETE)
+All 9 items done: typed pointers, nested structs, global initializers, for loops,
+inline asm (18 mnemonics), bare metal ELF (multiboot1, 32-bit ELF), bitfields,
+linker control, ISR save/restore pattern.
 
-### Phase 7: Kernel (x86_64)
-1. Compile Linux kernel with Cyrius — the proof
-2. Boot the AGNOS kernel — GDT, IDT, page tables, interrupts
-3. Agent/capability enforcement
+### Phase 7: Kernel (x86_64) (STARTED)
+- boot_serial.cyr: 240-byte kernel boots on QEMU, prints "AGNOS" to serial ✓
+- Next: serial console, GDT/IDT, 32-to-64 shim, page tables, interrupts
 4. Initial boot — full-featured AGNOS continues beyond Phase 11
 
 ### Phase 8: Audit + Refactor
