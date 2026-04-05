@@ -6,6 +6,11 @@ kernel;
 # === Kernel data ===
 var gdt[64];
 var gdt_ptr[16];
+var idt[4096];
+var idt_ptr[16];
+var isr_stub[16];
+var timer_ticks = 0;
+var timer_isr[64];
 
 # === Serial I/O ===
 
@@ -51,6 +56,96 @@ fn gdt_init() {
         0x48; 0xC7; 0xC0; 0x10; 0x00; 0x00; 0x00;
         0x8E; 0xD8; 0x8E; 0xC0; 0x8E; 0xD0;
     }
+    return 0;
+}
+
+# === IDT ===
+
+fn idt_set_gate(base, handler, selector, attr) {
+    # IDT entry = 16 bytes:
+    # [0-1] offset low, [2-3] selector, [4] IST=0, [5] type_attr
+    # [6-7] offset mid, [8-11] offset high, [12-15] reserved
+    store16(base, handler & 0xFFFF);
+    store16(base + 2, selector);
+    store8(base + 4, 0);
+    store8(base + 5, attr);
+    store16(base + 6, (handler >> 16) & 0xFFFF);
+    store32(base + 8, (handler >> 32) & 0xFFFFFFFF);
+    store32(base + 12, 0);
+    return 0;
+}
+
+fn idt_init() {
+    # Build a tiny ISR stub: iretq (48 CF) at a known address
+    # The stub is just 2 bytes but we need it at a fixed location
+    store8(&isr_stub, 0x48);
+    store8(&isr_stub + 1, 0xCF);
+    var handler = &isr_stub;
+    # Set all 256 entries to the default handler
+    # attr 0x8E = present(1) + DPL(00) + gate type(1110 = 64-bit interrupt)
+    for (var v = 0; v < 256; v = v + 1) {
+        idt_set_gate(&idt + v * 16, handler, 0x08, 0x8E);
+    }
+    # Load IDTR
+    store16(&idt_ptr, 4095);
+    store64(&idt_ptr + 2, &idt);
+    var ip = &idt_ptr;
+    asm { lidt [rax]; }
+    return 0;
+}
+
+# === PIC + Timer ===
+
+fn pic_init() {
+    # Remap PIC: IRQ 0-7 → INT 32-39, IRQ 8-15 → INT 40-47
+    # ICW1: init + ICW4 needed
+    asm { 0xB0; 0x11; 0xBA; 0x20; 0x00; 0x00; 0x00; 0xEE; }  # out 0x20, 0x11
+    asm { 0xB0; 0x11; 0xBA; 0xA0; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA0, 0x11
+    # ICW2: vector offsets
+    asm { 0xB0; 0x20; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0x20 (IRQ0=INT32)
+    asm { 0xB0; 0x28; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0x28 (IRQ8=INT40)
+    # ICW3: master has slave on IRQ2, slave ID=2
+    asm { 0xB0; 0x04; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0x04
+    asm { 0xB0; 0x02; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0x02
+    # ICW4: 8086 mode
+    asm { 0xB0; 0x01; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0x01
+    asm { 0xB0; 0x01; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0x01
+    # Mask all IRQs except IRQ0 (timer)
+    asm { 0xB0; 0xFE; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0xFE
+    asm { 0xB0; 0xFF; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0xFF
+    return 0;
+}
+
+fn timer_isr_build() {
+    # Build a tiny ISR for timer: increment counter + send EOI + iretq
+    # push rax (50)
+    # mov rax, [counter_addr]; inc rax; mov [counter_addr], rax
+    # mov al, 0x20; out 0x20, al (EOI)
+    # pop rax (58)
+    # iretq (48 CF)
+    var p = &timer_isr;
+    store8(p, 0x50);  # push rax
+    # We need the address of timer_ticks. Use a fixed approach:
+    # mov rax, [addr] where addr is &timer_ticks
+    # 48 A1 addr64 — absolute mov rax, [imm64]
+    store8(p + 1, 0x48);
+    store8(p + 2, 0xA1);
+    store64(p + 3, &timer_ticks);
+    # inc rax = 48 FF C0
+    store8(p + 11, 0x48);
+    store8(p + 12, 0xFF);
+    store8(p + 13, 0xC0);
+    # mov [addr], rax = 48 A3 addr64
+    store8(p + 14, 0x48);
+    store8(p + 15, 0xA3);
+    store64(p + 16, &timer_ticks);
+    # EOI: mov al, 0x20 (B0 20); mov edx, 0x20 (BA 20 00 00 00); out dx, al (EE)
+    store8(p + 24, 0xB0); store8(p + 25, 0x20);
+    store8(p + 26, 0xBA); store8(p + 27, 0x20); store8(p + 28, 0x00); store8(p + 29, 0x00); store8(p + 30, 0x00);
+    store8(p + 31, 0xEE);
+    # pop rax (58); iretq (48 CF)
+    store8(p + 32, 0x58);
+    store8(p + 33, 0x48); store8(p + 34, 0xCF);
     return 0;
 }
 
@@ -102,6 +197,34 @@ serial_println("64-bit long mode", 16);
 gdt_init();
 serial_println("GDT loaded", 10);
 
-serial_println("Cyrius kernel running!", 22);
+idt_init();
+serial_println("IDT loaded", 10);
 
-asm { cli; hlt; 0xEB; 0xFE; }
+pic_init();
+serial_println("PIC remapped", 12);
+
+timer_ticks = 0;
+timer_isr_build();
+idt_set_gate(&idt + 32 * 16, &timer_isr, 0x08, 0x8E);
+serial_println("Timer ISR installed", 19);
+
+asm { sti; }
+serial_println("Interrupts enabled", 18);
+
+# Wait a moment
+var wait = 0;
+while (wait < 100000) { wait = wait + 1; }
+
+# Report timer ticks
+serial_print("Timer ticks: ", 13);
+# Print tick count as decimal
+var ticks = timer_ticks;
+var tbuf[24];
+var ti = 23;
+if (ticks == 0) { store8(&tbuf + ti, 48); ti = ti - 1; }
+while (ticks > 0) { store8(&tbuf + ti, 48 + ticks % 10); ti = ti - 1; ticks = ticks / 10; }
+serial_print(&tbuf + ti + 1, 23 - ti);
+serial_println("", 0);
+
+serial_println("AGNOS ready.", 12);
+asm { hlt; 0xEB; 0xFE; }
