@@ -153,6 +153,9 @@ echo "-- Pointers (cc-only) --"
 run_test_cc "deref"      'var x = 42; var p = &x; var r = *p;' 42
 run_test_cc "ptr_store"  'var x = 0; var p = &x; *p = 42; var r = x;' 42
 run_test_cc "ptr_arith"  'var buf[16]; store64(&buf, 10); store64(&buf + 8, 32); var r = *(&buf) + *(&buf + 8);' 42
+run_test_cc "typed_ptr"  'var buf[64]; store64(&buf, 10); store64(&buf + 8, 32); var p: *i64 = &buf; var r = *p + *(p + 1);' 42
+run_test_cc "ptr_i32"    'var buf[16]; store32(&buf, 42); var p: *i32 = &buf; var r = load32(p + 0);' 42
+run_test_cc "ptr_walk"   'var buf[64]; store64(&buf, 1); store64(&buf + 8, 2); store64(&buf + 16, 3); var p: *i64 = &buf; var s = *p + *(p + 1) + *(p + 2); var r = s;' 6
 echo ""
 
 echo "-- Structs (cc-only) --"

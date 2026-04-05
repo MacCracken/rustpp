@@ -60,6 +60,12 @@ fn ADDXP(S, p) {
     return 0;
 }
 
+# Pointer scale tracking (0 = not a pointer, >0 = element size in bytes)
+fn GPSC(S) { return L64(S + 0x8F890); }
+fn SPSC(S, v) { S64(S + 0x8F890, v); return 0; }
+fn GLTYPE(S, li) { return L64(S + 0x8F898 + li * 8); }
+fn SLTYPE(S, li, v) { S64(S + 0x8F898 + li * 8, v); return 0; }
+
 # Print a number to stderr (decimal)
 fn PRNUM(n) {
     var buf[24];

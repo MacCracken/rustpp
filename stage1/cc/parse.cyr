@@ -116,6 +116,7 @@ fn FINDVAR(S, noff) {
 
 fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
+    SPSC(S, 0);
     if (typ == 1) {
         # NUM — emit mov rax, imm64
         var val = PEEKV(S);
@@ -138,12 +139,19 @@ fn PARSE_FACTOR(S) {
             return 0;
         }
         # Variable load — check local first if in function
+        SPSC(S, 0);
         if (GINFN(S) == 1) {
             var li = FINDLOCAL(S, noff);
-            if (li >= 0) { EFLLOAD(S, li); return 0; }
+            if (li >= 0) {
+                SPSC(S, GLTYPE(S, li));
+                EFLLOAD(S, li);
+                return 0;
+            }
         }
         var idx = FINDVAR(S, noff);
         if (idx < 0) { ERR(S); }
+        var vt = GVTYPE(S, idx);
+        if (vt < 0) { SPSC(S, 0 - vt); }
         EVLOAD(S, idx);
         return 0;
     }
@@ -285,6 +293,7 @@ fn PARSE_FACTOR(S) {
         STI(S, GTI(S) + 1);
         PARSE_FACTOR(S);
         ELOAD64(S);
+        SPSC(S, 0);
         return 0;
     }
     if (typ == 37) {
@@ -333,16 +342,30 @@ fn PARSE_TERM(S) {
     return 0;
 }
 
+fn EPTR_SCALE(S, ps) {
+    # rax has the offset value; multiply by pointer scale
+    # mov rcx, rax; mov rax, ps; imul rcx → rax = offset * scale
+    if (ps > 1) { EMOVCA(S); EMOVI(S, ps); EIMUL(S); }
+    return 0;
+}
+
 fn PARSE_EXPR(S) {
     PARSE_TERM(S);
+    var ps = GPSC(S);
     var go = 1;
     while (go == 1) {
         var typ = PEEKT(S);
         if (typ == 6) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EADDR(S);
+            STI(S, GTI(S) + 1); EPUSHR(S); SPSC(S, 0); PARSE_TERM(S);
+            EPTR_SCALE(S, ps);
+            EMOVCA(S); EPOPR(S); EADDR(S);
+            SPSC(S, ps);
         }
         else { if (typ == 7) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); ESUBR(S);
+            STI(S, GTI(S) + 1); EPUSHR(S); SPSC(S, 0); PARSE_TERM(S);
+            EPTR_SCALE(S, ps);
+            EMOVCA(S); EPOPR(S); ESUBR(S);
+            SPSC(S, ps);
         }
         else { if (typ == 27) {
             # AMPERSAND — binary AND
@@ -497,10 +520,25 @@ fn PARSE_VAR(S) {
     if (PEEKT(S) != 2) { ERR(S); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
-    # Optional type annotation: var x: type = ...
+    # Optional type annotation: var x: type = ... or var x: *type = ...
+    var pscale = 0;
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);  # consume :
-        STI(S, GTI(S) + 1);  # consume type name (skip — no enforcement)
+        if (PEEKT(S) == 8) {
+            # Pointer type: *i64, *i32, *i16, *i8
+            STI(S, GTI(S) + 1);  # consume *
+            var tnoff = PEEKV(S);
+            # Check type name for size (i64=8, i32=4, i16=2, i8=1)
+            var tname = L64(S + 0x50000 + tnoff);
+            if (tname & 0xFFFFFF == 0x343669) { pscale = 8; }
+            if (tname & 0xFFFFFF == 0x323369) { pscale = 4; }
+            if (tname & 0xFFFFFF == 0x363169) { pscale = 2; }
+            if (tname & 0xFFFF == 0x3869) { pscale = 1; }
+            if (pscale == 0) { pscale = 8; }
+            STI(S, GTI(S) + 1);  # consume type name
+        } else {
+            STI(S, GTI(S) + 1);  # consume type name (non-pointer, skip)
+        }
     }
     # Check for array: var buf[N];
     if (PEEKT(S) == 28) {
@@ -527,12 +565,14 @@ fn PARSE_VAR(S) {
         if (FINDLOCAL(S, noff) >= 0) { ERRDUPVAR(S); }
         var li = GFLC(S);
         S64(S + 0x8DC30 + li * 8, noff);
+        SLTYPE(S, li, pscale);
         EFLSTORE(S, li);
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
         S64(S + 0x58000 + vcnt * 8, noff);
         S64(S + 0x58800 + vcnt * 8, 8);
+        if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
         EVSTORE(S, vcnt);
         SLVAR(S, vcnt);
         SVCNT(S, vcnt + 1);
