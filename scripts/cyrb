@@ -282,6 +282,37 @@ MANIFEST
         "$cyrc" deny "$@"
         ;;
 
+    # === Format + Lint ===
+    fmt)
+        shift
+        cyrfmt="${TOOLS_DIR}/cyrfmt"
+        if [ ! -x "$cyrfmt" ]; then
+            echo "error: cyrfmt not found" >&2; exit 1
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrb fmt <file.cyr> [--check]"; exit 1; fi
+        if [ "$2" = "--check" ]; then
+            tmpf="/tmp/cyrb_fmt_$$"
+            "$cyrfmt" "$1" > "$tmpf"
+            if diff -q "$1" "$tmpf" > /dev/null 2>&1; then
+                echo "ok: $1"; rm -f "$tmpf"
+            else
+                echo "needs formatting: $1"; rm -f "$tmpf"; exit 1
+            fi
+        else
+            "$cyrfmt" "$1"
+        fi
+        ;;
+
+    lint)
+        shift
+        cyrlint="${TOOLS_DIR}/cyrlint"
+        if [ ! -x "$cyrlint" ]; then
+            echo "error: cyrlint not found" >&2; exit 1
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrb lint <file.cyr>"; exit 1; fi
+        "$cyrlint" "$@"
+        ;;
+
     # === Info commands ===
     version|--version|-v)
         echo "cyrb $VERSION"
