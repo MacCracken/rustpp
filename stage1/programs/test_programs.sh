@@ -200,6 +200,15 @@ check "collatz 97" "97" "$?"
 out=$("$TMPDIR/brainfuck")
 check "brainfuck hello" "Hello World!" "$out"
 
+# Library tests
+for p in alloctest strtype; do build $p; done
+
+"$TMPDIR/alloctest" > /dev/null 2>/dev/null
+check "alloctest 4" "4" "$?"
+
+"$TMPDIR/strtype" > /dev/null 2>/dev/null
+check "strtype 4" "4" "$?"
+
 # Algorithm programs
 for p in ackermann struct_list gcd; do build $p; done
 

@@ -1,0 +1,70 @@
+# str.cyr — string type (fat pointer: data + length)
+# Usage: include "stage1/lib/str.cyr"
+# Requires: include "stage1/lib/alloc.cyr" for dynamic strings
+# Requires: include "stage1/lib/string.cyr" for strlen/memcpy
+
+struct Str { data; len; }
+
+# Create a Str from a C string literal (null-terminated)
+fn str_from(cstr) {
+    var slen = strlen(cstr);
+    var s = alloc(16);
+    store64(s, cstr);
+    store64(s + 8, slen);
+    return s;
+}
+
+# Create a Str from buffer + length
+fn str_new(data, len) {
+    var s = alloc(16);
+    store64(s, data);
+    store64(s + 8, len);
+    return s;
+}
+
+# Get length
+fn str_len(s) {
+    return load64(s + 8);
+}
+
+# Get data pointer
+fn str_data(s) {
+    return load64(s);
+}
+
+# Print a Str to stdout
+fn str_print(s) {
+    syscall(1, 1, load64(s), load64(s + 8));
+    return 0;
+}
+
+# Print Str + newline
+fn str_println(s) {
+    str_print(s);
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+# Compare two Strs
+fn str_eq(a, b) {
+    var la = load64(a + 8);
+    var lb = load64(b + 8);
+    if (la != lb) { return 0; }
+    return memeq(load64(a), load64(b), la);
+}
+
+# Concatenate two Strs (allocates new)
+fn str_cat(a, b) {
+    var la = load64(a + 8);
+    var lb = load64(b + 8);
+    var newlen = la + lb;
+    var buf = alloc(newlen);
+    memcpy(buf, load64(a), la);
+    memcpy(buf + la, load64(b), lb);
+    return str_new(buf, newlen);
+}
+
+# Substring (allocates new Str header, shares data)
+fn str_sub(s, start, len) {
+    return str_new(load64(s) + start, len);
+}
