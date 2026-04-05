@@ -37,6 +37,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Nested structs: `struct Outer { x; inner: Inner; }` with chained dot access
 - Global initializers: two-pass declaration scanning, calc.cyr unblocked
 - String stdlib: stage1/lib/string.cyr (strlen, streq, memcpy, memset, memchr, strchr, print_num)
+- AGNOS kernel (Phase 7 complete):
+  - 32-to-64 boot shim, serial console, GDT, IDT, PIC remap
+  - PIT timer interrupt (100Hz), keyboard interrupt (ring buffer)
+  - Page tables (16MB identity map), physical memory manager (bitmap)
+  - Virtual memory manager (map/unmap/alloc), process table, syscall interface
+  - 606 lines, 32 functions, 58KB kernel binary, boots on QEMU
+- aarch64 backend (Phase 9 started):
+  - stage1/arch/aarch64/ with emit.cyr (53 fns), jump.cyr (4 fns), fixup.cyr (4 fns)
+  - Cross-compiler cc2_aarch64 (84KB, emits aarch64 ELF64)
+  - Codegen factored: shared frontend, per-arch backend via include swap
 - Inline asm mnemonics: 18 kernel instructions (cli, sti, hlt, mov crN, lgdt, lidt, iretq, etc.)
 - Bare metal ELF: `kernel;` directive, multiboot1 header, 32-bit ELF, base 0x100000
 - Bitfield access: PTE/GDT/IDT pack/unpack patterns proven

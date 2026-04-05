@@ -80,7 +80,7 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | 14 | Type enforcement (warnings → errors) | 2 sessions | Catch bugs at compile time |
 | 15 | Proper error messages (line numbers, source context) | 2 sessions | Developer experience |
 
-### Phase 7 — Kernel (x86_64)
+### Phase 7 — Kernel (COMPLETE) (x86_64)
 
 **Goal**: Compile the Linux kernel with Cyrius. Then boot AGNOS. Proves the language handles real kernel-scale code.
 

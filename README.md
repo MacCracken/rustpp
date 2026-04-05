@@ -61,9 +61,9 @@ See [full benchmarks](docs/benchmarks.md) for details.
 | 4 | Done (structs, pointers, includes, inline asm, elif, types) |
 | 5 | Done (41 programs, &&/\|\|, for loops, typed ptrs, nested structs, global inits) |
 | 6 | Done (inline asm mnemonics, bare metal ELF, bitfields, ISR pattern, linker control) |
-| 7 | **Started** (boot_serial: 240B kernel prints "AGNOS" on QEMU. Next: GDT, IDT, 64-bit shim) |
+| 7 | Done (AGNOS kernel: serial, GDT/IDT, timer, keyboard, PMM, VMM, process, syscall) |
 | 8 | Planned (audit + refactor) |
-| 9 | Planned (multi-architecture: aarch64) |
+| 9 | **Started** (aarch64 backend: emit/jump/fixup, cross-compiler builds aarch64 ELF64) |
 | 10 | Planned (prove at scale: migrate Ark, AGNOS userland) |
 | 11 | Planned (full sovereignty) |
 

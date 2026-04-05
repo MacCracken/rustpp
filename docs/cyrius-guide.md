@@ -1,0 +1,256 @@
+# Cyrius Language Guide
+
+> The complete reference for writing Cyrius programs and kernels.
+
+## Quick Start
+
+```sh
+sh bootstrap/bootstrap.sh                    # Build toolchain (40ms)
+echo 'var x = 42;' | ./build/cc2 > prog     # Compile
+chmod +x prog && ./prog; echo $?            # Run → 42
+```
+
+## Types
+
+Everything is a 64-bit integer. No floats, no separate pointer type at the value level. Type annotations are optional and don't enforce:
+
+```
+var x = 42;
+var y: i64 = 42;      # Same thing — annotation is documentation
+```
+
+## Variables
+
+```
+var x = 10;            # Global or local (context-dependent)
+var buf[256];           # Array (256 * 8 = 2048 bytes)
+x = x + 1;             # Reassignment
+```
+
+## Functions
+
+```
+fn add(a, b) {
+    return a + b;
+}
+var r = add(20, 22);   # r = 42
+```
+
+- Up to 6 register params, 7+ passed on stack
+- Forward calls work (functions can call functions defined later)
+- All functions return a value (`return 0;` if nothing to return)
+
+## Control Flow
+
+```
+# If / elif / else
+if (x == 1) { ... }
+elif (x == 2) { ... }
+else { ... }
+
+# While
+while (x < 10) { x = x + 1; }
+
+# For
+for (var i = 0; i < 10; i = i + 1) { ... }
+
+# Break / Continue (in while and for)
+while (1 == 1) {
+    if (done == 1) { break; }
+    if (skip == 1) { continue; }
+}
+```
+
+## Operators
+
+```
+# Arithmetic
++ - * / %
+
+# Comparison (return 1 or 0)
+== != < > <= >=
+
+# Bitwise
+& | ^ ~ << >>
+
+# Logical (short-circuit, chainable)
+&&  ||
+```
+
+## Memory
+
+```
+var buf[16];
+store8(&buf, 65);              # Write byte
+var c = load8(&buf);           # Read byte → 65
+
+store16(&buf, 0x1234);         # 16-bit
+store32(&buf, 0x12345678);     # 32-bit
+store64(&buf, 0x123456789ABC); # 64-bit
+
+var v = load16(&buf);          # Corresponding reads
+var v = load32(&buf);
+var v = load64(&buf);
+```
+
+## Pointers
+
+```
+var x = 42;
+var p = &x;            # Address of x
+var v = *p;            # Dereference → 42
+*p = 99;               # Write through pointer
+
+# Typed pointers (auto-scale arithmetic)
+var buf[64];
+store64(&buf, 10);
+store64(&buf + 8, 20);
+var p: *i64 = &buf;
+var a = *p;            # 10
+var b = *(p + 1);      # 20 (adds 8 bytes, not 1)
+```
+
+## Structs
+
+```
+struct Point { x; y; }
+
+var p = Point { 10, 20 };
+var sum = p.x + p.y;    # 30
+p.x = 42;               # Field assignment
+
+# Nested structs
+struct Rect { tl: Point; br: Point; }
+var r = Rect { 0, 0, 10, 5 };
+var w = r.br.x - r.tl.x;   # 10
+```
+
+## Strings
+
+```
+syscall(1, 1, "hello\n", 6);   # Write to stdout
+# Escape sequences: \n \t \0 \\ \"
+# Strings are null-terminated in the data section
+```
+
+## Syscalls
+
+```
+syscall(1, 1, "hello", 5);          # write(fd=1, buf, len=5)
+var n = syscall(0, 0, &buf, 256);   # read(fd=0, buf, len=256)
+syscall(60, 0);                      # exit(0)
+```
+
+## Includes
+
+```
+include "stage1/lib/string.cyr"
+# Textual inclusion — file contents replace the include line
+```
+
+## Inline Assembly
+
+```
+# Raw bytes
+asm { 0x90; }                    # nop
+
+# Mnemonics (kernel instructions)
+asm { cli; }                     # Clear interrupts
+asm { sti; }                     # Set interrupts
+asm { hlt; }                     # Halt CPU
+asm { mov cr3, rax; }           # Load page table
+asm { lgdt [rax]; }             # Load GDT
+asm { lidt [rax]; }             # Load IDT
+asm { iretq; }                  # Return from interrupt
+asm { int 3; }                  # Software interrupt
+asm { invlpg [rax]; }           # Flush TLB entry
+asm { in al, dx; }              # Port input
+asm { out dx, al; }             # Port output
+asm { wrmsr; rdmsr; cpuid; }    # System instructions
+```
+
+## Kernel Mode
+
+```
+kernel;                          # Emit bare-metal ELF (multiboot1)
+# Rest of the file is kernel code
+# Entry point: 32-bit boot shim → 64-bit Cyrius code
+# Boot: qemu-system-x86_64 -kernel build/kernel -serial stdio
+```
+
+## Global Initializers
+
+Variables can be declared among function definitions:
+
+```
+fn get_value() { return global_var; }
+var global_var = 42;             # Visible to functions above
+var r = get_value();             # r = 42
+```
+
+## String Standard Library
+
+```
+include "stage1/lib/string.cyr"
+
+strlen(s)              # Length of null-terminated string
+streq(a, b)            # Compare strings (1=equal, 0=not)
+memeq(a, b, n)         # Compare n bytes
+memcpy(dst, src, n)    # Copy n bytes
+memset(dst, val, n)    # Fill n bytes
+memchr(s, c, n)        # Find byte in buffer (-1 if not found)
+strchr(s, c)           # Find byte in string (-1 if not found)
+print_num(n)           # Print decimal to stdout
+println(s)             # Print string + newline
+```
+
+## Known Limitations
+
+- No block scoping: `var` in loop bodies allocates new stack slot per iteration. Declare variables outside loops.
+- No `&&`/`||` mixed in same condition. Use separate `if` blocks.
+- Exit codes truncated to 0-255 (Linux limitation).
+- Inline asm operates on register state directly — know the calling convention.
+- `for` loop step must be a simple assignment (`i = i + 1`), not a complex expression.
+
+## Building
+
+```sh
+# Bootstrap from seed
+sh bootstrap/bootstrap.sh
+
+# Build a program
+echo 'var x = 42;' | ./build/cc2 > prog && chmod +x prog
+
+# Build the kernel
+cat kernel/agnos.cyr | ./build/cc2 > build/agnos
+
+# Cross-compile for aarch64
+cat prog.cyr | ./build/cc2_aarch64 > prog_arm
+
+# Run tests
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
+sh stage1/programs/test_programs.sh ./build/cc2
+sh stage1/test_asm.sh ./build/asm
+
+# Boot kernel
+qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
+```
+
+## Example Programs
+
+See `stage1/programs/` for 41 examples:
+- **CLI tools**: cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort...
+- **Algorithms**: fizzbuzz, primes, sieve, collatz, ackermann, gcd, brainfuck
+- **Systems**: bitfield (PTE/GDT/IDT), asmtest (inline asm), life (Game of Life)
+- **Kernel**: kernel_hello (VGA), isr_stub (interrupt patterns), boot_serial
+
+## Architecture
+
+```
+bootstrap/asm (29KB seed)
+  → stage1f (12KB compiler)
+    → cc.cyr (monolithic, bridge)
+      → cc2 (modular, 181 functions)
+        → cc2_aarch64 (cross-compiler)
+        → agnos.cyr (AGNOS kernel)
+```
