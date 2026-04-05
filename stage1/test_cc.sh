@@ -163,6 +163,9 @@ run_test_cc "struct_init"  'struct Point { x; y; } var p = Point { 10, 32 }; var
 run_test_cc "struct_assign" 'struct P { a; b; } var p = P { 0, 0 }; p.a = 42;' 42
 run_test_cc "struct_3field" 'struct RGB { r; g; b; } var c = RGB { 10, 20, 12 }; var x = c.r + c.g + c.b;' 42
 run_test_cc "struct_fn"    'struct P { x; y; } fn sum(a, b) { return a + b; } var p = P { 20, 22 }; var r = sum(p.x, p.y);' 42
+run_test_cc "nested_struct" 'struct Inner { a; b; } struct Outer { x; inner: Inner; y; } var o = Outer { 1, 20, 22, 99 }; var r = o.inner.a + o.inner.b;' 42
+run_test_cc "nested_write" 'struct V { x; y; } struct R { tl: V; br: V; } var r = R { 0, 0, 0, 0 }; r.br.x = 42; var x = r.br.x;' 42
+run_test_cc "nested_rect"  'struct V { x; y; } struct R { tl: V; br: V; } var r = R { 0, 0, 10, 5 }; var w = r.br.x - r.tl.x; var h = r.br.y - r.tl.y;' 5
 echo ""
 
 echo "-- Multi-Width Load/Store (cc-only) --"

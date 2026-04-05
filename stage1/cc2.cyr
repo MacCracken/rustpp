@@ -85,6 +85,10 @@
 #   0x8F890  ptr_scale     [8]           Current expression's pointer scale (0=not pointer)
 #   0x8F898  local_types   [512]         64 local variable pointer scales (0=scalar, >0=ptr)
 #
+# --- Nested struct state ---
+#   0x59000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)
+#            (in freed codebuf space 0x59000-0x69000)
+#
 # NEXT FREE OFFSET: 0x8FA98
 #
 # Token types:

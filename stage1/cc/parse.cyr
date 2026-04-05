@@ -41,12 +41,52 @@ fn FINDSTRUCT(S, noff) {
     return 0;
 }
 
-# Add field to struct (0-based struct index si)
+# Add field to struct (0-based struct index si), ftype = struct_id or 0 for scalar
 fn ADDFIELD(S, si, fnoff) {
     var fc = L64(S + 0x8E730 + si * 8);
     S64(S + 0x8E830 + si * 128 + fc * 8, fnoff);
+    S64(S + 0x59000 + si * 128 + fc * 8, 0);
     S64(S + 0x8E730 + si * 8, fc + 1);
     return 0;
+}
+
+fn ADDFIELDTYPED(S, si, fnoff, ftype) {
+    var fc = L64(S + 0x8E730 + si * 8);
+    S64(S + 0x8E830 + si * 128 + fc * 8, fnoff);
+    S64(S + 0x59000 + si * 128 + fc * 8, ftype);
+    S64(S + 0x8E730 + si * 8, fc + 1);
+    return 0;
+}
+
+fn GETFTYPE(S, si, fi) {
+    return L64(S + 0x59000 + si * 128 + fi * 8);
+}
+
+# Get total size of a struct in bytes
+fn STRUCTSZ(S, si) {
+    var fc = GETFCOUNT(S, si);
+    var sz = 0;
+    var i = 0;
+    while (i < fc) {
+        var ft = GETFTYPE(S, si, i);
+        if (ft > 0) { sz = sz + STRUCTSZ(S, ft - 1); }
+        else { sz = sz + 8; }
+        i = i + 1;
+    }
+    return sz;
+}
+
+# Get byte offset of field fi within struct si
+fn FIELDOFF(S, si, fi) {
+    var off = 0;
+    var i = 0;
+    while (i < fi) {
+        var ft = GETFTYPE(S, si, i);
+        if (ft > 0) { off = off + STRUCTSZ(S, ft - 1); }
+        else { off = off + 8; }
+        i = i + 1;
+    }
+    return off;
 }
 
 # Get field count for struct (0-based index)
@@ -81,7 +121,17 @@ fn PARSE_STRUCT_DEF(S) {
             if (PEEKT(S) != 2) { ERR(S); }
             var fnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
-            ADDFIELD(S, si, fnoff);
+            # Check for type annotation: field: StructName
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 2) { ERR(S); }
+                var tnoff = PEEKV(S);
+                var fsid = FINDSTRUCT(S, tnoff);
+                STI(S, GTI(S) + 1);
+                ADDFIELDTYPED(S, si, fnoff, fsid);
+            } else {
+                ADDFIELD(S, si, fnoff);
+            }
             if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
         }
     }
@@ -417,28 +467,38 @@ fn PARSE_FIELD_LOAD(S, noff) {
     var si = sid - 1;
     var fi = FINDFIELD(S, si, fnoff);
     if (fi < 0) { ERR(S); }
-    # Emit: mov rcx, <var_addr> (fixup) then add rcx, fi*8 then mov rax, [rcx]
+    var off = FIELDOFF(S, si, fi);
+    # Check for chained access: s.inner.field
+    var ft = GETFTYPE(S, si, fi);
+    if (ft > 0 && PEEKT(S) == 41) {
+        # Nested struct — chain the dot access
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR(S); }
+        var ifnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        var isi = ft - 1;
+        var ifi = FINDFIELD(S, isi, ifnoff);
+        if (ifi < 0) { ERR(S); }
+        off = off + FIELDOFF(S, isi, ifi);
+    }
+    # Emit: mov rcx, <var_addr> (fixup) then add rcx, off then mov rax, [rcx]
     E2(S, 0xB948);
     RECFIX(S, idx);
     E8(S, 0);
-    if (fi > 0) {
+    if (off > 0) {
         E3(S, 0xC18148);
-        var foff = fi * 8;
-        EB(S, foff & 0xFF); EB(S, foff >> 8 & 0xFF); EB(S, foff >> 16 & 0xFF); EB(S, foff >> 24 & 0xFF);
+        EB(S, off & 0xFF); EB(S, off >> 8 & 0xFF); EB(S, off >> 16 & 0xFF); EB(S, off >> 24 & 0xFF);
     }
     ELODC(S);
     return 0;
 }
 
-# Store to a struct field: ident.field = expr;
+# Store to a struct field: ident.field = expr; or ident.inner.field = expr;
 fn PARSE_FIELD_STORE(S, noff) {
     STI(S, GTI(S) + 1);  # consume DOT
     if (PEEKT(S) != 2) { ERR(S); }
     var fnoff = PEEKV(S);
     STI(S, GTI(S) + 1);
-    if (PEEKT(S) != 4) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume =
-    PARSE_EXPR(S);
     # Find var + struct type + field
     var idx = FINDVAR(S, noff);
     if (idx < 0) { ERR(S); }
@@ -447,15 +507,30 @@ fn PARSE_FIELD_STORE(S, noff) {
     var si = sid - 1;
     var fi = FINDFIELD(S, si, fnoff);
     if (fi < 0) { ERR(S); }
-    # Emit: push rax; mov rcx, <var_addr>; add rcx, fi*8; pop rax; mov [rcx], rax
+    var off = FIELDOFF(S, si, fi);
+    # Check for chained access: s.inner.field = expr;
+    var ft = GETFTYPE(S, si, fi);
+    if (ft > 0 && PEEKT(S) == 41) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR(S); }
+        var ifnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        var isi = ft - 1;
+        var ifi = FINDFIELD(S, isi, ifnoff);
+        if (ifi < 0) { ERR(S); }
+        off = off + FIELDOFF(S, isi, ifi);
+    }
+    if (PEEKT(S) != 4) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    # Emit: push rax; mov rcx, <var_addr>; add rcx, off; pop rax; mov [rcx], rax
     EPUSHR(S);
     E2(S, 0xB948);
     RECFIX(S, idx);
     E8(S, 0);
-    if (fi > 0) {
+    if (off > 0) {
         E3(S, 0xC18148);
-        var foff = fi * 8;
-        EB(S, foff & 0xFF); EB(S, foff >> 8 & 0xFF); EB(S, foff >> 16 & 0xFF); EB(S, foff >> 24 & 0xFF);
+        EB(S, off & 0xFF); EB(S, off >> 8 & 0xFF); EB(S, off >> 16 & 0xFF); EB(S, off >> 24 & 0xFF);
     }
     EPOPR(S);
     ESTOC(S);
@@ -466,50 +541,60 @@ fn PARSE_FIELD_STORE(S, noff) {
 
 # Parse struct init: var name = StructName { expr, expr, ... };
 # sid is 1-based struct id, noff is var name offset
+fn EMIT_STRUCT_FIELD(S, vcnt, boff) {
+    PARSE_EXPR(S);
+    EPUSHR(S);
+    E2(S, 0xB948);
+    RECFIX(S, vcnt);
+    E8(S, 0);
+    if (boff > 0) {
+        E3(S, 0xC18148);
+        EB(S, boff & 0xFF); EB(S, boff >> 8 & 0xFF);
+        EB(S, boff >> 16 & 0xFF); EB(S, boff >> 24 & 0xFF);
+    }
+    EPOPR(S);
+    ESTOC(S);
+    if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+    return 0;
+}
+
 fn PARSE_STRUCT_INIT(S, noff, sid) {
     var si = sid - 1;
-    STI(S, GTI(S) + 1);  # consume struct name IDENT
+    STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume {
-    var fc = GETFCOUNT(S, si);
-    var sz = fc * 8;
-    # Register variable with struct size
+    STI(S, GTI(S) + 1);
+    var sz = STRUCTSZ(S, si);
     var vcnt = GVCNT(S);
     S64(S + 0x58000 + vcnt * 8, noff);
     S64(S + 0x58800 + vcnt * 8, sz);
     SVTYPE(S, vcnt, sid);
-    # Emit each field: evaluate expr, store at var_addr + field_offset
+    # Emit each scalar field (flatten nested structs)
+    var fc = GETFCOUNT(S, si);
+    var boff = 0;
     var fi = 0;
     while (fi < fc) {
-        PARSE_EXPR(S);
-        # emit: push rax (save field value)
-        EPUSHR(S);
-        # emit: mov rcx, <var_addr + fi*8> (fixup)
-        E2(S, 0xB948);
-        RECFIX(S, vcnt);
-        E8(S, 0);
-        # emit: add rcx, fi*8 (field offset)
-        if (fi > 0) {
-            # emit: add rcx, imm32
-            E3(S, 0xC18148);
-            var foff = fi * 8;
-            EB(S, foff & 0xFF);
-            EB(S, foff >> 8 & 0xFF);
-            EB(S, foff >> 16 & 0xFF);
-            EB(S, foff >> 24 & 0xFF);
+        var ft = GETFTYPE(S, si, fi);
+        if (ft > 0) {
+            # Nested struct — emit each sub-field
+            var ifc = GETFCOUNT(S, ft - 1);
+            var ifi = 0;
+            while (ifi < ifc) {
+                EMIT_STRUCT_FIELD(S, vcnt, boff);
+                boff = boff + 8;
+                ifi = ifi + 1;
+            }
+        } else {
+            EMIT_STRUCT_FIELD(S, vcnt, boff);
+            boff = boff + 8;
         }
-        # emit: pop rax; mov [rcx], rax
-        EPOPR(S);
-        ESTOC(S);
         fi = fi + 1;
-        if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
     }
     if (PEEKT(S) != 14) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume }
+    STI(S, GTI(S) + 1);
     SLVAR(S, vcnt);
     SVCNT(S, vcnt + 1);
     if (PEEKT(S) != 5) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume ;
+    STI(S, GTI(S) + 1);
     return 0;
 }
 
