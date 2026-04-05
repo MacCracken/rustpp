@@ -78,7 +78,7 @@ mkdir -p "$CYRIUS_HOME/versions/$VERSION/bin"
 # ── Download tarball or bootstrap from source ──
 
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}"
-TARBALL="cyrius-${VERSION}-x86_64-linux.tar.gz"
+TARBALL="cyrius-${VERSION}-${ARCH}-linux.tar.gz"
 TMPDIR=$(mktemp -d)
 installed=0
 
@@ -97,7 +97,7 @@ if curl -sSfL "${DOWNLOAD_URL}/${TARBALL}" -o "$TMPDIR/$TARBALL" 2>/dev/null; th
 
     # Untar into version directory
     tar xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
-    EXTRACTED="$TMPDIR/cyrius-${VERSION}-x86_64-linux"
+    EXTRACTED="$TMPDIR/cyrius-${VERSION}-${ARCH}-linux"
 
     if [ -d "$EXTRACTED/bin" ]; then
         cp -r "$EXTRACTED/bin"/* "$CYRIUS_HOME/versions/$VERSION/bin/"

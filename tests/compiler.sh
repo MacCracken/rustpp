@@ -253,13 +253,13 @@ echo "-- Type Warnings (cc-only) --"
 run_test_cc "type_warn_ok" 'fn f() { var buf[16]; var p: *i64 = &buf; return 42; } syscall(60, f());' 42
 echo ""
 echo "-- Error Messages (cc-only) --"
-# Test that errors include token position
+# Test that errors include line number
 err_out=$(echo 'var x = ;' | "$CC" 2>&1 > /dev/null)
-if echo "$err_out" | grep -q "error at token"; then
-    echo "  PASS: error_position (reports token index)"
+if echo "$err_out" | grep -q "error:1:"; then
+    echo "  PASS: error_line_number (reports line number)"
     pass=$((pass + 1))
 else
-    echo "  FAIL: error_position (expected 'error at token', got: $err_out)"
+    echo "  FAIL: error_line_number (expected 'error:1:', got: $err_out)"
     fail=$((fail + 1))
 fi
 # Test that error includes token type

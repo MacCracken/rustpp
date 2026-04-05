@@ -13,9 +13,9 @@ jobs:
     name: CI Gate
     uses: ./.github/workflows/ci.yml
 
-  # ── Build fresh cc2 + all artifacts ──
-  build:
-    name: Build Release
+  # ── Build x86_64 ──
+  build-x86:
+    name: Build x86_64
     needs: [ci]
     runs-on: ubuntu-latest
     steps:
@@ -31,81 +31,119 @@ jobs:
           fi
           echo "Version verified: $TAG_VERSION"
 
-      - name: Install qemu-user
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
-
       - name: Bootstrap fresh toolchain
         run: |
           sh bootstrap/bootstrap.sh
-          # Build cc2 from committed cc2 (bridge compile)
           chmod +x build/cc2
-          # Rebuild cc2 from source to verify reproducibility
           cat src/compiler.cyr | ./build/cc2 > /tmp/cc2_release
           chmod +x /tmp/cc2_release
           cat src/compiler.cyr | /tmp/cc2_release > /tmp/cc2_verify
           cmp /tmp/cc2_release /tmp/cc2_verify
-          echo "PASS: release cc2 self-hosts"
+          echo "PASS: cc2 self-hosts (x86_64)"
           cp /tmp/cc2_release build/cc2
 
-      - name: Build all tools
+      - name: Build tools
         run: |
-          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
-          cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
-          cat programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
-          cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
-          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
-          cat programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
+          for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
+            cat programs/${tool}.cyr | ./build/cc2 > ./build/${tool} && chmod +x ./build/${tool}
+          done
 
-      - name: Package artifacts
+      - name: Package x86_64 tarball
         run: |
           VER="${GITHUB_REF_NAME}"
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          # Binaries
-          for bin in cc2 cc2_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
-            if [ -x "build/$bin" ]; then cp "build/$bin" "$STAGE/bin/"; fi
+          for bin in cc2 cyrfmt cyrlint cyrdoc cyrc ark; do
+            cp "build/$bin" "$STAGE/bin/"
           done
           cp bootstrap/asm "$STAGE/bin/"
           cp scripts/cyrb "$STAGE/bin/"
           cp scripts/cyrb-init.sh "$STAGE/bin/"
-          chmod +x "$STAGE/bin/cyrb" "$STAGE/bin/cyrb-init.sh"
+          chmod +x "$STAGE/bin"/*
 
-          # Standard library
           cp -r lib/* "$STAGE/lib/"
-
-          # Metadata
-          cp VERSION "$STAGE/"
-          cp LICENSE "$STAGE/"
+          cp VERSION LICENSE "$STAGE/"
           cp scripts/install.sh "$STAGE/"
 
-          # Create tarball
           tar czf "${STAGE}.tar.gz" "$STAGE"
           sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
 
-          # Also keep standalone installer for curl-pipe
           mkdir -p dist
-          mv "${STAGE}.tar.gz" dist/
-          mv "${STAGE}.tar.gz.sha256" dist/
-          cp scripts/install.sh dist/
+          mv "${STAGE}.tar.gz" "${STAGE}.tar.gz.sha256" dist/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cyrius-${{ github.ref_name }}
+          name: release-x86_64
+          path: dist/
+
+  # ── Build aarch64 ──
+  build-aarch64:
+    name: Build aarch64
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu-user
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
+      - name: Build aarch64 compiler + tools
+        run: |
+          chmod +x build/cc2
+          # Cross-compile cc2_aarch64
+          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
+          # Verify it runs under qemu
+          echo "var x = 42;" | ./build/cc2_aarch64 > /tmp/a64_test && chmod +x /tmp/a64_test
+          result=$(timeout 5 qemu-aarch64-static /tmp/a64_test; echo $?)
+          test "$result" = "42" && echo "PASS: aarch64 smoke test"
+
+      - name: Package aarch64 tarball
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          STAGE="cyrius-${VER}-aarch64-linux"
+          mkdir -p "$STAGE/bin" "$STAGE/lib"
+
+          cp build/cc2_aarch64 "$STAGE/bin/cc2"
+          cp scripts/cyrb "$STAGE/bin/"
+          cp scripts/cyrb-init.sh "$STAGE/bin/"
+          chmod +x "$STAGE/bin"/*
+
+          cp -r lib/* "$STAGE/lib/"
+          cp VERSION LICENSE "$STAGE/"
+          cp scripts/install.sh "$STAGE/"
+
+          tar czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+
+          mkdir -p dist
+          mv "${STAGE}.tar.gz" "${STAGE}.tar.gz.sha256" dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-aarch64
           path: dist/
 
   # ── Create GitHub Release ──
   release:
     name: Create GitHub Release
-    needs: [build]
+    needs: [build-x86, build-aarch64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
         with:
-          name: cyrius-${{ github.ref_name }}
+          name: release-x86_64
           path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-aarch64
+          path: dist/
+
+      - name: Add standalone installer
+        run: cp scripts/install.sh dist/
 
       - name: Create release
         uses: softprops/action-gh-release@v2

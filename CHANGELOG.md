@@ -24,12 +24,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CI benchmark job with artifact upload (tier 1+2, 90-day retention)
 - v0.9.0 baseline established: self-compile 9ms, strlen 418ns, alloc 428ns, hashmap lookup 650ns
 
-### Improved — Installer
+### Improved — Installer & Release
 - Rewritten `scripts/install.sh` to match python/ruby/rust installer patterns
+- Single tarball download: `cyrius-$VERSION-$ARCH-linux.tar.gz` (bins + stdlib + scripts)
+- SHA256 checksum verification on download
 - Version-specific layout: `~/.cyrius/versions/$VERSION/bin/` + `lib/`
-- Downloads all 8 tools + standard library from GitHub releases
-- Bootstrap from source with self-hosting verification fallback
+- Bootstrap from source fallback with self-hosting verification
 - Version manager (`cyrius`): added `uninstall`, `update`, `ls` alias
+- Release workflow: dual-arch tarballs (x86_64 + aarch64), parallel builds
 - Clean summary output showing installed components
 
 ### Improved — Tooling

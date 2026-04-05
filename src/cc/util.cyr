@@ -57,6 +57,12 @@ fn ADDXP(S, p) {
     return 0;
 }
 
+# Line tracking
+fn GCLINE(S) { return L64(S + 0x8FCB8); }
+fn SCLINE(S, v) { S64(S + 0x8FCB8, v); return 0; }
+fn GTLINE(S, ti) { return L64(S + 0x122000 + ti * 8); }
+fn STLINE(S, ti, v) { S64(S + 0x122000 + ti * 8, v); return 0; }
+
 # Pointer scale tracking (0 = not a pointer, >0 = element size in bytes)
 fn GPSC(S) { return L64(S + 0x8F890); }
 fn SPSC(S, v) { S64(S + 0x8F890, v); return 0; }
@@ -81,16 +87,16 @@ fn PRNUM(n) {
 }
 
 fn ERRDUPVAR(S) {
-    syscall(1, 2, "error: duplicate var at token ", 30);
-    PRNUM(GTI(S));
-    syscall(1, 2, "\n", 1);
+    syscall(1, 2, "error:", 6);
+    PRNUM(GTLINE(S, GTI(S)));
+    syscall(1, 2, ": duplicate variable\n", 21);
     syscall(60, 1);
     return 0;
 }
 
 fn WARN(S, msg, len) {
-    syscall(1, 2, "warning at token ", 17);
-    PRNUM(GTI(S));
+    syscall(1, 2, "warning:", 8);
+    PRNUM(GTLINE(S, GTI(S)));
     syscall(1, 2, ": ", 2);
     syscall(1, 2, msg, len);
     syscall(1, 2, "\n", 1);
@@ -98,9 +104,9 @@ fn WARN(S, msg, len) {
 }
 
 fn ERR(S) {
-    syscall(1, 2, "error at token ", 15);
-    PRNUM(GTI(S));
-    syscall(1, 2, " (type=", 7);
+    syscall(1, 2, "error:", 6);
+    PRNUM(GTLINE(S, GTI(S)));
+    syscall(1, 2, ": unexpected token (type=", 25);
     PRNUM(PEEKT(S));
     syscall(1, 2, ")\n", 2);
     syscall(60, 1);

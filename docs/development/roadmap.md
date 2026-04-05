@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.0 — ecosystem testing baseline
+> **Current**: v0.9.1 — benchmarks + installer + release pipeline
 >
-> 35 libraries, 55 programs, 8 tools, 18 cyrb commands, 38 benchmarks.
+> 35 libraries, 56 programs, 8 tools, 18 cyrb commands, 38 benchmarks.
 > 157 x86_64 + 29 aarch64 tests, 0 failures. `cyrb audit` → 10/10 green.
 > 5 crate rewrites. 14 runnable vidya reference files. Self-compile: 9ms.
 
@@ -149,10 +149,11 @@ in dependency order:
 
 | Date | Milestone |
 |------|-----------|
-| 2026-04-06 | Tag **v0.9.0** — ecosystem testing baseline |
-| 2026-04-07–15 | Compiler: floats, methods, line numbers, enum constructors |
-| 2026-04-15–25 | Compiler: generics Phase 2, module system, pattern matching |
-| 2026-04-25–30 | aarch64 self-hosting, tooling (bench history, version bump, ADRs) |
+| 2026-04-05 | **v0.9.0** — ecosystem testing baseline |
+| 2026-04-05 | **v0.9.1** — benchmarks, installer, release pipeline (x86_64 tarball) |
+| 2026-04-xx | **v0.9.2** — language work (floats, methods, line numbers) + aarch64 release tarball |
+| 2026-04-xx | **v0.9.3+** — generics Phase 2, module system, pattern matching, enum constructors |
+| 2026-04-30 | aarch64 self-hosting, tooling (version bump, ADRs) |
 | **2026-05-01** | **BELTANE RELEASE (v1.0)** — both architectures, kernel + compiler + userland |
 | 2026-05-01–15 | Crate migration wave 2: **bhava + hisab** ports begin |
 | 2026-06-01 | Wave 3 crates (mudra, vinimaya, taal, natya, kshetra, libro) |
