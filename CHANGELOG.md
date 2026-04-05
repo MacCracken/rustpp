@@ -6,6 +6,43 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-04-05
+
+### Added — Language
+- **Floating point (f64)**: SSE2 codegen for double-precision math
+  - `f64_from(int)`, `f64_to(f64)` — int/float conversion
+  - `f64_add`, `f64_sub`, `f64_mul`, `f64_div` — arithmetic
+  - `f64_eq`, `f64_lt`, `f64_gt` — comparison (returns 0/1)
+  - `f64_neg(val)` — negation
+  - Float literals: `3.14` lexed and converted at runtime
+- **Methods on structs**: `point.scale(2)` dispatches to `Point_scale(&point, 2)`
+  - Convention: `StructName_method(self, args)` — dot-call passes `&var` as first arg
+  - Works in both expression and statement context
+- **Error line numbers**: `error:3: unexpected token (type=5)` replaces `error at token 42`
+  - Line tracking via `tok_lines` parallel array (65536 slots)
+  - Warnings and duplicate-var errors also report line numbers
+
+### Fixed — Compiler
+- **tok_names buffer overflow**: expanded 32KB → 64KB, relocated var_noffs/var_sizes downstream
+  - Root cause: ~48K bytes of identifiers overflowed 32K buffer into var_noffs at 0x58000
+  - Manifested as "unexpected token" errors when adding >200 functions
+  - Added bounds check in LEXID (error at 65000 bytes)
+- **Token arrays expanded**: 32768 → 65536 slots (tok_types, tok_values, tok_lines)
+- **Preprocessor output buffer relocated**: moved past token arrays to prevent overlap
+- **f64 comparison flag bug**: `xor eax,eax` clobbers ZF from `ucomisd` — use `mov eax,0` instead
+- **aarch64 brk sync**: matched x86 heap layout changes (brk, tok_lines, preprocessor)
+- **aarch64 var_sizes fixup**: updated 0x58800 → 0x60800 in aarch64/fixup.cyr
+
+### Known Issues
+- aarch64 cross-compiler regression: exit codes wrong after var_noffs/var_sizes relocation
+  - x86 tests: 111 compiler + 49 program = 160, 0 failures
+  - aarch64 tests: investigating codegen issue with immediate encoding
+
+### Metrics
+- Compiler: 104KB (was 96KB) — 222 functions across 7 modules + SSE2 emitters
+- 160 x86_64 tests, 0 failures
+- Self-hosting: byte-identical
+
 ## [0.9.1] — 2026-04-05
 
 ### Fixed — CI
