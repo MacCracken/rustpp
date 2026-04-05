@@ -1,0 +1,32 @@
+# sieve — count primes up to 255 using sieve of eratosthenes
+# Exercises: for loops, arrays, nested loops, load8/store8
+# Exit code = number of primes found
+
+fn sieve() {
+    var buf[256];
+    # Init all to 1 (prime candidate)
+    for (var a = 0; a < 256; a = a + 1) { store8(&buf + a, 1); }
+    store8(&buf, 0);
+    store8(&buf + 1, 0);
+    # Sieve
+    var p = 2;
+    while (p < 16) {
+        if (load8(&buf + p) == 1) {
+            var j = p * p;
+            while (j < 256) {
+                store8(&buf + j, 0);
+                j = j + p;
+            }
+        }
+        p = p + 1;
+    }
+    # Count primes
+    var count: i64 = 0;
+    for (var c = 2; c < 256; c = c + 1) {
+        if (load8(&buf + c) == 1) { count = count + 1; }
+    }
+    return count;
+}
+
+var r = sieve();
+syscall(60, r);

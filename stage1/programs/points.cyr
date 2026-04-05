@@ -1,0 +1,21 @@
+# points — compute distance squared between two 2D points
+# Exercises: nested structs, typed pointers, for loops
+# Exit code = distance squared
+
+struct Vec2 { x; y; }
+struct Seg { start: Vec2; end: Vec2; }
+
+fn dist_sq(seg: i64) {
+    var p: *i64 = seg;
+    var x1 = *p;
+    var y1 = *(p + 1);
+    var x2 = *(p + 2);
+    var y2 = *(p + 3);
+    var dx = x2 - x1;
+    var dy = y2 - y1;
+    return dx * dx + dy * dy;
+}
+
+var s = Seg { 1, 2, 4, 6 };
+var d = dist_sq(&s);
+syscall(60, d);

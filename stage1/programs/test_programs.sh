@@ -124,6 +124,24 @@ check "tail first" "6" "$out"
 out=$(printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n" | "$TMPDIR/tail" | tail -1)
 check "tail last" "15" "$out"
 
+# Feature-exercise programs
+for p in fib sieve points memset; do build $p; done
+
+out=$("$TMPDIR/fib" | wc -l | tr -d ' ')
+check "fib 20 lines" "20" "$out"
+
+out=$("$TMPDIR/fib" | head -7 | tail -1)
+check "fib 7th" "8" "$out"
+
+"$TMPDIR/sieve"
+check "sieve 54 primes" "54" "$?"
+
+"$TMPDIR/points"
+check "points dist²" "25" "$?"
+
+"$TMPDIR/memset"
+check "memset 100" "100" "$?"
+
 rm -rf "$TMPDIR"
 
 echo ""

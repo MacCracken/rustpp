@@ -1,0 +1,31 @@
+# fib — print first 20 fibonacci numbers
+# Exercises: for loops, print_num, buffered output
+
+fn print_num(n: i64) {
+    var pbuf[24];
+    var i: i64 = 23;
+    if (n == 0) { store8(&pbuf + i, 48); i = i - 1; }
+    while (n > 0) {
+        store8(&pbuf + i, 48 + n % 10);
+        i = i - 1;
+        n = n / 10;
+    }
+    syscall(1, 1, &pbuf + i + 1, 23 - i);
+    return 0;
+}
+
+fn fib(count: i64) {
+    var a: i64 = 0;
+    var b: i64 = 1;
+    for (var i = 0; i < count; i = i + 1) {
+        print_num(a);
+        syscall(1, 1, "\n", 1);
+        var tmp = a + b;
+        a = b;
+        b = tmp;
+    }
+    return 0;
+}
+
+fib(20);
+syscall(60, 0);

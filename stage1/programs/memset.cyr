@@ -1,0 +1,23 @@
+# memset — fill buffer, then count matching bytes
+# Exercises: for loops, store8/load8, functions
+# Exit code = count of bytes matching the fill value
+
+fn mset(dst, val, len) {
+    for (var i = 0; i < len; i = i + 1) {
+        store8(dst + i, val);
+    }
+    return 0;
+}
+
+fn mcount(src, val, len) {
+    var count: i64 = 0;
+    for (var i = 0; i < len; i = i + 1) {
+        if (load8(src + i) == val) { count = count + 1; }
+    }
+    return count;
+}
+
+var buf[128];
+mset(&buf, 42, 100);
+var r = mcount(&buf, 42, 128);
+syscall(60, r);
