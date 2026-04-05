@@ -175,7 +175,7 @@ build kernel_hello
 python3 -c "
 import struct,sys
 with open('$TMPDIR/kernel_hello','rb') as f: d=f.read()
-ok = struct.unpack_from('<I',d,120)[0] == 0xe85250d6 and struct.unpack_from('<Q',d,0x18)[0] == 0x100090
+ok = struct.unpack_from('<I',d,84)[0] == 0x1badb002 and struct.unpack_from('<I',d,24)[0] == 0x100060
 sys.exit(0 if ok else 1)
 " 2>/dev/null
 check "kernel_hello ELF" "0" "$?"
