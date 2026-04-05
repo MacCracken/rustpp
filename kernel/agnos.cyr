@@ -397,6 +397,70 @@ fn vmm_alloc_at(virt) {
     return phys;
 }
 
+# === Process Abstraction ===
+# Minimal process table: ID, state, stack pointer, instruction pointer
+
+struct Process { pid; state; rsp; rip; }
+
+var proc_table[512];
+var proc_count = 0;
+var proc_current = 0;
+
+fn proc_create(entry) {
+    var idx = proc_count;
+    var p = &proc_table + idx * 32;
+    store64(p, idx);         # pid
+    store64(p + 8, 1);       # state: 1=ready
+    store64(p + 16, 0);      # rsp (would be allocated stack)
+    store64(p + 24, entry);  # rip (entry point)
+    proc_count = proc_count + 1;
+    return idx;
+}
+
+fn proc_get_state(pid) {
+    return load64(&proc_table + pid * 32 + 8);
+}
+
+fn proc_set_state(pid, st) {
+    store64(&proc_table + pid * 32 + 8, st);
+    return 0;
+}
+
+fn proc_count_by_state(st) {
+    var n: i64 = 0;
+    for (var i = 0; i < proc_count; i = i + 1) {
+        if (proc_get_state(i) == st) { n = n + 1; }
+    }
+    return n;
+}
+
+# === Syscall Interface ===
+# Minimal syscall dispatcher. In a real kernel, this would be
+# triggered by the SYSCALL instruction. For now, it's a function
+# that kernel code calls to simulate the interface.
+# Syscall numbers: 0=exit, 1=write, 2=getpid
+
+var sys_exit_code = 0;
+
+fn ksyscall(num, arg1, arg2, arg3) {
+    if (num == 0) {
+        # exit
+        sys_exit_code = arg1;
+        proc_set_state(proc_current, 0);
+        return 0;
+    }
+    if (num == 1) {
+        # write (fd=arg1, buf=arg2, len=arg3) — serial only
+        serial_print(arg2, arg3);
+        return arg3;
+    }
+    if (num == 2) {
+        # getpid
+        return proc_current;
+    }
+    return 0 - 1;
+}
+
 # === Print number helper for kernel ===
 fn kprint_num(n: i64) {
     var nb[24];
@@ -504,6 +568,31 @@ kprint_num(readback);
 serial_print(" (expect ", 9);
 kprint_num(0xDEAD);
 serial_println(")", 1);
+
+# Process table test
+proc_count = 0;
+proc_current = 0;
+var p0 = proc_create(0x100000);
+var p1 = proc_create(0x200000);
+var p2 = proc_create(0x300000);
+serial_print("Processes: ", 11);
+kprint_num(proc_count);
+serial_print(" created, ", 10);
+kprint_num(proc_count_by_state(1));
+serial_println(" ready", 6);
+
+# Syscall test
+var pid = ksyscall(2, 0, 0, 0);
+serial_print("Syscall getpid=", 15);
+kprint_num(pid);
+serial_println("", 0);
+
+ksyscall(1, 1, "Syscall write works!\n", 21, 0);
+
+ksyscall(0, 42, 0, 0);
+serial_print("Exit code: ", 11);
+kprint_num(sys_exit_code);
+serial_println("", 0);
 
 asm { sti; }
 serial_println("Interrupts enabled", 18);
