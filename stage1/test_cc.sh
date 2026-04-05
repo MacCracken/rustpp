@@ -249,6 +249,9 @@ echo "-- String Null Term (cc-only) --"
 run_test_cc "str_null"      'fn sl(s) { var n: i64 = 0; while (load8(s + n) != 0) { n = n + 1; } return n; } var a = sl("abc"); var b = sl("xyz"); syscall(60, a * 10 + b);' 33
 echo ""
 
+echo "-- Type Warnings (cc-only) --"
+run_test_cc "type_warn_ok" 'fn f() { var buf[16]; var p: *i64 = &buf; return 42; } syscall(60, f());' 42
+echo ""
 echo "-- Error Messages (cc-only) --"
 # Test that errors include token position
 err_out=$(echo 'var x = ;' | "$CC" 2>&1 > /dev/null)

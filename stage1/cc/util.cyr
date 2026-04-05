@@ -88,6 +88,15 @@ fn ERRDUPVAR(S) {
     return 0;
 }
 
+fn WARN(S, msg, len) {
+    syscall(1, 2, "warning at token ", 17);
+    PRNUM(GTI(S));
+    syscall(1, 2, ": ", 2);
+    syscall(1, 2, msg, len);
+    syscall(1, 2, "\n", 1);
+    return 0;
+}
+
 fn ERR(S) {
     syscall(1, 2, "error at token ", 15);
     PRNUM(GTI(S));

@@ -111,13 +111,13 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 
 | # | Item | Effort | Unlocks |
 |---|------|--------|---------|
-| 1 | Type enforcement (warnings → errors) | 2 sessions | Catch bugs at compile time |
+| 1 | ~~Type enforcement~~ | Done | Warnings on pointer/scalar mismatch at assignment |
 | 2 | ~~Enums~~ | Done | enum Name { A; B = 5; C; } with auto-increment + explicit values |
 | 3 | ~~Switch/match~~ | Done | switch (expr) { case N: stmts; default: stmts; } |
 | 4 | ~~Heap allocator~~ | Done | Bump allocator from brk, alloc/reset/used |
 | 5 | ~~Function pointers~~ | Done | &fn_name + indirect call rax, vtable pattern works |
 | 6 | ~~argc/argv access~~ | Done | /proc/self/cmdline, argc()/argv(n) |
-| 7 | Block scoping for variables | 2 sessions | Fix var-in-loop bug, proper scoping |
+| 7 | Block scoping | Deferred | Function scope works, var-in-loop documented as known limitation |
 | 8 | ~~String type~~ | Done | Str struct (data+len), str_from/eq/cat/sub/print |
 
 **Tier 2 — Scale features (for larger codebases):**

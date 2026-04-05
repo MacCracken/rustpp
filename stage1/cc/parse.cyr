@@ -845,6 +845,11 @@ fn PARSE_VAR(S) {
     }
     # parse expression (scalar)
     PARSE_EXPR(S);
+    # Type check: warn if pointer/scalar mismatch
+    var expr_ps = GPSC(S);
+    if (pscale > 0) {
+        if (expr_ps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
+    }
     # Check if inside function → local variable
     if (GINFN(S) == 1) {
         # Reject duplicate local var names
@@ -1755,13 +1760,27 @@ fn PARSE_STMT(S) {
         if (PEEKT(S) != 4) { ERR(S); }
         STI(S, GTI(S) + 1);
         PARSE_EXPR(S);
-        # Find var — check local first if in function
+        # Type check at assignment
+        var aps = GPSC(S);
         var idx = 0 - 1;
-        if (GINFN(S) == 1) { idx = FINDLOCAL(S, noff); }
+        if (GINFN(S) == 1) {
+            idx = FINDLOCAL(S, noff);
+            if (idx >= 0) {
+                var lt = GLTYPE(S, idx);
+                if (lt > 0) {
+                    if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
+                }
+            }
+        }
         if (idx >= 0) { EFLSTORE(S, idx); }
         else {
             idx = FINDVAR(S, noff);
             if (idx < 0) { ERR(S); }
+            # Check global var type
+            var vt = GVTYPE(S, idx);
+            if (vt < 0) {
+                if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
+            }
             EVSTORE(S, idx);
             SLVAR(S, idx);
         }
