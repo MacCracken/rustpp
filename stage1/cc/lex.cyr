@@ -5,6 +5,10 @@
 # Store a token
 fn ADDTOK(S, typ, val) {
     var tc = GTCNT(S);
+    if (tc >= 32768) {
+        syscall(1, 2, "error: token limit exceeded (32768)\n", 36);
+        syscall(60, 1);
+    }
     S64(S + 0xA2000 + tc * 8, typ);
     S64(S + 0xE2000 + tc * 8, val);
     STCNT(S, tc + 1);

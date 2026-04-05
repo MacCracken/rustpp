@@ -85,6 +85,10 @@ fn EPOPR9(S) { E2(S, 0x5941); return 0; }
 # Record fixup: (codebuf_offset=CP, var_index) in fixup table
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
+    if (fc >= 512) {
+        syscall(1, 2, "error: fixup table full (512)\n", 30);
+        syscall(60, 1);
+    }
     var addr = S + 0x8A000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);

@@ -130,66 +130,101 @@ fn pic_init() {
 }
 
 fn timer_isr_build() {
-    # Build timer ISR in data buffer: inc ticks, EOI, iretq
+    # Build timer ISR in data buffer: save regs, inc ticks, EOI, restore, iretq
     var p = &timer_isr;
     var ta = &timer_ticks;
-    # push rax; push rcx; push rdx
-    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
+    var off = 0;
+    # Save all caller-saved registers: rax rcx rdx rsi rdi r8 r9 r10 r11
+    store8(p + off, 0x50); off = off + 1;  # push rax
+    store8(p + off, 0x51); off = off + 1;  # push rcx
+    store8(p + off, 0x52); off = off + 1;  # push rdx
+    store8(p + off, 0x56); off = off + 1;  # push rsi
+    store8(p + off, 0x57); off = off + 1;  # push rdi
+    # push r8-r11 (41 50, 41 51, 41 52, 41 53)
+    store8(p + off, 0x41); store8(p + off + 1, 0x50); off = off + 2;
+    store8(p + off, 0x41); store8(p + off + 1, 0x51); off = off + 2;
+    store8(p + off, 0x41); store8(p + off + 1, 0x52); off = off + 2;
+    store8(p + off, 0x41); store8(p + off + 1, 0x53); off = off + 2;
     # mov rcx, tick_addr (48 B9 imm64)
-    store8(p + 3, 0x48); store8(p + 4, 0xB9);
-    store64(p + 5, ta);
+    store8(p + off, 0x48); store8(p + off + 1, 0xB9); off = off + 2;
+    store64(p + off, ta); off = off + 8;
     # mov rax, [rcx]; inc rax; mov [rcx], rax
-    store8(p + 13, 0x48); store8(p + 14, 0x8B); store8(p + 15, 0x01);
-    store8(p + 16, 0x48); store8(p + 17, 0xFF); store8(p + 18, 0xC0);
-    store8(p + 19, 0x48); store8(p + 20, 0x89); store8(p + 21, 0x01);
+    store8(p + off, 0x48); store8(p + off + 1, 0x8B); store8(p + off + 2, 0x01); off = off + 3;
+    store8(p + off, 0x48); store8(p + off + 1, 0xFF); store8(p + off + 2, 0xC0); off = off + 3;
+    store8(p + off, 0x48); store8(p + off + 1, 0x89); store8(p + off + 2, 0x01); off = off + 3;
     # EOI: mov al,0x20; mov edx,0x20; out dx,al
-    store8(p + 22, 0xB0); store8(p + 23, 0x20);
-    store8(p + 24, 0xBA); store8(p + 25, 0x20); store8(p + 26, 0x00);
-    store8(p + 27, 0x00); store8(p + 28, 0x00);
-    store8(p + 29, 0xEE);
-    # pop rdx; pop rcx; pop rax; iretq
-    store8(p + 30, 0x5A); store8(p + 31, 0x59); store8(p + 32, 0x58);
-    store8(p + 33, 0x48); store8(p + 34, 0xCF);
+    store8(p + off, 0xB0); store8(p + off + 1, 0x20); off = off + 2;
+    store8(p + off, 0xBA); store64(p + off + 1, 0x20); off = off + 5;
+    store8(p + off, 0xEE); off = off + 1;
+    # Restore r11-r8, rdi, rsi, rdx, rcx, rax (reverse order)
+    store8(p + off, 0x41); store8(p + off + 1, 0x5B); off = off + 2;  # pop r11
+    store8(p + off, 0x41); store8(p + off + 1, 0x5A); off = off + 2;  # pop r10
+    store8(p + off, 0x41); store8(p + off + 1, 0x59); off = off + 2;  # pop r9
+    store8(p + off, 0x41); store8(p + off + 1, 0x58); off = off + 2;  # pop r8
+    store8(p + off, 0x5F); off = off + 1;  # pop rdi
+    store8(p + off, 0x5E); off = off + 1;  # pop rsi
+    store8(p + off, 0x5A); off = off + 1;  # pop rdx
+    store8(p + off, 0x59); off = off + 1;  # pop rcx
+    store8(p + off, 0x58); off = off + 1;  # pop rax
+    # iretq
+    store8(p + off, 0x48); store8(p + off + 1, 0xCF);
     return 0;
 }
 
 # === Keyboard ===
 
 fn kb_isr_build() {
-    # Minimal keyboard ISR: read port 0x60, store scancode, EOI
+    # Keyboard ISR: save regs, read scancode, store in ring buf, EOI, restore, iretq
     var p = &kb_isr;
     var ba = &kb_buf;
     var ha = &kb_head;
-    # push rax, rcx, rdx (50 51 52)
-    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
-    # mov edx, 0x60; in al, dx (read scancode)
-    store8(p + 3, 0xBA); store8(p + 4, 0x60); store8(p + 5, 0x00);
-    store8(p + 6, 0x00); store8(p + 7, 0x00);
-    store8(p + 8, 0xEC);
-    # movzx ecx, al (save scancode in cl) — 0F B6 C8
-    store8(p + 9, 0x0F); store8(p + 10, 0xB6); store8(p + 11, 0xC8);
+    var off = 0;
+    # Save all caller-saved registers
+    store8(p + off, 0x50); off = off + 1;  # push rax
+    store8(p + off, 0x51); off = off + 1;  # push rcx
+    store8(p + off, 0x52); off = off + 1;  # push rdx
+    store8(p + off, 0x56); off = off + 1;  # push rsi
+    store8(p + off, 0x57); off = off + 1;  # push rdi
+    store8(p + off, 0x41); store8(p + off + 1, 0x50); off = off + 2;  # push r8
+    store8(p + off, 0x41); store8(p + off + 1, 0x51); off = off + 2;  # push r9
+    store8(p + off, 0x41); store8(p + off + 1, 0x52); off = off + 2;  # push r10
+    store8(p + off, 0x41); store8(p + off + 1, 0x53); off = off + 2;  # push r11
+    # mov edx, 0x60; in al, dx (read scancode from keyboard port)
+    store8(p + off, 0xBA); store8(p + off + 1, 0x60); store8(p + off + 2, 0x00);
+    store8(p + off + 3, 0x00); store8(p + off + 4, 0x00); off = off + 5;
+    store8(p + off, 0xEC); off = off + 1;  # in al, dx
+    # movzx ecx, al (save scancode in cl)
+    store8(p + off, 0x0F); store8(p + off + 1, 0xB6); store8(p + off + 2, 0xC8); off = off + 3;
     # mov rax, [head_addr] — load head index
-    store8(p + 12, 0x48); store8(p + 13, 0xA1);
-    store64(p + 14, ha);
+    store8(p + off, 0x48); store8(p + off + 1, 0xA1); off = off + 2;
+    store64(p + off, ha); off = off + 8;
     # mov rdx, buf_addr
-    store8(p + 22, 0x48); store8(p + 23, 0xBA);
-    store64(p + 24, ba);
+    store8(p + off, 0x48); store8(p + off + 1, 0xBA); off = off + 2;
+    store64(p + off, ba); off = off + 8;
     # mov [rdx + rax], cl — store scancode at buf[head]
-    store8(p + 32, 0x88); store8(p + 33, 0x0C); store8(p + 34, 0x02);
+    store8(p + off, 0x88); store8(p + off + 1, 0x0C); store8(p + off + 2, 0x02); off = off + 3;
     # inc rax; and al, 0xFF (wrap at 256)
-    store8(p + 35, 0x48); store8(p + 36, 0xFF); store8(p + 37, 0xC0);
-    store8(p + 38, 0x24); store8(p + 39, 0xFF);
+    store8(p + off, 0x48); store8(p + off + 1, 0xFF); store8(p + off + 2, 0xC0); off = off + 3;
+    store8(p + off, 0x24); store8(p + off + 1, 0xFF); off = off + 2;
     # mov [head_addr], rax — store new head
-    store8(p + 40, 0x48); store8(p + 41, 0xA3);
-    store64(p + 42, ha);
-    # EOI
-    store8(p + 50, 0xB0); store8(p + 51, 0x20);
-    store8(p + 52, 0xBA); store8(p + 53, 0x20); store8(p + 54, 0x00);
-    store8(p + 55, 0x00); store8(p + 56, 0x00);
-    store8(p + 57, 0xEE);
-    # pop rdx, rcx, rax; iretq
-    store8(p + 58, 0x5A); store8(p + 59, 0x59); store8(p + 60, 0x58);
-    store8(p + 61, 0x48); store8(p + 62, 0xCF);
+    store8(p + off, 0x48); store8(p + off + 1, 0xA3); off = off + 2;
+    store64(p + off, ha); off = off + 8;
+    # EOI: mov al,0x20; mov edx,0x20; out dx,al
+    store8(p + off, 0xB0); store8(p + off + 1, 0x20); off = off + 2;
+    store8(p + off, 0xBA); store64(p + off + 1, 0x20); off = off + 5;
+    store8(p + off, 0xEE); off = off + 1;
+    # Restore r11-r8, rdi, rsi, rdx, rcx, rax
+    store8(p + off, 0x41); store8(p + off + 1, 0x5B); off = off + 2;  # pop r11
+    store8(p + off, 0x41); store8(p + off + 1, 0x5A); off = off + 2;  # pop r10
+    store8(p + off, 0x41); store8(p + off + 1, 0x59); off = off + 2;  # pop r9
+    store8(p + off, 0x41); store8(p + off + 1, 0x58); off = off + 2;  # pop r8
+    store8(p + off, 0x5F); off = off + 1;  # pop rdi
+    store8(p + off, 0x5E); off = off + 1;  # pop rsi
+    store8(p + off, 0x5A); off = off + 1;  # pop rdx
+    store8(p + off, 0x59); off = off + 1;  # pop rcx
+    store8(p + off, 0x58); off = off + 1;  # pop rax
+    # iretq
+    store8(p + off, 0x48); store8(p + off + 1, 0xCF);
     return 0;
 }
 
@@ -271,6 +306,7 @@ var pmm_total = 0;
 var pmm_used = 0;
 
 fn pmm_set(page) {
+    if (page >= 4096) { return 0 - 1; }
     var byte = page / 8;
     var bit = page % 8;
     store8(&pmm_bitmap + byte, load8(&pmm_bitmap + byte) | (1 << bit));
@@ -278,6 +314,7 @@ fn pmm_set(page) {
 }
 
 fn pmm_clear(page) {
+    if (page >= 4096) { return 0 - 1; }
     var byte = page / 8;
     var bit = page % 8;
     store8(&pmm_bitmap + byte, load8(&pmm_bitmap + byte) & (~(1 << bit) & 0xFF));
@@ -285,6 +322,7 @@ fn pmm_clear(page) {
 }
 
 fn pmm_test(page) {
+    if (page >= 4096) { return 0; }
     var byte = page / 8;
     var bit = page % 8;
     return (load8(&pmm_bitmap + byte) >> bit) & 1;
@@ -374,7 +412,10 @@ var proc_table[512];
 var proc_count = 0;
 var proc_current = 0;
 
+var PROC_MAX = 16;
+
 fn proc_create(entry) {
+    if (proc_count >= PROC_MAX) { return 0 - 1; }
     var idx = proc_count;
     var p = &proc_table + idx * 32;
     store64(p, idx);         # pid
@@ -386,10 +427,12 @@ fn proc_create(entry) {
 }
 
 fn proc_get_state(pid) {
+    if (pid >= proc_count) { return 0 - 1; }
     return load64(&proc_table + pid * 32 + 8);
 }
 
 fn proc_set_state(pid, st) {
+    if (pid >= proc_count) { return 0 - 1; }
     store64(&proc_table + pid * 32 + 8, st);
     return 0;
 }
@@ -412,15 +455,22 @@ var sys_exit_code = 0;
 
 fn ksyscall(num, arg1, arg2, arg3) {
     if (num == 0) {
-        # exit
+        # exit — validate proc_current
         sys_exit_code = arg1;
-        proc_set_state(proc_current, 0);
+        if (proc_current < proc_count) {
+            proc_set_state(proc_current, 0);
+        }
         return 0;
     }
     if (num == 1) {
         # write (buf=arg1, len=arg2) — serial output
-        serial_print(arg1, arg2);
-        return arg2;
+        # Clamp length to prevent unbounded reads
+        var wlen = arg2;
+        if (wlen > 4096) { wlen = 4096; }
+        if (wlen < 0) { wlen = 0; }
+        if (arg1 == 0) { return 0 - 1; }
+        serial_print(arg1, wlen);
+        return wlen;
     }
     if (num == 2) {
         # getpid

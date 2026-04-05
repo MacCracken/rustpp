@@ -272,6 +272,28 @@ else
 fi
 echo ""
 
+echo "-- Edge Cases (Phase 10 Audit) --"
+# Enum in function (was bug: returned 0)
+run_test_cc "enum_in_fn"     'enum E { A = 10; B = 20; C = 30; } fn f() { return B; } syscall(60, f());' 20
+# Many enum values
+run_test_cc "enum_many"      'enum Big { A0; A1; A2; A3; A4; A5; A6; A7; A8; A9; } fn f() { return A9; } syscall(60, f());' 9
+# Deep nesting
+run_test_cc "deep_if"        'var r = 0; if (1 == 1) { if (2 == 2) { if (3 == 3) { if (4 == 4) { r = 42; } } } }' 42
+# Multiple functions calling each other
+run_test_cc "fn_chain"       'fn a() { return 1; } fn b() { return a() + 2; } fn c() { return b() + 3; } syscall(60, c());' 6
+# Struct in function
+run_test_cc "struct_in_fn"   'struct P { x; y; } fn f() { var p = P { 20, 22 }; return p.x + p.y; } syscall(60, f());' 42
+# Global + enum interaction
+run_test_cc "enum_global"    'enum E { X = 5; Y = 10; } var g = 0; fn f() { g = X + Y; return g; } syscall(60, f());' 15
+# For loop in function with enum
+run_test_cc "for_enum"       'enum Lim { N = 5; } fn sum() { var s = 0; for (var i = 1; i <= N; i = i + 1) { s = s + i; } return s; } syscall(60, sum());' 15
+# Switch with many cases
+run_test_cc "switch_many"    'fn f(n) { switch (n) { case 0: return 0; case 1: return 1; case 2: return 2; case 3: return 3; case 4: return 4; case 5: return 42; default: return 99; } return 0; } syscall(60, f(5));' 42
+# Pointer arithmetic in function
+run_test_cc "ptr_fn"         'fn f() { var buf[4]; store64(&buf, 100); store64(&buf + 8, 200); return load64(&buf) + load64(&buf + 8); } var r = f();' 44
+# (300 truncated to 44 at exit)
+echo ""
+
 echo "-- Self-Hosting --"
 echo -n "  "
 cat stage1/cc.cyr | "$CC" > /tmp/cyr_cc2_$$ 2>/dev/null

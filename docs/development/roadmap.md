@@ -3,8 +3,9 @@
 > **Status**: Phase 11 — Crate Rewrites (agnostik + agnosys + kybernet) | **Last Updated**: 2026-04-05
 >
 > **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 11ms self-compile),
-> 52 programs, 23 library modules, 58KB OS kernel, 151 tests (94 compiler + 57 programs).
+> 52 programs, 23 library modules, 62KB OS kernel (hardened), 160 tests (103 compiler + 57 programs).
 > 5 crate rewrites: agnostik (types), agnosys (syscalls), kybernet (init), nous (resolver), ark (pkg mgr).
+> Phase 10 audit: 23 kernel issues found and fixed, compiler bounds guards added.
 > cyrb build tool + ark package manager — both written in Cyrius.
 > Zero external dependencies.
 
@@ -74,18 +75,18 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | 4 | Keep stage1/programs/kernel_hello.cyr in cyrius | It's a language test, not the kernel |
 | 5 | Tag Cyrius v2.0 release | Versioned language that AGNOS + ecosystem pins to |
 
-### Phase 10 — Audit, Refactor, Stabilize
+### Phase 10 �� Audit, Refactor, Stabilize
 
 **Goal**: Harden everything built in Phases 2-8. Fix what real usage found.
 
-| # | Item | Priority | Notes |
-|---|------|----------|-------|
-| 1 | Kernel audit round | High | Memory safety, interrupt correctness, stack overflow protection |
-| 2 | Compiler refactor | High | Apply lessons from all phases, clean up codegen paths |
-| 3 | Performance pass | Medium | Profile kernel + compiler, optimize hot paths |
-| 4 | Test suite expansion | High | Kernel-level tests, stress tests, edge cases |
-| 5 | Error message improvement | Medium | Line numbers, source context (not just token index) |
-| 6 | Block scoping | Low | Deferred — scope depth + token replay interaction needs investigation |
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Kernel audit round | Done | 23 issues found, critical fixes: pmm/proc bounds, ISR full reg save, syscall validation |
+| 2 | Compiler hardening | Done | Fixup table overflow guard (512), token array bounds check (32768) |
+| 3 | Test suite expansion | Done | 9 edge case tests added (enums in fns, deep nesting, fn chains, switch many) |
+| 4 | Performance pass | Deferred | Compiler is 11ms — no bottleneck to optimize yet |
+| 5 | Error message improvement | Deferred | Needs tok_lines array (262KB) + heap expansion |
+| 6 | Block scoping | Deferred | Scope depth + token replay interaction needs investigation |
 
 ### Phase 11 — Prove at Scale (Crate Rewrites)
 
