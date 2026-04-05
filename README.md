@@ -2,90 +2,109 @@
 
 **Sovereign, self-hosting systems language. Assembly up.**
 
-A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external language dependencies. No Rust, no LLVM, no Python. Designed to write the AGNOS kernel.
+A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
 ## Quick Start
 
 ```sh
-sh bootstrap/bootstrap.sh    # 40ms, produces compiler + assembler
+# Bootstrap (40ms, requires only Linux x86_64 + /bin/sh)
+sh bootstrap/bootstrap.sh
+
+# Build the compiler
 cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
 
-# Compile a program
-echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 > hello && chmod +x hello && ./hello
-```
+# Compile and run a program
+echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 > hello
+chmod +x hello && ./hello
 
-**Requirements**: Linux x86_64 + `/bin/sh`. Nothing else.
+# Cross-compile for aarch64
+echo 'var x = 42;' | ./build/cc2_aarch64 > prog_arm
+
+# Run tests (168 tests, 0 failures)
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
+sh stage1/programs/test_programs.sh ./build/cc2
+```
 
 ## Benchmarks
 
 | Metric | Value |
 |--------|-------|
-| Full bootstrap | 40ms |
-| Self-compile (1960 lines) | 8ms |
-| Build 46 programs | ~45ms (3ms each) |
-| Cyrius `wc` vs GNU `wc` | **2.4x faster** (9ms vs 22ms for 1MB) |
-| Cyrius `true` vs GNU `true` | **233x smaller** (168B vs 39KB) |
-| Cyrius `cat` vs GNU `cat` | **10x smaller, same throughput** |
-| Total toolchain | 128KB |
-| External dependencies | 0 |
+| Self-compile (93KB compiler) | **11ms** |
+| Full bootstrap (from 29KB seed) | **40ms** |
+| Binary sizes vs GNU coreutils | **10-233x smaller** |
+| Total toolchain | **162KB** |
+| External dependencies | **0** |
 
-See [full benchmarks](docs/benchmarks.md) for details.
+See [full benchmarks](docs/benchmarks.md).
 
-## 27 Programs
+## Language
 
-19 CLI tools + 8 proof programs, all written in Cyrius:
+Everything is a 64-bit integer. No floats, no GC. Direct syscalls.
 
-`true` `false` `echo` `cat` `head` `tee` `yes` `nl` `wc` `rev` `seq` `tr` `uniq` `sum` `grep` `hexdump` `basename` `cols` `tail` `fib` `sieve` `points` `memset` `calc`
+```
+fn fizzbuzz(n) {
+    for (var i = 1; i <= n; i = i + 1) {
+        if (i % 15 == 0) { println("FizzBuzz"); }
+        elif (i % 3 == 0) { println("Fizz"); }
+        elif (i % 5 == 0) { println("Buzz"); }
+        else { print_num(i); println(""); }
+    }
+    return 0;
+}
+```
 
-## Language Features
+**Features**: variables, arrays, structs, enums, functions, if/elif/else, while, for, break/continue, `&&`/`||`, pointers, typed pointers, inline asm, include, switch/match, function pointers, syscalls, comparison expressions in function args.
 
-- Variables, arrays, structs (definition, init, field access)
-- Functions (unlimited params, locals, forward calls)
-- Control flow: if/elif/else, while, for, break/continue (+ global initializers)
-- Logical: `&&`, `||` with short-circuit evaluation and chaining
-- Arithmetic: `+ - * / %`, Bitwise: `& | ^ ~ << >>`
-- Pointers: `*ptr` dereference, `*ptr = val` store
-- Memory: `load8/16/32/64`, `store8/16/32/64`
-- `syscall()`, `&var` address-of
-- String literals, hex literals (`0xFF`), comments (`#`)
-- Type annotations: `var x: i64 = 42` (opt-in, no enforcement)
-- Modules: `include "file.cyr"`
-- Inline assembly: `asm { 0xNN; ... }`
-- Error messages: `error at token N (type=T)`, duplicate var detection
+See [language guide](docs/cyrius-guide.md).
 
-## Status
+## Ecosystem
 
-| Phase | Status |
-|-------|--------|
-| 0–3 | Done (fork → assembly → self-hosting bootstrap) |
-| 4 | Done (structs, pointers, includes, inline asm, elif, types) |
-| 5 | Done (46 programs, &&/\|\|, for loops, typed ptrs, nested structs, global inits) |
-| 6 | Done (inline asm mnemonics, bare metal ELF, bitfields, ISR pattern, linker control) |
-| 7 | Done (AGNOS kernel: serial, GDT/IDT, timer, keyboard, PMM, VMM, process, syscall) |
-| 8 | Planned (audit + refactor) |
-| 9 | **Started** (aarch64 backend: emit/jump/fixup, cross-compiler builds aarch64 ELF64) |
-| 10 | Planned (prove at scale: migrate Ark, AGNOS userland) |
-| 11 | Planned (full sovereignty) |
+| Tool | Size | Description |
+|------|------|-------------|
+| cc2 | 93KB | Self-hosting compiler (x86_64) |
+| cc2_aarch64 | 91KB | Cross-compiler (aarch64) |
+| cyrb | 30KB | Build tool: compile, test, self-host, dual-arch |
+| ark | 44KB | Package manager: install/remove/search/list/info/verify |
+
+| Library | Modules | Purpose |
+|---------|---------|---------|
+| stdlib | 8 | string, alloc, vec, io, fmt, str, args, fnptr |
+| agnostik | 6 | Shared types: error, security, agent, audit, config |
+| agnosys | 1 | Linux syscall bindings (50 syscalls, 20+ wrappers) |
+| kybernet | 7 | PID 1 init: signals, reaper, mount, cgroup, epoll |
+| nous | 1 | Dependency resolver |
+| assert | 1 | Test framework |
+
+**24 library modules, 150+ functions.**
+
+## Tests
+
+```
+111 compiler tests    — expressions, control flow, structs, enums, functions, edge cases
+ 57 program tests     — CLI tools, algorithms, data structures, library suites, kernel ELF
+ 29 aarch64 tests     — arithmetic, control flow, functions, structs, enums, strings, syscalls
+---
+168 x86_64 tests, 0 failures
+ 29 aarch64 tests, 0 failures
+```
 
 ## Structure
 
 ```
-bootstrap/       Root of trust (29KB binary + scripts)
-stage1/          Compiler stages + assembler + compiler modules
-stage1/cc/       Modular compiler (6 files: util, emit, jump, lex, parse, fixup)
-stage1/programs/ 15 Linux programs + buffered I/O library + tests
-build/           Generated binaries (gitignored)
-archive/seed/    Historical Rust seed (verification only)
-docs/            Architecture, roadmap, benchmarks, ADRs
-```
-
-## Tests
-
-```sh
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 94 compiler tests
-sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
-sh stage1/programs/test_programs.sh ./build/cc2      # 52 program tests
-# Total: 157 tests, 0 failures
+bootstrap/           29KB seed binary + bootstrap.sh
+stage1/
+  cc2.cyr            Compiler entry point
+  cc/                Compiler modules (util, emit, jump, lex, parse, fixup)
+  arch/aarch64/      aarch64 backend (emit, jump, fixup)
+  lib/               Standard library (8 modules)
+  lib/agnostik/      Shared AGNOS types (6 modules)
+  lib/agnosys/       Syscall bindings (1 module)
+  lib/kybernet/      PID 1 init system (7 modules)
+  lib/nous/          Dependency resolver (1 module)
+  programs/          52 programs (CLI tools, algorithms, tests, tools)
+build/               Generated binaries
+kernel/              AGNOS kernel (source of truth at github.com/MacCracken/agnos)
+docs/                Architecture, roadmap, benchmarks, language guide
 ```
 
 ## Part of AGNOS

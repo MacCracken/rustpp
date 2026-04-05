@@ -6,6 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Dual-arch cyrb: `cyrb build --aarch64`, `cyrb test --aarch64`
+- aarch64 codegen: refactored 14 arch-specific functions from parse.cyr to emit files
+- aarch64 passes 29 feature tests (arithmetic, control flow, functions, structs, enums, strings, syscalls)
+- AGNOS repo separation with dual-arch build/test scripts and CI
+- VERSION file, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, CI/CD workflows
+
+### Fixed
+- aarch64 initial branch (x86 JMP → aarch64 B instruction)
+- aarch64 RECFIX ordering (record before MOVZ, not after)
+- aarch64 pop encoding (pre-indexed → post-indexed)
+- aarch64 modulo (SDIV + MSUB with correct register encoding)
+- aarch64 struct field access (refactored to EVADDR_X1 + EADDIMM_X1)
+- aarch64 function ABI (STP/LDP frame, STUR/LDUR locals, BL calls)
+
 ## [0.9.0] — 2026-04-05
 
 ### Added — Language

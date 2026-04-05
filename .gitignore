@@ -1,35 +1,44 @@
-# ── Build artifacts ──
+# Build artifacts
 /build/*
 !/build/cc2
 /target/
 
-# ── Archived Rust seed ──
+# Archived Rust seed
 /archive/seed/target/
 
-# ── Assembled binaries from examples ──
+# Assembled binaries
 *.elf
+
+# Temporary files
 /tmp/
 
-# ── IDE ──
+# Core dumps
+*.core
+
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# ── OS ──
+# OS
 .DS_Store
 Thumbs.db
 
-# ── Claude Code ──
+# Claude Code
 .claude/
 
-# ── Environment ──
+# Environment / secrets
 .env
 .env.*
+*.pem
+*.key
 
-# ── Core dumps ──
-*.core
-
-# ── Rust backup files ──
+# Rust backup files
 **/*.rs.bk
+
+# Coverage / profiling
+/coverage/
+*.profraw
+*.profdata

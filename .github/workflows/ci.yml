@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap toolchain
+        run: sh bootstrap/bootstrap.sh
+
+      - name: Build compiler (cc2)
+        run: |
+          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2
+          chmod +x ./build/cc2
+          echo "cc2: $(wc -c < ./build/cc2) bytes"
+
+      - name: Self-hosting check
+        run: |
+          cat stage1/cc2.cyr | ./build/cc2 > /tmp/cc3
+          chmod +x /tmp/cc3
+          cat stage1/cc2.cyr | /tmp/cc3 > /tmp/cc4
+          cmp /tmp/cc3 /tmp/cc4
+
+      - name: Compiler tests
+        run: sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
+
+      - name: Build tools
+        run: |
+          cat stage1/programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
+          cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
+
+      - name: Program tests
+        run: sh stage1/programs/test_programs.sh ./build/cc2
+
+      - name: Build aarch64 cross-compiler
+        run: |
+          cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64
+          chmod +x ./build/cc2_aarch64
+          echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
+
+      - name: aarch64 smoke test
+        run: |
+          sudo apt-get install -y qemu-user-static
+          echo 'var x = 42;' | ./build/cc2_aarch64 > /tmp/arm_test
+          chmod +x /tmp/arm_test
+          qemu-aarch64-static /tmp/arm_test; test $? -eq 42
+
+      - name: Verify VERSION
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "Version: $VERSION"
+          test -n "$VERSION"
