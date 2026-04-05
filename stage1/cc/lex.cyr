@@ -391,8 +391,11 @@ fn LEX(S) {
                     }
                 }
             }
+            # Add null terminator after string literal
+            store8(S + 0x69000 + spos, 0);
+            spos = spos + 1;
             SSPOS(S, spos);
-            var slen = spos - sstart;
+            var slen = spos - sstart - 1;
             ADDTOK(S, 30, (sstart << 16) | slen);
         }
         else { p = p + 1; }

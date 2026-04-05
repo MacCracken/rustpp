@@ -38,6 +38,10 @@ fn run_tests() {
     memcpy(&a, "hi/there", 9);
     if (strchr(&a, 47) == 2) { pass = pass + 1; }
 
+    # strchr on buffer
+    memcpy(&a, "hi/there", 9);
+    if (strchr(&a, 47) == 2) { pass = pass + 1; }
+
     # print_num
     print_num(42);
     syscall(1, 1, "\n", 1);

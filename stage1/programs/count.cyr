@@ -1,0 +1,27 @@
+# count — count occurrences of a byte in stdin
+# Exercises: for loops, memchr, include, buffered I/O
+# Counts newlines (byte 10) by default. Exit code = count mod 256.
+# Usage: cat file | ./count
+
+include "stage1/lib/string.cyr"
+
+fn count_byte(target: i64) {
+    var buf[4096];
+    var total: i64 = 0;
+    var done: i64 = 0;
+    while (done == 0) {
+        var n = syscall(0, 0, &buf, 4096);
+        if (n <= 0) { done = 1; }
+        else {
+            for (var i = 0; i < n; i = i + 1) {
+                if (load8(&buf + i) == target) { total = total + 1; }
+            }
+        }
+    }
+    return total;
+}
+
+var r = count_byte(10);
+print_num(r);
+syscall(1, 1, "\n", 1);
+syscall(60, 0);
