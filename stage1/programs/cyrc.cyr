@@ -1,0 +1,144 @@
+# cyrc — Cyrius Check (dependency audit + policy enforcement)
+# Usage: cyrc vet <file> | cyrc deny <file>
+
+include "stage1/lib/string.cyr"
+include "stage1/lib/fmt.cyr"
+include "stage1/lib/alloc.cyr"
+include "stage1/lib/io.cyr"
+include "stage1/lib/vec.cyr"
+include "stage1/lib/args.cyr"
+
+# Pattern built at runtime (preprocessor eats the literal form)
+var _pat[2];
+fn _init_pat() {
+    store8(&_pat, 105); store8(&_pat + 1, 110); store8(&_pat + 2, 99);
+    store8(&_pat + 3, 108); store8(&_pat + 4, 117); store8(&_pat + 5, 100);
+    store8(&_pat + 6, 101); store8(&_pat + 7, 32); store8(&_pat + 8, 34);
+    return 0;
+}
+
+fn is_trusted(path) {
+    if (memeq(path, "stage1/lib/", 11) == 1) { return 1; }
+    if (memeq(path, "stage1/cc/", 10) == 1) { return 1; }
+    if (memeq(path, "stage1/arch/", 12) == 1) { return 1; }
+    if (memeq(path, "kernel/", 7) == 1) { return 1; }
+    return 0;
+}
+
+fn scan_includes(fp, inc) {
+    _init_pat();
+    var buf = alloc(16384);
+    var n = file_read_all(fp, buf, 16384);
+    if (n <= 0) { return 0; }
+    var si = 0;
+    var ps = 0;
+    var pe = 0;
+    var pl = 0;
+    var pa = 0;
+    while (si < n - 10) {
+        if (memeq(buf + si, &_pat, 9) == 1) {
+            ps = si + 9;
+            pe = ps;
+            while (pe < n) { if (load8(buf + pe) == 34) { break; } pe = pe + 1; }
+            pl = pe - ps;
+            if (pl > 0) {
+                pa = alloc(pl + 1);
+                memcpy(pa, buf + ps, pl);
+                store8(pa + pl, 0);
+                vec_push(inc, pa);
+            }
+        }
+        si = si + 1;
+    }
+    return vec_len(inc);
+}
+
+fn cmd_vet(fp) {
+    println("=== cyrc vet ===");
+    syscall(1, 1, "scanning: ", 10);
+    syscall(1, 1, fp, strlen(fp));
+    syscall(1, 1, "\n", 1);
+    var inc = vec_new();
+    scan_includes(fp, inc);
+    var len = vec_len(inc);
+    if (len == 0) { println("  no dependencies"); return 0; }
+    var untrusted = 0;
+    var missing = 0;
+    var vi = 0;
+    while (vi < len) {
+        var ip = vec_get(inc, vi);
+        var ex = file_exists(ip);
+        var tr = is_trusted(ip);
+        syscall(1, 1, "  ", 2);
+        if (ex == 0) { syscall(1, 1, "MISSING  ", 9); missing = missing + 1; }
+        if (ex == 1) { if (tr == 0) { syscall(1, 1, "UNTRUST  ", 9); untrusted = untrusted + 1; } }
+        if (ex == 1) { if (tr == 1) { syscall(1, 1, "OK       ", 9); } }
+        syscall(1, 1, ip, strlen(ip));
+        syscall(1, 1, "\n", 1);
+        vi = vi + 1;
+    }
+    syscall(1, 1, "\n", 1);
+    fmt_int(len);
+    syscall(1, 1, " deps, ", 7);
+    fmt_int(untrusted);
+    syscall(1, 1, " untrusted, ", 12);
+    fmt_int(missing);
+    syscall(1, 1, " missing\n", 9);
+    if (untrusted > 0) { return 1; }
+    if (missing > 0) { return 1; }
+    return 0;
+}
+
+fn cmd_deny(fp) {
+    println("=== cyrc deny ===");
+    var inc = vec_new();
+    scan_includes(fp, inc);
+    var len = vec_len(inc);
+    var violations = 0;
+    var di = 0;
+    while (di < len) {
+        var dp = vec_get(inc, di);
+        if (load8(dp) == 47) {
+            syscall(1, 2, "  DENY: absolute path: ", 23);
+            syscall(1, 2, dp, strlen(dp));
+            syscall(1, 2, "\n", 1);
+            violations = violations + 1;
+        }
+        if (memeq(dp, "..", 2) == 1) {
+            syscall(1, 2, "  DENY: parent traversal: ", 26);
+            syscall(1, 2, dp, strlen(dp));
+            syscall(1, 2, "\n", 1);
+            violations = violations + 1;
+        }
+        di = di + 1;
+    }
+    if (file_exists(fp) == 0) {
+        syscall(1, 2, "  DENY: source not found\n", 25);
+        violations = violations + 1;
+    }
+    if (violations == 0) {
+        fmt_int(len);
+        syscall(1, 1, " deps, 0 violations\n", 20);
+    } else {
+        fmt_int(violations);
+        syscall(1, 2, " violation(s)\n", 14);
+    }
+    return violations;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+    if (argc() < 3) {
+        println("cyrc — Cyrius Check");
+        println("  cyrc vet <file>  — audit dependencies");
+        println("  cyrc deny <file> — enforce policies");
+        return 0;
+    }
+    var cmd = argv(1);
+    if (streq(cmd, "vet") == 1) { return cmd_vet(argv(2)); }
+    if (streq(cmd, "deny") == 1) { return cmd_deny(argv(2)); }
+    println("unknown command");
+    return 1;
+}
+var r = main();
