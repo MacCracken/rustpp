@@ -47,6 +47,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 17 | `cyrb publish` / `cyrb install` | Connected to Ark registry backend |
 | 18 | `cyrb fmt` | Code formatter — consistent style |
 | 19 | `cyrb doc` | Documentation generator — API docs from source |
+| 20 | `cyrb docs` | Local HTTP server serving project documentation |
 
 ## Active — aarch64
 

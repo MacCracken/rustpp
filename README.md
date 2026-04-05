@@ -37,6 +37,14 @@ sh stage1/programs/test_programs.sh ./build/cc2
 
 See [full benchmarks](docs/benchmarks.md).
 
+## Documentation
+
+- [Getting Started](docs/tutorial.md) — install, hello world, first project
+- [Language Guide](docs/cyrius-guide.md) — complete reference
+- [Standard Library](docs/stdlib-reference.md) — every function documented
+- [FAQ & Troubleshooting](docs/faq.md) — common questions and fixes
+- [Benchmarks](docs/benchmarks.md) — binary sizes, compile times, runtime performance
+
 ## Language
 
 Everything is a 64-bit integer. No floats, no GC. Direct syscalls.
