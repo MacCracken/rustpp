@@ -18,11 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap
+      - name: Setup compiler
         run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+          chmod +x build/cc2
+          # Verify cc2 works
+          echo 'var x = 42;' | ./build/cc2 > /tmp/sanity && chmod +x /tmp/sanity
+          /tmp/sanity
+          test $? -eq 42
       - name: Build tools
         run: |
           cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
@@ -64,18 +66,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap + build cyrc
+      - name: Build cyrc
         run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+          chmod +x build/cc2
           cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Vet tools
         run: |
           for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
-            if [ -f "$f" ]; then
-              ./build/cyrc vet "$f"
-            fi
+            if [ -f "$f" ]; then ./build/cyrc vet "$f"; fi
           done
 
   deny:
@@ -83,18 +81,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap + build cyrc
+      - name: Build cyrc
         run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+          chmod +x build/cc2
           cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Deny tools
         run: |
           for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
-            if [ -f "$f" ]; then
-              ./build/cyrc deny "$f"
-            fi
+            if [ -f "$f" ]; then ./build/cyrc deny "$f"; fi
           done
 
   # ── Security ──
@@ -105,14 +99,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Scan for dangerous patterns
         run: |
-          fail=0
-          # Check for raw execve in libraries (should use process.cyr instead)
           if grep -r 'syscall(59' lib/ 2>/dev/null | grep -v process.cyr | grep -v agnosys; then
-            echo "WARN: raw execve syscall outside process.cyr/agnosys"
-          fi
-          # Check for hardcoded paths that might not exist
-          if grep -rn '/etc/\|/usr/' lib/ 2>/dev/null | grep -v '\.cyr:#' | head -5; then
-            echo "INFO: hardcoded system paths found (review for portability)"
+            echo "WARN: raw execve outside process.cyr/agnosys"
           fi
           echo "security scan complete"
 
@@ -124,10 +112,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bootstrap
-        run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+        run: sh bootstrap/bootstrap.sh
+      - name: Setup compiler
+        run: chmod +x build/cc2
       - name: Compiler tests (111)
         run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
       - name: Program tests (57)
@@ -142,13 +129,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install qemu-user
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
-      - name: Bootstrap + cross-compiler
+      - name: Setup compilers
         run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+          chmod +x build/cc2
           cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
-      - name: aarch64 tests (29)
+      - name: aarch64 tests
         run: |
           pass=0; fail=0
           for test in \
@@ -182,11 +167,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap + build cyrdoc
+      - name: Build cyrdoc
         run: |
-          sh bootstrap/bootstrap.sh
-          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
-          chmod +x ./build/cc2
+          chmod +x build/cc2
           cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
       - name: Doc coverage (stdlib)
         run: |
