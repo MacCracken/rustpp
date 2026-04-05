@@ -361,6 +361,42 @@ fn pmm_free_count() {
     return pmm_total - pmm_used;
 }
 
+# === Virtual Memory Manager ===
+# Maps virtual addresses to physical pages using the existing page tables.
+# Uses PML4 at 0x1000, PDPT at 0x2000, PD at 0x3000.
+# For now: 2MB huge pages only (PD entries).
+
+fn vmm_map(virt, phys, flags) {
+    # virt must be 2MB aligned. Map via PD entry.
+    # PD index = (virt >> 21) & 0x1FF
+    var pd_idx = (virt >> 21) & 0x1FF;
+    store64(0x3000 + pd_idx * 8, (phys & 0xFFFFFFFFFFE00000) | flags | 0x83);
+    # Flush TLB for this address
+    asm { invlpg [rax]; }
+    return 0;
+}
+
+fn vmm_unmap(virt) {
+    var pd_idx = (virt >> 21) & 0x1FF;
+    store64(0x3000 + pd_idx * 8, 0);
+    asm { invlpg [rax]; }
+    return 0;
+}
+
+fn vmm_is_mapped(virt) {
+    var pd_idx = (virt >> 21) & 0x1FF;
+    var entry = load64(0x3000 + pd_idx * 8);
+    return entry & 1;
+}
+
+# Allocate a physical page and map it at a virtual address
+fn vmm_alloc_at(virt) {
+    var phys = pmm_alloc();
+    if (phys == 0) { return 0; }
+    vmm_map(virt, phys, 0x03);
+    return phys;
+}
+
 # === Print number helper for kernel ===
 fn kprint_num(n: i64) {
     var nb[24];
@@ -456,6 +492,18 @@ pmm_free(pg2);
 serial_print("Alloc test: ", 12);
 kprint_num(pmm_free_count());
 serial_println(" free (expect 3582)", 19);
+
+# VMM test: map a new 2MB region at 16MB (0x1000000)
+var vtest = 0x1000000;
+vmm_alloc_at(vtest);
+# Write a value to the mapped memory
+store64(vtest, 0xDEAD);
+var readback = load64(vtest);
+serial_print("VMM: mapped 16MB, readback=", 27);
+kprint_num(readback);
+serial_print(" (expect ", 9);
+kprint_num(0xDEAD);
+serial_println(")", 1);
 
 asm { sti; }
 serial_println("Interrupts enabled", 18);
