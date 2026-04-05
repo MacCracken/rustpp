@@ -46,16 +46,15 @@ fn EPATCH(S, off) {
     var delta = (cp - off) / 4;  # offset in instructions
     var addr = S + 0x20000 + off;
     var insn = L64(addr) & 0xFFFFFFFF;
-    # Check if it's a B.cond (top byte 0x54) or B (top byte 0x14/0x17)
+    var patched = 0;
     if ((insn >> 24) == 0x54) {
         # B.cond: imm19 at bits [23:5]
         var cond = insn & 0xF;
-        var new_insn = 0x54000000 | ((delta & 0x7FFFF) << 5) | cond;
-        S64(addr, (L64(addr) >> 32 << 32) | (new_insn & 0xFFFFFFFF));
+        patched = 0x54000000 | ((delta & 0x7FFFF) << 5) | cond;
     } else {
         # B: imm26 at bits [25:0]
-        var new_insn = 0x14000000 | (delta & 0x3FFFFFF);
-        S64(addr, (L64(addr) >> 32 << 32) | (new_insn & 0xFFFFFFFF));
+        patched = 0x14000000 | (delta & 0x3FFFFFF);
     }
+    S64(addr, (L64(addr) >> 32 << 32) | (patched & 0xFFFFFFFF));
     return 0;
 }
