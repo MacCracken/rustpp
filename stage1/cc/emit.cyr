@@ -313,6 +313,22 @@ fn EFLLOAD(S, idx) {
     return 0;
 }
 
+# Load variable address into rcx (x86: mov rcx, <addr>)
+fn EVADDR_X1(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    return 0;
+}
+
+# Add immediate to rcx (x86: add rcx, imm32)
+fn EADDIMM_X1(S, val) {
+    E3(S, 0xC18148);
+    EB(S, val & 0xFF); EB(S, val >> 8 & 0xFF);
+    EB(S, val >> 16 & 0xFF); EB(S, val >> 24 & 0xFF);
+    return 0;
+}
+
 # Patch frame size: write imm32 at the sub rsp placeholder
 fn EPATCHFRAME(S, patch, size) {
     var pa = S + 0x20000 + patch;

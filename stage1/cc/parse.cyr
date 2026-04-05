@@ -556,14 +556,9 @@ fn PARSE_FIELD_LOAD(S, noff) {
         if (ifi < 0) { ERR(S); }
         off = off + FIELDOFF(S, isi, ifi);
     } }
-    # Emit: mov rcx, <var_addr> (fixup) then add rcx, off then mov rax, [rcx]
-    E2(S, 0xB948);
-    RECFIX(S, idx);
-    E8(S, 0);
-    if (off > 0) {
-        E3(S, 0xC18148);
-        EB(S, off & 0xFF); EB(S, off >> 8 & 0xFF); EB(S, off >> 16 & 0xFF); EB(S, off >> 24 & 0xFF);
-    }
+    # Load variable address + field offset, then load value
+    EVADDR_X1(S, idx);
+    if (off > 0) { EADDIMM_X1(S, off); }
     ELODC(S);
     return 0;
 }
@@ -598,15 +593,10 @@ fn PARSE_FIELD_STORE(S, noff) {
     if (PEEKT(S) != 4) { ERR(S); }
     STI(S, GTI(S) + 1);
     PARSE_EXPR(S);
-    # Emit: push rax; mov rcx, <var_addr>; add rcx, off; pop rax; mov [rcx], rax
+    # Store value to struct field
     EPUSHR(S);
-    E2(S, 0xB948);
-    RECFIX(S, idx);
-    E8(S, 0);
-    if (off > 0) {
-        E3(S, 0xC18148);
-        EB(S, off & 0xFF); EB(S, off >> 8 & 0xFF); EB(S, off >> 16 & 0xFF); EB(S, off >> 24 & 0xFF);
-    }
+    EVADDR_X1(S, idx);
+    if (off > 0) { EADDIMM_X1(S, off); }
     EPOPR(S);
     ESTOC(S);
     if (PEEKT(S) != 5) { ERR(S); }
@@ -619,13 +609,10 @@ fn PARSE_FIELD_STORE(S, noff) {
 fn EMIT_STRUCT_FIELD(S, vcnt, boff) {
     PARSE_EXPR(S);
     EPUSHR(S);
-    E2(S, 0xB948);
-    RECFIX(S, vcnt);
-    E8(S, 0);
+    # Load variable address into x1/rcx via fixup
+    EVADDR_X1(S, vcnt);
     if (boff > 0) {
-        E3(S, 0xC18148);
-        EB(S, boff & 0xFF); EB(S, boff >> 8 & 0xFF);
-        EB(S, boff >> 16 & 0xFF); EB(S, boff >> 24 & 0xFF);
+        EADDIMM_X1(S, boff);
     }
     EPOPR(S);
     ESTOC(S);

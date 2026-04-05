@@ -83,11 +83,12 @@ fn ESUBR(S) { EW(S, 0xCB010000); return 0; }     # sub x0, x0, x1
 # mul x0, x0, x1
 fn EIMUL(S) { EW(S, 0x9B017C00); return 0; }     # mul x0, x0, x1
 # sdiv x0, x0, x1
-fn EIDIV(S) { EW(S, 0x9AC10C00); return 0; }     # sdiv x0, x0, x1
-# cqo equivalent: not needed on aarch64 (sdiv handles it)
-fn ECQO(S) { return 0; }
-# mov x0, x2 (for modulo: result = rdx equivalent)
-fn EMOVDR(S) { EW(S, 0xAA0203E0); return 0; }    # mov x0, x2
+# Division: sdiv x0, x2, x1 (uses saved dividend from ECQO)
+fn EIDIV(S) { EW(S, 0x9AC10C40); return 0; }     # sdiv x0, x2, x1
+# Save dividend before division: mov x2, x0
+fn ECQO(S) { EW(S, 0xAA0003E2); return 0; }      # mov x2, x0
+# Modulo: msub x0, x0, x1, x2 (x0 = x2 - x0*x1 = remainder)
+fn EMOVDR(S) { EW(S, 0x9B018800); return 0; }    # msub x0, x0, x1, x2
 
 # === Compare ===
 # cmp x0, x1 (subs xzr, x0, x1)
@@ -144,6 +145,22 @@ fn RECFIX(S, idx) {
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Load variable address into x1 (for struct field access)
+fn EVADDR_X1(S, idx) {
+    RECFIX(S, idx);
+    EW(S, 0xD2800001);  # movz x1, #0
+    EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
+    EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
+    return 0;
+}
+
+# Add immediate to x1
+fn EADDIMM_X1(S, val) {
+    # add x1, x1, #val (imm12)
+    EW(S, 0x91000021 | ((val & 0xFFF) << 10));
     return 0;
 }
 
