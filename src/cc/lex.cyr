@@ -171,6 +171,32 @@ fn LEXDEC(S, p) {
             } else { go = 0; }
         }
     }
+    # Float literal: digits.digits
+    if (p < GBL(S)) { if (load8(S + p) == 46) {
+        var np = p + 1;
+        if (np < GBL(S)) { var nc = load8(S + np);
+        if (nc >= 48) { if (nc <= 57) {
+            p = np;
+            var frac = 0;
+            var denom = 1;
+            var fgo = 1;
+            while (fgo == 1) {
+                if (p >= GBL(S)) { fgo = 0; }
+                if (fgo == 1) {
+                    c = load8(S + p);
+                    if (c >= 48) { if (c <= 57) {
+                        frac = frac * 10 + (c - 48);
+                        denom = denom * 10;
+                        p = p + 1;
+                    } else { fgo = 0; } }
+                    else { fgo = 0; }
+                }
+            }
+            var numer = val * denom + frac;
+            ADDTOK(S, 61, (denom << 32) | (numer & 0xFFFFFFFF));
+            return p;
+        } } }
+    } }
     ADDTOK(S, 1, val);
     return p;
 }
@@ -190,6 +216,10 @@ fn LEXNUM(S, p) {
 
 # Lex an identifier starting at p, return new p. Stores token.
 fn LEXID(S, p, npos) {
+    if (npos >= 65000) {
+        syscall(1, 2, "error: identifier buffer full\n", 29);
+        syscall(60, 1);
+    }
     var bl = GBL(S);
     var ws = npos;
     var go = 1;
@@ -250,20 +280,28 @@ fn LEXID(S, p, npos) {
         # "kernel" = 0x6C656E72656B
         if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x686374697773) { ADDTOK(S, 57, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6F745F343666) { ADDTOK(S, 67, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x71655F343666) { ADDTOK(S, 68, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x746C5F343666) { ADDTOK(S, 69, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x74675F343666) { ADDTOK(S, 70, 0); return p; }
     }
     if (klen == 7) {
-        # "syscall" = 0x006C6C6163737973
         if (kw & 0xFFFFFFFFFFFFFF == 0x6C6C6163737973) { ADDTOK(S, 24, 0); return p; }
-        # "store16" = 0x363165726F7473
         if (kw & 0xFFFFFFFFFFFFFF == 0x363165726F7473) { ADDTOK(S, 45, 0); return p; }
-        # "store32" = 0x323365726F7473
         if (kw & 0xFFFFFFFFFFFFFF == 0x323365726F7473) { ADDTOK(S, 46, 0); return p; }
-        # "store64" = 0x343665726F7473
         if (kw & 0xFFFFFFFFFFFFFF == 0x343665726F7473) { ADDTOK(S, 47, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x746C7561666564) { ADDTOK(S, 59, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6464615F343666) { ADDTOK(S, 62, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6275735F343666) { ADDTOK(S, 63, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C756D5F343666) { ADDTOK(S, 64, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7669645F343666) { ADDTOK(S, 65, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x67656E5F343666) { ADDTOK(S, 71, 0); return p; }
     }
     # "continue" = 0x65756E69746E6F63 (8 bytes)
-    if (klen == 8) { if (kw == 0x65756E69746E6F63) { ADDTOK(S, 52, 0); return p; } }
+    if (klen == 8) {
+        if (kw == 0x65756E69746E6F63) { ADDTOK(S, 52, 0); return p; }
+        if (kw == 0x6D6F72665F343666) { ADDTOK(S, 66, 0); return p; }
+    }
     ADDTOK(S, 2, ws);
     return p;
 }

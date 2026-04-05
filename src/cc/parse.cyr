@@ -116,8 +116,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             if (emit_code == 0) {
                 # Pass 1: register only
                 var vcnt = GVCNT(S);
-                S64(S + 0x58000 + vcnt * 8, vnoff);
-                S64(S + 0x58800 + vcnt * 8, 8);
+                S64(S + 0x60000 + vcnt * 8, vnoff);
+                S64(S + 0x60800 + vcnt * 8, 8);
                 SVCNT(S, vcnt + 1);
             } else {
                 # Pass 2: emit init code
@@ -202,7 +202,7 @@ fn FINDVAR(S, noff) {
     var vcnt = GVCNT(S);
     var vi = 0;
     while (vi < vcnt) {
-        var stored = L64(S + 0x58000 + vi * 8);
+        var stored = L64(S + 0x60000 + vi * 8);
         if (STREQ(S, stored, noff) == 1) { return vi; }
         vi = vi + 1;
     }
@@ -212,8 +212,8 @@ fn FINDVAR(S, noff) {
 fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
     SPSC(S, 0);
+    if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
     if (typ == 1) {
-        # NUM — emit mov rax, imm64
         var val = PEEKV(S);
         STI(S, GTI(S) + 1);
         EMOVI(S, val);
@@ -413,8 +413,47 @@ fn PARSE_FACTOR(S) {
     ERR(S);
     return 0;
 }
+# f64 binary ops
+fn PF64BIN(S, tok) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+    PARSE_EXPR(S); EPUSHR(S);
+    if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    EMIT_F64_BINOP(S, tok - 62);
+    if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+    return 0;
+}
+# f64 compare ops
+fn PF64CMP(S, tok) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1);
+    PARSE_EXPR(S); EPUSHR(S);
+    if (PEEKT(S) != 31) { ERR(S); } STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    EPOPC(S); EPUSHR(S);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC8);
+    EMOVQ_X0_A(S); EPOPR(S);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    EMOVQ_X1_C(S); EUCOMISD(S);
+    # mov eax, 0 (B8 00000000) — clear without clobbering flags
+    EB(S, 0xB8); EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    if (tok == 68) { EB(S, 0x0F); EB(S, 0x94); EB(S, 0xC0); }
+    if (tok == 69) { EB(S, 0x0F); EB(S, 0x92); EB(S, 0xC0); }
+    if (tok == 70) { EB(S, 0x0F); EB(S, 0x97); EB(S, 0xC0); }
+    EB(S, 0x0F); EB(S, 0xB6); EB(S, 0xC0);
+    if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1);
+    return 0;
+}
 
 fn PARSE_TERM(S) {
+    # f64 builtins — check before PARSE_FACTOR dispatches
+    var ptyp = PEEKT(S);
+    if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
+    if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1); PARSE_EXPR(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 67) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1); PARSE_EXPR(S); EMOVQ_X0_A(S); EF2I(S); if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp >= 68) { if (ptyp <= 70) { PF64CMP(S, ptyp); return 0; } }
+    if (ptyp == 71) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR(S); } STI(S, GTI(S) + 1); PARSE_EXPR(S); EMOVQ_X0_A(S); EXORPD_X1(S); EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC8); EMOVAPD_01(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     PARSE_FACTOR(S);
     var go = 1;
     while (go == 1) {
@@ -523,9 +562,9 @@ fn PARSE_ARRAY(S, noff) {
     if (PEEKT(S) != 5) { ERR(S); }
     STI(S, GTI(S) + 1);  # consume ;
     var vcnt = GVCNT(S);
-    S64(S + 0x58000 + vcnt * 8, noff);
+    S64(S + 0x60000 + vcnt * 8, noff);
     var aligned = (asz + 7) & (0 - 8);
-    S64(S + 0x58800 + vcnt * 8, aligned);
+    S64(S + 0x60800 + vcnt * 8, aligned);
     SVCNT(S, vcnt + 1);
     return 0;
 }
@@ -696,8 +735,8 @@ fn PARSE_STRUCT_INIT(S, noff, sid) {
     STI(S, GTI(S) + 1);
     var sz = STRUCTSZ(S, si);
     var vcnt = GVCNT(S);
-    S64(S + 0x58000 + vcnt * 8, noff);
-    S64(S + 0x58800 + vcnt * 8, sz);
+    S64(S + 0x60000 + vcnt * 8, noff);
+    S64(S + 0x60800 + vcnt * 8, sz);
     SVTYPE(S, vcnt, sid);
     # Emit each scalar field (flatten nested structs)
     var fc = GETFCOUNT(S, si);
@@ -740,8 +779,8 @@ fn PARSE_GVAR_ARR(S, noff) {
     if (PEEKT(S) != 5) { ERR(S); }
     STI(S, GTI(S) + 1);
     var vc = GVCNT(S);
-    S64(S + 0x58000 + vc * 8, noff);
-    S64(S + 0x58800 + vc * 8, sz);
+    S64(S + 0x60000 + vc * 8, noff);
+    S64(S + 0x60800 + vc * 8, sz);
     SLVAR(S, vc);
     SVCNT(S, vc + 1);
     return 0;
@@ -791,12 +830,12 @@ fn PARSE_GVAR_REG(S) {
     STI(S, save_peek);  # restore
     # Register
     var vcnt = GVCNT(S);
-    S64(S + 0x58000 + vcnt * 8, noff);
+    S64(S + 0x60000 + vcnt * 8, noff);
     if (is_struct == 1) {
-        S64(S + 0x58800 + vcnt * 8, STRUCTSZ(S, ssid - 1));
+        S64(S + 0x60800 + vcnt * 8, STRUCTSZ(S, ssid - 1));
         SVTYPE(S, vcnt, ssid);
     } else {
-        S64(S + 0x58800 + vcnt * 8, 8);
+        S64(S + 0x60800 + vcnt * 8, 8);
         if (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
     }
     SVCNT(S, vcnt + 1);
@@ -939,8 +978,8 @@ fn PARSE_VAR(S) {
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
-        S64(S + 0x58000 + vcnt * 8, noff);
-        S64(S + 0x58800 + vcnt * 8, 8);
+        S64(S + 0x60000 + vcnt * 8, noff);
+        S64(S + 0x60800 + vcnt * 8, 8);
         if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
         EVSTORE(S, vcnt);
         SLVAR(S, vcnt);
@@ -1572,8 +1611,8 @@ fn PARSE_SWITCH(S) {
     STI(S, GTI(S) + 1);
     # Allocate hidden global to hold switch value
     var swidx = GVCNT(S);
-    S64(S + 0x58000 + swidx * 8, 0);
-    S64(S + 0x58800 + swidx * 8, 8);
+    S64(S + 0x60000 + swidx * 8, 0);
+    S64(S + 0x60800 + swidx * 8, 8);
     SVCNT(S, swidx + 1);
     EVSTORE(S, swidx);
     var ends[256];
