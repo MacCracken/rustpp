@@ -45,6 +45,9 @@ Project:
   install <pkg>                   install package from registry
 
 Quality:
+  audit                           full check: self-host, test, fmt, lint, vet, deny, bench
+  fmt <file.cyr> [--check]        format code (or check formatting)
+  lint <file.cyr>                 static analysis warnings
   vet <source.cyr>                audit include dependencies
   deny <source.cyr>               enforce project policies
 
@@ -280,6 +283,12 @@ MANIFEST
             exit 1
         fi
         "$cyrc" deny "$@"
+        ;;
+
+    # === Audit (full project check) ===
+    audit)
+        shift
+        sh "$SCRIPTS_DIR/check.sh"
         ;;
 
     # === Format + Lint ===

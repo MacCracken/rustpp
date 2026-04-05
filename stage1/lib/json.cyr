@@ -26,7 +26,7 @@ fn json_parse(src) {
     var data = str_data(src);
     var slen = str_len(src);
     var ji = 0;
-    # Skip to first {
+    # Skip to opening brace
     while (ji < slen) {
         if (load8(data + ji) == 123) { ji = ji + 1; break; }
         ji = ji + 1;
@@ -116,19 +116,19 @@ fn json_get_int(pairs, key) {
 fn json_build(pairs) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "{");
-    var len = vec_len(pairs);
-    var bi = 0;
-    while (bi < len) {
-        if (bi > 0) { str_builder_add_cstr(sb, ", "); }
-        var p = vec_get(pairs, bi);
-        str_builder_add_cstr(sb, "\"");
-        str_builder_add(sb, json_key(p));
-        str_builder_add_cstr(sb, "\": \"");
-        str_builder_add(sb, json_value(p));
-        str_builder_add_cstr(sb, "\"");
-        bi = bi + 1;
-    }
-    str_builder_add_cstr(sb, "}");
+        var len = vec_len(pairs);
+        var bi = 0;
+        while (bi < len) {
+            if (bi > 0) { str_builder_add_cstr(sb, ", "); }
+            var p = vec_get(pairs, bi);
+            str_builder_add_cstr(sb, "\"");
+            str_builder_add(sb, json_key(p));
+            str_builder_add_cstr(sb, "\": \"");
+            str_builder_add(sb, json_value(p));
+            str_builder_add_cstr(sb, "\"");
+            bi = bi + 1;
+        }
+        str_builder_add_cstr(sb, "}");
     return str_builder_build(sb);
 }
 
