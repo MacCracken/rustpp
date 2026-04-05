@@ -11,23 +11,52 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  AGNOS_IMAGE: ghcr.io/maccracken/agnosticos:2026.3.31
+
 jobs:
-  # ── Check & Format ──
-  check:
-    name: Check & Format
+  # ── Build ──
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup compiler
+        run: chmod +x build/cc2
+      - name: Build x86_64 compiler from source
         run: |
-          chmod +x build/cc2
-          echo 'syscall(60, 0);' | ./build/cc2 > /tmp/sanity && chmod +x /tmp/sanity && /tmp/sanity
+          cat src/compiler.cyr | ./build/cc2 > /tmp/cc3 && chmod +x /tmp/cc3
+          SZ=$(wc -c < /tmp/cc3)
+          echo "cc2 (x86_64): $SZ bytes"
+          test $SZ -gt 80000
+      - name: Self-hosting verify
+        run: |
+          cat src/compiler.cyr | /tmp/cc3 > /tmp/cc4
+          cmp /tmp/cc3 /tmp/cc4
+          echo "PASS: cc2==cc3 byte-identical"
+      - name: Build aarch64 cross-compiler
+        run: |
+          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
       - name: Build tools
         run: |
           cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
           cat programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
           cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
           cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
+
+  # ── Check & Format ──
+  check:
+    name: Check & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: |
+          chmod +x build/cc2
+          cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
       - name: Format check (stdlib)
         run: |
           fail=0
@@ -49,45 +78,23 @@ jobs:
           done
           echo "$total warnings"
           test $total -eq 0
-      - name: Build x86_64 compiler from source
-        run: |
-          cat src/compiler.cyr | ./build/cc2 > /tmp/cc3
-          chmod +x /tmp/cc3
-          SZ=$(wc -c < /tmp/cc3)
-          echo "cc2 (x86_64): $SZ bytes"
-          test $SZ -gt 80000  # sanity: compiler should be >80KB
-      - name: Self-hosting verify
-        run: |
-          cat src/compiler.cyr | /tmp/cc3 > /tmp/cc4
-          cmp /tmp/cc3 /tmp/cc4
-          echo "PASS: cc2==cc3 byte-identical"
 
   # ── Supply Chain ──
-  vet:
-    name: Supply Chain (vet)
+  supply-chain:
+    name: Supply Chain
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build cyrc
+      - name: Setup
         run: |
           chmod +x build/cc2
           cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
-      - name: Vet tools
+      - name: Vet
         run: |
           for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then ./build/cyrc vet "$f"; fi
           done
-
-  deny:
-    name: Supply Chain (deny)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build cyrc
-        run: |
-          chmod +x build/cc2
-          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
-      - name: Deny tools
+      - name: Deny
         run: |
           for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then ./build/cyrc deny "$f"; fi
@@ -106,14 +113,31 @@ jobs:
           fi
           echo "security scan complete"
 
-  # ── Tests ──
+  # ── Tests (ubuntu) ──
   test:
-    name: Test
-    needs: [check]
+    name: Test (ubuntu)
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap
+      - name: Bootstrap (for stage1f)
+        run: sh bootstrap/bootstrap.sh
+      - name: Setup compiler
+        run: chmod +x build/cc2
+      - name: Compiler tests (111)
+        run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
+      - name: Program tests (57)
+        run: sh tests/programs.sh ./build/cc2
+
+  # ── Tests (AGNOS) ──
+  test-agnos:
+    name: Test (AGNOS)
+    needs: [build]
+    runs-on: ubuntu-latest
+    container: ghcr.io/maccracken/agnosticos:2026.3.31
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap (for stage1f)
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
@@ -125,7 +149,7 @@ jobs:
   # ── aarch64 ──
   aarch64:
     name: aarch64 Cross
-    needs: [check]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -165,7 +189,6 @@ jobs:
   # ── Documentation ──
   doc:
     name: Documentation
-    needs: [check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
