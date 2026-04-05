@@ -31,12 +31,12 @@ fn FIXUP(S) {
             # Function call — patch rel32
             var target = L64(S + 0x8CA00 + idx * 8);
             var rel = target - coff - 4;
-            var pa = S + 0x10000 + coff;
+            var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset
-            S64(S + 0x10000 + coff, dbase + totvar + idx);
+            S64(S + 0x20000 + coff, dbase + totvar + idx);
         }
         else {
             # Variable address (type 0)
@@ -46,7 +46,7 @@ fn FIXUP(S) {
                 cumul = cumul + L64(S + 0x58800 + vi * 8);
                 vi = vi + 1;
             }
-            S64(S + 0x10000 + coff, dbase + cumul);
+            S64(S + 0x20000 + coff, dbase + cumul);
         } }
         fi = fi + 1;
     }
@@ -91,7 +91,7 @@ fn EMITELF(S) {
     # Code (cp bytes)
     var i = 0;
     while (i < cp) {
-        store8(O + op, load8(S + 0x10000 + i));
+        store8(O + op, load8(S + 0x20000 + i));
         op = op + 1;
         i = i + 1;
     }

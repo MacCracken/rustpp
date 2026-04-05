@@ -187,6 +187,14 @@ run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x =
 run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
 echo ""
 
+echo "-- For Loops (cc-only) --"
+run_test_cc "for_sum"     'var s = 0; for (var i = 1; i <= 10; i = i + 1) { s = s + i; } var r = s;' 55
+run_test_cc "for_fn"      'fn fact(n) { var r = 1; for (var i = 2; i <= n; i = i + 1) { r = r * i; } return r; } var x = fact(5);' 120
+run_test_cc "for_break"   'var r = 0; for (var i = 0; i < 10; i = i + 1) { if (i == 5) { break; } r = r + 1; }' 5
+run_test_cc "for_nested"  'var s = 0; for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { s = s + 1; } } var r = s;' 9
+run_test_cc "for_pow2"    'var s = 1; for (var i = 0; i < 5; i = i + 1) { s = s * 2; } var r = s;' 32
+echo ""
+
 echo "-- Logical && / || (cc-only) --"
 run_test_cc "and_true"    'var x = 1; var y = 2; var r = 0; if (x == 1 && y == 2) { r = 42; }' 42
 run_test_cc "and_false1"  'var x = 0; var y = 2; var r = 0; if (x == 1 && y == 2) { r = 99; }' 0

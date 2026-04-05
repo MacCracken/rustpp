@@ -13,13 +13,13 @@
 # before allocating new state. Collisions cause silent corruption.
 #
 # --- Buffers ---
-#   0x00000  input_buf     [65536]       Input source text
+#   0x00000  input_buf     [131072]      Input source text (expanded)       Input source text
 #   0x10000  (free)        [131072]      Was tok_types (moved to 0xA2000)
 #   0x30000  (free)        [131072]      Was tok_values (moved to 0xE2000)
 #   0x50000  tok_names     [32768]       Packed identifier strings
 #   0x58000  var_noffs     [2048]        256 variable name offsets
 #   0x58800  var_sizes     [2048]        256 variable sizes
-#   0x10000  codebuf       [262144]      Generated machine code (relocated from 0x59000)       Generated machine code
+#   0x20000  codebuf       [196608]      Generated machine code
 #   0x69000  str_data      [4096]        String literal bytes
 #   0x69800  str_pos       [8]           Current string position
 #   0x69808  data_size     [8]           Total variable data bytes
@@ -91,7 +91,7 @@
 #   30=STRING 31=COMMA 32=FN 33=RETURN 34=PERCENT 35=PIPE 36=CARET
 #   37=TILDE 38=SHL 39=SHR 40=STRUCT 41=DOT 42=LOAD16 43=LOAD32
 #   44=LOAD64 45=STORE16 46=STORE32 47=STORE64 48=ASM 49=COLON
-#   50=ELIF 51=BREAK 52=CONTINUE 53=AND 54=OR
+#   50=ELIF 51=BREAK 52=CONTINUE 53=AND 54=OR 55=FOR
 
 
 # ================================================================
@@ -136,11 +136,11 @@ S64(S + 0x8F888, 0);
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(0, 0, S + bl, 65536 - bl);
+    var n = syscall(0, 0, S + bl, 131072 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 65536) { done = 1; }
+        if (bl >= 131072) { done = 1; }
     }
 }
 SBL(S, bl);

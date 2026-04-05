@@ -112,7 +112,7 @@ fn PREPROCESS(S) {
                     }
                 }
                 # Read file into output buffer
-                var nr = READFILE(fname, out + op, 65536 - op);
+                var nr = READFILE(fname, out + op, 131072 - op);
                 op = op + nr;
             }
         } else {
@@ -213,6 +213,8 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; }
         # "asm" = 0x006D7361
         if (kw & 0xFFFFFFFF == 0x006D7361) { ADDTOK(S, 48, 0); return p; }
+        # "for" = 0x00726F66
+        if (kw & 0xFFFFFFFF == 0x00726F66) { ADDTOK(S, 55, 0); return p; }
     }
     if (klen == 4) {
         if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }
