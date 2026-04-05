@@ -181,6 +181,8 @@ while (scan == 1) {
         # Skip fn definition (just advance past it)
         STI(S, GTI(S) + 1);  # consume FN
         STI(S, GTI(S) + 1);  # consume name
+        # Skip generic params <T> if present
+        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
         # Skip to matching }
         var dep = 0;
         var fsk = 1;
@@ -208,6 +210,8 @@ while (topgo == 1) {
     if (PEEKT(S) == 40) {
         # Skip struct (already parsed in pass 1)
         STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+        # Skip generic params <T, U> if present
+        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
         if (PEEKT(S) != 13) { ERR(S); }
         STI(S, GTI(S) + 1);
         var ssk = 1;

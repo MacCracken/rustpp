@@ -147,12 +147,14 @@ fn FINDFIELD(S, si, fnoff) {
     return 0 - 1;
 }
 
-# Parse: struct Name { field; field; ... }
+# Parse: struct Name<T> { field; field; ... }
 fn PARSE_STRUCT_DEF(S) {
     STI(S, GTI(S) + 1);  # consume STRUCT
     if (PEEKT(S) != 2) { ERR(S); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
+    # Skip generic parameters if present: struct Foo<T, U>
+    SKIP_GENERICS(S);
     var sid = REGSTRUCT(S, noff);
     var si = sid - 1;
     if (PEEKT(S) != 13) { ERR(S); }
@@ -689,8 +691,8 @@ fn PARSE_GVAR_REG(S) {
     var psc = 0;
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); }
-        else { STI(S, GTI(S) + 1); }
+        if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
+        else { STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
     }
     # Array: register with size, no deferred init
     if (PEEKT(S) == 28) {
@@ -755,7 +757,7 @@ fn EMIT_GVAR_INITS(S) {
         STI(S, GTI(S) + 1);  # consume VAR
         var noff = PEEKV(S);
         STI(S, GTI(S) + 1);  # consume IDENT
-        if (PEEKT(S) == 49) { STI(S, GTI(S) + 1); if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+        if (PEEKT(S) == 49) { STI(S, GTI(S) + 1); if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
         if (PEEKT(S) != 4) { ERR(S); }
         STI(S, GTI(S) + 1);  # consume =
         # Check for struct init: StructName { ... }
@@ -829,8 +831,10 @@ fn PARSE_VAR(S) {
             if (tname & 0xFFFF == 0x3869) { pscale = 1; }
             if (pscale == 0) { pscale = 8; }
             STI(S, GTI(S) + 1);  # consume type name
+            SKIP_GENERICS(S);    # skip <T> if present
         } else {
             STI(S, GTI(S) + 1);  # consume type name (non-pointer, skip)
+            SKIP_GENERICS(S);    # skip <T> if present
         }
     }
     # Check for array: var buf[N];
@@ -1255,12 +1259,28 @@ fn PARSE_FNCALL(S, noff) {
     return 0;
 }
 
-# Parse fn name(params) { body }
+# Skip generic parameters <T, U, ...> if present
+fn SKIP_GENERICS(S) {
+    if (PEEKT(S) == 19) {
+        STI(S, GTI(S) + 1);  # consume <
+        var ggo = 1;
+        while (ggo == 1) {
+            if (PEEKT(S) == 20) { ggo = 0; }
+            else { STI(S, GTI(S) + 1); }
+        }
+        STI(S, GTI(S) + 1);  # consume >
+    }
+    return 0;
+}
+
+# Parse fn name<T>(params) { body }
 fn PARSE_FN_DEF(S) {
     STI(S, GTI(S) + 1);  # consume FN
     if (PEEKT(S) != 2) { ERR(S); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
+    # Skip generic parameters if present: fn foo<T, U>(...)
+    SKIP_GENERICS(S);
     # Register or find fn
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
@@ -1284,10 +1304,12 @@ fn PARSE_FN_DEF(S) {
             if (PEEKT(S) != 2) { ERR(S); }
             var pnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
-            # Optional type annotation: fn f(x: i64, ...)
+            # Optional type annotation: fn f(x: Vec<i64>, ...)
             if (PEEKT(S) == 49) {
                 STI(S, GTI(S) + 1);  # consume :
+                if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # skip * for pointer types
                 STI(S, GTI(S) + 1);  # consume type (skip)
+                SKIP_GENERICS(S);    # skip <T> if present
             }
             var li = GFLC(S);
             S64(S + 0x8DC30 + li * 8, pnoff);
