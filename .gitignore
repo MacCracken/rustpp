@@ -1,5 +1,6 @@
 # ── Build artifacts ──
-/build/
+/build/*
+!/build/cc2
 /target/
 
 # ── Archived Rust seed ──

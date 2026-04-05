@@ -470,7 +470,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
     var off = FIELDOFF(S, si, fi);
     # Check for chained access: s.inner.field
     var ft = GETFTYPE(S, si, fi);
-    if (ft > 0 && PEEKT(S) == 41) {
+    if (ft > 0) { if (PEEKT(S) == 41) {
         # Nested struct — chain the dot access
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 2) { ERR(S); }
@@ -480,7 +480,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
         var ifi = FINDFIELD(S, isi, ifnoff);
         if (ifi < 0) { ERR(S); }
         off = off + FIELDOFF(S, isi, ifi);
-    }
+    } }
     # Emit: mov rcx, <var_addr> (fixup) then add rcx, off then mov rax, [rcx]
     E2(S, 0xB948);
     RECFIX(S, idx);
@@ -510,7 +510,7 @@ fn PARSE_FIELD_STORE(S, noff) {
     var off = FIELDOFF(S, si, fi);
     # Check for chained access: s.inner.field = expr;
     var ft = GETFTYPE(S, si, fi);
-    if (ft > 0 && PEEKT(S) == 41) {
+    if (ft > 0) { if (PEEKT(S) == 41) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 2) { ERR(S); }
         var ifnoff = PEEKV(S);
@@ -519,7 +519,7 @@ fn PARSE_FIELD_STORE(S, noff) {
         var ifi = FINDFIELD(S, isi, ifnoff);
         if (ifi < 0) { ERR(S); }
         off = off + FIELDOFF(S, isi, ifi);
-    }
+    } }
     if (PEEKT(S) != 4) { ERR(S); }
     STI(S, GTI(S) + 1);
     PARSE_EXPR(S);
@@ -640,7 +640,13 @@ fn PARSE_GVAR_REG(S) {
     var save_peek = GTI(S);
     # We're past the type annotation, at = or the token before it
     # Find the = sign
-    while (PEEKT(S) != 4 && PEEKT(S) != 5 && PEEKT(S) != 12) { STI(S, GTI(S) + 1); }
+    var pgo = 1;
+    while (pgo == 1) {
+        if (PEEKT(S) == 4) { pgo = 0; }
+        else { if (PEEKT(S) == 5) { pgo = 0; }
+        else { if (PEEKT(S) == 12) { pgo = 0; }
+        else { STI(S, GTI(S) + 1); } } }
+    }
     var is_struct = 0;
     var ssid = 0;
     if (PEEKT(S) == 4) {
@@ -692,14 +698,14 @@ fn EMIT_GVAR_INITS(S) {
         STI(S, GTI(S) + 1);  # consume =
         # Check for struct init: StructName { ... }
         var idx = FINDVAR(S, noff);
+        var did_struct = 0;
         if (PEEKT(S) == 2) {
             var sn = PEEKV(S);
             var sid = FINDSTRUCT(S, sn);
             if (sid > 0) {
-                # Struct init — emit stores into already-registered var
-                STI(S, GTI(S) + 1);  # consume struct name
+                STI(S, GTI(S) + 1);
                 if (PEEKT(S) != 13) { ERR(S); }
-                STI(S, GTI(S) + 1);  # consume {
+                STI(S, GTI(S) + 1);
                 var fc = GETFCOUNT(S, sid - 1);
                 var boff = 0;
                 var fii = 0;
@@ -724,14 +730,15 @@ fn EMIT_GVAR_INITS(S) {
                 SLVAR(S, idx);
                 if (PEEKT(S) != 5) { ERR(S); }
                 STI(S, GTI(S) + 1);
-                gi = gi + 1;
-                continue;
+                did_struct = 1;
             }
         }
-        PARSE_EXPR(S);
-        if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
-        if (PEEKT(S) != 5) { ERR(S); }
-        STI(S, GTI(S) + 1);
+        if (did_struct == 0) {
+            PARSE_EXPR(S);
+            if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
+            if (PEEKT(S) != 5) { ERR(S); }
+            STI(S, GTI(S) + 1);
+        }
         gi = gi + 1;
     }
     return 0;

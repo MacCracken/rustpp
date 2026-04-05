@@ -121,8 +121,8 @@ fn GMJP(S) { return L64(S + 0x8DC28); }
 fn SMJP(S, v) { S64(S + 0x8DC28, v); return 0; }
 
 fn ERR(S) {
-    syscall(1, 2, "syntax error\n", 13);
-    syscall(60, 1);
+    
+    syscall(1, 2, "syntax error\n", 13); syscall(60, 1);
     return 0;
 }
 
@@ -132,7 +132,7 @@ fn ERR(S) {
 
 fn EB(S, b) {
     var cp = GCP(S);
-    store8(S + 0x59000 + cp, b & 0xFF);
+    store8(S + 0x20000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
@@ -314,7 +314,7 @@ fn EJMP(S, target) {
     var cp = GCP(S);
     var rel = target - cp - 4;
     # Write rel32 via read-modify-write
-    var addr = S + 0x59000 + cp;
+    var addr = S + 0x20000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     return 0;
@@ -332,7 +332,7 @@ fn EJMP0(S) {
 fn EPATCH(S, off) {
     var cp = GCP(S);
     var rel = cp - off - 4;
-    var addr = S + 0x59000 + off;
+    var addr = S + 0x20000 + off;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     return 0;
 }
@@ -451,7 +451,7 @@ fn PREPROCESS(S) {
                     }
                 }
                 # Read file into output buffer
-                var nr = READFILE(fname, out + op, 65536 - op);
+                var nr = READFILE(fname, out + op, 131072 - op);
                 op = op + nr;
             }
         } else {
@@ -553,7 +553,10 @@ fn LEXID(S, p, npos) {
         # "asm" = 0x006D7361
         if (kw & 0xFFFFFFFF == 0x006D7361) { ADDTOK(S, 48, 0); return p; }
     }
-    if (klen == 4) { if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; } }
+    if (klen == 4) {
+        if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x66696C65) { ADDTOK(S, 50, 0); return p; }
+    }
     if (klen == 5) {
         if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }
         # "load8" = 0x00003864616F6C
@@ -902,7 +905,7 @@ fn PARSE_FACTOR(S) {
                 # lea rax, [rbp - offset]
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
-                var aaddr = S + 0x59000 + GCP(S);
+                var aaddr = S + 0x20000 + GCP(S);
                 S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
                 SCP(S, GCP(S) + 4);
                 return 0;
@@ -1309,22 +1312,58 @@ fn ECOND(S) {
     return 0;
 }
 
-# Parse: if (cond) { stmts } [else { stmts }]
-fn PARSE_IF(S) {
-    STI(S, GTI(S) + 1);  # consume IF
-    var saved_lv = GLVAR(S);
+# Parse elif chain
+fn PARSE_ELIF_CHAIN(S, cpatch) {
+    var sk = EJMP0(S);
+    EPATCH(S, cpatch);
     if (PEEKT(S) != 10) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume (
-    var patch = ECOND(S);
+    STI(S, GTI(S) + 1);
+    var np = ECOND(S);
     if (PEEKT(S) != 11) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume )
+    STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume {
+    STI(S, GTI(S) + 1);
     PARSE_PROG(S);
     if (PEEKT(S) != 14) { ERR(S); }
-    STI(S, GTI(S) + 1);  # consume }
-    if (PEEKT(S) == 23) {
-        # else
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) == 50) {
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF_CHAIN(S, np);
+    } else { if (PEEKT(S) == 23) {
+        STI(S, GTI(S) + 1);
+        var sk2 = EJMP0(S);
+        EPATCH(S, np);
+        if (PEEKT(S) != 13) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        PARSE_PROG(S);
+        if (PEEKT(S) != 14) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        EPATCH(S, sk2);
+    } else {
+        EPATCH(S, np);
+    } }
+    EPATCH(S, sk);
+    return 0;
+}
+
+# Parse: if (cond) { stmts } [elif (cond) { stmts }]* [else { stmts }]
+fn PARSE_IF(S) {
+    STI(S, GTI(S) + 1);
+    var saved_lv = GLVAR(S);
+    if (PEEKT(S) != 10) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) == 50) {
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF_CHAIN(S, patch);
+    } else { if (PEEKT(S) == 23) {
         STI(S, GTI(S) + 1);
         var skip = EJMP0(S);
         EPATCH(S, patch);
@@ -1336,7 +1375,7 @@ fn PARSE_IF(S) {
         EPATCH(S, skip);
     } else {
         EPATCH(S, patch);
-    }
+    } }
     SLVAR(S, saved_lv);
     return 0;
 }
@@ -1414,7 +1453,7 @@ fn ECALLTO(S, target) {
     EB(S, 0xE8);
     var cp = GCP(S);
     var rel = target - cp - 4;
-    var addr = S + 0x59000 + cp;
+    var addr = S + 0x20000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     return 0;
@@ -1475,7 +1514,7 @@ fn ECALLCLEAN(S, n) {
 # Store parameter register to [rbp - offset]
 # Helper: emit disp32 at current CP
 fn EDISP32(S, disp) {
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x20000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1518,7 +1557,7 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
 fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858B48);
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x20000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1528,7 +1567,7 @@ fn EFLLOAD(S, idx) {
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858948);
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x20000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1667,7 +1706,7 @@ fn PARSE_FN_DEF(S) {
     # Patch frame size
     var flc = GFLC(S);
     var fsz = (flc * 8 + 15) & (0 - 16);
-    var pa = S + 0x59000 + frame_patch;
+    var pa = S + 0x20000 + frame_patch;
     S64(pa, (L64(pa) >> 32 << 32) | (fsz & 0xFFFFFFFF));
     # Restore state
     SVCNT(S, GSVC(S));
@@ -1805,12 +1844,12 @@ fn FIXUP(S) {
             # Function call — patch rel32
             var target = L64(S + 0x8CA00 + idx * 8);
             var rel = target - coff - 4;
-            var pa = S + 0x59000 + coff;
+            var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset
-            S64(S + 0x59000 + coff, dbase + totvar + idx);
+            S64(S + 0x20000 + coff, dbase + totvar + idx);
         }
         else {
             # Variable address (type 0)
@@ -1820,7 +1859,7 @@ fn FIXUP(S) {
                 cumul = cumul + L64(S + 0x58800 + vi * 8);
                 vi = vi + 1;
             }
-            S64(S + 0x59000 + coff, dbase + cumul);
+            S64(S + 0x20000 + coff, dbase + cumul);
         } }
         fi = fi + 1;
     }
@@ -1865,7 +1904,7 @@ fn EMITELF(S) {
     # Code (cp bytes)
     var i = 0;
     while (i < cp) {
-        store8(O + op, load8(S + 0x59000 + i));
+        store8(O + op, load8(S + 0x20000 + i));
         op = op + 1;
         i = i + 1;
     }
@@ -1922,11 +1961,11 @@ S64(S + 0x8F830, 0);
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(0, 0, S + bl, 65536 - bl);
+    var n = syscall(0, 0, S + bl, 131072 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 65536) { done = 1; }
+        if (bl >= 131072) { done = 1; }
     }
 }
 SBL(S, bl);
