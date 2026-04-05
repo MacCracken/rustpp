@@ -11,6 +11,10 @@ var idt_ptr[16];
 var isr_stub[16];
 var timer_ticks = 0;
 var timer_isr[64];
+var kb_isr[64];
+var kb_buf[256];
+var kb_head = 0;
+var kb_tail = 0;
 
 # === Serial I/O ===
 
@@ -110,8 +114,8 @@ fn pic_init() {
     # ICW4: 8086 mode
     asm { 0xB0; 0x01; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0x01
     asm { 0xB0; 0x01; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0x01
-    # Mask all IRQs except IRQ0 (timer)
-    asm { 0xB0; 0xFE; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0xFE
+    # Mask all IRQs except IRQ0 (timer) + IRQ1 (keyboard)
+    asm { 0xB0; 0xFC; 0xBA; 0x21; 0x00; 0x00; 0x00; 0xEE; }  # out 0x21, 0xFC
     asm { 0xB0; 0xFF; 0xBA; 0xA1; 0x00; 0x00; 0x00; 0xEE; }  # out 0xA1, 0xFF
     # Program PIT channel 0: mode 2 (rate generator), ~100 Hz
     # Command: channel 0, lobyte/hibyte, mode 2, binary
@@ -146,6 +150,116 @@ fn timer_isr_build() {
     # pop rdx; pop rcx; pop rax; iretq
     store8(p + 30, 0x5A); store8(p + 31, 0x59); store8(p + 32, 0x58);
     store8(p + 33, 0x48); store8(p + 34, 0xCF);
+    return 0;
+}
+
+# === Keyboard ===
+
+fn kb_isr_build() {
+    # Keyboard ISR: read scancode from port 0x60, store in ring buffer, EOI
+    var p = &kb_isr;
+    # push rax; push rcx; push rdx
+    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
+    # in al, 0x60 (read scancode): mov edx, 0x60; in al, dx
+    store8(p + 3, 0xBA); store8(p + 4, 0x60); store8(p + 5, 0x00);
+    store8(p + 6, 0x00); store8(p + 7, 0x00);
+    store8(p + 8, 0xEC);  # in al, dx
+    # Store scancode: mov rcx, &kb_buf; movzx edx, byte [&kb_head]
+    # Actually, just use a fixed approach: store al at kb_buf[kb_head], inc kb_head
+    # mov rcx, kb_buf_addr
+    store8(p + 9, 0x48); store8(p + 10, 0xB9);
+    store64(p + 11, &kb_buf);
+    # mov rdx, kb_head_addr
+    store8(p + 19, 0x48); store8(p + 20, 0xBA);
+    store64(p + 21, &kb_head);
+    # push rax (save scancode)
+    store8(p + 29, 0x50);
+    # mov rax, [rdx] (load head index)
+    store8(p + 30, 0x48); store8(p + 31, 0x8B); store8(p + 32, 0x02);
+    # pop byte: we stored scancode. Use the saved one from earlier push.
+    # Actually: al still has scancode from the in. But we pushed rax.
+    # Let's simplify: just use original al value
+    store8(p + 33, 0x58);  # pop rax (restore scancode in al)
+    # mov [rcx + rax_from_head], al — but head is in [rdx]
+    # This is getting complex. Let me use a simpler approach:
+    # Just store al at a fixed counter location and increment
+    # Rewrite: minimal keyboard ISR
+    return 0;
+}
+
+fn kb_isr_build_simple() {
+    # Minimal keyboard ISR: read port 0x60, store scancode, EOI
+    var p = &kb_isr;
+    var ba = &kb_buf;
+    var ha = &kb_head;
+    # push rax, rcx, rdx (50 51 52)
+    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
+    # mov edx, 0x60; in al, dx (read scancode)
+    store8(p + 3, 0xBA); store8(p + 4, 0x60); store8(p + 5, 0x00);
+    store8(p + 6, 0x00); store8(p + 7, 0x00);
+    store8(p + 8, 0xEC);
+    # movzx ecx, al (save scancode in cl) — 0F B6 C8
+    store8(p + 9, 0x0F); store8(p + 10, 0xB6); store8(p + 11, 0xC8);
+    # mov rax, [head_addr] — load head index
+    store8(p + 12, 0x48); store8(p + 13, 0xA1);
+    store64(p + 14, ha);
+    # mov rdx, buf_addr
+    store8(p + 22, 0x48); store8(p + 23, 0xBA);
+    store64(p + 24, ba);
+    # mov [rdx + rax], cl — store scancode at buf[head]
+    store8(p + 32, 0x88); store8(p + 33, 0x0C); store8(p + 34, 0x02);
+    # inc rax; and al, 0xFF (wrap at 256)
+    store8(p + 35, 0x48); store8(p + 36, 0xFF); store8(p + 37, 0xC0);
+    store8(p + 38, 0x24); store8(p + 39, 0xFF);
+    # mov [head_addr], rax — store new head
+    store8(p + 40, 0x48); store8(p + 41, 0xA3);
+    store64(p + 42, ha);
+    # EOI
+    store8(p + 50, 0xB0); store8(p + 51, 0x20);
+    store8(p + 52, 0xBA); store8(p + 53, 0x20); store8(p + 54, 0x00);
+    store8(p + 55, 0x00); store8(p + 56, 0x00);
+    store8(p + 57, 0xEE);
+    # pop rdx, rcx, rax; iretq
+    store8(p + 58, 0x5A); store8(p + 59, 0x59); store8(p + 60, 0x58);
+    store8(p + 61, 0x48); store8(p + 62, 0xCF);
+    return 0;
+}
+
+fn kb_has_key() {
+    if (kb_head != kb_tail) { return 1; }
+    return 0;
+}
+
+fn kb_read_scancode() {
+    var sc = load8(&kb_buf + kb_tail);
+    kb_tail = (kb_tail + 1) & 0xFF;
+    return sc;
+}
+
+# Simple scancode-to-ASCII for printable keys (US QWERTY, set 1)
+fn scancode_to_ascii(sc) {
+    # Only handle key press (bit 7 = 0), skip releases
+    if (sc > 127) { return 0; }
+    # Row by row mapping of common keys
+    if (sc == 2) { return 49; }   # 1
+    if (sc == 3) { return 50; }   # 2
+    if (sc == 4) { return 51; }   # 3
+    if (sc == 5) { return 52; }   # 4
+    if (sc == 16) { return 113; } # q
+    if (sc == 17) { return 119; } # w
+    if (sc == 18) { return 101; } # e
+    if (sc == 19) { return 114; } # r
+    if (sc == 20) { return 116; } # t
+    if (sc == 21) { return 121; } # y
+    if (sc == 30) { return 97; }  # a
+    if (sc == 31) { return 115; } # s
+    if (sc == 32) { return 100; } # d
+    if (sc == 33) { return 102; } # f
+    if (sc == 44) { return 122; } # z
+    if (sc == 45) { return 120; } # x
+    if (sc == 46) { return 99; }  # c
+    if (sc == 57) { return 32; }  # space
+    if (sc == 28) { return 10; }  # enter
     return 0;
 }
 
@@ -208,13 +322,28 @@ timer_isr_build();
 idt_set_gate(&idt + 32 * 16, &timer_isr, 0x08, 0x8E);
 serial_println("Timer ISR installed", 19);
 
+kb_head = 0;
+kb_tail = 0;
+kb_isr_build_simple();
+idt_set_gate(&idt + 33 * 16, &kb_isr, 0x08, 0x8E);
+serial_println("Keyboard ISR installed", 22);
+
 asm { sti; }
 serial_println("Interrupts enabled", 18);
 
-# Wait using hlt — CPU wakes on interrupt
+# Wait for a few timer ticks
 asm { hlt; }
 asm { hlt; }
 asm { hlt; }
+
+# Check for keyboard input
+serial_print("Keys: ", 6);
+while (kb_has_key() == 1) {
+    var sc = kb_read_scancode();
+    var ch = scancode_to_ascii(sc);
+    if (ch > 0) { serial_putc(ch); }
+}
+serial_println("", 0);
 
 # Report timer ticks
 serial_print("Timer ticks: ", 13);
@@ -227,5 +356,22 @@ while (ticks > 0) { store8(&tbuf + ti, 48 + ticks % 10); ti = ti - 1; ticks = ti
 serial_print(&tbuf + ti + 1, 23 - ti);
 serial_println("", 0);
 
-serial_println("AGNOS ready.", 12);
-asm { hlt; 0xEB; 0xFE; }
+serial_println("AGNOS ready. Type keys (q to halt):", 36);
+
+# Interactive keyboard loop
+var running = 1;
+while (running == 1) {
+    asm { hlt; }
+    while (kb_has_key() == 1) {
+        var sc = kb_read_scancode();
+        var ch = scancode_to_ascii(sc);
+        if (ch > 0) {
+            serial_putc(ch);
+            if (ch == 113) { running = 0; }
+        }
+    }
+}
+
+serial_println("", 0);
+serial_println("Halted.", 7);
+asm { cli; hlt; 0xEB; 0xFE; }

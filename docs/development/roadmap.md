@@ -93,7 +93,7 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | 5 | ~~GDT + IDT~~ | Done | Cyrius-built GDT (lgdt), IDT (256 vectors, lidt) |
 | 6 | ~~PIC remap~~ | Done | IRQ 0-7→32-39, 8-15→40-47 |
 | 7 | ~~Timer interrupt (PIT)~~ | Done | 100Hz PIT, ISR increments counter + EOI, hlt wakes on tick |
-| 8 | Keyboard interrupt | Not started | User input |
+| 8 | ~~Keyboard interrupt~~ | Done | IRQ1 ISR, ring buffer, scancode-to-ASCII, interactive loop |
 | 9 | Page tables + higher-half mapping | Not started | Virtual memory |
 | 10 | Physical memory manager | Not started | Page frame allocator |
 | 12 | Agent/capability enforcement | `#[agent]`, `#[capability]` ELF metadata |
