@@ -1,0 +1,41 @@
+# tail — output the last 10 lines of stdin
+# Exercises: for loops, buffered I/O, circular buffer, load8/store8
+# Usage: cat file | ./tail
+
+fn tail() {
+    # Circular buffer of line start offsets (last 10 lines)
+    var buf[65536];
+    var total: i64 = 0;
+    # Read all input
+    var rgo: i64 = 1;
+    while (rgo == 1) {
+        var n = syscall(0, 0, &buf + total, 65536 - total);
+        if (n <= 0) { rgo = 0; }
+        else {
+            total = total + n;
+            if (total >= 65536) { rgo = 0; }
+        }
+    }
+    # Count newlines from the end, find start of last 10 lines
+    var count: i64 = 0;
+    var pos: i64 = total - 1;
+    # Skip trailing newline
+    if (pos >= 0) {
+        if (load8(&buf + pos) == 10) { pos = pos - 1; }
+    }
+    while (pos >= 0 && count < 10) {
+        if (load8(&buf + pos) == 10) { count = count + 1; }
+        if (count < 10) { pos = pos - 1; }
+    }
+    # pos is at the newline before line (count-from-end=10), or -1
+    var start: i64 = 0;
+    if (pos >= 0) { start = pos + 1; }
+    # Output from start to total
+    if (total > start) {
+        syscall(1, 1, &buf + start, total - start);
+    }
+    return 0;
+}
+
+tail();
+syscall(60, 0);

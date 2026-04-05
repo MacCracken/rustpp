@@ -1,0 +1,54 @@
+# hexdump — print hex dump of stdin
+# Exercises: for loops, load8, buffered I/O, hex output
+# Usage: echo "Hello" | ./hexdump
+
+fn print_hex(val: i64) {
+    var hbuf[2];
+    var hi = val >> 4 & 0xF;
+    var lo = val & 0xF;
+    if (hi < 10) { store8(&hbuf, 48 + hi); }
+    else { store8(&hbuf, 87 + hi); }
+    if (lo < 10) { store8(&hbuf + 1, 48 + lo); }
+    else { store8(&hbuf + 1, 87 + lo); }
+    syscall(1, 1, &hbuf, 2);
+    return 0;
+}
+
+fn print_addr(addr: i64) {
+    var abuf[8];
+    for (var i = 7; i >= 0; i = i - 1) {
+        var nib = (addr >> (i * 4)) & 0xF;
+        if (nib < 10) { store8(&abuf + (7 - i), 48 + nib); }
+        else { store8(&abuf + (7 - i), 87 + nib); }
+    }
+    syscall(1, 1, &abuf, 8);
+    return 0;
+}
+
+fn hexdump() {
+    var buf[4096];
+    var offset: i64 = 0;
+    var done: i64 = 0;
+    while (done == 0) {
+        var n = syscall(0, 0, &buf, 4096);
+        if (n <= 0) { done = 1; }
+        else {
+            for (var i = 0; i < n; i = i + 1) {
+                if (offset % 16 == 0) {
+                    if (offset > 0) { syscall(1, 1, "\n", 1); }
+                    print_addr(offset);
+                    syscall(1, 1, "  ", 2);
+                }
+                print_hex(load8(&buf + i));
+                syscall(1, 1, " ", 1);
+                if (offset % 16 == 7) { syscall(1, 1, " ", 1); }
+                offset = offset + 1;
+            }
+        }
+    }
+    if (offset > 0) { syscall(1, 1, "\n", 1); }
+    return 0;
+}
+
+hexdump();
+syscall(60, 0);

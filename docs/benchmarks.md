@@ -64,14 +64,14 @@ The entire Cyrius toolchain — bootstrap, compiler, assembler, extended compile
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 69 | All pass |
+| Compiler (cc2) | 74 | All pass |
 | Assembler (asm) | 11 | All pass |
-| Programs | 22 | All pass |
-| **Total** | **102** | **0 failures** |
+| Programs | 28 | All pass |
+| **Total** | **113** | **0 failures** |
 
 ## Programs
 
-15 Linux programs, all under 10KB:
+19 Linux programs:
 
 | Program | Size | Description |
 |---------|------|-------------|
@@ -81,15 +81,19 @@ The entire Cyrius toolchain — bootstrap, compiler, assembler, extended compile
 | yes | 368 B | Repeat "y" |
 | head | 600 B | First N lines |
 | seq | 840 B | Number sequence |
-| tr | 8,880 B | Character translation (buffered) |
+| nl | 1,248 B | Number lines |
+| wc | 1,696 B | Count lines/words/bytes |
+| sum | 2,176 B | Sum numbers from stdin |
+| basename | 4,856 B | Strip directory from path |
 | cat | 4,536 B | Copy stdin→stdout |
 | tee | 4,584 B | Copy stdin→stdout+stderr |
-| nl | 1,248 B | Number lines |
 | rev | 5,000 B | Reverse lines |
-| sum | 2,176 B | Sum numbers from stdin |
-| wc | 1,696 B | Count lines/words/bytes |
-| uniq | 9,864 B | Remove adjacent duplicates |
+| cols | 5,280 B | Count max line width |
 | grep | 5,496 B | Match pattern in lines |
+| hexdump | 5,952 B | Hex dump of stdin |
+| tr | 8,880 B | Character translation (buffered) |
+| uniq | 9,864 B | Remove adjacent duplicates |
+| tail | 66,592 B | Last 10 lines (64KB buffer) |
 
 ## Dependencies
 

@@ -22,6 +22,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - 8 new tests (both operators, while support, else paths)
 - Token arrays expanded 16384→32768 (relocated to end of heap, 4 offset changes)
   - Unblocked by investigating `var x = fn(); return x;` — works correctly, was not a bug
+- For loops: `for (init; cond; step) { body }` with break support, nested loops
+  - Token replay mechanism for step expression
+  - Local-first variable lookup for step inside functions
+  - 5 new compiler tests
+- 4 new programs: hexdump, basename, cols, tail (6 new program tests)
+- Codebuf expanded 65536→196608 (relocated 0x59000→0x20000)
+- Input buffer expanded 65536→131072 (handles growing compiler source)
+- Bootstrap chain repaired: fixed codebuf offset split and orphaned GVAR references
+  - Source now reproduces binary (cc2==cc3 byte-identical)
+  - Bootstrap path: stage1f → cc.cyr → cc2 verified
 
 ### Fixed
 - Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
@@ -31,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
 - All 15 programs fully working (rev fixed, 5 new: seq, tr, uniq, sum, grep — all worked first try)
 - Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
-- 102 total tests (69 cc + 11 asm + 22 programs), 15 programs total
+- 113 total tests (74 cc + 11 asm + 28 programs), 19 programs total
 - Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)

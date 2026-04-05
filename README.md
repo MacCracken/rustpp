@@ -22,7 +22,7 @@ echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 
 |--------|-------|
 | Full bootstrap | 40ms |
 | Self-compile (1960 lines) | 8ms |
-| Build 15 programs | ~45ms (3ms each) |
+| Build 19 programs | ~45ms (3ms each) |
 | Cyrius `wc` vs GNU `wc` | **2.4x faster** (9ms vs 22ms for 1MB) |
 | Cyrius `true` vs GNU `true` | **233x smaller** (168B vs 39KB) |
 | Cyrius `cat` vs GNU `cat` | **10x smaller, same throughput** |
@@ -35,13 +35,13 @@ See [full benchmarks](docs/benchmarks.md) for details.
 
 All written in Cyrius, all under 10KB:
 
-`true` `false` `echo` `cat` `head` `tee` `yes` `nl` `wc` `rev` `seq` `tr` `uniq` `sum` `grep`
+`true` `false` `echo` `cat` `head` `tee` `yes` `nl` `wc` `rev` `seq` `tr` `uniq` `sum` `grep` `hexdump` `basename` `cols` `tail`
 
 ## Language Features
 
 - Variables, arrays, structs (definition, init, field access)
 - Functions (unlimited params, locals, forward calls)
-- Control flow: if/elif/else, while, break/continue
+- Control flow: if/elif/else, while, for, break/continue
 - Logical: `&&`, `||` with short-circuit evaluation and chaining
 - Arithmetic: `+ - * / %`, Bitwise: `& | ^ ~ << >>`
 - Pointers: `*ptr` dereference, `*ptr = val` store
@@ -59,7 +59,7 @@ All written in Cyrius, all under 10KB:
 |-------|--------|
 | 0–3 | Done (fork → assembly → self-hosting bootstrap) |
 | 4 | Done (structs, pointers, includes, inline asm, elif, types) |
-| 5 | **In progress** (prove language: 15 programs, &&/\|\|, benchmarks) |
+| 5 | **In progress** (prove language: 19 programs, &&/\|\|, benchmarks) |
 | 6 | Planned (kernel prerequisites: typed pointers, inline asm mnemonics, bare metal ELF) |
 | 7 | Planned (compile Linux kernel with Cyrius, boot AGNOS kernel) |
 | 8 | Planned (audit + refactor) |
@@ -82,10 +82,10 @@ docs/            Architecture, roadmap, benchmarks, ADRs
 ## Tests
 
 ```sh
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 69 compiler tests
+sh stage1/test_cc.sh ./build/cc2 ./build/stage1f   # 74 compiler tests
 sh stage1/test_asm.sh ./build/asm                    # 11 assembler tests
-sh stage1/programs/test_programs.sh ./build/cc2      # 22 program tests
-# Total: 102 tests, 0 failures
+sh stage1/programs/test_programs.sh ./build/cc2      # 28 program tests
+# Total: 113 tests, 0 failures
 ```
 
 ## Part of AGNOS

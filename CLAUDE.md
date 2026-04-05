@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 5 — Proving the language. 15 programs, 102 tests, &&/||, wc beats GNU.
+- **Status**: Phase 5 — Proving the language. 19 programs, 113 tests, &&/||, wc beats GNU.
 
 ## Goal
 

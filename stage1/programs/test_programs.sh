@@ -103,6 +103,27 @@ out=$(printf "hello world\ngoodbye\nhello there\n" | "$TMPDIR/grep")
 check "grep hello" "hello world
 hello there" "$out"
 
+# New programs (for-loop era)
+for p in hexdump basename cols tail; do build $p; done
+
+out=$(echo "AB" | "$TMPDIR/hexdump")
+check "hexdump AB" "00000000  41 42 0a " "$out"
+
+out=$(echo "/usr/bin/test" | "$TMPDIR/basename")
+check "basename" "test" "$out"
+
+out=$(echo "nopath" | "$TMPDIR/basename")
+check "basename nodir" "nopath" "$out"
+
+out=$(printf "short\nthis is a longer line\nhi\n" | "$TMPDIR/cols")
+check "cols max" "21" "$out"
+
+out=$(printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n" | "$TMPDIR/tail" | head -1)
+check "tail first" "6" "$out"
+
+out=$(printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n" | "$TMPDIR/tail" | tail -1)
+check "tail last" "15" "$out"
+
 rm -rf "$TMPDIR"
 
 echo ""
