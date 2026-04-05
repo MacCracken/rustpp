@@ -134,7 +134,9 @@ jobs:
     name: Test (AGNOS)
     needs: [build]
     runs-on: ubuntu-latest
-    container: ghcr.io/maccracken/agnosticos:2026.3.31
+    container:
+      image: ghcr.io/maccracken/agnosticos:2026.3.31
+      options: --user root
     steps:
       - uses: actions/checkout@v4
       - name: Bootstrap (for stage1f)
