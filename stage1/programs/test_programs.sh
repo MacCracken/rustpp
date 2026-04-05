@@ -124,6 +124,11 @@ check "tail first" "6" "$out"
 out=$(printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n" | "$TMPDIR/tail" | tail -1)
 check "tail last" "15" "$out"
 
+# String stdlib test
+build strtest
+"$TMPDIR/strtest" > /dev/null 2>/dev/null
+check "strtest 8 funcs" "8" "$?"
+
 # Feature-exercise programs
 for p in fib sieve points memset; do build $p; done
 
