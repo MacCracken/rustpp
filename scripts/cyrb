@@ -1,0 +1,303 @@
+#!/bin/sh
+# cyrb — Cyrius Build Tool
+# Dispatcher that routes subcommands to individual tools.
+#
+# Like git dispatches to git-commit, git-push, etc.
+# Each subcommand is either a Cyrius binary or a shell script.
+
+set -e
+
+VERSION="0.9.0"
+CYRB_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
+# Find cc2: installed version, then local repo fallback
+CC="${CYRB_HOME}/bin/cc2"
+if [ ! -x "$CC" ]; then
+    # Try relative to this script (dev mode)
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [ -x "$SCRIPT_DIR/../build/cc2" ]; then
+        CC="$SCRIPT_DIR/../build/cc2"
+    else
+        echo "error: cc2 not found. Install Cyrius or set CYRIUS_HOME." >&2
+        exit 1
+    fi
+fi
+
+# Find companion tools directory
+TOOLS_DIR="$(dirname "$CC")"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+    cat << EOF
+cyrb ${VERSION} — Cyrius Build Tool
+
+Usage: cyrb <command> [options]
+
+Build:
+  build [--aarch64] <src> <out>   compile a program
+  test [--aarch64] <test.cyr>     compile + run, check exit 0
+  bench <bench.cyr>               compile + run benchmarks
+  self                            self-hosting check (cc2==cc3)
+
+Project:
+  init <name>                     scaffold a new project
+  package                         create .ark distributable
+  publish                         push package to Ark registry
+  install <pkg>                   install package from registry
+
+Quality:
+  vet <source.cyr>                audit include dependencies
+  deny <source.cyr>               enforce project policies
+
+Info:
+  version                         show cyrb version
+  which                           show path to cc2
+  help                            show this help
+
+EOF
+}
+
+# Compile helper (used by build, test, bench)
+compile() {
+    local src="$1" out="$2" compiler="$CC"
+    if [ "$3" = "aarch64" ]; then
+        compiler="${TOOLS_DIR}/cc2_aarch64"
+        if [ ! -x "$compiler" ]; then
+            echo "error: cc2_aarch64 not found" >&2
+            return 1
+        fi
+    fi
+    cat "$src" | "$compiler" > "$out" && chmod +x "$out"
+}
+
+# Run a binary (x86 direct, aarch64 via qemu)
+run_binary() {
+    local bin="$1" arch="${2:-x86}"
+    if [ "$arch" = "aarch64" ]; then
+        qemu-aarch64 "$bin" 2>/dev/null || qemu-aarch64-static "$bin" 2>/dev/null
+    else
+        "$bin"
+    fi
+}
+
+case "${1:-help}" in
+    # === Build commands ===
+    build)
+        shift
+        arch="x86"
+        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ -z "$1" ] || [ -z "$2" ]; then
+            echo "Usage: cyrb build [--aarch64] <source.cyr> <output>"
+            exit 1
+        fi
+        printf "compile %s -> %s [%s] " "$1" "$2" "$arch"
+        if compile "$1" "$2" "$arch"; then
+            echo "OK ($(wc -c < "$2") bytes)"
+        else
+            echo "FAIL"
+            exit 1
+        fi
+        ;;
+
+    test)
+        shift
+        arch="x86"
+        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ -z "$1" ]; then
+            echo "Usage: cyrb test [--aarch64] <test.cyr>"
+            exit 1
+        fi
+        tmpbin="/tmp/cyrb_test_$$"
+        if compile "$1" "$tmpbin" "$arch"; then
+            run_binary "$tmpbin" "$arch"
+            exit_code=$?
+            rm -f "$tmpbin"
+            exit $exit_code
+        else
+            echo "FAIL: compile error" >&2
+            rm -f "$tmpbin"
+            exit 1
+        fi
+        ;;
+
+    bench)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: cyrb bench <bench.cyr>"
+            exit 1
+        fi
+        tmpbin="/tmp/cyrb_bench_$$"
+        if compile "$1" "$tmpbin"; then
+            "$tmpbin"
+            rm -f "$tmpbin"
+        else
+            echo "FAIL: compile error" >&2
+            rm -f "$tmpbin"
+            exit 1
+        fi
+        ;;
+
+    self)
+        echo "=== Self-Hosting Check ==="
+        cc3="/tmp/cyrb_cc3_$$"
+        cc4="/tmp/cyrb_cc4_$$"
+        # Find cc2.cyr source
+        CC2_SRC=""
+        if [ -f "stage1/cc2.cyr" ]; then CC2_SRC="stage1/cc2.cyr"; fi
+        if [ -f "../cyrius/stage1/cc2.cyr" ]; then CC2_SRC="../cyrius/stage1/cc2.cyr"; fi
+        if [ -z "$CC2_SRC" ]; then
+            echo "error: stage1/cc2.cyr not found" >&2
+            exit 1
+        fi
+        cat "$CC2_SRC" | "$CC" > "$cc3" && chmod +x "$cc3"
+        cat "$CC2_SRC" | "$cc3" > "$cc4"
+        if cmp -s "$cc3" "$cc4"; then
+            echo "  PASS: cc2==cc3 byte-identical"
+            rm -f "$cc3" "$cc4"
+        else
+            echo "  FAIL: cc2!=cc3"
+            rm -f "$cc3" "$cc4"
+            exit 1
+        fi
+        ;;
+
+    # === Project commands ===
+    init)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: cyrb init <project-name>"
+            exit 1
+        fi
+        # Find the init script
+        init_script=""
+        for p in "$CYRB_HOME/bin/cyrb-init" "$SCRIPTS_DIR/cyrb-init.sh" "$SCRIPTS_DIR/../scripts/cyrb-init.sh"; do
+            if [ -x "$p" ]; then init_script="$p"; break; fi
+        done
+        if [ -z "$init_script" ]; then
+            echo "error: cyrb-init not found" >&2
+            exit 1
+        fi
+        sh "$init_script" "$@"
+        ;;
+
+    package)
+        shift
+        # Read from cyrb.toml if present, fallback to VERSION + directory name
+        if [ -f "cyrb.toml" ]; then
+            PKG_NAME=$(grep '^name' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+            PKG_VERSION=$(grep '^version' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+            PKG_DESC=$(grep '^description' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+            PKG_ENTRY=$(grep '^entry' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+            PKG_OUTPUT=$(grep '^output' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+            PKG_LICENSE=$(grep '^license' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+        elif [ -f "VERSION" ]; then
+            PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+            PKG_NAME=$(basename "$(pwd)")
+            PKG_DESC="$PKG_NAME"
+            PKG_ENTRY="src/main.cyr"
+            PKG_OUTPUT="$PKG_NAME"
+            PKG_LICENSE="GPL-3.0-only"
+        else
+            echo "error: no cyrb.toml or VERSION — run from project root" >&2
+            exit 1
+        fi
+        echo "=== cyrb package ==="
+        echo "  name:    $PKG_NAME"
+        echo "  version: $PKG_VERSION"
+        echo "  entry:   $PKG_ENTRY"
+        # Build
+        mkdir -p build
+        if [ -f "$PKG_ENTRY" ]; then
+            echo "  compiling..."
+            cat "$PKG_ENTRY" | "$CC" > "build/$PKG_OUTPUT" && chmod +x "build/$PKG_OUTPUT"
+        fi
+        # Create .ark package
+        mkdir -p "build/pkg"
+        cat > "build/pkg/manifest.json" << MANIFEST
+{"name": "$PKG_NAME", "version": "$PKG_VERSION", "description": "$PKG_DESC", "license": "$PKG_LICENSE", "type": "binary"}
+MANIFEST
+        if [ -x "build/$PKG_OUTPUT" ]; then
+            cp "build/$PKG_OUTPUT" "build/pkg/"
+        fi
+        tar -czf "build/${PKG_NAME}-${PKG_VERSION}.ark" -C "build/pkg" .
+        rm -rf "build/pkg"
+        SZ=$(wc -c < "build/${PKG_NAME}-${PKG_VERSION}.ark")
+        echo "  -> build/${PKG_NAME}-${PKG_VERSION}.ark ($SZ bytes)"
+        ;;
+
+    publish)
+        shift
+        # Find the .ark package
+        if [ ! -f "VERSION" ]; then
+            echo "error: no VERSION file" >&2
+            exit 1
+        fi
+        PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+        PKG_NAME=$(basename "$(pwd)")
+        PKG_FILE="build/${PKG_NAME}-${PKG_VERSION}.ark"
+        if [ ! -f "$PKG_FILE" ]; then
+            echo "error: package not found. Run 'cyrb package' first." >&2
+            exit 1
+        fi
+        echo "=== cyrb publish ==="
+        echo "  package: $PKG_FILE"
+        echo "  registry: Ark marketplace"
+        echo ""
+        echo "Publishing not yet connected to registry."
+        echo "Package is ready at: $PKG_FILE"
+        echo "Upload manually or wait for Ark registry integration."
+        ;;
+
+    install)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: cyrb install <package>"
+            exit 1
+        fi
+        echo "=== cyrb install ==="
+        echo "  package: $1"
+        echo ""
+        echo "Package registry not yet available."
+        echo "Install from source: git clone <repo> && cd <repo> && cyrb build"
+        ;;
+
+    # === Quality commands ===
+    vet)
+        shift
+        cyrc="${TOOLS_DIR}/cyrc"
+        if [ ! -x "$cyrc" ]; then
+            # Fallback: try to find in scripts dir
+            echo "error: cyrc not found" >&2
+            exit 1
+        fi
+        "$cyrc" vet "$@"
+        ;;
+
+    deny)
+        shift
+        cyrc="${TOOLS_DIR}/cyrc"
+        if [ ! -x "$cyrc" ]; then
+            echo "error: cyrc not found" >&2
+            exit 1
+        fi
+        "$cyrc" deny "$@"
+        ;;
+
+    # === Info commands ===
+    version|--version|-v)
+        echo "cyrb $VERSION"
+        ;;
+
+    which)
+        echo "$CC"
+        ;;
+
+    help|--help|-h)
+        usage
+        ;;
+
+    *)
+        echo "Unknown command: $1"
+        echo "Run 'cyrb help' for usage."
+        exit 1
+        ;;
+esac

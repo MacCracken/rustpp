@@ -12,18 +12,41 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Quicklist — Next Features
 
-| # | Feature | Type | Unlocks |
-|---|---------|------|---------|
-| 1 | **Traits / interfaces** | Compiler | Display, From, Default — polymorphism |
-| 2 | **Enum constructors** | Compiler | `enum Option { None; Some(val); }` auto-generates functions |
-| 3 | **Type checking** | Compiler | Generics Phase 2 — warn on type mismatches |
-| 4 | **Multi-file compilation** | Compiler | Beyond textual include |
-| 5 | **Module system** (pub/mod/use) | Compiler | Namespace, visibility, large project org |
-| 6 | **Error message line numbers** | Compiler | Needs tok_lines array + heap expansion |
-| 7 | **Block scoping** | Compiler | var in loops — scope depth + token replay |
-| 8 | **JSON parser** | Library | Serde replacement for config/manifest files |
-| 9 | **String formatting v2** | Library | Format strings with Str type (not just C strings) |
-| 10 | **Preprocessor fix** | Compiler | Don't eat `"include "` inside string literals |
+**Done (this cycle):** Traits (library), Generics (syntax), HashMap, Tagged unions, String enhancements, Bounds checking, Callbacks, Bench library, Comparison-in-args, Fixup table expansion.
+
+### Compiler
+
+| # | Feature | Unlocks |
+|---|---------|---------|
+| 1 | Enum constructors | `enum Option { None; Some(val); }` auto-generates functions |
+| 2 | Type checking (Generics Phase 2) | Warn on type mismatches |
+| 3 | Multi-file compilation | Beyond textual include |
+| 4 | Module system (pub/mod/use) | Namespace, visibility |
+| 5 | Error message line numbers | Needs tok_lines array + heap expansion |
+| 6 | Block scoping | var in loops — scope depth + token replay |
+| 7 | Preprocessor fix | Don't eat string literals containing include pattern |
+| 8 | Pattern matching | `match` with destructuring, exhaustiveness |
+| 9 | Closures / lambdas | Anonymous functions, captured variables |
+
+### Library
+
+| # | Feature | Unlocks |
+|---|---------|---------|
+| 10 | JSON parser | Config/manifest files, serde replacement |
+| 11 | Concurrency primitives | Multi-core, parallel apps |
+| 12 | Regex / pattern matching library | String search, validation |
+| 13 | Filesystem walker | Directory traversal, glob matching |
+| 14 | Network sockets | TCP/UDP via syscalls |
+| 15 | Process spawning library | Higher-level fork/exec/wait |
+
+### Tooling
+
+| # | Feature | Unlocks |
+|---|---------|---------|
+| 16 | `cyrb.toml` manifest parser | cyrb reads project config natively |
+| 17 | `cyrb publish` / `cyrb install` | Connected to Ark registry backend |
+| 18 | `cyrb fmt` | Code formatter — consistent style |
+| 19 | `cyrb doc` | Documentation generator — API docs from source |
 
 ## Active — aarch64
 
