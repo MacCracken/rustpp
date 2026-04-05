@@ -8,11 +8,9 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  release:
+  build:
     needs: ci
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +23,10 @@ jobs:
             exit 1
           fi
 
-      - name: Bootstrap + build
+      - name: Install qemu-user
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
+      - name: Bootstrap + build all
         run: |
           sh bootstrap/bootstrap.sh
           cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
@@ -33,13 +34,37 @@ jobs:
           cat stage1/programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
           cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          generate_release_notes: true
-          files: |
+          name: cyrius-${{ github.ref_name }}
+          path: |
             build/cc2
             build/cc2_aarch64
             build/cyrb
             build/ark
             bootstrap/asm
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cyrius-${{ github.ref_name }}
+          path: release-artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-artifacts/build/cc2
+            release-artifacts/build/cc2_aarch64
+            release-artifacts/build/cyrb
+            release-artifacts/build/ark
+            release-artifacts/bootstrap/asm

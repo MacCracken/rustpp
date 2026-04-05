@@ -5,13 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  bootstrap:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +20,7 @@ jobs:
       - name: Bootstrap toolchain
         run: sh bootstrap/bootstrap.sh
 
-      - name: Build compiler (cc2)
+      - name: Build compiler
         run: |
           cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2
           chmod +x ./build/cc2
@@ -31,8 +32,9 @@ jobs:
           chmod +x /tmp/cc3
           cat stage1/cc2.cyr | /tmp/cc3 > /tmp/cc4
           cmp /tmp/cc3 /tmp/cc4
+          echo "PASS: cc2==cc3 byte-identical"
 
-      - name: Compiler tests
+      - name: Compiler tests (111)
         run: sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
 
       - name: Build tools
@@ -40,24 +42,59 @@ jobs:
           cat stage1/programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
           cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
 
-      - name: Program tests
+      - name: Program tests (57)
         run: sh stage1/programs/test_programs.sh ./build/cc2
-
-      - name: Build aarch64 cross-compiler
-        run: |
-          cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64
-          chmod +x ./build/cc2_aarch64
-          echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
-
-      - name: aarch64 smoke test
-        run: |
-          sudo apt-get install -y qemu-user-static
-          echo 'var x = 42;' | ./build/cc2_aarch64 > /tmp/arm_test
-          chmod +x /tmp/arm_test
-          qemu-aarch64-static /tmp/arm_test; test $? -eq 42
 
       - name: Verify VERSION
         run: |
           VERSION=$(cat VERSION | tr -d '[:space:]')
           echo "Version: $VERSION"
           test -n "$VERSION"
+
+  aarch64:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install qemu-user
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
+      - name: Bootstrap + build compilers
+        run: |
+          sh bootstrap/bootstrap.sh
+          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+          cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+
+      - name: aarch64 tests
+        run: |
+          pass=0; fail=0
+          for test in \
+            "literal:var x = 42;:42" \
+            "add:var x = 20 + 22;:42" \
+            "mul:var x = 6 * 7;:42" \
+            "div:var x = 84 / 2;:42" \
+            "mod:var r = 10 % 3;:1" \
+            "if:var x = 0; if (1 == 1) { x = 42; }:42" \
+            "while:var x = 0; while (x < 10) { x = x + 1; }:10" \
+            "for:var s = 0; for (var i = 1; i <= 10; i = i + 1) { s = s + i; } var r = s;:55" \
+            "fn:fn f(a, b) { return a + b; } var x = f(20, 22);:42" \
+            "fn_local:fn f() { var a = 20; var b = 22; return a + b; } var r = f();:42" \
+            "enum:enum E { A = 10; B = 42; } fn f() { return B; } var r = f();:42" \
+            "struct:struct P { x; y; } var p = P { 20, 22 }; var r = p.x + p.y;:42" \
+            "string:fn sl(s) { var n = 0; while (load8(s + n) != 0) { n = n + 1; } return n; } var r = sl(\"hello\");:5" \
+            "syscall:syscall(1, 1, \"ok\", 2); var r = 42;:42"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2)
+            expected=$(echo "$test" | cut -d: -f3)
+            echo "$code" | ./build/cc2_aarch64 > /tmp/a64_t && chmod +x /tmp/a64_t
+            result=$(timeout 5 qemu-aarch64-static /tmp/a64_t 2>/dev/null; echo $?)
+            if [ "$result" = "$expected" ]; then
+              echo "PASS: $name"; pass=$((pass+1))
+            else
+              echo "FAIL: $name (expected=$expected, got=$result)"; fail=$((fail+1))
+            fi
+          done
+          echo "$pass passed, $fail failed"
+          test $fail -eq 0
