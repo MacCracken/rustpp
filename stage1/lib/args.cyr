@@ -10,6 +10,7 @@
 
 var _args_base = 0;
 
+# Initialize argument access by reading /proc/self/cmdline
 fn args_init() {
     # Save the stack pointer to read argc/argv later.
     # At this point rsp has been modified by the jmp-over-fn-bodies
@@ -37,6 +38,7 @@ fn args_init() {
     return n;
 }
 
+# Return the number of command-line arguments
 fn argc() {
     # Count null-terminated strings in cmdline
     var base = _args_base;
@@ -60,6 +62,7 @@ fn argc() {
     return count;
 }
 
+# Return pointer to the nth command-line argument string
 fn argv(n) {
     # Return pointer to nth null-terminated string
     var base = _args_base;

@@ -37,8 +37,11 @@ fn map_new() {
     return m;
 }
 
+# Return pointer to the entries array
 fn map_entries(m) { return load64(m); }
+# Return the current capacity of the map
 fn map_cap(m) { return load64(m + 8); }
+# Return the number of entries in the map
 fn map_count(m) { return load64(m + 16); }
 
 # Find slot for key (returns entry pointer, or empty slot if not found)

@@ -10,6 +10,7 @@ var _heap_base = 0;
 var _heap_ptr = 0;
 var _heap_end = 0;
 
+# Initialize the heap allocator (must call before any alloc)
 fn alloc_init() {
     _heap_base = syscall(12, 0);
     _heap_end = _heap_base + 0x100000;
@@ -18,6 +19,7 @@ fn alloc_init() {
     return _heap_base;
 }
 
+# Allocate size bytes from the heap, 8-byte aligned
 fn alloc(size) {
     # Align to 8 bytes
     size = (size + 7) & (0 - 8);
@@ -31,11 +33,13 @@ fn alloc(size) {
     return ptr;
 }
 
+# Reset the heap, freeing all allocations at once
 fn alloc_reset() {
     _heap_ptr = _heap_base;
     return 0;
 }
 
+# Return the number of heap bytes currently in use
 fn alloc_used() {
     return _heap_ptr - _heap_base;
 }

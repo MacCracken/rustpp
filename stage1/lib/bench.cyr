@@ -24,6 +24,7 @@ fn now_ns() {
 # Benchmark state: { name_ptr, start_ns, elapsed_ns, iterations, min_ns, max_ns }
 var BENCH_SIZE = 48;
 
+# Create a new benchmark with the given name
 fn bench_new(name) {
     var b = alloc(BENCH_SIZE);
     store64(b, name);
@@ -35,13 +36,16 @@ fn bench_new(name) {
     return b;
 }
 
+# Return the name string of a benchmark
 fn bench_name(b) { return load64(b); }
 
+# Record the start timestamp for a benchmark iteration
 fn bench_start(b) {
     store64(b + 8, now_ns());
     return 0;
 }
 
+# Stop timing, update elapsed/min/max/iterations
 fn bench_stop(b) {
     var end = now_ns();
     var elapsed = end - load64(b + 8);
@@ -53,11 +57,16 @@ fn bench_stop(b) {
     return elapsed;
 }
 
+# Return the number of completed iterations
 fn bench_iterations(b) { return load64(b + 24); }
+# Return total elapsed nanoseconds across all iterations
 fn bench_total_ns(b) { return load64(b + 16); }
+# Return the minimum single-iteration time in nanoseconds
 fn bench_min_ns(b) { return load64(b + 32); }
+# Return the maximum single-iteration time in nanoseconds
 fn bench_max_ns(b) { return load64(b + 40); }
 
+# Return the average time per iteration in nanoseconds
 fn bench_avg_ns(b) {
     var iters = load64(b + 24);
     if (iters == 0) { return 0; }

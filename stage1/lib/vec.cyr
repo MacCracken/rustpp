@@ -5,6 +5,7 @@
 # A Vec is a heap-allocated struct: { data_ptr, len, cap }
 # Elements are 8 bytes each (i64).
 
+# Create a new empty vector with initial capacity 16
 fn vec_new() {
     var v = alloc(24);
     var cap = 16;
@@ -15,14 +16,17 @@ fn vec_new() {
     return v;
 }
 
+# Return the number of elements in the vector
 fn vec_len(v) {
     return load64(v + 8);
 }
 
+# Return the current capacity of the vector
 fn vec_cap(v) {
     return load64(v + 16);
 }
 
+# Get element at index, abort if out of bounds
 fn vec_get(v, idx) {
     if (idx < 0) { syscall(1, 2, "vec: index < 0\n", 15); syscall(60, 1); }
     if (idx >= load64(v + 8)) { syscall(1, 2, "vec: index out of bounds\n", 25); syscall(60, 1); }
@@ -30,6 +34,7 @@ fn vec_get(v, idx) {
     return load64(data + idx * 8);
 }
 
+# Set element at index, abort if out of bounds
 fn vec_set(v, idx, val) {
     if (idx < 0) { syscall(1, 2, "vec: index < 0\n", 15); syscall(60, 1); }
     if (idx >= load64(v + 8)) { syscall(1, 2, "vec: index out of bounds\n", 25); syscall(60, 1); }
@@ -38,6 +43,7 @@ fn vec_set(v, idx, val) {
     return 0;
 }
 
+# Append a value to the end, growing if needed
 fn vec_push(v, val) {
     var len = load64(v + 8);
     var cap = load64(v + 16);
@@ -58,6 +64,7 @@ fn vec_push(v, val) {
     return 0;
 }
 
+# Remove and return the last element, or 0 if empty
 fn vec_pop(v) {
     var len = load64(v + 8);
     if (len == 0) { return 0; }

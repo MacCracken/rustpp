@@ -8,6 +8,7 @@
 # JSON value: { key: Str, value: Str }
 var JSON_PAIR_SIZE = 16;
 
+# Create a new key-value pair for JSON storage
 fn json_pair_new(key, value) {
     var p = alloc(JSON_PAIR_SIZE);
     store64(p, key);
@@ -15,7 +16,9 @@ fn json_pair_new(key, value) {
     return p;
 }
 
+# Return the key Str from a JSON pair
 fn json_key(p) { return load64(p); }
+# Return the value Str from a JSON pair
 fn json_value(p) { return load64(p + 8); }
 
 # Parse a JSON object string into a vec of key-value pairs.

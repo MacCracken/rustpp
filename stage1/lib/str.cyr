@@ -194,21 +194,25 @@ fn str_builder_new() {
     return vec_new();
 }
 
+# Append a Str to the string builder
 fn str_builder_add(sb, s) {
     vec_push(sb, s);
     return 0;
 }
 
+# Append a C string to the string builder
 fn str_builder_add_cstr(sb, cstr) {
     vec_push(sb, str_from(cstr));
     return 0;
 }
 
+# Append an integer (as string) to the string builder
 fn str_builder_add_int(sb, n) {
     vec_push(sb, str_from_int(n));
     return 0;
 }
 
+# Concatenate all builder parts into a single Str
 fn str_builder_build(sb) {
     var total = 0;
     var blen = vec_len(sb);

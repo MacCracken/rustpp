@@ -15,18 +15,22 @@ var STDIN = 0;
 var STDOUT = 1;
 var STDERR = 2;
 
+# Open a file with given flags and mode, return fd
 fn file_open(path, flags, mode) {
     return syscall(2, path, flags, mode);
 }
 
+# Close a file descriptor
 fn file_close(fd) {
     return syscall(3, fd);
 }
 
+# Read up to len bytes from fd into buf
 fn file_read(fd, buf, len) {
     return syscall(0, fd, buf, len);
 }
 
+# Write len bytes from buf to fd
 fn file_write(fd, buf, len) {
     return syscall(1, fd, buf, len);
 }

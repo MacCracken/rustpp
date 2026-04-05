@@ -5,6 +5,7 @@
 # The fncallN functions set up args, call through the pointer,
 # and return the result.
 
+# Call function pointer fp with zero arguments
 fn fncall0(fp) {
     var result = 0;
     # call [rbp-8] (fp), save result
@@ -17,6 +18,7 @@ fn fncall0(fp) {
     return result;
 }
 
+# Call function pointer fp with one argument
 fn fncall1(fp, a) {
     var result = 0;
     asm {
@@ -29,6 +31,7 @@ fn fncall1(fp, a) {
     return result;
 }
 
+# Call function pointer fp with two arguments
 fn fncall2(fp, a, b) {
     var result = 0;
     asm {

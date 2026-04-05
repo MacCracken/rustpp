@@ -17,6 +17,7 @@ enum SockType { SOCK_STREAM = 1; SOCK_DGRAM = 2; }
 enum SockOpt { SOL_SOCKET = 1; SO_REUSEADDR = 2; }
 
 # sockaddr_in: { family(2), port(2), addr(4), zero(8) } = 16 bytes
+# Build a sockaddr_in struct from address and port
 fn sockaddr_in(addr, port) {
     var sa = alloc(16);
     memset(sa, 0, 16);
@@ -31,7 +32,8 @@ fn sockaddr_in(addr, port) {
 
 # Common addresses
 fn INADDR_ANY() { return 0; }
-fn INADDR_LOOPBACK() { return 0x0100007F; }  # 127.0.0.1 in little-endian
+# Loopback address 127.0.0.1 in network byte order
+fn INADDR_LOOPBACK() { return 0x0100007F; }
 
 # Create a TCP socket. Returns Result(fd).
 fn tcp_socket() {

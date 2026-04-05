@@ -34,15 +34,19 @@ Usage: cyrb <command> [options]
 
 Build:
   build [--aarch64] <src> <out>   compile a program
+  run [--aarch64] <source.cyr>    compile + run (no output file)
   test [--aarch64] <test.cyr>     compile + run, check exit 0
   bench <bench.cyr>               compile + run benchmarks
+  check <source.cyr>              syntax check (compile without output)
   self                            self-hosting check (cc2==cc3)
+  clean                           remove build/ contents
 
 Project:
   init <name>                     scaffold a new project
   package                         create .ark distributable
   publish                         push package to Ark registry
   install <pkg>                   install package from registry
+  update                          update vendored stdlib
 
 Quality:
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
@@ -330,6 +334,66 @@ MANIFEST
         fi
         if [ -z "$1" ]; then echo "Usage: cyrb doc [--check] <file.cyr>"; exit 1; fi
         "$cyrdoc" "$@"
+        ;;
+
+    # === Run / Clean / Update / Check ===
+    run)
+        shift
+        arch="x86"
+        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ -z "$1" ]; then echo "Usage: cyrb run [--aarch64] <source.cyr>"; exit 1; fi
+        tmpbin="/tmp/cyrb_run_$$"
+        if compile "$1" "$tmpbin" "$arch"; then
+            run_binary "$tmpbin" "$arch"
+            exit_code=$?
+            rm -f "$tmpbin"
+            exit $exit_code
+        else
+            echo "error: compile failed" >&2
+            rm -f "$tmpbin"
+            exit 1
+        fi
+        ;;
+
+    check)
+        shift
+        if [ -z "$1" ]; then echo "Usage: cyrb check <source.cyr>"; exit 1; fi
+        if cat "$1" | "$CC" > /dev/null 2>&1; then
+            echo "ok: $1"
+        else
+            echo "error: $1" >&2
+            exit 1
+        fi
+        ;;
+
+    clean)
+        if [ -d "build" ]; then
+            # Preserve bootstrap compiler (cc2, stage1f, asm)
+            for f in build/*; do
+                base=$(basename "$f")
+                case "$base" in
+                    cc2|stage1f|asm) ;; # keep
+                    *) rm -f "$f" ;;
+                esac
+            done
+            echo "cleaned build/ (preserved cc2, stage1f, asm)"
+        else
+            echo "nothing to clean"
+        fi
+        ;;
+
+    update)
+        echo "=== cyrb update ==="
+        CYRIUS_LIB="${CYRB_HOME}/versions/$(cat "${CYRB_HOME}/current" 2>/dev/null)/lib"
+        if [ -d "$CYRIUS_LIB" ] && [ -d "lib" ]; then
+            cp "$CYRIUS_LIB"/*.cyr lib/ 2>/dev/null
+            mkdir -p lib/agnosys
+            cp "$CYRIUS_LIB"/agnosys/*.cyr lib/agnosys/ 2>/dev/null
+            echo "updated vendored stdlib from $(cat "${CYRB_HOME}/current")"
+        else
+            echo "no installed stdlib found or no lib/ directory"
+            echo "manual update: cp ../cyrius/stage1/lib/*.cyr lib/"
+        fi
         ;;
 
     # === Info commands ===
