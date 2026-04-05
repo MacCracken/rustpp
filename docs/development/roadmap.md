@@ -103,41 +103,80 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 
 > **Note**: Phase 7 is the initial kernel boot. Full-featured AGNOS (drivers, networking, full userland, multi-user) continues beyond Phase 11.
 
-### Phase 8 — Audit, Refactor, Stabilize
+### Phase 8 — Language Foundations
 
-**Goal**: Clean up after kernel brings. Fix what real usage found.
+**Goal**: Add the features that make Cyrius a real language for real projects.
 
-| # | Item | Notes |
-|---|------|-------|
-| 1 | Kernel audit round | Memory safety, interrupt correctness, edge cases |
-| 2 | Compiler refactor | Apply lessons from kernel development |
-| 3 | Performance pass | Profile kernel, optimize hot paths |
-| 4 | Test suite expansion | Kernel-level tests, stress tests |
+**Tier 1 — Core language (blocking real-world use):**
 
-### Phase 9 — Multi-Architecture (aarch64)
+| # | Item | Effort | Unlocks |
+|---|------|--------|---------|
+| 1 | Type enforcement (warnings → errors) | 2 sessions | Catch bugs at compile time |
+| 2 | Enums / tagged unions | 2 sessions | Error handling, state machines, kernel IPC |
+| 3 | Switch/match statement | 1 session | Cleaner dispatch than elif chains |
+| 4 | Heap allocator (malloc/free) | 2 sessions | Dynamic data structures |
+| 5 | Function pointers / callbacks | 1 session | Vtables, event handlers, agent model |
+| 6 | argc/argv access | 1 session | Real command-line programs |
+| 7 | Block scoping for variables | 2 sessions | Fix var-in-loop bug, proper scoping |
+| 8 | String type (length + pointer) | 1 session | Safe string operations |
+
+**Tier 2 — Scale features (for larger codebases):**
+
+| # | Item | Effort | Unlocks |
+|---|------|--------|---------|
+| 9 | Generics / templates | 3 sessions | Type-safe containers, reusable code |
+| 10 | Traits / interfaces | 3 sessions | Abstraction, polymorphism |
+| 11 | Proper module system (namespace, visibility) | 2 sessions | Large project organization |
+| 12 | Array bounds checking (opt-in) | 1 session | Memory safety |
+| 13 | Nested function calls in expressions | 1 session | Fix register save across calls |
+| 14 | Multi-file compilation | 2 sessions | Beyond textual include |
+
+**Tier 3 — Advanced (future vision):**
+
+| # | Item | Effort | Unlocks |
+|---|------|--------|---------|
+| 15 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
+| 16 | Closures / lambdas | 2 sessions | Functional patterns |
+| 17 | Iterators | 2 sessions | Clean collection processing |
+| 18 | Pattern matching | 2 sessions | Destructuring, exhaustiveness |
+| 19 | Concurrency primitives | 3 sessions | Multi-core kernel, parallel apps |
+
+### Phase 9 — Multi-Architecture (aarch64) (STARTED)
 
 **Goal**: Factor codegen into backends. Port to ARM.
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | Factor codegen into backend interface | Shared lexer/parser, per-arch emission |
-| 2 | aarch64 assembler + codegen + bootstrap | Fixed-width 32-bit instructions |
-| 3 | aarch64 kernel port | Same kernel, different arch |
-| 4 | Cross-compilation | x86_64 host → aarch64 binaries |
+| 1 | ~~Factor codegen into backend interface~~ | Done — shared frontend, per-arch emit/jump/fixup |
+| 2 | ~~aarch64 emit + jump + fixup~~ | Done — 61 functions, cross-compiler builds |
+| 3 | aarch64 instruction correctness | Fix jmp encoding, get var x = 42 running |
+| 4 | aarch64 bootstrap (self-hosting on ARM) | cc2_aarch64 compiles itself on ARM hardware |
+| 5 | aarch64 kernel port | Same AGNOS kernel, different arch |
+| 6 | Cross-compilation | x86_64 host → aarch64 binaries verified |
 
-### Phase 10 — Prove at Scale
+### Phase 10 — Audit, Refactor, Stabilize
 
-**Goal**: Real-world projects in Cyrius. Language ergonomics pass.
+**Goal**: Clean up after kernel + language features. Fix what real usage found.
+
+| # | Item | Notes |
+|---|------|-------|
+| 1 | Kernel audit round | Memory safety, interrupt correctness |
+| 2 | Compiler refactor | Apply lessons from all phases |
+| 3 | Performance pass | Profile kernel + compiler, optimize |
+| 4 | Test suite expansion | Kernel-level tests, stress tests, fuzzing |
+
+### Phase 11 — Prove at Scale
+
+**Goal**: Real-world projects in Cyrius.
 
 | # | Item | Notes |
 |---|------|-------|
 | 1 | Migrate Ark package manager | First non-kernel project |
 | 2 | AGNOS userland tools | Prove stdlib + I/O story |
 | 3 | Benchmark suite vs C/Rust | Compile times, binary sizes, runtime perf |
-| 4 | Language ergonomics pass | Fix pain points from real usage |
-| 5 | Documentation + tutorials | Developer onboarding |
+| 4 | Documentation + tutorials | Developer onboarding |
 
-### Phase 11 — Full Sovereignty
+### Phase 12 — Full Sovereignty
 
 | # | Item | Notes |
 |---|------|-------|

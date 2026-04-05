@@ -104,17 +104,19 @@ linker control, ISR save/restore pattern.
 - Next: serial console, GDT/IDT, 32-to-64 shim, page tables, interrupts
 4. Initial boot — full-featured AGNOS continues beyond Phase 11
 
-### Phase 8: Audit + Refactor
-1. Clean up from kernel learnings
+### Phase 8: Language Foundations
+Tier 1: type enforcement, enums, switch/match, heap alloc, function pointers,
+  argc/argv, block scoping, string type
+Tier 2: generics, traits, modules, bounds checking, multi-file compilation
+Tier 3: ownership/borrow checker, closures, iterators, pattern matching, concurrency
 
-### Phase 9: Multi-Architecture (aarch64)
-1. Factor codegen, port kernel
+### Phase 9: Multi-Architecture (aarch64) (STARTED)
+Done: codegen factored, aarch64 backend (61 fns), cross-compiler builds
+Remaining: instruction correctness, self-hosting on ARM, kernel port
 
-### Phase 10: Prove at Scale
-1. Migrate Ark + AGNOS projects to Cyrius
-
-### Phase 11: Full Sovereignty
-1. AGNOS builds entirely with Cyrius on x86_64 + aarch64
+### Phase 10: Audit + Refactor
+### Phase 11: Prove at Scale (Ark, AGNOS userland)
+### Phase 12: Full Sovereignty (both architectures, no external toolchain)
 
 ## Key Principles
 
