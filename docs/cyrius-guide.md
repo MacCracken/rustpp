@@ -178,6 +178,41 @@ kernel;                          # Emit bare-metal ELF (multiboot1)
 # Boot: qemu-system-x86_64 -kernel build/kernel -serial stdio
 ```
 
+## Enums
+
+```
+enum Color { RED; GREEN; BLUE; }     # RED=0, GREEN=1, BLUE=2
+enum Error { OK = 0; NOT_FOUND = 44; PERM = 13; }  # Explicit values
+
+var c = BLUE;                        # c = 2
+```
+
+## Switch
+
+```
+fn classify(n) {
+    switch (n) {
+        case 0: return 0;
+        case 1: return 1;
+        default: return 99;
+    }
+    return 0;
+}
+```
+
+Note: case values must be integer literals. No fallthrough — each case is independent.
+
+## Function Pointers
+
+```
+fn add(a, b) { return a + b; }
+var fp = &add;                       # Get function address
+
+# Call through pointer (using fnptr library):
+include "stage1/lib/fnptr.cyr"
+var result = fncall2(fp, 20, 22);    # result = 42
+```
+
 ## Global Initializers
 
 Variables can be declared among function definitions:
@@ -202,6 +237,19 @@ memchr(s, c, n)        # Find byte in buffer (-1 if not found)
 strchr(s, c)           # Find byte in string (-1 if not found)
 print_num(n)           # Print decimal to stdout
 println(s)             # Print string + newline
+```
+
+## Standard Libraries
+
+```
+include "stage1/lib/string.cyr"  # strlen, streq, memcpy, memset, memchr, strchr, print_num, println
+include "stage1/lib/alloc.cyr"   # alloc_init, alloc, alloc_reset, alloc_used (bump allocator)
+include "stage1/lib/str.cyr"     # Str type: str_from, str_len, str_eq, str_cat, str_sub, str_print
+include "stage1/lib/vec.cyr"     # Dynamic array: vec_new, vec_push, vec_pop, vec_get, vec_set, vec_len
+include "stage1/lib/io.cyr"      # File I/O: file_open, file_read, file_write, file_close, file_read_all
+include "stage1/lib/fmt.cyr"     # Formatting: fmt_int, fmt_hex, fmt_hex0x, fmt_bool, fmt_byte
+include "stage1/lib/args.cyr"    # CLI args: args_init, argc, argv
+include "stage1/lib/fnptr.cyr"   # Function pointers: fncall0, fncall1, fncall2
 ```
 
 ## Known Limitations
@@ -238,11 +286,12 @@ qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
 
 ## Example Programs
 
-See `stage1/programs/` for 41 examples:
-- **CLI tools**: cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort...
-- **Algorithms**: fizzbuzz, primes, sieve, collatz, ackermann, gcd, brainfuck
-- **Systems**: bitfield (PTE/GDT/IDT), asmtest (inline asm), life (Game of Life)
-- **Kernel**: kernel_hello (VGA), isr_stub (interrupt patterns), boot_serial
+See `stage1/programs/` for 46 examples:
+- **CLI tools**: cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort, basename, cols, count, toupper, rot13, rev, nl, seq, tee, yes, true, false
+- **Algorithms**: fizzbuzz, primes, sieve, collatz, ackermann, gcd, brainfuck, life, xor
+- **Data structures**: struct_list (linked list), alloctest (heap), strtype (fat strings)
+- **Systems**: bitfield (PTE/GDT/IDT), asmtest (18 mnemonics), points (nested structs + typed ptrs)
+- **Kernel**: kernel_hello (VGA), isr_stub (interrupt patterns), boot_serial, agnos (full kernel)
 
 ## Architecture
 
@@ -250,7 +299,7 @@ See `stage1/programs/` for 41 examples:
 bootstrap/asm (29KB seed)
   → stage1f (12KB compiler)
     → cc.cyr (monolithic, bridge)
-      → cc2 (modular, 181 functions)
+      → cc2 (modular, 182 functions, 92KB)
         → cc2_aarch64 (cross-compiler)
         → agnos.cyr (AGNOS kernel)
 ```

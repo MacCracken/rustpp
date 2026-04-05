@@ -24,11 +24,15 @@ fn vec_cap(v) {
 }
 
 fn vec_get(v, idx) {
+    if (idx < 0) { syscall(1, 2, "vec: index < 0\n", 15); syscall(60, 1); }
+    if (idx >= load64(v + 8)) { syscall(1, 2, "vec: index out of bounds\n", 25); syscall(60, 1); }
     var data = load64(v);
     return load64(data + idx * 8);
 }
 
 fn vec_set(v, idx, val) {
+    if (idx < 0) { syscall(1, 2, "vec: index < 0\n", 15); syscall(60, 1); }
+    if (idx >= load64(v + 8)) { syscall(1, 2, "vec: index out of bounds\n", 25); syscall(60, 1); }
     var data = load64(v);
     store64(data + idx * 8, val);
     return 0;

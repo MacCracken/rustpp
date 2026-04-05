@@ -61,6 +61,18 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 
 ## Planned — Pre-Release (before May 1)
 
+### Phase 9.5 — Repository Separation
+
+**Goal**: Clean separation of language vs kernel vs ecosystem crates.
+
+| # | Item | Notes |
+|---|------|-------|
+| 1 | Create `../agnos/` repo | Move kernel/agnos.cyr + kernel/examples/ out of cyrius |
+| 2 | AGNOS gets own CLAUDE.md, README, roadmap | Kernel roadmap separate from language roadmap |
+| 3 | AGNOS depends on Cyrius (compiler) | Build: `cat agnos.cyr \| ../cyrius/build/cc2 > build/agnos` |
+| 4 | Keep stage1/programs/kernel_hello.cyr in cyrius | It's a language test, not the kernel |
+| 5 | Tag Cyrius v2.0 release | Versioned language that AGNOS + ecosystem pins to |
+
 ### Phase 10 — Audit, Refactor, Stabilize
 
 **Goal**: Harden everything built in Phases 2-8. Fix what real usage found.
