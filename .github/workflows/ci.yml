@@ -49,10 +49,15 @@ jobs:
           done
           echo "$total warnings"
           test $total -eq 0
-      - name: Self-hosting
+      - name: Build x86_64 compiler from source
         run: |
           cat src/compiler.cyr | ./build/cc2 > /tmp/cc3
           chmod +x /tmp/cc3
+          SZ=$(wc -c < /tmp/cc3)
+          echo "cc2 (x86_64): $SZ bytes"
+          test $SZ -gt 80000  # sanity: compiler should be >80KB
+      - name: Self-hosting verify
+        run: |
           cat src/compiler.cyr | /tmp/cc3 > /tmp/cc4
           cmp /tmp/cc3 /tmp/cc4
           echo "PASS: cc2==cc3 byte-identical"
