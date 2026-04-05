@@ -156,38 +156,6 @@ fn timer_isr_build() {
 # === Keyboard ===
 
 fn kb_isr_build() {
-    # Keyboard ISR: read scancode from port 0x60, store in ring buffer, EOI
-    var p = &kb_isr;
-    # push rax; push rcx; push rdx
-    store8(p, 0x50); store8(p + 1, 0x51); store8(p + 2, 0x52);
-    # in al, 0x60 (read scancode): mov edx, 0x60; in al, dx
-    store8(p + 3, 0xBA); store8(p + 4, 0x60); store8(p + 5, 0x00);
-    store8(p + 6, 0x00); store8(p + 7, 0x00);
-    store8(p + 8, 0xEC);  # in al, dx
-    # Store scancode: mov rcx, &kb_buf; movzx edx, byte [&kb_head]
-    # Actually, just use a fixed approach: store al at kb_buf[kb_head], inc kb_head
-    # mov rcx, kb_buf_addr
-    store8(p + 9, 0x48); store8(p + 10, 0xB9);
-    store64(p + 11, &kb_buf);
-    # mov rdx, kb_head_addr
-    store8(p + 19, 0x48); store8(p + 20, 0xBA);
-    store64(p + 21, &kb_head);
-    # push rax (save scancode)
-    store8(p + 29, 0x50);
-    # mov rax, [rdx] (load head index)
-    store8(p + 30, 0x48); store8(p + 31, 0x8B); store8(p + 32, 0x02);
-    # pop byte: we stored scancode. Use the saved one from earlier push.
-    # Actually: al still has scancode from the in. But we pushed rax.
-    # Let's simplify: just use original al value
-    store8(p + 33, 0x58);  # pop rax (restore scancode in al)
-    # mov [rcx + rax_from_head], al — but head is in [rdx]
-    # This is getting complex. Let me use a simpler approach:
-    # Just store al at a fixed counter location and increment
-    # Rewrite: minimal keyboard ISR
-    return 0;
-}
-
-fn kb_isr_build_simple() {
     # Minimal keyboard ISR: read port 0x60, store scancode, EOI
     var p = &kb_isr;
     var ba = &kb_buf;
@@ -367,11 +335,10 @@ fn pmm_free_count() {
 # For now: 2MB huge pages only (PD entries).
 
 fn vmm_map(virt, phys, flags) {
-    # virt must be 2MB aligned. Map via PD entry.
-    # PD index = (virt >> 21) & 0x1FF
     var pd_idx = (virt >> 21) & 0x1FF;
     store64(0x3000 + pd_idx * 8, (phys & 0xFFFFFFFFFFE00000) | flags | 0x83);
-    # Flush TLB for this address
+    # Flush TLB — load virt into rax then invlpg
+    var flush = virt;
     asm { invlpg [rax]; }
     return 0;
 }
@@ -379,6 +346,7 @@ fn vmm_map(virt, phys, flags) {
 fn vmm_unmap(virt) {
     var pd_idx = (virt >> 21) & 0x1FF;
     store64(0x3000 + pd_idx * 8, 0);
+    var flush = virt;
     asm { invlpg [rax]; }
     return 0;
 }
@@ -450,9 +418,9 @@ fn ksyscall(num, arg1, arg2, arg3) {
         return 0;
     }
     if (num == 1) {
-        # write (fd=arg1, buf=arg2, len=arg3) — serial only
-        serial_print(arg2, arg3);
-        return arg3;
+        # write (buf=arg1, len=arg2) — serial output
+        serial_print(arg1, arg2);
+        return arg2;
     }
     if (num == 2) {
         # getpid
@@ -465,6 +433,7 @@ fn ksyscall(num, arg1, arg2, arg3) {
 fn kprint_num(n: i64) {
     var nb[24];
     var ni = 23;
+    if (n < 0) { serial_putc(45); n = 0 - n; }
     if (n == 0) { store8(&nb + ni, 48); ni = ni - 1; }
     while (n > 0) { store8(&nb + ni, 48 + n % 10); ni = ni - 1; n = n / 10; }
     serial_print(&nb + ni + 1, 23 - ni);
@@ -532,7 +501,7 @@ serial_println("Timer ISR installed", 19);
 
 kb_head = 0;
 kb_tail = 0;
-kb_isr_build_simple();
+kb_isr_build();
 idt_set_gate(&idt + 33 * 16, &kb_isr, 0x08, 0x8E);
 serial_println("Keyboard ISR installed", 22);
 
@@ -587,7 +556,7 @@ serial_print("Syscall getpid=", 15);
 kprint_num(pid);
 serial_println("", 0);
 
-ksyscall(1, 1, "Syscall write works!\n", 21, 0);
+ksyscall(1, "Syscall write works!\n", 21, 0);
 
 ksyscall(0, 42, 0, 0);
 serial_print("Exit code: ", 11);
