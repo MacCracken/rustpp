@@ -133,7 +133,7 @@ echo ""
 echo "-- Syscall + I/O --"
 run_test_stdout "hello" 'syscall(1, 1, "hello\n", 6); var x = 0;' "hello" 0
 run_test "store_load"   "var x = 0; store8(&x, 42); var y = load8(&x);" 42
-run_test "array"        "var buf[8]; store8(&buf, 99); var y = load8(&buf);" 99
+run_test_cc "array"     "var buf[8]; store8(&buf, 99); var y = load8(&buf);" 99
 echo ""
 
 echo "-- Hex Literals + Comments --"

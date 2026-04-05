@@ -598,6 +598,145 @@ fn PARSE_STRUCT_INIT(S, noff, sid) {
     return 0;
 }
 
+fn PARSE_GVAR_ARR(S, noff) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 1) { ERR(S); }
+    var sz = PEEKV(S) * 8;
+    if (sz < 8) { sz = 8; }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 5) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var vc = GVCNT(S);
+    S64(S + 0x58000 + vc * 8, noff);
+    S64(S + 0x58800 + vc * 8, sz);
+    SLVAR(S, vc);
+    SVCNT(S, vc + 1);
+    return 0;
+}
+
+# Register a global var in declaration zone (no codegen, deferred init)
+fn PARSE_GVAR_REG(S) {
+    var sti = GTI(S);
+    STI(S, GTI(S) + 1);  # consume VAR
+    if (PEEKT(S) != 2) { ERR(S); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Optional type annotation
+    var psc = 0;
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); }
+        else { STI(S, GTI(S) + 1); }
+    }
+    # Array: register with size, no deferred init
+    if (PEEKT(S) == 28) {
+        PARSE_GVAR_ARR(S, noff);
+        return 0;
+    }
+    # Check for struct init after =: var p = StructName { ... }
+    # Peek ahead: skip to = then check if next is IDENT matching a struct
+    var save_peek = GTI(S);
+    # We're past the type annotation, at = or the token before it
+    # Find the = sign
+    while (PEEKT(S) != 4 && PEEKT(S) != 5 && PEEKT(S) != 12) { STI(S, GTI(S) + 1); }
+    var is_struct = 0;
+    var ssid = 0;
+    if (PEEKT(S) == 4) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 2) {
+            var sn = PEEKV(S);
+            ssid = FINDSTRUCT(S, sn);
+            if (ssid > 0) { is_struct = 1; }
+        }
+    }
+    STI(S, save_peek);  # restore
+    # Register
+    var vcnt = GVCNT(S);
+    S64(S + 0x58000 + vcnt * 8, noff);
+    if (is_struct == 1) {
+        S64(S + 0x58800 + vcnt * 8, STRUCTSZ(S, ssid - 1));
+        SVTYPE(S, vcnt, ssid);
+    } else {
+        S64(S + 0x58800 + vcnt * 8, 8);
+        if (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
+    }
+    SVCNT(S, vcnt + 1);
+    # Save token index
+    var gc = L64(S + 0x8FC98);
+    S64(S + 0x8FA98 + gc * 8, sti);
+    S64(S + 0x8FC98, gc + 1);
+    # Skip to semicolon
+    var skg = 1;
+    while (skg == 1) {
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); skg = 0; }
+        else { if (PEEKT(S) == 12) { skg = 0; }
+        else { STI(S, GTI(S) + 1); } }
+    }
+    return 0;
+}
+
+# Emit deferred global var inits (replays saved token positions)
+fn EMIT_GVAR_INITS(S) {
+    var gc = L64(S + 0x8FC98);
+    var gi = 0;
+    while (gi < gc) {
+        var sti = L64(S + 0x8FA98 + gi * 8);
+        STI(S, sti);
+        STI(S, GTI(S) + 1);  # consume VAR
+        var noff = PEEKV(S);
+        STI(S, GTI(S) + 1);  # consume IDENT
+        if (PEEKT(S) == 49) { STI(S, GTI(S) + 1); if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+        if (PEEKT(S) != 4) { ERR(S); }
+        STI(S, GTI(S) + 1);  # consume =
+        # Check for struct init: StructName { ... }
+        var idx = FINDVAR(S, noff);
+        if (PEEKT(S) == 2) {
+            var sn = PEEKV(S);
+            var sid = FINDSTRUCT(S, sn);
+            if (sid > 0) {
+                # Struct init — emit stores into already-registered var
+                STI(S, GTI(S) + 1);  # consume struct name
+                if (PEEKT(S) != 13) { ERR(S); }
+                STI(S, GTI(S) + 1);  # consume {
+                var fc = GETFCOUNT(S, sid - 1);
+                var boff = 0;
+                var fii = 0;
+                while (fii < fc) {
+                    var fft = GETFTYPE(S, sid - 1, fii);
+                    if (fft > 0) {
+                        var ifc = GETFCOUNT(S, fft - 1);
+                        var ifi = 0;
+                        while (ifi < ifc) {
+                            EMIT_STRUCT_FIELD(S, idx, boff);
+                            boff = boff + 8;
+                            ifi = ifi + 1;
+                        }
+                    } else {
+                        EMIT_STRUCT_FIELD(S, idx, boff);
+                        boff = boff + 8;
+                    }
+                    fii = fii + 1;
+                }
+                if (PEEKT(S) != 14) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                SLVAR(S, idx);
+                if (PEEKT(S) != 5) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                gi = gi + 1;
+                continue;
+            }
+        }
+        PARSE_EXPR(S);
+        if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
+        if (PEEKT(S) != 5) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        gi = gi + 1;
+    }
+    return 0;
+}
+
 # Parse: var IDENT = expr ;
 fn PARSE_VAR(S) {
     STI(S, GTI(S) + 1);  # consume VAR
