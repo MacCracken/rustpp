@@ -1,0 +1,285 @@
+# cyrb — Cyrius Builder
+# The build tool for Cyrius projects. Written in Cyrius.
+#
+# Usage:
+#   cyrb build <source.cyr> <output>    — compile a program
+#   cyrb test <test.cyr>                — compile + run, check exit 0
+#   cyrb suite <dir>                    — compile + run all *_test.cyr in dir
+#   cyrb self                           — self-hosting check (cc2==cc3)
+#   cyrb all                            — full project build + test
+
+include "stage1/lib/string.cyr"
+include "stage1/lib/fmt.cyr"
+include "stage1/lib/alloc.cyr"
+include "stage1/lib/io.cyr"
+include "stage1/lib/vec.cyr"
+include "stage1/lib/args.cyr"
+include "stage1/lib/agnosys/syscalls.cyr"
+
+var CC2_PATH = "./build/cc2";
+var _pass = 0;
+var _fail = 0;
+var _total = 0;
+
+# Run a command: fork, exec, wait. Returns exit code.
+# cmd is the path, arg1/arg2 are args (0 = no arg).
+fn run_cmd(cmd, arg1, arg2) {
+    var pid = sys_fork();
+    if (pid == 0) {
+        # Child: exec
+        # Build argv: [cmd, arg1, arg2, NULL]
+        var argv[4];
+        store64(&argv, cmd);
+        var ai = 1;
+        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+        store64(&argv + ai * 8, 0);
+        # Null envp
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(cmd, &argv, &envp);
+        # If execve returns, it failed
+        sys_exit(127);
+    }
+    # Parent: wait
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    if (WIFSIGNALED(status) == 1) { return 128 + WTERMSIG(status); }
+    return 1;
+}
+
+# Compile source.cyr to output using cc2 via pipe
+# Returns: 0=success, 1=compile error
+fn compile(source, output) {
+    # Strategy: fork a child that:
+    #   1. Opens source file as stdin
+    #   2. Opens output file as stdout
+    #   3. Execs cc2
+    var pid = sys_fork();
+    if (pid == 0) {
+        # Child: redirect stdin from source, stdout to output
+        var sfd = sys_open(source, O_RDONLY, 0);
+        if (sfd < 0) { sys_exit(1); }
+        sys_dup2(sfd, 0);
+        sys_close(sfd);
+
+        var ofd = sys_open(output, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
+        if (ofd < 0) { sys_exit(1); }
+        sys_dup2(ofd, 1);
+        sys_close(ofd);
+
+        # exec cc2
+        var argv[2];
+        store64(&argv, CC2_PATH);
+        store64(&argv + 8, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(CC2_PATH, &argv, &envp);
+        sys_exit(127);
+    }
+    # Parent: wait for compile
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) {
+        if (WEXITSTATUS(status) == 0) {
+            # Make output executable
+            sys_chmod(output, 0x1ED);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+# Compile and run a test. Returns 0=pass, 1=fail.
+fn run_test(source, name) {
+    _total = _total + 1;
+    # Compile
+    var r = compile(source, "/tmp/cyrb_test");
+    if (r != 0) {
+        sys_write(STDERR_FD, "  FAIL: ", 8);
+        sys_write(STDERR_FD, name, strlen(name));
+        sys_write(STDERR_FD, " (compile error)\n", 17);
+        _fail = _fail + 1;
+        return 1;
+    }
+    # Run
+    var exit_code = run_cmd("/tmp/cyrb_test", 0, 0);
+    if (exit_code == 0) {
+        sys_write(STDOUT_FD, "  PASS: ", 8);
+        sys_write(STDOUT_FD, name, strlen(name));
+        sys_write(STDOUT_FD, "\n", 1);
+        _pass = _pass + 1;
+        return 0;
+    }
+    sys_write(STDERR_FD, "  FAIL: ", 8);
+    sys_write(STDERR_FD, name, strlen(name));
+    sys_write(STDERR_FD, " (exit ", 7);
+    fmt_int(exit_code);
+    sys_write(STDERR_FD, ")\n", 2);
+    _fail = _fail + 1;
+    return 1;
+}
+
+# Self-hosting check: cc2 compiles itself, output matches
+fn cmd_self() {
+    println("=== Self-Hosting Check ===");
+    # cc2 compiles cc2.cyr → /tmp/cc3
+    var r1 = compile("stage1/cc2.cyr", "/tmp/cyrb_cc3");
+    if (r1 != 0) {
+        println("FAIL: cc2 cannot compile itself");
+        return 1;
+    }
+    # cc3 compiles cc2.cyr → /tmp/cc4
+    # Need to temporarily swap CC2_PATH
+    var saved = CC2_PATH;
+    CC2_PATH = "/tmp/cyrb_cc3";
+    var r2 = compile("stage1/cc2.cyr", "/tmp/cyrb_cc4");
+    CC2_PATH = saved;
+    if (r2 != 0) {
+        println("FAIL: cc3 cannot compile cc2.cyr");
+        return 1;
+    }
+    # Compare cc3 and cc4
+    var buf1 = alloc(4096);
+    var buf2 = alloc(4096);
+    var fd1 = sys_open("/tmp/cyrb_cc3", O_RDONLY, 0);
+    var fd2 = sys_open("/tmp/cyrb_cc4", O_RDONLY, 0);
+    var match = 1;
+    var cgo = 1;
+    while (cgo == 1) {
+        var n1 = sys_read(fd1, buf1, 4096);
+        var n2 = sys_read(fd2, buf2, 4096);
+        if (n1 != n2) { match = 0; cgo = 0; }
+        if (n1 <= 0) { cgo = 0; }
+        if (cgo == 1) {
+            if (memeq(buf1, buf2, n1) == 0) { match = 0; cgo = 0; }
+        }
+    }
+    sys_close(fd1);
+    sys_close(fd2);
+    if (match == 1) {
+        println("  PASS: cc2==cc3 byte-identical");
+        _pass = _pass + 1;
+    } else {
+        println("  FAIL: cc2!=cc3");
+        _fail = _fail + 1;
+    }
+    _total = _total + 1;
+    return 0;
+}
+
+# Build a single source file
+fn cmd_build(source, output) {
+    sys_write(STDOUT_FD, "compile ", 8);
+    sys_write(STDOUT_FD, source, strlen(source));
+    sys_write(STDOUT_FD, " -> ", 4);
+    sys_write(STDOUT_FD, output, strlen(output));
+    var r = compile(source, output);
+    if (r == 0) {
+        sys_write(STDOUT_FD, " OK\n", 4);
+    } else {
+        sys_write(STDOUT_FD, " FAIL\n", 6);
+    }
+    return r;
+}
+
+# Run library test suites
+fn cmd_tests() {
+    println("=== Library Tests ===");
+    run_test("stage1/programs/agnostik_test.cyr", "agnostik");
+    run_test("stage1/programs/kybernet_test.cyr", "kybernet");
+    return 0;
+}
+
+# Print results summary
+fn print_results() {
+    syscall(1, 1, "\n", 1);
+    fmt_int(_pass);
+    sys_write(STDOUT_FD, " passed, ", 9);
+    fmt_int(_fail);
+    sys_write(STDOUT_FD, " failed (", 9);
+    fmt_int(_total);
+    sys_write(STDOUT_FD, " total)\n", 8);
+    return 0;
+}
+
+fn cmd_all() {
+    println("=== Cyrius Build ===");
+
+    # Self-hosting
+    cmd_self();
+
+    # Library tests
+    cmd_tests();
+
+    # Summary
+    print_results();
+    return _fail;
+}
+
+fn usage() {
+    println("cyrb — Cyrius Builder");
+    println("");
+    println("Usage:");
+    println("  cyrb build <source.cyr> <output>  — compile a program");
+    println("  cyrb test <test.cyr>              — compile + run test");
+    println("  cyrb self                         — self-hosting check");
+    println("  cyrb tests                        — run library test suites");
+    println("  cyrb all                          — full build + test");
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+
+    if (argc() < 2) {
+        usage();
+        return 0;
+    }
+
+    var cmd = argv(1);
+
+    if (streq(cmd, "build") == 1) {
+        if (argc() < 4) {
+            println("Usage: cyrb build <source.cyr> <output>");
+            return 1;
+        }
+        return cmd_build(argv(2), argv(3));
+    }
+
+    if (streq(cmd, "test") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb test <test.cyr>");
+            return 1;
+        }
+        run_test(argv(2), argv(2));
+        print_results();
+        return _fail;
+    }
+
+    if (streq(cmd, "self") == 1) {
+        cmd_self();
+        print_results();
+        return _fail;
+    }
+
+    if (streq(cmd, "tests") == 1) {
+        cmd_tests();
+        print_results();
+        return _fail;
+    }
+
+    if (streq(cmd, "all") == 1) {
+        return cmd_all();
+    }
+
+    println("Unknown command. Run 'cyrb' for usage.");
+    return 1;
+}
+
+var exit_code = main();
+syscall(60, exit_code);

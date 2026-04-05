@@ -236,6 +236,16 @@ fn sys_exit(code) {
     return 0;
 }
 
+# execve: replace process image. argv and envp are null-terminated arrays of pointers.
+fn sys_execve(path, argv, envp) {
+    return syscall(SYS_EXECVE, path, argv, envp);
+}
+
+# pipe: create pipe, fds[0]=read end, fds[1]=write end
+fn sys_pipe(fds) {
+    return syscall(SYS_PIPE, fds);
+}
+
 fn sys_getpid() {
     return syscall(SYS_GETPID);
 }

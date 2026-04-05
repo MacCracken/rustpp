@@ -221,6 +221,21 @@ check "struct_list sum" "15" "$?"
 "$TMPDIR/gcd"
 check "gcd(48,18)" "6" "$?"
 
+# Nous resolver test
+cat "stage1/programs/nous_test.cyr" | "$CC" > "$TMPDIR/nous_test" 2>/dev/null && chmod +x "$TMPDIR/nous_test"
+"$TMPDIR/nous_test" > /dev/null 2>&1
+check "nous resolver" "0" "$?"
+
+# Ark package manager — build + status
+cat "stage1/programs/ark.cyr" | "$CC" > "$TMPDIR/ark" 2>/dev/null && chmod +x "$TMPDIR/ark"
+"$TMPDIR/ark" status > /dev/null 2>&1
+check "ark status" "0" "$?"
+
+# Cyrius builder (cyrb) — build + self-hosting
+cat "stage1/programs/cyrb.cyr" | "$CC" > "$TMPDIR/cyrb" 2>/dev/null && chmod +x "$TMPDIR/cyrb"
+"$TMPDIR/cyrb" self > /dev/null 2>&1
+check "cyrb self-host" "0" "$?"
+
 # Kybernet library integration test
 cat "stage1/programs/kybernet_test.cyr" | "$CC" > "$TMPDIR/kybernet_test" 2>/dev/null && chmod +x "$TMPDIR/kybernet_test"
 "$TMPDIR/kybernet_test" > /dev/null 2>&1

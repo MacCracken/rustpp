@@ -252,13 +252,38 @@ include "stage1/lib/args.cyr"    # CLI args: args_init, argc, argv
 include "stage1/lib/fnptr.cyr"   # Function pointers: fncall0, fncall1, fncall2
 ```
 
+## AGNOS System Libraries
+
+```
+# Shared types (agnostik)
+include "stage1/lib/agnostik/error.cyr"    # Error codes (1001-1010), err_is_retriable, err_print
+include "stage1/lib/agnostik/types.cyr"    # AgentType, AgentStatus, MessageType, SystemStatus enums
+include "stage1/lib/agnostik/security.cyr" # Permission (bitmask), Role, SecurityContext struct
+include "stage1/lib/agnostik/agent.cyr"    # AgentConfig, AgentInfo, AgentStats structs
+include "stage1/lib/agnostik/audit.cyr"    # AuditSeverity, AuditEntry, audit_print
+include "stage1/lib/agnostik/config.cyr"   # AgnosConfig, environment profiles
+
+# Syscall bindings (agnosys)
+include "stage1/lib/agnosys/syscalls.cyr"  # 50 syscall numbers, 20+ wrappers, sigset, epoll, timerfd
+
+# Init system (kybernet)
+include "stage1/lib/kybernet/console.cyr"  # PID 1 stdio redirect
+include "stage1/lib/kybernet/signals.cyr"  # Signal blocking + signalfd
+include "stage1/lib/kybernet/reaper.cyr"   # Zombie process reaper (waitpid loop)
+include "stage1/lib/kybernet/privdrop.cyr" # Privilege dropping (setgroups/setgid/setuid)
+include "stage1/lib/kybernet/mount.cyr"    # Essential filesystem mounts
+include "stage1/lib/kybernet/cgroup.cyr"   # Cgroup v2 service management
+include "stage1/lib/kybernet/eventloop.cyr"# Epoll + timerfd event loop
+```
+
 ## Known Limitations
 
 - No block scoping: `var` in loop bodies allocates new stack slot per iteration. Declare variables outside loops.
-- No `&&`/`||` mixed in same condition. Use separate `if` blocks.
+- No comparison expressions in function args: `f(x == 1)` fails. Use `if (x == 1) { f(1); }`.
 - Exit codes truncated to 0-255 (Linux limitation).
 - Inline asm operates on register state directly — know the calling convention.
 - `for` loop step must be a simple assignment (`i = i + 1`), not a complex expression.
+- Max ~64 global vars with initializers (use enums for constants to avoid overflow).
 
 ## Building
 

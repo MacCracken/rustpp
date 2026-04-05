@@ -2,13 +2,11 @@
 
 > **Status**: Phase 11 — Crate Rewrites (agnostik + agnosys + kybernet) | **Last Updated**: 2026-04-05
 >
-> **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 10ms self-compile),
-> 46 programs, 8 stdlib + 6 agnostik + 1 agnosys + 7 kybernet libraries, 58KB OS kernel,
-> 148 tests (94 compiler + 54 programs), 0 failures.
-> Agnostik rewrite: 6 modules (error, types, security, agent, audit, config).
-> Agnosys rewrite: syscall bindings (50 syscall numbers, 20+ wrappers).
-> Kybernet rewrite: 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop).
-> Enum init ordering bug fixed. Zero external dependencies.
+> **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 11ms self-compile),
+> 52 programs, 23 library modules, 58KB OS kernel, 151 tests (94 compiler + 57 programs).
+> 5 crate rewrites: agnostik (types), agnosys (syscalls), kybernet (init), nous (resolver), ark (pkg mgr).
+> cyrb build tool + ark package manager — both written in Cyrius.
+> Zero external dependencies.
 
 ---
 
@@ -98,9 +96,11 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | 1 | agnostik rewrite | Done | 6 modules (error, types, security, agent, audit, config), 54 tests |
 | 2 | agnosys rewrite | Done | Syscall bindings: 50 constants, 20+ wrappers, sigset, epoll, timerfd |
 | 3 | kybernet rewrite | Done | 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop), 38 tests |
-| 4 | Migrate Ark package manager | Not started | Proves stdlib + I/O + file handling |
-| 5 | Benchmark suite vs C/Rust | Not started | Compile times, binary sizes, runtime perf |
-| 6 | Documentation + tutorials | Not started | Developer onboarding, cyrius-guide.md expansion |
+| 4 | nous rewrite | Done | Resolver: marketplace + system resolution, search, source detection, 26 tests |
+| 5 | Ark package manager rewrite | Done | 44KB binary: install/remove/search/list/info/status/verify/history |
+| 6 | cyrb (Cyrius builder) | Done | Build tool written in Cyrius: compile, test, self-host, suite runner |
+| 7 | Benchmark suite | Done | Binary sizes (10-233x smaller), compile times (11ms), runtime perf |
+| 8 | Documentation | Done | cyrius-guide.md updated with all libraries + limitations |
 
 ---
 
@@ -196,11 +196,14 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | Date | Milestone |
 |------|-----------|
 | **2026-04-04** | ✅ x86_64 kernel complete (VM, processes, syscalls) |
-| **2026-04-05** | aarch64 backend started |
-| **2026-04-07–09** | aarch64 bootstrap (projected) |
-| **2026-04-10–15** | Phase 10 audit + Phase 11 Ark migration |
-| **2026-04-15–25** | Phase 10/11 hardening, documentation, benchmarks |
-| **2026-05-01** | 🔥 **BELTANE RELEASE** — AGNOS sovereign, both architectures, kernel + compiler + userland |
+| **2026-04-05** | ✅ aarch64 backend started |
+| **2026-04-05** | ✅ agnostik + agnosys + kybernet rewrites complete (14 modules, 92 tests) |
+| **2026-04-05** | ✅ Benchmarks + documentation updated |
+| **2026-04-06** | Tag **v0.9.0** — language + kernel + 3 crate rewrites + 148 tests |
+| **2026-04-07–09** | nous + Ark rewrite, aarch64 instruction correctness |
+| **2026-04-10–15** | Phase 10 audit + refactor |
+| **2026-04-15–25** | Phase 12 sovereignty, remaining crate migrations |
+| **2026-05-01** | **BELTANE RELEASE** — AGNOS sovereign, both architectures, kernel + compiler + userland |
 
 ---
 
