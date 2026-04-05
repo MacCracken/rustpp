@@ -4,35 +4,41 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
+## Install
+
+```sh
+curl -sSf https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh | sh
+```
+
+Or build from source:
+
+```sh
+sh bootstrap/bootstrap.sh
+```
+
 ## Quick Start
 
 ```sh
-# Bootstrap (40ms, requires only Linux x86_64 + /bin/sh)
-sh bootstrap/bootstrap.sh
+# Compile and run
+cyrb run hello.cyr
 
-# Build the compiler
-cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+# Create a project
+cyrb init myproject
+cd myproject
+cyrb build src/main.cyr build/myproject
+cyrb test src/test.cyr
 
-# Compile and run a program
-echo 'syscall(1, 1, "Hello from Cyrius!\n", 19); syscall(60, 0);' | ./build/cc2 > hello
-chmod +x hello && ./hello
-
-# Cross-compile for aarch64
-echo 'var x = 42;' | ./build/cc2_aarch64 > prog_arm
-
-# Run tests (168 tests, 0 failures)
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
-sh stage1/programs/test_programs.sh ./build/cc2
+# Full project audit (format, lint, vet, deny, test, bench, doc)
+cyrb audit
 ```
 
 ## Benchmarks
 
 | Metric | Value |
 |--------|-------|
-| Self-compile (93KB compiler) | **11ms** |
+| Self-compile (94KB compiler) | **11ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Binary sizes vs GNU coreutils | **10-233x smaller** |
-| Total toolchain | **162KB** |
 | External dependencies | **0** |
 
 See [full benchmarks](docs/benchmarks.md).
@@ -40,79 +46,76 @@ See [full benchmarks](docs/benchmarks.md).
 ## Documentation
 
 - [Getting Started](docs/tutorial.md) — install, hello world, first project
-- [Language Guide](docs/cyrius-guide.md) — complete reference
+- [Language Guide](docs/cyrius-guide.md) — complete syntax reference
 - [Standard Library](docs/stdlib-reference.md) — every function documented
 - [FAQ & Troubleshooting](docs/faq.md) — common questions and fixes
-- [Benchmarks](docs/benchmarks.md) — binary sizes, compile times, runtime performance
+- [Benchmarks](docs/benchmarks.md) — sizes, compile times, runtime
 
 ## Language
 
 Everything is a 64-bit integer. No floats, no GC. Direct syscalls.
 
 ```
-fn fizzbuzz(n) {
-    for (var i = 1; i <= n; i = i + 1) {
-        if (i % 15 == 0) { println("FizzBuzz"); }
-        elif (i % 3 == 0) { println("Fizz"); }
-        elif (i % 5 == 0) { println("Buzz"); }
-        else { print_num(i); println(""); }
+include "lib/string.cyr"
+include "lib/tagged.cyr"
+
+fn divide(a, b) {
+    if (b == 0) { return Err(1); }
+    return Ok(a / b);
+}
+
+fn main() {
+    alloc_init();
+    var r = divide(42, 2);
+    if (is_ok(r) == 1) {
+        print_num(result_unwrap(r));
+        println("");
     }
     return 0;
 }
 ```
 
-**Features**: variables, arrays, structs, enums, functions, if/elif/else, while, for, break/continue, `&&`/`||`, pointers, typed pointers, inline asm, include, switch/match, function pointers, syscalls, comparison expressions in function args.
+**Features**: variables, arrays, structs, enums, generics syntax, tagged unions (Option/Result), traits (vtable dispatch), functions, if/elif/else, while, for, break/continue, `&&`/`||`, pointers, typed pointers, inline asm, switch/match, function pointers, syscalls, comparison expressions.
 
-See [language guide](docs/cyrius-guide.md).
-
-## Ecosystem
-
-| Tool | Size | Description |
-|------|------|-------------|
-| cc2 | 93KB | Self-hosting compiler (x86_64) |
-| cc2_aarch64 | 91KB | Cross-compiler (aarch64) |
-| cyrb | 30KB | Build tool: compile, test, self-host, dual-arch |
-| ark | 44KB | Package manager: install/remove/search/list/info/verify |
-
-| Library | Modules | Purpose |
-|---------|---------|---------|
-| stdlib | 8 | string, alloc, vec, io, fmt, str, args, fnptr |
-| agnostik | 6 | Shared types: error, security, agent, audit, config |
-| agnosys | 1 | Linux syscall bindings (50 syscalls, 20+ wrappers) |
-| kybernet | 7 | PID 1 init: signals, reaper, mount, cgroup, epoll |
-| nous | 1 | Dependency resolver |
-| assert | 1 | Test framework |
-
-**24 library modules, 150+ functions.**
-
-## Tests
+## Build Tool (cyrb)
 
 ```
-111 compiler tests    — expressions, control flow, structs, enums, functions, edge cases
- 57 program tests     — CLI tools, algorithms, data structures, library suites, kernel ELF
- 29 aarch64 tests     — arithmetic, control flow, functions, structs, enums, strings, syscalls
----
-168 x86_64 tests, 0 failures
- 29 aarch64 tests, 0 failures
+Build:     build, run, test, bench, check, self, clean
+Project:   init, package, publish, install, update
+Quality:   audit, fmt, lint, doc, vet, deny
+Info:      version, which, help
 ```
 
-## Structure
+## Standard Library (35 modules)
+
+| Category | Modules |
+|----------|---------|
+| Core | string, fmt, alloc, io, vec, str, args, fnptr |
+| Types | tagged (Option/Result/Either), hashmap, trait, assert, bounds |
+| System | agnosys (50 syscalls), callback, process, bench |
+| Ecosystem | agnostik (6), kybernet (7), nous, json, fs, net, regex |
+
+## Tools
+
+| Tool | What |
+|------|------|
+| cc2 / cc2_aarch64 | Compiler (x86_64 + aarch64 cross) |
+| cyrb | Build tool (18 commands — like cargo) |
+| cyrfmt | Code formatter |
+| cyrlint | Linter (style, warnings) |
+| cyrdoc | Documentation generator + coverage check |
+| cyrc | Dependency audit + policy enforcement |
+| ark | Package manager |
+
+## Quality Gate
+
+`cyrb audit` runs 10 checks in one command:
 
 ```
-bootstrap/           29KB seed binary + bootstrap.sh
-stage1/
-  cc2.cyr            Compiler entry point
-  cc/                Compiler modules (util, emit, jump, lex, parse, fixup)
-  arch/aarch64/      aarch64 backend (emit, jump, fixup)
-  lib/               Standard library (8 modules)
-  lib/agnostik/      Shared AGNOS types (6 modules)
-  lib/agnosys/       Syscall bindings (1 module)
-  lib/kybernet/      PID 1 init system (7 modules)
-  lib/nous/          Dependency resolver (1 module)
-  programs/          52 programs (CLI tools, algorithms, tests, tools)
-build/               Generated binaries
-kernel/              AGNOS kernel (source of truth at github.com/MacCracken/agnos)
-docs/                Architecture, roadmap, benchmarks, language guide
+✓ Self-hosting      ✓ Compiler tests (111)   ✓ Program tests (57)
+✓ Format            ✓ Lint                    ✓ Vet
+✓ Deny              ✓ Benchmarks             ✓ Doc coverage
+✓ Documentation
 ```
 
 ## Part of AGNOS

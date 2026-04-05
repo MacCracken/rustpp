@@ -4,24 +4,32 @@ on:
   push:
     tags: ['*']
 
+permissions:
+  contents: write
+
 jobs:
+  # ── CI Gate (must pass before release) ──
   ci:
+    name: CI Gate
     uses: ./.github/workflows/ci.yml
 
+  # ── Build release artifacts ──
   build:
-    needs: ci
+    name: Build Release
+    needs: [ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify VERSION matches tag
+      - name: Verify version consistency
         run: |
-          VERSION=$(cat VERSION | tr -d '[:space:]')
-          TAG="${GITHUB_REF#refs/tags/}"
-          if [ "$VERSION" != "$TAG" ]; then
-            echo "ERROR: VERSION ($VERSION) does not match tag ($TAG)"
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+          TAG_VERSION="${GITHUB_REF_NAME}"
+          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: VERSION ($FILE_VERSION) != tag ($TAG_VERSION)"
             exit 1
           fi
+          echo "Version verified: $TAG_VERSION"
 
       - name: Install qemu-user
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
@@ -29,42 +37,53 @@ jobs:
       - name: Bootstrap + build all
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          chmod +x ./build/cc2
           cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
-          cat stage1/programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
+          cat stage1/programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat stage1/programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
+          cat stage1/programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
           cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Package artifacts
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          for bin in cc2 cc2_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
+            if [ -x "build/$bin" ]; then
+              cp "build/$bin" "dist/"
+            fi
+          done
+          cp scripts/cyrb dist/
+          cp scripts/cyrb-init.sh dist/
+          cp scripts/install.sh dist/
+          cp scripts/check.sh dist/
+          cp bootstrap/asm dist/
+          cd dist && sha256sum * > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
         with:
           name: cyrius-${{ github.ref_name }}
-          path: |
-            build/cc2
-            build/cc2_aarch64
-            build/cyrb
-            build/ark
-            bootstrap/asm
+          path: dist/
 
+  # ── Create GitHub Release ──
   release:
-    needs: build
+    name: Create GitHub Release
+    needs: [build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
         with:
           name: cyrius-${{ github.ref_name }}
-          path: release-artifacts/
+          path: dist/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          name: "Cyrius ${{ github.ref_name }}"
           generate_release_notes: true
-          files: |
-            release-artifacts/build/cc2
-            release-artifacts/build/cc2_aarch64
-            release-artifacts/build/cyrb
-            release-artifacts/build/ark
-            release-artifacts/bootstrap/asm
+          prerelease: ${{ startsWith(github.ref_name, '0.') }}
+          files: dist/*

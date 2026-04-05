@@ -6,20 +6,73 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-- Dual-arch cyrb: `cyrb build --aarch64`, `cyrb test --aarch64`
-- aarch64 codegen: refactored 14 arch-specific functions from parse.cyr to emit files
-- aarch64 passes 29 feature tests (arithmetic, control flow, functions, structs, enums, strings, syscalls)
-- AGNOS repo separation with dual-arch build/test scripts and CI
-- VERSION file, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, CI/CD workflows
+### Added — Language
+- Generics syntax: `fn foo<T>()`, `struct Bar<T>` (parsed, not enforced)
+- Tagged unions: `tagged.cyr` with Option (Some/None), Result (Ok/Err), Either
+- Traits: `trait.cyr` with vtable-based dispatch (Display, Eq, From, Default)
+- HashMap: `hashmap.cyr` with FNV-1a hash, open addressing, auto-grow
+- Callback library: `callback.cyr` with vec_map, vec_filter, vec_fold, fork_with_pre_exec
+- String enhancements: contains, starts_with, split, join, trim, builder, from_int/to_int
+- String formatting: `fmt_sprintf` with %d, %x, %s, %%
+- Bounds checking: `bounds.cyr` with checked_load/store
+- Benchmark library: `bench.cyr` with nanosecond timing
+- JSON parser: `json.cyr` with parse, get, build
+- Process library: `process.cyr` with run, spawn, capture
+- Filesystem: `fs.cyr` with path ops, dir listing, tree walk
+- Network sockets: `net.cyr` with TCP/UDP via syscalls
+- Pattern matching: `regex.cyr` with glob match, find/replace
 
-### Fixed
-- aarch64 initial branch (x86 JMP → aarch64 B instruction)
-- aarch64 RECFIX ordering (record before MOVZ, not after)
-- aarch64 pop encoding (pre-indexed → post-indexed)
-- aarch64 modulo (SDIV + MSUB with correct register encoding)
-- aarch64 struct field access (refactored to EVADDR_X1 + EADDIMM_X1)
-- aarch64 function ABI (STP/LDP frame, STUR/LDUR locals, BL calls)
+### Added — Tooling
+- cyrb shell dispatcher (18 commands — build, run, test, bench, check, self, clean, init, package, publish, install, update, audit, fmt, lint, doc, vet, deny)
+- cyrfmt (18KB) — code formatter
+- cyrlint (26KB) — linter (trailing whitespace, tabs, line length, braces)
+- cyrdoc (29KB) — documentation generator + `--check` coverage mode
+- `cyrb audit` — 10-check full project validation (self-host, tests, format, lint, vet, deny, bench, doc coverage, documentation)
+- `cyrb run` — compile + run without output file
+- `cyrb clean` — remove build artifacts (preserves bootstrap)
+- `cyrb update` — update vendored stdlib
+- `cyrb check` — syntax check without output
+- `cyrb-init.sh` — project scaffolding with vendored stdlib
+- `install.sh` — curl-pipe installer with version manager
+- `cyrius` version manager (version, list, use, install, which)
+- `.ark` package format (manifest.json + binary tarball)
+- `cyrb.toml` project manifest
+- zugot recipes: cyrius.toml, kybernet.toml, agnos-kernel.toml
+
+### Added — aarch64
+- 29 feature tests passing (arithmetic, control flow, functions, structs, enums, strings, syscalls)
+- Refactored 14 arch-specific functions from parse.cyr to emit files
+- Dual-arch cyrb: `cyrb build --aarch64`, `cyrb test --aarch64`
+
+### Added — Ecosystem
+- Kybernet rewritten in Cyrius (727 lines, was 1649 Rust) with Result/Option/Str throughout
+- Kybernet repo restructured: Cyrius primary, Rust in rust-old/
+- AGNOS repo with dual-arch build/test scripts and CI
+- All stdlib functions documented (cyrdoc --check passes)
+- 14 vidya reference files (runnable, tested)
+
+### Added — Infrastructure
+- VERSION, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, LICENSE
+- CI/CD workflows for cyrius, agnos, kybernet
+- docs: tutorial, stdlib-reference, FAQ, package-format
+
+### Fixed — Compiler
+- Fixup table expanded 512 → 1024 entries (relocated fixup_cnt/last_var)
+- Generics skip in pass 1 fn-skip and pass 2 struct-skip
+
+### Fixed — aarch64
+- Initial branch (x86 JMP → aarch64 B)
+- RECFIX ordering (before MOVZ, not after)
+- Pop encoding (pre-indexed → post-indexed)
+- Modulo (SDIV + MSUB with correct Rn register)
+- Struct field access (EVADDR_X1 + EADDIMM_X1)
+- Function ABI (STP/LDP frame, STUR/LDUR locals, BL calls)
+
+### Metrics
+- 35 library modules, 150+ documented functions
+- 168 x86_64 tests + 29 aarch64 tests, 0 failures
+- 8 tool binaries + shell dispatcher
+- `cyrb audit` → 10/10 green
 
 ## [0.9.0] — 2026-04-05
 
