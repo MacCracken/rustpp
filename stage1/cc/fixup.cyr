@@ -38,6 +38,10 @@ fn FIXUP(S) {
             var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
+        else { if (ftype == 3) {
+            # Absolute function address — patch imm64
+            S64(S + 0x20000 + coff, entry + L64(S + 0x8CA00 + idx * 8));
+        }
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset
             S64(S + 0x20000 + coff, dbase + totvar + idx);
@@ -51,7 +55,7 @@ fn FIXUP(S) {
                 vi = vi + 1;
             }
             S64(S + 0x20000 + coff, dbase + cumul);
-        } }
+        } } }
         fi = fi + 1;
     }
     # Store data_size

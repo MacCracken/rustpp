@@ -193,6 +193,10 @@ run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x =
 run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
 echo ""
 
+echo "-- Function Pointers (cc-only) --"
+run_test_cc "fnptr_addr"  'fn f() { return 42; } var fp = &f; syscall(60, 1);' 1
+run_test_cc "fnptr_call"  'fn add(a,b) { return a + b; } fn call2(fp,a,b) { var r = 0; asm { 0x48; 0x8B; 0x75; 0xE8; 0x48; 0x8B; 0x7D; 0xF0; 0x48; 0x8B; 0x45; 0xF8; 0xFF; 0xD0; 0x48; 0x89; 0x45; 0xE0; } return r; } syscall(60, call2(&add, 20, 22));' 42
+echo ""
 echo "-- Switch (cc-only) --"
 run_test_cc "switch_fn"   'fn f(n) { switch (n) { case 1: return 10; case 2: return 20; default: return 99; } return 0; } syscall(60, f(2));' 20
 run_test_cc "switch_def"  'fn f(n) { switch (n) { case 1: return 10; default: return 42; } return 0; } syscall(60, f(5));' 42
@@ -221,6 +225,23 @@ echo "-- Type Annotations (cc-only) --"
 run_test_cc "typed_var"  'var x: i64 = 42;' 42
 run_test_cc "typed_fn"   'fn add(a: i64, b: i64) { return a + b; } var x = add(20, 22);' 42
 run_test_cc "typed_mixed" 'var x: i64 = 10; var y = 32; var r = x + y;' 42
+echo ""
+
+echo "-- Global Initializers (cc-only) --"
+run_test_cc "gvar_before_fn" 'fn f() { return g; } var g = 42; syscall(60, f());' 42
+run_test_cc "gvar_mixed"     'var a = 10; fn f() { return a + b; } var b = 32; syscall(60, f());' 42
+echo ""
+
+echo "-- Nested Structs Extra (cc-only) --"
+run_test_cc "nested_init"   'struct V { x; y; } struct R { a: V; b: V; } var r = R { 1, 2, 3, 4 }; syscall(60, r.b.x);' 3
+echo ""
+
+echo "-- Typed Pointer Scaling (cc-only) --"
+run_test_cc "ptr_scale_i64" 'var buf[64]; store64(&buf, 10); store64(&buf + 8, 20); store64(&buf + 16, 30); var p: *i64 = &buf; syscall(60, *(p + 2));' 30
+echo ""
+
+echo "-- String Null Term (cc-only) --"
+run_test_cc "str_null"      'fn sl(s) { var n: i64 = 0; while (load8(s + n) != 0) { n = n + 1; } return n; } var a = sl("abc"); var b = sl("xyz"); syscall(60, a * 10 + b);' 33
 echo ""
 
 echo "-- Error Messages (cc-only) --"

@@ -213,15 +213,27 @@ fn PARSE_FACTOR(S) {
         return 0;
     }
     if (typ == 27) {
-        # &var — address of variable
+        # &var or &fn — address of variable or function
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 2) { ERR(S); }
         var anoff = PEEKV(S);
         STI(S, GTI(S) + 1);
+        # Check if it's a function name first
+        var fni = FINDFN(S, anoff);
+        if (fni >= 0) {
+            # Emit absolute function address via fixup type 3
+            E2(S, 0xB848);
+            var fc = GFCNT(S);
+            var faddr = S + 0x8A000 + fc * 16;
+            S64(faddr, GCP(S));
+            S64(faddr + 8, (3 << 56) | fni);
+            SFCNT(S, fc + 1);
+            E8(S, 0);
+            return 0;
+        }
         if (GINFN(S) == 1) {
             var ali = FINDLOCAL(S, anoff);
             if (ali >= 0) {
-                # lea rax, [rbp - offset]
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
                 var aaddr = S + 0x20000 + GCP(S);
