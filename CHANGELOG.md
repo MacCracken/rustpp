@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
 - All 15 programs fully working (rev fixed, 5 new: seq, tr, uniq, sum, grep — all worked first try)
 - Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
-- 124 total tests (80 cc + 11 asm + 33 programs), 27 programs total
+- 135 total tests (80 cc + 11 asm + 44 programs), 35 programs total
 - Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
 - Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
 - S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)

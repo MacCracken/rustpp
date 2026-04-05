@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 5 — Proving the language. 27 programs, 124 tests, &&/||, wc beats GNU.
+- **Status**: Phase 5 — Proving the language. 35 programs, 135 tests, &&/||, wc beats GNU.
 
 ## Goal
 
@@ -91,7 +91,7 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 2. Codegen bug investigated — not a bug ✓
 3. Logical &&/||, for loops, typed pointers, nested structs, global initializers ��
 4. Bootstrap repair, codebuf/input buffer expansion ✓
-5. 27 programs (19 CLI + 8 proof), 124 tests ✓
+5. 35 programs (19 CLI + 8 proof), 135 tests ✓
 6. Migrate Ark to Cyrius — first real-world project
 
 ### Phase 6: Kernel Prerequisites (In Progress)
