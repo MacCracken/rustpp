@@ -28,5 +28,8 @@ Thumbs.db
 .env
 .env.*
 
+# ── Core dumps ──
+*.core
+
 # ── Rust backup files ──
 **/*.rs.bk
