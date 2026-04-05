@@ -12,15 +12,13 @@
 # Every heap offset used by the compiler. Check here FIRST
 # before allocating new state. Collisions cause silent corruption.
 #
-# --- Buffers ---
-#   0x00000  input_buf     [131072]      Input source text (expanded)       Input source text
-#   0x10000  (free)        [131072]      Was tok_types (moved to 0xA2000)
-#   0x30000  (free)        [131072]      Was tok_values (moved to 0xE2000)
+# --- Buffers (address order) ---
+#   0x00000  input_buf     [131072]      Input source text (expanded from 65536)
+#   0x20000  codebuf       [196608]      Generated machine code (relocated from 0x59000)
 #   0x50000  tok_names     [32768]       Packed identifier strings
 #   0x58000  var_noffs     [2048]        256 variable name offsets
 #   0x58800  var_sizes     [2048]        256 variable sizes
-#   0x20000  codebuf       [196608]      Generated machine code
-#   0x69000  str_data      [4096]        String literal bytes
+#   0x69000  str_data      [4096]        String literal bytes (null-terminated)
 #   0x69800  str_pos       [8]           Current string position
 #   0x69808  data_size     [8]           Total variable data bytes
 #   0x6A000  output_buf    [131072]      ELF output buffer
@@ -45,12 +43,9 @@
 #   0x8DA00  fn_count      [8]
 #   0x8DA08  in_function   [8]
 #   0x8DA10  fn_local_cnt  [8]
-#   0x8DA18  (unused)      [8]           Was saved_vcnt, removed
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC20  ret_patch_cnt [8]
-#   0x8DC28  main_jmp_patch[8]
 #   0x8DC30  fn_local_names[512]         64 local variable name offsets
-#   0x8DE30  (end of fn_local_names)
 #
 # --- Struct state ---
 #   0x8DE30  var_types     [2048]        256 variable struct type IDs

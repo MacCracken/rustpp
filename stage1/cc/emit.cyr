@@ -34,13 +34,6 @@ fn EMOVI(S, v) {
     return 0;
 }
 
-# emit "mov rcx, imm64" — 48 B9 <imm64>
-fn EMOVC(S, v) {
-    E2(S, 0xB948);
-    E8(S, v);
-    return 0;
-}
-
 # emit 3-byte instruction from packed value
 fn E3(S, v) {
     EB(S, v & 0xFF);

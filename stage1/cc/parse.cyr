@@ -1552,7 +1552,6 @@ fn PARSE_STMT(S) {
     if (typ == 16) { PARSE_WHILE(S); return 0; }
     if (typ == 55) { PARSE_FOR(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
-    # break/continue — placeholder (error if used, proves tokens work)
     # break; — forward jump to after loop (single break per loop)
     if (typ == 51) {
         STI(S, GTI(S) + 1);

@@ -47,9 +47,6 @@ fn GFLC(S) { return L64(S + 0x8DA10); }
 fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
 fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
-fn GMJP(S) { return L64(S + 0x8DC28); }
-fn SMJP(S, v) { S64(S + 0x8DC28, v); return 0; }
-
 # Extra condition patches (for && chaining)
 fn GXPC(S) { return L64(S + 0x8F888); }
 fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }
