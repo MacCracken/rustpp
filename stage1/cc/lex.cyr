@@ -240,6 +240,8 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x323364616F6C) { ADDTOK(S, 43, 0); return p; }
         # "load64" = 0x343664616F6C
         if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
+        # "kernel" = 0x6C656E72656B
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
     }
     if (klen == 7) {
         # "syscall" = 0x006C6C6163737973

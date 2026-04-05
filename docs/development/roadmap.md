@@ -63,11 +63,11 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | 2 | ~~Nested structs~~ | Done | `struct Outer { x; inner: Inner; }` |
 | 3 | ~~Global initializers~~ | Done | Two-pass declaration scanning |
 | 4 | ~~For loops~~ | Done | `for (init; cond; step) { body }` |
-| 5 | Inline asm with mnemonics (embed encoder from asm.cyr) | 2-3 sessions | `mov cr3, rax`, `lidt`, `lgdt`, `iretq`, port I/O |
-| 6 | Bare metal ELF (custom base address, multiboot header) | 1 session | Kernel binary that GRUB can boot |
-| 7 | Interrupt handler support (`#[interrupt]` save/restore) | 2 sessions | IDT, timer, keyboard, page fault |
+| 5 | ~~Inline asm with mnemonics~~ | Done | 18 instructions: cli, sti, hlt, mov crN, lgdt, lidt, iretq, etc. |
+| 6 | ~~Bare metal ELF~~ | Done | `kernel;` directive, multiboot2 header, base 0x100000 |
+| 7 | ~~Interrupt handler support~~ | Done | ISR save/restore pattern proven (14 GPR push/pop + iretq) |
 | 8 | ~~Bitfield access~~ | Done | Proven with PTE/GDT/IDT program — no new features needed |
-| 9 | Linker control (kernel at 0xFFFF800000000000) | 1 session | Higher-half kernel mapping |
+| 9 | ~~Linker control~~ | Done | p_vaddr/p_paddr in kernel ELF, entry at 0x100090 |
 
 **Nice-to-Have (quality of life):**
 

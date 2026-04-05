@@ -169,6 +169,25 @@ check "points dist²" "25" "$?"
 "$TMPDIR/memset"
 check "memset 100" "100" "$?"
 
+# Kernel ELF test
+build kernel_hello
+# Can't execute kernel binary — verify ELF structure
+python3 -c "
+import struct,sys
+with open('$TMPDIR/kernel_hello','rb') as f: d=f.read()
+ok = struct.unpack_from('<I',d,120)[0] == 0xe85250d6 and struct.unpack_from('<Q',d,0x18)[0] == 0x100090
+sys.exit(0 if ok else 1)
+" 2>/dev/null
+check "kernel_hello ELF" "0" "$?"
+
+build isr_stub
+python3 -c "
+import sys
+with open('$TMPDIR/isr_stub','rb') as f: d=f.read()
+sys.exit(0 if len(d) > 200 and 0xfa in d[144:] else 1)
+" 2>/dev/null
+check "isr_stub kernel" "0" "$?"
+
 # Crypto + algorithm programs
 for p in xor collatz brainfuck; do build $p; done
 
