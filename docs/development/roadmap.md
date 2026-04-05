@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.0 — feature-complete for ecosystem testing
+> **Current**: v0.9.0 — ecosystem testing baseline
 >
-> 35 libraries, 55 programs, 8 tools, 18 cyrb commands.
-> 168 x86_64 + 29 aarch64 tests, 0 failures. `cyrb audit` → 10/10 green.
-> 5 crate rewrites. 14 runnable vidya reference files.
+> 35 libraries, 55 programs, 8 tools, 18 cyrb commands, 38 benchmarks.
+> 157 x86_64 + 29 aarch64 tests, 0 failures. `cyrb audit` → 10/10 green.
+> 5 crate rewrites. 14 runnable vidya reference files. Self-compile: 9ms.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -81,36 +81,35 @@ in dependency order:
 |---|---------|----------|---------|
 | 17 | `cyrb.toml` native parser | High | cyrb reads manifest without shell grep |
 | 18 | `cyrb publish` / `cyrb install` connected | High | Ark registry backend |
-| 19 | Benchmark history tracking | High | bench-history.sh + CSV + BENCHMARKS.md (match bhava/hisab) |
-| 20 | Version bump script | High | scripts/version-bump.sh (update VERSION + cyrb.toml) |
-| 21 | Architecture decision records | Medium | docs/adr/ — numbered design decisions |
-| 22 | Threat model | Medium | docs/development/threat-model.md |
-| 23 | `cyrb docs` | Medium | Local HTTP server for project documentation |
-| 24 | `cyrb watch` | Medium | Auto-rebuild on file changes (inotify) |
-| 25 | `cyrb coverage` | Medium | Code coverage reports |
-| 26 | `cyrb security` | Medium | Deep pattern scan (unvalidated pointers, raw execve) |
-| 27 | Doc-test runner | Medium | Runnable examples in doc comments |
-| 28 | `cyrb repl` | Low | Interactive expression evaluator |
+| 19 | Version bump script | High | scripts/version-bump.sh (update VERSION + cyrb.toml) |
+| 20 | Architecture decision records | Medium | docs/adr/ — numbered design decisions |
+| 21 | Threat model | Medium | docs/development/threat-model.md |
+| 22 | `cyrb docs` | Medium | Local HTTP server for project documentation |
+| 23 | `cyrb watch` | Medium | Auto-rebuild on file changes (inotify) |
+| 24 | `cyrb coverage` | Medium | Code coverage reports |
+| 25 | `cyrb security` | Medium | Deep pattern scan (unvalidated pointers, raw execve) |
+| 26 | Doc-test runner | Medium | Runnable examples in doc comments |
+| 27 | `cyrb repl` | Low | Interactive expression evaluator |
 
 ### aarch64
 
 | # | Feature | Priority |
 |---|---------|----------|
-| 29 | aarch64 self-hosting | High — cc2_aarch64 compiles itself on ARM |
-| 30 | aarch64 kernel port | High — AGNOS on ARM |
-| 31 | Cross-compilation verified | Medium — x86 host → aarch64 binaries |
+| 28 | aarch64 self-hosting | High — cc2_aarch64 compiles itself on ARM |
+| 29 | aarch64 kernel port | High — AGNOS on ARM |
+| 30 | Cross-compilation verified | Medium — x86 host → aarch64 binaries |
 
 ### Language Maturity (Tier 3)
 
 | # | Feature | Effort | Unlocks |
 |---|---------|--------|---------|
-| 32 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
-| 33 | Operator overloading | 2 sessions | `+`, `-`, `*`, `/` on custom types |
-| 34 | Const generics | 3 sessions | Fixed-size arrays, matrix dimensions |
-| 35 | Derive macros | 3 sessions | Auto-generate Serialize, Display, Eq |
-| 36 | Concurrency primitives | 3 sessions | Threads, atomics, channels |
-| 37 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
-| 38 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
+| 31 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
+| 32 | Operator overloading | 2 sessions | `+`, `-`, `*`, `/` on custom types |
+| 33 | Const generics | 3 sessions | Fixed-size arrays, matrix dimensions |
+| 34 | Derive macros | 3 sessions | Auto-generate Serialize, Display, Eq |
+| 35 | Concurrency primitives | 3 sessions | Threads, atomics, channels |
+| 36 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
+| 37 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
 
 ---
 

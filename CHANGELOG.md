@@ -6,7 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-04-05
+
 ### Added — Language
+- Comparison expressions in function arguments (`f(x == 1)` produces 0/1 via `setCC`)
+- `PARSE_CMP_EXPR` + `ESETCC` codegen — comparisons as value-producing expressions
 - Generics syntax: `fn foo<T>()`, `struct Bar<T>` (parsed, not enforced)
 - Tagged unions: `tagged.cyr` with Option (Some/None), Result (Ok/Err), Either
 - Traits: `trait.cyr` with vtable-based dispatch (Display, Eq, From, Default)
@@ -15,23 +19,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - String enhancements: contains, starts_with, split, join, trim, builder, from_int/to_int
 - String formatting: `fmt_sprintf` with %d, %x, %s, %%
 - Bounds checking: `bounds.cyr` with checked_load/store
-- Benchmark library: `bench.cyr` with nanosecond timing
 - JSON parser: `json.cyr` with parse, get, build
 - Process library: `process.cyr` with run, spawn, capture
 - Filesystem: `fs.cyr` with path ops, dir listing, tree walk
 - Network sockets: `net.cyr` with TCP/UDP via syscalls
 - Pattern matching: `regex.cyr` with glob match, find/replace
+- `assert.cyr` test framework: `assert(cond, name)`, `assert_eq`, `assert_neq`, `assert_gt`, `assert_summary`
+- 17 new compiler tests (8 comparison-in-args + 9 Phase 10 edge cases)
 
 ### Added — Tooling
 - cyrb shell dispatcher (18 commands — build, run, test, bench, check, self, clean, init, package, publish, install, update, audit, fmt, lint, doc, vet, deny)
 - cyrfmt (18KB) — code formatter
 - cyrlint (26KB) — linter (trailing whitespace, tabs, line length, braces)
 - cyrdoc (29KB) — documentation generator + `--check` coverage mode
-- `cyrb audit` — 10-check full project validation (self-host, tests, format, lint, vet, deny, bench, doc coverage, documentation)
-- `cyrb run` — compile + run without output file
-- `cyrb clean` — remove build artifacts (preserves bootstrap)
-- `cyrb update` — update vendored stdlib
-- `cyrb check` — syntax check without output
+- cyrc (22KB) — dependency audit + policy enforcement (vet/deny)
+- `cyrb audit` — 10-check full project validation
 - `cyrb-init.sh` — project scaffolding with vendored stdlib
 - `install.sh` — curl-pipe installer with version manager
 - `cyrius` version manager (version, list, use, install, which)
@@ -39,26 +41,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `cyrb.toml` project manifest
 - zugot recipes: cyrius.toml, kybernet.toml, agnos-kernel.toml
 
+### Added — Benchmarks
+- 3-tier benchmark suite: stdlib (17), data structures (12), compiler/toolchain (9)
+- `bench.cyr` framework with nanosecond timing (clock_gettime MONOTONIC_RAW)
+- `scripts/bench-history.sh` — automated CSV recording + BENCHMARKS.md trend generation
+- `bench-history.csv` — persistent regression tracking (matches bhava/hisab pattern)
+- `cyrb bench` — run full suite, tier, or single file
+- CI benchmark job with artifact upload
+
 ### Added — aarch64
 - 29 feature tests passing (arithmetic, control flow, functions, structs, enums, strings, syscalls)
 - Refactored 14 arch-specific functions from parse.cyr to emit files
 - Dual-arch cyrb: `cyrb build --aarch64`, `cyrb test --aarch64`
 
 ### Added — Ecosystem
-- Kybernet rewritten in Cyrius (727 lines, was 1649 Rust) with Result/Option/Str throughout
-- Kybernet repo restructured: Cyrius primary, Rust in rust-old/
+- **agnostik** — shared types: 6 modules (error, types, security, agent, audit, config), 54 tests
+- **agnosys** — syscall bindings: 50 syscall numbers, 20+ wrappers
+- **kybernet** — PID 1 init: 7 modules, 38 tests. Rewritten from 1649 lines Rust to 727 lines Cyrius
+- **nous** — dependency resolver: marketplace + system resolution, 26 tests
+- **ark** — package manager CLI (44KB): install/remove/search/list/info/status/verify/history
 - AGNOS repo with dual-arch build/test scripts and CI
 - All stdlib functions documented (cyrdoc --check passes)
 - 14 vidya reference files (runnable, tested)
 
 ### Added — Infrastructure
+- Repo restructured: stage1/ → src/, lib/, programs/, tests/
 - VERSION, CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, LICENSE
-- CI/CD workflows for cyrius, agnos, kybernet
-- docs: tutorial, stdlib-reference, FAQ, package-format
+- CI/CD: 8 parallel jobs (build, check, supply-chain, security, test, test-agnos, aarch64, doc)
+- Release workflow: CI gate → version verify → bootstrap cc2 → tools → SHA256SUMS → GitHub Release
+- docs: tutorial, stdlib-reference, FAQ, benchmarks, package-format, roadmap
 
 ### Fixed — Compiler
+- **Enum init ordering**: enum values were 0 inside functions — swapped init order
+- **Comparison in fn args**: was "error at token N (type=17)" — added PARSE_CMP_EXPR
 - Fixup table expanded 512 → 1024 entries (relocated fixup_cnt/last_var)
 - Generics skip in pass 1 fn-skip and pass 2 struct-skip
+- Token array bounds check (error at 32768 tokens)
 
 ### Fixed — aarch64
 - Initial branch (x86 JMP → aarch64 B)
@@ -68,47 +86,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Struct field access (EVADDR_X1 + EADDIMM_X1)
 - Function ABI (STP/LDP frame, STUR/LDUR locals, BL calls)
 
+### Fixed — Kernel (Phase 10 Audit — 23 issues resolved)
+- pmm_bitmap bounds check, proc_table overflow guard
+- ISR full register save (9 regs), syscall write clamping
+
 ### Metrics
 - 35 library modules, 150+ documented functions
-- 168 x86_64 tests + 29 aarch64 tests, 0 failures
+- 157 x86_64 tests (111 compiler + 46 programs) + 29 aarch64 tests, 0 failures
+- 38 benchmarks across 3 tiers, self-compile: 9ms
 - 8 tool binaries + shell dispatcher
 - `cyrb audit` → 10/10 green
-
-## [0.9.0] — 2026-04-05
-
-### Added — Language
-- Comparison expressions in function arguments (`f(x == 1)` produces 0/1 via `setCC`)
-- `PARSE_CMP_EXPR` + `ESETCC` codegen — comparisons as value-producing expressions
-- `assert.cyr` test framework: `assert(cond, name)`, `assert_eq`, `assert_neq`, `assert_gt`, `assert_summary`
-- 17 new compiler tests (8 comparison-in-args + 9 Phase 10 edge cases)
-
-### Added — Ecosystem (Phase 11)
-- **agnostik** — shared types: 6 modules (error, types, security, agent, audit, config), 54 tests
-- **agnosys** — syscall bindings: 50 syscall numbers, 20+ wrappers (fork, execve, pipe, mount, epoll, timerfd, signalfd, sigset, wait macros)
-- **kybernet** — PID 1 init: 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop), 38 tests
-- **nous** — dependency resolver: marketplace + system resolution, source detection, search, 26 tests
-- **ark** — package manager CLI (44KB): install/remove/search/list/info/status/verify/history
-- **cyrb** — build tool (29KB): compile, test, self-hosting check, suite runner
-
-### Fixed — Compiler
-- **Enum init ordering**: enum values were 0 inside functions — swapped init order in cc2.cyr
-- **Comparison in fn args**: was "error at token N (type=17)" — added PARSE_CMP_EXPR
-
-### Fixed — Kernel (Phase 10 Audit — 23 issues resolved)
-- pmm_bitmap bounds check (`page >= 4096`)
-- proc_table overflow guard (`proc_count >= 16`)
-- proc_get/set_state bounds validation
-- ISR full register save (9 regs: rax, rcx, rdx, rsi, rdi, r8-r11)
-- Syscall write: clamp length to 4096, reject null pointer
-
-### Added — Compiler Hardening
-- Fixup table overflow guard (error at 512 entries)
-- Token array bounds check (error at 32768 tokens)
-
-### Metrics
-- 168 tests (111 compiler + 57 programs), 0 failures
-- 24 library modules, 150+ functions, 103 source files
-- Kernel: 62KB (hardened), Compiler: 93KB, Ark: 44KB, Cyrb: 29KB
+- Compiler: 93KB, Kernel: 62KB, Toolchain: 162KB total
 
 ## [0.8.0] — 2026-04-04
 
