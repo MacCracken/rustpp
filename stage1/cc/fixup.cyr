@@ -12,7 +12,7 @@ fn FIXUP(S) {
     # Kernel: multiboot2 header (24 bytes) is prepended, so entry = base + 120 + 24
     var kmode = L64(S + 0x8FCA0);
     var entry = 0x400078;
-    if (kmode == 1) { entry = 0x100070; }
+    if (kmode == 1) { entry = 0x100060; }
     var dbase = entry + acp;
     # Compute total var bytes
     var vcnt = GVCNT(S);
