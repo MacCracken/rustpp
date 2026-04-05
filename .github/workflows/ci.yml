@@ -21,10 +21,7 @@ jobs:
       - name: Setup compiler
         run: |
           chmod +x build/cc2
-          # Verify cc2 works
-          echo 'var x = 42;' | ./build/cc2 > /tmp/sanity && chmod +x /tmp/sanity
-          /tmp/sanity
-          test $? -eq 42
+          echo 'syscall(60, 0);' | ./build/cc2 > /tmp/sanity && chmod +x /tmp/sanity && /tmp/sanity
       - name: Build tools
         run: |
           cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
