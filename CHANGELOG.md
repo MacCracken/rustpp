@@ -1,133 +1,87 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+All notable changes to Cyrius are documented here.
+This is the **source of truth** for all work done.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-- cc2.cyr — modular compiler split into 7 files using include
-  - cc2.cyr (entry), cc/util, cc/emit, cc/jump, cc/lex, cc/parse, cc/fixup
-  - Self-hosting: cc2==cc3 byte-identical, 61 compiler tests
-- Error messages: `error at token N (type=T)` replaces bare "syntax error"
-- Progressive type annotations: `var x: i64 = 42`, `fn f(a: i64, b: i64)` — parsed, no enforcement
-- 15 real Linux programs: true, false, echo, cat, head, tee, yes, nl, wc, rev, seq, tr, uniq, sum, grep
-  - 168-9864 bytes, 10-233x smaller than GNU equivalents
-  - 22 program tests (functionality + size checks)
+## [0.9.0] — 2026-04-05
 
-- Logical `&&` and `||` — short-circuit evaluation with chaining (a && b && c)
-  - ECONDCMP/ECONDOP/ECONDOPT/ECOND_AND/ECOND_OR/PATCHXP functions
-  - Extra patch mechanism for && false-branch forwarding
-  - 8 new tests (both operators, while support, else paths)
-- Token arrays expanded 16384→32768 (relocated to end of heap, 4 offset changes)
-  - Unblocked by investigating `var x = fn(); return x;` — works correctly, was not a bug
-- For loops: `for (init; cond; step) { body }` with break support, nested loops
-  - Token replay mechanism for step expression
-  - Local-first variable lookup for step inside functions
-  - 5 new compiler tests
-- 4 new programs: hexdump, basename, cols, tail (6 new program tests)
-- Codebuf expanded 65536→196608 (relocated 0x59000→0x20000)
-- Input buffer expanded 65536→131072 (handles growing compiler source)
-- Bootstrap chain repaired: fixed codebuf offset split and orphaned GVAR references
-  - Source now reproduces binary (cc2==cc3 byte-identical)
-  - Bootstrap path: stage1f → cc.cyr → cc2 verified
-  - build/cc2 committed to git (no longer gitignored)
-- Typed pointers: `var p: *i64 = &buf; *(p + 1)` scales by element size
-- Nested structs: `struct Outer { x; inner: Inner; }` with chained dot access
-- Global initializers: two-pass declaration scanning, calc.cyr unblocked
-- String stdlib: stage1/lib/string.cyr (strlen, streq, memcpy, memset, memchr, strchr, print_num)
-- AGNOS kernel (Phase 7 complete):
-  - 32-to-64 boot shim, serial console, GDT, IDT, PIC remap
-  - PIT timer interrupt (100Hz), keyboard interrupt (ring buffer)
-  - Page tables (16MB identity map), physical memory manager (bitmap)
-  - Virtual memory manager (map/unmap/alloc), process table, syscall interface
-  - 606 lines, 32 functions, 58KB kernel binary, boots on QEMU
-- aarch64 backend (Phase 9 started):
-  - stage1/arch/aarch64/ with emit.cyr (53 fns), jump.cyr (4 fns), fixup.cyr (4 fns)
-  - Cross-compiler cc2_aarch64 (84KB, emits aarch64 ELF64)
-  - Codegen factored: shared frontend, per-arch backend via include swap
-- Language foundations (Phase 8 started):
-  - Heap allocator: stage1/lib/alloc.cyr — bump allocator from brk, alloc/reset/used
-  - String type: stage1/lib/str.cyr — Str struct (data+len), str_from/eq/cat/sub/print
-  - Function pointer library: stage1/lib/fnptr.cyr — fncall0/1/2 indirect calls
-  - argc/argv: stage1/lib/args.cyr — reads /proc/self/cmdline
-  - Cyrius language guide: docs/cyrius-guide.md
-  - Vidya: 17 type system patterns, 14 implementation patterns, 13 aarch64 entries
-  - 143 total tests (80 cc + 52 programs + 11 asm)
-- Inline asm mnemonics: 18 kernel instructions (cli, sti, hlt, mov crN, lgdt, lidt, iretq, etc.)
-- Bare metal ELF: `kernel;` directive, multiboot1 header, 32-bit ELF, base 0x100000
-- Bitfield access: PTE/GDT/IDT pack/unpack patterns proven
-- ISR save/restore: 14 GPR push/pop pattern for interrupt handlers
-- Phase 7 started: boot_serial.cyr (240 bytes) boots on QEMU, prints "AGNOS" to serial
-- 23 new programs: hexdump, basename, cols, tail, fib, sieve, points, memset, strtest,
-  toupper, count, rot13, bitfield, life, asmtest, xor, collatz, brainfuck,
-  kernel_hello, isr_stub, boot_serial, calc (unblocked)
+### Added — Language
+- Comparison expressions in function arguments (`f(x == 1)` produces 0/1 via `setCC`)
+- `PARSE_CMP_EXPR` + `ESETCC` codegen — comparisons as value-producing expressions
+- `assert.cyr` test framework: `assert(cond, name)`, `assert_eq`, `assert_neq`, `assert_gt`, `assert_summary`
+- 17 new compiler tests (8 comparison-in-args + 9 Phase 10 edge cases)
 
-### Fixed
-- Global array data layout bug: VCNT was restored after function parsing, erasing globals created inside functions (arrays). String literal addresses overlapped with variable data. Fix: don't restore VCNT — arrays inside functions persist as globals.
-- wc trailing byte: now outputs clean numbers
-- `break` and `continue` — loop control (single break per loop, nested loop support)
-- `elif` keyword — eliminates nested brace chains (recursive implementation, no arrays)
-- Duplicate var detection: `error: duplicate var at token N` — catches the #1 bug class
-- All 15 programs fully working (rev fixed, 5 new: seq, tr, uniq, sum, grep — all worked first try)
-- Buffered I/O: tr 85x faster (766ms→9ms for 1MB), wc now 2.4x faster than GNU
-- 141 total tests (80 cc + 11 asm + 50 programs), 38 programs total
-- Dead code removed: GSVC, SSVC (orphaned by VCNT fix)
-- Phase 4b struct state refactor deferred (accessor functions already provide the abstraction)
-- S64/L64 refactored to use store64/load64 (saved 256 bytes in binary)
+### Added — Ecosystem (Phase 11)
+- **agnostik** — shared types: 6 modules (error, types, security, agent, audit, config), 54 tests
+- **agnosys** — syscall bindings: 50 syscall numbers, 20+ wrappers (fork, execve, pipe, mount, epoll, timerfd, signalfd, sigset, wait macros)
+- **kybernet** — PID 1 init: 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop), 38 tests
+- **nous** — dependency resolver: marketplace + system resolution, source detection, search, 26 tests
+- **ark** — package manager CLI (44KB): install/remove/search/list/info/status/verify/history
+- **cyrb** — build tool (29KB): compile, test, self-hosting check, suite runner
 
-## [1.1.0] - 2026-04-04
+### Fixed — Compiler
+- **Enum init ordering**: enum values were 0 inside functions — swapped init order in cc2.cyr
+- **Comparison in fn args**: was "error at token N (type=17)" — added PARSE_CMP_EXPR
 
-### Added
-- Structs: `struct Point { x; y; }` with initialization, field access (dot), field assignment
-- Multi-width load/store: `load16/32/64`, `store16/32/64` intrinsics
-- Pointer dereference: `*ptr` (read) and `*ptr = val;` (write through pointer)
-- >6 function parameters: args 7+ passed on stack, System V ABI compliant
-- Inline assembly: `asm { 0xNN; ... }` raw byte emission blocks
-- Include directive: `include "file.cyr"` preprocessing with sys_open/read/close
-- Test suite: 51 tests (34 byte-exact compat + 17 cc-only features)
-- vidya: 69 entries compiler_bootstrapping, 22 code_generation, 17 type_systems
+### Fixed — Kernel (Phase 10 Audit — 23 issues resolved)
+- pmm_bitmap bounds check (`page >= 4096`)
+- proc_table overflow guard (`proc_count >= 16`)
+- proc_get/set_state bounds validation
+- ISR full register save (9 regs: rax, rcx, rdx, rsi, rdi, r8-r11)
+- Syscall write: clamp length to 4096, reject null pointer
 
-### Fixed
-- Function table overflow: bumped stage1f from 128→256 fn slots, cc.cyr matched
-- Hex literal underscores: removed (unsupported by stage1f lexer)
-- Self-hosting: cc2==cc3 byte-identical verified with all extensions
+### Added — Compiler Hardening
+- Fixup table overflow guard (error at 512 entries)
+- Token array bounds check (error at 32768 tokens)
 
-### Changed
-- cc.cyr: 1960 lines, 149 functions, 51 tests
-- Phase 6/7 reordered: Prove the Language (build Linux binaries) before Kernel
+### Metrics
+- 168 tests (111 compiler + 57 programs), 0 failures
+- 24 library modules, 150+ functions, 103 source files
+- Kernel: 62KB (hardened), Compiler: 93KB, Ark: 44KB, Cyrb: 29KB
 
-## [1.0.0] - 2026-04-04
+## [0.8.0] — 2026-04-04
 
-### Added
-- cc.cyr — self-hosting compiler (1467 lines, 43504-byte binary)
-  - Compiles itself byte-identical (cc2==cc3)
-  - Full stage1f language: vars, arrays, fn/return/call, if/else, while,
-    arithmetic with precedence, syscall, load8/store8, &var, strings,
-    bitwise ops, shifts, modulo, hex literals, comments
-- Benchmark suite: bootstrap 41ms, self-compile 9ms, asm 1.3M lines/sec
+### Added — Kernel (Phase 7)
+- AGNOS kernel (58KB, 606 lines, 32 functions): multiboot1 boot, 32-to-64 shim, serial I/O, GDT, IDT, PIC, PIT timer (100Hz), keyboard (ring buffer), page tables (16MB), PMM (bitmap), VMM, process table, syscalls (exit/write/getpid)
 
-## [0.3.0] - 2026-04-04
+### Added — Language (Phase 8 Tier 1)
+- Enums (`enum E { A = 0; B = 42; }`), switch/match, function pointers (`&fn_name`)
+- Type enforcement warnings, heap allocator (brk), String type (str.cyr), argc/argv (args.cyr)
+- Standard library: 8 libs, 53 functions (string, alloc, str, vec, io, fmt, args, fnptr)
 
-### Added
-- Self-hosting assembler: asm.cyr (1110 lines, 43 mnemonics, 11 byte-exact matches)
-- Bootstrap binary: bootstrap/asm (29KB) + bootstrap.sh + verify.sh + SHA256
-- stage1e (bitwise ops, 63 tests) + stage1f (token-scaled compiler)
+### Added — Multi-Architecture (Phase 9)
+- aarch64 backend (61 emit functions), cross-compiler builds
+- Codegen factored: shared frontend, per-arch backend
 
-### Removed
-- upstream/ submodule (13GB) — removed
-- Rust seed → archive/seed/ (verification only)
+## [0.7.0] — 2026-04-03
 
-## [0.2.0] - 2026-04-03
+### Added — Language Extensions (Phase 4-6)
+- cc2 modular compiler (7 modules, 182 functions, 92KB)
+- Structs, pointers, >6 params, load/store 16/32/64, include, inline asm (18 mnemonics)
+- elif, break/continue, for loops (token replay), &&/|| (short-circuit)
+- Typed pointers, nested structs, global initializers (two-pass scanning)
+- Bare metal ELF (multiboot1), ISR pattern, bitfields
+- 46 programs, 157 tests, 10-233x smaller than GNU
 
-### Added
-- stage1a through stage1d: expression → control flow → syscalls → functions
-- 120 tests across 4 stages
+## [0.5.0] — 2026-03-28
 
-## [0.1.0] - 2026-04-03
+### Added — Self-Hosting Bootstrap (Phase 3)
+- asm.cyr (1110 lines, 43 mnemonics), bootstrap closure
+- 29KB committed binary root of trust, Rust seed archived
+- Zero external dependencies
 
-### Added
-- cyrius-seed (Rust, 69 mnemonics, 195 tests)
+## [0.3.0] — 2026-03-25
+
+### Added — Assembly Foundation (Phase 2)
+- Seven-stage chain: seed → stage1a → 1b → 1c → 1d → 1e → stage1f
+- stage1f: 16384 tokens, 256 functions, 63 tests
+
+## [0.1.0] — 2026-03-20
+
+### Added — Foundation (Phase 0-1)
+- Forked rust-lang/rust, mapped cargo registry codepaths
 - Ark registry sovereignty patches (ADR-001)
-- Project documentation
+- cyrius-seed (Rust assembler, 69 mnemonics, 195 tests)

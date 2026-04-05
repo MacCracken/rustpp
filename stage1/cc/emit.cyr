@@ -156,6 +156,29 @@ fn EEXIT(S) {
 }
 
 # ================================================================
+# SETCC — comparison to value (0 or 1 in rax)
+# Emit: cmp rax, rcx; setCC al; movzx rax, al
+# ================================================================
+
+# emit setCC: cmp rax,rcx; setCC al; movzx rax,al → rax = 0 or 1
+# op: 17=EQ, 18=NEQ, 19=LT, 20=GT, 21=LTE, 22=GTE
+fn ESETCC(S, op) {
+    ECMPR(S);
+    # setCC al (0F xx C0)
+    EB(S, 0x0F);
+    if (op == 17) { EB(S, 0x94); }
+    if (op == 18) { EB(S, 0x95); }
+    if (op == 19) { EB(S, 0x9C); }
+    if (op == 20) { EB(S, 0x9F); }
+    if (op == 21) { EB(S, 0x9E); }
+    if (op == 22) { EB(S, 0x9D); }
+    EB(S, 0xC0);
+    # movzx rax, al (48 0F B6 C0)
+    EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0xC0);
+    return 0;
+}
+
+# ================================================================
 # TOKEN ACCESS
 # ================================================================
 

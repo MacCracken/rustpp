@@ -1,169 +1,67 @@
 # Cyrius Development Roadmap
 
-> **Status**: Phase 11 — Crate Rewrites (agnostik + agnosys + kybernet) | **Last Updated**: 2026-04-05
+> **Current**: v0.9.0 — preparing for Beltane Release (May 1, 2026)
 >
-> **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 11ms self-compile),
-> 52 programs, 23 library modules, 62KB OS kernel (hardened), 160 tests (103 compiler + 57 programs).
-> 5 crate rewrites: agnostik (types), agnosys (syscalls), kybernet (init), nous (resolver), ark (pkg mgr).
-> Phase 10 audit: 23 kernel issues found and fixed, compiler bounds guards added.
-> cyrb build tool + ark package manager — both written in Cyrius.
+> 168 tests, 0 failures. 24 library modules. 5 crate rewrites.
+> Self-hosting compiler (93KB), AGNOS kernel (62KB), Ark package manager (44KB).
 > Zero external dependencies.
 
----
-
-## Completed
-
-### Phase 0 — Fork & Understand
-Forked rust-lang/rust, built rustc from source, mapped cargo registry codepaths.
-
-### Phase 1 — Registry Sovereignty
-Ark as default registry, git/path deps first-class, publish validation relaxed.
-
-### Phase 2 — Assembly Foundation
-Seven-stage chain: seed → stage1a → 1b → 1c → 1d → 1e (63 tests) → stage1f (16384 tokens, 256 fns).
-
-### Phase 3 — Self-Hosting Bootstrap
-asm.cyr (1110 lines, 43 mnemonics), bootstrap closure, 29KB committed binary. Zero external dependencies. Byte-exact reproducibility.
-
-### Phase 4 — Language Extensions
-cc2 modular compiler (7 modules, 182 functions). Structs, pointers, >6 params, load/store 16/32/64, include, inline asm, elif, break/continue, for loops, &&/||, typed pointers, nested structs, global initializers.
-
-### Phase 5 — Prove the Language
-46 programs, 157 tests. 10-233x smaller than GNU. wc 2.4x faster.
-
-### Phase 6 — Kernel Prerequisites
-All 9 items: typed pointers, nested structs, global inits, for loops, inline asm (18 mnemonics), bare metal ELF, ISR pattern, bitfields, linker control.
-
-### Phase 7 — Kernel (x86_64)
-58KB kernel: multiboot1 boot, 32-to-64 shim, serial, GDT, IDT, PIC, PIT timer, keyboard, page tables (16MB), PMM (bitmap), VMM, process table, syscalls.
-
-### Phase 8 — Language Foundations (Tier 1)
-7/8 complete: type enforcement (warnings), enums, switch/match, heap allocator, function pointers (&fn_name), argc/argv, String type. Block scoping deferred.
-
-Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 functions.
+For completed work, see [completed-phases.md](completed-phases.md).
+For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
 ## Active
 
-### Phase 9 — Multi-Architecture (aarch64)
+### Phase 9 — Multi-Architecture (aarch64) — Remaining
 
-**Goal**: Factor codegen into backends. Port to ARM. Both architectures ready for May 1.
+| # | Item | Notes |
+|---|------|-------|
+| 1 | aarch64 instruction correctness | Fix jmp encoding, get `var x = 42` running |
+| 2 | aarch64 bootstrap | cc2_aarch64 compiles itself on ARM hardware |
+| 3 | aarch64 kernel port | Same AGNOS kernel, different arch |
+| 4 | Cross-compilation | x86_64 host → aarch64 binaries verified |
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Factor codegen into backend interface | Done | Shared frontend, per-arch emit/jump/fixup |
-| 2 | aarch64 emit + jump + fixup | Done | 61 functions, cross-compiler builds |
-| 3 | aarch64 instruction correctness | In progress | Fix jmp encoding, get var x = 42 running |
-| 4 | aarch64 bootstrap (self-hosting on ARM) | Not started | cc2_aarch64 compiles itself on ARM hardware |
-| 5 | aarch64 kernel port | Not started | Same AGNOS kernel, different arch |
-| 6 | Cross-compilation | Not started | x86_64 host → aarch64 binaries verified |
+### Phase 10 — Deferred Items
+
+| # | Item | Notes |
+|---|------|-------|
+| 1 | Error message line numbers | Needs tok_lines array (262KB) + heap expansion |
+| 2 | Block scoping | Scope depth + token replay interaction needs investigation |
+| 3 | Performance pass | Compiler is 11ms — optimize when it matters |
 
 ---
 
 ## Planned — Pre-Release (before May 1)
 
-### Phase 9.5 — Repository Separation
+### Phase 12 — Full Sovereignty
 
-**Goal**: Clean separation of language vs kernel vs ecosystem crates.
+**Goal**: AGNOS builds entirely with Cyrius. No external toolchain.
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | Create `../agnos/` repo | Move kernel/agnos.cyr + kernel/examples/ out of cyrius |
-| 2 | AGNOS gets own CLAUDE.md, README, roadmap | Kernel roadmap separate from language roadmap |
-| 3 | AGNOS depends on Cyrius (compiler) | Build: `cat agnos.cyr \| ../cyrius/build/cc2 > build/agnos` |
-| 4 | Keep stage1/programs/kernel_hello.cyr in cyrius | It's a language test, not the kernel |
-| 5 | Tag Cyrius v2.0 release | Versioned language that AGNOS + ecosystem pins to |
+| 1 | AGNOS builds entirely with Cyrius | Both architectures |
+| 2 | Full cross-bootstrap | x86_64 ↔ aarch64 |
+| 3 | No external toolchain in any path | The entire stack is owned |
 
-### Phase 10 �� Audit, Refactor, Stabilize
+### Phase 13 — Language Maturity (Tier 2)
 
-**Goal**: Harden everything built in Phases 2-8. Fix what real usage found.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Kernel audit round | Done | 23 issues found, critical fixes: pmm/proc bounds, ISR full reg save, syscall validation |
-| 2 | Compiler hardening | Done | Fixup table overflow guard (512), token array bounds check (32768) |
-| 3 | Test suite expansion | Done | 9 edge case tests added (enums in fns, deep nesting, fn chains, switch many) |
-| 4 | Performance pass | Deferred | Compiler is 11ms — no bottleneck to optimize yet |
-| 5 | Error message improvement | Deferred | Needs tok_lines array (262KB) + heap expansion |
-| 6 | Block scoping | Deferred | Scope depth + token replay interaction needs investigation |
-
-### Phase 11 — Prove at Scale (Crate Rewrites)
-
-**Goal**: Rewrite AGNOS crates in Cyrius. Prove the language handles production system code.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | agnostik rewrite | Done | 6 modules (error, types, security, agent, audit, config), 54 tests |
-| 2 | agnosys rewrite | Done | Syscall bindings: 50 constants, 20+ wrappers, sigset, epoll, timerfd |
-| 3 | kybernet rewrite | Done | 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop), 38 tests |
-| 4 | nous rewrite | Done | Resolver: marketplace + system resolution, search, source detection, 26 tests |
-| 5 | Ark package manager rewrite | Done | 44KB binary: install/remove/search/list/info/status/verify/history |
-| 6 | cyrb (Cyrius builder) | Done | Build tool written in Cyrius: compile, test, self-host, suite runner |
-| 7 | Benchmark suite | Done | Binary sizes (10-233x smaller), compile times (11ms), runtime perf |
-| 8 | Documentation | Done | cyrius-guide.md updated with all libraries + limitations |
-
----
-
-## Planned — Post-Release
-
-### Phase 12 — Full Sovereignty
-
-**Goal**: AGNOS builds entirely with Cyrius. No external toolchain in any path.
-
-| # | Item | Priority | Notes |
-|---|------|----------|-------|
-| 1 | AGNOS builds entirely with Cyrius | High | Both architectures |
-| 2 | Full cross-bootstrap | High | x86_64 ↔ aarch64 |
-| 3 | No external toolchain in any path | High | The entire stack is owned |
-| 4 | agnostik types compile under Cyrius | High | Shared vocabulary migration (see cyrius-lang-migration.md Phase 1) |
-
-### Phase 13 — Polymorphic Codegen
-
-**Goal**: Every deployment unique. Same behavior, different binary. Sovereign defense strategy.
-
-**Tier 1 — Near-term (small effort):**
-
-| # | Item | Effort | Effect |
-|---|------|--------|--------|
-| 1 | `--poly-seed` flag | Trivial | Deterministic PRNG seed for all randomization. Same seed = same binary (reproducible). Different seed = different binary (polymorphic) |
-| 2 | Instruction encoding alternatives | Small | x86_64 has multiple encodings for the same op (mov rax,0 vs xor rax,rax vs mov imm64). Pick randomly per seed |
-| 3 | Semantic NOP insertion | Small | Insert benign instructions (xchg rax,rax, lea rax,[rax+0], add rax,0) to vary layout without changing behavior |
-
-**Tier 2 — Medium-term:**
-
-| # | Item | Effort | Effect |
-|---|------|--------|--------|
-| 4 | Register shuffling | Medium | Randomize free register choices. ABI-constrained regs (rdi, rsi, rax) stay fixed. Free regs shuffle per seed |
-| 5 | Basic block reordering | Medium | Dependency analysis to identify independent blocks. Shuffle order per seed. Same result, different layout |
-| 6 | Stack layout randomization | Medium | Vary local variable ordering on the stack per seed |
-
-**Tier 3 — Integration:**
-
-| # | Item | Effort | Effect |
-|---|------|--------|--------|
-| 7 | kavach integration | Small | Sandbox policy includes deployment seed |
-| 8 | seema fleet deployment | Small | Unique seed per edge node — every node runs structurally unique binary |
-| 9 | sigil attestation | Small | Sign (binary hash + seed) pair — verify specific deployment |
-| 10 | phylax discrimination | Medium | Distinguish AGNOS polymorphism from malware polymorphism — whitelist our patterns |
-| 11 | libro audit | Small | Log seed → deployment mapping, traceable |
-
-**Why this matters**: An attacker who reverse-engineers one node's binary cannot replay the exploit on any other node. The fleet becomes exploit-proof through diversity, not through patching.
-
-### Phase 14 — Language Maturity (Tier 2)
-
-**Goal**: Scale features for larger codebases.
+**Goal**: Scale features for larger codebases. Unlock 1:1 Rust parity.
 
 | # | Item | Effort | Unlocks |
 |---|------|--------|---------|
-| 1 | Generics / templates | 3 sessions | Type-safe containers, reusable code |
-| 2 | Traits / interfaces | 3 sessions | Abstraction, polymorphism |
-| 3 | Proper module system (namespace, visibility) | 2 sessions | Large project organization |
-| 4 | Array bounds checking (opt-in) | 1 session | Memory safety |
-| 5 | Nested function calls in expressions | 1 session | Fix register save across calls |
-| 6 | Multi-file compilation | 2 sessions | Beyond textual include |
+| 1 | Enums with data (tagged unions) | 2 sessions | Error(String), Option, Result |
+| 2 | Generics / templates | 3 sessions | Vec\<T\>, Result\<T\>, type-safe containers |
+| 3 | Traits / interfaces | 3 sessions | Abstraction, polymorphism, Display/From |
+| 4 | Proper module system | 2 sessions | pub/mod/use, large project organization |
+| 5 | HashMap | 1 session | Key-value lookup (needs generics) |
+| 6 | Nested function calls in expressions | 1 session | Fix register save across calls |
+| 7 | Multi-file compilation | 2 sessions | Beyond textual include |
+| 8 | Array bounds checking (opt-in) | 1 session | Memory safety |
+| 9 | `cyrb vet` — dependency auditing | 1 session | Verify included libraries are trusted |
+| 10 | `cyrb deny` — license/policy enforcement | 1 session | Block untrusted includes, enforce GPL-3.0 |
 
-### Phase 15 — Language Maturity (Tier 3)
+### Phase 14 — Language Maturity (Tier 3)
 
 **Goal**: Advanced features for the sovereign language vision.
 
@@ -172,39 +70,50 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | 1 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
 | 2 | Closures / lambdas | 2 sessions | Functional patterns |
 | 3 | Iterators | 2 sessions | Clean collection processing |
-| 4 | Pattern matching | 2 sessions | Destructuring, exhaustiveness |
+| 4 | Pattern matching (destructuring) | 2 sessions | Destructuring, exhaustiveness |
 | 5 | Concurrency primitives | 3 sessions | Multi-core kernel, parallel apps |
-| 6 | Agent/capability annotations | 3 sessions | `#[agent]`, `#[capability]` — Cyrius-native OS constructs |
-| 7 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention (kavach integration) |
-
-### Phase 16 — AGNOS Crate Migration
-
-**Goal**: Migrate AGNOS crates from Rust to Cyrius following the dependency graph. See `agnosticos/docs/development/cyrius-lang-migration.md` for the full six-phase plan.
-
-| Migration Phase | Crates | Prerequisite |
-|----------------|--------|-------------|
-| 1 — Prove it | agnostik (shared types), agnosys (syscall bindings) | Phase 8 stdlib ready — enums, structs, io, vec, fmt |
-| 2 — Pure computation | mudra, vinimaya, taal, natya, kshetra, science crates, libro | Phase 14 (generics, traits) |
-| 3 — System + crypto | sigil, agnosys | Phase 15 (ownership) |
-| 4 — Language-native wins | kavach, bote, t-ron, nein, majra | Phase 15.7 (sandbox-aware borrow checker) |
-| 5 — The brain | daimon, hoosh, nous, ark, takumi | Phase 15.5 (concurrency) |
-| 6 — The interface | aethersafha, agnoshi, kybernet | All phases complete |
+| 6 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
+| 7 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
+| 8 | String formatting (sprintf/format) | 1 session | Clean string building |
 
 ---
 
-## Milestone Targets
+## Planned — Post-Release
+
+### Phase 15 — AGNOS Crate Migration
+
+**Goal**: Migrate remaining AGNOS crates from Rust to Cyrius.
+
+| Wave | Crates | Prerequisite |
+|------|--------|-------------|
+| 1 — Prove it | agnostik, agnosys, kybernet, nous, ark | Done (Phase 11) |
+| 2 — Pure computation | mudra, vinimaya, taal, natya, kshetra, libro | Phase 13 (generics, traits) |
+| 3 — System + crypto | sigil | Phase 14 (ownership) |
+| 4 — Language-native | kavach, bote, t-ron, nein, majra | Phase 14 (sandbox borrow checker) |
+| 5 — The brain | daimon, hoosh, takumi | Phase 14 (concurrency) |
+| 6 — The interface | aethersafha, agnoshi | All phases complete |
+
+### Phase 16 — Polymorphic Codegen
+
+**Goal**: Every deployment unique. Same behavior, different binary. Sovereign defense.
+
+| Tier | Items | Effort |
+|------|-------|--------|
+| 1 | `--poly-seed`, instruction encoding alternatives, semantic NOPs | Small |
+| 2 | Register shuffling, basic block reordering, stack layout randomization | Medium |
+| 3 | kavach/seema/sigil/phylax/libro integration | Small-Medium |
+
+---
+
+## Milestones
 
 | Date | Milestone |
 |------|-----------|
-| **2026-04-04** | ✅ x86_64 kernel complete (VM, processes, syscalls) |
-| **2026-04-05** | ✅ aarch64 backend started |
-| **2026-04-05** | ✅ agnostik + agnosys + kybernet rewrites complete (14 modules, 92 tests) |
-| **2026-04-05** | ✅ Benchmarks + documentation updated |
-| **2026-04-06** | Tag **v0.9.0** — language + kernel + 3 crate rewrites + 148 tests |
-| **2026-04-07–09** | nous + Ark rewrite, aarch64 instruction correctness |
-| **2026-04-10–15** | Phase 10 audit + refactor |
-| **2026-04-15–25** | Phase 12 sovereignty, remaining crate migrations |
-| **2026-05-01** | **BELTANE RELEASE** — AGNOS sovereign, both architectures, kernel + compiler + userland |
+| 2026-04-06 | Tag **v0.9.0** |
+| 2026-04-07–12 | Phase 13: enums-with-data, generics, traits |
+| 2026-04-12–20 | Phase 14 + Phase 15 wave 2 |
+| 2026-04-20–28 | Phase 12 sovereignty, aarch64 bootstrap |
+| **2026-05-01** | **BELTANE RELEASE** — both architectures, kernel + compiler + userland |
 
 ---
 
@@ -218,11 +127,7 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 - Programs are the best compiler fuzzers — build real things early
 - Prove the language before building the kernel
 - One architecture first, port after stabilization
-- Documentation (vidya) compounds — 10x implementation speed when patterns are pre-documented
-- Tests catch bugs at seams that unit tests miss — build programs, not just test cases
-- Defer when research says the cost exceeds the benefit — the work loop is a decision engine
-- Polymorphic codegen is defense, not offense — same technique, sovereign purpose
-
----
-
-*Last Updated: 2026-04-05*
+- Documentation (vidya) compounds — 10x implementation speed
+- Tests catch bugs at seams — build programs, not just test cases
+- Defer when cost exceeds benefit — the work loop is a decision engine
+- Polymorphic codegen is defense, not offense — sovereign purpose

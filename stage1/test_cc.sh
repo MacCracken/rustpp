@@ -272,6 +272,17 @@ else
 fi
 echo ""
 
+echo "-- Comparison in Function Args --"
+run_test_cc "cmp_eq_arg"     'fn f(x) { return x; } syscall(60, f(1 == 1));' 1
+run_test_cc "cmp_neq_arg"    'fn f(x) { return x; } syscall(60, f(1 == 2));' 0
+run_test_cc "cmp_gt_arg"     'fn f(x) { return x; } syscall(60, f(5 > 3));' 1
+run_test_cc "cmp_lt_arg"     'fn f(x) { return x; } syscall(60, f(3 < 5));' 1
+run_test_cc "cmp_gte_arg"    'fn f(x) { return x; } syscall(60, f(3 >= 3));' 1
+run_test_cc "cmp_neq2_arg"   'fn f(x) { return x; } syscall(60, f(3 != 4));' 1
+run_test_cc "cmp_multi_arg"  'fn check(c, v) { if (c == 1) { return v; } return 0; } syscall(60, check(42 == 42, 99));' 99
+run_test_cc "cmp_false_arg"  'fn check(c, v) { if (c == 1) { return v; } return 0; } syscall(60, check(42 == 43, 99));' 0
+echo ""
+
 echo "-- Edge Cases (Phase 10 Audit) --"
 # Enum in function (was bug: returned 0)
 run_test_cc "enum_in_fn"     'enum E { A = 10; B = 20; C = 30; } fn f() { return B; } syscall(60, f());' 20
