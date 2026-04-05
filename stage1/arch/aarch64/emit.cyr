@@ -67,9 +67,9 @@ fn EMOVI(S, v) {
 # push x0: STR x0, [sp, #-16]! (pre-decrement)
 fn EPUSHR(S) { EW(S, 0xF81F0FE0); return 0; }   # str x0, [sp, #-16]!
 # pop x1 (into scratch): LDR x1, [sp], #16 (post-increment)
-fn EPOPC(S) { EW(S, 0xF8410FE1); return 0; }     # ldr x1, [sp], #16
-# pop x0: LDR x0, [sp], #16
-fn EPOPR(S) { EW(S, 0xF8410FE0); return 0; }     # ldr x0, [sp], #16
+fn EPOPC(S) { EW(S, 0xF84107E1); return 0; }     # ldr x1, [sp], #16
+# pop x0: LDR x0, [sp], #16 (post-indexed)
+fn EPOPR(S) { EW(S, 0xF84107E0); return 0; }     # ldr x0, [sp], #16
 
 # === Register moves ===
 # mov x1, x0 (scratch = result)
@@ -147,31 +147,31 @@ fn RECFIX(S, idx) {
     return 0;
 }
 
-# Store: mov x1, <placeholder>; str x0, [x1]
+# Store: mov x1, <addr>; str x0, [x1]
 fn EVSTORE(S, idx) {
-    # MOVZ x1, #0 + MOVK sequence (placeholder, patched by fixup)
-    EW(S, 0xD2800001);  # movz x1, #0
+    # RECFIX before MOVZ so fixup patches the right 3 instructions
     RECFIX(S, idx);
+    EW(S, 0xD2800001);  # movz x1, #0
     EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
     EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
     EW(S, 0xF9000020);  # str x0, [x1]
     return 0;
 }
 
-# Load: mov x1, <placeholder>; ldr x0, [x1]
+# Load: mov x1, <addr>; ldr x0, [x1]
 fn EVLOAD(S, idx) {
-    EW(S, 0xD2800001);  # movz x1, #0
     RECFIX(S, idx);
+    EW(S, 0xD2800001);  # movz x1, #0
     EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
     EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
     EW(S, 0xF9400020);  # ldr x0, [x1]
     return 0;
 }
 
-# Address: mov x0, <placeholder>
+# Address: mov x0, <addr>
 fn EVADDR(S, idx) {
-    EW(S, 0xD2800000);  # movz x0, #0
     RECFIX(S, idx);
+    EW(S, 0xD2800000);  # movz x0, #0
     EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
     EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
     return 0;
@@ -218,6 +218,130 @@ fn EEXIT(S) {
     # x0 already has the exit value
     EW(S, 0xD2800BA8);  # movz x8, #93 (exit syscall)
     ESYSCALL(S);
+    return 0;
+}
+
+# ================================================================
+# FUNCTION CALLING CONVENTION (aarch64 AAPCS64)
+# x29=frame pointer, x30=link register, x0-x7=args
+# ================================================================
+
+# Function prologue: stp x29,x30,[sp,#-16]!; mov x29,sp
+fn EFNPRO(S) {
+    EW(S, 0xA9BF7BFD);  # stp x29, x30, [sp, #-16]!
+    EW(S, 0x910003FD);  # mov x29, sp
+    return 0;
+}
+
+# Emit sub sp, sp, #imm — returns patch offset
+fn ESUBRSP(S) {
+    var patch = GCP(S);
+    EW(S, 0xD10003FF);  # sub sp, sp, #0 (placeholder, imm12 in bits [21:10])
+    return patch;
+}
+
+# Function epilogue: mov sp,x29; ldp x29,x30,[sp],#16; ret
+fn EFNEPI(S) {
+    EW(S, 0x910003BF);  # mov sp, x29
+    EW(S, 0xA8C17BFD);  # ldp x29, x30, [sp], #16
+    EW(S, 0xD65F03C0);  # ret
+    return 0;
+}
+
+# Emit BL to known target
+fn ECALLTO(S, target) {
+    var cp = GCP(S);
+    var rel = (target - cp) / 4;
+    EW(S, 0x94000000 | (rel & 0x3FFFFFF));
+    return 0;
+}
+
+# Emit BL placeholder, record type-2 fixup
+fn ECALLFIX(S, fnidx) {
+    var poff = GCP(S);
+    EW(S, 0x94000000);  # bl +0 (placeholder)
+    var fc = GFCNT(S);
+    var faddr = S + 0x8A000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (2 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Pop into aarch64 arg register (x0-x7)
+fn EPOPARG(S, n) {
+    # ldr xN, [sp], #16
+    EW(S, 0xF84107E0 | n);
+    return 0;
+}
+
+# Pop args into registers for function call
+fn ECALLPOPS(S, n) {
+    var regn = n;
+    if (regn > 6) { regn = 6; }
+    var i = regn - 1;
+    while (i >= 0) {
+        EPOPARG(S, i);
+        i = i - 1;
+    }
+    return 0;
+}
+
+# Stack cleanup after call (aarch64: no-op for ≤8 args)
+fn ECALLCLEAN(S, n) {
+    return 0;
+}
+
+# Helper: not needed on aarch64 but must exist for parse.cyr
+fn EDISP32(S, disp) { return 0; }
+
+# Store parameter to frame: str xN, [x29, #-offset]
+fn ESTOREREGPARM(S, pidx, disp) {
+    # str xPIDX, [x29, #disp] — use STUR for negative offsets
+    # STUR Xt, [Xn, #simm9]: 1111 1000 000 simm9 00 Xn Xt
+    var off9 = disp & 0x1FF;
+    EW(S, 0xF80003A0 | (off9 << 12) | pidx);
+    return 0;
+}
+
+fn ESTORESTACKPARM(S, pidx, disp, pc) {
+    # Load from caller's stack frame, store to local frame
+    # For now, just store x0 placeholder — TODO: proper stack args
+    return 0;
+}
+
+fn ESTOREPARM(S, pidx, lidx, pc) {
+    var disp = 0 - ((lidx + 1) * 8);
+    if (pidx < 8) {
+        ESTOREREGPARM(S, pidx, disp);
+    }
+    return 0;
+}
+
+# Local variable load: ldur x0, [x29, #-offset]
+fn EFLLOAD(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    var off9 = disp & 0x1FF;
+    EW(S, 0xF85003A0 | (off9 << 12));  # ldur x0, [x29, #disp]
+    return 0;
+}
+
+# Local variable store: stur x0, [x29, #-offset]
+fn EFLSTORE(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    var off9 = disp & 0x1FF;
+    EW(S, 0xF80003A0 | (off9 << 12));  # stur x0, [x29, #disp]
+    return 0;
+}
+
+# Patch frame size: sub sp, sp, #N at the prologue
+fn EPATCHFRAME(S, patch, size) {
+    # Read the SUB instruction and patch imm12
+    var addr = S + 0x20000 + patch;
+    var insn = L64(addr) & 0xFFFFFFFF;
+    # Clear imm12 (bits [21:10]) and set new value
+    insn = (insn & 0xFFC003FF) | ((size & 0xFFF) << 10);
+    S64(addr, (L64(addr) >> 32 << 32) | (insn & 0xFFFFFFFF));
     return 0;
 }
 

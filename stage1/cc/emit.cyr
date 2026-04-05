@@ -179,6 +179,158 @@ fn ESETCC(S, op) {
 }
 
 # ================================================================
+# FUNCTION CALLING CONVENTION (x86_64 System V ABI)
+# ================================================================
+
+# Emit push rbp; mov rbp, rsp
+fn EFNPRO(S) {
+    EB(S, 0x55);
+    E3(S, 0xE58948);
+    return 0;
+}
+
+# Emit sub rsp, imm32 — returns patch offset for the imm32
+fn ESUBRSP(S) {
+    E3(S, 0xEC8148);
+    var patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    return patch;
+}
+
+# Emit leave; ret
+fn EFNEPI(S) {
+    E2(S, 0xC3C9);
+    return 0;
+}
+
+# Emit call rel32 to known target
+fn ECALLTO(S, target) {
+    EB(S, 0xE8);
+    var cp = GCP(S);
+    var rel = target - cp - 4;
+    var addr = S + 0x20000 + cp;
+    S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    SCP(S, cp + 4);
+    return 0;
+}
+
+# Emit call placeholder, record type-2 fixup
+fn ECALLFIX(S, fnidx) {
+    EB(S, 0xE8);
+    var poff = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    var fc = GFCNT(S);
+    var faddr = S + 0x8A000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (2 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Emit pop into System V register for arg N
+fn EPOPARG(S, n) {
+    if (n == 0) { EB(S, 0x5F); return 0; }
+    if (n == 1) { EB(S, 0x5E); return 0; }
+    if (n == 2) { EB(S, 0x5A); return 0; }
+    if (n == 3) { EB(S, 0x59); return 0; }
+    if (n == 4) { E2(S, 0x5841); return 0; }
+    if (n == 5) { E2(S, 0x5941); return 0; }
+    return 0;
+}
+
+# Emit fn call pops for N args
+fn ECALLPOPS(S, n) {
+    var regn = n;
+    if (regn > 6) { regn = 6; }
+    var i = regn - 1;
+    while (i >= 0) {
+        EPOPARG(S, i);
+        i = i - 1;
+    }
+    return 0;
+}
+
+# Emit stack cleanup after call with >6 args
+fn ECALLCLEAN(S, n) {
+    if (n > 6) {
+        var extra = (n - 6) * 8;
+        E3(S, 0xC48148);
+        EB(S, extra & 0xFF);
+        EB(S, extra >> 8 & 0xFF);
+        EB(S, extra >> 16 & 0xFF);
+        EB(S, extra >> 24 & 0xFF);
+    }
+    return 0;
+}
+
+# Helper: emit disp32 at current CP
+fn EDISP32(S, disp) {
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+fn ESTOREREGPARM(S, pidx, disp) {
+    if (pidx == 0) { E3(S, 0xBD8948); }
+    if (pidx == 1) { E3(S, 0xB58948); }
+    if (pidx == 2) { E3(S, 0x958948); }
+    if (pidx == 3) { E3(S, 0x8D8948); }
+    if (pidx == 4) { E3(S, 0x85894C); }
+    if (pidx == 5) { E3(S, 0x8D894C); }
+    EDISP32(S, disp);
+    return 0;
+}
+
+fn ESTORESTACKPARM(S, pidx, disp, pc) {
+    var nstack = pc - 6;
+    var si = nstack - 1 - (pidx - 6);
+    var sdisp = 16 + si * 8;
+    E3(S, 0x858B48);
+    EDISP32(S, sdisp);
+    E3(S, 0x858948);
+    EDISP32(S, disp);
+    return 0;
+}
+
+fn ESTOREPARM(S, pidx, lidx, pc) {
+    var disp = 0 - ((lidx + 1) * 8);
+    if (pidx < 6) {
+        ESTOREREGPARM(S, pidx, disp);
+    } else {
+        ESTORESTACKPARM(S, pidx, disp, pc);
+    }
+    return 0;
+}
+
+# Emit fn local load: mov rax, [rbp - offset]
+fn EFLLOAD(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    E3(S, 0x858B48);
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+# Patch frame size: write imm32 at the sub rsp placeholder
+fn EPATCHFRAME(S, patch, size) {
+    var pa = S + 0x20000 + patch;
+    S64(pa, (L64(pa) >> 32 << 32) | (size & 0xFFFFFFFF));
+    return 0;
+}
+
+# Emit fn local store: mov [rbp - offset], rax
+fn EFLSTORE(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    E3(S, 0x858948);
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+# ================================================================
 # TOKEN ACCESS
 # ================================================================
 
