@@ -1,0 +1,228 @@
+# ================================================================
+# AARCH64 CODE EMISSION (writes to codebuf at S+0x20000+CP)
+# ================================================================
+# All instructions are 32-bit (4 bytes), little-endian.
+# Register mapping: x0=rax(result), x1=rcx(scratch), x0-x7=args
+# x9-x15 = temporaries, x29=fp(rbp), x30=lr, sp=rsp
+
+# Emit one byte to codebuf
+fn EB(S, b) {
+    var cp = GCP(S);
+    store8(S + 0x20000 + cp, b & 0xFF);
+    SCP(S, cp + 1);
+    return 0;
+}
+
+# Emit 32-bit instruction word (little-endian)
+fn EW(S, w) {
+    EB(S, w & 0xFF);
+    EB(S, (w >> 8) & 0xFF);
+    EB(S, (w >> 16) & 0xFF);
+    EB(S, (w >> 24) & 0xFF);
+    return 0;
+}
+
+# Emit 2 bytes (for compatibility with x86 E2 calls)
+fn E2(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    return 0;
+}
+
+# Emit 8 bytes (for mov imm64 compatibility)
+fn E8(S, v) {
+    EB(S, v & 0xFF); EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF); EB(S, v >> 24 & 0xFF);
+    EB(S, v >> 32 & 0xFF); EB(S, v >> 40 & 0xFF);
+    EB(S, v >> 48 & 0xFF); EB(S, v >> 56 & 0xFF);
+    return 0;
+}
+
+fn E3(S, v) {
+    EB(S, v & 0xFF); EB(S, v >> 8 & 0xFF); EB(S, v >> 16 & 0xFF);
+    return 0;
+}
+
+# === Move immediate to x0 (result register) ===
+# MOVZ x0, #imm16 = 0xD2800000 | (imm16 << 5)
+# For 64-bit immediates: MOVZ + MOVK for each 16-bit chunk
+fn EMOVI(S, v) {
+    # MOVZ x0, #(v & 0xFFFF)
+    EW(S, 0xD2800000 | ((v & 0xFFFF) << 5));
+    # MOVK x0, #((v>>16) & 0xFFFF), LSL #16
+    if (v > 0xFFFF) {
+        EW(S, 0xF2A00000 | (((v >> 16) & 0xFFFF) << 5));
+    }
+    if (v > 0xFFFFFFFF) {
+        EW(S, 0xF2C00000 | (((v >> 32) & 0xFFFF) << 5));
+    }
+    if (v > 0xFFFFFFFFFFFF) {
+        EW(S, 0xF2E00000 | (((v >> 48) & 0xFFFF) << 5));
+    }
+    return 0;
+}
+
+# === Stack operations ===
+# aarch64 has no push/pop — use STP/LDP with SP
+# push x0: STR x0, [sp, #-16]! (pre-decrement)
+fn EPUSHR(S) { EW(S, 0xF81F0FE0); return 0; }   # str x0, [sp, #-16]!
+# pop x1 (into scratch): LDR x1, [sp], #16 (post-increment)
+fn EPOPC(S) { EW(S, 0xF8410FE1); return 0; }     # ldr x1, [sp], #16
+# pop x0: LDR x0, [sp], #16
+fn EPOPR(S) { EW(S, 0xF8410FE0); return 0; }     # ldr x0, [sp], #16
+
+# === Register moves ===
+# mov x1, x0 (scratch = result)
+fn EMOVCA(S) { EW(S, 0xAA0003E1); return 0; }    # mov x1, x0
+
+# === Arithmetic ===
+# add x0, x0, x1
+fn EADDR(S) { EW(S, 0x8B010000); return 0; }     # add x0, x0, x1
+# sub x0, x0, x1
+fn ESUBR(S) { EW(S, 0xCB010000); return 0; }     # sub x0, x0, x1
+# mul x0, x0, x1
+fn EIMUL(S) { EW(S, 0x9B017C00); return 0; }     # mul x0, x0, x1
+# sdiv x0, x0, x1
+fn EIDIV(S) { EW(S, 0x9AC10C00); return 0; }     # sdiv x0, x0, x1
+# cqo equivalent: not needed on aarch64 (sdiv handles it)
+fn ECQO(S) { return 0; }
+# mov x0, x2 (for modulo: result = rdx equivalent)
+fn EMOVDR(S) { EW(S, 0xAA0203E0); return 0; }    # mov x0, x2
+
+# === Compare ===
+# cmp x0, x1 (subs xzr, x0, x1)
+fn ECMPR(S) { EW(S, 0xEB01001F); return 0; }     # cmp x0, x1
+
+# === Load/Store through x1 (pointer register) ===
+# ldr x0, [x1]
+fn ELODC(S) { EW(S, 0xF9400020); return 0; }     # ldr x0, [x1]
+# str x0, [x1]
+fn ESTOC(S) { EW(S, 0xF9000020); return 0; }     # str x0, [x1]
+
+# === Load through x0 (dereference) ===
+fn ELOAD8(S) { EW(S, 0x39400000); return 0; }    # ldrb w0, [x0]
+fn ELOAD16(S) { EW(S, 0x79400000); return 0; }   # ldrh w0, [x0]
+fn ELOAD32(S) { EW(S, 0xB9400000); return 0; }   # ldr w0, [x0]
+fn ELOAD64(S) { EW(S, 0xF9400000); return 0; }   # ldr x0, [x0]
+
+# === Store: [x1] = x0 (various widths) ===
+fn ESTORE8(S) { EW(S, 0x39000020); return 0; }   # strb w0, [x1]
+fn ESTORE16(S) { EW(S, 0x79000020); return 0; }  # strh w0, [x1]
+fn ESTORE32(S) { EW(S, 0xB9000020); return 0; }  # str w0, [x1]
+fn ESTORE64(S) { EW(S, 0xF9000020); return 0; }  # str x0, [x1]
+
+# === Bitwise ===
+fn EANDR(S) { EW(S, 0x8A010000); return 0; }     # and x0, x0, x1
+fn EORR(S) { EW(S, 0xAA010000); return 0; }      # orr x0, x0, x1
+fn EXORR(S) { EW(S, 0xCA010000); return 0; }     # eor x0, x0, x1
+fn ENOTR(S) { EW(S, 0xAA2003E0); return 0; }     # mvn x0, x0
+fn ESHLCL(S) { EW(S, 0x9AC12000); return 0; }    # lslv x0, x0, x1
+fn ESHRCL(S) { EW(S, 0x9AC12400); return 0; }    # lsrv x0, x0, x1
+fn EXORAA(S) { EW(S, 0xCA000000); return 0; }    # eor x0, x0, x0 (zero)
+
+# === mov rdi, rax (for exit: x0 already has the value) ===
+fn EMOVRDI(S) { return 0; }  # no-op: x0 is already the first arg on aarch64
+
+# === Syscall ===
+# SVC #0 (supervisor call)
+fn ESYSCALL(S) { EW(S, 0xD4000001); return 0; }  # svc #0
+
+# === Syscall argument pops ===
+# On aarch64, syscall args are x0-x5 (already in the right regs from Cyrius calling convention)
+# Pop from stack into x0-x5 in reverse order
+fn EPOPRDI(S) { EW(S, 0xF8410FE0); return 0; }  # ldr x0, [sp], #16
+fn EPOPRSI(S) { EW(S, 0xF8410FE1); return 0; }  # ldr x1, [sp], #16
+fn EPOPRDX(S) { EW(S, 0xF8410FE2); return 0; }  # ldr x2, [sp], #16
+fn EPOPR10(S) { EW(S, 0xF8410FE4); return 0; }  # ldr x4, [sp], #16
+fn EPOPR8(S) { EW(S, 0xF8410FE3); return 0; }   # ldr x3, [sp], #16
+fn EPOPR9(S) { EW(S, 0xF8410FE5); return 0; }   # ldr x5, [sp], #16
+
+# === Fixup + variable access ===
+fn RECFIX(S, idx) {
+    var fc = GFCNT(S);
+    var addr = S + 0x8A000 + fc * 16;
+    S64(addr, GCP(S));
+    S64(addr + 8, idx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Store: mov x1, <placeholder>; str x0, [x1]
+fn EVSTORE(S, idx) {
+    # MOVZ x1, #0 + MOVK sequence (placeholder, patched by fixup)
+    EW(S, 0xD2800001);  # movz x1, #0
+    RECFIX(S, idx);
+    EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
+    EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
+    EW(S, 0xF9000020);  # str x0, [x1]
+    return 0;
+}
+
+# Load: mov x1, <placeholder>; ldr x0, [x1]
+fn EVLOAD(S, idx) {
+    EW(S, 0xD2800001);  # movz x1, #0
+    RECFIX(S, idx);
+    EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
+    EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
+    EW(S, 0xF9400020);  # ldr x0, [x1]
+    return 0;
+}
+
+# Address: mov x0, <placeholder>
+fn EVADDR(S, idx) {
+    EW(S, 0xD2800000);  # movz x0, #0
+    RECFIX(S, idx);
+    EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
+    EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
+    return 0;
+}
+
+# String address
+fn ESADDR(S, soff) {
+    var fc = GFCNT(S);
+    var faddr = S + 0x8A000 + fc * 16;
+    S64(faddr, GCP(S));
+    S64(faddr + 8, (1 << 56) | soff);
+    SFCNT(S, fc + 1);
+    EW(S, 0xD2800000);  # movz x0, #0
+    EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
+    EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
+    return 0;
+}
+
+# Pop syscall args then SVC
+fn ESCPOPS(S, n) {
+    if (n >= 7) { EPOPR9(S); }
+    if (n >= 6) { EPOPR8(S); }
+    if (n >= 5) { EPOPR10(S); }
+    if (n >= 4) { EPOPRDX(S); }
+    if (n >= 3) { EPOPRSI(S); }
+    if (n >= 2) { EPOPRDI(S); }
+    if (n >= 1) { EPOPR(S); }
+    # On aarch64, syscall number goes in x8
+    # x0-x5 have the args. Need to set x8 from the first popped value.
+    # Actually, Cyrius syscall(N, args...) puts N as first arg (x0).
+    # Move x0 to x8, then shift args: x0=x1, x1=x2, etc.
+    EW(S, 0xAA0003E8);  # mov x8, x0
+    EW(S, 0xAA0103E0);  # mov x0, x1
+    EW(S, 0xAA0203E1);  # mov x1, x2
+    EW(S, 0xAA0303E2);  # mov x2, x3
+    EW(S, 0xAA0403E3);  # mov x3, x4
+    EW(S, 0xAA0503E4);  # mov x4, x5
+    ESYSCALL(S);
+    return 0;
+}
+
+# Exit: mov x8, #93; mov x0, rax; svc #0
+fn EEXIT(S) {
+    # x0 already has the exit value
+    EW(S, 0xD2800BA8);  # movz x8, #93 (exit syscall)
+    ESYSCALL(S);
+    return 0;
+}
+
+# === Token access (arch-independent, same as x86) ===
+fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0xE2000 + i * 8); }
+fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
+fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
