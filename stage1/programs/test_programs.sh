@@ -145,7 +145,7 @@ build strtest
 check "strtest 10 funcs" "10" "$?"
 
 # Feature-exercise programs
-for p in bitfield life fib sieve points memset; do build $p; done
+for p in asmtest bitfield life fib sieve points memset; do build $p; done
 
 out=$("$TMPDIR/fib" | wc -l | tr -d ' ')
 check "fib 20 lines" "20" "$out"
@@ -153,6 +153,8 @@ check "fib 20 lines" "20" "$out"
 out=$("$TMPDIR/fib" | head -7 | tail -1)
 check "fib 7th" "8" "$out"
 
+"$TMPDIR/asmtest" > /dev/null 2>/dev/null
+check "asmtest 18" "18" "$?"
 "$TMPDIR/bitfield" > /dev/null 2>/dev/null
 check "bitfield 11" "11" "$?"
 
