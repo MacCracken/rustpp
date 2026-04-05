@@ -60,8 +60,8 @@ fn ADDXP(S, p) {
 # Line tracking
 fn GCLINE(S) { return L64(S + 0x8FCB8); }
 fn SCLINE(S, v) { S64(S + 0x8FCB8, v); return 0; }
-fn GTLINE(S, ti) { return L64(S + 0x122000 + ti * 8); }
-fn STLINE(S, ti, v) { S64(S + 0x122000 + ti * 8, v); return 0; }
+fn GTLINE(S, ti) { return L64(S + 0x1A2000 + ti * 8); }
+fn STLINE(S, ti, v) { S64(S + 0x1A2000 + ti * 8, v); return 0; }
 
 # Pointer scale tracking (0 = not a pointer, >0 = element size in bytes)
 fn GPSC(S) { return L64(S + 0x8F890); }

@@ -69,15 +69,13 @@
 # --- ELF output ---
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF
 #
-# --- Token arrays (expanded) ---
-#   0xA2000  tok_types     [262144]      32768 token type slots (8 bytes each)
-#   0xE2000  tok_values    [262144]      32768 token value slots (8 bytes each)
-#
-# --- Token line numbers ---
-#   0x122000  tok_lines     [262144]      32768 token line numbers (8 bytes each)
+# --- Token arrays (65536 slots) ---
+#   0xA2000   tok_types     [524288]      65536 token type slots (8 bytes each)
+#   0x122000  tok_values    [524288]      65536 token value slots (8 bytes each)
+#   0x1A2000  tok_lines     [524288]      65536 token line numbers (8 bytes each)
 #
 # --- brk limit ---
-#   0x162000 (end of heap allocation)
+#   0x222000 (end of heap allocation)
 #
 # --- Lexer line tracking ---
 #   0x8FCB8  cur_line      [8]           Current line number during lexing
@@ -126,7 +124,7 @@ include "src/cc/fixup.cyr"
 
 # Allocate heap
 var S = syscall(12, 0);
-syscall(12, S + 0x162000);
+syscall(12, S + 0x222000);
 
 # Zero state
 S64(S + 0x8C100, 0);
