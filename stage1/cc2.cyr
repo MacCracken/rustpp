@@ -19,7 +19,7 @@
 #   0x50000  tok_names     [32768]       Packed identifier strings
 #   0x58000  var_noffs     [2048]        256 variable name offsets
 #   0x58800  var_sizes     [2048]        256 variable sizes
-#   0x59000  codebuf       [65536]       Generated machine code
+#   0x10000  codebuf       [262144]      Generated machine code (relocated from 0x59000)       Generated machine code
 #   0x69000  str_data      [4096]        String literal bytes
 #   0x69800  str_pos       [8]           Current string position
 #   0x69808  data_size     [8]           Total variable data bytes

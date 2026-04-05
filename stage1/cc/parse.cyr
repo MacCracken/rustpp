@@ -166,7 +166,7 @@ fn PARSE_FACTOR(S) {
                 # lea rax, [rbp - offset]
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
-                var aaddr = S + 0x59000 + GCP(S);
+                var aaddr = S + 0x10000 + GCP(S);
                 S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
                 SCP(S, GCP(S) + 4);
                 return 0;
@@ -815,7 +815,7 @@ fn ECALLTO(S, target) {
     EB(S, 0xE8);
     var cp = GCP(S);
     var rel = target - cp - 4;
-    var addr = S + 0x59000 + cp;
+    var addr = S + 0x10000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     return 0;
@@ -876,7 +876,7 @@ fn ECALLCLEAN(S, n) {
 # Store parameter register to [rbp - offset]
 # Helper: emit disp32 at current CP
 fn EDISP32(S, disp) {
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x10000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -919,7 +919,7 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
 fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858B48);
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x10000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -929,7 +929,7 @@ fn EFLLOAD(S, idx) {
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858948);
-    var addr = S + 0x59000 + GCP(S);
+    var addr = S + 0x10000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1072,7 +1072,7 @@ fn PARSE_FN_DEF(S) {
     # Patch frame size
     var flc = GFLC(S);
     var fsz = (flc * 8 + 15) & (0 - 16);
-    var pa = S + 0x59000 + frame_patch;
+    var pa = S + 0x10000 + frame_patch;
     S64(pa, (L64(pa) >> 32 << 32) | (fsz & 0xFFFFFFFF));
     # Restore state (DON'T restore VCNT — arrays inside functions are globals that persist)
     SLVAR(S, saved_lv);

@@ -18,7 +18,7 @@ fn EJMP(S, target) {
     var cp = GCP(S);
     var rel = target - cp - 4;
     # Write rel32 via read-modify-write
-    var addr = S + 0x59000 + cp;
+    var addr = S + 0x10000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     return 0;
@@ -36,7 +36,7 @@ fn EJMP0(S) {
 fn EPATCH(S, off) {
     var cp = GCP(S);
     var rel = cp - off - 4;
-    var addr = S + 0x59000 + off;
+    var addr = S + 0x10000 + off;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     return 0;
 }
