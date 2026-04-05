@@ -139,6 +139,8 @@ jobs:
       options: --user root
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y python3
       - name: Bootstrap (for stage1f)
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
