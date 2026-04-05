@@ -1,0 +1,65 @@
+# life — Conway's Game of Life (5 generations on a 16x16 grid)
+# Exercises: nested for loops, arrays, load8/store8, &&, nested structs
+# Outputs generation 5's live cell count
+
+include "stage1/lib/string.cyr"
+
+var grid[256];
+var next[256];
+
+fn idx(x, y) { return (y & 15) * 16 + (x & 15); }
+
+fn get(x, y) { return load8(&grid + idx(x, y)); }
+
+fn count_neighbors(x, y) {
+    var n: i64 = 0;
+    n = n + get(x - 1, y - 1);
+    n = n + get(x, y - 1);
+    n = n + get(x + 1, y - 1);
+    n = n + get(x - 1, y);
+    n = n + get(x + 1, y);
+    n = n + get(x - 1, y + 1);
+    n = n + get(x, y + 1);
+    n = n + get(x + 1, y + 1);
+    return n;
+}
+
+fn step() {
+    for (var y = 0; y < 16; y = y + 1) {
+        for (var x = 0; x < 16; x = x + 1) {
+            var nc = count_neighbors(x, y);
+            var alive = get(x, y);
+            var cell = 0;
+            if (alive == 1 && nc == 2) { cell = 1; }
+            if (alive == 1 && nc == 3) { cell = 1; }
+            if (alive == 0 && nc == 3) { cell = 1; }
+            store8(&next + idx(x, y), cell);
+        }
+    }
+    memcpy(&grid, &next, 256);
+    return 0;
+}
+
+fn count_live() {
+    var n: i64 = 0;
+    for (var i = 0; i < 256; i = i + 1) {
+        n = n + load8(&grid + i);
+    }
+    return n;
+}
+
+# Initialize with a glider at (1,1)
+memset(&grid, 0, 256);
+store8(&grid + idx(2, 1), 1);
+store8(&grid + idx(3, 2), 1);
+store8(&grid + idx(1, 3), 1);
+store8(&grid + idx(2, 3), 1);
+store8(&grid + idx(3, 3), 1);
+
+# Run 5 generations
+for (var g = 0; g < 5; g = g + 1) { step(); }
+
+var alive = count_live();
+print_num(alive);
+syscall(1, 1, " cells alive\n", 13);
+syscall(60, alive);

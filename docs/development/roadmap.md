@@ -66,7 +66,7 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | 5 | Inline asm with mnemonics (embed encoder from asm.cyr) | 2-3 sessions | `mov cr3, rax`, `lidt`, `lgdt`, `iretq`, port I/O |
 | 6 | Bare metal ELF (custom base address, multiboot header) | 1 session | Kernel binary that GRUB can boot |
 | 7 | Interrupt handler support (`#[interrupt]` save/restore) | 2 sessions | IDT, timer, keyboard, page fault |
-| 8 | Bitfield access (pack/unpack bits) | 1 session | Page table flags, GDT/IDT descriptors |
+| 8 | ~~Bitfield access~~ | Done | Proven with PTE/GDT/IDT program — no new features needed |
 | 9 | Linker control (kernel at 0xFFFF800000000000) | 1 session | Higher-half kernel mapping |
 
 **Nice-to-Have (quality of life):**

@@ -1,0 +1,73 @@
+# bitfield — pack/unpack hardware descriptor bitfields
+# Exercises: &, |, <<, >>, nested structs, typed pointers
+# Proves Cyrius can build kernel data structures (PTE, GDT, IDT)
+
+include "stage1/lib/string.cyr"
+
+# Page Table Entry helpers
+fn pte_build(phys_addr, flags) {
+    return (phys_addr & 0x000FFFFFFFFFF000) | flags;
+}
+
+fn pte_present(pte) { return pte & 1; }
+fn pte_writable(pte) { return (pte >> 1) & 1; }
+fn pte_user(pte) { return (pte >> 2) & 1; }
+fn pte_addr(pte) { return pte & 0x000FFFFFFFFFF000; }
+fn pte_nx(pte) { return (pte >> 63) & 1; }
+
+# GDT entry helpers (64-bit encoded)
+fn gdt_present(entry) { return (entry >> 47) & 1; }
+fn gdt_dpl(entry) { return (entry >> 45) & 3; }
+fn gdt_long(entry) { return (entry >> 53) & 1; }
+
+# IDT entry builder (128 bits = two 64-bit words)
+fn idt_low(handler, selector, type_attr) {
+    var lo = handler & 0xFFFF;
+    var sel = selector << 16;
+    var typ = type_attr << 40;
+    var hi16 = ((handler >> 16) & 0xFFFF) << 48;
+    return lo | sel | typ | hi16;
+}
+
+fn idt_high(handler) {
+    return (handler >> 32) & 0xFFFFFFFF;
+}
+
+fn run_tests() {
+    var pass: i64 = 0;
+
+    # PTE tests
+    var pte = pte_build(0x1000, 3);
+    if (pte_present(pte) == 1) { pass = pass + 1; }
+    if (pte_writable(pte) == 1) { pass = pass + 1; }
+    if (pte_user(pte) == 0) { pass = pass + 1; }
+    if (pte_addr(pte) == 0x1000) { pass = pass + 1; }
+
+    # PTE with user + NX
+    var pte2 = pte_build(0x2000, 7);
+    if (pte_user(pte2) == 1) { pass = pass + 1; }
+
+    # GDT kernel code segment
+    var gdt_code = 0x00AF9A000000FFFF;
+    if (gdt_present(gdt_code) == 1) { pass = pass + 1; }
+    if (gdt_dpl(gdt_code) == 0) { pass = pass + 1; }
+    if (gdt_long(gdt_code) == 1) { pass = pass + 1; }
+
+    # IDT entry — handler at address 0xFFFF80000010
+    var handler = 0xFFFF80000010;
+    var low = idt_low(handler, 8, 0x8E);
+    var high = idt_high(handler);
+    # low bits 0-15: handler & 0xFFFF = 0x0010
+    if ((low & 0xFFFF) == 0x0010) { pass = pass + 1; }
+    # low bits 16-31: selector = 8
+    if (((low >> 16) & 0xFFFF) == 8) { pass = pass + 1; }
+    # high: (handler >> 32) & 0xFFFFFFFF = 0xFFFF
+    if (high == 0xFFFF) { pass = pass + 1; }
+
+    return pass;
+}
+
+var r = run_tests();
+print_num(r);
+syscall(1, 1, " bitfield tests passed\n", 23);
+syscall(60, r);

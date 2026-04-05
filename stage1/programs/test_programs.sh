@@ -145,7 +145,7 @@ build strtest
 check "strtest 10 funcs" "10" "$?"
 
 # Feature-exercise programs
-for p in fib sieve points memset; do build $p; done
+for p in bitfield life fib sieve points memset; do build $p; done
 
 out=$("$TMPDIR/fib" | wc -l | tr -d ' ')
 check "fib 20 lines" "20" "$out"
@@ -153,6 +153,11 @@ check "fib 20 lines" "20" "$out"
 out=$("$TMPDIR/fib" | head -7 | tail -1)
 check "fib 7th" "8" "$out"
 
+"$TMPDIR/bitfield" > /dev/null 2>/dev/null
+check "bitfield 11" "11" "$?"
+
+"$TMPDIR/life" > /dev/null 2>/dev/null
+check "life glider" "5" "$?"
 "$TMPDIR/sieve"
 check "sieve 54 primes" "54" "$?"
 
