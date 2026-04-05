@@ -58,15 +58,36 @@ jobs:
 
       - name: Package artifacts
         run: |
-          mkdir -p dist
+          VER="${GITHUB_REF_NAME}"
+          STAGE="cyrius-${VER}-x86_64-linux"
+          mkdir -p "$STAGE/bin" "$STAGE/lib"
+
+          # Binaries
           for bin in cc2 cc2_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
-            if [ -x "build/$bin" ]; then cp "build/$bin" "dist/"; fi
+            if [ -x "build/$bin" ]; then cp "build/$bin" "$STAGE/bin/"; fi
           done
-          cp scripts/cyrb dist/
-          cp scripts/cyrb-init.sh dist/
+          cp bootstrap/asm "$STAGE/bin/"
+          cp scripts/cyrb "$STAGE/bin/"
+          cp scripts/cyrb-init.sh "$STAGE/bin/"
+          chmod +x "$STAGE/bin/cyrb" "$STAGE/bin/cyrb-init.sh"
+
+          # Standard library
+          cp -r lib/* "$STAGE/lib/"
+
+          # Metadata
+          cp VERSION "$STAGE/"
+          cp LICENSE "$STAGE/"
+          cp scripts/install.sh "$STAGE/"
+
+          # Create tarball
+          tar czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+
+          # Also keep standalone installer for curl-pipe
+          mkdir -p dist
+          mv "${STAGE}.tar.gz" dist/
+          mv "${STAGE}.tar.gz.sha256" dist/
           cp scripts/install.sh dist/
-          cp bootstrap/asm dist/
-          cd dist && sha256sum * > SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:

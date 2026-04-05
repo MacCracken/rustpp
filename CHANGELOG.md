@@ -6,6 +6,47 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-04-05
+
+### Fixed — CI
+- Program test suite stalling on system-dependent tests (fork/exec, apt-cache, python3)
+- Moved 8 ecosystem tests (nous, ark, cyrb, kybernet, agnostik, kernel ELF) behind `--system` flag
+- Added `timeout` guards to all system test executions
+- Removed python3 dependency from CI (kernel ELF tests now in `--system` only)
+- Program test count: 46 (was 57) in CI, full 57 available via `--system`
+
+### Added — Benchmarks
+- 3-tier benchmark suite: 38 benchmarks across stdlib, data structures, compiler/toolchain
+- 6 benchmark programs: bench_string, bench_alloc, bench_vec, bench_hashmap, bench_fmt, bench_tagged
+- `scripts/bench-history.sh` — automated CSV recording + BENCHMARKS.md trend generation
+- `bench-history.csv` — persistent regression tracking (matches bhava/hisab pattern)
+- `cyrb bench` — run full suite, tier (`--tier1`, `--tier2`), or single file
+- CI benchmark job with artifact upload (tier 1+2, 90-day retention)
+- v0.9.0 baseline established: self-compile 9ms, strlen 418ns, alloc 428ns, hashmap lookup 650ns
+
+### Improved — Installer
+- Rewritten `scripts/install.sh` to match python/ruby/rust installer patterns
+- Version-specific layout: `~/.cyrius/versions/$VERSION/bin/` + `lib/`
+- Downloads all 8 tools + standard library from GitHub releases
+- Bootstrap from source with self-hosting verification fallback
+- Version manager (`cyrius`): added `uninstall`, `update`, `ls` alias
+- Clean summary output showing installed components
+
+### Improved — Tooling
+- `cyrb bench` now dispatches to `bench-history.sh` (no args = full suite)
+- Roadmap updated: benchmark history tracking marked complete, bhava/hisab pillar gaps prioritized
+
+### Improved — Documentation
+- Roadmap restructured with AGNOS pillar port critical path (3 tiers, 18 features)
+- Changelog consolidated: all v0.9.0 work merged into single release entry
+- Article updated with v0.9.0 metrics (93KB compiler, 186 tests, 38 benchmarks, 5 crate rewrites)
+
+### Metrics
+- 38 benchmarks across 3 tiers, self-compile: 9ms
+- 157 x86_64 tests (111 compiler + 46 programs) + 29 aarch64 tests, 0 failures
+- 35 library modules, 199 functions
+- `cyrb audit` → 10/10 green
+
 ## [0.9.0] — 2026-04-05
 
 ### Added — Language
