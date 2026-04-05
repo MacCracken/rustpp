@@ -241,6 +241,67 @@ Vtable-based trait objects for polymorphic dispatch. Requires fnptr.cyr.
 | `int_as_display` | `int_as_display(n) → obj` | Wrap int as Display |
 | `str_as_display` | `str_as_display(s) → obj` | Wrap Str as Display |
 
+### json.cyr
+
+Minimal JSON parser and builder.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `json_parse` | `json_parse(str) → vec` | Parse JSON object |
+| `json_get` | `json_get(pairs, key) → Str/0` | Find value by key |
+| `json_get_int` | `json_get_int(pairs, key) → int` | Get as integer |
+| `json_build` | `json_build(pairs) → Str` | Build JSON string |
+| `json_parse_file` | `json_parse_file(path) → vec` | Parse JSON file |
+
+### process.cyr
+
+Process management with Result returns.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `run` | `run(cmd, a1, a2) → Result(exit)` | Run + wait |
+| `run_capture` | `run_capture(cmd, a1, a2, buf, len) → Result(n)` | Capture stdout |
+| `spawn` | `spawn(cmd, a1, a2) → Result(pid)` | Background run |
+| `wait_pid` | `wait_pid(pid) → Result(exit)` | Wait for pid |
+
+### fs.cyr
+
+Filesystem: paths, directories, tree walking.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `path_join` | `path_join(dir, name) → Str` | Join paths |
+| `path_basename` | `path_basename(path) → Str` | Last component |
+| `path_dirname` | `path_dirname(path) → Str` | Directory part |
+| `dir_list` | `dir_list(path) → vec` | List directory |
+| `dir_walk` | `dir_walk(path, results)` | Recursive walk |
+| `find_files` | `find_files(path, ext) → vec` | Find by extension |
+| `is_dir` | `is_dir(path) → 0/1` | Check if directory |
+
+### net.cyr
+
+TCP/UDP sockets.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `tcp_socket` / `udp_socket` | `→ Result(fd)` | Create socket |
+| `sock_bind` | `sock_bind(fd, addr, port) → Result` | Bind |
+| `sock_listen` | `sock_listen(fd, backlog) → Result` | Listen |
+| `sock_accept` | `sock_accept(fd) → Result(client)` | Accept |
+| `sock_connect` | `sock_connect(fd, addr, port) → Result` | Connect |
+| `sock_send` / `sock_recv` | `(fd, buf, len) → Result(n)` | Send/receive |
+
+### regex.cyr
+
+Glob matching and string search/replace.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `glob_match` | `glob_match(pattern, text) → 0/1` | Glob (* and ?) |
+| `find_all` | `find_all(haystack, needle) → vec` | All occurrences |
+| `str_replace` | `str_replace(s, old, new) → Str` | Replace first |
+| `str_replace_all` | `str_replace_all(s, old, new) → Str` | Replace all |
+
 ---
 
 ## System Libraries
