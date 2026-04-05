@@ -295,6 +295,82 @@ fn pt_get_mapped_mb() {
     return count * 2;
 }
 
+# === Physical Memory Manager ===
+# Bitmap allocator: 1 bit per 4KB page
+# 16MB = 4096 pages = 512 bytes bitmap
+var pmm_bitmap[512];
+var pmm_total = 0;
+var pmm_used = 0;
+
+fn pmm_set(page) {
+    var byte = page / 8;
+    var bit = page % 8;
+    store8(&pmm_bitmap + byte, load8(&pmm_bitmap + byte) | (1 << bit));
+    return 0;
+}
+
+fn pmm_clear(page) {
+    var byte = page / 8;
+    var bit = page % 8;
+    store8(&pmm_bitmap + byte, load8(&pmm_bitmap + byte) & (~(1 << bit) & 0xFF));
+    return 0;
+}
+
+fn pmm_test(page) {
+    var byte = page / 8;
+    var bit = page % 8;
+    return (load8(&pmm_bitmap + byte) >> bit) & 1;
+}
+
+fn pmm_init() {
+    # Zero bitmap (all free)
+    for (var i = 0; i < 512; i = i + 1) { store8(&pmm_bitmap + i, 0); }
+    pmm_total = 4096;
+    pmm_used = 0;
+    # Mark first 2MB as used (kernel + page tables + stack)
+    # 2MB / 4KB = 512 pages = pages 0-511
+    for (var p = 0; p < 512; p = p + 1) {
+        pmm_set(p);
+        pmm_used = pmm_used + 1;
+    }
+    return 0;
+}
+
+fn pmm_alloc() {
+    # Find first free page
+    for (var i = 0; i < 4096; i = i + 1) {
+        if (pmm_test(i) == 0) {
+            pmm_set(i);
+            pmm_used = pmm_used + 1;
+            return i * 0x1000;
+        }
+    }
+    return 0;
+}
+
+fn pmm_free(addr) {
+    var page = addr / 0x1000;
+    if (pmm_test(page) == 1) {
+        pmm_clear(page);
+        pmm_used = pmm_used - 1;
+    }
+    return 0;
+}
+
+fn pmm_free_count() {
+    return pmm_total - pmm_used;
+}
+
+# === Print number helper for kernel ===
+fn kprint_num(n: i64) {
+    var nb[24];
+    var ni = 23;
+    if (n == 0) { store8(&nb + ni, 48); ni = ni - 1; }
+    while (n > 0) { store8(&nb + ni, 48 + n % 10); ni = ni - 1; n = n / 10; }
+    serial_print(&nb + ni + 1, 23 - ni);
+    return 0;
+}
+
 # === 32-bit boot shim ===
 
 asm {
@@ -362,13 +438,24 @@ serial_println("Keyboard ISR installed", 22);
 
 pt_init();
 serial_print("Page tables: ", 13);
-var mapped = pt_get_mapped_mb();
-var tbuf3[24];
-var ti3 = 23;
-if (mapped == 0) { store8(&tbuf3 + ti3, 48); ti3 = ti3 - 1; }
-while (mapped > 0) { store8(&tbuf3 + ti3, 48 + mapped % 10); ti3 = ti3 - 1; mapped = mapped / 10; }
-serial_print(&tbuf3 + ti3 + 1, 23 - ti3);
+kprint_num(pt_get_mapped_mb());
 serial_println("MB mapped", 9);
+
+pmm_init();
+serial_print("PMM: ", 5);
+kprint_num(pmm_free_count());
+serial_print(" free / ", 8);
+kprint_num(pmm_total);
+serial_println(" pages", 6);
+
+# Test: allocate 3 pages, free 1, check count
+var pg1 = pmm_alloc();
+var pg2 = pmm_alloc();
+var pg3 = pmm_alloc();
+pmm_free(pg2);
+serial_print("Alloc test: ", 12);
+kprint_num(pmm_free_count());
+serial_println(" free (expect 3582)", 19);
 
 asm { sti; }
 serial_println("Interrupts enabled", 18);
@@ -389,13 +476,7 @@ serial_println("", 0);
 
 # Report timer ticks
 serial_print("Timer ticks: ", 13);
-# Print tick count as decimal
-var ticks = timer_ticks;
-var tbuf[24];
-var ti = 23;
-if (ticks == 0) { store8(&tbuf + ti, 48); ti = ti - 1; }
-while (ticks > 0) { store8(&tbuf + ti, 48 + ticks % 10); ti = ti - 1; ticks = ticks / 10; }
-serial_print(&tbuf + ti + 1, 23 - ti);
+kprint_num(timer_ticks);
 serial_println("", 0);
 
 serial_println("AGNOS ready. Type keys (q to halt):", 36);

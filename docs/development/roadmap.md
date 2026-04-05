@@ -95,7 +95,7 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | 7 | ~~Timer interrupt (PIT)~~ | Done | 100Hz PIT, ISR increments counter + EOI, hlt wakes on tick |
 | 8 | ~~Keyboard interrupt~~ | Done | IRQ1 ISR, ring buffer, scancode-to-ASCII, interactive loop |
 | 9 | ~~Page tables~~ | Done | 16MB identity map (8x2MB), Cyrius pt_map_2mb, CR3 reload |
-| 10 | Physical memory manager | Not started | Page frame allocator |
+| 10 | ~~Physical memory manager~~ | Done | Bitmap allocator, 4096 pages, alloc/free/test |
 | 12 | Agent/capability enforcement | `#[agent]`, `#[capability]` ELF metadata |
 
 > **Note**: Phase 7 is the initial kernel boot. Full-featured AGNOS (drivers, networking, full userland, multi-user) continues beyond Phase 11.
