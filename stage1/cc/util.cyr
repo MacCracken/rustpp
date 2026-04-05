@@ -28,12 +28,12 @@ fn STI(S, v) { S64(S + 0x8C120, v); return 0; }
 fn GNPOS(S) { return L64(S + 0x8C128); }
 fn SNPOS(S, v) { S64(S + 0x8C128, v); return 0; }
 
-# Fixup count
-fn GFCNT(S) { return L64(S + 0x8C000); }
-fn SFCNT(S, v) { S64(S + 0x8C000, v); return 0; }
+# Fixup count (moved to make room for 1024-entry fixup table)
+fn GFCNT(S) { return L64(S + 0x8FCA8); }
+fn SFCNT(S, v) { S64(S + 0x8FCA8, v); return 0; }
 # Last var index
-fn GLVAR(S) { return L64(S + 0x8C008); }
-fn SLVAR(S, v) { S64(S + 0x8C008, v); return 0; }
+fn GLVAR(S) { return L64(S + 0x8FCB0); }
+fn SLVAR(S, v) { S64(S + 0x8FCB0, v); return 0; }
 # String pos
 fn GSPOS(S) { return L64(S + 0x69800); }
 fn SSPOS(S, v) { S64(S + 0x69800, v); return 0; }

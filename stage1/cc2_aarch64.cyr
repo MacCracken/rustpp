@@ -24,9 +24,9 @@
 #   0x6A000  output_buf    [131072]      ELF output buffer
 #
 # --- Fixup ---
-#   0x8A000  fixup_tbl     [8192]        512 fixup entries (16 bytes each)
-#   0x8C000  fixup_cnt     [8]           Fixup entry count
-#   0x8C008  last_var      [8]           Last assigned variable index
+#   0x8A000  fixup_tbl     [16384]       1024 fixup entries (16 bytes each)
+#   0x8FCA8  fixup_cnt     [8]           Fixup entry count (moved from 0x8C000)
+#   0x8FCB0  last_var      [8]           Last assigned variable index (moved from 0x8C008)
 #
 # --- Compiler state ---
 #   0x8C100  BL            [8]           Input length
@@ -129,8 +129,8 @@ S64(S + 0x8C110, 0);
 S64(S + 0x8C118, 0);
 S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
-S64(S + 0x8C000, 0);
-S64(S + 0x8C008, 0 - 1);
+S64(S + 0x8FCA8, 0);
+S64(S + 0x8FCB0, 0 - 1);
 S64(S + 0x69800, 0);
 # Function state
 S64(S + 0x8DA00, 0);

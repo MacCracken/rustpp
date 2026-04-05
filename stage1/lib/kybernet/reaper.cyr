@@ -1,11 +1,14 @@
 # kybernet/reaper.cyr — zombie process reaper for PID 1
-# Usage: include "stage1/lib/kybernet/reaper.cyr"
-# Requires: agnosys/syscalls.cyr, vec.cyr
+# Requires: agnosys/syscalls.cyr, vec.cyr, tagged.cyr
 #
 # PID 1 must reap all orphaned children to prevent zombies.
+# Matches Rust: reap_zombies() -> Vec<(u32, i32)>
+
+# Reaped process info
+struct ReapedProcess { pid; exit_code; }
 
 # Reap all zombie children (non-blocking).
-# Returns a vec of {pid, exit_code} pairs (even indices = pid, odd = code).
+# Returns a vec of ReapedProcess pointers.
 fn reap_zombies() {
     var results = vec_new();
     var status_buf[1];
@@ -23,27 +26,47 @@ fn reap_zombies() {
             if (WIFSIGNALED(status) == 1) {
                 code = 128 + WTERMSIG(status);
             }
-            vec_push(results, pid);
-            vec_push(results, code);
+            var rp = alloc(16);
+            store64(rp, pid);
+            store64(rp + 8, code);
+            vec_push(results, rp);
         }
     }
     return results;
 }
 
-# Reap and print each reaped process to stderr
+# Get pid from ReapedProcess
+fn reaped_pid(rp) { return load64(rp); }
+fn reaped_code(rp) { return load64(rp + 8); }
+
+# Reap and log each process to stderr
+# Returns count of reaped processes
 fn reap_and_log() {
     var reaped = reap_zombies();
     var len = vec_len(reaped);
     var ri = 0;
     while (ri < len) {
-        var pid = vec_get(reaped, ri);
-        var code = vec_get(reaped, ri + 1);
-        sys_write(STDERR_FD, "reaped pid=", 11);
-        fmt_int(pid);
-        sys_write(STDERR_FD, " exit=", 6);
-        fmt_int(code);
+        var rp = vec_get(reaped, ri);
+        var sb = str_builder_new();
+        str_builder_add_cstr(sb, "reaped pid=");
+        str_builder_add_int(sb, reaped_pid(rp));
+        str_builder_add_cstr(sb, " exit=");
+        str_builder_add_int(sb, reaped_code(rp));
+        var msg = str_builder_build(sb);
+        sys_write(STDERR_FD, str_data(msg), str_len(msg));
         sys_write(STDERR_FD, "\n", 1);
-        ri = ri + 2;
+        ri = ri + 1;
     }
-    return len / 2;
+    return len;
+}
+
+# Check if any reaped process had non-zero exit
+fn any_failures(reaped) {
+    var len = vec_len(reaped);
+    var fi = 0;
+    while (fi < len) {
+        if (reaped_code(vec_get(reaped, fi)) != 0) { return 1; }
+        fi = fi + 1;
+    }
+    return 0;
 }

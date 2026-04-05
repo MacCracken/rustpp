@@ -1,115 +1,110 @@
 # kybernet/cgroup.cyr — cgroup v2 management for PID 1
-# Usage: include "stage1/lib/kybernet/cgroup.cyr"
-# Requires: agnosys/syscalls.cyr, string.cyr, fmt.cyr, io.cyr
+# Requires: agnosys/syscalls.cyr, string.cyr, fmt.cyr, io.cyr, str.cyr, tagged.cyr
 #
-# Manages cgroup v2 slices for service isolation.
+# Improved over Rust: uses str_builder for path construction,
+# Result returns for all operations, cleaner kill with fallback.
 
 var CGROUP_ROOT = "/sys/fs/cgroup";
 var KYBERNET_SLICE = "kybernet.slice";
 
-# Build cgroup path: /sys/fs/cgroup/kybernet.slice/{service}
-# Writes path into buf, returns length
-fn cgroup_path(service, buf) {
-    var pos = 0;
-    # Copy root
-    var rlen = strlen(CGROUP_ROOT);
-    memcpy(buf, CGROUP_ROOT, rlen);
-    pos = pos + rlen;
-    store8(buf + pos, 47);
-    pos = pos + 1;
-    # Copy slice
-    var slen = strlen(KYBERNET_SLICE);
-    memcpy(buf + pos, KYBERNET_SLICE, slen);
-    pos = pos + slen;
-    store8(buf + pos, 47);
-    pos = pos + 1;
-    # Copy service name
-    var nlen = strlen(service);
-    memcpy(buf + pos, service, nlen);
-    pos = pos + nlen;
-    store8(buf + pos, 0);
-    return pos;
+# Build cgroup path as Str: /sys/fs/cgroup/kybernet.slice/{service}
+fn cgroup_path(service) {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, CGROUP_ROOT);
+    str_builder_add_cstr(sb, "/");
+    str_builder_add_cstr(sb, KYBERNET_SLICE);
+    str_builder_add_cstr(sb, "/");
+    str_builder_add_cstr(sb, service);
+    return str_builder_build(sb);
+}
+
+# Build a file path within a service's cgroup
+fn cgroup_file(service, filename) {
+    var sb = str_builder_new();
+    str_builder_add(sb, cgroup_path(service));
+    str_builder_add_cstr(sb, "/");
+    str_builder_add_cstr(sb, filename);
+    return str_builder_build(sb);
 }
 
 # Create the cgroup directory for a service
+# Returns: Result (Ok(0) or Err(errno))
 fn create_service_cgroup(service) {
-    # Create slice dir first
-    var slice_buf[64];
-    var slen = strlen(CGROUP_ROOT);
-    memcpy(&slice_buf, CGROUP_ROOT, slen);
-    store8(&slice_buf + slen, 47);
-    var klen = strlen(KYBERNET_SLICE);
-    memcpy(&slice_buf + slen + 1, KYBERNET_SLICE, klen);
-    store8(&slice_buf + slen + 1 + klen, 0);
-    sys_mkdir(&slice_buf, 0x1C0);
+    # Create slice dir
+    var sb1 = str_builder_new();
+    str_builder_add_cstr(sb1, CGROUP_ROOT);
+    str_builder_add_cstr(sb1, "/");
+    str_builder_add_cstr(sb1, KYBERNET_SLICE);
+    var slice = str_builder_build(sb1);
+    sys_mkdir(str_data(slice), 0x1C0);
 
     # Create service dir
-    var path_buf[128];
-    cgroup_path(service, &path_buf);
-    return sys_mkdir(&path_buf, 0x1C0);
+    var path = cgroup_path(service);
+    var r = sys_mkdir(str_data(path), 0x1C0);
+    if (is_err(r) == 1) {
+        if (err_code(r) != EEXIST) { return Err(err_code(r)); }
+    }
+    return Ok(0);
 }
 
-# Move a PID into a service's cgroup by writing to cgroup.procs
+# Move a PID into a service's cgroup
+# Returns: Result
 fn move_to_cgroup(service, pid) {
-    var path_buf[128];
-    var plen = cgroup_path(service, &path_buf);
-    # Append /cgroup.procs
-    memcpy(&path_buf + plen, "/cgroup.procs", 13);
-    store8(&path_buf + plen + 13, 0);
+    var procs = cgroup_file(service, "cgroup.procs");
+    var numbuf = alloc(24);
+    var nlen = fmt_int_buf(pid, numbuf);
 
-    # Convert PID to string
-    var numbuf[24];
-    var nlen = fmt_int_buf(pid, &numbuf);
-
-    var fd = sys_open(&path_buf, O_WRONLY, 0);
-    if (fd < 0) { return fd; }
-    sys_write(fd, &numbuf, nlen);
+    var fd = sys_open(str_data(procs), O_WRONLY, 0);
+    if (fd < 0) { return Err(0 - fd); }
+    var w = sys_write(fd, numbuf, nlen);
     sys_close(fd);
-    return 0;
+    if (is_err(w) == 1) { return Err(err_code(w)); }
+    return Ok(0);
 }
 
-# Kill all processes in a cgroup (kernel 5.14+ cgroup.kill)
+# Kill all processes in a cgroup
+# Strategy: try cgroup.kill (kernel 5.14+), fallback to individual SIGKILL
+# Returns: Result (Ok(killed_count) or Err(errno))
 fn kill_cgroup(service) {
-    var path_buf[128];
-    var plen = cgroup_path(service, &path_buf);
-
-    # Try cgroup.kill first (kernel 5.14+)
-    memcpy(&path_buf + plen, "/cgroup.kill", 12);
-    store8(&path_buf + plen + 12, 0);
-    var fd = sys_open(&path_buf, O_WRONLY, 0);
+    # Try cgroup.kill first (fast path, kernel 5.14+)
+    var killpath = cgroup_file(service, "cgroup.kill");
+    var fd = sys_open(str_data(killpath), O_WRONLY, 0);
     if (fd >= 0) {
         sys_write(fd, "1", 1);
         sys_close(fd);
-        return 0;
+        return Ok(1);
     }
 
     # Fallback: read cgroup.procs and kill each PID
-    memcpy(&path_buf + plen, "/cgroup.procs", 13);
-    store8(&path_buf + plen + 13, 0);
-    var buf[1024];
-    var n = file_read_all(&path_buf, &buf, 8192);
-    if (n <= 0) { return 0; }
+    var procspath = cgroup_file(service, "cgroup.procs");
+    var buf = alloc(4096);
+    var n = file_read_all(str_data(procspath), buf, 4096);
+    if (n <= 0) { return Ok(0); }
 
-    # Parse PIDs (one per line) and send SIGKILL
+    var killed = 0;
     var ki = 0;
     while (ki < n) {
         var pid = 0;
         while (ki < n) {
-            var c = load8(&buf + ki);
+            var c = load8(buf + ki);
             if (c == 10) { ki = ki + 1; break; }
             if (c >= 48) {
                 if (c <= 57) { pid = pid * 10 + c - 48; }
             }
             ki = ki + 1;
         }
-        if (pid > 0) { sys_kill(pid, SIGKILL); }
+        if (pid > 0) {
+            sys_kill(pid, SIGKILL);
+            killed = killed + 1;
+        }
     }
-    return 0;
+    return Ok(killed);
 }
 
 # Remove a service cgroup directory (must be empty)
 fn remove_service_cgroup(service) {
-    var path_buf[128];
-    cgroup_path(service, &path_buf);
-    return sys_rmdir(&path_buf);
+    var path = cgroup_path(service);
+    var r = sys_rmdir(str_data(path));
+    if (is_err(r) == 1) { return Err(err_code(r)); }
+    return Ok(0);
 }

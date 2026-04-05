@@ -1,11 +1,11 @@
 # kybernet/console.cyr — console/serial setup for PID 1
-# Usage: include "stage1/lib/kybernet/console.cyr"
-# Requires: agnosys/syscalls.cyr
+# Requires: agnosys/syscalls.cyr, tagged.cyr
 #
 # Redirects stdio before logging starts:
 # - stdin  → /dev/null
 # - stdout → /dev/console (fallback /dev/null)
 # - stderr → dup of stdout
+# Returns: Result (Ok(0) or Err(errno))
 
 fn setup_console() {
     # Close inherited fds
@@ -15,12 +15,13 @@ fn setup_console() {
 
     # Open /dev/null as fd 0 (stdin)
     var null_fd = sys_open("/dev/null", O_RDWR, 0);
-    # null_fd should be 0 since we just closed 0
+    if (null_fd < 0) { return Err(0 - null_fd); }
 
     # Open /dev/console as fd 1 (stdout), fallback to /dev/null
     var con_fd = sys_open("/dev/console", O_WRONLY, 0);
     if (con_fd < 0) {
         con_fd = sys_open("/dev/null", O_WRONLY, 0);
+        if (con_fd < 0) { return Err(0 - con_fd); }
     }
     # If con_fd isn't 1, dup it there
     if (con_fd != 1) {
@@ -31,5 +32,5 @@ fn setup_console() {
     # Dup stdout to stderr
     sys_dup2(1, 2);
 
-    return 0;
+    return Ok(0);
 }
