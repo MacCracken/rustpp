@@ -35,13 +35,17 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Linux CLI tools | Done | 15 programs: cat, echo, head, tee, wc, rev, nl, seq, tr, uniq, sum, grep, yes, true, false |
-| 2 | Proof programs | Done | fizzbuzz (elif, %), primes (nested loops), sort (load64/store64, arrays) |
+| 1 | Linux CLI tools | Done | 23 programs: cat, echo, head, tee, wc, rev, nl, seq, tr, uniq, sum, grep, yes, true, false, hexdump, basename, cols, tail, fib, sieve, points, memset |
+| 2 | Proof programs | Done | fizzbuzz, primes, sort, calc (&&, global inits), sieve (for loops), points (nested structs + typed ptrs) |
 | 3 | Buffered I/O | Done | 85x speedup, wc beats GNU 2.4x |
 | 4 | Benchmarks vs GNU | Done | docs/benchmarks.md — 10-233x smaller binaries |
-| 5 | Fix codegen bug | Done | `var x = fn(); return x;` — investigated, works correctly. Was not a bug. |
-| 6 | Logical && / \|\| | Done | Short-circuit &&/||, chained (a && b && c), 8 tests. Token arrays expanded 16384→32768. |
-| 7 | Migrate Ark to Cyrius | Not started | First real-world project |
+| 5 | Logical && / \|\| | Done | Short-circuit, chained. Token arrays 16384→32768. |
+| 6 | For loops | Done | `for (init; cond; step) { body }` with break, nested, function support |
+| 7 | Typed pointers | Done | `var p: *i64 = &buf; *(p + 1)` scales by element size |
+| 8 | Nested structs | Done | `struct Outer { x; inner: Inner; y; }` with chained dot access |
+| 9 | Global initializers | Done | Two-pass declaration scanning. calc.cyr unblocked. |
+| 10 | Bootstrap repair | Done | Fixed codebuf split, expanded codebuf/input buffers, source reproduces binary |
+| 11 | Migrate Ark to Cyrius | Not started | First real-world project |
 
 ---
 
@@ -55,20 +59,20 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 
 | # | Item | Effort | Unlocks |
 |---|------|--------|---------|
-| 1 | Typed pointers with scaling (`*i64`, ptr+1 adds 8) | 1 session | Page table walks, struct arrays |
-| 2 | Nested structs (struct field is struct) | 1 session | IDT entries, GDT entries, page table entries |
-| 3 | Inline asm with mnemonics (embed encoder from asm.cyr) | 2-3 sessions | `mov cr3, rax`, `lidt`, `lgdt`, `iretq`, port I/O |
-| 4 | Bare metal ELF (custom base address, multiboot header) | 1 session | Kernel binary that GRUB can boot |
-| 5 | Interrupt handler support (`#[interrupt]` save/restore) | 2 sessions | IDT, timer, keyboard, page fault |
-| 6 | Bitfield access (pack/unpack bits) | 1 session | Page table flags, GDT/IDT descriptors |
-| 7 | Global initializers (`var x = expr` at top level in fn zone) | 1 session | Static page tables, GDT, calc.cyr |
-| 8 | Linker control (kernel at 0xFFFF800000000000) | 1 session | Higher-half kernel mapping |
+| 1 | ~~Typed pointers with scaling~~ | Done | `*i64`, ptr+1 adds 8 |
+| 2 | ~~Nested structs~~ | Done | `struct Outer { x; inner: Inner; }` |
+| 3 | ~~Global initializers~~ | Done | Two-pass declaration scanning |
+| 4 | ~~For loops~~ | Done | `for (init; cond; step) { body }` |
+| 5 | Inline asm with mnemonics (embed encoder from asm.cyr) | 2-3 sessions | `mov cr3, rax`, `lidt`, `lgdt`, `iretq`, port I/O |
+| 6 | Bare metal ELF (custom base address, multiboot header) | 1 session | Kernel binary that GRUB can boot |
+| 7 | Interrupt handler support (`#[interrupt]` save/restore) | 2 sessions | IDT, timer, keyboard, page fault |
+| 8 | Bitfield access (pack/unpack bits) | 1 session | Page table flags, GDT/IDT descriptors |
+| 9 | Linker control (kernel at 0xFFFF800000000000) | 1 session | Higher-half kernel mapping |
 
 **Nice-to-Have (quality of life):**
 
 | # | Item | Effort | Why |
 |---|------|--------|-----|
-| 9 | For loops (`for (i = 0; i < n; i = i + 1)`) | 1 session | Syntactic sugar |
 | 10 | String stdlib (strcmp, memcpy, memset) | 1 session | Common operations as builtins |
 | 11 | argv access | 1 session | Command-line programs |
 | 12 | Heap allocator (malloc/free) | 2 sessions | Dynamic allocation beyond brk |

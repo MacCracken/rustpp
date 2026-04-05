@@ -31,11 +31,12 @@
 Research → vidya → plan → build → test → audit → vidya. Vidya front-loads thinking. Pointers took 15 lines because vidya had the patterns. Structs took hours because vidya didn't. The reference library IS the velocity.
 
 ### Metrics
-- 102 tests, 0 failures (69 cc + 11 asm + 22 programs)
-- cc2: ~2200 lines, 159 functions, 7 modules, self-hosting (cc2==cc3)
-- 78+ vidya entries in compiler_bootstrapping alone
-- Bootstrap: 40ms. Self-compile: 8ms. 15 programs: 45ms total.
-- Token arrays: 32768 slots (expanded from 16384 to handle compiler growth)
+- 124 tests, 0 failures (80 cc + 11 asm + 33 programs)
+- cc2: ~2500 lines, 173 functions, 7 modules, self-hosting (cc2==cc3)
+- 90+ vidya entries in compiler_bootstrapping alone
+- Bootstrap: 40ms. Self-compile: 8ms. 27 programs: ~80ms total.
+- Token arrays: 32768. Codebuf: 196KB. Input buffer: 128KB.
+- Bootstrap repaired: source reproduces binary, stage1f→cc.cyr→cc2 verified
 
 ---
 

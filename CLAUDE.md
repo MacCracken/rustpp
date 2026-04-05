@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Status**: Phase 5 — Proving the language. 19 programs, 113 tests, &&/||, wc beats GNU.
+- **Status**: Phase 5 — Proving the language. 27 programs, 124 tests, &&/||, wc beats GNU.
 
 ## Goal
 
@@ -89,14 +89,16 @@ stage1a (expressions) → stage1b (control flow) → stage1c (syscalls)
 ### Phase 5: Prove the Language (In Progress)
 1. 15 Linux programs ✓, benchmarks ✓
 2. Codegen bug investigated — not a bug ✓
-3. Logical &&/|| with short-circuit and chaining ✓
-4. Token arrays expanded 16384→32768 ✓
-5. Migrate Ark to Cyrius — first real-world project
+3. Logical &&/||, for loops, typed pointers, nested structs, global initializers ��
+4. Bootstrap repair, codebuf/input buffer expansion ✓
+5. 27 programs (19 CLI + 8 proof), 124 tests ✓
+6. Migrate Ark to Cyrius — first real-world project
 
-### Phase 6: Kernel Prerequisites
-1. Typed pointers with scaling, nested structs, global initializers
-2. Inline asm with mnemonics, bare metal ELF, interrupt handlers
-3. Bitfield access, linker control
+### Phase 6: Kernel Prerequisites (In Progress)
+Done: typed pointers ✓, nested structs ✓, global initializers ✓, for loops ✓
+Remaining:
+1. Inline asm with mnemonics, bare metal ELF, interrupt handlers
+2. Bitfield access, linker control
 
 ### Phase 7: Kernel (x86_64)
 1. Compile Linux kernel with Cyrius — the proof

@@ -42,9 +42,9 @@ Assembly (the cornerstone)
         → bootstrap closure ✓ (byte-identical output)
           → bootstrap/asm (29KB committed binary — root of trust)
             → stage1f (compiler) + asm (assembler)
-              → cc.cyr → cc2 (modular, 7 modules, 150 fns)  ← WE ARE HERE
-                → 15 Linux programs (Phase 5 — proving the language)
-                  → kernel prerequisites (Phase 6)
+              → cc.cyr → cc2 (modular, 7 modules, 173 fns)
+                → 27 programs (Phase 5 — proved the language) ✓
+                  → kernel prerequisites (Phase 6)  ← WE ARE HERE
                     → AGNOS kernel (Phase 7+)
 ```
 
@@ -111,23 +111,20 @@ Language features added FROM WITHIN — no Rust, no upstream fork.
 - elif, break/continue, duplicate var detection, error messages with token position
 - Self-hosting: cc2==cc3 byte-identical, 94 tests
 
-### Phase 5 (In Progress) — Prove the Language
-- 15 Linux CLI programs (cat, echo, head, tee, wc, rev, nl, seq, tr, uniq, sum, grep, yes, true, false)
-- Proof programs: fizzbuzz, primes, sort
+### Phase 5 (Done) — Prove the Language
+- 19 Linux CLI tools + 8 proof programs (27 total, 124 tests)
+- Logical &&/||, for loops, typed pointers, nested structs, global initializers
+- Bootstrap repair: codebuf/input buffer expansion, source reproduces binary
 - Buffered I/O (85x speedup, wc 2.4x faster than GNU)
 - Benchmarks: 10-233x smaller binaries than GNU equivalents
-- Logical && / || with short-circuit evaluation and chaining
-- Token arrays expanded 16384→32768 (handles compiler growth)
-- Migrate Ark to Cyrius — first real-world project
 
-### Phase 6 — Kernel Prerequisites
-Add features needed to touch bare metal (x86_64 first):
-- Fix codegen bug, typed pointers with scaling, nested structs
+### Phase 6 (In Progress) — Kernel Prerequisites
+Done: typed pointers ✓, nested structs ✓, global initializers ✓, for loops ✓
+Remaining:
 - Inline asm with mnemonics (embed encoder from asm.cyr)
 - Bare metal ELF (custom base address, multiboot header)
-- Interrupt handler support, bitfield access, global initializers
-- Linker control (kernel at 0xFFFF800000000000)
-- Nice-to-haves: for loops, string stdlib, argv, heap allocator, type enforcement
+- Interrupt handler support, bitfield access, linker control
+- Nice-to-haves: string stdlib, argv, heap allocator, type enforcement
 
 ### Phase 7 — Kernel (x86_64)
 - Compile the Linux kernel with Cyrius — the proof that the language handles real kernel code

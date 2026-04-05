@@ -64,14 +64,14 @@ The entire Cyrius toolchain — bootstrap, compiler, assembler, extended compile
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 74 | All pass |
+| Compiler (cc2) | 80 | All pass |
 | Assembler (asm) | 11 | All pass |
-| Programs | 28 | All pass |
-| **Total** | **113** | **0 failures** |
+| Programs | 33 | All pass |
+| **Total** | **124** | **0 failures** |
 
 ## Programs
 
-19 Linux programs:
+19 CLI tools + 8 proof programs:
 
 | Program | Size | Description |
 |---------|------|-------------|
