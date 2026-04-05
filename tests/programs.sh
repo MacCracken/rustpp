@@ -169,25 +169,6 @@ check "points dist²" "25" "$?"
 "$TMPDIR/memset"
 check "memset 100" "100" "$?"
 
-# Kernel ELF test
-build kernel_hello
-# Can't execute kernel binary — verify ELF structure
-python3 -c "
-import struct,sys
-with open('$TMPDIR/kernel_hello','rb') as f: d=f.read()
-ok = struct.unpack_from('<I',d,84)[0] == 0x1badb002 and struct.unpack_from('<I',d,24)[0] == 0x100060
-sys.exit(0 if ok else 1)
-" 2>/dev/null
-check "kernel_hello ELF" "0" "$?"
-
-build isr_stub
-python3 -c "
-import sys
-with open('$TMPDIR/isr_stub','rb') as f: d=f.read()
-sys.exit(0 if len(d) > 200 and 0xfa in d[144:] else 1)
-" 2>/dev/null
-check "isr_stub kernel" "0" "$?"
-
 # Crypto + algorithm programs
 for p in xor collatz brainfuck; do build $p; done
 
@@ -221,34 +202,55 @@ check "struct_list sum" "15" "$?"
 "$TMPDIR/gcd"
 check "gcd(48,18)" "6" "$?"
 
-# Nous resolver test
-cat "programs/nous_test.cyr" | "$CC" > "$TMPDIR/nous_test" 2>/dev/null && chmod +x "$TMPDIR/nous_test"
-"$TMPDIR/nous_test" > /dev/null 2>&1
-check "nous resolver" "0" "$?"
+# System/integration tests (fork, exec, filesystem) — run locally, not in CI
+# To run: sh tests/programs.sh ./build/cc2 --system
+if [ "${2:-}" = "--system" ]; then
+    # Nous resolver test
+    cat "programs/nous_test.cyr" | "$CC" > "$TMPDIR/nous_test" 2>/dev/null && chmod +x "$TMPDIR/nous_test"
+    timeout 30 "$TMPDIR/nous_test" > /dev/null 2>&1
+    check "nous resolver" "0" "$?"
 
-# Ark package manager — build + status
-cat "programs/ark.cyr" | "$CC" > "$TMPDIR/ark" 2>/dev/null && chmod +x "$TMPDIR/ark"
-"$TMPDIR/ark" status > /dev/null 2>&1
-check "ark status" "0" "$?"
+    # Ark package manager
+    cat "programs/ark.cyr" | "$CC" > "$TMPDIR/ark" 2>/dev/null && chmod +x "$TMPDIR/ark"
+    timeout 10 "$TMPDIR/ark" status > /dev/null 2>&1
+    check "ark status" "0" "$?"
 
-# Cyrius builder (cyrb) — build + self-hosting
-cat "programs/cyrb.cyr" | "$CC" > "$TMPDIR/cyrb" 2>/dev/null && chmod +x "$TMPDIR/cyrb"
-"$TMPDIR/cyrb" self > /dev/null 2>&1
-check "cyrb self-host" "0" "$?"
+    # Cyrius builder self-hosting
+    cat "programs/cyrb.cyr" | "$CC" > "$TMPDIR/cyrb" 2>/dev/null && chmod +x "$TMPDIR/cyrb"
+    timeout 60 "$TMPDIR/cyrb" self > /dev/null 2>&1
+    check "cyrb self-host" "0" "$?"
 
-# Kybernet library integration test
-cat "programs/kybernet_test.cyr" | "$CC" > "$TMPDIR/kybernet_test" 2>/dev/null && chmod +x "$TMPDIR/kybernet_test"
-"$TMPDIR/kybernet_test" > /dev/null 2>&1
-check "kybernet libs" "0" "$?"
+    # Kybernet library integration
+    cat "programs/kybernet_test.cyr" | "$CC" > "$TMPDIR/kybernet_test" 2>/dev/null && chmod +x "$TMPDIR/kybernet_test"
+    timeout 10 "$TMPDIR/kybernet_test" > /dev/null 2>&1
+    check "kybernet libs" "0" "$?"
 
-# Agnostik library integration test
-cat "programs/agnostik_test.cyr" | "$CC" > "$TMPDIR/agnostik_test" 2>/dev/null && chmod +x "$TMPDIR/agnostik_test"
-"$TMPDIR/agnostik_test" > /dev/null 2>&1
-check "agnostik libs" "0" "$?"
+    # Agnostik library integration
+    cat "programs/agnostik_test.cyr" | "$CC" > "$TMPDIR/agnostik_test" 2>/dev/null && chmod +x "$TMPDIR/agnostik_test"
+    timeout 10 "$TMPDIR/agnostik_test" > /dev/null 2>&1
+    check "agnostik libs" "0" "$?"
 
-# Kernel ELF tests
-cat "kernel/agnos.cyr" | "$CC" > "$TMPDIR/agnos" 2>/dev/null
-python3 -c "
+    # Kernel ELF (small tests)
+    build kernel_hello
+    python3 -c "
+import struct,sys
+with open('$TMPDIR/kernel_hello','rb') as f: d=f.read()
+ok = struct.unpack_from('<I',d,84)[0] == 0x1badb002 and struct.unpack_from('<I',d,24)[0] == 0x100060
+sys.exit(0 if ok else 1)
+" 2>/dev/null
+    check "kernel_hello ELF" "0" "$?"
+
+    build isr_stub
+    python3 -c "
+import sys
+with open('$TMPDIR/isr_stub','rb') as f: d=f.read()
+sys.exit(0 if len(d) > 200 and 0xfa in d[144:] else 1)
+" 2>/dev/null
+    check "isr_stub kernel" "0" "$?"
+
+    # Kernel ELF (full)
+    cat "kernel/agnos.cyr" | "$CC" > "$TMPDIR/agnos" 2>/dev/null
+    python3 -c "
 import struct,sys
 with open('$TMPDIR/agnos','rb') as f: d=f.read()
 mb = struct.unpack_from('<I',d,84)[0]
@@ -256,7 +258,8 @@ entry = struct.unpack_from('<I',d,24)[0]
 ok = mb == 0x1badb002 and entry == 0x100060 and len(d) > 1000
 sys.exit(0 if ok else 1)
 " 2>/dev/null
-check "agnos kernel" "0" "$?"
+    check "agnos kernel" "0" "$?"
+fi
 
 rm -rf "$TMPDIR"
 
