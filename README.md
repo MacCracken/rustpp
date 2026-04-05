@@ -120,7 +120,32 @@ Info:      version, which, help
 
 ## Part of AGNOS
 
-Cyrius is the language of [AGNOS](https://agnosticos.org), the AI-Native General Operating System.
+Cyrius is the language of [AGNOS](https://agnosticos.org), the AI-Native General Operating System. Every subsystem — from the kernel to the package manager — is being migrated from Rust to Cyrius.
+
+- [AGNOS Project](https://github.com/MacCracken/agnosticos) — the genesis repository
+- [AGNOS Philosophy](https://github.com/MacCracken/agnosticos/blob/main/docs/philosophy.md) — why the temple was built
+- [Migration Roadmap](https://github.com/MacCracken/agnosticos/blob/main/docs/development/cyrius-lang-migration.md) — six-phase Rust → Cyrius plan
+- [The 29KB Compiler vs The $20,000 Compiler](https://github.com/MacCracken/agnosticos/blob/main/docs/articles/sovereign-compiler-vs-brute-force.md) — the article
+
+### What Cyrius Replaces
+
+| Before | After | Status |
+|--------|-------|--------|
+| Rust compiler (200MB) | Cyrius compiler (93KB) | Done — self-hosting |
+| Rust stdlib (~400K lines) | Cyrius stdlib (35 modules, 199 functions) | Done |
+| cargo | cyrb (18 commands) | Done |
+| rustfmt | cyrfmt | Done |
+| clippy | cyrlint | Done |
+| rustdoc | cyrdoc | Done |
+| cargo-audit | cyrc | Done |
+| agnostik (Rust) | agnostik (Cyrius) | Rewritten |
+| agnosys (Rust) | agnosys (Cyrius) | Rewritten |
+| kybernet (Rust) | kybernet (Cyrius) | Rewritten |
+| nous (Rust) | nous (Cyrius) | Rewritten |
+| ark (Rust) | ark (Cyrius) | Rewritten |
+| Linux kernel | AGNOS kernel (62KB, Cyrius) | Done — VM, processes, syscalls |
+
+Total sovereign toolchain: **204KB** from 29KB seed to running OS.
 
 ## License
 
