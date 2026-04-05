@@ -1,11 +1,10 @@
 # Cyrius Development Roadmap
 
-> **Status**: Phase 9 — Multi-Architecture | **Last Updated**: 2026-04-05
-> **Release Target**: May 1, 2026 (Beltane) — AGNOS sovereign release
+> **Status**: Phase 9 — Multi-Architecture + Phase 8 Tier 1 Complete | **Last Updated**: 2026-04-05
 >
-> **Achieved**: Self-hosting compiler (29KB seed, 85KB binary, 10ms self-compile, 42ms bootstrap),
-> 44 programs (41 userspace + 3 kernel), 58KB OS kernel (VM, processes, syscalls),
-> 141 tests, 0 failures. Beats GNU on size (10-233x) and speed (wc 2.4x faster).
+> **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 10ms self-compile),
+> 46 programs, 8 stdlib libraries (53 functions), 58KB OS kernel,
+> 157 tests, 0 failures. Phase 8 Tier 1 language features complete.
 > Zero external dependencies.
 
 ---
@@ -25,29 +24,21 @@ Seven-stage chain: seed → stage1a → 1b → 1c → 1d → 1e (63 tests) → s
 asm.cyr (1110 lines, 43 mnemonics), bootstrap closure, 29KB committed binary. Zero external dependencies. Byte-exact reproducibility.
 
 ### Phase 4 — Language Extensions
-cc2 self-hosting modular compiler (7 modules, 181 functions, 2823 lines). Features:
-- Structs, pointers (*deref, *store), >6 params, load/store 16/32/64
-- Include, inline asm (raw bytes + mnemonics), progressive type annotations
-- elif, break/continue, for loops, duplicate var detection
-- Error messages with token position
-- Buffered I/O (wc 2.4x faster than GNU)
-- Logical && / || with short-circuit
-- Typed pointers with element size scaling
-- Nested structs with chained dot access
-- Global initializers (two-pass scanning)
-- Enums, switch/match, heap allocator, function pointers, argc/argv, String type
+cc2 modular compiler (7 modules, 182 functions). Structs, pointers, >6 params, load/store 16/32/64, include, inline asm, elif, break/continue, for loops, &&/||, typed pointers, nested structs, global initializers.
 
 ### Phase 5 — Prove the Language
-23 Linux CLI tools, 6 proof programs. All beating GNU on binary size (10-233x smaller). Buffered I/O beats GNU on speed. 44 total programs.
+46 programs, 157 tests. 10-233x smaller than GNU. wc 2.4x faster.
 
 ### Phase 6 — Kernel Prerequisites
-All 9 must-have items complete: typed pointers, nested structs, global inits, for loops, inline asm with mnemonics (18 instructions), bare metal ELF, interrupt handler support, bitfield access, linker control.
+All 9 items: typed pointers, nested structs, global inits, for loops, inline asm (18 mnemonics), bare metal ELF, ISR pattern, bitfields, linker control.
 
 ### Phase 7 — Kernel (x86_64)
-58KB kernel with: Multiboot1 boot → 32-to-64 shim → long mode, serial console, GDT, IDT (256 vectors), PIC remap, PIT timer (100Hz), keyboard input, page tables (16MB identity map, 2MB pages), physical memory manager (bitmap, 4096 pages), virtual memory manager (map/unmap/alloc), process table (create, state management), syscall interface (exit, write, getpid). Built in 5ms.
+58KB kernel: multiboot1 boot, 32-to-64 shim, serial, GDT, IDT, PIC, PIT timer, keyboard, page tables (16MB), PMM (bitmap), VMM, process table, syscalls.
 
 ### Phase 8 — Language Foundations (Tier 1)
-Type enforcement, enums, switch/match, heap allocator, function pointers, argc/argv, String type — all complete.
+7/8 complete: type enforcement (warnings), enums, switch/match, heap allocator, function pointers (&fn_name), argc/argv, String type. Block scoping deferred.
+
+Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 functions.
 
 ---
 
@@ -81,7 +72,7 @@ Type enforcement, enums, switch/match, heap allocator, function pointers, argc/a
 | 3 | Performance pass | Medium | Profile kernel + compiler, optimize hot paths |
 | 4 | Test suite expansion | High | Kernel-level tests, stress tests, edge cases |
 | 5 | Error message improvement | Medium | Line numbers, source context (not just token index) |
-| 6 | Block scoping | Low | Function scope works, var-in-loop is documented known limitation |
+| 6 | Block scoping | Low | Deferred — scope depth + token replay interaction needs investigation |
 
 ### Phase 11 — Prove at Scale
 
@@ -174,8 +165,8 @@ Type enforcement, enums, switch/match, heap allocator, function pointers, argc/a
 
 | Migration Phase | Crates | Prerequisite |
 |----------------|--------|-------------|
-| 1 — Prove it | agnostik (shared types) | Phase 14 (generics, traits) |
-| 2 — Pure computation | mudra, vinimaya, taal, natya, kshetra, science crates, libro | Phase 14 |
+| 1 — Prove it | agnostik (shared types), agnosys (syscall bindings) | Phase 8 stdlib ready — enums, structs, io, vec, fmt |
+| 2 — Pure computation | mudra, vinimaya, taal, natya, kshetra, science crates, libro | Phase 14 (generics, traits) |
 | 3 — System + crypto | sigil, agnosys | Phase 15 (ownership) |
 | 4 — Language-native wins | kavach, bote, t-ron, nein, majra | Phase 15.7 (sandbox-aware borrow checker) |
 | 5 — The brain | daimon, hoosh, nous, ark, takumi | Phase 15.5 (concurrency) |
