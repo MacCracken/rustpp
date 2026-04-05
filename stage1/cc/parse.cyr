@@ -89,6 +89,49 @@ fn FIELDOFF(S, si, fi) {
     return off;
 }
 
+# Parse: enum Name { A; B; C; } — registers variants as global constants
+# Called from BOTH pass 1 (register vars) and pass 2 (emit init code).
+# Pass 1: just register var names + sizes (no code)
+# Pass 2: emit mov rax, val; evstore for each variant
+fn PARSE_ENUM_DEF(S, emit_code) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 2) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var val = 0;
+    var ego = 1;
+    while (ego == 1) {
+        if (PEEKT(S) == 14) { ego = 0; }
+        else {
+            if (PEEKT(S) != 2) { ERR(S); }
+            var vnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 4) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 1) { ERR(S); }
+                val = PEEKV(S);
+                STI(S, GTI(S) + 1);
+            }
+            if (emit_code == 0) {
+                # Pass 1: register only
+                var vcnt = GVCNT(S);
+                S64(S + 0x58000 + vcnt * 8, vnoff);
+                S64(S + 0x58800 + vcnt * 8, 8);
+                SVCNT(S, vcnt + 1);
+            } else {
+                # Pass 2: emit init code
+                var idx = FINDVAR(S, vnoff);
+                if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
+            }
+            val = val + 1;
+            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        }
+    }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
 # Get field count for struct (0-based index)
 fn GETFCOUNT(S, si) { return L64(S + 0x8E730 + si * 8); }
 

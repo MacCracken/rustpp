@@ -221,6 +221,7 @@ fn LEXID(S, p, npos) {
         # "elif" = 0x66696C65
         if (kw & 0xFFFFFFFF == 0x66696C65) { ADDTOK(S, 50, 0); return p; }
         if (kw & 0xFFFFFFFF == 0x65736163) { ADDTOK(S, 58, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x6D756E65) { ADDTOK(S, 60, 0); return p; }
     }
     if (klen == 5) {
         if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }

@@ -112,7 +112,7 @@ cc2 self-hosting modular compiler (7 modules, 150 functions). Features beyond st
 | # | Item | Effort | Unlocks |
 |---|------|--------|---------|
 | 1 | Type enforcement (warnings → errors) | 2 sessions | Catch bugs at compile time |
-| 2 | Enums / tagged unions | 2 sessions | Error handling, state machines, kernel IPC |
+| 2 | ~~Enums~~ | Done | enum Name { A; B = 5; C; } with auto-increment + explicit values |
 | 3 | ~~Switch/match~~ | Done | switch (expr) { case N: stmts; default: stmts; } |
 | 4 | ~~Heap allocator~~ | Done | Bump allocator from brk, alloc/reset/used |
 | 5 | ~~Function pointers~~ | Done | &fn_name + indirect call rax, vtable pattern works |

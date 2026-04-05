@@ -193,6 +193,11 @@ run_test_cc "elif_else"  'var x = 5; if (x == 1) { x = 10; } elif (x == 2) { x =
 run_test_cc "elif_first" 'var x = 1; if (x == 1) { x = 42; } elif (x == 2) { x = 20; }' 42
 echo ""
 
+echo "-- Enums (cc-only) --"
+run_test_cc "enum_basic"  'enum C { R; G; B; } syscall(60, B);' 2
+run_test_cc "enum_value"  'enum E { OK = 0; ERR = 42; } syscall(60, ERR);' 42
+run_test_cc "enum_switch" 'enum Op { ADD; SUB; MUL; } fn calc(op, a, b) { switch (op) { case 0: return a + b; case 2: return a * b; default: return 0; } return 0; } syscall(60, calc(MUL, 6, 7));' 42
+echo ""
 echo "-- Function Pointers (cc-only) --"
 run_test_cc "fnptr_addr"  'fn f() { return 42; } var fp = &f; syscall(60, 1);' 1
 run_test_cc "fnptr_call"  'fn add(a,b) { return a + b; } fn call2(fp,a,b) { var r = 0; asm { 0x48; 0x8B; 0x75; 0xE8; 0x48; 0x8B; 0x7D; 0xF0; 0x48; 0x8B; 0x45; 0xF8; 0xFF; 0xD0; 0x48; 0x89; 0x45; 0xE0; } return r; } syscall(60, call2(&add, 20, 22));' 42
