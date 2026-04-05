@@ -149,10 +149,10 @@ case "${1:-help}" in
         cc4="/tmp/cyrb_cc4_$$"
         # Find cc2.cyr source
         CC2_SRC=""
-        if [ -f "stage1/cc2.cyr" ]; then CC2_SRC="stage1/cc2.cyr"; fi
-        if [ -f "../cyrius/stage1/cc2.cyr" ]; then CC2_SRC="../cyrius/stage1/cc2.cyr"; fi
+        if [ -f "src/compiler.cyr" ]; then CC2_SRC="src/compiler.cyr"; fi
+        if [ -f "../cyrius/src/compiler.cyr" ]; then CC2_SRC="../cyrius/src/compiler.cyr"; fi
         if [ -z "$CC2_SRC" ]; then
-            echo "error: stage1/cc2.cyr not found" >&2
+            echo "error: src/compiler.cyr not found" >&2
             exit 1
         fi
         cat "$CC2_SRC" | "$CC" > "$cc3" && chmod +x "$cc3"
@@ -392,7 +392,7 @@ MANIFEST
             echo "updated vendored stdlib from $(cat "${CYRB_HOME}/current")"
         else
             echo "no installed stdlib found or no lib/ directory"
-            echo "manual update: cp ../cyrius/stage1/lib/*.cyr lib/"
+            echo "manual update: cp ../cyrius/lib/*.cyr lib/"
         fi
         ;;
 

@@ -21,18 +21,18 @@ jobs:
       - name: Bootstrap
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
       - name: Build tools
         run: |
-          cat stage1/programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
-          cat stage1/programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
-          cat stage1/programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
-          cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
+          cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Format check (stdlib)
         run: |
           fail=0
-          for f in stage1/lib/*.cyr; do
+          for f in lib/*.cyr; do
             ./build/cyrfmt "$f" > /tmp/fmt_check
             if ! diff -q "$f" /tmp/fmt_check > /dev/null 2>&1; then
               echo "needs formatting: $(basename $f)"
@@ -44,7 +44,7 @@ jobs:
       - name: Lint (stdlib)
         run: |
           total=0
-          for f in stage1/lib/*.cyr; do
+          for f in lib/*.cyr; do
             w=$(./build/cyrlint "$f" 2>&1 | tail -1 | grep -oP '^\d+' || echo 0)
             total=$((total + w))
           done
@@ -52,9 +52,9 @@ jobs:
           test $total -eq 0
       - name: Self-hosting
         run: |
-          cat stage1/cc2.cyr | ./build/cc2 > /tmp/cc3
+          cat src/compiler.cyr | ./build/cc2 > /tmp/cc3
           chmod +x /tmp/cc3
-          cat stage1/cc2.cyr | /tmp/cc3 > /tmp/cc4
+          cat src/compiler.cyr | /tmp/cc3 > /tmp/cc4
           cmp /tmp/cc3 /tmp/cc4
           echo "PASS: cc2==cc3 byte-identical"
 
@@ -67,12 +67,12 @@ jobs:
       - name: Bootstrap + build cyrc
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
-          cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Vet tools
         run: |
-          for f in stage1/programs/ark.cyr stage1/programs/cyrb.cyr stage1/programs/cyrc.cyr; do
+          for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then
               ./build/cyrc vet "$f"
             fi
@@ -86,12 +86,12 @@ jobs:
       - name: Bootstrap + build cyrc
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
-          cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Deny tools
         run: |
-          for f in stage1/programs/ark.cyr stage1/programs/cyrb.cyr stage1/programs/cyrc.cyr; do
+          for f in programs/ark.cyr programs/cyrb.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then
               ./build/cyrc deny "$f"
             fi
@@ -107,11 +107,11 @@ jobs:
         run: |
           fail=0
           # Check for raw execve in libraries (should use process.cyr instead)
-          if grep -r 'syscall(59' stage1/lib/ 2>/dev/null | grep -v process.cyr | grep -v agnosys; then
+          if grep -r 'syscall(59' lib/ 2>/dev/null | grep -v process.cyr | grep -v agnosys; then
             echo "WARN: raw execve syscall outside process.cyr/agnosys"
           fi
           # Check for hardcoded paths that might not exist
-          if grep -rn '/etc/\|/usr/' stage1/lib/ 2>/dev/null | grep -v '\.cyr:#' | head -5; then
+          if grep -rn '/etc/\|/usr/' lib/ 2>/dev/null | grep -v '\.cyr:#' | head -5; then
             echo "INFO: hardcoded system paths found (review for portability)"
           fi
           echo "security scan complete"
@@ -126,12 +126,12 @@ jobs:
       - name: Bootstrap
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
       - name: Compiler tests (111)
-        run: sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
+        run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
       - name: Program tests (57)
-        run: sh stage1/programs/test_programs.sh ./build/cc2
+        run: sh tests/programs.sh ./build/cc2
 
   # ── aarch64 ──
   aarch64:
@@ -145,9 +145,9 @@ jobs:
       - name: Bootstrap + cross-compiler
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
-          cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
       - name: aarch64 tests (29)
         run: |
           pass=0; fail=0
@@ -185,13 +185,13 @@ jobs:
       - name: Bootstrap + build cyrdoc
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
-          cat stage1/programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
       - name: Doc coverage (stdlib)
         run: |
           total=0
-          for f in stage1/lib/*.cyr; do
+          for f in lib/*.cyr; do
             u=$(./build/cyrdoc --check "$f" 2>&1 | tail -1 | grep -oP '(\d+) undocumented' | grep -oP '^\d+' || echo 0)
             total=$((total + u))
           done

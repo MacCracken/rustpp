@@ -1,0 +1,22 @@
+# args — print command-line arguments
+# Exercises: include, args library, for loops, strlen
+# Usage: echo "args test" | ./args (reads /proc/self/cmdline)
+
+include "lib/args.cyr"
+include "lib/string.cyr"
+
+args_init();
+var ac = argc();
+print_num(ac);
+println(" arguments:");
+
+for (var i = 0; i < ac; i = i + 1) {
+    var arg = argv(i);
+    var alen = strlen(arg);
+    print_num(i);
+    syscall(1, 1, ": ", 2);
+    syscall(1, 1, arg, alen);
+    syscall(1, 1, "\n", 1);
+}
+
+syscall(60, 0);

@@ -38,23 +38,20 @@ Build: sh bootstrap/bootstrap.sh
 ## Project Structure
 
 ```
-bootstrap/           29KB seed binary + bootstrap scripts
-stage1/
-  cc2.cyr            Compiler entry point (includes modules)
-  cc2_aarch64.cyr    Cross-compiler entry (swaps arch includes)
-  cc.cyr             Bridge compiler (stage1f feature set)
+bootstrap/           29KB seed binary + stage1f.cyr + asm.cyr
+src/
+  compiler.cyr       Compiler entry point (includes modules)
+  compiler_aarch64.cyr Cross-compiler (swaps arch includes)
+  cc_bridge.cyr      Bridge compiler (stage1f feature set)
   cc/                Compiler modules: util, emit, jump, lex, parse, fixup
   arch/aarch64/      aarch64 backend: emit, jump, fixup
-  lib/               Core stdlib (8 modules)
-  lib/agnostik/      Shared AGNOS types (6 modules)
-  lib/agnosys/       Syscall bindings (1 module)
-  lib/kybernet/      PID 1 init system (7 modules)
-  lib/nous/          Dependency resolver (1 module)
-  lib/assert.cyr     Test framework
-  programs/          52 programs (tools, tests, demos, algorithms)
-  stage1f.cyr        Stage 1f compiler source (assembly)
-  asm.cyr            Self-hosting assembler source
-  test_cc.sh         Compiler test suite (111 tests)
+lib/                 Standard library (35 modules)
+  agnostik/          Shared AGNOS types (6 modules)
+  agnosys/           Syscall bindings (1 module)
+  kybernet/          PID 1 init system (7 modules)
+  nous/              Dependency resolver (1 module)
+programs/            55 programs (tools, tests, demos, algorithms)
+tests/               Test scripts (compiler.sh, programs.sh, assembler.sh)
 build/               Generated binaries (gitignored except cc2)
 kernel/              AGNOS kernel (compile test; source of truth at agnos repo)
 docs/                Architecture, roadmap, benchmarks, language guide
@@ -77,7 +74,7 @@ docs/                Architecture, roadmap, benchmarks, language guide
 3. TEST        — After EACH change:
                  ☐ Basic: 'var x = 42;' → 42
                  ☐ Self-hosting: cc2==cc3 byte-identical
-                 ☐ Full suite: sh stage1/test_cc.sh
+                 ☐ Full suite: sh tests/compiler.sh
 4. IF BROKEN   — Revert, apply ONE change, test, repeat
                  3 failed attempts = defer and document
 5. AUDIT       — Full chain: bootstrap, all suites, self-hosting

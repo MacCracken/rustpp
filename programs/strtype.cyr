@@ -1,0 +1,33 @@
+# strtype — test string type (Str = fat pointer)
+# Exercises: str_from, str_len, str_eq, str_cat, str_println
+
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+
+fn run() {
+    alloc_init();
+    var pass: i64 = 0;
+
+    var s1 = str_from("hello");
+    if (str_len(s1) == 5) { pass = pass + 1; }
+
+    var s2 = str_from("hello");
+    if (str_eq(s1, s2) == 1) { pass = pass + 1; }
+
+    var s3 = str_from("world");
+    if (str_eq(s1, s3) == 0) { pass = pass + 1; }
+
+    var s4 = str_cat(s1, s3);
+    if (str_len(s4) == 10) { pass = pass + 1; }
+
+    str_println(s1);
+    str_println(s4);
+
+    return pass;
+}
+
+var r = run();
+print_num(r);
+syscall(1, 1, " str tests\n", 11);
+syscall(60, r);

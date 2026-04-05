@@ -37,14 +37,14 @@ jobs:
       - name: Bootstrap + build all
         run: |
           sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 2>/dev/null || true
           chmod +x ./build/cc2
-          cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
-          cat stage1/programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
-          cat stage1/programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
-          cat stage1/programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
-          cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
-          cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
+          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          cat programs/cyrfmt.cyr | ./build/cc2 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat programs/cyrlint.cyr | ./build/cc2 > ./build/cyrlint && chmod +x ./build/cyrlint
+          cat programs/cyrdoc.cyr | ./build/cc2 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/ark.cyr | ./build/cc2 > ./build/ark && chmod +x ./build/ark
 
       - name: Package artifacts
         run: |

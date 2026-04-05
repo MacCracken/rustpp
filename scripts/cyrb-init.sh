@@ -184,7 +184,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/MacCracken/cyrius.git ../cyrius
           cd ../cyrius && sh bootstrap/bootstrap.sh
-          cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+          cat src/compiler.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
       - name: Build
         run: sh scripts/build.sh
       - name: Test
@@ -194,12 +194,12 @@ CI
 # === Vendor stdlib ===
 echo "Vendoring Cyrius stdlib..."
 for f in string.cyr fmt.cyr alloc.cyr io.cyr vec.cyr str.cyr fnptr.cyr assert.cyr tagged.cyr callback.cyr bounds.cyr hashmap.cyr bench.cyr; do
-    if [ -f "$CYRIUS/stage1/lib/$f" ]; then
-        cp "$CYRIUS/stage1/lib/$f" "$NAME/lib/"
+    if [ -f "$CYRIUS/lib/$f" ]; then
+        cp "$CYRIUS/lib/$f" "$NAME/lib/"
     fi
 done
-if [ -f "$CYRIUS/stage1/lib/agnosys/syscalls.cyr" ]; then
-    cp "$CYRIUS/stage1/lib/agnosys/syscalls.cyr" "$NAME/lib/agnosys/"
+if [ -f "$CYRIUS/lib/agnosys/syscalls.cyr" ]; then
+    cp "$CYRIUS/lib/agnosys/syscalls.cyr" "$NAME/lib/agnosys/"
 fi
 
 # === Done ===

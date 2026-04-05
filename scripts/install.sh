@@ -88,18 +88,18 @@ if [ "$downloaded" -eq 0 ]; then
     # Bootstrap chain: asm → stage1f → cc.cyr → cc2 → tools
     sh bootstrap/bootstrap.sh
     # cc.cyr is the bridge compiler (stage1f feature set)
-    if [ -f stage1/cc.cyr ]; then
-        cat stage1/cc.cyr | ./build/stage1f > ./build/cc && chmod +x ./build/cc
-        cat stage1/cc2.cyr | ./build/cc > ./build/cc2 && chmod +x ./build/cc2
+    if [ -f src/cc_bridge.cyr ]; then
+        cat src/cc_bridge.cyr | ./build/stage1f > ./build/cc && chmod +x ./build/cc
+        cat src/compiler.cyr | ./build/cc > ./build/cc2 && chmod +x ./build/cc2
     else
         # If cc.cyr is committed as build/cc2, use it directly
-        cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+        cat src/compiler.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
     fi
     # Cross-compiler + tools
-    cat stage1/cc2_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 2>/dev/null && chmod +x ./build/cc2_aarch64 || true
-    cat stage1/programs/cyrb.cyr | ./build/cc2 > ./build/cyrb 2>/dev/null && chmod +x ./build/cyrb || true
-    cat stage1/programs/ark.cyr | ./build/cc2 > ./build/ark 2>/dev/null && chmod +x ./build/ark || true
-    cat stage1/programs/cyrc.cyr | ./build/cc2 > ./build/cyrc 2>/dev/null && chmod +x ./build/cyrc || true
+    cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 2>/dev/null && chmod +x ./build/cc2_aarch64 || true
+    cat programs/cyrb.cyr | ./build/cc2 > ./build/cyrb 2>/dev/null && chmod +x ./build/cyrb || true
+    cat programs/ark.cyr | ./build/cc2 > ./build/ark 2>/dev/null && chmod +x ./build/ark || true
+    cat programs/cyrc.cyr | ./build/cc2 > ./build/cyrc 2>/dev/null && chmod +x ./build/cyrc || true
 
     # Copy to version dir
     for bin in cc2 cc2_aarch64 cyrb ark cyrc; do

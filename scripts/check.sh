@@ -32,8 +32,8 @@ echo ""
 echo "── Self-Hosting ──"
 cc3="/tmp/check_cc3_$$"
 cc4="/tmp/check_cc4_$$"
-cat "$ROOT/stage1/cc2.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
-cat "$ROOT/stage1/cc2.cyr" | "$cc3" > "$cc4" 2>/dev/null
+cat "$ROOT/src/compiler.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
+cat "$ROOT/src/compiler.cyr" | "$cc3" > "$cc4" 2>/dev/null
 cmp -s "$cc3" "$cc4" 2>/dev/null
 check "cc2==cc3 byte-identical" "$?"
 rm -f "$cc3" "$cc4"
@@ -41,14 +41,14 @@ echo ""
 
 # ── 2. Compiler Tests ──
 echo "── Compiler Tests ──"
-sh "$ROOT/stage1/test_cc.sh" "$CC" "$ROOT/build/stage1f" 2>&1 | tail -1
+sh "$ROOT/tests/compiler.sh" "$CC" "$ROOT/build/stage1f" 2>&1 | tail -1
 cc_result=$?
 check "compiler tests (111)" "$cc_result"
 echo ""
 
 # ── 3. Program Tests ──
 echo "── Program Tests ──"
-sh "$ROOT/stage1/programs/test_programs.sh" "$CC" 2>&1 | tail -1
+sh "$ROOT/tests/programs.sh" "$CC" 2>&1 | tail -1
 prog_result=$?
 check "program tests (57)" "$prog_result"
 echo ""
@@ -57,7 +57,7 @@ echo ""
 echo "── Format Check ──"
 if [ -x "$CYRFMT" ]; then
     fmt_fail=0
-    for f in "$ROOT"/stage1/lib/*.cyr; do
+    for f in "$ROOT"/lib/*.cyr; do
         "$CYRFMT" "$f" > /tmp/check_fmt_$$ 2>/dev/null
         if ! diff -q "$f" /tmp/check_fmt_$$ > /dev/null 2>&1; then
             echo "    needs formatting: $(basename $f)"
@@ -75,7 +75,7 @@ echo ""
 echo "── Lint ──"
 if [ -x "$CYRLINT" ]; then
     lint_total=0
-    for f in "$ROOT"/stage1/lib/*.cyr; do
+    for f in "$ROOT"/lib/*.cyr; do
         w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -oP '^\d+' || echo 0)
         lint_total=$((lint_total + w))
     done
@@ -94,7 +94,7 @@ echo ""
 echo "── Dependency Audit ──"
 if [ -x "$CYRC" ]; then
     vet_fail=0
-    for f in "$ROOT"/stage1/programs/ark.cyr "$ROOT"/stage1/programs/cyrb.cyr "$ROOT"/stage1/programs/cyrc.cyr; do
+    for f in "$ROOT"/programs/ark.cyr "$ROOT"/programs/cyrb.cyr "$ROOT"/programs/cyrc.cyr; do
         if [ -f "$f" ]; then
             "$CYRC" vet "$f" > /dev/null 2>&1
             if [ $? -ne 0 ]; then
@@ -113,7 +113,7 @@ echo ""
 echo "── Policy Check ──"
 if [ -x "$CYRC" ]; then
     deny_fail=0
-    for f in "$ROOT"/stage1/programs/ark.cyr "$ROOT"/stage1/programs/cyrb.cyr "$ROOT"/stage1/programs/cyrc.cyr; do
+    for f in "$ROOT"/programs/ark.cyr "$ROOT"/programs/cyrb.cyr "$ROOT"/programs/cyrc.cyr; do
         if [ -f "$f" ]; then
             "$CYRC" deny "$f" > /dev/null 2>&1
             if [ $? -ne 0 ]; then
@@ -131,13 +131,13 @@ echo ""
 # ── 8. Benchmarks ──
 echo "── Benchmarks ──"
 cat > /tmp/check_bench_$$.cyr << 'BENCH'
-include "stage1/lib/string.cyr"
-include "stage1/lib/fmt.cyr"
-include "stage1/lib/alloc.cyr"
-include "stage1/lib/vec.cyr"
-include "stage1/lib/fnptr.cyr"
-include "stage1/lib/agnosys/syscalls.cyr"
-include "stage1/lib/bench.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/agnosys/syscalls.cyr"
+include "lib/bench.cyr"
 
 fn work_noop() { return 0; }
 fn work_alloc() { alloc(64); return 0; }
@@ -169,7 +169,7 @@ echo "── Doc Coverage ──"
 CYRDOC="$ROOT/build/cyrdoc"
 if [ -x "$CYRDOC" ]; then
     doc_undoc=0
-    for f in "$ROOT"/stage1/lib/*.cyr; do
+    for f in "$ROOT"/lib/*.cyr; do
         u=$("$CYRDOC" --check "$f" 2>&1 | tail -1 | grep -oP '(\d+) undocumented' | grep -oP '^\d+' || echo 0)
         doc_undoc=$((doc_undoc + u))
     done

@@ -1,0 +1,113 @@
+# process.cyr — process management
+# Usage: include "lib/process.cyr"
+# Requires: agnosys/syscalls.cyr, string.cyr, alloc.cyr, tagged.cyr
+
+# Run a command and wait for it. Returns Result(exit_code).
+fn run(cmd, arg1, arg2) {
+    var pid = sys_fork();
+    if (pid < 0) { return Err(0 - pid); }
+    if (pid == 0) {
+        var argv[4];
+        store64(&argv, cmd);
+        var ai = 1;
+        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+        store64(&argv + ai * 8, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(cmd, &argv, &envp);
+        sys_exit(127);
+    }
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return Ok(WEXITSTATUS(status)); }
+    if (WIFSIGNALED(status) == 1) { return Ok(128 + WTERMSIG(status)); }
+    return Err(1);
+}
+
+# Run a command and capture stdout into a buffer.
+# Returns Result(bytes_read).
+fn run_capture(cmd, arg1, arg2, buf, buflen) {
+    var pipefd[2];
+    var pr = sys_pipe(&pipefd);
+    if (pr < 0) { return Err(0 - pr); }
+    var read_fd = load64(&pipefd);
+    var write_fd = load64(&pipefd + 8);
+
+    var pid = sys_fork();
+    if (pid < 0) {
+        sys_close(read_fd);
+        sys_close(write_fd);
+        return Err(0 - pid);
+    }
+    if (pid == 0) {
+        sys_close(read_fd);
+        sys_dup2(write_fd, 1);
+        sys_close(write_fd);
+        var devnull = sys_open("/dev/null", O_WRONLY, 0);
+        if (devnull >= 0) { sys_dup2(devnull, 2); sys_close(devnull); }
+        var argv[4];
+        store64(&argv, cmd);
+        var ai = 1;
+        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+        store64(&argv + ai * 8, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(cmd, &argv, &envp);
+        sys_exit(127);
+    }
+    sys_close(write_fd);
+    var total = 0;
+    var rgo = 1;
+    while (rgo == 1) {
+        var n = sys_read(read_fd, buf + total, buflen - total);
+        if (n <= 0) { rgo = 0; }
+        else {
+            total = total + n;
+            if (total >= buflen) { rgo = 0; }
+        }
+    }
+    sys_close(read_fd);
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    return Ok(total);
+}
+
+# Spawn a command in the background (don't wait).
+# Returns Result(child_pid).
+fn spawn(cmd, arg1, arg2) {
+    var pid = sys_fork();
+    if (pid < 0) { return Err(0 - pid); }
+    if (pid == 0) {
+        var argv[4];
+        store64(&argv, cmd);
+        var ai = 1;
+        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+        store64(&argv + ai * 8, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(cmd, &argv, &envp);
+        sys_exit(127);
+    }
+    return Ok(pid);
+}
+
+# Wait for a specific pid. Returns Result(exit_code).
+fn wait_pid(pid) {
+    var status_buf[1];
+    var r = sys_waitpid(pid, &status_buf, 0);
+    if (r < 0) { return Err(0 - r); }
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return Ok(WEXITSTATUS(status)); }
+    if (WIFSIGNALED(status) == 1) { return Ok(128 + WTERMSIG(status)); }
+    return Err(1);
+}
+
+# Get current process ID
+fn getpid() { return sys_getpid(); }
+
+# Get parent process ID
+fn getppid() { return sys_getppid(); }

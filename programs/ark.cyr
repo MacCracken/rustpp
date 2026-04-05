@@ -1,0 +1,397 @@
+# ark — AGNOS Package Manager
+# Written in Cyrius. Uses nous resolver for package resolution.
+#
+# Usage:
+#   ark install <pkg>     — resolve + install a package
+#   ark remove <pkg>      — remove a package
+#   ark search <query>    — search packages across sources
+#   ark list              — list installed packages
+#   ark info <pkg>        — show package details
+#   ark status            — show ark version and system info
+#   ark verify            — verify package database integrity
+#   ark history           — show recent transactions
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/args.cyr"
+include "lib/cyrius-ref/agnosys/syscalls.cyr"
+include "lib/cyrius-ref/nous/nous.cyr"
+
+var ARK_VERSION = "0.9.0";
+var ARK_DB_PATH = "/var/lib/ark/packages.db";
+var ARK_LOG_PATH = "/var/lib/ark/transactions.log";
+var ARK_MKT_DIR = "/var/lib/ark/marketplace";
+var ARK_CACHE_DIR = "/var/cache/ark";
+
+# ================================================================
+# PackageDb — simple line-based database
+# Format: name|version|source|installed_at\n
+# ================================================================
+
+# Load package database into vec of strings (one per line)
+fn db_load() {
+    var entries = vec_new();
+    var buf = alloc(16384);
+    var n = file_read_all(ARK_DB_PATH, buf, 16384);
+    if (n <= 0) { return entries; }
+    # Parse lines
+    var li = 0;
+    while (li < n) {
+        var le = li;
+        while (le < n) {
+            if (load8(buf + le) == 10) { break; }
+            le = le + 1;
+        }
+        var llen = le - li;
+        if (llen > 0) {
+            var line = alloc(llen + 1);
+            memcpy(line, buf + li, llen);
+            store8(line + llen, 0);
+            vec_push(entries, line);
+        }
+        li = le + 1;
+    }
+    return entries;
+}
+
+# Check if package is in database
+fn db_has(entries, name) {
+    var len = vec_len(entries);
+    var nlen = strlen(name);
+    var di = 0;
+    while (di < len) {
+        var line = vec_get(entries, di);
+        # Check if line starts with "name|"
+        if (memeq(line, name, nlen) == 1) {
+            if (load8(line + nlen) == 124) { return 1; }
+        }
+        di = di + 1;
+    }
+    return 0;
+}
+
+# Add entry to database file
+fn db_register(name, version, source) {
+    # Ensure directory exists
+    sys_mkdir("/var/lib/ark", 0x1C0);
+    var fd = sys_open(ARK_DB_PATH, O_WRONLY | O_CREAT | O_APPEND, 0x1A4);
+    if (fd < 0) { return fd; }
+    sys_write(fd, name, strlen(name));
+    sys_write(fd, "|", 1);
+    sys_write(fd, version, strlen(version));
+    sys_write(fd, "|", 1);
+    var sbuf[24];
+    var slen = fmt_int_buf(source, &sbuf);
+    sys_write(fd, &sbuf, slen);
+    sys_write(fd, "\n", 1);
+    sys_close(fd);
+    return 0;
+}
+
+# Append to transaction log
+fn log_transaction(action, pkg_name) {
+    sys_mkdir("/var/lib/ark", 0x1C0);
+    var fd = sys_open(ARK_LOG_PATH, O_WRONLY | O_CREAT | O_APPEND, 0x1A4);
+    if (fd < 0) { return 0; }
+    sys_write(fd, action, strlen(action));
+    sys_write(fd, " ", 1);
+    sys_write(fd, pkg_name, strlen(pkg_name));
+    sys_write(fd, "\n", 1);
+    sys_close(fd);
+    return 0;
+}
+
+# ================================================================
+# Commands
+# ================================================================
+
+fn cmd_status() {
+    syscall(1, 1, "ark ", 4);
+    syscall(1, 1, ARK_VERSION, strlen(ARK_VERSION));
+    syscall(1, 1, " (Cyrius)\n", 10);
+    syscall(1, 1, "resolver: nous\n", 15);
+    syscall(1, 1, "database: ", 10);
+    syscall(1, 1, ARK_DB_PATH, strlen(ARK_DB_PATH));
+    syscall(1, 1, "\n", 1);
+
+    # Count installed packages
+    var entries = db_load();
+    var cnt = vec_len(entries);
+    fmt_int(cnt);
+    syscall(1, 1, " packages installed\n", 20);
+
+    # Check apt availability
+    if (file_exists("/usr/bin/apt-cache") == 1) {
+        syscall(1, 1, "system backend: apt\n", 20);
+    }
+    if (file_exists("/usr/bin/pacman") == 1) {
+        syscall(1, 1, "system backend: pacman\n", 22);
+    }
+    return 0;
+}
+
+fn cmd_search(query) {
+    var resolver = resolver_new(ARK_MKT_DIR, ARK_CACHE_DIR);
+    var results = nous_search(resolver, query);
+    var len = vec_len(results);
+    if (len == 0) {
+        syscall(1, 1, "no packages found for '", 23);
+        syscall(1, 1, query, strlen(query));
+        syscall(1, 1, "'\n", 2);
+        return 0;
+    }
+    var si = 0;
+    while (si < len) {
+        var p = vec_get(results, si);
+        pkg_print(p);
+        si = si + 1;
+    }
+    fmt_int(len);
+    syscall(1, 1, " packages found\n", 16);
+    return 0;
+}
+
+fn cmd_info(name) {
+    var resolver = resolver_new(ARK_MKT_DIR, ARK_CACHE_DIR);
+    var p = nous_resolve(resolver, name);
+    if (p == 0) {
+        syscall(1, 2, "package not found: ", 19);
+        syscall(1, 2, name, strlen(name));
+        syscall(1, 2, "\n", 1);
+        return 1;
+    }
+    syscall(1, 1, "Name:    ", 9);
+    syscall(1, 1, pkg_name(p), strlen(pkg_name(p)));
+    syscall(1, 1, "\n", 1);
+    syscall(1, 1, "Version: ", 9);
+    var ver = pkg_version(p);
+    if (ver != 0) { syscall(1, 1, ver, strlen(ver)); }
+    syscall(1, 1, "\n", 1);
+    syscall(1, 1, "Source:  ", 9);
+    source_print(pkg_source(p));
+    syscall(1, 1, "\n", 1);
+    var desc = pkg_desc(p);
+    if (desc != 0) {
+        if (strlen(desc) > 0) {
+            syscall(1, 1, "Desc:    ", 9);
+            syscall(1, 1, desc, strlen(desc));
+            syscall(1, 1, "\n", 1);
+        }
+    }
+    syscall(1, 1, "Trusted: ", 9);
+    if (pkg_trusted(p) == 1) { syscall(1, 1, "yes\n", 4); }
+    else { syscall(1, 1, "no\n", 3); }
+
+    # Check if installed
+    var entries = db_load();
+    if (db_has(entries, name) == 1) {
+        syscall(1, 1, "Status:  installed\n", 19);
+    } else {
+        syscall(1, 1, "Status:  not installed\n", 23);
+    }
+    return 0;
+}
+
+fn cmd_install(name) {
+    syscall(1, 1, "resolving ", 10);
+    syscall(1, 1, name, strlen(name));
+    syscall(1, 1, "...\n", 4);
+
+    # Check if already installed
+    var entries = db_load();
+    if (db_has(entries, name) == 1) {
+        syscall(1, 1, "already installed: ", 19);
+        syscall(1, 1, name, strlen(name));
+        syscall(1, 1, "\n", 1);
+        return 0;
+    }
+
+    # Resolve
+    var resolver = resolver_new(ARK_MKT_DIR, ARK_CACHE_DIR);
+    var p = nous_resolve(resolver, name);
+    if (p == 0) {
+        syscall(1, 2, "not found: ", 11);
+        syscall(1, 2, name, strlen(name));
+        syscall(1, 2, "\n", 1);
+        return 1;
+    }
+
+    syscall(1, 1, "found: ", 7);
+    pkg_print(p);
+
+    # Log transaction
+    log_transaction("install", name);
+
+    # Register in database
+    db_register(name, pkg_version(p), pkg_source(p));
+
+    syscall(1, 1, "installed: ", 11);
+    syscall(1, 1, name, strlen(name));
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+fn cmd_remove(name) {
+    var entries = db_load();
+    if (db_has(entries, name) == 0) {
+        syscall(1, 2, "not installed: ", 15);
+        syscall(1, 2, name, strlen(name));
+        syscall(1, 2, "\n", 1);
+        return 1;
+    }
+    # Rewrite database without the entry
+    sys_mkdir("/var/lib/ark", 0x1C0);
+    var fd = sys_open(ARK_DB_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (fd < 0) { return 1; }
+    var nlen = strlen(name);
+    var len = vec_len(entries);
+    var ri = 0;
+    while (ri < len) {
+        var line = vec_get(entries, ri);
+        # Skip the entry matching name
+        var skip = 0;
+        if (memeq(line, name, nlen) == 1) {
+            if (load8(line + nlen) == 124) { skip = 1; }
+        }
+        if (skip == 0) {
+            sys_write(fd, line, strlen(line));
+            sys_write(fd, "\n", 1);
+        }
+        ri = ri + 1;
+    }
+    sys_close(fd);
+    log_transaction("remove", name);
+    syscall(1, 1, "removed: ", 9);
+    syscall(1, 1, name, strlen(name));
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+fn cmd_list() {
+    var entries = db_load();
+    var len = vec_len(entries);
+    if (len == 0) {
+        println("no packages installed");
+        return 0;
+    }
+    var li = 0;
+    while (li < len) {
+        var line = vec_get(entries, li);
+        syscall(1, 1, line, strlen(line));
+        syscall(1, 1, "\n", 1);
+        li = li + 1;
+    }
+    fmt_int(len);
+    syscall(1, 1, " packages\n", 10);
+    return 0;
+}
+
+fn cmd_history() {
+    var buf = alloc(8192);
+    var n = file_read_all(ARK_LOG_PATH, buf, 8192);
+    if (n <= 0) {
+        println("no transaction history");
+        return 0;
+    }
+    syscall(1, 1, buf, n);
+    return 0;
+}
+
+fn cmd_verify() {
+    println("verifying package database...");
+    var entries = db_load();
+    var len = vec_len(entries);
+    var errors = 0;
+    var vi = 0;
+    while (vi < len) {
+        var line = vec_get(entries, vi);
+        # Check line has at least 2 pipes (name|version|source)
+        var pipes = 0;
+        var ci = 0;
+        var llen = strlen(line);
+        while (ci < llen) {
+            if (load8(line + ci) == 124) { pipes = pipes + 1; }
+            ci = ci + 1;
+        }
+        if (pipes < 2) {
+            syscall(1, 2, "  corrupt entry: ", 17);
+            syscall(1, 2, line, llen);
+            syscall(1, 2, "\n", 1);
+            errors = errors + 1;
+        }
+        vi = vi + 1;
+    }
+    if (errors == 0) {
+        fmt_int(len);
+        syscall(1, 1, " entries verified, no errors\n", 28);
+    } else {
+        fmt_int(errors);
+        syscall(1, 1, " errors found\n", 14);
+    }
+    return errors;
+}
+
+fn usage() {
+    syscall(1, 1, "ark ", 4);
+    syscall(1, 1, ARK_VERSION, strlen(ARK_VERSION));
+    syscall(1, 1, " — AGNOS Package Manager (Cyrius)\n\n", 35);
+    println("Commands:");
+    println("  ark install <pkg>  — install a package");
+    println("  ark remove <pkg>   — remove a package");
+    println("  ark search <query> — search packages");
+    println("  ark list           — list installed packages");
+    println("  ark info <pkg>     — show package details");
+    println("  ark status         — system status");
+    println("  ark verify         — verify database");
+    println("  ark history        — transaction log");
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+
+    if (argc() < 2) {
+        usage();
+        return 0;
+    }
+
+    var cmd = argv(1);
+
+    if (streq(cmd, "status") == 1) { return cmd_status(); }
+    if (streq(cmd, "list") == 1) { return cmd_list(); }
+    if (streq(cmd, "history") == 1) { return cmd_history(); }
+    if (streq(cmd, "verify") == 1) { return cmd_verify(); }
+
+    if (streq(cmd, "search") == 1) {
+        if (argc() < 3) { println("Usage: ark search <query>"); return 1; }
+        return cmd_search(argv(2));
+    }
+
+    if (streq(cmd, "info") == 1) {
+        if (argc() < 3) { println("Usage: ark info <pkg>"); return 1; }
+        return cmd_info(argv(2));
+    }
+
+    if (streq(cmd, "install") == 1) {
+        if (argc() < 3) { println("Usage: ark install <pkg>"); return 1; }
+        return cmd_install(argv(2));
+    }
+
+    if (streq(cmd, "remove") == 1) {
+        if (argc() < 3) { println("Usage: ark remove <pkg>"); return 1; }
+        return cmd_remove(argv(2));
+    }
+
+    syscall(1, 2, "unknown command: ", 17);
+    syscall(1, 2, cmd, strlen(cmd));
+    syscall(1, 2, "\n", 1);
+    usage();
+    return 1;
+}
+
+var exit_code = main();
+syscall(60, exit_code);

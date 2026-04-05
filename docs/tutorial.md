@@ -11,7 +11,7 @@ Or build from source:
 ```sh
 git clone https://github.com/MacCracken/cyrius.git
 cd cyrius && sh bootstrap/bootstrap.sh
-cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+cat src/compiler.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
 ```
 
 ## Hello World
@@ -205,4 +205,4 @@ syscall(60, exit_code);
 - [Language Guide](cyrius-guide.md) — complete reference
 - [Standard Library](stdlib-reference.md) — every function documented
 - [Benchmarks](benchmarks.md) — binary sizes, compile times
-- [Examples](../stage1/programs/) — 52 working programs
+- [Examples](../programs/) — 52 working programs

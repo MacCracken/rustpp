@@ -1,0 +1,109 @@
+# cyrfmt — Cyrius code formatter
+# Reads source file, writes formatted to stdout.
+# Rules: 4-space indent, trim trailing whitespace, consistent brace depth.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/args.cyr"
+
+fn emit_spaces(n) {
+    var si = 0;
+    while (si < n) { syscall(1, 1, " ", 1); si = si + 1; }
+    return 0;
+}
+
+fn format_file(buf, total) {
+    var depth = 0;
+    var pos = 0;
+
+    while (pos < total) {
+        # Find end of line
+        var eol = pos;
+        while (eol < total) {
+            if (load8(buf + eol) == 10) { break; }
+            eol = eol + 1;
+        }
+
+        # Trim trailing whitespace
+        var end = eol;
+        while (end > pos) {
+            var tc = load8(buf + end - 1);
+            if (tc != 32) { if (tc != 9) { if (tc != 13) { break; } } }
+            end = end - 1;
+        }
+
+        # Skip leading whitespace
+        var start = pos;
+        while (start < end) {
+            var sc = load8(buf + start);
+            if (sc != 32) { if (sc != 9) { break; } }
+            start = start + 1;
+        }
+
+        var content_len = end - start;
+
+        if (content_len == 0) {
+            syscall(1, 1, "\n", 1);
+        } else {
+            # Count all braces on this line
+            var opens = 0;
+            var closes = 0;
+            var bi = start;
+            while (bi < end) {
+                if (load8(buf + bi) == 123) { opens = opens + 1; }
+                if (load8(buf + bi) == 125) { closes = closes + 1; }
+                bi = bi + 1;
+            }
+
+            # Indent BEFORE this line: decrement for leading closes
+            var leading_close = 0;
+            if (load8(buf + start) == 125) { leading_close = 1; }
+            # For this line's indent: subtract closes that come before opens
+            # Simple rule: if line starts with }, dedent first
+            if (leading_close == 1) {
+                if (depth > 0) { depth = depth - 1; }
+            }
+
+            # Emit
+            emit_spaces(depth * 4);
+            syscall(1, 1, buf + start, content_len);
+            syscall(1, 1, "\n", 1);
+
+            # Adjust depth for NEXT line
+            # Net change: opens - closes, but we already handled leading close
+            if (leading_close == 1) {
+                depth = depth + opens - (closes - 1);
+            } else {
+                depth = depth + opens - closes;
+            }
+            if (depth < 0) { depth = 0; }
+        }
+
+        pos = eol + 1;
+    }
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+
+    if (argc() < 2) {
+        println("Usage: cyrfmt <file.cyr>");
+        return 1;
+    }
+
+    var buf = alloc(131072);
+    var n = file_read_all(argv(1), buf, 131072);
+    if (n <= 0) {
+        println("cyrfmt: cannot read file");
+        return 1;
+    }
+
+    format_file(buf, n);
+    return 0;
+}
+var r = main();
+syscall(60, r);

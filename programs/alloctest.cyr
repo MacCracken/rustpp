@@ -1,0 +1,25 @@
+# alloctest — test heap allocator
+# Exercises: alloc_init, alloc, alloc_used, alloc_reset
+
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+
+fn run() {
+    alloc_init();
+    var a = alloc(64);
+    var b = alloc(128);
+    store64(a, 42);
+    store64(b, 99);
+    var pass: i64 = 0;
+    if (load64(a) == 42) { pass = pass + 1; }
+    if (load64(b) == 99) { pass = pass + 1; }
+    if (alloc_used() == 192) { pass = pass + 1; }
+    alloc_reset();
+    if (alloc_used() == 0) { pass = pass + 1; }
+    return pass;
+}
+
+var r = run();
+print_num(r);
+syscall(1, 1, " alloc tests\n", 13);
+syscall(60, r);

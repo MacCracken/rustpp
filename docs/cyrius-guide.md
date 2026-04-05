@@ -144,7 +144,7 @@ syscall(60, 0);                      # exit(0)
 ## Includes
 
 ```
-include "stage1/lib/string.cyr"
+include "lib/string.cyr"
 # Textual inclusion — file contents replace the include line
 ```
 
@@ -209,7 +209,7 @@ fn add(a, b) { return a + b; }
 var fp = &add;                       # Get function address
 
 # Call through pointer (using fnptr library):
-include "stage1/lib/fnptr.cyr"
+include "lib/fnptr.cyr"
 var result = fncall2(fp, 20, 22);    # result = 42
 ```
 
@@ -226,7 +226,7 @@ var r = get_value();             # r = 42
 ## String Standard Library
 
 ```
-include "stage1/lib/string.cyr"
+include "lib/string.cyr"
 
 strlen(s)              # Length of null-terminated string
 streq(a, b)            # Compare strings (1=equal, 0=not)
@@ -242,38 +242,38 @@ println(s)             # Print string + newline
 ## Standard Libraries
 
 ```
-include "stage1/lib/string.cyr"  # strlen, streq, memcpy, memset, memchr, strchr, print_num, println
-include "stage1/lib/alloc.cyr"   # alloc_init, alloc, alloc_reset, alloc_used (bump allocator)
-include "stage1/lib/str.cyr"     # Str type: str_from, str_len, str_eq, str_cat, str_sub, str_print
-include "stage1/lib/vec.cyr"     # Dynamic array: vec_new, vec_push, vec_pop, vec_get, vec_set, vec_len
-include "stage1/lib/io.cyr"      # File I/O: file_open, file_read, file_write, file_close, file_read_all
-include "stage1/lib/fmt.cyr"     # Formatting: fmt_int, fmt_hex, fmt_hex0x, fmt_bool, fmt_byte
-include "stage1/lib/args.cyr"    # CLI args: args_init, argc, argv
-include "stage1/lib/fnptr.cyr"   # Function pointers: fncall0, fncall1, fncall2
+include "lib/string.cyr"  # strlen, streq, memcpy, memset, memchr, strchr, print_num, println
+include "lib/alloc.cyr"   # alloc_init, alloc, alloc_reset, alloc_used (bump allocator)
+include "lib/str.cyr"     # Str type: str_from, str_len, str_eq, str_cat, str_sub, str_print
+include "lib/vec.cyr"     # Dynamic array: vec_new, vec_push, vec_pop, vec_get, vec_set, vec_len
+include "lib/io.cyr"      # File I/O: file_open, file_read, file_write, file_close, file_read_all
+include "lib/fmt.cyr"     # Formatting: fmt_int, fmt_hex, fmt_hex0x, fmt_bool, fmt_byte
+include "lib/args.cyr"    # CLI args: args_init, argc, argv
+include "lib/fnptr.cyr"   # Function pointers: fncall0, fncall1, fncall2
 ```
 
 ## AGNOS System Libraries
 
 ```
 # Shared types (agnostik)
-include "stage1/lib/agnostik/error.cyr"    # Error codes (1001-1010), err_is_retriable, err_print
-include "stage1/lib/agnostik/types.cyr"    # AgentType, AgentStatus, MessageType, SystemStatus enums
-include "stage1/lib/agnostik/security.cyr" # Permission (bitmask), Role, SecurityContext struct
-include "stage1/lib/agnostik/agent.cyr"    # AgentConfig, AgentInfo, AgentStats structs
-include "stage1/lib/agnostik/audit.cyr"    # AuditSeverity, AuditEntry, audit_print
-include "stage1/lib/agnostik/config.cyr"   # AgnosConfig, environment profiles
+include "lib/agnostik/error.cyr"    # Error codes (1001-1010), err_is_retriable, err_print
+include "lib/agnostik/types.cyr"    # AgentType, AgentStatus, MessageType, SystemStatus enums
+include "lib/agnostik/security.cyr" # Permission (bitmask), Role, SecurityContext struct
+include "lib/agnostik/agent.cyr"    # AgentConfig, AgentInfo, AgentStats structs
+include "lib/agnostik/audit.cyr"    # AuditSeverity, AuditEntry, audit_print
+include "lib/agnostik/config.cyr"   # AgnosConfig, environment profiles
 
 # Syscall bindings (agnosys)
-include "stage1/lib/agnosys/syscalls.cyr"  # 50 syscall numbers, 20+ wrappers, sigset, epoll, timerfd
+include "lib/agnosys/syscalls.cyr"  # 50 syscall numbers, 20+ wrappers, sigset, epoll, timerfd
 
 # Init system (kybernet)
-include "stage1/lib/kybernet/console.cyr"  # PID 1 stdio redirect
-include "stage1/lib/kybernet/signals.cyr"  # Signal blocking + signalfd
-include "stage1/lib/kybernet/reaper.cyr"   # Zombie process reaper (waitpid loop)
-include "stage1/lib/kybernet/privdrop.cyr" # Privilege dropping (setgroups/setgid/setuid)
-include "stage1/lib/kybernet/mount.cyr"    # Essential filesystem mounts
-include "stage1/lib/kybernet/cgroup.cyr"   # Cgroup v2 service management
-include "stage1/lib/kybernet/eventloop.cyr"# Epoll + timerfd event loop
+include "lib/kybernet/console.cyr"  # PID 1 stdio redirect
+include "lib/kybernet/signals.cyr"  # Signal blocking + signalfd
+include "lib/kybernet/reaper.cyr"   # Zombie process reaper (waitpid loop)
+include "lib/kybernet/privdrop.cyr" # Privilege dropping (setgroups/setgid/setuid)
+include "lib/kybernet/mount.cyr"    # Essential filesystem mounts
+include "lib/kybernet/cgroup.cyr"   # Cgroup v2 service management
+include "lib/kybernet/eventloop.cyr"# Epoll + timerfd event loop
 ```
 
 ## Known Limitations
@@ -301,9 +301,9 @@ cat kernel/agnos.cyr | ./build/cc2 > build/agnos
 cat prog.cyr | ./build/cc2_aarch64 > prog_arm
 
 # Run tests
-sh stage1/test_cc.sh ./build/cc2 ./build/stage1f
-sh stage1/programs/test_programs.sh ./build/cc2
-sh stage1/test_asm.sh ./build/asm
+sh tests/compiler.sh ./build/cc2 ./build/stage1f
+sh programs/test_programs.sh ./build/cc2
+sh tests/assembler.sh ./build/asm
 
 # Boot kernel
 qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
@@ -311,7 +311,7 @@ qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
 
 ## Example Programs
 
-See `stage1/programs/` for 46 examples:
+See `programs/` for 46 examples:
 - **CLI tools**: cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort, basename, cols, count, toupper, rot13, rev, nl, seq, tee, yes, true, false
 - **Algorithms**: fizzbuzz, primes, sieve, collatz, ackermann, gcd, brainfuck, life, xor
 - **Data structures**: struct_list (linked list), alloctest (heap), strtype (fat strings)

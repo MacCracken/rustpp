@@ -1,0 +1,56 @@
+# strtest — exercise string stdlib functions
+# Exercises: include, strlen, streq, memcpy, memset, memchr, strchr
+
+include "lib/string.cyr"
+
+fn run_tests() {
+    var pass: i64 = 0;
+
+    # memcpy + streq via buffers (not string literals)
+    var a[16];
+    var b[16];
+    memcpy(&a, "hello", 6);
+    memcpy(&b, "hello", 6);
+    if (streq(&a, &b) == 1) { pass = pass + 1; }
+
+    memcpy(&b, "world", 6);
+    if (streq(&a, &b) == 0) { pass = pass + 1; }
+
+    # memset
+    memset(&a, 88, 5);
+    store8(&a + 5, 0);
+    if (streq(&a, "XXXXX") == 0) { pass = pass + 1; }
+    if (load8(&a) == 88) { pass = pass + 1; }
+
+    # memeq
+    if (memeq(&a, &a, 5) == 1) { pass = pass + 1; }
+
+    # memchr
+    memcpy(&a, "abcde", 5);
+    if (memchr(&a, 99, 5) == 2) { pass = pass + 1; }
+    if (memchr(&a, 120, 5) == 0 - 1) { pass = pass + 1; }
+
+    # strlen on buffer
+    memcpy(&a, "test", 5);
+    if (strlen(&a) == 4) { pass = pass + 1; }
+
+    # strchr on buffer
+    memcpy(&a, "hi/there", 9);
+    if (strchr(&a, 47) == 2) { pass = pass + 1; }
+
+    # strchr on buffer
+    memcpy(&a, "hi/there", 9);
+    if (strchr(&a, 47) == 2) { pass = pass + 1; }
+
+    # print_num
+    print_num(42);
+    syscall(1, 1, "\n", 1);
+    pass = pass + 1;
+
+    return pass;
+}
+
+var r = run_tests();
+print_num(r);
+syscall(1, 1, " tests passed\n", 14);
+syscall(60, r);

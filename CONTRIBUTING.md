@@ -3,11 +3,11 @@
 ## Development Process
 
 1. **Bootstrap**: `sh bootstrap/bootstrap.sh`
-2. **Build compiler**: `cat stage1/cc2.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2`
+2. **Build compiler**: `cat src/compiler.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2`
 3. **Make changes** to compiler or libraries
-4. **Test**: `sh stage1/test_cc.sh ./build/cc2 ./build/stage1f`
+4. **Test**: `sh tests/compiler.sh ./build/cc2 ./build/stage1f`
 5. **Self-host verify**: new cc2 compiles itself byte-identical
-6. **Program tests**: `sh stage1/programs/test_programs.sh ./build/cc2`
+6. **Program tests**: `sh programs/test_programs.sh ./build/cc2`
 
 ## Rules
 
