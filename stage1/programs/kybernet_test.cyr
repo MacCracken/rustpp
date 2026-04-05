@@ -1,0 +1,159 @@
+# kybernet_test.cyr — integration test for agnosys + kybernet
+# Tests syscall wrappers, signal handling, epoll, cgroup paths.
+
+include "stage1/lib/string.cyr"
+include "stage1/lib/fmt.cyr"
+include "stage1/lib/alloc.cyr"
+include "stage1/lib/io.cyr"
+include "stage1/lib/vec.cyr"
+include "stage1/lib/agnosys/syscalls.cyr"
+include "stage1/lib/kybernet/console.cyr"
+include "stage1/lib/kybernet/signals.cyr"
+include "stage1/lib/kybernet/reaper.cyr"
+include "stage1/lib/kybernet/privdrop.cyr"
+include "stage1/lib/kybernet/mount.cyr"
+include "stage1/lib/kybernet/cgroup.cyr"
+include "stage1/lib/kybernet/eventloop.cyr"
+
+var _pass = 0;
+var _fail = 0;
+
+fn ok(name) { _pass = _pass + 1; return 0; }
+fn fail(name) {
+    _fail = _fail + 1;
+    syscall(1, 2, "FAIL: ", 6);
+    syscall(1, 2, name, strlen(name));
+    syscall(1, 2, "\n", 1);
+    return 0;
+}
+
+fn test_constants() {
+    println("--- constants ---");
+    if (SYS_READ == 0) { ok("a"); } else { fail("SYS_READ"); }
+    if (SYS_WRITE == 1) { ok("a"); } else { fail("SYS_WRITE"); }
+    if (SYS_MOUNT == 165) { ok("a"); } else { fail("SYS_MOUNT"); }
+    if (SYS_EPOLL_CREATE1 == 291) { ok("a"); } else { fail("EPOLL_CREATE1"); }
+    if (SIGCHLD == 17) { ok("a"); } else { fail("SIGCHLD"); }
+    if (SIGTERM == 15) { ok("a"); } else { fail("SIGTERM"); }
+    if (EPOLLIN == 1) { ok("a"); } else { fail("EPOLLIN"); }
+    if (CLOCK_MONOTONIC == 1) { ok("a"); } else { fail("CLOCK_MONO"); }
+    if (MS_NOSUID == 2) { ok("a"); } else { fail("MS_NOSUID"); }
+    if (MS_NODEV == 4) { ok("a"); } else { fail("MS_NODEV"); }
+    return 0;
+}
+
+fn test_process() {
+    println("--- process ---");
+    var pid = sys_getpid();
+    if (pid > 0) { ok("a"); } else { fail("getpid"); }
+    var ppid = sys_getppid();
+    if (ppid > 0) { ok("a"); } else { fail("getppid"); }
+    var uid = sys_getuid();
+    if (uid >= 0) { ok("a"); } else { fail("getuid"); }
+    return 0;
+}
+
+fn test_wait() {
+    println("--- wait macros ---");
+    if (WIFEXITED(0) == 1) { ok("a"); } else { fail("WIFEXITED(0)"); }
+    if (WEXITSTATUS(0) == 0) { ok("a"); } else { fail("WEXITSTATUS(0)"); }
+    if (WIFEXITED(256) == 1) { ok("a"); } else { fail("WIFEXITED(256)"); }
+    if (WEXITSTATUS(256) == 1) { ok("a"); } else { fail("WEXITSTATUS(1)"); }
+    if (WIFSIGNALED(9) == 1) { ok("a"); } else { fail("WIFSIG(9)"); }
+    if (WTERMSIG(9) == 9) { ok("a"); } else { fail("WTERMSIG(9)"); }
+    if (WIFSIGNALED(0) == 0) { ok("a"); } else { fail("!WIFSIG(0)"); }
+    return 0;
+}
+
+fn test_signals() {
+    println("--- signals ---");
+    var set = sigset_new();
+    sigset_add(set, SIGCHLD);
+    sigset_add(set, SIGTERM);
+    sigset_add(set, SIGINT);
+    sigset_add(set, SIGHUP);
+    sigset_add(set, SIGPWR);
+    if (sigset_has(set, SIGCHLD) == 1) { ok("a"); } else { fail("SIGCHLD"); }
+    if (sigset_has(set, SIGTERM) == 1) { ok("a"); } else { fail("SIGTERM"); }
+    if (sigset_has(set, SIGPWR) == 1) { ok("a"); } else { fail("SIGPWR"); }
+    if (sigset_has(set, SIGKILL) == 0) { ok("a"); } else { fail("!SIGKILL"); }
+    if (classify_signal(SIGCHLD) == 1) { ok("a"); } else { fail("class CHLD"); }
+    if (classify_signal(SIGTERM) == 2) { ok("a"); } else { fail("class TERM"); }
+    if (classify_signal(99) == 0) { ok("a"); } else { fail("class unknown"); }
+    return 0;
+}
+
+fn test_epoll() {
+    println("--- epoll ---");
+    var ev = epoll_event_new(EPOLLIN, 42);
+    if (load32(ev) == EPOLLIN) { ok("a"); } else { fail("ev events"); }
+    if (load64(ev + 4) == 42) { ok("a"); } else { fail("ev data"); }
+    var ts = timerspec_new(10, 1);
+    if (load64(ts) == 10) { ok("a"); } else { fail("interval"); }
+    if (load64(ts + 16) == 1) { ok("a"); } else { fail("initial"); }
+    var epfd = epoll_new();
+    if (epfd >= 0) { ok("a"); } else { fail("epoll_create"); }
+    if (epfd >= 0) {
+        var tfd = timer_new(1);
+        if (tfd >= 0) {
+            epoll_add_read(epfd, tfd, TOKEN_WATCHDOG);
+            ok("a");
+            sys_close(tfd);
+        }
+        sys_close(epfd);
+    }
+    return 0;
+}
+
+fn test_fileops() {
+    println("--- file ops ---");
+    var r = sys_mkdir("/tmp/cyr_ktest", 0x1C0);
+    if (is_err(r) == 0) { ok("a"); } else { fail("mkdir"); }
+    sys_rmdir("/tmp/cyr_ktest");
+    ok("a");
+    var fd = sys_open("/tmp/cyr_ktest_f", O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (fd >= 0) {
+        sys_write(fd, "test\n", 5);
+        sys_close(fd);
+        ok("a");
+        sys_unlink("/tmp/cyr_ktest_f");
+    }
+    return 0;
+}
+
+fn test_cgroup() {
+    println("--- cgroup ---");
+    var buf[128];
+    cgroup_path("myservice", &buf);
+    if (streq(&buf, "/sys/fs/cgroup/kybernet.slice/myservice") == 1) { ok("a"); } else { fail("path"); }
+    return 0;
+}
+
+fn test_privdrop() {
+    println("--- privdrop ---");
+    # is_root should work regardless
+    var root = is_root();
+    if (root >= 0) { ok("a"); }
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    test_constants();
+    test_process();
+    test_wait();
+    test_signals();
+    test_epoll();
+    test_fileops();
+    test_cgroup();
+    test_privdrop();
+
+    syscall(1, 1, "\n", 1);
+    fmt_int(_pass);
+    syscall(1, 1, " passed, ", 9);
+    fmt_int(_fail);
+    syscall(1, 1, " failed\n", 8);
+    return _fail;
+}
+var exit_code = main();
+syscall(60, exit_code);

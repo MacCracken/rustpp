@@ -1,0 +1,49 @@
+# kybernet/reaper.cyr — zombie process reaper for PID 1
+# Usage: include "stage1/lib/kybernet/reaper.cyr"
+# Requires: agnosys/syscalls.cyr, vec.cyr
+#
+# PID 1 must reap all orphaned children to prevent zombies.
+
+# Reap all zombie children (non-blocking).
+# Returns a vec of {pid, exit_code} pairs (even indices = pid, odd = code).
+fn reap_zombies() {
+    var results = vec_new();
+    var status_buf[1];
+    var rgo = 1;
+    while (rgo == 1) {
+        var pid = sys_waitpid(0 - 1, &status_buf, WNOHANG);
+        if (pid <= 0) {
+            rgo = 0;
+        } else {
+            var status = load32(&status_buf);
+            var code = 0;
+            if (WIFEXITED(status) == 1) {
+                code = WEXITSTATUS(status);
+            }
+            if (WIFSIGNALED(status) == 1) {
+                code = 128 + WTERMSIG(status);
+            }
+            vec_push(results, pid);
+            vec_push(results, code);
+        }
+    }
+    return results;
+}
+
+# Reap and print each reaped process to stderr
+fn reap_and_log() {
+    var reaped = reap_zombies();
+    var len = vec_len(reaped);
+    var ri = 0;
+    while (ri < len) {
+        var pid = vec_get(reaped, ri);
+        var code = vec_get(reaped, ri + 1);
+        sys_write(STDERR_FD, "reaped pid=", 11);
+        fmt_int(pid);
+        sys_write(STDERR_FD, " exit=", 6);
+        fmt_int(code);
+        sys_write(STDERR_FD, "\n", 1);
+        ri = ri + 2;
+    }
+    return len / 2;
+}

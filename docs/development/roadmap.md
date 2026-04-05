@@ -1,13 +1,14 @@
 # Cyrius Development Roadmap
 
-> **Status**: Phase 9 — Multi-Architecture + Agnostik Rewrite Started | **Last Updated**: 2026-04-04
+> **Status**: Phase 11 — Crate Rewrites (agnostik + agnosys + kybernet) | **Last Updated**: 2026-04-05
 >
 > **Achieved**: Self-hosting compiler (29KB seed, 92KB binary, 10ms self-compile),
-> 46 programs, 8 stdlib libraries (53 functions) + 6 agnostik libraries, 58KB OS kernel,
-> 147 tests (94 compiler + 53 programs), 0 failures. Phase 8 Tier 1 complete.
-> Agnostik rewrite in Cyrius: 6 modules, 54 integration tests passing.
-> Enum init ordering bug fixed (enums now work inside functions).
-> Zero external dependencies.
+> 46 programs, 8 stdlib + 6 agnostik + 1 agnosys + 7 kybernet libraries, 58KB OS kernel,
+> 148 tests (94 compiler + 54 programs), 0 failures.
+> Agnostik rewrite: 6 modules (error, types, security, agent, audit, config).
+> Agnosys rewrite: syscall bindings (50 syscall numbers, 20+ wrappers).
+> Kybernet rewrite: 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop).
+> Enum init ordering bug fixed. Zero external dependencies.
 
 ---
 
@@ -95,8 +96,8 @@ Standard library: 8 libs (string, alloc, str, vec, io, fmt, args, fnptr) — 53 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | 1 | agnostik rewrite | Done | 6 modules (error, types, security, agent, audit, config), 54 tests |
-| 2 | agnosys rewrite | Not started | Syscall bindings — wraps the ~20 syscalls kybernet needs |
-| 3 | kybernet rewrite | Not started | PID 1 init: 8 modules, 20 syscalls, ~500 lines Cyrius |
+| 2 | agnosys rewrite | Done | Syscall bindings: 50 constants, 20+ wrappers, sigset, epoll, timerfd |
+| 3 | kybernet rewrite | Done | 7 modules (console, signals, reaper, privdrop, mount, cgroup, eventloop), 38 tests |
 | 4 | Migrate Ark package manager | Not started | Proves stdlib + I/O + file handling |
 | 5 | Benchmark suite vs C/Rust | Not started | Compile times, binary sizes, runtime perf |
 | 6 | Documentation + tutorials | Not started | Developer onboarding, cyrius-guide.md expansion |

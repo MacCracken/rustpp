@@ -221,6 +221,11 @@ check "struct_list sum" "15" "$?"
 "$TMPDIR/gcd"
 check "gcd(48,18)" "6" "$?"
 
+# Kybernet library integration test
+cat "stage1/programs/kybernet_test.cyr" | "$CC" > "$TMPDIR/kybernet_test" 2>/dev/null && chmod +x "$TMPDIR/kybernet_test"
+"$TMPDIR/kybernet_test" > /dev/null 2>&1
+check "kybernet libs" "0" "$?"
+
 # Agnostik library integration test
 cat "stage1/programs/agnostik_test.cyr" | "$CC" > "$TMPDIR/agnostik_test" 2>/dev/null && chmod +x "$TMPDIR/agnostik_test"
 "$TMPDIR/agnostik_test" > /dev/null 2>&1

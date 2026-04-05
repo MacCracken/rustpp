@@ -1,0 +1,45 @@
+# kybernet/signals.cyr — signal handling for PID 1
+# Usage: include "stage1/lib/kybernet/signals.cyr"
+# Requires: agnosys/syscalls.cyr
+#
+# Blocks signals and creates signalfd for epoll-based dispatch.
+# PID 1 handles: SIGCHLD, SIGTERM, SIGINT, SIGHUP, SIGPWR
+
+# Setup signals: block handled signals, return signalfd
+fn setup_signals() {
+    var set = sigset_new();
+    sigset_add(set, SIGCHLD);
+    sigset_add(set, SIGTERM);
+    sigset_add(set, SIGINT);
+    sigset_add(set, SIGHUP);
+    sigset_add(set, SIGPWR);
+
+    # Block these signals (they'll be read via signalfd)
+    sys_sigprocmask(SIG_BLOCK, set, 0);
+
+    # Create signalfd
+    var sfd = sys_signalfd(0 - 1, set, SFD_NONBLOCK | SFD_CLOEXEC);
+    return sfd;
+}
+
+# Read signal info from signalfd
+# signalfd_siginfo struct is 128 bytes, signal number at offset 0 (u32)
+fn read_signal(sfd) {
+    var buf[16];
+    var n = sys_read(sfd, &buf, 128);
+    if (n >= 4) {
+        return load32(&buf);
+    }
+    return 0;
+}
+
+# Check what signal was received and return a code
+# 0=none, 1=SIGCHLD, 2=SIGTERM, 3=SIGINT, 4=SIGHUP, 5=SIGPWR
+fn classify_signal(signum) {
+    if (signum == SIGCHLD) { return 1; }
+    if (signum == SIGTERM) { return 2; }
+    if (signum == SIGINT) { return 3; }
+    if (signum == SIGHUP) { return 4; }
+    if (signum == SIGPWR) { return 5; }
+    return 0;
+}

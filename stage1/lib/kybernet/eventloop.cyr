@@ -1,0 +1,83 @@
+# kybernet/eventloop.cyr — epoll event loop for PID 1
+# Usage: include "stage1/lib/kybernet/eventloop.cyr"
+# Requires: agnosys/syscalls.cyr
+#
+# Multiplexes signals, timers, and sockets via epoll.
+
+# Event source tokens (stored in epoll_event.data)
+var TOKEN_SIGNAL = 1;
+var TOKEN_HEALTH = 2;
+var TOKEN_WATCHDOG = 3;
+var TOKEN_RESTART = 4;
+
+# Create epoll instance
+fn epoll_new() {
+    return sys_epoll_create();
+}
+
+# Register fd for reading with epoll
+fn epoll_add_read(epfd, fd, token) {
+    var ev = epoll_event_new(EPOLLIN, token);
+    return sys_epoll_ctl(epfd, EPOLL_CTL_ADD, fd, ev);
+}
+
+# Create a repeating timer, returns timerfd
+fn timer_new(interval_sec) {
+    var tfd = sys_timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (tfd < 0) { return tfd; }
+    var ts = timerspec_new(interval_sec, interval_sec);
+    sys_timerfd_settime(tfd, 0, ts, 0);
+    return tfd;
+}
+
+# Wait for events. Returns number of ready events.
+# events_buf must be large enough for maxevents * 12 bytes.
+fn epoll_wait_events(epfd, events_buf, maxevents, timeout_ms) {
+    var rgo = 1;
+    var n = 0;
+    while (rgo == 1) {
+        n = sys_epoll_wait(epfd, events_buf, maxevents, timeout_ms);
+        if (n >= 0) { rgo = 0; }
+        else {
+            # EINTR — retry
+            if (err_code(n) == EINTR) { n = 0; }
+            else { rgo = 0; }
+        }
+    }
+    return n;
+}
+
+# Get token from event at index i in events buffer
+# epoll_event is 12 bytes: { u32 events, u64 data }
+fn event_token(events_buf, idx) {
+    return load64(events_buf + idx * 12 + 4);
+}
+
+# Get events flags from event at index i
+fn event_flags(events_buf, idx) {
+    return load32(events_buf + idx * 12);
+}
+
+# Setup the full event loop: create epoll, add signalfd + timers
+# Returns epfd. health_sec and watchdog_sec are timer intervals (0=disabled).
+fn eventloop_setup(signal_fd, health_sec, watchdog_sec) {
+    var epfd = epoll_new();
+    if (epfd < 0) { return epfd; }
+
+    # Register signal fd
+    epoll_add_read(epfd, signal_fd, TOKEN_SIGNAL);
+
+    # Health check timer
+    if (health_sec > 0) {
+        var hfd = timer_new(health_sec);
+        if (hfd >= 0) { epoll_add_read(epfd, hfd, TOKEN_HEALTH); }
+    }
+
+    # Watchdog timer
+    if (watchdog_sec > 0) {
+        var wfd = timer_new(watchdog_sec);
+        if (wfd >= 0) { epoll_add_read(epfd, wfd, TOKEN_WATCHDOG); }
+    }
+
+    return epfd;
+}

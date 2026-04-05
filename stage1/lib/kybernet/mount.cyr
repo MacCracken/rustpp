@@ -1,0 +1,55 @@
+# kybernet/mount.cyr — filesystem mount operations for PID 1
+# Usage: include "stage1/lib/kybernet/mount.cyr"
+# Requires: agnosys/syscalls.cyr, string.cyr, io.cyr
+#
+# Mounts essential virtual filesystems at boot.
+
+# Check if a path is already mounted by reading /proc/self/mounts
+fn is_mounted(target) {
+    var buf[4096];
+    var n = file_read_all("/proc/self/mounts", &buf, 32768);
+    if (n <= 0) { return 0; }
+    # Search for target path in mounts file
+    var tlen = strlen(target);
+    var mi = 0;
+    while (mi < n - tlen) {
+        # Look for ' target ' pattern (space before, space or newline after)
+        if (load8(&buf + mi) == 32) {
+            if (memeq(&buf + mi + 1, target, tlen) == 1) {
+                var after = load8(&buf + mi + 1 + tlen);
+                if (after == 32) { return 1; }
+                if (after == 10) { return 1; }
+            }
+        }
+        mi = mi + 1;
+    }
+    return 0;
+}
+
+# Mount a filesystem if not already mounted. Creates target dir if needed.
+fn mount_if_needed(source, target, fstype, flags, data) {
+    if (is_mounted(target) == 1) { return 0; }
+    # Create mount point (ignore EEXIST)
+    sys_mkdir(target, 0x1C0);
+    var r = sys_mount(source, target, fstype, flags, data);
+    return r;
+}
+
+# Mount devtmpfs first (needed for /dev/null, /dev/console)
+fn mount_devtmpfs() {
+    return mount_if_needed("devtmpfs", "/dev", "devtmpfs", MS_NOSUID, 0);
+}
+
+# Mount all essential virtual filesystems
+fn mount_essential() {
+    var flags_nse = MS_NOSUID | MS_NODEV | MS_NOEXEC;
+    var flags_ns = MS_NOSUID | MS_NODEV;
+
+    mount_if_needed("proc", "/proc", "proc", flags_nse, 0);
+    mount_if_needed("sysfs", "/sys", "sysfs", flags_nse, 0);
+    mount_if_needed("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC, "mode=0620");
+    mount_if_needed("tmpfs", "/dev/shm", "tmpfs", flags_ns, "mode=1777");
+    mount_if_needed("tmpfs", "/run", "tmpfs", flags_ns, "size=20%");
+    mount_if_needed("cgroup2", "/sys/fs/cgroup", "cgroup2", flags_nse, 0);
+    return 0;
+}
