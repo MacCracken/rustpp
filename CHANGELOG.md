@@ -32,15 +32,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **f64 comparison flag bug**: `xor eax,eax` clobbers ZF from `ucomisd` — use `mov eax,0` instead
 - **aarch64 brk sync**: matched x86 heap layout changes (brk, tok_lines, preprocessor)
 - **aarch64 var_sizes fixup**: updated 0x58800 → 0x60800 in aarch64/fixup.cyr
-
-### Known Issues
-- aarch64 cross-compiler regression: exit codes wrong after var_noffs/var_sizes relocation
-  - x86 tests: 111 compiler + 49 program = 160, 0 failures
-  - aarch64 tests: investigating codegen issue with immediate encoding
+- **aarch64 TOKVAL offset**: was reading tok_values from old 0xE2000 instead of new 0x122000
 
 ### Metrics
 - Compiler: 104KB (was 96KB) — 222 functions across 7 modules + SSE2 emitters
-- 160 x86_64 tests, 0 failures
+- 160 x86_64 tests (111 compiler + 49 programs) + 12 aarch64 tests, 0 failures
 - Self-hosting: byte-identical
 
 ## [0.9.1] — 2026-04-05
