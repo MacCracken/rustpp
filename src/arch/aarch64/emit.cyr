@@ -404,3 +404,29 @@ fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
 fn TOKVAL(S, i) { return L64(S + 0x122000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
+
+# ================================================================
+# AARCH64 INLINE ASM MNEMONICS
+# ================================================================
+
+fn ASM_MNEMONIC(S) {
+    var noff = PEEKV(S);
+    var mnem = L64(S + 0x50000 + noff);
+    STI(S, GTI(S) + 1);
+    if (mnem & 0xFFFFFF == 0x637673) { EW(S, 0xD4000001); }                    # svc
+    elif (mnem & 0xFFFFFF == 0x696677) { EW(S, 0xD503207F); }                  # wfi
+    elif (mnem & 0xFFFFFF == 0x656677) { EW(S, 0xD5031020); }                  # wfe
+    elif (mnem & 0xFFFFFF == 0x626D64) { EW(S, 0xD50330BF); }                  # dmb
+    elif (mnem & 0xFFFFFF == 0x627364) { EW(S, 0xD503309F); }                  # dsb
+    elif (mnem & 0xFFFFFF == 0x627369) { EW(S, 0xD50330DF); }                  # isb
+    elif (mnem & 0xFFFFFF == 0x706F6E) { EW(S, 0xD503201F); }                  # nop
+    elif (mnem & 0xFFFFFF == 0x746572) { EW(S, 0xD65F03C0); }                  # ret
+    else {
+        syscall(SYS_WRITE, 2, "error:", 6);
+        PRNUM(GTLINE(S, GTI(S) - 1));
+        syscall(SYS_WRITE, 2, ": unknown aarch64 asm mnemonic\n", 31);
+        syscall(SYS_EXIT, 1);
+    }
+    if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    return 0;
+}

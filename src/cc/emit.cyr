@@ -398,3 +398,108 @@ fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
 fn TOKVAL(S, i) { return L64(S + 0x122000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
+
+# ================================================================
+# x86_64 INLINE ASM MNEMONICS
+# ================================================================
+
+fn ASM_MNEMONIC(S) {
+    var noff = PEEKV(S);
+    var mnem = L64(S + 0x50000 + noff);
+    STI(S, GTI(S) + 1);
+    if (mnem & 0xFFFFFF == 0x696C63) { EB(S, 0xFA); }                          # cli
+    elif (mnem & 0xFFFFFF == 0x697473) { EB(S, 0xFB); }                        # sti
+    elif (mnem & 0xFFFFFF == 0x746C68) { EB(S, 0xF4); }                        # hlt
+    elif (mnem & 0xFFFFFF == 0x706F6E) { EB(S, 0x90); }                        # nop
+    elif (mnem & 0xFFFFFFFFFF == 0x7174657269) { EB(S, 0x48); EB(S, 0xCF); }   # iretq
+    elif (mnem & 0xFFFFFFFFFF == 0x72736D7277) { EB(S, 0x0F); EB(S, 0x30); }   # wrmsr
+    elif (mnem & 0xFFFFFFFFFF == 0x72736D6472) { EB(S, 0x0F); EB(S, 0x32); }   # rdmsr
+    elif (mnem & 0xFFFFFFFFFF == 0x6469757063) { EB(S, 0x0F); EB(S, 0xA2); }   # cpuid
+    elif (mnem & 0xFFFFFFFFFFFF == 0x716668737570) { EB(S, 0x9C); }            # pushfq
+    elif (mnem & 0xFFFFFFFFFF == 0x7166706F70) { EB(S, 0x9D); }                # popfq
+    elif (mnem & 0xFFFFFFFF == 0x7464676C) { ASM_LGDT(S); }                    # lgdt
+    elif (mnem & 0xFFFFFFFF == 0x7464696C) { ASM_LIDT(S); }                    # lidt
+    elif (mnem & 0xFFFFFF == 0x766F6D) { ASM_MOV_CR(S); }                      # mov (cr)
+    elif (mnem & 0xFFFFFFFFFFFF == 0x67706C766E69) { ASM_INVLPG(S); }          # invlpg
+    elif (mnem & 0xFFFFFF == 0x746E69) { ASM_INT(S); }                          # int
+    elif (mnem & 0xFFFF == 0x6E69) { ASM_IN(S); }                              # in
+    elif (mnem & 0xFFFFFF == 0x74756F) { ASM_OUT(S); }                          # out
+    elif (mnem & 0xFFFFFF == 0x72746C) { ASM_LTR(S); }                          # ltr
+    else { ERR(S); }
+    if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    return 0;
+}
+
+fn ASM_LGDT(S) {
+    if (PEEKT(S) != 28) { ERR(S); }
+    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    EB(S, 0x0F); EB(S, 0x01); EB(S, 0x10);
+    return 0;
+}
+
+fn ASM_LIDT(S) {
+    if (PEEKT(S) != 28) { ERR(S); }
+    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    EB(S, 0x0F); EB(S, 0x01); EB(S, 0x18);
+    return 0;
+}
+
+fn ASM_CR_MODRM(packed) {
+    var crn = ((packed >> 16) & 0xFF) - 48;
+    return 0xC0 | (crn << 3);
+}
+
+fn ASM_MOV_CR(S) {
+    var o1 = L64(S + 0x50000 + PEEKV(S));
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 31) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    var o2 = L64(S + 0x50000 + PEEKV(S));
+    STI(S, GTI(S) + 1);
+    if (o1 & 0xFFFF == 0x7263) { EB(S, 0x0F); EB(S, 0x22); EB(S, ASM_CR_MODRM(o1)); }
+    elif (o2 & 0xFFFF == 0x7263) { EB(S, 0x0F); EB(S, 0x20); EB(S, ASM_CR_MODRM(o2)); }
+    else { ERR(S); }
+    return 0;
+}
+
+fn ASM_INT(S) {
+    if (PEEKT(S) != 1) { ERR(S); }
+    EB(S, 0xCD); EB(S, PEEKV(S) & 0xFF);
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+fn ASM_IN(S) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 31) { ERR(S); }
+    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+    EB(S, 0xEC);
+    return 0;
+}
+
+fn ASM_OUT(S) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 31) { ERR(S); }
+    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+    EB(S, 0xEE);
+    return 0;
+}
+
+fn ASM_LTR(S) {
+    STI(S, GTI(S) + 1);
+    EB(S, 0x0F); EB(S, 0x00); EB(S, 0xD8);
+    return 0;
+}
+
+fn ASM_INVLPG(S) {
+    if (PEEKT(S) != 28) { ERR(S); }
+    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    EB(S, 0x0F); EB(S, 0x01); EB(S, 0x38);
+    return 0;
+}
