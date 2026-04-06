@@ -395,7 +395,33 @@ fn cmd_bench(source) {
 }
 
 fn cmd_check(source) {
-    var r = compile(source, "/dev/null");
+    # If source has no include directives, try to find an entry point
+    # that includes it (check cyrb.toml or default to src/main.cyr)
+    var actual = source;
+    var check_buf = alloc(4096);
+    var cn = file_read_all(source, check_buf, 4095);
+    if (cn > 0) {
+        store8(check_buf + cn, 0);
+        # If file has no "include " directive, it's a module — check via entry
+        var has_inc = 0;
+        var ci = 0;
+        while (ci < cn - 8) {
+            if (memeq(check_buf + ci, "include ", 8) == 1) { has_inc = 1; break; }
+            ci = ci + 1;
+        }
+        if (has_inc == 0) {
+            # Try project entry point
+            if (file_exists("src/main.cyr") == 1) {
+                actual = "src/main.cyr";
+                sys_write(STDOUT_FD, "check via ", 10);
+                sys_write(STDOUT_FD, actual, strlen(actual));
+                sys_write(STDOUT_FD, " (", 2);
+                sys_write(STDOUT_FD, source, strlen(source));
+                sys_write(STDOUT_FD, " is a module)\n", 14);
+            }
+        }
+    }
+    var r = compile(actual, "/dev/null");
     if (r == 0) {
         sys_write(STDOUT_FD, "ok: ", 4);
         println(source);
