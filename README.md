@@ -130,7 +130,7 @@ Info:      version, which, help
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
     → cc_bridge.cyr (bridge compiler)
-      → cc2 (modular compiler, 139KB, 7 modules)
+      → cc2 (modular compiler, 136KB, 7 modules)
         → cc2_aarch64 (cross-compiler)
 ```
 

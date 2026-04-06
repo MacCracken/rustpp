@@ -47,7 +47,7 @@ The wc advantage comes from zero-overhead processing — no locale, no UTF-8 dec
 
 | Operation | Time |
 |-----------|------|
-| Compiler self-compile (92KB binary) | **11ms** |
+| Compiler self-compile (136KB binary) | **~11ms** |
 | Build any single program | **<5ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Assembler throughput | 1.3M lines/sec |
@@ -61,10 +61,11 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Bootstrap seed (bootstrap/asm) | 29 KB |
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
-| Full compiler (cc2) | 92 KB |
-| **Total toolchain** | **162 KB** |
+| Full compiler (cc2) | 136 KB |
+| cyrb build tool | 58 KB |
+| **Total toolchain** | **264 KB** |
 
-The entire Cyrius toolchain fits in **162 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
+The entire Cyrius toolchain fits in **264 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
 
 ## Library Ecosystem
 
@@ -82,15 +83,16 @@ The entire Cyrius toolchain fits in **162 KB**. GCC: ~100 MB. Clang/LLVM: ~500 M
 | **agnosys** (1 module) | 30+ | Linux syscall bindings (50 syscalls) |
 | **kybernet** (7 modules) | 25+ | PID 1 init system |
 
-**Total: 22 library modules, 150+ functions**
+**Total: 21 library modules, 200+ functions**
 
 ## Test Coverage
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 94 | All pass |
-| Programs + libraries | 54 | All pass |
-| **Total** | **148** | **0 failures** |
+| Compiler (cc2) | 212 | All pass |
+| Programs | 51 | All pass |
+| aarch64 (cross) | 26 | All pass |
+| **Total** | **289** | **0 failures** |
 
 ## Programs (46 total)
 

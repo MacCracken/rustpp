@@ -144,7 +144,7 @@ jobs:
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (166)
+      - name: Compiler tests (212)
         run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
       - name: Program tests (51)
         run: sh tests/programs.sh ./build/cc2
@@ -163,7 +163,7 @@ jobs:
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (166)
+      - name: Compiler tests (212)
         run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
       - name: Program tests (51)
         run: sh tests/programs.sh ./build/cc2

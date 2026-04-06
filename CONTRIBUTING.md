@@ -11,7 +11,7 @@
 
 ## Rules
 
-- Every change must pass all 168 tests with 0 failures
+- Every change must pass all 263 tests with 0 failures
 - Self-hosting must remain byte-identical (cc2 == cc3)
 - No external dependencies — the entire toolchain bootstraps from a 29KB binary
 - One change at a time. Test after each change, not after the feature is "done"

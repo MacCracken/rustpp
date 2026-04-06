@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 0.9.0
+- **Version**: 1.5.0
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
 ## Goal
@@ -15,21 +15,21 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ## Current State
 
-- **Compiler**: 93KB, self-hosting, 11ms self-compile
-- **Tests**: 168 x86_64 (111 compiler + 57 programs), 29 aarch64, 0 failures
-- **Libraries**: 24 modules, 150+ functions
+- **Compiler**: 136KB (x86_64), 130KB (aarch64), self-hosting, ~11ms self-compile
+- **Tests**: 263 total (212 compiler + 51 programs) + 26 aarch64, 0 failures
+- **Libraries**: 21 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark)
-- **Tools**: cyrb (build tool), ark (package manager)
-- **Kernel**: AGNOS 62KB (in separate repo: github.com/MacCracken/agnos)
+- **Tools**: cyrb (58KB binary + shell fallback), cyrfmt, cyrlint, cyrdoc, cyrc, ark
+- **Kernel**: AGNOS 31KB (in separate repo: github.com/MacCracken/agnos)
 
 ## Bootstrap Chain
 
 ```
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
-    → cc.cyr (bridge compiler, 2009 lines)
-      → cc2 (modular compiler, 93KB, 7 modules)
-        → cc2_aarch64 (cross-compiler, 91KB)
+    → cc_bridge.cyr (bridge compiler, 2009 lines)
+      → cc2 (modular compiler, 136KB, 7 modules)
+        → cc2_aarch64 (cross-compiler, 130KB)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
 Build: sh bootstrap/bootstrap.sh
@@ -45,12 +45,8 @@ src/
   cc_bridge.cyr      Bridge compiler (stage1f feature set)
   cc/                Compiler modules: util, emit, jump, lex, parse, fixup
   arch/aarch64/      aarch64 backend: emit, jump, fixup
-lib/                 Standard library (35 modules)
-  agnostik/          Shared AGNOS types (6 modules)
-  agnosys/           Syscall bindings (1 module)
-  kybernet/          PID 1 init system (7 modules)
-  nous/              Dependency resolver (1 module)
-programs/            55 programs (tools, tests, demos, algorithms)
+lib/                 Standard library (21 modules)
+programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test scripts (compiler.sh, programs.sh, assembler.sh)
 build/               Generated binaries (gitignored except cc2)
 kernel/              AGNOS kernel (compile test; source of truth at agnos repo)
@@ -64,7 +60,7 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - `docs/development/roadmap.md` — Forward-looking development plan
 - `docs/development/completed-phases.md` — Historical phase record
 - `CHANGELOG.md` — Source of truth for all changes
-- `../vidya/content/compiler_bootstrapping/cyrius_*.toml` — 33 vidya entries
+- `../vidya/content/compiler_bootstrapping/cyrius_*.toml` — 90+ vidya entries across 3 files
 
 ## Development Loop
 
