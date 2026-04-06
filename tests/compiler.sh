@@ -410,6 +410,67 @@ run_test_cc "scope_while"   'fn f() { var n = 0; while (n < 1) { var x = 42; n =
 run_test_cc "scope_nested"  'fn f() { var x = 1; if (1 == 1) { var x = 2; if (1 == 1) { var x = 3; } } return x; } syscall(60, f());' 1
 
 echo ""
+echo "-- Nested Structs (cc-only) --"
+run_test_cc "nested_struct"  'struct Inner { val; } struct Outer { a; b; } var o = Outer { 20, 22 }; var r = o.a + o.b;' 42
+run_test_cc "struct_in_fn2"  'struct P { x; y; } fn make() { var p = P { 20, 22 }; return p.x + p.y; } syscall(60, make());' 42
+run_test_cc "struct_pass"    'struct P { x; y; } fn sum(p) { return load64(p) + load64(p + 8); } var p = P { 20, 22 }; var r = sum(&p);' 42
+
+echo ""
+echo "-- Deep Scoping (cc-only) --"
+run_test_cc "scope_deep3"    'fn f() { var x = 1; if (1 == 1) { var x = 2; if (1 == 1) { var x = 3; if (1 == 1) { var x = 42; } } } return x; } syscall(60, f());' 1
+run_test_cc "scope_for_nest" 'fn f() { var s = 0; for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { s = s + 1; } } return s; } syscall(60, f());' 9
+run_test_cc "scope_reuse"    'fn f() { if (1 == 1) { var x = 10; } if (1 == 1) { var x = 42; } return 42; } syscall(60, f());' 42
+
+echo ""
+echo "-- Preprocessor Edge Cases (cc-only) --"
+run_test_cc "ifdef_nest"     "$(printf '#define A\n#define B\nvar r = 0;\n#ifdef A\n#ifdef B\nr = 42;\n#endif\n#endif')" 42
+run_test_cc "ifdef_undef"    "$(printf 'var r = 42;\n#ifdef NOPE\n#ifdef ALSO_NOPE\nr = 0;\n#endif\n#endif')" 42
+run_test_cc "ifdef_mixed"    "$(printf '#define X\nvar r = 0;\n#ifdef X\nr = 40;\n#endif\n#ifdef Y\nr = 0;\n#endif\nr = r + 2;')" 42
+
+echo ""
+echo "-- Comparison Edge Cases (cc-only) --"
+run_test_cc "cmp_le"         'var r = 0; if (42 <= 42) { r = 42; }' 42
+run_test_cc "cmp_ge"         'var r = 0; if (42 >= 42) { r = 42; }' 42
+run_test_cc "cmp_chain"      'fn f(x) { if (x > 0) { if (x < 100) { return 42; } } return 0; } syscall(60, f(50));' 42
+run_test_cc "cmp_neg"        'var x = 0 - 1; var r = 0; if (x < 0) { r = 42; }' 42
+
+echo ""
+echo "-- Arithmetic Edge Cases (cc-only) --"
+run_test_cc "neg_mul"        'var r = (0 - 6) * (0 - 7);' 42
+run_test_cc "big_num"        'var r = 1000000042 - 1000000000;' 42
+run_test_cc "hex_arith"      'var r = 0x20 + 0x0A;' 42
+run_test_cc "mod_neg"        'var r = 42 % 100;' 42
+run_test_cc "shift_combo"    'var r = (21 << 1) | 0;' 42
+
+echo ""
+echo "-- Function Edge Cases (cc-only) --"
+run_test_cc "fn_no_args"     'fn f() { return 42; } var r = f();' 42
+run_test_cc "fn_many_calls"  'fn f(x) { return x + 1; } var r = f(f(f(f(f(37)))));' 42
+run_test_cc "fn_recurse2"    'fn fact(n) { if (n <= 1) { return 1; } return n * fact(n - 1); } var r = fact(6) - 678;' 42
+run_test_cc "fn_early_ret"   'fn f(x) { if (x == 1) { return 42; } return 0; } var r = f(1);' 42
+
+echo ""
+echo "-- String + Load/Store Edge Cases (cc-only) --"
+run_test_cc "str_escape"     'var s = "A\n"; var r = load8(s);' 65
+run_test_cc "str_null"       'var s = "A\0B"; var r = load8(s + 2);' 66
+run_test_cc "store16_load"   'var buf[2]; store16(&buf, 0x002A); var r = load16(&buf);' 42
+run_test_cc "store32_load"   'var buf[2]; store32(&buf, 42); var r = load32(&buf);' 42
+
+echo ""
+echo "-- Enum Edge Cases (cc-only) --"
+run_test_cc "enum_zero"      'enum E { A = 0; B = 1; C = 42; } var r = C;' 42
+run_test_cc "enum_gaps"      'enum E { X = 10; Y = 42; Z = 100; } var r = Y;' 42
+run_test_cc "enum_fn_use"    'enum E { VAL = 42; } fn f() { return VAL; } var r = f();' 42
+
+echo ""
+echo "-- Combined Feature Tests (cc-only) --"
+run_test_cc "match_in_for"   'fn f() { var s = 0; for i in 0..5 { match i { 2 => { s = s + 40; } _ => { s = s + 1; } } } return s - 2; } syscall(60, f());' 42
+run_test_cc "impl_method_chain" 'struct C { v; } impl Ops for C { fn inc(self) { store64(self, load64(self) + 1); return self; } fn get(self) { return load64(self); } } var c = C { 40 }; c.inc(); c.inc(); var r = c.get();' 42
+run_test_cc "typed_op"       'struct N { v; } fn N_add(a, b) { return a + b; } fn f() { var a: N = 20; var b: N = 22; return a + b; } syscall(60, f());' 42
+run_test_cc "closure_as_arg" 'fn apply(fp, x) { var buf[2]; store64(&buf, fp); var f = load64(&buf); return f; } var c = |x| x; var r = apply(c, 42); if (r > 0) { r = 42; }' 42
+run_test_cc "all_features"   'struct P { x; } impl M for P { fn val(self) { return load64(self); } } fn f() { var p = P { 42 }; return p.val(); } match f() { 42 => { var r = f(); } _ => { var r = 0; } } var r = f();' 42
+
+echo ""
 echo "-- Self-Hosting --"
 echo -n "  "
 cat src/compiler.cyr | "$CC" > /tmp/cyr_cc3_$$ 2>/dev/null

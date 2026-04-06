@@ -40,10 +40,10 @@ without workarounds. That's 39 repos as the first wave proof.
 
 | # | Feature | Status | Why |
 |---|---------|--------|-----|
-| 1 | Shared library output (.so) | Needed | FFI bridge to Rust/TS/Python |
-| 2 | C FFI (header generation) | Needed | Call Cyrius from C/Rust |
-| 3 | aarch64 byte-identical self-hosting | In progress | Dual-arch claim |
-| 4 | P-1 hardening + 250 tests | In progress | Quality gate |
+| 1 | Shared library output (.so) | Post-v1.0 | Needs PIC codegen — subprocess bridge covers v1.0 |
+| 2 | C FFI header generation | **Done (v0.10.0)** | `cyrb header` generates .h from pub fn |
+| 3 | 250+ tests | **Done (v0.10.0)** | 251 tests, 0 failures |
+| 4 | aarch64 byte-identical self-hosting | In progress | cc3 runs on Pi, write buffer fix needed |
 
 ### Nice to Have for v1.0
 
@@ -143,6 +143,30 @@ Remaining small repos, tools, utilities.
 | Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
 | Optimization passes (-O1) | Very High | Performance |
 | Preprocessor macros (with args) | Medium | Generic patterns |
+
+## Architecture Backends (post-v1.0)
+
+The sovereign toolchain runs everywhere. Each backend follows the same pattern: factor codegen into the backend interface (already done for aarch64), implement emit/jump/fixup for the target ISA, bootstrap on target hardware.
+
+| # | Architecture | Target Hardware | ISA Type | Effort | Notes |
+|---|-------------|----------------|----------|--------|-------|
+| 1 | x86_64 | Desktop, server, satellites | CISC, variable-width | ✅ Done | Primary, self-hosting |
+| 2 | aarch64 | RPi, phones, Apple Silicon, cubesats | RISC, fixed 32-bit | ✅ Done | Bootstrap on RPi hardware |
+| 3 | MIPS | Hidizs AP80 Pro Max (Ingenic X1600E), legacy satcom, routers | RISC, fixed 32-bit | Medium | Simpler than x86, similar to aarch64. Audiophile player target. |
+| 4 | Xtensa | ESP32-S3, IoT sensors, edge nodes | RISC, variable-width | Medium | MicroPython replacement. 230KB vs 1.5MB. kavach on IoT. |
+| 5 | RISC-V | ESP32-C3, future SBCs, open hardware | RISC, fixed 32-bit | Medium | Most sovereign target — open ISA, no proprietary licensing. Cleanest instruction set. |
+
+**Priority order**: RISC-V first (open ISA aligns with sovereignty thesis), then MIPS (audiophile player), then Xtensa (IoT fleet).
+
+**Shared infrastructure** (already built):
+- Backend interface: `emit_*`, `jump_*`, `fixup_*` function pattern
+- Portable syscall constants: `SYS_*` enum per architecture
+- Cross-compilation: `cyrb build --arch` flag
+- Test infrastructure: qemu + hardware test scripts
+
+**The 5-architecture goal**: the same 29KB seed concept on x86_64 produces a compiler that can target any of these architectures. One toolchain, every device class from Voyager (1977) to ESP32 ($4).
+
+---
 
 ## cycc — C Compiler Frontend (v2.0+)
 

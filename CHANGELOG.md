@@ -6,6 +6,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-04-06
+
+### Added — Tooling
+- **C FFI header generation**: `cyrb header lib/mylib.cyr > mylib.h`
+  - Scans for `pub fn` declarations, emits C prototypes with `cyr_val` (int64_t)
+  - Enables C/Rust code to know Cyrius function signatures
+
+### Added — Tests
+- 34 new compiler tests across 8 categories:
+  - Nested structs, deep scoping, preprocessor edge cases
+  - Comparison edge cases, arithmetic edge cases
+  - Function edge cases (recursion, early return, chained calls)
+  - String/load/store, enum edge cases
+  - Combined feature tests (match in for-in, impl chains, typed operators)
+- **251 total tests (200 compiler + 51 programs), target of 250 achieved**
+
+### Improved — Libraries
+- Hashmap: added `map_values()`, `map_clear()`, formatting cleaned
+- Deep code audit: all encodings verified, tombstone logic confirmed correct
+- Shared library (.so) deferred to post-v1.0 — subprocess bridge covers migration needs
+
+### Metrics
+- Compiler: 128KB
+- 251 tests (200 compiler + 51 programs) + 26 aarch64, 0 failures
+- `cyrb audit` → 10/10
+
 ## [0.9.12] — 2026-04-06
 
 ### Added — Libraries
