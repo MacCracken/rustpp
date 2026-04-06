@@ -5,7 +5,7 @@
 # Tests cc.cyr for byte-exact match with stage1f on all features,
 # plus self-hosting verification.
 
-CC="${1:-./build/cc}"
+CC="${1:-./build/cc2}"
 SF="${2:-./build/stage1f}"
 pass=0
 fail=0

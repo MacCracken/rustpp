@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-04-06
+
+### Fixed — Tooling
+- **cyrb empty environment**: all `execve` calls passed empty `envp`, breaking shell script
+  subcommands (`cyrb port`, `cyrb coverage`, etc.) when run outside the repo root
+  - Added `load_environ()` to read `/proc/self/environ` and pass through to child processes
+  - cyrb binary: 58KB → 59KB (+832 bytes)
+- **install.sh missing companion scripts**: only `cyrb-init.sh` was installed; `cyrb-port.sh`,
+  `cyrb-coverage.sh`, `cyrb-doctest.sh`, `cyrb-repl.sh`, `cyrb-header.sh` were never copied
+  - Install and version manager now dynamically pick up all `cyrb-*.sh` scripts
+- **compiler.sh wrong default**: test suite defaulted to `./build/cc` (bridge compiler, 60KB)
+  instead of `./build/cc2` (full compiler, 136KB), causing 115 false failures
+
+### Metrics
+- Compiler: 136KB (unchanged)
+- cyrb: 59KB (was 58KB)
+- 212 tests, 0 failures
+- Self-hosting: byte-identical
+
 ## [1.5.0] — 2026-04-06
 
 ### Refactored — Compiler
