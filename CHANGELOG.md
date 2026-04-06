@@ -12,10 +12,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Closures / lambdas**: `|x| x * 2`, `|a, b| a + b` expression closures
   - Generates anonymous `__clN` functions, returns function pointer
   - Multi-param, zero-param (`|_| expr`), expression bodies
-  - Block body closures (`|x| { stmts }`) in progress
+- **String type with methods**: `var s: Str = str_from("hello"); s.len(); s.contains("x")`
+  - Type annotation `: Str` on local vars enables dot-call method dispatch
+  - 16 Str method wrappers: len, data, print, println, eq, cat, sub, clone, contains, starts_with, ends_with, index_of, from_int, to_int, trim, split
+  - Works for any struct type annotated with `: TypeName`
+- **Local variable struct type tracking**: `: TypeName` annotations on locals set struct ID for method dispatch
 
 ### Metrics
-- Compiler: 126KB
+- Compiler: 128KB
 - 202 tests (151 compiler + 51 programs) + 26 aarch64, 0 failures
 
 ## [0.9.9] — 2026-04-05

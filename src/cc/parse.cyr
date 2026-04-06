@@ -732,10 +732,22 @@ fn PARSE_FIELD_LOAD(S, noff) {
     var fnoff = PEEKV(S);
     STI(S, GTI(S) + 1);
 
-    # Find the variable and its struct type
-    var idx = FINDVAR(S, noff);
-    if (idx < 0) { ERR(S); }
-    var sid = GVTYPE(S, idx);
+    # Find the variable and its struct type (check locals first)
+    var idx = 0 - 1;
+    var sid = 0;
+    if (GINFN(S) == 1) {
+        var lli = FINDLOCAL(S, noff);
+        if (lli >= 0) {
+            var lt = GLTYPE(S, lli);
+            if (lt < 0) { sid = 0 - lt; }
+            idx = 0 - 2 - lli;
+        }
+    }
+    if (idx == 0 - 1) {
+        idx = FINDVAR(S, noff);
+        if (idx < 0) { ERR(S); }
+        sid = GVTYPE(S, idx);
+    }
     var si = 0;
     if (sid > 0) { si = sid - 1; }
 
@@ -743,8 +755,13 @@ fn PARSE_FIELD_LOAD(S, noff) {
     if (PEEKT(S) == 10) {
         if (sid == 0) { ERR(S); }
         var mname = BUILD_METHOD_NAME(S, si, fnoff);
-        # Push &var as first arg (self)
-        EVADDR(S, idx);
+        # Push &var as first arg (self) — handle locals and globals
+        if (idx < 0 - 1) {
+            var mli = 0 - idx - 2;
+            EFLLOAD(S, mli);
+        } else {
+            EVADDR(S, idx);
+        }
         EPUSHR(S);
         # Parse remaining args
         STI(S, GTI(S) + 1);  # consume (
@@ -917,12 +934,20 @@ fn PARSE_GVAR_REG(S) {
     if (PEEKT(S) != 2) { ERR(S); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
-    # Optional type annotation
+    # Optional type annotation — check if it names a struct
     var psc = 0;
+    var ann_sid = 0;
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
-        else { STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
+        else {
+            # Check if type name is a struct
+            if (PEEKT(S) == 2) {
+                var ann_sn = PEEKV(S);
+                ann_sid = FINDSTRUCT(S, ann_sn);
+            }
+            STI(S, GTI(S) + 1); SKIP_GENERICS(S);
+        }
     }
     # Array: register with size, no deferred init
     if (PEEKT(S) == 28) {
@@ -960,7 +985,8 @@ fn PARSE_GVAR_REG(S) {
         SVTYPE(S, vcnt, ssid);
     } else {
         S64(S + 0x60800 + vcnt * 8, 8);
-        if (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
+        if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
+        elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
     }
     SVCNT(S, vcnt + 1);
     # Save token index
@@ -1063,8 +1089,14 @@ fn PARSE_VAR(S) {
             STI(S, GTI(S) + 1);  # consume type name
             SKIP_GENERICS(S);    # skip <T> if present
         } else {
-            STI(S, GTI(S) + 1);  # consume type name (non-pointer, skip)
-            SKIP_GENERICS(S);    # skip <T> if present
+            # Check if type name is a struct
+            if (PEEKT(S) == 2) {
+                var lann = PEEKV(S);
+                var lsid = FINDSTRUCT(S, lann);
+                if (lsid > 0) { pscale = 0 - lsid; }
+            }
+            STI(S, GTI(S) + 1);
+            SKIP_GENERICS(S);
         }
     }
     # Check for array: var buf[N];

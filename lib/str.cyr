@@ -248,3 +248,25 @@ fn str_join(parts, sep) {
     }
     return str_builder_build(sb);
 }
+
+# ================================================================
+# Method wrappers — enable s.len(), s.print(), s.contains("x") etc.
+# These delegate to the str_* functions above.
+# ================================================================
+
+fn Str_len(self) { return str_len(self); }
+fn Str_data(self) { return str_data(self); }
+fn Str_print(self) { return str_print(self); }
+fn Str_println(self) { return str_println(self); }
+fn Str_eq(self, other) { return str_eq(self, other); }
+fn Str_cat(self, other) { return str_cat(self, other); }
+fn Str_sub(self, start, len) { return str_sub(self, start, len); }
+fn Str_clone(self) { return str_clone(self); }
+fn Str_contains(self, needle) { return str_contains(self, needle); }
+fn Str_starts_with(self, prefix) { return str_starts_with(self, prefix); }
+fn Str_ends_with(self, suffix) { return str_ends_with(self, suffix); }
+fn Str_index_of(self, needle) { return str_index_of(self, needle); }
+fn Str_from_int(n) { return str_from_int(n); }
+fn Str_to_int(self) { return str_to_int(self); }
+fn Str_trim(self) { return str_trim(self); }
+fn Str_split(self, sep) { return str_split(self, sep); }
