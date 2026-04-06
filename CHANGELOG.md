@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-04-06
+
+### Added — Tooling
+- **`cyrb port`**: one-command Rust→Cyrius project scaffolding
+  - Moves Rust to rust-old/, creates src/lib/programs/tests dirs
+  - Vendors stdlib from installed Cyrius
+  - Generates main.cyr skeleton, cyrb.toml, test script
+  - Tested on vidhana (228 lines) — compiles and runs
+
+### Improved — Documentation
+- Inline assembly section added to cyrius-guide.md (stack layout, param offsets)
+- Known limitations updated (removed fixed items, added gotchas)
+
+### Metrics
+- Compiler: 139KB
+- 263 tests (212 compiler + 51 programs) + 26 aarch64, 0 failures
+- First repo scaffolded: vidhana (228 lines Rust → Cyrius skeleton)
+
 ## [1.2.0] — 2026-04-06
 
 ### Added — Language
@@ -20,9 +38,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added doc comments to all 50 functions in lib/syscalls.cyr
 - Documented dynamic loop bound gotcha in FAQ, vidya, and roadmap
 
+### Added — Tests
+- 10 new tests: address-based operators, enum constructors, shared compile, stress tests
+
 ### Metrics
 - Compiler: 139KB
-- 253 tests (202 compiler + 51 programs) + 26 aarch64, 0 failures
+- 263 tests (212 compiler + 51 programs) + 26 aarch64, 0 failures
 
 ## [1.1.0] — 2026-04-06
 

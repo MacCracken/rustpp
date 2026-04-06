@@ -390,6 +390,30 @@ run_test_cc "forin_one"      'fn f() { var s = 0; for i in 0..1 { s = 42; } retu
 # Collection for-in tested via programs (needs vec include)
 
 echo ""
+echo "-- Operator Overloading Address (cc-only) --"
+run_test_cc "op_addr_add"   'struct P { x; y; } fn P_add(a, b) { return load64(a) + load64(b); } var a = P { 20, 1 }; var b = P { 22, 2 }; var r = a + b;' 42
+run_test_cc "op_addr_sub"   'struct P { x; y; } fn P_sub(a, b) { return load64(a) - load64(b); } var a = P { 50, 1 }; var b = P { 8, 2 }; var r = a - b;' 42
+run_test_cc "op_addr_mul"   'struct P { x; y; } fn P_mul(a, b) { return load64(a) * load64(b); } var a = P { 6, 1 }; var b = P { 7, 2 }; var r = a * b;' 42
+
+echo ""
+echo "-- Enum Constructors (cc-only) --"
+# Note: needs alloc, tested via programs
+
+echo ""
+echo "-- Shared Library (cc-only) --"
+# shared; produces ET_DYN which can't run — just test compilation
+run_test_cc "shared_compile" 'pub fn add(a, b) { return a + b; } var r = add(20, 22);' 42
+
+echo ""
+echo "-- Mixed Feature Stress (cc-only) --"
+run_test_cc "stress_nested"  'fn f(n) { if (n > 0) { for i in 0..n { if (i == n - 1) { return i + 1; } } } return 0; } syscall(60, f(42));' 42
+run_test_cc "stress_ops"     'struct N { v; } fn N_add(a, b) { return a + b; } fn f() { var a: N = 20; var b: N = 22; return a + b; } syscall(60, f());' 42
+run_test_cc "stress_multi"   'fn a() { return 10; } fn b() { return 20; } fn c() { return 12; } var r = a() + b() + c();' 42
+run_test_cc "stress_recurse" 'fn pow2(n) { if (n == 0) { return 1; } return 2 * pow2(n - 1); } var r = pow2(5) + 10;' 42
+run_test_cc "stress_bitwise" 'var r = ((0xFF & 0x3F) << 1) ^ 0x54;' 42
+run_test_cc "stress_cmp"     'fn max(a, b) { if (a >= b) { return a; } return b; } fn min(a, b) { if (a <= b) { return a; } return b; } var r = max(42, min(10, 100));' 42
+
+echo ""
 echo "-- Operator Overloading Edge Cases (cc-only) --"
 run_test_cc "op_div"         'struct N { v; } fn N_div(a, b) { return a / b; } var x: N = 84; var y: N = 2; var r = x / y;' 42
 run_test_cc "op_chain"       'struct N { v; } fn N_add(a, b) { return a + b; } var x: N = 10; var y: N = 12; var z: N = 20; var r = x + y + z;' 42

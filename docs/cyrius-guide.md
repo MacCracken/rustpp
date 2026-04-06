@@ -276,14 +276,45 @@ include "lib/kybernet/cgroup.cyr"   # Cgroup v2 service management
 include "lib/kybernet/eventloop.cyr"# Epoll + timerfd event loop
 ```
 
+## Inline Assembly
+
+```cyrius
+fn io_outb(port, val) {
+    var p = port;
+    var v = val;
+    asm { 0xBA; 0xF8; 0x03; }    # raw bytes: mov dx, 0x3F8
+    asm { outb; }                  # mnemonic
+}
+```
+
+**Stack layout** (critical for inline asm):
+```
+fn foo(a, b) {         # a at [rbp-0x08], b at [rbp-0x10]
+    var x = 1;         # x at [rbp-0x18]
+    var y = 2;         # y at [rbp-0x20]
+    asm { ... }        # rax/rcx may hold temp values
+}
+```
+
+**Warning**: `asm` writing to `[rbp-0x08]` clobbers param `a`. If you need
+asm access to specific memory, use globals or declare dummy locals to push
+offsets past the params.
+
 ## Known Limitations
 
-- No block scoping: `var` in loop bodies allocates new stack slot per iteration. Declare variables outside loops.
-- No comparison expressions in function args: `f(x == 1)` fails. Use `if (x == 1) { f(1); }`.
-- Exit codes truncated to 0-255 (Linux limitation).
-- Inline asm operates on register state directly — know the calling convention.
-- `for` loop step must be a simple assignment (`i = i + 1`), not a complex expression.
-- Max ~64 global vars with initializers (use enums for constants to avoid overflow).
+- No `&&`/`||` mixed in same condition — use nested `if`
+- `for` loop step must be simple assignment (`i = i + 1`)
+- Exit codes truncated to 0-255 (Linux limitation)
+- Max ~64 global vars with initializers (use enums for constants)
+- No negative literals — use `(0 - N)` instead of `-N`
+- `default`, `match`, `in`, `shared` are keywords
+- Block closures (`|x| { ... }`) only work inside functions
+
+## Gotchas
+
+- **Dynamic loop bounds**: `for (i = 0; i < GLOBAL; ...)` re-evaluates each iteration
+- **Operator overloading**: multi-field structs pass addresses, single-field pass values
+- **Enum constructors**: auto-generated `Ok(42)` calls `alloc()` — init heap first
 
 ## Building
 

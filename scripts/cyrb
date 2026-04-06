@@ -457,6 +457,11 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         exec sh "$SCRIPTS_DIR/cyrb-header.sh" "$@"
         ;;
 
+    port)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrb-port.sh" "$@"
+        ;;
+
     coverage)
         shift
         exec sh "$SCRIPTS_DIR/cyrb-coverage.sh" "$@"
