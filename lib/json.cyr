@@ -96,6 +96,8 @@ fn json_parse(src) {
 
 # Find value by key in parsed JSON. Returns Str or 0 if not found.
 fn json_get(pairs, key) {
+    if (pairs == 0) { return 0; }
+    if (key == 0) { return 0; }
     var len = vec_len(pairs);
     var gi = 0;
     while (gi < len) {

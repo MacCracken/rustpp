@@ -86,6 +86,8 @@ fn vec_find(v, val) {
 # Remove element at index, shift remaining left
 fn vec_remove(v, idx) {
     var len = load64(v + 8);
+    if (idx < 0) { return 0 - 1; }
+    if (idx >= len) { return 0 - 1; }
     var data = load64(v);
     for (var ri = idx; ri < len - 1; ri = ri + 1) {
         store64(data + ri * 8, load64(data + (ri + 1) * 8));

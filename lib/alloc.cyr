@@ -26,9 +26,15 @@ fn alloc(size) {
     var ptr = _heap_ptr;
     _heap_ptr = _heap_ptr + size;
     if (_heap_ptr > _heap_end) {
-        # Grow heap
-        _heap_end = _heap_end + 0x100000;
-        syscall(12, _heap_end);
+        # Grow heap by 1MB
+        var new_end = _heap_end + 0x100000;
+        var result = syscall(12, new_end);
+        if (result < new_end) {
+            # brk failed — out of memory
+            _heap_ptr = ptr;
+            return 0;
+        }
+        _heap_end = new_end;
     }
     return ptr;
 }
