@@ -9,52 +9,46 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.9.6] — 2026-04-05
 
 ### Added — Language
-- **Block scoping**: variables in if/while/for blocks don't leak to outer scope
-  - Scope depth tracking per local variable, SCOPE_PUSH/SCOPE_POP
-  - Variable shadowing across different scope depths
-  - Two-step bootstrap required (changes local variable indexing)
-- **Enum constructor syntax**: `enum Result { Ok(val) = 0; Err(code) = 1; }` now parses
-  - Variant payload syntax accepted; hand-written constructors in tagged.cyr still used
+- **Enum constructor syntax**: `enum Result { Ok(val) = 0; Err(code) = 1; }` parses payload syntax
 - **Feature flags**: `#define`, `#ifdef`, `#endif` preprocessor directives
-  - Hash-based flag table (32 flags max)
-  - Nested ifdef support with skip depth tracking
-  - Flags defined in source or included files
-- **f64 as statements**: `f64_add(a, b);` now works in statement context (was expression-only)
+  - Hash-based flag table (32 flags), nested ifdef with skip depth tracking
 
 ### Added — Tooling
-- `cyrb docs [--agent] [--port N]` — serve project documentation
-  - Default: HTML via python3 http.server
-  - `--agent`: raw markdown with proper Content-Type for bots/agents
-  - Indexes all .md, .cyr, .toml files
-- `cyrb.toml` parser: `toml_get` function + `read_manifest` helper (replaces grep/sed)
-- `scripts/version-bump.sh` — update VERSION + install.sh
+- `cyrb docs [--agent] [--port N]` — serve project docs (HTML default, markdown for agents)
+- `cyrb.toml` parser: `toml_get` + `read_manifest` (replaces grep/sed)
+- `scripts/version-bump.sh` — update VERSION + install.sh in one command
 - cyrb version now reads from VERSION file (matches project version)
 
 ### Added — Documentation
-- 5 Architecture Decision Records (docs/adr/):
-  - ADR-001: Assembly as the Cornerstone
-  - ADR-002: Everything is i64
-  - ADR-003: Fixed Heap Layout over Dynamic Allocation
-  - ADR-004: Convention-Based Method and Trait Dispatch
-  - ADR-005: Two-Step Bootstrap for Compiler Changes
+- 5 ADRs: assembly cornerstone, everything-is-i64, fixed heap, convention dispatch, two-step bootstrap
 - Threat model (docs/development/threat-model.md)
-- 10 vidya implementation strategies for planned features
-- Float benchmark program (bench_float.cyr)
+- 10 vidya planned-feature implementation strategies
 
 ### Added — Tests
-- 5 new test categories: Floating Point (12), Methods (3), Block Scoping (4), Enum Constructors (2), Feature Flags (3)
-- 2 new test programs: floattest.cyr (13 assertions), hmtest.cyr (14 assertions)
-- CI test counts updated: 135 compiler + 51 programs
+- Enum constructor tests (2), feature flag tests (3)
 
 ### Fixed — Compiler
-- f64 builtins as statements (PARSE_STMT didn't recognize token types 62-71)
-- Self-hosting test now compares compiler.cyr output (was testing bridge compiler)
-- aarch64 fixup: var_sizes offset synced (0x58800 → 0x60800)
+- Self-hosting test: compares compiler.cyr output (was testing bridge compiler)
 
 ### Metrics
-- Compiler: 110KB, 230+ functions
+- Compiler: 110KB
 - 186 tests (135 compiler + 51 programs) + 12 aarch64, 0 failures
-- 45 benchmarks, 5 ADRs, 14/14 vidya reference files pass
+- `cyrb audit` → 10/10, self-hosting verified, 14/14 vidya pass
+
+## [0.9.5] — 2026-04-05
+
+### Added — Language
+- **Block scoping**: variables in if/while/for blocks don't leak to outer scope
+  - Scope depth tracking, SCOPE_PUSH/SCOPE_POP, variable shadowing
+- **f64 as statements**: f64 builtins now work in statement context
+
+### Added — Tests
+- 19 new compiler tests: float (12), methods (3), block scoping (4)
+- 2 new test programs: floattest.cyr (13 assertions), hmtest.cyr (14 assertions)
+- Float benchmark program (bench_float.cyr — 7 benchmarks)
+
+### Metrics
+- 181 tests (130 compiler + 51 programs) + 12 aarch64, 0 failures
 
 ## [0.9.4] — 2026-04-05
 

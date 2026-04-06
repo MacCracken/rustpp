@@ -43,14 +43,14 @@ echo ""
 echo "── Compiler Tests ──"
 sh "$ROOT/tests/compiler.sh" "$CC" "$ROOT/build/stage1f" 2>&1 | tail -1
 cc_result=$?
-check "compiler tests (111)" "$cc_result"
+check "compiler tests" "$cc_result"
 echo ""
 
 # ── 3. Program Tests ──
 echo "── Program Tests ──"
 sh "$ROOT/tests/programs.sh" "$CC" 2>&1 | tail -1
 prog_result=$?
-check "program tests (57)" "$prog_result"
+check "program tests" "$prog_result"
 echo ""
 
 # ── 4. Format Check ──

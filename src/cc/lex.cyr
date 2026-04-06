@@ -35,9 +35,8 @@ fn ISALNUM(c) {
     return 0;
 }
 
-# Lex hex number after 0x prefix
 # ================================================================
-# INCLUDE / FILE I/O
+# INCLUDE / FILE I/O / PREPROCESSOR
 # ================================================================
 
 # Read a file into buffer at dst, return bytes read. Path must be null-terminated.
