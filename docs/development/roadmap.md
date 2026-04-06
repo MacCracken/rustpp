@@ -1,7 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v1.0 ready.** All criteria met. 128KB self-hosting compiler, both architectures.
-> 251 tests, 0 failures. Audit 10/10. aarch64 byte-identical on Raspberry Pi.
+> **v1.5 shipped.** 136KB self-hosting compiler, both architectures.
+> 263 tests, 0 failures. Audit 10/10. aarch64 byte-identical on Raspberry Pi.
+> cyrb.cyr binary replaces shell dispatcher. Compiler refactored, 3KB smaller.
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -10,20 +11,36 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
-## v1.0 — Ship
+## Current — v1.6 Keystone Ports
 
-All criteria met:
+Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
 
-- [x] Self-hosting compiler (x86_64 + aarch64 byte-identical)
-- [x] 251 tests, 0 failures
-- [x] `cyrb audit` → 10/10
-- [x] AGNOS kernel (31KB — optimized from 62KB)
-- [x] Complete toolchain (20+ cyrb commands)
-- [x] Pattern matching, closures, modules, traits, floats, methods, operators
-- [x] Subprocess bridge for external tool integration
-- [x] C FFI header generation
-- [x] Installer + version manager + release pipeline
-- [x] All documentation current (tutorial, reference, FAQ, 37 vidya entries)
+| # | Feature | Effort | Unlocks |
+|---|---------|--------|---------|
+| 1 | Const generics | Medium | `Matrix<N,M>`, `[T; N]` |
+| 2 | Derive macros | Medium | serde Serialize/Deserialize |
+
+---
+
+## v1.7 — Infrastructure + Security
+
+Port kavach, sigil, phylax (security stack):
+
+| # | Feature | Effort | Unlocks |
+|---|---------|--------|---------|
+| 1 | Ownership / borrow checker | Very High | Memory safety |
+| 2 | Sandbox borrow checker | Very High | AGNOS security model |
+
+---
+
+## v1.8 — Concurrency
+
+Port daimon, hoosh, agnosai (AI + async stack):
+
+| # | Feature | Effort | Unlocks |
+|---|---------|--------|---------|
+| 1 | Concurrency primitives | High | Threads, atomics, channels |
+| 2 | Async/await | High | tokio-style patterns |
 
 ---
 
@@ -76,51 +93,6 @@ ELF loader → context switch → scheduler → ramfs → shell
 
 The 57 compiled programs (true, false, echo, cat, head, grep, wc, etc.)
 become the userland. kybernet becomes PID 1.
-
----
-
-## v1.4 — Converting Tools to Cyrius
-
-Rewrite cyrb, cyrfmt, cyrlint, cyrdoc, cyrc from shell/Cyrius-compiled to
-pure Cyrius programs. Self-hosting the toolchain in the language itself.
-
-| # | Tool | Current | Target |
-|---|------|---------|--------|
-| 1 | cyrb | Shell dispatcher | Cyrius binary |
-| 2 | cyrfmt | Cyrius program (18KB) | Already Cyrius ✓ |
-| 3 | cyrlint | Cyrius program (26KB) | Already Cyrius ✓ |
-| 4 | cyrdoc | Cyrius program (29KB) | Already Cyrius ✓ |
-| 5 | cyrc | Cyrius program (22KB) | Already Cyrius ✓ |
-| 6 | ark | Cyrius program (44KB) | Already Cyrius ✓ |
-
-cyrb is the main target — convert from shell script to Cyrius binary.
-
-## v1.5+ — Keystone Ports
-
-Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
-
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 1 | Const generics | Medium | `Matrix<N,M>`, `[T; N]` |
-| 2 | Derive macros | Medium | serde Serialize/Deserialize |
-
-## v1.6 — Infrastructure + Security
-
-Port kavach, sigil, phylax (security stack):
-
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 10 | Ownership / borrow checker | Very High | Memory safety |
-| 11 | Sandbox borrow checker | Very High | AGNOS security model |
-
-## v1.4 — Concurrency
-
-Port daimon, hoosh, agnosai (AI + async stack):
-
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 12 | Concurrency primitives | High | Threads, atomics, channels |
-| 13 | Async/await | High | tokio-style patterns |
 
 ---
 
