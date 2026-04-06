@@ -96,6 +96,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial project scaffold
 CHANGELOG
 
+# === cyrb.toml ===
+cat > "$NAME/cyrb.toml" << EOF
+name = "$NAME"
+version = "0.1.0"
+license = "GPL-3.0-only"
+entry = "src/main.cyr"
+output = "$NAME"
+
+[deps]
+stdlib = { path = "lib" }
+EOF
+
 # === src/main.cyr ===
 cat > "$NAME/src/main.cyr" << EOF
 # $NAME — main entry point
@@ -193,13 +205,20 @@ CI
 
 # === Vendor stdlib ===
 echo "Vendoring Cyrius stdlib..."
-for f in string.cyr fmt.cyr alloc.cyr io.cyr vec.cyr str.cyr fnptr.cyr assert.cyr tagged.cyr callback.cyr bounds.cyr hashmap.cyr bench.cyr; do
-    if [ -f "$CYRIUS/lib/$f" ]; then
-        cp "$CYRIUS/lib/$f" "$NAME/lib/"
-    fi
-done
-if [ -f "$CYRIUS/lib/agnosys/syscalls.cyr" ]; then
-    cp "$CYRIUS/lib/agnosys/syscalls.cyr" "$NAME/lib/agnosys/"
+CYRIUS_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
+CYRIUS_VER=$(cat "$CYRIUS_HOME/current" 2>/dev/null)
+CYRIUS_LIB=""
+if [ -n "$CYRIUS_VER" ] && [ -d "$CYRIUS_HOME/versions/$CYRIUS_VER/lib" ]; then
+    CYRIUS_LIB="$CYRIUS_HOME/versions/$CYRIUS_VER/lib"
+elif [ -d "$CYRIUS/lib" ]; then
+    CYRIUS_LIB="$CYRIUS/lib"
+fi
+if [ -n "$CYRIUS_LIB" ]; then
+    for f in "$CYRIUS_LIB"/*.cyr; do
+        [ -f "$f" ] && cp "$f" "$NAME/lib/"
+    done
+else
+    echo "  warn: Cyrius stdlib not found, lib/ will be empty"
 fi
 
 # === Done ===

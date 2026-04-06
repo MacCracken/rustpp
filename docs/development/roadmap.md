@@ -1,8 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v1.6 shipped.** 136KB self-hosting compiler, both architectures.
-> 263 tests, 0 failures. Self-hosting byte-identical. aarch64 on Raspberry Pi.
-> Function table expanded to 512, variable table to 512, all P1 bugs cleared.
+> **v1.6.5 shipped.** 136KB self-hosting compiler, both architectures.
+> 216 compiler + 51 program tests, 0 failures. Self-hosting byte-identical.
+> All P1/P2 bugs cleared. All tooling issues resolved except known limits.
+> aarch64 kernel mode working (ELF64, SP setup, arch-specific asm).
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -13,11 +14,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-| # | Bug | Severity | Repro | Description |
-|---|-----|----------|-------|-------------|
-| 1 | ~~cc2_aarch64 segfaults on `kernel;` mode~~ | ~~P1~~ | ~~`echo 'kernel; var x = 42;' \| ./build/cc2_aarch64`~~ | **Fixed** (v1.6.1). |
-| 2 | ~~cc2_aarch64 kernel string fixups wrong > ~1KB~~ | ~~P1~~ | ~~`kernel; fn f() { serial_println("test", 4); } f();`~~ | **Fixed** (v1.6.2). Entry point and data base set to `0x40000078` with correct preamble offset. Verified with 3KB kernel — string addresses resolve correctly. |
-| 3 | ~~cc2_aarch64 kernel no SP setup at entry~~ | ~~P2~~ | ~~Any kernel with function calls~~ | **Fixed** (v1.6.2). Kernel preamble emits `MOVZ x9, #stack_top; MOVK...; MOV SP, x9` (16 bytes) before code. Stack at top of memsz (base + filesz + 64KB). |
+None — all clear.
 
 ---
 
@@ -92,19 +89,13 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
 ---
 
-## Tooling Issues (from AGNOS kernel development)
+## Open Tooling Issues
 
 | # | Issue | Tool | Impact | Detail |
 |---|-------|------|--------|--------|
-| 1 | ~~`cyrb build --aarch64` looks for cc2_aarch64 in ~/.cyrius/bin/ only~~ | cyrb | ~~Medium~~ | **Fixed** (v1.6.1). Now searches `_tools_dir` then falls back to `./build/cc2_aarch64`. |
-| 2 | ~~`cyrb build --aarch64` fails silently on compile errors~~ | ~~cyrb~~ | ~~Low~~ | **Fixed** (v1.6.2). Root cause: `ASM_MNEMONIC` was in shared parse.cyr with x86 encodings — aarch64 silently emitted invalid bytes. Fix: moved asm mnemonics to arch-specific emit files. aarch64 now errors with line number on unknown mnemonics. Supports: svc, wfi, wfe, dmb, dsb, isb, nop, ret. |
-| 3 | ~~No `include` support in `kernel;` mode~~ | cc2 | ~~High~~ | **Not a bug.** `include` and `#ifdef` both work in kernel mode. The real blocker was lack of `-D` flag for conditional includes. **Fixed** (v1.6.1): `cyrb build -D ARCH_X86_64 kernel/agnos.cyr build/agnos`. AGNOS kernel can now split into arch-specific includes. |
-| 4 | **cc2 segfaults on source with >512 functions** | cc2 | Low | Was >256, now >512 after v1.6.0 table expansion. Programs exceeding 512 functions need splitting into separate compilation units. Proper fix: multi-file compilation (.o + link). |
-| 5 | **Release tarball missing cc2_aarch64** | release | Medium | `cyrius-1.5.2-x86_64-linux.tar.gz` includes `bin/cc2` but not `bin/cc2_aarch64`. Cross-compilation requires building from source or downloading the aarch64 tarball separately. Should include cross-compiler in the x86_64 release for cross-dev workflows. |
-| 6 | ~~`cyrb check` cannot validate files that use `include`~~ | cyrb | ~~Medium~~ | **Fixed** (v1.6.2). Module files without `include` directives now check via project entry point (`src/main.cyr`). Self-contained files with their own includes check directly. |
-| 7 | ~~Identifier buffer overflow gives misleading error~~ | cc2 | ~~Medium~~ | **Fixed** (v1.6.2). Error now shows: `error: identifier buffer full (N/65536 bytes) — reduce included modules or split into separate units`. |
-| 8 | ~~`var buf[N]` array size semantics undocumented~~ | cc2 | ~~Low~~ | **Clarified** (v1.5.3). `var buf[N]` allocates N BYTES (rounded up to 8-byte alignment), not N elements. Documented in vidya, CHANGELOG, and Known Gotchas #18. The agnosys port was fixed: `var buf[392]` for 390-byte utsname, `var buf[120]` for sysinfo, etc. |
-| 9 | ~~Benchmark programs segfault when `agnosys_hostname` called in tight loop~~ | cc2 | ~~Medium~~ | **Likely fixed** (v1.5.3). Root cause was `var buf[49]` allocating 56 bytes instead of 392 — uname syscall wrote 390 bytes past the allocation, corrupting adjacent data. After fixing array sizes and switching to `agnosys_uname(out)` (single call, zero intermediate buffer), the hot loop no longer has oversized locals. Needs verification with benchmark suite. |
+| 1 | **>512 functions segfaults** | cc2 | Low | Function tables expanded from 256→512 in v1.6.0. Programs exceeding 512 need splitting. Proper fix: multi-file compilation (.o + link). |
+| 2 | **Release tarball missing cc2_aarch64** | release | Medium | x86_64 release should include cc2_aarch64 for cross-dev workflows. |
+| 3 | **Preprocessor macros with args** | cc2 | Medium | `#define NAME(params) body` — storage/detection works but parameter substitution has a memory corruption bug in the `0x91000` region. Deferred. |
 
 ---
 
@@ -160,9 +151,9 @@ wave breakdown, porting patterns, and bridge strategies.
 
 | # | Behavior | Context | Explanation |
 |---|----------|---------|-------------|
-| 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global (directly or via function call), the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
-| 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | In a function `fn foo(a, b)`, params are stored at `[rbp-0x08]` (a) and `[rbp-0x10]` (b). Locals declared with `var` start AFTER params: first local at `[rbp-0x18]`, etc. Inline asm writing to `[rbp-0x08]` will **clobber param a**. **Fix**: declare enough dummy locals before the asm block to push offsets past the params, or use globals for values the asm block needs. In general: `fn(p1, p2)` → p1 at -0x08, p2 at -0x10; `var v1` at -0x18, `var v2` at -0x20, etc. |
-| 3 | ~~Nested for-loops with var declarations~~ | ~~AGNOS initrd, kernel patterns~~ | **Fixed** (v1.5.2). Block scoping (v0.9.5) resolved this. Nested for-loops with var declarations now compile and run correctly. |
+| 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global, the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
+| 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | `fn foo(a, b)`: params at `[rbp-0x08]` (a), `[rbp-0x10]` (b). Locals start after: `var v1` at `[rbp-0x18]`. Inline asm writing to `[rbp-0x08]` clobbers param a. **Fix**: use globals or dummy locals to push offsets. |
+| 3 | `var buf[N]` is N bytes, not N elements | agnosys port | `var buf[8]` = 8 bytes (1 i64). For a 120-byte struct: `var buf[120]`. Writing past the allocation silently corrupts adjacent data. |
 
 ---
 

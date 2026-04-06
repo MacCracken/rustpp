@@ -608,13 +608,61 @@ fn cmd_package() {
 
 fn cmd_update() {
     println("=== cyrb update ===");
-    if (is_dir(str_from("lib")) == 0) {
-        println("no lib/ directory");
+    # Find installed stdlib
+    var cur = read_file_str(make_path(_home, "current"));
+    var src_lib = 0;
+    if (cur != 0) {
+        var ver_dir = make_path(_home, "versions");
+        ver_dir = make_path(ver_dir, cur);
+        src_lib = make_path(ver_dir, "lib");
+    }
+    if (src_lib == 0) {
+        # Fallback: try ../cyrius/lib
+        if (is_dir(str_from("../cyrius/lib")) == 1) {
+            src_lib = "../cyrius/lib";
+        }
+    }
+    if (src_lib == 0) {
+        println("error: cannot find Cyrius stdlib");
+        println("  expected: ~/.cyrius/versions/<ver>/lib/ or ../cyrius/lib/");
         return 1;
     }
-    var cyrius_lib = make_path(_home, "versions");
-    # Check for installed stdlib
-    println("manual update: cp ../cyrius/lib/*.cyr lib/");
+    # Ensure lib/ exists
+    sys_mkdir("lib", 0x1ED);
+    # Copy all .cyr files from source to lib/
+    var entries = dir_list(str_from(src_lib));
+    var copied = 0;
+    var ei = 0;
+    while (ei < vec_len(entries)) {
+        var name = vec_get(entries, ei);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        # Check if .cyr file (ends with .cyr)
+        if (nl > 4) {
+            if (load8(nd + nl - 4) == 46) {
+                if (load8(nd + nl - 3) == 99) {
+                    if (load8(nd + nl - 2) == 121) {
+                        if (load8(nd + nl - 1) == 114) {
+                            var from = make_path(src_lib, nd);
+                            var to = make_path("lib", nd);
+                            var fbuf = alloc(32768);
+                            var fn_read = file_read_all(from, fbuf, 32767);
+                            if (fn_read > 0) {
+                                file_write_all(to, fbuf, fn_read);
+                                copied = copied + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ei = ei + 1;
+    }
+    sys_write(STDOUT_FD, "  updated lib/ from ", 20);
+    sys_write(STDOUT_FD, src_lib, strlen(src_lib));
+    sys_write(STDOUT_FD, " (", 2);
+    fmt_int(copied);
+    println(" files)");
     return 0;
 }
 
