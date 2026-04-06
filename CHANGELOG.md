@@ -21,9 +21,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - C FFI header generation — call Cyrius from C/Rust/Python
 - Migration strategy: subprocess (now), protocol (v1.x), FFI (v1.x)
 
+### Added — Tests
+- 12 new edge case tests: closures in functions, nested match, match expressions,
+  nested for-in, for-in with expressions, operator chaining, typed locals/globals
+
 ### Metrics
 - Compiler: 128KB
-- 205 tests (154 compiler + 51 programs) + 26 aarch64, 0 failures
+- 217 tests (166 compiler + 51 programs) + 26 aarch64, 0 failures
+- `cyrb audit` → 10/10
 
 ## [0.9.11] — 2026-04-06
 

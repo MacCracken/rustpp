@@ -370,6 +370,33 @@ run_test_cc "closure_params" 'var f = |a, b| a + b; var r = 0; if (f > 0) { r = 
 run_test_cc "closure_noparam" 'var f = |_| 42; var r = 0; if (f > 0) { r = 42; }' 42
 
 echo ""
+echo "-- Closure Edge Cases (cc-only) --"
+run_test_cc "closure_in_fn"  'fn f() { var d = |x| x * 2; return d; } var fp = f(); var r = 0; if (fp > 0) { r = 42; }' 42
+run_test_cc "closure_multi"  'var a = |x| x + 1; var b = |x| x * 2; var r = 0; if (a > 0) { if (b > 0) { r = 42; } }' 42
+
+echo ""
+echo "-- Match Edge Cases (cc-only) --"
+run_test_cc "match_nested"   'fn f(a, b) { match a { 1 => { match b { 10 => { return 42; } _ => { return 0; } } } _ => { return 0; } } return 0; } syscall(60, f(1, 10));' 42
+run_test_cc "match_expr"     'fn f(n) { match n * 2 { 84 => { return 42; } _ => { return 0; } } return 0; } syscall(60, f(42));' 42
+run_test_cc "match_many"     'fn f(n) { match n { 1 => { return 1; } 2 => { return 2; } 3 => { return 3; } 4 => { return 4; } 5 => { return 42; } _ => { return 0; } } return 0; } syscall(60, f(5));' 42
+
+echo ""
+echo "-- For-In Edge Cases (cc-only) --"
+run_test_cc "forin_nested"   'fn f() { var t = 0; for i in 0..3 { for j in 0..3 { t = t + 1; } } return t; } syscall(60, f());' 9
+run_test_cc "forin_expr"     'fn f(n) { var s = 0; for i in 0..n { s = s + i; } return s; } syscall(60, f(7));' 21
+run_test_cc "forin_one"      'fn f() { var s = 0; for i in 0..1 { s = 42; } return s; } syscall(60, f());' 42
+
+echo ""
+echo "-- Operator Overloading Edge Cases (cc-only) --"
+run_test_cc "op_div"         'struct N { v; } fn N_div(a, b) { return a / b; } var x: N = 84; var y: N = 2; var r = x / y;' 42
+run_test_cc "op_chain"       'struct N { v; } fn N_add(a, b) { return a + b; } var x: N = 10; var y: N = 12; var z: N = 20; var r = x + y + z;' 42
+
+echo ""
+echo "-- Type Annotation Method Dispatch (cc-only) --"
+run_test_cc "typed_local"    'struct T { v; } fn T_get(self) { return load64(self); } fn f() { var x: T = 42; return x; } var r = f();' 42
+run_test_cc "typed_global"   'struct T { v; } fn T_val(self) { return load64(self); } var g: T = 42; var r = g;' 42
+
+echo ""
 echo "-- Trait Impls (cc-only) --"
 run_test_cc "impl_basic"    'struct P { x; y; } impl Math for P { fn sum(self) { return load64(self) + load64(self + 8); } } var p = P { 20, 22 }; var r = p.sum();' 42
 run_test_cc "impl_mutate"   'struct V { val; } impl Ops for V { fn double(self) { store64(self, load64(self) * 2); return 0; } } var v = V { 21 }; v.double(); var r = v.val;' 42
