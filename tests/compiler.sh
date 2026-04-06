@@ -338,6 +338,18 @@ run_test_cc "ifdef_false"   "$(printf 'var r = 42;\n#ifdef NOPE\nr = 0;\n#endif'
 run_test_cc "ifdef_nested"  "$(printf '#define A\nvar r = 0;\n#ifdef A\nr = 10;\n#ifdef B\nr = 99;\n#endif\nr = r + 32;\n#endif')" 42
 
 echo ""
+echo "-- Pattern Matching (cc-only) --"
+run_test_cc "match_basic"   'fn f(n) { match n { 0 => { return 0; } 42 => { return 42; } _ => { return 99; } } return 0; } syscall(60, f(42));' 42
+run_test_cc "match_default" 'fn f(n) { match n { 1 => { return 1; } _ => { return 42; } } return 0; } syscall(60, f(7));' 42
+run_test_cc "match_first"   'fn f(n) { match n { 10 => { return 10; } 20 => { return 20; } _ => { return 0; } } return 0; } syscall(60, f(10));' 10
+
+echo ""
+echo "-- For-In Range (cc-only) --"
+run_test_cc "forin_basic"   'fn f() { var s = 0; for i in 1..8 { s = s + i; } return s; } syscall(60, f());' 28
+run_test_cc "forin_zero"    'fn f() { var s = 0; for i in 0..5 { s = s + 1; } return s; } syscall(60, f());' 5
+run_test_cc "forin_scope"   'fn f() { for i in 0..3 { var x = i; } var i = 42; return i; } syscall(60, f());' 42
+
+echo ""
 echo "-- Modules (cc-only) --"
 run_test_cc "mod_basic"     'mod math; fn add(a, b) { return a + b; } mod main; use math.add; var r = add(20, 22);' 42
 run_test_cc "mod_multi"     'mod math; fn add(a, b) { return a + b; } fn mul(a, b) { return a * b; } mod main; use math.add; use math.mul; var a = mul(2, 11); var r = add(20, a);' 42

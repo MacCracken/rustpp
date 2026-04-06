@@ -334,6 +334,7 @@ fn LEXID(S, p, npos) {
     if (klen == 2) {
         if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
         if (kw & 0xFFFF == 0x6E66) { ADDTOK(S, 32, 0); return p; }
+        if (kw & 0xFFFF == 0x6E69) { ADDTOK(S, 76, 0); return p; }
     }
     if (klen == 3) {
         if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; }
@@ -358,6 +359,8 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFF == 0x003864616F6C) { ADDTOK(S, 25, 0); return p; }
         # "break" = 0x6B61657262
         if (kw & 0xFFFFFFFFFF == 0x6B61657262) { ADDTOK(S, 51, 0); return p; }
+        # "match" = 0x686374616D
+        if (kw & 0xFFFFFFFFFF == 0x686374616D) { ADDTOK(S, 75, 0); return p; }
     }
     if (klen == 6) {
         # "return" = 0x006E7275746572

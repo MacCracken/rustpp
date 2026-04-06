@@ -1232,6 +1232,72 @@ fn PARSE_FOR(S) {
     STI(S, GTI(S) + 1);
     var slv = GLVAR(S);
     SCOPE_PUSH(S);
+    # Check for "for ident in start..end { }" syntax
+    if (PEEKT(S) == 2) {
+        var fiti = GTI(S);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 76) {
+            var finoff = TOKVAL(S, fiti);
+            STI(S, GTI(S) + 1);
+            PARSE_EXPR(S);
+            # Declare loop var
+            var fili = GFLC(S);
+            S64(S + 0x8DC30 + fili * 8, finoff);
+            SLDEP(S, fili, GSDEP(S));
+            SLTYPE(S, fili, 0);
+            EFLSTORE(S, fili);
+            SFLC(S, fili + 1);
+            # Expect ..
+            if (PEEKT(S) != 41) { ERR(S); } STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 41) { ERR(S); } STI(S, GTI(S) + 1);
+            # End value into hidden global
+            PARSE_EXPR(S);
+            var fiend = GVCNT(S);
+            S64(S + 0x60000 + fiend * 8, 0);
+            S64(S + 0x60800 + fiend * 8, 8);
+            SVCNT(S, fiend + 1);
+            EVSTORE(S, fiend);
+            # Loop setup
+            var fislt = L64(S + 0x8F838);
+            var fisbk = L64(S + 0x8F840);
+            var fitop = GCP(S);
+            S64(S + 0x8F838, fitop);
+            S64(S + 0x8F840, 0);
+            # Condition: var < end
+            EFLLOAD(S, fili);
+            EPUSHR(S);
+            EVLOAD(S, fiend);
+            EMOVCA(S);
+            EPOPR(S);
+            ECMPR(S);
+            var ficond = EJCC(S, 0x8D);
+            # Body
+            if (PEEKT(S) != 13) { ERR(S); } STI(S, GTI(S) + 1);
+            SCOPE_PUSH(S);
+            PARSE_PROG(S);
+            SCOPE_POP(S);
+            if (PEEKT(S) != 14) { ERR(S); } STI(S, GTI(S) + 1);
+            # Step: var = var + 1
+            EFLLOAD(S, fili);
+            EPUSHR(S);
+            EMOVI(S, 1);
+            EMOVCA(S);
+            EPOPR(S);
+            EADDR(S);
+            EFLSTORE(S, fili);
+            EJMP(S, fitop);
+            PATCHXP(S);
+            EPATCH(S, ficond);
+            var fibrk = L64(S + 0x8F840);
+            if (fibrk > 0) { EPATCH(S, fibrk); }
+            S64(S + 0x8F838, fislt);
+            S64(S + 0x8F840, fisbk);
+            SCOPE_POP(S);
+            SLVAR(S, slv);
+            return 0;
+        }
+        STI(S, fiti);
+    }
     if (PEEKT(S) != 10) { ERR(S); }
     STI(S, GTI(S) + 1);
     PARSE_STMT(S);
@@ -1709,6 +1775,82 @@ fn PARSE_SWITCH(S) {
     return 0;
 }
 
+# Parse: match expr { val => { stmts } val => { stmts } _ => { stmts } }
+fn PARSE_MATCH(S) {
+    STI(S, GTI(S) + 1);
+    PARSE_EXPR(S);
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);
+    # Store match value in hidden temp var
+    var midx = GVCNT(S);
+    S64(S + 0x60000 + midx * 8, 0);
+    S64(S + 0x60800 + midx * 8, 8);
+    SVCNT(S, midx + 1);
+    EVSTORE(S, midx);
+    var ends[256];
+    var ec = 0;
+    var mgo = 1;
+    while (mgo == 1) {
+        if (PEEKT(S) == 14) { mgo = 0; }
+        else {
+            # Check for _ (wildcard/default)
+            var is_default = 0;
+            if (PEEKT(S) == 2) {
+                # Check if identifier is "_"
+                var mnoff = PEEKV(S);
+                if (load8(S + 0x50000 + mnoff) == 95) {
+                    if (load8(S + 0x50000 + mnoff + 1) == 0) {
+                        is_default = 1;
+                    }
+                }
+            }
+            if (is_default == 1) {
+                # _ => { stmts }
+                STI(S, GTI(S) + 1);
+                # Expect =>
+                if (PEEKT(S) != 4) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 20) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 13) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                SCOPE_PUSH(S);
+                PARSE_PROG(S);
+                SCOPE_POP(S);
+                if (PEEKT(S) != 14) { ERR(S); }
+                STI(S, GTI(S) + 1);
+            } else {
+                # val => { stmts }
+                EVLOAD(S, midx);
+                EPUSHR(S);
+                PARSE_EXPR(S);
+                EMOVCA(S);
+                EPOPR(S);
+                ECMPR(S);
+                var skip = EJCC(S, 0x85);
+                # Expect =>
+                if (PEEKT(S) != 4) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 20) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 13) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                SCOPE_PUSH(S);
+                PARSE_PROG(S);
+                SCOPE_POP(S);
+                if (PEEKT(S) != 14) { ERR(S); }
+                STI(S, GTI(S) + 1);
+                store64(&ends + ec * 8, EJMP0(S));
+                ec = ec + 1;
+                EPATCH(S, skip);
+            }
+        }
+    }
+    STI(S, GTI(S) + 1);
+    for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
+    return 0;
+}
+
 fn PARSE_STMT(S) {
     var typ = PEEKT(S);
     if (typ == 3) { PARSE_VAR(S); return 0; }
@@ -1716,6 +1858,7 @@ fn PARSE_STMT(S) {
     if (typ == 16) { PARSE_WHILE(S); return 0; }
     if (typ == 55) { PARSE_FOR(S); return 0; }
     if (typ == 57) { PARSE_SWITCH(S); return 0; }
+    if (typ == 75) { PARSE_MATCH(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
     # break; — forward jump to after loop (single break per loop)
     if (typ == 51) {

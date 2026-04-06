@@ -159,21 +159,21 @@ fn cmd_self() {
     var buf2 = alloc(4096);
     var fd1 = sys_open("/tmp/cyrb_cc3", O_RDONLY, 0);
     var fd2 = sys_open("/tmp/cyrb_cc4", O_RDONLY, 0);
-    var match = 1;
+    var identical = 1;
     var cgo = 1;
     while (cgo == 1) {
         var n1 = sys_read(fd1, buf1, 4096);
         var n2 = sys_read(fd2, buf2, 4096);
-        if (n1 != n2) { match = 0; cgo = 0; }
+        if (n1 != n2) { identical = 0; cgo = 0; }
         if (n1 <= 0) { cgo = 0; }
         if (cgo == 1) {
-            if (memeq(buf1, buf2, n1) == 0) { match = 0; cgo = 0; }
+            if (memeq(buf1, buf2, n1) == 0) { identical = 0; cgo = 0; }
         }
     }
     sys_close(fd1);
     sys_close(fd2);
     _total = _total + 1;
-    if (match == 1) {
+    if (identical == 1) {
         println("  PASS: cc2==cc3 byte-identical");
         _pass = _pass + 1;
     } else {
