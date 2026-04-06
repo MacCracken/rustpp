@@ -17,13 +17,65 @@ All criteria met:
 - [x] Self-hosting compiler (x86_64 + aarch64 byte-identical)
 - [x] 251 tests, 0 failures
 - [x] `cyrb audit` → 10/10
-- [x] AGNOS kernel (62KB)
+- [x] AGNOS kernel (31KB — optimized from 62KB)
 - [x] Complete toolchain (20+ cyrb commands)
 - [x] Pattern matching, closures, modules, traits, floats, methods, operators
 - [x] Subprocess bridge for external tool integration
 - [x] C FFI header generation
 - [x] Installer + version manager + release pipeline
 - [x] All documentation current (tutorial, reference, FAQ, 37 vidya entries)
+
+---
+
+## AGNOS Kernel — Boots Into a Shell
+
+Current: 31KB, boots on qemu, serial I/O, VMM, PMM, processes, syscalls, keyboard.
+Goal: boots into a shell that runs the 57 compiled userland programs.
+
+### Layer 2 — Run Programs
+
+| # | Feature | Effort | What it does |
+|---|---------|--------|-------------|
+| 1 | **ELF loader** | Medium | Parse ELF header, map segments, jump to entry |
+| 2 | **Context switch** | Medium | Save/restore all regs on timer interrupt |
+| 3 | **Scheduler** | Low | Round-robin over process table |
+| 4 | **User/kernel mode** | High | Ring 3 userspace, Ring 0 kernel, TSS |
+| 5 | **syscall/sysret** | Medium | Fast user→kernel transition |
+
+### Layer 3 — Storage
+
+| # | Feature | Effort | What it does |
+|---|---------|--------|-------------|
+| 6 | **ramfs (initrd)** | Low | CPIO archive loaded at boot, in-memory FS |
+| 7 | **VFS** | Medium | Abstract open/read/write/close over backends |
+| 8 | **ATA/NVMe driver** | High | Read/write real disks |
+| 9 | **FAT32 or ext2** | High | Parse on-disk filesystem |
+
+### Layer 4 — Networking
+
+| # | Feature | Effort | What it does |
+|---|---------|--------|-------------|
+| 10 | **VirtIO net** | Medium | Network device for qemu |
+| 11 | **TCP/IP stack** | Very High | IP, TCP, UDP, ARP, ICMP |
+
+### Layer 5 — Usable OS
+
+| # | Feature | Effort | What it does |
+|---|---------|--------|-------------|
+| 12 | **Shell** | Medium | Read line, fork+exec, wait |
+| 13 | **Init (kybernet)** | Low | PID 1 — already written in Cyrius |
+| 14 | **Signals** | Medium | SIGTERM, SIGKILL, SIGCHLD |
+| 15 | **Pipe/redirect** | Medium | `cmd1 \| cmd2`, stdin/stdout |
+
+### Shortest Path to "Boots Into Shell"
+
+```
+ELF loader → context switch → scheduler → ramfs → shell
+(5 features, ~2000 lines, kernel grows from 31KB to ~50KB)
+```
+
+The 57 compiled programs (true, false, echo, cat, head, grep, wc, etc.)
+become the userland. kybernet becomes PID 1.
 
 ---
 

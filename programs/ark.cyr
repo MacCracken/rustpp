@@ -17,8 +17,7 @@ include "lib/alloc.cyr"
 include "lib/io.cyr"
 include "lib/vec.cyr"
 include "lib/args.cyr"
-include "lib/cyrius-ref/agnosys/syscalls.cyr"
-include "lib/cyrius-ref/nous/nous.cyr"
+include "lib/syscalls.cyr"
 
 var ARK_VERSION = "0.9.0";
 var ARK_DB_PATH = "/var/lib/ark/packages.db";

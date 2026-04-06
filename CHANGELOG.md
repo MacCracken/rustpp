@@ -6,6 +6,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-04-06
+
+### Added — Language
+- **For-in over collections**: `for item in vec { body }` iterates over vec elements
+  - Desugars to `vec_len` + index loop + `vec_get` per iteration
+  - Works alongside range for-in (`for i in 0..10`)
+  - Item variable scoped to loop body
+
+### Changed
+- Removed `lib/cyrius-ref/` — agnostik, agnosys, kybernet, nous live in own repos
+- Promoted `lib/syscalls.cyr` to stdlib (was agnosys/syscalls.cyr)
+- Removed reference test programs (agnostik_test, kybernet_test, nous_test)
+- Synced kernel to agnos repo (source of truth)
+
+### Added — Language (in progress)
+- **Enum constructors (auto-generate)**: `enum Result { Ok(val) = 0; }` generates `Ok(42)` function
+  - Registered in pass 1, body emitted in pass 2 via alloc
+  - In progress: codegen bug in generated function body
+
+### Metrics
+- Compiler: 135KB
+- 253 tests (202 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [1.0.0] — 2026-04-06
 
 ### v1.0 — Sovereign, Self-Hosting Systems Language

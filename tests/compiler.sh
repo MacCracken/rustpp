@@ -387,6 +387,7 @@ echo "-- For-In Edge Cases (cc-only) --"
 run_test_cc "forin_nested"   'fn f() { var t = 0; for i in 0..3 { for j in 0..3 { t = t + 1; } } return t; } syscall(60, f());' 9
 run_test_cc "forin_expr"     'fn f(n) { var s = 0; for i in 0..n { s = s + i; } return s; } syscall(60, f(7));' 21
 run_test_cc "forin_one"      'fn f() { var s = 0; for i in 0..1 { s = 42; } return s; } syscall(60, f());' 42
+# Collection for-in tested via programs (needs vec include)
 
 echo ""
 echo "-- Operator Overloading Edge Cases (cc-only) --"

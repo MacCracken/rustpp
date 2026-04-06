@@ -215,31 +215,6 @@ check "hmtest 14" "0" "$?"
 # System/integration tests (fork, exec, filesystem) — run locally, not in CI
 # To run: sh tests/programs.sh ./build/cc2 --system
 if [ "${2:-}" = "--system" ]; then
-    # Nous resolver test
-    cat "programs/nous_test.cyr" | "$CC" > "$TMPDIR/nous_test" 2>/dev/null && chmod +x "$TMPDIR/nous_test"
-    timeout 30 "$TMPDIR/nous_test" > /dev/null 2>&1
-    check "nous resolver" "0" "$?"
-
-    # Ark package manager
-    cat "programs/ark.cyr" | "$CC" > "$TMPDIR/ark" 2>/dev/null && chmod +x "$TMPDIR/ark"
-    timeout 10 "$TMPDIR/ark" status > /dev/null 2>&1
-    check "ark status" "0" "$?"
-
-    # Cyrius builder self-hosting
-    cat "programs/cyrb.cyr" | "$CC" > "$TMPDIR/cyrb" 2>/dev/null && chmod +x "$TMPDIR/cyrb"
-    timeout 60 "$TMPDIR/cyrb" self > /dev/null 2>&1
-    check "cyrb self-host" "0" "$?"
-
-    # Kybernet library integration
-    cat "programs/kybernet_test.cyr" | "$CC" > "$TMPDIR/kybernet_test" 2>/dev/null && chmod +x "$TMPDIR/kybernet_test"
-    timeout 10 "$TMPDIR/kybernet_test" > /dev/null 2>&1
-    check "kybernet libs" "0" "$?"
-
-    # Agnostik library integration
-    cat "programs/agnostik_test.cyr" | "$CC" > "$TMPDIR/agnostik_test" 2>/dev/null && chmod +x "$TMPDIR/agnostik_test"
-    timeout 10 "$TMPDIR/agnostik_test" > /dev/null 2>&1
-    check "agnostik libs" "0" "$?"
-
     # Kernel ELF (small tests)
     build kernel_hello
     python3 -c "

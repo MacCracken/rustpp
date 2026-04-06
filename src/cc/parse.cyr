@@ -108,8 +108,10 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             if (PEEKT(S) != 2) { ERR(S); }
             var vnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
-            # Skip constructor syntax: Variant(param)
+            # Check for constructor syntax: Variant(param)
+            var has_ctor = 0;
             if (PEEKT(S) == 10) {
+                has_ctor = 1;
                 STI(S, GTI(S) + 1);
                 if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
                 if (PEEKT(S) != 11) { ERR(S); }
@@ -122,13 +124,84 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 STI(S, GTI(S) + 1);
             }
             if (emit_code == 0) {
+                # Pass 1: register variant as global var
                 var vcnt = GVCNT(S);
                 S64(S + 0x60000 + vcnt * 8, vnoff);
                 S64(S + 0x60800 + vcnt * 8, 8);
                 SVCNT(S, vcnt + 1);
+                # Register constructor function if has payload
+                if (has_ctor == 1) {
+                    var cwp = GNPOS(S);
+                    var cnoff = cwp;
+                    var cri = 0;
+                    var crc = load8(S + 0x50000 + vnoff + cri);
+                    while (crc != 0) { store8(S + 0x50000 + cwp, crc); cwp = cwp + 1; cri = cri + 1; crc = load8(S + 0x50000 + vnoff + cri); }
+                    store8(S + 0x50000 + cwp, 0); cwp = cwp + 1;
+                    SNPOS(S, cwp);
+                    REGFN(S, cnoff);
+                }
             } else {
+                # Pass 2: emit variant init + constructor body
                 var idx = FINDVAR(S, vnoff);
                 if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
+                if (has_ctor == 1) {
+                    # Find the registered constructor
+                    var cwp2 = GNPOS(S);
+                    var cnoff2 = cwp2;
+                    var cri2 = 0;
+                    var crc2 = load8(S + 0x50000 + vnoff + cri2);
+                    while (crc2 != 0) { store8(S + 0x50000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x50000 + vnoff + cri2); }
+                    store8(S + 0x50000 + cwp2, 0); cwp2 = cwp2 + 1;
+                    SNPOS(S, cwp2);
+                    var cfi = FINDFN(S, cnoff2);
+                    if (cfi >= 0) {
+                        # Emit constructor: fn Variant(payload) → tagged_new(tag, payload)
+                        # Calls alloc(16) if available, else uses brk directly.
+                        S64(S + 0x8CA00 + cfi * 8, GCP(S));
+                        S64(S + 0x8D200 + cfi * 8, 1);
+                        EFNPRO(S);
+                        ESUBRSP(S, 3);
+                        ESTOREPARM(S, 0, 0, 0);
+                        # Call alloc(16): push 16, call alloc
+                        EMOVI(S, 16);
+                        EPUSHR(S);
+                        ECALLPOPS(S, 1);
+                        # Find alloc function
+                        var awnp = GNPOS(S);
+                        store8(S + 0x50000 + awnp, 97); store8(S + 0x50000 + awnp + 1, 108);
+                        store8(S + 0x50000 + awnp + 2, 108); store8(S + 0x50000 + awnp + 3, 111);
+                        store8(S + 0x50000 + awnp + 4, 99); store8(S + 0x50000 + awnp + 5, 0);
+                        SNPOS(S, awnp + 6);
+                        var afi = FINDFN(S, awnp);
+                        if (afi < 0) { afi = REGFN(S, awnp); }
+                        var afoff = L64(S + 0x8CA00 + afi * 8);
+                        if (afoff >= 0) { ECALLTO(S, afoff); }
+                        else { ECALLFIX(S, afi); }
+                        ECALLCLEAN(S, 1);
+                        # rax = alloc result (ptr), save to local 1
+                        EFLSTORE(S, 1);
+                        # store64(ptr, tag)
+                        EFLLOAD(S, 1);
+                        EPUSHR(S);
+                        EMOVI(S, val);
+                        EPOPC(S);
+                        ESTORE64(S);
+                        # store64(ptr + 8, payload)
+                        EFLLOAD(S, 1);
+                        EPUSHR(S);
+                        EMOVI(S, 8);
+                        EMOVCA(S);
+                        EPOPR(S);
+                        EADDR(S);
+                        EPUSHR(S);
+                        EFLLOAD(S, 0);
+                        EPOPC(S);
+                        ESTORE64(S);
+                        # return ptr
+                        EFLLOAD(S, 1);
+                        EFNEPI(S);
+                    }
+                }
             }
             val = val + 1;
             if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
@@ -1396,16 +1469,135 @@ fn PARSE_FOR(S) {
             var finoff = TOKVAL(S, fiti);
             STI(S, GTI(S) + 1);
             PARSE_EXPR(S);
-            # Declare loop var
+            # Check: range (..) or collection?
+            var is_range = 0;
+            if (PEEKT(S) == 41) {
+                var dot_ti = GTI(S);
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) == 41) {
+                    STI(S, GTI(S) + 1);
+                    is_range = 1;
+                } else {
+                    STI(S, dot_ti);
+                }
+            }
+            if (is_range == 0) {
+                # COLLECTION for-in: for item in expr { body }
+                # rax has the collection (vec pointer)
+                # Store collection in hidden var
+                var ficol = GVCNT(S);
+                S64(S + 0x60000 + ficol * 8, 0);
+                S64(S + 0x60800 + ficol * 8, 8);
+                SVCNT(S, ficol + 1);
+                EVSTORE(S, ficol);
+                # Get length: call vec_len(collection)
+                EVLOAD(S, ficol);
+                EPUSHR(S);
+                ECALLPOPS(S, 1);
+                var vlfi = FINDFN(S, 0);
+                # Find vec_len — search by building name
+                var vlnp = GNPOS(S);
+                store8(S + 0x50000 + vlnp, 118); store8(S + 0x50000 + vlnp + 1, 101);
+                store8(S + 0x50000 + vlnp + 2, 99); store8(S + 0x50000 + vlnp + 3, 95);
+                store8(S + 0x50000 + vlnp + 4, 108); store8(S + 0x50000 + vlnp + 5, 101);
+                store8(S + 0x50000 + vlnp + 6, 110); store8(S + 0x50000 + vlnp + 7, 0);
+                SNPOS(S, vlnp + 8);
+                vlfi = FINDFN(S, vlnp);
+                if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
+                var vloff = L64(S + 0x8CA00 + vlfi * 8);
+                if (vloff >= 0) { ECALLTO(S, vloff); } else { ECALLFIX(S, vlfi); }
+                ECALLCLEAN(S, 1);
+                # Store length in hidden var
+                var filen = GVCNT(S);
+                S64(S + 0x60000 + filen * 8, 0);
+                S64(S + 0x60800 + filen * 8, 8);
+                SVCNT(S, filen + 1);
+                EVSTORE(S, filen);
+                # Index var (starts at 0)
+                var fili = GFLC(S);
+                var fiidx_noff = GNPOS(S);
+                store8(S + 0x50000 + fiidx_noff, 95); store8(S + 0x50000 + fiidx_noff + 1, 105);
+                store8(S + 0x50000 + fiidx_noff + 2, 0);
+                SNPOS(S, fiidx_noff + 3);
+                S64(S + 0x8DC30 + fili * 8, fiidx_noff);
+                SLDEP(S, fili, GSDEP(S));
+                SLTYPE(S, fili, 0);
+                EMOVI(S, 0);
+                EFLSTORE(S, fili);
+                SFLC(S, fili + 1);
+                # Item var
+                var fiitem = GFLC(S);
+                S64(S + 0x8DC30 + fiitem * 8, finoff);
+                SLDEP(S, fiitem, GSDEP(S));
+                SLTYPE(S, fiitem, 0);
+                EMOVI(S, 0);
+                EFLSTORE(S, fiitem);
+                SFLC(S, fiitem + 1);
+                # Loop: while (idx < len)
+                var fislt = L64(S + 0x8F838);
+                var fisbk = L64(S + 0x8F840);
+                var fitop = GCP(S);
+                S64(S + 0x8F838, fitop);
+                S64(S + 0x8F840, 0);
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                EVLOAD(S, filen);
+                EMOVCA(S);
+                EPOPR(S);
+                ECMPR(S);
+                var ficond = EJCC(S, 0x8D);
+                # item = vec_get(collection, idx)
+                EVLOAD(S, ficol);
+                EPUSHR(S);
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                ECALLPOPS(S, 2);
+                var vgfi = FINDFN(S, 0);
+                var vgnp = GNPOS(S);
+                store8(S + 0x50000 + vgnp, 118); store8(S + 0x50000 + vgnp + 1, 101);
+                store8(S + 0x50000 + vgnp + 2, 99); store8(S + 0x50000 + vgnp + 3, 95);
+                store8(S + 0x50000 + vgnp + 4, 103); store8(S + 0x50000 + vgnp + 5, 101);
+                store8(S + 0x50000 + vgnp + 6, 116); store8(S + 0x50000 + vgnp + 7, 0);
+                SNPOS(S, vgnp + 8);
+                vgfi = FINDFN(S, vgnp);
+                if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
+                var vgoff = L64(S + 0x8CA00 + vgfi * 8);
+                if (vgoff >= 0) { ECALLTO(S, vgoff); } else { ECALLFIX(S, vgfi); }
+                ECALLCLEAN(S, 2);
+                EFLSTORE(S, fiitem);
+                # Body
+                if (PEEKT(S) != 13) { ERR(S); } STI(S, GTI(S) + 1);
+                SCOPE_PUSH(S);
+                PARSE_PROG(S);
+                SCOPE_POP(S);
+                if (PEEKT(S) != 14) { ERR(S); } STI(S, GTI(S) + 1);
+                # Step: idx = idx + 1
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                EMOVI(S, 1);
+                EMOVCA(S);
+                EPOPR(S);
+                EADDR(S);
+                EFLSTORE(S, fili);
+                EJMP(S, fitop);
+                PATCHXP(S);
+                EPATCH(S, ficond);
+                var fibrk = L64(S + 0x8F840);
+                if (fibrk > 0) { EPATCH(S, fibrk); }
+                S64(S + 0x8F838, fislt);
+                S64(S + 0x8F840, fisbk);
+                SCOPE_POP(S);
+                SLVAR(S, slv);
+                return 0;
+            }
+            # RANGE for-in (.. already consumed, is_range==1)
+            # rax has start value from PARSE_EXPR above
             var fili = GFLC(S);
             S64(S + 0x8DC30 + fili * 8, finoff);
             SLDEP(S, fili, GSDEP(S));
             SLTYPE(S, fili, 0);
             EFLSTORE(S, fili);
             SFLC(S, fili + 1);
-            # Expect ..
-            if (PEEKT(S) != 41) { ERR(S); } STI(S, GTI(S) + 1);
-            if (PEEKT(S) != 41) { ERR(S); } STI(S, GTI(S) + 1);
             # End value into hidden global
             PARSE_EXPR(S);
             var fiend = GVCNT(S);

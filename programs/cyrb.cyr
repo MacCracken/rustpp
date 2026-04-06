@@ -16,7 +16,7 @@ include "lib/alloc.cyr"
 include "lib/io.cyr"
 include "lib/vec.cyr"
 include "lib/args.cyr"
-include "lib/cyrius-ref/agnosys/syscalls.cyr"
+include "lib/syscalls.cyr"
 
 var CC_X86 = "./build/cc2";
 var CC_ARM = "./build/cc2_aarch64";
