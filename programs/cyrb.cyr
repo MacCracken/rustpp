@@ -153,7 +153,13 @@ fn find_tools() {
             sys_exit(1);
         }
     }
+    # Search for aarch64 cross-compiler: tools dir, then ./build/
     _cc_arm = make_path(_tools_dir, "cc2_aarch64");
+    if (file_exists(_cc_arm) == 0) {
+        if (file_exists("./build/cc2_aarch64") == 1) {
+            _cc_arm = "./build/cc2_aarch64";
+        }
+    }
 
     # Scripts dir: relative to repo
     if (file_exists("./scripts/cyrb") == 1) {

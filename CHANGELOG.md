@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6.1] — 2026-04-06
+
+### Fixed — Tooling
+- **cyrb aarch64 cross-compiler search**: `cyrb build --aarch64` now searches `./build/cc2_aarch64`
+  as fallback when not found in `~/.cyrius/bin/`. Fixes CI and dev environments that build
+  the cross-compiler locally.
+
+### Updated — Roadmap
+- Tooling issues #1 resolved (aarch64 search path)
+- Tooling issue #4 clarified: >60KB source segfault was caused by function table overflow
+  (>256 functions), now mitigated by 512-entry tables in v1.6.0. Programs with >512 functions
+  still need splitting.
+
+### Metrics
+- Compiler: 136KB (unchanged)
+- cyrb: 59KB
+- 212 compiler tests + 51 program tests, 0 failures
+- Self-hosting: byte-identical
+
 ## [1.6.0] — 2026-04-06
 
 ### Fixed — Compiler

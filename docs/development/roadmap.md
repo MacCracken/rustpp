@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v1.5 shipped.** 136KB self-hosting compiler, both architectures.
-> 263 tests, 0 failures. Audit 10/10. aarch64 byte-identical on Raspberry Pi.
-> cyrb.cyr binary replaces shell dispatcher. Compiler refactored, 3KB smaller.
+> **v1.6 shipped.** 136KB self-hosting compiler, both architectures.
+> 263 tests, 0 failures. Self-hosting byte-identical. aarch64 on Raspberry Pi.
+> Function table expanded to 512, variable table to 512, all P1 bugs cleared.
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -92,10 +92,10 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
 | # | Issue | Tool | Impact | Detail |
 |---|-------|------|--------|--------|
-| 1 | **`cyrb build --aarch64` looks for cc2_aarch64 in ~/.cyrius/bin/ only** | cyrb | Medium | Does not search `./build/` or the directory containing cyrb itself. CI and dev environments that build cc2_aarch64 into `./build/` can't use `cyrb --aarch64` without copying to `~/.cyrius/bin/`. Should search: `~/.cyrius/bin/`, `$(dirname $0)/`, `./build/`, `$PATH`. |
+| 1 | ~~`cyrb build --aarch64` looks for cc2_aarch64 in ~/.cyrius/bin/ only~~ | cyrb | ~~Medium~~ | **Fixed** (v1.6.1). Now searches `_tools_dir` then falls back to `./build/cc2_aarch64`. |
 | 2 | **`cyrb build --aarch64` fails silently on compile errors** | cyrb | Low | When the source has x86 inline asm that can't compile on aarch64, cyrb prints `FAIL` with no error detail. Should forward the compiler's stderr (e.g., "error: unknown instruction" with line number). |
 | 3 | **No `include` support in `kernel;` mode** | cc2 | High | Blocks AGNOS multi-arch split. Kernel source must be a single file or concatenated externally. Either `include "path"` needs to work in kernel mode, or `cyrb build` needs a `--concat` or multi-file mode for kernel targets. |
-| 4 | **cc2 segfaults/errors on source files > ~60KB** | cc2 | Medium | Codebuf overflow. `cyrb` handles up to ~130KB. CI must use `cyrb` not `cc2` for large projects. Not a bug per se, but the error message is misleading (parse error instead of "codebuf full"). |
+| 4 | **cc2 segfaults on source with >512 functions** | cc2 | Low | Was >256, now >512 after v1.6.0 table expansion. Programs exceeding 512 functions need splitting into separate compilation units. Proper fix: multi-file compilation (.o + link). |
 | 5 | **Release tarball missing cc2_aarch64** | release | Medium | `cyrius-1.5.2-x86_64-linux.tar.gz` includes `bin/cc2` but not `bin/cc2_aarch64`. Cross-compilation requires building from source or downloading the aarch64 tarball separately. Should include cross-compiler in the x86_64 release for cross-dev workflows. |
 
 ---
