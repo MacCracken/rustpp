@@ -6,21 +6,40 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.3.0] — 2026-04-06
+## [1.4.0] — 2026-04-06
 
 ### Added — Tooling
+- **cyrb.cyr**: full Cyrius replacement for shell dispatcher (58KB binary)
+  - 25+ subcommands: build, run, test, bench, check, self, clean, init, package,
+    publish, install, update, port, header, fmt, lint, doc, vet, deny, audit,
+    coverage, doctest, repl, version, which, help
+  - Tool discovery: finds cc2 via ~/.cyrius/bin/ or ./build/ dev mode
+  - VERSION file reading, --aarch64 cross-compilation flag
+  - Delegates to companion tools (cyrfmt, cyrlint, cyrdoc, cyrc) and shell scripts
 - **`cyrb port`**: one-command Rust→Cyrius project scaffolding
   - Moves Rust to rust-old/, creates src/lib/programs/tests dirs
   - Vendors stdlib from installed Cyrius
   - Generates main.cyr skeleton, cyrb.toml, test script
   - Tested on vidhana (228 lines) — compiles and runs
 
+### Fixed — Compiler
+- **String data buffer overflow**: expanded str_data from 2KB to 32KB (0x69000 → 0x61000)
+  - Programs with >2KB of string literals would silently corrupt str_pos/data_size
+- **Preprocessor output buffer**: wired PREPROCESS to use 0x222000 (256KB) instead of 0x91000
+  - Old buffer overlapped tok_types at 0xA2000 after ~68KB of expanded source
+  - The 256KB buffer was allocated at brk but never connected to the preprocessor
+- **Fixup table overflow**: relocated from 0x8A000 to 0x262000, expanded to 2048 entries
+  - Old table had only ~528 usable entries before overlapping compiler state at 0x8C100
+  - Programs with >500 function calls + string literals would corrupt compiler state
+  - brk extended from 0x262000 to 0x26A000
+
 ### Improved — Documentation
 - Inline assembly section added to cyrius-guide.md (stack layout, param offsets)
 - Known limitations updated (removed fixed items, added gotchas)
 
 ### Metrics
-- Compiler: 139KB
+- Compiler: 139KB (138,400 bytes)
+- cyrb binary: 58KB (58,616 bytes)
 - 263 tests (212 compiler + 51 programs) + 26 aarch64, 0 failures
 - First repo scaffolded: vidhana (228 lines Rust → Cyrius skeleton)
 
