@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.9 — trait impls, type tracking, 199 tests
+> **Current**: v0.9.12 — subprocess bridge, deep audit, 217 tests
 >
-> 124KB compiler, 57 programs, 8 tools, 45 benchmarks.
-> 199 tests (148 compiler + 51 programs) + 26 aarch64, 0 failures.
-> aarch64 cc3 runs natively on Raspberry Pi.
+> 128KB compiler, 57 programs, 8 tools, 45 benchmarks.
+> 217 tests (166 compiler + 51 programs) + 26 aarch64, 0 failures.
+> 13 releases in 2 days. 4 items left for v1.0.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -36,41 +36,30 @@ Top 10 by size:
 v1.0 ships when the language can port the **small and medium repos** (<5K lines)
 without workarounds. That's 39 repos as the first wave proof.
 
-### Must Have for v1.0
+### Remaining for v1.0
 
-| # | Feature | Status | Blocks |
-|---|---------|--------|--------|
-| 1 | Trait impl blocks | **Done (v0.9.9)** | Method organization |
-| 2 | Pattern matching | **Done (v0.9.8)** | Clean control flow |
-| 3 | For-in range | **Done (v0.9.8)** | Loop ergonomics |
-| 4 | Module system | **Done (v0.9.7)** | Code organization |
-| 5 | Block scoping | **Done (v0.9.5)** | Variable hygiene |
-| 6 | Feature flags | **Done (v0.9.6)** | Conditional compilation |
-| 7 | Floats | **Done (v0.9.2)** | Math libraries |
-| 8 | Methods | **Done (v0.9.2)** | OOP patterns |
-| 9 | Closures / lambdas | **Done (v0.9.10)** | Callbacks, iterators |
-| 10 | String type (owned) | **Done (v0.9.10)** | Str methods via dot syntax |
-| 11 | Operator overloading | **Done (v0.9.11)** | Math types (Vec3, Matrix) |
-| 12 | Subprocess bridge (exec_vec/exec_capture/exec_env) | **Done (v0.9.12)** | External tool integration |
-| 13 | Shared library output (.so) | Needed | FFI bridge to Rust/TS/Python |
-| 14 | C FFI (header generation) | Needed | Call Cyrius from C/Rust |
-| 15 | aarch64 byte-identical | In progress | Dual-arch claim |
+| # | Feature | Status | Why |
+|---|---------|--------|-----|
+| 1 | Shared library output (.so) | Needed | FFI bridge to Rust/TS/Python |
+| 2 | C FFI (header generation) | Needed | Call Cyrius from C/Rust |
+| 3 | aarch64 byte-identical self-hosting | In progress | Dual-arch claim |
+| 4 | P-1 hardening + 250 tests | In progress | Quality gate |
 
 ### Nice to Have for v1.0
 
 | # | Feature | Why |
 |---|---------|-----|
-| 16 | Real generics (type checking) | Catch bugs, not needed for codegen |
-| 17 | Enum constructors (auto-generate) | Cleaner Option/Result API |
-| 18 | Iterators (for-in over collections) | Sugar over while + methods |
+| 5 | Real generics (type checking) | Catch bugs, not needed for codegen |
+| 6 | Enum constructors (auto-generate) | Cleaner Option/Result API |
+| 7 | Iterators (for-in over collections) | Sugar over while + methods |
 
 ### Post-v1.0 (needed for 5K+ repos)
 
 | # | Feature | Blocks |
 |---|---------|--------|
-| 19 | Const generics | hisab (Matrix<N,M>) |
-| 18 | Derive macros | serde everywhere |
-| 19 | Concurrency | tokio/rayon usage |
+| 8 | Const generics | hisab (Matrix<N,M>) |
+| 9 | Derive macros | serde everywhere |
+| 10 | Concurrency | tokio/rayon usage |
 | 20 | Ownership / borrow checker | Memory safety |
 | 21 | Sandbox borrow checker | AGNOS security model |
 

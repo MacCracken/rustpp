@@ -21,9 +21,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - C FFI header generation — call Cyrius from C/Rust/Python
 - Migration strategy: subprocess (now), protocol (v1.x), FFI (v1.x)
 
+### Improved — Libraries
+- **Hashmap cleanup**: added `map_values()`, `map_clear()`, formatting fixed
+- Deep code audit: all instruction encodings verified, tombstone logic confirmed correct
+
 ### Added — Tests
 - 12 new edge case tests: closures in functions, nested match, match expressions,
   nested for-in, for-in with expressions, operator chaining, typed locals/globals
+
+### Added — Documentation
+- Vidya language docs updated through v0.9.12 (traits, closures, strings, operators, subprocess)
+- ai-hwaccel repo prepared for Cyrius port (Rust moved to rust-old/)
 
 ### Metrics
 - Compiler: 128KB
