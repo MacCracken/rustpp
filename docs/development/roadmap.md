@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.4 — preprocessor fix, P-1 hardening, vidya updates
+> **Current**: v0.9.5 — block scoping, tests expanded, ADRs, threat model, cyrb docs
 >
-> 104KB compiler, 222 functions, 35 libraries, 56 programs, 8 tools.
-> 160 x86_64 + 12 aarch64 tests, 0 failures. Self-compile: 9ms.
-> f64 arithmetic, struct methods, error line numbers, tombstone hashmap.
+> 105KB compiler, 222 functions, 35 libraries, 57 programs, 8 tools.
+> 181 tests (130 compiler + 51 programs) + 12 aarch64, 0 failures.
+> 45 benchmarks, 5 ADRs, 14/14 vidya reference files pass.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -14,41 +14,37 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 ## Critical Path — AGNOS Pillar Ports
 
 Bhava (emotion engine, 29K LOC) and hisab (math library, 31K LOC) are core AGNOS
-pillars currently in Rust. Porting them to Cyrius requires these language features
-in dependency order:
+pillars currently in Rust. Remaining language features needed:
 
 ### Tier 1 — Minimum Viable Port
 
 | # | Feature | Status | Why |
 |---|---------|--------|-----|
-| ~~1~~ | ~~Floating point (f64)~~ | **Done (v0.9.2)** | SSE2 codegen, 10 builtins, float literals |
-| ~~2~~ | ~~Methods on structs~~ | **Done (v0.9.2)** | `point.scale(2)` convention dispatch |
-| ~~3~~ | ~~Error message line numbers~~ | **Done (v0.9.2)** | `error:3: unexpected token (type=5)` |
-| 4 | **Real generics** (monomorphization) | Next | `Vec<T>`, `Option<T>`, typed containers |
-| 5 | **Module system** (pub/mod/use) | Next | 60+ modules in bhava — textual include won't scale |
-| 6 | **Multi-file compilation** | Next | Follows from module system |
+| 1 | **Real generics** (type checking) | Next | `Vec<T>`, `Option<T>`, compile-time validation |
+| 2 | **Module system** (pub/mod/use) | Next | 60+ modules in bhava — textual include won't scale |
+| 3 | **Multi-file compilation** | Next | Follows from module system |
 
 ### Tier 2 — Functional Parity
 
 | # | Feature | Why |
 |---|---------|-----|
-| 7 | **Closures / lambdas** | `.iter().map(\|x\| x + 1)`, callbacks, event handlers |
-| 8 | **Pattern matching** (destructuring) | `match result { Ok(v) => ..., Err(e) => ... }` |
-| 9 | **Iterators** (language-level) | for-in loops, `.map().filter().collect()` chains |
-| 10 | **Trait impl blocks** | `impl Display for Point { ... }` — bhava has 15+ traits |
-| 11 | **Feature flags** | Conditional compilation — bhava: 18 features, hisab: 11 |
-| 12 | **String type** (owned + slice) | `String`/`&str` — replace manual pointer management |
-| 13 | **Enum constructors** | `Option::Some(val)`, `Result::Ok(val)` auto-generated |
+| 4 | **Closures / lambdas** | `.iter().map(\|x\| x + 1)`, callbacks |
+| 5 | **Pattern matching** (destructuring) | `match result { Ok(v) => ..., Err(e) => ... }` |
+| 6 | **Iterators** (language-level) | for-in loops, `.map().filter().collect()` |
+| 7 | **Trait impl blocks** | `impl Display for Point { ... }` |
+| 8 | **Feature flags** | Conditional compilation `#[cfg(feature = "...")]` |
+| 9 | **String type** (owned + slice) | `String`/`&str` — replace manual pointer management |
+| 10 | **Enum constructors** | `Option::Some(val)`, `Result::Ok(val)` auto-generated |
 
 ### Tier 3 — Full Fidelity
 
 | # | Feature | Why |
 |---|---------|-----|
-| 14 | **Ownership / borrow checker** | Memory safety — both crates are zero-unsafe |
-| 15 | **Concurrency primitives** | tokio/rayon in bhava ai + hisab parallel |
-| 16 | **Derive macros** (serde) | Serialize/Deserialize on every public type |
-| 17 | **Operator overloading** | `Vec3 + Vec3`, `Matrix * Vector` |
-| 18 | **Const generics** | `[TraitLevel; 15]`, `Matrix<N, M>` |
+| 11 | **Ownership / borrow checker** | Memory safety — both crates are zero-unsafe |
+| 12 | **Concurrency primitives** | tokio/rayon in bhava ai + hisab parallel |
+| 13 | **Derive macros** (serde) | Serialize/Deserialize on every public type |
+| 14 | **Operator overloading** | `Vec3 + Vec3`, `Matrix * Vector` |
+| 15 | **Const generics** | `[TraitLevel; 15]`, `Matrix<N, M>` |
 
 ---
 
@@ -68,55 +64,52 @@ in dependency order:
 | 8 | Feature flags | High | Conditional compilation |
 | 9 | String type (owned) | High | Safe string manipulation |
 | 10 | Enum constructors | High | `enum Option { None; Some(val); }` auto-generates fns |
-| 11 | Block scoping | Medium | var in loops, scope depth |
-| 12 | Code coverage instrumentation | Medium | `cyrb coverage` — inject counters, report % |
+| 11 | Code coverage instrumentation | Medium | `cyrb coverage` — inject counters, report % |
 
 ### Tooling
 
 | # | Feature | Priority | Unlocks |
 |---|---------|----------|---------|
-| 13 | `cyrb.toml` native parser | High | cyrb reads manifest without shell grep |
-| 14 | `cyrb publish` / `cyrb install` connected | High | Ark registry backend |
-| 15 | Architecture decision records | Medium | docs/adr/ — numbered design decisions |
-| 16 | Threat model | Medium | docs/development/threat-model.md |
-| 17 | `cyrb docs` | Medium | Local HTTP server for project documentation |
-| 18 | `cyrb watch` | Medium | Auto-rebuild on file changes (inotify) |
-| 19 | `cyrb coverage` | Medium | Code coverage reports |
-| 20 | Doc-test runner | Medium | Runnable examples in doc comments |
-| 21 | `cyrb repl` | Low | Interactive expression evaluator |
+| 12 | `cyrb publish` / `cyrb install` connected | High | Ark registry backend |
+| 13 | `cyrb watch` | Medium | Auto-rebuild on file changes (inotify) |
+| 14 | `cyrb coverage` | Medium | Code coverage reports |
+| 15 | Doc-test runner | Medium | Runnable examples in doc comments |
+| 16 | `cyrb repl` | Low | Interactive expression evaluator |
 
 ### aarch64
 
 | # | Feature | Priority |
 |---|---------|----------|
-| 22 | aarch64 self-hosting | High — cc2_aarch64 compiles itself on ARM |
-| 23 | aarch64 kernel port | High — AGNOS on ARM |
-| 24 | Cross-compilation verified | Medium — x86 host → aarch64 binaries |
+| 17 | aarch64 self-hosting | High — cc2_aarch64 compiles itself on ARM |
+| 18 | aarch64 kernel port | High — AGNOS on ARM |
+| 19 | Cross-compilation verified | Medium — x86 host → aarch64 binaries |
 
 ### Language Maturity (Tier 3)
 
 | # | Feature | Effort | Unlocks |
 |---|---------|--------|---------|
-| 25 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
-| 26 | Operator overloading | 2 sessions | `+`, `-`, `*`, `/` on custom types |
-| 27 | Const generics | 3 sessions | Fixed-size arrays, matrix dimensions |
-| 28 | Derive macros | 3 sessions | Auto-generate Serialize, Display, Eq |
-| 29 | Concurrency primitives | 3 sessions | Threads, atomics, channels |
-| 30 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
-| 31 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
+| 20 | Ownership / borrow checker | 5+ sessions | Memory safety without GC |
+| 21 | Operator overloading | 2 sessions | `+`, `-`, `*`, `/` on custom types |
+| 22 | Const generics | 3 sessions | Fixed-size arrays, matrix dimensions |
+| 23 | Derive macros | 3 sessions | Auto-generate Serialize, Display, Eq |
+| 24 | Concurrency primitives | 3 sessions | Threads, atomics, channels |
+| 25 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
+| 26 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
 
 ---
 
-## Completed (v0.9.0–v0.9.4)
+## Completed (v0.9.0–v0.9.5)
 
 | Version | Feature |
 |---------|---------|
 | v0.9.0 | Ecosystem baseline — 5 crate rewrites, 35 libs, 8 tools, 18 cyrb commands |
 | v0.9.1 | Benchmarks (38), installer, release pipeline, dual-arch CI |
 | v0.9.2 | **Floating point** (SSE2), **methods on structs**, **error line numbers** |
-| v0.9.2 | Token arrays 32K→64K, tok_names 32K→64K, capacity fixes |
+| v0.9.2 | Token arrays 32K→64K, tok_names 32K→64K, preprocessor buffer relocation |
 | v0.9.3 | P-1 hardening: hashmap tombstones, vec bounds, alloc OOM, json null guard |
-| v0.9.4 | **Preprocessor fix** (include in strings), version bump script, vidya updates |
+| v0.9.4 | **Preprocessor fix** (include in strings), version bump script, vidya (9 entries) |
+| v0.9.5 | **Block scoping**, 19 new compiler tests, float/hashmap test programs |
+| v0.9.5 | 5 ADRs, threat model, `cyrb docs --agent`, cyrb.toml parser, cyrb version sync |
 
 ---
 
@@ -159,10 +152,11 @@ in dependency order:
 | 2026-04-05 | **v0.9.0** — ecosystem testing baseline |
 | 2026-04-05 | **v0.9.1** — benchmarks, installer, release pipeline |
 | 2026-04-05 | **v0.9.2** — floats, methods, line numbers, capacity fixes (104KB) |
-| 2026-04-05 | **v0.9.3** — P-1 hardening (hashmap, vec, alloc, json) |
-| 2026-04-05 | **v0.9.4** — preprocessor fix, version bump script, vidya |
-| 2026-04-xx | **v0.9.5+** — generics Phase 2, enum constructors, pattern matching |
-| 2026-04-xx | **v0.9.x** — module system, multi-file compilation, string type |
+| 2026-04-05 | **v0.9.3** — P-1 hardening |
+| 2026-04-05 | **v0.9.4** — preprocessor fix, vidya updates |
+| 2026-04-05 | **v0.9.5** — block scoping, ADRs, threat model, docs server, 181 tests |
+| 2026-04-xx | **v0.9.6+** — enum constructors, pattern matching, iterators |
+| 2026-04-xx | **v0.9.x** — generics Phase 2, module system, closures |
 | 2026-04-30 | aarch64 self-hosting |
 | **2026-05-01** | **BELTANE RELEASE (v1.0)** — both architectures, kernel + compiler + userland |
 | 2026-05-01–15 | Crate migration wave 2: **bhava + hisab** ports begin |
