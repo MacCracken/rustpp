@@ -6,37 +6,60 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.10] — 2026-04-06
+
+### Added — Language
+- **Closures / lambdas**: `|x| x * 2`, `|a, b| a + b` expression closures
+  - Generates anonymous `__clN` functions, returns function pointer
+  - Multi-param, zero-param (`|_| expr`), expression bodies
+  - Block body closures (`|x| { stmts }`) in progress
+
+### Metrics
+- Compiler: 126KB
+- 202 tests (151 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [0.9.9] — 2026-04-05
 
 ### Added — Language
 - **Trait impl blocks**: `impl Trait for Type { fn method(self) { } }`
   - Methods mangled to `TypeName_method` (reuses module name mangling)
   - Multiple impl blocks for same type supported
-  - Trait name is documentation-only (no vtable, no enforcement yet)
 
 ### Added — Compiler Infrastructure
-- Portable syscall constants: `SYS_*` enum replaces hardcoded numbers in all shared code
-  - x86: SYS_READ=0, SYS_WRITE=1, SYS_BRK=12, SYS_EXIT=60
-  - aarch64: SYS_READ=63, SYS_WRITE=64, SYS_BRK=214, SYS_EXIT=93
+- Expression type tracking (`expr_stype`) — struct type of last expression
+- Operator dispatch helpers (`BUILD_OP_NAME`, `EMIT_OP_DISPATCH`) for future use
 
 ### Added — Tests
 - 3 trait impl tests (basic, mutate, multi-impl)
 
-### Added — Compiler Infrastructure
-- Expression type tracking (`expr_stype`) — tracks struct type of last expression
-- Operator dispatch helpers (`BUILD_OP_NAME`, `EMIT_OP_DISPATCH`) — ready for future use
-- Operator overloading deferred: needs address-of-struct tracking at expression level
-
 ### Metrics
 - Compiler: 124KB
 - 199 tests (148 compiler + 51 programs) + 26 aarch64, 0 failures
-- `cyrb audit` → 10/10
 
 ## [0.9.8] — 2026-04-05
 
 ### Added — Language
 - **Pattern matching**: `match expr { val => { } _ => { } }` with scoped arms
 - **For-in range loops**: `for i in 0..10 { }` with exclusive end, block-scoped iterator
+
+### Milestone — aarch64
+- cc3_aarch64 runs natively on real Raspberry Pi hardware
+- ESCPOPS rewritten: pop-through-x0 fixes register mapping
+- Syscall translation layer (x86→aarch64) with corrected MOVZ encodings
+- SYS_* enum constants replace hardcoded syscall numbers in all shared code
+
+## [0.9.7] — 2026-04-05
+
+### Added — Language
+- **Module system**: `mod name;`, `use mod.fn;`, `pub fn` for namespace + visibility
+  - Name mangling: `mod math; fn add()` → registered as `math_add`
+  - Use aliases: `use math.add;` lets you call `add()` which resolves to `math_add`
+
+### Added — Tooling
+- `cyrb coverage` — file/function-level test coverage reports
+- `cyrb doctest` — run doc examples (`# >>>` / `# ===`) from .cyr files
+- `cyrb repl` — interactive expression evaluator
+- `cyrb docs --agent` — markdown server for bots/agents
 
 ### Added — Tests
 - 6 new compiler tests: pattern matching (3), for-in range (3)
@@ -45,15 +68,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `match` keyword collision: renamed `match` vars in grep.cyr and cyrb.cyr
-- CI aarch64 tests expanded to 26
-
-### Milestone — aarch64
-- cc2_aarch64 compiles compiler_aarch64.cyr → cc3 on native ARM Raspberry Pi
-- 26/26 qemu tests pass, 30/31 hardware tests pass
-- Syscall portability: `SYS_*` enum constants replace hardcoded numbers in shared code
-- Syscall translation layer (x86→aarch64 MOVZ encodings) added to ESCPOPS
-- ESCPOPS rewritten: fixed arg/syscall-num register swap, LIFO pop order corrected
-- Self-hosting in progress: compilation succeeds, multi-arg syscall register mapping under debug
+- CI aarch64 test output redirect (stdout was contaminating exit code capture)
 
 ### Metrics
 - Compiler: 120KB (x86), 110KB (aarch64)

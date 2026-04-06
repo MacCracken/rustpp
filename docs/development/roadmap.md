@@ -1,99 +1,159 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.8 — pattern matching, for-in, aarch64 native on real ARM
+> **Current**: v0.9.9 — trait impls, type tracking, 199 tests
 >
-> 120KB compiler (x86), 110KB (aarch64 cross), 57 programs, 8 tools.
-> 196 tests (145 compiler + 51 programs) + 26 aarch64 (qemu), 0 failures.
-> aarch64 cc3 runs natively on Raspberry Pi. SYS_* portable syscall constants.
+> 124KB compiler, 57 programs, 8 tools, 45 benchmarks.
+> 199 tests (148 compiler + 51 programs) + 26 aarch64, 0 failures.
+> aarch64 cc3 runs natively on Raspberry Pi.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
-## Release Plan to v1.0
+## The Migration
 
-### v0.9.9 — Language: Traits + Strings + Operator Overloading
+**108 Rust repos. ~1 million lines. This is why v1.0 must be right.**
 
-| Feature | Effort | Approach |
-|---------|--------|---------|
-| **Trait impl blocks** | Medium | `impl Display for Point { }` → name mangling `Point_Display_format` |
-| **String type** | Medium | Length-prefixed heap block, `s"hello"` literal syntax |
-| **Operator overloading** | Low | `+` `-` `*` `/` dispatch to `Type_add(a, b)` when struct typed |
+| Bracket | Count | Strategy |
+|---------|-------|----------|
+| <1K lines | 18 repos | Direct port, minimal features needed |
+| 1K–5K lines | 21 repos | Port with current features |
+| 5K–15K lines | 51 repos | Need closures, iterators, traits |
+| >15K lines | 18 repos | Need full Tier 2 + generics |
 
-### v0.9.10 — aarch64: Byte-Identical Self-Hosting
+Top 10 by size:
+- ifran (54K), tarang (33K), hisab (32K), bhava (30K), agnosys (29K)
+- agnosai (28K), agnoshi (27K), aethersafha (27K), kavach (26K), dhvani (24K)
 
-| Task | Status |
-|------|--------|
-| cc3 runs natively on ARM | **Done** |
-| cc3 compiles simple programs | **Done** |
-| cc4 byte-identical to cc3 | Pending (write buffer issue on large output) |
-| aarch64 kernel port | Planned |
-
-### v1.0-rc — Hardening + Polish
-
-| Task | Detail |
-|------|--------|
-| P-1 hardening | Audit all 35 lib modules |
-| Test expansion | Target 250+ tests |
-| Benchmark baseline | Full bench-history run |
-| Documentation audit | All docs current |
-| Vidya sync | All features have entries |
-| CI green | All jobs pass |
-
-### v1.0
-
-**Definition of done:**
-- Self-hosting compiler (x86_64 verified, aarch64 native runs)
-- AGNOS kernel boots
-- Complete developer toolchain (20+ cyrb commands)
-- Pattern matching, for-in, modules, methods, floats, block scoping, feature flags
-- 250+ tests, 0 failures
-- All documentation current
+5 repos already converted (wave 1): agnostik, agnosys, kybernet, nous, ark.
+103 remaining.
 
 ---
 
-## Post-v1.0
+## v1.0 Requirements
 
-### Crate Migration Wave 2
+v1.0 ships when the language can port the **small and medium repos** (<5K lines)
+without workarounds. That's 39 repos as the first wave proof.
 
-| Crate | LOC | Key Requirement |
-|-------|-----|----------------|
-| **bhava** | 29K | Traits, iterators, strings, generics |
-| **hisab** | 31K | Floats (done), operator overloading, const generics |
+### Must Have for v1.0
 
-### Language Features (v1.1–v2.0)
+| # | Feature | Status | Blocks |
+|---|---------|--------|--------|
+| 1 | Trait impl blocks | **Done (v0.9.9)** | Method organization |
+| 2 | Pattern matching | **Done (v0.9.8)** | Clean control flow |
+| 3 | For-in range | **Done (v0.9.8)** | Loop ergonomics |
+| 4 | Module system | **Done (v0.9.7)** | Code organization |
+| 5 | Block scoping | **Done (v0.9.5)** | Variable hygiene |
+| 6 | Feature flags | **Done (v0.9.6)** | Conditional compilation |
+| 7 | Floats | **Done (v0.9.2)** | Math libraries |
+| 8 | Methods | **Done (v0.9.2)** | OOP patterns |
+| 9 | Closures / lambdas | Needed | Callbacks, iterators |
+| 10 | String type (owned) | Needed | Pervasive in Rust code |
+| 11 | Operator overloading | Needed | Math types (Vec3, Matrix) |
+| 12 | Enum constructors (auto) | Needed | Option::Some, Result::Ok |
+| 13 | aarch64 byte-identical | In progress | Dual-arch claim |
 
-| Feature | Blocks Wave | Effort |
-|---------|-------------|--------|
-| Real generics (Phase 2 — type checking) | Wave 2 | Low |
-| Closures / lambdas | Wave 3 | High |
-| Const generics | Wave 2 (hisab) | Medium |
-| Derive macros (serde) | Wave 3 | Medium |
-| Concurrency primitives | Wave 6 | High |
-| Ownership / borrow checker | Wave 4 | Very High |
-| Sandbox-aware borrow checker | Wave 5 | Very High |
-| Agent/capability annotations | Wave 5 | Medium |
+### Nice to Have for v1.0
 
-### Systems Language Features (v1.x)
+| # | Feature | Why |
+|---|---------|-----|
+| 14 | Real generics (type checking) | Catch bugs, not needed for codegen |
+| 15 | Iterators (for-in over collections) | Sugar over while + methods |
+| 16 | Multi-file compilation (.o + link) | include + mod works for now |
+
+### Post-v1.0 (needed for 5K+ repos)
+
+| # | Feature | Blocks |
+|---|---------|--------|
+| 17 | Const generics | hisab (Matrix<N,M>) |
+| 18 | Derive macros | serde everywhere |
+| 19 | Concurrency | tokio/rayon usage |
+| 20 | Ownership / borrow checker | Memory safety |
+| 21 | Sandbox borrow checker | AGNOS security model |
+
+---
+
+## Release Chunks
+
+### v0.9.10 — Closures + String Type
+
+| Feature | Approach |
+|---------|---------|
+| **Closures** | Heap-allocated {fn_ptr, captures...}, capture by value |
+| **String type** | Length-prefixed heap, `s"hello"` syntax, str.cyr as standard |
+
+### v0.9.11 — Operator Overloading + Auto Enum Constructors
+
+| Feature | Approach |
+|---------|---------|
+| **Operator overloading** | Track variable addresses through expressions, dispatch to Type_add |
+| **Enum constructors** | Auto-generate `EnumName_Variant(payload)` during PARSE_ENUM_DEF |
+
+### v0.9.12 — aarch64 + Hardening
+
+| Feature | Approach |
+|---------|---------|
+| **aarch64 byte-identical** | Fix write buffer issue, verify cc3==cc4 |
+| **P-1 hardening** | Audit all libs, expand tests to 250+ |
+| **Documentation** | All features documented, vidya current |
+
+### v1.0 — Ship It
+
+| Criteria | Target |
+|----------|--------|
+| Compiler | Self-hosting, both architectures |
+| Tests | 250+, 0 failures |
+| Audit | 10/10 green |
+| Docs | Tutorial, reference, FAQ, all current |
+| Toolchain | 20+ cyrb commands, installer, CI/CD |
+| Ports | First 39 repos (<5K) portable |
+
+---
+
+## Post-v1.0 Waves
+
+### Wave 2 — Core Libraries (18 repos, 5K–15K lines)
+
+bhava, hisab, mudra, vinimaya, taal, natya, kshetra, libro, bodh,
+sangha, sharira, jivanu, tanmatra, mastishk, jantu, svara, prani, kana
+
+**Requires**: Generics, closures, derive macros
+
+### Wave 3 — Infrastructure (15 repos, 5K–15K lines)
+
+kavach, sigil, phylax, bote, t-ron, nein, majra, seema, libro,
+kimiya, rasayan, pravash, ranga, soorat, szal
+
+**Requires**: Ownership, sandbox borrow checker
+
+### Wave 4 — AI + Platform (18 repos, >15K lines)
+
+daimon, hoosh, agnosai, agnoshi, aethersafha, ifran, tarang,
+avatara, stiva, impetus, kiran, dhvani, prakash, raasta, argonaut,
+bijli, ai-hwaccel, jyotish
+
+**Requires**: Concurrency, full type system
+
+### Wave 5 — Everything Else
+
+Remaining small repos, tools, utilities.
+
+---
+
+## Systems Language Features (v1.x)
 
 | Feature | Effort | Unlocks |
 |---------|--------|---------|
 | Multi-file compilation (.o + link) | High | True separate compilation |
-| Struct padding/alignment (sizeof) | Medium | ABI-compatible structs, FFI |
-| Unions | Low | Type punning, hardware registers |
-| Bitfields | Medium | Protocol headers, hardware access |
+| Struct padding/alignment | Medium | FFI, ABI compat |
+| Unions, bitfields | Medium | Hardware, protocols |
 | Variadic functions | Medium | printf-style APIs |
-| Multi-width types (i8, i16, i32) | Medium | Memory-efficient structs |
-| Array types with length | Medium | Bounds checking |
-| Inline functions | Low | Zero-overhead abstractions |
-| Preprocessor macros (with args) | Medium | `#define MAX(a,b)` |
-| Optimization passes (-O1) | Very High | Performance, kernel boot |
-| Code coverage instrumentation | Medium | Compiler-injected line counters |
+| Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
+| Optimization passes (-O1) | Very High | Performance |
+| Preprocessor macros (with args) | Medium | Generic patterns |
 
-### cycc — C Compiler Frontend (v2.0+)
-
-Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
+## cycc — C Compiler Frontend (v2.0+)
 
 | Phase | Scope |
 |-------|-------|
@@ -104,37 +164,13 @@ Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
 | 5 | Object files + linker |
 | 6 | Optimization |
 
-### Crate Migration (full roadmap)
-
-| Wave | Crates | Prerequisite |
-|------|--------|-------------|
-| 1 | agnostik, agnosys, kybernet, nous, ark | **Done** |
-| 2 | **bhava**, **hisab** | v1.0 + generics |
-| 3 | mudra, vinimaya, taal, natya, kshetra, libro | Closures + derive |
-| 4 | sigil | Ownership |
-| 5 | kavach, bote, t-ron, nein, majra | Sandbox borrow checker |
-| 6 | daimon, hoosh, takumi | Concurrency |
-| 7 | aethersafha, agnoshi | All features |
-
-### Polymorphic Codegen
+## Polymorphic Codegen
 
 | Tier | Items |
 |------|-------|
 | 1 | `--poly-seed`, instruction alternatives, semantic NOPs |
 | 2 | Register shuffling, block reordering, stack randomization |
 | 3 | kavach/seema/sigil/phylax/libro integration |
-
----
-
-## Milestones
-
-| Milestone | Status |
-|-----------|--------|
-| **v0.9.0–v0.9.7** — ecosystem, language features, tooling | Done |
-| **v0.9.8** — pattern matching, for-in, aarch64 native on real ARM | Done |
-| **v0.9.9** — traits, strings, operator overloading | Next |
-| **v0.9.10** — aarch64 byte-identical self-hosting | Planned |
-| **v1.0** — target: this week | In progress |
 
 ---
 
@@ -147,9 +183,8 @@ Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
 - Programs are the best compiler fuzzers
 - Documentation (vidya) compounds
 - Prove in a library first, add syntax when earned
-- Polymorphic codegen is defense, not offense
-- `cyrb audit` must pass before every commit
-- bhava and hisab are AGNOS pillars — their needs drive language priorities
+- v1.0 ships when 39 small repos can port cleanly
+- 108 repos / ~1M lines is the real measure of success
 - Heap layout bugs are silent corruption — always verify after relocation
 - Two-step bootstrap for any heap offset change
 - Portable syscall constants (SYS_*) for cross-architecture compilation

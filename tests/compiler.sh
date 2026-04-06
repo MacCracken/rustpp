@@ -357,6 +357,13 @@ run_test_cc "mod_no_use"    'mod math; fn secret() { return 42; } mod main; var 
 run_test_cc "pub_fn"        'pub fn visible() { return 42; } var r = visible();' 42
 
 echo ""
+echo "-- Closures (cc-only) --"
+run_test_cc "closure_addr"  'var f = |x| x * 2; var r = 0; if (f > 0) { r = 42; }' 42
+run_test_cc "closure_params" 'var f = |a, b| a + b; var r = 0; if (f > 0) { r = 42; }' 42
+# Note: || is OR operator, so zero-param closures use |_| syntax
+run_test_cc "closure_noparam" 'var f = |_| 42; var r = 0; if (f > 0) { r = 42; }' 42
+
+echo ""
 echo "-- Trait Impls (cc-only) --"
 run_test_cc "impl_basic"    'struct P { x; y; } impl Math for P { fn sum(self) { return load64(self) + load64(self + 8); } } var p = P { 20, 22 }; var r = p.sum();' 42
 run_test_cc "impl_mutate"   'struct V { val; } impl Ops for V { fn double(self) { store64(self, load64(self) * 2); return 0; } } var v = V { 21 }; v.double(); var r = v.val;' 42

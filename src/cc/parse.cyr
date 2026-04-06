@@ -418,6 +418,92 @@ fn PARSE_FACTOR(S) {
         ENOTR(S);
         return 0;
     }
+    # |params| expr — closure/lambda (no captures for now)
+    if (typ == 35) {
+        STI(S, GTI(S) + 1);  # consume |
+        # Generate anonymous function name __closure_N
+        var clid = GFNC(S);
+        var clnoff = GNPOS(S);
+        var cwp = clnoff;
+        # Write "__cl" + digit
+        store8(S + 0x50000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x50000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x50000 + cwp, 99); cwp = cwp + 1;
+        store8(S + 0x50000 + cwp, 108); cwp = cwp + 1;
+        store8(S + 0x50000 + cwp, 48 + (clid % 10)); cwp = cwp + 1;
+        store8(S + 0x50000 + cwp, 0); cwp = cwp + 1;
+        SNPOS(S, cwp);
+        # Register the closure function
+        var clfi = REGFN(S, clnoff);
+        # Save current state
+        var cl_saved_lv = GLVAR(S);
+        var cl_saved_infn = GINFN(S);
+        var cl_saved_flc = GFLC(S);
+        var cl_saved_rpc = GRPC(S);
+        var cl_saved_sdep = GSDEP(S);
+        # Set up closure function
+        SINFN(S, 1);
+        SFLC(S, 0);
+        SRPC(S, 0);
+        SSDEP(S, 0);
+        # Emit function prologue
+        var cl_jmp = EJMP0(S);
+        S64(S + 0x8CA00 + clfi * 8, GCP(S));
+        EFNPRO(S);
+        # Parse params until |
+        var clpc = 0;
+        if (PEEKT(S) != 35) {
+            var cpgo = 1;
+            while (cpgo == 1) {
+                if (PEEKT(S) != 2) { ERR(S); }
+                var cpnoff = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                var cpli = GFLC(S);
+                S64(S + 0x8DC30 + cpli * 8, cpnoff);
+                SLDEP(S, cpli, 0);
+                if (clpc < 6) { ESTOREPARM(S, clpc, cpli, 0); }
+                SFLC(S, cpli + 1);
+                clpc = clpc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { cpgo = 0; }
+            }
+        }
+        S64(S + 0x8D200 + clfi * 8, clpc);
+        if (PEEKT(S) != 35) { ERR(S); }
+        STI(S, GTI(S) + 1);  # consume closing |
+        ESUBRSP(S, GFLC(S));
+        # Parse body: { stmts } or single expression
+        if (PEEKT(S) == 13) {
+            STI(S, GTI(S) + 1);
+            PARSE_PROG(S);
+            if (PEEKT(S) != 14) { ERR(S); }
+            STI(S, GTI(S) + 1);
+        } else {
+            PARSE_EXPR(S);
+        }
+        # Patch any return statements + emit epilogue
+        var clrpc = GRPC(S);
+        for (var clri = 0; clri < clrpc; clri = clri + 1) {
+            EPATCH(S, L64(S + 0x8DA20 + clri * 8));
+        }
+        EFNEPI(S);
+        EPATCH(S, cl_jmp);
+        # Restore state
+        SINFN(S, cl_saved_infn);
+        SFLC(S, cl_saved_flc);
+        SRPC(S, cl_saved_rpc);
+        SSDEP(S, cl_saved_sdep);
+        SLVAR(S, cl_saved_lv);
+        # Emit address of closure function (like &fn_name)
+        E2(S, 0xB848);
+        var clfc = GFCNT(S);
+        var clfaddr = S + 0x8A000 + clfc * 16;
+        S64(clfaddr, GCP(S));
+        S64(clfaddr + 8, (3 << 56) | clfi);
+        SFCNT(S, clfc + 1);
+        E8(S, 0);
+        return 0;
+    }
     ERR(S);
     return 0;
 }
