@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.5.3] — 2026-04-06
+## [1.6.0] — 2026-04-06
 
 ### Fixed — Compiler
 - **Function table overflow (segfault at >256 functions)**: `fn_names`, `fn_offsets`, `fn_params`
