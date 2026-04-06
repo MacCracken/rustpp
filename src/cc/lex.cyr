@@ -41,7 +41,11 @@ fn ISALNUM(c) {
 
 # Read a file into buffer at dst, return bytes read. Path must be null-terminated.
 fn READFILE(path, dst, maxsz) {
-    var fd = syscall(SYS_OPEN, path, 0, 0);
+    # SYS_OPEN: x86=open(path,flags,mode), aarch64=openat(dirfd,path,flags,mode)
+    # On aarch64, SYS_OPEN is actually openat(56) which needs AT_FDCWD(-100) as first arg
+    var fd = 0;
+    if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, path, 0, 0); }
+    else { fd = syscall(SYS_OPEN, 0 - 100, path, 0, 0); }
     if (fd < 0) { return 0; }
     var total = 0;
     var rgo = 1;

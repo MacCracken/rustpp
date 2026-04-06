@@ -27,9 +27,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Deep code audit: all encodings verified, tombstone logic confirmed correct
 - Shared library (.so) deferred to post-v1.0 — subprocess bridge covers migration needs
 
+### Fixed — aarch64
+- **BYTE-IDENTICAL SELF-HOSTING ON REAL ARM HARDWARE**
+  - cc3 == cc4 = 129,760 bytes on Raspberry Pi
+  - Root cause: aarch64 `openat` (syscall 56) requires `AT_FDCWD` (-100) as first arg
+  - Fix: READFILE detects architecture and passes correct args
+- Write loop for large ELF output (both x86 and aarch64)
+
 ### Metrics
-- Compiler: 128KB
+- Compiler: 128KB (x86), 130KB (aarch64)
 - 251 tests (200 compiler + 51 programs) + 26 aarch64, 0 failures
+- aarch64 self-hosting: byte-identical on Raspberry Pi
 - `cyrb audit` → 10/10
 
 ## [0.9.12] — 2026-04-06

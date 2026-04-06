@@ -277,6 +277,16 @@ EEXIT(S);
 # Fixup + ELF + write
 FIXUP(S);
 EMITELF(S);
+# Write ELF output (loop on partial writes)
 var olen = L64(S + 0x5C130);
-syscall(SYS_WRITE, 1, S + 0x6A000, olen);
+var written = 0;
+var wgo = 1;
+while (wgo == 1) {
+    var w = syscall(SYS_WRITE, 1, S + 0x6A000 + written, olen - written);
+    if (w <= 0) { wgo = 0; }
+    else {
+        written = written + w;
+        if (written >= olen) { wgo = 0; }
+    }
+}
 syscall(SYS_EXIT, 0);

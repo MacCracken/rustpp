@@ -43,7 +43,7 @@ without workarounds. That's 39 repos as the first wave proof.
 | 1 | Shared library output (.so) | Post-v1.0 | Needs PIC codegen — subprocess bridge covers v1.0 |
 | 2 | C FFI header generation | **Done (v0.10.0)** | `cyrb header` generates .h from pub fn |
 | 3 | 250+ tests | **Done (v0.10.0)** | 251 tests, 0 failures |
-| 4 | aarch64 byte-identical self-hosting | In progress | cc3 runs on Pi, write buffer fix needed |
+| 4 | aarch64 byte-identical self-hosting | **Done (v0.10.0)** | cc3==cc4 on Raspberry Pi |
 
 ### Nice to Have for v1.0
 
