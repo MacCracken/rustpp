@@ -86,8 +86,8 @@ fn EPOPR9(S) { E2(S, 0x5941); return 0; }
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
     if (fc >= 1024) {
-        syscall(1, 2, "error: fixup table full (1024)\n", 31);
-        syscall(60, 1);
+        syscall(SYS_WRITE, 2, "error: fixup table full (1024)\n", 31);
+        syscall(SYS_EXIT, 1);
     }
     var addr = S + 0x8A000 + fc * 16;
     S64(addr, GCP(S));

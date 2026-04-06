@@ -23,10 +23,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Milestone — aarch64
 - cc2_aarch64 compiles compiler_aarch64.cyr → cc3 on native ARM Raspberry Pi
-- 30/31 hardware tests pass (all except raw x86 syscall numbers)
-- Syscall number translation layer added (x86→aarch64 at codegen time)
-- Self-hosting in progress: cc3 compilation succeeds, byte-identical verification pending
-  - Root cause: syscall number mismatch between shared source and aarch64 ABI
+- 26/26 qemu tests pass, 30/31 hardware tests pass
+- Syscall portability: `SYS_*` enum constants replace hardcoded numbers in shared code
+- Syscall translation layer (x86→aarch64 MOVZ encodings) added to ESCPOPS
+- ESCPOPS rewritten: fixed arg/syscall-num register swap, LIFO pop order corrected
+- Self-hosting in progress: compilation succeeds, multi-arg syscall register mapping under debug
 
 ### Metrics
 - Compiler: 120KB (x86), 110KB (aarch64)

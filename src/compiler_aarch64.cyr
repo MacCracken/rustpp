@@ -114,6 +114,11 @@
 # ================================================================
 # MODULES
 # ================================================================
+# Syscall numbers for the COMPILER's own execution
+# Cross-compiler runs on x86, so uses x86 numbers
+# When self-hosting on aarch64, these get the aarch64 values
+enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
+
 include "src/cc/util.cyr"
 include "src/arch/aarch64/emit.cyr"
 include "src/arch/aarch64/jump.cyr"
@@ -126,9 +131,9 @@ include "src/arch/aarch64/fixup.cyr"
 # ================================================================
 
 # Allocate heap
-# Syscall numbers are x86 in source — aarch64 emitter translates at codegen
-var S = syscall(12, 0);
-syscall(12, S + 0x262000);
+# aarch64 syscall numbers (no translation layer — native numbers)
+var S = syscall(SYS_BRK, 0);
+syscall(SYS_BRK, S + 0x262000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -161,7 +166,7 @@ S64(S + 0x8FCB8, 1);
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(0, 0, S + bl, 131072 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 131072 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
@@ -273,5 +278,5 @@ EEXIT(S);
 FIXUP(S);
 EMITELF(S);
 var olen = L64(S + 0x5C130);
-syscall(1, 1, S + 0x6A000, olen);
-syscall(60, 0);
+syscall(SYS_WRITE, 1, S + 0x6A000, olen);
+syscall(SYS_EXIT, 0);

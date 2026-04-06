@@ -114,34 +114,34 @@ fn PRNUM(n) {
         n = n / 10;
     }
     if (neg == 1) { store8(&buf + i, 45); i = i - 1; }
-    syscall(1, 2, &buf + i + 1, 23 - i);
+    syscall(SYS_WRITE, 2, &buf + i + 1, 23 - i);
     return 0;
 }
 
 fn ERRDUPVAR(S) {
-    syscall(1, 2, "error:", 6);
+    syscall(SYS_WRITE, 2, "error:", 6);
     PRNUM(GTLINE(S, GTI(S)));
-    syscall(1, 2, ": duplicate variable\n", 21);
-    syscall(60, 1);
+    syscall(SYS_WRITE, 2, ": duplicate variable\n", 21);
+    syscall(SYS_EXIT, 1);
     return 0;
 }
 
 fn WARN(S, msg, len) {
-    syscall(1, 2, "warning:", 8);
+    syscall(SYS_WRITE, 2, "warning:", 8);
     PRNUM(GTLINE(S, GTI(S)));
-    syscall(1, 2, ": ", 2);
-    syscall(1, 2, msg, len);
-    syscall(1, 2, "\n", 1);
+    syscall(SYS_WRITE, 2, ": ", 2);
+    syscall(SYS_WRITE, 2, msg, len);
+    syscall(SYS_WRITE, 2, "\n", 1);
     return 0;
 }
 
 fn ERR(S) {
-    syscall(1, 2, "error:", 6);
+    syscall(SYS_WRITE, 2, "error:", 6);
     PRNUM(GTLINE(S, GTI(S)));
-    syscall(1, 2, ": unexpected token (type=", 25);
+    syscall(SYS_WRITE, 2, ": unexpected token (type=", 25);
     PRNUM(PEEKT(S));
-    syscall(1, 2, ")\n", 2);
-    syscall(60, 1);
+    syscall(SYS_WRITE, 2, ")\n", 2);
+    syscall(SYS_EXIT, 1);
     return 0;
 }
 

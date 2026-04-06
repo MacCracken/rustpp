@@ -125,6 +125,9 @@
 #   72=MOD 73=PUB 74=USE 75=MATCH 76=IN
 
 
+# x86_64 syscall number constants (used by shared cc/ modules)
+enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
+
 # ================================================================
 # MODULES
 # ================================================================
@@ -140,8 +143,8 @@ include "src/cc/fixup.cyr"
 # ================================================================
 
 # Allocate heap
-var S = syscall(12, 0);
-syscall(12, S + 0x262000);
+var S = syscall(SYS_BRK, 0);
+syscall(SYS_BRK, S + 0x262000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -179,7 +182,7 @@ S64(S + 0x903D0, 0);
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(0, 0, S + bl, 131072 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 131072 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
@@ -349,5 +352,5 @@ EEXIT(S);
 FIXUP(S);
 EMITELF(S);
 var olen = L64(S + 0x5C130);
-syscall(1, 1, S + 0x6A000, olen);
-syscall(60, 0);
+syscall(SYS_WRITE, 1, S + 0x6A000, olen);
+syscall(SYS_EXIT, 0);

@@ -6,8 +6,8 @@
 fn ADDTOK(S, typ, val) {
     var tc = GTCNT(S);
     if (tc >= 65536) {
-        syscall(1, 2, "error: token limit exceeded (65536)\n", 36);
-        syscall(60, 1);
+        syscall(SYS_WRITE, 2, "error: token limit exceeded (65536)\n", 36);
+        syscall(SYS_EXIT, 1);
     }
     S64(S + 0xA2000 + tc * 8, typ);
     S64(S + 0x122000 + tc * 8, val);
@@ -41,19 +41,19 @@ fn ISALNUM(c) {
 
 # Read a file into buffer at dst, return bytes read. Path must be null-terminated.
 fn READFILE(path, dst, maxsz) {
-    var fd = syscall(2, path, 0, 0);
+    var fd = syscall(SYS_OPEN, path, 0, 0);
     if (fd < 0) { return 0; }
     var total = 0;
     var rgo = 1;
     while (rgo == 1) {
-        var n = syscall(0, fd, dst + total, maxsz - total);
+        var n = syscall(SYS_READ, fd, dst + total, maxsz - total);
         if (n <= 0) { rgo = 0; }
         else {
             total = total + n;
             if (total >= maxsz) { rgo = 0; }
         }
     }
-    syscall(3, fd);
+    syscall(SYS_CLOSE, fd);
     return total;
 }
 
@@ -308,8 +308,8 @@ fn LEXNUM(S, p) {
 # Lex an identifier starting at p, return new p. Stores token.
 fn LEXID(S, p, npos) {
     if (npos >= 65000) {
-        syscall(1, 2, "error: identifier buffer full\n", 29);
-        syscall(60, 1);
+        syscall(SYS_WRITE, 2, "error: identifier buffer full\n", 29);
+        syscall(SYS_EXIT, 1);
     }
     var bl = GBL(S);
     var ws = npos;
