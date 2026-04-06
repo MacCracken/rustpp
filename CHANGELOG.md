@@ -6,6 +6,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-04-06
+
+### Refactored — Compiler
+- **EMITELF/EMITELF_SHARED dedup**: factored 95% duplicate ELF emission into `EMITELF_USER(S, etype)`
+  - ET_EXEC (2) and ET_DYN (3) now share one code path with e_type parameter
+  - Compiler shrunk from 138KB to 136KB
+
+### Refactored — Standard Library
+- **process.cyr**: extracted `_exec3(cmd, arg1, arg2)` helper — eliminated 3x copy-pasted argv building
+- **bounds.cyr**: extracted `_bounds_fail()` and `_bounds_neg()` — eliminated 4x copy-pasted error reporting
+
+### Fixed — Stale Comments
+- lex.cyr preprocessor comment: updated 0x90000 → 0x222000 to match actual buffer location
+
+### Removed — Dead Code
+- tagged.cyr: removed commented-out `option_map()` (lines 80-85)
+- cc_bridge.cyr: removed unused `GMJP()/SMJP()` accessors
+- scripts/cyrb-cffi.sh: removed (not wired into cyrb dispatcher)
+- scripts/cyrb-symbols.sh: removed (not wired into cyrb dispatcher)
+
+### Fixed — Documentation
+- benchmarks.md version updated from 0.9.0-pre to 1.5.0
+
+### Metrics
+- Compiler: 136KB (was 139KB — 3KB saved from dedup)
+- 263 tests, 0 failures
+- Self-hosting: byte-identical
+
 ## [1.4.0] — 2026-04-06
 
 ### Added — Tooling

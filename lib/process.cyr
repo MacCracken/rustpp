@@ -2,22 +2,25 @@
 # Usage: include "lib/process.cyr"
 # Requires: agnosys/syscalls.cyr, string.cyr, alloc.cyr, tagged.cyr
 
+# Build argv array and execve. Called in child after fork. Does not return.
+fn _exec3(cmd, arg1, arg2) {
+    var argv[4];
+    store64(&argv, cmd);
+    var ai = 1;
+    if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+    if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+    store64(&argv + ai * 8, 0);
+    var envp[1];
+    store64(&envp, 0);
+    sys_execve(cmd, &argv, &envp);
+    sys_exit(127);
+}
+
 # Run a command and wait for it. Returns Result(exit_code).
 fn run(cmd, arg1, arg2) {
     var pid = sys_fork();
     if (pid < 0) { return Err(0 - pid); }
-    if (pid == 0) {
-        var argv[4];
-        store64(&argv, cmd);
-        var ai = 1;
-        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
-        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
-        store64(&argv + ai * 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(cmd, &argv, &envp);
-        sys_exit(127);
-    }
+    if (pid == 0) { _exec3(cmd, arg1, arg2); }
     var status_buf[1];
     sys_waitpid(pid, &status_buf, 0);
     var status = load32(&status_buf);
@@ -47,16 +50,7 @@ fn run_capture(cmd, arg1, arg2, buf, buflen) {
         sys_close(write_fd);
         var devnull = sys_open("/dev/null", O_WRONLY, 0);
         if (devnull >= 0) { sys_dup2(devnull, 2); sys_close(devnull); }
-        var argv[4];
-        store64(&argv, cmd);
-        var ai = 1;
-        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
-        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
-        store64(&argv + ai * 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(cmd, &argv, &envp);
-        sys_exit(127);
+        _exec3(cmd, arg1, arg2);
     }
     sys_close(write_fd);
     var total = 0;
@@ -80,18 +74,7 @@ fn run_capture(cmd, arg1, arg2, buf, buflen) {
 fn spawn(cmd, arg1, arg2) {
     var pid = sys_fork();
     if (pid < 0) { return Err(0 - pid); }
-    if (pid == 0) {
-        var argv[4];
-        store64(&argv, cmd);
-        var ai = 1;
-        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
-        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
-        store64(&argv + ai * 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(cmd, &argv, &envp);
-        sys_exit(127);
-    }
+    if (pid == 0) { _exec3(cmd, arg1, arg2); }
     return Ok(pid);
 }
 

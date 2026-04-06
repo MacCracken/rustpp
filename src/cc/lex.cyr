@@ -77,7 +77,7 @@ fn ISINCLUDE(S, pos, bl) {
 }
 
 # Preprocess: expand include directives in-place.
-# Uses S+0 as input, S+0x90000 as temp (64KB scratch for file reads).
+# Uses S+0 as input, S+0x222000 as expanded output (256KB), copies back to S+0.
 # Check if buffer at pos starts with a directive (returns length or 0)
 fn ISDEFINE(S, pos, bl) {
     if (pos + 8 >= bl) { return 0; }

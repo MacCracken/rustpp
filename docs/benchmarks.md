@@ -1,6 +1,6 @@
 # Cyrius Benchmarks
 
-> Generated: 2026-04-05 | Platform: x86_64 Linux | Version: 0.9.0-pre
+> Generated: 2026-04-06 | Platform: x86_64 Linux | Version: 1.5.0
 
 ## Binary Size: Cyrius vs GNU Coreutils
 

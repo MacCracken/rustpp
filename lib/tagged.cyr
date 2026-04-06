@@ -77,13 +77,6 @@ fn unwrap_or(opt, fallback) {
     return payload(opt);
 }
 
-# Map: apply fn to value if Some, return None if None
-# (requires function pointer + fncall1 from fnptr.cyr)
-# fn option_map(opt, fp) {
-    #     if (is_none(opt) == 1) { return opt; }
-    #     return Some(fncall1(fp, payload(opt)));
-    # }
-
 # ================================================================
 # Result type: Ok(value) | Err(code)
 # ================================================================
