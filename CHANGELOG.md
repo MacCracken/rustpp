@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.6.2] — 2026-04-06
+## [1.6.5] — 2026-04-06
 
 ### Fixed — Compiler (aarch64)
 - **cc2_aarch64 segfault on `kernel;` mode**: `EMITELF_KERNEL` was a placeholder that called
