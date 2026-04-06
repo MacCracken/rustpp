@@ -90,6 +90,18 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
 ---
 
+## Tooling Issues (from AGNOS kernel development)
+
+| # | Issue | Tool | Impact | Detail |
+|---|-------|------|--------|--------|
+| 1 | **`cyrb build --aarch64` looks for cc2_aarch64 in ~/.cyrius/bin/ only** | cyrb | Medium | Does not search `./build/` or the directory containing cyrb itself. CI and dev environments that build cc2_aarch64 into `./build/` can't use `cyrb --aarch64` without copying to `~/.cyrius/bin/`. Should search: `~/.cyrius/bin/`, `$(dirname $0)/`, `./build/`, `$PATH`. |
+| 2 | **`cyrb build --aarch64` fails silently on compile errors** | cyrb | Low | When the source has x86 inline asm that can't compile on aarch64, cyrb prints `FAIL` with no error detail. Should forward the compiler's stderr (e.g., "error: unknown instruction" with line number). |
+| 3 | **No `include` support in `kernel;` mode** | cc2 | High | Blocks AGNOS multi-arch split. Kernel source must be a single file or concatenated externally. Either `include "path"` needs to work in kernel mode, or `cyrb build` needs a `--concat` or multi-file mode for kernel targets. |
+| 4 | **cc2 segfaults/errors on source files > ~60KB** | cc2 | Medium | Codebuf overflow. `cyrb` handles up to ~130KB. CI must use `cyrb` not `cc2` for large projects. Not a bug per se, but the error message is misleading (parse error instead of "codebuf full"). |
+| 5 | **Release tarball missing cc2_aarch64** | release | Medium | `cyrius-1.5.2-x86_64-linux.tar.gz` includes `bin/cc2` but not `bin/cc2_aarch64`. Cross-compilation requires building from source or downloading the aarch64 tarball separately. Should include cross-compiler in the x86_64 release for cross-dev workflows. |
+
+---
+
 ## Systems Language Features
 
 For cycc compatibility and general-purpose use:
@@ -97,6 +109,7 @@ For cycc compatibility and general-purpose use:
 | Feature | Effort | Unlocks |
 |---------|--------|---------|
 | Multi-file compilation (.o + link) | High | True separate compilation |
+| `include` in kernel mode | Medium | AGNOS multi-arch split, modular kernel code |
 | Struct padding/alignment (sizeof) | Medium | ABI compat, FFI |
 | Unions, bitfields | Medium | Hardware, protocols |
 | Variadic functions | Medium | printf-style APIs |
