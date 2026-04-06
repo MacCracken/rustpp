@@ -273,6 +273,7 @@ fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
     SPSC(S, 0);
     SESTYPE(S, 0);
+    SESVAR(S, 0 - 1);
     if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
     if (typ == 1) {
         var val = PEEKV(S);
@@ -308,7 +309,12 @@ fn PARSE_FACTOR(S) {
         if (idx < 0) { ERR(S); }
         var vt = GVTYPE(S, idx);
         if (vt < 0) { SPSC(S, 0 - vt); }
-        if (vt > 0) { SESTYPE(S, vt); }
+        if (vt > 0) {
+            SESTYPE(S, vt);
+            # Only set SESVAR for struct-literal vars (size > 8 means multi-field struct)
+            var vsz = L64(S + 0x60800 + idx * 8);
+            if (vsz > 8) { SESVAR(S, idx); }
+        }
         EVLOAD(S, idx);
         return 0;
     }
@@ -664,8 +670,14 @@ fn BUILD_OP_NAME(S, stype, op_str, op_len) {
 
 # Emit operator dispatch: push lhs, parse rhs, call StructName_op(lhs, rhs)
 fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
+    # For struct vars, push address instead of value
+    var svar = GESVAR(S);
+    if (svar >= 0) { EVADDR(S, svar); }
     EPUSHR(S);
     PARSE_TERM(S);
+    # rhs: check if it also has a struct var
+    var rsvar = GESVAR(S);
+    if (rsvar >= 0) { EVADDR(S, rsvar); }
     EPUSHR(S);
     var opnoff = BUILD_OP_NAME(S, stype, op_str, op_len);
     ECALLPOPS(S, 2);

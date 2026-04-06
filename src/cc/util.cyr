@@ -72,6 +72,9 @@ fn SLDEP(S, li, v) { S64(S + 0x8FCC8 + li * 8, v); return 0; }
 # Expression type tracking
 fn GESTYPE(S) { return L64(S + 0x903D8); }
 fn SESTYPE(S, v) { S64(S + 0x903D8, v); return 0; }
+# Variable index of last struct expression (for address-based operator dispatch)
+fn GESVAR(S) { return L64(S + 0x903E0); }
+fn SESVAR(S, v) { S64(S + 0x903E0, v); return 0; }
 
 # Module system
 fn GMOD(S) { return L64(S + 0x8FEC8); }

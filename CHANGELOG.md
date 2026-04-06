@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-04-06
+
+### Added — Language
+- **Address-based operator overloading**: `Vec3{10,20,12} + Vec3{32,22,30}` works
+  - Multi-field structs pass addresses to operator functions (can read all fields)
+  - Single-field / type-annotated vars pass values (backward compatible)
+  - Dispatch based on variable allocation size: >8 bytes = address, =8 bytes = value
+
+### Fixed — Documentation
+- Updated known limitations in FAQ (removed fixed items, added gotchas section)
+- Updated vidya limitations entry (marked block scoping/var-in-loop as fixed)
+- Added doc comments to all 50 functions in lib/syscalls.cyr
+- Documented dynamic loop bound gotcha in FAQ, vidya, and roadmap
+
+### Metrics
+- Compiler: 139KB
+- 253 tests (202 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [1.1.0] — 2026-04-06
 
 ### Added — Language

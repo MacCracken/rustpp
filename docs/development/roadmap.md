@@ -175,6 +175,7 @@ wave breakdown, porting patterns, and bridge strategies.
 | # | Behavior | Context | Explanation |
 |---|----------|---------|-------------|
 | 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global (directly or via function call), the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
+| 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | In a function `fn foo(a, b)`, params are stored at `[rbp-0x08]` (a) and `[rbp-0x10]` (b). Locals declared with `var` start AFTER params: first local at `[rbp-0x18]`, etc. Inline asm writing to `[rbp-0x08]` will **clobber param a**. **Fix**: declare enough dummy locals before the asm block to push offsets past the params, or use globals for values the asm block needs. In general: `fn(p1, p2)` → p1 at -0x08, p2 at -0x10; `var v1` at -0x18, `var v2` at -0x20, etc. |
 
 ---
 
