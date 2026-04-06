@@ -94,3 +94,28 @@ Deferred: error message line numbers, performance pass, block scoping.
 
 ### Ecosystem
 - P-1 hardening: hashmap tombstones, vec bounds, alloc OOM (v0.9.3)
+
+## v0.9.7–v0.9.8 — Language + Architecture
+
+### Language (v0.9.7–v0.9.8)
+- Module system — `mod name;` + `use mod.fn;` + `pub fn` (v0.9.7)
+- Pattern matching — `match expr { val => { } _ => { } }` with scoped arms (v0.9.8)
+- For-in range loops — `for i in 0..10 { }` with exclusive end (v0.9.8)
+- Enum constructor syntax — `Ok(val)` parsed (v0.9.6)
+- Feature flags — `#define`/`#ifdef`/`#endif` (v0.9.6)
+
+### aarch64 (v0.9.8)
+- cc3_aarch64 runs natively on real Raspberry Pi hardware
+- 26 qemu tests, 30/31 hardware tests pass
+- ESCPOPS rewritten: pop-through-x0 approach fixes register mapping
+- Syscall translation layer: x86→aarch64 MOVZ encodings
+- SYS_* enum constants replace hardcoded syscall numbers in all shared code
+- Fixed MOVZ encoding errors for read(63) and write(64)
+
+### Tooling (v0.9.7)
+- `cyrb coverage` — file/function test coverage reports
+- `cyrb doctest` — runnable doc examples (# >>> / # ===)
+- `cyrb repl` — interactive expression evaluator
+- `cyrb docs --agent` — markdown server for bots
+- `cyrb.toml` parser replaces grep/sed
+- 5 ADRs, threat model (v0.9.6)

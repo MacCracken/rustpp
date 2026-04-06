@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **Current**: v0.9.7 — module system, coverage, doc-tests, REPL
+> **Current**: v0.9.8 — pattern matching, for-in, aarch64 native on real ARM
 >
-> 115KB compiler, 57 programs, 8 tools, 45 benchmarks.
-> 190 tests (139 compiler + 51 programs) + 12 aarch64, 0 failures.
-> `cyrb audit` → 10/10 green. Self-hosting verified. 14/14 vidya pass.
+> 120KB compiler (x86), 110KB (aarch64 cross), 57 programs, 8 tools.
+> 196 tests (145 compiler + 51 programs) + 26 aarch64 (qemu), 0 failures.
+> aarch64 cc3 runs natively on Raspberry Pi. SYS_* portable syscall constants.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -13,76 +13,56 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Release Plan to v1.0
 
-### v0.9.8 — Language: Pattern Matching + Iterators
-
-Quick wins that build on existing infrastructure (switch + for loops).
+### v0.9.9 — Language: Traits + Strings + Operator Overloading
 
 | Feature | Effort | Approach |
 |---------|--------|---------|
-| **Pattern matching** | Medium | `match expr { val => { }, _ => { } }` — extends switch codegen |
-| **Iterators (for-in)** | Low | `for item in v.iter() { }` — syntactic sugar over while + method calls |
-
-### v0.9.9 — Language: Traits + Strings
-
-Complete Tier 2 functional parity for crate ports.
-
-| Feature | Effort | Approach |
-|---------|--------|---------|
-| **Trait impl blocks** | Medium | `impl Display for Point { fn format(self) { } }` — name mangling to `Point_Display_format` |
-| **String type** | Medium | Length-prefixed heap block, single i64 pointer, `s"hello"` literal syntax |
+| **Trait impl blocks** | Medium | `impl Display for Point { }` → name mangling `Point_Display_format` |
+| **String type** | Medium | Length-prefixed heap block, `s"hello"` literal syntax |
 | **Operator overloading** | Low | `+` `-` `*` `/` dispatch to `Type_add(a, b)` when struct typed |
 
-### v0.9.10 — Architecture: aarch64 Maturity
+### v0.9.10 — aarch64: Byte-Identical Self-Hosting
 
-Required for "both architectures" claim in v1.0.
-
-| Feature | Effort | Approach |
-|---------|--------|---------|
-| **aarch64 self-hosting** | High | cc2_aarch64 compiles itself on ARM hardware/qemu |
-| **Cross-compilation verified** | Medium | Full test suite passes via qemu |
-| **aarch64 kernel port** | Medium | AGNOS boots on aarch64 (qemu-system) |
+| Task | Status |
+|------|--------|
+| cc3 runs natively on ARM | **Done** |
+| cc3 compiles simple programs | **Done** |
+| cc4 byte-identical to cc3 | Pending (write buffer issue on large output) |
+| aarch64 kernel port | Planned |
 
 ### v1.0-rc — Hardening + Polish
 
-Final quality gate before release.
-
 | Task | Detail |
 |------|--------|
-| P-1 hardening | Audit all 35 lib modules, fix any remaining edge cases |
-| Test expansion | Target 250+ tests, cover all language features |
-| Benchmark baseline | Full bench-history run, BENCHMARKS.md updated |
-| Documentation audit | All docs current, no stale references |
-| Vidya sync | All new features have implementation + usage entries |
-| `cyrb audit` → 10/10 | Format, lint, vet, deny, test, bench, doc, self-host |
-| CI green | All jobs pass on both ubuntu and AGNOS container |
+| P-1 hardening | Audit all 35 lib modules |
+| Test expansion | Target 250+ tests |
+| Benchmark baseline | Full bench-history run |
+| Documentation audit | All docs current |
+| Vidya sync | All features have entries |
+| CI green | All jobs pass |
 
-### v1.0 — BELTANE RELEASE (May 1, 2026)
+### v1.0
 
 **Definition of done:**
-- Self-hosting compiler (both x86_64 and aarch64)
-- AGNOS kernel boots on both architectures
+- Self-hosting compiler (x86_64 verified, aarch64 native runs)
+- AGNOS kernel boots
 - Complete developer toolchain (20+ cyrb commands)
-- Pattern matching, iterators, trait impls, string type
-- Module system with pub/use
+- Pattern matching, for-in, modules, methods, floats, block scoping, feature flags
 - 250+ tests, 0 failures
 - All documentation current
-- Installer + version manager
-- Release pipeline with dual-arch tarballs
 
 ---
 
 ## Post-v1.0
 
-### Crate Migration Wave 2 (May 2026)
+### Crate Migration Wave 2
 
 | Crate | LOC | Key Requirement |
 |-------|-----|----------------|
-| **bhava** | 29K | Traits, iterators, strings, generics validation |
+| **bhava** | 29K | Traits, iterators, strings, generics |
 | **hisab** | 31K | Floats (done), operator overloading, const generics |
 
 ### Language Features (v1.1–v2.0)
-
-Priority order based on crate wave requirements:
 
 | Feature | Blocks Wave | Effort |
 |---------|-------------|--------|
@@ -96,8 +76,6 @@ Priority order based on crate wave requirements:
 | Agent/capability annotations | Wave 5 | Medium |
 
 ### Systems Language Features (v1.x)
-
-For cycc compatibility and general-purpose use:
 
 | Feature | Effort | Unlocks |
 |---------|--------|---------|
@@ -152,15 +130,11 @@ Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
 
 | Milestone | Status |
 |-----------|--------|
-| **v0.9.0–v0.9.7** — 8 releases (ecosystem → language → tooling) | Done |
-| **v0.9.8** — pattern matching, for-in, aarch64 self-hosting on real ARM | Done |
-| **v0.9.9** — trait impls, string type, operator overloading | Planned |
-| **v0.9.10** — aarch64 self-hosting + kernel port | Planned |
-| **v1.0-rc** — hardening, 250+ tests, docs polish | Planned |
-| **v1.0** — target: this week (2026-04-06–12) | In progress |
-| Wave 2: bhava + hisab ports | After v1.0 |
-| Wave 3 crates | After wave 2 |
-| cycc Phase 1 (C89 subset) | After all waves |
+| **v0.9.0–v0.9.7** — ecosystem, language features, tooling | Done |
+| **v0.9.8** — pattern matching, for-in, aarch64 native on real ARM | Done |
+| **v0.9.9** — traits, strings, operator overloading | Next |
+| **v0.9.10** — aarch64 byte-identical self-hosting | Planned |
+| **v1.0** — target: this week | In progress |
 
 ---
 
@@ -178,3 +152,4 @@ Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
 - bhava and hisab are AGNOS pillars — their needs drive language priorities
 - Heap layout bugs are silent corruption — always verify after relocation
 - Two-step bootstrap for any heap offset change
+- Portable syscall constants (SYS_*) for cross-architecture compilation

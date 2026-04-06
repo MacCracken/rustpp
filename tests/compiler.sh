@@ -357,6 +357,12 @@ run_test_cc "mod_no_use"    'mod math; fn secret() { return 42; } mod main; var 
 run_test_cc "pub_fn"        'pub fn visible() { return 42; } var r = visible();' 42
 
 echo ""
+echo "-- Trait Impls (cc-only) --"
+run_test_cc "impl_basic"    'struct P { x; y; } impl Math for P { fn sum(self) { return load64(self) + load64(self + 8); } } var p = P { 20, 22 }; var r = p.sum();' 42
+run_test_cc "impl_mutate"   'struct V { val; } impl Ops for V { fn double(self) { store64(self, load64(self) * 2); return 0; } } var v = V { 21 }; v.double(); var r = v.val;' 42
+run_test_cc "impl_multi"    'struct C { n; } impl A for C { fn get(self) { return load64(self); } } impl B for C { fn set(self, v) { store64(self, v); return 0; } } var c = C { 0 }; c.set(42); var r = c.get();' 42
+
+echo ""
 echo "-- Block Scoping (cc-only) --"
 run_test_cc "scope_shadow"  'fn f() { var x = 10; if (1 == 1) { var x = 42; } return x; } syscall(60, f());' 10
 run_test_cc "scope_for"     'fn f() { for (var i = 0; i < 3; i = i + 1) { var tmp = i; } var i = 99; return i; } syscall(60, f());' 99

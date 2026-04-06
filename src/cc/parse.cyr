@@ -1462,6 +1462,41 @@ fn PARSE_FNCALL(S, noff) {
     return 0;
 }
 
+# Parse: impl TraitName for TypeName { fn method(self) { } ... }
+# Methods get mangled to TypeName_method (trait name is documentation only for now)
+fn PARSE_IMPL(S) {
+    STI(S, GTI(S) + 1);  # consume IMPL
+    # Parse trait name (skip for now — just used for documentation)
+    if (PEEKT(S) != 2) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume trait name
+    # Expect "for"
+    if (PEEKT(S) != 55) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume FOR
+    # Parse type name
+    if (PEEKT(S) != 2) { ERR(S); }
+    var type_noff = PEEKV(S);
+    STI(S, GTI(S) + 1);  # consume type name
+    if (PEEKT(S) != 13) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume {
+    # Parse methods inside the impl block
+    # Temporarily set module to the type name so methods get mangled
+    var saved_mod = GMOD(S);
+    SMOD(S, type_noff);
+    var igo = 1;
+    while (igo == 1) {
+        if (PEEKT(S) == 14) { igo = 0; }
+        else {
+            if (PEEKT(S) == 73) { STI(S, GTI(S) + 1); }
+            if (PEEKT(S) == 32) { PARSE_FN_DEF(S); }
+            else { igo = 0; }
+        }
+    }
+    if (PEEKT(S) != 14) { ERR(S); }
+    STI(S, GTI(S) + 1);  # consume }
+    SMOD(S, saved_mod);
+    return 0;
+}
+
 # Skip generic parameters <T, U, ...> if present
 fn SKIP_GENERICS(S) {
     if (PEEKT(S) == 19) {

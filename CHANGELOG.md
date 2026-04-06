@@ -6,6 +6,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.9] — 2026-04-05
+
+### Added — Language
+- **Trait impl blocks**: `impl Trait for Type { fn method(self) { } }`
+  - Methods mangled to `TypeName_method` (reuses module name mangling)
+  - Multiple impl blocks for same type supported
+  - Trait name is documentation-only (no vtable, no enforcement yet)
+
+### Added — Compiler Infrastructure
+- Portable syscall constants: `SYS_*` enum replaces hardcoded numbers in all shared code
+  - x86: SYS_READ=0, SYS_WRITE=1, SYS_BRK=12, SYS_EXIT=60
+  - aarch64: SYS_READ=63, SYS_WRITE=64, SYS_BRK=214, SYS_EXIT=93
+
+### Added — Tests
+- 3 trait impl tests (basic, mutate, multi-impl)
+
+### Metrics
+- Compiler: 122KB
+- 199 tests (148 compiler + 51 programs) + 26 aarch64, 0 failures
+- `cyrb audit` → 10/10
+
 ## [0.9.8] — 2026-04-05
 
 ### Added — Language
