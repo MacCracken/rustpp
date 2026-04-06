@@ -7,7 +7,15 @@
 
 set -e
 
-VERSION="0.9.0"
+# Read version from VERSION file (relative to script or repo root)
+SCRIPT_DIR_V="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
+    VERSION=$(cat "$SCRIPT_DIR_V/../VERSION" | tr -d '[:space:]')
+elif [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
 CYRB_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
 # Find cc2: installed version, then local repo fallback
 CC="${CYRB_HOME}/bin/cc2"
@@ -25,6 +33,49 @@ fi
 # Find companion tools directory
 TOOLS_DIR="$(dirname "$CC")"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Read a key from cyrb.toml (section-aware, handles quotes)
+# Usage: toml_get <file> <key> [section]
+toml_get() {
+    local file="$1" key="$2" section="${3:-}"
+    if [ ! -f "$file" ]; then return 1; fi
+    if [ -n "$section" ]; then
+        # Extract section, then find key within it
+        awk -v sec="[$section]" -v k="$key" '
+            $0 == sec { in_sec=1; next }
+            /^\[/ { in_sec=0 }
+            in_sec && $1 == k { gsub(/.*= *"?/, ""); gsub(/".*/, ""); print; exit }
+        ' "$file"
+    else
+        # Top-level key (before any section or in [package])
+        awk -v k="$key" '
+            /^\[/ && !/^\[package\]/ { exit }
+            $1 == k { gsub(/.*= *"?/, ""); gsub(/".*/, ""); print; exit }
+        ' "$file"
+    fi
+}
+
+# Read all package metadata from cyrb.toml
+read_manifest() {
+    if [ -f "cyrb.toml" ]; then
+        PKG_NAME=$(toml_get cyrb.toml name)
+        PKG_VERSION=$(toml_get cyrb.toml version)
+        PKG_DESC=$(toml_get cyrb.toml description)
+        PKG_ENTRY=$(toml_get cyrb.toml entry)
+        PKG_OUTPUT=$(toml_get cyrb.toml output)
+        PKG_LICENSE=$(toml_get cyrb.toml license)
+    elif [ -f "VERSION" ]; then
+        PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+        PKG_NAME=$(basename "$(pwd)")
+        PKG_DESC="$PKG_NAME"
+        PKG_ENTRY="src/main.cyr"
+        PKG_OUTPUT="$PKG_NAME"
+        PKG_LICENSE="GPL-3.0-only"
+    else
+        echo "error: no cyrb.toml or VERSION" >&2
+        return 1
+    fi
+}
 
 usage() {
     cat << EOF
@@ -52,8 +103,12 @@ Quality:
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
+  doc [--check] <file.cyr>        generate/check documentation
   vet <source.cyr>                audit include dependencies
   deny <source.cyr>               enforce project policies
+
+Documentation:
+  docs [--agent] [--port N]       serve project docs (default: HTML, --agent: markdown)
 
 Info:
   version                         show cyrb version
@@ -196,25 +251,7 @@ case "${1:-help}" in
 
     package)
         shift
-        # Read from cyrb.toml if present, fallback to VERSION + directory name
-        if [ -f "cyrb.toml" ]; then
-            PKG_NAME=$(grep '^name' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-            PKG_VERSION=$(grep '^version' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-            PKG_DESC=$(grep '^description' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-            PKG_ENTRY=$(grep '^entry' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-            PKG_OUTPUT=$(grep '^output' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-            PKG_LICENSE=$(grep '^license' cyrb.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-        elif [ -f "VERSION" ]; then
-            PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
-            PKG_NAME=$(basename "$(pwd)")
-            PKG_DESC="$PKG_NAME"
-            PKG_ENTRY="src/main.cyr"
-            PKG_OUTPUT="$PKG_NAME"
-            PKG_LICENSE="GPL-3.0-only"
-        else
-            echo "error: no cyrb.toml or VERSION — run from project root" >&2
-            exit 1
-        fi
+        read_manifest || exit 1
         echo "=== cyrb package ==="
         echo "  name:    $PKG_NAME"
         echo "  version: $PKG_VERSION"
@@ -342,6 +379,69 @@ MANIFEST
         fi
         if [ -z "$1" ]; then echo "Usage: cyrb doc [--check] <file.cyr>"; exit 1; fi
         "$cyrdoc" "$@"
+        ;;
+
+    docs)
+        shift
+        REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd || cd "$(dirname "$CC")/.." && pwd)"
+        PORT="${1:-8080}"
+        AGENT_MODE=0
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --agent) AGENT_MODE=1; shift ;;
+                --port) shift; PORT="$1"; shift ;;
+                *) PORT="$1"; shift ;;
+            esac
+        done
+        if [ "$AGENT_MODE" = "1" ]; then
+            echo "Serving docs (markdown/agent mode) on http://localhost:$PORT"
+            echo "Press Ctrl+C to stop."
+            cd "$REPO_ROOT"
+            python3 -c "
+import http.server, os, sys
+
+class MarkdownHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        path = self.path.lstrip('/')
+        if path == '' or path == '/':
+            # Index: list all .md files
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/markdown')
+            self.end_headers()
+            self.wfile.write(b'# Cyrius Documentation Index\n\n')
+            for root, dirs, files in os.walk('.'):
+                dirs[:] = [d for d in dirs if d not in ('.git', '.claude', 'build', 'node_modules')]
+                for f in sorted(files):
+                    if f.endswith('.md'):
+                        p = os.path.join(root, f)[2:]
+                        self.wfile.write(f'- [{p}](/{p})\n'.encode())
+            return
+        # Serve .md files as text/markdown, .cyr as text/plain
+        if os.path.isfile(path):
+            self.send_response(200)
+            if path.endswith('.md'):
+                self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+            elif path.endswith('.cyr') or path.endswith('.toml'):
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            else:
+                self.send_header('Content-Type', 'application/octet-stream')
+            self.end_headers()
+            with open(path, 'rb') as f:
+                self.wfile.write(f.read())
+        else:
+            self.send_response(404)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Not found\n')
+
+http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
+" 2>&1
+        else
+            echo "Serving docs (HTML) on http://localhost:$PORT"
+            echo "Press Ctrl+C to stop."
+            cd "$REPO_ROOT"
+            python3 -m http.server "$PORT" 2>&1
+        fi
         ;;
 
     # === Run / Clean / Update / Check ===
