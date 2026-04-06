@@ -13,9 +13,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-| # | Bug | Severity | Repro | Description |
-|---|-----|----------|-------|-------------|
-| 1 | **Runtime segfault when function table exceeds ~256 entries** | P1 | Include lib/* + 3 agnosys modules + define 13 user functions | Program compiles successfully but segfaults at runtime. Same logic inlined into a single `main()` works fine. Likely the function fixup table or call target table overflows silently — codegen succeeds but emits bad jump addresses. **Workaround**: inline logic into fewer functions, or split into separate compilation units. Discovered during agnosys port (20 modules, 8460 lines). Confirmed in v1.5.0. |
+None — all clear.
 
 ---
 

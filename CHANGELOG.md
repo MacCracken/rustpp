@@ -8,6 +8,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.5.3] — 2026-04-06
 
+### Fixed — Compiler
+- **Function table overflow (segfault at >256 functions)**: `fn_names`, `fn_offsets`, `fn_params`
+  had 256 entries each (2048 bytes at `0x8C200`/`0x8CA00`/`0x8D200`). The 257th function name
+  overwrote `fn_offsets[0]`, corrupting jump targets and causing runtime segfaults.
+  Relocated all three tables to `0x26A000`/`0x26B000`/`0x26C000` with 512 entries each.
+  Confirmed: old compiler segfaults (exit 139) with 260 functions, new compiler runs clean.
+
 ### Added — Performance (agnosys)
 - **Packed Result type**: Ok/Err encoded in a single i64 using bit 63 as discriminant.
   Zero heap allocations on success path (was 2 allocs per Result via tagged_new).

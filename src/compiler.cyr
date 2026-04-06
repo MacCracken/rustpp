@@ -37,9 +37,9 @@
 #   0x8C128  NPOS          [8]           Name buffer position
 #
 # --- Function state ---
-#   0x8C200  fn_names      [2048]        256 function name offsets
-#   0x8CA00  fn_offsets    [2048]        256 function code offsets
-#   0x8D200  fn_params     [2048]        256 function param counts
+#   0x26A000 fn_names      [4096]        512 function name offsets (relocated from 0x8C200)
+#   0x26B000 fn_offsets    [4096]        512 function code offsets (relocated from 0x8CA00)
+#   0x26C000 fn_params     [4096]        512 function param counts (relocated from 0x8D200)
 #   0x8DA00  fn_count      [8]
 #   0x8DA08  in_function   [8]
 #   0x8DA10  fn_local_cnt  [8]
@@ -81,7 +81,7 @@
 #   0x262000  fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
 #
 # --- brk limit ---
-#   0x26A000 (end of heap allocation)
+#   0x26D000 (end of heap allocation)
 #
 # --- Lexer line tracking ---
 #   0x8FCB8  cur_line      [8]           Current line number during lexing
@@ -150,7 +150,7 @@ include "src/cc/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x26A000);
+syscall(SYS_BRK, S + 0x26D000);
 
 # Zero state
 S64(S + 0x8C100, 0);

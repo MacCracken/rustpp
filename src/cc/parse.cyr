@@ -135,8 +135,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     SNPOS(S, cwp2);
                     var cfi = FINDFN(S, cnoff2);
                     if (cfi >= 0) {
-                        S64(S + 0x8CA00 + cfi * 8, GCP(S));
-                        S64(S + 0x8D200 + cfi * 8, 1);
+                        S64(S + 0x26B000 + cfi * 8, GCP(S));
+                        S64(S + 0x26C000 + cfi * 8, 1);
                         EFNPRO(S);
                         var ctor_frame = ESUBRSP(S);
                         ESTOREPARM(S, 0, 0, 0);
@@ -149,7 +149,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         SNPOS(S, awnp + 6);
                         var afi = FINDFN(S, awnp);
                         if (afi < 0) { afi = REGFN(S, awnp); }
-                        var afoff = L64(S + 0x8CA00 + afi * 8);
+                        var afoff = L64(S + 0x26B000 + afi * 8);
                         if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
                         ECALLCLEAN(S, 1);
                         EFLSTORE(S, 1);
@@ -508,7 +508,7 @@ fn PARSE_FACTOR(S) {
         SSDEP(S, 0);
         # Emit function prologue
         var cl_jmp = EJMP0(S);
-        S64(S + 0x8CA00 + clfi * 8, GCP(S));
+        S64(S + 0x26B000 + clfi * 8, GCP(S));
         EFNPRO(S);
         # Parse params until |
         var clpc = 0;
@@ -528,7 +528,7 @@ fn PARSE_FACTOR(S) {
                 else { cpgo = 0; }
             }
         }
-        S64(S + 0x8D200 + clfi * 8, clpc);
+        S64(S + 0x26C000 + clfi * 8, clpc);
         if (PEEKT(S) != 35) { ERR(S); }
         STI(S, GTI(S) + 1);  # consume closing |
         ESUBRSP(S, GFLC(S));
@@ -683,7 +683,7 @@ fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
     ECALLPOPS(S, 2);
     var ofi = FINDFN(S, opnoff);
     if (ofi < 0) { ofi = REGFN(S, opnoff); }
-    var ofoff = L64(S + 0x8CA00 + ofi * 8);
+    var ofoff = L64(S + 0x26B000 + ofi * 8);
     if (ofoff >= 0) { ECALLTO(S, ofoff); }
     else { ECALLFIX(S, ofi); }
     ECALLCLEAN(S, 2);
@@ -853,7 +853,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
         ECALLPOPS(S, argc);
         var mfi = FINDFN(S, mname);
         if (mfi < 0) { mfi = REGFN(S, mname); }
-        var mfoff = L64(S + 0x8CA00 + mfi * 8);
+        var mfoff = L64(S + 0x26B000 + mfi * 8);
         if (mfoff >= 0) { ECALLTO(S, mfoff); }
         else { ECALLFIX(S, mfi); }
         ECALLCLEAN(S, argc);
@@ -1497,7 +1497,7 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vlnp + 8);
                 vlfi = FINDFN(S, vlnp);
                 if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
-                var vloff = L64(S + 0x8CA00 + vlfi * 8);
+                var vloff = L64(S + 0x26B000 + vlfi * 8);
                 if (vloff >= 0) { ECALLTO(S, vloff); } else { ECALLFIX(S, vlfi); }
                 ECALLCLEAN(S, 1);
                 # Store length in hidden var
@@ -1554,7 +1554,7 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vgnp + 8);
                 vgfi = FINDFN(S, vgnp);
                 if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
-                var vgoff = L64(S + 0x8CA00 + vgfi * 8);
+                var vgoff = L64(S + 0x26B000 + vgfi * 8);
                 if (vgoff >= 0) { ECALLTO(S, vgoff); } else { ECALLFIX(S, vgfi); }
                 ECALLCLEAN(S, 2);
                 EFLSTORE(S, fiitem);
@@ -1703,9 +1703,9 @@ fn PARSE_FOR(S) {
 # Register new function, return index
 fn REGFN(S, noff) {
     var fc = GFNC(S);
-    S64(S + 0x8C200 + fc * 8, noff);
-    S64(S + 0x8CA00 + fc * 8, 0 - 1);
-    S64(S + 0x8D200 + fc * 8, 0);
+    S64(S + 0x26A000 + fc * 8, noff);
+    S64(S + 0x26B000 + fc * 8, 0 - 1);
+    S64(S + 0x26C000 + fc * 8, 0);
     SFNC(S, fc + 1);
     return fc;
 }
@@ -1715,7 +1715,7 @@ fn FINDFN(S, noff) {
     var fc = GFNC(S);
     var i = 0;
     while (i < fc) {
-        var sn = L64(S + 0x8C200 + i * 8);
+        var sn = L64(S + 0x26A000 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
@@ -1793,7 +1793,7 @@ fn PARSE_FNCALL(S, noff) {
     if (fi < 0) {
         fi = REGFN(S, noff);
     }
-    var foff = L64(S + 0x8CA00 + fi * 8);
+    var foff = L64(S + 0x26B000 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -1879,7 +1879,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     # Set fn offset to current CP
-    S64(S + 0x8CA00 + fi * 8, GCP(S));
+    S64(S + 0x26B000 + fi * 8, GCP(S));
     # Save compiler state
     var saved_lv = GLVAR(S);
     SINFN(S, 1);
@@ -1920,7 +1920,7 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR(S); }
     STI(S, GTI(S) + 1);
-    S64(S + 0x8D200 + fi * 8, pc);
+    S64(S + 0x26C000 + fi * 8, pc);
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {
         var spi = 6;
