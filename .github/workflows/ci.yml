@@ -144,9 +144,9 @@ jobs:
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (111)
+      - name: Compiler tests (130)
         run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
-      - name: Program tests (46)
+      - name: Program tests (51)
         run: sh tests/programs.sh ./build/cc2
 
   # ── Tests (AGNOS) ──
@@ -163,9 +163,9 @@ jobs:
         run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (111)
+      - name: Compiler tests (130)
         run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
-      - name: Program tests (46)
+      - name: Program tests (51)
         run: sh tests/programs.sh ./build/cc2
 
   # ── aarch64 ──

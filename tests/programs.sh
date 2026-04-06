@@ -202,6 +202,16 @@ check "struct_list sum" "15" "$?"
 "$TMPDIR/gcd"
 check "gcd(48,18)" "6" "$?"
 
+# Float test program
+build floattest
+"$TMPDIR/floattest" > /dev/null 2>/dev/null
+check "floattest 13" "0" "$?"
+
+# Hashmap test program
+build hmtest
+"$TMPDIR/hmtest" > /dev/null 2>/dev/null
+check "hmtest 14" "0" "$?"
+
 # System/integration tests (fork, exec, filesystem) — run locally, not in CI
 # To run: sh tests/programs.sh ./build/cc2 --system
 if [ "${2:-}" = "--system" ]; then

@@ -63,6 +63,30 @@ fn SCLINE(S, v) { S64(S + 0x8FCB8, v); return 0; }
 fn GTLINE(S, ti) { return L64(S + 0x1A2000 + ti * 8); }
 fn STLINE(S, ti, v) { S64(S + 0x1A2000 + ti * 8, v); return 0; }
 
+# Block scoping
+fn GSDEP(S) { return L64(S + 0x8FCC0); }
+fn SSDEP(S, v) { S64(S + 0x8FCC0, v); return 0; }
+fn GLDEP(S, li) { return L64(S + 0x8FCC8 + li * 8); }
+fn SLDEP(S, li, v) { S64(S + 0x8FCC8 + li * 8, v); return 0; }
+
+fn SCOPE_PUSH(S) { SSDEP(S, GSDEP(S) + 1); return 0; }
+fn SCOPE_POP(S) {
+    # Mark out-of-scope locals as invisible by clearing their names.
+    # Do NOT change GFLC — stack slots are permanent for the function frame.
+    var dep = GSDEP(S);
+    var lc = GFLC(S);
+    var si = lc - 1;
+    while (si >= 0) {
+        if (GLDEP(S, si) >= dep) {
+            # Mark as dead so FINDLOCAL won't match
+            S64(S + 0x8DC30 + si * 8, 0 - 1);
+        }
+        si = si - 1;
+    }
+    SSDEP(S, dep - 1);
+    return 0;
+}
+
 # Pointer scale tracking (0 = not a pointer, >0 = element size in bytes)
 fn GPSC(S) { return L64(S + 0x8F890); }
 fn SPSC(S, v) { S64(S + 0x8F890, v); return 0; }

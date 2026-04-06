@@ -1,0 +1,44 @@
+# floattest.cyr — floating point test program
+# Tests f64 operations, exits with pass count
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+fn main() {
+    alloc_init();
+
+    # Basic conversion roundtrip
+    assert_eq(f64_to(f64_from(42)), 42, "roundtrip");
+
+    # Arithmetic
+    var a = f64_from(100);
+    var b = f64_from(58);
+    assert_eq(f64_to(f64_sub(a, b)), 42, "sub");
+    assert_eq(f64_to(f64_add(f64_from(20), f64_from(22))), 42, "add");
+    assert_eq(f64_to(f64_mul(f64_from(6), f64_from(7))), 42, "mul");
+    assert_eq(f64_to(f64_div(f64_from(84), f64_from(2))), 42, "div");
+
+    # Truncation
+    assert_eq(f64_to(f64_div(f64_from(10), f64_from(3))), 3, "trunc");
+
+    # Comparisons
+    assert_eq(f64_eq(f64_from(5), f64_from(5)), 1, "eq true");
+    assert_eq(f64_eq(f64_from(5), f64_from(6)), 0, "eq false");
+    assert_eq(f64_lt(f64_from(3), f64_from(10)), 1, "lt");
+    assert_eq(f64_gt(f64_from(10), f64_from(3)), 1, "gt");
+
+    # Negation
+    var c = f64_from(42);
+    var nc = f64_neg(c);
+    assert_eq(f64_to(f64_add(c, nc)), 0, "neg cancel");
+
+    # Float literal
+    var pi = 3.14;
+    assert_eq(f64_to(f64_mul(pi, f64_from(2))), 6, "literal");
+
+    return assert_summary();
+}
+var exit_code = main();
+syscall(60, exit_code);

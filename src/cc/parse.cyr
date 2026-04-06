@@ -970,9 +970,14 @@ fn PARSE_VAR(S) {
     # Check if inside function → local variable
     if (GINFN(S) == 1) {
         # Reject duplicate local var names
-        if (FINDLOCAL(S, noff) >= 0) { ERRDUPVAR(S); }
+        # Allow same name in different scope (shadowing)
+        var existing = FINDLOCAL(S, noff);
+        if (existing >= 0) {
+            if (GLDEP(S, existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
         var li = GFLC(S);
         S64(S + 0x8DC30 + li * 8, noff);
+        SLDEP(S, li, GSDEP(S));
         SLTYPE(S, li, pscale);
         EFLSTORE(S, li);
         SFLC(S, li + 1);
@@ -1149,7 +1154,9 @@ fn PARSE_IF(S) {
     STI(S, GTI(S) + 1);  # consume )
     if (PEEKT(S) != 13) { ERR(S); }
     STI(S, GTI(S) + 1);  # consume {
+    SCOPE_PUSH(S);
     PARSE_PROG(S);
+    SCOPE_POP(S);
     if (PEEKT(S) != 14) { ERR(S); }
     STI(S, GTI(S) + 1);  # consume }
     if (PEEKT(S) == 50) {
@@ -1164,7 +1171,9 @@ fn PARSE_IF(S) {
         EPATCH(S, patch);
         if (PEEKT(S) != 13) { ERR(S); }
         STI(S, GTI(S) + 1);
+        SCOPE_PUSH(S);
         PARSE_PROG(S);
+        SCOPE_POP(S);
         if (PEEKT(S) != 14) { ERR(S); }
         STI(S, GTI(S) + 1);
         EPATCH(S, skip);
@@ -1193,7 +1202,9 @@ fn PARSE_WHILE(S) {
     STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR(S); }
     STI(S, GTI(S) + 1);
+    SCOPE_PUSH(S);
     PARSE_PROG(S);
+    SCOPE_POP(S);
     if (PEEKT(S) != 14) { ERR(S); }
     STI(S, GTI(S) + 1);
     EJMP(S, loop_top);
@@ -1214,6 +1225,7 @@ fn PARSE_WHILE(S) {
 fn PARSE_FOR(S) {
     STI(S, GTI(S) + 1);
     var slv = GLVAR(S);
+    SCOPE_PUSH(S);
     if (PEEKT(S) != 10) { ERR(S); }
     STI(S, GTI(S) + 1);
     PARSE_STMT(S);
@@ -1264,6 +1276,7 @@ fn PARSE_FOR(S) {
     EPATCH(S, cpat);
     var bpat = L64(S + 0x8F840);
     if (bpat > 0) { EPATCH(S, bpat); }
+    SCOPE_POP(S);
     S64(S + 0x8F838, slt);
     S64(S + 0x8F840, sbk);
     SLVAR(S, slv);
@@ -1306,11 +1319,12 @@ fn FINDFN(S, noff) {
 # Find fn local variable by name
 fn FINDLOCAL(S, noff) {
     var lc = GFLC(S);
-    var i = 0;
-    while (i < lc) {
+    var i = lc - 1;
+    # Search backward so inner scope shadows outer
+    while (i >= 0) {
         var sn = L64(S + 0x8DC30 + i * 8);
-        if (STREQ(S, sn, noff) == 1) { return i; }
-        i = i + 1;
+        if (sn >= 0) { if (STREQ(S, sn, noff) == 1) { return i; } }
+        i = i - 1;
     }
     return 0 - 1;
 }
@@ -1419,6 +1433,7 @@ fn PARSE_FN_DEF(S) {
             }
             var li = GFLC(S);
             S64(S + 0x8DC30 + li * 8, pnoff);
+            SLDEP(S, li, 0);
             # Only emit register params now (0-5)
             if (pc < 6) {
                 ESTOREPARM(S, pc, li, 0);
@@ -1735,6 +1750,8 @@ fn PARSE_STMT(S) {
     if (typ == 45) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 46) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 47) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; }
+    # f64 builtins as statements
+    if (typ >= 62) { if (typ <= 71) { PARSE_EXPR(S); if (PEEKT(S) != 5) { ERR(S); } STI(S, GTI(S) + 1); return 0; } }
     if (typ == 2) {
         # Could be assignment or fn call as statement
         var noff = PEEKV(S);

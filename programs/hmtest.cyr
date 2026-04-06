@@ -1,0 +1,58 @@
+# hmtest.cyr — hashmap test program with tombstone verification
+# Tests insert, lookup, delete, re-insert, probe chain integrity
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/assert.cyr"
+
+fn main() {
+    alloc_init();
+
+    var m = map_new();
+
+    # Basic insert + lookup
+    map_set(m, "alpha", 1);
+    map_set(m, "beta", 2);
+    map_set(m, "gamma", 3);
+    assert_eq(map_get(m, "alpha"), 1, "get alpha");
+    assert_eq(map_get(m, "beta"), 2, "get beta");
+    assert_eq(map_get(m, "gamma"), 3, "get gamma");
+    assert_eq(map_count(m), 3, "count 3");
+
+    # Has
+    assert_eq(map_has(m, "alpha"), 1, "has alpha");
+    assert_eq(map_has(m, "missing"), 0, "no missing");
+
+    # Delete (tombstone)
+    map_delete(m, "beta");
+    assert_eq(map_has(m, "beta"), 0, "beta deleted");
+    assert_eq(map_count(m), 2, "count after del");
+
+    # Probe chain preserved after delete
+    assert_eq(map_get(m, "gamma"), 3, "gamma survives");
+    assert_eq(map_get(m, "alpha"), 1, "alpha survives");
+
+    # Re-insert into tombstone
+    map_set(m, "beta", 99);
+    assert_eq(map_get(m, "beta"), 99, "beta reinsert");
+    assert_eq(map_count(m), 3, "count restored");
+
+    # Overwrite existing
+    map_set(m, "alpha", 42);
+    assert_eq(map_get(m, "alpha"), 42, "overwrite");
+    assert_eq(map_count(m), 3, "count unchanged");
+
+    # Keys
+    var keys = map_keys(m);
+    assert_eq(vec_len(keys), 3, "keys count");
+
+    # Null key guard
+    assert_eq(map_has(m, 0), 0, "null key");
+
+    return assert_summary();
+}
+var exit_code = main();
+syscall(60, exit_code);

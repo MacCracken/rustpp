@@ -305,6 +305,34 @@ run_test_cc "ptr_fn"         'fn f() { var buf[4]; store64(&buf, 100); store64(&
 # (300 truncated to 44 at exit)
 echo ""
 
+echo "-- Floating Point (cc-only) --"
+run_test_cc "f64_from_to"   'var a = f64_from(42); var r = f64_to(a);' 42
+run_test_cc "f64_add"       'var a = f64_from(20); var b = f64_from(22); var r = f64_to(f64_add(a, b));' 42
+run_test_cc "f64_sub"       'var a = f64_from(50); var b = f64_from(8); var r = f64_to(f64_sub(a, b));' 42
+run_test_cc "f64_mul"       'var a = f64_from(6); var b = f64_from(7); var r = f64_to(f64_mul(a, b));' 42
+run_test_cc "f64_div"       'var a = f64_from(10); var b = f64_from(3); var r = f64_to(f64_div(a, b));' 3
+run_test_cc "f64_eq_true"   'var a = f64_from(5); var b = f64_from(5); var r = f64_eq(a, b);' 1
+run_test_cc "f64_eq_false"  'var a = f64_from(5); var b = f64_from(6); var r = f64_eq(a, b);' 0
+run_test_cc "f64_lt"        'var a = f64_from(3); var b = f64_from(10); var r = f64_lt(a, b);' 1
+run_test_cc "f64_gt"        'var a = f64_from(10); var b = f64_from(3); var r = f64_gt(a, b);' 1
+run_test_cc "f64_neg"       'var a = f64_from(42); var b = f64_neg(a); var r = f64_to(f64_add(a, b));' 0
+run_test_cc "f64_literal"   'var pi = 3.14; var two = f64_from(2); var r = f64_to(f64_mul(pi, two));' 6
+run_test_cc "f64_in_fn"     'fn calc() { var a = f64_from(100); var b = f64_from(58); return f64_to(f64_sub(a, b)); } syscall(60, calc());' 42
+
+echo ""
+echo "-- Methods on Structs (cc-only) --"
+run_test_cc "method_call"   'struct P { x; y; } fn P_sum(self) { return load64(self) + load64(self + 8); } var p = P { 20, 22 }; var r = p.sum();' 42
+run_test_cc "method_args"   'struct V { x; } fn V_add(self, n) { store64(self, load64(self) + n); return 0; } var v = V { 40 }; v.add(2); var r = v.x;' 42
+run_test_cc "method_chain"  'struct C { v; } fn C_get(self) { return load64(self); } fn C_set(self, n) { store64(self, n); return 0; } var c = C { 0 }; c.set(42); var r = c.get();' 42
+
+echo ""
+echo "-- Block Scoping (cc-only) --"
+run_test_cc "scope_shadow"  'fn f() { var x = 10; if (1 == 1) { var x = 42; } return x; } syscall(60, f());' 10
+run_test_cc "scope_for"     'fn f() { for (var i = 0; i < 3; i = i + 1) { var tmp = i; } var i = 99; return i; } syscall(60, f());' 99
+run_test_cc "scope_while"   'fn f() { var n = 0; while (n < 1) { var x = 42; n = n + 1; } var x = 10; return x; } syscall(60, f());' 10
+run_test_cc "scope_nested"  'fn f() { var x = 1; if (1 == 1) { var x = 2; if (1 == 1) { var x = 3; } } return x; } syscall(60, f());' 1
+
+echo ""
 echo "-- Self-Hosting --"
 echo -n "  "
 cat src/compiler.cyr | "$CC" > /tmp/cyr_cc3_$$ 2>/dev/null

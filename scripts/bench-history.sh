@@ -111,6 +111,7 @@ echo "--- Tier 2: Data structures ---"
 run_bench "$REPO_ROOT/benches/bench_hashmap.cyr"
 run_bench "$REPO_ROOT/benches/bench_fmt.cyr"
 run_bench "$REPO_ROOT/benches/bench_tagged.cyr"
+run_bench "$REPO_ROOT/benches/bench_float.cyr"
 
 if [ "$TIER" = "--tier2" ]; then
     echo ""

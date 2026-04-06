@@ -1,0 +1,62 @@
+# bench_float.cyr — floating point microbenchmarks
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+var _fa = 0;
+var _fb = 0;
+
+fn work_f64_add() { f64_add(_fa, _fb); return 0; }
+fn work_f64_mul() { f64_mul(_fa, _fb); return 0; }
+fn work_f64_div() { f64_div(_fa, _fb); return 0; }
+fn work_f64_from() { f64_from(42); return 0; }
+fn work_f64_to() { f64_to(_fa); return 0; }
+fn work_f64_eq() { f64_eq(_fa, _fb); return 0; }
+fn work_f64_lt() { f64_lt(_fa, _fb); return 0; }
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    _fa = f64_from(3);
+    _fb = f64_from(7);
+
+    var all = vec_new();
+
+    var b1 = bench_new("float/f64_add");
+    bench_run(b1, &work_f64_add, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("float/f64_mul");
+    bench_run(b2, &work_f64_mul, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("float/f64_div");
+    bench_run(b3, &work_f64_div, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("float/f64_from");
+    bench_run(b4, &work_f64_from, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("float/f64_to");
+    bench_run(b5, &work_f64_to, N);
+    vec_push(all, b5);
+
+    var b6 = bench_new("float/f64_eq");
+    bench_run(b6, &work_f64_eq, N);
+    vec_push(all, b6);
+
+    var b7 = bench_new("float/f64_lt");
+    bench_run(b7, &work_f64_lt, N);
+    vec_push(all, b7);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);
