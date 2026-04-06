@@ -6,7 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.6.1] — 2026-04-06
+## [1.6.2] — 2026-04-06
+
+### Fixed — Compiler (aarch64)
+- **cc2_aarch64 segfault on `kernel;` mode**: `EMITELF_KERNEL` was a placeholder that called
+  `EMITELF` → infinite recursion → stack overflow → segfault. Implemented proper aarch64
+  kernel ELF64 emission: base `0x40000000`, entry `0x40000078`, no multiboot (ARM uses
+  device tree). Fixup entry point also corrected (`0x100060` → `0x40000078`).
+  Bootable via: `qemu-system-aarch64 -M virt -cpu cortex-a57 -kernel build/agnos_aarch64`
 
 ### Added — Tooling
 - **`cyrb build -D NAME`**: preprocessor defines from the command line. Enables conditional
@@ -24,10 +31,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (>256 functions), now mitigated by 512-entry tables in v1.6.0. Programs with >512 functions
   still need splitting.
 
+### Added — Tests
+- **Nested for-loop regression tests**: 4 new tests (nested_for_var, nested_for_match,
+  triple_for, for_in_for) confirming nested for-loops with var declarations work correctly.
+
 ### Metrics
-- Compiler: 136KB (unchanged)
-- cyrb: 59KB
-- 212 compiler tests + 51 program tests, 0 failures
+- Compiler: 136KB x86_64, 127KB aarch64
+- cyrb: 60KB
+- 216 compiler tests + 51 program tests, 0 failures
 - Self-hosting: byte-identical
 
 ## [1.6.0] — 2026-04-06

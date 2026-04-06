@@ -490,6 +490,13 @@ run_test_cc "enum_gaps"      'enum E { X = 10; Y = 42; Z = 100; } var r = Y;' 42
 run_test_cc "enum_fn_use"    'enum E { VAL = 42; } fn f() { return VAL; } var r = f();' 42
 
 echo ""
+echo "-- Nested For-Loop Regression (cc-only) --"
+run_test_cc "nested_for_var"  'fn f() { var s = 0; for (var i = 0; i < 3; i = i + 1) { var x = i; for (var j = 0; j < 3; j = j + 1) { s = s + 1; } } return s; } var r = f();' 9
+run_test_cc "nested_for_match" 'fn f() { var r = 0; for (var i = 0; i < 2; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { match j { 0 => { r = r + 1; } _ => { r = r + 10; } } } } return r; } var r = f();' 42
+run_test_cc "triple_for"      'fn f() { var s = 0; for (var i = 0; i < 3; i = i + 1) { for (var j = 0; j < 3; j = j + 1) { for (var k = 0; k < 3; k = k + 1) { s = s + 1; } } } return s; } var r = f();' 27
+run_test_cc "for_in_for"      'fn f() { var s = 0; for (var i = 0; i < 3; i = i + 1) { for j in 0..3 { s = s + 1; } } return s; } var r = f();' 9
+
+echo ""
 echo "-- Combined Feature Tests (cc-only) --"
 run_test_cc "match_in_for"   'fn f() { var s = 0; for i in 0..5 { match i { 2 => { s = s + 40; } _ => { s = s + 1; } } } return s - 2; } syscall(60, f());' 42
 run_test_cc "impl_method_chain" 'struct C { v; } impl Ops for C { fn inc(self) { store64(self, load64(self) + 1); return self; } fn get(self) { return load64(self); } } var c = C { 40 }; c.inc(); c.inc(); var r = c.get();' 42

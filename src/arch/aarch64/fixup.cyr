@@ -11,7 +11,7 @@ fn FIXUP(S) {
     var acp = cp;
     var kmode = L64(S + 0x8FCA0);
     var entry = 0x400078;
-    if (kmode == 1) { entry = 0x100060; }
+    if (kmode == 1) { entry = 0x40000078; }
     var dbase = entry + acp;
     var vcnt = GVCNT(S);
     var totvar = 0;
@@ -132,10 +132,52 @@ fn EMITELF(S) {
     return 0;
 }
 
-# Kernel ELF for aarch64 (placeholder — would need device tree / UEFI boot)
+# Kernel ELF for aarch64: ELF64 at base 0x40000000
+# Bootable by: qemu-system-aarch64 -M virt -cpu cortex-a57 -kernel build/agnos_aarch64
+# No multiboot (ARM uses device tree). Entry at base + 0x78 (after ELF + PH headers).
 fn EMITELF_KERNEL(S) {
-    # TODO: aarch64 kernel boot (different from x86 multiboot)
-    # For now, emit standard ELF64 with different base
-    EMITELF(S);
+    var cp = GCP(S);
+    var totvar = L64(S + 0x69808);
+    var spos = GSPOS(S);
+    var filesz = 120 + cp + totvar + spos;
+    filesz = (filesz + 7) & (0 - 8);
+    var memsz = filesz + 65536;
+    var base = 0x40000000;
+    var entry = base + 120;
+    var O = S + 0x6A000;
+    var op = 0;
+    # ELF64 header (64 bytes)
+    S64(O + op, 0x00010102464C457F); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    # e_type=EXEC(2) + e_machine=AARCH64(0xB7=183)
+    S64(O + op, 0x0000000100B70002); op = op + 8;
+    # e_entry
+    S64(O + op, entry); op = op + 8;
+    # e_phoff = 64
+    S64(O + op, 0x0000000000000040); op = op + 8;
+    # e_shoff = 0
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    # e_flags=0, e_ehsize=64, e_phentsize=56, e_phnum=1
+    S64(O + op, 0x0038004000000000); op = op + 8;
+    S64(O + op, 0x0000000000400001); op = op + 8;
+    # Program header (56 bytes)
+    S64(O + op, 0x0000000700000001); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, base); op = op + 8;
+    S64(O + op, base); op = op + 8;
+    S64(O + op, filesz); op = op + 8;
+    S64(O + op, memsz); op = op + 8;
+    S64(O + op, 0x0000000000010000); op = op + 8;
+    # Code
+    var i = 0;
+    while (i < cp) { store8(O + op, load8(S + 0x20000 + i)); op = op + 1; i = i + 1; }
+    # Variable data
+    i = 0;
+    while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
+    # String data
+    i = 0;
+    while (i < spos) { store8(O + op, load8(S + 0x62000 + i)); op = op + 1; i = i + 1; }
+    while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
+    S64(S + 0x5C130, op);
     return 0;
 }

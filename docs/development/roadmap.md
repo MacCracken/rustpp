@@ -13,7 +13,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-None — all clear.
+| # | Bug | Severity | Repro | Description |
+|---|-----|----------|-------|-------------|
+| 1 | ~~cc2_aarch64 segfaults on `kernel;` mode~~ | ~~P1~~ | ~~`echo 'kernel; var x = 42;' \| ./build/cc2_aarch64`~~ | **Fixed** (v1.6.1). Root cause: `EMITELF_KERNEL` was a placeholder that called `EMITELF` → infinite recursion → stack overflow. Fix: implemented aarch64 kernel ELF64 emission at base `0x40000000`, entry `0x40000078`. Bootable via `qemu-system-aarch64 -M virt -cpu cortex-a57 -kernel`. |
 
 ---
 
