@@ -53,3 +53,44 @@ Deferred: error message line numbers, performance pass, block scoping.
 - **ark** — package manager CLI (44KB, 8 commands)
 - **cyrb** — build tool (29KB, compile/test/self-host)
 - Benchmarks and documentation updated
+
+## v0.9.0–v0.9.7 — Language, Tooling, Infrastructure
+
+### Language Features
+- Floating point f64 — SSE2 codegen, 10 builtins, float literals (v0.9.2)
+- Methods on structs — convention dispatch `point.scale(2)` (v0.9.2)
+- Error line numbers — `error:3: unexpected token` (v0.9.2)
+- Block scoping — variables in if/while/for don't leak (v0.9.5)
+- Enum constructor syntax — `Ok(val)` parsed (v0.9.6)
+- Feature flags — `#define`/`#ifdef`/`#endif` (v0.9.6)
+- Module system — `mod name;` + `use mod.fn;` + `pub fn` (v0.9.7)
+- Comparison in function args — `f(x == 1)` via setCC (v0.9.0)
+- Generics Phase 1 — syntax parsed, not enforced (v0.9.0)
+- Preprocessor fix — strings with "include" safe (v0.9.4)
+
+### Compiler Infrastructure
+- Token arrays 32K → 64K, tok_names 32K → 64K (v0.9.2)
+- Fixup table 512 → 1024 entries (v0.9.0)
+- Preprocessor buffer relocation (v0.9.2)
+- Dead code removal: src/arch/x86_64/ (v0.9.6)
+
+### Tooling
+- cyrb shell dispatcher — 20+ commands (v0.9.0)
+- cyrfmt, cyrlint, cyrdoc, cyrc, ark — 8 tool binaries (v0.9.0)
+- Benchmarks — 45 benchmarks, bench-history.sh, CSV tracking (v0.9.1)
+- Installer — tarball download, version manager (v0.9.1)
+- Release pipeline — dual-arch CI, SHA256, GitHub Releases (v0.9.1)
+- `cyrb docs --agent` — markdown server for bots (v0.9.6)
+- `cyrb.toml` parser — replaces grep/sed (v0.9.6)
+- `cyrb coverage` — file/function test coverage (v0.9.7)
+- `cyrb doctest` — runnable doc examples (v0.9.7)
+- `cyrb repl` — interactive evaluator (v0.9.7)
+- Version bump script + version sync (v0.9.4/v0.9.6)
+
+### Documentation
+- 5 ADRs, threat model (v0.9.6)
+- 32 vidya implementation entries (v0.9.4–v0.9.6)
+- 14/14 runnable vidya reference files (v0.9.4)
+
+### Ecosystem
+- P-1 hardening: hashmap tombstones, vec bounds, alloc OOM (v0.9.3)
