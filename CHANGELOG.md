@@ -6,6 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-04-05
+
+### Fixed — Compiler
+- **Preprocessor**: string literals containing "include" no longer trigger file inclusion
+  - Only checks for include directive at beginning of line (column 0)
+- **Self-hosting test**: fixed to use `compiler.cyr | cc2 = cc3` comparison
+
+### Added — Tooling
+- `scripts/version-bump.sh` — update VERSION + install.sh in one command
+- Vidya updated: 5 new implementation entries (float SSE2, methods, line numbers, tok_names overflow, two-step bootstrap)
+- Vidya usage examples: f64 operations in type_systems, methods in design_patterns
+
+### Metrics
+- Compiler: 104KB, 222 functions
+- 160 x86_64 + 12 aarch64 tests, 0 failures
+- 14/14 vidya reference files pass
+
+## [0.9.3] — 2026-04-05
+
+### Fixed — Libraries (P-1 Hardening)
+- **hashmap**: tombstone-based deletion (was breaking probe chains on delete)
+- **vec**: `vec_remove` bounds check on index
+- **alloc**: brk failure detection — returns 0 on OOM
+- **json**: `json_get` null key/pairs guard
+
 ## [0.9.2] — 2026-04-05
 
 ### Added — Language

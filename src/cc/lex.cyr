@@ -82,10 +82,13 @@ fn PREPROCESS(S) {
     var out = S + 0x91000;
     var op = 0;
     var ip = 0;
+    var bol = 1;
     while (ip < bl) {
         var c = load8(S + ip);
-        # Check for include at start of line (or start of file)
-        if (ISINCLUDE(S, ip, bl) == 1) {
+        # Check for include only at start of line
+        var is_inc = 0;
+        if (bol == 1) { is_inc = ISINCLUDE(S, ip, bl); }
+        if (is_inc == 1) {
             ip = ip + 8;
             # Expect opening "
             if (load8(S + ip) == 34) {
@@ -119,11 +122,13 @@ fn PREPROCESS(S) {
                 # Read file into output buffer
                 var nr = READFILE(fname, out + op, 131072 - op);
                 op = op + nr;
+                bol = 1;
             }
         } else {
             store8(out + op, c);
             op = op + 1;
             ip = ip + 1;
+            if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
     # Copy expanded source back to S+0

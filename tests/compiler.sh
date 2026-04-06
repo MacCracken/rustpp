@@ -307,24 +307,15 @@ echo ""
 
 echo "-- Self-Hosting --"
 echo -n "  "
-cat src/cc_bridge.cyr | "$CC" > /tmp/cyr_cc2_$$ 2>/dev/null
-if cmp -s "$CC" /tmp/cyr_cc2_$$; then
-    echo "PASS: cc compiles itself byte-identical"
+cat src/compiler.cyr | "$CC" > /tmp/cyr_cc3_$$ 2>/dev/null
+if cmp -s "$CC" /tmp/cyr_cc3_$$; then
+    echo "PASS: cc2==cc3 byte-identical (extended self-hosting)"
     pass=$((pass + 1))
 else
-    # Check cc2==cc3 instead (true self-hosting for extended compiler)
-    chmod +x /tmp/cyr_cc2_$$
-    cat src/cc_bridge.cyr | /tmp/cyr_cc2_$$ > /tmp/cyr_cc3_$$ 2>/dev/null
-    if cmp -s /tmp/cyr_cc2_$$ /tmp/cyr_cc3_$$; then
-        echo "PASS: cc2==cc3 byte-identical (extended self-hosting)"
-        pass=$((pass + 1))
-    else
-        echo "FAIL: cc self-hosting broken"
-        fail=$((fail + 1))
-    fi
-    rm -f /tmp/cyr_cc3_$$
+    echo "FAIL: cc self-hosting broken ($(wc -c < "$CC") vs $(wc -c < /tmp/cyr_cc3_$$))"
+    fail=$((fail + 1))
 fi
-rm -f /tmp/cyr_cc2_$$
+rm -f /tmp/cyr_cc3_$$
 
 echo ""
 echo "================="
