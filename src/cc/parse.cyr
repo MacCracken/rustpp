@@ -123,7 +123,46 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 val = PEEKV(S);
                 STI(S, GTI(S) + 1);
             }
-            if (emit_code == 0) {
+            if (emit_code == 2) {
+                # Pass 2 function section: emit constructor bodies only
+                if (has_ctor == 1) {
+                    var cwp2 = GNPOS(S);
+                    var cnoff2 = cwp2;
+                    var cri2 = 0;
+                    var crc2 = load8(S + 0x50000 + vnoff + cri2);
+                    while (crc2 != 0) { store8(S + 0x50000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x50000 + vnoff + cri2); }
+                    store8(S + 0x50000 + cwp2, 0); cwp2 = cwp2 + 1;
+                    SNPOS(S, cwp2);
+                    var cfi = FINDFN(S, cnoff2);
+                    if (cfi >= 0) {
+                        S64(S + 0x8CA00 + cfi * 8, GCP(S));
+                        S64(S + 0x8D200 + cfi * 8, 1);
+                        EFNPRO(S);
+                        var ctor_frame = ESUBRSP(S);
+                        ESTOREPARM(S, 0, 0, 0);
+                        EMOVI(S, 16); EPUSHR(S);
+                        ECALLPOPS(S, 1);
+                        var awnp = GNPOS(S);
+                        store8(S + 0x50000 + awnp, 97); store8(S + 0x50000 + awnp + 1, 108);
+                        store8(S + 0x50000 + awnp + 2, 108); store8(S + 0x50000 + awnp + 3, 111);
+                        store8(S + 0x50000 + awnp + 4, 99); store8(S + 0x50000 + awnp + 5, 0);
+                        SNPOS(S, awnp + 6);
+                        var afi = FINDFN(S, awnp);
+                        if (afi < 0) { afi = REGFN(S, awnp); }
+                        var afoff = L64(S + 0x8CA00 + afi * 8);
+                        if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
+                        ECALLCLEAN(S, 1);
+                        EFLSTORE(S, 1);
+                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, val); EPOPC(S); ESTORE64(S);
+                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, 8); EMOVCA(S); EPOPR(S); EADDR(S);
+                        EPUSHR(S); EFLLOAD(S, 0); EPOPC(S); ESTORE64(S);
+                        EPATCHFRAME(S, ctor_frame, 32);
+                        EFLLOAD(S, 1);
+                        EFNEPI(S);
+                    }
+                }
+            }
+            elif (emit_code == 0) {
                 # Pass 1: register variant as global var
                 var vcnt = GVCNT(S);
                 S64(S + 0x60000 + vcnt * 8, vnoff);
@@ -141,67 +180,9 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     REGFN(S, cnoff);
                 }
             } else {
-                # Pass 2: emit variant init + constructor body
+                # Pass 2 enum init (emit_code == 1): just set constant values
                 var idx = FINDVAR(S, vnoff);
                 if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
-                if (has_ctor == 1) {
-                    # Find the registered constructor
-                    var cwp2 = GNPOS(S);
-                    var cnoff2 = cwp2;
-                    var cri2 = 0;
-                    var crc2 = load8(S + 0x50000 + vnoff + cri2);
-                    while (crc2 != 0) { store8(S + 0x50000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x50000 + vnoff + cri2); }
-                    store8(S + 0x50000 + cwp2, 0); cwp2 = cwp2 + 1;
-                    SNPOS(S, cwp2);
-                    var cfi = FINDFN(S, cnoff2);
-                    if (cfi >= 0) {
-                        # Emit constructor: fn Variant(payload) → tagged_new(tag, payload)
-                        # Calls alloc(16) if available, else uses brk directly.
-                        S64(S + 0x8CA00 + cfi * 8, GCP(S));
-                        S64(S + 0x8D200 + cfi * 8, 1);
-                        EFNPRO(S);
-                        ESUBRSP(S, 3);
-                        ESTOREPARM(S, 0, 0, 0);
-                        # Call alloc(16): push 16, call alloc
-                        EMOVI(S, 16);
-                        EPUSHR(S);
-                        ECALLPOPS(S, 1);
-                        # Find alloc function
-                        var awnp = GNPOS(S);
-                        store8(S + 0x50000 + awnp, 97); store8(S + 0x50000 + awnp + 1, 108);
-                        store8(S + 0x50000 + awnp + 2, 108); store8(S + 0x50000 + awnp + 3, 111);
-                        store8(S + 0x50000 + awnp + 4, 99); store8(S + 0x50000 + awnp + 5, 0);
-                        SNPOS(S, awnp + 6);
-                        var afi = FINDFN(S, awnp);
-                        if (afi < 0) { afi = REGFN(S, awnp); }
-                        var afoff = L64(S + 0x8CA00 + afi * 8);
-                        if (afoff >= 0) { ECALLTO(S, afoff); }
-                        else { ECALLFIX(S, afi); }
-                        ECALLCLEAN(S, 1);
-                        # rax = alloc result (ptr), save to local 1
-                        EFLSTORE(S, 1);
-                        # store64(ptr, tag)
-                        EFLLOAD(S, 1);
-                        EPUSHR(S);
-                        EMOVI(S, val);
-                        EPOPC(S);
-                        ESTORE64(S);
-                        # store64(ptr + 8, payload)
-                        EFLLOAD(S, 1);
-                        EPUSHR(S);
-                        EMOVI(S, 8);
-                        EMOVCA(S);
-                        EPOPR(S);
-                        EADDR(S);
-                        EPUSHR(S);
-                        EFLLOAD(S, 0);
-                        EPOPC(S);
-                        ESTORE64(S);
-                        # return ptr
-                        EFLLOAD(S, 1);
-                        EFNEPI(S);
-                    }
-                }
             }
             val = val + 1;
             if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }

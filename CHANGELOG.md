@@ -20,10 +20,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed reference test programs (agnostik_test, kybernet_test, nous_test)
 - Synced kernel to agnos repo (source of truth)
 
-### Added — Language (in progress)
-- **Enum constructors (auto-generate)**: `enum Result { Ok(val) = 0; }` generates `Ok(42)` function
-  - Registered in pass 1, body emitted in pass 2 via alloc
-  - In progress: codegen bug in generated function body
+### Added — Language
+- **Enum constructors (auto-generate)**: `enum Result { Ok(val) = 0; }` auto-generates `Ok(42)`
+  - Constructor registered in pass 1, body emitted in pass 2 function section
+  - Uses alloc(16) to heap-allocate {tag, payload}
+  - Root cause of initial bug: constructor body was emitted in main code (after JMP)
+    instead of function section (before JMP). Fixed by adding `emit_code == 2` pass.
 
 ### Metrics
 - Compiler: 135KB
