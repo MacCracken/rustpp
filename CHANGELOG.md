@@ -6,6 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-04-06
+
+### Added — Performance (agnosys)
+- **Packed Result type**: Ok/Err encoded in a single i64 using bit 63 as discriminant.
+  Zero heap allocations on success path (was 2 allocs per Result via tagged_new).
+  Error path still allocates 24-byte syserr struct (cold path, acceptable).
+- **Caller-provided buffers**: `query_sysinfo(out)`, `agnosys_hostname(out)`,
+  `agnosys_kernel_release(out)`, `agnosys_machine(out)` now write into caller's
+  stack buffer instead of heap-allocating + memcpy. Eliminates alloc+copy per call.
+
+### Fixed — agnosys
+- **Array size unit confusion**: `var buf[N]` allocates N bytes, not N i64 elements.
+  `var buf[49]` (intended for 390-byte utsname struct) only allocated 56 bytes, causing
+  runtime overflow into adjacent data (corrupted string literals).
+  Fixed: `var buf[392]` for utsname, `var buf[120]` for sysinfo, `var allow[160]` for
+  seccomp filter, `var beneath[16]` and `var prog[16]` for landlock/seccomp structs.
+
+### Fixed — Roadmap
+- **Nested for-loop P1 bug**: confirmed fixed (by block scoping in v0.9.5). Removed from P1.
+
+### Metrics
+- Compiler: 136KB (unchanged)
+- 212 compiler tests + 51 program tests, 0 failures
+- Self-hosting: byte-identical
+
 ## [1.5.2] — 2026-04-06
 
 ### Fixed — Tooling
@@ -21,11 +46,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   explicit dependency manifests without a resolver, `pub` enforcement, `use` imports
   with qualified access, migration path from `include` to `use`
 
+### Fixed — Compiler
+- **Variable table overflow corrupting string data**: `var_noffs` and `var_sizes` had 256 entries
+  (2048 bytes each at `0x60000`/`0x60800`), overflowing into `str_data` at `0x61000` when total
+  variable count exceeded 256. Since VCNT never resets between functions (arrays are globals),
+  large programs silently corrupted string literals — `println` wrote backspace (0x08) instead
+  of newline (0x0A)
+  - Expanded both arrays to 512 entries (4096 bytes each)
+  - Relocated `str_data` from `0x61000` to `0x62000`
+  - Updated x86_64 and aarch64 backends (lex.cyr, fixup.cyr, arch/aarch64/fixup.cyr)
+  - Triggered by agnosys port (379 variables across 14 included modules)
+
 ### Verified
 - All 25+ cyrb subcommands tested and passing
 - 212 compiler tests, 0 failures
 - 51 program tests, 0 failures
 - Self-hosting: byte-identical
+- agnosys 119KB binary: all println output correct
 
 ### Metrics
 - Compiler: 136KB (unchanged)

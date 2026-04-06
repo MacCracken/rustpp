@@ -15,7 +15,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | # | Bug | Severity | Repro | Description |
 |---|-----|----------|-------|-------------|
-| 1 | **Nested for-loops with var declarations** | P1 | `for (var i...) { var x = 1; for (var j...) { } }` | Nested for-loops where the inner scope declares variables produce `unexpected token (type=75)` parse error. Blocks AGNOS kernel from using natural loop patterns. **Workaround**: factor inner loop into a separate function. Confirmed still broken in v1.5.0. |
+| 1 | **Runtime segfault when function table exceeds ~256 entries** | P1 | Include lib/* + 3 agnosys modules + define 13 user functions | Program compiles successfully but segfaults at runtime. Same logic inlined into a single `main()` works fine. Likely the function fixup table or call target table overflows silently — codegen succeeds but emits bad jump addresses. **Workaround**: inline logic into fewer functions, or split into separate compilation units. Discovered during agnosys port (20 modules, 8460 lines). Confirmed in v1.5.0. |
 
 ---
 
@@ -144,7 +144,7 @@ wave breakdown, porting patterns, and bridge strategies.
 |---|----------|---------|-------------|
 | 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global (directly or via function call), the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
 | 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | In a function `fn foo(a, b)`, params are stored at `[rbp-0x08]` (a) and `[rbp-0x10]` (b). Locals declared with `var` start AFTER params: first local at `[rbp-0x18]`, etc. Inline asm writing to `[rbp-0x08]` will **clobber param a**. **Fix**: declare enough dummy locals before the asm block to push offsets past the params, or use globals for values the asm block needs. In general: `fn(p1, p2)` → p1 at -0x08, p2 at -0x10; `var v1` at -0x18, `var v2` at -0x20, etc. |
-| 3 | Nested for-loops with var declarations | AGNOS initrd, kernel patterns | **Bug (P1).** `for (var i...) { var x; for (var j...) { } }` produces `unexpected token (type=75)`. The parser cannot handle var declarations in the inner scope of nested for-loops. **Fix**: factor inner loop into a separate function. Still broken as of v1.5.0. |
+| 3 | ~~Nested for-loops with var declarations~~ | ~~AGNOS initrd, kernel patterns~~ | **Fixed** (v1.5.2). Block scoping (v0.9.5) resolved this. Nested for-loops with var declarations now compile and run correctly. |
 
 ---
 
