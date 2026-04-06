@@ -107,8 +107,15 @@ Quality:
   vet <source.cyr>                audit include dependencies
   deny <source.cyr>               enforce project policies
 
+Testing:
+  coverage                        report test coverage by library file
+  doctest <file.cyr> [...]        run doc examples (# >>> / # ===)
+
 Documentation:
   docs [--agent] [--port N]       serve project docs (default: HTML, --agent: markdown)
+
+Interactive:
+  repl                            interactive expression evaluator
 
 Info:
   version                         show cyrb version
@@ -445,6 +452,21 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         ;;
 
     # === Run / Clean / Update / Check ===
+    coverage)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrb-coverage.sh" "$@"
+        ;;
+
+    doctest)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrb-doctest.sh" "$CC" "$@"
+        ;;
+
+    repl)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrb-repl.sh" "$CC" "$@"
+        ;;
+
     run)
         shift
         arch="x86"
