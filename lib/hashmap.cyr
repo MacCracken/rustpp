@@ -172,6 +172,31 @@ fn map_keys(m) {
     return keys;
 }
 
+# Get all values as a vec of i64
+fn map_values(m) {
+    var vals = vec_new();
+    var entries = map_entries(m);
+    var cap = map_cap(m);
+    var vi = 0;
+    while (vi < cap) {
+        var ep = entries + vi * HASHMAP_ENTRY_SIZE;
+        if (load64(ep + 16) == 1) {
+            vec_push(vals, load64(ep + 8));
+        }
+        vi = vi + 1;
+    }
+    return vals;
+}
+
+# Clear all entries (reset to empty, keep capacity)
+fn map_clear(m) {
+    var entries = map_entries(m);
+    var cap = map_cap(m);
+    memset(entries, 0, cap * HASHMAP_ENTRY_SIZE);
+    store64(m + 16, 0);
+    return 0;
+}
+
 # Print map contents
 fn map_print(m) {
     var entries = map_entries(m);
