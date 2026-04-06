@@ -216,7 +216,7 @@ jobs:
             code=$(echo "$test" | cut -d: -f2)
             expected=$(echo "$test" | cut -d: -f3)
             echo "$code" | ./build/cc2_aarch64 > /tmp/a64_t && chmod +x /tmp/a64_t
-            result=$(timeout 5 qemu-aarch64-static /tmp/a64_t 2>/dev/null; echo $?)
+            result=$(timeout 5 qemu-aarch64-static /tmp/a64_t >/dev/null 2>&1; echo $?)
             if [ "$result" = "$expected" ]; then pass=$((pass+1)); else echo "FAIL: $name"; fail=$((fail+1)); fi
           done
           echo "$pass passed, $fail failed"
