@@ -125,6 +125,59 @@ fn PRNUM(n) {
     return 0;
 }
 
+# Print a null-terminated string to stderr
+fn PRSTR(s) {
+    var i = 0;
+    while (load8(s + i) != 0) { i = i + 1; }
+    syscall(SYS_WRITE, 2, s, i);
+    return 0;
+}
+
+fn TOKNAME(typ) {
+    if (typ == 1) { return "number"; }
+    if (typ == 2) { return "identifier"; }
+    if (typ == 3) { return "var"; }
+    if (typ == 4) { return "'='"; }
+    if (typ == 5) { return "';'"; }
+    if (typ == 6) { return "'+'"; }
+    if (typ == 7) { return "'-'"; }
+    if (typ == 8) { return "'*'"; }
+    if (typ == 9) { return "'/'"; }
+    if (typ == 10) { return "'('"; }
+    if (typ == 11) { return "')'"; }
+    if (typ == 12) { return "end of file"; }
+    if (typ == 13) { return "'{'"; }
+    if (typ == 14) { return "'}'"; }
+    if (typ == 15) { return "if"; }
+    if (typ == 16) { return "while"; }
+    if (typ == 17) { return "'=='"; }
+    if (typ == 18) { return "'!='"; }
+    if (typ == 19) { return "'<'"; }
+    if (typ == 20) { return "'>'"; }
+    if (typ == 28) { return "'['"; }
+    if (typ == 29) { return "']'"; }
+    if (typ == 30) { return "string"; }
+    if (typ == 31) { return "','"; }
+    if (typ == 32) { return "fn"; }
+    if (typ == 33) { return "return"; }
+    if (typ == 40) { return "struct"; }
+    if (typ == 41) { return "'.'"; }
+    if (typ == 48) { return "asm"; }
+    if (typ == 49) { return "':'"; }
+    if (typ == 50) { return "elif"; }
+    if (typ == 51) { return "break"; }
+    if (typ == 52) { return "continue"; }
+    if (typ == 55) { return "for"; }
+    if (typ == 57) { return "switch"; }
+    if (typ == 60) { return "enum"; }
+    if (typ == 72) { return "mod"; }
+    if (typ == 73) { return "pub"; }
+    if (typ == 74) { return "use"; }
+    if (typ == 75) { return "match"; }
+    if (typ == 77) { return "impl"; }
+    return "unknown";
+}
+
 fn ERRDUPVAR(S) {
     syscall(SYS_WRITE, 2, "error:", 6);
     PRNUM(GTLINE(S, GTI(S)));
@@ -143,11 +196,53 @@ fn WARN(S, msg, len) {
 }
 
 fn ERR(S) {
+    var typ = PEEKT(S);
     syscall(SYS_WRITE, 2, "error:", 6);
     PRNUM(GTLINE(S, GTI(S)));
-    syscall(SYS_WRITE, 2, ": unexpected token (type=", 25);
-    PRNUM(PEEKT(S));
-    syscall(SYS_WRITE, 2, ")\n", 2);
+    syscall(SYS_WRITE, 2, ": unexpected ", 13);
+    PRSTR(TOKNAME(typ));
+    if (typ == 2) {
+        syscall(SYS_WRITE, 2, " '", 2);
+        PRSTR(S + 0x50000 + PEEKV(S));
+        syscall(SYS_WRITE, 2, "'", 1);
+    }
+    if (typ == 1) {
+        syscall(SYS_WRITE, 2, " ", 1);
+        PRNUM(PEEKV(S));
+    }
+    syscall(SYS_WRITE, 2, "\n", 1);
+    syscall(SYS_EXIT, 1);
+    return 0;
+}
+
+fn ERR_EXPECT(S, expected_type) {
+    var got = PEEKT(S);
+    syscall(SYS_WRITE, 2, "error:", 6);
+    PRNUM(GTLINE(S, GTI(S)));
+    syscall(SYS_WRITE, 2, ": expected ", 11);
+    PRSTR(TOKNAME(expected_type));
+    syscall(SYS_WRITE, 2, ", got ", 6);
+    PRSTR(TOKNAME(got));
+    if (got == 2) {
+        syscall(SYS_WRITE, 2, " '", 2);
+        PRSTR(S + 0x50000 + PEEKV(S));
+        syscall(SYS_WRITE, 2, "'", 1);
+    }
+    if (got == 1) {
+        syscall(SYS_WRITE, 2, " ", 1);
+        PRNUM(PEEKV(S));
+    }
+    syscall(SYS_WRITE, 2, "\n", 1);
+    syscall(SYS_EXIT, 1);
+    return 0;
+}
+
+fn ERR_MSG(S, msg, len) {
+    syscall(SYS_WRITE, 2, "error:", 6);
+    PRNUM(GTLINE(S, GTI(S)));
+    syscall(SYS_WRITE, 2, ": ", 2);
+    syscall(SYS_WRITE, 2, msg, len);
+    syscall(SYS_WRITE, 2, "\n", 1);
     syscall(SYS_EXIT, 1);
     return 0;
 }

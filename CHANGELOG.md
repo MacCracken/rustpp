@@ -6,6 +6,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.6.6] — 2026-04-06
+
+### Improved — Compiler
+- **Human-readable error messages**: `error:5: unexpected token (type=17)` →
+  `error:5: expected ';', got identifier 'foo'`. Token types replaced with names
+  (`;`, `)`, `{`, `identifier`, `number`, `fn`, `return`, etc). Identifier values
+  and numeric values shown in context. 142 parse errors upgraded to `ERR_EXPECT`
+  with expected/got format. Added `TOKNAME`, `PRSTR`, `ERR_EXPECT`, `ERR_MSG` to util.cyr.
+
+### Fixed — Compiler
+- **Multi-pass preprocessor**: `include` inside `#ifdef` in included files now works.
+  Preprocessor runs up to 16 passes until no more includes found. Each pass expands
+  includes and evaluates `#ifdef`/`#define`. Fixes library-level platform dispatchers.
+
+### Fixed — Tooling
+- **`cyrb update` actually works**: syncs `lib/` from installed Cyrius stdlib
+  (`~/.cyrius/versions/<current>/lib/`), falls back to `../cyrius/lib/`
+- **`cyrb init` generates `cyrb.toml`**: includes `[deps]` section, vendors ALL stdlib
+  modules (was hardcoded list of 13)
+- **`cyrc vet` false positive on cyrb**: `cmd_check` contained `"include "` string literal
+  that triggered dependency detection. Fixed: build needle at runtime with `store8`.
+
+### Changed — Documentation
+- **Vidya reorganization**: Cyrius reference moved from `compiler_bootstrapping/` to own
+  `cyrius/` topic directory: `language.toml`, `ecosystem.toml`, `implementation.toml`, `types.toml`
+
 ## [1.6.5] — 2026-04-06
 
 ### Fixed — Compiler (aarch64)

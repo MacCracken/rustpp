@@ -162,13 +162,14 @@ fn PP_SKIPLINE(S, ip, bl) {
 }
 
 # Builds expanded source into a new buffer, then copies back.
-fn PREPROCESS(S) {
+fn PP_PASS(S) {
     var bl = GBL(S);
     var out = S + 0x222000;
     var op = 0;
     var ip = 0;
     var bol = 1;
     var skip_depth = 0;
+    var had_include = 0;
     while (ip < bl) {
         var c = load8(S + ip);
         var handled = 0;
@@ -210,6 +211,7 @@ fn PREPROCESS(S) {
                     }
                     var nr = READFILE(fname, out + op, 262144 - op);
                     op = op + nr;
+                    had_include = 1;
                 }
                 bol = 1; handled = 1;
             } } }
@@ -228,6 +230,22 @@ fn PREPROCESS(S) {
         ci = ci + 1;
     }
     SBL(S, op);
+    return had_include;
+}
+
+fn PREPROCESS(S) {
+    # Run preprocessor passes until no more includes are found.
+    # Each pass expands includes and evaluates #ifdef/#define.
+    # Included files may contain their own includes and ifdefs,
+    # which get processed on the next pass.
+    var pass = 0;
+    var go = 1;
+    while (go == 1) {
+        var had = PP_PASS(S);
+        pass = pass + 1;
+        if (had == 0) { go = 0; }
+        if (pass >= 16) { go = 0; }
+    }
     return 0;
 }
 

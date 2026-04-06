@@ -96,6 +96,7 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 | 1 | **>512 functions segfaults** | cc2 | Low | Function tables expanded from 256→512 in v1.6.0. Programs exceeding 512 need splitting. Proper fix: multi-file compilation (.o + link). |
 | 2 | **Release tarball missing cc2_aarch64** | release | Medium | x86_64 release should include cc2_aarch64 for cross-dev workflows. |
 | 3 | **Preprocessor macros with args** | cc2 | Medium | `#define NAME(params) body` — storage/detection works but parameter substitution has a memory corruption bug in the `0x91000` region. Deferred. |
+| 4 | ~~`include` inside `#ifdef` in included files fails~~ | cc2 | ~~Medium~~ | **Fixed** (v1.6.5). Preprocessor now runs multiple passes — included files get their `#ifdef`/`include` directives processed on subsequent passes. Up to 16 passes (handles deeply nested includes). |
 
 ---
 

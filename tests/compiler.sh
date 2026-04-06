@@ -262,12 +262,12 @@ else
     echo "  FAIL: error_line_number (expected 'error:1:', got: $err_out)"
     fail=$((fail + 1))
 fi
-# Test that error includes token type
-if echo "$err_out" | grep -q "type="; then
-    echo "  PASS: error_type (reports token type)"
+# Test that error includes human-readable token name
+if echo "$err_out" | grep -q "unexpected\|expected"; then
+    echo "  PASS: error_readable (human-readable error message)"
     pass=$((pass + 1))
 else
-    echo "  FAIL: error_type (expected 'type=', got: $err_out)"
+    echo "  FAIL: error_readable (expected 'unexpected' or 'expected', got: $err_out)"
     fail=$((fail + 1))
 fi
 echo ""
