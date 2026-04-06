@@ -16,8 +16,8 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | # | Bug | Severity | Repro | Description |
 |---|-----|----------|-------|-------------|
 | 1 | ~~cc2_aarch64 segfaults on `kernel;` mode~~ | ~~P1~~ | ~~`echo 'kernel; var x = 42;' \| ./build/cc2_aarch64`~~ | **Fixed** (v1.6.1). |
-| 2 | **cc2_aarch64 kernel string fixups wrong > ~1KB** | P1 | `kernel; fn f() { serial_println("test", 4); } f();` | String literal addresses point to wrong locations when binary > ~1KB. First serial_println outputs ELF header bytes instead of the string. Tiny kernels (<1KB) work. Likely string data offset doesn't account for 0x40000000 base. Blocks AGNOS aarch64 port. |
-| 3 | **cc2_aarch64 kernel no SP setup at entry** | P2 | Any kernel with function calls | Kernel entry has SP=0, first function prologue (`stp x29,x30,[sp,#-16]!`) faults. Requires external SP patch trampoline. x86 cc2 sets RSP in boot shim. aarch64 should emit `mov sp, #stack_addr` at entry. |
+| 2 | ~~cc2_aarch64 kernel string fixups wrong > ~1KB~~ | ~~P1~~ | ~~`kernel; fn f() { serial_println("test", 4); } f();`~~ | **Fixed** (v1.6.2). Entry point and data base set to `0x40000078` with correct preamble offset. Verified with 3KB kernel — string addresses resolve correctly. |
+| 3 | ~~cc2_aarch64 kernel no SP setup at entry~~ | ~~P2~~ | ~~Any kernel with function calls~~ | **Fixed** (v1.6.2). Kernel preamble emits `MOVZ x9, #stack_top; MOVK...; MOV SP, x9` (16 bytes) before code. Stack at top of memsz (base + filesz + 64KB). |
 
 ---
 

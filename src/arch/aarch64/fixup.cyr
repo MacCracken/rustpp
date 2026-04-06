@@ -11,8 +11,9 @@ fn FIXUP(S) {
     var acp = cp;
     var kmode = L64(S + 0x8FCA0);
     var entry = 0x400078;
-    if (kmode == 1) { entry = 0x40000078; }
-    var dbase = entry + acp;
+    var preamble = 0;
+    if (kmode == 1) { entry = 0x40000078; preamble = 16; }
+    var dbase = entry + preamble + acp;
     var vcnt = GVCNT(S);
     var totvar = 0;
     var vi = 0;
@@ -139,7 +140,8 @@ fn EMITELF_KERNEL(S) {
     var cp = GCP(S);
     var totvar = L64(S + 0x69808);
     var spos = GSPOS(S);
-    var filesz = 120 + cp + totvar + spos;
+    var preamble_sz = 16;
+    var filesz = 120 + preamble_sz + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 65536;
     var base = 0x40000000;
@@ -149,15 +151,10 @@ fn EMITELF_KERNEL(S) {
     # ELF64 header (64 bytes)
     S64(O + op, 0x00010102464C457F); op = op + 8;
     S64(O + op, 0x0000000000000000); op = op + 8;
-    # e_type=EXEC(2) + e_machine=AARCH64(0xB7=183)
     S64(O + op, 0x0000000100B70002); op = op + 8;
-    # e_entry
     S64(O + op, entry); op = op + 8;
-    # e_phoff = 64
     S64(O + op, 0x0000000000000040); op = op + 8;
-    # e_shoff = 0
     S64(O + op, 0x0000000000000000); op = op + 8;
-    # e_flags=0, e_ehsize=64, e_phentsize=56, e_phnum=1
     S64(O + op, 0x0038004000000000); op = op + 8;
     S64(O + op, 0x0000000000400001); op = op + 8;
     # Program header (56 bytes)
@@ -168,6 +165,30 @@ fn EMITELF_KERNEL(S) {
     S64(O + op, filesz); op = op + 8;
     S64(O + op, memsz); op = op + 8;
     S64(O + op, 0x0000000000010000); op = op + 8;
+    # SP setup preamble (16 bytes = 4 instructions)
+    # Stack at top of memsz region
+    var stack_top = base + memsz;
+    var st_lo = stack_top & 0xFFFF;
+    var st_mid = (stack_top >> 16) & 0xFFFF;
+    var st_hi = (stack_top >> 32) & 0xFFFF;
+    # MOVZ x9, #lo
+    var sp0 = 0xD2800009 | (st_lo << 5);
+    store8(O + op, sp0 & 0xFF); store8(O + op + 1, (sp0 >> 8) & 0xFF);
+    store8(O + op + 2, (sp0 >> 16) & 0xFF); store8(O + op + 3, (sp0 >> 24) & 0xFF);
+    op = op + 4;
+    # MOVK x9, #mid, LSL#16
+    var sp1 = 0xF2A00009 | (st_mid << 5);
+    store8(O + op, sp1 & 0xFF); store8(O + op + 1, (sp1 >> 8) & 0xFF);
+    store8(O + op + 2, (sp1 >> 16) & 0xFF); store8(O + op + 3, (sp1 >> 24) & 0xFF);
+    op = op + 4;
+    # MOVK x9, #hi, LSL#32
+    var sp2 = 0xF2C00009 | (st_hi << 5);
+    store8(O + op, sp2 & 0xFF); store8(O + op + 1, (sp2 >> 8) & 0xFF);
+    store8(O + op + 2, (sp2 >> 16) & 0xFF); store8(O + op + 3, (sp2 >> 24) & 0xFF);
+    op = op + 4;
+    # MOV SP, x9  (encoded as: ADD SP, x9, #0 = 0x9100013F)
+    store8(O + op, 0x3F); store8(O + op + 1, 0x01); store8(O + op + 2, 0x00); store8(O + op + 3, 0x91);
+    op = op + 4;
     # Code
     var i = 0;
     while (i < cp) { store8(O + op, load8(S + 0x20000 + i)); op = op + 1; i = i + 1; }
