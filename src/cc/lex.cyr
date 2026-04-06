@@ -383,6 +383,8 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
         # "kernel" = 0x6C656E72656B
         if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
+        # "shared" = 0x646572616873
+        if (kw & 0xFFFFFFFFFFFFFF == 0x646572616873) { ADDTOK(S, 78, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x686374697773) { ADDTOK(S, 57, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x6F745F343666) { ADDTOK(S, 67, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x71655F343666) { ADDTOK(S, 68, 0); return p; }

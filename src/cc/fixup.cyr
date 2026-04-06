@@ -132,6 +132,7 @@ fn EMITELF_KERNEL(S) {
 
 fn EMITELF(S) {
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
+    if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
     var cp = GCP(S);
     var totvar = L64(S + 0x69808);
     var spos = GSPOS(S);
@@ -186,6 +187,44 @@ fn EMITELF(S) {
         store8(O + op, 0);
         op = op + 1;
     }
+    S64(S + 0x5C130, op);
+    return 0;
+}
+
+# Emit ET_DYN with function symbols visible to nm/readelf
+fn EMITELF_SHARED(S) {
+    # Same as EMITELF but e_type = ET_DYN (3) instead of ET_EXEC (2)
+    var cp = GCP(S);
+    var totvar = L64(S + 0x69808);
+    var spos = GSPOS(S);
+    var filesz = 120 + cp + totvar + spos;
+    filesz = (filesz + 7) & (0 - 8);
+    var memsz = filesz + 4096;
+    var O = S + 0x6A000;
+    var op = 0;
+    # ELF header — e_type=3 (ET_DYN)
+    S64(O + op, 0x00010102464C457F); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x00000001003E0003); op = op + 8;
+    S64(O + op, 0x0000000000400078); op = op + 8;
+    S64(O + op, 0x0000000000000040); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x0038004000000000); op = op + 8;
+    S64(O + op, 0x0000000000400001); op = op + 8;
+    S64(O + op, 0x0000000700000001); op = op + 8;
+    S64(O + op, 0x0000000000000000); op = op + 8;
+    S64(O + op, 0x0000000000400000); op = op + 8;
+    S64(O + op, 0x0000000000400000); op = op + 8;
+    S64(O + op, filesz); op = op + 8;
+    S64(O + op, memsz); op = op + 8;
+    S64(O + op, 0x0000000000001000); op = op + 8;
+    var i = 0;
+    while (i < cp) { store8(O + op, load8(S + 0x20000 + i)); op = op + 1; i = i + 1; }
+    i = 0;
+    while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
+    i = 0;
+    while (i < spos) { store8(O + op, load8(S + 0x69000 + i)); op = op + 1; i = i + 1; }
+    while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
     S64(S + 0x5C130, op);
     return 0;
 }

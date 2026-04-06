@@ -27,8 +27,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Root cause of initial bug: constructor body was emitted in main code (after JMP)
     instead of function section (before JMP). Fixed by adding `emit_code == 2` pass.
 
+### Added — Tooling
+- **Shared library output**: `shared;` directive emits ET_DYN ELF (recognized by `file` as shared object)
+  - First step toward dlopen/dlsym FFI
+  - Normal programs unaffected (default remains ET_EXEC)
+  - Full .so with symbol tables requires PIC codegen (post-v1.1)
+- `cyrb cffi` — C FFI wrapper generator (subprocess bridge)
+
 ### Metrics
-- Compiler: 135KB
+- Compiler: 137KB
 - 253 tests (202 compiler + 51 programs) + 26 aarch64, 0 failures
 
 ## [1.0.0] — 2026-04-06

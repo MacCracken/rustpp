@@ -170,6 +170,14 @@ wave breakdown, porting patterns, and bridge strategies.
 
 ---
 
+## Known Bugs
+
+| # | Bug | Severity | Found in | Description |
+|---|-----|----------|----------|-------------|
+| 1 | Global var in for-loop condition | Medium | AGNOS kernel heap | Using a global variable as the loop bound in `for (var i = 0; i < GLOBAL_VAR; i = i + 1)` causes the loop to terminate early or skip iterations. The global appears to get clobbered during loop body evaluation. Workaround: use a literal or copy to a local first. |
+
+---
+
 ## Principles
 
 - Assembly is the cornerstone
