@@ -368,6 +368,8 @@ run_test_cc "closure_addr"  'var f = |x| x * 2; var r = 0; if (f > 0) { r = 42; 
 run_test_cc "closure_params" 'var f = |a, b| a + b; var r = 0; if (f > 0) { r = 42; }' 42
 # Note: || is OR operator, so zero-param closures use |_| syntax
 run_test_cc "closure_noparam" 'var f = |_| 42; var r = 0; if (f > 0) { r = 42; }' 42
+run_test_cc "closure_block"  'fn t() { var f = |x| { var y = x * 2; return y; }; var r = 0; if (f > 0) { r = 42; } return r; } syscall(60, t());' 42
+run_test_cc "closure_if_blk" 'fn t() { var f = |x| { if (x > 0) { return 42; } return 0; }; var r = 0; if (f > 0) { r = 42; } return r; } syscall(60, t());' 42
 
 echo ""
 echo "-- Closure Edge Cases (cc-only) --"

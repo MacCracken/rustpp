@@ -6,6 +6,56 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-04-06
+
+### v1.0 — Sovereign, Self-Hosting Systems Language
+
+**Cyrius v1.0 ships.** A sovereign, self-hosting compiler built from a 29KB seed
+binary. No Rust. No LLVM. No Python. No libc. Assembly up.
+
+### Added — Language
+- **Block body closures**: `|x| { var y = x * 2; return y; }` (inside functions)
+- Collection iteration via library: `vec_fold`, `vec_map`, `for_each` with closures
+
+### Language Features (cumulative v0.1–v1.0)
+- Structs, enums, switch, pattern matching (`match`), for-in range
+- Functions (>6 params, recursion), closures/lambdas
+- Floating point (f64, SSE2, 10 builtins, literals)
+- Methods on structs (convention dispatch)
+- Trait impl blocks (`impl Trait for Type { }`)
+- Module system (`mod`, `use`, `pub`)
+- Operator overloading (`+` `-` `*` `/` dispatch to Type_op)
+- String type with 16 methods via dot syntax
+- Block scoping, feature flags (`#define`/`#ifdef`/`#endif`)
+- Generics Phase 1 (syntax parsed), enum constructor syntax
+- Error messages with line numbers
+
+### Toolchain
+- 20+ cyrb commands (build, test, bench, fmt, lint, doc, vet, deny, audit, ...)
+- cyrb repl, cyrb doctest, cyrb coverage, cyrb docs --agent
+- C FFI header generation (`cyrb header`)
+- Subprocess bridge (exec_vec, exec_capture, exec_env)
+- Installer + version manager + release pipeline
+- 45 benchmarks with CSV regression tracking
+
+### Architecture
+- x86_64: self-hosting, byte-identical
+- aarch64: self-hosting, byte-identical on Raspberry Pi
+- Portable syscall constants (SYS_*) for cross-architecture
+
+### Quality
+- 253 tests (202 compiler + 51 programs) + 26 aarch64, 0 failures
+- `cyrb audit` → 10/10
+- 5 ADRs, threat model, 37 vidya entries
+- Migration strategy for 107 repos (~980K lines)
+
+### Metrics
+- Compiler: 128KB (x86), 130KB (aarch64)
+- 35 stdlib modules, 200+ functions
+- 57 programs, AGNOS kernel (62KB)
+- 5 crate rewrites completed (wave 0)
+- 29KB seed → working OS in 128KB
+
 ## [0.10.0] — 2026-04-06
 
 ### Added — Tooling
