@@ -102,6 +102,9 @@
 #   0x8FCC0  scope_depth    [8]           Current scope nesting depth
 #   0x8FCC8  local_depths   [512]         64 scope depths per local var
 #
+# --- Expression type tracking ---
+#   0x903D8  expr_stype     [8]          Struct type ID of last expression (0=untyped)
+#
 # --- Module system ---
 #   0x8FEC8  current_module  [8]          Name offset of current module (0 = none)
 #   0x8FED0  pub_flags[256]  [256]        1=public, 0=private per function
@@ -174,6 +177,8 @@ S64(S + 0x8FCA0, 0);
 S64(S + 0x8FCB8, 1);
 # Block scoping
 S64(S + 0x8FCC0, 0);
+# Expression type tracking
+S64(S + 0x903D8, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

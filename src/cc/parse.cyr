@@ -218,6 +218,7 @@ fn FINDVAR(S, noff) {
 fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
     SPSC(S, 0);
+    SESTYPE(S, 0);
     if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
     if (typ == 1) {
         var val = PEEKV(S);
@@ -253,6 +254,7 @@ fn PARSE_FACTOR(S) {
         if (idx < 0) { ERR(S); }
         var vt = GVTYPE(S, idx);
         if (vt < 0) { SPSC(S, 0 - vt); }
+        if (vt > 0) { SESTYPE(S, vt); }
         EVLOAD(S, idx);
         return 0;
     }
@@ -465,13 +467,8 @@ fn PARSE_TERM(S) {
     while (go == 1) {
         var typ = PEEKT(S);
         if (typ == 8) {
-            # STAR — multiply
             STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            PARSE_FACTOR(S);
-            EMOVCA(S);
-            EPOPR(S);
-            EIMUL(S);
+            EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S);
         }
         else { if (typ == 9) {
             STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S);
@@ -498,6 +495,41 @@ fn EPTR_SCALE(S, ps) {
     # rax has the offset value; multiply by pointer scale
     # mov rcx, rax; mov rax, ps; imul rcx → rax = offset * scale
     if (ps > 1) { EMOVCA(S); EMOVI(S, ps); EIMUL(S); }
+    return 0;
+}
+
+# Build operator function name: StructName_op in tok_names
+# op_name is a short string like "add", "sub", "mul", "div"
+fn BUILD_OP_NAME(S, stype, op_str, op_len) {
+    var si = stype - 1;
+    var snoff = L64(S + 0x8E630 + si * 8);
+    var owp = GNPOS(S);
+    var onoff = owp;
+    var ori = 0;
+    var orc = load8(S + 0x50000 + snoff + ori);
+    while (orc != 0) { store8(S + 0x50000 + owp, orc); owp = owp + 1; ori = ori + 1; orc = load8(S + 0x50000 + snoff + ori); }
+    store8(S + 0x50000 + owp, 95); owp = owp + 1;
+    memcpy(S + 0x50000 + owp, op_str, op_len);
+    owp = owp + op_len;
+    store8(S + 0x50000 + owp, 0); owp = owp + 1;
+    SNPOS(S, owp);
+    return onoff;
+}
+
+# Emit operator dispatch: push lhs, parse rhs, call StructName_op(lhs, rhs)
+fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
+    EPUSHR(S);
+    PARSE_TERM(S);
+    EPUSHR(S);
+    var opnoff = BUILD_OP_NAME(S, stype, op_str, op_len);
+    ECALLPOPS(S, 2);
+    var ofi = FINDFN(S, opnoff);
+    if (ofi < 0) { ofi = REGFN(S, opnoff); }
+    var ofoff = L64(S + 0x8CA00 + ofi * 8);
+    if (ofoff >= 0) { ECALLTO(S, ofoff); }
+    else { ECALLFIX(S, ofi); }
+    ECALLCLEAN(S, 2);
+    SESTYPE(S, 0);
     return 0;
 }
 

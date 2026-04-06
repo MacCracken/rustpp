@@ -22,8 +22,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added — Tests
 - 3 trait impl tests (basic, mutate, multi-impl)
 
+### Added — Compiler Infrastructure
+- Expression type tracking (`expr_stype`) — tracks struct type of last expression
+- Operator dispatch helpers (`BUILD_OP_NAME`, `EMIT_OP_DISPATCH`) — ready for future use
+- Operator overloading deferred: needs address-of-struct tracking at expression level
+
 ### Metrics
-- Compiler: 122KB
+- Compiler: 124KB
 - 199 tests (148 compiler + 51 programs) + 26 aarch64, 0 failures
 - `cyrb audit` → 10/10
 
