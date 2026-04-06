@@ -338,6 +338,13 @@ run_test_cc "ifdef_false"   "$(printf 'var r = 42;\n#ifdef NOPE\nr = 0;\n#endif'
 run_test_cc "ifdef_nested"  "$(printf '#define A\nvar r = 0;\n#ifdef A\nr = 10;\n#ifdef B\nr = 99;\n#endif\nr = r + 32;\n#endif')" 42
 
 echo ""
+echo "-- Modules (cc-only) --"
+run_test_cc "mod_basic"     'mod math; fn add(a, b) { return a + b; } mod main; use math.add; var r = add(20, 22);' 42
+run_test_cc "mod_multi"     'mod math; fn add(a, b) { return a + b; } fn mul(a, b) { return a * b; } mod main; use math.add; use math.mul; var a = mul(2, 11); var r = add(20, a);' 42
+run_test_cc "mod_no_use"    'mod math; fn secret() { return 42; } mod main; var r = 0;' 0
+run_test_cc "pub_fn"        'pub fn visible() { return 42; } var r = visible();' 42
+
+echo ""
 echo "-- Block Scoping (cc-only) --"
 run_test_cc "scope_shadow"  'fn f() { var x = 10; if (1 == 1) { var x = 42; } return x; } syscall(60, f());' 10
 run_test_cc "scope_for"     'fn f() { for (var i = 0; i < 3; i = i + 1) { var tmp = i; } var i = 99; return i; } syscall(60, f());' 99

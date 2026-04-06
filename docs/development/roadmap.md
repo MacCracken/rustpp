@@ -92,21 +92,67 @@ Remaining language features needed to port them:
 | 23 | Agent/capability annotations | 3 sessions | Cyrius-native OS constructs |
 | 24 | Sandbox-aware borrow checker | 5+ sessions | Compile-time sandbox escape prevention |
 
+### Systems Language Features
+
+| # | Feature | Effort | Unlocks |
+|---|---------|--------|---------|
+| 25 | Struct padding/alignment (sizeof, alignof) | 2 sessions | ABI-compatible structs, FFI |
+| 26 | Unions | 1 session | Overlapping memory layouts, type punning |
+| 27 | Bitfields | 2 sessions | Hardware register access, protocol headers |
+| 28 | Variadic functions | 2 sessions | printf-style APIs, syscall wrappers |
+| 29 | Object files (.o) + linker integration | 3+ sessions | Separate compilation, link with ld |
+| 30 | Optimization passes (-O1) | 5+ sessions | Constant folding, dead code elimination, register allocation |
+| 31 | Multi-width types (i8, i16, i32) | 3 sessions | Memory-efficient structs, protocol parsing |
+| 32 | Array types with length | 2 sessions | Bounds checking, stack arrays with known size |
+| 33 | Inline functions | 1 session | Zero-overhead abstractions |
+| 34 | Preprocessor macros (with args) | 3 sessions | `#define MAX(a,b)`, generic patterns |
+
 ---
 
 ## Completed (v0.9.0–v0.9.6)
 
-| Version | Feature |
-|---------|---------|
-| v0.9.0 | Ecosystem baseline — 5 crate rewrites, 35 libs, 8 tools, 18 cyrb commands |
-| v0.9.1 | Benchmarks (38), installer, release pipeline, dual-arch CI |
-| v0.9.2 | **Floating point** (SSE2), **methods on structs**, **error line numbers** |
-| v0.9.2 | Token arrays 32K→64K, tok_names 32K→64K, preprocessor buffer relocation |
-| v0.9.3 | P-1 hardening: hashmap tombstones, vec bounds, alloc OOM, json null guard |
-| v0.9.4 | **Preprocessor fix** (include in strings), version bump script |
-| v0.9.5 | **Block scoping**, 19 new compiler tests, float/hashmap test programs |
-| v0.9.6 | **Enum constructor syntax**, **feature flags** (#define/#ifdef/#endif) |
-| v0.9.6 | 5 ADRs, threat model, `cyrb docs --agent`, cyrb.toml parser, version sync |
+### Language
+- [x] Floating point f64 — SSE2 codegen, 10 builtins, float literals (v0.9.2)
+- [x] Methods on structs — convention dispatch `point.scale(2)` (v0.9.2)
+- [x] Error line numbers — `error:3: unexpected token` (v0.9.2)
+- [x] Block scoping — variables in if/while/for don't leak (v0.9.5)
+- [x] Enum constructor syntax — `Ok(val)` parsed (v0.9.6)
+- [x] Feature flags — `#define`/`#ifdef`/`#endif` (v0.9.6)
+- [x] Comparison in function args — `f(x == 1)` via setCC (v0.9.0)
+- [x] Generics Phase 1 — syntax parsed, not enforced (v0.9.0)
+- [x] Preprocessor fix — strings with "include" no longer trigger inclusion (v0.9.4)
+
+### Compiler Infrastructure
+- [x] Token arrays 32K → 64K (v0.9.2)
+- [x] tok_names 32K → 64K + var_noffs relocation (v0.9.2)
+- [x] Fixup table 512 → 1024 entries (v0.9.0)
+- [x] Preprocessor buffer relocation (v0.9.2)
+- [x] P-1 hardening: hashmap tombstones, vec bounds, alloc OOM, json null (v0.9.3)
+- [x] Dead code removal: src/arch/x86_64/ (v0.9.6)
+
+### Tooling
+- [x] cyrb shell dispatcher — 18+ commands (v0.9.0)
+- [x] cyrfmt, cyrlint, cyrdoc, cyrc, ark — 8 tool binaries (v0.9.0)
+- [x] Benchmark suite — 45 benchmarks, bench-history.sh, CSV tracking (v0.9.1)
+- [x] Installer — tarball download, version manager, bootstrap fallback (v0.9.1)
+- [x] Release pipeline — dual-arch CI, SHA256, GitHub Releases (v0.9.1)
+- [x] `cyrb docs --agent` — markdown server for bots (v0.9.6)
+- [x] `cyrb.toml` parser — `toml_get` replaces grep/sed (v0.9.6)
+- [x] Version bump script (v0.9.4)
+- [x] cyrb version synced to VERSION file (v0.9.6)
+
+### Documentation
+- [x] 5 ADRs (v0.9.6)
+- [x] Threat model (v0.9.6)
+- [x] 32 vidya implementation entries (v0.9.4–v0.9.6)
+- [x] 14/14 runnable vidya reference files (v0.9.4)
+- [x] Tutorial, stdlib reference, FAQ, benchmarks docs (v0.9.0)
+
+### Ecosystem
+- [x] 5 crate rewrites: agnostik, agnosys, kybernet, nous, ark (v0.9.0)
+- [x] Kybernet rewritten from Rust (v0.9.0)
+- [x] AGNOS kernel 62KB with dual-arch CI (v0.9.0)
+- [x] 35 stdlib modules, 199 functions (v0.9.0)
 
 ---
 
@@ -131,6 +177,24 @@ Remaining language features needed to port them:
 | 5 | kavach, bote, t-ron, nein, majra | Sandbox borrow checker |
 | 6 | daimon, hoosh, takumi | Concurrency |
 | 7 | aethersafha, agnoshi | All features complete |
+
+### cycc — C Compiler Frontend
+
+Separate tool that parses C and emits Cyrius codegen. Reuses ELF emitter,
+fixup system, and code buffer from cc2. Does NOT extend cc2 — new parser.
+
+| Phase | Scope | Unlocks |
+|-------|-------|---------|
+| 1 | C89 subset: functions, structs, pointers, arrays, control flow | Compile simple C libraries |
+| 2 | C99/C11: designated initializers, VLAs, _Bool, stdint | Compile most portable C |
+| 3 | GCC extensions: __attribute__, __builtin_*, statement expressions | Compile Linux kernel headers |
+| 4 | Full preprocessor: macros with args, ##, #if expressions | Compile real-world C codebases |
+| 5 | Object files (.o) + linker integration | Separate compilation, link with ld |
+| 6 | Optimization passes (-O1 minimum) | Kernel boot requires some optimization |
+
+**Prerequisite**: Cyrius v1.0 (module system, multi-file compilation).
+**Goal**: Compile the Linux kernel with zero external toolchain.
+**Not a priority until**: AGNOS is self-sufficient and all crate waves are complete.
 
 ### Polymorphic Codegen
 

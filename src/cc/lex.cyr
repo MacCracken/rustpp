@@ -337,10 +337,14 @@ fn LEXID(S, p, npos) {
     }
     if (klen == 3) {
         if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; }
-        # "asm" = 0x006D7361
         if (kw & 0xFFFFFFFF == 0x006D7361) { ADDTOK(S, 48, 0); return p; }
-        # "for" = 0x00726F66
         if (kw & 0xFFFFFFFF == 0x00726F66) { ADDTOK(S, 55, 0); return p; }
+        # "mod" = 0x646F6D
+        if (kw & 0xFFFFFFFF == 0x00646F6D) { ADDTOK(S, 72, 0); return p; }
+        # "pub" = 0x627570
+        if (kw & 0xFFFFFFFF == 0x00627570) { ADDTOK(S, 73, 0); return p; }
+        # "use" = 0x657375
+        if (kw & 0xFFFFFFFF == 0x00657375) { ADDTOK(S, 74, 0); return p; }
     }
     if (klen == 4) {
         if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }

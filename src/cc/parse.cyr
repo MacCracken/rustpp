@@ -1312,6 +1312,17 @@ fn FINDFN(S, noff) {
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
+    # Check use aliases: if noff matches a use_from, look up use_to
+    var uc = GUSEC(S);
+    i = 0;
+    while (i < uc) {
+        var ufrom = L64(S + 0x8FFD0 + i * 8);
+        if (STREQ(S, ufrom, noff) == 1) {
+            var uto = L64(S + 0x901D0 + i * 8);
+            return FINDFN(S, uto);
+        }
+        i = i + 1;
+    }
     return 0 - 1;
 }
 
@@ -1407,6 +1418,21 @@ fn PARSE_FN_DEF(S) {
     STI(S, GTI(S) + 1);
     # Skip generic parameters if present: fn foo<T, U>(...)
     SKIP_GENERICS(S);
+    # Mangle name if inside a module: mod_fn
+    var mmod = GMOD(S);
+    if (mmod != 0) {
+        var mwp = GNPOS(S);
+        var mnoff = mwp;
+        var mri = 0;
+        var mrc = load8(S + 0x50000 + mmod + mri);
+        while (mrc != 0) { store8(S + 0x50000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x50000 + mmod + mri); }
+        store8(S + 0x50000 + mwp, 95); mwp = mwp + 1;
+        mri = 0; mrc = load8(S + 0x50000 + noff + mri);
+        while (mrc != 0) { store8(S + 0x50000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x50000 + noff + mri); }
+        store8(S + 0x50000 + mwp, 0); mwp = mwp + 1;
+        SNPOS(S, mwp);
+        noff = mnoff;
+    }
     # Register or find fn
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
