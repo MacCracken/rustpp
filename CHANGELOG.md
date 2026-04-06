@@ -6,6 +6,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.8] — 2026-04-05
+
+### Added — Language
+- **Pattern matching**: `match expr { val => { } _ => { } }` with scoped arms
+- **For-in range loops**: `for i in 0..10 { }` with exclusive end, block-scoped iterator
+
+### Added — Tests
+- 6 new compiler tests: pattern matching (3), for-in range (3)
+- aarch64 test suite expanded: 12 → 26 tests (arithmetic, control flow, functions, bitwise, load/store)
+- `tests/aarch64-hardware.sh` — standalone test script for real ARM hardware
+
+### Fixed
+- `match` keyword collision: renamed `match` vars in grep.cyr and cyrb.cyr
+- CI aarch64 tests expanded to 26
+
+### Milestone — aarch64
+- cc2_aarch64 compiles compiler_aarch64.cyr → cc3 on native ARM Raspberry Pi
+- 30/31 hardware tests pass (all except raw x86 syscall numbers)
+- Syscall number translation layer added (x86→aarch64 at codegen time)
+- Self-hosting in progress: cc3 compilation succeeds, byte-identical verification pending
+  - Root cause: syscall number mismatch between shared source and aarch64 ABI
+
+### Metrics
+- Compiler: 120KB (x86), 110KB (aarch64)
+- 196 tests (145 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [0.9.6] — 2026-04-05
 
 ### Added — Language

@@ -126,6 +126,7 @@ include "src/arch/aarch64/fixup.cyr"
 # ================================================================
 
 # Allocate heap
+# Syscall numbers are x86 in source — aarch64 emitter translates at codegen
 var S = syscall(12, 0);
 syscall(12, S + 0x262000);
 

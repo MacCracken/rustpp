@@ -208,6 +208,47 @@ fn ESADDR(S, soff) {
 }
 
 # Pop syscall args then SVC
+# Translate x86 syscall number (in x8) to aarch64 equivalent
+fn ESYSXLAT(S) {
+    # Emit: compare x8 against known x86 numbers, replace with aarch64
+    # x86:0=read→a64:63, x86:1=write→a64:64, x86:2=open→a64:56
+    # x86:3=close→a64:57, x86:12=brk→a64:214, x86:60=exit→a64:93
+    # x86:59=execve→a64:221, x86:57=fork→a64:220
+    # x86:228=clock_gettime→a64:113
+    # Implemented as chained: cmp x8, #N; b.ne +8; movz x8, #M
+    # cmp x8, #0
+    EW(S, 0xF100011F);
+    # b.ne +8
+    EW(S, 0x54000041);
+    # movz x8, #63
+    EW(S, 0xD2800FE8);
+    # cmp x8, #1
+    EW(S, 0xF100051F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2801008);
+    # cmp x8, #2
+    EW(S, 0xF100091F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2800708);
+    # cmp x8, #3
+    EW(S, 0xF1000D1F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2800728);
+    # cmp x8, #12
+    EW(S, 0xF100311F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2801AC8);
+    # cmp x8, #60
+    EW(S, 0xF100F11F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2800BA8);
+    # cmp x8, #228
+    EW(S, 0xF103911F);
+    EW(S, 0x54000041);
+    EW(S, 0xD2800E28);
+    return 0;
+}
+
 fn ESCPOPS(S, n) {
     if (n >= 7) { EPOPR9(S); }
     if (n >= 6) { EPOPR8(S); }
@@ -216,16 +257,13 @@ fn ESCPOPS(S, n) {
     if (n >= 3) { EPOPRSI(S); }
     if (n >= 2) { EPOPRDI(S); }
     if (n >= 1) { EPOPR(S); }
-    # On aarch64, syscall number goes in x8
-    # x0-x5 have the args. Need to set x8 from the first popped value.
-    # Actually, Cyrius syscall(N, args...) puts N as first arg (x0).
-    # Move x0 to x8, then shift args: x0=x1, x1=x2, etc.
     EW(S, 0xAA0003E8);  # mov x8, x0
     EW(S, 0xAA0103E0);  # mov x0, x1
     EW(S, 0xAA0203E1);  # mov x1, x2
     EW(S, 0xAA0303E2);  # mov x2, x3
     EW(S, 0xAA0403E3);  # mov x3, x4
     EW(S, 0xAA0503E4);  # mov x4, x5
+    ESYSXLAT(S);
     ESYSCALL(S);
     return 0;
 }

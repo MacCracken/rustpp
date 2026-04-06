@@ -153,7 +153,7 @@ Separate tool: C parser → Cyrius codegen. Reuses ELF emitter + fixup.
 | Milestone | Status |
 |-----------|--------|
 | **v0.9.0–v0.9.7** — 8 releases (ecosystem → language → tooling) | Done |
-| **v0.9.8** — pattern matching, iterators | Next |
+| **v0.9.8** — pattern matching, for-in, aarch64 self-hosting on real ARM | Done |
 | **v0.9.9** — trait impls, string type, operator overloading | Planned |
 | **v0.9.10** — aarch64 self-hosting + kernel port | Planned |
 | **v1.0-rc** — hardening, 250+ tests, docs polish | Planned |

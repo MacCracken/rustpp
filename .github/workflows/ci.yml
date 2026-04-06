@@ -187,16 +187,30 @@ jobs:
           for test in \
             "literal:var x = 42;:42" \
             "add:var x = 20 + 22;:42" \
+            "sub:var x = 50 - 8;:42" \
             "mul:var x = 6 * 7;:42" \
             "div:var x = 84 / 2;:42" \
             "mod:var r = 10 % 3;:1" \
+            "precedence:var x = 2 + 5 * 8;:42" \
             "if:var x = 0; if (1 == 1) { x = 42; }:42" \
+            "if_else:var x = 0; if (0 == 1) { x = 0; } else { x = 42; }:42" \
             "while:var x = 0; while (x < 10) { x = x + 1; }:10" \
             "for:var s = 0; for (var i = 1; i <= 10; i = i + 1) { s = s + i; } var r = s;:55" \
+            "break:var i = 0; while (i < 100) { if (i == 42) { break; } i = i + 1; }:42" \
             "fn:fn f(a, b) { return a + b; } var x = f(20, 22);:42" \
+            "fn_recurse:fn fib(n) { if (n <= 1) { return n; } return fib(n-1) + fib(n-2); } var r = fib(7);:13" \
+            "fn_6args:fn f(a,b,c,d,e,g) { return a+b+c+d+e+g; } var r = f(1,2,3,4,5,27);:42" \
             "enum:enum E { A = 10; B = 42; } fn f() { return B; } var r = f();:42" \
             "struct:struct P { x; y; } var p = P { 20, 22 }; var r = p.x + p.y;:42" \
-            "syscall:syscall(1, 1, \"ok\", 2); var r = 42;:42"
+            "syscall:syscall(1, 1, \"ok\", 2); var r = 42;:42" \
+            "and:var r = 0xFF & 0x2A;:42" \
+            "or:var r = 0x20 | 0x0A;:42" \
+            "xor:var r = 0xFF ^ 0xD5;:42" \
+            "shl:var r = 21 << 1;:42" \
+            "shr:var r = 84 >> 1;:42" \
+            "store_load:var buf[2]; store64(&buf, 42); var r = load64(&buf);:42" \
+            "store8:var buf[2]; store8(&buf, 42); var r = load8(&buf);:42" \
+            "complex:fn max(a,b) { if (a > b) { return a; } return b; } fn min(a,b) { if (a < b) { return a; } return b; } var r = max(min(50, 42), 10);:42"
           do
             name=$(echo "$test" | cut -d: -f1)
             code=$(echo "$test" | cut -d: -f2)
