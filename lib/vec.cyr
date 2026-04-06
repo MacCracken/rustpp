@@ -7,7 +7,9 @@
 #
 # >>> include "lib/alloc.cyr"
 # >>> include "lib/vec.cyr"
-# >>> fn main() { alloc_init(); var v = vec_new(); vec_push(v, 10); vec_push(v, 20); vec_push(v, 12); return vec_get(v, 0) + vec_get(v, 1) + vec_get(v, 2); }
+# >>> fn main() { alloc_init(); var v = vec_new();
+# >>> vec_push(v, 10); vec_push(v, 20); vec_push(v, 12);
+# >>> return vec_get(v, 0) + vec_get(v, 1) + vec_get(v, 2); }
 # >>> var r = main(); syscall(60, r);
 # === 42
 
