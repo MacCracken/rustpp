@@ -15,6 +15,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Relocated all three tables to `0x26A000`/`0x26B000`/`0x26C000` with 512 entries each.
   Confirmed: old compiler segfaults (exit 139) with 260 functions, new compiler runs clean.
 
+### Added — Tooling
+- **CI setup script**: `scripts/ci.sh` — pulls release tarball, extracts to `~/.cyrius`,
+  symlinks binaries. For Ubuntu, AGNOS, Alpine, agnos-slim CI images.
+
+### Metrics
+- Compiler: 136KB (unchanged)
+- 212 compiler tests + 51 program tests, 0 failures
+- Self-hosting: byte-identical
+
+## [1.5.3] — 2026-04-06
+
 ### Added — Performance (agnosys)
 - **Packed Result type**: Ok/Err encoded in a single i64 using bit 63 as discriminant.
   Zero heap allocations on success path (was 2 allocs per Result via tagged_new).
@@ -22,6 +33,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Caller-provided buffers**: `query_sysinfo(out)`, `agnosys_hostname(out)`,
   `agnosys_kernel_release(out)`, `agnosys_machine(out)` now write into caller's
   stack buffer instead of heap-allocating + memcpy. Eliminates alloc+copy per call.
+- **Packed errno errors**: `err_from_errno` encodes kind+errno in a single i64
+  (`kind<<16|errno`) — zero heap allocation on error hot path.
+  `syserr_kind`/`syserr_errno` auto-dispatch between packed integers and heap pointers.
+- **Dropped unnecessary memset**: `query_sysinfo` and `agnosys_uname` no longer zero
+  buffers before syscall — kernel overwrites the entire struct.
+- **Single uname call**: `agnosys_uname(out)` replaces separate hostname/release/machine
+  functions. One syscall, zero memcpy, callers read fields via offset accessors.
 
 ### Fixed — agnosys
 - **Array size unit confusion**: `var buf[N]` allocates N bytes, not N i64 elements.
