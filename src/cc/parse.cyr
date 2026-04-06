@@ -96,6 +96,7 @@ fn FIELDOFF(S, si, fi) {
 fn PARSE_ENUM_DEF(S, emit_code) {
     STI(S, GTI(S) + 1);
     if (PEEKT(S) != 2) { ERR(S); }
+    var enoff = PEEKV(S);
     STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR(S); }
     STI(S, GTI(S) + 1);
@@ -107,6 +108,13 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             if (PEEKT(S) != 2) { ERR(S); }
             var vnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
+            # Skip constructor syntax: Variant(param)
+            if (PEEKT(S) == 10) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
+                if (PEEKT(S) != 11) { ERR(S); }
+                STI(S, GTI(S) + 1);
+            }
             if (PEEKT(S) == 4) {
                 STI(S, GTI(S) + 1);
                 if (PEEKT(S) != 1) { ERR(S); }
@@ -114,13 +122,11 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 STI(S, GTI(S) + 1);
             }
             if (emit_code == 0) {
-                # Pass 1: register only
                 var vcnt = GVCNT(S);
                 S64(S + 0x60000 + vcnt * 8, vnoff);
                 S64(S + 0x60800 + vcnt * 8, 8);
                 SVCNT(S, vcnt + 1);
             } else {
-                # Pass 2: emit init code
                 var idx = FINDVAR(S, vnoff);
                 if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
             }

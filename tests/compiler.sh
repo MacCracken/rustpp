@@ -326,6 +326,18 @@ run_test_cc "method_args"   'struct V { x; } fn V_add(self, n) { store64(self, l
 run_test_cc "method_chain"  'struct C { v; } fn C_get(self) { return load64(self); } fn C_set(self, n) { store64(self, n); return 0; } var c = C { 0 }; c.set(42); var r = c.get();' 42
 
 echo ""
+echo "-- Enum Constructors (cc-only) --"
+run_test_cc "enum_payload"  'enum R { Ok(v) = 0; Err(e) = 1; } var r = Ok;' 0
+run_test_cc "enum_pay_val"  'enum E { A(x) = 10; B(y) = 20; } var r = B;' 20
+
+echo ""
+echo "-- Feature Flags (cc-only) --"
+# Use printf to include #define and #ifdef
+run_test_cc "ifdef_true"    "$(printf '#define X\nvar r = 0;\n#ifdef X\nr = 42;\n#endif')" 42
+run_test_cc "ifdef_false"   "$(printf 'var r = 42;\n#ifdef NOPE\nr = 0;\n#endif')" 42
+run_test_cc "ifdef_nested"  "$(printf '#define A\nvar r = 0;\n#ifdef A\nr = 10;\n#ifdef B\nr = 99;\n#endif\nr = r + 32;\n#endif')" 42
+
+echo ""
 echo "-- Block Scoping (cc-only) --"
 run_test_cc "scope_shadow"  'fn f() { var x = 10; if (1 == 1) { var x = 42; } return x; } syscall(60, f());' 10
 run_test_cc "scope_for"     'fn f() { for (var i = 0; i < 3; i = i + 1) { var tmp = i; } var i = 99; return i; } syscall(60, f());' 99
