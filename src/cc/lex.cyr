@@ -526,23 +526,23 @@ fn LEX(S) {
                             p = p + 1;
                             var ec = load8(S + p);
                             p = p + 1;
-                            if (ec == 110) { store8(S + 0x61000 + spos, 10); }
+                            if (ec == 110) { store8(S + 0x62000 + spos, 10); }
                             else {
-                                if (ec == 116) { store8(S + 0x61000 + spos, 9); }
+                                if (ec == 116) { store8(S + 0x62000 + spos, 9); }
                                 else {
-                                    if (ec == 48) { store8(S + 0x61000 + spos, 0); }
+                                    if (ec == 48) { store8(S + 0x62000 + spos, 0); }
                                     else {
-                                        if (ec == 92) { store8(S + 0x61000 + spos, 92); }
+                                        if (ec == 92) { store8(S + 0x62000 + spos, 92); }
                                         else {
-                                            if (ec == 34) { store8(S + 0x61000 + spos, 34); }
-                                            else { store8(S + 0x61000 + spos, ec); }
+                                            if (ec == 34) { store8(S + 0x62000 + spos, 34); }
+                                            else { store8(S + 0x62000 + spos, ec); }
                                         }
                                     }
                                 }
                             }
                             spos = spos + 1;
                         } else {
-                            store8(S + 0x61000 + spos, sc);
+                            store8(S + 0x62000 + spos, sc);
                             spos = spos + 1;
                             p = p + 1;
                         }
@@ -550,7 +550,7 @@ fn LEX(S) {
                 }
             }
             # Add null terminator after string literal
-            store8(S + 0x61000 + spos, 0);
+            store8(S + 0x62000 + spos, 0);
             spos = spos + 1;
             SSPOS(S, spos);
             var slen = spos - sstart - 1;
