@@ -190,38 +190,47 @@ fn sys_open(path, flags, mode) {
     return syscall(SYS_OPEN, path, flags, mode);
 }
 
+# Close a file descriptor.
 fn sys_close(fd) {
     return syscall(SYS_CLOSE, fd);
 }
 
+# Read bytes from fd into buffer. Returns bytes read.
 fn sys_read(fd, buf, count) {
     return syscall(SYS_READ, fd, buf, count);
 }
 
+# Write bytes from buffer to fd. Returns bytes written.
 fn sys_write(fd, buf, count) {
     return syscall(SYS_WRITE, fd, buf, count);
 }
 
+# Duplicate fd oldfd to newfd.
 fn sys_dup2(oldfd, newfd) {
     return syscall(SYS_DUP2, oldfd, newfd);
 }
 
+# Create a directory at path with given mode.
 fn sys_mkdir(path, mode) {
     return syscall(SYS_MKDIR, path, mode);
 }
 
+# Remove an empty directory.
 fn sys_rmdir(path) {
     return syscall(SYS_RMDIR, path);
 }
 
+# Delete a file.
 fn sys_unlink(path) {
     return syscall(SYS_UNLINK, path);
 }
 
+# Change file permissions.
 fn sys_chmod(path, mode) {
     return syscall(SYS_CHMOD, path, mode);
 }
 
+# Check file access permissions.
 fn sys_access(path, mode) {
     return syscall(SYS_ACCESS, path, mode);
 }
@@ -231,6 +240,7 @@ fn sys_fork() {
     return syscall(SYS_FORK);
 }
 
+# Terminate process with exit code.
 fn sys_exit(code) {
     syscall(SYS_EXIT, code);
     return 0;
@@ -246,22 +256,27 @@ fn sys_pipe(fds) {
     return syscall(SYS_PIPE, fds);
 }
 
+# Get current process ID.
 fn sys_getpid() {
     return syscall(SYS_GETPID);
 }
 
+# Get parent process ID.
 fn sys_getppid() {
     return syscall(SYS_GETPPID);
 }
 
+# Send signal to process.
 fn sys_kill(pid, sig) {
     return syscall(SYS_KILL, pid, sig);
 }
 
+# Wait for a signal.
 fn sys_pause() {
     return syscall(SYS_PAUSE);
 }
 
+# Create a new session.
 fn sys_setsid() {
     return syscall(SYS_SETSID);
 }
@@ -277,10 +292,12 @@ fn WIFEXITED(status) {
     return 0;
 }
 
+# Get exit status from wait status.
 fn WEXITSTATUS(status) {
     return (status >> 8) & 0xFF;
 }
 
+# Check if child was killed by signal.
 fn WIFSIGNALED(status) {
     var sig = status & 0x7F;
     if (sig > 0) {
@@ -289,17 +306,24 @@ fn WIFSIGNALED(status) {
     return 0;
 }
 
+# Get signal number from wait status.
 fn WTERMSIG(status) {
     return status & 0x7F;
 }
 
 # Identity
 fn sys_getuid() { return syscall(SYS_GETUID); }
+# Get group ID.
 fn sys_getgid() { return syscall(SYS_GETGID); }
+# Get effective user ID.
 fn sys_geteuid() { return syscall(SYS_GETEUID); }
+# Get effective group ID.
 fn sys_getegid() { return syscall(SYS_GETEGID); }
+# Set user ID.
 fn sys_setuid(uid) { return syscall(SYS_SETUID, uid); }
+# Set group ID.
 fn sys_setgid(gid) { return syscall(SYS_SETGID, gid); }
+# sys_setgroups syscall wrapper.
 fn sys_setgroups(size, list) { return syscall(SYS_SETGROUPS, size, list); }
 
 # Mount
@@ -307,6 +331,7 @@ fn sys_mount(source, target, fstype, flags, data) {
     return syscall(SYS_MOUNT, source, target, fstype, flags, data);
 }
 
+# Unmount a filesystem.
 fn sys_umount2(target, flags) {
     return syscall(SYS_UMOUNT2, target, flags);
 }
@@ -317,6 +342,7 @@ fn sys_sync() {
     return 0;
 }
 
+# sys_reboot syscall wrapper.
 fn sys_reboot(cmd) {
     return syscall(SYS_REBOOT, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, cmd, 0);
 }
@@ -328,6 +354,7 @@ fn sigset_new() {
     return set;
 }
 
+# sigset_add syscall wrapper.
 fn sigset_add(set, signum) {
     var mask = load64(set);
     mask = mask | (1 << (signum - 1));
@@ -335,16 +362,19 @@ fn sigset_add(set, signum) {
     return 0;
 }
 
+# sigset_has syscall wrapper.
 fn sigset_has(set, signum) {
     var mask = load64(set);
     if ((mask & (1 << (signum - 1))) != 0) { return 1; }
     return 0;
 }
 
+# sys_sigprocmask syscall wrapper.
 fn sys_sigprocmask(how, set, oldset) {
     return syscall(SYS_RT_SIGPROCMASK, how, set, oldset, 8);
 }
 
+# sys_signalfd syscall wrapper.
 fn sys_signalfd(fd, mask, flags) {
     return syscall(SYS_SIGNALFD4, fd, mask, 8, flags);
 }
@@ -362,10 +392,12 @@ fn epoll_event_new(events, data) {
     return ev;
 }
 
+# Control epoll: add/mod/del fd.
 fn sys_epoll_ctl(epfd, op, fd, event) {
     return syscall(SYS_EPOLL_CTL, epfd, op, fd, event);
 }
 
+# Wait for epoll events.
 fn sys_epoll_wait(epfd, events, maxevents, timeout) {
     return syscall(SYS_EPOLL_WAIT, epfd, events, maxevents, timeout);
 }
@@ -385,10 +417,12 @@ fn timerspec_new(interval_sec, initial_sec) {
     return ts;
 }
 
+# Set timer expiration.
 fn sys_timerfd_settime(fd, flags, new_value, old_value) {
     return syscall(SYS_TIMERFD_SETTIME, fd, flags, new_value, old_value);
 }
 
+# timerfd_drain syscall wrapper.
 fn timerfd_drain(fd) {
     var buf[1];
     var n = sys_read(fd, &buf, 8);
@@ -402,6 +436,7 @@ fn is_err(ret) {
     return 0;
 }
 
+# err_code syscall wrapper.
 fn err_code(ret) {
     return 0 - ret;
 }
