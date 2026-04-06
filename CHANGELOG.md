@@ -22,6 +22,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Combined feature tests (match in for-in, impl chains, typed operators)
 - **251 total tests (200 compiler + 51 programs), target of 250 achieved**
 
+### Added — Documentation
+- **Migration strategy** (docs/development/migration-strategy.md)
+  - Full survey: 107 repos, ~980K lines, 6 migration waves
+  - Per-repo sizing, dependency mapping, bridge strategies
+  - Rust → Cyrius translation guide
+  - Porting workflow template
+
 ### Improved — Libraries
 - Hashmap: added `map_values()`, `map_clear()`, formatting cleaned
 - Deep code audit: all encodings verified, tombstone logic confirmed correct
