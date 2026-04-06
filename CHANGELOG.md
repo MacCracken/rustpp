@@ -8,6 +8,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.6.1] — 2026-04-06
 
+### Added — Tooling
+- **`cyrb build -D NAME`**: preprocessor defines from the command line. Enables conditional
+  compilation without modifying source files. Key use case: AGNOS multi-arch kernel builds
+  (`cyrb build -D ARCH_X86_64 kernel/agnos.cyr build/agnos`). Multiple `-D` flags supported.
+
 ### Fixed — Tooling
 - **cyrb aarch64 cross-compiler search**: `cyrb build --aarch64` now searches `./build/cc2_aarch64`
   as fallback when not found in `~/.cyrius/bin/`. Fixes CI and dev environments that build
