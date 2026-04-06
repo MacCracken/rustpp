@@ -11,6 +11,14 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
+## P1 Bugs
+
+| # | Bug | Severity | Repro | Description |
+|---|-----|----------|-------|-------------|
+| 1 | **Nested for-loops with var declarations** | P1 | `for (var i...) { var x = 1; for (var j...) { } }` | Nested for-loops where the inner scope declares variables produce `unexpected token (type=75)` parse error. Blocks AGNOS kernel from using natural loop patterns. **Workaround**: factor inner loop into a separate function. Confirmed still broken in v1.5.0. |
+
+---
+
 ## Current — v1.6 Keystone Ports
 
 Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
@@ -44,55 +52,41 @@ Port daimon, hoosh, agnosai (AI + async stack):
 
 ---
 
-## AGNOS Kernel — Boots Into a Shell
+## AGNOS Kernel — v0.9 (Boots Into Shell)
 
-Current: 31KB, boots on qemu, serial I/O, VMM, PMM, processes, syscalls, keyboard.
-Goal: boots into a shell that runs the 57 compiled userland programs.
+Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
-### Layer 2 — Run Programs
+### Done
 
-| # | Feature | Effort | What it does |
-|---|---------|--------|-------------|
-| 1 | **ELF loader** | Medium | Parse ELF header, map segments, jump to entry |
-| 2 | **Context switch** | Medium | Save/restore all regs on timer interrupt |
-| 3 | **Scheduler** | Low | Round-robin over process table |
-| 4 | **User/kernel mode** | High | Ring 3 userspace, Ring 0 kernel, TSS |
-| 5 | **syscall/sysret** | Medium | Fast user→kernel transition |
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | Boot (multiboot1, 32→64 shim) | **Done** |
+| 2 | Serial I/O, GDT, IDT, PIC, PIT timer | **Done** |
+| 3 | Keyboard (full US QWERTY, shift/caps/ctrl) | **Done** |
+| 4 | Page tables (2MB huge pages, identity map) | **Done** |
+| 5 | PMM (bitmap), VMM, per-process page tables | **Done** |
+| 6 | Kernel heap (slab allocator, 8 size classes) | **Done** |
+| 7 | Context switch (full register save/restore) | **Done** |
+| 8 | SYSCALL/SYSRET hardware interface | **Done** |
+| 9 | Ring 3 user mode (TSS, iretq, sysretq) | **Done** |
+| 10 | Process memory isolation (per-process CR3) | **Done** |
+| 11 | ELF loader + userland exec | **Done** |
+| 12 | VFS + device driver framework | **Done** |
+| 13 | Initrd (RAM disk, flat format) | **Done** |
+| 14 | Shell (help, echo, ps, free, cat, uptime, halt) | **Done** |
+| 15 | kybernet init (PID 1) | **Done** |
 
-### Layer 3 — Storage
-
-| # | Feature | Effort | What it does |
-|---|---------|--------|-------------|
-| 6 | **ramfs (initrd)** | Low | CPIO archive loaded at boot, in-memory FS |
-| 7 | **VFS** | Medium | Abstract open/read/write/close over backends |
-| 8 | **ATA/NVMe driver** | High | Read/write real disks |
-| 9 | **FAT32 or ext2** | High | Parse on-disk filesystem |
-
-### Layer 4 — Networking
-
-| # | Feature | Effort | What it does |
-|---|---------|--------|-------------|
-| 10 | **VirtIO net** | Medium | Network device for qemu |
-| 11 | **TCP/IP stack** | Very High | IP, TCP, UDP, ARP, ICMP |
-
-### Layer 5 — Usable OS
+### Next
 
 | # | Feature | Effort | What it does |
 |---|---------|--------|-------------|
-| 12 | **Shell** | Medium | Read line, fork+exec, wait |
-| 13 | **Init (kybernet)** | Low | PID 1 — already written in Cyrius |
-| 14 | **Signals** | Medium | SIGTERM, SIGKILL, SIGCHLD |
-| 15 | **Pipe/redirect** | Medium | `cmd1 \| cmd2`, stdin/stdout |
-
-### Shortest Path to "Boots Into Shell"
-
-```
-ELF loader → context switch → scheduler → ramfs → shell
-(5 features, ~2000 lines, kernel grows from 31KB to ~50KB)
-```
-
-The 57 compiled programs (true, false, echo, cat, head, grep, wc, etc.)
-become the userland. kybernet becomes PID 1.
+| 1 | **VirtIO net** | Medium | Network device for QEMU |
+| 2 | **TCP/IP stack** | Very High | ARP, IP, UDP, TCP |
+| 3 | **SMP** | High | AP startup, per-CPU data, spinlocks |
+| 4 | **Signals** | Medium | SIGTERM, SIGKILL, SIGCHLD |
+| 5 | **Pipe/redirect** | Medium | `cmd1 \| cmd2`, stdin/stdout |
+| 6 | **ATA/NVMe driver** | High | Read/write real disks |
+| 7 | **FAT32 or ext2** | High | On-disk filesystem |
 
 ---
 
@@ -150,6 +144,7 @@ wave breakdown, porting patterns, and bridge strategies.
 |---|----------|---------|-------------|
 | 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global (directly or via function call), the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
 | 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | In a function `fn foo(a, b)`, params are stored at `[rbp-0x08]` (a) and `[rbp-0x10]` (b). Locals declared with `var` start AFTER params: first local at `[rbp-0x18]`, etc. Inline asm writing to `[rbp-0x08]` will **clobber param a**. **Fix**: declare enough dummy locals before the asm block to push offsets past the params, or use globals for values the asm block needs. In general: `fn(p1, p2)` → p1 at -0x08, p2 at -0x10; `var v1` at -0x18, `var v2` at -0x20, etc. |
+| 3 | Nested for-loops with var declarations | AGNOS initrd, kernel patterns | **Bug (P1).** `for (var i...) { var x; for (var j...) { } }` produces `unexpected token (type=75)`. The parser cannot handle var declarations in the inner scope of nested for-loops. **Fix**: factor inner loop into a separate function. Still broken as of v1.5.0. |
 
 ---
 
