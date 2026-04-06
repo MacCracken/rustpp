@@ -553,11 +553,16 @@ fn PARSE_TERM(S) {
     while (go == 1) {
         var typ = PEEKT(S);
         if (typ == 8) {
+            var mulst = GESTYPE(S);
             STI(S, GTI(S) + 1);
-            EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S);
+            if (mulst > 0) { EMIT_OP_DISPATCH(S, mulst, "mul", 3); }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
         }
         else { if (typ == 9) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S);
+            var divst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (divst > 0) { EMIT_OP_DISPATCH(S, divst, "div", 3); }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
         }
         else { if (typ == 34) {
             # PERCENT — modulo
@@ -595,7 +600,8 @@ fn BUILD_OP_NAME(S, stype, op_str, op_len) {
     var orc = load8(S + 0x50000 + snoff + ori);
     while (orc != 0) { store8(S + 0x50000 + owp, orc); owp = owp + 1; ori = ori + 1; orc = load8(S + 0x50000 + snoff + ori); }
     store8(S + 0x50000 + owp, 95); owp = owp + 1;
-    memcpy(S + 0x50000 + owp, op_str, op_len);
+    var oci = 0;
+    while (oci < op_len) { store8(S + 0x50000 + owp + oci, load8(op_str + oci)); oci = oci + 1; }
     owp = owp + op_len;
     store8(S + 0x50000 + owp, 0); owp = owp + 1;
     SNPOS(S, owp);
@@ -626,16 +632,16 @@ fn PARSE_EXPR(S) {
     while (go == 1) {
         var typ = PEEKT(S);
         if (typ == 6) {
-            STI(S, GTI(S) + 1); EPUSHR(S); SPSC(S, 0); PARSE_TERM(S);
-            EPTR_SCALE(S, ps);
-            EMOVCA(S); EPOPR(S); EADDR(S);
-            SPSC(S, ps);
+            var addst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (addst > 0) { EMIT_OP_DISPATCH(S, addst, "add", 3); }
+            else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
         }
         else { if (typ == 7) {
-            STI(S, GTI(S) + 1); EPUSHR(S); SPSC(S, 0); PARSE_TERM(S);
-            EPTR_SCALE(S, ps);
-            EMOVCA(S); EPOPR(S); ESUBR(S);
-            SPSC(S, ps);
+            var subst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); }
+            else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
         }
         else { if (typ == 27) {
             # AMPERSAND — binary AND

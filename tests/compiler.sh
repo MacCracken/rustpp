@@ -357,6 +357,12 @@ run_test_cc "mod_no_use"    'mod math; fn secret() { return 42; } mod main; var 
 run_test_cc "pub_fn"        'pub fn visible() { return 42; } var r = visible();' 42
 
 echo ""
+echo "-- Operator Overloading (cc-only) --"
+run_test_cc "op_add"  'struct N { v; } fn N_add(a, b) { return a + b; } var x: N = 20; var y: N = 22; var r = x + y;' 42
+run_test_cc "op_sub"  'struct N { v; } fn N_sub(a, b) { return a - b; } var x: N = 50; var y: N = 8; var r = x - y;' 42
+run_test_cc "op_mul"  'struct N { v; } fn N_mul(a, b) { return a * b; } var x: N = 6; var y: N = 7; var r = x * y;' 42
+
+echo ""
 echo "-- Closures (cc-only) --"
 run_test_cc "closure_addr"  'var f = |x| x * 2; var r = 0; if (f > 0) { r = 42; }' 42
 run_test_cc "closure_params" 'var f = |a, b| a + b; var r = 0; if (f > 0) { r = 42; }' 42

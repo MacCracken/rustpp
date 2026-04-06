@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.11] — 2026-04-06
+
+### Added — Language
+- **Operator overloading**: `a + b` dispatches to `Type_add(a, b)` when `a` has struct type
+  - Works for `+`, `-`, `*`, `/` operators
+  - Type tracked via `expr_stype` from variable load
+  - Works with type-annotated locals and struct-literal globals
+- Auto enum constructor syntax parsing (from v0.9.6) retained
+
+### Added — Tests
+- 3 operator overloading tests (add, sub, mul)
+
+### Metrics
+- Compiler: 128KB
+- 205 tests (154 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [0.9.10] — 2026-04-06
 
 ### Added — Language
