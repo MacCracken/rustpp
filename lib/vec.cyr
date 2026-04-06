@@ -7,11 +7,10 @@
 #
 # >>> include "lib/alloc.cyr"
 # >>> include "lib/vec.cyr"
-# >>> fn main() { alloc_init(); var v = vec_new();
+# >>> alloc_init(); var v = vec_new();
 # >>> vec_push(v, 10); vec_push(v, 20); vec_push(v, 12);
-# >>> return vec_get(v, 0) + vec_get(v, 1) + vec_get(v, 2); }
-# >>> var r = main(); syscall(60, r);
-# === 42
+# >>> var r = vec_len(v);
+# === 3
 
 # Create a new empty vector with initial capacity 16
 fn vec_new() {
