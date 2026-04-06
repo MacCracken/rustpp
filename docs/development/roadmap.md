@@ -170,11 +170,11 @@ wave breakdown, porting patterns, and bridge strategies.
 
 ---
 
-## Known Bugs
+## Known Gotchas
 
-| # | Bug | Severity | Found in | Description |
-|---|-----|----------|----------|-------------|
-| 1 | Global var in for-loop condition | Medium | AGNOS kernel heap | Using a global variable as the loop bound in `for (var i = 0; i < GLOBAL_VAR; i = i + 1)` causes the loop to terminate early or skip iterations. The global appears to get clobbered during loop body evaluation. Workaround: use a literal or copy to a local first. |
+| # | Behavior | Context | Explanation |
+|---|----------|---------|-------------|
+| 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global (directly or via function call), the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
 
 ---
 

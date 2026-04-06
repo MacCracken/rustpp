@@ -62,13 +62,25 @@ String literals are null-terminated, but if you're building strings manually, ma
 
 ## Known Limitations
 
-1. No block scoping — declare variables outside loops
-2. No `&&`/`||` mixed in same condition — use nested `if`
-3. For loop step must be simple assignment (`i = i + 1`)
-4. Exit codes truncated to 0-255
-5. Max ~64 global vars with initializers (use enums for constants)
-6. Max 1024 fixup entries per compilation
-7. Max 256 functions per compilation
-8. Preprocessor eats `"include "` in string literals
-9. No negative literals — use `(0 - N)` instead of `-N`
-10. `default` is a keyword — don't use as parameter name
+1. No `&&`/`||` mixed in same condition — use nested `if`
+2. For loop step must be simple assignment (`i = i + 1`)
+3. Exit codes truncated to 0-255
+4. Max ~64 global vars with initializers (use enums for constants)
+5. Max 1024 fixup entries per compilation
+6. Max 256 functions per compilation
+7. No negative literals — use `(0 - N)` instead of `-N`
+8. `default`, `match`, `in` are keywords — don't use as variable names
+9. Block closures (`|x| { ... }`) only work inside functions, not at global scope
+
+## Gotchas
+
+1. **Dynamic loop bounds**: `for (var i = 0; i < GLOBAL; i = i + 1)` re-evaluates
+   `GLOBAL` each iteration. If the body modifies `GLOBAL`, the loop count changes.
+   Fix: `var limit = GLOBAL; for (var i = 0; i < limit; ...)`.
+
+2. **Operator overloading with stack structs**: `a + b` where `a` is a struct
+   literal (`var a = Point { 1, 2 }`) passes the first field value, not the address.
+   Works correctly for pointer-based types (`Str`, `Vec`).
+
+3. **Enum constructors need alloc**: `Ok(42)` calls `alloc(16)` internally.
+   Must call `alloc_init()` before using auto-generated constructors.
