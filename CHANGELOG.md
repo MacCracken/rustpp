@@ -15,8 +15,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added — Tooling
 - `scripts/version-bump.sh` — update VERSION + install.sh in one command
-- Vidya updated: 5 new implementation entries (float SSE2, methods, line numbers, tok_names overflow, two-step bootstrap)
-- Vidya usage examples: f64 operations in type_systems, methods in design_patterns
+
+### Added — Documentation
+- Vidya: 9 new implementation entries (float SSE2, methods, line numbers, tok_names overflow, two-step bootstrap, preprocessor fix, hashmap tombstone, P-1 hardening pattern, self-hosting test)
+- Vidya: f64 usage examples in type_systems, method dispatch in design_patterns
+- Roadmap: added Completed section (v0.9.0–v0.9.4), cleared done items from active lists
 
 ### Metrics
 - Compiler: 104KB, 222 functions
