@@ -337,7 +337,7 @@ fn PARSE_FACTOR(S) {
             # Emit absolute function address via fixup type 3
             E2(S, 0xB848);
             var fc = GFCNT(S);
-            var faddr = S + 0x8A000 + fc * 16;
+            var faddr = S + 0x262000 + fc * 16;
             S64(faddr, GCP(S));
             S64(faddr + 8, (3 << 56) | fni);
             SFCNT(S, fc + 1);
@@ -557,7 +557,7 @@ fn PARSE_FACTOR(S) {
         # Emit address of closure function (like &fn_name)
         E2(S, 0xB848);
         var clfc = GFCNT(S);
-        var clfaddr = S + 0x8A000 + clfc * 16;
+        var clfaddr = S + 0x262000 + clfc * 16;
         S64(clfaddr, GCP(S));
         S64(clfaddr + 8, (3 << 56) | clfi);
         SFCNT(S, clfc + 1);

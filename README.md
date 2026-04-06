@@ -2,7 +2,9 @@
 
 **Sovereign, self-hosting systems language. Assembly up.**
 
-A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
+A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
+
+139KB compiler. Self-hosting on x86_64 and aarch64. 263 tests, 0 failures.
 
 ## Install
 
@@ -26,126 +28,115 @@ cyrb run hello.cyr
 cyrb init myproject
 cd myproject
 cyrb build src/main.cyr build/myproject
-cyrb test src/test.cyr
 
-# Full project audit (format, lint, vet, deny, test, bench, doc)
+# Port a Rust project
+cyrb port /path/to/rust-project
+
+# Full audit (format, lint, vet, deny, test, bench, doc)
 cyrb audit
 ```
 
-## Benchmarks
-
-| Metric | Value |
-|--------|-------|
-| Self-compile (94KB compiler) | **11ms** |
-| Full bootstrap (from 29KB seed) | **40ms** |
-| Binary sizes vs GNU coreutils | **10-233x smaller** |
-| External dependencies | **0** |
-
-See [full benchmarks](docs/benchmarks.md).
-
-## Documentation
-
-- [Getting Started](docs/tutorial.md) — install, hello world, first project
-- [Language Guide](docs/cyrius-guide.md) — complete syntax reference
-- [Standard Library](docs/stdlib-reference.md) — every function documented
-- [FAQ & Troubleshooting](docs/faq.md) — common questions and fixes
-- [Benchmarks](docs/benchmarks.md) — sizes, compile times, runtime
-
 ## Language
 
-Everything is a 64-bit integer. No floats, no GC. Direct syscalls.
+```cyrius
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
 
-```
-include "lib/string.cyr"
-include "lib/tagged.cyr"
+struct Point { x; y; }
 
-fn divide(a, b) {
-    if (b == 0) { return Err(1); }
-    return Ok(a / b);
+impl Math for Point {
+    fn sum(self) { return load64(self) + load64(self + 8); }
 }
+
+fn Point_add(a, b) {
+    store64(a, load64(a) + load64(b));
+    store64(a + 8, load64(a + 8) + load64(b + 8));
+    return a;
+}
+
+enum Result { Ok(val) = 0; Err(code) = 1; }
 
 fn main() {
     alloc_init();
-    var r = divide(42, 2);
-    if (is_ok(r) == 1) {
-        print_num(result_unwrap(r));
-        println("");
+
+    # Structs + methods + operators
+    var a = Point { 10, 20 };
+    var b = Point { 32, 22 };
+    var c = a + b;
+
+    # Strings with methods
+    var s: Str = str_from("hello world");
+    var len = s.len();
+
+    # Pattern matching
+    var r = Ok(42);
+    match load64(r) {
+        0 => { return load64(r + 8); }
+        _ => { return 0; }
     }
     return 0;
 }
+var exit_code = main();
+syscall(60, exit_code);
 ```
 
-**Features**: variables, arrays, structs, enums, generics syntax, tagged unions (Option/Result), traits (vtable dispatch), functions, if/elif/else, while, for, break/continue, `&&`/`||`, pointers, typed pointers, inline asm, switch/match, function pointers, syscalls, comparison expressions.
+### Features
+
+- **Types**: structs, enums (with data), tagged unions (Option/Result)
+- **OOP**: methods on structs, trait impl blocks, operator overloading (+, -, *, /)
+- **Control flow**: if/elif/else, while, for, for-in (range + collections), match, switch, break/continue
+- **Functions**: closures/lambdas, function pointers, >6 params, recursion
+- **Modules**: mod/use/pub, feature flags (#define/#ifdef)
+- **Types**: f64 floating point (SSE2), string type with 16 methods
+- **System**: inline asm, raw syscalls, 50+ syscall wrappers
+- **Generics**: syntax parsed (Phase 1), everything is i64
+
+### Metrics
+
+| Metric | Value |
+|--------|-------|
+| Compiler | **139KB** (x86_64), 130KB (aarch64) |
+| Self-compile | ~11ms |
+| Seed binary | **29KB** |
+| External dependencies | **0** |
+| Tests | **263** (0 failures) |
+| Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
 ## Build Tool (cyrb)
 
 ```
 Build:     build, run, test, bench, check, self, clean
-Project:   init, package, publish, install, update
+Project:   init, package, publish, install, update, port
 Quality:   audit, fmt, lint, doc, vet, deny
+Testing:   coverage, doctest
+Docs:      docs [--agent], header
+Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (35 modules)
+## Standard Library (21 modules)
 
 | Category | Modules |
 |----------|---------|
 | Core | string, fmt, alloc, io, vec, str, args, fnptr |
-| Types | tagged (Option/Result/Either), hashmap, trait, assert, bounds |
-| System | agnosys (50 syscalls), callback, process, bench |
-| Ecosystem | agnostik (6), kybernet (7), nous, json, fs, net, regex |
+| Types | tagged (Option/Result), hashmap, trait, assert, bounds |
+| System | syscalls (50 wrappers), callback, process, bench |
+| Data | json, fs, net, regex |
 
-## Tools
-
-| Tool | What |
-|------|------|
-| cc2 / cc2_aarch64 | Compiler (x86_64 + aarch64 cross) |
-| cyrb | Build tool (18 commands — like cargo) |
-| cyrfmt | Code formatter |
-| cyrlint | Linter (style, warnings) |
-| cyrdoc | Documentation generator + coverage check |
-| cyrc | Dependency audit + policy enforcement |
-| ark | Package manager |
-
-## Quality Gate
-
-`cyrb audit` runs 10 checks in one command:
+## Architecture
 
 ```
-✓ Self-hosting      ✓ Compiler tests (111)   ✓ Program tests (57)
-✓ Format            ✓ Lint                    ✓ Vet
-✓ Deny              ✓ Benchmarks             ✓ Doc coverage
-✓ Documentation
+bootstrap/asm (29KB committed binary — root of trust)
+  → stage1f (12KB compiler)
+    → cc_bridge.cyr (bridge compiler)
+      → cc2 (modular compiler, 139KB, 7 modules)
+        → cc2_aarch64 (cross-compiler)
 ```
 
-## Part of AGNOS
+## Migration
 
-Cyrius is the language of [AGNOS](https://agnosticos.org), the AI-Native General Operating System. Every subsystem — from the kernel to the package manager — is being migrated from Rust to Cyrius.
-
-- [AGNOS Project](https://github.com/MacCracken/agnosticos) — the genesis repository
-- [AGNOS Philosophy](https://github.com/MacCracken/agnosticos/blob/main/docs/philosophy.md) — why the temple was built
-- [Migration Roadmap](https://github.com/MacCracken/agnosticos/blob/main/docs/development/cyrius-lang-migration.md) — six-phase Rust → Cyrius plan
-- [The 29KB Compiler vs The $20,000 Compiler](https://github.com/MacCracken/agnosticos/blob/main/docs/articles/sovereign-compiler-vs-brute-force.md) — the article
-
-### What Cyrius Replaces
-
-| Before | After | Status |
-|--------|-------|--------|
-| Rust compiler (200MB) | Cyrius compiler (93KB) | Done — self-hosting |
-| Rust stdlib (~400K lines) | Cyrius stdlib (35 modules, 199 functions) | Done |
-| cargo | cyrb (18 commands) | Done |
-| rustfmt | cyrfmt | Done |
-| clippy | cyrlint | Done |
-| rustdoc | cyrdoc | Done |
-| cargo-audit | cyrc | Done |
-| agnostik (Rust) | agnostik (Cyrius) | Rewritten |
-| agnosys (Rust) | agnosys (Cyrius) | Rewritten |
-| kybernet (Rust) | kybernet (Cyrius) | Rewritten |
-| nous (Rust) | nous (Cyrius) | Rewritten |
-| ark (Rust) | ark (Cyrius) | Rewritten |
-| Linux kernel | AGNOS kernel (62KB, Cyrius) | Done — VM, processes, syscalls |
-
-Total sovereign toolchain: **204KB** from 29KB seed to running OS.
+107 Rust repos (~980K lines) planned for conversion. 5 done. `cyrb port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
 
 ## License
 

@@ -26,7 +26,7 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0x8A000 + fi * 16;
+        var faddr = S + 0x262000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
@@ -124,7 +124,7 @@ fn EMITELF_KERNEL(S) {
     while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
     # String data
     i = 0;
-    while (i < spos) { store8(O + op, load8(S + 0x69000 + i)); op = op + 1; i = i + 1; }
+    while (i < spos) { store8(O + op, load8(S + 0x61000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
     S64(S + 0x5C130, op);
     return 0;
@@ -178,7 +178,7 @@ fn EMITELF(S) {
     # String data
     i = 0;
     while (i < spos) {
-        store8(O + op, load8(S + 0x69000 + i));
+        store8(O + op, load8(S + 0x61000 + i));
         op = op + 1;
         i = i + 1;
     }
@@ -223,7 +223,7 @@ fn EMITELF_SHARED(S) {
     i = 0;
     while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
     i = 0;
-    while (i < spos) { store8(O + op, load8(S + 0x69000 + i)); op = op + 1; i = i + 1; }
+    while (i < spos) { store8(O + op, load8(S + 0x61000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
     S64(S + 0x5C130, op);
     return 0;

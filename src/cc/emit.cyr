@@ -85,11 +85,11 @@ fn EPOPR9(S) { E2(S, 0x5941); return 0; }
 # Record fixup: (codebuf_offset=CP, var_index) in fixup table
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    if (fc >= 1024) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (1024)\n", 31);
+    if (fc >= 2048) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (2048)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0x8A000 + fc * 16;
+    var addr = S + 0x262000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -126,7 +126,7 @@ fn EVADDR(S, idx) {
 fn ESADDR(S, soff) {
     E2(S, 0xB848);
     var fc = GFCNT(S);
-    var faddr = S + 0x8A000 + fc * 16;
+    var faddr = S + 0x262000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -220,7 +220,7 @@ fn ECALLFIX(S, fnidx) {
     var poff = GCP(S);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
     var fc = GFCNT(S);
-    var faddr = S + 0x8A000 + fc * 16;
+    var faddr = S + 0x262000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);

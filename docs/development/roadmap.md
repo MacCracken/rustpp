@@ -79,30 +79,32 @@ become the userland. kybernet becomes PID 1.
 
 ---
 
-## v1.1 — Quality of Life
+## v1.4 — Converting Tools to Cyrius
 
-Improve ergonomics for the 39 small-repo ports (<5K lines):
+Rewrite cyrb, cyrfmt, cyrlint, cyrdoc, cyrc from shell/Cyrius-compiled to
+pure Cyrius programs. Self-hosting the toolchain in the language itself.
+
+| # | Tool | Current | Target |
+|---|------|---------|--------|
+| 1 | cyrb | Shell dispatcher | Cyrius binary |
+| 2 | cyrfmt | Cyrius program (18KB) | Already Cyrius ✓ |
+| 3 | cyrlint | Cyrius program (26KB) | Already Cyrius ✓ |
+| 4 | cyrdoc | Cyrius program (29KB) | Already Cyrius ✓ |
+| 5 | cyrc | Cyrius program (22KB) | Already Cyrius ✓ |
+| 6 | ark | Cyrius program (44KB) | Already Cyrius ✓ |
+
+cyrb is the main target — convert from shell script to Cyrius binary.
+
+## v1.5+ — Keystone Ports
+
+Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
 
 | # | Feature | Effort | Unlocks |
 |---|---------|--------|---------|
-| 1 | Real generics (type checking) | Low | Catch bugs at compile time |
-| 2 | Enum constructors (auto-generate) | Medium | `Option::Some(val)` from enum def |
-| 3 | For-in over collections | Low | `for item in v.iter() { }` sugar |
-| 4 | Block body closures | Medium | `\|x\| { stmts; return val; }` |
-| 5 | Shared library output (.so) | Medium | FFI bridge without subprocess |
-| 6 | C FFI calling convention | Medium | Call Cyrius from C/Rust directly |
+| 1 | Const generics | Medium | `Matrix<N,M>`, `[T; N]` |
+| 2 | Derive macros | Medium | serde Serialize/Deserialize |
 
-## v1.2 — Crate Migration Wave 2
-
-Port bhava (29K) + hisab (31K) — the keystone libraries (37 repos depend on hisab):
-
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 7 | Const generics | Medium | `Matrix<N,M>`, `[T; N]` |
-| 8 | Derive macros | Medium | serde Serialize/Deserialize |
-| 9 | Operator overloading (address-based) | Medium | `Vec3 + Vec3` for stack structs |
-
-## v1.3 — Infrastructure + Security
+## v1.6 — Infrastructure + Security
 
 Port kavach, sigil, phylax (security stack):
 

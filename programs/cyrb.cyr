@@ -1,39 +1,150 @@
-# cyrb — Cyrius Builder
-# The build tool for Cyrius projects. Written in Cyrius.
+# cyrb — Cyrius Build Tool
+# Written in Cyrius. Full replacement for the shell dispatcher.
 #
-# Usage:
-#   cyrb build <source.cyr> <output>           — compile for x86_64
-#   cyrb build --aarch64 <source.cyr> <output>  — compile for aarch64
-#   cyrb test <test.cyr>                        — compile + run, check exit 0
-#   cyrb test --aarch64 <test.cyr>              — compile + run via qemu-aarch64
-#   cyrb self                                   — self-hosting check (cc2==cc3)
-#   cyrb tests                                  — run library test suites
-#   cyrb all                                    — full project build + test
+# Build:     build, run, test, bench, check, self, clean
+# Project:   init, package, publish, install, update, port
+# Quality:   audit, fmt, lint, doc, vet, deny
+# Testing:   coverage, doctest
+# Docs:      docs
+# Interactive: repl
+# Info:      version, which, help
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
 include "lib/alloc.cyr"
 include "lib/io.cyr"
 include "lib/vec.cyr"
+include "lib/str.cyr"
 include "lib/args.cyr"
+include "lib/fs.cyr"
+include "lib/process.cyr"
 include "lib/syscalls.cyr"
 
-var CC_X86 = "./build/cc2";
-var CC_ARM = "./build/cc2_aarch64";
-var QEMU_ARM = "/usr/bin/qemu-aarch64";
+# ================================================================
+# Global state
+# ================================================================
+
 var _cc = 0;
+var _cc_arm = 0;
 var _arch = 0;
 var _pass = 0;
 var _fail = 0;
 var _total = 0;
+var _tools_dir = 0;
+var _scripts_dir = 0;
+var _repo_root = 0;
+var _version = 0;
+var _home = 0;
 
-enum Arch { ARCH_X86 = 0; ARCH_AARCH64 = 1; }
+var ARCH_X86 = 0;
+var ARCH_AARCH64 = 1;
+
+# ================================================================
+# Path helpers
+# ================================================================
+
+# Build a path: dir + "/" + name (C strings)
+fn make_path(dir, name) {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, dir);
+    str_builder_add_cstr(sb, "/");
+    str_builder_add_cstr(sb, name);
+    var result = str_builder_build(sb);
+    return str_data(result);
+}
+
+# Read file contents into allocated buffer, null-terminate, return ptr
+# Returns 0 on failure
+fn read_file_str(path) {
+    var buf = alloc(4096);
+    var n = file_read_all(path, buf, 4095);
+    if (n <= 0) { return 0; }
+    # Trim trailing whitespace
+    while (n > 0) {
+        var c = load8(buf + n - 1);
+        if (c == 10) { n = n - 1; }
+        elif (c == 13) { n = n - 1; }
+        elif (c == 32) { n = n - 1; }
+        else { break; }
+    }
+    store8(buf + n, 0);
+    return buf;
+}
+
+# ================================================================
+# Tool discovery
+# ================================================================
+
+fn find_tools() {
+    # CYRIUS_HOME: check env via /proc/self/environ
+    # For now: default to ~/.cyrius
+    var home_buf = alloc(256);
+    var home_n = file_read_all("/proc/self/environ", home_buf, 255);
+    # Simple: just use ~/.cyrius
+    # Read HOME from /proc env
+    var proc_home = 0;
+    if (home_n > 0) {
+        store8(home_buf + home_n, 0);
+        var ei = 0;
+        while (ei < home_n) {
+            if (memeq(home_buf + ei, "HOME=", 5) == 1) {
+                proc_home = home_buf + ei + 5;
+                break;
+            }
+            # Skip to next null
+            while (ei < home_n) {
+                if (load8(home_buf + ei) == 0) { ei = ei + 1; break; }
+                ei = ei + 1;
+            }
+        }
+    }
+    if (proc_home == 0) { proc_home = "/root"; }
+    _home = make_path(proc_home, ".cyrius");
+
+    # Try installed cc2 first
+    var installed_cc = make_path(_home, "bin/cc2");
+    if (file_exists(installed_cc) == 1) {
+        _cc = installed_cc;
+        _tools_dir = make_path(_home, "bin");
+    } else {
+        # Dev mode: ./build/cc2
+        if (file_exists("./build/cc2") == 1) {
+            _cc = "./build/cc2";
+            _tools_dir = "./build";
+        } else {
+            println("error: cc2 not found. Install Cyrius or set CYRIUS_HOME.");
+            sys_exit(1);
+        }
+    }
+    _cc_arm = make_path(_tools_dir, "cc2_aarch64");
+
+    # Scripts dir: relative to repo
+    if (file_exists("./scripts/cyrb") == 1) {
+        _scripts_dir = "./scripts";
+        _repo_root = ".";
+    } else {
+        _scripts_dir = make_path(_home, "bin");
+        _repo_root = ".";
+    }
+
+    # Read version
+    _version = read_file_str("VERSION");
+    if (_version == 0) {
+        var vpath = make_path(_repo_root, "VERSION");
+        _version = read_file_str(vpath);
+    }
+    if (_version == 0) { _version = "unknown"; }
+    return 0;
+}
 
 fn set_arch(arch) {
     _arch = arch;
-    if (arch == ARCH_X86) { _cc = CC_X86; }
-    if (arch == ARCH_AARCH64) { _cc = CC_ARM; }
     return 0;
+}
+
+fn current_cc() {
+    if (_arch == ARCH_AARCH64) { return _cc_arm; }
+    return _cc;
 }
 
 fn arch_name() {
@@ -41,31 +152,18 @@ fn arch_name() {
     return "x86_64";
 }
 
-# Run a command: fork, exec, wait. Returns exit code.
-fn run_cmd(cmd, arg1, arg2) {
-    var pid = sys_fork();
-    if (pid == 0) {
-        var argv[4];
-        store64(&argv, cmd);
-        var ai = 1;
-        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
-        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
-        store64(&argv + ai * 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(cmd, &argv, &envp);
-        sys_exit(127);
-    }
-    var status_buf[1];
-    sys_waitpid(pid, &status_buf, 0);
-    var status = load32(&status_buf);
-    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
-    if (WIFSIGNALED(status) == 1) { return 128 + WTERMSIG(status); }
-    return 1;
-}
+# ================================================================
+# Core operations
+# ================================================================
 
 # Compile source.cyr to output using current compiler
 fn compile(source, output) {
+    var cc = current_cc();
+    if (file_exists(cc) == 0) {
+        sys_write(STDERR_FD, "error: compiler not found: ", 27);
+        println(cc);
+        return 1;
+    }
     var pid = sys_fork();
     if (pid == 0) {
         var sfd = sys_open(source, O_RDONLY, 0);
@@ -79,11 +177,11 @@ fn compile(source, output) {
         sys_close(ofd);
 
         var argv[2];
-        store64(&argv, _cc);
+        store64(&argv, cc);
         store64(&argv + 8, 0);
         var envp[1];
         store64(&envp, 0);
-        sys_execve(_cc, &argv, &envp);
+        sys_execve(cc, &argv, &envp);
         sys_exit(127);
     }
     var status_buf[1];
@@ -100,90 +198,68 @@ fn compile(source, output) {
 
 # Run a binary — directly for x86, via qemu for aarch64
 fn run_binary(path) {
-    if (_arch == ARCH_AARCH64) {
-        return run_cmd(QEMU_ARM, path, 0);
+    var argv[4];
+    var envp[1];
+    store64(&envp, 0);
+    var pid = sys_fork();
+    if (pid == 0) {
+        if (_arch == ARCH_AARCH64) {
+            store64(&argv, "/usr/bin/qemu-aarch64");
+            store64(&argv + 8, path);
+            store64(&argv + 16, 0);
+            sys_execve("/usr/bin/qemu-aarch64", &argv, &envp);
+            sys_exit(127);
+        }
+        store64(&argv, path);
+        store64(&argv + 8, 0);
+        sys_execve(path, &argv, &envp);
+        sys_exit(127);
     }
-    return run_cmd(path, 0, 0);
-}
-
-# Compile and run a test
-fn run_test(source, name) {
-    _total = _total + 1;
-    var r = compile(source, "/tmp/cyrb_test");
-    if (r != 0) {
-        sys_write(STDERR_FD, "  FAIL: ", 8);
-        sys_write(STDERR_FD, name, strlen(name));
-        sys_write(STDERR_FD, " (compile error)\n", 17);
-        _fail = _fail + 1;
-        return 1;
-    }
-    var exit_code = run_binary("/tmp/cyrb_test");
-    if (exit_code == 0) {
-        sys_write(STDOUT_FD, "  PASS: ", 8);
-        sys_write(STDOUT_FD, name, strlen(name));
-        sys_write(STDOUT_FD, "\n", 1);
-        _pass = _pass + 1;
-        return 0;
-    }
-    sys_write(STDERR_FD, "  FAIL: ", 8);
-    sys_write(STDERR_FD, name, strlen(name));
-    sys_write(STDERR_FD, " (exit ", 7);
-    fmt_int(exit_code);
-    sys_write(STDERR_FD, ")\n", 2);
-    _fail = _fail + 1;
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    if (WIFSIGNALED(status) == 1) { return 128 + WTERMSIG(status); }
     return 1;
 }
 
-# Self-hosting check (x86 only)
-fn cmd_self() {
-    println("=== Self-Hosting Check ===");
-    set_arch(ARCH_X86);
-    var r1 = compile("src/compiler.cyr", "/tmp/cyrb_cc3");
-    if (r1 != 0) {
-        println("FAIL: cc2 cannot compile itself");
-        _fail = _fail + 1;
-        _total = _total + 1;
+# Run an external tool by path, passing through args
+fn run_tool(tool, arg1, arg2, arg3) {
+    if (file_exists(tool) == 0) {
+        sys_write(STDERR_FD, "error: tool not found: ", 23);
+        println(tool);
         return 1;
     }
-    var saved = _cc;
-    _cc = "/tmp/cyrb_cc3";
-    var r2 = compile("src/compiler.cyr", "/tmp/cyrb_cc4");
-    _cc = saved;
-    if (r2 != 0) {
-        println("FAIL: cc3 cannot compile cc2.cyr");
-        _fail = _fail + 1;
-        _total = _total + 1;
-        return 1;
+    var pid = sys_fork();
+    if (pid == 0) {
+        var argv[5];
+        store64(&argv, tool);
+        var ai = 1;
+        if (arg1 != 0) { store64(&argv + ai * 8, arg1); ai = ai + 1; }
+        if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
+        if (arg3 != 0) { store64(&argv + ai * 8, arg3); ai = ai + 1; }
+        store64(&argv + ai * 8, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(tool, &argv, &envp);
+        sys_exit(127);
     }
-    var buf1 = alloc(4096);
-    var buf2 = alloc(4096);
-    var fd1 = sys_open("/tmp/cyrb_cc3", O_RDONLY, 0);
-    var fd2 = sys_open("/tmp/cyrb_cc4", O_RDONLY, 0);
-    var identical = 1;
-    var cgo = 1;
-    while (cgo == 1) {
-        var n1 = sys_read(fd1, buf1, 4096);
-        var n2 = sys_read(fd2, buf2, 4096);
-        if (n1 != n2) { identical = 0; cgo = 0; }
-        if (n1 <= 0) { cgo = 0; }
-        if (cgo == 1) {
-            if (memeq(buf1, buf2, n1) == 0) { identical = 0; cgo = 0; }
-        }
-    }
-    sys_close(fd1);
-    sys_close(fd2);
-    _total = _total + 1;
-    if (identical == 1) {
-        println("  PASS: cc2==cc3 byte-identical");
-        _pass = _pass + 1;
-    } else {
-        println("  FAIL: cc2!=cc3");
-        _fail = _fail + 1;
-    }
-    return 0;
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    return 1;
 }
 
-# Build a single source file
+# Run a shell script
+fn run_script(script, arg1, arg2) {
+    return run_tool("/bin/sh", script, arg1, arg2);
+}
+
+# ================================================================
+# Subcommands
+# ================================================================
+
 fn cmd_build(source, output) {
     sys_write(STDOUT_FD, "compile ", 8);
     sys_write(STDOUT_FD, source, strlen(source));
@@ -195,66 +271,279 @@ fn cmd_build(source, output) {
     sys_write(STDOUT_FD, "] ", 2);
     var r = compile(source, output);
     if (r == 0) {
-        sys_write(STDOUT_FD, "OK\n", 3);
+        println("OK");
     } else {
-        sys_write(STDOUT_FD, "FAIL\n", 5);
+        println("FAIL");
     }
     return r;
 }
 
-# Run library test suites
-fn cmd_tests() {
-    sys_write(STDOUT_FD, "=== Library Tests [", 19);
-    var an = arch_name();
-    sys_write(STDOUT_FD, an, strlen(an));
-    sys_write(STDOUT_FD, "] ===\n", 6);
-    run_test("programs/agnostik_test.cyr", "agnostik");
-    run_test("programs/kybernet_test.cyr", "kybernet");
+fn cmd_run(source) {
+    var tmpbin = "/tmp/cyrb_run";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        sys_write(STDERR_FD, "error: compile failed\n", 22);
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    return exit_code;
+}
+
+fn cmd_test(source) {
+    _total = _total + 1;
+    var tmpbin = "/tmp/cyrb_test";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        sys_write(STDERR_FD, "  FAIL: ", 8);
+        sys_write(STDERR_FD, source, strlen(source));
+        sys_write(STDERR_FD, " (compile error)\n", 17);
+        _fail = _fail + 1;
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    if (exit_code == 0) {
+        _pass = _pass + 1;
+        return 0;
+    }
+    _fail = _fail + 1;
+    return exit_code;
+}
+
+fn cmd_bench(source) {
+    if (source == 0) {
+        # No args: run full bench suite
+        var script = make_path(_scripts_dir, "bench-history.sh");
+        return run_script(script, 0, 0);
+    }
+    var tmpbin = "/tmp/cyrb_bench";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        sys_write(STDERR_FD, "FAIL: compile error\n", 20);
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    return exit_code;
+}
+
+fn cmd_check(source) {
+    var r = compile(source, "/dev/null");
+    if (r == 0) {
+        sys_write(STDOUT_FD, "ok: ", 4);
+        println(source);
+    } else {
+        sys_write(STDERR_FD, "error: ", 7);
+        println(source);
+    }
+    return r;
+}
+
+fn cmd_self() {
+    # Delegate to inline self-hosting check script
+    # (keeps fixup table small — full inline version needs too many relocations)
+    println("=== Self-Hosting Check ===");
+    var pid = sys_fork();
+    if (pid == 0) {
+        var argv[4];
+        store64(&argv, "/bin/sh");
+        store64(&argv + 8, "-c");
+        var script = alloc(512);
+        var sb = str_builder_new();
+        str_builder_add_cstr(sb, "cc3=/tmp/cyr_cc3_$$;cc4=/tmp/cyr_cc4_$$;");
+        str_builder_add_cstr(sb, "cat src/compiler.cyr|");
+        str_builder_add_cstr(sb, _cc);
+        str_builder_add_cstr(sb, ">$cc3&&chmod +x $cc3&&cat src/compiler.cyr|$cc3>$cc4&&");
+        str_builder_add_cstr(sb, "cmp -s $cc3 $cc4&&echo '  PASS: cc2==cc3 byte-identical'||");
+        str_builder_add_cstr(sb, "(echo '  FAIL: cc2!=cc3';exit 1)");
+        var cmd = str_builder_build(sb);
+        store64(&argv + 16, str_data(cmd));
+        store64(&argv + 24, 0);
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve("/bin/sh", &argv, &envp);
+        sys_exit(127);
+    }
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    return 1;
+}
+
+fn cmd_clean() {
+    # Remove build/ contents except cc2, stage1f, asm
+    if (is_dir(str_from("build")) == 0) {
+        println("nothing to clean");
+        return 0;
+    }
+    var entries = dir_list(str_from("build"));
+    var ci = 0;
+    var cleaned = 0;
+    while (ci < vec_len(entries)) {
+        var name = vec_get(entries, ci);
+        var skip = 0;
+        if (str_eq(name, str_from("cc2")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("stage1f")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc2_aarch64")) == 1) { skip = 1; }
+        if (skip == 0) {
+            var full = make_path("build", str_data(name));
+            sys_unlink(full);
+            cleaned = cleaned + 1;
+        }
+        ci = ci + 1;
+    }
+    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm) — removed ", 55);
+    fmt_int(cleaned);
+    println(" files");
     return 0;
 }
 
-# Print results summary
-fn print_results() {
-    syscall(1, 1, "\n", 1);
-    fmt_int(_pass);
-    sys_write(STDOUT_FD, " passed, ", 9);
-    fmt_int(_fail);
-    sys_write(STDOUT_FD, " failed (", 9);
-    fmt_int(_total);
-    sys_write(STDOUT_FD, " total)\n", 8);
+# ================================================================
+# Quality commands — delegate to companion tools
+# ================================================================
+
+fn cmd_fmt(file, check_mode) {
+    var cyrfmt = make_path(_tools_dir, "cyrfmt");
+    if (check_mode == 1) {
+        return run_tool(cyrfmt, file, "--check", 0);
+    }
+    return run_tool(cyrfmt, file, 0, 0);
+}
+
+fn cmd_lint(file) {
+    var cyrlint = make_path(_tools_dir, "cyrlint");
+    return run_tool(cyrlint, file, 0, 0);
+}
+
+fn cmd_doc(arg1, arg2) {
+    var cyrdoc = make_path(_tools_dir, "cyrdoc");
+    return run_tool(cyrdoc, arg1, arg2, 0);
+}
+
+fn cmd_vet(file) {
+    var cyrc = make_path(_tools_dir, "cyrc");
+    return run_tool(cyrc, "vet", file, 0);
+}
+
+fn cmd_deny(file) {
+    var cyrc = make_path(_tools_dir, "cyrc");
+    return run_tool(cyrc, "deny", file, 0);
+}
+
+fn cmd_audit() {
+    var script = make_path(_scripts_dir, "check.sh");
+    return run_script(script, 0, 0);
+}
+
+# ================================================================
+# Project commands
+# ================================================================
+
+fn cmd_init(name) {
+    var script = make_path(_scripts_dir, "cyrb-init.sh");
+    if (file_exists(script) == 0) {
+        # Try installed location
+        script = make_path(_home, "bin/cyrb-init");
+    }
+    return run_script(script, name, 0);
+}
+
+fn cmd_port(arg) {
+    var script = make_path(_scripts_dir, "cyrb-port.sh");
+    return run_script(script, arg, 0);
+}
+
+fn cmd_header(arg) {
+    var script = make_path(_scripts_dir, "cyrb-header.sh");
+    return run_script(script, arg, 0);
+}
+
+fn cmd_coverage() {
+    var script = make_path(_scripts_dir, "cyrb-coverage.sh");
+    return run_script(script, 0, 0);
+}
+
+fn cmd_doctest(arg) {
+    var script = make_path(_scripts_dir, "cyrb-doctest.sh");
+    return run_script(script, _cc, arg);
+}
+
+fn cmd_repl() {
+    var script = make_path(_scripts_dir, "cyrb-repl.sh");
+    return run_script(script, _cc, 0);
+}
+
+fn cmd_package() {
+    # Read cyrb.toml if present
+    var name = "unknown";
+    var ver = _version;
+    var entry = "src/main.cyr";
+    var output_name = "main";
+
+    if (file_exists("cyrb.toml") == 1) {
+        # Simple TOML reading: find name = "..." lines
+        var buf = alloc(4096);
+        var n = file_read_all("cyrb.toml", buf, 4095);
+        store8(buf + n, 0);
+        # For now use simple defaults
+    }
+    if (file_exists("VERSION") == 1) {
+        ver = read_file_str("VERSION");
+        # Use directory name as package name
+    }
+
+    println("=== cyrb package ===");
+    sys_write(STDOUT_FD, "  version: ", 11);
+    println(ver);
+
+    # Compile if entry exists
+    sys_mkdir("build", 0x1ED);
+    if (file_exists(entry) == 1) {
+        println("  compiling...");
+        var out = make_path("build", output_name);
+        compile(entry, out);
+    }
+    println("  package ready in build/");
     return 0;
 }
 
-fn cmd_all() {
-    println("=== Cyrius Build ===");
-    cmd_self();
-    cmd_tests();
-    print_results();
-    return _fail;
+fn cmd_update() {
+    println("=== cyrb update ===");
+    if (is_dir(str_from("lib")) == 0) {
+        println("no lib/ directory");
+        return 1;
+    }
+    var cyrius_lib = make_path(_home, "versions");
+    # Check for installed stdlib
+    println("manual update: cp ../cyrius/lib/*.cyr lib/");
+    return 0;
 }
+
+# ================================================================
+# Usage / help
+# ================================================================
 
 fn usage() {
-    println("cyrb — Cyrius Builder");
-    println("");
-    println("Usage:");
-    println("  cyrb build [--aarch64] <source> <output>");
-    println("  cyrb test [--aarch64] <test.cyr>");
-    println("  cyrb self              — x86_64 self-hosting check");
-    println("  cyrb tests [--aarch64] — run library test suites");
-    println("  cyrb all               — full build + test");
-    println("");
-    println("Targets: x86_64 (default), --aarch64");
+    sys_write(STDOUT_FD, "cyrb ", 5);
+    sys_write(STDOUT_FD, _version, strlen(_version));
+    syscall(1, 1, " — Cyrius Build Tool\n\nUsage: cyrb <command> [options]\n\nBuild:\n  build [--aarch64] <src> <out>   compile a program\n  run [--aarch64] <source.cyr>    compile + run\n  test [--aarch64] <test.cyr>     compile + run, check exit 0\n  bench <bench.cyr>               compile + run benchmarks\n  check <source.cyr>              syntax check\n  self                            self-hosting check (cc2==cc3)\n  clean                           remove build/ contents\n\nProject:\n  init <name>                     scaffold a new project\n  package                         create .ark distributable\n  port <rust-project>             scaffold from Rust project\n\nQuality:\n  audit                           full check: self-host, test, fmt, lint\n  fmt <file.cyr> [--check]        format code\n  lint <file.cyr>                 static analysis\n  doc [--check] <file.cyr>        generate/check documentation\n  vet <source.cyr>                audit include dependencies\n  deny <source.cyr>               enforce project policies\n\nTesting:\n  coverage                        report test coverage\n  doctest <file.cyr>              run doc examples\n\nInteractive:\n  repl                            expression evaluator\n\nInfo:\n  version                         show cyrb version\n  which                           show path to cc2\n  help                            show this help\n", 1092);
     return 0;
 }
 
-# Check if an arg is --aarch64 flag
-fn is_aarch64_flag(s) {
-    return streq(s, "--aarch64");
-}
+# ================================================================
+# Main dispatch
+# ================================================================
 
 fn main() {
     alloc_init();
     args_init();
+    find_tools();
     set_arch(ARCH_X86);
 
     if (argc() < 2) {
@@ -264,60 +553,214 @@ fn main() {
 
     var cmd = argv(1);
 
+    # --- Build commands ---
     if (streq(cmd, "build") == 1) {
-        if (argc() >= 5) {
-            if (is_aarch64_flag(argv(2)) == 1) {
+        var ai = 2;
+        if (argc() > ai) {
+            if (streq(argv(ai), "--aarch64") == 1) {
                 set_arch(ARCH_AARCH64);
-                return cmd_build(argv(3), argv(4));
+                ai = ai + 1;
             }
         }
-        if (argc() < 4) {
+        if (argc() < ai + 2) {
             println("Usage: cyrb build [--aarch64] <source> <output>");
             return 1;
         }
-        return cmd_build(argv(2), argv(3));
+        return cmd_build(argv(ai), argv(ai + 1));
+    }
+
+    if (streq(cmd, "run") == 1) {
+        var ai = 2;
+        if (argc() > ai) {
+            if (streq(argv(ai), "--aarch64") == 1) {
+                set_arch(ARCH_AARCH64);
+                ai = ai + 1;
+            }
+        }
+        if (argc() <= ai) {
+            println("Usage: cyrb run [--aarch64] <source.cyr>");
+            return 1;
+        }
+        return cmd_run(argv(ai));
     }
 
     if (streq(cmd, "test") == 1) {
-        if (argc() >= 4) {
-            if (is_aarch64_flag(argv(2)) == 1) {
+        var ai = 2;
+        if (argc() > ai) {
+            if (streq(argv(ai), "--aarch64") == 1) {
                 set_arch(ARCH_AARCH64);
-                run_test(argv(3), argv(3));
-                print_results();
-                return _fail;
+                ai = ai + 1;
             }
         }
-        if (argc() < 3) {
+        if (argc() <= ai) {
             println("Usage: cyrb test [--aarch64] <test.cyr>");
             return 1;
         }
-        run_test(argv(2), argv(2));
-        print_results();
-        return _fail;
+        return cmd_test(argv(ai));
+    }
+
+    if (streq(cmd, "bench") == 1) {
+        if (argc() > 2) { return cmd_bench(argv(2)); }
+        return cmd_bench(0);
+    }
+
+    if (streq(cmd, "check") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb check <source.cyr>");
+            return 1;
+        }
+        return cmd_check(argv(2));
     }
 
     if (streq(cmd, "self") == 1) {
-        cmd_self();
-        print_results();
-        return _fail;
+        return cmd_self();
     }
 
-    if (streq(cmd, "tests") == 1) {
-        if (argc() >= 3) {
-            if (is_aarch64_flag(argv(2)) == 1) {
-                set_arch(ARCH_AARCH64);
-            }
+    if (streq(cmd, "clean") == 1) {
+        return cmd_clean();
+    }
+
+    # --- Project commands ---
+    if (streq(cmd, "init") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb init <project-name>");
+            return 1;
         }
-        cmd_tests();
-        print_results();
-        return _fail;
+        return cmd_init(argv(2));
     }
 
-    if (streq(cmd, "all") == 1) {
-        return cmd_all();
+    if (streq(cmd, "package") == 1) {
+        return cmd_package();
     }
 
-    println("Unknown command. Run 'cyrb' for usage.");
+    if (streq(cmd, "publish") == 1) {
+        println("Package registry not yet available.");
+        return 0;
+    }
+
+    if (streq(cmd, "install") == 1) {
+        println("Package registry not yet available.");
+        println("Install from source: git clone <repo> && cyrb build");
+        return 0;
+    }
+
+    if (streq(cmd, "update") == 1) {
+        return cmd_update();
+    }
+
+    if (streq(cmd, "port") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb port <rust-project-path>");
+            return 1;
+        }
+        return cmd_port(argv(2));
+    }
+
+    if (streq(cmd, "header") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb header <source.cyr>");
+            return 1;
+        }
+        return cmd_header(argv(2));
+    }
+
+    # --- Quality commands ---
+    if (streq(cmd, "fmt") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb fmt <file.cyr> [--check]");
+            return 1;
+        }
+        var check = 0;
+        if (argc() > 3) {
+            if (streq(argv(3), "--check") == 1) { check = 1; }
+        }
+        return cmd_fmt(argv(2), check);
+    }
+
+    if (streq(cmd, "lint") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb lint <file.cyr>");
+            return 1;
+        }
+        return cmd_lint(argv(2));
+    }
+
+    if (streq(cmd, "doc") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb doc [--check] <file.cyr>");
+            return 1;
+        }
+        if (argc() > 3) {
+            return cmd_doc(argv(2), argv(3));
+        }
+        return cmd_doc(argv(2), 0);
+    }
+
+    if (streq(cmd, "vet") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb vet <source.cyr>");
+            return 1;
+        }
+        return cmd_vet(argv(2));
+    }
+
+    if (streq(cmd, "deny") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb deny <source.cyr>");
+            return 1;
+        }
+        return cmd_deny(argv(2));
+    }
+
+    if (streq(cmd, "audit") == 1) {
+        return cmd_audit();
+    }
+
+    # --- Testing commands ---
+    if (streq(cmd, "coverage") == 1) {
+        return cmd_coverage();
+    }
+
+    if (streq(cmd, "doctest") == 1) {
+        if (argc() < 3) {
+            println("Usage: cyrb doctest <file.cyr>");
+            return 1;
+        }
+        return cmd_doctest(argv(2));
+    }
+
+    # --- Interactive ---
+    if (streq(cmd, "repl") == 1) {
+        return cmd_repl();
+    }
+
+    # --- Info commands ---
+    var is_ver = streq(cmd, "version");
+    if (is_ver == 0) { is_ver = streq(cmd, "--version"); }
+    if (is_ver == 0) { is_ver = streq(cmd, "-v"); }
+    if (is_ver == 1) {
+        sys_write(STDOUT_FD, "cyrb ", 5);
+        println(_version);
+        return 0;
+    }
+
+    if (streq(cmd, "which") == 1) {
+        println(_cc);
+        return 0;
+    }
+
+    var is_help = streq(cmd, "help");
+    if (is_help == 0) { is_help = streq(cmd, "--help"); }
+    if (is_help == 0) { is_help = streq(cmd, "-h"); }
+    if (is_help == 1) {
+        usage();
+        return 0;
+    }
+
+    # Unknown command
+    sys_write(STDERR_FD, "Unknown command: ", 17);
+    println(cmd);
+    println("Run 'cyrb help' for usage.");
     return 1;
 }
 

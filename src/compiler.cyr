@@ -18,13 +18,13 @@
 #   0x50000  tok_names     [65536]       Packed identifier strings
 #   0x60000  var_noffs     [2048]        256 variable name offsets
 #   0x60800  var_sizes     [2048]        256 variable sizes
-#   0x69000  str_data      [4096]        String literal bytes (null-terminated)
+#   0x61000  str_data      [32768]       String literal bytes (expanded from 4096)
 #   0x69800  str_pos       [8]           Current string position
 #   0x69808  data_size     [8]           Total variable data bytes
 #   0x6A000  output_buf    [131072]      ELF output buffer
 #
 # --- Fixup ---
-#   0x8A000  fixup_tbl     [16384]       1024 fixup entries (16 bytes each)
+#   0x8A000  (freed — fixup table relocated to 0x262000)
 #   0x8FCA8  fixup_cnt     [8]           Fixup entry count (moved from 0x8C000)
 #   0x8FCB0  last_var      [8]           Last assigned variable index (moved from 0x8C008)
 #
@@ -77,8 +77,11 @@
 # --- Preprocessor output ---
 #   0x222000  preprocess_out [262144]     Expanded source output buffer
 #
+# --- Fixup table (relocated) ---
+#   0x262000  fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
+#
 # --- brk limit ---
-#   0x262000 (end of heap allocation)
+#   0x26A000 (end of heap allocation)
 #
 # --- Lexer line tracking ---
 #   0x8FCB8  cur_line      [8]           Current line number during lexing
@@ -89,7 +92,7 @@
 #
 # --- Nested struct state ---
 #   0x59000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)
-#            (in freed codebuf space 0x59000-0x69000)
+#            (in freed codebuf space 0x59000-0x61000)
 #
 # --- Global var init state ---
 #   0x8FA98  gvar_toks     [512]         64 saved token indices for deferred init
@@ -147,7 +150,7 @@ include "src/cc/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x262000);
+syscall(SYS_BRK, S + 0x26A000);
 
 # Zero state
 S64(S + 0x8C100, 0);
