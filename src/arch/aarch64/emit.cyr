@@ -243,14 +243,25 @@ fn ESCPOPS(S, n) {
     #   Push order: num, a1, a2, a3, a4, a5, a6
     #   Stack: [a6_top, a5, a4, a3, a2, a1, num_bottom]
     #   Pop: a6 first → x5, ... , num last → x9
-    if (n >= 7) { EPOPR9(S); }           # x5 ← a6 (top, pushed last)
-    if (n >= 6) { EPOPR8(S); }           # x4 ← a5
-    if (n >= 5) { EPOPR10(S); }          # x3 ← a4
-    if (n >= 4) { EPOPRDX(S); }          # x2 ← a3
-    if (n >= 3) { EPOPRSI(S); }          # x1 ← a2
-    if (n >= 2) { EPOPRDI(S); }          # x0 ← a1
-    if (n >= 1) { EW(S, 0xF8410FE9); }   # x9 ← num (bottom, pushed first)
-    EW(S, 0xAA0903E8);  # mov x8, x9
+    # Pop all into x0, move to target reg one by one.
+    # LIFO: top=last_arg, bottom=syscall_num
+    if (n >= 7) { EPOPR(S); EW(S, 0xAA0003E5); }  # pop → x0, mov x5, x0
+    if (n >= 6) { EPOPR(S); EW(S, 0xAA0003E4); }  # pop → x0, mov x4, x0
+    if (n >= 5) { EPOPR(S); EW(S, 0xAA0003E3); }  # pop → x0, mov x3, x0
+    if (n >= 4) { EPOPR(S); EW(S, 0xAA0003E2); }  # pop → x0, mov x2, x0
+    if (n >= 3) { EPOPR(S); EW(S, 0xAA0003E1); }  # pop → x0, mov x1, x0
+    # Pop syscall num into x8 BEFORE arg1 into x0
+    if (n >= 1) {
+        if (n >= 2) {
+            # 2+ args: pop arg1 → x9, pop syscall → x8, then mov x0, x9
+            EPOPR(S); EW(S, 0xAA0003E9);  # pop arg1 → x0, mov x9, x0
+            EPOPR(S); EW(S, 0xAA0003E8);  # pop syscall → x0, mov x8, x0
+            EW(S, 0xAA0903E0);             # mov x0, x9 (restore arg1)
+        } else {
+            # 1 arg (just syscall num, no real args)
+            EPOPR(S); EW(S, 0xAA0003E8);  # pop → x0, mov x8, x0
+        }
+    }
     ESYSXLAT(S);
     ESYSCALL(S);
     return 0;
