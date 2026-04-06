@@ -48,25 +48,27 @@ without workarounds. That's 39 repos as the first wave proof.
 | 6 | Feature flags | **Done (v0.9.6)** | Conditional compilation |
 | 7 | Floats | **Done (v0.9.2)** | Math libraries |
 | 8 | Methods | **Done (v0.9.2)** | OOP patterns |
-| 9 | Closures / lambdas | Needed | Callbacks, iterators |
-| 10 | String type (owned) | Needed | Pervasive in Rust code |
-| 11 | Operator overloading | Needed | Math types (Vec3, Matrix) |
-| 12 | Enum constructors (auto) | Needed | Option::Some, Result::Ok |
-| 13 | aarch64 byte-identical | In progress | Dual-arch claim |
+| 9 | Closures / lambdas | **Done (v0.9.10)** | Callbacks, iterators |
+| 10 | String type (owned) | **Done (v0.9.10)** | Str methods via dot syntax |
+| 11 | Operator overloading | **Done (v0.9.11)** | Math types (Vec3, Matrix) |
+| 12 | Subprocess bridge (exec_vec/exec_capture/exec_env) | **Done (v0.9.12)** | External tool integration |
+| 13 | Shared library output (.so) | Needed | FFI bridge to Rust/TS/Python |
+| 14 | C FFI (header generation) | Needed | Call Cyrius from C/Rust |
+| 15 | aarch64 byte-identical | In progress | Dual-arch claim |
 
 ### Nice to Have for v1.0
 
 | # | Feature | Why |
 |---|---------|-----|
-| 14 | Real generics (type checking) | Catch bugs, not needed for codegen |
-| 15 | Iterators (for-in over collections) | Sugar over while + methods |
-| 16 | Multi-file compilation (.o + link) | include + mod works for now |
+| 16 | Real generics (type checking) | Catch bugs, not needed for codegen |
+| 17 | Enum constructors (auto-generate) | Cleaner Option/Result API |
+| 18 | Iterators (for-in over collections) | Sugar over while + methods |
 
 ### Post-v1.0 (needed for 5K+ repos)
 
 | # | Feature | Blocks |
 |---|---------|--------|
-| 17 | Const generics | hisab (Matrix<N,M>) |
+| 19 | Const generics | hisab (Matrix<N,M>) |
 | 18 | Derive macros | serde everywhere |
 | 19 | Concurrency | tokio/rayon usage |
 | 20 | Ownership / borrow checker | Memory safety |

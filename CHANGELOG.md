@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.12] — 2026-04-06
+
+### Added — Libraries
+- **Enhanced subprocess bridge** in process.cyr:
+  - `exec_vec(args)` — run command with variable args via vec
+  - `exec_capture(args, buf, buflen)` — capture stdout with variable args
+  - `exec_env(args, env)` — run with custom environment variables
+  - `exec_cmd(cmdline)` — split string and execute (convenience)
+  - Enables calling external tools: `nvidia-smi`, `python3`, `node`, `cargo`, etc.
+
+### Added — Roadmap
+- Shared library output (.so) — emit ET_DYN ELF for FFI bridging
+- C FFI header generation — call Cyrius from C/Rust/Python
+- Migration strategy: subprocess (now), protocol (v1.x), FFI (v1.x)
+
+### Metrics
+- Compiler: 128KB
+- 205 tests (154 compiler + 51 programs) + 26 aarch64, 0 failures
+
 ## [0.9.11] — 2026-04-06
 
 ### Added — Language
