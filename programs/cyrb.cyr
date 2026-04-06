@@ -35,6 +35,7 @@ var _scripts_dir = 0;
 var _repo_root = 0;
 var _version = 0;
 var _home = 0;
+var _envp = 0;
 
 var ARCH_X86 = 0;
 var ARCH_AARCH64 = 1;
@@ -69,6 +70,42 @@ fn read_file_str(path) {
     }
     store8(buf + n, 0);
     return buf;
+}
+
+# ================================================================
+# Environment passthrough
+# ================================================================
+
+fn load_environ() {
+    var buf = alloc(8192);
+    var n = file_read_all("/proc/self/environ", buf, 8191);
+    if (n <= 0) {
+        _envp = alloc(8);
+        store64(_envp, 0);
+        return 0;
+    }
+    var count = 0;
+    var i = 0;
+    while (i < n) {
+        count = count + 1;
+        while (i < n) {
+            if (load8(buf + i) == 0) { i = i + 1; break; }
+            i = i + 1;
+        }
+    }
+    _envp = alloc((count + 1) * 8);
+    var ei = 0;
+    i = 0;
+    while (i < n) {
+        store64(_envp + ei * 8, buf + i);
+        ei = ei + 1;
+        while (i < n) {
+            if (load8(buf + i) == 0) { i = i + 1; break; }
+            i = i + 1;
+        }
+    }
+    store64(_envp + ei * 8, 0);
+    return 0;
 }
 
 # ================================================================
@@ -179,9 +216,7 @@ fn compile(source, output) {
         var argv[2];
         store64(&argv, cc);
         store64(&argv + 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(cc, &argv, &envp);
+        sys_execve(cc, &argv, _envp);
         sys_exit(127);
     }
     var status_buf[1];
@@ -199,20 +234,18 @@ fn compile(source, output) {
 # Run a binary — directly for x86, via qemu for aarch64
 fn run_binary(path) {
     var argv[4];
-    var envp[1];
-    store64(&envp, 0);
     var pid = sys_fork();
     if (pid == 0) {
         if (_arch == ARCH_AARCH64) {
             store64(&argv, "/usr/bin/qemu-aarch64");
             store64(&argv + 8, path);
             store64(&argv + 16, 0);
-            sys_execve("/usr/bin/qemu-aarch64", &argv, &envp);
+            sys_execve("/usr/bin/qemu-aarch64", &argv, _envp);
             sys_exit(127);
         }
         store64(&argv, path);
         store64(&argv + 8, 0);
-        sys_execve(path, &argv, &envp);
+        sys_execve(path, &argv, _envp);
         sys_exit(127);
     }
     var status_buf[1];
@@ -239,9 +272,7 @@ fn run_tool(tool, arg1, arg2, arg3) {
         if (arg2 != 0) { store64(&argv + ai * 8, arg2); ai = ai + 1; }
         if (arg3 != 0) { store64(&argv + ai * 8, arg3); ai = ai + 1; }
         store64(&argv + ai * 8, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve(tool, &argv, &envp);
+        sys_execve(tool, &argv, _envp);
         sys_exit(127);
     }
     var status_buf[1];
@@ -363,9 +394,7 @@ fn cmd_self() {
         var cmd = str_builder_build(sb);
         store64(&argv + 16, str_data(cmd));
         store64(&argv + 24, 0);
-        var envp[1];
-        store64(&envp, 0);
-        sys_execve("/bin/sh", &argv, &envp);
+        sys_execve("/bin/sh", &argv, _envp);
         sys_exit(127);
     }
     var status_buf[1];
@@ -391,6 +420,7 @@ fn cmd_clean() {
         if (str_eq(name, str_from("stage1f")) == 1) { skip = 1; }
         if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cc2_aarch64")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cyrb")) == 1) { skip = 1; }
         if (skip == 0) {
             var full = make_path("build", str_data(name));
             sys_unlink(full);
@@ -398,7 +428,7 @@ fn cmd_clean() {
         }
         ci = ci + 1;
     }
-    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm) — removed ", 55);
+    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm, cyrb) — removed ", 63);
     fmt_int(cleaned);
     println(" files");
     return 0;
@@ -543,6 +573,7 @@ fn usage() {
 fn main() {
     alloc_init();
     args_init();
+    load_environ();
     find_tools();
     set_arch(ARCH_X86);
 

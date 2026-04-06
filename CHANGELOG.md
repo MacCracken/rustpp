@@ -6,6 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-04-06
+
+### Fixed — Tooling
+- **cyrb clean deletes itself**: `cyrb` was not in the preserve list, so `cyrb clean` removed
+  its own binary from `build/` — added `cyrb` to skip list alongside cc2, stage1f, asm
+- **cyrb clean output truncated**: byte count for the status message was 55, should be 57
+  (UTF-8 em dash is 3 bytes not 1) — output showed "remove8 files" instead of "removed 8 files"
+- **cyrb envp fix not in source**: the `load_environ()` / `_envp` passthrough from 1.5.1 was
+  lost from source after a git stash — reapplied to `programs/cyrb.cyr`
+
+### Added — Documentation
+- **Module & manifest design doc**: `docs/development/module-manifest-design.md` —
+  explicit dependency manifests without a resolver, `pub` enforcement, `use` imports
+  with qualified access, migration path from `include` to `use`
+
+### Verified
+- All 25+ cyrb subcommands tested and passing
+- 212 compiler tests, 0 failures
+- 51 program tests, 0 failures
+- Self-hosting: byte-identical
+
+### Metrics
+- Compiler: 136KB (unchanged)
+- cyrb: 59KB (was 58KB)
+
 ## [1.5.1] — 2026-04-06
 
 ### Fixed — Tooling
