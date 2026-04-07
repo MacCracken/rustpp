@@ -6,6 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.3] — 2026-04-07
+
+### Added — Standard Library
+- **Arena allocator** (`lib/alloc.cyr`): `arena_new(capacity)`, `arena_alloc(a, size)`,
+  `arena_reset(a)`, `arena_used(a)`, `arena_remaining(a)`. Independent memory pools — resetting
+  one arena doesn't invalidate pointers from others or the global allocator. Closes Bug #2.
+- **`#derive(Serialize)` now generates both `_to_json` AND `_from_json`**: Single directive
+  produces serialization and deserialization. `Name_from_json(pairs)` takes a vec of JSON
+  key-value pairs (from `json_parse`) and populates a struct. Scalar values emitted as quoted
+  strings for json roundtrip compatibility. DCE stubs whichever function isn't used.
+
+### Fixed — Standard Library
+- **`#derive(Serialize)` outputs quoted numeric values**: `{"x":"42"}` instead of `{"x":42}`.
+  Ensures `json_parse` roundtrip works correctly (json_parse numeric value parsing has a
+  known issue with unquoted numbers in some contexts).
+
+### Changed — Documentation
+- **Roadmap cleaned up**: Collapsed 9 resolved bugs, updated header to v1.8.3/168KB,
+  marked derive macros done, added vidya port progress, new perf items from abaco benchmarks.
+
 ## [1.8.2] — 2026-04-07
 
 ### Added — Standard Library
