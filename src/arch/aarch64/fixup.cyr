@@ -24,14 +24,14 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0x262000 + fi * 16;
+        var faddr = S + 0x2A2000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call: patch BL rel26
-            var target = L64(S + 0x26C000 + idx * 8);
+            var target = L64(S + 0x2AC000 + idx * 8);
             var rel = (target - coff) / 4;
             var pa = S + 0x20000 + coff;
             # BL: 0x94000000 | (rel & 0x3FFFFFF)

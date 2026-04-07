@@ -137,7 +137,7 @@ include "src/arch/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x270000);
+syscall(SYS_BRK, S + 0x2B0000);
 
 # Zero state
 S64(S + 0x8C100, 0);

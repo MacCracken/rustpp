@@ -24,7 +24,7 @@
 #   0x6A000  output_buf    [131072]      ELF output buffer
 #
 # --- Fixup ---
-#   0x8A000  (freed — fixup table relocated to 0x262000)
+#   0x8A000  (freed — fixup table relocated to 0x2A2000)
 #   0x8FCA8  fixup_cnt     [8]           Fixup entry count (moved from 0x8C000)
 #   0x8FCB0  last_var      [8]           Last assigned variable index (moved from 0x8C008)
 #
@@ -37,9 +37,9 @@
 #   0x8C128  NPOS          [8]           Name buffer position
 #
 # --- Function state ---
-#   0x26A000 fn_names      [8192]        1024 function name offsets (expanded from 512)
-#   0x26C000 fn_offsets    [8192]        1024 function code offsets (expanded from 512)
-#   0x26E000 fn_params     [8192]        1024 function param counts (expanded from 512)
+#   0x2AA000 fn_names      [8192]        1024 function name offsets (expanded from 512)
+#   0x2AC000 fn_offsets    [8192]        1024 function code offsets (expanded from 512)
+#   0x2AE000 fn_params     [8192]        1024 function param counts (expanded from 512)
 #   0x8DA00  fn_count      [8]
 #   0x8DA08  in_function   [8]
 #   0x8DA10  fn_local_cnt  [8]
@@ -75,13 +75,13 @@
 #   0x1A2000  tok_lines     [524288]      65536 token line numbers (8 bytes each)
 #
 # --- Preprocessor output ---
-#   0x222000  preprocess_out [262144]     Expanded source output buffer
+#   0x222000  preprocess_out [524288]     Expanded source output buffer
 #
 # --- Fixup table (relocated) ---
-#   0x262000  fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
+#   0x2A2000  fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
 #
 # --- brk limit ---
-#   0x270000 (end of heap allocation)
+#   0x2B0000 (end of heap allocation)
 #
 # --- Lexer line tracking ---
 #   0x8FCB8  cur_line      [8]           Current line number during lexing
@@ -150,7 +150,7 @@ include "src/cc/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x270000);
+syscall(SYS_BRK, S + 0x2B0000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -383,7 +383,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0x26C000 + stub_fi * 8, GCP(S));
+            S64(S + 0x2AC000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
