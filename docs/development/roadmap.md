@@ -13,11 +13,16 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-None — all clear.
+VCNT (variable table) overflow is the primary blocker for large ports:
+
+| # | Issue | Severity | Detail |
+|---|-------|----------|--------|
+| 1 | **VCNT never resets** | Blocker | Every local var, param, and enum variant permanently consumes a VCNT slot. agnostik port (12 modules) hits 512 limit at ~60% through modules. A function with `var x` permanently takes a slot even after the function ends. |
+| 2 | **cc2 segfaults on include chains** | High | Including 4+ large src files via `include` directive causes SIGSEGV (exit 139). Workaround: concatenate files externally and pipe to cc2. |
+| 3 | **Enum variants consume VCNT** | High | Each enum variant uses a variable slot. `LinuxCapability` (39 variants) alone burns 39 of 512 slots. Large enum-heavy APIs (security, LLM) become impractical. |
 
 Fixed in v1.7.0:
-- Input buffer overflow: expanded source up to 256KB now supported (overflows into codebuf safely — lexer consumes before codegen)
-- Large include chains: same root cause as above (source > 131KB), now works
+- Input buffer overflow: expanded source up to 256KB now supported
 - `return expr == expr`: PARSE_RETURN now calls PARSE_CMP_EXPR instead of PARSE_EXPR
 - Codebuf overflow: `EB()` checks limit (196608 bytes), clear error message
 
@@ -122,9 +127,9 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 | Limit | Current | Detail |
 |-------|---------|--------|
 | Functions | 1024 | Error at limit. Fix: multi-file compilation. |
-| Variables (VCNT) | 512 | Never resets between functions. Fix: stack-local arrays. |
-| Input buffer | 131072 bytes | **Silent truncation** — needs error message. agnostik port hits this at ~100KB of stripped source + 45KB stdlib. |
-| Code buffer | 196608 bytes | **Silent overflow** — needs error or auto-grow. Large programs (~400 fns) hit this before function limit. |
+| Variables (VCNT) | 512 | **Primary blocker.** Never resets between functions. Enum variants, params, and locals all accumulate. agnostik (12 modules + stdlib) needs ~590 slots. Fix: scope-aware reset or separate enum table. |
+| Input buffer | 256KB (v1.7) | Fixed in v1.7.0. Was 131KB. |
+| Code buffer | 196608 bytes | Overflow now detected (v1.7.0). |
 | Identifier buffer | 65536 bytes | Error with count at limit. |
 | Preprocessor macros | 16 | Sufficient for current use. |
 | Preprocessor passes | 16 | Handles deep include nesting. |
@@ -156,8 +161,9 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 | 1 | Global var as loop bound re-evaluates each iteration | Snapshot to local: `var limit = G; for (...)` |
 | 2 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals to push offsets |
 | 3 | `var buf[N]` is N bytes, not N elements | `var buf[120]` for 120-byte struct |
-| 4 | `return a == b` fails | Use `if (a == b) { return 1; } return 0;` instead |
-| 5 | Large projects hit input/codebuf limits silently | Strip comments, use concat build scripts instead of `include` |
+| 4 | `return a == b` fails | Fixed in v1.7.0 |
+| 5 | Large projects hit VCNT limit (512 vars) | Minimize enum variants, use raw integers for large enums (LinuxCapability, SeccompArch). Use `syscalls_min.cyr` instead of full `syscalls.cyr` (saves 122 slots). |
+| 6 | `include` directive segfaults on large chains | Use `command cat file1 file2 \| cc2` instead of `include` for 4+ large files |
 
 ---
 
