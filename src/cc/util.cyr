@@ -246,4 +246,3 @@ fn ERR_MSG(S, msg, len) {
     syscall(SYS_EXIT, 1);
     return 0;
 }
-
