@@ -13,7 +13,11 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-None — all clear.
+| # | Issue | Severity | Detail |
+|---|-------|----------|--------|
+| 1 | **SIGILL on large binaries with bench.cyr + all modules** | P1 | Compiling 12 agnostik modules + bench.cyr (~500 functions, ~600 VCNT) produces SIGILL (exit 132) or SIGSEGV (exit 139) when calling the second function after main(). Same code works with fewer modules (~3-4). The test suite (main.cyr with assert.cyr) compiles and runs fine at the same module count — the issue is specific to bench.cyr's additional functions/vars tipping the binary past a codegen threshold. Suspect: fixup table corruption or code buffer address miscalculation for function calls in large binaries. |
+| 2 | **Bump allocator never frees — no arena/reset pattern** | P2 | `alloc_reset()` exists but is unsafe to use between benchmark iterations because previously allocated bench structs become invalid. Need either: (a) arena allocator with named arenas, or (b) alloc_reset that doesn't invalidate outstanding pointers. Current workaround: use enough heap (auto-grows via brk) and accept the leak. |
+| 3 | **Many local vars in single function causes SIGILL** | P1 | A single `main()` function with 15+ `var` declarations for benchmark structs produces SIGILL. Splitting into per-benchmark functions works. Root cause likely VCNT slot overlap within a single function when slot count is high. |
 
 Fixed in v1.7.1:
 - AGNOS 25-syscall kernel compiles (97KB, ifdef+include in PP_IFDEF_PASS)

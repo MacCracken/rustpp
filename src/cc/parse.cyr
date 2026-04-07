@@ -279,7 +279,10 @@ fn PARSE_FACTOR(S) {
     if (typ == 1) {
         var val = PEEKV(S);
         STI(S, GTI(S) + 1);
+        _cfp = GCP(S);
         EMOVI(S, val);
+        # Mark as foldable only if small positive (5-byte EMOVI)
+        if (val > 0) { if (val < 0x80000000) { _cfv = val; _cfo = 1; } }
         return 0;
     }
     if (typ == 2) {
@@ -324,6 +327,7 @@ fn PARSE_FACTOR(S) {
         PARSE_EXPR(S);
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
         STI(S, GTI(S) + 1);
+        _cfo = 0;
         return 0;
     }
     if (typ == 27) {
@@ -601,7 +605,13 @@ fn PF64CMP(S, tok) {
     return 0;
 }
 
+# Constant folding state (codegen-level, same EMOVI size only)
+var _cfv = 0;
+var _cfp = 0;
+var _cfo = 0;
+
 fn PARSE_TERM(S) {
+    _cfo = 0;
     # f64 builtins — check before PARSE_FACTOR dispatches
     var ptyp = PEEKT(S);
     if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
@@ -617,25 +627,79 @@ fn PARSE_TERM(S) {
             var mulst = GESTYPE(S);
             STI(S, GTI(S) + 1);
             if (mulst > 0) { EMIT_OP_DISPATCH(S, mulst, "mul", 3); }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+            else {
+                # Constant fold: NUM * NUM where both and result are small positive
+                if (_cfo == 1) {
+                    if (PEEKT(S) == 1) {
+                        var crv = PEEKV(S);
+                        if (crv > 0) { if (crv < 0x80000000) {
+                            var cfr = _cfv * crv;
+                            if (cfr > 0) { if (cfr < 0x80000000) {
+                                PRNUM(GTLINE(S, GTI(S)));
+                                syscall(1, 2, " ", 1);
+                                STI(S, GTI(S) + 1);
+                                SCP(S, _cfp);
+                                EMOVI(S, cfr);
+                                _cfv = cfr;
+                            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); } }
+                            else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+                        } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); } }
+                        else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+                } else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+            }
         }
         else { if (typ == 9) {
             var divst = GESTYPE(S);
             STI(S, GTI(S) + 1);
             if (divst > 0) { EMIT_OP_DISPATCH(S, divst, "div", 3); }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
+            else {
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var crv = PEEKV(S);
+                    if (crv > 0) { if (crv < 0x80000000) {
+                        var cfr = _cfv / crv;
+                        if (cfr > 0) { if (cfr < 0x80000000) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
+                        else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
+                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
+                else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
+            }
         }
         else { if (typ == 34) {
-            # PERCENT — modulo
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S);
+            STI(S, GTI(S) + 1); _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S);
         }
         else { if (typ == 38) {
-            # SHL
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S);
+            STI(S, GTI(S) + 1);
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x80000000) {
+                    var cfr = _cfv << crv;
+                    if (cfr > 0) { if (cfr < 0x80000000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
+            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
         }
         else { if (typ == 39) {
-            # SHR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S);
+            STI(S, GTI(S) + 1);
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x80000000) {
+                    var cfr = _cfv >> crv;
+                    if (cfr > 0) { if (cfr < 0x80000000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
+            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
         }
         else { go = 0; }
         } } } }
