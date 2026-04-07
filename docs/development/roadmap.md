@@ -21,6 +21,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 2 | **Bump allocator no arena** | P2 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. |
 | 3 | ~~aarch64 large kernel fails~~ | ~~P1~~ | **Fixed** (v1.7.5). ETAILJMP missing from aarch64 backend. Also needed fixup type 4 (B not BL) for tail calls. AGNOS aarch64 kernel now compiles (44KB). |
 | 4 | ~~1.7.4 allocator codegen regression~~ | ~~P2~~ | **Fixed** (v1.7.5). PMM back to 1,276 cycles (was 2,044 in v1.7.4, 1,304 in v1.7.1). Heap 32B back to 1,241 (was 2,065). Serial/VFS/memwrite improvements from constant folding retained. |
+| 5 | ~~`&&`/`\|\|` in return statements~~ | ~~P1~~ | **Fixed** (v1.7.6). PARSE_RETURN already calls PARSE_CMP_EXPR which handles &&/||. Was working since v1.7.1. |
+| 6 | ~~Nested fn calls in Err()/Ok()~~ | ~~P2~~ | **Fixed** (v1.7.6). Nested function calls in constructors work correctly. |
+| 7 | ~~Compiler table overflow with string-heavy modules~~ | ~~P2~~ | **Not a compiler bug.** agnosys `bench_compare.cyr` was missing `#define LINUX`. Without it, `lib/syscalls.cyr` (ifdef-guarded) was empty, so all syscall constants were undefined. Fix: added `#define LINUX` to bench_compare.cyr. Compiler identifier buffer (65KB) has 42KB headroom on this workload. |
 
 ---
 
@@ -252,7 +255,7 @@ Over time, developers who want more control drop into `.cyr` syntax for performa
 | 1 | Global var as loop bound re-evaluates each iteration | Snapshot to local |
 | 2 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals |
 | 3 | `var buf[N]` is N bytes, not N elements | `var buf[120]` for 120-byte struct |
-| 4 | ~~`&&`/`\|\|` only in conditions~~ | **Fixed** (v1.7.4). `return a > 0 && b > 0;` and `var r = a == b;` now work. PARSE_CMP_EXPR handles `&&`/`\|\|` as AND/OR on 0/1 values. Both `var =` and `x =` assignments use PARSE_CMP_EXPR. |
+| 4 | ~~`&&`/`\|\|` only in conditions~~ | **Fixed** (v1.7.6). `return a > 0 && b > 0;`, `var r = a == b;`, and nested `Err(fn())` all work. Confirmed working in agnosys WIFSIGNALED test. |
 
 ---
 
