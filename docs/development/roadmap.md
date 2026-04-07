@@ -99,7 +99,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 |---|-------------|--------|--------|
 | 8 | ~~Dead code elimination~~ | ~~Medium~~ | **Done** (v1.7.0). Unreachable functions get 3-byte stub (xor eax,eax; ret). Token scan with STREQ comparison, skips module-scoped and mangled names. ~1.5KB saved on hello-world with stdlib. |
 | 9 | Register allocation | High | Reduce spills to stack |
-| 10 | Tail call optimization | Low | `return f()` → `jmp f` instead of `call f; ret` |
+| 10 | ~~Tail call optimization~~ | ~~Low~~ | **Done** (v1.7.2). `return fn(args);` → epilogue + `jmp fn`. Detects `) ;` after call to confirm tail position. 1M recursive calls without stack overflow. |
 
 ---
 

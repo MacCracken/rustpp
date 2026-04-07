@@ -281,6 +281,23 @@ fn ECALLCLEAN(S, n) {
     return 0;
 }
 
+# Emit tail call: epilogue + jmp (instead of call + epilogue)
+fn ETAILJMP(S, fnidx) {
+    # Emit epilogue: mov rsp, rbp; pop rbp
+    E3(S, 0xEC8948);  # mov rsp, rbp (48 89 EC)
+    EB(S, 0x5D);       # pop rbp
+    # Emit jmp rel32 with fixup (like ECALLFIX but type 2 + jmp opcode)
+    EB(S, 0xE9);        # jmp rel32
+    var poff = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    var fc = GFCNT(S);
+    var faddr = S + 0x262000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (2 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
 # Helper: emit disp32 at current CP
 fn EDISP32(S, disp) {
     var addr = S + 0x20000 + GCP(S);
