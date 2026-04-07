@@ -875,7 +875,24 @@ fn LEX(S) {
             var slen = spos - sstart - 1;
             ADDTOK(S, 30, (sstart << 16) | slen);
         }
-        else { p = p + 1; }
+        else {
+            # Reject non-ASCII bytes outside strings/comments
+            if (c > 127) {
+                syscall(SYS_WRITE, 2, "error:", 6);
+                PRNUM(GCLINE(S));
+                syscall(SYS_WRITE, 2, ": non-ASCII byte (0x", 20);
+                # Print hex byte
+                var hi = c >> 4;
+                var lo = c & 15;
+                if (hi < 10) { store8(S, 48 + hi); } else { store8(S, 87 + hi); }
+                syscall(SYS_WRITE, 2, S, 1);
+                if (lo < 10) { store8(S, 48 + lo); } else { store8(S, 87 + lo); }
+                syscall(SYS_WRITE, 2, S, 1);
+                syscall(SYS_WRITE, 2, ") -- only ASCII allowed in source (UTF-8 ok in strings)\n", 56);
+                syscall(SYS_EXIT, 1);
+            }
+            p = p + 1;
+        }
         } } } } } } } } }
         } } } } } } } } }
         } } } } } } } } }

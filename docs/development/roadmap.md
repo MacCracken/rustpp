@@ -78,7 +78,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 
 | # | Optimization | Target | Status |
 |---|-------------|--------|--------|
-| 1 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | Jump tables for dense switches |
+| ~~1~~ | ~~Branch optimization~~ | ~~`notify_parse`: 20ns vs Rust 2ns~~ | **Done** (v1.7.7). O(n) compare chain → O(1) table lookup for dense switches |
 | 2 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Needs token replay or IR |
 | 3 | Stack-allocated small strings | `str_builder`: 371ns vs Rust 52ns | Avoid heap < 64 bytes |
 | 4 | Arena allocator | `seccomp_build`: 2.4us vs Rust 69ns | Batch allocation |
@@ -94,6 +94,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Compare-and-branch fusion (cmp + jCC) | Always (if/while/for) |
 | Constant folding (* / << >>) | v1.7.3 |
 | Constant folding (+ - & \| ^) | v1.7.7 |
+| Jump tables (O(1) dense switch) | v1.7.7 |
 
 ---
 
