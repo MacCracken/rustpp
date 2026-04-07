@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-04-07
+
+### Improved — Tooling
+- **Dependency `modules` filter**: Path and git deps now support `modules = ["lib/syscalls.cyr"]`
+  to include only specific files instead of the entire project. Without `modules`, all lib/ + src/
+  are included (existing behavior). Prevents pulling in 20+ unused modules from large dependencies.
+- **`cyrb pulsar` installs shell cyrb**: Was installing stale compiled binary (0.6.0). Now installs
+  the shell script with deps/pulsar support. Nuking `~/.cyrius` and running `cyrb pulsar`
+  reconstitutes a clean install.
+
 ## [1.9.1] — 2026-04-07
 
 ### Added — Tooling

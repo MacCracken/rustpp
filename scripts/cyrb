@@ -195,15 +195,24 @@ resolve_deps() {
         fi
 
         if [ -n "$resolve_dir" ] && [ -d "$resolve_dir" ]; then
-            # Include lib/*.cyr from dependency
-            for f in "$resolve_dir"/lib/*.cyr; do
-                [ -f "$f" ] && echo "include \"$f\"" >> "$outfile"
-            done
-            # Include src/*.cyr from dependency (excluding main.cyr)
-            for f in "$resolve_dir"/src/*.cyr; do
-                [ -f "$f" ] && [ "$(basename "$f")" != "main.cyr" ] && \
-                    echo "include \"$f\"" >> "$outfile"
-            done
+            # Check for modules filter: modules = ["lib/syscalls.cyr", "src/error.cyr"]
+            local mods=$(toml_array "$manifest" "modules" "deps.$dep")
+            if [ -n "$mods" ]; then
+                # Selective: only include listed modules
+                for mod in $mods; do
+                    local mf="$resolve_dir/$mod"
+                    [ -f "$mf" ] && echo "include \"$mf\"" >> "$outfile"
+                done
+            else
+                # All: include lib/*.cyr + src/*.cyr (excluding main.cyr)
+                for f in "$resolve_dir"/lib/*.cyr; do
+                    [ -f "$f" ] && echo "include \"$f\"" >> "$outfile"
+                done
+                for f in "$resolve_dir"/src/*.cyr; do
+                    [ -f "$f" ] && [ "$(basename "$f")" != "main.cyr" ] && \
+                        echo "include \"$f\"" >> "$outfile"
+                done
+            fi
         fi
     done
 }
@@ -775,7 +784,13 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         cp "$REPO/build/cc2_aarch64" "$DEST/cc2_aarch64" 2>/dev/null && chmod +x "$DEST/cc2_aarch64"
         cp "$REPO/build/cc2-native-aarch64" "$DEST/cc2-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc2-native-aarch64"
         cp "$REPO/lib/"*.cyr "$DEST/lib/"
+        # Install cyrb shell script + helpers (NOT the compiled binary)
+        cp "$REPO/scripts/cyrb" "$DEST/cyrb" && chmod +x "$DEST/cyrb"
+        for script in "$REPO"/scripts/cyrb-*.sh; do
+            [ -f "$script" ] && cp "$script" "$DEST/" && chmod +x "$DEST/$(basename "$script")"
+        done
         ln -sf "$DEST/cc2" "$CYRB_HOME/bin/cc2"
+        ln -sf "$DEST/cyrb" "$CYRB_HOME/bin/cyrb"
         ln -sf "$DEST/cc2_aarch64" "$CYRB_HOME/bin/cc2_aarch64" 2>/dev/null || true
         ln -sf "$DEST/cc2-native-aarch64" "$CYRB_HOME/bin/cc2-native-aarch64" 2>/dev/null || true
 
