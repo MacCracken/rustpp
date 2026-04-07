@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-04-07
+
+### Added — Standard Library
+- **`lib/toml.cyr` — TOML parser**: Parses TOML files with string values (`key = "value"`),
+  triple-quoted multi-line strings (`key = '''...'''`), arrays of tables (`[[section]]`),
+  and comments. Returns vec of sections, each with name + pairs vec. Includes `toml_parse`,
+  `toml_parse_file`, `toml_get`, `toml_get_sections`. Tested against vidya corpus: 108 entries
+  across implementation.toml (59), ecosystem.toml (35), strings/concept.toml (14).
+  Unblocks vidya port to Cyrius (TOML content loader + search + registry).
+
 ## [1.8.1] — 2026-04-07
 
 ### Fixed — Compiler
