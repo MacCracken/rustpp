@@ -44,7 +44,7 @@ ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 |---|---------|--------|------|
 | 1 | Async/await | High | Concurrency — tokio-style patterns |
 | 2 | ~~Inline small functions~~ | ~~Medium~~ | **Done** (v1.10.0). Token replay inlining for 1-param functions ≤6 tokens. |
-| 3 | Return-by-value small structs | Medium | Codegen — structs <= 2 registers in rax/rdx |
+| 3 | ~~Return-by-value small structs~~ | ~~Medium~~ | **Done** (v1.10.0). `ret2(a,b)` returns rax:rdx, `rethi()` reads rdx. |
 | 4 | Register allocation | High | Codegen — reduce spills, general speedup |
 | 5 | `#ref` TOML compile-time data | High | Language — O(1) static lookups, perfect hash |
 
@@ -61,6 +61,8 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 | 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` should work in function call args, assignments, and return values, not just `switch`/`case`. Currently causes "unexpected ','" or "unexpected ')'" parse errors when used as `fn_call(MyEnum.VARIANT, arg2)`. Workaround: use bare variant names with unique prefixes (`ERR_NONE`, `ACCEL_CUDA`). |
 | 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Currently cc2 switches to code emission on the first non-fn statement and rejects later fn defs with "unexpected fn". Workaround: all fn defs must precede all statements (e.g., `alloc_init()` at the bottom). |
 | 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only (no individual `free()`). Long-running programs (daemons, CLI tools with detect-plan-report cycles) accumulate memory. Option: add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()` alongside existing bump allocator. |
+| 4 | **Fixup table expansion (8192+)** | Low | Compiler — fixup table limit of 4096 entries is hit by large programs (~25 source files + stdlib). ai-hwaccel port requires stub functions in test binaries to stay under limit. Workaround: split test binaries, stub unused modules. Fix: expand fixup table capacity or use dynamic allocation. |
+| 5 | **`vec_set()` in vec.cyr** | Low | Stdlib — vec.cyr has `vec_get` and `vec_push` but no `vec_set(v, idx, val)` for in-place element replacement. Workaround: direct memory access via `store64(load64(v) + idx * 8, val)`. |
 
 ---
 

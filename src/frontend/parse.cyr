@@ -685,6 +685,33 @@ fn PARSE_SIMD_EXT(S, ptyp) {
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
         return 0;
     }
+    # ret2(a, b) — return two values in rax:rdx
+    if (ptyp == 97) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        # rax = b, stack = a → mov rdx, rax; pop rax
+        EB(S, 0x48); EB(S, 0x89); EB(S, 0xC2);
+        EPOPR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        # Don't consume ; here — PARSE_STMT handles it via expression statement path
+        var rp = EJMP0(S);
+        var rpc = GRPC(S);
+        S64(S + 0x8DA20 + rpc * 8, rp);
+        SRPC(S, rpc + 1);
+        return 0;
+    }
+    # rethi() — read rdx from last function call (mov rax, rdx)
+    if (ptyp == 98) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        EB(S, 0x48); EB(S, 0x89); EB(S, 0xD0);
+        return 0;
+    }
     return 0;
 }
 
@@ -694,9 +721,9 @@ var _cfo = 0;
 
 fn PARSE_TERM(S) {
     _cfo = 0;
-    # Extended SIMD builtins — checked first
+    # Extended builtins — checked first
     var ptyp = PEEKT(S);
-    if (ptyp >= 93) { if (ptyp <= 96) { return PARSE_SIMD_EXT(S, ptyp); } }
+    if (ptyp >= 93) { if (ptyp <= 98) { return PARSE_SIMD_EXT(S, ptyp); } }
     # f64 builtins — check before PARSE_FACTOR dispatches
     if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
     if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PEXPR(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
@@ -2752,7 +2779,7 @@ fn PARSE_STMT(S) {
     if (typ == 46) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 47) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     # f64/SIMD builtins as statements
-    if (typ >= 62) { if (typ <= 96) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
+    if (typ >= 62) { if (typ <= 98) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
     if (typ == 2) {
         # Could be assignment or fn call as statement
         var noff = PEEKV(S);

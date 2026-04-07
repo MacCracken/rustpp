@@ -1152,6 +1152,31 @@ fn LEXNUM(S, p) {
     return LEXDEC(S, p);
 }
 
+# Extended keyword check (klen >= 4). Returns token or 0.
+fn LEXKW_EXT(kw, klen, S, ws) {
+    # ret2/rethi
+    if (klen == 4) { if (kw & 0xFFFFFFFF == 0x32746572) { return 97; } }
+    if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6968746572) { return 98; } }
+    # SIMD vector keywords
+    if (klen == 8) {
+        if (kw == 0x7669645F76343666) { return 93; }
+        if (kw == 0x7362615F76343666) { return 95; }
+    }
+    if (klen == 9) {
+        if (kw == 0x7271735F76343666) {
+            if (load8(S + 0x60000 + ws + 8) == 116) { return 94; }
+        }
+    }
+    if (klen == 10) {
+        if (kw == 0x616D665F76343666) {
+            if (load8(S + 0x60000 + ws + 8) == 100) {
+                if (load8(S + 0x60000 + ws + 9) == 100) { return 96; }
+            }
+        }
+    }
+    return 0;
+}
+
 # Lex an identifier starting at p, return new p. Stores token.
 fn LEXID(S, p, npos) {
     if (npos >= 65500) {
@@ -1197,22 +1222,10 @@ fn LEXID(S, p, npos) {
     else { SNPOS(S, bl); }
     # Check keywords
     var kw = L64(S + 0x60000 + ws);
-    # SIMD vector keywords
-    if (klen == 8) {
-        if (kw == 0x7669645F76343666) { ADDTOK(S, 93, 0); return p; }
-        if (kw == 0x7362615F76343666) { ADDTOK(S, 95, 0); return p; }
-    }
-    if (klen == 9) {
-        if (kw == 0x7271735F76343666) {
-            if (load8(S + 0x60000 + ws + 8) == 116) { ADDTOK(S, 94, 0); return p; }
-        }
-    }
-    if (klen == 10) {
-        if (kw == 0x616D665F76343666) {
-            if (load8(S + 0x60000 + ws + 8) == 100) {
-                if (load8(S + 0x60000 + ws + 9) == 100) { ADDTOK(S, 96, 0); return p; }
-            }
-        }
+    # Extended keywords (ret2, rethi, SIMD) in separate function
+    if (klen >= 4) {
+        var ext_tok = LEXKW_EXT(kw, klen, S, ws);
+        if (ext_tok > 0) { ADDTOK(S, ext_tok, 0); return p; }
     }
     if (klen == 2) {
         if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
