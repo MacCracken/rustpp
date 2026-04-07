@@ -23,7 +23,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 4 | ~~1.7.4 allocator codegen regression~~ | ~~P2~~ | **Fixed** (v1.7.5). PMM back to 1,276 cycles (was 2,044 in v1.7.4, 1,304 in v1.7.1). Heap 32B back to 1,241 (was 2,065). Serial/VFS/memwrite improvements from constant folding retained. |
 | 5 | ~~`&&`/`\|\|` in return statements~~ | ~~P1~~ | **Fixed** (v1.7.6). PARSE_RETURN already calls PARSE_CMP_EXPR which handles &&/||. Was working since v1.7.1. |
 | 6 | ~~Nested fn calls in Err()/Ok()~~ | ~~P2~~ | **Fixed** (v1.7.6). Nested function calls in constructors work correctly. |
-| 7 | ~~Compiler table overflow with string-heavy modules~~ | ~~P2~~ | **Not a compiler bug.** agnosys `bench_compare.cyr` was missing `#define LINUX`. Without it, `lib/syscalls.cyr` (ifdef-guarded) was empty, so all syscall constants were undefined. Fix: added `#define LINUX` to bench_compare.cyr. Compiler identifier buffer (65KB) has 42KB headroom on this workload. |
+| 7 | ~~Compiler table overflow with string-heavy modules~~ | ~~P2~~ | **Fixed** (v1.7.8). Identifier deduplication in LEXID cut tok_names usage ~50%. security.cyr + bench.cyr + update.cyr now compiles with ~30KB headroom. |
+| 8 | **VCNT overflow at ~14 modules** | P2 | Including 14+ agnosys src modules with lib/ + bench.cyr hits the 2048 VCNT limit. Error: `expected ')', got '=='` at random lines. VCNT never resets between functions, so all locals across all included functions accumulate. 12 modules works, 14 fails. Blocks full-project bench suite. Fix: VCNT reset per function, or expand limit to 4096+. |
+| 9 | ~~Input buffer 256KB limit~~ | ~~P2~~ | **Fixed** (v1.8.0). Expanded preprocess output buffer from 256KB to 512KB. agnosys 20 modules now fit (262KB). |
 
 ---
 
@@ -122,8 +124,10 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
 | Fixup entries | 4096 | Expanded from 2048 in v1.7.5. All writers checked. |
 | Input buffer | 512KB | Lex from preprocess buffer (v1.7.2) |
+| Preprocess output | 512KB | Expanded from 256KB in v1.8.0. Unblocks agnosys 20 modules. |
 | Code buffer | 196608 bytes | Overflow detected |
-| Identifier buffer | 65536 bytes | Error with count |
+| Identifier buffer | 65536 bytes | Dedup since v1.7.8 (~50% savings) |
+| Include-once table | 64 files | Tracked filenames for dedup (v1.8.0) |
 | Macros | 16 | |
 
 ---

@@ -15,7 +15,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ## Current State
 
-- **Compiler**: 141KB (x86_64), self-hosting, ~11ms self-compile
+- **Compiler**: 164KB (x86_64), self-hosting, ~11ms self-compile
 - **Tests**: 267 total (216 compiler + 51 programs) + 26 aarch64, 0 failures
 - **Libraries**: 21 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark)
@@ -27,8 +27,8 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 ```
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
-    → cc_bridge.cyr (bridge compiler, 2009 lines)
-      → cc2 (modular compiler, 136KB, 7 modules)
+    → bridge.cyr (bridge compiler, 2007 lines)
+      → cc2 (modular compiler, 164KB, 8 modules)
         → cc2_aarch64 (cross-compiler, 130KB)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.

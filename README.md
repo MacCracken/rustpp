@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-136KB compiler. Self-hosting on x86_64 and aarch64. 263 tests, 0 failures.
+164KB compiler. Self-hosting on x86_64 and aarch64. 267 tests, 0 failures.
 
 ## Install
 
@@ -59,48 +59,35 @@ enum Result { Ok(val) = 0; Err(code) = 1; }
 
 fn main() {
     alloc_init();
-
-    # Structs + methods + operators
-    var a = Point { 10, 20 };
-    var b = Point { 32, 22 };
-    var c = a + b;
-
-    # Strings with methods
-    var s: Str = str_from("hello world");
-    var len = s.len();
-
-    # Pattern matching
-    var r = Ok(42);
-    match load64(r) {
-        0 => { return load64(r + 8); }
-        _ => { return 0; }
-    }
-    return 0;
+    var a = Point { 1, 2 };
+    var b = Point { 3, 4 };
+    Point_add(&a, &b);
+    return Point_sum(&a);
 }
-var exit_code = main();
-syscall(60, exit_code);
+
+var r = main();
+syscall(60, r);
 ```
 
 ### Features
 
-- **Types**: structs, enums (with data), tagged unions (Option/Result)
-- **OOP**: methods on structs, trait impl blocks, operator overloading (+, -, *, /)
-- **Control flow**: if/elif/else, while, for, for-in (range + collections), match, switch, break/continue
-- **Functions**: closures/lambdas, function pointers, >6 params, recursion
-- **Modules**: mod/use/pub, feature flags (#define/#ifdef)
-- **Types**: f64 floating point (SSE2), string type with 16 methods
-- **System**: inline asm, raw syscalls, 50+ syscall wrappers
-- **Generics**: syntax parsed (Phase 1), everything is i64
+- Structs, enums, match, for-in, closures, impl blocks
+- 20 f64 builtins (add/sub/mul/div + sin/cos/exp/ln/log2/exp2/sqrt/abs/floor/ceil)
+- Constant folding for all arithmetic operators
+- Dead code elimination, tail call optimization, jump tables for dense switches
+- `#derive(Serialize)` for auto-generated JSON serialization
+- Include-once semantics (duplicate includes silently skipped)
+- Inline assembly (`asm { }`)
 
 ### Metrics
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **136KB** (x86_64), 130KB (aarch64) |
+| Compiler | **164KB** (x86_64) |
 | Self-compile | ~11ms |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | **263** (0 failures) |
+| Tests | **267** (216 compiler + 51 programs, 0 failures) |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
 ## Build Tool (cyrb)
@@ -124,19 +111,43 @@ Info:      version, which, help
 | System | syscalls (50 wrappers), callback, process, bench |
 | Data | json, fs, net, regex |
 
-## Architecture
+## Compiler Architecture (v1.8.0)
 
 ```
-bootstrap/asm (29KB committed binary — root of trust)
-  → stage1f (12KB compiler)
-    → cc_bridge.cyr (bridge compiler)
-      → cc2 (modular compiler, 136KB, 7 modules)
-        → cc2_aarch64 (cross-compiler)
+src/
+  main.cyr              Entry point (orchestration, passes)
+  main_aarch64.cyr      Cross-compiler entry
+  bridge.cyr            Bridge compiler (stage1f feature set)
+
+  frontend/
+    lex.cyr             Lexer + preprocessor (include-once, #derive, #ifdef)
+    parse.cyr           Parser + codegen dispatch
+
+  backend/x86/
+    emit.cyr            x86_64 instruction emission
+    float.cyr           SSE2/SSE4.1/x87 float ops
+    jump.cyr            Jump/patch helpers
+    fixup.cyr           Address fixup + ELF emission
+
+  backend/aarch64/      (same structure as x86)
+
+  common/
+    util.cyr            State accessors, error functions
+```
+
+### Bootstrap Chain
+
+```
+bootstrap/asm (29KB committed binary -- root of trust)
+  -> stage1f (12KB compiler)
+    -> bridge.cyr (bridge compiler)
+      -> cc2 (modular compiler, 164KB, 8 modules)
+        -> cc2_aarch64 (cross-compiler)
 ```
 
 ## Migration
 
-107 Rust repos (~980K lines) planned for conversion. 5 done. `cyrb port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
+108 Rust repos (~1M lines) planned for conversion. 5 done. `cyrb port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
 
 ## License
 

@@ -75,7 +75,7 @@
 #   0x1A2000  tok_lines     [524288]      65536 token line numbers (8 bytes each)
 #
 # --- Preprocessor output ---
-#   0x222000  preprocess_out [262144]     Expanded source output buffer
+#   0x222000  preprocess_out [524288]     512KB expanded source buffer
 #
 # --- brk limit ---
 # --- Fixup table (relocated) ---

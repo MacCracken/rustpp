@@ -47,7 +47,7 @@ The wc advantage comes from zero-overhead processing — no locale, no UTF-8 dec
 
 | Operation | Time |
 |-----------|------|
-| Compiler self-compile (136KB binary) | **~11ms** |
+| Compiler self-compile (164KB binary) | **~11ms** |
 | Build any single program | **<5ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Assembler throughput | 1.3M lines/sec |
