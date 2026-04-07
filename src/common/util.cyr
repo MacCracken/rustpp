@@ -21,8 +21,8 @@ fn GCP(S) { return L64(S + 0x8C108); }
 fn SCP(S, v) { S64(S + 0x8C108, v); return 0; }
 fn GVCNT(S) { return L64(S + 0x8C110); }
 fn SVCNT(S, v) {
-    if (v >= 2048) {
-        syscall(SYS_WRITE, 2, "error: variable table full (2048) — too many globals+enums+arrays\n", 66);
+    if (v >= 4096) {
+        syscall(SYS_WRITE, 2, "error: variable table full (4096) — too many globals+enums+arrays\n", 66);
         syscall(SYS_EXIT, 1);
     }
     S64(S + 0x8C110, v);

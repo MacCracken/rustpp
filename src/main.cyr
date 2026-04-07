@@ -16,8 +16,8 @@
 #   0x50000  tok_names     [65536]       Packed identifier strings
 #   0x8A000  struct_ftypes [4096]        32*16 field type IDs
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF
-#   0x60000  var_noffs     [16384]       2048 variable name offsets
-#   0x64000  var_sizes     [16384]       2048 variable sizes
+#   0x2B8000  var_noffs     [32768]       4096 variable name offsets
+#   0x2C0000  var_sizes     [32768]       4096 variable sizes
 #   0x68000  str_data      [8192]        String literal bytes
 #   0x69800  str_pos       [8]           String position
 #   0x69808  data_size     [8]           Total variable data bytes
@@ -46,7 +46,7 @@
 #   0x2B2000 fn_names      [8192]        1024 function name offsets
 #   0x2B4000 fn_offsets    [8192]        1024 function code offsets
 #   0x2B6000 fn_params     [8192]        1024 function param counts
-#   0x2B8000 brk
+#   0x2C8000 brk
 #
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
@@ -101,7 +101,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x2B8000);
+syscall(SYS_BRK, S + 0x2C8000);
 
 # Zero state
 S64(S + 0x8C100, 0);

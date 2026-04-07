@@ -24,7 +24,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 5 | ~~`&&`/`\|\|` in return statements~~ | ~~P1~~ | **Fixed** (v1.7.6). PARSE_RETURN already calls PARSE_CMP_EXPR which handles &&/||. Was working since v1.7.1. |
 | 6 | ~~Nested fn calls in Err()/Ok()~~ | ~~P2~~ | **Fixed** (v1.7.6). Nested function calls in constructors work correctly. |
 | 7 | ~~Compiler table overflow with string-heavy modules~~ | ~~P2~~ | **Fixed** (v1.7.8). Identifier deduplication in LEXID cut tok_names usage ~50%. security.cyr + bench.cyr + update.cyr now compiles with ~30KB headroom. |
-| 8 | **VCNT overflow at ~14 modules** | P2 | Including 14+ agnosys src modules with lib/ + bench.cyr hits the 2048 VCNT limit. Error: `expected ')', got '=='` at random lines. VCNT never resets between functions, so all locals across all included functions accumulate. 12 modules works, 14 fails. Blocks full-project bench suite. Fix: VCNT reset per function, or expand limit to 4096+. |
+| 8 | ~~VCNT overflow at ~14 modules~~ | ~~P2~~ | **Fixed** (v1.8.2). Relocated var_noffs/var_sizes to 0x2B8000/0x2C0000, expanded from 2048→4096 entries. Also fixed ECONDCMP to handle boolean subexpressions without comparison operator, and PARSE_FACTOR paren handler to call PCMPE (not PEXPR) for comparisons inside parens. agnosys all 20 modules now compile. |
 | 9 | ~~Input buffer 256KB limit~~ | ~~P2~~ | **Fixed** (v1.8.0). Expanded preprocess output buffer from 256KB to 512KB. agnosys 20 modules now fit (262KB). |
 
 ---
@@ -151,7 +151,32 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 
 ---
 
-## cyrius-x — Portable Bytecode (v2.0+)
+## `#ref` — Compile-Time Data Tables (v2.0)
+
+TOML as a compile-time data declaration format. The compiler reads `.toml` files via `#ref`, generates perfect hash tables and static data at compile time, and emits them as pre-computed data in the binary. Zero runtime cost for static lookups.
+
+```cyrius
+#ref "syscalls.toml"
+
+// compiler generates perfect hash at compile time
+// syscall_lookup("read") → O(1), no runtime hashing
+var nr = syscall_lookup("read");   // 2ns, not 106ns
+```
+
+| Phase | Scope |
+|-------|-------|
+| 1 | `#ref` directive — load TOML at compile time, expose as typed constants |
+| 2 | Perfect hash generation — compiler emits O(1) lookup tables from TOML key-value pairs |
+| 3 | Static hashmap init — `#ref` populates hashmaps at compile time, no runtime construction |
+| 4 | Config-driven codegen — feature flags, platform tables, error codes from TOML |
+
+**Why TOML**: Already in the Cyrius stdlib. Human-readable. Every AGNOS project already uses it for configuration. Reusing an existing format as a compile-time data source means no new syntax, no new parser — the compiler already knows how to read it.
+
+**What it closes**: The 106ns vs 2ns gap on `syscall_name_to_nr`. Every static lookup table in every port. The `sandbox_config_default` 37x gap (static config from TOML instead of runtime construction). Any pattern where data is known at compile time but constructed at runtime.
+
+---
+
+## cyrius-x — Portable Bytecode (v2.0)
 
 A Cyrius-native portable bytecode format. Not WASM — designed for AGNOS, systems-first, agent-native.
 
@@ -166,7 +191,7 @@ A Cyrius-native portable bytecode format. Not WASM — designed for AGNOS, syste
 
 ---
 
-## cyrius-ts — TypeScript/JavaScript Bridge Frontend (v2.0+)
+## cyrius-ts — TypeScript/JavaScript Bridge Frontend (v2.0)
 
 Not a transpiler. Not a new language. A **compiler frontend** — same pattern as cycc for C. TS-like syntax parsed into Cyrius IR, same backend, same binary output. 20 million JS/TS developers write what they know, the compiler produces sovereign binaries.
 

@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   across implementation.toml (59), ecosystem.toml (35), strings/concept.toml (14).
   Unblocks vidya port to Cyrius (TOML content loader + search + registry).
 
+### Fixed — Compiler
+- **VCNT expanded 2048→4096**: Relocated var_noffs/var_sizes from 0x60000/0x64000 to
+  0x2B8000/0x2C0000 (after fn tables). Brk extended to 0x2C8000. agnosys 20 modules
+  have ~3400 enum variants — now fits comfortably.
+- **Parenthesized comparisons in conditions**: `while (x && (load8(p) == 32 || load8(p) == 9))`
+  now works. PARSE_FACTOR's paren handler calls PCMPE (not PEXPR), allowing comparisons
+  and `&&`/`||` inside parenthesized subexpressions. ECONDCMP handles boolean values
+  without a comparison operator (treats non-zero as true via `cmp rax, 0; jne`).
+- **agnosys `else if` → `elif`**: Fixed 1 instance in src/ima.cyr.
+
 ## [1.8.1] — 2026-04-07
 
 ### Fixed — Compiler

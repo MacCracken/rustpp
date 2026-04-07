@@ -174,7 +174,10 @@ fn toml_parse(src) {
                 if (pos < slen) {
                     var vc = load8(data + pos);
                     # Triple-quoted string '''...'''
-                    if (vc == 39 && pos + 2 < slen && load8(data + pos + 1) == 39 && load8(data + pos + 2) == 39) {
+                    var is_tri = vc == 39 && pos + 2 < slen;
+                    if (is_tri == 1) { is_tri = load8(data + pos + 1) == 39; }
+                    if (is_tri == 1) { is_tri = load8(data + pos + 2) == 39; }
+                    if (is_tri == 1) {
                         value = _toml_parse_multiline(data, pos, slen);
                         pos = _toml_multiline_end(data, pos, slen);
                     }

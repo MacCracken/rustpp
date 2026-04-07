@@ -18,7 +18,7 @@ fn FIXUP(S) {
     var totvar = 0;
     var vi = 0;
     while (vi < vcnt) {
-        totvar = totvar + L64(S + 0x64000 + vi * 8);
+        totvar = totvar + L64(S + 0x2C0000 + vi * 8);
         vi = vi + 1;
     }
     var fcnt = GFCNT(S);
@@ -52,7 +52,7 @@ fn FIXUP(S) {
             var cumul = 0;
             vi = 0;
             while (vi < idx) {
-                cumul = cumul + L64(S + 0x64000 + vi * 8);
+                cumul = cumul + L64(S + 0x2C0000 + vi * 8);
                 vi = vi + 1;
             }
             FIXUP_MOV(S, coff, dbase + cumul);
