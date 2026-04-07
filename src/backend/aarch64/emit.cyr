@@ -8,10 +8,10 @@
 # Emit one byte to codebuf
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 196608) {
+    if (cp >= 262144) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
         PRNUM(cp);
-        syscall(SYS_WRITE, 2, "/196608 bytes)\n", 15);
+        syscall(SYS_WRITE, 2, "/262144 bytes)\n", 15);
         syscall(SYS_EXIT, 1);
     }
     store8(S + 0x20000 + cp, b & 0xFF);
@@ -431,7 +431,7 @@ fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
 fn ASM_MNEMONIC(S) {
     var noff = PEEKV(S);
-    var mnem = L64(S + 0x50000 + noff);
+    var mnem = L64(S + 0x60000 + noff);
     STI(S, GTI(S) + 1);
     if (mnem & 0xFFFFFF == 0x637673) { EW(S, 0xD4000001); }                    # svc
     elif (mnem & 0xFFFFFF == 0x696677) { EW(S, 0xD503207F); }                  # wfi

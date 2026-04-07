@@ -20,7 +20,7 @@ All P1/P2 compiler bugs resolved. Only open item:
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
 | 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
-| 3 | **aarch64 tarball ships x86 cross-compiler** | P2 | aarch64 tarball contains x86 cross-compiler (not native aarch64). Native self-hosting blocked by 196KB codebuf limit — aarch64 compiler source overflows. Fix: expand codebuf or optimize aarch64 codegen. Workaround: run cross-compiler under qemu. Added ESETCC + float stubs to aarch64 backend. |
+| 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). Expanded codebuf 192KB→256KB (tok_names moved 0x50000→0x60000). Added ESETCC + float stubs to aarch64 backend. Release workflow now self-hosts: x86 cc2 → cross-compiler → native aarch64 binary. Verified under qemu. |
 
 ---
 

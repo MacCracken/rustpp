@@ -12,8 +12,8 @@
 # Check here FIRST before allocating new state.
 #
 #   0x00000  input_buf     [131072]      Raw stdin input
-#   0x20000  codebuf       [196608]      Generated machine code
-#   0x50000  tok_names     [65536]       Packed identifier strings
+#   0x20000  codebuf       [262144]      Generated machine code
+#   0x60000  tok_names     [65536]       Packed identifier strings
 #   0x8A000  struct_ftypes [4096]        32*16 field type IDs
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF
 #   0x2B8000  var_noffs     [32768]       4096 variable name offsets
@@ -196,12 +196,12 @@ while (scan == 1) {
                     # Append mangled name to tok_names (after lexing, NPOS is stable)
                     var apos = GNPOS(S);
                     var ri = 0;
-                    var rc = load8(S + 0x50000 + umod + ri);
-                    while (rc != 0) { store8(S + 0x50000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x50000 + umod + ri); }
-                    store8(S + 0x50000 + apos, 95); apos = apos + 1;
-                    ri = 0; rc = load8(S + 0x50000 + ufn + ri);
-                    while (rc != 0) { store8(S + 0x50000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x50000 + ufn + ri); }
-                    store8(S + 0x50000 + apos, 0); apos = apos + 1;
+                    var rc = load8(S + 0x60000 + umod + ri);
+                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
+                    store8(S + 0x60000 + apos, 95); apos = apos + 1;
+                    ri = 0; rc = load8(S + 0x60000 + ufn + ri);
+                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
+                    store8(S + 0x60000 + apos, 0); apos = apos + 1;
                     var alias_noff = GNPOS(S);
                     SNPOS(S, apos);
                     S64(S + 0x901D0 + uc * 8, alias_noff);
@@ -301,7 +301,7 @@ while (topgo == 1) {
         var dce_reachable = 1;
         if (GMOD(S) == 0) {
             # Check for underscore in name (mangled — skip DCE)
-            var dce_np = S + 0x50000 + dce_fnoff;
+            var dce_np = S + 0x60000 + dce_fnoff;
             var dce_has_us = 0;
             var dce_ni = 0;
             while (load8(dce_np + dce_ni) != 0) {
@@ -387,7 +387,7 @@ var wfc = GFNC(S);
 while (wfi < wfc) {
     if (L64(S + 0x2B4000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x50000 + L64(S + 0x2B2000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0x2B2000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;

@@ -14,8 +14,8 @@
 #
 # --- Buffers (address order) ---
 #   0x00000  input_buf     [131072]      Input source text (expanded from 65536)
-#   0x20000  codebuf       [196608]      Generated machine code
-#   0x50000  tok_names     [65536]       Packed identifier strings
+#   0x20000  codebuf       [262144]      Generated machine code
+#   0x60000  tok_names     [65536]       Packed identifier strings
 #   0x2C8000  var_noffs     [16384]       2048 variable name offsets (expanded from 512)
 #   0x2C0000  var_sizes     [16384]       2048 variable sizes (relocated from 0x60800)
 #   0x68000  str_data      [8192]        String literal bytes (relocated from 0x62000)

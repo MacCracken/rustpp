@@ -210,7 +210,7 @@ fn ERR(S) {
     PRSTR(TOKNAME(typ));
     if (typ == 2) {
         syscall(SYS_WRITE, 2, " '", 2);
-        PRSTR(S + 0x50000 + PEEKV(S));
+        PRSTR(S + 0x60000 + PEEKV(S));
         syscall(SYS_WRITE, 2, "'", 1);
     }
     if (typ == 1) {
@@ -232,7 +232,7 @@ fn ERR_EXPECT(S, expected_type) {
     PRSTR(TOKNAME(got));
     if (got == 2) {
         syscall(SYS_WRITE, 2, " '", 2);
-        PRSTR(S + 0x50000 + PEEKV(S));
+        PRSTR(S + 0x60000 + PEEKV(S));
         syscall(SYS_WRITE, 2, "'", 1);
     }
     if (got == 1) {

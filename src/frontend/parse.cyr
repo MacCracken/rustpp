@@ -130,9 +130,9 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     var cwp2 = GNPOS(S);
                     var cnoff2 = cwp2;
                     var cri2 = 0;
-                    var crc2 = load8(S + 0x50000 + vnoff + cri2);
-                    while (crc2 != 0) { store8(S + 0x50000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x50000 + vnoff + cri2); }
-                    store8(S + 0x50000 + cwp2, 0); cwp2 = cwp2 + 1;
+                    var crc2 = load8(S + 0x60000 + vnoff + cri2);
+                    while (crc2 != 0) { store8(S + 0x60000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x60000 + vnoff + cri2); }
+                    store8(S + 0x60000 + cwp2, 0); cwp2 = cwp2 + 1;
                     SNPOS(S, cwp2);
                     var cfi = FINDFN(S, cnoff2);
                     if (cfi >= 0) {
@@ -144,9 +144,9 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         EMOVI(S, 16); EPUSHR(S);
                         ECALLPOPS(S, 1);
                         var awnp = GNPOS(S);
-                        store8(S + 0x50000 + awnp, 97); store8(S + 0x50000 + awnp + 1, 108);
-                        store8(S + 0x50000 + awnp + 2, 108); store8(S + 0x50000 + awnp + 3, 111);
-                        store8(S + 0x50000 + awnp + 4, 99); store8(S + 0x50000 + awnp + 5, 0);
+                        store8(S + 0x60000 + awnp, 97); store8(S + 0x60000 + awnp + 1, 108);
+                        store8(S + 0x60000 + awnp + 2, 108); store8(S + 0x60000 + awnp + 3, 111);
+                        store8(S + 0x60000 + awnp + 4, 99); store8(S + 0x60000 + awnp + 5, 0);
                         SNPOS(S, awnp + 6);
                         var afi = FINDFN(S, awnp);
                         if (afi < 0) { afi = REGFN(S, awnp); }
@@ -174,9 +174,9 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     var cwp = GNPOS(S);
                     var cnoff = cwp;
                     var cri = 0;
-                    var crc = load8(S + 0x50000 + vnoff + cri);
-                    while (crc != 0) { store8(S + 0x50000 + cwp, crc); cwp = cwp + 1; cri = cri + 1; crc = load8(S + 0x50000 + vnoff + cri); }
-                    store8(S + 0x50000 + cwp, 0); cwp = cwp + 1;
+                    var crc = load8(S + 0x60000 + vnoff + cri);
+                    while (crc != 0) { store8(S + 0x60000 + cwp, crc); cwp = cwp + 1; cri = cri + 1; crc = load8(S + 0x60000 + vnoff + cri); }
+                    store8(S + 0x60000 + cwp, 0); cwp = cwp + 1;
                     SNPOS(S, cwp);
                     REGFN(S, cnoff);
                 }
@@ -249,8 +249,8 @@ fn STREQ(S, a, b) {
     var i = 0;
     var go = 1;
     while (go == 1) {
-        var ca = load8(S + 0x50000 + a + i);
-        var cb = load8(S + 0x50000 + b + i);
+        var ca = load8(S + 0x60000 + a + i);
+        var cb = load8(S + 0x60000 + b + i);
         if (ca != cb) { return 0; }
         if (ca == 0) { return 1; }
         i = i + 1;
@@ -498,12 +498,12 @@ fn PARSE_FACTOR(S) {
         var clnoff = GNPOS(S);
         var cwp = clnoff;
         # Write "__cl" + digit
-        store8(S + 0x50000 + cwp, 95); cwp = cwp + 1;
-        store8(S + 0x50000 + cwp, 95); cwp = cwp + 1;
-        store8(S + 0x50000 + cwp, 99); cwp = cwp + 1;
-        store8(S + 0x50000 + cwp, 108); cwp = cwp + 1;
-        store8(S + 0x50000 + cwp, 48 + (clid % 10)); cwp = cwp + 1;
-        store8(S + 0x50000 + cwp, 0); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 99); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 108); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 48 + (clid % 10)); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 0); cwp = cwp + 1;
         SNPOS(S, cwp);
         # Register the closure function
         var clfi = REGFN(S, clnoff);
@@ -751,13 +751,13 @@ fn BUILD_OP_NAME(S, stype, op_str, op_len) {
     var owp = GNPOS(S);
     var onoff = owp;
     var ori = 0;
-    var orc = load8(S + 0x50000 + snoff + ori);
-    while (orc != 0) { store8(S + 0x50000 + owp, orc); owp = owp + 1; ori = ori + 1; orc = load8(S + 0x50000 + snoff + ori); }
-    store8(S + 0x50000 + owp, 95); owp = owp + 1;
+    var orc = load8(S + 0x60000 + snoff + ori);
+    while (orc != 0) { store8(S + 0x60000 + owp, orc); owp = owp + 1; ori = ori + 1; orc = load8(S + 0x60000 + snoff + ori); }
+    store8(S + 0x60000 + owp, 95); owp = owp + 1;
     var oci = 0;
-    while (oci < op_len) { store8(S + 0x50000 + owp + oci, load8(op_str + oci)); oci = oci + 1; }
+    while (oci < op_len) { store8(S + 0x60000 + owp + oci, load8(op_str + oci)); oci = oci + 1; }
     owp = owp + op_len;
-    store8(S + 0x50000 + owp, 0); owp = owp + 1;
+    store8(S + 0x60000 + owp, 0); owp = owp + 1;
     SNPOS(S, owp);
     return onoff;
 }
@@ -989,26 +989,26 @@ fn BUILD_METHOD_NAME(S, si, mnoff) {
     # Copy struct name
     var snoff = L64(S + 0x8E630 + si * 8);
     var ri = 0;
-    var rc = load8(S + 0x50000 + snoff + ri);
+    var rc = load8(S + 0x60000 + snoff + ri);
     while (rc != 0) {
-        store8(S + 0x50000 + wp, rc);
+        store8(S + 0x60000 + wp, rc);
         wp = wp + 1;
         ri = ri + 1;
-        rc = load8(S + 0x50000 + snoff + ri);
+        rc = load8(S + 0x60000 + snoff + ri);
     }
     # Underscore separator
-    store8(S + 0x50000 + wp, 95);
+    store8(S + 0x60000 + wp, 95);
     wp = wp + 1;
     # Copy method name
     ri = 0;
-    rc = load8(S + 0x50000 + mnoff + ri);
+    rc = load8(S + 0x60000 + mnoff + ri);
     while (rc != 0) {
-        store8(S + 0x50000 + wp, rc);
+        store8(S + 0x60000 + wp, rc);
         wp = wp + 1;
         ri = ri + 1;
-        rc = load8(S + 0x50000 + mnoff + ri);
+        rc = load8(S + 0x60000 + mnoff + ri);
     }
-    store8(S + 0x50000 + wp, 0);
+    store8(S + 0x60000 + wp, 0);
     return scratch;
 }
 
@@ -1368,7 +1368,7 @@ fn PARSE_VAR(S) {
             STI(S, GTI(S) + 1);  # consume *
             var tnoff = PEEKV(S);
             # Check type name for size (i64=8, i32=4, i16=2, i8=1)
-            var tname = L64(S + 0x50000 + tnoff);
+            var tname = L64(S + 0x60000 + tnoff);
             if (tname & 0xFFFFFF == 0x343669) { pscale = 8; }
             if (tname & 0xFFFFFF == 0x323369) { pscale = 4; }
             if (tname & 0xFFFFFF == 0x363169) { pscale = 2; }
@@ -1715,10 +1715,10 @@ fn PARSE_FOR(S) {
                 var vlfi = FINDFN(S, 0);
                 # Find vec_len — search by building name
                 var vlnp = GNPOS(S);
-                store8(S + 0x50000 + vlnp, 118); store8(S + 0x50000 + vlnp + 1, 101);
-                store8(S + 0x50000 + vlnp + 2, 99); store8(S + 0x50000 + vlnp + 3, 95);
-                store8(S + 0x50000 + vlnp + 4, 108); store8(S + 0x50000 + vlnp + 5, 101);
-                store8(S + 0x50000 + vlnp + 6, 110); store8(S + 0x50000 + vlnp + 7, 0);
+                store8(S + 0x60000 + vlnp, 118); store8(S + 0x60000 + vlnp + 1, 101);
+                store8(S + 0x60000 + vlnp + 2, 99); store8(S + 0x60000 + vlnp + 3, 95);
+                store8(S + 0x60000 + vlnp + 4, 108); store8(S + 0x60000 + vlnp + 5, 101);
+                store8(S + 0x60000 + vlnp + 6, 110); store8(S + 0x60000 + vlnp + 7, 0);
                 SNPOS(S, vlnp + 8);
                 vlfi = FINDFN(S, vlnp);
                 if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
@@ -1734,8 +1734,8 @@ fn PARSE_FOR(S) {
                 # Index var (starts at 0)
                 var fili = GFLC(S);
                 var fiidx_noff = GNPOS(S);
-                store8(S + 0x50000 + fiidx_noff, 95); store8(S + 0x50000 + fiidx_noff + 1, 105);
-                store8(S + 0x50000 + fiidx_noff + 2, 0);
+                store8(S + 0x60000 + fiidx_noff, 95); store8(S + 0x60000 + fiidx_noff + 1, 105);
+                store8(S + 0x60000 + fiidx_noff + 2, 0);
                 SNPOS(S, fiidx_noff + 3);
                 S64(S + 0x91000 + fili * 8, fiidx_noff);
                 SLDEP(S, fili, GSDEP(S));
@@ -1772,10 +1772,10 @@ fn PARSE_FOR(S) {
                 ECALLPOPS(S, 2);
                 var vgfi = FINDFN(S, 0);
                 var vgnp = GNPOS(S);
-                store8(S + 0x50000 + vgnp, 118); store8(S + 0x50000 + vgnp + 1, 101);
-                store8(S + 0x50000 + vgnp + 2, 99); store8(S + 0x50000 + vgnp + 3, 95);
-                store8(S + 0x50000 + vgnp + 4, 103); store8(S + 0x50000 + vgnp + 5, 101);
-                store8(S + 0x50000 + vgnp + 6, 116); store8(S + 0x50000 + vgnp + 7, 0);
+                store8(S + 0x60000 + vgnp, 118); store8(S + 0x60000 + vgnp + 1, 101);
+                store8(S + 0x60000 + vgnp + 2, 99); store8(S + 0x60000 + vgnp + 3, 95);
+                store8(S + 0x60000 + vgnp + 4, 103); store8(S + 0x60000 + vgnp + 5, 101);
+                store8(S + 0x60000 + vgnp + 6, 116); store8(S + 0x60000 + vgnp + 7, 0);
                 SNPOS(S, vgnp + 8);
                 vgfi = FINDFN(S, vgnp);
                 if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
@@ -2150,12 +2150,12 @@ fn PARSE_FN_DEF(S) {
         var mwp = GNPOS(S);
         var mnoff = mwp;
         var mri = 0;
-        var mrc = load8(S + 0x50000 + mmod + mri);
-        while (mrc != 0) { store8(S + 0x50000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x50000 + mmod + mri); }
-        store8(S + 0x50000 + mwp, 95); mwp = mwp + 1;
-        mri = 0; mrc = load8(S + 0x50000 + noff + mri);
-        while (mrc != 0) { store8(S + 0x50000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x50000 + noff + mri); }
-        store8(S + 0x50000 + mwp, 0); mwp = mwp + 1;
+        var mrc = load8(S + 0x60000 + mmod + mri);
+        while (mrc != 0) { store8(S + 0x60000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x60000 + mmod + mri); }
+        store8(S + 0x60000 + mwp, 95); mwp = mwp + 1;
+        mri = 0; mrc = load8(S + 0x60000 + noff + mri);
+        while (mrc != 0) { store8(S + 0x60000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x60000 + noff + mri); }
+        store8(S + 0x60000 + mwp, 0); mwp = mwp + 1;
         SNPOS(S, mwp);
         noff = mnoff;
     }
@@ -2458,8 +2458,8 @@ fn PARSE_MATCH(S) {
             if (PEEKT(S) == 2) {
                 # Check if identifier is "_"
                 var mnoff = PEEKV(S);
-                if (load8(S + 0x50000 + mnoff) == 95) {
-                    if (load8(S + 0x50000 + mnoff + 1) == 0) {
+                if (load8(S + 0x60000 + mnoff) == 95) {
+                    if (load8(S + 0x60000 + mnoff + 1) == 0) {
                         is_default = 1;
                     }
                 }

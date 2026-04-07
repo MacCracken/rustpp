@@ -99,17 +99,20 @@ jobs:
       - name: Install qemu-user
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
-      - name: Build aarch64 cross-compiler
+      - name: Build native aarch64 compiler
         run: |
           chmod +x build/cc2
-          # Cross-compile: x86 cc2 compiles aarch64 backend → cc2_aarch64 (x86 binary, emits aarch64)
-          cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
-          echo "cc2_aarch64 (cross): $(wc -c < ./build/cc2_aarch64) bytes"
-          # Smoke test: cross-compiler produces aarch64 output
-          echo "var x = 42;" | ./build/cc2_aarch64 > /tmp/a64_test && chmod +x /tmp/a64_test
-          file /tmp/a64_test | grep -q "ARM aarch64" || { echo "ERROR: output not aarch64"; exit 1; }
+          # Step 1: x86 cc2 → cross-compiler (x86 binary that emits aarch64)
+          cat src/main_aarch64.cyr | ./build/cc2 > /tmp/cc2_cross && chmod +x /tmp/cc2_cross
+          # Step 2: cross-compiler → native aarch64 binary
+          cat src/main_aarch64.cyr | /tmp/cc2_cross > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
+          # Verify architecture
+          file ./build/cc2_aarch64 | grep -q "ARM aarch64" || { echo "ERROR: not aarch64"; file ./build/cc2_aarch64; exit 1; }
+          # Smoke test under qemu
+          echo "var x = 42;" | timeout 30 qemu-aarch64-static ./build/cc2_aarch64 > /tmp/a64_test && chmod +x /tmp/a64_test
           result=$(timeout 5 qemu-aarch64-static /tmp/a64_test; echo $?)
-          test "$result" = "42" && echo "PASS: aarch64 cross-compiler works"
+          test "$result" = "42" && echo "PASS: native aarch64 compiler works"
 
       - name: Package aarch64 tarball
         run: |
@@ -117,9 +120,6 @@ jobs:
           STAGE="cyrius-${VER}-aarch64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          # NOTE: cc2_aarch64 is an x86 cross-compiler that emits aarch64 binaries.
-          # Native aarch64 self-hosting blocked on codebuf expansion (196KB limit).
-          # For now, aarch64 tarball includes the cross-compiler — requires x86 host or qemu.
           cp build/cc2_aarch64 "$STAGE/bin/cc2"
           cp scripts/cyrb "$STAGE/bin/"
           cp scripts/cyrb-init.sh "$STAGE/bin/"

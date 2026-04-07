@@ -1159,13 +1159,13 @@ fn LEXID(S, p, npos) {
         if (go == 1) {
             c = load8(S + 0x222000 + p);
             if (ISALNUM(c) == 1) {
-                store8(S + 0x50000 + npos, c);
+                store8(S + 0x60000 + npos, c);
                 npos = npos + 1;
                 p = p + 1;
             } else { go = 0; }
         }
     }
-    store8(S + 0x50000 + npos, 0);
+    store8(S + 0x60000 + npos, 0);
     # Dedup: reuse existing identical identifier
     bl = ws;
     go = 0;
@@ -1173,12 +1173,12 @@ fn LEXID(S, p, npos) {
         var dc = 0;
         c = 1;
         while (c == 1) {
-            if (load8(S + 0x50000 + go + dc) != load8(S + 0x50000 + bl + dc)) { c = 0; }
-            if (load8(S + 0x50000 + go + dc) == 0) { break; }
+            if (load8(S + 0x60000 + go + dc) != load8(S + 0x60000 + bl + dc)) { c = 0; }
+            if (load8(S + 0x60000 + go + dc) == 0) { break; }
             dc = dc + 1;
         }
         if (c == 1) { ws = go; break; }
-        while (load8(S + 0x50000 + go) != 0) { go = go + 1; }
+        while (load8(S + 0x60000 + go) != 0) { go = go + 1; }
         go = go + 1;
     }
     # klen must be computed BEFORE dedup changes ws
@@ -1186,7 +1186,7 @@ fn LEXID(S, p, npos) {
     if (ws == bl) { npos = npos + 1; SNPOS(S, npos); }
     else { SNPOS(S, bl); }
     # Check keywords
-    var kw = L64(S + 0x50000 + ws);
+    var kw = L64(S + 0x60000 + ws);
     if (klen == 2) {
         if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
         if (kw & 0xFFFF == 0x6E66) { ADDTOK(S, 32, 0); return p; }
@@ -1274,7 +1274,7 @@ fn LEXID(S, p, npos) {
     if (klen == 9) {
         # f64_floor: first 8 bytes = 0x6F6F6C665F343666, 9th byte = 'r' (0x72)
         if (kw == 0x6F6F6C665F343666) {
-            if (load8(S + 0x50000 + ws + 8) == 114) { ADDTOK(S, 81, 0); return p; }
+            if (load8(S + 0x60000 + ws + 8) == 114) { ADDTOK(S, 81, 0); return p; }
         }
     }
     ADDTOK(S, 2, ws);
