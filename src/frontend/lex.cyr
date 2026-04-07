@@ -62,6 +62,20 @@ fn READFILE(path, dst, maxsz) {
 }
 
 # Check if buffer at pos starts with "include " (8 chars)
+# Check for "#ref " directive (5 bytes: # r e f space)
+fn ISREF(S, pos, bl) {
+    if (pos + 5 >= bl) { return 0; }
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 114) { return 0; }
+    if (load8(S + pos + 2) != 101) { return 0; }
+    if (load8(S + pos + 3) != 102) { return 0; }
+    if (load8(S + pos + 4) != 32) { return 0; }
+    return 1;
+}
+
+# Emit TOML key-value pairs as var declarations into preprocessor output.
+# Simple: read file, for each line starting with a letter, emit "var LINE;\n".
+
 fn ISINCLUDE(S, pos, bl) {
     if (pos + 8 >= bl) { return 0; }
     # i=69 n=6E c=63 l=6C u=75 d=64 e=65 space=20
@@ -1064,7 +1078,66 @@ fn PP_IFDEF_PASS(S) {
     return 0;
 }
 
+# Pre-pass: expand #ref directives in raw input (S+0) into S+0x222000, copy back
+fn PP_REF_PASS(S) {
+    var bl = GBL(S);
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    var found = 0;
+    while (ip < bl) {
+        if (ISREF(S, ip, bl) == 1) {
+            ip = ip + 5;
+            if (load8(S + ip) == 34) {
+                ip = ip + 1;
+                var rfn = S + 0x90000;
+                var rfi = 0;
+                while (ip < bl) {
+                    var rc = load8(S + ip);
+                    if (rc == 34) { ip = ip + 1; break; }
+                    store8(rfn + rfi, rc); rfi = rfi + 1; ip = ip + 1;
+                }
+                store8(rfn + rfi, 0);
+                while (ip < bl) { if (load8(S + ip) == 10) { ip = ip + 1; break; } ip = ip + 1; }
+                var rnr = READFILE(rfn, S + 0x91800, 16384);
+                # Inline: emit var declarations for each key-value line
+                var ri = 0;
+                while (ri < rnr) {
+                    var rch = load8(S + 0x91800 + ri);
+                    if (rch <= 32) { ri = ri + 1; }
+                    elif (rch == 35) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
+                    elif (rch == 91) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
+                    elif (rch >= 65) {
+                        store8(out + op, 118); store8(out + op + 1, 97);
+                        store8(out + op + 2, 114); store8(out + op + 3, 32); op = op + 4;
+                        while (ri < rnr) {
+                            rch = load8(S + 0x91800 + ri);
+                            if (rch == 10) { ri = ri + 1; break; }
+                            store8(out + op, rch); op = op + 1; ri = ri + 1;
+                        }
+                        while (load8(out + op - 1) == 32) { op = op - 1; }
+                        store8(out + op, 59); store8(out + op + 1, 10); op = op + 2;
+                    }
+                    else { ri = ri + 1; }
+                }
+                found = 1;
+            }
+        } else {
+            store8(out + op, load8(S + ip));
+            op = op + 1; ip = ip + 1;
+        }
+    }
+    if (found == 1) {
+        var ci = 0;
+        while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
+        SBL(S, op);
+    }
+    return 0;
+}
+
 fn PREPROCESS(S) {
+    # Pre-pass: expand #ref directives
+    PP_REF_PASS(S);
     # Pass 1: expand includes + evaluate top-level #ifdef/#define
     PP_PASS(S);
     # Pass 2: evaluate #ifdef/#define in included content

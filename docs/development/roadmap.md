@@ -47,7 +47,7 @@ ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 | 2 | ~~Inline small functions~~ | ~~Medium~~ | **Done** (v1.10.0). Token replay inlining for 1-param functions ≤6 tokens. |
 | 3 | ~~Return-by-value small structs~~ | ~~Medium~~ | **Done** (v1.10.0). `ret2(a,b)` returns rax:rdx, `rethi()` reads rdx. |
 | 4 | ~~Register allocation~~ | ~~High~~ | **Done** (v1.10.0). R12 spill for first expression temp, ESPILL/EUNSPILL counter. |
-| 5 | `#ref` TOML compile-time data | High | Language — O(1) static lookups, perfect hash |
+| 5 | ~~`#ref` TOML compile-time data~~ | ~~High~~ | **Done** (v1.10.0). Phase 1: `#ref "file.toml"` emits `var key = value;` at compile time. PP_REF_PASS pre-pass. |
 
 Prerequisites: concurrency primitives (threads, atomics, channels) needed before async/await.
 

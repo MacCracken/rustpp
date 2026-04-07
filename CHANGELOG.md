@@ -28,6 +28,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`PARSE_SIMD_EXT` handler**: Dispatch for tokens 93-98 in separate function to keep
   PARSE_TERM within code generation limits.
 
+### Added — Language
+- **`#ref` directive (Phase 1)**: `#ref "file.toml"` loads TOML at compile time, emitting
+  `var key = value;` for each key-value pair. Skips comments (#), sections ([]), blank lines.
+  Runs as PP_REF_PASS before include/ifdef processing. Supports integer and string values.
+
 ### Added — Codegen
 - **Register allocation (R12 spill)**: Expression temporaries use callee-saved R12
   instead of stack push/pop for the first nesting level. Counter-based ESPILL/EUNSPILL
