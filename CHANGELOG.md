@@ -6,7 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.7.9] — 2026-04-07
+
+### Improved — Standard Library
+- **hashmap.cyr: enum constants for state values**: Replaced magic numbers 0/1/2 with
+  `HASH_EMPTY`, `HASH_OCCUPIED`, `HASH_TOMBSTONE` enum. Clearer intent, grep-friendly.
+- **hashmap.cyr: `map_iter(m, fp)`**: Zero-alloc iteration via function pointer callback.
+  Calls `fncall2(fp, key, value)` for each occupied entry. No vec allocation needed.
+- **hashmap.cyr: formatting cleanup**: Fixed `map_print` indentation, updated header docs.
+
+### Changed — Compiler
+- **PARSE_CMP_EXPR renamed to PCMPE**: Internal rename to reduce tok_names pressure.
+  Freed ~90 bytes of identifier buffer for the dedup bootstrap chain.
+
 ## [1.7.8] — 2026-04-07
+
+### Added — Compiler
+- **f64 transcendentals: `f64_sin`, `f64_cos`, `f64_exp`, `f64_ln`, `f64_log2`, `f64_exp2`**:
+  x87 FPU instructions via rax↔stack↔x87 bridge. sin/cos via `fsin`/`fcos`, ln via
+  `fldln2; fyl2x`, log2 via `fld1; fyl2x`, exp via `fldl2e; fmulp; frndint; f2xm1; fscale`,
+  exp2 via `frndint; f2xm1; fscale`. Unblocks abaco DSP (amplitude_to_db, midi_to_freq,
+  constant_power_pan, filter coefficients).
+- **Identifier deduplication in LEXID**: Before storing a new identifier in tok_names,
+  scans for an existing identical string and reuses its offset. Reduces tok_names usage
+  ~50% for the compiler source (65500→~30000 bytes). Required two-step bootstrap
+  (rename PARSE_CMP_EXPR→PCMPE to fit within old limit, compile, then add dedup).
 
 ## [1.7.7] — 2026-04-07
 

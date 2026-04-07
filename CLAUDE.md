@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 1.7.8
+- **Version**: 1.7.9
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
 ## Goal
