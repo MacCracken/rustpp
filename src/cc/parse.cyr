@@ -2221,56 +2221,188 @@ fn PARSE_SWITCH(S) {
     STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
+    # Pre-scan: collect case values to decide chain vs jump table
+    var save_ti = GTI(S);
+    var case_count = 0;
+    var case_min = 0x7FFFFFFFFFFFFFFF;
+    var case_max = 0;
+    var has_default = 0;
+    var pgo = 1;
+    while (pgo == 1) {
+        if (PEEKT(S) == 58) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 1) {
+                var cv = PEEKV(S);
+                if (case_count == 0) { case_min = cv; case_max = cv; }
+                else {
+                    if (cv < case_min) { case_min = cv; }
+                    if (cv > case_max) { case_max = cv; }
+                }
+                case_count = case_count + 1;
+            }
+            # Skip to next case/default/}
+            while (PEEKT(S) != 58) {
+                if (PEEKT(S) == 59) { break; }
+                if (PEEKT(S) == 14) { break; }
+                if (PEEKT(S) == 12) { break; }
+                STI(S, GTI(S) + 1);
+            }
+        }
+        else { if (PEEKT(S) == 59) { has_default = 1;
+            while (PEEKT(S) != 14) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); }
+        }
+        else { pgo = 0; } }
+    }
+    STI(S, save_ti);
+    # Decide: jump table if >= 4 cases and range <= 2x count (dense)
+    var range = case_max - case_min;
+    var use_table = 0;
+    if (case_count >= 4) {
+        if (range + 1 <= case_count * 2) {
+            if (range < 256) { use_table = 1; }
+        }
+    }
     # Allocate hidden global to hold switch value
     var swidx = GVCNT(S);
     S64(S + 0x60000 + swidx * 8, 0);
     S64(S + 0x64000 + swidx * 8, 8);
     SVCNT(S, swidx + 1);
     EVSTORE(S, swidx);
-    var ends[256];
-    var ec = 0;
-    var sgo = 1;
-    while (sgo == 1) {
-        if (PEEKT(S) == 58) {
-            STI(S, GTI(S) + 1);
-            if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
-            var val = PEEKV(S);
-            STI(S, GTI(S) + 1);
-            if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
-            STI(S, GTI(S) + 1);
-            EVLOAD(S, swidx);
-            EPUSHR(S);
-            EMOVI(S, val);
-            EMOVCA(S);
-            EPOPR(S);
-            ECMPR(S);
-            var skip = EJCC(S, 0x85);
-            var cgo = 1;
-            while (cgo == 1) {
-                if (PEEKT(S) == 58) { cgo = 0; }
-                else { if (PEEKT(S) == 59) { cgo = 0; }
-                else { if (PEEKT(S) == 14) { cgo = 0; }
-                else { if (PEEKT(S) == 12) { cgo = 0; }
-                else { PARSE_STMT(S); } } } }
+    if (use_table == 1) {
+        # === JUMP TABLE PATH ===
+        # Emit: sub rax, min
+        EPUSHR(S); EMOVI(S, case_min); EMOVCA(S); EPOPR(S);
+        E3(S, 0xC82948);
+        # Emit: cmp rax, range (unsigned)
+        EPUSHR(S); EMOVI(S, range); EMOVCA(S); EPOPR(S);
+        E3(S, 0xC83948);
+        # Emit: ja default (0F 87 rel32)
+        var default_patch = EJCC(S, 0x87);
+        # Emit: lea rcx, [rip+0] (48 8D 0D 00000000) — patched to table
+        E3(S, 0x0D8D48); var lea_patch = GCP(S); EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+        # Emit: movsxd rax, [rcx+rax*4] (48 63 04 81)
+        EB(S, 0x48); EB(S, 0x63); EB(S, 0x04); EB(S, 0x81);
+        # Emit: add rax, rcx (48 01 C8)
+        E3(S, 0xC80148);
+        # Emit: jmp rax (FF E0)
+        E2(S, 0xE0FF);
+        # Patch lea disp32: table starts right here
+        var table_cp = GCP(S);
+        var lea_disp = table_cp - lea_patch - 4;
+        var la = S + 0x20000 + lea_patch;
+        S64(la, (L64(la) >> 32 << 32) | (lea_disp & 0xFFFFFFFF));
+        # Emit table: (range+1) entries * 4 bytes, all zeros initially
+        var ti = 0;
+        while (ti <= range) { EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0); ti = ti + 1; }
+        # Parse case bodies, patching table entries
+        var ends[256];
+        var ec = 0;
+        var sgo = 1;
+        while (sgo == 1) {
+            if (PEEKT(S) == 58) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
+                var val = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
+                STI(S, GTI(S) + 1);
+                # Patch table entry: table[val - min] = body_cp - table_cp
+                var body_cp = GCP(S);
+                var toff = (val - case_min) * 4 + table_cp;
+                var ta = S + 0x20000 + toff;
+                var trel = body_cp - table_cp;
+                S64(ta, (L64(ta) >> 32 << 32) | (trel & 0xFFFFFFFF));
+                # Parse case body
+                var cgo = 1;
+                while (cgo == 1) {
+                    if (PEEKT(S) == 58) { cgo = 0; }
+                    else { if (PEEKT(S) == 59) { cgo = 0; }
+                    else { if (PEEKT(S) == 14) { cgo = 0; }
+                    else { if (PEEKT(S) == 12) { cgo = 0; }
+                    else { PARSE_STMT(S); } } } }
+                }
+                store64(&ends + ec * 8, EJMP0(S));
+                ec = ec + 1;
             }
-            store64(&ends + ec * 8, EJMP0(S));
-            ec = ec + 1;
-            EPATCH(S, skip);
-        }
-        else { if (PEEKT(S) == 59) {
-            STI(S, GTI(S) + 1);
-            if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
-            STI(S, GTI(S) + 1);
-            while (PEEKT(S) != 14) {
-                if (PEEKT(S) == 12) { break; }
-                PARSE_STMT(S);
+            else { if (PEEKT(S) == 59) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
+                STI(S, GTI(S) + 1);
+                # Default body — patch default_patch to here
+                EPATCH(S, default_patch);
+                default_patch = 0;
+                while (PEEKT(S) != 14) {
+                    if (PEEKT(S) == 12) { break; }
+                    PARSE_STMT(S);
+                }
+                store64(&ends + ec * 8, EJMP0(S));
+                ec = ec + 1;
             }
+            else { sgo = 0; } }
         }
-        else { sgo = 0; } }
+        # Patch default jump if no default case was found
+        if (default_patch > 0) { EPATCH(S, default_patch); }
+        # Fill unpatched table entries with offset to here (fall through)
+        var end_cp = GCP(S);
+        var end_rel = end_cp - table_cp;
+        ti = 0;
+        while (ti <= range) {
+            var te = S + 0x20000 + table_cp + ti * 4;
+            if (load32(te) == 0) {
+                S64(te, (L64(te) >> 32 << 32) | (end_rel & 0xFFFFFFFF));
+            }
+            ti = ti + 1;
+        }
+        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+        STI(S, GTI(S) + 1);
+        for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
+    } else {
+        # === CHAIN PATH (original) ===
+        var ends[256];
+        var ec = 0;
+        var sgo = 1;
+        while (sgo == 1) {
+            if (PEEKT(S) == 58) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
+                var val = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
+                STI(S, GTI(S) + 1);
+                EVLOAD(S, swidx);
+                EPUSHR(S);
+                EMOVI(S, val);
+                EMOVCA(S);
+                EPOPR(S);
+                ECMPR(S);
+                var skip = EJCC(S, 0x85);
+                var cgo = 1;
+                while (cgo == 1) {
+                    if (PEEKT(S) == 58) { cgo = 0; }
+                    else { if (PEEKT(S) == 59) { cgo = 0; }
+                    else { if (PEEKT(S) == 14) { cgo = 0; }
+                    else { if (PEEKT(S) == 12) { cgo = 0; }
+                    else { PARSE_STMT(S); } } } }
+                }
+                store64(&ends + ec * 8, EJMP0(S));
+                ec = ec + 1;
+                EPATCH(S, skip);
+            }
+            else { if (PEEKT(S) == 59) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
+                STI(S, GTI(S) + 1);
+                while (PEEKT(S) != 14) {
+                    if (PEEKT(S) == 12) { break; }
+                    PARSE_STMT(S);
+                }
+            }
+            else { sgo = 0; } }
+        }
+        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+        STI(S, GTI(S) + 1);
+        for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
     }
-    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
-    STI(S, GTI(S) + 1);
-    for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
     return 0;
 }
 
