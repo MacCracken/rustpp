@@ -1,6 +1,6 @@
 #!/bin/sh
 # Version bump script — single source of truth for all version references
-# Usage: ./scripts/version-bump.sh 1.7.7
+# Usage: ./scripts/version-bump.sh 1.9.0
 
 set -e
 

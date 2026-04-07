@@ -8,6 +8,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.9.0] — 2026-04-07
 
+### Added — Compiler
+- **SIMD batch operations: `f64v_add`, `f64v_sub`, `f64v_mul`**: SSE2 packed f64 builtins
+  that process 2 elements per iteration. `f64v_add(dst, a, b, n)` adds n f64 elements from
+  arrays a+b into dst. 2x throughput for array operations vs scalar loop.
+
+### Improved — Standard Library
+- **Stack-allocated str_builder**: Replaced vec-of-Str design with direct buffer approach.
+  64-byte inline buffer, single final `alloc` on build. Eliminates N heap allocations per
+  string construction (one per `add_cstr`/`add_int` call).
+
+### Added — Tooling
+- **`cyrb pulsar`**: One command to rebuild cc2 + cc2_aarch64 + cc2-native-aarch64 + tools
+  from source, install to ~/.cyrius, purge old versions, verify. Auto two-step bootstrap.
+  Full toolchain rebuild in ~410ms.
+- **`cyrb --aarch64 --native`**: Uses the native aarch64 compiler (runs under qemu on x86)
+  instead of the cross-compiler. Three clear binaries: `cc2` (x86→x86), `cc2_aarch64`
+  (x86→aarch64 cross), `cc2-native-aarch64` (aarch64→aarch64 native).
+
+### Fixed — Tooling
+- **install.sh stale fallback version**: 0.9.1 → 1.8.5. Added cc2-native-aarch64 to bin lists.
+  Source bootstrap now copies all cyrb-*.sh scripts.
+- **Scripts cleanup**: All scripts verified using correct paths (src/main.cyr, src/bridge.cyr).
+  check.sh passes all 10 checks.
+
 ## [1.8.5] — 2026-04-07
 
 ### Verified — Tooling

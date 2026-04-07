@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.9.0.** 174KB self-hosting compiler, both architectures.
+> **v1.9.0.** 176KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
@@ -22,7 +22,8 @@ All P1/P2 compiler bugs resolved. Only open item:
 | 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
 | 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). |
 | 4 | ~~cyrb --aarch64 -D flag~~ | ~~P1~~ | **Fixed** (v1.8.4). |
-| 5 | **Cross-compiler vs native-compiler naming ambiguity** | P1 | `build/cc2_aarch64` is ambiguous: release packages the **native** aarch64 binary (aarch64→aarch64), but x86 developers need the **cross-compiler** (x86→aarch64, built from `main_aarch64.cyr`). The native binary can't run on x86 — fails silently, produces empty output. Proposal: `cc2 --target aarch64` flag, or explicit naming: `cc2_aarch64` = cross (x86→arm), `cc2-native-aarch64` = native (arm→arm). x86 release tarball must ship the cross-compiler. aarch64 release tarball ships the native compiler. Currently must manually build cross-compiler: `cat src/main_aarch64.cyr \| ./build/cc2 > cc2_aarch64_cross`. |
+| 5 | **Release tarball `cyrb` doesn't support `-D` flag** | P1 | The `cyrb` in `cyrius-1.8.5-x86_64-linux.tar.gz` (54824 bytes) silently ignores `-D`. The locally-built `cyrb` (54176 bytes) supports it. Same version string "1.1.0" but different binaries. The release workflow compiles `cyrb` from an older source. AGNOS requires `-D ARCH_X86_64` for multi-arch builds — without it, all `#ifdef` blocks are skipped producing a broken kernel. Fix: rebuild `cyrb` in the release workflow from current `programs/cyrb.cyr`. |
+| 6 | **Cross-compiler vs native-compiler naming ambiguity** | P1 | `build/cc2_aarch64` is ambiguous: release packages the **native** aarch64 binary (aarch64→aarch64), but x86 developers need the **cross-compiler** (x86→aarch64, built from `main_aarch64.cyr`). The native binary can't run on x86 — fails silently, produces empty output. Proposal: `cc2 --target aarch64` flag, or explicit naming: `cc2_aarch64` = cross (x86→arm), `cc2-native-aarch64` = native (arm→arm). x86 release tarball must ship the cross-compiler. aarch64 release tarball ships the native compiler. Currently must manually build cross-compiler: `cat src/main_aarch64.cyr \| ./build/cc2 > cc2_aarch64_cross`. |
 
 ---
 
@@ -136,7 +137,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 174KB |
+| 1 | x86_64 | **Done** — self-hosting, 176KB |
 | 2 | aarch64 | **Done** — kernel mode, arch-specific asm |
 | 3 | RISC-V | Planned |
 | 4 | MIPS | Planned |

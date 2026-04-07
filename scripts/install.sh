@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="0.9.1"
+        VERSION="1.8.5"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
@@ -157,10 +157,10 @@ if [ "$installed" -eq 0 ]; then
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
     cp scripts/cyrb "$CYRIUS_HOME/versions/$VERSION/bin/"
     chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyrb"
-    if [ -f scripts/cyrb-init.sh ]; then
-        cp scripts/cyrb-init.sh "$CYRIUS_HOME/versions/$VERSION/bin/"
-        chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyrb-init.sh"
-    fi
+    for script in scripts/cyrb-*.sh; do
+        [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
+            chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"
+    done
 
     # Copy stdlib
     if [ -d lib ]; then
@@ -181,7 +181,7 @@ echo "$VERSION" > "$CYRIUS_HOME/current"
 # ── Create symlinks ──
 
 info "linking binaries..."
-ALL_BINS="cc2 cc2_aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
+ALL_BINS="cc2 cc2_aarch64 cc2-native-aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
 for bin in $ALL_BINS; do
     src="$CYRIUS_HOME/versions/$VERSION/bin/$bin"
     dst="$CYRIUS_HOME/bin/$bin"
@@ -207,7 +207,7 @@ current() { cat "$CYRIUS_HOME/current" 2>/dev/null || echo "none"; }
 
 link_version() {
     local ver="$1"
-    local bins="cc2 cc2_aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
+    local bins="cc2 cc2_aarch64 cc2-native-aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
     for bin in $bins; do
         local src="$CYRIUS_HOME/versions/$ver/bin/$bin"
         local dst="$CYRIUS_HOME/bin/$bin"
