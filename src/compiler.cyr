@@ -13,8 +13,8 @@
 # before allocating new state. Collisions cause silent corruption.
 #
 # --- Buffers (address order) ---
-#   0x00000  input_buf     [131072]      Input source text (expanded from 65536)
-#   0x20000  codebuf       [196608]      Generated machine code (relocated from 0x59000)
+#   0x00000  input_buf     [131072]      Input source text
+#   0x20000  codebuf       [196608]      Generated machine code
 #   0x50000  tok_names     [65536]       Packed identifier strings
 #   0x60000  var_noffs     [4096]        512 variable name offsets
 #   0x60800  var_sizes     [4096]        512 variable sizes (expanded from 256)

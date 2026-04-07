@@ -1,9 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v1.6.5 shipped.** 136KB self-hosting compiler, both architectures.
-> 216 compiler + 51 program tests, 0 failures. Self-hosting byte-identical.
-> All P1/P2 bugs cleared. All tooling issues resolved except known limits.
-> aarch64 kernel mode working (ELF64, SP setup, arch-specific asm).
+> **v1.7.0.** 131KB self-hosting compiler, both architectures.
+> 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
+> Preprocessor macros, EMOVI optimization, aarch64 kernel mode, human-readable errors.
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -16,9 +15,15 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 None — all clear.
 
+Fixed in v1.7.0:
+- Input buffer overflow: expanded source up to 256KB now supported (overflows into codebuf safely — lexer consumes before codegen)
+- Large include chains: same root cause as above (source > 131KB), now works
+- `return expr == expr`: PARSE_RETURN now calls PARSE_CMP_EXPR instead of PARSE_EXPR
+- Codebuf overflow: `EB()` checks limit (196608 bytes), clear error message
+
 ---
 
-## Current — v1.6 Keystone Ports
+## Current — v1.7 Keystone Ports
 
 Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
 
@@ -29,7 +34,7 @@ Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream 
 
 ---
 
-## v1.7 — Infrastructure + Security
+## v1.8 — Infrastructure + Security
 
 Port kavach, sigil, phylax (security stack):
 
@@ -40,7 +45,7 @@ Port kavach, sigil, phylax (security stack):
 
 ---
 
-## v1.8 — Concurrency
+## v1.9 — Concurrency
 
 Port daimon, hoosh, agnosai (AI + async stack):
 
@@ -51,31 +56,10 @@ Port daimon, hoosh, agnosai (AI + async stack):
 
 ---
 
-## AGNOS Kernel — v0.9 (Boots Into Shell)
+## AGNOS Kernel — Next
 
-Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
-
-### Done
-
-| # | Feature | Status |
-|---|---------|--------|
-| 1 | Boot (multiboot1, 32→64 shim) | **Done** |
-| 2 | Serial I/O, GDT, IDT, PIC, PIT timer | **Done** |
-| 3 | Keyboard (full US QWERTY, shift/caps/ctrl) | **Done** |
-| 4 | Page tables (2MB huge pages, identity map) | **Done** |
-| 5 | PMM (bitmap), VMM, per-process page tables | **Done** |
-| 6 | Kernel heap (slab allocator, 8 size classes) | **Done** |
-| 7 | Context switch (full register save/restore) | **Done** |
-| 8 | SYSCALL/SYSRET hardware interface | **Done** |
-| 9 | Ring 3 user mode (TSS, iretq, sysretq) | **Done** |
-| 10 | Process memory isolation (per-process CR3) | **Done** |
-| 11 | ELF loader + userland exec | **Done** |
-| 12 | VFS + device driver framework | **Done** |
-| 13 | Initrd (RAM disk, flat format) | **Done** |
-| 14 | Shell (help, echo, ps, free, cat, uptime, halt) | **Done** |
-| 15 | kybernet init (PID 1) | **Done** |
-
-### Next
+Current: 73KB x86_64, boots on QEMU, 15 subsystems, interactive shell.
+aarch64 kernel mode added in v1.6: ELF64, SP preamble, arch-specific asm.
 
 | # | Feature | Effort | What it does |
 |---|---------|--------|-------------|
@@ -89,114 +73,91 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
 ---
 
-## Open Tooling Issues
+## Performance Optimizations
 
-| # | Issue | Tool | Impact | Detail |
-|---|-------|------|--------|--------|
-| 1 | **>1024 functions segfaults** | cc2 | Low | Function tables expanded from 512→1024 in v1.6.7. Error message at limit. Proper fix: multi-file compilation (.o + link). |
-| 2 | ~~Release tarball missing cc2_aarch64~~ | release | ~~Medium~~ | **Fixed** (v1.6.7). x86_64 tarball now includes cc2_aarch64, cyrb binary, all cyrb-*.sh scripts, and ci.sh. |
-| 3 | ~~Preprocessor macros with args~~ | cc2 | ~~Medium~~ | **Fixed** (v1.6.7). `#define NAME(p1, p2) body` with parameter substitution. Macro storage inlined in PP_PASS, expansion in separate PP_MACRO_PASS. Up to 16 macros. |
+Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute and allocation.
 
----
+### Tier 1 — Pure Compute
 
-## Performance Optimizations (from crate benchmarks)
-
-Findings from agnosys + kybernet head-to-head benchmarks against Rust. Syscalls are at parity. Pure compute and allocation are the gaps.
-
-### Tier 1 — Pure Compute (2-10x gap, found in kybernet)
-
-Small integer operations, branch chains, enum dispatch. The gap is codegen quality, not architecture.
-
-| # | Optimization | Target | Expected Impact |
-|---|-------------|--------|-----------------|
-| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Codebuf rewind approach segfaults. Needs different strategy (pre-scan tokens). Deferred. |
+| # | Optimization | Target | Status |
+|---|-------------|--------|--------|
+| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Deferred — codebuf rewind approach crashed. Needs token-level pre-scan. |
 | 2 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | if/elif chains → jump tables for dense integer switches |
 | 3 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Eliminate call/ret overhead for trivial functions |
-| 4 | ~~Compare-and-branch fusion~~ | ~~General~~ | **Already implemented.** `if`/`while`/`for` conditions use `cmp + jCC` directly. `setCC` only emitted for comparison-as-expression (`var x = a == b;`). |
 
-### Tier 2 — Allocation (7-36x gap, found in kybernet cold paths)
+### Tier 2 — Allocation
 
-String building and BPF program generation. The gap is heap allocation overhead vs Rust's stack allocation + LLVM optimization.
-
-| # | Optimization | Target | Expected Impact |
-|---|-------------|--------|-----------------|
-| 5 | Stack-allocated small strings | `str_builder`: 371ns vs Rust 52ns | Avoid heap for strings < 64 bytes |
-| 6 | Arena allocator for BPF | `seccomp_build`: 2.4μs vs Rust 69ns | Batch-allocate BPF instructions instead of per-insn alloc |
-| 7 | Path buffer reuse | `cgroup_path`: 466ns vs Rust 24ns | Pre-allocated path buffer instead of heap concat |
-| 8 | Return-by-value for small structs | General | Eliminate heap copy for structs ≤ 2 registers |
-
-### Tier 3 — Codegen Quality (general)
-
-| # | Optimization | Effort | Impact |
+| # | Optimization | Target | Status |
 |---|-------------|--------|--------|
-| 9 | Dead code elimination | Medium | Remove unused function bodies |
-| 10 | Register allocation | High | Reduce spills to stack, fewer mov instructions |
-| 11 | ~~Peephole: EMOVI~~ | ~~Medium~~ | **Done** (v1.6.7). `mov rax, 0` → `xor eax, eax` (2B), small ints use `mov eax, imm32` (5B). Compiler 136KB → 131KB. |
-| 12 | Tail call optimization | Low | Recursive functions don't grow the stack |
+| 4 | Stack-allocated small strings | `str_builder`: 371ns vs Rust 52ns | Avoid heap for strings < 64 bytes |
+| 5 | Arena allocator for BPF | `seccomp_build`: 2.4us vs Rust 69ns | Batch-allocate BPF instructions |
+| 6 | Path buffer reuse | `cgroup_path`: 466ns vs Rust 24ns | Pre-allocated path buffer |
+| 7 | Return-by-value for small structs | General | Eliminate heap copy for structs <= 2 registers |
 
-### Context
+### Tier 3 — Codegen Quality
 
-These optimizations are informed by real benchmark data, not speculation. Each one was discovered by porting an actual Rust crate and measuring head-to-head. The pattern: syscall-bound code is at parity (kernel does the work), pure compute needs better codegen, allocation needs smarter placement.
-
-For PID 1 (kybernet), the hot path is epoll_wait + syscalls — already at parity. The cold path (seccomp_build, cgroup_path) runs once at boot. The 36x gap on seccomp_build is 2.4 microseconds, once. The optimization priority is real programs, not benchmarks.
+| # | Optimization | Effort | Status |
+|---|-------------|--------|--------|
+| 8 | Dead code elimination | Medium | Remove unused function bodies |
+| 9 | Register allocation | High | Reduce spills to stack |
+| 10 | Tail call optimization | Low | `return f()` → `jmp f` instead of `call f; ret` |
 
 ---
 
 ## Systems Language Features
 
-For cycc compatibility and general-purpose use:
-
 | Feature | Effort | Unlocks |
 |---------|--------|---------|
-| Multi-file compilation (.o + link) | High | True separate compilation, fixes >512 function limit |
+| Multi-file compilation (.o + link) | High | True separate compilation, >1024 functions |
 | Struct padding/alignment (sizeof) | Medium | ABI compat, FFI |
 | Unions, bitfields | Medium | Hardware, protocols |
 | Variadic functions | Medium | printf-style APIs |
 | Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
 | Optimization passes (-O1) | Very High | Performance (see Tier 1-3 above) |
-| ~~Preprocessor macros (with args)~~ | ~~Medium~~ | **Done** (v1.6.7). `#define NAME(p1, p2) body` |
+
+---
+
+## Open Limits
+
+| Limit | Current | Detail |
+|-------|---------|--------|
+| Functions | 1024 | Error at limit. Fix: multi-file compilation. |
+| Variables (VCNT) | 512 | Never resets between functions. Fix: stack-local arrays. |
+| Input buffer | 131072 bytes | **Silent truncation** — needs error message. agnostik port hits this at ~100KB of stripped source + 45KB stdlib. |
+| Code buffer | 196608 bytes | **Silent overflow** — needs error or auto-grow. Large programs (~400 fns) hit this before function limit. |
+| Identifier buffer | 65536 bytes | Error with count at limit. |
+| Preprocessor macros | 16 | Sufficient for current use. |
+| Preprocessor passes | 16 | Handles deep include nesting. |
 
 ---
 
 ## Architecture Backends
 
-| # | Architecture | Target Hardware | Status |
-|---|-------------|----------------|--------|
-| 1 | x86_64 | Desktop, server | **Done** — self-hosting |
-| 2 | aarch64 | RPi, phones, Apple Silicon | **Done** — byte-identical on Pi |
-| 3 | RISC-V | ESP32-C3, open hardware | Planned — open ISA, sovereignty aligned |
-| 4 | MIPS | Ingenic X1600E, routers | Planned |
-| 5 | Xtensa | ESP32-S3, IoT | Planned |
-
----
-
-## cycc — C Compiler Frontend (v2.0+)
-
-| Phase | Scope |
-|-------|-------|
-| 1 | C89 subset |
-| 2 | C99/C11 |
-| 3 | GCC extensions |
-| 4 | Full preprocessor |
-| 5 | Object files + linker |
-| 6 | Optimization |
+| # | Architecture | Status |
+|---|-------------|--------|
+| 1 | x86_64 | **Done** — self-hosting, 131KB |
+| 2 | aarch64 | **Done** — kernel mode, arch-specific asm |
+| 3 | RISC-V | Planned — open ISA |
+| 4 | MIPS | Planned |
+| 5 | Xtensa | Planned |
 
 ---
 
 ## Crate Migration
 
-107 repos, ~980K lines. See [migration-strategy.md](migration-strategy.md) for the full plan,
-wave breakdown, porting patterns, and bridge strategies.
+108 repos, ~1M lines. See [migration-strategy.md](migration-strategy.md) for the full plan.
 
 ---
 
 ## Known Gotchas
 
-| # | Behavior | Context | Explanation |
-|---|----------|---------|-------------|
-| 1 | Global var as loop bound changes mid-loop | AGNOS kernel PMM | **Expected behavior.** `for (var i = 0; i < GLOBAL; ...)` re-evaluates `GLOBAL` each iteration. If the loop body modifies the global, the loop count changes. **Fix**: snapshot to local: `var limit = GLOBAL; for (var i = 0; i < limit; ...)` |
-| 2 | Inline asm `[rbp-N]` overlaps function params | AGNOS ring 3 transition | `fn foo(a, b)`: params at `[rbp-0x08]` (a), `[rbp-0x10]` (b). Locals start after: `var v1` at `[rbp-0x18]`. Inline asm writing to `[rbp-0x08]` clobbers param a. **Fix**: use globals or dummy locals to push offsets. |
-| 3 | `var buf[N]` is N bytes, not N elements | agnosys port | `var buf[8]` = 8 bytes (1 i64). For a 120-byte struct: `var buf[120]`. Writing past the allocation silently corrupts adjacent data. |
+| # | Behavior | Fix |
+|---|----------|-----|
+| 1 | Global var as loop bound re-evaluates each iteration | Snapshot to local: `var limit = G; for (...)` |
+| 2 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals to push offsets |
+| 3 | `var buf[N]` is N bytes, not N elements | `var buf[120]` for 120-byte struct |
+| 4 | `return a == b` fails | Use `if (a == b) { return 1; } return 0;` instead |
+| 5 | Large projects hit input/codebuf limits silently | Strip comments, use concat build scripts instead of `include` |
 
 ---
 
@@ -206,8 +167,6 @@ wave breakdown, porting patterns, and bridge strategies.
 - Own the toolchain — compiler, stdlib, package manager, build system
 - No external language dependencies
 - Byte-exact testing is the gold standard
-- v1.0 ships when ready, not on a calendar
 - 108 repos / ~1M lines is the real measure of success
 - Subprocess bridge covers migration before FFI is ready
-- Portable syscall constants for cross-architecture compilation
 - Two-step bootstrap for any heap offset change

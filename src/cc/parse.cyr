@@ -1766,10 +1766,10 @@ fn FINDLOCAL(S, noff) {
 # PARSER — STATEMENT DISPATCH + FUNCTION SUPPORT
 # ================================================================
 
-# Parse return expr ;
+# Parse return expr ;  (uses PARSE_CMP_EXPR so return a == b; works)
 fn PARSE_RETURN(S) {
     STI(S, GTI(S) + 1);
-    PARSE_EXPR(S);
+    PARSE_CMP_EXPR(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
     # Emit jmp to epilogue (record as return patch)

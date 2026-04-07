@@ -121,6 +121,9 @@ fn ISENDIF(S, pos, bl) {
 # Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
 var _pp_flag_count = 0;
 
+# Source base offset: 0 if source is at S+0 (normal), 0x222000 if in preprocess buffer (large source)
+var _pp_src_base = 0;
+
 # Macro table: up to 16 macros with args
 # S+0x92000: 16 name hashes (128 bytes)
 # S+0x92080: 16 definition text offsets (128 bytes) — points into S+0x93000
@@ -405,12 +408,18 @@ fn PP_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Copy expanded source back to S+0
-    var ci = 0;
-    while (ci < op) {
-        store8(S + ci, load8(out + ci));
-        ci = ci + 1;
+    # Check preprocess output size
+    if (op > 262144) {
+        syscall(SYS_WRITE, 2, "error: expanded source exceeds 256KB (", 38);
+        PRNUM(op);
+        syscall(SYS_WRITE, 2, " bytes)\n", 8);
+        syscall(SYS_EXIT, 1);
     }
+    # Copy expanded source back to S+0. May overflow into codebuf for sources
+    # >131072 bytes — this is safe because the lexer consumes the source into
+    # token arrays before codegen overwrites the codebuf.
+    var ci = 0;
+    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
     SBL(S, op);
     return had_include;
 }
@@ -461,15 +470,8 @@ fn PP_MACRO_PASS(S) {
 }
 
 fn PREPROCESS(S) {
-    # Pass 1+: expand includes and evaluate #ifdef/#define
-    var pass = 0;
-    var go = 1;
-    while (go == 1) {
-        var had = PP_PASS(S);
-        pass = pass + 1;
-        if (had == 0) { go = 0; }
-        if (pass >= 16) { go = 0; }
-    }
+    # Single pass with inline include expansion.
+    PP_PASS(S);
     # Final pass: expand macros with args
     PP_MACRO_PASS(S);
     return 0;

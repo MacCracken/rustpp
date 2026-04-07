@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-04-06
+
+### Summary
+Roadmap cleanup release. All completed items moved to completed-phases.md.
+Roadmap now shows only open work. Version numbering reset for next phase.
+
 ## [1.6.6] — 2026-04-06
 
 ### Improved — Compiler
