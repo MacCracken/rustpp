@@ -28,6 +28,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`PARSE_SIMD_EXT` handler**: Dispatch for tokens 93-98 in separate function to keep
   PARSE_TERM within code generation limits.
 
+### Added — Codegen
+- **Register allocation (R12 spill)**: Expression temporaries use callee-saved R12
+  instead of stack push/pop for the first nesting level. Counter-based ESPILL/EUNSPILL
+  correctly handles nested expressions. Deeper levels fall back to push/pop.
+  Prologue saves rbx+r12, epilogue restores. ETAILJMP updated to match.
+  Stack parameter offset adjusted (+16) for the extra pushes.
+  aarch64 has ESPILL/EUNSPILL stubs (stack-only, no register optimization).
+
 ### Fixed — Compiler
 - **PARSE_STMT expression range**: Extended f64/SIMD builtin statement range from
   `typ <= 92` to `typ <= 98`, fixing "unexpected unknown" errors for new builtins

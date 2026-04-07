@@ -508,6 +508,11 @@ fn EX87PUSH(S) { return 0; }
 fn EX87POP(S) { return 0; }
 fn EMIT_F64_BINOP(S, fop) { return 0; }
 fn EMIT_FLOAT_LIT(S, fval) { return 0; }
+# Register spill stubs (aarch64 uses stack-only, no r12 optimization)
+var _rsl = 0;
+fn ESPILL(S) { EPUSHR(S); return 0; }
+fn EUNSPILL(S) { EPOPR(S); return 0; }
+
 fn EMIT_F64V_LOOP(S, op, vbase) { return 0; }
 fn EMIT_F64V_UNARY(S, op, vbase) { return 0; }
 fn EMIT_F64V_FMADD(S, vbase) { return 0; }

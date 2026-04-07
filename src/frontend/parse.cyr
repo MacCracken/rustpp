@@ -789,12 +789,12 @@ fn PARSE_TERM(S) {
                                 SCP(S, _cfp);
                                 EMOVI(S, cfr);
                                 _cfv = cfr;
-                            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); } }
-                            else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
-                        } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); } }
-                        else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
-                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
-                } else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); _cfo = 0; }
+                            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); } }
+                            else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                        } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); } }
+                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                } else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); _cfo = 0; }
             }
         }
         else { if (typ == 9) {
@@ -808,16 +808,16 @@ fn PARSE_TERM(S) {
                         var cfr = _cfv / crv;
                         if (cfr > 0) { if (cfr < 0x10000) {
                             STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                        } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
-                        else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
-                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
-                else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); _cfo = 0; }
+                        } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); _cfo = 0; }
             }
         }
         else { if (typ == 34) {
-            STI(S, GTI(S) + 1); _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
+            STI(S, GTI(S) + 1); _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
         }
         else { if (typ == 38) {
             STI(S, GTI(S) + 1);
@@ -827,12 +827,12 @@ fn PARSE_TERM(S) {
                     var cfr = _cfv << crv;
                     if (cfr > 0) { if (cfr < 0x10000) {
                         STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
-                else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
-            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); _cfo = 0; }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); _cfo = 0; }
         }
         else { if (typ == 39) {
             STI(S, GTI(S) + 1);
@@ -842,12 +842,12 @@ fn PARSE_TERM(S) {
                     var cfr = _cfv >> crv;
                     if (cfr > 0) { if (cfr < 0x10000) {
                         STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
-                else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
-            } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); _cfo = 0; }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); _cfo = 0; }
         }
         else { go = 0; }
         } } } }
@@ -929,11 +929,11 @@ fn PEXPR(S) {
                         var cfr = _cfv + crv;
                         if (cfr > 0) { if (cfr < 0x10000) {
                             STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                        } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); } }
-                        else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
-                    } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); } }
-                    else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
-                } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); _cfo = 0; }
+                        } else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); } }
+                        else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); }
+                    } else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); } }
+                    else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); }
+                } else { ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); _cfo = 0; }
             }
         }
         else { if (typ == 7) {
@@ -2339,6 +2339,7 @@ fn PARSE_FN_DEF(S) {
     SINFN(S, 1);
     SFLC(S, 0);
     SRPC(S, 0);
+    _rsl = 0;
     # Emit prologue
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);

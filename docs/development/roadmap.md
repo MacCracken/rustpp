@@ -22,6 +22,7 @@ All P1 bugs resolved. One open P2:
 | 8 | **`#derive(Serialize)` truncates long field names** | P2 | Struct fields longer than ~16 characters get truncated in the generated JSON key strings. Example: `completion_tokens` becomes `completion_tokentotal_tokens`. Workaround: use shorter field names. Fix: use dynamic string emission or larger buffer in derive string generation. |
 | 9 | **`getenv()` in io.cyr returns wrong values** | P2 | `getenv("HOME")` returns `"macro"` instead of `"/home/macro"`. The `var eq = 1` re-declaration inside the while loop body may not reset across iterations due to a variable scoping issue, causing early false-positive matches inside other entries' values. Workaround: manual `/proc/self/environ` scan with `memeq` (used in ai-hwaccel `cmd_getenv`). |
 | 10 | **`exec_capture()` hangs in some binaries** | P2 | `exec_capture` from process.cyr hangs when run from compiled test binaries. Fork succeeds, child appears to execute, but parent `sys_read` on pipe never completes. May be related to heap state inherited by forked child or pipe fd inheritance. Workaround: test subprocess execution via integration tests with dedicated test binaries. |
+| 11 | **`continue` in for-loops causes infinite loop** | **P1** | `continue` inside a `for (var i = 0; i < n; i = i + 1)` loop body causes an infinite loop — the increment expression `i = i + 1` is skipped, so `i` never advances. Discovered during argonaut port (all `continue` had to be replaced with `if/elif/else` restructuring). The stdlib has zero uses of `continue`, confirming this is a known avoidance pattern. Fix: emit `continue` jump target after the increment expression, not before it. |
 
 ---
 
@@ -45,7 +46,7 @@ ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 | 1 | Async/await | High | Concurrency — tokio-style patterns |
 | 2 | ~~Inline small functions~~ | ~~Medium~~ | **Done** (v1.10.0). Token replay inlining for 1-param functions ≤6 tokens. |
 | 3 | ~~Return-by-value small structs~~ | ~~Medium~~ | **Done** (v1.10.0). `ret2(a,b)` returns rax:rdx, `rethi()` reads rdx. |
-| 4 | Register allocation | High | Codegen — reduce spills, general speedup |
+| 4 | ~~Register allocation~~ | ~~High~~ | **Done** (v1.10.0). R12 spill for first expression temp, ESPILL/EUNSPILL counter. |
 | 5 | `#ref` TOML compile-time data | High | Language — O(1) static lookups, perfect hash |
 
 Prerequisites: concurrency primitives (threads, atomics, channels) needed before async/await.
@@ -61,7 +62,7 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 | 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` should work in function call args, assignments, and return values, not just `switch`/`case`. Currently causes "unexpected ','" or "unexpected ')'" parse errors when used as `fn_call(MyEnum.VARIANT, arg2)`. Workaround: use bare variant names with unique prefixes (`ERR_NONE`, `ACCEL_CUDA`). |
 | 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Currently cc2 switches to code emission on the first non-fn statement and rejects later fn defs with "unexpected fn". Workaround: all fn defs must precede all statements (e.g., `alloc_init()` at the bottom). |
 | 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only (no individual `free()`). Long-running programs (daemons, CLI tools with detect-plan-report cycles) accumulate memory. Option: add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()` alongside existing bump allocator. |
-| 4 | **Fixup table expansion (8192+)** | Low | Compiler — fixup table limit of 4096 entries is hit by large programs (~25 source files + stdlib). ai-hwaccel port requires stub functions in test binaries to stay under limit. Workaround: split test binaries, stub unused modules. Fix: expand fixup table capacity or use dynamic allocation. |
+| 4 | **Fixup table expansion (8192+)** | **Medium** | Compiler — fixup table limit of 4096 entries is hit by large programs (~25 source files + stdlib). ai-hwaccel port requires stub functions in test binaries to stay under limit. argonaut port (13.5K Rust → 6.2K Cyrius, 12 modules + 24 stdlib) requires splitting 339 tests across 8 separate binaries and deduplicating test assertions to stay under the limit — losing ~30% of potential test coverage to a compiler constraint, not a logic gap. Workaround: split test binaries, stub unused modules. Fix: expand fixup table capacity or use dynamic allocation. |
 | 5 | **`vec_set()` in vec.cyr** | Low | Stdlib — vec.cyr has `vec_get` and `vec_push` but no `vec_set(v, idx, val)` for in-place element replacement. Workaround: direct memory access via `store64(load64(v) + idx * 8, val)`. |
 
 ---
@@ -131,7 +132,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Functions | 1024 | Error at limit |
 | Variables (VCNT) | 4096 | Expanded from 2048 in v1.8.2 |
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
-| Fixup entries | 4096 | Expanded from 2048 in v1.7.5. All writers checked. |
+| Fixup entries | 4096 | Expanded from 2048 in v1.7.5. **Blocking test coverage** — argonaut (339 tests) and ai-hwaccel both require binary splitting. Next expansion target: 8192+. |
 | Input buffer | 512KB | Lex from preprocess buffer (v1.7.2) |
 | Preprocess output | 512KB | Expanded from 256KB in v1.8.1 |
 | Code buffer | 262144 bytes | Overflow detected |

@@ -64,6 +64,24 @@ fn E3(S, v) {
 fn EPUSHR(S) { EB(S, 0x50); return 0; }                  # push rax
 fn EPOPC(S) { EB(S, 0x59); return 0; }                   # pop rcx
 fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
+
+# Register spill: save rax to r12 (level 0) or push (deeper levels)
+var _rsl = 0;
+fn ESPILL(S) {
+    if (_rsl == 0) {
+        EB(S, 0x49); EB(S, 0x89); EB(S, 0xC4);
+    } else { EB(S, 0x50); }
+    _rsl = _rsl + 1;
+    return 0;
+}
+# Restore rax from r12 (level 0) or pop (deeper levels)
+fn EUNSPILL(S) {
+    _rsl = _rsl - 1;
+    if (_rsl == 0) {
+        EB(S, 0x4C); EB(S, 0x89); EB(S, 0xE0);
+    } else { EB(S, 0x58); }
+    return 0;
+}
 fn EMOVCA(S) { E3(S, 0xC18948); return 0; }              # mov rcx, rax
 fn EADDR(S) { E3(S, 0xC80148); return 0; }               # add rax, rcx
 fn ESUBR(S) { E3(S, 0xC82948); return 0; }               # sub rax, rcx
@@ -204,8 +222,11 @@ fn ESETCC(S, op) {
 # FUNCTION CALLING CONVENTION (x86_64 System V ABI)
 # ================================================================
 
-# Emit push rbp; mov rbp, rsp
+# Emit push rbx; push r12; push rbp; mov rbp, rsp
+# Two callee-saved regs + rbp = 3 pushes + ret addr = 32 bytes (16-aligned)
 fn EFNPRO(S) {
+    EB(S, 0x53);
+    EB(S, 0x41); EB(S, 0x54);
     EB(S, 0x55);
     E3(S, 0xE58948);
     return 0;
@@ -219,9 +240,12 @@ fn ESUBRSP(S) {
     return patch;
 }
 
-# Emit leave; ret
+# Emit leave; pop r12; pop rbx; ret
 fn EFNEPI(S) {
-    E2(S, 0xC3C9);
+    EB(S, 0xC9);
+    EB(S, 0x41); EB(S, 0x5C);
+    EB(S, 0x5B);
+    EB(S, 0xC3);
     return 0;
 }
 
@@ -291,9 +315,10 @@ fn ECALLCLEAN(S, n) {
 
 # Emit tail call: epilogue + jmp (instead of call + epilogue)
 fn ETAILJMP(S, fnidx) {
-    # Emit epilogue: mov rsp, rbp; pop rbp
-    E3(S, 0xEC8948);  # mov rsp, rbp (48 89 EC)
-    EB(S, 0x5D);       # pop rbp
+    # Emit epilogue: leave; pop r12; pop rbx (match EFNEPI)
+    EB(S, 0xC9);                       # leave
+    EB(S, 0x41); EB(S, 0x5C);         # pop r12
+    EB(S, 0x5B);                       # pop rbx
     # Emit jmp rel32 with fixup (like ECALLFIX but type 2 + jmp opcode)
     EB(S, 0xE9);        # jmp rel32
     var poff = GCP(S);
@@ -332,7 +357,7 @@ fn ESTOREREGPARM(S, pidx, disp) {
 fn ESTORESTACKPARM(S, pidx, disp, pc) {
     var nstack = pc - 6;
     var si = nstack - 1 - (pidx - 6);
-    var sdisp = 16 + si * 8;
+    var sdisp = 32 + si * 8;
     E3(S, 0x858B48);
     EDISP32(S, sdisp);
     E3(S, 0x858948);
