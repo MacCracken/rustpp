@@ -13,18 +13,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-VCNT (variable table) overflow is the primary blocker for large ports:
-
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 1 | ~~VCNT limit 512~~ | ~~Blocker~~ | **Fixed** (v1.7.0). Expanded from 512 to 2048 entries. Fixed var_noffs/var_sizes overlap bug (0x60800 overlapped 0x60000+4096). Relocated var_sizes to 0x64000, str_data to 0x68000. |
-| 2 | **cc2 parse error on large include chains** | High | Including 14+ modules (agnosys full stack) produces `unexpected ')'` at deep line numbers. The two-pass ifdef handling works but some source patterns in agnosys trigger parse errors. Needs investigation of specific agnosys source. |
-| 3 | ~~Enum variants consume VCNT~~ | ~~High~~ | **Mitigated** (v1.7.0). 2048 slots is enough for ~500 enum variants + ~1500 variables. Full fix (compile-time constants without VCNT) deferred. |
-
-Fixed in v1.7.0:
-- Input buffer overflow: expanded source up to 256KB now supported
-- `return expr == expr`: PARSE_RETURN now calls PARSE_CMP_EXPR instead of PARSE_EXPR
-- Codebuf overflow: `EB()` checks limit (196608 bytes), clear error message
+| 1 | **Parse error on 14+ module include chains** | High | agnosys full stack (14 modules) produces `unexpected ')'` at deep line numbers. Two-pass ifdef works but specific source patterns trigger errors. |
 
 ---
 

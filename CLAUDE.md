@@ -15,8 +15,8 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ## Current State
 
-- **Compiler**: 136KB (x86_64), 130KB (aarch64), self-hosting, ~11ms self-compile
-- **Tests**: 263 total (212 compiler + 51 programs) + 26 aarch64, 0 failures
+- **Compiler**: 134KB (x86_64), self-hosting, ~11ms self-compile
+- **Tests**: 267 total (216 compiler + 51 programs) + 26 aarch64, 0 failures
 - **Libraries**: 21 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark)
 - **Tools**: cyrb (58KB binary + shell fallback), cyrfmt, cyrlint, cyrdoc, cyrc, ark

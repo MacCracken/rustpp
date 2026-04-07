@@ -8,9 +8,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.7.0] — 2026-04-06
 
-### Summary
-Roadmap cleanup release. All completed items moved to completed-phases.md.
-Roadmap now shows only open work. Version numbering reset for next phase.
+### Fixed — Compiler
+- **`return expr == expr`**: PARSE_RETURN now calls PARSE_CMP_EXPR. Comparisons in return statements work.
+- **Input buffer 256KB**: expanded source safely overflows into codebuf (consumed before codegen)
+- **Codebuf overflow check**: EB() errors at 196608 bytes with clear message
+- **VCNT expanded to 2048**: var_noffs/var_sizes relocated to non-overlapping regions
+  (var_sizes 0x60800→0x64000, str_data 0x62000→0x68000). Fixed overlap bug from v1.5.2.
+- **Two-pass ifdef**: PP_IFDEF_PASS evaluates #ifdef/#define in included content after expansion
+- **Dead code elimination**: unreachable functions get 3-byte stub (xor eax,eax; ret).
+  Token scan with STREQ, skips module/mangled names. ~1.5KB saved on hello+stdlib.
+
+### Metrics
+- Compiler: 134KB x86_64
+- 267 tests (216 compiler + 51 programs), 0 failures
+- Self-hosting: byte-identical
 
 ## [1.6.6] — 2026-04-06
 

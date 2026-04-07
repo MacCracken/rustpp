@@ -121,9 +121,6 @@ fn ISENDIF(S, pos, bl) {
 # Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
 var _pp_flag_count = 0;
 
-# Source base offset: 0 if source is at S+0 (normal), 0x222000 if in preprocess buffer (large source)
-var _pp_src_base = 0;
-
 # Macro table: up to 16 macros with args
 # S+0x92000: 16 name hashes (128 bytes)
 # S+0x92080: 16 definition text offsets (128 bytes) — points into S+0x93000
