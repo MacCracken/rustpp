@@ -6,6 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.4] — 2026-04-07
+
+### Fixed — Compiler
+- **Codebuf expanded 192KB→256KB**: Moved tok_names from 0x50000 to 0x60000, codebuf now
+  extends to 0x60000. Fixes aarch64 cross-compiler codebuf overflow that blocked native
+  aarch64 binary generation. aarch64 tarball now ships native ARM ELF via two-step self-host.
+- **aarch64 backend: ESETCC + float stubs**: Added comparison expression codegen (cmp + cset)
+  and float function stubs to aarch64 emit.cyr. Required for PCMPE and f64 builtin references
+  in shared parse.cyr.
+
+### Fixed — Tooling
+- **`cyrb build/run/test -D NAME` flag support**: `-D NAME` prepends `#define NAME` to source
+  before compilation. Works with `--aarch64`. Supports multiple flags (`-D A -D B`).
+  Both `-D NAME` (space) and `-DNAME` (attached) forms supported. Fixes AGNOS aarch64 kernel
+  build (`cyrb build --aarch64 -D ARCH_AARCH64 agnos.cyr`).
+
+### Changed — Release
+- **aarch64 tarball ships native ARM binary**: Release workflow now self-hosts — x86 cc2 builds
+  cross-compiler, cross-compiler builds native aarch64 ELF. Architecture verified via `file`.
+
 ## [1.8.3] — 2026-04-07
 
 ### Added — Standard Library

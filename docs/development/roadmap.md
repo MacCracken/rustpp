@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.8.3.** 168KB self-hosting compiler, both architectures.
+> **v1.8.4.** 168KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
@@ -20,7 +20,8 @@ All P1/P2 compiler bugs resolved. Only open item:
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
 | 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
-| 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). Expanded codebuf 192KB→256KB (tok_names moved 0x50000→0x60000). Added ESETCC + float stubs to aarch64 backend. Release workflow now self-hosts: x86 cc2 → cross-compiler → native aarch64 binary. Verified under qemu. |
+| 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). |
+| 4 | ~~cyrb --aarch64 doesn't pass -D flag~~ | ~~P1~~ | **Fixed** (v1.8.4). Added `-D NAME` flag support to `cyrb build/run/test`. Prepends `#define NAME` to source. Works with `--aarch64`. |
 
 ---
 

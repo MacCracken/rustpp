@@ -126,6 +126,7 @@ EOF
 }
 
 # Compile helper (used by build, test, bench)
+# Args: src out [arch] [defines...]
 compile() {
     local src="$1" out="$2" compiler="$CC"
     if [ "$3" = "aarch64" ]; then
@@ -135,7 +136,19 @@ compile() {
             return 1
         fi
     fi
-    cat "$src" | "$compiler" > "$out" && chmod +x "$out"
+    # Prepend -D defines to source
+    shift 3 2>/dev/null || true
+    local defines=""
+    while [ -n "$1" ]; do
+        defines="${defines}#define $1
+"
+        shift
+    done
+    if [ -n "$defines" ]; then
+        { printf '%s\n' "$defines"; cat "$src"; } | "$compiler" > "$out" && chmod +x "$out"
+    else
+        cat "$src" | "$compiler" > "$out" && chmod +x "$out"
+    fi
 }
 
 # Run a binary (x86 direct, aarch64 via qemu)
@@ -154,12 +167,21 @@ case "${1:-help}" in
         shift
         arch="x86"
         if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        # Collect -D flags: -D NAME or -DNAME
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                *) break ;;
+            esac
+        done
         if [ -z "$1" ] || [ -z "$2" ]; then
-            echo "Usage: cyrb build [--aarch64] <source.cyr> <output>"
+            echo "Usage: cyrb build [--aarch64] [-D NAME]... <source.cyr> <output>"
             exit 1
         fi
         printf "compile %s -> %s [%s] " "$1" "$2" "$arch"
-        if compile "$1" "$2" "$arch"; then
+        if compile "$1" "$2" "$arch" $defines; then
             echo "OK ($(wc -c < "$2") bytes)"
         else
             echo "FAIL"
@@ -171,12 +193,20 @@ case "${1:-help}" in
         shift
         arch="x86"
         if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                *) break ;;
+            esac
+        done
         if [ -z "$1" ]; then
-            echo "Usage: cyrb test [--aarch64] <test.cyr>"
+            echo "Usage: cyrb test [--aarch64] [-D NAME]... <test.cyr>"
             exit 1
         fi
         tmpbin="/tmp/cyrb_test_$$"
-        if compile "$1" "$tmpbin" "$arch"; then
+        if compile "$1" "$tmpbin" "$arch" $defines; then
             run_binary "$tmpbin" "$arch"
             exit_code=$?
             rm -f "$tmpbin"
@@ -481,9 +511,17 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         shift
         arch="x86"
         if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
-        if [ -z "$1" ]; then echo "Usage: cyrb run [--aarch64] <source.cyr>"; exit 1; fi
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$1" ]; then echo "Usage: cyrb run [--aarch64] [-D NAME]... <source.cyr>"; exit 1; fi
         tmpbin="/tmp/cyrb_run_$$"
-        if compile "$1" "$tmpbin" "$arch"; then
+        if compile "$1" "$tmpbin" "$arch" $defines; then
             run_binary "$tmpbin" "$arch"
             exit_code=$?
             rm -f "$tmpbin"
