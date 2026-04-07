@@ -84,12 +84,13 @@ cyrb ${VERSION} — Cyrius Build Tool
 Usage: cyrb <command> [options]
 
 Build:
-  build [--aarch64] <src> <out>   compile a program
-  run [--aarch64] <source.cyr>    compile + run (no output file)
-  test [--aarch64] <test.cyr>     compile + run, check exit 0
+  build [--aarch64 [--native]] <src> <out>  compile a program
+  run [--aarch64 [--native]] <source.cyr>  compile + run (no output file)
+  test [--aarch64 [--native]] <test.cyr>   compile + run, check exit 0
   bench <bench.cyr>               compile + run benchmarks
   check <source.cyr>              syntax check (compile without output)
   self                            self-hosting check (cc2==cc3)
+  pulsar                          rebuild cc2 + tools from source, install, purge old versions
   clean                           remove build/ contents
 
 Project:
@@ -132,7 +133,13 @@ compile() {
     if [ "$3" = "aarch64" ]; then
         compiler="${TOOLS_DIR}/cc2_aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc2_aarch64 not found" >&2
+            echo "error: cc2_aarch64 not found (run 'cyrb pulsar' to build)" >&2
+            return 1
+        fi
+    elif [ "$3" = "aarch64-native" ]; then
+        compiler="${TOOLS_DIR}/cc2-native-aarch64"
+        if [ ! -x "$compiler" ]; then
+            echo "error: cc2-native-aarch64 not found (run 'cyrb pulsar' to build)" >&2
             return 1
         fi
     fi
@@ -154,7 +161,7 @@ compile() {
 # Run a binary (x86 direct, aarch64 via qemu)
 run_binary() {
     local bin="$1" arch="${2:-x86}"
-    if [ "$arch" = "aarch64" ]; then
+    if [ "$arch" = "aarch64" ] || [ "$arch" = "aarch64-native" ]; then
         qemu-aarch64 "$bin" 2>/dev/null || qemu-aarch64-static "$bin" 2>/dev/null
     else
         "$bin"
@@ -166,7 +173,10 @@ case "${1:-help}" in
     build)
         shift
         arch="x86"
-        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
         # Collect -D flags: -D NAME or -DNAME
         defines=""
         while true; do
@@ -177,7 +187,7 @@ case "${1:-help}" in
             esac
         done
         if [ -z "$1" ] || [ -z "$2" ]; then
-            echo "Usage: cyrb build [--aarch64] [-D NAME]... <source.cyr> <output>"
+            echo "Usage: cyrb build [--aarch64 [--native]] [-D NAME]... <source.cyr> <output>"
             exit 1
         fi
         printf "compile %s -> %s [%s] " "$1" "$2" "$arch"
@@ -192,7 +202,10 @@ case "${1:-help}" in
     test)
         shift
         arch="x86"
-        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
         defines=""
         while true; do
             case "$1" in
@@ -510,7 +523,10 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
     run)
         shift
         arch="x86"
-        if [ "$1" = "--aarch64" ]; then arch="aarch64"; shift; fi
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
         defines=""
         while true; do
             case "$1" in
@@ -571,6 +587,92 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         else
             echo "no installed stdlib found or no lib/ directory"
             echo "manual update: cp ../cyrius/lib/*.cyr lib/"
+        fi
+        ;;
+
+    # === Pulsar: rebuild + reinstall from source ===
+    pulsar)
+        shift
+        echo "pulsar: rebuilding from source..."
+        # Find repo root
+        REPO="$SCRIPT_DIR_V/.."
+        if [ ! -f "$REPO/src/main.cyr" ]; then
+            echo "error: not in a cyrius repo (no src/main.cyr)" >&2
+            exit 1
+        fi
+        VER=$(cat "$REPO/VERSION" | tr -d '[:space:]')
+
+        # Step 1: rebuild cc2 from source
+        echo "  cc2..."
+        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrb_pulsar_cc3 2>/dev/null
+        chmod +x /tmp/cyrb_pulsar_cc3
+        cat "$REPO/src/main.cyr" | /tmp/cyrb_pulsar_cc3 > /tmp/cyrb_pulsar_cc4 2>/dev/null
+        if ! cmp -s /tmp/cyrb_pulsar_cc3 /tmp/cyrb_pulsar_cc4; then
+            # Two-step bootstrap needed
+            chmod +x /tmp/cyrb_pulsar_cc4
+            cat "$REPO/src/main.cyr" | /tmp/cyrb_pulsar_cc4 > /tmp/cyrb_pulsar_cc5 2>/dev/null
+            if ! cmp -s /tmp/cyrb_pulsar_cc4 /tmp/cyrb_pulsar_cc5; then
+                echo "  FAIL: self-hosting diverges" >&2
+                rm -f /tmp/cyrb_pulsar_cc*
+                exit 1
+            fi
+            cp /tmp/cyrb_pulsar_cc4 "$REPO/build/cc2"
+        else
+            cp /tmp/cyrb_pulsar_cc3 "$REPO/build/cc2"
+        fi
+        chmod +x "$REPO/build/cc2"
+        echo "  cc2: $(wc -c < "$REPO/build/cc2") bytes (self-host OK)"
+
+        # Step 2: rebuild aarch64 compilers
+        echo "  cc2_aarch64 (cross)..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc2" > "$REPO/build/cc2_aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc2_aarch64"
+        echo "  cc2_aarch64: $(wc -c < "$REPO/build/cc2_aarch64") bytes (x86→aarch64 cross-compiler)"
+        echo "  cc2-native-aarch64..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc2_aarch64" > "$REPO/build/cc2-native-aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc2-native-aarch64"
+        echo "  cc2-native-aarch64: $(wc -c < "$REPO/build/cc2-native-aarch64") bytes ($(file "$REPO/build/cc2-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
+
+        # Step 3: rebuild tools
+        echo "  tools..."
+        for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
+            if [ -f "$REPO/programs/${tool}.cyr" ]; then
+                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc2" > "$REPO/build/${tool}" 2>/dev/null
+                chmod +x "$REPO/build/${tool}"
+            fi
+        done
+
+        # Step 4: install
+        echo "  install $VER..."
+        DEST="$CYRB_HOME/versions/$VER"
+        rm -rf "$DEST"
+        mkdir -p "$DEST/lib"
+        cp "$REPO/build/cc2" "$DEST/cc2"
+        chmod +x "$DEST/cc2"
+        cp "$REPO/build/cc2_aarch64" "$DEST/cc2_aarch64" 2>/dev/null && chmod +x "$DEST/cc2_aarch64"
+        cp "$REPO/build/cc2-native-aarch64" "$DEST/cc2-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc2-native-aarch64"
+        cp "$REPO/lib/"*.cyr "$DEST/lib/"
+        ln -sf "$DEST/cc2" "$CYRB_HOME/bin/cc2"
+        ln -sf "$DEST/cc2_aarch64" "$CYRB_HOME/bin/cc2_aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc2-native-aarch64" "$CYRB_HOME/bin/cc2-native-aarch64" 2>/dev/null || true
+
+        # Cleanup old versions
+        for d in "$CYRB_HOME/versions/"*; do
+            dname=$(basename "$d")
+            if [ "$dname" != "$VER" ]; then
+                rm -rf "$d"
+                echo "  removed $dname"
+            fi
+        done
+
+        rm -f /tmp/cyrb_pulsar_cc* /tmp/cyrb_pulsar_cross
+        echo 'var x=42;syscall(60,x);' | "$CYRB_HOME/bin/cc2" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
+        pv_rc=0; /tmp/pv 2>/dev/null || pv_rc=$?
+        rm -f /tmp/pv
+        if [ "$pv_rc" = "42" ]; then
+            echo "pulsar: $VER installed. verified."
+        else
+            echo "pulsar: $VER installed. verify FAILED (got $pv_rc, expected 42)"
         fi
         ;;
 

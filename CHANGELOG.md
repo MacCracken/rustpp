@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.5] — 2026-04-07
+
+### Verified — Tooling
+- **cyrb `-D` flag confirmed working for aarch64**: Bug #4 reported `-D` not reaching
+  cc2_aarch64, but this was from pre-v1.8.4 cyrb. Verified: `cyrb build --aarch64 -D X`
+  produces correct ifdef-gated output. Size differs with/without flag (328 vs 0 bytes).
+
 ## [1.8.4] — 2026-04-07
 
 ### Fixed — Compiler
