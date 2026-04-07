@@ -80,7 +80,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 
 | # | Optimization | Target | Status |
 |---|-------------|--------|--------|
-| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Token-level fold works for user programs but breaks self-hosting. Both shift and NOP approaches fail: cc4 produces valid code, cc5 segfaults. The folded compiler produces a broken binary when compiling itself. Suspects: `1<<56` patterns in fixup table encoding, or NOP skipping in PEEKT interferes with parser state. Needs isolated debugging with minimal compiler subset. |
+| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Three approaches tried — all break self-hosting. (1) Token-level shift/NOP: corrupts DCE token indices. (2) Codegen-level SCP rewind: cc3 built from modified source produces 0-byte output even when no folding occurs. Adding ANY new globals or branches to parse.cyr changes the compiler binary structure enough to break it. Root cause: compiler source is at the edge of buffer limits (162KB expanded) and any structural change shifts codebuf layout. Needs input buffer expansion to be fully stable FIRST. |
 | 2 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | if/elif chains → jump tables for dense integer switches |
 | 3 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Eliminate call/ret overhead for trivial functions |
 
