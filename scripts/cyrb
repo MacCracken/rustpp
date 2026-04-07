@@ -99,6 +99,7 @@ Project:
   publish                         push package to Ark registry
   install <pkg>                   install package from registry
   update                          update vendored stdlib
+  deps                            show resolved dependencies from cyrb.toml
 
 Quality:
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
@@ -126,6 +127,87 @@ Info:
 EOF
 }
 
+# ── Dependency resolution ──
+
+# Read array value from TOML: stdlib = ["a", "b", "c"] → "a b c"
+toml_array() {
+    local file="$1" key="$2" section="${3:-deps}"
+    awk -v sec="[$section]" -v k="$key" '
+        $0 == sec { in_sec=1; next }
+        /^\[/ && in_sec { in_sec=0 }
+        in_sec && $0 ~ k {
+            gsub(/.*\[/, ""); gsub(/\].*/, "");
+            gsub(/"/, ""); gsub(/,/, " "); gsub(/  +/, " ");
+            gsub(/^ +| +$/, ""); print; exit
+        }
+    ' "$file"
+}
+
+# Read dep sections: [deps.NAME] with path= or git= and tag=
+toml_dep_names() {
+    local file="$1"
+    grep '^\[deps\.' "$file" 2>/dev/null | sed 's/\[deps\.//; s/\]//' | sort -u
+}
+
+# Fetch git dependency to ~/.cyrius/deps/<name>/<tag>/
+fetch_git_dep() {
+    local name="$1" url="$2" tag="$3"
+    local dest="$CYRB_HOME/deps/$name/$tag"
+    if [ -d "$dest" ]; then return 0; fi
+    mkdir -p "$dest"
+    echo "  fetch $name@$tag..."
+    git clone --depth 1 --branch "$tag" "$url" "$dest" 2>/dev/null || \
+        git clone --depth 1 "$url" "$dest" 2>/dev/null
+}
+
+# Resolve all dependencies from cyrb.toml → write include list to file
+# Output: one "include ..." line per dependency, in correct order
+resolve_deps() {
+    local manifest="${1:-cyrb.toml}"
+    local outfile="$2"
+    if [ ! -f "$manifest" ]; then return 1; fi
+
+    # 1. Stdlib modules
+    local stdlib=$(toml_array "$manifest" "stdlib")
+    for mod in $stdlib; do
+        # Check local lib/ first, then installed
+        if [ -f "lib/${mod}.cyr" ]; then
+            echo "include \"lib/${mod}.cyr\"" >> "$outfile"
+        elif [ -f "$CYRB_HOME/versions/$(cat "$CYRB_HOME/current" 2>/dev/null)/lib/${mod}.cyr" ]; then
+            local slib="$CYRB_HOME/versions/$(cat "$CYRB_HOME/current" 2>/dev/null)/lib/${mod}.cyr"
+            echo "include \"$slib\"" >> "$outfile"
+        fi
+    done
+
+    # 2. Path and git dependencies
+    for dep in $(toml_dep_names "$manifest"); do
+        local dpath=$(toml_get "$manifest" "path" "deps.$dep")
+        local dgit=$(toml_get "$manifest" "git" "deps.$dep")
+        local dtag=$(toml_get "$manifest" "tag" "deps.$dep")
+        local resolve_dir=""
+
+        if [ -n "$dpath" ]; then
+            resolve_dir="$dpath"
+        elif [ -n "$dgit" ]; then
+            if [ -z "$dtag" ]; then dtag="main"; fi
+            fetch_git_dep "$dep" "$dgit" "$dtag"
+            resolve_dir="$CYRB_HOME/deps/$dep/$dtag"
+        fi
+
+        if [ -n "$resolve_dir" ] && [ -d "$resolve_dir" ]; then
+            # Include lib/*.cyr from dependency
+            for f in "$resolve_dir"/lib/*.cyr; do
+                [ -f "$f" ] && echo "include \"$f\"" >> "$outfile"
+            done
+            # Include src/*.cyr from dependency (excluding main.cyr)
+            for f in "$resolve_dir"/src/*.cyr; do
+                [ -f "$f" ] && [ "$(basename "$f")" != "main.cyr" ] && \
+                    echo "include \"$f\"" >> "$outfile"
+            done
+        fi
+    done
+}
+
 # Compile helper (used by build, test, bench)
 # Args: src out [arch] [defines...]
 compile() {
@@ -151,11 +233,24 @@ compile() {
 "
         shift
     done
-    if [ -n "$defines" ]; then
-        { printf '%s\n' "$defines"; cat "$src"; } | "$compiler" > "$out" && chmod +x "$out"
-    else
-        cat "$src" | "$compiler" > "$out" && chmod +x "$out"
+    # Resolve dependencies from cyrb.toml if present
+    local depfile=""
+    if [ -f "cyrb.toml" ]; then
+        local has_deps=$(grep -c '^\[deps' cyrb.toml 2>/dev/null || echo 0)
+        if [ "$has_deps" -gt 0 ]; then
+            depfile="/tmp/cyrb_deps_$$"
+            resolve_deps "cyrb.toml" "$depfile"
+        fi
     fi
+    # Build: defines + deps + source → compiler
+    {
+        [ -n "$defines" ] && printf '%s\n' "$defines"
+        [ -n "$depfile" ] && [ -f "$depfile" ] && cat "$depfile"
+        cat "$src"
+    } | "$compiler" > "$out" && chmod +x "$out"
+    local rc=$?
+    [ -n "$depfile" ] && rm -f "$depfile"
+    return $rc
 }
 
 # Run a binary (x86 direct, aarch64 via qemu)
@@ -560,6 +655,34 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         fi
         ;;
 
+    deps)
+        shift
+        if [ ! -f "cyrb.toml" ]; then echo "no cyrb.toml"; exit 1; fi
+        echo "=== Dependencies for $(toml_get cyrb.toml name) ==="
+        _stdlib=$(toml_array "cyrb.toml" "stdlib")
+        if [ -n "$_stdlib" ]; then
+            echo "stdlib: $_stdlib"
+        fi
+        for dep in $(toml_dep_names "cyrb.toml"); do
+            _dp=$(toml_get "cyrb.toml" "path" "deps.$dep")
+            _dg=$(toml_get "cyrb.toml" "git" "deps.$dep")
+            _dt=$(toml_get "cyrb.toml" "tag" "deps.$dep")
+            if [ -n "$_dp" ]; then
+                echo "$dep: path=$_dp"
+            elif [ -n "$_dg" ]; then
+                _cached="$CYRB_HOME/deps/$dep/${_dt:-main}"
+                _status="not fetched"
+                [ -d "$_cached" ] && _status="cached"
+                echo "$dep: git=$_dg tag=${_dt:-main} ($_status)"
+            fi
+        done
+        echo ""
+        echo "=== Resolved includes ==="
+        _tmpf="/tmp/cyrb_deps_show_$$"
+        resolve_deps "cyrb.toml" "$_tmpf"
+        if [ -f "$_tmpf" ]; then cat "$_tmpf"; rm -f "$_tmpf"; fi
+        ;;
+
     clean)
         if [ -d "build" ]; then
             # Preserve bootstrap compiler (cc2, stage1f, asm)
@@ -664,6 +787,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 echo "  removed $dname"
             fi
         done
+        echo "$VER" > "$CYRB_HOME/current"
 
         rm -f /tmp/cyrb_pulsar_cc* /tmp/cyrb_pulsar_cross
         echo 'var x=42;syscall(60,x);' | "$CYRB_HOME/bin/cc2" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv

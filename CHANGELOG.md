@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-04-07
+
+### Added — Tooling
+- **Dependency management in `cyrb.toml`**: New `[deps]` section declares project dependencies.
+  Three dependency types supported:
+  - **stdlib**: `stdlib = ["string", "fmt", "alloc", "vec"]` — resolved from installed Cyrius
+  - **path**: `[deps.agnosys] path = "../agnosys"` — local project dependencies
+  - **git**: `[deps.kybernet] git = "https://github.com/MacCracken/kybernet" tag = "0.3.0"` —
+    remote dependencies cloned to `~/.cyrius/deps/<name>/<tag>/`, supports GitHub/GitLab/any git
+  `cyrb build` auto-resolves all deps and prepends includes before compilation.
+  Include-once prevents duplicate processing when deps share stdlib modules.
+- **`cyrb deps`**: Shows resolved dependency tree from cyrb.toml — stdlib modules, path deps,
+  git deps with cache status, and the full resolved include list.
+
+### Fixed — Tooling
+- **`cyrb pulsar` now writes `~/.cyrius/current`**: Version manager and dep resolution
+  use this file to find the active stdlib. Was stale after pulsar runs.
+
 ## [1.9.0] — 2026-04-07
 
 ### Added — Compiler
