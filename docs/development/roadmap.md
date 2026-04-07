@@ -17,9 +17,9 @@ VCNT (variable table) overflow is the primary blocker for large ports:
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 1 | **VCNT never resets** | Blocker | Every local var, param, and enum variant permanently consumes a VCNT slot. agnostik port (12 modules) hits 512 limit at ~60% through modules. A function with `var x` permanently takes a slot even after the function ends. |
-| 2 | **cc2 segfaults on include chains** | High | Including 4+ large src files via `include` directive causes SIGSEGV (exit 139). Workaround: concatenate files externally and pipe to cc2. |
-| 3 | **Enum variants consume VCNT** | High | Each enum variant uses a variable slot. `LinuxCapability` (39 variants) alone burns 39 of 512 slots. Large enum-heavy APIs (security, LLM) become impractical. |
+| 1 | ~~VCNT limit 512~~ | ~~Blocker~~ | **Fixed** (v1.7.0). Expanded from 512 to 2048 entries. Fixed var_noffs/var_sizes overlap bug (0x60800 overlapped 0x60000+4096). Relocated var_sizes to 0x64000, str_data to 0x68000. |
+| 2 | **cc2 parse error on large include chains** | High | Including 14+ modules (agnosys full stack) produces `unexpected ')'` at deep line numbers. The two-pass ifdef handling works but some source patterns in agnosys trigger parse errors. Needs investigation of specific agnosys source. |
+| 3 | ~~Enum variants consume VCNT~~ | ~~High~~ | **Mitigated** (v1.7.0). 2048 slots is enough for ~500 enum variants + ~1500 variables. Full fix (compile-time constants without VCNT) deferred. |
 
 Fixed in v1.7.0:
 - Input buffer overflow: expanded source up to 256KB now supported

@@ -469,9 +469,54 @@ fn PP_MACRO_PASS(S) {
     return 0;
 }
 
+# Second pass: evaluate #ifdef/#define/#endif only (no includes).
+# Processes conditional blocks in already-included content.
+fn PP_IFDEF_PASS(S) {
+    var bl = GBL(S);
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    var bol = 1;
+    var skip_depth = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        var handled = 0;
+        if (bol == 1) {
+            if (ISDEFINE(S, ip, bl) == 1) {
+                if (skip_depth == 0) { PP_DEFINE(S, ip + 8); }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            }
+            if (handled == 0) { if (ISIFDEF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth + 1; }
+                else { if (PP_DEFINED(S, ip + 7) == 0) { skip_depth = 1; } }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+            if (handled == 0) { if (ISENDIF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth - 1; }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+        }
+        if (handled == 0) {
+            if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
+            ip = ip + 1;
+            if (c == 10) { bol = 1; } else { bol = 0; }
+        }
+    }
+    if (op > 262144) {
+        syscall(SYS_WRITE, 2, "error: source exceeds 256KB\n", 28);
+        syscall(SYS_EXIT, 1);
+    }
+    var ci = 0;
+    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
+    SBL(S, op);
+    return 0;
+}
+
 fn PREPROCESS(S) {
-    # Single pass with inline include expansion.
+    # Pass 1: expand includes + evaluate top-level #ifdef/#define
     PP_PASS(S);
+    # Pass 2: evaluate #ifdef/#define in included content (no re-expansion of includes)
+    PP_IFDEF_PASS(S);
     # Final pass: expand macros with args
     PP_MACRO_PASS(S);
     return 0;
@@ -774,23 +819,23 @@ fn LEX(S) {
                             p = p + 1;
                             var ec = load8(S + p);
                             p = p + 1;
-                            if (ec == 110) { store8(S + 0x62000 + spos, 10); }
+                            if (ec == 110) { store8(S + 0x68000 + spos, 10); }
                             else {
-                                if (ec == 116) { store8(S + 0x62000 + spos, 9); }
+                                if (ec == 116) { store8(S + 0x68000 + spos, 9); }
                                 else {
-                                    if (ec == 48) { store8(S + 0x62000 + spos, 0); }
+                                    if (ec == 48) { store8(S + 0x68000 + spos, 0); }
                                     else {
-                                        if (ec == 92) { store8(S + 0x62000 + spos, 92); }
+                                        if (ec == 92) { store8(S + 0x68000 + spos, 92); }
                                         else {
-                                            if (ec == 34) { store8(S + 0x62000 + spos, 34); }
-                                            else { store8(S + 0x62000 + spos, ec); }
+                                            if (ec == 34) { store8(S + 0x68000 + spos, 34); }
+                                            else { store8(S + 0x68000 + spos, ec); }
                                         }
                                     }
                                 }
                             }
                             spos = spos + 1;
                         } else {
-                            store8(S + 0x62000 + spos, sc);
+                            store8(S + 0x68000 + spos, sc);
                             spos = spos + 1;
                             p = p + 1;
                         }
@@ -798,7 +843,7 @@ fn LEX(S) {
                 }
             }
             # Add null terminator after string literal
-            store8(S + 0x62000 + spos, 0);
+            store8(S + 0x68000 + spos, 0);
             spos = spos + 1;
             SSPOS(S, spos);
             var slen = spos - sstart - 1;

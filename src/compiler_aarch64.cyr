@@ -16,9 +16,9 @@
 #   0x00000  input_buf     [131072]      Input source text (expanded from 65536)
 #   0x20000  codebuf       [196608]      Generated machine code
 #   0x50000  tok_names     [65536]       Packed identifier strings
-#   0x60000  var_noffs     [4096]        512 variable name offsets
-#   0x60800  var_sizes     [4096]        512 variable sizes (expanded from 256)
-#   0x62000  str_data      [30720]       String literal bytes (relocated from 0x61000)
+#   0x60000  var_noffs     [16384]       2048 variable name offsets (expanded from 512)
+#   0x64000  var_sizes     [16384]       2048 variable sizes (relocated from 0x60800)
+#   0x68000  str_data      [8192]        String literal bytes (relocated from 0x62000)
 #   0x69800  str_pos       [8]           Current string position
 #   0x69808  data_size     [8]           Total variable data bytes
 #   0x6A000  output_buf    [131072]      ELF output buffer
