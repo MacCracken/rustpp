@@ -6,6 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-04-07
+
+### Fixed — Compiler
+- **Preprocessor output buffer expanded 256KB→512KB**: agnosys 20 modules (262KB expanded)
+  exceeded the 256KB limit. Buffer at 0x222000 now uses the full gap to 0x2A2000 (fixup table).
+  Unblocks full-project compilation for large codebases.
+
+### Changed — Documentation
+- **README.md rewritten**: Updated to 164KB/267 tests, v1.8.0 architecture diagram, features
+  list (20 f64 builtins, #derive, include-once, jump tables), new bootstrap chain.
+- **Internal docs updated**: CLAUDE.md, cyrius-guide.md, benchmarks.md, roadmap — all stale
+  references to 136KB/263 tests/src/cc/ paths corrected.
+- **Vidya updated**: language.toml and implementation.toml synced to v1.8.0 with heap map,
+  include-once, restructure, and transcendental entries.
+- **Roadmap**: Added agnosys blocker items (#8 VCNT overflow, #9 256KB limit now fixed).
+  New performance items from abaco benchmarks (u128, SIMD, compile-time perfect hash).
+
+### Changed — Installation
+- **~/.cyrius updated to 1.8.0**: cc2 (168KB) + 21 stdlib modules installed.
+
 ## [1.8.0] — 2026-04-07
 
 ### Changed — Compiler Structure

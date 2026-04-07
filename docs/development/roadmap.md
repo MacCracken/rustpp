@@ -89,6 +89,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | 7 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | mod_mul uses 64 additions per multiply without native u128. Biggest ntheory bottleneck |
 | 8 | SIMD auto-vectorization | `poly_blep_4096`: 9.6x vs Rust | Batch DSP ops without manual intrinsics |
 | 9 | Cross-function inlining | DSP scalar: 300-700x vs Rust | Sub-ns Rust = LLVM inlined entire function. ~400ns Cyrius floor is call overhead |
+| 10 | Compile-time perfect hash | `syscall_name_to_nr`: 106ns vs Rust 2ns | Rust uses compile-time perfect hash (resolved at build). Cyrius computes FNV-1a at runtime. Needs constant evaluation / compile-time hash table generation |
 ### Done
 
 | Optimization | Version |
