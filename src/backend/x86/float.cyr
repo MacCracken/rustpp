@@ -72,7 +72,11 @@ fn EMIT_FLOAT_LIT(S, fval) {
 # Emit a vectorized loop: process N f64 elements from two source arrays
 # into a destination array. Args on stack: dst=[rbp-8], a=[rbp-16], b=[rbp-24], n=[rbp-32]
 # op: 0=add(addpd), 1=sub(subpd), 2=mul(mulpd)
-fn EMIT_F64V_LOOP(S, op) {
+fn EMIT_F64V_LOOP(S, op, vbase) {
+    # Compute frame offsets: dst=[rbp-(vbase+1)*8], a=[rbp-(vbase+2)*8], b=[rbp-(vbase+3)*8]
+    var off_dst = (0 - (vbase + 1)) * 8;
+    var off_a = (0 - (vbase + 2)) * 8;
+    var off_b = (0 - (vbase + 3)) * 8;
     # rcx = n (already in rax from last arg)
     EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
     # rsi = 0 (loop counter)
@@ -83,16 +87,13 @@ fn EMIT_F64V_LOOP(S, op) {
     EB(S, 0x0F); EB(S, 0x8D);
     var done_patch = GCP(S);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
-    # Load a[rsi*8] into xmm0: movsd [rdx+rsi*8], xmm0
-    # But we need rdx=a, rdi=b, r8=dst from stack
-    # Push/save: load dst, a, b from locals
-    # a = [rbp-16]
-    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, 0xF0);
-    # movupd xmm0, [rdx+rsi*8]: 66 0F 10 04 F2
+    # a = [rbp+off_a] → rdx
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_a & 0xFF);
+    # movupd xmm0, [rdx+rsi*8]
     EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x04); EB(S, 0xF2);
-    # b = [rbp-24]
-    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, 0xE8);
-    # movupd xmm1, [rdx+rsi*8]: 66 0F 10 0C F2
+    # b = [rbp+off_b] → rdx
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_b & 0xFF);
+    # movupd xmm1, [rdx+rsi*8]
     EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x0C); EB(S, 0xF2);
     # Operation: addpd/subpd/mulpd xmm0, xmm1
     EB(S, 0x66); EB(S, 0x0F);
@@ -100,8 +101,8 @@ fn EMIT_F64V_LOOP(S, op) {
     if (op == 1) { EB(S, 0x5C); }
     if (op == 2) { EB(S, 0x59); }
     EB(S, 0xC1);
-    # dst = [rbp-8]
-    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, 0xF8);
+    # dst = [rbp+off_dst] → rdx
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_dst & 0xFF);
     # movupd [rdx+rsi*8], xmm0: 66 0F 11 04 F2
     EB(S, 0x66); EB(S, 0x0F); EB(S, 0x11); EB(S, 0x04); EB(S, 0xF2);
     # rsi += 2
