@@ -470,3 +470,40 @@ fn ETAILJMP(S, fnidx) {
     SFCNT(S, fc + 1);
     return 0;
 }
+
+# ================================================================
+# COMPARISON EXPRESSION (ESETCC equivalent for aarch64)
+# ================================================================
+# cmp x0, x1; cset x0, <cond>
+# op: 17=EQ, 18=NE, 19=LT, 20=GT, 21=LE, 22=GE
+fn ESETCC(S, op) {
+    # cmp x0, x1 (EB 00 01 6B = subs xzr, x0, x1... actually CMP is alias)
+    EW(S, 0xEB01001F);
+    # cset x0, <cond>
+    if (op == 17) { EW(S, 0x9A9F17E0); }
+    if (op == 18) { EW(S, 0x9A9F07E0); }
+    if (op == 19) { EW(S, 0x9A9FA7E0); }
+    if (op == 20) { EW(S, 0x9A9FC7E0); }
+    if (op == 21) { EW(S, 0x9A9FD7E0); }
+    if (op == 22) { EW(S, 0x9A9FA7E0); }
+    return 0;
+}
+
+# ================================================================
+# F64 STUBS (aarch64 float not yet implemented — stubs for compilation)
+# ================================================================
+fn EMOVQ_X0_A(S) { return 0; }
+fn EMOVQ_X1_C(S) { return 0; }
+fn EMOVQ_A_X0(S) { return 0; }
+fn EI2F(S) { return 0; }
+fn EF2I(S) { return 0; }
+fn EUCOMISD(S) { return 0; }
+fn EXORPD_X1(S) { return 0; }
+fn EMOVAPD_01(S) { return 0; }
+fn EF64SQRT(S) { return 0; }
+fn EF64FLOOR(S) { return 0; }
+fn EF64CEIL(S) { return 0; }
+fn EX87PUSH(S) { return 0; }
+fn EX87POP(S) { return 0; }
+fn EMIT_F64_BINOP(S, fop) { return 0; }
+fn EMIT_FLOAT_LIT(S, fval) { return 0; }
