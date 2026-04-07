@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.9.3.** 176KB self-hosting compiler, both architectures.
+> **v1.9.4.** 176KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
@@ -19,7 +19,8 @@ All P1/P2 compiler bugs resolved. Only open item:
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
+| 2 | ~~Bump allocator no arena~~ | ~~P3~~ | **Fixed** (v1.8.3). `arena_new`, `arena_alloc`, `arena_reset` in lib/alloc.cyr. |
+| 7 | **`#derive(Serialize)` not processed in included files** | P2 | Derive directives only work in the main source file piped to cc2, not inside `include "file.cyr"`. Workaround: put `#derive` + `struct` declarations in the main entry file before `include` of the module that uses the constructors. Affects all library crates that want to ship derive-ready types — consumers must redeclare structs in their entry file. Fix: process derive during PP_PASS on included content, not just the top-level source. |
 | 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). |
 | 4 | ~~cyrb --aarch64 -D flag~~ | ~~P1~~ | **Fixed** (v1.8.4). |
 | 5 | ~~Release tarball cyrb ignores -D~~ | ~~P1~~ | **Fixed** (v1.9.3). Release workflow ships shell `scripts/cyrb` not compiled binary. Has -D, deps, pulsar. |

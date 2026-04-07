@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.4] — 2026-04-07
+
+### Added — Compiler
+- **`f64_round(x)`**: SSE4.1 `roundsd` mode 0 (round to nearest, banker's rounding).
+  Token 92. Completes the set: floor/ceil/round.
+
+### Added — Standard Library
+- **`fmt_float(val, decimals)` + `fmt_float_buf`** (`lib/fmt.cyr`): Format f64 as
+  "integer.fraction" with configurable decimal places. Zero-padded fractional part.
+  Handles negative values. `fmt_float(pi, 6)` → `3.141593`.
+- **`getenv(name)`** (`lib/io.cyr`): Read environment variable by name. Parses
+  `/proc/self/environ`. Returns heap-allocated C string or 0 if not found.
+  Required for PATH lookup in ai-hwaccel hardware detection.
+
+### Fixed — Documentation
+- **json.cyr requires io.cyr**: Added to Requires comment (was undocumented dependency
+  for `json_parse_file` → `file_read_all`).
+
 ## [1.9.3] — 2026-04-07
 
 ### Fixed — Compiler
