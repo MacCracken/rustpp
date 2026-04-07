@@ -14,7 +14,7 @@
 #   0x00000  input_buf     [131072]      Raw stdin input
 #   0x20000  codebuf       [196608]      Generated machine code
 #   0x50000  tok_names     [65536]       Packed identifier strings
-#   0x59000  struct_ftypes [4096]        32*16 field type IDs
+#   0x8A000  struct_ftypes [4096]        32*16 field type IDs
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF
 #   0x60000  var_noffs     [16384]       2048 variable name offsets
 #   0x64000  var_sizes     [16384]       2048 variable sizes
@@ -42,11 +42,11 @@
 #   0x122000 tok_values    [524288]      65536 token value slots
 #   0x1A2000 tok_lines     [524288]      65536 token line numbers
 #   0x222000 preprocess_out [524288]     512KB expanded source buffer
-#   0x2A2000 fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
-#   0x2AA000 fn_names      [8192]        1024 function name offsets
-#   0x2AC000 fn_offsets    [8192]        1024 function code offsets
-#   0x2AE000 fn_params     [8192]        1024 function param counts
-#   0x2B0000 brk
+#   0x2A2000 fixup_tbl     [65536]       4096 fixup entries (16 bytes each)
+#   0x2B2000 fn_names      [8192]        1024 function name offsets
+#   0x2B4000 fn_offsets    [8192]        1024 function code offsets
+#   0x2B6000 fn_params     [8192]        1024 function param counts
+#   0x2B8000 brk
 #
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
@@ -100,7 +100,7 @@ include "src/cc/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x2B0000);
+syscall(SYS_BRK, S + 0x2B8000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -334,7 +334,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0x2AC000 + stub_fi * 8, GCP(S));
+            S64(S + 0x2B4000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens

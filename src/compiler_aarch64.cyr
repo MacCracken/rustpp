@@ -37,9 +37,9 @@
 #   0x8C128  NPOS          [8]           Name buffer position
 #
 # --- Function state ---
-#   0x26A000 fn_names      [8192]        1024 function name offsets (expanded from 512)
-#   0x26C000 fn_offsets    [8192]        1024 function code offsets (expanded from 512)
-#   0x26E000 fn_params     [8192]        1024 function param counts (expanded from 512)
+#   0x2B2000 fn_names      [8192]        1024 function name offsets
+#   0x2B4000 fn_offsets    [8192]        1024 function code offsets
+#   0x2B6000 fn_params     [8192]        1024 function param counts
 #   0x8DA00  fn_count      [8]
 #   0x8DA08  in_function   [8]
 #   0x8DA10  fn_local_cnt  [8]
@@ -79,7 +79,7 @@
 #
 # --- brk limit ---
 # --- Fixup table (relocated) ---
-#   0x262000  fixup_tbl     [32768]       2048 fixup entries (16 bytes each)
+#   0x2A2000  fixup_tbl     [65536]       4096 fixup entries (16 bytes each)
 #
 # --- brk limit ---
 #   0x270000 (end of heap allocation)
@@ -92,8 +92,7 @@
 #   0x8F898  local_types   [512]         64 local variable pointer scales (0=scalar, >0=ptr)
 #
 # --- Nested struct state ---
-#   0x59000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)
-#            (in freed codebuf space 0x59000-0x62000)
+#   0x8A000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)
 #
 # --- Global var init state ---
 #   0x8FA98  gvar_toks     [512]         64 saved token indices for deferred init
@@ -137,7 +136,7 @@ include "src/arch/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x2B0000);
+syscall(SYS_BRK, S + 0x2B8000);
 
 # Zero state
 S64(S + 0x8C100, 0);

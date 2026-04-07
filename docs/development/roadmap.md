@@ -1,8 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v1.7.4.** 140KB self-hosting compiler, both architectures.
+> **v1.7.5.** 140KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Constant folding, tail call optimization, DCE, 512KB input buffer, 256 locals.
+> Allocator regression fixed. aarch64 tail calls fixed. AGNOS aarch64 kernel compiles (44KB).
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -18,7 +19,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 1 | **assert+bench+12 modules fails** | P1 | Including assert.cyr + bench.cyr + all 12 agnostik modules produces `unexpected '+'` at ~line 2556. bench alone works, assert alone works, both together fail. ~693 functions, 347 vars pre-expansion. Might be token/VCNT overflow with combined libs. |
 | 2 | **Bump allocator no arena** | P2 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. |
 | 3 | ~~aarch64 large kernel fails~~ | ~~P1~~ | **Fixed** (v1.7.5). ETAILJMP missing from aarch64 backend. Also needed fixup type 4 (B not BL) for tail calls. AGNOS aarch64 kernel now compiles (44KB). |
-| 4 | **1.7.4 allocator codegen regression: PMM/heap 50-70% slower** | P2 | AGNOS PMM alloc+free went from 1304 to 2044 cycles/op (+57%), heap_32B from 1207 to 2065 (+71%). Serial I/O improved (-28%). Constant folding may have changed register allocation in tight loops. |
+| 4 | ~~1.7.4 allocator codegen regression~~ | ~~P2~~ | **Fixed** (v1.7.5). PMM back to 1,276 cycles (was 2,044 in v1.7.4, 1,304 in v1.7.1). Heap 32B back to 1,241 (was 2,065). Serial/VFS/memwrite improvements from constant folding retained. |
 
 ---
 
