@@ -123,6 +123,7 @@ S64(S + 0x8F830, 0);
 S64(S + 0x8F888, 0);
 # Global var init state
 S64(S + 0x8FC98, 0);
+S64(S + 0x97000, 0);
 
 # Kernel mode
 S64(S + 0x8FCA0, 0);

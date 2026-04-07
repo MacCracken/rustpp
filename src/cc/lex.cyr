@@ -118,6 +118,240 @@ fn ISENDIF(S, pos, bl) {
     return 1;
 }
 
+# "#derive(Serialize)" = 23 64 65 72 69 76 65 28 53 65 72 69 61 6C 69 7A 65 29
+fn ISDERIVE(S, pos, bl) {
+    if (pos + 18 >= bl) { return 0; }
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 100) { return 0; }
+    if (load8(S + pos + 2) != 101) { return 0; }
+    if (load8(S + pos + 3) != 114) { return 0; }
+    if (load8(S + pos + 4) != 105) { return 0; }
+    if (load8(S + pos + 5) != 118) { return 0; }
+    if (load8(S + pos + 6) != 101) { return 0; }
+    if (load8(S + pos + 7) != 40) { return 0; }
+    if (load8(S + pos + 8) != 83) { return 0; }
+    if (load8(S + pos + 9) != 101) { return 0; }
+    if (load8(S + pos + 10) != 114) { return 0; }
+    if (load8(S + pos + 11) != 105) { return 0; }
+    if (load8(S + pos + 12) != 97) { return 0; }
+    if (load8(S + pos + 13) != 108) { return 0; }
+    if (load8(S + pos + 14) != 105) { return 0; }
+    if (load8(S + pos + 15) != 122) { return 0; }
+    if (load8(S + pos + 16) != 101) { return 0; }
+    if (load8(S + pos + 17) != 41) { return 0; }
+    return 1;
+}
+
+# Derive state: struct sizes for nested struct offset calculation
+# S+0x97000: derive struct count (8 bytes)
+# S+0x97008: derive struct sizes[32] (256 bytes)
+# S+0x97108: derive struct names[32*32] (1024 bytes)
+var _pp_derive_count = 0;
+
+# Helper: write decimal integer to output buffer, return bytes written
+fn PP_EMIT_INT(out, op, val) {
+    var digits[20];
+    var dc = 0;
+    if (val == 0) { store8(out + op, 48); return 1; }
+    var v = val;
+    while (v > 0) {
+        store8(&digits + dc, 48 + (v % 10));
+        dc = dc + 1;
+        v = v / 10;
+    }
+    # Reverse
+    var di = 0;
+    while (di < dc) {
+        store8(out + op + di, load8(&digits + dc - 1 - di));
+        di = di + 1;
+    }
+    return dc;
+}
+
+# Helper: copy C string bytes to output, return length
+fn PP_EMIT_STR(out, op, cstr) {
+    var i = 0;
+    while (load8(cstr + i) != 0) {
+        store8(out + op + i, load8(cstr + i));
+        i = i + 1;
+    }
+    return i;
+}
+
+# Emit #derive(Serialize) — generates Name_to_json function after struct def
+# ip points to '#' of #derive. out+op is the output position.
+# Returns new ip (past the struct). Updates op via S+0x97400.
+fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
+    # Skip #derive(Serialize) line
+    ip = PP_SKIPLINE(S, ip, bl);
+    # Parse struct name: expect "struct NAME {"
+    # Skip whitespace
+    while (ip < bl) { if (load8(S + ip) == 32) { ip = ip + 1; } else { break; } }
+    # Expect "struct "
+    ip = ip + 7;
+    # Read struct name
+    var sname[64];
+    var sni = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        if (c == 32 || c == 123 || c == 10) { break; }
+        store8(&sname + sni, c);
+        sni = sni + 1;
+        ip = ip + 1;
+    }
+    store8(&sname + sni, 0);
+    # Copy the struct definition through to output (up to and including closing })
+    # Rewind to start of "struct" line
+    var struct_start = ip - 7 - sni;
+    while (struct_start > 0) { if (load8(S + struct_start - 1) == 10) { break; } struct_start = struct_start - 1; }
+    # Copy everything from struct_start through closing brace
+    var depth = 0;
+    var cp = struct_start;
+    var in_struct = 1;
+    # Parse fields while copying
+    var field_names[256];
+    var field_types[256];
+    var field_count = 0;
+    var past_brace = 0;
+    while (cp < bl) {
+        var ch = load8(S + cp);
+        store8(out + op, ch);
+        op = op + 1;
+        if (ch == 123) { depth = depth + 1; past_brace = 1; }
+        if (ch == 125) { depth = depth - 1; if (depth == 0) { cp = cp + 1; break; } }
+        # Parse field names (between { and })
+        if (past_brace == 1 && depth == 1) {
+            # After { or ;, skip ws, read field name
+            if (ch == 123 || ch == 59) {
+                # Skip whitespace/newlines
+                var fp = cp + 1;
+                while (fp < bl) {
+                    var fc = load8(S + fp);
+                    if (fc != 32 && fc != 10 && fc != 13 && fc != 9) { break; }
+                    store8(out + op, fc); op = op + 1; fp = fp + 1;
+                }
+                # Read field name (until ; or : or } or space)
+                if (load8(S + fp) != 125) {
+                    var fni = 0;
+                    while (fp < bl) {
+                        var fc = load8(S + fp);
+                        if (fc == 59 || fc == 58 || fc == 125 || fc == 32 || fc == 10) { break; }
+                        store8(&field_names + field_count * 16 + fni, fc);
+                        fni = fni + 1;
+                        fp = fp + 1;
+                    }
+                    store8(&field_names + field_count * 16 + fni, 0);
+                    # Check for type annotation ": TypeName"
+                    store8(&field_types + field_count * 16, 0);
+                    if (load8(S + fp) == 58) {
+                        fp = fp + 1;
+                        while (fp < bl && load8(S + fp) == 32) { fp = fp + 1; }
+                        var tni = 0;
+                        while (fp < bl) {
+                            var tc = load8(S + fp);
+                            if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; }
+                            store8(&field_types + field_count * 16 + tni, tc);
+                            tni = tni + 1;
+                            fp = fp + 1;
+                        }
+                        store8(&field_types + field_count * 16 + tni, 0);
+                    }
+                    field_count = field_count + 1;
+                }
+            }
+        }
+        cp = cp + 1;
+    }
+    ip = cp;
+    # Copy remaining of line (newline)
+    while (ip < bl) {
+        var ch = load8(S + ip);
+        store8(out + op, ch); op = op + 1; ip = ip + 1;
+        if (ch == 10) { break; }
+    }
+    # Calculate field offsets (8 per scalar, lookup for typed)
+    var field_offsets[16];
+    var cumul_off = 0;
+    var fi = 0;
+    while (fi < field_count) {
+        store64(&field_offsets + fi * 8, cumul_off);
+        if (load8(&field_types + fi * 16) != 0) {
+            # Typed field — look up size in derive table
+            var fsz = 8;
+            var di = 0;
+            while (di < _pp_derive_count) {
+                # Compare type name
+                var eq = 1;
+                var ci = 0;
+                while (eq == 1) {
+                    var a = load8(&field_types + fi * 16 + ci);
+                    var b = load8(S + 0x97108 + di * 32 + ci);
+                    if (a != b) { eq = 0; }
+                    if (a == 0) { break; }
+                    ci = ci + 1;
+                }
+                if (eq == 1) { fsz = load64(S + 0x97008 + di * 8); }
+                di = di + 1;
+            }
+            cumul_off = cumul_off + fsz;
+        } else {
+            cumul_off = cumul_off + 8;
+        }
+        fi = fi + 1;
+    }
+    # Register this struct in derive table
+    var dsi = _pp_derive_count;
+    var ci = 0;
+    while (load8(&sname + ci) != 0) {
+        store8(S + 0x97108 + dsi * 32 + ci, load8(&sname + ci));
+        ci = ci + 1;
+    }
+    store8(S + 0x97108 + dsi * 32 + ci, 0);
+    store64(S + 0x97008 + dsi * 8, cumul_off);
+    _pp_derive_count = _pp_derive_count + 1;
+    # === Emit Name_to_json function ===
+    # fn Name_to_json(ptr, sb) {\n
+    op = op + PP_EMIT_STR(out, op, "fn ");
+    op = op + PP_EMIT_STR(out, op, &sname);
+    op = op + PP_EMIT_STR(out, op, "_to_json(ptr, sb) {\n");
+    # For each field
+    fi = 0;
+    while (fi < field_count) {
+        var is_first = 0;
+        if (fi == 0) { is_first = 1; }
+        # str_builder_add_cstr(sb, "{\"name\":" or ",\"name\":");
+        op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"");
+        if (is_first == 1) { store8(out + op, 123); op = op + 1; }
+        else { store8(out + op, 44); op = op + 1; }
+        # Escaped field name: \"fieldname\":
+        store8(out + op, 92); op = op + 1;
+        store8(out + op, 34); op = op + 1;
+        op = op + PP_EMIT_STR(out, op, &field_names + fi * 16);
+        store8(out + op, 92); op = op + 1;
+        store8(out + op, 34); op = op + 1;
+        store8(out + op, 58); op = op + 1;
+        op = op + PP_EMIT_STR(out, op, "\");\n");
+        if (load8(&field_types + fi * 16) != 0) {
+            # Typed field: call FieldType_to_json(ptr + offset, sb);
+            op = op + PP_EMIT_STR(out, op, &field_types + fi * 16);
+            op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
+            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+            op = op + PP_EMIT_STR(out, op, ", sb);\n");
+        } else {
+            # Scalar field: str_builder_add_int(sb, load64(ptr + offset));
+            op = op + PP_EMIT_STR(out, op, "str_builder_add_int(sb, load64(ptr + ");
+            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+            op = op + PP_EMIT_STR(out, op, "));\n");
+        }
+        fi = fi + 1;
+    }
+    # Close: str_builder_add_cstr(sb, "}"); return 0; }
+    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn 0;\n}\n");
+    # Store output position for caller
+    store64(S + 0x97400, op);
+    return ip;
+}
+
 # Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
 var _pp_flag_count = 0;
 
@@ -370,6 +604,11 @@ fn PP_PASS(S) {
                 if (skip_depth > 0) { skip_depth = skip_depth - 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_SERIALIZE(S, ip, bl, out, op);
+                op = load64(S + 0x97400);
+                bol = 1; handled = 1;
+            } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
                 ip = ip + 8;
                 if (load8(S + ip) == 34) {
