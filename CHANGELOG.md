@@ -6,6 +6,87 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.7.6] — 2026-04-06
+
+### Fixed — Compiler
+- **tok_names/struct_ftypes memory overlap (Bug #1)**: `tok_names` at 0x50000 (65536 bytes)
+  overlapped with `struct_ftypes` at 0x59000 (4096 bytes). When programs with >36864 bytes
+  of identifier data were compiled, identifier strings were stored in `struct_ftypes` space.
+  Struct operations zeroed out those identifiers, causing `FINDVAR` to silently fail and
+  produce "unexpected token" errors at random locations. Manifested as: including
+  `assert.cyr` + `bench.cyr` + all 12 agnostik modules produces `unexpected '+'` at ~line 2556.
+  **Fix**: relocated `struct_ftypes` from 0x59000 to 0x8A000 (free space after output_buf).
+- **Fixup table overflow checks**: `ESADDR`, `ECALLFIX`, `ETAILJMP`, and `&fn` handler all
+  wrote fixup entries without checking the table limit. Only `RECFIX` had the check. Added
+  overflow check (4096 limit) to all four functions.
+- **aarch64 ETAILJMP missing**: Tail call optimization only had x86_64 implementation.
+  Added `ETAILJMP` to aarch64/emit.cyr: `mov sp, x29; ldp x29, x30, [sp], #16; B rel26`
+  with fixup type 4 (B not BL).
+- **aarch64 fixup stale offsets**: Three references to 0x262000 in aarch64/emit.cyr not
+  updated when fixup table was relocated to 0x2A2000. All 26 CI aarch64 tests were failing.
+
+### Changed — Compiler
+- **Fixup table expanded 2048→4096**: Relocated fn_names/fn_offsets/fn_params from
+  0x2AA000/0x2AC000/0x2AE000 to 0x2B2000/0x2B4000/0x2B6000. Brk increased from
+  0x2B0000 to 0x2B8000. Prevents fixup overflow for large programs.
+
+### Metrics
+- Compiler: 141KB x86_64
+- 267 tests (216 compiler + 51 programs), 0 failures
+- Self-hosting: byte-identical
+- agnostik: 58 tests, 0 failures (assert+bench+all 22 modules now compiles)
+
+## [1.7.5] — 2026-04-06
+
+### Fixed — Compiler
+- **aarch64 ETAILJMP missing**: Tail call optimization only had x86_64 implementation.
+  Added `ETAILJMP` to aarch64/emit.cyr with fixup type 4 (B not BL).
+- **aarch64 fixup stale offsets**: Three references to 0x262000 in aarch64/emit.cyr not
+  updated when fixup table was relocated to 0x2A2000. All 26 CI aarch64 tests were failing.
+- **Allocator codegen regression**: PMM back to 1,276 cycles (was 2,044 in v1.7.4).
+  Heap 32B back to 1,241 (was 2,065).
+
+## [1.7.4] — 2026-04-06
+
+### Fixed — Compiler
+- **256 locals per function**: `fn_local_names` relocated from 0x8DC30 to 0x91000 with
+  256 entries (was 64). 65th local previously overflowed into `var_types`.
+- **Constant folding paren leak**: `_cfo` flag persisted from inside parenthesized
+  subexpressions. `(n-6)*8` would fold `6*8=48` instead of computing `(n-6)*8`. Fixed
+  by clearing `_cfo` after evaluating parenthesized expressions in `PARSE_FACTOR`.
+- **aarch64 constant folding EMOVI size mismatch**: Tightened fold range from 0x80000000
+  to 0x10000 to ensure same EMOVI size on both architectures (aarch64 EMOVI is variable-size).
+- **Identifier buffer overflow**: Added error with count at 65000/65536 bytes in LEXID.
+
+## [1.7.3] — 2026-04-06
+
+### Added — Compiler
+- **Constant folding for `*`, `/`, `<<`, `>>`**: Compile-time evaluation of integer
+  expressions with literal operands. PARSE_TERM checks `_cfo` flag set by PARSE_FACTOR
+  for small positive literals. Folds by SCP rewind + EMOVI with computed value.
+
+### Changed — Compiler
+- **Heap map reorganized**: Address-order format in compiler.cyr header for clarity.
+
+## [1.7.2] — 2026-04-06
+
+### Changed — Compiler
+- **Input buffer expanded to 512KB**: Preprocessor output buffer at 0x222000 (524288 bytes).
+  LEX reads directly from preprocess buffer, eliminating copy-back. No more source size limit
+  below 512KB.
+- **Tail call optimization**: `return fn(args)` emits epilogue + `jmp` instead of
+  `call` + epilogue. PARSE_RETURN detects IDENT+LPAREN pattern, scans to matching RPAREN,
+  verifies SEMI. x86: `mov rsp,rbp; pop rbp; jmp rel32` with type-2 fixup.
+- **Fixup/fn tables relocated**: fixup_tbl to 0x2A2000, fn_names/offsets/params to
+  0x2AA000/0x2AC000/0x2AE000 to accommodate larger preprocessor buffer.
+
+## [1.7.1] — 2026-04-06
+
+### Fixed — Compiler
+- **`&&`/`||` as expression operators**: `return a > 0 && b > 0;` and `var r = a == b;`
+  now work. PARSE_CMP_EXPR handles `&&`/`||` as AND/OR on 0/1 values. PARSE_VAR and
+  assignment handler changed from PARSE_EXPR to PARSE_CMP_EXPR.
+
 ## [1.7.0] — 2026-04-06
 
 ### Fixed — Compiler

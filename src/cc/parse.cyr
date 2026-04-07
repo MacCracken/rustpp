@@ -292,11 +292,13 @@ fn PARSE_FACTOR(S) {
         # Check for function call
         if (PEEKT(S) == 10) {
             PARSE_FNCALL(S, noff);
+            _cfo = 0;
             return 0;
         }
         # Check for struct field access: ident.field
         if (PEEKT(S) == 41) {
             PARSE_FIELD_LOAD(S, noff);
+            _cfo = 0;
             return 0;
         }
         # Variable load — check local first if in function
@@ -394,6 +396,7 @@ fn PARSE_FACTOR(S) {
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
         STI(S, GTI(S) + 1);
         ESCPOPS(S, argc);
+        _cfo = 0;
         return 0;
     }
     if (typ == 25) {
@@ -652,7 +655,7 @@ fn PARSE_TERM(S) {
                         } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); } }
                         else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
                     } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
-                } else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); }
+                } else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); EIMUL(S); _cfo = 0; }
             }
         }
         else { if (typ == 9) {
@@ -671,11 +674,11 @@ fn PARSE_TERM(S) {
                     } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
                     else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
                 } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); } }
-                else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); }
+                else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); _cfo = 0; }
             }
         }
         else { if (typ == 34) {
-            STI(S, GTI(S) + 1); _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S);
+            STI(S, GTI(S) + 1); _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
         }
         else { if (typ == 38) {
             STI(S, GTI(S) + 1);
@@ -690,7 +693,7 @@ fn PARSE_TERM(S) {
                 } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
                 else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
             } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); } }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S); _cfo = 0; }
         }
         else { if (typ == 39) {
             STI(S, GTI(S) + 1);
@@ -705,7 +708,7 @@ fn PARSE_TERM(S) {
                 } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
                 else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
             } else { _cfo = 0; EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); } }
-            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); }
+            else { EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S); _cfo = 0; }
         }
         else { go = 0; }
         } } } }
@@ -771,28 +774,119 @@ fn PARSE_EXPR(S) {
         if (typ == 6) {
             var addst = GESTYPE(S);
             STI(S, GTI(S) + 1);
-
-            if (addst > 0) { EMIT_OP_DISPATCH(S, addst, "add", 3); }
-            else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
+            if (addst > 0) { EMIT_OP_DISPATCH(S, addst, "add", 3); _cfo = 0; }
+            else {
+                # Fold only if right side is a plain literal (not followed by * / % << >>)
+                var add_can_fold = 0;
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var nt = TOKTYP(S, GTI(S) + 1);
+                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                        add_can_fold = 1;
+                    } } } } }
+                } }
+                if (add_can_fold == 1) {
+                    var crv = PEEKV(S);
+                    if (crv > 0) { if (crv < 0x10000) {
+                        var cfr = _cfv + crv;
+                        if (cfr > 0) { if (cfr < 0x10000) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); } }
+                        else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
+                    } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); } }
+                    else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
+                } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); _cfo = 0; }
+            }
         }
         else { if (typ == 7) {
             var subst = GESTYPE(S);
             STI(S, GTI(S) + 1);
-
-            if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); }
-            else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+            if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); _cfo = 0; }
+            else {
+                var sub_can_fold = 0;
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var nt = TOKTYP(S, GTI(S) + 1);
+                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                        sub_can_fold = 1;
+                    } } } } }
+                } }
+                if (sub_can_fold == 1) {
+                    var crv = PEEKV(S);
+                    if (crv > 0) { if (crv < 0x10000) {
+                        var cfr = _cfv - crv;
+                        if (cfr > 0) { if (cfr < 0x10000) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); } }
+                        else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                    } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); } }
+                    else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); _cfo = 0; }
+            }
         }
         else { if (typ == 27) {
             # AMPERSAND — binary AND
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S);
+            STI(S, GTI(S) + 1);
+            var and_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    and_can_fold = 1;
+                } } } } }
+            } }
+            if (and_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv & crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); _cfo = 0; }
         }
         else { if (typ == 35) {
             # PIPE — binary OR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S);
+            STI(S, GTI(S) + 1);
+            var or_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    or_can_fold = 1;
+                } } } } }
+            } }
+            if (or_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv | crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); _cfo = 0; }
         }
         else { if (typ == 36) {
             # CARET — binary XOR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S);
+            STI(S, GTI(S) + 1);
+            var xor_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    xor_can_fold = 1;
+                } } } } }
+            } }
+            if (xor_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv ^ crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); _cfo = 0; }
         }
         else { go = 0; }
         } } } }

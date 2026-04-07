@@ -1,9 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v1.7.5.** 140KB self-hosting compiler, both architectures.
+> **v1.7.6.** 141KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Constant folding, tail call optimization, DCE, 512KB input buffer, 256 locals.
-> Allocator regression fixed. aarch64 tail calls fixed. AGNOS aarch64 kernel compiles (44KB).
+> tok_names/struct_ftypes overlap fixed. Fixup table 4096 entries. All P1 bugs resolved.
+> agnostik: 58 tests, all 22 modules compile with assert+bench.
 >
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
@@ -16,7 +17,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 1 | **assert+bench+12 modules fails** | P1 | Including assert.cyr + bench.cyr + all 12 agnostik modules produces `unexpected '+'` at ~line 2556. bench alone works, assert alone works, both together fail. ~693 functions, 347 vars pre-expansion. Might be token/VCNT overflow with combined libs. |
+| 1 | ~~assert+bench+12 modules fails~~ | ~~P1~~ | **Fixed** (v1.7.6). Root cause: `tok_names` at 0x50000 (65KB) overlapped `struct_ftypes` at 0x59000. When identifier data exceeded 36864 bytes, identifiers stored in struct_ftypes space were zeroed by struct operations, causing FINDVAR to fail silently. Fix: relocated struct_ftypes to 0x8A000. Also expanded fixup table 2048→4096 entries with overflow checks on all writers. |
 | 2 | **Bump allocator no arena** | P2 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. |
 | 3 | ~~aarch64 large kernel fails~~ | ~~P1~~ | **Fixed** (v1.7.5). ETAILJMP missing from aarch64 backend. Also needed fixup type 4 (B not BL) for tail calls. AGNOS aarch64 kernel now compiles (44KB). |
 | 4 | ~~1.7.4 allocator codegen regression~~ | ~~P2~~ | **Fixed** (v1.7.5). PMM back to 1,276 cycles (was 2,044 in v1.7.4, 1,304 in v1.7.1). Heap 32B back to 1,241 (was 2,065). Serial/VFS/memwrite improvements from constant folding retained. |
@@ -113,6 +114,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Functions | 1024 | Error at limit |
 | Variables (VCNT) | 2048 | Never resets between functions |
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
+| Fixup entries | 4096 | Expanded from 2048 in v1.7.5. All writers checked. |
 | Input buffer | 512KB | Lex from preprocess buffer (v1.7.2) |
 | Code buffer | 196608 bytes | Overflow detected |
 | Identifier buffer | 65536 bytes | Error with count |
