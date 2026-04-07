@@ -99,7 +99,9 @@ fn bench_run(b, fp, n) {
 # For ops that need an argument:
 #   bench_run_batch1(b, &my_op, arg, 10000, 100);
 
-# Batch-time a zero-arg function pointer
+# Batch-time a zero-arg function pointer. Calls fp batch_size times per round,
+# measures total elapsed with one clock pair per round. Runs `rounds` rounds.
+# Use for sub-100ns ops where per-iteration clock overhead dominates.
 fn bench_run_batch(b, fp, batch_size, rounds) {
     var ri = 0;
     while (ri < rounds) {
@@ -120,7 +122,7 @@ fn bench_run_batch(b, fp, batch_size, rounds) {
     return 0;
 }
 
-# Batch-time a one-arg function pointer
+# Batch-time a one-arg function pointer. Like bench_run_batch but passes arg to each call.
 fn bench_run_batch1(b, fp, arg, batch_size, rounds) {
     var ri = 0;
     while (ri < rounds) {
@@ -141,7 +143,7 @@ fn bench_run_batch1(b, fp, arg, batch_size, rounds) {
     return 0;
 }
 
-# Batch-time a two-arg function pointer
+# Batch-time a two-arg function pointer. Like bench_run_batch but passes arg1, arg2 to each call.
 fn bench_run_batch2(b, fp, arg1, arg2, batch_size, rounds) {
     var ri = 0;
     while (ri < rounds) {
@@ -177,11 +179,13 @@ fn bench_run_batch2(b, fp, arg1, arg2, batch_size, rounds) {
     #   }
 #   bench_report(b);
 
+# Record start timestamp for an inline batch measurement
 fn bench_batch_start(b) {
     store64(b + 8, now_ns());
     return 0;
 }
 
+# Stop batch timing, update stats with per-op time. Returns per-op nanoseconds.
 fn bench_batch_stop(b, batch_size) {
     var end = now_ns();
     var elapsed = end - load64(b + 8);
