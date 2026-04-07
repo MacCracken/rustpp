@@ -1,6 +1,7 @@
 # PARSER + CODEGEN — recursive descent, direct emission
 # ================================================================
 
+
 # Compare two null-terminated strings in tok_names
 # Returns 1 if equal, 0 if not
 # ================================================================
@@ -700,12 +701,14 @@ fn PARSE_EXPR(S) {
         if (typ == 6) {
             var addst = GESTYPE(S);
             STI(S, GTI(S) + 1);
+
             if (addst > 0) { EMIT_OP_DISPATCH(S, addst, "add", 3); }
             else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); EADDR(S); SPSC(S, ps); }
         }
         else { if (typ == 7) {
             var subst = GESTYPE(S);
             STI(S, GTI(S) + 1);
+
             if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); }
             else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
         }

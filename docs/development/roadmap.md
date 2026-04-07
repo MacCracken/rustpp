@@ -109,10 +109,10 @@ Small integer operations, branch chains, enum dispatch. The gap is codegen quali
 
 | # | Optimization | Target | Expected Impact |
 |---|-------------|--------|-----------------|
-| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Eliminate runtime computation of compile-time-known values |
+| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Codebuf rewind approach segfaults. Needs different strategy (pre-scan tokens). Deferred. |
 | 2 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | if/elif chains → jump tables for dense integer switches |
 | 3 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Eliminate call/ret overhead for trivial functions |
-| 4 | Compare-and-branch fusion | General | `cmp + jne` in one pass instead of `cmp → setCC → test → jne` |
+| 4 | ~~Compare-and-branch fusion~~ | ~~General~~ | **Already implemented.** `if`/`while`/`for` conditions use `cmp + jCC` directly. `setCC` only emitted for comparison-as-expression (`var x = a == b;`). |
 
 ### Tier 2 — Allocation (7-36x gap, found in kybernet cold paths)
 
@@ -131,7 +131,7 @@ String building and BPF program generation. The gap is heap allocation overhead 
 |---|-------------|--------|--------|
 | 9 | Dead code elimination | Medium | Remove unused function bodies |
 | 10 | Register allocation | High | Reduce spills to stack, fewer mov instructions |
-| 11 | Peephole optimization | Medium | `mov rax, 0` → `xor eax, eax`, redundant load elimination |
+| 11 | ~~Peephole: EMOVI~~ | ~~Medium~~ | **Done** (v1.6.7). `mov rax, 0` → `xor eax, eax` (2B), small ints use `mov eax, imm32` (5B). Compiler 136KB → 131KB. |
 | 12 | Tail call optimization | Low | Recursive functions don't grow the stack |
 
 ### Context
@@ -154,7 +154,7 @@ For cycc compatibility and general-purpose use:
 | Variadic functions | Medium | printf-style APIs |
 | Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
 | Optimization passes (-O1) | Very High | Performance (see Tier 1-3 above) |
-| Preprocessor macros (with args) | Medium | Generic patterns |
+| ~~Preprocessor macros (with args)~~ | ~~Medium~~ | **Done** (v1.6.7). `#define NAME(p1, p2) body` |
 
 ---
 
