@@ -22,6 +22,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Ensures `json_parse` roundtrip works correctly (json_parse numeric value parsing has a
   known issue with unquoted numbers in some contexts).
 
+### Added — Standard Library
+- **Vidya content loader + search** (`lib/vidya.cyr`): Loads TOML content from vidya corpus
+  directory. Supports both `[[entries]]` format (cyrius) and `concept.toml` format (topics).
+  Registry with hashmap index by name. Full-text search across name, description, and content.
+  Tested against full vidya corpus: 209 entries loaded, search working.
+
+### Fixed — Standard Library
+- **`str_ends_with` was comparing against Str fat pointer**: Used `strlen(suffix)` and raw
+  `suffix` pointer instead of `str_len(suffix)` and `str_data(suffix)`. Caused `path_has_ext`
+  and `find_files` to always return no matches.
+- **`str_contains` used C string needle**: Changed to accept Str needle via `str_len`/`str_data`.
+
 ### Changed — Documentation
 - **Roadmap cleaned up**: Collapsed 9 resolved bugs, updated header to v1.8.3/168KB,
   marked derive macros done, added vidya port progress, new perf items from abaco benchmarks.
