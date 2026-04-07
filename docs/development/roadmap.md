@@ -20,6 +20,7 @@ All P1/P2 compiler bugs resolved. Only open item:
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
 | 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
+| 3 | ~~aarch64 release tarball ships x86 cc2 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). Added `file` check in release.yml to verify binary architecture before packaging. x86 tarball no longer puts cc2_aarch64 in bin/. Both tarballs gate on architecture verification. |
 
 ---
 

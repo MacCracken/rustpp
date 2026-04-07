@@ -51,6 +51,12 @@ jobs:
           # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
           cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
 
+      - name: Verify binary architectures
+        run: |
+          file build/cc2 | grep -q "ELF 64-bit.*x86-64" || { echo "ERROR: cc2 not x86_64"; file build/cc2; exit 1; }
+          file build/cc2_aarch64 | grep -q "ELF 64-bit.*ARM aarch64" || { echo "ERROR: cc2_aarch64 not aarch64"; file build/cc2_aarch64; exit 1; }
+          echo "PASS: both binaries have correct architecture"
+
       - name: Package x86_64 tarball
         run: |
           VER="${GITHUB_REF_NAME}"
@@ -104,6 +110,15 @@ jobs:
           echo "var x = 42;" | ./build/cc2_aarch64 > /tmp/a64_test && chmod +x /tmp/a64_test
           result=$(timeout 5 qemu-aarch64-static /tmp/a64_test; echo $?)
           test "$result" = "42" && echo "PASS: aarch64 smoke test"
+
+      - name: Verify aarch64 binary
+        run: |
+          file build/cc2_aarch64 | grep -q "ELF 64-bit.*ARM aarch64" || {
+            echo "ERROR: cc2_aarch64 is NOT an aarch64 binary:"
+            file build/cc2_aarch64
+            exit 1
+          }
+          echo "PASS: cc2_aarch64 is aarch64 ELF"
 
       - name: Package aarch64 tarball
         run: |

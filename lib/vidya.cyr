@@ -21,44 +21,93 @@ fn vidya_entry_new(name, desc, cat, content) {
     return e;
 }
 
-# Entry field accessors
+# Get entry name
 fn vidya_entry_name(e) { return load64(e); }
+# Get entry description
 fn vidya_entry_desc(e) { return load64(e + 8); }
+# Get entry category
 fn vidya_entry_category(e) { return load64(e + 16); }
+# Get entry content
 fn vidya_entry_content(e) { return load64(e + 24); }
 
-# Registry: { entries: vec, index: hashmap(name → entry) }
-# Create a new empty registry
-fn vidya_registry_new() {
-    var r = alloc(16);
+# Registry: generic indexed collection for any entity type.
+# Stores entries in a vec + indexes by string key via hashmap.
+# Layout: { entries: vec, index: hashmap(key → entry), name: Str }
+# Works for vidya entries, itihas civilizations, eras, events, etc.
+
+# Create a new named registry
+fn registry_new(name) {
+    var r = alloc(24);
     store64(r, vec_new());
     store64(r + 8, map_new());
+    store64(r + 16, name);
     return r;
 }
 
 # Get entries vec from registry
-fn vidya_entries(r) { return load64(r); }
+fn registry_entries(r) { return load64(r); }
 # Get index hashmap from registry
-fn vidya_index(r) { return load64(r + 8); }
+fn registry_index(r) { return load64(r + 8); }
+# Get registry name
+fn registry_name(r) { return load64(r + 16); }
 
-# Add an entry to the registry
-fn vidya_register(r, entry) {
-    vec_push(vidya_entries(r), entry);
-    var name = vidya_entry_name(entry);
-    if (name != 0) {
-        map_set(vidya_index(r), str_data(name), entry);
+# Add an entry with a string key. Entry can be any pointer.
+fn registry_add(r, key, entry) {
+    vec_push(registry_entries(r), entry);
+    if (key != 0) {
+        map_set(registry_index(r), str_data(key), entry);
     }
     return 0;
 }
 
-# Look up an entry by name. Returns entry pointer or 0.
-fn vidya_get(r, name) {
-    return map_get(vidya_index(r), name);
+# Look up an entry by string key. Returns entry pointer or 0.
+fn registry_get(r, key) {
+    return map_get(registry_index(r), key);
 }
 
 # Return total number of entries
+fn registry_count(r) {
+    return vec_len(registry_entries(r));
+}
+
+# Filter entries: calls predicate(entry) for each, returns vec of matches
+fn registry_filter(r, pred) {
+    var results = vec_new();
+    var entries = registry_entries(r);
+    var count = vec_len(entries);
+    var i = 0;
+    while (i < count) {
+        var e = vec_get(entries, i);
+        if (fncall1(pred, e) == 1) { vec_push(results, e); }
+        i = i + 1;
+    }
+    return results;
+}
+
+# Convenience: create a vidya-style registry
+fn vidya_registry_new() {
+    return registry_new(str_from("vidya"));
+}
+
+# Vidya-specific helpers using generic registry
+fn vidya_entries(r) { return registry_entries(r); }
+# Vidya index accessor
+fn vidya_index(r) { return registry_index(r); }
+
+# Add a vidya entry to the registry
+fn vidya_register(r, entry) {
+    registry_add(r, vidya_entry_name(entry), entry);
+    return 0;
+}
+
+# Look up a vidya entry by name. Returns entry pointer or 0.
+fn vidya_get(r, name) {
+    return registry_get(r, name);
+}
+
+# Return total number of vidya entries
 fn vidya_count(r) {
-    return vec_len(vidya_entries(r));
+    return registry_count(r);
 }
 
 # Load a single TOML file with [[entries]] format (cyrius content)
