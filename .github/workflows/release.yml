@@ -47,6 +47,9 @@ jobs:
           for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
             cat programs/${tool}.cyr | ./build/cc2 > ./build/${tool} && chmod +x ./build/${tool}
           done
+          cat programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
+          # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
+          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
 
       - name: Package x86_64 tarball
         run: |
@@ -54,12 +57,14 @@ jobs:
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          for bin in cc2 cyrfmt cyrlint cyrdoc cyrc ark; do
-            cp "build/$bin" "$STAGE/bin/"
+          for bin in cc2 cc2_aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark; do
+            [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
           cp bootstrap/asm "$STAGE/bin/"
-          cp scripts/cyrb "$STAGE/bin/"
-          cp scripts/cyrb-init.sh "$STAGE/bin/"
+          for script in scripts/cyrb-*.sh; do
+            [ -f "$script" ] && cp "$script" "$STAGE/bin/"
+          done
+          cp scripts/ci.sh "$STAGE/bin/" 2>/dev/null || true
           chmod +x "$STAGE/bin"/*
 
           cp -r lib/* "$STAGE/lib/"

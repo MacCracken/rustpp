@@ -31,7 +31,7 @@ fn FIXUP(S) {
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call: patch BL rel26
-            var target = L64(S + 0x26B000 + idx * 8);
+            var target = L64(S + 0x26C000 + idx * 8);
             var rel = (target - coff) / 4;
             var pa = S + 0x20000 + coff;
             # BL: 0x94000000 | (rel & 0x3FFFFFF)

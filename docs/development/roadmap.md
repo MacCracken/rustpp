@@ -93,10 +93,52 @@ Current: 73KB, boots on QEMU, 15 subsystems, interactive shell.
 
 | # | Issue | Tool | Impact | Detail |
 |---|-------|------|--------|--------|
-| 1 | **>512 functions segfaults** | cc2 | Low | Function tables expanded from 256→512 in v1.6.0. Programs exceeding 512 need splitting. Proper fix: multi-file compilation (.o + link). |
-| 2 | **Release tarball missing cc2_aarch64** | release | Medium | x86_64 release should include cc2_aarch64 for cross-dev workflows. |
-| 3 | **Preprocessor macros with args** | cc2 | Medium | `#define NAME(params) body` — storage/detection works but parameter substitution has a memory corruption bug in the `0x91000` region. Deferred. |
-| 4 | ~~`include` inside `#ifdef` in included files fails~~ | cc2 | ~~Medium~~ | **Fixed** (v1.6.5). Preprocessor now runs multiple passes — included files get their `#ifdef`/`include` directives processed on subsequent passes. Up to 16 passes (handles deeply nested includes). |
+| 1 | **>1024 functions segfaults** | cc2 | Low | Function tables expanded from 512→1024 in v1.6.7. Error message at limit. Proper fix: multi-file compilation (.o + link). |
+| 2 | ~~Release tarball missing cc2_aarch64~~ | release | ~~Medium~~ | **Fixed** (v1.6.7). x86_64 tarball now includes cc2_aarch64, cyrb binary, all cyrb-*.sh scripts, and ci.sh. |
+| 3 | ~~Preprocessor macros with args~~ | cc2 | ~~Medium~~ | **Fixed** (v1.6.7). `#define NAME(p1, p2) body` with parameter substitution. Macro storage inlined in PP_PASS, expansion in separate PP_MACRO_PASS. Up to 16 macros. |
+
+---
+
+## Performance Optimizations (from crate benchmarks)
+
+Findings from agnosys + kybernet head-to-head benchmarks against Rust. Syscalls are at parity. Pure compute and allocation are the gaps.
+
+### Tier 1 — Pure Compute (2-10x gap, found in kybernet)
+
+Small integer operations, branch chains, enum dispatch. The gap is codegen quality, not architecture.
+
+| # | Optimization | Target | Expected Impact |
+|---|-------------|--------|-----------------|
+| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Eliminate runtime computation of compile-time-known values |
+| 2 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | if/elif chains → jump tables for dense integer switches |
+| 3 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Eliminate call/ret overhead for trivial functions |
+| 4 | Compare-and-branch fusion | General | `cmp + jne` in one pass instead of `cmp → setCC → test → jne` |
+
+### Tier 2 — Allocation (7-36x gap, found in kybernet cold paths)
+
+String building and BPF program generation. The gap is heap allocation overhead vs Rust's stack allocation + LLVM optimization.
+
+| # | Optimization | Target | Expected Impact |
+|---|-------------|--------|-----------------|
+| 5 | Stack-allocated small strings | `str_builder`: 371ns vs Rust 52ns | Avoid heap for strings < 64 bytes |
+| 6 | Arena allocator for BPF | `seccomp_build`: 2.4μs vs Rust 69ns | Batch-allocate BPF instructions instead of per-insn alloc |
+| 7 | Path buffer reuse | `cgroup_path`: 466ns vs Rust 24ns | Pre-allocated path buffer instead of heap concat |
+| 8 | Return-by-value for small structs | General | Eliminate heap copy for structs ≤ 2 registers |
+
+### Tier 3 — Codegen Quality (general)
+
+| # | Optimization | Effort | Impact |
+|---|-------------|--------|--------|
+| 9 | Dead code elimination | Medium | Remove unused function bodies |
+| 10 | Register allocation | High | Reduce spills to stack, fewer mov instructions |
+| 11 | Peephole optimization | Medium | `mov rax, 0` → `xor eax, eax`, redundant load elimination |
+| 12 | Tail call optimization | Low | Recursive functions don't grow the stack |
+
+### Context
+
+These optimizations are informed by real benchmark data, not speculation. Each one was discovered by porting an actual Rust crate and measuring head-to-head. The pattern: syscall-bound code is at parity (kernel does the work), pure compute needs better codegen, allocation needs smarter placement.
+
+For PID 1 (kybernet), the hot path is epoll_wait + syscalls — already at parity. The cold path (seccomp_build, cgroup_path) runs once at boot. The 36x gap on seccomp_build is 2.4 microseconds, once. The optimization priority is real programs, not benchmarks.
 
 ---
 
@@ -106,12 +148,12 @@ For cycc compatibility and general-purpose use:
 
 | Feature | Effort | Unlocks |
 |---------|--------|---------|
-| Multi-file compilation (.o + link) | High | True separate compilation |
+| Multi-file compilation (.o + link) | High | True separate compilation, fixes >512 function limit |
 | Struct padding/alignment (sizeof) | Medium | ABI compat, FFI |
 | Unions, bitfields | Medium | Hardware, protocols |
 | Variadic functions | Medium | printf-style APIs |
 | Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
-| Optimization passes (-O1) | Very High | Performance |
+| Optimization passes (-O1) | Very High | Performance (see Tier 1-3 above) |
 | Preprocessor macros (with args) | Medium | Generic patterns |
 
 ---

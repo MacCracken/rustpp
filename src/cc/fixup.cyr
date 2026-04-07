@@ -33,14 +33,14 @@ fn FIXUP(S) {
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call — patch rel32
-            var target = L64(S + 0x26B000 + idx * 8);
+            var target = L64(S + 0x26C000 + idx * 8);
             var rel = target - coff - 4;
             var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
         else { if (ftype == 3) {
             # Absolute function address — patch imm64
-            S64(S + 0x20000 + coff, entry + L64(S + 0x26B000 + idx * 8));
+            S64(S + 0x20000 + coff, entry + L64(S + 0x26C000 + idx * 8));
         }
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset

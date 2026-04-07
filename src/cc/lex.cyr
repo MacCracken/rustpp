@@ -121,6 +121,149 @@ fn ISENDIF(S, pos, bl) {
 # Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
 var _pp_flag_count = 0;
 
+# Macro table: up to 16 macros with args
+# S+0x92000: 16 name hashes (128 bytes)
+# S+0x92080: 16 definition text offsets (128 bytes) — points into S+0x93000
+# S+0x92100: 16 definition text lengths (128 bytes)
+# S+0x93000: definition text storage (16KB)
+var _pp_macro_count = 0;
+var _pp_macro_text_pos = 0;
+
+# Hash stopping at ( for macro names
+fn PP_HASH_ID(S, pos) {
+    var h = 0;
+    var pi = 0;
+    var pc = load8(S + pos + pi);
+    while (pc != 0) {
+        if (pc == 10) { return h; }
+        if (pc == 13) { return h; }
+        if (pc == 32) { return h; }
+        if (pc == 40) { return h; }
+        h = h * 31 + pc;
+        pi = pi + 1;
+        pc = load8(S + pos + pi);
+    }
+    return h;
+}
+
+# Find macro by name hash at input position, return index or -1
+fn PP_FIND_MACRO(S, ip) {
+    var h = PP_HASH_ID(S, ip);
+    var mi = 0;
+    while (mi < _pp_macro_count) {
+        if (load64(S + 0x92000 + mi * 8) == h) { return mi; }
+        mi = mi + 1;
+    }
+    return 0 - 1;
+}
+
+# Expand macro invocation: NAME(arg1, arg2)
+# Reads args from input at ip, substitutes into body, writes to out+op
+# Returns new ip position (after the closing paren)
+fn PP_EXPAND(S, mi, ip, bl, out, op) {
+    var def = S + 0x93000 + load64(S + 0x92080 + mi * 8);
+    # Skip name in definition to find (
+    var dp = 0;
+    while (load8(def + dp) != 40) { dp = dp + 1; }
+    dp = dp + 1;  # skip (
+    # Read param names from definition
+    var pnames[512];   # up to 8 params, 64 bytes each
+    var pcnt = 0;
+    var pp = 0;
+    while (load8(def + dp) != 41) {
+        if (load8(def + dp) == 44) { store8(&pnames + pp, 0); pp = pp + 1; pcnt = pcnt + 1; dp = dp + 1; }
+        elif (load8(def + dp) == 32) { dp = dp + 1; }
+        else { store8(&pnames + pp, load8(def + dp)); pp = pp + 1; dp = dp + 1; }
+    }
+    if (pp > 0) { store8(&pnames + pp, 0); pp = pp + 1; pcnt = pcnt + 1; }
+    dp = dp + 1;  # skip )
+    if (load8(def + dp) == 32) { dp = dp + 1; }  # skip space after )
+    # Read body text from definition (rest after params)
+    var body = def + dp;
+    # Skip name in input to find (
+    while (ip < bl) {
+        if (load8(S + ip) == 40) { break; }
+        ip = ip + 1;
+    }
+    ip = ip + 1;  # skip (
+    # Read args from input (comma-separated, handle nested parens)
+    var args[512];    # up to 8 args, 64 bytes each
+    var acnt = 0;
+    var ap = 0;
+    var depth = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        if (c == 40) { depth = depth + 1; store8(&args + ap, c); ap = ap + 1; }
+        elif (c == 41) {
+            if (depth == 0) { store8(&args + ap, 0); ap = ap + 1; acnt = acnt + 1; ip = ip + 1; break; }
+            depth = depth - 1; store8(&args + ap, c); ap = ap + 1;
+        }
+        elif (c == 44) {
+            if (depth == 0) { store8(&args + ap, 0); ap = ap + 1; acnt = acnt + 1; }
+            else { store8(&args + ap, c); ap = ap + 1; }
+        }
+        else { store8(&args + ap, c); ap = ap + 1; }
+        ip = ip + 1;
+    }
+    # Substitute: walk body, replace param names with args
+    var bi = 0;
+    while (load8(body + bi) != 0) {
+        var bc = load8(body + bi);
+        var matched = 0 - 1;
+        # Check if current position matches a param name (alpha/underscore start)
+        if (bc >= 97) { if (bc <= 122) { matched = 0 - 2; } }
+        if (bc >= 65) { if (bc <= 90) { matched = 0 - 2; } }
+        if (bc == 95) { matched = 0 - 2; }
+        if (matched == 0 - 2) {
+            # Try each param
+            var pi2 = 0;
+            var poff = 0;
+            while (pi2 < pcnt) {
+                # Compare param at pnames+poff with body at bi
+                var pk = 0;
+                var pmatch = 1;
+                while (load8(&pnames + poff + pk) != 0) {
+                    if (load8(body + bi + pk) != load8(&pnames + poff + pk)) { pmatch = 0; break; }
+                    pk = pk + 1;
+                }
+                # Ensure not a longer identifier
+                if (pmatch == 1) {
+                    var nc = load8(body + bi + pk);
+                    if (nc >= 97) { if (nc <= 122) { pmatch = 0; } }
+                    if (nc >= 65) { if (nc <= 90) { pmatch = 0; } }
+                    if (nc >= 48) { if (nc <= 57) { pmatch = 0; } }
+                    if (nc == 95) { pmatch = 0; }
+                }
+                if (pmatch == 1) { matched = pi2; break; }
+                while (load8(&pnames + poff) != 0) { poff = poff + 1; }
+                poff = poff + 1;
+                pi2 = pi2 + 1;
+            }
+        }
+        if (matched >= 0) {
+            # Find arg text: walk args buffer to the matched index
+            var aoff = 0;
+            var ai2 = 0;
+            while (ai2 < matched) { while (load8(&args + aoff) != 0) { aoff = aoff + 1; } aoff = aoff + 1; ai2 = ai2 + 1; }
+            # Copy arg text to output
+            while (load8(&args + aoff) != 0) { store8(out + op, load8(&args + aoff)); op = op + 1; aoff = aoff + 1; }
+            # Skip param name in body
+            var poff2 = 0;
+            var pi3 = 0;
+            while (pi3 < matched) { while (load8(&pnames + poff2) != 0) { poff2 = poff2 + 1; } poff2 = poff2 + 1; pi3 = pi3 + 1; }
+            var plen = 0;
+            while (load8(&pnames + poff2 + plen) != 0) { plen = plen + 1; }
+            bi = bi + plen;
+        } else {
+            store8(out + op, bc); op = op + 1; bi = bi + 1;
+        }
+    }
+    store8(out + op, 10); op = op + 1;
+    # Return new ip via storing op in a known location
+    store64(S + 0x90700, op);
+    return ip;
+}
+
 fn PP_HASH(S, pos) {
     var h = 0;
     var pi = 0;
@@ -176,8 +319,47 @@ fn PP_PASS(S) {
         # Preprocessor directives at start of line
         if (bol == 1) {
             if (ISDEFINE(S, ip, bl) == 1) {
-                if (skip_depth == 0) { PP_DEFINE(S, ip + 8); }
-                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+                if (skip_depth == 0) {
+                    # Check for macro with args: #define NAME(
+                    var dp = ip + 8;
+                    var is_macro = 0;
+                    while (dp < bl) {
+                        var dc = load8(S + dp);
+                        if (dc == 40) { is_macro = 1; break; }
+                        if (dc == 32) { break; }
+                        if (dc == 10) { break; }
+                        dp = dp + 1;
+                    }
+                    if (is_macro == 1) {
+                        # Store macro inline: copy line text to storage
+                        var msi = _pp_macro_count;
+                        if (msi < 16) {
+                            var mip = ip + 8;
+                            store64(S + 0x92000 + msi * 8, PP_HASH_ID(S, mip));
+                            store64(S + 0x92080 + msi * 8, _pp_macro_text_pos);
+                            var mdst = S + 0x93000 + _pp_macro_text_pos;
+                            var mlen = 0;
+                            var mcp = mip;
+                            while (mcp < bl) {
+                                if (load8(S + mcp) == 10) { break; }
+                                store8(mdst + mlen, load8(S + mcp));
+                                mlen = mlen + 1;
+                                mcp = mcp + 1;
+                            }
+                            store8(mdst + mlen, 0);
+                            store64(S + 0x92100 + msi * 8, mlen);
+                            _pp_macro_text_pos = _pp_macro_text_pos + mlen + 1;
+                            _pp_macro_count = _pp_macro_count + 1;
+                        }
+                        ip = PP_SKIPLINE(S, ip, bl);
+                    } else {
+                        PP_DEFINE(S, ip + 8);
+                        ip = PP_SKIPLINE(S, ip, bl);
+                    }
+                } else {
+                    ip = PP_SKIPLINE(S, ip, bl);
+                }
+                bol = 1; handled = 1;
             }
             if (handled == 0) { if (ISIFDEF(S, ip, bl) == 1) {
                 if (skip_depth > 0) { skip_depth = skip_depth + 1; }
@@ -233,11 +415,53 @@ fn PP_PASS(S) {
     return had_include;
 }
 
+# Separate pass: expand macro invocations after all includes/ifdefs are resolved
+fn PP_MACRO_PASS(S) {
+    if (_pp_macro_count == 0) { return 0; }
+    var bl = GBL(S);
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        var expanded = 0;
+        # Check for uppercase-starting identifier that might be a macro
+        if (c >= 65) { if (c <= 90) {
+            var mmi = PP_FIND_MACRO(S, ip);
+            if (mmi >= 0) {
+                # Verify ( follows the name (skip alpha chars to find it)
+                var mp = ip;
+                while (mp < bl) {
+                    var mc = load8(S + mp);
+                    if (mc == 40) { break; }
+                    if (mc >= 65) { if (mc <= 90) { mp = mp + 1; } else { break; } }
+                    elif (mc >= 97) { if (mc <= 122) { mp = mp + 1; } else { break; } }
+                    elif (mc >= 48) { if (mc <= 57) { mp = mp + 1; } else { break; } }
+                    elif (mc == 95) { mp = mp + 1; }
+                    else { break; }
+                }
+                if (mp < bl) { if (load8(S + mp) == 40) {
+                    ip = PP_EXPAND(S, mmi, ip, bl, out, op);
+                    op = load64(S + 0x90700);
+                    expanded = 1;
+                } }
+            }
+        } }
+        if (expanded == 0) {
+            store8(out + op, c);
+            op = op + 1;
+            ip = ip + 1;
+        }
+    }
+    # Copy back
+    var ci = 0;
+    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
+    SBL(S, op);
+    return 0;
+}
+
 fn PREPROCESS(S) {
-    # Run preprocessor passes until no more includes are found.
-    # Each pass expands includes and evaluates #ifdef/#define.
-    # Included files may contain their own includes and ifdefs,
-    # which get processed on the next pass.
+    # Pass 1+: expand includes and evaluate #ifdef/#define
     var pass = 0;
     var go = 1;
     while (go == 1) {
@@ -246,6 +470,8 @@ fn PREPROCESS(S) {
         if (had == 0) { go = 0; }
         if (pass >= 16) { go = 0; }
     }
+    # Final pass: expand macros with args
+    PP_MACRO_PASS(S);
     return 0;
 }
 
