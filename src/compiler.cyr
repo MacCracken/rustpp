@@ -378,6 +378,18 @@ while (escan == 1) {
 EMIT_GVAR_INITS(S);
 STI(S, gvar_save_ti);
 
+# Warn about undefined functions (registered but never defined — offset still -1)
+var wfi = 0;
+var wfc = GFNC(S);
+while (wfi < wfc) {
+    if (L64(S + 0x2B4000 + wfi * 8) < 0) {
+        syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
+        PRSTR(S + 0x50000 + L64(S + 0x2B2000 + wfi * 8));
+        syscall(SYS_WRITE, 2, "'\n", 2);
+    }
+    wfi = wfi + 1;
+}
+
 # Parse main code (top-level statements)
 PARSE_PROG(S);
 
