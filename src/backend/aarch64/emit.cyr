@@ -508,5 +508,6 @@ fn EX87PUSH(S) { return 0; }
 fn EX87POP(S) { return 0; }
 fn EMIT_F64_BINOP(S, fop) { return 0; }
 fn EMIT_FLOAT_LIT(S, fval) { return 0; }
+fn EMIT_F64V_LOOP(S, op, vbase) { return 0; }
 fn EMIT_F64V_UNARY(S, op, vbase) { return 0; }
 fn EMIT_F64V_FMADD(S, vbase) { return 0; }

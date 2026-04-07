@@ -44,8 +44,11 @@ fn map_new() {
     return m;
 }
 
+# Return pointer to the entries array
 fn map_entries(m) { return load64(m); }
+# Return the current capacity
 fn map_cap(m) { return load64(m + 8); }
+# Return the number of occupied entries
 fn map_count(m) { return load64(m + 16); }
 
 # Find slot for key. Returns entry pointer or 0.
@@ -190,20 +193,20 @@ fn map_print(m) {
     var entries = load64(m);
     var cap = load64(m + 8);
     syscall(1, 1, "{", 1);
-    var first = 1;
-    var pi = 0;
-    while (pi < cap) {
-        var ep = entries + pi * 24;
-        if (load64(ep + 16) == 1) {
-            if (first == 0) { syscall(1, 1, ", ", 2); }
-            var pk = load64(ep);
-            syscall(1, 1, pk, strlen(pk));
-            syscall(1, 1, ": ", 2);
-            fmt_int(load64(ep + 8));
-            first = 0;
+        var first = 1;
+        var pi = 0;
+        while (pi < cap) {
+            var ep = entries + pi * 24;
+            if (load64(ep + 16) == 1) {
+                if (first == 0) { syscall(1, 1, ", ", 2); }
+                var pk = load64(ep);
+                syscall(1, 1, pk, strlen(pk));
+                syscall(1, 1, ": ", 2);
+                fmt_int(load64(ep + 8));
+                first = 0;
+            }
+            pi = pi + 1;
         }
-        pi = pi + 1;
-    }
-    syscall(1, 1, "}", 1);
+        syscall(1, 1, "}", 1);
     return 0;
 }

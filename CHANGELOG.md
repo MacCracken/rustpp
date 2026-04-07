@@ -6,8 +6,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.10.1] — 2026-04-07
-
 ## [1.10.0] — 2026-04-07
 
 ### Added — Compiler
@@ -35,10 +33,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `typ <= 92` to `typ <= 98`, fixing "unexpected unknown" errors for new builtins
   used as statements.
 
+### Fixed — aarch64
+- **Missing `EMIT_F64V_LOOP` stub**: aarch64 cross-compiler failed with "undefined function"
+  warning and segfaulted under qemu. Added stub alongside existing UNARY/FMADD stubs.
+
+### Removed — Dead Code
+- `src/cc/` (5 files) — superseded by modular `src/frontend/` + `src/backend/x86/` + `src/common/`.
+- `src/cc_bridge.cyr` — identical copy of `src/bridge.cyr`.
+- `src/compiler.cyr` — superseded by `src/main.cyr`.
+- `src/compiler_aarch64.cyr` — superseded by `src/main_aarch64.cyr`.
+- `src/arch/aarch64/` (3 files) — superseded by `src/backend/aarch64/`.
+
 ### Changed — Compiler
 - Binary size: 194KB x86_64 (up from 189KB due to inline metadata + new builtins).
 - Heap brk extended from 0x2C8000 to 0x2D2000 (inline metadata tables).
 - 267 tests passing, self-hosting byte-identical.
+
+### Changed — Standard Library
+- **Hashmap simplified** (`lib/hashmap.cyr`): Removed enum indirection, extracted
+  `_map_lookup()` helper, used `elif` in probe loop, inlined accessor calls in internals.
+- Fixed `arena_free` documentation in `lib/alloc.cyr` (function doesn't exist).
 
 ## [1.9.5] — 2026-04-07
 
