@@ -312,33 +312,6 @@ while (scan == 1) {
 # Reset module for pass 2
 SMOD(S, 0);
 
-# ── Dead Code Elimination ──
-# Collect all IDENT name offsets that are NOT function definitions (not preceded by FN).
-# Store as a hash set at S+0x90A00 (256 hash slots, 8 bytes each = 2048 bytes).
-# In pass 2, check if a function's name hash is in this set before emitting.
-var dce_set = S + 0x90A00;
-var dce_i = 0;
-while (dce_i < 2048) { store8(dce_set + dce_i, 0); dce_i = dce_i + 1; }
-var dce_ti = 0;
-var dce_tc = GTCNT(S);
-var dce_prev = 0;
-while (dce_ti < dce_tc) {
-    if (TOKTYP(S, dce_ti) == 2) {
-        if (dce_prev != 32) {
-            # Hash the identifier name and store in set
-            var dce_noff = TOKVAL(S, dce_ti);
-            var dce_h = 0;
-            var dce_hi = 0;
-            var dce_hc = load8(S + 0x50000 + dce_noff + dce_hi);
-            while (dce_hc != 0) { dce_h = dce_h * 31 + dce_hc; dce_hi = dce_hi + 1; dce_hc = load8(S + 0x50000 + dce_noff + dce_hi); }
-            var dce_slot = (dce_h & 0x7FFFFFFFFFFFFFFF) % 256;
-            store64(dce_set + dce_slot * 8, dce_h);
-        }
-    }
-    dce_prev = TOKTYP(S, dce_ti);
-    dce_ti = dce_ti + 1;
-}
-
 # Pass 2: Parse struct and fn definitions (vars already registered)
 STI(S, 0);
 var topgo = 1;
@@ -367,26 +340,36 @@ while (topgo == 1) {
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     }
     else { if (PEEKT(S) == 32) {
-        # Check DCE: is this function's name referenced anywhere (not as definition)?
-        # Skip DCE for functions in modules or with underscores (mangled names).
+        # Dead code elimination: scan tokens for any reference to this function
+        # name that isn't the definition itself (not preceded by FN).
+        # Skip DCE for module-scoped or underscore-named functions.
         var dce_fnoff = TOKVAL(S, GTI(S) + 1);
         var dce_reachable = 1;
         if (GMOD(S) == 0) {
-            # Hash the function name
+            # Check for underscore in name (mangled — skip DCE)
             var dce_np = S + 0x50000 + dce_fnoff;
-            var dce_h = 0;
-            var dce_hi = 0;
             var dce_has_us = 0;
-            var dce_hc = load8(dce_np + dce_hi);
-            while (dce_hc != 0) {
-                dce_h = dce_h * 31 + dce_hc;
-                if (dce_hc == 95) { dce_has_us = 1; }
-                dce_hi = dce_hi + 1;
-                dce_hc = load8(dce_np + dce_hi);
+            var dce_ni = 0;
+            while (load8(dce_np + dce_ni) != 0) {
+                if (load8(dce_np + dce_ni) == 95) { dce_has_us = 1; }
+                dce_ni = dce_ni + 1;
             }
             if (dce_has_us == 0) {
-                var dce_slot = (dce_h & 0x7FFFFFFFFFFFFFFF) % 256;
-                if (load64(dce_set + dce_slot * 8) != dce_h) { dce_reachable = 0; }
+                # Scan all tokens for this name (not after FN)
+                var dce_found = 0;
+                var dce_ti = 0;
+                var dce_tc = GTCNT(S);
+                var dce_prev = 0;
+                while (dce_ti < dce_tc) {
+                    if (TOKTYP(S, dce_ti) == 2) {
+                        if (dce_prev != 32) {
+                            if (STREQ(S, TOKVAL(S, dce_ti), dce_fnoff) == 1) { dce_found = 1; break; }
+                        }
+                    }
+                    dce_prev = TOKTYP(S, dce_ti);
+                    dce_ti = dce_ti + 1;
+                }
+                if (dce_found == 0) { dce_reachable = 0; }
             }
         }
         if (dce_reachable == 1) {
