@@ -17,7 +17,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 |---|-------|----------|--------|
 | 1 | **assert+bench+12 modules fails** | P1 | Including assert.cyr + bench.cyr + all 12 agnostik modules produces `unexpected '+'` at ~line 2556. bench alone works, assert alone works, both together fail. ~693 functions, 347 vars pre-expansion. Might be token/VCNT overflow with combined libs. |
 | 2 | **Bump allocator no arena** | P2 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. |
-| 3 | **cc2_aarch64 1.7.4 regression: large kernel fails silently** | P1 | AGNOS aarch64 build (33 files via include, ~3000 lines) compiles OK on 1.7.1 but fails silently (no error message, just FAIL) on 1.7.4. Simple aarch64 kernels still work. Likely related to constant folding changes interacting with include preprocessing. |
+| 3 | ~~aarch64 large kernel fails~~ | ~~P1~~ | **Fixed** (v1.7.5). ETAILJMP missing from aarch64 backend. Also needed fixup type 4 (B not BL) for tail calls. AGNOS aarch64 kernel now compiles (44KB). |
 | 4 | **1.7.4 allocator codegen regression: PMM/heap 50-70% slower** | P2 | AGNOS PMM alloc+free went from 1304 to 2044 cycles/op (+57%), heap_32B from 1207 to 2065 (+71%). Serial I/O improved (-28%). Constant folding may have changed register allocation in tight loops. |
 
 ---
@@ -152,17 +152,93 @@ A Cyrius-native portable bytecode format. Not WASM — designed for AGNOS, syste
 
 ---
 
-## cyrius-ts — TypeScript/JavaScript Replacement (v2.0+)
+## cyrius-ts — TypeScript/JavaScript Bridge Frontend (v2.0+)
 
-Not a transpiler. A replacement for the entire JS/TS runtime stack.
+Not a transpiler. Not a new language. A **compiler frontend** — same pattern as cycc for C. TS-like syntax parsed into Cyrius IR, same backend, same binary output. 20 million JS/TS developers write what they know, the compiler produces sovereign binaries.
 
-| Phase | Scope |
-|-------|-------|
-| 1 | Web-pattern syntax sugar |
-| 2 | HTTP server library |
-| 3 | DOM-equivalent for aethersafha |
-| 4 | JS/TS migration tool |
-| 5 | npm compatibility layer |
+```
+.cyr  ──→ ┐
+.cts  ──→ ├──→ Cyrius IR ──→ codegen ──→ x86_64 / aarch64 / cyrius-x
+.c    ──→ ┘
+         Three frontends. One compiler. One backend.
+```
+
+### What TS Developers Get
+
+```
+// hello.cts — looks like TypeScript, compiles to 15KB binary
+import { serve, json } from "std/http"
+
+serve(8080, (req) => {
+  if (req.path == "/api/hello") {
+    return json({ message: "Welcome to the Future" })
+  }
+  return { status: 404, body: "not found" }
+})
+```
+
+### Syntax Mapping
+
+| TypeScript | Cyrius equivalent | Notes |
+|-----------|-------------------|-------|
+| `let x = 5` | `var x = 5` | Direct mapping |
+| `const` | `var` | Const enforcement planned |
+| `function f()` | `fn f()` | |
+| `(x) => x * 2` | `\|x\| x * 2` | Closures already exist |
+| `{ name: "Mac" }` | `struct + init` | Object literal → struct construction |
+| `[1, 2, 3]` | `vec_new + vec_push` | Array literal → vec |
+| `for (x of items)` | `for x in items` | |
+| `async/await` | `async fn` / `await` | Planned v1.9 |
+| `import/export` | `mod/use/pub` | Module system exists |
+| `console.log()` | `println()` | |
+| `` `hello ${name}` `` | template strings | Backtick interpolation |
+| `JSON.parse()` | `json_parse()` | json.cyr exists |
+| `match` | `match` | Pattern matching exists |
+
+### Existing Cyrius Coverage
+
+| TS/Node.js need | Cyrius status |
+|----------------|--------------|
+| JSON | json.cyr — parse, get, build (done) |
+| TCP/UDP sockets | net.cyr — raw sockets (done) |
+| Filesystem | fs.cyr — read, write, dir, walk (done) |
+| Process | process.cyr — spawn, capture (done) |
+| Regex | regex.cyr — glob, find, replace (done) |
+| Strings | str.cyr — 16+ methods (done) |
+| HashMap | hashmap.cyr — FNV-1a, open addressing (done) |
+| HTTP | needs: request/response parser, router |
+| Template strings | needs: backtick interpolation in compiler |
+| async/await | needs: v1.9 concurrency |
+
+### Phases
+
+| Phase | Scope | Prerequisite |
+|-------|-------|-------------|
+| 1 | **TS parser frontend** — lex .cts files, map to Cyrius IR | v1.7 (current compiler mature enough) |
+| 2 | **Template strings** — backtick interpolation in compiler | Compiler change (lex + codegen) |
+| 3 | **HTTP library** — request/response, router, middleware | net.cyr (done), json.cyr (done) |
+| 4 | **Web stdlib** — console, fetch, URL, FormData equivalents | HTTP library |
+| 5 | **`cyrb port-ts`** — automated Node.js project migration | Parser + stdlib |
+| 6 | **npm sandbox** — run npm packages in kavach container via cyrius-x | cyrius-x interpreter |
+| 7 | **DOM-equivalent** — UI via aethersafha compositor, not browser | aethersafha integration |
+
+### The Numbers
+
+| Metric | Node.js/Express | cyrius-ts |
+|--------|----------------|-----------|
+| Runtime | V8 ~30MB | cyrius-x ~10-20KB |
+| Startup | 30-50ms | <1ms |
+| Hello world binary | ~30MB (node + deps) | ~15KB |
+| Dependencies for web server | express + 57 transitive | 0 |
+| Runs on ESP32 ($4 MCU) | No (V8 too large) | Yes |
+| `npm install` arbitrary code | Yes | No (sigil-verified, no install scripts) |
+| Supply chain attack surface | npm (2M+ packages, any can inject) | Zero deps default, kavach-sandboxed imports |
+
+### Adoption Path
+
+The developer doesn't learn Cyrius. They write TypeScript-like code in `.cts` files. The compiler handles the translation. The output is a sovereign binary — same 168-byte `true`, same 15KB web server, same architecture as everything else in AGNOS.
+
+Over time, developers who want more control drop into `.cyr` syntax for performance-critical paths — same way C developers drop into assembly. The bridge becomes a gateway.
 
 ---
 

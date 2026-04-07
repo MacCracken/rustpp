@@ -34,8 +34,15 @@ fn FIXUP(S) {
             var target = L64(S + 0x2AC000 + idx * 8);
             var rel = (target - coff) / 4;
             var pa = S + 0x20000 + coff;
-            # BL: 0x94000000 | (rel & 0x3FFFFFF)
             var insn = 0x94000000 | (rel & 0x3FFFFFF);
+            S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
+        }
+        else { if (ftype == 4) {
+            # Tail call: patch B rel26 (not BL — no link register update)
+            var target = L64(S + 0x2AC000 + idx * 8);
+            var rel = (target - coff) / 4;
+            var pa = S + 0x20000 + coff;
+            var insn = 0x14000000 | (rel & 0x3FFFFFF);
             S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
         }
         else { if (ftype == 1) {
@@ -49,7 +56,7 @@ fn FIXUP(S) {
                 vi = vi + 1;
             }
             FIXUP_MOV(S, coff, dbase + cumul);
-        } }
+        } } }
         fi = fi + 1;
     }
     S64(S + 0x69808, totvar);

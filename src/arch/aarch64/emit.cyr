@@ -442,3 +442,19 @@ fn ASM_MNEMONIC(S) {
     if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     return 0;
 }
+
+# Tail call: epilogue + branch to function (aarch64)
+fn ETAILJMP(S, fnidx) {
+    # Restore frame: mov sp, x29; ldp x29, x30, [sp], #16
+    EW(S, 0x910003BF);  # mov sp, x29
+    EW(S, 0xA8C17BFD);  # ldp x29, x30, [sp], #16
+    # Branch to function — use fixup type 4 for B (not BL)
+    var poff = GCP(S);
+    EW(S, 0x14000000);  # B placeholder
+    var fc = GFCNT(S);
+    var faddr = S + 0x2A2000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (4 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
