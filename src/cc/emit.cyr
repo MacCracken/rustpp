@@ -409,6 +409,20 @@ fn EUCOMISD(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x2E); EB(S, 0xC1); return 0; }
 fn EXORPD_X1(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x57); EB(S, 0xC9); return 0; }
 fn EMOVAPD_01(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x28); EB(S, 0xC1); return 0; }
 
+# x87 FPU: rax→stack→x87, compute, x87→stack→rax
+fn EX87PUSH(S) {
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x10);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0x04); EB(S, 0x24);
+    EB(S, 0xDD); EB(S, 0x04); EB(S, 0x24);
+    return 0;
+}
+fn EX87POP(S) {
+    EB(S, 0xDD); EB(S, 0x1C); EB(S, 0x24);
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x04); EB(S, 0x24);
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x10);
+    return 0;
+}
+
 # sqrtsd xmm0, xmm0
 fn EF64SQRT(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x51); EB(S, 0xC0); return 0; }
 # roundsd xmm0, xmm0, 1 (floor) — SSE4.1

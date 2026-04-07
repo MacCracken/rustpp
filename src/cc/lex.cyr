@@ -876,10 +876,11 @@ fn LEXID(S, p, npos) {
     var bl = GBL(S);
     var ws = npos;
     var go = 1;
+    var c = 0;
     while (go == 1) {
         if (p >= bl) { go = 0; }
         if (go == 1) {
-            var c = load8(S + 0x222000 + p);
+            c = load8(S + 0x222000 + p);
             if (ISALNUM(c) == 1) {
                 store8(S + 0x50000 + npos, c);
                 npos = npos + 1;
@@ -888,11 +889,27 @@ fn LEXID(S, p, npos) {
         }
     }
     store8(S + 0x50000 + npos, 0);
-    npos = npos + 1;
-    SNPOS(S, npos);
+    # Dedup: reuse existing identical identifier
+    bl = ws;
+    go = 0;
+    while (go < bl) {
+        var dc = 0;
+        c = 1;
+        while (c == 1) {
+            if (load8(S + 0x50000 + go + dc) != load8(S + 0x50000 + bl + dc)) { c = 0; }
+            if (load8(S + 0x50000 + go + dc) == 0) { break; }
+            dc = dc + 1;
+        }
+        if (c == 1) { ws = go; break; }
+        while (load8(S + 0x50000 + go) != 0) { go = go + 1; }
+        go = go + 1;
+    }
+    # klen must be computed BEFORE dedup changes ws
+    var klen = npos - bl;
+    if (ws == bl) { npos = npos + 1; SNPOS(S, npos); }
+    else { SNPOS(S, bl); }
     # Check keywords
     var kw = L64(S + 0x50000 + ws);
-    var klen = npos - ws - 1;
     if (klen == 2) {
         if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
         if (kw & 0xFFFF == 0x6E66) { ADDTOK(S, 32, 0); return p; }
@@ -961,6 +978,12 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x7669645F343666) { ADDTOK(S, 65, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x67656E5F343666) { ADDTOK(S, 71, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x7362615F343666) { ADDTOK(S, 80, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6E69735F343666) { ADDTOK(S, 83, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x736F635F343666) { ADDTOK(S, 84, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7078655F343666) { ADDTOK(S, 85, 0); return p; }
+    }
+    if (klen == 6) {
+        if (kw & 0xFFFFFFFFFFFF == 0x6E6C5F343666) { ADDTOK(S, 86, 0); return p; }
     }
     # "continue" = 0x65756E69746E6F63 (8 bytes)
     if (klen == 8) {
@@ -968,6 +991,8 @@ fn LEXID(S, p, npos) {
         if (kw == 0x6D6F72665F343666) { ADDTOK(S, 66, 0); return p; }
         if (kw == 0x747271735F343666) { ADDTOK(S, 79, 0); return p; }
         if (kw == 0x6C6965635F343666) { ADDTOK(S, 82, 0); return p; }
+        if (kw == 0x32676F6C5F343666) { ADDTOK(S, 87, 0); return p; }
+        if (kw == 0x327078655F343666) { ADDTOK(S, 88, 0); return p; }
     }
     if (klen == 9) {
         # f64_floor: first 8 bytes = 0x6F6F6C665F343666, 9th byte = 'r' (0x72)

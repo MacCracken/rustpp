@@ -84,6 +84,9 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | 4 | Arena allocator | `seccomp_build`: 2.4us vs Rust 69ns | Batch allocation |
 | 5 | Return-by-value small structs | General | Structs <= 2 registers |
 | 6 | Register allocation | General | High effort, reduce spills |
+| 7 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | mod_mul uses 64 additions per multiply without native u128. Biggest ntheory bottleneck |
+| 8 | SIMD auto-vectorization | `poly_blep_4096`: 9.6x vs Rust | Batch DSP ops without manual intrinsics |
+| 9 | Cross-function inlining | DSP scalar: 300-700x vs Rust | Sub-ns Rust = LLVM inlined entire function. ~400ns Cyrius floor is call overhead |
 ### Done
 
 | Optimization | Version |
@@ -106,7 +109,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Struct padding/alignment (sizeof) | Medium | ABI compat, FFI |
 | Unions, bitfields | Medium | Hardware, protocols |
 | Variadic functions | Medium | printf-style APIs |
-| Multi-width types (i8, i16, i32) | Medium | Memory efficiency |
+| Multi-width types (i8, i16, i32, u128) | Medium | Memory efficiency, big-number math (mod_mul, fibonacci) |
 
 ---
 
