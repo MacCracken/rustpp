@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.8.5.** 174KB self-hosting compiler, both architectures.
+> **v1.9.0.** 174KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.

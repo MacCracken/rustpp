@@ -1270,6 +1270,9 @@ fn LEXID(S, p, npos) {
         if (kw == 0x6C6965635F343666) { ADDTOK(S, 82, 0); return p; }
         if (kw == 0x32676F6C5F343666) { ADDTOK(S, 87, 0); return p; }
         if (kw == 0x327078655F343666) { ADDTOK(S, 88, 0); return p; }
+        if (kw == 0x6464615F76343666) { ADDTOK(S, 89, 0); return p; }
+        if (kw == 0x6275735F76343666) { ADDTOK(S, 90, 0); return p; }
+        if (kw == 0x6C756D5F76343666) { ADDTOK(S, 91, 0); return p; }
     }
     if (klen == 9) {
         # f64_floor: first 8 bytes = 0x6F6F6C665F343666, 9th byte = 'r' (0x72)

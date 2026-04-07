@@ -13,7 +13,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 CYRIUS_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
-TARBALL="cyrius-${VERSION}-x86_64.tar.gz"
+TARBALL="cyrius-${VERSION}-x86_64-linux.tar.gz"
 URL="https://github.com/MacCracken/cyrius/releases/download/${VERSION}/${TARBALL}"
 
 echo "=== Cyrius CI Setup ==="
