@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.9.5.** 189KB self-hosting compiler, both architectures.
+> **v1.10.0.** 189KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 24 f64 builtins + 7 SIMD ops. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
@@ -43,7 +43,7 @@ ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 | # | Feature | Effort | Area |
 |---|---------|--------|------|
 | 1 | Async/await | High | Concurrency — tokio-style patterns |
-| 2 | Inline small functions | Medium | Codegen — token replay or IR, 7ns→1ns |
+| 2 | ~~Inline small functions~~ | ~~Medium~~ | **Done** (v1.10.0). Token replay inlining for 1-param functions ≤6 tokens. |
 | 3 | Return-by-value small structs | Medium | Codegen — structs <= 2 registers in rax/rdx |
 | 4 | Register allocation | High | Codegen — reduce spills, general speedup |
 | 5 | `#ref` TOML compile-time data | High | Language — O(1) static lookups, perfect hash |
@@ -216,6 +216,30 @@ Not a transpiler. Not a new language. A **compiler frontend** — same pattern a
 .c    ──→ ┘
          Three frontends. One compiler. One backend.
 ```
+
+---
+
+## v2.1 — Native Test & Bench File Extensions
+
+File extensions as intent. The filesystem is the manifest.
+
+```
+.cyr   — source
+.tcyr  — test
+.bcyr  — benchmark
+```
+
+| # | Feature | Scope |
+|---|---------|-------|
+| 1 | `.tcyr` recognition | `cyrb test` discovers and runs all `.tcyr` files. No config, no attributes, no test harness dependency. |
+| 2 | `.bcyr` recognition | `cyrb bench` discovers and runs all `.bcyr` files. Timing, iteration, CSV output built in. |
+| 3 | Retire `.sh` test/bench scripts | Replace shell-based test runners with native `cyrb test` / `cyrb bench`. |
+| 4 | `cyrb test --filter` | Run subset by name or path pattern. |
+| 5 | `cyrb bench --compare` | Compare `.bcyr` results against saved baselines. Regression detection. |
+
+**Why extensions, not directives**: `ls *.tcyr` is your test suite. No parsing needed to know what's a test. The file tells you what it is before you open it. Same principle as `.toml` for config — each extension has one job.
+
+**Replaces**: Shell scripts wrapping compile + run + diff. `#[test]` / `#[bench]` attribute parsing. Criterion-style framework dependencies (Rust's bench framework is 4.4MB in abaco).
 
 ---
 

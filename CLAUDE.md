@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 1.9.5
+- **Version**: 1.10.0
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
 ## Goal
@@ -15,7 +15,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ## Current State
 
-- **Compiler**: 189KB (x86_64), self-hosting, ~11ms self-compile
+- **Compiler**: 193KB (x86_64), self-hosting, inline small functions
 - **Tests**: 267 total (216 compiler + 51 programs) + 26 aarch64, 0 failures
 - **Libraries**: 21 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark)

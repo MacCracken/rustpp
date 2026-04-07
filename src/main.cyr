@@ -46,7 +46,11 @@
 #   0x2B2000 fn_names      [8192]        1024 function name offsets
 #   0x2B4000 fn_offsets    [8192]        1024 function code offsets
 #   0x2B6000 fn_params     [8192]        1024 function param counts
-#   0x2C8000 brk
+#   0x2C8000 fn_body_start [8192]        1024 inline: token index after {
+#   0x2CA000 fn_body_end   [8192]        1024 inline: token index of }
+#   0x2CC000 fn_inline     [8192]        1024 inline: 1=candidate, 0=no
+#   0x2CE000 fn_pnames     [16384]       1024*2 param name offsets for inline
+#   0x2D2000 brk
 #
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
@@ -101,7 +105,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x2C8000);
+syscall(SYS_BRK, S + 0x2D2000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -135,6 +139,8 @@ S64(S + 0x8FCB8, 1);
 S64(S + 0x8FCC0, 0);
 # Expression type tracking
 S64(S + 0x903D8, 0);
+# Inline depth
+S64(S + 0x903E8, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

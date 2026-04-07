@@ -54,6 +54,15 @@ fn GFLC(S) { return L64(S + 0x8DA10); }
 fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
 fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
+# Inline metadata accessors
+fn GFBS(S, fi) { return L64(S + 0x2C8000 + fi * 8); }
+fn SFBS(S, fi, v) { S64(S + 0x2C8000 + fi * 8, v); return 0; }
+fn GFBE(S, fi) { return L64(S + 0x2CA000 + fi * 8); }
+fn SFBE(S, fi, v) { S64(S + 0x2CA000 + fi * 8, v); return 0; }
+fn GFINL(S, fi) { return L64(S + 0x2CC000 + fi * 8); }
+fn SFINL(S, fi, v) { S64(S + 0x2CC000 + fi * 8, v); return 0; }
+fn GIDEP(S) { return L64(S + 0x903E8); }
+fn SIDEP(S, v) { S64(S + 0x903E8, v); return 0; }
 # Extra condition patches (for && chaining)
 fn GXPC(S) { return L64(S + 0x8F888); }
 fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }
