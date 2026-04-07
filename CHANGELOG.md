@@ -6,6 +6,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.7.7] — 2026-04-07
+
+### Added — Compiler
+- **Constant folding for `+`, `-`, `&`, `|`, `^`**: Same proven SCP-rewind pattern as `*`/`/`/`<<`/`>>`.
+  Folds at compile time when both operands and result are small positive (0 < v < 0x10000).
+  Precedence-safe: checks right operand isn't followed by higher-precedence operator.
+
+### Fixed — Compiler
+- **`_cfo` leak from function call arguments**: `pow2(5) + 10` folded to `15` instead of `42`
+  because `_cfo=1` leaked from parsing the argument `5`. Fixed by clearing `_cfo` after
+  PARSE_FNCALL, PARSE_FIELD_LOAD, and syscall builtins in PARSE_FACTOR.
+- **`_cfo` leak from non-folding PARSE_TERM operations**: After `var * 8`, the `8` literal
+  set `_cfo=1` which leaked to PARSE_EXPR, causing `var * 8 + 16` to fold as `8 + 16 = 24`.
+  Fixed by clearing `_cfo` after all non-folding paths in PARSE_TERM (`*`, `/`, `%`, `<<`, `>>`).
+- **agnosys bench_compare.cyr missing `#define LINUX`**: Not a compiler bug — platform define
+  was missing, causing empty syscall bindings.
+
 ## [1.7.6] — 2026-04-06
 
 ### Fixed — Compiler

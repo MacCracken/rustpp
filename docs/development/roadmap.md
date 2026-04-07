@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.7.6.** 141KB self-hosting compiler, both architectures.
+> **v1.7.7.** 141KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Constant folding, tail call optimization, DCE, 512KB input buffer, 256 locals.
 > tok_names/struct_ftypes overlap fixed. Fixup table 4096 entries. All P1 bugs resolved.
@@ -84,8 +84,6 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | 4 | Arena allocator | `seccomp_build`: 2.4us vs Rust 69ns | Batch allocation |
 | 5 | Return-by-value small structs | General | Structs <= 2 registers |
 | 6 | Register allocation | General | High effort, reduce spills |
-| 7 | Constant folding for + - & \| ^ | General | Same approach as * / << >>, needs paren-safety |
-
 ### Done
 
 | Optimization | Version |
@@ -95,6 +93,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | EMOVI optimization (xor/mov eax) | v1.6.7 |
 | Compare-and-branch fusion (cmp + jCC) | Always (if/while/for) |
 | Constant folding (* / << >>) | v1.7.3 |
+| Constant folding (+ - & \| ^) | v1.7.7 |
 
 ---
 
