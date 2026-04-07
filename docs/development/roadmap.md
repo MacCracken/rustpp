@@ -80,7 +80,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 
 | # | Optimization | Target | Status |
 |---|-------------|--------|--------|
-| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Deferred — codebuf rewind approach crashed. Needs token-level pre-scan. |
+| 1 | Constant folding | `classify_signal`: 2ns vs Rust 1ns | Token-level fold works for user programs but breaks self-hosting. Both shift and NOP approaches fail: cc4 produces valid code, cc5 segfaults. The folded compiler produces a broken binary when compiling itself. Suspects: `1<<56` patterns in fixup table encoding, or NOP skipping in PEEKT interferes with parser state. Needs isolated debugging with minimal compiler subset. |
 | 2 | Branch optimization | `notify_parse`: 20ns vs Rust 2ns | if/elif chains → jump tables for dense integer switches |
 | 3 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Eliminate call/ret overhead for trivial functions |
 

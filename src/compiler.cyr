@@ -205,6 +205,7 @@ PREPROCESS(S);
 # Lex
 LEX(S);
 
+
 # Emit initial jmp over fn bodies
 EB(S, 0xE9);
 var jmp_patch = GCP(S);
