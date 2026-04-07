@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 1.7.9
+- **Version**: 1.8.0
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
 ## Goal
@@ -40,11 +40,13 @@ Build: sh bootstrap/bootstrap.sh
 ```
 bootstrap/           29KB seed binary + stage1f.cyr + asm.cyr
 src/
-  compiler.cyr       Compiler entry point (includes modules)
-  compiler_aarch64.cyr Cross-compiler (swaps arch includes)
-  cc_bridge.cyr      Bridge compiler (stage1f feature set)
-  cc/                Compiler modules: util, emit, jump, lex, parse, fixup
-  arch/aarch64/      aarch64 backend: emit, jump, fixup
+  main.cyr           Compiler entry point (includes modules)
+  main_aarch64.cyr   Cross-compiler (swaps arch includes)
+  bridge.cyr         Bridge compiler (stage1f feature set)
+  frontend/          lex.cyr, parse.cyr
+  backend/x86/       emit.cyr, jump.cyr, fixup.cyr
+  backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
+  common/            util.cyr
 lib/                 Standard library (21 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test scripts (compiler.sh, programs.sh, assembler.sh)

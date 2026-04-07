@@ -1,0 +1,67 @@
+# ================================================================
+# SSE2 FLOAT EMISSION
+# ================================================================
+fn EMOVQ_X0_A(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x6E); EB(S, 0xC0); return 0; }
+fn EMOVQ_X1_C(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x6E); EB(S, 0xC9); return 0; }
+fn EMOVQ_A_X0(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x7E); EB(S, 0xC0); return 0; }
+fn EF64ADD(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x58); EB(S, 0xC1); return 0; }
+fn EF64SUB(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC1); return 0; }
+fn EF64MUL(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x59); EB(S, 0xC1); return 0; }
+fn EF64DIV(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5E); EB(S, 0xC1); return 0; }
+fn EI2F(S) { EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2A); EB(S, 0xC0); return 0; }
+fn EF2I(S) { EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2C); EB(S, 0xC0); return 0; }
+fn EUCOMISD(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x2E); EB(S, 0xC1); return 0; }
+fn EXORPD_X1(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x57); EB(S, 0xC9); return 0; }
+fn EMOVAPD_01(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x28); EB(S, 0xC1); return 0; }
+
+# x87 FPU: rax→stack→x87, compute, x87→stack→rax
+fn EX87PUSH(S) {
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x10);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0x04); EB(S, 0x24);
+    EB(S, 0xDD); EB(S, 0x04); EB(S, 0x24);
+    return 0;
+}
+fn EX87POP(S) {
+    EB(S, 0xDD); EB(S, 0x1C); EB(S, 0x24);
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x04); EB(S, 0x24);
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x10);
+    return 0;
+}
+
+# sqrtsd xmm0, xmm0
+fn EF64SQRT(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x51); EB(S, 0xC0); return 0; }
+# roundsd xmm0, xmm0, 1 (floor) — SSE4.1
+fn EF64FLOOR(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x3A); EB(S, 0x0B); EB(S, 0xC0); EB(S, 0x01); return 0; }
+# roundsd xmm0, xmm0, 2 (ceil) — SSE4.1
+fn EF64CEIL(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x3A); EB(S, 0x0B); EB(S, 0xC0); EB(S, 0x02); return 0; }
+# f64_abs: clear sign bit (bit 63) via integer AND
+# No SSE needed — value is already in rax as bit pattern
+# push rax; movabs rax, 0x7FFF...; mov rcx, rax; pop rax; and rax, rcx
+
+fn EMIT_F64_BINOP(S, fop) {
+    EPOPC(S);
+    EPUSHR(S);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC8);
+    EMOVQ_X0_A(S);
+    EPOPR(S);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    EMOVQ_X1_C(S);
+    if (fop == 0) { EF64ADD(S); }
+    if (fop == 1) { EF64SUB(S); }
+    if (fop == 2) { EF64MUL(S); }
+    if (fop == 3) { EF64DIV(S); }
+    EMOVQ_A_X0(S);
+    return 0;
+}
+
+fn EMIT_FLOAT_LIT(S, fval) {
+    var numer = fval & 0xFFFFFFFF;
+    var denom = (fval >> 32) & 0xFFFFFFFF;
+    E2(S, 0xB848); E8(S, numer);
+    EI2F(S);
+    E2(S, 0xB948); E8(S, denom);
+    EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2A); EB(S, 0xC9);
+    EF64DIV(S);
+    EMOVQ_A_X0(S);
+    return 0;
+}

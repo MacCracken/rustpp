@@ -32,8 +32,8 @@ echo ""
 echo "── Self-Hosting ──"
 cc3="/tmp/check_cc3_$$"
 cc4="/tmp/check_cc4_$$"
-cat "$ROOT/src/compiler.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
-cat "$ROOT/src/compiler.cyr" | "$cc3" > "$cc4" 2>/dev/null
+cat "$ROOT/src/main.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
+cat "$ROOT/src/main.cyr" | "$cc3" > "$cc4" 2>/dev/null
 cmp -s "$cc3" "$cc4" 2>/dev/null
 check "cc2==cc3 byte-identical" "$?"
 rm -f "$cc3" "$cc4"

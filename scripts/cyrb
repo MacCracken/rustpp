@@ -219,10 +219,10 @@ case "${1:-help}" in
         cc4="/tmp/cyrb_cc4_$$"
         # Find cc2.cyr source
         CC2_SRC=""
-        if [ -f "src/compiler.cyr" ]; then CC2_SRC="src/compiler.cyr"; fi
-        if [ -f "../cyrius/src/compiler.cyr" ]; then CC2_SRC="../cyrius/src/compiler.cyr"; fi
+        if [ -f "src/main.cyr" ]; then CC2_SRC="src/main.cyr"; fi
+        if [ -f "../cyrius/src/main.cyr" ]; then CC2_SRC="../cyrius/src/main.cyr"; fi
         if [ -z "$CC2_SRC" ]; then
-            echo "error: src/compiler.cyr not found" >&2
+            echo "error: src/main.cyr not found" >&2
             exit 1
         fi
         cat "$CC2_SRC" | "$CC" > "$cc3" && chmod +x "$cc3"

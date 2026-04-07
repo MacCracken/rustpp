@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-04-07
+
+### Changed — Compiler Structure
+- **Directory restructure**: `src/cc/` → `src/frontend/` + `src/backend/x86/` + `src/common/`.
+  `src/arch/aarch64/` → `src/backend/aarch64/`. Clear frontend/backend/common separation.
+- **Entry point renames**: `compiler.cyr` → `main.cyr`, `compiler_aarch64.cyr` → `main_aarch64.cyr`,
+  `cc_bridge.cyr` → `bridge.cyr`.
+- **Float extraction**: SSE2/SSE4.1/x87 float ops extracted from `emit.cyr` into `float.cyr`.
+  emit.cyr drops from 576 to 509 lines.
+- **Include order**: `common/util → backend/emit → backend/float → backend/jump → frontend/lex → frontend/parse → backend/fixup`.
+- Updated all references in: tests/compiler.sh, scripts/*, .github/workflows/*, docs/, CLAUDE.md.
+
+### Added — Compiler
+- **Include-once semantics**: Preprocessor tracks included filenames (up to 64). Duplicate
+  `include "file.cyr"` directives are silently skipped. Prevents duplicate enum errors,
+  wasted tokens/identifiers, and simplifies downstream project include management.
+  Works in both PP_PASS and PP_IFDEF_PASS.
+
 ## [1.7.9] — 2026-04-07
 
 ### Improved — Standard Library

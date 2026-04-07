@@ -13,7 +13,7 @@ fail=0
 # Build cc if not present
 if [ ! -x "$CC" ]; then
     if [ -x "$SF" ]; then
-        cat src/cc_bridge.cyr | "$SF" > "$CC"
+        cat src/bridge.cyr | "$SF" > "$CC"
         chmod +x "$CC"
     else
         echo "ERROR: need stage1f to build cc"
@@ -495,7 +495,7 @@ run_test_cc "all_features"   'struct P { x; } impl M for P { fn val(self) { retu
 echo ""
 echo "-- Self-Hosting --"
 echo -n "  "
-cat src/compiler.cyr | "$CC" > /tmp/cyr_cc3_$$ 2>/dev/null
+cat src/main.cyr | "$CC" > /tmp/cyr_cc3_$$ 2>/dev/null
 if cmp -s "$CC" /tmp/cyr_cc3_$$; then
     echo "PASS: cc2==cc3 byte-identical (extended self-hosting)"
     pass=$((pass + 1))

@@ -125,9 +125,9 @@ if [ "$installed" -eq 0 ]; then
     chmod +x build/cc2
 
     # Verify self-hosting
-    cat src/compiler.cyr | ./build/cc2 > /tmp/cc2_verify
+    cat src/main.cyr | ./build/cc2 > /tmp/cc2_verify
     chmod +x /tmp/cc2_verify
-    cat src/compiler.cyr | /tmp/cc2_verify > /tmp/cc2_verify2
+    cat src/main.cyr | /tmp/cc2_verify > /tmp/cc2_verify2
     if cmp -s /tmp/cc2_verify /tmp/cc2_verify2; then
         info "self-hosting verified"
     else
@@ -143,8 +143,8 @@ if [ "$installed" -eq 0 ]; then
     done
 
     # Cross-compiler
-    if [ -f src/compiler_aarch64.cyr ]; then
-        cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 2>/dev/null && \
+    if [ -f src/main_aarch64.cyr ]; then
+        cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 2>/dev/null && \
             chmod +x ./build/cc2_aarch64 || true
     fi
 

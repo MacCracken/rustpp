@@ -1,0 +1,1222 @@
+# ================================================================
+# LEXER — tokenizes input at S+0 into tok arrays
+# ================================================================
+
+# Store a token
+fn ADDTOK(S, typ, val) {
+    var tc = GTCNT(S);
+    if (tc >= 65536) {
+        syscall(SYS_WRITE, 2, "error: token limit exceeded (65536)\n", 36);
+        syscall(SYS_EXIT, 1);
+    }
+    S64(S + 0xA2000 + tc * 8, typ);
+    S64(S + 0x122000 + tc * 8, val);
+    STLINE(S, tc, GCLINE(S));
+    STCNT(S, tc + 1);
+    return 0;
+}
+
+# Classify character: 0=other, 1=ws, 2=digit, 3=lower, 4=upper, 5=underscore
+fn CCLASS(c) {
+    if (c == 32) { return 1; }
+    if (c == 9) { return 1; }
+    if (c == 10) { return 1; }
+    if (c == 13) { return 1; }
+    if (c >= 48) { if (c <= 57) { return 2; } }
+    if (c >= 97) { if (c <= 122) { return 3; } }
+    if (c >= 65) { if (c <= 90) { return 4; } }
+    if (c == 95) { return 5; }
+    return 0;
+}
+
+fn ISALNUM(c) {
+    var cl = CCLASS(c);
+    if (cl >= 2) { return 1; }
+    return 0;
+}
+
+# ================================================================
+# INCLUDE / FILE I/O / PREPROCESSOR
+# ================================================================
+
+# Read a file into buffer at dst, return bytes read. Path must be null-terminated.
+fn READFILE(path, dst, maxsz) {
+    # SYS_OPEN: x86=open(path,flags,mode), aarch64=openat(dirfd,path,flags,mode)
+    # On aarch64, SYS_OPEN is actually openat(56) which needs AT_FDCWD(-100) as first arg
+    var fd = 0;
+    if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, path, 0, 0); }
+    else { fd = syscall(SYS_OPEN, 0 - 100, path, 0, 0); }
+    if (fd < 0) { return 0; }
+    var total = 0;
+    var rgo = 1;
+    while (rgo == 1) {
+        var n = syscall(SYS_READ, fd, dst + total, maxsz - total);
+        if (n <= 0) { rgo = 0; }
+        else {
+            total = total + n;
+            if (total >= maxsz) { rgo = 0; }
+        }
+    }
+    syscall(SYS_CLOSE, fd);
+    return total;
+}
+
+# Check if buffer at pos starts with "include " (8 chars)
+fn ISINCLUDE(S, pos, bl) {
+    if (pos + 8 >= bl) { return 0; }
+    # i=69 n=6E c=63 l=6C u=75 d=64 e=65 space=20
+    if (load8(S + pos) != 105) { return 0; }
+    if (load8(S + pos + 1) != 110) { return 0; }
+    if (load8(S + pos + 2) != 99) { return 0; }
+    if (load8(S + pos + 3) != 108) { return 0; }
+    if (load8(S + pos + 4) != 117) { return 0; }
+    if (load8(S + pos + 5) != 100) { return 0; }
+    if (load8(S + pos + 6) != 101) { return 0; }
+    if (load8(S + pos + 7) != 32) { return 0; }
+    return 1;
+}
+
+# Preprocess: expand include directives in-place.
+# Uses S+0 as input, S+0x222000 as expanded output (256KB), copies back to S+0.
+# Check if buffer at pos starts with a directive (returns length or 0)
+fn ISDEFINE(S, pos, bl) {
+    if (pos + 8 >= bl) { return 0; }
+    # "#define " = 23 64 65 66 69 6E 65 20
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 100) { return 0; }
+    if (load8(S + pos + 2) != 101) { return 0; }
+    if (load8(S + pos + 3) != 102) { return 0; }
+    if (load8(S + pos + 4) != 105) { return 0; }
+    if (load8(S + pos + 5) != 110) { return 0; }
+    if (load8(S + pos + 6) != 101) { return 0; }
+    if (load8(S + pos + 7) != 32) { return 0; }
+    return 1;
+}
+
+fn ISIFDEF(S, pos, bl) {
+    if (pos + 7 >= bl) { return 0; }
+    # "#ifdef " = 23 69 66 64 65 66 20
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 105) { return 0; }
+    if (load8(S + pos + 2) != 102) { return 0; }
+    if (load8(S + pos + 3) != 100) { return 0; }
+    if (load8(S + pos + 4) != 101) { return 0; }
+    if (load8(S + pos + 5) != 102) { return 0; }
+    if (load8(S + pos + 6) != 32) { return 0; }
+    return 1;
+}
+
+fn ISENDIF(S, pos, bl) {
+    if (pos + 6 >= bl) { return 0; }
+    # "#endif" = 23 65 6E 64 69 66
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 101) { return 0; }
+    if (load8(S + pos + 2) != 110) { return 0; }
+    if (load8(S + pos + 3) != 100) { return 0; }
+    if (load8(S + pos + 4) != 105) { return 0; }
+    if (load8(S + pos + 5) != 102) { return 0; }
+    return 1;
+}
+
+# Include-once: track included filenames to skip duplicates
+# S+0x97F00: include count (8 bytes)
+# S+0x98000: included filenames[64] (64 * 128 bytes = 8192 bytes)
+fn PP_ALREADY_INCLUDED(S, fname) {
+    var cnt = L64(S + 0x97F00);
+    var i = 0;
+    while (i < cnt) {
+        var p = S + 0x98000 + i * 128;
+        var c = 0;
+        var eq = 1;
+        while (eq == 1) {
+            var a = load8(fname + c);
+            var b = load8(p + c);
+            if (a != b) { eq = 0; }
+            if (a == 0) { break; }
+            c = c + 1;
+        }
+        if (eq == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn PP_MARK_INCLUDED(S, fname) {
+    var cnt = L64(S + 0x97F00);
+    if (cnt >= 64) { return 0; }
+    var p = S + 0x98000 + cnt * 128;
+    var c = 0;
+    while (load8(fname + c) != 0) {
+        store8(p + c, load8(fname + c));
+        c = c + 1;
+        if (c >= 127) { break; }
+    }
+    store8(p + c, 0);
+    S64(S + 0x97F00, cnt + 1);
+    return 0;
+}
+
+# "#derive(Serialize)" = 23 64 65 72 69 76 65 28 53 65 72 69 61 6C 69 7A 65 29
+fn ISDERIVE(S, pos, bl) {
+    if (pos + 18 >= bl) { return 0; }
+    if (load8(S + pos) != 35) { return 0; }
+    if (load8(S + pos + 1) != 100) { return 0; }
+    if (load8(S + pos + 2) != 101) { return 0; }
+    if (load8(S + pos + 3) != 114) { return 0; }
+    if (load8(S + pos + 4) != 105) { return 0; }
+    if (load8(S + pos + 5) != 118) { return 0; }
+    if (load8(S + pos + 6) != 101) { return 0; }
+    if (load8(S + pos + 7) != 40) { return 0; }
+    if (load8(S + pos + 8) != 83) { return 0; }
+    if (load8(S + pos + 9) != 101) { return 0; }
+    if (load8(S + pos + 10) != 114) { return 0; }
+    if (load8(S + pos + 11) != 105) { return 0; }
+    if (load8(S + pos + 12) != 97) { return 0; }
+    if (load8(S + pos + 13) != 108) { return 0; }
+    if (load8(S + pos + 14) != 105) { return 0; }
+    if (load8(S + pos + 15) != 122) { return 0; }
+    if (load8(S + pos + 16) != 101) { return 0; }
+    if (load8(S + pos + 17) != 41) { return 0; }
+    return 1;
+}
+
+# Derive state: struct sizes for nested struct offset calculation
+# S+0x97000: derive struct count (8 bytes)
+# S+0x97008: derive struct sizes[32] (256 bytes)
+# S+0x97108: derive struct names[32*32] (1024 bytes)
+var _pp_derive_count = 0;
+
+# Helper: write decimal integer to output buffer, return bytes written
+fn PP_EMIT_INT(out, op, val) {
+    var digits[20];
+    var dc = 0;
+    if (val == 0) { store8(out + op, 48); return 1; }
+    var v = val;
+    while (v > 0) {
+        store8(&digits + dc, 48 + (v % 10));
+        dc = dc + 1;
+        v = v / 10;
+    }
+    # Reverse
+    var di = 0;
+    while (di < dc) {
+        store8(out + op + di, load8(&digits + dc - 1 - di));
+        di = di + 1;
+    }
+    return dc;
+}
+
+# Helper: copy C string bytes to output, return length
+fn PP_EMIT_STR(out, op, cstr) {
+    var i = 0;
+    while (load8(cstr + i) != 0) {
+        store8(out + op + i, load8(cstr + i));
+        i = i + 1;
+    }
+    return i;
+}
+
+# Emit #derive(Serialize) — generates Name_to_json function after struct def
+# ip points to '#' of #derive. out+op is the output position.
+# Returns new ip (past the struct). Updates op via S+0x97400.
+fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
+    # Skip #derive(Serialize) line
+    ip = PP_SKIPLINE(S, ip, bl);
+    # Parse struct name: expect "struct NAME {"
+    # Skip whitespace
+    while (ip < bl) { if (load8(S + ip) == 32) { ip = ip + 1; } else { break; } }
+    # Expect "struct "
+    ip = ip + 7;
+    # Read struct name
+    var sname[64];
+    var sni = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        if (c == 32 || c == 123 || c == 10) { break; }
+        store8(&sname + sni, c);
+        sni = sni + 1;
+        ip = ip + 1;
+    }
+    store8(&sname + sni, 0);
+    # Copy the struct definition through to output (up to and including closing })
+    # Rewind to start of "struct" line
+    var struct_start = ip - 7 - sni;
+    while (struct_start > 0) { if (load8(S + struct_start - 1) == 10) { break; } struct_start = struct_start - 1; }
+    # Copy everything from struct_start through closing brace
+    var depth = 0;
+    var cp = struct_start;
+    var in_struct = 1;
+    # Parse fields while copying
+    var field_names[256];
+    var field_types[256];
+    var field_count = 0;
+    var past_brace = 0;
+    while (cp < bl) {
+        var ch = load8(S + cp);
+        store8(out + op, ch);
+        op = op + 1;
+        if (ch == 123) { depth = depth + 1; past_brace = 1; }
+        if (ch == 125) { depth = depth - 1; if (depth == 0) { cp = cp + 1; break; } }
+        # Parse field names (between { and })
+        if (past_brace == 1 && depth == 1) {
+            # After { or ;, skip ws, read field name
+            if (ch == 123 || ch == 59) {
+                # Skip whitespace/newlines
+                var fp = cp + 1;
+                while (fp < bl) {
+                    var fc = load8(S + fp);
+                    if (fc != 32 && fc != 10 && fc != 13 && fc != 9) { break; }
+                    store8(out + op, fc); op = op + 1; fp = fp + 1;
+                }
+                # Read field name (until ; or : or } or space)
+                if (load8(S + fp) != 125) {
+                    var fni = 0;
+                    while (fp < bl) {
+                        var fc = load8(S + fp);
+                        if (fc == 59 || fc == 58 || fc == 125 || fc == 32 || fc == 10) { break; }
+                        store8(&field_names + field_count * 16 + fni, fc);
+                        fni = fni + 1;
+                        fp = fp + 1;
+                    }
+                    store8(&field_names + field_count * 16 + fni, 0);
+                    # Check for type annotation ": TypeName"
+                    store8(&field_types + field_count * 16, 0);
+                    if (load8(S + fp) == 58) {
+                        fp = fp + 1;
+                        while (fp < bl && load8(S + fp) == 32) { fp = fp + 1; }
+                        var tni = 0;
+                        while (fp < bl) {
+                            var tc = load8(S + fp);
+                            if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; }
+                            store8(&field_types + field_count * 16 + tni, tc);
+                            tni = tni + 1;
+                            fp = fp + 1;
+                        }
+                        store8(&field_types + field_count * 16 + tni, 0);
+                    }
+                    field_count = field_count + 1;
+                }
+            }
+        }
+        cp = cp + 1;
+    }
+    ip = cp;
+    # Copy remaining of line (newline)
+    while (ip < bl) {
+        var ch = load8(S + ip);
+        store8(out + op, ch); op = op + 1; ip = ip + 1;
+        if (ch == 10) { break; }
+    }
+    # Calculate field offsets (8 per scalar, lookup for typed)
+    var field_offsets[16];
+    var cumul_off = 0;
+    var fi = 0;
+    while (fi < field_count) {
+        store64(&field_offsets + fi * 8, cumul_off);
+        if (load8(&field_types + fi * 16) != 0) {
+            # Typed field — look up size in derive table
+            var fsz = 8;
+            var di = 0;
+            while (di < _pp_derive_count) {
+                # Compare type name
+                var eq = 1;
+                var ci = 0;
+                while (eq == 1) {
+                    var a = load8(&field_types + fi * 16 + ci);
+                    var b = load8(S + 0x97108 + di * 32 + ci);
+                    if (a != b) { eq = 0; }
+                    if (a == 0) { break; }
+                    ci = ci + 1;
+                }
+                if (eq == 1) { fsz = load64(S + 0x97008 + di * 8); }
+                di = di + 1;
+            }
+            cumul_off = cumul_off + fsz;
+        } else {
+            cumul_off = cumul_off + 8;
+        }
+        fi = fi + 1;
+    }
+    # Register this struct in derive table
+    var dsi = _pp_derive_count;
+    var ci = 0;
+    while (load8(&sname + ci) != 0) {
+        store8(S + 0x97108 + dsi * 32 + ci, load8(&sname + ci));
+        ci = ci + 1;
+    }
+    store8(S + 0x97108 + dsi * 32 + ci, 0);
+    store64(S + 0x97008 + dsi * 8, cumul_off);
+    _pp_derive_count = _pp_derive_count + 1;
+    # === Emit Name_to_json function ===
+    # fn Name_to_json(ptr, sb) {\n
+    op = op + PP_EMIT_STR(out, op, "fn ");
+    op = op + PP_EMIT_STR(out, op, &sname);
+    op = op + PP_EMIT_STR(out, op, "_to_json(ptr, sb) {\n");
+    # For each field
+    fi = 0;
+    while (fi < field_count) {
+        var is_first = 0;
+        if (fi == 0) { is_first = 1; }
+        # str_builder_add_cstr(sb, "{\"name\":" or ",\"name\":");
+        op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"");
+        if (is_first == 1) { store8(out + op, 123); op = op + 1; }
+        else { store8(out + op, 44); op = op + 1; }
+        # Escaped field name: \"fieldname\":
+        store8(out + op, 92); op = op + 1;
+        store8(out + op, 34); op = op + 1;
+        op = op + PP_EMIT_STR(out, op, &field_names + fi * 16);
+        store8(out + op, 92); op = op + 1;
+        store8(out + op, 34); op = op + 1;
+        store8(out + op, 58); op = op + 1;
+        op = op + PP_EMIT_STR(out, op, "\");\n");
+        if (load8(&field_types + fi * 16) != 0) {
+            # Typed field: call FieldType_to_json(ptr + offset, sb);
+            op = op + PP_EMIT_STR(out, op, &field_types + fi * 16);
+            op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
+            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+            op = op + PP_EMIT_STR(out, op, ", sb);\n");
+        } else {
+            # Scalar field: str_builder_add_int(sb, load64(ptr + offset));
+            op = op + PP_EMIT_STR(out, op, "str_builder_add_int(sb, load64(ptr + ");
+            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+            op = op + PP_EMIT_STR(out, op, "));\n");
+        }
+        fi = fi + 1;
+    }
+    # Close: str_builder_add_cstr(sb, "}"); return 0; }
+    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn 0;\n}\n");
+    # Store output position for caller
+    store64(S + 0x97400, op);
+    return ip;
+}
+
+# Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
+var _pp_flag_count = 0;
+
+# Macro table: up to 16 macros with args
+# S+0x92000: 16 name hashes (128 bytes)
+# S+0x92080: 16 definition text offsets (128 bytes) — points into S+0x93000
+# S+0x92100: 16 definition text lengths (128 bytes)
+# S+0x93000: definition text storage (16KB)
+var _pp_macro_count = 0;
+var _pp_macro_text_pos = 0;
+
+# Hash stopping at ( for macro names
+fn PP_HASH_ID(S, pos) {
+    var h = 0;
+    var pi = 0;
+    var pc = load8(S + pos + pi);
+    while (pc != 0) {
+        if (pc == 10) { return h; }
+        if (pc == 13) { return h; }
+        if (pc == 32) { return h; }
+        if (pc == 40) { return h; }
+        h = h * 31 + pc;
+        pi = pi + 1;
+        pc = load8(S + pos + pi);
+    }
+    return h;
+}
+
+# Find macro by name hash at input position, return index or -1
+fn PP_FIND_MACRO(S, ip) {
+    var h = PP_HASH_ID(S, ip);
+    var mi = 0;
+    while (mi < _pp_macro_count) {
+        if (load64(S + 0x92000 + mi * 8) == h) { return mi; }
+        mi = mi + 1;
+    }
+    return 0 - 1;
+}
+
+# Expand macro invocation: NAME(arg1, arg2)
+# Reads args from input at ip, substitutes into body, writes to out+op
+# Returns new ip position (after the closing paren)
+fn PP_EXPAND(S, mi, ip, bl, out, op) {
+    var def = S + 0x93000 + load64(S + 0x92080 + mi * 8);
+    # Skip name in definition to find (
+    var dp = 0;
+    while (load8(def + dp) != 40) { dp = dp + 1; }
+    dp = dp + 1;  # skip (
+    # Read param names from definition
+    var pnames[512];   # up to 8 params, 64 bytes each
+    var pcnt = 0;
+    var pp = 0;
+    while (load8(def + dp) != 41) {
+        if (load8(def + dp) == 44) { store8(&pnames + pp, 0); pp = pp + 1; pcnt = pcnt + 1; dp = dp + 1; }
+        elif (load8(def + dp) == 32) { dp = dp + 1; }
+        else { store8(&pnames + pp, load8(def + dp)); pp = pp + 1; dp = dp + 1; }
+    }
+    if (pp > 0) { store8(&pnames + pp, 0); pp = pp + 1; pcnt = pcnt + 1; }
+    dp = dp + 1;  # skip )
+    if (load8(def + dp) == 32) { dp = dp + 1; }  # skip space after )
+    # Read body text from definition (rest after params)
+    var body = def + dp;
+    # Skip name in input to find (
+    while (ip < bl) {
+        if (load8(S + ip) == 40) { break; }
+        ip = ip + 1;
+    }
+    ip = ip + 1;  # skip (
+    # Read args from input (comma-separated, handle nested parens)
+    var args[512];    # up to 8 args, 64 bytes each
+    var acnt = 0;
+    var ap = 0;
+    var depth = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        if (c == 40) { depth = depth + 1; store8(&args + ap, c); ap = ap + 1; }
+        elif (c == 41) {
+            if (depth == 0) { store8(&args + ap, 0); ap = ap + 1; acnt = acnt + 1; ip = ip + 1; break; }
+            depth = depth - 1; store8(&args + ap, c); ap = ap + 1;
+        }
+        elif (c == 44) {
+            if (depth == 0) { store8(&args + ap, 0); ap = ap + 1; acnt = acnt + 1; }
+            else { store8(&args + ap, c); ap = ap + 1; }
+        }
+        else { store8(&args + ap, c); ap = ap + 1; }
+        ip = ip + 1;
+    }
+    # Substitute: walk body, replace param names with args
+    var bi = 0;
+    while (load8(body + bi) != 0) {
+        var bc = load8(body + bi);
+        var matched = 0 - 1;
+        # Check if current position matches a param name (alpha/underscore start)
+        if (bc >= 97) { if (bc <= 122) { matched = 0 - 2; } }
+        if (bc >= 65) { if (bc <= 90) { matched = 0 - 2; } }
+        if (bc == 95) { matched = 0 - 2; }
+        if (matched == 0 - 2) {
+            # Try each param
+            var pi2 = 0;
+            var poff = 0;
+            while (pi2 < pcnt) {
+                # Compare param at pnames+poff with body at bi
+                var pk = 0;
+                var pmatch = 1;
+                while (load8(&pnames + poff + pk) != 0) {
+                    if (load8(body + bi + pk) != load8(&pnames + poff + pk)) { pmatch = 0; break; }
+                    pk = pk + 1;
+                }
+                # Ensure not a longer identifier
+                if (pmatch == 1) {
+                    var nc = load8(body + bi + pk);
+                    if (nc >= 97) { if (nc <= 122) { pmatch = 0; } }
+                    if (nc >= 65) { if (nc <= 90) { pmatch = 0; } }
+                    if (nc >= 48) { if (nc <= 57) { pmatch = 0; } }
+                    if (nc == 95) { pmatch = 0; }
+                }
+                if (pmatch == 1) { matched = pi2; break; }
+                while (load8(&pnames + poff) != 0) { poff = poff + 1; }
+                poff = poff + 1;
+                pi2 = pi2 + 1;
+            }
+        }
+        if (matched >= 0) {
+            # Find arg text: walk args buffer to the matched index
+            var aoff = 0;
+            var ai2 = 0;
+            while (ai2 < matched) { while (load8(&args + aoff) != 0) { aoff = aoff + 1; } aoff = aoff + 1; ai2 = ai2 + 1; }
+            # Copy arg text to output
+            while (load8(&args + aoff) != 0) { store8(out + op, load8(&args + aoff)); op = op + 1; aoff = aoff + 1; }
+            # Skip param name in body
+            var poff2 = 0;
+            var pi3 = 0;
+            while (pi3 < matched) { while (load8(&pnames + poff2) != 0) { poff2 = poff2 + 1; } poff2 = poff2 + 1; pi3 = pi3 + 1; }
+            var plen = 0;
+            while (load8(&pnames + poff2 + plen) != 0) { plen = plen + 1; }
+            bi = bi + plen;
+        } else {
+            store8(out + op, bc); op = op + 1; bi = bi + 1;
+        }
+    }
+    store8(out + op, 10); op = op + 1;
+    # Return new ip via storing op in a known location
+    store64(S + 0x90700, op);
+    return ip;
+}
+
+fn PP_HASH(S, pos) {
+    var h = 0;
+    var pi = 0;
+    var pc = load8(S + pos + pi);
+    while (pc != 10) {
+        if (pc == 13) { return h; }
+        if (pc == 0) { return h; }
+        if (pc == 32) { return h; }
+        h = h * 31 + pc;
+        pi = pi + 1;
+        pc = load8(S + pos + pi);
+    }
+    return h;
+}
+
+fn PP_DEFINE(S, pos) {
+    var h = PP_HASH(S, pos);
+    store64(S + 0x90800 + _pp_flag_count * 8, h);
+    _pp_flag_count = _pp_flag_count + 1;
+    return 0;
+}
+
+fn PP_DEFINED(S, pos) {
+    var h = PP_HASH(S, pos);
+    var di = 0;
+    while (di < _pp_flag_count) {
+        if (load64(S + 0x90800 + di * 8) == h) { return 1; }
+        di = di + 1;
+    }
+    return 0;
+}
+
+fn PP_SKIPLINE(S, ip, bl) {
+    while (ip < bl) {
+        if (load8(S + ip) == 10) { return ip + 1; }
+        ip = ip + 1;
+    }
+    return ip;
+}
+
+# Builds expanded source into a new buffer, then copies back.
+fn PP_PASS(S) {
+    var bl = GBL(S);
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    var bol = 1;
+    var skip_depth = 0;
+    var had_include = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        var handled = 0;
+        # Preprocessor directives at start of line
+        if (bol == 1) {
+            if (ISDEFINE(S, ip, bl) == 1) {
+                if (skip_depth == 0) {
+                    # Check for macro with args: #define NAME(
+                    var dp = ip + 8;
+                    var is_macro = 0;
+                    while (dp < bl) {
+                        var dc = load8(S + dp);
+                        if (dc == 40) { is_macro = 1; break; }
+                        if (dc == 32) { break; }
+                        if (dc == 10) { break; }
+                        dp = dp + 1;
+                    }
+                    if (is_macro == 1) {
+                        # Store macro inline: copy line text to storage
+                        var msi = _pp_macro_count;
+                        if (msi < 16) {
+                            var mip = ip + 8;
+                            store64(S + 0x92000 + msi * 8, PP_HASH_ID(S, mip));
+                            store64(S + 0x92080 + msi * 8, _pp_macro_text_pos);
+                            var mdst = S + 0x93000 + _pp_macro_text_pos;
+                            var mlen = 0;
+                            var mcp = mip;
+                            while (mcp < bl) {
+                                if (load8(S + mcp) == 10) { break; }
+                                store8(mdst + mlen, load8(S + mcp));
+                                mlen = mlen + 1;
+                                mcp = mcp + 1;
+                            }
+                            store8(mdst + mlen, 0);
+                            store64(S + 0x92100 + msi * 8, mlen);
+                            _pp_macro_text_pos = _pp_macro_text_pos + mlen + 1;
+                            _pp_macro_count = _pp_macro_count + 1;
+                        }
+                        ip = PP_SKIPLINE(S, ip, bl);
+                    } else {
+                        PP_DEFINE(S, ip + 8);
+                        ip = PP_SKIPLINE(S, ip, bl);
+                    }
+                } else {
+                    ip = PP_SKIPLINE(S, ip, bl);
+                }
+                bol = 1; handled = 1;
+            }
+            if (handled == 0) { if (ISIFDEF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth + 1; }
+                else { if (PP_DEFINED(S, ip + 7) == 0) { skip_depth = 1; } }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+            if (handled == 0) { if (ISENDIF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth - 1; }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_SERIALIZE(S, ip, bl, out, op);
+                op = load64(S + 0x97400);
+                bol = 1; handled = 1;
+            } } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
+                ip = ip + 8;
+                if (load8(S + ip) == 34) {
+                    ip = ip + 1;
+                    var fname = S + 0x90000;
+                    var fi = 0;
+                    var fgo = 1;
+                    while (fgo == 1) {
+                        if (ip >= bl) { fgo = 0; }
+                        if (fgo == 1) {
+                            var fc = load8(S + ip);
+                            if (fc == 34) { ip = ip + 1; fgo = 0; }
+                            else { store8(fname + fi, fc); fi = fi + 1; ip = ip + 1; }
+                        }
+                    }
+                    store8(fname + fi, 0);
+                    var sgo = 1;
+                    while (sgo == 1) {
+                        if (ip >= bl) { sgo = 0; }
+                        if (sgo == 1) { if (load8(S + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
+                    }
+                    # Include-once: skip if already included
+                    if (PP_ALREADY_INCLUDED(S, fname) == 0) {
+                        PP_MARK_INCLUDED(S, fname);
+                        var nr = READFILE(fname, out + op, 262144 - op);
+                        op = op + nr;
+                        had_include = 1;
+                    }
+                }
+                bol = 1; handled = 1;
+            } } }
+        }
+        # Default: copy byte to output (if not skipping)
+        if (handled == 0) {
+            if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
+            ip = ip + 1;
+            if (c == 10) { bol = 1; } else { bol = 0; }
+        }
+    }
+    # Check preprocess output size
+    if (op > 262144) {
+        syscall(SYS_WRITE, 2, "error: expanded source exceeds 256KB (", 38);
+        PRNUM(op);
+        syscall(SYS_WRITE, 2, " bytes)\n", 8);
+        syscall(SYS_EXIT, 1);
+    }
+    # No copy-back — data stays at S+0x222000.
+    # PP_IFDEF_PASS reads from 0x222000, writes to S+0.
+    SBL(S, op);
+    return had_include;
+}
+
+# Separate pass: expand macro invocations after all includes/ifdefs are resolved
+fn PP_MACRO_PASS(S) {
+    if (_pp_macro_count == 0) { return 0; }
+    var bl = GBL(S);
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        var expanded = 0;
+        # Check for uppercase-starting identifier that might be a macro
+        if (c >= 65) { if (c <= 90) {
+            var mmi = PP_FIND_MACRO(S, ip);
+            if (mmi >= 0) {
+                # Verify ( follows the name (skip alpha chars to find it)
+                var mp = ip;
+                while (mp < bl) {
+                    var mc = load8(S + mp);
+                    if (mc == 40) { break; }
+                    if (mc >= 65) { if (mc <= 90) { mp = mp + 1; } else { break; } }
+                    elif (mc >= 97) { if (mc <= 122) { mp = mp + 1; } else { break; } }
+                    elif (mc >= 48) { if (mc <= 57) { mp = mp + 1; } else { break; } }
+                    elif (mc == 95) { mp = mp + 1; }
+                    else { break; }
+                }
+                if (mp < bl) { if (load8(S + mp) == 40) {
+                    ip = PP_EXPAND(S, mmi, ip, bl, out, op);
+                    op = load64(S + 0x90700);
+                    expanded = 1;
+                } }
+            }
+        } }
+        if (expanded == 0) {
+            store8(out + op, c);
+            op = op + 1;
+            ip = ip + 1;
+        }
+    }
+    # No copy-back — output stays at S+0x222000. LEX reads from there.
+    SBL(S, op);
+    return 0;
+}
+
+# Second pass: evaluate #ifdef/#define/#endif only (no includes).
+# Processes conditional blocks in already-included content.
+# Double-buffer pass 2: reads from S+0x222000 (preprocess output), writes to S+0 (input buf)
+# Double-buffer pass 2: reads from S+0x222000 (preprocess output), writes to S+0 (input buf).
+# IMPORTANT: helper functions (ISDEFINE, PP_DEFINE, PP_HASH, etc.) use first param for BOTH
+# source text reading AND heap state access (flag table at 0x90800). We must copy source to
+# S+0 first, then process normally with S as the base. This avoids the base address mismatch.
+fn PP_IFDEF_PASS(S) {
+    var bl = GBL(S);
+    # Copy from preprocess buffer to input buffer first
+    var ci = 0;
+    while (ci < bl) { store8(S + ci, load8(S + 0x222000 + ci)); ci = ci + 1; }
+    # Now process from S+0 (same as original single-buffer approach)
+    var out = S + 0x222000;
+    var op = 0;
+    var ip = 0;
+    var bol = 1;
+    var skip_depth = 0;
+    while (ip < bl) {
+        var c = load8(S + ip);
+        var handled = 0;
+        if (bol == 1) {
+            if (ISDEFINE(S, ip, bl) == 1) {
+                if (skip_depth == 0) { PP_DEFINE(S, ip + 8); }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            }
+            if (handled == 0) { if (ISIFDEF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth + 1; }
+                else { if (PP_DEFINED(S, ip + 7) == 0) { skip_depth = 1; } }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+            if (handled == 0) { if (ISENDIF(S, ip, bl) == 1) {
+                if (skip_depth > 0) { skip_depth = skip_depth - 1; }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
+            } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
+                ip = ip + 8;
+                if (load8(S + ip) == 34) {
+                    ip = ip + 1;
+                    var fname = S + 0x90000;
+                    var fi = 0;
+                    var fgo = 1;
+                    while (fgo == 1) {
+                        if (ip >= bl) { fgo = 0; }
+                        if (fgo == 1) {
+                            var fc = load8(S + ip);
+                            if (fc == 34) { ip = ip + 1; fgo = 0; }
+                            else { store8(fname + fi, fc); fi = fi + 1; ip = ip + 1; }
+                        }
+                    }
+                    store8(fname + fi, 0);
+                    var sgo = 1;
+                    while (sgo == 1) {
+                        if (ip >= bl) { sgo = 0; }
+                        if (sgo == 1) { if (load8(S + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
+                    }
+                    if (PP_ALREADY_INCLUDED(S, fname) == 0) {
+                        PP_MARK_INCLUDED(S, fname);
+                        var nr = READFILE(fname, out + op, 524288 - op);
+                        op = op + nr;
+                    }
+                }
+                bol = 1; handled = 1;
+            } } }
+        }
+        if (handled == 0) {
+            if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
+            ip = ip + 1;
+            if (c == 10) { bol = 1; } else { bol = 0; }
+        }
+    }
+    # Output is at S+0x222000. No copy needed — PP_MACRO_PASS reads from S+0.
+    # Wait — PP_MACRO_PASS reads from S+0 but we wrote to 0x222000.
+    # Copy result back to S+0 for PP_MACRO_PASS.
+    ci = 0;
+    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
+    SBL(S, op);
+    return 0;
+}
+
+fn PREPROCESS(S) {
+    # Pass 1: expand includes + evaluate top-level #ifdef/#define
+    PP_PASS(S);
+    # Pass 2: evaluate #ifdef/#define in included content
+    PP_IFDEF_PASS(S);
+    # Final pass: expand macros with args
+    PP_MACRO_PASS(S);
+    return 0;
+}
+
+fn LEXHEX(S, p) {
+    var val = 0;
+    var go = 1;
+    while (go == 1) {
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            var c = load8(S + p);
+            var hd = 0 - 1;
+            if (c >= 48) { if (c <= 57) { hd = c - 48; } }
+            if (c >= 97) { if (c <= 102) { hd = c - 87; } }
+            if (c >= 65) { if (c <= 70) { hd = c - 55; } }
+            if (hd >= 0) { val = val << 4 | hd; p = p + 1; }
+            else { go = 0; }
+        }
+    }
+    ADDTOK(S, 1, val);
+    return p;
+}
+
+# Lex decimal number
+fn LEXDEC(S, p) {
+    var c = load8(S + 0x222000 + p);
+    var val = c - 48;
+    p = p + 1;
+    var go = 1;
+    while (go == 1) {
+        if (p >= GBL(S)) { go = 0; }
+        if (go == 1) {
+            c = load8(S + 0x222000 + p);
+            if (c >= 48) {
+                if (c <= 57) { val = val * 10 + (c - 48); p = p + 1; }
+                else { go = 0; }
+            } else { go = 0; }
+        }
+    }
+    # Float literal: digits.digits
+    if (p < GBL(S)) { if (load8(S + 0x222000 + p) == 46) {
+        var np = p + 1;
+        if (np < GBL(S)) { var nc = load8(S + np);
+        if (nc >= 48) { if (nc <= 57) {
+            p = np;
+            var frac = 0;
+            var denom = 1;
+            var fgo = 1;
+            while (fgo == 1) {
+                if (p >= GBL(S)) { fgo = 0; }
+                if (fgo == 1) {
+                    c = load8(S + 0x222000 + p);
+                    if (c >= 48) { if (c <= 57) {
+                        frac = frac * 10 + (c - 48);
+                        denom = denom * 10;
+                        p = p + 1;
+                    } else { fgo = 0; } }
+                    else { fgo = 0; }
+                }
+            }
+            var numer = val * denom + frac;
+            ADDTOK(S, 61, (denom << 32) | (numer & 0xFFFFFFFF));
+            return p;
+        } } }
+    } }
+    ADDTOK(S, 1, val);
+    return p;
+}
+
+# Lex a number starting at p, return new p
+fn LEXNUM(S, p) {
+    var c = load8(S + 0x222000 + p);
+    if (c == 48) {
+        if (p + 1 < GBL(S)) {
+            if (load8(S + 0x222000 + p + 1) == 120) {
+                return LEXHEX(S, p + 2);
+            }
+        }
+    }
+    return LEXDEC(S, p);
+}
+
+# Lex an identifier starting at p, return new p. Stores token.
+fn LEXID(S, p, npos) {
+    if (npos >= 65500) {
+        syscall(SYS_WRITE, 2, "error: identifier buffer full (", 31);
+        PRNUM(npos);
+        syscall(SYS_WRITE, 2, "/65536 bytes) — reduce included modules or split into separate units\n", 69);
+        syscall(SYS_EXIT, 1);
+    }
+    var bl = GBL(S);
+    var ws = npos;
+    var go = 1;
+    var c = 0;
+    while (go == 1) {
+        if (p >= bl) { go = 0; }
+        if (go == 1) {
+            c = load8(S + 0x222000 + p);
+            if (ISALNUM(c) == 1) {
+                store8(S + 0x50000 + npos, c);
+                npos = npos + 1;
+                p = p + 1;
+            } else { go = 0; }
+        }
+    }
+    store8(S + 0x50000 + npos, 0);
+    # Dedup: reuse existing identical identifier
+    bl = ws;
+    go = 0;
+    while (go < bl) {
+        var dc = 0;
+        c = 1;
+        while (c == 1) {
+            if (load8(S + 0x50000 + go + dc) != load8(S + 0x50000 + bl + dc)) { c = 0; }
+            if (load8(S + 0x50000 + go + dc) == 0) { break; }
+            dc = dc + 1;
+        }
+        if (c == 1) { ws = go; break; }
+        while (load8(S + 0x50000 + go) != 0) { go = go + 1; }
+        go = go + 1;
+    }
+    # klen must be computed BEFORE dedup changes ws
+    var klen = npos - bl;
+    if (ws == bl) { npos = npos + 1; SNPOS(S, npos); }
+    else { SNPOS(S, bl); }
+    # Check keywords
+    var kw = L64(S + 0x50000 + ws);
+    if (klen == 2) {
+        if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
+        if (kw & 0xFFFF == 0x6E66) { ADDTOK(S, 32, 0); return p; }
+        if (kw & 0xFFFF == 0x6E69) { ADDTOK(S, 76, 0); return p; }
+    }
+    if (klen == 3) {
+        if (kw & 0xFFFFFFFF == 0x00726176) { ADDTOK(S, 3, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x006D7361) { ADDTOK(S, 48, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x00726F66) { ADDTOK(S, 55, 0); return p; }
+        # "mod" = 0x646F6D
+        if (kw & 0xFFFFFFFF == 0x00646F6D) { ADDTOK(S, 72, 0); return p; }
+        # "pub" = 0x627570
+        if (kw & 0xFFFFFFFF == 0x00627570) { ADDTOK(S, 73, 0); return p; }
+        # "use" = 0x657375
+        if (kw & 0xFFFFFFFF == 0x00657375) { ADDTOK(S, 74, 0); return p; }
+    }
+    if (klen == 4) {
+        if (kw & 0xFFFFFFFF == 0x65736C65) { ADDTOK(S, 23, 0); return p; }
+        # "elif" = 0x66696C65
+        if (kw & 0xFFFFFFFF == 0x66696C65) { ADDTOK(S, 50, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x65736163) { ADDTOK(S, 58, 0); return p; }
+        if (kw & 0xFFFFFFFF == 0x6D756E65) { ADDTOK(S, 60, 0); return p; }
+        # "impl" = 0x6C706D69
+        if (kw & 0xFFFFFFFF == 0x6C706D69) { ADDTOK(S, 77, 0); return p; }
+    }
+    if (klen == 5) {
+        if (kw & 0xFFFFFFFFFF == 0x00656C696877) { ADDTOK(S, 16, 0); return p; }
+        if (kw & 0xFFFFFFFFFF == 0x003864616F6C) { ADDTOK(S, 25, 0); return p; }
+        # "break" = 0x6B61657262
+        if (kw & 0xFFFFFFFFFF == 0x6B61657262) { ADDTOK(S, 51, 0); return p; }
+        # "match" = 0x686374616D
+        if (kw & 0xFFFFFFFFFF == 0x686374616D) { ADDTOK(S, 75, 0); return p; }
+    }
+    if (klen == 6) {
+        # "return" = 0x006E7275746572
+        if (kw & 0xFFFFFFFFFFFFFF == 0x006E7275746572) { ADDTOK(S, 33, 0); return p; }
+        # "store8" = 0x003865726F7473
+        if (kw & 0xFFFFFFFFFFFFFF == 0x003865726F7473) { ADDTOK(S, 26, 0); return p; }
+        # "struct" = 0x00746375727473
+        if (kw & 0xFFFFFFFFFFFFFF == 0x746375727473) { ADDTOK(S, 40, 0); return p; }
+        # "load16" = 0x363164616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x363164616F6C) { ADDTOK(S, 42, 0); return p; }
+        # "load32" = 0x323364616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x323364616F6C) { ADDTOK(S, 43, 0); return p; }
+        # "load64" = 0x343664616F6C
+        if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
+        # "kernel" = 0x6C656E72656B
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
+        # "shared" = 0x646572616873
+        if (kw & 0xFFFFFFFFFFFFFF == 0x646572616873) { ADDTOK(S, 78, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x686374697773) { ADDTOK(S, 57, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6F745F343666) { ADDTOK(S, 67, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x71655F343666) { ADDTOK(S, 68, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x746C5F343666) { ADDTOK(S, 69, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x74675F343666) { ADDTOK(S, 70, 0); return p; }
+    }
+    if (klen == 7) {
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C6C6163737973) { ADDTOK(S, 24, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x363165726F7473) { ADDTOK(S, 45, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x323365726F7473) { ADDTOK(S, 46, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x343665726F7473) { ADDTOK(S, 47, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x746C7561666564) { ADDTOK(S, 59, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6464615F343666) { ADDTOK(S, 62, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6275735F343666) { ADDTOK(S, 63, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6C756D5F343666) { ADDTOK(S, 64, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7669645F343666) { ADDTOK(S, 65, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x67656E5F343666) { ADDTOK(S, 71, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7362615F343666) { ADDTOK(S, 80, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x6E69735F343666) { ADDTOK(S, 83, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x736F635F343666) { ADDTOK(S, 84, 0); return p; }
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7078655F343666) { ADDTOK(S, 85, 0); return p; }
+    }
+    if (klen == 6) {
+        if (kw & 0xFFFFFFFFFFFF == 0x6E6C5F343666) { ADDTOK(S, 86, 0); return p; }
+    }
+    # "continue" = 0x65756E69746E6F63 (8 bytes)
+    if (klen == 8) {
+        if (kw == 0x65756E69746E6F63) { ADDTOK(S, 52, 0); return p; }
+        if (kw == 0x6D6F72665F343666) { ADDTOK(S, 66, 0); return p; }
+        if (kw == 0x747271735F343666) { ADDTOK(S, 79, 0); return p; }
+        if (kw == 0x6C6965635F343666) { ADDTOK(S, 82, 0); return p; }
+        if (kw == 0x32676F6C5F343666) { ADDTOK(S, 87, 0); return p; }
+        if (kw == 0x327078655F343666) { ADDTOK(S, 88, 0); return p; }
+    }
+    if (klen == 9) {
+        # f64_floor: first 8 bytes = 0x6F6F6C665F343666, 9th byte = 'r' (0x72)
+        if (kw == 0x6F6F6C665F343666) {
+            if (load8(S + 0x50000 + ws + 8) == 114) { ADDTOK(S, 81, 0); return p; }
+        }
+    }
+    ADDTOK(S, 2, ws);
+    return p;
+}
+
+fn LEX(S) {
+    var p = 0;
+    var bl = GBL(S);
+    STCNT(S, 0);
+    SNPOS(S, 0);
+    while (p < bl) {
+        var c = load8(S + 0x222000 + p);
+        var cl = CCLASS(c);
+        # Whitespace — skip (track newlines for line numbers)
+        if (cl == 1) {
+            if (c == 10) { SCLINE(S, GCLINE(S) + 1); }
+            p = p + 1;
+        }
+        # Comment — skip to newline
+        else { if (c == 35) {
+            p = p + 1;
+            var cgo = 1;
+            while (cgo == 1) {
+                if (p >= bl) { cgo = 0; }
+                if (cgo == 1) {
+                    if (load8(S + 0x222000 + p) == 10) { SCLINE(S, GCLINE(S) + 1); p = p + 1; cgo = 0; }
+                    else { p = p + 1; }
+                }
+            }
+        }
+        # Digit
+        else { if (cl == 2) { p = LEXNUM(S, p); }
+        # Letter (lower or upper) or underscore
+        else { if (cl >= 3) { p = LEXID(S, p, GNPOS(S)); }
+        # Single/double char tokens
+        else { if (c == 61) {
+            if (p + 1 < bl) {
+                if (load8(S + 0x222000 + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
+                else { ADDTOK(S, 4, 0); p = p + 1; }
+            } else { ADDTOK(S, 4, 0); p = p + 1; }
+        }
+        else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
+        else { if (c == 44) { ADDTOK(S, 31, 0); p = p + 1; }
+        else { if (c == 46) { ADDTOK(S, 41, 0); p = p + 1; }
+        else { if (c == 58) { ADDTOK(S, 49, 0); p = p + 1; }
+        else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
+        else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
+        else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
+        else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
+        else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
+        else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }
+        else { if (c == 123) { ADDTOK(S, 13, 0); p = p + 1; }
+        else { if (c == 125) { ADDTOK(S, 14, 0); p = p + 1; }
+        # !=
+        else { if (c == 33) {
+            if (p + 1 < bl) {
+                if (load8(S + 0x222000 + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
+                else { p = p + 1; }
+            } else { p = p + 1; }
+        }
+        # < or <= or <<
+        else { if (c == 60) {
+            if (p + 1 < bl) {
+                var nc = load8(S + 0x222000 + p + 1);
+                if (nc == 61) { ADDTOK(S, 21, 0); p = p + 2; }
+                else {
+                    if (nc == 60) { ADDTOK(S, 38, 0); p = p + 2; }
+                    else { ADDTOK(S, 19, 0); p = p + 1; }
+                }
+            } else { ADDTOK(S, 19, 0); p = p + 1; }
+        }
+        # > or >= or >>
+        else { if (c == 62) {
+            if (p + 1 < bl) {
+                var gc = load8(S + 0x222000 + p + 1);
+                if (gc == 61) { ADDTOK(S, 22, 0); p = p + 2; }
+                else {
+                    if (gc == 62) { ADDTOK(S, 39, 0); p = p + 2; }
+                    else { ADDTOK(S, 20, 0); p = p + 1; }
+                }
+            } else { ADDTOK(S, 20, 0); p = p + 1; }
+        }
+        else { if (c == 38) {
+            if (p + 1 < bl) {
+                if (load8(S + 0x222000 + p + 1) == 38) { ADDTOK(S, 53, 0); p = p + 2; }
+                else { ADDTOK(S, 27, 0); p = p + 1; }
+            } else { ADDTOK(S, 27, 0); p = p + 1; }
+        }
+        else { if (c == 91) { ADDTOK(S, 28, 0); p = p + 1; }
+        else { if (c == 93) { ADDTOK(S, 29, 0); p = p + 1; }
+        else { if (c == 124) {
+            if (p + 1 < bl) {
+                if (load8(S + 0x222000 + p + 1) == 124) { ADDTOK(S, 54, 0); p = p + 2; }
+                else { ADDTOK(S, 35, 0); p = p + 1; }
+            } else { ADDTOK(S, 35, 0); p = p + 1; }
+        }
+        else { if (c == 94) { ADDTOK(S, 36, 0); p = p + 1; }
+        else { if (c == 126) { ADDTOK(S, 37, 0); p = p + 1; }
+        else { if (c == 37) { ADDTOK(S, 34, 0); p = p + 1; }
+        # << or <
+        # (already handled < and <= above, need << separately)
+        # >> or >
+        # (already handled > and >= above, need >> separately)
+        # String literal
+        else { if (c == 34) {
+            p = p + 1;
+            var spos = GSPOS(S);
+            var sstart = spos;
+            var sgo = 1;
+            while (sgo == 1) {
+                if (p >= bl) { sgo = 0; }
+                if (sgo == 1) {
+                    var sc = load8(S + 0x222000 + p);
+                    if (sc == 34) { p = p + 1; sgo = 0; }
+                    else {
+                        if (sc == 92) {
+                            p = p + 1;
+                            var ec = load8(S + 0x222000 + p);
+                            p = p + 1;
+                            if (ec == 110) { store8(S + 0x68000 + spos, 10); }
+                            else {
+                                if (ec == 116) { store8(S + 0x68000 + spos, 9); }
+                                else {
+                                    if (ec == 48) { store8(S + 0x68000 + spos, 0); }
+                                    else {
+                                        if (ec == 92) { store8(S + 0x68000 + spos, 92); }
+                                        else {
+                                            if (ec == 34) { store8(S + 0x68000 + spos, 34); }
+                                            else { store8(S + 0x68000 + spos, ec); }
+                                        }
+                                    }
+                                }
+                            }
+                            spos = spos + 1;
+                        } else {
+                            store8(S + 0x68000 + spos, sc);
+                            spos = spos + 1;
+                            p = p + 1;
+                        }
+                    }
+                }
+            }
+            # Add null terminator after string literal
+            store8(S + 0x68000 + spos, 0);
+            spos = spos + 1;
+            SSPOS(S, spos);
+            var slen = spos - sstart - 1;
+            ADDTOK(S, 30, (sstart << 16) | slen);
+        }
+        else {
+            # Reject non-ASCII bytes outside strings/comments
+            if (c > 127) {
+                syscall(SYS_WRITE, 2, "error:", 6);
+                PRNUM(GCLINE(S));
+                syscall(SYS_WRITE, 2, ": non-ASCII byte (0x", 20);
+                # Print hex byte
+                var hi = c >> 4;
+                var lo = c & 15;
+                if (hi < 10) { store8(S, 48 + hi); } else { store8(S, 87 + hi); }
+                syscall(SYS_WRITE, 2, S, 1);
+                if (lo < 10) { store8(S, 48 + lo); } else { store8(S, 87 + lo); }
+                syscall(SYS_WRITE, 2, S, 1);
+                syscall(SYS_WRITE, 2, ") -- only ASCII allowed in source (UTF-8 ok in strings)\n", 56);
+                syscall(SYS_EXIT, 1);
+            }
+            p = p + 1;
+        }
+        } } } } } } } } }
+        } } } } } } } } }
+        } } } } } } } } }
+    }
+    ADDTOK(S, 12, 0);
+    return 0;
+}
+
+# ================================================================

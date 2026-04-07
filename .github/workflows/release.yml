@@ -35,9 +35,9 @@ jobs:
         run: |
           sh bootstrap/bootstrap.sh
           chmod +x build/cc2
-          cat src/compiler.cyr | ./build/cc2 > /tmp/cc2_release
+          cat src/main.cyr | ./build/cc2 > /tmp/cc2_release
           chmod +x /tmp/cc2_release
-          cat src/compiler.cyr | /tmp/cc2_release > /tmp/cc2_verify
+          cat src/main.cyr | /tmp/cc2_release > /tmp/cc2_verify
           cmp /tmp/cc2_release /tmp/cc2_verify
           echo "PASS: cc2 self-hosts (x86_64)"
           cp /tmp/cc2_release build/cc2
@@ -49,7 +49,7 @@ jobs:
           done
           cat programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
           # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
-          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
 
       - name: Package x86_64 tarball
         run: |
@@ -96,7 +96,7 @@ jobs:
         run: |
           chmod +x build/cc2
           # Cross-compile cc2_aarch64
-          cat src/compiler_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
+          cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
           echo "cc2_aarch64: $(wc -c < ./build/cc2_aarch64) bytes"
           # Verify it runs under qemu
           echo "var x = 42;" | ./build/cc2_aarch64 > /tmp/a64_test && chmod +x /tmp/a64_test
