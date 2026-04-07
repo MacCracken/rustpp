@@ -97,11 +97,12 @@ fn EMIT_F64V_LOOP(S, op, vbase) {
     EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_b & 0xFF);
     # movupd xmm1, [rdx+rsi*8]
     EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x0C); EB(S, 0xF2);
-    # Operation: addpd/subpd/mulpd xmm0, xmm1
+    # Operation: addpd/subpd/mulpd/divpd xmm0, xmm1
     EB(S, 0x66); EB(S, 0x0F);
     if (op == 0) { EB(S, 0x58); }
     if (op == 1) { EB(S, 0x5C); }
     if (op == 2) { EB(S, 0x59); }
+    if (op == 3) { EB(S, 0x5E); }
     EB(S, 0xC1);
     # dst = [rbp+off_dst] → rdx
     EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_dst & 0xFF);
@@ -112,6 +113,90 @@ fn EMIT_F64V_LOOP(S, op, vbase) {
     # jmp loop_top
     EJMP(S, loop_top);
     # Patch done jump
+    EPATCH(S, done_patch);
+    return 0;
+}
+
+# EMIT_F64V_UNARY — packed unary ops: sqrtpd (op=0), abs via andpd (op=1)
+# Args at vbase: dst, src, n(rax)
+fn EMIT_F64V_UNARY(S, op, vbase) {
+    var off_dst = (0 - (vbase + 1)) * 8;
+    var off_src = (0 - (vbase + 2)) * 8;
+    # For abs: build sign mask in xmm2 — pcmpeqd xmm2,xmm2; psrlq xmm2,1
+    if (op == 1) {
+        EB(S, 0x66); EB(S, 0x0F); EB(S, 0x76); EB(S, 0xD2);
+        EB(S, 0x66); EB(S, 0x0F); EB(S, 0x73); EB(S, 0xD2); EB(S, 0x01);
+    }
+    # rcx = n (already in rax)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    # rsi = 0
+    EB(S, 0x48); EB(S, 0x31); EB(S, 0xF6);
+    # Loop top: cmp rsi, rcx; jge done
+    var loop_top = GCP(S);
+    EB(S, 0x48); EB(S, 0x39); EB(S, 0xCE);
+    EB(S, 0x0F); EB(S, 0x8D);
+    var done_patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    # src = [rbp+off_src] → rdx
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_src & 0xFF);
+    # movupd xmm0, [rdx+rsi*8]
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x04); EB(S, 0xF2);
+    # Operation
+    if (op == 0) {
+        # sqrtpd xmm0, xmm0: 66 0F 51 C0
+        EB(S, 0x66); EB(S, 0x0F); EB(S, 0x51); EB(S, 0xC0);
+    }
+    if (op == 1) {
+        # andpd xmm0, xmm2: 66 0F 54 C2
+        EB(S, 0x66); EB(S, 0x0F); EB(S, 0x54); EB(S, 0xC2);
+    }
+    # dst = [rbp+off_dst] → rdx
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_dst & 0xFF);
+    # movupd [rdx+rsi*8], xmm0
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x11); EB(S, 0x04); EB(S, 0xF2);
+    # rsi += 2
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC6); EB(S, 0x02);
+    EJMP(S, loop_top);
+    EPATCH(S, done_patch);
+    return 0;
+}
+
+# EMIT_F64V_FMADD — dst[i] = a[i]*b[i] + c[i] using mulpd + addpd (SSE2)
+# Args at vbase: dst, a, b, c, n(rax)
+fn EMIT_F64V_FMADD(S, vbase) {
+    var off_dst = (0 - (vbase + 1)) * 8;
+    var off_a = (0 - (vbase + 2)) * 8;
+    var off_b = (0 - (vbase + 3)) * 8;
+    var off_c = (0 - (vbase + 4)) * 8;
+    # rcx = n
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    # rsi = 0
+    EB(S, 0x48); EB(S, 0x31); EB(S, 0xF6);
+    # Loop top
+    var loop_top = GCP(S);
+    EB(S, 0x48); EB(S, 0x39); EB(S, 0xCE);
+    EB(S, 0x0F); EB(S, 0x8D);
+    var done_patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    # a → xmm0
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_a & 0xFF);
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x04); EB(S, 0xF2);
+    # b → xmm1
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_b & 0xFF);
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x0C); EB(S, 0xF2);
+    # mulpd xmm0, xmm1
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x59); EB(S, 0xC1);
+    # c → xmm1
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_c & 0xFF);
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x10); EB(S, 0x0C); EB(S, 0xF2);
+    # addpd xmm0, xmm1
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x58); EB(S, 0xC1);
+    # store dst
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x55); EB(S, off_dst & 0xFF);
+    EB(S, 0x66); EB(S, 0x0F); EB(S, 0x11); EB(S, 0x04); EB(S, 0xF2);
+    # rsi += 2
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC6); EB(S, 0x02);
+    EJMP(S, loop_top);
     EPATCH(S, done_patch);
     return 0;
 }

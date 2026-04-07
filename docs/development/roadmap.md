@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v1.9.4.** 176KB self-hosting compiler, both architectures.
+> **v1.9.5.** 189KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
-> Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
+> Frontend/backend/common architecture. 24 f64 builtins + 7 SIMD ops. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
 >
 > agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
@@ -15,45 +15,52 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Bugs
 
-All P1/P2 compiler bugs resolved. Only open item:
+All P1 bugs resolved. One open P2:
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 2 | ~~Bump allocator no arena~~ | ~~P3~~ | **Fixed** (v1.8.3). `arena_new`, `arena_alloc`, `arena_reset` in lib/alloc.cyr. |
-| 7 | **`#derive(Serialize)` not processed in included files** | P2 | Derive directives only work in the main source file piped to cc2, not inside `include "file.cyr"`. Workaround: put `#derive` + `struct` declarations in the main entry file before `include` of the module that uses the constructors. Affects all library crates that want to ship derive-ready types — consumers must redeclare structs in their entry file. Fix: process derive during PP_PASS on included content, not just the top-level source. |
-| 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). |
-| 4 | ~~cyrb --aarch64 -D flag~~ | ~~P1~~ | **Fixed** (v1.8.4). |
-| 5 | ~~Release tarball cyrb ignores -D~~ | ~~P1~~ | **Fixed** (v1.9.3). Release workflow ships shell `scripts/cyrb` not compiled binary. Has -D, deps, pulsar. |
-| 6 | ~~Cross-compiler naming ambiguity~~ | ~~P1~~ | **Fixed** (v1.9.0). `cc2` (x86→x86), `cc2_aarch64` (cross), `cc2-native-aarch64` (native ARM). `cyrb pulsar` builds all three. |
+| 8 | **`#derive(Serialize)` truncates long field names** | P2 | Struct fields longer than ~16 characters get truncated in the generated JSON key strings. Example: `completion_tokens` becomes `completion_tokentotal_tokens`. Workaround: use shorter field names. Fix: use dynamic string emission or larger buffer in derive string generation. |
+| 9 | **`getenv()` in io.cyr returns wrong values** | P2 | `getenv("HOME")` returns `"macro"` instead of `"/home/macro"`. The `var eq = 1` re-declaration inside the while loop body may not reset across iterations due to a variable scoping issue, causing early false-positive matches inside other entries' values. Workaround: manual `/proc/self/environ` scan with `memeq` (used in ai-hwaccel `cmd_getenv`). |
+| 10 | **`exec_capture()` hangs in some binaries** | P2 | `exec_capture` from process.cyr hangs when run from compiled test binaries. Fork succeeds, child appears to execute, but parent `sys_read` on pipe never completes. May be related to heap state inherited by forked child or pipe fd inheritance. Workaround: test subprocess execution via integration tests with dedicated test binaries. |
 
 ---
 
-## Current — v1.8 Keystone Ports
-
-Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos:
-
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 1 | ~~Const generics~~ | ~~Medium~~ | **Not needed** (v1.8.3). Cyrius runtime-sized `alloc` + `var buf[N]` covers all bhava/hisab patterns. Added `lib/matrix.cyr` for DenseMatrix ops. |
-| 2 | ~~Derive macros~~ | ~~Medium~~ | **Done** (v1.7.7). `#derive(Serialize)` for JSON. |
+## Current — Ports & Ecosystem
 
 Port vidya — programming reference corpus:
 
 | # | Feature | Status |
 |---|---------|--------|
-| 1 | TOML parser | **Done** (v1.8.2). `lib/toml.cyr` — parses vidya content. |
-| 2 | Content loader | Next — load `content/` directory, build registry. |
-| 3 | Search | `hashmap.cyr` + `str.cyr` — full-text and tag search. |
-| 4 | MCP protocol | Blocked on bote Cyrius port. |
+| 1 | MCP protocol | Blocked on bote Cyrius port. |
+
+Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos.
+ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 
 ---
 
-## v1.9 — Concurrency
+## v1.10.0 — Concurrency, Codegen, Compile-Time Data
 
-| # | Feature | Effort | Unlocks |
-|---|---------|--------|---------|
-| 1 | Concurrency primitives | High | Threads, atomics, channels |
-| 2 | Async/await | High | tokio-style patterns |
+| # | Feature | Effort | Area |
+|---|---------|--------|------|
+| 1 | Async/await | High | Concurrency — tokio-style patterns |
+| 2 | Inline small functions | Medium | Codegen — token replay or IR, 7ns→1ns |
+| 3 | Return-by-value small structs | Medium | Codegen — structs <= 2 registers in rax/rdx |
+| 4 | Register allocation | High | Codegen — reduce spills, general speedup |
+| 5 | `#ref` TOML compile-time data | High | Language — O(1) static lookups, perfect hash |
+
+Prerequisites: concurrency primitives (threads, atomics, channels) needed before async/await.
+
+---
+
+## v1.11.0 — Language Ergonomics
+
+Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
+
+| # | Feature | Effort | Area |
+|---|---------|--------|------|
+| 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` should work in function call args, assignments, and return values, not just `switch`/`case`. Currently causes "unexpected ','" or "unexpected ')'" parse errors when used as `fn_call(MyEnum.VARIANT, arg2)`. Workaround: use bare variant names with unique prefixes (`ERR_NONE`, `ACCEL_CUDA`). |
+| 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Currently cc2 switches to code emission on the first non-fn statement and rejects later fn defs with "unexpected fn". Workaround: all fn defs must precede all statements (e.g., `alloc_init()` at the bottom). |
+| 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only (no individual `free()`). Long-running programs (daemons, CLI tools with detect-plan-report cycles) accumulate memory. Option: add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()` alongside existing bump allocator. |
 
 ---
 
@@ -79,15 +86,9 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 
 | # | Optimization | Target | Status |
 |---|-------------|--------|--------|
-| 1 | Inline small functions | `W* macros`: 7ns vs Rust 1ns | Needs token replay or IR |
-| 2 | Stack-allocated small strings | `str_builder`: 371ns vs Rust 52ns | Avoid heap < 64 bytes |
-| 3 | Arena allocator | `seccomp_build`: 2.4us vs Rust 69ns | Batch allocation |
-| 4 | Return-by-value small structs | General | Structs <= 2 registers |
-| 5 | Register allocation | General | High effort, reduce spills |
-| 6 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | mod_mul bottleneck |
-| 7 | SIMD expand: f64v_div, f64v_sqrt, f64v_abs, batch sanitize | abaco batch_mac 24us (2-pass), sanitize still scalar | Add more packed ops, single-pass MAC (fmadd) |
-| 8 | Cross-function inlining | DSP scalar: 300-700x vs Rust | Call overhead floor |
-| 9 | Compile-time perfect hash | `syscall_name_to_nr`: 106ns vs Rust 2ns | See `#ref` below |
+| 1 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | mod_mul bottleneck |
+| 2 | f64 trig/hyp builtins: asin, acos, atan, sinh, cosh, tanh | abaco eval implements in-library via exp/ln | x87 fpatan + exp-based, avoid per-consumer reimpl |
+| 3 | Cross-function inlining | DSP scalar: 300-700x vs Rust | Call overhead floor |
 
 ### Done
 
@@ -103,6 +104,9 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Identifier deduplication | v1.7.8 |
 | f64 transcendentals (x87 FPU) | v1.7.8 |
 | SIMD f64 (SSE2 addpd/mulpd/subpd) | v1.9.2 — 3.2x faster than Rust auto-vectorized |
+| Stack-allocated small strings | v1.8.x — str_builder direct buffer, 64-byte inline |
+| Arena allocator | v1.8.3 — arena_new, arena_alloc, arena_reset |
+| SIMD expand (divpd, sqrtpd, abs, fmadd) | v1.9.5 — f64v_div, f64v_sqrt, f64v_abs, f64v_fmadd |
 
 ---
 
@@ -128,7 +132,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Fixup entries | 4096 | Expanded from 2048 in v1.7.5. All writers checked. |
 | Input buffer | 512KB | Lex from preprocess buffer (v1.7.2) |
 | Preprocess output | 512KB | Expanded from 256KB in v1.8.1 |
-| Code buffer | 196608 bytes | Overflow detected |
+| Code buffer | 262144 bytes | Overflow detected |
 | Identifier buffer | 65536 bytes | Dedup since v1.7.8 (~50% savings) |
 | Include-once table | 64 files | Tracked filenames for dedup (v1.8.0) |
 | Macros | 16 | |
@@ -144,6 +148,15 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | 3 | RISC-V | Planned |
 | 4 | MIPS | Planned |
 | 5 | Xtensa | Planned |
+
+---
+
+## Standard Library Expansion
+
+| Module | Scope | Effort | Notes |
+|--------|-------|--------|-------|
+| `lib/chrono.cyr` | Timestamps, duration math, formatting. Direct `clock_gettime` syscall. UTC default. | Low | Core time library — no timezone data, just math |
+| `lib/tz/*.cyr` | Opt-in timezone databases. `tz/america_new_york.cyr`, `tz/asia_tokyo.cyr`, etc. | Low per zone | Pay for what you use. Include one file, get one timezone. |
 
 ---
 

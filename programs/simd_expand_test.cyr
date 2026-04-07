@@ -1,0 +1,98 @@
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+fn test_div() {
+    var a = alloc(32);
+    var b = alloc(32);
+    var dst = alloc(32);
+
+    store64(a,      f64_from(10));
+    store64(a + 8,  f64_from(20));
+    store64(a + 16, f64_from(30));
+    store64(a + 24, f64_from(40));
+    store64(b,      f64_from(2));
+    store64(b + 8,  f64_from(4));
+    store64(b + 16, f64_from(5));
+    store64(b + 24, f64_from(8));
+
+    f64v_div(dst, a, b, 4);
+    assert_eq(f64_to(load64(dst)),      5, "div[0]");
+    assert_eq(f64_to(load64(dst + 8)),  5, "div[1]");
+    assert_eq(f64_to(load64(dst + 16)), 6, "div[2]");
+    assert_eq(f64_to(load64(dst + 24)), 5, "div[3]");
+    return 0;
+}
+
+fn test_sqrt() {
+    var a = alloc(32);
+    var dst = alloc(32);
+
+    store64(a,      f64_from(9));
+    store64(a + 8,  f64_from(16));
+    store64(a + 16, f64_from(25));
+    store64(a + 24, f64_from(36));
+
+    f64v_sqrt(dst, a, 4);
+    assert_eq(f64_to(load64(dst)),      3, "sqrt[0]");
+    assert_eq(f64_to(load64(dst + 8)),  4, "sqrt[1]");
+    assert_eq(f64_to(load64(dst + 16)), 5, "sqrt[2]");
+    assert_eq(f64_to(load64(dst + 24)), 6, "sqrt[3]");
+    return 0;
+}
+
+fn test_abs() {
+    var a = alloc(32);
+    var dst = alloc(32);
+
+    store64(a,      f64_neg(f64_from(10)));
+    store64(a + 8,  f64_neg(f64_from(20)));
+    store64(a + 16, f64_from(30));
+    store64(a + 24, f64_neg(f64_from(40)));
+
+    f64v_abs(dst, a, 4);
+    assert_eq(f64_to(load64(dst)),      10, "abs[0]");
+    assert_eq(f64_to(load64(dst + 8)),  20, "abs[1]");
+    assert_eq(f64_to(load64(dst + 16)), 30, "abs[2]");
+    assert_eq(f64_to(load64(dst + 24)), 40, "abs[3]");
+    return 0;
+}
+
+fn test_fmadd() {
+    var a = alloc(32);
+    var b = alloc(32);
+    var c = alloc(32);
+    var dst = alloc(32);
+
+    store64(a,      f64_from(2));
+    store64(a + 8,  f64_from(3));
+    store64(a + 16, f64_from(4));
+    store64(a + 24, f64_from(5));
+    store64(b,      f64_from(10));
+    store64(b + 8,  f64_from(10));
+    store64(b + 16, f64_from(10));
+    store64(b + 24, f64_from(10));
+    store64(c,      f64_from(1));
+    store64(c + 8,  f64_from(2));
+    store64(c + 16, f64_from(3));
+    store64(c + 24, f64_from(4));
+
+    f64v_fmadd(dst, a, b, c, 4);
+    assert_eq(f64_to(load64(dst)),      21, "fmadd[0]");
+    assert_eq(f64_to(load64(dst + 8)),  32, "fmadd[1]");
+    assert_eq(f64_to(load64(dst + 16)), 43, "fmadd[2]");
+    assert_eq(f64_to(load64(dst + 24)), 54, "fmadd[3]");
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    test_div();
+    test_sqrt();
+    test_abs();
+    test_fmadd();
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);

@@ -119,3 +119,23 @@ Deferred: error message line numbers, performance pass, block scoping.
 - `cyrb docs --agent` — markdown server for bots
 - `cyrb.toml` parser replaces grep/sed
 - 5 ADRs, threat model (v0.9.6)
+
+## v1.7–v1.9 — Compiler Hardening, Optimizations, Ecosystem
+
+### Bugs Fixed
+- Bump allocator no arena → arena_new/arena_alloc/arena_reset in lib/alloc.cyr (v1.8.3)
+- aarch64 tarball ships x86 binary → architecture verification in CI (v1.8.3)
+- cyrb --aarch64 -D flag → shell cyrb supports all flags (v1.8.4)
+- Release tarball cyrb ignores -D → ships shell scripts/cyrb (v1.9.3)
+- Cross-compiler naming ambiguity → cc2 / cc2_aarch64 / cc2-native-aarch64 (v1.9.0)
+- `#derive(Serialize)` not processed in included files → derive hooks in PP_PASS (v1.9.5)
+
+### Keystone Ports
+- Const generics → not needed; runtime-sized alloc + var buf[N] covers patterns (v1.8.3)
+- Derive macros → `#derive(Serialize)` for JSON (v1.7.7)
+- TOML parser → lib/toml.cyr (v1.8.2)
+- Vidya content loader → lib/vidya.cyr with registry and search (v1.9.1)
+
+### Performance
+- Stack-allocated small strings → str_builder direct buffer, 64-byte inline (v1.8.x)
+- Arena allocator → arena_new, arena_alloc, arena_reset (v1.8.3)

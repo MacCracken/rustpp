@@ -1197,6 +1197,23 @@ fn LEXID(S, p, npos) {
     else { SNPOS(S, bl); }
     # Check keywords
     var kw = L64(S + 0x60000 + ws);
+    # SIMD vector keywords
+    if (klen == 8) {
+        if (kw == 0x7669645F76343666) { ADDTOK(S, 93, 0); return p; }
+        if (kw == 0x7362615F76343666) { ADDTOK(S, 95, 0); return p; }
+    }
+    if (klen == 9) {
+        if (kw == 0x7271735F76343666) {
+            if (load8(S + 0x60000 + ws + 8) == 116) { ADDTOK(S, 94, 0); return p; }
+        }
+    }
+    if (klen == 10) {
+        if (kw == 0x616D665F76343666) {
+            if (load8(S + 0x60000 + ws + 8) == 100) {
+                if (load8(S + 0x60000 + ws + 9) == 100) { ADDTOK(S, 96, 0); return p; }
+            }
+        }
+    }
     if (klen == 2) {
         if (kw & 0xFFFF == 0x6669) { ADDTOK(S, 15, 0); return p; }
         if (kw & 0xFFFF == 0x6E66) { ADDTOK(S, 32, 0); return p; }
@@ -1285,13 +1302,21 @@ fn LEXID(S, p, npos) {
         if (kw == 0x6C756D5F76343666) { ADDTOK(S, 91, 0); return p; }
     }
     if (klen == 9) {
-        # f64_floor: first 8 bytes = 0x6F6F6C665F343666, 9th byte = 'r' (0x72)
         if (kw == 0x6F6F6C665F343666) {
             if (load8(S + 0x60000 + ws + 8) == 114) { ADDTOK(S, 81, 0); return p; }
         }
-        # f64_round: first 8 bytes = 0x6E756F725F343666, 9th byte = 'd' (0x64)
         if (kw == 0x6E756F725F343666) {
             if (load8(S + 0x60000 + ws + 8) == 100) { ADDTOK(S, 92, 0); return p; }
+        }
+        if (kw == 8246499246534309478) {
+            if (load8(S + 0x60000 + ws + 8) == 116) { ADDTOK(S, 94, 0); return p; }
+        }
+    }
+    if (klen == 10) {
+        if (kw == 7020379954331530854) {
+            if (load8(S + 0x60000 + ws + 8) == 100) {
+                if (load8(S + 0x60000 + ws + 9) == 100) { ADDTOK(S, 96, 0); return p; }
+            }
         }
     }
     ADDTOK(S, 2, ws);
