@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.7.0.** 131KB self-hosting compiler, both architectures.
+> **v1.7.1.** 134KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Preprocessor macros, EMOVI optimization, aarch64 kernel mode, human-readable errors.
 >
@@ -13,9 +13,12 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## P1 Bugs
 
-| # | Issue | Severity | Detail |
-|---|-------|----------|--------|
-| 1 | **Parse error on 14+ module include chains** | High | agnosys full stack (14 modules) produces `unexpected ')'` at deep line numbers. Two-pass ifdef works but specific source patterns trigger errors. |
+None — all clear.
+
+Fixed in v1.7.1:
+- AGNOS 25-syscall kernel compiles (97KB, ifdef+include in PP_IFDEF_PASS)
+- agnostik 12-module port compiles (84KB, 58 tests pass)
+- Nested for-loops with complex expressions work
 
 ---
 
@@ -118,7 +121,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 | Limit | Current | Detail |
 |-------|---------|--------|
 | Functions | 1024 | Error at limit. Fix: multi-file compilation. |
-| Variables (VCNT) | 512 | **Primary blocker.** Never resets between functions. Enum variants, params, and locals all accumulate. agnostik (12 modules + stdlib) needs ~590 slots. Fix: scope-aware reset or separate enum table. |
+| Variables (VCNT) | 2048 | Never resets between functions. Expanded from 512 in v1.7.0. Overlap bug fixed. |
 | Input buffer | 256KB (v1.7) | Fixed in v1.7.0. Was 131KB. |
 | Code buffer | 196608 bytes | Overflow now detected (v1.7.0). |
 | Identifier buffer | 65536 bytes | Error with count at limit. |
@@ -131,7 +134,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 131KB |
+| 1 | x86_64 | **Done** — self-hosting, 134KB |
 | 2 | aarch64 | **Done** — kernel mode, arch-specific asm |
 | 3 | RISC-V | Planned — open ISA |
 | 4 | MIPS | Planned |
@@ -152,9 +155,8 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 | 1 | Global var as loop bound re-evaluates each iteration | Snapshot to local: `var limit = G; for (...)` |
 | 2 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals to push offsets |
 | 3 | `var buf[N]` is N bytes, not N elements | `var buf[120]` for 120-byte struct |
-| 4 | `return a == b` fails | Fixed in v1.7.0 |
-| 5 | Large projects hit VCNT limit (512 vars) | Minimize enum variants, use raw integers for large enums (LinuxCapability, SeccompArch). Use `syscalls_min.cyr` instead of full `syscalls.cyr` (saves 122 slots). |
-| 6 | `include` directive segfaults on large chains | Use `command cat file1 file2 \| cc2` instead of `include` for 4+ large files |
+| 4 | ~~`return a == b` fails~~ | Fixed in v1.7.0 |
+| 5 | ~~VCNT limit 512~~ | Fixed in v1.7.0 — expanded to 2048 |
 
 ---
 

@@ -492,6 +492,32 @@ fn PP_IFDEF_PASS(S) {
                 if (skip_depth > 0) { skip_depth = skip_depth - 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
+                ip = ip + 8;
+                if (load8(S + ip) == 34) {
+                    ip = ip + 1;
+                    var fname = S + 0x90000;
+                    var fi = 0;
+                    var fgo = 1;
+                    while (fgo == 1) {
+                        if (ip >= bl) { fgo = 0; }
+                        if (fgo == 1) {
+                            var fc = load8(S + ip);
+                            if (fc == 34) { ip = ip + 1; fgo = 0; }
+                            else { store8(fname + fi, fc); fi = fi + 1; ip = ip + 1; }
+                        }
+                    }
+                    store8(fname + fi, 0);
+                    var sgo = 1;
+                    while (sgo == 1) {
+                        if (ip >= bl) { sgo = 0; }
+                        if (sgo == 1) { if (load8(S + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
+                    }
+                    var nr = READFILE(fname, out + op, 262144 - op);
+                    op = op + nr;
+                }
+                bol = 1; handled = 1;
+            } } }
         }
         if (handled == 0) {
             if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
