@@ -12,6 +12,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Constant folding for `+`, `-`, `&`, `|`, `^`**: Same proven SCP-rewind pattern as `*`/`/`/`<<`/`>>`.
   Folds at compile time when both operands and result are small positive (0 < v < 0x10000).
   Precedence-safe: checks right operand isn't followed by higher-precedence operator.
+- **f64 builtins: `f64_sqrt`, `f64_abs`, `f64_floor`, `f64_ceil`**: Single-instruction
+  transcendentals. sqrt via SSE2 `sqrtsd`, floor/ceil via SSE4.1 `roundsd`, abs via integer
+  AND (clear sign bit). Unblocks abaco DSP functions (amplitude_to_db, midi_to_freq, filters).
+- **Jump tables for dense switches**: When a switch has ≥4 cases with dense values
+  (range ≤ 2×count), emits O(1) indirect jump via `lea rcx,[rip+table]; movsxd rax,[rcx+rax*4]; jmp rax`.
+  Sparse switches still use compare-and-branch chain. Pre-scans case values in a separate pass.
+- **`#derive(Serialize)`**: Preprocessor-level code generation. `#derive(Serialize)` before a
+  struct auto-generates `Name_to_json(ptr, sb)` that serializes to JSON via str_builder.
+  Supports nested structs (requires inner `#derive` first). Unblocks bhava/hisab serde migration.
+- **Batch benchmark harness**: `bench_run_batch(b, &fn, batch_size, rounds)` in lib/bench.cyr.
+  Wraps one `clock_gettime` pair around N iterations for accurate sub-100ns measurement.
+  Also `bench_run_batch1`, `bench_run_batch2`, and inline `bench_batch_start`/`bench_batch_stop`.
+
+### Improved — Compiler
+- **VCNT overflow check**: Errors at 2048 with clear message instead of silent corruption.
+- **Undefined function warning**: `warning: undefined function 'foo'` at compile time instead
+  of silent segfault at runtime.
+- **Non-ASCII byte error**: `error:N: non-ASCII byte (0xc3)` instead of silently splitting
+  identifiers. UTF-8 in strings and comments still works.
+- **Identifier buffer limit raised**: 65000 → 65500 bytes (struct_ftypes no longer overlaps).
 
 ### Fixed — Compiler
 - **`_cfo` leak from function call arguments**: `pow2(5) + 10` folded to `15` instead of `42`

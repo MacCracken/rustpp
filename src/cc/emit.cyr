@@ -409,6 +409,16 @@ fn EUCOMISD(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x2E); EB(S, 0xC1); return 0; }
 fn EXORPD_X1(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x57); EB(S, 0xC9); return 0; }
 fn EMOVAPD_01(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x28); EB(S, 0xC1); return 0; }
 
+# sqrtsd xmm0, xmm0
+fn EF64SQRT(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x51); EB(S, 0xC0); return 0; }
+# roundsd xmm0, xmm0, 1 (floor) — SSE4.1
+fn EF64FLOOR(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x3A); EB(S, 0x0B); EB(S, 0xC0); EB(S, 0x01); return 0; }
+# roundsd xmm0, xmm0, 2 (ceil) — SSE4.1
+fn EF64CEIL(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x3A); EB(S, 0x0B); EB(S, 0xC0); EB(S, 0x02); return 0; }
+# f64_abs: clear sign bit (bit 63) via integer AND
+# No SSE needed — value is already in rax as bit pattern
+# push rax; movabs rax, 0x7FFF...; mov rcx, rax; pop rax; and rax, rcx
+
 fn EMIT_F64_BINOP(S, fop) {
     EPOPC(S);
     EPUSHR(S);
