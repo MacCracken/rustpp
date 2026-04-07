@@ -6,7 +6,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-04-07
+
 ## [1.10.0] — 2026-04-07
+
+### Added — Compiler
+- **Inline small functions**: Token replay inlining for 1-param functions with ≤6 body
+  tokens. State accessors like `GCP(S)`, `GFLC(S)` are inlined at call sites, eliminating
+  call/ret overhead (~20 bytes saved per call). New metadata tables at 0x2C8000-0x2D2000
+  track body token ranges and inline eligibility. Tail call optimization disabled inside
+  inline replay. Max inline depth 3.
+- **`ret2(a, b)`**: Return two values in rax:rdx. Enables returning 2-field structs
+  without heap allocation. Statement form — emits return jump after packing registers.
+- **`rethi()`**: Read rdx from last function call. Expression form — `mov rax, rdx`.
+  Must be called immediately after the function call before rdx is clobbered.
+- **SIMD expand**: 4 new packed f64 operations:
+  - `f64v_div(dst, a, b, n)` — SSE2 `divpd`, packed division
+  - `f64v_sqrt(dst, src, n)` — SSE2 `sqrtpd`, packed square root
+  - `f64v_abs(dst, src, n)` — SSE2 `andpd` with sign mask, packed absolute value
+  - `f64v_fmadd(dst, a, b, c, n)` — `mulpd` + `addpd`, fused multiply-add (SSE2, no FMA3)
+- **`LEXKW_EXT` helper**: Extended keyword checks (tokens 93-98) in separate function
+  to avoid LEXID code size overflow.
+- **`PARSE_SIMD_EXT` handler**: Dispatch for tokens 93-98 in separate function to keep
+  PARSE_TERM within code generation limits.
+
+### Fixed — Compiler
+- **PARSE_STMT expression range**: Extended f64/SIMD builtin statement range from
+  `typ <= 92` to `typ <= 98`, fixing "unexpected unknown" errors for new builtins
+  used as statements.
+
+### Changed — Compiler
+- Binary size: 194KB x86_64 (up from 189KB due to inline metadata + new builtins).
+- Heap brk extended from 0x2C8000 to 0x2D2000 (inline metadata tables).
+- 267 tests passing, self-hosting byte-identical.
 
 ## [1.9.5] — 2026-04-07
 

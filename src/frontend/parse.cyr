@@ -2088,7 +2088,7 @@ fn FINDFN(S, noff) {
 # ESTOREREGPARM, ESTORESTACKPARM, ESTOREPARM, EFLLOAD, EFLSTORE)
 # are now in the arch-specific emit files:
 #   x86_64:  src/cc/emit.cyr
-#   aarch64: src/arch/aarch64/emit.cyr
+#   aarch64: src/backend/aarch64/emit.cyr
 
 # Find fn local variable by name
 fn FINDLOCAL(S, noff) {
@@ -2432,7 +2432,7 @@ fn PARSE_FN_DEF(S) {
 }
 
 # ASM_MNEMONIC and helpers are in arch-specific emit files:
-# src/cc/emit.cyr (x86_64) and src/arch/aarch64/emit.cyr
+# src/backend/x86/emit.cyr and src/backend/aarch64/emit.cyr
 
 fn PARSE_SWITCH(S) {
     STI(S, GTI(S) + 1);
