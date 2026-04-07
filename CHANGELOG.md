@@ -9,6 +9,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.8.3] — 2026-04-07
 
 ### Added — Standard Library
+- **`lib/matrix.cyr` — dense matrix library**: `mat_new`, `mat_get`, `mat_set`, `mat_identity`,
+  `mat_add`, `mat_sub`, `mat_scale`, `mat_mul`, `mat_transpose`, `mat_dot`, `mat_print`.
+  Row-major f64 storage. Unblocks hisab DenseMatrix port. Const generics not needed —
+  Cyrius runtime-sized alloc covers all bhava/hisab Matrix patterns.
+
 - **Arena allocator** (`lib/alloc.cyr`): `arena_new(capacity)`, `arena_alloc(a, size)`,
   `arena_reset(a)`, `arena_used(a)`, `arena_remaining(a)`. Independent memory pools — resetting
   one arena doesn't invalidate pointers from others or the global allocator. Closes Bug #2.

@@ -57,9 +57,11 @@ jobs:
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          for bin in cc2 cc2_aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark; do
+          for bin in cc2 cyrb cyrfmt cyrlint cyrdoc cyrc ark; do
             [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
+          # Include cross-compiler separately (not in bin/ — it's a dev tool)
+          [ -f "build/cc2_aarch64" ] && cp "build/cc2_aarch64" "$STAGE/"
           cp bootstrap/asm "$STAGE/bin/"
           for script in scripts/cyrb-*.sh; do
             [ -f "$script" ] && cp "$script" "$STAGE/bin/"

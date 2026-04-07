@@ -29,7 +29,7 @@ Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream 
 
 | # | Feature | Effort | Unlocks |
 |---|---------|--------|---------|
-| 1 | Const generics | Medium | `Matrix<N,M>`, `[T; N]` |
+| 1 | ~~Const generics~~ | ~~Medium~~ | **Not needed** (v1.8.3). Cyrius runtime-sized `alloc` + `var buf[N]` covers all bhava/hisab patterns. Added `lib/matrix.cyr` for DenseMatrix ops. |
 | 2 | ~~Derive macros~~ | ~~Medium~~ | **Done** (v1.7.7). `#derive(Serialize)` for JSON. |
 
 Port vidya — programming reference corpus:
