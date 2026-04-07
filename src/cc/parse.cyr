@@ -524,7 +524,7 @@ fn PARSE_FACTOR(S) {
                 var cpnoff = PEEKV(S);
                 STI(S, GTI(S) + 1);
                 var cpli = GFLC(S);
-                S64(S + 0x8DC30 + cpli * 8, cpnoff);
+                S64(S + 0x91000 + cpli * 8, cpnoff);
                 SLDEP(S, cpli, 0);
                 if (clpc < 6) { ESTOREPARM(S, clpc, cpli, 0); }
                 SFLC(S, cpli + 1);
@@ -1271,7 +1271,7 @@ fn PARSE_VAR(S) {
             if (GLDEP(S, existing) == GSDEP(S)) { ERRDUPVAR(S); }
         }
         var li = GFLC(S);
-        S64(S + 0x8DC30 + li * 8, noff);
+        S64(S + 0x91000 + li * 8, noff);
         SLDEP(S, li, GSDEP(S));
         SLTYPE(S, li, pscale);
         EFLSTORE(S, li);
@@ -1579,7 +1579,7 @@ fn PARSE_FOR(S) {
                 store8(S + 0x50000 + fiidx_noff, 95); store8(S + 0x50000 + fiidx_noff + 1, 105);
                 store8(S + 0x50000 + fiidx_noff + 2, 0);
                 SNPOS(S, fiidx_noff + 3);
-                S64(S + 0x8DC30 + fili * 8, fiidx_noff);
+                S64(S + 0x91000 + fili * 8, fiidx_noff);
                 SLDEP(S, fili, GSDEP(S));
                 SLTYPE(S, fili, 0);
                 EMOVI(S, 0);
@@ -1587,7 +1587,7 @@ fn PARSE_FOR(S) {
                 SFLC(S, fili + 1);
                 # Item var
                 var fiitem = GFLC(S);
-                S64(S + 0x8DC30 + fiitem * 8, finoff);
+                S64(S + 0x91000 + fiitem * 8, finoff);
                 SLDEP(S, fiitem, GSDEP(S));
                 SLTYPE(S, fiitem, 0);
                 EMOVI(S, 0);
@@ -1653,7 +1653,7 @@ fn PARSE_FOR(S) {
             # RANGE for-in (.. already consumed, is_range==1)
             # rax has start value from PARSE_EXPR above
             var fili = GFLC(S);
-            S64(S + 0x8DC30 + fili * 8, finoff);
+            S64(S + 0x91000 + fili * 8, finoff);
             SLDEP(S, fili, GSDEP(S));
             SLTYPE(S, fili, 0);
             EFLSTORE(S, fili);
@@ -1819,7 +1819,7 @@ fn FINDLOCAL(S, noff) {
     var i = lc - 1;
     # Search backward so inner scope shadows outer
     while (i >= 0) {
-        var sn = L64(S + 0x8DC30 + i * 8);
+        var sn = L64(S + 0x91000 + i * 8);
         if (sn >= 0) { if (STREQ(S, sn, noff) == 1) { return i; } }
         i = i - 1;
     }
@@ -2032,7 +2032,7 @@ fn PARSE_FN_DEF(S) {
                 SKIP_GENERICS(S);    # skip <T> if present
             }
             var li = GFLC(S);
-            S64(S + 0x8DC30 + li * 8, pnoff);
+            S64(S + 0x91000 + li * 8, pnoff);
             SLDEP(S, li, 0);
             # Only emit register params now (0-5)
             if (pc < 6) {

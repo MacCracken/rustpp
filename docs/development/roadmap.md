@@ -17,7 +17,8 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 |---|-------|----------|--------|
 | 1 | **SIGILL on large binaries with bench.cyr + all modules** | P1 | Compiling 12 agnostik modules + bench.cyr (~500 functions, ~600 VCNT) produces SIGILL (exit 132) or SIGSEGV (exit 139) when calling the second function after main(). Same code works with fewer modules (~3-4). The test suite (main.cyr with assert.cyr) compiles and runs fine at the same module count — the issue is specific to bench.cyr's additional functions/vars tipping the binary past a codegen threshold. Suspect: fixup table corruption or code buffer address miscalculation for function calls in large binaries. |
 | 2 | **Bump allocator never frees — no arena/reset pattern** | P2 | `alloc_reset()` exists but is unsafe to use between benchmark iterations because previously allocated bench structs become invalid. Need either: (a) arena allocator with named arenas, or (b) alloc_reset that doesn't invalidate outstanding pointers. Current workaround: use enough heap (auto-grows via brk) and accept the leak. |
-| 3 | **Many local vars in single function causes SIGILL** | P1 | A single `main()` function with 15+ `var` declarations for benchmark structs produces SIGILL. Splitting into per-benchmark functions works. Root cause likely VCNT slot overlap within a single function when slot count is high. |
+| 3 | ~~Many local vars → SIGILL~~ | ~~P1~~ | **Fixed** (v1.7.4). fn_local_names, local_depths, local_types had 64-slot limit. The 65th local overflowed into var_types causing parse errors and wrong codegen. Relocated all three to 0x91000+ with 256 entries each. |
+| 4 | **Include preprocessor fails for bench+modules (v1.7.3)** | P1 | `include` of bench functions + 6+ agnostik modules produces `unexpected '=='` at ~line 2486. Same code works with 3 modules (error+types+telemetry). The test suite (12 modules + assert.cyr) works fine. The trigger appears to be total expanded source crossing a specific threshold when bench-style code (many small functions calling now_ns) is combined with the full module set. |
 
 Fixed in v1.7.1:
 - AGNOS 25-syscall kernel compiles (97KB, ifdef+include in PP_IFDEF_PASS)
@@ -149,6 +150,65 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 ## Crate Migration
 
 108 repos, ~1M lines. See [migration-strategy.md](migration-strategy.md) for the full plan.
+
+---
+
+## cyrius-x — Portable Bytecode (v2.0+)
+
+A Cyrius-native portable bytecode format. Not WASM — designed for AGNOS, systems-first, agent-native.
+
+**Why not WASM**: WASM was designed for browsers — no raw syscalls, 32-bit memory model (64-bit still drafting), no native threads, GC still in progress, JavaScript interop baggage. cyrius-x is designed for sovereign systems.
+
+**What cyrius-x provides**:
+- One bytecode, every architecture (x86, ARM, RISC-V, MIPS, Xtensa, satellites)
+- kavach sandbox integration native — the bytecode IS sandboxed
+- 64-bit native (i64), raw syscall support
+- Tiny interpreter (~10-20KB, Cyrius-compiled)
+- sigil-signed packages, libro-audited execution
+
+**Compilation targets**:
+```
+cyrius source → cyrius-native (x86_64, aarch64, etc.) — direct, sovereign
+cyrius source → cyrius-x (portable bytecode) — runs anywhere, sandboxed
+```
+
+| Phase | Scope |
+|-------|-------|
+| 1 | Bytecode format specification |
+| 2 | cyrius-x emitter backend |
+| 3 | cyrius-x interpreter (Cyrius-compiled, ~10-20KB) |
+| 4 | kavach sandbox integration |
+| 5 | Agent distribution (one binary, all architectures) |
+| 6 | JIT (cyrius-x → native for hot paths) |
+
+**Replaces**: WASM (server/edge/IoT), JVM (enterprise), .NET CLR (applications).
+
+---
+
+## cyrius-ts — TypeScript/JavaScript Replacement (v2.0+)
+
+Not a transpiler to JavaScript. A replacement for the entire JS/TS runtime stack.
+
+| Problem | JS/TS | cyrius-ts |
+|---------|-------|-----------|
+| Runtime | V8/Node (10MB+) | cyrius-x interpreter (~10-20KB) |
+| Types | Erased at runtime | Enforced at compile + runtime |
+| Packages | npm (node_modules, 300MB avg) | cyrb (zero deps default) |
+| Security | `npm install` runs arbitrary code | No install scripts, sigil-verified |
+| Null | 6 falsy values | `0` is false, everything else is true |
+| Binary | V8 alone ~30MB | Complete runtime <50KB |
+| Startup | Node.js 30-50ms | cyrius-x <1ms |
+| Edge | V8 cannot run on ESP32 | cyrius-x runs on $4 microcontrollers |
+
+| Phase | Scope |
+|-------|-------|
+| 1 | Web-pattern syntax sugar (async handlers, JSON native, template strings) |
+| 2 | HTTP server library (native, no framework) |
+| 3 | DOM-equivalent for aethersafha |
+| 4 | JS/TS migration tool (`cyrb port-ts`) |
+| 5 | npm compatibility layer (consume packages in cyrius-x sandbox) |
+
+**The pitch**: Everything Node.js does in 30MB and 50ms, cyrius-ts does in 50KB and <1ms. On a $4 microcontroller. With zero `node_modules`.
 
 ---
 

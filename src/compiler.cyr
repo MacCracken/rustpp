@@ -25,7 +25,7 @@
 #   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
 #   0x8DA00  fn_count, in_fn, local_cnt  Function state
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
-#   0x8DC30  fn_local_names[512]         64 local variable name offsets
+#   0x8DC30  (freed — fn_local_names relocated to 0x91000)
 #   0x8DE30  var_types     [2048]        256 variable struct type IDs
 #   0x8E630  struct tables               names, fcounts, fnames (to 0x8F830)
 #   0x8F838  loop_top, break_patch       Loop state
