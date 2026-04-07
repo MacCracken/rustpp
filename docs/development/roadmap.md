@@ -171,6 +171,7 @@ Not a transpiler. A replacement for the entire JS/TS runtime stack.
 | 1 | Global var as loop bound re-evaluates each iteration | Snapshot to local |
 | 2 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals |
 | 3 | `var buf[N]` is N bytes, not N elements | `var buf[120]` for 120-byte struct |
+| 4 | ~~`&&`/`\|\|` only in conditions~~ | **Fixed** (v1.7.4). `return a > 0 && b > 0;` and `var r = a == b;` now work. PARSE_CMP_EXPR handles `&&`/`\|\|` as AND/OR on 0/1 values. Both `var =` and `x =` assignments use PARSE_CMP_EXPR. |
 
 ---
 

@@ -794,13 +794,12 @@ fn PARSE_EXPR(S) {
     return 0;
 }
 
-# Parse comparison expression: expr [cmp_op expr]
-# Returns value in rax. If no comparison, behaves like PARSE_EXPR.
-# Comparison operators produce 0 or 1 via setCC.
+# Parse comparison expression: expr [cmp_op expr] [&& || cmp_expr]*
+# Returns value in rax (0 or 1 for comparisons).
+# Supports && (53) and || (54) as expression-level logical operators.
 fn PARSE_CMP_EXPR(S) {
     PARSE_EXPR(S);
     var op = PEEKT(S);
-    # Check for comparison operator (17-22: ==, !=, <, >, <=, >=)
     if (op >= 17) {
         if (op <= 22) {
             STI(S, GTI(S) + 1);
@@ -810,6 +809,36 @@ fn PARSE_CMP_EXPR(S) {
             EPOPR(S);
             ESETCC(S, op);
         }
+    }
+    # Handle && and || chains: left result in rax, push, eval right, combine
+    var lop = PEEKT(S);
+    while (lop == 53) {
+        # && : push left, eval right comparison, AND
+        STI(S, GTI(S) + 1);
+        EPUSHR(S);
+        PARSE_EXPR(S);
+        var rop = PEEKT(S);
+        if (rop >= 17) { if (rop <= 22) {
+            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_EXPR(S); EMOVCA(S); EPOPR(S); ESETCC(S, rop);
+        } }
+        EMOVCA(S);
+        EPOPR(S);
+        EANDR(S);
+        lop = PEEKT(S);
+    }
+    while (lop == 54) {
+        # || : push left, eval right comparison, OR
+        STI(S, GTI(S) + 1);
+        EPUSHR(S);
+        PARSE_EXPR(S);
+        var rop = PEEKT(S);
+        if (rop >= 17) { if (rop <= 22) {
+            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_EXPR(S); EMOVCA(S); EPOPR(S); ESETCC(S, rop);
+        } }
+        EMOVCA(S);
+        EPOPR(S);
+        EORR(S);
+        lop = PEEKT(S);
     }
     return 0;
 }
@@ -1193,7 +1222,7 @@ fn EMIT_GVAR_INITS(S) {
             }
         }
         if (did_struct == 0) {
-            PARSE_EXPR(S);
+            PARSE_CMP_EXPR(S);
             if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
             if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
             STI(S, GTI(S) + 1);
@@ -1255,8 +1284,8 @@ fn PARSE_VAR(S) {
             return 0;
         }
     }
-    # parse expression (scalar)
-    PARSE_EXPR(S);
+    # parse expression (scalar) — use PARSE_CMP_EXPR for comparisons and &&/||
+    PARSE_CMP_EXPR(S);
     # Type check: warn if pointer/scalar mismatch
     var expr_ps = GPSC(S);
     if (pscale > 0) {
@@ -2334,7 +2363,7 @@ fn PARSE_STMT(S) {
         # assignment: already consumed IDENT
         if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
         STI(S, GTI(S) + 1);
-        PARSE_EXPR(S);
+        PARSE_CMP_EXPR(S);
         # Type check at assignment
         var aps = GPSC(S);
         var idx = 0 - 1;
