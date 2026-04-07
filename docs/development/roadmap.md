@@ -98,7 +98,7 @@ Findings from agnosys + kybernet benchmarks. Syscalls at parity. Gaps in compute
 
 | # | Optimization | Effort | Status |
 |---|-------------|--------|--------|
-| 8 | Dead code elimination | Medium | Remove unused function bodies |
+| 8 | Dead code elimination | Medium | Token scan + reachability bitmap works. Skip logic causes segfault because skipped functions still have fixup entries pointing to stale offsets. Fix: emit `ret` stub instead of skipping. |
 | 9 | Register allocation | High | Reduce spills to stack |
 | 10 | Tail call optimization | Low | `return f()` → `jmp f` instead of `call f; ret` |
 
