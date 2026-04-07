@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.9.3] — 2026-04-07
+
+### Fixed — Compiler
+- **SIMD frame slot collision**: `f64v_add/sub/mul` stored args at hardcoded frame slots 0,1,2
+  which overwrote caller's local variables. Heap-allocated buffers produced zeros, chained
+  operations produced wrong results. Fixed by using `GFLC()` for fresh slots and passing
+  `vbase` to `EMIT_F64V_LOOP` for correct `[rbp-N]` offsets.
+
+### Fixed — Release
+- **Release tarball ships shell cyrb**: Workflow was compiling `programs/cyrb.cyr` (old binary
+  without -D/deps/pulsar). Now copies `scripts/cyrb` (shell dispatcher with full feature set).
+
+### Changed — Roadmap
+- Marked Bug #5 (release cyrb -D) and #6 (naming ambiguity) as fixed.
+- New perf item #7 from abaco: SIMD expand (f64v_div, f64v_sqrt, f64v_abs, fmadd for MAC).
+
 ## [1.9.2] — 2026-04-07
 
 ### Improved — Tooling

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.9.2.** 176KB self-hosting compiler, both architectures.
+> **v1.9.3.** 176KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Frontend/backend/common architecture. 20 f64 builtins. #derive(Serialize). Include-once.
 > Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
@@ -22,8 +22,8 @@ All P1/P2 compiler bugs resolved. Only open item:
 | 2 | **Bump allocator no arena** | P3 | alloc_reset() invalidates outstanding pointers. Need arena pattern for benchmarks. Library design, not compiler bug. |
 | 3 | ~~aarch64 tarball ships x86 binary~~ | ~~P1~~ | **Fixed** (v1.8.3). |
 | 4 | ~~cyrb --aarch64 -D flag~~ | ~~P1~~ | **Fixed** (v1.8.4). |
-| 5 | **Release tarball `cyrb` doesn't support `-D` flag** | P1 | The `cyrb` in `cyrius-1.8.5-x86_64-linux.tar.gz` (54824 bytes) silently ignores `-D`. The locally-built `cyrb` (54176 bytes) supports it. Same version string "1.1.0" but different binaries. The release workflow compiles `cyrb` from an older source. AGNOS requires `-D ARCH_X86_64` for multi-arch builds — without it, all `#ifdef` blocks are skipped producing a broken kernel. Fix: rebuild `cyrb` in the release workflow from current `programs/cyrb.cyr`. |
-| 6 | **Cross-compiler vs native-compiler naming ambiguity** | P1 | `build/cc2_aarch64` is ambiguous: release packages the **native** aarch64 binary (aarch64→aarch64), but x86 developers need the **cross-compiler** (x86→aarch64, built from `main_aarch64.cyr`). The native binary can't run on x86 — fails silently, produces empty output. Proposal: `cc2 --target aarch64` flag, or explicit naming: `cc2_aarch64` = cross (x86→arm), `cc2-native-aarch64` = native (arm→arm). x86 release tarball must ship the cross-compiler. aarch64 release tarball ships the native compiler. Currently must manually build cross-compiler: `cat src/main_aarch64.cyr \| ./build/cc2 > cc2_aarch64_cross`. |
+| 5 | ~~Release tarball cyrb ignores -D~~ | ~~P1~~ | **Fixed** (v1.9.3). Release workflow ships shell `scripts/cyrb` not compiled binary. Has -D, deps, pulsar. |
+| 6 | ~~Cross-compiler naming ambiguity~~ | ~~P1~~ | **Fixed** (v1.9.0). `cc2` (x86→x86), `cc2_aarch64` (cross), `cc2-native-aarch64` (native ARM). `cyrb pulsar` builds all three. |
 
 ---
 
@@ -84,7 +84,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | 4 | Return-by-value small structs | General | Structs <= 2 registers |
 | 5 | Register allocation | General | High effort, reduce spills |
 | 6 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | mod_mul bottleneck |
-| 7 | SIMD auto-vectorization | `poly_blep_4096`: 9.6x vs Rust | Batch DSP ops |
+| 7 | SIMD expand: f64v_div, f64v_sqrt, f64v_abs, batch sanitize | abaco batch_mac 24us (2-pass), sanitize still scalar | Add more packed ops, single-pass MAC (fmadd) |
 | 8 | Cross-function inlining | DSP scalar: 300-700x vs Rust | Call overhead floor |
 | 9 | Compile-time perfect hash | `syscall_name_to_nr`: 106ns vs Rust 2ns | See `#ref` below |
 
@@ -101,6 +101,7 @@ Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
 | Jump tables (O(1) dense switch) | v1.7.7 |
 | Identifier deduplication | v1.7.8 |
 | f64 transcendentals (x87 FPU) | v1.7.8 |
+| SIMD f64 (SSE2 addpd/mulpd/subpd) | v1.9.2 — 3.2x faster than Rust auto-vectorized |
 
 ---
 

@@ -47,7 +47,8 @@ jobs:
           for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
             cat programs/${tool}.cyr | ./build/cc2 > ./build/${tool} && chmod +x ./build/${tool}
           done
-          cat programs/cyrb.cyr | ./build/cc2 > ./build/cyrb && chmod +x ./build/cyrb
+          # cyrb is the shell script (not compiled binary) — has -D, deps, pulsar
+          cp scripts/cyrb ./build/cyrb && chmod +x ./build/cyrb
           # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
           cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 && chmod +x ./build/cc2_aarch64
 
