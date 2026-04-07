@@ -1009,6 +1009,16 @@ fn PP_IFDEF_PASS(S) {
                 if (skip_depth > 0) { skip_depth = skip_depth - 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_SERIALIZE(S, ip, bl, out, op);
+                op = load64(S + 0x97400);
+                bol = 1; handled = 1;
+            } } }
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_DESER(S, ip, bl, out, op);
+                op = load64(S + 0x97400);
+                bol = 1; handled = 1;
+            } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
                 ip = ip + 8;
                 if (load8(S + ip) == 34) {

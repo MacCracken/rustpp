@@ -12,6 +12,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`f64_round(x)`**: SSE4.1 `roundsd` mode 0 (round to nearest, banker's rounding).
   Token 92. Completes the set: floor/ceil/round.
 
+### Fixed — Compiler
+- **`#derive(Serialize)` works inside included files**: Added derive handling to PP_IFDEF_PASS
+  (the second preprocessor pass that processes included content). Previously only worked in
+  the main source file, not in `include`d modules.
+
 ### Added — Standard Library
 - **`fmt_float(val, decimals)` + `fmt_float_buf`** (`lib/fmt.cyr`): Format f64 as
   "integer.fraction" with configurable decimal places. Zero-padded fractional part.
