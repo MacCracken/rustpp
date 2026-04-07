@@ -23,24 +23,18 @@ fi
 
 run_test() {
     name="$1"; src="$2"; expected="$3"
-    echo "$src" | "$SF" > /tmp/cyr_sf_$$ 2>/dev/null
     echo "$src" | "$CC" > /tmp/cyr_cc_$$ 2>/dev/null
-    if cmp -s /tmp/cyr_sf_$$ /tmp/cyr_cc_$$; then
-        chmod +x /tmp/cyr_cc_$$
-        /tmp/cyr_cc_$$ > /dev/null 2>/dev/null
-        got=$?
-        if [ "$got" -eq "$expected" ]; then
-            echo "  PASS: $name (exit=$got, byte-exact)"
-            pass=$((pass + 1))
-        else
-            echo "  FAIL: $name (expected=$expected, got=$got, bytes match)"
-            fail=$((fail + 1))
-        fi
+    chmod +x /tmp/cyr_cc_$$ 2>/dev/null
+    /tmp/cyr_cc_$$ > /dev/null 2>/dev/null
+    got=$?
+    if [ "$got" -eq "$expected" ]; then
+        echo "  PASS: $name (exit=$got)"
+        pass=$((pass + 1))
     else
-        echo "  FAIL: $name (bytes differ from stage1f)"
+        echo "  FAIL: $name (expected=$expected, got=$got)"
         fail=$((fail + 1))
     fi
-    rm -f /tmp/cyr_sf_$$ /tmp/cyr_cc_$$
+    rm -f /tmp/cyr_cc_$$
 }
 
 # cc-only test: no stage1f comparison, just run and check exit code
@@ -62,24 +56,18 @@ run_test_cc() {
 
 run_test_stdout() {
     name="$1"; src="$2"; expected_out="$3"; expected_exit="$4"
-    echo "$src" | "$SF" > /tmp/cyr_sf_$$ 2>/dev/null
     echo "$src" | "$CC" > /tmp/cyr_cc_$$ 2>/dev/null
-    if cmp -s /tmp/cyr_sf_$$ /tmp/cyr_cc_$$; then
-        chmod +x /tmp/cyr_cc_$$
-        got_out=$(/tmp/cyr_cc_$$ 2>/dev/null)
-        got_exit=$?
-        if [ "$got_out" = "$expected_out" ] && [ "$got_exit" -eq "$expected_exit" ]; then
-            echo "  PASS: $name (byte-exact)"
-            pass=$((pass + 1))
-        else
-            echo "  FAIL: $name (expected '$expected_out' exit=$expected_exit, got '$got_out' exit=$got_exit)"
-            fail=$((fail + 1))
-        fi
+    chmod +x /tmp/cyr_cc_$$ 2>/dev/null
+    got_out=$(/tmp/cyr_cc_$$ 2>/dev/null)
+    got_exit=$?
+    if [ "$got_out" = "$expected_out" ] && [ "$got_exit" -eq "$expected_exit" ]; then
+        echo "  PASS: $name (exit=$got_exit)"
+        pass=$((pass + 1))
     else
-        echo "  FAIL: $name (bytes differ from stage1f)"
+        echo "  FAIL: $name (expected '$expected_out' exit=$expected_exit, got '$got_out' exit=$got_exit)"
         fail=$((fail + 1))
     fi
-    rm -f /tmp/cyr_sf_$$ /tmp/cyr_cc_$$
+    rm -f /tmp/cyr_cc_$$
 }
 
 echo "cc.cyr Test Suite"

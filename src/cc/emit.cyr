@@ -29,6 +29,18 @@ fn E8(S, v) {
 
 # emit "mov rax, imm64" — 48 B8 <imm64>
 fn EMOVI(S, v) {
+    if (v == 0) {
+        # xor eax, eax (2 bytes, clears rax — faster and smaller than movabs)
+        EB(S, 0x31); EB(S, 0xC0);
+        return 0;
+    }
+    if (v > 0) { if (v < 0x80000000) {
+        # mov eax, imm32 (5 bytes — zero-extends to rax)
+        EB(S, 0xB8);
+        EB(S, v & 0xFF); EB(S, (v >> 8) & 0xFF);
+        EB(S, (v >> 16) & 0xFF); EB(S, (v >> 24) & 0xFF);
+        return 0;
+    } }
     E2(S, 0xB848);
     E8(S, v);
     return 0;
