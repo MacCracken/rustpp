@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.2] — 2026-04-07
+
+### Changed — Codegen (Performance)
+- **Reverted R12 register spill**: The push rbx + push r12 in every function prologue
+  added 7 bytes and 4 stack ops per function call. Benchmarks showed 19-125% regressions
+  vs 1.9.0 on heap allocations, syscalls, and I/O. Reverted to push/pop for all expression
+  temps. ESPILL/EUNSPILL are now aliases for push rax / pop rax.
+  - Prologue: `push rbp; mov rbp, rsp` (original, 4 bytes)
+  - Epilogue: `leave; ret` (original, 2 bytes)
+  - ETAILJMP: `mov rsp, rbp; pop rbp; jmp` (original)
+  - Stack param offset: +16 (original)
+  - Binary size: 205KB → 194KB (-11KB, -5.4%)
+
 ## [1.11.1] — 2026-04-07
 
 ### Fixed — Compiler
