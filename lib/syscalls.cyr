@@ -495,5 +495,7 @@ enum InotifyEvent {
 
 # SYS_INOTIFY_INIT1 = 294, SYS_INOTIFY_ADD_WATCH = 254, SYS_INOTIFY_RM_WATCH = 255
 fn sys_inotify_init() { return syscall(294, 0); }
+# Add a watch on a path for inotify events
 fn sys_inotify_add_watch(fd, path, mask) { return syscall(254, fd, path, mask); }
+# Remove an inotify watch
 fn sys_inotify_rm_watch(fd, wd) { return syscall(255, fd, wd); }

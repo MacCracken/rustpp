@@ -292,25 +292,34 @@ fn _sk_emit_span(action_level, action_str, action_len, name, name_len, elapsed_n
 # Error API
 # ================================================================
 
+# Create a packed error (code + category)
 fn sakshi_err_new(code, category) {
     return ((category & 0xFFFF) << 16) | (code & 0xFFFF);
 }
 
+# Create a packed error with context
 fn sakshi_err_with_ctx(code, category, context) {
     return ((context & 0xFFFFFFFF) << 32) | ((category & 0xFFFF) << 16) | (code & 0xFFFF);
 }
 
+# Extract error code from packed error
 fn sakshi_err_code(err) { return err & 0xFFFF; }
+# Extract category from packed error
 fn sakshi_err_category(err) { return (err >> 16) & 0xFFFF; }
+# Extract context from packed error
 fn sakshi_err_context(err) { return (err >> 32) & 0xFFFFFFFF; }
+# Check if value is an error (non-zero)
 fn sakshi_is_err(err) { if (err != 0) { return 1; } return 0; }
+# Check if value is OK (zero)
 fn sakshi_is_ok(err) { if (err == 0) { return 1; } return 0; }
 
 # ================================================================
 # Trace API
 # ================================================================
 
+# Set minimum log level for output
 fn sakshi_set_level(level) { _sk_log_level = level; return 0; }
+# Get current minimum log level
 fn sakshi_get_level() { return _sk_log_level; }
 
 fn _sk_log(level, msg, msg_len) {
@@ -319,16 +328,22 @@ fn _sk_log(level, msg, msg_len) {
     return 0;
 }
 
+# Log an error message
 fn sakshi_error(msg, msg_len) { _sk_log(SK_ERROR, msg, msg_len); return 0; }
+# Log a warning message
 fn sakshi_warn(msg, msg_len)  { _sk_log(SK_WARN, msg, msg_len); return 0; }
+# Log an info message
 fn sakshi_info(msg, msg_len)  { _sk_log(SK_INFO, msg, msg_len); return 0; }
+# Log a debug message
 fn sakshi_debug(msg, msg_len) { _sk_log(SK_DEBUG, msg, msg_len); return 0; }
+# Log a trace message
 fn sakshi_trace(msg, msg_len) { _sk_log(SK_TRACE, msg, msg_len); return 0; }
 
 # ================================================================
 # Span API
 # ================================================================
 
+# Enter a named span (push onto span stack with timestamp)
 fn sakshi_span_enter(name, name_len) {
     if (_sk_span_depth >= _SK_MAX_SPANS) { return 0; }
     var offset = _sk_span_depth * 24;
@@ -340,6 +355,7 @@ fn sakshi_span_enter(name, name_len) {
     return 0;
 }
 
+# Exit current span (pop, compute elapsed, emit)
 fn sakshi_span_exit() {
     if (_sk_span_depth <= 0) { return 0; }
     _sk_span_depth = _sk_span_depth - 1;
@@ -352,6 +368,7 @@ fn sakshi_span_exit() {
     return elapsed;
 }
 
+# Get current span nesting depth
 fn sakshi_span_depth() { return _sk_span_depth; }
 
 # sakshi_err_at_span defined after span API (needs sakshi_span_depth)
@@ -363,14 +380,18 @@ fn sakshi_err_at_span(code, category) {
 # Output API
 # ================================================================
 
+# Set output target (stderr, file, buffer, UDP)
 fn sakshi_set_output(target) { _sk_output_target = target; return 0; }
 
+# Set output target (stderr, file, buffer, UDP)
+# Set the stderr file descriptor directly
 fn sakshi_set_output_fd(fd) {
     _sk_stderr_fd = fd;
     _sk_output_target = SK_OUT_STDERR;
     return 0;
 }
 
+# Open a file for log output
 fn sakshi_output_file(path) {
     var fd = syscall(2, path, 1089, 0x1A4);
     if (fd < 0) { return fd; }
@@ -379,14 +400,17 @@ fn sakshi_output_file(path) {
     return fd;
 }
 
+# Close the log output file
 fn sakshi_output_file_close() {
     if (_sk_file_fd >= 0) { syscall(3, _sk_file_fd); _sk_file_fd = 0 - 1; }
     _sk_output_target = SK_OUT_STDERR;
     return 0;
 }
 
+# Switch to ring buffer output mode
 fn sakshi_output_buffer() { _sk_output_target = SK_OUT_BUFFER; return 0; }
 
+# Read raw bytes from ring buffer
 fn sakshi_ring_read_raw(dst, max_len) {
     var avail = _sk_ring_write;
     if (avail > 4096) { avail = 4096; }
@@ -400,10 +424,14 @@ fn sakshi_ring_read_raw(dst, max_len) {
     return avail;
 }
 
+# Get number of events in ring buffer
 fn sakshi_ring_event_count() { return _sk_ring_count; }
+# Get current ring buffer byte length
 fn sakshi_ring_len() { if (_sk_ring_write > 4096) { return 4096; } return _sk_ring_write; }
+# Clear the ring buffer
 fn sakshi_ring_clear() { _sk_ring_write = 0; _sk_ring_count = 0; return 0; }
 
+# Decode a binary ring event to text
 fn sakshi_ring_decode_event(buf, buf_len, dst, dst_cap, out_text_len) {
     if (buf_len < _SK_BIN_HDR) { store64(out_text_len, 0); return 0; }
     var ts = load64(buf);
@@ -435,6 +463,7 @@ fn sakshi_ring_decode_event(buf, buf_len, dst, dst_cap, out_text_len) {
     return event_size;
 }
 
+# Switch to UDP output (ip + port)
 fn sakshi_output_udp(ip, port) {
     var fd = syscall(41, 2, 2, 0);
     if (fd < 0) { return fd; }
@@ -448,12 +477,15 @@ fn sakshi_output_udp(ip, port) {
     return fd;
 }
 
+# Switch to UDP output (ip + port)
+# Close UDP output socket
 fn sakshi_output_udp_close() {
     if (_sk_udp_fd >= 0) { syscall(3, _sk_udp_fd); _sk_udp_fd = 0 - 1; }
     _sk_output_target = SK_OUT_STDERR;
     return 0;
 }
 
+# Build IPv4 address from 4 octets
 fn sakshi_ipv4(a, b, c, d) {
     return a | (b << 8) | (c << 16) | (d << 24);
 }
