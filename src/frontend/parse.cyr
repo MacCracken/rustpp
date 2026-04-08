@@ -2181,7 +2181,7 @@ fn PARSE_FNCALL(S, noff) {
     # Check for inline candidate
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
-    if (GFINL(S, fi) == 1) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
+    if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
         # INLINE PATH: replay function body tokens at call site
         var pc = L64(S + 0x2B6000 + fi * 8);
         var saved_flc = GFLC(S);
@@ -2205,11 +2205,9 @@ fn PARSE_FNCALL(S, noff) {
         STI(S, GTI(S) + 1);
         # Set local count past the param slots
         SFLC(S, saved_flc + pc);
-        # Register callee param names as temporary locals
-        var pn0 = L64(S + 0x2CE000 + fi * 16);
-        var pn1 = L64(S + 0x2CE000 + fi * 16 + 8);
+        # Register callee param name as temporary local (stored in fn_inline)
+        var pn0 = GFINL(S, fi);
         if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, pn0); SLDEP(S, p0_slot, GSDEP(S)); }
-        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, pn1); SLDEP(S, p1_slot, GSDEP(S)); }
         # Save state and replay body tokens
         var saved_ti = GTI(S);
         var saved_rpc = GRPC(S);
@@ -2229,7 +2227,6 @@ fn PARSE_FNCALL(S, noff) {
         STI(S, saved_ti);
         # Invalidate temporary param locals
         if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, 0 - 1); }
-        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, 0 - 1); }
         return 0;
     } } }
     # NORMAL CALL PATH
@@ -2376,9 +2373,7 @@ fn PARSE_FN_DEF(S) {
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
     S64(S + 0x2B6000 + fi * 8, pc);
-    # Record param name offsets for inlining (up to 2 params)
-    if (pc >= 1) { S64(S + 0x2CE000 + fi * 16, L64(S + 0x91000)); }
-    if (pc >= 2) { S64(S + 0x2CE000 + fi * 16 + 8, L64(S + 0x91008)); }
+    # Record first param name offset for inlining (stored in fn_inline later)
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {
         var spi = 6;
@@ -2411,7 +2406,11 @@ fn PARSE_FN_DEF(S) {
             sci = sci + 1;
         }
     }
-    SFINL(S, fi, can_inline);
+    # Store param name offset (nonzero = inlineable, 0 = not)
+    if (can_inline == 1) {
+        if (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
+        elif (pc == 0) { SFINL(S, fi, 1); }
+    } else { SFINL(S, fi, 0); }
     STI(S, GTI(S) + 1);
     # Patch all return jumps to here
     var rpc = GRPC(S);
