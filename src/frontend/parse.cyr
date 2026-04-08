@@ -1873,9 +1873,11 @@ fn PARSE_FOR(S) {
                 # Loop: while (idx < len)
                 var fislt = L64(S + 0x8F838);
                 var fisbk = L64(S + 0x8F840);
+                var fiscfw = L64(S + 0x8F850);
                 var fitop = GCP(S);
                 S64(S + 0x8F838, fitop);
                 S64(S + 0x8F840, 0);
+                S64(S + 0x8F850, 1);
                 EFLLOAD(S, fili);
                 EPUSHR(S);
                 EVLOAD(S, filen);
@@ -1908,6 +1910,10 @@ fn PARSE_FOR(S) {
                 PARSE_PROG(S);
                 SCOPE_POP(S);
                 if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
+                # Patch continue to here (before step)
+                var ficfwp = L64(S + 0x8F850);
+                if (ficfwp > 1) { EPATCH(S, ficfwp); }
+                S64(S + 0x8F850, 0);
                 # Step: idx = idx + 1
                 EFLLOAD(S, fili);
                 EPUSHR(S);
@@ -1923,6 +1929,7 @@ fn PARSE_FOR(S) {
                 if (fibrk > 0) { EPATCH(S, fibrk); }
                 S64(S + 0x8F838, fislt);
                 S64(S + 0x8F840, fisbk);
+                S64(S + 0x8F850, fiscfw);
                 SCOPE_POP(S);
                 SLVAR(S, slv);
                 return 0;
@@ -1945,9 +1952,11 @@ fn PARSE_FOR(S) {
             # Loop setup
             var fislt = L64(S + 0x8F838);
             var fisbk = L64(S + 0x8F840);
+            var fiscfw = L64(S + 0x8F850);
             var fitop = GCP(S);
             S64(S + 0x8F838, fitop);
             S64(S + 0x8F840, 0);
+            S64(S + 0x8F850, 1);
             # Condition: var < end
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -1962,6 +1971,10 @@ fn PARSE_FOR(S) {
             PARSE_PROG(S);
             SCOPE_POP(S);
             if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
+            # Patch continue to here (before step)
+            var ficfwp = L64(S + 0x8F850);
+            if (ficfwp > 1) { EPATCH(S, ficfwp); }
+            S64(S + 0x8F850, 0);
             # Step: var = var + 1
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -1977,6 +1990,7 @@ fn PARSE_FOR(S) {
             if (fibrk > 0) { EPATCH(S, fibrk); }
             S64(S + 0x8F838, fislt);
             S64(S + 0x8F840, fisbk);
+            S64(S + 0x8F850, fiscfw);
             SCOPE_POP(S);
             SLVAR(S, slv);
             return 0;
@@ -1988,9 +2002,11 @@ fn PARSE_FOR(S) {
     PARSE_STMT(S);
     var slt = L64(S + 0x8F838);
     var sbk = L64(S + 0x8F840);
+    var scfw = L64(S + 0x8F850);
     var ltop = GCP(S);
     S64(S + 0x8F838, ltop);
     S64(S + 0x8F840, 0);
+    S64(S + 0x8F850, 1);
     var cpat = ECOND(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
@@ -2012,6 +2028,10 @@ fn PARSE_FOR(S) {
     PARSE_PROG(S);
     if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
     STI(S, GTI(S) + 1);
+    # Patch continue forward jump to here (step expression)
+    var cfwp = L64(S + 0x8F850);
+    if (cfwp > 1) { EPATCH(S, cfwp); }
+    S64(S + 0x8F850, 0);
     # Emit step: replay as assignment (IDENT = EXPR) without semicolon
     var sti = GTI(S);
     STI(S, sst);
@@ -2036,6 +2056,7 @@ fn PARSE_FOR(S) {
     SCOPE_POP(S);
     S64(S + 0x8F838, slt);
     S64(S + 0x8F840, sbk);
+    S64(S + 0x8F850, scfw);
     SLVAR(S, slv);
     return 0;
 }
@@ -2723,12 +2744,19 @@ fn PARSE_STMT(S) {
         S64(S + 0x8F840, EJMP0(S));
         return 0;
     }
-    # continue; — jump to loop top
+    # continue; — jump to loop top (or step for C-style for)
     if (typ == 52) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        EJMP(S, L64(S + 0x8F838));
+        var cfw = L64(S + 0x8F850);
+        if (cfw != 0) {
+            # For-loop: forward patch to step expression
+            S64(S + 0x8F850, EJMP0(S));
+        } else {
+            # While/for-in: direct jump to loop top
+            EJMP(S, L64(S + 0x8F838));
+        }
         return 0;
     }
     # asm { ... } — raw bytes or mnemonic instructions

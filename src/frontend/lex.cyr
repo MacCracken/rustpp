@@ -287,8 +287,8 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     var cp = struct_start;
     var in_struct = 1;
     # Parse fields while copying
-    var field_names[256];
-    var field_types[256];
+    var field_names[512];
+    var field_types[512];
     var field_count = 0;
     var past_brace = 0;
     while (cp < bl) {
@@ -314,13 +314,13 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
                     while (fp < bl) {
                         var fc = load8(S + fp);
                         if (fc == 59 || fc == 58 || fc == 125 || fc == 32 || fc == 10) { break; }
-                        store8(&field_names + field_count * 16 + fni, fc);
+                        store8(&field_names + field_count * 32 + fni, fc);
                         fni = fni + 1;
                         fp = fp + 1;
                     }
-                    store8(&field_names + field_count * 16 + fni, 0);
+                    store8(&field_names + field_count * 32 + fni, 0);
                     # Check for type annotation ": TypeName"
-                    store8(&field_types + field_count * 16, 0);
+                    store8(&field_types + field_count * 32, 0);
                     if (load8(S + fp) == 58) {
                         fp = fp + 1;
                         while (fp < bl && load8(S + fp) == 32) { fp = fp + 1; }
@@ -328,11 +328,11 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
                         while (fp < bl) {
                             var tc = load8(S + fp);
                             if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; }
-                            store8(&field_types + field_count * 16 + tni, tc);
+                            store8(&field_types + field_count * 32 + tni, tc);
                             tni = tni + 1;
                             fp = fp + 1;
                         }
-                        store8(&field_types + field_count * 16 + tni, 0);
+                        store8(&field_types + field_count * 32 + tni, 0);
                     }
                     field_count = field_count + 1;
                 }
@@ -353,7 +353,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     var fi = 0;
     while (fi < field_count) {
         store64(&field_offsets + fi * 8, cumul_off);
-        if (load8(&field_types + fi * 16) != 0) {
+        if (load8(&field_types + fi * 32) != 0) {
             # Typed field — look up size in derive table
             var fsz = 8;
             var di = 0;
@@ -362,7 +362,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
                 var eq = 1;
                 var ci = 0;
                 while (eq == 1) {
-                    var a = load8(&field_types + fi * 16 + ci);
+                    var a = load8(&field_types + fi * 32 + ci);
                     var b = load8(S + 0x97108 + di * 32 + ci);
                     if (a != b) { eq = 0; }
                     if (a == 0) { break; }
@@ -404,14 +404,14 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         # Escaped field name: \"fieldname\":
         store8(out + op, 92); op = op + 1;
         store8(out + op, 34); op = op + 1;
-        op = op + PP_EMIT_STR(out, op, &field_names + fi * 16);
+        op = op + PP_EMIT_STR(out, op, &field_names + fi * 32);
         store8(out + op, 92); op = op + 1;
         store8(out + op, 34); op = op + 1;
         store8(out + op, 58); op = op + 1;
         op = op + PP_EMIT_STR(out, op, "\");\n");
-        if (load8(&field_types + fi * 16) != 0) {
+        if (load8(&field_types + fi * 32) != 0) {
             # Typed field: call FieldType_to_json(ptr + offset, sb);
-            op = op + PP_EMIT_STR(out, op, &field_types + fi * 16);
+            op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
             op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
             op = op + PP_EMIT_STR(out, op, ", sb);\n");
@@ -436,11 +436,11 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     fi = 0;
     while (fi < field_count) {
         op = op + PP_EMIT_STR(out, op, "v = json_get(pairs, str_from(\"");
-        op = op + PP_EMIT_STR(out, op, &field_names + fi * 16);
+        op = op + PP_EMIT_STR(out, op, &field_names + fi * 32);
         op = op + PP_EMIT_STR(out, op, "\"));\n");
-        if (load8(&field_types + fi * 16) != 0) {
+        if (load8(&field_types + fi * 32) != 0) {
             op = op + PP_EMIT_STR(out, op, "if (v != 0) {\nvar np = ");
-            op = op + PP_EMIT_STR(out, op, &field_types + fi * 16);
+            op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
             op = op + PP_EMIT_STR(out, op, "_from_json(json_parse(v));\nmemcpy(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
             op = op + PP_EMIT_STR(out, op, ", np, ");
@@ -451,7 +451,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
                 var eq = 1;
                 var ci = 0;
                 while (eq == 1) {
-                    var a = load8(&field_types + fi * 16 + ci);
+                    var a = load8(&field_types + fi * 32 + ci);
                     var b = load8(S + 0x97108 + di * 32 + ci);
                     if (a != b) { eq = 0; }
                     if (a == 0) { break; }

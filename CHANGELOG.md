@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-04-07
+
+### Fixed — Compiler
+- **Bug #11: `continue` in for-loops** (P1): `continue` inside C-style `for`, `for-in`
+  range, and `for-in` collection loops now correctly jumps to the step/increment expression
+  instead of the condition check. Uses forward-patch mechanism at S+0x8F850 — `continue`
+  emits a placeholder jump, patched to the step code after the body is compiled.
+- **Bug #8: `#derive(Serialize)` field name truncation** (P2): Field name buffer expanded
+  from 16 to 32 bytes per field. Fields up to 31 characters now work correctly.
+
 ## [1.10.1] — 2026-04-07
 
 ### Added — Standard Library

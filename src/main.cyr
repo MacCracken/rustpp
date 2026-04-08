@@ -140,6 +140,8 @@ S64(S + 0x8FCC0, 0);
 S64(S + 0x903D8, 0);
 # Inline depth
 S64(S + 0x903E8, 0);
+# Continue forward patch (for-loop) — NOT 0x8F848 (used by &&/|| patches)
+S64(S + 0x8F850, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);
