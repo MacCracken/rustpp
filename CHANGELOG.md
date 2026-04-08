@@ -52,6 +52,11 @@ Development branch. Features land incrementally. Release after audit + feedback.
   Full implementation target: v2.1.
 - **Multi-file compilation design**: vidya entry with ELF .o emission plan, fixup→relocation
   mapping, symbol table design, minimal linker architecture. Implementation target: v2.0.
+- **u128 type annotation**: `var x: u128 = 0;` parsed with type_id 16, var_sizes 16.
+  `sizeof(u128)` returns 16. Token 105. Arithmetic TBD.
+- **sizeof lexer fix**: Moved sizeof from keyword (token 100) to identifier-based detection
+  in PARSE_FACTOR. The klen=6 lexer keyword block had a code size issue that silently
+  dropped sizeof recognition. Identifier approach is more robust.
 
 ## [1.12.1] — 2026-04-07
 

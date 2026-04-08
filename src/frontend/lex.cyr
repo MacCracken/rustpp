@@ -1098,11 +1098,13 @@ fn LEXNUM(S, p) {
 # Extended keyword check (klen >= 4). Returns token or 0.
 fn LEXKW_EXT(kw, klen, S, ws) {
     # ret2/rethi/sizeof
-    if (klen == 4) { if (kw & 0xFFFFFFFF == 0x32746572) { return 97; } }
+    if (klen == 4) {
+        if (kw & 0xFFFFFFFF == 0x32746572) { return 97; }
+        if (kw & 0xFFFFFFFF == 0x38323175) { return 105; }
+    }
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6968746572) { return 98; } }
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6E6F696E75) { return 101; } }
     if (klen == 6) {
-        if (kw & 0xFFFFFFFFFFFF == 0x666F657A6973) { return 100; }
         if (kw & 0xFFFFFFFFFFFF == 0x746567746962) { return 102; }
         if (kw & 0xFFFFFFFFFFFF == 0x746573746962) { return 103; }
         if (kw & 0xFFFFFFFFFFFF == 0x726C63746962) { return 104; }
