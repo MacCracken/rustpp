@@ -18,7 +18,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 |---|-------|----------|--------|
 | 14 | ~~Compiler segfault on ~6000+ line programs~~ | ~~P1~~ | **Fixed v1.11.4** |
 | 15 | ~~`#derive(Serialize)` + `#derive(Deserialize)` duplicate variable~~ | ~~P2~~ | **Fixed v1.11.1** |
-| 16 | Adding `include` shifts global addresses, breaks existing assertions | P3 | Enum-heavy includes shift data section layout. Needs repro case from majra port. |
+| 16 | ~~`var buf[N]` shared across functions~~ | ~~P3~~ | **Fixed v2.1.0** — FINDVAR returns last match. Each function's array shadows previous. |
 | 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** |
 
 | 18 | ~~bridge.cyr stale heap map~~ | ~~P4~~ | **Fixed v2.1.0** — heap map rewritten to match actual code (tok_types at 0xA2000, tok_values at 0xE2000). |
@@ -26,9 +26,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 20 | ~~bridge.cyr dead code (EMOVC)~~ | ~~P5~~ | **Fixed v2.1.0** — removed. |
 | 21 | ~~bitset/bitclr crash at top level~~ | ~~P4~~ | **Fixed v2.1.0** — clear error message instead of SIGSEGV. |
 
-| 22 | `fmt_int` / `_sk_fmt_line` stack clobber — garbled output in certain call sequences | P2 | fmt_int's internal syscall clobbers state needed by subsequent writes. "me5ory" instead of "memory". Blocks sakshi deferred formatting. Same root cause as Bug #16 garbled assertions. |
+| 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
-**Open bugs:** #16 (P3), #22 (P2). #22 blocks sakshi deferred formatting.
+**Open bugs:** None critical. #19 (P3) fixed. Sakshi deferred formatting unblocked.
 
 ---
 

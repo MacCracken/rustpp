@@ -336,14 +336,15 @@ fn STREQ(S, a, b) {
     return 1;
 }
 
-# Find variable by name offset, return index or -1
+# Find variable by name offset, return LAST match index or -1.
+# Last-match semantics ensure each function's `var buf[N]` shadows earlier ones.
 fn FINDVAR(S, noff) {
     var vcnt = GVCNT(S);
-    var vi = 0;
-    while (vi < vcnt) {
+    var vi = vcnt - 1;
+    while (vi >= 0) {
         var stored = L64(S + 0x316000 + vi * 8);
         if (STREQ(S, stored, noff) == 1) { return vi; }
-        vi = vi + 1;
+        vi = vi - 1;
     }
     return 0 - 1;
 }
@@ -1309,6 +1310,10 @@ fn PARSE_ARRAY(S, noff) {
     STI(S, GTI(S) + 1);  # consume ]
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);  # consume ;
+    # Arrays inside functions are globals. To avoid name collisions between
+    # functions (e.g. two functions both with `var buf[N]`), always register
+    # a NEW global even if one with the same name exists. FINDVAR returns
+    # the last match, so the current function's array shadows previous ones.
     var vcnt = GVCNT(S);
     S64(S + 0x316000 + vcnt * 8, noff);
     var aligned = (asz + 7) & (0 - 8);

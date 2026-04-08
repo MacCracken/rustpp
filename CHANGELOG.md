@@ -25,6 +25,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   elimination based on config values. Unblocks sakshi log level gating:
   `#if sk_cfg_log_level >= 3` compiles out debug/trace calls entirely.
 - **`#define NAME VALUE`**: Now stores integer values alongside presence flags.
+- **Bug #16/#22: `var buf[N]` shared across functions**: Root cause found and fixed.
+  `var buf[N]` inside functions registered as globals with the raw name — two functions
+  with `var buf[N]` shared the same buffer, clobbering each other's data. This caused
+  garbled output when `fmt_int` (which has `var buf[24]`) was called between other
+  functions that also had `var buf[N]`. Fix: FINDVAR now returns the LAST match
+  (reverse scan), so each function's array shadows previous ones. Three-step bootstrap
+  required (semantic change to variable resolution).
 - **Bug #19: aarch64 module/DCE gap**: main_aarch64.cyr pass 1 and pass 2 synced
   with main.cyr. Now supports mod/pub/use, impl blocks, unions, enum constructors,
   shared library mode. Module system init + reset added. aarch64 cross-compiler
