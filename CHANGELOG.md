@@ -12,7 +12,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   metadata/key/value arrays. Currently slower than scalar for small maps (function call
   overhead), optimal for large tables with long probe chains.
 
-### Focus: cyrius-x bytecode emitter + #ref perfect hash
+### Known Issues
+- **Bug #24: `#ref` directive broken** — emitted var declarations cause parse errors.
+  Pre-existing (never tested in .tcyr suite). Blocks #ref_fn perfect hash feature.
+
+### Focus: cyrius-x bytecode emitter
 
 ## [2.1.0] — 2026-04-08
 

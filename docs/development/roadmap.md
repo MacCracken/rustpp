@@ -28,9 +28,10 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
-| 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Likely allocator exhaustion or vec corruption in audit_log_by_source. Not a compiler bug — runtime issue in argonaut test logic. |
+| 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
+| 24 | `#ref` directive broken — emitted `var` declarations cause parse errors | P2 | `#ref "file.toml"` emits `var x = 42;` but parsing fails with "unexpected ';'". Likely pre-existing (never tested in .tcyr suite). Blocks #ref perfect hash. |
 
-**Open bugs:** #23 (P4, argonaut-side). All compiler bugs fixed.
+**Open bugs:** #23 (P4, argonaut-side), #24 (P2, blocks #ref_fn). All other compiler bugs fixed.
 
 ---
 
