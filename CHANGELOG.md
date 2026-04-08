@@ -22,6 +22,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `MmapConst` enum: PROT_READ, PROT_WRITE, MAP_PRIVATE, MAP_ANONYMOUS
 - `FutexOp` enum: FUTEX_WAIT, FUTEX_WAKE, FUTEX_PRIVATE_FLAG
 
+### Added — Standard Library (continued)
+- **`lib/async.cyr`**: Cooperative async runtime with epoll event loop.
+  - `async_new()` / `async_spawn(rt, fp, arg)` / `async_run(rt)` — task scheduler
+  - `async_sleep_ms(ms)` — timerfd-based sleep
+  - `async_read(fd, buf, len)` — non-blocking read via O_NONBLOCK
+  - `async_await_readable(fd)` — epoll wait for fd readability
+  - `async_timeout(fp, arg, ms)` — run function with timeout via fork+epoll
+
 ### Fixed — Standard Library
 - **Bug #9: `getenv()` returns wrong values** (`lib/io.cyr`): Variables `eq` and `ci`
   declared inside while loop leaked scope across iterations, causing false matches.

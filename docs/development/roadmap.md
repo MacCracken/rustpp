@@ -37,11 +37,16 @@ ai-hwaccel port — **unblocked** (v1.10.1): getenv fix (#9), exec_capture fix (
 
 ---
 
-## v1.10.x — Remaining
+## v1.10.x — Completed
 
-| # | Feature | Effort | Area |
-|---|---------|--------|------|
-| 1 | Async/await | High | Concurrency — event loop + task scheduler on top of thread.cyr primitives |
+All v1.10 items shipped:
+- Inline small functions (v1.10.0)
+- Return-by-value ret2/rethi (v1.10.0)
+- Register allocation R12 spill (v1.10.0)
+- `#ref` TOML Phase 1 (v1.10.0)
+- Threads, mutex, channels (v1.10.1)
+- Async runtime: spawn, sleep, timeout, epoll (v1.10.1)
+- Bug fixes #9 getenv, #10 exec_capture (v1.10.1)
 
 ---
 
