@@ -178,22 +178,12 @@ rm -rf "$TMPDIR"
 
 echo "$VERSION" > "$CYRIUS_HOME/current"
 
-# ── Create symlinks ──
+# ── Create symlinks (directory-level, version-agnostic) ──
 
-info "linking binaries..."
-ALL_BINS="cc2 cc2_aarch64 cc2-native-aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
-for bin in $ALL_BINS; do
-    src="$CYRIUS_HOME/versions/$VERSION/bin/$bin"
-    dst="$CYRIUS_HOME/bin/$bin"
-    if [ -x "$src" ] || [ -f "$src" ]; then
-        ln -sf "$src" "$dst"
-    fi
-done
-
-# Convenience alias: cyrb-init (without .sh)
-if [ -x "$CYRIUS_HOME/bin/cyrb-init.sh" ]; then
-    ln -sf "$CYRIUS_HOME/bin/cyrb-init.sh" "$CYRIUS_HOME/bin/cyrb-init"
-fi
+info "linking directories..."
+rm -f "$CYRIUS_HOME/bin" "$CYRIUS_HOME/lib"
+ln -sf "$CYRIUS_HOME/versions/$VERSION/bin" "$CYRIUS_HOME/bin"
+ln -sf "$CYRIUS_HOME/versions/$VERSION/lib" "$CYRIUS_HOME/lib"
 
 # ── Install version manager ──
 
@@ -207,14 +197,9 @@ current() { cat "$CYRIUS_HOME/current" 2>/dev/null || echo "none"; }
 
 link_version() {
     local ver="$1"
-    local bins="cc2 cc2_aarch64 cc2-native-aarch64 cyrb cyrfmt cyrlint cyrdoc cyrc ark asm cyrb-init.sh"
-    for bin in $bins; do
-        local src="$CYRIUS_HOME/versions/$ver/bin/$bin"
-        local dst="$CYRIUS_HOME/bin/$bin"
-        if [ -x "$src" ] || [ -f "$src" ]; then
-            ln -sf "$src" "$dst"
-        fi
-    done
+    rm -f "$CYRIUS_HOME/bin" "$CYRIUS_HOME/lib"
+    ln -sf "$CYRIUS_HOME/versions/$ver/bin" "$CYRIUS_HOME/bin"
+    ln -sf "$CYRIUS_HOME/versions/$ver/lib" "$CYRIUS_HOME/lib"
 }
 
 case "${1:-help}" in

@@ -4,7 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.2] — Unreleased
+## [2.1.3] — 2026-04-08
+
+### Fixed
+- **Heap map duplicate entries**: Removed stale scattered detail sections that caused
+  heapmap.sh to report false overlaps (6 false positives on CI).
+
+### Changed
+- **Install symlinks**: `~/.cyrius/bin` and `~/.cyrius/lib` are now directory-level
+  symlinks pointing to the active version, not per-file symlinks. `cyrius use <version>`
+  swaps both atomically. Simpler, no file list maintenance.
+- **Heap consolidation**: Compacted heap layout, 6.8MB → 4.7MB (2MB saved).
+  132 offset references relocated. Clean heap map rewritten from scratch.
+
+## [2.1.2] — 2026-04-08
 
 ### Fixed
 - **Bug #25: Include path fallback**: `include "lib/..."` now falls back to
