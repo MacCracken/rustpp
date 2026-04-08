@@ -153,7 +153,7 @@ fn RECFIX(S, idx) {
         syscall(SYS_WRITE, 2, "/8192)\n", 7);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0x2A2000 + fc * 16;
+    var addr = S + 0xA0000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -213,7 +213,7 @@ fn ESADDR(S, soff) {
         syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x2A2000 + fc * 16;
+    var faddr = S + 0xA0000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -335,7 +335,7 @@ fn ECALLFIX(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x2A2000 + fc * 16;
+    var faddr = S + 0xA0000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -420,8 +420,8 @@ fn EPATCHFRAME(S, patch, size) {
 }
 
 # === Token access (arch-independent, same as x86) ===
-fn TOKTYP(S, i) { return L64(S + 0x346000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0x446000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x13E000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x23E000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
@@ -464,7 +464,7 @@ fn ETAILJMP(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x2A2000 + fc * 16;
+    var faddr = S + 0xA0000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (4 << 56) | fnidx);
     SFCNT(S, fc + 1);

@@ -14,7 +14,7 @@ include "src/frontend/parse.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x6C6000);
+syscall(SYS_BRK, S + 0x4BE000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -186,9 +186,9 @@ while (scan == 1) {
 SMOD(S, 0);
 
 # DCE pre-scan: build referenced-name bitmap in one pass over tokens.
-# Uses output_buf (S+0x2D6000, 8KB) as scratch — safe because EMITELF runs later.
+# Uses output_buf (S+0xCE000, 8KB) as scratch — safe because EMITELF runs later.
 # Bitmap: bit N set means tok_names offset N is referenced as non-FN identifier.
-var dce_bm = S + 0x2D6000;
+var dce_bm = S + 0xCE000;
 var dce_zi = 0;
 while (dce_zi < 8192) { store8(dce_bm + dce_zi, 0); dce_zi = dce_zi + 1; }
 var dce_ti = 0;
@@ -281,7 +281,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0x2C4000 + stub_fi * 8, GCP(S));
+            S64(S + 0xC2000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -329,9 +329,9 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0x2C4000 + wfi * 8) < 0) {
+    if (L64(S + 0xC2000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0x2C2000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0xC0000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;

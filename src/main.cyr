@@ -7,68 +7,81 @@
 # Build: cat cc2.cyr | ./build/cc > cc2
 # Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
 # ================================================================
-# HEAP MAP — Authoritative offset registry (v1.7.3)
+# HEAP MAP — Authoritative offset registry (v2.1.2)
 # ================================================================
 # Check here FIRST before allocating new state.
+# Regions marked (nested) are intentionally inside larger buffers.
 #
-#   0x00000  input_buf     [131072]      Raw stdin input
-#   0x20000  codebuf       [262144]      Generated machine code
-#   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable, dedup keeps <16KB)
-#   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
-#   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
-#   0x2B8000  (available — var_noffs relocated to 0x316000)
-#   0x2C0000  (available — var_sizes relocated to 0x326000)
-#   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
-#   0x69800  str_pos       [8]           String position (nested in str_data tail)
-#   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
-#   0x6A000  (available — output_buf relocated to 0x2D6000)
-#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
-#   0x8DA00  fn_count, in_fn, local_cnt  Function state
+# --- Low heap: I/O buffers + compiler state ---
+#   0x00000  input_buf     [131072]      128KB raw stdin input
+#   0x20000  codebuf       [262144]      256KB generated machine code
+#   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
+#   0x60000  tok_names     [32768]       32KB packed identifier strings
+#   0x68000  str_data      [8192]        (nested in tok_names upper half)
+#   0x69800  str_pos       [8]           (nested) string write position
+#   0x69808  data_size     [8]           (nested) total variable data bytes
+#
+# --- Struct tables ---
+#   0x8A000  struct_ftypes [8192]        32×32 field type IDs (stride 256)
+#   0x8E630  struct_names  [256]         32 struct name offsets
+#   0x8E730  struct_fcounts[256]         32 struct field counts (bit 63 = union)
+#   0x8F830  struct_count  [8]
+#
+# --- Compiler state (scalars) ---
+#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    6 × 8 bytes
+#   0x8DA00  fn_count, in_fn, local_cnt
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
-#   0x8DC30  (available — fn_local_names relocated to 0x91000)
-#   0x8DE30  (available — var_types relocated to 0x336000)
-#   0x8E630  struct tables               names, fcounts, fnames (to 0x8F830)
-#   0x8F838  loop_top, break_patch       Loop state
-#   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
-#   0x8F8A0  continue_count [8]         For-loop continue forward-patch count
-#   0x8F8A8  continue_patches [64]      8 continue forward-patch offsets (to 0x8F8E8)
-#   0x8F890  ptr_scale, local_types      Expression type state
-#   0x8FA98  gvar_toks     [512]         64 deferred global var init indices
-#   0x8FCA8  fixup_cnt, last_var         Fixup counters
-#   0x8FCB8  cur_line      [8]           Current line number
-#   0x8FCC0  scope_depth, local_depths   Block scoping state
-#   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
-#   0x903E8  inline_depth  [8]           Inline nesting depth
-#   0x903F0  expr_width    [8]           Expression width tracking (narrowing warnings)
-#   0x90400  include_fname [256]         Preprocessor filename scratch (relocated from 0x90000)
-#   0x91000  fn_local_names              Function local variable names (relocated from 0x8DC30)
-#   0x91800  local_depths  [512]         64 scope depths per local var
+#   0x8DC20  ret_patch_cnt [8]
+#   0x8F838  loop_top      [8]
+#   0x8F840  break_patch   [8]
+#   0x8F848  extra_patches [64]          8 && condition patches
+#   0x8F888  extra_patch_cnt [8]
+#   0x8F890  ptr_scale     [8]
+#   0x8F8A0  continue_count [8]
+#   0x8F8A8  continue_patches [64]       8 continue forward-patches
+#   0x8FA98  gvar_toks     [512]         64 deferred global var inits
+#   0x8FC98  gvar_cnt      [8]
+#   0x8FCA0  kernel_mode   [8]
+#   0x8FCA8  fixup_cnt     [8]
+#   0x8FCB0  last_var      [8]
+#   0x8FCB8  cur_line      [8]
+#   0x8FCC0  scope_depth   [8]
+#   0x8FCC8  local_depths  [512]         64 scope depths per local
+#   0x8FEC8  current_module [8]
+#   0x8FED0  pub_flags     [256]
+#   0x8FFD0  use_from      [512]         64 use alias source names
+#   0x901D0  use_to        [512]         64 use alias target names
+#   0x903D0  use_count     [8]
+#   0x903D8  expr_stype    [8]
+#   0x903E0  expr_var      [8]
+#   0x903E8  inline_depth  [8]
+#   0x903F0  expr_width    [8]
+#
+# --- Preprocessor + local var state ---
+#   0x90400  include_fname [256]         preprocessor filename scratch
+#   0x91000  fn_local_names              local variable names
+#   0x91800  local_depths  [512]         scope depths per local
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
-#   0x92200  local_types                 Local variable type tracking
-#   0x346000  tok_types     [524288]      65536 token type slots
-#   0x446000 tok_values    [524288]      65536 token value slots
-#   0x546000 tok_lines     [524288]      65536 token line numbers
-#   0x646000 preprocess_out [524288]     512KB expanded source buffer
-#   0x2A2000 fixup_tbl     [131072]       8192 fixup entries (16 bytes each)
-#   0x2C2000 fn_names      [8192]        1024 function name offsets
-#   0x2C4000 fn_offsets    [8192]        1024 function code offsets
-#   0x2C6000 fn_params     [8192]        1024 function param counts
-#   0x2C8000 fn_body_start [8192]        1024 inline: token index after {
-#   0x2CA000 fn_body_end   [8192]        1024 inline: token index of }
-#   0x2CC000 fn_inline     [8192]        1024 inline: param_noff (nonzero=candidate)
-#   0x2CE000 struct_fnames [8192]        32*32 field name offsets (stride 256, relocated from 0x8E830)
-#   0x2D6000 output_buf   [262144]      ELF output buffer (256KB, also DCE bitmap scratch 8KB)
-#   0x316000 var_noffs    [65536]       8192 variable name offsets (relocated from 0x2B8000)
-#   0x326000 var_sizes    [65536]       8192 variable sizes (relocated from 0x2C0000)
-#   0x336000 var_types    [65536]       8192 variable type IDs (relocated from 0x8DE30)
-#   0x346000 brk
+#   0x92200  local_types                 local variable type tracking
 #
-# --- Kernel mode ---
-#   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
-#
-# --- Block scoping ---
-#   0x8FCC0  scope_depth    [8]           Current scope nesting depth
-#   0x8FCC8  local_depths   [512]         64 scope depths per local var
+# --- High heap: tables + buffers (consolidated v2.1.2) ---
+#   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
+#   0xC0000  fn_names      [8192]        1024 function name offsets
+#   0xC2000  fn_offsets    [8192]        1024 function code offsets
+#   0xC4000  fn_params     [8192]        1024 function param counts
+#   0xC6000  fn_body_start [8192]        1024 inline body start
+#   0xC8000  fn_body_end   [8192]        1024 inline body end
+#   0xCA000  fn_inline     [8192]        1024 inline flags
+#   0xCC000  struct_fnames [8192]        32×32 field name offsets (stride 256)
+#   0xCE000  output_buf    [262144]      256KB ELF output (+ DCE bitmap scratch)
+#   0x10E000 var_noffs     [65536]       8192 variable name offsets
+#   0x11E000 var_sizes     [65536]       8192 variable sizes
+#   0x12E000 var_types     [65536]       8192 variable type IDs
+#   0x13E000 tok_types     [1048576]     131072 token type slots
+#   0x23E000 tok_values    [1048576]     131072 token value slots
+#   0x33E000 tok_lines     [1048576]     131072 token line number slots
+#   0x43E000 preprocess_out[524288]      512KB expanded source buffer
+#   0x4BE000 brk                         4.7MB total
 #
 # --- Expression type tracking ---
 #   0x903D8  expr_stype     [8]          Struct type ID of last expression (0=untyped)
@@ -117,7 +130,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x6C6000);
+syscall(SYS_BRK, S + 0x4BE000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -293,9 +306,9 @@ while (scan == 1) {
 SMOD(S, 0);
 
 # DCE pre-scan: build referenced-name bitmap in one pass over tokens.
-# Uses output_buf (S+0x2D6000, 8KB) as scratch — safe because EMITELF runs later.
+# Uses output_buf (S+0xCE000, 8KB) as scratch — safe because EMITELF runs later.
 # Bitmap: bit N set means tok_names offset N is referenced as non-FN identifier.
-var dce_bm = S + 0x2D6000;
+var dce_bm = S + 0xCE000;
 var dce_zi = 0;
 while (dce_zi < 8192) { store8(dce_bm + dce_zi, 0); dce_zi = dce_zi + 1; }
 var dce_ti = 0;
@@ -388,7 +401,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0x2C4000 + stub_fi * 8, GCP(S));
+            S64(S + 0xC2000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -436,9 +449,9 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0x2C4000 + wfi * 8) < 0) {
+    if (L64(S + 0xC2000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0x2C2000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0xC0000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;
@@ -460,7 +473,7 @@ var olen = L64(S + 0x5C130);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x2D6000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0xCE000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

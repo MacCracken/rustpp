@@ -15,6 +15,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **hashmap_fast.cyr**: Added doc comments to fhm_cap, fhm_count, fhm_has.
   Fixes CI doc coverage check (3 undocumented → 0).
 
+### Changed — Compiler (Optimization)
+- **Heap consolidation**: Relocated fixup table, fn tables, output buffer, var tables,
+  token arrays, and preprocess buffer to compact layout starting at 0xA0000. Eliminated
+  1.9MB of dead space from previous relocations. Heap reduced from 6.8MB to 4.7MB
+  (2MB savings). 132 offset references updated across all source files.
+
 ## [2.1.1] — 2026-04-08
 
 ### Added — Standard Library
