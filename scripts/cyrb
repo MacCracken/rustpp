@@ -86,8 +86,8 @@ Usage: cyrb <command> [options]
 Build:
   build [--aarch64 [--native]] <src> <out>  compile a program
   run [--aarch64 [--native]] <source.cyr>  compile + run (no output file)
-  test [--aarch64 [--native]] <test.cyr>   compile + run, check exit 0
-  bench <bench.cyr>               compile + run benchmarks
+  test [--aarch64 [--native]] [test.cyr]   compile + run (no args: discover .tcyr)
+  bench [bench.cyr]               compile + run benchmarks (no args: discover .bcyr)
   check <source.cyr>              syntax check (compile without output)
   self                            self-hosting check (cc2==cc3)
   pulsar                          rebuild cc2 + tools from source, install, purge old versions
@@ -319,8 +319,42 @@ case "${1:-help}" in
             esac
         done
         if [ -z "$1" ]; then
-            echo "Usage: cyrb test [--aarch64] [-D NAME]... <test.cyr>"
-            exit 1
+            # No args: auto-discover .tcyr files in tests/ and src/
+            found=0
+            total_pass=0
+            total_fail=0
+            for tfile in tests/*.tcyr src/*.tcyr *.tcyr; do
+                [ -f "$tfile" ] || continue
+                found=1
+                name=$(basename "$tfile" .tcyr)
+                tmpbin="/tmp/cyrb_test_$$"
+                printf "  %-30s " "$name"
+                if compile "$tfile" "$tmpbin" "$arch" $defines 2>/dev/null; then
+                    run_binary "$tmpbin" "$arch" >/dev/null 2>&1
+                    ec=$?
+                    rm -f "$tmpbin"
+                    if [ "$ec" -eq 0 ]; then
+                        echo "PASS"
+                        total_pass=$((total_pass + 1))
+                    else
+                        echo "FAIL (exit $ec)"
+                        total_fail=$((total_fail + 1))
+                    fi
+                else
+                    echo "FAIL (compile)"
+                    total_fail=$((total_fail + 1))
+                    rm -f "$tmpbin"
+                fi
+            done
+            if [ "$found" -eq 0 ]; then
+                echo "No .tcyr files found in tests/, src/, or ."
+                echo "Usage: cyrb test [--aarch64] [-D NAME]... <test.cyr>"
+                exit 1
+            fi
+            echo ""
+            echo "$total_pass passed, $total_fail failed"
+            [ "$total_fail" -gt 0 ] && exit 1
+            exit 0
         fi
         tmpbin="/tmp/cyrb_test_$$"
         if compile "$1" "$tmpbin" "$arch" $defines; then
@@ -338,8 +372,27 @@ case "${1:-help}" in
     bench)
         shift
         if [ -z "$1" ]; then
-            # No args: run full bench suite with history tracking
-            exec "$REPO_ROOT/scripts/bench-history.sh"
+            # No args: auto-discover .bcyr files, fallback to bench-history.sh
+            bcyr_found=0
+            for bfile in benches/*.bcyr tests/*.bcyr *.bcyr; do
+                [ -f "$bfile" ] || continue
+                bcyr_found=1
+                name=$(basename "$bfile" .bcyr)
+                echo "=== $name ==="
+                tmpbin="/tmp/cyrb_bench_$$"
+                if compile "$bfile" "$tmpbin" 2>/dev/null; then
+                    "$tmpbin"
+                    rm -f "$tmpbin"
+                else
+                    echo "FAIL: compile error" >&2
+                    rm -f "$tmpbin"
+                fi
+                echo ""
+            done
+            if [ "$bcyr_found" -eq 0 ]; then
+                exec "$REPO_ROOT/scripts/bench-history.sh"
+            fi
+            exit 0
         fi
         case "$1" in
             --tier1|--tier2|--tier3)

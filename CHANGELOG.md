@@ -41,6 +41,18 @@ Development branch. Features land incrementally. Release after audit + feedback.
   variables. Assignments warn on narrowing (e.g., i32 value → i8 variable):
   `warning:N: narrowing assignment (value may truncate)`. GEXW/SEXW at 0x903F0.
 
+### Added — Tooling
+- **`.tcyr`/`.bcyr` auto-discovery**: `cyrb test` with no args discovers and runs
+  all `.tcyr` files in `tests/`, `src/`, and `.`. Reports pass/fail per file.
+  `cyrb bench` with no args discovers `.bcyr` files in `benches/`, `tests/`, `.`.
+
+### Added — Research & Scaffolding
+- **cyrius-x bytecode design**: vidya entry with register VM design, 32-bit fixed-width
+  instruction encoding, ~30 opcodes, .cyx file format. Backend stub at `src/backend/cx/emit.cyr`.
+  Full implementation target: v2.1.
+- **Multi-file compilation design**: vidya entry with ELF .o emission plan, fixup→relocation
+  mapping, symbol table design, minimal linker architecture. Implementation target: v2.0.
+
 ## [1.12.1] — 2026-04-07
 
 ### Fixed — Standard Library

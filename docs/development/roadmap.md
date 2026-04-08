@@ -49,42 +49,43 @@ multi-file compilation (.o + link)
 .tcyr/.bcyr test/bench extensions (independent)
 ```
 
-### Tier 1 — Foundation (blocks everything)
+### Tier 1 — Foundation
 
 | # | Feature | Effort | Status | Detail |
 |---|---------|--------|--------|--------|
-| 1 | **Multi-width types** (i8, i16, i32) | High | Research | Width-correct loads/stores, type ID encoding, var declarations with explicit widths. Touches lex, parse, emit, fixup. Currently "everything is i64" — this is THE fundamental change for 2.0. |
+| 1 | **Multi-width types** (i8, i16, i32) | High | **Done** | Width-correct loads/stores/allocation. Type annotations parsed. |
 
-### Tier 2 — Type system completion (needs Tier 1)
-
-| # | Feature | Effort | Status | Detail |
-|---|---------|--------|--------|--------|
-| 2 | **sizeof** operator | Low | Research | `sizeof(Type)` returns byte size. Needed for struct padding and alloc. |
-| 3 | **Struct padding/alignment** | Medium | Research | ABI-compatible field layout. Enables FFI with C. |
-| 4 | **Unions** | Medium | Research | Tagged and untagged. Overlay fields at same offset. |
-| 5 | **Bitfields** | Medium | Research | Bit-level field access within structs/unions. Hardware registers, protocols. |
-| 6 | **Variadic functions** | Medium | Research | `fn printf(fmt, ...)` with va_arg. Needs multi-width for correct stack layout. |
-
-### Tier 3 — Performance (can parallel Tier 2)
+### Tier 2 — Type system completion
 
 | # | Feature | Effort | Status | Detail |
 |---|---------|--------|--------|--------|
-| 7 | **u128** | High | Research | 128-bit integers via register pairs (rax:rdx). Mul-with-overflow. Closes 18-33x gap vs Rust on is_prime. |
-| 8 | **Cross-function inlining** | High | Research | Beyond token replay. Closes 300-700x gap on DSP scalar. |
+| 2 | **sizeof** operator | Low | **Done** | `sizeof(Type)` returns byte size. Token 100. |
+| 3 | **Struct field width** | Medium | **Done** | Typed fields packed at declared width. FIELDOFF/STRUCTSZ respect widths. |
+| 4 | **Unions** | Medium | **Done** | `union` keyword. All fields at offset 0, size = max field. Token 101. |
+| 5 | **Bitfield builtins** | Medium | **Done** | `bitget`/`bitset`/`bitclr` — inline shift/mask codegen. Tokens 102-104. |
+| 6 | **Variadic functions** | Medium | Deferred | Vec-based pattern (`fmt_sprintf`) sufficient for all current ports. |
+| - | **Expression type propagation** | Medium | **Done** | Narrowing warnings on assignment. GEXW/SEXW. |
+
+### Tier 3 — Performance
+
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 7 | **u128** | High | Research | 128-bit integers via register pairs. |
+| 8 | **Cross-function inlining** | High | Research | Beyond token replay. |
 
 ### Tier 4 — Compilation model
 
 | # | Feature | Effort | Status | Detail |
 |---|---------|--------|--------|--------|
-| 9 | **Multi-file compilation** (.o + link) | High | Research | ELF .o output, symbol tables, relocation entries. True separate compilation. |
+| 9 | **Multi-file compilation** (.o + link) | High | Researched | vidya entry written. Fixup→relocation mapping designed. |
 
 ### Tier 5 — New targets (scaffold in 2.0, ship in 2.1/2.2)
 
 | # | Feature | Effort | Target | Detail |
 |---|---------|--------|--------|--------|
-| 10 | **cyrius-x** bytecode | Very High | **v2.1** | Portable bytecode format (not WASM). Register-based VM. Scaffold design + IR in 2.0, full implementation in 2.1. |
-| 11 | **cyrius-ts** frontend | High | **v2.2** | TypeScript/JS bridge. Parse TS subset → cyrius-x. Needs cyrius-x first. |
-| 12 | **.tcyr/.bcyr** extensions | Low | v2.0 | Native test/bench file formats. `cyrb test` reads .tcyr, `cyrb bench` reads .bcyr. |
+| 10 | **cyrius-x** bytecode | Very High | **v2.1** | Researched. Register VM, 32-bit instructions. Backend stub at src/backend/cx/. |
+| 11 | **cyrius-ts** frontend | High | **v2.2** | TS subset → cyrius-x. Needs cyrius-x first. |
+| 12 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrb test` auto-discovers .tcyr, `cyrb bench` discovers .bcyr. |
 
 ---
 

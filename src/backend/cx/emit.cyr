@@ -1,0 +1,74 @@
+# ================================================================
+# CYRIUS-X BYTECODE EMISSION (v2.1 target — scaffold only)
+# ================================================================
+# Register-based bytecode. 32-bit fixed-width instructions.
+# Opcode (8 bits) + operands (24 bits).
+#
+# This file provides the cyrius-x equivalent of x86/emit.cyr.
+# When complete, the compiler can target cyrius-x by including
+# this file instead of x86/emit.cyr.
+#
+# INSTRUCTION ENCODING:
+#   [31:24] opcode
+#   [23:16] dst register (or first operand)
+#   [15:8]  src1 register (or second operand)
+#   [7:0]   src2 register / immediate low byte
+#
+# OPCODES (draft):
+#   0x01 = movi    r, imm16      load 16-bit immediate
+#   0x02 = movil   r, imm32      load 32-bit immediate (2 instructions)
+#   0x10 = add     rd, rs1, rs2
+#   0x11 = sub     rd, rs1, rs2
+#   0x12 = mul     rd, rs1, rs2
+#   0x13 = div     rd, rs1, rs2
+#   0x14 = mod     rd, rs1, rs2
+#   0x20 = and     rd, rs1, rs2
+#   0x21 = or      rd, rs1, rs2
+#   0x22 = xor     rd, rs1, rs2
+#   0x23 = not     rd, rs
+#   0x24 = shl     rd, rs1, rs2
+#   0x25 = shr     rd, rs1, rs2
+#   0x30 = eq      rd, rs1, rs2   (rd = rs1 == rs2 ? 1 : 0)
+#   0x31 = ne      rd, rs1, rs2
+#   0x32 = lt      rd, rs1, rs2
+#   0x33 = gt      rd, rs1, rs2
+#   0x40 = load8   rd, [rs]
+#   0x41 = load16  rd, [rs]
+#   0x42 = load32  rd, [rs]
+#   0x43 = load64  rd, [rs]
+#   0x44 = store8  [rd], rs
+#   0x45 = store16 [rd], rs
+#   0x46 = store32 [rd], rs
+#   0x47 = store64 [rd], rs
+#   0x50 = jmp     offset24
+#   0x51 = jz      rs, offset16
+#   0x52 = jnz     rs, offset16
+#   0x60 = call    offset24
+#   0x61 = ret
+#   0x70 = syscall N
+#   0x71 = push    rs
+#   0x72 = pop     rd
+#
+# REGISTER MAP:
+#   r0  = accumulator (like rax)
+#   r1  = secondary (like rcx)
+#   r2  = third (like rdx)
+#   r3-r8  = argument registers
+#   r9-r15 = caller-saved temps
+#   r16-r31 = callee-saved
+#   r253 = frame pointer
+#   r254 = stack pointer
+#   r255 = zero register (reads as 0, writes ignored)
+
+# Placeholder: emit a 32-bit bytecode instruction
+fn CX_EMIT(S, opcode, a, b, c) {
+    var instr = (opcode << 24) | ((a & 0xFF) << 16) | ((b & 0xFF) << 8) | (c & 0xFF);
+    EB(S, instr & 0xFF);
+    EB(S, (instr >> 8) & 0xFF);
+    EB(S, (instr >> 16) & 0xFF);
+    EB(S, (instr >> 24) & 0xFF);
+    return 0;
+}
+
+# v2.1: These stubs will be expanded to full bytecode emission.
+# For now they exist so the backend directory structure is ready.
