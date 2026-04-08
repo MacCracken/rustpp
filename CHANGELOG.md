@@ -8,6 +8,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.10.2] — 2026-04-07
 
+### Added — Compiler
+- **Fixup table expanded**: 4096 → 8192 entries. Fn tables relocated from 0x2B2000 to
+  0x2C2000. Unblocks ai-hwaccel and argonaut full test coverage without binary splitting.
+- **`f64_atan(x)` builtin** (token 99): Arc tangent via x87 `fld1; fpatan`. Handled in
+  PARSE_SIMD_EXT. PARSE_STMT range extended to 99.
+
+### Added — Standard Library
+- **`lib/math.cyr`**: Extended f64 math — `f64_sinh`, `f64_cosh`, `f64_tanh`, `f64_pow`,
+  `f64_clamp`, `f64_min`, `f64_max`. Composed from existing f64 builtins (exp, ln, neg).
+
 ### Fixed — Compiler
 - **Bug #11: `continue` in for-loops** (P1): `continue` inside C-style `for`, `for-in`
   range, and `for-in` collection loops now correctly jumps to the step/increment expression

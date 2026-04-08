@@ -147,10 +147,10 @@ fn EPOPR9(S) { EW(S, 0xF8410FE5); return 0; }   # ldr x5, [sp], #16
 # === Fixup + variable access ===
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    if (fc >= 4096) {
+    if (fc >= 8192) {
         syscall(SYS_WRITE, 2, "error: fixup table full (", 25);
         PRNUM(fc);
-        syscall(SYS_WRITE, 2, "/4096)\n", 7);
+        syscall(SYS_WRITE, 2, "/8192)\n", 7);
         syscall(SYS_EXIT, 1);
     }
     var addr = S + 0x2A2000 + fc * 16;
@@ -209,8 +209,8 @@ fn EVADDR(S, idx) {
 # String address
 fn ESADDR(S, soff) {
     var fc = GFCNT(S);
-    if (fc >= 4096) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (4096)\n", 31);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x2A2000 + fc * 16;
@@ -331,8 +331,8 @@ fn ECALLFIX(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x94000000);  # bl +0 (placeholder)
     var fc = GFCNT(S);
-    if (fc >= 4096) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (4096)\n", 31);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x2A2000 + fc * 16;
@@ -460,8 +460,8 @@ fn ETAILJMP(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x14000000);  # B placeholder
     var fc = GFCNT(S);
-    if (fc >= 4096) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (4096)\n", 31);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x2A2000 + fc * 16;

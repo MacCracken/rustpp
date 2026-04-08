@@ -1227,10 +1227,11 @@ fn LEXKW_EXT(kw, klen, S, ws) {
     # ret2/rethi
     if (klen == 4) { if (kw & 0xFFFFFFFF == 0x32746572) { return 97; } }
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6968746572) { return 98; } }
-    # SIMD vector keywords
+    # SIMD + trig keywords
     if (klen == 8) {
         if (kw == 0x7669645F76343666) { return 93; }
         if (kw == 0x7362615F76343666) { return 95; }
+        if (kw == 0x6E6174615F343666) { return 99; }
     }
     if (klen == 9) {
         if (kw == 0x7271735F76343666) {

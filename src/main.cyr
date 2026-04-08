@@ -42,10 +42,10 @@
 #   0x122000 tok_values    [524288]      65536 token value slots
 #   0x1A2000 tok_lines     [524288]      65536 token line numbers
 #   0x222000 preprocess_out [524288]     512KB expanded source buffer
-#   0x2A2000 fixup_tbl     [65536]       4096 fixup entries (16 bytes each)
-#   0x2B2000 fn_names      [8192]        1024 function name offsets
-#   0x2B4000 fn_offsets    [8192]        1024 function code offsets
-#   0x2B6000 fn_params     [8192]        1024 function param counts
+#   0x2A2000 fixup_tbl     [131072]       8192 fixup entries (16 bytes each)
+#   0x2C2000 fn_names      [8192]        1024 function name offsets
+#   0x2C4000 fn_offsets    [8192]        1024 function code offsets
+#   0x2C6000 fn_params     [8192]        1024 function param counts
 #   0x2C8000 fn_body_start [8192]        1024 inline: token index after {
 #   0x2CA000 fn_body_end   [8192]        1024 inline: token index of }
 #   0x2CC000 fn_inline     [8192]        1024 inline: param_noff (nonzero=candidate)
@@ -344,7 +344,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0x2B4000 + stub_fi * 8, GCP(S));
+            S64(S + 0x2C4000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -392,9 +392,9 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0x2B4000 + wfi * 8) < 0) {
+    if (L64(S + 0x2C4000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0x2B2000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0x2C2000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;

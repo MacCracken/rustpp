@@ -37,9 +37,9 @@
 #   0x8C128  NPOS          [8]           Name buffer position
 #
 # --- Function state ---
-#   0x2B2000 fn_names      [8192]        1024 function name offsets
-#   0x2B4000 fn_offsets    [8192]        1024 function code offsets
-#   0x2B6000 fn_params     [8192]        1024 function param counts
+#   0x2C2000 fn_names      [8192]        1024 function name offsets
+#   0x2C4000 fn_offsets    [8192]        1024 function code offsets
+#   0x2C6000 fn_params     [8192]        1024 function param counts
 #   0x8DA00  fn_count      [8]
 #   0x8DA08  in_function   [8]
 #   0x8DA10  fn_local_cnt  [8]
