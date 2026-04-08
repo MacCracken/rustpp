@@ -104,15 +104,15 @@ fn getenv(name) {
             ci = ci + 1;
         }
         if (eq == 1) { if (load8(&buf + pos + nlen) == 61) {
-            # Found: return pointer to value (copy to heap for safety)
-            var vstart = pos + nlen + 1;
-            var vlen = 0;
-            while (vstart + vlen < n && load8(&buf + vstart + vlen) != 0) { vlen = vlen + 1; }
-            var result = alloc(vlen + 1);
-            memcpy(result, &buf + vstart, vlen);
-            store8(result + vlen, 0);
-            return result;
-        } }
+                # Found: return pointer to value (copy to heap for safety)
+                var vstart = pos + nlen + 1;
+                var vlen = 0;
+                while (vstart + vlen < n && load8(&buf + vstart + vlen) != 0) { vlen = vlen + 1; }
+                var result = alloc(vlen + 1);
+                memcpy(result, &buf + vstart, vlen);
+                store8(result + vlen, 0);
+                return result;
+            } }
         # Skip to next null terminator
         while (pos < n) { if (load8(&buf + pos) == 0) { break; } pos = pos + 1; }
         pos = pos + 1;

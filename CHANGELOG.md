@@ -73,6 +73,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed — aarch64
 - **Missing `EMIT_F64V_LOOP` stub**: aarch64 cross-compiler failed with "undefined function"
   warning and segfaulted under qemu. Added stub alongside existing UNARY/FMADD stubs.
+- **Native aarch64 segfault from inline metadata**: Writes to fn_body_start/fn_body_end/fn_inline
+  tables (0x2C8000+) caused memory corruption on ARM. Fixed with `_INLINE_OK` flag — set to 1
+  in x86 emit, 0 in aarch64 emit. Inline metadata only written on x86.
 
 ### Removed — Dead Code
 - `src/cc/` (5 files) — superseded by modular `src/frontend/` + `src/backend/x86/` + `src/common/`.

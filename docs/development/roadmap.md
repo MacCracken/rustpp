@@ -33,7 +33,7 @@ Port vidya — programming reference corpus:
 | 1 | MCP protocol | Blocked on bote Cyrius port. |
 
 Port bhava (29K) + hisab (31K) — the two libraries that unlock 37+ downstream repos.
-ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
+ai-hwaccel port — **unblocked** (v1.10.1): getenv fix (#9), exec_capture fix (#10).
 
 ---
 
@@ -87,6 +87,10 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 | Stack-allocated small strings | v1.8.x — str_builder direct buffer, 64-byte inline |
 | Arena allocator | v1.8.3 — arena_new, arena_alloc, arena_reset |
 | SIMD expand (divpd, sqrtpd, abs, fmadd) | v1.9.5 — f64v_div, f64v_sqrt, f64v_abs, f64v_fmadd |
+| Inline small functions | v1.10.0 — token replay, 1-param ≤6 tokens |
+| R12 register spill | v1.10.0 — ESPILL/EUNSPILL, first expression temp in callee-saved R12 |
+| Return-by-value (ret2/rethi) | v1.10.0 — two values in rax:rdx |
+| `#ref` TOML compile-time data (Phase 1) | v1.10.0 — PP_REF_PASS, var key = value emission |
 
 ---
 
@@ -123,7 +127,7 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 176KB |
+| 1 | x86_64 | **Done** — self-hosting, 205KB |
 | 2 | aarch64 | **Done** — kernel mode, arch-specific asm |
 | 3 | RISC-V | Planned |
 | 4 | MIPS | Planned |
@@ -160,7 +164,7 @@ var nr = syscall_lookup("read");   // 2ns, not 106ns
 
 | Phase | Scope |
 |-------|-------|
-| 1 | `#ref` directive — load TOML at compile time, expose as typed constants |
+| 1 | ~~`#ref` directive — load TOML at compile time, expose as typed constants~~ **Done** (v1.10.0) |
 | 2 | Perfect hash generation — compiler emits O(1) lookup tables from TOML key-value pairs |
 | 3 | Static hashmap init — `#ref` populates hashmaps at compile time, no runtime construction |
 | 4 | Config-driven codegen — feature flags, platform tables, error codes from TOML |

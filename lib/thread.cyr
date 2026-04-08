@@ -49,7 +49,9 @@ fn thread_create(fp, arg) {
     child_stack = child_stack - 8;
     store64(child_stack, fp);
     # Clone flags for thread
-    var flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
+    var flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND;
+    flags = flags | CLONE_THREAD | CLONE_SYSVSEM;
+    flags = flags | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID;
     # clone(flags, child_stack, &parent_tid, &child_tid, 0)
     # parent_tid stored at t+0, child_tid at t+0 (same location — cleared on exit)
     var r = syscall(SYS_CLONE, flags, child_stack, t, t, 0);
@@ -142,7 +144,7 @@ fn mutex_unlock(m) {
 }
 
 # Channel: bounded MPSC channel using mutex + futex
-# Layout: { buf: i64, cap: i64, head: i64, tail: i64, count: i64, mutex: i64, closed: i64 } = 56 bytes
+# Layout: { buf, cap, head, tail, count, mutex, closed } = 56 bytes
 var CHAN_SIZE = 56;
 
 # Create a channel with given capacity

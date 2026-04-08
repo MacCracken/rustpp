@@ -139,3 +139,29 @@ Deferred: error message line numbers, performance pass, block scoping.
 ### Performance
 - Stack-allocated small strings → str_builder direct buffer, 64-byte inline (v1.8.x)
 - Arena allocator → arena_new, arena_alloc, arena_reset (v1.8.3)
+
+## v1.10.0–v1.10.1 — Codegen, Concurrency, Bug Fixes
+
+### Compiler — Codegen
+- Inline small functions → token replay inlining, 1-param ≤6 tokens (v1.10.0)
+- Register allocation → R12 spill for first expression temp, ESPILL/EUNSPILL (v1.10.0)
+- Return-by-value → ret2(a,b) returns rax:rdx, rethi() reads rdx (v1.10.0)
+- SIMD expand → f64v_div, f64v_sqrt, f64v_abs, f64v_fmadd (v1.9.5/v1.10.0)
+- `#ref` TOML → PP_REF_PASS pre-pass, var key = value emission (v1.10.0)
+- LEXKW_EXT + PARSE_SIMD_EXT → overflow helpers for large functions (v1.10.0)
+- PARSE_STMT range extended → 62-98 for new builtins (v1.10.0)
+- _INLINE_OK flag → disables inline metadata on aarch64 (v1.10.0)
+
+### Standard Library
+- lib/thread.cyr → threads (clone+mmap), mutex (futex), MPSC channels (v1.10.1)
+- Syscalls: SYS_CLONE, SYS_FUTEX, SYS_MUNMAP + CloneFlag, MmapConst, FutexOp enums (v1.10.1)
+- Hashmap simplified → _map_lookup helper, elif in probe, reduced indirection (v1.10.0)
+
+### Bug Fixes
+- Bug #9: getenv() scoping fix → variables outside while loop (v1.10.1)
+- Bug #10: exec_capture pipe fix → pipefd[16] + load32 for 32-bit fds (v1.10.1)
+- aarch64 native self-host → _INLINE_OK=0 prevents metadata writes on ARM (v1.10.0)
+- Missing EMIT_F64V_LOOP aarch64 stub (v1.10.0)
+
+### Dead Code Removal
+- 11 stale files: src/cc/ (5), src/cc_bridge.cyr, src/compiler.cyr, src/compiler_aarch64.cyr, src/arch/aarch64/ (3)
