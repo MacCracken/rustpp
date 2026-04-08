@@ -441,7 +441,14 @@ fn PARSE_FACTOR(S) {
             }
         }
         var idx = FINDVAR(S, noff);
-        if (idx < 0) { ERR(S); }
+        if (idx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6);
+            PRNUM(GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "'\n", 2);
+            syscall(SYS_EXIT, 1);
+        }
         var vt = GVTYPE(S, idx);
         if (vt < 0) { SPSC(S, 0 - vt); }
         if (vt > 0) {
@@ -1641,8 +1648,11 @@ fn PARSE_GVAR_REG(S) {
         }
     }
     SVCNT(S, vcnt + 1);
-    # Save token index
+    # Save token index for deferred init
     var gc = L64(S + 0x8FC98);
+    if (gc >= 64) {
+        ERR_MSG(S, "too many initialized globals (max 64) — use enum for constants", 62);
+    }
     S64(S + 0x8FA98 + gc * 8, sti);
     S64(S + 0x8FC98, gc + 1);
     # Skip to semicolon
@@ -3162,7 +3172,14 @@ fn PARSE_STMT(S) {
         }
         else {
             idx = FINDVAR(S, noff);
-            if (idx < 0) { ERR(S); }
+            if (idx < 0) {
+                syscall(SYS_WRITE, 2, "error:", 6);
+                PRNUM(GTLINE(S, GTI(S)));
+                syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+                PRSTR(S + 0x60000 + noff);
+                syscall(SYS_WRITE, 2, "'\n", 2);
+                syscall(SYS_EXIT, 1);
+            }
             var vt = GVTYPE(S, idx);
             if (vt < 0) {
                 if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }

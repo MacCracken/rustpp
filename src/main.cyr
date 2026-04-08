@@ -16,7 +16,7 @@
 #   0x00000  input_buf     [131072]      128KB raw stdin input
 #   0x20000  codebuf       [262144]      256KB generated machine code
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
-#   0x60000  tok_names     [32768]       32KB packed identifier strings
+#   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
 #   0x68000  str_data      [8192]        (nested in tok_names upper half)
 #   0x69800  str_pos       [8]           (nested) string write position
 #   0x69808  data_size     [8]           (nested) total variable data bytes

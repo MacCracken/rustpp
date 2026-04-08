@@ -35,6 +35,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Inotify syscall wrappers** (`lib/syscalls.cyr`): `sys_inotify_init`,
   `sys_inotify_add_watch`, `sys_inotify_rm_watch`, `InotifyEvent` enum.
 
+- **Bug #28: "undefined variable" error message**: Assignment to or use of an undefined
+  variable now prints `error:N: undefined variable 'name'` instead of the cryptic
+  `unexpected ';'`. Fixed in both PARSE_STMT (assignment) and PARSE_FACTOR (expression).
+
 ### Focus: defmt, cyrius-ts scaffold
 
 ## [2.1.3] — 2026-04-08

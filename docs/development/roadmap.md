@@ -37,7 +37,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 27 | >6 function args: stack params get wrong values | P3 | Left-to-right push + top-6 pop reverses the arg-to-register mapping for >6 args. 7th arg gets arg 1's value. Workaround: pass a struct or vec for >6 args. Needs ABI-correct push order. |
 
-**Open bugs:** #25 (fixed), #27 (P3, >6 args). (P2, include path). All other compiler bugs fixed.
+| 28 | ~~Bad error for undefined variable~~ | ~~P3~~ | **Fixed v2.2.0** — now prints `error:N: undefined variable 'name'`. |
+
+**Open bugs:** #27 (P3, >6 args), #28 (P3, bad error message). (P2, include path). All other compiler bugs fixed.
 
 ---
 

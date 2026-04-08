@@ -1310,7 +1310,7 @@ fn LEXID(S, p, npos) {
     if (npos >= 65500) {
         syscall(SYS_WRITE, 2, "error: identifier buffer full (", 31);
         PRNUM(npos);
-        syscall(SYS_WRITE, 2, "/131072 bytes) — reduce included modules or split into separate units\n", 69);
+        syscall(SYS_WRITE, 2, "/65536 bytes) — reduce included modules or split into separate units\n", 69);
         syscall(SYS_EXIT, 1);
     }
     var bl = GBL(S);
