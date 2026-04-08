@@ -4,6 +4,13 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] — Unreleased
+
+### Fixed
+- **Bug #21: bitset/bitclr crash at top level**: Now emits clear error message
+  ("must be called inside a function") instead of SIGSEGV. These builtins use
+  local stack slots (EFLSTORE) which require a function frame.
+
 ## [2.0.0] — 2026-04-08
 
 ### Added — Language

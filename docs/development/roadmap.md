@@ -24,7 +24,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 18 | bridge.cyr TOKVAL offset stale (0xE2000 vs 0x122000) | P4 | Bridge compiler has its own heap layout. Not used by cc2. Fix if bridge is ever reactivated. |
 | 19 | aarch64 cross-compiler missing module/DCE in pass 1 | P3 | main_aarch64.cyr pass 1 lacks mod/pub/use/impl/DCE. Works for current ports but limits aarch64 module support. |
 | 20 | bridge.cyr dead code (EMOVC) | P5 | Unused function. Bridge is frozen — harmless. |
-| 21 | bitset/bitclr crash at top level | P4 | Uses EFLSTORE (needs stack frame). Must be called inside a function. Document, not fix. |
+| 21 | ~~bitset/bitclr crash at top level~~ | ~~P4~~ | **Fixed v2.1.0** — clear error message instead of SIGSEGV. |
 
 **Open bugs:** #16 (P3), #19 (P3). Others are low priority or documented limitations.
 
@@ -89,8 +89,9 @@ multi-file compilation (.o + link)
 | # | Feature | Effort | Target | Detail |
 |---|---------|--------|--------|--------|
 | 10 | **cyrius-x** bytecode | Very High | **v2.1** | Researched. Register VM, 32-bit instructions. Backend stub at src/backend/cx/. |
-| 11 | **cyrius-ts** frontend | High | **v2.2** | TS subset → cyrius-x. Needs cyrius-x first. |
-| 12 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrb test` auto-discovers .tcyr, `cyrb bench` discovers .bcyr. |
+| 11 | **Deferred formatting** (defmt) | High | **v2.1** | Store string ID + raw args at runtime, decode externally. Needs compiler string interning. Eliminates runtime fmt overhead for logging/tracing. |
+| 12 | **cyrius-ts** frontend | High | **v2.2** | TS subset → cyrius-x. Needs cyrius-x first. |
+| 13 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrb test` auto-discovers .tcyr, `cyrb bench` discovers .bcyr. |
 
 ---
 
@@ -157,7 +158,7 @@ Expansion targets:
 
 ---
 
-## `#ref` — Compile-Time Data Tables
+## `#ref` & Preprocessor — Compile-Time Data Tables
 
 | Phase | Status |
 |-------|--------|
@@ -165,6 +166,7 @@ Expansion targets:
 | 2 | Perfect hash generation — O(1) lookup tables from TOML |
 | 3 | Static hashmap init — compile-time populated hashmaps |
 | 4 | Config-driven codegen — feature flags, platform tables |
+| 5 | `#if` / `#elif` / `#else` value-comparison directive — enables compile-time dead code elimination based on `#ref` config values. Required by sakshi for zero-cost log level gating (e.g. `#if sk_cfg_log_level >= 3` to compile out debug/trace calls entirely). Currently only `#ifdef` exists (symbol-defined check), no value comparison. |
 
 ---
 

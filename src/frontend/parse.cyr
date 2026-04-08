@@ -873,6 +873,7 @@ fn PARSE_SIMD_EXT(S, ptyp) {
     }
     # bitset(val, offset, width, new) → (val & ~(mask << offset)) | ((new & mask) << offset)
     if (ptyp == 103) {
+        if (GINFN(S) == 0) { ERR_MSG(S, "bitset must be called inside a function", 39); }
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
         var bsb = GFLC(S);
@@ -906,6 +907,7 @@ fn PARSE_SIMD_EXT(S, ptyp) {
     }
     # bitclr(val, offset, width) → val & ~(((1 << width) - 1) << offset)
     if (ptyp == 104) {
+        if (GINFN(S) == 0) { ERR_MSG(S, "bitclr must be called inside a function", 39); }
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
         var bcb = GFLC(S);
