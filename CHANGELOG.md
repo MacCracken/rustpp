@@ -29,6 +29,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with main.cyr. Now supports mod/pub/use, impl blocks, unions, enum constructors,
   shared library mode. Module system init + reset added. aarch64 cross-compiler
   can now compile programs using the full v2.0 language.
+- **cyrius-x VM interpreter** (`programs/cxvm.cyr`): Register-based bytecode VM.
+  32-bit fixed-width instructions, 32 registers, 4KB memory, 512-byte call stack.
+  Supports: arithmetic (add/sub/mul/div/mod), bitwise (and/or/xor/shl/shr),
+  comparison (eq/ne/lt/gt), memory (load8/load64/store8/store64), control flow
+  (jmp/jz/jnz/call/ret), syscall passthrough, push/pop, movhi/movhh for large
+  constants. Reads .cyx files (CYX\0 header + bytecode). 109KB binary.
   `PP_GETVAL(S, pos)` looks up the stored value. Backward compatible — `#define NAME`
   without a value stores 0 (still works with `#ifdef`).
 
