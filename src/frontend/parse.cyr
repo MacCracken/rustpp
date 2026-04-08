@@ -2533,6 +2533,10 @@ fn PARSE_FNCALL(S, noff) {
         return 0;
     } } }
     # NORMAL CALL PATH
+    # Args pushed left-to-right: arg1 first (bottom), argN last (top).
+    # ECALLPOPS pops top 6 into registers: rdi=argN-5, ..., r9=argN.
+    # For >6 args, the first (argc-6) remain on stack in forward order.
+    # ESTORESTACKPARM compensates for the reversed register assignment.
     var argc = 0;
     if (PEEKT(S) != 11) {
         var argo = 1;

@@ -346,6 +346,8 @@ fn EPOPARG(S, n) {
 }
 
 # Emit fn call pops for N args
+# For >6 args, PARSE_FNCALL pushes stack args first, then register args.
+# So the top 6 items are the register args in correct order.
 fn ECALLPOPS(S, n) {
     var regn = n;
     if (regn > 6) { regn = 6; }
