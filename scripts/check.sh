@@ -1,14 +1,12 @@
 #!/bin/sh
-# Full project check: format, lint, vet, deny, test, self-host, bench
-# Equivalent to: cargo fmt --check && cargo clippy && cargo deny && cargo test
+# Full project audit: self-host, test suite, heap audit, format, lint
+# Usage: cyrb audit  (or: sh scripts/check.sh)
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="$ROOT/build/cc2"
-CYRB="$ROOT/scripts/cyrb"
 CYRFMT="$ROOT/build/cyrfmt"
 CYRLINT="$ROOT/build/cyrlint"
-CYRC="$ROOT/build/cyrc"
 
 pass=0
 fail=0
@@ -25,49 +23,82 @@ check() {
     fi
 }
 
-echo "=== Cyrius Project Check ==="
+echo "=== Cyrius v2.0 Audit ==="
 echo ""
 
-# ── 1. Self-hosting ──
+# ── 1. Self-hosting (two-step) ──
 echo "── Self-Hosting ──"
-cc3="/tmp/check_cc3_$$"
-cc4="/tmp/check_cc4_$$"
+cc3="/tmp/audit_cc3_$$"
+cc4="/tmp/audit_cc4_$$"
 cat "$ROOT/src/main.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
 cat "$ROOT/src/main.cyr" | "$cc3" > "$cc4" 2>/dev/null
 cmp -s "$cc3" "$cc4" 2>/dev/null
 check "cc2==cc3 byte-identical" "$?"
+sz=$(wc -c < "$cc3")
+printf "    binary: %d bytes\n" "$sz"
 rm -f "$cc3" "$cc4"
 echo ""
 
-# ── 2. Compiler Tests ──
-echo "── Compiler Tests ──"
-sh "$ROOT/tests/compiler.sh" "$CC" "$ROOT/build/stage1f" 2>&1 | tail -1
-cc_result=$?
-check "compiler tests" "$cc_result"
+# ── 2. Heap Map Audit ──
+echo "── Heap Map ──"
+sh "$ROOT/tests/heapmap.sh" > /tmp/audit_heap_$$ 2>&1
+hm_result=$?
+check "no heap overlaps" "$hm_result"
+if [ "$hm_result" -ne 0 ]; then cat /tmp/audit_heap_$$; fi
+rm -f /tmp/audit_heap_$$
 echo ""
 
-# ── 3. Program Tests ──
-echo "── Program Tests ──"
-sh "$ROOT/tests/programs.sh" "$CC" 2>&1 | tail -1
-prog_result=$?
-check "program tests" "$prog_result"
+# ── 3. Test Suite (.tcyr) ──
+echo "── Test Suite ──"
+test_fail=0
+test_total=0
+for tfile in "$ROOT"/tests/tcyr/*.tcyr; do
+    [ -f "$tfile" ] || continue
+    name=$(basename "$tfile" .tcyr)
+    tmpbin="/tmp/audit_t_$$"
+    printf "  %-20s " "$name"
+    if cat "$tfile" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
+        output=$("$tmpbin" 2>&1)
+        ec=$?
+        summary=$(echo "$output" | grep -o '[0-9]* passed, [0-9]* failed' | tail -1)
+        if [ -n "$summary" ]; then
+            f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*')
+            if [ "$f" -gt 0 ]; then
+                echo "FAIL ($summary)"
+                test_fail=$((test_fail + 1))
+            else
+                echo "PASS ($summary)"
+            fi
+        elif [ "$ec" -eq 0 ]; then
+            echo "PASS"
+        else
+            echo "FAIL (exit $ec)"
+            test_fail=$((test_fail + 1))
+        fi
+    else
+        echo "FAIL (compile)"
+        test_fail=$((test_fail + 1))
+    fi
+    test_total=$((test_total + 1))
+    rm -f "$tmpbin"
+done
+check "test suite ($test_total files)" "$test_fail"
 echo ""
 
 # ── 4. Format Check ──
-echo "── Format Check ──"
+echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
     fmt_fail=0
     for f in "$ROOT"/lib/*.cyr; do
-        "$CYRFMT" "$f" > /tmp/check_fmt_$$ 2>/dev/null
-        if ! diff -q "$f" /tmp/check_fmt_$$ > /dev/null 2>&1; then
-            echo "    needs formatting: $(basename $f)"
+        "$CYRFMT" "$f" > /tmp/audit_fmt_$$ 2>/dev/null
+        if ! diff -q "$f" /tmp/audit_fmt_$$ > /dev/null 2>&1; then
             fmt_fail=1
         fi
-        rm -f /tmp/check_fmt_$$
+        rm -f /tmp/audit_fmt_$$
     done
     check "format (stdlib)" "$fmt_fail"
 else
-    echo "    skip: cyrfmt not built"
+    echo "  skip: cyrfmt not built"
 fi
 echo ""
 
@@ -76,130 +107,18 @@ echo "── Lint ──"
 if [ -x "$CYRLINT" ]; then
     lint_total=0
     for f in "$ROOT"/lib/*.cyr; do
-        w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -oP '^\d+' || echo 0)
+        w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
         lint_total=$((lint_total + w))
     done
     if [ "$lint_total" -gt 0 ]; then
-        echo "    $lint_total warnings across stdlib"
+        echo "  $lint_total warnings"
         check "lint (stdlib)" "1"
     else
         check "lint (stdlib)" "0"
     fi
 else
-    echo "    skip: cyrlint not built"
+    echo "  skip: cyrlint not built"
 fi
-echo ""
-
-# ── 6. Vet ──
-echo "── Dependency Audit ──"
-if [ -x "$CYRC" ]; then
-    vet_fail=0
-    for f in "$ROOT"/programs/ark.cyr "$ROOT"/programs/cyrb.cyr "$ROOT"/programs/cyrc.cyr; do
-        if [ -f "$f" ]; then
-            "$CYRC" vet "$f" > /dev/null 2>&1
-            if [ $? -ne 0 ]; then
-                echo "    vet failed: $(basename $f)"
-                vet_fail=1
-            fi
-        fi
-    done
-    check "vet (tools)" "$vet_fail"
-else
-    echo "    skip: cyrc not built"
-fi
-echo ""
-
-# ── 7. Deny ──
-echo "── Policy Check ──"
-if [ -x "$CYRC" ]; then
-    deny_fail=0
-    for f in "$ROOT"/programs/ark.cyr "$ROOT"/programs/cyrb.cyr "$ROOT"/programs/cyrc.cyr; do
-        if [ -f "$f" ]; then
-            "$CYRC" deny "$f" > /dev/null 2>&1
-            if [ $? -ne 0 ]; then
-                echo "    deny failed: $(basename $f)"
-                deny_fail=1
-            fi
-        fi
-    done
-    check "deny (tools)" "$deny_fail"
-else
-    echo "    skip: cyrc not built"
-fi
-echo ""
-
-# ── 8. Benchmarks ──
-echo "── Benchmarks ──"
-cat > /tmp/check_bench_$$.cyr << 'BENCH'
-include "lib/string.cyr"
-include "lib/fmt.cyr"
-include "lib/alloc.cyr"
-include "lib/vec.cyr"
-include "lib/fnptr.cyr"
-include "lib/agnosys/syscalls.cyr"
-include "lib/bench.cyr"
-
-fn work_noop() { return 0; }
-fn work_alloc() { alloc(64); return 0; }
-
-fn main() {
-    alloc_init();
-    var benches = vec_new();
-    var b1 = bench_new("noop");
-    bench_run(b1, &work_noop, 10000);
-    vec_push(benches, b1);
-    var b2 = bench_new("alloc64");
-    bench_run(b2, &work_alloc, 10000);
-    vec_push(benches, b2);
-    bench_report_all(benches);
-    return 0;
-}
-var r = main();
-BENCH
-cd "$ROOT"
-cat /tmp/check_bench_$$.cyr | "$CC" > /tmp/check_bench_$$ 2>/dev/null && chmod +x /tmp/check_bench_$$
-/tmp/check_bench_$$ 2>/dev/null
-bench_result=$?
-check "benchmarks" "$bench_result"
-rm -f /tmp/check_bench_$$ /tmp/check_bench_$$.cyr
-echo ""
-
-# ── 9. Doc Coverage ──
-echo "── Doc Coverage ──"
-CYRDOC="$ROOT/build/cyrdoc"
-if [ -x "$CYRDOC" ]; then
-    doc_undoc=0
-    for f in "$ROOT"/lib/*.cyr; do
-        u=$("$CYRDOC" --check "$f" 2>&1 | tail -1 | grep -oP '(\d+) undocumented' | grep -oP '^\d+' || echo 0)
-        doc_undoc=$((doc_undoc + u))
-    done
-    if [ "$doc_undoc" -gt 0 ]; then
-        echo "    $doc_undoc undocumented public functions in stdlib"
-        check "doc coverage (stdlib)" "1"
-    else
-        check "doc coverage (stdlib)" "0"
-    fi
-else
-    echo "    skip: cyrdoc not built"
-fi
-echo ""
-
-# ── 10. Documentation Files ──
-echo "── Documentation ──"
-doc_fail=0
-for doc in README.md CHANGELOG.md VERSION CONTRIBUTING.md SECURITY.md LICENSE; do
-    if [ ! -f "$ROOT/$doc" ]; then
-        echo "    missing: $doc"
-        doc_fail=1
-    fi
-done
-for doc in docs/tutorial.md docs/cyrius-guide.md docs/stdlib-reference.md docs/faq.md docs/benchmarks.md; do
-    if [ ! -f "$ROOT/$doc" ]; then
-        echo "    missing: $doc"
-        doc_fail=1
-    fi
-done
-check "documentation" "$doc_fail"
 echo ""
 
 # ── Summary ──

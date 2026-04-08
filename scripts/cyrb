@@ -290,22 +290,52 @@ case "${1:-help}" in
                 *) break ;;
             esac
         done
+        verbose=0
+        while true; do
+            case "$1" in
+                -v|--verbose) verbose=1; shift ;;
+                *) break ;;
+            esac
+        done
         if [ -z "$1" ] || [ -z "$2" ]; then
-            echo "Usage: cyrb build [--aarch64 [--native]] [-D NAME]... <source.cyr> <output>"
+            echo "Usage: cyrb build [--aarch64] [-v] [-D NAME]... <source.cyr> <output>"
             exit 1
         fi
-        printf "compile %s -> %s [%s] " "$1" "$2" "$arch"
-        if compile "$1" "$2" "$arch" $defines; then
-            echo "OK ($(wc -c < "$2") bytes)"
+        src="$1"; out="$2"
+        # Count source lines (including includes)
+        t_start=$(date +%s%N 2>/dev/null || echo 0)
+        warns="/tmp/cyrb_warns_$$"
+        if compile "$src" "$out" "$arch" $defines 2>"$warns"; then
+            t_end=$(date +%s%N 2>/dev/null || echo 0)
+            sz=$(wc -c < "$out")
+            if [ "$t_start" != "0" ] && [ "$t_end" != "0" ]; then
+                elapsed=$(( (t_end - t_start) / 1000000 ))
+                printf "  %s -> %s  %d bytes  %dms  [%s]\n" "$src" "$out" "$sz" "$elapsed" "$arch"
+            else
+                printf "  %s -> %s  %d bytes  [%s]\n" "$src" "$out" "$sz" "$arch"
+            fi
+            wc=$(grep -c "warning:" "$warns" 2>/dev/null || true)
+            wc=${wc:-0}
+            if [ "$wc" -gt 0 ] 2>/dev/null; then
+                printf "  %d warning(s)\n" "$wc"
+                if [ "$verbose" -eq 1 ]; then
+                    cat "$warns" >&2
+                fi
+            fi
         else
-            echo "FAIL"
+            echo "  FAIL: $src"
+            cat "$warns" >&2
+            rm -f "$warns"
             exit 1
         fi
+        rm -f "$warns"
         ;;
 
     test)
         shift
         arch="x86"
+        test_verbose=0
+        test_filter=""
         if [ "$1" = "--aarch64" ]; then
             arch="aarch64"; shift
             if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
@@ -315,6 +345,9 @@ case "${1:-help}" in
             case "$1" in
                 -D) defines="$defines $2"; shift 2 ;;
                 -D*) defines="$defines ${1#-D}"; shift ;;
+                -v|--verbose) test_verbose=1; shift ;;
+                --filter) test_filter="$2"; shift 2 ;;
+                --filter=*) test_filter="${1#--filter=}"; shift ;;
                 *) break ;;
             esac
         done
@@ -324,10 +357,14 @@ case "${1:-help}" in
             total_pass=0
             total_fail=0
             total_assertions=0
-            for tfile in tests/*.tcyr src/*.tcyr *.tcyr; do
+            for tfile in tests/*.tcyr tests/tcyr/*.tcyr src/*.tcyr *.tcyr; do
                 [ -f "$tfile" ] || continue
-                found=1
                 name=$(basename "$tfile" .tcyr)
+                # Apply filter if set
+                if [ -n "$test_filter" ]; then
+                    case "$name" in *${test_filter}*) ;; *) continue ;; esac
+                fi
+                found=1
                 # Parse metadata from comments: # expect: N, # skip: reason
                 expect_code=0
                 skip=""
@@ -359,11 +396,13 @@ case "${1:-help}" in
                             if [ "$f" -gt 0 ]; then
                                 echo "FAIL ($summary)"
                                 total_fail=$((total_fail + 1))
-                                # Show individual failures
                                 grep "FAIL:" "$tmpout" 2>/dev/null | head -5
                             else
                                 echo "PASS ($summary)"
                                 total_pass=$((total_pass + 1))
+                            fi
+                            if [ "$test_verbose" -eq 1 ]; then
+                                cat "$tmpout" | sed 's/^/    /'
                             fi
                         else
                             echo "PASS"
@@ -411,7 +450,7 @@ case "${1:-help}" in
         if [ -z "$1" ]; then
             # No args: auto-discover .bcyr files, fallback to bench-history.sh
             bcyr_found=0
-            for bfile in benches/*.bcyr tests/*.bcyr *.bcyr; do
+            for bfile in benches/*.bcyr tests/*.bcyr tests/bcyr/*.bcyr *.bcyr; do
                 [ -f "$bfile" ] || continue
                 bcyr_found=1
                 name=$(basename "$bfile" .bcyr)

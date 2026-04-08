@@ -51,6 +51,16 @@ Development branch. Features land incrementally. Release after audit + feedback.
   FAIL lines on assertion failures.
 - **New assert helpers** (`lib/assert.cyr`): `assert_lt`, `assert_gte`, `assert_lte`,
   `assert_nonnull`, `assert_streq`, `test_group(name)` for organized test output.
+- **New .tcyr test suite** (7 files, 95 assertions): `core`, `types`, `structs`,
+  `enums`, `bitfields`, `stdlib`, `advanced`. Replaces shell-based test scripts.
+- **Removed legacy shell tests**: `compiler.sh`, `programs.sh`, `assembler.sh`,
+  `aarch64-hardware.sh` removed. Clean break for v2.0. `heapmap.sh` retained.
+- **`cyrb build` enhanced**: Shows binary size + compile time (ms). `-v`/`--verbose`
+  flag shows warnings. Counts and reports warnings on stderr.
+- **`cyrb test` enhanced**: `--verbose` shows full test output. `--filter NAME`
+  runs only matching .tcyr files. Parses assertion summaries from test output.
+- **`cyrb audit` rewritten**: Runs self-hosting (two-step), heap map audit,
+  full .tcyr test suite, format check, lint check. 5 audit stages.
 
 ### Added — Research & Scaffolding
 - **cyrius-x bytecode design**: vidya entry with register VM design, 32-bit fixed-width
