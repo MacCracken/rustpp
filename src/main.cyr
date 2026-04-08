@@ -16,8 +16,8 @@
 #   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable, dedup keeps <16KB)
 #   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
-#   0x2B8000  var_noffs     [32768]       4096 variable name offsets
-#   0x2C0000  var_sizes     [32768]       4096 variable sizes
+#   0x2B8000  (available — var_noffs relocated to 0x316000)
+#   0x2C0000  (available — var_sizes relocated to 0x326000)
 #   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
 #   0x69800  str_pos       [8]           String position (nested in str_data tail)
 #   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
@@ -26,7 +26,7 @@
 #   0x8DA00  fn_count, in_fn, local_cnt  Function state
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC30  (available — fn_local_names relocated to 0x91000)
-#   0x8DE30  var_types     [2048]        256 variable struct type IDs
+#   0x8DE30  (available — var_types relocated to 0x336000)
 #   0x8E630  struct tables               names, fcounts, fnames (to 0x8F830)
 #   0x8F838  loop_top, break_patch       Loop state
 #   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
@@ -58,7 +58,10 @@
 #   0x2CC000 fn_inline     [8192]        1024 inline: param_noff (nonzero=candidate)
 #   0x2CE000 struct_fnames [8192]        32*32 field name offsets (stride 256, relocated from 0x8E830)
 #   0x2D6000 output_buf   [262144]      ELF output buffer (256KB, also DCE bitmap scratch 8KB)
-#   0x316000 brk
+#   0x316000 var_noffs    [65536]       8192 variable name offsets (relocated from 0x2B8000)
+#   0x326000 var_sizes    [65536]       8192 variable sizes (relocated from 0x2C0000)
+#   0x336000 var_types    [65536]       8192 variable type IDs (relocated from 0x8DE30)
+#   0x346000 brk
 #
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
@@ -114,7 +117,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x316000);
+syscall(SYS_BRK, S + 0x346000);
 
 # Zero state
 S64(S + 0x8C100, 0);

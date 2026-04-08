@@ -22,7 +22,7 @@
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC20  ret_patch_cnt [8]
 #   0x8DC30  (available — fn_local_names relocated to 0x91000)
-#   0x8DE30  var_types     [2048]        256 variable struct type IDs
+#   0x8DE30  (available — var_types relocated to 0x336000)
 #   0x8E630  struct tables               names, fcounts (to 0x8E830)
 #   0x8F830  struct_count  [8]
 #   0x8F838  loop_top, break_patch       Loop state
@@ -52,8 +52,8 @@
 #   0x1A2000 tok_lines     [524288]      65536 token line numbers
 #   0x222000 preprocess_out [524288]     512KB expanded source buffer
 #   0x2A2000 fixup_tbl     [131072]      8192 fixup entries (16 bytes each)
-#   0x2B8000 var_noffs     [32768]       4096 variable name offsets
-#   0x2C0000 var_sizes     [32768]       4096 variable sizes
+#   0x2B8000 (available — var_noffs relocated to 0x316000)
+#   0x2C0000 (available — var_sizes relocated to 0x326000)
 #   0x2C2000 fn_names      [8192]        1024 function name offsets
 #   0x2C4000 fn_offsets    [8192]        1024 function code offsets
 #   0x2C6000 fn_params     [8192]        1024 function param counts
@@ -62,7 +62,10 @@
 #   0x2CC000 fn_inline     [8192]
 #   0x2CE000 struct_fnames [8192]        32*32 field name offsets (stride 256)
 #   0x2D6000 output_buf    [262144]      ELF output buffer (256KB)
-#   0x316000 brk
+#   0x316000 var_noffs    [65536]       8192 variable name offsets
+#   0x326000 var_sizes    [65536]       8192 variable sizes
+#   0x336000 var_types    [65536]       8192 variable type IDs
+#   0x346000 brk
 
 
 # ================================================================
@@ -87,7 +90,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x316000);
+syscall(SYS_BRK, S + 0x346000);
 
 # Zero state
 S64(S + 0x8C100, 0);

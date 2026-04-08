@@ -18,8 +18,8 @@ fn GSTC(S) { return L64(S + 0x8F830); }
 fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
 
 # Get/set struct_id for global variable at index vi
-fn GVTYPE(S, vi) { return L64(S + 0x8DE30 + vi * 8); }
-fn SVTYPE(S, vi, v) { S64(S + 0x8DE30 + vi * 8, v); return 0; }
+fn GVTYPE(S, vi) { return L64(S + 0x336000 + vi * 8); }
+fn SVTYPE(S, vi, v) { S64(S + 0x336000 + vi * 8, v); return 0; }
 
 # Register a new struct, return index (1-based, 0 = not a struct)
 fn REGSTRUCT(S, noff) {
@@ -182,8 +182,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             elif (emit_code == 0) {
                 # Pass 1: register variant as global var
                 var vcnt = GVCNT(S);
-                S64(S + 0x2B8000 + vcnt * 8, vnoff);
-                S64(S + 0x2C0000 + vcnt * 8, 8);
+                S64(S + 0x316000 + vcnt * 8, vnoff);
+                S64(S + 0x326000 + vcnt * 8, 8);
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
                 if (has_ctor == 1) {
@@ -341,7 +341,7 @@ fn FINDVAR(S, noff) {
     var vcnt = GVCNT(S);
     var vi = 0;
     while (vi < vcnt) {
-        var stored = L64(S + 0x2B8000 + vi * 8);
+        var stored = L64(S + 0x316000 + vi * 8);
         if (STREQ(S, stored, noff) == 1) { return vi; }
         vi = vi + 1;
     }
@@ -446,7 +446,7 @@ fn PARSE_FACTOR(S) {
         if (vt > 0) {
             # Disambiguate scalar types from struct IDs using var_sizes:
             # Scalar i8/i16/i32 have var_sizes 1/2/4. Structs have var_sizes >= 8.
-            var gvsz = L64(S + 0x2C0000 + idx * 8);
+            var gvsz = L64(S + 0x326000 + idx * 8);
             if (gvsz < 8) {
                 SEXW(S, gvsz);
                 EVLOAD_W(S, idx, gvsz);
@@ -1310,9 +1310,9 @@ fn PARSE_ARRAY(S, noff) {
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);  # consume ;
     var vcnt = GVCNT(S);
-    S64(S + 0x2B8000 + vcnt * 8, noff);
+    S64(S + 0x316000 + vcnt * 8, noff);
     var aligned = (asz + 7) & (0 - 8);
-    S64(S + 0x2C0000 + vcnt * 8, aligned);
+    S64(S + 0x326000 + vcnt * 8, aligned);
     SVCNT(S, vcnt + 1);
     return 0;
 }
@@ -1508,8 +1508,8 @@ fn PARSE_STRUCT_INIT(S, noff, sid) {
     STI(S, GTI(S) + 1);
     var sz = STRUCTSZ(S, si);
     var vcnt = GVCNT(S);
-    S64(S + 0x2B8000 + vcnt * 8, noff);
-    S64(S + 0x2C0000 + vcnt * 8, sz);
+    S64(S + 0x316000 + vcnt * 8, noff);
+    S64(S + 0x326000 + vcnt * 8, sz);
     SVTYPE(S, vcnt, sid);
     # Emit each scalar field (flatten nested structs)
     var fc = GETFCOUNT(S, si);
@@ -1552,8 +1552,8 @@ fn PARSE_GVAR_ARR(S, noff) {
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
     var vc = GVCNT(S);
-    S64(S + 0x2B8000 + vc * 8, noff);
-    S64(S + 0x2C0000 + vc * 8, sz);
+    S64(S + 0x316000 + vc * 8, noff);
+    S64(S + 0x326000 + vc * 8, sz);
     SLVAR(S, vc);
     SVCNT(S, vc + 1);
     return 0;
@@ -1617,20 +1617,20 @@ fn PARSE_GVAR_REG(S) {
     STI(S, save_peek);  # restore
     # Register
     var vcnt = GVCNT(S);
-    S64(S + 0x2B8000 + vcnt * 8, noff);
+    S64(S + 0x316000 + vcnt * 8, noff);
     if (is_struct == 1) {
-        S64(S + 0x2C0000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
+        S64(S + 0x326000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
         SVTYPE(S, vcnt, ssid);
     } else {
         if (ann_scalar > 0) {
             if (ann_scalar < 8) {
-                S64(S + 0x2C0000 + vcnt * 8, ann_scalar);
+                S64(S + 0x326000 + vcnt * 8, ann_scalar);
                 SVTYPE(S, vcnt, ann_scalar);
             } else {
-                S64(S + 0x2C0000 + vcnt * 8, 8);
+                S64(S + 0x326000 + vcnt * 8, 8);
             }
         } else {
-            S64(S + 0x2C0000 + vcnt * 8, 8);
+            S64(S + 0x326000 + vcnt * 8, 8);
             if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
             elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
         }
@@ -1807,19 +1807,19 @@ fn PARSE_VAR(S) {
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
-        S64(S + 0x2B8000 + vcnt * 8, noff);
+        S64(S + 0x316000 + vcnt * 8, noff);
         if (scalar_type > 0) {
             if (scalar_type < 8) {
-                S64(S + 0x2C0000 + vcnt * 8, scalar_type);
+                S64(S + 0x326000 + vcnt * 8, scalar_type);
                 SVTYPE(S, vcnt, scalar_type);
                 EVSTORE_W(S, vcnt, scalar_type);
             } else {
                 # i64 explicit — same as default
-                S64(S + 0x2C0000 + vcnt * 8, 8);
+                S64(S + 0x326000 + vcnt * 8, 8);
                 EVSTORE(S, vcnt);
             }
         } else {
-            S64(S + 0x2C0000 + vcnt * 8, 8);
+            S64(S + 0x326000 + vcnt * 8, 8);
             if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
             EVSTORE(S, vcnt);
         }
@@ -2096,8 +2096,8 @@ fn PARSE_FOR(S) {
                 # rax has the collection (vec pointer)
                 # Store collection in hidden var
                 var ficol = GVCNT(S);
-                S64(S + 0x2B8000 + ficol * 8, 0);
-                S64(S + 0x2C0000 + ficol * 8, 8);
+                S64(S + 0x316000 + ficol * 8, 0);
+                S64(S + 0x326000 + ficol * 8, 8);
                 SVCNT(S, ficol + 1);
                 EVSTORE(S, ficol);
                 # Get length: call vec_len(collection)
@@ -2119,8 +2119,8 @@ fn PARSE_FOR(S) {
                 ECALLCLEAN(S, 1);
                 # Store length in hidden var
                 var filen = GVCNT(S);
-                S64(S + 0x2B8000 + filen * 8, 0);
-                S64(S + 0x2C0000 + filen * 8, 8);
+                S64(S + 0x316000 + filen * 8, 0);
+                S64(S + 0x326000 + filen * 8, 8);
                 SVCNT(S, filen + 1);
                 EVSTORE(S, filen);
                 # Index var (starts at 0)
@@ -2219,8 +2219,8 @@ fn PARSE_FOR(S) {
             # End value into hidden global
             PEXPR(S);
             var fiend = GVCNT(S);
-            S64(S + 0x2B8000 + fiend * 8, 0);
-            S64(S + 0x2C0000 + fiend * 8, 8);
+            S64(S + 0x316000 + fiend * 8, 0);
+            S64(S + 0x326000 + fiend * 8, 8);
             SVCNT(S, fiend + 1);
             EVSTORE(S, fiend);
             # Loop setup
@@ -2784,8 +2784,8 @@ fn PARSE_SWITCH(S) {
     }
     # Allocate hidden global to hold switch value
     var swidx = GVCNT(S);
-    S64(S + 0x2B8000 + swidx * 8, 0);
-    S64(S + 0x2C0000 + swidx * 8, 8);
+    S64(S + 0x316000 + swidx * 8, 0);
+    S64(S + 0x326000 + swidx * 8, 8);
     SVCNT(S, swidx + 1);
     EVSTORE(S, swidx);
     if (use_table == 1) {
@@ -2934,8 +2934,8 @@ fn PARSE_MATCH(S) {
     STI(S, GTI(S) + 1);
     # Store match value in hidden temp var
     var midx = GVCNT(S);
-    S64(S + 0x2B8000 + midx * 8, 0);
-    S64(S + 0x2C0000 + midx * 8, 8);
+    S64(S + 0x316000 + midx * 8, 0);
+    S64(S + 0x326000 + midx * 8, 8);
     SVCNT(S, midx + 1);
     EVSTORE(S, midx);
     var ends[256];
@@ -3158,7 +3158,7 @@ fn PARSE_STMT(S) {
             if (vt < 0) {
                 if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
             }
-            var avsz = L64(S + 0x2C0000 + idx * 8);
+            var avsz = L64(S + 0x326000 + idx * 8);
             var ew = GEXW(S);
             if (avsz < 8) {
                 if (ew > avsz) { WARN(S, "narrowing assignment (value may truncate)", 45); }

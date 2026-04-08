@@ -13,6 +13,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bug #18: bridge.cyr stale heap map**: Rewrote heap map comments to match
   actual code (tok_types at 0xA2000, tok_values at 0xE2000, brk at 0x122000).
 - **Bug #20: bridge.cyr dead code**: Removed unused EMOVC function.
+- **VCNT expanded 4096→8192**: Variable table (var_noffs, var_sizes, var_types)
+  relocated to end of heap (0x316000/0x326000/0x336000). Each array now 65536 bytes
+  (8192 entries × 8). brk extended to 0x346000. Unblocks vidya + sakshi combined
+  compilation which exceeded the 4096 limit.
 
 ## [2.0.0] — 2026-04-08
 
