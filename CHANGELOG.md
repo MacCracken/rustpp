@@ -6,6 +6,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-04-07
+
+### Added — Standard Library
+- **`lib/thread.cyr`**: Thread creation, joining, mutex, and channels.
+  - `thread_create(fp, arg)` — spawn thread via clone+mmap stack
+  - `thread_join(t)` — futex-based wait for thread completion
+  - `mutex_new/lock/unlock` — futex-based mutual exclusion
+  - `chan_new/send/recv/close` — bounded MPSC channel with futex wait/wake
+  - `mmap_stack/munmap_stack` — mmap-based thread stack allocation
+
+### Added — Syscalls
+- `SYS_CLONE`, `SYS_FUTEX`, `SYS_MUNMAP`, `SYS_GETTID`, `SYS_SET_TID_ADDRESS`, `SYS_EXIT_GROUP`
+- `CloneFlag` enum: CLONE_VM, CLONE_FS, CLONE_FILES, CLONE_SIGHAND, CLONE_THREAD, etc.
+- `MmapConst` enum: PROT_READ, PROT_WRITE, MAP_PRIVATE, MAP_ANONYMOUS
+- `FutexOp` enum: FUTEX_WAIT, FUTEX_WAKE, FUTEX_PRIVATE_FLAG
+
+### Fixed — Standard Library
+- **Bug #9: `getenv()` returns wrong values** (`lib/io.cyr`): Variables `eq` and `ci`
+  declared inside while loop leaked scope across iterations, causing false matches.
+  Moved declarations outside the loop. `getenv("HOME")` now returns `/home/macro`.
+- **Bug #10: `exec_capture()` hangs/crashes** (`lib/process.cyr`): `var pipefd[2]` was
+  only 2 bytes but `pipe()` writes two 32-bit ints (8 bytes). Buffer overflow corrupted
+  stack. Fixed: `pipefd[16]` + `load32` for fd extraction. Also fixed in `run_capture()`.
+
 ## [1.10.0] — 2026-04-07
 
 ### Added — Compiler

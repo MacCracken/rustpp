@@ -1,9 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v1.10.0.** 194KB self-hosting compiler, both architectures.
+> **v1.10.1.** 205KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
-> Frontend/backend/common architecture. 24 f64 builtins + 7 SIMD ops. #derive(Serialize). Include-once.
-> Identifier dedup. Jump tables. TOML parser. VCNT 4096. Preprocess output 512KB.
+> Inline functions. R12 register spill. ret2/rethi. #ref TOML. 7 SIMD ops. Threads + channels.
+> 22 stdlib modules. #derive(Serialize). Include-once. Jump tables. VCNT 4096.
 >
 > agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
@@ -15,14 +15,12 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Bugs
 
-All P1 bugs resolved. One open P2:
+Open bugs:
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 8 | **`#derive(Serialize)` truncates long field names** | P2 | Struct fields longer than ~16 characters get truncated in the generated JSON key strings. Example: `completion_tokens` becomes `completion_tokentotal_tokens`. Workaround: use shorter field names. Fix: use dynamic string emission or larger buffer in derive string generation. |
-| 9 | **`getenv()` in io.cyr returns wrong values** | P2 | `getenv("HOME")` returns `"macro"` instead of `"/home/macro"`. The `var eq = 1` re-declaration inside the while loop body may not reset across iterations due to a variable scoping issue, causing early false-positive matches inside other entries' values. Workaround: manual `/proc/self/environ` scan with `memeq` (used in ai-hwaccel `cmd_getenv`). |
-| 10 | **`exec_capture()` hangs in some binaries** | P2 | `exec_capture` from process.cyr hangs when run from compiled test binaries. Fork succeeds, child appears to execute, but parent `sys_read` on pipe never completes. May be related to heap state inherited by forked child or pipe fd inheritance. Workaround: test subprocess execution via integration tests with dedicated test binaries. |
-| 11 | **`continue` in for-loops causes infinite loop** | **P1** | `continue` inside a `for (var i = 0; i < n; i = i + 1)` loop body causes an infinite loop — the increment expression `i = i + 1` is skipped, so `i` never advances. Discovered during argonaut port (all `continue` had to be replaced with `if/elif/else` restructuring). The stdlib has zero uses of `continue`, confirming this is a known avoidance pattern. Fix: emit `continue` jump target after the increment expression, not before it. |
+| 8 | **`#derive(Serialize)` truncates long field names** | P2 | Struct fields longer than ~16 characters get truncated in the generated JSON key strings. Workaround: use shorter field names. |
+| 11 | **`continue` in for-loops causes infinite loop** | **P1** | `continue` inside `for` skips the increment expression. Workaround: use `if/elif/else` restructuring. Fix: emit `continue` jump target after the increment expression. |
 
 ---
 
@@ -39,17 +37,11 @@ ai-hwaccel port — unblocked with f64_round, fmt_float, getenv (v1.9.4).
 
 ---
 
-## v1.10.0 — Concurrency, Codegen, Compile-Time Data
+## v1.10.x — Remaining
 
 | # | Feature | Effort | Area |
 |---|---------|--------|------|
-| 1 | Async/await | High | Concurrency — tokio-style patterns |
-| 2 | ~~Inline small functions~~ | ~~Medium~~ | **Done** (v1.10.0). Token replay inlining for 1-param functions ≤6 tokens. |
-| 3 | ~~Return-by-value small structs~~ | ~~Medium~~ | **Done** (v1.10.0). `ret2(a,b)` returns rax:rdx, `rethi()` reads rdx. |
-| 4 | ~~Register allocation~~ | ~~High~~ | **Done** (v1.10.0). R12 spill for first expression temp, ESPILL/EUNSPILL counter. |
-| 5 | ~~`#ref` TOML compile-time data~~ | ~~High~~ | **Done** (v1.10.0). Phase 1: `#ref "file.toml"` emits `var key = value;` at compile time. PP_REF_PASS pre-pass. |
-
-Prerequisites: concurrency primitives (threads, atomics, channels) needed before async/await.
+| 1 | Async/await | High | Concurrency — event loop + task scheduler on top of thread.cyr primitives |
 
 ---
 
@@ -67,21 +59,6 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 
 ---
 
-## AGNOS Kernel — Next
-
-Current: 97KB x86_64, boots on QEMU, 25 syscalls, interactive shell.
-
-| # | Feature | Effort |
-|---|---------|--------|
-| 1 | **VirtIO net** | Medium |
-| 2 | **TCP/IP stack** | Very High |
-| 3 | **SMP** | High |
-| 4 | **Signals** | Medium |
-| 5 | **Pipe/redirect** | Medium |
-| 6 | **ATA/NVMe** | High |
-| 7 | **FAT32 or ext2** | High |
-
----
 
 ## Performance Optimizations
 

@@ -93,15 +93,17 @@ fn getenv(name) {
     if (n <= 0) { return 0; }
     var nlen = strlen(name);
     var pos = 0;
+    var eq = 0;
+    var ci = 0;
     while (pos < n) {
         # Check if this entry starts with name=
-        var eq = 1;
-        var ci = 0;
+        eq = 1;
+        ci = 0;
         while (ci < nlen) {
             if (load8(&buf + pos + ci) != load8(name + ci)) { eq = 0; break; }
             ci = ci + 1;
         }
-        if (eq == 1 && load8(&buf + pos + nlen) == 61) {
+        if (eq == 1) { if (load8(&buf + pos + nlen) == 61) {
             # Found: return pointer to value (copy to heap for safety)
             var vstart = pos + nlen + 1;
             var vlen = 0;
@@ -110,9 +112,9 @@ fn getenv(name) {
             memcpy(result, &buf + vstart, vlen);
             store8(result + vlen, 0);
             return result;
-        }
+        } }
         # Skip to next null terminator
-        while (pos < n && load8(&buf + pos) != 0) { pos = pos + 1; }
+        while (pos < n) { if (load8(&buf + pos) == 0) { break; } pos = pos + 1; }
         pos = pos + 1;
     }
     return 0;
