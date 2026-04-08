@@ -2385,32 +2385,33 @@ fn PARSE_FN_DEF(S) {
     # Parse body
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
-    # Record body start for inline replay
-    SFBS(S, fi, GTI(S));
+    # Record body start for inline replay (x86 only)
+    if (_INLINE_OK == 1) { SFBS(S, fi, GTI(S)); }
     PARSE_PROG(S);
     if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
-    # Record body end and classify inline candidate
-    SFBE(S, fi, GTI(S));
-    var btokens = GTI(S) - GFBS(S, fi);
-    var can_inline = 1;
-    if (pc > 1) { can_inline = 0; }
-    if (btokens > 6) { can_inline = 0; }
-    if (can_inline == 1) {
-        var sci = GFBS(S, fi);
-        while (sci < GTI(S)) {
-            var st = TOKTYP(S, sci);
-            if (st == 15) { can_inline = 0; }
-            if (st == 16) { can_inline = 0; }
-            if (st == 55) { can_inline = 0; }
-            if (st == 3) { can_inline = 0; }
-            sci = sci + 1;
+    # Record body end and classify inline candidate (x86 only)
+    if (_INLINE_OK == 1) {
+        SFBE(S, fi, GTI(S));
+        var btokens = GTI(S) - GFBS(S, fi);
+        var can_inline = 1;
+        if (pc > 1) { can_inline = 0; }
+        if (btokens > 6) { can_inline = 0; }
+        if (can_inline == 1) {
+            var sci = GFBS(S, fi);
+            while (sci < GTI(S)) {
+                var st = TOKTYP(S, sci);
+                if (st == 15) { can_inline = 0; }
+                if (st == 16) { can_inline = 0; }
+                if (st == 55) { can_inline = 0; }
+                if (st == 3) { can_inline = 0; }
+                sci = sci + 1;
+            }
         }
+        if (can_inline == 1) {
+            if (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
+            elif (pc == 0) { SFINL(S, fi, 1); }
+        } else { SFINL(S, fi, 0); }
     }
-    # Store param name offset (nonzero = inlineable, 0 = not)
-    if (can_inline == 1) {
-        if (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
-        elif (pc == 0) { SFINL(S, fi, 1); }
-    } else { SFINL(S, fi, 0); }
     STI(S, GTI(S) + 1);
     # Patch all return jumps to here
     var rpc = GRPC(S);

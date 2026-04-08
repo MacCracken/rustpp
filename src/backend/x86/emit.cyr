@@ -67,6 +67,7 @@ fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
 
 # Register spill: save rax to r12 (level 0) or push (deeper levels)
 var _rsl = 0;
+var _INLINE_OK = 1;
 fn ESPILL(S) {
     if (_rsl == 0) {
         EB(S, 0x49); EB(S, 0x89); EB(S, 0xC4);

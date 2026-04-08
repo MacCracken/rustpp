@@ -1136,9 +1136,6 @@ fn PP_REF_PASS(S) {
 }
 
 fn PREPROCESS(S) {
-    # Pre-pass: expand #ref directives
-    PP_REF_PASS(S);
-    # Pass 1: expand includes + evaluate top-level #ifdef/#define
     PP_PASS(S);
     # Pass 2: evaluate #ifdef/#define in included content
     PP_IFDEF_PASS(S);
