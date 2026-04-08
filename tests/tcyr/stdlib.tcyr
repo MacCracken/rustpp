@@ -1,0 +1,56 @@
+# Test: Standard library modules
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/tagged.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("alloc");
+var p = alloc(64);
+assert_nonnull(p, "alloc returns non-null");
+
+test_group("vec");
+var v = vec_new();
+vec_push(v, 10);
+vec_push(v, 20);
+vec_push(v, 30);
+assert_eq(vec_len(v), 3, "vec length");
+assert_eq(vec_get(v, 0), 10, "vec get 0");
+assert_eq(vec_get(v, 2), 30, "vec get 2");
+assert_eq(vec_pop(v), 30, "vec pop");
+assert_eq(vec_len(v), 2, "vec len after pop");
+
+test_group("str");
+var s = str_from("hello");
+assert_eq(str_len(s), 5, "str len");
+var s2 = str_cat(s, str_from(" world"));
+assert_eq(str_len(s2), 11, "str cat len");
+assert(str_eq(s, str_from("hello")) == 1, "str eq");
+assert(str_starts_with(s2, "hello") == 1, "str starts_with");
+
+test_group("hashmap");
+var m = map_new();
+map_set(m, "x", 10);
+map_set(m, "y", 20);
+assert_eq(map_get(m, "x"), 10, "map get x");
+assert_eq(map_get(m, "y"), 20, "map get y");
+assert_eq(map_count(m), 2, "map count");
+assert(map_has(m, "x") == 1, "map has x");
+assert(map_has(m, "z") == 0, "map has z");
+map_delete(m, "x");
+assert_eq(map_count(m), 1, "map count after delete");
+
+test_group("tagged");
+var ok = Ok(42);
+assert(is_ok(ok) == 1, "is_ok");
+assert_eq(payload(ok), 42, "Ok payload");
+var err = Err(99);
+assert(is_ok(err) == 0, "Err is not ok");
+assert_eq(err_code_of(err), 99, "Err code");
+
+var r = assert_summary();

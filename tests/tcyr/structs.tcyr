@@ -1,0 +1,35 @@
+# Test: Structs, unions, sized fields, sizeof
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+
+struct Point { x; y; }
+struct Packet { tag: i8; len: i16; data: i32; payload; }
+union Value { as_int; as_ptr; }
+struct Seg { start: Point; end: Point; }
+
+alloc_init();
+
+test_group("struct basics");
+assert_eq(sizeof(Point), 16, "sizeof Point");
+var p = Point { 10, 20 };
+assert_eq(p.x, 10, "Point.x");
+assert_eq(p.y, 20, "Point.y");
+
+test_group("typed fields");
+assert_eq(sizeof(Packet), 15, "sizeof Packet (1+2+4+8)");
+
+test_group("unions");
+assert_eq(sizeof(Value), 8, "sizeof Value (max field)");
+var v = Value { 42, 42 };
+assert_eq(v.as_int, 42, "union field access");
+
+test_group("nested structs");
+assert_eq(sizeof(Seg), 32, "sizeof Seg (2 Points)");
+var s = Seg { 1, 2, 3, 4 };
+assert_eq(s.start.x, 1, "nested start.x");
+assert_eq(s.end.y, 4, "nested end.y");
+
+var r = assert_summary();

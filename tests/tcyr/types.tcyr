@@ -1,0 +1,60 @@
+# Test: Multi-width types, sizeof, type annotations
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+test_group("sizeof");
+assert_eq(sizeof(i8), 1, "sizeof i8");
+assert_eq(sizeof(i16), 2, "sizeof i16");
+assert_eq(sizeof(i32), 4, "sizeof i32");
+assert_eq(sizeof(i64), 8, "sizeof i64");
+assert_eq(sizeof(u128), 16, "sizeof u128");
+
+test_group("i8 storage");
+fn test_i8_store() {
+    var x: i8 = 42;
+    return x;
+}
+fn test_i8_trunc() {
+    var x: i8 = 256;
+    return x;
+}
+fn test_i8_wrap() {
+    var x: i8 = 255;
+    x = x + 1;
+    return x;
+}
+assert_eq(test_i8_store(), 42, "i8 store 42");
+assert_eq(test_i8_trunc(), 0, "i8 truncate 256");
+assert_eq(test_i8_wrap(), 0, "i8 wrap 255+1");
+
+test_group("i16 storage");
+fn test_i16_store() {
+    var x: i16 = 30000;
+    return x;
+}
+fn test_i16_max() {
+    var x: i16 = 65535;
+    return x;
+}
+assert_eq(test_i16_store(), 30000, "i16 store 30000");
+assert_eq(test_i16_max(), 65535, "i16 max");
+
+test_group("i32 storage");
+fn test_i32_store() {
+    var x: i32 = 100000;
+    return x;
+}
+assert_eq(test_i32_store(), 100000, "i32 store 100000");
+
+test_group("mixed widths");
+fn test_mixed() {
+    var a: i8 = 10;
+    var b: i16 = 20;
+    var c: i32 = 30;
+    var d = 40;
+    return a + b + c + d;
+}
+assert_eq(test_mixed(), 100, "mixed width arithmetic");
+
+var r = assert_summary();

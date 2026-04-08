@@ -1,0 +1,42 @@
+# Test: Enums, match
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+
+enum Color { RED = 0; GREEN = 1; BLUE = 2; }
+enum Status { PENDING; ACTIVE; DONE; }
+
+test_group("enum values");
+assert_eq(RED, 0, "RED");
+assert_eq(GREEN, 1, "GREEN");
+assert_eq(BLUE, 2, "BLUE");
+
+test_group("enum auto-increment");
+assert_eq(PENDING, 0, "PENDING");
+assert_eq(ACTIVE, 1, "ACTIVE");
+assert_eq(DONE, 2, "DONE");
+
+test_group("enum dispatch");
+fn color_val(c) {
+    if (c == RED) { return 10; }
+    elif (c == GREEN) { return 20; }
+    elif (c == BLUE) { return 30; }
+    return 0;
+}
+assert_eq(color_val(RED), 10, "dispatch RED");
+assert_eq(color_val(BLUE), 30, "dispatch BLUE");
+
+test_group("match");
+fn status_val(s) {
+    match s {
+        0 => { return 100; }
+        1 => { return 200; }
+        _ => { return 300; }
+    }
+}
+assert_eq(status_val(PENDING), 100, "match PENDING");
+assert_eq(status_val(DONE), 300, "match DONE");
+
+var r = assert_summary();

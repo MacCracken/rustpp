@@ -1,0 +1,72 @@
+# Test: Core language features
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+test_group("Arithmetic");
+assert_eq(2 + 3, 5, "add");
+assert_eq(10 - 7, 3, "sub");
+assert_eq(6 * 7, 42, "mul");
+assert_eq(100 / 10, 10, "div");
+assert_eq(17 % 5, 2, "mod");
+assert_eq(2 + 3 * 4, 14, "precedence");
+
+test_group("Bitwise");
+assert_eq(0xFF & 0x0F, 15, "and");
+assert_eq(0xF0 | 0x0F, 0xFF, "or");
+assert_eq(0xFF ^ 0x0F, 0xF0, "xor");
+assert_eq(1 << 8, 256, "shl");
+assert_eq(256 >> 4, 16, "shr");
+
+test_group("Control flow");
+fn test_if(x) {
+    if (x > 0) { return 1; }
+    return 0;
+}
+fn test_elif(x) {
+    if (x == 1) { return 10; }
+    elif (x == 2) { return 20; }
+    else { return 30; }
+}
+assert_eq(test_if(5), 1, "if true");
+assert_eq(test_if(0), 0, "if false");
+assert_eq(test_elif(1), 10, "elif first");
+assert_eq(test_elif(2), 20, "elif second");
+assert_eq(test_elif(3), 30, "elif else");
+
+test_group("Loops");
+fn test_while() {
+    var sum = 0;
+    var i = 0;
+    while (i < 10) { sum = sum + i; i = i + 1; }
+    return sum;
+}
+fn test_for() {
+    var sum = 0;
+    for (var i = 0; i < 10; i = i + 1) { sum = sum + i; }
+    return sum;
+}
+fn test_for_range() {
+    var sum = 0;
+    for i in 0..10 { sum = sum + i; }
+    return sum;
+}
+assert_eq(test_while(), 45, "while sum");
+assert_eq(test_for(), 45, "for sum");
+assert_eq(test_for_range(), 45, "for-in range sum");
+
+test_group("Functions");
+fn fib(n) {
+    if (n <= 1) { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+assert_eq(fib(10), 55, "fibonacci");
+fn add(a, b) { return a + b; }
+assert_eq(add(20, 22), 42, "function call");
+
+test_group("Strings");
+assert_eq(strlen("hello"), 5, "strlen");
+assert(streq("abc", "abc") == 1, "streq match");
+assert(streq("abc", "xyz") == 0, "streq no match");
+
+var r = assert_summary();

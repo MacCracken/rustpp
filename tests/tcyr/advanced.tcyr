@@ -1,0 +1,62 @@
+# Test: Methods, operators, for-in collection, break, continue
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+
+struct Counter { val; }
+struct Num { v; }
+
+fn Counter_inc(self) { store64(self, load64(self) + 1); return 0; }
+fn Counter_get(self) { return load64(self); }
+fn Num_add(a, b) { return a + b; }
+
+fn test_break() {
+    var sum = 0;
+    for (var i = 0; i < 100; i = i + 1) {
+        if (i == 10) { break; }
+        sum = sum + i;
+    }
+    return sum;
+}
+
+fn test_continue() {
+    var sum = 0;
+    for (var i = 0; i < 10; i = i + 1) {
+        if (i % 2 == 0) { continue; }
+        sum = sum + i;
+    }
+    return sum;
+}
+
+fn test_forin() {
+    var items = vec_new();
+    vec_push(items, 10);
+    vec_push(items, 20);
+    vec_push(items, 30);
+    var total = 0;
+    for item in items { total = total + item; }
+    return total;
+}
+
+alloc_init();
+
+test_group("methods");
+var c = Counter { 0 };
+c.inc(); c.inc(); c.inc();
+assert_eq(c.get(), 3, "method counter");
+
+test_group("operator overloading");
+var a: Num = 20;
+var b: Num = 22;
+assert_eq(a + b, 42, "operator add");
+
+test_group("for-in collection");
+assert_eq(test_forin(), 60, "for-in sum");
+
+test_group("break and continue");
+assert_eq(test_break(), 45, "break at 10");
+assert_eq(test_continue(), 25, "continue skip evens");
+
+var r = assert_summary();
