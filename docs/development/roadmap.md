@@ -150,16 +150,49 @@ multi-file compilation (.o + link)
 
 ---
 
-## Standard Library (28 modules)
+## Standard Library (29 modules)
 
 | Module | Added |
 |--------|-------|
 | string, alloc, str, vec, fmt, io, args | v0.9.x |
 | fnptr, callback, assert, bench, bounds | v0.9.x |
-| hashmap, json, toml, tagged, trait | v1.7–1.8 |
+| hashmap, hashmap_fast, json, toml, tagged, trait | v1.7–2.1 |
 | matrix, vidya, regex, net, fs | v1.8–1.9 |
 | syscalls, process | v1.9.x |
 | thread, async, freelist, math | v1.10–1.11 |
+
+Expansion targets:
+- `lib/http.cyr` — HTTP/1.1 client + server (socket-based, stdlib module)
+- `lib/tls.cyr` — TLS 1.3 via syscall-based approach or bundled
+- `lib/ws.cyr` — WebSocket protocol (depends on http.cyr)
+
+---
+
+## `cyrb serve` — Dev Server (v2.2+)
+
+Developer tooling verb. File watcher + auto-rebuild + hot-reload.
+No npm, no cargo-watch, no nodemon. One tool.
+
+| Phase | Status | Detail |
+|-------|--------|--------|
+| 1 | Planned | `cyrb serve src/main.cyr` — watch .cyr files, recompile + restart on change |
+| 2 | Planned | HTTP dev server — `cyrb serve --http 8080` serves static files + auto-rebuild |
+| 3 | Planned | WebSocket live-reload — browser auto-refreshes on recompile |
+| 4 | Planned | Proxy mode — forward API requests to running binary |
+
+Phase 1 needs: `inotify` syscall wrapper (Linux file watching).
+Phase 2 needs: `lib/http.cyr` (socket bind/accept/parse/respond).
+Phase 3 needs: `lib/ws.cyr` (WebSocket upgrade + frame protocol).
+
+```
+cyrb build    — compile
+cyrb test     — run .tcyr
+cyrb bench    — run .bcyr
+cyrb port     — scaffold from Rust
+cyrb init     — new project
+cyrb serve    — dev server with hot-reload
+cyrb audit    — code quality check
+```
 
 Expansion targets:
 - `lib/chrono.cyr` — timestamps, duration math, `clock_gettime`

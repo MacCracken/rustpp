@@ -104,6 +104,7 @@ Project:
   deps                            show resolved dependencies from cyrb.toml
 
 Quality:
+  serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
@@ -850,6 +851,68 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         else
             echo "no installed stdlib found or no lib/ directory"
             echo "manual update: cp ../cyrius/lib/*.cyr lib/"
+        fi
+        ;;
+
+    # === Serve: dev server with file watching ===
+    serve)
+        shift
+        src="${1:-src/main.cyr}"
+        out="${2:-build/serve_bin}"
+        port="${3:-8080}"
+        if [ ! -f "$src" ]; then
+            echo "Usage: cyrb serve [source.cyr] [output] [port]"
+            echo "  Watches .cyr files, recompiles and restarts on change."
+            echo "  Default: cyrb serve src/main.cyr build/serve_bin"
+            exit 1
+        fi
+        mkdir -p "$(dirname "$out")"
+        echo "cyrb serve: watching $src"
+        echo "  compile: $src -> $out"
+        echo "  press Ctrl+C to stop"
+        echo ""
+        pid=0
+        compile_and_run() {
+            # Kill previous instance
+            if [ "$pid" -gt 0 ] 2>/dev/null; then
+                kill "$pid" 2>/dev/null
+                wait "$pid" 2>/dev/null
+            fi
+            printf "  [%s] compiling... " "$(date +%H:%M:%S)"
+            if cat "$src" | "$CC" > "$out" 2>/tmp/cyrb_serve_err; then
+                chmod +x "$out"
+                sz=$(wc -c < "$out")
+                echo "ok (${sz} bytes)"
+                # Run in background
+                "$out" &
+                pid=$!
+                echo "  [$(date +%H:%M:%S)] running (pid $pid)"
+            else
+                echo "FAIL"
+                cat /tmp/cyrb_serve_err >&2
+                pid=0
+            fi
+        }
+        # Initial compile + run
+        compile_and_run
+        # Watch for changes using inotifywait if available, else poll
+        if command -v inotifywait > /dev/null 2>&1; then
+            while true; do
+                inotifywait -q -r -e modify,create,delete --include '\.cyr$' . 2>/dev/null
+                echo ""
+                compile_and_run
+            done
+        else
+            # Fallback: poll every 2 seconds
+            last_hash=""
+            while true; do
+                sleep 2
+                cur_hash=$(find . -name '*.cyr' -newer "$out" 2>/dev/null | head -1)
+                if [ -n "$cur_hash" ]; then
+                    echo ""
+                    compile_and_run
+                fi
+            done
         fi
         ;;
 

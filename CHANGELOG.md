@@ -28,6 +28,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   added `PP_REF_PASS(S);` before `PP_PASS(S);`. `#ref "file.toml"` now
   correctly emits `var key = value;` for each TOML entry. Unblocks defmt.
 
+### Added — Tooling
+- **`cyrb serve`**: Dev server with file watching. Watches .cyr files, recompiles
+  and restarts on change. Uses `inotifywait` if available, falls back to polling.
+  `cyrb serve src/main.cyr` — one command, full dev loop.
+- **Inotify syscall wrappers** (`lib/syscalls.cyr`): `sys_inotify_init`,
+  `sys_inotify_add_watch`, `sys_inotify_rm_watch`, `InotifyEvent` enum.
+
 ### Focus: defmt, cyrius-ts scaffold
 
 ## [2.1.3] — 2026-04-08
