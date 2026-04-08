@@ -114,7 +114,7 @@ multi-file compilation (.o + link)
 | Limit | Current | Detail |
 |-------|---------|--------|
 | Functions | 1024 | Error at limit |
-| Variables (VCNT) | 4096 | Expanded from 2048 in v1.8.2 |
+| Variables (VCNT) | 4096 | Expanded from 2048 in v1.8.2. **Blocker**: vidya + sakshi combined exceeds limit. Needs bump or per-include scoping. |
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
 | Fixup entries | 8192 | Expanded from 4096 in v1.10.2 |
 | Struct fields | 32 | Expanded from 16 in v1.12.0 |
