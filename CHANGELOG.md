@@ -19,6 +19,9 @@ Development branch. Features land incrementally. Release after audit + feedback.
   - Backward compatible: untyped variables remain i64. Self-hosting unchanged.
   - New emit functions: EVLOAD_W, EVSTORE_W, EFLLOAD_W, EFLSTORE_W
   - Struct type IDs disambiguated from scalar types via var_sizes check
+- **`sizeof(Type)` operator**: Compile-time constant returning byte size of any type.
+  `sizeof(i8)`=1, `sizeof(i16)`=2, `sizeof(i32)`=4, `sizeof(i64)`=8,
+  `sizeof(StructName)`=recursive field size. Token 100, handled in PARSE_FACTOR.
 
 ## [1.12.1] — 2026-04-07
 

@@ -281,6 +281,32 @@ fn PARSE_FACTOR(S) {
     SESTYPE(S, 0);
     SESVAR(S, 0 - 1);
     if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
+    # sizeof(Type) — compile-time constant
+    if (typ == 100) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var szn = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        # Check scalar types
+        var szname = L64(S + 0x60000 + szn);
+        var szval = 0;
+        if (szname & 0xFFFF == 0x3869) { szval = 1; }
+        elif (szname & 0xFFFFFF == 0x363169) { szval = 2; }
+        elif (szname & 0xFFFFFF == 0x323369) { szval = 4; }
+        elif (szname & 0xFFFFFF == 0x343669) { szval = 8; }
+        else {
+            # Check struct
+            var szsid = FINDSTRUCT(S, szn);
+            if (szsid > 0) { szval = STRUCTSZ(S, szsid - 1); }
+            else { ERR_MSG(S, "sizeof: unknown type", 20); }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        EMOVI(S, szval);
+        return 0;
+    }
     if (typ == 1) {
         var val = PEEKV(S);
         STI(S, GTI(S) + 1);
@@ -2892,7 +2918,7 @@ fn PARSE_STMT(S) {
     if (typ == 46) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 47) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     # f64/SIMD builtins as statements
-    if (typ >= 62) { if (typ <= 99) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
+    if (typ >= 62) { if (typ <= 100) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
     if (typ == 2) {
         # Could be assignment or fn call as statement
         var noff = PEEKV(S);
