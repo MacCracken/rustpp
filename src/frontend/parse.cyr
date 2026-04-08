@@ -295,8 +295,24 @@ fn PARSE_FACTOR(S) {
             _cfo = 0;
             return 0;
         }
-        # Check for struct field access: ident.field
+        # Check for enum.variant or struct.field access
         if (PEEKT(S) == 41) {
+            # Peek: is the second ident a known global var? (enum variant)
+            var dot_ti = GTI(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 2) {
+                var vn = PEEKV(S);
+                var vi = FINDVAR(S, vn);
+                if (vi >= 0) {
+                    # Enum.VARIANT — load the variant's global value
+                    STI(S, GTI(S) + 1);
+                    EVLOAD(S, vi);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # Not an enum — rewind and do struct field load
+            STI(S, dot_ti);
             PARSE_FIELD_LOAD(S, noff);
             _cfo = 0;
             return 0;
@@ -2894,7 +2910,14 @@ fn PARSE_PROG(S) {
         var typ = PEEKT(S);
         if (typ == 12) { go = 0; }
         else { if (typ == 14) { go = 0; }
-        else { PARSE_STMT(S); } }
+        else { if (typ == 32) {
+            # fn definition inside top-level code (relaxed ordering)
+            # Emit jmp over fn body, compile fn, patch jmp
+            var fn_skip = EJMP0(S);
+            PARSE_FN_DEF(S);
+            EPATCH(S, fn_skip);
+        }
+        else { PARSE_STMT(S); } } }
     }
     return 0;
 }

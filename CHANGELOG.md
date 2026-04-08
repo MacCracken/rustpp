@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.1] — 2026-04-07
+
+### Added — Language
+- **Enum namespacing in expressions**: `Foo.BAR` now works in function call args,
+  assignments, return values, and all expression contexts. The parser resolves the
+  second identifier as a global variable (enum variant). Falls back to struct field
+  access if not found as a global.
+- **Relaxed fn ordering**: `fn` definitions may now appear after top-level statements.
+  PARSE_PROG emits a `jmp` over the fn body, compiles it, then patches the jump.
+  Enables patterns like `alloc_init(); fn helper() { ... } var x = helper();`.
+
 ## [1.11.0] — 2026-04-07
 
 ### Added — Standard Library

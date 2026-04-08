@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.11.0.** 205KB self-hosting compiler, both architectures.
+> **v1.11.1.** 205KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Inline functions. R12 register spill. ret2/rethi. #ref TOML. 7 SIMD ops. Threads + channels.
 > 22 stdlib modules. #derive(Serialize). Include-once. Jump tables. VCNT 4096.
@@ -15,7 +15,10 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Bugs
 
-**All bugs resolved.** Zero open issues.
+| # | Issue | Severity | Detail |
+|---|-------|----------|--------|
+| 14 | **1.11.0 silent compilation failure on large programs** | **P1** | Programs with ~6000+ lines of combined includes (stdlib + application modules) produce 0-byte binaries with no error message. Affects argonaut (12 modules + 24 stdlib = ~6400 lines). Same code compiles correctly on 1.10.2. Likely code buffer overflow or variable table exhaustion from freelist allocator or other 1.11.0 changes. |
+| 15 | **`#derive(Serialize)` + `#derive(Deserialize)` on same struct causes duplicate variable** | P2 | Using both derives produces "duplicate variable" error from generated code sharing variable names. Workaround: use `#derive(Serialize)` only, deserialize manually via `json_parse` + `json_get_int`. |
 
 ---
 
@@ -51,9 +54,9 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 
 | # | Feature | Effort | Area |
 |---|---------|--------|------|
-| 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` in function call args, assignments, return values. Workaround: bare variant names with unique prefixes. |
-| 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Workaround: all fns before statements. |
-| 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only. Add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()`. |
+| 1 | ~~Enum namespacing~~ | ~~Medium~~ | **Done** (v1.11.1). `Foo.BAR` resolves variant as global, falls back to struct field. |
+| 2 | ~~Relaxed fn ordering~~ | ~~Medium~~ | **Done** (v1.11.1). PARSE_PROG handles `fn` with jmp-over-body pattern. |
+| 3 | ~~Freelist allocator~~ | ~~Medium~~ | **Done** (v1.11.0). `lib/freelist.cyr` with `fl_alloc`/`fl_free`/`fl_calloc`. |
 
 ---
 
