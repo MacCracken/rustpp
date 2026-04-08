@@ -127,14 +127,19 @@ fn ESETCC(S, op) {
 fn ESYSCALL(S) { CX_EMIT(S, 112, 0, 0, 0); return 0; }
 fn EMOVRDI(S) { CX_EMIT(S, 2, 2, 0, 0); return 0; }  # mov r2, r0 (for exit)
 
+# Syscall arg pop: VM convention is r1=number, r2-r7=args
+# x86 push order: number, arg1, arg2, ... (left to right)
+# Pop order (reverse): last arg first, number last
 fn ESCPOPS(S, n) {
+    # Pop args into r(n+1) down to r2
     if (n >= 7) { CX_EMIT(S, 129, 7, 0, 0); }
     if (n >= 6) { CX_EMIT(S, 129, 6, 0, 0); }
     if (n >= 5) { CX_EMIT(S, 129, 5, 0, 0); }
     if (n >= 4) { CX_EMIT(S, 129, 4, 0, 0); }
     if (n >= 3) { CX_EMIT(S, 129, 3, 0, 0); }
     if (n >= 2) { CX_EMIT(S, 129, 2, 0, 0); }
-    if (n >= 1) { CX_EMIT(S, 129, 0, 0, 0); }
+    # Pop syscall number into r1 (always last, was pushed first)
+    if (n >= 1) { CX_EMIT(S, 129, 1, 0, 0); }
     ESYSCALL(S);
     return 0;
 }
@@ -162,9 +167,9 @@ fn EFNEPI(S) {
 }
 
 fn EEXIT(S) {
-    CX_EMIT(S, 2, 2, 0, 0);      # mov r2, r0 (exit code)
-    CX_MOVI(S, 1, 60);            # r1 = SYS_EXIT
-    CX_EMIT(S, 112, 0, 0, 0);    # syscall
+    CX_EMIT(S, 2, 2, 0, 0);      # mov r2, r0 (exit code → arg1)
+    CX_MOVI(S, 1, 60);            # r1 = 60 (SYS_EXIT)
+    CX_EMIT(S, 112, 0, 0, 0);    # syscall(r1=60, r2=exit_code)
     return 0;
 }
 
@@ -361,8 +366,8 @@ fn ETAILJMP(S, fnidx) {
 }
 
 # Token access (same as x86 — shared with frontend)
-fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0x122000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x346000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x446000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 

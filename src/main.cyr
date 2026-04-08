@@ -45,10 +45,10 @@
 #   0x91800  local_depths  [512]         64 scope depths per local var
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
 #   0x92200  local_types                 Local variable type tracking
-#   0xA2000  tok_types     [524288]      65536 token type slots
-#   0x122000 tok_values    [524288]      65536 token value slots
-#   0x1A2000 tok_lines     [524288]      65536 token line numbers
-#   0x222000 preprocess_out [524288]     512KB expanded source buffer
+#   0x346000  tok_types     [524288]      65536 token type slots
+#   0x446000 tok_values    [524288]      65536 token value slots
+#   0x546000 tok_lines     [524288]      65536 token line numbers
+#   0x646000 preprocess_out [524288]     512KB expanded source buffer
 #   0x2A2000 fixup_tbl     [131072]       8192 fixup entries (16 bytes each)
 #   0x2C2000 fn_names      [8192]        1024 function name offsets
 #   0x2C4000 fn_offsets    [8192]        1024 function code offsets
@@ -117,7 +117,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x346000);
+syscall(SYS_BRK, S + 0x6C6000);
 
 # Zero state
 S64(S + 0x8C100, 0);

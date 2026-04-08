@@ -31,7 +31,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
 | 24 | `#ref` directive broken — emitted `var` declarations cause parse errors | P2 | `#ref "file.toml"` emits `var x = 42;` but parsing fails with "unexpected ';'". Likely pre-existing (never tested in .tcyr suite). Blocks #ref perfect hash. |
 
-**Open bugs:** #23 (P4, argonaut-side), #24 (P2, blocks #ref_fn). All other compiler bugs fixed.
+| 25 | `include "lib/..."` resolves from CWD — project lib/ shadows stdlib | P2 | cc2 has no include path search. Projects with their own `lib/` directory (sakshi, vidya) shadow the Cyrius stdlib. Needs: `-I` flag or `$CYRIUS_HOME/lib` fallback. |
+
+**Open bugs:** #23 (P4, argonaut-side), #24 (P2, blocks #ref_fn), #25 (P2, include path). All other compiler bugs fixed.
 
 ---
 

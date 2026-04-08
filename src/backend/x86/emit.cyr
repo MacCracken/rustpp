@@ -479,8 +479,8 @@ fn EFLSTORE(S, idx) {
 # TOKEN ACCESS
 # ================================================================
 
-fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0x122000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x346000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x446000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 

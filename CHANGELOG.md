@@ -23,8 +23,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **CX compiler** (`src/main_cx.cyr`): Compiler entry point that includes cx backend
   instead of x86. Outputs .cyx files (CYX header + raw bytecode). 185KB binary.
 - **Float/asm stubs**: All float and inline asm functions stubbed for bytecode target.
-- **Status**: Compiles simple programs to .cyx. Register mapping between emitter and VM
-  needs alignment for correct syscall argument passing. Work in progress.
+- **Status**: Compiles and runs `syscall(60, 42)` → exit 42 through full pipeline.
+  Function calls need debugging (register spill/restore mismatch).
+- **Token limit expanded 65536→131072**: Token arrays (tok_types, tok_values, tok_lines)
+  relocated from 0xA2000 to 0x346000 (end of heap). Each array now 1MB (131072 entries
+  × 8 bytes). Preprocess buffer relocated to 0x646000. brk extended to 0x6C6000 (6.8MB).
+  Unblocks argonaut + system stdlib combined compilation.
 
 ## [2.1.0] — 2026-04-08
 
