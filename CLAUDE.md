@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 1.12.0
+- **Version**: 1.12.1
 - **Fixup entries**: 8192
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 

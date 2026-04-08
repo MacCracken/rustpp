@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.12.1] — 2026-04-07
+
+### Fixed — Standard Library
+- **Bug #17: `fncall2` undefined warning**: `hashmap.cyr` now includes `fnptr.cyr`
+  directly. Programs that include `hashmap.cyr` without `fnptr.cyr` no longer get
+  the "undefined function 'fncall2'" warning. Include-once dedup prevents double
+  inclusion for programs that include both.
+
 ## [1.12.0] — 2026-04-07
 
 ### Added — Compiler Hardening

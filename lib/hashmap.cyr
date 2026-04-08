@@ -1,6 +1,7 @@
 # hashmap.cyr — hash table with string keys and i64 values
 # Usage: include "lib/hashmap.cyr"
 # Requires: alloc.cyr, string.cyr
+include "lib/fnptr.cyr"
 #
 # Open addressing with linear probing. All keys are null-terminated strings.
 # All values are i64. Automatically grows at 70% load.

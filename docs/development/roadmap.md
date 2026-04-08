@@ -20,9 +20,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 14 | ~~Compiler segfault on ~6000+ line programs~~ | ~~P1~~ | **Fixed v1.11.4** — heap offset collision between `&&` extra_patches and `continue` forward-patches. |
 | 15 | ~~`#derive(Serialize)` + `#derive(Deserialize)` duplicate variable~~ | ~~P2~~ | **Fixed v1.11.1** |
 | 16 | Adding `include` shifts global addresses, breaks existing assertions | P3 | Adding a new `.cyr` file with `enum` blocks to a shared test header changed string/data offsets in the compiled binary, causing existing tests to fail with corrupted assertion labels (e.g. "^" instead of "mode server"). Workaround: keep new enum-heavy modules in separate compilation units. Root cause: global enum numbering or data section layout is position-dependent on total include count. Found in argonaut port (2026-04-07). |
-| 17 | `fncall2` undefined warning when `lib/hashmap.cyr` included without `lib/fnptr.cyr` | P4 | `hashmap.cyr:214` calls `fncall2` (for `map_foreach`) which lives in `fnptr.cyr`. Programs that include `hashmap.cyr` but not `fnptr.cyr` get a compile-time warning. Non-blocking (dead code path unless `map_foreach` is called), but should either auto-include the dependency or guard the reference. Found in argonaut port (2026-04-07). |
+| 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** — `hashmap.cyr` now includes `fnptr.cyr` directly. |
 
-**Open bugs:** #16 (P3), #17 (P4). Struct field limit expanded 16→32 in v1.12.0.
+**Open bugs:** #16 (P3). Needs reproduction case — likely triggered by majra port.
 
 ---
 
