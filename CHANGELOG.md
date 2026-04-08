@@ -35,6 +35,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Inotify syscall wrappers** (`lib/syscalls.cyr`): `sys_inotify_init`,
   `sys_inotify_add_watch`, `sys_inotify_rm_watch`, `InotifyEvent` enum.
 
+- **`lib/sakshi.cyr`**: Tracing and error handling library incorporated into stdlib.
+  Minimal profile (176 lines, zero heap, stderr output). Provides: sakshi_info/warn/error/debug,
+  sakshi_err_new/err_with_ctx/err_code/err_category, `#if` log level gating. From sakshi v0.5.0.
 - **Bug #28: "undefined variable" error message**: Assignment to or use of an undefined
   variable now prints `error:N: undefined variable 'name'` instead of the cryptic
   `unexpected ';'`. Fixed in both PARSE_STMT (assignment) and PARSE_FACTOR (expression).
