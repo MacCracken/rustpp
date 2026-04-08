@@ -388,10 +388,11 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     store64(S + 0x97008 + dsi * 8, cumul_off);
     _pp_derive_count = _pp_derive_count + 1;
     # === Emit Name_to_json function ===
-    # fn Name_to_json(ptr, sb) {\n
+    # fn Name_to_json(ptr) { var sb = str_builder_new();\n
     op = op + PP_EMIT_STR(out, op, "fn ");
     op = op + PP_EMIT_STR(out, op, &sname);
-    op = op + PP_EMIT_STR(out, op, "_to_json(ptr, sb) {\n");
+    op = op + PP_EMIT_STR(out, op, "_to_json(ptr) {\n");
+    op = op + PP_EMIT_STR(out, op, "var sb = str_builder_new();\n");
     # For each field
     fi = 0;
     while (fi < field_count) {
@@ -410,11 +411,12 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         store8(out + op, 58); op = op + 1;
         op = op + PP_EMIT_STR(out, op, "\");\n");
         if (load8(&field_types + fi * 32) != 0) {
-            # Typed field: call FieldType_to_json(ptr + offset, sb);
+            # Typed field: get nested json and add to builder
+            op = op + PP_EMIT_STR(out, op, "str_builder_add(sb, ");
             op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
             op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
-            op = op + PP_EMIT_STR(out, op, ", sb);\n");
+            op = op + PP_EMIT_STR(out, op, "));\n");
         } else {
             # Scalar field: emit as quoted string for json roundtrip compatibility
             op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
@@ -426,7 +428,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         fi = fi + 1;
     }
     # Close: str_builder_add_cstr(sb, "}"); return 0; }
-    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn 0;\n}\n");
+    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn str_builder_build(sb);\n}\n");
     # === Also emit Name_from_json (Deserialize) ===
     op = op + PP_EMIT_STR(out, op, "fn ");
     op = op + PP_EMIT_STR(out, op, &sname);

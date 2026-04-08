@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.10.3] — 2026-04-07
+
+### Fixed — Compiler
+- **Bug #12: `#derive(Serialize)` runtime segfault**: Generated `_to_json` function took
+  two args `(ptr, sb)` but callers passed one. Uninitialized `sb` → segfault. Fixed: function
+  now takes `(ptr)`, creates its own `str_builder_new()`, returns `str_builder_build(sb)`.
+  Nested struct fields use `str_builder_add(sb, Nested_to_json(ptr + offset))`.
+  Derive now fully functional: `var j = Pt_to_json(&p);` returns valid JSON string.
+
 ## [1.10.2] — 2026-04-07
 
 ### Added — Compiler
