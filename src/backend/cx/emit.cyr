@@ -1,74 +1,403 @@
 # ================================================================
-# CYRIUS-X BYTECODE EMISSION (v2.1 target — scaffold only)
+# CYRIUS-X BYTECODE EMISSION
 # ================================================================
-# Register-based bytecode. 32-bit fixed-width instructions.
-# Opcode (8 bits) + operands (24 bits).
+# Emits register-based bytecode instead of x86 machine code.
+# Same interface as x86/emit.cyr so the shared frontend works unchanged.
 #
-# This file provides the cyrius-x equivalent of x86/emit.cyr.
-# When complete, the compiler can target cyrius-x by including
-# this file instead of x86/emit.cyr.
+# Bytecode uses virtual registers r0-r31. The emitter maps:
+#   rax → r0 (accumulator, expression results)
+#   rcx → r1 (secondary, right-hand operand)
+#   stack push/pop → r16-r31 (spill registers, managed via _cx_spill_idx)
 #
-# INSTRUCTION ENCODING:
-#   [31:24] opcode
-#   [23:16] dst register (or first operand)
-#   [15:8]  src1 register (or second operand)
-#   [7:0]   src2 register / immediate low byte
-#
-# OPCODES (draft):
-#   0x01 = movi    r, imm16      load 16-bit immediate
-#   0x02 = movil   r, imm32      load 32-bit immediate (2 instructions)
-#   0x10 = add     rd, rs1, rs2
-#   0x11 = sub     rd, rs1, rs2
-#   0x12 = mul     rd, rs1, rs2
-#   0x13 = div     rd, rs1, rs2
-#   0x14 = mod     rd, rs1, rs2
-#   0x20 = and     rd, rs1, rs2
-#   0x21 = or      rd, rs1, rs2
-#   0x22 = xor     rd, rs1, rs2
-#   0x23 = not     rd, rs
-#   0x24 = shl     rd, rs1, rs2
-#   0x25 = shr     rd, rs1, rs2
-#   0x30 = eq      rd, rs1, rs2   (rd = rs1 == rs2 ? 1 : 0)
-#   0x31 = ne      rd, rs1, rs2
-#   0x32 = lt      rd, rs1, rs2
-#   0x33 = gt      rd, rs1, rs2
-#   0x40 = load8   rd, [rs]
-#   0x41 = load16  rd, [rs]
-#   0x42 = load32  rd, [rs]
-#   0x43 = load64  rd, [rs]
-#   0x44 = store8  [rd], rs
-#   0x45 = store16 [rd], rs
-#   0x46 = store32 [rd], rs
-#   0x47 = store64 [rd], rs
-#   0x50 = jmp     offset24
-#   0x51 = jz      rs, offset16
-#   0x52 = jnz     rs, offset16
-#   0x60 = call    offset24
-#   0x61 = ret
-#   0x70 = syscall N
-#   0x71 = push    rs
-#   0x72 = pop     rd
-#
-# REGISTER MAP:
-#   r0  = accumulator (like rax)
-#   r1  = secondary (like rcx)
-#   r2  = third (like rdx)
-#   r3-r8  = argument registers
-#   r9-r15 = caller-saved temps
-#   r16-r31 = callee-saved
-#   r253 = frame pointer
-#   r254 = stack pointer
-#   r255 = zero register (reads as 0, writes ignored)
+# Each instruction is 4 bytes: [opcode][ra][rb][rc] (little-endian in output)
 
-# Placeholder: emit a 32-bit bytecode instruction
-fn CX_EMIT(S, opcode, a, b, c) {
-    var instr = (opcode << 24) | ((a & 0xFF) << 16) | ((b & 0xFF) << 8) | (c & 0xFF);
-    EB(S, instr & 0xFF);
-    EB(S, (instr >> 8) & 0xFF);
-    EB(S, (instr >> 16) & 0xFF);
-    EB(S, (instr >> 24) & 0xFF);
+var _cx_spill_idx = 16;
+
+# Emit byte to codebuf (same as x86/emit.cyr but for bytecode)
+fn EB(S, b) {
+    var cp = GCP(S);
+    if (cp >= 262144) {
+        syscall(SYS_WRITE, 2, "error: codebuf overflow\n", 24);
+        syscall(SYS_EXIT, 1);
+    }
+    store8(S + 0x20000 + cp, b & 0xFF);
+    SCP(S, cp + 1);
     return 0;
 }
 
-# v2.1: These stubs will be expanded to full bytecode emission.
-# For now they exist so the backend directory structure is ready.
+fn CX_EMIT(S, op, ra, rb, rc) {
+    EB(S, op & 0xFF);
+    EB(S, ra & 0xFF);
+    EB(S, rb & 0xFF);
+    EB(S, rc & 0xFF);
+    return 0;
+}
+
+# Emit 16-bit immediate load (movi ra, imm16)
+fn CX_MOVI(S, reg, val) {
+    CX_EMIT(S, 1, reg, val & 0xFF, (val >> 8) & 0xFF);
+    if (val > 0xFFFF) {
+        # movhi: ra |= (imm16 << 16)
+        CX_EMIT(S, 254, reg, (val >> 16) & 0xFF, (val >> 24) & 0xFF);
+    }
+    if (val > 0xFFFFFFFF) {
+        # movhh: ra |= (imm16 << 32)
+        CX_EMIT(S, 255, reg, (val >> 32) & 0xFF, (val >> 40) & 0xFF);
+    }
+    return 0;
+}
+
+# ================================================================
+# INTERFACE FUNCTIONS (match x86/emit.cyr signatures)
+# ================================================================
+
+# emit byte — shared with x86, writes to codebuf
+# EB is defined in the including main file (or we redefine here)
+
+# mov rax, imm64
+fn EMOVI(S, v) {
+    CX_MOVI(S, 0, v);
+    return 0;
+}
+
+# push rax (spill to virtual register)
+fn EPUSHR(S) {
+    CX_EMIT(S, 128, 0, 0, 0);
+    return 0;
+}
+# pop rax
+fn EPOPR(S) {
+    CX_EMIT(S, 129, 0, 0, 0);
+    return 0;
+}
+# pop rcx
+fn EPOPC(S) {
+    CX_EMIT(S, 129, 1, 0, 0);
+    return 0;
+}
+
+# Expression spill (same as push/pop for bytecode)
+fn ESPILL(S) { EPUSHR(S); return 0; }
+fn EUNSPILL(S) { EPOPR(S); return 0; }
+
+# mov rcx, rax
+fn EMOVCA(S) { CX_EMIT(S, 2, 1, 0, 0); return 0; }
+
+# Arithmetic: result in r0, operands r0 and r1
+fn EADDR(S) { CX_EMIT(S, 16, 0, 0, 1); return 0; }    # add r0, r0, r1
+fn ESUBR(S) { CX_EMIT(S, 17, 0, 0, 1); return 0; }    # sub r0, r0, r1
+fn EIMUL(S) { CX_EMIT(S, 18, 0, 0, 1); return 0; }    # mul r0, r0, r1
+fn ECQO(S) { return 0; }                                 # no-op (sign extend for div)
+fn EIDIV(S) { CX_EMIT(S, 19, 0, 0, 1); return 0; }    # div r0, r0, r1
+fn EMOVDR(S) { CX_EMIT(S, 20, 0, 0, 1); return 0; }   # mod r0, r0, r1
+
+# Bitwise
+fn EANDR(S) { CX_EMIT(S, 32, 0, 0, 1); return 0; }
+fn EORR(S) { CX_EMIT(S, 33, 0, 0, 1); return 0; }
+fn EXORR(S) { CX_EMIT(S, 34, 0, 0, 1); return 0; }
+fn ENOTR(S) { CX_EMIT(S, 34, 0, 0, 31); return 0; }   # xor r0, r0, r31(all-ones) — approx NOT
+fn ESHLCL(S) { CX_EMIT(S, 35, 0, 0, 1); return 0; }   # shl r0, r0, r1
+fn ESHRCL(S) { CX_EMIT(S, 36, 0, 0, 1); return 0; }   # shr r0, r0, r1
+
+# Load/store memory
+fn ELOAD8(S) { CX_EMIT(S, 64, 0, 0, 0); return 0; }   # load8 r0, [r0]
+fn ELOAD16(S) { CX_EMIT(S, 64, 0, 0, 0); return 0; }  # approx: load8 for now
+fn ELOAD32(S) { CX_EMIT(S, 65, 0, 0, 0); return 0; }  # load64 r0, [r0] (approx)
+fn ELOAD64(S) { CX_EMIT(S, 65, 0, 0, 0); return 0; }  # load64 r0, [r0]
+fn ELODC(S) { CX_EMIT(S, 65, 0, 1, 0); return 0; }    # load64 r0, [r1]
+fn ESTORE8(S) { CX_EMIT(S, 66, 1, 0, 0); return 0; }  # store8 [r1], r0
+fn ESTORE16(S) { CX_EMIT(S, 66, 1, 0, 0); return 0; }
+fn ESTORE32(S) { CX_EMIT(S, 67, 1, 0, 0); return 0; }
+fn ESTORE64(S) { CX_EMIT(S, 67, 1, 0, 0); return 0; }
+fn ESTOC(S) { CX_EMIT(S, 67, 1, 0, 0); return 0; }    # store64 [r1], r0
+
+# Comparison: setCC pattern → compare and set r0 to 0/1
+fn ECMPR(S) { return 0; }  # no-op, comparison done inline
+fn ESETCC(S, op) {
+    if (op == 17) { CX_EMIT(S, 48, 0, 0, 1); }  # eq
+    if (op == 18) { CX_EMIT(S, 49, 0, 0, 1); }  # ne
+    if (op == 19) { CX_EMIT(S, 50, 0, 0, 1); }  # lt
+    if (op == 20) { CX_EMIT(S, 51, 0, 0, 1); }  # gt
+    if (op == 21) { CX_EMIT(S, 50, 0, 1, 0); CX_EMIT(S, 48, 0, 0, 1); CX_EMIT(S, 33, 0, 0, 2); }  # lte = lt|eq
+    if (op == 22) { CX_EMIT(S, 51, 0, 1, 0); CX_EMIT(S, 48, 0, 0, 1); CX_EMIT(S, 33, 0, 0, 2); }  # gte = gt|eq
+    return 0;
+}
+
+# Syscall: pop args from stack into r1-r6, syscall, result in r0
+fn ESYSCALL(S) { CX_EMIT(S, 112, 0, 0, 0); return 0; }
+fn EMOVRDI(S) { CX_EMIT(S, 2, 2, 0, 0); return 0; }  # mov r2, r0 (for exit)
+
+fn ESCPOPS(S, n) {
+    if (n >= 7) { CX_EMIT(S, 129, 7, 0, 0); }
+    if (n >= 6) { CX_EMIT(S, 129, 6, 0, 0); }
+    if (n >= 5) { CX_EMIT(S, 129, 5, 0, 0); }
+    if (n >= 4) { CX_EMIT(S, 129, 4, 0, 0); }
+    if (n >= 3) { CX_EMIT(S, 129, 3, 0, 0); }
+    if (n >= 2) { CX_EMIT(S, 129, 2, 0, 0); }
+    if (n >= 1) { CX_EMIT(S, 129, 0, 0, 0); }
+    ESYSCALL(S);
+    return 0;
+}
+
+# Function prologue/epilogue
+fn EFNPRO(S) {
+    # push frame pointer, set new frame
+    CX_EMIT(S, 128, 253, 0, 0);  # push fp
+    CX_EMIT(S, 2, 253, 254, 0);  # mov fp, sp
+    return 0;
+}
+
+fn ESUBRSP(S) {
+    # sub sp, imm — placeholder, patch later
+    var patch = GCP(S);
+    CX_EMIT(S, 0, 0, 0, 0);  # placeholder
+    return patch;
+}
+
+fn EFNEPI(S) {
+    CX_EMIT(S, 2, 254, 253, 0);  # mov sp, fp
+    CX_EMIT(S, 129, 253, 0, 0);  # pop fp
+    CX_EMIT(S, 97, 0, 0, 0);     # ret
+    return 0;
+}
+
+fn EEXIT(S) {
+    CX_EMIT(S, 2, 2, 0, 0);      # mov r2, r0 (exit code)
+    CX_MOVI(S, 1, 60);            # r1 = SYS_EXIT
+    CX_EMIT(S, 112, 0, 0, 0);    # syscall
+    return 0;
+}
+
+# Call: emit call with fixup
+fn ECALLTO(S, target) {
+    var cp = GCP(S);
+    var off = (target - cp) / 4;
+    CX_EMIT(S, 96, off & 0xFF, (off >> 8) & 0xFF, (off >> 16) & 0xFF);
+    return 0;
+}
+
+fn ECALLFIX(S, fnidx) {
+    # Emit call placeholder, record fixup
+    var poff = GCP(S);
+    CX_EMIT(S, 96, 0, 0, 0);  # call +0 (placeholder)
+    var fc = GFCNT(S);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+        syscall(SYS_EXIT, 1);
+    }
+    var faddr = S + 0x2A2000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (2 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+fn ECALLPOPS(S, n) {
+    # Pop args into r3-r8 (argument registers)
+    var i = n - 1;
+    while (i >= 0) {
+        CX_EMIT(S, 129, 3 + i, 0, 0);  # pop into arg register
+        i = i - 1;
+    }
+    return 0;
+}
+
+fn ECALLCLEAN(S, n) { return 0; }  # no cleanup needed in bytecode
+
+# Jump helpers
+fn EJCC(S, cc) {
+    # Conditional jump: jz/jnz r0, +0 (placeholder)
+    var patch = GCP(S);
+    if (cc == 0x84) { CX_EMIT(S, 81, 0, 0, 0); }  # jz r0
+    elif (cc == 0x85) { CX_EMIT(S, 82, 0, 0, 0); } # jnz r0
+    elif (cc == 0x8D) { CX_EMIT(S, 81, 0, 0, 0); } # jge → jz (after cmp sets flag)
+    else { CX_EMIT(S, 81, 0, 0, 0); }
+    return patch;
+}
+
+fn EJMP(S, target) {
+    var cp = GCP(S);
+    var off = (target - cp) / 4;
+    CX_EMIT(S, 80, off & 0xFF, (off >> 8) & 0xFF, (off >> 16) & 0xFF);
+    return 0;
+}
+
+fn EJMP0(S) {
+    var patch = GCP(S);
+    CX_EMIT(S, 80, 0, 0, 0);  # jmp +0 (placeholder)
+    return patch;
+}
+
+fn EPATCH(S, off) {
+    var cp = GCP(S);
+    var rel = (cp - off) / 4;
+    store8(S + 0x20000 + off + 1, rel & 0xFF);
+    store8(S + 0x20000 + off + 2, (rel >> 8) & 0xFF);
+    store8(S + 0x20000 + off + 3, (rel >> 16) & 0xFF);
+    return 0;
+}
+
+# Variable load/store via fixup
+fn RECFIX(S, idx) {
+    var fc = GFCNT(S);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+        syscall(SYS_EXIT, 1);
+    }
+    var addr = S + 0x2A2000 + fc * 16;
+    S64(addr, GCP(S));
+    S64(addr + 8, idx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+fn EVSTORE(S, idx) {
+    # Store r0 to global var
+    CX_MOVI(S, 1, 0);  # placeholder address
+    RECFIX(S, idx);
+    CX_EMIT(S, 67, 1, 0, 0);  # store64 [r1], r0
+    return 0;
+}
+
+fn EVLOAD(S, idx) {
+    CX_MOVI(S, 1, 0);  # placeholder address
+    RECFIX(S, idx);
+    CX_EMIT(S, 65, 0, 1, 0);  # load64 r0, [r1]
+    return 0;
+}
+
+fn EVADDR(S, idx) {
+    CX_MOVI(S, 0, 0);  # placeholder address
+    RECFIX(S, idx);
+    return 0;
+}
+
+# Function local load/store
+fn EFLLOAD(S, idx) {
+    # load from [fp - (idx+1)*8]
+    CX_EMIT(S, 2, 2, 253, 0);      # mov r2, fp
+    CX_MOVI(S, 3, (idx + 1) * 8);  # r3 = offset
+    CX_EMIT(S, 17, 2, 2, 3);       # sub r2, r2, r3
+    CX_EMIT(S, 65, 0, 2, 0);       # load64 r0, [r2]
+    return 0;
+}
+
+fn EFLSTORE(S, idx) {
+    CX_EMIT(S, 2, 2, 253, 0);
+    CX_MOVI(S, 3, (idx + 1) * 8);
+    CX_EMIT(S, 17, 2, 2, 3);
+    CX_EMIT(S, 67, 2, 0, 0);       # store64 [r2], r0
+    return 0;
+}
+
+fn EPATCHFRAME(S, patch, size) {
+    # Patch the sub sp placeholder
+    store8(S + 0x20000 + patch, 17);   # sub opcode
+    store8(S + 0x20000 + patch + 1, 254);  # sp
+    store8(S + 0x20000 + patch + 2, size & 0xFF);
+    store8(S + 0x20000 + patch + 3, (size >> 8) & 0xFF);
+    return 0;
+}
+
+fn ESTOREPARM(S, pidx, lidx, pc) {
+    # Store param register to local slot
+    CX_EMIT(S, 2, 2, 253, 0);
+    CX_MOVI(S, 3, (lidx + 1) * 8);
+    CX_EMIT(S, 17, 2, 2, 3);
+    CX_EMIT(S, 67, 2, 3 + pidx, 0);  # store64 [r2], arg_reg
+    return 0;
+}
+
+fn ESTORESTACKPARM(S, pidx, disp, pc) { return 0; }  # TODO: >6 args
+fn EPOPARG(S, n) { CX_EMIT(S, 129, 3 + n, 0, 0); return 0; }
+fn EPOPRDI(S) { CX_EMIT(S, 129, 2, 0, 0); return 0; }
+fn EPOPRSI(S) { CX_EMIT(S, 129, 3, 0, 0); return 0; }
+fn EPOPRDX(S) { CX_EMIT(S, 129, 4, 0, 0); return 0; }
+fn EPOPR10(S) { CX_EMIT(S, 129, 5, 0, 0); return 0; }
+fn EPOPR8(S) { CX_EMIT(S, 129, 6, 0, 0); return 0; }
+fn EPOPR9(S) { CX_EMIT(S, 129, 7, 0, 0); return 0; }
+fn EXORAA(S) { CX_MOVI(S, 0, 0); return 0; }
+
+# Width-aware variants (stub — treat all as 64-bit for now)
+fn EVLOAD_W(S, idx, width) { EVLOAD(S, idx); return 0; }
+fn EVSTORE_W(S, idx, width) { EVSTORE(S, idx); return 0; }
+fn EFLLOAD_W(S, idx, width) { EFLLOAD(S, idx); return 0; }
+fn EFLSTORE_W(S, idx, width) { EFLSTORE(S, idx); return 0; }
+
+# String address (fixup type 1)
+fn ESADDR(S, soff) {
+    CX_MOVI(S, 0, 0);  # placeholder
+    var fc = GFCNT(S);
+    if (fc >= 8192) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+        syscall(SYS_EXIT, 1);
+    }
+    var faddr = S + 0x2A2000 + fc * 16;
+    S64(faddr, GCP(S));
+    S64(faddr + 8, (1 << 56) | soff);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Var address into r1
+fn EVADDR_X1(S, idx) {
+    CX_MOVI(S, 1, 0);
+    RECFIX(S, idx);
+    return 0;
+}
+
+# Add immediate to r1
+fn EADDIMM_X1(S, val) {
+    CX_MOVI(S, 2, val);
+    CX_EMIT(S, 16, 1, 1, 2);  # add r1, r1, r2
+    return 0;
+}
+
+# Tail call (same as regular call for bytecode)
+fn ETAILJMP(S, fnidx) {
+    EFNEPI(S);
+    ECALLFIX(S, fnidx);
+    return 0;
+}
+
+# Token access (same as x86 — shared with frontend)
+fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x122000 + i * 8); }
+fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
+fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
+
+# Inline asm — not supported in bytecode
+fn ASM_MNEMONIC(S) {
+    ERR_MSG(S, "inline asm not supported in cyrius-x", 37);
+    return 0;
+}
+
+# Stubs for features not yet in bytecode
+var _INLINE_OK = 0;
+fn EDISP32(S, disp) { return 0; }
+fn E2(S, v) { EB(S, v & 0xFF); EB(S, v >> 8 & 0xFF); return 0; }
+fn E3(S, v) { EB(S, v & 0xFF); EB(S, v >> 8 & 0xFF); EB(S, v >> 16 & 0xFF); return 0; }
+fn E8(S, v) { var i = 0; while (i < 8) { EB(S, (v >> (i * 8)) & 0xFF); i = i + 1; } return 0; }
+
+# Float stubs (not supported in bytecode yet)
+fn EMIT_FLOAT_LIT(S, v) { EMOVI(S, v); return 0; }
+fn EMIT_F64_BINOP(S, op) { return 0; }
+fn EI2F(S) { return 0; }
+fn EF2I(S) { return 0; }
+fn PF64BIN(S, op) { return 0; }
+fn PF64CMP(S, op) { return 0; }
+fn EMOVQ_X0_A(S) { return 0; }
+fn EMOVQ_X1_C(S) { return 0; }
+fn EMOVQ_A_X0(S) { return 0; }
+fn EX87PUSH(S) { return 0; }
+fn EX87POP(S) { return 0; }
+fn EMIT_F64V_LOOP(S, op) { return 0; }
+fn EMIT_F64V_UNARY(S, op) { return 0; }
+fn EMIT_F64V_FMADD(S) { return 0; }
+fn EUCOMISD(S) { return 0; }
+fn EXORPD_X1(S) { return 0; }
+fn EMOVAPD_01(S) { return 0; }
+fn EF64SQRT(S) { return 0; }
+fn EF64FLOOR(S) { return 0; }
+fn EF64CEIL(S) { return 0; }
+fn EF64ROUND(S) { return 0; }

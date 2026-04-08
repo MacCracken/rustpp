@@ -16,7 +16,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bug #24: `#ref` directive broken** — emitted var declarations cause parse errors.
   Pre-existing (never tested in .tcyr suite). Blocks #ref_fn perfect hash feature.
 
-### Focus: cyrius-x bytecode emitter
+### Added — cyrius-x
+- **Bytecode emitter** (`src/backend/cx/emit.cyr`): Full implementation of the compiler
+  backend interface (EMOVI, EVLOAD, EVSTORE, EFNPRO, EFNEPI, ECALLFIX, etc.) targeting
+  cyrius-x bytecode instead of x86 machine code. Emits 4-byte fixed-width instructions.
+- **CX compiler** (`src/main_cx.cyr`): Compiler entry point that includes cx backend
+  instead of x86. Outputs .cyx files (CYX header + raw bytecode). 185KB binary.
+- **Float/asm stubs**: All float and inline asm functions stubbed for bytecode target.
+- **Status**: Compiles simple programs to .cyx. Register mapping between emitter and VM
+  needs alignment for correct syscall argument passing. Work in progress.
 
 ## [2.1.0] — 2026-04-08
 
