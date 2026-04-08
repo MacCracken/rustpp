@@ -29,13 +29,13 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
 | 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
-| 24 | `#ref` directive broken — emitted `var` declarations cause parse errors | P2 | `#ref "file.toml"` emits `var x = 42;` but parsing fails with "unexpected ';'". Likely pre-existing (never tested in .tcyr suite). Blocks #ref perfect hash. |
+| 24 | ~~`#ref` directive broken~~ | ~~P2~~ | **Fixed v2.2.0** — PP_REF_PASS was never called from PREPROCESS. One-line fix. |
 
 | 25 | ~~Include path shadows stdlib~~ | ~~P2~~ | **Fixed v2.1.2** — fallback to `$HOME/.cyrius/lib/` when local path fails. |
 
 | 26 | ~~Nested hashmap crash~~ | ~~P2~~ | **Not a bug** — missing `include "lib/fmt.cyr"`. assert.cyr now auto-includes its deps. |
 
-**Open bugs:** #24 (P2, blocks #ref_fn), #25 (P2, include path). All other compiler bugs fixed.
+**Open bugs:** #25 (P2, include path). All other compiler bugs fixed.
 
 ---
 

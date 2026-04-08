@@ -16,7 +16,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   when assert_eq was called without fmt.cyr (undefined fmt_int → call to -1).
 - **Bug #26 resolved**: Not a compiler bug — missing include.
 
-### Focus: cyrius-x completion, #ref fix, defmt, cyrius-ts scaffold
+### Changed — cyrius-x
+- **Function calls fixed**: ESUBRSP now emits `movi r15, size; sub sp, sp, r15`
+  instead of broken single-instruction encoding. ESTOREPARM/EFLLOAD/EFLSTORE
+  use r14/r15 as temps to avoid clobbering arg registers r3-r8.
+  `add(20,22)` → 42, `fact(5)` → 120, `max(42,10)` → 42. Recursion (fib)
+  still has conditional jump issues — work in progress.
+
+- **Bug #24: `#ref` directive fixed**: `PP_REF_PASS` was never called from
+  `PREPROCESS` — removed during a refactor and never caught. One-line fix:
+  added `PP_REF_PASS(S);` before `PP_PASS(S);`. `#ref "file.toml"` now
+  correctly emits `var key = value;` for each TOML entry. Unblocks defmt.
+
+### Focus: defmt, cyrius-ts scaffold
 
 ## [2.1.3] — 2026-04-08
 

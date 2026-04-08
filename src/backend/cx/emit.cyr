@@ -153,9 +153,10 @@ fn EFNPRO(S) {
 }
 
 fn ESUBRSP(S) {
-    # sub sp, imm — placeholder, patch later
+    # sub sp, imm — two instructions: movi r15, size; sub r254, r254, r15
     var patch = GCP(S);
-    CX_EMIT(S, 0, 0, 0, 0);  # placeholder
+    CX_EMIT(S, 1, 15, 0, 0);        # movi r15, 0 (placeholder)
+    CX_EMIT(S, 17, 254, 254, 15);   # sub sp, sp, r15
     return patch;
 }
 
@@ -279,37 +280,38 @@ fn EVADDR(S, idx) {
 
 # Function local load/store
 fn EFLLOAD(S, idx) {
-    # load from [fp - (idx+1)*8]
-    CX_EMIT(S, 2, 2, 253, 0);      # mov r2, fp
-    CX_MOVI(S, 3, (idx + 1) * 8);  # r3 = offset
-    CX_EMIT(S, 17, 2, 2, 3);       # sub r2, r2, r3
-    CX_EMIT(S, 65, 0, 2, 0);       # load64 r0, [r2]
+    # load from [fp - (idx+1)*8]. Use r14/r15 as temps.
+    CX_EMIT(S, 2, 14, 253, 0);      # mov r14, fp
+    CX_MOVI(S, 15, (idx + 1) * 8);  # r15 = offset
+    CX_EMIT(S, 17, 14, 14, 15);     # sub r14, r14, r15
+    CX_EMIT(S, 65, 0, 14, 0);       # load64 r0, [r14]
     return 0;
 }
 
 fn EFLSTORE(S, idx) {
-    CX_EMIT(S, 2, 2, 253, 0);
-    CX_MOVI(S, 3, (idx + 1) * 8);
-    CX_EMIT(S, 17, 2, 2, 3);
-    CX_EMIT(S, 67, 2, 0, 0);       # store64 [r2], r0
+    CX_EMIT(S, 2, 14, 253, 0);
+    CX_MOVI(S, 15, (idx + 1) * 8);
+    CX_EMIT(S, 17, 14, 14, 15);
+    CX_EMIT(S, 67, 14, 0, 0);       # store64 [r14], r0
     return 0;
 }
 
 fn EPATCHFRAME(S, patch, size) {
-    # Patch the sub sp placeholder
-    store8(S + 0x20000 + patch, 17);   # sub opcode
-    store8(S + 0x20000 + patch + 1, 254);  # sp
+    # Patch the movi r15, size placeholder
+    store8(S + 0x20000 + patch, 1);        # movi opcode
+    store8(S + 0x20000 + patch + 1, 15);   # r15
     store8(S + 0x20000 + patch + 2, size & 0xFF);
     store8(S + 0x20000 + patch + 3, (size >> 8) & 0xFF);
     return 0;
 }
 
 fn ESTOREPARM(S, pidx, lidx, pc) {
-    # Store param register to local slot
-    CX_EMIT(S, 2, 2, 253, 0);
-    CX_MOVI(S, 3, (lidx + 1) * 8);
-    CX_EMIT(S, 17, 2, 2, 3);
-    CX_EMIT(S, 67, 2, 3 + pidx, 0);  # store64 [r2], arg_reg
+    # Store param register to local slot. Use r14/r15 as temps to avoid
+    # clobbering arg registers r3-r8.
+    CX_EMIT(S, 2, 14, 253, 0);           # mov r14, fp
+    CX_MOVI(S, 15, (lidx + 1) * 8);      # r15 = offset
+    CX_EMIT(S, 17, 14, 14, 15);          # sub r14, r14, r15
+    CX_EMIT(S, 67, 14, 3 + pidx, 0);    # store64 [r14], arg_reg
     return 0;
 }
 
