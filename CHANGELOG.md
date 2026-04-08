@@ -10,6 +10,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bug #21: bitset/bitclr crash at top level**: Now emits clear error message
   ("must be called inside a function") instead of SIGSEGV. These builtins use
   local stack slots (EFLSTORE) which require a function frame.
+- **Bug #18: bridge.cyr stale heap map**: Rewrote heap map comments to match
+  actual code (tok_types at 0xA2000, tok_values at 0xE2000, brk at 0x122000).
+- **Bug #20: bridge.cyr dead code**: Removed unused EMOVC function.
 
 ## [2.0.0] — 2026-04-08
 

@@ -21,9 +21,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 16 | Adding `include` shifts global addresses, breaks existing assertions | P3 | Enum-heavy includes shift data section layout. Needs repro case from majra port. |
 | 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** |
 
-| 18 | bridge.cyr TOKVAL offset stale (0xE2000 vs 0x122000) | P4 | Bridge compiler has its own heap layout. Not used by cc2. Fix if bridge is ever reactivated. |
+| 18 | ~~bridge.cyr stale heap map~~ | ~~P4~~ | **Fixed v2.1.0** — heap map rewritten to match actual code (tok_types at 0xA2000, tok_values at 0xE2000). |
 | 19 | aarch64 cross-compiler missing module/DCE in pass 1 | P3 | main_aarch64.cyr pass 1 lacks mod/pub/use/impl/DCE. Works for current ports but limits aarch64 module support. |
-| 20 | bridge.cyr dead code (EMOVC) | P5 | Unused function. Bridge is frozen — harmless. |
+| 20 | ~~bridge.cyr dead code (EMOVC)~~ | ~~P5~~ | **Fixed v2.1.0** — removed. |
 | 21 | ~~bitset/bitclr crash at top level~~ | ~~P4~~ | **Fixed v2.1.0** — clear error message instead of SIGSEGV. |
 
 **Open bugs:** #16 (P3), #19 (P3). Others are low priority or documented limitations.

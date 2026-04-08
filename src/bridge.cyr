@@ -7,21 +7,23 @@
 #
 # V0: var x = expr; with arithmetic (+,-,*,/)
 #
-# Heap layout (S = brk base, mirrors stage1f):
-#   0x00000  input_buf  [65536]
-#   0x10000  tok_types  [131072, 16384*8]
-#   0x30000  tok_values [131072, 16384*8]
-#   0x50000  tok_names  [32768]
-#   0x58000  var_noffs  [2048, 256*8]
-#   0x58800  var_sizes  [2048, 256*8]
-#   0x59000  codebuf    [65536]
-#   0x69000  str_data   [4096]
+# Heap layout (S = brk base):
+#   0x00000  input_buf  [65536]       Raw stdin input
+#   0x50000  tok_names  [32768]       Packed identifier strings
+#   0x58000  var_noffs  [2048]        256 variable name offsets
+#   0x58800  var_sizes  [2048]        256 variable sizes
+#   0x59000  codebuf    [65536]       Generated machine code
+#   0x69000  str_data   [4096]        String literal bytes
 #   0x69800  str_pos    [8]
 #   0x69808  data_size  [8]
-#   0x6A000  output_buf [131072]
-#   0x8A000  fixup_tbl  [8192, 512*16]
+#   0x6A000  output_buf [131072]      ELF output buffer
+#   0x8A000  fixup_tbl  [8192]        512 fixup entries (16 bytes each)
 #   0x8C000  fixup_cnt  [8]
 #   0x8C008  last_var   [8]
+#   0x90000  preprocess [65536]       Preprocessor scratch
+#   0xA2000  tok_types  [262144]      32768 token type slots
+#   0xE2000  tok_values [262144]      32768 token value slots
+#   0x122000 brk
 #
 # State vars (S + 0x8C100):
 #   +0  BL       input length
@@ -156,13 +158,6 @@ fn E8(S, v) {
 # emit "mov rax, imm64" — 48 B8 <imm64>
 fn EMOVI(S, v) {
     E2(S, 0xB848);
-    E8(S, v);
-    return 0;
-}
-
-# emit "mov rcx, imm64" — 48 B9 <imm64>
-fn EMOVC(S, v) {
-    E2(S, 0xB948);
     E8(S, v);
     return 0;
 }
