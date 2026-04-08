@@ -359,9 +359,6 @@ sh bootstrap/bootstrap.sh
 # Build a program
 echo 'var x = 42;' | ./build/cc2 > prog && chmod +x prog
 
-# Build the kernel
-cat kernel/agnos.cyr | ./build/cc2 > build/agnos
-
 # Cross-compile for aarch64
 cat prog.cyr | ./build/cc2_aarch64 > prog_arm
 

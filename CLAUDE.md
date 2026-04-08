@@ -52,7 +52,7 @@ lib/                 Standard library (28 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 build/               Generated binaries (gitignored except cc2)
-kernel/              AGNOS kernel (compile test; source of truth at agnos repo)
+                     AGNOS kernel lives at github.com/MacCracken/agnos
 docs/                Architecture, roadmap, benchmarks, language guide
 ```
 
