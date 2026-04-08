@@ -1,0 +1,56 @@
+# Test: Floating point f64 operations
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+test_group("f64 conversion");
+fn test_f64_roundtrip() {
+    var f = f64_from(42);
+    var i = f64_to(f);
+    return i;
+}
+assert_eq(test_f64_roundtrip(), 42, "f64 from/to roundtrip");
+
+test_group("f64 arithmetic");
+fn test_f64_add() {
+    var a = f64_from(10);
+    var b = f64_from(32);
+    var c = f64_add(a, b);
+    return f64_to(c);
+}
+fn test_f64_mul() {
+    var a = f64_from(6);
+    var b = f64_from(7);
+    var c = f64_mul(a, b);
+    return f64_to(c);
+}
+fn test_f64_sub() {
+    var a = f64_from(100);
+    var b = f64_from(58);
+    return f64_to(f64_sub(a, b));
+}
+fn test_f64_div() {
+    var a = f64_from(84);
+    var b = f64_from(2);
+    return f64_to(f64_div(a, b));
+}
+assert_eq(test_f64_add(), 42, "f64 add");
+assert_eq(test_f64_mul(), 42, "f64 mul");
+assert_eq(test_f64_sub(), 42, "f64 sub");
+assert_eq(test_f64_div(), 42, "f64 div");
+
+test_group("f64 comparison");
+fn test_f64_eq() {
+    var a = f64_from(42);
+    var b = f64_from(42);
+    return f64_eq(a, b);
+}
+fn test_f64_lt() {
+    var a = f64_from(10);
+    var b = f64_from(20);
+    return f64_lt(a, b);
+}
+assert_eq(test_f64_eq(), 1, "f64 eq");
+assert_eq(test_f64_lt(), 1, "f64 lt");
+
+var r = assert_summary();

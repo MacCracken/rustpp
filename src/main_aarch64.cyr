@@ -7,113 +7,62 @@
 # Build: cat cc2.cyr | ./build/cc > cc2
 # Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
 # ================================================================
-# HEAP MAP — Authoritative offset registry
+# HEAP MAP — Synced with main.cyr (v2.0.0-dev)
 # ================================================================
-# Every heap offset used by the compiler. Check here FIRST
-# before allocating new state. Collisions cause silent corruption.
-#
-# --- Buffers (address order) ---
-#   0x00000  input_buf     [131072]      Input source text (expanded from 65536)
+#   0x00000  input_buf     [131072]      Raw stdin input
 #   0x20000  codebuf       [262144]      Generated machine code
-#   0x60000  tok_names     [65536]       Packed identifier strings
-#   0x2C8000  var_noffs     [16384]       2048 variable name offsets (expanded from 512)
-#   0x2C0000  var_sizes     [16384]       2048 variable sizes (relocated from 0x60800)
-#   0x68000  str_data      [8192]        String literal bytes (relocated from 0x62000)
-#   0x69800  str_pos       [8]           Current string position
-#   0x69808  data_size     [8]           Total variable data bytes
-#   0x6A000  output_buf    [131072]      ELF output buffer
-#
-# --- Fixup ---
-#   0x8A000  (freed — fixup table relocated to 0x262000)
-#   0x8FCA8  fixup_cnt     [8]           Fixup entry count (moved from 0x8C000)
-#   0x8FCB0  last_var      [8]           Last assigned variable index (moved from 0x8C008)
-#
-# --- Compiler state ---
-#   0x8C100  BL            [8]           Input length
-#   0x8C108  CP            [8]           Code position
-#   0x8C110  VCNT          [8]           Variable count
-#   0x8C118  TCNT          [8]           Token count
-#   0x8C120  TI            [8]           Token index (parser cursor)
-#   0x8C128  NPOS          [8]           Name buffer position
-#
-# --- Function state ---
+#   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
+#   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable)
+#   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
+#   0x69800  str_pos       [8]           String position (nested in str_data tail)
+#   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
+#   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
+#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
+#   0x8DA00  fn_count, in_fn, local_cnt  Function state
+#   0x8DA20  ret_patches   [512]         64 return patch offsets
+#   0x8DC20  ret_patch_cnt [8]
+#   0x8DC30  (available — fn_local_names relocated to 0x91000)
+#   0x8DE30  var_types     [2048]        256 variable struct type IDs
+#   0x8E630  struct tables               names, fcounts (to 0x8E830)
+#   0x8F830  struct_count  [8]
+#   0x8F838  loop_top, break_patch       Loop state
+#   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
+#   0x8F888  extra_patch_cnt [8]
+#   0x8F890  ptr_scale     [8]           Pointer scale tracking
+#   0x8F8A0  continue_count [8]          For-loop continue forward-patch count
+#   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
+#   0x8FA98  gvar_toks     [512]         64 deferred global var init indices
+#   0x8FC98  gvar_cnt      [8]
+#   0x8FCA0  kernel_mode   [8]
+#   0x8FCA8  fixup_cnt     [8]
+#   0x8FCB0  last_var      [8]
+#   0x8FCB8  cur_line      [8]
+#   0x8FCC0  scope_depth   [8]
+#   0x8FCC8  local_depths  [512]
+#   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
+#   0x903D8  expr_stype    [8]
+#   0x903E8  inline_depth  [8]
+#   0x903F0  expr_width    [8]
+#   0x90400  include_fname [256]         Preprocessor filename scratch
+#   0x91000  fn_local_names              Function local variable names
+#   0x91800  local_depths  [512]         64 scope depths per local var
+#   0x92200  local_types                 Local variable type tracking
+#   0xA2000  tok_types     [524288]      65536 token type slots
+#   0x122000 tok_values    [524288]      65536 token value slots
+#   0x1A2000 tok_lines     [524288]      65536 token line numbers
+#   0x222000 preprocess_out [524288]     512KB expanded source buffer
+#   0x2A2000 fixup_tbl     [131072]      8192 fixup entries (16 bytes each)
+#   0x2B8000 var_noffs     [32768]       4096 variable name offsets
+#   0x2C0000 var_sizes     [32768]       4096 variable sizes
 #   0x2C2000 fn_names      [8192]        1024 function name offsets
 #   0x2C4000 fn_offsets    [8192]        1024 function code offsets
 #   0x2C6000 fn_params     [8192]        1024 function param counts
-#   0x8DA00  fn_count      [8]
-#   0x8DA08  in_function   [8]
-#   0x8DA10  fn_local_cnt  [8]
-#   0x8DA20  ret_patches   [512]         64 return patch offsets
-#   0x8DC20  ret_patch_cnt [8]
-#   0x8DC30  fn_local_names[512]         64 local variable name offsets
-#
-# --- Struct state ---
-#   0x8DE30  var_types     [2048]        256 variable struct type IDs
-#   0x8E630  struct_names  [256]         32 struct name offsets
-#   0x8E730  struct_fcounts[256]         32 struct field counts
-#   0x8E830  struct_fnames [4096]        32*16 struct field name offsets
-#   0x8F830  struct_count  [8]
-#
-# --- Loop state ---
-#   0x8F838  loop_top      [8]           Current loop's top code position
-#   0x8F840  break_patch   [8]           Current loop's break jump patch offset
-#
-# --- Condition patch state ---
-#   0x8F848  extra_patches [64]          8 extra patch offsets for &&/|| (to 0x8F888)
-#   0x8F888  extra_patch_cnt [8]         Count of extra patches
-#   0x8F8A0  continue_count [8]          For-loop continue forward-patch count
-#   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
-#
-# --- Preprocessor scratch ---
-#   0x90400  include_fname [256]         Temp filename for include (relocated from 0x90000)
-#   0x91000  include_buf   [65536]       Temp buffer for include expansion
-#
-# --- ELF output ---
-#   0x5C130  elf_out_len   [8]           Output length after EMITELF
-#
-# --- Token arrays (65536 slots) ---
-#   0xA2000   tok_types     [524288]      65536 token type slots (8 bytes each)
-#   0x122000  tok_values    [524288]      65536 token value slots (8 bytes each)
-#   0x1A2000  tok_lines     [524288]      65536 token line numbers (8 bytes each)
-#
-# --- Preprocessor output ---
-#   0x222000  preprocess_out [524288]     512KB expanded source buffer
-#
-# --- brk limit ---
-# --- Fixup table (relocated) ---
-#   0x2A2000  fixup_tbl     [65536]       4096 fixup entries (16 bytes each)
-#
-# --- brk limit ---
-#   0x270000 (end of heap allocation)
-#
-# --- Lexer line tracking ---
-#   0x8FCB8  cur_line      [8]           Current line number during lexing
-#
-# --- Expression type state ---
-#   0x8F890  ptr_scale     [8]           Current expression's pointer scale (0=not pointer)
-#   0x8F898  (available — local_types relocated to 0x92200)
-#
-# --- Nested struct state ---
-#   0x8A000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)
-#
-# --- Global var init state ---
-#   0x8FA98  gvar_toks     [512]         64 saved token indices for deferred init
-#   0x8FC98  gvar_cnt      [8]           Count of deferred global var inits
-#
-# --- Kernel mode ---
-#   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
-#
-# NEXT FREE OFFSET: 0x8FCC0
-#
-# Token types:
-#   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
-#   10=LPAREN 11=RPAREN 12=EOF 13=LBRACE 14=RBRACE 15=IF 16=WHILE
-#   17=EQEQ 18=NEQ 19=LT 20=GT 21=LTE 22=GTE 23=ELSE
-#   24=SYSCALL 25=LOAD8 26=STORE8 27=AMPERSAND 28=LBRACKET 29=RBRACKET
-#   30=STRING 31=COMMA 32=FN 33=RETURN 34=PERCENT 35=PIPE 36=CARET
-#   37=TILDE 38=SHL 39=SHR 40=STRUCT 41=DOT 42=LOAD16 43=LOAD32
-#   44=LOAD64 45=STORE16 46=STORE32 47=STORE64 48=ASM 49=COLON
-#   50=ELIF 51=BREAK 52=CONTINUE 53=AND 54=OR 55=FOR 56=KERNEL
+#   0x2C8000 fn_body_start [8192]        1024 inline metadata
+#   0x2CA000 fn_body_end   [8192]
+#   0x2CC000 fn_inline     [8192]
+#   0x2CE000 struct_fnames [8192]        32*32 field name offsets (stride 256)
+#   0x2D6000 output_buf    [262144]      ELF output buffer (256KB)
+#   0x316000 brk
 
 
 # ================================================================

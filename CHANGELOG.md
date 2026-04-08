@@ -62,6 +62,20 @@ Development branch. Features land incrementally. Release after audit + feedback.
 - **`cyrb audit` rewritten**: Runs self-hosting (two-step), heap map audit,
   full .tcyr test suite, format check, lint check. 5 audit stages.
 
+### Fixed — Code Audit
+- **aarch64 heap map synced**: Complete rewrite of main_aarch64.cyr heap map to
+  match main.cyr. Fixed stale output_buf offset (was 0x6A000, now 0x2D6000),
+  fixup table size (was 4096, now 8192), added all missing regions.
+- **callback.cyr**: Added missing `include "lib/syscalls.cyr"` dependency.
+- **tagged.cyr**: Added fmt.cyr to Requires documentation.
+- **syscalls.cyr**: Fixed stale path in header (was agnosys/syscalls.cyr).
+- **main.cyr heap map**: Added 5 undocumented regions (fn_local_names, local_depths,
+  local_types, inline_depth, expr_width).
+- **CLAUDE.md**: Updated compiler size, test counts, feature list for v2.0.
+- **Test coverage expanded**: Added float.tcyr (7 assertions) and json.tcyr
+  (5 assertions) — f64 arithmetic and string builder operations now tested.
+  Total: 9 files, 107 assertions.
+
 ### Added — Research & Scaffolding
 - **cyrius-x bytecode design**: vidya entry with register VM design, 32-bit fixed-width
   instruction encoding, ~30 opcodes, .cyx file format. Backend stub at `src/backend/cx/emit.cyr`.

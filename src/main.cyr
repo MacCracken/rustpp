@@ -38,8 +38,13 @@
 #   0x8FCB8  cur_line      [8]           Current line number
 #   0x8FCC0  scope_depth, local_depths   Block scoping state
 #   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
+#   0x903E8  inline_depth  [8]           Inline nesting depth
+#   0x903F0  expr_width    [8]           Expression width tracking (narrowing warnings)
 #   0x90400  include_fname [256]         Preprocessor filename scratch (relocated from 0x90000)
+#   0x91000  fn_local_names              Function local variable names (relocated from 0x8DC30)
+#   0x91800  local_depths  [512]         64 scope depths per local var
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
+#   0x92200  local_types                 Local variable type tracking
 #   0xA2000  tok_types     [524288]      65536 token type slots
 #   0x122000 tok_values    [524288]      65536 token value slots
 #   0x1A2000 tok_lines     [524288]      65536 token line numbers

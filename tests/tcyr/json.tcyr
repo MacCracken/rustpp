@@ -1,0 +1,47 @@
+# Test: JSON building and string builder
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("str_builder");
+fn test_builder() {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "hello");
+    str_builder_add_cstr(sb, " ");
+    str_builder_add_cstr(sb, "world");
+    var result = str_builder_build(sb);
+    assert_eq(str_len(result), 11, "builder length");
+    return 0;
+}
+test_builder();
+
+test_group("str_builder int");
+fn test_builder_int() {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "v=");
+    str_builder_add_int(sb, 42);
+    var result = str_builder_build(sb);
+    assert_eq(str_len(result), 4, "builder int length");
+    return 0;
+}
+test_builder_int();
+
+test_group("str operations");
+fn test_str_ops() {
+    var a = str_from("hello");
+    var b = str_from("world");
+    var c = str_cat(a, b);
+    assert_eq(str_len(c), 10, "cat length");
+    var d = str_from_int(42);
+    assert_eq(str_len(d), 2, "from_int length");
+    assert_eq(str_to_int(str_from("99")), 99, "to_int");
+    return 0;
+}
+test_str_ops();
+
+var r = assert_summary();
