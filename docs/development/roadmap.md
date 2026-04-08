@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.11.5.** 190KB self-hosting compiler, both architectures.
+> **v1.12.0.** 190KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Argonaut unblocked (300 tests + 39 serde + 18 benchmarks).
 > 28 stdlib modules. 8192 fixup entries.
@@ -85,13 +85,15 @@ tokens = 50M+ iterations.
 
 ## Current — Ports & Ecosystem
 
-| Target | Status |
-|--------|--------|
-| argonaut | **Unblocked** — 300 tests + 39 serde + 18 benchmarks pass on v1.11.4. |
-| ai-hwaccel | **Unblocked** — getenv (#9), exec_capture (#10) fixed. |
-| bhava (29K) | Next keystone port. Unlocks hoosh + 37 downstream repos. |
-| hisab (31K) | Math library port. Pairs with bhava. |
-| vidya MCP | Blocked on bote Cyrius port. |
+| Target | Status | Blocked by |
+|--------|--------|------------|
+| argonaut | **Done** — 300 tests + 39 serde + 18 benchmarks pass on v1.11.5. | — |
+| majra | Next. Config/env library. | — |
+| libro | Logging library. | majra |
+| ai-hwaccel | Hardware detection. | majra, libro |
+| bhava (29K) | Keystone port. Unlocks hoosh + 37 downstream repos. | — |
+| hisab (31K) | Math library port. Pairs with bhava. | — |
+| vidya MCP | Blocked on bote Cyrius port. | bote |
 
 ---
 

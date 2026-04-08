@@ -770,7 +770,7 @@ fn PP_PASS(S) {
                 ip = ip + 8;
                 if (load8(S + ip) == 34) {
                     ip = ip + 1;
-                    var fname = S + 0x90000;
+                    var fname = S + 0x90400;
                     var fi = 0;
                     var fgo = 1;
                     while (fgo == 1) {
@@ -910,7 +910,7 @@ fn PP_IFDEF_PASS(S) {
                 ip = ip + 8;
                 if (load8(S + ip) == 34) {
                     ip = ip + 1;
-                    var fname = S + 0x90000;
+                    var fname = S + 0x90400;
                     var fi = 0;
                     var fgo = 1;
                     while (fgo == 1) {
@@ -963,7 +963,7 @@ fn PP_REF_PASS(S) {
             ip = ip + 5;
             if (load8(S + ip) == 34) {
                 ip = ip + 1;
-                var rfn = S + 0x90000;
+                var rfn = S + 0x90400;
                 var rfi = 0;
                 while (ip < bl) {
                     var rc = load8(S + ip);

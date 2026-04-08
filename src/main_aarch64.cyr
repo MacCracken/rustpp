@@ -65,7 +65,7 @@
 #   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
 #
 # --- Preprocessor scratch ---
-#   0x90000  include_fname [256]         Temp filename for include
+#   0x90400  include_fname [256]         Temp filename for include (relocated from 0x90000)
 #   0x91000  include_buf   [65536]       Temp buffer for include expansion
 #
 # --- ELF output ---

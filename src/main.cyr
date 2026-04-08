@@ -13,14 +13,14 @@
 #
 #   0x00000  input_buf     [131072]      Raw stdin input
 #   0x20000  codebuf       [262144]      Generated machine code
-#   0x60000  tok_names     [65536]       Packed identifier strings
+#   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable, dedup keeps <16KB)
 #   0x8A000  struct_ftypes [4096]        32*16 field type IDs
-#   0x5C130  elf_out_len   [8]           Output length after EMITELF
+#   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
 #   0x2B8000  var_noffs     [32768]       4096 variable name offsets
 #   0x2C0000  var_sizes     [32768]       4096 variable sizes
-#   0x68000  str_data      [8192]        String literal bytes
-#   0x69800  str_pos       [8]           String position
-#   0x69808  data_size     [8]           Total variable data bytes
+#   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
+#   0x69800  str_pos       [8]           String position (nested in str_data tail)
+#   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
 #   0x6A000  output_buf    [131072]      ELF output buffer (also DCE bitmap scratch, 8KB)
 #   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
 #   0x8DA00  fn_count, in_fn, local_cnt  Function state
@@ -38,7 +38,7 @@
 #   0x8FCB8  cur_line      [8]           Current line number
 #   0x8FCC0  scope_depth, local_depths   Block scoping state
 #   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
-#   0x90000  include_fname [256]         Preprocessor filename scratch
+#   0x90400  include_fname [256]         Preprocessor filename scratch (relocated from 0x90000)
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
 #   0xA2000  tok_types     [524288]      65536 token type slots
 #   0x122000 tok_values    [524288]      65536 token value slots

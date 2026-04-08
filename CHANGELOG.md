@@ -6,6 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-04-07
+
+### Added — Compiler Hardening
+- **Heap map audit tool** (`tests/heapmap.sh`): Parses heap map comments from
+  `src/main.cyr`, builds interval map, flags overlaps and tight gaps (<16 bytes).
+  Entries marked `(nested` are intentionally inside larger regions and skipped.
+  Found and fixed: `use_from` overlapped `include_fname` by 464 bytes.
+- **Fixed overlap**: `include_fname` relocated from 0x90000 to 0x90400 to eliminate
+  collision with `use_from[64]` (0x8FFD0-0x901D0). Previously, >6 `use` aliases
+  would silently overwrite the preprocessor filename scratch buffer.
+- **Heap map accuracy**: Corrected `tok_names` declared size from 64KB to 32KB
+  (upper half is used by str_data/str_pos/data_size). Marked 4 intentionally
+  nested regions (elf_out_len, str_data, str_pos, data_size) in heap map comments.
+- **Port dependency chain**: Documented majra → libro → ai-hwaccel blocking path.
+
 ## [1.11.5] — 2026-04-07
 
 ### Changed — Compiler (Hardening)
