@@ -25,6 +25,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   elimination based on config values. Unblocks sakshi log level gating:
   `#if sk_cfg_log_level >= 3` compiles out debug/trace calls entirely.
 - **`#define NAME VALUE`**: Now stores integer values alongside presence flags.
+- **Bug #19: aarch64 module/DCE gap**: main_aarch64.cyr pass 1 and pass 2 synced
+  with main.cyr. Now supports mod/pub/use, impl blocks, unions, enum constructors,
+  shared library mode. Module system init + reset added. aarch64 cross-compiler
+  can now compile programs using the full v2.0 language.
   `PP_GETVAL(S, pos)` looks up the stored value. Backward compatible — `#define NAME`
   without a value stores 0 (still works with `#ifdef`).
 

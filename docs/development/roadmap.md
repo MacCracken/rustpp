@@ -22,13 +22,13 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** |
 
 | 18 | ~~bridge.cyr stale heap map~~ | ~~P4~~ | **Fixed v2.1.0** — heap map rewritten to match actual code (tok_types at 0xA2000, tok_values at 0xE2000). |
-| 19 | aarch64 cross-compiler missing module/DCE in pass 1 | P3 | main_aarch64.cyr pass 1 lacks mod/pub/use/impl/DCE. Works for current ports but limits aarch64 module support. |
+| 19 | ~~aarch64 cross-compiler missing module/DCE~~ | ~~P3~~ | **Fixed v2.1.0** — pass 1/2 synced with main.cyr. mod/pub/use/impl/union/enum-ctor all supported. |
 | 20 | ~~bridge.cyr dead code (EMOVC)~~ | ~~P5~~ | **Fixed v2.1.0** — removed. |
 | 21 | ~~bitset/bitclr crash at top level~~ | ~~P4~~ | **Fixed v2.1.0** — clear error message instead of SIGSEGV. |
 
 | 22 | `fmt_int` / `_sk_fmt_line` stack clobber — garbled output in certain call sequences | P2 | fmt_int's internal syscall clobbers state needed by subsequent writes. "me5ory" instead of "memory". Blocks sakshi deferred formatting. Same root cause as Bug #16 garbled assertions. |
 
-**Open bugs:** #16 (P3), #19 (P3), #22 (P2). #22 blocks sakshi deferred formatting.
+**Open bugs:** #16 (P3), #22 (P2). #22 blocks sakshi deferred formatting.
 
 ---
 
