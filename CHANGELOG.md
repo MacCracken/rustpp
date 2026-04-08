@@ -22,6 +22,15 @@ Development branch. Features land incrementally. Release after audit + feedback.
 - **`sizeof(Type)` operator**: Compile-time constant returning byte size of any type.
   `sizeof(i8)`=1, `sizeof(i16)`=2, `sizeof(i32)`=4, `sizeof(i64)`=8,
   `sizeof(StructName)`=recursive field size. Token 100, handled in PARSE_FACTOR.
+- **Struct field width**: Struct fields now support type annotations for width-correct
+  layout. `struct Pkt { tag: i8; len: i16; data: i32; payload; }` — fields are packed
+  at their declared width. FIELDOFF, STRUCTSZ, sizeof all respect actual widths.
+  Field loads use movzx for i8/i16. Field stores use byte/word/dword instructions.
+  Untyped fields remain 8 bytes (backward compatible).
+- **`union` keyword**: `union Value { as_int; as_ptr; }` — all fields share offset 0,
+  size = max field size. Token 101. Parsed like struct, uses high bit of field count
+  as union flag. FIELDOFF returns 0 for all fields. STRUCTSZ returns max. Init
+  requires all fields (same as struct init syntax). ISUNION(S, si) accessor added.
 
 ## [1.12.1] — 2026-04-07
 

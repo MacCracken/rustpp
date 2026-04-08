@@ -68,28 +68,39 @@ fn GETFTYPE(S, si, fi) {
     return L64(S + 0x8A000 + si * 256 + fi * 8);
 }
 
-# Get total size of a struct in bytes
+# Get byte size of a single field from its type encoding
+# >0 = nested struct ID, 0 = untyped (8), <0 = sized scalar (-width)
+fn FIELDSZ(S, ft) {
+    if (ft > 0) { return STRUCTSZ(S, ft - 1); }
+    if (ft < 0) { return 0 - ft; }
+    return 8;
+}
+
+# Get total size of a struct/union in bytes
 fn STRUCTSZ(S, si) {
     var fc = GETFCOUNT(S, si);
+    var is_u = ISUNION(S, si);
     var sz = 0;
     var i = 0;
     while (i < fc) {
-        var ft = GETFTYPE(S, si, i);
-        if (ft > 0) { sz = sz + STRUCTSZ(S, ft - 1); }
-        else { sz = sz + 8; }
+        var fsz = FIELDSZ(S, GETFTYPE(S, si, i));
+        if (is_u == 1) {
+            if (fsz > sz) { sz = fsz; }
+        } else {
+            sz = sz + fsz;
+        }
         i = i + 1;
     }
     return sz;
 }
 
-# Get byte offset of field fi within struct si
+# Get byte offset of field fi within struct/union si
 fn FIELDOFF(S, si, fi) {
+    if (ISUNION(S, si) == 1) { return 0; }
     var off = 0;
     var i = 0;
     while (i < fi) {
-        var ft = GETFTYPE(S, si, i);
-        if (ft > 0) { off = off + STRUCTSZ(S, ft - 1); }
-        else { off = off + 8; }
+        off = off + FIELDSZ(S, GETFTYPE(S, si, i));
         i = i + 1;
     }
     return off;
@@ -198,8 +209,9 @@ fn PARSE_ENUM_DEF(S, emit_code) {
     return 0;
 }
 
-# Get field count for struct (0-based index)
-fn GETFCOUNT(S, si) { return L64(S + 0x8E730 + si * 8); }
+# Get field count for struct (0-based index). High bit = union flag.
+fn GETFCOUNT(S, si) { return L64(S + 0x8E730 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
+fn ISUNION(S, si) { return L64(S + 0x8E730 + si * 8) >> 63; }
 
 # Find field index in struct (0-based struct index), return field index or -1
 fn FINDFIELD(S, si, fnoff) {
@@ -232,14 +244,27 @@ fn PARSE_STRUCT_DEF(S) {
             if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
             var fnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
-            # Check for type annotation: field: StructName
+            # Check for type annotation: field: Type
             if (PEEKT(S) == 49) {
                 STI(S, GTI(S) + 1);
                 if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
                 var tnoff = PEEKV(S);
-                var fsid = FINDSTRUCT(S, tnoff);
+                # Check scalar types first
+                var ftname = L64(S + 0x60000 + tnoff);
+                var fscalar = 0;
+                if (ftname & 0xFFFF == 0x3869) { fscalar = 1; }
+                elif (ftname & 0xFFFFFF == 0x363169) { fscalar = 2; }
+                elif (ftname & 0xFFFFFF == 0x323369) { fscalar = 4; }
+                elif (ftname & 0xFFFFFF == 0x343669) { fscalar = 8; }
                 STI(S, GTI(S) + 1);
-                ADDFIELDTYPED(S, si, fnoff, fsid);
+                if (fscalar > 0) {
+                    # Store as negative width for sized scalars, 0 for i64 (default)
+                    if (fscalar < 8) { ADDFIELDTYPED(S, si, fnoff, 0 - fscalar); }
+                    else { ADDFIELD(S, si, fnoff); }
+                } else {
+                    var fsid = FINDSTRUCT(S, tnoff);
+                    ADDFIELDTYPED(S, si, fnoff, fsid);
+                }
             } else {
                 ADDFIELD(S, si, fnoff);
             }
@@ -247,6 +272,54 @@ fn PARSE_STRUCT_DEF(S) {
         }
     }
     STI(S, GTI(S) + 1);  # consume }
+    return 0;
+}
+
+# Parse union — same as struct but sets high bit in fcount to mark as union
+fn PARSE_UNION_DEF(S) {
+    STI(S, GTI(S) + 1);  # consume UNION
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    SKIP_GENERICS(S);
+    var sid = REGSTRUCT(S, noff);
+    var si = sid - 1;
+    # Set union flag (high bit of fcount)
+    S64(S + 0x8E730 + si * 8, 1 << 63);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    var go = 1;
+    while (go == 1) {
+        if (PEEKT(S) == 14) { go = 0; }
+        else {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var fnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                var tnoff = PEEKV(S);
+                var ftname = L64(S + 0x60000 + tnoff);
+                var fscalar = 0;
+                if (ftname & 0xFFFF == 0x3869) { fscalar = 1; }
+                elif (ftname & 0xFFFFFF == 0x363169) { fscalar = 2; }
+                elif (ftname & 0xFFFFFF == 0x323369) { fscalar = 4; }
+                elif (ftname & 0xFFFFFF == 0x343669) { fscalar = 8; }
+                STI(S, GTI(S) + 1);
+                if (fscalar > 0) {
+                    if (fscalar < 8) { ADDFIELDTYPED(S, si, fnoff, 0 - fscalar); }
+                    else { ADDFIELD(S, si, fnoff); }
+                } else {
+                    var fsid = FINDSTRUCT(S, tnoff);
+                    ADDFIELDTYPED(S, si, fnoff, fsid);
+                }
+            } else {
+                ADDFIELD(S, si, fnoff);
+            }
+            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        }
+    }
+    STI(S, GTI(S) + 1);
     return 0;
 }
 
@@ -1270,10 +1343,14 @@ fn PARSE_FIELD_LOAD(S, noff) {
         if (ifi < 0) { ERR(S); }
         off = off + FIELDOFF(S, isi, ifi);
     } }
-    # Load variable address + field offset, then load value
+    # Load variable address + field offset, then load value (width-correct)
     EVADDR_X1(S, idx);
     if (off > 0) { EADDIMM_X1(S, off); }
-    ELODC(S);
+    var fld_sz = FIELDSZ(S, ft);
+    if (fld_sz == 1) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x01); }   # movzx rax, byte [rcx]
+    elif (fld_sz == 2) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x01); }               # movzx eax, word [rcx]
+    elif (fld_sz == 4) { EB(S, 0x8B); EB(S, 0x01); }                              # mov eax, [rcx]
+    else { ELODC(S); }
     return 0;
 }
 
@@ -1307,12 +1384,16 @@ fn PARSE_FIELD_STORE(S, noff) {
     if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
     STI(S, GTI(S) + 1);
     PEXPR(S);
-    # Store value to struct field
+    # Store value to struct field (width-correct)
     EPUSHR(S);
     EVADDR_X1(S, idx);
     if (off > 0) { EADDIMM_X1(S, off); }
     EPOPR(S);
-    ESTOC(S);
+    var fst_sz = FIELDSZ(S, ft);
+    if (fst_sz == 1) { ESTORE8(S); }
+    elif (fst_sz == 2) { ESTORE16(S); }
+    elif (fst_sz == 4) { ESTORE32(S); }
+    else { ESTOC(S); }
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
     return 0;
