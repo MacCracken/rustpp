@@ -1913,8 +1913,9 @@ fn PARSE_FOR(S) {
                 SCOPE_POP(S);
                 if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
                 # Patch continue to here (before step)
-                var ficfwp = L64(S + 0x8F850);
-                if (ficfwp > 1) { EPATCH(S, ficfwp); }
+                var ficfwn = L64(S + 0x8F850) - 1;
+                var ficfwi = 0;
+                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F858 + ficfwi * 8)); ficfwi = ficfwi + 1; }
                 S64(S + 0x8F850, 0);
                 # Step: idx = idx + 1
                 EFLLOAD(S, fili);
@@ -1973,9 +1974,10 @@ fn PARSE_FOR(S) {
             PARSE_PROG(S);
             SCOPE_POP(S);
             if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
-            # Patch continue to here (before step)
-            var ficfwp = L64(S + 0x8F850);
-            if (ficfwp > 1) { EPATCH(S, ficfwp); }
+            # Patch all continues to here (before step)
+            var ficfwn = L64(S + 0x8F850) - 1;
+            var ficfwi = 0;
+            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F858 + ficfwi * 8)); ficfwi = ficfwi + 1; }
             S64(S + 0x8F850, 0);
             # Step: var = var + 1
             EFLLOAD(S, fili);
@@ -2031,8 +2033,9 @@ fn PARSE_FOR(S) {
     if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
     STI(S, GTI(S) + 1);
     # Patch continue forward jump to here (step expression)
-    var cfwp = L64(S + 0x8F850);
-    if (cfwp > 1) { EPATCH(S, cfwp); }
+    var cfwn = L64(S + 0x8F850) - 1;
+    var cfwi = 0;
+    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x8F858 + cfwi * 8)); cfwi = cfwi + 1; }
     S64(S + 0x8F850, 0);
     # Emit step: replay as assignment (IDENT = EXPR) without semicolon
     var sti = GTI(S);
@@ -2752,9 +2755,13 @@ fn PARSE_STMT(S) {
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
         var cfw = L64(S + 0x8F850);
-        if (cfw != 0) {
-            # For-loop: forward patch to step expression
-            S64(S + 0x8F850, EJMP0(S));
+        if (cfw > 0) {
+            # For-loop: forward patch to step (array of patches)
+            var ci = cfw - 1;
+            if (ci < 8) {
+                S64(S + 0x8F858 + ci * 8, EJMP0(S));
+                S64(S + 0x8F850, cfw + 1);
+            }
         } else {
             # While/for-in: direct jump to loop top
             EJMP(S, L64(S + 0x8F838));

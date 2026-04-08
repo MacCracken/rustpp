@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-04-07
+
+### Added — Standard Library
+- **`lib/freelist.cyr`**: Segregated free-list allocator with `fl_free()`.
+  9 size classes (16-4096), large allocs via mmap. `fl_alloc`/`fl_free`/`fl_calloc`.
+
+### Fixed — Compiler
+- **Bug #12: `#derive(Serialize)` empty output**: Was already fixed in 1.10.3.
+- **Bug #13: Multiple `continue` in one loop**: Forward-patch array (up to 8) at
+  S+0x8F858. Fixed in all three loop types (C-style, for-in range, for-in collection).
+
 ## [1.10.3] — 2026-04-07
 
 ### Fixed — Compiler

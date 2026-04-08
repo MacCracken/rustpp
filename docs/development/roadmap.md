@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.10.3.** 205KB self-hosting compiler, both architectures.
+> **v1.11.0.** 205KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Inline functions. R12 register spill. ret2/rethi. #ref TOML. 7 SIMD ops. Threads + channels.
 > 22 stdlib modules. #derive(Serialize). Include-once. Jump tables. VCNT 4096.
@@ -51,11 +51,9 @@ Discovered during ai-hwaccel port (Rust → Cyrius, 22K lines).
 
 | # | Feature | Effort | Area |
 |---|---------|--------|------|
-| 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` should work in function call args, assignments, and return values, not just `switch`/`case`. Currently causes "unexpected ','" or "unexpected ')'" parse errors when used as `fn_call(MyEnum.VARIANT, arg2)`. Workaround: use bare variant names with unique prefixes (`ERR_NONE`, `ACCEL_CUDA`). |
-| 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Currently cc2 switches to code emission on the first non-fn statement and rejects later fn defs with "unexpected fn". Workaround: all fn defs must precede all statements (e.g., `alloc_init()` at the bottom). |
-| 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only (no individual `free()`). Long-running programs (daemons, CLI tools with detect-plan-report cycles) accumulate memory. Option: add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()` alongside existing bump allocator. |
-| 4 | **Fixup table expansion (8192+)** | **Medium** | Compiler — fixup table limit of 4096 entries is hit by large programs (~25 source files + stdlib). ai-hwaccel port requires stub functions in test binaries to stay under limit. argonaut port (13.5K Rust → 6.2K Cyrius, 12 modules + 24 stdlib) requires splitting 339 tests across 8 separate binaries and deduplicating test assertions to stay under the limit — losing ~30% of potential test coverage to a compiler constraint, not a logic gap. Workaround: split test binaries, stub unused modules. Fix: expand fixup table capacity or use dynamic allocation. |
-| 5 | **`vec_set()` in vec.cyr** | Low | Stdlib — vec.cyr has `vec_get` and `vec_push` but no `vec_set(v, idx, val)` for in-place element replacement. Workaround: direct memory access via `store64(load64(v) + idx * 8, val)`. |
+| 1 | **Enum namespacing in expressions** | Medium | Parser — `Foo.BAR` in function call args, assignments, return values. Workaround: bare variant names with unique prefixes. |
+| 2 | **Relaxed fn ordering** | Medium | Parser — allow `fn` definitions after global-scope statements. Workaround: all fns before statements. |
+| 3 | **Individual free / freelist allocator** | Medium | Stdlib — `lib/alloc.cyr` is bump-only. Add `lib/freelist.cyr` with `fl_alloc()`/`fl_free()`. |
 
 ---
 
