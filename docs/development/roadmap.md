@@ -78,13 +78,13 @@ multi-file compilation (.o + link)
 |---|---------|--------|--------|--------|
 | 9 | **Multi-file compilation** (.o + link) | High | Research | ELF .o output, symbol tables, relocation entries. True separate compilation. |
 
-### Tier 5 — New targets
+### Tier 5 — New targets (scaffold in 2.0, ship in 2.1/2.2)
 
-| # | Feature | Effort | Status | Detail |
+| # | Feature | Effort | Target | Detail |
 |---|---------|--------|--------|--------|
-| 10 | **cyrius-x** bytecode | Very High | Research | Portable bytecode format (not WASM). Register-based or stack-based VM. Enables cross-platform without recompilation. |
-| 11 | **cyrius-ts** frontend | High | Research | TypeScript/JS bridge. Parse TS subset → cyrius-x or native. |
-| 12 | **.tcyr/.bcyr** extensions | Low | Research | Native test/bench file formats. `cyrb test` reads .tcyr, `cyrb bench` reads .bcyr. |
+| 10 | **cyrius-x** bytecode | Very High | **v2.1** | Portable bytecode format (not WASM). Register-based VM. Scaffold design + IR in 2.0, full implementation in 2.1. |
+| 11 | **cyrius-ts** frontend | High | **v2.2** | TypeScript/JS bridge. Parse TS subset → cyrius-x. Needs cyrius-x first. |
+| 12 | **.tcyr/.bcyr** extensions | Low | v2.0 | Native test/bench file formats. `cyrb test` reads .tcyr, `cyrb bench` reads .bcyr. |
 
 ---
 

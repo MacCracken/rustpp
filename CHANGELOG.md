@@ -37,6 +37,9 @@ Development branch. Features land incrementally. Release after audit + feedback.
   - `bitclr(val, offset, width)` — clear bits: AND with inverted mask
   Tokens 102-104. Inline shift/mask codegen, no function call overhead.
   Replaces manual `(pte >> 12) & 0xFFFFF` patterns in kernel code.
+- **Expression type propagation**: PARSE_FACTOR sets expr_width when loading typed
+  variables. Assignments warn on narrowing (e.g., i32 value → i8 variable):
+  `warning:N: narrowing assignment (value may truncate)`. GEXW/SEXW at 0x903F0.
 
 ## [1.12.1] — 2026-04-07
 

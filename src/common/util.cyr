@@ -136,6 +136,10 @@ fn TWIDTH(t) {
     return 8;
 }
 
+# Expression width tracking (0=untyped/i64, 1=i8, 2=i16, 4=i32)
+fn GEXW(S) { return L64(S + 0x903F0); }
+fn SEXW(S, v) { S64(S + 0x903F0, v); return 0; }
+
 # Print a number to stderr (decimal)
 fn PRNUM(n) {
     var buf[24];
