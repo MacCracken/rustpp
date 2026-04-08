@@ -83,18 +83,6 @@
 #   0x43E000 preprocess_out[524288]      512KB expanded source buffer
 #   0x4BE000 brk                         4.7MB total
 #
-# --- Expression type tracking ---
-#   0x903D8  expr_stype     [8]          Struct type ID of last expression (0=untyped)
-#
-# --- Module system ---
-#   0x8FEC8  current_module  [8]          Name offset of current module (0 = none)
-#   0x8FED0  pub_flags[256]  [256]        1=public, 0=private per function
-#   0x8FFD0  use_from[64]    [512]        Alias source name offsets
-#   0x901D0  use_to[64]      [512]        Alias target (mangled) name offsets
-#   0x903D0  use_count       [8]          Number of use aliases
-#
-# NEXT FREE OFFSET: 0x903D8
-#
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
 #   10=LPAREN 11=RPAREN 12=EOF 13=LBRACE 14=RBRACE 15=IF 16=WHILE
