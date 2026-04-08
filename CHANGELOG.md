@@ -20,6 +20,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (upper half is used by str_data/str_pos/data_size). Marked 4 intentionally
   nested regions (elf_out_len, str_data, str_pos, data_size) in heap map comments.
 - **Port dependency chain**: Documented majra → libro → ai-hwaccel blocking path.
+- **Struct field limit expanded 16→32**: Relocated `struct_fnames` from 0x8E830
+  (4096 bytes, stride 128) to 0x2CE000 (8192 bytes, stride 256). `struct_ftypes`
+  stride also expanded to 256. brk extended from 0x2CE000 to 0x2D6000.
+  Bounds check now errors at 32 fields. argonaut's ServiceDefinition (21 fields)
+  no longer silently overflows into loop state.
+- **Output buffer relocated**: Moved `output_buf` from 0x6A000 (128KB, inside tok_names
+  region, overflowed into struct_ftypes) to 0x2D6000 (256KB, end of heap). brk extended
+  to 0x316000. Overflow check in EMITELF_USER errors if output exceeds 256KB. Old
+  0x6A000 region freed. DCE bitmap scratch also moved to new location.
 
 ## [1.11.5] — 2026-04-07
 

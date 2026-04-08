@@ -100,7 +100,7 @@ fn EMITELF(S) {
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 4096;
-    var O = S + 0x6A000;
+    var O = S + 0x2D6000;
     var op = 0;
     # ELF64 header (64 bytes)
     # e_ident: ELF magic + class64 + LE + version + ELFOSABI_NONE
@@ -153,7 +153,7 @@ fn EMITELF_KERNEL(S) {
     var memsz = filesz + 65536;
     var base = 0x40000000;
     var entry = base + 120;
-    var O = S + 0x6A000;
+    var O = S + 0x2D6000;
     var op = 0;
     # ELF64 header (64 bytes)
     S64(O + op, 0x00010102464C457F); op = op + 8;

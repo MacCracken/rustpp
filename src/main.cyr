@@ -14,14 +14,14 @@
 #   0x00000  input_buf     [131072]      Raw stdin input
 #   0x20000  codebuf       [262144]      Generated machine code
 #   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable, dedup keeps <16KB)
-#   0x8A000  struct_ftypes [4096]        32*16 field type IDs
+#   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
 #   0x2B8000  var_noffs     [32768]       4096 variable name offsets
 #   0x2C0000  var_sizes     [32768]       4096 variable sizes
 #   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
 #   0x69800  str_pos       [8]           String position (nested in str_data tail)
 #   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
-#   0x6A000  output_buf    [131072]      ELF output buffer (also DCE bitmap scratch, 8KB)
+#   0x6A000  (available — output_buf relocated to 0x2D6000)
 #   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
 #   0x8DA00  fn_count, in_fn, local_cnt  Function state
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
@@ -51,7 +51,9 @@
 #   0x2C8000 fn_body_start [8192]        1024 inline: token index after {
 #   0x2CA000 fn_body_end   [8192]        1024 inline: token index of }
 #   0x2CC000 fn_inline     [8192]        1024 inline: param_noff (nonzero=candidate)
-#   0x2CE000 brk
+#   0x2CE000 struct_fnames [8192]        32*32 field name offsets (stride 256, relocated from 0x8E830)
+#   0x2D6000 output_buf   [262144]      ELF output buffer (256KB, also DCE bitmap scratch 8KB)
+#   0x316000 brk
 #
 # --- Kernel mode ---
 #   0x8FCA0  kernel_mode   [8]           0=userspace (0x400000), 1=kernel (0x100000)
@@ -106,7 +108,7 @@ include "src/backend/x86/fixup.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x2CE000);
+syscall(SYS_BRK, S + 0x316000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -276,9 +278,9 @@ while (scan == 1) {
 SMOD(S, 0);
 
 # DCE pre-scan: build referenced-name bitmap in one pass over tokens.
-# Uses output_buf (S+0x6A000, 8KB) as scratch — safe because EMITELF runs later.
+# Uses output_buf (S+0x2D6000, 8KB) as scratch — safe because EMITELF runs later.
 # Bitmap: bit N set means tok_names offset N is referenced as non-FN identifier.
-var dce_bm = S + 0x6A000;
+var dce_bm = S + 0x2D6000;
 var dce_zi = 0;
 while (dce_zi < 8192) { store8(dce_bm + dce_zi, 0); dce_zi = dce_zi + 1; }
 var dce_ti = 0;
@@ -435,7 +437,7 @@ var olen = L64(S + 0x5C130);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x6A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x2D6000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;
