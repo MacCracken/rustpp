@@ -8,6 +8,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Development branch. Features land incrementally. Release after audit + feedback.
 
+### Added — Language
+- **Multi-width types** (i8, i16, i32): Type annotations on variables now produce
+  width-correct codegen. `var x: i8 = 42;` allocates 1 byte in data section and
+  uses `movzx` for loads, `mov byte` for stores. Works for both globals and locals.
+  - `i8`: 1 byte, movzx rax, byte [addr]
+  - `i16`: 2 bytes, movzx eax, word [addr]
+  - `i32`: 4 bytes, mov eax, [addr] (zero-extends)
+  - `i64`: 8 bytes (default, same as untyped)
+  - Backward compatible: untyped variables remain i64. Self-hosting unchanged.
+  - New emit functions: EVLOAD_W, EVSTORE_W, EFLLOAD_W, EFLSTORE_W
+  - Struct type IDs disambiguated from scalar types via var_sizes check
+
 ## [1.12.1] — 2026-04-07
 
 ### Fixed — Standard Library

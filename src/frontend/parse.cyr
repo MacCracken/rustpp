@@ -327,7 +327,10 @@ fn PARSE_FACTOR(S) {
         if (GINFN(S) == 1) {
             var li = FINDLOCAL(S, noff);
             if (li >= 0) {
-                SPSC(S, GLTYPE(S, li));
+                var lt = GLTYPE(S, li);
+                SPSC(S, lt);
+                # Width-correct load for scalar types (1=i8, 2=i16, 4=i32)
+                if (lt > 0) { if (lt <= 8) { EFLLOAD_W(S, li, lt); return 0; } }
                 EFLLOAD(S, li);
                 return 0;
             }
@@ -337,10 +340,15 @@ fn PARSE_FACTOR(S) {
         var vt = GVTYPE(S, idx);
         if (vt < 0) { SPSC(S, 0 - vt); }
         if (vt > 0) {
+            # Disambiguate scalar types from struct IDs using var_sizes:
+            # Scalar i8/i16/i32 have var_sizes 1/2/4. Structs have var_sizes >= 8.
+            var gvsz = L64(S + 0x2C0000 + idx * 8);
+            if (gvsz < 8) {
+                EVLOAD_W(S, idx, gvsz);
+                return 0;
+            }
             SESTYPE(S, vt);
-            # Only set SESVAR for struct-literal vars (size > 8 means multi-field struct)
-            var vsz = L64(S + 0x2C0000 + idx * 8);
-            if (vsz > 8) { SESVAR(S, idx); }
+            if (gvsz > 8) { SESVAR(S, idx); }
         }
         EVLOAD(S, idx);
         return 0;
@@ -1365,17 +1373,22 @@ fn PARSE_GVAR_REG(S) {
     if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
     var noff = PEEKV(S);
     STI(S, GTI(S) + 1);
-    # Optional type annotation — check if it names a struct
+    # Optional type annotation — check scalar types, pointer types, or struct names
     var psc = 0;
     var ann_sid = 0;
+    var ann_scalar = 0;
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
         else {
-            # Check if type name is a struct
             if (PEEKT(S) == 2) {
                 var ann_sn = PEEKV(S);
-                ann_sid = FINDSTRUCT(S, ann_sn);
+                var ann_tn = L64(S + 0x60000 + ann_sn);
+                if (ann_tn & 0xFFFF == 0x3869) { ann_scalar = 1; }
+                elif (ann_tn & 0xFFFFFF == 0x363169) { ann_scalar = 2; }
+                elif (ann_tn & 0xFFFFFF == 0x323369) { ann_scalar = 4; }
+                elif (ann_tn & 0xFFFFFF == 0x343669) { ann_scalar = 8; }
+                else { ann_sid = FINDSTRUCT(S, ann_sn); }
             }
             STI(S, GTI(S) + 1); SKIP_GENERICS(S);
         }
@@ -1415,9 +1428,18 @@ fn PARSE_GVAR_REG(S) {
         S64(S + 0x2C0000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
         SVTYPE(S, vcnt, ssid);
     } else {
-        S64(S + 0x2C0000 + vcnt * 8, 8);
-        if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
-        elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
+        if (ann_scalar > 0) {
+            if (ann_scalar < 8) {
+                S64(S + 0x2C0000 + vcnt * 8, ann_scalar);
+                SVTYPE(S, vcnt, ann_scalar);
+            } else {
+                S64(S + 0x2C0000 + vcnt * 8, 8);
+            }
+        } else {
+            S64(S + 0x2C0000 + vcnt * 8, 8);
+            if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
+            elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
+        }
     }
     SVCNT(S, vcnt + 1);
     # Save token index
@@ -1504,27 +1526,35 @@ fn PARSE_VAR(S) {
     STI(S, GTI(S) + 1);
     # Optional type annotation: var x: type = ... or var x: *type = ...
     var pscale = 0;
+    var scalar_type = 0;
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);  # consume :
         if (PEEKT(S) == 8) {
             # Pointer type: *i64, *i32, *i16, *i8
             STI(S, GTI(S) + 1);  # consume *
             var tnoff = PEEKV(S);
-            # Check type name for size (i64=8, i32=4, i16=2, i8=1)
             var tname = L64(S + 0x60000 + tnoff);
             if (tname & 0xFFFFFF == 0x343669) { pscale = 8; }
             if (tname & 0xFFFFFF == 0x323369) { pscale = 4; }
             if (tname & 0xFFFFFF == 0x363169) { pscale = 2; }
             if (tname & 0xFFFF == 0x3869) { pscale = 1; }
             if (pscale == 0) { pscale = 8; }
-            STI(S, GTI(S) + 1);  # consume type name
-            SKIP_GENERICS(S);    # skip <T> if present
+            STI(S, GTI(S) + 1);
+            SKIP_GENERICS(S);
         } else {
-            # Check if type name is a struct
             if (PEEKT(S) == 2) {
                 var lann = PEEKV(S);
-                var lsid = FINDSTRUCT(S, lann);
-                if (lsid > 0) { pscale = 0 - lsid; }
+                # Check scalar types: i8, i16, i32, i64
+                var ltname = L64(S + 0x60000 + lann);
+                if (ltname & 0xFFFF == 0x3869) { scalar_type = 1; }
+                elif (ltname & 0xFFFFFF == 0x363169) { scalar_type = 2; }
+                elif (ltname & 0xFFFFFF == 0x323369) { scalar_type = 4; }
+                elif (ltname & 0xFFFFFF == 0x343669) { scalar_type = 8; }
+                else {
+                    # Check if type name is a struct
+                    var lsid = FINDSTRUCT(S, lann);
+                    if (lsid > 0) { pscale = 0 - lsid; }
+                }
             }
             STI(S, GTI(S) + 1);
             SKIP_GENERICS(S);
@@ -1565,15 +1595,37 @@ fn PARSE_VAR(S) {
         var li = GFLC(S);
         S64(S + 0x91000 + li * 8, noff);
         SLDEP(S, li, GSDEP(S));
-        SLTYPE(S, li, pscale);
-        EFLSTORE(S, li);
+        if (scalar_type > 0) {
+            if (scalar_type < 8) {
+                SLTYPE(S, li, scalar_type);
+                EFLSTORE_W(S, li, scalar_type);
+            } else {
+                SLTYPE(S, li, 0);
+                EFLSTORE(S, li);
+            }
+        } else {
+            SLTYPE(S, li, pscale);
+            EFLSTORE(S, li);
+        }
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
         S64(S + 0x2B8000 + vcnt * 8, noff);
-        S64(S + 0x2C0000 + vcnt * 8, 8);
-        if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
-        EVSTORE(S, vcnt);
+        if (scalar_type > 0) {
+            if (scalar_type < 8) {
+                S64(S + 0x2C0000 + vcnt * 8, scalar_type);
+                SVTYPE(S, vcnt, scalar_type);
+                EVSTORE_W(S, vcnt, scalar_type);
+            } else {
+                # i64 explicit — same as default
+                S64(S + 0x2C0000 + vcnt * 8, 8);
+                EVSTORE(S, vcnt);
+            }
+        } else {
+            S64(S + 0x2C0000 + vcnt * 8, 8);
+            if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
+            EVSTORE(S, vcnt);
+        }
         SLVAR(S, vcnt);
         SVCNT(S, vcnt + 1);
     }
@@ -2891,16 +2943,22 @@ fn PARSE_STMT(S) {
                 }
             }
         }
-        if (idx >= 0) { EFLSTORE(S, idx); }
+        if (idx >= 0) {
+            var lt = GLTYPE(S, idx);
+            if (lt > 0) { if (lt <= 8) { EFLSTORE_W(S, idx, lt); } else { EFLSTORE(S, idx); } }
+            else { EFLSTORE(S, idx); }
+        }
         else {
             idx = FINDVAR(S, noff);
             if (idx < 0) { ERR(S); }
-            # Check global var type
             var vt = GVTYPE(S, idx);
             if (vt < 0) {
                 if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
             }
-            EVSTORE(S, idx);
+            # Use var_sizes to disambiguate scalar from struct
+            var avsz = L64(S + 0x2C0000 + idx * 8);
+            if (avsz < 8) { EVSTORE_W(S, idx, avsz); }
+            else { EVSTORE(S, idx); }
             SLVAR(S, idx);
         }
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }

@@ -137,6 +137,82 @@ fn EVLOAD(S, idx) {
     return 0;
 }
 
+# Width-aware var load: mov rcx, <addr>; load_width [rcx] → rax
+fn EVLOAD_W(S, idx, width) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    if (width == 1) { ELOAD8(S); return 0; }
+    if (width == 2) { ELOAD16(S); return 0; }
+    if (width == 4) { ELOAD32(S); return 0; }
+    ELODC(S);
+    return 0;
+}
+
+# Width-aware var store: mov rcx, <addr>; store_width [rcx] ← rax
+fn EVSTORE_W(S, idx, width) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    if (width == 1) { ESTORE8(S); return 0; }
+    if (width == 2) { ESTORE16(S); return 0; }
+    if (width == 4) { ESTORE32(S); return 0; }
+    ESTOC(S);
+    return 0;
+}
+
+# Width-aware local load: load_width [rbp-off] → rax
+fn EFLLOAD_W(S, idx, width) {
+    var disp = 0 - ((idx + 1) * 8);
+    if (width == 1) {
+        # movzx rax, byte [rbp+disp]
+        EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    if (width == 2) {
+        # movzx eax, word [rbp+disp]
+        EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    if (width == 4) {
+        # mov eax, [rbp+disp] (32-bit, zero-extends to rax)
+        EB(S, 0x8B); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    # Default: 64-bit load
+    EFLLOAD(S, idx);
+    return 0;
+}
+
+# Width-aware local store: rax → store_width [rbp-off]
+fn EFLSTORE_W(S, idx, width) {
+    var disp = 0 - ((idx + 1) * 8);
+    if (width == 1) {
+        # mov byte [rbp+disp], al
+        EB(S, 0x88); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    if (width == 2) {
+        # mov word [rbp+disp], ax
+        EB(S, 0x66); EB(S, 0x89); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    if (width == 4) {
+        # mov dword [rbp+disp], eax
+        EB(S, 0x89); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    # Default: 64-bit store
+    EFLSTORE(S, idx);
+    return 0;
+}
+
 # emit var addr: mov rax, <placeholder> with type-0 fixup
 fn EVADDR(S, idx) {
     E2(S, 0xB848);
