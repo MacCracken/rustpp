@@ -40,12 +40,83 @@ fn ISALNUM(c) {
 # ================================================================
 
 # Read a file into buffer at dst, return bytes read. Path must be null-terminated.
+# Fallback lib path for include resolution (set from CYRIUS_HOME env)
+var _cyrius_lib[256];
+var _cyrius_lib_len = 0;
+
+fn _init_cyrius_lib() {
+    # Read /proc/self/environ to find HOME=
+    var ebuf[4096];
+    var efd = syscall(2, "/proc/self/environ", 0, 0);
+    if (efd < 0) { return 0; }
+    var elen = syscall(0, efd, &ebuf, 4096);
+    syscall(3, efd);
+    # Scan for HOME=
+    var ei = 0;
+    while (ei < elen) {
+        if (load8(&ebuf + ei) == 72) {
+            if (load8(&ebuf + ei + 1) == 79) {
+                if (load8(&ebuf + ei + 2) == 77) {
+                    if (load8(&ebuf + ei + 3) == 69) {
+                        if (load8(&ebuf + ei + 4) == 61) {
+                            # Found HOME=, copy value + /.cyrius/lib/
+                            var hi = ei + 5;
+                            var wi = 0;
+                            while (hi < elen) {
+                                var hc = load8(&ebuf + hi);
+                                if (hc == 0) { break; }
+                                store8(&_cyrius_lib + wi, hc);
+                                wi = wi + 1; hi = hi + 1;
+                            }
+                            # Append /.cyrius/lib/
+                            store8(&_cyrius_lib + wi, 47); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 46); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 99); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 121); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 114); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 105); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 117); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 115); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 47); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 108); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 105); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 98); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 47); wi = wi + 1;
+                            store8(&_cyrius_lib + wi, 0);
+                            _cyrius_lib_len = wi;
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+        # Skip to next null
+        while (ei < elen) { if (load8(&ebuf + ei) == 0) { break; } ei = ei + 1; }
+        ei = ei + 1;
+    }
+    return 0;
+}
+
 fn READFILE(path, dst, maxsz) {
-    # SYS_OPEN: x86=open(path,flags,mode), aarch64=openat(dirfd,path,flags,mode)
-    # On aarch64, SYS_OPEN is actually openat(56) which needs AT_FDCWD(-100) as first arg
     var fd = 0;
     if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, path, 0, 0); }
     else { fd = syscall(SYS_OPEN, 0 - 100, path, 0, 0); }
+    # Fallback: if open fails and path starts with "lib/", try CYRIUS_HOME/lib/
+    if (fd < 0) {
+        if (_cyrius_lib_len > 0) {
+            if (load8(path) == 108) { if (load8(path + 1) == 105) { if (load8(path + 2) == 98) { if (load8(path + 3) == 47) {
+                # Build fallback path: _cyrius_lib + (path + 4)
+                var fbuf[512];
+                var fi = 0;
+                while (fi < _cyrius_lib_len) { store8(&fbuf + fi, load8(&_cyrius_lib + fi)); fi = fi + 1; }
+                var pi = 4;
+                while (load8(path + pi) != 0) { store8(&fbuf + fi, load8(path + pi)); fi = fi + 1; pi = pi + 1; }
+                store8(&fbuf + fi, 0);
+                if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, &fbuf, 0, 0); }
+                else { fd = syscall(SYS_OPEN, 0 - 100, &fbuf, 0, 0); }
+            } } } }
+        }
+    }
     if (fd < 0) { return 0; }
     var total = 0;
     var rgo = 1;

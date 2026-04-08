@@ -72,6 +72,7 @@ while (done == 0) {
 SBL(S, bl);
 
 # Preprocess includes
+_init_cyrius_lib();
 PREPROCESS(S);
 
 # Lex

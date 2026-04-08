@@ -4,7 +4,18 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.1] — Unreleased
+## [2.1.2] — Unreleased
+
+### Fixed
+- **Bug #25: Include path fallback**: `include "lib/..."` now falls back to
+  `$HOME/.cyrius/lib/` when the local path fails. Reads HOME from
+  `/proc/self/environ` at startup. Projects with their own `lib/` directory
+  (sakshi, vidya) no longer shadow the Cyrius stdlib — local files take
+  priority, stdlib fills gaps.
+- **hashmap_fast.cyr**: Added doc comments to fhm_cap, fhm_count, fhm_has.
+  Fixes CI doc coverage check (3 undocumented → 0).
+
+## [2.1.1] — 2026-04-08
 
 ### Added — Standard Library
 - **`lib/hashmap_fast.cyr`**: SIMD-accelerated hashmap (Swiss table inspired). Uses
