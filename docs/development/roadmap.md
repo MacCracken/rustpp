@@ -1,9 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v1.12.0.** 190KB self-hosting compiler, both architectures.
+> **v2.0.0-dev.** 190KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
-> Argonaut unblocked (346 tests + 39 serde + 46 audit + 29 benchmarks).
-> 28 stdlib modules. 8192 fixup entries.
+> Argonaut: 424 tests pass. Heap audit clean. 28 stdlib modules.
 >
 > agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
@@ -17,114 +16,89 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 14 | ~~Compiler segfault on ~6000+ line programs~~ | ~~P1~~ | **Fixed v1.11.4** — heap offset collision between `&&` extra_patches and `continue` forward-patches. |
+| 14 | ~~Compiler segfault on ~6000+ line programs~~ | ~~P1~~ | **Fixed v1.11.4** |
 | 15 | ~~`#derive(Serialize)` + `#derive(Deserialize)` duplicate variable~~ | ~~P2~~ | **Fixed v1.11.1** |
-| 16 | Adding `include` shifts global addresses, breaks existing assertions | P3 | Adding a new `.cyr` file with `enum` blocks to a shared test header changed string/data offsets in the compiled binary, causing existing tests to fail with corrupted assertion labels (e.g. "^" instead of "mode server"). Workaround: keep new enum-heavy modules in separate compilation units. Root cause: global enum numbering or data section layout is position-dependent on total include count. Found in argonaut port (2026-04-07). |
-| 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** — `hashmap.cyr` now includes `fnptr.cyr` directly. |
+| 16 | Adding `include` shifts global addresses, breaks existing assertions | P3 | Enum-heavy includes shift data section layout. Needs repro case from majra port. |
+| 17 | ~~`fncall2` undefined warning~~ | ~~P4~~ | **Fixed v1.12.1** |
 
 **Open bugs:** #16 (P3). Needs reproduction case — likely triggered by majra port.
 
 ---
 
-## v1.12 — Compiler Hardening (pre-2.0 foundation)
+## v2.0 — Development Plan
 
-The heap map has outgrown manual management. Bug #14 was a 16-byte overlap that
-went undetected across 4 releases. Before adding multi-width types, unions, or
-multi-file compilation, the compiler internals need a cleanup pass.
+Research first, implement second. Each feature gets a vidya entry before code.
+Release after: all features in, full audit, feedback cycle.
 
-### 1. Heap map audit tool
+### Dependency graph
 
-Script that parses every `0x8____` offset from source code, builds a region map,
-and flags overlaps or regions with < 16 bytes of padding. Catches the class of
-bug that caused #14, permanently.
+```
+multi-width types (i8, i16, i32)
+  ├── sizeof operator
+  │     └── struct padding/alignment
+  │           ├── unions
+  │           └── bitfields
+  ├── variadic functions
+  ├── u128
+  └── cyrius-x bytecode
+        └── cyrius-ts frontend
 
-| Item | Status |
-|------|--------|
-| Parse offsets from heap map comments + code | |
-| Build interval map, detect overlaps | |
-| Warn on < 16-byte gaps between regions | |
-| Run as part of `tests/compiler.sh` | |
+multi-file compilation (.o + link)
+  └── cross-function inlining
 
-### 2. Region consolidation + overflow guards
+.tcyr/.bcyr test/bench extensions (independent)
+```
 
-Group related state, add bounds checks at region boundaries.
+### Tier 1 — Foundation (blocks everything)
 
-| Item | Status |
-|------|--------|
-| Group all loop state contiguous (loop_top, break, continue) | |
-| Group all expression state contiguous (extra_patches, ptr_scale, expr_stype) | |
-| Add overflow check to ADDXP (extra_patches bounds) | |
-| Add overflow check to continue patches | |
-| Clean stale heap map comments (aarch64 local_types, etc.) | |
-| Two-step bootstrap verification | |
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 1 | **Multi-width types** (i8, i16, i32) | High | Research | Width-correct loads/stores, type ID encoding, var declarations with explicit widths. Touches lex, parse, emit, fixup. Currently "everything is i64" — this is THE fundamental change for 2.0. |
 
-### 3. Output buffer honesty
+### Tier 2 — Type system completion (needs Tier 1)
 
-The output buffer at `0x6A000` (128KB) is routinely overwritten past its boundary
-by EMITELF. Safe today because it runs last, but a trap for any future change.
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 2 | **sizeof** operator | Low | Research | `sizeof(Type)` returns byte size. Needed for struct padding and alloc. |
+| 3 | **Struct padding/alignment** | Medium | Research | ABI-compatible field layout. Enables FFI with C. |
+| 4 | **Unions** | Medium | Research | Tagged and untagged. Overlay fields at same offset. |
+| 5 | **Bitfields** | Medium | Research | Bit-level field access within structs/unions. Hardware registers, protocols. |
+| 6 | **Variadic functions** | Medium | Research | `fn printf(fmt, ...)` with va_arg. Needs multi-width for correct stack layout. |
 
-| Item | Status |
-|------|--------|
-| Move output_buf to end of heap (after fn_inline) | |
-| Expand to 256KB or dynamic via brk extension | |
-| Add overflow check in EMITELF_USER / EMITELF_KERNEL | |
-| Two-step bootstrap verification | |
+### Tier 3 — Performance (can parallel Tier 2)
 
-### 4. DCE optimization
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 7 | **u128** | High | Research | 128-bit integers via register pairs (rax:rdx). Mul-with-overflow. Closes 18-33x gap vs Rust on is_prime. |
+| 8 | **Cross-function inlining** | High | Research | Beyond token replay. Closes 300-700x gap on DSP scalar. |
 
-Dead code elimination scans all tokens per function — O(N*T). Fine at 358
-functions / 36K tokens, but bhava (29K lines) will hit 500+ functions / 100K+
-tokens = 50M+ iterations.
+### Tier 4 — Compilation model
 
-| Item | Status |
-|------|--------|
-| Build referenced-name bitset in one pass over tokens | |
-| Check membership per function — O(T + N) total | |
-| Verify no behavior change (same functions eliminated) | |
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 9 | **Multi-file compilation** (.o + link) | High | Research | ELF .o output, symbol tables, relocation entries. True separate compilation. |
+
+### Tier 5 — New targets
+
+| # | Feature | Effort | Status | Detail |
+|---|---------|--------|--------|--------|
+| 10 | **cyrius-x** bytecode | Very High | Research | Portable bytecode format (not WASM). Register-based or stack-based VM. Enables cross-platform without recompilation. |
+| 11 | **cyrius-ts** frontend | High | Research | TypeScript/JS bridge. Parse TS subset → cyrius-x or native. |
+| 12 | **.tcyr/.bcyr** extensions | Low | Research | Native test/bench file formats. `cyrb test` reads .tcyr, `cyrb bench` reads .bcyr. |
 
 ---
 
-## Current — Ports & Ecosystem
+## Ports & Ecosystem
 
 | Target | Status | Blocked by |
 |--------|--------|------------|
-| argonaut | **Done** — 346 tests + 39 serde + 46 audit = 431 assertions, 29 benchmarks. Bug #12 resolved (serde unblocked). | — |
-| majra | Next. Config/env library. | — |
+| argonaut | **Done** — 424 tests pass on v1.12.1. | — |
+| majra | In progress (separate agent). Config/env library. | — |
 | libro | Logging library. | majra |
 | ai-hwaccel | Hardware detection. | majra, libro |
 | bhava (29K) | Keystone port. Unlocks hoosh + 37 downstream repos. | — |
 | hisab (31K) | Math library port. Pairs with bhava. | — |
 | vidya MCP | Blocked on bote Cyrius port. | bote |
-
----
-
-## v2.0 — Systems Language Features
-
-These are heavy lifts that touch every compiler module (lex, parse, emit, fixup).
-They should be built on the v1.12 hardened foundation.
-
-### Type system expansion
-
-| Feature | Effort | Unlocks | Depends on |
-|---------|--------|---------|------------|
-| Multi-width types (i8, i16, i32, u128) | High | Memory efficiency, big-number math | v1.12 heap cleanup |
-| Struct padding/alignment (sizeof) | Medium | ABI compat, FFI | Multi-width types |
-| Unions, bitfields | Medium | Hardware, protocols | Struct padding |
-| Variadic functions | Medium | printf-style APIs | Multi-width types |
-
-### Compilation model
-
-| Feature | Effort | Unlocks | Depends on |
-|---------|--------|---------|------------|
-| Multi-file compilation (.o + link) | High | True separate compilation | v1.12 heap cleanup |
-| Cross-function inlining | High | DSP scalar: 300-700x vs Rust | Multi-file or token replay v2 |
-
-### Performance
-
-| # | Optimization | Target | Effort |
-|---|-------------|--------|--------|
-| 1 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | High |
-| 2 | Cross-function inlining | DSP scalar: 300-700x vs Rust | High |
 
 ---
 
@@ -136,14 +110,16 @@ They should be built on the v1.12 hardened foundation.
 | Variables (VCNT) | 4096 | Expanded from 2048 in v1.8.2 |
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
 | Fixup entries | 8192 | Expanded from 4096 in v1.10.2 |
+| Struct fields | 32 | Expanded from 16 in v1.12.0 |
 | Input buffer | 512KB | Lex from preprocess buffer (v1.7.2) |
 | Preprocess output | 512KB | Expanded from 256KB in v1.8.1 |
 | Code buffer | 262144 bytes | Overflow detected |
-| Identifier buffer | 65536 bytes | Dedup since v1.7.8 (~50% savings) |
+| Output buffer | 262144 bytes | Relocated to end of heap v1.12.0 |
+| Identifier buffer | 32768 bytes | Dedup since v1.7.8 (~50% savings) |
 | Include-once table | 64 files | Tracked filenames for dedup (v1.8.0) |
 | Macros | 16 | |
-| Extra patches (&&) | 8 | Unenforced — silent overflow into adjacent state |
-| Continue patches | 8 | Unenforced — silent overflow into adjacent state |
+| Extra patches (&&) | 8 | Enforced v1.11.5 |
+| Continue patches | 8 | Enforced v1.11.5 |
 
 ---
 
@@ -151,9 +127,10 @@ They should be built on the v1.12 hardened foundation.
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 188KB |
-| 2 | aarch64 | **Done** — cross + native, inline disabled |
+| 1 | x86_64 | **Done** — self-hosting, 190KB |
+| 2 | aarch64 | **Done** — cross + native |
 | 3 | RISC-V | Planned |
+| 4 | cyrius-x | v2.0 target |
 
 ---
 
@@ -185,14 +162,6 @@ Expansion targets:
 
 ---
 
-## v2.0+ — Future
-
-- **cyrius-x** — portable bytecode format (not WASM)
-- **cyrius-ts** — TypeScript/JS bridge frontend
-- **.tcyr/.bcyr** — native test/bench file extensions
-
----
-
 ## Known Gotchas
 
 | # | Behavior | Fix |
@@ -211,3 +180,4 @@ Expansion targets:
 - Byte-exact testing is the gold standard
 - 108 repos / ~1M lines is the real measure of success
 - Two-step bootstrap for any heap offset change
+- Research before implementation — vidya entry before code
