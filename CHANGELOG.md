@@ -4,9 +4,7 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.0.0] — Unreleased
-
-Development branch. Features land incrementally. Release after audit + feedback.
+## [2.0.0] — 2026-04-08
 
 ### Added — Language
 - **Multi-width types** (i8, i16, i32): Type annotations on variables now produce
