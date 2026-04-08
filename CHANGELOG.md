@@ -18,6 +18,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (8192 entries × 8). brk extended to 0x346000. Unblocks vidya + sakshi combined
   compilation which exceeded the 4096 limit.
 
+### Added — Language
+- **`#if` value-comparison directive**: `#if NAME >= VALUE`, `#if NAME == VALUE`,
+  etc. Supports ==, !=, <, >, <=, >=. Works with `#define NAME VALUE` (integer).
+  `#endif` closes the block (shared with `#ifdef`). Enables compile-time dead code
+  elimination based on config values. Unblocks sakshi log level gating:
+  `#if sk_cfg_log_level >= 3` compiles out debug/trace calls entirely.
+- **`#define NAME VALUE`**: Now stores integer values alongside presence flags.
+  `PP_GETVAL(S, pos)` looks up the stored value. Backward compatible — `#define NAME`
+  without a value stores 0 (still works with `#ifdef`).
+
 ## [2.0.0] — 2026-04-08
 
 ### Added — Language

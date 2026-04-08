@@ -26,7 +26,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 20 | ~~bridge.cyr dead code (EMOVC)~~ | ~~P5~~ | **Fixed v2.1.0** — removed. |
 | 21 | ~~bitset/bitclr crash at top level~~ | ~~P4~~ | **Fixed v2.1.0** — clear error message instead of SIGSEGV. |
 
-**Open bugs:** #16 (P3), #19 (P3). Others are low priority or documented limitations.
+| 22 | `fmt_int` / `_sk_fmt_line` stack clobber — garbled output in certain call sequences | P2 | fmt_int's internal syscall clobbers state needed by subsequent writes. "me5ory" instead of "memory". Blocks sakshi deferred formatting. Same root cause as Bug #16 garbled assertions. |
+
+**Open bugs:** #16 (P3), #19 (P3), #22 (P2). #22 blocks sakshi deferred formatting.
 
 ---
 
@@ -166,7 +168,7 @@ Expansion targets:
 | 2 | Perfect hash generation — O(1) lookup tables from TOML |
 | 3 | Static hashmap init — compile-time populated hashmaps |
 | 4 | Config-driven codegen — feature flags, platform tables |
-| 5 | `#if` / `#elif` / `#else` value-comparison directive — enables compile-time dead code elimination based on `#ref` config values. Required by sakshi for zero-cost log level gating (e.g. `#if sk_cfg_log_level >= 3` to compile out debug/trace calls entirely). Currently only `#ifdef` exists (symbol-defined check), no value comparison. |
+| 5 | **Done** (v2.1.0) — `#if NAME OP VALUE` with ==, !=, <, >, <=, >=. `#define NAME VALUE` stores integers. Unblocks sakshi log level gating. |
 
 ---
 
