@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**Phase 5 in progress — Prove the Language.** cc2 is the active modular compiler (7 modules, 150 functions, 94 tests).
+**v1.11.1** — cc2 is the active modular compiler (8 modules, 205KB, 267 tests). 28 stdlib modules.
 
 ```
 sh bootstrap/bootstrap.sh
@@ -65,17 +65,29 @@ Requires: Linux x86_64 + /bin/sh. Nothing else.
 
 The current language (compiled by cc2) supports:
 - Variables, arrays, functions (unlimited params, 64 locals)
-- if/else/elif, while loops, break/continue
+- if/else/elif, while loops, break/continue, for loops, for-in range
 - Arithmetic: + - * / %
 - Bitwise: & | ^ ~ << >>
 - syscall(), load8/16/32/64(), store8/16/32/64(), &var
 - Structs with initialization, field access (dot), field assignment
+- Enums with `Enum.VARIANT` namespacing syntax
 - Pointer dereference (*ptr read, *ptr = val write)
-- Include directive, inline asm blocks
+- Include directive, `#ref "file.toml"` directive, inline asm blocks
 - Progressive type annotations (var x: i64 = 42)
 - Hex literals, string literals, comments
 - Error messages with token position
-- 15 real Linux programs, buffered I/O (wc 2.4x faster than GNU)
+- Relaxed fn ordering (functions can appear after statements)
+- Inline small functions (token replay inlining)
+- Register allocation (R12 spill, ESPILL/EUNSPILL)
+- Return-by-value: ret2(a,b), rethi()
+- f64_atan(x) builtin + lib/math.cyr
+- Fixup table: 8192 entries
+- Fn table relocated to 0x2C2000
+- PP_REF_PASS preprocessor pass for `#ref` directives
+- PARSE_SIMD_EXT/LEXKW_EXT overflow helpers for large functions
+- _INLINE_OK flag for aarch64 (disables inline metadata on ARM)
+- Prologue: push rbx; push r12; push rbp; mov rbp, rsp
+- 28 stdlib modules, 57 programs, buffered I/O (wc 2.4x faster than GNU)
 
 ## Phases
 

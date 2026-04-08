@@ -165,3 +165,24 @@ Deferred: error message line numbers, performance pass, block scoping.
 
 ### Dead Code Removal
 - 11 stale files: src/cc/ (5), src/cc_bridge.cyr, src/compiler.cyr, src/compiler_aarch64.cyr, src/arch/aarch64/ (3)
+
+## v1.11.0–v1.11.1 — Enum Namespacing, Relaxed Ordering, Allocator, Bug Fixes
+
+### Language Features
+- Enum namespacing in expressions — `Enum.VARIANT` syntax (v1.11.0)
+- Relaxed fn ordering — functions can appear after statements (v1.11.0)
+- `continue` works correctly in all loop types — multiple continue patch array (v1.11.1, bug #13)
+
+### Compiler Infrastructure
+- Fixup table expanded 4096 to 8192 entries (v1.11.0)
+- f64_atan builtin (v1.11.0)
+
+### Standard Library
+- lib/freelist.cyr — freelist allocator (free + reuse, O(1) alloc/free) (v1.11.0)
+- lib/math.cyr — extended math functions (v1.11.0)
+
+### Bug Fixes
+- Bug #12: derive runtime segfault fix (v1.11.1)
+- Bug #13: multiple continue patch array — continue in all loop types (v1.11.1)
+- Bug #14: MAP_FAILED removal (v1.11.1)
+- Bug #15: dual derive fix (v1.11.1)

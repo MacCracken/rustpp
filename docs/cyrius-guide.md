@@ -38,6 +38,7 @@ var r = add(20, 22);   # r = 42
 
 - Up to 6 register params, 7+ passed on stack
 - Forward calls work (functions can call functions defined later)
+- Relaxed ordering: functions can appear after statements (v1.11.0+)
 - All functions return a value (`return 0;` if nothing to return)
 
 ## Control Flow
@@ -55,6 +56,7 @@ while (x < 10) { x = x + 1; }
 for (var i = 0; i < 10; i = i + 1) { ... }
 
 # Break / Continue (in while and for)
+# continue works correctly in all loop types (v1.11.1 bug #13 fix)
 while (1 == 1) {
     if (done == 1) { break; }
     if (skip == 1) { continue; }
@@ -141,11 +143,37 @@ var n = syscall(0, 0, &buf, 256);   # read(fd=0, buf, len=256)
 syscall(60, 0);                      # exit(0)
 ```
 
+## Return-by-Value Builtins
+
+```
+# Return two values from a function via rax:rdx
+fn divmod(a, b) {
+    ret2(a / b, a % b);          # Returns both values
+}
+var q = divmod(10, 3);           # q = 3 (rax)
+var r = rethi();                 # r = 1 (rdx, the second value)
+```
+
+## Math Builtins
+
+```
+var angle = f64_atan(x);         # Arctangent (f64)
+# See lib/math.cyr for additional math functions
+```
+
 ## Includes
 
 ```
 include "lib/string.cyr"
 # Textual inclusion — file contents replace the include line
+```
+
+## Ref Directive
+
+```
+#ref "config.toml"
+# Reads a TOML file and emits key/value pairs as global variables
+# Processed during PP_REF_PASS before main compilation
 ```
 
 ## Inline Assembly
@@ -185,6 +213,8 @@ enum Color { RED; GREEN; BLUE; }     # RED=0, GREEN=1, BLUE=2
 enum Error { OK = 0; NOT_FOUND = 44; PERM = 13; }  # Explicit values
 
 var c = BLUE;                        # c = 2
+var c2 = Color.BLUE;                 # Namespaced access (v1.11.0+)
+
 ```
 
 ## Switch
@@ -250,6 +280,10 @@ include "lib/io.cyr"      # File I/O: file_open, file_read, file_write, file_clo
 include "lib/fmt.cyr"     # Formatting: fmt_int, fmt_hex, fmt_hex0x, fmt_bool, fmt_byte
 include "lib/args.cyr"    # CLI args: args_init, argc, argv
 include "lib/fnptr.cyr"   # Function pointers: fncall0, fncall1, fncall2
+include "lib/thread.cyr"  # Threads (clone+mmap), mutex (futex), MPSC channels
+include "lib/async.cyr"   # Async primitives
+include "lib/freelist.cyr"# Freelist allocator (free + reuse, O(1) alloc/free)
+include "lib/math.cyr"    # Math functions: f64_atan and extended math ops
 ```
 
 ## AGNOS System Libraries

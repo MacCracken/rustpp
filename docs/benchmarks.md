@@ -1,6 +1,6 @@
 # Cyrius Benchmarks
 
-> Generated: 2026-04-06 | Platform: x86_64 Linux | Version: 1.5.0
+> Generated: 2026-04-07 | Platform: x86_64 Linux | Version: 1.11.1
 
 ## Binary Size: Cyrius vs GNU Coreutils
 
@@ -47,7 +47,7 @@ The wc advantage comes from zero-overhead processing — no locale, no UTF-8 dec
 
 | Operation | Time |
 |-----------|------|
-| Compiler self-compile (164KB binary) | **~11ms** |
+| Compiler self-compile (205KB binary) | **~11ms** |
 | Build any single program | **<5ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Assembler throughput | 1.3M lines/sec |
@@ -61,7 +61,7 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Bootstrap seed (bootstrap/asm) | 29 KB |
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
-| Full compiler (cc2) | 136 KB |
+| Full compiler (cc2) | 205 KB |
 | cyrb build tool | 58 KB |
 | **Total toolchain** | **264 KB** |
 
@@ -83,16 +83,21 @@ The entire Cyrius toolchain fits in **264 KB**. GCC: ~100 MB. Clang/LLVM: ~500 M
 | **agnosys** (1 module) | 30+ | Linux syscall bindings (50 syscalls) |
 | **kybernet** (7 modules) | 25+ | PID 1 init system |
 
-**Total: 21 library modules, 200+ functions**
+| thread.cyr | 10+ | Threads (clone+mmap), mutex (futex), MPSC channels |
+| async.cyr | 5+ | Async primitives |
+| freelist.cyr | 5+ | Freelist allocator (free + reuse, O(1) alloc/free) |
+| math.cyr | 5+ | Extended math (f64_atan and more) |
+
+**Total: 28 library modules, 200+ functions**
 
 ## Test Coverage
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 212 | All pass |
+| Compiler (cc2) | 216 | All pass |
 | Programs | 51 | All pass |
 | aarch64 (cross) | 26 | All pass |
-| **Total** | **289** | **0 failures** |
+| **Total** | **267+26** | **0 failures** |
 
 ## Programs (46 total)
 

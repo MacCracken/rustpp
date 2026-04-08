@@ -7,6 +7,7 @@
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
 - **Version**: 1.11.1
+- **Fixup entries**: 8192
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
 ## Goal
@@ -15,9 +16,9 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 
 ## Current State
 
-- **Compiler**: 194KB (x86_64), self-hosting, inline small functions, ret2/rethi
+- **Compiler**: 205KB (x86_64), self-hosting, inline small functions, ret2/rethi
 - **Tests**: 267 total (216 compiler + 51 programs) + 26 aarch64, 0 failures
-- **Libraries**: 21 modules, 200+ functions
+- **Libraries**: 28 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark)
 - **Tools**: cyrb (58KB binary + shell fallback), cyrfmt, cyrlint, cyrdoc, cyrc, ark
 - **Kernel**: AGNOS 31KB (in separate repo: github.com/MacCracken/agnos)
@@ -28,7 +29,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler, 2007 lines)
-      → cc2 (modular compiler, 176KB, 8 modules)
+      → cc2 (modular compiler, 205KB, 8 modules)
         → cc2_aarch64 (cross-compiler, 130KB)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
@@ -47,7 +48,7 @@ src/
   backend/x86/       emit.cyr, jump.cyr, fixup.cyr
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
   common/            util.cyr
-lib/                 Standard library (21 modules)
+lib/                 Standard library (28 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test scripts (compiler.sh, programs.sh, assembler.sh)
 build/               Generated binaries (gitignored except cc2)

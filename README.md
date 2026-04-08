@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-176KB compiler. Self-hosting on x86_64 and aarch64. 267 tests, 0 failures.
+205KB compiler. Self-hosting on x86_64 and aarch64. 267 tests, 0 failures.
 
 ## Install
 
@@ -71,11 +71,15 @@ syscall(60, r);
 
 ### Features
 
-- Structs, enums, match, for-in, closures, impl blocks
-- 20 f64 builtins (add/sub/mul/div + sin/cos/exp/ln/log2/exp2/sqrt/abs/floor/ceil)
+- Structs, enums (`Enum.VARIANT` namespacing), match, for-in, closures, impl blocks
+- 20+ f64 builtins (add/sub/mul/div + sin/cos/exp/ln/log2/exp2/sqrt/abs/floor/ceil + atan)
 - Constant folding for all arithmetic operators
 - Dead code elimination, tail call optimization, jump tables for dense switches
 - `#derive(Serialize)` for auto-generated JSON serialization
+- `#ref "file.toml"` directive for TOML config loading
+- Return-by-value: `ret2(a,b)` and `rethi()` builtins
+- Inline small functions (token replay), R12 register spill
+- Relaxed fn ordering (functions can appear after statements)
 - Include-once semantics (duplicate includes silently skipped)
 - Inline assembly (`asm { }`)
 
@@ -83,7 +87,7 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **176KB** (x86_64) |
+| Compiler | **205KB** (x86_64) |
 | Self-compile | ~11ms |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
@@ -102,16 +106,19 @@ Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (21 modules)
+## Standard Library (28 modules)
 
 | Category | Modules |
 |----------|---------|
 | Core | string, fmt, alloc, io, vec, str, args, fnptr |
 | Types | tagged (Option/Result), hashmap, trait, assert, bounds |
 | System | syscalls (50 wrappers), callback, process, bench |
+| Concurrency | thread (clone+mmap, mutex, MPSC), async |
+| Allocators | freelist (O(1) alloc/free) |
+| Math | math (f64_atan, extended ops) |
 | Data | json, fs, net, regex |
 
-## Compiler Architecture (v1.8.0)
+## Compiler Architecture (v1.11.1)
 
 ```
 src/
@@ -141,7 +148,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc2 (modular compiler, 164KB, 8 modules)
+      -> cc2 (modular compiler, 205KB, 8 modules)
         -> cc2_aarch64 (cross-compiler)
 ```
 
