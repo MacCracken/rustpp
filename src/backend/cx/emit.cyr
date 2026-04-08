@@ -212,11 +212,31 @@ fn ECALLCLEAN(S, n) { return 0; }  # no cleanup needed in bytecode
 
 # Jump helpers
 fn EJCC(S, cc) {
-    # Conditional jump: jz/jnz r0, +0 (placeholder)
+    # cx has no flags — emit comparison + conditional jump.
+    # ECMPR was a no-op; r0=LHS, r1=RHS are still in registers from ECONDCMP.
+    # x86 cc codes map to inverted comparisons (jump on FALSE):
+    #   0x84 = JE  (jump if equal)      → eq r0,r0,r1; jnz r0 (jump if equal)
+    #   0x85 = JNE (jump if not equal)  → eq r0,r0,r1; jz r0 (jump if not equal → skip)
+    #   0x8C = JL  (jump if less)       → lt r0,r0,r1; jnz r0
+    #   0x8D = JGE (jump if >= )        → lt r0,r0,r1; jz r0
+    #   0x8E = JLE (jump if <=)         → gt r0,r0,r1; jz r0
+    #   0x8F = JG  (jump if >)          → gt r0,r0,r1; jnz r0
+    # ECONDOP inverts: for GT, it emits JLE (jump if NOT greater = skip true branch)
+    if (cc == 0x84) { CX_EMIT(S, 48, 0, 0, 1); }      # eq r0, r0, r1
+    elif (cc == 0x85) { CX_EMIT(S, 48, 0, 0, 1); }    # eq r0, r0, r1
+    elif (cc == 0x8C) { CX_EMIT(S, 50, 0, 0, 1); }    # lt r0, r0, r1
+    elif (cc == 0x8D) { CX_EMIT(S, 50, 0, 0, 1); }    # lt r0, r0, r1
+    elif (cc == 0x8E) { CX_EMIT(S, 51, 0, 0, 1); }    # gt r0, r0, r1
+    elif (cc == 0x8F) { CX_EMIT(S, 51, 0, 0, 1); }    # gt r0, r0, r1
+    else { CX_EMIT(S, 48, 0, 0, 1); }                  # default: eq
+    # Now r0 = comparison result (1 or 0). Emit conditional jump.
     var patch = GCP(S);
-    if (cc == 0x84) { CX_EMIT(S, 81, 0, 0, 0); }  # jz r0
-    elif (cc == 0x85) { CX_EMIT(S, 82, 0, 0, 0); } # jnz r0
-    elif (cc == 0x8D) { CX_EMIT(S, 81, 0, 0, 0); } # jge → jz (after cmp sets flag)
+    if (cc == 0x84) { CX_EMIT(S, 82, 0, 0, 0); }      # jnz (jump if equal)
+    elif (cc == 0x85) { CX_EMIT(S, 81, 0, 0, 0); }    # jz (jump if NOT equal → skip)
+    elif (cc == 0x8C) { CX_EMIT(S, 82, 0, 0, 0); }    # jnz (jump if less)
+    elif (cc == 0x8D) { CX_EMIT(S, 81, 0, 0, 0); }    # jz (jump if NOT less → skip)
+    elif (cc == 0x8E) { CX_EMIT(S, 81, 0, 0, 0); }    # jz (jump if NOT greater → skip)
+    elif (cc == 0x8F) { CX_EMIT(S, 82, 0, 0, 0); }    # jnz (jump if greater)
     else { CX_EMIT(S, 81, 0, 0, 0); }
     return patch;
 }
@@ -237,9 +257,22 @@ fn EJMP0(S) {
 fn EPATCH(S, off) {
     var cp = GCP(S);
     var rel = (cp - off) / 4;
-    store8(S + 0x20000 + off + 1, rel & 0xFF);
-    store8(S + 0x20000 + off + 2, (rel >> 8) & 0xFF);
-    store8(S + 0x20000 + off + 3, (rel >> 16) & 0xFF);
+    var opcode = load8(S + 0x20000 + off);
+    # For jz/jnz (0x51/0x52): offset is in bytes 2-3 (byte 1 = register)
+    # For jmp/call (0x50/0x60): offset is in bytes 1-3
+    if (opcode == 0x51) {
+        store8(S + 0x20000 + off + 2, rel & 0xFF);
+        store8(S + 0x20000 + off + 3, (rel >> 8) & 0xFF);
+    }
+    elif (opcode == 0x52) {
+        store8(S + 0x20000 + off + 2, rel & 0xFF);
+        store8(S + 0x20000 + off + 3, (rel >> 8) & 0xFF);
+    }
+    else {
+        store8(S + 0x20000 + off + 1, rel & 0xFF);
+        store8(S + 0x20000 + off + 2, (rel >> 8) & 0xFF);
+        store8(S + 0x20000 + off + 3, (rel >> 16) & 0xFF);
+    }
     return 0;
 }
 

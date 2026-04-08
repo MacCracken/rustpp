@@ -4,7 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.0] — Unreleased
+## [2.2.1] — Unreleased
+
+### Fixed — cyrius-x
+- **Conditional jumps**: EJCC now emits comparison instruction (gt/lt/eq) before
+  the conditional jump. x86 flag-based jumps mapped to explicit compare + jz/jnz.
+- **EPATCH for jz/jnz**: Offset written to bytes 2-3 (not 1-3) to avoid clobbering
+  the register field. jmp/call still use bytes 1-3.
+- **Separate call/data stacks**: VM now uses `_cx_cstack` for call/ret and
+  `_cx_dstack` for push/pop. Prevents return address corruption from expression temps.
+- **Status**: Simple conditionals and non-recursive functions work correctly.
+  Recursion broken — VM needs memory-backed stack frames (fp/sp point into _cx_mem).
+
+### Cleanup
+- Removed stale files: kernel/, -D, *.core, docs/vcnt-deferred.md, docs/cargo-codepaths.md
+- Removed stale binaries: build/cc, build/cyrb (binary), rebuilt cc2-native-aarch64
+- Pinned sakshi stdlib to v0.7.0
+
+## [2.2.0] — 2026-04-08
 
 ### Fixed
 - **cyrb version sync**: `cyrb version` now shows correct version when installed.

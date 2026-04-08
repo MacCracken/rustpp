@@ -39,7 +39,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 28 | ~~Bad error for undefined variable~~ | ~~P3~~ | **Fixed v2.2.0** — now prints `error:N: undefined variable 'name'`. |
 
-**Open bugs:** #27 (P3, >6 args), #28 (P3, bad error message). (P2, include path). All other compiler bugs fixed.
+**No open bugs.** All reported issues (#14-#28) fixed or resolved. `return fn7()` workaround documented in #27.
 
 ---
 

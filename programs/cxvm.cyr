@@ -45,21 +45,35 @@ include "lib/string.cyr"
 # VM state
 var _cx_regs[256];
 var _cx_mem[4096];
-var _cx_stack[512];
-var _cx_sp = 0;
+var _cx_dstack[512];
+var _cx_dsp = 0;
+var _cx_cstack[256];
+var _cx_csp = 0;
 var _cx_pc = 0;
 
 fn cx_reg_get(r) { return load64(&_cx_regs + r * 8); }
 fn cx_reg_set(r, v) { store64(&_cx_regs + r * 8, v); return 0; }
 
+# Data stack (push/pop for expression temps)
 fn cx_push(v) {
-    store64(&_cx_stack + _cx_sp * 8, v);
-    _cx_sp = _cx_sp + 1;
+    store64(&_cx_dstack + _cx_dsp * 8, v);
+    _cx_dsp = _cx_dsp + 1;
     return 0;
 }
 fn cx_pop() {
-    _cx_sp = _cx_sp - 1;
-    return load64(&_cx_stack + _cx_sp * 8);
+    _cx_dsp = _cx_dsp - 1;
+    return load64(&_cx_dstack + _cx_dsp * 8);
+}
+
+# Call stack (call/ret for return addresses)
+fn cx_call_push(v) {
+    store64(&_cx_cstack + _cx_csp * 8, v);
+    _cx_csp = _cx_csp + 1;
+    return 0;
+}
+fn cx_call_pop() {
+    _cx_csp = _cx_csp - 1;
+    return load64(&_cx_cstack + _cx_csp * 8);
 }
 
 fn cx_run(code, code_len) {
@@ -139,12 +153,12 @@ fn cx_run(code, code_len) {
 
         # call/ret
         elif (op == 96) {
-            cx_push(_cx_pc);
+            cx_call_push(_cx_pc);
             off = ra | (rb << 8) | (rc << 16);
             if (off > 0x7FFFFF) { off = off - 0x1000000; }
             _cx_pc = _cx_pc - 4 + off * 4;
         }
-        elif (op == 97) { _cx_pc = cx_pop(); }
+        elif (op == 97) { _cx_pc = cx_call_pop(); }
 
         # syscall: r0 = syscall(r1, r2, r3, r4, r5, r6)
         elif (op == 112) {
