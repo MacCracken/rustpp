@@ -7,10 +7,12 @@
 
 set -e
 
-# Read version from VERSION file (relative to script or repo root)
+# Read version from VERSION file (check: install dir, repo root, CWD)
 SCRIPT_DIR_V="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
     VERSION=$(cat "$SCRIPT_DIR_V/../VERSION" | tr -d '[:space:]')
+elif [ -f "$SCRIPT_DIR_V/../../VERSION" ]; then
+    VERSION=$(cat "$SCRIPT_DIR_V/../../VERSION" | tr -d '[:space:]')
 elif [ -f "VERSION" ]; then
     VERSION=$(cat VERSION | tr -d '[:space:]')
 else

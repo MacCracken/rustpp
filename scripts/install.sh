@@ -177,6 +177,8 @@ rm -rf "$TMPDIR"
 # ── Set active version ──
 
 echo "$VERSION" > "$CYRIUS_HOME/current"
+# Copy VERSION file so cyrb can read it from install directory
+echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"
 
 # ── Create symlinks (directory-level, version-agnostic) ──
 

@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] — Unreleased
+
+### Fixed
+- **cyrb version sync**: `cyrb version` now shows correct version when installed.
+  VERSION file copied into version directory during install. cyrb checks
+  `$SCRIPT_DIR/../../VERSION` as fallback. `version-bump.sh` updated.
+
+- **assert.cyr auto-includes**: Now includes `string.cyr` and `fmt.cyr` directly.
+  Programs no longer need explicit includes for assert.cyr deps. Fixes SIGSEGV
+  when assert_eq was called without fmt.cyr (undefined fmt_int → call to -1).
+- **Bug #26 resolved**: Not a compiler bug — missing include.
+
+### Focus: cyrius-x completion, #ref fix, defmt, cyrius-ts scaffold
+
 ## [2.1.3] — 2026-04-08
 
 ### Fixed

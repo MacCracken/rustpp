@@ -38,6 +38,10 @@ fi
 # 5. Roadmap header
 sed -i "s/> \*\*v$OLD\.\*\*/> **v$NEW.**/" docs/development/roadmap.md 2>/dev/null || true
 
+# 6. cyrb — update version in installed copies
+# When installed, cyrb can't read ../VERSION. Copy VERSION to version dir.
+# The install.sh script copies this alongside the binaries.
+
 echo "$OLD -> $NEW"
 echo ""
 echo "Updated:"

@@ -33,7 +33,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 25 | ~~Include path shadows stdlib~~ | ~~P2~~ | **Fixed v2.1.2** — fallback to `$HOME/.cyrius/lib/` when local path fails. |
 
-**Open bugs:** #23 (P4, argonaut-side), #24 (P2, blocks #ref_fn), #25 (P2, include path). All other compiler bugs fixed.
+| 26 | ~~Nested hashmap crash~~ | ~~P2~~ | **Not a bug** — missing `include "lib/fmt.cyr"`. assert.cyr now auto-includes its deps. |
+
+**Open bugs:** #24 (P2, blocks #ref_fn), #25 (P2, include path). All other compiler bugs fixed.
 
 ---
 
