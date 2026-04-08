@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.4] — 2026-04-07
+
+### Fixed — Compiler
+- **Bug #14: Compiler segfault on ~6000+ line programs** (P1): The `&&` chaining
+  extra_patches array (0x8F848) overlapped with the `continue` forward-patch counter
+  (0x8F850) and patches (0x8F858). When `a && b && c` chained 2+ conditions inside a
+  for-loop, ADDXP wrote the second patch to 0x8F850, overwriting the continue counter
+  with a code buffer offset. At loop close, the corrupted counter caused iteration through
+  unmapped memory → SIGSEGV. Fixed: relocated continue data from 0x8F850/0x8F858 to
+  0x8F8A0/0x8F8A8, eliminating the overlap. Argonaut (6257 lines, 204KB) now compiles.
+
 ## [1.11.3] — 2026-04-07
 
 ### Changed — Codegen (Performance)

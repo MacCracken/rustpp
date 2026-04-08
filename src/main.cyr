@@ -29,7 +29,9 @@
 #   0x8DE30  var_types     [2048]        256 variable struct type IDs
 #   0x8E630  struct tables               names, fcounts, fnames (to 0x8F830)
 #   0x8F838  loop_top, break_patch       Loop state
-#   0x8F848  extra_patches [64]          Condition patch state (&&/||)
+#   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
+#   0x8F8A0  continue_count [8]         For-loop continue forward-patch count
+#   0x8F8A8  continue_patches [64]      8 continue forward-patch offsets (to 0x8F8E8)
 #   0x8F890  ptr_scale, local_types      Expression type state
 #   0x8FA98  gvar_toks     [512]         64 deferred global var init indices
 #   0x8FCA8  fixup_cnt, last_var         Fixup counters
@@ -140,8 +142,8 @@ S64(S + 0x8FCC0, 0);
 S64(S + 0x903D8, 0);
 # Inline depth
 S64(S + 0x903E8, 0);
-# Continue forward patch (for-loop) — NOT 0x8F848 (used by &&/|| patches)
-S64(S + 0x8F850, 0);
+# Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
+S64(S + 0x8F8A0, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

@@ -59,8 +59,10 @@
 #   0x8F840  break_patch   [8]           Current loop's break jump patch offset
 #
 # --- Condition patch state ---
-#   0x8F848  extra_patches [64]          8 extra patch offsets for &&/||
+#   0x8F848  extra_patches [64]          8 extra patch offsets for &&/|| (to 0x8F888)
 #   0x8F888  extra_patch_cnt [8]         Count of extra patches
+#   0x8F8A0  continue_count [8]          For-loop continue forward-patch count
+#   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
 #
 # --- Preprocessor scratch ---
 #   0x90000  include_fname [256]         Temp filename for include
@@ -157,6 +159,8 @@ S64(S + 0x8DC20, 0);
 S64(S + 0x8F830, 0);
 # Condition patch state
 S64(S + 0x8F888, 0);
+# Continue forward patch (for-loop)
+S64(S + 0x8F8A0, 0);
 # Global var init state
 S64(S + 0x8FC98, 0);
 
