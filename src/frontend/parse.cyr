@@ -2378,7 +2378,6 @@ fn PARSE_FN_DEF(S) {
     SINFN(S, 1);
     SFLC(S, 0);
     SRPC(S, 0);
-    _rsl = 0;
     # Emit prologue
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);

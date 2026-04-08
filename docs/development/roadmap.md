@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v1.11.2.** 205KB self-hosting compiler, both architectures.
+> **v1.11.3.** 205KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
 > Inline functions. R12 register spill. Threads + channels + async. Freelist allocator.
 > Enum namespacing. Relaxed fn ordering. 28 stdlib modules. 8192 fixup entries.

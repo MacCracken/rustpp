@@ -65,9 +65,8 @@ fn EPUSHR(S) { EB(S, 0x50); return 0; }                  # push rax
 fn EPOPC(S) { EB(S, 0x59); return 0; }                   # pop rcx
 fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
 
-# Expression spill: push/pop (no register overhead)
-var _rsl = 0;
-var _INLINE_OK = 1;
+# Expression spill: identical to push/pop
+var _INLINE_OK = 0;
 fn ESPILL(S) { EB(S, 0x50); return 0; }
 fn EUNSPILL(S) { EB(S, 0x58); return 0; }
 fn EMOVCA(S) { E3(S, 0xC18948); return 0; }              # mov rcx, rax

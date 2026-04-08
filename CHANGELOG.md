@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.3] — 2026-04-07
+
+### Changed — Codegen (Performance)
+- **Inline disabled** (`_INLINE_OK = 0`): Token replay inlining generated larger code per
+  call site than the 5-byte `call` it replaced, hurting I-cache. Binary: 194KB → 193KB.
+- **Removed `_rsl` variable**: Dead code from reverted R12 spill. Cleaned ESPILL/EUNSPILL.
+
 ## [1.11.2] — 2026-04-07
 
 ### Changed — Codegen (Performance)
