@@ -46,7 +46,7 @@ echo ""
 # Compile and run a benchmark file, parse output, append to CSV
 run_bench() {
     local src="$1"
-    local name=$(basename "$src" .cyr)
+    local name=$(basename "$src" .bcyr)
 
     # Compile
     if ! cat "$src" | "$CC" > "$TMPDIR/$name" 2>/dev/null; then
@@ -94,9 +94,9 @@ run_bench() {
 
 # ── Tier 1: Core stdlib ──
 echo "--- Tier 1: Core stdlib ---"
-run_bench "$REPO_ROOT/benches/bench_string.cyr"
-run_bench "$REPO_ROOT/benches/bench_alloc.cyr"
-run_bench "$REPO_ROOT/benches/bench_vec.cyr"
+run_bench "$REPO_ROOT/benches/bench_string.bcyr"
+run_bench "$REPO_ROOT/benches/bench_alloc.bcyr"
+run_bench "$REPO_ROOT/benches/bench_vec.bcyr"
 
 if [ "$TIER" = "--tier1" ]; then
     echo ""
@@ -108,10 +108,10 @@ fi
 # ── Tier 2: Data structures ──
 echo ""
 echo "--- Tier 2: Data structures ---"
-run_bench "$REPO_ROOT/benches/bench_hashmap.cyr"
-run_bench "$REPO_ROOT/benches/bench_fmt.cyr"
-run_bench "$REPO_ROOT/benches/bench_tagged.cyr"
-run_bench "$REPO_ROOT/benches/bench_float.cyr"
+run_bench "$REPO_ROOT/benches/bench_hashmap.bcyr"
+run_bench "$REPO_ROOT/benches/bench_fmt.bcyr"
+run_bench "$REPO_ROOT/benches/bench_tagged.bcyr"
+run_bench "$REPO_ROOT/benches/bench_float.bcyr"
 
 if [ "$TIER" = "--tier2" ]; then
     echo ""
@@ -170,7 +170,7 @@ fi
 
 # Tool compile times
 for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
-    if [ -f "$REPO_ROOT/programs/${tool}.cyr" ]; then
+    if [ -f "$REPO_ROOT/programs/${tool}.bcyr" ]; then
         bench_cmd "compiler/${tool}" "cat $REPO_ROOT/programs/${tool}.cyr | $CC > /dev/null"
     fi
 done

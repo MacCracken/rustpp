@@ -20,6 +20,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed stale files: kernel/, -D, *.core, docs/vcnt-deferred.md, docs/cargo-codepaths.md
 - Removed stale binaries: build/cc, build/cyrb (binary), rebuilt cc2-native-aarch64
 - Pinned sakshi stdlib to v0.7.0
+- **Bench files renamed to .bcyr**: `benches/*.cyr` → `benches/*.bcyr`. Matches .tcyr convention.
+- **`cyrb bench` improved**: No args runs all 3 tiers with history tracking. `--tier1/2/3`
+  runs specific tier. `REPO_ROOT` resolved properly from installed cyrb.
 
 ## [2.2.0] — 2026-04-08
 

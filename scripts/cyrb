@@ -35,6 +35,7 @@ fi
 # Find companion tools directory
 TOOLS_DIR="$(dirname "$CC")"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd 2>/dev/null || pwd)"
 
 # Read a key from cyrb.toml (section-aware, handles quotes)
 # Usage: toml_get <file> <key> [section]
@@ -89,7 +90,7 @@ Build:
   build [--aarch64 [--native]] <src> <out>  compile a program
   run [--aarch64 [--native]] <source.cyr>  compile + run (no output file)
   test [--aarch64 [--native]] [test.cyr]   compile + run (no args: discover .tcyr)
-  bench [bench.cyr]               compile + run benchmarks (no args: discover .bcyr)
+  bench [--tier1|2|3] [file.bcyr]  run benchmarks (no args: all tiers with history)
   check <source.cyr>              syntax check (compile without output)
   self                            self-hosting check (cc2==cc3)
   pulsar                          rebuild cc2 + tools from source, install, purge old versions
@@ -451,31 +452,41 @@ case "${1:-help}" in
     bench)
         shift
         if [ -z "$1" ]; then
-            # No args: auto-discover .bcyr files, fallback to bench-history.sh
+            # No args: auto-discover .bcyr files with tier grouping
             bcyr_found=0
+            # Try bench-history.sh first (has tier structure + CSV tracking)
+            if [ -f "$REPO_ROOT/scripts/bench-history.sh" ]; then
+                exec sh "$REPO_ROOT/scripts/bench-history.sh"
+            fi
+            # Fallback: discover and run .bcyr files
             for bfile in benches/*.bcyr tests/*.bcyr tests/bcyr/*.bcyr *.bcyr; do
                 [ -f "$bfile" ] || continue
                 bcyr_found=1
                 name=$(basename "$bfile" .bcyr)
-                echo "=== $name ==="
                 tmpbin="/tmp/cyrb_bench_$$"
+                printf "  %-35s " "$name"
                 if compile "$bfile" "$tmpbin" 2>/dev/null; then
-                    "$tmpbin"
+                    "$tmpbin" 2>/dev/null
                     rm -f "$tmpbin"
+                    echo ""
                 else
-                    echo "FAIL: compile error" >&2
+                    echo "FAIL (compile)"
                     rm -f "$tmpbin"
                 fi
-                echo ""
             done
             if [ "$bcyr_found" -eq 0 ]; then
-                exec "$REPO_ROOT/scripts/bench-history.sh"
+                echo "No .bcyr files found. Create benches/*.bcyr or run cyrb bench <file>."
             fi
             exit 0
         fi
         case "$1" in
             --tier1|--tier2|--tier3)
-                exec "$REPO_ROOT/scripts/bench-history.sh" "$1"
+                if [ -f "$REPO_ROOT/scripts/bench-history.sh" ]; then
+                    exec sh "$REPO_ROOT/scripts/bench-history.sh" "$1"
+                else
+                    echo "error: bench-history.sh not found" >&2
+                    exit 1
+                fi
                 ;;
             *)
                 # Single benchmark file
