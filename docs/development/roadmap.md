@@ -35,7 +35,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 26 | ~~Nested hashmap crash~~ | ~~P2~~ | **Not a bug** — missing `include "lib/fmt.cyr"`. assert.cyr now auto-includes its deps. |
 
-| 27 | >6 function args: stack params get wrong values | P3 | Left-to-right push + top-6 pop reverses the arg-to-register mapping for >6 args. 7th arg gets arg 1's value. Workaround: pass a struct or vec for >6 args. Needs ABI-correct push order. |
+| 27 | ~~>6 function args wrong values~~ | ~~P3~~ | **Fixed v2.2.0** — ECALLPOPS pops extras to r11-r14, pops 6 regs, pushes extras back. Note: `return fn7(...)` returns wrong value; use `var r = fn7(...); return r;` as workaround. |
 
 | 28 | ~~Bad error for undefined variable~~ | ~~P3~~ | **Fixed v2.2.0** — now prints `error:N: undefined variable 'name'`. |
 

@@ -35,9 +35,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Inotify syscall wrappers** (`lib/syscalls.cyr`): `sys_inotify_init`,
   `sys_inotify_add_watch`, `sys_inotify_rm_watch`, `InotifyEvent` enum.
 
+- **Bug #27: >6 function args fixed**: ECALLPOPS now correctly separates stack args
+  from register args. Pops extras (7th+) into r11-r14, pops 6 register args, pushes
+  extras back for callee. Supports up to 10 args (4 stack + 6 register). Unblocks
+  sakshi_full span tracking (7-arg `_sk_fmt_span`).
 - **`lib/sakshi.cyr`**: Tracing and error handling library incorporated into stdlib.
   Minimal profile (176 lines, zero heap, stderr output). Provides: sakshi_info/warn/error/debug,
   sakshi_err_new/err_with_ctx/err_code/err_category, `#if` log level gating. From sakshi v0.5.0.
+- **`lib/sakshi_full.cyr`**: Full tracing library with spans, ring buffer, UDP output.
+  28 tests pass. Includes: span enter/exit with timing, ring buffer events, structured
+  error handling, per-level output routing. 31st stdlib module.
 - **Bug #28: "undefined variable" error message**: Assignment to or use of an undefined
   variable now prints `error:N: undefined variable 'name'` instead of the cryptic
   `unexpected ';'`. Fixed in both PARSE_STMT (assignment) and PARSE_FACTOR (expression).
