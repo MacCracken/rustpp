@@ -45,11 +45,8 @@ FNEOF
         fi
     done
 
-    # Check tests/ (compiler.sh references)
-    if grep -q "$name" "$REPO_ROOT/tests/compiler.sh" 2>/dev/null; then
-        has_test=1
-    fi
-    if grep -q "$name" "$REPO_ROOT/tests/programs.sh" 2>/dev/null; then
+    # Check tests/tcyr/ (.tcyr test files)
+    if grep -rq "$name" "$REPO_ROOT/tests/tcyr/" 2>/dev/null; then
         has_test=1
     fi
 

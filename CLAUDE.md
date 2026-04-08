@@ -50,7 +50,7 @@ src/
   common/            util.cyr
 lib/                 Standard library (28 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
-tests/               Test scripts (compiler.sh, programs.sh, assembler.sh)
+tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 build/               Generated binaries (gitignored except cc2)
 kernel/              AGNOS kernel (compile test; source of truth at agnos repo)
 docs/                Architecture, roadmap, benchmarks, language guide
@@ -73,7 +73,7 @@ docs/                Architecture, roadmap, benchmarks, language guide
 3. TEST        — After EACH change:
                  ☐ Basic: 'var x = 42;' → 42
                  ☐ Self-hosting: cc2==cc3 byte-identical
-                 ☐ Full suite: sh tests/compiler.sh
+                 ☐ Full suite: sh scripts/check.sh
 4. IF BROKEN   — Revert, apply ONE change, test, repeat
                  3 failed attempts = defer and document
 5. AUDIT       — Full chain: bootstrap, all suites, self-hosting

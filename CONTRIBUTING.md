@@ -3,15 +3,14 @@
 ## Development Process
 
 1. **Bootstrap**: `sh bootstrap/bootstrap.sh`
-2. **Build compiler**: `cat src/compiler.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2`
+2. **Build compiler**: `cat src/main.cyr | ./build/cc2 > /tmp/cc3 && chmod +x /tmp/cc3`
 3. **Make changes** to compiler or libraries
-4. **Test**: `sh tests/compiler.sh ./build/cc2 ./build/stage1f`
-5. **Self-host verify**: new cc2 compiles itself byte-identical
-6. **Program tests**: `sh programs/test_programs.sh ./build/cc2`
+4. **Test**: `sh scripts/check.sh` (self-host + heap audit + .tcyr tests + lint)
+5. **Self-host verify**: two-step bootstrap (cc3 compiles itself byte-identical)
 
 ## Rules
 
-- Every change must pass all 263 tests with 0 failures
+- Every change must pass full audit (`cyrb audit`) with 0 failures
 - Self-hosting must remain byte-identical (cc2 == cc3)
 - No external dependencies — the entire toolchain bootstraps from a 29KB binary
 - One change at a time. Test after each change, not after the feature is "done"

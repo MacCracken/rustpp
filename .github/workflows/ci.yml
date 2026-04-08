@@ -140,14 +140,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap (for stage1f)
-        run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (212)
-        run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
-      - name: Program tests (51)
-        run: sh tests/programs.sh ./build/cc2
+      - name: Heap map audit
+        run: sh tests/heapmap.sh
+      - name: Test suite (.tcyr)
+        run: |
+          pass=0; fail=0
+          for t in tests/tcyr/*.tcyr; do
+            name=$(basename "$t" .tcyr)
+            tmpbin="/tmp/ci_t_$$"
+            cat "$t" | ./build/cc2 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+            if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
+            output=$("$tmpbin" 2>&1); ec=$?
+            rm -f "$tmpbin"
+            f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
+            if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then
+              echo "FAIL: $name"; fail=$((fail+1))
+            else
+              echo "PASS: $name"; pass=$((pass+1))
+            fi
+          done
+          echo "$pass passed, $fail failed"
+          test $fail -eq 0
 
   # ── Tests (AGNOS) ──
   test-agnos:
@@ -159,14 +174,27 @@ jobs:
       options: --user root
     steps:
       - uses: actions/checkout@v4
-      - name: Bootstrap (for stage1f)
-        run: sh bootstrap/bootstrap.sh
       - name: Setup compiler
         run: chmod +x build/cc2
-      - name: Compiler tests (212)
-        run: sh tests/compiler.sh ./build/cc2 ./build/stage1f
-      - name: Program tests (51)
-        run: sh tests/programs.sh ./build/cc2
+      - name: Test suite (.tcyr)
+        run: |
+          pass=0; fail=0
+          for t in tests/tcyr/*.tcyr; do
+            name=$(basename "$t" .tcyr)
+            tmpbin="/tmp/ci_t_$$"
+            cat "$t" | ./build/cc2 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+            if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
+            output=$("$tmpbin" 2>&1); ec=$?
+            rm -f "$tmpbin"
+            f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
+            if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then
+              echo "FAIL: $name"; fail=$((fail+1))
+            else
+              echo "PASS: $name"; pass=$((pass+1))
+            fi
+          done
+          echo "$pass passed, $fail failed"
+          test $fail -eq 0
 
   # ── aarch64 ──
   aarch64:

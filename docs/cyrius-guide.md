@@ -366,9 +366,8 @@ cat kernel/agnos.cyr | ./build/cc2 > build/agnos
 cat prog.cyr | ./build/cc2_aarch64 > prog_arm
 
 # Run tests
-sh tests/compiler.sh ./build/cc2 ./build/stage1f
-sh programs/test_programs.sh ./build/cc2
-sh tests/assembler.sh ./build/asm
+sh scripts/check.sh              # Full audit: self-host + heap + tests + lint
+sh tests/heapmap.sh              # Heap map overlap detection
 
 # Boot kernel
 qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
