@@ -4,7 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.1.0] — Unreleased
+## [2.1.1] — Unreleased
+
+### Added — Standard Library
+- **`lib/hashmap_fast.cyr`**: SIMD-accelerated hashmap (Swiss table inspired). Uses
+  SSE2 `pcmpeqb` + `pmovmskb` to probe 16 metadata slots simultaneously. Separate
+  metadata/key/value arrays. Currently slower than scalar for small maps (function call
+  overhead), optimal for large tables with long probe chains.
+
+### Focus: cyrius-x bytecode emitter + #ref perfect hash
+
+## [2.1.0] — 2026-04-08
 
 ### Fixed
 - **Bug #21: bitset/bitclr crash at top level**: Now emits clear error message

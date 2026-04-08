@@ -28,7 +28,9 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
-**Open bugs:** None critical. #19 (P3) fixed. Sakshi deferred formatting unblocked.
+| 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Likely allocator exhaustion or vec corruption in audit_log_by_source. Not a compiler bug — runtime issue in argonaut test logic. |
+
+**Open bugs:** #23 (P4, argonaut-side). All compiler bugs fixed.
 
 ---
 
