@@ -8,6 +8,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.11.1] — 2026-04-07
 
+### Fixed — Compiler
+- **Bug #14: Silent compilation failure with thread.cyr**: `MAP_FAILED` constant was
+  removed from enum but still referenced. Fixed: use `< 0` check instead.
+- **Bug #15: Dual `#derive(Serialize)` + `#derive(Deserialize)`**: Two fixes —
+  (a) PP_DERIVE_SERIALIZE now skips intervening `#derive(...)` lines before the struct.
+  (b) PP_DERIVE_DESER is now a no-op (Serialize already emits `_from_json`).
+  Both derives on same struct now compiles and runs correctly.
+
 ### Added — Language
 - **Enum namespacing in expressions**: `Foo.BAR` now works in function call args,
   assignments, return values, and all expression contexts. The parser resolves the

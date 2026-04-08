@@ -262,6 +262,11 @@ fn PP_EMIT_STR(out, op, cstr) {
 fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     # Skip #derive(Serialize) line
     ip = PP_SKIPLINE(S, ip, bl);
+    # Skip any additional #derive(...) lines before the struct
+    while (ip < bl) {
+        if (load8(S + ip) == 35) { ip = PP_SKIPLINE(S, ip, bl); }
+        else { break; }
+    }
     # Parse struct name: expect "struct NAME {"
     # Skip whitespace
     while (ip < bl) { if (load8(S + ip) == 32) { ip = ip + 1; } else { break; } }
@@ -487,151 +492,17 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
 #       return ptr;
 #   }
 fn PP_DERIVE_DESER(S, ip, bl, out, op) {
-    # Skip #derive(Deserialize) line
+    # #derive(Deserialize) is a no-op — #derive(Serialize) already emits _from_json.
+    # Just skip the directive line + struct definition.
     ip = PP_SKIPLINE(S, ip, bl);
-    # Parse struct (same as Serialize) — reuse struct_start scanning
-    while (ip < bl) { if (load8(S + ip) == 32) { ip = ip + 1; } else { break; } }
-    ip = ip + 7;
-    var sname[64];
-    var sni = 0;
-    while (ip < bl) {
-        var c = load8(S + ip);
-        if (c == 32 || c == 123 || c == 10) { break; }
-        store8(&sname + sni, c);
-        sni = sni + 1;
-        ip = ip + 1;
-    }
-    store8(&sname + sni, 0);
-    # Copy struct definition through to output
-    var ss = ip - 7 - sni;
-    while (ss > 0) { if (load8(S + ss - 1) == 10) { break; } ss = ss - 1; }
-    var depth = 0;
-    var cp = ss;
-    var fdn[256];
-    var fi[256];
-    var fc = 0;
-    var pb = 0;
-    while (cp < bl) {
-        var ch = load8(S + cp);
-        store8(out + op, ch);
-        op = op + 1;
-        if (ch == 123) { depth = depth + 1; pb = 1; }
-        if (ch == 125) { depth = depth - 1; if (depth == 0) { cp = cp + 1; break; } }
-        if (pb == 1 && depth == 1) {
-            if (ch == 123 || ch == 59) {
-                var fp = cp + 1;
-                while (fp < bl) {
-                    var xc = load8(S + fp);
-                    if (xc != 32 && xc != 10 && xc != 13 && xc != 9) { break; }
-                    store8(out + op, xc); op = op + 1; fp = fp + 1;
-                }
-                if (load8(S + fp) != 125) {
-                    var ni = 0;
-                    while (fp < bl) {
-                        var xc = load8(S + fp);
-                        if (xc == 59 || xc == 58 || xc == 125 || xc == 32 || xc == 10) { break; }
-                        store8(&fdn + fc * 16 + ni, xc);
-                        ni = ni + 1;
-                        fp = fp + 1;
-                    }
-                    store8(&fdn + fc * 16 + ni, 0);
-                    # Check for type annotation
-                    store8(&fi + fc * 16, 0);
-                    if (load8(S + fp) == 58) {
-                        fp = fp + 1;
-                        while (fp < bl && load8(S + fp) == 32) { fp = fp + 1; }
-                        var ti = 0;
-                        while (fp < bl) {
-                            var tc = load8(S + fp);
-                            if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; }
-                            store8(&fi + fc * 16 + ti, tc);
-                            ti = ti + 1;
-                            fp = fp + 1;
-                        }
-                        store8(&fi + fc * 16 + ti, 0);
-                    }
-                    fc = fc + 1;
-                }
-            }
-        }
-        cp = cp + 1;
-    }
-    ip = cp;
-    while (ip < bl) { var ch = load8(S + ip); store8(out + op, ch); op = op + 1; ip = ip + 1; if (ch == 10) { break; } }
-    # Calculate offsets (same logic as Serialize)
-    var fdo[16];
-    var co = 0;
-    var xi = 0;
-    while (xi < fc) {
-        store64(&fdo + xi * 8, co);
-        if (load8(&fi + xi * 16) != 0) {
-            var fsz = 8;
-            var di = 0;
-            while (di < _pp_derive_count) {
-                var eq = 1;
-                var ci = 0;
-                while (eq == 1) {
-                    var a = load8(&fi + xi * 16 + ci);
-                    var b = load8(S + 0x97108 + di * 32 + ci);
-                    if (a != b) { eq = 0; }
-                    if (a == 0) { break; }
-                    ci = ci + 1;
-                }
-                if (eq == 1) { fsz = load64(S + 0x97008 + di * 8); }
-                di = di + 1;
-            }
-            co = co + fsz;
-        } else { co = co + 8; }
-        xi = xi + 1;
-    }
-    # === Emit Name_from_json function ===
-    op = op + PP_EMIT_STR(out, op, "fn ");
-    op = op + PP_EMIT_STR(out, op, &sname);
-    op = op + PP_EMIT_STR(out, op, "_from_json(pairs) {\nvar ptr = alloc(");
-    op = op + PP_EMIT_INT(out, op, co);
-    op = op + PP_EMIT_STR(out, op, ");\n");
-    xi = 0;
-    while (xi < fc) {
-        if (load8(&fi + xi * 16) != 0) {
-            # Typed field: nested struct
-            op = op + PP_EMIT_STR(out, op, "var v = json_get(pairs, \"");
-            op = op + PP_EMIT_STR(out, op, &fdn + xi * 16);
-            op = op + PP_EMIT_STR(out, op, "\");\nif (v != 0) {\nvar np = ");
-            op = op + PP_EMIT_STR(out, op, &fi + xi * 16);
-            op = op + PP_EMIT_STR(out, op, "_from_json(json_parse(v));\nmemcpy(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(&fdo + xi * 8));
-            op = op + PP_EMIT_STR(out, op, ", np, ");
-            var tsz = 8;
-            var di = 0;
-            while (di < _pp_derive_count) {
-                var eq = 1;
-                var ci = 0;
-                while (eq == 1) {
-                    var a = load8(&fi + xi * 16 + ci);
-                    var b = load8(S + 0x97108 + di * 32 + ci);
-                    if (a != b) { eq = 0; }
-                    if (a == 0) { break; }
-                    ci = ci + 1;
-                }
-                if (eq == 1) { tsz = load64(S + 0x97008 + di * 8); }
-                di = di + 1;
-            }
-            op = op + PP_EMIT_INT(out, op, tsz);
-            op = op + PP_EMIT_STR(out, op, ");\n}\n");
-        } else {
-            # Scalar field: json_get + str_to_int
-            op = op + PP_EMIT_STR(out, op, "var v = json_get(pairs, \"");
-            op = op + PP_EMIT_STR(out, op, &fdn + xi * 16);
-            op = op + PP_EMIT_STR(out, op, "\");\nif (v != 0) { store64(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(&fdo + xi * 8));
-            op = op + PP_EMIT_STR(out, op, ", str_to_int(v)); }\n");
-        }
-        xi = xi + 1;
-    }
-    op = op + PP_EMIT_STR(out, op, "return ptr;\n}\n");
+    # Skip to closing } of struct
+    while (ip < bl) { if (load8(S + ip) == 125) { ip = ip + 1; break; } ip = ip + 1; }
+    # Skip trailing whitespace/newline
+    while (ip < bl) { var c = load8(S + ip); if (c == 10) { ip = ip + 1; break; } ip = ip + 1; }
     store64(S + 0x97400, op);
     return ip;
 }
+
 
 # Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
 var _pp_flag_count = 0;

@@ -15,10 +15,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Bugs
 
-| # | Issue | Severity | Detail |
-|---|-------|----------|--------|
-| 14 | **1.11.0 silent compilation failure on large programs** | **P1** | Programs with ~6000+ lines of combined includes (stdlib + application modules) produce 0-byte binaries with no error message. Affects argonaut (12 modules + 24 stdlib = ~6400 lines). Same code compiles correctly on 1.10.2. Likely code buffer overflow or variable table exhaustion from freelist allocator or other 1.11.0 changes. |
-| 15 | **`#derive(Serialize)` + `#derive(Deserialize)` on same struct causes duplicate variable** | P2 | Using both derives produces "duplicate variable" error from generated code sharing variable names. Workaround: use `#derive(Serialize)` only, deserialize manually via `json_parse` + `json_get_int`. |
+**All bugs resolved.** Zero open issues.
 
 ---
 

@@ -37,7 +37,7 @@ fn thread_create(fp, arg) {
     var t = alloc(THREAD_SIZE);
     var ssize = THREAD_STACK_SIZE;
     var sbase = mmap_stack(ssize);
-    if (sbase == MAP_FAILED) { return 0; }
+    if (sbase < 0) { return 0; }
     store64(t + 8, sbase);
     store64(t + 16, ssize);
     # Stack grows down: child_stack = base + size
