@@ -843,6 +843,90 @@ fn PARSE_SIMD_EXT(S, ptyp) {
         EB(S, 0x48); EB(S, 0x89); EB(S, 0xD0);
         return 0;
     }
+    # bitget(val, offset, width) → (val >> offset) & ((1 << width) - 1)
+    if (ptyp == 102) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PEXPR(S); ESPILL(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S);
+        # rax = offset, stack = val. Shift val >> offset
+        EMOVCA(S); EUNSPILL(S); ESHRCL(S);
+        # Now rax = val >> offset. Need to mask with (1 << width) - 1
+        ESPILL(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S);
+        # rax = width. Compute mask: (1 << width) - 1
+        EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        # rax = 1 << width. Subtract 1.
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        # rax = mask. AND with shifted val.
+        EMOVCA(S); EUNSPILL(S); EANDR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # bitset(val, offset, width, new) → (val & ~(mask << offset)) | ((new & mask) << offset)
+    if (ptyp == 103) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        # Use local slots for intermediate values
+        var bsbase = GFLC(S);
+        PEXPR(S); EFLSTORE(S, bsbase);           # slot0 = val
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S); EFLSTORE(S, bsbase + 1);       # slot1 = offset
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S); EFLSTORE(S, bsbase + 2);       # slot2 = width
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S); EFLSTORE(S, bsbase + 3);       # slot3 = new
+        SFLC(S, bsbase + 4);
+        # mask = (1 << width) - 1
+        EFLLOAD(S, bsbase + 2); EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        EFLSTORE(S, bsbase + 2);                 # slot2 = mask (reuse)
+        # clear = val & ~(mask << offset)
+        EFLLOAD(S, bsbase + 2);                  # mask
+        EFLLOAD(S, bsbase + 1); EMOVCA(S); EFLLOAD(S, bsbase + 2); ESHLCL(S); ENOTR(S);
+        EMOVCA(S); EFLLOAD(S, bsbase); EANDR(S);
+        ESPILL(S);                                # push clear
+        # insert = (new & mask) << offset
+        EFLLOAD(S, bsbase + 3); ESPILL(S); EFLLOAD(S, bsbase + 2); EMOVCA(S); EUNSPILL(S); EANDR(S);
+        EFLLOAD(S, bsbase + 1); EMOVCA(S); EFLLOAD(S, bsbase + 3); ESPILL(S);
+        EFLLOAD(S, bsbase + 2); EMOVCA(S); EFLLOAD(S, bsbase + 3); EANDR(S);
+        EFLLOAD(S, bsbase + 1); EMOVCA(S);
+        # Restart: simpler approach using slots
+        # mask << offset
+        EFLLOAD(S, bsbase + 2); ESPILL(S); EFLLOAD(S, bsbase + 1); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        ENOTR(S); EMOVCA(S); EFLLOAD(S, bsbase); EANDR(S); EFLSTORE(S, bsbase);
+        # (new & mask) << offset
+        EFLLOAD(S, bsbase + 3); ESPILL(S); EFLLOAD(S, bsbase + 2); EMOVCA(S); EUNSPILL(S); EANDR(S);
+        ESPILL(S); EFLLOAD(S, bsbase + 1); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        # OR with cleared val
+        EMOVCA(S); EFLLOAD(S, bsbase); EORR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # bitclr(val, offset, width) → val & ~(((1 << width) - 1) << offset)
+    if (ptyp == 104) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PEXPR(S); ESPILL(S);                     # push val
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S); EFLSTORE(S, GFLC(S));          # offset → temp slot
+        var bcoff_slot = GFLC(S);
+        SFLC(S, bcoff_slot + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PEXPR(S);
+        # rax = width. mask = (1 << width) - 1
+        EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        # mask << offset
+        ESPILL(S); EFLLOAD(S, bcoff_slot); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        ENOTR(S);
+        # val & ~(mask << offset)
+        EMOVCA(S); EUNSPILL(S); EANDR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
     return 0;
 }
 
@@ -855,6 +939,7 @@ fn PARSE_TERM(S) {
     # Extended builtins — checked first
     var ptyp = PEEKT(S);
     if (ptyp >= 93) { if (ptyp <= 99) { return PARSE_SIMD_EXT(S, ptyp); } }
+    if (ptyp >= 100) { if (ptyp <= 104) { return PARSE_SIMD_EXT(S, ptyp); } }
     # f64 builtins — check before PARSE_FACTOR dispatches
     if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
     if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PEXPR(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
@@ -2999,7 +3084,7 @@ fn PARSE_STMT(S) {
     if (typ == 46) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     if (typ == 47) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; }
     # f64/SIMD builtins as statements
-    if (typ >= 62) { if (typ <= 100) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
+    if (typ >= 62) { if (typ <= 104) { PEXPR(S); if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1); return 0; } }
     if (typ == 2) {
         # Could be assignment or fn call as statement
         var noff = PEEKV(S);

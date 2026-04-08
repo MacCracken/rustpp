@@ -31,6 +31,12 @@ Development branch. Features land incrementally. Release after audit + feedback.
   size = max field size. Token 101. Parsed like struct, uses high bit of field count
   as union flag. FIELDOFF returns 0 for all fields. STRUCTSZ returns max. Init
   requires all fields (same as struct init syntax). ISUNION(S, si) accessor added.
+- **Bitfield builtins**: Three compile-time bitfield operations:
+  - `bitget(val, offset, width)` — extract bits: `(val >> offset) & mask`
+  - `bitset(val, offset, width, new)` — insert bits: clear + OR
+  - `bitclr(val, offset, width)` — clear bits: AND with inverted mask
+  Tokens 102-104. Inline shift/mask codegen, no function call overhead.
+  Replaces manual `(pte >> 12) & 0xFFFFF` patterns in kernel code.
 
 ## [1.12.1] — 2026-04-07
 
