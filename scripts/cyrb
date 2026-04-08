@@ -323,28 +323,61 @@ case "${1:-help}" in
             found=0
             total_pass=0
             total_fail=0
+            total_assertions=0
             for tfile in tests/*.tcyr src/*.tcyr *.tcyr; do
                 [ -f "$tfile" ] || continue
                 found=1
                 name=$(basename "$tfile" .tcyr)
+                # Parse metadata from comments: # expect: N, # skip: reason
+                expect_code=0
+                skip=""
+                while IFS= read -r line; do
+                    case "$line" in
+                        "# expect: "*) expect_code="${line#\# expect: }" ;;
+                        "# skip: "*)   skip="${line#\# skip: }" ;;
+                        "# skip")      skip="no reason" ;;
+                    esac
+                done < "$tfile"
+                if [ -n "$skip" ]; then
+                    printf "  %-30s SKIP (%s)\n" "$name" "$skip"
+                    continue
+                fi
                 tmpbin="/tmp/cyrb_test_$$"
+                tmpout="/tmp/cyrb_tout_$$"
                 printf "  %-30s " "$name"
                 if compile "$tfile" "$tmpbin" "$arch" $defines 2>/dev/null; then
-                    run_binary "$tmpbin" "$arch" >/dev/null 2>&1
+                    run_binary "$tmpbin" "$arch" > "$tmpout" 2>&1
                     ec=$?
                     rm -f "$tmpbin"
-                    if [ "$ec" -eq 0 ]; then
-                        echo "PASS"
-                        total_pass=$((total_pass + 1))
+                    if [ "$ec" -eq "$expect_code" ]; then
+                        # Parse assert_summary output if present
+                        summary=$(grep -o '[0-9]* passed, [0-9]* failed' "$tmpout" 2>/dev/null | tail -1)
+                        if [ -n "$summary" ]; then
+                            p=$(echo "$summary" | grep -o '^[0-9]*')
+                            f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*')
+                            total_assertions=$((total_assertions + p + f))
+                            if [ "$f" -gt 0 ]; then
+                                echo "FAIL ($summary)"
+                                total_fail=$((total_fail + 1))
+                                # Show individual failures
+                                grep "FAIL:" "$tmpout" 2>/dev/null | head -5
+                            else
+                                echo "PASS ($summary)"
+                                total_pass=$((total_pass + 1))
+                            fi
+                        else
+                            echo "PASS"
+                            total_pass=$((total_pass + 1))
+                        fi
                     else
-                        echo "FAIL (exit $ec)"
+                        echo "FAIL (exit $ec, expected $expect_code)"
                         total_fail=$((total_fail + 1))
                     fi
                 else
                     echo "FAIL (compile)"
                     total_fail=$((total_fail + 1))
-                    rm -f "$tmpbin"
                 fi
+                rm -f "$tmpbin" "$tmpout"
             done
             if [ "$found" -eq 0 ]; then
                 echo "No .tcyr files found in tests/, src/, or ."
@@ -352,7 +385,11 @@ case "${1:-help}" in
                 exit 1
             fi
             echo ""
-            echo "$total_pass passed, $total_fail failed"
+            if [ "$total_assertions" -gt 0 ]; then
+                echo "$total_pass files passed, $total_fail failed ($total_assertions assertions)"
+            else
+                echo "$total_pass passed, $total_fail failed"
+            fi
             [ "$total_fail" -gt 0 ] && exit 1
             exit 0
         fi

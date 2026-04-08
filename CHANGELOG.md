@@ -45,6 +45,12 @@ Development branch. Features land incrementally. Release after audit + feedback.
 - **`.tcyr`/`.bcyr` auto-discovery**: `cyrb test` with no args discovers and runs
   all `.tcyr` files in `tests/`, `src/`, and `.`. Reports pass/fail per file.
   `cyrb bench` with no args discovers `.bcyr` files in `benches/`, `tests/`, `.`.
+- **Enhanced .tcyr test runner**: `cyrb test` now parses `assert_summary()` output
+  from .tcyr files, reports per-file assertion counts. Supports metadata comments:
+  `# expect: N` (expected exit code), `# skip: reason` (skip test). Shows individual
+  FAIL lines on assertion failures.
+- **New assert helpers** (`lib/assert.cyr`): `assert_lt`, `assert_gte`, `assert_lte`,
+  `assert_nonnull`, `assert_streq`, `test_group(name)` for organized test output.
 
 ### Added — Research & Scaffolding
 - **cyrius-x bytecode design**: vidya entry with register VM design, 32-bit fixed-width
