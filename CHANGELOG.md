@@ -6,6 +6,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.11.5] — 2026-04-07
+
+### Changed — Compiler (Hardening)
+- **Overflow guards**: Added bounds checks to 4 previously unenforced arrays:
+  - `ADDXP`: extra_patches for `&&` chaining (max 8) — error instead of silent overflow
+  - `continue` patches in for-loops (max 8) — error instead of silent drop
+  - `ret_patches`: return statements per function (max 64) — error instead of overflow
+  - `REGSTRUCT`: struct definitions (max 32) — error instead of overflow
+- **DCE optimization**: Dead code elimination reduced from O(N×T) to O(T+N) using a
+  referenced-name bitmap (8KB in output_buf scratch). For argonaut (358 functions,
+  36K tokens), this eliminates ~13M iterations per compilation.
+- **Stale comments cleaned**: Fixed outdated heap map comments in main.cyr (fn_local_names)
+  and main_aarch64.cyr (local_types). Documented DCE bitmap scratch in output_buf.
+- **Roadmap reorganized**: Added v1.12 compiler hardening plan (heap audit, region
+  consolidation, output buffer, DCE) as pre-2.0 foundation. v2.0 features (multi-width
+  types, unions, multi-file compilation) depend on v1.12 cleanup.
+
 ## [1.11.4] — 2026-04-07
 
 ### Fixed — Compiler

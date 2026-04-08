@@ -91,7 +91,7 @@
 #
 # --- Expression type state ---
 #   0x8F890  ptr_scale     [8]           Current expression's pointer scale (0=not pointer)
-#   0x8F898  local_types   [512]         64 local variable pointer scales (0=scalar, >0=ptr)
+#   0x8F898  (available — local_types relocated to 0x92200)
 #
 # --- Nested struct state ---
 #   0x8A000  struct_ftypes [4096]        32*16 field type IDs (0=scalar, >0=struct_id)

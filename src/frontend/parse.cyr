@@ -24,6 +24,9 @@ fn SVTYPE(S, vi, v) { S64(S + 0x8DE30 + vi * 8, v); return 0; }
 # Register a new struct, return index (1-based, 0 = not a struct)
 fn REGSTRUCT(S, noff) {
     var sc = GSTC(S);
+    if (sc >= 32) {
+        ERR_MSG(S, "too many struct definitions (max 32)", 37);
+    }
     S64(S + 0x8E630 + sc * 8, noff);
     S64(S + 0x8E730 + sc * 8, 0);
     SSTC(S, sc + 1);
@@ -716,6 +719,7 @@ fn PARSE_SIMD_EXT(S, ptyp) {
         # Don't consume ; here — PARSE_STMT handles it via expression statement path
         var rp = EJMP0(S);
         var rpc = GRPC(S);
+        if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 49); }
         S64(S + 0x8DA20 + rpc * 8, rp);
         SRPC(S, rpc + 1);
         return 0;
@@ -2212,6 +2216,7 @@ fn PARSE_RETURN(S) {
     # Emit jmp to epilogue (record as return patch)
     var rp = EJMP0(S);
     var rpc = GRPC(S);
+    if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 49); }
     S64(S + 0x8DA20 + rpc * 8, rp);
     SRPC(S, rpc + 1);
     return 0;
@@ -2773,10 +2778,11 @@ fn PARSE_STMT(S) {
         if (cfw > 0) {
             # For-loop: forward patch to step (array of patches)
             var ci = cfw - 1;
-            if (ci < 8) {
-                S64(S + 0x8F8A8 + ci * 8, EJMP0(S));
-                S64(S + 0x8F8A0, cfw + 1);
+            if (ci >= 8) {
+                ERR_MSG(S, "too many continue statements in loop (max 8)", 47);
             }
+            S64(S + 0x8F8A8 + ci * 8, EJMP0(S));
+            S64(S + 0x8F8A0, cfw + 1);
         } else {
             # While/for-in: direct jump to loop top
             EJMP(S, L64(S + 0x8F838));

@@ -1,9 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v1.11.4.** 205KB self-hosting compiler, both architectures.
+> **v1.11.5.** 190KB self-hosting compiler, both architectures.
 > 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
-> Inline functions. R12 register spill. Threads + channels + async. Freelist allocator.
-> Enum namespacing. Relaxed fn ordering. 28 stdlib modules. 8192 fixup entries.
+> Argonaut unblocked (300 tests + 39 serde + 18 benchmarks).
+> 28 stdlib modules. 8192 fixup entries.
 >
 > agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
@@ -20,35 +20,66 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 14 | ~~Compiler segfault on ~6000+ line programs~~ | ~~P1~~ | **Fixed v1.11.4** — heap offset collision between `&&` extra_patches and `continue` forward-patches. |
 | 15 | ~~`#derive(Serialize)` + `#derive(Deserialize)` duplicate variable~~ | ~~P2~~ | **Fixed v1.11.1** |
 
-### Bug #15 — `#derive(Serialize)` + `#derive(Deserialize)` duplicate variable
+No open bugs. Struct field limit (16 per struct) needs expansion in v1.12 heap
+reorganization — currently overflows silently into reinitialized state.
 
-**Severity**: P2
+---
 
-**Versions affected**: v1.11.0, v1.11.1
+## v1.12 — Compiler Hardening (pre-2.0 foundation)
 
-**Symptom**: `error:NNNN: duplicate variable` when both `#derive(Serialize)` and `#derive(Deserialize)` are used in the same compilation unit, whether on the same struct or on two structs with identical field names.
+The heap map has outgrown manual management. Bug #14 was a 16-byte overlap that
+went undetected across 4 releases. Before adding multi-width types, unions, or
+multi-file compilation, the compiler internals need a cleanup pass.
 
-**Reproduction**:
-```cyrius
-#derive(Serialize)
-#derive(Deserialize)
-struct Foo { x; y; z; }
-# Error: duplicate variable
-```
+### 1. Heap map audit tool
 
-Also fails with separate structs sharing field names:
-```cyrius
-#derive(Serialize)
-struct Foo { x; y; z; }
+Script that parses every `0x8____` offset from source code, builds a region map,
+and flags overlaps or regions with < 16 bytes of padding. Catches the class of
+bug that caused #14, permanently.
 
-#derive(Deserialize)
-struct Foo2 { x; y; z; }
-# Error: duplicate variable (generated code for both uses same var names)
-```
+| Item | Status |
+|------|--------|
+| Parse offsets from heap map comments + code | |
+| Build interval map, detect overlaps | |
+| Warn on < 16-byte gaps between regions | |
+| Run as part of `tests/compiler.sh` | |
 
-**Cause**: `PP_DERIVE_SERIALIZE` and `PP_DERIVE_DESER` generate functions with local variables that share names (e.g., `var v`). Since Cyrius variables are function-scoped, the second derive's generated code conflicts with the first's if both are in the same preprocessor output scope.
+### 2. Region consolidation + overflow guards
 
-**Workaround**: Use `#derive(Serialize)` only. Deserialize manually via `json_parse()` + `json_get_int()` / `json_get()`. This is the pattern used in argonaut's serde test suite (39 tests, all passing).
+Group related state, add bounds checks at region boundaries.
+
+| Item | Status |
+|------|--------|
+| Group all loop state contiguous (loop_top, break, continue) | |
+| Group all expression state contiguous (extra_patches, ptr_scale, expr_stype) | |
+| Add overflow check to ADDXP (extra_patches bounds) | |
+| Add overflow check to continue patches | |
+| Clean stale heap map comments (aarch64 local_types, etc.) | |
+| Two-step bootstrap verification | |
+
+### 3. Output buffer honesty
+
+The output buffer at `0x6A000` (128KB) is routinely overwritten past its boundary
+by EMITELF. Safe today because it runs last, but a trap for any future change.
+
+| Item | Status |
+|------|--------|
+| Move output_buf to end of heap (after fn_inline) | |
+| Expand to 256KB or dynamic via brk extension | |
+| Add overflow check in EMITELF_USER / EMITELF_KERNEL | |
+| Two-step bootstrap verification | |
+
+### 4. DCE optimization
+
+Dead code elimination scans all tokens per function — O(N*T). Fine at 358
+functions / 36K tokens, but bhava (29K lines) will hit 500+ functions / 100K+
+tokens = 50M+ iterations.
+
+| Item | Status |
+|------|--------|
+| Build referenced-name bitset in one pass over tokens | |
+| Check membership per function — O(T + N) total | |
+| Verify no behavior change (same functions eliminated) | |
 
 ---
 
@@ -56,31 +87,41 @@ struct Foo2 { x; y; z; }
 
 | Target | Status |
 |--------|--------|
-| ai-hwaccel | **Unblocked** — getenv (#9), exec_capture (#10) fixed. Live hardware detection ready. |
+| argonaut | **Unblocked** — 300 tests + 39 serde + 18 benchmarks pass on v1.11.4. |
+| ai-hwaccel | **Unblocked** — getenv (#9), exec_capture (#10) fixed. |
 | bhava (29K) | Next keystone port. Unlocks hoosh + 37 downstream repos. |
 | hisab (31K) | Math library port. Pairs with bhava. |
 | vidya MCP | Blocked on bote Cyrius port. |
 
 ---
 
-## Performance — Remaining
+## v2.0 — Systems Language Features
+
+These are heavy lifts that touch every compiler module (lex, parse, emit, fixup).
+They should be built on the v1.12 hardened foundation.
+
+### Type system expansion
+
+| Feature | Effort | Unlocks | Depends on |
+|---------|--------|---------|------------|
+| Multi-width types (i8, i16, i32, u128) | High | Memory efficiency, big-number math | v1.12 heap cleanup |
+| Struct padding/alignment (sizeof) | Medium | ABI compat, FFI | Multi-width types |
+| Unions, bitfields | Medium | Hardware, protocols | Struct padding |
+| Variadic functions | Medium | printf-style APIs | Multi-width types |
+
+### Compilation model
+
+| Feature | Effort | Unlocks | Depends on |
+|---------|--------|---------|------------|
+| Multi-file compilation (.o + link) | High | True separate compilation | v1.12 heap cleanup |
+| Cross-function inlining | High | DSP scalar: 300-700x vs Rust | Multi-file or token replay v2 |
+
+### Performance
 
 | # | Optimization | Target | Effort |
 |---|-------------|--------|--------|
 | 1 | u128 / mul-with-overflow | `is_prime`: 18-33x vs Rust | High |
 | 2 | Cross-function inlining | DSP scalar: 300-700x vs Rust | High |
-
----
-
-## Systems Language Features
-
-| Feature | Effort | Unlocks |
-|---------|--------|---------|
-| Multi-file compilation (.o + link) | High | True separate compilation |
-| Struct padding/alignment (sizeof) | Medium | ABI compat, FFI |
-| Unions, bitfields | Medium | Hardware, protocols |
-| Variadic functions | Medium | printf-style APIs |
-| Multi-width types (i8, i16, i32, u128) | Medium | Memory efficiency, big-number math |
 
 ---
 
@@ -98,6 +139,8 @@ struct Foo2 { x; y; z; }
 | Identifier buffer | 65536 bytes | Dedup since v1.7.8 (~50% savings) |
 | Include-once table | 64 files | Tracked filenames for dedup (v1.8.0) |
 | Macros | 16 | |
+| Extra patches (&&) | 8 | Unenforced — silent overflow into adjacent state |
+| Continue patches | 8 | Unenforced — silent overflow into adjacent state |
 
 ---
 
@@ -105,7 +148,7 @@ struct Foo2 { x; y; z; }
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 205KB |
+| 1 | x86_64 | **Done** — self-hosting, 188KB |
 | 2 | aarch64 | **Done** — cross + native, inline disabled |
 | 3 | RISC-V | Planned |
 

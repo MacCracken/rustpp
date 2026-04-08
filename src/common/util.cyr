@@ -68,6 +68,10 @@ fn GXPC(S) { return L64(S + 0x8F888); }
 fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }
 fn ADDXP(S, p) {
     var c = GXPC(S);
+    if (c >= 8) {
+        syscall(SYS_WRITE, 2, "error: too many && conditions (max 8)\n", 38);
+        syscall(SYS_EXIT, 1);
+    }
     S64(S + 0x8F848 + c * 8, p);
     SXPC(S, c + 1);
     return 0;
