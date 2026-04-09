@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v2.8.1.** 215KB self-hosting compiler, both architectures.
+> **v2.8.2.** 215KB self-hosting compiler, both architectures.
 > 21 test suites (251 assertions), 4 fuzz harnesses, 9 benchmarks. Self-hosting byte-identical.
 > Argonaut: 424 tests pass. Heap audit clean. 31 stdlib modules.
 >
@@ -30,7 +30,8 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 23 | ~~argonaut audit.tcyr test 6 flakiness~~ | ~~P4~~ | **Resolved v2.7.2** — tests split into 15 suites (395 assertions), all pass. Original single-file heap exhaustion no longer triggered. |
 | 29 | ~~stdlib crashes (math, matrix, regex)~~ | ~~P2~~ | **Fixed v2.6.1** — FINDVAR fix in v2.1.0 resolved the root cause. str_replace had Str/cstring mismatch (used strlen on Str args). |
-| 30 | ~~String data buffer overflow (8KB limit)~~ | ~~P1~~ | **Fixed v2.6.4** — str_data expanded 8KB→16KB. Programs with many string literals (agnostik 198 tests) silently overflowed into str_pos/data_size. |
+| 30 | ~~String data buffer overflow (8KB limit)~~ | ~~P1~~ | **Fixed v2.6.4** — str_data expanded 8KB→16KB→32KB. |
+| 31 | ~~Struct field on undefined var segfaults~~ | ~~P2~~ | **Fixed v2.8.2** — Error handler called nonexistent `PRLINE(S)`. Replaced with `PRNUM(GTLINE(...))`. |
 | 24 | ~~`#ref` directive broken~~ | ~~P2~~ | **Fixed v2.2.0** — PP_REF_PASS was never called from PREPROCESS. One-line fix. |
 
 | 25 | ~~Include path shadows stdlib~~ | ~~P2~~ | **Fixed v2.1.2** — fallback to `$HOME/.cyrius/lib/` when local path fails. |

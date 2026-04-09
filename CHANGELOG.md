@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.2] — 2026-04-09
+
+### Fixed
+- **Bug #31: struct field access on undefined var no longer segfaults**: Root cause:
+  error handler called `PRLINE(S)` which didn't exist as a function — the compiler
+  generated a call to address 0, causing SIGSEGV. Replaced all 4 instances with
+  `syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S)))`. Now correctly
+  shows `error:N: undefined variable 'name'` for `q.x` where `q` is undefined.
+
+**No open bugs.** All reported issues (#14-#31) fixed or resolved.
+
 ## [2.8.1] — 2026-04-09
 
 ### Added

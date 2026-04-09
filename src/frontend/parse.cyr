@@ -510,7 +510,7 @@ fn PARSE_FACTOR(S) {
         }
         var aidx = FINDVAR(S, anoff);
         if (aidx < 0) {
-            PRLINE(S); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + anoff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
         }
         EVADDR(S, aidx);
@@ -1385,7 +1385,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
     if (idx == 0 - 1) {
         idx = FINDVAR(S, noff);
         if (idx < 0) {
-            PRLINE(S); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
         }
         sid = GVTYPE(S, idx);
@@ -1467,7 +1467,7 @@ fn PARSE_FIELD_STORE(S, noff) {
     # Find var + struct type + field
     var idx = FINDVAR(S, noff);
     if (idx < 0) {
-        PRLINE(S); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+        syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
         PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
     }
     var sid = GVTYPE(S, idx);
@@ -1864,7 +1864,7 @@ fn PARSE_ASSIGN(S) {
     PEXPR(S);
     var idx = FINDVAR(S, noff);
     if (idx < 0) {
-        PRLINE(S); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+        syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
         PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
     }
     EVSTORE(S, idx);
