@@ -552,12 +552,10 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
             op = op + PP_EMIT_STR(out, op, "));\n");
         } else {
-            # Scalar field: emit as quoted string for json roundtrip compatibility
-            op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
+            # Scalar field: emit as bare integer (valid JSON number)
             op = op + PP_EMIT_STR(out, op, "str_builder_add_int(sb, load64(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
             op = op + PP_EMIT_STR(out, op, "));\n");
-            op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
         }
         fi = fi + 1;
     }

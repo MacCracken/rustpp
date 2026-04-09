@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [3.2.2] — 2026-04-09
 
+### Fixed
+- **`#derive(Serialize)` emits bare integers**: Scalar fields now serialize as `42`
+  instead of `"42"`. Removed quote-wrapping from PP_DERIVE_SERIALIZE codegen.
+  `{"x":10,"y":20}` is now valid JSON with correct numeric types.
+- **version_from_str prerelease+build parsing** (agnostik): `2.0.0-rc.1+build.42`
+  now correctly parses patch=0, pre="rc.1", build="build.42". Root cause: `load8` + `==`
+  comparison in while loop failed silently in large compilation units. Workaround:
+  replaced with `strchr` for separator detection. Filed as compiler codegen investigation.
+
 ### Changed — Hashmap Cleanup & Stdlib Refactor
 - **hashmap.cyr**: Removed unused `HASHMAP_ENTRY_SIZE` var. Added `map_get_or(m, key, default)`
   for safe lookup (distinguishes not-found from zero-value). Added `map_size(m)` alias.

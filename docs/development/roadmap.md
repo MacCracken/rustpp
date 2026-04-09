@@ -100,11 +100,11 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 ## Downstream Blockers — requesting 3.2.x fix
 
-| # | Issue | Affected | Details |
-|---|-------|----------|---------|
-| 1 | **1024 function limit** | agnostik | Types library needs ~900 functions + deserialization would add ~100 more. Cannot add `_from_json` for 9 structs or serde benchmarks without exceeding limit. Increase to 2048 or support multi-file linking. |
-| 2 | **`#derive(Serialize)` formats all values as strings** | agnostik | Auto-generated `_to_json` renders integers as `"42"` not `42`. Consumers need manual overrides for correct numeric JSON. Request: detect integer/bool fields and emit `str_builder_add_int` instead of string quoting. |
-| 3 | **Nested if/while/break codegen** | agnostik | `version_from_str` correctly stores prerelease inside `if (sep == 45) { while (...) { break; } ... store64(v+24, pre); }` but value is NULL at runtime when both prerelease+build present. Simple prerelease (no build) works. Suspect break inside while inside if clobbers a register or skips the store. |
+| # | Issue | Affected | Status | Details |
+|---|-------|----------|--------|---------|
+| 1 | ~~1024 function limit~~ | agnostik | **Resolved 3.2.2** | Expanded to 2048. Agnostik can now add `_from_json` deserialization. |
+| 2 | **`#derive(Serialize)` formats all values as strings** | agnostik | Open | Auto-generated `_to_json` renders integers as `"42"` not `42`. Consumers need manual overrides for correct numeric JSON. Request: detect integer/bool fields and emit `str_builder_add_int` instead of string quoting. |
+| 3 | **Nested if/while/break codegen** | agnostik | Open | `version_from_str` correctly stores prerelease inside `if (sep == 45) { while (...) { break; } ... store64(v+24, pre); }` but value is NULL at runtime when both prerelease+build present. Simple prerelease (no build) works. Suspect break inside while inside if clobbers a register or skips the store. |
 
 ## Known Gotchas
 
