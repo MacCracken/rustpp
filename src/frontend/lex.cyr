@@ -1606,8 +1606,8 @@ fn LEX(S) {
             # Add null terminator after string literal
             store8(S + 0x68000 + spos, 0);
             spos = spos + 1;
-            if (spos >= 16384) {
-                syscall(SYS_WRITE, 2, "error: string data buffer full (16KB limit)\n", 44);
+            if (spos >= 32768) {
+                syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
                 syscall(SYS_EXIT, 1);
             }
             SSPOS(S, spos);

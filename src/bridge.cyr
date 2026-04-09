@@ -14,8 +14,8 @@
 #   0x58800  var_sizes  [2048]        256 variable sizes
 #   0x59000  codebuf    [65536]       Generated machine code
 #   0x69000  str_data   [4096]        String literal bytes
-#   0x6C000  str_pos    [8]
-#   0x6C008  data_size  [8]
+#   0x70000  str_pos    [8]
+#   0x70008  data_size  [8]
 #   0x6A000  output_buf [131072]      ELF output buffer
 #   0x8A000  fixup_tbl  [8192]        512 fixup entries (16 bytes each)
 #   0x8C000  fixup_cnt  [8]
@@ -105,8 +105,8 @@ fn SFCNT(S, v) { S64(S + 0x8C000, v); return 0; }
 fn GLVAR(S) { return L64(S + 0x8C008); }
 fn SLVAR(S, v) { S64(S + 0x8C008, v); return 0; }
 # String pos
-fn GSPOS(S) { return L64(S + 0x6C000); }
-fn SSPOS(S, v) { S64(S + 0x6C000, v); return 0; }
+fn GSPOS(S) { return L64(S + 0x70000); }
+fn SSPOS(S, v) { S64(S + 0x70000, v); return 0; }
 
 # Function state accessors
 fn GFNC(S) { return L64(S + 0x8DA00); }
@@ -1857,7 +1857,7 @@ fn FIXUP(S) {
         fi = fi + 1;
     }
     # Store data_size
-    S64(S + 0x6C008, totvar);
+    S64(S + 0x70008, totvar);
     return 0;
 }
 
@@ -1867,7 +1867,7 @@ fn FIXUP(S) {
 
 fn EMITELF(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x6C008);
+    var totvar = L64(S + 0x70008);
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     # Align to 8
@@ -1941,7 +1941,7 @@ S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
 S64(S + 0x8C000, 0);
 S64(S + 0x8C008, 0 - 1);
-S64(S + 0x6C000, 0);
+S64(S + 0x70000, 0);
 # Function state
 S64(S + 0x8DA00, 0);
 S64(S + 0x8DA08, 0);

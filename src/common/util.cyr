@@ -42,8 +42,8 @@ fn SFCNT(S, v) { S64(S + 0x8FCA8, v); return 0; }
 fn GLVAR(S) { return L64(S + 0x8FCB0); }
 fn SLVAR(S, v) { S64(S + 0x8FCB0, v); return 0; }
 # String pos
-fn GSPOS(S) { return L64(S + 0x6C000); }
-fn SSPOS(S, v) { S64(S + 0x6C000, v); return 0; }
+fn GSPOS(S) { return L64(S + 0x70000); }
+fn SSPOS(S, v) { S64(S + 0x70000, v); return 0; }
 
 # Function state accessors
 fn GFNC(S) { return L64(S + 0x8DA00); }

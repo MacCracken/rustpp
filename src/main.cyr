@@ -17,9 +17,9 @@
 #   0x20000  codebuf       [262144]      256KB generated machine code
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
-#   0x68000  str_data      [16384]       (nested in tok_names upper half, expanded from 8192)
-#   0x6C000  str_pos       [8]           (nested) string write position
-#   0x6C008  data_size     [8]           (nested) total variable data bytes
+#   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
+#   0x70000  str_pos       [8]           string write position
+#   0x70008  data_size     [8]           total variable data bytes
 #
 # --- Struct tables ---
 #   0x8A000  struct_ftypes [8192]        32×32 field type IDs (stride 256)
@@ -129,7 +129,7 @@ S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
 S64(S + 0x8FCA8, 0);
 S64(S + 0x8FCB0, 0 - 1);
-S64(S + 0x6C000, 0);
+S64(S + 0x70000, 0);
 # Function state
 S64(S + 0x8DA00, 0);
 S64(S + 0x8DA08, 0);
