@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v2.0.0.** 190KB self-hosting compiler, both architectures.
-> 267 tests (216 compiler + 51 programs), 0 failures. Self-hosting byte-identical.
-> Argonaut: 424 tests pass. Heap audit clean. 28 stdlib modules.
+> **v2.6.3.** 215KB self-hosting compiler, both architectures.
+> 21 test suites (251 assertions), 4 fuzz harnesses, 9 benchmarks. Self-hosting byte-identical.
+> Argonaut: 424 tests pass. Heap audit clean. 31 stdlib modules.
 >
 > agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
@@ -149,7 +149,7 @@ multi-file compilation (.o + link)
 
 | # | Architecture | Status |
 |---|-------------|--------|
-| 1 | x86_64 | **Done** — self-hosting, 190KB |
+| 1 | x86_64 | **Done** — self-hosting, 215KB |
 | 2 | aarch64 | **Done** — cross + native |
 | 3 | RISC-V | Planned |
 | 4 | cyrius-x | v2.0 target |

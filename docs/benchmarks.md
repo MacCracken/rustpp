@@ -47,7 +47,7 @@ The wc advantage comes from zero-overhead processing — no locale, no UTF-8 dec
 
 | Operation | Time |
 |-----------|------|
-| Compiler self-compile (205KB binary) | **~11ms** |
+| Compiler self-compile (215KB binary) | **~74ms** |
 | Build any single program | **<5ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Assembler throughput | 1.3M lines/sec |
@@ -61,11 +61,11 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Bootstrap seed (bootstrap/asm) | 29 KB |
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
-| Full compiler (cc2) | 205 KB |
-| cyrius build tool | 58 KB |
-| **Total toolchain** | **264 KB** |
+| Full compiler (cc2) | 215 KB |
+| cyrius build tool | 59 KB |
+| **Total toolchain** | **285 KB** |
 
-The entire Cyrius toolchain fits in **264 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
+The entire Cyrius toolchain fits in **285 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
 
 ## Library Ecosystem
 

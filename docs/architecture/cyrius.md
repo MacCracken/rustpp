@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v2.3.1** — cc2 is the active modular compiler (8 modules, 205KB, 267 tests). 31 stdlib modules.
+**v2.6.3** — cc2 is the active modular compiler (8 modules, 215KB). 21 test suites, 251 assertions. 31 stdlib modules.
 
 ```
 sh bootstrap/bootstrap.sh
@@ -87,7 +87,7 @@ The current language (compiled by cc2) supports:
 - PARSE_SIMD_EXT/LEXKW_EXT overflow helpers for large functions
 - _INLINE_OK flag for aarch64 (disables inline metadata on ARM)
 - Prologue: push rbx; push r12; push rbp; mov rbp, rsp
-- 28 stdlib modules, 57 programs, buffered I/O (wc 2.4x faster than GNU)
+- 31 stdlib modules, 57 programs, buffered I/O (wc 2.4x faster than GNU)
 
 ## Phases
 

@@ -15,25 +15,31 @@ Use fixed-offset heap arrays allocated via a single `brk` syscall. No malloc, no
 - **Speed**: Direct offset calculation, no pointer chasing
 - **Auditability**: Every buffer has a known address documented in the HEAP MAP
 
-## Layout (v0.9.5)
+## Layout (v2.6, consolidated from v0.9.5)
 
 ```
-0x00000  input_buf      131KB    Source text
-0x20000  codebuf        192KB    Generated machine code
-0x50000  tok_names       64KB    Identifier strings
-0x60000  var_noffs/sizes  4KB    Variable metadata
-0x8A000  fixup_tbl       16KB   Address fixup entries
-0x8C000  compiler state   20KB   Counters, function/struct tables
-0xA2000  tok_types       512KB   Token type array (65536 slots)
-0x122000 tok_values      512KB   Token value array
-0x1A2000 tok_lines       512KB   Token line numbers
-0x222000 preprocess_out  256KB   Include expansion buffer
-brk: 0x262000 (~2.4MB total)
+0x00000  input_buf      128KB    Source text
+0x20000  codebuf        256KB    Generated machine code
+0x60000  tok_names       64KB    Identifier strings (dedup)
+0x8A000  struct tables    24KB   Field types, names, counts
+0x8C100  compiler state   14KB   Counters, scalars, patches
+0x98000  gvar_toks        8KB    1024 deferred global inits
+0xA0000  fixup_tbl      128KB    8192 fixup entries × 16 bytes
+0xC0000  fn tables        48KB   names, offsets, params, inline
+0xCC000  struct_fnames    8KB    32×32 field name offsets
+0xCE000  output_buf     256KB    ELF output
+0x10E000 var tables     192KB    8192 vars (noffs, sizes, types)
+0x13E000 tok_types        1MB    131072 token type slots
+0x23E000 tok_values       1MB    131072 token value slots
+0x33E000 tok_lines        1MB    131072 token line number slots
+0x43E000 preprocess_out 512KB    Include expansion buffer
+brk: 0x4BE000 (~4.7MB total)
 ```
 
 ## Consequences
 
-- Fixed capacity limits (65536 tokens, 256 vars, 256 functions, 64 locals)
+- Fixed capacity limits (131072 tokens, 8192 vars, 1024 functions, 256 locals, 1024 globals)
 - Buffer overflow bugs are silent corruption — always add bounds checks
 - Relocating buffers requires two-step bootstrap (ADR documented in vidya)
 - Adjacent buffers with no guard bytes are time bombs (tok_names overflow, v0.9.2)
+- Heap consolidation (v2.1) saved 2MB by compacting scattered regions
