@@ -4,6 +4,15 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.2] — 2026-04-09
+
+### Fixed
+- **aarch64 >6 function arguments**: ECALLPOPS now saves extras to x9-x12, pops 6
+  register args, pushes extras back for callee. ESTORESTACKPARM loads extras from
+  caller stack frame via [x29+offset]. ESTOREPARM dispatch fixed (was checking pidx<8,
+  now pidx<6 to match the 6-register convention). ECALLCLEAN adjusts sp after call.
+  Verified: f7(1..7)=28, f9(1..9)=45. 14/14 aarch64 tests pass.
+
 ## [2.6.1] — 2026-04-09
 
 ### Fixed
