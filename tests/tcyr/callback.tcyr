@@ -22,8 +22,8 @@ assert_eq(vec_get(mapped, 2), 6, "map 2");
 test_group("bounds");
 fn test_bounds() {
     var buf[64];
-    checked_store64(&buf, 0, 64, 42);
-    assert_eq(checked_load64(&buf, 0, 64), 42, "bounds load");
+    checked_store64(&buf, 64, 0, 42);
+    assert_eq(checked_load64(&buf, 64, 0), 42, "bounds load");
     return 0;
 }
 test_bounds();
