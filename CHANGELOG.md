@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.2] — 2026-04-09
+
+### Fixed
+- **cyrius-x syscall string output**: VM now copies .cyx data section (vars + strings)
+  into VM memory at bytecode offsets. Syscall handler translates virtual addresses to
+  real pointers for write/read/open syscalls. `syscall(1, 1, "hello", 5)` now works.
+  cx compiler fixup patching corrected (coff-2 for movi immediate bytes).
+- **Argonaut bug #23 resolved**: Tests split into 15 suites (395 assertions), all pass.
+  Original single-file heap exhaustion no longer triggered.
+
+### Added
+- **`process.tcyr` test suite**: fork+waitpid and fork+pipe tests (4 assertions).
+  Total: 24 test suites, 291 assertions.
+- **`cyrius test` auto-discovery** (binary): Discovers `tests/tcyr/*.tcyr` when no
+  file argument given. Binary compile path needs further debugging.
+
 ## [2.7.0] — 2026-04-09
 
 ### Fixed

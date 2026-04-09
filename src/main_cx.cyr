@@ -345,14 +345,76 @@ var lv = GLVAR(S);
 if (lv >= 0) { EVLOAD(S, lv); }
 EEXIT(S);
 
-# Emit CYX bytecode file (no fixup/ELF — raw bytecode)
-# Header: "CYX\0" (4 bytes) + entry_offset (4 bytes LE, always 0 for now)
+# Fixup: resolve string/var/fn addresses in bytecode
+# For .cyx, addresses are byte offsets into the data section appended after code.
+# Data layout: [code (cp bytes)] [var data (totvar bytes)] [string data (spos bytes)]
 var cp = GCP(S);
+cp = (cp + 7) & (0 - 8);
+SCP(S, cp);
+var vcnt = GVCNT(S);
+var totvar = 0;
+var vi = 0;
+while (vi < vcnt) { totvar = totvar + L64(S + 0x11E000 + vi * 8); vi = vi + 1; }
+var spos = GSPOS(S);
+# Data base = cp (data starts right after bytecode in the loaded .cyx)
+var dbase = cp;
+
+var fcnt = GFCNT(S);
+var fi = 0;
+while (fi < fcnt) {
+    var faddr = S + 0xA0000 + fi * 16;
+    var coff = L64(faddr);
+    var raw = L64(faddr + 8);
+    var ftype = raw >> 56;
+    var idx = raw & 0x00FFFFFFFFFFFFFF;
+    if (ftype == 2) {
+        # Function call — patch relative offset in movi (bytes 2-3 of the instruction)
+        var target = L64(S + 0xC2000 + idx * 8);
+        var rel = target - coff - 4;
+        var pa = S + 0x20000 + coff;
+        S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    }
+    elif (ftype == 3) {
+        # Function pointer — absolute code offset
+        var foff = L64(S + 0xC2000 + idx * 8);
+        # Patch movi: store 16-bit value in bytes 2-3
+        store8(S + 0x20000 + coff + 2, foff & 0xFF);
+        store8(S + 0x20000 + coff + 3, (foff >> 8) & 0xFF);
+    }
+    elif (ftype == 1) {
+        # String address → dbase + totvar + string_offset
+        # coff points AFTER the movi instruction — patch at coff-4+2 = coff-2
+        var addr = dbase + totvar + idx;
+        store8(S + 0x20000 + coff - 2, addr & 0xFF);
+        store8(S + 0x20000 + coff - 1, (addr >> 8) & 0xFF);
+        if (addr > 0xFFFF) {
+            # Patch movhi (starts at coff, bytes 2-3)
+            store8(S + 0x20000 + coff + 2, (addr >> 16) & 0xFF);
+            store8(S + 0x20000 + coff + 3, (addr >> 24) & 0xFF);
+        }
+    }
+    else {
+        # Variable address → dbase + cumulative offset
+        var cumul = 0;
+        vi = 0;
+        while (vi < idx) { cumul = cumul + L64(S + 0x11E000 + vi * 8); vi = vi + 1; }
+        var addr = dbase + cumul;
+        store8(S + 0x20000 + coff - 2, addr & 0xFF);
+        store8(S + 0x20000 + coff - 1, (addr >> 8) & 0xFF);
+        if (addr > 0xFFFF) {
+            store8(S + 0x20000 + coff + 2, (addr >> 16) & 0xFF);
+            store8(S + 0x20000 + coff + 3, (addr >> 24) & 0xFF);
+        }
+    }
+    fi = fi + 1;
+}
+
+# Emit CYX file: header + bytecode + var data + string data
+# Header: "CYX\0" (4 bytes) + entry_offset (4 bytes LE)
 syscall(SYS_WRITE, 1, "CYX", 3);
 var zero_byte[1];
 store8(&zero_byte, 0);
 syscall(SYS_WRITE, 1, &zero_byte, 1);
-# Entry offset = 0 (4 bytes LE)
 var entry_off[4];
 store32(&entry_off, 0);
 syscall(SYS_WRITE, 1, &entry_off, 4);
@@ -363,5 +425,16 @@ while (bwgo == 1) {
     var w = syscall(SYS_WRITE, 1, S + 0x20000 + bw, cp - bw);
     if (w <= 0) { bwgo = 0; }
     else { bw = bw + w; if (bw >= cp) { bwgo = 0; } }
+}
+# Write variable data (zeroed)
+vi = 0;
+while (vi < totvar) { syscall(SYS_WRITE, 1, &zero_byte, 1); vi = vi + 1; }
+# Write string data
+bw = 0;
+bwgo = 1;
+while (bwgo == 1) {
+    var w = syscall(SYS_WRITE, 1, S + 0x68000 + bw, spos - bw);
+    if (w <= 0) { bwgo = 0; }
+    else { bw = bw + w; if (bw >= spos) { bwgo = 0; } }
 }
 syscall(SYS_EXIT, 0);

@@ -834,11 +834,44 @@ fn main() {
                 ai = ai + 1;
             }
         }
-        if (argc() <= ai) {
-            println("Usage: cyrius test [--aarch64] <test.cyr>");
+        if (argc() > ai) {
+            return cmd_test(argv(ai));
+        }
+        # No args: auto-discover tests/tcyr/*.tcyr
+        _pass = 0; _fail = 0;
+        var found = 0;
+        var dirs = vec_new();
+        vec_push(dirs, "tests/tcyr");
+        vec_push(dirs, "tests");
+        var di = 0;
+        while (di < vec_len(dirs)) {
+            var tdir = vec_get(dirs, di);
+            if (is_dir(str_from(tdir)) == 1) {
+                var entries = dir_list(str_from(tdir));
+                var ei = 0;
+                while (ei < vec_len(entries)) {
+                    var name = vec_get(entries, ei);
+                    if (str_ends_with(name, str_from(".tcyr")) == 1) {
+                        found = 1;
+                        var path = make_path(tdir, str_data(name));
+                        cmd_test(path);
+                    }
+                    ei = ei + 1;
+                }
+            }
+            di = di + 1;
+        }
+        if (found == 0) {
+            println("No .tcyr files found in tests/tcyr/ or tests/");
             return 1;
         }
-        return cmd_test(argv(ai));
+        sys_write(STDOUT_FD, "\n", 1);
+        fmt_int(_pass);
+        sys_write(STDOUT_FD, " passed, ", 9);
+        fmt_int(_fail);
+        println(" failed");
+        if (_fail > 0) { return 1; }
+        return 0;
     }
 
     if (streq(cmd, "bench") == 1) {

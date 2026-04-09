@@ -56,6 +56,7 @@ var _cx_csp = 0;
 var _cx_pc = 0;
 
 var _CX_MEM_SIZE = 65536;
+var _cx_code = 0;       # set after loading .cyx file
 
 fn cx_init() {
     alloc_init();
@@ -181,9 +182,22 @@ fn cx_run(code, code_len) {
         elif (op == 0x63) { cx_reg_set(ra, cx_call_pop()); }
 
         # syscall: r0 = syscall(r1, r2, r3, r4, r5, r6)
+        # r1=syscall number. Pointer args need virtual→real translation.
+        # Only translate args that are actually pointers (syscall-specific).
         elif (op == 112) {
-            result = syscall(cx_reg_get(1), cx_reg_get(2), cx_reg_get(3),
-                            cx_reg_get(4), cx_reg_get(5), cx_reg_get(6));
+            var sn = cx_reg_get(1);
+            var s2 = cx_reg_get(2);
+            var s3 = cx_reg_get(3);
+            var s4 = cx_reg_get(4);
+            var s5 = cx_reg_get(5);
+            var s6 = cx_reg_get(6);
+            # write(1): r3=buf is pointer
+            # read(0): r3=buf is pointer
+            # open(2): r3=path is pointer
+            if (sn == 0) { if (s3 > 0) { s3 = _cx_mem + s3; } }
+            elif (sn == 1) { if (s3 > 0) { s3 = _cx_mem + s3; } }
+            elif (sn == 2) { if (s3 > 0) { s3 = _cx_mem + s3; } }
+            result = syscall(sn, s2, s3, s4, s5, s6);
             cx_reg_set(0, result);
         }
 
@@ -215,7 +229,7 @@ cx_init();
 
 # Read .cyx header: "CYX\0" magic + 4-byte entry offset
 var _cx_code_cap = 65536;
-var _cx_code = alloc(_cx_code_cap);
+_cx_code = alloc(_cx_code_cap);
 var _cx_code_len = 0;
 var _cx_done = 0;
 while (_cx_done == 0) {
@@ -232,6 +246,25 @@ if (load8(_cx_code + 2) != 88) { syscall(1, 2, "error: bad magic\n", 17); syscal
 
 # Entry offset (4 bytes LE at offset 4)
 var entry = load32(_cx_code + 4);
+
+# Copy data section (vars + strings) from .cyx into _cx_mem.
+# The cx compiler sets data addresses as offsets from bytecode start:
+#   var addr = code_size + cumulative_var_offset
+#   str addr = code_size + total_var_size + string_offset
+# By copying the data section into _cx_mem at offset code_size,
+# all load/store operations find the correct data.
+var data_start = 8 + _cx_code_len - 8;  # header-adjusted
+var bytecode_and_data = _cx_code_len - 8;
+# We don't know exactly where code ends and data begins in the .cyx,
+# but the entire content after the header is: bytecode + var_data + string_data.
+# Copy ALL of it into _cx_mem so any offset works as a memory address.
+var copy_len = bytecode_and_data;
+if (copy_len > _CX_MEM_SIZE) { copy_len = _CX_MEM_SIZE; }
+var ci = 0;
+while (ci < copy_len) {
+    store8(_cx_mem + ci, load8(_cx_code + 8 + ci));
+    ci = ci + 1;
+}
 
 # Initialize sp (r254) to top of memory — stack grows downward
 cx_reg_set(254, _CX_MEM_SIZE);

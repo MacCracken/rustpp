@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v2.7.1.** 215KB self-hosting compiler, both architectures.
+> **v2.7.2.** 215KB self-hosting compiler, both architectures.
 > 21 test suites (251 assertions), 4 fuzz harnesses, 9 benchmarks. Self-hosting byte-identical.
 > Argonaut: 424 tests pass. Heap audit clean. 31 stdlib modules.
 >
@@ -28,7 +28,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
-| 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
+| 23 | ~~argonaut audit.tcyr test 6 flakiness~~ | ~~P4~~ | **Resolved v2.7.2** — tests split into 15 suites (395 assertions), all pass. Original single-file heap exhaustion no longer triggered. |
 | 29 | ~~stdlib crashes (math, matrix, regex)~~ | ~~P2~~ | **Fixed v2.6.1** — FINDVAR fix in v2.1.0 resolved the root cause. str_replace had Str/cstring mismatch (used strlen on Str args). |
 | 30 | ~~String data buffer overflow (8KB limit)~~ | ~~P1~~ | **Fixed v2.6.4** — str_data expanded 8KB→16KB. Programs with many string literals (agnostik 198 tests) silently overflowed into str_pos/data_size. |
 | 24 | ~~`#ref` directive broken~~ | ~~P2~~ | **Fixed v2.2.0** — PP_REF_PASS was never called from PREPROCESS. One-line fix. |

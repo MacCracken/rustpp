@@ -1,0 +1,45 @@
+# Test: process library (fork/exec/waitpid)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/process.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("fork + waitpid");
+var pid = sys_fork();
+if (pid == 0) {
+    # Child: exit with code 42
+    sys_exit(42);
+}
+# Parent: wait for child
+var status_buf[4];
+sys_waitpid(pid, &status_buf, 0);
+var status = load32(&status_buf);
+assert_eq(WIFEXITED(status), 1, "child exited");
+assert_eq(WEXITSTATUS(status), 42, "exit code 42");
+
+test_group("fork + pipe");
+var pipefd[8];
+syscall(22, &pipefd);
+var rfd = load32(&pipefd);
+var wfd = load32(&pipefd + 4);
+var pid2 = sys_fork();
+if (pid2 == 0) {
+    sys_close(rfd);
+    sys_write(wfd, "test", 4);
+    sys_close(wfd);
+    sys_exit(0);
+}
+sys_close(wfd);
+var rbuf = alloc(16);
+var n = sys_read(rfd, rbuf, 15);
+sys_close(rfd);
+store8(rbuf + n, 0);
+sys_waitpid(pid2, &status_buf, 0);
+assert_eq(n, 4, "pipe read 4");
+assert_eq(streq(rbuf, "test"), 1, "pipe content");
+
+var r = assert_summary();
