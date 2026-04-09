@@ -1405,6 +1405,8 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
         # "shared" = 0x646572616873
         if (kw & 0xFFFFFFFFFFFFFF == 0x646572616873) { ADDTOK(S, 78, 0); return p; }
+        # "object" = 0x7463656a626f → token 79, sets mode 3 (.o output)
+        if (kw & 0xFFFFFFFFFFFFFF == 0x7463656a626f) { ADDTOK(S, 79, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x686374697773) { ADDTOK(S, 57, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x6F745F343666) { ADDTOK(S, 67, 0); return p; }
         if (kw & 0xFFFFFFFFFFFFFF == 0x71655F343666) { ADDTOK(S, 68, 0); return p; }

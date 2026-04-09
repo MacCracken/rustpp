@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.4] — 2026-04-09
+
+### Added — Multi-file Compilation (Phase 1)
+- **`object;` directive**: New keyword triggers ELF .o relocatable output (kernel_mode=3).
+  Token 79 in lexer. Pass 1 and pass 2 handle it like `kernel;` and `shared;`.
+- **`EMITELF_OBJ` function**: Emits proper ELF relocatable with 7 sections:
+  `.text` (code), `.data` (variables), `.rodata` (strings), `.symtab` (symbols),
+  `.strtab` (symbol names), `.rela.text` (relocations), null section header.
+- **Symbol table**: All functions emitted as `STT_FUNC / STB_GLOBAL` symbols with
+  their `.text` offsets. Section symbols for .text/.data/.rodata.
+- **Relocation table**: Fixup entries converted to ELF relocations:
+  type 0 (var) → R_X86_64_64 vs .data, type 1 (string) → R_X86_64_64 vs .rodata,
+  type 2 (fn call) → R_X86_64_PC32, type 3 (fn ptr) → R_X86_64_64.
+- **FIXUP skip for .o mode**: Internal fixup resolution skipped — addresses left
+  unresolved for the linker. Only totvar computed for .data sizing.
+- **Verified with readelf**: Sections, symbols, relocations all parse correctly.
+  Phase 2 (minimal linker) is next.
+
+### Changed
+- **Binary size audit**: 215KB (220008 bytes), 35KB margin to 250KB target. 75-80%
+  code, 18-20% variable data, 2-3% strings. No urgent action needed. Monitor at 230KB.
+
 ## [2.6.3] — 2026-04-09
 
 ### Fixed

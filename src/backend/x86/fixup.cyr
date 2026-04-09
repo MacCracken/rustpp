@@ -7,6 +7,19 @@ fn FIXUP(S) {
     var cp = GCP(S);
     cp = (cp + 7) & (0 - 8);
     SCP(S, cp);
+    # In object mode, skip fixup resolution — relocations go into .rela.text
+    if (L64(S + 0x8FCA0) == 3) {
+        # Still compute totvar for .data section size
+        var vcnt = GVCNT(S);
+        var totvar = 0;
+        var vi = 0;
+        while (vi < vcnt) {
+            totvar = totvar + L64(S + 0x11E000 + vi * 8);
+            vi = vi + 1;
+        }
+        S64(S + 0x69808, totvar);
+        return 0;
+    }
     var acp = cp;
     # data_base = entry_point + aligned code size
     # Kernel: multiboot2 header (24 bytes) is prepended, so entry = base + 120 + 24
@@ -178,9 +191,354 @@ fn EMITELF_USER(S, etype) {
     return 0;
 }
 
+# ================================================================
+# ELF RELOCATABLE (.o) EMISSION
+# ================================================================
+# Emits proper ELF relocatable object with sections:
+#   .text (code), .data (vars), .rodata (strings),
+#   .symtab, .strtab, .rela.text
+# Fixup types map to ELF relocations:
+#   type 0 (var addr)    → R_X86_64_64 against .data symbol
+#   type 1 (string addr) → R_X86_64_64 against .rodata symbol
+#   type 2 (fn call)     → R_X86_64_PC32 against function symbol
+#   type 3 (fn pointer)  → R_X86_64_64 against function symbol
+
+fn EMITELF_OBJ(S) {
+    var cp = GCP(S);
+    var totvar = L64(S + 0x69808);
+    var spos = GSPOS(S);
+    var fcnt = GFCNT(S);
+    var fnc = GFNC(S);
+
+    var O = S + 0xCE000;
+    var op = 0;
+
+    # --- Allocate scratch via brk extension ---
+    # Compiler has no alloc() — extend brk for temp buffers
+    var scratch = syscall(SYS_BRK, 0);
+    syscall(SYS_BRK, scratch + 65536);  # 64KB scratch for strtab + symtab + rela
+
+    # --- Build string table (.strtab) ---
+    var strtab = scratch;
+    var sp = 0;
+    store8(strtab + sp, 0); sp = sp + 1;           # index 0: null
+
+    var st_text = sp;
+    var sn = ".text";
+    var si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    var st_data = sp;
+    sn = ".data"; si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    var st_rodata = sp;
+    sn = ".rodata"; si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    var st_symtab = sp;
+    sn = ".symtab"; si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    var st_strtab = sp;
+    sn = ".strtab"; si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    var st_relatext = sp;
+    sn = ".rela.text"; si = 0; while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
+
+    # Function name offsets into strtab
+    var fn_strtab_off = scratch + 8192;  # after strtab
+    var fi = 0;
+    while (fi < fnc) {
+        S64(fn_strtab_off + fi * 8, sp);
+        var noff = L64(S + 0xC0000 + fi * 8);
+        var np = S + 0x60000 + noff;
+        si = 0;
+        while (load8(np + si) != 0) { store8(strtab + sp, load8(np + si)); sp = sp + 1; si = si + 1; }
+        store8(strtab + sp, 0); sp = sp + 1;
+        fi = fi + 1;
+    }
+    var strtab_size = sp;
+
+    # --- Symbol table (.symtab) ---
+    # Entry: 24 bytes each (Elf64_Sym)
+    # Layout: null entry, .text section, .data section, .rodata section, then functions
+    var nsyms = 4 + fnc;  # null + 3 sections + functions
+    var symtab_size = nsyms * 24;
+    var symtab = scratch + 16384;  # after fn_strtab_off
+    # Zero symtab
+    var zi = 0; while (zi < symtab_size) { store8(symtab + zi, 0); zi = zi + 1; }
+
+    # Symbol 0: null (already zeroed)
+    # Symbol 1: .text section (STT_SECTION=3, STB_LOCAL=0)
+    S64(symtab + 24 + 4, 3);                       # st_info=3 (section), st_other=0, st_shndx=1 (.text)
+    store8(symtab + 24 + 4, 3);                     # st_info = STT_SECTION | (STB_LOCAL << 4) = 3
+    store8(symtab + 24 + 6, 1); store8(symtab + 24 + 7, 0);  # st_shndx = 1
+
+    # Symbol 2: .data section
+    store8(symtab + 48 + 4, 3); store8(symtab + 48 + 6, 2); store8(symtab + 48 + 7, 0);
+
+    # Symbol 3: .rodata section
+    store8(symtab + 72 + 4, 3); store8(symtab + 72 + 6, 3); store8(symtab + 72 + 7, 0);
+
+    # Function symbols (index 4+)
+    fi = 0;
+    while (fi < fnc) {
+        var symp = symtab + (4 + fi) * 24;
+        # st_name (4 bytes)
+        var name_off = L64(fn_strtab_off + fi * 8);
+        store8(symp, name_off & 0xFF);
+        store8(symp + 1, (name_off >> 8) & 0xFF);
+        store8(symp + 2, (name_off >> 16) & 0xFF);
+        store8(symp + 3, (name_off >> 24) & 0xFF);
+        # st_info: STT_FUNC=2, STB_GLOBAL=1 → (1 << 4) | 2 = 0x12
+        store8(symp + 4, 0x12);
+        # st_other: 0
+        # st_shndx: 1 (.text)
+        store8(symp + 6, 1); store8(symp + 7, 0);
+        # st_value: function offset in .text (8 bytes LE)
+        var foff = L64(S + 0xC2000 + fi * 8);
+        if (foff < 0) { foff = 0; }
+        S64(symp + 8, foff);
+        # st_size: 0 (unknown)
+        fi = fi + 1;
+    }
+    var first_global = 4;  # first non-local symbol index
+
+    # --- Relocation table (.rela.text) ---
+    # Only emit relocations for UNRESOLVED fixups (external symbols).
+    # For .o files, all function calls become relocations since the linker resolves them.
+    # Entry: 24 bytes each (Elf64_Rela: r_offset, r_info, r_addend)
+    var rela = scratch + 40960;  # after symtab
+    var rela_cnt = 0;
+
+    fi = 0;
+    while (fi < fcnt) {
+        var faddr = S + 0xA0000 + fi * 16;
+        var coff = L64(faddr);
+        var raw = L64(faddr + 8);
+        var ftype = raw >> 56;
+        var idx = raw & 0x00FFFFFFFFFFFFFF;
+        var rp = rela + rela_cnt * 24;
+
+        if (ftype == 2) {
+            # Function call → R_X86_64_PC32 (type 2)
+            S64(rp, coff);                              # r_offset
+            var sym_idx = 4 + idx;                      # function symbol index
+            S64(rp + 8, (sym_idx << 32) | 2);           # r_info = (sym << 32) | R_X86_64_PC32
+            S64(rp + 16, 0 - 4);                        # r_addend = -4 (PC-relative adjustment)
+            rela_cnt = rela_cnt + 1;
+        }
+        elif (ftype == 3) {
+            # Function pointer → R_X86_64_64 (type 1)
+            S64(rp, coff);
+            var sym_idx = 4 + idx;
+            S64(rp + 8, (sym_idx << 32) | 1);
+            S64(rp + 16, 0);
+            rela_cnt = rela_cnt + 1;
+        }
+        elif (ftype == 1) {
+            # String address → R_X86_64_64 against .rodata section
+            S64(rp, coff);
+            S64(rp + 8, (3 << 32) | 1);                 # sym=.rodata(3), type=R_X86_64_64
+            S64(rp + 16, idx);                           # r_addend = string offset within .rodata
+            rela_cnt = rela_cnt + 1;
+        }
+        else {
+            # Variable address → R_X86_64_64 against .data section
+            var cumul = 0;
+            var vi = 0;
+            while (vi < idx) {
+                cumul = cumul + L64(S + 0x11E000 + vi * 8);
+                vi = vi + 1;
+            }
+            S64(rp, coff);
+            S64(rp + 8, (2 << 32) | 1);                 # sym=.data(2), type=R_X86_64_64
+            S64(rp + 16, cumul);                         # r_addend = var offset within .data
+            rela_cnt = rela_cnt + 1;
+        }
+        fi = fi + 1;
+    }
+    var rela_size = rela_cnt * 24;
+
+    # --- Layout: ELF header + sections + section headers ---
+    # Sections: .text, .data, .rodata, .symtab, .strtab, .rela.text
+    # Order in file: header(64), .text, .data, .rodata, .symtab, .strtab, .rela.text, shdr table
+    var hdr_size = 64;
+    var text_off = hdr_size;
+    var text_size = cp;
+    var data_off = text_off + text_size;
+    var data_size = totvar;
+    var rodata_off = data_off + data_size;
+    var rodata_size = spos;
+    var symtab_off = rodata_off + rodata_size;
+    # Align symtab to 8
+    symtab_off = (symtab_off + 7) & (0 - 8);
+    var strtab_off = symtab_off + symtab_size;
+    var rela_off = strtab_off + strtab_size;
+    # Align rela to 8
+    rela_off = (rela_off + 7) & (0 - 8);
+    var shdr_off = rela_off + rela_size;
+    # Align shdr to 8
+    shdr_off = (shdr_off + 7) & (0 - 8);
+    var num_shdrs = 7;  # null + .text + .data + .rodata + .symtab + .strtab + .rela.text
+    var total_size = shdr_off + num_shdrs * 64;
+
+    if (total_size > 262144) {
+        syscall(SYS_WRITE, 2, "error: .o output too large\n", 27);
+        syscall(SYS_EXIT, 1);
+    }
+
+    # --- Write ELF header (64 bytes) ---
+    # e_ident (16 bytes)
+    S64(O, 0x00010102464C457F);
+    S64(O + 8, 0x0000000000000000);
+    # e_type(2)=1(REL), e_machine(2)=0x3E, e_version(4)=1
+    store8(O + 16, 1); store8(O + 17, 0);    # e_type = ET_REL
+    store8(O + 18, 0x3E); store8(O + 19, 0); # e_machine = x86_64
+    store8(O + 20, 1); store8(O + 21, 0); store8(O + 22, 0); store8(O + 23, 0); # e_version
+    S64(O + 24, 0);                           # e_entry = 0
+    S64(O + 32, 0);                           # e_phoff = 0
+    S64(O + 40, shdr_off);                    # e_shoff
+    store8(O + 48, 0); store8(O + 49, 0); store8(O + 50, 0); store8(O + 51, 0); # e_flags
+    store8(O + 52, 64); store8(O + 53, 0);   # e_ehsize = 64
+    store8(O + 54, 0); store8(O + 55, 0);    # e_phentsize = 0
+    store8(O + 56, 0); store8(O + 57, 0);    # e_phnum = 0
+    store8(O + 58, 64); store8(O + 59, 0);   # e_shentsize = 64
+    store8(O + 60, num_shdrs & 0xFF); store8(O + 61, 0); # e_shnum
+    store8(O + 62, 5); store8(O + 63, 0);    # e_shstrndx = 5 (.strtab)
+    op = 64;
+
+    # --- Write .text section ---
+    var i = 0;
+    while (i < cp) { store8(O + op, load8(S + 0x20000 + i)); op = op + 1; i = i + 1; }
+
+    # --- Write .data section (zeroed) ---
+    i = 0;
+    while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
+
+    # --- Write .rodata section (string data) ---
+    i = 0;
+    while (i < spos) { store8(O + op, load8(S + 0x68000 + i)); op = op + 1; i = i + 1; }
+
+    # --- Pad to symtab alignment ---
+    while (op < symtab_off) { store8(O + op, 0); op = op + 1; }
+
+    # --- Write .symtab ---
+    i = 0;
+    while (i < symtab_size) { store8(O + op, load8(symtab + i)); op = op + 1; i = i + 1; }
+
+    # --- Write .strtab ---
+    i = 0;
+    while (i < strtab_size) { store8(O + op, load8(strtab + i)); op = op + 1; i = i + 1; }
+
+    # --- Pad to rela alignment ---
+    while (op < rela_off) { store8(O + op, 0); op = op + 1; }
+
+    # --- Write .rela.text ---
+    i = 0;
+    while (i < rela_size) { store8(O + op, load8(rela + i)); op = op + 1; i = i + 1; }
+
+    # --- Pad to shdr alignment ---
+    while (op < shdr_off) { store8(O + op, 0); op = op + 1; }
+
+    # --- Write section headers (7 × 64 bytes) ---
+    # Section 0: null (64 zero bytes)
+    i = 0; while (i < 64) { store8(O + op, 0); op = op + 1; i = i + 1; }
+
+    # Section 1: .text (SHT_PROGBITS=1, SHF_ALLOC|SHF_EXECINSTR=6)
+    S64(O + op, st_text); op = op + 4; op = op + 4;  # sh_name (pad to 8 via next field)
+    store8(O + op - 4, st_text & 0xFF); store8(O + op - 3, (st_text >> 8) & 0xFF);
+    # Redo: write section header properly
+    op = op - 8;
+    # sh_name (4 bytes)
+    store8(O + op, st_text & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    # sh_type (4 bytes) = SHT_PROGBITS = 1
+    store8(O + op, 1); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    # sh_flags (8 bytes) = SHF_ALLOC | SHF_EXECINSTR = 6
+    S64(O + op, 6); op = op + 8;
+    # sh_addr (8 bytes) = 0
+    S64(O + op, 0); op = op + 8;
+    # sh_offset (8 bytes)
+    S64(O + op, text_off); op = op + 8;
+    # sh_size (8 bytes)
+    S64(O + op, text_size); op = op + 8;
+    # sh_link, sh_info (4+4 bytes)
+    S64(O + op, 0); op = op + 8;
+    # sh_addralign (8 bytes) = 16
+    S64(O + op, 16); op = op + 8;
+    # sh_entsize (8 bytes) = 0
+    S64(O + op, 0); op = op + 8;
+
+    # Section 2: .data (SHT_PROGBITS=1, SHF_ALLOC|SHF_WRITE=3)
+    store8(O + op, st_data & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 1); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 3); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, data_off); op = op + 8;
+    S64(O + op, data_size); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 8); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+
+    # Section 3: .rodata (SHT_PROGBITS=1, SHF_ALLOC=2)
+    store8(O + op, st_rodata & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 1); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 2); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, rodata_off); op = op + 8;
+    S64(O + op, rodata_size); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 1); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+
+    # Section 4: .symtab (SHT_SYMTAB=2, sh_link=5(.strtab), sh_info=first_global)
+    store8(O + op, st_symtab & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 2); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, symtab_off); op = op + 8;
+    S64(O + op, symtab_size); op = op + 8;
+    # sh_link=5 (.strtab index), sh_info=first_global
+    store8(O + op, 5); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, first_global & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 8); op = op + 8;
+    S64(O + op, 24); op = op + 8;
+
+    # Section 5: .strtab (SHT_STRTAB=3)
+    store8(O + op, st_strtab & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 3); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, strtab_off); op = op + 8;
+    S64(O + op, strtab_size); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 1); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+
+    # Section 6: .rela.text (SHT_RELA=4, sh_link=4(.symtab), sh_info=1(.text))
+    store8(O + op, st_relatext & 0xFF); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 4); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, 0); op = op + 8;
+    S64(O + op, rela_off); op = op + 8;
+    S64(O + op, rela_size); op = op + 8;
+    # sh_link=4 (.symtab), sh_info=1 (.text)
+    store8(O + op, 4); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    store8(O + op, 1); store8(O + op + 1, 0); store8(O + op + 2, 0); store8(O + op + 3, 0); op = op + 4;
+    S64(O + op, 8); op = op + 8;
+    S64(O + op, 24); op = op + 8;
+
+    S64(S + 0x5C130, op);
+    return 0;
+}
+
 fn EMITELF(S) {
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     if (L64(S + 0x8FCA0) == 2) { EMITELF_USER(S, 3); return 0; }
+    if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }
     EMITELF_USER(S, 2);
     return 0;
 }
