@@ -1,0 +1,28 @@
+# Test: hashmap extended + hashmap_fast
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+include "lib/hashmap.cyr"
+include "lib/hashmap_fast.cyr"
+
+alloc_init();
+
+test_group("hashmap ops");
+var m = map_new();
+map_set(m, "a", 1);
+map_set(m, "b", 2);
+map_set(m, "c", 3);
+assert_eq(map_count(m), 3, "count");
+assert(map_has(m, "a") == 1, "has a");
+map_delete(m, "b");
+assert_eq(map_count(m), 2, "after delete");
+
+test_group("hashmap_fast");
+var fm = fhm_new();
+fhm_set(fm, "x", 10);
+fhm_set(fm, "y", 20);
+assert_eq(fhm_get(fm, "x"), 10, "fhm get x");
+assert_eq(fhm_count(fm), 2, "fhm count");
+assert(fhm_has(fm, "x") == 1, "fhm has");
+
+var r = assert_summary();

@@ -1,0 +1,19 @@
+# Test: sakshi tracing + error handling
+include "lib/sakshi.cyr"
+include "lib/assert.cyr"
+
+test_group("error API");
+var e = sakshi_err_new(42, 3);
+assert_eq(sakshi_err_code(e), 42, "err code");
+assert_eq(sakshi_err_category(e), 3, "err category");
+assert(sakshi_is_err(e) == 1, "is_err");
+assert(sakshi_is_ok(0) == 1, "is_ok zero");
+
+var e2 = sakshi_err_with_ctx(1, 2, 99);
+assert_eq(sakshi_err_context(e2), 99, "err context");
+
+test_group("log levels");
+sakshi_set_level(3);
+assert_eq(sakshi_get_level(), 3, "get level");
+
+var r = assert_summary();

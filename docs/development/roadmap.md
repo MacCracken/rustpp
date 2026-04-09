@@ -226,6 +226,22 @@ Expansion targets:
 
 ---
 
+## v3.0 — Release Readiness
+
+| Item | Detail |
+|------|--------|
+| Soak test | `cyrb fuzz 100000` overnight. Compile all repos (argonaut, sakshi, majra, doom, vidya) in loop for 24h. Watch for memory leaks, state corruption, non-determinism. |
+| Full audit | `cyrb audit` clean on every repo. All .tcyr suites green. All benchmarks baselined. |
+| cyrius-x VM | Memory-backed stack frames. Recursion working. All .tcyr tests pass under VM. |
+| defmt | String interning + deferred formatting. Sakshi perf validated. |
+| Multi-file compilation | Phase 1: .o emission. Phase 2: minimal linker. |
+| Error messages | Audit all ERR() calls for clarity. No more "unexpected ';'" for real issues. |
+| Documentation | All vidya entries current. cyrius-guide.md reflects v3.0 features. |
+| Binary size audit | Profile code/data split. Identify bloat. Target: <250KB. |
+| Port validation | All 5 converted repos + doom compile and test clean on release binary. |
+
+---
+
 ## Principles
 
 - Assembly is the cornerstone

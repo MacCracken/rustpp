@@ -1,0 +1,32 @@
+# Test: tagged unions (Option/Result)
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/tagged.cyr"
+
+alloc_init();
+
+test_group("Option");
+var s = tagged_new(1, 42);
+assert_eq(tag(s), 1, "tag");
+assert_eq(payload(s), 42, "payload");
+assert(is_some(s) == 1, "is_some");
+assert(is_none(s) == 0, "not none");
+assert_eq(unwrap_or(s, 0), 42, "unwrap_or some");
+
+var n = tagged_new(0, 0);
+assert(is_none(n) == 1, "is_none");
+assert_eq(unwrap_or(n, 99), 99, "unwrap_or none");
+
+test_group("Result");
+var ok = Ok(42);
+assert(is_ok(ok) == 1, "is_ok");
+assert_eq(payload(ok), 42, "Ok payload");
+
+var err = Err(7);
+assert(is_ok(err) == 0, "Err not ok");
+assert(is_err_result(err) == 1, "is_err_result");
+assert_eq(err_code_of(err), 7, "err_code_of");
+assert_eq(result_unwrap_or(ok, 0), 42, "unwrap ok");
+assert_eq(result_unwrap_or(err, 99), 99, "unwrap err");
+
+var r = assert_summary();

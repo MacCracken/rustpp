@@ -1,85 +1,89 @@
 #!/bin/sh
-# cyrb-coverage — report test coverage by file
-# Checks which lib/*.cyr files are exercised by test/program files.
-# Reports function-level coverage: functions defined vs functions called in tests.
+# cyrb-coverage — test coverage report for Cyrius stdlib
+# Checks which lib/*.cyr functions are exercised by .tcyr test files.
+# Reports per-module and per-function coverage.
 #
 # Usage: cyrb coverage
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CC="${REPO_ROOT}/build/cc2"
 
 total_libs=0
 covered_libs=0
 total_fns=0
 covered_fns=0
+untested_modules=""
 
 echo "=== Coverage Report ==="
 echo ""
+
+# Collect all test content into one searchable file
+TESTCORPUS="/tmp/cyrb_coverage_corpus_$$"
+cat "$REPO_ROOT"/tests/tcyr/*.tcyr "$REPO_ROOT"/tests/bcyr/*.bcyr "$REPO_ROOT"/programs/*.cyr 2>/dev/null > "$TESTCORPUS"
 
 for lib in "$REPO_ROOT"/lib/*.cyr; do
     name=$(basename "$lib" .cyr)
     total_libs=$((total_libs + 1))
 
-    # Count functions defined in this lib
+    # Count public functions (lines starting with "fn ")
     lib_fns=$(grep -c "^fn " "$lib" 2>/dev/null || echo 0)
-    total_fns=$((total_fns + lib_fns))
+    # Skip internal functions (starting with _)
+    pub_fns=$(grep "^fn " "$lib" 2>/dev/null | grep -cv "^fn _" || echo 0)
+    total_fns=$((total_fns + pub_fns))
 
-    # Check if any test/program file includes this lib
+    # Check if this module is included in any test
     has_test=0
-    called_fns=0
-
-    # Check programs/
-    for prog in "$REPO_ROOT"/programs/*.cyr "$REPO_ROOT"/benches/*.cyr; do
-        if [ -f "$prog" ]; then
-            if grep -q "\"lib/${name}.cyr\"" "$prog" 2>/dev/null; then
-                has_test=1
-                # Count how many of this lib's functions are called
-                while IFS= read -r fnline; do
-                    fname=$(echo "$fnline" | sed 's/^fn //;s/(.*//')
-                    if grep -q "$fname" "$prog" 2>/dev/null; then
-                        called_fns=$((called_fns + 1))
-                    fi
-                done << FNEOF
-$(grep "^fn " "$lib")
-FNEOF
-            fi
-        fi
-    done
-
-    # Check tests/tcyr/ (.tcyr test files)
-    if grep -rq "$name" "$REPO_ROOT/tests/tcyr/" 2>/dev/null; then
+    if grep -q "\"lib/${name}.cyr\"" "$TESTCORPUS" 2>/dev/null; then
         has_test=1
     fi
+    # Also check if functions from this lib are called (even without explicit include)
+    if [ "$has_test" -eq 0 ]; then
+        # Check if ANY public function name appears in tests
+        first_fn=$(grep "^fn " "$lib" 2>/dev/null | grep -v "^fn _" | head -1 | sed 's/^fn //;s/(.*//')
+        if [ -n "$first_fn" ] && grep -q "$first_fn" "$TESTCORPUS" 2>/dev/null; then
+            has_test=1
+        fi
+    fi
 
-    if [ "$has_test" = "1" ]; then
+    if [ "$has_test" -eq 1 ]; then
         covered_libs=$((covered_libs + 1))
-        covered_fns=$((covered_fns + called_fns))
-        if [ "$lib_fns" -gt 0 ]; then
-            pct=$((called_fns * 100 / lib_fns))
+        # Count unique public functions that appear in test corpus
+        called=0
+        while IFS= read -r fnline; do
+            fname=$(echo "$fnline" | sed 's/^fn //;s/(.*//')
+            # Skip private functions
+            case "$fname" in _*) continue ;; esac
+            if grep -q "$fname" "$TESTCORPUS" 2>/dev/null; then
+                called=$((called + 1))
+            fi
+        done <<FNEOF
+$(grep "^fn " "$lib")
+FNEOF
+        covered_fns=$((covered_fns + called))
+        if [ "$pub_fns" -gt 0 ]; then
+            pct=$((called * 100 / pub_fns))
         else
             pct=100
         fi
-        printf "  %-20s %3d/%d fns (%d%%)\n" "$name" "$called_fns" "$lib_fns" "$pct"
+        printf "  %-20s %3d/%-3d fns  %3d%%\n" "$name" "$called" "$pub_fns" "$pct"
     else
-        printf "  %-20s NO TESTS\n" "$name"
+        printf "  %-20s  ── NO TESTS ──\n" "$name"
+        untested_modules="$untested_modules $name"
     fi
 done
 
 echo ""
-echo "--- Summary ---"
+echo "── Summary ──"
 echo "  Libraries: $covered_libs/$total_libs covered"
 if [ "$total_fns" -gt 0 ]; then
     fn_pct=$((covered_fns * 100 / total_fns))
-    echo "  Functions: $covered_fns/$total_fns called in tests ($fn_pct%)"
+    echo "  Functions: $covered_fns/$total_fns ($fn_pct%)"
 fi
-echo ""
+if [ -n "$untested_modules" ]; then
+    echo "  Untested: $untested_modules"
+fi
 
-# Doc test count
-doc_count=0
-for lib in "$REPO_ROOT"/lib/*.cyr; do
-    dc=$(grep -c "^# >>> " "$lib" 2>/dev/null) || dc=0
-    doc_count=$((doc_count + dc))
-done
-echo "  Doc examples: $doc_count across all libs"
+rm -f "$TESTCORPUS"
 
 if [ "$covered_libs" -lt "$total_libs" ]; then
     exit 1

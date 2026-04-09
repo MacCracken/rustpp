@@ -1,0 +1,31 @@
+# Test: fnptr + callback + bounds
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/callback.cyr"
+include "lib/bounds.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("fnptr");
+fn double(x) { return x * 2; }
+assert_eq(fncall1(&double, 21), 42, "fncall1");
+
+test_group("callback map");
+var v = vec_new();
+vec_push(v, 1); vec_push(v, 2); vec_push(v, 3);
+var mapped = vec_map(v, &double);
+assert_eq(vec_get(mapped, 0), 2, "map 0");
+assert_eq(vec_get(mapped, 2), 6, "map 2");
+
+test_group("bounds");
+fn test_bounds() {
+    var buf[64];
+    checked_store64(&buf, 0, 64, 42);
+    assert_eq(checked_load64(&buf, 0, 64), 42, "bounds load");
+    return 0;
+}
+test_bounds();
+
+var r = assert_summary();

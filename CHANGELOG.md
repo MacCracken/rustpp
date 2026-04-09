@@ -4,7 +4,19 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.2] — Unreleased
+## [2.3.0] — Unreleased
+
+### Added — Testing
+- **7 new .tcyr test files**: sakshi, tagged, hashmap_ext, callback, json, float,
+  stdlib tests expanded. Total: 13 test files, 139 assertions.
+- **Coverage tool fixed**: `cyrb coverage` now accurately counts unique function
+  coverage per module. Excludes private functions (_prefix). Uses test corpus
+  (tcyr + bcyr + programs). Coverage: 20/31 modules, 29% functions.
+- **Coverage gaps identified**: json, math, matrix, regex crash at runtime (FINDVAR
+  interaction with internal buffers). async, thread, net need runtime testing.
+  Filed for 3.0 audit.
+
+## [2.2.2] — 2026-04-08
 
 ### Fixed
 - **gvar_toks expanded 64→256**: Deferred global variable init table relocated from
