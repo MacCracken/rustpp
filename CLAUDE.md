@@ -6,65 +6,70 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 2.5.0
-- **Fixup entries**: 8192
-- **Targets**: x86_64 + aarch64 (cross-compilation)
+- **Version**: 2.6.0
 
 ## Goal
 
-Own the language. Own the toolchain. No crates.io. No external governance. Ark is the package manager. Assembly is the cornerstone. Cyrius writes the AGNOS kernel.
+Own the language. Own the toolchain. No crates.io. No external governance. Assembly is the cornerstone. Cyrius writes the AGNOS kernel.
 
 ## Current State
 
-- **Compiler**: 202KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
-- **Tests**: 13 .tcyr files (139 assertions), heap audit, self-hosting (two-step)
+- **Compiler**: 215KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
+- **Tests**: 18 .tcyr files (208 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
 - **Libraries**: 31 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark), argonaut (424 tests)
-- **Tools**: cyrius (build tool, shell + binary), cyrfmt, cyrlint, cyrdoc, cyrc, ark
-- **Kernel**: AGNOS 31KB (in separate repo: github.com/MacCracken/agnos)
+
+## Consumers
+
+AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), sakshi, cyrius-doom, bsp. All AGNOS ecosystem projects depend on the compiler and stdlib.
 
 ## Bootstrap Chain
 
 ```
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
-    → bridge.cyr (bridge compiler, 2007 lines)
-      → cc2 (modular compiler, 205KB, 8 modules)
-        → cc2_aarch64 (cross-compiler, 130KB)
+    → bridge.cyr (bridge compiler)
+      → cc2 (modular compiler, 215KB, 8 modules)
+        → cc2_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
 Build: sh bootstrap/bootstrap.sh
 ```
 
-## Project Structure
+## Quick Start
 
-```
-bootstrap/           29KB seed binary + stage1f.cyr + asm.cyr
-src/
-  main.cyr           Compiler entry point (includes modules)
-  main_aarch64.cyr   Cross-compiler (swaps arch includes)
-  bridge.cyr         Bridge compiler (stage1f feature set)
-  frontend/          lex.cyr, parse.cyr
-  backend/x86/       emit.cyr, jump.cyr, fixup.cyr
-  backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
-  common/            util.cyr
-lib/                 Standard library (31 modules)
-programs/            57 programs (tools, tests, demos, algorithms)
-tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
-fuzz/                Fuzz harnesses (*.fcyr)
-build/               Generated binaries (gitignored except cc2)
-                     AGNOS kernel lives at github.com/MacCracken/agnos
-docs/                Architecture, roadmap, benchmarks, language guide
+```bash
+sh bootstrap/bootstrap.sh          # bootstrap from seed
+cat src/main.cyr | build/cc2 > /tmp/cc3 && chmod +x /tmp/cc3  # build compiler
+cat src/main.cyr | /tmp/cc3 > /tmp/cc4 && cmp /tmp/cc3 /tmp/cc4  # self-hosting verify
+sh scripts/check.sh                # full audit
+cyrius test                        # run .tcyr suite
+cyrius fuzz                        # run .fcyr harnesses
+cyrius bench                       # run .bcyr benchmarks
 ```
 
-## Key References
+## Key Principles
 
-- `docs/cyrius-guide.md` — Complete language reference
-- `docs/benchmarks.md` — Binary sizes, compile times, runtime performance
-- `docs/development/roadmap.md` — Forward-looking development plan
-- `docs/development/completed-phases.md` — Historical phase record
-- `CHANGELOG.md` — Source of truth for all changes
-- `../vidya/content/compiler_bootstrapping/cyrius_*.toml` — 90+ vidya entries across 3 files
+- **Self-hosting is non-negotiable** — cc2==cc3 byte-identical after every compiler change
+- **Two-step bootstrap for heap changes** — cc3 compiles cc4, cc3==cc4
+- **Assembly is the cornerstone** — understand every instruction the compiler emits
+- **Test after EVERY change** — not after the feature is "done"
+- **ONE change at a time** — never bundle unrelated changes
+- **Research before implementation** — vidya entry before code
+- **3 failed attempts = defer and document** — don't burn time
+- **Bootstrap chain integrity** — never break seed → stage1f → bridge → cc2
+
+## P(-1): Scaffold Hardening
+
+Before starting new work on a release, run this audit phase:
+
+1. **Cleanliness** — `cyrius fmt --check`, `cyrius lint`, `cyrius vet`
+2. **Test sweep** — all .tcyr pass, heap audit clean, self-hosting verified
+3. **Benchmark baseline** — `cyrius bench` before changes
+4. **Audit** — identify stale code, dead paths, optimization opportunities
+5. **Refactor** — address findings from audit
+6. **Post-audit benchmarks** — compare against baseline
+7. **Document** — update CHANGELOG, roadmap, vidya
 
 ## Development Loop
 
@@ -81,6 +86,34 @@ docs/                Architecture, roadmap, benchmarks, language guide
 6. DOCUMENT    — Update: CHANGELOG, roadmap, benchmarks, vidya
 ```
 
+## Project Structure
+
+```
+bootstrap/           29KB seed binary + stage1f.cyr + asm.cyr
+src/
+  main.cyr           Compiler entry point (includes modules)
+  main_aarch64.cyr   Cross-compiler (swaps arch includes)
+  bridge.cyr         Bridge compiler (stage1f feature set)
+  frontend/          lex.cyr, parse.cyr
+  backend/x86/       emit.cyr, jump.cyr, fixup.cyr
+  backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
+  backend/cx/        emit.cyr (cyrius-x bytecode)
+  common/            util.cyr
+lib/                 Standard library (31 modules)
+programs/            57 programs (tools, tests, demos, algorithms)
+tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
+fuzz/                Fuzz harnesses (*.fcyr)
+build/               Generated binaries (gitignored except cc2)
+docs/                Architecture, roadmap, benchmarks, language guide
+```
+
+## Key References
+
+- `docs/cyrius-guide.md` — Complete language reference
+- `docs/development/roadmap.md` — Development plan + bug tracker
+- `CHANGELOG.md` — Source of truth for all changes
+- `../vidya/content/compiler_bootstrapping/cyrius_*.toml` — 90+ vidya entries
+
 ## DO NOT
 
 - **Do not commit or push** — the user handles all git operations
@@ -88,4 +121,4 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - Do not add language features without updating vidya
 - Do not skip self-hosting verification after compiler changes
 - Do not modify parse.cyr arch-specific functions — they live in emit files
-- Test after EVERY change, not after the feature is "done"
+- Do not remove build/cc2-native-aarch64 — ARM binary needed for self-hosting on ARM hardware

@@ -1,0 +1,50 @@
+# Test: freelist allocator
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/freelist.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+fl_init();
+
+test_group("fl_alloc / fl_free");
+var p1 = fl_alloc(64);
+assert_nonnull(p1, "alloc 64");
+store64(p1, 42);
+assert_eq(load64(p1), 42, "write/read");
+fl_free(p1);
+
+test_group("fl_calloc");
+var p2 = fl_calloc(32);
+assert_nonnull(p2, "calloc 32");
+assert_eq(load8(p2), 0, "zeroed[0]");
+assert_eq(load8(p2 + 31), 0, "zeroed[31]");
+fl_free(p2);
+
+test_group("reuse after free");
+var p3 = fl_alloc(64);
+assert_nonnull(p3, "realloc");
+store64(p3, 99);
+assert_eq(load64(p3), 99, "reuse write");
+fl_free(p3);
+
+test_group("multiple allocs");
+var a = fl_alloc(16);
+var b = fl_alloc(16);
+var c = fl_alloc(16);
+assert_nonnull(a, "multi a");
+assert_nonnull(b, "multi b");
+assert_nonnull(c, "multi c");
+store64(a, 1);
+store64(b, 2);
+store64(c, 3);
+assert_eq(load64(a), 1, "a val");
+assert_eq(load64(b), 2, "b val");
+assert_eq(load64(c), 3, "c val");
+fl_free(b);
+fl_free(a);
+fl_free(c);
+
+var r = assert_summary();

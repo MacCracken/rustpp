@@ -1,0 +1,63 @@
+# Test: trait objects and dynamic dispatch
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/fnptr.cyr"
+include "lib/trait.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("trait_obj basics");
+var vtable = alloc(16);
+store64(vtable, 0);
+var data = alloc(8);
+store64(data, 42);
+var obj = trait_obj_new(vtable, data);
+assert_eq(trait_data(obj), data, "data ptr");
+assert_eq(trait_vtable(obj), vtable, "vtable ptr");
+assert_eq(load64(trait_data(obj)), 42, "data val");
+
+test_group("display vtable");
+fn my_print(self) {
+    fmt_int(load64(self));
+    return 0;
+}
+fn my_to_string(self) {
+    return self;
+}
+var dvt = display_vtable(&my_print, &my_to_string);
+assert_nonnull(dvt, "dvt");
+
+test_group("int_as_display");
+var id = int_as_display(99);
+assert_nonnull(id, "int display");
+
+test_group("str_as_display");
+var sd = str_as_display("hello");
+assert_nonnull(sd, "str display");
+
+test_group("eq vtable");
+fn my_eq(self, other) {
+    # self = data ptr, other = trait object (need to extract data)
+    var other_data = load64(other + 8);
+    if (load64(self) == load64(other_data)) { return 1; }
+    return 0;
+}
+var evt = eq_vtable(&my_eq);
+assert_nonnull(evt, "eq vtable");
+
+var d1 = alloc(8);
+store64(d1, 10);
+var d2 = alloc(8);
+store64(d2, 10);
+var d3 = alloc(8);
+store64(d3, 20);
+
+var o1 = trait_obj_new(evt, d1);
+var o2 = trait_obj_new(evt, d2);
+var o3 = trait_obj_new(evt, d3);
+assert_eq(trait_eq(o1, o2), 1, "eq same");
+assert_eq(trait_eq(o1, o3), 0, "eq diff");
+
+var r = assert_summary();

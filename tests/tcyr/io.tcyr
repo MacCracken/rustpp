@@ -1,0 +1,41 @@
+# Test: io library
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/io.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("file_open / file_write / file_read / file_close");
+var path = "/tmp/cyrius_io_test";
+var fd = file_open(path, 577, 0x1ED);
+assert_eq(fd >= 0, 1, "open for write");
+var n = file_write(fd, "test data", 9);
+assert_eq(n, 9, "write 9");
+file_close(fd);
+
+var fd2 = file_open(path, 0, 0);
+assert_eq(fd2 >= 0, 1, "open for read");
+var buf = alloc(64);
+var nr = file_read(fd2, buf, 63);
+assert_eq(nr, 9, "read 9");
+store8(buf + nr, 0);
+assert_eq(streq(buf, "test data"), 1, "content");
+file_close(fd2);
+
+test_group("file_exists");
+assert_eq(file_exists(path), 1, "exists");
+assert_eq(file_exists("/tmp/cyrius_io_no_such"), 0, "not exists");
+
+test_group("file_read_all / file_write_all");
+var wn = file_write_all(path, "overwrite", 9);
+assert_eq(wn, 9, "write_all");
+var buf2 = alloc(64);
+var rn = file_read_all(path, buf2, 63);
+assert_eq(rn, 9, "read_all");
+
+# Cleanup
+syscall(87, path);
+
+var r = assert_summary();

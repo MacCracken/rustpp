@@ -1,0 +1,86 @@
+# Test: Str library (extended)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("str_from / str_len / str_data");
+var s = str_from("hello");
+assert_eq(str_len(s), 5, "len");
+assert_eq(load8(str_data(s)), 104, "data[0]='h'");
+
+test_group("str_eq");
+var a = str_from("abc");
+var b = str_from("abc");
+var c = str_from("xyz");
+assert_eq(str_eq(a, b), 1, "eq same");
+assert_eq(str_eq(a, c), 0, "eq diff");
+
+test_group("str_cat");
+var ab = str_cat(str_from("foo"), str_from("bar"));
+assert_eq(str_len(ab), 6, "cat len");
+assert_eq(str_eq(ab, str_from("foobar")), 1, "cat val");
+
+test_group("str_sub");
+var full = str_from("hello world");
+var sub = str_sub(full, 6, 5);
+assert_eq(str_len(sub), 5, "sub len");
+assert_eq(str_eq(sub, str_from("world")), 1, "sub val");
+
+test_group("str_contains");
+assert_eq(str_contains(str_from("hello world"), str_from("world")), 1, "contains yes");
+assert_eq(str_contains(str_from("hello world"), str_from("xyz")), 0, "contains no");
+
+test_group("str_starts_with / str_ends_with");
+assert_eq(str_starts_with(str_from("hello"), "hel"), 1, "starts yes");
+assert_eq(str_starts_with(str_from("hello"), "xyz"), 0, "starts no");
+assert_eq(str_ends_with(str_from("hello"), str_from("llo")), 1, "ends yes");
+assert_eq(str_ends_with(str_from("hello"), str_from("xyz")), 0, "ends no");
+
+test_group("str_index_of");
+assert_eq(str_index_of(str_from("hello"), 108), 2, "index 'l'");
+assert_eq(str_index_of(str_from("hello"), 122), 0 - 1, "index miss");
+
+test_group("str_from_int / str_to_int");
+var ns = str_from_int(42);
+assert_eq(str_to_int(ns), 42, "roundtrip 42");
+assert_eq(str_to_int(str_from("0")), 0, "parse 0");
+assert_eq(str_to_int(str_from("999")), 999, "parse 999");
+
+test_group("str_trim");
+var trimmed = str_trim(str_from("  hello  "));
+assert_eq(str_eq(trimmed, str_from("hello")), 1, "trim");
+
+test_group("str_split");
+var parts = str_split(str_from("a,b,c"), 44);
+assert_eq(vec_len(parts), 3, "split count");
+assert_eq(str_eq(vec_get(parts, 0), str_from("a")), 1, "split 0");
+assert_eq(str_eq(vec_get(parts, 1), str_from("b")), 1, "split 1");
+assert_eq(str_eq(vec_get(parts, 2), str_from("c")), 1, "split 2");
+
+test_group("str_builder");
+var sb = str_builder_new();
+str_builder_add_cstr(sb, "hello");
+str_builder_add_cstr(sb, " ");
+str_builder_add_cstr(sb, "world");
+var built = str_builder_build(sb);
+assert_eq(str_eq(built, str_from("hello world")), 1, "builder");
+
+test_group("str_join");
+var jv = vec_new();
+vec_push(jv, str_from("x"));
+vec_push(jv, str_from("y"));
+vec_push(jv, str_from("z"));
+var joined = str_join(jv, str_from(","));
+assert_eq(str_eq(joined, str_from("x,y,z")), 1, "join");
+
+test_group("str_clone");
+var orig = str_from("clone me");
+var cl = str_clone(orig);
+assert_eq(str_eq(orig, cl), 1, "clone eq");
+
+var r = assert_summary();

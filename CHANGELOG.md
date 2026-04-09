@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.0] — 2026-04-09
+
+### Added — Tests & Benchmarks
+- **5 new .tcyr test files**: str_ext (27 assertions), freelist (13), trait (9),
+  fs (13), io (9). Total: 18 test suites, 208 assertions.
+- **2 new .bcyr benchmarks**: bench_str (6 benchmarks), bench_freelist (3 benchmarks).
+  Total: 9 benchmark files.
+- **1 new .fcyr fuzz harness**: freelist stress test (100 alloc/free cycles, mixed
+  ordering). Total: 4 fuzz harnesses.
+
+### Fixed
+- **str_join bug**: Was calling `str_builder_add_cstr(sb, sep)` on a Str argument.
+  Fixed to `str_builder_add(sb, sep)`.
+- **CLAUDE.md rewritten**: Added P(-1) Scaffold Hardening phase, Consumers section,
+  Key Principles, Quick Start commands. Removed stale tool inventory and fixup entries.
+- **P(-1) audit fixes**: Compiler size corrected (205→215KB across all docs), README
+  test metrics updated, roadmap cyrius-x targets updated to reflect v2.5.0 reality,
+  package-format.md TODO placeholder resolved.
+
 ## [2.5.0] — 2026-04-08
 
 ### Fixed — cyrius-x VM

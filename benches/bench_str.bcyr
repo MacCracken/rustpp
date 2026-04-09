@@ -1,0 +1,58 @@
+# Bench: Str library operations
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+fn work_from_len() { var s = str_from("benchmark string"); str_len(s); return 0; }
+fn work_eq() { str_eq(str_from("hello world test"), str_from("hello world test")); return 0; }
+fn work_cat() { str_cat(str_from("foo"), str_from("bar")); return 0; }
+fn work_contains() { str_contains(str_from("the quick brown fox"), str_from("brown")); return 0; }
+fn work_split() { str_split(str_from("a,b,c,d,e"), 44); return 0; }
+fn work_builder() {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "hello");
+    str_builder_add_cstr(sb, " ");
+    str_builder_add_cstr(sb, "world");
+    str_builder_build(sb);
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("str/from+len");
+    bench_run(b1, &work_from_len, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("str/eq");
+    bench_run(b2, &work_eq, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("str/cat");
+    bench_run(b3, &work_cat, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("str/contains");
+    bench_run(b4, &work_contains, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("str/split");
+    bench_run(b5, &work_split, 1000);
+    vec_push(all, b5);
+
+    var b6 = bench_new("str/builder");
+    bench_run(b6, &work_builder, 1000);
+    vec_push(all, b6);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

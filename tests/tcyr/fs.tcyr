@@ -1,0 +1,59 @@
+# Test: filesystem operations
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/io.cyr"
+include "lib/syscalls.cyr"
+include "lib/fs.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("file_write_all / file_read_all");
+var testpath = "/tmp/cyrius_fs_test";
+var msg = "hello from cyrius";
+var wn = file_write_all(testpath, msg, 17);
+assert_eq(wn, 17, "write 17");
+var buf = alloc(256);
+var rn = file_read_all(testpath, buf, 255);
+assert_eq(rn, 17, "read 17");
+store8(buf + rn, 0);
+assert_eq(streq(buf, "hello from cyrius"), 1, "content match");
+
+test_group("file_exists");
+assert_eq(file_exists(testpath), 1, "exists yes");
+assert_eq(file_exists("/tmp/cyrius_no_such_file_xyz"), 0, "exists no");
+
+test_group("path_join");
+var pj = path_join(str_from("/home"), str_from("user"));
+assert_eq(str_eq(pj, str_from("/home/user")), 1, "join");
+
+test_group("path_basename");
+var bn = path_basename(str_from("/home/user/file.txt"));
+assert_eq(str_eq(bn, str_from("file.txt")), 1, "basename");
+
+test_group("path_dirname");
+var dn = path_dirname(str_from("/home/user/file.txt"));
+assert_eq(str_eq(dn, str_from("/home/user")), 1, "dirname");
+
+test_group("path_has_ext");
+assert_eq(path_has_ext(str_from("test.cyr"), str_from(".cyr")), 1, "ext yes");
+assert_eq(path_has_ext(str_from("test.cyr"), str_from(".rs")), 0, "ext no");
+
+test_group("is_dir");
+assert_eq(is_dir(str_from("/tmp")), 1, "tmp is dir");
+assert_eq(is_dir(str_from(testpath)), 0, "file not dir");
+
+test_group("dir_list");
+# /tmp should have entries
+var entries = dir_list(str_from("/tmp"));
+var has_entries = 0;
+if (vec_len(entries) > 0) { has_entries = 1; }
+assert_eq(has_entries, 1, "tmp has entries");
+
+# Cleanup
+syscall(87, testpath);
+
+var r = assert_summary();

@@ -1,0 +1,38 @@
+# Bench: freelist allocator
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/syscalls.cyr"
+include "lib/freelist.cyr"
+include "lib/bench.cyr"
+
+fn work_alloc_free_64() { var p = fl_alloc(64); fl_free(p); return 0; }
+fn work_alloc_free_1k() { var p = fl_alloc(1024); fl_free(p); return 0; }
+fn work_calloc_64() { var p = fl_calloc(64); fl_free(p); return 0; }
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    fl_init();
+    var all = vec_new();
+
+    var b1 = bench_new("freelist/alloc_free_64");
+    bench_run(b1, &work_alloc_free_64, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("freelist/alloc_free_1KB");
+    bench_run(b2, &work_alloc_free_1k, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("freelist/calloc_64");
+    bench_run(b3, &work_calloc_64, N);
+    vec_push(all, b3);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

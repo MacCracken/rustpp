@@ -101,9 +101,9 @@ multi-file compilation (.o + link)
 
 | # | Feature | Effort | Target | Detail |
 |---|---------|--------|--------|--------|
-| 10 | **cyrius-x** bytecode | Very High | **v2.1** | Researched. Register VM, 32-bit instructions. Backend stub at src/backend/cx/. |
-| 11 | **Deferred formatting** (defmt) | High | **v2.1** | Store string ID + raw args at runtime, decode externally. Needs compiler string interning. Eliminates runtime fmt overhead for logging/tracing. |
-| 12 | **cyrius-ts** frontend | High | **v2.2** | TS subset → cyrius-x. Needs cyrius-x first. |
+| 10 | **cyrius-x** bytecode | Very High | **Done (v2.5)** | Backend emitter + VM. Recursion working. Remaining: nested call register clobber, syscall address translation, >6 args. |
+| 11 | **Deferred formatting** (defmt) | High | **v3.0** | Store string ID + raw args at runtime, decode externally. Needs compiler string interning. |
+| 12 | **cyrius-ts** frontend | High | **v3.0+** | TS subset → cyrius-x. Needs cyrius-x emitter hardened first. |
 | 13 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrius test` auto-discovers .tcyr, `cyrius bench` discovers .bcyr. |
 
 ---

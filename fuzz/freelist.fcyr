@@ -1,0 +1,61 @@
+# Fuzz: freelist allocator stress
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/freelist.cyr"
+
+alloc_init();
+fl_init();
+
+# Allocate 100 blocks, free in random order, reallocate
+var ptrs[800];
+var i = 0;
+while (i < 100) {
+    var p = fl_alloc(8 + i * 4);
+    if (p == 0) { syscall(60, 1); }
+    store64(p, i * 7);
+    store64(&ptrs + i * 8, p);
+    i = i + 1;
+}
+
+# Verify all written values
+i = 0;
+while (i < 100) {
+    var p = load64(&ptrs + i * 8);
+    if (load64(p) != i * 7) { syscall(60, 2); }
+    i = i + 1;
+}
+
+# Free odd indices
+i = 1;
+while (i < 100) {
+    fl_free(load64(&ptrs + i * 8));
+    i = i + 2;
+}
+
+# Reallocate into freed slots
+i = 1;
+while (i < 100) {
+    var p = fl_alloc(8 + i * 4);
+    if (p == 0) { syscall(60, 3); }
+    store64(p, 999 + i);
+    store64(&ptrs + i * 8, p);
+    i = i + 2;
+}
+
+# Verify even indices still intact
+i = 0;
+while (i < 100) {
+    var p = load64(&ptrs + i * 8);
+    if (load64(p) != i * 7) { syscall(60, 4); }
+    i = i + 2;
+}
+
+# Free everything
+i = 0;
+while (i < 100) {
+    fl_free(load64(&ptrs + i * 8));
+    i = i + 1;
+}
+
+syscall(60, 0);

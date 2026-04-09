@@ -54,7 +54,7 @@ arch = "x86_64"
 [source]
 github_release = "MacCracken/kybernet"
 release_asset = "kybernet-x86_64"
-sha256 = ""  # TODO: fill after release
+sha256 = ""  # filled at release time by `cyrius package`
 
 [depends]
 runtime = []               # no runtime deps (static binary)

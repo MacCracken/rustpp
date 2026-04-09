@@ -268,7 +268,7 @@ fn str_join(parts, sep) {
     var sb = str_builder_new();
     var ji = 0;
     while (ji < plen) {
-        if (ji > 0) { str_builder_add_cstr(sb, sep); }
+        if (ji > 0) { str_builder_add(sb, sep); }
         str_builder_add(sb, vec_get(parts, ji));
         ji = ji + 1;
     }
