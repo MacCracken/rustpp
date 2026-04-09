@@ -39,13 +39,17 @@ fn dur_new(secs, nsecs) {
     return d;
 }
 
+# Get seconds component of a duration
 fn dur_secs(d) { return load64(d); }
+# Get nanoseconds component of a duration
 fn dur_nsecs(d) { return load64(d + 8); }
 
+# Convert duration to total milliseconds
 fn dur_to_ms(d) {
     return load64(d) * 1000 + load64(d + 8) / 1000000;
 }
 
+# Convert duration to total nanoseconds
 fn dur_to_ns(d) {
     return load64(d) * 1000000000 + load64(d + 8);
 }
