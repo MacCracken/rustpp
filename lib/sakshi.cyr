@@ -173,7 +173,7 @@ fn sakshi_err_new(code, category) { return ((category & 0xFFFF) << 16) | (code &
 # Create a packed error with context
 fn sakshi_err_with_ctx(code, category, context) {
     return ((context & 0xFFFFFFFF) << 32) |
-        ((category & 0xFFFF) << 16) | (code & 0xFFFF);
+    ((category & 0xFFFF) << 16) | (code & 0xFFFF);
 }
 # Extract error code from packed error
 fn sakshi_err_code(err) { return err & 0xFFFF; }
