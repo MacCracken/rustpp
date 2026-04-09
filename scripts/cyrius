@@ -226,6 +226,27 @@ resolve_deps() {
 
 # Compile helper (used by build, test, bench)
 # Args: src out [arch] [defines...]
+# Resolve deps from cyrius.toml: emit include path overrides
+# For each [deps.X] with path=..., emit symlink-like include redirects
+# so `include "lib/foo.cyr"` from dep X resolves to X's lib/
+resolve_deps() {
+    local manifest="$1" outfile="$2"
+    > "$outfile"
+    for dep in $(grep '^\[deps\.' "$manifest" | sed 's/\[deps\.\(.*\)\]/\1/'); do
+        local dep_path=$(toml_get "$manifest" path "deps.$dep")
+        if [ -n "$dep_path" ] && [ -d "$dep_path" ]; then
+            # Emit include directives for all .cyr files in the dep's lib/
+            if [ -d "$dep_path" ]; then
+                for f in "$dep_path"/*.cyr; do
+                    [ -f "$f" ] || continue
+                    local basename=$(basename "$f")
+                    echo "# dep: $dep ($basename)" >> "$outfile"
+                done
+            fi
+        fi
+    done
+}
+
 compile() {
     local src="$1" out="$2" compiler="$CC"
     if [ "$3" = "aarch64" ]; then

@@ -4,6 +4,23 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.5] — 2026-04-09
+
+### Added
+- **`resolve_deps` scaffolding**: `compile()` in shell script now reads `[deps.*]`
+  from `cyrius.toml` and calls `resolve_deps` before compilation. Stub implementation —
+  full include path resolution planned for 3.0.
+
+### Changed
+- **Downstream CI fully cleaned**: agnosys (was 1.9.2 + cyrb), argonaut (cyrb + cyrb.toml),
+  sakshi release.yml — all updated to standard pattern with 2.7.2.
+  `cyrb.toml` → `cyrius.toml` in agnosys and argonaut.
+
+### Known Issues
+- **Struct field access on undefined var segfaults**: `var r = q.x;` where `q` is
+  undefined crashes instead of showing an error. The FINDVAR check inside
+  PARSE_FIELD_LOAD fires but PRSTR crashes on the name offset. Filed for 3.0.
+
 ## [2.7.4] — 2026-04-09
 
 ### Fixed
