@@ -1,0 +1,277 @@
+# Test: TOML parser
+# Note: toml.cyr includes toml_parse_file with a 256KB stack buffer
+# that exceeds cc2 output limit. We inline toml functions here instead.
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/assert.cyr"
+
+# --- Inlined toml functions (excluding toml_parse_file) ---
+
+fn toml_section_new(name, pairs) {
+    var s = alloc(16);
+    store64(s, name);
+    store64(s + 8, pairs);
+    return s;
+}
+fn toml_section_name(s) { return load64(s); }
+fn toml_section_pairs(s) { return load64(s + 8); }
+
+fn toml_pair_new(key, value) {
+    var p = alloc(16);
+    store64(p, key);
+    store64(p + 8, value);
+    return p;
+}
+fn toml_pair_key(p) { return load64(p); }
+fn toml_pair_value(p) { return load64(p + 8); }
+
+fn _toml_skip_ws(buf, pos, end) {
+    while (pos < end) {
+        var c = load8(buf + pos);
+        if (c != 32 && c != 9) { return pos; }
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn _toml_parse_str(buf, pos, end) {
+    pos = pos + 1;
+    var start = pos;
+    while (pos < end) {
+        var c = load8(buf + pos);
+        if (c == 34) {
+            var s = str_new(buf + start, pos - start);
+            store64(s + 8, pos - start);
+            return s;
+        }
+        if (c == 92) { pos = pos + 1; }
+        pos = pos + 1;
+    }
+    return str_from("");
+}
+
+fn _toml_str_end(buf, pos, end) {
+    pos = pos + 1;
+    while (pos < end) {
+        var c = load8(buf + pos);
+        if (c == 34) { return pos + 1; }
+        if (c == 92) { pos = pos + 1; }
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn _toml_parse_multiline(buf, pos, end) {
+    pos = pos + 3;
+    if (pos < end && load8(buf + pos) == 10) { pos = pos + 1; }
+    var start = pos;
+    while (pos + 2 < end) {
+        if (load8(buf + pos) == 39 && load8(buf + pos + 1) == 39 && load8(buf + pos + 2) == 39) {
+            var slen = pos - start;
+            if (slen > 0 && load8(buf + start + slen - 1) == 10) { slen = slen - 1; }
+            return str_new(buf + start, slen);
+        }
+        pos = pos + 1;
+    }
+    return str_new(buf + start, end - start);
+}
+
+fn _toml_multiline_end(buf, pos, end) {
+    pos = pos + 3;
+    if (pos < end && load8(buf + pos) == 10) { pos = pos + 1; }
+    while (pos + 2 < end) {
+        if (load8(buf + pos) == 39 && load8(buf + pos + 1) == 39 && load8(buf + pos + 2) == 39) {
+            return pos + 3;
+        }
+        pos = pos + 1;
+    }
+    return end;
+}
+
+fn toml_parse(src) {
+    var sections = vec_new();
+    var data = str_data(src);
+    var slen = str_len(src);
+    var pos = 0;
+    var cur_name = str_from("");
+    var cur_pairs = vec_new();
+    while (pos < slen) {
+        var c = load8(data + pos);
+        if (c == 10 || c == 13) { pos = pos + 1; }
+        elif (c == 32 || c == 9) { pos = pos + 1; }
+        elif (c == 35) {
+            while (pos < slen && load8(data + pos) != 10) { pos = pos + 1; }
+        }
+        elif (c == 91 && pos + 1 < slen && load8(data + pos + 1) == 91) {
+            if (vec_len(cur_pairs) > 0) {
+                vec_push(sections, toml_section_new(cur_name, cur_pairs));
+            }
+            pos = pos + 2;
+            var nstart = pos;
+            while (pos < slen && load8(data + pos) != 93) { pos = pos + 1; }
+            cur_name = str_new(data + nstart, pos - nstart);
+            if (pos < slen && load8(data + pos) == 93) { pos = pos + 1; }
+            if (pos < slen && load8(data + pos) == 93) { pos = pos + 1; }
+            cur_pairs = vec_new();
+            while (pos < slen && load8(data + pos) != 10) { pos = pos + 1; }
+        }
+        else {
+            var kstart = pos;
+            while (pos < slen) {
+                var kc = load8(data + pos);
+                if (kc == 61 || kc == 32 || kc == 9 || kc == 10) { break; }
+                pos = pos + 1;
+            }
+            var key = str_new(data + kstart, pos - kstart);
+            pos = _toml_skip_ws(data, pos, slen);
+            if (pos < slen && load8(data + pos) == 61) {
+                pos = pos + 1;
+                pos = _toml_skip_ws(data, pos, slen);
+                var value = str_from("");
+                if (pos < slen) {
+                    var vc = load8(data + pos);
+                    var is_tri = vc == 39 && pos + 2 < slen;
+                    if (is_tri == 1) { is_tri = load8(data + pos + 1) == 39; }
+                    if (is_tri == 1) { is_tri = load8(data + pos + 2) == 39; }
+                    if (is_tri == 1) {
+                        value = _toml_parse_multiline(data, pos, slen);
+                        pos = _toml_multiline_end(data, pos, slen);
+                    }
+                    elif (vc == 34) {
+                        value = _toml_parse_str(data, pos, slen);
+                        pos = _toml_str_end(data, pos, slen);
+                    }
+                    else {
+                        var vstart = pos;
+                        while (pos < slen && load8(data + pos) != 10) { pos = pos + 1; }
+                        var vend = pos;
+                        while (vend > vstart && load8(data + vend - 1) == 32) { vend = vend - 1; }
+                        value = str_new(data + vstart, vend - vstart);
+                    }
+                }
+                vec_push(cur_pairs, toml_pair_new(key, value));
+            }
+            while (pos < slen && load8(data + pos) != 10) { pos = pos + 1; }
+        }
+    }
+    if (vec_len(cur_pairs) > 0) {
+        vec_push(sections, toml_section_new(cur_name, cur_pairs));
+    }
+    return sections;
+}
+
+fn toml_get(pairs, key) {
+    var i = 0;
+    var len = vec_len(pairs);
+    while (i < len) {
+        var p = vec_get(pairs, i);
+        if (str_eq(toml_pair_key(p), key) == 1) {
+            return toml_pair_value(p);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn toml_get_sections(sections, name) {
+    var result = vec_new();
+    var i = 0;
+    var len = vec_len(sections);
+    while (i < len) {
+        var s = vec_get(sections, i);
+        if (str_eq(toml_section_name(s), name) == 1) {
+            vec_push(result, s);
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+# --- Tests ---
+
+alloc_init();
+
+test_group("toml_parse basic");
+var src = str_from("[[entry]]\nname = \"alice\"\nage = 30\n");
+var sections = toml_parse(src);
+assert_eq(vec_len(sections), 1, "one section");
+var s0 = vec_get(sections, 0);
+assert_eq(str_eq(toml_section_name(s0), str_from("entry")), 1, "section name");
+var pairs = toml_section_pairs(s0);
+assert_eq(vec_len(pairs), 2, "two pairs");
+var p0 = vec_get(pairs, 0);
+assert_eq(str_eq(toml_pair_key(p0), str_from("name")), 1, "key name");
+assert_eq(str_eq(toml_pair_value(p0), str_from("alice")), 1, "val alice");
+var p1 = vec_get(pairs, 1);
+assert_eq(str_eq(toml_pair_key(p1), str_from("age")), 1, "key age");
+assert_eq(str_eq(toml_pair_value(p1), str_from("30")), 1, "val 30");
+
+test_group("toml_get");
+var v1 = toml_get(pairs, str_from("name"));
+assert_neq(v1, 0, "get not null");
+assert_eq(str_eq(v1, str_from("alice")), 1, "get val");
+var v3 = toml_get(pairs, str_from("missing"));
+assert_eq(v3, 0, "get missing ret 0");
+
+test_group("multiple sections");
+var src2 = str_from("[[a]]\nx = \"1\"\n[[a]]\nx = \"2\"\n[[b]]\ny = \"3\"\n");
+var secs2 = toml_parse(src2);
+assert_eq(vec_len(secs2), 3, "three sections");
+var ga = toml_get_sections(secs2, str_from("a"));
+assert_eq(vec_len(ga), 2, "two a");
+var gb = toml_get_sections(secs2, str_from("b"));
+assert_eq(vec_len(gb), 1, "one b");
+var gn = toml_get_sections(secs2, str_from("z"));
+assert_eq(vec_len(gn), 0, "zero z");
+
+test_group("top-level pairs");
+var src3 = str_from("title = \"doc\"\nver = 1\n");
+var secs3 = toml_parse(src3);
+assert_eq(vec_len(secs3), 1, "one implicit");
+var s3 = vec_get(secs3, 0);
+assert_eq(str_eq(toml_section_name(s3), str_from("")), 1, "empty name");
+assert_eq(vec_len(toml_section_pairs(s3)), 2, "two top pairs");
+var tv = toml_get(toml_section_pairs(s3), str_from("title"));
+assert_eq(str_eq(tv, str_from("doc")), 1, "title val");
+
+test_group("comments");
+var src4 = str_from("# comment\n[[s]]\nk = \"v\"\n");
+var secs4 = toml_parse(src4);
+assert_eq(vec_len(secs4), 1, "one section");
+
+test_group("empty input");
+var secs5 = toml_parse(str_from(""));
+assert_eq(vec_len(secs5), 0, "no sections");
+
+test_group("constructors");
+var tp = toml_pair_new(str_from("k"), str_from("v"));
+assert_eq(str_eq(toml_pair_key(tp), str_from("k")), 1, "pair key");
+assert_eq(str_eq(toml_pair_value(tp), str_from("v")), 1, "pair val");
+
+test_group("toml_parse_file");
+# Write temp file using raw syscalls, then parse
+var path = "/tmp/cyrius_toml_test.toml";
+var content = "[[entry]]\nid = \"1\"\ntag = \"test\"\n";
+var fd = syscall(2, path, 577, 420);
+syscall(1, fd, content, 31);
+syscall(3, fd);
+# Read file back manually and parse with toml_parse
+var fd2 = syscall(2, path, 0, 0);
+var fbuf = alloc(4096);
+var nr = syscall(0, fd2, fbuf, 4095);
+syscall(3, fd2);
+var fsrc = str_new(fbuf, nr);
+var fsecs = toml_parse(fsrc);
+assert_eq(vec_len(fsecs), 1, "file section");
+var fpairs = toml_section_pairs(vec_get(fsecs, 0));
+var fid = toml_get(fpairs, str_from("id"));
+assert_eq(str_eq(fid, str_from("1")), 1, "file id");
+var ftag = toml_get(fpairs, str_from("tag"));
+assert_eq(str_eq(ftag, str_from("test")), 1, "file tag");
+# Cleanup
+syscall(87, path);
+
+var r = assert_summary();

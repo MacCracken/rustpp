@@ -146,9 +146,10 @@ fn ESCPOPS(S, n) {
 
 # Function prologue/epilogue
 fn EFNPRO(S) {
-    # push frame pointer, set new frame
-    CX_EMIT(S, 128, 253, 0, 0);  # push fp
-    CX_EMIT(S, 2, 253, 254, 0);  # mov fp, sp
+    # save frame pointer to call stack (not data stack — data stack has expression temps)
+    # opcode 0x62 = pushc (push to call stack), 0x63 = popc (pop from call stack)
+    CX_EMIT(S, 0x62, 253, 0, 0);  # pushc fp
+    CX_EMIT(S, 2, 253, 254, 0);   # mov fp, sp
     return 0;
 }
 
@@ -161,9 +162,9 @@ fn ESUBRSP(S) {
 }
 
 fn EFNEPI(S) {
-    CX_EMIT(S, 2, 254, 253, 0);  # mov sp, fp
-    CX_EMIT(S, 129, 253, 0, 0);  # pop fp
-    CX_EMIT(S, 97, 0, 0, 0);     # ret
+    CX_EMIT(S, 2, 254, 253, 0);   # mov sp, fp
+    CX_EMIT(S, 0x63, 253, 0, 0);  # popc fp (from call stack)
+    CX_EMIT(S, 97, 0, 0, 0);      # ret
     return 0;
 }
 
@@ -395,8 +396,12 @@ fn EADDIMM_X1(S, val) {
 
 # Tail call (same as regular call for bytecode)
 fn ETAILJMP(S, fnidx) {
-    EFNEPI(S);
+    # Disable tail call in bytecode — the tail call path in parse.cyr
+    # evaluates args then jumps without call/ret, which breaks when
+    # args include nested calls (data stack interleaving).
+    # Instead: normal call, then epilogue to return result to our caller.
     ECALLFIX(S, fnidx);
+    EFNEPI(S);
     return 0;
 }
 
@@ -408,7 +413,7 @@ fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
 # Inline asm — not supported in bytecode
 fn ASM_MNEMONIC(S) {
-    ERR_MSG(S, "inline asm not supported in cyrius-x", 37);
+    ERR_MSG(S, "inline asm not supported in cyrius-x", 36);
     return 0;
 }
 

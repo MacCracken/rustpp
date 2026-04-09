@@ -34,6 +34,8 @@
 #   0x52 = jnz    ra, offset16    if ra != 0: PC += sign-extend(b:c)
 #   0x60 = call   offset24        push PC, PC += offset
 #   0x61 = ret                    pop PC
+#   0x62 = pushc  ra              push ra to call stack (for fp save)
+#   0x63 = popc   ra              pop from call stack to ra
 #   0x70 = syscall ra             syscall(r1, r2, r3, r4, r5, r6), result in r0. ra = arg count.
 #   0x80 = push   ra              push ra to stack
 #   0x81 = pop    ra              pop to ra
@@ -174,6 +176,9 @@ fn cx_run(code, code_len) {
             _cx_pc = _cx_pc - 4 + off * 4;
         }
         elif (op == 97) { _cx_pc = cx_call_pop(); }
+        # pushc/popc: save/restore register to/from call stack
+        elif (op == 0x62) { cx_call_push(cx_reg_get(ra)); }
+        elif (op == 0x63) { cx_reg_set(ra, cx_call_pop()); }
 
         # syscall: r0 = syscall(r1, r2, r3, r4, r5, r6)
         elif (op == 112) {

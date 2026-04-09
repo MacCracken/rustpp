@@ -15,7 +15,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 ## Current State
 
 - **Compiler**: 215KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
-- **Tests**: 18 .tcyr files (208 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
+- **Tests**: 22 .tcyr files (276 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
 - **Libraries**: 31 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark), argonaut (424 tests)
 

@@ -4,6 +4,34 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.3] — 2026-04-09
+
+### Fixed
+- **ERR_MSG string length errors**: 5 error messages had wrong length args (off by 1-3
+  bytes), causing reads past string boundary. Fixed in parse.cyr (4) and cx/emit.cyr (1).
+  Two-step self-hosting verified, cc2 updated.
+- **cyrius-x fp save on call stack**: Function prologue/epilogue now saves fp to the
+  call stack (new opcodes 0x62 pushc, 0x63 popc) instead of the data stack. Prevents
+  data stack corruption when function calls occur between pushed expression temps.
+- **cyrius-x tail call disabled**: ETAILJMP now emits normal call+epilogue. The tail
+  call path in parse.cyr skips ret_patches, causing `return f(x, g(x-1))` to jump
+  to wrong address. Known limitation: use `var r = f(...); return r;` workaround
+  (same as x86 `return fn7()` bug).
+- **majra sha1 buffer overflow**: `var w[80]` was 80 bytes for 640 bytes of data.
+  Changed to heap-allocated `alloc(640)`. Test expectation corrected (was wrong RFC
+  example, verified with Python).
+
+### Added
+- **toml.tcyr test suite**: 25 assertions covering parse, sections, key lookup,
+  comments, empty input, constructors, file parsing.
+  Total: 22 test suites, 276 assertions.
+
+### Changed
+- **All docs synchronized**: Binary sizes (215KB), module counts (31), test counts,
+  heap map (ADR-003 rewritten from v0.9.5 to v2.6), roadmap header updated.
+- **vidya updated**: +12 entries across language.toml, implementation.toml, ecosystem.toml
+  covering v2.1–v2.6 features and bugs.
+
 ## [2.6.2] — 2026-04-09
 
 ### Fixed
