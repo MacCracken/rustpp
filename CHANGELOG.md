@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.3] — 2026-04-09
+
+### Added
+- **`cyrius soak` command**: Overnight validation loop for v3.0 readiness. Each iteration:
+  two-step self-hosting, full .tcyr suite, all .fcyr fuzz harnesses, compile 6 downstream
+  repos (agnostik, agnosys, argonaut, majra, libro, cyrius-doom). `cyrius soak 100` for
+  100 iterations. Custom repos: `cyrius soak 10 "repo1 repo2"`.
+
+### Changed
+- **Port validation sweep**: All 8 downstream repos verified — 646 assertions across
+  5 tested repos, 0 failures. agnostik (223), majra (144), libro (193), bsp (74),
+  sakshi (12). argonaut, agnosys, cyrius-doom compile clean.
+- **`cmd_test` temp path**: Changed from `/tmp/cyrius_test` to `/tmp/cyrius_test_bin`
+  to avoid collision with stale directories.
+
 ## [2.7.2] — 2026-04-09
 
 ### Fixed

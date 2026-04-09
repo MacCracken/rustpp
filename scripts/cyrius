@@ -108,6 +108,7 @@ Quality:
   serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
   fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
+  soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
   fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc2)
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
@@ -951,6 +952,90 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         else
             echo "nothing to clean"
         fi
+        ;;
+
+    # === Soak: overnight validation loop ===
+    soak)
+        shift
+        SOAK_ITERS="${1:-100}"
+        SOAK_REPOS="${2:-}"
+        echo "=== cyrius soak test ==="
+        echo "  iterations: $SOAK_ITERS"
+        echo "  cc2: $CC"
+        echo ""
+        # Find repos to test
+        repos=""
+        if [ -n "$SOAK_REPOS" ]; then
+            repos="$SOAK_REPOS"
+        else
+            # Known validated repos (not auto-discover — too many false positives)
+            for rname in agnostik agnosys argonaut sakshi majra libro bsp cyrius-doom; do
+                if [ -f "../$rname/src/main.cyr" ]; then
+                    repos="$repos $rname"
+                fi
+            done
+        fi
+        echo "  repos: $repos"
+        echo ""
+        soak_pass=0; soak_fail=0; soak_iter=0
+        while [ $soak_iter -lt "$SOAK_ITERS" ]; do
+            soak_iter=$((soak_iter + 1))
+            printf "[%d/%d] " "$soak_iter" "$SOAK_ITERS"
+            iter_ok=1
+            # 1. Self-hosting check (two-step: cc3 compiles cc4, cc3==cc4)
+            cc3="/tmp/cyrius_soak_cc3"
+            cc4="/tmp/cyrius_soak_cc4"
+            cat src/main.cyr | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
+            cat src/main.cyr | "$cc3" > "$cc4" 2>/dev/null
+            if ! cmp -s "$cc3" "$cc4" 2>/dev/null; then
+                echo "FAIL: self-hosting (cc3!=cc4)"; iter_ok=0
+            fi
+            rm -f "$cc3" "$cc4"
+            # 2. Test suite
+            for t in tests/tcyr/*.tcyr; do
+                [ -f "$t" ] || continue
+                tmpbin="/tmp/cyrius_soak_t"
+                cat "$t" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+                output=$("$tmpbin" 2>&1); ec=$?
+                rm -f "$tmpbin"
+                f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
+                if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then
+                    echo "FAIL: $(basename "$t")"; iter_ok=0; break
+                fi
+            done
+            # 3. Fuzz harnesses
+            for f in fuzz/*.fcyr; do
+                [ -f "$f" ] || continue
+                tmpbin="/tmp/cyrius_soak_f"
+                cat "$f" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+                timeout 10 "$tmpbin" 100 > /dev/null 2>&1; fec=$?
+                rm -f "$tmpbin"
+                if [ $fec -eq 139 ] || [ $fec -eq 134 ]; then
+                    echo "FUZZ CRASH: $(basename "$f")"; iter_ok=0; break
+                fi
+            done
+            # 4. Downstream repos (compile only — some are binaries not test suites)
+            for rname in $repos; do
+                rdir="$REPO_ROOT/../$rname"
+                [ -f "$rdir/src/main.cyr" ] || continue
+                tmpbin="/tmp/cyrius_soak_r"
+                (cd "$rdir" && cat src/main.cyr | "$CC" > "$tmpbin" 2>/dev/null)
+                if [ $? -ne 0 ]; then
+                    echo "COMPILE FAIL: $rname"; iter_ok=0; break
+                fi
+                rm -f "$tmpbin"
+            done
+            if [ $iter_ok -eq 1 ]; then
+                soak_pass=$((soak_pass + 1))
+                echo "ok"
+            else
+                soak_fail=$((soak_fail + 1))
+                echo "FAILED at iteration $soak_iter"
+            fi
+        done
+        echo ""
+        echo "=== soak complete: $soak_pass/$SOAK_ITERS passed, $soak_fail failed ==="
+        [ $soak_fail -gt 0 ] && exit 1; exit 0
         ;;
 
     # === Fuzz: project-level library fuzzing + compiler fuzzing ===

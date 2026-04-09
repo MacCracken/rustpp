@@ -356,7 +356,7 @@ fn cmd_run(source) {
 
 fn cmd_test(source) {
     _total = _total + 1;
-    var tmpbin = "/tmp/cyrius_test";
+    var tmpbin = "/tmp/cyrius_test_bin";
     var r = compile(source, tmpbin);
     if (r != 0) {
         sys_write(STDERR_FD, "  FAIL: ", 8);
