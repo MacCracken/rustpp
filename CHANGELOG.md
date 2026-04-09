@@ -4,6 +4,35 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.9.0] — 2026-04-09
+
+### Added — Stdlib
+- **`lib/base64.cyr`**: RFC 4648 base64 encode/decode. `base64_encode(buf, len)` returns
+  null-terminated string. `base64_decode(encoded, enc_len)` returns {ptr, len} pair.
+  Module #32. 12 assertions in base64.tcyr.
+- **`lib/chrono.cyr`**: Time and duration utilities. `clock_now_ns()`, `clock_now_ms()`,
+  `clock_epoch_secs()`, `dur_new/secs/nsecs/to_ms/between`, `sleep_ms()`.
+  Module #33. 8 assertions in chrono.tcyr.
+
+### Added — Tooling
+- **`cyrius watch`**: File watcher — polls .cyr files, recompiles on change.
+  `cyrius watch src/main.cyr build/app`. Configurable interval via CYRIUS_WATCH_INTERVAL.
+
+### Changed — Compiler Optimizations
+- **Prefix-sum variable offsets**: FIXUP walk for variable addresses now O(n) instead of
+  O(n²). Precomputes cumulative offsets in a single pass before the fixup loop.
+- **Fixup bounds check**: Variable fixup index validated against GVCNT before access.
+  Prevents silent corruption from invalid fixup entries.
+- **Constant fold `x + 0`**: Addition with zero elided — no EADDR emitted, keeps
+  constant folding active for further optimizations in the expression.
+- **Constant fold `x * 1` and `x * 0`**: Multiply by 1 elided (identity). Multiply
+  by 0 replaced with `EMOVI(S, 0)`. Both keep constant fold chain active.
+
+### Stats
+- **33 stdlib modules** (was 31)
+- **27 test suites, 345 assertions** (was 25/325)
+- **cc2**: 231KB, self-hosting verified
+
 ## [2.8.2] — 2026-04-09
 
 ### Fixed

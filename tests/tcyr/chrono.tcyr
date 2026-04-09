@@ -1,0 +1,35 @@
+# Test: chrono (time/duration utilities)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/chrono.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("clock_now");
+var t1 = clock_now_ns();
+assert_eq(t1 > 0, 1, "now_ns > 0");
+var t2 = clock_now_ns();
+assert_eq(t2 >= t1, 1, "monotonic");
+var ms = clock_now_ms();
+assert_eq(ms > 0, 1, "now_ms > 0");
+
+test_group("clock_epoch");
+var epoch = clock_epoch_secs();
+assert_eq(epoch > 1700000000, 1, "epoch > 2023");
+
+test_group("duration");
+var d = dur_new(1, 500000000);
+assert_eq(dur_secs(d), 1, "dur secs");
+assert_eq(dur_nsecs(d), 500000000, "dur nsecs");
+assert_eq(dur_to_ms(d), 1500, "dur to ms");
+
+test_group("dur_between");
+var start = clock_now_ns();
+var end = start + 42000000;
+var elapsed = dur_between(start, end);
+assert_eq(dur_to_ms(elapsed), 42, "between 42ms");
+
+var r = assert_summary();

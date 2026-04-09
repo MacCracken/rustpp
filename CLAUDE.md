@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 2.8.2
+- **Version**: 2.9.0
 
 ## Goal
 
@@ -14,9 +14,9 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 215KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
-- **Tests**: 23 .tcyr files (287 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
-- **Libraries**: 31 modules, 200+ functions
+- **Compiler**: 231KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
+- **Tests**: 27 .tcyr files (345 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
+- **Libraries**: 33 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark), argonaut (424 tests)
 
 ## Consumers

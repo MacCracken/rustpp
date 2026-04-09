@@ -1010,7 +1010,9 @@ fn PARSE_TERM(S) {
                 if (_cfo == 1) {
                     if (PEEKT(S) == 1) {
                         var crv = PEEKV(S);
-                        if (crv > 0) { if (crv < 0x10000) {
+                        if (crv == 0) { STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, 0); _cfv = 0; }
+                        elif (crv == 1) { STI(S, GTI(S) + 1); }
+                        elif (crv > 0) { if (crv < 0x10000) {
                             var cfr = _cfv * crv;
                             if (cfr > 0) { if (cfr < 0x10000) {
                                 STI(S, GTI(S) + 1);
@@ -1153,7 +1155,8 @@ fn PEXPR(S) {
                 } }
                 if (add_can_fold == 1) {
                     var crv = PEEKV(S);
-                    if (crv > 0) { if (crv < 0x10000) {
+                    if (crv == 0) { STI(S, GTI(S) + 1); }
+                    elif (crv > 0) { if (crv < 0x10000) {
                         var cfr = _cfv + crv;
                         if (cfr > 0) { if (cfr < 0x10000) {
                             STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;

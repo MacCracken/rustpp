@@ -21,17 +21,18 @@ fn FIXUP(S) {
         return 0;
     }
     var acp = cp;
-    # data_base = entry_point + aligned code size
-    # Kernel: multiboot2 header (24 bytes) is prepended, so entry = base + 120 + 24
     var kmode = L64(S + 0x8FCA0);
     var entry = 0x400078;
     if (kmode == 1) { entry = 0x100060; }
     var dbase = entry + acp;
-    # Compute total var bytes
+    # Precompute cumulative var offsets (prefix sum — O(n) instead of O(n²) per fixup)
     var vcnt = GVCNT(S);
     var totvar = 0;
     var vi = 0;
+    # Store prefix sums in scratch area (output_buf tail, safe — ELF not written yet)
+    var pfx = S + 0xCE000 + 131072;
     while (vi < vcnt) {
+        S64(pfx + vi * 8, totvar);
         totvar = totvar + L64(S + 0x11E000 + vi * 8);
         vi = vi + 1;
     }
@@ -60,14 +61,10 @@ fn FIXUP(S) {
             S64(S + 0x20000 + coff, dbase + totvar + idx);
         }
         else {
-            # Variable address (type 0)
-            var cumul = 0;
-            vi = 0;
-            while (vi < idx) {
-                cumul = cumul + L64(S + 0x11E000 + vi * 8);
-                vi = vi + 1;
+            # Variable address (type 0) — use prefix sum
+            if (idx < vcnt) {
+                S64(S + 0x20000 + coff, dbase + L64(pfx + idx * 8));
             }
-            S64(S + 0x20000 + coff, dbase + cumul);
         } } }
         fi = fi + 1;
     }

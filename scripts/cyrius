@@ -1202,6 +1202,11 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         ;;
 
     # === Serve: dev server with file watching ===
+    watch)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-watch.sh" "$@"
+        ;;
+
     serve)
         shift
         src="${1:-src/main.cyr}"
