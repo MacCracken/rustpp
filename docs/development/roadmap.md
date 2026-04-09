@@ -128,6 +128,7 @@ multi-file compilation (.o + link)
 |-------|---------|--------|
 | Functions | 1024 | Error at limit |
 | Variables (VCNT) | 8192 | Expanded from 4096 in v2.1.0. var_noffs/var_sizes/var_types relocated to end of heap. |
+| Globals (initialized) | 1024 | Expanded from 256 in v2.4.0. gvar_toks at 0x98000 (8192 bytes). |
 | Locals per function | 256 | Expanded from 64 in v1.7.4 |
 | Fixup entries | 8192 | Expanded from 4096 in v1.10.2 |
 | Struct fields | 32 | Expanded from 16 in v1.12.0 |

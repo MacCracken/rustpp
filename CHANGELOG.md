@@ -4,6 +4,13 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] — 2026-04-08
+
+### Changed
+- **Initialized globals expanded 256→1024**: `gvar_toks` buffer expanded from 2048 to
+  8192 bytes (0x98000). `gvar_cnt` relocated from 0x98800 to 0x9A000. Unblocks large
+  programs with many global variables. Two-step self-hosting verified.
+
 ## [2.3.3] — 2026-04-08
 
 ### Fixed

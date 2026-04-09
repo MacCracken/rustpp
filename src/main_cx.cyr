@@ -36,7 +36,7 @@ S64(S + 0x8F830, 0);
 # Condition patch state
 S64(S + 0x8F888, 0);
 # Global var init state
-S64(S + 0x98800, 0);
+S64(S + 0x9A000, 0);
 S64(S + 0x97000, 0);
 S64(S + 0x97F00, 0);
 
