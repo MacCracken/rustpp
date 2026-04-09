@@ -35,7 +35,40 @@ var buf2 = alloc(64);
 var rn = file_read_all(path, buf2, 63);
 assert_eq(rn, 9, "read_all");
 
+test_group("file_lock / file_unlock");
+var lockpath = "/tmp/cyrius_lock_test";
+var lfd = file_open(lockpath, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+assert_eq(lfd >= 0, 1, "lock file open");
+var lr = file_lock(lfd);
+assert_eq(lr, 0, "lock acquired");
+file_write(lfd, "locked", 6);
+file_unlock(lfd);
+file_close(lfd);
+# Verify content survived lock/unlock
+var lbuf = alloc(32);
+var ln = file_read_all(lockpath, lbuf, 31);
+store8(lbuf + ln, 0);
+assert_eq(streq(lbuf, "locked"), 1, "locked content");
+
+test_group("file_trylock");
+var tfd = file_open(lockpath, O_RDONLY, 0);
+var tr = file_trylock(tfd);
+assert_eq(tr, 0, "trylock ok");
+file_unlock(tfd);
+file_close(tfd);
+
+test_group("file_append_locked");
+syscall(87, lockpath);
+file_append_locked(lockpath, "line1\n", 6);
+file_append_locked(lockpath, "line2\n", 6);
+var abuf = alloc(64);
+var an = file_read_all(lockpath, abuf, 63);
+assert_eq(an, 12, "append 12 bytes");
+store8(abuf + an, 0);
+assert_eq(streq(abuf, "line1\nline2\n"), 1, "append content");
+
 # Cleanup
 syscall(87, path);
+syscall(87, lockpath);
 
 var r = assert_summary();

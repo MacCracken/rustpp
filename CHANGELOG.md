@@ -7,6 +7,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [2.7.5] — 2026-04-09
 
 ### Added
+- **File locking** (io.cyr): `file_lock(fd)`, `file_unlock(fd)`, `file_trylock(fd)`,
+  `file_lock_shared(fd)` — flock(2) wrappers. Plus `file_append_locked(path, buf, len)`
+  for atomic append-only log writes. Constants: LOCK_SH, LOCK_EX, LOCK_UN, LOCK_NB.
+  Enables libro's audit chain without a database — JSON Lines + flock.
+- **io.tcyr expanded**: +6 assertions for lock/unlock, trylock, append_locked.
+  Total: 15 assertions in io.tcyr.
 - **`resolve_deps` scaffolding**: `compile()` in shell script now reads `[deps.*]`
   from `cyrius.toml` and calls `resolve_deps` before compilation. Stub implementation —
   full include path resolution planned for 3.0.
