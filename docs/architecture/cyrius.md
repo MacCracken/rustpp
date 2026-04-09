@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v1.11.1** — cc2 is the active modular compiler (8 modules, 205KB, 267 tests). 28 stdlib modules.
+**v2.3.1** — cc2 is the active modular compiler (8 modules, 205KB, 267 tests). 31 stdlib modules.
 
 ```
 sh bootstrap/bootstrap.sh

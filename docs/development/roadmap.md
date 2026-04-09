@@ -152,9 +152,25 @@ multi-file compilation (.o + link)
 | 3 | RISC-V | Planned |
 | 4 | cyrius-x | v2.0 target |
 
+## Platform Targets
+
+| # | Platform | Output Format | Status | Blocked by |
+|---|----------|---------------|--------|------------|
+| 1 | Linux x86_64 | ELF | **Done** — primary target |  — |
+| 2 | Linux aarch64 | ELF | **Done** — cc2_aarch64 cross-compiler | — |
+| 3 | macOS x86_64 | Mach-O | Planned | Mach-O emitter + macOS syscall shim |
+| 4 | macOS aarch64 | Mach-O | Planned | Mach-O emitter + aarch64 backend (exists) + macOS ABI |
+| 5 | Windows x86_64 | PE/COFF | Planned | PE emitter + Win32 API (or mingw-style libc link) |
+
+**Near-term**: Linux aarch64 is ready — cc2_aarch64 exists. Downstream projects (doom, bsp) can add aarch64 build jobs today.
+
+**macOS path**: Mach-O emitter (new backend module), then either a thin syscall shim (write/exit/mmap → macOS equivalents) or libc FFI for portability. macOS aarch64 combines the Mach-O emitter with the existing aarch64 codegen.
+
+**Windows path**: PE/COFF emitter + either raw Win32 API calls or a mingw-compatible libc link step. Largest effort of the three.
+
 ---
 
-## Standard Library (29 modules)
+## Standard Library (31 modules)
 
 | Module | Added |
 |--------|-------|
@@ -164,6 +180,7 @@ multi-file compilation (.o + link)
 | matrix, vidya, regex, net, fs | v1.8–1.9 |
 | syscalls, process | v1.9.x |
 | thread, async, freelist, math | v1.10–1.11 |
+| sakshi, sakshi_full | v2.2.0 |
 
 Expansion targets:
 - `lib/http.cyr` — HTTP/1.1 client + server (socket-based, stdlib module)
@@ -239,6 +256,9 @@ Expansion targets:
 | Documentation | All vidya entries current. cyrius-guide.md reflects v3.0 features. |
 | Binary size audit | Profile code/data split. Identify bloat. Target: <250KB. |
 | Port validation | All 5 converted repos + doom compile and test clean on release binary. |
+| Mach-O emitter | macOS x86_64 + aarch64 output. New backend module for Mach-O headers, load commands, sections. |
+| PE emitter | Windows x86_64 output. PE/COFF headers + Win32 API or mingw libc link. |
+| Cross-platform CI | Downstream projects (doom, bsp) ship Linux x86_64 + aarch64 binaries. macOS/Windows after emitters land. |
 
 ---
 

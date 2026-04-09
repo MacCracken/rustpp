@@ -2,7 +2,7 @@
 # Single-file distribution. Zero heap allocation. No external dependencies.
 # Version: 0.7.0
 #
-# Usage: include "lib/sakshi.cyr"
+# Usage: include "lib/sakshi_full.cyr"
 #
 # Error:  sakshi_err_new(code, cat), sakshi_err_with_ctx(code, cat, ctx),
 #         sakshi_err_code(e), sakshi_err_category(e), sakshi_err_context(e),

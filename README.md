@@ -106,7 +106,7 @@ Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (28 modules)
+## Standard Library (31 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -116,9 +116,10 @@ Info:      version, which, help
 | Concurrency | thread (clone+mmap, mutex, MPSC), async |
 | Allocators | freelist (O(1) alloc/free) |
 | Math | math (f64_atan, extended ops) |
-| Data | json, fs, net, regex |
+| Data | json, toml, fs, net, regex, matrix, vidya |
+| Tracing | sakshi (minimal), sakshi_full (structured logging) |
 
-## Compiler Architecture (v1.11.1)
+## Compiler Architecture (v2.3.1)
 
 ```
 src/

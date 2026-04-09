@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.1] — 2026-04-08
+
+### Changed — Refactor & Cleanup
+- **hashmap.cyr**: Fixed include placement (fnptr.cyr moved after header comment block),
+  updated Requires comment, fixed map_print indentation.
+- **hashmap_fast.cyr**: Extracted `_fhm_ctz()` helper — deduplicated 5 identical
+  lowest-set-bit scan loops across fhm_get/fhm_set/fhm_has. Updated Requires comment.
+- **sakshi_full.cyr**: Fixed usage comment (referenced sakshi.cyr instead of sakshi_full.cyr).
+- **Module count corrected**: 28→31 across all docs (CLAUDE.md, README.md, roadmap.md,
+  architecture/cyrius.md). Added sakshi + sakshi_full to stdlib table.
+- **README.md**: Updated compiler architecture version (v1.11.1→v2.3.1), added toml/matrix/
+  vidya/sakshi to stdlib table.
+- **SECURITY.md**: Updated supported versions (0.9.x→2.x supported, 1.x best-effort).
+- **Roadmap**: Added Platform Targets section (Linux x86_64/aarch64 done, macOS Mach-O +
+  Windows PE planned for v3.0). Added Mach-O/PE emitters to v3.0 release checklist.
+- **cyrius-doom release.yml**: Fixed `*.tar.gz` glob that included Cyrius toolchain tarball
+  in release artifacts. Now uses `cyrius-doom-*.tar.gz` and cleans toolchain tarball before archive.
+
 ## [2.3.0] — Unreleased
 
 ### Added — Testing

@@ -1,7 +1,6 @@
 # hashmap.cyr — hash table with string keys and i64 values
 # Usage: include "lib/hashmap.cyr"
-# Requires: alloc.cyr, string.cyr
-include "lib/fnptr.cyr"
+# Requires: alloc.cyr, string.cyr, fnptr.cyr (for map_iter)
 #
 # Open addressing with linear probing. All keys are null-terminated strings.
 # All values are i64. Automatically grows at 70% load.
@@ -17,6 +16,8 @@ include "lib/fnptr.cyr"
 # Layout per entry: { key_ptr: i64, value: i64, state: i64 } = 24 bytes
 #   state: 0=empty, 1=occupied, 2=tombstone
 # Map header: { entries_ptr: i64, capacity: i64, count: i64 } = 24 bytes
+
+include "lib/fnptr.cyr"
 
 var HASHMAP_ENTRY_SIZE = 24;
 
@@ -194,20 +195,20 @@ fn map_print(m) {
     var entries = load64(m);
     var cap = load64(m + 8);
     syscall(1, 1, "{", 1);
-        var first = 1;
-        var pi = 0;
-        while (pi < cap) {
-            var ep = entries + pi * 24;
-            if (load64(ep + 16) == 1) {
-                if (first == 0) { syscall(1, 1, ", ", 2); }
-                var pk = load64(ep);
-                syscall(1, 1, pk, strlen(pk));
-                syscall(1, 1, ": ", 2);
-                fmt_int(load64(ep + 8));
-                first = 0;
-            }
-            pi = pi + 1;
+    var first = 1;
+    var pi = 0;
+    while (pi < cap) {
+        var ep = entries + pi * 24;
+        if (load64(ep + 16) == 1) {
+            if (first == 0) { syscall(1, 1, ", ", 2); }
+            var pk = load64(ep);
+            syscall(1, 1, pk, strlen(pk));
+            syscall(1, 1, ": ", 2);
+            fmt_int(load64(ep + 8));
+            first = 0;
         }
-        syscall(1, 1, "}", 1);
+        pi = pi + 1;
+    }
+    syscall(1, 1, "}", 1);
     return 0;
 }

@@ -1,6 +1,6 @@
 # hashmap_fast.cyr — SIMD-accelerated hash table (Swiss table inspired)
 # Usage: include "lib/hashmap_fast.cyr"
-# Requires: alloc.cyr, string.cyr
+# Requires: alloc.cyr, string.cyr, fnptr.cyr
 #
 # Layout: separate metadata array (1 byte per slot) + key/value arrays (8 bytes each)
 # Metadata byte: 0x00 = empty, 0xFF = tombstone, 0x01-0xFE = H2 hash (top 7 bits + 1)
@@ -95,6 +95,14 @@ fn _fhm_empty16(meta, offset) {
     return _fhm_probe16(meta, offset, 0);
 }
 
+# Find index of lowest set bit in bitmask
+fn _fhm_ctz(mask) {
+    var bit = 0;
+    var tmp = mask;
+    while ((tmp & 1) == 0) { bit = bit + 1; tmp = tmp >> 1; }
+    return bit;
+}
+
 # Get value by key. Returns value or 0 if not found.
 fn fhm_get(m, key) {
     var meta = load64(m);
@@ -109,12 +117,7 @@ fn fhm_get(m, key) {
         # SIMD probe: check 16 slots at once
         var mask = _fhm_probe16(meta, idx, h2);
         while (mask != 0) {
-            # Find lowest set bit
-            var bit = 0;
-            var tmp = mask;
-            while ((tmp & 1) == 0) { bit = bit + 1; tmp = tmp >> 1; }
-            var si = idx + bit;
-            # Verify key match
+            var si = idx + _fhm_ctz(mask);
             if (streq(load64(keys + si * 8), key) == 1) {
                 return load64(vals + si * 8);
             }
@@ -152,10 +155,7 @@ fn fhm_set(m, key, val) {
         # Check for existing key
         var mask = _fhm_probe16(meta, idx, h2);
         while (mask != 0) {
-            var bit = 0;
-            var tmp = mask;
-            while ((tmp & 1) == 0) { bit = bit + 1; tmp = tmp >> 1; }
-            var si = idx + bit;
+            var si = idx + _fhm_ctz(mask);
             if (streq(load64(keys + si * 8), key) == 1) {
                 store64(vals + si * 8, val);
                 return 0;
@@ -165,9 +165,7 @@ fn fhm_set(m, key, val) {
         # Find empty slot
         var empty = _fhm_empty16(meta, idx);
         if (empty != 0) {
-            var ebit = 0;
-            while ((empty & 1) == 0) { ebit = ebit + 1; empty = empty >> 1; }
-            var si = idx + ebit;
+            var si = idx + _fhm_ctz(empty);
             store8(meta + si, h2);
             store64(keys + si * 8, key);
             store64(vals + si * 8, val);
@@ -222,10 +220,7 @@ fn fhm_has(m, key) {
     while (probes < cap) {
         var mask = _fhm_probe16(meta, idx, h2);
         while (mask != 0) {
-            var bit = 0;
-            var tmp = mask;
-            while ((tmp & 1) == 0) { bit = bit + 1; tmp = tmp >> 1; }
-            var si = idx + bit;
+            var si = idx + _fhm_ctz(mask);
             if (streq(load64(keys + si * 8), key) == 1) { return 1; }
             mask = mask & (mask - 1);
         }

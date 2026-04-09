@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 2.3.0
+- **Version**: 2.3.1
 - **Fixup entries**: 8192
 - **Targets**: x86_64 + aarch64 (cross-compilation)
 
@@ -17,8 +17,8 @@ Own the language. Own the toolchain. No crates.io. No external governance. Ark i
 ## Current State
 
 - **Compiler**: 202KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields
-- **Tests**: 7 .tcyr files (95 assertions), heap audit, self-hosting (two-step)
-- **Libraries**: 28 modules, 200+ functions
+- **Tests**: 13 .tcyr files (139 assertions), heap audit, self-hosting (two-step)
+- **Libraries**: 31 modules, 200+ functions
 - **Ecosystem**: 5 crate rewrites (agnostik, agnosys, kybernet, nous, ark), argonaut (424 tests)
 - **Tools**: cyrb (58KB binary + shell fallback), cyrfmt, cyrlint, cyrdoc, cyrc, ark
 - **Kernel**: AGNOS 31KB (in separate repo: github.com/MacCracken/agnos)
@@ -48,7 +48,7 @@ src/
   backend/x86/       emit.cyr, jump.cyr, fixup.cyr
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
   common/            util.cyr
-lib/                 Standard library (28 modules)
+lib/                 Standard library (31 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 build/               Generated binaries (gitignored except cc2)
