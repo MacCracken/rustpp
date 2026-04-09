@@ -71,8 +71,7 @@ echo ""
 
 # ── Create directory structure ──
 
-mkdir -p "$CYRIUS_HOME/bin"
-mkdir -p "$CYRIUS_HOME/lib"
+mkdir -p "$CYRIUS_HOME"
 mkdir -p "$CYRIUS_HOME/versions/$VERSION/bin"
 
 # ── Download tarball or bootstrap from source ──
@@ -183,15 +182,15 @@ echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"
 # ── Create symlinks (directory-level, version-agnostic) ──
 
 info "linking directories..."
-rm -f "$CYRIUS_HOME/bin" "$CYRIUS_HOME/lib"
+rm -rf "$CYRIUS_HOME/bin" "$CYRIUS_HOME/lib"
 ln -sf "$CYRIUS_HOME/versions/$VERSION/bin" "$CYRIUS_HOME/bin"
 ln -sf "$CYRIUS_HOME/versions/$VERSION/lib" "$CYRIUS_HOME/lib"
 
 # ── Install version manager ──
 
-cat > "$CYRIUS_HOME/bin/cyrius" << 'MANAGER'
+cat > "$CYRIUS_HOME/bin/cyriusup" << 'MANAGER'
 #!/bin/sh
-# cyrius — Cyrius version manager
+# cyriusup — Cyrius version manager
 # Like rustup, pyenv, rbenv — manages installed Cyrius versions.
 CYRIUS_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
 
@@ -206,7 +205,7 @@ link_version() {
 
 case "${1:-help}" in
     version|--version|-v)
-        echo "cyrius $(current)"
+        echo "cyriusup $(current)"
         ;;
 
     list|ls)
@@ -224,7 +223,7 @@ case "${1:-help}" in
         ;;
 
     use)
-        [ -z "$2" ] && echo "Usage: cyrius use <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusup use <version>" && exit 1
         [ ! -d "$CYRIUS_HOME/versions/$2" ] && echo "Version $2 not installed." && exit 1
         echo "$2" > "$CYRIUS_HOME/current"
         link_version "$2"
@@ -232,16 +231,16 @@ case "${1:-help}" in
         ;;
 
     install)
-        [ -z "$2" ] && echo "Usage: cyrius install <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusup install <version>" && exit 1
         echo "Installing Cyrius $2..."
         CYRIUS_VERSION="$2" curl -sSf "https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh" | sh
         ;;
 
     uninstall)
-        [ -z "$2" ] && echo "Usage: cyrius uninstall <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusup uninstall <version>" && exit 1
         local cur=$(current)
         if [ "$2" = "$cur" ]; then
-            echo "Cannot uninstall active version. Switch first: cyrius use <other>"
+            echo "Cannot uninstall active version. Switch first: cyriusup use <other>"
             exit 1
         fi
         if [ -d "$CYRIUS_HOME/versions/$2" ]; then
@@ -271,15 +270,15 @@ case "${1:-help}" in
             echo "Already up to date: $CUR"
         else
             echo "Update available: $CUR -> $LATEST"
-            echo "Run: cyrius install $LATEST && cyrius use $LATEST"
+            echo "Run: cyriusup install $LATEST && cyriusup use $LATEST"
         fi
         ;;
 
     help|--help|-h)
-        echo "cyrius - Cyrius version manager"
+        echo "cyriusup - Cyrius version manager"
         echo ""
         echo "USAGE:"
-        echo "    cyrius <command> [args]"
+        echo "    cyriusup <command> [args]"
         echo ""
         echo "COMMANDS:"
         echo "    version             Show active version"
@@ -293,19 +292,19 @@ case "${1:-help}" in
         echo "    help                Show this help"
         echo ""
         echo "EXAMPLES:"
-        echo "    cyrius install 0.9.0"
-        echo "    cyrius use 0.9.0"
-        echo "    cyrius list"
+        echo "    cyriusup install 2.4.0"
+        echo "    cyriusup use 2.4.0"
+        echo "    cyriusup list"
         ;;
 
     *)
         echo "Unknown command: $1"
-        echo "Run 'cyrius help' for usage."
+        echo "Run 'cyriusup help' for usage."
         exit 1
         ;;
 esac
 MANAGER
-chmod +x "$CYRIUS_HOME/bin/cyrius"
+chmod +x "$CYRIUS_HOME/bin/cyriusup"
 
 # ── Setup PATH ──
 
@@ -355,6 +354,6 @@ echo "    cd myproject"
 echo "    cyrius build src/main.cyr -o build/main"
 echo ""
 echo "    ${DIM}# manage versions:${RESET}"
-echo "    cyrius list"
-echo "    cyrius update"
+echo "    cyriusup list"
+echo "    cyriusup update"
 echo ""
