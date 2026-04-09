@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.1] — 2026-04-09
+
+### Changed
+- **Sakshi updated to v0.8.0**: Both `lib/sakshi.cyr` (slim) and `lib/sakshi_full.cyr`
+  (full) updated from v0.7.0 to v0.8.0. Changes: constants converted from vars to enums,
+  `match` for level dispatch, `_sk_level_str` helper centralized. Slim profile now uses
+  proper enum types (bug #16 workaround removed). All 26 sakshi assertions pass.
+
 ## [3.2.0] — 2026-04-09
 
 ### Added — Language Feature
