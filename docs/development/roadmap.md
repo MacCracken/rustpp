@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.2.3.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
+> **v3.2.4.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
 > 29 test suites (362 assertions), 4 fuzz harnesses, soak test clean. 35 stdlib modules.
 > 8 downstream repos pass. 207 vidya entries. Format/lint/doc 100% clean.
 
@@ -98,13 +98,16 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Tokens | 131072 |
 | Macros | 16 |
 
-## Downstream Blockers — requesting 3.2.x fix
+## Downstream Blockers — resolved in 3.2.x
 
 | # | Issue | Affected | Status | Details |
 |---|-------|----------|--------|---------|
-| 1 | ~~1024 function limit~~ | agnostik | **Resolved 3.2.2** | Expanded to 2048. Agnostik can now add `_from_json` deserialization. |
-| 2 | **`#derive(Serialize)` renders Str fields as raw pointers** | agnostik | Open | v3.2.2 fixed integer rendering (`42` not `"42"`), but Str fields now emit raw pointer addresses (`402866216` instead of string content). Compiler has no type info to distinguish i64 from Str. Request: field type annotation or heuristic (e.g. `#derive(Serialize, name:str)`) so Str fields emit `str_builder_add(sb, field)` instead of `str_builder_add_int(sb, field)`. |
-| 3 | **Nested if/while/break codegen** | agnostik | Open | `version_from_str` correctly stores prerelease inside `if (sep == 45) { while (...) { break; } ... store64(v+24, pre); }` but value is NULL at runtime when both prerelease+build present. Simple prerelease (no build) works. Suspect break inside while inside if clobbers a register or skips the store. |
+| 1 | ~~1024 function limit~~ | agnostik | **Resolved 3.2.2** | Expanded to 2048. |
+| 2 | ~~`#derive(Serialize)` Str fields~~ | agnostik | **Resolved 3.2.3** | `: Str` annotation emits quoted strings; integers emit bare numbers. |
+| 3 | ~~Nested if/while/break codegen~~ | agnostik | **Resolved 3.2.2** | Replaced `load8`+`==` with `strchr` for separator detection. |
+| 4 | **`break` in deeply nested while/if** | agnostik, json.cyr | Open | `break` inside `while { if { while { break } } }` (3+ nesting levels) doesn't exit correctly — inner while runs to end. json_parse multi-key parsing broken. Workaround: use flag variables and loop conditions instead of `break`. agnostik `_from_json` uses break-free `_json_int`/`_json_str` extractors. |
+| 5 | **`#derive(Serialize)` composable 2-arg form** | agnostik | Request | Current derive generates `_to_json(ptr)` (1-arg, returns Str). Agnostik needs `_to_json(ptr, sb)` (2-arg, writes to caller's string builder) for nested struct serialization. Perf is identical (~900ns). If derive generated the 2-arg form, agnostik could drop all 9 manual `_to_json` implementations (~200 lines). |
+| 6 | **`#derive(Deserialize)` single-pass parser** | agnostik | Request | Current manual `_from_json` does per-field string scan: O(fields × json_length). 3 fields = 2us, 9 fields = 25us. A derive-generated single-pass parser would be O(json_length), estimated ~2-3us regardless of field count. Would also fix json.cyr multi-key parsing (blocker #4). |
 
 ## Known Gotchas
 
@@ -115,6 +118,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 3 | Inline asm `[rbp-N]` clobbers function params | Use globals or dummy locals |
 | 4 | Large static `var buf[N]` exhausts output buffer | Use `alloc(N)` for buffers >4KB |
 | 5 | `\r` in string literals works but multiline strings need explicit bytes | Build CRLF with store8 |
+| 6 | `load8` comparisons fail in nested while loops (codegen bug) | Use `memeq()` or `strchr()` instead of manual byte loops |
 
 ## Principles
 

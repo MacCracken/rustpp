@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.4] — 2026-04-09
+
+### Added
+- **`strstr(haystack, needle)`** (string.cyr): Substring search using `memeq`. Returns
+  index or -1. Workaround for nested while loop codegen bug — use `memeq`-based functions
+  instead of manual byte loops with `load8` comparisons.
+
+### Known Issue — Documented
+- **Nested while loop codegen bug**: `load8` comparisons inside inner while loops produce
+  wrong results. Affects: substring search, byte-by-byte matching in nested loops.
+  Root cause: expression register clobbered by loop condition evaluation.
+  Workaround: use `memeq()`, `strchr()`, `strstr()` — all use single function calls
+  that avoid the nested loop pattern. Filed as Known Gotcha #6.
+
 ## [3.2.3] — 2026-04-09
 
 ### Fixed
