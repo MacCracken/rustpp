@@ -21,8 +21,27 @@ test_group("hashmap_fast");
 var fm = fhm_new();
 fhm_set(fm, "x", 10);
 fhm_set(fm, "y", 20);
+fhm_set(fm, "z", 30);
 assert_eq(fhm_get(fm, "x"), 10, "fhm get x");
-assert_eq(fhm_count(fm), 2, "fhm count");
+assert_eq(fhm_count(fm), 3, "fhm count");
 assert(fhm_has(fm, "x") == 1, "fhm has");
+
+test_group("hashmap_fast delete");
+fhm_delete(fm, "y");
+assert_eq(fhm_count(fm), 2, "fhm del count");
+assert_eq(fhm_has(fm, "y"), 0, "fhm y gone");
+assert_eq(fhm_get(fm, "x"), 10, "fhm x after del");
+assert_eq(fhm_get(fm, "z"), 30, "fhm z after del");
+
+test_group("hashmap_fast keys/values");
+var fk = fhm_keys(fm);
+assert_eq(vec_len(fk), 2, "fhm 2 keys");
+var fv = fhm_values(fm);
+assert_eq(vec_len(fv), 2, "fhm 2 values");
+
+test_group("hashmap_fast clear");
+fhm_clear(fm);
+assert_eq(fhm_count(fm), 0, "fhm cleared");
+assert_eq(fhm_has(fm, "x"), 0, "fhm x cleared");
 
 var r = assert_summary();

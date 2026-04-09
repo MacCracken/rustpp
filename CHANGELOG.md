@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.0] — 2026-04-09
+
+### Changed — Cleanup/Audit/Refactor
+- **hashmap_fast.cyr**: Added `fhm_delete`, `fhm_keys`, `fhm_values`, `fhm_clear` —
+  now has API parity with hashmap.cyr. 8 new assertions in hashmap_ext.tcyr.
+- **str.cyr**: Documented `str_starts_with` takes C string (vs `str_ends_with` takes Str).
+  Kept for backward compatibility.
+- **sakshi.cyr**: Updated stale comment — bug #16 workaround note now says "fixed in v2.1.0,
+  kept as vars for compatibility".
+- **Stdlib audit**: 31 modules, 451+ functions audited. Zero dead code found.
+  Missing-include documentation is by design (consumer provides stdlib).
+  Hashmap grow "leak" is by design (bump allocator, no individual free).
+- **Total**: 24 suites, 305 assertions, 0 failures.
+
 ## [2.7.5] — 2026-04-09
 
 ### Added

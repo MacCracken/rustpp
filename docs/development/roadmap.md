@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v2.7.5.** 215KB self-hosting compiler, both architectures.
+> **v2.8.0.** 215KB self-hosting compiler, both architectures.
 > 21 test suites (251 assertions), 4 fuzz harnesses, 9 benchmarks. Self-hosting byte-identical.
 > Argonaut: 424 tests pass. Heap audit clean. 31 stdlib modules.
 >

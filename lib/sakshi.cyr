@@ -16,7 +16,7 @@
 #         sakshi_output_file(path), sakshi_output_file_close()
 
 # ================================================================
-# Constants (var declarations — avoids enum data section shift, bug #16)
+# Constants (var declarations — bug #16 fixed in v2.1.0, kept as vars for compatibility)
 # ================================================================
 
 # Error categories
