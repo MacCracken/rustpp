@@ -31,8 +31,8 @@
 #   0x8F890  ptr_scale     [8]           Pointer scale tracking
 #   0x8F8A0  continue_count [8]          For-loop continue forward-patch count
 #   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
-#   0x8FA98  gvar_toks     [512]         64 deferred global var init indices
-#   0x8FC98  gvar_cnt      [8]
+#   0x98000  gvar_toks     [512]         64 deferred global var init indices
+#   0x98800  gvar_cnt      [8]
 #   0x8FCA0  kernel_mode   [8]
 #   0x8FCA8  fixup_cnt     [8]
 #   0x8FCB0  last_var      [8]
@@ -114,7 +114,7 @@ S64(S + 0x8F888, 0);
 # Continue forward patch (for-loop)
 S64(S + 0x8F8A0, 0);
 # Global var init state
-S64(S + 0x8FC98, 0);
+S64(S + 0x98800, 0);
 
 # Kernel mode
 S64(S + 0x8FCA0, 0);

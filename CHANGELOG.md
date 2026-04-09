@@ -4,7 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.1] — Unreleased
+## [2.2.2] — Unreleased
+
+### Fixed
+- **gvar_toks expanded 64→256**: Deferred global variable init table relocated from
+  0x8FA98 to 0x98000 (2048 bytes). Unblocks cyrius-doom and other large programs with
+  >64 initialized globals. Bounds check updated.
+- **`cyrb audit` works in any project**: Generic audit runs compile check, .tcyr tests,
+  lint, and format when no project-specific `scripts/check.sh` exists. Agents in
+  agnosys, sakshi, doom can now use `cyrb audit`.
+- **`cyrb fmt` available**: cyrfmt, cyrlint, cyrdoc, cyrc built and installed to
+  `~/.cyrius/bin/`. All toolchain commands work from any directory.
+- **`cyrb fuzz`**: Mutation-based compiler fuzzer. 5 strategies: random ASCII, seed
+  mutation, deep nesting, long expressions, keyword spam. Catches SIGSEGV/SIGABRT.
+  `cyrb fuzz 1000` — 500 iterations, 0 crashes on initial run.
+
+## [2.2.1] — 2026-04-08
 
 ### Fixed — cyrius-x
 - **Conditional jumps**: EJCC now emits comparison instruction (gt/lt/eq) before

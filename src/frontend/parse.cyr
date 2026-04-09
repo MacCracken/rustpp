@@ -1649,12 +1649,12 @@ fn PARSE_GVAR_REG(S) {
     }
     SVCNT(S, vcnt + 1);
     # Save token index for deferred init
-    var gc = L64(S + 0x8FC98);
-    if (gc >= 64) {
-        ERR_MSG(S, "too many initialized globals (max 64) — use enum for constants", 62);
+    var gc = L64(S + 0x98800);
+    if (gc >= 256) {
+        ERR_MSG(S, "too many initialized globals (max 256) — use enum for constants", 62);
     }
-    S64(S + 0x8FA98 + gc * 8, sti);
-    S64(S + 0x8FC98, gc + 1);
+    S64(S + 0x98000 + gc * 8, sti);
+    S64(S + 0x98800, gc + 1);
     # Skip to semicolon
     var skg = 1;
     while (skg == 1) {
@@ -1667,10 +1667,10 @@ fn PARSE_GVAR_REG(S) {
 
 # Emit deferred global var inits (replays saved token positions)
 fn EMIT_GVAR_INITS(S) {
-    var gc = L64(S + 0x8FC98);
+    var gc = L64(S + 0x98800);
     var gi = 0;
     while (gi < gc) {
-        var sti = L64(S + 0x8FA98 + gi * 8);
+        var sti = L64(S + 0x98000 + gi * 8);
         STI(S, sti);
         STI(S, GTI(S) + 1);  # consume VAR
         var noff = PEEKV(S);

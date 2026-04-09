@@ -107,6 +107,7 @@ Project:
 Quality:
   serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
+  fuzz [N] [seed_dir]             mutation fuzz compiler (default: 1000 iters)
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
   doc [--check] <file.cyr>        generate/check documentation
@@ -634,7 +635,107 @@ MANIFEST
     # === Audit (full project check) ===
     audit)
         shift
-        sh "$SCRIPTS_DIR/check.sh"
+        # Generic audit: works in any Cyrius project
+        # 1. Project-specific check.sh (if exists)
+        # 2. Generic: compile check + .tcyr tests + lint + fmt
+        if [ -f "scripts/check.sh" ]; then
+            sh scripts/check.sh
+        else
+            echo "=== Cyrius Project Audit ==="
+            echo ""
+            AUDIT_PASS=0; AUDIT_FAIL=0
+
+            # Compile check
+            echo "── Compile ──"
+            for f in src/*.cyr; do
+                [ -f "$f" ] || continue
+                if cat "$f" | "$CC" > /dev/null 2>&1; then
+                    echo "  PASS: $f"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: $f"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+            done
+            echo ""
+
+            # Tests
+            echo "── Tests ──"
+            tcyr_found=0
+            for t in tests/*.tcyr tests/tcyr/*.tcyr; do
+                [ -f "$t" ] || continue
+                tcyr_found=1
+                name=$(basename "$t" .tcyr)
+                tmpbin="/tmp/cyrb_audit_$$"
+                if cat "$t" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
+                    output=$("$tmpbin" 2>&1); ec=$?
+                    rm -f "$tmpbin"
+                    summary=$(echo "$output" | grep -o '[0-9]* passed, [0-9]* failed' | tail -1)
+                    f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*' || echo "")
+                    if [ "$ec" -eq 0 ] && { [ -z "$f" ] || [ "$f" -eq 0 ]; }; then
+                        echo "  PASS: $name${summary:+ ($summary)}"
+                        AUDIT_PASS=$((AUDIT_PASS + 1))
+                    else
+                        echo "  FAIL: $name"
+                        AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                    fi
+                else
+                    echo "  FAIL: $name (compile)"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                    rm -f "$tmpbin"
+                fi
+            done
+            if [ "$tcyr_found" -eq 0 ]; then echo "  (no .tcyr files found)"; fi
+            echo ""
+
+            # Lint
+            CYRLINT="${TOOLS_DIR}/cyrlint"
+            if [ -x "$CYRLINT" ]; then
+                echo "── Lint ──"
+                lint_total=0
+                for f in lib/*.cyr src/*.cyr; do
+                    [ -f "$f" ] || continue
+                    w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
+                    lint_total=$((lint_total + w))
+                done
+                if [ "$lint_total" -eq 0 ]; then
+                    echo "  PASS: lint (0 warnings)"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: lint ($lint_total warnings)"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+                echo ""
+            fi
+
+            # Format
+            CYRFMT="${TOOLS_DIR}/cyrfmt"
+            if [ -x "$CYRFMT" ]; then
+                echo "── Format ──"
+                fmt_fail=0
+                for f in lib/*.cyr src/*.cyr; do
+                    [ -f "$f" ] || continue
+                    "$CYRFMT" "$f" > /tmp/cyrb_fmt_$$ 2>/dev/null
+                    if ! diff -q "$f" /tmp/cyrb_fmt_$$ > /dev/null 2>&1; then
+                        fmt_fail=1
+                    fi
+                    rm -f /tmp/cyrb_fmt_$$
+                done
+                if [ "$fmt_fail" -eq 0 ]; then
+                    echo "  PASS: format"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: format"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+                echo ""
+            fi
+
+            echo "════════════════════════"
+            echo "$AUDIT_PASS passed, $AUDIT_FAIL failed"
+            [ "$AUDIT_FAIL" -gt 0 ] && exit 1
+            exit 0
+        fi
         ;;
 
     # === Format + Lint ===
@@ -849,6 +950,80 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         else
             echo "nothing to clean"
         fi
+        ;;
+
+    # === Fuzz: mutation-based compiler fuzzer ===
+    fuzz)
+        shift
+        FUZZ_ITERS="${1:-1000}"
+        FUZZ_SEED_DIR="${2:-tests/tcyr}"
+        echo "=== cyrb fuzz ==="
+        echo "  iterations: $FUZZ_ITERS"
+        echo "  seeds:      $FUZZ_SEED_DIR"
+        echo ""
+        crashes=0
+        tested=0
+        # Collect seed corpus
+        seeds=""
+        for f in $(find "$FUZZ_SEED_DIR" -name '*.tcyr' -o -name '*.cyr' 2>/dev/null) $(find src lib -name '*.cyr' 2>/dev/null); do
+            [ -f "$f" ] && seeds="$seeds $f"
+        done
+        if [ -z "$seeds" ]; then
+            echo "no seed files found"
+            exit 1
+        fi
+        i=0
+        while [ $i -lt "$FUZZ_ITERS" ]; do
+            # Pick random strategy
+            strategy=$((i % 5))
+            case $strategy in
+                0) # Random printable ASCII
+                    input=$(head -c $((64 + i % 4096)) /dev/urandom | tr -dc 'a-zA-Z0-9 _;{}()=+\-*/<>!&|^~.,\n#"' | head -c $((64 + i % 2048)))
+                    ;;
+                1) # Mutate a seed file (flip random bytes)
+                    seed=$(echo $seeds | tr ' ' '\n' | shuf -n1 2>/dev/null || echo $seeds | awk '{print $1}')
+                    input=$(cat "$seed" 2>/dev/null | awk -v s=$i 'BEGIN{srand(s)} {for(j=1;j<=length($0);j++){c=substr($0,j,1); if(rand()<0.05) c=sprintf("%c",32+int(rand()*95)); printf "%s",c} print ""}')
+                    ;;
+                2) # Deep nesting
+                    depth=$((10 + i % 200))
+                    input=$(python3 -c "print('if (1) { ' * $depth + 'var x=1;' + ' }' * $depth)" 2>/dev/null || echo "var x = 1;")
+                    ;;
+                3) # Long expressions
+                    len=$((10 + i % 500))
+                    input=$(python3 -c "print('var x = ' + '+'.join(['1']*$len) + ';')" 2>/dev/null || echo "var x = 1;")
+                    ;;
+                4) # Keyword spam
+                    input=$(python3 -c "
+import random; random.seed($i)
+kw=['var','fn','if','else','while','for','return','struct','enum','break','continue','switch','match','include','syscall']
+print(' '.join(random.choice(kw) for _ in range(50+$i%200)) + ';')
+" 2>/dev/null || echo "var x = 1;")
+                    ;;
+            esac
+            ec=0
+            echo "$input" | timeout 5 "$CC" > /dev/null 2>&1 || ec=$?
+            tested=$((tested + 1))
+            if [ $ec -eq 139 ] || [ $ec -eq 134 ] || [ $ec -eq 136 ]; then
+                crashes=$((crashes + 1))
+                echo "  CRASH (exit $ec) at iteration $i, strategy $strategy"
+                echo "$input" > "/tmp/cyrb_fuzz_crash_${i}.cyr"
+                echo "  saved: /tmp/cyrb_fuzz_crash_${i}.cyr"
+            fi
+            # Progress every 100
+            if [ $((i % 100)) -eq 0 ] && [ $i -gt 0 ]; then
+                printf "  [%d/%d] %d crashes\r" "$i" "$FUZZ_ITERS" "$crashes"
+            fi
+            i=$((i + 1))
+        done
+        echo ""
+        echo "=== fuzz complete ==="
+        echo "  tested:  $tested"
+        echo "  crashes: $crashes"
+        if [ $crashes -gt 0 ]; then
+            echo "  crash inputs saved to /tmp/cyrb_fuzz_crash_*.cyr"
+            exit 1
+        fi
+        exit 0
         ;;
 
     update)
