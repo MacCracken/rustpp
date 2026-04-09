@@ -22,7 +22,7 @@
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC20  ret_patch_cnt [8]
 #   0x8DC30  (available — fn_local_names relocated to 0x91000)
-#   0x8DE30  (available — var_types relocated to 0x12E000)
+#   0x8DE30  (available — var_types relocated to 0x13A000)
 #   0x8E630  struct tables               names, fcounts (to 0x8E830)
 #   0x8F830  struct_count  [8]
 #   0x8F838  loop_top, break_patch       Loop state
@@ -47,25 +47,25 @@
 #   0x91000  fn_local_names              Function local variable names
 #   0x91800  local_depths  [512]         64 scope depths per local var
 #   0x92200  local_types                 Local variable type tracking
-#   0x13E000  tok_types     [524288]      65536 token type slots
-#   0x23E000 tok_values    [524288]      65536 token value slots
-#   0x33E000 tok_lines     [524288]      65536 token line numbers
-#   0x43E000 preprocess_out [524288]     512KB expanded source buffer
+#   0x14A000  tok_types     [524288]      65536 token type slots
+#   0x24A000 tok_values    [524288]      65536 token value slots
+#   0x34A000 tok_lines     [524288]      65536 token line numbers
+#   0x44A000 preprocess_out [524288]     512KB expanded source buffer
 #   0xA0000 fixup_tbl     [131072]      8192 fixup entries (16 bytes each)
-#   0x2B8000 (available — var_noffs relocated to 0x10E000)
-#   0x2C0000 (available — var_sizes relocated to 0x11E000)
-#   0xC0000 fn_names      [8192]        1024 function name offsets
-#   0xC2000 fn_offsets    [8192]        1024 function code offsets
-#   0xC4000 fn_params     [8192]        1024 function param counts
-#   0xC6000 fn_body_start [8192]        1024 inline metadata
-#   0xC8000 fn_body_end   [8192]
-#   0xCA000 fn_inline     [8192]
-#   0xCC000 struct_fnames [8192]        32*32 field name offsets (stride 256)
-#   0xCE000 output_buf    [262144]      ELF output buffer (256KB)
-#   0x10E000 var_noffs    [65536]       8192 variable name offsets
-#   0x11E000 var_sizes    [65536]       8192 variable sizes
-#   0x12E000 var_types    [65536]       8192 variable type IDs
-#   0x13E000 brk
+#   0x2B8000 (available — var_noffs relocated to 0x11A000)
+#   0x2C0000 (available — var_sizes relocated to 0x12A000)
+#   0xC0000 fn_names      [16384]       2048 function name offsets
+#   0xC4000 fn_offsets    [16384]       2048 function code offsets
+#   0xC8000 fn_params     [16384]       2048 function param counts
+#   0xCC000 fn_body_start [16384]       2048 inline metadata
+#   0xD0000 fn_body_end   [16384]
+#   0xD4000 fn_inline     [16384]
+#   0xD8000 struct_fnames [8192]        32*32 field name offsets (stride 256)
+#   0xDA000 output_buf    [262144]      ELF output buffer (256KB)
+#   0x11A000 var_noffs    [65536]       8192 variable name offsets
+#   0x12A000 var_sizes    [65536]       8192 variable sizes
+#   0x13A000 var_types    [65536]       8192 variable type IDs
+#   0x14A000 brk
 
 
 # ================================================================
@@ -90,7 +90,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x4BE000);
+syscall(SYS_BRK, S + 0x4CA000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -330,7 +330,7 @@ var olen = L64(S + 0x5C130);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0xCE000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0xDA000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

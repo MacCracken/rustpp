@@ -14,7 +14,7 @@ include "src/frontend/parse.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x4BE000);
+syscall(SYS_BRK, S + 0x4CA000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -186,9 +186,9 @@ while (scan == 1) {
 SMOD(S, 0);
 
 # DCE pre-scan: build referenced-name bitmap in one pass over tokens.
-# Uses output_buf (S+0xCE000, 8KB) as scratch — safe because EMITELF runs later.
+# Uses output_buf (S+0xDA000, 8KB) as scratch — safe because EMITELF runs later.
 # Bitmap: bit N set means tok_names offset N is referenced as non-FN identifier.
-var dce_bm = S + 0xCE000;
+var dce_bm = S + 0xDA000;
 var dce_zi = 0;
 while (dce_zi < 8192) { store8(dce_bm + dce_zi, 0); dce_zi = dce_zi + 1; }
 var dce_ti = 0;
@@ -281,7 +281,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0xC2000 + stub_fi * 8, GCP(S));
+            S64(S + 0xC4000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -329,7 +329,7 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0xC2000 + wfi * 8) < 0) {
+    if (L64(S + 0xC4000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
         PRSTR(S + 0x60000 + L64(S + 0xC0000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
@@ -354,7 +354,7 @@ SCP(S, cp);
 var vcnt = GVCNT(S);
 var totvar = 0;
 var vi = 0;
-while (vi < vcnt) { totvar = totvar + L64(S + 0x11E000 + vi * 8); vi = vi + 1; }
+while (vi < vcnt) { totvar = totvar + L64(S + 0x12A000 + vi * 8); vi = vi + 1; }
 var spos = GSPOS(S);
 # Data base = cp (data starts right after bytecode in the loaded .cyx)
 var dbase = cp;
@@ -369,14 +369,14 @@ while (fi < fcnt) {
     var idx = raw & 0x00FFFFFFFFFFFFFF;
     if (ftype == 2) {
         # Function call — patch relative offset in movi (bytes 2-3 of the instruction)
-        var target = L64(S + 0xC2000 + idx * 8);
+        var target = L64(S + 0xC4000 + idx * 8);
         var rel = target - coff - 4;
         var pa = S + 0x20000 + coff;
         S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
     }
     elif (ftype == 3) {
         # Function pointer — absolute code offset
-        var foff = L64(S + 0xC2000 + idx * 8);
+        var foff = L64(S + 0xC4000 + idx * 8);
         # Patch movi: store 16-bit value in bytes 2-3
         store8(S + 0x20000 + coff + 2, foff & 0xFF);
         store8(S + 0x20000 + coff + 3, (foff >> 8) & 0xFF);
@@ -397,7 +397,7 @@ while (fi < fcnt) {
         # Variable address → dbase + cumulative offset
         var cumul = 0;
         vi = 0;
-        while (vi < idx) { cumul = cumul + L64(S + 0x11E000 + vi * 8); vi = vi + 1; }
+        while (vi < idx) { cumul = cumul + L64(S + 0x12A000 + vi * 8); vi = vi + 1; }
         var addr = dbase + cumul;
         store8(S + 0x20000 + coff - 2, addr & 0xFF);
         store8(S + 0x20000 + coff - 1, (addr >> 8) & 0xFF);

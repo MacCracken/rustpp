@@ -18,8 +18,8 @@ fn GSTC(S) { return L64(S + 0x8F830); }
 fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
 
 # Get/set struct_id for global variable at index vi
-fn GVTYPE(S, vi) { return L64(S + 0x12E000 + vi * 8); }
-fn SVTYPE(S, vi, v) { S64(S + 0x12E000 + vi * 8, v); return 0; }
+fn GVTYPE(S, vi) { return L64(S + 0x13A000 + vi * 8); }
+fn SVTYPE(S, vi, v) { S64(S + 0x13A000 + vi * 8, v); return 0; }
 
 # Register a new struct, return index (1-based, 0 = not a struct)
 fn REGSTRUCT(S, noff) {
@@ -49,7 +49,7 @@ fn FINDSTRUCT(S, noff) {
 fn ADDFIELD(S, si, fnoff) {
     var fc = L64(S + 0x8E730 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
-    S64(S + 0xCC000 + si * 256 + fc * 8, fnoff);
+    S64(S + 0xD8000 + si * 256 + fc * 8, fnoff);
     S64(S + 0x8A000 + si * 256 + fc * 8, 0);
     S64(S + 0x8E730 + si * 8, fc + 1);
     return 0;
@@ -58,7 +58,7 @@ fn ADDFIELD(S, si, fnoff) {
 fn ADDFIELDTYPED(S, si, fnoff, ftype) {
     var fc = L64(S + 0x8E730 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
-    S64(S + 0xCC000 + si * 256 + fc * 8, fnoff);
+    S64(S + 0xD8000 + si * 256 + fc * 8, fnoff);
     S64(S + 0x8A000 + si * 256 + fc * 8, ftype);
     S64(S + 0x8E730 + si * 8, fc + 1);
     return 0;
@@ -152,8 +152,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     SNPOS(S, cwp2);
                     var cfi = FINDFN(S, cnoff2);
                     if (cfi >= 0) {
-                        S64(S + 0xC2000 + cfi * 8, GCP(S));
-                        S64(S + 0xC4000 + cfi * 8, 1);
+                        S64(S + 0xC4000 + cfi * 8, GCP(S));
+                        S64(S + 0xC8000 + cfi * 8, 1);
                         EFNPRO(S);
                         var ctor_frame = ESUBRSP(S);
                         ESTOREPARM(S, 0, 0, 0);
@@ -166,7 +166,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         SNPOS(S, awnp + 6);
                         var afi = FINDFN(S, awnp);
                         if (afi < 0) { afi = REGFN(S, awnp); }
-                        var afoff = L64(S + 0xC2000 + afi * 8);
+                        var afoff = L64(S + 0xC4000 + afi * 8);
                         if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
                         ECALLCLEAN(S, 1);
                         EFLSTORE(S, 1);
@@ -182,8 +182,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             elif (emit_code == 0) {
                 # Pass 1: register variant as global var
                 var vcnt = GVCNT(S);
-                S64(S + 0x10E000 + vcnt * 8, vnoff);
-                S64(S + 0x11E000 + vcnt * 8, 8);
+                S64(S + 0x11A000 + vcnt * 8, vnoff);
+                S64(S + 0x12A000 + vcnt * 8, 8);
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
                 if (has_ctor == 1) {
@@ -218,7 +218,7 @@ fn FINDFIELD(S, si, fnoff) {
     var fc = GETFCOUNT(S, si);
     var i = 0;
     while (i < fc) {
-        var fn_off = L64(S + 0xCC000 + si * 256 + i * 8);
+        var fn_off = L64(S + 0xD8000 + si * 256 + i * 8);
         if (STREQ(S, fn_off, fnoff) == 1) { return i; }
         i = i + 1;
     }
@@ -342,7 +342,7 @@ fn FINDVAR(S, noff) {
     var vcnt = GVCNT(S);
     var vi = vcnt - 1;
     while (vi >= 0) {
-        var stored = L64(S + 0x10E000 + vi * 8);
+        var stored = L64(S + 0x11A000 + vi * 8);
         if (STREQ(S, stored, noff) == 1) { return vi; }
         vi = vi - 1;
     }
@@ -454,7 +454,7 @@ fn PARSE_FACTOR(S) {
         if (vt > 0) {
             # Disambiguate scalar types from struct IDs using var_sizes:
             # Scalar i8/i16/i32 have var_sizes 1/2/4. Structs have var_sizes >= 8.
-            var gvsz = L64(S + 0x11E000 + idx * 8);
+            var gvsz = L64(S + 0x12A000 + idx * 8);
             if (gvsz < 8) {
                 SEXW(S, gvsz);
                 EVLOAD_W(S, idx, gvsz);
@@ -665,7 +665,7 @@ fn PARSE_FACTOR(S) {
         SSDEP(S, 0);
         # Emit function prologue
         var cl_jmp = EJMP0(S);
-        S64(S + 0xC2000 + clfi * 8, GCP(S));
+        S64(S + 0xC4000 + clfi * 8, GCP(S));
         EFNPRO(S);
         # Parse params until |
         var clpc = 0;
@@ -685,7 +685,7 @@ fn PARSE_FACTOR(S) {
                 else { cpgo = 0; }
             }
         }
-        S64(S + 0xC4000 + clfi * 8, clpc);
+        S64(S + 0xC8000 + clfi * 8, clpc);
         if (PEEKT(S) != 35) { ERR_EXPECT(S, 35); }
         STI(S, GTI(S) + 1);  # consume closing |
         ESUBRSP(S, GFLC(S));
@@ -1126,7 +1126,7 @@ fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
     ECALLPOPS(S, 2);
     var ofi = FINDFN(S, opnoff);
     if (ofi < 0) { ofi = REGFN(S, opnoff); }
-    var ofoff = L64(S + 0xC2000 + ofi * 8);
+    var ofoff = L64(S + 0xC4000 + ofi * 8);
     if (ofoff >= 0) { ECALLTO(S, ofoff); }
     else { ECALLFIX(S, ofi); }
     ECALLCLEAN(S, 2);
@@ -1328,9 +1328,9 @@ fn PARSE_ARRAY(S, noff) {
     # a NEW global even if one with the same name exists. FINDVAR returns
     # the last match, so the current function's array shadows previous ones.
     var vcnt = GVCNT(S);
-    S64(S + 0x10E000 + vcnt * 8, noff);
+    S64(S + 0x11A000 + vcnt * 8, noff);
     var aligned = (asz + 7) & (0 - 8);
-    S64(S + 0x11E000 + vcnt * 8, aligned);
+    S64(S + 0x12A000 + vcnt * 8, aligned);
     SVCNT(S, vcnt + 1);
     return 0;
 }
@@ -1426,7 +1426,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
         ECALLPOPS(S, argc);
         var mfi = FINDFN(S, mname);
         if (mfi < 0) { mfi = REGFN(S, mname); }
-        var mfoff = L64(S + 0xC2000 + mfi * 8);
+        var mfoff = L64(S + 0xC4000 + mfi * 8);
         if (mfoff >= 0) { ECALLTO(S, mfoff); }
         else { ECALLFIX(S, mfi); }
         ECALLCLEAN(S, argc);
@@ -1532,8 +1532,8 @@ fn PARSE_STRUCT_INIT(S, noff, sid) {
     STI(S, GTI(S) + 1);
     var sz = STRUCTSZ(S, si);
     var vcnt = GVCNT(S);
-    S64(S + 0x10E000 + vcnt * 8, noff);
-    S64(S + 0x11E000 + vcnt * 8, sz);
+    S64(S + 0x11A000 + vcnt * 8, noff);
+    S64(S + 0x12A000 + vcnt * 8, sz);
     SVTYPE(S, vcnt, sid);
     # Emit each scalar field (flatten nested structs)
     var fc = GETFCOUNT(S, si);
@@ -1576,8 +1576,8 @@ fn PARSE_GVAR_ARR(S, noff) {
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
     var vc = GVCNT(S);
-    S64(S + 0x10E000 + vc * 8, noff);
-    S64(S + 0x11E000 + vc * 8, sz);
+    S64(S + 0x11A000 + vc * 8, noff);
+    S64(S + 0x12A000 + vc * 8, sz);
     SLVAR(S, vc);
     SVCNT(S, vc + 1);
     return 0;
@@ -1641,20 +1641,20 @@ fn PARSE_GVAR_REG(S) {
     STI(S, save_peek);  # restore
     # Register
     var vcnt = GVCNT(S);
-    S64(S + 0x10E000 + vcnt * 8, noff);
+    S64(S + 0x11A000 + vcnt * 8, noff);
     if (is_struct == 1) {
-        S64(S + 0x11E000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
+        S64(S + 0x12A000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
         SVTYPE(S, vcnt, ssid);
     } else {
         if (ann_scalar > 0) {
             if (ann_scalar < 8) {
-                S64(S + 0x11E000 + vcnt * 8, ann_scalar);
+                S64(S + 0x12A000 + vcnt * 8, ann_scalar);
                 SVTYPE(S, vcnt, ann_scalar);
             } else {
-                S64(S + 0x11E000 + vcnt * 8, 8);
+                S64(S + 0x12A000 + vcnt * 8, 8);
             }
         } else {
-            S64(S + 0x11E000 + vcnt * 8, 8);
+            S64(S + 0x12A000 + vcnt * 8, 8);
             if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
             elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
         }
@@ -1834,19 +1834,19 @@ fn PARSE_VAR(S) {
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
-        S64(S + 0x10E000 + vcnt * 8, noff);
+        S64(S + 0x11A000 + vcnt * 8, noff);
         if (scalar_type > 0) {
             if (scalar_type < 8) {
-                S64(S + 0x11E000 + vcnt * 8, scalar_type);
+                S64(S + 0x12A000 + vcnt * 8, scalar_type);
                 SVTYPE(S, vcnt, scalar_type);
                 EVSTORE_W(S, vcnt, scalar_type);
             } else {
                 # i64 explicit — same as default
-                S64(S + 0x11E000 + vcnt * 8, 8);
+                S64(S + 0x12A000 + vcnt * 8, 8);
                 EVSTORE(S, vcnt);
             }
         } else {
-            S64(S + 0x11E000 + vcnt * 8, 8);
+            S64(S + 0x12A000 + vcnt * 8, 8);
             if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
             EVSTORE(S, vcnt);
         }
@@ -2126,8 +2126,8 @@ fn PARSE_FOR(S) {
                 # rax has the collection (vec pointer)
                 # Store collection in hidden var
                 var ficol = GVCNT(S);
-                S64(S + 0x10E000 + ficol * 8, 0);
-                S64(S + 0x11E000 + ficol * 8, 8);
+                S64(S + 0x11A000 + ficol * 8, 0);
+                S64(S + 0x12A000 + ficol * 8, 8);
                 SVCNT(S, ficol + 1);
                 EVSTORE(S, ficol);
                 # Get length: call vec_len(collection)
@@ -2144,13 +2144,13 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vlnp + 8);
                 vlfi = FINDFN(S, vlnp);
                 if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
-                var vloff = L64(S + 0xC2000 + vlfi * 8);
+                var vloff = L64(S + 0xC4000 + vlfi * 8);
                 if (vloff >= 0) { ECALLTO(S, vloff); } else { ECALLFIX(S, vlfi); }
                 ECALLCLEAN(S, 1);
                 # Store length in hidden var
                 var filen = GVCNT(S);
-                S64(S + 0x10E000 + filen * 8, 0);
-                S64(S + 0x11E000 + filen * 8, 8);
+                S64(S + 0x11A000 + filen * 8, 0);
+                S64(S + 0x12A000 + filen * 8, 8);
                 SVCNT(S, filen + 1);
                 EVSTORE(S, filen);
                 # Index var (starts at 0)
@@ -2203,7 +2203,7 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vgnp + 8);
                 vgfi = FINDFN(S, vgnp);
                 if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
-                var vgoff = L64(S + 0xC2000 + vgfi * 8);
+                var vgoff = L64(S + 0xC4000 + vgfi * 8);
                 if (vgoff >= 0) { ECALLTO(S, vgoff); } else { ECALLFIX(S, vgfi); }
                 ECALLCLEAN(S, 2);
                 EFLSTORE(S, fiitem);
@@ -2249,8 +2249,8 @@ fn PARSE_FOR(S) {
             # End value into hidden global
             PEXPR(S);
             var fiend = GVCNT(S);
-            S64(S + 0x10E000 + fiend * 8, 0);
-            S64(S + 0x11E000 + fiend * 8, 8);
+            S64(S + 0x11A000 + fiend * 8, 0);
+            S64(S + 0x12A000 + fiend * 8, 8);
             SVCNT(S, fiend + 1);
             EVSTORE(S, fiend);
             # Loop setup
@@ -2374,15 +2374,15 @@ fn PARSE_FOR(S) {
 # Register new function, return index
 fn REGFN(S, noff) {
     var fc = GFNC(S);
-    if (fc >= 1024) {
+    if (fc >= 2048) {
         syscall(SYS_WRITE, 2, "error: function table full (", 28);
         PRNUM(fc);
-        syscall(SYS_WRITE, 2, "/1024) — split into separate compilation units\n", 48);
+        syscall(SYS_WRITE, 2, "/2048) — split into separate compilation units\n", 48);
         syscall(SYS_EXIT, 1);
     }
     S64(S + 0xC0000 + fc * 8, noff);
-    S64(S + 0xC2000 + fc * 8, 0 - 1);
-    S64(S + 0xC4000 + fc * 8, 0);
+    S64(S + 0xC4000 + fc * 8, 0 - 1);
+    S64(S + 0xC8000 + fc * 8, 0);
     SFNC(S, fc + 1);
     return fc;
 }
@@ -2486,7 +2486,7 @@ fn PARSE_RETURN(S) {
                     if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
                     if (tcargc > 6) {
                         # >6 args: normal call (stack args clobbered by tail call epilogue)
-                        var foff2 = L64(S + 0xC2000 + tcfi * 8);
+                        var foff2 = L64(S + 0xC4000 + tcfi * 8);
                         if (foff2 >= 0) { ECALLTO(S, foff2); }
                         else { ECALLFIX(S, tcfi); }
                         ECALLCLEAN(S, tcargc);
@@ -2525,7 +2525,7 @@ fn PARSE_FNCALL(S, noff) {
     if (fi < 0) { fi = REGFN(S, noff); }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
         # INLINE PATH: replay function body tokens at call site
-        var pc = L64(S + 0xC4000 + fi * 8);
+        var pc = L64(S + 0xC8000 + fi * 8);
         var saved_flc = GFLC(S);
         # Allocate fresh frame slots for callee params
         var p0_slot = saved_flc;
@@ -2590,7 +2590,7 @@ fn PARSE_FNCALL(S, noff) {
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
     ECALLPOPS(S, argc);
-    var foff = L64(S + 0xC2000 + fi * 8);
+    var foff = L64(S + 0xC4000 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -2676,7 +2676,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     # Set fn offset to current CP
-    S64(S + 0xC2000 + fi * 8, GCP(S));
+    S64(S + 0xC4000 + fi * 8, GCP(S));
     # Save compiler state
     var saved_lv = GLVAR(S);
     SINFN(S, 1);
@@ -2718,7 +2718,7 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
-    S64(S + 0xC4000 + fi * 8, pc);
+    S64(S + 0xC8000 + fi * 8, pc);
     # Record first param name offset for inlining (stored in fn_inline later)
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {
@@ -2849,8 +2849,8 @@ fn PARSE_SWITCH(S) {
     }
     # Allocate hidden global to hold switch value
     var swidx = GVCNT(S);
-    S64(S + 0x10E000 + swidx * 8, 0);
-    S64(S + 0x11E000 + swidx * 8, 8);
+    S64(S + 0x11A000 + swidx * 8, 0);
+    S64(S + 0x12A000 + swidx * 8, 8);
     SVCNT(S, swidx + 1);
     EVSTORE(S, swidx);
     if (use_table == 1) {
@@ -2999,8 +2999,8 @@ fn PARSE_MATCH(S) {
     STI(S, GTI(S) + 1);
     # Store match value in hidden temp var
     var midx = GVCNT(S);
-    S64(S + 0x10E000 + midx * 8, 0);
-    S64(S + 0x11E000 + midx * 8, 8);
+    S64(S + 0x11A000 + midx * 8, 0);
+    S64(S + 0x12A000 + midx * 8, 8);
     SVCNT(S, midx + 1);
     EVSTORE(S, midx);
     var ends[256];
@@ -3258,7 +3258,7 @@ fn PARSE_STMT(S) {
             if (vt < 0) {
                 if (aps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
             }
-            var avsz = L64(S + 0x11E000 + idx * 8);
+            var avsz = L64(S + 0x12A000 + idx * 8);
             var ew = GEXW(S);
             if (avsz < 8) {
                 if (ew > avsz) { WARN(S, "narrowing assignment (value may truncate)", 45); }

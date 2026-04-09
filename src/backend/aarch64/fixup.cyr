@@ -18,7 +18,7 @@ fn FIXUP(S) {
     var totvar = 0;
     var vi = 0;
     while (vi < vcnt) {
-        totvar = totvar + L64(S + 0x11E000 + vi * 8);
+        totvar = totvar + L64(S + 0x12A000 + vi * 8);
         vi = vi + 1;
     }
     var fcnt = GFCNT(S);
@@ -31,7 +31,7 @@ fn FIXUP(S) {
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call: patch BL rel26
-            var target = L64(S + 0xC2000 + idx * 8);
+            var target = L64(S + 0xC4000 + idx * 8);
             var rel = (target - coff) / 4;
             var pa = S + 0x20000 + coff;
             var insn = 0x94000000 | (rel & 0x3FFFFFF);
@@ -39,7 +39,7 @@ fn FIXUP(S) {
         }
         else { if (ftype == 4) {
             # Tail call: patch B rel26 (not BL — no link register update)
-            var target = L64(S + 0xC2000 + idx * 8);
+            var target = L64(S + 0xC4000 + idx * 8);
             var rel = (target - coff) / 4;
             var pa = S + 0x20000 + coff;
             var insn = 0x14000000 | (rel & 0x3FFFFFF);
@@ -52,7 +52,7 @@ fn FIXUP(S) {
             var cumul = 0;
             vi = 0;
             while (vi < idx) {
-                cumul = cumul + L64(S + 0x11E000 + vi * 8);
+                cumul = cumul + L64(S + 0x12A000 + vi * 8);
                 vi = vi + 1;
             }
             FIXUP_MOV(S, coff, dbase + cumul);
@@ -100,7 +100,7 @@ fn EMITELF(S) {
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 4096;
-    var O = S + 0xCE000;
+    var O = S + 0xDA000;
     var op = 0;
     # ELF64 header (64 bytes)
     # e_ident: ELF magic + class64 + LE + version + ELFOSABI_NONE
@@ -153,7 +153,7 @@ fn EMITELF_KERNEL(S) {
     var memsz = filesz + 65536;
     var base = 0x40000000;
     var entry = base + 120;
-    var O = S + 0xCE000;
+    var O = S + 0xDA000;
     var op = 0;
     # ELF64 header (64 bytes)
     S64(O + op, 0x00010102464C457F); op = op + 8;

@@ -55,12 +55,12 @@ fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
 fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
 # Inline metadata accessors
-fn GFBS(S, fi) { return L64(S + 0xC6000 + fi * 8); }
-fn SFBS(S, fi, v) { S64(S + 0xC6000 + fi * 8, v); return 0; }
-fn GFBE(S, fi) { return L64(S + 0xC8000 + fi * 8); }
-fn SFBE(S, fi, v) { S64(S + 0xC8000 + fi * 8, v); return 0; }
-fn GFINL(S, fi) { return L64(S + 0xCA000 + fi * 8); }
-fn SFINL(S, fi, v) { S64(S + 0xCA000 + fi * 8, v); return 0; }
+fn GFBS(S, fi) { return L64(S + 0xCC000 + fi * 8); }
+fn SFBS(S, fi, v) { S64(S + 0xCC000 + fi * 8, v); return 0; }
+fn GFBE(S, fi) { return L64(S + 0xD0000 + fi * 8); }
+fn SFBE(S, fi, v) { S64(S + 0xD0000 + fi * 8, v); return 0; }
+fn GFINL(S, fi) { return L64(S + 0xD4000 + fi * 8); }
+fn SFINL(S, fi, v) { S64(S + 0xD4000 + fi * 8, v); return 0; }
 fn GIDEP(S) { return L64(S + 0x903E8); }
 fn SIDEP(S, v) { S64(S + 0x903E8, v); return 0; }
 # Extra condition patches (for && chaining)
@@ -80,8 +80,8 @@ fn ADDXP(S, p) {
 # Line tracking
 fn GCLINE(S) { return L64(S + 0x8FCB8); }
 fn SCLINE(S, v) { S64(S + 0x8FCB8, v); return 0; }
-fn GTLINE(S, ti) { return L64(S + 0x33E000 + ti * 8); }
-fn STLINE(S, ti, v) { S64(S + 0x33E000 + ti * 8, v); return 0; }
+fn GTLINE(S, ti) { return L64(S + 0x34A000 + ti * 8); }
+fn STLINE(S, ti, v) { S64(S + 0x34A000 + ti * 8, v); return 0; }
 
 # Block scoping
 fn GSDEP(S) { return L64(S + 0x8FCC0); }

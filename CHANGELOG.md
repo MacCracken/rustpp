@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.2] — 2026-04-09
+
+### Changed
+- **Function table expanded 1024→2048**: Six function tables (names, offsets, params,
+  body_start, body_end, inline) each doubled from 8KB to 16KB. All downstream regions
+  relocated (struct_fnames, output_buf, var tables, token arrays, preprocess buffer).
+  brk increased from 4.7MB to 4.8MB. Two-step bootstrap verified.
+  Unblocks agnostik `_from_json` deserialization (was hitting 1024 function ceiling).
+- **cc2**: 232KB (was 231KB)
+
 ## [3.2.1] — 2026-04-09
 
 ### Changed

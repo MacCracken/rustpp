@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.2.1.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
+> **v3.2.2.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
 > 29 test suites (362 assertions), 4 fuzz harnesses, soak test clean. 35 stdlib modules.
 > 8 downstream repos pass. 207 vidya entries. Format/lint/doc 100% clean.
 
@@ -75,7 +75,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | Status | Repos |
 |--------|-------|
-| **Done** | agnostik (223), agnosys (20 modules), argonaut (395), kybernet, nous, ark |
+| **Done** | agnostik (553), agnosys (20 modules), argonaut (395), kybernet, nous, ark |
 | **Done** | sakshi (12), majra (144), libro (202), bsp (74), cyrius-doom (129KB) |
 | **In progress** | bhava (29K), hisab (31K) — keystone ports, unlock 37 downstream |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
@@ -97,6 +97,14 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | String data | 32KB |
 | Tokens | 131072 |
 | Macros | 16 |
+
+## Downstream Blockers — requesting 3.2.x fix
+
+| # | Issue | Affected | Details |
+|---|-------|----------|---------|
+| 1 | **1024 function limit** | agnostik | Types library needs ~900 functions + deserialization would add ~100 more. Cannot add `_from_json` for 9 structs or serde benchmarks without exceeding limit. Increase to 2048 or support multi-file linking. |
+| 2 | **`#derive(Serialize)` formats all values as strings** | agnostik | Auto-generated `_to_json` renders integers as `"42"` not `42`. Consumers need manual overrides for correct numeric JSON. Request: detect integer/bool fields and emit `str_builder_add_int` instead of string quoting. |
+| 3 | **Nested if/while/break codegen** | agnostik | `version_from_str` correctly stores prerelease inside `if (sep == 45) { while (...) { break; } ... store64(v+24, pre); }` but value is NULL at runtime when both prerelease+build present. Simple prerelease (no build) works. Suspect break inside while inside if clobbers a register or skips the store. |
 
 ## Known Gotchas
 

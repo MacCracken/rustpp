@@ -14,7 +14,7 @@ fn FIXUP(S) {
         var totvar = 0;
         var vi = 0;
         while (vi < vcnt) {
-            totvar = totvar + L64(S + 0x11E000 + vi * 8);
+            totvar = totvar + L64(S + 0x12A000 + vi * 8);
             vi = vi + 1;
         }
         S64(S + 0x70008, totvar);
@@ -30,10 +30,10 @@ fn FIXUP(S) {
     var totvar = 0;
     var vi = 0;
     # Store prefix sums in scratch area (output_buf tail, safe — ELF not written yet)
-    var pfx = S + 0xCE000 + 131072;
+    var pfx = S + 0xDA000 + 131072;
     while (vi < vcnt) {
         S64(pfx + vi * 8, totvar);
-        totvar = totvar + L64(S + 0x11E000 + vi * 8);
+        totvar = totvar + L64(S + 0x12A000 + vi * 8);
         vi = vi + 1;
     }
     # Walk fixup table
@@ -47,14 +47,14 @@ fn FIXUP(S) {
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call — patch rel32
-            var target = L64(S + 0xC2000 + idx * 8);
+            var target = L64(S + 0xC4000 + idx * 8);
             var rel = target - coff - 4;
             var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
         else { if (ftype == 3) {
             # Absolute function address — patch imm64
-            S64(S + 0x20000 + coff, entry + L64(S + 0xC2000 + idx * 8));
+            S64(S + 0x20000 + coff, entry + L64(S + 0xC4000 + idx * 8));
         }
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset
@@ -90,7 +90,7 @@ fn EMITELF_KERNEL(S) {
     var memsz = filesz + 65536;
     # Entry = base + headers + pad + multiboot header
     var entry = 0x100000 + hdrsz + mb_sz;
-    var O = S + 0xCE000;
+    var O = S + 0xDA000;
     var op = 0;
     # ELF32 header (52 bytes)
     S64(O + op, 0x0000010101464C457F & 0xFFFFFFFFFFFFFFFF);
@@ -165,7 +165,7 @@ fn EMITELF_USER(S, etype) {
         syscall(SYS_WRITE, 2, " bytes) — consider alloc() for buffers >4KB\n", 44);
     }
     var memsz = filesz + 4096;
-    var O = S + 0xCE000;
+    var O = S + 0xDA000;
     var op = 0;
     # ELF header (64 bytes) — e_type from parameter
     S64(O + op, 0x00010102464C457F); op = op + 8;
@@ -218,7 +218,7 @@ fn EMITELF_OBJ(S) {
     var fcnt = GFCNT(S);
     var fnc = GFNC(S);
 
-    var O = S + 0xCE000;
+    var O = S + 0xDA000;
     var op = 0;
 
     # --- Allocate scratch via brk extension ---
@@ -307,7 +307,7 @@ fn EMITELF_OBJ(S) {
         # st_shndx: 1 (.text)
         store8(symp + 6, 1); store8(symp + 7, 0);
         # st_value: function offset in .text (8 bytes LE)
-        var foff = L64(S + 0xC2000 + fi * 8);
+        var foff = L64(S + 0xC4000 + fi * 8);
         if (foff < 0) { foff = 0; }
         S64(symp + 8, foff);
         # st_size: 0 (unknown)
@@ -359,7 +359,7 @@ fn EMITELF_OBJ(S) {
             var cumul = 0;
             var vi = 0;
             while (vi < idx) {
-                cumul = cumul + L64(S + 0x11E000 + vi * 8);
+                cumul = cumul + L64(S + 0x12A000 + vi * 8);
                 vi = vi + 1;
             }
             S64(rp, coff);

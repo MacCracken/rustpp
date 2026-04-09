@@ -9,8 +9,8 @@ fn ADDTOK(S, typ, val) {
         syscall(SYS_WRITE, 2, "error: token limit exceeded (131072)\n", 36);
         syscall(SYS_EXIT, 1);
     }
-    S64(S + 0x13E000 + tc * 8, typ);
-    S64(S + 0x23E000 + tc * 8, val);
+    S64(S + 0x14A000 + tc * 8, typ);
+    S64(S + 0x24A000 + tc * 8, val);
     STLINE(S, tc, GCLINE(S));
     STCNT(S, tc + 1);
     return 0;
@@ -162,7 +162,7 @@ fn ISINCLUDE(S, pos, bl) {
 }
 
 # Preprocess: expand include directives in-place.
-# Uses S+0 as input, S+0x43E000 as expanded output (512KB), copies back to S+0.
+# Uses S+0 as input, S+0x44A000 as expanded output (512KB), copies back to S+0.
 # Check if buffer at pos starts with a directive (returns length or 0)
 fn ISDEFINE(S, pos, bl) {
     if (pos + 8 >= bl) { return 0; }
@@ -856,7 +856,7 @@ fn PP_SKIPLINE(S, ip, bl) {
 # Builds expanded source into a new buffer, then copies back.
 fn PP_PASS(S) {
     var bl = GBL(S);
-    var out = S + 0x43E000;
+    var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     var bol = 1;
@@ -980,8 +980,8 @@ fn PP_PASS(S) {
         syscall(SYS_WRITE, 2, " bytes)\n", 8);
         syscall(SYS_EXIT, 1);
     }
-    # No copy-back — data stays at S+0x43E000.
-    # PP_IFDEF_PASS reads from 0x43E000, writes to S+0.
+    # No copy-back — data stays at S+0x44A000.
+    # PP_IFDEF_PASS reads from 0x44A000, writes to S+0.
     SBL(S, op);
     return had_include;
 }
@@ -990,7 +990,7 @@ fn PP_PASS(S) {
 fn PP_MACRO_PASS(S) {
     if (_pp_macro_count == 0) { return 0; }
     var bl = GBL(S);
-    var out = S + 0x43E000;
+    var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     while (ip < bl) {
@@ -1024,15 +1024,15 @@ fn PP_MACRO_PASS(S) {
             ip = ip + 1;
         }
     }
-    # No copy-back — output stays at S+0x43E000. LEX reads from there.
+    # No copy-back — output stays at S+0x44A000. LEX reads from there.
     SBL(S, op);
     return 0;
 }
 
 # Second pass: evaluate #ifdef/#define/#endif only (no includes).
 # Processes conditional blocks in already-included content.
-# Double-buffer pass 2: reads from S+0x43E000 (preprocess output), writes to S+0 (input buf)
-# Double-buffer pass 2: reads from S+0x43E000 (preprocess output), writes to S+0 (input buf).
+# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf)
+# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf).
 # IMPORTANT: helper functions (ISDEFINE, PP_DEFINE, PP_HASH, etc.) use first param for BOTH
 # source text reading AND heap state access (flag table at 0x90800). We must copy source to
 # S+0 first, then process normally with S as the base. This avoids the base address mismatch.
@@ -1040,9 +1040,9 @@ fn PP_IFDEF_PASS(S) {
     var bl = GBL(S);
     # Copy from preprocess buffer to input buffer first
     var ci = 0;
-    while (ci < bl) { store8(S + ci, load8(S + 0x43E000 + ci)); ci = ci + 1; }
+    while (ci < bl) { store8(S + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
     # Now process from S+0 (same as original single-buffer approach)
-    var out = S + 0x43E000;
+    var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     var bol = 1;
@@ -1115,8 +1115,8 @@ fn PP_IFDEF_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Output is at S+0x43E000. No copy needed — PP_MACRO_PASS reads from S+0.
-    # Wait — PP_MACRO_PASS reads from S+0 but we wrote to 0x43E000.
+    # Output is at S+0x44A000. No copy needed — PP_MACRO_PASS reads from S+0.
+    # Wait — PP_MACRO_PASS reads from S+0 but we wrote to 0x44A000.
     # Copy result back to S+0 for PP_MACRO_PASS.
     ci = 0;
     while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
@@ -1124,10 +1124,10 @@ fn PP_IFDEF_PASS(S) {
     return 0;
 }
 
-# Pre-pass: expand #ref directives in raw input (S+0) into S+0x43E000, copy back
+# Pre-pass: expand #ref directives in raw input (S+0) into S+0x44A000, copy back
 fn PP_REF_PASS(S) {
     var bl = GBL(S);
-    var out = S + 0x43E000;
+    var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     var found = 0;
@@ -1213,14 +1213,14 @@ fn LEXHEX(S, p) {
 
 # Lex decimal number
 fn LEXDEC(S, p) {
-    var c = load8(S + 0x43E000 + p);
+    var c = load8(S + 0x44A000 + p);
     var val = c - 48;
     p = p + 1;
     var go = 1;
     while (go == 1) {
         if (p >= GBL(S)) { go = 0; }
         if (go == 1) {
-            c = load8(S + 0x43E000 + p);
+            c = load8(S + 0x44A000 + p);
             if (c >= 48) {
                 if (c <= 57) { val = val * 10 + (c - 48); p = p + 1; }
                 else { go = 0; }
@@ -1228,7 +1228,7 @@ fn LEXDEC(S, p) {
         }
     }
     # Float literal: digits.digits
-    if (p < GBL(S)) { if (load8(S + 0x43E000 + p) == 46) {
+    if (p < GBL(S)) { if (load8(S + 0x44A000 + p) == 46) {
         var np = p + 1;
         if (np < GBL(S)) { var nc = load8(S + np);
         if (nc >= 48) { if (nc <= 57) {
@@ -1239,7 +1239,7 @@ fn LEXDEC(S, p) {
             while (fgo == 1) {
                 if (p >= GBL(S)) { fgo = 0; }
                 if (fgo == 1) {
-                    c = load8(S + 0x43E000 + p);
+                    c = load8(S + 0x44A000 + p);
                     if (c >= 48) { if (c <= 57) {
                         frac = frac * 10 + (c - 48);
                         denom = denom * 10;
@@ -1259,10 +1259,10 @@ fn LEXDEC(S, p) {
 
 # Lex a number starting at p, return new p
 fn LEXNUM(S, p) {
-    var c = load8(S + 0x43E000 + p);
+    var c = load8(S + 0x44A000 + p);
     if (c == 48) {
         if (p + 1 < GBL(S)) {
-            if (load8(S + 0x43E000 + p + 1) == 120) {
+            if (load8(S + 0x44A000 + p + 1) == 120) {
                 return LEXHEX(S, p + 2);
             }
         }
@@ -1321,7 +1321,7 @@ fn LEXID(S, p, npos) {
     while (go == 1) {
         if (p >= bl) { go = 0; }
         if (go == 1) {
-            c = load8(S + 0x43E000 + p);
+            c = load8(S + 0x44A000 + p);
             if (ISALNUM(c) == 1) {
                 store8(S + 0x60000 + npos, c);
                 npos = npos + 1;
@@ -1473,7 +1473,7 @@ fn LEX(S) {
     STCNT(S, 0);
     SNPOS(S, 0);
     while (p < bl) {
-        var c = load8(S + 0x43E000 + p);
+        var c = load8(S + 0x44A000 + p);
         var cl = CCLASS(c);
         # Whitespace — skip (track newlines for line numbers)
         if (cl == 1) {
@@ -1487,7 +1487,7 @@ fn LEX(S) {
             while (cgo == 1) {
                 if (p >= bl) { cgo = 0; }
                 if (cgo == 1) {
-                    if (load8(S + 0x43E000 + p) == 10) { SCLINE(S, GCLINE(S) + 1); p = p + 1; cgo = 0; }
+                    if (load8(S + 0x44A000 + p) == 10) { SCLINE(S, GCLINE(S) + 1); p = p + 1; cgo = 0; }
                     else { p = p + 1; }
                 }
             }
@@ -1499,7 +1499,7 @@ fn LEX(S) {
         # Single/double char tokens
         else { if (c == 61) {
             if (p + 1 < bl) {
-                if (load8(S + 0x43E000 + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
+                if (load8(S + 0x44A000 + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
                 else { ADDTOK(S, 4, 0); p = p + 1; }
             } else { ADDTOK(S, 4, 0); p = p + 1; }
         }
@@ -1518,14 +1518,14 @@ fn LEX(S) {
         # !=
         else { if (c == 33) {
             if (p + 1 < bl) {
-                if (load8(S + 0x43E000 + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
+                if (load8(S + 0x44A000 + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
                 else { p = p + 1; }
             } else { p = p + 1; }
         }
         # < or <= or <<
         else { if (c == 60) {
             if (p + 1 < bl) {
-                var nc = load8(S + 0x43E000 + p + 1);
+                var nc = load8(S + 0x44A000 + p + 1);
                 if (nc == 61) { ADDTOK(S, 21, 0); p = p + 2; }
                 else {
                     if (nc == 60) { ADDTOK(S, 38, 0); p = p + 2; }
@@ -1536,7 +1536,7 @@ fn LEX(S) {
         # > or >= or >>
         else { if (c == 62) {
             if (p + 1 < bl) {
-                var gc = load8(S + 0x43E000 + p + 1);
+                var gc = load8(S + 0x44A000 + p + 1);
                 if (gc == 61) { ADDTOK(S, 22, 0); p = p + 2; }
                 else {
                     if (gc == 62) { ADDTOK(S, 39, 0); p = p + 2; }
@@ -1546,7 +1546,7 @@ fn LEX(S) {
         }
         else { if (c == 38) {
             if (p + 1 < bl) {
-                if (load8(S + 0x43E000 + p + 1) == 38) { ADDTOK(S, 53, 0); p = p + 2; }
+                if (load8(S + 0x44A000 + p + 1) == 38) { ADDTOK(S, 53, 0); p = p + 2; }
                 else { ADDTOK(S, 27, 0); p = p + 1; }
             } else { ADDTOK(S, 27, 0); p = p + 1; }
         }
@@ -1554,7 +1554,7 @@ fn LEX(S) {
         else { if (c == 93) { ADDTOK(S, 29, 0); p = p + 1; }
         else { if (c == 124) {
             if (p + 1 < bl) {
-                if (load8(S + 0x43E000 + p + 1) == 124) { ADDTOK(S, 54, 0); p = p + 2; }
+                if (load8(S + 0x44A000 + p + 1) == 124) { ADDTOK(S, 54, 0); p = p + 2; }
                 else { ADDTOK(S, 35, 0); p = p + 1; }
             } else { ADDTOK(S, 35, 0); p = p + 1; }
         }
@@ -1574,12 +1574,12 @@ fn LEX(S) {
             while (sgo == 1) {
                 if (p >= bl) { sgo = 0; }
                 if (sgo == 1) {
-                    var sc = load8(S + 0x43E000 + p);
+                    var sc = load8(S + 0x44A000 + p);
                     if (sc == 34) { p = p + 1; sgo = 0; }
                     else {
                         if (sc == 92) {
                             p = p + 1;
-                            var ec = load8(S + 0x43E000 + p);
+                            var ec = load8(S + 0x44A000 + p);
                             p = p + 1;
                             if (ec == 110) { store8(S + 0x68000 + spos, 10); }
                             else {
