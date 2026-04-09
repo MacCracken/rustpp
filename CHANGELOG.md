@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.3] — 2026-04-08
+
+### Fixed
+- **Version manager → `cyriusup`**: Install script was writing a version manager to
+  `~/.cyrius/bin/cyrius`, stomping on the build tool. Version manager renamed to
+  `cyriusup` (like rustup). `cyrius` is now exclusively the build tool.
+- **Install script symlink fix**: `rm -f` on directories replaced with `rm -rf` so
+  fresh installs don't fail when `~/.cyrius/bin` and `~/.cyrius/lib` are directories
+  instead of symlinks.
+
 ## [2.3.2] — 2026-04-08
 
 ### Added
