@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.0.0.** 231KB self-hosting compiler, both architectures. Zero open bugs.
+> **v3.1.0.** 231KB self-hosting compiler, both architectures. Zero open bugs.
 > 27 test suites (345 assertions), 4 fuzz harnesses, soak test clean. 33 stdlib modules.
 > 8 downstream repos pass. Port validation green. Format/lint/doc 100% clean.
 >

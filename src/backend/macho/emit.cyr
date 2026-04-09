@@ -1,0 +1,35 @@
+# Mach-O emitter stub — macOS x86_64 + aarch64 output
+# Status: STUB — scaffolded for v3.1+
+#
+# Mach-O format requires:
+#   1. Mach-O header (magic, cputype, filetype, ncmds, sizeofcmds)
+#   2. Load commands (LC_SEGMENT_64 for __TEXT, __DATA, __LINKEDIT)
+#   3. Sections (__text, __data, __cstring)
+#   4. Symbol table (nlist_64 entries)
+#   5. String table
+#   6. Relocation entries (for .o output)
+#
+# Differences from ELF:
+#   - Different magic (0xFEEDFACF for 64-bit)
+#   - Load commands instead of program/section headers
+#   - Segments contain sections (vs ELF sections standalone)
+#   - Different relocation types (X86_64_RELOC_BRANCH vs R_X86_64_PC32)
+#   - macOS syscalls use different numbers (0x2000000 | nr)
+#   - No direct syscall on arm64 macOS — must link libSystem
+#
+# Implementation plan:
+#   Phase 1: Emit Mach-O .o relocatable (like ELF object; mode)
+#   Phase 2: Emit Mach-O executable (static, no dyld)
+#   Phase 3: macOS syscall shim or libSystem link
+
+fn EMITMACHO_OBJ(S) {
+    syscall(1, 2, "error: Mach-O output not yet implemented\n", 41);
+    syscall(60, 1);
+    return 0;
+}
+
+fn EMITMACHO_EXEC(S) {
+    syscall(1, 2, "error: Mach-O output not yet implemented\n", 41);
+    syscall(60, 1);
+    return 0;
+}

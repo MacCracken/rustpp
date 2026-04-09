@@ -1,0 +1,38 @@
+# Test: HTTP client (parser only — no network)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/syscalls.cyr"
+include "lib/net.cyr"
+include "lib/http.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("URL parsing");
+var u1 = _http_parse_url("http://example.com/path");
+assert_eq(streq(load64(u1), "example.com"), 1, "host");
+assert_eq(load64(u1 + 8), 80, "default port");
+
+test_group("request building");
+var req = _http_build_request("GET", "example.com", "/");
+assert_eq(memeq(req, "GET / HTTP/1.0", 14), 1, "GET line");
+
+test_group("response parsing");
+# Build response with explicit CR LF bytes
+var rbuf = alloc(128);
+var rp = 0;
+# "HTTP/1.0 200 OK\r\n\r\nbody"
+memcpy(rbuf, "HTTP/1.0 200 OK", 15); rp = 15;
+store8(rbuf + rp, 13); rp = rp + 1;
+store8(rbuf + rp, 10); rp = rp + 1;
+store8(rbuf + rp, 13); rp = rp + 1;
+store8(rbuf + rp, 10); rp = rp + 1;
+memcpy(rbuf + rp, "hello", 5); rp = rp + 5;
+var resp = _http_parse_response(rbuf, rp);
+assert_eq(http_status(resp), 200, "status 200");
+assert_eq(http_body_len(resp), 5, "body 5");
+
+var r = assert_summary();

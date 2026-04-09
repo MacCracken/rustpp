@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.0] — 2026-04-09
+
+### Added — Stdlib
+- **`lib/csv.cyr`**: RFC 4180 CSV parser and writer. `csv_parse_line(line)` returns vec
+  of fields. Handles quoted fields, escaped quotes, commas in quotes. `csv_escape(field)`
+  and `csv_write_line(fields)` for output. Module #34. 12 assertions.
+- **`lib/http.cyr`**: Minimal HTTP/1.0 client. URL parser, request builder, response
+  parser (status code + body extraction). `http_get(url)` for simple requests via
+  net.cyr TCP sockets. Module #35. 5 assertions.
+
+### Added — Platform Stubs
+- **`src/backend/macho/emit.cyr`**: Mach-O emitter stub for macOS x86_64 + aarch64.
+  Documents format differences from ELF (load commands, sections, macOS syscalls).
+  Three-phase plan: .o → executable → syscall shim.
+- **`src/backend/pe/emit.cyr`**: PE/COFF emitter stub for Windows x86_64.
+  Documents format differences (DOS stub, import directory, Win32 API).
+  Three-phase plan: .obj → executable → kernel32 imports.
+
+### Stats
+- **35 stdlib modules** (was 33)
+- **29 test suites, 362 assertions** (was 27/345)
+
 ## [3.0.0] — 2026-04-09
 
 **Cyrius 3.0** — Sovereign, self-hosting systems language. Assembly up.

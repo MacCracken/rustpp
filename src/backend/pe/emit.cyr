@@ -1,0 +1,35 @@
+# PE/COFF emitter stub — Windows x86_64 output
+# Status: STUB — scaffolded for v3.1+
+#
+# PE format requires:
+#   1. DOS stub (MZ header, 64 bytes minimum)
+#   2. PE signature ("PE\0\0")
+#   3. COFF header (machine, sections, timestamp, characteristics)
+#   4. Optional header (PE32+ for 64-bit: entry point, image base, section alignment)
+#   5. Section headers (.text, .data, .rdata, .reloc)
+#   6. Section data
+#   7. Import directory (for kernel32.dll: ExitProcess, WriteFile, etc.)
+#
+# Differences from ELF:
+#   - No direct syscalls — must use Win32 API (kernel32.dll imports)
+#   - Different calling convention (shadow space, rcx/rdx/r8/r9)
+#   - PE requires import table for any OS interaction
+#   - Image base default 0x140000000 (64-bit)
+#   - Section alignment 0x1000 (4KB pages)
+#
+# Implementation plan:
+#   Phase 1: Emit COFF .obj (like ELF object; mode)
+#   Phase 2: Emit PE executable with minimal kernel32 imports
+#   Phase 3: Windows syscall shim layer
+
+fn EMITPE_OBJ(S) {
+    syscall(1, 2, "error: PE/COFF output not yet implemented\n", 42);
+    syscall(60, 1);
+    return 0;
+}
+
+fn EMITPE_EXEC(S) {
+    syscall(1, 2, "error: PE/COFF output not yet implemented\n", 42);
+    syscall(60, 1);
+    return 0;
+}
