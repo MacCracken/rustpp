@@ -1,6 +1,6 @@
 #!/bin/sh
 # Full project audit: self-host, test suite, heap audit, format, lint
-# Usage: cyrb audit  (or: sh scripts/check.sh)
+# Usage: cyrius audit  (or: sh scripts/check.sh)
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

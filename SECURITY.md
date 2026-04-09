@@ -13,7 +13,7 @@ Cyrius is a systems language compiler. Security-relevant areas:
 - **Compiler correctness**: codegen bugs that produce wrong behavior
 - **Bootstrap chain integrity**: the 29KB seed binary is the root of trust
 - **Kernel code**: AGNOS kernel memory safety, interrupt handling, syscall validation
-- **Build tool (cyrb)**: fork/exec security, path handling
+- **Build tool (cyrius)**: fork/exec security, path handling
 - **Package manager (ark)**: package verification, database integrity
 
 ## Supported Versions

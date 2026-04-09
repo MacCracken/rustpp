@@ -155,9 +155,9 @@ if [ "$installed" -eq 0 ]; then
         fi
     done
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
-    cp scripts/cyrb "$CYRIUS_HOME/versions/$VERSION/bin/"
-    chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyrb"
-    for script in scripts/cyrb-*.sh; do
+    cp scripts/cyrius "$CYRIUS_HOME/versions/$VERSION/bin/"
+    chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyrius"
+    for script in scripts/cyrius-*.sh; do
         [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
             chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"
     done
@@ -177,7 +177,7 @@ rm -rf "$TMPDIR"
 # ── Set active version ──
 
 echo "$VERSION" > "$CYRIUS_HOME/current"
-# Copy VERSION file so cyrb can read it from install directory
+# Copy VERSION file so cyrius can read it from install directory
 echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"
 
 # ── Create symlinks (directory-level, version-agnostic) ──
@@ -336,7 +336,7 @@ printf "\n${BOLD}Cyrius ${VERSION} installed successfully!${RESET}\n\n"
 
 # Show what was installed
 echo "  Toolchain:"
-for bin in cc2 cyrb cyrfmt cyrlint cyrdoc cyrc ark; do
+for bin in cc2 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
     if [ -x "$CYRIUS_HOME/bin/$bin" ]; then
         printf "    ${GREEN}+${RESET} %s\n" "$bin"
     fi
@@ -350,9 +350,9 @@ echo "    ${DIM}# restart your shell, or:${RESET}"
 echo "    export PATH=\"\$HOME/.cyrius/bin:\$PATH\""
 echo ""
 echo "    ${DIM}# create a new project:${RESET}"
-echo "    cyrb init myproject"
+echo "    cyrius init myproject"
 echo "    cd myproject"
-echo "    cyrb build src/main.cyr -o build/main"
+echo "    cyrius build src/main.cyr -o build/main"
 echo ""
 echo "    ${DIM}# manage versions:${RESET}"
 echo "    cyrius list"

@@ -4,6 +4,23 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.2] — 2026-04-08
+
+### Added
+- **`.fcyr` fuzz file format**: New file extension for fuzz harnesses. `cyrius fuzz`
+  auto-discovers `fuzz/*.fcyr` files. Ships with 3 harnesses: hashmap, vec, string.
+- **`cyrius fuzz` in binary**: Native Cyrius binary now supports `cyrius fuzz` command
+  alongside the shell script.
+
+### Changed — cyrb → cyrius rename
+- **Build tool renamed**: `cyrb` → `cyrius`. The command is now `cyrius build`,
+  `cyrius test`, `cyrius fuzz`, etc. Matches the language name.
+- **Shell script**: `scripts/cyrb` → `scripts/cyrius`. All helper scripts renamed
+  (`cyrius-init.sh`, `cyrius-coverage.sh`, etc.).
+- **Binary source**: `programs/cyrb.cyr` → `programs/cyrius.cyr`. Builds to `build/cyrius`.
+- **Manifest file**: `cyrb.toml` → `cyrius.toml` for project configuration.
+- **All docs, CI, release workflows updated**. Historical CHANGELOG entries preserved.
+
 ## [2.3.1] — 2026-04-08
 
 ### Changed — Refactor & Cleanup

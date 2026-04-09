@@ -1,0 +1,53 @@
+# Fuzz: vec operations
+# Exercises vec_new/push/get/set/len with stress patterns
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+
+alloc_init();
+
+# Push 1024 items
+var v = vec_new();
+var j = 0;
+while (j < 1024) {
+    vec_push(v, j * 3);
+    j = j + 1;
+}
+if (vec_len(v) != 1024) { syscall(60, 1); }
+
+# Verify all items
+j = 0;
+while (j < 1024) {
+    if (vec_get(v, j) != j * 3) { syscall(60, 2); }
+    j = j + 1;
+}
+
+# Overwrite with set
+j = 0;
+while (j < 1024) {
+    vec_set(v, j, 999 - j);
+    j = j + 1;
+}
+j = 0;
+while (j < 1024) {
+    if (vec_get(v, j) != 999 - j) { syscall(60, 3); }
+    j = j + 1;
+}
+
+# Many small vecs (stress alloc growth)
+var vi = 0;
+while (vi < 100) {
+    var sv = vec_new();
+    var si = 0;
+    while (si < 64) {
+        vec_push(sv, vi * 64 + si);
+        si = si + 1;
+    }
+    if (vec_len(sv) != 64) { syscall(60, 4); }
+    if (vec_get(sv, 0) != vi * 64) { syscall(60, 5); }
+    if (vec_get(sv, 63) != vi * 64 + 63) { syscall(60, 6); }
+    vi = vi + 1;
+}
+
+syscall(60, 0);

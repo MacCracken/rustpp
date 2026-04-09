@@ -22,18 +22,18 @@ sh bootstrap/bootstrap.sh
 
 ```sh
 # Compile and run
-cyrb run hello.cyr
+cyrius run hello.cyr
 
 # Create a project
-cyrb init myproject
+cyrius init myproject
 cd myproject
-cyrb build src/main.cyr build/myproject
+cyrius build src/main.cyr build/myproject
 
 # Port a Rust project
-cyrb port /path/to/rust-project
+cyrius port /path/to/rust-project
 
 # Full audit (format, lint, vet, deny, test, bench, doc)
-cyrb audit
+cyrius audit
 ```
 
 ## Language
@@ -94,7 +94,7 @@ syscall(60, r);
 | Tests | **267** (216 compiler + 51 programs, 0 failures) |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
-## Build Tool (cyrb)
+## Build Tool (cyrius)
 
 ```
 Build:     build, run, test, bench, check, self, clean
@@ -155,7 +155,7 @@ bootstrap/asm (29KB committed binary -- root of trust)
 
 ## Migration
 
-108 Rust repos (~1M lines) planned for conversion. 5 done. `cyrb port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
+108 Rust repos (~1M lines) planned for conversion. 5 done. `cyrius port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
 
 ## License
 

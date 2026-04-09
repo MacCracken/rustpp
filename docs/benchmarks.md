@@ -62,7 +62,7 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
 | Full compiler (cc2) | 205 KB |
-| cyrb build tool | 58 KB |
+| cyrius build tool | 58 KB |
 | **Total toolchain** | **264 KB** |
 
 The entire Cyrius toolchain fits in **264 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.

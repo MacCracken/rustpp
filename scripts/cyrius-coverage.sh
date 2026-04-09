@@ -1,9 +1,9 @@
 #!/bin/sh
-# cyrb-coverage — test coverage report for Cyrius stdlib
+# cyrius-coverage — test coverage report for Cyrius stdlib
 # Checks which lib/*.cyr functions are exercised by .tcyr test files.
 # Reports per-module and per-function coverage.
 #
-# Usage: cyrb coverage
+# Usage: cyrius coverage
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="${REPO_ROOT}/build/cc2"
@@ -18,7 +18,7 @@ echo "=== Coverage Report ==="
 echo ""
 
 # Collect all test content into one searchable file
-TESTCORPUS="/tmp/cyrb_coverage_corpus_$$"
+TESTCORPUS="/tmp/cyrius_coverage_corpus_$$"
 cat "$REPO_ROOT"/tests/tcyr/*.tcyr "$REPO_ROOT"/tests/bcyr/*.bcyr "$REPO_ROOT"/programs/*.cyr 2>/dev/null > "$TESTCORPUS"
 
 for lib in "$REPO_ROOT"/lib/*.cyr; do

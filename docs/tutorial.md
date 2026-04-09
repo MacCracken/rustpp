@@ -176,7 +176,7 @@ fn main() {
 ## Create a Project
 
 ```sh
-cyrb init myproject
+cyrius init myproject
 cd myproject
 sh scripts/build.sh
 ./build/myproject

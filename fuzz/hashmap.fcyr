@@ -1,0 +1,104 @@
+# Fuzz: hashmap operations
+# Exercises map_new/set/get/delete/has with edge cases
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+
+alloc_init();
+
+# Build key strings: "k0" through "k99"
+var keys = vec_new();
+var ki = 0;
+while (ki < 100) {
+    var buf = alloc(16);
+    store8(buf, 107);  # 'k'
+    var off = 1;
+    if (ki >= 10) {
+        store8(buf + off, 48 + ki / 10);
+        off = off + 1;
+    }
+    store8(buf + off, 48 + ki % 10);
+    store8(buf + off + 1, 0);
+    vec_push(keys, buf);
+    ki = ki + 1;
+}
+
+var m = map_new();
+
+# Insert all keys
+var j = 0;
+while (j < 100) {
+    map_set(m, vec_get(keys, j), j * 7);
+    j = j + 1;
+}
+
+# Verify all keys present
+j = 0;
+while (j < 100) {
+    var v = map_get(m, vec_get(keys, j));
+    if (v != j * 7) { syscall(60, 1); }
+    j = j + 1;
+}
+
+# Delete even keys
+j = 0;
+while (j < 100) {
+    map_delete(m, vec_get(keys, j));
+    j = j + 2;
+}
+
+# Verify odd keys still present, even keys gone
+j = 0;
+while (j < 100) {
+    if (j % 2 == 0) {
+        if (map_has(m, vec_get(keys, j)) != 0) { syscall(60, 2); }
+    } else {
+        if (map_has(m, vec_get(keys, j)) != 1) { syscall(60, 3); }
+    }
+    j = j + 1;
+}
+
+# Overwrite remaining keys with negative values
+j = 1;
+while (j < 100) {
+    map_set(m, vec_get(keys, j), 0 - j);
+    j = j + 2;
+}
+j = 1;
+while (j < 100) {
+    if (map_get(m, vec_get(keys, j)) != 0 - j) { syscall(60, 4); }
+    j = j + 2;
+}
+
+# Re-insert deleted keys
+j = 0;
+while (j < 100) {
+    map_set(m, vec_get(keys, j), j + 1000);
+    j = j + 2;
+}
+j = 0;
+while (j < 100) {
+    if (map_has(m, vec_get(keys, j)) != 1) { syscall(60, 5); }
+    j = j + 1;
+}
+
+# Stress: many sets on same keys (hash collision / tombstone churn)
+var si = 0;
+while (si < 50) {
+    j = 0;
+    while (j < 100) {
+        map_set(m, vec_get(keys, j), si * 100 + j);
+        j = j + 1;
+    }
+    si = si + 1;
+}
+# Final verify
+j = 0;
+while (j < 100) {
+    if (map_get(m, vec_get(keys, j)) != 49 * 100 + j) { syscall(60, 6); }
+    j = j + 1;
+}
+
+syscall(60, 0);

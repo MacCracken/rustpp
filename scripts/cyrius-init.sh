@@ -1,6 +1,6 @@
 #!/bin/sh
-# cyrb init — scaffold a new Cyrius project
-# Usage: cyrb-init.sh <project-name>
+# cyrius init — scaffold a new Cyrius project
+# Usage: cyrius-init.sh <project-name>
 #
 # Creates a complete Cyrius project with vendored stdlib,
 # build/test scripts, and documentation templates.
@@ -8,7 +8,7 @@
 set -e
 
 if [ -z "$1" ]; then
-    echo "Usage: cyrb-init.sh <project-name>"
+    echo "Usage: cyrius-init.sh <project-name>"
     echo ""
     echo "Creates a new Cyrius project with:"
     echo "  lib/          vendored stdlib"
@@ -96,8 +96,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial project scaffold
 CHANGELOG
 
-# === cyrb.toml ===
-cat > "$NAME/cyrb.toml" << EOF
+# === cyrius.toml ===
+cat > "$NAME/cyrius.toml" << EOF
 name = "$NAME"
 version = "0.1.0"
 license = "GPL-3.0-only"

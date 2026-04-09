@@ -1,15 +1,15 @@
 #!/bin/sh
-# cyrb port — prepare a Rust project for Cyrius porting
+# cyrius port — prepare a Rust project for Cyrius porting
 # Moves Rust code to rust-old/, scaffolds Cyrius project structure,
 # vendors stdlib, generates initial source file.
 #
-# Usage: cyrb port /path/to/rust-project
+# Usage: cyrius port /path/to/rust-project
 
 set -e
 
 TARGET="$1"
 if [ -z "$TARGET" ] || [ ! -d "$TARGET" ]; then
-    echo "Usage: cyrb port <path-to-rust-project>"
+    echo "Usage: cyrius port <path-to-rust-project>"
     echo "Moves Rust to rust-old/, creates Cyrius project structure."
     exit 1
 fi
@@ -82,8 +82,8 @@ syscall(SYS_EXIT, r);
 CYRSRC
 echo "  Created src/main.cyr"
 
-# Generate cyrb.toml
-cat > cyrb.toml << TOML
+# Generate cyrius.toml
+cat > cyrius.toml << TOML
 name = "$NAME"
 version = "0.1.0"
 license = "GPL-3.0-only"
@@ -91,7 +91,7 @@ entry = "src/main.cyr"
 output = "$NAME"
 description = "$NAME — Cyrius port"
 TOML
-echo "  Created cyrb.toml"
+echo "  Created cyrius.toml"
 
 # Generate basic test
 cat > tests/test.sh << TEST

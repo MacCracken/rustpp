@@ -5,7 +5,7 @@
 Declare what you need. Say where it is. No resolver. No SAT solver.
 The manifest is a map from names to locations. The compiler enforces boundaries.
 
-## cyrb.toml — The Manifest
+## cyrius.toml — The Manifest
 
 ```toml
 name = "kybernet"
@@ -55,7 +55,7 @@ No `mod` keyword needed to declare — the filesystem is the declaration.
 
 ```
 kybernet/
-  cyrb.toml
+  cyrius.toml
   src/
     main.cyr          # entry point
   lib/                # vendored stdlib (dep: stdlib)
@@ -90,7 +90,7 @@ agent_run(a);
 ```
 
 The compiler resolves `use agnostik.agent_new` by:
-1. Looking up `agnostik` in `cyrb.toml` deps → finds `path = "../agnostik/lib"`
+1. Looking up `agnostik` in `cyrius.toml` deps → finds `path = "../agnostik/lib"`
 2. Scanning that directory for `pub fn agent_new`
 3. Creating the name alias (already implemented as mangled names)
 
@@ -140,12 +140,12 @@ Phase 2 (later): `use agnostik;` then call `agnostik.agent_new()` — qualified 
 Phase 1 is simpler to implement (it's just the existing alias mechanism). Phase 2 requires
 the parser to handle `ident.ident` as a function call, which is more work but cleaner at scale.
 
-## cyrb: What changes
+## cyrius: What changes
 
-### `cyrb build` with deps
+### `cyrius build` with deps
 
 ```
-$ cyrb build
+$ cyrius build
 
 === kybernet 0.9.0 ===
   resolve agnostik  ../agnostik/lib  (local)
@@ -156,17 +156,17 @@ $ cyrb build
 ```
 
 Build steps:
-1. Read `cyrb.toml`
+1. Read `cyrius.toml`
 2. For each dep:
    - `path`: verify directory exists
    - `ark`: check cache (`~/.cyrius/cache/`), fetch if missing, verify hash
 3. Pass dep paths to compiler (as include search paths or pre-scanned symbol tables)
 4. Compile
 
-### `cyrb deps` — show dependency map
+### `cyrius deps` — show dependency map
 
 ```
-$ cyrb deps
+$ cyrius deps
 
 kybernet 0.9.0
   agnostik  ../agnostik/lib   (local, 6 modules)
@@ -184,7 +184,7 @@ $ ark fetch nous 0.3.0
   hash: a7f3c8e1b4d2f...
   cached: ~/.cyrius/cache/nous/0.3.0/
 
-Add to cyrb.toml:
+Add to cyrius.toml:
   [deps.nous]
   ark = "nous"
   version = "0.3.0"
@@ -197,15 +197,15 @@ Add to cyrb.toml:
 
 The compiler needs to know where dep modules live. Two approaches:
 
-**Option A — cyrb preprocesses**: cyrb reads `cyrb.toml`, resolves all dep paths,
+**Option A — cyrius preprocesses**: cyrius reads `cyrius.toml`, resolves all dep paths,
 and passes a flat list of "module_name=path" to the compiler via a generated file
 or command-line mechanism.
 
-**Option B — compiler reads toml**: the compiler itself reads `cyrb.toml` and
+**Option B — compiler reads toml**: the compiler itself reads `cyrius.toml` and
 resolves deps.
 
 Option A is simpler and keeps the compiler focused on compilation.
-cyrb would generate a `.deps` file:
+cyrius would generate a `.deps` file:
 
 ```
 agnostik=../agnostik/lib
@@ -237,10 +237,10 @@ Currently all symbols are global. With enforcement:
 
 ## Migration path
 
-### Phase 1 — Manifest deps (cyrb change only, no compiler change)
-- Parse `[deps]` from `cyrb.toml`
+### Phase 1 — Manifest deps (cyrius change only, no compiler change)
+- Parse `[deps]` from `cyrius.toml`
 - Verify dep paths exist
-- `cyrb deps` command
+- `cyrius deps` command
 - `ark fetch` with hash verification
 - No compiler changes — deps are still `include`-based
 
@@ -262,7 +262,7 @@ Currently all symbols are global. With enforcement:
 
 ## Example: kybernet with manifest deps
 
-### cyrb.toml
+### cyrius.toml
 ```toml
 name = "kybernet"
 version = "0.9.0"

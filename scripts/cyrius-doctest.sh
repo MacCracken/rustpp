@@ -1,5 +1,5 @@
 #!/bin/sh
-# cyrb-doctest — extract and run doc examples from .cyr files
+# cyrius-doctest — extract and run doc examples from .cyr files
 # Lines starting with "# >>> " are compiled and run. Expected exit code after "# === ".
 #
 # Example in a .cyr file:
@@ -8,13 +8,13 @@
 #
 # Multi-line examples accumulate until === (exit check) or next >>> (new example).
 #
-# Usage: cyrb doctest lib/*.cyr
+# Usage: cyrius doctest lib/*.cyr
 
 CC="${1:-./build/cc2}"
 shift 2>/dev/null || true
 
 if [ -z "$1" ]; then
-    echo "Usage: cyrb doctest <file.cyr> [file2.cyr ...]"
+    echo "Usage: cyrius doctest <file.cyr> [file2.cyr ...]"
     exit 1
 fi
 
@@ -49,7 +49,7 @@ $snippet"
                 if [ "$in_example" = "1" ] && [ -n "$code" ]; then
                     total=$((total + 1))
                     # Compile and run
-                    tmpbin="/tmp/cyrb_doctest_$$"
+                    tmpbin="/tmp/cyrius_doctest_$$"
                     if echo "$code" | "$CC" > "$tmpbin" 2>/dev/null; then
                         chmod +x "$tmpbin"
                         result=$(timeout 5 "$tmpbin" 2>/dev/null; echo $?)

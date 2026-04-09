@@ -62,4 +62,4 @@ Disclosure: 90-day coordinated
 - Byte-exact reproducibility — same source always produces same binary
 - Fixed heap layout is documented and auditable
 - P-1 hardening before every feature release
-- `cyrb audit` must pass before every commit
+- `cyrius audit` must pass before every commit

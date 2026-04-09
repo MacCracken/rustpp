@@ -1,9 +1,9 @@
 #!/bin/sh
-# cyrb-repl — interactive Cyrius expression evaluator
+# cyrius-repl — interactive Cyrius expression evaluator
 # Type expressions, see results. Uses exit code for simple values.
 # Multi-line: end with ;; to execute.
 #
-# Usage: cyrb repl
+# Usage: cyrius repl
 
 CC="${1:-./build/cc2}"
 
@@ -52,8 +52,8 @@ while true; do
         ":type "*)
             expr=$(echo "$line" | sed 's/^:type //')
             src="${PREAMBLE}_print(${expr});return 0;${EPILOGUE}"
-            echo "$src" | "$CC" > /tmp/cyrb_repl_$$ 2>/dev/null && chmod +x /tmp/cyrb_repl_$$ && /tmp/cyrb_repl_$$ 2>/dev/null
-            rm -f /tmp/cyrb_repl_$$
+            echo "$src" | "$CC" > /tmp/cyrius_repl_$$ 2>/dev/null && chmod +x /tmp/cyrius_repl_$$ && /tmp/cyrius_repl_$$ 2>/dev/null
+            rm -f /tmp/cyrius_repl_$$
             continue
             ;;
     esac
@@ -81,17 +81,17 @@ while true; do
     # Execute
     # Wrap in main, last expression becomes return value
     src="${PREAMBLE}${buffer}${EPILOGUE}"
-    tmpbin="/tmp/cyrb_repl_$$"
-    if echo "$src" | "$CC" > "$tmpbin" 2>/tmp/cyrb_repl_err_$$; then
+    tmpbin="/tmp/cyrius_repl_$$"
+    if echo "$src" | "$CC" > "$tmpbin" 2>/tmp/cyrius_repl_err_$$; then
         chmod +x "$tmpbin"
         result=$("$tmpbin" 2>/dev/null; echo $?)
         echo "= $result"
     else
         # Show error
-        cat /tmp/cyrb_repl_err_$$ 2>/dev/null
+        cat /tmp/cyrius_repl_err_$$ 2>/dev/null
         echo "(compile error)"
     fi
-    rm -f "$tmpbin" /tmp/cyrb_repl_err_$$
+    rm -f "$tmpbin" /tmp/cyrius_repl_err_$$
 
     buffer=""
     prompt="> "

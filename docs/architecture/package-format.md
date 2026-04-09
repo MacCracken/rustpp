@@ -4,10 +4,10 @@
 
 Cyrius projects integrate with the AGNOS ecosystem via two files:
 
-1. **`cyrb.toml`** — project manifest (like Cargo.toml), lives in the project repo
+1. **`cyrius.toml`** — project manifest (like Cargo.toml), lives in the project repo
 2. **zugot recipe** — build recipe for AGNOS (like PKGBUILD), lives in the zugot repo
 
-## cyrb.toml — Project Manifest
+## cyrius.toml — Project Manifest
 
 ```toml
 [package]
@@ -29,7 +29,7 @@ output = "kybernet"        # binary name
 
 ## .ark Package Format
 
-Created by `cyrb package`, installed by `ark install`.
+Created by `cyrius package`, installed by `ark install`.
 
 ```
 kybernet-0.9.0.ark (gzipped tar)

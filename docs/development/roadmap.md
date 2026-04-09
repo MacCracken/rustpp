@@ -104,7 +104,7 @@ multi-file compilation (.o + link)
 | 10 | **cyrius-x** bytecode | Very High | **v2.1** | Researched. Register VM, 32-bit instructions. Backend stub at src/backend/cx/. |
 | 11 | **Deferred formatting** (defmt) | High | **v2.1** | Store string ID + raw args at runtime, decode externally. Needs compiler string interning. Eliminates runtime fmt overhead for logging/tracing. |
 | 12 | **cyrius-ts** frontend | High | **v2.2** | TS subset → cyrius-x. Needs cyrius-x first. |
-| 13 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrb test` auto-discovers .tcyr, `cyrb bench` discovers .bcyr. |
+| 13 | **.tcyr/.bcyr** extensions | Low | **Done** | `cyrius test` auto-discovers .tcyr, `cyrius bench` discovers .bcyr. |
 
 ---
 
@@ -189,15 +189,15 @@ Expansion targets:
 
 ---
 
-## `cyrb serve` — Dev Server (v2.2+)
+## `cyrius serve` — Dev Server (v2.2+)
 
 Developer tooling verb. File watcher + auto-rebuild + hot-reload.
 No npm, no cargo-watch, no nodemon. One tool.
 
 | Phase | Status | Detail |
 |-------|--------|--------|
-| 1 | Planned | `cyrb serve src/main.cyr` — watch .cyr files, recompile + restart on change |
-| 2 | Planned | HTTP dev server — `cyrb serve --http 8080` serves static files + auto-rebuild |
+| 1 | Planned | `cyrius serve src/main.cyr` — watch .cyr files, recompile + restart on change |
+| 2 | Planned | HTTP dev server — `cyrius serve --http 8080` serves static files + auto-rebuild |
 | 3 | Planned | WebSocket live-reload — browser auto-refreshes on recompile |
 | 4 | Planned | Proxy mode — forward API requests to running binary |
 
@@ -206,13 +206,13 @@ Phase 2 needs: `lib/http.cyr` (socket bind/accept/parse/respond).
 Phase 3 needs: `lib/ws.cyr` (WebSocket upgrade + frame protocol).
 
 ```
-cyrb build    — compile
-cyrb test     — run .tcyr
-cyrb bench    — run .bcyr
-cyrb port     — scaffold from Rust
-cyrb init     — new project
-cyrb serve    — dev server with hot-reload
-cyrb audit    — code quality check
+cyrius build    — compile
+cyrius test     — run .tcyr
+cyrius bench    — run .bcyr
+cyrius port     — scaffold from Rust
+cyrius init     — new project
+cyrius serve    — dev server with hot-reload
+cyrius audit    — code quality check
 ```
 
 Expansion targets:
@@ -247,8 +247,8 @@ Expansion targets:
 
 | Item | Detail |
 |------|--------|
-| Soak test | `cyrb fuzz 100000` overnight. Compile all repos (argonaut, sakshi, majra, doom, vidya) in loop for 24h. Watch for memory leaks, state corruption, non-determinism. |
-| Full audit | `cyrb audit` clean on every repo. All .tcyr suites green. All benchmarks baselined. |
+| Soak test | `cyrius fuzz 100000` overnight. Compile all repos (argonaut, sakshi, majra, doom, vidya) in loop for 24h. Watch for memory leaks, state corruption, non-determinism. |
+| Full audit | `cyrius audit` clean on every repo. All .tcyr suites green. All benchmarks baselined. |
 | cyrius-x VM | Memory-backed stack frames. Recursion working. All .tcyr tests pass under VM. |
 | defmt | String interning + deferred formatting. Sakshi perf validated. |
 | Multi-file compilation | Phase 1: .o emission. Phase 2: minimal linker. |

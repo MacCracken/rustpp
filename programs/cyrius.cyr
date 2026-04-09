@@ -1,4 +1,4 @@
-# cyrb — Cyrius Build Tool
+# cyrius — Cyrius Build Tool
 # Written in Cyrius. Full replacement for the shell dispatcher.
 #
 # Build:     build, run, test, bench, check, self, clean
@@ -163,7 +163,7 @@ fn find_tools() {
     }
 
     # Scripts dir: relative to repo
-    if (file_exists("./scripts/cyrb") == 1) {
+    if (file_exists("./scripts/cyrius") == 1) {
         _scripts_dir = "./scripts";
         _repo_root = ".";
     } else {
@@ -213,7 +213,7 @@ fn compile(source, output) {
     var actual_source = source;
     if (_defines != 0) {
         if (vec_len(_defines) > 0) {
-            var tmp = "/tmp/cyrb_cpp";
+            var tmp = "/tmp/cyrius_cpp";
             var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
             if (tfd >= 0) {
                 var di = 0;
@@ -342,7 +342,7 @@ fn cmd_build(source, output) {
 }
 
 fn cmd_run(source) {
-    var tmpbin = "/tmp/cyrb_run";
+    var tmpbin = "/tmp/cyrius_run";
     var r = compile(source, tmpbin);
     if (r != 0) {
         sys_write(STDERR_FD, "error: compile failed\n", 22);
@@ -356,7 +356,7 @@ fn cmd_run(source) {
 
 fn cmd_test(source) {
     _total = _total + 1;
-    var tmpbin = "/tmp/cyrb_test";
+    var tmpbin = "/tmp/cyrius_test";
     var r = compile(source, tmpbin);
     if (r != 0) {
         sys_write(STDERR_FD, "  FAIL: ", 8);
@@ -376,13 +376,68 @@ fn cmd_test(source) {
     return exit_code;
 }
 
+fn cmd_fuzz() {
+    # Discover fuzz/*.fcyr harnesses, compile and run each
+    println("=== cyrius fuzz ===");
+    var entries = dir_list(str_from("fuzz"));
+    var fi = 0;
+    var fuzz_pass = 0;
+    var fuzz_fail = 0;
+    var found = 0;
+    while (fi < vec_len(entries)) {
+        var name = vec_get(entries, fi);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        # Check if .fcyr file
+        if (nl > 5) {
+            if (memeq(nd + nl - 5, ".fcyr", 5) == 1) {
+                found = 1;
+                var path = make_path("fuzz", nd);
+                var tmpbin = "/tmp/cyrius_fuzz";
+                sys_write(STDOUT_FD, "  ", 2);
+                sys_write(STDOUT_FD, nd, nl);
+                var pad = 26 - nl;
+                while (pad > 0) { sys_write(STDOUT_FD, " ", 1); pad = pad - 1; }
+                if (compile(path, tmpbin) == 0) {
+                    var ec = run_binary(tmpbin);
+                    sys_unlink(tmpbin);
+                    if (ec == 0) {
+                        println("PASS");
+                        fuzz_pass = fuzz_pass + 1;
+                    } else {
+                        println("FAIL");
+                        fuzz_fail = fuzz_fail + 1;
+                    }
+                } else {
+                    println("COMPILE FAIL");
+                    fuzz_fail = fuzz_fail + 1;
+                    sys_unlink(tmpbin);
+                }
+            }
+        }
+        fi = fi + 1;
+    }
+    if (found == 0) {
+        println("  No fuzz harnesses found in fuzz/");
+        println("  Create fuzz/*.fcyr files to test library functions.");
+        return 0;
+    }
+    sys_write(STDOUT_FD, "\n=== ", 5);
+    fmt_int(fuzz_pass);
+    sys_write(STDOUT_FD, " passed, ", 9);
+    fmt_int(fuzz_fail);
+    println(" failed ===");
+    if (fuzz_fail > 0) { return 1; }
+    return 0;
+}
+
 fn cmd_bench(source) {
     if (source == 0) {
         # No args: run full bench suite
         var script = make_path(_scripts_dir, "bench-history.sh");
         return run_script(script, 0, 0);
     }
-    var tmpbin = "/tmp/cyrb_bench";
+    var tmpbin = "/tmp/cyrius_bench";
     var r = compile(source, tmpbin);
     if (r != 0) {
         sys_write(STDERR_FD, "FAIL: compile error\n", 20);
@@ -396,7 +451,7 @@ fn cmd_bench(source) {
 
 fn cmd_check(source) {
     # If source has no include directives, try to find an entry point
-    # that includes it (check cyrb.toml or default to src/main.cyr)
+    # that includes it (check cyrius.toml or default to src/main.cyr)
     var actual = source;
     var check_buf = alloc(4096);
     var cn = file_read_all(source, check_buf, 4095);
@@ -484,7 +539,7 @@ fn cmd_clean() {
         if (str_eq(name, str_from("stage1f")) == 1) { skip = 1; }
         if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cc2_aarch64")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("cyrb")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cyrius")) == 1) { skip = 1; }
         if (skip == 0) {
             var full = make_path("build", str_data(name));
             sys_unlink(full);
@@ -492,7 +547,7 @@ fn cmd_clean() {
         }
         ci = ci + 1;
     }
-    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm, cyrb) — removed ", 63);
+    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm, cyrius) — removed ", 65);
     fmt_int(cleaned);
     println(" files");
     return 0;
@@ -540,50 +595,50 @@ fn cmd_audit() {
 # ================================================================
 
 fn cmd_init(name) {
-    var script = make_path(_scripts_dir, "cyrb-init.sh");
+    var script = make_path(_scripts_dir, "cyrius-init.sh");
     if (file_exists(script) == 0) {
         # Try installed location
-        script = make_path(_home, "bin/cyrb-init");
+        script = make_path(_home, "bin/cyrius-init");
     }
     return run_script(script, name, 0);
 }
 
 fn cmd_port(arg) {
-    var script = make_path(_scripts_dir, "cyrb-port.sh");
+    var script = make_path(_scripts_dir, "cyrius-port.sh");
     return run_script(script, arg, 0);
 }
 
 fn cmd_header(arg) {
-    var script = make_path(_scripts_dir, "cyrb-header.sh");
+    var script = make_path(_scripts_dir, "cyrius-header.sh");
     return run_script(script, arg, 0);
 }
 
 fn cmd_coverage() {
-    var script = make_path(_scripts_dir, "cyrb-coverage.sh");
+    var script = make_path(_scripts_dir, "cyrius-coverage.sh");
     return run_script(script, 0, 0);
 }
 
 fn cmd_doctest(arg) {
-    var script = make_path(_scripts_dir, "cyrb-doctest.sh");
+    var script = make_path(_scripts_dir, "cyrius-doctest.sh");
     return run_script(script, _cc, arg);
 }
 
 fn cmd_repl() {
-    var script = make_path(_scripts_dir, "cyrb-repl.sh");
+    var script = make_path(_scripts_dir, "cyrius-repl.sh");
     return run_script(script, _cc, 0);
 }
 
 fn cmd_package() {
-    # Read cyrb.toml if present
+    # Read cyrius.toml if present
     var name = "unknown";
     var ver = _version;
     var entry = "src/main.cyr";
     var output_name = "main";
 
-    if (file_exists("cyrb.toml") == 1) {
+    if (file_exists("cyrius.toml") == 1) {
         # Simple TOML reading: find name = "..." lines
         var buf = alloc(4096);
-        var n = file_read_all("cyrb.toml", buf, 4095);
+        var n = file_read_all("cyrius.toml", buf, 4095);
         store8(buf + n, 0);
         # For now use simple defaults
     }
@@ -592,7 +647,7 @@ fn cmd_package() {
         # Use directory name as package name
     }
 
-    println("=== cyrb package ===");
+    println("=== cyrius package ===");
     sys_write(STDOUT_FD, "  version: ", 11);
     println(ver);
 
@@ -608,7 +663,7 @@ fn cmd_package() {
 }
 
 fn cmd_update() {
-    println("=== cyrb update ===");
+    println("=== cyrius update ===");
     # Find installed stdlib
     var cur = read_file_str(make_path(_home, "current"));
     var src_lib = 0;
@@ -672,9 +727,46 @@ fn cmd_update() {
 # ================================================================
 
 fn usage() {
-    sys_write(STDOUT_FD, "cyrb ", 5);
+    sys_write(STDOUT_FD, "cyrius ", 7);
     sys_write(STDOUT_FD, _version, strlen(_version));
-    syscall(1, 1, " — Cyrius Build Tool\n\nUsage: cyrb <command> [options]\n\nBuild:\n  build [--aarch64] <src> <out>   compile a program\n  run [--aarch64] <source.cyr>    compile + run\n  test [--aarch64] <test.cyr>     compile + run, check exit 0\n  bench <bench.cyr>               compile + run benchmarks\n  check <source.cyr>              syntax check\n  self                            self-hosting check (cc2==cc3)\n  clean                           remove build/ contents\n\nProject:\n  init <name>                     scaffold a new project\n  package                         create .ark distributable\n  port <rust-project>             scaffold from Rust project\n\nQuality:\n  audit                           full check: self-host, test, fmt, lint\n  fmt <file.cyr> [--check]        format code\n  lint <file.cyr>                 static analysis\n  doc [--check] <file.cyr>        generate/check documentation\n  vet <source.cyr>                audit include dependencies\n  deny <source.cyr>               enforce project policies\n\nTesting:\n  coverage                        report test coverage\n  doctest <file.cyr>              run doc examples\n\nInteractive:\n  repl                            expression evaluator\n\nInfo:\n  version                         show cyrb version\n  which                           show path to cc2\n  help                            show this help\n", 1092);
+    println(" — Cyrius Build Tool");
+    println("");
+    println("Usage: cyrius <command> [options]");
+    println("");
+    println("Build:");
+    println("  build [--aarch64] <src> <out>   compile a program");
+    println("  run [--aarch64] <source.cyr>    compile + run");
+    println("  test [--aarch64] <test.cyr>     compile + run, check exit 0");
+    println("  bench <bench.cyr>               compile + run benchmarks");
+    println("  check <source.cyr>              syntax check");
+    println("  self                            self-hosting check (cc2==cc3)");
+    println("  clean                           remove build/ contents");
+    println("");
+    println("Project:");
+    println("  init <name>                     scaffold a new project");
+    println("  package                         create .ark distributable");
+    println("  port <rust-project>             scaffold from Rust project");
+    println("");
+    println("Quality:");
+    println("  audit                           full check: self-host, test, fmt, lint");
+    println("  fuzz                            run fuzz/*.fcyr harnesses");
+    println("  fmt <file.cyr> [--check]        format code");
+    println("  lint <file.cyr>                 static analysis");
+    println("  doc [--check] <file.cyr>        generate/check documentation");
+    println("  vet <source.cyr>                audit include dependencies");
+    println("  deny <source.cyr>               enforce project policies");
+    println("");
+    println("Testing:");
+    println("  coverage                        report test coverage");
+    println("  doctest <file.cyr>              run doc examples");
+    println("");
+    println("Interactive:");
+    println("  repl                            expression evaluator");
+    println("");
+    println("Info:");
+    println("  version                         show cyrius version");
+    println("  which                           show path to cc2");
+    println("  help                            show this help");
     return 0;
 }
 
@@ -713,7 +805,7 @@ fn main() {
         }
         if (vec_len(defs) > 0) { _defines = defs; }
         if (argc() < ai + 2) {
-            println("Usage: cyrb build [--aarch64] [-D NAME]... <source> <output>");
+            println("Usage: cyrius build [--aarch64] [-D NAME]... <source> <output>");
             return 1;
         }
         return cmd_build(argv(ai), argv(ai + 1));
@@ -728,7 +820,7 @@ fn main() {
             }
         }
         if (argc() <= ai) {
-            println("Usage: cyrb run [--aarch64] <source.cyr>");
+            println("Usage: cyrius run [--aarch64] <source.cyr>");
             return 1;
         }
         return cmd_run(argv(ai));
@@ -743,7 +835,7 @@ fn main() {
             }
         }
         if (argc() <= ai) {
-            println("Usage: cyrb test [--aarch64] <test.cyr>");
+            println("Usage: cyrius test [--aarch64] <test.cyr>");
             return 1;
         }
         return cmd_test(argv(ai));
@@ -756,7 +848,7 @@ fn main() {
 
     if (streq(cmd, "check") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb check <source.cyr>");
+            println("Usage: cyrius check <source.cyr>");
             return 1;
         }
         return cmd_check(argv(2));
@@ -773,7 +865,7 @@ fn main() {
     # --- Project commands ---
     if (streq(cmd, "init") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb init <project-name>");
+            println("Usage: cyrius init <project-name>");
             return 1;
         }
         return cmd_init(argv(2));
@@ -790,7 +882,7 @@ fn main() {
 
     if (streq(cmd, "install") == 1) {
         println("Package registry not yet available.");
-        println("Install from source: git clone <repo> && cyrb build");
+        println("Install from source: git clone <repo> && cyrius build");
         return 0;
     }
 
@@ -800,7 +892,7 @@ fn main() {
 
     if (streq(cmd, "port") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb port <rust-project-path>");
+            println("Usage: cyrius port <rust-project-path>");
             return 1;
         }
         return cmd_port(argv(2));
@@ -808,7 +900,7 @@ fn main() {
 
     if (streq(cmd, "header") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb header <source.cyr>");
+            println("Usage: cyrius header <source.cyr>");
             return 1;
         }
         return cmd_header(argv(2));
@@ -817,7 +909,7 @@ fn main() {
     # --- Quality commands ---
     if (streq(cmd, "fmt") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb fmt <file.cyr> [--check]");
+            println("Usage: cyrius fmt <file.cyr> [--check]");
             return 1;
         }
         var check = 0;
@@ -829,7 +921,7 @@ fn main() {
 
     if (streq(cmd, "lint") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb lint <file.cyr>");
+            println("Usage: cyrius lint <file.cyr>");
             return 1;
         }
         return cmd_lint(argv(2));
@@ -837,7 +929,7 @@ fn main() {
 
     if (streq(cmd, "doc") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb doc [--check] <file.cyr>");
+            println("Usage: cyrius doc [--check] <file.cyr>");
             return 1;
         }
         if (argc() > 3) {
@@ -848,7 +940,7 @@ fn main() {
 
     if (streq(cmd, "vet") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb vet <source.cyr>");
+            println("Usage: cyrius vet <source.cyr>");
             return 1;
         }
         return cmd_vet(argv(2));
@@ -856,7 +948,7 @@ fn main() {
 
     if (streq(cmd, "deny") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb deny <source.cyr>");
+            println("Usage: cyrius deny <source.cyr>");
             return 1;
         }
         return cmd_deny(argv(2));
@@ -866,6 +958,10 @@ fn main() {
         return cmd_audit();
     }
 
+    if (streq(cmd, "fuzz") == 1) {
+        return cmd_fuzz();
+    }
+
     # --- Testing commands ---
     if (streq(cmd, "coverage") == 1) {
         return cmd_coverage();
@@ -873,7 +969,7 @@ fn main() {
 
     if (streq(cmd, "doctest") == 1) {
         if (argc() < 3) {
-            println("Usage: cyrb doctest <file.cyr>");
+            println("Usage: cyrius doctest <file.cyr>");
             return 1;
         }
         return cmd_doctest(argv(2));
@@ -889,7 +985,7 @@ fn main() {
     if (is_ver == 0) { is_ver = streq(cmd, "--version"); }
     if (is_ver == 0) { is_ver = streq(cmd, "-v"); }
     if (is_ver == 1) {
-        sys_write(STDOUT_FD, "cyrb ", 5);
+        sys_write(STDOUT_FD, "cyrius ", 7);
         println(_version);
         return 0;
     }
@@ -910,7 +1006,7 @@ fn main() {
     # Unknown command
     sys_write(STDERR_FD, "Unknown command: ", 17);
     println(cmd);
-    println("Run 'cyrb help' for usage.");
+    println("Run 'cyrius help' for usage.");
     return 1;
 }
 

@@ -1,0 +1,61 @@
+# Fuzz: string operations
+# Exercises strlen/streq/memcpy/memset/memchr/strchr
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+
+alloc_init();
+
+# strlen
+if (strlen("") != 0) { syscall(60, 1); }
+if (strlen("a") != 1) { syscall(60, 2); }
+if (strlen("hello") != 5) { syscall(60, 3); }
+
+# streq
+if (streq("abc", "abc") != 1) { syscall(60, 4); }
+if (streq("abc", "abd") != 0) { syscall(60, 5); }
+if (streq("abc", "ab") != 0) { syscall(60, 6); }
+if (streq("", "") != 1) { syscall(60, 7); }
+
+# memcpy + memeq
+var buf = alloc(256);
+var src = alloc(256);
+var i = 0;
+while (i < 256) {
+    store8(src + i, i & 0xFF);
+    i = i + 1;
+}
+memcpy(buf, src, 256);
+if (memeq(buf, src, 256) != 1) { syscall(60, 8); }
+
+# memset
+memset(buf, 0xAA, 128);
+i = 0;
+while (i < 128) {
+    if (load8(buf + i) != 0xAA) { syscall(60, 9); }
+    i = i + 1;
+}
+# Bytes after 128 should be unchanged
+if (load8(buf + 128) != 128) { syscall(60, 10); }
+
+# memchr
+var haystack = "hello world";
+if (memchr(haystack, 119, 11) != 6) { syscall(60, 11); }  # 'w' at index 6
+if (memchr(haystack, 122, 11) != 0 - 1) { syscall(60, 12); }  # 'z' not found
+
+# strchr
+if (strchr(haystack, 111) != 4) { syscall(60, 13); }  # 'o' at index 4
+if (strchr(haystack, 122) != 0 - 1) { syscall(60, 14); }  # 'z' not found
+
+# Stress: large memcpy
+var big = alloc(8192);
+var big2 = alloc(8192);
+i = 0;
+while (i < 8192) {
+    store8(big + i, (i * 7) & 0xFF);
+    i = i + 1;
+}
+memcpy(big2, big, 8192);
+if (memeq(big2, big, 8192) != 1) { syscall(60, 15); }
+
+syscall(60, 0);

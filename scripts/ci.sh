@@ -45,10 +45,10 @@ else
     exit 1
 fi
 
-if [ -x "$CYRIUS_HOME/bin/cyrb" ]; then
-    echo "  cyrb: $("$CYRIUS_HOME/bin/cyrb" version 2>/dev/null || echo 'ok')"
+if [ -x "$CYRIUS_HOME/bin/cyrius" ]; then
+    echo "  cyrius: $("$CYRIUS_HOME/bin/cyrius" version 2>/dev/null || echo 'ok')"
 else
-    echo "  error: cyrb not found"
+    echo "  error: cyrius not found"
     exit 1
 fi
 

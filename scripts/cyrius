@@ -1,5 +1,5 @@
 #!/bin/sh
-# cyrb — Cyrius Build Tool
+# cyrius — Cyrius Build Tool
 # Dispatcher that routes subcommands to individual tools.
 #
 # Like git dispatches to git-commit, git-push, etc.
@@ -18,9 +18,9 @@ elif [ -f "VERSION" ]; then
 else
     VERSION="unknown"
 fi
-CYRB_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
+CYRIUS_DIR="${CYRIUS_HOME:-$HOME/.cyrius}"
 # Find cc2: installed version, then local repo fallback
-CC="${CYRB_HOME}/bin/cc2"
+CC="${CYRIUS_DIR}/bin/cc2"
 if [ ! -x "$CC" ]; then
     # Try relative to this script (dev mode)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,7 +37,7 @@ TOOLS_DIR="$(dirname "$CC")"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd 2>/dev/null || pwd)"
 
-# Read a key from cyrb.toml (section-aware, handles quotes)
+# Read a key from cyrius.toml (section-aware, handles quotes)
 # Usage: toml_get <file> <key> [section]
 toml_get() {
     local file="$1" key="$2" section="${3:-}"
@@ -58,15 +58,15 @@ toml_get() {
     fi
 }
 
-# Read all package metadata from cyrb.toml
+# Read all package metadata from cyrius.toml
 read_manifest() {
-    if [ -f "cyrb.toml" ]; then
-        PKG_NAME=$(toml_get cyrb.toml name)
-        PKG_VERSION=$(toml_get cyrb.toml version)
-        PKG_DESC=$(toml_get cyrb.toml description)
-        PKG_ENTRY=$(toml_get cyrb.toml entry)
-        PKG_OUTPUT=$(toml_get cyrb.toml output)
-        PKG_LICENSE=$(toml_get cyrb.toml license)
+    if [ -f "cyrius.toml" ]; then
+        PKG_NAME=$(toml_get cyrius.toml name)
+        PKG_VERSION=$(toml_get cyrius.toml version)
+        PKG_DESC=$(toml_get cyrius.toml description)
+        PKG_ENTRY=$(toml_get cyrius.toml entry)
+        PKG_OUTPUT=$(toml_get cyrius.toml output)
+        PKG_LICENSE=$(toml_get cyrius.toml license)
     elif [ -f "VERSION" ]; then
         PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
         PKG_NAME=$(basename "$(pwd)")
@@ -75,16 +75,16 @@ read_manifest() {
         PKG_OUTPUT="$PKG_NAME"
         PKG_LICENSE="GPL-3.0-only"
     else
-        echo "error: no cyrb.toml or VERSION" >&2
+        echo "error: no cyrius.toml or VERSION" >&2
         return 1
     fi
 }
 
 usage() {
     cat << EOF
-cyrb ${VERSION} — Cyrius Build Tool
+cyrius ${VERSION} — Cyrius Build Tool
 
-Usage: cyrb <command> [options]
+Usage: cyrius <command> [options]
 
 Build:
   build [--aarch64 [--native]] <src> <out>  compile a program
@@ -102,12 +102,12 @@ Project:
   publish                         push package to Ark registry
   install <pkg>                   install package from registry
   update                          update vendored stdlib
-  deps                            show resolved dependencies from cyrb.toml
+  deps                            show resolved dependencies from cyrius.toml
 
 Quality:
   serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
-  fuzz [N]                         run fuzz/*.cyr harnesses (project library fuzzing)
+  fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
   fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc2)
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
@@ -126,7 +126,7 @@ Interactive:
   repl                            interactive expression evaluator
 
 Info:
-  version                         show cyrb version
+  version                         show cyrius version
   which                           show path to cc2
   help                            show this help
 
@@ -158,7 +158,7 @@ toml_dep_names() {
 # Fetch git dependency to ~/.cyrius/deps/<name>/<tag>/
 fetch_git_dep() {
     local name="$1" url="$2" tag="$3"
-    local dest="$CYRB_HOME/deps/$name/$tag"
+    local dest="$CYRIUS_DIR/deps/$name/$tag"
     if [ -d "$dest" ]; then return 0; fi
     mkdir -p "$dest"
     echo "  fetch $name@$tag..."
@@ -166,10 +166,10 @@ fetch_git_dep() {
         git clone --depth 1 "$url" "$dest" 2>/dev/null
 }
 
-# Resolve all dependencies from cyrb.toml → write include list to file
+# Resolve all dependencies from cyrius.toml → write include list to file
 # Output: one "include ..." line per dependency, in correct order
 resolve_deps() {
-    local manifest="${1:-cyrb.toml}"
+    local manifest="${1:-cyrius.toml}"
     local outfile="$2"
     if [ ! -f "$manifest" ]; then return 1; fi
 
@@ -179,8 +179,8 @@ resolve_deps() {
         # Check local lib/ first, then installed
         if [ -f "lib/${mod}.cyr" ]; then
             echo "include \"lib/${mod}.cyr\"" >> "$outfile"
-        elif [ -f "$CYRB_HOME/versions/$(cat "$CYRB_HOME/current" 2>/dev/null)/lib/${mod}.cyr" ]; then
-            local slib="$CYRB_HOME/versions/$(cat "$CYRB_HOME/current" 2>/dev/null)/lib/${mod}.cyr"
+        elif [ -f "$CYRIUS_DIR/versions/$(cat "$CYRIUS_DIR/current" 2>/dev/null)/lib/${mod}.cyr" ]; then
+            local slib="$CYRIUS_DIR/versions/$(cat "$CYRIUS_DIR/current" 2>/dev/null)/lib/${mod}.cyr"
             echo "include \"$slib\"" >> "$outfile"
         fi
     done
@@ -197,7 +197,7 @@ resolve_deps() {
         elif [ -n "$dgit" ]; then
             if [ -z "$dtag" ]; then dtag="main"; fi
             fetch_git_dep "$dep" "$dgit" "$dtag"
-            resolve_dir="$CYRB_HOME/deps/$dep/$dtag"
+            resolve_dir="$CYRIUS_DIR/deps/$dep/$dtag"
         fi
 
         if [ -n "$resolve_dir" ] && [ -d "$resolve_dir" ]; then
@@ -230,13 +230,13 @@ compile() {
     if [ "$3" = "aarch64" ]; then
         compiler="${TOOLS_DIR}/cc2_aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc2_aarch64 not found (run 'cyrb pulsar' to build)" >&2
+            echo "error: cc2_aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     elif [ "$3" = "aarch64-native" ]; then
         compiler="${TOOLS_DIR}/cc2-native-aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc2-native-aarch64 not found (run 'cyrb pulsar' to build)" >&2
+            echo "error: cc2-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     fi
@@ -248,13 +248,13 @@ compile() {
 "
         shift
     done
-    # Resolve dependencies from cyrb.toml if present
+    # Resolve dependencies from cyrius.toml if present
     local depfile=""
-    if [ -f "cyrb.toml" ]; then
-        local has_deps=$(grep -c '^\[deps' cyrb.toml 2>/dev/null || echo 0)
+    if [ -f "cyrius.toml" ]; then
+        local has_deps=$(grep -c '^\[deps' cyrius.toml 2>/dev/null || echo 0)
         if [ "$has_deps" -gt 0 ]; then
-            depfile="/tmp/cyrb_deps_$$"
-            resolve_deps "cyrb.toml" "$depfile"
+            depfile="/tmp/cyrius_deps_$$"
+            resolve_deps "cyrius.toml" "$depfile"
         fi
     fi
     # Build: defines + deps + source → compiler
@@ -304,13 +304,13 @@ case "${1:-help}" in
             esac
         done
         if [ -z "$1" ] || [ -z "$2" ]; then
-            echo "Usage: cyrb build [--aarch64] [-v] [-D NAME]... <source.cyr> <output>"
+            echo "Usage: cyrius build [--aarch64] [-v] [-D NAME]... <source.cyr> <output>"
             exit 1
         fi
         src="$1"; out="$2"
         # Count source lines (including includes)
         t_start=$(date +%s%N 2>/dev/null || echo 0)
-        warns="/tmp/cyrb_warns_$$"
+        warns="/tmp/cyrius_warns_$$"
         if compile "$src" "$out" "$arch" $defines 2>"$warns"; then
             t_end=$(date +%s%N 2>/dev/null || echo 0)
             sz=$(wc -c < "$out")
@@ -385,8 +385,8 @@ case "${1:-help}" in
                     printf "  %-30s SKIP (%s)\n" "$name" "$skip"
                     continue
                 fi
-                tmpbin="/tmp/cyrb_test_$$"
-                tmpout="/tmp/cyrb_tout_$$"
+                tmpbin="/tmp/cyrius_test_$$"
+                tmpout="/tmp/cyrius_tout_$$"
                 printf "  %-30s " "$name"
                 if compile "$tfile" "$tmpbin" "$arch" $defines 2>/dev/null; then
                     run_binary "$tmpbin" "$arch" > "$tmpout" 2>&1
@@ -426,7 +426,7 @@ case "${1:-help}" in
             done
             if [ "$found" -eq 0 ]; then
                 echo "No .tcyr files found in tests/, src/, or ."
-                echo "Usage: cyrb test [--aarch64] [-D NAME]... <test.cyr>"
+                echo "Usage: cyrius test [--aarch64] [-D NAME]... <test.cyr>"
                 exit 1
             fi
             echo ""
@@ -438,7 +438,7 @@ case "${1:-help}" in
             [ "$total_fail" -gt 0 ] && exit 1
             exit 0
         fi
-        tmpbin="/tmp/cyrb_test_$$"
+        tmpbin="/tmp/cyrius_test_$$"
         if compile "$1" "$tmpbin" "$arch" $defines; then
             run_binary "$tmpbin" "$arch"
             exit_code=$?
@@ -465,7 +465,7 @@ case "${1:-help}" in
                 [ -f "$bfile" ] || continue
                 bcyr_found=1
                 name=$(basename "$bfile" .bcyr)
-                tmpbin="/tmp/cyrb_bench_$$"
+                tmpbin="/tmp/cyrius_bench_$$"
                 printf "  %-35s " "$name"
                 if compile "$bfile" "$tmpbin" 2>/dev/null; then
                     "$tmpbin" 2>/dev/null
@@ -477,7 +477,7 @@ case "${1:-help}" in
                 fi
             done
             if [ "$bcyr_found" -eq 0 ]; then
-                echo "No .bcyr files found. Create benches/*.bcyr or run cyrb bench <file>."
+                echo "No .bcyr files found. Create benches/*.bcyr or run cyrius bench <file>."
             fi
             exit 0
         fi
@@ -492,7 +492,7 @@ case "${1:-help}" in
                 ;;
             *)
                 # Single benchmark file
-                tmpbin="/tmp/cyrb_bench_$$"
+                tmpbin="/tmp/cyrius_bench_$$"
                 if compile "$1" "$tmpbin"; then
                     "$tmpbin"
                     rm -f "$tmpbin"
@@ -507,8 +507,8 @@ case "${1:-help}" in
 
     self)
         echo "=== Self-Hosting Check ==="
-        cc3="/tmp/cyrb_cc3_$$"
-        cc4="/tmp/cyrb_cc4_$$"
+        cc3="/tmp/cyrius_cc3_$$"
+        cc4="/tmp/cyrius_cc4_$$"
         # Find cc2.cyr source
         CC2_SRC=""
         if [ -f "src/main.cyr" ]; then CC2_SRC="src/main.cyr"; fi
@@ -533,16 +533,16 @@ case "${1:-help}" in
     init)
         shift
         if [ -z "$1" ]; then
-            echo "Usage: cyrb init <project-name>"
+            echo "Usage: cyrius init <project-name>"
             exit 1
         fi
         # Find the init script
         init_script=""
-        for p in "$CYRB_HOME/bin/cyrb-init" "$SCRIPTS_DIR/cyrb-init.sh" "$SCRIPTS_DIR/../scripts/cyrb-init.sh"; do
+        for p in "$CYRIUS_DIR/bin/cyrius-init" "$SCRIPTS_DIR/cyrius-init.sh" "$SCRIPTS_DIR/../scripts/cyrius-init.sh"; do
             if [ -x "$p" ]; then init_script="$p"; break; fi
         done
         if [ -z "$init_script" ]; then
-            echo "error: cyrb-init not found" >&2
+            echo "error: cyrius-init not found" >&2
             exit 1
         fi
         sh "$init_script" "$@"
@@ -551,7 +551,7 @@ case "${1:-help}" in
     package)
         shift
         read_manifest || exit 1
-        echo "=== cyrb package ==="
+        echo "=== cyrius package ==="
         echo "  name:    $PKG_NAME"
         echo "  version: $PKG_VERSION"
         echo "  entry:   $PKG_ENTRY"
@@ -586,10 +586,10 @@ MANIFEST
         PKG_NAME=$(basename "$(pwd)")
         PKG_FILE="build/${PKG_NAME}-${PKG_VERSION}.ark"
         if [ ! -f "$PKG_FILE" ]; then
-            echo "error: package not found. Run 'cyrb package' first." >&2
+            echo "error: package not found. Run 'cyrius package' first." >&2
             exit 1
         fi
-        echo "=== cyrb publish ==="
+        echo "=== cyrius publish ==="
         echo "  package: $PKG_FILE"
         echo "  registry: Ark marketplace"
         echo ""
@@ -601,14 +601,14 @@ MANIFEST
     install)
         shift
         if [ -z "$1" ]; then
-            echo "Usage: cyrb install <package>"
+            echo "Usage: cyrius install <package>"
             exit 1
         fi
-        echo "=== cyrb install ==="
+        echo "=== cyrius install ==="
         echo "  package: $1"
         echo ""
         echo "Package registry not yet available."
-        echo "Install from source: git clone <repo> && cd <repo> && cyrb build"
+        echo "Install from source: git clone <repo> && cd <repo> && cyrius build"
         ;;
 
     # === Quality commands ===
@@ -667,7 +667,7 @@ MANIFEST
                 [ -f "$t" ] || continue
                 tcyr_found=1
                 name=$(basename "$t" .tcyr)
-                tmpbin="/tmp/cyrb_audit_$$"
+                tmpbin="/tmp/cyrius_audit_$$"
                 if cat "$t" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
                     output=$("$tmpbin" 2>&1); ec=$?
                     rm -f "$tmpbin"
@@ -716,11 +716,11 @@ MANIFEST
                 fmt_fail=0
                 for f in lib/*.cyr src/*.cyr; do
                     [ -f "$f" ] || continue
-                    "$CYRFMT" "$f" > /tmp/cyrb_fmt_$$ 2>/dev/null
-                    if ! diff -q "$f" /tmp/cyrb_fmt_$$ > /dev/null 2>&1; then
+                    "$CYRFMT" "$f" > /tmp/cyrius_fmt_$$ 2>/dev/null
+                    if ! diff -q "$f" /tmp/cyrius_fmt_$$ > /dev/null 2>&1; then
                         fmt_fail=1
                     fi
-                    rm -f /tmp/cyrb_fmt_$$
+                    rm -f /tmp/cyrius_fmt_$$
                 done
                 if [ "$fmt_fail" -eq 0 ]; then
                     echo "  PASS: format"
@@ -746,9 +746,9 @@ MANIFEST
         if [ ! -x "$cyrfmt" ]; then
             echo "error: cyrfmt not found" >&2; exit 1
         fi
-        if [ -z "$1" ]; then echo "Usage: cyrb fmt <file.cyr> [--check]"; exit 1; fi
+        if [ -z "$1" ]; then echo "Usage: cyrius fmt <file.cyr> [--check]"; exit 1; fi
         if [ "$2" = "--check" ]; then
-            tmpf="/tmp/cyrb_fmt_$$"
+            tmpf="/tmp/cyrius_fmt_$$"
             "$cyrfmt" "$1" > "$tmpf"
             if diff -q "$1" "$tmpf" > /dev/null 2>&1; then
                 echo "ok: $1"; rm -f "$tmpf"
@@ -766,7 +766,7 @@ MANIFEST
         if [ ! -x "$cyrlint" ]; then
             echo "error: cyrlint not found" >&2; exit 1
         fi
-        if [ -z "$1" ]; then echo "Usage: cyrb lint <file.cyr>"; exit 1; fi
+        if [ -z "$1" ]; then echo "Usage: cyrius lint <file.cyr>"; exit 1; fi
         "$cyrlint" "$@"
         ;;
 
@@ -776,7 +776,7 @@ MANIFEST
         if [ ! -x "$cyrdoc" ]; then
             echo "error: cyrdoc not found" >&2; exit 1
         fi
-        if [ -z "$1" ]; then echo "Usage: cyrb doc [--check] <file.cyr>"; exit 1; fi
+        if [ -z "$1" ]; then echo "Usage: cyrius doc [--check] <file.cyr>"; exit 1; fi
         "$cyrdoc" "$@"
         ;;
 
@@ -846,27 +846,27 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
     # === Run / Clean / Update / Check ===
     header)
         shift
-        exec sh "$SCRIPTS_DIR/cyrb-header.sh" "$@"
+        exec sh "$SCRIPTS_DIR/cyrius-header.sh" "$@"
         ;;
 
     port)
         shift
-        exec sh "$SCRIPTS_DIR/cyrb-port.sh" "$@"
+        exec sh "$SCRIPTS_DIR/cyrius-port.sh" "$@"
         ;;
 
     coverage)
         shift
-        exec sh "$SCRIPTS_DIR/cyrb-coverage.sh" "$@"
+        exec sh "$SCRIPTS_DIR/cyrius-coverage.sh" "$@"
         ;;
 
     doctest)
         shift
-        exec sh "$SCRIPTS_DIR/cyrb-doctest.sh" "$CC" "$@"
+        exec sh "$SCRIPTS_DIR/cyrius-doctest.sh" "$CC" "$@"
         ;;
 
     repl)
         shift
-        exec sh "$SCRIPTS_DIR/cyrb-repl.sh" "$CC" "$@"
+        exec sh "$SCRIPTS_DIR/cyrius-repl.sh" "$CC" "$@"
         ;;
 
     run)
@@ -884,8 +884,8 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 *) break ;;
             esac
         done
-        if [ -z "$1" ]; then echo "Usage: cyrb run [--aarch64] [-D NAME]... <source.cyr>"; exit 1; fi
-        tmpbin="/tmp/cyrb_run_$$"
+        if [ -z "$1" ]; then echo "Usage: cyrius run [--aarch64] [-D NAME]... <source.cyr>"; exit 1; fi
+        tmpbin="/tmp/cyrius_run_$$"
         if compile "$1" "$tmpbin" "$arch" $defines; then
             run_binary "$tmpbin" "$arch"
             exit_code=$?
@@ -900,7 +900,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     check)
         shift
-        if [ -z "$1" ]; then echo "Usage: cyrb check <source.cyr>"; exit 1; fi
+        if [ -z "$1" ]; then echo "Usage: cyrius check <source.cyr>"; exit 1; fi
         if cat "$1" | "$CC" > /dev/null 2>&1; then
             echo "ok: $1"
         else
@@ -911,20 +911,20 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     deps)
         shift
-        if [ ! -f "cyrb.toml" ]; then echo "no cyrb.toml"; exit 1; fi
-        echo "=== Dependencies for $(toml_get cyrb.toml name) ==="
-        _stdlib=$(toml_array "cyrb.toml" "stdlib")
+        if [ ! -f "cyrius.toml" ]; then echo "no cyrius.toml"; exit 1; fi
+        echo "=== Dependencies for $(toml_get cyrius.toml name) ==="
+        _stdlib=$(toml_array "cyrius.toml" "stdlib")
         if [ -n "$_stdlib" ]; then
             echo "stdlib: $_stdlib"
         fi
-        for dep in $(toml_dep_names "cyrb.toml"); do
-            _dp=$(toml_get "cyrb.toml" "path" "deps.$dep")
-            _dg=$(toml_get "cyrb.toml" "git" "deps.$dep")
-            _dt=$(toml_get "cyrb.toml" "tag" "deps.$dep")
+        for dep in $(toml_dep_names "cyrius.toml"); do
+            _dp=$(toml_get "cyrius.toml" "path" "deps.$dep")
+            _dg=$(toml_get "cyrius.toml" "git" "deps.$dep")
+            _dt=$(toml_get "cyrius.toml" "tag" "deps.$dep")
             if [ -n "$_dp" ]; then
                 echo "$dep: path=$_dp"
             elif [ -n "$_dg" ]; then
-                _cached="$CYRB_HOME/deps/$dep/${_dt:-main}"
+                _cached="$CYRIUS_DIR/deps/$dep/${_dt:-main}"
                 _status="not fetched"
                 [ -d "$_cached" ] && _status="cached"
                 echo "$dep: git=$_dg tag=${_dt:-main} ($_status)"
@@ -932,8 +932,8 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         done
         echo ""
         echo "=== Resolved includes ==="
-        _tmpf="/tmp/cyrb_deps_show_$$"
-        resolve_deps "cyrb.toml" "$_tmpf"
+        _tmpf="/tmp/cyrius_deps_show_$$"
+        resolve_deps "cyrius.toml" "$_tmpf"
         if [ -f "$_tmpf" ]; then cat "$_tmpf"; rm -f "$_tmpf"; fi
         ;;
 
@@ -962,7 +962,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
             shift
             FUZZ_ITERS="${1:-1000}"
             FUZZ_SEED_DIR="${2:-tests/tcyr}"
-            echo "=== cyrb fuzz --compiler ==="
+            echo "=== cyrius fuzz --compiler ==="
             echo "  iterations: $FUZZ_ITERS"
             echo "  seeds:      $FUZZ_SEED_DIR"
             echo ""
@@ -988,7 +988,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 if [ $ec -eq 139 ] || [ $ec -eq 134 ] || [ $ec -eq 136 ]; then
                     crashes=$((crashes + 1))
                     echo "  CRASH (exit $ec) at iteration $i"
-                    echo "$input" > "/tmp/cyrb_fuzz_crash_${i}.cyr"
+                    echo "$input" > "/tmp/cyrius_fuzz_crash_${i}.cyr"
                 fi
                 if [ $((i % 100)) -eq 0 ] && [ $i -gt 0 ]; then
                     printf "  [%d/%d] %d crashes\r" "$i" "$FUZZ_ITERS" "$crashes"
@@ -1002,15 +1002,15 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         # Discovers fuzz/*.cyr harnesses, compiles and runs each
         fuzz_found=0
         fuzz_pass=0; fuzz_fail=0
-        echo "=== cyrb fuzz ==="
+        echo "=== cyrius fuzz ==="
         echo "  iterations per harness: $FUZZ_ITERS"
         echo ""
-        for harness in fuzz/*.cyr fuzz/*.tcyr; do
+        for harness in fuzz/*.fcyr fuzz/*.cyr fuzz/*.tcyr; do
             [ -f "$harness" ] || continue
             fuzz_found=1
             name=$(basename "$harness" .cyr)
             name=$(echo "$name" | sed 's/.tcyr$//')
-            tmpbin="/tmp/cyrb_fuzz_$$"
+            tmpbin="/tmp/cyrius_fuzz_$$"
             printf "  %-25s " "$name"
             if compile "$harness" "$tmpbin" 2>/dev/null; then
                 chmod +x "$tmpbin"
@@ -1035,11 +1035,11 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         if [ "$fuzz_found" -eq 0 ]; then
             echo "  No fuzz harnesses found in fuzz/"
             echo ""
-            echo "  Create fuzz/*.cyr files to test library functions."
+            echo "  Create fuzz/*.fcyr files to test library functions."
             echo "  Each harness receives iteration count as argv(1)."
             echo "  Exit 0 = pass, non-zero = fail, 139 = crash."
             echo ""
-            echo "  For compiler fuzzing: cyrb fuzz --compiler [N]"
+            echo "  For compiler fuzzing: cyrius fuzz --compiler [N]"
             exit 0
         fi
         echo ""
@@ -1048,13 +1048,13 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         ;;
 
     update)
-        echo "=== cyrb update ==="
-        CYRIUS_LIB="${CYRB_HOME}/versions/$(cat "${CYRB_HOME}/current" 2>/dev/null)/lib"
+        echo "=== cyrius update ==="
+        CYRIUS_LIB="${CYRIUS_DIR}/versions/$(cat "${CYRIUS_DIR}/current" 2>/dev/null)/lib"
         if [ -d "$CYRIUS_LIB" ] && [ -d "lib" ]; then
             cp "$CYRIUS_LIB"/*.cyr lib/ 2>/dev/null
             mkdir -p lib/agnosys
             cp "$CYRIUS_LIB"/agnosys/*.cyr lib/agnosys/ 2>/dev/null
-            echo "updated vendored stdlib from $(cat "${CYRB_HOME}/current")"
+            echo "updated vendored stdlib from $(cat "${CYRIUS_DIR}/current")"
         else
             echo "no installed stdlib found or no lib/ directory"
             echo "manual update: cp ../cyrius/lib/*.cyr lib/"
@@ -1068,13 +1068,13 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         out="${2:-build/serve_bin}"
         port="${3:-8080}"
         if [ ! -f "$src" ]; then
-            echo "Usage: cyrb serve [source.cyr] [output] [port]"
+            echo "Usage: cyrius serve [source.cyr] [output] [port]"
             echo "  Watches .cyr files, recompiles and restarts on change."
-            echo "  Default: cyrb serve src/main.cyr build/serve_bin"
+            echo "  Default: cyrius serve src/main.cyr build/serve_bin"
             exit 1
         fi
         mkdir -p "$(dirname "$out")"
-        echo "cyrb serve: watching $src"
+        echo "cyrius serve: watching $src"
         echo "  compile: $src -> $out"
         echo "  press Ctrl+C to stop"
         echo ""
@@ -1086,7 +1086,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 wait "$pid" 2>/dev/null
             fi
             printf "  [%s] compiling... " "$(date +%H:%M:%S)"
-            if cat "$src" | "$CC" > "$out" 2>/tmp/cyrb_serve_err; then
+            if cat "$src" | "$CC" > "$out" 2>/tmp/cyrius_serve_err; then
                 chmod +x "$out"
                 sz=$(wc -c < "$out")
                 echo "ok (${sz} bytes)"
@@ -1096,7 +1096,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 echo "  [$(date +%H:%M:%S)] running (pid $pid)"
             else
                 echo "FAIL"
-                cat /tmp/cyrb_serve_err >&2
+                cat /tmp/cyrius_serve_err >&2
                 pid=0
             fi
         }
@@ -1137,21 +1137,21 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
         # Step 1: rebuild cc2 from source
         echo "  cc2..."
-        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrb_pulsar_cc3 2>/dev/null
-        chmod +x /tmp/cyrb_pulsar_cc3
-        cat "$REPO/src/main.cyr" | /tmp/cyrb_pulsar_cc3 > /tmp/cyrb_pulsar_cc4 2>/dev/null
-        if ! cmp -s /tmp/cyrb_pulsar_cc3 /tmp/cyrb_pulsar_cc4; then
+        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrius_pulsar_cc3 2>/dev/null
+        chmod +x /tmp/cyrius_pulsar_cc3
+        cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc3 > /tmp/cyrius_pulsar_cc4 2>/dev/null
+        if ! cmp -s /tmp/cyrius_pulsar_cc3 /tmp/cyrius_pulsar_cc4; then
             # Two-step bootstrap needed
-            chmod +x /tmp/cyrb_pulsar_cc4
-            cat "$REPO/src/main.cyr" | /tmp/cyrb_pulsar_cc4 > /tmp/cyrb_pulsar_cc5 2>/dev/null
-            if ! cmp -s /tmp/cyrb_pulsar_cc4 /tmp/cyrb_pulsar_cc5; then
+            chmod +x /tmp/cyrius_pulsar_cc4
+            cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc4 > /tmp/cyrius_pulsar_cc5 2>/dev/null
+            if ! cmp -s /tmp/cyrius_pulsar_cc4 /tmp/cyrius_pulsar_cc5; then
                 echo "  FAIL: self-hosting diverges" >&2
-                rm -f /tmp/cyrb_pulsar_cc*
+                rm -f /tmp/cyrius_pulsar_cc*
                 exit 1
             fi
-            cp /tmp/cyrb_pulsar_cc4 "$REPO/build/cc2"
+            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc2"
         else
-            cp /tmp/cyrb_pulsar_cc3 "$REPO/build/cc2"
+            cp /tmp/cyrius_pulsar_cc3 "$REPO/build/cc2"
         fi
         chmod +x "$REPO/build/cc2"
         echo "  cc2: $(wc -c < "$REPO/build/cc2") bytes (self-host OK)"
@@ -1177,7 +1177,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
         # Step 4: install
         echo "  install $VER..."
-        DEST="$CYRB_HOME/versions/$VER"
+        DEST="$CYRIUS_DIR/versions/$VER"
         rm -rf "$DEST"
         mkdir -p "$DEST/lib"
         cp "$REPO/build/cc2" "$DEST/cc2"
@@ -1185,28 +1185,28 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         cp "$REPO/build/cc2_aarch64" "$DEST/cc2_aarch64" 2>/dev/null && chmod +x "$DEST/cc2_aarch64"
         cp "$REPO/build/cc2-native-aarch64" "$DEST/cc2-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc2-native-aarch64"
         cp "$REPO/lib/"*.cyr "$DEST/lib/"
-        # Install cyrb shell script + helpers (NOT the compiled binary)
-        cp "$REPO/scripts/cyrb" "$DEST/cyrb" && chmod +x "$DEST/cyrb"
-        for script in "$REPO"/scripts/cyrb-*.sh; do
+        # Install cyrius shell script + helpers (NOT the compiled binary)
+        cp "$REPO/scripts/cyrius" "$DEST/cyrius" && chmod +x "$DEST/cyrius"
+        for script in "$REPO"/scripts/cyrius-*.sh; do
             [ -f "$script" ] && cp "$script" "$DEST/" && chmod +x "$DEST/$(basename "$script")"
         done
-        ln -sf "$DEST/cc2" "$CYRB_HOME/bin/cc2"
-        ln -sf "$DEST/cyrb" "$CYRB_HOME/bin/cyrb"
-        ln -sf "$DEST/cc2_aarch64" "$CYRB_HOME/bin/cc2_aarch64" 2>/dev/null || true
-        ln -sf "$DEST/cc2-native-aarch64" "$CYRB_HOME/bin/cc2-native-aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc2" "$CYRIUS_DIR/bin/cc2"
+        ln -sf "$DEST/cyrius" "$CYRIUS_DIR/bin/cyrius"
+        ln -sf "$DEST/cc2_aarch64" "$CYRIUS_DIR/bin/cc2_aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc2-native-aarch64" "$CYRIUS_DIR/bin/cc2-native-aarch64" 2>/dev/null || true
 
         # Cleanup old versions
-        for d in "$CYRB_HOME/versions/"*; do
+        for d in "$CYRIUS_DIR/versions/"*; do
             dname=$(basename "$d")
             if [ "$dname" != "$VER" ]; then
                 rm -rf "$d"
                 echo "  removed $dname"
             fi
         done
-        echo "$VER" > "$CYRB_HOME/current"
+        echo "$VER" > "$CYRIUS_DIR/current"
 
-        rm -f /tmp/cyrb_pulsar_cc* /tmp/cyrb_pulsar_cross
-        echo 'var x=42;syscall(60,x);' | "$CYRB_HOME/bin/cc2" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
+        rm -f /tmp/cyrius_pulsar_cc* /tmp/cyrius_pulsar_cross
+        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc2" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
         pv_rc=0; /tmp/pv 2>/dev/null || pv_rc=$?
         rm -f /tmp/pv
         if [ "$pv_rc" = "42" ]; then
@@ -1218,7 +1218,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     # === Info commands ===
     version|--version|-v)
-        echo "cyrb $VERSION"
+        echo "cyrius $VERSION"
         ;;
 
     which)
@@ -1231,7 +1231,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     *)
         echo "Unknown command: $1"
-        echo "Run 'cyrb help' for usage."
+        echo "Run 'cyrius help' for usage."
         exit 1
         ;;
 esac

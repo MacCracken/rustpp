@@ -195,7 +195,7 @@ Covers: GPU detection, system tools, Python scripts, Node.js tools.
 ### C FFI Headers (available now)
 
 ```bash
-cyrb header lib/mylib.cyr > mylib.h
+cyrius header lib/mylib.cyr > mylib.h
 ```
 
 Generates C prototypes. Other languages can see what functions exist.
@@ -237,10 +237,10 @@ talk to Cyrius backends over HTTP or Unix domain sockets.
 
 1. Move Rust code to `rust-old/`
 2. Create `src/`, `lib/`, `programs/` directories
-3. Vendor Cyrius stdlib: `cyrb init --vendor`
+3. Vendor Cyrius stdlib: `cyrius init --vendor`
 4. Port module by module, test incrementally
 5. Use subprocess bridge for external deps
-6. Run `cyrb audit` before each commit
+6. Run `cyrius audit` before each commit
 
 ---
 
