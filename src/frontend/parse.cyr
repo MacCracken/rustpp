@@ -2469,8 +2469,22 @@ fn PARSE_RETURN(S) {
                     # Look up function
                     var tcfi = FINDFN(S, tcnoff);
                     if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
-                    # Emit epilogue + jmp (tail call)
-                    ETAILJMP(S, tcfi);
+                    if (tcargc > 6) {
+                        # >6 args: normal call (stack args clobbered by tail call epilogue)
+                        var foff2 = L64(S + 0xC2000 + tcfi * 8);
+                        if (foff2 >= 0) { ECALLTO(S, foff2); }
+                        else { ECALLFIX(S, tcfi); }
+                        ECALLCLEAN(S, tcargc);
+                        # Jump to function epilogue (same as normal return)
+                        var rp2 = EJMP0(S);
+                        var rpc2 = GRPC(S);
+                        if (rpc2 >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+                        S64(S + 0x8DA20 + rpc2 * 8, rp2);
+                        SRPC(S, rpc2 + 1);
+                    } else {
+                        # Emit epilogue + jmp (tail call, ≤6 args only)
+                        ETAILJMP(S, tcfi);
+                    }
                     return 0;
                 } }
             }

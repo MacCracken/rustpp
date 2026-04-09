@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.0] — 2026-04-09
+
+### Fixed
+- **`return fn(>6 args)` tail call bug**: Tail call optimization destroyed the stack
+  frame before jumping, clobbering stack-passed arguments (7th+). Now falls through
+  to normal call+return for >6 args. Tail call still used for ≤6 args.
+  `return f7(1,2,3,4,5,6,7)` now returns 28 (was 22). Bug #27 workaround no longer
+  needed for >6 arg functions.
+- **String data overflow detection**: Added bounds check in lexer. Programs exceeding
+  the 16KB string literal buffer now fail with a clear error message instead of
+  silently corrupting adjacent compiler state.
+
+### Added
+- **`atoi` function** (string.cyr): Parse null-terminated decimal string to integer.
+  Handles negative numbers. Returns 0 for invalid input.
+- **`args.tcyr` test suite**: 11 assertions covering argc, argv, and atoi.
+  Total: 23 test suites, 287 assertions.
+
 ## [2.6.4] — 2026-04-09
 
 ### Added — Multi-file Compilation (Phase 1)

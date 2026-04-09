@@ -1,0 +1,29 @@
+# Test: args library + atoi
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/args.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+args_init();
+
+test_group("argc/argv");
+# When run without args, argc is 1 (just the program name)
+var ac = argc();
+assert_eq(ac >= 1, 1, "argc >= 1");
+var a0 = argv(0);
+assert_nonnull(a0, "argv(0) not null");
+
+test_group("atoi");
+assert_eq(atoi("42"), 42, "atoi 42");
+assert_eq(atoi("0"), 0, "atoi 0");
+assert_eq(atoi("123"), 123, "atoi 123");
+assert_eq(atoi("999"), 999, "atoi 999");
+assert_eq(atoi("-7"), 0 - 7, "atoi -7");
+assert_eq(atoi("-100"), 0 - 100, "atoi -100");
+assert_eq(atoi(""), 0, "atoi empty");
+assert_eq(atoi("abc"), 0, "atoi invalid");
+assert_eq(atoi("12abc"), 12, "atoi partial");
+
+var r = assert_summary();
