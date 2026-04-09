@@ -545,12 +545,32 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         store8(out + op, 58); op = op + 1;
         op = op + PP_EMIT_STR(out, op, "\");\n");
         if (load8(&field_types + fi * 32) != 0) {
-            # Typed field: get nested json and add to builder
-            op = op + PP_EMIT_STR(out, op, "str_builder_add(sb, ");
-            op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
-            op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
-            op = op + PP_EMIT_STR(out, op, "));\n");
+            # Check if type is Str — emit as quoted JSON string
+            var is_str = 0;
+            if (load8(&field_types + fi * 32) == 83) {
+                if (load8(&field_types + fi * 32 + 1) == 116) {
+                    if (load8(&field_types + fi * 32 + 2) == 114) {
+                        if (load8(&field_types + fi * 32 + 3) == 0) {
+                            is_str = 1;
+                        }
+                    }
+                }
+            }
+            if (is_str == 1) {
+                # Str field: emit as "value"
+                op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
+                op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, str_data(load64(ptr + ");
+                op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+                op = op + PP_EMIT_STR(out, op, ")));\n");
+                op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
+            } else {
+                # Nested struct: get nested json and add to builder
+                op = op + PP_EMIT_STR(out, op, "str_builder_add(sb, ");
+                op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
+                op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
+                op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+                op = op + PP_EMIT_STR(out, op, "));\n");
+            }
         } else {
             # Scalar field: emit as bare integer (valid JSON number)
             op = op + PP_EMIT_STR(out, op, "str_builder_add_int(sb, load64(ptr + ");
@@ -573,29 +593,38 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         op = op + PP_EMIT_STR(out, op, &field_names + fi * 32);
         op = op + PP_EMIT_STR(out, op, "\"));\n");
         if (load8(&field_types + fi * 32) != 0) {
-            op = op + PP_EMIT_STR(out, op, "if (v != 0) {\nvar np = ");
-            op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
-            op = op + PP_EMIT_STR(out, op, "_from_json(json_parse(v));\nmemcpy(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
-            op = op + PP_EMIT_STR(out, op, ", np, ");
-            # Look up nested struct size
-            var tsz = 8;
-            var di = 0;
-            while (di < _pp_derive_count) {
-                var eq = 1;
-                var ci = 0;
-                while (eq == 1) {
-                    var a = load8(&field_types + fi * 32 + ci);
-                    var b = load8(S + 0x97108 + di * 32 + ci);
-                    if (a != b) { eq = 0; }
-                    if (a == 0) { break; }
-                    ci = ci + 1;
-                }
-                if (eq == 1) { tsz = load64(S + 0x97008 + di * 8); }
-                di = di + 1;
+            # Typed field: Str fields stored directly, nested structs recursively
+            var fj_str = 0;
+            if (load8(&field_types + fi * 32) == 83) { if (load8(&field_types + fi * 32 + 1) == 116) { if (load8(&field_types + fi * 32 + 2) == 114) { if (load8(&field_types + fi * 32 + 3) == 0) { fj_str = 1; } } } }
+            if (fj_str == 1) {
+                op = op + PP_EMIT_STR(out, op, "if (v != 0) { store64(ptr + ");
+                op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+                op = op + PP_EMIT_STR(out, op, ", str_from(v)); }\n");
             }
-            op = op + PP_EMIT_INT(out, op, tsz);
-            op = op + PP_EMIT_STR(out, op, ");\n}\n");
+            if (fj_str == 0) {
+                op = op + PP_EMIT_STR(out, op, "if (v != 0) {\nvar np = ");
+                op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
+                op = op + PP_EMIT_STR(out, op, "_from_json(json_parse(v));\nmemcpy(ptr + ");
+                op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+                op = op + PP_EMIT_STR(out, op, ", np, ");
+                var tsz = 8;
+                var di = 0;
+                while (di < _pp_derive_count) {
+                    var eq = 1;
+                    var ci = 0;
+                    while (eq == 1) {
+                        var a = load8(&field_types + fi * 32 + ci);
+                        var b = load8(S + 0x97108 + di * 32 + ci);
+                        if (a != b) { eq = 0; }
+                        if (a == 0) { break; }
+                        ci = ci + 1;
+                    }
+                    if (eq == 1) { tsz = load64(S + 0x97008 + di * 8); }
+                    di = di + 1;
+                }
+                op = op + PP_EMIT_INT(out, op, tsz);
+                op = op + PP_EMIT_STR(out, op, ");\n}\n");
+            }
         } else {
             op = op + PP_EMIT_STR(out, op, "if (v != 0) { store64(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));

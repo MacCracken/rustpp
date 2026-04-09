@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.3] — 2026-04-09
+
+### Fixed
+- **`#derive(Serialize)` Str field support**: Fields annotated `: Str` now serialize as
+  quoted JSON strings (`"alice"`) instead of raw pointer addresses. Both `_to_json` and
+  `_from_json` handle Str fields correctly. Integer fields remain bare numbers (`42`).
+  Combined with 3.2.2's integer fix, derive now generates correct JSON for mixed structs:
+  `{"id":42,"name":"alice","level":5}`.
+- **Function table 1024→2048**: (from 3.2.2) Unblocks agnostik `_from_json` generation.
+
 ## [3.2.2] — 2026-04-09
 
 ### Fixed

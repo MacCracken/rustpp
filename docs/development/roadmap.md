@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.2.2.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
+> **v3.2.3.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
 > 29 test suites (362 assertions), 4 fuzz harnesses, soak test clean. 35 stdlib modules.
 > 8 downstream repos pass. 207 vidya entries. Format/lint/doc 100% clean.
 
@@ -103,7 +103,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | # | Issue | Affected | Status | Details |
 |---|-------|----------|--------|---------|
 | 1 | ~~1024 function limit~~ | agnostik | **Resolved 3.2.2** | Expanded to 2048. Agnostik can now add `_from_json` deserialization. |
-| 2 | **`#derive(Serialize)` formats all values as strings** | agnostik | Open | Auto-generated `_to_json` renders integers as `"42"` not `42`. Consumers need manual overrides for correct numeric JSON. Request: detect integer/bool fields and emit `str_builder_add_int` instead of string quoting. |
+| 2 | **`#derive(Serialize)` renders Str fields as raw pointers** | agnostik | Open | v3.2.2 fixed integer rendering (`42` not `"42"`), but Str fields now emit raw pointer addresses (`402866216` instead of string content). Compiler has no type info to distinguish i64 from Str. Request: field type annotation or heuristic (e.g. `#derive(Serialize, name:str)`) so Str fields emit `str_builder_add(sb, field)` instead of `str_builder_add_int(sb, field)`. |
 | 3 | **Nested if/while/break codegen** | agnostik | Open | `version_from_str` correctly stores prerelease inside `if (sep == 45) { while (...) { break; } ... store64(v+24, pre); }` but value is NULL at runtime when both prerelease+build present. Simple prerelease (no build) works. Suspect break inside while inside if clobbers a register or skips the store. |
 
 ## Known Gotchas
