@@ -1,0 +1,29 @@
+# Test: math library (f64 operations)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/math.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("f64 basic");
+var a = f64_from(10);
+var b = f64_from(3);
+assert_eq(f64_to(f64_add(a, b)), 13, "add");
+assert_eq(f64_to(f64_sub(a, b)), 7, "sub");
+assert_eq(f64_to(f64_mul(a, b)), 30, "mul");
+assert_eq(f64_to(f64_div(a, b)), 3, "div truncates");
+
+test_group("f64 compare");
+assert_eq(f64_eq(f64_from(5), f64_from(5)), 1, "eq yes");
+assert_eq(f64_eq(f64_from(5), f64_from(6)), 0, "eq no");
+assert_eq(f64_lt(f64_from(3), f64_from(5)), 1, "lt yes");
+assert_eq(f64_lt(f64_from(5), f64_from(3)), 0, "lt no");
+
+test_group("f64 convert");
+assert_eq(f64_to(f64_from(0)), 0, "zero");
+assert_eq(f64_to(f64_from(1)), 1, "one");
+assert_eq(f64_to(f64_from(100)), 100, "hundred");
+
+var r = assert_summary();

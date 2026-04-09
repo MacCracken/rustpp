@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.6.1] — 2026-04-09
+
+### Fixed
+- **stdlib crashes resolved (math, matrix, regex)**: All three modules now work
+  correctly. Root cause was the FINDVAR fix in v2.1.0 — the crashes were already gone
+  but never re-tested. Removed from "known broken" list.
+- **str_replace bug** (regex.cyr): Used `strlen()` on Str arguments instead of
+  `str_len()`/`str_data()`. First replacement matched garbage memory. Fixed to use
+  proper Str accessors. str_replace_all also fixed (delegates to str_replace).
+
+### Added
+- **3 new .tcyr test files**: math (11 assertions), matrix (12), regex (20).
+  Total: 21 test suites, 251 assertions.
+
 ## [2.6.0] — 2026-04-09
 
 ### Added — Tests & Benchmarks

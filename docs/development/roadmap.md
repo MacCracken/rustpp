@@ -29,6 +29,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | 22 | ~~`fmt_int` / `_sk_fmt_line` garbled output~~ | ~~P2~~ | **Fixed v2.1.0** — same root cause as #16: `var buf[N]` shared across functions. |
 
 | 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
+| 29 | ~~stdlib crashes (math, matrix, regex)~~ | ~~P2~~ | **Fixed v2.6.1** — FINDVAR fix in v2.1.0 resolved the root cause. str_replace had Str/cstring mismatch (used strlen on Str args). |
 | 24 | ~~`#ref` directive broken~~ | ~~P2~~ | **Fixed v2.2.0** — PP_REF_PASS was never called from PREPROCESS. One-line fix. |
 
 | 25 | ~~Include path shadows stdlib~~ | ~~P2~~ | **Fixed v2.1.2** — fallback to `$HOME/.cyrius/lib/` when local path fails. |

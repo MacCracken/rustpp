@@ -1,0 +1,51 @@
+# Test: regex/glob library
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/regex.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("glob_match exact");
+assert_eq(glob_match("hello", "hello"), 1, "exact match");
+assert_eq(glob_match("hello", "world"), 0, "exact miss");
+assert_eq(glob_match("", ""), 1, "empty match");
+
+test_group("glob_match star");
+assert_eq(glob_match("hel*", "hello"), 1, "star suffix");
+assert_eq(glob_match("*llo", "hello"), 1, "star prefix");
+assert_eq(glob_match("*.cyr", "test.cyr"), 1, "star ext");
+assert_eq(glob_match("*.rs", "test.cyr"), 0, "star ext miss");
+assert_eq(glob_match("*", "anything"), 1, "star all");
+
+test_group("glob_match question");
+assert_eq(glob_match("h?llo", "hello"), 1, "qmark");
+assert_eq(glob_match("h?llo", "hallo"), 1, "qmark alt");
+assert_eq(glob_match("???", "abc"), 1, "qmark len");
+assert_eq(glob_match("???", "ab"), 0, "qmark short");
+
+test_group("find_all");
+var hits = find_all("abcabcabc", "abc");
+assert_eq(vec_len(hits), 3, "find 3");
+assert_eq(vec_get(hits, 0), 0, "hit 0");
+assert_eq(vec_get(hits, 1), 3, "hit 1");
+assert_eq(vec_get(hits, 2), 6, "hit 2");
+
+var none = find_all("hello", "xyz");
+assert_eq(vec_len(none), 0, "find none");
+
+test_group("str_replace");
+var rep = str_replace(str_from("hello world"), str_from("world"), str_from("cyrius"));
+assert_eq(str_eq(rep, str_from("hello cyrius")), 1, "replace");
+
+var nop = str_replace(str_from("hello"), str_from("xyz"), str_from("abc"));
+assert_eq(str_eq(nop, str_from("hello")), 1, "replace miss");
+
+test_group("str_replace_all");
+var all = str_replace_all(str_from("aXbXc"), str_from("X"), str_from("_"));
+assert_eq(str_eq(all, str_from("a_b_c")), 1, "replace all");
+
+var r = assert_summary();
