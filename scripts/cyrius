@@ -855,6 +855,40 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         exec sh "$SCRIPTS_DIR/cyrius-port.sh" "$@"
         ;;
 
+    # === Deps: show dependency map from cyrius.toml ===
+    deps)
+        shift
+        MANIFEST="cyrius.toml"
+        if [ ! -f "$MANIFEST" ]; then
+            echo "No cyrius.toml found in current directory."
+            exit 1
+        fi
+        echo "=== $(toml_get "$MANIFEST" name) $(toml_get "$MANIFEST" version) ==="
+        echo ""
+        # Parse [deps.*] sections
+        dep_count=0
+        for dep in $(grep '^\[deps\.' "$MANIFEST" | sed 's/\[deps\.\(.*\)\]/\1/'); do
+            path=$(toml_get "$MANIFEST" path "deps.$dep")
+            version=$(toml_get "$MANIFEST" version "deps.$dep")
+            if [ -n "$path" ]; then
+                exists="missing"
+                if [ -d "$path" ]; then exists="ok"; fi
+                printf "  %-20s path=%-30s [%s]\n" "$dep" "$path" "$exists"
+            elif [ -n "$version" ]; then
+                printf "  %-20s version=%s\n" "$dep" "$version"
+            else
+                printf "  %-20s (no path or version)\n" "$dep"
+            fi
+            dep_count=$((dep_count + 1))
+        done
+        if [ $dep_count -eq 0 ]; then
+            echo "  (no dependencies)"
+        fi
+        echo ""
+        echo "$dep_count dependencies"
+        ;;
+
+
     coverage)
         shift
         exec sh "$SCRIPTS_DIR/cyrius-coverage.sh" "$@"

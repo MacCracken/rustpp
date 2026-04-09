@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.7.4] — 2026-04-09
+
+### Fixed
+- **Undefined variable errors show variable name**: 4 remaining FINDVAR call sites
+  in parse.cyr (address-of, field load, field store, assignment) now print the
+  variable name instead of generic "syntax error". All agents benefit from clearer
+  error messages during development.
+
+### Added
+- **`cyrius deps` command**: Reads `[deps.*]` sections from `cyrius.toml`, displays
+  dependency map with path resolution and existence check. Phase 1 of manifest-based
+  dependency management for multi-repo builds.
+
+### Changed
+- **Downstream CI fully cleaned**: agnosys, argonaut, sakshi — all `cyrb` references
+  removed, standard `$HOME/.cyrius/` install pattern, 2.7.2 pinned. `cyrb.toml`
+  renamed to `cyrius.toml` in agnosys and argonaut.
+
 ## [2.7.3] — 2026-04-09
 
 ### Added
