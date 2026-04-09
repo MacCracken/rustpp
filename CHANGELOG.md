@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [3.2.2] — 2026-04-09
 
+### Changed — Hashmap Cleanup & Stdlib Refactor
+- **hashmap.cyr**: Removed unused `HASHMAP_ENTRY_SIZE` var. Added `map_get_or(m, key, default)`
+  for safe lookup (distinguishes not-found from zero-value). Added `map_size(m)` alias.
+- **hashmap_fast.cyr**: Added `fhm_get_or(m, key, default)` and `fhm_size(m)` for
+  API parity with hashmap.cyr. Both hashmaps now have identical public API surface.
+- **hashmap_ext.tcyr**: +6 assertions (get_or, size alias for both hashmaps).
+  Total: 20 hashmap assertions.
+
+### Stats
+- **30 test suites, 372 assertions** (was 366)
+- Format/lint/doc 100% clean
+
 ### Changed
 - **Function table expanded 1024→2048**: Six function tables (names, offsets, params,
   body_start, body_end, inline) each doubled from 8KB to 16KB. All downstream regions

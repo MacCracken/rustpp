@@ -13,9 +13,14 @@ map_set(m, "a", 1);
 map_set(m, "b", 2);
 map_set(m, "c", 3);
 assert_eq(map_count(m), 3, "count");
+assert_eq(map_size(m), 3, "size alias");
 assert(map_has(m, "a") == 1, "has a");
 map_delete(m, "b");
 assert_eq(map_count(m), 2, "after delete");
+
+test_group("hashmap get_or");
+assert_eq(map_get_or(m, "a", 99), 1, "get_or found");
+assert_eq(map_get_or(m, "missing", 99), 99, "get_or default");
 
 test_group("hashmap_fast");
 var fm = fhm_new();
@@ -38,6 +43,11 @@ var fk = fhm_keys(fm);
 assert_eq(vec_len(fk), 2, "fhm 2 keys");
 var fv = fhm_values(fm);
 assert_eq(vec_len(fv), 2, "fhm 2 values");
+
+test_group("hashmap_fast get_or");
+assert_eq(fhm_get_or(fm, "x", 99), 10, "fhm get_or found");
+assert_eq(fhm_get_or(fm, "gone", 99), 99, "fhm get_or default");
+assert_eq(fhm_size(fm), 2, "fhm size alias");
 
 test_group("hashmap_fast clear");
 fhm_clear(fm);
