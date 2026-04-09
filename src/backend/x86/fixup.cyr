@@ -153,8 +153,19 @@ fn EMITELF_USER(S, etype) {
     if (filesz > 262144) {
         syscall(SYS_WRITE, 2, "error: output too large (", 25);
         PRNUM(filesz);
-        syscall(SYS_WRITE, 2, "/262144 bytes)\n", 15);
+        syscall(SYS_WRITE, 2, "/262144 bytes)\n  code: ", 23);
+        PRNUM(cp);
+        syscall(SYS_WRITE, 2, " data: ", 7);
+        PRNUM(totvar);
+        syscall(SYS_WRITE, 2, " strings: ", 10);
+        PRNUM(spos);
+        syscall(SYS_WRITE, 2, "\n  tip: heap-allocate large var buf[N] arrays\n", 46);
         syscall(SYS_EXIT, 1);
+    }
+    if (totvar > 131072) {
+        syscall(SYS_WRITE, 2, "warning: large static data (", 28);
+        PRNUM(totvar);
+        syscall(SYS_WRITE, 2, " bytes) — consider alloc() for buffers >4KB\n", 44);
     }
     var memsz = filesz + 4096;
     var O = S + 0xCE000;

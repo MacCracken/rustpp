@@ -1,0 +1,75 @@
+# Test: sakshi_full (spans, ring buffer, levels, output routing)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/sakshi_full.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("log levels");
+sakshi_set_level(SK_DEBUG);
+assert_eq(sakshi_get_level(), SK_DEBUG, "level debug");
+sakshi_set_level(SK_ERROR);
+assert_eq(sakshi_get_level(), SK_ERROR, "level error");
+sakshi_set_level(SK_TRACE);
+
+test_group("error handling");
+var e1 = sakshi_err_new(42, 7);
+assert_eq(sakshi_err_code(e1), 42, "err code");
+assert_eq(sakshi_err_category(e1), 7, "err cat");
+assert_eq(sakshi_is_err(e1), 1, "is err");
+assert_eq(sakshi_is_ok(e1), 0, "not ok");
+assert_eq(sakshi_is_ok(0), 1, "zero is ok");
+
+test_group("error with context");
+var e2 = sakshi_err_with_ctx(10, 3, 99);
+assert_eq(sakshi_err_code(e2), 10, "ctx code");
+assert_eq(sakshi_err_category(e2), 3, "ctx cat");
+assert_eq(sakshi_err_context(e2), 99, "ctx val");
+
+test_group("spans");
+assert_eq(sakshi_span_depth(), 0, "depth 0");
+sakshi_span_enter("test_op", 7);
+assert_eq(sakshi_span_depth(), 1, "depth 1");
+sakshi_span_enter("inner", 5);
+assert_eq(sakshi_span_depth(), 2, "depth 2");
+sakshi_span_exit();
+assert_eq(sakshi_span_depth(), 1, "depth back 1");
+sakshi_span_exit();
+assert_eq(sakshi_span_depth(), 0, "depth back 0");
+
+test_group("output routing");
+# Buffer mode
+sakshi_output_buffer();
+sakshi_info("test msg", 8);
+var rlen = sakshi_ring_len();
+assert_eq(rlen > 0, 1, "ring has data");
+var ecount = sakshi_ring_event_count();
+assert_eq(ecount, 1, "ring 1 event");
+sakshi_ring_clear();
+assert_eq(sakshi_ring_event_count(), 0, "ring cleared");
+
+test_group("file output");
+var logpath = "/tmp/cyrius_sakshi_test.log";
+sakshi_output_file(logpath);
+sakshi_error("file test", 9);
+sakshi_output_file_close();
+# Verify file was written
+var lbuf = alloc(256);
+var ln = file_read_all(logpath, lbuf, 255);
+assert_eq(ln > 0, 1, "log file written");
+syscall(87, logpath);
+
+test_group("err at span");
+sakshi_span_enter("err_span", 8);
+var e3 = sakshi_err_at_span(5, 2);
+assert_eq(sakshi_err_code(e3), 5, "at_span code");
+sakshi_span_exit();
+
+# Restore stderr output for assert_summary
+sakshi_set_output_fd(2);
+
+var r = assert_summary();

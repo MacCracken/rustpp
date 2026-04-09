@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.8.1] — 2026-04-09
+
+### Added
+- **`sakshi_full.tcyr` test suite**: 20 assertions covering log levels, error handling,
+  error context, spans (enter/exit/depth), output routing (buffer/file), ring buffer
+  (put/count/clear), and err_at_span. Total: 25 suites, 325 assertions.
+- **Improved "output too large" error**: Now shows code/data/strings breakdown and
+  suggests `alloc()` for large buffers. Warns at >128KB static data.
+
+### Fixed
+- **Argonaut sakshi_full issue documented**: Large static `var buf[N]` arrays (64KB+)
+  exhaust the 262KB output buffer. Fix: heap-allocate via `alloc()` for buffers >4KB.
+  Compiler now shows actionable diagnostics when this happens.
+
 ## [2.8.0] — 2026-04-09
 
 ### Changed — Cleanup/Audit/Refactor
