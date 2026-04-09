@@ -42,38 +42,53 @@
 
 include "lib/string.cyr"
 
-# VM state
-var _cx_regs[256];
-var _cx_mem[4096];
-var _cx_dstack[512];
+# VM state — heap-allocated to avoid code buffer overflow
+include "lib/alloc.cyr"
+
+var _cx_regs = 0;        # r0-r31 (32 × 8 = 256 bytes)
+var _cx_mem = 0;          # 64KB data segment (stack grows down from top)
+var _cx_dstack = 0;       # 1024 data stack entries (saved fp, expression spills)
 var _cx_dsp = 0;
-var _cx_cstack[256];
+var _cx_cstack = 0;       # 1024 call stack entries (return addresses)
 var _cx_csp = 0;
 var _cx_pc = 0;
 
-fn cx_reg_get(r) { return load64(&_cx_regs + r * 8); }
-fn cx_reg_set(r, v) { store64(&_cx_regs + r * 8, v); return 0; }
+var _CX_MEM_SIZE = 65536;
+
+fn cx_init() {
+    alloc_init();
+    _cx_regs = alloc(256);       # 32 registers × 8
+    _cx_mem = alloc(65536);      # 64KB memory
+    _cx_dstack = alloc(8192);    # 1024 entries × 8
+    _cx_cstack = alloc(8192);    # 1024 entries × 8
+    memset(_cx_regs, 0, 256);
+    memset(_cx_mem, 0, 65536);
+    return 0;
+}
+
+fn cx_reg_get(r) { return load64(_cx_regs + r * 8); }
+fn cx_reg_set(r, v) { store64(_cx_regs + r * 8, v); return 0; }
 
 # Data stack (push/pop for expression temps)
 fn cx_push(v) {
-    store64(&_cx_dstack + _cx_dsp * 8, v);
+    store64(_cx_dstack + _cx_dsp * 8, v);
     _cx_dsp = _cx_dsp + 1;
     return 0;
 }
 fn cx_pop() {
     _cx_dsp = _cx_dsp - 1;
-    return load64(&_cx_dstack + _cx_dsp * 8);
+    return load64(_cx_dstack + _cx_dsp * 8);
 }
 
 # Call stack (call/ret for return addresses)
 fn cx_call_push(v) {
-    store64(&_cx_cstack + _cx_csp * 8, v);
+    store64(_cx_cstack + _cx_csp * 8, v);
     _cx_csp = _cx_csp + 1;
     return 0;
 }
 fn cx_call_pop() {
     _cx_csp = _cx_csp - 1;
-    return load64(&_cx_cstack + _cx_csp * 8);
+    return load64(_cx_cstack + _cx_csp * 8);
 }
 
 fn cx_run(code, code_len) {
@@ -125,10 +140,10 @@ fn cx_run(code, code_len) {
         elif (op == 51) { if (cx_reg_get(rb) > cx_reg_get(rc)) { cx_reg_set(ra, 1); } else { cx_reg_set(ra, 0); } }
 
         # memory: load8, load64, store8, store64
-        elif (op == 64) { cx_reg_set(ra, load8(&_cx_mem + cx_reg_get(rb))); }
-        elif (op == 65) { cx_reg_set(ra, load64(&_cx_mem + cx_reg_get(rb))); }
-        elif (op == 66) { store8(&_cx_mem + cx_reg_get(ra), cx_reg_get(rb) & 0xFF); }
-        elif (op == 67) { store64(&_cx_mem + cx_reg_get(ra), cx_reg_get(rb)); }
+        elif (op == 64) { cx_reg_set(ra, load8(_cx_mem + cx_reg_get(rb))); }
+        elif (op == 65) { cx_reg_set(ra, load64(_cx_mem + cx_reg_get(rb))); }
+        elif (op == 66) { store8(_cx_mem + cx_reg_get(ra), cx_reg_get(rb) & 0xFF); }
+        elif (op == 67) { store64(_cx_mem + cx_reg_get(ra), cx_reg_get(rb)); }
 
         # jump: jmp, jz, jnz
         elif (op == 80) {
@@ -190,26 +205,35 @@ fn cx_run(code, code_len) {
 # MAIN: read bytecode from stdin, run it
 # ================================================================
 
+# Initialize VM
+cx_init();
+
 # Read .cyx header: "CYX\0" magic + 4-byte entry offset
-var _cx_code[8192];
+var _cx_code_cap = 65536;
+var _cx_code = alloc(_cx_code_cap);
 var _cx_code_len = 0;
 var _cx_done = 0;
 while (_cx_done == 0) {
-    var n = syscall(0, 0, &_cx_code + _cx_code_len, 8192 - _cx_code_len);
+    var n = syscall(0, 0, _cx_code + _cx_code_len, _cx_code_cap - _cx_code_len);
     if (n <= 0) { _cx_done = 1; }
     else { _cx_code_len = _cx_code_len + n; }
 }
 
 # Check magic "CYX\0"
 if (_cx_code_len < 8) { syscall(1, 2, "error: not a .cyx file\n", 23); syscall(60, 1); }
-if (load8(&_cx_code) != 67) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
-if (load8(&_cx_code + 1) != 89) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
-if (load8(&_cx_code + 2) != 88) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
+if (load8(_cx_code) != 67) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
+if (load8(_cx_code + 1) != 89) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
+if (load8(_cx_code + 2) != 88) { syscall(1, 2, "error: bad magic\n", 17); syscall(60, 1); }
 
 # Entry offset (4 bytes LE at offset 4)
-var entry = load32(&_cx_code + 4);
+var entry = load32(_cx_code + 4);
+
+# Initialize sp (r254) to top of memory — stack grows downward
+cx_reg_set(254, _CX_MEM_SIZE);
+# Initialize fp (r253) to same
+cx_reg_set(253, _CX_MEM_SIZE);
 
 # Run from entry point
 _cx_pc = entry;
-var exit_code = cx_run(&_cx_code + 8, _cx_code_len - 8);
+var exit_code = cx_run(_cx_code + 8, _cx_code_len - 8);
 syscall(60, exit_code);

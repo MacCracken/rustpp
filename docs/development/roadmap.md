@@ -250,7 +250,7 @@ Expansion targets:
 |------|--------|
 | Soak test | `cyrius fuzz 100000` overnight. Compile all repos (argonaut, sakshi, majra, doom, vidya) in loop for 24h. Watch for memory leaks, state corruption, non-determinism. |
 | Full audit | `cyrius audit` clean on every repo. All .tcyr suites green. All benchmarks baselined. |
-| cyrius-x VM | Memory-backed stack frames. Recursion working. All .tcyr tests pass under VM. |
+| cyrius-x VM | ~~Memory-backed stack frames. Recursion working.~~ **Done v2.5.0.** Remaining: nested call register clobber (ack), syscall string address translation, .tcyr suite under VM. |
 | defmt | String interning + deferred formatting. Sakshi perf validated. |
 | Multi-file compilation | Phase 1: .o emission. Phase 2: minimal linker. |
 | Error messages | Audit all ERR() calls for clarity. No more "unexpected ';'" for real issues. |

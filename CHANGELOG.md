@@ -4,6 +4,19 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] — 2026-04-08
+
+### Fixed — cyrius-x VM
+- **Recursion now works**: VM memory-backed stack frames. sp (r254) initialized to top
+  of 64KB data segment, stack grows downward. fp/sp frame pointer chain enables proper
+  nested function calls. fib(10)=55, fact(5)=120 verified.
+- **VM heap-allocated state**: Registers, memory, data stack, call stack all heap-allocated
+  via alloc() instead of global arrays. Avoids code buffer overflow. Data stack expanded
+  to 1024 entries, call stack to 1024 entries.
+- **Remaining emitter issues**: Nested recursive calls (ack) have register clobber in
+  argument passing. Syscall string addresses need virtual→real translation. Both are
+  cx/emit.cyr issues, not VM.
+
 ## [2.4.0] — 2026-04-08
 
 ### Changed
