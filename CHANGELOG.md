@@ -4,6 +4,49 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.0] — 2026-04-09
+
+**Cyrius 3.0** — Sovereign, self-hosting systems language. Assembly up.
+
+### Release Summary
+
+231KB compiler. Self-hosting on x86_64 + aarch64. 33 stdlib modules.
+27 test suites (345 assertions), 4 fuzz harnesses. Zero open bugs (#14-#31 all resolved).
+8 downstream repos pass (agnostik, agnosys, argonaut, sakshi, majra, libro, bsp, cyrius-doom).
+Soak test clean. Format/lint/doc 100% clean.
+
+### Since v2.0
+
+**Compiler:**
+- Multi-width types (i8/i16/i32), sizeof, unions, bitfields, expression type propagation
+- FINDVAR last-match (var buf[N] sharing fix), >6 args on x86+aarch64
+- Constant folding (x+0, x*1, x*0), prefix-sum fixup optimization
+- ELF .o relocatable output (`object;` directive)
+- cyrius-x bytecode VM with recursion, syscall string output
+- String data buffer 8KB→32KB, globals 256→1024, tokens 65536→131072
+- Error messages with variable names, output-too-large diagnostics
+- All ERR_MSG string lengths verified
+
+**Stdlib (33 modules):**
+- base64, chrono, sakshi_full, freelist, flock (file_lock/unlock/append_locked)
+- hashmap_fast with full API (delete, keys, values, clear)
+- str_replace bug fixed, atoi added, str_join bug fixed
+- All modules documented (cyrdoc --check 0 undocumented)
+
+**Tooling:**
+- `cyrius` build tool (renamed from cyrb), `cyriusup` version manager
+- `cyrius test` with .tcyr auto-discovery
+- `cyrius fuzz` with .fcyr harnesses + --compiler mutation mode
+- `cyrius soak` overnight validation (self-host + tests + fuzz + 6 repos)
+- `cyrius watch` file watcher + auto-recompile
+- `cyrius deps` manifest dependency viewer
+- `cyrius audit` quality gate
+
+**Quality:**
+- P(-1) scaffold hardening process formalized
+- Port validation: 8/8 downstream repos compile and test clean
+- 186 vidya entries documenting every feature and bug
+
 ## [2.9.0] — 2026-04-09
 
 ### Added — Stdlib

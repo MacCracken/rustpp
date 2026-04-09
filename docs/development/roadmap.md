@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v2.9.0.** 215KB self-hosting compiler, both architectures.
-> 21 test suites (251 assertions), 4 fuzz harnesses, 9 benchmarks. Self-hosting byte-identical.
-> Argonaut: 424 tests pass. Heap audit clean. 31 stdlib modules.
+> **v3.0.0.** 231KB self-hosting compiler, both architectures. Zero open bugs.
+> 27 test suites (345 assertions), 4 fuzz harnesses, soak test clean. 33 stdlib modules.
+> 8 downstream repos pass. Port validation green. Format/lint/doc 100% clean.
 >
-> agnostik: 58 tests, all 22 modules. agnosys: all 20 modules compile.
+> agnostik: 223 tests. majra: 144 tests. libro: 202 tests. argonaut: 395 tests.
 > 108 Rust repos (~1M lines) to convert. 5 done. 103 remaining.
 
 For completed work, see [completed-phases.md](completed-phases.md).
