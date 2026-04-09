@@ -14,7 +14,7 @@
 #   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
 #   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable)
 #   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
-#   0x69800  str_pos       [8]           String position (nested in str_data tail)
+#   0x6C000  str_pos       [8]           String position (nested in str_data tail)
 #   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
 #   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
 #   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
@@ -101,7 +101,7 @@ S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
 S64(S + 0x8FCA8, 0);
 S64(S + 0x8FCB0, 0 - 1);
-S64(S + 0x69800, 0);
+S64(S + 0x6C000, 0);
 # Function state
 S64(S + 0x8DA00, 0);
 S64(S + 0x8DA08, 0);

@@ -17,7 +17,7 @@ fn FIXUP(S) {
             totvar = totvar + L64(S + 0x11E000 + vi * 8);
             vi = vi + 1;
         }
-        S64(S + 0x69808, totvar);
+        S64(S + 0x6C008, totvar);
         return 0;
     }
     var acp = cp;
@@ -72,7 +72,7 @@ fn FIXUP(S) {
         fi = fi + 1;
     }
     # Store data_size
-    S64(S + 0x69808, totvar);
+    S64(S + 0x6C008, totvar);
     return 0;
 }
 
@@ -83,7 +83,7 @@ fn FIXUP(S) {
 # Kernel ELF: 32-bit ELF for multiboot2 boot, base 0x100000
 fn EMITELF_KERNEL(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x69808);
+    var totvar = L64(S + 0x6C008);
     var spos = GSPOS(S);
     var mb_sz = 12;
     # ELF32 header = 52, PH32 = 32, total = 84, + multiboot 12 = 96
@@ -146,7 +146,7 @@ fn EMITELF_KERNEL(S) {
 # Emit x86_64 ELF binary. etype: 2=ET_EXEC (default), 3=ET_DYN (shared)
 fn EMITELF_USER(S, etype) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x69808);
+    var totvar = L64(S + 0x6C008);
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
@@ -205,7 +205,7 @@ fn EMITELF_USER(S, etype) {
 
 fn EMITELF_OBJ(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x69808);
+    var totvar = L64(S + 0x6C008);
     var spos = GSPOS(S);
     var fcnt = GFCNT(S);
     var fnc = GFNC(S);

@@ -30,6 +30,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | 23 | argonaut audit.tcyr test 6 fails 45/46 — runtime state corruption from earlier tests | P4 | Passes in isolation. Fails after tests 1-5 run. Runtime issue in argonaut allocator/vec. |
 | 29 | ~~stdlib crashes (math, matrix, regex)~~ | ~~P2~~ | **Fixed v2.6.1** — FINDVAR fix in v2.1.0 resolved the root cause. str_replace had Str/cstring mismatch (used strlen on Str args). |
+| 30 | ~~String data buffer overflow (8KB limit)~~ | ~~P1~~ | **Fixed v2.6.4** — str_data expanded 8KB→16KB. Programs with many string literals (agnostik 198 tests) silently overflowed into str_pos/data_size. |
 | 24 | ~~`#ref` directive broken~~ | ~~P2~~ | **Fixed v2.2.0** — PP_REF_PASS was never called from PREPROCESS. One-line fix. |
 
 | 25 | ~~Include path shadows stdlib~~ | ~~P2~~ | **Fixed v2.1.2** — fallback to `$HOME/.cyrius/lib/` when local path fails. |
@@ -96,7 +97,7 @@ multi-file compilation (.o + link)
 
 | # | Feature | Effort | Status | Detail |
 |---|---------|--------|--------|--------|
-| 9 | **Multi-file compilation** (.o + link) | High | Researched | vidya entry written. Fixup→relocation mapping designed. |
+| 9 | **Multi-file compilation** (.o + link) | High | **Phase 1 done (v2.6.4)** | `object;` directive emits ELF .o with sections, symbols, relocations. Phase 2: minimal linker. |
 
 ### Tier 5 — New targets (scaffold in 2.0, ship in 2.1/2.2)
 
@@ -253,7 +254,7 @@ Expansion targets:
 | Full audit | `cyrius audit` clean on every repo. All .tcyr suites green. All benchmarks baselined. |
 | cyrius-x VM | ~~Memory-backed stack frames. Recursion working.~~ **Done v2.5.0.** Remaining: nested call register clobber (ack), syscall string address translation, .tcyr suite under VM. |
 | defmt | String interning + deferred formatting. Sakshi perf validated. |
-| Multi-file compilation | Phase 1: .o emission. Phase 2: minimal linker. |
+| Multi-file compilation | ~~Phase 1: .o emission.~~ **Done v2.6.4.** Phase 2: minimal linker — read .o files, resolve symbols, patch relocations, emit executable. Write in Cyrius. |
 | Error messages | Audit all ERR() calls for clarity. No more "unexpected ';'" for real issues. |
 | Documentation | All vidya entries current. cyrius-guide.md reflects v3.0 features. |
 | Binary size audit | Profile code/data split. Identify bloat. Target: <250KB. |
