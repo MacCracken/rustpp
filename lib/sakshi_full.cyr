@@ -274,8 +274,12 @@ fn _sk_write_udp_event(level, category, msg, msg_len) {
 # ================================================================
 
 fn _sk_emit(level, category, msg, msg_len) {
-    if (_sk_output_target == SK_OUT_BUFFER) { return _sk_write_ring_event(level, category, msg, msg_len); }
-    if (_sk_output_target == SK_OUT_UDP) { return _sk_write_udp_event(level, category, msg, msg_len); }
+    if (_sk_output_target == SK_OUT_BUFFER) {
+        return _sk_write_ring_event(level, category, msg, msg_len);
+    }
+    if (_sk_output_target == SK_OUT_UDP) {
+        return _sk_write_udp_event(level, category, msg, msg_len);
+    }
     var buf[256];
     var ls: i64 = 0;
     var ll: i64 = 0;
@@ -286,8 +290,12 @@ fn _sk_emit(level, category, msg, msg_len) {
 }
 
 fn _sk_emit_span(action_level, action_str, action_len, name, name_len, elapsed_ns) {
-    if (_sk_output_target == SK_OUT_BUFFER) { return _sk_write_ring_event(action_level, 0, name, name_len); }
-    if (_sk_output_target == SK_OUT_UDP) { return _sk_write_udp_event(action_level, 0, name, name_len); }
+    if (_sk_output_target == SK_OUT_BUFFER) {
+        return _sk_write_ring_event(action_level, 0, name, name_len);
+    }
+    if (_sk_output_target == SK_OUT_UDP) {
+        return _sk_write_udp_event(action_level, 0, name, name_len);
+    }
     var buf[256];
     var len = _sk_fmt_span(&buf, 256, action_str, action_len, name, name_len, elapsed_ns);
     _sk_write(&buf, len);

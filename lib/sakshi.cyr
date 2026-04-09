@@ -90,7 +90,9 @@ fn _sk_write_int(buf, pos, cap, val) {
     var tmp[24];
     var tlen = _sk_fmt_int(val, &tmp);
     var ti = 0;
-    while (ti < tlen && pos < cap) { store8(buf + pos, load8(&tmp + ti)); pos = pos + 1; ti = ti + 1; }
+    while (ti < tlen && pos < cap) {
+        store8(buf + pos, load8(&tmp + ti)); pos = pos + 1; ti = ti + 1;
+    }
     return pos;
 }
 
@@ -169,7 +171,10 @@ fn _sk_emit(level, msg, msg_len) {
 # Create a packed error (code + category)
 fn sakshi_err_new(code, category) { return ((category & 0xFFFF) << 16) | (code & 0xFFFF); }
 # Create a packed error with context
-fn sakshi_err_with_ctx(code, category, context) { return ((context & 0xFFFFFFFF) << 32) | ((category & 0xFFFF) << 16) | (code & 0xFFFF); }
+fn sakshi_err_with_ctx(code, category, context) {
+    return ((context & 0xFFFFFFFF) << 32) |
+        ((category & 0xFFFF) << 16) | (code & 0xFFFF);
+}
 # Extract error code from packed error
 fn sakshi_err_code(err) { return err & 0xFFFF; }
 # Extract category from packed error
