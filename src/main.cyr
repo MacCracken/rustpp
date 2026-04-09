@@ -56,9 +56,11 @@
 #   0x903E0  expr_var      [8]
 #   0x903E8  inline_depth  [8]
 #   0x903F0  expr_width    [8]
+#   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
+#   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
 #
 # --- Preprocessor + local var state ---
-#   0x90400  include_fname [256]         preprocessor filename scratch
+#   0x90500  include_fname [256]         preprocessor filename scratch
 #   0x91000  fn_local_names              local variable names
 #   0x91800  local_depths  [512]         scope depths per local
 #   0x92000  macro tables                16 macros (names, offsets, bodies)

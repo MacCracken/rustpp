@@ -4,6 +4,27 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.0] — 2026-04-09
+
+### Added — Language Feature
+- **`defer` statement**: `defer { body }` executes body at function return in LIFO order.
+  Token 106. Deferred blocks compiled inline (jumped over during normal flow), chained
+  at epilogue via jmp→block→jmp→block→epilogue. Return value preserved (push/pop rax
+  around defer chain). Max 8 defer blocks per function. Zig/Odin parity.
+  4 assertions in defer.tcyr.
+
+### Added — Tooling
+- **`cyrius doc --serve [port]`**: Generate HTML docs for all .cyr files and serve
+  locally via Python's http.server. Creates build/docs/ with index.html.
+  `cyrius doc --serve 8080` for browsing stdlib and project documentation.
+
+### Changed
+- **Roadmap rewritten**: Cleaned up for 3.x — removed completed v2.0 plan, archived
+  bug history, organized active work into Compiler/Platform/Stdlib/Tooling/Ports sections.
+
+### Stats
+- **30 test suites, 366 assertions** (was 29/362)
+
 ## [3.1.0] — 2026-04-09
 
 ### Added — Stdlib

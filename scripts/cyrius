@@ -798,7 +798,39 @@ MANIFEST
         if [ ! -x "$cyrdoc" ]; then
             echo "error: cyrdoc not found" >&2; exit 1
         fi
-        if [ -z "$1" ]; then echo "Usage: cyrius doc [--check] <file.cyr>"; exit 1; fi
+        # doc --serve [port]: generate docs + serve via HTTP
+        if [ "$1" = "--serve" ]; then
+            shift
+            DOC_PORT="${1:-8080}"
+            mkdir -p build/docs
+            echo "=== cyrius doc --serve ==="
+            echo "  generating docs..."
+            for f in lib/*.cyr src/*.cyr; do
+                [ -f "$f" ] || continue
+                "$cyrdoc" "$f" > "build/docs/$(basename "$f" .cyr).html" 2>/dev/null || true
+            done
+            # Generate index
+            {
+                echo "<html><head><title>Cyrius Docs</title></head><body>"
+                echo "<h1>Cyrius Documentation</h1><ul>"
+                for f in build/docs/*.html; do
+                    [ -f "$f" ] || continue
+                    name=$(basename "$f")
+                    echo "<li><a href=\"$name\">$name</a></li>"
+                done
+                echo "</ul></body></html>"
+            } > build/docs/index.html
+            echo "  serving at http://localhost:$DOC_PORT"
+            echo "  ctrl-c to stop"
+            # Use python if available, otherwise basic shell server
+            if command -v python3 > /dev/null 2>&1; then
+                cd build/docs && python3 -m http.server "$DOC_PORT"
+            else
+                echo "error: python3 required for doc --serve" >&2; exit 1
+            fi
+            exit 0
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrius doc [--check|--serve] <file.cyr>"; exit 1; fi
         "$cyrdoc" "$@"
         ;;
 
