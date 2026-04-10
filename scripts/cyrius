@@ -695,18 +695,28 @@ MANIFEST
             echo ""
             AUDIT_PASS=0; AUDIT_FAIL=0
 
-            # Compile check
+            # Compile check (build entry point from cyrius.toml, or src/main.cyr)
             echo "── Compile ──"
-            for f in src/*.cyr; do
-                [ -f "$f" ] || continue
-                if cat "$f" | "$CC" > /dev/null 2>&1; then
-                    echo "  PASS: $f"
+            BUILD_SRC=""
+            if [ -f "cyrius.toml" ]; then
+                BUILD_SRC=$(toml_get "cyrius.toml" "src" "build")
+            fi
+            if [ -z "$BUILD_SRC" ]; then
+                if [ -f "src/lib.cyr" ]; then BUILD_SRC="src/lib.cyr";
+                elif [ -f "src/main.cyr" ]; then BUILD_SRC="src/main.cyr";
+                fi
+            fi
+            if [ -n "$BUILD_SRC" ] && [ -f "$BUILD_SRC" ]; then
+                if cat "$BUILD_SRC" | "$CC" > /dev/null 2>&1; then
+                    echo "  PASS: $BUILD_SRC"
                     AUDIT_PASS=$((AUDIT_PASS + 1))
                 else
-                    echo "  FAIL: $f"
+                    echo "  FAIL: $BUILD_SRC"
                     AUDIT_FAIL=$((AUDIT_FAIL + 1))
                 fi
-            done
+            else
+                echo "  SKIP: no build entry point found"
+            fi
             echo ""
 
             # Tests

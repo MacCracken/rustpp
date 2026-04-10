@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.10] — 2026-04-10
+
+### Fixed
+- **`cyrius audit` compile check**: Was compiling every `src/*.cyr` file individually,
+  causing false failures on modules that depend on includes. Now compiles the build
+  entry point from `cyrius.toml` (`[build] src`), falling back to `src/lib.cyr` or
+  `src/main.cyr`.
+
 ## [3.3.9] — 2026-04-10
 
 ### Fixed
