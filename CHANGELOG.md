@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [3.3.1] — 2026-04-09
 
+### Added — ISO-8601 in chrono.cyr
+- **`iso8601(epoch)`**: Format epoch seconds as `2026-04-09T15:30:00Z`.
+- **`iso8601_now()`**: Format current time as ISO-8601.
+- **`iso8601_parse(str)`**: Parse ISO-8601 string to epoch seconds.
+- **`epoch_to_date(epoch)`**: Convert to {year, month, day, hour, min, sec} struct.
+- **`is_leap_year(y)`**: Leap year check (400-year cycle).
+- **chrono.tcyr expanded**: +13 assertions (format, parse, roundtrip, leap year).
+  Total: 21 chrono assertions.
+- Unblocks sigil (trust/signing needs canonical timestamps).
+
 ### Changed — Expanded Constant Folding
 - **Removed 16-bit result limit**: Constant folding for `+`, `-`, `*` now accepts any
   non-negative result (was limited to `cfr < 0x10000`). `50 * 1000 = 50000` now folds
