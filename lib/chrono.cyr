@@ -185,7 +185,7 @@ fn iso8601_parse(s) {
     if (len < 19) { return 0 - 1; }
     # Parse digits
     var yr = (load8(s) - 48) * 1000 + (load8(s + 1) - 48) * 100 +
-        (load8(s + 2) - 48) * 10 + (load8(s + 3) - 48);
+    (load8(s + 2) - 48) * 10 + (load8(s + 3) - 48);
     var mo = (load8(s + 5) - 48) * 10 + (load8(s + 6) - 48);
     var dy = (load8(s + 8) - 48) * 10 + (load8(s + 9) - 48);
     var hr = (load8(s + 11) - 48) * 10 + (load8(s + 12) - 48);
