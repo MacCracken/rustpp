@@ -82,19 +82,25 @@ fn lint_file(buf, total) {
             if (content_len >= 3) {
                 if (memeq(buf + first, "fn ", 3) == 1) {
                     var ni = first + 3;
-                    # Check for uppercase in function name
-                    while (ni < eol) {
-                        var nc = load8(buf + ni);
-                        if (nc == 40) { break; }
-                        if (nc == 60) { break; }
-                        if (nc >= 65) {
-                            if (nc <= 90) {
-                                # Uppercase — only warn for non-compiler functions
-                                # (compiler uses PascalCase intentionally)
-                            }
+                    # Check for uppercase in function name (skip _prefixed and ALL_CAPS)
+                    var fn_first = load8(buf + ni);
+                    if (fn_first != 95) { if (fn_first != 0) {
+                        var has_lower = 0;
+                        var has_upper = 0;
+                        var sci = ni;
+                        while (sci < eol) {
+                            var nc = load8(buf + sci);
+                            if (nc == 40) { break; }
+                            if (nc == 60) { break; }
+                            if (nc >= 65) { if (nc <= 90) { has_upper = 1; } }
+                            if (nc >= 97) { if (nc <= 122) { has_lower = 1; } }
+                            sci = sci + 1;
                         }
-                        ni = ni + 1;
-                    }
+                        # Mixed case = PascalCase/camelCase — warn
+                        if (has_upper == 1) { if (has_lower == 1) {
+                            warn(lineno, "fn name should be snake_case");
+                        } }
+                    } }
                 }
             }
 

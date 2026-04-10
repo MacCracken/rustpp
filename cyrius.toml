@@ -11,13 +11,13 @@ output = "build/cc3"
 
 [deps.sakshi]
 git = "https://github.com/MacCracken/sakshi.git"
-tag = "latest"
-modules = ["lib/sakshi.cyr", "lib/sakshi_full.cyr"]
+tag = "0.9.0"
+modules = ["sakshi.cyr", "sakshi_full.cyr"]
 
 [deps.patra]
 git = "https://github.com/MacCracken/patra.git"
-tag = "latest"
-modules = ["lib/patra.cyr"]
+tag = "0.11.1"
+modules = ["src/lib.cyr"]
 
 [deps.sigil]
 git = "https://github.com/MacCracken/sigil.git"

@@ -205,42 +205,34 @@ resolve_deps() {
             # Check for modules filter: modules = ["lib/syscalls.cyr", "src/error.cyr"]
             local mods=$(toml_array "$manifest" "modules" "deps.$dep")
             if [ -n "$mods" ]; then
-                # Selective: only include listed modules
+                # Selective: only listed modules
                 for mod in $mods; do
                     local mf="$resolve_dir/$mod"
-                    [ -f "$mf" ] && echo "include \"$mf\"" >> "$outfile"
+                    if [ -f "$mf" ]; then
+                        echo "include \"$mf\"" >> "$outfile"
+                        # Symlink into lib/ so relative includes work
+                        local bname=$(basename "$mf")
+                        # Avoid collisions: lib.cyr → <depname>.cyr
+                        if [ "$bname" = "lib.cyr" ]; then bname="${dep}.cyr"; fi
+                        if [ ! -f "lib/$bname" ] && [ -d "lib" ]; then
+                            ln -sf "$(cd "$(dirname "$mf")" && pwd)/$(basename "$mf")" "lib/$bname"
+                        fi
+                    fi
                 done
             else
                 # All: include lib/*.cyr + src/*.cyr (excluding main.cyr)
                 for f in "$resolve_dir"/lib/*.cyr; do
-                    [ -f "$f" ] && echo "include \"$f\"" >> "$outfile"
+                    if [ -f "$f" ]; then
+                        echo "include \"$f\"" >> "$outfile"
+                        local bname=$(basename "$f")
+                        if [ ! -f "lib/$bname" ] && [ -d "lib" ]; then
+                            ln -sf "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")" "lib/$bname"
+                        fi
+                    fi
                 done
                 for f in "$resolve_dir"/src/*.cyr; do
                     [ -f "$f" ] && [ "$(basename "$f")" != "main.cyr" ] && \
                         echo "include \"$f\"" >> "$outfile"
-                done
-            fi
-        fi
-    done
-}
-
-# Compile helper (used by build, test, bench)
-# Args: src out [arch] [defines...]
-# Resolve deps from cyrius.toml: emit include path overrides
-# For each [deps.X] with path=..., emit symlink-like include redirects
-# so `include "lib/foo.cyr"` from dep X resolves to X's lib/
-resolve_deps() {
-    local manifest="$1" outfile="$2"
-    > "$outfile"
-    for dep in $(grep '^\[deps\.' "$manifest" | sed 's/\[deps\.\(.*\)\]/\1/'); do
-        local dep_path=$(toml_get "$manifest" path "deps.$dep")
-        if [ -n "$dep_path" ] && [ -d "$dep_path" ]; then
-            # Emit include directives for all .cyr files in the dep's lib/
-            if [ -d "$dep_path" ]; then
-                for f in "$dep_path"/*.cyr; do
-                    [ -f "$f" ] || continue
-                    local basename=$(basename "$f")
-                    echo "# dep: $dep ($basename)" >> "$outfile"
                 done
             fi
         fi
@@ -839,7 +831,15 @@ MANIFEST
             echo "  generating docs..."
             for f in lib/*.cyr src/*.cyr; do
                 [ -f "$f" ] || continue
-                "$cyrdoc" "$f" > "build/docs/$(basename "$f" .cyr).html" 2>/dev/null || true
+                name=$(basename "$f" .cyr)
+                {
+                    echo "<html><head><title>$name — Cyrius Docs</title>"
+                    echo "<style>body{font-family:monospace;max-width:80ch;margin:2em auto;line-height:1.5}pre{background:#f4f4f4;padding:1em;overflow-x:auto}h3{border-bottom:1px solid #ccc}</style></head><body>"
+                    echo "<p><a href=\"index.html\">← index</a></p>"
+                    echo "<pre>"
+                    "$cyrdoc" "$f" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+                    echo "</pre></body></html>"
+                } > "build/docs/${name}.html"
             done
             # Generate index
             {
@@ -950,27 +950,37 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         fi
         echo "=== $(toml_get "$MANIFEST" name) $(toml_get "$MANIFEST" version) ==="
         echo ""
-        # Parse [deps.*] sections
+        # Resolve: fetch git deps, symlink into lib/
+        depfile="/tmp/cyrius_deps_$$"
+        > "$depfile"
+        resolve_deps "$MANIFEST" "$depfile"
         dep_count=0
-        for dep in $(grep '^\[deps\.' "$MANIFEST" | sed 's/\[deps\.\(.*\)\]/\1/'); do
-            path=$(toml_get "$MANIFEST" path "deps.$dep")
-            version=$(toml_get "$MANIFEST" version "deps.$dep")
-            if [ -n "$path" ]; then
-                exists="missing"
-                if [ -d "$path" ]; then exists="ok"; fi
-                printf "  %-20s path=%-30s [%s]\n" "$dep" "$path" "$exists"
-            elif [ -n "$version" ]; then
-                printf "  %-20s version=%s\n" "$dep" "$version"
-            else
-                printf "  %-20s (no path or version)\n" "$dep"
+        for dep in $(toml_dep_names "$MANIFEST"); do
+            dgit=$(toml_get "$MANIFEST" "git" "deps.$dep")
+            dtag=$(toml_get "$MANIFEST" "tag" "deps.$dep")
+            mods=$(toml_array "$MANIFEST" "modules" "deps.$dep")
+            if [ -n "$dgit" ]; then
+                printf "  %-20s %s@%s\n" "$dep" "$dgit" "${dtag:-main}"
+            fi
+            if [ -n "$mods" ]; then
+                for mod in $mods; do
+                    bname=$(basename "$mod")
+                    if [ "$bname" = "lib.cyr" ]; then bname="${dep}.cyr"; fi
+                    if [ -L "lib/$bname" ] || [ -f "lib/$bname" ]; then
+                        printf "    %-18s → lib/%s [ok]\n" "$mod" "$bname"
+                    else
+                        printf "    %-18s → lib/%s [missing]\n" "$mod" "$bname"
+                    fi
+                done
             fi
             dep_count=$((dep_count + 1))
         done
         if [ $dep_count -eq 0 ]; then
             echo "  (no dependencies)"
         fi
+        rm -f "$depfile"
         echo ""
-        echo "$dep_count dependencies"
+        echo "$dep_count dependencies resolved"
         ;;
 
 
