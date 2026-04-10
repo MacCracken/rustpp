@@ -247,7 +247,39 @@ resolve_deps() {
     done
 }
 
+# Compare version strings: returns 0 if $1 >= $2, 1 if $1 < $2
+version_gte() {
+    local a="$1" b="$2"
+    local a1=$(echo "$a" | cut -d. -f1) a2=$(echo "$a" | cut -d. -f2) a3=$(echo "$a" | cut -d. -f3)
+    local b1=$(echo "$b" | cut -d. -f1) b2=$(echo "$b" | cut -d. -f2) b3=$(echo "$b" | cut -d. -f3)
+    [ "${a1:-0}" -gt "${b1:-0}" ] && return 0
+    [ "${a1:-0}" -lt "${b1:-0}" ] && return 1
+    [ "${a2:-0}" -gt "${b2:-0}" ] && return 0
+    [ "${a2:-0}" -lt "${b2:-0}" ] && return 1
+    [ "${a3:-0}" -ge "${b3:-0}" ] && return 0
+    return 1
+}
+
+# Check cyrius.toml minimum version requirement
+check_min_version() {
+    [ -f "cyrius.toml" ] || return 0
+    local min=$(toml_get cyrius.toml cyrius 2>/dev/null)
+    [ -z "$min" ] && return 0
+    # Get actual compiler version from cc3 --version
+    local actual=""
+    actual=$("$CC" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') || true
+    [ -z "$actual" ] && actual="$VERSION"
+    # Compare
+    if version_gte "$actual" "$min"; then
+        return 0
+    fi
+    echo "error: this project requires Cyrius >= $min (you have $actual)"
+    echo "  update: curl -sSf https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh | sh"
+    exit 1
+}
+
 compile() {
+    check_min_version
     local src="$1" out="$2" compiler="$CC"
     if [ "$3" = "aarch64" ]; then
         compiler="${TOOLS_DIR}/cc3_aarch64"

@@ -27,6 +27,9 @@ sed -i "s/VERSION=\"$OLD\"/VERSION=\"$NEW\"/" scripts/install.sh 2>/dev/null || 
 # 3. CLAUDE.md
 sed -i "s/- \*\*Version\*\*: $OLD/- **Version**: $NEW/" CLAUDE.md 2>/dev/null || true
 
+# 3b. cc3 --version string in src/main.cyr
+sed -i "s/\"cc3 $OLD/\"cc3 $NEW/" src/main.cyr 2>/dev/null || true
+
 # 4. CHANGELOG.md — add unreleased section if not present
 if ! grep -q "## \[$NEW\]" CHANGELOG.md 2>/dev/null; then
     # Insert new version header after [Unreleased]

@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.0] — 2026-04-09
+
+### Added
+- **Minimum version enforcement**: `cyrius.toml` now supports `cyrius = "3.2.5"` field.
+  `cyrius build` checks `cc3 --version` against the requirement and errors early:
+  `error: this project requires Cyrius >= 3.2.5 (you have 3.1.0)`.
+  Includes install command in error message. Uses `version_gte` comparison function.
+  Like Rust's `rust-version`, Go's `go` directive, Zig's `minimum_zig_version`.
+
+## [3.2.7] — 2026-04-09
+
+### Added
+- **`cc3 --version`**: Compiler now responds to `--version` flag with `cc3 X.Y.Z`.
+  Reads `/proc/self/cmdline` for argv[1], checks for `--ve` prefix. Version string
+  hardcoded at compile time, auto-updated by `scripts/version-bump.sh`.
+  No more agents confused by raw ELF output when trying to check compiler version.
+- **`cyrius --version`** already worked (shell script reads VERSION file).
+
 ## [3.2.6] — 2026-04-09
 
 ### Added
