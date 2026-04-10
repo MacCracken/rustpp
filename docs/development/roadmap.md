@@ -1,7 +1,7 @@
 # Cyrius Development Roadmap
 
-> **v3.3.4-dev.** 242KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
-> 31 test suites (375 assertions), 4 fuzz harnesses, soak test clean. 37 stdlib modules.
+> **v3.3.5-dev.** 246KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
+> 31 test suites (375 assertions), 4 fuzz harnesses, soak test clean. 38 stdlib modules.
 > 8 downstream repos pass. Format/lint/doc clean (excl patra).
 
 For completed work, see [completed-phases.md](completed-phases.md).
@@ -37,7 +37,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 6 | RISC-V | ELF | Planned |
 | 7 | cyrius-x bytecode | .cyx | **Done** (v2.5) — VM with recursion + syscall strings |
 
-## Standard Library (37 modules)
+## Standard Library (38 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -49,6 +49,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Network | net, http |
 | Filesystem | fs |
 | Database | patra |
+| Security | sigil |
 | Tracing | sakshi, sakshi_full |
 | Time | chrono |
 | Knowledge | vidya |
@@ -82,7 +83,8 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 |--------|-------|
 | **Done** | agnostik (553), agnosys (20 modules), argonaut (395), kybernet, nous, ark |
 | **Done** | sakshi (12), majra (144), libro (202), bsp (74), cyrius-doom (129KB) |
-| **In progress** | sigil (Ed25519 crypto, 198 assertions), patra (SQL), libro |
+| **Done** | sigil v2.0.0 (Ed25519, 206 assertions, 11 benchmarks) |
+| **In progress** | patra (SQL), libro |
 | **In progress** | bhava (29K), hisab (31K) — keystone ports, unlock 37 downstream |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
 | **Remaining** | 103 repos (~980K lines) |

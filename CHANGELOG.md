@@ -4,6 +4,43 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.5] — 2026-04-10
+
+### Added
+- **`lib/sigil.cyr`**: System-wide trust verification for AGNOS. Single-file distribution
+  of sigil v2.0.0 (4,276 lines). Ed25519 keypair/sign/verify (RFC 8032), SHA-256, SHA-512,
+  HMAC-SHA256, integrity verification, revocation lists, audit logging, trust policy engine.
+  Module #38.
+- **Small function inlining expanded**: Parameter limit raised 1→2, body token limit 6→16.
+  2-param functions like `u256_limb(a, i)` now inline at call sites. Param names packed as
+  `pn1<<32 | pn0` in fn_inline slot. Call site handles p0_slot + p1_slot with proper
+  name registration and invalidation.
+- **Loop variable register caching (x86)**: `r12` reserved as loop counter register. Function
+  prologue/epilogue save/restore r12. At `while(...)`, if condition starts with a local
+  variable, it's cached in r12. Loads emit `mov rax, r12` (3 bytes) instead of
+  `mov rax, [rbp-N]` (7 bytes). Stores write both r12 and stack for call safety.
+  Gated by `_LOOPVAR_OK` flag (x86 only, stubs on aarch64/cx).
+
+### Fixed
+- **`lib/bigint.cyr` u256_sub borrow propagation**: When `b_limb = 0xFFFFFFFFFFFFFFFF`
+  and `borrow_in = 1`, overflow to 0 silently lost the borrow. Fixed with `_sub_limb`
+  helper. Also unrolled `u256_add` into `_add_limb` helpers. Critical for Ed25519
+  modular reduction where p's limbs 1,2 are all-F.
+
+### Changed
+- **Roadmap updated**: Cleaned up stale entries. `doc --serve` marked done. Function limit
+  corrected to 2048. Sigil moved to done. Dead store elimination and constant folding
+  marked as completed features.
+
+### Stats
+- **38 stdlib modules, 31 test suites, 375 assertions**
+- **cc3: 246KB** (x86_64), self-hosting verified (three-step bootstrap for codegen change)
+
+## [3.3.4] — 2026-04-09
+
+### Changed
+- Roadmap cleanup and documentation alignment.
+
 ## [3.3.3] — 2026-04-09
 
 ### Added
