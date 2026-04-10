@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.5] — 2026-04-09
+
+### Changed — Cleanup & Docs Sync
+- **All docs synchronized to v3.2.5**: Compiler size 233KB, 36 stdlib modules,
+  30 test suites, 372 assertions updated across README.md, CLAUDE.md, roadmap,
+  benchmarks, architecture docs, ADRs, and cyrius-guide.
+- **patra.cyr formatted**: Auto-formatted via cyrfmt on import.
+- **Roadmap defer status**: Updated to "Done (v3.2.0)".
+- **Vidya updated**: 223 entries (+16 since 3.0).
+
+### Added
+- **`lib/patra.cyr`**: Structured storage and SQL queries. Single-file distribution of
+  Patra v0.8.0 (2496 lines). SQL subset: CREATE TABLE, INSERT, SELECT (WHERE, ORDER BY,
+  LIMIT), UPDATE, DELETE. B-tree indexed pages in .patra files, flock concurrency.
+  Zero external dependencies. Module #36. 212 assertions pass in patra repo.
+
+### Stats
+- **36 stdlib modules** (was 35)
+
 ## [3.2.4] — 2026-04-09
 
 ### Added

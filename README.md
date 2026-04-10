@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-215KB compiler. Self-hosting on x86_64 and aarch64. 31 stdlib modules. 13 test suites, 0 failures.
+233KB compiler. Self-hosting on x86_64 and aarch64. 36 stdlib modules. 30 test suites, 0 failures.
 
 ## Install
 
@@ -87,11 +87,11 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **215KB** (x86_64) |
+| Compiler | **233KB** (x86_64) |
 | Self-compile | ~74ms (full), ~11ms (bridge) |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 13 .tcyr suites (139 assertions), 3 .fcyr fuzz harnesses, 57 programs |
+| Tests | 30 .tcyr suites (372 assertions), 4 .fcyr fuzz harnesses, 57 programs |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
 ## Build Tool (cyrius)
@@ -106,18 +106,21 @@ Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (31 modules)
+## Standard Library (36 modules)
 
 | Category | Modules |
 |----------|---------|
 | Core | string, fmt, alloc, io, vec, str, args, fnptr |
-| Types | tagged (Option/Result), hashmap, trait, assert, bounds |
-| System | syscalls (50 wrappers), callback, process, bench |
-| Concurrency | thread (clone+mmap, mutex, MPSC), async |
-| Allocators | freelist (O(1) alloc/free) |
-| Math | math (f64_atan, extended ops) |
-| Data | json, toml, fs, net, regex, matrix, vidya |
+| Types | tagged (Option/Result), hashmap, hashmap_fast, trait, assert, bounds |
+| System | syscalls, callback, process, bench |
+| Concurrency | thread (clone+mmap, mutex, MPSC), async, freelist |
+| Data | json, toml, csv, base64, regex, math, matrix |
+| Network | net, http |
+| Filesystem | fs |
 | Tracing | sakshi (minimal), sakshi_full (structured logging) |
+| Time | chrono |
+| Knowledge | vidya |
+| Storage | patra (SQL database) |
 
 ## Compiler Architecture
 
@@ -149,7 +152,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc2 (modular compiler, 215KB, 8 modules)
+      -> cc2 (modular compiler, 233KB, 8 modules)
         -> cc2_aarch64 (cross-compiler)
 ```
 

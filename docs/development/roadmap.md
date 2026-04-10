@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v3.2.4.** 231KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
-> 29 test suites (362 assertions), 4 fuzz harnesses, soak test clean. 35 stdlib modules.
-> 8 downstream repos pass. 207 vidya entries. Format/lint/doc 100% clean.
+> **v3.2.5.** 233KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
+> 30 test suites (372 assertions), 4 fuzz harnesses, soak test clean. 36 stdlib modules.
+> 8 downstream repos pass. 223 vidya entries. Format/lint/doc clean (excl patra).
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -19,13 +19,13 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 3 | **u128** | High | Research. 128-bit integers via register pairs. |
 | 4 | **Cross-function inlining** | High | Research. Beyond token replay. |
 | 5 | **Variadic functions** | Medium | Deferred. Vec-based pattern sufficient for all current ports. |
-| 6 | **`defer` statement** | Medium | Not started. Reuse break/continue patch infrastructure. Zig/Odin parity. |
+| 6 | **`defer` statement** | Medium | **Done (v3.2.0)**. LIFO execution, return value preserved, max 8 per function. |
 
 ## Platform Targets
 
 | # | Platform | Format | Status |
 |---|----------|--------|--------|
-| 1 | Linux x86_64 | ELF | **Done** — primary target, 231KB self-hosting |
+| 1 | Linux x86_64 | ELF | **Done** — primary target, 233KB self-hosting |
 | 2 | Linux aarch64 | ELF | **Done** — cc2_aarch64 cross + native |
 | 3 | macOS x86_64 | Mach-O | **Stub** (v3.1) — `src/backend/macho/emit.cyr` scaffolded |
 | 4 | macOS aarch64 | Mach-O | **Stub** — combines Mach-O emitter + existing aarch64 codegen |
@@ -33,7 +33,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 6 | RISC-V | ELF | Planned |
 | 7 | cyrius-x bytecode | .cyx | **Done** (v2.5) — VM with recursion + syscall strings |
 
-## Standard Library (35 modules)
+## Standard Library (36 modules)
 
 | Category | Modules |
 |----------|---------|
