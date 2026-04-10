@@ -4,13 +4,41 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.6] — 2026-04-10
+
+### Changed
+- **Dependency system fixed**: `resolve_deps()` was shadowed by a broken second definition
+  that only wrote comment lines. Removed the shadow — git fetch + symlink into `lib/` now
+  works. `lib.cyr` → `<depname>.cyr` rename prevents collisions. `fetch_git_dep` handles
+  empty dirs and clone failures gracefully.
+- **Vendored libs removed**: `lib/patra.cyr`, `lib/sakshi.cyr`, `lib/sakshi_full.cyr`,
+  `lib/sigil.cyr` replaced by proper `[deps]` in `cyrius.toml`. `cyrius deps` fetches
+  from git repos and symlinks into `lib/`.
+- **`cyrius deps` subcommand**: Now actually resolves — fetches git deps, creates symlinks,
+  reports status. Was display-only before.
+- **Patra dep updated to 0.12.0**: Hand-rolled SHA-256 removed from patra, crypto
+  responsibility moved to sigil.
+- **CI updated**: All jobs run `cyrius deps` before tests. Format/lint/doc checks skip
+  symlinked dep files. AGNOS container skips dep-dependent tests if git unavailable.
+
+### Fixed
+- **`cyrlint` snake_case rule**: Was scaffold (detection existed, `warn()` call missing).
+  Now detects actual camelCase (lowercase→uppercase transition). Allows POSIX macros
+  (`WIFEXITED`), type methods (`Str_new`), and `_`-prefixed internals. 0 warnings on stdlib.
+- **`doc --serve`**: Was saving raw markdown as `.html`. Now wraps in proper HTML with
+  styling and back-link to index.
+- **`cyrius.toml` added**: Cyrius itself now has a manifest with `[deps]` declarations
+  for sakshi (0.9.0), patra (0.12.0), sigil (2.0.0).
+
+### Stats
+- **34 stdlib modules + 3 deps**, 31 test suites, 375 assertions
+
 ## [3.3.5] — 2026-04-10
 
 ### Added
-- **`lib/sigil.cyr`**: System-wide trust verification for AGNOS. Single-file distribution
-  of sigil v2.0.0 (4,276 lines). Ed25519 keypair/sign/verify (RFC 8032), SHA-256, SHA-512,
-  HMAC-SHA256, integrity verification, revocation lists, audit logging, trust policy engine.
-  Module #38.
+- **Sigil v2.0.0 available as dep**: System-wide trust verification for AGNOS.
+  Ed25519 keypair/sign/verify (RFC 8032), SHA-256, SHA-512, HMAC-SHA256, integrity
+  verification, revocation lists, audit logging, trust policy engine.
 - **Small function inlining expanded**: Parameter limit raised 1→2, body token limit 6→16.
   2-param functions like `u256_limb(a, i)` now inline at call sites. Param names packed as
   `pn1<<32 | pn0` in fn_inline slot. Call site handles p0_slot + p1_slot with proper

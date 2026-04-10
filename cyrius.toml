@@ -16,7 +16,7 @@ modules = ["sakshi.cyr", "sakshi_full.cyr"]
 
 [deps.patra]
 git = "https://github.com/MacCracken/patra.git"
-tag = "0.11.1"
+tag = "0.12.0"
 modules = ["src/lib.cyr"]
 
 [deps.sigil]
