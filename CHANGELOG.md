@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.2.6] — 2026-04-09
+
+### Added
+- **`#derive(Serialize)` 2-arg composable form**: `Name_to_json_sb(ptr, sb)` writes to
+  caller's string builder for nested struct serialization. 1-arg `Name_to_json(ptr)` is
+  now a wrapper that creates sb, calls _to_json_sb, returns built string. Backward
+  compatible. Nested struct fields use _to_json_sb for zero-copy composition.
+  Unblocks agnostik dropping 9 manual _to_json implementations (~200 lines).
+
+### Fixed
+- **lib/json.cyr**: `json_parse` failed to delimit non-string values (integers, booleans)
+  in cc3. Chained `if (vc == 44) { break; }` inside `while` loop did not break — cc3
+  codegen bug with `break` inside chained `if` blocks within `while`. Workaround: replaced
+  with flag variable + `||` conditional. Discovered via argonaut serde round-trip tests.
+  All 22 argonaut test suites (545 assertions) now pass on cc3.
+
+---
+
 ## [3.2.5] — 2026-04-09
 
 ### Changed — cc2 → cc3 Rename

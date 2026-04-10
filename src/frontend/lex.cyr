@@ -521,12 +521,11 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     store8(S + 0x97108 + dsi * 32 + ci, 0);
     store64(S + 0x97008 + dsi * 8, cumul_off);
     _pp_derive_count = _pp_derive_count + 1;
-    # === Emit Name_to_json function ===
-    # fn Name_to_json(ptr) { var sb = str_builder_new();\n
+    # === Emit Name_to_json_sb (2-arg composable form) ===
+    # fn Name_to_json_sb(ptr, sb) { ... writes to caller's sb ... }
     op = op + PP_EMIT_STR(out, op, "fn ");
     op = op + PP_EMIT_STR(out, op, &sname);
-    op = op + PP_EMIT_STR(out, op, "_to_json(ptr) {\n");
-    op = op + PP_EMIT_STR(out, op, "var sb = str_builder_new();\n");
+    op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr, sb) {\n");
     # For each field
     fi = 0;
     while (fi < field_count) {
@@ -564,12 +563,11 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
                 op = op + PP_EMIT_STR(out, op, ")));\n");
                 op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
             } else {
-                # Nested struct: get nested json and add to builder
-                op = op + PP_EMIT_STR(out, op, "str_builder_add(sb, ");
+                # Nested struct: use composable 2-arg form
                 op = op + PP_EMIT_STR(out, op, &field_types + fi * 32);
-                op = op + PP_EMIT_STR(out, op, "_to_json(ptr + ");
+                op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr + ");
                 op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
-                op = op + PP_EMIT_STR(out, op, "));\n");
+                op = op + PP_EMIT_STR(out, op, ", sb);\n");
             }
         } else {
             # Scalar field: emit as bare integer (valid JSON number)
@@ -579,8 +577,14 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         }
         fi = fi + 1;
     }
-    # Close: str_builder_add_cstr(sb, "}"); return 0; }
-    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn str_builder_build(sb);\n}\n");
+    # Close 2-arg form
+    op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn 0;\n}\n");
+    # === Emit Name_to_json (1-arg wrapper) ===
+    op = op + PP_EMIT_STR(out, op, "fn ");
+    op = op + PP_EMIT_STR(out, op, &sname);
+    op = op + PP_EMIT_STR(out, op, "_to_json(ptr) {\nvar sb = str_builder_new();\n");
+    op = op + PP_EMIT_STR(out, op, &sname);
+    op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr, sb);\nreturn str_builder_build(sb);\n}\n");
     # === Also emit Name_from_json (Deserialize) ===
     op = op + PP_EMIT_STR(out, op, "fn ");
     op = op + PP_EMIT_STR(out, op, &sname);

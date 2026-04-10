@@ -122,3 +122,4 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - Do not skip self-hosting verification after compiler changes
 - Do not modify parse.cyr arch-specific functions — they live in emit files
 - Do not remove build/cc3-native-aarch64 — ARM binary needed for self-hosting on ARM hardware
+- **v3.2.5 is the true minimum version** — all downstream repos must pin to >= 3.2.5 (cc3 binary, 2048 fns, defer, Str derive)

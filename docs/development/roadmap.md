@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.2.5.** 233KB self-hosting compiler, x86_64 + aarch64. Zero open bugs.
+> **v3.2.6.** 233KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
 > 30 test suites (372 assertions), 4 fuzz harnesses, soak test clean. 36 stdlib modules.
 > 8 downstream repos pass. 223 vidya entries. Format/lint/doc clean (excl patra).
 
@@ -105,7 +105,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 1 | ~~1024 function limit~~ | agnostik | **Resolved 3.2.2** | Expanded to 2048. |
 | 2 | ~~`#derive(Serialize)` Str fields~~ | agnostik | **Resolved 3.2.3** | `: Str` annotation emits quoted strings; integers emit bare numbers. |
 | 3 | ~~Nested if/while/break codegen~~ | agnostik | **Resolved 3.2.2** | Replaced `load8`+`==` with `strchr` for separator detection. |
-| 4 | **`break` in deeply nested while/if** | agnostik, json.cyr | Open | `break` inside `while { if { while { break } } }` (3+ nesting levels) doesn't exit correctly — inner while runs to end. json_parse multi-key parsing broken. Workaround: use flag variables and loop conditions instead of `break`. agnostik `_from_json` uses break-free `_json_int`/`_json_str` extractors. |
+| 4 | **`break` in deeply nested while/if** | agnostik, json.cyr | Open (compiler), **stdlib workaround in 3.2.6** | `break` inside `while { if { while { break } } }` (3+ nesting levels) doesn't exit correctly — inner while runs to end. **3.2.6**: lib/json.cyr patched to use flag variable + `||` instead of chained if/break. Compiler codegen fix deferred to 3.3.0. Discovered via argonaut serde tests (545 assertions, 22 suites). |
 | 5 | **`#derive(Serialize)` composable 2-arg form** | agnostik | Request | Current derive generates `_to_json(ptr)` (1-arg, returns Str). Agnostik needs `_to_json(ptr, sb)` (2-arg, writes to caller's string builder) for nested struct serialization. Perf is identical (~900ns). If derive generated the 2-arg form, agnostik could drop all 9 manual `_to_json` implementations (~200 lines). |
 | 6 | **`#derive(Deserialize)` single-pass parser** | agnostik | Request | Current manual `_from_json` does per-field string scan: O(fields × json_length). 3 fields = 2us, 9 fields = 25us. A derive-generated single-pass parser would be O(json_length), estimated ~2-3us regardless of field count. Would also fix json.cyr multi-key parsing (blocker #4). |
 
@@ -130,3 +130,4 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 - Research before implementation — vidya entry before code
 - Test after EVERY change, not after the feature is done
 - 108 repos / ~1M lines is the real measure of success
+- **v3.2.5 is the true minimum version** — all downstream repos pin to >= 3.2.5
