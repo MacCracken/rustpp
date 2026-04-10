@@ -436,8 +436,8 @@ fn PARSE_FACTOR(S) {
                 SPSC(S, lt);
                 # Width-correct load for scalar types (1=i8, 2=i16, 4=i32)
                 if (lt > 0) { if (lt <= 8) { SEXW(S, lt); EFLLOAD_W(S, li, lt); return 0; } }
-                if (li == GLVR(S)) { ELVRLOAD(S); }
-                else { EFLLOAD(S, li); }
+                if (_LOOPVAR_OK == 1) { if (li == GLVR(S)) { ELVRLOAD(S); return 0; } }
+                EFLLOAD(S, li);
                 return 0;
             }
         }
@@ -2068,13 +2068,15 @@ fn PARSE_WHILE(S) {
     var saved_brk = L64(S + 0x8F840);
     var saved_lvr = GLVR(S);
     # Detect loop var: if condition starts with local IDENT and no nested cache active
-    if (GLVR(S) < 0) {
-        if (PEEKT(S) == 10) {
-            var nti = GTI(S) + 1;
-            if (TOKTYP(S, nti) == 2) {
-                var lvnoff = TOKVAL(S, nti);
-                var lvi = FINDLOCAL(S, lvnoff);
-                if (lvi >= 0) { SLVR(S, lvi); ELVRINIT(S, lvi); }
+    if (_LOOPVAR_OK == 1) {
+        if (GLVR(S) < 0) {
+            if (PEEKT(S) == 10) {
+                var nti = GTI(S) + 1;
+                if (TOKTYP(S, nti) == 2) {
+                    var lvnoff = TOKVAL(S, nti);
+                    var lvi = FINDLOCAL(S, lvnoff);
+                    if (lvi >= 0) { SLVR(S, lvi); ELVRINIT(S, lvi); }
+                }
             }
         }
     }
@@ -3314,12 +3316,12 @@ fn PARSE_STMT(S) {
                     if (ew > lt) { WARN(S, "narrowing assignment (value may truncate)", 45); }
                     EFLSTORE_W(S, idx, lt);
                 } else {
-                    if (idx == GLVR(S)) { ELVRSTORE(S, idx); }
+                    if (_LOOPVAR_OK == 1) { if (idx == GLVR(S)) { ELVRSTORE(S, idx); } else { EFLSTORE(S, idx); } }
                     else { EFLSTORE(S, idx); }
                 }
             }
             else {
-                if (idx == GLVR(S)) { ELVRSTORE(S, idx); }
+                if (_LOOPVAR_OK == 1) { if (idx == GLVR(S)) { ELVRSTORE(S, idx); } else { EFLSTORE(S, idx); } }
                 else { EFLSTORE(S, idx); }
             }
         }

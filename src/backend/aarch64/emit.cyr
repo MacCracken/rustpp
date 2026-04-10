@@ -310,6 +310,11 @@ fn ESUBRSP(S) {
     return patch;
 }
 
+# Loop var register stubs (no-op on aarch64, x86-only optimization)
+fn ELVRLOAD(S) { return 0; }
+fn ELVRSTORE(S, idx) { EFLSTORE(S, idx); return 0; }
+fn ELVRINIT(S, idx) { return 0; }
+
 # Function epilogue: mov sp,x29; ldp x29,x30,[sp],#16; ret
 fn EFNEPI(S) {
     EW(S, 0x910003BF);  # mov sp, x29
@@ -546,6 +551,7 @@ fn ESPILL(S) { EPUSHR(S); return 0; }
 fn EUNSPILL(S) { EPOPR(S); return 0; }
 # Inline disabled on aarch64
 var _INLINE_OK = 0;
+var _LOOPVAR_OK = 0;
 
 fn EMIT_F64V_LOOP(S, op, vbase) { return 0; }
 fn EMIT_F64V_UNARY(S, op, vbase) { return 0; }
