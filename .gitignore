@@ -1,6 +1,6 @@
 # Build artifacts
 /build/*
-!/build/cc2
+!/build/cc3
 /target/
 
 # Archived Rust seed
