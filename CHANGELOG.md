@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.14] — 2026-04-10
+
+### Changed
+- **`lib/bench.cyr` overhead documented**: Measured framework costs — clock_gettime ~120ns,
+  fncall dispatch ~6ns, direct call ~3ns, inline ~2ns. Projects measuring sub-1us ops
+  should use `bench_batch_start`/`bench_batch_stop` with batch_size >= 1000.
+- **Break patch array initialized**: Explicit `S64(S + 0x20080, 0)` at startup.
+
+### Known Issues
+- **Libro hangs during Entry tests** (3.3.9+ regression): `entry_compute_hash` infinite
+  loops when compiled with 3.3.9+. Works on 3.3.8. Under investigation for 3.3.15.
+- **Gotcha #6** (nested while + load8): CSV parsing pattern with shared loop variable
+  across nested while loops still produces wrong results. Separate from the libro hang.
+
 ## [3.3.13] — 2026-04-10
 
 ### Changed
