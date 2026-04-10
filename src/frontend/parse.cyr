@@ -2545,9 +2545,12 @@ fn PARSE_FNCALL(S, noff) {
         STI(S, GTI(S) + 1);
         # Set local count past the param slots
         SFLC(S, saved_flc + pc);
-        # Register callee param name as temporary local (stored in fn_inline)
-        var pn0 = GFINL(S, fi);
+        # Register callee param names as temporary locals (packed in fn_inline)
+        var inl_packed = GFINL(S, fi);
+        var pn0 = inl_packed & 0xFFFFFFFF;
+        var pn1 = (inl_packed >> 32) & 0xFFFFFFFF;
         if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, pn0); SLDEP(S, p0_slot, GSDEP(S)); }
+        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, pn1); SLDEP(S, p1_slot, GSDEP(S)); }
         # Save state and replay body tokens
         var saved_ti = GTI(S);
         var saved_rpc = GRPC(S);
@@ -2567,6 +2570,7 @@ fn PARSE_FNCALL(S, noff) {
         STI(S, saved_ti);
         # Invalidate temporary param locals
         if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, 0 - 1); }
+        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, 0 - 1); }
         return 0;
     } } }
     # NORMAL CALL PATH
@@ -2739,8 +2743,8 @@ fn PARSE_FN_DEF(S) {
         SFBE(S, fi, GTI(S));
         var btokens = GTI(S) - GFBS(S, fi);
         var can_inline = 1;
-        if (pc > 1) { can_inline = 0; }
-        if (btokens > 6) { can_inline = 0; }
+        if (pc > 2) { can_inline = 0; }
+        if (btokens > 16) { can_inline = 0; }
         if (can_inline == 1) {
             var sci = GFBS(S, fi);
             while (sci < GTI(S)) {
@@ -2753,7 +2757,8 @@ fn PARSE_FN_DEF(S) {
             }
         }
         if (can_inline == 1) {
-            if (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
+            if (pc == 2) { SFINL(S, fi, (L64(S + 0x91008) << 32) | (L64(S + 0x91000) & 0xFFFFFFFF)); }
+            elif (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
             elif (pc == 0) { SFINL(S, fi, 1); }
         } else { SFINL(S, fi, 0); }
     }
