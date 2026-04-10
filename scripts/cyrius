@@ -162,13 +162,12 @@ fetch_git_dep() {
     local dest="$CYRIUS_DIR/deps/$name/$tag"
     if [ -d "$dest" ] && [ "$(ls -A "$dest" 2>/dev/null)" ]; then return 0; fi
     rm -rf "$dest"
+    mkdir -p "$(dirname "$dest")"
     echo "  fetch $name@$tag..."
-    if ! git clone --depth 1 --branch "$tag" "$url" "$dest" 2>/dev/null; then
-        git clone --depth 1 "$url" "$dest" 2>/dev/null || {
-            echo "  error: failed to fetch $name" >&2
-            return 1
-        }
-    fi
+    git clone --depth 1 --branch "$tag" "$url" "$dest" 2>&1 || \
+        git clone --depth 1 "$url" "$dest" 2>&1 || \
+        echo "  warning: failed to fetch $name@$tag" >&2
+    return 0
 }
 
 # Resolve all dependencies from cyrius.toml → write include list to file

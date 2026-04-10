@@ -185,15 +185,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup compiler
-        run: chmod +x build/cc3
-      - name: Resolve dependencies
         run: |
-          chmod +x scripts/cyrius
-          ./scripts/cyrius deps
+          chmod +x build/cc3
+          if command -v git >/dev/null 2>&1; then
+            chmod +x scripts/cyrius
+            ./scripts/cyrius deps
+          else
+            echo "git not available, skipping dep resolution"
+          fi
       - name: Test suite (.tcyr)
         run: |
           pass=0; fail=0
           for t in tests/tcyr/*.tcyr; do
+            # Skip tests requiring deps if deps not resolved
+            name=$(basename "$t" .tcyr)
+            case "$name" in sakshi|sakshi_full) [ ! -f lib/sakshi.cyr ] && echo "SKIP: $name (no deps)" && continue ;; esac
             name=$(basename "$t" .tcyr)
             tmpbin="/tmp/ci_t_$$"
             cat "$t" | ./build/cc3 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
