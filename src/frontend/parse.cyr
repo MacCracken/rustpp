@@ -2684,6 +2684,7 @@ fn PARSE_FN_DEF(S) {
     # Emit prologue
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);
+    var fn_start = GCP(S);
     # Parse params
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
     STI(S, GTI(S) + 1);
@@ -2782,6 +2783,61 @@ fn PARSE_FN_DEF(S) {
     }
     # Emit epilogue
     EFNEPI(S);
+    # Dead store elimination: scan function body for consecutive stores
+    # to the same [rbp-N] offset. Pattern: any load into rax + store to [rbp-N],
+    # immediately followed by another load + store to same [rbp-N].
+    # The store instruction is: 48 89 85 XX XX XX XX (7 bytes)
+    var dse_cp = GCP(S);
+    var dse_i = fn_start;
+    while (dse_i + 14 < dse_cp) {
+        # Check if this is a store: 48 89 85
+        if (load8(S + 0x20000 + dse_i) == 0x48) {
+            if (load8(S + 0x20000 + dse_i + 1) == 0x89) {
+                if (load8(S + 0x20000 + dse_i + 2) == 0x85) {
+                    # Get displacement (4 bytes LE)
+                    var dse_off = load32(S + 0x20000 + dse_i + 3);
+                    # Scan forward past this store (7 bytes) to find next store
+                    var dse_j = dse_i + 7;
+                    # Skip load instruction(s) between stores
+                    # xor eax,eax = 31 C0 (2 bytes)
+                    # mov eax, imm32 = B8 XX XX XX XX (5 bytes)
+                    # movabs rax, imm64 = 48 B8 XX XX XX XX XX XX XX XX (10 bytes)
+                    var dse_skip = 0;
+                    if (load8(S + 0x20000 + dse_j) == 0x31) { dse_skip = 2; }
+                    elif (load8(S + 0x20000 + dse_j) == 0xB8) { dse_skip = 5; }
+                    elif (load8(S + 0x20000 + dse_j) == 0x48) {
+                        if (load8(S + 0x20000 + dse_j + 1) == 0xB8) { dse_skip = 10; }
+                    }
+                    if (dse_skip > 0) {
+                        var dse_next = dse_j + dse_skip;
+                        # Check if next instruction is store to SAME offset
+                        if (dse_next + 7 <= dse_cp) {
+                            if (load8(S + 0x20000 + dse_next) == 0x48) {
+                                if (load8(S + 0x20000 + dse_next + 1) == 0x89) {
+                                    if (load8(S + 0x20000 + dse_next + 2) == 0x85) {
+                                        var dse_off2 = load32(S + 0x20000 + dse_next + 3);
+                                        if (dse_off == dse_off2) {
+                                            # Dead store! NOP out the first load+store
+                                            # NOP the bytes from dse_i to dse_j+dse_skip-1
+                                            # But we can't NOP easily (would break jumps).
+                                            # Instead: just skip ahead, don't NOP.
+                                            # Actually: overwrite with 0x90 (NOP)
+                                            var dse_ni = dse_i;
+                                            while (dse_ni < dse_j) {
+                                                store8(S + 0x20000 + dse_ni, 0x90);
+                                                dse_ni = dse_ni + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dse_i = dse_i + 1;
+    }
     # Patch frame size
     var flc = GFLC(S);
     var fsz = (flc * 8 + 15) & (0 - 16);

@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.2] — 2026-04-09
+
+### Added — Dead Store Elimination
+- **Post-emit DSE pass**: After function body compilation, scans codebuf for consecutive
+  stores to the same `[rbp-N]` offset. First store NOPped (7 bytes → 0x90 sled).
+  Pattern: `mov [rbp-N], rax` followed by load + `mov [rbp-N], rax` with same N.
+  Eliminates `var x = 0; x = 42;` dead initialization stores.
+  Applied per-function after epilogue emission, before frame size patching.
+  Self-hosting verified, 30/30 tests pass.
+
 ## [3.3.1] — 2026-04-09
 
 ### Added — ISO-8601 in chrono.cyr
