@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v3.3.3.** 233KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
-> 30 test suites (372 assertions), 4 fuzz harnesses, soak test clean. 36 stdlib modules.
-> 8 downstream repos pass. 223 vidya entries. Format/lint/doc clean (excl patra).
+> **v3.3.4-dev.** 242KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
+> 31 test suites (375 assertions), 4 fuzz harnesses, soak test clean. 37 stdlib modules.
+> 8 downstream repos pass. Format/lint/doc clean (excl patra).
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -16,10 +16,14 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 |---|---------|--------|--------|
 | 1 | **Multi-file linker** (Phase 2) | High | .o emission done (v2.6.4). Need: read .o files, resolve symbols, patch relocations, emit executable. Write in Cyrius. |
 | 2 | **Deferred formatting** (defmt) | High | Not started. String interning + decode. Eliminates runtime fmt overhead for logging/tracing. |
-| 3 | **u128** | High | Research. 128-bit integers via register pairs. |
-| 4 | **Cross-function inlining** | High | Research. Beyond token replay. |
-| 5 | **Variadic functions** | Medium | Deferred. Vec-based pattern sufficient for all current ports. |
-| 6 | **`defer` statement** | Medium | **Done (v3.2.0)**. LIFO execution, return value preserved, max 8 per function. |
+| 3 | **u128** | High | Research. 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
+| 4 | **Small function inlining** | Medium | Planned for 3.3.4. Single-expression functions (e.g. `fp_sq`, `u256_limb`) inlined at call site. |
+| 5 | **Register alloc for loop vars** | Medium | Planned for 3.3.4. Keep loop counter in register instead of stack-spilling every iteration. |
+| 6 | **Variadic functions** | Medium | Deferred. Vec-based pattern sufficient for all current ports. |
+| 7 | **`defer` statement** | Medium | **Done (v3.2.0)**. LIFO execution, return value preserved, max 8 per function. |
+| 8 | **Dead store elimination** | Low | **Done (v3.3.2)**. Post-emit DSE pass, NOPs consecutive stores to same `[rbp-N]`. |
+| 9 | **Expanded constant folding** | Low | **Done (v3.3.1)**. Removed 16-bit limit, added `x-0`/`x*1`/`x*0` identities. |
+| 10 | **`cc3 --version`** | Low | **Done (v3.3.0)**. Reads /proc/self/cmdline for argv[1]. |
 
 ## Platform Targets
 
@@ -33,7 +37,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 6 | RISC-V | ELF | Planned |
 | 7 | cyrius-x bytecode | .cyx | **Done** (v2.5) — VM with recursion + syscall strings |
 
-## Standard Library (36 modules)
+## Standard Library (37 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -41,15 +45,16 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Types | tagged, hashmap, hashmap_fast, trait, assert, bounds |
 | System | syscalls, callback, process, bench |
 | Concurrency | thread, async, freelist |
-| Data | json, toml, csv, base64, regex, math, matrix |
+| Data | json, toml, csv, base64, regex, math, matrix, bigint |
 | Network | net, http |
 | Filesystem | fs |
+| Database | patra |
 | Tracing | sakshi, sakshi_full |
 | Time | chrono |
 | Knowledge | vidya |
 
 **Next modules:**
-- `lib/tls.cyr` — TLS 1.3 (needs C FFI or raw crypto)
+- `lib/tls.cyr` — TLS 1.3 (sigil provides crypto primitives)
 - `lib/ws.cyr` — WebSocket protocol (depends on http.cyr)
 - `lib/log.cyr` — thin logging wrapper over sakshi
 
@@ -68,8 +73,8 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | `cyrius fmt/lint/doc` | **Done** — cyrfmt, cyrlint, cyrdoc |
 | `cyrius init/port` | **Done** — project scaffold, Rust port scaffold |
 | `cyriusup` | **Done** — version manager (install/use/list/update) |
+| `cyrius doc --serve` | **Done** — generates HTML docs + python3 HTTP server |
 | `cyrius lsp` | Planned — Language Server Protocol for IDE integration |
-| `cyrius doc --serve` | Planned — local HTTP server for generated docs |
 
 ## Ports & Ecosystem
 
@@ -77,6 +82,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 |--------|-------|
 | **Done** | agnostik (553), agnosys (20 modules), argonaut (395), kybernet, nous, ark |
 | **Done** | sakshi (12), majra (144), libro (202), bsp (74), cyrius-doom (129KB) |
+| **In progress** | sigil (Ed25519 crypto, 198 assertions), patra (SQL), libro |
 | **In progress** | bhava (29K), hisab (31K) — keystone ports, unlock 37 downstream |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
 | **Remaining** | 103 repos (~980K lines) |
@@ -85,7 +91,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | Limit | Current |
 |-------|---------|
-| Functions | 1024 |
+| Functions | 2048 |
 | Variables (VCNT) | 8192 |
 | Globals (initialized) | 1024 |
 | Locals per function | 256 |
@@ -106,7 +112,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 2 | ~~`#derive(Serialize)` Str fields~~ | agnostik | **Resolved 3.2.3** | `: Str` annotation emits quoted strings; integers emit bare numbers. |
 | 3 | ~~Nested if/while/break codegen~~ | agnostik | **Resolved 3.2.2** | Replaced `load8`+`==` with `strchr` for separator detection. |
 | 4 | **`break` in deeply nested while/if** | agnostik, json.cyr | Open (compiler), **stdlib workaround in 3.2.6** | `break` inside `while { if { while { break } } }` (3+ nesting levels) doesn't exit correctly — inner while runs to end. **3.2.6**: lib/json.cyr patched to use flag variable + `||` instead of chained if/break. Compiler codegen fix deferred to 3.3.0. Discovered via argonaut serde tests (545 assertions, 22 suites). |
-| 5 | **`#derive(Serialize)` composable 2-arg form** | agnostik | Request | Current derive generates `_to_json(ptr)` (1-arg, returns Str). Agnostik needs `_to_json(ptr, sb)` (2-arg, writes to caller's string builder) for nested struct serialization. Perf is identical (~900ns). If derive generated the 2-arg form, agnostik could drop all 9 manual `_to_json` implementations (~200 lines). |
+| 5 | ~~`#derive(Serialize)` composable 2-arg form~~ | agnostik | **Resolved 3.2.3** | 2-arg `_to_json_sb(ptr, sb)` form generated by derive. Str field support added. |
 | 6 | **`#derive(Deserialize)` single-pass parser** | agnostik | Request | Current manual `_from_json` does per-field string scan: O(fields × json_length). 3 fields = 2us, 9 fields = 25us. A derive-generated single-pass parser would be O(json_length), estimated ~2-3us regardless of field count. Would also fix json.cyr multi-key parsing (blocker #4). |
 
 ## Known Gotchas

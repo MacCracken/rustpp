@@ -113,44 +113,64 @@ fn _add64(a, b) {
     return carry;
 }
 
+# Add single limb pair, return carry
+fn _add_limb(r_off, r, a, b, carry_in) {
+    var al = load64(a + r_off);
+    var bl = load64(b + r_off);
+    var s1 = al + bl;
+    var c1 = _add64(al, bl);
+    var s2 = s1 + carry_in;
+    var c2 = 0;
+    if (carry_in > 0) {
+        if (s2 == 0) { c2 = 1; }
+        else { var sx = s2 ^ (1 << 63); var s1x = s1 ^ (1 << 63); if (sx < s1x) { c2 = 1; } }
+    }
+    store64(r + r_off, s2);
+    return c1 + c2;
+}
+
 # r = a + b (mod 2^256). Returns carry (0 or 1).
 fn u256_add(r, a, b) {
-    var carry = 0;
-    var i = 0;
-    while (i < 4) {
-        var al = load64(a + i * 8);
-        var bl = load64(b + i * 8);
-        var sum1 = al + bl;
-        var c1 = _add64(al, bl);
-        var sum2 = sum1 + carry;
-        var c2 = 0;
-        if (carry > 0) {
-            if (sum2 == 0) { c2 = 1; }
-            elif ((sum2 ^ (1 << 63)) < (sum1 ^ (1 << 63))) { c2 = 1; }
+    var c = _add_limb(0, r, a, b, 0);
+    c = _add_limb(8, r, a, b, c);
+    c = _add_limb(16, r, a, b, c);
+    c = _add_limb(24, r, a, b, c);
+    return c;
+}
+
+# r = a - b (mod 2^256). Returns borrow (0 or 1).
+# Subtract single limb pair, return borrow
+fn _sub_limb(r_off, r, a, b, borrow_in) {
+    var al = load64(a + r_off);
+    var bl = load64(b + r_off);
+    var new_borrow = 0;
+    if (borrow_in > 0) {
+        if (bl == (0 - 1)) {
+            new_borrow = 1;
+            store64(r + r_off, al);
+        } else {
+            var bl2 = bl + 1;
+            var ax = al ^ (1 << 63);
+            var bx = bl2 ^ (1 << 63);
+            if (bx > ax) { new_borrow = 1; }
+            store64(r + r_off, al - bl2);
         }
-        store64(r + i * 8, sum2);
-        carry = c1 + c2;
-        i = i + 1;
+    } else {
+        var ax = al ^ (1 << 63);
+        var bx = bl ^ (1 << 63);
+        if (bx > ax) { new_borrow = 1; }
+        store64(r + r_off, al - bl);
     }
-    return carry;
+    return new_borrow;
 }
 
 # r = a - b (mod 2^256). Returns borrow (0 or 1).
 fn u256_sub(r, a, b) {
-    var borrow = 0;
-    var i = 0;
-    while (i < 4) {
-        var al = load64(a + i * 8);
-        var bl = load64(b + i * 8) + borrow;
-        borrow = 0;
-        # Unsigned: if bl > al, we need to borrow
-        var ax = al ^ (1 << 63);
-        var bx = bl ^ (1 << 63);
-        if (bx > ax) { borrow = 1; }
-        store64(r + i * 8, al - bl);
-        i = i + 1;
-    }
-    return borrow;
+    var c = _sub_limb(0, r, a, b, 0);
+    c = _sub_limb(8, r, a, b, c);
+    c = _sub_limb(16, r, a, b, c);
+    c = _sub_limb(24, r, a, b, c);
+    return c;
 }
 
 # ================================================================
