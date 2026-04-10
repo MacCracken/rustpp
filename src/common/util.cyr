@@ -63,6 +63,9 @@ fn GFINL(S, fi) { return L64(S + 0xD4000 + fi * 8); }
 fn SFINL(S, fi, v) { S64(S + 0xD4000 + fi * 8, v); return 0; }
 fn GIDEP(S) { return L64(S + 0x903E8); }
 fn SIDEP(S, v) { S64(S + 0x903E8, v); return 0; }
+# Loop var register cache (r12)
+fn GLVR(S) { return L64(S + 0x903F8); }
+fn SLVR(S, v) { S64(S + 0x903F8, v); return 0; }
 # Extra condition patches (for && chaining)
 fn GXPC(S) { return L64(S + 0x8F888); }
 fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }

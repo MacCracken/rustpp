@@ -285,10 +285,11 @@ fn ESETCC(S, op) {
 # FUNCTION CALLING CONVENTION (x86_64 System V ABI)
 # ================================================================
 
-# Emit push rbp; mov rbp, rsp
+# Emit push rbp; push r12; mov rbp, rsp
 fn EFNPRO(S) {
-    EB(S, 0x55);
-    E3(S, 0xE58948);
+    EB(S, 0x55);       # push rbp
+    E2(S, 0x5441);     # push r12
+    E3(S, 0xE58948);   # mov rbp, rsp
     return 0;
 }
 
@@ -300,9 +301,12 @@ fn ESUBRSP(S) {
     return patch;
 }
 
-# Emit leave; ret
+# Emit mov rsp, rbp; pop r12; pop rbp; ret
 fn EFNEPI(S) {
-    E2(S, 0xC3C9);
+    E3(S, 0xEC8948);   # mov rsp, rbp
+    E2(S, 0x5C41);     # pop r12
+    EB(S, 0x5D);       # pop rbp
+    EB(S, 0xC3);       # ret
     return 0;
 }
 
@@ -393,8 +397,9 @@ fn ECALLCLEAN(S, n) {
 
 # Emit tail call: epilogue + jmp (instead of call + epilogue)
 fn ETAILJMP(S, fnidx) {
-    # Emit epilogue: mov rsp, rbp; pop rbp (match EFNEPI)
+    # Emit epilogue: mov rsp, rbp; pop r12; pop rbp (match EFNEPI)
     E3(S, 0xEC8948);  # mov rsp, rbp
+    E2(S, 0x5C41);    # pop r12
     EB(S, 0x5D);       # pop rbp
     # Emit jmp rel32 with fixup (like ECALLFIX but type 2 + jmp opcode)
     EB(S, 0xE9);        # jmp rel32
@@ -489,6 +494,29 @@ fn EPATCHFRAME(S, patch, size) {
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858948);
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+# Load loop var from r12: mov rax, r12
+fn ELVRLOAD(S) {
+    E3(S, 0xE0894C);   # mov rax, r12
+    return 0;
+}
+
+# Store loop var to r12 + stack: mov r12, rax; mov [rbp-off], rax
+fn ELVRSTORE(S, idx) {
+    E3(S, 0xC48949);   # mov r12, rax
+    EFLSTORE(S, idx);
+    return 0;
+}
+
+# Init loop var cache: mov r12, [rbp-off]
+fn ELVRINIT(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    E3(S, 0xA58B4C);   # mov r12, [rbp+disp32]
     var addr = S + 0x20000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);

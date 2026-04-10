@@ -56,6 +56,7 @@
 #   0x903E0  expr_var      [8]
 #   0x903E8  inline_depth  [8]
 #   0x903F0  expr_width    [8]
+#   0x903F8  loop_var_slot [8]           active loop var index for r12 caching (-1=none)
 #   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
 #   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
 #
@@ -177,6 +178,8 @@ S64(S + 0x903D8, 0);
 S64(S + 0x903E8, 0);
 # Expression width
 S64(S + 0x903F0, 0);
+# Loop var register cache (-1 = none)
+S64(S + 0x903F8, 0 - 1);
 # Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
 S64(S + 0x8F8A0, 0);
 # Module system
