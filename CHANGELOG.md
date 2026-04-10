@@ -18,6 +18,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Stats
 - **31/31 cyrius tests, 240/240 libro tests**
 
+## [3.3.15] — 2026-04-10
+
+### Fixed
+- **Multi-break in nested loops** (Blocker #4, final fix): Reimplemented using linked list
+  through codebuf rel32 fields instead of separate array. Each `break` chains the previous
+  break's patch offset into its jmp placeholder. At loop exit, walks the chain patching
+  each one. Zero extra heap, no save/restore state to corrupt. The previous array approach
+  (3.3.9) corrupted codegen for large programs (libro 240-test hang). Linked-list approach
+  passes libro 240/240 + multi-break + nested break tests.
+- **Version string length**: Fixed for 2-digit minor versions.
+
+### Stats
+- **31/31 cyrius, 240/240 libro, multi-break + nested break all pass**
+- **0 open compiler blockers**
+
 ## [3.3.14] — 2026-04-10
 
 ### Changed
