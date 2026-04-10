@@ -82,25 +82,33 @@ fn lint_file(buf, total) {
             if (content_len >= 3) {
                 if (memeq(buf + first, "fn ", 3) == 1) {
                     var ni = first + 3;
-                    # Check for uppercase in function name (skip _prefixed and ALL_CAPS)
+                    # Check for camelCase fn names
+                    # Allow: _prefixed, ALL_CAPS, Type_method (Cap + _)
                     var fn_first = load8(buf + ni);
-                    if (fn_first != 95) { if (fn_first != 0) {
-                        var has_lower = 0;
-                        var has_upper = 0;
+                    var fn_second = load8(buf + ni + 1);
+                    var skip_case = 0;
+                    if (fn_first == 95) { skip_case = 1; }
+                    if (fn_first == 0) { skip_case = 1; }
+                    # Type_method: uppercase first + underscore second
+                    if (fn_first >= 65) { if (fn_first <= 90) { if (fn_second == 95) { skip_case = 1; } } }
+                    if (skip_case == 0) {
+                        # Detect camelCase: lowercase followed by uppercase
+                        var is_camel = 0;
+                        var prev_lower = 0;
                         var sci = ni;
                         while (sci < eol) {
                             var nc = load8(buf + sci);
                             if (nc == 40) { break; }
                             if (nc == 60) { break; }
-                            if (nc >= 65) { if (nc <= 90) { has_upper = 1; } }
-                            if (nc >= 97) { if (nc <= 122) { has_lower = 1; } }
+                            if (nc >= 97) { if (nc <= 122) { prev_lower = 1; } }
+                            elif (nc >= 65) { if (nc <= 90) { if (prev_lower == 1) { is_camel = 1; } prev_lower = 0; } }
+                            else { prev_lower = 0; }
                             sci = sci + 1;
                         }
-                        # Mixed case = PascalCase/camelCase — warn
-                        if (has_upper == 1) { if (has_lower == 1) {
+                        if (is_camel == 1) {
                             warn(lineno, "fn name should be snake_case");
-                        } }
-                    } }
+                        }
+                    }
                 }
             }
 
