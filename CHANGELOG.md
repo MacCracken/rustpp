@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.3] — 2026-04-09
+
+### Added
+- **`lib/bigint.cyr`**: 256-bit unsigned integer arithmetic for cryptography.
+  4-limb (4 × 64-bit) representation, little-endian. Core operations:
+  `u256_add`, `u256_sub`, `u256_mul`, `u256_mod`, `u256_cmp`, `u256_shl1/shr1`,
+  `u256_addmod`, `u256_submod`, `u256_mulmod`, `u256_to_hex`, `u256_from_hex`.
+  64×64→128-bit multiplication via 32-bit half splitting (4 partial products).
+  Unsigned comparison via XOR-high-bit trick (no unsigned type in Cyrius).
+  Module #37. 21 assertions in bigint.tcyr. Unblocks sigil (Ed25519/secp256k1).
+
+### Stats
+- **37 stdlib modules, 31 test suites, 406 assertions**
+
 ## [3.3.2] — 2026-04-09
 
 ### Added — Dead Store Elimination
