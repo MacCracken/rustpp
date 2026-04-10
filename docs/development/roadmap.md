@@ -26,7 +26,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | # | Platform | Format | Status |
 |---|----------|--------|--------|
 | 1 | Linux x86_64 | ELF | **Done** — primary target, 233KB self-hosting |
-| 2 | Linux aarch64 | ELF | **Done** — cc2_aarch64 cross + native |
+| 2 | Linux aarch64 | ELF | **Done** — cc3_aarch64 cross + native |
 | 3 | macOS x86_64 | Mach-O | **Stub** (v3.1) — `src/backend/macho/emit.cyr` scaffolded |
 | 4 | macOS aarch64 | Mach-O | **Stub** — combines Mach-O emitter + existing aarch64 codegen |
 | 5 | Windows x86_64 | PE/COFF | **Stub** (v3.1) — `src/backend/pe/emit.cyr` scaffolded |

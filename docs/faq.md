@@ -41,13 +41,13 @@ Too many variable references in one compilation. Your program + includes exceed 
 Exit codes are truncated to 0-255 (Linux limitation). Use `print_num()` or `fmt_int()` to display values larger than 255.
 
 ### Enum values are 0 inside functions
-This was a bug (fixed in 0.9.0). If you're on an older version, update. The fix: enum init code must run before global var init code in cc2.cyr.
+This was a bug (fixed in 0.9.0). If you're on an older version, update. The fix: enum init code must run before global var init code in cc3.cyr.
 
 ### "include" string literal breaks compilation
 The preprocessor eats `"include "` patterns in string literals. Workaround: build the pattern at runtime using `store8()`. See the cyrc source for an example.
 
 ### aarch64 binary crashes with SIGILL
-Check that you're using `cc2_aarch64` (not `cc2`) and running via `qemu-aarch64`. Common encoding bugs were fixed in 0.9.0.
+Check that you're using `cc2_aarch64` (not `cc3`) and running via `qemu-aarch64`. Common encoding bugs were fixed in 0.9.0.
 
 ### Vec bounds check aborts
 `vec_get`/`vec_set` abort on out-of-bounds access. Check your indices. Use `vec_len()` to verify before accessing.

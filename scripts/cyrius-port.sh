@@ -96,7 +96,7 @@ echo "  Created cyrius.toml"
 # Generate basic test
 cat > tests/test.sh << TEST
 #!/bin/sh
-CC="\${1:-./build/cc2}"
+CC="\${1:-./build/cc3}"
 echo "=== $NAME tests ==="
 cat src/main.cyr | "\$CC" > /tmp/${NAME}_test && chmod +x /tmp/${NAME}_test && /tmp/${NAME}_test
 echo "exit: \$?"
@@ -113,5 +113,5 @@ echo ""
 echo "Next steps:"
 echo "  1. Read rust-old/src/lib.rs to understand the API"
 echo "  2. Port module by module into src/main.cyr"
-echo "  3. Run: cat src/main.cyr | cc2 > build/$NAME"
+echo "  3. Run: cat src/main.cyr | cc3 > build/$NAME"
 echo "  4. Test: sh tests/test.sh"

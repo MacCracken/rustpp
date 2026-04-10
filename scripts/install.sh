@@ -121,34 +121,34 @@ if [ "$installed" -eq 0 ]; then
     cd cyrius
 
     sh bootstrap/bootstrap.sh
-    chmod +x build/cc2
+    chmod +x build/cc3
 
     # Verify self-hosting
-    cat src/main.cyr | ./build/cc2 > /tmp/cc2_verify
+    cat src/main.cyr | ./build/cc3 > /tmp/cc2_verify
     chmod +x /tmp/cc2_verify
     cat src/main.cyr | /tmp/cc2_verify > /tmp/cc2_verify2
     if cmp -s /tmp/cc2_verify /tmp/cc2_verify2; then
         info "self-hosting verified"
     else
-        warn "self-hosting check failed, using committed cc2"
+        warn "self-hosting check failed, using committed cc3"
     fi
 
     # Build tools
     for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
         if [ -f "programs/${tool}.cyr" ]; then
-            cat "programs/${tool}.cyr" | ./build/cc2 > "./build/${tool}" 2>/dev/null && \
+            cat "programs/${tool}.cyr" | ./build/cc3 > "./build/${tool}" 2>/dev/null && \
                 chmod +x "./build/${tool}" || true
         fi
     done
 
     # Cross-compiler
     if [ -f src/main_aarch64.cyr ]; then
-        cat src/main_aarch64.cyr | ./build/cc2 > ./build/cc2_aarch64 2>/dev/null && \
-            chmod +x ./build/cc2_aarch64 || true
+        cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 2>/dev/null && \
+            chmod +x ./build/cc3_aarch64 || true
     fi
 
     # Copy binaries
-    for bin in cc2 cc2_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
+    for bin in cc3 cc3_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
         if [ -x "./build/$bin" ]; then
             cp "./build/$bin" "$CYRIUS_HOME/versions/$VERSION/bin/"
         fi
@@ -252,7 +252,7 @@ case "${1:-help}" in
         ;;
 
     which)
-        echo "$CYRIUS_HOME/versions/$(current)/bin/cc2"
+        echo "$CYRIUS_HOME/versions/$(current)/bin/cc3"
         ;;
 
     home)
@@ -335,13 +335,13 @@ printf "\n${BOLD}Cyrius ${VERSION} installed successfully!${RESET}\n\n"
 
 # Show what was installed
 echo "  Toolchain:"
-for bin in cc2 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
+for bin in cc3 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
     if [ -x "$CYRIUS_HOME/bin/$bin" ]; then
         printf "    ${GREEN}+${RESET} %s\n" "$bin"
     fi
 done
-if [ -x "$CYRIUS_HOME/bin/cc2_aarch64" ]; then
-    printf "    ${GREEN}+${RESET} %s\n" "cc2_aarch64 (cross-compiler)"
+if [ -x "$CYRIUS_HOME/bin/cc3_aarch64" ]; then
+    printf "    ${GREEN}+${RESET} %s\n" "cc3_aarch64 (cross-compiler)"
 fi
 echo ""
 echo "  To get started:"

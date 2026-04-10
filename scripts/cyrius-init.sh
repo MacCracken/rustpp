@@ -148,7 +148,7 @@ cat > "$NAME/scripts/build.sh" << 'BUILD'
 #!/bin/sh
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc2}"
+CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc3}"
 if [ ! -x "$CC" ]; then
     echo "ERROR: Cyrius compiler not found. Set CYRIUS_CC." >&2
     exit 1
@@ -165,7 +165,7 @@ chmod +x "$NAME/scripts/build.sh"
 cat > "$NAME/scripts/test.sh" << 'TEST'
 #!/bin/sh
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc2}"
+CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc3}"
 if [ ! -x "$CC" ]; then
     echo "ERROR: Cyrius compiler not found. Set CYRIUS_CC." >&2
     exit 1
@@ -196,7 +196,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/MacCracken/cyrius.git ../cyrius
           cd ../cyrius && sh bootstrap/bootstrap.sh
-          cat src/main.cyr | ./build/stage1f > ./build/cc2 && chmod +x ./build/cc2
+          cat src/main.cyr | ./build/stage1f > ./build/cc3 && chmod +x ./build/cc3
       - name: Build
         run: sh scripts/build.sh
       - name: Test

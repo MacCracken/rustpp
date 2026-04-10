@@ -6,7 +6,7 @@
 # Usage: cyrius coverage
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="${REPO_ROOT}/build/cc2"
+CC="${REPO_ROOT}/build/cc3"
 
 total_libs=0
 covered_libs=0

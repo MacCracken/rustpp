@@ -61,7 +61,7 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Bootstrap seed (bootstrap/asm) | 29 KB |
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
-| Full compiler (cc2) | 233 KB |
+| Full compiler (cc3) | 233 KB |
 | cyrius build tool | 59 KB |
 | **Total toolchain** | **362 KB** |
 
@@ -94,7 +94,7 @@ The entire Cyrius toolchain fits in **362 KB**. GCC: ~100 MB. Clang/LLVM: ~500 M
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc2) | 216 | All pass |
+| Compiler (cc3) | 216 | All pass |
 | Programs | 51 | All pass |
 | aarch64 (cross) | 26 | All pass |
 | **Total** | **267+26** | **0 failures** |

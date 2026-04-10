@@ -4,8 +4,8 @@
 # Same language as cc.cyr, split into modules using include.
 # Compiled by cc (stage1f's extended language).
 #
-# Build: cat cc2.cyr | ./build/cc > cc2
-# Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
+# Build: cat cc3.cyr | ./build/cc > cc3
+# Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
 # ================================================================
 # HEAP MAP — Authoritative offset registry (v2.1.2)
 # ================================================================

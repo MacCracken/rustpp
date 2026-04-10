@@ -24,7 +24,7 @@
 | **Integer overflow in alloc** | Large allocation wraps to small size | brk return value checked; returns 0 on failure |
 | **Code injection via inline asm** | `asm { ... }` emits arbitrary bytes | By design — asm is a power tool, not a vulnerability |
 | **Denial of service** | Extremely large source files | Input buffer capped at 131KB; token array at 65536 |
-| **Supply chain** | Compromised cc2 binary | Self-hosting verification: cc2 must produce byte-identical cc3 |
+| **Supply chain** | Compromised cc3 binary | Self-hosting verification: cc3 must produce byte-identical cc3 |
 | **Bootstrap trust** | Trusting the committed 29KB seed | Diverse double compilation possible; seed is auditable |
 
 ## Known Limitations

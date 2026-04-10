@@ -20,7 +20,7 @@ entry = "src/main.cyr"
 test = "src/test.cyr"
 
 [build]
-compiler = "cc2"           # cc2 or cc2_aarch64
+compiler = "cc3"           # cc3 or cc2_aarch64
 output = "kybernet"        # binary name
 
 [dependencies]
@@ -58,12 +58,12 @@ sha256 = ""  # filled at release time by `cyrius package`
 
 [depends]
 runtime = []               # no runtime deps (static binary)
-build = ["cyrius"]         # needs cc2 to build from source
+build = ["cyrius"]         # needs cc3 to build from source
 
 [build]
 configure = ""
-make = "cat src/main.cyr | cc2 > build/kybernet && chmod +x build/kybernet"
-check = "cat src/test.cyr | cc2 > /tmp/test && chmod +x /tmp/test && /tmp/test"
+make = "cat src/main.cyr | cc3 > build/kybernet && chmod +x build/kybernet"
+check = "cat src/test.cyr | cc3 > /tmp/test && chmod +x /tmp/test && /tmp/test"
 install = "install -Dm755 build/kybernet $PKG/usr/bin/kybernet"
 
 [security]

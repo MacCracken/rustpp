@@ -152,8 +152,8 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc2 (modular compiler, 233KB, 8 modules)
-        -> cc2_aarch64 (cross-compiler)
+      -> cc3 (modular compiler, 233KB, 8 modules)
+        -> cc3_aarch64 (cross-compiler)
 ```
 
 ## Migration

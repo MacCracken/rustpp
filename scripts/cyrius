@@ -19,15 +19,15 @@ else
     VERSION="unknown"
 fi
 CYRIUS_DIR="${CYRIUS_HOME:-$HOME/.cyrius}"
-# Find cc2: installed version, then local repo fallback
-CC="${CYRIUS_DIR}/bin/cc2"
+# Find cc3: installed version, then local repo fallback
+CC="${CYRIUS_DIR}/bin/cc3"
 if [ ! -x "$CC" ]; then
     # Try relative to this script (dev mode)
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    if [ -x "$SCRIPT_DIR/../build/cc2" ]; then
-        CC="$SCRIPT_DIR/../build/cc2"
+    if [ -x "$SCRIPT_DIR/../build/cc3" ]; then
+        CC="$SCRIPT_DIR/../build/cc3"
     else
-        echo "error: cc2 not found. Install Cyrius or set CYRIUS_HOME." >&2
+        echo "error: cc3 not found. Install Cyrius or set CYRIUS_HOME." >&2
         exit 1
     fi
 fi
@@ -92,8 +92,8 @@ Build:
   test [--aarch64 [--native]] [test.cyr]   compile + run (no args: discover .tcyr)
   bench [--tier1|2|3] [file.bcyr]  run benchmarks (no args: all tiers with history)
   check <source.cyr>              syntax check (compile without output)
-  self                            self-hosting check (cc2==cc3)
-  pulsar                          rebuild cc2 + tools from source, install, purge old versions
+  self                            self-hosting check (cc3==cc3)
+  pulsar                          rebuild cc3 + tools from source, install, purge old versions
   clean                           remove build/ contents
 
 Project:
@@ -109,7 +109,7 @@ Quality:
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
   fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
   soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
-  fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc2)
+  fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc3)
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
   doc [--check] <file.cyr>        generate/check documentation
@@ -128,7 +128,7 @@ Interactive:
 
 Info:
   version                         show cyrius version
-  which                           show path to cc2
+  which                           show path to cc3
   help                            show this help
 
 EOF
@@ -250,15 +250,15 @@ resolve_deps() {
 compile() {
     local src="$1" out="$2" compiler="$CC"
     if [ "$3" = "aarch64" ]; then
-        compiler="${TOOLS_DIR}/cc2_aarch64"
+        compiler="${TOOLS_DIR}/cc3_aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc2_aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            echo "error: cc3_aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     elif [ "$3" = "aarch64-native" ]; then
-        compiler="${TOOLS_DIR}/cc2-native-aarch64"
+        compiler="${TOOLS_DIR}/cc3-native-aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc2-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            echo "error: cc3-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     fi
@@ -531,7 +531,7 @@ case "${1:-help}" in
         echo "=== Self-Hosting Check ==="
         cc3="/tmp/cyrius_cc3_$$"
         cc4="/tmp/cyrius_cc4_$$"
-        # Find cc2.cyr source
+        # Find cc3.cyr source
         CC2_SRC=""
         if [ -f "src/main.cyr" ]; then CC2_SRC="src/main.cyr"; fi
         if [ -f "../cyrius/src/main.cyr" ]; then CC2_SRC="../cyrius/src/main.cyr"; fi
@@ -542,10 +542,10 @@ case "${1:-help}" in
         cat "$CC2_SRC" | "$CC" > "$cc3" && chmod +x "$cc3"
         cat "$CC2_SRC" | "$cc3" > "$cc4"
         if cmp -s "$cc3" "$cc4"; then
-            echo "  PASS: cc2==cc3 byte-identical"
+            echo "  PASS: cc3==cc3 byte-identical"
             rm -f "$cc3" "$cc4"
         else
-            echo "  FAIL: cc2!=cc3"
+            echo "  FAIL: cc3!=cc3"
             rm -f "$cc3" "$cc4"
             exit 1
         fi
@@ -1027,15 +1027,15 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     clean)
         if [ -d "build" ]; then
-            # Preserve bootstrap compiler (cc2, stage1f, asm)
+            # Preserve bootstrap compiler (cc3, stage1f, asm)
             for f in build/*; do
                 base=$(basename "$f")
                 case "$base" in
-                    cc2|stage1f|asm) ;; # keep
+                    cc3|stage1f|asm) ;; # keep
                     *) rm -f "$f" ;;
                 esac
             done
-            echo "cleaned build/ (preserved cc2, stage1f, asm)"
+            echo "cleaned build/ (preserved cc3, stage1f, asm)"
         else
             echo "nothing to clean"
         fi
@@ -1048,7 +1048,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         SOAK_REPOS="${2:-}"
         echo "=== cyrius soak test ==="
         echo "  iterations: $SOAK_ITERS"
-        echo "  cc2: $CC"
+        echo "  cc3: $CC"
         echo ""
         # Find repos to test
         repos=""
@@ -1312,8 +1312,8 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         fi
         VER=$(cat "$REPO/VERSION" | tr -d '[:space:]')
 
-        # Step 1: rebuild cc2 from source
-        echo "  cc2..."
+        # Step 1: rebuild cc3 from source
+        echo "  cc3..."
         cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrius_pulsar_cc3 2>/dev/null
         chmod +x /tmp/cyrius_pulsar_cc3
         cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc3 > /tmp/cyrius_pulsar_cc4 2>/dev/null
@@ -1326,28 +1326,28 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 rm -f /tmp/cyrius_pulsar_cc*
                 exit 1
             fi
-            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc2"
+            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc3"
         else
-            cp /tmp/cyrius_pulsar_cc3 "$REPO/build/cc2"
+            cp /tmp/cyrius_pulsar_cc3 "$REPO/build/cc3"
         fi
-        chmod +x "$REPO/build/cc2"
-        echo "  cc2: $(wc -c < "$REPO/build/cc2") bytes (self-host OK)"
+        chmod +x "$REPO/build/cc3"
+        echo "  cc3: $(wc -c < "$REPO/build/cc3") bytes (self-host OK)"
 
         # Step 2: rebuild aarch64 compilers
-        echo "  cc2_aarch64 (cross)..."
-        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc2" > "$REPO/build/cc2_aarch64" 2>/dev/null
-        chmod +x "$REPO/build/cc2_aarch64"
-        echo "  cc2_aarch64: $(wc -c < "$REPO/build/cc2_aarch64") bytes (x86→aarch64 cross-compiler)"
-        echo "  cc2-native-aarch64..."
-        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc2_aarch64" > "$REPO/build/cc2-native-aarch64" 2>/dev/null
-        chmod +x "$REPO/build/cc2-native-aarch64"
-        echo "  cc2-native-aarch64: $(wc -c < "$REPO/build/cc2-native-aarch64") bytes ($(file "$REPO/build/cc2-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
+        echo "  cc3_aarch64 (cross)..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc3" > "$REPO/build/cc3_aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc3_aarch64"
+        echo "  cc3_aarch64: $(wc -c < "$REPO/build/cc3_aarch64") bytes (x86→aarch64 cross-compiler)"
+        echo "  cc3-native-aarch64..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc3_aarch64" > "$REPO/build/cc3-native-aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc3-native-aarch64"
+        echo "  cc3-native-aarch64: $(wc -c < "$REPO/build/cc3-native-aarch64") bytes ($(file "$REPO/build/cc3-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
 
         # Step 3: rebuild tools
         echo "  tools..."
         for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
             if [ -f "$REPO/programs/${tool}.cyr" ]; then
-                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc2" > "$REPO/build/${tool}" 2>/dev/null
+                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc3" > "$REPO/build/${tool}" 2>/dev/null
                 chmod +x "$REPO/build/${tool}"
             fi
         done
@@ -1357,20 +1357,20 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         DEST="$CYRIUS_DIR/versions/$VER"
         rm -rf "$DEST"
         mkdir -p "$DEST/lib"
-        cp "$REPO/build/cc2" "$DEST/cc2"
-        chmod +x "$DEST/cc2"
-        cp "$REPO/build/cc2_aarch64" "$DEST/cc2_aarch64" 2>/dev/null && chmod +x "$DEST/cc2_aarch64"
-        cp "$REPO/build/cc2-native-aarch64" "$DEST/cc2-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc2-native-aarch64"
+        cp "$REPO/build/cc3" "$DEST/cc3"
+        chmod +x "$DEST/cc3"
+        cp "$REPO/build/cc3_aarch64" "$DEST/cc3_aarch64" 2>/dev/null && chmod +x "$DEST/cc3_aarch64"
+        cp "$REPO/build/cc3-native-aarch64" "$DEST/cc3-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc3-native-aarch64"
         cp "$REPO/lib/"*.cyr "$DEST/lib/"
         # Install cyrius shell script + helpers (NOT the compiled binary)
         cp "$REPO/scripts/cyrius" "$DEST/cyrius" && chmod +x "$DEST/cyrius"
         for script in "$REPO"/scripts/cyrius-*.sh; do
             [ -f "$script" ] && cp "$script" "$DEST/" && chmod +x "$DEST/$(basename "$script")"
         done
-        ln -sf "$DEST/cc2" "$CYRIUS_DIR/bin/cc2"
+        ln -sf "$DEST/cc3" "$CYRIUS_DIR/bin/cc3"
         ln -sf "$DEST/cyrius" "$CYRIUS_DIR/bin/cyrius"
-        ln -sf "$DEST/cc2_aarch64" "$CYRIUS_DIR/bin/cc2_aarch64" 2>/dev/null || true
-        ln -sf "$DEST/cc2-native-aarch64" "$CYRIUS_DIR/bin/cc2-native-aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc3_aarch64" "$CYRIUS_DIR/bin/cc3_aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc3-native-aarch64" "$CYRIUS_DIR/bin/cc3-native-aarch64" 2>/dev/null || true
 
         # Cleanup old versions
         for d in "$CYRIUS_DIR/versions/"*; do
@@ -1383,7 +1383,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         echo "$VER" > "$CYRIUS_DIR/current"
 
         rm -f /tmp/cyrius_pulsar_cc* /tmp/cyrius_pulsar_cross
-        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc2" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
+        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc3" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
         pv_rc=0; /tmp/pv 2>/dev/null || pv_rc=$?
         rm -f /tmp/pv
         if [ "$pv_rc" = "42" ]; then

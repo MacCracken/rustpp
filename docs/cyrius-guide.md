@@ -6,7 +6,7 @@
 
 ```sh
 sh bootstrap/bootstrap.sh                    # Build toolchain (40ms)
-echo 'var x = 42;' | ./build/cc2 > prog     # Compile
+echo 'var x = 42;' | ./build/cc3 > prog     # Compile
 chmod +x prog && ./prog; echo $?            # Run → 42
 ```
 
@@ -357,10 +357,10 @@ offsets past the params.
 sh bootstrap/bootstrap.sh
 
 # Build a program
-echo 'var x = 42;' | ./build/cc2 > prog && chmod +x prog
+echo 'var x = 42;' | ./build/cc3 > prog && chmod +x prog
 
 # Cross-compile for aarch64
-cat prog.cyr | ./build/cc2_aarch64 > prog_arm
+cat prog.cyr | ./build/cc3_aarch64 > prog_arm
 
 # Run tests
 sh scripts/check.sh              # Full audit: self-host + heap + tests + lint
@@ -385,7 +385,7 @@ See `programs/` for 46 examples:
 bootstrap/asm (29KB seed)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc2 (modular, 8 modules, 233KB)
-        → cc2_aarch64 (cross-compiler)
+      → cc3 (modular, 8 modules, 233KB)
+        → cc3_aarch64 (cross-compiler)
         → agnos.cyr (AGNOS kernel)
 ```

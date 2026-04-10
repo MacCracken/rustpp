@@ -139,26 +139,26 @@ fn find_tools() {
     if (proc_home == 0) { proc_home = "/root"; }
     _home = make_path(proc_home, ".cyrius");
 
-    # Try installed cc2 first
-    var installed_cc = make_path(_home, "bin/cc2");
+    # Try installed cc3 first
+    var installed_cc = make_path(_home, "bin/cc3");
     if (file_exists(installed_cc) == 1) {
         _cc = installed_cc;
         _tools_dir = make_path(_home, "bin");
     } else {
-        # Dev mode: ./build/cc2
-        if (file_exists("./build/cc2") == 1) {
-            _cc = "./build/cc2";
+        # Dev mode: ./build/cc3
+        if (file_exists("./build/cc3") == 1) {
+            _cc = "./build/cc3";
             _tools_dir = "./build";
         } else {
-            println("error: cc2 not found. Install Cyrius or set CYRIUS_HOME.");
+            println("error: cc3 not found. Install Cyrius or set CYRIUS_HOME.");
             sys_exit(1);
         }
     }
     # Search for aarch64 cross-compiler: tools dir, then ./build/
-    _cc_arm = make_path(_tools_dir, "cc2_aarch64");
+    _cc_arm = make_path(_tools_dir, "cc3_aarch64");
     if (file_exists(_cc_arm) == 0) {
-        if (file_exists("./build/cc2_aarch64") == 1) {
-            _cc_arm = "./build/cc2_aarch64";
+        if (file_exists("./build/cc3_aarch64") == 1) {
+            _cc_arm = "./build/cc3_aarch64";
         }
     }
 
@@ -507,8 +507,8 @@ fn cmd_self() {
         str_builder_add_cstr(sb, "cat src/compiler.cyr|");
         str_builder_add_cstr(sb, _cc);
         str_builder_add_cstr(sb, ">$cc3&&chmod +x $cc3&&cat src/compiler.cyr|$cc3>$cc4&&");
-        str_builder_add_cstr(sb, "cmp -s $cc3 $cc4&&echo '  PASS: cc2==cc3 byte-identical'||");
-        str_builder_add_cstr(sb, "(echo '  FAIL: cc2!=cc3';exit 1)");
+        str_builder_add_cstr(sb, "cmp -s $cc3 $cc4&&echo '  PASS: cc3==cc3 byte-identical'||");
+        str_builder_add_cstr(sb, "(echo '  FAIL: cc3!=cc3';exit 1)");
         var cmd = str_builder_build(sb);
         store64(&argv + 16, str_data(cmd));
         store64(&argv + 24, 0);
@@ -523,7 +523,7 @@ fn cmd_self() {
 }
 
 fn cmd_clean() {
-    # Remove build/ contents except cc2, stage1f, asm
+    # Remove build/ contents except cc3, stage1f, asm
     if (is_dir(str_from("build")) == 0) {
         println("nothing to clean");
         return 0;
@@ -535,10 +535,10 @@ fn cmd_clean() {
         var name = vec_get(entries, ci);
         var skip = 0;
         if (str_eq(name, str_from("cc")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("cc2")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc3")) == 1) { skip = 1; }
         if (str_eq(name, str_from("stage1f")) == 1) { skip = 1; }
         if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("cc2_aarch64")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc3_aarch64")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cyrius")) == 1) { skip = 1; }
         if (skip == 0) {
             var full = make_path("build", str_data(name));
@@ -547,7 +547,7 @@ fn cmd_clean() {
         }
         ci = ci + 1;
     }
-    sys_write(STDOUT_FD, "cleaned build/ (preserved cc2, stage1f, asm, cyrius) — removed ", 65);
+    sys_write(STDOUT_FD, "cleaned build/ (preserved cc3, stage1f, asm, cyrius) — removed ", 65);
     fmt_int(cleaned);
     println(" files");
     return 0;
@@ -739,7 +739,7 @@ fn usage() {
     println("  test [--aarch64] <test.cyr>     compile + run, check exit 0");
     println("  bench <bench.cyr>               compile + run benchmarks");
     println("  check <source.cyr>              syntax check");
-    println("  self                            self-hosting check (cc2==cc3)");
+    println("  self                            self-hosting check (cc3==cc3)");
     println("  clean                           remove build/ contents");
     println("");
     println("Project:");
@@ -765,7 +765,7 @@ fn usage() {
     println("");
     println("Info:");
     println("  version                         show cyrius version");
-    println("  which                           show path to cc2");
+    println("  which                           show path to cc3");
     println("  help                            show this help");
     return 0;
 }

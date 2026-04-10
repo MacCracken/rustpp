@@ -4,7 +4,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="$ROOT/build/cc2"
+CC="$ROOT/build/cc3"
 CYRFMT="$ROOT/build/cyrfmt"
 CYRLINT="$ROOT/build/cyrlint"
 
@@ -33,7 +33,7 @@ cc4="/tmp/audit_cc4_$$"
 cat "$ROOT/src/main.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
 cat "$ROOT/src/main.cyr" | "$cc3" > "$cc4" 2>/dev/null
 cmp -s "$cc3" "$cc4" 2>/dev/null
-check "cc2==cc3 byte-identical" "$?"
+check "cc3==cc3 byte-identical" "$?"
 sz=$(wc -c < "$cc3")
 printf "    binary: %d bytes\n" "$sz"
 rm -f "$cc3" "$cc4"

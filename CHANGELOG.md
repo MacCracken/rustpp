@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [3.2.5] — 2026-04-09
 
+### Changed — cc2 → cc3 Rename
+- **Compiler binary renamed**: `cc2` → `cc3`, signaling the 3.x generation.
+  `cc2_aarch64` → `cc3_aarch64`, `cc2cx` → `cc3cx`, `cc2-native-aarch64` → `cc3-native-aarch64`.
+  All source files, scripts, CI, release workflows, docs updated.
+  Backward compat: `~/.cyrius/bin/cc2` symlinks to `cc3`.
+  Downstream repos (agnostik, argonaut, libro, bsp, cyrius-doom) updated.
+  Bootstrap chain: `asm → stage1f → bridge → cc3 (233KB)`.
+
 ### Changed — Cleanup & Docs Sync
 - **All docs synchronized to v3.2.5**: Compiler size 233KB, 36 stdlib modules,
   30 test suites, 372 assertions updated across README.md, CLAUDE.md, roadmap,

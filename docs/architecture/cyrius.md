@@ -42,7 +42,7 @@ Assembly (the cornerstone)
         → bootstrap closure ✓ (byte-identical output)
           → bootstrap/asm (29KB committed binary — root of trust)
             → stage1f (compiler) + asm (assembler)
-              → cc.cyr → cc2 (modular, 7 modules, 181 fns)
+              → cc.cyr → cc3 (modular, 7 modules, 181 fns)
                 → 38 programs, 137 tests (Phase 5) ✓
                   → kernel prerequisites (Phase 6) ✓
                     → boot_serial.cyr: "AGNOS" on QEMU  ← WE ARE HERE
@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v2.6.3** — cc2 is the active modular compiler (8 modules, 233KB). 21 test suites, 251 assertions. 36 stdlib modules.
+**v2.6.3** — cc3 is the active modular compiler (8 modules, 233KB). 21 test suites, 251 assertions. 36 stdlib modules.
 
 ```
 sh bootstrap/bootstrap.sh
@@ -63,7 +63,7 @@ Produces:
 Requires: Linux x86_64 + /bin/sh. Nothing else.
 ```
 
-The current language (compiled by cc2) supports:
+The current language (compiled by cc3) supports:
 - Variables, arrays, functions (unlimited params, 64 locals)
 - if/else/elif, while loops, break/continue, for loops, for-in range
 - Arithmetic: + - * / %
@@ -118,11 +118,11 @@ The current language (compiled by cc2) supports:
 ### Phase 4 (Done) — Language Extensions
 Language features added FROM WITHIN — no Rust, no upstream fork.
 
-- cc.cyr → cc2 modular self-hosting compiler (7 modules, 150 functions)
+- cc.cyr → cc3 modular self-hosting compiler (7 modules, 150 functions)
 - Structs, pointers (*deref, *store), >6 params, load/store 16/32/64
 - Include directive, inline asm (raw bytes), progressive type annotations
 - elif, break/continue, duplicate var detection, error messages with token position
-- Self-hosting: cc2==cc3 byte-identical, 94 tests
+- Self-hosting: cc3==cc3 byte-identical, 94 tests
 
 ### Phase 5 (Done) — Prove the Language
 - 38 programs (CLI tools + proof programs), 137 tests

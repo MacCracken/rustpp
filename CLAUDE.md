@@ -29,8 +29,8 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc2 (modular compiler, 233KB, 8 modules)
-        → cc2_aarch64 (cross-compiler)
+      → cc3 (modular compiler, 233KB, 8 modules)
+        → cc3_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
 Build: sh bootstrap/bootstrap.sh
@@ -40,7 +40,7 @@ Build: sh bootstrap/bootstrap.sh
 
 ```bash
 sh bootstrap/bootstrap.sh          # bootstrap from seed
-cat src/main.cyr | build/cc2 > /tmp/cc3 && chmod +x /tmp/cc3  # build compiler
+cat src/main.cyr | build/cc3 > /tmp/cc3 && chmod +x /tmp/cc3  # build compiler
 cat src/main.cyr | /tmp/cc3 > /tmp/cc4 && cmp /tmp/cc3 /tmp/cc4  # self-hosting verify
 sh scripts/check.sh                # full audit
 cyrius test                        # run .tcyr suite
@@ -50,14 +50,14 @@ cyrius bench                       # run .bcyr benchmarks
 
 ## Key Principles
 
-- **Self-hosting is non-negotiable** — cc2==cc3 byte-identical after every compiler change
+- **Self-hosting is non-negotiable** — cc3==cc3 byte-identical after every compiler change
 - **Two-step bootstrap for heap changes** — cc3 compiles cc4, cc3==cc4
 - **Assembly is the cornerstone** — understand every instruction the compiler emits
 - **Test after EVERY change** — not after the feature is "done"
 - **ONE change at a time** — never bundle unrelated changes
 - **Research before implementation** — vidya entry before code
 - **3 failed attempts = defer and document** — don't burn time
-- **Bootstrap chain integrity** — never break seed → stage1f → bridge → cc2
+- **Bootstrap chain integrity** — never break seed → stage1f → bridge → cc3
 
 ## P(-1): Scaffold Hardening
 
@@ -78,7 +78,7 @@ Before starting new work on a release, run this audit phase:
 2. BUILD       — ONE change at a time
 3. TEST        — After EACH change:
                  ☐ Basic: 'var x = 42;' → 42
-                 ☐ Self-hosting: cc2==cc3 byte-identical
+                 ☐ Self-hosting: cc3==cc3 byte-identical
                  ☐ Full suite: sh scripts/check.sh
 4. IF BROKEN   — Revert, apply ONE change, test, repeat
                  3 failed attempts = defer and document
@@ -103,7 +103,7 @@ lib/                 Standard library (36 modules)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 fuzz/                Fuzz harnesses (*.fcyr)
-build/               Generated binaries (gitignored except cc2)
+build/               Generated binaries (gitignored except cc3)
 docs/                Architecture, roadmap, benchmarks, language guide
 ```
 
@@ -121,4 +121,4 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - Do not add language features without updating vidya
 - Do not skip self-hosting verification after compiler changes
 - Do not modify parse.cyr arch-specific functions — they live in emit files
-- Do not remove build/cc2-native-aarch64 — ARM binary needed for self-hosting on ARM hardware
+- Do not remove build/cc3-native-aarch64 — ARM binary needed for self-hosting on ARM hardware
