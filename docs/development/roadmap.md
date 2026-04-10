@@ -18,7 +18,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 2 | **Deferred formatting** (defmt) | High | Not started. String interning + decode. Eliminates runtime fmt overhead for logging/tracing. |
 | 3 | **u128** | High | Research. 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
 | 4 | **Small function inlining** | Medium | **Done (v3.3.5)**. 2-param, 16-token body limit. Param names packed in fn_inline slot. |
-| 5 | **Register alloc for loop vars** | Medium | **Done (v3.3.5)**. r12 caches loop counter, x86 only, gated by `_LOOPVAR_OK`. |
+| 5 | **Register alloc for loop vars** | Medium | **Reverted (v3.3.12)**. push/pop r12 in every prologue caused 2x perf regression + broke 7+ arg stack offsets. Needs per-function opt-in. |
 | 6 | **Variadic functions** | Medium | Deferred. Vec-based pattern sufficient for all current ports. |
 | 7 | **`defer` statement** | Medium | **Done (v3.2.0)**. LIFO execution, return value preserved, max 8 per function. |
 | 8 | **Dead store elimination** | Low | **Done (v3.3.2)**. Post-emit DSE pass, NOPs consecutive stores to same `[rbp-N]`. |

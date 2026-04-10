@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.12] — 2026-04-10
+
+### Fixed — Performance Regression
+- **Reverted r12 loop var caching**: The `push r12`/`pop r12` added to every function
+  prologue/epilogue in 3.3.5 caused a **2x performance regression** across cyrius-doom
+  benchmarks (render_frame: 2.2ms → 4.3ms, fixed_mul: 435ns → 662ns). The overhead of
+  2 extra instructions per function call vastly exceeded the savings from caching one
+  loop counter in a register. Prologue restored to `push rbp; mov rbp, rsp`, epilogue
+  to `leave; ret`. Stack arg offset reverted to `[rbp+16]`. `_LOOPVAR_OK` set to 0.
+  Infrastructure preserved for future per-function opt-in approach.
+- **Heap map audit**: 48 regions, 0 overlaps, 2 minor gap warnings (pre-existing).
+
+### Root Cause Analysis
+The r12 optimization (3.3.5) was tested for correctness but not benchmarked. It also
+shifted the stack frame, breaking 7+ arg functions (Bug #32, fixed in 3.3.11). A proper
+loop register allocator needs to be per-function (only push/pop r12 for functions with
+cacheable loops), not global. Filed for future work.
+
+### Stats
+- **cc3: 245KB** (down from 247KB in 3.3.11)
+- Heap map clean, 31/31 tests pass
+
 ## [3.3.11] — 2026-04-10
 
 ### Fixed
