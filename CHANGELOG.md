@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.1] — 2026-04-09
+
+### Changed — Expanded Constant Folding
+- **Removed 16-bit result limit**: Constant folding for `+`, `-`, `*` now accepts any
+  non-negative result (was limited to `cfr < 0x10000`). `50 * 1000 = 50000` now folds
+  at compile time instead of emitting `imul` at runtime. EMOVI handles 32-bit and 64-bit
+  immediates, so the restriction was artificial.
+- **`x - 0` identity**: Subtraction by zero now elided (like `x + 0` and `x * 1`).
+- **Removed input range limit for multiply/add/sub**: `crv < 0x10000` input restriction
+  removed for `*`, expanded for `+` and `-`. Any positive literal can now participate
+  in constant folding.
+- **Impact**: Math-heavy code (hisab, doom, bsp) gets compile-time evaluation for
+  expressions like `320 * 65536`, `4096 + 128`, `PAGE_SIZE - HEADER`.
+
 ## [3.3.0] — 2026-04-09
 
 ### Added
