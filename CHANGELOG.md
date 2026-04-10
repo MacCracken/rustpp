@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.9] — 2026-04-10
+
+### Fixed
+- **`break` in nested while/if** (Blocker #4): Break patches expanded from single slot
+  to 16-entry array. Multiple `break` statements per loop now all patch correctly.
+  Previously only the last `break` was patched — earlier breaks jumped to garbage.
+  Updated while, for-in, for-each, and C-style for loops. Resolves the oldest open
+  compiler bug (reported in 3.2.6, workaround via flag variables).
+
+### Changed
+- **Sigil dep updated to 2.0.1**: Now fetches bundled `dist/sigil.cyr` (4,259 lines,
+  self-contained) instead of `src/lib.cyr` (include manifest). Fixes downstream
+  include resolution failures.
+
+### Stats
+- **0 known compiler bugs remaining** (Blockers #1-5 all resolved)
+
+## [3.3.8] — 2026-04-10
+
+### Changed
+- Version bump for codebuf 512KB release (binary rebuild).
+
 ## [3.3.7] — 2026-04-10
 
 ### Changed

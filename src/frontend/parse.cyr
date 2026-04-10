@@ -2065,7 +2065,7 @@ fn PARSE_WHILE(S) {
     var saved_lv = GLVAR(S);
     # Save and set loop context for break/continue
     var saved_ltop = L64(S + 0x8F838);
-    var saved_brk = L64(S + 0x8F840);
+    var saved_brk_cnt = L64(S + 0x20080);
     var saved_lvr = GLVR(S);
     # Detect loop var: if condition starts with local IDENT and no nested cache active
     if (_LOOPVAR_OK == 1) {
@@ -2082,7 +2082,7 @@ fn PARSE_WHILE(S) {
     }
     var loop_top = GCP(S);
     S64(S + 0x8F838, loop_top);
-    S64(S + 0x8F840, 0);
+    S64(S + 0x20080, 0);
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
     STI(S, GTI(S) + 1);
     var patch = ECOND(S);
@@ -2098,14 +2098,16 @@ fn PARSE_WHILE(S) {
     EJMP(S, loop_top);
     PATCHXP(S);
     EPATCH(S, patch);
-    # Patch break jump if one was emitted (0x8F840 holds patch offset, 0 if none)
-    var brk_patch = L64(S + 0x8F840);
-    if (brk_patch > 0) {
-        EPATCH(S, brk_patch);
-        S64(S + 0x8F840, 0);
+    # Patch all break jumps
+    var brk_n = L64(S + 0x20080);
+    var brk_i = 0;
+    while (brk_i < brk_n) {
+        EPATCH(S, L64(S + 0x20000 + brk_i * 8));
+        brk_i = brk_i + 1;
     }
+    S64(S + 0x20080, 0);
     S64(S + 0x8F838, saved_ltop);
-    S64(S + 0x8F840, saved_brk);
+    S64(S + 0x20080, saved_brk_cnt);
     SLVR(S, saved_lvr);
     SLVAR(S, saved_lv);
     return 0;
@@ -2189,11 +2191,11 @@ fn PARSE_FOR(S) {
                 SFLC(S, fiitem + 1);
                 # Loop: while (idx < len)
                 var fislt = L64(S + 0x8F838);
-                var fisbk = L64(S + 0x8F840);
+                var fisbk = L64(S + 0x20080);
                 var fiscfw = L64(S + 0x8F8A0);
                 var fitop = GCP(S);
                 S64(S + 0x8F838, fitop);
-                S64(S + 0x8F840, 0);
+                S64(S + 0x20080, 0);
                 S64(S + 0x8F8A0, 1);
                 EFLLOAD(S, fili);
                 EPUSHR(S);
@@ -2243,10 +2245,12 @@ fn PARSE_FOR(S) {
                 EJMP(S, fitop);
                 PATCHXP(S);
                 EPATCH(S, ficond);
-                var fibrk = L64(S + 0x8F840);
-                if (fibrk > 0) { EPATCH(S, fibrk); }
+                var fibn = L64(S + 0x20080);
+                var fibi = 0;
+                while (fibi < fibn) { EPATCH(S, L64(S + 0x20000 + fibi * 8)); fibi = fibi + 1; }
+                S64(S + 0x20080, 0);
                 S64(S + 0x8F838, fislt);
-                S64(S + 0x8F840, fisbk);
+                S64(S + 0x20080, fisbk);
                 S64(S + 0x8F8A0, fiscfw);
                 SCOPE_POP(S);
                 SLVAR(S, slv);
@@ -2269,11 +2273,11 @@ fn PARSE_FOR(S) {
             EVSTORE(S, fiend);
             # Loop setup
             var fislt = L64(S + 0x8F838);
-            var fisbk = L64(S + 0x8F840);
+            var fisbk = L64(S + 0x20080);
             var fiscfw = L64(S + 0x8F8A0);
             var fitop = GCP(S);
             S64(S + 0x8F838, fitop);
-            S64(S + 0x8F840, 0);
+            S64(S + 0x20080, 0);
             S64(S + 0x8F8A0, 1);
             # Condition: var < end
             EFLLOAD(S, fili);
@@ -2305,10 +2309,12 @@ fn PARSE_FOR(S) {
             EJMP(S, fitop);
             PATCHXP(S);
             EPATCH(S, ficond);
-            var fibrk = L64(S + 0x8F840);
-            if (fibrk > 0) { EPATCH(S, fibrk); }
+            var fibn = L64(S + 0x20080);
+            var fibi = 0;
+            while (fibi < fibn) { EPATCH(S, L64(S + 0x20000 + fibi * 8)); fibi = fibi + 1; }
+            S64(S + 0x20080, 0);
             S64(S + 0x8F838, fislt);
-            S64(S + 0x8F840, fisbk);
+            S64(S + 0x20080, fisbk);
             S64(S + 0x8F8A0, fiscfw);
             SCOPE_POP(S);
             SLVAR(S, slv);
@@ -2320,11 +2326,11 @@ fn PARSE_FOR(S) {
     STI(S, GTI(S) + 1);
     PARSE_STMT(S);
     var slt = L64(S + 0x8F838);
-    var sbk = L64(S + 0x8F840);
+    var sbk = L64(S + 0x20080);
     var scfw = L64(S + 0x8F8A0);
     var ltop = GCP(S);
     S64(S + 0x8F838, ltop);
-    S64(S + 0x8F840, 0);
+    S64(S + 0x20080, 0);
     S64(S + 0x8F8A0, 1);
     var cpat = ECOND(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
@@ -2371,11 +2377,13 @@ fn PARSE_FOR(S) {
     EJMP(S, ltop);
     PATCHXP(S);
     EPATCH(S, cpat);
-    var bpat = L64(S + 0x8F840);
-    if (bpat > 0) { EPATCH(S, bpat); }
+    var bpn = L64(S + 0x20080);
+    var bpi = 0;
+    while (bpi < bpn) { EPATCH(S, L64(S + 0x20000 + bpi * 8)); bpi = bpi + 1; }
+    S64(S + 0x20080, 0);
     SCOPE_POP(S);
     S64(S + 0x8F838, slt);
-    S64(S + 0x8F840, sbk);
+    S64(S + 0x20080, sbk);
     S64(S + 0x8F8A0, scfw);
     SLVAR(S, slv);
     return 0;
@@ -3151,13 +3159,17 @@ fn PARSE_STMT(S) {
     if (typ == 57) { PARSE_SWITCH(S); return 0; }
     if (typ == 75) { PARSE_MATCH(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
-    # break; — forward jump to after loop (single break per loop)
+    # break; — forward jump to after loop (multiple breaks per loop)
     if (typ == 51) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        # Emit jmp placeholder, store patch offset at S+0x8F840
-        S64(S + 0x8F840, EJMP0(S));
+        var bk_cnt = L64(S + 0x20080);
+        if (bk_cnt >= 16) {
+            ERR_MSG(S, "too many break statements in loop (max 16)", 45);
+        }
+        S64(S + 0x20000 + bk_cnt * 8, EJMP0(S));
+        S64(S + 0x20080, bk_cnt + 1);
         return 0;
     }
     # defer { body } — execute body at function return (LIFO)

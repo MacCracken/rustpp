@@ -14,7 +14,9 @@
 #
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
+#   0x20000  break_patches [128]         16 break patch offsets per loop
+#   0x20080  break_count   [8]          number of active break patches
+#   0x20088  (unused)      [261944]     (was codebuf, moved to 0x4CA000)
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
 #   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
@@ -33,7 +35,7 @@
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC20  ret_patch_cnt [8]
 #   0x8F838  loop_top      [8]
-#   0x8F840  break_patch   [8]
+#   0x8F840  (unused)      [8]           (was single break_patch, moved to 0x20000 array)
 #   0x8F848  extra_patches [64]          8 && condition patches
 #   0x8F888  extra_patch_cnt [8]
 #   0x8F890  ptr_scale     [8]
@@ -133,7 +135,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.3.8\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.3.9\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
