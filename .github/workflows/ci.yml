@@ -143,6 +143,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup compiler
         run: chmod +x build/cc3
+      - name: Fetch dependencies
+        run: |
+          # sakshi
+          git clone --depth 1 https://github.com/MacCracken/sakshi.git /tmp/sakshi
+          cp /tmp/sakshi/lib/sakshi.cyr lib/sakshi.cyr
+          cp /tmp/sakshi/lib/sakshi_full.cyr lib/sakshi_full.cyr
+          # patra
+          git clone --depth 1 https://github.com/MacCracken/patra.git /tmp/patra
+          cp /tmp/patra/lib/patra.cyr lib/patra.cyr
       - name: Heap map audit
         run: sh tests/heapmap.sh
       - name: Test suite (.tcyr)
