@@ -184,6 +184,8 @@ S64(S + 0x903E8, 0);
 S64(S + 0x903F0, 0);
 # Loop var register cache (-1 = none)
 S64(S + 0x903F8, 0 - 1);
+# Break patch array
+S64(S + 0x20080, 0);
 # Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
 S64(S + 0x8F8A0, 0);
 # Module system
