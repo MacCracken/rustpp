@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.11] — 2026-04-10
+
+### Fixed
+- **7+ arg stack parameter offset** (Bug #32): The `push r12` added in 3.3.5 (loop var
+  register caching) shifted the stack frame by 8 bytes, but `ESTORESTACKPARM` still read
+  stack args at `[rbp+16]`. Corrected to `[rbp+24]`. All stack-passed arguments (7th+)
+  were reading garbage values. Affected any function with > 6 parameters. Discovered via
+  cyrius-doom and shravan (FLAC encoder crash). Four-step bootstrap verified.
+- **FLAC bitwriter bounds check** (shravan): `flac_bw_write_bits` now grows the buffer
+  when at capacity instead of writing past the allocation.
+
 ## [3.3.10] — 2026-04-10
 
 ### Fixed

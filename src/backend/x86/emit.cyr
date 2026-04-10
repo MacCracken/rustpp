@@ -440,7 +440,7 @@ fn ESTOREREGPARM(S, pidx, disp) {
 fn ESTORESTACKPARM(S, pidx, disp, pc) {
     var nstack = pc - 6;
     var si = nstack - 1 - (pidx - 6);
-    var sdisp = 16 + si * 8;
+    var sdisp = 24 + si * 8;
     E3(S, 0x858B48);
     EDISP32(S, sdisp);
     E3(S, 0x858948);
