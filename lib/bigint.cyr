@@ -53,6 +53,7 @@ fn u256_clone(a) {
 
 # Get/set individual limbs
 fn u256_limb(a, i) { return load64(a + i * 8); }
+# Set limb i of u256 to value v
 fn u256_set_limb(a, i, v) { store64(a + i * 8, v); return 0; }
 
 # Check if zero
@@ -123,7 +124,10 @@ fn u256_add(r, a, b) {
         var c1 = _add64(al, bl);
         var sum2 = sum1 + carry;
         var c2 = 0;
-        if (carry > 0) { if (sum2 == 0) { c2 = 1; } elif ((sum2 ^ (1 << 63)) < (sum1 ^ (1 << 63))) { c2 = 1; } }
+        if (carry > 0) {
+            if (sum2 == 0) { c2 = 1; }
+            elif ((sum2 ^ (1 << 63)) < (sum1 ^ (1 << 63))) { c2 = 1; }
+        }
         store64(r + i * 8, sum2);
         carry = c1 + c2;
         i = i + 1;
