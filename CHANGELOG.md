@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.13] — 2026-04-10
+
+### Changed
+- **`lib/bench.cyr` overhead documented**: Measured and documented framework costs:
+  clock_gettime ~120ns, fncall dispatch ~6ns, direct call ~3ns, inline ~2ns.
+  Projects measuring sub-1us ops (doom fixed_mul, shravan DSP) should use
+  `bench_batch_start`/`bench_batch_stop` with batch_size >= 1000, not per-iteration
+  `bench_start`/`bench_stop` or `bench_run_batch` with small batches.
+  The ~650ns floor reported in cyrius-doom benchmarks was 2× clock_gettime overhead,
+  not a compiler regression.
+
 ## [3.3.12] — 2026-04-10
 
 ### Fixed — Performance Regression
