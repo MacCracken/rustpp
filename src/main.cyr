@@ -14,9 +14,7 @@
 #
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  break_patches [128]         16 break patch offsets per loop
-#   0x20080  break_count   [8]          number of active break patches
-#   0x20088  (unused)      [261944]     (was codebuf, moved to 0x4CA000)
+#   0x20000  (unused)      [262144]     (was codebuf, moved to 0x4CA000)
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
 #   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
@@ -135,7 +133,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.3.14\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.3.15\n", 11);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -185,7 +183,7 @@ S64(S + 0x903F0, 0);
 # Loop var register cache (-1 = none)
 S64(S + 0x903F8, 0 - 1);
 # Break patch array
-S64(S + 0x20080, 0);
+# break_patch at 0x8F840 is single-slot (zeroed by brk)
 # Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
 S64(S + 0x8F8A0, 0);
 # Module system

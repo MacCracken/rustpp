@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.15] — 2026-04-10
+
+### Fixed
+- **Libro hang regression** (3.3.9-3.3.14): Reverted multi-break patch array back to
+  single-slot at `0x8F840`. The array implementation (introduced in 3.3.9) caused
+  libro's 240 tests to hang during SHA-256 hashing in entry_compute_hash. Root cause:
+  the array logic subtly corrupted codegen for large programs — not the address, but
+  the save/restore pattern around nested loop compilation. Single-slot break restored,
+  libro 240/240 passes again. Multi-break deferred for proper investigation.
+- **Version string length**: Fixed `cc3 --version` output length for 2-digit minor versions.
+
+### Stats
+- **31/31 cyrius tests, 240/240 libro tests**
+
 ## [3.3.14] — 2026-04-10
 
 ### Changed
