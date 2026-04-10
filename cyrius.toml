@@ -1,0 +1,25 @@
+[package]
+name = "cyrius"
+version = "3.3.5"
+description = "Sovereign, self-hosting systems language"
+license = "GPL-3.0-only"
+repository = "https://github.com/MacCracken/cyrius"
+
+[build]
+src = "src/main.cyr"
+output = "build/cc3"
+
+[deps.sakshi]
+git = "https://github.com/MacCracken/sakshi.git"
+tag = "latest"
+modules = ["lib/sakshi.cyr", "lib/sakshi_full.cyr"]
+
+[deps.patra]
+git = "https://github.com/MacCracken/patra.git"
+tag = "latest"
+modules = ["lib/patra.cyr"]
+
+[deps.sigil]
+git = "https://github.com/MacCracken/sigil.git"
+tag = "2.0.0"
+modules = ["src/lib.cyr"]

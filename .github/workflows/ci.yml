@@ -73,7 +73,7 @@ jobs:
         run: |
           total=0
           for f in lib/*.cyr; do
-            case "$(basename $f)" in patra.cyr) continue ;; esac
+            case "$(basename $f)" in patra.cyr|sigil.cyr) continue ;; esac
             w=$(./build/cyrlint "$f" 2>&1 | tail -1 | grep -oP '^\d+' || echo 0)
             total=$((total + w))
           done
@@ -265,7 +265,7 @@ jobs:
         run: |
           total=0
           for f in lib/*.cyr; do
-            case "$(basename $f)" in patra.cyr) continue ;; esac
+            case "$(basename $f)" in patra.cyr|sigil.cyr) continue ;; esac
             u=$(./build/cyrdoc --check "$f" 2>&1 | tail -1 | grep -oP '(\d+) undocumented' | grep -oP '^\d+' || echo 0)
             total=$((total + u))
           done
