@@ -8,13 +8,13 @@
 # Emit one byte to codebuf
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 262144) {
+    if (cp >= 524288) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
         PRNUM(cp);
-        syscall(SYS_WRITE, 2, "/262144 bytes)\n", 15);
+        syscall(SYS_WRITE, 2, "/524288 bytes)\n", 15);
         syscall(SYS_EXIT, 1);
     }
-    store8(S + 0x20000 + cp, b & 0xFF);
+    store8(S + 0x4CA000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
@@ -449,7 +449,7 @@ fn EFLSTORE(S, idx) {
 # Patch frame size: sub sp, sp, #N at the prologue
 fn EPATCHFRAME(S, patch, size) {
     # Read the SUB instruction and patch imm12
-    var addr = S + 0x20000 + patch;
+    var addr = S + 0x4CA000 + patch;
     var insn = L64(addr) & 0xFFFFFFFF;
     # Clear imm12 (bits [21:10]) and set new value
     insn = (insn & 0xFFC003FF) | ((size & 0xFFF) << 10);

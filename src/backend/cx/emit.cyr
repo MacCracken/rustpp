@@ -16,11 +16,11 @@ var _cx_spill_idx = 16;
 # Emit byte to codebuf (same as x86/emit.cyr but for bytecode)
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 262144) {
+    if (cp >= 524288) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow\n", 24);
         syscall(SYS_EXIT, 1);
     }
-    store8(S + 0x20000 + cp, b & 0xFF);
+    store8(S + 0x4CA000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
@@ -258,21 +258,21 @@ fn EJMP0(S) {
 fn EPATCH(S, off) {
     var cp = GCP(S);
     var rel = (cp - off) / 4;
-    var opcode = load8(S + 0x20000 + off);
+    var opcode = load8(S + 0x4CA000 + off);
     # For jz/jnz (0x51/0x52): offset is in bytes 2-3 (byte 1 = register)
     # For jmp/call (0x50/0x60): offset is in bytes 1-3
     if (opcode == 0x51) {
-        store8(S + 0x20000 + off + 2, rel & 0xFF);
-        store8(S + 0x20000 + off + 3, (rel >> 8) & 0xFF);
+        store8(S + 0x4CA000 + off + 2, rel & 0xFF);
+        store8(S + 0x4CA000 + off + 3, (rel >> 8) & 0xFF);
     }
     elif (opcode == 0x52) {
-        store8(S + 0x20000 + off + 2, rel & 0xFF);
-        store8(S + 0x20000 + off + 3, (rel >> 8) & 0xFF);
+        store8(S + 0x4CA000 + off + 2, rel & 0xFF);
+        store8(S + 0x4CA000 + off + 3, (rel >> 8) & 0xFF);
     }
     else {
-        store8(S + 0x20000 + off + 1, rel & 0xFF);
-        store8(S + 0x20000 + off + 2, (rel >> 8) & 0xFF);
-        store8(S + 0x20000 + off + 3, (rel >> 16) & 0xFF);
+        store8(S + 0x4CA000 + off + 1, rel & 0xFF);
+        store8(S + 0x4CA000 + off + 2, (rel >> 8) & 0xFF);
+        store8(S + 0x4CA000 + off + 3, (rel >> 16) & 0xFF);
     }
     return 0;
 }
@@ -332,10 +332,10 @@ fn EFLSTORE(S, idx) {
 
 fn EPATCHFRAME(S, patch, size) {
     # Patch the movi r15, size placeholder
-    store8(S + 0x20000 + patch, 1);        # movi opcode
-    store8(S + 0x20000 + patch + 1, 15);   # r15
-    store8(S + 0x20000 + patch + 2, size & 0xFF);
-    store8(S + 0x20000 + patch + 3, (size >> 8) & 0xFF);
+    store8(S + 0x4CA000 + patch, 1);        # movi opcode
+    store8(S + 0x4CA000 + patch + 1, 15);   # r15
+    store8(S + 0x4CA000 + patch + 2, size & 0xFF);
+    store8(S + 0x4CA000 + patch + 3, (size >> 8) & 0xFF);
     return 0;
 }
 

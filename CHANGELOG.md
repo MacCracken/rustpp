@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.7] — 2026-04-10
+
+### Changed
+- **Codebuf 256KB → 512KB**: Code buffer and output buffer doubled. Moved from low heap
+  (`0x20000`/`0xDA000`) to high heap (`0x4CA000`/`0x54A000`) to avoid shifting 100+
+  hardcoded mid-heap offsets. Brk extended from 4.8MB to 5.8MB. Unblocks shravan (audio
+  codec, 277KB binary) and other large programs. Updated in emit.cyr, fixup.cyr, jump.cyr
+  for x86, aarch64, and cx backends. Four-step bootstrap verified.
+- **Patra dep updated to 0.12.0**: Hand-rolled SHA-256 removed from patra, crypto
+  responsibility delegated to sigil.
+
 ## [3.3.6] — 2026-04-10
 
 ### Changed

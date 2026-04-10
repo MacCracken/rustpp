@@ -14,7 +14,7 @@
 #
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  codebuf       [262144]      256KB generated machine code
+#   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
 #   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
@@ -76,7 +76,7 @@
 #   0xD0000  fn_body_end   [16384]       2048 inline body end
 #   0xD4000  fn_inline     [16384]       2048 inline flags
 #   0xD8000  struct_fnames [8192]        32×32 field name offsets (stride 256)
-#   0xDA000  output_buf    [262144]      256KB ELF output (+ DCE bitmap scratch)
+#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x54A000)
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
 #   0x12A000 var_sizes     [65536]       8192 variable sizes
 #   0x13A000 var_types     [65536]       8192 variable type IDs
@@ -84,7 +84,9 @@
 #   0x24A000 tok_values    [1048576]     131072 token value slots
 #   0x34A000 tok_lines     [1048576]     131072 token line number slots
 #   0x44A000 preprocess_out[524288]      512KB expanded source buffer
-#   0x4CA000 brk                         4.8MB total
+#   0x4CA000 codebuf       [524288]      512KB generated machine code
+#   0x54A000 output_buf    [524288]      512KB ELF output
+#   0x5CA000 brk                         5.8MB total
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -131,7 +133,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.3.6\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.3.7\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -140,7 +142,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x4CA000);
+syscall(SYS_BRK, S + 0x5CA000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -491,7 +493,7 @@ var olen = L64(S + 0x5C130);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0xDA000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x54A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

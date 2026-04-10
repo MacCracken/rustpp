@@ -503,7 +503,7 @@ fn PARSE_FACTOR(S) {
             if (ali >= 0) {
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
-                var aaddr = S + 0x20000 + GCP(S);
+                var aaddr = S + 0x4CA000 + GCP(S);
                 S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
                 SCP(S, GCP(S) + 4);
                 return 0;
@@ -2812,11 +2812,11 @@ fn PARSE_FN_DEF(S) {
     var dse_i = fn_start;
     while (dse_i + 14 < dse_cp) {
         # Check if this is a store: 48 89 85
-        if (load8(S + 0x20000 + dse_i) == 0x48) {
-            if (load8(S + 0x20000 + dse_i + 1) == 0x89) {
-                if (load8(S + 0x20000 + dse_i + 2) == 0x85) {
+        if (load8(S + 0x4CA000 + dse_i) == 0x48) {
+            if (load8(S + 0x4CA000 + dse_i + 1) == 0x89) {
+                if (load8(S + 0x4CA000 + dse_i + 2) == 0x85) {
                     # Get displacement (4 bytes LE)
-                    var dse_off = load32(S + 0x20000 + dse_i + 3);
+                    var dse_off = load32(S + 0x4CA000 + dse_i + 3);
                     # Scan forward past this store (7 bytes) to find next store
                     var dse_j = dse_i + 7;
                     # Skip load instruction(s) between stores
@@ -2824,19 +2824,19 @@ fn PARSE_FN_DEF(S) {
                     # mov eax, imm32 = B8 XX XX XX XX (5 bytes)
                     # movabs rax, imm64 = 48 B8 XX XX XX XX XX XX XX XX (10 bytes)
                     var dse_skip = 0;
-                    if (load8(S + 0x20000 + dse_j) == 0x31) { dse_skip = 2; }
-                    elif (load8(S + 0x20000 + dse_j) == 0xB8) { dse_skip = 5; }
-                    elif (load8(S + 0x20000 + dse_j) == 0x48) {
-                        if (load8(S + 0x20000 + dse_j + 1) == 0xB8) { dse_skip = 10; }
+                    if (load8(S + 0x4CA000 + dse_j) == 0x31) { dse_skip = 2; }
+                    elif (load8(S + 0x4CA000 + dse_j) == 0xB8) { dse_skip = 5; }
+                    elif (load8(S + 0x4CA000 + dse_j) == 0x48) {
+                        if (load8(S + 0x4CA000 + dse_j + 1) == 0xB8) { dse_skip = 10; }
                     }
                     if (dse_skip > 0) {
                         var dse_next = dse_j + dse_skip;
                         # Check if next instruction is store to SAME offset
                         if (dse_next + 7 <= dse_cp) {
-                            if (load8(S + 0x20000 + dse_next) == 0x48) {
-                                if (load8(S + 0x20000 + dse_next + 1) == 0x89) {
-                                    if (load8(S + 0x20000 + dse_next + 2) == 0x85) {
-                                        var dse_off2 = load32(S + 0x20000 + dse_next + 3);
+                            if (load8(S + 0x4CA000 + dse_next) == 0x48) {
+                                if (load8(S + 0x4CA000 + dse_next + 1) == 0x89) {
+                                    if (load8(S + 0x4CA000 + dse_next + 2) == 0x85) {
+                                        var dse_off2 = load32(S + 0x4CA000 + dse_next + 3);
                                         if (dse_off == dse_off2) {
                                             # Dead store! NOP out the first load+store
                                             # NOP the bytes from dse_i to dse_j+dse_skip-1
@@ -2845,7 +2845,7 @@ fn PARSE_FN_DEF(S) {
                                             # Actually: overwrite with 0x90 (NOP)
                                             var dse_ni = dse_i;
                                             while (dse_ni < dse_j) {
-                                                store8(S + 0x20000 + dse_ni, 0x90);
+                                                store8(S + 0x4CA000 + dse_ni, 0x90);
                                                 dse_ni = dse_ni + 1;
                                             }
                                         }
@@ -2949,7 +2949,7 @@ fn PARSE_SWITCH(S) {
         # Patch lea disp32: table starts right here
         var table_cp = GCP(S);
         var lea_disp = table_cp - lea_patch - 4;
-        var la = S + 0x20000 + lea_patch;
+        var la = S + 0x4CA000 + lea_patch;
         S64(la, (L64(la) >> 32 << 32) | (lea_disp & 0xFFFFFFFF));
         # Emit table: (range+1) entries * 4 bytes, all zeros initially
         var ti = 0;
@@ -2969,7 +2969,7 @@ fn PARSE_SWITCH(S) {
                 # Patch table entry: table[val - min] = body_cp - table_cp
                 var body_cp = GCP(S);
                 var toff = (val - case_min) * 4 + table_cp;
-                var ta = S + 0x20000 + toff;
+                var ta = S + 0x4CA000 + toff;
                 var trel = body_cp - table_cp;
                 S64(ta, (L64(ta) >> 32 << 32) | (trel & 0xFFFFFFFF));
                 # Parse case body
@@ -3007,7 +3007,7 @@ fn PARSE_SWITCH(S) {
         var end_rel = end_cp - table_cp;
         ti = 0;
         while (ti <= range) {
-            var te = S + 0x20000 + table_cp + ti * 4;
+            var te = S + 0x4CA000 + table_cp + ti * 4;
             if (load32(te) == 0) {
                 S64(te, (L64(te) >> 32 << 32) | (end_rel & 0xFFFFFFFF));
             }

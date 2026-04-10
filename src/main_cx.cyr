@@ -371,26 +371,26 @@ while (fi < fcnt) {
         # Function call — patch relative offset in movi (bytes 2-3 of the instruction)
         var target = L64(S + 0xC4000 + idx * 8);
         var rel = target - coff - 4;
-        var pa = S + 0x20000 + coff;
+        var pa = S + 0x4CA000 + coff;
         S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
     }
     elif (ftype == 3) {
         # Function pointer — absolute code offset
         var foff = L64(S + 0xC4000 + idx * 8);
         # Patch movi: store 16-bit value in bytes 2-3
-        store8(S + 0x20000 + coff + 2, foff & 0xFF);
-        store8(S + 0x20000 + coff + 3, (foff >> 8) & 0xFF);
+        store8(S + 0x4CA000 + coff + 2, foff & 0xFF);
+        store8(S + 0x4CA000 + coff + 3, (foff >> 8) & 0xFF);
     }
     elif (ftype == 1) {
         # String address → dbase + totvar + string_offset
         # coff points AFTER the movi instruction — patch at coff-4+2 = coff-2
         var addr = dbase + totvar + idx;
-        store8(S + 0x20000 + coff - 2, addr & 0xFF);
-        store8(S + 0x20000 + coff - 1, (addr >> 8) & 0xFF);
+        store8(S + 0x4CA000 + coff - 2, addr & 0xFF);
+        store8(S + 0x4CA000 + coff - 1, (addr >> 8) & 0xFF);
         if (addr > 0xFFFF) {
             # Patch movhi (starts at coff, bytes 2-3)
-            store8(S + 0x20000 + coff + 2, (addr >> 16) & 0xFF);
-            store8(S + 0x20000 + coff + 3, (addr >> 24) & 0xFF);
+            store8(S + 0x4CA000 + coff + 2, (addr >> 16) & 0xFF);
+            store8(S + 0x4CA000 + coff + 3, (addr >> 24) & 0xFF);
         }
     }
     else {
@@ -399,11 +399,11 @@ while (fi < fcnt) {
         vi = 0;
         while (vi < idx) { cumul = cumul + L64(S + 0x12A000 + vi * 8); vi = vi + 1; }
         var addr = dbase + cumul;
-        store8(S + 0x20000 + coff - 2, addr & 0xFF);
-        store8(S + 0x20000 + coff - 1, (addr >> 8) & 0xFF);
+        store8(S + 0x4CA000 + coff - 2, addr & 0xFF);
+        store8(S + 0x4CA000 + coff - 1, (addr >> 8) & 0xFF);
         if (addr > 0xFFFF) {
-            store8(S + 0x20000 + coff + 2, (addr >> 16) & 0xFF);
-            store8(S + 0x20000 + coff + 3, (addr >> 24) & 0xFF);
+            store8(S + 0x4CA000 + coff + 2, (addr >> 16) & 0xFF);
+            store8(S + 0x4CA000 + coff + 3, (addr >> 24) & 0xFF);
         }
     }
     fi = fi + 1;
@@ -422,7 +422,7 @@ syscall(SYS_WRITE, 1, &entry_off, 4);
 var bw = 0;
 var bwgo = 1;
 while (bwgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x20000 + bw, cp - bw);
+    var w = syscall(SYS_WRITE, 1, S + 0x4CA000 + bw, cp - bw);
     if (w <= 0) { bwgo = 0; }
     else { bw = bw + w; if (bw >= cp) { bwgo = 0; } }
 }
