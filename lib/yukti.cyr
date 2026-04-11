@@ -1,5 +1,5 @@
 # yukti.cyr — device abstraction for AGNOS
-# Bundled distribution of yukti v1.1.1
+# Bundled distribution of yukti v1.1.2
 # Source: https://github.com/MacCracken/yukti
 # License: GPL-3.0-only
 #
@@ -9,13 +9,11 @@
 # Requires stdlib: syscalls, string, alloc, str, fmt, vec, hashmap, io, fs,
 #                  tagged, process, fnptr, sakshi, chrono
 
-
 # --- error.cyr ---
 # yukti/error.cyr — Error types for yukti
 #
 # All errors that yukti can produce. Each error is a heap-allocated struct
 # with kind, detail string, and optional context string.
-
 
 # ---------------------------------------------------------------------------
 # Error kind enum — 15 variants matching Rust YuktiError
@@ -211,7 +209,6 @@ pub fn map_errno_to_err(errno, operation, path) {
 #
 # DeviceId, DeviceClass, DeviceState, DeviceCapabilities (bitflags),
 # DeviceInfo (primary device data structure), DeviceHealth, permissions.
-
 
 # ---------------------------------------------------------------------------
 # DeviceClass enum — 8 variants
@@ -692,7 +689,6 @@ pub fn device_info_to_json(info, sb) {
 # DeviceEvent, DeviceEventKind, EventCollector (for testing),
 # and listener callback pattern.
 
-
 # ---------------------------------------------------------------------------
 # DeviceEventKind enum — 6 variants
 # ---------------------------------------------------------------------------
@@ -888,7 +884,6 @@ pub fn dispatch_event_to_listeners(listeners_vec, event) {
 #
 # Mount, unmount, eject, filesystem detection, /proc/mounts parsing.
 # All syscalls direct — no libc dependency.
-
 
 # ---------------------------------------------------------------------------
 # Filesystem enum — 17 known types + unknown
@@ -1392,8 +1387,12 @@ pub fn storage_unmount(mount_point_cstr) {
     if (r < 0) {
         var errno = 0 - r;
         sakshi_span_exit();
-        if (errno == 1) { return err_permission_denied(str_from("unmount"), str_from(mount_point_cstr)); }
-        if (errno == 13) { return err_permission_denied(str_from("unmount"), str_from(mount_point_cstr)); }
+        if (errno == 1) {
+            return err_permission_denied(str_from("unmount"), str_from(mount_point_cstr));
+        }
+        if (errno == 13) {
+            return err_permission_denied(str_from("unmount"), str_from(mount_point_cstr));
+        }
         if (errno == 16) { return err_device_busy(str_from(mount_point_cstr)); }
         var sb = str_builder_new();
         str_builder_add_cstr(sb, "umount failed: errno ");
@@ -1510,7 +1509,6 @@ pub fn storage_eject(dev_path_cstr) {
 #
 # Disc type detection, tray control, TOC reading.
 # All hardware ops via direct syscalls/ioctls.
-
 
 # ---------------------------------------------------------------------------
 # DiscType enum — 10 variants
@@ -1700,8 +1698,12 @@ fn _open_optical_device(dev_path_cstr) {
     var fd = syscall(SYS_OPEN, dev_path_cstr, O_RDONLY | O_NONBLOCK, 0);
     if (fd < 0) {
         var errno = 0 - fd;
-        if (errno == 13) { return err_permission_denied(str_from("open"), str_from(dev_path_cstr)); }
-        if (errno == 1) { return err_permission_denied(str_from("open"), str_from(dev_path_cstr)); }
+        if (errno == 13) {
+            return err_permission_denied(str_from("open"), str_from(dev_path_cstr));
+        }
+        if (errno == 1) {
+            return err_permission_denied(str_from("open"), str_from(dev_path_cstr));
+        }
         if (errno == ENOMEDIUM) { return err_no_media(str_from(dev_path_cstr)); }
         return err_io(str_from(dev_path_cstr));
     }
@@ -1965,7 +1967,6 @@ pub fn is_dvd_video(mount_point_cstr) {
 #
 # Reads from /sys/, monitors udev events via netlink socket.
 # UdevEvent, device classification, sysfs enumeration, uevent parsing.
-
 
 # ---------------------------------------------------------------------------
 # UdevEvent struct
@@ -2381,7 +2382,8 @@ pub fn enumerate_devices(sysfs_root) {
                 var part_file = str_builder_build(chk_sb);
 
                 if (file_exists(str_cstr(part_file))) {
-                    var part_info = _build_device_info_from_sysfs(part_path, part_name, "partition");
+                    var part_info = _build_device_info_from_sysfs(
+                    part_path, part_name, "partition");
                     if (part_info != 0) {
                         vec_push(devices, part_info);
                     }
@@ -2667,7 +2669,6 @@ pub fn udev_monitor_run(mon, listener_fn) {
 # Concrete implementation providing device enumeration, lookup,
 # mount/eject operations, and hotplug monitoring.
 
-
 # ---------------------------------------------------------------------------
 # LinuxDeviceManager struct
 # Layout: 40 bytes
@@ -2894,7 +2895,6 @@ pub fn linux_dm_stop_monitor(mgr) {
 #
 # Create, validate, render, and install udev rules.
 # Standalone implementation (no agnosys dependency).
-
 
 # ---------------------------------------------------------------------------
 # UdevRule struct
@@ -3813,9 +3813,32 @@ pub fn device_db_open(path) {
     }
 
     # Create tables if they don't exist
-    patra_exec(_yukti_db, "CREATE TABLE devices (serial STR, vendor STR, model STR, class INT, first_seen INT, last_seen INT, mount_count INT)");
-    patra_exec(_yukti_db, "CREATE TABLE mount_history (serial STR, dev_path STR, mount_point STR, fs_type STR, timestamp INT, action INT)");
-    patra_exec(_yukti_db, "CREATE TABLE preferences (serial STR, mount_point STR, read_only INT, fs_type STR, auto_mount INT)");
+    var s1 = "CREATE TABLE devices (serial STR, vendor STR, ";
+    var s2 = "model STR, class INT, first_seen INT, ";
+    var s3 = "last_seen INT, mount_count INT)";
+    var sb0 = str_builder_new();
+    str_builder_add_cstr(sb0, s1);
+    str_builder_add_cstr(sb0, s2);
+    str_builder_add_cstr(sb0, s3);
+    patra_exec(_yukti_db, str_cstr(str_builder_build(sb0)));
+
+    var h1 = "CREATE TABLE mount_history (serial STR, ";
+    var h2 = "dev_path STR, mount_point STR, ";
+    var h3 = "fs_type STR, timestamp INT, action INT)";
+    var sb1 = str_builder_new();
+    str_builder_add_cstr(sb1, h1);
+    str_builder_add_cstr(sb1, h2);
+    str_builder_add_cstr(sb1, h3);
+    patra_exec(_yukti_db, str_cstr(str_builder_build(sb1)));
+
+    var p1 = "CREATE TABLE preferences (serial STR, ";
+    var p2 = "mount_point STR, read_only INT, ";
+    var p3 = "fs_type STR, auto_mount INT)";
+    var sb2 = str_builder_new();
+    str_builder_add_cstr(sb2, p1);
+    str_builder_add_cstr(sb2, p2);
+    str_builder_add_cstr(sb2, p3);
+    patra_exec(_yukti_db, str_cstr(str_builder_build(sb2)));
 
     sakshi_span_exit();
     return Ok(_yukti_db);
@@ -3959,7 +3982,8 @@ pub fn device_db_record_mount(info, mount_point, fs_type_str, action) {
     # Update mount_count in devices table
     if (action == ACTION_MOUNT) {
         var upd_sb = str_builder_new();
-        str_builder_add_cstr(upd_sb, "UPDATE devices SET mount_count = mount_count + 1, last_seen = ");
+        str_builder_add_cstr(upd_sb, "UPDATE devices SET ");
+        str_builder_add_cstr(upd_sb, "mount_count = mount_count + 1, last_seen = ");
         str_builder_add_int(upd_sb, now);
         str_builder_add_cstr(upd_sb, " WHERE serial = '");
         str_builder_add_str(upd_sb, key);
@@ -3970,23 +3994,4 @@ pub fn device_db_record_mount(info, mount_point, fs_type_str, action) {
     return 0;
 }
 
-# ---------------------------------------------------------------------------
-# Preferences — per-device mount configuration
-# ---------------------------------------------------------------------------
-
-pub fn device_db_set_preference(serial, mount_point, read_only, fs_type, auto_mount) {
-    if (_yukti_db == 0) { return 0; }
-
-    # Delete existing preference
-    var del_sb = str_builder_new();
-    str_builder_add_cstr(del_sb, "DELETE FROM preferences WHERE serial = '");
-    str_builder_add_str(del_sb, serial);
-    str_builder_add_cstr(del_sb, "'");
-    patra_exec(_yukti_db, str_cstr(str_builder_build(del_sb)));
-
-    # Insert new preference
-    var sb = str_builder_new();
-    str_builder_add_cstr(sb, "INSERT INTO preferences VALUES ('");
-    str_builder_add_str(sb, serial);
-    str_builder_add_cstr(sb, "', '");
-    if (moun
+# -------------------------------------------

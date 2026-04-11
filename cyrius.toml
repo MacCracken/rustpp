@@ -26,5 +26,5 @@ modules = ["dist/sigil.cyr"]
 
 [deps.yukti]
 git = "https://github.com/MacCracken/yukti.git"
-tag = "1.1.1"
+tag = "1.1.2"
 modules = ["dist/yukti.cyr"]
