@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v3.3.5-dev.** 246KB self-hosting compiler, x86_64 + aarch64. Bug #4 workaround in stdlib.
-> 31 test suites (375 assertions), 4 fuzz harnesses, soak test clean. 34 stdlib modules + 3 deps.
-> 8 downstream repos pass. Format/lint/doc clean (excl patra).
+> **v3.4.0.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> 31 test suites (375 assertions), 4 fuzz harnesses, heap audit clean. 34 stdlib modules + 4 deps.
+> 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).

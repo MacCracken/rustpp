@@ -748,14 +748,19 @@ MANIFEST
             if [ "$tcyr_found" -eq 0 ]; then echo "  (no .tcyr files found)"; fi
             echo ""
 
-            # Lint
+            # Lint (skip symlinked deps and vendored files)
             CYRLINT="${TOOLS_DIR}/cyrlint"
             if [ -x "$CYRLINT" ]; then
                 echo "── Lint ──"
                 lint_total=0
+                lint_skipped=0
                 for f in lib/*.cyr src/*.cyr; do
                     [ -f "$f" ] || continue
+                    if [ -L "$f" ]; then lint_skipped=$((lint_skipped + 1)); continue; fi
                     w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
+                    if [ "$w" -gt 0 ]; then
+                        echo "  $(basename $f): $w warnings"
+                    fi
                     lint_total=$((lint_total + w))
                 done
                 if [ "$lint_total" -eq 0 ]; then
@@ -765,19 +770,25 @@ MANIFEST
                     echo "  FAIL: lint ($lint_total warnings)"
                     AUDIT_FAIL=$((AUDIT_FAIL + 1))
                 fi
+                if [ "$lint_skipped" -gt 0 ]; then
+                    echo "  ($lint_skipped dep files skipped)"
+                fi
                 echo ""
             fi
 
-            # Format
+            # Format (skip symlinked deps and vendored files)
             CYRFMT="${TOOLS_DIR}/cyrfmt"
             if [ -x "$CYRFMT" ]; then
                 echo "── Format ──"
                 fmt_fail=0
+                fmt_files=""
                 for f in lib/*.cyr src/*.cyr; do
                     [ -f "$f" ] || continue
+                    if [ -L "$f" ]; then continue; fi
                     "$CYRFMT" "$f" > /tmp/cyrius_fmt_$$ 2>/dev/null
                     if ! diff -q "$f" /tmp/cyrius_fmt_$$ > /dev/null 2>&1; then
                         fmt_fail=1
+                        fmt_files="$fmt_files $(basename $f)"
                     fi
                     rm -f /tmp/cyrius_fmt_$$
                 done
@@ -785,7 +796,7 @@ MANIFEST
                     echo "  PASS: format"
                     AUDIT_PASS=$((AUDIT_PASS + 1))
                 else
-                    echo "  FAIL: format"
+                    echo "  FAIL: format —$fmt_files"
                     AUDIT_FAIL=$((AUDIT_FAIL + 1))
                 fi
                 echo ""
