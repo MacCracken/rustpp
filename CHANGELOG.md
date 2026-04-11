@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.12] — 2026-04-11
+
+### Changed
+- **PIC-safe relocations in `object;` mode**: Data references (variables, strings,
+  function pointers) now emit `LEA reg, [rip+disp32]` with `R_X86_64_PC32` relocations
+  instead of `MOV reg, imm64` with `R_X86_64_64`. Eliminates DT_TEXTREL in linked
+  binaries. Required for glibc 2.38+ which refuses `dlopen()` from TEXTREL binaries.
+  Affects: `EVADDR`, `ESADDR`, `EVLOAD`, `EVSTORE`, `EVLOAD_W`, `EVSTORE_W` in emit.cyr,
+  and function pointer fixups (type 3) in parse.cyr. Relocation generation updated in
+  `EMITELF_OBJ` (fixup.cyr). Self-hosting verified (byte-identical two-step bootstrap).
+  Unblocks mabda GPU port (wgpu-native Vulkan loading via dlopen).
+- **`lib/mmap.cyr`**: Functions renamed to `cyr_mmap`, `cyr_munmap`, `cyr_mprotect`
+  to avoid symbol clashes when linking Cyrius .o files with C/libc. Standalone Cyrius
+  binaries are unaffected (no libc). All stdlib consumers updated (dynlib.cyr).
+
+### Stats
+- **40 stdlib modules + 4 deps**, 32 test suites
+
 ## [3.4.11] — 2026-04-11
 
 ### Added

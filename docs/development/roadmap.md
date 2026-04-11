@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.4.11.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> **v3.4.12.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
 > 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean. 40 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
@@ -34,7 +34,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 8 | **Dead store elimination** | Low | **Done (v3.3.2)**. Post-emit DSE pass, NOPs consecutive stores to same `[rbp-N]`. |
 | 9 | **Expanded constant folding** | Low | **Done (v3.3.1)**. Removed 16-bit limit, added `x-0`/`x*1`/`x*0` identities. |
 | 10 | **`cc3 --version`** | Low | **Done (v3.3.0)**. Reads /proc/self/cmdline for argv[1]. |
-| 11 | **PIC codegen** | High | Not started. Position-independent code for .so output. RIP-relative data refs, GOT/PLT emission. Enables Cyrius .so loadable by external consumers. |
+| 11 | **PIC codegen** | High | **Partial (v3.4.12)**. `object;` mode now emits `LEA [rip+disp32]` with R_X86_64_PC32 for data/string/fnptr refs (no DT_TEXTREL). Remaining: `.so` output (ET_DYN), GOT/PLT emission, `shared;` directive. Also: `object;` top-level init code needs callable export (enums set at global scope don't initialize in linked mode — needs `_cyrius_init` function or .init_array). |
 
 ## Standard Library — FFI & Interop (tarang-driven)
 

@@ -295,14 +295,14 @@ fn dynlib_open(path) {
 
     if (file_size < EHDR_SIZE) { syscall(3, fd); return 0; }
 
-    # mmap the entire file read-only
-    var base = mmap(0, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    # mmap the entire file read + exec (code sections need PROT_EXEC)
+    var base = cyr_mmap(0, file_size, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);
     syscall(3, fd);  # close fd — mmap keeps the mapping
     if (base < 0) { return 0; }
 
     # Validate ELF header
-    if (_elf_check_magic(base) == 0) { munmap(base, file_size); return 0; }
-    if (_elf_type(base) != ET_DYN)   { munmap(base, file_size); return 0; }
+    if (_elf_check_magic(base) == 0) { cyr_munmap(base, file_size); return 0; }
+    if (_elf_type(base) != ET_DYN)   { cyr_munmap(base, file_size); return 0; }
 
     # Walk program headers to find PT_DYNAMIC and first PT_LOAD
     var phoff = _elf_phoff(base);
@@ -330,7 +330,7 @@ fn dynlib_open(path) {
         }
     }
 
-    if (dyn_offset == 0) { munmap(base, file_size); return 0; }
+    if (dyn_offset == 0) { cyr_munmap(base, file_size); return 0; }
 
     # Parse dynamic section
     var dinfo = _parse_dynamic(base, dyn_offset, dyn_size);
@@ -339,8 +339,8 @@ fn dynlib_open(path) {
     var strtab_size   = load64(dinfo + 16);
     var gnuhash_vaddr = load64(dinfo + 24);
 
-    if (symtab_vaddr == 0) { munmap(base, file_size); return 0; }
-    if (strtab_vaddr == 0) { munmap(base, file_size); return 0; }
+    if (symtab_vaddr == 0) { cyr_munmap(base, file_size); return 0; }
+    if (strtab_vaddr == 0) { cyr_munmap(base, file_size); return 0; }
 
     # Compute load bias: base - first_load_vaddr
     # For position-independent .so files, p_vaddr of first PT_LOAD is typically 0
@@ -391,6 +391,6 @@ fn dynlib_close(handle) {
     if (handle == 0) { return 0; }
     var base = _dynlib_base(handle);
     var size = _dynlib_size(handle);
-    munmap(base, size);
+    cyr_munmap(base, size);
     return 0;
 }

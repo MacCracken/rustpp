@@ -205,11 +205,11 @@ fn EMITELF_USER(S, etype) {
 # Emits proper ELF relocatable object with sections:
 #   .text (code), .data (vars), .rodata (strings),
 #   .symtab, .strtab, .rela.text
-# Fixup types map to ELF relocations:
-#   type 0 (var addr)    → R_X86_64_64 against .data symbol
-#   type 1 (string addr) → R_X86_64_64 against .rodata symbol
-#   type 2 (fn call)     → R_X86_64_PC32 against function symbol
-#   type 3 (fn pointer)  → R_X86_64_64 against function symbol
+# Fixup types map to ELF relocations (all PC-relative for PIC safety):
+#   type 0 (var addr)    → R_X86_64_PC32 against .data symbol (LEA rax,[rip+disp32])
+#   type 1 (string addr) → R_X86_64_PC32 against .rodata symbol (LEA rax,[rip+disp32])
+#   type 2 (fn call)     → R_X86_64_PC32 against function symbol (CALL rel32)
+#   type 3 (fn pointer)  → R_X86_64_PC32 against function symbol (LEA rax,[rip+disp32])
 
 fn EMITELF_OBJ(S) {
     var cp = GCP(S);
@@ -340,22 +340,22 @@ fn EMITELF_OBJ(S) {
             rela_cnt = rela_cnt + 1;
         }
         elif (ftype == 3) {
-            # Function pointer → R_X86_64_64 (type 1)
+            # Function pointer → R_X86_64_PC32 (PIC-safe)
             S64(rp, coff);
             var sym_idx = 4 + idx;
-            S64(rp + 8, (sym_idx << 32) | 1);
-            S64(rp + 16, 0);
+            S64(rp + 8, (sym_idx << 32) | 2);           # R_X86_64_PC32
+            S64(rp + 16, 0 - 4);                        # r_addend = -4
             rela_cnt = rela_cnt + 1;
         }
         elif (ftype == 1) {
-            # String address → R_X86_64_64 against .rodata section
+            # String address → R_X86_64_PC32 against .rodata section (PIC-safe)
             S64(rp, coff);
-            S64(rp + 8, (3 << 32) | 1);                 # sym=.rodata(3), type=R_X86_64_64
-            S64(rp + 16, idx);                           # r_addend = string offset within .rodata
+            S64(rp + 8, (3 << 32) | 2);                 # sym=.rodata(3), type=R_X86_64_PC32
+            S64(rp + 16, idx - 4);                       # r_addend = string offset - 4 (PC-relative)
             rela_cnt = rela_cnt + 1;
         }
         else {
-            # Variable address → R_X86_64_64 against .data section
+            # Variable address → R_X86_64_PC32 against .data section (PIC-safe)
             var cumul = 0;
             var vi = 0;
             while (vi < idx) {
@@ -363,8 +363,8 @@ fn EMITELF_OBJ(S) {
                 vi = vi + 1;
             }
             S64(rp, coff);
-            S64(rp + 8, (2 << 32) | 1);                 # sym=.data(2), type=R_X86_64_64
-            S64(rp + 16, cumul);                         # r_addend = var offset within .data
+            S64(rp + 8, (2 << 32) | 2);                 # sym=.data(2), type=R_X86_64_PC32
+            S64(rp + 16, cumul - 4);                     # r_addend = var offset - 4 (PC-relative)
             rela_cnt = rela_cnt + 1;
         }
         fi = fi + 1;

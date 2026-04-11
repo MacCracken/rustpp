@@ -120,29 +120,41 @@ fn RECFIX(S, idx) {
     return 0;
 }
 
-# emit var_store: mov rcx, <placeholder>; mov [rcx], rax + record fixup
-fn EVSTORE(S, idx) {
+# Check if compiling in object mode (kernel_mode == 3)
+fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
+
+# Emit rcx = address of variable (object mode: LEA, else: MOV imm64)
+fn _EVRCX(S, idx) {
+    if (_IS_OBJ(S) == 1) {
+        # LEA rcx, [rip+disp32]: 48 8D 0D <rel32>
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0x0D);
+        RECFIX(S, idx);
+        EDISP32(S, 0);
+        return 0;
+    }
     E2(S, 0xB948);
     RECFIX(S, idx);
     E8(S, 0);
+    return 0;
+}
+
+# emit var_store: rcx = &var; mov [rcx], rax + record fixup
+fn EVSTORE(S, idx) {
+    _EVRCX(S, idx);
     ESTOC(S);
     return 0;
 }
 
-# emit var_load: mov rcx, <placeholder>; mov rax, [rcx] + record fixup
+# emit var_load: rcx = &var; mov rax, [rcx] + record fixup
 fn EVLOAD(S, idx) {
-    E2(S, 0xB948);
-    RECFIX(S, idx);
-    E8(S, 0);
+    _EVRCX(S, idx);
     ELODC(S);
     return 0;
 }
 
-# Width-aware var load: mov rcx, <addr>; load_width [rcx] → rax
+# Width-aware var load: rcx = &var; load_width [rcx] → rax
 fn EVLOAD_W(S, idx, width) {
-    E2(S, 0xB948);
-    RECFIX(S, idx);
-    E8(S, 0);
+    _EVRCX(S, idx);
     if (width == 1) { ELOAD8(S); return 0; }
     if (width == 2) { ELOAD16(S); return 0; }
     if (width == 4) { ELOAD32(S); return 0; }
@@ -150,11 +162,9 @@ fn EVLOAD_W(S, idx, width) {
     return 0;
 }
 
-# Width-aware var store: mov rcx, <addr>; store_width [rcx] ← rax
+# Width-aware var store: rcx = &var; store_width [rcx] ← rax
 fn EVSTORE_W(S, idx, width) {
-    E2(S, 0xB948);
-    RECFIX(S, idx);
-    E8(S, 0);
+    _EVRCX(S, idx);
     if (width == 1) { ESTORE8(S); return 0; }
     if (width == 2) { ESTORE16(S); return 0; }
     if (width == 4) { ESTORE32(S); return 0; }
@@ -214,22 +224,39 @@ fn EFLSTORE_W(S, idx, width) {
     return 0;
 }
 
-# emit var addr: mov rax, <placeholder> with type-0 fixup
+# emit var addr: rax = &var (object mode: LEA rax,[rip+disp32], else: MOV rax,imm64)
 fn EVADDR(S, idx) {
+    if (_IS_OBJ(S) == 1) {
+        # LEA rax, [rip+disp32]: 48 8D 05 <rel32>
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
+        RECFIX(S, idx);
+        EDISP32(S, 0);
+        return 0;
+    }
     E2(S, 0xB848);
     RECFIX(S, idx);
     E8(S, 0);
     return 0;
 }
 
-# emit string addr: mov rax, <placeholder> with type-1 fixup
+# emit string addr: rax = &string (object mode: LEA, else: MOV imm64)
 fn ESADDR(S, soff) {
-    E2(S, 0xB848);
     var fc = GFCNT(S);
     if (fc >= 8192) {
         syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
         syscall(SYS_EXIT, 1);
     }
+    if (_IS_OBJ(S) == 1) {
+        # LEA rax, [rip+disp32]: 48 8D 05 <rel32>
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
+        var faddr = S + 0xA0000 + fc * 16;
+        S64(faddr, GCP(S));
+        S64(faddr + 8, (1 << 56) | soff);
+        SFCNT(S, fc + 1);
+        EDISP32(S, 0);
+        return 0;
+    }
+    E2(S, 0xB848);
     var faddr = S + 0xA0000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
