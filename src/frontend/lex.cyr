@@ -1229,7 +1229,7 @@ fn LEXHEX(S, p) {
     while (go == 1) {
         if (p >= GBL(S)) { go = 0; }
         if (go == 1) {
-            var c = load8(S + p);
+            var c = load8(S + 4497408 + p);
             var hd = 0 - 1;
             if (c >= 48) { if (c <= 57) { hd = c - 48; } }
             if (c >= 97) { if (c <= 102) { hd = c - 87; } }
@@ -1612,23 +1612,23 @@ fn LEX(S) {
                             p = p + 1;
                             var ec = load8(S + 0x44A000 + p);
                             p = p + 1;
-                            if (ec == 110) { store8(S + 0x68000 + spos, 10); }
+                            if (ec == 110) { store8(S + 0x40000 + spos, 10); }
                             else {
-                                if (ec == 116) { store8(S + 0x68000 + spos, 9); }
+                                if (ec == 116) { store8(S + 0x40000 + spos, 9); }
                                 else {
-                                    if (ec == 48) { store8(S + 0x68000 + spos, 0); }
+                                    if (ec == 48) { store8(S + 0x40000 + spos, 0); }
                                     else {
-                                        if (ec == 92) { store8(S + 0x68000 + spos, 92); }
+                                        if (ec == 92) { store8(S + 0x40000 + spos, 92); }
                                         else {
-                                            if (ec == 34) { store8(S + 0x68000 + spos, 34); }
-                                            else { store8(S + 0x68000 + spos, ec); }
+                                            if (ec == 34) { store8(S + 0x40000 + spos, 34); }
+                                            else { store8(S + 0x40000 + spos, ec); }
                                         }
                                     }
                                 }
                             }
                             spos = spos + 1;
                         } else {
-                            store8(S + 0x68000 + spos, sc);
+                            store8(S + 0x40000 + spos, sc);
                             spos = spos + 1;
                             p = p + 1;
                         }
@@ -1636,7 +1636,7 @@ fn LEX(S) {
                 }
             }
             # Add null terminator after string literal
-            store8(S + 0x68000 + spos, 0);
+            store8(S + 0x40000 + spos, 0);
             spos = spos + 1;
             if (spos >= 32768) {
                 syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);

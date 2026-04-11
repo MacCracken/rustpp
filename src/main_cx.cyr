@@ -433,7 +433,7 @@ while (vi < totvar) { syscall(SYS_WRITE, 1, &zero_byte, 1); vi = vi + 1; }
 bw = 0;
 bwgo = 1;
 while (bwgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x68000 + bw, spos - bw);
+    var w = syscall(SYS_WRITE, 1, S + 0x40000 + bw, spos - bw);
     if (w <= 0) { bwgo = 0; }
     else { bw = bw + w; if (bw >= spos) { bwgo = 0; } }
 }

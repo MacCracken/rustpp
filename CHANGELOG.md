@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.17] �� 2026-04-11
+
+### Fixed
+- **LEXHEX wrong buffer** (Bug #33): Hex literal parser read from `S + p` (raw input
+  buffer) instead of `S + 0x44A000 + p` (preprocessed buffer). For programs where the
+  preprocessed source offset exceeded the raw input size, hex digits after position ~19KB
+  read garbage. Masked for years because the compiler source was small enough that
+  raw and preprocessed buffers overlapped. Exposed by the str_data move.
+- **tok_names expanded 32KB → 64KB** (Bug #32): Moved `str_data` from `0x68000` (nested
+  inside tok_names) to `0x40000` (unused region). tok_names now has full 64KB at
+  `0x60000-0x70000`. Libro uses 26KB, self-compile uses 6KB. Unblocks shravan (~35KB+
+  estimated for 565 functions + 2500 variables).
+
+### Stats
+- **31/31 cyrius, 240/240 libro, aarch64 cross: 212KB**
+
 ## [3.3.16] — 2026-04-11
 
 ### Fixed

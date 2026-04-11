@@ -16,8 +16,8 @@
 #   0x00000  input_buf     [131072]      128KB raw stdin input
 #   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
-#   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
-#   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
+#   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000)
+#   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
 #   0x70000  str_pos       [8]           string write position
 #   0x70008  data_size     [8]           total variable data bytes
 #
@@ -133,7 +133,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.3.16\n", 11);
+                syscall(SYS_WRITE, 1, "cc3 3.3.17\n", 11);
                 syscall(SYS_EXIT, 0);
             } }
         } }
