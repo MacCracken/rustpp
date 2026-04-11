@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.13] — 2026-04-11
+
+### Changed
+- **Yukti dep updated to 1.2.0**: Adds GPU device discovery module (`gpu.cyr`).
+  `enumerate_gpus()` walks `/sys/class/drm/` to detect GPU devices with vendor ID,
+  driver name, PCI slot. Known vendors: AMD, Intel, NVIDIA, VirtIO. 485 tests pass.
+  New `DC_GPU` device class. Unblocks mabda GPU pre-flight detection.
+
+### Stats
+- **40 stdlib modules + 5 deps**, 32 test suites
+
 ## [3.4.12] — 2026-04-11
 
 ### Changed

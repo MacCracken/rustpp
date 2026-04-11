@@ -186,3 +186,36 @@ Deferred: error message line numbers, performance pass, block scoping.
 - Bug #13: multiple continue patch array — continue in all loop types (v1.11.1)
 - Bug #14: MAP_FAILED removal (v1.11.1)
 - Bug #15: dual derive fix (v1.11.1)
+
+## v3.x Compiler Completed
+
+- Small function inlining — 2-param, 16-token body (v3.3.5)
+- Dead store elimination — post-emit DSE pass (v3.3.2)
+- Expanded constant folding — removed 16-bit limit (v3.3.1)
+- `cc3 --version` (v3.3.0)
+- `defer` statement — LIFO, max 8 per function (v3.2.0)
+- PIC codegen partial — `object;` mode, LEA [rip+disp32] (v3.4.12)
+
+## v3.x Stdlib Completed
+
+- fncall3–fncall6 indirect calls (v3.4.3)
+- dynlib.cyr — pure Cyrius ELF .so loader (v3.4.11)
+- mmap.cyr — memory-mapped I/O (v3.4.3)
+- yukti v1.2.0 — device abstraction, 470 tests (v3.4.12)
+
+## v3.x Bug Fixes
+
+- Bug #32: parser overflow at ~12K lines — tok_names 32→64KB (v3.3.17)
+- Bug #33: LEXHEX wrong buffer (v3.3.17)
+- Bug #34: #derive(Serialize) duplicate variable (v3.4.4)
+- Bug #35: cc3 SIGSEGV on large multi-lib programs (v3.4.7)
+- Bug #36: comparisons in function call args — cfo leak (v3.4.10)
+
+## v3.x Downstream Blockers Resolved
+
+- 1024→2048 function limit (v3.2.2)
+- #derive(Serialize) Str fields (v3.2.3)
+- Nested if/while/break codegen (v3.2.2)
+- break in deeply nested while/if — linked-list (v3.3.15)
+- #derive(Serialize) composable 2-arg form (v3.2.3)
+- #derive(Deserialize) single-pass parser (v3.4.1)

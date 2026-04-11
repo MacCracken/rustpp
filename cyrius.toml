@@ -1,6 +1,6 @@
 [package]
 name = "cyrius"
-version = "3.4.12"
+version = "3.4.13"
 description = "Sovereign, self-hosting systems language"
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/cyrius"
@@ -26,5 +26,5 @@ modules = ["dist/sigil.cyr"]
 
 [deps.yukti]
 git = "https://github.com/MacCracken/yukti.git"
-tag = "1.1.2"
+tag = "1.2.0"
 modules = ["dist/yukti.cyr"]
