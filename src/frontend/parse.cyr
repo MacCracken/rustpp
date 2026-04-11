@@ -1271,11 +1271,13 @@ fn PCMPE(S) {
     if (op >= 17) {
         if (op <= 22) {
             STI(S, GTI(S) + 1);
+            _cfo = 0;
             EPUSHR(S);
             PEXPR(S);
             EMOVCA(S);
             EPOPR(S);
             ESETCC(S, op);
+            _cfo = 0;
         }
     }
     # Handle && and || chains: left result in rax, push, eval right, combine

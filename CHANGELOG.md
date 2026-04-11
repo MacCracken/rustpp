@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.10] — 2026-04-11
+
+### Fixed
+- **Bug #36: Comparisons in function call arguments** (P0): `_cfo` (constant folding
+  optimization flag) leaked across comparison operators in function call arguments.
+  `assert(ps != 0, "msg")` generated wrong code because constant folding state from
+  evaluating `0` persisted into the next argument's evaluation. Reset `_cfo` before
+  and after comparison in `PCMPE`. Fixes `assert(expr op val, "msg")` pattern that
+  crashed in large binaries. Libro+patra PatraStore: 202/202 pass. Also resolves
+  Known Gotcha "No Comparisons in Args" for most patterns.
+
+### Stats
+- **32/32 cyrius, 202/202 libro+patra**
+
 ## [3.4.9] — 2026-04-11
 
 ### Added
