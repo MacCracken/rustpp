@@ -4,6 +4,23 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.6] — 2026-04-11
+
+### Added
+- **`lib/audio.cyr`**: ALSA PCM audio device I/O via direct ioctls. Pure syscall
+  interface — no libasound, no C FFI. Playback + capture on `/dev/snd/pcmC*D*`.
+  `audio_open_playback`, `audio_write`, `audio_read`, `audio_drain`, state queries.
+  Module #36. Shared foundation for shravan playback and tarang audio pipeline.
+
+### Fixed
+- **aarch64 fixup codebuf address**: Was reading from old `0x4CA000` instead of new
+  `0x54A000`. Caused all 26 aarch64 CI tests to fail.
+
+### Known Issues
+- **Bug #35 still open**: Preprocessor copy-back overflow for ~600KB expanded source.
+  Ifdef pass converted to in-place filtering (safe), but macro/ref pass copy-backs
+  still use `S+0` which overflows at ~565KB. Needs dedicated refactor session.
+
 ## [3.4.5] — 2026-04-11
 
 ### Changed

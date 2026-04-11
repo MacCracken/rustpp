@@ -33,7 +33,7 @@ fn FIXUP(S) {
             # Function call: patch BL rel26
             var target = L64(S + 0xC4000 + idx * 8);
             var rel = (target - coff) / 4;
-            var pa = S + 0x4CA000 + coff;
+            var pa = S + 0x54A000 + coff;
             var insn = 0x94000000 | (rel & 0x3FFFFFF);
             S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
         }
@@ -41,7 +41,7 @@ fn FIXUP(S) {
             # Tail call: patch B rel26 (not BL — no link register update)
             var target = L64(S + 0xC4000 + idx * 8);
             var rel = (target - coff) / 4;
-            var pa = S + 0x4CA000 + coff;
+            var pa = S + 0x54A000 + coff;
             var insn = 0x14000000 | (rel & 0x3FFFFFF);
             S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
         }
@@ -69,7 +69,7 @@ fn FIXUP(S) {
 #   MOVK xN, #mid16, LSL 16  (offset +4)
 #   MOVK xN, #hi16, LSL 32   (offset +8)
 fn FIXUP_MOV(S, coff, addr) {
-    var base = S + 0x4CA000 + coff;
+    var base = S + 0x54A000 + coff;
     var lo = addr & 0xFFFF;
     var mid = (addr >> 16) & 0xFFFF;
     var hi = (addr >> 32) & 0xFFFF;
@@ -128,7 +128,7 @@ fn EMITELF(S) {
     S64(O + op, 0x0000000000010000); op = op + 8;
     # Code
     var i = 0;
-    while (i < cp) { store8(O + op, load8(S + 0x4CA000 + i)); op = op + 1; i = i + 1; }
+    while (i < cp) { store8(O + op, load8(S + 0x54A000 + i)); op = op + 1; i = i + 1; }
     # Variable data
     i = 0;
     while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
@@ -198,7 +198,7 @@ fn EMITELF_KERNEL(S) {
     op = op + 4;
     # Code
     var i = 0;
-    while (i < cp) { store8(O + op, load8(S + 0x4CA000 + i)); op = op + 1; i = i + 1; }
+    while (i < cp) { store8(O + op, load8(S + 0x54A000 + i)); op = op + 1; i = i + 1; }
     # Variable data
     i = 0;
     while (i < totvar) { store8(O + op, 0); op = op + 1; i = i + 1; }
