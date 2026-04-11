@@ -7,23 +7,20 @@
 # - Zero-copy file access
 # - Shared memory with drivers/GPU
 
-# mmap(addr, length, prot, flags, fd, offset) → mapped address or -1
+# cyr_mmap(addr, length, prot, flags, fd, offset) → mapped address or -1
 # prot: PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4
 # flags: MAP_PRIVATE=2, MAP_SHARED=1, MAP_ANONYMOUS=32, MAP_FIXED=16
-# NOTE: Functions prefixed cyr_ to avoid symbol clashes when linking with libc.
-# In standalone Cyrius binaries these names don't conflict, but in object mode
-# (.o files linked with C), libc's mmap/munmap/mprotect would be shadowed.
-
+# Prefixed cyr_ to avoid symbol clashes when linking .o files with libc.
 fn cyr_mmap(addr, length, prot, flags, fd, offset) {
     return syscall(9, addr, length, prot, flags, fd, offset);
 }
 
-# munmap(addr, length) → 0 on success
+# cyr_munmap(addr, length) → 0 on success
 fn cyr_munmap(addr, length) {
     return syscall(11, addr, length);
 }
 
-# mprotect(addr, length, prot) → 0 on success
+# cyr_mprotect(addr, length, prot) → 0 on success
 fn cyr_mprotect(addr, length, prot) {
     return syscall(10, addr, length, prot);
 }
