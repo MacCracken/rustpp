@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.4] — 2026-04-11
+
+### Fixed
+- **Bug #34: `#derive(Serialize)` duplicate variable**: The `_from_json_str` codegen
+  declared `var _neg`, `var _iv`, `var _vs` inside each field's branch. Structs with
+  multiple integer/string fields triggered "duplicate variable" on the second field.
+  Fixed by declaring all locals once at function top, using assignment in branches.
+  Argonaut serde tests: 39/39 pass. Unblocks argonaut and agnostik.
+- **Bug #35: libro SIGSEGV at ~14.5K lines**: Resolved — was likely the same derive
+  duplicate-variable issue. Libro 240/240 passes with patra+sigil included.
+
+### Stats
+- **31/31 cyrius, 240/240 libro, 39/39 argonaut serde**
+
 ## [3.4.3] — 2026-04-11
 
 ### Added

@@ -645,7 +645,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
     op = op + PP_EMIT_INT(out, op, cumul_off);
     op = op + PP_EMIT_STR(out, op, ");\nmemset(ptr, 0, ");
     op = op + PP_EMIT_INT(out, op, cumul_off);
-    op = op + PP_EMIT_STR(out, op, ");\nvar _p = 0;\n");
+    op = op + PP_EMIT_STR(out, op, ");\nvar _p = 0;\nvar _neg = 0;\nvar _iv = 0;\nvar _vs = 0;\n");
     # Skip to opening {
     op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 0) { if (load8(json + _p) == 123) { _p = _p + 1; break; } _p = _p + 1; }\n");
     # Main parse loop: read key, match, parse value
@@ -681,7 +681,7 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
             if (load8(&field_types + fi * 32) == 83) { if (load8(&field_types + fi * 32 + 1) == 116) { if (load8(&field_types + fi * 32 + 2) == 114) { if (load8(&field_types + fi * 32 + 3) == 0) { fjs = 1; } } } }
             if (fjs == 1) {
                 # String value: read until closing quote
-                op = op + PP_EMIT_STR(out, op, "if (load8(json + _p) == 34) { _p = _p + 1; var _vs = _p;\n");
+                op = op + PP_EMIT_STR(out, op, "if (load8(json + _p) == 34) { _p = _p + 1; _vs = _p;\n");
                 op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 34) { _p = _p + 1; }\n");
                 op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
                 op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
@@ -693,8 +693,8 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
             }
         } else {
             # Integer value: parse decimal
-            op = op + PP_EMIT_STR(out, op, "var _neg = 0; if (load8(json + _p) == 45) { _neg = 1; _p = _p + 1; }\n");
-            op = op + PP_EMIT_STR(out, op, "var _iv = 0;\nwhile (load8(json + _p) >= 48 && load8(json + _p) <= 57) { _iv = _iv * 10 + load8(json + _p) - 48; _p = _p + 1; }\n");
+            op = op + PP_EMIT_STR(out, op, "_neg = 0; if (load8(json + _p) == 45) { _neg = 1; _p = _p + 1; }\n");
+            op = op + PP_EMIT_STR(out, op, "_iv = 0;\nwhile (load8(json + _p) >= 48 && load8(json + _p) <= 57) { _iv = _iv * 10 + load8(json + _p) - 48; _p = _p + 1; }\n");
             op = op + PP_EMIT_STR(out, op, "if (_neg == 1) { _iv = 0 - _iv; }\n");
             op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
             op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));

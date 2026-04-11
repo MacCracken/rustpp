@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.4.3.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> **v3.4.4.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
 > 31 test suites (375 assertions), 4 fuzz harnesses, heap audit clean. 34 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
@@ -14,6 +14,8 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
+| 35 | **cc3 SIGSEGV at ~14.5K expanded lines** | **P0 — 3.4.4** | Open. cc3 segfaults (exit 139, 0-byte output) when compiling sigil (4,259) + patra (3,013) + libro (1,781 user + ~5,500 modules) = ~14,500 expanded lines. Minimal repro (85 lines user code, ~13K with libs) compiles fine on 3.4.2 — full test suite pushes it over. Likely fixup table or tok_names capacity. Repro: `libro/tests/fixup_limit_repro.cyr` compiles; `libro/src/main.cyr` with patra+sigil uncommented crashes. Blocks libro PatraStore (SQL-backed audit persistence). Bug #32 fix (3.3.17) raised limit from ~12K to ~13K; needs another bump to ~20K+ for multi-lib projects. |
+| 34 | **`#derive(Serialize)` duplicate variable** | **P0 — 3.4.4** | Open. Single `#derive(Serialize)` emits `error: duplicate variable`. Regression between 3.3.13 and 3.3.17. Blocks argonaut, agnostik, any project using derive serialization. All 3.3.8–3.3.13 work; 3.3.17+ and all 3.4.x broken. Root cause: derive codegen likely reuses an internal variable name that collides with the new multi-break linked-list or tok_names changes. |
 | 32 | ~~Parser overflow at ~12K expanded lines~~ | Blocking | **Resolved 3.3.17** | tok_names expanded 32KB→64KB (moved str_data out). LEXHEX buffer bug also fixed. |
 | 33 | ~~LEXHEX wrong buffer~~ | Medium | **Resolved 3.3.17** | Hex parser read `S+p` instead of `S+0x44A000+p`. |
 
