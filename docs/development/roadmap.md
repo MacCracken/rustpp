@@ -1,7 +1,7 @@
 # Cyrius Development Roadmap
 
-> **v3.4.8.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
-> 31 test suites (375 assertions), 4 fuzz harnesses, heap audit clean. 34 stdlib modules + 4 deps.
+> **v3.4.9.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean. 36 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
@@ -14,6 +14,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
+| 36 | **Runtime SIGSEGV in binaries >340KB** | **P0** | Open. Binaries >~340KB crash at runtime during patra/IO operations. Compiles clean, no warnings. 303KB works, 348KB crashes. Repro: libro with sigil+patra+240 tests. Standalone patra works; full test suite crashes. Likely codegen issue — bad jump targets, data/heap collision, or global address miscalculation at scale. See `libro/tests/patra_crash_repro.cyr`. Blocks libro PatraStore. |
 | 35 | ~~cc3 SIGSEGV on large multi-lib programs~~ | P0 | **Resolved 3.4.7** | ifdef copy-back overwrote str_pos/data_size. Re-init after preprocessing. |
 | 34 | ~~`#derive(Serialize)` duplicate variable~~ | P0 | **Resolved 3.4.4** | _from_json_str declared vars per field. Moved to function top. |
 | 32 | ~~Parser overflow at ~12K expanded lines~~ | Blocking | **Resolved 3.3.17** | tok_names expanded 32KB→64KB (moved str_data out). LEXHEX buffer bug also fixed. |

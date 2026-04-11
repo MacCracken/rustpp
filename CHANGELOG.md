@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.9] — 2026-04-11
+
+### Added
+- **`lib/log.cyr`**: Structured logging wrapper over sakshi. log_debug/info/warn/error/fatal
+  with ISO-8601 timestamps, level filtering, key=value context. Module #37.
+- **`lib/ws.cyr`**: WebSocket client (RFC 6455). Handshake, framing, masking, ping/pong,
+  close. Client-side over TCP. Module #38.
+- **`lib/tls.cyr`**: TLS 1.3 client scaffold (RFC 8446). Record layer, ClientHello with
+  SNI + supported_versions. Key exchange requires X25519 (not yet in sigil) — scaffold
+  only, handshake does not complete. Module #39.
+
+### Changed
+- **Patra dep updated to 0.14.0**.
+- **Gotcha #6 confirmed resolved**: Nested while + load8 CSV parsing pattern now works.
+  Root cause was single-slot break (multi-break linked-list fix in 3.4.6 resolved it).
+  Regression test added.
+- **Roadmap cleaned up**: Bugs #34, #35 marked resolved. fncall3-6, mmap marked done.
+  Gotcha #6 removed from Known Gotchas.
+
+### Stats
+- **39 stdlib modules + 4 deps**, 32 test suites, 442 assertions
+
+## [3.4.8] — 2026-04-11
+
+### Changed
+- Patra dep updated to 0.14.0. Gotcha #6 regression test added. Roadmap cleanup.
+
 ## [3.4.7] — 2026-04-11
 
 ### Fixed
