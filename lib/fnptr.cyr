@@ -107,6 +107,6 @@ fn fncall6(fp, a, b, c, d, e, f) {
         0xFF; 0xD0;
         0x48; 0x89; 0x45; 0xC0;
     }
-    # mov r9,f; mov r8,e; mov rcx,d; mov rdx,c; mov rsi,b; mov rdi,a; mov rax,fp; call rax; mov result,rax
+    # r9=f; r8=e; rcx=d; rdx=c; rsi=b; rdi=a; rax=fp; call rax; result=rax
     return result;
 }
