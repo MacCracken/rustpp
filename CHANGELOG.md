@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.3] — 2026-04-11
+
+### Added
+- **`fncall3`–`fncall6` in fnptr.cyr**: Indirect function calls with 3-6 arguments via
+  System V ABI registers (rdx, rcx, r8, r9). Same inline asm pattern as fncall0-2.
+  Unblocks tarang video codec APIs that need multi-arg indirect calls.
+- **`lib/mmap.cyr`**: Memory-mapped I/O via direct syscalls. `mmap`, `munmap`, `mprotect`
+  plus convenience wrappers `mmap_file_ro`, `mmap_file_rw`, `mmap_anon`. Foundation for
+  dynlib.cyr (dynamic library loading) and zero-copy file access. Module #35.
+
+### Known Issues
+- **Gotcha #6 persists**: Nested while loops with shared counter + 4+ break iterations
+  produce wrong results. 2-3 iterations work, 4+ fail. Linked-list break chain may
+  corrupt on 4th link. Under investigation.
+
 ## [3.4.2] — 2026-04-11
 
 ### Changed
