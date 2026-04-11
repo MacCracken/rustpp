@@ -6,11 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [3.3.16] — 2026-04-10
 
-### Fixed
-- **tok_names overflow** (Bug #32): `str_data` was nested inside `tok_names` at `0x68000`,
-  limiting identifiers to 32KB. Moved `str_data` to `0x20000` (old codebuf region),
-  giving tok_names the full 64KB at `0x60000-0x70000`. Added overflow check in lexer —
-  now emits clear error instead of silent corruption. Unblocks shravan (565 fns, ~2500 vars).
+### Added
+- **Bug #32 filed**: Parser overflow at ~12K expanded lines (blocking shravan).
+  Issue doc at `docs/development/issues/parser-overflow-large-codebase.md`.
+  Root cause identified: `str_data` nested inside `tok_names` limits identifiers
+  to 32KB. Expanding tok_names requires heap layout surgery — deferred to next session.
 
 ## [3.3.15] — 2026-04-10
 
