@@ -637,6 +637,75 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
         fi = fi + 1;
     }
     op = op + PP_EMIT_STR(out, op, "return ptr;\n}\n");
+    # === Emit Name_from_json_str (single-pass O(n) deserializer) ===
+    # Scans raw JSON string once, matching field names inline.
+    op = op + PP_EMIT_STR(out, op, "fn ");
+    op = op + PP_EMIT_STR(out, op, &sname);
+    op = op + PP_EMIT_STR(out, op, "_from_json_str(json) {\nvar ptr = alloc(");
+    op = op + PP_EMIT_INT(out, op, cumul_off);
+    op = op + PP_EMIT_STR(out, op, ");\nmemset(ptr, 0, ");
+    op = op + PP_EMIT_INT(out, op, cumul_off);
+    op = op + PP_EMIT_STR(out, op, ");\nvar _p = 0;\n");
+    # Skip to opening {
+    op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 0) { if (load8(json + _p) == 123) { _p = _p + 1; break; } _p = _p + 1; }\n");
+    # Main parse loop: read key, match, parse value
+    op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 0) {\n");
+    # Skip whitespace and commas
+    op = op + PP_EMIT_STR(out, op, "var _c = load8(json + _p);\n");
+    op = op + PP_EMIT_STR(out, op, "if (_c == 125) { break; }\n");
+    op = op + PP_EMIT_STR(out, op, "if (_c == 32 || _c == 10 || _c == 13 || _c == 9 || _c == 44) { _p = _p + 1; }\n");
+    op = op + PP_EMIT_STR(out, op, "elif (_c == 34) {\n");
+    # Read key into comparison
+    op = op + PP_EMIT_STR(out, op, "_p = _p + 1;\nvar _ks = _p;\nwhile (load8(json + _p) != 34) { _p = _p + 1; }\nvar _kl = _p - _ks;\n_p = _p + 1;\n");
+    # Skip colon + whitespace
+    op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) == 32 || load8(json + _p) == 58) { _p = _p + 1; }\n");
+    # Match each field
+    fi = 0;
+    while (fi < field_count) {
+        var fn_ptr = &field_names + fi * 32;
+        var fn_len = 0;
+        while (load8(fn_ptr + fn_len) != 0) { fn_len = fn_len + 1; }
+        if (fi == 0) { op = op + PP_EMIT_STR(out, op, "if"); }
+        else { op = op + PP_EMIT_STR(out, op, "elif"); }
+        op = op + PP_EMIT_STR(out, op, " (_kl == ");
+        op = op + PP_EMIT_INT(out, op, fn_len);
+        op = op + PP_EMIT_STR(out, op, " && memeq(json + _ks, \"");
+        op = op + PP_EMIT_STR(out, op, fn_ptr);
+        op = op + PP_EMIT_STR(out, op, "\", ");
+        op = op + PP_EMIT_INT(out, op, fn_len);
+        op = op + PP_EMIT_STR(out, op, ") == 1) {\n");
+        # Parse value based on type
+        if (load8(&field_types + fi * 32) != 0) {
+            # Check if Str type
+            var fjs = 0;
+            if (load8(&field_types + fi * 32) == 83) { if (load8(&field_types + fi * 32 + 1) == 116) { if (load8(&field_types + fi * 32 + 2) == 114) { if (load8(&field_types + fi * 32 + 3) == 0) { fjs = 1; } } } }
+            if (fjs == 1) {
+                # String value: read until closing quote
+                op = op + PP_EMIT_STR(out, op, "if (load8(json + _p) == 34) { _p = _p + 1; var _vs = _p;\n");
+                op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 34) { _p = _p + 1; }\n");
+                op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
+                op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+                op = op + PP_EMIT_STR(out, op, ", str_new(json + _vs, _p - _vs));\n_p = _p + 1; }\n");
+            } else {
+                # Nested struct: skip value (fall through to json_get path)
+                op = op + PP_EMIT_STR(out, op, "# nested struct — skip for single-pass\n");
+                op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 44 && load8(json + _p) != 125 && load8(json + _p) != 0) { _p = _p + 1; }\n");
+            }
+        } else {
+            # Integer value: parse decimal
+            op = op + PP_EMIT_STR(out, op, "var _neg = 0; if (load8(json + _p) == 45) { _neg = 1; _p = _p + 1; }\n");
+            op = op + PP_EMIT_STR(out, op, "var _iv = 0;\nwhile (load8(json + _p) >= 48 && load8(json + _p) <= 57) { _iv = _iv * 10 + load8(json + _p) - 48; _p = _p + 1; }\n");
+            op = op + PP_EMIT_STR(out, op, "if (_neg == 1) { _iv = 0 - _iv; }\n");
+            op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
+            op = op + PP_EMIT_INT(out, op, load64(&field_offsets + fi * 8));
+            op = op + PP_EMIT_STR(out, op, ", _iv);\n");
+        }
+        op = op + PP_EMIT_STR(out, op, "}\n");
+        fi = fi + 1;
+    }
+    # Skip unknown fields
+    op = op + PP_EMIT_STR(out, op, "else { while (load8(json + _p) != 44 && load8(json + _p) != 125 && load8(json + _p) != 0) { _p = _p + 1; } }\n");
+    op = op + PP_EMIT_STR(out, op, "} else { _p = _p + 1; }\n}\nreturn ptr;\n}\n");
     # Store output position for caller
     store64(S + 0x97400, op);
     return ip;

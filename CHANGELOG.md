@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.1] — 2026-04-11
+
+### Added
+- **`_from_json_str` single-pass deserializer**: `#derive(Serialize)` now also generates
+  `Name_from_json_str(json)` — O(json_length) single-pass parser that scans raw JSON
+  once with inline field matching. Handles integers (including negative), strings, and
+  whitespace/comma skipping. Complements existing `_from_json(pairs)` (O(n²) via json_get).
+  Unblocks agnostik performance target (~2us regardless of field count).
+
+### Fixed
+- **`cyrius audit` lint/format**: Skips symlinked dep files. Shows which specific files
+  have warnings. Reports dep file skip count. Better failure messages with file names.
+- **Roadmap stale entries**: Bug #32/#33 marked resolved. Open Limits table corrected
+  (512KB codebuf, 64KB tok_names).
+
 ## [3.4.0] — 2026-04-11
 
 ### Changed — Code Cleanup & Refactors

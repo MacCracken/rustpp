@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.4.0.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> **v3.4.1.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
 > 31 test suites (375 assertions), 4 fuzz harnesses, heap audit clean. 34 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
@@ -14,7 +14,8 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
-| 32 | **Parser overflow at ~12K expanded lines** — shravan (audio codec, 565 fns, ~2500 vars) fails with `expected ')', got identifier 'F'` on unrelated line when adding ~300 lines of new code. Suspected token/name table corruption. See `docs/development/issues/parser-overflow-large-codebase.md`. Real repro: `cd ../shravan && cyrius build src/main.cyr build/shravan` with AAC decoder added to lib/aac.cyr. | Blocking | Open |
+| 32 | ~~Parser overflow at ~12K expanded lines~~ | Blocking | **Resolved 3.3.17** | tok_names expanded 32KB→64KB (moved str_data out). LEXHEX buffer bug also fixed. |
+| 33 | ~~LEXHEX wrong buffer~~ | Medium | **Resolved 3.3.17** | Hex parser read `S+p` instead of `S+0x44A000+p`. |
 
 ## Compiler
 
@@ -106,9 +107,10 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Fixup entries | 8192 |
 | Struct fields | 32 |
 | Input buffer | 512KB |
-| Code buffer | 262144 bytes |
-| Output buffer | 262144 bytes |
+| Code buffer | 524288 bytes |
+| Output buffer | 524288 bytes |
 | String data | 32KB |
+| Identifier names | 64KB |
 | Tokens | 131072 |
 | Macros | 16 |
 
