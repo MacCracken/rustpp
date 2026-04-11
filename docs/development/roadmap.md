@@ -14,7 +14,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 | # | Bug | Severity | Status |
 |---|-----|----------|--------|
-| 36 | ~~Runtime SIGSEGV in binaries >340KB~~ | P0 | **Resolved 3.4.7** | Same root cause as #35 — str_pos/data_size corruption from ifdef copy-back. Libro+patra 343KB binary runs 240/240 tests on 3.4.9. |
+| 36 | **Runtime SIGSEGV in binaries >340KB** | **P0 — REOPENED** | NOT resolved. 3.4.9 still crashes. libro with sigil+patra+240 tests = 348KB binary. Compiles clean, runs all tests until PatraStore group, then SIGSEGV. Standalone patra test (303KB) works. The 343KB test that passed may have had fewer functions. Crash threshold appears to be ~345KB or ~250+ functions. Repro: `libro/tests/patra_crash_repro.cyr` documents exact conditions. |
 | 35 | ~~cc3 SIGSEGV on large multi-lib programs~~ | P0 | **Resolved 3.4.7** | ifdef copy-back overwrote str_pos/data_size. Re-init after preprocessing. |
 | 34 | ~~`#derive(Serialize)` duplicate variable~~ | P0 | **Resolved 3.4.4** | _from_json_str declared vars per field. Moved to function top. |
 | 32 | ~~Parser overflow at ~12K expanded lines~~ | Blocking | **Resolved 3.3.17** | tok_names expanded 32KB→64KB (moved str_data out). LEXHEX buffer bug also fixed. |
