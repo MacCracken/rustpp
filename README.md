@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-233KB compiler. Self-hosting on x86_64 and aarch64. 36 stdlib modules. 30 test suites, 0 failures.
+243KB compiler. Self-hosting on x86_64 and aarch64. 40 stdlib modules. 32 test suites, 0 failures.
 
 ## Install
 

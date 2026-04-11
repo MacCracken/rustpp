@@ -4,6 +4,19 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.11] — 2026-04-11
+
+### Added
+- **`lib/dynlib.cyr`**: Pure Cyrius dynamic library loader. Opens ELF .so files via
+  `mmap`, parses ELF64 headers, walks `.dynsym`+`.dynstr` to resolve exported symbols.
+  Supports GNU hash table (fast O(1) average lookup) with linear scan fallback.
+  API: `dynlib_open(path) → handle`, `dynlib_sym(handle, name) → fnptr`,
+  `dynlib_close(handle)`. No libc, no dlopen — pure syscalls. Module #40.
+  Unblocks FFI to wgpu-native for mabda GPU library port.
+
+### Stats
+- **40 stdlib modules + 4 deps**, 32 test suites
+
 ## [3.4.10] — 2026-04-11
 
 ### Fixed

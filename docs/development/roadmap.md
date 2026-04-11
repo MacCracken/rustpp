@@ -1,7 +1,7 @@
 # Cyrius Development Roadmap
 
-> **v3.4.10.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
-> 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean. 36 stdlib modules + 4 deps.
+> **v3.4.11.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean. 40 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
@@ -44,7 +44,7 @@ Pure Cyrius implementations — no libc, no dlopen.
 | # | Module | Effort | Status | Details |
 |---|--------|--------|--------|---------|
 | 1 | ~~`fncall3`–`fncall6` in fnptr.cyr~~ | Low | **Done (v3.4.3)** | Full System V ABI indirect calls. |
-| 2 | **`lib/dynlib.cyr`** — ELF .so loader | High | Not started | Pure Cyrius dynamic library loader. `mmap` syscall to map .so, parse ELF headers (reuse compiler's ELF knowledge), resolve `.dynsym`+`.dynstr`, process RELA relocations (R_X86_64_64, GLOB_DAT, JUMP_SLOT). API: `dynlib_open(path) → handle`, `dynlib_sym(handle, name) → fnptr`, `dynlib_close(handle)`. No libc. |
+| 2 | ~~`lib/dynlib.cyr`~~ — ELF .so loader | High | **Done (v3.4.11)** | Pure Cyrius dynamic library loader. `mmap` + ELF64 parsing. GNU hash + linear scan. `dynlib_open(path)`, `dynlib_sym(handle, name)`, `dynlib_close(handle)`. No libc. Tested against libm.so.6. |
 | 3 | **`lib/cffi.cyr`** — C struct layout | Medium | Not started | C struct layout helpers for foreign struct interop. Compute field offsets with C alignment/padding rules. `cffi_struct(field_sizes) → layout`, `cffi_read_field(ptr, offset, size)`, `cffi_write_field(ptr, offset, size, val)`. Needed for vpx_codec_ctx_t, VAImage, etc. |
 | 4 | ~~`lib/mmap.cyr`~~ — memory-mapped I/O | Low | **Done (v3.4.3)** | mmap/munmap/mprotect + convenience wrappers. |
 | 5 | **`lib/bridge.cyr`** — process bridge protocol | Medium | Not started | Structured message passing over stdin/stdout pipes for Rust↔Cyrius interop during migration. Binary protocol: `[len:u32][tag:u8][payload]`. **Temporary** — remove once bote converts to Cyrius. Primary use: tarang MCP via Rust bote subprocess. |
