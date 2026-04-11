@@ -4,6 +4,19 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.7] — 2026-04-11
+
+### Fixed
+- **Bug #35: SIGSEGV on large multi-lib programs** (libro+patra+sigil): The ifdef pass
+  copy-back (462KB from `0x44A000` to `S+0`) overwrote `str_pos` at `0x70000` and
+  `data_size` at `0x70008`. The lexer then used garbage string write positions, producing
+  corrupt binaries or segfaults. Fix: re-initialize `str_pos` and `data_size` after
+  preprocessing, before lexing. Two lines. Libro+patra: 343KB, 240/240 tests pass.
+  Unblocks libro PatraStore (SQL-backed audit persistence).
+
+### Stats
+- **32/32 cyrius, 240/240 libro+patra**
+
 ## [3.4.6] — 2026-04-11
 
 ### Added

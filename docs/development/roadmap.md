@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.4.6.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
+> **v3.4.7.** 243KB self-hosting compiler, x86_64 + aarch64. Multi-break (linked-list).
 > 31 test suites (375 assertions), 4 fuzz harnesses, heap audit clean. 34 stdlib modules + 4 deps.
 > 10+ downstream repos. 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 

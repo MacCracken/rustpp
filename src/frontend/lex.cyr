@@ -1090,6 +1090,7 @@ fn PP_PASS(S) {
 fn PP_MACRO_PASS(S) {
     if (_pp_macro_count == 0) { return 0; }
     var bl = GBL(S);
+    # Copy from 0x44A000 to S+0, save/restore state if large
     var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
@@ -1138,10 +1139,10 @@ fn PP_MACRO_PASS(S) {
 # S+0 first, then process normally with S as the base. This avoids the base address mismatch.
 fn PP_IFDEF_PASS(S) {
     var bl = GBL(S);
-    # Copy from preprocess buffer to input buffer first
+    # Copy from preprocess buffer to input buffer for processing
     var ci = 0;
     while (ci < bl) { store8(S + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
-    # Now process from S+0 (same as original single-buffer approach)
+    # Now process from S+0
     var out = S + 0x44A000;
     var op = 0;
     var ip = 0;

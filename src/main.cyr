@@ -133,7 +133,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.4.6\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.4.7\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -206,6 +206,10 @@ _init_cyrius_lib();
 
 # Preprocess includes
 PREPROCESS(S);
+
+# Re-init state that ifdef copy-back may have overwritten (for expanded source > 256KB)
+S64(S + 0x70000, 0);
+S64(S + 0x70008, 0);
 
 # Lex
 LEX(S);
