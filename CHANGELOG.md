@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.3.16] — 2026-04-10
+
+### Fixed
+- **tok_names overflow** (Bug #32): `str_data` was nested inside `tok_names` at `0x68000`,
+  limiting identifiers to 32KB. Moved `str_data` to `0x20000` (old codebuf region),
+  giving tok_names the full 64KB at `0x60000-0x70000`. Added overflow check in lexer —
+  now emits clear error instead of silent corruption. Unblocks shravan (565 fns, ~2500 vars).
+
 ## [3.3.15] — 2026-04-10
 
 ### Fixed

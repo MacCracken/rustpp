@@ -1,0 +1,58 @@
+# Reproducer: cc3 3.3.12 parser overflow with large codebase
+# Bug: adding ~300 lines of new code to a ~12K-line expanded source
+# causes "expected ')', got identifier 'F'" on an unrelated line.
+#
+# This is a minimal approximation. The real trigger is shravan
+# (audio codec lib, ~12K expanded lines) failing when AAC-LC
+# decoder code is added to lib/aac.cyr.
+#
+# Build: cyrius build tests/repro_parser_overflow.cyr build/repro
+# Expected: compiles successfully
+# Actual: error on unrelated line, citing identifier 'F' or 'FF'
+
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/string.cyr"
+
+# Generate many functions to simulate large codebase pressure
+fn f001(a, b) { var x = a + b; return x; }
+fn f002(a, b) { var x = a + b; return x; }
+fn f003(a, b) { var x = a + b; return x; }
+fn f004(a, b) { var x = a + b; return x; }
+fn f005(a, b) { var x = a + b; return x; }
+fn f006(a, b) { var x = a + b; return x; }
+fn f007(a, b) { var x = a + b; return x; }
+fn f008(a, b) { var x = a + b; return x; }
+fn f009(a, b) { var x = a + b; return x; }
+fn f010(a, b) { var x = a + b; return x; }
+
+# Function with many locals (simulates AAC decoder complexity)
+fn big_function(data, len) {
+    var a = 0; var b = 0; var c = 0; var d = 0; var e = 0;
+    var f = 0; var g = 0; var h = 0; var i = 0; var j = 0;
+    var k = 0; var l = 0; var m = 0; var n = 0; var o = 0;
+    var p = 0; var q = 0; var r = 0; var s = 0; var t = 0;
+    var u = 0; var v = 0; var w = 0; var x = 0; var y = 0;
+    a = load8(data);
+    b = load8(data + 1);
+    while (i < len) {
+        var val = load8(data + i);
+        if (val > 0) {
+            c = c + val;
+            if (val > 128) {
+                d = d + 1;
+                var tmp = val * 2;
+                if (tmp > 255) { tmp = 255; }
+                e = e + tmp;
+            }
+        }
+        i = i + 1;
+    }
+    return c + d + e;
+}
+
+alloc_init();
+var buf = alloc(100);
+var result = big_function(buf, 100);
+syscall(60, 0);

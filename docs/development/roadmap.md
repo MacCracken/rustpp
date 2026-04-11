@@ -10,6 +10,12 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 
 ---
 
+## Bugs
+
+| # | Bug | Severity | Status |
+|---|-----|----------|--------|
+| 32 | **Parser overflow at ~12K expanded lines** — shravan (audio codec, 565 fns, ~2500 vars) fails with `expected ')', got identifier 'F'` on unrelated line when adding ~300 lines of new code. Suspected token/name table corruption. See `docs/development/issues/parser-overflow-large-codebase.md`. Real repro: `cd ../shravan && cyrius build src/main.cyr build/shravan` with AAC decoder added to lib/aac.cyr. | Blocking | Open |
+
 ## Compiler
 
 | # | Feature | Effort | Status |
