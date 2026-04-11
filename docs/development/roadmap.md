@@ -31,12 +31,45 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 8 | **Dead store elimination** | Low | **Done (v3.3.2)**. Post-emit DSE pass, NOPs consecutive stores to same `[rbp-N]`. |
 | 9 | **Expanded constant folding** | Low | **Done (v3.3.1)**. Removed 16-bit limit, added `x-0`/`x*1`/`x*0` identities. |
 | 10 | **`cc3 --version`** | Low | **Done (v3.3.0)**. Reads /proc/self/cmdline for argv[1]. |
+| 11 | **PIC codegen** | High | Not started. Position-independent code for .so output. RIP-relative data refs, GOT/PLT emission. Enables Cyrius .so loadable by external consumers. |
+
+## Standard Library — FFI & Interop (tarang-driven)
+
+Needed for tarang media framework port and downstream ecosystem interop.
+Pure Cyrius implementations — no libc, no dlopen.
+
+| # | Module | Effort | Status | Details |
+|---|--------|--------|--------|---------|
+| 1 | **`fncall3`–`fncall6` in fnptr.cyr** | Low | Not started | Extend indirect calls to full System V ABI (rdi, rsi, rdx, rcx, r8, r9). Video codec APIs need 3-6 param indirect calls. Same inline asm pattern as fncall0/1/2. |
+| 2 | **`lib/dynlib.cyr`** — ELF .so loader | High | Not started | Pure Cyrius dynamic library loader. `mmap` syscall to map .so, parse ELF headers (reuse compiler's ELF knowledge), resolve `.dynsym`+`.dynstr`, process RELA relocations (R_X86_64_64, GLOB_DAT, JUMP_SLOT). API: `dynlib_open(path) → handle`, `dynlib_sym(handle, name) → fnptr`, `dynlib_close(handle)`. No libc. |
+| 3 | **`lib/cffi.cyr`** — C struct layout | Medium | Not started | C struct layout helpers for foreign struct interop. Compute field offsets with C alignment/padding rules. `cffi_struct(field_sizes) → layout`, `cffi_read_field(ptr, offset, size)`, `cffi_write_field(ptr, offset, size, val)`. Needed for vpx_codec_ctx_t, VAImage, etc. |
+| 4 | **`lib/mmap.cyr`** — memory-mapped I/O | Low | Not started | Direct syscall wrappers: `mmap(addr, len, prot, flags, fd, offset)`, `munmap(addr, len)`. Needed by dynlib.cyr, zero-copy file access, shared memory with GPU drivers. SYS_MMAP=9, SYS_MUNMAP=11. |
+| 5 | **`lib/bridge.cyr`** — process bridge protocol | Medium | Not started | Structured message passing over stdin/stdout pipes for Rust↔Cyrius interop during migration. Binary protocol: `[len:u32][tag:u8][payload]`. **Temporary** — remove once bote converts to Cyrius. Primary use: tarang MCP via Rust bote subprocess. |
+
+## Video Codec Projects (pure Cyrius, post-tarang core)
+
+Individual repos following the shravan model — focused, tested, benchmarked, then included by tarang.
+Each replaces a C FFI dependency with a pure Cyrius implementation.
+
+| # | Project | Replaces | Complexity | Status |
+|---|---------|----------|------------|--------|
+| 1 | **drishti-av1** | dav1d (AV1 decode) | Very high | Not started. Bitstream parser + transforms + motion comp + loop filters. |
+| 2 | **drishti-h264** | openh264 (H.264 decode/encode) | Very high | Not started. NAL parsing + CABAC + transforms + deblocking. |
+| 3 | **drishti-h265** | libde265 (H.265 decode) | Very high | Not started. Similar to H.264 with larger transform sizes. |
+| 4 | **drishti-vpx** | libvpx (VP8/VP9 decode/encode) | High | Not started. Bitstream + boolean coder + transforms + loop filter. |
+| 5 | **drishti-rav1e** | rav1e (AV1 encode) | High | Not started. Already pure Rust, port pattern like shravan. |
+
+**Shared primitives** (built as needed by first codec project):
+- `bitreader.cyr` — MSB/LSB bit extraction (generalize shravan's FLAC/ALAC pattern)
+- `entropy.cyr` — arithmetic/range coding (extend shravan's Opus range encoder)
+- `cabac.cyr` — context-adaptive binary arithmetic coding (H.264/H.265)
+- `boolcoder.cyr` — boolean coder (VP8/VP9)
 
 ## Platform Targets
 
 | # | Platform | Format | Status |
 |---|----------|--------|--------|
-| 1 | Linux x86_64 | ELF | **Done** — primary target, 233KB self-hosting |
+| 1 | Linux x86_64 | ELF | **Done** — primary target, 243KB self-hosting |
 | 2 | Linux aarch64 | ELF | **Done** — cc3_aarch64 cross + native |
 | 3 | macOS x86_64 | Mach-O | **Stub** (v3.1) — `src/backend/macho/emit.cyr` scaffolded |
 | 4 | macOS aarch64 | Mach-O | **Stub** — combines Mach-O emitter + existing aarch64 codegen |
@@ -44,7 +77,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 6 | RISC-V | ELF | Planned |
 | 7 | cyrius-x bytecode | .cyx | **Done** (v2.5) — VM with recursion + syscall strings |
 
-## Standard Library (38 modules)
+## Standard Library (34 modules + 4 deps)
 
 | Category | Modules |
 |----------|---------|
@@ -55,9 +88,9 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Data | json, toml, csv, base64, regex, math, matrix, bigint |
 | Network | net, http |
 | Filesystem | fs |
-| Database | patra |
-| Security | sigil |
-| Tracing | sakshi, sakshi_full |
+| Tracing (dep) | sakshi, sakshi_full |
+| Database (dep) | patra |
+| Security (dep) | sigil |
 | Time | chrono |
 | Knowledge | vidya |
 
@@ -76,7 +109,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | `cyrius fuzz` | **Done** — .fcyr harnesses + --compiler mutation mode |
 | `cyrius soak` | **Done** — overnight loop: self-host + tests + fuzz + repos |
 | `cyrius watch` | **Done** — poll + recompile on .cyr change |
-| `cyrius deps` | **Scaffold** — reads [deps] from cyrius.toml, shows map |
+| `cyrius deps` | **Done** — git fetch + symlink into lib/, `lib.cyr` → `<depname>.cyr` rename |
 | `cyrius audit` | **Done** — delegates to scripts/check.sh |
 | `cyrius fmt/lint/doc` | **Done** — cyrfmt, cyrlint, cyrdoc |
 | `cyrius init/port` | **Done** — project scaffold, Rust port scaffold |
@@ -89,12 +122,14 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | Status | Repos |
 |--------|-------|
 | **Done** | agnostik (553), agnosys (20 modules), argonaut (395), kybernet, nous, ark |
-| **Done** | sakshi (12), majra (144), libro (202), bsp (74), cyrius-doom (129KB) |
-| **Done** | sigil v2.0.0 (Ed25519, 206 assertions, 11 benchmarks) |
-| **In progress** | patra (SQL), libro |
-| **In progress** | bhava (29K), hisab (31K) — keystone ports, unlock 37 downstream |
+| **Done** | sakshi v0.9.0 (12), majra (144), bsp (74), cyrius-doom (129KB) |
+| **Done** | sigil v2.0.1 (Ed25519, 206 assertions, 11 benchmarks) |
+| **Done** | patra v0.12.0 (SQL, crypto via sigil), libro v1.0.1 (240 tests) |
+| **Done** | shravan (audio — FLAC/Opus/WAV/AIFF, 284KB) |
+| **In progress** | tarang (33K, media framework — needs FFI/dynlib for video codecs) |
+| **In progress** | argonaut (final updates), bhava (29K), hisab (31K) |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
-| **Remaining** | 103 repos (~980K lines) |
+| **Remaining** | ~100 repos (~940K lines) |
 
 ## Open Limits
 
@@ -123,7 +158,7 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 | 3 | ~~Nested if/while/break codegen~~ | agnostik | **Resolved 3.2.2** | Replaced `load8`+`==` with `strchr` for separator detection. |
 | 4 | ~~`break` in deeply nested while/if~~ | agnostik, json.cyr | **Resolved 3.3.15** | Linked-list through codebuf rel32 fields. Each break chains prev offset. Walk chain at loop exit. Zero heap, no save/restore corruption. |
 | 5 | ~~`#derive(Serialize)` composable 2-arg form~~ | agnostik | **Resolved 3.2.3** | 2-arg `_to_json_sb(ptr, sb)` form generated by derive. Str field support added. |
-| 6 | **`#derive(Deserialize)` single-pass parser** | agnostik | Request | Current manual `_from_json` does per-field string scan: O(fields × json_length). 3 fields = 2us, 9 fields = 25us. A derive-generated single-pass parser would be O(json_length), estimated ~2-3us regardless of field count. Would also fix json.cyr multi-key parsing (blocker #4). |
+| 6 | ~~`#derive(Deserialize)` single-pass parser~~ | agnostik | **Done (v3.4.1)** | `_from_json_str(json)` generated by derive — O(n) single-pass with inline field matching. Handles int/string/negative. Existing `_from_json(pairs)` kept for backward compat. |
 
 ## Known Gotchas
 
@@ -146,4 +181,4 @@ For bug history, see CHANGELOG.md (bugs #14-#31, all resolved).
 - Research before implementation — vidya entry before code
 - Test after EVERY change, not after the feature is done
 - 108 repos / ~1M lines is the real measure of success
-- **v3.2.5 is the true minimum version** — all downstream repos pin to >= 3.2.5
+- **v3.4.0 is the recommended minimum** — all downstream repos should pin to >= 3.4.0 (hex fix, 64KB tok_names, multi-break, 512KB codebuf)
