@@ -129,10 +129,10 @@ Each replaces a C FFI dependency with a pure Cyrius implementation.
 | **Done** | sigil v2.0.1 (Ed25519, 206 assertions, 11 benchmarks) |
 | **Done** | patra v0.12.0 (SQL, crypto via sigil), libro v1.0.1 (240 tests) |
 | **Done** | shravan (audio — FLAC/Opus/WAV/AIFF, 284KB) |
-| **In progress** | tarang (33K, media framework — needs FFI/dynlib for video codecs) |
+| **Done** | tarang v2.0.0 (33K→4.8K) — media framework, 13 modules, 311 assertions |
 | **In progress** | argonaut (final updates), bhava (29K), hisab (31K) |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
-| **Remaining** | ~100 repos (~940K lines) |
+| **Remaining** | ~99 repos (~907K lines) |
 
 ## Open Limits
 
