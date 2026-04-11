@@ -4,13 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [3.3.16] — 2026-04-10
+## [3.3.16] — 2026-04-11
+
+### Fixed
+- **Stale cc3 binary with r12 prologue**: The 3.3.12 r12 revert never fully committed
+  to `build/cc3`. The binary still had `push r12`/`pop r12` in every function, causing:
+  (a) 2x performance regression, (b) 7+ arg stack corruption (Bug #32 symptoms),
+  (c) aarch64 cross-compilation failure. Rebuilt from 3.3.8 bootstrap root to get
+  clean binary chain without r12.
+- **aarch64 cross-compilation restored**: 212KB cross-compiler builds successfully.
+- **r12 fully removed from source**: `_LOOPVAR_OK = 0`, prologue back to `push rbp;
+  mov rbp, rsp`, epilogue `leave; ret`, tail call path matches.
 
 ### Added
 - **Bug #32 filed**: Parser overflow at ~12K expanded lines (blocking shravan).
   Issue doc at `docs/development/issues/parser-overflow-large-codebase.md`.
-  Root cause identified: `str_data` nested inside `tok_names` limits identifiers
-  to 32KB. Expanding tok_names requires heap layout surgery — deferred to next session.
 
 ## [3.3.15] — 2026-04-10
 

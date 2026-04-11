@@ -14,9 +14,10 @@
 #
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  str_data      [32768]       string literal bytes (moved from 0x68000)
+#   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
 #   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
-#   0x60000  tok_names     [65536]       64KB packed identifier strings (full 64KB, str_data moved out)
+#   0x60000  tok_names     [65536]       64KB packed identifier strings (dedup keeps usage low)
+#   0x68000  str_data      [32768]       (nested in tok_names, expanded from 16384)
 #   0x70000  str_pos       [8]           string write position
 #   0x70008  data_size     [8]           total variable data bytes
 #
@@ -32,7 +33,7 @@
 #   0x8DA20  ret_patches   [512]         64 return patch offsets
 #   0x8DC20  ret_patch_cnt [8]
 #   0x8F838  loop_top      [8]
-#   0x8F840  (unused)      [8]           (was single break_patch, moved to 0x20000 array)
+#   0x8F840  break_patch   [8]
 #   0x8F848  extra_patches [64]          8 && condition patches
 #   0x8F888  extra_patch_cnt [8]
 #   0x8F890  ptr_scale     [8]
@@ -181,8 +182,6 @@ S64(S + 0x903E8, 0);
 S64(S + 0x903F0, 0);
 # Loop var register cache (-1 = none)
 S64(S + 0x903F8, 0 - 1);
-# Break patch array
-# break_patch at 0x8F840 is single-slot (zeroed by brk)
 # Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
 S64(S + 0x8F8A0, 0);
 # Module system
