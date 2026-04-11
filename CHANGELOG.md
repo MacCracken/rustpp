@@ -4,7 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [3.3.17] �� 2026-04-11
+## [3.4.0] — 2026-04-11
+
+### Changed — Code Cleanup & Refactors
+- **Dead loop var code removed**: All `_LOOPVAR_OK` checks, `GLVR`/`SLVR` calls,
+  `ELVRINIT` calls, and r12 store-path branches removed from parse.cyr. ELVR emit
+  functions retained as stubs (avoid undefined function warnings). ~1KB binary reduction.
+- **Heap map cleanup**: `loop_var_slot` at `0x903F8` marked unused, init removed.
+  47 regions, 0 overlaps, 1 minor gap warning.
+- **Version string length fixed**: Corrected for single-digit minor versions.
+
+### Stats
+- **cc3: 243KB** (x86_64), 211KB (aarch64 cross)
+- **31/31 cyrius, 240/240 libro**
+- **Shravan unblocked** (284KB binary compiles with tok_names 64KB)
+
+## [3.3.17] — 2026-04-11
 
 ### Fixed
 - **LEXHEX wrong buffer** (Bug #33): Hex literal parser read from `S + p` (raw input

@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 3.2.5
+- **Version**: 3.4.0
 
 ## Goal
 
@@ -14,14 +14,14 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 233KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer
-- **Tests**: 30 .tcyr files (372 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
-- **Libraries**: 36 modules (string, alloc, vec, hashmap, io, net, http, csv, base64, chrono, sakshi, patra, ...)
+- **Compiler**: 243KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer
+- **Tests**: 31 .tcyr files (375 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
+- **Libraries**: 34 stdlib modules + 4 deps (sakshi, patra, sigil via `cyrius deps`)
 - **Ecosystem**: agnostik (574), agnosys, argonaut (395), majra (144), libro (202), sakshi, bsp (74), cyrius-doom
 
 ## Consumers
 
-AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), sakshi, cyrius-doom, bsp. All AGNOS ecosystem projects depend on the compiler and stdlib.
+AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), sakshi, sigil (206 tests), libro (240 tests), shravan (audio), cyrius-doom, bsp. All AGNOS ecosystem projects depend on the compiler and stdlib.
 
 ## Bootstrap Chain
 
@@ -29,7 +29,7 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular compiler, 233KB, 8 modules)
+      → cc3 (modular compiler, 243KB, 8 modules)
         → cc3_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
@@ -99,7 +99,7 @@ src/
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
   backend/cx/        emit.cyr (cyrius-x bytecode)
   common/            util.cyr
-lib/                 Standard library (36 modules)
+lib/                 Standard library (34 modules + 4 deps)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 fuzz/                Fuzz harnesses (*.fcyr)
@@ -122,4 +122,4 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - Do not skip self-hosting verification after compiler changes
 - Do not modify parse.cyr arch-specific functions — they live in emit files
 - Do not remove build/cc3-native-aarch64 — ARM binary needed for self-hosting on ARM hardware
-- **v3.2.5 is the true minimum version** — all downstream repos must pin to >= 3.2.5 (cc3 binary, 2048 fns, defer, Str derive)
+- **v3.4.0 is the recommended minimum** — all downstream repos should pin to >= 3.4.0 (hex parser fix, tok_names 64KB, multi-break, 512KB codebuf)
