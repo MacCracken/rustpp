@@ -10,7 +10,7 @@ fn EB(S, b) {
         syscall(SYS_WRITE, 2, "/524288 bytes) — program too large for single compilation\n", 58);
         syscall(SYS_EXIT, 1);
     }
-    store8(S + 0x4CA000 + cp, b & 0xFF);
+    store8(S + 0x54A000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
@@ -312,7 +312,7 @@ fn ECALLTO(S, target) {
     EB(S, 0xE8);
     var cp = GCP(S);
     var rel = target - cp - 4;
-    var addr = S + 0x4CA000 + cp;
+    var addr = S + 0x54A000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     return 0;
@@ -415,7 +415,7 @@ fn ETAILJMP(S, fnidx) {
 
 # Helper: emit disp32 at current CP
 fn EDISP32(S, disp) {
-    var addr = S + 0x4CA000 + GCP(S);
+    var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -457,7 +457,7 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
 fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858B48);
-    var addr = S + 0x4CA000 + GCP(S);
+    var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -481,7 +481,7 @@ fn EADDIMM_X1(S, val) {
 
 # Patch frame size: write imm32 at the sub rsp placeholder
 fn EPATCHFRAME(S, patch, size) {
-    var pa = S + 0x4CA000 + patch;
+    var pa = S + 0x54A000 + patch;
     S64(pa, (L64(pa) >> 32 << 32) | (size & 0xFFFFFFFF));
     return 0;
 }
@@ -490,7 +490,7 @@ fn EPATCHFRAME(S, patch, size) {
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0x858948);
-    var addr = S + 0x4CA000 + GCP(S);
+    var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -513,7 +513,7 @@ fn ELVRSTORE(S, idx) {
 fn ELVRINIT(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     E3(S, 0xA58B4C);   # mov r12, [rbp+disp32]
-    var addr = S + 0x4CA000 + GCP(S);
+    var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;

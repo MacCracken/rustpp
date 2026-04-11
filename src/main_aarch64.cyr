@@ -11,7 +11,7 @@
 # ================================================================
 #   0x00000  input_buf     [131072]      Raw stdin input
 #   0x20000  codebuf       [262144]      Generated machine code
-#   0x5C130  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
+#   0x903F8  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
 #   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable)
 #   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
 #   0x70000  str_pos       [8]           String position (nested in str_data tail)
@@ -90,7 +90,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x5CA000);
+syscall(SYS_BRK, S + 0x64A000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -326,11 +326,11 @@ EEXIT(S);
 FIXUP(S);
 EMITELF(S);
 # Write ELF output (loop on partial writes)
-var olen = L64(S + 0x5C130);
+var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x54A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x5CA000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

@@ -15,7 +15,7 @@
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
 #   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
-#   0x5C130  elf_out_len   [8]           (nested in codebuf tail)
+#   0x903F8  elf_out_len   [8]           (nested in codebuf tail)
 #   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
 #   0x70000  str_pos       [8]           string write position
@@ -83,10 +83,10 @@
 #   0x14A000 tok_types     [1048576]     131072 token type slots
 #   0x24A000 tok_values    [1048576]     131072 token value slots
 #   0x34A000 tok_lines     [1048576]     131072 token line number slots
-#   0x44A000 preprocess_out[524288]      512KB expanded source buffer
-#   0x4CA000 codebuf       [524288]      512KB generated machine code
-#   0x54A000 output_buf    [524288]      512KB ELF output
-#   0x5CA000 brk                         5.8MB total
+#   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
+#   0x54A000 codebuf       [524288]      512KB generated machine code
+#   0x5CA000 output_buf    [524288]      512KB ELF output
+#   0x64A000 brk                         6.3MB total
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -133,7 +133,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.4.4\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.4.5\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -142,7 +142,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x5CA000);
+syscall(SYS_BRK, S + 0x64A000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -489,11 +489,11 @@ EEXIT(S);
 FIXUP(S);
 EMITELF(S);
 # Write ELF output (loop on partial writes)
-var olen = L64(S + 0x5C130);
+var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x54A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x5CA000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

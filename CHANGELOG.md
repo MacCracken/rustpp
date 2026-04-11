@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.5] — 2026-04-11
+
+### Changed
+- **Codebuf/output relocated**: Codebuf moved `0x4CA000` → `0x54A000`, output
+  `0x54A000` → `0x5CA000`. Preprocess buffer expanded 512KB → 1MB at `0x44A000`.
+  Brk extended to 6.3MB.
+- **`elf_out_len` relocated**: Moved from `0x5C130` (was inside new codebuf range)
+  to `0x903F8`. Prevented code generation from overwriting output length at ~33KB CP.
+- **Fixup pfx scratch relocated**: Moved from codebuf+128KB to output_buf+128KB.
+  Prevented variable prefix sums from overwriting generated code.
+
+### Known Issues
+- **Bug #35 still open**: Libro+patra (~600KB expanded source) crashes during
+  preprocessing. The ifdef/macro copy-back to `S+0` overflows past compiler state
+  tables at `0x8A000`. Needs double-buffer or in-place preprocessor refactor.
+
 ## [3.4.4] — 2026-04-11
 
 ### Fixed

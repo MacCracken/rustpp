@@ -100,7 +100,7 @@ fn EMITELF(S) {
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 4096;
-    var O = S + 0x54A000;
+    var O = S + 0x5CA000;
     var op = 0;
     # ELF64 header (64 bytes)
     # e_ident: ELF magic + class64 + LE + version + ELFOSABI_NONE
@@ -136,7 +136,7 @@ fn EMITELF(S) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x40000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x5C130, op);
+    S64(S + 0x903F8, op);
     return 0;
 }
 
@@ -153,7 +153,7 @@ fn EMITELF_KERNEL(S) {
     var memsz = filesz + 65536;
     var base = 0x40000000;
     var entry = base + 120;
-    var O = S + 0x54A000;
+    var O = S + 0x5CA000;
     var op = 0;
     # ELF64 header (64 bytes)
     S64(O + op, 0x00010102464C457F); op = op + 8;
@@ -206,6 +206,6 @@ fn EMITELF_KERNEL(S) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x40000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x5C130, op);
+    S64(S + 0x903F8, op);
     return 0;
 }
