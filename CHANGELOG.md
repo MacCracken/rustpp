@@ -4,7 +4,7 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [3.4.6] — 2026-04-11
+## [3.4.5] — 2026-04-11
 
 ### Added
 - **`lib/audio.cyr`**: ALSA PCM audio device I/O via direct ioctls. Pure syscall
