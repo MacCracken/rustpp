@@ -4,6 +4,15 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.2] — 2026-04-11
+
+### Changed
+- **Patra dep updated to 0.13.0**: Now uses `dist/patra.cyr` (bundled 3,013-line single
+  file, no SHA-256, no stdlib baked in). Resolves libro include conflicts.
+- **`cyrius.toml` version synced to 3.4.1**.
+- **Roadmap cleanup**: patra/libro moved to Done, shravan added, blocker #6 resolved,
+  `cyrius deps` marked Done, stale counts/versions corrected.
+
 ## [3.4.1] — 2026-04-11
 
 ### Added
