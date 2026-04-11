@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.6] — 2026-04-11
+
+### Added
+- **`tests/tcyr/regression.tcyr`**: Comprehensive regression test suite — 35 assertions
+  covering all fixed bugs: 7+ stack args, multi-break, nested break, for-break, hex
+  parsing, derive duplicate var, fncall3-6, inlining, DSE, constant folding, defer LIFO.
+
+### Fixed
+- **Multi-break re-applied** (Blocker #4): Linked-list break patching was accidentally
+  reverted in 3.3.15 debug session. Re-applied for all loop types. Multiple `break`
+  statements in same loop now all work. Caught by regression test.
+
+### Stats
+- **32/32 cyrius (incl regression), 240/240 libro**
+
 ## [3.4.5] — 2026-04-11
 
 ### Added

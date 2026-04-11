@@ -2083,11 +2083,13 @@ fn PARSE_WHILE(S) {
     EJMP(S, loop_top);
     PATCHXP(S);
     EPATCH(S, patch);
-    # Patch break jump if one was emitted (0x8F840 holds patch offset, 0 if none)
+    # Patch all break jumps (linked list through codebuf rel32 fields)
     var brk_patch = L64(S + 0x8F840);
-    if (brk_patch > 0) {
+    while (brk_patch > 0) {
+        var _ba = S + 0x54A000 + brk_patch;
+        var _nb = L64(_ba) & 0xFFFFFFFF;
         EPATCH(S, brk_patch);
-        S64(S + 0x8F840, 0);
+        brk_patch = _nb;
     }
     S64(S + 0x8F838, saved_ltop);
     S64(S + 0x8F840, saved_brk);
@@ -2228,7 +2230,7 @@ fn PARSE_FOR(S) {
                 PATCHXP(S);
                 EPATCH(S, ficond);
                 var fibrk = L64(S + 0x8F840);
-                if (fibrk > 0) { EPATCH(S, fibrk); }
+                while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
                 S64(S + 0x8F838, fislt);
                 S64(S + 0x8F840, fisbk);
                 S64(S + 0x8F8A0, fiscfw);
@@ -2290,7 +2292,7 @@ fn PARSE_FOR(S) {
             PATCHXP(S);
             EPATCH(S, ficond);
             var fibrk = L64(S + 0x8F840);
-            if (fibrk > 0) { EPATCH(S, fibrk); }
+            while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
             S64(S + 0x8F838, fislt);
             S64(S + 0x8F840, fisbk);
             S64(S + 0x8F8A0, fiscfw);
@@ -2356,7 +2358,7 @@ fn PARSE_FOR(S) {
     PATCHXP(S);
     EPATCH(S, cpat);
     var bpat = L64(S + 0x8F840);
-    if (bpat > 0) { EPATCH(S, bpat); }
+    while (bpat > 0) { var _bpa = S + 0x54A000 + bpat; var _bnb = L64(_bpa) & 0xFFFFFFFF; EPATCH(S, bpat); bpat = _bnb; }
     SCOPE_POP(S);
     S64(S + 0x8F838, slt);
     S64(S + 0x8F840, sbk);
@@ -3135,13 +3137,17 @@ fn PARSE_STMT(S) {
     if (typ == 57) { PARSE_SWITCH(S); return 0; }
     if (typ == 75) { PARSE_MATCH(S); return 0; }
     if (typ == 33) { PARSE_RETURN(S); return 0; }
-    # break; — forward jump to after loop (single break per loop)
+    # break; — forward jump to after loop (linked list through codebuf)
     if (typ == 51) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        # Emit jmp placeholder, store patch offset at S+0x8F840
-        S64(S + 0x8F840, EJMP0(S));
+        var prev_brk = L64(S + 0x8F840);
+        var brk_off = EJMP0(S);
+        # Store prev break offset in this jmp's rel32 field (chain link)
+        var brk_addr = S + 0x54A000 + brk_off;
+        S64(brk_addr, (L64(brk_addr) >> 32 << 32) | (prev_brk & 0xFFFFFFFF));
+        S64(S + 0x8F840, brk_off);
         return 0;
     }
     # defer { body } — execute body at function return (LIFO)

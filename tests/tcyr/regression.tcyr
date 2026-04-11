@@ -1,0 +1,226 @@
+# regression.tcyr — regression tests for fixed compiler bugs
+# Every bug fix should have a test here to prevent recurrence.
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/freelist.cyr"
+include "lib/hashmap.cyr"
+include "lib/json.cyr"
+include "lib/fnptr.cyr"
+
+# ================================================================
+# Bug #32 regression: 7+ function arguments (3.3.11)
+# push r12 shifted stack, args 7+ read wrong values
+# ================================================================
+
+fn add7(a, b, c, d, e, f, g) { return a + b + c + d + e + f + g; }
+fn add8(a, b, c, d, e, f, g, h) { return a + b + c + d + e + f + g + h; }
+
+fn test_stack_args() {
+    test_group("7+ stack args");
+    assert_eq(add7(1, 2, 3, 4, 5, 6, 7), 28, "7 args sum=28");
+    assert_eq(add8(1, 2, 3, 4, 5, 6, 7, 8), 36, "8 args sum=36");
+    assert_eq(add7(10, 20, 30, 40, 50, 60, 70), 280, "7 args large");
+    assert_eq(add8(100, 200, 300, 400, 500, 600, 700, 800), 3600, "8 args large");
+}
+
+# ================================================================
+# Break linked-list regression (3.3.15)
+# Single break slot only patched last break; earlier breaks jumped to garbage
+# ================================================================
+
+fn test_multi_break() {
+    test_group("multi break");
+    var i = 0;
+    var found = 0;
+    while (i < 100) {
+        if (i == 5) { found = 1; break; }
+        if (i == 10) { found = 2; break; }
+        if (i == 15) { found = 3; break; }
+        i = i + 1;
+    }
+    assert_eq(found, 1, "first break at 5");
+    assert_eq(i, 5, "stopped at 5");
+}
+
+fn test_nested_break() {
+    test_group("nested break");
+    var outer = 0;
+    var inner_sum = 0;
+    while (outer < 3) {
+        var inner = 0;
+        while (inner < 100) {
+            if (inner == 5) { break; }
+            inner = inner + 1;
+        }
+        inner_sum = inner_sum + inner;
+        outer = outer + 1;
+    }
+    assert_eq(outer, 3, "outer completed");
+    assert_eq(inner_sum, 15, "inner broke at 5 each time");
+}
+
+fn test_break_in_for() {
+    test_group("break in for");
+    var found = 0;
+    for (var i = 0; i < 100; i = i + 1) {
+        if (i == 42) { found = i; break; }
+    }
+    assert_eq(found, 42, "for break at 42");
+}
+
+# ================================================================
+# Hex literal parsing regression (3.3.17)
+# LEXHEX read from S+p instead of S+0x44A000+p
+# ================================================================
+
+fn test_hex_parsing() {
+    test_group("hex literals");
+    assert_eq(0xFF, 255, "0xFF");
+    assert_eq(0xAB, 171, "0xAB");
+    assert_eq(0x1A, 26, "0x1A");
+    assert_eq(0x1A2, 418, "0x1A2");
+    assert_eq(0x44A, 1098, "0x44A");
+    # Large hex with mixed digits and letters
+    var big = 0x44A000;
+    assert_eq(big, 4497408, "0x44A000");
+    assert_eq(big >> 20, 4, "0x44A000 >> 20");
+}
+
+# ================================================================
+# Derive Serialize/Deserialize regression (3.4.4)
+# _from_json_str declared var _neg/_iv/_vs per field, duplicate on 2nd field
+# ================================================================
+
+#derive(Serialize)
+struct RegrPoint { x; y; }
+
+#derive(Serialize)
+struct RegrConfig { name: Str; value; count; }
+
+fn test_derive_regression() {
+    test_group("derive serialize");
+    var p = RegrPoint { 42, 99 };
+    var p2 = RegrPoint_from_json_str("{\"x\":42,\"y\":99}");
+    assert_eq(load64(p2), 42, "from_json_str x");
+    assert_eq(load64(p2 + 8), 99, "from_json_str y");
+
+    test_group("derive multi-field");
+    # Config has Str + 2 ints — tests duplicate var fix
+    var c = RegrConfig_from_json_str("{\"name\":\"test\",\"value\":10,\"count\":3}");
+    assert_eq(load64(c + 8), 10, "config value");
+    assert_eq(load64(c + 16), 3, "config count");
+}
+
+# ================================================================
+# fncall3-6 regression (3.4.3)
+# Indirect calls with 3-6 args via System V ABI
+# ================================================================
+
+fn mul3(a, b, c) { return a * b * c; }
+fn sum4(a, b, c, d) { return a + b + c + d; }
+fn sum6(a, b, c, d, e, f) { return a + b + c + d + e + f; }
+
+fn test_fncall() {
+    test_group("fncall indirect");
+    assert_eq(fncall3(&mul3, 2, 3, 7), 42, "fncall3");
+    assert_eq(fncall4(&sum4, 10, 20, 30, 40), 100, "fncall4");
+    assert_eq(fncall6(&sum6, 1, 2, 3, 4, 5, 6), 21, "fncall6");
+}
+
+# ================================================================
+# Small function inlining regression (3.3.5)
+# 2-param functions should inline correctly
+# ================================================================
+
+fn add_inline(a, b) { return a + b; }
+fn mul_inline(a, b) { return a * b; }
+
+fn test_inlining() {
+    test_group("2-param inline");
+    assert_eq(add_inline(20, 22), 42, "add inline");
+    assert_eq(mul_inline(6, 7), 42, "mul inline");
+    # Nested inline calls
+    assert_eq(add_inline(mul_inline(3, 4), mul_inline(5, 6)), 42, "nested inline");
+}
+
+# ================================================================
+# Dead store elimination regression (3.3.2)
+# ================================================================
+
+fn test_dse() {
+    test_group("dead store elimination");
+    var x = 0;
+    x = 42;
+    assert_eq(x, 42, "DSE var init then assign");
+    var y = 99;
+    y = y + 1;
+    assert_eq(y, 100, "DSE increment");
+}
+
+# ================================================================
+# Constant folding regression (3.3.1)
+# ================================================================
+
+fn test_const_fold() {
+    test_group("constant folding");
+    assert_eq(320 * 200, 64000, "large multiply");
+    assert_eq(50 * 1000, 50000, "50*1000 folds");
+    var x = 42;
+    assert_eq(x + 0, 42, "x+0 identity");
+    assert_eq(x - 0, 42, "x-0 identity");
+    assert_eq(x * 1, 42, "x*1 identity");
+    assert_eq(x * 0, 0, "x*0 zero");
+}
+
+# ================================================================
+# Defer statement regression (3.2.0)
+# ================================================================
+
+var _defer_order = 0;
+
+fn defer_test_fn() {
+    _defer_order = 0;
+    defer { _defer_order = _defer_order * 10 + 1; }
+    defer { _defer_order = _defer_order * 10 + 2; }
+    _defer_order = 3;
+    return 0;
+}
+
+fn test_defer() {
+    test_group("defer LIFO");
+    defer_test_fn();
+    # Execution: _defer_order=3, then defer2 (3*10+2=32), then defer1 (32*10+1=321)
+    assert_eq(_defer_order, 321, "defer LIFO order");
+}
+
+# ================================================================
+# Entry point
+# ================================================================
+
+fn main() {
+    alloc_init();
+
+    test_stack_args();
+    test_multi_break();
+    test_nested_break();
+    test_break_in_for();
+    test_hex_parsing();
+    test_derive_regression();
+    test_fncall();
+    test_inlining();
+    test_dse();
+    test_const_fold();
+    test_defer();
+
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);
