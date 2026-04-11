@@ -151,6 +151,31 @@ fn test_inlining() {
 }
 
 # ================================================================
+# Gotcha #6 regression: nested while + load8 + break (3.4.6)
+# CSV-style parsing with shared pos var across nested while loops
+# ================================================================
+
+fn test_nested_while_load8() {
+    test_group("nested while load8");
+    var buf = "3,7,2,5";
+    var len = 7;
+    var sum = 0;
+    var pos = 0;
+    while (pos < len) {
+        var val = 0;
+        while (pos < len) {
+            var c = load8(buf + pos);
+            if (c == 44) { pos = pos + 1; break; }
+            if (c == 0) { break; }
+            val = val * 10 + (c - 48);
+            pos = pos + 1;
+        }
+        sum = sum + val;
+    }
+    assert_eq(sum, 17, "CSV 3+7+2+5=17");
+}
+
+# ================================================================
 # Dead store elimination regression (3.3.2)
 # ================================================================
 
@@ -215,6 +240,7 @@ fn main() {
     test_derive_regression();
     test_fncall();
     test_inlining();
+    test_nested_while_load8();
     test_dse();
     test_const_fold();
     test_defer();
