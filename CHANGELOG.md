@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.9] — 2026-04-12
+
+### Fixed
+- **String data buffer expanded 32KB → 256KB** (`src/frontend/lex.cyr`):
+  avatara hit the 32KB string literal limit. The buffer at `0x14A000`
+  (relocated in v3.6.7) has 1MB of available space from the old tok_types
+  region. Raised the cap check from 32768 to 262144. Avatara now compiles
+  past the string limit (hits a parse error in its own code, not a compiler
+  limit).
+
+### Stats
+- **cc3: 290,224 bytes**, 36 test suites
+- String data: 256KB (was 32KB)
+
 ## [3.6.8] — 2026-04-12
 
 ### Changed

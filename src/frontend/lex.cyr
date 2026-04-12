@@ -1772,8 +1772,8 @@ fn LEX(S) {
                 sstart = interned;
             } else {
                 spos = spos + 1;
-                if (spos >= 32768) {
-                    syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
+                if (spos >= 262144) {
+                    syscall(SYS_WRITE, 2, "error: string data buffer full (256KB limit)\n", 44);
                     syscall(SYS_EXIT, 1);
                 }
                 SSPOS(S, spos);

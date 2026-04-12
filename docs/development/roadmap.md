@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.6.8.** 290KB self-hosting compiler, x86_64 + aarch64.
+> **v3.6.9.** 290KB self-hosting compiler, x86_64 + aarch64.
 > 33 test suites (491 assertions), 5 fuzz harnesses, 10 benchmarks, heap audit clean.
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 256KB input_buf, 1MB codebuf, 1MB preprocess_out, 64KB tok_names, 262K tokens.
@@ -15,8 +15,14 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| Ifdef copy-back >256KB corrupts runtime string data | Argonaut mega-test runtime crash (compile works) | Tracked — proper fix eliminates copy-back |
-| Libro PatraStore tests crash cumulatively | Libro 1.0.2 gated tests | Tracked — state interaction needs isolation |
+| Libro PatraStore stack corruption in large binaries | Libro 1.0.3 gated tests | Tracked — str_builder + patra_exec interaction in >300KB binaries |
+| Avatara parse error at line 6819 | Avatara 2.0.0 build | Avatara-side — `expected ')', got '.'` after v3.6.9 unblocked string limit |
+
+Recently resolved:
+- ~~String data 32KB~~ — **Fixed v3.6.9** (expanded to 256KB, unblocked avatara)
+- ~~Ifdef copy-back >256KB~~ — **Fixed v3.6.5** (mmap temp buffer)
+- ~~Struct limit 32~~ — **Fixed v3.6.6** (expanded to 64)
+- ~~Input buffer 256KB~~ — **Fixed v3.6.7** (expanded to 512KB)
 
 ---
 
@@ -196,7 +202,7 @@ All core tooling complete:
 | Input buffer | 256KB | Expanded from 128KB in v3.4.19 — hard error on overflow, not silent truncation |
 | Code buffer | 1MB | Expanded from 512KB in v3.5.2 |
 | Output buffer | 512KB | |
-| String data | 32KB | |
+| String data | 256KB | Expanded from 32KB in v3.6.9 — avatara needed ~187KB of unique string literals |
 | Identifier names | 64KB | Expanded in v3.3.17 |
 | Tokens | 262144 | Expanded from 131072 in v3.6.2 — arrays relocated past brk |
 
