@@ -3148,8 +3148,89 @@ fn PARSE_MATCH(S) {
     return 0;
 }
 
+# Evaluate a single constant atom for #assert: number literal or sizeof(T).
+# Returns the constant value. Advances TI past the consumed tokens.
+fn _EVAL_CONST_ATOM(S) {
+    var t = PEEKT(S);
+    if (t == 1) {
+        var v = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        return v;
+    }
+    if (t == 2) {
+        var noff = PEEKV(S);
+        # sizeof(Type)
+        if (L64(S + 0x60000 + noff) & 0xFFFFFFFFFFFF == 0x666F657A6973) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            var szval = 0;
+            if (PEEKT(S) == 2) {
+                var szn = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                var szname = L64(S + 0x60000 + szn);
+                if (szname & 0xFFFF == 0x3869) { szval = 1; }
+                elif (szname & 0xFFFFFF == 0x363169) { szval = 2; }
+                elif (szname & 0xFFFFFF == 0x323369) { szval = 4; }
+                elif (szname & 0xFFFFFF == 0x343669) { szval = 8; }
+                else {
+                    var szsid = FINDSTRUCT(S, szn);
+                    if (szsid > 0) { szval = STRUCTSZ(S, szsid - 1); }
+                    else { ERR_MSG(S, "#assert: unknown type in sizeof", 31); }
+                }
+            }
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            return szval;
+        }
+        ERR_MSG(S, "#assert: expected number or sizeof()", 36);
+    }
+    ERR_MSG(S, "#assert: expected constant expression", 37);
+    return 0;
+}
+
 fn PARSE_STMT(S) {
     var typ = PEEKT(S);
+    # #assert EXPR OP EXPR, "msg" — compile-time check (v3.5.0)
+    if (typ == 107) {
+        STI(S, GTI(S) + 1);
+        var lhs = _EVAL_CONST_ATOM(S);
+        # Check for comparison operator
+        var op = PEEKT(S);
+        if (op >= 17 && op <= 22) {
+            STI(S, GTI(S) + 1);
+            var rhs = _EVAL_CONST_ATOM(S);
+            var result = 0;
+            if (op == 17) { if (lhs == rhs) { result = 1; } }
+            if (op == 18) { if (lhs != rhs) { result = 1; } }
+            if (op == 19) { if (lhs < rhs) { result = 1; } }
+            if (op == 20) { if (lhs > rhs) { result = 1; } }
+            if (op == 21) { if (lhs <= rhs) { result = 1; } }
+            if (op == 22) { if (lhs >= rhs) { result = 1; } }
+            lhs = result;
+        }
+        # lhs is now the assertion value (0 = fail, non-zero = pass)
+        if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+        if (lhs == 0) {
+            syscall(SYS_WRITE, 2, "error:", 6);
+            PRNUM(GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": #assert failed", 16);
+            if (PEEKT(S) == 30) {
+                # String token value is (offset << 16) | length
+                var sv = PEEKV(S);
+                var soff = sv >> 16;
+                var slen = sv & 0xFFFF;
+                syscall(SYS_WRITE, 2, ": ", 2);
+                syscall(SYS_WRITE, 2, S + 0x40000 + soff, slen);
+            }
+            syscall(SYS_WRITE, 2, "\n", 1);
+            syscall(SYS_EXIT, 1);
+        }
+        # Skip to end of line (consume remaining tokens until ; or newline change)
+        while (PEEKT(S) != 5 && PEEKT(S) != 12) { STI(S, GTI(S) + 1); }
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        return 0;
+    }
     if (typ == 3) { PARSE_VAR(S); return 0; }
     if (typ == 15) { PARSE_IF(S); return 0; }
     if (typ == 16) { PARSE_WHILE(S); return 0; }

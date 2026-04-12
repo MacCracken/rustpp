@@ -1584,8 +1584,28 @@ fn LEX(S) {
             if (c == 10) { SCLINE(S, GCLINE(S) + 1); }
             p = p + 1;
         }
-        # Comment — skip to newline
+        # Comment or #assert directive
         else { if (c == 35) {
+            # Check for #assert (35 97 115 115 101 114 116 = #assert)
+            if (p + 6 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 97) {
+                    if (load8(S + 0x44A000 + p + 2) == 115) {
+                        if (load8(S + 0x44A000 + p + 3) == 115) {
+                            if (load8(S + 0x44A000 + p + 4) == 101) {
+                                if (load8(S + 0x44A000 + p + 5) == 114) {
+                                    if (load8(S + 0x44A000 + p + 6) == 116) {
+                                        # Emit token 107 = HASH_ASSERT, skip "assert"
+                                        ADDTOK(S, 107, 0);
+                                        p = p + 7;
+                                        # Skip whitespace after #assert
+                                        while (p < bl) {
+                                            var wc = load8(S + 0x44A000 + p);
+                                            if (wc == 32 || wc == 9) { p = p + 1; }
+                                            else { break; }
+                                        }
+                                        continue;
+            } } } } } } }
+            # Regular comment — skip to newline
             p = p + 1;
             var cgo = 1;
             while (cgo == 1) {
