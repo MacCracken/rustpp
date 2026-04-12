@@ -1,0 +1,133 @@
+# cffi.tcyr — tests for C struct layout helpers
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/cffi.cyr"
+
+fn test_basic_layout() {
+    test_group("cffi basic layout");
+    # Simple struct: { u32, u32, ptr }
+    var lay = cffi_struct_new();
+    var o0 = cffi_field(lay, CFFI_U32);
+    var o1 = cffi_field(lay, CFFI_U32);
+    var o2 = cffi_field(lay, CFFI_PTR);
+    assert_eq(o0, 0, "u32 at 0");
+    assert_eq(o1, 4, "u32 at 4");
+    assert_eq(o2, 8, "ptr at 8 (aligned)");
+    assert_eq(cffi_sizeof(lay), 16, "total 16");
+    assert_eq(cffi_field_count(lay), 3, "3 fields");
+}
+
+fn test_padding() {
+    test_group("cffi padding");
+    # struct { u8, u64 } → u8 at 0, pad 7, u64 at 8
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_U8);
+    var o1 = cffi_field(lay, CFFI_U64);
+    assert_eq(o1, 8, "u64 padded to 8");
+    assert_eq(cffi_sizeof(lay), 16, "total 16 (8-aligned)");
+}
+
+fn test_tail_padding() {
+    test_group("cffi tail padding");
+    # struct { u64, u8 } → total should be 16 (padded to 8-alignment)
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_U64);
+    cffi_field(lay, CFFI_U8);
+    assert_eq(cffi_sizeof(lay), 16, "tail padded to 16");
+}
+
+fn test_all_u32() {
+    test_group("cffi all u32");
+    # struct { u32, u32, u32 } → no padding needed, 4-aligned
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_U32);
+    cffi_field(lay, CFFI_U32);
+    cffi_field(lay, CFFI_U32);
+    assert_eq(cffi_offset(lay, 0), 0, "f0 at 0");
+    assert_eq(cffi_offset(lay, 1), 4, "f1 at 4");
+    assert_eq(cffi_offset(lay, 2), 8, "f2 at 8");
+    assert_eq(cffi_sizeof(lay), 12, "total 12");
+}
+
+fn test_mixed() {
+    test_group("cffi mixed");
+    # Simulate WGPUTextureDescriptor-like layout:
+    # { ptr, ptr+u64(stringview), u64, u32, u32, u32, u32, u32, u32, u32, pad4, usize, ptr }
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_PTR);     # +0  nextInChain
+    cffi_field(lay, CFFI_PTR);     # +8  label.data
+    cffi_field(lay, CFFI_U64);     # +16 label.length
+    cffi_field(lay, CFFI_U64);     # +24 usage
+    cffi_field(lay, CFFI_U32);     # +32 dimension
+    cffi_field(lay, CFFI_U32);     # +36 size.width
+    cffi_field(lay, CFFI_U32);     # +40 size.height
+    cffi_field(lay, CFFI_U32);     # +44 size.depthOrArrayLayers
+    cffi_field(lay, CFFI_U32);     # +48 format
+    cffi_field(lay, CFFI_U32);     # +52 mipLevelCount
+    cffi_field(lay, CFFI_U32);     # +56 sampleCount
+    # Need pad4 to align next usize to 8
+    cffi_field(lay, CFFI_U32);     # +60 padding (explicit)
+    cffi_field(lay, CFFI_USIZE);   # +64 viewFormatCount
+    cffi_field(lay, CFFI_PTR);     # +72 viewFormats
+    assert_eq(cffi_offset(lay, 12), 64, "viewFormatCount at 64");
+    assert_eq(cffi_offset(lay, 13), 72, "viewFormats at 72");
+    assert_eq(cffi_sizeof(lay), 80, "WGPUTextureDescriptor-like = 80");
+}
+
+fn test_nested_struct() {
+    test_group("cffi nested struct");
+    # Inner: { u32, u32 } = 8 bytes, 4-aligned
+    var inner = cffi_struct_new();
+    cffi_field(inner, CFFI_U32);
+    cffi_field(inner, CFFI_U32);
+    # Outer: { ptr, inner, u64 }
+    var outer = cffi_struct_new();
+    cffi_field(outer, CFFI_PTR);
+    cffi_field_struct(outer, cffi_sizeof(inner), cffi_max_align(inner));
+    var o2 = cffi_field(outer, CFFI_U64);
+    assert_eq(cffi_offset(outer, 1), 8, "inner at 8");
+    assert_eq(o2, 16, "u64 at 16");
+    assert_eq(cffi_sizeof(outer), 24, "outer = 24");
+}
+
+fn test_array_field() {
+    test_group("cffi array field");
+    # struct { u32, u32[4], ptr }
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_U32);
+    cffi_field_array(lay, CFFI_U32, 4);
+    var o2 = cffi_field(lay, CFFI_PTR);
+    assert_eq(cffi_offset(lay, 1), 4, "array at 4");
+    assert_eq(o2, 24, "ptr at 24 (4+16, 8-aligned)");
+    assert_eq(cffi_sizeof(lay), 32, "total 32");
+}
+
+fn test_read_write() {
+    test_group("cffi read/write");
+    var lay = cffi_struct_new();
+    cffi_field(lay, CFFI_U32);
+    cffi_field(lay, CFFI_U64);
+    var buf = alloc(cffi_sizeof(lay));
+    cffi_set32(buf, lay, 0, 42);
+    cffi_set64(buf, lay, 1, 1234567890);
+    assert_eq(cffi_get32(buf, lay, 0), 42, "read u32");
+    assert_eq(cffi_get64(buf, lay, 1), 1234567890, "read u64");
+}
+
+fn main() {
+    alloc_init();
+    test_basic_layout();
+    test_padding();
+    test_tail_padding();
+    test_all_u32();
+    test_mixed();
+    test_nested_struct();
+    test_array_field();
+    test_read_write();
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);
