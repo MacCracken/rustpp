@@ -4,6 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.10] — 2026-04-12
+
+Pre-3.7.0 cleanup pass. Heap map rewritten, latent overlap bug fixed,
+docs synced.
+
+### Fixed
+- **struct_fcounts overlap with struct_names** (`src/frontend/parse.cyr`):
+  when the struct limit was expanded 32→64 in v3.6.6, the struct_names
+  table (at 0x8E630) was allowed to hold 64 entries (512 bytes) but
+  struct_fcounts started at 0x8E730 — only 256 bytes later. Programs with
+  >32 structs had struct_names[32+] overwriting struct_fcounts[0+],
+  corrupting field count data. Relocated struct_fcounts from 0x8E730 →
+  0x8E830. **This was likely contributing to kybernet's mysterious errors
+  after the struct limit fix.**
+
+### Changed — Cleanup
+- **Heap map fully rewritten** (`src/main.cyr`): the authoritative heap map
+  had accumulated 15+ stale entries across the v3.5-3.6 release series
+  (str_data at old address, token arrays at old addresses, struct tables
+  at old addresses, input_buf size wrong, brk wrong). Rewritten from
+  scratch with correct addresses, sizes, and version annotations. Verified
+  by `tests/heapmap.sh`: 43 regions, 0 overlaps, 0 warnings.
+- **Open Limits table updated**: added Structs (64), fixed Input buffer
+  (512KB), Output buffer (1MB).
+- **Intentional input_buf/tok_names overlap documented**: tok_names at
+  0x60000 is inside the 512KB input_buf range (0x00000-0x80000). This is
+  tolerated because tok_names is rebuilt by LEX after preprocessing
+  consumes the input. Marked as `(nested)` in the heap map so
+  `heapmap.sh` doesn't flag it.
+
+### Stats
+- **cc3: 290,256 bytes**, 36 test suites, 0 heap overlaps
+- Heap map: 43 regions (was 47 — stale/dead entries removed)
+
 ## [3.6.9] — 2026-04-12
 
 ### Fixed

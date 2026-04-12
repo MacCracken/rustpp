@@ -27,7 +27,7 @@ fn REGSTRUCT(S, noff) {
         ERR_MSG(S, "too many struct definitions (max 64)", 36);
     }
     S64(S + 0x8E630 + sc * 8, noff);
-    S64(S + 0x8E730 + sc * 8, 0);
+    S64(S + 0x8E830 + sc * 8, 0);
     SSTC(S, sc + 1);
     return sc + 1;
 }
@@ -46,20 +46,20 @@ fn FINDSTRUCT(S, noff) {
 
 # Add field to struct (0-based struct index si), ftype = struct_id or 0 for scalar
 fn ADDFIELD(S, si, fnoff) {
-    var fc = L64(S + 0x8E730 + si * 8);
+    var fc = L64(S + 0x8E830 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
     S64(S + 0xDCA000 + si * 256 + fc * 8, fnoff);
     S64(S + 0xD4A000 + si * 256 + fc * 8, 0);
-    S64(S + 0x8E730 + si * 8, fc + 1);
+    S64(S + 0x8E830 + si * 8, fc + 1);
     return 0;
 }
 
 fn ADDFIELDTYPED(S, si, fnoff, ftype) {
-    var fc = L64(S + 0x8E730 + si * 8);
+    var fc = L64(S + 0x8E830 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
     S64(S + 0xDCA000 + si * 256 + fc * 8, fnoff);
     S64(S + 0xD4A000 + si * 256 + fc * 8, ftype);
-    S64(S + 0x8E730 + si * 8, fc + 1);
+    S64(S + 0x8E830 + si * 8, fc + 1);
     return 0;
 }
 
@@ -209,8 +209,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
 }
 
 # Get field count for struct (0-based index). High bit = union flag.
-fn GETFCOUNT(S, si) { return L64(S + 0x8E730 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
-fn ISUNION(S, si) { return L64(S + 0x8E730 + si * 8) >> 63; }
+fn GETFCOUNT(S, si) { return L64(S + 0x8E830 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
+fn ISUNION(S, si) { return L64(S + 0x8E830 + si * 8) >> 63; }
 
 # Find field index in struct (0-based struct index), return field index or -1
 fn FINDFIELD(S, si, fnoff) {
@@ -284,7 +284,7 @@ fn PARSE_UNION_DEF(S) {
     var sid = REGSTRUCT(S, noff);
     var si = sid - 1;
     # Set union flag (high bit of fcount)
-    S64(S + 0x8E730 + si * 8, 1 << 63);
+    S64(S + 0x8E830 + si * 8, 1 << 63);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
     var go = 1;

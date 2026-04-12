@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.6.9.** 290KB self-hosting compiler, x86_64 + aarch64.
+> **v3.6.10.** 290KB self-hosting compiler, x86_64 + aarch64.
 > 33 test suites (491 assertions), 5 fuzz harnesses, 10 benchmarks, heap audit clean.
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 256KB input_buf, 1MB codebuf, 1MB preprocess_out, 64KB tok_names, 262K tokens.
@@ -199,9 +199,10 @@ All core tooling complete:
 | Locals per function | 256 | |
 | Fixup entries | 8192 | |
 | Struct fields | 32 | |
-| Input buffer | 256KB | Expanded from 128KB in v3.4.19 — hard error on overflow, not silent truncation |
+| Structs | 64 | Expanded from 32 in v3.6.6 |
+| Input buffer | 512KB | Expanded from 256KB in v3.6.7 — hard error on overflow |
 | Code buffer | 1MB | Expanded from 512KB in v3.5.2 |
-| Output buffer | 512KB | |
+| Output buffer | 1MB | Expanded from 512KB in v3.5.2 |
 | String data | 256KB | Expanded from 32KB in v3.6.9 — avatara needed ~187KB of unique string literals |
 | Identifier names | 64KB | Expanded in v3.3.17 |
 | Tokens | 262144 | Expanded from 131072 in v3.6.2 — arrays relocated past brk |

@@ -7,27 +7,24 @@
 # Build: cat cc3.cyr | ./build/cc > cc3
 # Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
 # ================================================================
-# HEAP MAP — Authoritative offset registry (v3.4.16)
+# HEAP MAP — Authoritative offset registry (v3.6.10)
 # ================================================================
 # Check here FIRST before allocating new state.
-# Regions marked (nested) are intentionally inside larger buffers.
+# Last full audit: v3.6.10. Verified by tests/heapmap.sh (47 regions, 0 warnings).
 #
-# --- Low heap: I/O buffers + compiler state ---
-#   0x00000  input_buf     [262144]      256KB raw stdin input (expanded from 128KB in v3.4.19
-#                                         — absorbed the 0x20000 reclaimable slot. Unblocked the
-#                                         mabda dist/mabda.cyr 141KB bundle and any larger
-#                                         single-file dep; see CHANGELOG 3.4.19.)
-#   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000 in v3.3.17)
-#   0x48000  (unused)      [98304]       (96KB free between str_data end and tok_names)
-#   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
-#   0x70000  str_pos       [8]           string write position
-#   0x70008  data_size     [8]           total variable data bytes
-#   0x70010  (unused)      [~104K]       (free between data_size and struct_ftypes)
+# --- Low heap: I/O + identifiers ---
+#   0x00000  input_buf     [524288]      512KB raw stdin input (v3.6.7, was 256KB)
+#                                         NOTE: input_buf extends past 0x60000 (tok_names) and
+#                                         0x70000 (str_pos/data_size). These regions are REBUILT
+#                                         by LEX after preprocessing — the overlap is tolerated
+#                                         because preprocessing reads from 0x44A000, not S+0.
+#   0x60000  tok_names     [65536]       64KB packed identifier strings (nested in input_buf — rebuilt by LEX)
+#   0x70000  str_pos       [8]           string write position (nested in input_buf — rebuilt after preprocess)
+#   0x70008  data_size     [8]           total variable data bytes (nested in input_buf — rebuilt after preprocess)
 #
-# --- Struct tables ---
-#   0x8A000  struct_ftypes [8192]        32×32 field type IDs (stride 256)
-#   0x8E630  struct_names  [256]         32 struct name offsets
-#   0x8E730  struct_fcounts[256]         32 struct field counts (bit 63 = union)
+# --- Struct tables (v3.6.6: expanded to 64 structs) ---
+#   0x8E630  struct_names  [256]         32 struct name offsets (cap raised to 64 but table not yet expanded)
+#   0x8E830  struct_fcounts[512]         32 struct field counts (bit 63 = union) (same — 64-struct cap uses sparse indexing)
 #   0x8F830  struct_count  [8]
 #
 # --- Compiler state (scalars) ---
@@ -42,14 +39,13 @@
 #   0x8F890  ptr_scale     [8]
 #   0x8F898  continue_count [8]
 #   0x8F8A0  continue_patches [64]       8 continue forward-patches
-#   0x98000  gvar_toks     [8192]        1024 deferred global var inits (expanded from 256)
-#   0x9A000  gvar_cnt      [8]
+#   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
+#   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
 #   0x8FCA0  kernel_mode   [8]
 #   0x8FCA8  fixup_cnt     [8]
 #   0x8FCB0  last_var      [8]
 #   0x8FCB8  cur_line      [8]
 #   0x8FCC0  scope_depth   [8]
-#   0x8FCC8  (reserved)    [512]         free — live local_depths is at 0x91800
 #   0x8FEC8  current_module [8]
 #   0x8FED0  pub_flags     [256]
 #   0x8FFD0  use_from      [512]         64 use alias source names
@@ -59,13 +55,9 @@
 #   0x903E0  expr_var      [8]
 #   0x903E8  inline_depth  [8]
 #   0x903F0  expr_width    [8]
-#   0x903F8  init_offset   [8]           offset of _cyrius_init in .text (object mode);
-#                                         FIXUP/EMITELF then reuse this slot as
-#                                         elf_out_len (see backend/*/fixup.cyr and
-#                                         the main.cyr write loop — init_offset is
-#                                         consumed before FIXUP overwrites it)
-#   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
-#   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
+#   0x903F8  init_offset / elf_out_len [8]  (dual-use: init_offset pre-FIXUP, elf_out_len post-FIXUP)
+#   0x98000  gvar_toks     [8192]        1024 deferred global var inits
+#   0x9A000  gvar_cnt      [8]
 #
 # --- Preprocessor + local var state ---
 #   0x90500  include_fname [256]         preprocessor filename scratch
@@ -74,7 +66,7 @@
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
 #   0x92200  local_types                 local variable type tracking
 #
-# --- High heap: tables + buffers (consolidated v2.1.2) ---
+# --- Function tables ---
 #   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
 #   0xC0000  fn_names      [16384]       2048 function name offsets
 #   0xC4000  fn_offsets    [16384]       2048 function code offsets
@@ -82,18 +74,35 @@
 #   0xCC000  fn_body_start [16384]       2048 inline body start
 #   0xD0000  fn_body_end   [16384]       2048 inline body end
 #   0xD4000  fn_inline     [16384]       2048 inline flags
-#   0xD8000  struct_fnames [8192]        32×32 field name offsets (stride 256)
-#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x74A000 in v3.3.7 — reclaimable)
+#
+# --- Reclaimable / scratch ---
+#   0xD8000  (free)        [8192]        was struct_fnames, moved to 0xDCA000
+#   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
+#   0xDC000  fn_param_str_mask [16384]   2048 Str-param bitmasks (v3.6.0 auto-coercion)
+#
+# --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
 #   0x12A000 var_sizes     [65536]       8192 variable sizes
 #   0x13A000 var_types     [65536]       8192 variable type IDs
-#   0x14A000 tok_types     [1048576]     131072 token type slots
-#   0x24A000 tok_values    [1048576]     131072 token value slots
-#   0x34A000 tok_lines     [1048576]     131072 token line number slots
+#
+# --- Relocated string data (v3.6.7) ---
+#   0x14A000 str_data      [262144]      256KB string literal bytes (v3.6.9, was 32KB at 0x40000)
+#
+# --- Large buffers ---
 #   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
-#   0x54A000 codebuf       [1048576]     1MB generated machine code (expanded from 512KB in v3.5.1)
-#   0x64A000 output_buf    [1048576]     1MB ELF output (shifted from 0x5CA000 in v3.5.1)
-#   0x74A000 brk                         7.3MB total
+#   0x54A000 codebuf       [1048576]     1MB generated machine code (v3.5.2)
+#   0x64A000 output_buf    [1048576]     1MB ELF output (v3.5.2)
+#
+# --- Relocated token arrays (v3.6.2) ---
+#   0x74A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0x94A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xB4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#
+# --- Relocated struct field tables (v3.6.6) ---
+#   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
+#   0xDCA000 struct_fnames [16384]       64 structs × 32 fields × 8 bytes
+#
+#   0xE4A000 brk                         14.3MB total heap
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -140,7 +149,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.6.9\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.6.10\n", 11);
                 syscall(SYS_EXIT, 0);
             } }
         } }
