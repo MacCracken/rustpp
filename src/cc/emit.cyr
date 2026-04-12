@@ -1,0 +1,431 @@
+# ================================================================
+# CODE EMISSION (writes to codebuf at S+0x59000+CP)
+# ================================================================
+
+fn EB(S, b) {
+    var cp = GCP(S);
+    store8(S + 0x20000 + cp, b & 0xFF);
+    SCP(S, cp + 1);
+    return 0;
+}
+
+fn E2(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    return 0;
+}
+
+fn E8(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF);
+    EB(S, v >> 24 & 0xFF);
+    EB(S, v >> 32 & 0xFF);
+    EB(S, v >> 40 & 0xFF);
+    EB(S, v >> 48 & 0xFF);
+    EB(S, v >> 56 & 0xFF);
+    return 0;
+}
+
+# emit "mov rax, imm64" — 48 B8 <imm64>
+fn EMOVI(S, v) {
+    E2(S, 0xB848);
+    E8(S, v);
+    return 0;
+}
+
+# emit 3-byte instruction from packed value
+fn E3(S, v) {
+    EB(S, v & 0xFF);
+    EB(S, v >> 8 & 0xFF);
+    EB(S, v >> 16 & 0xFF);
+    return 0;
+}
+
+# Standard codegen emissions (match stage1f exactly)
+fn EPUSHR(S) { EB(S, 0x50); return 0; }                  # push rax
+fn EPOPC(S) { EB(S, 0x59); return 0; }                   # pop rcx
+fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
+fn EMOVCA(S) { E3(S, 0xC18948); return 0; }              # mov rcx, rax
+fn EADDR(S) { E3(S, 0xC80148); return 0; }               # add rax, rcx
+fn ESUBR(S) { E3(S, 0xC82948); return 0; }               # sub rax, rcx
+fn EIMUL(S) { E3(S, 0xE9F748); return 0; }               # imul rcx
+fn ECQO(S) { E2(S, 0x9948); return 0; }                  # cqo
+fn EIDIV(S) { E3(S, 0xF9F748); return 0; }               # idiv rcx
+fn EMOVDR(S) { E3(S, 0xD08948); return 0; }              # mov rax, rdx (for mod)
+fn ELODC(S) { E3(S, 0x018B48); return 0; }               # mov rax, [rcx]
+fn ESTOC(S) { E3(S, 0x018948); return 0; }               # mov [rcx], rax
+fn ECMPR(S) { E3(S, 0xC83948); return 0; }               # cmp rax, rcx
+fn EMOVRDI(S) { E3(S, 0xC78948); return 0; }             # mov rdi, rax
+fn ESYSCALL(S) { E2(S, 0x050F); return 0; }              # syscall
+fn ELOAD8(S) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x00); return 0; }  # movzx rax, byte [rax]
+fn ELOAD16(S) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x00); return 0; }            # movzx eax, word [rax]
+fn ELOAD32(S) { EB(S, 0x8B); EB(S, 0x00); return 0; }                          # mov eax, [rax] (32-bit, zero-extends)
+fn ELOAD64(S) { E3(S, 0x008B48); return 0; }                                    # mov rax, [rax]
+fn ESTORE8(S) { E2(S, 0x0188); return 0; }              # mov byte [rcx], al
+fn ESTORE16(S) { EB(S, 0x66); E2(S, 0x0189); return 0; }                       # mov word [rcx], ax (0x66 prefix)
+fn ESTORE32(S) { E2(S, 0x0189); return 0; }                                     # mov dword [rcx], eax
+fn ESTORE64(S) { E3(S, 0x018948); return 0; }                                   # mov qword [rcx], rax
+fn EXORAA(S) { E3(S, 0xC03148); return 0; }             # xor rax, rax
+# Bitwise
+fn EANDR(S) { E3(S, 0xC82148); return 0; }              # and rax, rcx
+fn EORR(S) { E3(S, 0xC80948); return 0; }               # or rax, rcx
+fn EXORR(S) { E3(S, 0xC83148); return 0; }              # xor rax, rcx
+fn ENOTR(S) { E3(S, 0xD0F748); return 0; }              # not rax
+fn ESHLCL(S) { E3(S, 0xE0D348); return 0; }             # shl rax, cl
+fn ESHRCL(S) { E3(S, 0xE8D348); return 0; }             # shr rax, cl
+# Syscall pop helpers
+fn EPOPRDI(S) { EB(S, 0x5F); return 0; }
+fn EPOPRSI(S) { EB(S, 0x5E); return 0; }
+fn EPOPRDX(S) { EB(S, 0x5A); return 0; }
+fn EPOPR10(S) { E2(S, 0x5A41); return 0; }
+fn EPOPR8(S) { E2(S, 0x5841); return 0; }
+fn EPOPR9(S) { E2(S, 0x5941); return 0; }
+
+# Record fixup: (codebuf_offset=CP, var_index) in fixup table
+fn RECFIX(S, idx) {
+    var fc = GFCNT(S);
+    if (fc >= 1024) {
+        syscall(1, 2, "error: fixup table full (1024)\n", 31);
+        syscall(60, 1);
+    }
+    var addr = S + 0x8A000 + fc * 16;
+    S64(addr, GCP(S));
+    S64(addr + 8, idx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# emit var_store: mov rcx, <placeholder>; mov [rcx], rax + record fixup
+fn EVSTORE(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    ESTOC(S);
+    return 0;
+}
+
+# emit var_load: mov rcx, <placeholder>; mov rax, [rcx] + record fixup
+fn EVLOAD(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    ELODC(S);
+    return 0;
+}
+
+# emit var addr: mov rax, <placeholder> with type-0 fixup
+fn EVADDR(S, idx) {
+    E2(S, 0xB848);
+    RECFIX(S, idx);
+    E8(S, 0);
+    return 0;
+}
+
+# emit string addr: mov rax, <placeholder> with type-1 fixup
+fn ESADDR(S, soff) {
+    E2(S, 0xB848);
+    var fc = GFCNT(S);
+    var faddr = S + 0x8A000 + fc * 16;
+    S64(faddr, GCP(S));
+    S64(faddr + 8, (1 << 56) | soff);
+    SFCNT(S, fc + 1);
+    E8(S, 0);
+    return 0;
+}
+
+# emit syscall pops for N args then syscall
+fn ESCPOPS(S, n) {
+    if (n >= 7) { EPOPR9(S); }
+    if (n >= 6) { EPOPR8(S); }
+    if (n >= 5) { EPOPR10(S); }
+    if (n >= 4) { EPOPRDX(S); }
+    if (n >= 3) { EPOPRSI(S); }
+    if (n >= 2) { EPOPRDI(S); }
+    if (n >= 1) { EPOPR(S); }
+    ESYSCALL(S);
+    return 0;
+}
+
+# emit exit epilogue: mov rdi, rax; mov rax, 60; syscall
+fn EEXIT(S) {
+    EMOVRDI(S);
+    EMOVI(S, 60);
+    ESYSCALL(S);
+    return 0;
+}
+
+# ================================================================
+# SETCC — comparison to value (0 or 1 in rax)
+# Emit: cmp rax, rcx; setCC al; movzx rax, al
+# ================================================================
+
+# emit setCC: cmp rax,rcx; setCC al; movzx rax,al → rax = 0 or 1
+# op: 17=EQ, 18=NEQ, 19=LT, 20=GT, 21=LTE, 22=GTE
+fn ESETCC(S, op) {
+    ECMPR(S);
+    # setCC al (0F xx C0)
+    EB(S, 0x0F);
+    if (op == 17) { EB(S, 0x94); }
+    if (op == 18) { EB(S, 0x95); }
+    if (op == 19) { EB(S, 0x9C); }
+    if (op == 20) { EB(S, 0x9F); }
+    if (op == 21) { EB(S, 0x9E); }
+    if (op == 22) { EB(S, 0x9D); }
+    EB(S, 0xC0);
+    # movzx rax, al (48 0F B6 C0)
+    EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0xC0);
+    return 0;
+}
+
+# ================================================================
+# FUNCTION CALLING CONVENTION (x86_64 System V ABI)
+# ================================================================
+
+# Emit push rbp; mov rbp, rsp
+fn EFNPRO(S) {
+    EB(S, 0x55);
+    E3(S, 0xE58948);
+    return 0;
+}
+
+# Emit sub rsp, imm32 — returns patch offset for the imm32
+fn ESUBRSP(S) {
+    E3(S, 0xEC8148);
+    var patch = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    return patch;
+}
+
+# Emit leave; ret
+fn EFNEPI(S) {
+    E2(S, 0xC3C9);
+    return 0;
+}
+
+# Emit call rel32 to known target
+fn ECALLTO(S, target) {
+    EB(S, 0xE8);
+    var cp = GCP(S);
+    var rel = target - cp - 4;
+    var addr = S + 0x20000 + cp;
+    S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    SCP(S, cp + 4);
+    return 0;
+}
+
+# Emit call placeholder, record type-2 fixup
+fn ECALLFIX(S, fnidx) {
+    EB(S, 0xE8);
+    var poff = GCP(S);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    var fc = GFCNT(S);
+    var faddr = S + 0x8A000 + fc * 16;
+    S64(faddr, poff);
+    S64(faddr + 8, (2 << 56) | fnidx);
+    SFCNT(S, fc + 1);
+    return 0;
+}
+
+# Emit pop into System V register for arg N
+fn EPOPARG(S, n) {
+    if (n == 0) { EB(S, 0x5F); return 0; }
+    if (n == 1) { EB(S, 0x5E); return 0; }
+    if (n == 2) { EB(S, 0x5A); return 0; }
+    if (n == 3) { EB(S, 0x59); return 0; }
+    if (n == 4) { E2(S, 0x5841); return 0; }
+    if (n == 5) { E2(S, 0x5941); return 0; }
+    return 0;
+}
+
+# Emit fn call pops for N args
+fn ECALLPOPS(S, n) {
+    var regn = n;
+    if (regn > 6) { regn = 6; }
+    var i = regn - 1;
+    while (i >= 0) {
+        EPOPARG(S, i);
+        i = i - 1;
+    }
+    return 0;
+}
+
+# Emit stack cleanup after call with >6 args
+fn ECALLCLEAN(S, n) {
+    if (n > 6) {
+        var extra = (n - 6) * 8;
+        E3(S, 0xC48148);
+        EB(S, extra & 0xFF);
+        EB(S, extra >> 8 & 0xFF);
+        EB(S, extra >> 16 & 0xFF);
+        EB(S, extra >> 24 & 0xFF);
+    }
+    return 0;
+}
+
+# Helper: emit disp32 at current CP
+fn EDISP32(S, disp) {
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+fn ESTOREREGPARM(S, pidx, disp) {
+    if (pidx == 0) { E3(S, 0xBD8948); }
+    if (pidx == 1) { E3(S, 0xB58948); }
+    if (pidx == 2) { E3(S, 0x958948); }
+    if (pidx == 3) { E3(S, 0x8D8948); }
+    if (pidx == 4) { E3(S, 0x85894C); }
+    if (pidx == 5) { E3(S, 0x8D894C); }
+    EDISP32(S, disp);
+    return 0;
+}
+
+fn ESTORESTACKPARM(S, pidx, disp, pc) {
+    var nstack = pc - 6;
+    var si = nstack - 1 - (pidx - 6);
+    var sdisp = 16 + si * 8;
+    E3(S, 0x858B48);
+    EDISP32(S, sdisp);
+    E3(S, 0x858948);
+    EDISP32(S, disp);
+    return 0;
+}
+
+fn ESTOREPARM(S, pidx, lidx, pc) {
+    var disp = 0 - ((lidx + 1) * 8);
+    if (pidx < 6) {
+        ESTOREREGPARM(S, pidx, disp);
+    } else {
+        ESTORESTACKPARM(S, pidx, disp, pc);
+    }
+    return 0;
+}
+
+# Emit fn local load: mov rax, [rbp - offset]
+fn EFLLOAD(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    E3(S, 0x858B48);
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+# Load variable address into rcx (x86: mov rcx, <addr>)
+fn EVADDR_X1(S, idx) {
+    E2(S, 0xB948);
+    RECFIX(S, idx);
+    E8(S, 0);
+    return 0;
+}
+
+# Add immediate to rcx (x86: add rcx, imm32)
+fn EADDIMM_X1(S, val) {
+    E3(S, 0xC18148);
+    EB(S, val & 0xFF); EB(S, val >> 8 & 0xFF);
+    EB(S, val >> 16 & 0xFF); EB(S, val >> 24 & 0xFF);
+    return 0;
+}
+
+# Patch frame size: write imm32 at the sub rsp placeholder
+fn EPATCHFRAME(S, patch, size) {
+    var pa = S + 0x20000 + patch;
+    S64(pa, (L64(pa) >> 32 << 32) | (size & 0xFFFFFFFF));
+    return 0;
+}
+
+# Emit fn local store: mov [rbp - offset], rax
+fn EFLSTORE(S, idx) {
+    var disp = 0 - ((idx + 1) * 8);
+    E3(S, 0x858948);
+    var addr = S + 0x20000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
+# ================================================================
+# TOKEN ACCESS
+# ================================================================
+
+# ================================================================
+# SSE2 FLOAT EMISSION — f64 operations via xmm0/xmm1
+# ================================================================
+# Pattern: rax=a, rcx=b → movq xmm0,rax; movq xmm1,rcx; op xmm0,xmm1; movq rax,xmm0
+
+# movq xmm0, rax — 66 48 0F 6E C0
+fn EMOVQ_X0_A(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x6E); EB(S, 0xC0); return 0; }
+# movq xmm1, rcx — 66 48 0F 6E C9
+fn EMOVQ_X1_C(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x6E); EB(S, 0xC9); return 0; }
+# movq rax, xmm0 — 66 48 0F 7E C0
+fn EMOVQ_A_X0(S) { EB(S, 0x66); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x7E); EB(S, 0xC0); return 0; }
+
+# addsd xmm0, xmm1 — F2 0F 58 C1
+fn EF64ADD(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x58); EB(S, 0xC1); return 0; }
+# subsd xmm0, xmm1 — F2 0F 5C C1
+fn EF64SUB(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC1); return 0; }
+# mulsd xmm0, xmm1 — F2 0F 59 C1
+fn EF64MUL(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x59); EB(S, 0xC1); return 0; }
+# divsd xmm0, xmm1 — F2 0F 5E C1
+fn EF64DIV(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5E); EB(S, 0xC1); return 0; }
+
+# cvtsi2sd xmm0, rax — F2 48 0F 2A C0 (int64 → double)
+fn EI2F(S) { EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2A); EB(S, 0xC0); return 0; }
+# cvttsd2si rax, xmm0 — F2 48 0F 2C C0 (double → int64, truncate)
+fn EF2I(S) { EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2C); EB(S, 0xC0); return 0; }
+
+# ucomisd xmm0, xmm1 — 66 0F 2E C1 (compare, sets flags)
+fn EUCOMISD(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x2E); EB(S, 0xC1); return 0; }
+
+# xorpd xmm1, xmm1 — 66 0F 57 C9 (zero xmm1)
+fn EXORPD_X1(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x57); EB(S, 0xC9); return 0; }
+# subsd xmm1, xmm0 — F2 0F 5C C8 (xmm1 = 0 - xmm0)
+fn EF64NEGOP(S) { EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC8); return 0; }
+# movapd xmm0, xmm1 — 66 0F 28 C1 (copy xmm1 → xmm0)
+fn EMOVAPD_01(S) { EB(S, 0x66); EB(S, 0x0F); EB(S, 0x28); EB(S, 0xC1); return 0; }
+
+# Full f64 binary op pattern: pop rcx, rax has a, do op, result in rax
+# f64 binary op: rax=b, stack=[a] → pop a→rcx, xmm0=a, xmm1=b, op, result→rax
+fn EMIT_F64_BINOP(S, op) {
+    EPOPC(S);
+    # rax=b, rcx=a — need xmm0=a, xmm1=b
+    # Save b, move a to xmm0, restore b to xmm1
+    EPUSHR(S);
+    # mov rax, rcx (a → rax)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC8);
+    EMOVQ_X0_A(S);
+    EPOPR(S);
+    # mov rcx, rax (b → rcx)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    EMOVQ_X1_C(S);
+    if (op == 0) { EF64ADD(S); }
+    if (op == 1) { EF64SUB(S); }
+    if (op == 2) { EF64MUL(S); }
+    if (op == 3) { EF64DIV(S); }
+    EMOVQ_A_X0(S);
+    return 0;
+}
+
+# Float literal: emit code to compute numerator/denominator as double
+# val = (denom << 32) | numerator
+fn EMIT_FLOAT_LIT(S, val) {
+    var numer = val & 0xFFFFFFFF;
+    var denom = (val >> 32) & 0xFFFFFFFF;
+    # mov rax, numer; cvtsi2sd xmm0, rax
+    E2(S, 0xB848); E8(S, numer);
+    EI2F(S);
+    # mov rcx, denom; cvtsi2sd xmm1, rcx; divsd xmm0, xmm1
+    E2(S, 0xB948); E8(S, denom);
+    EB(S, 0xF2); EB(S, 0x48); EB(S, 0x0F); EB(S, 0x2A); EB(S, 0xC9);
+    EF64DIV(S);
+    # movq rax, xmm0
+    EMOVQ_A_X0(S);
+    return 0;
+}
+
+fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0xE2000 + i * 8); }
+fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
+fn PEEKV(S) { return TOKVAL(S, GTI(S)); }

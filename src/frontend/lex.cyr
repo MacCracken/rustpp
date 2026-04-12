@@ -1135,69 +1135,57 @@ fn PP_MACRO_PASS(S) {
 
 # Second pass: evaluate #ifdef/#define/#endif only (no includes).
 # Processes conditional blocks in already-included content.
-# Reads from S+sb+ip (sb=0x44A000, the preprocess output). Writes to S+0x44A000+op.
-# Helper functions (ISDEFINE, PP_DEFINE, PP_HASH, etc.) read source via S+pos where
-# pos = sb+ip. They also access heap state (flag table at 0x90800) via S+offset —
-# that's fine because sb only shifts the source-read positions, not the heap offsets.
-#
-# v3.5.1: eliminated the copy-back from 0x44A000 to S+0 that overflowed the 256KB
-# input buffer when expanded source exceeded 256KB (Bug #35 family — argonaut's
-# 600KB expanded source corrupted BL/CP at 0x8C100, producing garbage codebuf
-# overflow errors).
+# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf)
+# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf).
+# IMPORTANT: helper functions (ISDEFINE, PP_DEFINE, PP_HASH, etc.) use first param for BOTH
+# source text reading AND heap state access (flag table at 0x90800). We must copy source to
+# S+0 first, then process normally with S as the base. This avoids the base address mismatch.
 fn PP_IFDEF_PASS(S) {
     var bl = GBL(S);
-    # If the preprocessed source fits in the 256KB input buffer, copy it there
-    # (helpers read via S+pos, which needs source at S+0). If it doesn't fit,
-    # use a direct offset into the preprocess buffer at 0x44A000 instead —
-    # this avoids the copy-back overflow that corrupted BL/CP for programs
-    # with >256KB of expanded source (Bug #35 family, argonaut 600KB case).
-    var sb = 0;
-    if (bl <= 262144) {
-        var ci = 0;
-        while (ci < bl) { store8(S + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
-    } else {
-        sb = 0x44A000;
-    }
+    # Copy from preprocess buffer to input buffer for processing
+    var ci = 0;
+    while (ci < bl) { store8(S + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
+    # Now process from S+0
     var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     var bol = 1;
     var skip_depth = 0;
     while (ip < bl) {
-        var c = load8(S + sb + ip);
+        var c = load8(S + ip);
         var handled = 0;
         if (bol == 1) {
-            if (ISDEFINE(S, sb + ip, sb + bl) == 1) {
-                if (skip_depth == 0) { PP_DEFINE(S, sb + ip + 8); }
-                ip = PP_SKIPLINE(S, sb + ip, sb + bl) - sb; bol = 1; handled = 1;
+            if (ISDEFINE(S, ip, bl) == 1) {
+                if (skip_depth == 0) { PP_DEFINE(S, ip + 8); }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             }
-            if (handled == 0) { if (ISIFDEF(S, sb + ip, sb + bl) == 1) {
+            if (handled == 0) { if (ISIFDEF(S, ip, bl) == 1) {
                 if (skip_depth > 0) { skip_depth = skip_depth + 1; }
-                else { if (PP_DEFINED(S, sb + ip + 7) == 0) { skip_depth = 1; } }
-                ip = PP_SKIPLINE(S, sb + ip, sb + bl) - sb; bol = 1; handled = 1;
+                else { if (PP_DEFINED(S, ip + 7) == 0) { skip_depth = 1; } }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
-            if (handled == 0) { if (ISIF(S, sb + ip, sb + bl) == 1) {
+            if (handled == 0) { if (ISIF(S, ip, bl) == 1) {
                 if (skip_depth > 0) { skip_depth = skip_depth + 1; }
-                else { if (PP_EVAL_IF(S, sb + ip + 4) == 0) { skip_depth = 1; } }
-                ip = PP_SKIPLINE(S, sb + ip, sb + bl) - sb; bol = 1; handled = 1;
+                else { if (PP_EVAL_IF(S, ip + 4) == 0) { skip_depth = 1; } }
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
-            if (handled == 0) { if (ISENDIF(S, sb + ip, sb + bl) == 1) {
+            if (handled == 0) { if (ISENDIF(S, ip, bl) == 1) {
                 if (skip_depth > 0) { skip_depth = skip_depth - 1; }
-                ip = PP_SKIPLINE(S, sb + ip, sb + bl) - sb; bol = 1; handled = 1;
+                ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
-            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, sb + ip, sb + bl) == 1) {
-                ip = PP_DERIVE_SERIALIZE(S, sb + ip, sb + bl, out, op) - sb;
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_SERIALIZE(S, ip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
-            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(S, sb + ip, sb + bl) == 1) {
-                ip = PP_DERIVE_DESER(S, sb + ip, sb + bl, out, op) - sb;
+            if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(S, ip, bl) == 1) {
+                ip = PP_DERIVE_DESER(S, ip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
-            if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, sb + ip, sb + bl) == 1) {
+            if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
                 ip = ip + 8;
-                if (load8(S + sb + ip) == 34) {
+                if (load8(S + ip) == 34) {
                     ip = ip + 1;
                     var fname = S + 0x90400;
                     var fi = 0;
@@ -1205,7 +1193,7 @@ fn PP_IFDEF_PASS(S) {
                     while (fgo == 1) {
                         if (ip >= bl) { fgo = 0; }
                         if (fgo == 1) {
-                            var fc = load8(S + sb + ip);
+                            var fc = load8(S + ip);
                             if (fc == 34) { ip = ip + 1; fgo = 0; }
                             else { store8(fname + fi, fc); fi = fi + 1; ip = ip + 1; }
                         }
@@ -1214,7 +1202,7 @@ fn PP_IFDEF_PASS(S) {
                     var sgo = 1;
                     while (sgo == 1) {
                         if (ip >= bl) { sgo = 0; }
-                        if (sgo == 1) { if (load8(S + sb + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
+                        if (sgo == 1) { if (load8(S + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
                     }
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
@@ -1231,15 +1219,11 @@ fn PP_IFDEF_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Copy result back to S+0 for PP_MACRO_PASS (which reads from S+0).
-    # Only needed when sb==0 (small programs where we copied to S+0 initially).
-    # For large programs (sb=0x44A000), the output stays at S+0x44A000 and
-    # PP_MACRO_PASS reads from there via its own "reads from S+ip" path
-    # which works because BL was set and data is at 0x44A000.
-    if (sb == 0) {
-        var ci = 0;
-        while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
-    }
+    # Output is at S+0x44A000. No copy needed — PP_MACRO_PASS reads from S+0.
+    # Wait — PP_MACRO_PASS reads from S+0 but we wrote to 0x44A000.
+    # Copy result back to S+0 for PP_MACRO_PASS.
+    ci = 0;
+    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
     SBL(S, op);
     return 0;
 }
@@ -1746,39 +1730,13 @@ fn LEX(S) {
             }
             # Add null terminator after string literal
             store8(S + 0x40000 + spos, 0);
-            var slen = spos - sstart;
-            # String interning (v3.6.1): check if an identical string already exists
-            # in str_data. If so, reuse its offset — deduplicates string literals so
-            # pointer-identity comparison works: "hello" == "hello" is true.
-            var interned = 0 - 1;
-            var si = 0;
-            while (si < sstart) {
-                # Check if str_data[si..si+slen] matches str_data[sstart..sstart+slen]
-                var eq = 1;
-                var sk = 0;
-                while (sk <= slen) {
-                    if (load8(S + 0x40000 + si + sk) != load8(S + 0x40000 + sstart + sk)) { eq = 0; break; }
-                    sk = sk + 1;
-                }
-                if (eq == 1) { interned = si; si = sstart; }
-                else {
-                    # Skip to next null terminator
-                    while (si < sstart) { if (load8(S + 0x40000 + si) == 0) { si = si + 1; break; } si = si + 1; }
-                }
+            spos = spos + 1;
+            if (spos >= 32768) {
+                syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
+                syscall(SYS_EXIT, 1);
             }
-            if (interned >= 0) {
-                # Reuse existing string — reclaim the bytes we just wrote
-                sstart = interned;
-                # Don't advance spos — the duplicate bytes are discarded
-            } else {
-                # New unique string — keep the bytes and advance
-                spos = spos + 1;
-                if (spos >= 32768) {
-                    syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
-                    syscall(SYS_EXIT, 1);
-                }
-                SSPOS(S, spos);
-            }
+            SSPOS(S, spos);
+            var slen = spos - sstart - 1;
             ADDTOK(S, 30, (sstart << 16) | slen);
         }
         else {
