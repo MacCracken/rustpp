@@ -1,0 +1,31 @@
+# many_structs.tcyr — regression test for >32 struct definitions
+# Kybernet needs 36+ structs (argonaut types.cyr alone has 24).
+
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+struct S01 { a; } struct S02 { a; } struct S03 { a; } struct S04 { a; }
+struct S05 { a; } struct S06 { a; } struct S07 { a; } struct S08 { a; }
+struct S09 { a; } struct S10 { a; } struct S11 { a; } struct S12 { a; }
+struct S13 { a; } struct S14 { a; } struct S15 { a; } struct S16 { a; }
+struct S17 { a; } struct S18 { a; } struct S19 { a; } struct S20 { a; }
+struct S21 { a; } struct S22 { a; } struct S23 { a; } struct S24 { a; }
+struct S25 { a; } struct S26 { a; } struct S27 { a; } struct S28 { a; }
+struct S29 { a; } struct S30 { a; } struct S31 { a; } struct S32 { a; }
+# These push past the old limit of 32:
+struct S33 { a; } struct S34 { a; } struct S35 { a; } struct S36 { a; }
+struct S37 { a; b; } struct S38 { a; b; c; }
+
+fn main() {
+    alloc_init();
+    test_group("many structs (>32)");
+    var p = S37 { 10, 20 };
+    assert_eq(p.a, 10, "S37.a");
+    assert_eq(p.b, 20, "S37.b");
+    var q = S38 { 1, 2, 3 };
+    assert_eq(q.a + q.b + q.c, 6, "S38 sum");
+    assert_eq(sizeof(S38), 24, "S38 sizeof");
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);

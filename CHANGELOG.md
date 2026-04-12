@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.6] — 2026-04-12
+
+### Fixed
+- **Struct limit expanded 32 → 64** (`src/frontend/parse.cyr`): kybernet
+  with argonaut + agnostik deps defined 36 structs, exceeding the old max.
+  `struct_ftypes` relocated from `0x8A000` → `0xD4A000`, `struct_fnames`
+  from `0xD8000` → `0xDCA000` (past the token arrays). Brk extended to
+  `0xE4A000` (14.3MB). Struct names/fcounts tables stay at their original
+  locations with room for 64 entries. Three-step bootstrap verified.
+
+### Added
+- **`tests/tcyr/many_structs.tcyr`** — regression test with 38 struct
+  definitions (4 assertions). Test suite #35.
+
+### Stats
+- **cc3: 290,224 bytes**, 35 test suites, 495 assertions
+- Heap: 14.3MB (brk at 0xE4A000)
+- Struct limit: 64 (was 32)
+
 ## [3.6.5] — 2026-04-12
 
 ### Fixed
