@@ -1,0 +1,73 @@
+# bench_interning.bcyr — string interning microbenchmarks (v3.6.1)
+# Measures the cost of pointer-identity comparison vs memcmp-style equality.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+fn work_ptr_eq() {
+    # Pointer-identity comparison (1 cycle, interned strings)
+    var a = "classify_this_command";
+    var b = "classify_this_command";
+    var r = (a == b);
+    return r;
+}
+
+fn work_str_eq() {
+    # Full string comparison via str_eq (memcmp + length check)
+    var a = str_from("classify_this_command");
+    var b = str_from("classify_this_command");
+    var r = str_eq(a, b);
+    return r;
+}
+
+fn work_streq() {
+    # C-string comparison via streq (null-terminated memcmp)
+    var a = "classify_this_command";
+    var b = "classify_this_command";
+    var r = streq(a, b);
+    return r;
+}
+
+fn work_classify_chain() {
+    # Simulated classification chain (5 comparisons via pointer identity)
+    var cmd = "delete";
+    if (cmd == "get") { return 1; }
+    if (cmd == "set") { return 2; }
+    if (cmd == "list") { return 3; }
+    if (cmd == "create") { return 4; }
+    if (cmd == "delete") { return 5; }
+    return 0;
+}
+
+var N = 10000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("intern/ptr_eq");
+    bench_run(b1, &work_ptr_eq, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("intern/str_eq");
+    bench_run(b2, &work_str_eq, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("intern/streq");
+    bench_run(b3, &work_streq, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("intern/classify");
+    bench_run(b4, &work_classify_chain, N);
+    vec_push(all, b4);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

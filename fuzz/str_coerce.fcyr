@@ -1,0 +1,41 @@
+# str_coerce.fcyr — fuzz harness for Str/cstr auto-coercion (v3.6.0)
+# Exercises the auto-coercion path with various string patterns to catch
+# corruption, off-by-one, or null-termination issues.
+
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+
+# Functions with : Str annotations (triggers auto-coercion)
+fn check_eq(a: Str, b: Str) { return str_eq(a, b); }
+fn check_contains(s: Str, needle: Str) { return str_contains(s, needle); }
+fn check_starts(s: Str, pfx: Str) { return str_starts_with(s, pfx); }
+fn check_cat(a: Str, b: Str) { return str_cat(a, b); }
+
+fn main() {
+    alloc_init();
+    var ok = 1;
+    var iter = 0;
+    while (iter < 1000) {
+        # Basic equality with auto-coerced literals
+        if (check_eq("hello", "hello") != 1) { ok = 0; }
+        if (check_eq("hello", "world") != 0) { ok = 0; }
+        # Contains
+        if (check_contains(str_from("abcdef"), "cde") != 1) { ok = 0; }
+        if (check_contains(str_from("abcdef"), "xyz") != 0) { ok = 0; }
+        # Starts with
+        if (check_starts(str_from("hello world"), "hello") != 1) { ok = 0; }
+        if (check_starts(str_from("hello world"), "world") != 0) { ok = 0; }
+        # Cat
+        var r = check_cat("abc", "def");
+        if (str_len(r) != 6) { ok = 0; }
+        # Empty strings
+        if (check_eq("", "") != 1) { ok = 0; }
+        if (check_contains(str_from("abc"), "") != 1) { ok = 0; }
+        iter = iter + 1;
+    }
+    if (ok == 1) { return 0; }
+    return 1;
+}
+var r = main();
+syscall(60, r);

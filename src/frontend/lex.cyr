@@ -1730,13 +1730,34 @@ fn LEX(S) {
             }
             # Add null terminator after string literal
             store8(S + 0x40000 + spos, 0);
-            spos = spos + 1;
-            if (spos >= 32768) {
-                syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
-                syscall(SYS_EXIT, 1);
+            var slen = spos - sstart;
+            # String interning (v3.6.1): check if an identical string already
+            # exists in str_data. If so, reuse its offset — deduplicates string
+            # literals so pointer-identity comparison works.
+            var interned = 0 - 1;
+            var si = 0;
+            while (si < sstart) {
+                var eq = 1;
+                var sk = 0;
+                while (sk <= slen) {
+                    if (load8(S + 0x40000 + si + sk) != load8(S + 0x40000 + sstart + sk)) { eq = 0; break; }
+                    sk = sk + 1;
+                }
+                if (eq == 1) { interned = si; si = sstart; }
+                else {
+                    while (si < sstart) { if (load8(S + 0x40000 + si) == 0) { si = si + 1; break; } si = si + 1; }
+                }
             }
-            SSPOS(S, spos);
-            var slen = spos - sstart - 1;
+            if (interned >= 0) {
+                sstart = interned;
+            } else {
+                spos = spos + 1;
+                if (spos >= 32768) {
+                    syscall(SYS_WRITE, 2, "error: string data buffer full (32KB limit)\n", 44);
+                    syscall(SYS_EXIT, 1);
+                }
+                SSPOS(S, spos);
+            }
             ADDTOK(S, 30, (sstart << 16) | slen);
         }
         else {

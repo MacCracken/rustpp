@@ -256,6 +256,68 @@ fn test_expr_cmp() {
 }
 
 # ================================================================
+# String interning (v3.6.1)
+# ================================================================
+# Identical string literals share the same address — pointer comparison works.
+
+fn test_string_interning() {
+    test_group("string interning (v3.6.1)");
+    var a = "hello";
+    var b = "hello";
+    assert_eq(a == b, 1, "same literal same addr");
+    var c = "world";
+    assert_eq(a == c, 0, "different literal different addr");
+    # Multiple occurrences across function boundaries
+    assert_eq("test" == "test", 1, "inline interning");
+    assert_eq("abc" == "abd", 0, "differ by last char");
+    # Empty strings
+    assert_eq("" == "", 1, "empty string interned");
+}
+
+# ================================================================
+# Str/cstr auto-coercion (v3.6.0)
+# ================================================================
+# Functions with : Str parameters auto-wrap string literal args in str_from.
+
+fn _coerce_test_eq(a: Str, b: Str) { return str_eq(a, b); }
+fn _coerce_test_contains(s: Str, needle: Str) { return str_contains(s, needle); }
+
+fn test_auto_coercion() {
+    test_group("auto-coercion (v3.6.0)");
+    # Both args auto-coerced
+    assert_eq(_coerce_test_eq("hello", "hello"), 1, "both coerced eq");
+    assert_eq(_coerce_test_eq("hello", "world"), 0, "both coerced neq");
+    # Mixed: Str + literal
+    var s = str_from("test");
+    assert_eq(_coerce_test_eq(s, "test"), 1, "mixed Str + literal");
+    # stdlib str_contains with annotation
+    var h = str_from("hello world");
+    assert_eq(str_contains(h, "world"), 1, "stdlib contains coerce");
+    assert_eq(str_contains(h, "xyz"), 0, "stdlib contains miss");
+    # str_starts_with / str_ends_with
+    assert_eq(str_starts_with(h, "hello"), 1, "starts_with coerce");
+    assert_eq(str_ends_with(h, "world"), 1, "ends_with coerce");
+    # str_cat with auto-coercion
+    var cat = str_cat("a", "b");
+    assert_eq(str_len(cat), 2, "cat coerced len");
+}
+
+# ================================================================
+# Syscall arity warning (v3.5.0) — compile-time only, verify no crash
+# ================================================================
+# These just confirm the compiler doesn't crash on well-formed syscalls.
+# The actual WARNING check is a compile-time diagnostic, not a runtime test.
+
+fn test_syscall_arity() {
+    test_group("syscall arity (v3.5.0)");
+    # Correct arities — should compile without warnings
+    var pid = syscall(39);         # getpid: 0 args
+    assert(pid > 0, "getpid");
+    syscall(1, 2, "ok\n", 3);     # write: 3 args (fd=2, buf, len)
+    assert(1, "write 3-arg ok");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -275,6 +337,9 @@ fn main() {
     test_const_fold();
     test_defer();
     test_expr_cmp();
+    test_string_interning();
+    test_auto_coercion();
+    test_syscall_arity();
 
     return assert_summary();
 }
