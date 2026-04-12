@@ -234,7 +234,12 @@ jobs:
       - name: Setup compilers
         run: |
           chmod +x build/cc3
+          echo "build/cc3: $(wc -c < ./build/cc3) bytes"
+          echo "build/cc3 md5: $(md5sum build/cc3 | cut -d' ' -f1)"
+          echo "lex.cyr md5: $(md5sum src/frontend/lex.cyr | cut -d' ' -f1)"
+          ./build/cc3 --version || echo "cc3 --version failed with exit $?"
           cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
+          echo "cc3_aarch64: $(wc -c < ./build/cc3_aarch64) bytes"
       - name: aarch64 tests
         run: |
           pass=0; fail=0
