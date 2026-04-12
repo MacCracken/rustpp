@@ -9,7 +9,7 @@
 # ================================================================
 # HEAP MAP — Synced with main.cyr (v2.0.0-dev)
 # ================================================================
-#   0x00000  input_buf     [131072]      Raw stdin input
+#   0x00000  input_buf     [262144]      Raw stdin input (expanded to 256KB in v3.4.18)
 #   0x20000  codebuf       [262144]      Generated machine code
 #   0x903F8  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
 #   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable)
@@ -134,15 +134,23 @@ S64(S + 0x8F898, 0);
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);
 
-# Read input
+# Read input (256KB, v3.4.18 — see src/main.cyr for rationale)
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(SYS_READ, 0, S + bl, 131072 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 262144 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 131072) { done = 1; }
+        if (bl >= 262144) {
+            var probe[1];
+            var pn = syscall(SYS_READ, 0, &probe, 1);
+            if (pn > 0) {
+                syscall(SYS_WRITE, 2, "error: input exceeds 256KB buffer (raise input_buf in src/main.cyr)\n", 68);
+                syscall(SYS_EXIT, 1);
+            }
+            done = 1;
+        }
     }
 }
 SBL(S, bl);

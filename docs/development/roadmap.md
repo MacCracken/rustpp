@@ -1,9 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v3.4.17.** 250KB self-hosting compiler, x86_64 + aarch64.
+> **v3.4.19.** 250KB self-hosting compiler, x86_64 + aarch64.
 > 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean.
-> 40 stdlib modules + 5 deps. 16 downstream repos done.
-> 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
+> 40 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda — GPU now active).
+> 256KB input_buf, 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -90,6 +90,7 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 | Database (dep) | patra |
 | Security (dep) | sigil |
 | Hardware (dep) | yukti |
+| GPU (dep) | mabda (v2.1.2, activated v3.4.18 — backend is a transitional wgpu-native C shim, public API is the stability contract, native backend is future work) |
 | Time | chrono |
 | Logging | log |
 | Knowledge | vidya |
@@ -97,9 +98,7 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 
 ### Pending inclusion
 
-| Module | Gate | Target Cyrius |
-|--------|------|---------------|
-| `mabda` (dep) — GPU foundation | Ships v2.1.1 with `dist/mabda.cyr` bundle + `[lib]` manifest + clean `cyrius audit`. Ships via a wgpu-native C shim **transitionally** — the public API is the stability contract; the backend swap to pure Cyrius is future work and leaves consumer code untouched. Entry staged in `cyrius.toml` in v3.4.17. See mabda `docs/development/roadmap.md` → v2.1.1 for the full checklist. | v3.4.18 (when 2.1.1 is tagged) |
+None currently. Mabda (the last pending dep) was activated in v3.4.18.
 
 ### Planned
 
@@ -190,7 +189,7 @@ All core tooling complete:
 | Locals per function | 256 | |
 | Fixup entries | 8192 | |
 | Struct fields | 32 | |
-| Input buffer | 512KB | |
+| Input buffer | 256KB | Expanded from 128KB in v3.4.18 — hard error on overflow, not silent truncation |
 | Code buffer | 512KB | Expanded in v3.4.0 |
 | Output buffer | 512KB | |
 | String data | 32KB | |

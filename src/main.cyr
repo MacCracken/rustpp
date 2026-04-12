@@ -13,8 +13,10 @@
 # Regions marked (nested) are intentionally inside larger buffers.
 #
 # --- Low heap: I/O buffers + compiler state ---
-#   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  (unused)      [131072]      (was codebuf, moved to 0x54A000 in v3.3.7 — reclaimable)
+#   0x00000  input_buf     [262144]      256KB raw stdin input (expanded from 128KB in v3.4.18
+#                                         — absorbed the 0x20000 reclaimable slot. Unblocked the
+#                                         mabda dist/mabda.cyr 141KB bundle and any larger
+#                                         single-file dep; see CHANGELOG 3.4.18.)
 #   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000 in v3.3.17)
 #   0x48000  (unused)      [98304]       (96KB free between str_data end and tok_names)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
@@ -138,7 +140,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.4.17\n", 11);
+                syscall(SYS_WRITE, 1, "cc3 3.4.19\n", 11);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -193,15 +195,27 @@ S64(S + 0x8F898, 0);
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);
 
-# Read input
+# Read input. Buffer is 256KB (v3.4.18, was 128KB before). If the source ever
+# fills the whole buffer, we error out explicitly instead of silently truncating
+# — the old silent cap at 131072 bytes masked the mabda 141KB bundle failure as
+# a random "unexpected end of file" at token ~3719.
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(SYS_READ, 0, S + bl, 131072 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 262144 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 131072) { done = 1; }
+        if (bl >= 262144) {
+            # One more read to distinguish "exactly 256KB" from "more coming"
+            var probe[1];
+            var pn = syscall(SYS_READ, 0, &probe, 1);
+            if (pn > 0) {
+                syscall(SYS_WRITE, 2, "error: input exceeds 256KB buffer (raise input_buf in src/main.cyr)\n", 68);
+                syscall(SYS_EXIT, 1);
+            }
+            done = 1;
+        }
     }
 }
 SBL(S, bl);

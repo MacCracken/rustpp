@@ -4,6 +4,92 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.19] — 2026-04-11
+
+Dep fold-in: mabda 2.1.1 → 2.1.2.
+
+### Changed
+- **`[deps.mabda]` bumped to 2.1.2**: Pure repo hygiene release from mabda
+  — the `rust-old/` reference tree was removed, leaving a clean Cyrius-only
+  repository. Reference data preserved. `dist/mabda.cyr` bundle bytes are
+  unchanged (141,912 bytes), so no cc3-side work was needed to re-verify
+  the compile — it just continues to work. Projects that want the cleaner
+  mabda upstream (notably anyone scripting around the mabda repo layout)
+  should pin `cyrius >= 3.4.19`.
+- **Bootstrap verified** (cc3 → cc3a byte-identical, 250,536 bytes unchanged
+  from v3.4.18). No compiler source changes — this is a `cyrius.toml`
+  metadata release.
+
+### Stats
+- **cc3: 250,536 bytes** (unchanged from v3.4.18)
+- **40 stdlib modules + 5 deps** (mabda now 2.1.2)
+- **32 test suites (442 assertions)**, 4 fuzz harnesses
+- **Heap audit: 47 regions, 0 warnings**
+- Self-hosting verified (two-step cc3==cc3a byte-identical)
+
+## [3.4.18] — 2026-04-11
+
+Activates mabda as a stdlib dep — **unblocks `[deps.mabda] = 2.1.1`**. The
+v3.4.17 staging hit a real cc3 bug on arrival: the 141KB `dist/mabda.cyr`
+bundle silently failed to compile, presenting as `error:3719: unexpected
+end of file`. Root cause: cc3's raw stdin read loop silently truncated at
+131072 bytes (the old 128KB `input_buf` limit). A downstream agent working
+on the mabda bundle initially worked around it by stripping banner comments
+(shaving enough bytes to fit) — but that was a coincidence fix, not a root
+cause fix. The real fix is this release.
+
+### Fixed
+- **`input_buf` expanded 128KB → 256KB** (`src/main.cyr`, `src/main_aarch64.cyr`,
+  `src/main_cx.cyr`). Absorbs the adjacent reclaimable region at `0x20000`
+  (free since v3.3.7 when codebuf moved to `0x54A000`). **No downstream heap
+  offsets shift** — the expansion fills previously unused space. Heap audit
+  still reports 47 regions / 0 warnings. Mabda's 141KB bundle now compiles
+  cleanly with 114KB of headroom.
+- **Silent stdin truncation is now a hard error**. The old read loop
+  accepted up to 131072 bytes and stopped — anything beyond vanished without
+  a diagnostic, producing confusing parse errors far from the actual
+  truncation point. The new loop probes for a trailing byte after the
+  buffer fills and exits with:
+      error: input exceeds 256KB buffer (raise input_buf in src/main.cyr)
+  Clear, actionable, at the boundary where the problem happens. Same
+  family of silent-overflow bug as #32 (7+ arg stack offset), #33 (LEXHEX
+  raw-vs-preprocessed buffer), #35 (ifdef copy-back overflow).
+
+### Changed — Dep Activation
+- **`[deps.mabda]` activated** in `cyrius.toml`. Entry inherits the staging
+  shape from v3.4.17 but the "pending" comment is replaced with an
+  activation note explaining the input_buf prerequisite. `cyrius deps` now
+  resolves mabda 2.1.1 alongside sakshi/patra/sigil/yukti.
+- **Bootstrap verified with three-step self-host** (cc3 → cc3a → cc3b),
+  byte-identical at each step. Heap-sensitive changes always get the
+  extra verification.
+
+### Stats
+- **cc3: 250,536 bytes** (up 232 bytes from v3.4.17's 250,304 — cost of
+  the truncation-probe + error message string)
+- **40 stdlib modules + 5 deps** (mabda now active alongside yukti)
+- **32 test suites (442 assertions)**, 4 fuzz harnesses
+- **Heap audit: 47 regions, 0 warnings**
+- **`input_buf`: 256 KB** (was 128 KB since the earliest compiler drafts)
+- Self-hosting verified (three-step cc3 → cc3a → cc3b byte-identical)
+- Mabda 2.1.1 bundle (141,912 bytes) compiles cleanly
+
+### The lesson (for future-me)
+
+The mabda agent found the failing bundle, guessed "banner comments at scale
+confuse cc3" based on symptoms, and worked around it. The guess was wrong —
+but the workaround happened to work because stripping banners shaved enough
+bytes to fit under 131072. Any future mabda bundle growth would have re-hit
+the wall and re-mystified the next debugger.
+
+Lesson: **silent truncation is the worst failure mode**. It makes every
+downstream symptom misleading. A single `syscall error: truncated` at the
+boundary would have pointed straight at the real cause. v3.4.18 adds the
+probe-based truncation check so this never happens again for stdin. Watch
+for the same pattern in other fixed-size buffers (tok_names, preprocess_out,
+fixup_tbl) — all of them silently cap and all of them could surface the
+same kind of delayed misdiagnosis under scale.
+
 ## [3.4.17] — 2026-04-11
 
 Staging release for mabda stdlib inclusion. Mabda (GPU foundation layer)
@@ -11,9 +97,12 @@ ships now via a C shim over wgpu-native so every Cyrius user gets a
 sovereign GPU surface they can build against immediately. **The C shim is
 transitional scaffolding** — the long-term direction is a pure Cyrius
 GPU backend, and the public API is defined so the eventual backend swap
-is invisible to consumers. Mabda is working on v2.1.0 (feature catch-up)
-and v2.1.1 (the stdlib-inclusion release). Cyrius 3.4.17 pre-wires the
-`[deps.mabda]` entry so v3.4.18 is a one-line flip when 2.1.1 ships.
+is invisible to consumers. Mabda v2.1.0 shipped alongside this release —
+feature-complete against the Rust v1.0 surface, 290 assertions, full FFI
+path including texture + render-pipeline + surface creation, plus a
+cache-key heap-copy fix and a batch of v29 enum-drift corrections. Next
+up is mabda v2.1.1, the stdlib-inclusion release. Cyrius 3.4.17 pre-wires
+the `[deps.mabda]` entry so v3.4.18 is a one-line flip when 2.1.1 ships.
 
 ### Changed
 - **`cyrius.toml` staged `[deps.mabda]`**: Added dep entry pointing at
