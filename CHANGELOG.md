@@ -4,6 +4,57 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.5.1] — 2026-04-12
+
+### Fixed
+- **READFILE include-read cap raised 512KB → 1MB** (`src/frontend/lex.cyr`
+  lines 1061, 1209): two `READFILE(fname, out + op, 524288 - op)` calls
+  capped each include read at `512KB - current_position`, so programs whose
+  expanded source exceeded 512KB silently got truncated includes —
+  producing misleading parse errors like `expected '=', got fn`. This is
+  the **same stale 512KB constant** fixed in the overflow check in v3.4.20
+  (line 1080), but the two READFILE call sites were missed. Argonaut's
+  `cc3_readfile_cap.tcyr` test (all 19 libro modules + argonaut's own 12
+  modules, ~600KB expanded) now compiles. Raised to `1048576 - op` to
+  match the actual 1MB preprocess output buffer.
+
+## [3.5.0] — 2026-04-11
+
+**Cyrius 3.5.0 — Expression Power.** Four low-risk codegen improvements,
+no new syntax complexity, no heap changes, no bootstrap risk.
+
+### Added
+- **Expression-position comparisons**: `==`/`!=`/`<`/`>`/`<=`/`>=` now
+  return 0/1 as values in **any** expression position — var init, function
+  call arguments, store values, return statements, `&&`/`||` chains.
+  Eliminates the expand-to-if workaround (`var r = 0; if (a == b) { r = 1; }`)
+  that every downstream port hits. Implementation: 81 `PEXPR(S)` call sites
+  in `parse.cyr` upgraded to `PCMPE(S)`. 11 regression tests added.
+- **`#assert` compile-time check**: `#assert EXPR, "msg"` — evaluates a
+  constant expression (number literals, `sizeof(T)`, comparisons) at parse
+  time and aborts compilation on failure. Catches struct layout drift and
+  enum value mismatches. Token 107 added to lexer, `_EVAL_CONST_ATOM` +
+  `PARSE_STMT` handler in parser.
+- **Syscall arity warnings**: 40-entry lookup table of common Linux x86_64
+  syscall numbers → expected arg count. Warns at compile time when the arg
+  count doesn't match. Silent for unknown syscall numbers.
+
+### Fixed
+- **aarch64 `ESETCC` GT/LE/GE encodings** (`src/backend/aarch64/emit.cyr`):
+  GT and LE `cset` condition codes were swapped, GE used LT's encoding.
+  Pre-existing since the aarch64 backend was written — never caught because
+  comparisons in condition positions used branch instructions that bypassed
+  `ESETCC`. The PCMPE-everywhere change in 3.5.0 exposed the bug by routing
+  all comparisons through `ESETCC` for the first time. Fixed all three
+  encodings. aarch64 CI tests (`for`, `fn_recurse`, `complex`) now pass.
+
+### Notes
+- `sizeof(StructName)` was already implemented (since v2.0) — verified
+  working, no changes needed.
+- cc3 binary grew from 250KB to 288KB. The growth is from PCMPE dispatch
+  at every expression site (the compiler itself is a large program that
+  exercises every code path) + `#assert` evaluator + syscall arity table.
+
 ## [3.4.20] — 2026-04-11
 
 P(-1) scaffold-hardening pass + libro review before v3.5.0. Two latent

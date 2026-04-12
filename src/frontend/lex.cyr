@@ -1058,7 +1058,7 @@ fn PP_PASS(S) {
                     # Include-once: skip if already included
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
-                        var nr = READFILE(fname, out + op, 524288 - op);
+                        var nr = READFILE(fname, out + op, 1048576 - op);
                         op = op + nr;
                         had_include = 1;
                     }
@@ -1206,7 +1206,7 @@ fn PP_IFDEF_PASS(S) {
                     }
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
-                        var nr = READFILE(fname, out + op, 524288 - op);
+                        var nr = READFILE(fname, out + op, 1048576 - op);
                         op = op + nr;
                     }
                 }
