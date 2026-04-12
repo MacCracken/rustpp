@@ -520,10 +520,10 @@ fn ESETCC(S, op) {
     # cset x0, <cond>
     if (op == 17) { EW(S, 0x9A9F17E0); }
     if (op == 18) { EW(S, 0x9A9F07E0); }
-    if (op == 19) { EW(S, 0x9A9FA7E0); }
-    if (op == 20) { EW(S, 0x9A9FC7E0); }
-    if (op == 21) { EW(S, 0x9A9FD7E0); }
-    if (op == 22) { EW(S, 0x9A9FA7E0); }
+    if (op == 19) { EW(S, 0x9A9FA7E0); }   # lt → csinc x0, xzr, xzr, ge  (cond=1010)
+    if (op == 20) { EW(S, 0x9A9FD7E0); }   # gt → csinc x0, xzr, xzr, le  (cond=1101)
+    if (op == 21) { EW(S, 0x9A9FC7E0); }   # le → csinc x0, xzr, xzr, gt  (cond=1100)
+    if (op == 22) { EW(S, 0x9A9FB7E0); }   # ge → csinc x0, xzr, xzr, lt  (cond=1011)
     return 0;
 }
 
