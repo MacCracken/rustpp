@@ -36,8 +36,14 @@ jobs:
           echo "PASS: cc3==cc3 byte-identical"
       - name: Build aarch64 cross-compiler
         run: |
+          echo "build/cc3: $(wc -c < ./build/cc3) bytes"
+          echo "build/cc3 md5: $(md5sum build/cc3 | cut -d' ' -f1)"
+          echo "lex.cyr md5: $(md5sum src/frontend/lex.cyr | cut -d' ' -f1)"
+          echo "main_aarch64 md5: $(md5sum src/main_aarch64.cyr | cut -d' ' -f1)"
+          ./build/cc3 --version || echo "cc3 --version failed"
           cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
           echo "cc3_aarch64: $(wc -c < ./build/cc3_aarch64) bytes"
+          file ./build/cc3_aarch64
       - name: Build tools
         run: |
           cat programs/cyrfmt.cyr | ./build/cc3 > ./build/cyrfmt && chmod +x ./build/cyrfmt
