@@ -13,10 +13,10 @@
 # Regions marked (nested) are intentionally inside larger buffers.
 #
 # --- Low heap: I/O buffers + compiler state ---
-#   0x00000  input_buf     [262144]      256KB raw stdin input (expanded from 128KB in v3.4.18
+#   0x00000  input_buf     [262144]      256KB raw stdin input (expanded from 128KB in v3.4.19
 #                                         — absorbed the 0x20000 reclaimable slot. Unblocked the
 #                                         mabda dist/mabda.cyr 141KB bundle and any larger
-#                                         single-file dep; see CHANGELOG 3.4.18.)
+#                                         single-file dep; see CHANGELOG 3.4.19.)
 #   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000 in v3.3.17)
 #   0x48000  (unused)      [98304]       (96KB free between str_data end and tok_names)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
@@ -195,7 +195,7 @@ S64(S + 0x8F898, 0);
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);
 
-# Read input. Buffer is 256KB (v3.4.18, was 128KB before). If the source ever
+# Read input. Buffer is 256KB (v3.4.19, was 128KB before). If the source ever
 # fills the whole buffer, we error out explicitly instead of silently truncating
 # — the old silent cap at 131072 bytes masked the mabda 141KB bundle failure as
 # a random "unexpected end of file" at token ~3719.

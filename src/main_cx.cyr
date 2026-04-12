@@ -58,7 +58,7 @@ S64(S + 0x8F898, 0);
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);
 
-# Read input (256KB, v3.4.18 — see src/main.cyr for rationale)
+# Read input (256KB, v3.4.19 — see src/main.cyr for rationale)
 var bl = 0;
 var done = 0;
 while (done == 0) {

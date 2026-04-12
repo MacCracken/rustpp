@@ -29,14 +29,14 @@ git = "https://github.com/MacCracken/yukti.git"
 tag = "1.2.0"
 modules = ["dist/yukti.cyr"]
 
-# mabda — GPU foundation layer. Activated in v3.4.18 (staged in v3.4.17).
-# Provides the Cyrius public GPU API via a transitional wgpu-native C shim;
-# public API is the stability contract, the backend swap to pure Cyrius is
-# future work and invisible to consumers. v3.4.18's input_buf expansion
-# (128KB → 256KB) was the blocking cc3 change — the 141KB dist/mabda.cyr
-# bundle did not fit the old buffer and triggered silent stdin truncation.
-# v3.4.19 bumped the tag to 2.1.2 — pure repo hygiene (rust-old reference
-# tree removed), bundle bytes unchanged.
+# mabda — GPU foundation layer. Activated in v3.4.19. Provides the Cyrius
+# public GPU API via a transitional wgpu-native C shim; public API is the
+# stability contract, the backend swap to pure Cyrius is future work and
+# invisible to consumers. v3.4.19 also expanded input_buf 128KB → 256KB
+# (the blocking cc3 change — the 141KB dist/mabda.cyr bundle did not fit
+# the old buffer and triggered silent stdin truncation). The dep tag
+# landed at mabda 2.1.2 — a repo-hygiene release atop 2.1.1 that removed
+# the rust-old reference tree without touching bundle bytes.
 [deps.mabda]
 git = "https://github.com/MacCracken/mabda.git"
 tag = "2.1.2"

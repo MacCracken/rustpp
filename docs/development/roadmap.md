@@ -90,7 +90,7 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 | Database (dep) | patra |
 | Security (dep) | sigil |
 | Hardware (dep) | yukti |
-| GPU (dep) | mabda (v2.1.2, activated v3.4.18 — backend is a transitional wgpu-native C shim, public API is the stability contract, native backend is future work) |
+| GPU (dep) | mabda (v2.1.2, activated v3.4.19 — backend is a transitional wgpu-native C shim, public API is the stability contract, native backend is future work) |
 | Time | chrono |
 | Logging | log |
 | Knowledge | vidya |
@@ -98,7 +98,7 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 
 ### Pending inclusion
 
-None currently. Mabda (the last pending dep) was activated in v3.4.18.
+None currently. Mabda (the last pending dep) was activated in v3.4.19.
 
 ### Planned
 
@@ -189,7 +189,7 @@ All core tooling complete:
 | Locals per function | 256 | |
 | Fixup entries | 8192 | |
 | Struct fields | 32 | |
-| Input buffer | 256KB | Expanded from 128KB in v3.4.18 — hard error on overflow, not silent truncation |
+| Input buffer | 256KB | Expanded from 128KB in v3.4.19 — hard error on overflow, not silent truncation |
 | Code buffer | 512KB | Expanded in v3.4.0 |
 | Output buffer | 512KB | |
 | String data | 32KB | |
