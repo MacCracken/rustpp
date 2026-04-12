@@ -64,7 +64,7 @@ for tfile in "$ROOT"/tests/tcyr/*.tcyr; do
     tmpbin="/tmp/audit_t_$$"
     printf "  %-20s " "$name"
     if cat "$tfile" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
-        output=$("$tmpbin" 2>&1)
+        output=$("$tmpbin" 2>&1 | tr -d '\0')
         ec=$?
         summary=$(echo "$output" | grep -o '[0-9]* passed, [0-9]* failed' | tail -1)
         if [ -n "$summary" ]; then

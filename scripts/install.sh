@@ -337,6 +337,38 @@ if [ "$path_added" -eq 0 ]; then
     add_to_path "$HOME/.profile" && info "PATH added to .profile" || true
 fi
 
+# ── Starship prompt integration ──
+
+STARSHIP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
+if [ -f "$STARSHIP_CONFIG" ] && command -v starship > /dev/null 2>&1; then
+    if ! grep -q "custom.cyrius" "$STARSHIP_CONFIG" 2>/dev/null; then
+        cat >> "$STARSHIP_CONFIG" << 'STARSHIP'
+
+[custom.cyrius]
+command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc3 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
+when = "test -f cyrius.toml"
+symbol = "𝕮"
+style = "bg:teal"
+format = '[[ $symbol( $output) ](fg:base bg:teal)]($style)'
+detect_files = ["cyrius.toml"]
+STARSHIP
+        info "Starship prompt configured (shows toolchain version in Cyrius projects)"
+    fi
+elif command -v starship > /dev/null 2>&1; then
+    # Starship installed but no config — create minimal config with cyrius section
+    mkdir -p "$(dirname "$STARSHIP_CONFIG")"
+    cat > "$STARSHIP_CONFIG" << 'STARSHIP'
+[custom.cyrius]
+command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc3 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
+when = "test -f cyrius.toml"
+symbol = "𝕮"
+style = "bg:teal"
+format = '[[ $symbol( $output) ](fg:base bg:teal)]($style)'
+detect_files = ["cyrius.toml"]
+STARSHIP
+    info "Starship config created with Cyrius prompt"
+fi
+
 # ── Summary ──
 
 printf "\n${BOLD}Cyrius ${VERSION} installed successfully!${RESET}\n\n"

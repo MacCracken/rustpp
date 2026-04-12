@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.8] — 2026-04-12
+
+### Changed
+- **Error messages improved**: "undefined variable" now includes hint
+  `(missing include or enum?)` to guide users toward the most common cause.
+- **`scripts/check.sh`**: test output captured with `tr -d '\0'` to strip
+  null bytes that caused garbled bash warnings on some test binaries.
+- **Starship prompt integration** (`scripts/install.sh`): installer now
+  auto-configures `[custom.cyrius]` in `~/.config/starship.toml` if
+  starship is available. Shows toolchain version (`cc3 --version`) in
+  downstream Cyrius projects, project version (`VERSION` file) in the
+  compiler repo itself. Detection via `bootstrap/asm` (unique to the
+  compiler repo).
+
 ## [3.6.7] — 2026-04-12
 
 ### Fixed

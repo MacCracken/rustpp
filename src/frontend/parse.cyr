@@ -513,7 +513,7 @@ fn PARSE_FACTOR(S) {
             PRNUM(GTLINE(S, GTI(S)));
             syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + noff);
-            syscall(SYS_WRITE, 2, "'\n", 2);
+            syscall(SYS_WRITE, 2, "' (missing include or enum?)\n", 29);
             syscall(SYS_EXIT, 1);
         }
         var vt = GVTYPE(S, idx);
