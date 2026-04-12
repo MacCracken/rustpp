@@ -30,7 +30,7 @@ fn FIXUP(S) {
     var totvar = 0;
     var vi = 0;
     # Store prefix sums in scratch area (output_buf tail, safe — ELF not written yet)
-    var pfx = S + 0x5CA000 + 131072;
+    var pfx = S + 0x64A000 + 131072;
     while (vi < vcnt) {
         S64(pfx + vi * 8, totvar);
         totvar = totvar + L64(S + 0x12A000 + vi * 8);
@@ -90,7 +90,7 @@ fn EMITELF_KERNEL(S) {
     var memsz = filesz + 65536;
     # Entry = base + headers + pad + multiboot header
     var entry = 0x100000 + hdrsz + mb_sz;
-    var O = S + 0x5CA000;
+    var O = S + 0x64A000;
     var op = 0;
     # ELF32 header (52 bytes)
     S64(O + op, 0x0000010101464C457F & 0xFFFFFFFFFFFFFFFF);
@@ -147,10 +147,10 @@ fn EMITELF_USER(S, etype) {
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
-    if (filesz > 524288) {
+    if (filesz > 1048576) {
         syscall(SYS_WRITE, 2, "error: output too large (", 25);
         PRNUM(filesz);
-        syscall(SYS_WRITE, 2, "/524288 bytes)\n  code: ", 23);
+        syscall(SYS_WRITE, 2, "/1048576 bytes)\n  code: ", 23);
         PRNUM(cp);
         syscall(SYS_WRITE, 2, " data: ", 7);
         PRNUM(totvar);
@@ -165,7 +165,7 @@ fn EMITELF_USER(S, etype) {
         syscall(SYS_WRITE, 2, " bytes) — consider alloc() for buffers >4KB\n", 44);
     }
     var memsz = filesz + 4096;
-    var O = S + 0x5CA000;
+    var O = S + 0x64A000;
     var op = 0;
     # ELF header (64 bytes) — e_type from parameter
     S64(O + op, 0x00010102464C457F); op = op + 8;
@@ -218,7 +218,7 @@ fn EMITELF_OBJ(S) {
     var fcnt = GFCNT(S);
     var fnc = GFNC(S);
 
-    var O = S + 0x5CA000;
+    var O = S + 0x64A000;
     var op = 0;
 
     # --- Allocate scratch via brk extension ---
@@ -410,7 +410,7 @@ fn EMITELF_OBJ(S) {
     var num_shdrs = 7;  # null + .text + .data + .rodata + .symtab + .strtab + .rela.text
     var total_size = shdr_off + num_shdrs * 64;
 
-    if (total_size > 524288) {
+    if (total_size > 1048576) {
         syscall(SYS_WRITE, 2, "error: .o output too large\n", 27);
         syscall(SYS_EXIT, 1);
     }

@@ -83,7 +83,7 @@
 #   0xD0000  fn_body_end   [16384]       2048 inline body end
 #   0xD4000  fn_inline     [16384]       2048 inline flags
 #   0xD8000  struct_fnames [8192]        32×32 field name offsets (stride 256)
-#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x5CA000 in v3.3.7 — reclaimable)
+#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x74A000 in v3.3.7 — reclaimable)
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
 #   0x12A000 var_sizes     [65536]       8192 variable sizes
 #   0x13A000 var_types     [65536]       8192 variable type IDs
@@ -91,9 +91,9 @@
 #   0x24A000 tok_values    [1048576]     131072 token value slots
 #   0x34A000 tok_lines     [1048576]     131072 token line number slots
 #   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
-#   0x54A000 codebuf       [524288]      512KB generated machine code
-#   0x5CA000 output_buf    [524288]      512KB ELF output
-#   0x64A000 brk                         6.3MB total
+#   0x54A000 codebuf       [1048576]     1MB generated machine code (expanded from 512KB in v3.5.1)
+#   0x64A000 output_buf    [1048576]     1MB ELF output (shifted from 0x5CA000 in v3.5.1)
+#   0x74A000 brk                         7.3MB total
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -140,7 +140,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.5.1\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.5.2\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -149,7 +149,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x64A000);
+syscall(SYS_BRK, S + 0x74A000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -538,7 +538,7 @@ var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x5CA000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x64A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

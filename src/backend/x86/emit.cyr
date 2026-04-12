@@ -1,13 +1,13 @@
 # ================================================================
-# CODE EMISSION (writes to codebuf at S+0x20000+CP)
+# CODE EMISSION (writes to codebuf at S+0x54A000+CP (1MB since v3.5.1))
 # ================================================================
 
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 524288) {
+    if (cp >= 1048576) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
         PRNUM(cp);
-        syscall(SYS_WRITE, 2, "/524288 bytes) — program too large for single compilation\n", 58);
+        syscall(SYS_WRITE, 2, "/1048576 bytes) — program too large for single compilation\n", 58);
         syscall(SYS_EXIT, 1);
     }
     store8(S + 0x54A000 + cp, b & 0xFF);

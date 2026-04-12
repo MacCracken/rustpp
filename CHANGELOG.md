@@ -4,19 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.5.2] — 2026-04-12
+
+### Fixed
+- **Codebuf + output_buf expanded 512KB → 1MB each** (`src/backend/x86/emit.cyr`,
+  `src/backend/x86/fixup.cyr`, `src/main.cyr`): programs with >512KB of generated
+  machine code hit the old codebuf ceiling. Output_buf shifted from `0x5CA000`
+  → `0x64A000`, brk extended from `0x64A000` → `0x74A000` (7.3MB total heap).
+  Both x86 cap checks and error messages updated to 1MB. No other heap regions
+  shifted. Three-step bootstrap verified.
+- **PP_IFDEF_PASS copy-back overflow eliminated** (`src/frontend/lex.cyr`):
+  the ifdef preprocessing pass copied the entire expanded source from the 1MB
+  preprocess buffer (`S+0x44A000`) back to the 256KB input buffer (`S+0`)
+  before processing. For programs with >256KB of expanded source (argonaut's
+  600KB), this overflowed past `S+0x40000` and corrupted `str_data`, `tok_names`,
+  and the compiler state scalars at `S+0x8C100` — presenting as garbage codebuf
+  overflow values (quintillion-range numbers). Fix: for programs that fit in
+  256KB, the copy-back still runs (helpers read from `S+0`). For oversized
+  programs, the ifdef pass reads directly from `S+0x44A000` via a source-base
+  offset (`sb = 0x44A000`), eliminating the copy entirely. Bug #35 family,
+  same root cause pattern as the v3.4.7 `str_pos`/`data_size` re-init fix
+  but covering the full copy-back path.
+
+### Known limit
+- **Token limit**: 131,072 tokens. Argonaut's 52-file mega-compilation test
+  (`cc3_readfile_cap.tcyr`) exceeds this after the above fixes unblock it.
+  The token arrays are 1MB each (3MB total); expanding requires a v4.0
+  heap reorganization.
+
 ## [3.5.1] — 2026-04-12
 
 ### Fixed
 - **READFILE include-read cap raised 512KB → 1MB** (`src/frontend/lex.cyr`
-  lines 1061, 1209): two `READFILE(fname, out + op, 524288 - op)` calls
-  capped each include read at `512KB - current_position`, so programs whose
-  expanded source exceeded 512KB silently got truncated includes —
-  producing misleading parse errors like `expected '=', got fn`. This is
-  the **same stale 512KB constant** fixed in the overflow check in v3.4.20
-  (line 1080), but the two READFILE call sites were missed. Argonaut's
-  `cc3_readfile_cap.tcyr` test (all 19 libro modules + argonaut's own 12
-  modules, ~600KB expanded) now compiles. Raised to `1048576 - op` to
-  match the actual 1MB preprocess output buffer.
+  lines 1061, 1209): last two stale 524288 constants in the include
+  read-budget calculation. Argonaut's 19-libro-module test now compiles.
 
 ## [3.5.0] — 2026-04-11
 

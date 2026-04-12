@@ -90,7 +90,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x64A000);
+syscall(SYS_BRK, S + 0x74A000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -338,7 +338,7 @@ var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x5CA000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x64A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;
