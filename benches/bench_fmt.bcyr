@@ -29,7 +29,10 @@ fn work_fmt_hex() {
 
 fn work_sprintf() {
     var buf[64];
-    fmt_sprintf(&buf, "x=%d y=%d", 42, 99);
+    var args = vec_new();
+    vec_push(args, 42);
+    vec_push(args, 99);
+    fmt_sprintf(&buf, "x=%d y=%d", args);
     return 0;
 }
 

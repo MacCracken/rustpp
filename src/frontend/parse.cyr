@@ -1,17 +1,16 @@
 # PARSER + CODEGEN — recursive descent, direct emission
 # ================================================================
 
-
-# Compare two null-terminated strings in tok_names
-# Returns 1 if equal, 0 if not
 # ================================================================
 # STRUCT SUPPORT
 # ================================================================
-# Heap layout for structs (in scratch area):
-#   0x8DE30  var_types[256]       2048 bytes — struct_id per global var (0=scalar)
+# Heap layout for structs — see src/main.cyr for the authoritative map.
+# Quick reference of the regions this file touches:
+#   0x13A000 var_types[8192]      65536 bytes — struct_id per var (0=scalar)
 #   0x8E630  struct_names[32]     256 bytes — name offset per struct
-#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct
-#   0x8E830  struct_fnames[512]   4096 bytes — field name offsets (32 structs * 16 fields)
+#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct (bit 63 = union)
+#   0x8A000  struct_ftypes[1024]  8192 bytes — 32×32 field type IDs (stride 256)
+#   0xD8000  struct_fnames[1024]  8192 bytes — 32×32 field name offsets (stride 256)
 #   0x8F830  struct_count         8 bytes
 
 fn GSTC(S) { return L64(S + 0x8F830); }

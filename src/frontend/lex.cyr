@@ -1073,9 +1073,12 @@ fn PP_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Check preprocess output size
-    if (op > 524288) {
-        syscall(SYS_WRITE, 2, "error: expanded source exceeds 512KB (", 38);
+    # Check preprocess output size. Buffer is 1MB at 0x44A000 (v3.4.5).
+    # Was previously 512KB; this cap was stale for five releases (3.4.5→3.4.20)
+    # and clipped valid programs at the old boundary. Raised to match the
+    # actual buffer in v3.4.20.
+    if (op > 1048576) {
+        syscall(SYS_WRITE, 2, "error: expanded source exceeds 1MB (", 36);
         PRNUM(op);
         syscall(SYS_WRITE, 2, " bytes)\n", 8);
         syscall(SYS_EXIT, 1);

@@ -312,9 +312,20 @@ compile() {
 "
         shift
     done
-    # Resolve dependencies from cyrius.toml if present
+    # Resolve dependencies from cyrius.toml if present. Bench/test/fuzz
+    # files (.bcyr / .tcyr / .fcyr) are self-contained by convention —
+    # they declare their own includes and must not inherit the project's
+    # [deps] overlay. Without this skip, running `cyrius test` or
+    # `cyrius bench` from a repo whose cyrius.toml declares downstream
+    # deps (e.g. Cyrius itself with [deps.mabda] + yukti + patra + ...)
+    # would prepend ~400KB of unrelated sources to every test, blowing
+    # past the preprocessor cap and confusing the consumer.
     local depfile=""
-    if [ -f "cyrius.toml" ]; then
+    local skip_deps=0
+    case "$src" in
+        *.bcyr|*.tcyr|*.fcyr) skip_deps=1 ;;
+    esac
+    if [ -f "cyrius.toml" ] && [ "$skip_deps" -eq 0 ]; then
         local has_deps=$(grep -c '^\[deps' cyrius.toml 2>/dev/null || echo 0)
         if [ "$has_deps" -gt 0 ]; then
             depfile="/tmp/cyrius_deps_$$"

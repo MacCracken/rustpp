@@ -4,6 +4,148 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.20] — 2026-04-11
+
+P(-1) scaffold-hardening pass + libro review before v3.5.0. Two latent
+stale-cap bugs fixed, a silent `cyrius build` misconfiguration fixed,
+dead bench files cleaned up, compiler heap map comment drift cleaned up,
+and libro's multi-month "still struggling to get out" state narrowed to
+three missing-include bugs + uncommitted WIP.
+
+### Fixed
+- **Stale preprocess_out cap** (`src/frontend/lex.cyr:1077`): cap was
+  hard-coded at 524,288 bytes (512 KB) but the preprocess output buffer
+  was expanded to 1 MB in v3.4.5. The cap had been stale for **five
+  releases**. Large expanded programs (anything touching >512 KB after
+  include/macro expansion) hit a phantom limit and bailed with
+  "expanded source exceeds 512KB" even though the buffer had headroom.
+  Raised the cap to 1,048,576 bytes to match the actual buffer. Error
+  message updated to "1MB" so future drift is visible. Same class of
+  bug as v3.4.19's silent stdin truncation and v3.3.17's LEXHEX
+  raw-vs-preprocessed buffer mismatch — fixed-size buffers in cc3 are
+  worth a blanket audit for stale caps before v3.5.0.
+- **`cyrius build` / `cyrius test` / `cyrius bench` auto-prepended
+  Cyrius's own `[deps]` to every compile target** (`scripts/cyrius`
+  `compile()`): when invoked from a project whose `cyrius.toml` declares
+  downstream deps (i.e. Cyrius itself with sakshi + patra + sigil +
+  yukti + mabda), `resolve_deps()` prepended all of them to the
+  stdin stream for every build. Bench files (which already declare
+  their own `include`s) got ~400 KB of unrelated source bolted on,
+  tripped the preprocess cap (above), and all reported `FAIL (compile)`.
+  Fixed: `compile()` now skips dep resolution for `.bcyr` / `.tcyr` /
+  `.fcyr` targets — these are self-contained by convention and must
+  not inherit the project's dep overlay. Regular source builds are
+  unchanged. Tests, fuzz, and benches can be invoked via the dispatcher
+  again from the Cyrius repo root.
+- **`scripts/cyrius` sourced from `~/.cyrius/bin/cyrius`** reinstalled
+  so `cyrius bench` uses the fixed dispatcher. Both copies stay in sync.
+
+### Changed — Benches
+- **`bench_fmt.bcyr` SIGSEGV fixed**: `fmt_sprintf(&buf, "x=%d y=%d",
+  42, 99)` passed the two int args positionally where `fmt_sprintf`
+  expects a `vec` of args (pulled via `vec_get`). Cyrius silently
+  accepts extra args to a 3-param function, so `42` was interpreted
+  as a vec pointer and `vec_get(42, 0)` dereferenced address 42 →
+  crash. Rewrote to use a proper `vec_new` + `vec_push` args vector.
+  Bench now reports clean numbers (~645 ns for sprintf, the slowest
+  in the fmt suite).
+- **`tests/bcyr/compile.bcyr` deleted**: referenced `./build/cc2`
+  (renamed to cc3 in v3.2.5) and was missing its include list. Dead
+  since cc2 → cc3. Removed. `tests/bcyr/` directory removed (now empty).
+
+### Changed — Compiler internals
+- **Stale heap-layout comment in `src/frontend/parse.cyr`** rewritten.
+  The top-of-file struct support block referenced `var_types` at
+  `0x8DE30 [256 bytes, 32 entries]` (five locations stale — actual is
+  `0x13A000 [65,536 bytes, 8192 entries]`) and `struct_fnames` at
+  `0x8E830 [4096 bytes, 16 fields]` (actual is `0xD8000 [8192 bytes,
+  32 fields]`). Replaced with a "see src/main.cyr for authoritative
+  map" pointer + a correct quick reference of the regions parse.cyr
+  actually touches.
+
+### P(-1) Scaffold Audit — findings & observations
+
+Before opening 3.5.0 work, ran the full scaffold-hardening pass:
+
+1. **Cleanliness baseline**: stdlib is clean (`cyrius audit` reports
+   5/5 pass). Compiler source (`src/`) has ~395 lint warnings + ~10
+   format diffs, but all are cyrlint/cyrfmt style-convention mismatches
+   (uppercase fn names like `GLVAR`/`SFINL` vs snake_case rule,
+   nested-if flat indent vs add-indent-per-brace, 100-char lines in
+   ASM emission). Not bugs — tooling doesn't understand the compiler's
+   conventions. Deferred; worth either tuning cyrlint with a
+   `# cyrlint: ignore` directive or documenting an exclusion.
+2. **Test sweep**: 32/32 .tcyr suites green (442 assertions), 4/4
+   .fcyr fuzz harnesses pass, heap audit 47 regions / 0 overlaps /
+   0 warnings, self-host byte-identical.
+3. **Benchmark baseline** (post-fix): captured for future comparison.
+   Highlights: `alloc/8B` 421 ns, `alloc/64B` 427 ns, `alloc/1KB` 439
+   ns, f64 arithmetic 394-415 ns, `fmt/int_small` 421 ns, `fmt/sprintf`
+   645 ns, `hashmap/lookup_hit` 593 ns, `str/from+len` 463 ns,
+   `vec/push_1000` 15 µs, `vec/get` 403 ns, `tagged/Ok` 431 ns. All
+   stable compared to prior informal measurements.
+4. **Dead code scan**: 296 uppercase-prefixed compiler fns, zero with
+   ≤1 call sites. Prior cleanup in v3.4.16 (GLVR/SLVR/GFBE/GPUB/SPUB/
+   TWIDTH removal) held — no new dead accessors accumulated.
+
+### Libro review — unblocked
+
+Libro's been "still struggling to get out" for months. Root cause
+identified — three missing includes in `libro/src/main.cyr`, plus a
+WIP test-suite addition that breaks the suite even after the
+include fix:
+
+1. **Missing `include "lib/patra.cyr"`** — libro's main.cyr referenced
+   `patra_init()`, `patrastore_open()`, etc. without ever including
+   patra's source. Cyrius emits "undefined function" warnings for
+   these and generates stub bodies that jump to NULL at call time.
+   First patrastore call → SIGSEGV.
+2. **Missing `include "lib/fmt.cyr"`** — patra internally calls
+   `fmt_int_buf` during SQL execution. Without fmt.cyr, this is
+   another NULL stub → SIGSEGV mid-exec.
+3. **Missing `include "src/patra_store.cyr"`** — the `patrastore_*`
+   wrapper functions were defined in a file that was never included
+   from main.cyr. Same NULL-stub crash pattern.
+4. **Uncommitted WIP** (~385 new lines in "Gap coverage" test group)
+   crashes when run as part of the full suite, even with includes
+   fixed. Tests run fine in isolation. Triggering condition is
+   cumulative — something in the prior test groups leaves state that
+   breaks the PatraStore append_load path. Classic heisenbug signature.
+
+**Result with includes fixed (committed main.cyr only, WIP stashed):
+202/202 tests PASS, exit 0.** Libro is unblocked as soon as the
+include fix is committed and the WIP is either completed or reverted.
+See `docs/development/issues/libro-unblock.md` for the full diagnosis.
+
+### Related findings (for future cleanup, not fixed here)
+
+- **`lib/patra.cyr` silently SIGSEGVs when used without `patra_init()`**.
+  `sql_tokenize` dereferences `_sql_toks = 0` on first call if
+  `patra_init()` → `_sql_init()` was never called. Same family of
+  silent-failure bug as v3.4.19's input_buf truncation — patra
+  should lazy-init or `patra_open()` should call `patra_init()`
+  unconditionally. Upstream fix for a future patra release.
+- **Other fixed-size buffers worth auditing for stale caps**:
+  `tok_names` (64 KB at 0x60000), `preprocess_out` (1 MB at 0x44A000
+  — cap now matches), `fixup_tbl` (128 KB at 0xA0000, 8192 entries
+  cap), `_fl_arena` (64 KB segments). Pattern: fixed-size buffer +
+  silent overflow + downstream corruption = delayed misdiagnosis at
+  scale. Add probe-based overflow checks to all of them.
+- **`cyrlint` / `cyrfmt` don't understand compiler conventions**:
+  395 warnings on src/, none of them real bugs. Either teach the
+  tools the conventions or add a per-file ignore mechanism before
+  gating CI on compiler-source cleanliness.
+
+### Stats
+- **cc3: 250,536 bytes** (unchanged — only source comment edit + stale
+  cap fix, both zero-byte)
+- **40 stdlib modules + 5 deps**, 32 test suites (442 assertions)
+- **Heap audit: 47 regions, 0 warnings**
+- **Bench harness: 9 benches × multiple measurements = ~50 data points
+  captured for baseline comparison**
+- Self-hosting verified (two-step cc3==cc3a byte-identical)
+- Libro: **202/202 tests pass** with include fix on committed main.cyr
+
 ## [3.4.19] — 2026-04-11
 
 Mabda stdlib inclusion, start to finish. **Mabda (GPU foundation layer) is
