@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v3.6.10.** 290KB self-hosting compiler, x86_64 + aarch64.
-> 33 test suites (491 assertions), 5 fuzz harnesses, 10 benchmarks, heap audit clean.
+> **v3.7.0.** 290KB self-hosting compiler, x86_64 + aarch64.
+> 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
-> 256KB input_buf, 1MB codebuf, 1MB preprocess_out, 64KB tok_names, 262K tokens.
-> Dependencies via `cyrius deps`. String interning + Str auto-coercion.
+> 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
+> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -15,77 +15,65 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| Libro PatraStore stack corruption in large binaries | Libro 1.0.3 gated tests | Tracked — str_builder + patra_exec interaction in >300KB binaries |
-| Avatara parse error at line 6819 | Avatara 2.0.0 build | Avatara-side — `expected ')', got '.'` after v3.6.9 unblocked string limit |
-
-Recently resolved:
-- ~~String data 32KB~~ — **Fixed v3.6.9** (expanded to 256KB, unblocked avatara)
-- ~~Ifdef copy-back >256KB~~ — **Fixed v3.6.5** (mmap temp buffer)
-- ~~Struct limit 32~~ — **Fixed v3.6.6** (expanded to 64)
-- ~~Input buffer 256KB~~ — **Fixed v3.6.7** (expanded to 512KB)
+| PatraStore stack corruption in large binaries | Libro 1.0.3 gated tests | str_builder + patra_exec in >300KB binaries — compiler/stdlib bug |
 
 ---
 
-## v3.5.0 — Expression Power (Shipped)
+## v3.7.0 — `#derive(accessors)`
 
-| # | Feature | Status | Details |
-|---|---------|--------|---------|
-| 1 | ~~Expression-position comparisons~~ | **Done (v3.5.0)** | `==`/`!=`/`<`/`>` return 0/1 anywhere. 81 PEXPR→PCMPE call sites. |
-| 2 | ~~`#assert` compile-time check~~ | **Done (v3.5.0)** | `#assert EXPR, "msg"` — token 107, constant evaluator for sizeof + numbers. |
-| 3 | ~~`sizeof(StructName)`~~ | **Done (pre-existing)** | Already worked since v2.0. |
-| 4 | ~~Syscall arity warnings~~ | **Done (v3.5.0)** | 40-entry lookup table, warns on mismatch. |
+Auto-generate field accessors for heap-allocated structs. Same preprocessor
+codegen pattern as `#derive(Serialize)`. Saves ~30 lines per struct across
+every downstream project.
 
-Also fixed: aarch64 `ESETCC` GT/LE/GE encodings (pre-existing bug exposed by PCMPE-everywhere).
+```cyrius
+#derive(accessors)
+struct Point { x; y; }
+# Generates: Point_x(p), Point_set_x(p, v), Point_y(p), Point_set_y(p, v)
+```
 
-## v3.6.0 — String Unification (Shipped)
+## v3.7.1 — Native multi-return
 
-| # | Feature | Status | Details |
-|---|---------|--------|---------|
-| 5 | ~~Str/cstr auto-coercion~~ | **Done (v3.6.0)** | `: Str` param annotations, auto-wrap at call sites. 748 downstream wrappers eliminable. |
-| 6 | ~~Compile-time string interning~~ | **Done (v3.6.1)** | Identical literals share addresses. ptr_eq 30% faster than streq. |
-| 7 | ~~`lib/cffi.cyr`~~ | **Done (v3.6.3)** | C struct layout with alignment/padding. Module #41. 18 functions, 23 test assertions. |
+`return (a, b)` → rax:rdx register pair. `var x, y = fn()` → destructure.
+Eliminates the `alloc(16)` pair-struct workaround. `ret2`/`rethi` builtins
+already exist internally — this exposes them as first-class syntax.
 
-Also shipped: token limit 131K→262K (v3.6.2), codebuf 512KB→1MB (v3.5.2),
-READFILE cap 1MB (v3.5.1), preprocess_out cap 1MB (v3.4.20).
+## v3.7.2 — Deferred formatting (defmt)
 
-## v3.7.0 — Struct Evolution
+String interning (v3.6.1) + decode ring. Format strings stay as interned
+IDs at runtime; decoding happens at the log reader, not the producer.
+Eliminates `fmt_sprintf` overhead in hot paths. Builds on string interning.
+High effort — may slip to v3.8.x.
 
-Make structs do more work at compile time. Zero runtime cost.
-
-| # | Feature | Effort | Details |
-|---|---------|--------|---------|
-| 8 | **`#derive(accessors)`** | Medium | Auto-generate `Name_field(p)` and `Name_set_field(p, v)` for each struct field. Same codegen pattern as `#derive(Serialize)`. Saves ~30 lines per struct. |
-| 9 | **Native multi-return** | Medium | `return (a, b)` → rax:rdx. `var x, y = fn()` → destructure. Eliminates alloc(16) pair structs. ret2/rethi exist internally — expose as first-class syntax. |
-| 10 | **Deferred formatting** (defmt) | High | String interning + decode ring. Eliminates runtime fmt overhead for logging/tracing. Builds on string interning from v3.6.0. |
+---
 
 ## v3.8.0 — Safety Without Cost
 
 Compile-time guarantees that produce identical machine code.
 
-| # | Feature | Effort | Details |
-|---|---------|--------|---------|
-| 11 | **Defer on all exit paths** | Medium | Emit defer cleanup before every `return`, not just function end. Eliminates resource leak bugs. `defer close(fd)` covers all error returns. |
-| 12 | **Register alloc (per-function)** | Medium | Opt-in `#regalloc` directive. Avoids the v3.3.12 regression (global push/pop r12 broke 7+ arg offsets). Per-function analysis only. |
-| 13 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
+| Version | Feature | Effort | Details |
+|---------|---------|--------|---------|
+| v3.8.0 | **Defer on all exit paths** | Medium | Emit defer cleanup before every `return`, not just function end. Eliminates resource leak bugs. |
+| v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. |
+| v3.8.2 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
+
+---
 
 ## v4.0.0 — Platform & Scale
 
 Major release. Multi-file compilation, new platforms, scale limits removed.
 
-| # | Feature | Effort | Details |
-|---|---------|--------|---------|
-| 14 | **Multi-file linker** (Phase 2) | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. Write in Cyrius. |
-| 15 | **PIC codegen** (Phase 2) | High | `.so` output (ET_DYN), GOT/PLT emission, `shared;` directive. `object;` init code needs `_cyrius_init`. Partial in v3.4.12. |
-| 16 | **macOS targets** | High | Mach-O emitter (x86_64 + aarch64). Stubs scaffolded in v3.1. |
-| 17 | **Windows target** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
-| 18 | **LSP** | High | Language Server Protocol for IDE integration. |
-| 19 | **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. Eliminates `(buf, len)` parameter pairs. New type category. |
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. |
+| **PIC codegen (Phase 2)** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
+| **macOS targets** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
+| **Windows target** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
+| **LSP** | High | Language Server Protocol for IDE integration. |
+| **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
 
 ---
 
-## Stdlib
-
-### Current (40 modules + 5 deps)
+## Stdlib (41 modules + 5 deps)
 
 | Category | Modules |
 |----------|---------|
@@ -96,56 +84,16 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 | Data | json, toml, csv, base64, regex, math, matrix, bigint |
 | Network | net, http, ws, tls |
 | Filesystem | fs |
+| Audio | audio (ALSA PCM) |
+| Logging | log |
+| Time | chrono |
+| Knowledge | vidya |
+| Interop | mmap, dynlib, cffi |
 | Tracing (dep) | sakshi, sakshi_full |
 | Database (dep) | patra |
 | Security (dep) | sigil |
 | Hardware (dep) | yukti |
-| GPU (dep) | mabda (v2.1.2, activated v3.4.19 — backend is a transitional wgpu-native C shim, public API is the stability contract, native backend is future work) |
-| Time | chrono |
-| Logging | log |
-| Knowledge | vidya |
-| Interop | mmap, dynlib |
-
-### Pending inclusion
-
-None currently. Mabda (the last pending dep) was activated in v3.4.19.
-
-### Planned
-
-| Module | Depends on | Details |
-|--------|-----------|---------|
-| `cffi.cyr` | dynlib | C struct layout helpers (v3.6.0) |
-| `bridge.cyr` | process | Rust↔Cyrius pipe protocol. Temporary — remove after bote port. |
-
-## FFI & Interop
-
-| # | Module | Status |
-|---|--------|--------|
-| 1 | ~~`fncall3`–`fncall6`~~ | **Done (v3.4.3)** |
-| 2 | ~~`dynlib.cyr`~~ — ELF .so loader | **Done (v3.4.11)** |
-| 3 | `cffi.cyr` — C struct layout | v3.6.0 |
-| 4 | ~~`mmap.cyr`~~ | **Done (v3.4.3)** |
-| 5 | `bridge.cyr` — pipe protocol | When needed |
-
----
-
-## Video Codec Projects (post-tarang core)
-
-Pure Cyrius implementations. Each replaces a C FFI dependency.
-
-| # | Project | Replaces | Status |
-|---|---------|----------|--------|
-| 1 | **drishti-av1** | dav1d | Not started |
-| 2 | **drishti-h264** | openh264 | Not started |
-| 3 | **drishti-h265** | libde265 | Not started |
-| 4 | **drishti-vpx** | libvpx | Not started |
-| 5 | **drishti-rav1e** | rav1e | Not started |
-
-**Shared primitives** (built as needed):
-- `bitreader.cyr` — MSB/LSB bit extraction
-- `entropy.cyr` — arithmetic/range coding
-- `cabac.cyr` — context-adaptive binary arithmetic coding
-- `boolcoder.cyr` — boolean coder (VP8/VP9)
+| GPU (dep) | mabda |
 
 ---
 
@@ -153,7 +101,7 @@ Pure Cyrius implementations. Each replaces a C FFI dependency.
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, 250KB self-hosting |
+| Linux x86_64 | ELF | **Done** — primary, 290KB self-hosting |
 | Linux aarch64 | ELF | **Done** — cross + native |
 | macOS x86_64 | Mach-O | Stub (v3.1) — v4.0.0 |
 | macOS aarch64 | Mach-O | Stub — v4.0.0 |
@@ -168,24 +116,10 @@ Pure Cyrius implementations. Each replaces a C FFI dependency.
 | Status | Repos |
 |--------|-------|
 | **Done** | agnostik, agnosys, argonaut, kybernet, nous, ark |
-| **Done** | sakshi, majra, bsp, cyrius-doom |
-| **Done** | sigil, patra, libro, shravan, tarang |
-| **Done** | yukti v1.2.0 (device abstraction, 470 tests) |
-| **In progress** | bhava (29K), hisab (31K) |
+| **Done** | sakshi, majra, bsp, cyrius-doom, mabda |
+| **Done** | sigil, patra, libro, shravan, tarang, yukti |
+| **In progress** | bhava, hisab, avatara |
 | **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
-| **Remaining** | ~99 repos (~907K lines) |
-
----
-
-## Tooling
-
-All core tooling complete:
-`build`, `test`, `bench`, `fuzz`, `soak`, `watch`, `deps`,
-`audit`, `fmt`, `lint`, `doc`, `init`, `port`, `cyriusly` (version manager — "Language Yare").
-
-| Planned | Status |
-|---------|--------|
-| `cyrius lsp` | v4.0.0 — Language Server Protocol |
 
 ---
 
@@ -193,19 +127,19 @@ All core tooling complete:
 
 | Limit | Current | Notes |
 |-------|---------|-------|
-| Functions | 2048 | Expanded from 1024 in v3.2.2 |
+| Functions | 2048 | |
 | Variables | 8192 | |
 | Globals (initialized) | 1024 | Use enums for constants |
 | Locals per function | 256 | |
-| Fixup entries | 8192 | |
-| Struct fields | 32 | |
+| Fixup entries | 16384 | Expanded from 8192 in v3.7.0 |
 | Structs | 64 | Expanded from 32 in v3.6.6 |
-| Input buffer | 512KB | Expanded from 256KB in v3.6.7 — hard error on overflow |
-| Code buffer | 1MB | Expanded from 512KB in v3.5.2 |
-| Output buffer | 1MB | Expanded from 512KB in v3.5.2 |
-| String data | 256KB | Expanded from 32KB in v3.6.9 — avatara needed ~187KB of unique string literals |
-| Identifier names | 64KB | Expanded in v3.3.17 |
-| Tokens | 262144 | Expanded from 131072 in v3.6.2 — arrays relocated past brk |
+| Struct fields | 32 | Per struct |
+| Input buffer | 512KB | Hard error on overflow |
+| Code buffer | 1MB | |
+| Output buffer | 1MB | |
+| String data | 256KB | |
+| Identifier names | 64KB | |
+| Tokens | 262144 | |
 
 ---
 
@@ -217,7 +151,7 @@ All core tooling complete:
 | 2 | Global var loop bound re-evaluates | Snapshot to local |
 | 3 | Inline asm `[rbp-N]` clobbers params | Use globals or dummy locals |
 | 4 | Large `var buf[N]` exhausts output buffer | Use `alloc(N)` for >4KB |
-| 5 | Mixed `&&`/`||` requires explicit parens | Write `a && (b \|\| c)` — no precedence-based disambiguation |
+| 5 | Mixed `&&`/`||` requires explicit parens | Write `a && (b \|\| c)` |
 | 6 | `for` step must be `i = i + 1` | No `+=` syntax |
 | 7 | No negative literals | Use `(0 - N)` |
 | 8 | No closures capturing variables | Use named functions + globals |
@@ -234,5 +168,4 @@ All core tooling complete:
 - Research before implementation — vidya entry before code
 - Test after EVERY change, not after the feature is done
 - Compile-time guarantees, zero runtime cost
-- 108 repos / ~1M lines is the real measure of success
-- **v3.4.0 minimum** — all repos should pin >= 3.4.0
+- **v3.6.0 recommended minimum** — auto-coercion, string interning, cffi, expanded limits

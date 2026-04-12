@@ -147,13 +147,13 @@ fn EPOPR9(S) { EW(S, 0xF8410FE5); return 0; }   # ldr x5, [sp], #16
 # === Fixup + variable access ===
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    if (fc >= 8192) {
+    if (fc >= 16384) {
         syscall(SYS_WRITE, 2, "error: fixup table full (", 25);
         PRNUM(fc);
         syscall(SYS_WRITE, 2, "/8192)\n", 7);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0xA0000 + fc * 16;
+    var addr = S + 0xE4A000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -209,11 +209,11 @@ fn EVADDR(S, idx) {
 # String address
 fn ESADDR(S, soff) {
     var fc = GFCNT(S);
-    if (fc >= 8192) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+    if (fc >= 16384) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xA0000 + fc * 16;
+    var faddr = S + 0xE4A000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -342,11 +342,11 @@ fn ECALLFIX(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x94000000);  # bl +0 (placeholder)
     var fc = GFCNT(S);
-    if (fc >= 8192) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+    if (fc >= 16384) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xA0000 + fc * 16;
+    var faddr = S + 0xE4A000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -504,11 +504,11 @@ fn ETAILJMP(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x14000000);  # B placeholder
     var fc = GFCNT(S);
-    if (fc >= 8192) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (8192)\n", 31);
+    if (fc >= 16384) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xA0000 + fc * 16;
+    var faddr = S + 0xE4A000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (4 << 56) | fnidx);
     SFCNT(S, fc + 1);

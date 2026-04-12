@@ -318,6 +318,30 @@ fn test_syscall_arity() {
 }
 
 # ================================================================
+# Float literal in expressions (v3.7.0)
+# ================================================================
+# Float lexer had a bug: read next-char from S+np (stale input buffer)
+# instead of S+0x44A000+np (preprocess buffer). Large programs read garbage
+# and float detection failed — "expected ')', got '.'".
+
+fn test_float_literal() {
+    test_group("float literal (v3.7.0)");
+    var f1 = 0.5;
+    assert(f1 != 0, "0.5 not zero");
+    var f2 = 0.25;
+    assert(f2 != 0, "0.25 not zero");
+    # Float in store64 (the avatara pattern)
+    var buf[8];
+    store64(&buf, 0.6);
+    var loaded = load64(&buf);
+    assert(loaded != 0, "store64 float roundtrip");
+    # Float after arithmetic
+    var p = alloc(16);
+    store64(p + 8, 0.85);
+    assert(load64(p + 8) != 0, "float after ptr arithmetic");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -340,6 +364,7 @@ fn main() {
     test_string_interning();
     test_auto_coercion();
     test_syscall_arity();
+    test_float_literal();
 
     return assert_summary();
 }

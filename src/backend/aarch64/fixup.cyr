@@ -24,7 +24,7 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0xA0000 + fi * 16;
+        var faddr = S + 0xE4A000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;

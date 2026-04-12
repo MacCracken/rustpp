@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.0] — 2026-04-12
+
+### Fixed
+- **Float literal lexer bug** (`src/frontend/lex.cyr`): the float literal
+  detection (`0.6`, `0.85`, etc.) read the next character from `S + np`
+  (the stale input buffer at S+0) instead of `S + 0x44A000 + np` (the
+  preprocess buffer where LEX actually reads). In small programs, the
+  copy-back coincidentally placed matching data at S+0 so floats worked.
+  In large programs (avatara, 695KB expanded), the stale buffer had
+  different bytes and float detection failed — the lexer tokenized `0.6`
+  as three tokens (`0`, `.`, `6`) instead of one FLOAT token, producing
+  `expected ')', got '.'`. Same bug family as LEXHEX (Bug #33, v3.3.17).
+  **Unblocks avatara** (was the real blocker, not the string data limit).
+- **Fixup table expanded 8192 → 16384** (`src/backend/*/emit.cyr`,
+  `src/frontend/parse.cyr`): avatara's 709 functions exceeded the 8192
+  fixup entry limit. Table relocated from `0xA0000` → `0xE4A000` (past
+  brk). Brk extended to `0xECA000` (14.8MB).
+
+### Added
+- **Float literal regression test** in `regression.tcyr`: 4 assertions
+  covering `0.5`, `0.25`, float in `store64`, float after ptr arithmetic.
+
+### Stats
+- **cc3: 290,240 bytes**, 36 test suites (70 regression assertions)
+- Fixup limit: 16384 (was 8192)
+- Heap: 14.8MB
+
 ## [3.6.10] — 2026-04-12
 
 Pre-3.7.0 cleanup pass. Heap map rewritten, latent overlap bug fixed,
