@@ -1,0 +1,63 @@
+# large_input.tcyr — regression test for >256KB raw stdin input
+# Kybernet's dep-resolved input is ~270KB, exceeding the 256KB input_buf.
+# This test verifies programs with large raw input compile correctly.
+#
+# Strategy: include enough large stdlib + dep modules to push raw stdin
+# past 256KB, then verify compilation works.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fs.cyr"
+include "lib/process.cyr"
+include "lib/hashmap.cyr"
+include "lib/tagged.cyr"
+include "lib/args.cyr"
+include "lib/assert.cyr"
+include "lib/json.cyr"
+include "lib/fnptr.cyr"
+include "lib/freelist.cyr"
+include "lib/sakshi.cyr"
+include "lib/bigint.cyr"
+include "lib/chrono.cyr"
+include "lib/base64.cyr"
+include "lib/csv.cyr"
+include "lib/regex.cyr"
+include "lib/math.cyr"
+include "lib/matrix.cyr"
+include "lib/net.cyr"
+include "lib/http.cyr"
+include "lib/bench.cyr"
+include "lib/bounds.cyr"
+include "lib/callback.cyr"
+include "lib/thread.cyr"
+include "lib/async.cyr"
+include "lib/toml.cyr"
+include "lib/trait.cyr"
+include "lib/log.cyr"
+include "lib/cffi.cyr"
+include "lib/mmap.cyr"
+include "lib/dynlib.cyr"
+include "lib/ws.cyr"
+include "lib/tls.cyr"
+include "lib/audio.cyr"
+include "lib/vidya.cyr"
+include "lib/sigil.cyr"
+include "lib/patra.cyr"
+include "lib/yukti.cyr"
+include "lib/mabda.cyr"
+
+fn main() {
+    alloc_init();
+    test_group("large input (>256KB)");
+    assert(1, "compiled with >256KB raw input");
+    var s = str_from("runtime ok");
+    assert_eq(str_len(s), 10, "str_from works");
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);

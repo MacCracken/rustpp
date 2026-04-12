@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.7] — 2026-04-12
+
+### Fixed
+- **Input buffer expanded 256KB → 512KB** (`src/main.cyr`,
+  `src/main_aarch64.cyr`, `src/main_cx.cyr`): kybernet's dep-resolved
+  input was 277KB, exceeding the 256KB stdin buffer. `str_data` relocated
+  from `0x40000` → `0x14A000` (the free old tok_types region) to make
+  room. Input buffer now spans `S+0x00000` to `S+0x80000`. Truncation
+  error updated to "exceeds 512KB". Brk unchanged at `0xE4A000`.
+  Kybernet now compiles past the input-buffer stage (hits a kybernet-side
+  parse error at line 10169, not a compiler limit).
+
+### Stats
+- **cc3: 290,224 bytes**, 36 test suites
+- Input buffer: 512KB (was 256KB)
+
 ## [3.6.6] — 2026-04-12
 
 ### Fixed

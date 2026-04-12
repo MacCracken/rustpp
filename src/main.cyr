@@ -140,7 +140,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.6.6\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.6.7\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -202,16 +202,16 @@ S64(S + 0x903D0, 0);
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(SYS_READ, 0, S + bl, 262144 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 524288 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 262144) {
+        if (bl >= 524288) {
             # One more read to distinguish "exactly 256KB" from "more coming"
             var probe[1];
             var pn = syscall(SYS_READ, 0, &probe, 1);
             if (pn > 0) {
-                syscall(SYS_WRITE, 2, "error: input exceeds 256KB buffer (raise input_buf in src/main.cyr)\n", 68);
+                syscall(SYS_WRITE, 2, "error: input exceeds 512KB buffer (raise input_buf in src/main.cyr)\n", 68);
                 syscall(SYS_EXIT, 1);
             }
             done = 1;

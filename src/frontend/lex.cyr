@@ -1165,7 +1165,7 @@ fn PP_IFDEF_PASS(S) {
     # positions >256KB will read from the capped copy; for typical programs
     # directives are always in the first few KB.
     var cap = bl;
-    if (cap > 262144) { cap = 262144; }
+    if (cap > 524288) { cap = 262144; }
     ci = 0;
     while (ci < cap) { store8(S + ci, load8(tmp + ci)); ci = ci + 1; }
     var out = S + 0x44A000;
@@ -1725,23 +1725,23 @@ fn LEX(S) {
                             p = p + 1;
                             var ec = load8(S + 0x44A000 + p);
                             p = p + 1;
-                            if (ec == 110) { store8(S + 0x40000 + spos, 10); }
+                            if (ec == 110) { store8(S + 0x14A000 + spos, 10); }
                             else {
-                                if (ec == 116) { store8(S + 0x40000 + spos, 9); }
+                                if (ec == 116) { store8(S + 0x14A000 + spos, 9); }
                                 else {
-                                    if (ec == 48) { store8(S + 0x40000 + spos, 0); }
+                                    if (ec == 48) { store8(S + 0x14A000 + spos, 0); }
                                     else {
-                                        if (ec == 92) { store8(S + 0x40000 + spos, 92); }
+                                        if (ec == 92) { store8(S + 0x14A000 + spos, 92); }
                                         else {
-                                            if (ec == 34) { store8(S + 0x40000 + spos, 34); }
-                                            else { store8(S + 0x40000 + spos, ec); }
+                                            if (ec == 34) { store8(S + 0x14A000 + spos, 34); }
+                                            else { store8(S + 0x14A000 + spos, ec); }
                                         }
                                     }
                                 }
                             }
                             spos = spos + 1;
                         } else {
-                            store8(S + 0x40000 + spos, sc);
+                            store8(S + 0x14A000 + spos, sc);
                             spos = spos + 1;
                             p = p + 1;
                         }
@@ -1749,7 +1749,7 @@ fn LEX(S) {
                 }
             }
             # Add null terminator after string literal
-            store8(S + 0x40000 + spos, 0);
+            store8(S + 0x14A000 + spos, 0);
             var slen = spos - sstart;
             # String interning (v3.6.1): check if an identical string already
             # exists in str_data. If so, reuse its offset — deduplicates string
@@ -1760,12 +1760,12 @@ fn LEX(S) {
                 var eq = 1;
                 var sk = 0;
                 while (sk <= slen) {
-                    if (load8(S + 0x40000 + si + sk) != load8(S + 0x40000 + sstart + sk)) { eq = 0; break; }
+                    if (load8(S + 0x14A000 + si + sk) != load8(S + 0x14A000 + sstart + sk)) { eq = 0; break; }
                     sk = sk + 1;
                 }
                 if (eq == 1) { interned = si; si = sstart; }
                 else {
-                    while (si < sstart) { if (load8(S + 0x40000 + si) == 0) { si = si + 1; break; } si = si + 1; }
+                    while (si < sstart) { if (load8(S + 0x14A000 + si) == 0) { si = si + 1; break; } si = si + 1; }
                 }
             }
             if (interned >= 0) {

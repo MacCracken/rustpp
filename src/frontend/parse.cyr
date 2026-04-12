@@ -3337,7 +3337,7 @@ fn PARSE_STMT(S) {
                 var soff = sv >> 16;
                 var slen = sv & 0xFFFF;
                 syscall(SYS_WRITE, 2, ": ", 2);
-                syscall(SYS_WRITE, 2, S + 0x40000 + soff, slen);
+                syscall(SYS_WRITE, 2, S + 0x14A000 + soff, slen);
             }
             syscall(SYS_WRITE, 2, "\n", 1);
             syscall(SYS_EXIT, 1);
