@@ -14,10 +14,10 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 250KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer
-- **Tests**: 32 .tcyr files (442 assertions), 4 .fcyr fuzz harnesses, heap audit, self-hosting (two-step)
-- **Libraries**: 40 stdlib modules + 5 deps (sakshi, patra, sigil, yukti via `cyrius deps`)
-- **Ecosystem**: agnostik (574), agnosys, argonaut (395), majra (144), libro (202), sakshi, bsp (74), cyrius-doom
+- **Compiler**: 290KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer, expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings
+- **Tests**: 33 .tcyr files (491 assertions), 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks, heap audit, self-hosting (two-step)
+- **Libraries**: 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
+- **Ecosystem**: agnostik (574), agnosys, argonaut (395), majra (144), libro (204), sakshi, bsp (74), cyrius-doom, mabda (290)
 
 ## Consumers
 
@@ -29,7 +29,7 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 bootstrap/asm (29KB committed binary — root of trust)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular compiler, 250KB, 8 modules)
+      → cc3 (modular compiler, 290KB, 8 modules)
         → cc3_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
@@ -99,7 +99,7 @@ src/
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
   backend/cx/        emit.cyr (cyrius-x bytecode)
   common/            util.cyr
-lib/                 Standard library (40 modules + 5 deps)
+lib/                 Standard library (41 modules + 5 deps)
 programs/            57 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
 fuzz/                Fuzz harnesses (*.fcyr)

@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-250KB compiler. Self-hosting on x86_64 and aarch64. 40 stdlib modules + 5 deps. 32 test suites (442 assertions), 0 failures.
+290KB compiler. Self-hosting on x86_64 and aarch64. 41 stdlib modules + 5 deps. 33 test suites (491 assertions), 0 failures.
 
 ## Install
 
@@ -87,11 +87,11 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **250KB** (x86_64) |
+| Compiler | **290KB** (x86_64) |
 | Self-compile | ~74ms (full), ~11ms (bridge) |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 32 .tcyr suites (442 assertions), 4 .fcyr fuzz harnesses, 57 programs |
+| Tests | 33 .tcyr suites (491 assertions), 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
 ## Build Tool (cyrius)
@@ -157,7 +157,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc3 (modular compiler, 250KB, 8 modules)
+      -> cc3 (modular compiler, 290KB, 8 modules)
         -> cc3_aarch64 (cross-compiler)
 ```
 

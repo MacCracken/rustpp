@@ -1,9 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v3.6.3.** 250KB self-hosting compiler, x86_64 + aarch64.
-> 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean.
-> 40 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda — GPU now active).
-> 256KB input_buf, 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
+> **v3.6.3.** 290KB self-hosting compiler, x86_64 + aarch64.
+> 33 test suites (491 assertions), 5 fuzz harnesses, 10 benchmarks, heap audit clean.
+> 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
+> 256KB input_buf, 1MB codebuf, 1MB preprocess_out, 64KB tok_names, 262K tokens.
+> Dependencies via `cyrius deps`. String interning + Str auto-coercion.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -12,31 +13,34 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Active Bugs
 
-None. All known bugs resolved (see CHANGELOG #14-#36).
+| Bug | Impact | Status |
+|-----|--------|--------|
+| Ifdef copy-back >256KB corrupts runtime string data | Argonaut mega-test runtime crash (compile works) | Tracked — proper fix eliminates copy-back |
+| Libro PatraStore tests crash cumulatively | Libro 1.0.2 gated tests | Tracked — state interaction needs isolation |
 
 ---
 
-## v3.5.0 — Expression Power
+## v3.5.0 — Expression Power (Shipped)
 
-Low-risk codegen improvements. No new syntax complexity,
-no heap changes, no bootstrap risk. Unblocks cleaner ports.
-
-| # | Feature | Effort | Details |
+| # | Feature | Status | Details |
 |---|---------|--------|---------|
-| 1 | **Expression-position comparisons** | Low | `==`/`!=`/`<`/`>` return 0/1 as values anywhere, not just in `if()`. Emit `cmp`+`sete`+`movzx`. Eliminates expand-to-if pattern every port hits. |
-| 2 | **`#assert` compile-time check** | Low | `#assert EXPR, "msg"` — evaluate constant expression at parse time, abort on failure. Catches struct layout drift, enum value mismatches. |
-| 3 | **`sizeof(StructName)`** | Low | Compile-time `field_count * 8` from struct definition. Eliminates magic numbers in `alloc()` calls. |
-| 4 | **Syscall arity warnings** | Low | Lookup table of syscall number → expected arg count. Warning on mismatch. The table is fixed — free information. |
+| 1 | ~~Expression-position comparisons~~ | **Done (v3.5.0)** | `==`/`!=`/`<`/`>` return 0/1 anywhere. 81 PEXPR→PCMPE call sites. |
+| 2 | ~~`#assert` compile-time check~~ | **Done (v3.5.0)** | `#assert EXPR, "msg"` — token 107, constant evaluator for sizeof + numbers. |
+| 3 | ~~`sizeof(StructName)`~~ | **Done (pre-existing)** | Already worked since v2.0. |
+| 4 | ~~Syscall arity warnings~~ | **Done (v3.5.0)** | 40-entry lookup table, warns on mismatch. |
 
-## v3.6.0 — String Unification
+Also fixed: aarch64 `ESETCC` GT/LE/GE encodings (pre-existing bug exposed by PCMPE-everywhere).
 
-Address the #1 pain point across all ports: Str vs cstr boundary.
+## v3.6.0 — String Unification (Shipped)
 
-| # | Feature | Effort | Details |
+| # | Feature | Status | Details |
 |---|---------|--------|---------|
-| 5 | **Str/cstr auto-coercion** | Medium | When function parameter type is known, auto-wrap string literals as `str_from()` or auto-extract via `str_cstr()`. Eliminates `str_contains` vs `str_contains_cstr` split. |
-| 6 | **Compile-time string interning** | Medium | Deduplicate string literals at compile time, assign stable addresses. `@"literal"` syntax for pointer-identity comparison (1 cycle vs memcmp). 10x faster classification chains. Synergy with deferred formatting (#8). |
-| 7 | **`lib/cffi.cyr`** — C struct layout | Medium | C struct layout helpers for foreign struct interop. Compute field offsets with C alignment/padding rules. Needed for tarang codec ports. |
+| 5 | ~~Str/cstr auto-coercion~~ | **Done (v3.6.0)** | `: Str` param annotations, auto-wrap at call sites. 748 downstream wrappers eliminable. |
+| 6 | ~~Compile-time string interning~~ | **Done (v3.6.1)** | Identical literals share addresses. ptr_eq 30% faster than streq. |
+| 7 | ~~`lib/cffi.cyr`~~ | **Done (v3.6.3)** | C struct layout with alignment/padding. Module #41. 18 functions, 23 test assertions. |
+
+Also shipped: token limit 131K→262K (v3.6.2), codebuf 512KB→1MB (v3.5.2),
+READFILE cap 1MB (v3.5.1), preprocess_out cap 1MB (v3.4.20).
 
 ## v3.7.0 — Struct Evolution
 
@@ -190,11 +194,11 @@ All core tooling complete:
 | Fixup entries | 8192 | |
 | Struct fields | 32 | |
 | Input buffer | 256KB | Expanded from 128KB in v3.4.19 — hard error on overflow, not silent truncation |
-| Code buffer | 512KB | Expanded in v3.4.0 |
+| Code buffer | 1MB | Expanded from 512KB in v3.5.2 |
 | Output buffer | 512KB | |
 | String data | 32KB | |
 | Identifier names | 64KB | Expanded in v3.3.17 |
-| Tokens | 131072 | |
+| Tokens | 262144 | Expanded from 131072 in v3.6.2 — arrays relocated past brk |
 
 ---
 
