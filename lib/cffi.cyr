@@ -31,7 +31,9 @@ enum CffiType {
     CFFI_USIZE = 0x0808;
 }
 
+# Get the byte size of a CFFI type constant.
 fn cffi_type_size(t) { return (t >> 8) & 0xFF; }
+# Get the alignment requirement of a CFFI type constant.
 fn cffi_type_align(t) { return t & 0xFF; }
 
 # ================================================================
@@ -42,6 +44,7 @@ fn cffi_type_align(t) { return t & 0xFF; }
 # types at +280 (32 × 8 = 256 bytes)
 # Total: 536 bytes
 
+# Create a new C struct layout. Supports up to 32 fields.
 fn cffi_struct_new() {
     var layout = alloc(536);
     store64(layout, 0);       # field_count
@@ -127,38 +130,46 @@ fn cffi_field_count(layout) {
 # Helper: write a value to a C struct buffer at a computed offset
 # ================================================================
 
+# Write a u8 value to a C struct buffer at field N's offset.
 fn cffi_set8(buf, layout, field, val) {
     store8(buf + cffi_offset(layout, field), val);
     return 0;
 }
 
+# Write a u16 value to a C struct buffer at field N's offset.
 fn cffi_set16(buf, layout, field, val) {
     store16(buf + cffi_offset(layout, field), val);
     return 0;
 }
 
+# Write a u32 value to a C struct buffer at field N's offset.
 fn cffi_set32(buf, layout, field, val) {
     store32(buf + cffi_offset(layout, field), val);
     return 0;
 }
 
+# Write a u64/ptr value to a C struct buffer at field N's offset.
 fn cffi_set64(buf, layout, field, val) {
     store64(buf + cffi_offset(layout, field), val);
     return 0;
 }
 
+# Read a u8 value from a C struct buffer at field N's offset.
 fn cffi_get8(buf, layout, field) {
     return load8(buf + cffi_offset(layout, field));
 }
 
+# Read a u16 value from a C struct buffer at field N's offset.
 fn cffi_get16(buf, layout, field) {
     return load16(buf + cffi_offset(layout, field));
 }
 
+# Read a u32 value from a C struct buffer at field N's offset.
 fn cffi_get32(buf, layout, field) {
     return load32(buf + cffi_offset(layout, field));
 }
 
+# Read a u64/ptr value from a C struct buffer at field N's offset.
 fn cffi_get64(buf, layout, field) {
     return load64(buf + cffi_offset(layout, field));
 }
