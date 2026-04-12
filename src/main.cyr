@@ -56,7 +56,7 @@
 #   0x903E0  expr_var      [8]
 #   0x903E8  inline_depth  [8]
 #   0x903F0  expr_width    [8]
-#   0x903F8  (unused)      [8]           (was loop_var_slot, r12 caching removed)
+#   0x903F8  init_offset   [8]           offset of _cyrius_init in .text (object mode)
 #   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
 #   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
 #
@@ -455,6 +455,17 @@ SMOD(S, 0);
 # Patch jmp to land here (start of main code)
 EPATCH(S, jmp_patch);
 
+# In object mode, wrap top-level code as a callable function (_cyrius_init).
+# This allows linked binaries to call _cyrius_init() to initialize enums and globals.
+var _cyrius_init_offset = GCP(S);
+S64(S + 0x903F8, _cyrius_init_offset);
+if (L64(S + 0x8FCA0) == 3) {
+    EFNPRO(S);               # push rbp; mov rbp, rsp
+    # Allocate generous stack frame for top-level init code (4096 bytes = 512 locals)
+    E3(S, 0xEC8148);          # sub rsp, imm32
+    EB(S, 0x00); EB(S, 0x10); EB(S, 0x00); EB(S, 0x00);  # 0x1000 = 4096 bytes
+}
+
 # Emit enum initializations FIRST (before gvar inits, since gvar inits may call
 # functions that reference enum values)
 var gvar_save_ti = GTI(S);
@@ -484,10 +495,16 @@ while (wfi < wfc) {
 # Parse main code (top-level statements)
 PARSE_PROG(S);
 
-# Exit epilogue — load last var
+# Exit epilogue
 var lv = GLVAR(S);
 if (lv >= 0) { EVLOAD(S, lv); }
-EEXIT(S);
+if (L64(S + 0x8FCA0) == 3) {
+    # Object mode: return from _cyrius_init (leave; ret)
+    EFNEPI(S);
+} else {
+    # Executable mode: exit via syscall(60, exit_code)
+    EEXIT(S);
+}
 
 # Fixup + ELF + write
 FIXUP(S);

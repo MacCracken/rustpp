@@ -268,12 +268,17 @@ fn EMITELF_OBJ(S) {
         store8(strtab + sp, 0); sp = sp + 1;
         fi = fi + 1;
     }
+    # Add _cyrius_init name to strtab
+    var init_strtab_off = sp;
+    sn = "_cyrius_init"; si = 0;
+    while (load8(sn + si) != 0) { store8(strtab + sp, load8(sn + si)); sp = sp + 1; si = si + 1; }
+    store8(strtab + sp, 0); sp = sp + 1;
     var strtab_size = sp;
 
     # --- Symbol table (.symtab) ---
     # Entry: 24 bytes each (Elf64_Sym)
-    # Layout: null entry, .text section, .data section, .rodata section, then functions
-    var nsyms = 4 + fnc;  # null + 3 sections + functions
+    # Layout: null + 3 sections + functions + _cyrius_init
+    var nsyms = 4 + fnc + 1;  # null + 3 sections + functions + _cyrius_init
     var symtab_size = nsyms * 24;
     var symtab = scratch + 16384;  # after fn_strtab_off
     # Zero symtab
@@ -313,6 +318,17 @@ fn EMITELF_OBJ(S) {
         # st_size: 0 (unknown)
         fi = fi + 1;
     }
+
+    # _cyrius_init symbol (last entry)
+    var init_symp = symtab + (4 + fnc) * 24;
+    store8(init_symp, init_strtab_off & 0xFF);
+    store8(init_symp + 1, (init_strtab_off >> 8) & 0xFF);
+    store8(init_symp + 2, (init_strtab_off >> 16) & 0xFF);
+    store8(init_symp + 3, (init_strtab_off >> 24) & 0xFF);
+    store8(init_symp + 4, 0x12);  # STT_FUNC | STB_GLOBAL
+    store8(init_symp + 6, 1); store8(init_symp + 7, 0);  # st_shndx = .text
+    S64(init_symp + 8, L64(S + 0x903F8));  # st_value = init offset
+
     var first_global = 4;  # first non-local symbol index
 
     # --- Relocation table (.rela.text) ---

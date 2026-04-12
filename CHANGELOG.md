@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.14] — 2026-04-11
+
+### Added
+- **`_cyrius_init` export in `object;` mode**: Top-level code (enum values, global
+  var initializations) is now wrapped in a callable `_cyrius_init()` function when
+  compiling with `object;`. C launchers call `_cyrius_init()` then `alloc_init()` to
+  properly initialize all Cyrius globals before calling application functions. The
+  function has a proper prologue/epilogue (`push rbp; mov rbp,rsp; sub rsp,4096` +
+  `leave; ret`) and is exported as a global symbol in the `.o` symbol table.
+  Resolves the object-mode enum initialization bug that blocked mabda GPU port.
+  Self-hosting verified (byte-identical two-step bootstrap).
+
+### Stats
+- **45 stdlib modules + 5 deps**, 32 test suites
+
 ## [3.4.13] — 2026-04-11
 
 ### Changed
