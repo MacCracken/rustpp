@@ -46,7 +46,7 @@ fn str_println(s) {
 }
 
 # Compare two Strs
-fn str_eq(a, b) {
+fn str_eq(a: Str, b: Str) {
     var la = load64(a + 8);
     var lb = load64(b + 8);
     if (la != lb) { return 0; }
@@ -54,7 +54,7 @@ fn str_eq(a, b) {
 }
 
 # Concatenate two Strs (allocates new)
-fn str_cat(a, b) {
+fn str_cat(a: Str, b: Str) {
     var la = load64(a + 8);
     var lb = load64(b + 8);
     var newlen = la + lb;
@@ -79,7 +79,7 @@ fn str_clone(s) {
 }
 
 # Check if Str contains needle Str
-fn str_contains(s, needle) {
+fn str_contains(s: Str, needle: Str) {
     var slen = str_len(s);
     var nlen = str_len(needle);
     if (nlen > slen) { return 0; }
@@ -93,16 +93,15 @@ fn str_contains(s, needle) {
     return 0;
 }
 
-# Check if Str starts with a C string prefix
-fn str_starts_with(s, prefix) {
-    # s = Str, prefix = C string (null-terminated)
-    var plen = strlen(prefix);
+# Check if Str starts with prefix Str
+fn str_starts_with(s: Str, prefix: Str) {
+    var plen = str_len(prefix);
     if (plen > str_len(s)) { return 0; }
-    return memeq(str_data(s), prefix, plen);
+    return memeq(str_data(s), str_data(prefix), plen);
 }
 
 # Check if Str ends with suffix Str (both are Str objects)
-fn str_ends_with(s, suffix) {
+fn str_ends_with(s: Str, suffix: Str) {
     var xlen = str_len(suffix);
     var slen = str_len(s);
     if (xlen > slen) { return 0; }
@@ -171,7 +170,7 @@ fn str_trim(s) {
 }
 
 # Split Str by byte separator, return vec of Str pointers
-fn str_split(s, sep) {
+fn str_split(s: Str, sep: Str) {
     var parts = vec_new();
     var slen = str_len(s);
     var sd = str_data(s);
@@ -216,7 +215,7 @@ fn _sb_grow(sb, n) {
 }
 
 # Append a Str to the string builder
-fn str_builder_add(sb, s) {
+fn str_builder_add(sb, s: Str) {
     var slen = str_len(s);
     _sb_grow(sb, slen);
     var buf = load64(sb);
@@ -262,7 +261,7 @@ fn str_builder_build(sb) {
 }
 
 # Join a vec of Str with separator
-fn str_join(parts, sep) {
+fn str_join(parts, sep: Str) {
     var plen = vec_len(parts);
     if (plen == 0) { return str_from(""); }
     var sb = str_builder_new();
