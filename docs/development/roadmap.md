@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.4.16.** 250KB self-hosting compiler, x86_64 + aarch64.
+> **v3.4.17.** 250KB self-hosting compiler, x86_64 + aarch64.
 > 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean.
 > 40 stdlib modules + 5 deps. 16 downstream repos done.
 > 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
@@ -94,6 +94,12 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 | Logging | log |
 | Knowledge | vidya |
 | Interop | mmap, dynlib |
+
+### Pending inclusion
+
+| Module | Gate | Target Cyrius |
+|--------|------|---------------|
+| `mabda` (dep) — GPU foundation | Ships v2.1.1 with `dist/mabda.cyr` bundle + `[lib]` manifest + clean `cyrius audit`. Ships via a wgpu-native C shim **transitionally** — the public API is the stability contract; the backend swap to pure Cyrius is future work and leaves consumer code untouched. Entry staged in `cyrius.toml` in v3.4.17. See mabda `docs/development/roadmap.md` → v2.1.1 for the full checklist. | v3.4.18 (when 2.1.1 is tagged) |
 
 ### Planned
 

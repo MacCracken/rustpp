@@ -4,6 +4,52 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.17] — 2026-04-11
+
+Staging release for mabda stdlib inclusion. Mabda (GPU foundation layer)
+ships now via a C shim over wgpu-native so every Cyrius user gets a
+sovereign GPU surface they can build against immediately. **The C shim is
+transitional scaffolding** — the long-term direction is a pure Cyrius
+GPU backend, and the public API is defined so the eventual backend swap
+is invisible to consumers. Mabda is working on v2.1.0 (feature catch-up)
+and v2.1.1 (the stdlib-inclusion release). Cyrius 3.4.17 pre-wires the
+`[deps.mabda]` entry so v3.4.18 is a one-line flip when 2.1.1 ships.
+
+### Changed
+- **`cyrius.toml` staged `[deps.mabda]`**: Added dep entry pointing at
+  mabda tag `2.1.1` (not yet released). Same shape as `[deps.yukti]` and
+  `[deps.patra]`. Until 2.1.1 ships, `cyrius deps` will attempt to fetch
+  and fail gracefully (per v3.3.6 dep-fetch error handling). Inline
+  comment in `cyrius.toml` points at mabda's `docs/development/roadmap.md`
+  → v2.1.1 for the inclusion checklist.
+- **`cyrius.toml` package version** synced to `3.4.17` (the `[package]
+  version` field had been drifting since before v3.4.14; v3.4.16's
+  permissive bump-script sed already handles this class of drift).
+- **`docs/development/roadmap.md`** stdlib table: new "Pending inclusion"
+  row — mabda listed as gated on v2.1.1 with target Cyrius v3.4.18. The
+  C shim requirement is explicitly labeled transitional.
+
+### Why ship now, before the backend is native
+
+- Consumer projects (soorat, rasa, ranga, bijli, aethersafta, kiran) are
+  blocked on mabda. Waiting for a native GPU backend would delay every
+  downstream project by a year or more.
+- Mabda's public API is the stability contract. Consumer code written
+  against v2.1.1 compiles unchanged against every future mabda — native
+  backend included. Users never touch the FFI layer directly.
+- The C shim lives at the consumer's edge (their launcher + wgpu-native
+  download), not inside the Cyrius toolchain. Cyrius itself stays
+  dependency-free. Sovereignty of the language is preserved.
+- When the native backend lands (future, unscoped), consumers bump their
+  `[deps.mabda]` tag and their C launcher requirement disappears.
+  Nothing else changes.
+
+### Stats
+- **cc3: 250,304 bytes** (unchanged from v3.4.16)
+- **40 stdlib modules + 5 deps**, 32 test suites (442 assertions)
+- **Heap audit: 47 regions, 0 warnings**
+- Self-hosting verified (two-step cc3==cc3 byte-identical)
+
 ## [3.4.16] — 2026-04-11
 
 Final polish release before v3.5.0 — compiler cleanup, dead-code removal, heap

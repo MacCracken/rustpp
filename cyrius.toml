@@ -1,6 +1,6 @@
 [package]
 name = "cyrius"
-version = "3.4.14"
+version = "3.4.17"
 description = "Sovereign, self-hosting systems language"
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/cyrius"
@@ -28,3 +28,14 @@ modules = ["dist/sigil.cyr"]
 git = "https://github.com/MacCracken/yukti.git"
 tag = "1.2.0"
 modules = ["dist/yukti.cyr"]
+
+# mabda — GPU foundation layer (wgpu-native FFI).
+# Staged in v3.4.17, pending mabda v2.1.1 which provides the bundled
+# `dist/mabda.cyr` single-file distribution and matches the yukti-style
+# stdlib-dep contract. Until 2.1.1 ships, `cyrius deps` will fail to fetch
+# this tag (gracefully — fetch failures are non-fatal). See mabda's
+# `docs/development/roadmap.md` → v2.1.1 for the inclusion checklist.
+[deps.mabda]
+git = "https://github.com/MacCracken/mabda.git"
+tag = "2.1.1"
+modules = ["dist/mabda.cyr"]
