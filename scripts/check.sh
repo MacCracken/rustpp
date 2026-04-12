@@ -8,6 +8,12 @@ CC="$ROOT/build/cc3"
 CYRFMT="$ROOT/build/cyrfmt"
 CYRLINT="$ROOT/build/cyrlint"
 
+# Shared fmt/lint walkers (skip symlinked deps, identical semantics with the
+# `cyrius audit` dispatcher's generic path).
+if [ -f "$ROOT/scripts/lib/audit-walk.sh" ]; then
+    . "$ROOT/scripts/lib/audit-walk.sh"
+fi
+
 pass=0
 fail=0
 total=0
@@ -88,15 +94,15 @@ echo ""
 # ── 4. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
-    fmt_fail=0
-    for f in "$ROOT"/lib/*.cyr; do
-        "$CYRFMT" "$f" > /tmp/audit_fmt_$$ 2>/dev/null
-        if ! diff -q "$f" /tmp/audit_fmt_$$ > /dev/null 2>&1; then
-            fmt_fail=1
+    if command -v audit_fmt_walk > /dev/null 2>&1; then
+        audit_fmt_walk "$CYRFMT" "$ROOT/lib"
+        check "format (stdlib)" "$AW_FMT_FAIL"
+        if [ "$AW_FMT_SKIPPED" -gt 0 ]; then
+            printf "    (%d dep files skipped)\n" "$AW_FMT_SKIPPED"
         fi
-        rm -f /tmp/audit_fmt_$$
-    done
-    check "format (stdlib)" "$fmt_fail"
+    else
+        echo "  skip: scripts/lib/audit-walk.sh not found"
+    fi
 else
     echo "  skip: cyrfmt not built"
 fi
@@ -105,16 +111,19 @@ echo ""
 # ── 5. Lint ──
 echo "── Lint ──"
 if [ -x "$CYRLINT" ]; then
-    lint_total=0
-    for f in "$ROOT"/lib/*.cyr; do
-        w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
-        lint_total=$((lint_total + w))
-    done
-    if [ "$lint_total" -gt 0 ]; then
-        echo "  $lint_total warnings"
-        check "lint (stdlib)" "1"
+    if command -v audit_lint_walk > /dev/null 2>&1; then
+        audit_lint_walk "$CYRLINT" "$ROOT/lib"
+        if [ "$AW_LINT_TOTAL" -gt 0 ]; then
+            echo "  $AW_LINT_TOTAL warnings"
+            check "lint (stdlib)" "1"
+        else
+            check "lint (stdlib)" "0"
+        fi
+        if [ "$AW_LINT_SKIPPED" -gt 0 ]; then
+            printf "    (%d dep files skipped)\n" "$AW_LINT_SKIPPED"
+        fi
     else
-        check "lint (stdlib)" "0"
+        echo "  skip: scripts/lib/audit-walk.sh not found"
     fi
 else
     echo "  skip: cyrlint not built"

@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-243KB compiler. Self-hosting on x86_64 and aarch64. 40 stdlib modules. 32 test suites, 0 failures.
+250KB compiler. Self-hosting on x86_64 and aarch64. 40 stdlib modules + 5 deps. 32 test suites (442 assertions), 0 failures.
 
 ## Install
 
@@ -87,11 +87,11 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **233KB** (x86_64) |
+| Compiler | **250KB** (x86_64) |
 | Self-compile | ~74ms (full), ~11ms (bridge) |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 30 .tcyr suites (372 assertions), 4 .fcyr fuzz harnesses, 57 programs |
+| Tests | 32 .tcyr suites (442 assertions), 4 .fcyr fuzz harnesses, 57 programs |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
 
 ## Build Tool (cyrius)
@@ -106,7 +106,7 @@ Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (36 modules)
+## Standard Library (40 modules + 5 deps)
 
 | Category | Modules |
 |----------|---------|
@@ -114,13 +114,18 @@ Info:      version, which, help
 | Types | tagged (Option/Result), hashmap, hashmap_fast, trait, assert, bounds |
 | System | syscalls, callback, process, bench |
 | Concurrency | thread (clone+mmap, mutex, MPSC), async, freelist |
-| Data | json, toml, csv, base64, regex, math, matrix |
-| Network | net, http |
+| Data | json, toml, csv, base64, regex, math, matrix, bigint |
+| Network | net, http, ws, tls |
 | Filesystem | fs |
-| Tracing | sakshi (minimal), sakshi_full (structured logging) |
+| Audio | audio (ALSA PCM) |
+| Logging | log (structured, over sakshi) |
 | Time | chrono |
 | Knowledge | vidya |
-| Storage | patra (SQL database) |
+| Interop | mmap, dynlib |
+| Tracing (dep) | sakshi, sakshi_full |
+| Database (dep) | patra |
+| Security (dep) | sigil |
+| Hardware (dep) | yukti |
 
 ## Compiler Architecture
 
@@ -152,13 +157,13 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc3 (modular compiler, 233KB, 8 modules)
+      -> cc3 (modular compiler, 250KB, 8 modules)
         -> cc3_aarch64 (cross-compiler)
 ```
 
 ## Migration
 
-108 Rust repos (~1M lines) planned for conversion. 5 done. `cyrius port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
+108 Rust repos (~1M lines) planned for conversion. 16 done (see [roadmap](docs/development/roadmap.md) — Ports & Ecosystem). `cyrius port` scaffolds Cyrius projects from Rust repos. See [migration strategy](docs/development/migration-strategy.md).
 
 ## License
 

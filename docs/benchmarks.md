@@ -1,6 +1,6 @@
 # Cyrius Benchmarks
 
-> Generated: 2026-04-07 | Platform: x86_64 Linux | Version: 1.11.1
+> Generated: 2026-04-11 | Platform: x86_64 Linux | Version: 3.4.15
 
 ## Binary Size: Cyrius vs GNU Coreutils
 
@@ -47,12 +47,27 @@ The wc advantage comes from zero-overhead processing — no locale, no UTF-8 dec
 
 | Operation | Time |
 |-----------|------|
-| Compiler self-compile (233KB binary) | **~74ms** |
+| Compiler self-compile (250KB binary) | **~74ms** |
 | Build any single program | **<5ms** |
 | Full bootstrap (from 29KB seed) | **40ms** |
 | Assembler throughput | 1.3M lines/sec |
 
 The compiler is faster than the OS can spawn it. Process startup (fork+exec) dominates.
+
+## Compiler Microbenchmarks
+
+Measured with `bench_batch_start`/`bench_batch_stop` (batch_size >= 1000) to
+avoid clock_gettime overhead. Per-iteration timings for hot paths:
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| fixed_mul | 6 ns | 16.16 fixed-point multiply |
+| fixed_div | 5 ns | |
+| asr (arithmetic shift right) | 5 ns | |
+| sin_lookup | 7 ns | |
+| clock_gettime (framework floor) | ~120 ns | Use batch mode for sub-µs ops |
+| Direct function call | ~3 ns | |
+| Inline (token replay) | ~2 ns | |
 
 ## Toolchain Size
 
@@ -61,45 +76,46 @@ The compiler is faster than the OS can spawn it. Process startup (fork+exec) dom
 | Bootstrap seed (bootstrap/asm) | 29 KB |
 | Stage1f compiler | 12 KB |
 | Assembler (asm) | 29 KB |
-| Full compiler (cc3) | 233 KB |
+| Full compiler (cc3) | 250 KB |
 | cyrius build tool | 59 KB |
-| **Total toolchain** | **362 KB** |
+| **Total toolchain** | **~380 KB** |
 
-The entire Cyrius toolchain fits in **362 KB**. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
+The entire Cyrius toolchain fits in well under half a megabyte. GCC: ~100 MB. Clang/LLVM: ~500 MB. Rust: ~800 MB.
 
-## Library Ecosystem
+## Standard Library
 
-| Library | Functions | Purpose |
-|---------|-----------|---------|
-| string.cyr | 9 | strlen, streq, memcpy, memset, memchr, strchr |
-| alloc.cyr | 4 | Bump allocator (brk-based) |
-| str.cyr | 9 | Fat string type (data + len) |
-| vec.cyr | 8 | Dynamic array with bounds checking |
-| io.cyr | 9 | File I/O wrappers |
-| fmt.cyr | 7 | Integer/hex/bool formatting |
-| args.cyr | 3 | CLI argument parsing |
-| fnptr.cyr | 3 | Indirect function calls |
-| **agnostik** (6 modules) | 45+ | Shared types, security, agent lifecycle, audit, config |
-| **agnosys** (1 module) | 30+ | Linux syscall bindings (50 syscalls) |
-| **kybernet** (7 modules) | 25+ | PID 1 init system |
+**40 stdlib modules + 5 deps**, 200+ functions.
 
-| thread.cyr | 10+ | Threads (clone+mmap), mutex (futex), MPSC channels |
-| async.cyr | 5+ | Async primitives |
-| freelist.cyr | 5+ | Freelist allocator (free + reuse, O(1) alloc/free) |
-| math.cyr | 5+ | Extended math (f64_atan and more) |
-
-**Total: 28 library modules, 200+ functions**
+| Category | Modules |
+|----------|---------|
+| Core | string, fmt, alloc, io, vec, str, args, fnptr |
+| Types | tagged, hashmap, hashmap_fast, trait, assert, bounds |
+| System | syscalls, callback, process, bench |
+| Concurrency | thread, async, freelist |
+| Data | json, toml, csv, base64, regex, math, matrix, bigint |
+| Network | net, http, ws, tls |
+| Filesystem | fs |
+| Audio | audio (ALSA PCM) |
+| Logging | log |
+| Time | chrono |
+| Knowledge | vidya |
+| Interop | mmap, dynlib |
+| Tracing (dep) | sakshi, sakshi_full |
+| Database (dep) | patra |
+| Security (dep) | sigil |
+| Hardware (dep) | yukti |
 
 ## Test Coverage
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Compiler (cc3) | 216 | All pass |
-| Programs | 51 | All pass |
+| Compiler (.tcyr) | 32 suites, **442 assertions** | All pass |
+| Fuzz harnesses (.fcyr) | 4 | Clean |
 | aarch64 (cross) | 26 | All pass |
-| **Total** | **267+26** | **0 failures** |
+| Heap map audit | 48 regions | 0 overlaps |
+| Self-hosting | two-step | Byte-identical |
 
-## Programs (46 total)
+## Programs (57 total)
 
 **CLI tools (19):** cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort, basename, cols, count, toupper, rot13, rev, nl, seq, tee, yes, true, false
 
@@ -109,12 +125,10 @@ The entire Cyrius toolchain fits in **362 KB**. GCC: ~100 MB. Clang/LLVM: ~500 M
 
 **Systems (3):** bitfield, asmtest, memset
 
-**Library tests (2):** agnostik_test (54 assertions), kybernet_test (38 assertions)
-
 **Kernel (3):** kernel_hello, isr_stub, agnos (58KB full kernel)
 
 ## Dependencies
 
-- Linux x86_64
+- Linux x86_64 (or aarch64 for the cross target)
 - /bin/sh (bootstrap only)
 - **Nothing else**

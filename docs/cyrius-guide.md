@@ -385,7 +385,7 @@ See `programs/` for 46 examples:
 bootstrap/asm (29KB seed)
   → stage1f (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular, 8 modules, 233KB)
+      → cc3 (modular, 8 modules, 250KB)
         → cc3_aarch64 (cross-compiler)
         → agnos.cyr (AGNOS kernel)
 ```

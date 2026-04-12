@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v2.6.3** — cc3 is the active modular compiler (8 modules, 233KB). 21 test suites, 251 assertions. 36 stdlib modules.
+**v3.4.15** — cc3 is the active modular compiler (8 modules, 250KB). 32 test suites, 442 assertions. 40 stdlib modules + 5 deps (sakshi, patra, sigil, yukti).
 
 ```
 sh bootstrap/bootstrap.sh
@@ -87,7 +87,7 @@ The current language (compiled by cc3) supports:
 - PARSE_SIMD_EXT/LEXKW_EXT overflow helpers for large functions
 - _INLINE_OK flag for aarch64 (disables inline metadata on ARM)
 - Prologue: push rbx; push r12; push rbp; mov rbp, rsp
-- 36 stdlib modules, 57 programs, buffered I/O (wc 2.4x faster than GNU)
+- 40 stdlib modules + 5 deps, 57 programs, buffered I/O (wc 2.4x faster than GNU)
 
 ## Phases
 

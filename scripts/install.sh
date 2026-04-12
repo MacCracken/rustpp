@@ -161,6 +161,12 @@ if [ "$installed" -eq 0 ]; then
             chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"
     done
 
+    # Shared audit helpers (sourced by the cyrius dispatcher)
+    if [ -d scripts/lib ]; then
+        mkdir -p "$CYRIUS_HOME/versions/$VERSION/bin/lib"
+        cp scripts/lib/*.sh "$CYRIUS_HOME/versions/$VERSION/bin/lib/" 2>/dev/null || true
+    fi
+
     # Copy stdlib
     if [ -d lib ]; then
         cp -r lib "$CYRIUS_HOME/versions/$VERSION/"
@@ -188,10 +194,12 @@ ln -sf "$CYRIUS_HOME/versions/$VERSION/lib" "$CYRIUS_HOME/lib"
 
 # ── Install version manager ──
 
-cat > "$CYRIUS_HOME/bin/cyriusup" << 'MANAGER'
+cat > "$CYRIUS_HOME/bin/cyriusly" << 'MANAGER'
 #!/bin/sh
-# cyriusup — Cyrius version manager
-# Like rustup, pyenv, rbenv — manages installed Cyrius versions.
+# cyriusly — Cyrius version manager ("Language Yare")
+#
+# Yare (adj): quick, agile, responsive — the ship answers the helm.
+# Like rustup, pyenv, rbenv: manages installed Cyrius versions.
 CYRIUS_HOME="${CYRIUS_HOME:-$HOME/.cyrius}"
 
 current() { cat "$CYRIUS_HOME/current" 2>/dev/null || echo "none"; }
@@ -205,7 +213,7 @@ link_version() {
 
 case "${1:-help}" in
     version|--version|-v)
-        echo "cyriusup $(current)"
+        echo "cyriusly $(current)"
         ;;
 
     list|ls)
@@ -223,7 +231,7 @@ case "${1:-help}" in
         ;;
 
     use)
-        [ -z "$2" ] && echo "Usage: cyriusup use <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusly use <version>" && exit 1
         [ ! -d "$CYRIUS_HOME/versions/$2" ] && echo "Version $2 not installed." && exit 1
         echo "$2" > "$CYRIUS_HOME/current"
         link_version "$2"
@@ -231,16 +239,16 @@ case "${1:-help}" in
         ;;
 
     install)
-        [ -z "$2" ] && echo "Usage: cyriusup install <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusly install <version>" && exit 1
         echo "Installing Cyrius $2..."
         CYRIUS_VERSION="$2" curl -sSf "https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh" | sh
         ;;
 
     uninstall)
-        [ -z "$2" ] && echo "Usage: cyriusup uninstall <version>" && exit 1
+        [ -z "$2" ] && echo "Usage: cyriusly uninstall <version>" && exit 1
         local cur=$(current)
         if [ "$2" = "$cur" ]; then
-            echo "Cannot uninstall active version. Switch first: cyriusup use <other>"
+            echo "Cannot uninstall active version. Switch first: cyriusly use <other>"
             exit 1
         fi
         if [ -d "$CYRIUS_HOME/versions/$2" ]; then
@@ -270,15 +278,15 @@ case "${1:-help}" in
             echo "Already up to date: $CUR"
         else
             echo "Update available: $CUR -> $LATEST"
-            echo "Run: cyriusup install $LATEST && cyriusup use $LATEST"
+            echo "Run: cyriusly install $LATEST && cyriusly use $LATEST"
         fi
         ;;
 
     help|--help|-h)
-        echo "cyriusup - Cyrius version manager"
+        echo "cyriusly - Cyrius version manager"
         echo ""
         echo "USAGE:"
-        echo "    cyriusup <command> [args]"
+        echo "    cyriusly <command> [args]"
         echo ""
         echo "COMMANDS:"
         echo "    version             Show active version"
@@ -292,19 +300,19 @@ case "${1:-help}" in
         echo "    help                Show this help"
         echo ""
         echo "EXAMPLES:"
-        echo "    cyriusup install 2.4.0"
-        echo "    cyriusup use 2.4.0"
-        echo "    cyriusup list"
+        echo "    cyriusly install 2.4.0"
+        echo "    cyriusly use 2.4.0"
+        echo "    cyriusly list"
         ;;
 
     *)
         echo "Unknown command: $1"
-        echo "Run 'cyriusup help' for usage."
+        echo "Run 'cyriusly help' for usage."
         exit 1
         ;;
 esac
 MANAGER
-chmod +x "$CYRIUS_HOME/bin/cyriusup"
+chmod +x "$CYRIUS_HOME/bin/cyriusly"
 
 # ── Setup PATH ──
 
@@ -354,6 +362,6 @@ echo "    cd myproject"
 echo "    cyrius build src/main.cyr -o build/main"
 echo ""
 echo "    ${DIM}# manage versions:${RESET}"
-echo "    cyriusup list"
-echo "    cyriusup update"
+echo "    cyriusly list"
+echo "    cyriusly update"
 echo ""

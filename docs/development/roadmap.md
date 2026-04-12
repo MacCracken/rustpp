@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v3.4.14.** 243KB self-hosting compiler, x86_64 + aarch64.
+> **v3.4.15.** 250KB self-hosting compiler, x86_64 + aarch64.
 > 32 test suites (442 assertions), 4 fuzz harnesses, heap audit clean.
-> 45 stdlib modules + 4 deps. 15+ downstream repos.
+> 40 stdlib modules + 5 deps. 16 downstream repos done.
 > 512KB codebuf, 64KB tok_names. Dependencies via `cyrius deps`.
 
 For completed work, see [completed-phases.md](completed-phases.md).
@@ -75,7 +75,7 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 
 ## Stdlib
 
-### Current (45 modules + 4 deps)
+### Current (40 modules + 5 deps)
 
 | Category | Modules |
 |----------|---------|
@@ -138,7 +138,7 @@ Pure Cyrius implementations. Each replaces a C FFI dependency.
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, 243KB self-hosting |
+| Linux x86_64 | ELF | **Done** — primary, 250KB self-hosting |
 | Linux aarch64 | ELF | **Done** — cross + native |
 | macOS x86_64 | Mach-O | Stub (v3.1) — v4.0.0 |
 | macOS aarch64 | Mach-O | Stub — v4.0.0 |
@@ -166,7 +166,7 @@ Pure Cyrius implementations. Each replaces a C FFI dependency.
 
 All core tooling complete:
 `build`, `test`, `bench`, `fuzz`, `soak`, `watch`, `deps`,
-`audit`, `fmt`, `lint`, `doc`, `init`, `port`, `cyriusup`.
+`audit`, `fmt`, `lint`, `doc`, `init`, `port`, `cyriusly` (version manager — "Language Yare").
 
 | Planned | Status |
 |---------|--------|
@@ -201,7 +201,7 @@ All core tooling complete:
 | 2 | Global var loop bound re-evaluates | Snapshot to local |
 | 3 | Inline asm `[rbp-N]` clobbers params | Use globals or dummy locals |
 | 4 | Large `var buf[N]` exhausts output buffer | Use `alloc(N)` for >4KB |
-| 5 | No mixed `&&`/`||` in conditions | Use nested `if` |
+| 5 | Mixed `&&`/`||` requires explicit parens | Write `a && (b \|\| c)` — no precedence-based disambiguation |
 | 6 | `for` step must be `i = i + 1` | No `+=` syntax |
 | 7 | No negative literals | Use `(0 - N)` |
 | 8 | No closures capturing variables | Use named functions + globals |

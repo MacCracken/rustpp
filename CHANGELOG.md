@@ -4,6 +4,58 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.15] — 2026-04-11
+
+### Changed — Tooling
+- **`cyriusup` renamed to `cyriusly`** ("Language Yare"): The version manager is
+  now `cyriusly` — *yare* (adj., "quick, agile, responsive — the ship answers
+  the helm") fits the tool better than the rustup-style `-up` suffix. All CLI
+  commands, help text, and install.sh output updated. Existing installs keep
+  working until re-installed; run the installer to pick up the new binary name.
+- **Shared audit walkers** (`scripts/lib/audit-walk.sh`): The fmt/lint
+  skip-symlink loops in `scripts/check.sh` and the `cyrius audit` dispatcher
+  were duplicated. Extracted into a shared `audit_fmt_walk` / `audit_lint_walk`
+  helper that both scripts source, with inline fallbacks for standalone
+  installs. `scripts/install.sh` now ships the helper under `bin/lib/`
+  alongside the dispatcher.
+
+### Fixed
+- **`scripts/check.sh` skips symlinked dep files**: The audit was reporting
+  `format FAIL` + `lint FAIL (24 warnings)` even though the non-dep stdlib was
+  clean — all 24 warnings came from the symlinked dep files (sigil 14, sakshi 4,
+  sakshi_full 3, patra 3) which are owned by upstream and track a slightly
+  different formatter baseline. The `cyrius audit` dispatcher in
+  `~/.cyrius/bin/cyrius` already did `[ -L "$f" ] && continue` for both checks;
+  `scripts/check.sh` now mirrors that logic (via the shared walker above).
+  `sh scripts/check.sh` reports 5/5 passing again (3/5 before this patch).
+
+### Changed — Doc Alignment
+- **Stats sweep across all docs**: The compiler binary is **~250KB** (was drifting
+  between 233KB/243KB/245KB in different files). Test counts aligned to **32
+  suites / 442 assertions**. Stdlib module count aligned to **40 stdlib + 5 deps**
+  (patra, sakshi, sakshi_full, sigil, yukti). Files touched:
+  `CLAUDE.md`, `README.md`, `docs/benchmarks.md`, `docs/architecture/cyrius.md`,
+  `docs/cyrius-guide.md`, `docs/adr/001-assembly-cornerstone.md`,
+  `docs/development/roadmap.md`.
+- **CHANGELOG `[3.4.14]` stats line corrected**: Said `45 stdlib + 5 deps`, but
+  the release only bumped the compiler for `_cyrius_init` export — no new stdlib
+  modules. Corrected to `40 stdlib + 5 deps`.
+- **Roadmap Gotcha #5 rewritten**: Said "No mixed `&&`/`||` in conditions". In
+  reality, parenthesized mixed forms like `if (a > 0 && (b > 0 || c > 0))` work
+  (verified with cc3 3.4.14); the limitation is that precedence-based
+  disambiguation is not supported — explicit parens are required. Gotcha updated
+  to reflect actual behavior.
+
+### Docs
+- **`docs/development/issues/parser-overflow-large-codebase.md`**: Bug #32 was
+  resolved in v3.3.17 by the `str_data` → `0x40000` relocation + `LEXHEX`
+  preprocessed-buffer fix. Issue doc updated from "Open (blocking shravan)" to
+  "Resolved in v3.3.17" with the root cause and fix recorded for historical
+  reference.
+
+### Stats
+- **40 stdlib modules + 5 deps**, 32 test suites (442 assertions), cc3 ~250KB
+
 ## [3.4.14] — 2026-04-11
 
 ### Added
@@ -17,7 +69,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Self-hosting verified (byte-identical two-step bootstrap).
 
 ### Stats
-- **45 stdlib modules + 5 deps**, 32 test suites
+- **40 stdlib modules + 5 deps**, 32 test suites (442 assertions)
 
 ## [3.4.13] — 2026-04-11
 
@@ -138,17 +190,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `audio_open_playback`, `audio_write`, `audio_read`, `audio_drain`, state queries.
   Module #36. Shared foundation for shravan playback and tarang audio pipeline.
 
-### Fixed
-- **aarch64 fixup codebuf address**: Was reading from old `0x4CA000` instead of new
-  `0x54A000`. Caused all 26 aarch64 CI tests to fail.
-
-### Known Issues
-- **Bug #35 still open**: Preprocessor copy-back overflow for ~600KB expanded source.
-  Ifdef pass converted to in-place filtering (safe), but macro/ref pass copy-backs
-  still use `S+0` which overflows at ~565KB. Needs dedicated refactor session.
-
-## [3.4.5] — 2026-04-11
-
 ### Changed
 - **Codebuf/output relocated**: Codebuf moved `0x4CA000` → `0x54A000`, output
   `0x54A000` → `0x5CA000`. Preprocess buffer expanded 512KB → 1MB at `0x44A000`.
@@ -158,10 +199,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Fixup pfx scratch relocated**: Moved from codebuf+128KB to output_buf+128KB.
   Prevented variable prefix sums from overwriting generated code.
 
+### Fixed
+- **aarch64 fixup codebuf address**: Was reading from old `0x4CA000` instead of new
+  `0x54A000`. Caused all 26 aarch64 CI tests to fail.
+
 ### Known Issues
-- **Bug #35 still open**: Libro+patra (~600KB expanded source) crashes during
-  preprocessing. The ifdef/macro copy-back to `S+0` overflows past compiler state
-  tables at `0x8A000`. Needs double-buffer or in-place preprocessor refactor.
+- **Bug #35 still open**: Preprocessor copy-back overflow for ~600KB expanded source.
+  Ifdef pass converted to in-place filtering (safe), but macro/ref pass copy-backs
+  still use `S+0` which overflows at ~565KB. Needs dedicated refactor session.
+  *(Resolved in 3.4.7 via `str_pos`/`data_size` re-init after preprocessing.)*
 
 ## [3.4.4] — 2026-04-11
 
@@ -266,27 +312,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [3.3.15] — 2026-04-10
 
 ### Fixed
-- **Libro hang regression** (3.3.9-3.3.14): Reverted multi-break patch array back to
-  single-slot at `0x8F840`. The array implementation (introduced in 3.3.9) caused
-  libro's 240 tests to hang during SHA-256 hashing in entry_compute_hash. Root cause:
-  the array logic subtly corrupted codegen for large programs — not the address, but
-  the save/restore pattern around nested loop compilation. Single-slot break restored,
-  libro 240/240 passes again. Multi-break deferred for proper investigation.
-- **Version string length**: Fixed `cc3 --version` output length for 2-digit minor versions.
-
-### Stats
-- **31/31 cyrius tests, 240/240 libro tests**
-
-## [3.3.15] — 2026-04-10
-
-### Fixed
-- **Multi-break in nested loops** (Blocker #4, final fix): Reimplemented using linked list
-  through codebuf rel32 fields instead of separate array. Each `break` chains the previous
-  break's patch offset into its jmp placeholder. At loop exit, walks the chain patching
-  each one. Zero extra heap, no save/restore state to corrupt. The previous array approach
-  (3.3.9) corrupted codegen for large programs (libro 240-test hang). Linked-list approach
-  passes libro 240/240 + multi-break + nested break tests.
-- **Version string length**: Fixed for 2-digit minor versions.
+- **Multi-break in nested loops** (Blocker #4, final fix): Two-step landing —
+  first, the 3.3.9 array-based patch table was reverted back to single-slot at
+  `0x8F840` after libro's 240 tests hung in `entry_compute_hash`; the array
+  approach subtly corrupted codegen around nested-loop save/restore. Then
+  reimplemented using a linked list through codebuf rel32 fields — each `break`
+  chains the previous break's patch offset into its jmp placeholder, and at
+  loop exit the chain is walked patching each one. Zero extra heap, no
+  save/restore state to corrupt. Linked-list approach passes libro 240/240 +
+  multi-break + nested break tests.
+- **Version string length**: Fixed `cc3 --version` output length for 2-digit
+  minor versions.
 
 ### Stats
 - **31/31 cyrius, 240/240 libro, multi-break + nested break all pass**

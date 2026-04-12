@@ -37,6 +37,21 @@ TOOLS_DIR="$(dirname "$CC")"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd 2>/dev/null || pwd)"
 
+# Shared fmt/lint walkers (skip symlinked deps). Try the repo layout first
+# (scripts/lib/audit-walk.sh), then the installed layout (next to the binary).
+# If not found, fall back to inline implementations in the `audit` block.
+for _awalk in \
+    "$REPO_ROOT/scripts/lib/audit-walk.sh" \
+    "$SCRIPTS_DIR/lib/audit-walk.sh" \
+    "$TOOLS_DIR/lib/audit-walk.sh" \
+    "$TOOLS_DIR/../scripts/lib/audit-walk.sh"; do
+    if [ -f "$_awalk" ]; then
+        . "$_awalk"
+        break
+    fi
+done
+unset _awalk
+
 # Read a key from cyrius.toml (section-aware, handles quotes)
 # Usage: toml_get <file> <key> [section]
 toml_get() {
@@ -748,21 +763,25 @@ MANIFEST
             if [ "$tcyr_found" -eq 0 ]; then echo "  (no .tcyr files found)"; fi
             echo ""
 
-            # Lint (skip symlinked deps and vendored files)
+            # Lint + Format share the skip-symlink walkers with scripts/check.sh
+            # via scripts/lib/audit-walk.sh. If the helper isn't sourced (old
+            # install layout), fall back to inline implementations.
             CYRLINT="${TOOLS_DIR}/cyrlint"
             if [ -x "$CYRLINT" ]; then
                 echo "── Lint ──"
-                lint_total=0
-                lint_skipped=0
-                for f in lib/*.cyr src/*.cyr; do
-                    [ -f "$f" ] || continue
-                    if [ -L "$f" ]; then lint_skipped=$((lint_skipped + 1)); continue; fi
-                    w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
-                    if [ "$w" -gt 0 ]; then
-                        echo "  $(basename $f): $w warnings"
-                    fi
-                    lint_total=$((lint_total + w))
-                done
+                if command -v audit_lint_walk > /dev/null 2>&1; then
+                    audit_lint_walk "$CYRLINT" lib src
+                    lint_total="$AW_LINT_TOTAL"
+                    lint_skipped="$AW_LINT_SKIPPED"
+                else
+                    lint_total=0; lint_skipped=0
+                    for f in lib/*.cyr src/*.cyr; do
+                        [ -f "$f" ] || continue
+                        if [ -L "$f" ]; then lint_skipped=$((lint_skipped + 1)); continue; fi
+                        w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
+                        lint_total=$((lint_total + w))
+                    done
+                fi
                 if [ "$lint_total" -eq 0 ]; then
                     echo "  PASS: lint (0 warnings)"
                     AUDIT_PASS=$((AUDIT_PASS + 1))
@@ -776,28 +795,36 @@ MANIFEST
                 echo ""
             fi
 
-            # Format (skip symlinked deps and vendored files)
             CYRFMT="${TOOLS_DIR}/cyrfmt"
             if [ -x "$CYRFMT" ]; then
                 echo "── Format ──"
-                fmt_fail=0
-                fmt_files=""
-                for f in lib/*.cyr src/*.cyr; do
-                    [ -f "$f" ] || continue
-                    if [ -L "$f" ]; then continue; fi
-                    "$CYRFMT" "$f" > /tmp/cyrius_fmt_$$ 2>/dev/null
-                    if ! diff -q "$f" /tmp/cyrius_fmt_$$ > /dev/null 2>&1; then
-                        fmt_fail=1
-                        fmt_files="$fmt_files $(basename $f)"
-                    fi
-                    rm -f /tmp/cyrius_fmt_$$
-                done
+                if command -v audit_fmt_walk > /dev/null 2>&1; then
+                    audit_fmt_walk "$CYRFMT" lib src
+                    fmt_fail="$AW_FMT_FAIL"
+                    fmt_files="$AW_FMT_FILES"
+                    fmt_skipped="$AW_FMT_SKIPPED"
+                else
+                    fmt_fail=0; fmt_files=""; fmt_skipped=0
+                    for f in lib/*.cyr src/*.cyr; do
+                        [ -f "$f" ] || continue
+                        if [ -L "$f" ]; then fmt_skipped=$((fmt_skipped + 1)); continue; fi
+                        "$CYRFMT" "$f" > /tmp/cyrius_fmt_$$ 2>/dev/null
+                        if ! diff -q "$f" /tmp/cyrius_fmt_$$ > /dev/null 2>&1; then
+                            fmt_fail=1
+                            fmt_files="$fmt_files $(basename $f)"
+                        fi
+                        rm -f /tmp/cyrius_fmt_$$
+                    done
+                fi
                 if [ "$fmt_fail" -eq 0 ]; then
                     echo "  PASS: format"
                     AUDIT_PASS=$((AUDIT_PASS + 1))
                 else
                     echo "  FAIL: format —$fmt_files"
                     AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+                if [ "$fmt_skipped" -gt 0 ]; then
+                    echo "  ($fmt_skipped dep files skipped)"
                 fi
                 echo ""
             fi
