@@ -551,8 +551,8 @@ fn ELVRINIT(S, idx) {
 # TOKEN ACCESS
 # ================================================================
 
-fn TOKTYP(S, i) { return L64(S + 0x14A000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0x24A000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x74A000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x94A000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
