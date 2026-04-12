@@ -247,6 +247,12 @@ fn ESYSXLAT(S) {
     EW(S, 0xF100F11F); EW(S, 0x54000041); EW(S, 0xD2800BA8);
     # clock_gettime: 228→113  movz x8,#113 = 0xD2800E28
     EW(S, 0xF103911F); EW(S, 0x54000041); EW(S, 0xD2800E28);
+    # mmap: 9→222       cmp x8,#9 = 0xF100251F; movz x8,#222 = 0xD2801BC8
+    EW(S, 0xF100251F); EW(S, 0x54000041); EW(S, 0xD2801BC8);
+    # mprotect: 10→226  cmp x8,#10 = 0xF100291F; movz x8,#226 = 0xD2801C48
+    EW(S, 0xF100291F); EW(S, 0x54000041); EW(S, 0xD2801C48);
+    # munmap: 11→215    cmp x8,#11 = 0xF1002D1F; movz x8,#215 = 0xD2801AE8
+    EW(S, 0xF1002D1F); EW(S, 0x54000041); EW(S, 0xD2801AE8);
     return 0;
 }
 
