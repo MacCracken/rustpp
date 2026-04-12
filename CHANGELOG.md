@@ -4,6 +4,87 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.3] — 2026-04-12
+
+### Added
+- **`lib/cffi.cyr`** — C struct layout helpers for foreign struct interop
+  (stdlib module #41). Computes field offsets with C alignment/padding rules:
+  `cffi_struct_new`, `cffi_field`, `cffi_field_struct`, `cffi_field_array`,
+  `cffi_offset`, `cffi_sizeof`, `cffi_set8/16/32/64`, `cffi_get8/16/32/64`.
+  Type constants `CFFI_U8` through `CFFI_PTR/CFFI_USIZE`. 18 functions, all
+  documented (cyrdoc 18/18). 23-assertion test suite including a
+  WGPUTextureDescriptor-like 14-field layout verified at 80 bytes. Needed for
+  tarang codec ports and any project doing C FFI struct interop.
+
+## [3.6.2] — 2026-04-12
+
+### Changed
+- **Token limit expanded 131,072 → 262,144** (`src/frontend/lex.cyr`,
+  `src/backend/*/emit.cyr`, `src/common/util.cyr`). Token arrays relocated
+  from `0x14A000` → `0x74A000` (tok_types), `0x24A000` → `0x94A000`
+  (tok_values), `0x34A000` → `0xB4A000` (tok_lines). Each array doubled
+  from 1MB to 2MB. Brk extended to `0xD4A000` (13.3MB total). Unblocks
+  argonaut's full 52-include compilation (was hitting 131K ceiling).
+- **Comprehensive post-preprocess re-initialization** (`src/main.cyr`):
+  the ifdef copy-back for programs >256KB of expanded source overwrites
+  compiler state scalars (BL, CP, VCNT, fn_count, etc.). All 27 affected
+  scalars are now re-initialized after PREPROCESS returns, mirroring the
+  full init block at compiler startup. Argonaut's main.cyr (409KB) and
+  the 52-include mega-test (600KB) both compile successfully.
+
+### Added
+- **Regression tests** for v3.5-3.6 features: +15 assertions in
+  `regression.tcyr` (string interning 5, auto-coercion 8, syscall arity 2).
+- **`fuzz/str_coerce.fcyr`** — 1000-iteration fuzz harness for Str/cstr
+  auto-coercion (eq, contains, starts_with, cat, empty strings).
+- **`benches/bench_interning.bcyr`** — pointer-identity vs str_eq vs streq
+  comparison. ptr_eq 414ns vs str_eq 595ns (30% faster).
+
+### Known limit
+- Argonaut's 52-include mega-test compiles but the binary crashes at
+  runtime on first string access (SIGSEGV). The ifdef copy-back corrupts
+  str_data content that the lexer uses for string literals. Proper fix
+  (eliminating the copy-back) deferred.
+
+## [3.6.1] — 2026-04-12
+
+### Added
+- **Compile-time string interning** (`src/frontend/lex.cyr`): identical
+  string literals now share the same address. `"hello" == "hello"` is true
+  (pointer-identity comparison, 1 CPU cycle vs memcmp). Always-on
+  deduplication in the lexer — zero downstream code changes needed.
+  Compiler binary shrank ~80 bytes from deduplication of its own literals.
+  Classification chains (`if (cmd == "get") ...`) can now use pointer
+  comparison instead of `streq`.
+
+### Fixed
+- **Reverted `sb` ifdef copy-back change** that caused `undefined variable
+  'ptr'` regression in argonaut (409KB expanded source). The `sb = 0x44A000`
+  direct-read path introduced in v3.5.2 broke variable resolution for
+  programs >256KB. Restored the original always-copy-back behavior which
+  works because the lexer re-initializes corrupted regions before use.
+
+## [3.6.0] — 2026-04-12
+
+### Added
+- **Str/cstr auto-coercion**: functions with `: Str` parameter annotations
+  auto-wrap string literal arguments in `str_from()` at call sites. No
+  downstream code changes needed beyond adding `: Str` to function
+  signatures. New heap region `0xDC000` for `fn_param_str_mask` (2048
+  entries). Lazy `str_from` function lookup via `_STR_FROM_NOFF` cache.
+- **`lib/str.cyr` annotated**: `str_eq`, `str_cat`, `str_contains`,
+  `str_starts_with`, `str_ends_with`, `str_split`, `str_join`,
+  `str_builder_add` — all take `: Str` params now.
+
+### Fixed
+- **`str_starts_with` body** used `strlen(prefix)` (cstr operation) on a
+  param now annotated `: Str`. Updated to use `str_len`/`str_data` for
+  consistent Str operations.
+
+### Impact
+- 748 `str_from("literal")` wrappers across argonaut (382), libro (291),
+  and stdlib (75) can now be removed by annotating function params `: Str`.
+
 ## [3.5.2] — 2026-04-12
 
 ### Fixed
