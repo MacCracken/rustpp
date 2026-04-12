@@ -1,0 +1,4 @@
+# Mark compiler binary as binary to prevent line-ending conversion
+build/cc3 binary
+build/cc3-native-aarch64 binary
+bootstrap/asm binary
