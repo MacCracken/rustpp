@@ -53,7 +53,7 @@ S64(S + 0x903E8, 0);
 # Expression width
 S64(S + 0x903F0, 0);
 # Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
-S64(S + 0x8F8A0, 0);
+S64(S + 0x8F898, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

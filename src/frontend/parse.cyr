@@ -2197,11 +2197,11 @@ fn PARSE_FOR(S) {
                 # Loop: while (idx < len)
                 var fislt = L64(S + 0x8F838);
                 var fisbk = L64(S + 0x8F840);
-                var fiscfw = L64(S + 0x8F8A0);
+                var fiscfw = L64(S + 0x8F898);
                 var fitop = GCP(S);
                 S64(S + 0x8F838, fitop);
                 S64(S + 0x8F840, 0);
-                S64(S + 0x8F8A0, 1);
+                S64(S + 0x8F898, 1);
                 EFLLOAD(S, fili);
                 EPUSHR(S);
                 EVLOAD(S, filen);
@@ -2235,10 +2235,10 @@ fn PARSE_FOR(S) {
                 SCOPE_POP(S);
                 if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
                 # Patch continue to here (before step)
-                var ficfwn = L64(S + 0x8F8A0) - 1;
+                var ficfwn = L64(S + 0x8F898) - 1;
                 var ficfwi = 0;
-                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A8 + ficfwi * 8)); ficfwi = ficfwi + 1; }
-                S64(S + 0x8F8A0, 0);
+                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+                S64(S + 0x8F898, 0);
                 # Step: idx = idx + 1
                 EFLLOAD(S, fili);
                 EPUSHR(S);
@@ -2254,7 +2254,7 @@ fn PARSE_FOR(S) {
                 while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
                 S64(S + 0x8F838, fislt);
                 S64(S + 0x8F840, fisbk);
-                S64(S + 0x8F8A0, fiscfw);
+                S64(S + 0x8F898, fiscfw);
                 SCOPE_POP(S);
                 SLVAR(S, slv);
                 return 0;
@@ -2277,11 +2277,11 @@ fn PARSE_FOR(S) {
             # Loop setup
             var fislt = L64(S + 0x8F838);
             var fisbk = L64(S + 0x8F840);
-            var fiscfw = L64(S + 0x8F8A0);
+            var fiscfw = L64(S + 0x8F898);
             var fitop = GCP(S);
             S64(S + 0x8F838, fitop);
             S64(S + 0x8F840, 0);
-            S64(S + 0x8F8A0, 1);
+            S64(S + 0x8F898, 1);
             # Condition: var < end
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -2297,10 +2297,10 @@ fn PARSE_FOR(S) {
             SCOPE_POP(S);
             if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
             # Patch all continues to here (before step)
-            var ficfwn = L64(S + 0x8F8A0) - 1;
+            var ficfwn = L64(S + 0x8F898) - 1;
             var ficfwi = 0;
-            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A8 + ficfwi * 8)); ficfwi = ficfwi + 1; }
-            S64(S + 0x8F8A0, 0);
+            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+            S64(S + 0x8F898, 0);
             # Step: var = var + 1
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -2316,7 +2316,7 @@ fn PARSE_FOR(S) {
             while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
             S64(S + 0x8F838, fislt);
             S64(S + 0x8F840, fisbk);
-            S64(S + 0x8F8A0, fiscfw);
+            S64(S + 0x8F898, fiscfw);
             SCOPE_POP(S);
             SLVAR(S, slv);
             return 0;
@@ -2328,11 +2328,11 @@ fn PARSE_FOR(S) {
     PARSE_STMT(S);
     var slt = L64(S + 0x8F838);
     var sbk = L64(S + 0x8F840);
-    var scfw = L64(S + 0x8F8A0);
+    var scfw = L64(S + 0x8F898);
     var ltop = GCP(S);
     S64(S + 0x8F838, ltop);
     S64(S + 0x8F840, 0);
-    S64(S + 0x8F8A0, 1);
+    S64(S + 0x8F898, 1);
     var cpat = ECOND(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
@@ -2355,10 +2355,10 @@ fn PARSE_FOR(S) {
     if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
     STI(S, GTI(S) + 1);
     # Patch continue forward jump to here (step expression)
-    var cfwn = L64(S + 0x8F8A0) - 1;
+    var cfwn = L64(S + 0x8F898) - 1;
     var cfwi = 0;
-    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x8F8A8 + cfwi * 8)); cfwi = cfwi + 1; }
-    S64(S + 0x8F8A0, 0);
+    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x8F8A0 + cfwi * 8)); cfwi = cfwi + 1; }
+    S64(S + 0x8F898, 0);
     # Emit step: replay as assignment (IDENT = EXPR) without semicolon
     var sti = GTI(S);
     STI(S, sst);
@@ -2383,7 +2383,7 @@ fn PARSE_FOR(S) {
     SCOPE_POP(S);
     S64(S + 0x8F838, slt);
     S64(S + 0x8F840, sbk);
-    S64(S + 0x8F8A0, scfw);
+    S64(S + 0x8F898, scfw);
     SLVAR(S, slv);
     return 0;
 }
@@ -3204,15 +3204,15 @@ fn PARSE_STMT(S) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        var cfw = L64(S + 0x8F8A0);
+        var cfw = L64(S + 0x8F898);
         if (cfw > 0) {
             # For-loop: forward patch to step (array of patches)
             var ci = cfw - 1;
             if (ci >= 8) {
                 ERR_MSG(S, "too many continue statements in loop (max 8)", 44);
             }
-            S64(S + 0x8F8A8 + ci * 8, EJMP0(S));
-            S64(S + 0x8F8A0, cfw + 1);
+            S64(S + 0x8F8A0 + ci * 8, EJMP0(S));
+            S64(S + 0x8F898, cfw + 1);
         } else {
             # While/for-in: direct jump to loop top
             EJMP(S, L64(S + 0x8F838));

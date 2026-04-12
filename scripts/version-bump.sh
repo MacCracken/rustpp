@@ -28,7 +28,20 @@ sed -i "s/VERSION=\"$OLD\"/VERSION=\"$NEW\"/" scripts/install.sh 2>/dev/null || 
 sed -i "s/- \*\*Version\*\*: $OLD/- **Version**: $NEW/" CLAUDE.md 2>/dev/null || true
 
 # 3b. cc3 --version string in src/main.cyr
-sed -i "s/\"cc3 $OLD/\"cc3 $NEW/" src/main.cyr 2>/dev/null || true
+# Permissive regex — matches any "cc3 X.Y.Z\n" so the version string can't
+# drift silently if a previous bump missed this file (as happened between
+# 3.4.10 and 3.4.15). Also re-computes the syscall write length since the
+# string is a constant literal and the length argument is hard-coded.
+if [ -f src/main.cyr ]; then
+    if grep -Eq '"cc3 [0-9]+\.[0-9]+\.[0-9]+\\n"' src/main.cyr; then
+        sed -i -E "s|\"cc3 [0-9]+\.[0-9]+\.[0-9]+\\\\n\"|\"cc3 $NEW\\\\n\"|" src/main.cyr
+        # "cc3 X.Y.Z\n" is len(X.Y.Z) + 5 bytes (cc3 + space + \n)
+        NEW_LEN=$((${#NEW} + 5))
+        sed -i -E "s|(\"cc3 $NEW\\\\n\", )[0-9]+\)|\1$NEW_LEN)|" src/main.cyr
+    else
+        echo "  warning: no cc3 version string found in src/main.cyr" >&2
+    fi
+fi
 
 # 4. CHANGELOG.md — add unreleased section if not present
 if ! grep -q "## \[$NEW\]" CHANGELOG.md 2>/dev/null; then

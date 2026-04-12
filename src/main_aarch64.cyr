@@ -29,8 +29,8 @@
 #   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
 #   0x8F888  extra_patch_cnt [8]
 #   0x8F890  ptr_scale     [8]           Pointer scale tracking
-#   0x8F8A0  continue_count [8]          For-loop continue forward-patch count
-#   0x8F8A8  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
+#   0x8F898  continue_count [8]          For-loop continue forward-patch count
+#   0x8F8A0  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
 #   0x98000  gvar_toks     [8192]        1024 deferred global var inits (expanded from 256)
 #   0x9A000  gvar_cnt      [8]
 #   0x8FCA0  kernel_mode   [8]
@@ -38,7 +38,7 @@
 #   0x8FCB0  last_var      [8]
 #   0x8FCB8  cur_line      [8]
 #   0x8FCC0  scope_depth   [8]
-#   0x8FCC8  local_depths  [512]
+#   0x8FCC8  (reserved)    [512]         free — live local_depths is at 0x91800
 #   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
 #   0x903D8  expr_stype    [8]
 #   0x903E8  inline_depth  [8]
@@ -112,7 +112,7 @@ S64(S + 0x8F830, 0);
 # Condition patch state
 S64(S + 0x8F888, 0);
 # Continue forward patch (for-loop)
-S64(S + 0x8F8A0, 0);
+S64(S + 0x8F898, 0);
 # Global var init state
 S64(S + 0x9A000, 0);
 
@@ -129,7 +129,7 @@ S64(S + 0x903E8, 0);
 # Expression width
 S64(S + 0x903F0, 0);
 # Continue forward patch
-S64(S + 0x8F8A0, 0);
+S64(S + 0x8F898, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

@@ -7,19 +7,20 @@
 # Build: cat cc3.cyr | ./build/cc > cc3
 # Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
 # ================================================================
-# HEAP MAP — Authoritative offset registry (v2.1.2)
+# HEAP MAP — Authoritative offset registry (v3.4.16)
 # ================================================================
 # Check here FIRST before allocating new state.
 # Regions marked (nested) are intentionally inside larger buffers.
 #
 # --- Low heap: I/O buffers + compiler state ---
 #   0x00000  input_buf     [131072]      128KB raw stdin input
-#   0x20000  (unused)      [262144]      (was codebuf, moved to 0x4CA000)
-#   0x903F8  elf_out_len   [8]           (nested in codebuf tail)
-#   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000)
+#   0x20000  (unused)      [131072]      (was codebuf, moved to 0x54A000 in v3.3.7 — reclaimable)
+#   0x40000  str_data      [32768]       string literal bytes (moved from 0x68000 in v3.3.17)
+#   0x48000  (unused)      [98304]       (96KB free between str_data end and tok_names)
 #   0x60000  tok_names     [65536]       64KB packed identifier strings (full, str_data moved out)
 #   0x70000  str_pos       [8]           string write position
 #   0x70008  data_size     [8]           total variable data bytes
+#   0x70010  (unused)      [~104K]       (free between data_size and struct_ftypes)
 #
 # --- Struct tables ---
 #   0x8A000  struct_ftypes [8192]        32×32 field type IDs (stride 256)
@@ -37,8 +38,8 @@
 #   0x8F848  extra_patches [64]          8 && condition patches
 #   0x8F888  extra_patch_cnt [8]
 #   0x8F890  ptr_scale     [8]
-#   0x8F8A0  continue_count [8]
-#   0x8F8A8  continue_patches [64]       8 continue forward-patches
+#   0x8F898  continue_count [8]
+#   0x8F8A0  continue_patches [64]       8 continue forward-patches
 #   0x98000  gvar_toks     [8192]        1024 deferred global var inits (expanded from 256)
 #   0x9A000  gvar_cnt      [8]
 #   0x8FCA0  kernel_mode   [8]
@@ -46,7 +47,7 @@
 #   0x8FCB0  last_var      [8]
 #   0x8FCB8  cur_line      [8]
 #   0x8FCC0  scope_depth   [8]
-#   0x8FCC8  local_depths  [512]         64 scope depths per local
+#   0x8FCC8  (reserved)    [512]         free — live local_depths is at 0x91800
 #   0x8FEC8  current_module [8]
 #   0x8FED0  pub_flags     [256]
 #   0x8FFD0  use_from      [512]         64 use alias source names
@@ -56,7 +57,11 @@
 #   0x903E0  expr_var      [8]
 #   0x903E8  inline_depth  [8]
 #   0x903F0  expr_width    [8]
-#   0x903F8  init_offset   [8]           offset of _cyrius_init in .text (object mode)
+#   0x903F8  init_offset   [8]           offset of _cyrius_init in .text (object mode);
+#                                         FIXUP/EMITELF then reuse this slot as
+#                                         elf_out_len (see backend/*/fixup.cyr and
+#                                         the main.cyr write loop — init_offset is
+#                                         consumed before FIXUP overwrites it)
 #   0x8F900  defer_count   [8]           deferred blocks per function (max 8)
 #   0x8F908  defer_addrs   [64]          8 deferred block code offsets (LIFO)
 #
@@ -76,7 +81,7 @@
 #   0xD0000  fn_body_end   [16384]       2048 inline body end
 #   0xD4000  fn_inline     [16384]       2048 inline flags
 #   0xD8000  struct_fnames [8192]        32×32 field name offsets (stride 256)
-#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x54A000)
+#   0xDA000  (unused)      [262144]      (was output_buf, moved to 0x5CA000 in v3.3.7 — reclaimable)
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
 #   0x12A000 var_sizes     [65536]       8192 variable sizes
 #   0x13A000 var_types     [65536]       8192 variable type IDs
@@ -133,7 +138,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 3.4.10\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 3.4.16\n", 11);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -180,10 +185,10 @@ S64(S + 0x903D8, 0);
 S64(S + 0x903E8, 0);
 # Expression width
 S64(S + 0x903F0, 0);
-# Loop var register cache (-1 = none)
-# (was loop_var_slot init, removed)
-# Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
-S64(S + 0x8F8A0, 0);
+# Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap.
+# (The r12 loop-var register cache init that used to live here was reverted
+# in v3.3.12 after a 2x perf regression; the 0x903F8 slot is now init_offset.)
+S64(S + 0x8F898, 0);
 # Module system
 S64(S + 0x8FEC8, 0);
 S64(S + 0x903D0, 0);

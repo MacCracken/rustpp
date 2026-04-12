@@ -54,18 +54,18 @@ fn GFLC(S) { return L64(S + 0x8DA10); }
 fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
 fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
-# Inline metadata accessors
+# Inline metadata accessors (GFBE getter removed in v3.4.16 — unused;
+# SFBE is the only direction the inliner needs.)
 fn GFBS(S, fi) { return L64(S + 0xCC000 + fi * 8); }
 fn SFBS(S, fi, v) { S64(S + 0xCC000 + fi * 8, v); return 0; }
-fn GFBE(S, fi) { return L64(S + 0xD0000 + fi * 8); }
 fn SFBE(S, fi, v) { S64(S + 0xD0000 + fi * 8, v); return 0; }
 fn GFINL(S, fi) { return L64(S + 0xD4000 + fi * 8); }
 fn SFINL(S, fi, v) { S64(S + 0xD4000 + fi * 8, v); return 0; }
 fn GIDEP(S) { return L64(S + 0x903E8); }
 fn SIDEP(S, v) { S64(S + 0x903E8, v); return 0; }
-# Loop var register cache (r12)
-fn GLVR(S) { return L64(S + 0x903F8); }
-fn SLVR(S, v) { S64(S + 0x903F8, v); return 0; }
+# (GLVR/SLVR for r12 loop-var cache removed in v3.4.16 — the feature was
+# reverted in v3.3.12 after a 2x perf regression; the 0x903F8 slot is now
+# owned by init_offset / elf_out_len (see src/main.cyr heap map).)
 # Extra condition patches (for && chaining)
 fn GXPC(S) { return L64(S + 0x8F888); }
 fn SXPC(S, v) { S64(S + 0x8F888, v); return 0; }
@@ -99,11 +99,12 @@ fn SESTYPE(S, v) { S64(S + 0x903D8, v); return 0; }
 fn GESVAR(S) { return L64(S + 0x903E0); }
 fn SESVAR(S, v) { S64(S + 0x903E0, v); return 0; }
 
-# Module system
+# Module system. (GPUB/SPUB were scaffolded for the `pub` visibility check
+# in docs/development/module-manifest-design.md but never wired up in the
+# compiler — removed in v3.4.16 to stop tracking dead state. The 0x8FED0
+# pub_flags region remains reserved in the heap map.)
 fn GMOD(S) { return L64(S + 0x8FEC8); }
 fn SMOD(S, v) { S64(S + 0x8FEC8, v); return 0; }
-fn GPUB(S, fi) { return load8(S + 0x8FED0 + fi); }
-fn SPUB(S, fi, v) { store8(S + 0x8FED0 + fi, v); return 0; }
 fn GUSEC(S) { return L64(S + 0x903D0); }
 fn SUSEC(S, v) { S64(S + 0x903D0, v); return 0; }
 
@@ -131,13 +132,8 @@ fn SPSC(S, v) { S64(S + 0x8F890, v); return 0; }
 fn GLTYPE(S, li) { return L64(S + 0x92200 + li * 8); }
 fn SLTYPE(S, li, v) { S64(S + 0x92200 + li * 8, v); return 0; }
 
-# Get byte width from type_id (1=i8, 2=i16, 4=i32, 8/0=i64)
-fn TWIDTH(t) {
-    if (t == 1) { return 1; }
-    if (t == 2) { return 2; }
-    if (t == 4) { return 4; }
-    return 8;
-}
+# (TWIDTH type-width helper removed in v3.4.16 — every call site now inlines
+# the byte-width decision directly for single-dispatch code paths.)
 
 # Expression width tracking (0=untyped/i64, 1=i8, 2=i16, 4=i32)
 fn GEXW(S) { return L64(S + 0x903F0); }

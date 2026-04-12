@@ -4,6 +4,69 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.4.16] — 2026-04-11
+
+Final polish release before v3.5.0 — compiler cleanup, dead-code removal, heap
+map alignment. Zero new features. Heap audit now reports **0 warnings**
+(47 regions), down from 1 warning in v3.4.15.
+
+### Fixed
+- **`cc3 --version` was stuck at `3.4.10`** (critical): The `version-bump.sh`
+  sed regex matched the literal previous version string, so when the source
+  drifted the bump silently failed. Every release between 3.4.11 and 3.4.15
+  shipped with `cc3 --version` reporting `3.4.10` (with no trailing newline,
+  because the syscall length was hard-coded to 10 bytes instead of 11). The
+  version string is now pinned to `3.4.16\n` with the correct 11-byte length,
+  and `scripts/version-bump.sh` was rewritten to use a permissive regex
+  (`"cc3 [0-9]+\.[0-9]+\.[0-9]+\\n"`) plus an auto-computed length so this
+  class of bug is structural from now on.
+
+### Changed — Compiler Cleanup
+- **Dead accessors removed from `src/common/util.cyr`** (~16 bytes off the
+  compiler binary, 250320 → 250304):
+    - `GLVR` / `SLVR` — loop-var register cache getters for the r12 opt
+      reverted in v3.3.12 (2x perf regression). Zero callers.
+    - `GFBE` — inline body-end *getter*. The inliner only writes this slot
+      via `SFBE`; nothing reads it.
+    - `GPUB` / `SPUB` — `pub` visibility accessors scaffolded in
+      `docs/development/module-manifest-design.md` but never wired into
+      parse/lex. Dead since they were added.
+    - `TWIDTH` — multi-width type→byte-width helper. Every call site inlines
+      the 1/2/4/8 dispatch directly now; the function was unreferenced.
+- **Heap gap closed at 0x8F898**: `ptr_scale` ended at `0x8F898` but
+  `continue_count` started at `0x8F8A0`, leaving an 8-byte hole that the
+  heap audit flagged every run. Moved `continue_count` → `0x8F898` and
+  `continue_patches` (the 64-byte table) → `0x8F8A0`. Mass rename across
+  `src/main.cyr`, `src/main_aarch64.cyr`, `src/main_cx.cyr`, and
+  `src/frontend/parse.cyr` (~22 references). Two-step bootstrap verified
+  byte-identical. Heap audit: 47 regions, **0 warnings**.
+
+### Changed — Heap Map Alignment
+- **Stale `local_depths [512]` comment at `0x8FCC8` removed**: Only the
+  heap-map comment referenced it — the live `local_depths` table lives at
+  `0x91800` (see `GLDEP`/`SLDEP`). The 0x8FCC8 slot was phantom reservation
+  from an earlier compiler revision. Now marked `(reserved)` so it isn't
+  counted as a live region.
+- **0x903F8 dual-use documented**: The slot holds `init_offset` (for the
+  `_cyrius_init` entry point in object mode) up until `FIXUP` runs, then
+  `EMITELF` overwrites it with `elf_out_len`. The slot swap was coded
+  correctly (init_offset is consumed by the symbol-table write before
+  FIXUP overwrites it) but undocumented; new comment in `src/main.cyr`
+  calls out the ordering contract for future edits.
+- **Reclaimable regions marked**: `0x20000-0x40000` (128KB, was codebuf
+  before v3.3.7) and `0xDA000-0x11A000` (256KB, was output_buf before
+  v3.3.7) are now labelled `(unused)` in the heap map with pointers at
+  the relocations that freed them. Future allocations can reuse these
+  without searching git history to see why they're empty.
+- **Heap map version marker bumped** from `v2.1.2` → `v3.4.16` (was
+  five major versions behind).
+
+### Stats
+- **cc3: 250,304 bytes** (down 16 bytes from v3.4.15's 250,320)
+- **40 stdlib modules + 5 deps**, 32 test suites (442 assertions)
+- **Heap audit: 47 regions, 0 warnings** (was 48 regions / 1 warning)
+- Self-hosting verified (two-step cc3==cc3 byte-identical)
+
 ## [3.4.15] — 2026-04-11
 
 ### Changed — Tooling
