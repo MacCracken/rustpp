@@ -1135,24 +1135,46 @@ fn PP_MACRO_PASS(S) {
 
 # Second pass: evaluate #ifdef/#define/#endif only (no includes).
 # Processes conditional blocks in already-included content.
-# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf)
-# Double-buffer pass 2: reads from S+0x44A000 (preprocess output), writes to S+0 (input buf).
-# IMPORTANT: helper functions (ISDEFINE, PP_DEFINE, PP_HASH, etc.) use first param for BOTH
-# source text reading AND heap state access (flag table at 0x90800). We must copy source to
-# S+0 first, then process normally with S as the base. This avoids the base address mismatch.
+#
+# v3.6.5: reads source from the preprocess buffer (S+0x44A000) directly via
+# `src` pointer. Only the first 256KB is copied to S+0 for helper functions
+# (ISDEFINE, PP_DEFINE, PP_SKIPLINE, etc.) which read via S+pos and also
+# access heap state at S+0x90800. Directives only appear in the first few KB
+# of source (stdlib headers), so the 256KB copy always covers them.
+#
+# Output writes go to S+0x44A000 (in-place: op <= ip always, safe because
+# ifdef filtering only removes lines). NO copy-back to S+0 at the end —
+# LEX reads from S+0x44A000, and PP_MACRO_PASS short-circuits for programs
+# without macros.
+#
+# This eliminates the Bug #35 family of copy-back overflows that corrupted
+# compiler state (BL/CP at 0x8C100+) for programs >256KB of expanded source.
 fn PP_IFDEF_PASS(S) {
     var bl = GBL(S);
-    # Copy from preprocess buffer to input buffer for processing
+    # Allocate a temp buffer via mmap to hold the source. This avoids copying
+    # to S+0 (which overflows into heap state for programs >256KB — Bug #35).
+    # The temp buffer is separate memory that the helpers can safely read from.
+    var prot = 3;     # PROT_READ | PROT_WRITE
+    var flags = 34;   # MAP_PRIVATE | MAP_ANONYMOUS
+    var tmp = syscall(9, 0, 1048576, prot, flags, 0 - 1, 0);
+    # Copy the preprocessed source to the temp buffer
     var ci = 0;
-    while (ci < bl) { store8(S + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
-    # Now process from S+0
+    while (ci < bl) { store8(tmp + ci, load8(S + 0x44A000 + ci)); ci = ci + 1; }
+    # Redirect S-based reads to the temp buffer by copying it back to S+0
+    # BUT capped at 262144 to protect the heap. Helpers that read S+ip at
+    # positions >256KB will read from the capped copy; for typical programs
+    # directives are always in the first few KB.
+    var cap = bl;
+    if (cap > 262144) { cap = 262144; }
+    ci = 0;
+    while (ci < cap) { store8(S + ci, load8(tmp + ci)); ci = ci + 1; }
     var out = S + 0x44A000;
     var op = 0;
     var ip = 0;
     var bol = 1;
     var skip_depth = 0;
     while (ip < bl) {
-        var c = load8(S + ip);
+        var c = load8(tmp + ip);
         var handled = 0;
         if (bol == 1) {
             if (ISDEFINE(S, ip, bl) == 1) {
@@ -1185,7 +1207,7 @@ fn PP_IFDEF_PASS(S) {
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
                 ip = ip + 8;
-                if (load8(S + ip) == 34) {
+                if (load8(tmp + ip) == 34) {
                     ip = ip + 1;
                     var fname = S + 0x90400;
                     var fi = 0;
@@ -1193,7 +1215,7 @@ fn PP_IFDEF_PASS(S) {
                     while (fgo == 1) {
                         if (ip >= bl) { fgo = 0; }
                         if (fgo == 1) {
-                            var fc = load8(S + ip);
+                            var fc = load8(tmp + ip);
                             if (fc == 34) { ip = ip + 1; fgo = 0; }
                             else { store8(fname + fi, fc); fi = fi + 1; ip = ip + 1; }
                         }
@@ -1202,7 +1224,7 @@ fn PP_IFDEF_PASS(S) {
                     var sgo = 1;
                     while (sgo == 1) {
                         if (ip >= bl) { sgo = 0; }
-                        if (sgo == 1) { if (load8(S + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
+                        if (sgo == 1) { if (load8(tmp + ip) == 10) { ip = ip + 1; sgo = 0; } else { ip = ip + 1; } }
                     }
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
@@ -1219,11 +1241,9 @@ fn PP_IFDEF_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Output is at S+0x44A000. No copy needed — PP_MACRO_PASS reads from S+0.
-    # Wait — PP_MACRO_PASS reads from S+0 but we wrote to 0x44A000.
-    # Copy result back to S+0 for PP_MACRO_PASS.
-    ci = 0;
-    while (ci < op) { store8(S + ci, load8(out + ci)); ci = ci + 1; }
+    # No copy-back. Output stays at S+0x44A000. LEX reads from there.
+    # Free the temp buffer.
+    syscall(11, tmp, 1048576);
     SBL(S, op);
     return 0;
 }

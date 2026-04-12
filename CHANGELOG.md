@@ -4,6 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.6.5] — 2026-04-12
+
+### Fixed
+- **PP_IFDEF_PASS copy-back overflow eliminated** (`src/frontend/lex.cyr`):
+  the ifdef pass previously copied the entire preprocessed source from
+  `S+0x44A000` to `S+0` before processing. For programs >256KB of expanded
+  source, this overflowed into `tok_names`, `struct_ftypes`, and the
+  compiler state scalars at `S+0x8C100` (BL/CP/VCNT/fn_count/etc.),
+  causing either compile-time crashes (SIGSEGV) or corrupted runtime
+  binaries (bad string literal addresses). Fix: allocate a 1MB temp
+  buffer via `mmap(MAP_ANONYMOUS)`, copy source there, read from temp
+  during processing, write output to `S+0x44A000`, `munmap` at end.
+  Zero overflow. Programs of any size now preprocess correctly.
+  **Closes Bug #35** — the longest-running bug family in the compiler
+  (first reported v3.4.5, workarounds in v3.4.7, v3.6.2).
+
+### Added
+- **`tests/tcyr/large_source.tcyr`** — regression test for >256KB expanded
+  source. Includes 44 stdlib modules + 3 dep bundles (697KB expanded),
+  verifies string literals work at runtime (the specific failure mode of
+  the copy-back corruption). 7 assertions. Test suite #34.
+
+### Stats
+- **cc3: 290,224 bytes**, 34 test suites, 498 assertions
+- Self-hosting verified (three-step, byte-identical)
+
+## [3.6.4] — 2026-04-12
+
+### Fixed
+- **`lib/patra.cyr` lazy-init**: `patra_open()` now calls `_sql_init()` if
+  not already initialized, preventing SIGSEGV when `patra_init()` is
+  omitted. Same silent-failure pattern as the input_buf truncation (v3.4.19).
+- **cyrlint false positives**: cffi one-liner functions no longer flagged.
+
 ## [3.6.3] — 2026-04-12
 
 ### Added

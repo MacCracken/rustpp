@@ -1,0 +1,82 @@
+# large_source.tcyr — regression test for >256KB expanded source
+# Tests that programs with many includes (>256KB preprocessed) compile AND
+# run correctly. The ifdef copy-back previously corrupted runtime string
+# data for large programs (Bug #35 family).
+#
+# Strategy: include enough stdlib modules to push past 256KB, then verify
+# string literals work at runtime (the specific failure mode).
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fs.cyr"
+include "lib/process.cyr"
+include "lib/hashmap.cyr"
+include "lib/tagged.cyr"
+include "lib/args.cyr"
+include "lib/assert.cyr"
+include "lib/json.cyr"
+include "lib/fnptr.cyr"
+include "lib/freelist.cyr"
+include "lib/sakshi.cyr"
+include "lib/bigint.cyr"
+include "lib/chrono.cyr"
+include "lib/base64.cyr"
+include "lib/csv.cyr"
+include "lib/regex.cyr"
+include "lib/math.cyr"
+include "lib/matrix.cyr"
+include "lib/net.cyr"
+include "lib/http.cyr"
+include "lib/bench.cyr"
+include "lib/bounds.cyr"
+include "lib/callback.cyr"
+include "lib/thread.cyr"
+include "lib/async.cyr"
+include "lib/toml.cyr"
+include "lib/trait.cyr"
+include "lib/log.cyr"
+include "lib/cffi.cyr"
+include "lib/mmap.cyr"
+include "lib/dynlib.cyr"
+include "lib/ws.cyr"
+include "lib/tls.cyr"
+include "lib/audio.cyr"
+include "lib/vidya.cyr"
+include "lib/sigil.cyr"
+include "lib/patra.cyr"
+include "lib/yukti.cyr"
+include "lib/mabda.cyr"
+
+fn main() {
+    alloc_init();
+    test_group("large source (>256KB)");
+
+    # The critical test: string literals must have correct runtime addresses.
+    # The ifdef copy-back corruption manifested as SIGSEGV on strlen("literal")
+    # because the string data segment had garbage bytes.
+    var a = "hello world";
+    var b = "hello world";
+    assert_eq(streq(a, "hello world"), 1, "string literal intact");
+    assert_eq(a == b, 1, "interning works in large program");
+
+    # Verify str_from works (allocates from heap, references string data)
+    var s = str_from("test string");
+    assert_eq(str_len(s), 11, "str_from in large program");
+    assert_eq(str_eq(s, "test string"), 1, "str_eq in large program");
+
+    # Verify multiple string literals across the program
+    assert_eq(streq("abc", "abc"), 1, "streq short");
+    assert_eq(streq("abc", "abd"), 0, "streq differ");
+
+    # Verify function calls with string args work
+    assert_eq(strlen("twelve chars"), 12, "strlen in large program");
+
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);
