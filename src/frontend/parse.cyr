@@ -348,6 +348,53 @@ fn FINDVAR(S, noff) {
     return 0 - 1;
 }
 
+# Syscall arity table (v3.5.0): returns expected arg count for well-known
+# Linux x86_64 syscalls, or -1 if unknown. The table is fixed — free information.
+fn _SC_ARITY(n) {
+    if (n == 0) { return 3; }    # read(fd, buf, count)
+    if (n == 1) { return 3; }    # write(fd, buf, count)
+    if (n == 2) { return 3; }    # open(path, flags, mode)
+    if (n == 3) { return 1; }    # close(fd)
+    if (n == 4) { return 2; }    # stat(path, buf)
+    if (n == 5) { return 2; }    # fstat(fd, buf)
+    if (n == 8) { return 3; }    # lseek(fd, off, whence)
+    if (n == 9) { return 6; }    # mmap(addr, len, prot, flags, fd, off)
+    if (n == 10) { return 3; }   # mprotect(addr, len, prot)
+    if (n == 11) { return 2; }   # munmap(addr, len)
+    if (n == 12) { return 1; }   # brk(addr)
+    if (n == 16) { return 3; }   # ioctl(fd, req, arg)
+    if (n == 21) { return 2; }   # access(path, mode)
+    if (n == 22) { return 1; }   # pipe(fds)
+    if (n == 32) { return 1; }   # dup(fd)
+    if (n == 33) { return 2; }   # dup2(old, new)
+    if (n == 39) { return 0; }   # getpid()
+    if (n == 56) { return 5; }   # clone(flags, stack, ptid, ctid, tls)
+    if (n == 57) { return 0; }   # fork()
+    if (n == 59) { return 3; }   # execve(path, argv, envp)
+    if (n == 60) { return 1; }   # exit(code)
+    if (n == 61) { return 4; }   # wait4(pid, status, opts, rusage)
+    if (n == 62) { return 2; }   # kill(pid, sig)
+    if (n == 63) { return 1; }   # uname(buf)
+    if (n == 72) { return 3; }   # fcntl(fd, cmd, arg)
+    if (n == 79) { return 2; }   # getcwd(buf, size)
+    if (n == 80) { return 1; }   # chdir(path)
+    if (n == 83) { return 2; }   # mkdir(path, mode)
+    if (n == 84) { return 1; }   # rmdir(path)
+    if (n == 87) { return 1; }   # unlink(path)
+    if (n == 90) { return 2; }   # chmod(path, mode)
+    if (n == 102) { return 0; }  # getuid()
+    if (n == 104) { return 0; }  # getgid()
+    if (n == 107) { return 0; }  # geteuid()
+    if (n == 108) { return 0; }  # getegid()
+    if (n == 112) { return 1; }  # setsid() — actually 0 args but Cyrius wraps
+    if (n == 113) { return 1; }  # setuid(uid)
+    if (n == 116) { return 2; }  # setgroups(size, list)
+    if (n == 165) { return 5; }  # mount(src, tgt, fs, flags, data)
+    if (n == 166) { return 2; }  # umount2(target, flags)
+    if (n == 169) { return 4; }  # reboot(magic1, magic2, cmd, arg)
+    return 0 - 1;
+}
+
 fn PARSE_FACTOR(S) {
     var typ = PEEKT(S);
     SPSC(S, 0);
@@ -539,9 +586,11 @@ fn PARSE_FACTOR(S) {
         if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
         STI(S, GTI(S) + 1);
         var argc = 0;
+        var sc_num = 0 - 1;
         var scgo = 1;
         while (scgo == 1) {
             PCMPE(S);
+            if (argc == 0) { if (_cfo == 1) { sc_num = _cfv; } }
             EPUSHR(S);
             argc = argc + 1;
             if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
@@ -551,6 +600,17 @@ fn PARSE_FACTOR(S) {
         STI(S, GTI(S) + 1);
         ESCPOPS(S, argc);
         _cfo = 0;
+        # Syscall arity check (v3.5.0) — warn if arg count doesn't match the
+        # well-known arity for common Linux x86_64 syscalls.
+        if (sc_num >= 0) {
+            var expect = _SC_ARITY(sc_num);
+            if (expect >= 0) {
+                var got = argc - 1;
+                if (got != expect) {
+                    WARN(S, "syscall arity mismatch", 22);
+                }
+            }
+        }
         return 0;
     }
     if (typ == 25) {
