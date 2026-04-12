@@ -226,6 +226,36 @@ fn test_defer() {
 }
 
 # ================================================================
+# Expression-position comparisons (v3.5.0)
+# ================================================================
+# Before v3.5.0, == != < > only worked inside if()/while() conditions.
+# Now they return 0/1 as values anywhere: var init, fn args, store, return.
+
+fn test_expr_cmp() {
+    test_group("expr comparisons (v3.5.0)");
+    var a = 42;
+    var b = 42;
+    var c = 99;
+    # var init
+    assert_eq(a == b, 1, "== as value (equal)");
+    assert_eq(a == c, 0, "== as value (not equal)");
+    assert_eq(a != c, 1, "!= as value");
+    assert_eq(a < c, 1, "< as value");
+    assert_eq(c > a, 1, "> as value");
+    assert_eq(a <= b, 1, "<= as value");
+    assert_eq(a >= b, 1, ">= as value");
+    # store + load roundtrip
+    var buf[8];
+    store64(&buf, a == b);
+    assert_eq(load64(&buf), 1, "cmp in store64 value");
+    # return value
+    assert_eq(a == b, 1, "cmp as return value");
+    # chained &&
+    assert_eq(a == b && c > a, 1, "&& chain as value");
+    assert_eq(a == c && c > a, 0, "&& short-circuit as value");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -244,6 +274,7 @@ fn main() {
     test_dse();
     test_const_fold();
     test_defer();
+    test_expr_cmp();
 
     return assert_summary();
 }
