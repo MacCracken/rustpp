@@ -72,6 +72,34 @@ Before starting new work on a release, run this audit phase:
 6. **Post-audit benchmarks** — compare against baseline
 7. **Document** — update CHANGELOG, roadmap, vidya
 
+## Security Audit Process
+
+Periodically (before major releases, after significant changes), run a security audit:
+
+1. **Research** — review known vulnerability classes for compilers and build tools:
+   - Buffer overflows (fixed-size heap regions, unchecked writes)
+   - Command injection (shell commands from user-controlled input)
+   - Path traversal (include directives, dep resolution, file writes)
+   - Integer overflow (limit checks, table sizes)
+   - Race conditions (temp files, concurrent access)
+   - Trust chain (seed binary, release signing, dep integrity)
+2. **Scan** — static analysis of source for vulnerable patterns:
+   - `sys_system()` / `sys_execve()` with user-controlled args
+   - `READFILE` / `sys_open` with unvalidated paths
+   - `store8`/`store64` without bounds checking near region boundaries
+   - Silent overflow on table limits (return instead of error)
+   - Predictable temp file paths
+3. **Report** — file findings in `docs/audit/{date}-security-audit.md`:
+   - Each finding gets a CVE-XX identifier, severity (P0-P3), affected file, vector, impact, fix
+   - Action items organized into current and upcoming minor versions
+   - Don't move existing roadmap items — add security items alongside
+4. **Fix** — prioritize by severity:
+   - P0 (Critical): fix in immediate patch release
+   - P1 (High): fix in current minor version
+   - P2 (Medium): fix in next minor version
+   - P3 (Low): track for future
+5. **Verify** — regression test each fix, re-audit affected area
+
 ## Development Loop
 
 ```
