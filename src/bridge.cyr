@@ -1,8 +1,8 @@
 # ================================================================
 # Cyrius Compiler (cc) — Phase 4 Editable Compiler
 # ================================================================
-# Compiles the stage1f language to x86_64 ELF.
-# Written in stage1f's language, compiled by stage1f.
+# Compiles the cyrc language to x86_64 ELF.
+# Written in cyrc's language, compiled by cyrc.
 # Goal: self-hosting, then extensible with new features.
 #
 # V0: var x = expr; with arithmetic (+,-,*,/)
@@ -33,7 +33,7 @@
 #   +32 TI       token index / parser cursor (r11 equivalent)
 #   +40 NPOS     name buffer position (r9 equivalent)
 #
-# Token types (same as stage1f):
+# Token types (same as cyrc):
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI
 #   6=PLUS 7=MINUS 8=STAR 9=SLASH 10=LPAREN 11=RPAREN 12=EOF
 #   13=LBRACE 14=RBRACE 15=IF 16=WHILE 17=EQEQ 18=NEQ
@@ -170,7 +170,7 @@ fn E3(S, v) {
     return 0;
 }
 
-# Standard codegen emissions (match stage1f exactly)
+# Standard codegen emissions (match cyrc exactly)
 fn EPUSHR(S) { EB(S, 0x50); return 0; }                  # push rax
 fn EPOPC(S) { EB(S, 0x59); return 0; }                   # pop rcx
 fn EPOPR(S) { EB(S, 0x58); return 0; }                   # pop rax
@@ -1812,7 +1812,7 @@ fn PARSE_PROG(S) {
 # ================================================================
 
 fn FIXUP(S) {
-    # Align code to 8 (don't write — leave as zeros, matching stage1f)
+    # Align code to 8 (don't write — leave as zeros, matching cyrc)
     var cp = GCP(S);
     cp = (cp + 7) & (0 - 8);
     SCP(S, cp);

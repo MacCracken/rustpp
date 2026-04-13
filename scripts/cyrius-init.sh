@@ -196,7 +196,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/MacCracken/cyrius.git ../cyrius
           cd ../cyrius && sh bootstrap/bootstrap.sh
-          cat src/main.cyr | ./build/stage1f > ./build/cc3 && chmod +x ./build/cc3
+          cat src/main.cyr | ./build/cyrc > ./build/cc3 && chmod +x ./build/cc3
       - name: Build
         run: sh scripts/build.sh
       - name: Test

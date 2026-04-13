@@ -2,7 +2,7 @@
 # Cyrius Compiler v2 — Modular Self-Hosting Compiler
 # ================================================================
 # Same language as cc.cyr, split into modules using include.
-# Compiled by cc (stage1f's extended language).
+# Compiled by cc (cyrc's extended language).
 #
 # Build: cat cc3.cyr | ./build/cc > cc3
 # Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3

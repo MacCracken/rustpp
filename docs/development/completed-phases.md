@@ -13,7 +13,7 @@ Forked rust-lang/rust, built rustc from source, mapped cargo registry codepaths.
 Ark as default registry, git/path deps first-class, publish validation relaxed. ADR-001 documented.
 
 ## Phase 2 — Assembly Foundation
-Seven-stage chain: seed → stage1a → 1b → 1c → 1d → 1e (63 tests) → stage1f (16384 tokens, 256 fns).
+Seven-stage chain: seed → stage1a → 1b → 1c → 1d → 1e (63 tests) → cyrc (16384 tokens, 256 fns).
 
 ## Phase 3 — Self-Hosting Bootstrap
 asm.cyr (1110 lines, 43 mnemonics), bootstrap closure, 29KB committed binary. Zero external dependencies. Byte-exact reproducibility.

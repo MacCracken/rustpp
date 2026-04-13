@@ -149,7 +149,7 @@ Includes are auto-prepended — source files only need project-specific includes
 src/
   main.cyr              Entry point (orchestration, passes)
   main_aarch64.cyr      Cross-compiler entry
-  bridge.cyr            Bridge compiler (stage1f feature set)
+  bridge.cyr            Bridge compiler (cyrc feature set)
 
   frontend/
     lex.cyr             Lexer + preprocessor (include-once, #derive, #ifdef)
@@ -171,7 +171,7 @@ src/
 
 ```
 bootstrap/asm (29KB committed binary -- root of trust)
-  -> stage1f (12KB compiler)
+  -> cyrc (12KB compiler)
     -> bridge.cyr (bridge compiler)
       -> cc3 (modular compiler, 299KB, 8 modules)
         -> cc3_aarch64 (cross-compiler)

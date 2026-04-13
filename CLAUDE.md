@@ -28,7 +28,7 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 
 ```
 bootstrap/asm (29KB committed binary — root of trust)
-  → stage1f (12KB compiler)
+  → cyrc (12KB compiler)
     → bridge.cyr (bridge compiler)
       → cc3 (modular compiler, 290KB, 8 modules)
         → cc3_aarch64 (cross-compiler)
@@ -58,7 +58,7 @@ cyrius bench                       # run .bcyr benchmarks
 - **ONE change at a time** — never bundle unrelated changes
 - **Research before implementation** — vidya entry before code
 - **3 failed attempts = defer and document** — don't burn time
-- **Bootstrap chain integrity** — never break seed → stage1f → bridge → cc3
+- **Bootstrap chain integrity** — never break seed → cyrc → bridge → cc3
 
 ## P(-1): Scaffold Hardening
 
@@ -90,11 +90,11 @@ Before starting new work on a release, run this audit phase:
 ## Project Structure
 
 ```
-bootstrap/           29KB seed binary + stage1f.cyr + asm.cyr
+bootstrap/           29KB seed binary + cyrc.cyr + asm.cyr
 src/
   main.cyr           Compiler entry point (includes modules)
   main_aarch64.cyr   Cross-compiler (swaps arch includes)
-  bridge.cyr         Bridge compiler (stage1f feature set)
+  bridge.cyr         Bridge compiler (cyrc feature set)
   frontend/          lex.cyr, parse.cyr
   backend/x86/       emit.cyr, jump.cyr, fixup.cyr
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr

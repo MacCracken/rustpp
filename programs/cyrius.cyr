@@ -578,7 +578,7 @@ fn cmd_self() {
 }
 
 fn cmd_clean() {
-    # Remove build/ contents except cc3, stage1f, asm
+    # Remove build/ contents except cc3, cyrc, asm
     if (is_dir(str_from("build")) == 0) {
         println("nothing to clean");
         return 0;
@@ -591,7 +591,7 @@ fn cmd_clean() {
         var skip = 0;
         if (str_eq(name, str_from("cc")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cc3")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("stage1f")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cyrc")) == 1) { skip = 1; }
         if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cc3_aarch64")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cyrius")) == 1) { skip = 1; }
@@ -602,7 +602,7 @@ fn cmd_clean() {
         }
         ci = ci + 1;
     }
-    sys_write(STDOUT_FD, "cleaned build/ (preserved cc3, stage1f, asm, cyrius) — removed ", 65);
+    sys_write(STDOUT_FD, "cleaned build/ (preserved cc3, cyrc, asm, cyrius) — removed ", 65);
     fmt_int(cleaned);
     println(" files");
     return 0;

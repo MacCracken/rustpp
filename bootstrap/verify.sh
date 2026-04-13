@@ -3,7 +3,7 @@
 # Requires: rustc, cargo (one-time verification only).
 #
 # This script proves the committed bootstrap/asm binary was correctly
-# produced from asm.cyr by stage1f compiled by the Rust seed.
+# produced from asm.cyr by cyrc compiled by the Rust seed.
 
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -32,14 +32,14 @@ echo "Building Rust seed..."
 cargo build --manifest-path "$SEED_DIR/Cargo.toml" --release 2>&1 | tail -3
 SEED="$SEED_DIR/target/release/cyrius-seed"
 
-# Step 2: Seed assembles stage1f
-echo "Seed -> stage1f..."
-"$SEED" "$ROOT/stage1/stage1f.cyr" "$TMPDIR/stage1f"
-chmod +x "$TMPDIR/stage1f"
+# Step 2: Seed assembles cyrc
+echo "Seed -> cyrc..."
+"$SEED" "$ROOT/stage1/cyrc.cyr" "$TMPDIR/cyrc"
+chmod +x "$TMPDIR/cyrc"
 
-# Step 3: stage1f compiles asm.cyr
-echo "stage1f -> asm..."
-cat "$ROOT/stage1/asm.cyr" | "$TMPDIR/stage1f" > "$TMPDIR/asm"
+# Step 3: cyrc compiles asm.cyr
+echo "cyrc -> asm..."
+cat "$ROOT/stage1/asm.cyr" | "$TMPDIR/cyrc" > "$TMPDIR/asm"
 chmod +x "$TMPDIR/asm"
 
 # Step 4: Compare against committed binary
@@ -58,9 +58,9 @@ fi
 # Step 5: Verify bootstrap closure
 echo ""
 echo "Verifying bootstrap closure..."
-cat "$ROOT/stage1/stage1f.cyr" | "$TMPDIR/asm" > "$TMPDIR/stage1f_v2"
-if cmp -s "$TMPDIR/stage1f" "$TMPDIR/stage1f_v2"; then
-    echo "  PASS: asm -> stage1f_v2 matches seed -> stage1f"
+cat "$ROOT/stage1/cyrc.cyr" | "$TMPDIR/asm" > "$TMPDIR/cyrc_v2"
+if cmp -s "$TMPDIR/cyrc" "$TMPDIR/cyrc_v2"; then
+    echo "  PASS: asm -> cyrc_v2 matches seed -> cyrc"
 else
     echo "  FAIL: bootstrap closure broken!"
     exit 1

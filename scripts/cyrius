@@ -1131,15 +1131,15 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     clean)
         if [ -d "build" ]; then
-            # Preserve bootstrap compiler (cc3, stage1f, asm)
+            # Preserve bootstrap compiler (cc3, cyrc, asm)
             for f in build/*; do
                 base=$(basename "$f")
                 case "$base" in
-                    cc3|stage1f|asm) ;; # keep
+                    cc3|cyrc|asm) ;; # keep
                     *) rm -f "$f" ;;
                 esac
             done
-            echo "cleaned build/ (preserved cc3, stage1f, asm)"
+            echo "cleaned build/ (preserved cc3, cyrc, asm)"
         else
             echo "nothing to clean"
         fi

@@ -26,7 +26,7 @@
 #   +56 OL    output length
 #   +64 MDISP last parsed memory displacement
 #
-# Compiled by stage1f: cat asm.cyr | ./stage1f > asm
+# Compiled by cyrc: cat asm.cyr | ./cyrc > asm
 
 # ================================================================
 # HELPERS — pure functions, no global refs
