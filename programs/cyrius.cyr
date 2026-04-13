@@ -240,7 +240,12 @@ fn compile(source, output) {
     if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
     if (_defines != 0) { if (vec_len(_defines) > 0) { need_tmp = 1; } }
     if (need_tmp == 1) {
-        var tmp = "/tmp/cyrius_cpp";
+        # Use PID in temp path to avoid symlink race (CVE-10)
+        var pid = syscall(39);
+        var tmp_sb = str_builder_new();
+        str_builder_add_cstr(tmp_sb, "/tmp/cyrius_cpp_");
+        str_builder_add_int(tmp_sb, pid);
+        var tmp = str_data(str_builder_build(tmp_sb));
         var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
         if (tfd >= 0) {
             # Prepend dep includes
@@ -987,6 +992,33 @@ fn cmd_deps() {
                     var clone_dir = str_data(str_builder_build(clone_sb));
                     sys_mkdir("/tmp/cyrius_deps", 0x1ED);
                     if (is_dir(str_from(clone_dir)) == 0) {
+                        # CVE-01: validate git URL — reject shell metacharacters
+                        var git_ok = 1;
+                        var gi2 = 0;
+                        while (load8(dep_git + gi2) != 0) {
+                            var gc = load8(dep_git + gi2);
+                            if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
+                                git_ok = 0;
+                            }
+                            gi2 += 1;
+                        }
+                        if (dep_tag != 0) {
+                            var ti2 = 0;
+                            while (load8(dep_tag + ti2) != 0) {
+                                var tc2 = load8(dep_tag + ti2);
+                                if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
+                                    git_ok = 0;
+                                }
+                                ti2 += 1;
+                            }
+                        }
+                        if (git_ok == 0) {
+                            sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
+                            sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                            sys_write(STDERR_FD, "\n", 1);
+                            errors += 1;
+                        }
+                        if (git_ok == 1) {
                         var cmd_sb = str_builder_new();
                         str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
                         if (dep_tag != 0) {
@@ -1004,7 +1036,7 @@ fn cmd_deps() {
                             sys_write(STDERR_FD, "\n", 1);
                         }
                         sys_system(cmd);
-                    }
+                    } }
                     dep_path = clone_dir;
                 }
             }

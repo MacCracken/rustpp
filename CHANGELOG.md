@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.2] — 2026-04-13
+
+### Security
+- **CVE-01: Git URL sanitization** (`programs/cyrius.cyr`): dep resolver
+  rejects git URLs/tags containing shell metacharacters (`;|`$&()`).
+  Prevents command injection via malicious `cyrius.toml`.
+- **CVE-08: Direction flag safety** (`lib/string.cyr`): `cld` before
+  `rep movsb`/`rep stosb`. Prevents corruption if DF set by signal handler.
+- **CVE-10: Temp file race fix** (`programs/cyrius.cyr`): PID-based temp
+  path (`/tmp/cyrius_cpp_{pid}`) replaces predictable path.
+
+### Added
+- **Security audit report** (`docs/audit/2026-04-13-security-audit.md`):
+  13 findings — 3 critical, 3 high, 4 medium, 3 low. Action items
+  organized into v4.2.2–v4.2.4 and v4.3.x.
+
 ## [4.2.1] — 2026-04-13
 
 ### Changed
