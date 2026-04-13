@@ -18,6 +18,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cross-compiler output instead of native-under-QEMU. Native binary tested
   on real ARM hardware.
 
+### Added
+- **Compound assignment operators** (`src/frontend/parse.cyr`): `+=`, `-=`,
+  `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`. Desugars at parse time:
+  load var, push, eval expr, op, store. Works in assignments and `for` loop
+  steps (`for (var i = 0; i < n; i += 1)`). Fixes Known Gotcha #6.
+  9 new regression assertions.
+
 ### Changed
 - **Recommended minimum: v3.10.0** — auto-include, `cyrius deps`,
   `.cyrius-toolchain`, undefined function diagnostic. All downstream
