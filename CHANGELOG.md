@@ -4,6 +4,15 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.1.1] — 2026-04-13
+
+### Added
+- **Dead function warning** (`src/backend/x86/fixup.cyr`): reports the number
+  of defined-but-uncalled functions at fixup time. Uses a bitmap scan of the
+  fixup table to identify which functions have call sites. Output:
+  `note: 101 unused functions (102 total)`. Quantifies the dead code tax
+  from included-but-unused stdlib. Foundation for future dead-code elimination.
+
 ## [4.1.0] — 2026-04-13
 
 ### Added

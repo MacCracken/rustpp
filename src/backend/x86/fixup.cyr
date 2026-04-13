@@ -63,8 +63,43 @@ fn FIXUP(S) {
         }
         ufi = ufi + 1;
     }
-    # Don't abort — some test files intentionally have partial includes.
-    # The error message is enough to catch typos like assert_report vs assert_summary.
+    # Dead function warning: functions defined but never called
+    # Build a bitmap of called function indices from the fixup table
+    var fnc = GFNC(S);
+    # Use a simple array on the stack — mark called[i] = 1
+    var called[256];
+    var ci = 0;
+    while (ci < 256) { store8(&called + ci, 0); ci = ci + 1; }
+    # Scan fixups for function call/addr references
+    var dfi = 0;
+    while (dfi < fcnt_pre) {
+        var dfaddr = S + 0xE4A000 + dfi * 16;
+        var draw = L64(dfaddr + 8);
+        var dftype = draw >> 56;
+        var didx = draw & 0x00FFFFFFFFFFFFFF;
+        if (dftype == 2 || dftype == 3) {
+            if (didx < 2048) { store8(&called + (didx >> 3), load8(&called + (didx >> 3)) | (1 << (didx & 7))); }
+        }
+        dfi = dfi + 1;
+    }
+    # Warn about defined but uncalled functions (skip main/alloc_init/internal)
+    var dwi = 0;
+    var dead_count = 0;
+    while (dwi < fnc) {
+        var dfoff = L64(S + 0xC4000 + dwi * 8);
+        if (dfoff >= 0) {
+            var is_called = load8(&called + (dwi >> 3)) & (1 << (dwi & 7));
+            if (is_called == 0) { dead_count = dead_count + 1; }
+        }
+        dwi = dwi + 1;
+    }
+    if (dead_count > 0) {
+        syscall(SYS_WRITE, 2, "note: ", 6);
+        PRNUM(dead_count);
+        syscall(SYS_WRITE, 2, " unused functions (", 19);
+        PRNUM(fnc);
+        syscall(SYS_WRITE, 2, " total)\n", 8);
+    }
     # Walk fixup table
     var fcnt = GFCNT(S);
     var fi = 0;
