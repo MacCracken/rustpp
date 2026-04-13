@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.9.1.** 304KB self-hosting compiler, x86_64 + aarch64.
+> **v3.9.2.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
@@ -15,7 +15,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| PatraStore stack corruption in large binaries | Libro 1.0.3 gated tests | str_builder + patra_exec in >300KB binaries — compiler/stdlib bug |
+| Layout-dependent codegen Heisenbug | Libro PatraStore tests | Specific function combinations shift binary layout past a threshold causing jump misfire (SIGSEGV). Not size-dependent — adding/removing code changes layout and crash disappears. Workaround: isolated test binary. Needs debugger or basic-block analysis (v3.10.0). |
 
 ---
 
@@ -75,6 +75,7 @@ Internal cleanup. No new features — same semantics, cleaner codebase.
 | **Split PARSE_FACTOR** | Medium | 412-line builtin dispatch. Split into sub-handlers (store/load, SIMD, f64). |
 | **Sync aarch64 heap map** | Medium | main_aarch64.cyr limits stale: input 256KB→512KB, tokens 65536→262144, str_data 8KB→256KB, fixups 8192→16384. |
 | **Stale comment cleanup** | Low | Remove version-tagged comments (v3.0–v3.6) that describe now-obvious behavior. |
+| **`cyrius deps` command** (v3.9.2) | Medium | Proper dep resolution that doesn't require copying includes into every source file. Currently downstream projects (kybernet, argonaut) must either: (a) use cyrius.toml `[deps]` which prepends includes and can overflow fixup tables on large projects, or (b) vendor all includes into each source file. Need: `cyrius deps` that symlinks or resolves dep modules into `lib/` so source files can use normal `include` paths without manual copying. Discovered in kybernet 1.0.0 — self-contained includes were needed to avoid fixup table overflow (16384 limit) from double-inclusion via dep resolver. |
 
 ---
 
@@ -106,6 +107,21 @@ Major release. Multi-file compilation, new platforms, dead-code elimination.
 | **Optimized strlen** | Low | stdlib strlen(52 chars) = 94 ns — byte-loop scan. SSE4.2 `pcmpistri` or word-at-a-time would be 5-10x faster. Impacts all string-heavy code (cgroup paths, logging, notify parsing). |
 | **Bump allocator reset without brk** | Low | `alloc_reset()` + `alloc_init()` cycle = 1175 ns due to brk syscall. A soft reset (just move the bump pointer back) would eliminate the syscall and bring this under 10 ns. Kybernet benchmarks reset between groups to avoid OOM. |
 | **File:line error messages** | Medium | cc3 errors report token indices (e.g. `error:10169`) not file:line. Hard to locate issues in multi-file builds with 10K+ combined lines. Kybernet + deps = ~10K lines; tracking down `unexpected '{'` required manual bisection. |
+
+---
+
+## Post-4.0 — Ergonomics & Codegen
+
+Language improvements driven by real porting pain across the AGNOS ecosystem. These are quality-of-life and performance features that don't gate any platform work but reduce boilerplate and close the codegen gap with LLVM.
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`+=` / `-=` / `*=` operators** | Low | 101 instances of `i = i + 1` in ai-hwaccel alone. Every loop, every counter, every accumulator. Most requested syntactic sugar across all downstream projects. Desugars to `i = i + 1` in the parser — zero codegen change. |
+| **Negative integer literals** | Low | `0 - 1` workaround used 6 times in ai-hwaccel, more in every project. Lexer currently rejects `-1` — needs unary minus in expression position. |
+| **Jump tables for enum dispatch** | High | types.cyr has 79 if-chains for enum→value mapping. LLVM compiles these to jump tables (O(1) dispatch). Cyrius emits linear if-chains (O(n)). Accounts for 10-35x gap on enum-heavy micro-benchmarks. Requires: computed goto or indexed branch in x86/aarch64 backends. |
+| **`#derive(accessors)` adoption tooling** | Low | `#derive(accessors)` exists (v3.7.1) but zero downstream adoption. ai-hwaccel has 274 manual load64/store64 struct accessor calls. Need: migration guide, `cyrius refactor --derive` tool, or at minimum document the pattern with before/after examples. |
+| **Struct initializer syntax** | Medium | Currently: `var p = alloc(SIZE); store64(p, a); store64(p+8, b); store64(p+16, c);`. Want: `var p = Point { x: a, y: b, z: c }`. Eliminates 3-4 lines per struct creation. ai-hwaccel creates structs in ~50 locations. |
+| **Dead function warning** | Low | Functions included but never called still emit code. With single-file compilation this inflates binaries. ai-hwaccel: 26 stdlib modules included, many functions unused. Pre-linker: emit warnings for uncalled functions. |
 
 ---
 

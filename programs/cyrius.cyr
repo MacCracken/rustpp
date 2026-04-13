@@ -670,6 +670,283 @@ fn cmd_repl() {
     return run_script(script, _cc, 0);
 }
 
+# ================================================================
+# Dependency resolution: cyrius deps
+# ================================================================
+# Reads cyrius.toml, resolves:
+#   [deps] stdlib = ["string", "fmt", ...] → copy from cyrius stdlib
+#   [deps.name] path = "../repo" modules = ["src/foo.cyr"] → copy from sibling
+# All deps land in lib/ (created if needed).
+
+fn _file_size(path) {
+    var stat_buf[144];
+    var r = syscall(4, path, &stat_buf);
+    if (r != 0) { return 0 - 1; }
+    return load64(&stat_buf + 48);
+}
+
+fn _dep_copy_file(src, dst) {
+    # Skip if destination exists and same size (already resolved)
+    var src_sz = _file_size(src);
+    var dst_sz = _file_size(dst);
+    if (src_sz > 0 && src_sz == dst_sz) { return 2; }
+    var sfd = sys_open(src, O_RDONLY, 0);
+    if (sfd < 0) {
+        sys_write(STDERR_FD, "  error: cannot read ", 21);
+        sys_write(STDERR_FD, src, strlen(src));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    var dfd = sys_open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (dfd < 0) {
+        sys_close(sfd);
+        sys_write(STDERR_FD, "  error: cannot write ", 22);
+        sys_write(STDERR_FD, dst, strlen(dst));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    # Stream copy in 32KB chunks — handles files of any size
+    var buf = alloc(32768);
+    var total = 0;
+    var go = 1;
+    while (go == 1) {
+        var n = syscall(0, sfd, buf, 32768);
+        if (n <= 0) { go = 0; }
+        else { syscall(1, dfd, buf, n); total = total + n; }
+    }
+    sys_close(sfd);
+    sys_close(dfd);
+    if (total == 0) { return 1; }
+    return 0;
+}
+
+fn _dep_find_stdlib_dir() {
+    # Try installed cyrius stdlib first
+    var installed = make_path(_home, "lib");
+    if (is_dir(str_from(installed)) == 1) { return installed; }
+    # Dev mode: ./lib in the compiler repo
+    if (is_dir(str_from("./lib")) == 1) { return "./lib"; }
+    return 0;
+}
+
+# Parse a TOML array of strings: ["a", "b", "c"] starting at buf[pos]
+# Returns a vec of cstrings. Advances pos past the closing ].
+fn _parse_toml_str_array(buf, len, pos) {
+    var result = vec_new();
+    # Skip to [
+    while (pos < len && load8(buf + pos) != 91) { pos = pos + 1; }
+    pos = pos + 1;
+    while (pos < len) {
+        var c = load8(buf + pos);
+        if (c == 93) { break; }
+        if (c == 34) {
+            pos = pos + 1;
+            var start = pos;
+            while (pos < len && load8(buf + pos) != 34) { pos = pos + 1; }
+            var slen = pos - start;
+            var s = alloc(slen + 1);
+            memcpy(s, buf + start, slen);
+            store8(s + slen, 0);
+            vec_push(result, s);
+            pos = pos + 1;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    return result;
+}
+
+fn cmd_deps() {
+    if (file_exists("cyrius.toml") == 0) {
+        println("error: no cyrius.toml found");
+        return 1;
+    }
+    sys_mkdir("lib", 0x1ED);
+    var buf = alloc(32768);
+    var n = file_read_all("cyrius.toml", buf, 32767);
+    if (n <= 0) { println("error: cannot read cyrius.toml"); return 1; }
+    store8(buf + n, 0);
+    var copied = 0;
+    var errors = 0;
+
+    # === Phase 1: stdlib deps ===
+    # Find: stdlib = ["string", "fmt", ...]
+    var si = 0;
+    while (si < n) {
+        if (memeq(buf + si, "stdlib", 6) == 1) {
+            if (si + 6 < n && load8(buf + si + 6) == 32 || load8(buf + si + 6) == 61) {
+                var stdlib_dir = _dep_find_stdlib_dir();
+                if (stdlib_dir == 0) {
+                    println("  error: cannot find cyrius stdlib");
+                    errors = errors + 1;
+                } else {
+                    var mods = _parse_toml_str_array(buf, n, si);
+                    var mi = 0;
+                    while (mi < vec_len(mods)) {
+                        var mod_name = vec_get(mods, mi);
+                        var sb = str_builder_new();
+                        str_builder_add_cstr(sb, stdlib_dir);
+                        str_builder_add_cstr(sb, "/");
+                        str_builder_add_cstr(sb, mod_name);
+                        str_builder_add_cstr(sb, ".cyr");
+                        var src = str_data(str_builder_build(sb));
+                        var dst = make_path("lib", mod_name);
+                        var sb2 = str_builder_new();
+                        str_builder_add_cstr(sb2, dst);
+                        str_builder_add_cstr(sb2, ".cyr");
+                        var dst_full = str_data(str_builder_build(sb2));
+                        var cr = _dep_copy_file(src, dst_full);
+                        if (cr == 0) {
+                            if (_verbose == 1) {
+                                sys_write(STDERR_FD, "  stdlib: ", 10);
+                                sys_write(STDERR_FD, mod_name, strlen(mod_name));
+                                sys_write(STDERR_FD, "\n", 1);
+                            }
+                            copied = copied + 1;
+                        } elif (cr == 1) { errors = errors + 1; }
+                        mi = mi + 1;
+                    }
+                }
+                break;
+            }
+        }
+        si = si + 1;
+    }
+
+    # === Phase 2: named deps ===
+    # Find: [deps.NAME] sections with path = "..." and modules = [...]
+    si = 0;
+    while (si < n) {
+        if (memeq(buf + si, "[deps.", 6) == 1) {
+            # Extract dep name
+            var name_start = si + 6;
+            var name_end = name_start;
+            while (name_end < n && load8(buf + name_end) != 93) { name_end = name_end + 1; }
+            var dep_name_len = name_end - name_start;
+            var dep_name = alloc(dep_name_len + 1);
+            memcpy(dep_name, buf + name_start, dep_name_len);
+            store8(dep_name + dep_name_len, 0);
+            si = name_end + 1;
+            # Find path = "..." and modules = [...] in this section
+            var dep_path = 0;
+            var dep_modules = 0;
+            while (si < n) {
+                # Stop at next section header
+                if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) {
+                    # Check it's not a nested key like [[programs]]
+                    if (memeq(buf + si, "[deps.", 6) != 1 && memeq(buf + si, "[build", 6) != 1 && memeq(buf + si, "[package", 8) != 1) {
+                        # Same section or unrelated — keep scanning
+                    }
+                    if (load8(buf + si + 1) != 91) {
+                        # New section — check if it's still a deps section
+                        if (memeq(buf + si, "[deps.", 6) == 1) { break; }
+                        if (memeq(buf + si, "[deps]", 6) == 1) { break; }
+                        if (load8(buf + si + 1) != 100) { break; }
+                    }
+                }
+                if (memeq(buf + si, "path", 4) == 1) {
+                    # Find the quoted string
+                    var pi = si + 4;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    pi = pi + 1;
+                    var ps = pi;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    var plen = pi - ps;
+                    dep_path = alloc(plen + 1);
+                    memcpy(dep_path, buf + ps, plen);
+                    store8(dep_path + plen, 0);
+                }
+                if (memeq(buf + si, "modules", 7) == 1) {
+                    dep_modules = _parse_toml_str_array(buf, n, si);
+                }
+                # Advance to next line
+                while (si < n && load8(buf + si) != 10) { si = si + 1; }
+                si = si + 1;
+            }
+            # Copy modules from dep_path
+            if (dep_path != 0 && dep_modules != 0) {
+                var mi = 0;
+                while (mi < vec_len(dep_modules)) {
+                    var mod_path = vec_get(dep_modules, mi);
+                    # Source: dep_path/mod_path
+                    var sb = str_builder_new();
+                    str_builder_add_cstr(sb, dep_path);
+                    str_builder_add_cstr(sb, "/");
+                    str_builder_add_cstr(sb, mod_path);
+                    var src = str_data(str_builder_build(sb));
+                    # Destination: lib/basename — prefixed if collision
+                    var base = mod_path;
+                    var bi = 0;
+                    while (load8(mod_path + bi) != 0) {
+                        if (load8(mod_path + bi) == 47) { base = mod_path + bi + 1; }
+                        bi = bi + 1;
+                    }
+                    # Check if file already exists in lib/ — prefix with dep name
+                    var dst = make_path("lib", base);
+                    if (file_exists(dst) == 1) {
+                        var sb3 = str_builder_new();
+                        str_builder_add_cstr(sb3, "lib/");
+                        str_builder_add_cstr(sb3, dep_name);
+                        str_builder_add_cstr(sb3, "_");
+                        str_builder_add_cstr(sb3, base);
+                        dst = str_data(str_builder_build(sb3));
+                    }
+                    var cr2 = _dep_copy_file(src, dst);
+                    if (cr2 == 0) {
+                        if (_verbose == 1) {
+                            sys_write(STDERR_FD, "  ", 2);
+                            sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                            sys_write(STDERR_FD, ": ", 2);
+                            sys_write(STDERR_FD, base, strlen(base));
+                            sys_write(STDERR_FD, "\n", 1);
+                        }
+                        copied = copied + 1;
+                    } elif (cr2 == 1) { errors = errors + 1; }
+                    mi = mi + 1;
+                }
+            }
+        } else {
+            si = si + 1;
+        }
+    }
+
+    # Summary (only print if something was copied or errored)
+    if (copied > 0 || errors > 0) {
+        var nb[24];
+        var nl = fmt_int_buf(copied, &nb);
+        sys_write(STDOUT_FD, &nb, nl);
+        sys_write(STDOUT_FD, " deps resolved", 14);
+        if (errors > 0) {
+            sys_write(STDOUT_FD, ", ", 2);
+            nl = fmt_int_buf(errors, &nb);
+            sys_write(STDOUT_FD, &nb, nl);
+            sys_write(STDOUT_FD, " errors", 7);
+        }
+        sys_write(STDOUT_FD, "\n", 1);
+    }
+    return errors;
+}
+
+# Auto-resolve deps if cyrius.toml has [deps] section.
+# Called before build/run/test to ensure lib/ is populated.
+fn _auto_deps() {
+    if (file_exists("cyrius.toml") == 0) { return 0; }
+    var buf = alloc(4096);
+    var n = file_read_all("cyrius.toml", buf, 4095);
+    if (n <= 0) { return 0; }
+    store8(buf + n, 0);
+    # Check if [deps] section exists
+    var has_deps = 0;
+    var i = 0;
+    while (i < n) {
+        if (memeq(buf + i, "[deps]", 6) == 1) { has_deps = 1; break; }
+        if (memeq(buf + i, "[deps.", 6) == 1) { has_deps = 1; break; }
+        i = i + 1;
+    }
+    if (has_deps == 0) { return 0; }
+    return cmd_deps();
+}
+
 fn cmd_package() {
     # Read cyrius.toml if present
     var name = "unknown";
@@ -830,6 +1107,12 @@ fn main() {
 
     var cmd = argv(1);
 
+    # Auto-resolve deps before build/run/test/bench/check
+    if (streq(cmd, "build") == 1 || streq(cmd, "run") == 1 || streq(cmd, "test") == 1 || streq(cmd, "bench") == 1 || streq(cmd, "check") == 1) {
+        var dr = _auto_deps();
+        if (dr > 0) { return dr; }
+    }
+
     # --- Build commands ---
     if (streq(cmd, "build") == 1) {
         var ai = 2;
@@ -958,6 +1241,10 @@ fn main() {
             return 1;
         }
         return cmd_init(argv(2));
+    }
+
+    if (streq(cmd, "deps") == 1) {
+        return cmd_deps();
     }
 
     if (streq(cmd, "package") == 1) {

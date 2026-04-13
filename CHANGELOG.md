@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.2] — 2026-04-12
+
+### Added
+- **`cyrius deps` command** (`programs/cyrius.cyr`): reads `cyrius.toml` and
+  resolves dependencies into `lib/`. Two modes:
+  - `[deps] stdlib = ["string", "fmt", ...]` — copies from installed cyrius stdlib
+  - `[deps.name] path = "../repo" modules = [...]` — copies from sibling repos
+  Handles name collisions by prefixing with dep name (e.g. `argonaut_types.cyr`).
+  Stream-copies in 32KB chunks (handles large deps like sigil 131KB).
+- **Auto-deps on build/run/test/bench/check**: if `cyrius.toml` has a `[deps]`
+  section, deps are auto-resolved before compilation. Skips files that are
+  already present and same size (size-based freshness check). First build
+  prints "N deps resolved", subsequent builds are silent.
+
+### Stats
+- **Kybernet 1.0.0**: 447KB binary, 140 tests pass, deps resolved via `cyrius deps`
+- **Hadara 1.0.0**: 234KB binary, 329 tests pass, deps resolved via `cyrius deps`
+
 ## [3.9.1] — 2026-04-12
 
 ### Changed
