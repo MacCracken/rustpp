@@ -12,6 +12,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   "unclosed braces" warnings. Now skips characters between double quotes
   (handles backslash escapes).
 
+### Notes
+- Load-after-store elimination (LASE) investigated as peephole optimizer.
+  Adjacent `store [rbp-N]; load [rbp-N]` pattern identified but unsafe to
+  eliminate without jump-target analysis — loop back-edges make the load
+  a branch target reachable from paths where rax holds a different value.
+  Deferred to future release with proper control-flow analysis.
+
 ## [3.8.0] — 2026-04-12
 
 ### Fixed

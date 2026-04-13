@@ -3079,6 +3079,10 @@ fn PARSE_FN_DEF(S) {
         }
         dse_i = dse_i + 1;
     }
+    # NOTE: Load-after-store elimination (LASE) investigated but deferred.
+    # Adjacent store+load of same [rbp-N] can be a loop back-edge target
+    # where the load is needed. Needs proper jump-target analysis first.
+    # Tracked for v3.8.2+ with full per-function register allocation.
     # Patch frame size
     var flc = GFLC(S);
     var fsz = (flc * 8 + 15) & (0 - 16);
