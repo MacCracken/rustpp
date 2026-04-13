@@ -5,9 +5,8 @@
 ## Quick Start
 
 ```sh
-sh bootstrap/bootstrap.sh                    # Build toolchain (40ms)
-echo 'var x = 42;' | ./build/cc3 > prog     # Compile
-chmod +x prog && ./prog; echo $?            # Run → 42
+cyrius build hello.cyr build/hello           # Compile (resolves deps from cyrius.toml)
+./build/hello; echo $?                       # Run → 42
 ```
 
 ## Types
@@ -431,10 +430,10 @@ offsets past the params.
 sh bootstrap/bootstrap.sh
 
 # Build a program
-echo 'var x = 42;' | ./build/cc3 > prog && chmod +x prog
+cyrius build src/main.cyr build/myapp
 
 # Cross-compile for aarch64
-cat prog.cyr | ./build/cc3_aarch64 > prog_arm
+cyrius build --aarch64 src/main.cyr build/myapp_arm
 
 # Run tests
 sh scripts/check.sh              # Full audit: self-host + heap + tests + lint

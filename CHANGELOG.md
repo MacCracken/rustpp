@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.10.0] — 2026-04-13
+
+### Added
+- **Undefined function diagnostic** (`src/backend/*/fixup.cyr`): the fixup
+  pass now scans for functions that are called but never defined. Previously,
+  calling a non-existent function compiled silently and crashed at runtime
+  (SIGILL/SIGSEGV jumping to address 0). Now emits:
+  `error: undefined function 'bad_func' (will crash at runtime)`
+  Implemented as a warning (binary still emitted for backward compat) —
+  downstream projects can grep stderr for "undefined function" in CI.
+  Catches typos like `assert_report()` vs `assert_summary()` that previously
+  took hours to debug.
+
+### Stats
+- **cc3: 299,448 bytes**, 36 test suites, 5/5 check.sh
+
 ## [3.9.8] — 2026-04-13
 
 ### Added

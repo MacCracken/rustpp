@@ -21,6 +21,32 @@ fn FIXUP(S) {
         totvar = totvar + L64(S + 0x12A000 + vi * 8);
         vi = vi + 1;
     }
+    # Check for undefined functions that are actually called
+    var undef_count = 0;
+    var fcnt_pre = GFCNT(S);
+    var ufi = 0;
+    while (ufi < fcnt_pre) {
+        var ufaddr = S + 0xE4A000 + ufi * 16;
+        var uraw = L64(ufaddr + 8);
+        var uftype = uraw >> 56;
+        var uidx = uraw & 0x00FFFFFFFFFFFFFF;
+        if (uftype == 2 || uftype == 3) {
+            var utarget = L64(S + 0xC4000 + uidx * 8);
+            if (utarget == 0 - 1) {
+                var ufnoff = L64(S + 0xC0000 + uidx * 8);
+                syscall(SYS_WRITE, 2, "error: undefined function '", 27);
+                var unptr = S + 0x60000 + ufnoff;
+                var unlen = 0;
+                while (load8(unptr + unlen) != 0) { unlen = unlen + 1; }
+                syscall(SYS_WRITE, 2, unptr, unlen);
+                syscall(SYS_WRITE, 2, "' (will crash at runtime)\n", 26);
+                S64(S + 0xC4000 + uidx * 8, 0 - 2);
+                undef_count = undef_count + 1;
+            }
+        }
+        ufi = ufi + 1;
+    }
+    # Warning only — don't abort (partial includes are common in test files)
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {

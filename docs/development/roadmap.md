@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.9.8.** 299KB self-hosting compiler, x86_64 + aarch64.
+> **v3.10.0.** 299KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (299KB).
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps.
 > `cyrius deps` auto-resolves from cyrius.toml. Auto-include on build.
@@ -45,7 +45,8 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - **v3.9.4**: Release pipeline builds `cyrius` tool from source (not shell script)
 - **v3.9.5**: Bootstrap compiler renamed: stage1f → **cyrc**
 - **v3.9.6**: CYRIUS_HOME env var, git clone fallback for deps in CI
-- **v3.9.7**: Release tarball stdlib packaging fix (shared script, follows symlinks, fetches dep bundles)
+- **v3.9.7**: Release tarball stdlib packaging fix, `--dry-run` on build/run/test/init/port/deps/clean
+- **v3.9.8**: `cyrius init` generates `.cyrius-toolchain` + CI/release workflows, `cyrius deps` works without cc3
 
 </details>
 
@@ -239,4 +240,5 @@ Language improvements driven by real porting pain across the AGNOS ecosystem. Qu
 - Research before implementation — vidya entry before code
 - Test after EVERY change, not after the feature is done
 - Compile-time guarantees, zero runtime cost
-- **v3.6.0 recommended minimum** — auto-coercion, string interning, cffi, expanded limits
+- **Never use raw `cat | cc3` for projects** — always `cyrius build`
+- **v3.9.8 recommended minimum** — auto-include, `cyrius deps`, `.cyrius-toolchain`
