@@ -348,7 +348,7 @@ fn FINDVAR(S, noff) {
     return 0 - 1;
 }
 
-# Syscall arity table (v3.5.0): returns expected arg count for well-known
+# Syscall arity table: returns expected arg count for well-known
 # Linux x86_64 syscalls, or -1 if unknown. The table is fixed — free information.
 fn _SC_ARITY(n) {
     if (n == 0) { return 3; }    # read(fd, buf, count)
@@ -395,7 +395,7 @@ fn _SC_ARITY(n) {
     return 0 - 1;
 }
 
-# Cache for str_from function index (v3.6.0 auto-coercion).
+# Cache for str_from function index (auto-coercion).
 # Lazily resolved on first use — returns the tok_names offset for "str_from".
 var _str_from_cache = 0 - 1;
 fn _STR_FROM_NOFF(S) {
@@ -646,7 +646,7 @@ fn PARSE_FACTOR(S) {
         STI(S, GTI(S) + 1);
         ESCPOPS(S, argc);
         _cfo = 0;
-        # Syscall arity check (v3.5.0) — warn if arg count doesn't match the
+        # Syscall arity check — warn if arg count doesn't match the
         # well-known arity for common Linux x86_64 syscalls.
         if (sc_num >= 0) {
             var expect = _SC_ARITY(sc_num);
@@ -2801,7 +2801,7 @@ fn PARSE_FNCALL(S, noff) {
     # ECALLPOPS pops top 6 into registers: rdi=argN-5, ..., r9=argN.
     # For >6 args, the first (argc-6) remain on stack in forward order.
     # ESTORESTACKPARM compensates for the reversed register assignment.
-    # v3.6.0: auto-coerce string literals to Str for params annotated : Str.
+    # Auto-coerce string literals to Str for params annotated : Str.
     var argc = 0;
     var smask = L64(S + 0xDC000 + fi * 8);
     if (PEEKT(S) != 11) {
@@ -3022,7 +3022,7 @@ fn PARSE_FN_DEF(S) {
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
     S64(S + 0xC8000 + fi * 8, pc);
-    # Store Str param mask (v3.6.0) — bit N set = param N is : Str
+    # Store Str param mask — bit N set = param N is : Str
     S64(S + 0xDC000 + fi * 8, str_mask);
     # Record first param name offset for inlining (stored in fn_inline later)
     # Emit stack param stores (7+) now that we know total pc
@@ -3457,7 +3457,7 @@ fn _EVAL_CONST_ATOM(S) {
 
 fn PARSE_STMT(S) {
     var typ = PEEKT(S);
-    # #assert EXPR OP EXPR, "msg" — compile-time check (v3.5.0)
+    # #assert EXPR OP EXPR, "msg" — compile-time check
     if (typ == 107) {
         STI(S, GTI(S) + 1);
         var lhs = _EVAL_CONST_ATOM(S);

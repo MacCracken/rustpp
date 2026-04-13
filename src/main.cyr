@@ -58,6 +58,9 @@
 #   0x903F8  init_offset / elf_out_len [8]  (dual-use: init_offset pre-FIXUP, elf_out_len post-FIXUP)
 #   0x98000  gvar_toks     [8192]        1024 deferred global var inits
 #   0x9A000  gvar_cnt      [8]
+#   0x9A100  file_map_cnt  [8]           file:line error map entry count
+#   0x9A108  file_map      [3072]        128 entries × 24 bytes (start_line, line_count, fname_offset)
+#   0x9D000  file_map_str  [4096]        filename string scratch for file map
 #
 # --- Preprocessor + local var state ---
 #   0x90500  include_fname [256]         preprocessor filename scratch
@@ -149,7 +152,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.1.2\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 4.1.3\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }

@@ -4,6 +4,15 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.1.3] — 2026-04-13
+
+### Changed
+- **Cleanup/audit pass**: stale version-tagged comments cleaned across parse.cyr,
+  lex.cyr, util.cyr (removed `v3.5.0`, `v3.6.0`, `v3.6.1`, `v3.4.16` tags —
+  replaced with descriptive labels). Heap map in main.cyr updated with file_map
+  regions (0x9A108, 0x9D000). Bootstrap closure verified. No dead util functions.
+  5762 lines across parse.cyr + lex.cyr (was 5765 — minor comment cleanup).
+
 ## [4.1.2] — 2026-04-13
 
 ### Changed

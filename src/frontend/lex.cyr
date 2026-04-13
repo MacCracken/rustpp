@@ -1220,10 +1220,7 @@ fn PP_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Check preprocess output size. Buffer is 1MB at 0x44A000 (v3.4.5).
-    # Was previously 512KB; this cap was stale for five releases (3.4.5→3.4.20)
-    # and clipped valid programs at the old boundary. Raised to match the
-    # actual buffer in v3.4.20.
+    # Check preprocess output size. Buffer is 1MB at 0x44A000.
     if (op > 1048576) {
         syscall(SYS_WRITE, 2, "error: expanded source exceeds 1MB (", 36);
         PRNUM(op);
@@ -1919,7 +1916,7 @@ fn LEX(S) {
             # Add null terminator after string literal
             store8(S + 0x14A000 + spos, 0);
             var slen = spos - sstart;
-            # String interning (v3.6.1): check if an identical string already
+            # String interning: check if an identical string already
             # exists in str_data. If so, reuse its offset — deduplicates string
             # literals so pointer-identity comparison works.
             var interned = 0 - 1;
