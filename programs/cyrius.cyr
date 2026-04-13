@@ -37,6 +37,7 @@ var _repo_root = 0;
 var _version = 0;
 var _home = 0;
 var _envp = 0;
+var _verbose = 0;
 
 var ARCH_X86 = 0;
 var ARCH_AARCH64 = 1;
@@ -209,10 +210,31 @@ fn compile(source, output) {
         println(cc);
         return 1;
     }
+    if (_verbose == 1) {
+        sys_write(STDERR_FD, "[verbose] compiler: ", 20);
+        sys_write(STDERR_FD, cc, strlen(cc));
+        sys_write(STDERR_FD, "\n", 1);
+        sys_write(STDERR_FD, "[verbose] source: ", 18);
+        sys_write(STDERR_FD, source, strlen(source));
+        sys_write(STDERR_FD, "\n", 1);
+        sys_write(STDERR_FD, "[verbose] output: ", 18);
+        sys_write(STDERR_FD, output, strlen(output));
+        sys_write(STDERR_FD, "\n", 1);
+    }
     # If defines are set, create temp file with defines prepended
     var actual_source = source;
     if (_defines != 0) {
         if (vec_len(_defines) > 0) {
+            if (_verbose == 1) {
+                var di2 = 0;
+                while (di2 < vec_len(_defines)) {
+                    sys_write(STDERR_FD, "[verbose] define: ", 18);
+                    var dv = vec_get(_defines, di2);
+                    sys_write(STDERR_FD, dv, strlen(dv));
+                    sys_write(STDERR_FD, "\n", 1);
+                    di2 = di2 + 1;
+                }
+            }
             var tmp = "/tmp/cyrius_cpp";
             var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
             if (tfd >= 0) {
@@ -257,8 +279,28 @@ fn compile(source, output) {
     if (WIFEXITED(status) == 1) {
         if (WEXITSTATUS(status) == 0) {
             sys_chmod(output, 0x1ED);
+            if (_verbose == 1) {
+                # Report binary size
+                var stat_buf[144];
+                var sr = syscall(4, output, &stat_buf);
+                if (sr == 0) {
+                    var fsize = load64(&stat_buf + 48);
+                    sys_write(STDERR_FD, "[verbose] binary: ", 18);
+                    var szbuf[24];
+                    var szlen = fmt_int_buf(fsize, &szbuf);
+                    sys_write(STDERR_FD, &szbuf, szlen);
+                    sys_write(STDERR_FD, " bytes\n", 7);
+                }
+            }
             return 0;
         }
+    }
+    if (_verbose == 1) {
+        sys_write(STDERR_FD, "[verbose] compile failed (exit ", 30);
+        var ebuf[24];
+        var elen = fmt_int_buf(WEXITSTATUS(status), &ebuf);
+        sys_write(STDERR_FD, &ebuf, elen);
+        sys_write(STDERR_FD, ")\n", 2);
     }
     return 1;
 }
@@ -797,6 +839,10 @@ fn main() {
                 set_arch(ARCH_AARCH64);
                 ai = ai + 1;
             }
+            elif (streq(argv(ai), "-v") == 1) {
+                _verbose = 1;
+                ai = ai + 1;
+            }
             elif (streq(argv(ai), "-D") == 1) {
                 ai = ai + 1;
                 if (argc() > ai) { vec_push(defs, argv(ai)); ai = ai + 1; }
@@ -805,7 +851,7 @@ fn main() {
         }
         if (vec_len(defs) > 0) { _defines = defs; }
         if (argc() < ai + 2) {
-            println("Usage: cyrius build [--aarch64] [-D NAME]... <source> <output>");
+            println("Usage: cyrius build [--aarch64] [-v] [-D NAME]... <source> <output>");
             return 1;
         }
         return cmd_build(argv(ai), argv(ai + 1));
@@ -813,11 +859,16 @@ fn main() {
 
     if (streq(cmd, "run") == 1) {
         var ai = 2;
-        if (argc() > ai) {
+        while (argc() > ai) {
             if (streq(argv(ai), "--aarch64") == 1) {
                 set_arch(ARCH_AARCH64);
                 ai = ai + 1;
             }
+            elif (streq(argv(ai), "-v") == 1) {
+                _verbose = 1;
+                ai = ai + 1;
+            }
+            else { break; }
         }
         if (argc() <= ai) {
             println("Usage: cyrius run [--aarch64] <source.cyr>");
@@ -828,11 +879,16 @@ fn main() {
 
     if (streq(cmd, "test") == 1) {
         var ai = 2;
-        if (argc() > ai) {
+        while (argc() > ai) {
             if (streq(argv(ai), "--aarch64") == 1) {
                 set_arch(ARCH_AARCH64);
                 ai = ai + 1;
             }
+            elif (streq(argv(ai), "-v") == 1) {
+                _verbose = 1;
+                ai = ai + 1;
+            }
+            else { break; }
         }
         if (argc() > ai) {
             return cmd_test(argv(ai));

@@ -22,6 +22,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   don't leak. (Also part of v3.7.4 switch case blocks.)
 - **Defer exit-path regression test** in `regression.tcyr`: 2 assertions
   covering early return with partial defer registration.
+- **`-v` verbose flag** (`programs/cyrius.cyr`): `cyrius build -v`,
+  `cyrius run -v`, `cyrius test -v` display compiler path, source/output
+  paths, defines, and binary size on stderr.
 
 ### Stats
 - **cc3: 304,312 bytes**, 36 test suites (87 regression assertions)
