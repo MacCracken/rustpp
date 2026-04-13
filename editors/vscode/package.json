@@ -1,0 +1,35 @@
+{
+  "name": "cyrius",
+  "displayName": "Cyrius",
+  "description": "Cyrius language support with diagnostics via cyrius-lsp",
+  "version": "0.1.0",
+  "publisher": "cyrius",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": [
+    "onLanguage:cyrius"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cyrius",
+        "aliases": ["Cyrius", "cyrius"],
+        "extensions": [".cyr"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cyrius",
+        "scopeName": "source.cyrius",
+        "path": "./syntaxes/cyrius.tmLanguage.json"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

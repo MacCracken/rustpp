@@ -5,7 +5,7 @@
 # Project:   init, package, publish, install, update, port
 # Quality:   audit, fmt, lint, doc, vet, deny
 # Testing:   coverage, doctest
-# Docs:      docs
+# Tools:     lsp
 # Interactive: repl
 # Info:      version, which, help
 
@@ -1286,6 +1286,9 @@ fn usage() {
     println("Interactive:");
     println("  repl                            expression evaluator");
     println("");
+    println("Tools:");
+    println("  lsp                             build + install cyrius-lsp");
+    println("");
     println("Info:");
     println("  version                         show cyrius version");
     println("  which                           show path to cc3");
@@ -1585,6 +1588,35 @@ fn main() {
     # --- Interactive ---
     if (streq(cmd, "repl") == 1) {
         return cmd_repl();
+    }
+
+    # --- LSP ---
+    if (streq(cmd, "lsp") == 1) {
+        # Build and install cyrius-lsp
+        println("Building cyrius-lsp...");
+        var lsp_src = "programs/cyrius-lsp.cyr";
+        if (file_exists(lsp_src) == 0) {
+            println("error: programs/cyrius-lsp.cyr not found");
+            return 1;
+        }
+        var lsp_out = "/tmp/cyrius-lsp";
+        var cr = compile(lsp_src, lsp_out);
+        if (cr != 0) {
+            println("error: failed to build cyrius-lsp");
+            return 1;
+        }
+        # Install to CYRIUS_HOME/bin/
+        if (_home != 0) {
+            var dest = make_path(_home, "bin/cyrius-lsp");
+            _dep_copy_file(lsp_out, dest);
+            sys_chmod(dest, 493);
+            sys_write(STDOUT_FD, "Installed: ", 11);
+            println(dest);
+        } else {
+            println("Compiled: /tmp/cyrius-lsp");
+            println("Copy to your PATH manually.");
+        }
+        return 0;
     }
 
     # --- Info commands ---

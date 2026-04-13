@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.3.0] — 2026-04-13
+
+### Added
+- **cyrius-lsp** (`programs/cyrius-lsp.cyr`): Language Server Protocol
+  implementation in Cyrius. JSON-RPC 2.0 over stdio. Forks cc3 on
+  didOpen/didSave/didChange, parses stderr for errors and warnings,
+  sends LSP diagnostics. 44KB binary, zero dependencies.
+- **`\r` escape sequence** (`src/frontend/lex.cyr`): string literals now
+  support `\r` (carriage return, byte 13). Joins `\n \t \0 \\ \"`.
+- **`cyrius lsp`** subcommand (`programs/cyrius.cyr`): builds and installs
+  cyrius-lsp to CYRIUS_HOME/bin/.
+- **Editor configs** (`editors/`): VS Code extension (language grammar,
+  LSP client, bracket matching) and Neovim LSP configuration.
+
 ## [4.2.5] — 2026-04-13
 
 ### Changed

@@ -1,0 +1,556 @@
+# cyrius-lsp — Language Server Protocol implementation for Cyrius
+# Provides: diagnostics (errors/warnings from cc3)
+# Protocol: JSON-RPC 2.0 over stdin/stdout
+#
+# Usage: cyrius-lsp (launched by editor)
+#
+# Supported methods:
+#   initialize → capabilities
+#   textDocument/didOpen → compile, send diagnostics
+#   textDocument/didSave → recompile, send diagnostics
+#   textDocument/didChange → recompile, send diagnostics
+#   shutdown → exit
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/syscalls.cyr"
+
+fn prints(s) { syscall(1, 1, s, strlen(s)); return 0; }
+
+fn print_int_str(n) {
+    var buf[24];
+    var len = fmt_int_buf(n, &buf);
+    syscall(1, 1, &buf, len);
+    return 0;
+}
+
+# stderr logging for debug
+fn log_msg(s) {
+    syscall(1, 2, "[cyrius-lsp] ", 13);
+    syscall(1, 2, s, strlen(s));
+    syscall(1, 2, "\n", 1);
+    return 0;
+}
+
+# ================================================================
+# JSON-RPC I/O
+# ================================================================
+
+# Read a Content-Length header from stdin, return the length
+fn read_header() {
+    var buf[256];
+    var pos = 0;
+    # Read until \r\n\r\n
+    var found = 0;
+    while (found == 0) {
+        var n = syscall(0, 0, &buf + pos, 1);
+        if (n <= 0) { return -1; }
+        pos += 1;
+        if (pos >= 4) {
+            if (load8(&buf + pos - 4) == 13 && load8(&buf + pos - 3) == 10 && load8(&buf + pos - 2) == 13 && load8(&buf + pos - 1) == 10) {
+                found = 1;
+            }
+        }
+        if (pos >= 255) { return -1; }
+    }
+    store8(&buf + pos, 0);
+    # Parse Content-Length: N
+    var i = 0;
+    while (i < pos) {
+        if (memeq(&buf + i, "Content-Length: ", 16) == 1) {
+            var num = 0;
+            var j = i + 16;
+            while (j < pos && load8(&buf + j) >= 48 && load8(&buf + j) <= 57) {
+                num = num * 10 + load8(&buf + j) - 48;
+                j += 1;
+            }
+            return num;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+# Read exactly n bytes from stdin
+fn read_body(n) {
+    var buf = alloc(n + 1);
+    var total = 0;
+    while (total < n) {
+        var got = syscall(0, 0, buf + total, n - total);
+        if (got <= 0) { return 0; }
+        total += got;
+    }
+    store8(buf + n, 0);
+    return buf;
+}
+
+# Send a JSON-RPC response
+fn send_response(body) {
+    var blen = strlen(body);
+    prints("Content-Length: ");
+    print_int_str(blen);
+    prints("\r\n\r\n");
+    syscall(1, 1, body, blen);
+    return 0;
+}
+
+# ================================================================
+# JSON HELPERS
+# ================================================================
+
+# Find substring in JSON, return position after match or -1
+fn json_find(json, key) {
+    var jlen = strlen(json);
+    var klen = strlen(key);
+    var i = 0;
+    while (i + klen <= jlen) {
+        if (memeq(json + i, key, klen) == 1) { return i + klen; }
+        i += 1;
+    }
+    return -1;
+}
+
+# Extract string value after "key":" in JSON
+# Handles both compact and spaced JSON (e.g. "uri": "..." or "uri":"...")
+fn json_get_str(json, key) {
+    var pos = json_find(json, key);
+    if (pos < 0) {
+        # Try with space after colon (e.g. key = "\"uri\":" → try "\"uri\": ")
+        # Build spaced variant: append space before searching
+        var klen = strlen(key);
+        var spaced = alloc(klen + 2);
+        memcpy(spaced, key, klen);
+        store8(spaced + klen, 32);
+        store8(spaced + klen + 1, 0);
+        pos = json_find(json, spaced);
+        if (pos < 0) { return 0; }
+    }
+    # Skip to opening quote
+    while (load8(json + pos) != 0 && load8(json + pos) != 34) { pos += 1; }
+    if (load8(json + pos) != 34) { return 0; }
+    pos += 1;
+    var start = pos;
+    while (load8(json + pos) != 0 && load8(json + pos) != 34) { pos += 1; }
+    var len = pos - start;
+    var result = alloc(len + 1);
+    memcpy(result, json + start, len);
+    store8(result + len, 0);
+    return result;
+}
+
+# Extract integer "id" from JSON-RPC message
+fn json_get_id(body) {
+    var id_pos = json_find(body, "\"id\":");
+    if (id_pos < 0) { id_pos = json_find(body, "\"id\": "); }
+    var id = 0;
+    if (id_pos >= 0) {
+        while (load8(body + id_pos) == 32) { id_pos += 1; }
+        while (load8(body + id_pos) >= 48 && load8(body + id_pos) <= 57) {
+            id = id * 10 + load8(body + id_pos) - 48;
+            id_pos += 1;
+        }
+    }
+    return id;
+}
+
+# Convert file:// URI to local path
+fn uri_to_path(uri) {
+    var ulen = strlen(uri);
+    # Strip file:// prefix (7 chars)
+    if (ulen > 7 && memeq(uri, "file://", 7) == 1) {
+        var plen = ulen - 7;
+        var path = alloc(plen + 1);
+        memcpy(path, uri + 7, plen);
+        store8(path + plen, 0);
+        return path;
+    }
+    # No prefix, return as-is
+    var path = alloc(ulen + 1);
+    memcpy(path, uri, ulen);
+    store8(path + ulen, 0);
+    return path;
+}
+
+# ================================================================
+# COMPILER INTEGRATION
+# ================================================================
+
+# Global: path to cc3 binary
+var _cc3_path = 0;
+
+# Find cc3 binary — check common locations
+fn find_cc3() {
+    # Try ./build/cc3
+    var p1 = "build/cc3";
+    var fd = syscall(2, p1, 0, 0);
+    if (fd >= 0) { syscall(3, fd); return p1; }
+
+    # Try /usr/local/lib/cyrius/cc3
+    var p2 = "/usr/local/lib/cyrius/cc3";
+    fd = syscall(2, p2, 0, 0);
+    if (fd >= 0) { syscall(3, fd); return p2; }
+
+    # Try CYRIUS_HOME/cc3 via /proc/self/environ
+    var envfd = syscall(2, "/proc/self/environ", 0, 0);
+    if (envfd >= 0) {
+        var ebuf = alloc(32768);
+        var etotal = 0;
+        var echunk = 1;
+        while (echunk > 0) {
+            echunk = syscall(0, envfd, ebuf + etotal, 32768 - etotal);
+            if (echunk > 0) { etotal += echunk; }
+        }
+        syscall(3, envfd);
+        var pos = 0;
+        while (pos < etotal) {
+            var end = pos;
+            while (end < etotal && load8(ebuf + end) != 0) { end += 1; }
+            if (end - pos > 12 && memeq(ebuf + pos, "CYRIUS_HOME=", 12) == 1) {
+                var vstart = pos + 12;
+                var vlen = end - vstart;
+                var sb = str_builder_new();
+                var val = alloc(vlen + 1);
+                memcpy(val, ebuf + vstart, vlen);
+                store8(val + vlen, 0);
+                str_builder_add_cstr(sb, val);
+                str_builder_add_cstr(sb, "/cc3");
+                var p3 = str_data(str_builder_build(sb));
+                fd = syscall(2, p3, 0, 0);
+                if (fd >= 0) { syscall(3, fd); return p3; }
+            }
+            pos = end + 1;
+        }
+    }
+    return 0;
+}
+
+# Run cc3 on a file path, capture stderr for errors.
+# Returns a pointer to the stderr output (null-terminated), or 0 on failure.
+fn compile_and_capture(filepath) {
+    if (_cc3_path == 0) { return 0; }
+
+    # Create pipe for stderr capture
+    var pipe_fds[2];
+    var pr = sys_pipe(&pipe_fds);
+    if (pr < 0) { return 0; }
+    var pipe_read = load32(&pipe_fds);
+    var pipe_write = load32(&pipe_fds + 4);
+
+    var pid = sys_fork();
+    if (pid == 0) {
+        # Child: run cc3 with source on stdin, /dev/null on stdout, pipe on stderr
+        sys_close(pipe_read);
+
+        var sfd = sys_open(filepath, 0, 0);
+        if (sfd < 0) { syscall(60, 1); }
+        sys_dup2(sfd, 0);
+        sys_close(sfd);
+
+        # stdout → /dev/null
+        var nfd = sys_open("/dev/null", 1, 0);
+        if (nfd >= 0) {
+            sys_dup2(nfd, 1);
+            sys_close(nfd);
+        }
+
+        # stderr → pipe
+        sys_dup2(pipe_write, 2);
+        sys_close(pipe_write);
+
+        var argv[2];
+        store64(&argv, _cc3_path);
+        store64(&argv + 8, 0);
+        # envp = NULL (minimal env)
+        var envp[1];
+        store64(&envp, 0);
+        sys_execve(_cc3_path, &argv, &envp);
+        syscall(60, 127);
+    }
+
+    # Parent: read stderr from pipe
+    sys_close(pipe_write);
+
+    var errbuf = alloc(8192);
+    var total = 0;
+    var chunk = 1;
+    while (chunk > 0 && total < 8191) {
+        chunk = syscall(0, pipe_read, errbuf + total, 8191 - total);
+        if (chunk > 0) { total += chunk; }
+    }
+    store8(errbuf + total, 0);
+    sys_close(pipe_read);
+
+    # Wait for child
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+
+    return errbuf;
+}
+
+# ================================================================
+# DIAGNOSTIC PARSING
+# ================================================================
+
+# Parse cc3 stderr output into LSP diagnostics JSON.
+# cc3 format: "error:filename:line: message\n" or "warning:filename:line: message\n"
+# Sends publishDiagnostics notification for the given URI.
+fn parse_and_send_diagnostics(uri, stderr_output) {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":\"");
+    str_builder_add_cstr(sb, uri);
+    str_builder_add_cstr(sb, "\",\"diagnostics\":[");
+
+    var slen = strlen(stderr_output);
+    if (slen == 0) {
+        # No errors — clear diagnostics
+        str_builder_add_cstr(sb, "]}}");
+        send_response(str_data(str_builder_build(sb)));
+        return 0;
+    }
+
+    var pos = 0;
+    var diag_count = 0;
+
+    while (pos < slen) {
+        # Find end of line
+        var eol = pos;
+        while (eol < slen && load8(stderr_output + eol) != 10) { eol += 1; }
+
+        var line_start = pos;
+        var line_len = eol - pos;
+
+        # Check for "error:" or "warning:" prefix
+        var severity = 0;
+        var msg_start = pos;
+
+        if (line_len > 6 && memeq(stderr_output + pos, "error:", 6) == 1) {
+            severity = 1;
+            msg_start = pos + 6;
+        }
+        elif (line_len > 8 && memeq(stderr_output + pos, "warning:", 8) == 1) {
+            severity = 2;
+            msg_start = pos + 8;
+        }
+
+        if (severity > 0) {
+            # Parse cc3 error format after "error:" or "warning:" prefix
+            # Formats:
+            #   "error: message"                    (no location)
+            #   "error:42: message"                 (line only)
+            #   "error:file.cyr:42: message"        (file + line)
+            var diag_line = 0;
+            var diag_msg_start = msg_start;
+
+            # Skip leading space if present (e.g. "error: message")
+            var p = msg_start;
+            if (p < eol && load8(stderr_output + p) == 32) {
+                # "error: message" — no line number, message starts after space
+                diag_msg_start = p + 1;
+            } else {
+                # Try to parse a number directly
+                var got_num = 0;
+                while (p < eol && load8(stderr_output + p) >= 48 && load8(stderr_output + p) <= 57) {
+                    diag_line = diag_line * 10 + load8(stderr_output + p) - 48;
+                    p += 1;
+                    got_num = 1;
+                }
+
+                if (got_num == 1 && p < eol && load8(stderr_output + p) == 58) {
+                    # "error:N: message" — line number only
+                    diag_msg_start = p + 1;
+                    if (diag_msg_start < eol && load8(stderr_output + diag_msg_start) == 32) {
+                        diag_msg_start += 1;
+                    }
+                } else {
+                    # "error:filename:line: message" — skip filename, find colon + number
+                    p = msg_start;
+                    while (p < eol && load8(stderr_output + p) != 58) { p += 1; }
+                    if (p < eol) {
+                        p += 1;
+                        diag_line = 0;
+                        got_num = 0;
+                        while (p < eol && load8(stderr_output + p) >= 48 && load8(stderr_output + p) <= 57) {
+                            diag_line = diag_line * 10 + load8(stderr_output + p) - 48;
+                            p += 1;
+                            got_num = 1;
+                        }
+                        if (got_num == 1 && p < eol && load8(stderr_output + p) == 58) {
+                            diag_msg_start = p + 1;
+                            if (diag_msg_start < eol && load8(stderr_output + diag_msg_start) == 32) {
+                                diag_msg_start += 1;
+                            }
+                        } else {
+                            # No line info found — use whole message
+                            diag_msg_start = msg_start;
+                            if (diag_msg_start < eol && load8(stderr_output + diag_msg_start) == 32) {
+                                diag_msg_start += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Convert 1-based line to 0-based for LSP
+            if (diag_line > 0) { diag_line -= 1; }
+
+            # Extract message text
+            var msg_len = eol - diag_msg_start;
+            if (msg_len < 0) { msg_len = 0; }
+
+            # Add comma separator between diagnostics
+            if (diag_count > 0) { str_builder_add_cstr(sb, ","); }
+
+            str_builder_add_cstr(sb, "{\"range\":{\"start\":{\"line\":");
+            str_builder_add_int(sb, diag_line);
+            str_builder_add_cstr(sb, ",\"character\":0},\"end\":{\"line\":");
+            str_builder_add_int(sb, diag_line);
+            str_builder_add_cstr(sb, ",\"character\":100}},\"severity\":");
+            str_builder_add_int(sb, severity);
+            str_builder_add_cstr(sb, ",\"source\":\"cyrius\",\"message\":\"");
+
+            # JSON-escape the message (escape quotes and backslashes)
+            var mi = diag_msg_start;
+            while (mi < eol) {
+                var ch = load8(stderr_output + mi);
+                if (ch == 34) {
+                    str_builder_add_cstr(sb, "\\\"");
+                }
+                elif (ch == 92) {
+                    str_builder_add_cstr(sb, "\\\\");
+                }
+                elif (ch == 10 || ch == 13) {
+                    str_builder_add_cstr(sb, " ");
+                }
+                else {
+                    # Single char — use a temp buffer
+                    var cbuf[2];
+                    store8(&cbuf, ch);
+                    store8(&cbuf + 1, 0);
+                    str_builder_add_cstr(sb, &cbuf);
+                }
+                mi += 1;
+            }
+
+            str_builder_add_cstr(sb, "\"}");
+            diag_count += 1;
+        }
+
+        pos = eol + 1;
+    }
+
+    str_builder_add_cstr(sb, "]}}");
+    send_response(str_data(str_builder_build(sb)));
+
+    log_msg("sent diagnostics");
+    return diag_count;
+}
+
+# ================================================================
+# LSP METHODS
+# ================================================================
+
+fn handle_initialize(body) {
+    var id = json_get_id(body);
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"id\":");
+    str_builder_add_int(sb, id);
+    str_builder_add_cstr(sb, ",\"result\":{\"capabilities\":{");
+    str_builder_add_cstr(sb, "\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":true}");
+    str_builder_add_cstr(sb, "}}}");
+    send_response(str_data(str_builder_build(sb)));
+    log_msg("initialized");
+    return 0;
+}
+
+fn handle_shutdown(body) {
+    var id = json_get_id(body);
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"id\":");
+    str_builder_add_int(sb, id);
+    str_builder_add_cstr(sb, ",\"result\":null}");
+    send_response(str_data(str_builder_build(sb)));
+    log_msg("shutdown");
+    return 0;
+}
+
+fn handle_did_open_or_save(body) {
+    var uri = json_get_str(body, "\"uri\":");
+    if (uri == 0) { return 0; }
+
+    var path = uri_to_path(uri);
+    log_msg(path);
+
+    # Only process .cyr files
+    var plen = strlen(path);
+    if (plen < 4) { return 0; }
+    if (memeq(path + plen - 4, ".cyr", 4) != 1) { return 0; }
+
+    var stderr_out = compile_and_capture(path);
+    if (stderr_out == 0) {
+        # Compilation failed to launch — clear diagnostics
+        parse_and_send_diagnostics(uri, "");
+        return 0;
+    }
+
+    parse_and_send_diagnostics(uri, stderr_out);
+    return 0;
+}
+
+# ================================================================
+# MAIN LOOP
+# ================================================================
+
+fn main() {
+    alloc_init();
+
+    # Find cc3
+    _cc3_path = find_cc3();
+    if (_cc3_path == 0) {
+        log_msg("warning: cc3 not found — diagnostics disabled");
+    } else {
+        log_msg("found cc3");
+    }
+
+    # Main loop: read JSON-RPC messages
+    var running = 1;
+    while (running == 1) {
+        var clen = read_header();
+        if (clen < 0) { running = 0; break; }
+        var body = read_body(clen);
+        if (body == 0) { running = 0; break; }
+
+        # Match methods — check longer names first to avoid prefix ambiguity
+        # Handle both compact ("method":"X") and spaced ("method": "X") JSON
+        if (json_find(body, "\"method\":\"initialized\"") >= 0 || json_find(body, "\"method\": \"initialized\"") >= 0) {
+            # No response needed
+        }
+        elif (json_find(body, "\"method\":\"initialize\"") >= 0 || json_find(body, "\"method\": \"initialize\"") >= 0) {
+            handle_initialize(body);
+        }
+        elif (json_find(body, "\"method\":\"shutdown\"") >= 0 || json_find(body, "\"method\": \"shutdown\"") >= 0) {
+            handle_shutdown(body);
+            running = 0;
+        }
+        elif (json_find(body, "\"method\":\"exit\"") >= 0 || json_find(body, "\"method\": \"exit\"") >= 0) {
+            running = 0;
+        }
+        elif (json_find(body, "\"textDocument/didOpen\"") >= 0) {
+            handle_did_open_or_save(body);
+        }
+        elif (json_find(body, "\"textDocument/didSave\"") >= 0) {
+            handle_did_open_or_save(body);
+        }
+        elif (json_find(body, "\"textDocument/didChange\"") >= 0) {
+            handle_did_open_or_save(body);
+        }
+    }
+
+    return 0;
+}
+
+var r = main();
+syscall(60, r);

@@ -1,0 +1,61 @@
+{
+  "scopeName": "source.cyrius",
+  "name": "Cyrius",
+  "fileTypes": ["cyr"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#directives" }
+  ],
+  "repository": {
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.cyrius"
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.cyrius",
+      "patterns": [
+        {
+          "match": "\\\\[nrt0\\\\\"']",
+          "name": "constant.character.escape.cyrius"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b0x[0-9a-fA-F]+\\b",
+          "name": "constant.numeric.hex.cyrius"
+        },
+        {
+          "match": "\\b[0-9]+\\b",
+          "name": "constant.numeric.decimal.cyrius"
+        }
+      ]
+    },
+    "keywords": {
+      "match": "\\b(fn|var|if|elif|else|while|for|return|break|continue|include|struct|union|enum|defer|switch|case|default|asm|sizeof)\\b",
+      "name": "keyword.control.cyrius"
+    },
+    "types": {
+      "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64)\\b",
+      "name": "storage.type.cyrius"
+    },
+    "functions": {
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+      "captures": {
+        "1": { "name": "entity.name.function.cyrius" }
+      }
+    },
+    "directives": {
+      "match": "#(define|ifdef|ifndef|endif|assert|derive|skip-lint)",
+      "name": "keyword.preprocessor.cyrius"
+    }
+  }
+}

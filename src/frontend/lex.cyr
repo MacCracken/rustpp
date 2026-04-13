@@ -1914,6 +1914,7 @@ fn LEX(S) {
                             var ec = load8(S + 0x44A000 + p);
                             p = p + 1;
                             if (ec == 110) { store8(S + 0x14A000 + spos, 10); }
+                            else { if (ec == 114) { store8(S + 0x14A000 + spos, 13); }
                             else {
                                 if (ec == 116) { store8(S + 0x14A000 + spos, 9); }
                                 else {
@@ -1926,6 +1927,7 @@ fn LEX(S) {
                                         }
                                     }
                                 }
+                            }
                             }
                             spos = spos + 1;
                         } else {

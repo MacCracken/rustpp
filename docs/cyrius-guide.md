@@ -130,7 +130,7 @@ var w = r.br.x - r.tl.x;   # 10
 
 ```
 syscall(1, 1, "hello\n", 6);   # Write to stdout
-# Escape sequences: \n \t \0 \\ \"
+# Escape sequences: \n \r \t \0 \\ \"
 # Strings are null-terminated in the data section
 ```
 
