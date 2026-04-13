@@ -77,6 +77,7 @@ Major release. Multi-file compilation, new platforms, dead-code elimination.
 | **PIC codegen (Phase 2)** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
 | **macOS targets** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
 | **Windows target** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
+| **Dep resolution ordering** | Low | `cyrius build` prepends stdlib after dep modules, causing `strstr` (and potentially other stdlib functions) to be undefined when dep modules reference them. Discovered in kybernet build: agnostik/types.cyr calls `strstr()` but string.cyr is prepended after agnostik. Warning-only — no runtime impact for unused code paths. Fix: ensure stdlib is always prepended before all dep modules. |
 | **LSP** | High | Language Server Protocol for IDE integration. |
 | **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
 
