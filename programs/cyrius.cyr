@@ -116,30 +116,35 @@ fn load_environ() {
 # ================================================================
 
 fn find_tools() {
-    # CYRIUS_HOME: check env via /proc/self/environ
-    # For now: default to ~/.cyrius
-    var home_buf = alloc(256);
-    var home_n = file_read_all("/proc/self/environ", home_buf, 255);
-    # Simple: just use ~/.cyrius
-    # Read HOME from /proc env
+    # Read environment to find HOME and CYRIUS_HOME
+    var env_buf = alloc(32768);
+    var env_n = file_read_all("/proc/self/environ", env_buf, 32767);
     var proc_home = 0;
-    if (home_n > 0) {
-        store8(home_buf + home_n, 0);
+    var cyrius_home = 0;
+    if (env_n > 0) {
+        store8(env_buf + env_n, 0);
         var ei = 0;
-        while (ei < home_n) {
-            if (memeq(home_buf + ei, "HOME=", 5) == 1) {
-                proc_home = home_buf + ei + 5;
-                break;
+        while (ei < env_n) {
+            if (memeq(env_buf + ei, "HOME=", 5) == 1) {
+                proc_home = env_buf + ei + 5;
+            }
+            if (memeq(env_buf + ei, "CYRIUS_HOME=", 12) == 1) {
+                cyrius_home = env_buf + ei + 12;
             }
             # Skip to next null
-            while (ei < home_n) {
-                if (load8(home_buf + ei) == 0) { ei = ei + 1; break; }
+            while (ei < env_n) {
+                if (load8(env_buf + ei) == 0) { ei = ei + 1; break; }
                 ei = ei + 1;
             }
         }
     }
     if (proc_home == 0) { proc_home = "/root"; }
-    _home = make_path(proc_home, ".cyrius");
+    # CYRIUS_HOME overrides default ~/.cyrius
+    if (cyrius_home != 0) {
+        _home = cyrius_home;
+    } else {
+        _home = make_path(proc_home, ".cyrius");
+    }
 
     # Try installed cc3 first
     var installed_cc = make_path(_home, "bin/cc3");

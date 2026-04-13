@@ -4,6 +4,15 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.6] — 2026-04-12
+
+### Fixed
+- **`cyrius` tool reads `CYRIUS_HOME` env var** (`programs/cyrius.cyr`):
+  `find_tools()` was reading only 256 bytes of `/proc/self/environ` — CI
+  runners have large environments and `HOME` wasn't in the first 256 bytes.
+  Now reads 32KB and also checks `CYRIUS_HOME` which overrides the default
+  `~/.cyrius` path. Fixes "cc3 not found" on GitHub Actions CI.
+
 ## [3.9.5] — 2026-04-12
 
 ### Changed
