@@ -2985,11 +2985,12 @@ fn PARSE_FN_DEF(S) {
         }
         EJMP(S, body_cp);  # jmp back to body start
     } else {
-        # No defers — patch jmp to skip to body_cp
-        # EPATCH lands at current CP, but we want body_cp. Just patch directly.
-        var pa = S + 0x54A000 + defer_init_jmp;
-        var rel = body_cp - defer_init_jmp - 4;
-        S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
+        # No defers — patch jmp to land at body_cp
+        # Temporarily set CP to body_cp so EPATCH computes the right offset
+        var saved_cp = GCP(S);
+        SCP(S, body_cp);
+        EPATCH(S, defer_init_jmp);
+        SCP(S, saved_cp);
     }
     var rpc = GRPC(S);
     # Patch return jumps to land here

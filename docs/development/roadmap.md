@@ -65,16 +65,21 @@ Compile-time guarantees that produce identical machine code.
 
 ## v4.0.0 — Platform & Scale
 
-Major release. Multi-file compilation, new platforms, scale limits removed.
+Major release. Multi-file compilation, new platforms, scale limits removed, stdlib dependency tracking.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. |
+| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. Unblocks selective stdlib linking (only include used modules). |
 | **PIC codegen (Phase 2)** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
 | **macOS targets** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
 | **Windows target** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
 | **LSP** | High | Language Server Protocol for IDE integration. |
 | **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
+| **Stdlib dep graph** | Medium | `cyrius deps` resolves include graph — only vendor/compile modules a project actually uses. Current pattern: every project manually vendors all 47 stdlib modules even if using 10. With multi-file linker, dead-code elimination becomes possible. |
+| **Undefined symbol diagnostic** | Medium | Calling a non-existent function (e.g., `assert_report()` vs `assert_summary()`) silently compiles and crashes at runtime (SIGILL/SIGSEGV). Emit a compile-time error or warning for unresolved symbols. Critical for developer experience — discovered during ai-hwaccel port. |
+| **Conditional compilation** | Medium | `#ifdef FEATURE_X` / `#ifndef` for feature-gating optional modules (e.g., threading, async, model_format). Currently must include everything or manually comment out. `-D FLAG` exists but needs `#ifdef` in source. |
+| **Enum duplicate values** | Low | Enums with duplicate values (e.g., `A = 71; B = 71;`) should be allowed or produce a clear error. Workaround: inline constants. Hit during ai-hwaccel model_format GGUF magic bytes. |
+| **cyrius update --selective** | Low | `cyrius update` currently syncs all stdlib. Add `--only str,vec,fmt` to sync specific modules. Reduces churn for projects that vendor a subset. |
 
 ---
 
@@ -124,7 +129,8 @@ Major release. Multi-file compilation, new platforms, scale limits removed.
 | **Done** | sakshi, majra, bsp, cyrius-doom, mabda |
 | **Done** | sigil, patra, libro, shravan, tarang, yukti |
 | **In progress** | bhava, hisab, avatara |
-| **Blocked** | ai-hwaccel (needs majra+libro), vidya MCP (needs bote) |
+| **In progress** | ai-hwaccel (ported, 18 modules, 491 tests, 6 fuzz — needs majra+libro for full parity) |
+| **Blocked** | vidya MCP (needs bote) |
 
 ---
 

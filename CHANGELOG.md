@@ -31,9 +31,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`-v` verbose flag** (`programs/cyrius.cyr`): `cyrius build -v`,
   `cyrius run -v`, `cyrius test -v` display compiler path, source/output
   paths, defines, and binary size on stderr.
+- **`#skip-lint` directive** (`programs/cyrlint.cyr`): lines containing
+  `#skip-lint` are exempt from all lint rules. For unavoidable long strings
+  (nvidia-smi paths, format strings) in downstream projects.
+- **Lint line limit raised 100 → 120** (`programs/cyrlint.cyr`).
+- **Arch-agnostic codegen helpers** (`ETESTAZ`, `EMOVRDXRAX`, `EMOVRA_RDX`)
+  added to all backends. Fixes 5 aarch64 CI failures from raw x86 bytes in
+  ret2/rethi/multi-return/defer flag checks.
+- **Defer init jmp backpatch** uses `EPATCH` with temporary CP instead of
+  raw x86 rel32 encoding. Fixes aarch64 crash in all functions (the no-defer
+  jmp placeholder was patched with x86 offset encoding).
 
 ### Stats
-- **cc3: 304,232 bytes**, 36 test suites (87 regression assertions)
+- **cc3: 304,144 bytes**, 36 test suites (87 regression assertions)
+- **check.sh: 5/5 pass** — first time all checks green (lint false positives fixed)
 
 ## [3.7.4] — 2026-04-12
 

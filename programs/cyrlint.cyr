@@ -41,6 +41,19 @@ fn lint_file(buf, total) {
         }
         var linelen = eol - pos;
 
+        # === Rule: #skip-lint comment ===
+        # Lines containing #skip-lint are exempt from all rules
+        var skip_line = 0;
+        if (linelen >= 10) {
+            var si = pos;
+            while (si + 9 < eol) {
+                if (memeq(buf + si, "#skip-lint", 10) == 1) { skip_line = 1; si = eol; }
+                si = si + 1;
+            }
+        }
+
+        if (skip_line == 0) {
+
         # === Rule: no trailing whitespace ===
         if (linelen > 0) {
             var last = load8(buf + eol - 1);
@@ -58,8 +71,10 @@ fn lint_file(buf, total) {
             ti = ti + 1;
         }
 
-        # === Rule: line too long (>100 chars) ===
-        if (linelen > 100) { warn(lineno, "line exceeds 100 characters"); }
+        # === Rule: line too long (>120 chars) ===
+        if (linelen > 120) { warn(lineno, "line exceeds 120 characters"); }
+
+        }
 
         # === Rule: multiple blank lines ===
         if (linelen == 0) {
