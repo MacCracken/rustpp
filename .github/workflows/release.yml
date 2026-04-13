@@ -78,24 +78,7 @@ jobs:
           cp scripts/ci.sh "$STAGE/bin/" 2>/dev/null || true
           chmod +x "$STAGE/bin"/*
 
-          # Copy stdlib: real files only, skip broken symlinks
-          for f in lib/*.cyr; do
-            if [ -f "$f" ] && [ ! -L "$f" ]; then
-              cp "$f" "$STAGE/lib/"
-            elif [ -L "$f" ] && [ -e "$f" ]; then
-              cp -L "$f" "$STAGE/lib/"
-            fi
-          done
-          # Fetch dep bundles (symlinks to installed deps — not available on CI)
-          for dep in sakshi:0.9.0:sakshi.cyr sakshi:0.9.0:sakshi_full.cyr sigil:2.0.1:dist/sigil.cyr patra:0.14.0:dist/patra.cyr yukti:1.2.0:dist/yukti.cyr mabda:2.1.2:dist/mabda.cyr; do
-            REPO=$(echo "$dep" | cut -d: -f1)
-            TAG=$(echo "$dep" | cut -d: -f2)
-            FILE=$(echo "$dep" | cut -d: -f3)
-            BASE=$(basename "$FILE")
-            if [ ! -f "$STAGE/lib/$BASE" ]; then
-              curl -sL "https://raw.githubusercontent.com/MacCracken/$REPO/$TAG/$FILE" -o "$STAGE/lib/$BASE" || echo "WARN: could not fetch $BASE"
-            fi
-          done
+          sh scripts/release-lib.sh "$STAGE/lib"
           cp VERSION LICENSE "$STAGE/"
           cp scripts/install.sh "$STAGE/"
 
@@ -147,24 +130,7 @@ jobs:
           cp scripts/cyrius-init.sh "$STAGE/bin/" 2>/dev/null || true
           chmod +x "$STAGE/bin"/*
 
-          # Copy stdlib: real files only, skip broken symlinks
-          for f in lib/*.cyr; do
-            if [ -f "$f" ] && [ ! -L "$f" ]; then
-              cp "$f" "$STAGE/lib/"
-            elif [ -L "$f" ] && [ -e "$f" ]; then
-              cp -L "$f" "$STAGE/lib/"
-            fi
-          done
-          # Fetch dep bundles (symlinks to installed deps — not available on CI)
-          for dep in sakshi:0.9.0:sakshi.cyr sakshi:0.9.0:sakshi_full.cyr sigil:2.0.1:dist/sigil.cyr patra:0.14.0:dist/patra.cyr yukti:1.2.0:dist/yukti.cyr mabda:2.1.2:dist/mabda.cyr; do
-            REPO=$(echo "$dep" | cut -d: -f1)
-            TAG=$(echo "$dep" | cut -d: -f2)
-            FILE=$(echo "$dep" | cut -d: -f3)
-            BASE=$(basename "$FILE")
-            if [ ! -f "$STAGE/lib/$BASE" ]; then
-              curl -sL "https://raw.githubusercontent.com/MacCracken/$REPO/$TAG/$FILE" -o "$STAGE/lib/$BASE" || echo "WARN: could not fetch $BASE"
-            fi
-          done
+          sh scripts/release-lib.sh "$STAGE/lib"
           cp VERSION LICENSE "$STAGE/"
           cp scripts/install.sh "$STAGE/"
 

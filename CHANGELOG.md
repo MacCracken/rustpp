@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.7] — 2026-04-12
+
+### Added
+- **`--dry-run` flag** on `build`, `run`, `test`, `init`, `port`, `deps`,
+  `clean`. Shows what would happen without executing. Examples:
+  `cyrius build --dry-run src/main.cyr build/app` → prints compile plan.
+  `cyrius clean --dry-run` → lists files that would be deleted.
+  `cyrius init --dry-run myproject` → lists files that would be created.
+
+### Fixed
+- **Release tarball stdlib packaging** (`scripts/release-lib.sh`): extracted
+  lib staging into a shared script. Copies real files, follows valid symlinks,
+  fetches dep bundles from GitHub when broken (CI). Replaces inline `cp -rL`
+  that failed on broken symlinks pointing to local-only dep installs.
+
 ## [3.9.6] — 2026-04-12
 
 ### Fixed

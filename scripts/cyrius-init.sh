@@ -7,20 +7,59 @@
 
 set -e
 
-if [ -z "$1" ]; then
-    echo "Usage: cyrius-init.sh <project-name>"
+DRY_RUN=0
+NAME=""
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        -*) echo "Unknown flag: $arg"; exit 1 ;;
+        *) NAME="$arg" ;;
+    esac
+done
+
+if [ -z "$NAME" ]; then
+    echo "Usage: cyrius init [--dry-run] <project-name>"
     echo ""
     echo "Creates a new Cyrius project with:"
-    echo "  lib/          vendored stdlib"
-    echo "  src/main.cyr  entry point"
-    echo "  src/test.cyr  test file"
-    echo "  scripts/      build + test"
+    echo "  cyrius.toml    project manifest + deps"
+    echo "  src/main.cyr   entry point"
+    echo "  src/test.cyr   test file"
+    echo "  lib/           resolved stdlib (via cyrius deps)"
+    echo "  scripts/       build + test"
     echo "  docs, CI, version files"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run      show what would be created without writing"
     exit 1
 fi
 
-NAME="$1"
 CYRIUS="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo "Dry run: cyrius init $NAME"
+    echo ""
+    echo "Would create:"
+    echo "  $NAME/"
+    echo "  $NAME/src/main.cyr"
+    echo "  $NAME/src/test.cyr"
+    echo "  $NAME/cyrius.toml"
+    echo "  $NAME/VERSION            (0.1.0)"
+    echo "  $NAME/.gitignore"
+    echo "  $NAME/LICENSE            (GPL-3.0-only)"
+    echo "  $NAME/README.md"
+    echo "  $NAME/CHANGELOG.md"
+    echo "  $NAME/CONTRIBUTING.md"
+    echo "  $NAME/SECURITY.md"
+    echo "  $NAME/CODE_OF_CONDUCT.md"
+    echo "  $NAME/CLAUDE.md"
+    echo "  $NAME/scripts/build.sh"
+    echo "  $NAME/scripts/test.sh"
+    echo "  $NAME/.github/workflows/ci.yml"
+    echo "  $NAME/docs/development/"
+    echo ""
+    echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$NAME"
+    exit 0
+fi
 
 if [ -d "$NAME" ]; then
     echo "ERROR: directory '$NAME' already exists"
