@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.4] — 2026-04-13
+
+### Security
+- **CVE-06: String data bounds checking** (`src/frontend/lex.cyr`): lexer
+  now checks `spos >= 262144` before every string literal byte write.
+  Errors instead of silently corrupting the next heap region.
+- **CVE-09: Jump target table overflow warning** (`src/backend/x86/jump.cyr`):
+  warns when table hits 1024 entries. LASE automatically disabled for that
+  function (overflow count > 1024 prevents IS_JUMP_TARGET false negatives).
+
 ## [4.2.3] — 2026-04-13
 
 ### Security
