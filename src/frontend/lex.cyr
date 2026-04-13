@@ -1900,6 +1900,11 @@ fn LEX(S) {
             var sgo = 1;
             while (sgo == 1) {
                 if (p >= bl) { sgo = 0; }
+                # CVE-06: bounds check str_data (256KB at 0x14A000)
+                if (spos >= 262144) {
+                    syscall(SYS_WRITE, 2, "error: string data overflow (256KB limit)\n", 42);
+                    syscall(SYS_EXIT, 1);
+                }
                 if (sgo == 1) {
                     var sc = load8(S + 0x44A000 + p);
                     if (sc == 34) { p = p + 1; sgo = 0; }
