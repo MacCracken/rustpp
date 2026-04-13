@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.9.2.** 304KB self-hosting compiler, x86_64 + aarch64.
+> **v3.9.3.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
@@ -75,7 +75,8 @@ Internal cleanup. No new features — same semantics, cleaner codebase.
 | **Split PARSE_FACTOR** | Medium | 412-line builtin dispatch. Split into sub-handlers (store/load, SIMD, f64). |
 | **Sync aarch64 heap map** | Medium | main_aarch64.cyr limits stale: input 256KB→512KB, tokens 65536→262144, str_data 8KB→256KB, fixups 8192→16384. |
 | **Stale comment cleanup** | Low | Remove version-tagged comments (v3.0–v3.6) that describe now-obvious behavior. |
-| **`cyrius deps` command** (v3.9.2) | Medium | Proper dep resolution that doesn't require copying includes into every source file. Currently downstream projects (kybernet, argonaut) must either: (a) use cyrius.toml `[deps]` which prepends includes and can overflow fixup tables on large projects, or (b) vendor all includes into each source file. Need: `cyrius deps` that symlinks or resolves dep modules into `lib/` so source files can use normal `include` paths without manual copying. Discovered in kybernet 1.0.0 — self-contained includes were needed to avoid fixup table overflow (16384 limit) from double-inclusion via dep resolver. |
+| **`cyrius deps` command** (v3.9.2) | Medium | **Shipped.** Symlinks dep modules into `lib/` from cyrius.toml `[deps]`. Uses `path` locally, `git` for CI. |
+| **`cyrius deps` namespace collision** (v3.9.3) | High | `cyrius deps` flattens all dep modules into `lib/` without namespacing. When two deps have the same filename (e.g. agnostik `src/error.cyr` and argonaut/libro `lib/error.cyr`), the last writer wins — silently overwrites the first. Same collision for `types.cyr` (agnostik vs argonaut). Discovered in kybernet CI: `cyrius deps` resolves correctly but `error.cyr` and `types.cyr` get overwritten, causing `SECCOMP_ALLOW` undefined (agnostik's security.cyr depends on agnostik's error.cyr which was overwritten by libro's). Fix: namespace output as `lib/<dep>/module.cyr` (e.g. `lib/agnostik/error.cyr`, `lib/argonaut/error.cyr`) or detect and error on collision. Blocks all downstream projects with overlapping dep filenames. |
 
 ---
 

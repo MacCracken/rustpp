@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.3] — 2026-04-12
+
+### Added
+- **Auto-include from cyrius.toml** (`programs/cyrius.cyr`): `cyrius build`
+  now prepends `include` statements for all resolved deps before compilation.
+  Developers declare deps in `cyrius.toml` and write ONLY their project
+  includes in source files — no more manual stdlib/dep includes. The build
+  tool creates a temp file with dep includes + source, then compiles it.
+- **Namespaced dep resolution**: all named deps (`[deps.name]`) are always
+  prefixed with the dep name: `lib/{depname}_{basename}`. No collision
+  possible. Stdlib deps remain unprefixed (`lib/{name}.cyr`).
+
+### Stats
+- **Kybernet 1.0.0**: builds from `cyrius build` with zero explicit includes
+- **Hadara 1.0.0**: 329 tests pass via `cyrius build` auto-include
+
 ## [3.9.2] — 2026-04-12
 
 ### Added

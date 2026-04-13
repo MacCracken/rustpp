@@ -38,6 +38,7 @@ var _version = 0;
 var _home = 0;
 var _envp = 0;
 var _verbose = 0;
+var _dep_includes = 0;
 
 var ARCH_X86 = 0;
 var ARCH_AARCH64 = 1;
@@ -221,23 +222,28 @@ fn compile(source, output) {
         sys_write(STDERR_FD, output, strlen(output));
         sys_write(STDERR_FD, "\n", 1);
     }
-    # If defines are set, create temp file with defines prepended
+    # Build temp file if we have dep includes or defines to prepend
     var actual_source = source;
-    if (_defines != 0) {
-        if (vec_len(_defines) > 0) {
-            if (_verbose == 1) {
-                var di2 = 0;
-                while (di2 < vec_len(_defines)) {
-                    sys_write(STDERR_FD, "[verbose] define: ", 18);
-                    var dv = vec_get(_defines, di2);
-                    sys_write(STDERR_FD, dv, strlen(dv));
-                    sys_write(STDERR_FD, "\n", 1);
-                    di2 = di2 + 1;
+    var need_tmp = 0;
+    if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
+    if (_defines != 0) { if (vec_len(_defines) > 0) { need_tmp = 1; } }
+    if (need_tmp == 1) {
+        var tmp = "/tmp/cyrius_cpp";
+        var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
+        if (tfd >= 0) {
+            # Prepend dep includes
+            if (_dep_includes != 0) {
+                var ii = 0;
+                while (ii < vec_len(_dep_includes)) {
+                    var inc = vec_get(_dep_includes, ii);
+                    sys_write(tfd, "include \"", 9);
+                    sys_write(tfd, inc, strlen(inc));
+                    sys_write(tfd, "\"\n", 2);
+                    ii = ii + 1;
                 }
             }
-            var tmp = "/tmp/cyrius_cpp";
-            var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
-            if (tfd >= 0) {
+            # Prepend defines
+            if (_defines != 0) {
                 var di = 0;
                 while (di < vec_len(_defines)) {
                     var def = vec_get(_defines, di);
@@ -246,13 +252,20 @@ fn compile(source, output) {
                     sys_write(tfd, "\n", 1);
                     di = di + 1;
                 }
-                # Append source file
-                var sbuf = alloc(65536);
-                var sn = file_read_all(source, sbuf, 65535);
-                if (sn > 0) { sys_write(tfd, sbuf, sn); }
-                sys_close(tfd);
-                actual_source = tmp;
             }
+            # Append source file (stream copy for large files)
+            var sfd2 = sys_open(source, O_RDONLY, 0);
+            if (sfd2 >= 0) {
+                var cbuf = alloc(32768);
+                var cn = 1;
+                while (cn > 0) {
+                    cn = syscall(0, sfd2, cbuf, 32768);
+                    if (cn > 0) { syscall(1, tfd, cbuf, cn); }
+                }
+                sys_close(sfd2);
+            }
+            sys_close(tfd);
+            actual_source = tmp;
         }
     }
     var pid = sys_fork();
@@ -768,6 +781,7 @@ fn cmd_deps() {
     store8(buf + n, 0);
     var copied = 0;
     var errors = 0;
+    _dep_includes = vec_new();
 
     # === Phase 1: stdlib deps ===
     # Find: stdlib = ["string", "fmt", ...]
@@ -796,13 +810,16 @@ fn cmd_deps() {
                         str_builder_add_cstr(sb2, ".cyr");
                         var dst_full = str_data(str_builder_build(sb2));
                         var cr = _dep_copy_file(src, dst_full);
-                        if (cr == 0) {
-                            if (_verbose == 1) {
-                                sys_write(STDERR_FD, "  stdlib: ", 10);
-                                sys_write(STDERR_FD, mod_name, strlen(mod_name));
-                                sys_write(STDERR_FD, "\n", 1);
+                        if (cr == 0 || cr == 2) {
+                            vec_push(_dep_includes, dst_full);
+                            if (cr == 0) {
+                                if (_verbose == 1) {
+                                    sys_write(STDERR_FD, "  stdlib: ", 10);
+                                    sys_write(STDERR_FD, mod_name, strlen(mod_name));
+                                    sys_write(STDERR_FD, "\n", 1);
+                                }
+                                copied = copied + 1;
                             }
-                            copied = copied + 1;
                         } elif (cr == 1) { errors = errors + 1; }
                         mi = mi + 1;
                     }
@@ -874,33 +891,32 @@ fn cmd_deps() {
                     str_builder_add_cstr(sb, "/");
                     str_builder_add_cstr(sb, mod_path);
                     var src = str_data(str_builder_build(sb));
-                    # Destination: lib/basename — prefixed if collision
+                    # Destination: lib/{depname}_{basename} — always namespaced
                     var base = mod_path;
                     var bi = 0;
                     while (load8(mod_path + bi) != 0) {
                         if (load8(mod_path + bi) == 47) { base = mod_path + bi + 1; }
                         bi = bi + 1;
                     }
-                    # Check if file already exists in lib/ — prefix with dep name
-                    var dst = make_path("lib", base);
-                    if (file_exists(dst) == 1) {
-                        var sb3 = str_builder_new();
-                        str_builder_add_cstr(sb3, "lib/");
-                        str_builder_add_cstr(sb3, dep_name);
-                        str_builder_add_cstr(sb3, "_");
-                        str_builder_add_cstr(sb3, base);
-                        dst = str_data(str_builder_build(sb3));
-                    }
+                    var sb3 = str_builder_new();
+                    str_builder_add_cstr(sb3, "lib/");
+                    str_builder_add_cstr(sb3, dep_name);
+                    str_builder_add_cstr(sb3, "_");
+                    str_builder_add_cstr(sb3, base);
+                    var dst = str_data(str_builder_build(sb3));
                     var cr2 = _dep_copy_file(src, dst);
-                    if (cr2 == 0) {
-                        if (_verbose == 1) {
-                            sys_write(STDERR_FD, "  ", 2);
-                            sys_write(STDERR_FD, dep_name, strlen(dep_name));
-                            sys_write(STDERR_FD, ": ", 2);
-                            sys_write(STDERR_FD, base, strlen(base));
-                            sys_write(STDERR_FD, "\n", 1);
+                    if (cr2 == 0 || cr2 == 2) {
+                        vec_push(_dep_includes, dst);
+                        if (cr2 == 0) {
+                            if (_verbose == 1) {
+                                sys_write(STDERR_FD, "  ", 2);
+                                sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                                sys_write(STDERR_FD, ": ", 2);
+                                sys_write(STDERR_FD, base, strlen(base));
+                                sys_write(STDERR_FD, "\n", 1);
+                            }
+                            copied = copied + 1;
                         }
-                        copied = copied + 1;
                     } elif (cr2 == 1) { errors = errors + 1; }
                     mi = mi + 1;
                 }
