@@ -54,7 +54,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/CLAUDE.md"
     echo "  $NAME/scripts/build.sh"
     echo "  $NAME/scripts/test.sh"
+    echo "  $NAME/.cyrius-toolchain  (pins Cyrius version)"
     echo "  $NAME/.github/workflows/ci.yml"
+    echo "  $NAME/.github/workflows/release.yml"
     echo "  $NAME/docs/development/"
     echo ""
     echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$NAME"
@@ -66,7 +68,8 @@ if [ -d "$NAME" ]; then
     exit 1
 fi
 
-echo "Creating Cyrius project: $NAME"
+PROJ="$(basename "$NAME")"
+echo "Creating Cyrius project: $PROJ"
 
 # Create structure
 mkdir -p "$NAME/src" "$NAME/lib/agnosys" "$NAME/scripts" "$NAME/build" "$NAME/docs/development" "$NAME/.github/workflows"
@@ -105,15 +108,15 @@ LICENSE
 
 # === README.md ===
 cat > "$NAME/README.md" << EOF
-# $NAME
+# $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius).
 
 ## Build
 
 \`\`\`sh
-sh scripts/build.sh
-sh scripts/test.sh
+cyrius build src/main.cyr build/$PROJ
+cyrius test src/test.cyr
 \`\`\`
 
 ## License
@@ -137,14 +140,20 @@ CHANGELOG
 
 # === cyrius.toml ===
 cat > "$NAME/cyrius.toml" << EOF
-name = "$NAME"
+[package]
+name = "$PROJ"
 version = "0.1.0"
+description = ""
 license = "GPL-3.0-only"
+language = "cyrius"
+
+[build]
 entry = "src/main.cyr"
-output = "$NAME"
+test = "src/test.cyr"
+output = "$PROJ"
 
 [deps]
-stdlib = { path = "lib" }
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert"]
 EOF
 
 # === src/main.cyr ===
@@ -218,29 +227,112 @@ exit $exit_code
 TEST
 chmod +x "$NAME/scripts/test.sh"
 
+# === .cyrius-toolchain ===
+CYRIUS_VER="${CYRIUS_VER:-3.9.8}"
+echo "$CYRIUS_VER" > "$NAME/.cyrius-toolchain"
+
 # === CI ===
 cat > "$NAME/.github/workflows/ci.yml" << 'CI'
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone Cyrius
+
+      - name: Install Cyrius toolchain
         run: |
-          git clone --depth 1 https://github.com/MacCracken/cyrius.git ../cyrius
-          cd ../cyrius && sh bootstrap/bootstrap.sh
-          cat src/main.cyr | ./build/cyrc > ./build/cc3 && chmod +x ./build/cc3
+          CYRIUS_VERSION="${CYRIUS_VERSION:-$(cat .cyrius-toolchain | tr -d '[:space:]')}"
+          echo "Installing Cyrius $CYRIUS_VERSION"
+          curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          CYRIUS_DIR="cyrius-$CYRIUS_VERSION-x86_64-linux"
+          mkdir -p "$HOME/.cyrius/bin" "$HOME/.cyrius/lib"
+          cp "$CYRIUS_DIR/bin/"* "$HOME/.cyrius/bin/" 2>/dev/null || true
+          cp -r "$CYRIUS_DIR/lib/"* "$HOME/.cyrius/lib/" 2>/dev/null || true
+          chmod +x "$HOME/.cyrius/bin/"* 2>/dev/null || true
+          echo "$HOME/.cyrius/bin" >> $GITHUB_PATH
+          echo "CYRIUS_HOME=$HOME/.cyrius" >> $GITHUB_ENV
+
+      - name: Resolve dependencies
+        run: cyrius deps
+
       - name: Build
-        run: sh scripts/build.sh
+        run: |
+          mkdir -p build
+          cyrius build src/main.cyr build/${{ github.event.repository.name }}
+
       - name: Test
-        run: sh scripts/test.sh
+        run: cyrius test src/test.cyr
 CI
+
+# === Release workflow ===
+cat > "$NAME/.github/workflows/release.yml" << 'RELEASE'
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    name: CI Gate
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Build & Release
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify version
+        run: |
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+          TAG_VERSION="${GITHUB_REF_NAME}"
+          test "$FILE_VERSION" = "$TAG_VERSION" || { echo "VERSION ($FILE_VERSION) != tag ($TAG_VERSION)"; exit 1; }
+
+      - name: Install Cyrius toolchain
+        run: |
+          CYRIUS_VERSION="${CYRIUS_VERSION:-$(cat .cyrius-toolchain | tr -d '[:space:]')}"
+          echo "Installing Cyrius $CYRIUS_VERSION"
+          curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
+          CYRIUS_DIR="cyrius-$CYRIUS_VERSION-x86_64-linux"
+          mkdir -p "$HOME/.cyrius/bin" "$HOME/.cyrius/lib"
+          cp "$CYRIUS_DIR/bin/"* "$HOME/.cyrius/bin/" 2>/dev/null || true
+          cp -r "$CYRIUS_DIR/lib/"* "$HOME/.cyrius/lib/" 2>/dev/null || true
+          chmod +x "$HOME/.cyrius/bin/"* 2>/dev/null || true
+          echo "$HOME/.cyrius/bin" >> $GITHUB_PATH
+          echo "CYRIUS_HOME=$HOME/.cyrius" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          cyrius deps
+          mkdir -p build
+          cyrius build src/main.cyr build/${{ github.event.repository.name }}
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: build/*
+RELEASE
 
 # === Vendor stdlib ===
 echo "Vendoring Cyrius stdlib..."

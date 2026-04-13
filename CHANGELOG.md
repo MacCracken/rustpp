@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.8] — 2026-04-13
+
+### Added
+- **`cyrius init` generates `.cyrius-toolchain`** — pins the Cyrius version
+  for CI/release workflows. Both `ci.yml` and `release.yml` read from this
+  file: `CYRIUS_VERSION="${CYRIUS_VERSION:-$(cat .cyrius-toolchain)}"`.
+  Override with `CYRIUS_VERSION` env var for manual pinning.
+- **`cyrius init` generates `release.yml`** — complete GitHub release workflow
+  with CI gate, version verification, build, and `softprops/action-gh-release`.
+- **Updated `ci.yml` template** — uses release tarball instead of cloning and
+  bootstrapping. Includes `cyrius deps` + `cyrius build` with auto-include.
+- **Updated `cyrius.toml` template** — proper `[package]`/`[build]`/`[deps]`
+  sections matching the v3.9+ format.
+
 ## [3.9.7] — 2026-04-12
 
 ### Added
