@@ -4,6 +4,49 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.0] — 2026-04-13
+
+Major release. The toolchain is complete — compiler, build tool, dep system,
+CI scaffolding, undefined function diagnostic, compound assignment, negative
+literals. 6 downstream projects shipping on the toolchain. Bootstrap verified.
+
+### Since 3.6.3 (last major arc boundary)
+
+**Language:**
+- `#derive(accessors)` — auto-generate field getters/setters (v3.7.1)
+- `return (a, b)` / `var x, y = fn()` — native multi-return (v3.7.2)
+- `case N: { ... }` — switch case blocks with scoped variables (v3.7.4)
+- Defer on all exit paths — per-defer runtime flags (v3.8.0)
+- `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=` (v3.10.3)
+- Negative literals: `-1`, `-x`, `-(expr)` (v3.10.3)
+- Undefined function diagnostic at fixup time (v3.10.0)
+
+**Toolchain:**
+- `cyrius build` auto-resolves deps from `cyrius.toml` + auto-prepends includes
+- `cyrius deps` — stdlib + named deps, namespaced `lib/{depname}_{basename}`
+- `cyrius init` — scaffolds project with `.cyrius-toolchain`, CI, release workflows
+- `--dry-run` on build/run/test/init/port/deps/clean
+- `-v` verbose flag (compiler path, binary size)
+- `#skip-lint`, line limit 100→120, brace tracking skips strings/comments
+- `CYRIUS_HOME` env var, git clone fallback for CI deps
+- Release pipeline builds cyrius tool from source, follows lib symlinks
+
+**Compiler internals:**
+- DSE pass extracted, derive struct parser dedup (-147 lines)
+- aarch64 heap map synced with x86, arch-agnostic codegen helpers
+- Bootstrap compiler renamed: stage1f → **cyrc**
+
+**Ecosystem:**
+- kybernet 1.0.1, argonaut 1.2.0, ai-hwaccel 2.0.0, hadara 1.0.0, hoosh 2.0.0, avatara 2.3.0
+
+### Stats
+- **cc3: 302,824 bytes** (was 290,040 at v3.6.3)
+- **102 regression assertions** (was 70)
+- **36 test suites**, 5 fuzz harnesses, 5/5 check.sh
+- **Bootstrap:** seed (29KB) → cyrc (12KB) → bridge → cc3 (303KB). Closure verified.
+- **Self-compile:** 117ms
+- **aarch64:** 268KB cross-compiler, 0 undefined functions
+
 ## [3.10.3] — 2026-04-13
 
 ### Added
