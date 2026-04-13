@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.1.0] — 2026-04-13
+
+### Added
+- **File:line error messages** (`src/frontend/lex.cyr`, `src/common/util.cyr`,
+  `src/frontend/parse.cyr`): errors and warnings now show the source file and
+  line number instead of raw expanded line indices. The preprocessor emits
+  `#@file "filename"` markers before each included file's content. `FM_BUILD`
+  scans the preprocessed buffer to build a file map with line ranges.
+  `FM_LOOKUP` resolves any expanded line to `file:line` at error time.
+  A `#@file "<source>"` marker is emitted before the user's code to
+  distinguish it from included files.
+  - `error:lib/alloc.cyr:42: undefined variable 'x'` — error in stdlib
+  - `error:<source>:7: unexpected '{'` — error in user's code
+  - All 12 error/warning call sites updated (util.cyr + parse.cyr + aarch64 emit)
+
+### Stats
+- **cc3: 309KB** (was 303KB — file map + marker emission adds ~6KB)
+- 102 regression assertions, 5/5 check.sh
+
 ## [4.0.0] — 2026-04-13
 
 Major release. The toolchain is complete — compiler, build tool, dep system,
