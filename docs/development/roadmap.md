@@ -1,11 +1,11 @@
 # Cyrius Development Roadmap
 
-> **v3.10.3 — pre-4.0 audit complete.** 303KB self-hosting compiler, x86_64 + aarch64.
+> **v4.0.0.** 303KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (303KB). Closure verified.
 > 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
 > `cyrius build` auto-resolves deps + auto-includes from cyrius.toml.
 > `+=`, `-=`, negative literals, `#derive(accessors)`, multi-return, switch blocks, defer, undefined function diagnostic.
-> 6 downstream projects on 3.10.x: kybernet, argonaut, hadara, ai-hwaccel, hoosh, avatara.
+> 6 downstream projects on 4.0.0: kybernet, argonaut, hadara, ai-hwaccel, hoosh, avatara.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -112,44 +112,60 @@ Internal cleanup pass before the major version bump. Same discipline as v3.9.0 b
 
 ---
 
-## v4.0.0 — Platform & Scale
+## v4.1.0 — cc4: Compiler Architecture
 
-Major release. Multi-file compilation, new platforms, dead-code elimination. The version where "young language, no optimizer" stops being a caveat.
+**cc4** — the next-generation compiler. Same language, new internals.
+File:line errors, basic-block analysis, dead-code elimination.
+The version where the compiler understands its own output.
 
-### Core
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. Unblocks dead-code elimination — currently every included function lands in the binary whether called or not. kybernet went from 93KB to 486KB when argonaut deps were included. |
-| **Dead-code elimination** | High | Depends on multi-file linker. Only emit functions that are actually called. Transforms binary sizes across the ecosystem. kybernet 486KB → estimated back toward 100KB range. |
-| **PIC codegen (Phase 2)** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
-
-### Platforms
+### P0 — Ship in 4.1.0
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
-| **macOS aarch64** | High | Mach-O emitter. Apple Silicon native. |
-| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
+| **File:line error messages** | Medium | cc3 errors report expanded line numbers (`error:10169`). cc4 tracks source file + line through preprocessing. Requires preprocessor redesign — single-pass with file map, not multi-pass with lost context. |
+| **Basic-block analysis** | Medium | Build a control-flow graph per function. Foundation for LASE, register alloc, and the layout Heisenbug. Each basic block: straight-line code between branches/labels. |
+| **Dead function elimination** | Medium | Functions included but never called still emit code. With basic-block analysis, identify unreachable functions and skip codegen. kybernet: 486KB → estimated 150-200KB. |
+| **Layout Heisenbug** | Medium | With basic-block analysis, audit the libro PatraStore codegen path. The Heisenbug is a jump targeting wrong address at specific binary layouts. CFG analysis should expose it. |
 
-### Diagnostics & Ergonomics
+### P1 — Ship during 4.1.x
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **LSP** | High | Language Server Protocol for IDE integration. Transforms the editing experience for agents and humans. |
-| **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. Safer bounded buffers. |
+| **Per-function register alloc** | Medium | Opt-in `#regalloc`. Keep hot locals in callee-saved registers (rbx, r12-r15). Per-function analysis only. Key benchmark: 249ns → target sub-100ns on struct init. |
+| **LASE (load-after-store elimination)** | Medium | With CFG, safely identify adjacent store+load pairs that aren't branch targets. The v3.8.1 attempt failed without this — loop back-edges made it unsafe. |
+| **`rep movsb`/`rep stosb`** | Low | Fast memcpy/memset in stdlib. 369ns → sub-10ns for 128-byte copies. |
+| **Optimized strlen** | Low | SSE4.2 `pcmpistri` or word-at-a-time. 94ns → sub-20ns for 52 chars. |
+
+### P2 — If time before 5.0
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **Deferred formatting (defmt)** | High | String interning + decode ring. Format strings as interned IDs at runtime. |
+| **u128** | High | 128-bit integers via register pairs. Unblocks native bigint. |
+| **Jump tables for enum dispatch** | High | 79 if-chains → O(1) indexed branch. 10-35x on enum-heavy code. |
 
 ---
 
-## Post-4.0 — Ergonomics & Codegen
-
-Language improvements driven by real porting pain across the AGNOS ecosystem. Quality-of-life and performance features that don't gate platform work but reduce boilerplate and close the codegen gap with LLVM.
+## v4.2.0 — LSP & Developer Experience
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Jump tables for enum dispatch** | High | types.cyr has 79 if-chains for enum→value mapping. LLVM compiles to jump tables (O(1)). Cyrius emits linear if-chains (O(n)). Accounts for 10-35x gap on enum-heavy micro-benchmarks. Requires computed goto or indexed branch. |
-| **`#derive(accessors)` adoption tooling** | Low | Feature exists (v3.7.1) but zero downstream adoption. Need: migration guide, `cyrius refactor --derive` tool, or documented before/after examples. ai-hwaccel has 274 manual accessor calls. |
-| **Struct initializer syntax** | Medium | `var p = Point { x: a, y: b, z: c }` instead of alloc + 3× store64. Eliminates 3-4 lines per struct creation across ~50 locations in ai-hwaccel. |
+| **LSP** | High | Language Server Protocol. Go-to-definition, diagnostics, hover, completions. Transforms editing for agents and humans. Written in Cyrius. |
+| **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
+| **Struct initializer syntax** | Medium | `var p = Point { x: a, y: b }` instead of alloc + store64. |
+
+---
+
+## v5.0.0 — Platform & Scale
+
+Multi-file compilation, new platforms. The reach release.
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **Multi-file linker** | High | .o emission done (v2.6.4). Read .o, resolve symbols, patch relocations, emit executable. Unblocks true DCE across compilation units. |
+| **PIC codegen** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
+| **macOS x86_64 + aarch64** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
+| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
 
 ---
 
@@ -181,7 +197,7 @@ Language improvements driven by real porting pain across the AGNOS ecosystem. Qu
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, 299KB self-hosting |
+| Linux x86_64 | ELF | **Done** — primary, 303KB self-hosting |
 | Linux aarch64 | ELF | **Done** — cross + native |
 | macOS x86_64 | Mach-O | Stub (v3.1) — v4.0.0 |
 | macOS aarch64 | Mach-O | Stub — v4.0.0 |

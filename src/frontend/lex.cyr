@@ -2,6 +2,92 @@
 # LEXER — tokenizes input at S+0 into tok arrays
 # ================================================================
 
+# File map: tracks #@file markers for file:line error messages.
+# S+0x9A100: entry count (8 bytes)
+# S+0x9A108: entries[128], each 24 bytes: (start_line, line_count, fname_offset)
+# S+0x9D000: filename strings (4KB scratch)
+
+var _fm_count = 0;
+var _fm_str_pos = 0;
+
+fn FM_BUILD(S) {
+    _fm_count = 0;
+    _fm_str_pos = 0;
+    var buf = S + 0x44A000;
+    var bl = GBL(S);
+    var line = 1;
+    var pos = 0;
+    # First pass: find all markers and their start lines
+    while (pos < bl) {
+        if (load8(buf + pos) == 35 && pos + 7 < bl) {
+            if (load8(buf + pos + 1) == 64 && load8(buf + pos + 2) == 102 && load8(buf + pos + 3) == 105 && load8(buf + pos + 4) == 108 && load8(buf + pos + 5) == 101 && load8(buf + pos + 6) == 32 && load8(buf + pos + 7) == 34) {
+                var fstart = pos + 8;
+                var fend = fstart;
+                while (fend < bl && load8(buf + fend) != 34) { fend = fend + 1; }
+                var flen = fend - fstart;
+                if (_fm_count < 128 && flen > 0) {
+                    store64(S + 0x9A108 + _fm_count * 24, line + 1);
+                    store64(S + 0x9A108 + _fm_count * 24 + 8, 0);
+                    store64(S + 0x9A108 + _fm_count * 24 + 16, _fm_str_pos);
+                    var fi = 0;
+                    while (fi < flen) {
+                        store8(S + 0x9D000 + _fm_str_pos + fi, load8(buf + fstart + fi));
+                        fi = fi + 1;
+                    }
+                    store8(S + 0x9D000 + _fm_str_pos + flen, 0);
+                    _fm_str_pos = _fm_str_pos + flen + 1;
+                    _fm_count = _fm_count + 1;
+                }
+            }
+        }
+        if (load8(buf + pos) == 10) { line = line + 1; }
+        pos = pos + 1;
+    }
+    # Second: compute line counts from start_line gaps
+    var i = 0;
+    while (i < _fm_count) {
+        var start = load64(S + 0x9A108 + i * 24);
+        var next_start = 0;
+        if (i + 1 < _fm_count) {
+            next_start = load64(S + 0x9A108 + (i + 1) * 24);
+            store64(S + 0x9A108 + i * 24 + 8, next_start - start - 1);
+        } else {
+            # Last file: count remaining lines to EOF
+            store64(S + 0x9A108 + i * 24 + 8, line - start);
+        }
+        i = i + 1;
+    }
+    store64(S + 0x9A100, _fm_count);
+    return 0;
+}
+
+# Look up file:line for an expanded line number. Prints to stderr.
+# Returns 1 if found, 0 if fallback to raw line number.
+fn FM_LOOKUP(S, expanded_line) {
+    var cnt = load64(S + 0x9A100);
+    if (cnt == 0) { PRNUM(expanded_line); return 0; }
+    # Find which file contains this line
+    var i = 0;
+    while (i < cnt) {
+        var start = load64(S + 0x9A108 + i * 24);
+        var lines = load64(S + 0x9A108 + i * 24 + 8);
+        if (expanded_line >= start && expanded_line < start + lines) {
+            var foff = load64(S + 0x9A108 + i * 24 + 16);
+            var fptr = S + 0x9D000 + foff;
+            var flen = 0;
+            while (load8(fptr + flen) != 0) { flen = flen + 1; }
+            syscall(SYS_WRITE, 2, fptr, flen);
+            syscall(SYS_WRITE, 2, ":", 1);
+            PRNUM(expanded_line - start + 1);
+            return 1;
+        }
+        i = i + 1;
+    }
+    # Line not in any included file — it's the main source
+    PRNUM(expanded_line);
+    return 0;
+}
+
 # Store a token
 fn ADDTOK(S, typ, val) {
     var tc = GTCNT(S);
@@ -977,6 +1063,7 @@ fn PP_PASS(S) {
     var bol = 1;
     var skip_depth = 0;
     var had_include = 0;
+    var source_marked = 0;
     while (ip < bl) {
         var c = load8(S + ip);
         var handled = 0;
@@ -1078,6 +1165,22 @@ fn PP_PASS(S) {
                     # Include-once: skip if already included
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
+                        # Emit file marker: #@file "filename"\n
+                        store8(out + op, 35); op = op + 1;
+                        store8(out + op, 64); op = op + 1;
+                        store8(out + op, 102); op = op + 1;
+                        store8(out + op, 105); op = op + 1;
+                        store8(out + op, 108); op = op + 1;
+                        store8(out + op, 101); op = op + 1;
+                        store8(out + op, 32); op = op + 1;
+                        store8(out + op, 34); op = op + 1;
+                        var fmi = 0;
+                        while (load8(fname + fmi) != 0) {
+                            store8(out + op, load8(fname + fmi));
+                            op = op + 1; fmi = fmi + 1;
+                        }
+                        store8(out + op, 34); op = op + 1;
+                        store8(out + op, 10); op = op + 1;
                         var nr = READFILE(fname, out + op, 1048576 - op);
                         op = op + nr;
                         had_include = 1;
@@ -1088,7 +1191,31 @@ fn PP_PASS(S) {
         }
         # Default: copy byte to output (if not skipping)
         if (handled == 0) {
-            if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
+            if (skip_depth == 0) {
+                # Emit source marker once, before first non-directive line after includes
+                if (source_marked == 0 && had_include == 1 && bol == 1 && c != 10 && c != 35) {
+                    source_marked = 1;
+                    store8(out + op, 35); op = op + 1;
+                    store8(out + op, 64); op = op + 1;
+                    store8(out + op, 102); op = op + 1;
+                    store8(out + op, 105); op = op + 1;
+                    store8(out + op, 108); op = op + 1;
+                    store8(out + op, 101); op = op + 1;
+                    store8(out + op, 32); op = op + 1;
+                    store8(out + op, 34); op = op + 1;
+                    store8(out + op, 60); op = op + 1;
+                    store8(out + op, 115); op = op + 1;
+                    store8(out + op, 111); op = op + 1;
+                    store8(out + op, 117); op = op + 1;
+                    store8(out + op, 114); op = op + 1;
+                    store8(out + op, 99); op = op + 1;
+                    store8(out + op, 101); op = op + 1;
+                    store8(out + op, 62); op = op + 1;
+                    store8(out + op, 34); op = op + 1;
+                    store8(out + op, 10); op = op + 1;
+                }
+                store8(out + op, c); op = op + 1;
+            }
             ip = ip + 1;
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
@@ -1253,6 +1380,22 @@ fn PP_IFDEF_PASS(S) {
                     }
                     if (PP_ALREADY_INCLUDED(S, fname) == 0) {
                         PP_MARK_INCLUDED(S, fname);
+                        # Emit file marker
+                        store8(out + op, 35); op = op + 1;
+                        store8(out + op, 64); op = op + 1;
+                        store8(out + op, 102); op = op + 1;
+                        store8(out + op, 105); op = op + 1;
+                        store8(out + op, 108); op = op + 1;
+                        store8(out + op, 101); op = op + 1;
+                        store8(out + op, 32); op = op + 1;
+                        store8(out + op, 34); op = op + 1;
+                        var fmi = 0;
+                        while (load8(fname + fmi) != 0) {
+                            store8(out + op, load8(fname + fmi));
+                            op = op + 1; fmi = fmi + 1;
+                        }
+                        store8(out + op, 34); op = op + 1;
+                        store8(out + op, 10); op = op + 1;
                         var nr = READFILE(fname, out + op, 1048576 - op);
                         op = op + nr;
                     }

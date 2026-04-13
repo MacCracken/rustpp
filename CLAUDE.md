@@ -14,7 +14,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 299KB (x86_64), 262KB (aarch64 cross), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks
+- **Compiler**: 303KB (x86_64), 268KB (aarch64 cross), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`, negative literals, undefined function diagnostic
 - **Tests**: 36 .tcyr files, 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks, heap audit, self-hosting (two-step)
 - **Libraries**: 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
 - **Build tool**: `cyrius deps` resolves from cyrius.toml, auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
@@ -30,7 +30,7 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 bootstrap/asm (29KB committed binary — root of trust)
   → cyrc (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular compiler, 299KB, 8 modules)
+      → cc3 (modular compiler, 303KB, 8 modules)
         → cc3_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.

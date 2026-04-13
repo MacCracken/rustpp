@@ -535,7 +535,7 @@ fn PARSE_FACTOR(S) {
         var idx = FINDVAR(S, noff);
         if (idx < 0) {
             syscall(SYS_WRITE, 2, "error:", 6);
-            PRNUM(GTLINE(S, GTI(S)));
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
             syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + noff);
             syscall(SYS_WRITE, 2, "' (missing include or enum?)\n", 29);
@@ -612,7 +612,7 @@ fn PARSE_FACTOR(S) {
         }
         var aidx = FINDVAR(S, anoff);
         if (aidx < 0) {
-            syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + anoff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
         }
         EVADDR(S, aidx);
@@ -1512,7 +1512,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
     if (idx == 0 - 1) {
         idx = FINDVAR(S, noff);
         if (idx < 0) {
-            syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
             PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
         }
         sid = GVTYPE(S, idx);
@@ -1594,7 +1594,7 @@ fn PARSE_FIELD_STORE(S, noff) {
     # Find var + struct type + field
     var idx = FINDVAR(S, noff);
     if (idx < 0) {
-        syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+        syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
         PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
     }
     var sid = GVTYPE(S, idx);
@@ -2025,7 +2025,7 @@ fn PARSE_ASSIGN(S) {
     PCMPE(S);
     var idx = FINDVAR(S, noff);
     if (idx < 0) {
-        syscall(SYS_WRITE, 2, "error:", 6); PRNUM(GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+        syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
         PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
     }
     EVSTORE(S, idx);
@@ -3479,7 +3479,7 @@ fn PARSE_STMT(S) {
         if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
         if (lhs == 0) {
             syscall(SYS_WRITE, 2, "error:", 6);
-            PRNUM(GTLINE(S, GTI(S)));
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
             syscall(SYS_WRITE, 2, ": #assert failed", 16);
             if (PEEKT(S) == 30) {
                 # String token value is (offset << 16) | length
@@ -3741,7 +3741,7 @@ fn PARSE_STMT(S) {
             idx = FINDVAR(S, noff);
             if (idx < 0) {
                 syscall(SYS_WRITE, 2, "error:", 6);
-                PRNUM(GTLINE(S, GTI(S)));
+                FM_LOOKUP(S, GTLINE(S, GTI(S)));
                 syscall(SYS_WRITE, 2, ": undefined variable '", 22);
                 PRSTR(S + 0x60000 + noff);
                 syscall(SYS_WRITE, 2, "'\n", 2);

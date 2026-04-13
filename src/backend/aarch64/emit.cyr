@@ -533,7 +533,7 @@ fn ASM_MNEMONIC(S) {
     elif (mnem & 0xFFFFFF == 0x746572) { EW(S, 0xD65F03C0); }                  # ret
     else {
         syscall(SYS_WRITE, 2, "error:", 6);
-        PRNUM(GTLINE(S, GTI(S) - 1));
+        FM_LOOKUP(S, GTLINE(S, GTI(S) - 1));
         syscall(SYS_WRITE, 2, ": unknown aarch64 asm mnemonic\n", 31);
         syscall(SYS_EXIT, 1);
     }

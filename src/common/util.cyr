@@ -211,7 +211,7 @@ fn TOKNAME(typ) {
 
 fn ERRDUPVAR(S) {
     syscall(SYS_WRITE, 2, "error:", 6);
-    PRNUM(GTLINE(S, GTI(S)));
+    FM_LOOKUP(S, GTLINE(S, GTI(S)));
     syscall(SYS_WRITE, 2, ": duplicate variable\n", 21);
     syscall(SYS_EXIT, 1);
     return 0;
@@ -219,7 +219,7 @@ fn ERRDUPVAR(S) {
 
 fn WARN(S, msg, len) {
     syscall(SYS_WRITE, 2, "warning:", 8);
-    PRNUM(GTLINE(S, GTI(S)));
+    FM_LOOKUP(S, GTLINE(S, GTI(S)));
     syscall(SYS_WRITE, 2, ": ", 2);
     syscall(SYS_WRITE, 2, msg, len);
     syscall(SYS_WRITE, 2, "\n", 1);
@@ -229,7 +229,7 @@ fn WARN(S, msg, len) {
 fn ERR(S) {
     var typ = PEEKT(S);
     syscall(SYS_WRITE, 2, "error:", 6);
-    PRNUM(GTLINE(S, GTI(S)));
+    FM_LOOKUP(S, GTLINE(S, GTI(S)));
     syscall(SYS_WRITE, 2, ": unexpected ", 13);
     PRSTR(TOKNAME(typ));
     if (typ == 2) {
@@ -249,7 +249,7 @@ fn ERR(S) {
 fn ERR_EXPECT(S, expected_type) {
     var got = PEEKT(S);
     syscall(SYS_WRITE, 2, "error:", 6);
-    PRNUM(GTLINE(S, GTI(S)));
+    FM_LOOKUP(S, GTLINE(S, GTI(S)));
     syscall(SYS_WRITE, 2, ": expected ", 11);
     PRSTR(TOKNAME(expected_type));
     syscall(SYS_WRITE, 2, ", got ", 6);
@@ -270,7 +270,7 @@ fn ERR_EXPECT(S, expected_type) {
 
 fn ERR_MSG(S, msg, len) {
     syscall(SYS_WRITE, 2, "error:", 6);
-    PRNUM(GTLINE(S, GTI(S)));
+    FM_LOOKUP(S, GTLINE(S, GTI(S)));
     syscall(SYS_WRITE, 2, ": ", 2);
     syscall(SYS_WRITE, 2, msg, len);
     syscall(SYS_WRITE, 2, "\n", 1);

@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v3.9.3** — cc3 is the active modular compiler (8 modules, 299KB). 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64.
+**v4.0.0** — cc3 is the active modular compiler (8 modules, 303KB). 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. 6 downstream projects shipping.
 
 ```
 sh bootstrap/bootstrap.sh

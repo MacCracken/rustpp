@@ -267,6 +267,9 @@ S64(S + 0x9A000, 0);       # gvar_cnt
 S64(S + 0x97000, 0);       # macro state
 S64(S + 0x97F00, 0);       # macro state 2
 
+# Build file map from #@file markers (for file:line error messages)
+FM_BUILD(S);
+
 # Lex
 LEX(S);
 
