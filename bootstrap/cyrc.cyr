@@ -576,7 +576,7 @@ emit_xor_rax_rax:
     ret
 
 # ================================================================
-# BITWISE / SHIFT / MODULO EMISSION HELPERS (stage1e)
+# BITWISE / SHIFT / MODULO EMISSION HELPERS
 # ================================================================
 
 # emit_and_rax_rcx: emit "and rax, rcx" = 48 21 C8
@@ -1386,7 +1386,7 @@ lexer_not_letter:
     cmp rax, 34
     je lexer_string
 
-    # stage1e: new operators
+    # Bitwise / modulo operators
     cmp rax, 37           # '%'
     je lexer_percent
     cmp rax, 124          # '|'
@@ -1568,7 +1568,7 @@ lexer_comma:
     call lexer_emit_simple
     jmp lexer_skip
 
-# ── stage1e: new tokens ��─
+# ── Bitwise / modulo tokens ��─
 
 lexer_percent:
     mov rax, 34          # PERCENT
