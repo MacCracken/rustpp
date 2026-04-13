@@ -462,10 +462,10 @@ fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
 fn EFLLOAD_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
     var off9 = disp & 0x1FF;
-    if (width == 1) { EW(S, 0x385003A0 | (off9 << 12)); return 0; }
-    if (width == 2) { EW(S, 0x785003A0 | (off9 << 12)); return 0; }
-    if (width == 4) { EW(S, 0xB85003A0 | (off9 << 12)); return 0; }
-    EW(S, 0xF85003A0 | (off9 << 12));
+    if (width == 1) { EW(S, 0x384003A0 | (off9 << 12)); return 0; }
+    if (width == 2) { EW(S, 0x784003A0 | (off9 << 12)); return 0; }
+    if (width == 4) { EW(S, 0xB84003A0 | (off9 << 12)); return 0; }
+    EW(S, 0xF84003A0 | (off9 << 12));
     return 0;
 }
 
