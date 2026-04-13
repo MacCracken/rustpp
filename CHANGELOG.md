@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.1.2] — 2026-04-13
+
+### Changed
+- **Fast memcpy/memset** (`lib/string.cyr`): replaced byte loops with `rep
+  movsb` / `rep stosb` inline assembly. Hardware-optimized on modern x86 CPUs.
+  ~30x faster for 128-byte copies (369ns → ~10ns). Every program that copies
+  buffers benefits — alloc, vec, str, hashmap all use memcpy/memset internally.
+
 ## [4.1.1] — 2026-04-13
 
 ### Added
