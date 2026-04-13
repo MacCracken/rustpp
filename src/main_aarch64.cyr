@@ -7,7 +7,7 @@
 # Build: cat cc3.cyr | ./build/cc > cc3
 # Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
 # ================================================================
-# HEAP MAP — Synced with main.cyr (v3.9.1)
+# HEAP MAP — Synced with main.cyr (v4.2)
 # ================================================================
 # Identical layout to x86. All offsets in parse.cyr/lex.cyr are shared.
 # See main.cyr for authoritative heap map with detailed annotations.

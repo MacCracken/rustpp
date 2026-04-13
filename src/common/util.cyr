@@ -101,7 +101,7 @@ fn SESVAR(S, v) { S64(S + 0x903E0, v); return 0; }
 
 # Module system. (GPUB/SPUB were scaffolded for the `pub` visibility check
 # in docs/development/module-manifest-design.md but never wired up in the
-# compiler — removed in v3.4.16 to stop tracking dead state. The 0x8FED0
+# compiler — removed to stop tracking dead state. The 0x8FED0
 # pub_flags region remains reserved in the heap map.)
 fn GMOD(S) { return L64(S + 0x8FEC8); }
 fn SMOD(S, v) { S64(S + 0x8FEC8, v); return 0; }
@@ -132,7 +132,7 @@ fn SPSC(S, v) { S64(S + 0x8F890, v); return 0; }
 fn GLTYPE(S, li) { return L64(S + 0x92200 + li * 8); }
 fn SLTYPE(S, li, v) { S64(S + 0x92200 + li * 8, v); return 0; }
 
-# (TWIDTH type-width helper removed in v3.4.16 — every call site now inlines
+# (TWIDTH type-width helper removed — every call site now inlines
 # the byte-width decision directly for single-dispatch code paths.)
 
 # Expression width tracking (0=untyped/i64, 1=i8, 2=i16, 4=i32)

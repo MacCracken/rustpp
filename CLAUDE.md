@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 4.2.4
+- **Version**: 4.2.5
 
 ## Goal
 
@@ -71,6 +71,20 @@ Before starting new work on a release, run this audit phase:
 5. **Refactor** — address findings from audit
 6. **Post-audit benchmarks** — compare against baseline
 7. **Document** — update CHANGELOG, roadmap, vidya
+
+## Closeout Pass (before every minor/major bump)
+
+Run a closeout pass before tagging x.Y.0 or x.0.0. Ship as the last patch of the current minor (e.g. 4.2.5 before 4.3.0):
+
+1. **Self-host verify** — cc3 compiles itself byte-identical
+2. **Bootstrap closure** — seed → cyrc → asm → cyrc byte-identical
+3. **Dead code audit** — check dead function count, remove dead source code
+4. **Stale comment sweep** — grep for old version refs, outdated TODOs
+5. **Heap map verify** — main.cyr heap map matches actual usage
+6. **Downstream check** — all .cyrius-toolchain files point to current release
+7. **Security re-scan** — quick grep for new `sys_system`, `READFILE`, unchecked writes
+8. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state
+9. **Full check.sh** — 5/5 pass
 
 ## Security Audit Process
 

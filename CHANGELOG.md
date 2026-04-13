@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.5] — 2026-04-13
+
+### Changed
+- **Closeout pass** — stale version comments cleaned (aarch64 heap map,
+  util.cyr). Self-host verified, bootstrap closure verified, 5/5 check.sh.
+  Dead code: 266/310 unused functions in compiler (86% — DCE motivation).
+  Closeout process formalized in CLAUDE.md for all future minor/major bumps.
+
 ## [4.2.4] — 2026-04-13
 
 ### Security
