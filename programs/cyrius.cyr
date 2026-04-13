@@ -158,8 +158,9 @@ fn find_tools() {
             _cc = "./build/cc3";
             _tools_dir = "./build";
         } else {
-            println("error: cc3 not found. Install Cyrius or set CYRIUS_HOME.");
-            sys_exit(1);
+            # cc3 not found — ok for deps/clean/init/version/help, fatal for build/run/test
+            _cc = 0;
+            _tools_dir = make_path(_home, "bin");
         }
     }
     # Search for aarch64 cross-compiler: tools dir, then ./build/
@@ -212,9 +213,14 @@ fn arch_name() {
 # If _defines vec is set, prepend #define lines to a temp file first.
 fn compile(source, output) {
     var cc = current_cc();
+    if (cc == 0) {
+        sys_write(STDERR_FD, "error: cc3 not found. Install Cyrius or set CYRIUS_HOME.\n", 57);
+        return 1;
+    }
     if (file_exists(cc) == 0) {
         sys_write(STDERR_FD, "error: compiler not found: ", 27);
-        println(cc);
+        sys_write(STDERR_FD, cc, strlen(cc));
+        sys_write(STDERR_FD, "\n", 1);
         return 1;
     }
     if (_verbose == 1) {

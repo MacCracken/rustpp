@@ -38,6 +38,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   symlinks for dep bundles (sakshi, sigil) in the tarball.
 - **`sys_system()` helper** added to `programs/cyrius.cyr` for running shell
   commands via fork+execve `/bin/sh -c`.
+- **`cyrius deps` no longer requires cc3** — `find_tools()` sets `_cc = 0`
+  instead of `sys_exit(1)` when cc3 is missing. Non-compile commands (deps,
+  clean, init, version, help) work without a compiler installed. `compile()`
+  fails gracefully with a clear error message when cc3 is needed but absent.
 
 ## [3.9.5] — 2026-04-12
 
