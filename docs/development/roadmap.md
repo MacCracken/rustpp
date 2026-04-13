@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v3.7.1.** 299KB self-hosting compiler, x86_64 + aarch64.
+> **v3.7.2.** 301KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
-> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`, `#derive(accessors)`.
+> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`, `#derive(accessors)`, multi-return.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -37,11 +37,11 @@ struct Point { x; y; }
 # Generates: Point_x(p), Point_set_x(p, v), Point_y(p), Point_set_y(p, v)
 ```
 
-## v3.7.2 — Native multi-return
+## v3.7.2 — Native multi-return (Shipped)
 
 `return (a, b)` → rax:rdx register pair. `var x, y = fn()` → destructure.
 Eliminates the `alloc(16)` pair-struct workaround. `ret2`/`rethi` builtins
-already exist internally — this exposes them as first-class syntax.
+still work (backward compat).
 
 ## v3.7.3 — Deferred formatting (defmt)
 
@@ -59,7 +59,7 @@ Compile-time guarantees that produce identical machine code.
 | Version | Feature | Effort | Details |
 |---------|---------|--------|---------|
 | v3.8.0 | **Defer on all exit paths** | Medium | Emit defer cleanup before every `return`, not just function end. Eliminates resource leak bugs. |
-| v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. |
+| v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. Key benchmark: Cyrius `kabbalah_tiphareth()` = 249ns (40+ store64 instructions) vs Rust `Sephira::Tiphareth.profile()` = 63ns (LLVM-optimized field writes). |
 | v3.8.2 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
 
 ---

@@ -382,6 +382,36 @@ fn test_derive_accessors() {
 }
 
 # ================================================================
+# Native multi-return (v3.7.2)
+# ================================================================
+# return (a, b) → rax:rdx register pair
+# var x, y = fn() → destructure from rax:rdx
+
+fn divmod(a, b) { return (a / b, a % b); }
+fn swap(a, b) { return (b, a); }
+fn minmax(a, b) { if (a < b) { return (a, b); } return (b, a); }
+
+fn test_multi_return() {
+    test_group("multi-return (v3.7.2)");
+    # Basic return (a, b)
+    var q, r = divmod(17, 5);
+    assert_eq(q, 3, "divmod quotient");
+    assert_eq(r, 2, "divmod remainder");
+    # Swap
+    var x, y = swap(10, 20);
+    assert_eq(x, 20, "swap first");
+    assert_eq(y, 10, "swap second");
+    # Conditional multi-return
+    var lo, hi = minmax(99, 7);
+    assert_eq(lo, 7, "minmax lo");
+    assert_eq(hi, 99, "minmax hi");
+    # Using rethi() still works (backward compat)
+    divmod(17, 5);
+    var rhi = rethi();
+    assert_eq(rhi, 2, "rethi compat");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -406,6 +436,7 @@ fn main() {
     test_syscall_arity();
     test_float_literal();
     test_derive_accessors();
+    test_multi_return();
 
     return assert_summary();
 }

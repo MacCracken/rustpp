@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.2] — 2026-04-12
+
+### Added
+- **Native multi-return** (`src/frontend/parse.cyr`): `return (a, b)` emits
+  rax:rdx register pair (same codegen as `ret2(a, b)` builtin). Parser scans
+  ahead for comma at depth 1 to distinguish `return (a, b)` from
+  `return (a + b)`.
+- **Destructuring bind** (`src/frontend/parse.cyr`): `var x, y = fn()` binds
+  the rax:rdx pair from a multi-return function call. First value goes to x
+  (rax), second to y (rdx via `mov rax, rdx`). Functions only.
+- **Multi-return regression test** in `regression.tcyr`: 7 assertions covering
+  divmod, swap, conditional multi-return, and rethi() backward compat.
+
+### Stats
+- **cc3: 301,112 bytes**, 36 test suites (81 regression assertions)
+
 ## [3.7.1] — 2026-04-12
 
 ### Added
