@@ -17,6 +17,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Catches typos like `assert_report()` vs `assert_summary()` that previously
   took hours to debug.
 
+### Fixed
+- **aarch64 backend: missing width-aware functions** (`src/backend/aarch64/emit.cyr`):
+  `EFLLOAD_W`, `EFLSTORE_W`, `EVLOAD_W`, `EVSTORE_W`, `_IS_OBJ` were only
+  defined in the x86 backend. The aarch64 cross-compiler crashed (SIGSEGV
+  under QEMU) because these functions were called from shared `parse.cyr` but
+  resolved to address 0. The new undefined function diagnostic caught this —
+  first real bug found by the diagnostic.
+
 ### Stats
 - **cc3: 299,448 bytes**, 36 test suites, 5/5 check.sh
 

@@ -455,6 +455,49 @@ fn EFLSTORE(S, idx) {
     return 0;
 }
 
+# Object mode check (shared with x86)
+fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
+
+# Width-aware local load: ldurb/ldurh/ldur w0/ldur x0 from [x29, #-offset]
+fn EFLLOAD_W(S, idx, width) {
+    var disp = 0 - ((idx + 1) * 8);
+    var off9 = disp & 0x1FF;
+    if (width == 1) { EW(S, 0x385003A0 | (off9 << 12)); return 0; }
+    if (width == 2) { EW(S, 0x785003A0 | (off9 << 12)); return 0; }
+    if (width == 4) { EW(S, 0xB85003A0 | (off9 << 12)); return 0; }
+    EW(S, 0xF85003A0 | (off9 << 12));
+    return 0;
+}
+
+# Width-aware local store: sturb/sturh/stur w0/stur x0 to [x29, #-offset]
+fn EFLSTORE_W(S, idx, width) {
+    var disp = 0 - ((idx + 1) * 8);
+    var off9 = disp & 0x1FF;
+    if (width == 1) { EW(S, 0x380003A0 | (off9 << 12)); return 0; }
+    if (width == 2) { EW(S, 0x780003A0 | (off9 << 12)); return 0; }
+    if (width == 4) { EW(S, 0xB80003A0 | (off9 << 12)); return 0; }
+    EW(S, 0xF80003A0 | (off9 << 12));
+    return 0;
+}
+
+# Width-aware global load: ldr from [x1] with width
+fn EVLOAD_W(S, idx, width) {
+    EVADDR_X1(S, idx);
+    if (width == 1) { EW(S, 0x39400020); return 0; }
+    if (width == 2) { EW(S, 0x79400020); return 0; }
+    if (width == 4) { EW(S, 0xB9400020); return 0; }
+    EW(S, 0xF9400020); return 0;
+}
+
+# Width-aware global store: str to [x1] with width
+fn EVSTORE_W(S, idx, width) {
+    EVADDR_X1(S, idx);
+    if (width == 1) { EW(S, 0x39000020); return 0; }
+    if (width == 2) { EW(S, 0x79000020); return 0; }
+    if (width == 4) { EW(S, 0xB9000020); return 0; }
+    EW(S, 0xF9000020); return 0;
+}
+
 # Patch frame size: sub sp, sp, #N at the prologue
 fn EPATCHFRAME(S, patch, size) {
     # Read the SUB instruction and patch imm12
