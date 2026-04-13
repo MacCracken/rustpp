@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v3.9.4.** 304KB self-hosting compiler, x86_64 + aarch64.
-> 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
-> 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
-> 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
-> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`, `#derive(accessors)`, multi-return, switch blocks.
+> **v3.9.5.** 299KB self-hosting compiler, x86_64 + aarch64.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (299KB).
+> 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps.
+> `cyrius deps` auto-resolves from cyrius.toml. Auto-include on build.
+> `#derive(accessors)`, multi-return, switch blocks, defer (all exit paths).
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).

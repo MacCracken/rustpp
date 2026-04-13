@@ -4,6 +4,18 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.5] — 2026-04-12
+
+### Changed
+- **Bootstrap compiler renamed: stage1f → cyrc** (`bootstrap/cyrc.cyr`):
+  the bootstrap compiler now has a proper name — `cyrc` (Cyrius Compiler).
+  Renamed across 23 files: source, bootstrap scripts, bridge compiler,
+  docs, README, CLAUDE.md, CI workflows, build tool. Bootstrap chain is
+  now: `seed → cyrc → bridge → cc3`. The 29KB seed binary is unchanged.
+  Bootstrap closure verified: seed→cyrc→asm→cyrc_check byte-identical.
+- **Stale stage1e comments cleaned** in cyrc.cyr — section headers updated
+  from historical stage names to descriptive labels.
+
 ## [3.9.4] — 2026-04-12
 
 ### Fixed

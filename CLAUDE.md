@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 3.9.4
+- **Version**: 3.9.5
 
 ## Goal
 
@@ -30,7 +30,7 @@ AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424 tests), s
 bootstrap/asm (29KB committed binary — root of trust)
   → cyrc (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular compiler, 290KB, 8 modules)
+      → cc3 (modular compiler, 299KB, 8 modules)
         → cc3_aarch64 (cross-compiler)
 
 No Rust. No LLVM. No Python. Just sh + Linux x86_64.
