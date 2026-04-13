@@ -143,15 +143,55 @@ var n = syscall(0, 0, &buf, 256);   # read(fd=0, buf, len=256)
 syscall(60, 0);                      # exit(0)
 ```
 
-## Return-by-Value Builtins
+## Multi-Return
 
 ```
-# Return two values from a function via rax:rdx
-fn divmod(a, b) {
-    ret2(a / b, a % b);          # Returns both values
+# Native multi-return (v3.7.2) — return (a, b) puts values in rax:rdx
+fn divmod(a, b) { return (a / b, a % b); }
+var q, r = divmod(10, 3);       # q = 3, r = 1 — destructuring bind
+
+# Legacy builtins still work
+fn divmod_old(a, b) { ret2(a / b, a % b); }
+var q2 = divmod_old(10, 3);     # q2 = 3 (rax)
+var r2 = rethi();                # r2 = 1 (rdx)
+```
+
+## Switch Case Blocks
+
+```
+# case bodies can be blocks with scoped variables (v3.7.4)
+switch (cmd) {
+    case 1: {
+        var buf = alloc(1024);
+        process(buf);
+    }
+    case 2: result = 42;         # inline case still works
+    default: { result = 0; }
 }
-var q = divmod(10, 3);           # q = 3 (rax)
-var r = rethi();                 # r = 1 (rdx, the second value)
+```
+
+## Derive Accessors
+
+```
+# Auto-generate getters/setters (v3.7.1)
+#derive(accessors)
+struct Config { host: Str; port; timeout; }
+# Generates: Config_host(p), Config_set_host(p, v),
+#            Config_port(p), Config_set_port(p, v), etc.
+```
+
+## Defer
+
+```
+# Defer runs at function exit, LIFO order
+# Only runs if the defer statement was reached (v3.8.0)
+fn example() {
+    var fd = open("file");
+    defer { close(fd); }
+    if (error) { return -1; }   # defer runs — fd closed
+    defer { free(buf); }        # only runs if we get here
+    return 0;                    # both defers run
+}
 ```
 
 ## Math Builtins
@@ -167,6 +207,40 @@ var angle = f64_atan(x);         # Arctangent (f64)
 include "lib/string.cyr"
 # Textual inclusion — file contents replace the include line
 ```
+
+## Build Tool & Dependencies
+
+```sh
+# cyrius.toml declares deps — build auto-resolves them
+cyrius build src/main.cyr build/myapp   # resolves deps + compiles
+cyrius deps                              # manually resolve deps
+cyrius build -v src/main.cyr build/myapp # verbose (shows compiler, binary size)
+cyrius test tests/test.tcyr             # resolve deps + compile + run
+```
+
+```toml
+# cyrius.toml
+[deps]
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str"]
+
+[deps.agnostik]
+path = "../agnostik"
+modules = ["src/types.cyr", "src/error.cyr"]
+# Resolved to: lib/agnostik_types.cyr, lib/agnostik_error.cyr
+```
+
+Named deps are namespaced: `lib/{depname}_{basename}`. Stdlib is unprefixed.
+Includes are auto-prepended by the build tool — source files only need project includes.
+
+## Linter
+
+```sh
+cyrlint myfile.cyr                       # lint a file
+cyrius lint                              # lint all stdlib
+```
+
+Rules: trailing whitespace, tabs, line length >120 chars, camelCase fn names, unclosed braces.
+`#skip-lint` on a line exempts it from all rules. Brace tracking skips strings and comments.
 
 ## Ref Directive
 

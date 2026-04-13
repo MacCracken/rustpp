@@ -14,10 +14,11 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 304KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks
-- **Tests**: 33 .tcyr files (491 assertions), 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks, heap audit, self-hosting (two-step)
+- **Compiler**: 299KB (x86_64), 262KB (aarch64 cross), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks
+- **Tests**: 36 .tcyr files, 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks, heap audit, self-hosting (two-step)
 - **Libraries**: 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
-- **Ecosystem**: agnostik (574), agnosys, argonaut (395), majra (144), libro (204), sakshi, bsp (74), cyrius-doom, mabda (290)
+- **Build tool**: `cyrius deps` resolves from cyrius.toml, auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
+- **Ecosystem**: agnostik, agnosys, argonaut, majra, libro (209 tests), sakshi, bsp, cyrius-doom, mabda, kybernet (140 tests), hadara (329 tests), ai-hwaccel (491 tests)
 
 ## Consumers
 

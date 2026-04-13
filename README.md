@@ -99,16 +99,29 @@ syscall(60, r);
 ## Build Tool (cyrius)
 
 ```
-Build:     build, run, test, bench, check, self, clean
+Build:     build [-v] [--aarch64] [-D NAME], run, test, bench, check, self, clean
+Deps:      deps — resolve [deps] from cyrius.toml into lib/ (auto-runs on build)
 Project:   init, package, publish, install, update, port
 Quality:   audit, fmt, lint, doc, vet, deny
 Testing:   coverage, doctest
-Docs:      docs [--agent], header
-Interactive: repl
 Info:      version, which, help
 ```
 
-## Standard Library (40 modules + 5 deps)
+Dependencies declared in `cyrius.toml` are auto-resolved on `build`/`run`/`test`:
+
+```toml
+[deps]
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str"]
+
+[deps.agnostik]
+path = "../agnostik"
+modules = ["src/types.cyr", "src/error.cyr"]
+```
+
+Named deps are namespaced: `lib/{depname}_{basename}` (e.g. `lib/agnostik_types.cyr`).
+Includes are auto-prepended — source files only need project-specific includes.
+
+## Standard Library (41 modules + 5 deps)
 
 | Category | Modules |
 |----------|---------|
@@ -123,11 +136,12 @@ Info:      version, which, help
 | Logging | log (structured, over sakshi) |
 | Time | chrono |
 | Knowledge | vidya |
-| Interop | mmap, dynlib |
+| Interop | mmap, dynlib, cffi |
 | Tracing (dep) | sakshi, sakshi_full |
 | Database (dep) | patra |
 | Security (dep) | sigil |
 | Hardware (dep) | yukti |
+| GPU (dep) | mabda |
 
 ## Compiler Architecture
 
@@ -159,7 +173,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> stage1f (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc3 (modular compiler, 290KB, 8 modules)
+      -> cc3 (modular compiler, 299KB, 8 modules)
         -> cc3_aarch64 (cross-compiler)
 ```
 

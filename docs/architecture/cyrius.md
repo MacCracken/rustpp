@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v3.4.15** — cc3 is the active modular compiler (8 modules, 250KB). 32 test suites, 442 assertions. 40 stdlib modules + 5 deps (sakshi, patra, sigil, yukti).
+**v3.9.3** — cc3 is the active modular compiler (8 modules, 299KB). 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64.
 
 ```
 sh bootstrap/bootstrap.sh
@@ -64,30 +64,27 @@ Requires: Linux x86_64 + /bin/sh. Nothing else.
 ```
 
 The current language (compiled by cc3) supports:
-- Variables, arrays, functions (unlimited params, 64 locals)
-- if/else/elif, while loops, break/continue, for loops, for-in range
-- Arithmetic: + - * / %
-- Bitwise: & | ^ ~ << >>
+- Variables, arrays, functions (unlimited params, 256 locals)
+- if/else/elif, while, break/continue, for, for-in, switch (with block bodies), match
+- Arithmetic: + - * / %. Bitwise: & | ^ ~ << >>
 - syscall(), load8/16/32/64(), store8/16/32/64(), &var
-- Structs with initialization, field access (dot), field assignment
-- Enums with `Enum.VARIANT` namespacing syntax
-- Pointer dereference (*ptr read, *ptr = val write)
-- Include directive, `#ref "file.toml"` directive, inline asm blocks
-- Progressive type annotations (var x: i64 = 42)
-- Hex literals, string literals, comments
-- Error messages with token position
-- Relaxed fn ordering (functions can appear after statements)
-- Inline small functions (token replay inlining)
-- Register allocation (R12 spill, ESPILL/EUNSPILL)
-- Return-by-value: ret2(a,b), rethi()
-- f64_atan(x) builtin + lib/math.cyr
-- Fixup table: 8192 entries
-- Fn table relocated to 0x2C2000
-- PP_REF_PASS preprocessor pass for `#ref` directives
-- PARSE_SIMD_EXT/LEXKW_EXT overflow helpers for large functions
-- _INLINE_OK flag for aarch64 (disables inline metadata on ARM)
-- Prologue: push rbx; push r12; push rbp; mov rbp, rsp
-- 40 stdlib modules + 5 deps, 57 programs, buffered I/O (wc 2.4x faster than GNU)
+- Structs (64 max, 32 fields), enums (`Enum.VARIANT`), unions, bitfields
+- Multi-width types: i8, i16, i32, i64, sizeof()
+- Expression-position comparisons: `var r = (a == b)` anywhere
+- Native multi-return: `return (a, b)` + `var x, y = fn()` destructuring
+- Defer on all exit paths (per-defer runtime flags, unreached defers skipped)
+- `#derive(Serialize)` for JSON, `#derive(accessors)` for field getters/setters
+- `#assert` compile-time checks, `#ref "file.toml"`, `#ifdef`/`#endif`
+- Str/cstr auto-coercion (`: Str` parameter annotations)
+- Compile-time string interning (pointer-identity comparison)
+- Inline assembly (`asm { }`), inline small functions (token replay)
+- 20+ f64 builtins (SSE2/SSE4.1/x87), SIMD vector ops
+- Syscall arity warnings, `#skip-lint` directive
+- `cyrius deps` — auto-resolve from cyrius.toml, namespaced: `lib/{depname}_{basename}`
+- Auto-include: `cyrius build` prepends dep includes before compilation
+- 41 stdlib modules + 5 deps, 57+ programs
+- Limits: 1MB codebuf, 262K tokens, 16384 fixups, 512KB input, 256KB str_data
+- Heap: 14.8MB (brk 0xECA000), aarch64 synced to x86
 
 ## Phases
 
