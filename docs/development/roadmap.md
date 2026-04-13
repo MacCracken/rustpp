@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.7.4.** 302KB self-hosting compiler, x86_64 + aarch64.
+> **v3.8.0.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
@@ -48,13 +48,6 @@ still work (backward compat).
 `case N: { ... }` block bodies in switch statements. Bare block
 statement support in PARSE_STMT. Pre-scan brace depth tracking.
 
-## v3.7.5 — Deferred formatting (defmt)
-
-String interning (v3.6.1) + decode ring. Format strings stay as interned
-IDs at runtime; decoding happens at the log reader, not the producer.
-Eliminates `fmt_sprintf` overhead in hot paths. Builds on string interning.
-High effort — may slip to v3.8.x.
-
 ---
 
 ## v3.8.0 — Safety Without Cost
@@ -63,9 +56,10 @@ Compile-time guarantees that produce identical machine code.
 
 | Version | Feature | Effort | Details |
 |---------|---------|--------|---------|
-| v3.8.0 | **Defer on all exit paths** | Medium | Emit defer cleanup before every `return`, not just function end. Eliminates resource leak bugs. |
+| v3.8.0 | **Defer on all exit paths** | Medium | **Shipped.** Per-defer runtime flags + backpatch trampoline. Unreached defers are skipped. |
 | v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. Key benchmark: Cyrius `kabbalah_tiphareth()` = 249ns (40+ store64 instructions) vs Rust `Sephira::Tiphareth.profile()` = 63ns (LLVM-optimized field writes). |
-| v3.8.2 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
+| v3.8.2 | **Deferred formatting (defmt)** | High | String interning (v3.6.1) + decode ring. Format strings stay as interned IDs at runtime; decoding happens at the log reader. Eliminates `fmt_sprintf` overhead in hot paths. |
+| v3.8.3 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
 
 ---
 

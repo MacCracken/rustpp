@@ -218,11 +218,25 @@ fn defer_test_fn() {
     return 0;
 }
 
+fn defer_conditional_fn(x) {
+    _defer_order = 0;
+    defer { _defer_order = _defer_order * 10 + 1; }
+    if (x == 0) { return 0; }
+    defer { _defer_order = _defer_order * 10 + 2; }
+    return 1;
+}
+
 fn test_defer() {
     test_group("defer LIFO");
     defer_test_fn();
     # Execution: _defer_order=3, then defer2 (3*10+2=32), then defer1 (32*10+1=321)
     assert_eq(_defer_order, 321, "defer LIFO order");
+    # Conditional defer: early return before second defer (v3.8.0)
+    test_group("defer on exit paths (v3.8.0)");
+    defer_conditional_fn(0);
+    assert_eq(_defer_order, 1, "early return: only first defer");
+    defer_conditional_fn(1);
+    assert_eq(_defer_order, 21, "normal return: both defers LIFO");
 }
 
 # ================================================================

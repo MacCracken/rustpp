@@ -2939,6 +2939,9 @@ fn PARSE_FN_DEF(S) {
     # Parse body
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
+    # Emit jmp placeholder for defer flag init (backpatched after body)
+    var defer_init_jmp = EJMP0(S);
+    var body_cp = GCP(S);
     # Record body start for inline replay (x86 only)
     if (_INLINE_OK == 1) { SFBS(S, fi, GTI(S)); }
     PARSE_PROG(S);
@@ -2969,6 +2972,25 @@ fn PARSE_FN_DEF(S) {
     }
     STI(S, GTI(S) + 1);
     var dc = L64(S + 0x8F900);
+    # Backpatch defer flag init: emit zeroing code, then jmp to body
+    if (dc > 0) {
+        # Emit zeroing trampoline at current CP (after body, before epilogue)
+        EPATCH(S, defer_init_jmp);  # patch initial jmp → here (zeroing code)
+        var dzi = 0;
+        while (dzi < dc) {
+            var dzflag = L64(S + 0x8F908 + dzi * 24 + 16);
+            EMOVI(S, 0);
+            EFLSTORE(S, dzflag);
+            dzi = dzi + 1;
+        }
+        EJMP(S, body_cp);  # jmp back to body start
+    } else {
+        # No defers — patch jmp to skip to body_cp
+        # EPATCH lands at current CP, but we want body_cp. Just patch directly.
+        var pa = S + 0x54A000 + defer_init_jmp;
+        var rel = body_cp - defer_init_jmp - 4;
+        S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
+    }
     var rpc = GRPC(S);
     # Patch return jumps to land here
     var ri = 0;
@@ -2976,17 +2998,26 @@ fn PARSE_FN_DEF(S) {
         EPATCH(S, L64(S + 0x8DA20 + ri * 8));
         ri = ri + 1;
     }
-    # Execute deferred blocks LIFO: save rax, jmp→block, restore rax
+    # Execute deferred blocks LIFO: save rax, check flag, jmp→block, restore rax
     if (dc > 0) {
         EPUSHR(S);  # save return value
         var di = dc - 1;
         while (di >= 0) {
-            var bstart = L64(S + 0x8F908 + di * 16);
-            var bend = L64(S + 0x8F908 + di * 16 + 8);
+            var bstart = L64(S + 0x8F908 + di * 24);
+            var bend = L64(S + 0x8F908 + di * 24 + 8);
+            var dflag = L64(S + 0x8F908 + di * 24 + 16);
+            # Check flag: load flag, test rax,rax, je skip
+            EFLLOAD(S, dflag);
+            # test rax, rax (48 85 C0)
+            EB(S, 0x48); EB(S, 0x85); EB(S, 0xC0);
+            # je skip (0F 84 rel32) — skip this defer if flag==0
+            var dskip = EJCC(S, 0x84);
             # Jump to the deferred block
             EJMP(S, bstart);
             # Patch the block's end-jmp to return here (current CP)
             EPATCH(S, bend);
+            # Patch skip to land here
+            EPATCH(S, dskip);
             di = di - 1;
         }
         EPOPR(S);  # restore return value
@@ -3454,9 +3485,20 @@ fn PARSE_STMT(S) {
         return 0;
     }
     # defer { body } — execute body at function return (LIFO)
+    # Each defer gets a runtime flag (hidden local) set to 1 when reached.
+    # At epilogue, flag is checked before running the block — unreached defers are skipped.
     if (typ == 106) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+        # Allocate hidden local for defer flag (initialized to 0 in prologue)
+        var dflag = GFLC(S);
+        S64(S + 0x91000 + dflag * 8, 0);
+        SLDEP(S, dflag, GSDEP(S));
+        SLTYPE(S, dflag, 0);
+        SFLC(S, dflag + 1);
+        # Emit: flag = 1 (set when defer statement is reached)
+        EMOVI(S, 1);
+        EFLSTORE(S, dflag);
         # Emit jmp-over (skip deferred block during normal execution)
         var djmp = EJMP0(S);
         # Record block start (current CP after jmp-over)
@@ -3468,14 +3510,15 @@ fn PARSE_STMT(S) {
         STI(S, GTI(S) + 1);
         # Emit jmp placeholder (patched to next defer block or epilogue)
         var dend = EJMP0(S);
-        # Store {block_start, end_jmp} pair (16 bytes per entry)
+        # Store {block_start, end_jmp, flag_local} triple (24 bytes per entry)
         var dci = L64(S + 0x8F900);
         if (dci >= 8) {
             syscall(SYS_WRITE, 2, "error: too many defer blocks (max 8)\n", 36);
             syscall(SYS_EXIT, 1);
         }
-        S64(S + 0x8F908 + dci * 16, dstart);
-        S64(S + 0x8F908 + dci * 16 + 8, dend);
+        S64(S + 0x8F908 + dci * 24, dstart);
+        S64(S + 0x8F908 + dci * 24 + 8, dend);
+        S64(S + 0x8F908 + dci * 24 + 16, dflag);
         S64(S + 0x8F900, dci + 1);
         # Patch jmp-over to land here (after the deferred block)
         EPATCH(S, djmp);

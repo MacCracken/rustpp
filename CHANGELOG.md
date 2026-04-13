@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.8.0] — 2026-04-12
+
+### Fixed
+- **Defer on all exit paths** (`src/frontend/parse.cyr`): deferred blocks now
+  only execute if the `defer` statement was actually reached at runtime.
+  Previously, ALL compiled defer blocks ran at function exit regardless of
+  whether execution reached them — early returns before a `defer` statement
+  still triggered that defer's cleanup code. Fix uses per-defer runtime flags
+  (hidden locals initialized to 0 via backpatch trampoline, set to 1 when
+  defer is reached) checked at the epilogue before each block. Eliminates
+  a class of resource double-free and use-after-free bugs.
+
+### Added
+- **Bare block statement** (`src/frontend/parse.cyr`): `{ ... }` now valid
+  as a standalone statement anywhere. Scoped — variables declared inside
+  don't leak. (Also part of v3.7.4 switch case blocks.)
+- **Defer exit-path regression test** in `regression.tcyr`: 2 assertions
+  covering early return with partial defer registration.
+
+### Stats
+- **cc3: 304,312 bytes**, 36 test suites (87 regression assertions)
+
 ## [3.7.4] — 2026-04-12
 
 ### Added
