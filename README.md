@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-290KB compiler. Self-hosting on x86_64 and aarch64. 41 stdlib modules + 5 deps. 33 test suites (491 assertions), 0 failures.
+299KB compiler. Self-hosting on x86_64 and aarch64. 41 stdlib modules + 5 deps. 36 test suites, 5 fuzz harnesses, 10 benchmarks.
 
 ## Install
 
@@ -73,26 +73,28 @@ syscall(60, r);
 
 - Structs, enums (`Enum.VARIANT` namespacing), match, for-in, closures, impl blocks
 - 20+ f64 builtins (add/sub/mul/div + sin/cos/exp/ln/log2/exp2/sqrt/abs/floor/ceil + atan)
-- Constant folding for all arithmetic operators
-- Dead code elimination, tail call optimization, jump tables for dense switches
-- `#derive(Serialize)` for auto-generated JSON serialization
+- Constant folding, dead store elimination, tail call optimization, jump tables
+- `#derive(Serialize)` for JSON serialization, `#derive(accessors)` for field getters/setters
 - `#ref "file.toml"` directive for TOML config loading
-- Return-by-value: `ret2(a,b)` and `rethi()` builtins
-- Inline small functions (token replay), R12 register spill
-- Relaxed fn ordering (functions can appear after statements)
-- Include-once semantics (duplicate includes silently skipped)
-- Inline assembly (`asm { }`)
+- Native multi-return: `return (a, b)` + `var x, y = fn()` destructuring
+- Switch case blocks: `case N: { ... }` with scoped variables
+- Defer on all exit paths (per-defer runtime flags, unreached defers skipped)
+- Str/cstr auto-coercion, compile-time string interning, `#assert`
+- Expression-position comparisons: `var r = (a == b)` works everywhere
+- Inline small functions (token replay), relaxed fn ordering
+- Include-once semantics, inline assembly (`asm { }`)
 
 ### Metrics
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **290KB** (x86_64) |
+| Compiler | **299KB** x86_64, **262KB** aarch64 cross |
 | Self-compile | ~74ms (full), ~11ms (bridge) |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 33 .tcyr suites (491 assertions), 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks |
+| Tests | 36 .tcyr suites, 5 .fcyr fuzz, 10 .bcyr bench |
 | Architectures | x86_64 + aarch64 (byte-identical self-hosting) |
+| Limits | 1MB codebuf, 262K tokens, 16384 fixups, 64 structs |
 
 ## Build Tool (cyrius)
 
