@@ -4,6 +4,17 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.10.3] — 2026-04-13
+
+### Added
+- **Compound assignment operators** (`src/frontend/parse.cyr`): `+=`, `-=`,
+  `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`. Works in assignments
+  and `for` loop steps (`for (var i = 0; i < n; i += 1)`). Fixes Gotcha #6.
+- **Negative integer literals** (`src/frontend/parse.cyr`): unary minus in
+  expression position. `-1`, `-x`, `-(a + b)`. Constant folding for `-NUM`.
+  Fixes Gotcha #7.
+- 15 new regression assertions (102 total).
+
 ## [3.10.1] — 2026-04-13
 
 ### Fixed
@@ -24,6 +35,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   load var, push, eval expr, op, store. Works in assignments and `for` loop
   steps (`for (var i = 0; i < n; i += 1)`). Fixes Known Gotcha #6.
   9 new regression assertions.
+- **Negative integer literals** (`src/frontend/parse.cyr`): unary minus in
+  expression position. `-1`, `-x`, `-(a + b)` now work directly. Constant
+  folding for `-NUM`. General case emits `0 - rax` via push/sub. Fixes
+  Known Gotcha #7. 6 new regression assertions.
 
 ### Changed
 - **Recommended minimum: v3.10.0** — auto-include, `cyrius deps`,

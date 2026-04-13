@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.10.2.** 299KB self-hosting compiler, x86_64 + aarch64.
+> **v3.10.3.** 299KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (299KB).
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps.
 > `cyrius deps` auto-resolves from cyrius.toml. Auto-include on build.

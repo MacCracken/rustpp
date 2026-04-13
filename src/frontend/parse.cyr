@@ -422,6 +422,31 @@ fn PARSE_FACTOR(S) {
     SESTYPE(S, 0);
     SESVAR(S, 0 - 1);
     SEXW(S, 0);
+    # Unary minus: -expr
+    if (typ == 7) {
+        STI(S, GTI(S) + 1);
+        # Optimization: -NUM → emit negated constant
+        if (PEEKT(S) == 1) {
+            EMOVI(S, 0 - PEEKV(S));
+            STI(S, GTI(S) + 1);
+            return 0;
+        }
+        # General: parse factor, emit 0-rax via push/sub
+        EMOVI(S, 0);
+        EPUSHR(S);
+        PARSE_FACTOR(S);
+        EMOVCA(S);
+        EPOPR(S);
+        ESUBR(S);
+        return 0;
+    }
+    # Unary bitwise NOT: ~expr
+    if (typ == 37) {
+        STI(S, GTI(S) + 1);
+        PARSE_FACTOR(S);
+        ENOTR(S);
+        return 0;
+    }
     if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
     # sizeof(Type) — compile-time constant (detected as IDENT "sizeof")
     if (typ == 2) { if (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFFFF == 0x666F657A6973) {
