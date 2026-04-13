@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.9.3.** 304KB self-hosting compiler, x86_64 + aarch64.
+> **v3.9.4.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.

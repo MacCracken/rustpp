@@ -4,6 +4,16 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.4] — 2026-04-12
+
+### Fixed
+- **Release pipeline builds `cyrius` tool from source** (`.github/workflows/release.yml`):
+  release.yml was copying `scripts/cyrius` (shell script) instead of compiling
+  `programs/cyrius.cyr` (the Cyrius binary with auto-include, deps, -v).
+  Downstream CI failed because the shipped `cyrius build` didn't have
+  auto-include. Now compiles `programs/cyrius.cyr` via cc3 in the build step.
+  All three release binaries (cc3, cyrius, cyrlint) rebuilt fresh.
+
 ## [3.9.3] — 2026-04-12
 
 ### Added
