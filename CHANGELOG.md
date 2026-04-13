@@ -4,6 +4,14 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.8.1] — 2026-04-12
+
+### Fixed
+- **Linter brace tracking skips string literals** (`programs/cyrlint.cyr`):
+  `"}"` inside strings was counted as a real closing brace, producing false
+  "unclosed braces" warnings. Now skips characters between double quotes
+  (handles backslash escapes).
+
 ## [3.8.0] — 2026-04-12
 
 ### Fixed

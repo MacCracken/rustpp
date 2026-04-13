@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.8.0.** 304KB self-hosting compiler, x86_64 + aarch64.
+> **v3.8.1.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
@@ -52,11 +52,14 @@ statement support in PARSE_STMT. Pre-scan brace depth tracking.
 
 ## v3.8.0 — Safety Without Cost
 
-Compile-time guarantees that produce identical machine code.
+Compile-time guarantees that produce identical machine code. v3.8.0 shipped defer+verbose+`#skip-lint`. aarch64 backend partially fixed (5 CI failures resolved), remaining aarch64 issue blocks full release.
 
 | Version | Feature | Effort | Details |
 |---------|---------|--------|---------|
 | v3.8.0 | **Defer on all exit paths** | Medium | **Shipped.** Per-defer runtime flags + backpatch trampoline. Unreached defers are skipped. |
+| v3.8.0 | **`-v` verbose flag** | Low | **Shipped.** Displays compiler path, source/output paths, defines, binary size on stderr. |
+| v3.8.0 | **`#skip-lint`** | Low | **Shipped.** Lines containing `#skip-lint` exempt from lint rules. For unavoidable long strings. |
+| v3.8.0 | **aarch64 arch-agnostic codegen** | Medium | **Partial.** 5 CI failures fixed (ETESTAZ, EMOVRDXRAX, EMOVRA_RDX helpers). Remaining aarch64 issue blocks release. |
 | v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. Key benchmark: Cyrius `kabbalah_tiphareth()` = 249ns (40+ store64 instructions) vs Rust `Sephira::Tiphareth.profile()` = 63ns (LLVM-optimized field writes). |
 | v3.8.2 | **Deferred formatting (defmt)** | High | String interning (v3.6.1) + decode ring. Format strings stay as interned IDs at runtime; decoding happens at the log reader. Eliminates `fmt_sprintf` overhead in hot paths. |
 | v3.8.3 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
@@ -65,21 +68,17 @@ Compile-time guarantees that produce identical machine code.
 
 ## v4.0.0 — Platform & Scale
 
-Major release. Multi-file compilation, new platforms, scale limits removed, stdlib dependency tracking.
+Major release. Multi-file compilation, new platforms, dead-code elimination.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. Unblocks selective stdlib linking (only include used modules). |
+| **Multi-file linker** | High | .o emission done (v2.6.4). Need: read .o, resolve symbols, patch relocations, emit executable. Unblocks dead-code elimination — currently every included function lands in the binary whether called or not. ai-hwaccel: 26 stdlib modules included, binary carries unused code from all of them. |
+| **Undefined symbol diagnostic** | Medium | Calling a non-existent function silently compiles and crashes at runtime (SIGILL/SIGSEGV). No error, no warning — just a jump to address 0. Root cause: forward-reference resolution never validates the target exists. Discovered during ai-hwaccel port (`assert_report()` vs `assert_summary()` — hours of debugging a 3-character typo). Every downstream project is exposed to this. |
 | **PIC codegen (Phase 2)** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
 | **macOS targets** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
 | **Windows target** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
 | **LSP** | High | Language Server Protocol for IDE integration. |
 | **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
-| **Stdlib dep graph** | Medium | `cyrius deps` resolves include graph — only vendor/compile modules a project actually uses. Current pattern: every project manually vendors all 47 stdlib modules even if using 10. With multi-file linker, dead-code elimination becomes possible. |
-| **Undefined symbol diagnostic** | Medium | Calling a non-existent function (e.g., `assert_report()` vs `assert_summary()`) silently compiles and crashes at runtime (SIGILL/SIGSEGV). Emit a compile-time error or warning for unresolved symbols. Critical for developer experience — discovered during ai-hwaccel port. |
-| **Conditional compilation** | Medium | `#ifdef FEATURE_X` / `#ifndef` for feature-gating optional modules (e.g., threading, async, model_format). Currently must include everything or manually comment out. `-D FLAG` exists but needs `#ifdef` in source. |
-| **Enum duplicate values** | Low | Enums with duplicate values (e.g., `A = 71; B = 71;`) should be allowed or produce a clear error. Workaround: inline constants. Hit during ai-hwaccel model_format GGUF magic bytes. |
-| **cyrius update --selective** | Low | `cyrius update` currently syncs all stdlib. Add `--only str,vec,fmt` to sync specific modules. Reduces churn for projects that vendor a subset. |
 
 ---
 

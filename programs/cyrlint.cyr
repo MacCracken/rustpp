@@ -137,11 +137,21 @@ fn lint_file(buf, total) {
             # === Rule: var used as keyword parameter name ===
             # Check for 'default' used as identifier (common mistake)
 
-            # Track brace depth
+            # Track brace depth (skip string literals)
             var bi = first;
             while (bi < eol) {
-                if (load8(buf + bi) == 123) { brace_depth = brace_depth + 1; }
-                if (load8(buf + bi) == 125) { brace_depth = brace_depth - 1; }
+                var bc = load8(buf + bi);
+                if (bc == 34) {
+                    # Skip string literal: advance past closing quote
+                    bi = bi + 1;
+                    while (bi < eol) {
+                        if (load8(buf + bi) == 92) { bi = bi + 1; }
+                        elif (load8(buf + bi) == 34) { break; }
+                        bi = bi + 1;
+                    }
+                }
+                elif (bc == 123) { brace_depth = brace_depth + 1; }
+                elif (bc == 125) { brace_depth = brace_depth - 1; }
                 bi = bi + 1;
             }
 
