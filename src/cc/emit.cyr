@@ -56,6 +56,9 @@ fn EMOVDR(S) { E3(S, 0xD08948); return 0; }              # mov rax, rdx (for mod
 fn ELODC(S) { E3(S, 0x018B48); return 0; }               # mov rax, [rcx]
 fn ESTOC(S) { E3(S, 0x018948); return 0; }               # mov [rcx], rax
 fn ECMPR(S) { E3(S, 0xC83948); return 0; }               # cmp rax, rcx
+fn ETESTAZ(S) { E3(S, 0xC08548); return 0; }             # test rax, rax
+fn EMOVRDXRAX(S) { E3(S, 0xC28948); return 0; }          # mov rdx, rax
+fn EMOVRA_RDX(S) { E3(S, 0xD08948); return 0; }          # mov rax, rdx
 fn EMOVRDI(S) { E3(S, 0xC78948); return 0; }             # mov rdi, rax
 fn ESYSCALL(S) { E2(S, 0x050F); return 0; }              # syscall
 fn ELOAD8(S) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x00); return 0; }  # movzx rax, byte [rax]

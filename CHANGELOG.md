@@ -7,6 +7,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [3.8.0] — 2026-04-12
 
 ### Fixed
+- **aarch64 backend: abstracted arch-specific instructions** in `parse.cyr`:
+  raw x86 bytes for `test rax,rax`, `mov rdx,rax`, `mov rax,rdx` replaced
+  with backend-agnostic helpers (`ETESTAZ`, `EMOVRDXRAX`, `EMOVRA_RDX`)
+  defined in all backends (x86, aarch64, cx, bridge, cc). Fixes 5 aarch64
+  CI test failures (fn, fn_recurse, fn_6args, enum, complex) caused by
+  ret2/rethi/multi-return and defer flag checks emitting x86 opcodes.
 - **Defer on all exit paths** (`src/frontend/parse.cyr`): deferred blocks now
   only execute if the `defer` statement was actually reached at runtime.
   Previously, ALL compiled defer blocks ran at function exit regardless of
@@ -27,7 +33,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   paths, defines, and binary size on stderr.
 
 ### Stats
-- **cc3: 304,312 bytes**, 36 test suites (87 regression assertions)
+- **cc3: 304,232 bytes**, 36 test suites (87 regression assertions)
 
 ## [3.7.4] — 2026-04-12
 

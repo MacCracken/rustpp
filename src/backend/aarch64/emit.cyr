@@ -99,6 +99,9 @@ fn EMOVDR(S) { EW(S, 0x9B018800); return 0; }    # msub x0, x0, x1, x2
 # === Compare ===
 # cmp x0, x1 (subs xzr, x0, x1)
 fn ECMPR(S) { EW(S, 0xEB01001F); return 0; }     # cmp x0, x1
+fn ETESTAZ(S) { EW(S, 0xF100001F); return 0; }  # cmp x0, #0 (sets ZF)
+fn EMOVRDXRAX(S) { EW(S, 0xAA0003E2); return 0; }  # mov x2, x0
+fn EMOVRA_RDX(S) { EW(S, 0xAA0203E0); return 0; }  # mov x0, x2
 
 # === Load/Store through x1 (pointer register) ===
 # ldr x0, [x1]

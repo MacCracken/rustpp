@@ -113,6 +113,9 @@ fn ESTOC(S) { CX_EMIT(S, 67, 1, 0, 0); return 0; }    # store64 [r1], r0
 
 # Comparison: setCC pattern → compare and set r0 to 0/1
 fn ECMPR(S) { return 0; }  # no-op, comparison done inline
+fn ETESTAZ(S) { return 0; }  # no-op for bytecode
+fn EMOVRDXRAX(S) { return 0; }  # no-op for bytecode
+fn EMOVRA_RDX(S) { return 0; }  # no-op for bytecode
 fn ESETCC(S, op) {
     if (op == 17) { CX_EMIT(S, 48, 0, 0, 1); }  # eq
     if (op == 18) { CX_EMIT(S, 49, 0, 0, 1); }  # ne
