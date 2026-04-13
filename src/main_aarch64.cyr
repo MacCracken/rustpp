@@ -7,65 +7,51 @@
 # Build: cat cc3.cyr | ./build/cc > cc3
 # Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
 # ================================================================
-# HEAP MAP — Synced with main.cyr (v2.0.0-dev)
+# HEAP MAP — Synced with main.cyr (v3.9.1)
 # ================================================================
-#   0x00000  input_buf     [262144]      Raw stdin input (expanded to 256KB in v3.4.19)
-#   0x20000  codebuf       [262144]      Generated machine code
-#   0x903F8  elf_out_len   [8]           Output length after EMITELF (nested in codebuf tail)
-#   0x60000  tok_names     [32768]       Packed identifier strings (32KB usable)
-#   0x68000  str_data      [8192]        String literal bytes (nested in tok_names upper half)
-#   0x70000  str_pos       [8]           String position (nested in str_data tail)
-#   0x69808  data_size     [8]           Total variable data bytes (nested in tok_names upper half)
-#   0x8A000  struct_ftypes [8192]        32*32 field type IDs (stride 256, max 32 fields)
-#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    Compiler state (6 * 8 bytes)
-#   0x8DA00  fn_count, in_fn, local_cnt  Function state
-#   0x8DA20  ret_patches   [512]         64 return patch offsets
-#   0x8DC20  ret_patch_cnt [8]
-#   0x8DC30  (available — fn_local_names relocated to 0x91000)
-#   0x8DE30  (available — var_types relocated to 0x13A000)
-#   0x8E630  struct tables               names, fcounts (to 0x8E830)
+# Identical layout to x86. All offsets in parse.cyr/lex.cyr are shared.
+# See main.cyr for authoritative heap map with detailed annotations.
+#
+#   0x00000  input_buf     [524288]      512KB raw stdin input
+#   0x60000  tok_names     [65536]       64KB packed identifier strings
+#   0x70000  str_pos       [8]           string write position
+#   0x70008  data_size     [8]           total variable data bytes
+#   0x8E630  struct_names  [256]         struct name offsets (64 cap)
+#   0x8E830  struct_fcounts[512]         struct field counts
 #   0x8F830  struct_count  [8]
-#   0x8F838  loop_top, break_patch       Loop state
-#   0x8F848  extra_patches [64]          8 condition patches for && chaining (to 0x8F888)
-#   0x8F888  extra_patch_cnt [8]
-#   0x8F890  ptr_scale     [8]           Pointer scale tracking
-#   0x8F898  continue_count [8]          For-loop continue forward-patch count
-#   0x8F8A0  continue_patches [64]       8 continue forward-patch offsets (to 0x8F8E8)
-#   0x98000  gvar_toks     [8192]        1024 deferred global var inits (expanded from 256)
+#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    compiler state
+#   0x8DA00  fn_count, in_fn, local_cnt
+#   0x8DA20  ret_patches   [512]         64 return patch offsets
+#   0x8F900  defer_count   [8]           + defer_addrs [192]
+#   0x90500  include_fname [256]
+#   0x91000  fn_local_names
+#   0x91800  local_depths  [512]
+#   0x92000  macro tables
+#   0x92200  local_types
+#   0x98000  gvar_toks     [8192]
 #   0x9A000  gvar_cnt      [8]
-#   0x8FCA0  kernel_mode   [8]
-#   0x8FCA8  fixup_cnt     [8]
-#   0x8FCB0  last_var      [8]
-#   0x8FCB8  cur_line      [8]
-#   0x8FCC0  scope_depth   [8]
-#   0x8FCC8  (reserved)    [512]         free — live local_depths is at 0x91800
-#   0x8FEC8  module state                mod/pub/use tables (to 0x903D8)
-#   0x903D8  expr_stype    [8]
-#   0x903E8  inline_depth  [8]
-#   0x903F0  expr_width    [8]
-#   0x90400  include_fname [256]         Preprocessor filename scratch
-#   0x91000  fn_local_names              Function local variable names
-#   0x91800  local_depths  [512]         64 scope depths per local var
-#   0x92200  local_types                 Local variable type tracking
-#   0x14A000  tok_types     [524288]      65536 token type slots
-#   0x24A000 tok_values    [524288]      65536 token value slots
-#   0x34A000 tok_lines     [524288]      65536 token line numbers
-#   0x44A000 preprocess_out [524288]     512KB expanded source buffer
-#   0xA0000 fixup_tbl     [131072]      8192 fixup entries (16 bytes each)
-#   0x2B8000 (available — var_noffs relocated to 0x11A000)
-#   0x2C0000 (available — var_sizes relocated to 0x12A000)
-#   0xC0000 fn_names      [16384]       2048 function name offsets
-#   0xC4000 fn_offsets    [16384]       2048 function code offsets
-#   0xC8000 fn_params     [16384]       2048 function param counts
-#   0xCC000 fn_body_start [16384]       2048 inline metadata
-#   0xD0000 fn_body_end   [16384]
-#   0xD4000 fn_inline     [16384]
-#   0xD8000 struct_fnames [8192]        32*32 field name offsets (stride 256)
-#   0xDA000 output_buf    [262144]      ELF output buffer (256KB)
-#   0x11A000 var_noffs    [65536]       8192 variable name offsets
-#   0x12A000 var_sizes    [65536]       8192 variable sizes
-#   0x13A000 var_types    [65536]       8192 variable type IDs
-#   0x14A000 brk
+#   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
+#   0xC0000  fn_names      [16384]       2048 functions
+#   0xC4000  fn_offsets    [16384]
+#   0xC8000  fn_params     [16384]
+#   0xCC000  fn_body_start [16384]
+#   0xD0000  fn_body_end   [16384]
+#   0xD4000  fn_inline     [16384]
+#   0xDC000  fn_param_str_mask [16384]
+#   0x11A000 var_noffs     [65536]       8192 variables
+#   0x12A000 var_sizes     [65536]
+#   0x13A000 var_types     [65536]
+#   0x14A000 str_data      [262144]      256KB string literal bytes
+#   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
+#   0x54A000 codebuf       [1048576]     1MB generated machine code
+#   0x64A000 output_buf    [1048576]     1MB ELF output
+#   0x74A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0x94A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xB4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields
+#   0xDCA000 struct_fnames [16384]
+#   0xE4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
+#   0xECA000 brk                         14.8MB total heap
 
 
 # ================================================================

@@ -4,6 +4,26 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.1] — 2026-04-12
+
+### Changed
+- **Derive struct parser dedup** (`src/frontend/lex.cyr`): extracted shared
+  `PP_PARSE_STRUCT_DEF` function used by both `PP_DERIVE_SERIALIZE` and
+  `PP_DERIVE_ACCESSORS`. Struct name parsing, field extraction, offset
+  computation, and derive table registration now happen once in shared code.
+  Results passed via heap state (S+0x97400..S+0x97950). **-147 lines**,
+  **-5.4KB** binary size.
+- **aarch64 heap map rewrite** (`src/main_aarch64.cyr`): full sync with
+  main.cyr v3.9.1. All buffer sizes, token limits, and region offsets now
+  match x86: input 512KB, codebuf 1MB, output 1MB, str_data 256KB, tokens
+  262K, fixups 16384, structs 64, brk 0xECA000 (14.8MB). Was stuck at
+  v2.0.0-dev limits (input 256KB, tokens 65K, str_data 8KB).
+
+### Stats
+- **cc3: 298,760 bytes** (was 304,192 — 5.4KB reduction from dedup)
+- **lex.cyr: 1,834 lines** (was 1,981 — 147 lines removed)
+- **check.sh: 5/5 pass**
+
 ## [3.9.0] — 2026-04-12
 
 ### Changed
