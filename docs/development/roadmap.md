@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.10.0.** 299KB self-hosting compiler, x86_64 + aarch64.
+> **v3.10.1.** 299KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (299KB).
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps.
 > `cyrius deps` auto-resolves from cyrius.toml. Auto-include on build.
@@ -241,4 +241,4 @@ Language improvements driven by real porting pain across the AGNOS ecosystem. Qu
 - Test after EVERY change, not after the feature is done
 - Compile-time guarantees, zero runtime cost
 - **Never use raw `cat | cc3` for projects** — always `cyrius build`
-- **v3.9.8 recommended minimum** — auto-include, `cyrius deps`, `.cyrius-toolchain`
+- **v3.10.0 recommended minimum** — auto-include, `cyrius deps`, `.cyrius-toolchain`, undefined function diagnostic

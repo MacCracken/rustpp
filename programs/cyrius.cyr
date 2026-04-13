@@ -410,6 +410,19 @@ fn run_script(script, arg1, arg2) {
 # ================================================================
 
 fn cmd_build(source, output) {
+    # Ensure output directory exists
+    var oi = 0;
+    var last_slash = 0 - 1;
+    while (load8(output + oi) != 0) {
+        if (load8(output + oi) == 47) { last_slash = oi; }
+        oi = oi + 1;
+    }
+    if (last_slash > 0) {
+        var dir = alloc(last_slash + 1);
+        memcpy(dir, output, last_slash);
+        store8(dir + last_slash, 0);
+        sys_mkdir(dir, 0x1ED);
+    }
     if (_dry_run == 1) {
         sys_write(STDOUT_FD, "dry-run: compile ", 17);
         sys_write(STDOUT_FD, source, strlen(source));

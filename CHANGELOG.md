@@ -4,6 +4,26 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.10.1] — 2026-04-13
+
+### Fixed
+- **aarch64 width-aware load encodings** (`src/backend/aarch64/emit.cyr`):
+  `EFLLOAD_W` used wrong opcode bit (`0x3850` instead of `0x3840` for ldurb).
+  Invalid instruction caused SIGSEGV under QEMU. Caught by the v3.10.0
+  undefined function diagnostic during the release build.
+- **`cyrius build` auto-creates output directory** (`programs/cyrius.cyr`):
+  `cyrius build src/main.cyr build/app` now creates `build/` if missing.
+  Previously failed silently when the output directory didn't exist.
+- **Release aarch64 smoke test** (`.github/workflows/release.yml`): tests
+  cross-compiler output instead of native-under-QEMU. Native binary tested
+  on real ARM hardware.
+
+### Changed
+- **Recommended minimum: v3.10.0** — auto-include, `cyrius deps`,
+  `.cyrius-toolchain`, undefined function diagnostic. All downstream
+  projects updated: kybernet 1.0.1, argonaut 1.2.0, ai-hwaccel 2.0.0,
+  hadara 1.0.0, hoosh 2.0.0, avatara 2.2.0.
+
 ## [3.10.0] — 2026-04-13
 
 ### Added
