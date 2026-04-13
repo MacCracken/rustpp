@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.4] — 2026-04-12
+
+### Added
+- **Switch case block bodies** (`src/frontend/parse.cyr`): `case N: { ... }`
+  now supported. Adds bare block statement (`{ ... }`) to `PARSE_STMT` and
+  fixes the switch pre-scan to track brace depth so inner `}` doesn't
+  terminate the case early. Blocks have their own scope (variables declared
+  inside don't leak). Mixed inline/block cases work in the same switch.
+- **Switch block regression test** in `regression.tcyr`: 4 assertions covering
+  block body, mixed block/inline, default block, nested control flow in block.
+
+### Stats
+- **cc3: 301,800 bytes**, 36 test suites (85 regression assertions)
+
 ## [3.7.2] — 2026-04-12
 
 ### Added

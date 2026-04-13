@@ -412,6 +412,64 @@ fn test_multi_return() {
 }
 
 # ================================================================
+# Switch case blocks (v3.7.4)
+# ================================================================
+# case N: { ... } — block bodies in switch cases
+
+fn test_switch_blocks() {
+    test_group("switch case blocks (v3.7.4)");
+    # Block body in case
+    var result = 0;
+    var x = 2;
+    switch (x) {
+        case 1: {
+            var a = 10;
+            result = a;
+        }
+        case 2: {
+            var a = 20;
+            var b = 22;
+            result = a + b;
+        }
+        case 3: {
+            result = 99;
+        }
+    }
+    assert_eq(result, 42, "case 2 block body");
+    # Mixed: some cases with blocks, some without
+    var r2 = 0;
+    switch (x) {
+        case 1: r2 = 10;
+        case 2: {
+            r2 = 42;
+        }
+        case 3: r2 = 30;
+    }
+    assert_eq(r2, 42, "mixed block/inline");
+    # Default with block
+    var r3 = 0;
+    switch (99) {
+        case 1: r3 = 1;
+        default: {
+            r3 = 42;
+        }
+    }
+    assert_eq(r3, 42, "default block body");
+    # Nested control flow inside block
+    var r4 = 0;
+    switch (3) {
+        case 3: {
+            var sum = 0;
+            for (var i = 0; i < 5; i = i + 1) {
+                sum = sum + i;
+            }
+            r4 = sum;
+        }
+    }
+    assert_eq(r4, 10, "for loop in case block");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -437,6 +495,7 @@ fn main() {
     test_float_literal();
     test_derive_accessors();
     test_multi_return();
+    test_switch_blocks();
 
     return assert_summary();
 }

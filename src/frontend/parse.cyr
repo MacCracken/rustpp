@@ -3089,16 +3089,25 @@ fn PARSE_SWITCH(S) {
                 }
                 case_count = case_count + 1;
             }
-            # Skip to next case/default/}
-            while (PEEKT(S) != 58) {
-                if (PEEKT(S) == 59) { break; }
-                if (PEEKT(S) == 14) { break; }
+            # Skip to next case/default/} (track brace depth for block bodies)
+            var _psd = 0;
+            while (1) {
+                if (PEEKT(S) == 13) { _psd = _psd + 1; }
+                if (PEEKT(S) == 14) { if (_psd > 0) { _psd = _psd - 1; } else { break; } }
+                if (_psd == 0 && PEEKT(S) == 58) { break; }
+                if (_psd == 0 && PEEKT(S) == 59) { break; }
                 if (PEEKT(S) == 12) { break; }
                 STI(S, GTI(S) + 1);
             }
         }
         else { if (PEEKT(S) == 59) { has_default = 1;
-            while (PEEKT(S) != 14) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); }
+            var _psd2 = 0;
+            while (1) {
+                if (PEEKT(S) == 13) { _psd2 = _psd2 + 1; }
+                if (PEEKT(S) == 14) { if (_psd2 > 0) { _psd2 = _psd2 - 1; } else { break; } }
+                if (PEEKT(S) == 12) { break; }
+                STI(S, GTI(S) + 1);
+            }
         }
         else { pgo = 0; } }
     }
@@ -3415,6 +3424,16 @@ fn PARSE_STMT(S) {
         return 0;
     }
     if (typ == 3) { PARSE_VAR(S); return 0; }
+    # Block statement: { ... }
+    if (typ == 13) {
+        STI(S, GTI(S) + 1);
+        SCOPE_PUSH(S);
+        PARSE_PROG(S);
+        SCOPE_POP(S);
+        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+        STI(S, GTI(S) + 1);
+        return 0;
+    }
     if (typ == 15) { PARSE_IF(S); return 0; }
     if (typ == 16) { PARSE_WHILE(S); return 0; }
     if (typ == 55) { PARSE_FOR(S); return 0; }

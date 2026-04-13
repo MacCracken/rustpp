@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v3.7.2.** 301KB self-hosting compiler, x86_64 + aarch64.
+> **v3.7.4.** 302KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
-> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`, `#derive(accessors)`, multi-return.
+> Expression-position comparisons, `#assert`, Str auto-coercion, string interning, `lib/cffi.cyr`, `#derive(accessors)`, multi-return, switch blocks.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -43,7 +43,12 @@ struct Point { x; y; }
 Eliminates the `alloc(16)` pair-struct workaround. `ret2`/`rethi` builtins
 still work (backward compat).
 
-## v3.7.3 — Deferred formatting (defmt)
+## v3.7.4 — Switch case blocks (Shipped)
+
+`case N: { ... }` block bodies in switch statements. Bare block
+statement support in PARSE_STMT. Pre-scan brace depth tracking.
+
+## v3.7.5 — Deferred formatting (defmt)
 
 String interning (v3.6.1) + decode ring. Format strings stay as interned
 IDs at runtime; decoding happens at the log reader, not the producer.
