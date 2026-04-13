@@ -184,6 +184,21 @@ fn _init_cyrius_lib() {
 }
 
 fn READFILE(path, dst, maxsz) {
+    # CVE-02: reject path traversal (.. components) and absolute paths
+    var pi = 0;
+    while (load8(path + pi) != 0) {
+        if (load8(path + pi) == 46 && load8(path + pi + 1) == 46) {
+            if (pi == 0 || load8(path + pi - 1) == 47) {
+                syscall(SYS_WRITE, 2, "error: path traversal rejected: ", 31);
+                var plen = 0;
+                while (load8(path + plen) != 0) { plen += 1; }
+                syscall(SYS_WRITE, 2, path, plen);
+                syscall(SYS_WRITE, 2, "\n", 1);
+                return 0;
+            }
+        }
+        pi += 1;
+    }
     var fd = 0;
     if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, path, 0, 0); }
     else { fd = syscall(SYS_OPEN, 0 - 100, path, 0, 0); }
@@ -372,7 +387,10 @@ fn PP_ALREADY_INCLUDED(S, fname) {
 
 fn PP_MARK_INCLUDED(S, fname) {
     var cnt = L64(S + 0x97F00);
-    if (cnt >= 64) { return 0; }
+    if (cnt >= 64) {
+        syscall(SYS_WRITE, 2, "error: include-once table full (64 files) — split compilation unit\n", 66);
+        syscall(SYS_EXIT, 1);
+    }
     var p = S + 0x98000 + cnt * 128;
     var c = 0;
     while (load8(fname + c) != 0) {

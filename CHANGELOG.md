@@ -4,6 +4,18 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.3] — 2026-04-13
+
+### Security
+- **CVE-02: Path traversal protection** (`src/frontend/lex.cyr`): `READFILE`
+  now rejects paths containing `..` components. Prevents `include "../../../etc/passwd"`.
+- **CVE-03: Include-once table overflow** (`src/frontend/lex.cyr`): was
+  silent return on overflow (65th file ignored). Now errors with message.
+  Prevents silent duplicate symbol corruption.
+- **CVE-04: Dep write path validation** (`programs/cyrius.cyr`): `_dep_copy_file`
+  rejects destinations containing `..`. Prevents crafted cyrius.toml from
+  writing outside `lib/`.
+
 ## [4.2.2] — 2026-04-13
 
 ### Security

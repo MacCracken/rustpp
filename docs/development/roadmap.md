@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.2.2.** 309KB self-hosting compiler, x86_64 + aarch64.
+> **v4.2.3.** 309KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (309KB). Closure verified.
 > 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
 > `cyrius build` auto-resolves deps + auto-includes. File:line error messages.

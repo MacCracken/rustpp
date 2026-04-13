@@ -782,6 +782,17 @@ fn _dep_copy_file(src, dst) {
     var src_sz = _file_size(src);
     var dst_sz = _file_size(dst);
     if (src_sz > 0 && src_sz == dst_sz) { return 2; }
+    # CVE-04: reject dep writes outside lib/ (path traversal)
+    var di = 0;
+    while (load8(dst + di) != 0) {
+        if (load8(dst + di) == 46 && load8(dst + di + 1) == 46) {
+            sys_write(STDERR_FD, "  error: path traversal in dep destination: ", 44);
+            sys_write(STDERR_FD, dst, strlen(dst));
+            sys_write(STDERR_FD, "\n", 1);
+            return 1;
+        }
+        di += 1;
+    }
     var sfd = sys_open(src, O_RDONLY, 0);
     if (sfd < 0) {
         sys_write(STDERR_FD, "  error: cannot read ", 21);
