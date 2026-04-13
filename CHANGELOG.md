@@ -7,10 +7,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [3.8.1] — 2026-04-12
 
 ### Fixed
-- **Linter brace tracking skips string literals** (`programs/cyrlint.cyr`):
-  `"}"` inside strings was counted as a real closing brace, producing false
-  "unclosed braces" warnings. Now skips characters between double quotes
-  (handles backslash escapes).
+- **Linter brace tracking skips string literals and comments**
+  (`programs/cyrlint.cyr`): `"}"` inside strings and `# '{'` in comments
+  were counted as real braces, producing false "unclosed braces" warnings.
+  Now skips characters between double quotes (with backslash escapes) and
+  everything after `#` on a line. Fixes false positive on ai-hwaccel
+  `model_format.cyr` (comments containing `{` inflated brace depth).
 
 ### Notes
 - Load-after-store elimination (LASE) investigated as peephole optimizer.
