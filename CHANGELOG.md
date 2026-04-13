@@ -4,6 +4,27 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.9.0] — 2026-04-12
+
+### Changed
+- **Extracted DSE pass** (`src/frontend/parse.cyr`): dead-store elimination
+  moved from inline in PARSE_FN_DEF (250 lines) to standalone `DSE_PASS(S,
+  fn_start)` function. PARSE_FN_DEF reduced by ~55 lines. No semantic change.
+
+### Notes
+- Derive struct parser dedup (PP_DERIVE_SERIALIZE / PP_DERIVE_ACCESSORS)
+  attempted but reverted — variable scoping across the refactored boundary
+  caused undefined-variable errors. Needs a heap-based shared state approach
+  with fresh variable declarations in each handler. Tracked for future.
+- PARSE_FACTOR (412 lines) audited — f64 builtins are already compact
+  one-liners, SIMD already extracted. Main split opportunity is store/load
+  builtins (~100 lines) but low payoff vs risk.
+- Stale comments audited — codebase is clean, no action needed.
+
+### Stats
+- **cc3: 304,192 bytes**, 36 test suites (87 regression assertions)
+- **check.sh: 5/5 pass**
+
 ## [3.8.1] — 2026-04-12
 
 ### Fixed

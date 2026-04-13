@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v3.8.1.** 304KB self-hosting compiler, x86_64 + aarch64.
+> **v3.9.0.** 304KB self-hosting compiler, x86_64 + aarch64.
 > 36 test suites, 5 fuzz harnesses, 10 benchmarks. Heap audit clean (43 regions, 0 overlaps).
 > 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda).
 > 512KB input, 1MB codebuf, 1MB preprocess, 256KB str_data, 64KB tok_names, 262K tokens.
@@ -60,9 +60,31 @@ Compile-time guarantees that produce identical machine code. v3.8.0 shipped defe
 | v3.8.0 | **`-v` verbose flag** | Low | **Shipped.** Displays compiler path, source/output paths, defines, binary size on stderr. |
 | v3.8.0 | **`#skip-lint`** | Low | **Shipped.** Lines containing `#skip-lint` exempt from lint rules. For unavoidable long strings. |
 | v3.8.0 | **aarch64 arch-agnostic codegen** | Medium | **Partial.** 5 CI failures fixed (ETESTAZ, EMOVRDXRAX, EMOVRA_RDX helpers). Remaining aarch64 issue blocks release. |
-| v3.8.1 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only — avoids the v3.3.12 global r12 regression. May also expose the PatraStore stack corruption root cause. Key benchmark: Cyrius `kabbalah_tiphareth()` = 249ns (40+ store64 instructions) vs Rust `Sephira::Tiphareth.profile()` = 63ns (LLVM-optimized field writes). |
-| v3.8.2 | **Deferred formatting (defmt)** | High | String interning (v3.6.1) + decode ring. Format strings stay as interned IDs at runtime; decoding happens at the log reader. Eliminates `fmt_sprintf` overhead in hot paths. |
-| v3.8.3 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint without 4-limb emulation. |
+| v3.8.1 | **Linter: string/comment brace fix** | Low | **Shipped.** Brace tracking skips string literals and comments. |
+
+---
+
+## v3.9.0 — Refactor & Harden
+
+Internal cleanup. No new features — same semantics, cleaner codebase.
+
+| Item | Effort | Details |
+|------|--------|---------|
+| **Extract DSE pass** | Low | Move dead-store elimination from PARSE_FN_DEF into its own function. |
+| **Extract shared struct parser** | Medium | PP_DERIVE_SERIALIZE (332 lines) and PP_DERIVE_ACCESSORS (147 lines) share struct parsing. Extract common struct field parser. |
+| **Split PARSE_FACTOR** | Medium | 412-line builtin dispatch. Split into sub-handlers (store/load, SIMD, f64). |
+| **Sync aarch64 heap map** | Medium | main_aarch64.cyr limits stale: input 256KB→512KB, tokens 65536→262144, str_data 8KB→256KB, fixups 8192→16384. |
+| **Stale comment cleanup** | Low | Remove version-tagged comments (v3.0–v3.6) that describe now-obvious behavior. |
+
+---
+
+## v3.10.0 — Optimization & Types
+
+| Version | Feature | Effort | Details |
+|---------|---------|--------|---------|
+| v3.10.0 | **Per-function register alloc** | Medium | Opt-in `#regalloc` directive. Per-function analysis only. Needs basic-block analysis for safe LASE. Key benchmark: 249ns vs 63ns. |
+| v3.10.1 | **Deferred formatting (defmt)** | High | String interning + decode ring. Format strings stay as interned IDs at runtime. |
+| v3.10.2 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint. |
 
 ---
 
@@ -80,6 +102,10 @@ Major release. Multi-file compilation, new platforms, dead-code elimination.
 | **Dep resolution ordering** | Low | `cyrius build` prepends stdlib after dep modules, causing `strstr` (and potentially other stdlib functions) to be undefined when dep modules reference them. Discovered in kybernet build: agnostik/types.cyr calls `strstr()` but string.cyr is prepended after agnostik. Warning-only — no runtime impact for unused code paths. Fix: ensure stdlib is always prepended before all dep modules. |
 | **LSP** | High | Language Server Protocol for IDE integration. |
 | **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
+| **`rep movsb`/`rep stosb` for memcpy/memset** | Medium | stdlib memcpy(128) = 369 ns, memset(128) = 261 ns — byte-loop implementation. `rep movsb`/`rep stosb` or SIMD would bring these under 10 ns. Discovered via kybernet benchmarks. Every program that copies buffers pays this tax. |
+| **Optimized strlen** | Low | stdlib strlen(52 chars) = 94 ns — byte-loop scan. SSE4.2 `pcmpistri` or word-at-a-time would be 5-10x faster. Impacts all string-heavy code (cgroup paths, logging, notify parsing). |
+| **Bump allocator reset without brk** | Low | `alloc_reset()` + `alloc_init()` cycle = 1175 ns due to brk syscall. A soft reset (just move the bump pointer back) would eliminate the syscall and bring this under 10 ns. Kybernet benchmarks reset between groups to avoid OOM. |
+| **File:line error messages** | Medium | cc3 errors report token indices (e.g. `error:10169`) not file:line. Hard to locate issues in multi-file builds with 10K+ combined lines. Kybernet + deps = ~10K lines; tracking down `unexpected '{'` required manual bisection. |
 
 ---
 
