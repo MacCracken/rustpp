@@ -78,7 +78,7 @@ jobs:
           cp scripts/ci.sh "$STAGE/bin/" 2>/dev/null || true
           chmod +x "$STAGE/bin"/*
 
-          cp -r lib/* "$STAGE/lib/"
+          cp -rL lib/* "$STAGE/lib/"
           cp VERSION LICENSE "$STAGE/"
           cp scripts/install.sh "$STAGE/"
 
@@ -130,7 +130,7 @@ jobs:
           cp scripts/cyrius-init.sh "$STAGE/bin/" 2>/dev/null || true
           chmod +x "$STAGE/bin"/*
 
-          cp -r lib/* "$STAGE/lib/"
+          cp -rL lib/* "$STAGE/lib/"
           cp VERSION LICENSE "$STAGE/"
           cp scripts/install.sh "$STAGE/"
 

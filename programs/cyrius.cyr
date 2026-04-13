@@ -324,6 +324,25 @@ fn compile(source, output) {
 }
 
 # Run a binary — directly for x86, via qemu for aarch64
+# Run a shell command via /bin/sh -c. Returns exit code.
+fn sys_system(cmd) {
+    var argv[4];
+    var pid = sys_fork();
+    if (pid == 0) {
+        store64(&argv, "/bin/sh");
+        store64(&argv + 8, "-c");
+        store64(&argv + 16, cmd);
+        store64(&argv + 24, 0);
+        sys_execve("/bin/sh", &argv, _envp);
+        sys_exit(127);
+    }
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    return 1;
+}
+
 fn run_binary(path) {
     var argv[4];
     var pid = sys_fork();
@@ -849,25 +868,23 @@ fn cmd_deps() {
             memcpy(dep_name, buf + name_start, dep_name_len);
             store8(dep_name + dep_name_len, 0);
             si = name_end + 1;
-            # Find path = "..." and modules = [...] in this section
+            # Find path/git/tag/modules in this section
             var dep_path = 0;
+            var dep_git = 0;
+            var dep_tag = 0;
             var dep_modules = 0;
             while (si < n) {
                 # Stop at next section header
                 if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) {
-                    # Check it's not a nested key like [[programs]]
                     if (memeq(buf + si, "[deps.", 6) != 1 && memeq(buf + si, "[build", 6) != 1 && memeq(buf + si, "[package", 8) != 1) {
-                        # Same section or unrelated — keep scanning
                     }
                     if (load8(buf + si + 1) != 91) {
-                        # New section — check if it's still a deps section
                         if (memeq(buf + si, "[deps.", 6) == 1) { break; }
                         if (memeq(buf + si, "[deps]", 6) == 1) { break; }
                         if (load8(buf + si + 1) != 100) { break; }
                     }
                 }
-                if (memeq(buf + si, "path", 4) == 1) {
-                    # Find the quoted string
+                if (memeq(buf + si, "path", 4) == 1 && load8(buf + si + 4) != 0 && (load8(buf + si + 4) == 32 || load8(buf + si + 4) == 61)) {
                     var pi = si + 4;
                     while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
                     pi = pi + 1;
@@ -878,12 +895,64 @@ fn cmd_deps() {
                     memcpy(dep_path, buf + ps, plen);
                     store8(dep_path + plen, 0);
                 }
+                if (memeq(buf + si, "git", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var gi = si + 3;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    gi = gi + 1;
+                    var gs = gi;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    var glen = gi - gs;
+                    dep_git = alloc(glen + 1);
+                    memcpy(dep_git, buf + gs, glen);
+                    store8(dep_git + glen, 0);
+                }
+                if (memeq(buf + si, "tag", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var ti = si + 3;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    ti = ti + 1;
+                    var ts = ti;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    var tlen = ti - ts;
+                    dep_tag = alloc(tlen + 1);
+                    memcpy(dep_tag, buf + ts, tlen);
+                    store8(dep_tag + tlen, 0);
+                }
                 if (memeq(buf + si, "modules", 7) == 1) {
                     dep_modules = _parse_toml_str_array(buf, n, si);
                 }
-                # Advance to next line
                 while (si < n && load8(buf + si) != 10) { si = si + 1; }
                 si = si + 1;
+            }
+            # If path doesn't exist, try git clone
+            if (dep_path != 0 && dep_modules != 0) {
+                if (is_dir(str_from(dep_path)) == 0 && dep_git != 0) {
+                    # Clone to /tmp/cyrius_deps/{name}
+                    var clone_sb = str_builder_new();
+                    str_builder_add_cstr(clone_sb, "/tmp/cyrius_deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    var clone_dir = str_data(str_builder_build(clone_sb));
+                    sys_mkdir("/tmp/cyrius_deps", 0x1ED);
+                    if (is_dir(str_from(clone_dir)) == 0) {
+                        var cmd_sb = str_builder_new();
+                        str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
+                        if (dep_tag != 0) {
+                            str_builder_add_cstr(cmd_sb, "-b ");
+                            str_builder_add_cstr(cmd_sb, dep_tag);
+                            str_builder_add_cstr(cmd_sb, " ");
+                        }
+                        str_builder_add_cstr(cmd_sb, dep_git);
+                        str_builder_add_cstr(cmd_sb, " ");
+                        str_builder_add_cstr(cmd_sb, clone_dir);
+                        var cmd = str_data(str_builder_build(cmd_sb));
+                        if (_verbose == 1) {
+                            sys_write(STDERR_FD, "  git: ", 7);
+                            sys_write(STDERR_FD, cmd, strlen(cmd));
+                            sys_write(STDERR_FD, "\n", 1);
+                        }
+                        sys_system(cmd);
+                    }
+                    dep_path = clone_dir;
+                }
             }
             # Copy modules from dep_path
             if (dep_path != 0 && dep_modules != 0) {
@@ -896,6 +965,23 @@ fn cmd_deps() {
                     str_builder_add_cstr(sb, "/");
                     str_builder_add_cstr(sb, mod_path);
                     var src = str_data(str_builder_build(sb));
+                    # Fallback: if path has subdirs and doesn't exist, try flat
+                    if (file_exists(src) == 0) {
+                        var fb = mod_path;
+                        var fbi = 0;
+                        while (load8(mod_path + fbi) != 0) {
+                            if (load8(mod_path + fbi) == 47) { fb = mod_path + fbi + 1; }
+                            fbi = fbi + 1;
+                        }
+                        if (fb != mod_path) {
+                            var sb_fb = str_builder_new();
+                            str_builder_add_cstr(sb_fb, dep_path);
+                            str_builder_add_cstr(sb_fb, "/lib/");
+                            str_builder_add_cstr(sb_fb, fb);
+                            var alt = str_data(str_builder_build(sb_fb));
+                            if (file_exists(alt) == 1) { src = alt; }
+                        }
+                    }
                     # Destination: lib/{depname}_{basename} — always namespaced
                     var base = mod_path;
                     var bi = 0;

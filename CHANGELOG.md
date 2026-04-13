@@ -12,6 +12,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   runners have large environments and `HOME` wasn't in the first 256 bytes.
   Now reads 32KB and also checks `CYRIUS_HOME` which overrides the default
   `~/.cyrius` path. Fixes "cc3 not found" on GitHub Actions CI.
+- **`cyrius deps` git clone fallback**: when `path` in `[deps.name]` doesn't
+  exist (CI environment), falls back to `git clone --depth 1 -b {tag} {git}`
+  into `/tmp/cyrius_deps/{name}`. Enables dep resolution without sibling repos.
+- **`cyrius deps` path fallback**: when `lib/libro/error.cyr` doesn't exist,
+  tries `lib/error.cyr` (flat layout). Handles layout differences between
+  tagged releases and local dev repos.
+- **Release tarball follows symlinks** (`.github/workflows/release.yml`):
+  `cp -r` → `cp -rL` when copying `lib/` to release stage. Fixes broken
+  symlinks for dep bundles (sakshi, sigil) in the tarball.
+- **`sys_system()` helper** added to `programs/cyrius.cyr` for running shell
+  commands via fork+execve `/bin/sh -c`.
 
 ## [3.9.5] — 2026-04-12
 
