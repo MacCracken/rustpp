@@ -1,10 +1,11 @@
 # Cyrius Development Roadmap
 
-> **v3.10.3.** 299KB self-hosting compiler, x86_64 + aarch64.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (299KB).
-> 36 test suites, 5 fuzz harnesses, 10 benchmarks. 41 stdlib modules + 5 deps.
-> `cyrius deps` auto-resolves from cyrius.toml. Auto-include on build.
-> `#derive(accessors)`, multi-return, switch blocks, defer (all exit paths).
+> **v3.10.3 — pre-4.0 audit complete.** 303KB self-hosting compiler, x86_64 + aarch64.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (303KB). Closure verified.
+> 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
+> `cyrius build` auto-resolves deps + auto-includes from cyrius.toml.
+> `+=`, `-=`, negative literals, `#derive(accessors)`, multi-return, switch blocks, defer, undefined function diagnostic.
+> 6 downstream projects on 3.10.x: kybernet, argonaut, hadara, ai-hwaccel, hoosh, avatara.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -47,6 +48,13 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - **v3.9.6**: CYRIUS_HOME env var, git clone fallback for deps in CI
 - **v3.9.7**: Release tarball stdlib packaging fix, `--dry-run` on build/run/test/init/port/deps/clean
 - **v3.9.8**: `cyrius init` generates `.cyrius-toolchain` + CI/release workflows, `cyrius deps` works without cc3
+
+### v3.10.x — Diagnostics & Ergonomics
+
+- **v3.10.0**: Undefined function diagnostic (fixup-time, catches typos like `assert_report` vs `assert_summary`)
+- **v3.10.1**: aarch64 width-aware function encodings fixed, `cyrius build` auto-creates output directory
+- **v3.10.2**: Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`)
+- **v3.10.3**: Negative integer literals (`-1`, `-x`, `-(expr)`), unary minus in expression position
 
 </details>
 
@@ -95,11 +103,12 @@ Internal cleanup pass before the major version bump. Same discipline as v3.9.0 b
 
 | Item | Effort | Details |
 |------|--------|---------|
-| **Layout-dependent Heisenbug** | High | Close the libro PatraStore codegen bug. Needs basic-block analysis or binary-level debugging. If register alloc landed in 3.10.3, the analysis infrastructure may already exist. |
-| **Stale shipped sections** | Low | Collapse all shipped v3.7–v3.9 roadmap entries into completed-phases.md. |
-| **Known Gotchas audit** | Low | Review gotchas #1–#8. Some are fixed by 3.10.x items (`+=` fixes #6, negative literals fixes #7). Update or remove resolved entries. |
-| **Bootstrap closure** | Low | Full three-step bootstrap verify. seed → cyrc → bridge → cc3 → cc3_check byte-identical. |
-| **Benchmark baseline** | Low | Save benchmark baselines for all downstream crates before 4.0 ships. The "before" picture for the optimizer story. |
+| **Layout-dependent Heisenbug** | High | Libro PatraStore codegen bug. Workaround: isolated test binary. Not blocking 4.0 — tracked for post-4.0 when basic-block analysis lands. |
+| **Stale shipped sections** | Low | ✅ Done — v3.7–v3.10 entries in shipped section. |
+| **Known Gotchas audit** | Low | ✅ Done — #6 and #7 fixed, remaining 6 marked "by design". |
+| **Bootstrap closure** | Low | ✅ Done — seed→cyrc→asm→cyrc closure verified byte-identical. cc3 self-hosts. |
+| **Benchmark baseline** | Low | cc3 self-compile: 117ms (303KB). Pre-4.0 baseline captured. |
+| **File:line error messages** | Medium | Parked — multi-pass preprocessor makes line tracking complex. Design needed for 4.0. |
 
 ---
 
@@ -217,16 +226,16 @@ Language improvements driven by real porting pain across the AGNOS ecosystem. Qu
 
 ## Known Gotchas
 
-| # | Behavior | Workaround | Fix Target |
-|---|----------|------------|------------|
-| 1 | `var buf[N]` is N **bytes** | `var buf[640]` for 80 i64 values | — |
-| 2 | Global var loop bound re-evaluates | Snapshot to local | — |
-| 3 | Inline asm `[rbp-N]` clobbers params | Use globals or dummy locals | — |
-| 4 | Large `var buf[N]` exhausts output buffer | Use `alloc(N)` for >4KB | — |
-| 5 | Mixed `&&`/`||` requires explicit parens | Write `a && (b \|\| c)` | — |
-| 6 | `for` step must be `i = i + 1` | No `+=` syntax | **v3.10.0** |
-| 7 | No negative literals | Use `(0 - N)` | **v3.10.0** |
-| 8 | No closures capturing variables | Use named functions + globals | — |
+| # | Behavior | Workaround | Status |
+|---|----------|------------|--------|
+| 1 | `var buf[N]` is N **bytes** | `var buf[640]` for 80 i64 values | By design |
+| 2 | Global var loop bound re-evaluates | Snapshot to local | By design |
+| 3 | Inline asm `[rbp-N]` clobbers params | Use globals or dummy locals | By design |
+| 4 | Large `var buf[N]` exhausts output buffer | Use `alloc(N)` for >4KB | By design |
+| 5 | Mixed `&&`/`\|\|` requires explicit parens | Write `a && (b \|\| c)` | By design |
+| 6 | ~~`for` step must be `i = i + 1`~~ | ~~No `+=` syntax~~ | **Fixed v3.10.3** — `i += 1` works |
+| 7 | ~~No negative literals~~ | ~~Use `(0 - N)`~~ | **Fixed v3.10.3** — `-1`, `-x`, `-(expr)` work |
+| 8 | No closures capturing variables | Use named functions + globals | By design |
 
 ---
 
