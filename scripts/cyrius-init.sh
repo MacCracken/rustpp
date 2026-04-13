@@ -52,8 +52,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/SECURITY.md"
     echo "  $NAME/CODE_OF_CONDUCT.md"
     echo "  $NAME/CLAUDE.md"
-    echo "  $NAME/scripts/build.sh"
-    echo "  $NAME/scripts/test.sh"
+    echo "  $NAME/tests/${NAME}.tcyr   (test suite)"
+    echo "  $NAME/tests/${NAME}.bcyr   (benchmarks)"
+    echo "  $NAME/tests/${NAME}.fcyr   (fuzz harness)"
     echo "  $NAME/.cyrius-toolchain  (pins Cyrius version)"
     echo "  $NAME/.github/workflows/ci.yml"
     echo "  $NAME/.github/workflows/release.yml"
@@ -158,77 +159,76 @@ EOF
 
 # === src/main.cyr ===
 cat > "$NAME/src/main.cyr" << EOF
-# $NAME — main entry point
-
-include "lib/string.cyr"
-include "lib/fmt.cyr"
-include "lib/alloc.cyr"
+# $PROJ — main entry point
+# Stdlib auto-included via cyrius.toml
 
 fn main() {
     alloc_init();
-    println("hello from $NAME");
+    println("hello from $PROJ");
     return 0;
 }
+
 var r = main();
-syscall(60, r);
+syscall(SYS_EXIT, r);
 EOF
 
-# === src/test.cyr ===
-cat > "$NAME/src/test.cyr" << EOF
-# $NAME — tests
-
-include "lib/string.cyr"
-include "lib/fmt.cyr"
-include "lib/alloc.cyr"
-include "lib/assert.cyr"
+# === tests/test.tcyr ===
+mkdir -p "$NAME/tests"
+cat > "$NAME/tests/${PROJ}.tcyr" << EOF
+# $PROJ test suite
+# Stdlib auto-included via cyrius.toml
 
 fn main() {
     alloc_init();
-    assert(1 == 1, "sanity");
+    test_group("smoke");
+    assert(1, "true is true");
+    assert_eq(1 + 1, 2, "math works");
     return assert_summary();
 }
+
 var exit_code = main();
 syscall(60, exit_code);
 EOF
 
-# === scripts/build.sh ===
-cat > "$NAME/scripts/build.sh" << 'BUILD'
-#!/bin/sh
-set -e
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc3}"
-if [ ! -x "$CC" ]; then
-    echo "ERROR: Cyrius compiler not found. Set CYRIUS_CC." >&2
-    exit 1
-fi
-mkdir -p "$ROOT/build"
-cd "$ROOT"
-cat src/main.cyr | "$CC" > build/$(basename "$ROOT")
-chmod +x build/$(basename "$ROOT")
-echo "built: build/$(basename "$ROOT") ($(wc -c < build/$(basename "$ROOT")) bytes)"
-BUILD
-chmod +x "$NAME/scripts/build.sh"
+# === tests/bench.bcyr ===
+cat > "$NAME/tests/${PROJ}.bcyr" << EOF
+# $PROJ benchmarks
+# Stdlib auto-included via cyrius.toml
 
-# === scripts/test.sh ===
-cat > "$NAME/scripts/test.sh" << 'TEST'
-#!/bin/sh
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="${CYRIUS_CC:-${ROOT}/../cyrius/build/cc3}"
-if [ ! -x "$CC" ]; then
-    echo "ERROR: Cyrius compiler not found. Set CYRIUS_CC." >&2
-    exit 1
-fi
-cd "$ROOT"
-cat src/test.cyr | "$CC" > /tmp/cyrius_test_$$ && chmod +x /tmp/cyrius_test_$$
-/tmp/cyrius_test_$$
-exit_code=$?
-rm -f /tmp/cyrius_test_$$
-exit $exit_code
-TEST
-chmod +x "$NAME/scripts/test.sh"
+fn bench_noop() { return 0; }
+
+fn main() {
+    alloc_init();
+    bench("noop", &bench_noop, 1000000);
+    return 0;
+}
+
+var r = main();
+syscall(60, r);
+EOF
+
+# === tests/fuzz.fcyr ===
+cat > "$NAME/tests/${PROJ}.fcyr" << EOF
+# $PROJ fuzz harness
+
+fn fuzz_main(data, len) {
+    if (len == 0) { return 0; }
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    fuzz_main("test", 4);
+    println("fuzz: ok");
+    return 0;
+}
+
+var r = main();
+syscall(60, r);
+EOF
 
 # === .cyrius-toolchain ===
-CYRIUS_VER="${CYRIUS_VER:-3.9.8}"
+CYRIUS_VER="${CYRIUS_VER:-4.2.1}"
 echo "$CYRIUS_VER" > "$NAME/.cyrius-toolchain"
 
 # === CI ===

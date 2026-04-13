@@ -4,6 +4,23 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.1] — 2026-04-13
+
+### Changed
+- **`cyrius port` updated** (`scripts/cyrius-port.sh`): generates modern
+  project structure — `cyrius.toml` with `[package]`/`[build]`/`[deps]`,
+  `.cyrius-toolchain`, CI + release workflows, no manual stdlib includes.
+  Source skeleton uses auto-include. `--dry-run` support. Next steps point
+  to `cyrius build` not raw cc3.
+- **`cyrius init` updated** (`scripts/cyrius-init.sh`): generates test
+  (`tests/{name}.tcyr`), bench (`tests/{name}.bcyr`), and fuzz
+  (`tests/{name}.fcyr`) files. Source skeleton uses auto-include (no manual
+  stdlib includes). Removed old shell script build/test files. Toolchain
+  default updated to 4.2.1.
+- **`install.sh` updated** (`scripts/install.sh`): builds `cyrius` tool from
+  `programs/cyrius.cyr` (not shell script copy), fallback version 1.8.5→4.2.1,
+  stale cc2 naming fixed.
+
 ## [4.2.0] — 2026-04-13
 
 ### Added

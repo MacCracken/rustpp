@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="1.8.5"
+        VERSION="4.2.1"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
@@ -124,17 +124,17 @@ if [ "$installed" -eq 0 ]; then
     chmod +x build/cc3
 
     # Verify self-hosting
-    cat src/main.cyr | ./build/cc3 > /tmp/cc2_verify
-    chmod +x /tmp/cc2_verify
-    cat src/main.cyr | /tmp/cc2_verify > /tmp/cc2_verify2
-    if cmp -s /tmp/cc2_verify /tmp/cc2_verify2; then
+    cat src/main.cyr | ./build/cc3 > /tmp/cc3_verify
+    chmod +x /tmp/cc3_verify
+    cat src/main.cyr | /tmp/cc3_verify > /tmp/cc3_verify2
+    if cmp -s /tmp/cc3_verify /tmp/cc3_verify2; then
         info "self-hosting verified"
     else
         warn "self-hosting check failed, using committed cc3"
     fi
 
-    # Build tools
-    for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
+    # Build tools (including cyrius build tool from Cyrius source)
+    for tool in cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
         if [ -f "programs/${tool}.cyr" ]; then
             cat "programs/${tool}.cyr" | ./build/cc3 > "./build/${tool}" 2>/dev/null && \
                 chmod +x "./build/${tool}" || true
@@ -154,8 +154,7 @@ if [ "$installed" -eq 0 ]; then
         fi
     done
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
-    cp scripts/cyrius "$CYRIUS_HOME/versions/$VERSION/bin/"
-    chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyrius"
+    # cyrius binary already built from programs/cyrius.cyr above
     for script in scripts/cyrius-*.sh; do
         [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
             chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"
