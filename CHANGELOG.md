@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.2.0] — 2026-04-13
+
+### Added
+- **Jump target tracking** (`src/backend/x86/jump.cyr`): `EJMP` and `EPATCH`
+  now record jump targets at `S+0x9E000` (up to 1024 per function). Table
+  reset per function in PARSE_FN_DEF. Foundation for basic-block analysis.
+- **LASE — load-after-store elimination** (`src/frontend/parse.cyr`): eliminates
+  redundant `mov rax, [rbp-N]` immediately after `mov [rbp-N], rax` when the
+  load is NOT a jump target. Uses the jump target table to safely skip loads
+  that are loop back-edge targets. Fixes the v3.8.1 LASE bug that broke loops.
+- **`IS_JUMP_TARGET(S, off)`** helper for codebuf offset lookup.
+
+### Notes
+- This is the beginning of control-flow analysis. Jump targets = basic block
+  entry points. The data structure enables future register allocation and
+  the Heisenbug diagnosis.
+- Two-step bootstrap required (LASE changes the compiler's own codegen).
+
 ## [4.1.3] — 2026-04-13
 
 ### Changed
