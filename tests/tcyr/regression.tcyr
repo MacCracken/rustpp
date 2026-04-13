@@ -342,6 +342,46 @@ fn test_float_literal() {
 }
 
 # ================================================================
+# #derive(accessors) (v3.7.1)
+# ================================================================
+# Auto-generate field getters and setters for heap-allocated structs.
+# #derive(accessors) struct Point { x; y; }
+# Generates: Point_x(p), Point_set_x(p, v), Point_y(p), Point_set_y(p, v)
+
+#derive(accessors)
+struct AccPoint { x; y; }
+
+#derive(accessors)
+struct AccConfig { name: Str; value; count; }
+
+fn test_derive_accessors() {
+    test_group("derive accessors (v3.7.1)");
+    # Basic 2-field struct
+    var p = alloc(16);
+    store64(p, 42);
+    store64(p + 8, 99);
+    assert_eq(AccPoint_x(p), 42, "getter x");
+    assert_eq(AccPoint_y(p), 99, "getter y");
+    AccPoint_set_x(p, 100);
+    AccPoint_set_y(p, 200);
+    assert_eq(AccPoint_x(p), 100, "setter x");
+    assert_eq(AccPoint_y(p), 200, "setter y");
+    # Mixed types (Str + scalars)
+    var c = alloc(24);
+    var s = str_from("hello");
+    store64(c, s);
+    store64(c + 8, 10);
+    store64(c + 16, 3);
+    assert_eq(AccConfig_value(c), 10, "config getter value");
+    assert_eq(AccConfig_count(c), 3, "config getter count");
+    AccConfig_set_value(c, 20);
+    assert_eq(AccConfig_value(c), 20, "config setter value");
+    # Str field accessor
+    var ns = AccConfig_name(c);
+    assert_eq(str_eq(ns, s), 1, "config getter Str");
+}
+
+# ================================================================
 # Entry point
 # ================================================================
 
@@ -365,6 +405,7 @@ fn main() {
     test_auto_coercion();
     test_syscall_arity();
     test_float_literal();
+    test_derive_accessors();
 
     return assert_summary();
 }

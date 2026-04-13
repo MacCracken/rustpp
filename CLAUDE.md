@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 3.7.0
+- **Version**: 3.7.1
 
 ## Goal
 
@@ -14,7 +14,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 290KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer, expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings
+- **Compiler**: 299KB (x86_64), self-hosting, multi-width types, sizeof, unions, bitfields, defer, expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`
 - **Tests**: 33 .tcyr files (491 assertions), 5 .fcyr fuzz harnesses, 10 .bcyr benchmarks, heap audit, self-hosting (two-step)
 - **Libraries**: 41 stdlib modules + 5 deps (sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
 - **Ecosystem**: agnostik (574), agnosys, argonaut (395), majra (144), libro (204), sakshi, bsp (74), cyrius-doom, mabda (290)

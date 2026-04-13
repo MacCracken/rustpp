@@ -4,6 +4,22 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.7.1] — 2026-04-12
+
+### Added
+- **`#derive(accessors)`** (`src/frontend/lex.cyr`): auto-generates field
+  getters and setters for heap-allocated structs. Same preprocessor codegen
+  pattern as `#derive(Serialize)`. For each field, generates:
+  - `Name_field(p)` — returns `load64(p + offset)`
+  - `Name_set_field(p, v)` — calls `store64(p + offset, v)`
+  Supports typed fields (`: Str`, nested structs) via derive table offset
+  lookup. Saves ~30 lines per struct across downstream projects.
+- **Derive accessors regression test** in `regression.tcyr`: 12 assertions
+  covering 2-field scalar struct, mixed Str+scalar struct, getters/setters.
+
+### Stats
+- **cc3: 298,752 bytes**, 36 test suites (74 regression assertions)
+
 ## [3.7.0] — 2026-04-12
 
 ### Fixed
