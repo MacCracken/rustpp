@@ -4,6 +4,49 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha4] — 2026-04-14 (unreleased)
+
+### Added
+- **`#regalloc` metadata attachment** (`src/frontend/parse.cyr`,
+  `src/main.cyr`, `src/common/util.cyr`). The directive recognized
+  in alpha1 now lands on per-fn state: a new 4096-entry
+  `fn_regalloc` table at `0xC8000` (32 KB, reclaimed from the
+  former fn-tables region). Parse-side: pass 2's token-109 handler
+  arms a `_regalloc_pending` flag; `PARSE_FN_DEF` transfers it to
+  `fn_regalloc[fi]` via the new `SFRA` accessor and clears the
+  pending slot; the DCE-stub path clears the flag (dead fns get no
+  prologue, so no attachment point). Pass 1 continues to consume
+  the token silently so a stale flag can't leak across passes.
+- **`GFRA` / `SFRA` accessors** (`src/common/util.cyr`) —
+  load/store for the per-fn `#regalloc` flag. Codegen will consume
+  `GFRA(S, fi)` in alpha5 to decide whether to spill/restore
+  callee-saved regs and route hot locals onto `rbx` / `r12..r15`.
+
+### Heap map
+- `0xC8000–0xD0000` now owned by `fn_regalloc` (4096 × 8 B). Was
+  part of the 144 KB reclaimable zone; `include_fnames` took
+  `0xC0000–0xC8000` in alpha2, so the two alpha4 neighbours leave
+  `0xD0000–0xD8000` (32 KB) still free for future tables.
+
+### Validation
+- cc3 self-host byte-identical — alpha4 is metadata-only, codegen
+  is untouched, so the compiled output does not change.
+- 8/8 check.sh PASS. 44/0 test suite.
+- Directive attaches: `#regalloc` before a `fn` definition compiles,
+  runs, and produces the same output as an un-decorated fn. Runtime
+  readback into `fn_regalloc[fi]` is not observable from the emitted
+  binary (the table lives in the compiler's heap, not the program's);
+  alpha5 will surface the flag via codegen diffs that *are*
+  observable.
+
+### Roadmap (4.8.4)
+- alpha1 ✅ — recognize directive, no codegen.
+- alpha2 ✅ — bote path-traversal + include-cap fixes.
+- alpha3 ✅ — bote nested-include fix + capacity-at-fail diagnostic.
+- alpha4 ✅ — per-fn flag table + parse-side wiring (this release).
+- alpha5 (next) — hot-local use counting + callee-saved assignment
+  (`rbx` / `r12..r15`), prologue save / epilogue restore.
+
 ## [4.8.4-alpha3] — 2026-04-14 (unreleased)
 
 ### Added

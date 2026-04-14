@@ -1,6 +1,14 @@
 # PARSER + CODEGEN — recursive descent, direct emission
 # ================================================================
 
+# v4.8.4-alpha4: pending-flag for `#regalloc` → next `fn` definition.
+# Token 109 sets this; PARSE_FN_DEF (and the DCE-stub path in main.cyr)
+# consume it when they resolve `fi`, storing the flag into fn_regalloc
+# at 0xC8000. Codegen attachment (callee-saved spill/restore driven by
+# hot-local counting) lands in subsequent alphas — alpha4 only wires
+# the metadata so the attribute survives into fn-level state.
+var _regalloc_pending = 0;
+
 # ================================================================
 # STRUCT SUPPORT
 # ================================================================
@@ -3107,6 +3115,10 @@ fn PARSE_FN_DEF(S) {
     # Register or find fn
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
+    # v4.8.4-alpha4: transfer any pending `#regalloc` directive onto
+    # this fn's metadata slot. Cleared whether consumed or not so a
+    # stale flag from a prior parse error can't leak to the next fn.
+    if (_regalloc_pending == 1) { SFRA(S, fi, 1); _regalloc_pending = 0; }
     # Set fn offset to current CP
     S64(S + 0xE92000 + fi * 8, GCP(S));
     # Save compiler state

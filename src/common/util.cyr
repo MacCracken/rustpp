@@ -68,6 +68,11 @@ fn SFINL(S, fi, v) { S64(S + 0xEB2000 + fi * 8, v); return 0; }
 # via a path that bypasses the recording site).
 fn GFNE(S, fi) { return L64(S + 0xEC2000 + fi * 8); }
 fn SFNE(S, fi, v) { S64(S + 0xEC2000 + fi * 8, v); return 0; }
+# Per-fn #regalloc flag (v4.8.4-alpha4). 0 = default ABI, 1 = opt-in
+# to callee-saved hot-local allocation. Set when `#regalloc` precedes
+# a `fn` definition; read by codegen in subsequent alphas.
+fn GFRA(S, fi) { return L64(S + 0xC8000 + fi * 8); }
+fn SFRA(S, fi, v) { S64(S + 0xC8000 + fi * 8, v); return 0; }
 fn GIDEP(S) { return L64(S + 0x903E8); }
 fn SIDEP(S, v) { S64(S + 0x903E8, v); return 0; }
 # (GLVR/SLVR for r12 loop-var cache removed — the feature was
