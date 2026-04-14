@@ -271,6 +271,15 @@ fn ERR_EXPECT(S, expected_type) {
         PRNUM(PEEKV(S));
     }
     syscall(SYS_WRITE, 2, "\n", 1);
+    # v4.8.4-alpha3: dump capacity at error site so consumers can
+    # see if the error is correlated with a near-cap table — same
+    # diagnostic as CYRIUS_STATS=1 but fired on parse failures so
+    # users don't need to re-run with the env flag to get context.
+    syscall(SYS_WRITE, 2, "  at fail: fn=", 14); PRNUM(L64(S + 0x8DA00));
+    syscall(SYS_WRITE, 2, "/4096 ident=", 12); PRNUM(L64(S + 0x8C128));
+    syscall(SYS_WRITE, 2, "/131072 var=", 12); PRNUM(L64(S + 0x8C110));
+    syscall(SYS_WRITE, 2, "/8192 fixup=", 12); PRNUM(L64(S + 0x8FCA8));
+    syscall(SYS_WRITE, 2, "/16384\n", 7);
     syscall(SYS_EXIT, 1);
     return 0;
 }

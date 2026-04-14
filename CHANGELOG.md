@@ -4,6 +4,48 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha3] — 2026-04-14 (unreleased)
+
+### Added
+- **Capacity dump on `ERR_EXPECT` parse failures**
+  (`src/common/util.cyr`). Same six-number snapshot as
+  `CYRIUS_STATS=1`, emitted inline after the diagnostic:
+  `at fail: fn=N/4096 ident=N/131072 var=N/8192 fixup=N/16384`.
+  Downstream consumers no longer need to re-run with the env flag
+  to correlate a parse failure with a near-cap table. Zero cost
+  on success paths.
+
+### Fixed (bote 4.8.3 blocker #3 — closes the triad)
+- **Multi-level nested include expansion**
+  (`src/frontend/lex.cyr`, `PP_IFDEF_PASS`). The second-pass include
+  handler scanned the preprocessor output exactly once, so includes
+  pulled in by files that themselves were included during that pass
+  were never expanded. Bote's `src/registry.cyr → lib/hashmap.cyr
+  → lib/fnptr.cyr` chain tripped this: `hashmap.cyr:20` reached the
+  parser as literal bytes and surfaced as *"expected '=', got string"*
+  (the parser reading `include` as an identifier). Wrapped the pass
+  in a fixpoint loop that re-snapshots `out` to `tmp` and re-scans
+  until no new includes are processed. Bounded at 16 iterations as a
+  safety net against pathological depth; emits a clear
+  *"preprocessor include nesting exceeded 16 levels"* error rather
+  than looping forever.
+
+### Bote impact
+With this fix the bote 4.8.3 blocker triad (path traversal →
+include cap → nested-include scan) is fully closed. On current
+local `cyrius build`:
+- `bote_auth` 38/0 ✅
+- `bote_content` 24/0 ✅ (was: FAIL compile)
+- `bote_host` 67/0 ✅
+All unit tests that previously stalled at *"expected '=', got
+string"* now build and run.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh PASS. CI-style 44 / 0.
+- Direct test: `cyrius build tests/bote_content.tcyr` on bote@2.4.0
+  builds cleanly.
+
 ## [4.8.4-alpha2] — 2026-04-14 (unreleased)
 
 ### Fixed (bote 4.8.3 blockers — found while attempting to compile bote)
