@@ -91,7 +91,25 @@ done
 check "test suite ($test_total files)" "$test_fail"
 echo ""
 
-# ── 4. Format Check ──
+# ── 4a. Shared-object regression (.so + dlopen) ──
+echo "── Shared-object ──"
+sh "$ROOT/tests/regression-shared.sh" > /tmp/audit_so_$$ 2>&1
+so_result=$?
+check "shared; + dlopen round-trip" "$so_result"
+if [ "$so_result" -ne 0 ]; then cat /tmp/audit_so_$$; fi
+rm -f /tmp/audit_so_$$
+echo ""
+
+# ── 4b. Linker regression (cyrld) ──
+echo "── Linker ──"
+sh "$ROOT/tests/regression-linker.sh" > /tmp/audit_ld_$$ 2>&1
+ld_result=$?
+check "cyrld cross-module link" "$ld_result"
+if [ "$ld_result" -ne 0 ]; then cat /tmp/audit_ld_$$; fi
+rm -f /tmp/audit_ld_$$
+echo ""
+
+# ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
     if command -v audit_fmt_walk > /dev/null 2>&1; then

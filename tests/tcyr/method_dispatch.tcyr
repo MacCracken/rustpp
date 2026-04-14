@@ -1,0 +1,109 @@
+# Regression (4.7.1): BUILD_METHOD_NAME scratch corruption.
+# Pre-fix, method-name mangling (`Type_method`) wrote at a fixed
+# tok_names offset of 30 000. Any program with enough identifier
+# pressure had real token noffs pointing into that region; the
+# scratch write corrupted them and later parsing mis-read the bytes.
+#
+# This test pulls in ~20 stdlib modules to push tok_names well past
+# the 30 000 mark, then exercises struct method dispatch in a range
+# of forms (0/1/N args, local/global receiver, chained calls).
+#
+# If BUILD_METHOD_NAME corrupts any real identifier's bytes, one of
+# these assertions will diverge or the compile will mis-parse.
+
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/args.cyr"
+include "lib/fnptr.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fs.cyr"
+include "lib/process.cyr"
+include "lib/hashmap.cyr"
+include "lib/tagged.cyr"
+include "lib/assert.cyr"
+include "lib/math.cyr"
+include "lib/bounds.cyr"
+include "lib/bench.cyr"
+include "lib/callback.cyr"
+include "lib/chrono.cyr"
+include "lib/json.cyr"
+
+struct Counter {
+    n: i64;
+    step: i64;
+}
+
+impl Countable for Counter {
+    fn new(start, step) {
+        var c = alloc(16);
+        store64(c, start);
+        store64(c + 8, step);
+        return c;
+    }
+    fn get(self) { return load64(self); }
+    fn advance(self) {
+        store64(self, load64(self) + load64(self + 8));
+        return load64(self);
+    }
+    fn add(self, delta) {
+        store64(self, load64(self) + delta);
+        return load64(self);
+    }
+}
+
+struct Pair {
+    a: i64;
+    b: i64;
+}
+
+impl Pairable for Pair {
+    fn new(a, b) {
+        var p = alloc(16);
+        store64(p, a);
+        store64(p + 8, b);
+        return p;
+    }
+    fn sum(self) { return load64(self) + load64(self + 8); }
+    fn swap(self) {
+        var tmp = load64(self);
+        store64(self, load64(self + 8));
+        store64(self + 8, tmp);
+        return self;
+    }
+}
+
+alloc_init();
+
+test_group("Counter dispatch");
+var c1 = Counter_new(0, 1);
+assert_eq(Counter_get(c1), 0, "initial 0");
+assert_eq(Counter_advance(c1), 1, "advance 1");
+assert_eq(Counter_advance(c1), 2, "advance 2");
+assert_eq(Counter_add(c1, 10), 12, "add 10");
+
+test_group("Counter with step");
+var c2 = Counter_new(100, 5);
+assert_eq(Counter_get(c2), 100, "start 100");
+assert_eq(Counter_advance(c2), 105, "step 5");
+assert_eq(Counter_advance(c2), 110, "step 5 again");
+
+test_group("Pair dispatch");
+var p = Pair_new(3, 4);
+assert_eq(Pair_sum(p), 7, "sum 3+4");
+Pair_swap(p);
+assert_eq(load64(p), 4, "post-swap a=4");
+assert_eq(load64(p + 8), 3, "post-swap b=3");
+assert_eq(Pair_sum(p), 7, "sum still 7");
+
+test_group("Chained mutation");
+var c3 = Counter_new(10, 2);
+Counter_advance(c3);
+Counter_advance(c3);
+Counter_add(c3, 100);
+assert_eq(Counter_get(c3), 114, "10 + 2 + 2 + 100");
+
+assert_summary();
