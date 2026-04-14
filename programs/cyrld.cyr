@@ -50,6 +50,15 @@ var MOD_PATH[64];           # argv path (for diagnostics)
 var MOD_TEXT_OFF[64];       # offset of .text WITHIN the .o file
 var MOD_TEXT_SIZE[64];
 var MOD_TEXT_BASE[64];      # offset of this module's .text in the merged output
+var MOD_TEXT_SHNDX[64];     # section index of .text in THIS module's shtab
+var MOD_DATA_OFF[64];
+var MOD_DATA_SIZE[64];
+var MOD_DATA_BASE[64];      # offset in merged .data
+var MOD_DATA_SHNDX[64];
+var MOD_RODATA_OFF[64];
+var MOD_RODATA_SIZE[64];
+var MOD_RODATA_BASE[64];    # offset in merged .rodata
+var MOD_RODATA_SHNDX[64];
 var MOD_SYMTAB_OFF[64];
 var MOD_SYMTAB_SIZE[64];
 var MOD_STRTAB_OFF[64];
@@ -147,6 +156,15 @@ fn load_module(path) {
     store64(&MOD_TEXT_OFF + id * 8, 0);
     store64(&MOD_TEXT_SIZE + id * 8, 0);
     store64(&MOD_TEXT_BASE + id * 8, 0);
+    store64(&MOD_TEXT_SHNDX + id * 8, 0);
+    store64(&MOD_DATA_OFF + id * 8, 0);
+    store64(&MOD_DATA_SIZE + id * 8, 0);
+    store64(&MOD_DATA_BASE + id * 8, 0);
+    store64(&MOD_DATA_SHNDX + id * 8, 0);
+    store64(&MOD_RODATA_OFF + id * 8, 0);
+    store64(&MOD_RODATA_SIZE + id * 8, 0);
+    store64(&MOD_RODATA_BASE + id * 8, 0);
+    store64(&MOD_RODATA_SHNDX + id * 8, 0);
     store64(&MOD_SYMTAB_OFF + id * 8, 0);
     store64(&MOD_SYMTAB_SIZE + id * 8, 0);
     store64(&MOD_STRTAB_OFF + id * 8, 0);
@@ -166,7 +184,7 @@ fn load_module(path) {
         var sh_size = read_u64(sh, 32);
         var sh_link = read_u32(sh, 40);
         if (sh_type == SHT_PROGBITS) {
-            # Identify .text by its section name
+            # Identify .text / .data / .rodata by name
             var name_off = read_u32(sh, 0);
             var shstrndx = read_u16(buf, 62);
             var shstr_off = read_u64(sh_base, shstrndx * 64 + 24);
@@ -174,6 +192,17 @@ fn load_module(path) {
             if (memeq(name_ptr, ".text", 5) == 1 && load8(name_ptr + 5) == 0) {
                 store64(&MOD_TEXT_OFF + id * 8, sh_off);
                 store64(&MOD_TEXT_SIZE + id * 8, sh_size);
+                store64(&MOD_TEXT_SHNDX + id * 8, i);
+            }
+            if (memeq(name_ptr, ".data", 5) == 1 && load8(name_ptr + 5) == 0) {
+                store64(&MOD_DATA_OFF + id * 8, sh_off);
+                store64(&MOD_DATA_SIZE + id * 8, sh_size);
+                store64(&MOD_DATA_SHNDX + id * 8, i);
+            }
+            if (memeq(name_ptr, ".rodata", 7) == 1 && load8(name_ptr + 7) == 0) {
+                store64(&MOD_RODATA_OFF + id * 8, sh_off);
+                store64(&MOD_RODATA_SIZE + id * 8, sh_size);
+                store64(&MOD_RODATA_SHNDX + id * 8, i);
             }
         }
         if (sh_type == SHT_SYMTAB) {
@@ -204,6 +233,72 @@ fn assign_text_layout() {
         i = i + 1;
     }
     return base;
+}
+
+# Round `n` up to a multiple of 8 (ELF-friendly alignment for data).
+fn align8(n) { return (n + 7) & (0 - 8); }
+
+# Assign merged bases for .data and .rodata, set their final VAs
+# relative to TEXT_VA + text_size.
+fn assign_data_layout() {
+    # Data laid out first after text; rodata after data.
+    var dbase = 0;
+    var i = 0;
+    while (i < MOD_COUNT) {
+        store64(&MOD_DATA_BASE + i * 8, dbase);
+        dbase = dbase + load64(&MOD_DATA_SIZE + i * 8);
+        i = i + 1;
+    }
+    MERGED_DATA_SIZE = dbase;
+    var rbase = 0;
+    var j = 0;
+    while (j < MOD_COUNT) {
+        store64(&MOD_RODATA_BASE + j * 8, rbase);
+        rbase = rbase + load64(&MOD_RODATA_SIZE + j * 8);
+        j = j + 1;
+    }
+    MERGED_RODATA_SIZE = rbase;
+    # Set VAs — data starts right after text (8-byte aligned).
+    DATA_VA = align8(ENTRY_VA + MERGED_TEXT_SIZE);
+    RODATA_VA = align8(DATA_VA + MERGED_DATA_SIZE);
+    return 0;
+}
+
+# Allocate + populate merged_data / merged_rodata buffers.
+fn build_merged_data() {
+    if (MERGED_DATA_SIZE > 0) {
+        MERGED_DATA = alloc(MERGED_DATA_SIZE);
+        var mi = 0;
+        while (mi < MOD_COUNT) {
+            var buf = load64(&MOD_BUF + mi * 8);
+            var doff = load64(&MOD_DATA_OFF + mi * 8);
+            var dsz = load64(&MOD_DATA_SIZE + mi * 8);
+            var dbase = load64(&MOD_DATA_BASE + mi * 8);
+            var i = 0;
+            while (i < dsz) {
+                store8(MERGED_DATA + dbase + i, load8(buf + doff + i));
+                i = i + 1;
+            }
+            mi = mi + 1;
+        }
+    }
+    if (MERGED_RODATA_SIZE > 0) {
+        MERGED_RODATA = alloc(MERGED_RODATA_SIZE);
+        var mj = 0;
+        while (mj < MOD_COUNT) {
+            var rbuf = load64(&MOD_BUF + mj * 8);
+            var roff = load64(&MOD_RODATA_OFF + mj * 8);
+            var rsz = load64(&MOD_RODATA_SIZE + mj * 8);
+            var rbase = load64(&MOD_RODATA_BASE + mj * 8);
+            var k = 0;
+            while (k < rsz) {
+                store8(MERGED_RODATA + rbase + k, load8(rbuf + roff + k));
+                k = k + 1;
+            }
+            mj = mj + 1;
+        }
+    }
+    return 1;
 }
 
 # Pass 2: walk each module's symtab, populate the global symbol table.
@@ -348,6 +443,13 @@ fn report_merge(total_text) {
 var ENTRY_VA = 0x400078;
 var MERGED_TEXT = 0;       # pointer to merged .text buffer (alloc'd)
 var MERGED_TEXT_SIZE = 0;
+var MERGED_DATA = 0;
+var MERGED_DATA_SIZE = 0;
+var MERGED_RODATA = 0;
+var MERGED_RODATA_SIZE = 0;
+# Final VAs (set after layout assignment).
+var DATA_VA = 0;
+var RODATA_VA = 0;
 
 # Build the merged .text buffer by concatenating each module's .text in
 # the order they were loaded. Returns 1 on success, 0 on failure.
@@ -394,6 +496,22 @@ fn resolve_sym_va(mi, sym_idx) {
     var st_shndx = read_u16(sym, 6);
     var st_value = read_u64(sym, 8);
     var bind = st_info >> 4;
+    var sttyp = st_info & 15;
+    # Section symbols — resolve to the merged section's VA + st_value.
+    # cc3's relocations encode the in-section offset in the addend, so
+    # st_value is usually 0; we still add it for correctness.
+    if (sttyp == STT_SECTION) {
+        if (st_shndx == load64(&MOD_TEXT_SHNDX + mi * 8)) {
+            return ENTRY_VA + load64(&MOD_TEXT_BASE + mi * 8) + st_value;
+        }
+        if (st_shndx == load64(&MOD_DATA_SHNDX + mi * 8)) {
+            return DATA_VA + load64(&MOD_DATA_BASE + mi * 8) + st_value;
+        }
+        if (st_shndx == load64(&MOD_RODATA_SHNDX + mi * 8)) {
+            return RODATA_VA + load64(&MOD_RODATA_BASE + mi * 8) + st_value;
+        }
+        return 0 - 1;
+    }
     # Local symbols defined in this module's .text: resolve directly.
     if (bind == STB_LOCAL && st_shndx != 0) {
         var tbase = load64(&MOD_TEXT_BASE + mi * 8);
@@ -531,28 +649,33 @@ fn find_local_sym(mi, name) {
     return 0 - 1;
 }
 
-# Write the linked merged .text as an ET_EXEC ELF to `out_path`.
-# Entry is a 14-byte `_start` stub appended after merged_text that calls
-# `_cyrius_init` of the FIRST module, then exits with rax as the status.
-# Stub needed because _cyrius_init ends with `leave; ret` — returning to
-# the kernel-supplied stack top (argc) would SIGSEGV.
-# Layout: 64 B ELF header + 56 B program header + merged_text + 14 B _start.
-# Code-only — no .data, .rodata, or dynamic relocations. That's beta1.
+# Write the linked merged sections as an ET_EXEC ELF to `out_path`.
+# Entry is a 14-byte `_start` stub that calls `_cyrius_init` of the FIRST
+# module and exits with rax as status. Stub needed because _cyrius_init
+# ends with `leave; ret` — returning to argc would SIGSEGV.
+# Layout: 64 B ELF header + 56 B program header + merged_text (aligned) +
+# merged_data (aligned) + merged_rodata (aligned) + 14 B _start.
+# Single PT_LOAD RWX — beta2 doesn't enforce W^X protection; that's for
+# multi-segment work later.
 fn emit_executable(out_path) {
-    var init_va = find_local_sym(0, "_cyrius_init");
-    if (init_va < 0) {
-        emsg("error: first module has no _cyrius_init — cannot select entry\n");
-        return 1;
-    }
-    var stub_size = 14;
-    var hdr_size = 120;  # 64 ELF header + 56 program header
-    var total = hdr_size + MERGED_TEXT_SIZE + stub_size;
-    # Round up to 8 for ELF niceness.
-    total = (total + 7) & (0 - 8);
+    # File layout — each segment 8-byte aligned relative to file base.
+    # DATA_VA / RODATA_VA were set by assign_data_layout().
+    var hdr_size = 120;
+    var text_off = hdr_size;
+    var data_off = text_off + MERGED_TEXT_SIZE;
+    data_off = align8(data_off);
+    var rodata_off = data_off + MERGED_DATA_SIZE;
+    rodata_off = align8(rodata_off);
+    var stub_off = rodata_off + MERGED_RODATA_SIZE;
+    # Stub = one `call _cyrius_init` per module (5 bytes each, reverse
+    # cmdline order so deps init first, cmdline-arg-0 init last — its rax
+    # becomes the exit status). Plus 9 bytes for `mov edi,eax; mov eax,60; syscall`.
+    var stub_size = 5 * MOD_COUNT + 9;
+    var total = stub_off + stub_size;
+    total = align8(total);
     var O = alloc(total);
-    # _start stub lives at end of merged_text; entry is its VA.
-    var stub_off = hdr_size + MERGED_TEXT_SIZE;
-    var entry = ENTRY_VA + MERGED_TEXT_SIZE;
+    # Entry = stub's VA (VA layout mirrors file layout since p_offset=0).
+    var entry = 0x400000 + stub_off;
     # Zero fill (for padding)
     var zi = 0;
     while (zi < total) { store8(O + zi, 0); zi = zi + 1; }
@@ -579,32 +702,60 @@ fn emit_executable(out_path) {
     store64(O + 96, total);                # p_filesz
     store64(O + 104, total + 4096);        # p_memsz (headroom)
     store64(O + 112, 0x1000);              # p_align
-    # ---- Merged .text starting at file offset 120 (= VA 0x400078) ----
+    # ---- Merged .text at text_off (= ENTRY_VA) ----
     var ci = 0;
     while (ci < MERGED_TEXT_SIZE) {
-        store8(O + hdr_size + ci, load8(MERGED_TEXT + ci));
+        store8(O + text_off + ci, load8(MERGED_TEXT + ci));
         ci = ci + 1;
     }
-    # ---- _start stub at end of text ----
-    # E8 xx xx xx xx      call rel32 (_cyrius_init)
-    # 89 C7               mov edi, eax      (exit status = init's return)
-    # B8 3C 00 00 00      mov eax, 60       (SYS_EXIT)
-    # 0F 05               syscall
-    var rel = init_va - (entry + 5);
-    store8(O + stub_off + 0, 0xE8);
-    store8(O + stub_off + 1, rel & 0xFF);
-    store8(O + stub_off + 2, (rel >> 8) & 0xFF);
-    store8(O + stub_off + 3, (rel >> 16) & 0xFF);
-    store8(O + stub_off + 4, (rel >> 24) & 0xFF);
-    store8(O + stub_off + 5, 0x89);
-    store8(O + stub_off + 6, 0xC7);
-    store8(O + stub_off + 7, 0xB8);
-    store8(O + stub_off + 8, 0x3C);
-    store8(O + stub_off + 9, 0x00);
-    store8(O + stub_off + 10, 0x00);
-    store8(O + stub_off + 11, 0x00);
-    store8(O + stub_off + 12, 0x0F);
-    store8(O + stub_off + 13, 0x05);
+    # ---- Merged .data at data_off (= DATA_VA) ----
+    var di = 0;
+    while (di < MERGED_DATA_SIZE) {
+        store8(O + data_off + di, load8(MERGED_DATA + di));
+        di = di + 1;
+    }
+    # ---- Merged .rodata at rodata_off (= RODATA_VA) ----
+    var ri = 0;
+    while (ri < MERGED_RODATA_SIZE) {
+        store8(O + rodata_off + ri, load8(MERGED_RODATA + ri));
+        ri = ri + 1;
+    }
+    # ---- _start stub at stub_off ----
+    # For each module in REVERSE cmdline order:
+    #   E8 xx xx xx xx      call _cyrius_init of that module
+    # then:
+    #   89 C7               mov edi, eax      (exit status = last call's rax)
+    #   B8 3C 00 00 00      mov eax, 60       (SYS_EXIT)
+    #   0F 05               syscall
+    # Reverse order → deps init first, cmdline-arg-0 (main) init LAST,
+    # so its rax is what gets piped to exit.
+    var mi = MOD_COUNT - 1;
+    var cur_off = stub_off;
+    while (mi >= 0) {
+        var init_va = find_local_sym(mi, "_cyrius_init");
+        if (init_va < 0) {
+            emsg("error: module has no _cyrius_init — cannot link\n");
+            return 1;
+        }
+        var cur_va = 0x400000 + cur_off;
+        var rel = init_va - (cur_va + 5);
+        store8(O + cur_off + 0, 0xE8);
+        store8(O + cur_off + 1, rel & 0xFF);
+        store8(O + cur_off + 2, (rel >> 8) & 0xFF);
+        store8(O + cur_off + 3, (rel >> 16) & 0xFF);
+        store8(O + cur_off + 4, (rel >> 24) & 0xFF);
+        cur_off = cur_off + 5;
+        mi = mi - 1;
+    }
+    store8(O + cur_off + 0, 0x89);
+    store8(O + cur_off + 1, 0xC7);
+    store8(O + cur_off + 2, 0xB8);
+    store8(O + cur_off + 3, 0x3C);
+    store8(O + cur_off + 4, 0x00);
+    store8(O + cur_off + 5, 0x00);
+    store8(O + cur_off + 6, 0x00);
+    store8(O + cur_off + 7, 0x0F);
+    store8(O + cur_off + 8, 0x05);
     # Write to disk.
     var fd = syscall(SYS_OPEN, out_path, 0x241, 0x1ED);  # O_WRONLY|O_CREAT|O_TRUNC, 0755
     if (fd < 0) {
@@ -649,6 +800,7 @@ fn main() {
         i = i + 1;
     }
     var total = assign_text_layout();
+    MERGED_TEXT_SIZE = total;
     merge_symbols();
     var errs = verify_resolution();
     report_merge(total);
@@ -658,7 +810,9 @@ fn main() {
         emsg(" resolution error(s)\n");
         return 1;
     }
+    assign_data_layout();
     if (build_merged_text(total) == 0) { return 1; }
+    build_merged_data();
     var rerrs = apply_relocations();
     if (rerrs > 0) {
         emsg("cyrld: "); var reb[16]; var rel = fmt_int_buf(rerrs, &reb);

@@ -46,6 +46,69 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.0-beta2] — 2026-04-14 (unreleased)
+
+### Added
+- **`.data` / `.rodata` merge** (`programs/cyrld.cyr`).
+  cyrld now concatenates each module's `.data` and `.rodata` in the
+  merged output, assigns per-module bases, and wires section-symbol
+  relocations into final VAs. Layout of the emitted ELF:
+  `[text | data | rodata | _start]` — 8-byte aligned, single `PT_LOAD RWX`
+  segment at `0x400000`. Mutable globals, initialized globals, and string
+  literals now survive cross-module linking.
+- **Section-symbol reloc resolution** — `resolve_sym_va` recognizes
+  `STT_SECTION` and maps `st_shndx` to the module's `.text`, `.data`,
+  or `.rodata` merged base. Addend encodes the in-section offset (cc3
+  convention: `.data + N`, `.rodata + N`).
+- **Multi-init `_start`** — the stub now calls every module's
+  `_cyrius_init` in *reverse* cmdline order (deps first, cmdline-arg-0
+  last). The last call's return value pipes to `exit`. This makes
+  cmdline-arg-0 the de-facto "main" and ensures dep globals are
+  initialized before main code runs.
+- **`MOD_TEXT_SHNDX` / `MOD_DATA_SHNDX` / `MOD_RODATA_SHNDX`** —
+  per-module section index lookup, populated during `load_module` so
+  reloc resolution can ask "is section N in module `mi` the data
+  section?" in one compare.
+
+### Fixed (cc3 writer bug surfaced by beta1)
+- **Object-mode function bodies no longer elided** (`src/main.cyr`).
+  cc3's name-bitmap DCE was dropping the body of any function whose name
+  didn't appear as a non-`fn` identifier in the token stream — fine for
+  whole-program compiles, fatal for `.o` files where callers live in
+  other modules. The symbol was emitted pointing to the
+  `xor eax,eax; ret` fallback stub. Now: DCE is skipped entirely in
+  object mode (`kernel_mode == 3`). Fixed:
+  `fn greet() { return 42; }` now links + runs correctly without a
+  dummy in-module caller as crutch.
+
+### Validation
+- Minimal two-file cross-module test: `a.cyr` defines
+  `fn greet() { return 42; }`, `c.cyr` defines `call_greet` and top-level
+  `var result = call_greet()`. Linked with `cyrld -o linked c.o a.o`,
+  exits `43`. No more `greet_twice` crutch needed.
+- `.data` test: `d.cyr` has `var counter = 42; fn inc_counter() { ... }`,
+  `m.cyr` has `var r1 = inc_counter(); var r2 = inc_counter(); var r = r2;`.
+  Linked exits `44` (d's init runs first, sets counter to 42; m's
+  two calls bump to 43, 44; `r = r2 = 44`).
+- `.rodata` test: `syscall(1, 1, "hi\n", 3)` from one module called by
+  another — `hi` prints, program exits cleanly.
+- cc3 self-host stable (two-step bootstrap: cc3 → cc4, cc4 → cc5,
+  cc4 == cc5 byte-identical).
+- 5/5 check.sh PASS.
+
+### Known limits (beta2)
+- `.bss` not merged yet (no cc3 emission either — cc3 currently puts
+  zero-init globals in `.data`).
+- Single `PT_LOAD RWX` — data is executable, code is writable. Doesn't
+  matter for correctness but loses W^X. Multi-segment layout (RX + RW
+  + RO) comes later.
+- Section headers still omitted from the output; `objdump -d` returns
+  empty. Only relevant for debugging — the binary runs.
+
+### Next
+- Cross-unit DCE against the final symbol graph (4.6.0 GA target).
+- Multi-segment PT_LOAD (RX text + RW data + RO rodata).
+
 ## [4.6.0-beta1] — 2026-04-14 (unreleased)
 
 ### Added
