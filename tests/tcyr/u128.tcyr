@@ -55,4 +55,76 @@ var g1: u128 = 0;
 var g2: u128 = 0;
 assert_eq(&g2 - &g1, 16, "consecutive u128 vars are 16 bytes apart");
 
+test_group("u128_add (alpha4)");
+var add_a: u128 = 0;
+var add_b: u128 = 0;
+var add_r: u128 = 0;
+# 0 + 0 = 0
+u128_add(&add_r, &add_a, &add_b);
+assert_eq(u128_is_zero(&add_r), 1, "0 + 0 = 0");
+# 1 + 1 = 2
+u128_set(&add_a, 1, 0);
+u128_set(&add_b, 1, 0);
+u128_add(&add_r, &add_a, &add_b);
+assert_eq(u128_lo(&add_r), 2, "1 + 1 lo = 2");
+assert_eq(u128_hi(&add_r), 0, "1 + 1 hi = 0");
+# 0xFFFF_FFFF_FFFF_FFFF + 1 = 2^64 (crosses limb boundary)
+u128_set(&add_a, 0xFFFF_FFFF_FFFF_FFFF, 0);
+u128_set(&add_b, 1, 0);
+u128_add(&add_r, &add_a, &add_b);
+assert_eq(u128_lo(&add_r), 0, "max_u64 + 1 lo = 0 (carry)");
+assert_eq(u128_hi(&add_r), 1, "max_u64 + 1 hi = 1");
+# (2^64 - 1, 2^64 - 1) + (0, 1) = (2^64 - 1, 0) (hi wraps)
+u128_set(&add_a, 0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
+u128_set(&add_b, 0, 1);
+u128_add(&add_r, &add_a, &add_b);
+assert_eq(u128_lo(&add_r), 0xFFFF_FFFF_FFFF_FFFF, "wrap lo unchanged");
+assert_eq(u128_hi(&add_r), 0, "wrap hi = 0 (no carry out)");
+# max_u128 + 1 = 0 (full wrap)
+u128_set(&add_a, 0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
+u128_set(&add_b, 1, 0);
+u128_add(&add_r, &add_a, &add_b);
+assert_eq(u128_is_zero(&add_r), 1, "max_u128 + 1 = 0");
+
+test_group("u128_sub");
+var sub_a: u128 = 0;
+var sub_b: u128 = 0;
+var sub_r: u128 = 0;
+# 2 - 1 = 1
+u128_set(&sub_a, 2, 0);
+u128_set(&sub_b, 1, 0);
+u128_sub(&sub_r, &sub_a, &sub_b);
+assert_eq(u128_lo(&sub_r), 1, "2 - 1 lo = 1");
+assert_eq(u128_hi(&sub_r), 0, "2 - 1 hi = 0");
+# (0, 1) - (1, 0) = max_u64 (borrow across limb)
+u128_set(&sub_a, 0, 1);
+u128_set(&sub_b, 1, 0);
+u128_sub(&sub_r, &sub_a, &sub_b);
+assert_eq(u128_lo(&sub_r), 0xFFFF_FFFF_FFFF_FFFF, "borrow lo = max_u64");
+assert_eq(u128_hi(&sub_r), 0, "borrow hi = 0");
+# 0 - 1 = max_u128 (full wrap)
+u128_set(&sub_a, 0, 0);
+u128_set(&sub_b, 1, 0);
+u128_sub(&sub_r, &sub_a, &sub_b);
+assert_eq(u128_lo(&sub_r), 0xFFFF_FFFF_FFFF_FFFF, "0 - 1 lo = max_u64");
+assert_eq(u128_hi(&sub_r), 0xFFFF_FFFF_FFFF_FFFF, "0 - 1 hi = max_u64");
+# a + b - b == a (round-trip)
+u128_set(&sub_a, 0xDEAD_BEEF_CAFE_BABE, 0x1234_5678_9ABC_DEF0);
+u128_set(&sub_b, 0x1111_2222_3333_4444, 0x5555_6666_7777_8888);
+var tmp: u128 = 0;
+u128_add(&tmp, &sub_a, &sub_b);
+u128_sub(&sub_r, &tmp, &sub_b);
+assert_eq(u128_eq(&sub_r, &sub_a), 1, "(a+b)-b == a");
+
+test_group("u128_addeq / u128_subeq");
+var acc: u128 = 0;
+var one: u128 = 0;
+u128_set(&one, 1, 0);
+u128_set(&acc, 10, 0);
+u128_addeq(&acc, &one);
+assert_eq(u128_lo(&acc), 11, "10 += 1 = 11");
+u128_subeq(&acc, &one);
+u128_subeq(&acc, &one);
+assert_eq(u128_lo(&acc), 9, "11 -= 1 -= 1 = 9");
+
 assert_summary();

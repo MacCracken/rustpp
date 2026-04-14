@@ -4,6 +4,32 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha4] — 2026-04-14 (unreleased)
+
+### Added
+- **`u128_add` / `u128_sub`** in `lib/u128.cyr` — two-limb add/subtract
+  with carry/borrow correctly propagating across the low→high boundary.
+  Signature: `u128_add(dst, a, b)` / `u128_sub(dst, a, b)`, all pointer
+  arguments. Compiler has no unsigned primitive yet, so carry/borrow
+  detection goes through 32-bit chunk addition (each half stays in the
+  positive i64 range; bit-32 of the partial sum is the carry bit).
+  Wraps modulo 2^128: `max_u128 + 1 = 0`, `0 - 1 = max_u128`.
+- **`u128_addeq` / `u128_subeq`** — in-place convenience wrappers
+  (`dst += src` / `dst -= src`).
+
+### Validation
+- `tests/tcyr/u128.tcyr` grew to 31 assertions — covers 0+0, 1+1,
+  `max_u64+1` (crosses limb boundary), `max_u128+1` (full wrap),
+  `2-1`, `(0,1)-(1,0)` (borrow across limb), `0-1` (full wrap to
+  `max_u128`), and a round-trip `(a+b)-b == a` with non-trivial
+  patterns. Plus `u128_addeq`/`u128_subeq`. All green.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+
+### Next (alpha5)
+- `u128_mul` via schoolbook (3-mul variant: `lo·lo`, `hi·lo + lo·hi`,
+  carry). Division is `u128_divmod` in alpha6.
+
 ## [4.8.0-alpha3] — 2026-04-14 (unreleased)
 
 ### Fixed

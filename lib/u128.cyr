@@ -50,3 +50,58 @@ fn u128_is_zero(ptr) {
     if (load64(ptr + 8) != 0) { return 0; }
     return 1;
 }
+
+# -------- Arithmetic (v4.8.0-alpha4) --------
+#
+# Carry / borrow detection without an unsigned primitive: split each
+# 64-bit limb into two 32-bit halves, add/subtract in pieces (cyrius's
+# i64 arith has more than enough headroom), propagate the carry bit
+# from bit 32 of each partial result. Shifts here are on values whose
+# high bit (63) is zero, so signed and logical `>>` coincide.
+
+# dst = a + b  (u128 wraps at 2^128)
+fn u128_add(dst, a, b) {
+    var a_lo = load64(a);
+    var a_hi = load64(a + 8);
+    var b_lo = load64(b);
+    var b_hi = load64(b + 8);
+    var a_lolo = a_lo & 0xFFFFFFFF;
+    var a_lohi = (a_lo >> 32) & 0xFFFFFFFF;
+    var b_lolo = b_lo & 0xFFFFFFFF;
+    var b_lohi = (b_lo >> 32) & 0xFFFFFFFF;
+    var s_lolo = a_lolo + b_lolo;
+    var s_lohi = a_lohi + b_lohi + (s_lolo >> 32);
+    var new_lo = (s_lolo & 0xFFFFFFFF) | ((s_lohi & 0xFFFFFFFF) << 32);
+    var carry = s_lohi >> 32;
+    var new_hi = a_hi + b_hi + carry;
+    store64(dst, new_lo);
+    store64(dst + 8, new_hi);
+    return 0;
+}
+
+# dst = a - b  (u128 wraps at 2^128, so 0 - 1 = 2^128 - 1)
+fn u128_sub(dst, a, b) {
+    var a_lo = load64(a);
+    var a_hi = load64(a + 8);
+    var b_lo = load64(b);
+    var b_hi = load64(b + 8);
+    var a_lolo = a_lo & 0xFFFFFFFF;
+    var a_lohi = (a_lo >> 32) & 0xFFFFFFFF;
+    var b_lolo = b_lo & 0xFFFFFFFF;
+    var b_lohi = (b_lo >> 32) & 0xFFFFFFFF;
+    var d_lolo = a_lolo - b_lolo;
+    var borrow_lo = 0;
+    if (d_lolo < 0) { d_lolo = d_lolo + 0x100000000; borrow_lo = 1; }
+    var d_lohi = a_lohi - b_lohi - borrow_lo;
+    var borrow_hi = 0;
+    if (d_lohi < 0) { d_lohi = d_lohi + 0x100000000; borrow_hi = 1; }
+    var new_lo = (d_lolo & 0xFFFFFFFF) | ((d_lohi & 0xFFFFFFFF) << 32);
+    var new_hi = a_hi - b_hi - borrow_hi;
+    store64(dst, new_lo);
+    store64(dst + 8, new_hi);
+    return 0;
+}
+
+# In-place variants — `dst += src` and `dst -= src`.
+fn u128_addeq(dst, src) { return u128_add(dst, dst, src); }
+fn u128_subeq(dst, src) { return u128_sub(dst, dst, src); }
