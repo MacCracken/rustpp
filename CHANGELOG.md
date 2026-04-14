@@ -4,6 +4,46 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha5] — 2026-04-14 (unreleased)
+
+### Added
+- **`_cur_fn_regalloc` current-fn mirror** (`src/frontend/parse.cyr`).
+  `PARSE_FN_DEF` now reads the per-fn `fn_regalloc[fi]` slot set in
+  alpha4 and stores it into a global mirror for the duration of the
+  fn's body. Reset to `0` at fn exit so sibling/nested fns without
+  the directive don't inherit the flag. Emit helpers (`EFLLOAD`,
+  `EFLSTORE`, `ETAILJMP`, `EFNEPI`) can now consult
+  `_cur_fn_regalloc` without re-looking-up `fi` on every call —
+  alpha6 is the consumer.
+
+### Design note — why this alpha is tracking-only
+The original alpha5 plan bundled prologue/epilogue `push rbx` / `pop
+rbx` + stack-alignment padding. Implementation surfaced a frame-layout
+conflict: `push rbx` lands its save at `[rbp-8]`, which is exactly
+where local index 0 lives (`disp = -(idx+1)*8`). Fixing the collision
+cleanly requires either (a) reserving an extra phantom local at
+index 0 and shifting every user local by one slot (which touches
+`EFLLOAD`, `EFLSTORE`, `ESTOREPARM`, the width-aware load/store pair,
+and `ELVRINIT`), or (b) saving rbx below the frame at `[rbp-fsz-8]`
+which needs a late-patched displacement. Both are substantive enough
+to warrant their own alpha rather than being tacked onto tracking
+scaffolding. Alpha6 will land the full design in one shot.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap). Binary differs
+  by a handful of bytes from alpha4 — the added global adds one
+  more entry to the var table and shifts later globals' offsets.
+- 8/8 check.sh PASS. 44/0 test suite.
+
+### Roadmap (4.8.4)
+- alpha1 ✅ — recognize directive, no codegen.
+- alpha2 ✅ — bote path-traversal + include-cap fixes.
+- alpha3 ✅ — bote nested-include fix + capacity-at-fail diagnostic.
+- alpha4 ✅ — per-fn flag table + parse-side wiring.
+- alpha5 ✅ — current-fn mirror + codegen consult point (this release).
+- alpha6 (next) — frame-slot design for rbx save + use-counting
+  picker + `EFLLOAD`/`EFLSTORE` routing for the selected hot local.
+
 ## [4.8.4-alpha4] — 2026-04-14 (unreleased)
 
 ### Added

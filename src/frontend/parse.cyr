@@ -9,6 +9,14 @@
 # the metadata so the attribute survives into fn-level state.
 var _regalloc_pending = 0;
 
+# v4.8.4-alpha5: current-fn #regalloc flag, set inside PARSE_FN_DEF so
+# codegen helpers (ETAILJMP, EFNEPI call sites) can decide whether to
+# restore rbx before the epilogue. Reset to 0 at fn exit. Separate
+# from `_regalloc_pending` (which tracks directive → next-fn transfer):
+# once PARSE_FN_DEF owns a fn, this mirrors fn_regalloc[fi] for the
+# duration of that fn's body.
+var _cur_fn_regalloc = 0;
+
 # ================================================================
 # STRUCT SUPPORT
 # ================================================================
@@ -3119,6 +3127,10 @@ fn PARSE_FN_DEF(S) {
     # this fn's metadata slot. Cleared whether consumed or not so a
     # stale flag from a prior parse error can't leak to the next fn.
     if (_regalloc_pending == 1) { SFRA(S, fi, 1); _regalloc_pending = 0; }
+    # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
+    # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
+    # the end of PARSE_FN_DEF.
+    _cur_fn_regalloc = GFRA(S, fi);
     # Set fn offset to current CP
     S64(S + 0xE92000 + fi * 8, GCP(S));
     # Save compiler state
@@ -3315,6 +3327,9 @@ fn PARSE_FN_DEF(S) {
     # Restore state (DON'T restore VCNT — arrays inside functions are globals that persist)
     SLVAR(S, saved_lv);
     SINFN(S, 0);
+    # v4.8.4-alpha5: clear #regalloc mirror so nested/sibling fns without
+    # the directive don't inherit it.
+    _cur_fn_regalloc = 0;
     return 0;
 }
 
