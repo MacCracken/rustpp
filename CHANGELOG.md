@@ -4,6 +4,59 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.1] — 2026-04-14
+
+### Added
+- **`base64url_encode` / `base64url_decode`** in `lib/base64.cyr`
+  (RFC 4648 §5, "URL- and filename-safe" alphabet). The URL variant
+  swaps `+` / `/` → `-` / `_` and typically drops `=` padding. JWT
+  tokens (RFC 7515 §3.5), OAuth 2.0 PKCE / `state`, capability URLs
+  all use this — bote 2.2's `auth_validator_jwt_hs256` needs it.
+  - Encoder emits no padding (per the common URL convention).
+  - Decoder accepts both padded and unpadded input.
+  - Signature mirrors `base64_encode` / `base64_decode` exactly, so
+    consumers can swap one for the other by transport context.
+  The code landed during the 4.8.0 cycle but without tests or
+  changelog; this patch documents + verifies it.
+
+### Fixed
+- **`tests/tcyr/method_dispatch.tcyr` + `tests/tcyr/u128.tcyr` CI
+  failures (exit code != 0)**. Both files ended with
+  `assert_summary();` as a bare statement. In executable mode cyrius's
+  top-level epilogue loads the *last declared var* (not the last
+  expression) into `rax` before `syscall(60, rax)` — so the exit
+  code was the low byte of whatever the final `var` pointed at
+  (a heap address, e.g. `0x30` == `48`). Locally `scripts/check.sh`
+  reads the `"N failed"` summary line and didn't catch it; the CI
+  step checks `$ec -ne 0`. Fixed by ending each test with
+  `var _exit_code = assert_summary(); syscall(60, _exit_code);` —
+  matching the pattern in `regression.tcyr`.
+- **18 undocumented fns in `lib/u128.cyr`**. Several helpers
+  (`u128_hi`, the `*eq` family, bitwise ops, unsigned compares,
+  `u128_div`/`mod`/`diveq`/`modeq`) were grouped under a single
+  section comment; the doc checker requires a `# ...` line directly
+  above each `fn`. Added one-liners. `cyrius doc --check lib/u128.cyr`
+  now reports `0 undocumented`.
+
+### Validation
+- **30 assertions** in `tests/tcyr/base64.tcyr` (up from 11) cover
+  base64url:
+  - RFC 4648 §10 vectors: `""`, `"f"` → `"Zg"`, `"fo"` → `"Zm8"`,
+    `"foo"`, `"foob"`, `"fooba"`, `"foobar"`.
+  - Padding tolerance: `"Zm9vYg"` and `"Zm9vYg=="` both decode to
+    `"foob"`.
+  - JWT header: `base64url_decode("eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9", 40)`
+    → 30 bytes.
+  - Invalid char: `base64url_decode("Zm9*Yg", 6)` → `0`.
+  - URL-safety: bytes `0xFB 0xFF 0xBF` → `-_-_` via
+    `base64url_encode`, vs `+/+/` via standard `base64_encode`.
+  - Round-trip on `"The quick brown fox"`.
+- cc3 self-host byte-identical (two-step bootstrap).
+- `scripts/check.sh` 7/7 PASS.
+- CI-style exit-code loop over all 43 `.tcyr` files: 43 / 0.
+- `cyrius doc --check lib/base64.cyr` → `4 documented, 0 undocumented`.
+- `cyrius doc --check lib/u128.cyr` → `0 undocumented`.
+
 ## [4.8.0] — 2026-04-14
 
 ### Arc summary
