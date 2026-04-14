@@ -46,6 +46,54 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.7.0-alpha2] — 2026-04-14 (unreleased)
+
+### Fixed
+- **PIC-safe data + string refs in shared mode** (`src/backend/x86/emit.cyr`,
+  `src/backend/x86/fixup.cyr`). Alpha1 produced loadable `.so`s where
+  *calls* worked (already PC-relative rel32) but any access to a
+  string literal or a global variable crashed with SIGSEGV at a random
+  address — the absolute VA bakedby `mov rax, imm64` didn't survive
+  the dynamic loader's random bias.
+  - `_IS_OBJ(S)` now returns 1 for both object mode (3) *and* shared
+    mode (2). This flips `EVADDR` / `ESADDR` / `EVADDR_X1` /
+    `PARSE_EXPR` fn-pointer emission to `lea rax, [rip+disp32]`.
+  - `FIXUP` patches for ftype 0 (var addr), 1 (string addr), 3 (fn
+    addr) now emit 4-byte PC-relative displacements in shared mode,
+    computed as `target_va − (entry + coff + 4)`. Matches the LEA
+    instruction's next-instruction base.
+  - Shared-mode `entry` set to `232` (3 × 56-byte PHs + 64-byte ELF
+    header), reflecting where code starts in the `.so` layout with
+    `p_vaddr=0`.
+
+### Validation
+- C `dlopen` + `dlsym` + call round-trip:
+  - `greeting()` returns a string literal → pointer in loader's
+    mapping, `strcmp` vs literal = 0, text prints correctly.
+  - `inc()` / `get()` / `reset()` on a `.data`-backed counter —
+    mutations visible across calls, state persists.
+- Python `ctypes` round-trip (alpha1 tests still pass): `add(100,200)
+  = 300`, `multiply(6,7) = 42`.
+- cc3 self-host byte-identical.
+- 5/5 check.sh PASS.
+
+### Known limits (alpha2)
+- **No data initializers in shared mode** — `var counter = 100;` ends
+  up as 0 at load time because `shared;` skips the `_cyrius_init`
+  wrapper that would run the assignment. Would be addressed with a
+  `DT_INIT`/`DT_INIT_ARRAY` mechanism in a later alpha, or by
+  precomputing the `.data` contents at compile time for simple
+  constant initializers.
+- Still a single `PT_LOAD RWX` — `W^X` not enforced. Cleanly splitting
+  text/data into RX/RW segments is a layout-sensitive change deferred
+  to post-GA.
+
+### Next (GA)
+- Decide: data-initializer strategy (constant-fold at compile time
+  vs. runtime `DT_INIT`).
+- Package a .tcyr or .bcyr test that spawns a `.so` build + Python
+  ctypes round-trip so this path is continuously covered by the suite.
+
 ## [4.7.0-alpha1] — 2026-04-14 (unreleased)
 
 ### Added

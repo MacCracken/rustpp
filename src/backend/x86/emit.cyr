@@ -123,8 +123,17 @@ fn RECFIX(S, idx) {
     return 0;
 }
 
-# Check if compiling in object mode (kernel_mode == 3)
-fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
+# Check if compiling in object mode (kernel_mode == 3) OR shared mode
+# (kernel_mode == 2). Both require PIC-safe addressing: the linker
+# resolves data refs in .o files, and the dynamic loader applies a
+# random bias when mapping an ET_DYN — absolute `mov rax, imm64`
+# baked with a fixed VA can't survive either. Use
+# `lea rax, [rip+disp32]` instead.
+fn _IS_OBJ(S) {
+    var km = L64(S + 0x8FCA0);
+    if (km == 3 || km == 2) { return 1; }
+    return 0;
+}
 
 # Emit rcx = address of variable (object mode: LEA, else: MOV imm64)
 fn _EVRCX(S, idx) {
