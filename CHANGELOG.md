@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.3] — 2026-04-13
+
+### Added
+- **`fmt_int_fd(fd, n)` and `efmt_int(n)` in `lib/fmt.cyr`** (bote
+  feedback item 7). `fmt_int` always writes to stdout; mixing it with
+  stderr diagnostic writes produces interleaved output in logs. The new
+  variants route decimal output to an arbitrary fd — `efmt_int(n)` is
+  the stderr shorthand for `fmt_int_fd(2, n)`. Non-breaking addition.
+- **`cyrlint` rule for `is_err` naming clash** (`programs/cyrlint.cyr`,
+  bote feedback item 5). When a file includes BOTH `lib/syscalls.cyr`
+  (where `is_err(ret)` checks `ret < 0`) and `lib/tagged.cyr` (which
+  exposes `is_err_result(r)` for tagged Results), every bare `is_err(`
+  call is ambiguous — applying the syscalls version to a Result heap
+  pointer silently never catches errors. The new rule pre-scans for
+  both includes, then warns on each `is_err(` usage with a disambiguation
+  hint. Guarded against false-flagging `is_err_result` via preceding-
+  identifier-char check.
+
 ## [4.4.2] — 2026-04-13
 
 ### Fixed
