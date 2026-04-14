@@ -23,48 +23,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - cc3 self-host byte-identical (two-step bootstrap).
 - 7/7 check.sh PASS.
 
-## [4.5.1] — 2026-04-14
-
-### Added
-- **`lib/ws_server.cyr`** — WebSocket server primitives in the stdlib.
-  Companion to `lib/ws.cyr` (client-only, sends MASKED) and
-  `lib/http_server.cyr` (HTTP — landed in 4.5.0). Server-side inverts
-  the masking rule: reads MASKED frames (RFC 6455 client→server), sends
-  UNMASKED frames (server→client).
-  Surface:
-  - `ws_server_handshake(cfd, req_buf, req_len)` — validates upgrade
-    request, computes `Sec-WebSocket-Accept = base64(sha1(key + magic))`,
-    sends 101 Switching Protocols, returns a 24-byte ws handle (or 0 on
-    bad request).
-  - Frame I/O: `ws_server_recv_frame` (unmasks in place),
-    `ws_server_send_frame`, high-level `ws_server_recv` / `_send_text`
-    / `_send_binary` / `_send_ping` / `_send_pong` / `_send_close`.
-  - Self-contained SHA-1 (~85 LOC) — used only for the Accept computation,
-    avoids pulling in `lib/sigil.cyr` for one consumer.
-  - Integration: runs INSIDE an `http_server_run` handler — upgrade +
-    WS lifetime happen on the same cfd, no changes to `http_server.cyr`
-    needed. Handler returns → socket closes.
-- **Doc coverage** — 13 documented / 16 total (per-symbol prose for every
-  public function; accessors, frame helpers, lifecycle).
-
-### Why
-bote v1.5+ MCP WebSocket transport needed server-side WS; so will majra
-(push events over WS), vidya (live API), and any future RPC service.
-Same "every project would hand-roll ~320 LOC of the same handshake +
-frame plumbing" argument that justified `http_server.cyr` in 4.5.0.
-
-Reference impl from `bote/docs/proposals/cyrius-stdlib-ws-server.md`,
-landed after a `cyrfmt` normalization pass.
-
-### Validation
-- Smoke compile + run clean.
-- End-to-end: spawned `ws_server_run` on `127.0.0.1:34568`, Python
-  client completed the upgrade (got `101 Switching Protocols` with a
-  valid `Sec-WebSocket-Accept`), sent a masked TEXT frame, received
-  unmasked `echo: hello` back (opcode=1, len=11).
-- cc3 self-host unchanged (stdlib-only addition; compiler not touched).
-- 5/5 check.sh PASS.
-
 ## [4.8.0-alpha1] — 2026-04-14 (unreleased)
 
 ### Added
@@ -767,6 +725,49 @@ Shipping analysis first means:
 - **alpha3**: apply relocations on the merged .text.
 - **beta1**: emit ET_EXEC executable (ET_DYN / PIC stays with v4.7.0).
 - **4.6.0**: cross-unit DCE, `cyrius build -c` workflow, docs + tests.
+
+## [4.5.1] — 2026-04-14
+
+### Added
+- **`lib/ws_server.cyr`** — WebSocket server primitives in the stdlib.
+  Companion to `lib/ws.cyr` (client-only, sends MASKED) and
+  `lib/http_server.cyr` (HTTP — landed in 4.5.0). Server-side inverts
+  the masking rule: reads MASKED frames (RFC 6455 client→server), sends
+  UNMASKED frames (server→client).
+  Surface:
+  - `ws_server_handshake(cfd, req_buf, req_len)` — validates upgrade
+    request, computes `Sec-WebSocket-Accept = base64(sha1(key + magic))`,
+    sends 101 Switching Protocols, returns a 24-byte ws handle (or 0 on
+    bad request).
+  - Frame I/O: `ws_server_recv_frame` (unmasks in place),
+    `ws_server_send_frame`, high-level `ws_server_recv` / `_send_text`
+    / `_send_binary` / `_send_ping` / `_send_pong` / `_send_close`.
+  - Self-contained SHA-1 (~85 LOC) — used only for the Accept computation,
+    avoids pulling in `lib/sigil.cyr` for one consumer.
+  - Integration: runs INSIDE an `http_server_run` handler — upgrade +
+    WS lifetime happen on the same cfd, no changes to `http_server.cyr`
+    needed. Handler returns → socket closes.
+- **Doc coverage** — 13 documented / 16 total (per-symbol prose for every
+  public function; accessors, frame helpers, lifecycle).
+
+### Why
+bote v1.5+ MCP WebSocket transport needed server-side WS; so will majra
+(push events over WS), vidya (live API), and any future RPC service.
+Same "every project would hand-roll ~320 LOC of the same handshake +
+frame plumbing" argument that justified `http_server.cyr` in 4.5.0.
+
+Reference impl from `bote/docs/proposals/cyrius-stdlib-ws-server.md`,
+landed after a `cyrfmt` normalization pass.
+
+### Validation
+- Smoke compile + run clean.
+- End-to-end: spawned `ws_server_run` on `127.0.0.1:34568`, Python
+  client completed the upgrade (got `101 Switching Protocols` with a
+  valid `Sec-WebSocket-Accept`), sent a masked TEXT frame, received
+  unmasked `echo: hello` back (opcode=1, len=11).
+- cc3 self-host unchanged (stdlib-only addition; compiler not touched).
+- 5/5 check.sh PASS.
+
 
 ## [4.5.0] — 2026-04-14
 
