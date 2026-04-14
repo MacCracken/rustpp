@@ -4,6 +4,63 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4] — 2026-04-14
+
+**Register allocation + bote blocker triad.** `#regalloc` graduates
+from recognized-only (4.8.4-alpha1) to a complete opt-in routing
+pipeline: body pre-scan picks the hottest non-param local by use
+count, the frame reserves `[rbp-8]` for the saved rbx, and a
+post-emit peephole rewrites the 7-byte stack accesses to 3-byte
+register moves with a single 4-byte NOP pad for offset stability.
+Along the way this cycle also closed bote's 4.8.3 triad
+(path-traversal env override, include-once cap 64→256, nested-
+include fixpoint in `PP_IFDEF_PASS`) and added an `ERR_EXPECT`
+capacity diagnostic so future near-cap errors self-report.
+
+### Track summary
+
+| Alpha/beta | Work |
+|---|---|
+| alpha1 | `#regalloc` token recognized, consumed silently. |
+| alpha2 | Bote unblockers: `CYRIUS_ALLOW_PARENT_INCLUDES=1` env override + include-once cap 64 → 256. |
+| alpha3 | Bote unblocker #3: `PP_IFDEF_PASS` fixpoint loop (nested includes past the first level now expand); capacity dump on `ERR_EXPECT`. |
+| alpha4 | `fn_regalloc[4096]` table at `0xC8000` + `GFRA` / `SFRA` accessors + parse-side flag transfer. |
+| alpha5 | `_cur_fn_regalloc` current-fn mirror (plumbing for codegen consumers). |
+| alpha6 | Frame reserves `[rbp-8]` for rbx save; save/restore emitted in prologue/epilogue; all seven local-disp sites shift by −8 for `#regalloc` fns; `ETAILJMP` restores rbx before teardown. |
+| alpha7 | Post-body peephole rewrites `mov rax,[rbp-hot]` / `mov [rbp-hot],rax` to `mov rax,rbx` / `mov rbx,rax` + 0x90×4. `&local` safety pre-scan aborts routing where the hot slot is address-taken. Picker is "first non-param local". |
+| alpha8 | Use-count picker replaces positional; width-aware safety scan aborts routing on movzx / byte / word / dword / loop-cache patterns at the hot slot. |
+| beta1 | `tests/tcyr/regalloc.tcyr` (16 assertions, 7 scenarios) + `benches/bench_regalloc.bcyr`. Padding changed from 4× `0x90` to one `0F 1F 40 00` — nested-accumulator bench shifts from ~+10% regression to ~−12% win, other shapes hit parity. `PARSE_PROG` accepts top-level `#regalloc` for tcyr/bcyr harnesses. |
+
+### Usage
+
+```cyr
+#regalloc
+fn hot_loop(n) {
+    var acc = 0;
+    var i = 0;
+    while (i < n) { acc = acc + i; i = i + 1; }
+    return acc;
+}
+```
+
+Behavior is identical to an un-decorated fn. Codegen reserves rbx,
+routes the hottest non-param slot through it, and aborts cleanly
+if the slot is address-taken or accessed via a non-8-byte op.
+Multi-reg (`r12..r15`) defers to a 4.9.x minor — design is ready,
+infrastructure (frame layout, safety scan, patcher) already
+accommodates the extension.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- Bootstrap closure: seed → cyrc → asm → cyrc clean.
+- 8/8 `check.sh` PASS. 45 test files / 299 assertions.
+- Dead-fn count stable at 7 (no regression from the 4.8.3 baseline).
+- Capacity at cc3 self-compile: `fn=324/4096 ident=8146/131072
+  var=100/8192 fixup=1614/16384 string=5462/262144 code=345144/1048576`
+  — plenty of headroom across every axis.
+- `bench_regalloc` snapshot (N=10000 iters, 1000 inner): nested
+  8us → 7us, sum + fnv at parity.
+
 ## [4.8.4-beta1] — 2026-04-14 (unreleased)
 
 ### Added (tests + benchmarks — the beta deliverable)
