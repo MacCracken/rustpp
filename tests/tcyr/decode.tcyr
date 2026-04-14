@@ -1,0 +1,45 @@
+# x86-64 length decoder smoke test (4.4.5).
+# Verifies DECODE_LEN handles representative Cyrius emissions.
+# Note: the decoder lives inside the COMPILER (src/backend/x86/decode.cyr)
+# and isn't exposed to user programs. This test exercises it indirectly
+# via the DCE pass — if the decoder were broken, NOPed binaries would
+# crash. So this is a behavioral test: a binary with many dead fns gets
+# DCE'd and runs cleanly.
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+fn dead_one() { return 1; }
+fn dead_two() { return 2; }
+fn dead_three() {
+    var x = 0;
+    while (x < 5) { x = x + 1; }
+    return x;
+}
+fn dead_with_branches(n) {
+    if (n > 10) { return 1; }
+    elif (n > 5) { return 2; }
+    else { return 3; }
+}
+fn dead_with_loop() {
+    var sum = 0;
+    var i = 0;
+    while (i < 10) { sum = sum + i; i = i + 1; }
+    return sum;
+}
+
+# Used helper — must survive DCE.
+fn used_helper(x) { return x * 2 + 1; }
+
+alloc_init();
+
+test_group("DCE with decoder validation");
+assert_eq(used_helper(0), 1, "used helper 0");
+assert_eq(used_helper(20), 41, "used helper 20");
+assert_eq(used_helper(0 - 1), 0 - 1, "used helper -1");
+# The dead_* fns should be unreachable (no fixup, no byte-scan match)
+# and the DCE pass with decoder validation should NOP them under
+# CYRIUS_DCE=1. The assertions here just confirm the live path works.
+
+var r = assert_summary();

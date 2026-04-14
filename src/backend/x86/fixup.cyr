@@ -387,12 +387,33 @@ fn FIXUP(S) {
                         }
                     }
                     if (safe == 1) {
-                        dce_bytes = dce_bytes + (dfend - dfoff);
-                        if (dce_enabled == 1) {
-                            var nop_i = dfoff;
-                            while (nop_i < dfend) {
-                                store8(S + 0x54A000 + nop_i, 0x90);
-                                nop_i = nop_i + 1;
+                        # Validation: walk the body with the length decoder
+                        # (v4.4.5 — src/backend/x86/decode.cyr). Every byte
+                        # position from dfoff up to dfend must decode to
+                        # a non-zero length. If we encounter an undecodable
+                        # byte, that means there's something we don't
+                        # understand in the body — refuse to NOP. Fail-safe
+                        # against garbage, asm{} blocks, or future codegen
+                        # changes that emit instructions outside our subset.
+                        var valid = 1;
+                        var vp = dfoff;
+                        while (vp < dfend) {
+                            var ilen = DECODE_LEN(S + 0x54A000, vp);
+                            if (ilen == 0) { valid = 0; vp = dfend; }
+                            else { vp = vp + ilen; }
+                        }
+                        # The walk should land EXACTLY at dfend. Overshoot
+                        # means the decoder consumed bytes past fn_end —
+                        # the "fn" actually has spillover, refuse.
+                        if (vp != dfend) { valid = 0; }
+                        if (valid == 1) {
+                            dce_bytes = dce_bytes + (dfend - dfoff);
+                            if (dce_enabled == 1) {
+                                var nop_i = dfoff;
+                                while (nop_i < dfend) {
+                                    store8(S + 0x54A000 + nop_i, 0x90);
+                                    nop_i = nop_i + 1;
+                                }
                             }
                         }
                     }

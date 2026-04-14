@@ -4,6 +4,44 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.5] — 2026-04-13
+
+### Added
+- **x86-64 length decoder** (`src/backend/x86/decode.cyr`, ~280 lines).
+  Port of Nomade040's ldisasm scoped to Cyrius's emission subset.
+  Public functions: `DECODE_LEN(buf, off)` returns instruction byte
+  length (0 = undecodable), `CLASSIFY_CF(buf, off)` returns control-flow
+  class {fallthrough, JMP, Jcc, CALL, RET, indirect/unknown}, and
+  `CF_TARGET(buf, off, kind)` extracts the rel32/rel8 target for
+  branches. Full prefix + REX handling, ModR/M length tables, common
+  immediate sizings. Foundation for the byte-walking CFG (4.5.x),
+  PatraStore Heisenbug diagnosis, and future register allocation.
+- **DCE validation pass uses the decoder**
+  (`src/backend/x86/fixup.cyr`). Before NOP-filling a fn whose safety
+  gate passed, the validator walks its body with `DECODE_LEN`. If any
+  byte position is undecodable OR the walk overshoots `fn_end` (partial
+  instruction), the fn is REFUSED for NOPing. Fail-safe: protects
+  against `asm{}` blocks, future codegen we don't recognize yet, or
+  stray bytes that shouldn't be inert.
+- **`tests/tcyr/decode.tcyr`** — DCE-with-validator smoke test. 3
+  assertions confirming the live path stays correct when surrounding
+  dead fns get NOPed.
+
+### Results
+- libro under CYRIUS_DCE=1: 187,499 → **177,809 bytes NOPed** (slightly
+  more conservative — validator skips ~10KB of fns containing bytes
+  outside the decoder's subset). All 204 tests still pass.
+- libro gzip: 39,220 → 40,984 bytes (small regression, acceptable trade
+  for fail-safe).
+- cc3 self-host: byte-identical at 353,280 bytes.
+- 5/5 check.sh PASS.
+
+### Deferred (still open)
+- libro PatraStore Heisenbug diagnosis. Decoder is in place; using it
+  to walk from main entry and trace data flow into the corrupted Str
+  is heavier than a single 4.4.x patch. Stays parked for 4.5.x where
+  the linker work provides cross-unit symbol visibility.
+
 ## [4.4.4] — 2026-04-13
 
 ### Added

@@ -1,0 +1,307 @@
+# ================================================================
+# x86-64 length-only instruction decoder (v4.4.5)
+# ================================================================
+#
+# Port of Nomade040's ldisasm.cpp, scoped to the subset of x86-64
+# instructions Cyrius actually emits (no AVX/VEX/EVEX, no x87, no MMX).
+# Foundation for byte-walking CFG construction (4.5.x), DCE
+# correctness validation, and future register allocation work.
+#
+# Public functions:
+#   DECODE_LEN(buf, off) -> N    instruction length at buf+off, 0 if undecodable
+#   CLASSIFY_CF(buf, off) -> tag control-flow class:
+#                                  0 = falls through (no CF instruction)
+#                                  1 = JMP rel (E9 / EB / FF /4)
+#                                  2 = JCC rel (0F 8x / 7x)
+#                                  3 = CALL rel (E8 / FF /2)
+#                                  4 = RET (C3 / C2 / C9-then-C3)
+#                                  5 = unknown / indirect / undecodable
+#   CF_TARGET(buf, off, kind) -> target offset (only meaningful for kinds 1/2/3)
+#
+# Reference: https://github.com/gh-nomad/length-disassembler/blob/master/ldisasm.cpp
+# Plus Intel SDM Vol 2 §2.1 (instruction format) and §2.2.1 (REX).
+
+# ----------------------------------------------------------------
+# ModR/M length helper.
+# Given the byte at `off` (the ModR/M byte) plus the address-size
+# prefix flag, return how many BYTES follow ModR/M (SIB + displacement).
+# Caller adds 1 for the ModR/M byte itself.
+# ----------------------------------------------------------------
+fn _MODRM_FOLLOW(modrm) {
+    var mfld = (modrm >> 6) & 3;
+    var rm = modrm & 7;
+    if (mfld == 3) { return 0; }                # register operand: no extra
+    var extra = 0;
+    if (mfld == 0) {
+        if (rm == 4) { extra = 1; }            # SIB byte
+        if (rm == 5) { extra = 4; }            # disp32 (RIP-rel in 64-bit)
+    } elif (mfld == 1) {
+        if (rm == 4) { extra = 2; }            # SIB + disp8
+        else { extra = 1; }                    # disp8
+    } elif (mfld == 2) {
+        if (rm == 4) { extra = 5; }            # SIB + disp32
+        else { extra = 4; }                    # disp32
+    }
+    return extra;
+}
+
+# ----------------------------------------------------------------
+# Decode the length of the x86-64 instruction at buf+off.
+# Returns 0 when undecodable (caller treats as "stop walking").
+# ----------------------------------------------------------------
+fn DECODE_LEN(buf, off) {
+    var p = off;
+    var op_prefix = 0;       # 0x66 operand-size override
+    var addr_prefix = 0;     # 0x67 address-size override
+    var rex_w = 0;
+    # Consume legacy prefixes + REX. Up to 14 prefix bytes per Intel.
+    var pi = 0;
+    while (pi < 14) {
+        var b = load8(buf + p);
+        if (b == 0x26 || b == 0x2E || b == 0x36 || b == 0x3E) { p = p + 1; pi = pi + 1; }
+        elif (b == 0x64 || b == 0x65) { p = p + 1; pi = pi + 1; }
+        elif (b == 0x66) { op_prefix = 1; p = p + 1; pi = pi + 1; }
+        elif (b == 0x67) { addr_prefix = 1; p = p + 1; pi = pi + 1; }
+        elif (b == 0xF0 || b == 0xF2 || b == 0xF3) { p = p + 1; pi = pi + 1; }
+        elif (b >= 0x40 && b <= 0x4F) { rex_w = b & 8; p = p + 1; pi = pi + 1; }
+        else { pi = 14; }                      # not a prefix; break
+    }
+
+    var op = load8(buf + p);
+    p = p + 1;
+
+    # ----- Two-byte opcode escape: 0x0F xx -----
+    if (op == 0x0F) {
+        var op2 = load8(buf + p);
+        p = p + 1;
+        # Three-byte opcodes 0x0F 0x38 / 0x3A — Cyrius doesn't emit these
+        # in normal codegen; bail conservatively.
+        if (op2 == 0x38 || op2 == 0x3A) { return 0; }
+        # Common two-byte opcodes Cyrius emits — all take ModR/M:
+        #   80..8F  Jcc rel32          (no ModR/M, has rel32)
+        #   90..9F  SETcc r/m8         (ModR/M)
+        #   A3      BT r/m, r          (ModR/M)
+        #   AF      IMUL r, r/m        (ModR/M)
+        #   B6      MOVZX r, r/m8      (ModR/M)
+        #   B7      MOVZX r, r/m16     (ModR/M)
+        #   BE      MOVSX r, r/m8      (ModR/M)
+        #   BF      MOVSX r, r/m16     (ModR/M)
+        if (op2 >= 0x80 && op2 <= 0x8F) {
+            return p - off + 4;                # rel32
+        }
+        # ModR/M-bearing forms
+        var mr = load8(buf + p);
+        p = p + 1;
+        return p - off + _MODRM_FOLLOW(mr);
+    }
+
+    # ----- One-byte opcodes -----
+    # No-operand single bytes (RET, NOPs, prefixes-as-opcodes, push/pop reg)
+    if (op == 0xC3 || op == 0xC9 || op == 0x90 || op == 0xFC || op == 0xFD) { return p - off; }
+    if (op >= 0x50 && op <= 0x5F) { return p - off; }   # push/pop r64
+    # Single byte CALL/JMP relative
+    if (op == 0xE8 || op == 0xE9) { return p - off + 4; }   # rel32
+    if (op == 0xEB) { return p - off + 1; }                  # JMP rel8
+    if (op >= 0x70 && op <= 0x7F) { return p - off + 1; }   # Jcc rel8
+    if (op == 0xE3 || op == 0xE0 || op == 0xE1 || op == 0xE2) { return p - off + 1; }  # JRCXZ/LOOP
+    if (op == 0xC2) { return p - off + 2; }                  # RET imm16
+    if (op == 0xCC) { return p - off; }                      # INT3
+    if (op == 0xCD) { return p - off + 1; }                  # INT imm8
+
+    # Two-byte sequences with no ModR/M — common Cyrius emissions:
+    if (op == 0x05 || op == 0x0D || op == 0x15 || op == 0x1D ||
+        op == 0x25 || op == 0x2D || op == 0x35 || op == 0x3D) {
+        # ADD/OR/.../CMP eax, imm32 (or rax, imm32 with REX.W)
+        return p - off + 4;
+    }
+    if (op == 0x04 || op == 0x0C || op == 0x14 || op == 0x1C ||
+        op == 0x24 || op == 0x2C || op == 0x34 || op == 0x3C) {
+        return p - off + 1;                    # AL, imm8 family
+    }
+
+    # MOV r64, imm64 — opcode B8..BF + 8-byte imm (with REX.W); imm32 without
+    if (op >= 0xB8 && op <= 0xBF) {
+        if (rex_w != 0) { return p - off + 8; }
+        if (op_prefix == 1) { return p - off + 2; }
+        return p - off + 4;
+    }
+    # MOV r8, imm8 — B0..B7
+    if (op >= 0xB0 && op <= 0xB7) { return p - off + 1; }
+
+    # ModR/M-bearing arithmetic/move/test family (most of Cyrius's emit set):
+    #   00..03 ADD,  08..0B OR,   10..13 ADC,  18..1B SBB
+    #   20..23 AND,  28..2B SUB,  30..33 XOR,  38..3B CMP
+    #   84..85 TEST, 86..87 XCHG, 88..8B MOV,  8D LEA,  8F POP r/m
+    #   D1, D3 (shifts by 1 / by CL)  — ModR/M only
+    #   F6, F7 (TEST/NOT/NEG/MUL/IMUL/DIV/IDIV) — ModR/M, F6 +imm8 if reg=0/1, F7 +imm32 if reg=0/1
+    #   FE, FF — ModR/M only (INC/DEC, CALL/JMP indirect)
+    var has_modrm = 0;
+    var imm_after_modrm = 0;   # 0/1/2/4 bytes after ModR/M
+
+    if ((op >= 0x00 && op <= 0x03) || (op >= 0x08 && op <= 0x0B) ||
+        (op >= 0x10 && op <= 0x13) || (op >= 0x18 && op <= 0x1B) ||
+        (op >= 0x20 && op <= 0x23) || (op >= 0x28 && op <= 0x2B) ||
+        (op >= 0x30 && op <= 0x33) || (op >= 0x38 && op <= 0x3B)) {
+        has_modrm = 1;
+    }
+    if (op == 0x84 || op == 0x85 || op == 0x86 || op == 0x87) { has_modrm = 1; }
+    if (op >= 0x88 && op <= 0x8B) { has_modrm = 1; }
+    if (op == 0x8D || op == 0x8F) { has_modrm = 1; }
+    if (op == 0xD1 || op == 0xD3) { has_modrm = 1; }
+    if (op == 0xFE || op == 0xFF) { has_modrm = 1; }
+
+    # Group 1: 80/81/82/83 — ModR/M then immediate (sized by opcode)
+    if (op == 0x80 || op == 0x82) { has_modrm = 1; imm_after_modrm = 1; }
+    if (op == 0x83) { has_modrm = 1; imm_after_modrm = 1; }
+    if (op == 0x81) {
+        has_modrm = 1;
+        if (op_prefix == 1) { imm_after_modrm = 2; }
+        else { imm_after_modrm = 4; }
+    }
+    # C0/C1 — shift r/m8/16/32/64 by imm8
+    if (op == 0xC0 || op == 0xC1) { has_modrm = 1; imm_after_modrm = 1; }
+    # C6/C7 — MOV r/m, imm
+    if (op == 0xC6) { has_modrm = 1; imm_after_modrm = 1; }
+    if (op == 0xC7) {
+        has_modrm = 1;
+        if (op_prefix == 1) { imm_after_modrm = 2; }
+        else { imm_after_modrm = 4; }
+    }
+    # F6/F7: ModR/M; if reg field == 0 or 1 (TEST), an immediate follows
+    if (op == 0xF6 || op == 0xF7) {
+        has_modrm = 1;
+        var modrm = load8(buf + p);
+        var reg = (modrm >> 3) & 7;
+        if (reg == 0 || reg == 1) {
+            if (op == 0xF6) { imm_after_modrm = 1; }
+            else {
+                if (op_prefix == 1) { imm_after_modrm = 2; }
+                else { imm_after_modrm = 4; }
+            }
+        }
+    }
+
+    if (has_modrm == 1) {
+        var mr = load8(buf + p);
+        p = p + 1;
+        return p - off + _MODRM_FOLLOW(mr) + imm_after_modrm;
+    }
+
+    # 0xA0..0xA3 — MOV moffs, A0/A1 are 8-byte addr in 64-bit mode
+    if (op == 0xA0 || op == 0xA1 || op == 0xA2 || op == 0xA3) {
+        if (addr_prefix == 1) { return p - off + 4; }
+        return p - off + 8;
+    }
+    # 0xA4..0xA7 / 0xAA..0xAF — string ops (MOVS, CMPS, STOS, LODS, SCAS): no operands
+    if (op == 0xA4 || op == 0xA5 || op == 0xA6 || op == 0xA7 ||
+        op == 0xAA || op == 0xAB || op == 0xAC || op == 0xAD || op == 0xAE || op == 0xAF) {
+        return p - off;
+    }
+    # 0x6A — PUSH imm8;  0x68 — PUSH imm32
+    if (op == 0x6A) { return p - off + 1; }
+    if (op == 0x68) {
+        if (op_prefix == 1) { return p - off + 2; }
+        return p - off + 4;
+    }
+    # IDIV / DIV / NEG / NOT 1-operand fallback handled by F6/F7 above.
+
+    # Everything else: bail out conservatively. The CFG walker should
+    # treat this as a black-box and not advance past it. Better than
+    # silently miscounting and walking off the end of an instruction.
+    return 0;
+}
+
+# ----------------------------------------------------------------
+# Classify the control-flow effect of the instruction at buf+off.
+# Returns:
+#   0 falls through (no CF effect; execution continues at off + length)
+#   1 JMP rel (E9 / EB)
+#   2 Jcc rel (0F 8x / 7x)
+#   3 CALL rel (E8)
+#   4 RET (C3 / C2 / C9 followed by C3)
+#   5 unknown / indirect / undecodable
+# Caller pairs this with DECODE_LEN to walk the binary.
+# ----------------------------------------------------------------
+fn CLASSIFY_CF(buf, off) {
+    # Skip prefixes + REX so the opcode classification is clean.
+    var p = off;
+    var pi = 0;
+    while (pi < 14) {
+        var b = load8(buf + p);
+        if (b == 0x26 || b == 0x2E || b == 0x36 || b == 0x3E) { p = p + 1; pi = pi + 1; }
+        elif (b == 0x64 || b == 0x65 || b == 0x66 || b == 0x67) { p = p + 1; pi = pi + 1; }
+        elif (b == 0xF0 || b == 0xF2 || b == 0xF3) { p = p + 1; pi = pi + 1; }
+        elif (b >= 0x40 && b <= 0x4F) { p = p + 1; pi = pi + 1; }
+        else { pi = 14; }
+    }
+    var op = load8(buf + p);
+    if (op == 0xE8) { return 3; }
+    if (op == 0xE9 || op == 0xEB) { return 1; }
+    if (op >= 0x70 && op <= 0x7F) { return 2; }
+    if (op == 0xC3 || op == 0xC2) { return 4; }
+    if (op == 0xC9) {
+        if (load8(buf + p + 1) == 0xC3) { return 4; }
+        return 0;
+    }
+    if (op == 0x0F) {
+        var op2 = load8(buf + p + 1);
+        if (op2 >= 0x80 && op2 <= 0x8F) { return 2; }
+        return 0;
+    }
+    if (op == 0xFF) {
+        var modrm = load8(buf + p + 1);
+        var reg = (modrm >> 3) & 7;
+        if (reg == 2 || reg == 3) { return 5; }   # CALL r/m
+        if (reg == 4 || reg == 5) { return 5; }   # JMP r/m (treated as terminator-unknown)
+        return 0;
+    }
+    return 0;
+}
+
+# ----------------------------------------------------------------
+# For a JMP/Jcc/CALL with rel8 or rel32, return the target offset.
+# Returns -1 for undecodable / indirect.
+# Caller is expected to have already classified via CLASSIFY_CF.
+# ----------------------------------------------------------------
+fn CF_TARGET(buf, off, kind) {
+    # Skip prefixes + REX.
+    var p = off;
+    var pi = 0;
+    while (pi < 14) {
+        var b = load8(buf + p);
+        if (b == 0x26 || b == 0x2E || b == 0x36 || b == 0x3E) { p = p + 1; pi = pi + 1; }
+        elif (b == 0x64 || b == 0x65 || b == 0x66 || b == 0x67) { p = p + 1; pi = pi + 1; }
+        elif (b == 0xF0 || b == 0xF2 || b == 0xF3) { p = p + 1; pi = pi + 1; }
+        elif (b >= 0x40 && b <= 0x4F) { p = p + 1; pi = pi + 1; }
+        else { pi = 14; }
+    }
+    var op = load8(buf + p);
+    # rel32 cases
+    if (op == 0xE8 || op == 0xE9) {
+        var rel32 = load32(buf + p + 1);
+        if (rel32 >= 0x80000000) { rel32 = rel32 - 0x100000000; }
+        return p + 5 + rel32;
+    }
+    # 0x0F 0x8x rel32
+    if (op == 0x0F) {
+        var op2 = load8(buf + p + 1);
+        if (op2 >= 0x80 && op2 <= 0x8F) {
+            var r32 = load32(buf + p + 2);
+            if (r32 >= 0x80000000) { r32 = r32 - 0x100000000; }
+            return p + 6 + r32;
+        }
+        return 0 - 1;
+    }
+    # rel8 cases
+    if (op == 0xEB) {
+        var r = load8(buf + p + 1);
+        if (r >= 0x80) { r = r - 0x100; }
+        return p + 2 + r;
+    }
+    if (op >= 0x70 && op <= 0x7F) {
+        var r = load8(buf + p + 1);
+        if (r >= 0x80) { r = r - 0x100; }
+        return p + 2 + r;
+    }
+    return 0 - 1;
+}
