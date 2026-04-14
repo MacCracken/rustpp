@@ -122,7 +122,8 @@ Project:
 Quality:
   serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
-  capacity [--check] [file.cyr]   compile-time table utilization; --check exits 1 if any cap >= 85%
+  capacity [--check] [--json] [file.cyr]
+                                  compile-time table utilization; --check exits 1 if any cap >= 85%; --json for dashboards
   fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
   soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
   fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc3)
@@ -712,18 +713,18 @@ MANIFEST
     # === Capacity meter (compile-time table utilization) ===
     capacity)
         shift
-        # Usage: cyrius capacity [--check] [file.cyr]
+        # Usage: cyrius capacity [--check] [--json] [file.cyr]
         # Default: compiles under CYRIUS_STATS=1, prints fn / ident /
-        # var / fixup / string / code utilization to stderr. Useful for
-        # sizing refactors against cyrius's compile-time caps.
-        # --check: compiles WITHOUT stats env so the in-compiler 85%
-        # warnings fire; exits 1 if any warning was emitted. Suitable
-        # as a CI gate ("fail the build if we're close to a wall").
+        # var / fixup / string / code utilization to stderr.
+        # --check: exit 1 if any cap >= 85% (CI gate).
+        # --json:  machine-readable output to stdout for dashboards.
         CHECK_MODE=0
-        if [ "${1:-}" = "--check" ]; then
-            CHECK_MODE=1
+        JSON_MODE=0
+        while [ "${1:-}" = "--check" ] || [ "${1:-}" = "--json" ]; do
+            if [ "$1" = "--check" ]; then CHECK_MODE=1; fi
+            if [ "$1" = "--json" ];  then JSON_MODE=1;  fi
             shift
-        fi
+        done
         SRC="${1:-}"
         if [ -z "$SRC" ]; then
             if [ -f "cyrius.toml" ]; then
@@ -740,7 +741,27 @@ MANIFEST
             echo "  no file given and no entry point auto-detected" >&2
             exit 1
         fi
-        if [ "$CHECK_MODE" = "1" ]; then
+        if [ "$JSON_MODE" = "1" ]; then
+            # Compile under CYRIUS_STATS=1; parse the structured stats
+            # (lines like "  fn_table:    322 / 4096") into JSON.
+            TMPERR=$(mktemp)
+            cat "$SRC" | CYRIUS_STATS=1 "$CC" > /dev/null 2>"$TMPERR"
+            rc=$?
+            if [ "$rc" -ne 0 ]; then cat "$TMPERR" >&2; rm -f "$TMPERR"; exit "$rc"; fi
+            awk '
+              BEGIN { print "{"; first = 1 }
+              /^  [a-z_]+:[[:space:]]+[0-9]+[[:space:]]+\/[[:space:]]+[0-9]+/ {
+                gsub(/[:,\/]/, " ")
+                name = $1; used = $2 + 0; cap = $3 + 0
+                pct = (cap > 0) ? int(used * 100 / cap) : 0
+                if (!first) printf ",\n"
+                printf "  \"%s\": {\"used\": %d, \"cap\": %d, \"pct\": %d}", name, used, cap, pct
+                first = 0
+              }
+              END { print ""; print "}" }
+            ' "$TMPERR"
+            rm -f "$TMPERR"
+        elif [ "$CHECK_MODE" = "1" ]; then
             # Capture stderr; the compiler's own 85% warnings carry
             # `at NN%` so we can detect them without parsing every
             # warning category.

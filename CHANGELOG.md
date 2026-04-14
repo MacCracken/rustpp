@@ -4,6 +4,42 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.3-alpha5] — 2026-04-14 (unreleased)
+
+### Added
+- **`cyrius capacity --json`** mode (`scripts/cyrius`). Parses the
+  CYRIUS_STATS=1 stats lines into one JSON object on stdout — one
+  key per table with `{"used", "cap", "pct"}`. Use case: CI
+  dashboards, headroom regression jobs, `jq`-driven gates.
+  ```
+  $ cyrius capacity --json src/main.cyr | jq -r '.fn_table | "\(.used)/\(.cap) (\(.pct)%)"'
+  322/4096 (7%)
+  ```
+- `--check` and `--json` are independent flags. They can both be
+  passed in any order; `--check` wins (exit-code gate over JSON).
+  Help line updated.
+
+### Validation
+- `cyrius capacity --json src/main.cyr` → 6-key JSON, exit 0.
+- `cyrius capacity --json /tmp/big.cyr` (3500 fns) → JSON shows
+  `"fn_table": {"used": 3500, "cap": 4096, "pct": 85}`.
+- `jq` filtering works.
+- `cyrius capacity --check` and default mode unaffected.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
+### 4.8.3 alpha series ready for beta
+Six surfaces shipped:
+1. `CYRIUS_STATS=1` opt-in meter (alpha1)
+2. Default 85% warnings (alpha2)
+3. `cyrius capacity` subcommand (alpha3)
+4. `cyrius capacity --check` CI gate (alpha4)
+5. Two latent fnc>2048 bug fixes — `live` bitmap + `EMITELF_OBJ`
+   scratch overlap (alpha4)
+6. `cyrius capacity --json` for dashboards (alpha5)
+
+beta1 will focus on tests + benchmarks.
+
 ## [4.8.3-alpha4] — 2026-04-14 (unreleased)
 
 ### Added
