@@ -46,6 +46,70 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.7.0-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **Real shared-object (`.so`) emission** (`src/backend/x86/fixup.cyr`).
+  `shared;` directive now produces a `dlopen`-able ET_DYN with proper
+  dynamic metadata — not just the ET_DYN header that v3.4.12 scaffolded.
+  New path: `EMITELF_SHARED` (replaces `EMITELF_USER(S, 3)` routing).
+  Emits:
+  - `.dynsym` — one `Elf64_Sym` per exported global fn (+ null entry),
+    `STT_FUNC | STB_GLOBAL`, `st_value` = code file offset, `st_shndx=1`
+    (loader doesn't need section table when `PT_DYNAMIC` is present).
+  - `.dynstr` — null-separated names.
+  - `.hash` — SysV hash table, `nbucket=1` (all syms chain from
+    bucket 0; hash fn kept but chain is a single linked list).
+  - `.dynamic` — `DT_HASH`/`DT_SYMTAB`/`DT_STRTAB`/`DT_STRSZ`/
+    `DT_SYMENT`/`DT_NULL`.
+  - **3 program headers**: `PT_LOAD` (file body, RWX), `PT_DYNAMIC`
+    pointing at `.dynamic`, `PT_GNU_STACK` with `p_flags=R|W`
+    (opts out of Linux's default "exec stack required" assumption —
+    without this, `dlopen` fails with *"cannot enable executable stack
+    as shared object requires: Invalid argument"*).
+  - `p_vaddr=0` throughout. All internal refs (LEA [rip+disp32], CALL
+    rel32) are already PC-relative, so code runs at any load bias.
+- **Exported fn filter** — skips names starting with `_` (e.g.,
+  `_cyrius_init`). Every other global fn is exported.
+- **SysV hash helper** `SYSV_HASH(name_ptr)` in `fixup.cyr`.
+
+### Fixed
+- **Shared-mode body elision** (`src/main.cyr`). Same pattern as the
+  4.6.0-beta2 object-mode fix: cc3's name-bitmap DCE was skipping
+  function bodies in `shared;` mode when no in-module call existed —
+  the exported symbol pointed to the `xor eax,eax; ret` fallback stub
+  and every call via `dlsym` returned 0. DCE now also skipped when
+  `kernel_mode == 2`.
+
+### Validation
+- `/tmp/lib.cyr` with `shared; fn add(a,b) { return a+b; } fn multiply(a,b) { return a*b; }`:
+  - C round-trip via `dlopen`/`dlsym` + call — `add(17,25)=42`,
+    `multiply(7,6)=42`. Green.
+  - Python `ctypes.CDLL` round-trip — `add(100,200)=300`,
+    `multiply(6,7)=42`, `add(-1,1)=0`. Green.
+- cc3 self-host stable.
+- 5/5 check.sh PASS.
+- `/tmp/libtest.so` = 592 bytes. Minimal, but real.
+
+### Known limits (alpha1)
+- Single `PT_LOAD RWX`. `W^X` not enforced (data + code + dynamic
+  metadata all in one segment). Will split into RX/RW segments in
+  a later alpha.
+- No section headers in output — `objdump -d`/`readelf --dyn-syms`
+  can't display from section table; direct `dlopen` works because the
+  loader reads `PT_DYNAMIC`.
+- No `.rela.dyn` — ET_DYN is purely PC-relative for now. If we ever
+  emit absolute 64-bit addresses into the binary, they'd need
+  load-time relocation via `.rela.dyn` + `R_X86_64_RELATIVE`.
+- No `DT_INIT`/`DT_FINI` — no constructors/destructors on dlopen.
+- No `DT_SONAME` — the library can't self-identify by name.
+
+### Next (alpha2)
+- Audit for any absolute-address leaks; add `.rela.dyn` if needed.
+- Test with a .so that references internal string data
+  (`"hello\n"` in `.rodata`) — verify the `[rip+disp32]` LEA
+  actually resolves at random load bias.
+
 ## [4.6.2] — 2026-04-14
 
 ### Changed

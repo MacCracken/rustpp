@@ -154,7 +154,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.6.2\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 4.7.0-alpha1\n", 17);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -464,9 +464,12 @@ while (topgo == 1) {
         # Also skip in object mode — externally-referenced functions
         # don't appear as identifiers in this module's token stream but
         # still need full bodies for the linker to resolve cross-unit calls.
+        # And in shared mode — exported `.so` functions are called by
+        # dlopen consumers (no in-module reference) and need full bodies.
         var dce_fnoff = TOKVAL(S, GTI(S) + 1);
         var dce_reachable = 1;
-        if (L64(S + 0x8FCA0) == 3) { dce_reachable = 1; }
+        var dce_km = L64(S + 0x8FCA0);
+        if (dce_km == 3 || dce_km == 2) { dce_reachable = 1; }
         else { if (GMOD(S) == 0) {
             # Check for underscore in name (mangled — skip DCE)
             var dce_np = S + 0x60000 + dce_fnoff;

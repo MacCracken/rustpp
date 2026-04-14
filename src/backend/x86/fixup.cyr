@@ -614,6 +614,240 @@ fn EMITELF_USER(S, etype) {
 }
 
 # ================================================================
+# ELF SHARED OBJECT (.so) EMISSION — ET_DYN with dynamic symbols
+# ================================================================
+# `shared;` directive at top of source routes here via kernel_mode==2.
+# Produces a dlopen-able shared object with:
+#   .dynsym  — one Elf64_Sym per exported global fn (+ null entry)
+#   .dynstr  — null-separated names
+#   .hash    — SysV hash table, nbucket=1 (all syms chain from bucket 0)
+#   .dynamic — DT_HASH/DT_SYMTAB/DT_STRTAB/DT_STRSZ/DT_SYMENT/DT_NULL
+# Plus a PT_DYNAMIC program header pointing at .dynamic.
+# Single PT_LOAD RWX for simplicity (W^X comes later when split into
+# RX/RW segments).
+# All internal refs are already PC-relative (LEA [rip+disp32] /
+# CALL rel32) so code works at any load bias.
+#
+# SysV hash function (string → 32-bit hash). Kept even though nbucket=1
+# makes the hash irrelevant for bucket selection — chain lookup needs
+# hash comparison to pick the right entry.
+fn SYSV_HASH(name_ptr) {
+    var h = 0;
+    var g = 0;
+    var i = 0;
+    while (1) {
+        var c = load8(name_ptr + i);
+        if (c == 0) { return h; }
+        h = (h << 4) + c;
+        g = h & 0xF0000000;
+        if (g != 0) { h = h ^ (g >> 24); }
+        h = h & 0x0FFFFFFF;
+        i = i + 1;
+    }
+    return h;
+}
+
+fn EMITELF_SHARED(S) {
+    var cp = GCP(S);
+    var totvar = L64(S + 0x8FCD0);
+    var spos = GSPOS(S);
+    var fnc = GFNC(S);
+
+    var O = S + 0x64A000;
+
+    # ---- Collect exported symbols (global fns with a real body) ----
+    # Skip underscore-prefixed internal names. Store fi indices in a
+    # scratch area above the output buffer — we only iterate fn table
+    # once here, but then again when writing .dynsym.
+    # Instead: we walk the fn table twice (once to count/measure, once
+    # to emit) — small N, no scratch needed.
+
+    # First pass: compute .dynstr size + symbol count.
+    var dynstr_size = 1;   # null byte at offset 0
+    var nsyms = 0;
+    var fi = 0;
+    while (fi < fnc) {
+        var fo = L64(S + 0xC4000 + fi * 8);
+        var noff = L64(S + 0xC0000 + fi * 8);
+        var np = S + 0x60000 + noff;
+        if (fo >= 0 && load8(np) != 95) {
+            # Defined, not underscore-prefixed.
+            var nl = 0;
+            while (load8(np + nl) != 0) { nl = nl + 1; }
+            dynstr_size = dynstr_size + nl + 1;
+            nsyms = nsyms + 1;
+        }
+        fi = fi + 1;
+    }
+
+    # ---- Size/offset math ----
+    # File layout: ELF hdr + 3 PHs + code + vars + strings + dynsym +
+    # dynstr + hash + dynamic. All 8-byte aligned.
+    # 3 PHs: PT_LOAD (covers file), PT_DYNAMIC, PT_GNU_STACK (RW, opts
+    # out of Linux's default "exec stack" assumption which otherwise
+    # fails dlopen on modern kernels).
+    var hdr_size = 64 + 56 * 3;    # 64-byte ELF + 3 × 56-byte PHs = 232
+    var code_off = hdr_size;
+    var var_off = code_off + cp;
+    var str_off = var_off + totvar;
+    # Align to 8 before dynamic metadata.
+    var dynsym_off = (str_off + spos + 7) & (0 - 8);
+    var dynsym_size = (nsyms + 1) * 24;    # +1 for the null sym
+    var dynstr_off = dynsym_off + dynsym_size;
+    var hash_off = (dynstr_off + dynstr_size + 7) & (0 - 8);
+    var hash_size = 8 + 4 + (nsyms + 1) * 4;    # nbucket + nchain + 1 bucket + (nsyms+1) chains
+    var dynamic_off = (hash_off + hash_size + 7) & (0 - 8);
+    var dynamic_size = 16 * 7;     # 6 DT entries + DT_NULL
+    var filesz = dynamic_off + dynamic_size;
+    filesz = (filesz + 7) & (0 - 8);
+    var memsz = filesz + 4096;
+    if (filesz > 1048576) {
+        syscall(SYS_WRITE, 2, "error: .so output too large\n", 28);
+        syscall(SYS_EXIT, 1);
+    }
+
+    # ---- Zero the output buffer ----
+    var zi = 0;
+    while (zi < filesz) { store8(O + zi, 0); zi = zi + 1; }
+
+    # ---- ELF header (64 bytes) ----
+    # Field layout (little-endian i64 writes):
+    #   [48..55] = e_flags(0) + e_ehsize(64) + e_phentsize(56)
+    #   [56..63] = e_phnum(2) + e_shentsize(0) + e_shnum + e_shstrndx
+    S64(O + 0, 0x00010102464C457F);
+    S64(O + 16, 0x00000001003E0003);   # ET_DYN=3, machine=x86_64, version=1
+    S64(O + 24, 0);                     # e_entry = 0 (library)
+    S64(O + 32, 64);                    # e_phoff
+    S64(O + 40, 0);                     # e_shoff = 0
+    S64(O + 48, 0x0038004000000000);    # e_ehsize=64, e_phentsize=56, e_flags=0
+    S64(O + 56, 0x0000000000000003);    # e_phnum=3, rest zero
+
+    # ---- PH 1: PT_LOAD RWX covering the whole file ----
+    S64(O + 64 + 0,  0x0000000700000001);   # p_type=1, p_flags=7
+    S64(O + 64 + 8,  0);                    # p_offset
+    S64(O + 64 + 16, 0);                    # p_vaddr — 0 (loader biases)
+    S64(O + 64 + 24, 0);                    # p_paddr
+    S64(O + 64 + 32, filesz);               # p_filesz
+    S64(O + 64 + 40, memsz);                # p_memsz
+    S64(O + 64 + 48, 0x1000);               # p_align
+
+    # ---- PH 2: PT_DYNAMIC pointing at .dynamic ----
+    S64(O + 120 + 0,  0x0000000600000002);   # p_type=2 (PT_DYNAMIC), p_flags=6 (R|W)
+    S64(O + 120 + 8,  dynamic_off);          # p_offset
+    S64(O + 120 + 16, dynamic_off);          # p_vaddr (same as file offset since p_vaddr base=0)
+    S64(O + 120 + 24, dynamic_off);          # p_paddr
+    S64(O + 120 + 32, dynamic_size);         # p_filesz
+    S64(O + 120 + 40, dynamic_size);         # p_memsz
+    S64(O + 120 + 48, 8);                    # p_align
+
+    # ---- PH 3: PT_GNU_STACK (RW, no X) — opt out of exec-stack default.
+    # Without this, dlopen fails: "cannot enable executable stack".
+    # p_type=0x6474E551 (low 32), p_flags=6 (high 32).
+    S64(O + 176 + 0,  0x000000066474E551);
+    S64(O + 176 + 8,  0);
+    S64(O + 176 + 16, 0);
+    S64(O + 176 + 24, 0);
+    S64(O + 176 + 32, 0);
+    S64(O + 176 + 40, 0);
+    S64(O + 176 + 48, 16);                   # p_align
+
+    # ---- Code ----
+    var ci = 0;
+    while (ci < cp) { store8(O + code_off + ci, load8(S + 0x54A000 + ci)); ci = ci + 1; }
+
+    # ---- Data (zeroed already by the fill above) + string data ----
+    var si = 0;
+    while (si < spos) { store8(O + str_off + si, load8(S + 0x14A000 + si)); si = si + 1; }
+
+    # ---- .dynsym ----
+    # Entry 0 is null (all zeros, already from fill).
+    # Then one Elf64_Sym per exported fn. Name offsets computed as we
+    # walk — mirror the pass-1 walk order.
+    var sym_p = O + dynsym_off + 24;   # skip null entry
+    var str_p = O + dynstr_off + 1;    # skip leading null byte
+    var str_cursor = 1;                # running offset within .dynstr
+    fi = 0;
+    while (fi < fnc) {
+        var fo2 = L64(S + 0xC4000 + fi * 8);
+        var noff2 = L64(S + 0xC0000 + fi * 8);
+        var np2 = S + 0x60000 + noff2;
+        if (fo2 >= 0 && load8(np2) != 95) {
+            # st_name = str_cursor (offset into .dynstr)
+            store8(sym_p + 0, str_cursor & 0xFF);
+            store8(sym_p + 1, (str_cursor >> 8) & 0xFF);
+            store8(sym_p + 2, (str_cursor >> 16) & 0xFF);
+            store8(sym_p + 3, (str_cursor >> 24) & 0xFF);
+            # st_info = STB_GLOBAL(1) << 4 | STT_FUNC(2) = 0x12
+            store8(sym_p + 4, 0x12);
+            # st_other = 0 (default vis)
+            store8(sym_p + 5, 0);
+            # st_shndx = 1 (arbitrary non-zero — we have no section headers)
+            # Actually with no section headers, dlopen doesn't check
+            # st_shndx against a section table; it just needs non-zero.
+            store8(sym_p + 6, 1); store8(sym_p + 7, 0);
+            # st_value = code VA (file offset, since p_vaddr=0)
+            S64(sym_p + 8, code_off + fo2);
+            # st_size = 0 (we don't track fn sizes; not required)
+            S64(sym_p + 16, 0);
+
+            # Copy name into .dynstr at str_cursor
+            var nl2 = 0;
+            while (load8(np2 + nl2) != 0) {
+                store8(O + dynstr_off + str_cursor + nl2, load8(np2 + nl2));
+                nl2 = nl2 + 1;
+            }
+            # NUL terminator was already zeroed.
+            str_cursor = str_cursor + nl2 + 1;
+            sym_p = sym_p + 24;
+        }
+        fi = fi + 1;
+    }
+
+    # ---- .hash (SysV hash table) ----
+    # nbucket=1: everything chains from bucket 0.
+    # nchain = nsyms + 1 (including null sym at index 0).
+    var hp = O + hash_off;
+    store8(hp + 0, 1); store8(hp + 1, 0); store8(hp + 2, 0); store8(hp + 3, 0);   # nbucket
+    var nch = nsyms + 1;
+    store8(hp + 4, nch & 0xFF);
+    store8(hp + 5, (nch >> 8) & 0xFF);
+    store8(hp + 6, (nch >> 16) & 0xFF);
+    store8(hp + 7, (nch >> 24) & 0xFF);
+    # buckets[0] = 1 (first real symbol index) if nsyms > 0 else 0
+    var bfirst = 0;
+    if (nsyms > 0) { bfirst = 1; }
+    store8(hp + 8, bfirst);
+    # chain[0] = 0 (null sym)
+    # chain[i] = i+1 for i in 1..nsyms-1, chain[nsyms] = 0 (terminator)
+    var ci2 = 1;
+    while (ci2 <= nsyms) {
+        var next = ci2 + 1;
+        if (ci2 == nsyms) { next = 0; }
+        var coff = 12 + ci2 * 4;   # 8 (hdr) + 4 (bucket) + ci2*4
+        store8(hp + coff + 0, next & 0xFF);
+        store8(hp + coff + 1, (next >> 8) & 0xFF);
+        store8(hp + coff + 2, (next >> 16) & 0xFF);
+        store8(hp + coff + 3, (next >> 24) & 0xFF);
+        ci2 = ci2 + 1;
+    }
+
+    # ---- .dynamic ----
+    # DT tag values:
+    #   DT_HASH=4, DT_STRTAB=5, DT_SYMTAB=6, DT_STRSZ=10,
+    #   DT_SYMENT=11, DT_NULL=0
+    var dp = O + dynamic_off;
+    S64(dp +  0, 4);                S64(dp +   8, hash_off);       # DT_HASH
+    S64(dp + 16, 6);                S64(dp +  24, dynsym_off);     # DT_SYMTAB
+    S64(dp + 32, 5);                S64(dp +  40, dynstr_off);     # DT_STRTAB
+    S64(dp + 48, 10);               S64(dp +  56, dynstr_size);    # DT_STRSZ
+    S64(dp + 64, 11);               S64(dp +  72, 24);             # DT_SYMENT
+    # DT_NULL terminator already zeroed.
+
+    S64(S + 0x903F8, filesz);
+    return 0;
+}
+
+# ================================================================
 # ELF RELOCATABLE (.o) EMISSION
 # ================================================================
 # Emits proper ELF relocatable object with sections:
@@ -990,7 +1224,7 @@ fn EMITELF_OBJ(S) {
 
 fn EMITELF(S) {
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
-    if (L64(S + 0x8FCA0) == 2) { EMITELF_USER(S, 3); return 0; }
+    if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
     if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }
     EMITELF_USER(S, 2);
     return 0;

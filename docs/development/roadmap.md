@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.6.2.** 353KB self-hosting compiler, x86_64 + aarch64.
+> **v4.7.0-alpha1.** 353KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (353KB). Closure verified.
 > 41 test suites, 11 benchmarks, 5 fuzz harnesses. **42 stdlib modules** + 5 deps.
 > New in 4.5.0: `lib/http_server.cyr` — HTTP/1.1 primitives, Content-Length-aware reads, URL decode, chunked/SSE.
@@ -260,6 +260,9 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 | 6 | ~~`for` step must be `i = i + 1`~~ | | **Fixed v3.10.3** |
 | 7 | ~~No negative literals~~ | | **Fixed v3.10.3** |
 | 8 | No closures capturing variables | Use named functions + globals | By design |
+| 9 | Destructure requires fresh vars — `i, s = fn()` fails if `i` exists | `var ni, s = fn(); i = ni;` | By design |
+| 10 | Multi-return max 2 values (rax:rdx pair) | 3+ returns need a heap record / struct | By design |
+| 11 | `var x;` without init is invalid | Always `var x = 0;` | By design |
 
 ---
 
