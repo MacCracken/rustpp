@@ -33,8 +33,9 @@ fn u128_copy(dst, src) {
     return 0;
 }
 
-# Low / high 64-bit limbs of a u128 at `ptr`.
+# Low 64-bit limb of a u128 at `ptr`.
 fn u128_lo(ptr) { return load64(ptr); }
+# High 64-bit limb of a u128 at `ptr`.
 fn u128_hi(ptr) { return load64(ptr + 8); }
 
 # Equality — byte-identical both limbs.
@@ -102,8 +103,9 @@ fn u128_sub(dst, a, b) {
     return 0;
 }
 
-# In-place variants — `dst += src` and `dst -= src`.
+# `dst += src` — wraps at 2^128.
 fn u128_addeq(dst, src) { return u128_add(dst, dst, src); }
+# `dst -= src` — wraps at 2^128.
 fn u128_subeq(dst, src) { return u128_sub(dst, dst, src); }
 
 # dst = a * b  (u128 wraps at 2^128)
@@ -156,6 +158,7 @@ fn u128_mul(dst, a, b) {
     return 0;
 }
 
+# `dst *= src` — wraps at 2^128.
 fn u128_muleq(dst, src) { return u128_mul(dst, dst, src); }
 
 # -------- Shifts & bitwise (v4.8.0-alpha6) --------
@@ -226,35 +229,43 @@ fn u128_shr(dst, src, n) {
     return 0;
 }
 
+# dst = a & b — per-limb bitwise AND.
 fn u128_and(dst, a, b) {
     store64(dst, load64(a) & load64(b));
     store64(dst + 8, load64(a + 8) & load64(b + 8));
     return 0;
 }
 
+# dst = a | b — per-limb bitwise OR.
 fn u128_or(dst, a, b) {
     store64(dst, load64(a) | load64(b));
     store64(dst + 8, load64(a + 8) | load64(b + 8));
     return 0;
 }
 
+# dst = a ^ b — per-limb bitwise XOR.
 fn u128_xor(dst, a, b) {
     store64(dst, load64(a) ^ load64(b));
     store64(dst + 8, load64(a + 8) ^ load64(b + 8));
     return 0;
 }
 
+# dst = ~src — per-limb bitwise NOT.
 fn u128_not(dst, src) {
     store64(dst, ~load64(src));
     store64(dst + 8, ~load64(src + 8));
     return 0;
 }
 
-# In-place convenience.
+# `dst <<= n`.
 fn u128_shleq(dst, n) { return u128_shl(dst, dst, n); }
+# `dst >>= n` (logical right).
 fn u128_shreq(dst, n) { return u128_shr(dst, dst, n); }
+# `dst &= src`.
 fn u128_andeq(dst, src) { return u128_and(dst, dst, src); }
+# `dst |= src`.
 fn u128_oreq(dst, src)  { return u128_or(dst, dst, src); }
+# `dst ^= src`.
 fn u128_xoreq(dst, src) { return u128_xor(dst, dst, src); }
 
 # -------- Unsigned comparisons + divmod (v4.8.0-alpha7) --------
@@ -274,6 +285,7 @@ fn _u64_ugt(a, b) {
     return 0;
 }
 
+# Unsigned a >= b on 64-bit limbs.
 fn _u64_uge(a, b) {
     if (a == b) { return 1; }
     return _u64_ugt(a, b);
@@ -287,6 +299,7 @@ fn u128_ugt(a, b) {
     return _u64_ugt(load64(a), load64(b));
 }
 
+# Unsigned a >= b on u128 pointers.
 fn u128_uge(a, b) {
     var a_hi = load64(a + 8);
     var b_hi = load64(b + 8);
@@ -294,7 +307,9 @@ fn u128_uge(a, b) {
     return _u64_uge(load64(a), load64(b));
 }
 
+# Unsigned a < b on u128 pointers.
 fn u128_ult(a, b) { return u128_ugt(b, a); }
+# Unsigned a <= b on u128 pointers.
 fn u128_ule(a, b) { return u128_uge(b, a); }
 
 # Unsigned two-limb subtract helper — writes (a - b) into (*out_lo,
@@ -360,12 +375,16 @@ fn u128_divmod(qdst, rdst, a, b) {
 # scratch u128 for the discarded half.
 var _u128_discard: u128 = 0;
 
+# dst = a / b (quotient only). Division by zero exits 1.
 fn u128_div(dst, a, b) {
     return u128_divmod(dst, &_u128_discard, a, b);
 }
+# dst = a % b (remainder only). Division by zero exits 1.
 fn u128_mod(dst, a, b) {
     return u128_divmod(&_u128_discard, dst, a, b);
 }
 
+# `dst /= src`.
 fn u128_diveq(dst, src) { return u128_div(dst, dst, src); }
+# `dst %= src`.
 fn u128_modeq(dst, src) { return u128_mod(dst, dst, src); }

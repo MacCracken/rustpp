@@ -106,4 +106,5 @@ Counter_advance(c3);
 Counter_add(c3, 100);
 assert_eq(Counter_get(c3), 114, "10 + 2 + 2 + 100");
 
-assert_summary();
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

@@ -361,4 +361,5 @@ u128_mod(&mod_r, &d_a, &d_b);
 assert_eq(u128_lo(&div_r), 14, "101 / 7 = 14");
 assert_eq(u128_lo(&mod_r), 3, "101 % 7 = 3");
 
-assert_summary();
+var _exit_code = assert_summary();
+syscall(60, _exit_code);
