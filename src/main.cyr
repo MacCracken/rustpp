@@ -158,7 +158,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.8.2\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 4.8.3-alpha1\n", 17);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -594,6 +594,28 @@ if (_epi_km == 3 || _epi_km == 2) {
 
 # Fixup + ELF + write
 FIXUP(S);
+# v4.8.3-alpha1: capacity meter — opt-in via CYRIUS_STATS=1.
+# Bote and other consumer projects hit silent capacity walls (fn
+# table, identifier buffer); this exposes utilization at compile
+# time so refactors can size themselves.
+var _stats_env = _read_env("CYRIUS_STATS");
+if (_stats_env != 0) {
+    if (load8(_stats_env) == 49 && load8(_stats_env + 1) == 0) {
+        syscall(SYS_WRITE, 2, "cyrius stats:\n", 14);
+        syscall(SYS_WRITE, 2, "  fn_table:    ", 15); PRNUM(GFNC(S));
+        syscall(SYS_WRITE, 2, " / 4096\n",        8);
+        syscall(SYS_WRITE, 2, "  identifiers: ", 15); PRNUM(GNPOS(S));
+        syscall(SYS_WRITE, 2, " / 131072\n",     10);
+        syscall(SYS_WRITE, 2, "  var_table:   ", 15); PRNUM(GVCNT(S));
+        syscall(SYS_WRITE, 2, " / 8192\n",        8);
+        syscall(SYS_WRITE, 2, "  fixup_table: ", 15); PRNUM(GFCNT(S));
+        syscall(SYS_WRITE, 2, " / 16384\n",       9);
+        syscall(SYS_WRITE, 2, "  string_data: ", 15); PRNUM(GSPOS(S));
+        syscall(SYS_WRITE, 2, " / 262144\n",     10);
+        syscall(SYS_WRITE, 2, "  code_size:   ", 15); PRNUM(GCP(S));
+        syscall(SYS_WRITE, 2, " / 1048576\n",    11);
+    }
+}
 EMITELF(S);
 # Write ELF output (loop on partial writes)
 var olen = L64(S + 0x903F8);

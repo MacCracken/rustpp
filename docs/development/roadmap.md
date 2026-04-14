@@ -2,10 +2,11 @@
 
 > **v4.8.2.** 353KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (353KB). Closure verified.
-> 41 test suites, 11 benchmarks, 5 fuzz harnesses. **42 stdlib modules** + 5 deps.
-> New in 4.5.0: `lib/http_server.cyr` — HTTP/1.1 primitives, Content-Length-aware reads, URL decode, chunked/SSE.
-> `cyrius build` auto-resolves deps + auto-includes. File:line error messages.
-> Short-circuit `&&`/`||`, named-field struct init, x86-64 length decoder, `CYRIUS_SYMS`, `CYRIUS_DCE` (41% gzip cut).
+> **44 test suites**, 12 benchmarks, 5 fuzz harnesses. **43 stdlib modules** + 5 deps.
+> New in 4.6.0: multi-file linker (`programs/cyrld.cyr`) + cross-unit DCE.
+> New in 4.7.0: real dlopen-able `.so` from `shared;` (PT_DYNAMIC, PT_GNU_STACK, DT_INIT, PIC LEA).
+> New in 4.8.0: `u128` stdlib (96 assertions). 4.8.1: `base64url`. 4.8.2: switch jump-table tuning.
+> Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10 downstream projects shipping.
 
 For completed work, see [completed-phases.md](completed-phases.md).
@@ -133,14 +134,56 @@ Reordered from the original "multi-file linker" scope — porting pressure from 
 
 ---
 
-## v4.8.0 — Types & Codegen (final 4.x minor)
+## v4.8.x — Types, Codegen & Capacity (final 4.x minor series)
+
+The 4.8 series breaks the single-feature "u128 everything" plan into
+independent shippable minors. Each can be picked up / deferred without
+blocking the rest.
+
+### v4.8.0 — `u128` (shipped) ✅
+Pointer-based stdlib (`lib/u128.cyr`): `set` / `from_u64` / `copy` /
+`lo` / `hi` / `eq` / `is_zero` / `add` / `sub` / `mul` / `divmod` /
+`div` / `mod` / `shl` / `shr` / `and` / `or` / `xor` / `not` / `ugt` /
+`uge` / `ult` / `ule` + `*eq` in-place variants. 96-assertion
+regression test. Known gaps: u128 as fn param / struct field / local
+(stack slot is 8 bytes) — follow-up patches.
+
+### v4.8.1 — `base64url` + bote-reported fixes (shipped) ✅
+- `base64url_encode` / `base64url_decode` in `lib/base64.cyr` (RFC
+  4648 §5; JWT, OAuth 2.1, capability URLs).
+- CI-discovered `method_dispatch` / `u128` test exit-code fix (needed
+  explicit `syscall(60, assert_summary())`).
+- 18 undocumented `lib/u128.cyr` helpers documented.
+
+### v4.8.2 — Switch jump-table tuning (shipped) ✅
+- Gap-to-default fix — values in `[min, max]` with no case now route
+  to `default:` (previously fell through end-of-switch; invisible at
+  the old 50% density threshold because dense cases have no gaps).
+- Density threshold lowered 50% → 33%.
+- Range cap raised 256 → 1024 — wider enum switches (40+ variants
+  over a few hundred values) now hit O(1) dispatch.
+- Dispatch benchmark (`benches/bench_switch.bcyr`): jump table ~7%
+  faster on 8-way, ~11% on 16-way.
+
+### v4.8.3 — Capacity visibility (planned)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **u128** | High | 128-bit integers via register pairs. Unblocks native bigint. |
-| **Deferred formatting (defmt)** | High | String interning + decode ring. Format strings as interned IDs at runtime. |
-| **Jump tables for enum dispatch** | High | 79 if-chains → O(1) indexed branch. 10-35x on enum-heavy code. |
-| **Register allocation** | High | Per-function `#regalloc`. Keep hot locals in callee-saved registers. Independent of cc5; ships on cc3. Key benchmark: 249 ns → sub-100 ns. |
+| **`CYRIUS_STATS=1` compile-time usage report** | Low | Print fn-table (X/4096), identifier buffer (Y/131072), var table (Z/8192), fixup table, string data when set. Consumer projects (bote, kybernet, libro) hit silent capacity walls — bote reverted claims-propagation twice from ceiling pressure. Visibility lets refactors size themselves. |
+| **`cyrius audit --capacity`** | Low | Standalone subcommand that compiles the unit and prints the same table. Wraps the env-flag path for scripted use. |
+| **Warn at 85% utilization** | Low | Soft warning on build when any cap crosses 85% — catches "close to wall" before a real refactor trips it. |
+
+### v4.8.4 — Register allocation (planned)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **Per-function `#regalloc`** | High | Opt-in attribute. Use the CFG + lifetime analysis from 4.4.0 to assign hot locals to callee-saved regs (`rbx` / `r12..r15`). Benchmark target: 249 ns → sub-100 ns on the key dispatch path. Independent of cc5; ships on cc3. |
+
+### v4.8.5 — Deferred formatting (planned)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. |
 
 ---
 

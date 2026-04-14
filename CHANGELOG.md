@@ -4,6 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.3-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **`CYRIUS_STATS=1` capacity meter** (`src/main.cyr`). When the
+  env var is set to `1`, the compiler prints utilization for every
+  compile-time-bounded table at the end of FIXUP (before ELF emit):
+  fn table, identifier buffer, var table, fixup table, string data,
+  code size — each with current value and cap. Output goes to
+  stderr; default builds are unaffected.
+
+### Why
+Bote attempted the claims-propagation handler-ABI refactor and
+reverted twice from silent capacity-ceiling pressure (fn table at
+the old 2048 cap; identifier buffer at the old 64 KB cap). 4.7.1 +
+4.8.2 raised those caps but consumers still had no way to tell how
+close their unit was to any wall — a refactor still felt like a
+gamble. This patch lets bote (and any future consumer) size the
+refactor against the real numbers.
+
+### Validation
+- `echo 'fn main() { return 42; }' | CYRIUS_STATS=1 build/cc3 > /tmp/x`
+  reports `fn=1/4096 ident=15/131072 …`. Stats off → no output.
+- cc3 self-compile (~370 KB binary) reports
+  `fn=322/4096 ident=7891/131072 var=97/8192 fixup=1512/16384
+  str=4907/262144 code=336048/1048576` — all comfortably under cap.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
+### Next (alpha2 / alpha3)
+- `cyrius audit --capacity` subcommand wrapping the env-flag path
+  for scripted use.
+- Soft warning when any cap crosses 85% on a default build — catches
+  "close to wall" conditions without requiring opt-in.
+
 ## [4.8.2] — 2026-04-14
 
 ### Arc summary
