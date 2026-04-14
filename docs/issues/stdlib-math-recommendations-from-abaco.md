@@ -6,6 +6,10 @@ Repo: `/home/macro/Repos/abaco`. Port target: Cyrius 4.8.3.
 currently in abaco source or in its `src/ai.cyr` port. Line numbers
 reference abaco at commit after `8969f24`.
 
+**Disposition (Cyrius lang agent)**:
+- P1-1, P1-2, P2-1, P2-2, P2-3, P2-4, P3-2 — accepted for 4.8.x.
+- P3-1 (DSP windows) — declined; stays in abaco::dsp.
+
 Each item lists: **current abaco workaround**, **proposed stdlib surface**,
 **why it belongs in stdlib**, **priority**. Priorities: P1 (unblocks a real
 perf/correctness gap), P2 (removes common duplication across downstream
@@ -240,36 +244,11 @@ completely.
 
 ---
 
-## P3-1. DSP window functions — `f64_window_hann`, `f64_window_hamming`, …
+## P3-1. DSP window functions — **DECLINED**
 
-### Current abaco
-`src/dsp.cyr:319–395` ships `window_hann(n, size)`, `window_hamming`,
-`window_blackman`, `window_kaiser(n, size, beta)` plus a
-`window_kaiser_fill(dst, size, beta)` that precomputes I0(β). All four
-are classical signal-processing windows; ported from dhvani's inline
-code.
-
-### Proposed stdlib
-Optional: lift these into `lib/math.cyr` or a new `lib/dsp.cyr`. Kaiser
-needs the modified Bessel I0 series (`_bessel_i0` in abaco's dsp.cyr).
-
-```
-fn f64_window_hann(n, size)
-fn f64_window_hamming(n, size)
-fn f64_window_blackman(n, size)
-fn f64_window_kaiser(n, size, beta_bits)
-fn f64_window_kaiser_fill(dst, size, beta_bits)
-fn f64_bessel_i0(x_bits)
-```
-
-### Why stdlib
-Every audio/radio/seismic project hand-rolls these. The formulas are
-standard and the tests easy. If Cyrius grows a broader DSP community
-these become a productivity multiplier; until then leaving them in
-abaco is defensible.
-
-### Priority
-**P3** — nice-to-have, not blocking.
+Windows (Hann / Hamming / Blackman / Kaiser + Bessel I0) stay in-house
+in abaco::dsp. Cyrius stdlib won't carry them; downstream DSP projects
+should depend on abaco instead. Entry kept here for history.
 
 ---
 
@@ -319,9 +298,61 @@ cryptography, and hashing.
 | P2-2  | P2       | `lib/fmt.cyr`  | `f64_parse(cstr)` → `Ok/Err`               |
 | P2-3  | P2       | `lib/string.cyr` | `str_lower_cstr` / `str_upper_cstr`      |
 | P2-4  | P2       | `lib/math.cyr` | π/τ/e/ln2/ln10/½/√2 f64 constants          |
-| P3-1  | P3       | new `lib/dsp.cyr` | Hann/Hamming/Blackman/Kaiser windows    |
+| P3-1  | —        | —              | DSP windows — **declined**; stays in abaco::dsp |
 | P3-2  | P3       | `lib/u128.cyr` | `u64_powmod` (companion to P1-1)           |
 
 All items are concrete stopgaps in abaco today — not speculative
 requests. Happy to write patches for any item once an approach is
 confirmed.
+
+---
+
+## Triage (cyrius-side, 2026-04-14 post-4.8.4 GA)
+
+The 4.8.x track has been explicitly re-scoped as the cleanup ramp
+to 5.0; new stdlib surface lands here when it enables downstream
+unblocks, and the 4.9 minor is reserved for its own focus plus
+fix patches. Dispositions below reflect that framing.
+
+### Accepted — landing in **4.8.6** (math pack)
+
+Single coherent minor. All math-adjacent, roughly 5–6 alphas ending
+with a Miller-Rabin microbench that demonstrates the `mulmod` win.
+
+| ID   | Disposition | Notes |
+|------|-------------|-------|
+| P1-1 | **Accept, modified** | Take the *alternative* — fast-path in `u128_mod` that detects `divisor_hi == 0` and emits the single-instruction hardware `div` instead of the software long-division loop. No new API: every existing `u128_mul + u128_mod` call shape picks up the 40× win automatically. Cleaner than a dedicated `u128_mulmod_u64` that only covers one caller. |
+| P1-2 | **Accept as specified** | Polynomial + range reduction, ~40 lines. atan2 quadrant correctness is the headline fix, not just perf. |
+| P2-1 | **Accept** | Three 6-line fns in `lib/math.cyr`, ships alongside P1-2. |
+| P2-4 | **Accept** | Bit-pattern constants avoid init-time parse cost. Underscore separators (4.8.0-alpha2) keep them readable. |
+| P2-3 | **Accept** | Lift abaco's impl into `lib/string.cyr` (ASCII-only is fine, matches existing conventions). |
+| P3-2 | **Accept** | Companion to P1-1; 12 lines, ships in the same alpha as the `u128_mod` fast-path. |
+
+### Accepted — landing in **4.8.7**
+
+| ID   | Disposition | Notes |
+|------|-------------|-------|
+| P2-2 | **Accept, standalone** | Real scope (scientific notation, round-to-nearest, `Inf`/`NaN` input grammar). Deserves its own minor so the grammar can be nailed down alongside consumer feedback from other math crates that land in the meantime. |
+
+### Declined for stdlib
+
+| ID   | Disposition | Notes |
+|------|-------------|-------|
+| P3-1 | **Decline (stdlib)** | Agree with the P3 rating. Audio-specific, not stdlib surface. Leave in abaco; revisit if a second DSP consumer appears and duplication is measurable. |
+
+### Release order
+
+```
+4.8.5  — defmt (roadmap-locked, unchanged)
+4.8.6  — math pack (P1-1 + P3-2 + P1-2 + P2-1 + P2-4 + P2-3)
+4.8.7  — parse_f64 + any additional math-crate feedback
+4.8.x  — cleanup ramp to 5.0; new stdlib surface lands here when
+         it unblocks a concrete downstream caller
+4.9.0  — its own minor focus (TBD) + fix patches
+5.0.0  — multi-platform (per existing roadmap)
+```
+
+Abaco: patches welcome for any accepted item once the relevant
+alpha opens. Flag in the alpha changelog if the proposed shape
+doesn't match abaco's needs — the dispositions above are the
+intended landing point, not locked API.

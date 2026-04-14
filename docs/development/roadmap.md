@@ -196,6 +196,50 @@ codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-ref
 |---------|--------|---------|
 | **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. |
 
+### v4.8.6 — Math stdlib pack (planned)
+
+Closes the abaco-surfaced math gaps in one coherent landing. See
+`docs/issues/stdlib-math-recommendations-from-abaco.md` for the
+full triage and the per-item acceptance rationale.
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`u128_mod` hardware fast-path** | Medium | Detect `divisor_hi == 0` and emit a single hardware `div` instead of the software long-division loop. No new API — every existing `u128_mul + u128_mod` caller picks up the ~40× win automatically. Unblocks abaco's Miller-Rabin perf parity with the Rust `u128` semantics. |
+| **`u64_powmod`** (`lib/u128.cyr`) | Low | 12-line companion to the `mulmod` fast-path; pairs naturally in primality, RSA, and hashing. |
+| **Inverse trig** (`lib/math.cyr`) | Medium | `f64_asin`, `f64_acos`, `f64_atan`, `f64_atan2`. Polynomial + range reduction, ~40 lines. Headline fix is `atan2` quadrant correctness — abaco's current identity-based stopgap gets Q2/Q3 wrong. |
+| **Inverse hyperbolic** (`lib/math.cyr`) | Low | `f64_asinh`, `f64_acosh`, `f64_atanh`. Three 6-line fns, ships alongside the inverse trig alpha. |
+| **f64 math constants** (`lib/math.cyr`) | Low | `F64_HALF`, `F64_PI`, `F64_PI_2`, `F64_PI_4`, `F64_TAU`, `F64_E`, `F64_LN2`, `F64_LN10`, `F64_FRAC_1_SQRT2`, `F64_SQRT2`. Bit-pattern form avoids init-time parse cost. |
+| **Cstring case helpers** (`lib/string.cyr`) | Low | `str_lower_cstr` / `str_upper_cstr`. ASCII-only, matches existing conventions; de-duplicates abaco + vidya. |
+
+**Validation target:** a Miller-Rabin microbench showing the
+`mulmod` fast-path win, plus `atan2` quadrant tests covering all
+four quadrants and the signed-zero edge cases.
+
+### v4.8.7 — f64 parsing (planned)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. Shipped as its own minor so the grammar can absorb feedback from additional math consumers that land between 4.8.6 and this cut. |
+
+### v4.8.x — Cleanup ramp to 5.0
+
+4.8.x is the cleanup ramp. New stdlib surface lands here when —
+and only when — it unblocks a concrete downstream caller. No
+speculative additions; everything traces back to a live consumer
+request with a stopgap in their tree today.
+
+### v4.9 — TBD (own focus + fix patches)
+
+Reserved for its own minor theme (scope set when we cut) plus
+regression/fix patches for 4.8.x features. Not a catch-all for
+deferred work from 4.8.x.
+
+Candidate themes being weighed (none committed):
+- Multi-register `#regalloc` (`r12..r15` extension, inherits
+  4.8.4's frame layout and safety-scan infrastructure).
+- IR-based codegen pass to replace the current post-emit peephole
+  (eliminates the NOP padding by allowing real code-size changes).
+
 ---
 
 ## v5.0.0 — Multi-Platform (major)
