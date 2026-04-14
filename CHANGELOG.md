@@ -4,6 +4,54 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha6] — 2026-04-14 (unreleased)
+
+### Added (frame layout for `#regalloc` fns)
+- **Reserved `[rbp-8]` save slot for rbx**
+  (`src/frontend/parse.cyr`, `src/backend/x86/emit.cyr`). `#regalloc`
+  fns now emit `mov [rbp-8], rbx` after `sub rsp, fsz` (save) and
+  `mov rbx, [rbp-8]` before `leave; ret` (restore). Tail-call
+  synthetic epilogue (`ETAILJMP`) mirrors the restore. Frame-size
+  formula bumps `flc` by 1 pre-rounding so the existing
+  `(flc*8 + 15) & -16` stays 16-aligned — call-site rsp remains
+  SSE-safe for any callee.
+- **User-local displacement shift**
+  (`src/backend/x86/emit.cyr`, `src/frontend/parse.cyr`). Seven
+  sites that previously computed `-(idx+1)*8` now subtract an
+  additional 8 when `_cur_fn_regalloc == 1`, pushing every
+  user-visible local one slot deeper: `EFLLOAD`, `EFLSTORE`,
+  `EFLLOAD_W`, `EFLSTORE_W`, `ESTOREPARM`, `ELVRINIT`, and the
+  address-of operator's `lea rax, [rbp+disp32]` path. All sites
+  already use `disp32` encoding so the shift is size-neutral — no
+  disp8 → disp32 widening to chase.
+
+### Not yet wired
+- **Hot-local picker + `rbx` routing.** Alpha6 reserves rbx and
+  tears it down correctly, but the register stays unused through
+  the body. Alpha7 lands the picker (scan body tokens, pick the
+  most-referenced non-param local) and teaches `EFLLOAD` /
+  `EFLSTORE` to emit `mov rax, rbx` / `mov rbx, rax` (3 bytes) in
+  place of the 7-byte stack access for the selected local.
+
+### Observable
+- `#regalloc` fns are 8+ bytes larger than plain fns
+  (4 prologue + 4 epilogue, plus the extra frame slot when
+  rounding crosses a 16-byte boundary). Runtime behaviour is
+  unchanged vs plain fns — verified by a direct plain-vs-regalloc
+  parity test (`hot_fn(10,20) == plain_fn(10,20) == 230`).
+- `&local` inside a `#regalloc` fn produces the correct stack
+  address (slot-shift aware) — verified with a 4-slot array test
+  that writes three values and sums them back.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh PASS. 44/0 test suite.
+
+### Roadmap (4.8.4)
+- alpha1..alpha5 ✅
+- alpha6 ✅ — frame reservation + save/restore + local-disp shift (this release).
+- alpha7 (next) — picker + `rbx` routing for the selected hot local.
+
 ## [4.8.4-alpha5] — 2026-04-14 (unreleased)
 
 ### Added

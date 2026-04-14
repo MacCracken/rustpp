@@ -187,6 +187,9 @@ fn EVSTORE_W(S, idx, width) {
 # Width-aware local load: load_width [rbp-off] → rax
 fn EFLLOAD_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
+    # v4.8.4-alpha6: #regalloc fns reserve [rbp-8] for the saved rbx,
+    # so every user-visible local sits 8 bytes deeper in the frame.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     if (width == 1) {
         # movzx rax, byte [rbp+disp]
         EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x85);
@@ -213,6 +216,8 @@ fn EFLLOAD_W(S, idx, width) {
 # Width-aware local store: rax → store_width [rbp-off]
 fn EFLSTORE_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
+    # v4.8.4-alpha6: shift past the reserved rbx save slot.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     if (width == 1) {
         # mov byte [rbp+disp], al
         EB(S, 0x88); EB(S, 0x85);
@@ -433,6 +438,11 @@ fn ECALLCLEAN(S, n) {
 
 # Emit tail call: epilogue + jmp (instead of call + epilogue)
 fn ETAILJMP(S, fnidx) {
+    # v4.8.4-alpha6: restore rbx from its save slot at [rbp-8] before
+    # tearing down the frame. Mirrors the save emitted by PARSE_FN_DEF.
+    if (_cur_fn_regalloc == 1) {
+        E3(S, 0x5D8B48); EB(S, 0xF8);  # mov rbx, [rbp-8]
+    }
     # Emit epilogue: mov rsp, rbp; pop rbp (match EFNEPI)
     E3(S, 0xEC8948);  # mov rsp, rbp
     EB(S, 0x5D);       # pop rbp
@@ -484,6 +494,8 @@ fn ESTORESTACKPARM(S, pidx, disp, pc) {
 
 fn ESTOREPARM(S, pidx, lidx, pc) {
     var disp = 0 - ((lidx + 1) * 8);
+    # v4.8.4-alpha6: shift past the reserved rbx save slot.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     if (pidx < 6) {
         ESTOREREGPARM(S, pidx, disp);
     } else {
@@ -495,6 +507,8 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
 # Emit fn local load: mov rax, [rbp - offset]
 fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
+    # v4.8.4-alpha6: shift past the reserved rbx save slot.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     E3(S, 0x858B48);
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
@@ -528,6 +542,8 @@ fn EPATCHFRAME(S, patch, size) {
 # Emit fn local store: mov [rbp - offset], rax
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
+    # v4.8.4-alpha6: shift past the reserved rbx save slot.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     E3(S, 0x858948);
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
@@ -551,6 +567,8 @@ fn ELVRSTORE(S, idx) {
 # Init loop var cache: mov r12, [rbp-off]
 fn ELVRINIT(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
+    # v4.8.4-alpha6: shift past the reserved rbx save slot.
+    if (_cur_fn_regalloc == 1) { disp = disp - 8; }
     E3(S, 0xA58B4C);   # mov r12, [rbp+disp32]
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));

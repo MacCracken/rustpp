@@ -647,6 +647,10 @@ fn PARSE_FACTOR(S) {
             if (ali >= 0) {
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
+                # v4.8.4-alpha6: shift past the reserved rbx save slot
+                # so `&local` in a #regalloc fn points to the real
+                # stack-backed slot rather than the rbx save.
+                if (_cur_fn_regalloc == 1) { adisp = adisp - 8; }
                 var aaddr = S + 0x54A000 + GCP(S);
                 S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
                 SCP(S, GCP(S) + 4);
@@ -3143,6 +3147,13 @@ fn PARSE_FN_DEF(S) {
     # Emit prologue
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);
+    # v4.8.4-alpha6: save rbx into its reserved slot at [rbp-8]. Must
+    # come AFTER `sub rsp, fsz` — otherwise rsp would point past the
+    # save on entry to the body, misaligning any syscall/call that
+    # follows. Encoding: 48 89 5D F8 = mov [rbp-8], rbx.
+    if (_cur_fn_regalloc == 1) {
+        E3(S, 0x5D8948); EB(S, 0xF8);
+    }
     var fn_start = GCP(S);
     # Parse params
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
@@ -3283,6 +3294,11 @@ fn PARSE_FN_DEF(S) {
         }
         EPOPR(S);  # restore return value
     }
+    # v4.8.4-alpha6: restore rbx from its save slot before `leave/ret`.
+    # 48 8B 5D F8 = mov rbx, [rbp-8].
+    if (_cur_fn_regalloc == 1) {
+        E3(S, 0x5D8B48); EB(S, 0xF8);
+    }
     # Emit epilogue
     EFNEPI(S);
     DSE_PASS(S, fn_start);
@@ -3318,6 +3334,11 @@ fn PARSE_FN_DEF(S) {
     }
     # Patch frame size
     var flc = GFLC(S);
+    # v4.8.4-alpha6: #regalloc fns reserve an extra 8-byte slot at
+    # [rbp-8] for the saved rbx. Bumping flc by 1 pre-rounding keeps
+    # the 16-byte alignment formula valid — call-site rsp stays 16-
+    # aligned for SSE-safe callees.
+    if (_cur_fn_regalloc == 1) { flc = flc + 1; }
     var fsz = (flc * 8 + 15) & (0 - 16);
     EPATCHFRAME(S, frame_patch, fsz);
     # Record fn code end (v4.4.0 DCE) — this is GCP after epilogue + LASE + frame patch.
