@@ -46,6 +46,86 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.0] — 2026-04-14
+
+### Added
+- **Cross-unit DCE with compaction** (`programs/cyrld.cyr`).
+  cyrld now rebuilds merged `.text` keeping only functions reachable
+  from some `_cyrius_init` root, remaps intra-module `E8`/`E9 rel32`
+  targets against the new layout, and re-applies every `.rela.text`
+  entry whose patch site lives in a surviving fn. Output is the same
+  merged-segment ELF layout as beta2 (text + data + rodata + stub)
+  but with dead code physically gone.
+  Example on a 5-fn test where 2 fns are unreached:
+  ```
+  dce: 5 fns, 3 reached, 2 dead (76 bytes)
+  compacted: 272 → 186 bytes (-86)
+  ```
+  The extra 10 bytes past the analysis delta come from entry-jump +
+  fallback-stub preambles (5 + 3 bytes) attached to each dropped fn.
+- **Compaction-aware symbol resolution**. `resolve_sym_va` now uses the
+  FN table (`FN_MERGED_OFF`) for function symbols. Data / rodata
+  section refs continue to use `MOD_DATA_BASE` / `MOD_RODATA_BASE`
+  (those layouts don't change during compaction). `find_local_sym`
+  (used for `_cyrius_init` entry lookup) also routes through FN table.
+- **`remap_intra_module_calls`** — post-compaction pass that walks
+  each reached fn's bytes, decodes each `E8`/`E9 rel32`, locates the
+  original target fn in the same module from the old module-local
+  offset, and writes the new rel32 against the compacted layout.
+  Cross-module calls and data/rodata LEAs are re-patched by
+  `apply_relocations` in a follow-up pass (those sites had their bytes
+  reset to 0 by the copy-from-original step in `compact_text`).
+- **Compaction-aware `apply_relocations`** — patch offset is derived
+  from the host fn's `FN_MERGED_OFF` rather than a stale per-module
+  `MOD_TEXT_BASE`. Relocations whose patch site falls in a dead fn are
+  skipped entirely (bytes aren't in the output anyway).
+
+### Shipped in this 4.6.0 cycle
+- **Multi-file linker** (alpha1 → alpha3 → beta1 → beta2 → beta3 →
+  GA): parse N `.o` files, merge symbol tables, resolve cross-unit
+  references, apply relocations, emit runnable ET_EXEC with `_start`
+  stub driving every module's `_cyrius_init`.
+- **`.data` / `.rodata` merging** with section-symbol relocation
+  resolution — mutable globals, initialized globals, and string
+  literals survive cross-module linking.
+- **cc3 object-mode fn body fix** — functions referenced only
+  externally (no in-module caller) now emit full bodies in `.o`
+  output. The name-bitmap DCE in `src/main.cyr` is now skipped in
+  object mode (`kernel_mode == 3`).
+- **Cross-unit DCE, analysis + compaction** — reachability from every
+  `_cyrius_init` root via byte-scanned call graph; dead fns physically
+  removed from the output.
+
+### Validation
+- Three end-to-end link tests all pass:
+  - minimal cross-module call (`greet` + `call_greet`): exit 43.
+  - data merge with init ordering (`counter`, `inc_counter`): exit 44.
+  - rodata string literal (`"hi\n"` from one module, called from
+    another): prints `hi`, exit 7.
+- DCE correctness test: 3 functions in `d.cyr`
+  (`inc_counter`, `never_called`, `also_never`), only `inc_counter`
+  called from `m.cyr` — linked binary compacts text 272 → 186 bytes,
+  still exits 44. Live functionality preserved after bytes shift.
+- cc3 self-host stable (two-step bootstrap byte-identical).
+- 5/5 check.sh PASS. 41 test suites green.
+- `build/cyrld` = 891 KB (FN tables still at fixed 8192 slots — known
+  follow-up item; migration to `alloc()` is a bookkeeping cleanup).
+
+### Known limits (4.6.0)
+- Single `PT_LOAD RWX` — W^X not enforced. Multi-segment layout
+  (separate RX / RW / RO PT_LOADs) comes in a later minor.
+- Section headers omitted from output; `objdump -d` returns empty.
+  Binary runs correctly — this is cosmetic.
+- `.bss` not merged (cc3 currently zero-inits via `.data`).
+- cyrld's FN tables live in `var T[8192]` static storage (~530 KB).
+  Migration to `alloc()` deferred.
+
+### Next
+- 4.6.1: RELOC bookkeeping cleanup (alloc-backed FN tables, section
+  headers in ET_EXEC output).
+- 4.7.0: PIC codegen (per roadmap).
+- 4.8.0: Types + register allocation.
+
 ## [4.6.0-beta3] — 2026-04-14 (unreleased)
 
 ### Added

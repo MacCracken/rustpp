@@ -498,10 +498,38 @@ fn write_i32_le(off, value) {
     return 0;
 }
 
+# Find a fn index by (module, module-offset). Returns -1 if not found.
+# Used by the linker to resolve function symbols post-compaction: the
+# function table holds up-to-date MERGED_OFF; MOD_TEXT_BASE is no longer
+# meaningful after compaction because a module's fns can be reordered
+# or dropped.
+fn find_fn_by_mod_off(mi, mod_off) {
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        if (load64(&FN_MODULE + fi * 8) == mi) {
+            if (load64(&FN_MOD_OFF + fi * 8) == mod_off) { return fi; }
+        }
+        fi = fi + 1;
+    }
+    return 0 - 1;
+}
+
+# Find a fn index by name across all modules. Returns -1 if not found.
+# Used for global/weak function references.
+fn find_fn_by_name(name) {
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        if (streq(load64(&FN_NAMEP + fi * 8), name) == 1) { return fi; }
+        fi = fi + 1;
+    }
+    return 0 - 1;
+}
+
 # Resolve a symbol reference made by module `mi` via local symbol index
-# `sym_idx`. Returns the symbol's final VA (ENTRY_VA + merged_text_off),
-# or -1 if the symbol is UND globally (which verify_resolution should
-# have caught — defensive check).
+# `sym_idx`. Returns the symbol's final VA, or -1 if UND/not found.
+# Uses the FN table for function symbols (works pre- and post-compaction).
+# Data/rodata section symbols use MOD_*_BASE (layouts don't change in
+# compaction).
 fn resolve_sym_va(mi, sym_idx) {
     var buf = load64(&MOD_BUF + mi * 8);
     var symtab_off = load64(&MOD_SYMTAB_OFF + mi * 8);
@@ -517,9 +545,8 @@ fn resolve_sym_va(mi, sym_idx) {
     # cc3's relocations encode the in-section offset in the addend, so
     # st_value is usually 0; we still add it for correctness.
     if (sttyp == STT_SECTION) {
-        if (st_shndx == load64(&MOD_TEXT_SHNDX + mi * 8)) {
-            return ENTRY_VA + load64(&MOD_TEXT_BASE + mi * 8) + st_value;
-        }
+        # .text section refs would need byte-level mapping (old offset →
+        # new offset) post-compaction. cc3 doesn't emit these today.
         if (st_shndx == load64(&MOD_DATA_SHNDX + mi * 8)) {
             return DATA_VA + load64(&MOD_DATA_BASE + mi * 8) + st_value;
         }
@@ -528,29 +555,24 @@ fn resolve_sym_va(mi, sym_idx) {
         }
         return 0 - 1;
     }
-    # Local symbols defined in this module's .text: resolve directly.
+    # Function symbols — use the FN table (compaction-aware).
     if (bind == STB_LOCAL && st_shndx != 0) {
-        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
-        return ENTRY_VA + tbase + st_value;
+        var fi = find_fn_by_mod_off(mi, st_value);
+        if (fi >= 0) { return ENTRY_VA + load64(&FN_MERGED_OFF + fi * 8); }
+        return 0 - 1;
     }
-    # Global/weak: look up in the merged symtab by name.
+    # Global/weak: look up by name in FN table.
     var name_ptr = buf + strtab_off + st_name;
-    var gi = 0;
-    while (gi < GSYM_COUNT) {
-        if (streq(load64(&GSYM_NAMEP + gi * 8), name_ptr) == 1) {
-            var defined = load64(&GSYM_DEFINED + gi * 8);
-            if (defined == 0) { return 0 - 1; }
-            var def_mod = load64(&GSYM_MODULE + gi * 8);
-            var def_val = load64(&GSYM_TEXT_VAL + gi * 8);
-            var def_base = load64(&MOD_TEXT_BASE + def_mod * 8);
-            return ENTRY_VA + def_base + def_val;
-        }
-        gi = gi + 1;
-    }
+    var gfi = find_fn_by_name(name_ptr);
+    if (gfi >= 0) { return ENTRY_VA + load64(&FN_MERGED_OFF + gfi * 8); }
     return 0 - 1;
 }
 
 # Apply each module's relocations to the merged .text buffer.
+# Compaction-aware: the patch site is computed by finding which fn in
+# the module contains the module-relative offset r_off and using that
+# fn's FN_MERGED_OFF. Skips relocations whose patch site lives in a
+# dead (unreached) fn — the bytes aren't in the output anyway.
 # Returns number of errors (unresolvable or unsupported-type).
 fn apply_relocations() {
     var errs = 0;
@@ -560,7 +582,6 @@ fn apply_relocations() {
         var buf = load64(&MOD_BUF + mi * 8);
         var rela_off = load64(&MOD_RELA_OFF + mi * 8);
         var rela_size = load64(&MOD_RELA_SIZE + mi * 8);
-        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
         var nrela = rela_size / 24;
         var ri = 0;
         while (ri < nrela) {
@@ -571,8 +592,28 @@ fn apply_relocations() {
             if (r_add >= 0x8000000000000000) { r_add = r_add - 0x10000000000000000; }
             var r_type = r_info & 0xFFFFFFFF;
             var r_sym = r_info >> 32;
-            # Patch site in the merged buffer.
-            var patch_merged_off = tbase + r_off;
+            # Find the fn containing this patch site in module mi.
+            # Skip the reloc if the fn is dead.
+            var host_fi = 0 - 1;
+            var hf = 0;
+            while (hf < FN_COUNT) {
+                if (load64(&FN_MODULE + hf * 8) == mi) {
+                    var hst = load64(&FN_MOD_OFF + hf * 8);
+                    var hen = load64(&FN_MOD_END + hf * 8);
+                    if (r_off >= hst && r_off < hen) {
+                        host_fi = hf;
+                        hf = FN_COUNT;
+                    }
+                }
+                hf = hf + 1;
+            }
+            if (host_fi < 0 || load64(&FN_REACHED + host_fi * 8) == 0) {
+                ri = ri + 1;
+                continue;
+            }
+            var host_mod_start = load64(&FN_MOD_OFF + host_fi * 8);
+            var patch_merged_off = load64(&FN_MERGED_OFF + host_fi * 8)
+                + (r_off - host_mod_start);
             var patch_va = ENTRY_VA + patch_merged_off;
             var target_va = resolve_sym_va(mi, r_sym);
             if (target_va < 0) {
@@ -684,7 +725,10 @@ fn collect_functions() {
                 store64(&FN_MODULE + fi * 8, mi);
                 store64(&FN_MOD_OFF + fi * 8, st_value);
                 store64(&FN_MERGED_OFF + fi * 8, tbase + st_value);
-                store64(&FN_REACHED + fi * 8, 0);
+                # Default reached=1; run_dce() resets then marks properly.
+                # Avoids skipping relocs during the first apply_relocations()
+                # pass (before DCE runs).
+                store64(&FN_REACHED + fi * 8, 1);
                 var is_init = streq(name_ptr, "_cyrius_init");
                 store64(&FN_IS_INIT + fi * 8, is_init);
                 FN_COUNT = FN_COUNT + 1;
@@ -765,8 +809,11 @@ fn dce_scan_fn(src_fi) {
 }
 
 # BFS from every _cyrius_init root; returns (reached_count, dead_bytes).
+# collect_functions() initializes FN_REACHED=1 so apply_relocations works
+# before DCE runs; we reset to 0 here and mark the true reachable set.
 fn run_dce() {
-    collect_functions();
+    var r = 0;
+    while (r < FN_COUNT) { store64(&FN_REACHED + r * 8, 0); r = r + 1; }
     DCE_HEAD = 0;
     DCE_TAIL = 0;
     # Every module's _cyrius_init is a root (they're all called by _start).
@@ -801,31 +848,173 @@ fn run_dce() {
     return dead_count;
 }
 
-# Look up a LOCAL symbol by name in a specific module. Returns the
-# symbol's final VA, or -1 if not found. Used to find `_cyrius_init`
-# for entry-point selection (it's STB_LOCAL per 4.6.0-alpha2).
+# Look up a named LOCAL function in a specific module via the FN table.
+# Returns its final VA, or -1 if not found. Used for `_cyrius_init` entry
+# lookup per module. FN table is authoritative after compaction.
 fn find_local_sym(mi, name) {
-    var buf = load64(&MOD_BUF + mi * 8);
-    var symtab_off = load64(&MOD_SYMTAB_OFF + mi * 8);
-    var symtab_size = load64(&MOD_SYMTAB_SIZE + mi * 8);
-    var strtab_off = load64(&MOD_STRTAB_OFF + mi * 8);
-    var tbase = load64(&MOD_TEXT_BASE + mi * 8);
-    var nsyms = symtab_size / 24;
-    var si = 1;
-    while (si < nsyms) {
-        var sym = buf + symtab_off + si * 24;
-        var st_name = read_u32(sym, 0);
-        var st_shndx = read_u16(sym, 6);
-        var st_value = load64(sym + 8);
-        if (st_shndx != 0) {
-            var name_ptr = buf + strtab_off + st_name;
-            if (streq(name_ptr, name) == 1) {
-                return ENTRY_VA + tbase + st_value;
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        if (load64(&FN_MODULE + fi * 8) == mi) {
+            if (streq(load64(&FN_NAMEP + fi * 8), name) == 1) {
+                return ENTRY_VA + load64(&FN_MERGED_OFF + fi * 8);
             }
         }
-        si = si + 1;
+        fi = fi + 1;
     }
     return 0 - 1;
+}
+
+# Storage for compacted layout.
+var FN_NEW_OFF[8192];    # new merged offset per reached fn (-1 if dead)
+
+# After DCE has marked FN_REACHED, repack merged .text keeping only the
+# reached functions. Copies original module bytes (from each .o file) to
+# the new layout, so intra-module rel32 bytes are in their original
+# (module-local) form. apply_relocations will re-patch cross-module and
+# data-ref sites; remap_intra_module_calls walks E8/E9 and fixes
+# intra-module rel32 against the new offsets.
+# Returns the new text size.
+fn compact_text() {
+    var dead = 0;
+    var fi0 = 0;
+    while (fi0 < FN_COUNT) {
+        if (load64(&FN_REACHED + fi0 * 8) == 0) { dead = dead + 1; }
+        fi0 = fi0 + 1;
+    }
+    if (dead == 0) { return MERGED_TEXT_SIZE; }
+    # Sort fn indices by MERGED_OFF (O(n²) bubble — n is small).
+    var IDX = alloc(FN_COUNT * 8);
+    var k = 0;
+    while (k < FN_COUNT) { store64(IDX + k * 8, k); k = k + 1; }
+    var i = 0;
+    while (i < FN_COUNT) {
+        var j = 0;
+        while (j < FN_COUNT - 1) {
+            var a = load64(IDX + j * 8);
+            var b = load64(IDX + (j + 1) * 8);
+            if (load64(&FN_MERGED_OFF + a * 8) > load64(&FN_MERGED_OFF + b * 8)) {
+                store64(IDX + j * 8, b);
+                store64(IDX + (j + 1) * 8, a);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    # Assign new offsets sequentially to reached fns (in old-offset order).
+    var ni = 0;
+    while (ni < FN_COUNT) { store64(&FN_NEW_OFF + ni * 8, 0 - 1); ni = ni + 1; }
+    var new_pos = 0;
+    var s = 0;
+    while (s < FN_COUNT) {
+        var idx = load64(IDX + s * 8);
+        if (load64(&FN_REACHED + idx * 8) == 1) {
+            store64(&FN_NEW_OFF + idx * 8, new_pos);
+            var sz = load64(&FN_MERGED_END + idx * 8) - load64(&FN_MERGED_OFF + idx * 8);
+            new_pos = new_pos + sz;
+        }
+        s = s + 1;
+    }
+    var new_size = new_pos;
+    var NEW_TEXT = alloc(new_size);
+    # Copy ORIGINAL module bytes for each reached fn.
+    var fj = 0;
+    while (fj < FN_COUNT) {
+        if (load64(&FN_REACHED + fj * 8) == 1) {
+            var mi = load64(&FN_MODULE + fj * 8);
+            var buf = load64(&MOD_BUF + mi * 8);
+            var text_off = load64(&MOD_TEXT_OFF + mi * 8);
+            var mod_start = load64(&FN_MOD_OFF + fj * 8);
+            var mod_end = load64(&FN_MOD_END + fj * 8);
+            var fn_new = load64(&FN_NEW_OFF + fj * 8);
+            var fsz = mod_end - mod_start;
+            var p = 0;
+            while (p < fsz) {
+                store8(NEW_TEXT + fn_new + p,
+                       load8(buf + text_off + mod_start + p));
+                p = p + 1;
+            }
+        }
+        fj = fj + 1;
+    }
+    # Swap merged text.
+    MERGED_TEXT = NEW_TEXT;
+    MERGED_TEXT_SIZE = new_size;
+    # Update FN_MERGED_OFF / FN_MERGED_END to new layout.
+    var fk = 0;
+    while (fk < FN_COUNT) {
+        if (load64(&FN_REACHED + fk * 8) == 1) {
+            var fsz2 = load64(&FN_MERGED_END + fk * 8)
+                     - load64(&FN_MERGED_OFF + fk * 8);
+            var nf = load64(&FN_NEW_OFF + fk * 8);
+            store64(&FN_MERGED_OFF + fk * 8, nf);
+            store64(&FN_MERGED_END + fk * 8, nf + fsz2);
+        }
+        fk = fk + 1;
+    }
+    # Data / rodata VAs shift because text got smaller.
+    DATA_VA = align8(ENTRY_VA + MERGED_TEXT_SIZE);
+    RODATA_VA = align8(DATA_VA + MERGED_DATA_SIZE);
+    return new_size;
+}
+
+# Walk the compacted merged .text, for each intra-module E8/E9 rel32 that
+# points to another fn in the same module, patch the rel32 against the
+# new layout. Cross-module calls had their bytes reset to 0 by the
+# copy-from-original step in compact_text — apply_relocations will
+# patch them using .rela.text. Data/rodata LEA sites likewise.
+fn remap_intra_module_calls() {
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        if (load64(&FN_REACHED + fi * 8) == 1) {
+            var fn_mod = load64(&FN_MODULE + fi * 8);
+            var fn_start = load64(&FN_MERGED_OFF + fi * 8);
+            var fn_end = load64(&FN_MERGED_END + fi * 8);
+            var mod_fn_start = load64(&FN_MOD_OFF + fi * 8);
+            var p = fn_start;
+            while (p + 5 <= fn_end) {
+                var op = load8(MERGED_TEXT + p);
+                if (op == 0xE8 || op == 0xE9) {
+                    var rel = read_i32(MERGED_TEXT, p + 1);
+                    if (rel != 0) {
+                        # Compute what this rel32 pointed to in the
+                        # ORIGINAL module's .text.
+                        var offset_in_fn = p - fn_start;
+                        var old_src_mod_off = mod_fn_start + offset_in_fn;
+                        var old_target_mod_off = old_src_mod_off + 5 + rel;
+                        # Find the target fn in the SAME module.
+                        var tgt_fi = 0 - 1;
+                        var fj = 0;
+                        while (fj < FN_COUNT) {
+                            if (load64(&FN_MODULE + fj * 8) == fn_mod) {
+                                var tstart = load64(&FN_MOD_OFF + fj * 8);
+                                var tend = load64(&FN_MOD_END + fj * 8);
+                                if (old_target_mod_off >= tstart
+                                    && old_target_mod_off < tend) {
+                                    tgt_fi = fj;
+                                    fj = FN_COUNT;
+                                }
+                            }
+                            fj = fj + 1;
+                        }
+                        if (tgt_fi >= 0
+                            && load64(&FN_REACHED + tgt_fi * 8) == 1) {
+                            var tmod_start = load64(&FN_MOD_OFF + tgt_fi * 8);
+                            var new_tgt_off = load64(&FN_MERGED_OFF + tgt_fi * 8)
+                                + (old_target_mod_off - tmod_start);
+                            var new_rel = new_tgt_off - (p + 5);
+                            store8(MERGED_TEXT + p + 1, new_rel & 0xFF);
+                            store8(MERGED_TEXT + p + 2, (new_rel >> 8) & 0xFF);
+                            store8(MERGED_TEXT + p + 3, (new_rel >> 16) & 0xFF);
+                            store8(MERGED_TEXT + p + 4, (new_rel >> 24) & 0xFF);
+                        }
+                    }
+                }
+                p = p + 1;
+            }
+        }
+        fi = fi + 1;
+    }
+    return 0;
 }
 
 # Write the linked merged sections as an ET_EXEC ELF to `out_path`.
@@ -992,6 +1181,9 @@ fn main() {
     assign_data_layout();
     if (build_merged_text(total) == 0) { return 1; }
     build_merged_data();
+    # Collect functions BEFORE applying relocations; resolve_sym_va
+    # consults FN_MERGED_OFF for function symbols.
+    collect_functions();
     var rerrs = apply_relocations();
     if (rerrs > 0) {
         emsg("cyrld: "); var reb[16]; var rel = fmt_int_buf(rerrs, &reb);
@@ -999,7 +1191,22 @@ fn main() {
         emsg(" relocation error(s)\n");
         return 1;
     }
+    # DCE reachability + compaction: drop dead fns, remap intra-module
+    # calls in the new layout, then re-apply all relocations.
     run_dce();
+    var old_size = MERGED_TEXT_SIZE;
+    var new_size = compact_text();
+    if (new_size != old_size) {
+        prints("  compacted: "); printn(old_size);
+        prints(" → "); printn(new_size);
+        prints(" bytes (-"); printn(old_size - new_size); prints(")\n");
+        remap_intra_module_calls();
+        var rerrs2 = apply_relocations();
+        if (rerrs2 > 0) {
+            emsg("cyrld: post-compaction reloc errors\n");
+            return 1;
+        }
+    }
     if (out_path != 0) {
         if (emit_executable(out_path) != 0) { return 1; }
     }
