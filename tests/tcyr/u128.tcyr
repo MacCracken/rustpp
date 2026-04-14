@@ -413,5 +413,37 @@ u128_mod(&mm_rem, &mm_prod, &mm_m);
 assert_eq(u128_lo(&mm_rem), 16, "(2^32-1)^2 mod (2^32-5) = 16");
 assert_eq(u128_hi(&mm_rem), 0, "mulmod remainder fits in u64");
 
+# ---- 4.8.5-alpha2: u64_mulmod / u64_powmod helpers -------------
+test_group("u64_mulmod");
+assert_eq(u64_mulmod(7, 11, 13), 12, "7*11 mod 13 = 12");
+assert_eq(u64_mulmod(0, 123, 7), 0, "0*123 mod 7 = 0");
+assert_eq(u64_mulmod(1, 0, 7),   0, "1*0 mod 7 = 0");
+# 2^32 * 2^32 mod (2^32-5) = 25  (since 2^32 ≡ 5 mod m, 5·5 = 25)
+assert_eq(u64_mulmod(4294967296, 4294967296, 4294967291), 25,
+          "2^32·2^32 mod (2^32-5) = 25");
+# (2^32-1)^2 mod (2^32-5) = 16 (same as the u128 round-trip above)
+assert_eq(u64_mulmod(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFB), 16,
+          "(2^32-1)^2 mod (2^32-5) = 16");
+# Product that needs the 128-bit intermediate (overflows u64).
+# (2^50)·(2^50) = 2^100; mod (2^61 - 1) = a well-defined value.
+# 2^100 mod (2^61-1): 2^61 ≡ 1, so 2^100 = 2^(61+39) = 2^39.
+assert_eq(u64_mulmod(1 << 50, 1 << 50, (1 << 61) - 1), 1 << 39,
+          "2^100 mod (2^61-1) = 2^39");
+
+test_group("u64_powmod");
+assert_eq(u64_powmod(2, 10, 1000), 24, "2^10 mod 1000 = 24");
+assert_eq(u64_powmod(3, 7, 100),  87, "3^7 mod 100 = 87");
+assert_eq(u64_powmod(5, 0, 13),   1,  "5^0 mod 13 = 1");
+assert_eq(u64_powmod(7, 1, 13),   7,  "7^1 mod 13 = 7");
+# Fermat sanity: a^(p-1) mod p = 1 for prime p and a not divisible by p.
+assert_eq(u64_powmod(2, 12, 13),  1,  "Fermat: 2^12 mod 13 = 1");
+assert_eq(u64_powmod(3, 16, 17),  1,  "Fermat: 3^16 mod 17 = 1");
+# m == 1 special case.
+assert_eq(u64_powmod(999, 999, 1), 0, "anything mod 1 = 0");
+# Large modulus, exercises the mulmod fast path on every step.
+# 2^20 mod (2^61-1) = 2^20 since 2^20 < 2^61-1.
+assert_eq(u64_powmod(2, 20, (1 << 61) - 1), 1 << 20,
+          "2^20 mod (2^61-1) = 2^20");
+
 var _exit_code = assert_summary();
 syscall(60, _exit_code);

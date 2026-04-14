@@ -4,6 +4,67 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha2] — 2026-04-14 (unreleased)
+
+### Added
+- **`u64_mulmod(a, b, m)`** (`lib/u128.cyr`). Collapses to three
+  hardware instructions — `mul b ; div m ; mov result, rdx` —
+  no u128 intermediate, no shift-subtract loop, no function call
+  tree inside the hot path. Caller preconditions: `m > 0`,
+  `a < m`, `b < m` (satisfied trivially by Miller-Rabin / Pollard
+  rho / RSA since they always reduce operands below the modulus).
+  Violating the precondition trips #DE at the `div`.
+- **`u64_powmod(base, exp, m)`** (`lib/u128.cyr`). Square-and-
+  multiply exponentiation driven by `u64_mulmod`. Loop count is
+  the bit-length of `exp`, so primality-grade moduli run
+  ~60 iterations where every iteration is 3-instruction mulmod.
+  Handles `m == 1` as a special case returning 0.
+- **`benches/bench_mulmod.bcyr`** — pairs the stdlib helpers
+  against a pure-Cyrius double-and-add reference, on both the
+  single-call primitive and a full Miller-Rabin round against
+  `2^61 - 1`. Locks in the alpha1 + alpha2 win so future
+  refactors catch perf regressions directly.
+- **Test coverage** (`tests/tcyr/u128.tcyr`). Fourteen new
+  assertions under `u64_mulmod` and `u64_powmod` groups covering
+  zero/identity edges, Fermat's little theorem sanity, the
+  `m == 1` special case, and mixed-width products that would
+  overflow a raw `a * b` in Cyrius's i64 arithmetic.
+
+### Benchmark snapshot
+```
+  mulmod/binary_slow:   623 ns avg  (100000 iters)
+  mulmod/u64_fast:      400 ns avg   ← 1.56× faster on primitive
+  miller_rabin/slow:     12 µs avg    (1000 iters)
+  miller_rabin/fast:    964 ns avg   ← 12.4× faster on full round
+```
+Miller-Rabin amplifies the per-call win because one round fires
+~60 `u64_powmod` iterations, each driving several `u64_mulmod`
+calls. The compounded speedup on the abaco primality hot path is
+the concrete deliverable of the 4.8.5 alpha1+alpha2 pair.
+
+### Implementation note
+`var x: u128` at fn scope currently allocates only an 8-byte slot
+(type-annotated locals carry their size on globals but not on
+locals). Backed each u128 intermediate with `var buf[16]` instead
+for the u128-pipeline helper variant that predated the asm-direct
+rewrite. The asm-direct `u64_mulmod` doesn't need u128 scratch at
+all, so the final shipped code is simpler — but the `[16]`-backed
+pattern is documented alongside for future helpers that do need
+the u128 intermediate.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 118/118 assertions in `tests/tcyr/u128.tcyr` (was 104/104).
+- 8/8 check.sh PASS.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path.
+- alpha2 ✅ — `u64_mulmod` / `u64_powmod` + Miller-Rabin bench (this release).
+- alpha3 — f64 math constants.
+- alpha4 — inverse trig.
+- alpha5 — inverse hyperbolic.
+- alpha6 — cstring case helpers.
+
 ## [4.8.5-alpha1] — 2026-04-14 (unreleased)
 
 ### Added
