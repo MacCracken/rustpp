@@ -154,7 +154,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.7.0-alpha2\n", 17);
+                syscall(SYS_WRITE, 1, "cc3 4.7.0\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -532,11 +532,14 @@ SMOD(S, 0);
 # Patch jmp to land here (start of main code)
 EPATCH(S, jmp_patch);
 
-# In object mode, wrap top-level code as a callable function (_cyrius_init).
-# This allows linked binaries to call _cyrius_init() to initialize enums and globals.
+# In object mode AND shared mode, wrap top-level code as a callable
+# function (_cyrius_init). Object mode: linked binaries call it after
+# symbol merge. Shared mode: dynamic loader calls it via DT_INIT on
+# dlopen — this is how `var x = 100;` initializers actually run.
 var _cyrius_init_offset = GCP(S);
 S64(S + 0x903F8, _cyrius_init_offset);
-if (L64(S + 0x8FCA0) == 3) {
+var _init_km = L64(S + 0x8FCA0);
+if (_init_km == 3 || _init_km == 2) {
     EFNPRO(S);               # push rbp; mov rbp, rsp
     # Allocate generous stack frame for top-level init code (4096 bytes = 512 locals)
     E3(S, 0xEC8148);          # sub rsp, imm32
@@ -575,8 +578,10 @@ PARSE_PROG(S);
 # Exit epilogue
 var lv = GLVAR(S);
 if (lv >= 0) { EVLOAD(S, lv); }
-if (L64(S + 0x8FCA0) == 3) {
-    # Object mode: return from _cyrius_init (leave; ret)
+var _epi_km = L64(S + 0x8FCA0);
+if (_epi_km == 3 || _epi_km == 2) {
+    # Object / shared mode: return from _cyrius_init (leave; ret).
+    # Shared mode uses this as the DT_INIT target.
     EFNEPI(S);
 } else {
     # Executable mode: exit via syscall(60, exit_code)

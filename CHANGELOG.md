@@ -46,6 +46,78 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.7.0] — 2026-04-14
+
+### Added (GA highlights)
+- **`shared;` produces real dlopen-able `.so`s end-to-end.**
+  Before 4.7.0: ET_DYN header scaffolded in v3.4.12 but no dynamic
+  metadata, no dlsym resolution, no PIC correctness for data refs,
+  no way to run initializers. 4.7.0: all four gaps closed.
+- **`DT_INIT` runs top-level initializers on dlopen**
+  (`src/main.cyr`, `src/backend/x86/fixup.cyr`). The `_cyrius_init`
+  wrapper that object mode already uses is now emitted in shared
+  mode too; `EMITELF_SHARED` adds a `DT_INIT` entry in `.dynamic`
+  pointing at its VA. The dynamic loader fires it on every `dlopen`,
+  so `var counter = 100;` actually lands in `.data` as 100 by the
+  time the consumer's first `dlsym` call runs.
+- **Dynamic section + symbol table** — `.dynsym` (STT_FUNC /
+  STB_GLOBAL), `.dynstr`, SysV `.hash` (nbucket=1, single chain),
+  `.dynamic` (`DT_INIT` / `DT_HASH` / `DT_SYMTAB` / `DT_STRTAB` /
+  `DT_STRSZ` / `DT_SYMENT` / `DT_NULL`), `PT_DYNAMIC` + `PT_GNU_STACK`
+  program headers.
+- **PIC-safe addressing in shared mode** — `EVADDR` / `ESADDR` /
+  `EVADDR_X1` / fn-pointer LEA all go through the object-mode path
+  that emits `lea rax, [rip+disp32]`. `FIXUP` patches ftype 0 / 1 / 3
+  as 4-byte PC-relative displacements (`target − (entry+coff+4)`) in
+  `kmode==2`. Shared `entry = 232` (64 B ELF + 3 × 56 B PHs).
+
+### Fixed
+- **Shared-mode fn body elision** — cc3's name-bitmap DCE was skipping
+  function bodies in `shared;` mode when no in-module caller existed,
+  same pattern as the 4.6.0-beta2 object-mode fix. Every exported
+  symbol pointed at the fallback `xor eax,eax; ret` stub, so every
+  `dlsym`'d call returned 0. DCE now skipped when
+  `kernel_mode == 2` just like `== 3`.
+- **Shared-mode epilogue** was emitting `syscall(60, ...)` (exit) at
+  the end of top-level code — fine for an executable, disastrous for
+  a library being called by the dynamic loader. Now `leave; ret`
+  like object mode so `DT_INIT` can return.
+
+### Validation
+- Three end-to-end `.so` tests, all green:
+  - **Calls**: C `dlopen`/`dlsym` → `add(17,25) = 42`,
+    `multiply(7,6) = 42`. Python `ctypes.CDLL` same.
+  - **Strings**: `greeting()` returns `.rodata`-backed literal —
+    `strcmp` vs the raw text = 0 after load-bias.
+  - **Data + init**: `var counter = 100; fn get() { ... }
+    fn inc() { ... } fn reset() { ... }`. After `dlopen`: `get() = 100`
+    (DT_INIT ran the `= 100` initializer), `inc()` → 101, 102, `get()
+    = 102` (mutation persists), `reset()` → 0.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 5/5 check.sh PASS. 41 test suites green.
+- `build/cc3` = 361 KB.
+
+### Known limits (4.7.0)
+- Single `PT_LOAD RWX`. `W^X` not enforced; splitting text/data into
+  RX + RW segments is a layout refactor deferred.
+- No `.gnu.hash` (SysV `.hash` only). GNU hash is faster for large
+  symbol tables but SysV works everywhere; not a blocker.
+- No `DT_SONAME` — library can't self-identify. Easy add when needed.
+- Section headers still omitted; `readelf --dyn-syms` empty but the
+  loader reads `PT_DYNAMIC` directly, so `dlsym` resolves fine.
+- `DT_INIT` takes void; we don't hook `DT_INIT_ARRAY` (argc, argv,
+  envp). Not needed for cyrius's init model today.
+
+### Shipped in the 4.7.0 arc
+- alpha1: dynsym / dynstr / hash / dynamic / PT_DYNAMIC / PT_GNU_STACK.
+- alpha2: PIC-safe LEA patches for data + string refs + fn pointers.
+- GA: DT_INIT for initializers + exit→ret fix.
+
+### Next
+- 4.8.0 per roadmap: types + codegen (u128, defmt, jump tables for
+  enum dispatch, register allocation).
+- After that: cc5 uplift + multi-platform for 5.0.
+
 ## [4.7.0-alpha2] — 2026-04-14 (unreleased)
 
 ### Fixed

@@ -680,6 +680,10 @@ fn EMITELF_SHARED(S) {
     var totvar = L64(S + 0x8FCD0);
     var spos = GSPOS(S);
     var fnc = GFNC(S);
+    # _cyrius_init's code offset (stored at init_offset slot pre-FIXUP).
+    # DT_INIT points the dynamic loader at this fn so it runs on dlopen
+    # and executes every `var x = EXPR;` top-level initializer.
+    var init_cp_off = L64(S + 0x903F8);
 
     var O = S + 0x64A000;
 
@@ -725,7 +729,7 @@ fn EMITELF_SHARED(S) {
     var hash_off = (dynstr_off + dynstr_size + 7) & (0 - 8);
     var hash_size = 8 + 4 + (nsyms + 1) * 4;    # nbucket + nchain + 1 bucket + (nsyms+1) chains
     var dynamic_off = (hash_off + hash_size + 7) & (0 - 8);
-    var dynamic_size = 16 * 7;     # 6 DT entries + DT_NULL
+    var dynamic_size = 16 * 8;     # 7 DT entries + DT_NULL
     var filesz = dynamic_off + dynamic_size;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 4096;
@@ -861,15 +865,17 @@ fn EMITELF_SHARED(S) {
 
     # ---- .dynamic ----
     # DT tag values:
-    #   DT_HASH=4, DT_STRTAB=5, DT_SYMTAB=6, DT_STRSZ=10,
+    #   DT_INIT=12, DT_HASH=4, DT_STRTAB=5, DT_SYMTAB=6, DT_STRSZ=10,
     #   DT_SYMENT=11, DT_NULL=0
+    # DT_INIT VA = file offset of _cyrius_init (since p_vaddr=0).
     var dp = O + dynamic_off;
-    S64(dp +  0, 4);                S64(dp +   8, hash_off);       # DT_HASH
-    S64(dp + 16, 6);                S64(dp +  24, dynsym_off);     # DT_SYMTAB
-    S64(dp + 32, 5);                S64(dp +  40, dynstr_off);     # DT_STRTAB
-    S64(dp + 48, 10);               S64(dp +  56, dynstr_size);    # DT_STRSZ
-    S64(dp + 64, 11);               S64(dp +  72, 24);             # DT_SYMENT
-    # DT_NULL terminator already zeroed.
+    S64(dp +  0, 12);               S64(dp +   8, code_off + init_cp_off);  # DT_INIT
+    S64(dp + 16, 4);                S64(dp +  24, hash_off);       # DT_HASH
+    S64(dp + 32, 6);                S64(dp +  40, dynsym_off);     # DT_SYMTAB
+    S64(dp + 48, 5);                S64(dp +  56, dynstr_off);     # DT_STRTAB
+    S64(dp + 64, 10);               S64(dp +  72, dynstr_size);    # DT_STRSZ
+    S64(dp + 80, 11);               S64(dp +  88, 24);             # DT_SYMENT
+    # DT_NULL terminator at dp+96 already zeroed.
 
     S64(S + 0x903F8, filesz);
     return 0;
