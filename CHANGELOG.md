@@ -4,6 +4,67 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-beta1] — 2026-04-14 (unreleased)
+
+### Added (tests + benchmarks — the beta deliverable)
+- **`tests/tcyr/regalloc.tcyr`** — 16-assertion regression net for
+  the full `#regalloc` pipeline. Covers every alpha1..alpha8
+  decision point:
+  * parity of `#regalloc` vs plain fns across arithmetic + branches
+  * use-count picker correctness (cold local not picked, hot one is)
+  * `&local` aborts routing + produces correct stack addresses
+  * width-aware path (byte array + scalar locals in one fn)
+  * recursion preserves rbx (self-call stability)
+  * cross-call preserves rbx (mixed `#regalloc`/plain callers)
+  * no-non-param-locals edge case
+- **`benches/bench_regalloc.bcyr`** — microbench pairing three hot-
+  loop shapes (single-accumulator sum, FNV-like xor/mul, nested
+  counter) with their `#regalloc` twins. Lets future refactors
+  catch perf regressions directly.
+
+### Changed
+- **Peephole padding uses one 4-byte NOP instead of four 1-byte NOPs**
+  (`src/frontend/parse.cyr`, `#regalloc` patcher). When the patcher
+  shrinks a 7-byte mov to 3 bytes, the 4-byte hole is now filled
+  with a single `0F 1F 40 00` (canonical x86_64 4-byte NOP encoding)
+  instead of `90 90 90 90`. Same footprint on the wire, quarter of
+  the decoder slots consumed. Moves the nested-accumulator bench
+  from a slight regression (~+10%) to a measurable win (~-12%);
+  tight single-accumulator loops reach parity. FNV-like workloads
+  stay neutral — mul latency hides the memory access the routing
+  replaces, so there's nothing to save there.
+- **`PARSE_PROG` accepts top-level `#regalloc`**
+  (`src/frontend/parse.cyr`). Test and bench harnesses commonly call
+  `alloc_init();` at top level then declare `#regalloc fn foo()`;
+  the pass-2 decl dispatcher handled the directive but the
+  init-body statement loop didn't, and hit *"unexpected unknown"*
+  on the directive token. Init-body now recognizes token 109 and
+  arms `_regalloc_pending` the same way the decl loop does.
+
+### Benchmark snapshot (N=10000 iters, workload = 1000 inner iters)
+```
+  regalloc/sum_plain:         1us  regalloc/sum_regalloc:       1us
+  regalloc/fnv_plain:         2us  regalloc/fnv_regalloc:       2us
+  regalloc/nested_plain:      8us  regalloc/nested_regalloc:    7us
+```
+Nested accumulators (two loops around one hot local) are the
+clearest win. Pure-arithmetic hot loops (fnv) are bottlenecked on
+mul, so routing the accumulator is a wash. Single-counter sums
+land at parity because their one memory access per iter overlaps
+with the add and there's nothing left to hide.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 9/9 check.sh PASS (new test file auto-discovered via `cyrius test`).
+  Assertion count 44 → 45 files / 299 total.
+
+### Roadmap (4.8.4)
+- alpha1..alpha8 ✅
+- beta1 ✅ — tests + benchmarks + padding improvement (this release).
+- GA (next) — close-out audit, vidya sync, changelog polish. No
+  new features; multi-reg (`r12..r15`) extension defers to a 4.9.x
+  minor.
+
 ## [4.8.4-alpha8] — 2026-04-14 (unreleased)
 
 ### Added

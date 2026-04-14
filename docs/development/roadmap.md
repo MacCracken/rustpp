@@ -140,13 +140,24 @@ The 4.8 series breaks the single-feature "u128 everything" plan into
 independent shippable minors. Each can be picked up / deferred without
 blocking the rest.
 
-### v4.8.0 — `u128` (shipped) ✅
+### v4.8.0 — `u128` (shipped, with performance caveat) ✅
 Pointer-based stdlib (`lib/u128.cyr`): `set` / `from_u64` / `copy` /
 `lo` / `hi` / `eq` / `is_zero` / `add` / `sub` / `mul` / `divmod` /
 `div` / `mod` / `shl` / `shr` / `and` / `or` / `xor` / `not` / `ugt` /
 `uge` / `ult` / `ule` + `*eq` in-place variants. 96-assertion
-regression test. Known gaps: u128 as fn param / struct field / local
-(stack slot is 8 bytes) — follow-up patches.
+regression test.
+
+**Known gaps:** u128 as fn param / struct field / local — stack slot
+is 8 bytes. Follow-up patches needed.
+
+**Performance caveat (downstream evidence):** `u128_mod` via software
+long-division is ~**40× slower** than binary double-and-add on
+`is_prime`-style benchmarks (reported by abaco/hisab during port). For
+hot-path modular arithmetic, consumers should prefer algorithm
+substitution (Montgomery, binary exponentiation) over the generic
+`u128_mod` until Cyrius codegen emits hardware 128-bit div-mod
+(`divq`/`idivq` on x86_64, `udiv`+`mul`-sub on aarch64). Revisit as a
+codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-refinements-post-platform-minors).
 
 ### v4.8.1 — `base64url` + bote-reported fixes (shipped) ✅
 - `base64url_encode` / `base64url_decode` in `lib/base64.cyr` (RFC
@@ -216,6 +227,8 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 | **Pattern-match destructuring** | Medium | One-line field extraction where current code walks struct offsets manually. **Port-feedback votes: 1 (kavach).** |
 | **Enum exhaustiveness checking** | Low | Match-must-cover-all-variants compile-time rule. **Port-feedback votes: 1 (kavach).** |
 | **Closures capturing variables** | High | Currently a known gotcha (#8). Demand-gated. |
+| **Hardware 128-bit div-mod codegen** | Medium | Emit `divq`/`idivq` (x86_64) and multi-instruction `udiv` sequence (aarch64) for `u128_divmod` / `u128_mod`. Closes the ~40× software-long-division gap reported by abaco/hisab. Consumers currently bypass `u128_mod` on hot paths. Unblocks generic bigint arithmetic without algorithm substitution. |
+| **Math stdlib polish** | Low | `asin` / `acos` / `atan` currently stopgap formulas (usable, accuracy-limited at range extremes). `dBFS` deferred — log-scale unit needs special handling for ±∞ and zero-silence conventions. Both are marked in `lib/math.cyr` with `# STOPGAP:` comments so consumers know the ceiling. |
 
 ---
 

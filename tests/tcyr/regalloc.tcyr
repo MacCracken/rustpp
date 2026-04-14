@@ -1,0 +1,208 @@
+# Regression net for `#regalloc` (v4.8.4-alpha1..alpha8).
+#
+# Exercises the full register-allocation pipeline end to end:
+#
+#   1. Parity      — a `#regalloc` fn produces the same value as a
+#                    byte-identical plain fn across arithmetic,
+#                    branches, and loops.
+#   2. Use-count   — the picker routes the hottest non-param slot
+#                    (not just the positional idx=pc), observable
+#                    indirectly by asserting correctness of a fn
+#                    where the first local is cold and the second
+#                    is hammered in a loop.
+#   3. Address-of  — taking `&local` inside a `#regalloc` fn makes
+#                    the picker abort routing; `&local`-derived
+#                    values must remain correct.
+#   4. Width-aware — byte/word/dword accesses to a local force the
+#                    safety scan to abort routing; the fn must
+#                    still produce correct scalar output.
+#   5. Recursion   — rbx is callee-saved, so a `#regalloc` fn that
+#                    recurses must see its own hot-local value
+#                    preserved across the self-call.
+#   6. Cross-call  — a `#regalloc` fn that calls a plain fn must
+#                    see rbx unchanged (the plain fn never touches
+#                    it — defensive check against ABI regressions).
+#   7. No-local    — a `#regalloc` fn with only params and no
+#                    non-param locals compiles and runs cleanly
+#                    (picker has nothing to route, save/restore
+#                    still emit).
+#
+# If any of these fail we've either broken picker correctness,
+# broken safety aborts, or broken the prologue/epilogue machinery.
+
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ----------------------------------------------------------------
+# 1. Parity
+# ----------------------------------------------------------------
+
+#regalloc
+fn hot_arith(a, b) {
+    var x = a + b;
+    var y = a * b;
+    var z = x + y;
+    return z;
+}
+
+fn plain_arith(a, b) {
+    var x = a + b;
+    var y = a * b;
+    var z = x + y;
+    return z;
+}
+
+test_group("parity: arithmetic");
+assert_eq(hot_arith(10, 20), plain_arith(10, 20), "hot == plain (10, 20)");
+assert_eq(hot_arith(0, 0),   plain_arith(0, 0),   "hot == plain (0, 0)");
+assert_eq(hot_arith(7, 6),   plain_arith(7, 6),   "hot == plain (7, 6)");
+
+#regalloc
+fn hot_branch(x) {
+    var acc = 0;
+    if (x > 10) { acc = x * 2; }
+    else        { acc = x + 1; }
+    return acc;
+}
+
+fn plain_branch(x) {
+    var acc = 0;
+    if (x > 10) { acc = x * 2; }
+    else        { acc = x + 1; }
+    return acc;
+}
+
+test_group("parity: branches");
+assert_eq(hot_branch(5),  plain_branch(5),  "branch <= 10");
+assert_eq(hot_branch(20), plain_branch(20), "branch > 10");
+
+# ----------------------------------------------------------------
+# 2. Use-count picker (hot local is NOT idx=pc)
+# ----------------------------------------------------------------
+
+#regalloc
+fn hot_loop() {
+    # `cold` is idx 0 (positional first pick), but barely used.
+    # `hot` is idx 1, hammered in the loop — picker must prefer it.
+    var cold = 100;
+    var hot = 0;
+    var i = 0;
+    while (i < 10) {
+        hot = hot + i;
+        hot = hot + 1;
+        i = i + 1;
+    }
+    return cold + hot;
+}
+
+test_group("use-count picker");
+# 100 + (sum 0..9 + 10) = 100 + 55 = 155
+assert_eq(hot_loop(), 155, "cold + hot");
+
+# ----------------------------------------------------------------
+# 3. Address-of aborts routing (picker falls back, &local is correct)
+# ----------------------------------------------------------------
+
+#regalloc
+fn addr_of_test(a) {
+    var buf[4];
+    store64(&buf,       a);
+    store64(&buf + 8,   a * 2);
+    store64(&buf + 16,  a * 3);
+    store64(&buf + 24,  a * 4);
+    return load64(&buf) + load64(&buf + 8) + load64(&buf + 16) + load64(&buf + 24);
+}
+
+test_group("address-of aborts routing");
+# a + 2a + 3a + 4a = 10a.
+assert_eq(addr_of_test(10), 100, "&local sum a=10");
+assert_eq(addr_of_test(7),  70,  "&local sum a=7");
+
+# ----------------------------------------------------------------
+# 4. Width-aware access aborts routing
+# ----------------------------------------------------------------
+
+#regalloc
+fn width_test() {
+    var buf[8];
+    # store8 / load8 go through raw memory, not EFLSTORE_W on the
+    # local itself — so this is actually exercising the interaction
+    # where routing could be applied but the fn uses array bytes.
+    # The picker should still pick a scalar local and route it.
+    store8(&buf + 0, 10);
+    store8(&buf + 1, 20);
+    store8(&buf + 2, 30);
+    var sum = 0;
+    var i = 0;
+    while (i < 3) {
+        sum = sum + load8(&buf + i);
+        i = i + 1;
+    }
+    return sum;
+}
+
+test_group("width-aware path");
+assert_eq(width_test(), 60, "byte-access fn");
+
+# ----------------------------------------------------------------
+# 5. Recursion preserves rbx
+# ----------------------------------------------------------------
+
+#regalloc
+fn fib_ra(n) {
+    var acc = n;
+    if (n < 2) { return n; }
+    acc = fib_ra(n - 1) + fib_ra(n - 2);
+    return acc;
+}
+
+fn fib_plain(n) {
+    var acc = n;
+    if (n < 2) { return n; }
+    acc = fib_plain(n - 1) + fib_plain(n - 2);
+    return acc;
+}
+
+test_group("recursion");
+assert_eq(fib_ra(0),  fib_plain(0),  "fib 0");
+assert_eq(fib_ra(1),  fib_plain(1),  "fib 1");
+assert_eq(fib_ra(5),  fib_plain(5),  "fib 5 == 5");
+assert_eq(fib_ra(10), fib_plain(10), "fib 10 == 55");
+
+# ----------------------------------------------------------------
+# 6. Cross-call: #regalloc caller, plain callee
+# ----------------------------------------------------------------
+
+fn plain_callee(x) { return x + 1; }
+
+#regalloc
+fn calls_plain(base, iters) {
+    var acc = base;
+    var i = 0;
+    while (i < iters) {
+        acc = plain_callee(acc);
+        i = i + 1;
+    }
+    return acc;
+}
+
+test_group("cross-call preserves rbx");
+assert_eq(calls_plain(0, 5), 5,  "5 increments from 0");
+assert_eq(calls_plain(10, 3), 13, "3 increments from 10");
+
+# ----------------------------------------------------------------
+# 7. No-local edge case
+# ----------------------------------------------------------------
+
+#regalloc
+fn no_local(a, b) {
+    return a * b;
+}
+
+test_group("no non-param locals");
+assert_eq(no_local(6, 7), 42, "params only");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

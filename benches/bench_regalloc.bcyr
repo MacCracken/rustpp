@@ -1,0 +1,145 @@
+# bench_regalloc.bcyr — `#regalloc` hot-local routing microbenchmark
+#
+# The 4.8.4 track shipped `#regalloc`: an opt-in per-fn attribute
+# that routes the hottest non-param local through rbx (callee-saved)
+# via a post-body byte-level peephole. The promise is that a hot
+# loop whose body reads+writes a single accumulator trades 7-byte
+# `mov rax, [rbp-N]` / `mov [rbp-N], rax` against 3-byte
+# `mov rax, rbx` / `mov rbx, rax` (plus NOP padding kept for offset
+# stability — the CPU decodes NOPs for free but the memory traffic
+# is gone).
+#
+# The bench pairs a plain fn with its `#regalloc` twin across three
+# hot-loop shapes:
+#   1. sum_loop   — single accumulator summed across a simple range
+#   2. fnv_like   — hash-shaped accumulator (xor + mul), one hot slot
+#   3. nested_acc — nested loops around a single deep accumulator
+#
+# Each work() wrapper calls the primitive N times so the tight inner
+# loop dominates the measurement.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+# --- 1. Simple accumulator sum ---
+fn sum_plain(n) {
+    var acc = 0;
+    var i = 0;
+    while (i < n) {
+        acc = acc + i;
+        i = i + 1;
+    }
+    return acc;
+}
+
+#regalloc
+fn sum_regalloc(n) {
+    var acc = 0;
+    var i = 0;
+    while (i < n) {
+        acc = acc + i;
+        i = i + 1;
+    }
+    return acc;
+}
+
+# --- 2. FNV-like xor/mul accumulator ---
+fn fnv_plain(n) {
+    var h = 0xCBF29CE484222325;
+    var i = 0;
+    while (i < n) {
+        h = h ^ i;
+        h = h * 0x100000001B3;
+        i = i + 1;
+    }
+    return h;
+}
+
+#regalloc
+fn fnv_regalloc(n) {
+    var h = 0xCBF29CE484222325;
+    var i = 0;
+    while (i < n) {
+        h = h ^ i;
+        h = h * 0x100000001B3;
+        i = i + 1;
+    }
+    return h;
+}
+
+# --- 3. Nested accumulator ---
+fn nested_plain(n) {
+    var acc = 0;
+    var i = 0;
+    while (i < n) {
+        var j = 0;
+        while (j < 4) {
+            acc = acc + j;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return acc;
+}
+
+#regalloc
+fn nested_regalloc(n) {
+    var acc = 0;
+    var i = 0;
+    while (i < n) {
+        var j = 0;
+        while (j < 4) {
+            acc = acc + j;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return acc;
+}
+
+var N = 1000;
+
+fn work_sum_plain()        { sum_plain(N);        return 0; }
+fn work_sum_regalloc()     { sum_regalloc(N);     return 0; }
+fn work_fnv_plain()        { fnv_plain(N);        return 0; }
+fn work_fnv_regalloc()     { fnv_regalloc(N);     return 0; }
+fn work_nested_plain()     { nested_plain(N);     return 0; }
+fn work_nested_regalloc()  { nested_regalloc(N);  return 0; }
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("regalloc/sum_plain");
+    bench_run(b1, &work_sum_plain, 10000);
+    vec_push(all, b1);
+
+    var b2 = bench_new("regalloc/sum_regalloc");
+    bench_run(b2, &work_sum_regalloc, 10000);
+    vec_push(all, b2);
+
+    var b3 = bench_new("regalloc/fnv_plain");
+    bench_run(b3, &work_fnv_plain, 10000);
+    vec_push(all, b3);
+
+    var b4 = bench_new("regalloc/fnv_regalloc");
+    bench_run(b4, &work_fnv_regalloc, 10000);
+    vec_push(all, b4);
+
+    var b5 = bench_new("regalloc/nested_plain");
+    bench_run(b5, &work_nested_plain, 10000);
+    vec_push(all, b5);
+
+    var b6 = bench_new("regalloc/nested_regalloc");
+    bench_run(b6, &work_nested_regalloc, 10000);
+    vec_push(all, b6);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);
