@@ -78,6 +78,22 @@ var GSYM_DEFINED[4096];     # 1 = strong def, 2 = weak def, 0 = none yet
 var GSYM_DUP[4096];         # 1 if we saw a second strong definition
 var GSYM_COUNT = 0;
 
+# ================================================================
+# Function table — one entry per defined function across all modules.
+# Used for cross-unit DCE: call graph + reachability from
+# _cyrius_init roots.
+# ================================================================
+var MAX_FUNCS = 8192;
+var FN_NAMEP[8192];         # symbol name (cstr, points into strtab)
+var FN_MODULE[8192];
+var FN_MOD_OFF[8192];       # start offset in owning module's .text
+var FN_MOD_END[8192];       # end offset in owning module's .text
+var FN_MERGED_OFF[8192];    # tbase + MOD_OFF
+var FN_MERGED_END[8192];
+var FN_REACHED[8192];       # 1 = reachable from some _cyrius_init
+var FN_IS_INIT[8192];       # 1 = this is a module's _cyrius_init (always a root)
+var FN_COUNT = 0;
+
 fn emsg(s) { syscall(SYS_WRITE, 2, s, strlen(s)); return 0; }
 fn prints(s) { syscall(SYS_WRITE, 1, s, strlen(s)); return 0; }
 fn printn(n) { var b[24]; var l = fmt_int_buf(n, &b); syscall(SYS_WRITE, 1, &b, l); return 0; }
@@ -622,6 +638,169 @@ fn apply_relocations() {
     return errs;
 }
 
+# ================================================================
+# Cross-unit DCE (4.6.0 GA): build function table, derive call graph
+# from byte-scanned E8/E9 in merged .text, BFS reachability from every
+# _cyrius_init root, report unreached functions.
+# ================================================================
+
+# Read an i32 (signed little-endian) at buf + off.
+fn read_i32(buf, off) {
+    var v = load8(buf + off)
+         | (load8(buf + off + 1) << 8)
+         | (load8(buf + off + 2) << 16)
+         | (load8(buf + off + 3) << 24);
+    if (v >= 0x80000000) { v = v - 0x100000000; }
+    return v;
+}
+
+# Enumerate every defined function across all modules into the FN table.
+# Sorts per-module by st_value afterwards so we can compute end offsets.
+fn collect_functions() {
+    var mi = 0;
+    while (mi < MOD_COUNT) {
+        var buf = load64(&MOD_BUF + mi * 8);
+        var symtab_off = load64(&MOD_SYMTAB_OFF + mi * 8);
+        var symtab_size = load64(&MOD_SYMTAB_SIZE + mi * 8);
+        var strtab_off = load64(&MOD_STRTAB_OFF + mi * 8);
+        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
+        var nsyms = symtab_size / 24;
+        var si = 1;
+        while (si < nsyms) {
+            var sym = buf + symtab_off + si * 24;
+            var st_name = read_u32(sym, 0);
+            var st_info = load8(sym + 4);
+            var st_shndx = read_u16(sym, 6);
+            var st_value = load64(sym + 8);
+            var sttyp = st_info & 15;
+            if (sttyp == STT_FUNC && st_shndx != 0) {
+                if (FN_COUNT >= MAX_FUNCS) {
+                    emsg("error: too many functions (limit 8192)\n");
+                    syscall(SYS_EXIT, 1);
+                }
+                var name_ptr = buf + strtab_off + st_name;
+                var fi = FN_COUNT;
+                store64(&FN_NAMEP + fi * 8, name_ptr);
+                store64(&FN_MODULE + fi * 8, mi);
+                store64(&FN_MOD_OFF + fi * 8, st_value);
+                store64(&FN_MERGED_OFF + fi * 8, tbase + st_value);
+                store64(&FN_REACHED + fi * 8, 0);
+                var is_init = streq(name_ptr, "_cyrius_init");
+                store64(&FN_IS_INIT + fi * 8, is_init);
+                FN_COUNT = FN_COUNT + 1;
+            }
+            si = si + 1;
+        }
+        mi = mi + 1;
+    }
+    # Compute end offsets: for each function, its end is the next
+    # function's start in the same module, or module's .text size.
+    # Simple O(n²) scan — n is small (hundreds at most for cyrius-scale).
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        var this_mod = load64(&FN_MODULE + fi * 8);
+        var this_start = load64(&FN_MOD_OFF + fi * 8);
+        var tsz = load64(&MOD_TEXT_SIZE + this_mod * 8);
+        var tbase2 = load64(&MOD_TEXT_BASE + this_mod * 8);
+        var end = tsz;
+        var fj = 0;
+        while (fj < FN_COUNT) {
+            if (fj != fi && load64(&FN_MODULE + fj * 8) == this_mod) {
+                var other = load64(&FN_MOD_OFF + fj * 8);
+                if (other > this_start && other < end) { end = other; }
+            }
+            fj = fj + 1;
+        }
+        store64(&FN_MOD_END + fi * 8, end);
+        store64(&FN_MERGED_END + fi * 8, tbase2 + end);
+        fi = fi + 1;
+    }
+    return FN_COUNT;
+}
+
+# Given a merged-text offset, return the FN index containing it, or -1.
+fn find_fn_at(moff) {
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        var s = load64(&FN_MERGED_OFF + fi * 8);
+        var e = load64(&FN_MERGED_END + fi * 8);
+        if (moff >= s && moff < e) { return fi; }
+        fi = fi + 1;
+    }
+    return 0 - 1;
+}
+
+# Reachability queue — simple array + head/tail.
+var DCE_QUEUE[8192];
+var DCE_HEAD = 0;
+var DCE_TAIL = 0;
+
+fn dce_enqueue(fi) {
+    if (load64(&FN_REACHED + fi * 8) == 1) { return 0; }
+    store64(&FN_REACHED + fi * 8, 1);
+    store64(&DCE_QUEUE + DCE_TAIL * 8, fi);
+    DCE_TAIL = DCE_TAIL + 1;
+    return 0;
+}
+
+# Scan [start, end) in merged .text for E8/E9 rel32 instructions, mark
+# the target function as reached if the rel32 lands inside a known fn.
+fn dce_scan_fn(src_fi) {
+    var start = load64(&FN_MERGED_OFF + src_fi * 8);
+    var end = load64(&FN_MERGED_END + src_fi * 8);
+    var p = start;
+    while (p + 5 <= end) {
+        var op = load8(MERGED_TEXT + p);
+        if (op == 0xE8 || op == 0xE9) {
+            var rel = read_i32(MERGED_TEXT, p + 1);
+            var target = p + 5 + rel;
+            if (target >= 0 && target < MERGED_TEXT_SIZE) {
+                var tgt_fi = find_fn_at(target);
+                if (tgt_fi >= 0) { dce_enqueue(tgt_fi); }
+            }
+        }
+        p = p + 1;
+    }
+    return 0;
+}
+
+# BFS from every _cyrius_init root; returns (reached_count, dead_bytes).
+fn run_dce() {
+    collect_functions();
+    DCE_HEAD = 0;
+    DCE_TAIL = 0;
+    # Every module's _cyrius_init is a root (they're all called by _start).
+    var fi = 0;
+    while (fi < FN_COUNT) {
+        if (load64(&FN_IS_INIT + fi * 8) == 1) { dce_enqueue(fi); }
+        fi = fi + 1;
+    }
+    # BFS.
+    while (DCE_HEAD < DCE_TAIL) {
+        var cur = load64(&DCE_QUEUE + DCE_HEAD * 8);
+        DCE_HEAD = DCE_HEAD + 1;
+        dce_scan_fn(cur);
+    }
+    # Report.
+    var dead_count = 0;
+    var dead_bytes = 0;
+    var fj = 0;
+    while (fj < FN_COUNT) {
+        if (load64(&FN_REACHED + fj * 8) == 0) {
+            dead_count = dead_count + 1;
+            dead_bytes = dead_bytes
+                + (load64(&FN_MERGED_END + fj * 8)
+                - load64(&FN_MERGED_OFF + fj * 8));
+        }
+        fj = fj + 1;
+    }
+    prints("  dce: "); printn(FN_COUNT); prints(" fns, ");
+    printn(FN_COUNT - dead_count); prints(" reached, ");
+    printn(dead_count); prints(" dead ("); printn(dead_bytes);
+    prints(" bytes)\n");
+    return dead_count;
+}
+
 # Look up a LOCAL symbol by name in a specific module. Returns the
 # symbol's final VA, or -1 if not found. Used to find `_cyrius_init`
 # for entry-point selection (it's STB_LOCAL per 4.6.0-alpha2).
@@ -820,6 +999,7 @@ fn main() {
         emsg(" relocation error(s)\n");
         return 1;
     }
+    run_dce();
     if (out_path != 0) {
         if (emit_executable(out_path) != 0) { return 1; }
     }

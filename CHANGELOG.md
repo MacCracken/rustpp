@@ -46,6 +46,63 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.0-beta3] — 2026-04-14 (unreleased)
+
+### Added
+- **Cross-unit DCE — analysis pass** (`programs/cyrld.cyr`).
+  After merging + relocating, cyrld now builds a function table from
+  every module's symtab, derives the call graph by byte-scanning the
+  merged `.text` for `E8`/`E9 rel32` instructions, and BFS-marks
+  reachability starting from every module's `_cyrius_init` (all roots,
+  since `_start` calls them all). Reports unreachable functions + total
+  dead bytes in the merge summary:
+  ```
+  dce: 5 fns, 3 reached, 2 dead (76 bytes)
+  ```
+- **Function table**: `FN_NAMEP` / `FN_MODULE` / `FN_MOD_OFF` /
+  `FN_MOD_END` / `FN_MERGED_OFF` / `FN_MERGED_END` / `FN_REACHED` /
+  `FN_IS_INIT` (indexed 0..`FN_COUNT-1`, max 8192). Includes
+  end-offset computation — for each fn, its end is the next fn's
+  start in the same module, or the module's `.text` size.
+- **Naive E8/E9 byte scan** — walks every reached function's byte
+  range, picks up both intra-module calls (cc3 patches these at fixup
+  time; no `.rela.text` entry) and inter-module calls (patched by
+  `apply_relocations`). Over-approximates reachability when immediate
+  bytes happen to match `E8`/`E9`, which is safe for DCE (we keep
+  more than strictly needed, never drop a live function).
+
+### Why analysis-only for beta3
+The analysis itself is the hard part. Compaction is bookkeeping on
+top — reassigning new offsets per reached fn, copying bytes, fixing
+up intra-module rel32s that now cross different gaps, re-applying
+`.rela.text` against the new layout + new DATA_VA / RODATA_VA.
+Shipping analysis first means:
+- Users see which of their functions are unused *right now*.
+- We validate the call graph against real downstream binaries (the
+  over-approximation should mark everything reachable in
+  correctly-written code; any incorrect "dead" flag surfaces a bug).
+- Compaction lands as an isolated follow-up (GA or 4.6.1) with
+  confidence the reachability set is correct.
+
+### Validation
+- Test with 3 globals in `d.cyr` (`inc_counter`, `never_called`,
+  `also_never`) and 2 `inc_counter()` calls from `m.cyr`:
+  `5 fns, 3 reached, 2 dead (76 bytes)`. `never_called` and
+  `also_never` are correctly identified as unreachable; the linked
+  binary still exits `44` with the two live functions wired up.
+- cc3 self-host stable (two-step bootstrap byte-identical).
+- 5/5 check.sh PASS. stdlib untouched — compiler fix was in
+  4.6.0-beta2.
+- `build/cyrld` = 820 KB (the FN table at 8192 slots is ~530 KB of
+  static data; known gotcha, to be migrated to `alloc()` later).
+
+### Next
+- Compaction pass: rebuild merged `.text` keeping only reached fns,
+  update all in-text rel32s + re-apply `.rela.text` against the new
+  layout. Target binary size win visible on kybernet (486 KB → est.
+  150-200 KB).
+- Migrate `FN_*` tables off `var T[N]` to `alloc()`.
+
 ## [4.6.0-beta2] — 2026-04-14 (unreleased)
 
 ### Added

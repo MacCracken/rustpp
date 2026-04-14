@@ -144,14 +144,35 @@ Reordered from the original "multi-file linker" scope — porting pressure from 
 
 ---
 
-## v5.0.0 — cc5 + multi-platform (major)
+## v5.0.0 — Multi-Platform (major)
+
+**Scope: platforms only.** This is the release where Cyrius leaves single-platform ELF and lands on every OS and ISA that matters. Language refinements and DX improvements do not belong here — they ship in 4.x minors before the cut and 5.x minors after. A narrow 5.0 scope keeps the release auditable and the platform story clear.
+
+The cc5 uplift is included **only as the platform enabler** — the mechanism by which a single compiler binary selects Mach-O / PE / ELF backends at runtime. Language-level cc5 benefits (per-block scoping, incremental compilation) are split out to 5.x; if they can ship earlier as 4.x incremental work, they will.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **cc3 → cc5 uplift** | High | Generation bump. cc3 has carried the self-hosting toolchain from v2.2 through v4.x — heap map near capacity (14.8MB), single-pass codegen, flat fn scope. cc5 re-lands the compiler on top of the full 4.x infrastructure (CFG, length decoder, linker, PIC) to enable per-block scoping, incremental compilation, and multi-arch backend selection from one binary. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
-| **macOS x86_64 + aarch64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. Built once on cc5, not twice across cc3/cc5. |
+| **cc3 → cc5 uplift (platform-scoped)** | High | Generation bump focused on multi-arch backend selection from one binary. cc3 has carried self-hosting from v2.2 through 4.x — heap map near 14.8MB capacity, single-pass codegen. cc5 re-lands the compiler on top of the full 4.x infrastructure (CFG, length decoder, linker, PIC) for the backend-table dispatch that Mach-O/PE/ELF/RISC-V require. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
+| **macOS x86_64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. |
+| **macOS aarch64** | High | Mach-O emitter on cc5. Apple Silicon native. |
 | **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
-| **Language-level changes** | TBD | Collected from 4.x lessons — to be scoped closer to 5.0 cut. |
+| **RISC-V (ELF)** | High | rv64 backend on cc5. Promoted from "planned" — RISC-V is now a first-class 5.0 target alongside Mach-O/PE. |
+| **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel and other embedded consumers. Linker flag + crt0 shape, documented as a first-class target. |
+
+---
+
+## v5.x — Language Refinements (post-platform minors)
+
+Collected from 4.x lessons and downstream port feedback. None of these block platform landing. All ship as 5.x minors after 5.0 cuts, prioritized by port-feedback tallies.
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **cc5 per-block scoping** | Medium | Proper lexical scope for `var` in nested blocks. Currently flat. Ships post-platform because the uplift groundwork lives in 5.0 already. |
+| **Incremental compilation** | High | Per-module recompile. Depends on cc5's separated frontend. |
+| **Generics / traits** | High | Collapse N near-identical functions to one. **Port-feedback votes: 1 (kavach).** Jumps priority on third cite. |
+| **Pattern-match destructuring** | Medium | One-line field extraction where current code walks struct offsets manually. **Port-feedback votes: 1 (kavach).** |
+| **Enum exhaustiveness checking** | Low | Match-must-cover-all-variants compile-time rule. **Port-feedback votes: 1 (kavach).** |
+| **Closures capturing variables** | High | Currently a known gotcha (#8). Demand-gated. |
 
 ---
 
@@ -183,13 +204,14 @@ Reordered from the original "multi-file linker" scope — porting pressure from 
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, 309KB self-hosting |
+| Linux x86_64 | ELF | **Done** — primary, 353KB self-hosting |
 | Linux aarch64 | ELF | **Done** — cross + native |
-| macOS x86_64 | Mach-O | Stub (v3.1) — v4.6.0 |
-| macOS aarch64 | Mach-O | Stub — v4.6.0 |
-| Windows x86_64 | PE/COFF | Stub (v3.1) — v4.7.0 |
-| RISC-V | ELF | Planned |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
+| macOS x86_64 | Mach-O | Stub (v3.1) — **v5.0.0** |
+| macOS aarch64 | Mach-O | Stub — **v5.0.0** |
+| Windows x86_64 | PE/COFF | Stub (v3.1) — **v5.0.0** |
+| RISC-V (rv64) | ELF | **v5.0.0** (promoted from "planned") |
+| Bare-metal / freestanding | ELF (no-libc) | **v5.0.0** — AGNOS kernel target |
 
 ---
 
