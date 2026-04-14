@@ -46,6 +46,38 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.0-alpha3] — 2026-04-14 (unreleased)
+
+### Added
+- **cyrld builds merged `.text` + applies relocations** (`programs/cyrld.cyr`).
+  After symbol merge, cyrld now:
+  - Allocates `MERGED_TEXT` of size = sum of all per-module `.text` sizes.
+  - Concatenates each module's `.text` at its assigned base offset.
+  - Walks every module's `.rela.text`, resolves the target symbol to a
+    final VA (`ENTRY_VA=0x400078 + merged_text_offset`), and patches the
+    rel32/i64 value at the patch site.
+  - Supports `R_X86_64_PC32`, `R_X86_64_PLT32` (formula `S + A - P`),
+    `R_X86_64_64` (formula `S + A`).
+  - Errors on `R_X86_64_GOTPCREL` — requires a GOT, not supported in
+    static-link alpha. Other unknown types also flagged.
+- **`resolve_sym_va(mi, sym_idx)`** — maps a module-local symbol index
+  to its final VA, via the global symbol table for cross-unit refs or
+  directly for module-local `STB_LOCAL` symbols.
+- **Tail-16 hex dump** in the merge report — quick eyeball check that
+  epilogue bytes (`C9 C3`) and recent reloc patches look sane.
+
+### Validation
+- Merge of `a.o` (defines `greet`, `add`) and `c.o` (calls `greet`):
+  1 relocation applied, exits 0. Epilogue `C9 C3` visible in tail dump.
+- cc3 self-host unchanged.
+- 5/5 check.sh.
+
+### Next (beta1)
+- Wrap `MERGED_TEXT` in a PT_LOAD ET_EXEC ELF header, select the right
+  entry point (`_cyrius_init` from the first module, or a user-specified
+  `_start`), write the executable to disk. That's the first run-capable
+  linker output.
+
 ## [4.6.0-alpha2] — 2026-04-14 (unreleased)
 
 ### Added

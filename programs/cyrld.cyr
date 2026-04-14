@@ -336,6 +336,174 @@ fn report_merge(total_text) {
     return 0;
 }
 
+# ================================================================
+# Merged .text + relocation application (alpha3)
+# ================================================================
+#
+# ENTRY_VA is the virtual address where the linked .text will load when
+# we finally emit ET_EXEC. ELF32/64 Linux convention: 0x400000 + ehdr +
+# phdr = 0x400078. Relocations are computed against this value now so
+# the merged bytes are ready to be wrapped in a PT_LOAD segment in beta1
+# without re-walking the reloc table.
+var ENTRY_VA = 0x400078;
+var MERGED_TEXT = 0;       # pointer to merged .text buffer (alloc'd)
+var MERGED_TEXT_SIZE = 0;
+
+# Build the merged .text buffer by concatenating each module's .text in
+# the order they were loaded. Returns 1 on success, 0 on failure.
+fn build_merged_text(total_size) {
+    if (total_size <= 0) { return 1; }
+    MERGED_TEXT = alloc(total_size);
+    MERGED_TEXT_SIZE = total_size;
+    var mi = 0;
+    while (mi < MOD_COUNT) {
+        var buf = load64(&MOD_BUF + mi * 8);
+        var toff = load64(&MOD_TEXT_OFF + mi * 8);
+        var tsz = load64(&MOD_TEXT_SIZE + mi * 8);
+        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
+        var i = 0;
+        while (i < tsz) {
+            store8(MERGED_TEXT + tbase + i, load8(buf + toff + i));
+            i = i + 1;
+        }
+        mi = mi + 1;
+    }
+    return 1;
+}
+
+# Write a 32-bit signed value in little-endian at merged_text + offset.
+fn write_i32_le(off, value) {
+    store8(MERGED_TEXT + off, value & 0xFF);
+    store8(MERGED_TEXT + off + 1, (value >> 8) & 0xFF);
+    store8(MERGED_TEXT + off + 2, (value >> 16) & 0xFF);
+    store8(MERGED_TEXT + off + 3, (value >> 24) & 0xFF);
+    return 0;
+}
+
+# Resolve a symbol reference made by module `mi` via local symbol index
+# `sym_idx`. Returns the symbol's final VA (ENTRY_VA + merged_text_off),
+# or -1 if the symbol is UND globally (which verify_resolution should
+# have caught — defensive check).
+fn resolve_sym_va(mi, sym_idx) {
+    var buf = load64(&MOD_BUF + mi * 8);
+    var symtab_off = load64(&MOD_SYMTAB_OFF + mi * 8);
+    var strtab_off = load64(&MOD_STRTAB_OFF + mi * 8);
+    var sym = buf + symtab_off + sym_idx * 24;
+    var st_name = read_u32(sym, 0);
+    var st_info = load8(sym + 4);
+    var st_shndx = read_u16(sym, 6);
+    var st_value = read_u64(sym, 8);
+    var bind = st_info >> 4;
+    # Local symbols defined in this module's .text: resolve directly.
+    if (bind == STB_LOCAL && st_shndx != 0) {
+        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
+        return ENTRY_VA + tbase + st_value;
+    }
+    # Global/weak: look up in the merged symtab by name.
+    var name_ptr = buf + strtab_off + st_name;
+    var gi = 0;
+    while (gi < GSYM_COUNT) {
+        if (streq(load64(&GSYM_NAMEP + gi * 8), name_ptr) == 1) {
+            var defined = load64(&GSYM_DEFINED + gi * 8);
+            if (defined == 0) { return 0 - 1; }
+            var def_mod = load64(&GSYM_MODULE + gi * 8);
+            var def_val = load64(&GSYM_TEXT_VAL + gi * 8);
+            var def_base = load64(&MOD_TEXT_BASE + def_mod * 8);
+            return ENTRY_VA + def_base + def_val;
+        }
+        gi = gi + 1;
+    }
+    return 0 - 1;
+}
+
+# Apply each module's relocations to the merged .text buffer.
+# Returns number of errors (unresolvable or unsupported-type).
+fn apply_relocations() {
+    var errs = 0;
+    var applied = 0;
+    var mi = 0;
+    while (mi < MOD_COUNT) {
+        var buf = load64(&MOD_BUF + mi * 8);
+        var rela_off = load64(&MOD_RELA_OFF + mi * 8);
+        var rela_size = load64(&MOD_RELA_SIZE + mi * 8);
+        var tbase = load64(&MOD_TEXT_BASE + mi * 8);
+        var nrela = rela_size / 24;
+        var ri = 0;
+        while (ri < nrela) {
+            var rel = buf + rela_off + ri * 24;
+            var r_off = load64(rel + 0);
+            var r_info = load64(rel + 8);
+            var r_add = load64(rel + 16);
+            if (r_add >= 0x8000000000000000) { r_add = r_add - 0x10000000000000000; }
+            var r_type = r_info & 0xFFFFFFFF;
+            var r_sym = r_info >> 32;
+            # Patch site in the merged buffer.
+            var patch_merged_off = tbase + r_off;
+            var patch_va = ENTRY_VA + patch_merged_off;
+            var target_va = resolve_sym_va(mi, r_sym);
+            if (target_va < 0) {
+                emsg("error: unresolved symbol for reloc in module ");
+                var eb[16]; var el = fmt_int_buf(mi, &eb);
+                syscall(SYS_WRITE, 2, &eb, el);
+                emsg("\n");
+                errs = errs + 1;
+                ri = ri + 1;
+                continue;
+            }
+            if (r_type == R_X86_64_PC32 || r_type == R_X86_64_PLT32) {
+                # value = S + A - P, stored as 32-bit signed at patch site.
+                # The existing pre-reloc bytes at the patch site are ignored —
+                # cc3 emits 0s into rel32 placeholders so A is typically -4 for
+                # `call rel32` / `jmp rel32` (so the PC points at the next
+                # instruction, and target - (patch+4) is the rel32 value).
+                var value = target_va + r_add - patch_va;
+                write_i32_le(patch_merged_off, value);
+            } elif (r_type == R_X86_64_64) {
+                # value = S + A, stored as 64-bit at patch site.
+                store64(MERGED_TEXT + patch_merged_off, target_va + r_add);
+            } elif (r_type == R_X86_64_GOTPCREL) {
+                # Would require a GOT. Not supported in static-link alpha3;
+                # flag as error so the user knows.
+                emsg("error: R_X86_64_GOTPCREL in module ");
+                var eb2[16]; var el2 = fmt_int_buf(mi, &eb2);
+                syscall(SYS_WRITE, 2, &eb2, el2);
+                emsg(" (unsupported — no GOT in static link)\n");
+                errs = errs + 1;
+            } else {
+                emsg("error: unknown reloc type ");
+                var eb3[16]; var el3 = fmt_int_buf(r_type, &eb3);
+                syscall(SYS_WRITE, 2, &eb3, el3);
+                emsg("\n");
+                errs = errs + 1;
+            }
+            applied = applied + 1;
+            ri = ri + 1;
+        }
+        mi = mi + 1;
+    }
+    prints("  relocations applied: "); printn(applied); prints("\n");
+    # Dump the last 16 bytes of merged .text for quick eyeball verification.
+    # In practice the last bytes contain the most interesting epilogue/reloc
+    # patches; if a linker bug writes garbage, it usually shows here first.
+    if (MERGED_TEXT_SIZE >= 16) {
+        prints("  tail 16 bytes:");
+        var ti = MERGED_TEXT_SIZE - 16;
+        while (ti < MERGED_TEXT_SIZE) {
+            prints(" ");
+            var bb = load8(MERGED_TEXT + ti);
+            var hh[4];
+            var nib_hi = bb >> 4;
+            var nib_lo = bb & 15;
+            if (nib_hi < 10) { store8(&hh, 48 + nib_hi); } else { store8(&hh, 87 + nib_hi); }
+            if (nib_lo < 10) { store8(&hh + 1, 48 + nib_lo); } else { store8(&hh + 1, 87 + nib_lo); }
+            syscall(SYS_WRITE, 1, &hh, 2);
+            ti = ti + 1;
+        }
+        prints("\n");
+    }
+    return errs;
+}
+
 fn main() {
     alloc_init();
     args_init();
@@ -359,6 +527,15 @@ fn main() {
         emsg("cyrld: "); var eb[16]; var el = fmt_int_buf(errs, &eb);
         syscall(SYS_WRITE, 2, &eb, el);
         emsg(" resolution error(s)\n");
+        return 1;
+    }
+    # alpha3: build merged .text buffer and apply relocations.
+    if (build_merged_text(total) == 0) { return 1; }
+    var rerrs = apply_relocations();
+    if (rerrs > 0) {
+        emsg("cyrld: "); var reb[16]; var rel = fmt_int_buf(rerrs, &reb);
+        syscall(SYS_WRITE, 2, &reb, rel);
+        emsg(" relocation error(s)\n");
         return 1;
     }
     return 0;
