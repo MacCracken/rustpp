@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.3.2] — 2026-04-13
+
+### Fixed
+- **`cyrius deps` now re-resolves when the cyrius.toml tag changes**
+  (`programs/cyrius.cyr`). Previously the resolver cloned to an
+  un-versioned cache path (`/tmp/cyrius_deps/{name}`) and bailed if the
+  directory existed, so a tag bump in cyrius.toml left the stale cache
+  in place and `lib/{name}.cyr` pointed at the old version. Cache layout
+  is now tag-versioned: `$CYRIUS_HOME/deps/{name}/{tag}/` (falls back to
+  `/tmp/cyrius_deps/{name}_{tag}` when CYRIUS_HOME is unset). Different
+  tags produce different cache directories so a tag bump naturally
+  triggers a fresh clone.
+
+### Changed
+- **Dep resolver creates symlinks into `lib/`** (`programs/cyrius.cyr`)
+  instead of byte copies. Matches the legacy shell resolver's behavior
+  and lets `scripts/check.sh` / `cyrius audit` correctly skip dep files
+  as upstream-owned. Falls back to a byte copy if `symlink()` fails
+  (e.g., FAT filesystems). Writes both `lib/{name}_{basename}`
+  (namespaced, collision-safe) and — when the module basename exactly
+  matches `{name}.cyr` — `lib/{name}.cyr` (canonical path for single-
+  module deps like sigil, patra, yukti).
+
+### Closeout (4.3.x)
+- Self-host verified (cc3 = cc3, 325,936 bytes)
+- Bootstrap closure verified (seed → cyrc → asm)
+- Heap map clean (46 regions, 0 overlaps)
+- Dead function count: 267/311 (86%, stable)
+- check.sh: 5/5 PASS
+
 ## [4.3.1] — 2026-04-13
 
 ### Added

@@ -993,43 +993,80 @@ fn cmd_deps() {
                 while (si < n && load8(buf + si) != 10) { si = si + 1; }
                 si = si + 1;
             }
-            # If path doesn't exist, try git clone
-            if (dep_path != 0 && dep_modules != 0) {
-                if (is_dir(str_from(dep_path)) == 0 && dep_git != 0) {
-                    # Clone to /tmp/cyrius_deps/{name}
-                    var clone_sb = str_builder_new();
+            # Resolve dep_path: prefer explicit path, else git-clone to a
+            # tag-versioned cache so a cyrius.toml tag bump triggers a fresh
+            # clone automatically (no stale cache at the un-versioned path).
+            # Cache layout: $CYRIUS_HOME/deps/{name}/{tag}/ (or /tmp/cyrius_deps/{name}_{tag}).
+            var need_clone = 0;
+            if (dep_git != 0 && dep_modules != 0) {
+                if (dep_path == 0) {
+                    need_clone = 1;
+                } elif (is_dir(str_from(dep_path)) == 0) {
+                    need_clone = 1;
+                }
+            }
+            if (need_clone == 1) {
+                var clone_sb = str_builder_new();
+                if (_home != 0) {
+                    str_builder_add_cstr(clone_sb, _home);
+                    str_builder_add_cstr(clone_sb, "/deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    str_builder_add_cstr(clone_sb, "/");
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    } else {
+                        str_builder_add_cstr(clone_sb, "main");
+                    }
+                } else {
                     str_builder_add_cstr(clone_sb, "/tmp/cyrius_deps/");
                     str_builder_add_cstr(clone_sb, dep_name);
-                    var clone_dir = str_data(str_builder_build(clone_sb));
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, "_");
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    }
+                }
+                var clone_dir = str_data(str_builder_build(clone_sb));
+                if (_home != 0) {
+                    var pdir_sb = str_builder_new();
+                    str_builder_add_cstr(pdir_sb, _home);
+                    str_builder_add_cstr(pdir_sb, "/deps");
+                    sys_mkdir(str_data(str_builder_build(pdir_sb)), 0x1ED);
+                    var pdir2_sb = str_builder_new();
+                    str_builder_add_cstr(pdir2_sb, _home);
+                    str_builder_add_cstr(pdir2_sb, "/deps/");
+                    str_builder_add_cstr(pdir2_sb, dep_name);
+                    sys_mkdir(str_data(str_builder_build(pdir2_sb)), 0x1ED);
+                } else {
                     sys_mkdir("/tmp/cyrius_deps", 0x1ED);
-                    if (is_dir(str_from(clone_dir)) == 0) {
-                        # CVE-01: validate git URL — reject shell metacharacters
-                        var git_ok = 1;
-                        var gi2 = 0;
-                        while (load8(dep_git + gi2) != 0) {
-                            var gc = load8(dep_git + gi2);
-                            if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
+                }
+                if (is_dir(str_from(clone_dir)) == 0) {
+                    # CVE-01: validate git URL — reject shell metacharacters
+                    var git_ok = 1;
+                    var gi2 = 0;
+                    while (load8(dep_git + gi2) != 0) {
+                        var gc = load8(dep_git + gi2);
+                        if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
+                            git_ok = 0;
+                        }
+                        gi2 += 1;
+                    }
+                    if (dep_tag != 0) {
+                        var ti2 = 0;
+                        while (load8(dep_tag + ti2) != 0) {
+                            var tc2 = load8(dep_tag + ti2);
+                            if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
                                 git_ok = 0;
                             }
-                            gi2 += 1;
+                            ti2 += 1;
                         }
-                        if (dep_tag != 0) {
-                            var ti2 = 0;
-                            while (load8(dep_tag + ti2) != 0) {
-                                var tc2 = load8(dep_tag + ti2);
-                                if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
-                                    git_ok = 0;
-                                }
-                                ti2 += 1;
-                            }
-                        }
-                        if (git_ok == 0) {
-                            sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
-                            sys_write(STDERR_FD, dep_name, strlen(dep_name));
-                            sys_write(STDERR_FD, "\n", 1);
-                            errors += 1;
-                        }
-                        if (git_ok == 1) {
+                    }
+                    if (git_ok == 0) {
+                        sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
+                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                        sys_write(STDERR_FD, "\n", 1);
+                        errors += 1;
+                    }
+                    if (git_ok == 1) {
                         var cmd_sb = str_builder_new();
                         str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
                         if (dep_tag != 0) {
@@ -1047,9 +1084,9 @@ fn cmd_deps() {
                             sys_write(STDERR_FD, "\n", 1);
                         }
                         sys_system(cmd);
-                    } }
-                    dep_path = clone_dir;
+                    }
                 }
+                dep_path = clone_dir;
             }
             # Copy modules from dep_path
             if (dep_path != 0 && dep_modules != 0) {
@@ -1092,7 +1129,17 @@ fn cmd_deps() {
                     str_builder_add_cstr(sb3, "_");
                     str_builder_add_cstr(sb3, base);
                     var dst = str_data(str_builder_build(sb3));
-                    var cr2 = _dep_copy_file(src, dst);
+                    # Symlink dep into lib/ — audit walkers skip symlinks,
+                    # treating them as upstream-owned and not subject to local
+                    # format/lint. Falls back to copy if symlink() fails.
+                    var cr2 = 2;
+                    sys_unlink(dst);
+                    var srv = syscall(88, src, dst);
+                    if (srv < 0) {
+                        cr2 = _dep_copy_file(src, dst);
+                    } else {
+                        cr2 = 0;
+                    }
                     if (cr2 == 0 || cr2 == 2) {
                         vec_push(_dep_includes, dst);
                         if (cr2 == 0) {
@@ -1104,6 +1151,29 @@ fn cmd_deps() {
                                 sys_write(STDERR_FD, "\n", 1);
                             }
                             copied = copied + 1;
+                        }
+                        # Also emit lib/{depname}.cyr alias if basename matches
+                        # "{depname}.cyr" exactly — preserves the canonical single-
+                        # module import path for consumers using `include "lib/sigil.cyr"`.
+                        var dnlen = strlen(dep_name);
+                        var blen = strlen(base);
+                        if (blen == dnlen + 4) {
+                            var matches = 1;
+                            var ck = 0;
+                            while (ck < dnlen) {
+                                if (load8(base + ck) != load8(dep_name + ck)) { matches = 0; break; }
+                                ck = ck + 1;
+                            }
+                            if (matches == 1 && load8(base + dnlen) == 46 && load8(base + dnlen + 1) == 99 && load8(base + dnlen + 2) == 121 && load8(base + dnlen + 3) == 114) {
+                                var alias_sb = str_builder_new();
+                                str_builder_add_cstr(alias_sb, "lib/");
+                                str_builder_add_cstr(alias_sb, base);
+                                var alias_dst = str_data(str_builder_build(alias_sb));
+                                # Symlink to the cache source, not copy — audit
+                                # walkers skip symlinks (treated as dep-owned).
+                                sys_unlink(alias_dst);
+                                syscall(88, src, alias_dst);
+                            }
                         }
                     } elif (cr2 == 1) { errors = errors + 1; }
                     mi = mi + 1;
