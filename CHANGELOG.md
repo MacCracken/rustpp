@@ -4,6 +4,50 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.2-alpha1] — 2026-04-14 (unreleased)
+
+### Fixed
+- **`switch` jump-table gap handling** (`src/frontend/parse.cyr`).
+  Values inside `[case_min, case_max]` that don't match any `case`
+  previously jumped to *end-of-switch* (skipping the `default:`
+  body), returning garbage instead of the default. Invisible at the
+  old 50%-density threshold because dense cases leave no gaps; this
+  patch lowers the threshold to 33% and the bug became reachable.
+  Fixed: the gap-patching pass now jumps to the `default:` body's
+  entry point when a default clause is present (falls through to
+  end-of-switch only when no default exists).
+
+### Changed
+- **Switch density threshold lowered 50% → 33%**. A `switch` with
+  ≥ 4 cases and `range + 1 <= count * 3` (was `* 2`) now emits an
+  O(1) jump table instead of an if-chain. The 256-byte range cap
+  stays the same. More real-world enum-ish switches with a handful
+  of gaps now hit the fast path. Safe because of the gap fix above.
+
+### Added
+- **`tests/tcyr/switch_dispatch.tcyr`** — 31 assertions pinning down
+  behavior across three dispatch regimes:
+  - chain (< 4 cases),
+  - dense jump table (4 / 5 / 8 consecutive cases, including one
+    with nonzero base to exercise `case_min` adjustment),
+  - sparse cases (density ≈ 40% — lands on the jump-table path
+    after this patch, stresses the gap-to-default handling).
+  Also covers `default` above / below the case range, and gaps
+  between cases.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+- CI-style exit-code loop across all 44 `.tcyr` files: 44 / 0.
+
+### Next
+- 4.8.2-alpha2: add `match` keyword as syntactic sugar that routes
+  through the existing jump-table emitter.
+- 4.8.2-alpha3: detect `if (x == C) else if (x == C)` chains in
+  PEXPR / PSTMT and auto-convert to switch emission.
+- 4.8.2-alpha4: rewrite hot if-chains in `src/` to benchmark the
+  10–35× claim.
+
 ## [4.8.1] — 2026-04-14
 
 ### Added

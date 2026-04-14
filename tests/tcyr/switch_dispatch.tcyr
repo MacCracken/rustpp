@@ -1,0 +1,122 @@
+# Regression net for `switch` codegen (v4.8.2-alpha1).
+#
+# Cyrius already compiles dense `switch` to a jump table when:
+#   case_count >= 4 AND range + 1 <= count * 2 AND range < 256
+# Subsequent alphas will tune the density threshold and detect
+# equivalent if-chain patterns automatically. Before any of that
+# lands we want a regression net that nails down current behavior
+# across the three dispatch regimes:
+#
+#   1. <4 cases          → if-chain
+#   2. >=4 dense         → jump table (>= 50% density today)
+#   3. >=4 sparse        → if-chain (density too low)
+#
+# Each scenario tests every case value + default + boundary.
+
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- Chain regime (< 4 cases): simple dispatch ----
+fn chain3(x) {
+    switch (x) {
+        case 1: { return 10; }
+        case 2: { return 20; }
+        case 3: { return 30; }
+        default: { return 99; }
+    }
+}
+
+test_group("switch chain regime (<4 cases)");
+assert_eq(chain3(1), 10, "chain c1");
+assert_eq(chain3(2), 20, "chain c2");
+assert_eq(chain3(3), 30, "chain c3");
+assert_eq(chain3(0), 99, "chain default below");
+assert_eq(chain3(4), 99, "chain default above");
+assert_eq(chain3(0 - 5), 99, "chain default negative");
+
+# ---- Dense jump-table regime (4 consecutive cases, density 100%) ----
+fn dense4(x) {
+    switch (x) {
+        case 0: { return 100; }
+        case 1: { return 101; }
+        case 2: { return 102; }
+        case 3: { return 103; }
+        default: { return 999; }
+    }
+}
+
+test_group("switch dense 4 consecutive (jump table today)");
+assert_eq(dense4(0), 100, "dense c0");
+assert_eq(dense4(1), 101, "dense c1");
+assert_eq(dense4(2), 102, "dense c2");
+assert_eq(dense4(3), 103, "dense c3");
+assert_eq(dense4(4), 999, "dense default above");
+assert_eq(dense4(0 - 1), 999, "dense default below");
+
+# ---- Dense but offset (range 10..14, density 100%) ----
+fn dense_offset(x) {
+    switch (x) {
+        case 10: { return 1; }
+        case 11: { return 2; }
+        case 12: { return 3; }
+        case 13: { return 4; }
+        case 14: { return 5; }
+        default: { return 0; }
+    }
+}
+
+test_group("switch dense with nonzero base (case_min adjust)");
+assert_eq(dense_offset(10), 1, "offset 10");
+assert_eq(dense_offset(12), 3, "offset 12");
+assert_eq(dense_offset(14), 5, "offset 14");
+assert_eq(dense_offset(9), 0, "offset below");
+assert_eq(dense_offset(15), 0, "offset above");
+assert_eq(dense_offset(0), 0, "offset zero");
+
+# ---- Sparse ≥4 cases (density ≈ 40%, expect if-chain today) ----
+fn sparse4(x) {
+    switch (x) {
+        case 1:  { return 11; }
+        case 4:  { return 44; }
+        case 7:  { return 77; }
+        case 10: { return 100; }
+        default: { return 0 - 1; }
+    }
+}
+
+test_group("switch sparse (below density threshold)");
+assert_eq(sparse4(1), 11, "sparse c1");
+assert_eq(sparse4(4), 44, "sparse c4");
+assert_eq(sparse4(7), 77, "sparse c7");
+assert_eq(sparse4(10), 100, "sparse c10");
+assert_eq(sparse4(2), 0 - 1, "sparse gap 2");
+assert_eq(sparse4(5), 0 - 1, "sparse gap 5");
+assert_eq(sparse4(11), 0 - 1, "sparse above");
+assert_eq(sparse4(0), 0 - 1, "sparse below");
+
+# ---- 8-case dense (stays dense, exercises longer table) ----
+fn dense8(x) {
+    switch (x) {
+        case 0: { return 0; }
+        case 1: { return 1; }
+        case 2: { return 4; }
+        case 3: { return 9; }
+        case 4: { return 16; }
+        case 5: { return 25; }
+        case 6: { return 36; }
+        case 7: { return 49; }
+        default: { return 0 - 1; }
+    }
+}
+
+test_group("switch 8-case dense (square table)");
+assert_eq(dense8(0), 0, "sq 0");
+assert_eq(dense8(3), 9, "sq 3");
+assert_eq(dense8(7), 49, "sq 7");
+assert_eq(dense8(8), 0 - 1, "sq above");
+assert_eq(dense8(0 - 1), 0 - 1, "sq negative");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

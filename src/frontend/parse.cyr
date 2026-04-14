@@ -3360,11 +3360,14 @@ fn PARSE_SWITCH(S) {
         else { pgo = 0; } }
     }
     STI(S, save_ti);
-    # Decide: jump table if >= 4 cases and range <= 2x count (dense)
+    # Decide: jump table if >= 4 cases, density >= 1/3, and range < 256.
+    # v4.8.2 lowered threshold from 50% (*2) to 33% (*3) — more real-world
+    # enum-like switches with a few gaps now hit the O(1) dispatch path.
+    # The 256-byte range cap keeps the jump table itself small.
     var range = case_max - case_min;
     var use_table = 0;
     if (case_count >= 4) {
-        if (range + 1 <= case_count * 2) {
+        if (range + 1 <= case_count * 3) {
             if (range < 256) { use_table = 1; }
         }
     }
@@ -3403,6 +3406,7 @@ fn PARSE_SWITCH(S) {
         # Parse case bodies, patching table entries
         var ends[256];
         var ec = 0;
+        var default_cp = 0 - 1;   # filled in when `default:` is parsed
         var sgo = 1;
         while (sgo == 1) {
             if (PEEKT(S) == 58) {
@@ -3437,6 +3441,7 @@ fn PARSE_SWITCH(S) {
                 # Default body — patch default_patch to here
                 EPATCH(S, default_patch);
                 default_patch = 0;
+                default_cp = GCP(S);
                 while (PEEKT(S) != 14) {
                     if (PEEKT(S) == 12) { break; }
                     PARSE_STMT(S);
@@ -3448,14 +3453,20 @@ fn PARSE_SWITCH(S) {
         }
         # Patch default jump if no default case was found
         if (default_patch > 0) { EPATCH(S, default_patch); }
-        # Fill unpatched table entries with offset to here (fall through)
+        # Fill unpatched table entries. If a `default:` was present
+        # (v4.8.2), gaps within [case_min, case_max] now jump to the
+        # default body — before this fix they fell through to the
+        # end of the switch, which silently hid sparse-case bugs at
+        # the previous 50% density threshold (no gaps). When no
+        # default exists, gaps still fall through.
         var end_cp = GCP(S);
-        var end_rel = end_cp - table_cp;
+        var gap_rel = end_cp - table_cp;
+        if (default_cp >= 0) { gap_rel = default_cp - table_cp; }
         ti = 0;
         while (ti <= range) {
             var te = S + 0x54A000 + table_cp + ti * 4;
             if (load32(te) == 0) {
-                S64(te, (L64(te) >> 32 << 32) | (end_rel & 0xFFFFFFFF));
+                S64(te, (L64(te) >> 32 << 32) | (gap_rel & 0xFFFFFFFF));
             }
             ti = ti + 1;
         }
