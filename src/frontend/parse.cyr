@@ -1428,34 +1428,71 @@ fn PCMPE(S) {
             _cfo = 0;
         }
     }
-    # Handle && and || chains: left result in rax, push, eval right, combine
+    # Short-circuit && and || chains (fixed in 4.4.1 — docs always claimed
+    # short-circuit but the prior bitwise AND/OR impl evaluated both sides
+    # unconditionally, causing silent miscompiles on guarded null checks
+    # like `if (p != 0 && vec_len(p) > 0)` — bote feedback item 2).
+    #
+    # && codegen: eval left, cmp 0, je skip_right, eval right, cmp 0, setne al,
+    #             jmp end, skip_right: xor rax, rax, end:
+    # || codegen: eval left, cmp 0, jne skip_right, eval right, cmp 0, setne al,
+    #             jmp end, skip_right: mov rax, 1, end:
     var lop = PEEKT(S);
-    while (lop == 53) {
-        # && : push left, eval right comparison, AND
-        STI(S, GTI(S) + 1);
+    while (lop == 53 || lop == 54) {
+        # Normalize left into boolean (0 or 1) already in rax. If a comparison
+        # op preceded, ESETCC already did this; otherwise cmp rax,0; setne al.
+        # But after the top block, rax already holds either a boolean (from
+        # ESETCC) or an integer value — we short-circuit on "rax == 0" either
+        # way, so we just need to cmp rax, 0 and branch.
+        # cmp rax, 0
         EPUSHR(S);
-        PEXPR(S);
-        var rop = PEEKT(S);
-        if (rop >= 17) { if (rop <= 22) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PEXPR(S); EMOVCA(S); EPOPR(S); ESETCC(S, rop);
-        } }
+        EMOVI(S, 0);
         EMOVCA(S);
         EPOPR(S);
-        EANDR(S);
-        lop = PEEKT(S);
-    }
-    while (lop == 54) {
-        # || : push left, eval right comparison, OR
+        ECMPR(S);
+        # For && : skip right side when left is 0 (false), jumping to the
+        #          "write 0 to rax" tail. je rel32.
+        # For || : skip right side when left is NOT 0 (true), jumping to the
+        #          "write 1 to rax" tail. jne rel32.
+        var is_and = 0;
+        if (lop == 53) { is_and = 1; }
+        var p_skip = 0;
+        if (is_and == 1) { p_skip = EJCC(S, 0x84); }
+        else { p_skip = EJCC(S, 0x85); }
+        # Consume the operator token
         STI(S, GTI(S) + 1);
-        EPUSHR(S);
+        # Evaluate the right operand (expression + optional comparison)
         PEXPR(S);
         var rop = PEEKT(S);
-        if (rop >= 17) { if (rop <= 22) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PEXPR(S); EMOVCA(S); EPOPR(S); ESETCC(S, rop);
-        } }
+        if (rop >= 17) {
+            if (rop <= 22) {
+                STI(S, GTI(S) + 1);
+                EPUSHR(S);
+                PEXPR(S);
+                EMOVCA(S);
+                EPOPR(S);
+                ESETCC(S, rop);
+            }
+        }
+        # Normalize right side to boolean (cmp 0; setne al; movzx)
+        EPUSHR(S);
+        EMOVI(S, 0);
         EMOVCA(S);
         EPOPR(S);
-        EORR(S);
+        ECMPR(S);
+        ESETCC(S, 18);  # 18 is !=, emits setne + movzx
+        # jmp over the short-circuit tail
+        var p_end = EJMP0(S);
+        # skip_right lands here: write the short-circuit result
+        EPATCH(S, p_skip);
+        if (is_and == 1) {
+            # && short-circuited because left was 0 → result is 0
+            EMOVI(S, 0);
+        } else {
+            # || short-circuited because left was non-zero → result is 1
+            EMOVI(S, 1);
+        }
+        EPATCH(S, p_end);
         lop = PEEKT(S);
     }
     return 0;

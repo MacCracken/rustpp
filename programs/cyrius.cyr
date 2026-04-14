@@ -777,6 +777,43 @@ fn _file_size(path) {
     return load64(&stat_buf + 48);
 }
 
+# Resolve a (possibly relative) path to absolute using getcwd(2).
+# Needed for symlink creation: a relative symlink target is resolved
+# relative to the SYMLINK's parent directory, not the caller's CWD.
+# When we write `lib/{dep}.cyr -> ../sigil/dist/sigil.cyr`, that resolves
+# to `{proj}/sigil/dist/sigil.cyr` (wrong) instead of `{sibling}/sigil/...`.
+# Fix: make every symlink target absolute. Absolute paths are unambiguous.
+# Returns src unchanged if already absolute, else allocates an absolute copy.
+fn _abs_path(src) {
+    if (load8(src) == 47) { return src; }
+    var cwd[4096];
+    # syscall 79 = getcwd(buf, size); returns length incl. nul, or -errno.
+    var n = syscall(79, &cwd, 4096);
+    if (n <= 0) { return src; }
+    # Strip trailing nul from length
+    var cwd_len = n - 1;
+    var src_len = 0;
+    while (load8(src + src_len) != 0) { src_len = src_len + 1; }
+    var out = alloc(cwd_len + 1 + src_len + 1);
+    var oi = 0;
+    var ci = 0;
+    while (ci < cwd_len) {
+        store8(out + oi, load8(&cwd + ci));
+        oi = oi + 1;
+        ci = ci + 1;
+    }
+    store8(out + oi, 47);  # '/'
+    oi = oi + 1;
+    var si = 0;
+    while (si < src_len) {
+        store8(out + oi, load8(src + si));
+        oi = oi + 1;
+        si = si + 1;
+    }
+    store8(out + oi, 0);
+    return out;
+}
+
 fn _dep_copy_file(src, dst) {
     # Skip if destination exists and same size (already resolved)
     var src_sz = _file_size(src);
@@ -1132,9 +1169,13 @@ fn cmd_deps() {
                     # Symlink dep into lib/ — audit walkers skip symlinks,
                     # treating them as upstream-owned and not subject to local
                     # format/lint. Falls back to copy if symlink() fails.
+                    # Symlink target MUST be absolute: a relative target like
+                    # `../sigil/dist/sigil.cyr` resolves relative to the link's
+                    # parent (lib/), giving the wrong path. Fixed in 4.4.1.
+                    var sym_src = _abs_path(src);
                     var cr2 = 2;
                     sys_unlink(dst);
-                    var srv = syscall(88, src, dst);
+                    var srv = syscall(88, sym_src, dst);
                     if (srv < 0) {
                         cr2 = _dep_copy_file(src, dst);
                     } else {
@@ -1171,8 +1212,9 @@ fn cmd_deps() {
                                 var alias_dst = str_data(str_builder_build(alias_sb));
                                 # Symlink to the cache source, not copy — audit
                                 # walkers skip symlinks (treated as dep-owned).
+                                # Absolute target (see note at primary symlink above).
                                 sys_unlink(alias_dst);
-                                syscall(88, src, alias_dst);
+                                syscall(88, _abs_path(src), alias_dst);
                             }
                         }
                     } elif (cr2 == 1) { errors = errors + 1; }

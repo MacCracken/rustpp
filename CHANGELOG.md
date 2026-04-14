@@ -4,6 +4,29 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.1] — 2026-04-13
+
+### Fixed
+- **`&&` / `||` now short-circuit** (`src/frontend/parse.cyr`). The prior
+  impl in `PCMPE` evaluated both operands unconditionally via bitwise
+  AND/OR — a silent miscompile of documented short-circuit semantics.
+  Guarded null checks like `if (p != 0 && vec_len(p) > 0)` now skip the
+  right side correctly when the left short-circuits. Implementation: each
+  chain step emits `cmp rax, 0; je/jne skip_right; eval right; cmp 0;
+  setne al; movzx; jmp end; skip_right: mov rax, 0-or-1; end:`. The
+  previously-unreachable `ECOND_AND` / `ECOND_OR` paths remain (now
+  trivially unreachable in a more obvious way). Surfaced by bote feedback
+  item 2.
+- **`cyrius deps` now creates absolute symlinks** (`programs/cyrius.cyr`).
+  A relative `path = "../sigil"` in cyrius.toml used to produce a symlink
+  `lib/sigil.cyr -> ../sigil/dist/sigil.cyr` that resolved against `lib/`'s
+  parent, not the project root — so the target pointed at
+  `{proj}/sigil/dist/sigil.cyr` (wrong) instead of the sibling repo.
+  Silent failure: build passed, but calling into the dep gave
+  `warning: undefined function 'hmac_sha256'`. New `_abs_path()` helper
+  uses `getcwd(2)` to make every symlink target absolute before
+  `symlink(2)`. Surfaced during kavach porting.
+
 ## [4.4.0] — 2026-04-13
 
 ### Added
