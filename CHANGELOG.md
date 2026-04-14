@@ -4,6 +4,37 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.4] — 2026-04-13
+
+### Added
+- **Third DCE safety-gate rule: epilogue-terminator check**
+  (`src/backend/x86/fixup.cyr`). Every Cyrius function ends with
+  `C9 C3` (`leave; ret`) — EFNEPI emits this unconditionally. The new
+  check accepts a fn for NOP-fill when its last two bytes at
+  `fn_end - 2` are `C9 C3`. Combined with the byte-scan reachability
+  already confirming no caller reaches the fn, the body is provably
+  inert. This covers the ~half of eligible-but-skipped fns that lacked
+  the pre-body safety patterns (RET-before or JMP-over preamble) —
+  mostly pass-1-emitted fns and enum constructors.
+
+### Results
+- **libro DCE actioned bytes: 94,292 → 187,499 (+99%)**. All 204 tests
+  still pass.
+- **libro gzip: 54,627 → 39,220 bytes (-28%)**. Cumulative vs 4.3.x
+  baseline: 66,525 → 39,220 (-41%).
+- cc3 self-host: byte-identical.
+- 5/5 check.sh PASS.
+
+### Why this is the right fix (not a full length decoder)
+- Researched (vidya `instruction_encoding`) the ldisasm-style minimal
+  length decoder as Plan A. Implementation would be ~150 Cyrius lines.
+- Empirical observation on cc3's own emitted binary: every fn body
+  ends with `C9 C3` exactly. No exceptions across 315 fns.
+- A 4-line pattern match on the terminator captures the same signal
+  with zero decoder complexity. Full ldisasm stays in the back
+  pocket for when we need per-instruction boundaries (register alloc,
+  PatraStore Heisenbug diagnosis in 4.5.x).
+
 ## [4.4.3] — 2026-04-13
 
 ### Added

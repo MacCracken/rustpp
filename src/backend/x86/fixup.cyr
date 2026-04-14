@@ -354,18 +354,22 @@ fn FIXUP(S) {
             if (is_live == 0) {
                 dead_count = dead_count + 1;
                 var dfend = GFNE(S, dwi);
-                # Safety gate for NOP-fill: prove no fallthrough reaches
-                # the body. Accept EITHER of two patterns immediately
-                # before fn_start:
-                #   (a) 0xC3 (RET) at fn_start - 1 — previous fn's epilogue
-                #       terminator; fallthrough impossible.
-                #   (b) 0xE9 rel32 at fn_start - 5 whose target >= fn_end —
-                #       explicit JMP-over (global entry JMP or per-fn
-                #       JMP-over from PARSE_PROG).
-                # Either proves execution cannot enter the body via linear
-                # fallthrough — combined with "nothing calls it" (the
-                # byte-scan reachability already confirmed), the body is
-                # provably dead.
+                # Safety gate for NOP-fill: prove NO execution reaches any
+                # byte of the body. Three independent checks, ANY of which
+                # is sufficient (v4.4.4 — adds the third, epilogue-ends
+                # check, which is the strong-form signature for
+                # PARSE_FN_DEF-emitted bodies):
+                #
+                #   (a) fn_start - 1 is 0xC3 (previous fn's RET terminator):
+                #       no fallthrough into this fn.
+                #   (b) fn_start - 5 is E9 rel32 whose target >= fn_end:
+                #       an explicit JMP-over skips the body.
+                #   (c) fn_end - 2 is 0xC9 0xC3 (`leave; ret`):
+                #       the body terminates cleanly. Combined with the
+                #       byte-scan reachability already confirming nothing
+                #       CALLs this fn, no byte of the body can execute.
+                #       EFNEPI always emits C9 C3, so (c) catches every
+                #       normally-emitted fn even when (a) and (b) miss.
                 if (dfend > dfoff && dfoff >= 1) {
                     var safe = 0;
                     if (load8(S + 0x54A000 + dfoff - 1) == 0xC3) { safe = 1; }
@@ -374,6 +378,12 @@ fn FIXUP(S) {
                             var rel32 = load32(S + 0x54A000 + dfoff - 4);
                             if (rel32 >= 0x80000000) { rel32 = rel32 - 0x100000000; }
                             if (dfoff + rel32 >= dfend) { safe = 1; }
+                        }
+                    }
+                    # (c) Epilogue C9 C3 at fn_end - 2
+                    if (safe == 0 && dfend >= 2) {
+                        if (load8(S + 0x54A000 + dfend - 2) == 0xC9) {
+                            if (load8(S + 0x54A000 + dfend - 1) == 0xC3) { safe = 1; }
                         }
                     }
                     if (safe == 1) {
