@@ -4,6 +4,35 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha5] — 2026-04-14 (unreleased)
+
+### Added
+- **`u128_mul`** in `lib/u128.cyr` — schoolbook multiply that wraps at
+  `2^128`. Derivation:
+  `a·b mod 2^128 = a_lo·b_lo + (a_hi·b_lo + a_lo·b_hi)·2^64`
+  (the `a_hi·b_hi·2^128` term wraps away). The full 128-bit product
+  `a_lo·b_lo` is assembled from four 32×32 partial products with
+  per-chunk carry propagation; cross terms `a_hi·b_lo + a_lo·b_hi`
+  contribute only to the high limb and use natural i64 wrap for the
+  mod-2^64 part.
+- **`u128_muleq`** — in-place `dst *= src`.
+
+### Validation
+- `tests/tcyr/u128.tcyr` now at **43 assertions**:
+  - `0 * x = 0`, `1 * x = x`, `2 * 2 = 4`
+  - `2^32 * 2^32 = (0, 1)` — pure chunk-carry path
+  - `max_u64 * max_u64 = (1, max_u64 - 1)` — full 128-bit product
+  - `2^64 * 2^64 = 0` — high-limb-only product wraps
+  - `(1, 1) * (2, 3) = (2, 5)` — mixed cross terms
+  - `u128_muleq(&sq, &seven)` with `sq = 7` → `49`
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+
+### Next (alpha6)
+- Shifts / bitwise: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`,
+  `u128_xor`, `u128_not`. Straightforward once add/mul are stable.
+- `u128_divmod` is the last big piece — scope it in alpha7 if needed.
+
 ## [4.8.0-alpha4] — 2026-04-14 (unreleased)
 
 ### Added

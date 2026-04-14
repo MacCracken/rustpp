@@ -105,3 +105,55 @@ fn u128_sub(dst, a, b) {
 # In-place variants — `dst += src` and `dst -= src`.
 fn u128_addeq(dst, src) { return u128_add(dst, dst, src); }
 fn u128_subeq(dst, src) { return u128_sub(dst, dst, src); }
+
+# dst = a * b  (u128 wraps at 2^128)
+#
+# Standard schoolbook: a = a_lo + a_hi*2^64, b likewise.
+# a * b (mod 2^128) = a_lo*b_lo  +  (a_hi*b_lo + a_lo*b_hi)*2^64
+# (the a_hi*b_hi*2^128 term wraps to 0).
+# Cross terms contribute to the HIGH limb only — we take their low 64
+# bits via natural i64 wrap.
+# For the full 128-bit product of a_lo*b_lo we split each 64-bit limb
+# into two 32-bit halves and accumulate per 32-bit chunk with carry.
+fn u128_mul(dst, a, b) {
+    var a_lo = load64(a);
+    var a_hi = load64(a + 8);
+    var b_lo = load64(b);
+    var b_hi = load64(b + 8);
+
+    var a_ll = a_lo & 0xFFFFFFFF;
+    var a_lh = (a_lo >> 32) & 0xFFFFFFFF;
+    var b_ll = b_lo & 0xFFFFFFFF;
+    var b_lh = (b_lo >> 32) & 0xFFFFFFFF;
+
+    # Four 32x32 partial products (each fits in 64 bits; masking with
+    # 0xFFFFFFFF after `>> 32` discards any sign-extension bits).
+    var p0 = a_ll * b_ll;
+    var p1 = a_ll * b_lh;
+    var p2 = a_lh * b_ll;
+    var p3 = a_lh * b_lh;
+
+    var chunk0 = p0 & 0xFFFFFFFF;
+    var sum1 = ((p0 >> 32) & 0xFFFFFFFF) + (p1 & 0xFFFFFFFF) + (p2 & 0xFFFFFFFF);
+    var chunk1 = sum1 & 0xFFFFFFFF;
+    var carry1 = (sum1 >> 32) & 0xFFFFFFFF;
+
+    var sum2 = ((p1 >> 32) & 0xFFFFFFFF) + ((p2 >> 32) & 0xFFFFFFFF) + (p3 & 0xFFFFFFFF) + carry1;
+    var chunk2 = sum2 & 0xFFFFFFFF;
+    var carry2 = (sum2 >> 32) & 0xFFFFFFFF;
+
+    var chunk3 = (((p3 >> 32) & 0xFFFFFFFF) + carry2) & 0xFFFFFFFF;
+
+    var new_lo = chunk0 | (chunk1 << 32);
+    var lolo_hi = chunk2 | (chunk3 << 32);
+
+    # Cross terms (low 64 bits of each — natural wrap).
+    var mid = a_hi * b_lo + a_lo * b_hi;
+    var new_hi = lolo_hi + mid;
+
+    store64(dst, new_lo);
+    store64(dst + 8, new_hi);
+    return 0;
+}
+
+fn u128_muleq(dst, src) { return u128_mul(dst, dst, src); }

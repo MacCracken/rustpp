@@ -127,4 +127,56 @@ u128_subeq(&acc, &one);
 u128_subeq(&acc, &one);
 assert_eq(u128_lo(&acc), 9, "11 -= 1 -= 1 = 9");
 
+test_group("u128_mul (alpha5)");
+var m_a: u128 = 0;
+var m_b: u128 = 0;
+var m_r: u128 = 0;
+# 0 * anything = 0
+u128_set(&m_a, 0xDEAD_BEEF_CAFE_BABE, 0x1234_5678_9ABC_DEF0);
+u128_set(&m_b, 0, 0);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_is_zero(&m_r), 1, "x * 0 = 0");
+# 1 * x = x
+u128_set(&m_b, 1, 0);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_eq(&m_r, &m_a), 1, "1 * x = x");
+# 2 * 2 = 4
+u128_set(&m_a, 2, 0);
+u128_set(&m_b, 2, 0);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_lo(&m_r), 4, "2 * 2 lo = 4");
+assert_eq(u128_hi(&m_r), 0, "2 * 2 hi = 0");
+# 2^32 * 2^32 = 2^64 (crosses limb boundary, pure chunk carry)
+u128_set(&m_a, 0x1_0000_0000, 0);
+u128_set(&m_b, 0x1_0000_0000, 0);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_lo(&m_r), 0, "2^32 * 2^32 lo = 0");
+assert_eq(u128_hi(&m_r), 1, "2^32 * 2^32 hi = 1");
+# max_u64 * max_u64 = 2^128 - 2^65 + 1 = (1, max_u64 - 1)
+u128_set(&m_a, 0xFFFF_FFFF_FFFF_FFFF, 0);
+u128_set(&m_b, 0xFFFF_FFFF_FFFF_FFFF, 0);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_lo(&m_r), 1, "max_u64^2 lo = 1");
+assert_eq(u128_hi(&m_r), 0xFFFF_FFFF_FFFF_FFFE, "max_u64^2 hi = max_u64 - 1");
+# (0, 1) * (0, 1) = (0, 0) — 2^64 * 2^64 = 2^128 wraps
+u128_set(&m_a, 0, 1);
+u128_set(&m_b, 0, 1);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_is_zero(&m_r), 1, "2^64 * 2^64 wraps to 0");
+# Cross terms: (1, 1) * (2, 3) = (2, 5)
+# = (1 + 2^64) * (2 + 3*2^64) = 2 + 3*2^64 + 2*2^64 + 3*2^128
+# mod 2^128 = 2 + 5*2^64
+u128_set(&m_a, 1, 1);
+u128_set(&m_b, 2, 3);
+u128_mul(&m_r, &m_a, &m_b);
+assert_eq(u128_lo(&m_r), 2, "(1,1)*(2,3) lo = 2");
+assert_eq(u128_hi(&m_r), 5, "(1,1)*(2,3) hi = 5");
+# u128_muleq in-place
+var sq: u128 = 0;
+u128_set(&sq, 7, 0);
+var seven: u128 = 0;
+u128_set(&seven, 7, 0);
+u128_muleq(&sq, &seven);
+assert_eq(u128_lo(&sq), 49, "7 *= 7 = 49");
+
 assert_summary();
