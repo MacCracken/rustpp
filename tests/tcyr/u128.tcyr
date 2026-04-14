@@ -179,4 +179,99 @@ u128_set(&seven, 7, 0);
 u128_muleq(&sq, &seven);
 assert_eq(u128_lo(&sq), 49, "7 *= 7 = 49");
 
+test_group("u128_shl (alpha6)");
+var s_a: u128 = 0;
+var s_r: u128 = 0;
+# shl 0 is identity
+u128_set(&s_a, 0xDEAD_BEEF_CAFE_BABE, 0x1234_5678_9ABC_DEF0);
+u128_shl(&s_r, &s_a, 0);
+assert_eq(u128_eq(&s_r, &s_a), 1, "shl 0 identity");
+# shl 1
+u128_set(&s_a, 1, 0);
+u128_shl(&s_r, &s_a, 1);
+assert_eq(u128_lo(&s_r), 2, "1 << 1 = 2");
+# shl 63: 1 << 63 = bit 63 of lo
+u128_shl(&s_r, &s_a, 63);
+assert_eq(u128_lo(&s_r), 0x8000_0000_0000_0000, "1 << 63 lo");
+assert_eq(u128_hi(&s_r), 0, "1 << 63 hi = 0");
+# shl 64: 1 << 64 crosses limb
+u128_shl(&s_r, &s_a, 64);
+assert_eq(u128_lo(&s_r), 0, "1 << 64 lo = 0");
+assert_eq(u128_hi(&s_r), 1, "1 << 64 hi = 1");
+# shl 127: 1 << 127 = top bit of hi
+u128_shl(&s_r, &s_a, 127);
+assert_eq(u128_lo(&s_r), 0, "1 << 127 lo = 0");
+assert_eq(u128_hi(&s_r), 0x8000_0000_0000_0000, "1 << 127 hi");
+# shl 128: wraps to 0
+u128_shl(&s_r, &s_a, 128);
+assert_eq(u128_is_zero(&s_r), 1, "1 << 128 = 0");
+# shl that spills between limbs
+u128_set(&s_a, 0x8000_0000_0000_0001, 0);
+u128_shl(&s_r, &s_a, 1);
+assert_eq(u128_lo(&s_r), 2, "spill lo = 2");
+assert_eq(u128_hi(&s_r), 1, "spill hi = 1");
+
+test_group("u128_shr");
+# shr 0 identity
+u128_set(&s_a, 0xDEAD_BEEF_CAFE_BABE, 0x1234_5678_9ABC_DEF0);
+u128_shr(&s_r, &s_a, 0);
+assert_eq(u128_eq(&s_r, &s_a), 1, "shr 0 identity");
+# shr 1 of max_u128 = (max_u64, 0x7FFF...)
+u128_set(&s_a, 0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
+u128_shr(&s_r, &s_a, 1);
+assert_eq(u128_lo(&s_r), 0xFFFF_FFFF_FFFF_FFFF, "max_u128 >> 1 lo");
+assert_eq(u128_hi(&s_r), 0x7FFF_FFFF_FFFF_FFFF, "max_u128 >> 1 hi (logical)");
+# Logical shift of negative-looking value must fill with 0, not 1
+u128_set(&s_a, 0, 0x8000_0000_0000_0000);
+u128_shr(&s_r, &s_a, 1);
+assert_eq(u128_hi(&s_r), 0x4000_0000_0000_0000, "high bit >> 1 logical");
+# shr 64 brings hi into lo
+u128_set(&s_a, 0, 0xCAFE_BABE_DEAD_BEEF);
+u128_shr(&s_r, &s_a, 64);
+assert_eq(u128_lo(&s_r), 0xCAFE_BABE_DEAD_BEEF, "hi -> lo via shr 64");
+assert_eq(u128_hi(&s_r), 0, "shr 64 hi = 0");
+# shr 127 of top-bit-only gives 1
+u128_set(&s_a, 0, 0x8000_0000_0000_0000);
+u128_shr(&s_r, &s_a, 127);
+assert_eq(u128_lo(&s_r), 1, "top bit >> 127 = 1");
+# shr 128 = 0
+u128_shr(&s_r, &s_a, 128);
+assert_eq(u128_is_zero(&s_r), 1, "shr 128 = 0");
+# shl then shr roundtrip
+u128_set(&s_a, 0xABCD, 0);
+var tmp2: u128 = 0;
+u128_shl(&tmp2, &s_a, 70);
+u128_shr(&s_r, &tmp2, 70);
+assert_eq(u128_eq(&s_r, &s_a), 1, "shl 70 then shr 70 roundtrip");
+
+test_group("u128 bitwise");
+var bw_a: u128 = 0;
+var bw_b: u128 = 0;
+var bw_r: u128 = 0;
+u128_set(&bw_a, 0xFF00_FF00_FF00_FF00, 0xAAAA_AAAA_AAAA_AAAA);
+u128_set(&bw_b, 0x0F0F_0F0F_0F0F_0F0F, 0x5555_5555_5555_5555);
+# AND
+u128_and(&bw_r, &bw_a, &bw_b);
+assert_eq(u128_lo(&bw_r), 0x0F00_0F00_0F00_0F00, "and lo");
+assert_eq(u128_hi(&bw_r), 0, "and hi = 0 (A&5=0)");
+# OR
+u128_or(&bw_r, &bw_a, &bw_b);
+assert_eq(u128_lo(&bw_r), 0xFF0F_FF0F_FF0F_FF0F, "or lo");
+assert_eq(u128_hi(&bw_r), 0xFFFF_FFFF_FFFF_FFFF, "or hi = max_u64");
+# XOR
+u128_xor(&bw_r, &bw_a, &bw_b);
+assert_eq(u128_lo(&bw_r), 0xF00F_F00F_F00F_F00F, "xor lo");
+assert_eq(u128_hi(&bw_r), 0xFFFF_FFFF_FFFF_FFFF, "xor hi");
+# NOT
+var not_in: u128 = 0;
+u128_set(&not_in, 0, 0);
+u128_not(&bw_r, &not_in);
+assert_eq(u128_lo(&bw_r), 0xFFFF_FFFF_FFFF_FFFF, "~0 lo");
+assert_eq(u128_hi(&bw_r), 0xFFFF_FFFF_FFFF_FFFF, "~0 hi");
+# NOT involutive
+u128_not(&bw_r, &bw_a);
+var bw_r2: u128 = 0;
+u128_not(&bw_r2, &bw_r);
+assert_eq(u128_eq(&bw_r2, &bw_a), 1, "~~x == x");
+
 assert_summary();

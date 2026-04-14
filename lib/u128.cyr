@@ -157,3 +157,102 @@ fn u128_mul(dst, a, b) {
 }
 
 fn u128_muleq(dst, src) { return u128_mul(dst, dst, src); }
+
+# -------- Shifts & bitwise (v4.8.0-alpha6) --------
+#
+# Cyrius `>>` sign-extends (arithmetic). For unsigned semantics we
+# strip the sign bit after a 1-bit shift, then finish the rest:
+#   (x >> 1) & 0x7FFFFFFFFFFFFFFF   →   bit 63 now 0
+#   >> (n-1)                         →   safe to arithmetic-shift
+# Defined for 0 <= n < 64. Caller handles n == 0 (return x unchanged)
+# and n >= 64 (whole-limb shift paths).
+fn _u128_lshr64(x, n) {
+    if (n == 0) { return x; }
+    return ((x >> 1) & 0x7FFFFFFFFFFFFFFF) >> (n - 1);
+}
+
+# dst = src << n  (u128 wraps at 2^128; n >= 128 yields 0)
+fn u128_shl(dst, src, n) {
+    var lo = load64(src);
+    var hi = load64(src + 8);
+    if (n == 0) {
+        store64(dst, lo);
+        store64(dst + 8, hi);
+        return 0;
+    }
+    if (n >= 128) {
+        store64(dst, 0);
+        store64(dst + 8, 0);
+        return 0;
+    }
+    if (n >= 64) {
+        store64(dst, 0);
+        store64(dst + 8, lo << (n - 64));
+        return 0;
+    }
+    # 0 < n < 64: spill top n bits of lo into bottom n bits of hi.
+    var new_lo = lo << n;
+    var spill = _u128_lshr64(lo, 64 - n);
+    var new_hi = (hi << n) | spill;
+    store64(dst, new_lo);
+    store64(dst + 8, new_hi);
+    return 0;
+}
+
+# dst = src >> n  (logical right — always fills with 0)
+fn u128_shr(dst, src, n) {
+    var lo = load64(src);
+    var hi = load64(src + 8);
+    if (n == 0) {
+        store64(dst, lo);
+        store64(dst + 8, hi);
+        return 0;
+    }
+    if (n >= 128) {
+        store64(dst, 0);
+        store64(dst + 8, 0);
+        return 0;
+    }
+    if (n >= 64) {
+        store64(dst, _u128_lshr64(hi, n - 64));
+        store64(dst + 8, 0);
+        return 0;
+    }
+    # 0 < n < 64: bottom n bits of hi spill into top n bits of lo.
+    var new_lo = _u128_lshr64(lo, n) | (hi << (64 - n));
+    var new_hi = _u128_lshr64(hi, n);
+    store64(dst, new_lo);
+    store64(dst + 8, new_hi);
+    return 0;
+}
+
+fn u128_and(dst, a, b) {
+    store64(dst, load64(a) & load64(b));
+    store64(dst + 8, load64(a + 8) & load64(b + 8));
+    return 0;
+}
+
+fn u128_or(dst, a, b) {
+    store64(dst, load64(a) | load64(b));
+    store64(dst + 8, load64(a + 8) | load64(b + 8));
+    return 0;
+}
+
+fn u128_xor(dst, a, b) {
+    store64(dst, load64(a) ^ load64(b));
+    store64(dst + 8, load64(a + 8) ^ load64(b + 8));
+    return 0;
+}
+
+fn u128_not(dst, src) {
+    store64(dst, ~load64(src));
+    store64(dst + 8, ~load64(src + 8));
+    return 0;
+}
+
+# In-place convenience.
+fn u128_shleq(dst, n) { return u128_shl(dst, dst, n); }
+fn u128_shreq(dst, n) { return u128_shr(dst, dst, n); }
+fn u128_andeq(dst, src) { return u128_and(dst, dst, src); }
+fn u128_oreq(dst, src)  { return u128_or(dst, dst, src); }
+fn u128_xoreq(dst, src) { return u128_xor(dst, dst, src); }

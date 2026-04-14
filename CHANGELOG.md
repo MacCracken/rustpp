@@ -4,6 +4,50 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha6] — 2026-04-14 (unreleased)
+
+### Added
+- **`u128_shl` / `u128_shr`** — bit-level shift by 0..127 (counts ≥
+  128 yield 0). Three regimes per direction: `n == 0` (copy),
+  `n >= 64` (whole-limb shift + zero the vacated limb), `0 < n < 64`
+  (spill between limbs with a companion shift on the other limb).
+- **`_u128_lshr64(x, n)`** — logical right shift helper. Cyrius `>>`
+  sign-extends, so doing `(x >> 1) & 0x7FFFFFFFFFFFFFFF` once clears
+  bit 63, then `>> (n-1)` finishes the job without re-introducing
+  sign-extended bits. Private to the library (underscore prefix).
+- **`u128_and` / `u128_or` / `u128_xor` / `u128_not`** — per-limb
+  bitwise ops.
+- **In-place**: `u128_shleq`, `u128_shreq`, `u128_andeq`, `u128_oreq`,
+  `u128_xoreq`.
+
+### Validation
+- `tests/tcyr/u128.tcyr` now **72 assertions**. New coverage:
+  - `shl 0` identity, `1 << 63` within lo, `1 << 64` crosses limbs,
+    `1 << 127` top bit of hi, `1 << 128 = 0`, inter-limb spill
+    (`0x8000…0001 << 1 = (2, 1)`).
+  - `shr 0` identity, `max_u128 >> 1` leaves hi as `0x7FFF…` (logical,
+    not sign-extended), `0x8000…0000 hi >> 1 = 0x4000…0000`, `shr 64`
+    pulls hi into lo, `shr 127` of top bit = 1, `shr 128 = 0`, and
+    `shl 70; shr 70` round-trip.
+  - AND / OR / XOR with alternating patterns, `~0 = max_u128`,
+    `~~x == x`.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+
+### u128 stdlib surface after alpha6
+Construction: `u128_set`, `u128_from_u64`, `u128_copy`.
+Inspection: `u128_lo`, `u128_hi`, `u128_eq`, `u128_is_zero`.
+Arithmetic: `u128_add`, `u128_sub`, `u128_mul` + `*eq` variants.
+Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
+`u128_not` + `*eq` variants.
+
+### Next (alpha7 / final u128 patch)
+- `u128_divmod` — the only remaining arithmetic gap. Either shift-
+  subtract (128 iterations, clean but slow) or Knuth D (faster but
+  thornier). Shift-subtract is the right first cut — it's about 30
+  LOC and makes the stdlib feature-complete for the "u128 as
+  primitive" use case.
+
 ## [4.8.0-alpha5] — 2026-04-14 (unreleased)
 
 ### Added
