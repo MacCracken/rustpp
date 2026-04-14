@@ -122,6 +122,7 @@ Project:
 Quality:
   serve [src] [out]               dev server — watch, recompile, restart on .cyr change
   audit                           full check: self-host, test, fmt, lint, vet, deny, bench
+  capacity [--check] [file.cyr]   compile-time table utilization; --check exits 1 if any cap >= 85%
   fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
   soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
   fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc3)
@@ -706,6 +707,61 @@ MANIFEST
             exit 1
         fi
         "$cyrc" deny "$@"
+        ;;
+
+    # === Capacity meter (compile-time table utilization) ===
+    capacity)
+        shift
+        # Usage: cyrius capacity [--check] [file.cyr]
+        # Default: compiles under CYRIUS_STATS=1, prints fn / ident /
+        # var / fixup / string / code utilization to stderr. Useful for
+        # sizing refactors against cyrius's compile-time caps.
+        # --check: compiles WITHOUT stats env so the in-compiler 85%
+        # warnings fire; exits 1 if any warning was emitted. Suitable
+        # as a CI gate ("fail the build if we're close to a wall").
+        CHECK_MODE=0
+        if [ "${1:-}" = "--check" ]; then
+            CHECK_MODE=1
+            shift
+        fi
+        SRC="${1:-}"
+        if [ -z "$SRC" ]; then
+            if [ -f "cyrius.toml" ]; then
+                SRC=$(toml_get "cyrius.toml" "src" "build")
+            fi
+            if [ -z "$SRC" ]; then
+                if [ -f "src/lib.cyr" ]; then SRC="src/lib.cyr";
+                elif [ -f "src/main.cyr" ]; then SRC="src/main.cyr";
+                fi
+            fi
+        fi
+        if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
+            echo "usage: cyrius capacity [--check] [file.cyr]" >&2
+            echo "  no file given and no entry point auto-detected" >&2
+            exit 1
+        fi
+        if [ "$CHECK_MODE" = "1" ]; then
+            # Capture stderr; the compiler's own 85% warnings carry
+            # `at NN%` so we can detect them without parsing every
+            # warning category.
+            TMPERR=$(mktemp)
+            cat "$SRC" | "$CC" > /dev/null 2>"$TMPERR"
+            rc=$?
+            cat "$TMPERR" >&2
+            # `grep -c` exits 1 when no matches; with `set -e` at top
+            # of the script that would kill us. Force success path.
+            HITS=$(grep -c "^warning:.* at .*%" "$TMPERR" 2>/dev/null || true)
+            HITS=${HITS:-0}
+            rm -f "$TMPERR"
+            if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+            if [ "$HITS" -gt 0 ] 2>/dev/null; then
+                echo "cyrius capacity --check: $HITS table(s) at >=85% — failing" >&2
+                exit 1
+            fi
+            echo "cyrius capacity --check: ok (all caps under 85%)"
+        else
+            cat "$SRC" | CYRIUS_STATS=1 "$CC" > /dev/null
+        fi
         ;;
 
     # === Audit (full project check) ===

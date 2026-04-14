@@ -234,9 +234,11 @@ fn FIXUP(S) {
         if (load8(dce_env) == 49 && load8(dce_env + 1) == 0) { dce_enabled = 1; }
     }
     # live[i] = 1 iff fn i is reachable from entry.
-    var live[256];
+    # 512 bytes × 8 bits = 4096 fn cap (matches REGFN ceiling raised
+    # in 4.7.1; was 256 / 2048 — segfaulted on units > 2048 fns).
+    var live[512];
     var ci = 0;
-    while (ci < 256) { store8(&live + ci, 0); ci = ci + 1; }
+    while (ci < 512) { store8(&live + ci, 0); ci = ci + 1; }
     # Call-graph construction is BYTE-SCAN-based, not fixup-based, because
     # Cyrius emits top-level/late calls via ECALLTO (direct rel32, no fixup)
     # once the target's offset is known. Only forward-reference calls go
@@ -272,7 +274,7 @@ fn FIXUP(S) {
         var t3r = L64(t3a + 8);
         if ((t3r >> 56) == 3) {
             var t3idx = t3r & 0x00FFFFFFFFFFFFFF;
-            if (t3idx < 2048) {
+            if (t3idx < 4096) {
                 store8(&live + (t3idx >> 3), load8(&live + (t3idx >> 3)) | (1 << (t3idx & 7)));
             }
         }
@@ -904,9 +906,17 @@ fn EMITELF_OBJ(S) {
     var op = 0;
 
     # --- Allocate scratch via brk extension ---
-    # Compiler has no alloc() — extend brk for temp buffers
+    # Compiler has no alloc() — extend brk for temp buffers.
+    # Layout (matches the +OFFSETS used below; sized for the v4.7.1
+    # 4096 fn cap, was 2048 — pre-4.8.3 the four regions overlapped
+    # for any unit > ~2000 fns and EMITELF_OBJ segfaulted):
+    #   +0x00000  strtab        (256 KB — fn names + section names)
+    #   +0x40000  fn_strtab_off (32 KB — 4096 × 8 byte offsets)
+    #   +0x48000  symtab        (100 KB — (4096+5) × 24 byte syms)
+    #   +0x60000  rela          (~400 KB — up to 16384 × 24 byte relocs)
+    #   total: ~1 MB
     var scratch = syscall(SYS_BRK, 0);
-    syscall(SYS_BRK, scratch + 65536);  # 64KB scratch for strtab + symtab + rela
+    syscall(SYS_BRK, scratch + 1048576);  # 1 MB scratch
 
     # --- Build string table (.strtab) ---
     var strtab = scratch;
@@ -939,7 +949,7 @@ fn EMITELF_OBJ(S) {
     store8(strtab + sp, 0); sp = sp + 1;
 
     # Function name offsets into strtab
-    var fn_strtab_off = scratch + 8192;  # after strtab
+    var fn_strtab_off = scratch + 0x40000;  # 256 KB after strtab
     var fi = 0;
     while (fi < fnc) {
         S64(fn_strtab_off + fi * 8, sp);
@@ -962,7 +972,7 @@ fn EMITELF_OBJ(S) {
     # Layout: null + 3 sections + functions + _cyrius_init
     var nsyms = 4 + fnc + 1;  # null + 3 sections + functions + _cyrius_init
     var symtab_size = nsyms * 24;
-    var symtab = scratch + 16384;  # after fn_strtab_off
+    var symtab = scratch + 0x48000;  # 32 KB after fn_strtab_off
     # Zero symtab
     var zi = 0; while (zi < symtab_size) { store8(symtab + zi, 0); zi = zi + 1; }
 
@@ -1032,7 +1042,7 @@ fn EMITELF_OBJ(S) {
     # Only emit relocations for UNRESOLVED fixups (external symbols).
     # For .o files, all function calls become relocations since the linker resolves them.
     # Entry: 24 bytes each (Elf64_Rela: r_offset, r_info, r_addend)
-    var rela = scratch + 40960;  # after symtab
+    var rela = scratch + 0x60000;  # 96 KB after symtab
     var rela_cnt = 0;
 
     fi = 0;

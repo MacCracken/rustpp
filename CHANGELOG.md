@@ -4,6 +4,89 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.3-alpha4] — 2026-04-14 (unreleased)
+
+### Added
+- **`cyrius capacity --check`** mode (`scripts/cyrius`). Compiles
+  the source under default warnings (no `CYRIUS_STATS` suppression),
+  captures stderr, exits **1** if any 85% capacity warning fired,
+  exits **0** otherwise. Suitable as a CI gate to block PRs that
+  push a unit close to a compile-time wall.
+
+### Fixed (real bugs surfaced building the gate)
+- **`live[256]` DCE bitmap overflow at fnc > 2048**
+  (`src/backend/x86/fixup.cyr`). The fn-table cap raise in 4.7.1
+  (2048 → 4096) didn't grow the matching bitmap; units > 2048 fns
+  scribbled past the array and segfaulted in the propagate pass.
+  Bitmap raised to `[512]` (4096 bits).
+- **`EMITELF_OBJ` scratch-zone overlaps at fnc > 2048**
+  (`src/backend/x86/fixup.cyr`). The four sub-tables (strtab,
+  fn_strtab_off, symtab, rela) sat at fixed offsets `+0/8K/16K/40K`
+  inside a 64 KB brk extension — sized for the old 2048 cap and
+  overlapping for any unit > ~2000 fns. Re-laid out to
+  `+0/0x40000/0x48000/0x60000` inside a 1 MB brk extension. Now
+  cleanly emits `.o` files for the full 4096 fn cap.
+
+### Notes
+- These were latent capacity-cap bugs sitting in the codebase since
+  the 4.7.1 raise — the gate work surfaced them. Both reproduce
+  cleanly with `python3 -c 'print("object;"); [print(f"fn f{i}() {{ return {i}; }}") for i in range(2050)]' | cc3`.
+- 3500-fn `object;` mode now emits a 200 KB `.o` cleanly (was
+  segfault).
+
+### Validation
+- `cyrius capacity --check src/main.cyr` → ok, exit 0.
+- `cyrius capacity --check /tmp/big.cyr` (3500 fns) → 85% warning
+  printed, "1 table(s) at >=85% — failing", exit 1.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
+### 4.8.3 closes
+- alpha1 — `CYRIUS_STATS=1` opt-in meter.
+- alpha2 — default 85% warnings.
+- alpha3 — `cyrius capacity` subcommand.
+- alpha4 — `--check` CI gate + latent fnc > 2048 fixes.
+
+## [4.8.3-alpha3] — 2026-04-14 (unreleased)
+
+### Added
+- **`cyrius capacity [file.cyr]`** subcommand (`scripts/cyrius`).
+  Wraps the `CYRIUS_STATS=1` env-flag path for scripted use:
+  ```
+  $ cyrius capacity src/main.cyr
+  cyrius stats:
+    fn_table:    322 / 4096
+    identifiers: 7891 / 131072
+    var_table:   97 / 8192
+    fixup_table: 1567 / 16384
+    string_data: 5265 / 262144
+    code_size:   337864 / 1048576
+  ```
+  - With no arg, auto-detects entry point from
+    `cyrius.toml [src] build`, then `src/lib.cyr`, then
+    `src/main.cyr`. Errors with usage if none found.
+  - Exits with cc3's exit code so CI can treat capacity-snapshot
+    failures as build failures.
+  - Help line added to `cyrius help`.
+
+### Validation
+- `cyrius capacity src/main.cyr` → full stats.
+- `cyrius capacity` (in repo root) → auto-detects + prints.
+- `cyrius capacity` (no entry point) → usage + exit 1.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
+### 4.8.3 closes
+- alpha1: `CYRIUS_STATS=1` opt-in meter.
+- alpha2: default 85% warnings.
+- alpha3: `cyrius capacity` subcommand.
+
+Together: bote (and any consumer) gets visibility into all six
+compile-time caps via three orthogonal channels — silent default
+unless near a wall, opt-in detail, scriptable subcommand. The
+"silent capacity ceiling" pattern that triggered claims-propagation
+to revert twice is now caught at build time.
+
 ## [4.8.3-alpha2] — 2026-04-14 (unreleased)
 
 ### Added
