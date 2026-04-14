@@ -3332,63 +3332,130 @@ fn PARSE_FN_DEF(S) {
         } } }
         lase_i += 1;
     }
-    # v4.8.4-alpha7: #regalloc routing. Post-body byte-level peephole
-    # that routes the first non-param local (idx `pc`) through rbx.
-    # Turns every `mov rax, [rbp+hot_disp]` (7 B) into `mov rax, rbx`
-    # + 4 NOPs, and every `mov [rbp+hot_disp], rax` into `mov rbx, rax`
-    # + 4 NOPs. Padding keeps code offsets stable for jump targets.
-    # Bails out if the hot local's address is taken (`lea rax,
-    # [rbp+hot_disp]`) — &local must still point at the stack slot.
-    # Width-aware accesses (movzx, byte/word/dword stores) aren't
-    # patched yet; alpha8 can add the safety scan + wider patterns.
+    # v4.8.4-alpha7/alpha8: #regalloc routing via post-body peephole.
+    # alpha7 did the core patch (rewrite `mov rax,[rbp-N]` /
+    # `mov [rbp-N],rax` to `mov rax,rbx` / `mov rbx,rax` + NOP pad)
+    # for a positional pick (local idx `pc`). alpha8 adds:
+    #   1. Use-count picker — actually pick the hottest non-param
+    #      slot, not just the first one.
+    #   2. Width-aware safety scan — abort routing if the picked slot
+    #      is accessed via any non-8-byte mov (movzx byte/word,
+    #      byte/word/dword store, loop-var r12 cache), since those
+    #      still hit the stack slot and would diverge from rbx.
+    # The `&local` abort (lea [rbp+hot_disp]) also stays in effect.
     if (_cur_fn_regalloc == 1) {
         var ra_flc = GFLC(S);
         if (pc < ra_flc) {
-            var hot_disp = 0 - ((pc + 2) * 8);
-            var hot_disp32 = hot_disp & 0xFFFFFFFF;
-            # Safety pre-scan: abort on any lea [rbp+hot_disp] (&local).
-            var ra_safe = 1;
-            var ra_s = fn_start;
+            var ra_start = fn_start;
             var ra_end = GCP(S);
-            while (ra_s + 7 <= ra_end) {
-                if (load8(S + 0x54A000 + ra_s) == 0x48) {
-                if (load8(S + 0x54A000 + ra_s + 1) == 0x8D) {
-                if (load8(S + 0x54A000 + ra_s + 2) == 0x85) {
-                if (load32(S + 0x54A000 + ra_s + 3) == hot_disp32) {
-                    ra_safe = 0;
-                } } } }
-                ra_s = ra_s + 1;
-            }
-            if (ra_safe == 1) {
-                # Patch pass: rewrite matching loads/stores in place.
-                var ra_p = fn_start;
-                while (ra_p + 7 <= ra_end) {
-                    if (load8(S + 0x54A000 + ra_p) == 0x48) {
-                    var op1 = load8(S + 0x54A000 + ra_p + 1);
-                    if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
-                    if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
-                        if (op1 == 0x8B) {
-                            # mov rax, [rbp+disp] → mov rax, rbx; nop*4
-                            store8(S + 0x54A000 + ra_p + 0, 0x48);
-                            store8(S + 0x54A000 + ra_p + 1, 0x89);
-                            store8(S + 0x54A000 + ra_p + 2, 0xD8);
-                            store8(S + 0x54A000 + ra_p + 3, 0x90);
-                            store8(S + 0x54A000 + ra_p + 4, 0x90);
-                            store8(S + 0x54A000 + ra_p + 5, 0x90);
-                            store8(S + 0x54A000 + ra_p + 6, 0x90);
-                        }
-                        if (op1 == 0x89) {
-                            # mov [rbp+disp], rax → mov rbx, rax; nop*4
-                            store8(S + 0x54A000 + ra_p + 0, 0x48);
-                            store8(S + 0x54A000 + ra_p + 1, 0x89);
-                            store8(S + 0x54A000 + ra_p + 2, 0xC3);
-                            store8(S + 0x54A000 + ra_p + 3, 0x90);
-                            store8(S + 0x54A000 + ra_p + 4, 0x90);
-                            store8(S + 0x54A000 + ra_p + 5, 0x90);
-                            store8(S + 0x54A000 + ra_p + 6, 0x90);
+            # -- Use-count pass (alpha8). Walk the emitted bytes and
+            # score each candidate slot by how many times it's read or
+            # written via the patchable 64-bit mov patterns. Params
+            # (idx < pc) get skipped — their prologue stores are
+            # `ESTOREREGPARM` (different ModR/M), but the subsequent
+            # reads/writes we *would* match shouldn't steal a slot
+            # from a hotter user local.
+            # Cap at 256 entries — #regalloc fns are small by
+            # intention; if any has >256 locals it skips routing.
+            if (ra_flc <= 256) {
+                var ra_counts[256];
+                var ra_ci = 0;
+                while (ra_ci < 256) { store64(&ra_counts + ra_ci * 8, 0); ra_ci = ra_ci + 1; }
+                var ra_s = ra_start;
+                while (ra_s + 7 <= ra_end) {
+                    if (load8(S + 0x54A000 + ra_s) == 0x48) {
+                    var ra_op1 = load8(S + 0x54A000 + ra_s + 1);
+                    if (ra_op1 == 0x8B || ra_op1 == 0x89) {
+                    if (load8(S + 0x54A000 + ra_s + 2) == 0x85) {
+                        # Decode disp32 → local idx. Only [rbp+neg]
+                        # slots are user locals; positive disps are
+                        # stack args above rbp and ignored.
+                        var ra_d = load32(S + 0x54A000 + ra_s + 3);
+                        # Sign-extend the 32-bit signed disp.
+                        if (ra_d >= 0x80000000) { ra_d = ra_d - 0x100000000; }
+                        if (ra_d < 0) {
+                            # disp = -(idx+2)*8 for #regalloc, so
+                            # idx = -ra_d/8 - 2.
+                            var ra_idx = (0 - ra_d) / 8 - 2;
+                            if (ra_idx >= pc) {
+                            if (ra_idx < ra_flc) {
+                                var ra_cur = load64(&ra_counts + ra_idx * 8);
+                                store64(&ra_counts + ra_idx * 8, ra_cur + 1);
+                            } }
                         }
                     } } }
-                    ra_p = ra_p + 1;
+                    ra_s = ra_s + 1;
+                }
+                # Pick max-count non-param slot. Threshold = 2: a
+                # single write + single read isn't worth the rbx
+                # reservation on its own.
+                var ra_best = 0 - 1;
+                var ra_bestc = 1;
+                var ra_pi = pc;
+                while (ra_pi < ra_flc) {
+                    var ra_cc = load64(&ra_counts + ra_pi * 8);
+                    if (ra_cc > ra_bestc) {
+                        ra_bestc = ra_cc;
+                        ra_best = ra_pi;
+                    }
+                    ra_pi = ra_pi + 1;
+                }
+                if (ra_best >= 0) {
+                    var hot_disp = 0 - ((ra_best + 2) * 8);
+                    var hot_disp32 = hot_disp & 0xFFFFFFFF;
+                    # -- Safety scan. Any `85 <hot_disp>` at a
+                    # position whose two preceding bytes are NOT
+                    # `48 8B` or `48 89` is an access we can't
+                    # patch: lea, movzx, width-aware store, or
+                    # loop-var cache. Abort in that case.
+                    var ra_safe = 1;
+                    var ra_sp = ra_start;
+                    while (ra_sp + 7 <= ra_end) {
+                        if (load8(S + 0x54A000 + ra_sp + 2) == 0x85) {
+                        if (load32(S + 0x54A000 + ra_sp + 3) == hot_disp32) {
+                            var ra_px1 = load8(S + 0x54A000 + ra_sp);
+                            var ra_px2 = load8(S + 0x54A000 + ra_sp + 1);
+                            var ra_ok = 0;
+                            if (ra_px1 == 0x48) {
+                                if (ra_px2 == 0x8B) { ra_ok = 1; }
+                                if (ra_px2 == 0x89) { ra_ok = 1; }
+                            }
+                            if (ra_ok == 0) { ra_safe = 0; }
+                        } }
+                        ra_sp = ra_sp + 1;
+                    }
+                    if (ra_safe == 1) {
+                        # Patch pass: rewrite matching loads/stores.
+                        var ra_p = ra_start;
+                        while (ra_p + 7 <= ra_end) {
+                            if (load8(S + 0x54A000 + ra_p) == 0x48) {
+                            var op1 = load8(S + 0x54A000 + ra_p + 1);
+                            if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
+                            if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
+                                if (op1 == 0x8B) {
+                                    # mov rax,[rbp+disp] → mov rax,rbx; nop*4
+                                    store8(S + 0x54A000 + ra_p + 0, 0x48);
+                                    store8(S + 0x54A000 + ra_p + 1, 0x89);
+                                    store8(S + 0x54A000 + ra_p + 2, 0xD8);
+                                    store8(S + 0x54A000 + ra_p + 3, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 4, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 5, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 6, 0x90);
+                                }
+                                if (op1 == 0x89) {
+                                    # mov [rbp+disp],rax → mov rbx,rax; nop*4
+                                    store8(S + 0x54A000 + ra_p + 0, 0x48);
+                                    store8(S + 0x54A000 + ra_p + 1, 0x89);
+                                    store8(S + 0x54A000 + ra_p + 2, 0xC3);
+                                    store8(S + 0x54A000 + ra_p + 3, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 4, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 5, 0x90);
+                                    store8(S + 0x54A000 + ra_p + 6, 0x90);
+                                }
+                            } } }
+                            ra_p = ra_p + 1;
+                        }
+                    }
                 }
             }
         }

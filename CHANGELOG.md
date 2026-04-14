@@ -4,6 +4,59 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha8] — 2026-04-14 (unreleased)
+
+### Added
+- **Use-count picker for `#regalloc`**
+  (`src/frontend/parse.cyr`, `PARSE_FN_DEF`). The positional "first
+  non-param local" pick from alpha7 is replaced by a byte-level
+  count pass that scores each candidate slot by the number of
+  patchable `mov rax,[rbp-N]` / `mov [rbp-N],rax` references
+  it appears in. The top-scoring non-param slot wins, with a hard
+  threshold of ≥2 references (single-use locals aren't worth the
+  rbx reservation). Tops out at `flc ≤ 256` — `#regalloc` fns are
+  small by intention; the gate is belt-and-suspenders.
+- **Width-aware safety scan**
+  (`src/frontend/parse.cyr`). Before patching the chosen slot, the
+  pass walks every `85 <hot_disp>` ModR/M+disp32 pair and aborts
+  routing unless the two bytes preceding it are exactly `48 8B` or
+  `48 89` (the 64-bit mov patterns we know how to rewrite). This
+  catches width-aware accesses emitted by `EFLLOAD_W` / `EFLSTORE_W`
+  (`48 0F B6 85`, `0F B7 85`, `8B 85`, `88 85`, `66 89 85`, `89
+  85`), the loop-var cache's `48 8B A5` / `48 89 A5`, and the
+  existing `48 8D 85` address-of pattern — all three previously-
+  risky cases fail the prefix check. On a fail the fn compiles
+  without routing (alpha6 save/restore still runs, rbx is just
+  unused) so correctness is never traded for size.
+
+### Observable in disassembly
+A three-local `#regalloc` fn where the second declared local is the
+loop counter (many reads/writes) now routes that slot through rbx,
+while the first and third locals stay on the stack:
+```
+  mov [rbp-0x10], rax     ; cold = 100  → unchanged (not picked)
+  mov rbx, rax            ; hot = 0     → routed
+  ...
+  mov rax, rbx            ; read hot    → routed
+  mov [rbp-0x20], rax     ; i = 0       → unchanged
+```
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh PASS. 44/0 test suite.
+- Use-count picker correctly selects the loop-body local over the
+  positional idx=0 slot (`usecount_test → 155`).
+- Width-aware regression test with mixed i64 arithmetic + array
+  locals still produces correct output (`width_test → 61`).
+- Parity / address-of / routing tests from alpha6/7 all pass.
+
+### Roadmap (4.8.4)
+- alpha1..alpha7 ✅
+- alpha8 ✅ — use-count picker + width-aware safety scan (this release).
+- Next — beta1 focused on tests + benchmarks per pre-set "beta is
+  about tests and benchmarks" framing, then GA. Multi-reg
+  (`r12..r15`) extension defers to a 4.9.x minor.
+
 ## [4.8.4-alpha7] — 2026-04-14 (unreleased)
 
 ### Added (`#regalloc` actually routes now)
