@@ -4,6 +4,67 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha3] — 2026-04-14 (unreleased)
+
+### Security — defence-in-depth for HTTP clients (reported by bote)
+- **CVE-2019-9741 pattern closed in `_http_parse_url`** (`lib/http.cyr`).
+  A URL containing raw CR (0x0D), LF (0x0A), TAB, or SPACE in the
+  host/port/path slot could be forged to smuggle extra HTTP
+  request-line bytes (the Python httplib class of bug). The parser
+  now validates the whole URL *before* allocating any downstream
+  pointers and returns `0` on any control-byte or whitespace
+  rejection. Also rejects empty host (`http://`, `http:///path`)
+  and port 0 / > 65535. `http_get` surfaces rejected URLs as a
+  response with status == `HTTP_ERROR`, so callers fail fast
+  without a separate validator and without ever touching the
+  network.
+- **`tests/tcyr/http_crlf.tcyr`** — 18-assertion regression net
+  covering valid URLs, CRLF injection at host / path / request-
+  line boundaries, whitespace splitters, and malformed hosts/ports.
+
+### Added — TLS client interface scaffold
+- **`lib/tls.cyr`** — new stdlib module with the stable
+  `tls_available` / `tls_connect(sock, host)` / `tls_write` /
+  `tls_read` / `tls_close` interface that downstream consumers
+  (bote, abaco currency fetch, any outbound-HTTPS tool) can target
+  today. Alpha3 ships the INTERFACE only — every call returns the
+  "not available" value (`tls_available` → 0, `tls_connect` → 0,
+  reads / writes → -1). This is a deliberate policy choice: the
+  pre-existing scaffold always left sessions in `TLS_STATE_ERROR`
+  after ClientHello (because sigil lacks X25519) which was crash
+  bait for any caller that assumed the state machine progressed.
+  The new scaffold **fails cleanly and consistently** so consumers
+  get a reliable fallback path.
+- Planned alpha4: wire the live libssl.so.3 bridge through
+  `lib/dynlib.cyr` (SNI + system-CA peer verification on by
+  default). The bridge was drafted against the final interface;
+  `dynlib_open` segfaults on `libssl.so.3` on the dev box, so
+  `lib/dynlib.cyr` itself needs a hardening pass before it can
+  carry TLS reliably. Tracking the dynlib fix separately.
+
+### Notes
+- Preprocessor fix from 4.8.4 retag merged in from `main`. cc3 on
+  this branch now incorporates the `PP_IFDEF_PASS` cap fix along
+  with the alpha1+alpha2+alpha3 deltas.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 46 test files / 317 assertions (new:
+  `http_crlf.tcyr` 18/0).
+- TLS interface contract test: `tls_available() == 0`,
+  `tls_connect(_, _) == 0`, `tls_write/read == -1`, `tls_close == 0`.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path.
+- alpha2 ✅ — `u64_mulmod` / `u64_powmod` + Miller-Rabin bench.
+- alpha3 ✅ — HTTP CRLF hardening + TLS interface scaffold (this
+  release).
+- alpha4 — live libssl bridge (pending dynlib hardening).
+- alpha5 — f64 math constants.
+- alpha6 — inverse trig.
+- alpha7 — inverse hyperbolic.
+- alpha8 — cstring case helpers.
+
 ## [4.8.5-alpha2] — 2026-04-14 (unreleased)
 
 ### Added
