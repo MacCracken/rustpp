@@ -4,6 +4,56 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased — patch release for bote]
+
+### Fixed (regression reported by bote 2.5.0 — `docs/bugs/` upstream)
+- **`PP_IFDEF_PASS` scan went blind past 256 KB on large units**
+  (`src/frontend/lex.cyr`). The 4.8.3 design copies the
+  preprocessor output back to `S+0` (capped) so helpers like
+  `ISINCLUDE` / `ISDEFINE` can read via `S+ip`. The cap formula
+  dropped to `262144` whenever `bl > 524288`, so on compile units
+  whose preprocessed source exceeded 512 KB (bote 2.5.0 with
+  `src/audit_libro.cyr` + `src/events_majra.cyr` + full libro/majra
+  deps — ~525 KB), every `include` / `#define` / `#ifdef` directive
+  past offset 262144 was invisible to the scan. The alpha3
+  fixpoint loop couldn't help because it needed the scan to even
+  *find* directives to mark them. Bote's symptom was the
+  misleading `lib/assert.cyr:3: expected '=', got string` — the
+  parser saw the raw `include "lib/string.cyr"` bytes (from
+  `assert.cyr` at offset ~525000) as if it were an expression.
+  Two changes:
+  * Raised the cap from `262144` to `524288`. Writing up to
+    `0x80000` into `S+0` is safe — compiler state doesn't start
+    until `0x8C100`, with input_buf nominally covering
+    `0..0x80000`.
+  * Directive DETECTION (`ISDEFINE` / `ISIFDEF` / `ISIF` /
+    `ISENDIF` / `ISDERIVE{,_DE,_ACC}` / `ISINCLUDE` / `PP_SKIPLINE`)
+    now reads from the mmap'd `tmp` buffer directly, so the scan
+    sees the full 1 MB regardless of where directives land.
+    Handlers that touch state (`PP_DEFINE` / `PP_DEFINED` /
+    `PP_EVAL_IF` / `PP_DERIVE_*`) still take `S` as base — they
+    need to reach `S+0x90800` etc. — so they remain correct
+    within the (now larger) `S+0` window.
+- **`PP_IFDEF_PASS` size guard**. Added the matching `op >
+  1048576` guard that `PP_PASS` already has, so a silent overflow
+  into the codebuf region at `S+0x54A000+` errors out loudly
+  instead of surfacing as garbled parser errors downstream.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 45 test files / 299 assertions.
+- Bote 2.5.0 reproducer (`tests/bote.tcyr` + 18 libro/majra/
+  sakshi/sigil/bigint includes + `src/audit_libro.cyr` +
+  `src/events_majra.cyr`, ~525 KB preprocessed) compiles cleanly.
+  `cyrius test tests/bote.tcyr` still passes the lean suite
+  (386/386).
+
+### Notes
+- Fix lands on `main`, ahead of the 4.8.5 math pack work that's in
+  flight on the `4.8.5` branch. Version bump left to the
+  maintainer — candidates: `4.8.4.1` (new point convention),
+  `4.8.5` (fold fix, push math pack to `4.8.6`), or similar.
+
 ## [4.8.4] — 2026-04-14
 
 **Register allocation + bote blocker triad.** `#regalloc` graduates
