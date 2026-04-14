@@ -4,6 +4,80 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha2] — 2026-04-14 (unreleased)
+
+### Fixed (bote 4.8.3 blockers — found while attempting to compile bote)
+- **Path traversal rejection too strict for sibling-directory deps**
+  (`src/frontend/lex.cyr`). The CVE-02 guard rejected any `..`
+  path component, blocking the standard `[deps.X] path = "../foo"`
+  pattern (bote uses this for libro/majra). Added
+  `CYRIUS_ALLOW_PARENT_INCLUDES=1` env override — strict by default
+  for untrusted-source builds, opt-in for projects that pull deps
+  from sibling directories. Error message now points at the env
+  flag.
+- **Include-once table cap raised 64 → 256**
+  (`src/frontend/lex.cyr`). Bote's compile graph alone is 57+ unique
+  files (16 stdlib + 9 libro + 6 majra + 15 source + transitive
+  autos); kybernet/sigil are similar. Table relocated from
+  `0x98000` (overlapping with `gvar_toks`) to `0xC0000` (formerly
+  fn-tables, freed and idle since 4.7.1 — 144 KB available).
+  Storage: 256 × 128 bytes = 32 KB at `0xC0000–0xC8000`. Counter
+  stays at `0x97F00`.
+
+### Bote impact
+With both fixes, bote progresses from "can't read sibling dep"
+through "include cap full" to a *third* error
+(`expected '=', got string` at `registry.cyr:9` — same misleading-
+diagnostic class 4.6.1 patched, suggesting a remaining tok_names
+overflow path). That third issue is being chased separately in
+alpha3.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh PASS. CI-style 44 / 0.
+- Direct test:
+  `CYRIUS_ALLOW_PARENT_INCLUDES=1 cyrius build src/main.cyr build/bote`
+  on bote now passes the path-traversal + include-cap walls;
+  failure mode advances to the deeper diagnostic-misleading bug.
+
+## [4.8.4-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **`#regalloc` directive recognized** (`src/frontend/lex.cyr`,
+  `src/main.cyr`). Lexer emits token 109 (`HASH_REGALLOC`) for
+  `#regalloc` lines; pass 1 + pass 2 of `main.cyr` consume the
+  token silently. Foundation patch — codegen attachment + actual
+  register assignment land in subsequent alphas.
+  ```cyr
+  #regalloc
+  fn hot_path(a, b, c) {
+      var x = a * 2;
+      ...
+  }
+  ```
+  Today: parses, compiles, runs identically to a plain fn.
+  Tomorrow (alpha2+): per-fn flag in `fn_inline`, hot-local use
+  counting, callee-saved-reg assignment (`rbx` / `r12..r15`),
+  prologue save / epilogue restore.
+
+### Validation
+- `#regalloc` on single fn, multi-fn, before main, between fns:
+  all compile + run with expected results (`hot_path(10,20,5)
+  → -35`, `add(double(20), 2) → 42`).
+- cc3 self-host byte-identical (foundation patch leaves codegen
+  unchanged).
+- 8/8 check.sh PASS. CI-style 44/0.
+
+### Roadmap (4.8.4)
+- alpha1 ✅ — recognize directive, no codegen.
+- alpha2 — store flag in fn_inline; CYRIUS_STATS reports flagged
+  fn count.
+- alpha3 — per-fn local use counting (env-flag dump for inspection).
+- alpha4 — assign top-N hot locals to callee-saved regs;
+  prologue save / epilogue restore.
+- alpha5 — handle address-of (spill to stack), cross-call.
+- beta1 — tests + bench (target: 249ns → sub-100ns on key path).
+
 ## [4.8.3] — 2026-04-14
 
 ### Arc summary

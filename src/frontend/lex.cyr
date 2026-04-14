@@ -184,20 +184,34 @@ fn _init_cyrius_lib() {
 }
 
 fn READFILE(path, dst, maxsz) {
-    # CVE-02: reject path traversal (.. components) and absolute paths
-    var pi = 0;
-    while (load8(path + pi) != 0) {
-        if (load8(path + pi) == 46 && load8(path + pi + 1) == 46) {
-            if (pi == 0 || load8(path + pi - 1) == 47) {
-                syscall(SYS_WRITE, 2, "error: path traversal rejected: ", 31);
-                var plen = 0;
-                while (load8(path + plen) != 0) { plen += 1; }
-                syscall(SYS_WRITE, 2, path, plen);
-                syscall(SYS_WRITE, 2, "\n", 1);
-                return 0;
-            }
+    # CVE-02: reject path traversal (.. components) UNLESS explicitly
+    # allowed via CYRIUS_ALLOW_PARENT_INCLUDES=1. Bote (and any project
+    # with sibling-directory deps via `[deps.X] path = "../foo"`) needs
+    # the override; default behavior stays strict for untrusted-source
+    # builds. `cyrius build` can set the env automatically when it
+    # resolves deps with a relative `..` path.
+    var _allow_parent = _read_env("CYRIUS_ALLOW_PARENT_INCLUDES");
+    var allow_parent = 0;
+    if (_allow_parent != 0) {
+        if (load8(_allow_parent) == 49 && load8(_allow_parent + 1) == 0) {
+            allow_parent = 1;
         }
-        pi += 1;
+    }
+    if (allow_parent == 0) {
+        var pi = 0;
+        while (load8(path + pi) != 0) {
+            if (load8(path + pi) == 46 && load8(path + pi + 1) == 46) {
+                if (pi == 0 || load8(path + pi - 1) == 47) {
+                    syscall(SYS_WRITE, 2, "error: path traversal rejected: ", 31);
+                    var plen = 0;
+                    while (load8(path + plen) != 0) { plen += 1; }
+                    syscall(SYS_WRITE, 2, path, plen);
+                    syscall(SYS_WRITE, 2, " (set CYRIUS_ALLOW_PARENT_INCLUDES=1 to permit)\n", 48);
+                    return 0;
+                }
+            }
+            pi += 1;
+        }
     }
     var fd = 0;
     if (SYS_OPEN == 2) { fd = syscall(SYS_OPEN, path, 0, 0); }
@@ -362,14 +376,19 @@ fn ISENDIF(S, pos, bl) {
     return 1;
 }
 
-# Include-once: track included filenames to skip duplicates
-# S+0x97F00: include count (8 bytes)
-# S+0x98000: included filenames[64] (64 * 128 bytes = 8192 bytes)
+# Include-once: track included filenames to skip duplicates.
+# v4.8.4-alpha2: relocated to 0xC0000 (formerly fn-tables, freed in
+# 4.7.1 — 144 KB available). Capacity raised 64 → 256 entries.
+# Bote-class projects (16 stdlib + 9 libro + 6 majra + 15 source +
+# transitive autos) easily exceed 64; cyrius itself at ~30, kybernet
+# >40 already pushed against the wall.
+# S+0x97F00: include count (8 bytes — kept at original location)
+# S+0xC0000: included filenames[256] (256 * 128 bytes = 32 KB)
 fn PP_ALREADY_INCLUDED(S, fname) {
     var cnt = L64(S + 0x97F00);
     var i = 0;
     while (i < cnt) {
-        var p = S + 0x98000 + i * 128;
+        var p = S + 0xC0000 + i * 128;
         var c = 0;
         var eq = 1;
         while (eq == 1) {
@@ -387,11 +406,11 @@ fn PP_ALREADY_INCLUDED(S, fname) {
 
 fn PP_MARK_INCLUDED(S, fname) {
     var cnt = L64(S + 0x97F00);
-    if (cnt >= 64) {
-        syscall(SYS_WRITE, 2, "error: include-once table full (64 files) — split compilation unit\n", 66);
+    if (cnt >= 256) {
+        syscall(SYS_WRITE, 2, "error: include-once table full (256 files) — split compilation unit\n", 67);
         syscall(SYS_EXIT, 1);
     }
-    var p = S + 0x98000 + cnt * 128;
+    var p = S + 0xC0000 + cnt * 128;
     var c = 0;
     while (load8(fname + c) != 0) {
         store8(p + c, load8(fname + c));
@@ -1835,7 +1854,7 @@ fn LEX(S) {
             if (c == 10) { SCLINE(S, GCLINE(S) + 1); }
             p = p + 1;
         }
-        # Comment or #assert directive
+        # Comment or #assert / #regalloc directive
         else { if (c == 35) {
             # Check for #assert (35 97 115 115 101 114 116 = #assert)
             if (p + 6 < bl) {
@@ -1856,6 +1875,33 @@ fn LEX(S) {
                                         }
                                         continue;
             } } } } } } }
+            # Check for #regalloc (4.8.4-alpha1) — opt-in attribute
+            # on the next fn def. Codegen change lands in later alphas;
+            # alpha1 just emits the token so the parser can attach
+            # the flag to the fn.
+            # bytes: 23 72 65 67 61 6C 6C 6F 63 = "#regalloc" (9 chars)
+            if (p + 8 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 114) {
+                if (load8(S + 0x44A000 + p + 2) == 101) {
+                if (load8(S + 0x44A000 + p + 3) == 103) {
+                if (load8(S + 0x44A000 + p + 4) == 97) {
+                if (load8(S + 0x44A000 + p + 5) == 108) {
+                if (load8(S + 0x44A000 + p + 6) == 108) {
+                if (load8(S + 0x44A000 + p + 7) == 111) {
+                if (load8(S + 0x44A000 + p + 8) == 99) {
+                    ADDTOK(S, 109, 0);   # token 109 = HASH_REGALLOC
+                    p = p + 9;
+                    while (p < bl) {
+                        var wc2 = load8(S + 0x44A000 + p);
+                        if (wc2 == 32 || wc2 == 9 || wc2 == 10 || wc2 == 13) {
+                            if (wc2 == 10) { SCLINE(S, GCLINE(S) + 1); }
+                            p = p + 1;
+                        }
+                        else { break; }
+                    }
+                    continue;
+                } } } } } } } }
+            }
             # Regular comment — skip to newline
             p = p + 1;
             var cgo = 1;
