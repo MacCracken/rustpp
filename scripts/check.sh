@@ -109,6 +109,15 @@ if [ "$ld_result" -ne 0 ]; then cat /tmp/audit_ld_$$; fi
 rm -f /tmp/audit_ld_$$
 echo ""
 
+# ── 4c. Capacity meter regression (4.8.3) ──
+echo "── Capacity meter ──"
+sh "$ROOT/tests/regression-capacity.sh" > /tmp/audit_cap_$$ 2>&1
+cap_result=$?
+check "cyrius capacity (default / --check / --json / fnc>2048)" "$cap_result"
+if [ "$cap_result" -ne 0 ]; then cat /tmp/audit_cap_$$; fi
+rm -f /tmp/audit_cap_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

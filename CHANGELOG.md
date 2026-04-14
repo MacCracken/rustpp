@@ -4,6 +4,105 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.3] — 2026-04-14
+
+### Arc summary
+Five-alpha + two-beta capacity-visibility cycle. Bote-driven (their
+claims-propagation refactor reverted twice from silent capacity-
+ceiling pressure that 4.7.1 / 4.8.2 raised but never made visible).
+
+#### Surfaces shipped
+- **alpha1** — `CYRIUS_STATS=1` opt-in compile-time meter to stderr.
+  Reports fn / ident / var / fixup / string / code utilization.
+- **alpha2** — Default 85% warnings (no opt-in needed).
+  Suppressed under `CYRIUS_STATS=1` to avoid duplication.
+- **alpha3** — `cyrius capacity [file.cyr]` subcommand wraps the
+  env-flag path; auto-detects entry point from `cyrius.toml` /
+  `src/lib.cyr` / `src/main.cyr`.
+- **alpha4** — `cyrius capacity --check` CI gate; exit 1 if any cap
+  ≥ 85%.
+- **alpha5** — `cyrius capacity --json` produces structured output
+  for CI dashboards.
+
+#### Latent bugs surfaced + fixed (alpha4)
+- `live[256]` DCE bitmap (2048 bits) — overflowed for any unit with
+  > 2048 fns. Raised to `live[512]` (4096 bits, matching the 4.7.1
+  fn-table cap raise). Pre-fix: segfault in DCE propagate pass.
+- `EMITELF_OBJ` scratch sub-zones at `+0/8K/16K/40K` inside a 64 KB
+  brk extension — sized for the old 2048 fn cap, overlapping for any
+  unit > ~2000 fns. Re-laid out at `+0/0x40000/0x48000/0x60000`
+  inside a 1 MB extension. Pre-fix: segfault in object-mode emit.
+
+Both reproduce with `python3 -c 'print("object;"); [print(f"fn f{i}() {{ return {i}; }}") for i in range(2050)]' | cc3`.
+
+#### Tests + benches (beta1 / beta2)
+- `tests/regression-capacity.sh` — 7 tests covering all four flag
+  modes plus the `fnc > 2048` regression guard. Wired into
+  `scripts/check.sh` as `4c. Capacity meter`. `check.sh` now
+  reports **8 / 8 PASS**.
+- `benches/bench_capacity_overhead.sh` — measures stats-emission
+  overhead. Result: **0 µs / compile** (well below the 200 µs
+  warn-threshold). Six syscall writes + PRNUM formatting after
+  FIXUP add no detectable cost on cc3 self-compile (~186 ms).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh sections PASS (added `4c. Capacity meter`).
+- CI-style 44 / 0 .tcyr.
+- 7/7 capacity regression assertions.
+- Capacity overhead bench: 0 µs / compile.
+
+### Bote follow-up
+With this release, bote can:
+- run `cyrius capacity` to see exactly how close their unit is to
+  every wall before attempting claims-propagation again;
+- run `cyrius capacity --check` in CI to gate the next attempt;
+- emit `cyrius capacity --json` to a dashboard for headroom history.
+
+The "silent capacity ceiling that triggered two reverts" is now
+caught at build time.
+
+## [4.8.3-beta1] — 2026-04-14 (unreleased)
+
+### Added
+- **`tests/regression-capacity.sh`** — 7-test regression net for the
+  4.8.3 capacity meter feature surface:
+  1. default mode prints all 6 stat keys (`fn_table`, `identifiers`,
+     `var_table`, `fixup_table`, `string_data`, `code_size`);
+  2. `--check` on a small file exits 0 with `ok` message;
+  3. `--check` on a 3500-fn synthetic stress source exits 1 with
+     `failing` message;
+  4. **direct compile of the 3500-fn `object;` mode source succeeds**
+     (regression guard for the alpha4 `live[]` + `EMITELF_OBJ`
+     scratch overlap fixes — pre-fix this was a segfault);
+  5. `--json` produces valid JSON, `jq` validates the shape of every
+     of the 6 keys (`{used, cap, pct}` integers);
+  6. `--json` on the stress source reports `fn_table.pct >= 85`;
+  7. missing-entry-point case errors clearly with `no file given`.
+  Auto-installs `build/cc3` into `$HOME/.cyrius/bin/` first so the
+  test exercises the wrapper against the just-built binary instead
+  of a stale install.
+- **Wired into `scripts/check.sh`** as section `4c. Capacity meter`.
+  `check.sh` now reports **8 / 8 PASS** when everything is green.
+
+### Validation
+- All 7 capacity tests pass locally and via `check.sh`.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh sections PASS.
+- CI-style 44 / 0 .tcyr.
+
+### What `beta1` covers vs `alpha`
+The alpha series (1–5) added the surfaces. `beta1` is the test +
+audit layer: every meter mode is now nailed down by an executable
+regression that runs in CI, and the latent `fnc > 2048` segfaults
+that alpha4 fixed have explicit guard tests so they don't silently
+return.
+
+### Next (beta2 if needed, else GA)
+- Optional micro-bench: stats emission overhead per compile (expect
+  ~zero — six writes to stderr).
+- Otherwise tag 4.8.3 GA.
+
 ## [4.8.3-alpha5] — 2026-04-14 (unreleased)
 
 ### Added
