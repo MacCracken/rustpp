@@ -166,6 +166,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             if (emit_code == 2) {
                 # Pass 2 function section: emit constructor bodies only
                 if (has_ctor == 1) {
+                    NPOS_GUARD(S, 256);
                     var cwp2 = GNPOS(S);
                     var cnoff2 = cwp2;
                     var cri2 = 0;
@@ -182,6 +183,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         ESTOREPARM(S, 0, 0, 0);
                         EMOVI(S, 16); EPUSHR(S);
                         ECALLPOPS(S, 1);
+                        NPOS_GUARD(S, 8);
                         var awnp = GNPOS(S);
                         store8(S + 0x60000 + awnp, 97); store8(S + 0x60000 + awnp + 1, 108);
                         store8(S + 0x60000 + awnp + 2, 108); store8(S + 0x60000 + awnp + 3, 111);
@@ -210,6 +212,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
                 if (has_ctor == 1) {
+                    NPOS_GUARD(S, 256);
                     var cwp = GNPOS(S);
                     var cnoff = cwp;
                     var cri = 0;
@@ -778,6 +781,7 @@ fn PARSE_FACTOR(S) {
     if (typ == 35) {
         STI(S, GTI(S) + 1);  # consume |
         # Generate anonymous function name __closure_N
+        NPOS_GUARD(S, 16);
         var clid = GFNC(S);
         var clnoff = GNPOS(S);
         var cwp = clnoff;
@@ -1242,6 +1246,7 @@ fn EPTR_SCALE(S, ps) {
 # Build operator function name: StructName_op in tok_names
 # op_name is a short string like "add", "sub", "mul", "div"
 fn BUILD_OP_NAME(S, stype, op_str, op_len) {
+    NPOS_GUARD(S, 256);
     var si = stype - 1;
     var snoff = L64(S + 0x8E630 + si * 8);
     var owp = GNPOS(S);
@@ -2397,6 +2402,7 @@ fn PARSE_FOR(S) {
                 ECALLPOPS(S, 1);
                 var vlfi = FINDFN(S, 0);
                 # Find vec_len — search by building name
+                NPOS_GUARD(S, 16);
                 var vlnp = GNPOS(S);
                 store8(S + 0x60000 + vlnp, 118); store8(S + 0x60000 + vlnp + 1, 101);
                 store8(S + 0x60000 + vlnp + 2, 99); store8(S + 0x60000 + vlnp + 3, 95);
@@ -2416,6 +2422,7 @@ fn PARSE_FOR(S) {
                 EVSTORE(S, filen);
                 # Index var (starts at 0)
                 var fili = GFLC(S);
+                NPOS_GUARD(S, 8);
                 var fiidx_noff = GNPOS(S);
                 store8(S + 0x60000 + fiidx_noff, 95); store8(S + 0x60000 + fiidx_noff + 1, 105);
                 store8(S + 0x60000 + fiidx_noff + 2, 0);
@@ -2456,6 +2463,7 @@ fn PARSE_FOR(S) {
                 EPUSHR(S);
                 ECALLPOPS(S, 2);
                 var vgfi = FINDFN(S, 0);
+                NPOS_GUARD(S, 16);
                 var vgnp = GNPOS(S);
                 store8(S + 0x60000 + vgnp, 118); store8(S + 0x60000 + vgnp + 1, 101);
                 store8(S + 0x60000 + vgnp + 2, 99); store8(S + 0x60000 + vgnp + 3, 95);
@@ -3065,6 +3073,7 @@ fn PARSE_FN_DEF(S) {
     # Mangle name if inside a module: mod_fn
     var mmod = GMOD(S);
     if (mmod != 0) {
+        NPOS_GUARD(S, 256);
         var mwp = GNPOS(S);
         var mnoff = mwp;
         var mri = 0;

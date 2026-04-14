@@ -1635,12 +1635,32 @@ fn LEXKW_EXT(kw, klen, S, ws) {
     return 0;
 }
 
+# Guard the identifier buffer (tok_names @ S+0x60000, 128 KB in v4.6.2).
+# Called before any mangled-name write (variant ctors, closure names,
+# operator impls) so overflow emits the clean diagnostic from where it
+# actually occurs, not as a downstream parse error after memory corruption.
+# `need` is a pessimistic byte count for the pending write.
+fn NPOS_GUARD(S, need) {
+    var np = GNPOS(S);
+    if (np + need >= 130800) {
+        syscall(SYS_WRITE, 2, "error: identifier buffer full (", 31);
+        PRNUM(np);
+        syscall(SYS_WRITE, 2, "/131072 bytes) — reduce included modules or split into separate units\n", 70);
+        syscall(SYS_EXIT, 1);
+    }
+    return 0;
+}
+
 # Lex an identifier starting at p, return new p. Stores token.
+# Threshold 130800 leaves 272 bytes of slack for the inner write loop.
+# Buffer raised from 64 KB to 128 KB in v4.6.2 (`str_pos` + `data_size`
+# moved from 0x70000/0x70008 to 0x8FCC8/0x8FCD0 so tok_names can grow
+# into 0x60000–0x80000).
 fn LEXID(S, p, npos) {
-    if (npos >= 65500) {
+    if (npos >= 130800) {
         syscall(SYS_WRITE, 2, "error: identifier buffer full (", 31);
         PRNUM(npos);
-        syscall(SYS_WRITE, 2, "/65536 bytes) — reduce included modules or split into separate units\n", 69);
+        syscall(SYS_WRITE, 2, "/131072 bytes) — reduce included modules or split into separate units\n", 70);
         syscall(SYS_EXIT, 1);
     }
     var bl = GBL(S);

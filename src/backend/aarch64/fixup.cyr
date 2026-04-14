@@ -85,7 +85,7 @@ fn FIXUP(S) {
         } } }
         fi = fi + 1;
     }
-    S64(S + 0x70008, totvar);
+    S64(S + 0x8FCD0, totvar);
     return 0;
 }
 
@@ -121,7 +121,7 @@ fn FIXUP_MOV(S, coff, addr) {
 fn EMITELF(S) {
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     var cp = GCP(S);
-    var totvar = L64(S + 0x70008);
+    var totvar = L64(S + 0x8FCD0);
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
@@ -171,7 +171,7 @@ fn EMITELF(S) {
 # No multiboot (ARM uses device tree). Entry at base + 0x78 (after ELF + PH headers).
 fn EMITELF_KERNEL(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x70008);
+    var totvar = L64(S + 0x8FCD0);
     var spos = GSPOS(S);
     var preamble_sz = 16;
     var filesz = 120 + preamble_sz + cp + totvar + spos;

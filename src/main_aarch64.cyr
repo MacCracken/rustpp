@@ -13,9 +13,9 @@
 # See main.cyr for authoritative heap map with detailed annotations.
 #
 #   0x00000  input_buf     [524288]      512KB raw stdin input
-#   0x60000  tok_names     [65536]       64KB packed identifier strings
-#   0x70000  str_pos       [8]           string write position
-#   0x70008  data_size     [8]           total variable data bytes
+#   0x60000  tok_names     [131072]      128KB packed identifier strings (v4.6.2)
+#   0x8FCC8  str_pos       [8]           string write position (moved in v4.6.2)
+#   0x8FCD0  data_size     [8]           total variable data bytes (moved in v4.6.2)
 #   0x8E630  struct_names  [256]         struct name offsets (64 cap)
 #   0x8E830  struct_fcounts[512]         struct field counts
 #   0x8F830  struct_count  [8]
@@ -87,7 +87,7 @@ S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
 S64(S + 0x8FCA8, 0);
 S64(S + 0x8FCB0, 0 - 1);
-S64(S + 0x70000, 0);
+S64(S + 0x8FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
 # Function state
 S64(S + 0x8DA00, 0);
 S64(S + 0x8DA08, 0);

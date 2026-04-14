@@ -14,13 +14,11 @@
 #
 # --- Low heap: I/O + identifiers ---
 #   0x00000  input_buf     [524288]      512KB raw stdin input (v3.6.7, was 256KB)
-#                                         NOTE: input_buf extends past 0x60000 (tok_names) and
-#                                         0x70000 (str_pos/data_size). These regions are REBUILT
-#                                         by LEX after preprocessing — the overlap is tolerated
-#                                         because preprocessing reads from 0x44A000, not S+0.
-#   0x60000  tok_names     [65536]       64KB packed identifier strings (nested in input_buf — rebuilt by LEX)
-#   0x70000  str_pos       [8]           string write position (nested in input_buf — rebuilt after preprocess)
-#   0x70008  data_size     [8]           total variable data bytes (nested in input_buf — rebuilt after preprocess)
+#                                         NOTE: input_buf extends past 0x60000 (tok_names).
+#                                         tok_names is REBUILT by LEX after preprocessing —
+#                                         the overlap is tolerated because preprocessing reads
+#                                         from 0x44A000, not S+0.
+#   0x60000  tok_names     [131072]      128KB packed identifier strings (nested in input_buf — rebuilt by LEX, v4.6.2 was 64KB)
 #
 # --- Struct tables (v3.6.6: expanded to 64 structs) ---
 #   0x8E630  struct_names  [256]         32 struct name offsets (cap raised to 64 but table not yet expanded)
@@ -46,6 +44,8 @@
 #   0x8FCB0  last_var      [8]
 #   0x8FCB8  cur_line      [8]
 #   0x8FCC0  scope_depth   [8]
+#   0x8FCC8  str_pos       [8]           string write position (moved from 0x70000 in v4.6.2)
+#   0x8FCD0  data_size     [8]           total variable data bytes (moved from 0x70008 in v4.6.2)
 #   0x8FEC8  current_module [8]
 #   0x8FED0  pub_flags     [256]
 #   0x8FFD0  use_from      [512]         64 use alias source names
@@ -154,7 +154,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.6.0\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 4.6.2\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -174,7 +174,7 @@ S64(S + 0x8C120, 0);
 S64(S + 0x8C128, 0);
 S64(S + 0x8FCA8, 0);
 S64(S + 0x8FCB0, 0 - 1);
-S64(S + 0x70000, 0);
+S64(S + 0x8FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
 # Function state
 S64(S + 0x8DA00, 0);
 S64(S + 0x8DA08, 0);
@@ -244,8 +244,8 @@ PREPROCESS(S);
 # For expanded source >256KB, the copy-back writes past S+0x40000 into every
 # heap region up to S+bl. This mirrors the full initialization at lines 155-196
 # so every scalar starts fresh before LEX runs.
-S64(S + 0x70000, 0);       # str_pos
-S64(S + 0x70008, 0);       # data_size
+S64(S + 0x8FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
+S64(S + 0x8FCD0, 0);       # data_size (moved from 0x70008 in 4.6.2)
 S64(S + 0x8C108, 0);       # CP
 S64(S + 0x8C110, 0);       # VCNT
 S64(S + 0x8C118, 0);       # TCNT
@@ -314,6 +314,7 @@ while (scan == 1) {
                     var uc = GUSEC(S);
                     S64(S + 0x8FFD0 + uc * 8, ufn);
                     # Append mangled name to tok_names (after lexing, NPOS is stable)
+                    NPOS_GUARD(S, 256);
                     var apos = GNPOS(S);
                     var ri = 0;
                     var rc = load8(S + 0x60000 + umod + ri);

@@ -41,9 +41,10 @@ fn SFCNT(S, v) { S64(S + 0x8FCA8, v); return 0; }
 # Last var index
 fn GLVAR(S) { return L64(S + 0x8FCB0); }
 fn SLVAR(S, v) { S64(S + 0x8FCB0, v); return 0; }
-# String pos
-fn GSPOS(S) { return L64(S + 0x70000); }
-fn SSPOS(S, v) { S64(S + 0x70000, v); return 0; }
+# String pos — moved to 0x8FCC8 in 4.6.2 (was 0x70000) so tok_names
+# can expand to 128 KB (0x60000–0x80000) without overlap.
+fn GSPOS(S) { return L64(S + 0x8FCC8); }
+fn SSPOS(S, v) { S64(S + 0x8FCC8, v); return 0; }
 
 # Function state accessors
 fn GFNC(S) { return L64(S + 0x8DA00); }

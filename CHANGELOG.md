@@ -46,6 +46,86 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.2] — 2026-04-14
+
+### Changed
+- **`tok_names` region raised from 64 KB to 128 KB**
+  (`src/main.cyr`, `src/main_aarch64.cyr`, `src/main_cx.cyr`,
+  `src/common/util.cyr`, `src/backend/x86/fixup.cyr`,
+  `src/backend/aarch64/fixup.cyr`, `src/frontend/lex.cyr`).
+  Bote (and any future mid-size project that pulls in 15+ stdlib
+  modules + vendored deps) was hitting the identifier buffer ceiling
+  in routine builds — 4.6.1 fixed the diagnostic, 4.6.2 lifts the
+  ceiling. `str_pos` and `data_size` moved from `S+0x70000`/`0x70008`
+  to `S+0x8FCC8`/`0x8FCD0` (unused slot between `scope_depth` and
+  `current_module`) so `tok_names` can span `0x60000–0x80000`. Still
+  nested inside `input_buf`'s footprint — that region is free by the
+  time LEX runs.
+- **`LEXID` entry check + `NPOS_GUARD`** updated to the new 128 KB
+  ceiling (threshold 130800; 272-byte slack before the 131072 wall).
+  Error message now reports `/131072 bytes`.
+
+### Why a patch release
+Heap-layout change, but scoped + tested: two-step bootstrap byte-
+identical, 5/5 check.sh PASS, heap audit clean. Downstream code
+that never read `S+0x70000` directly (everything except `bridge.cyr`,
+which keeps its own independent layout) is unaffected.
+
+### Validation
+- Two-step bootstrap: cc3 compiles itself → cc4; cc4 compiles itself
+  → cc5; cc4 == cc5 byte-identical (353920 bytes, unchanged).
+- Heap audit clean (47 regions, 0 overlaps, 0 warnings after
+  `(nested in input_buf …)` marker added to `tok_names`).
+- 5/5 check.sh PASS. 41 test suites green.
+- Bote repro (`cyrius-4.5.1-repro.cyr`, 2000 functions with long
+  names): previously hit identifier buffer at ~1700 fns. Now the
+  limiting factor is the function table (2048 fns) — identifier
+  buffer has ~60 KB of headroom.
+
+### Next
+- `4.7.x` per roadmap (PIC codegen).
+- Separately: raise the 2048 function table cap if real projects
+  start hitting it (bote is close; cyrius compiler itself is at
+  ~1400 fns).
+
+## [4.6.1] — 2026-04-14
+
+### Fixed
+- **Clean diagnostic on identifier buffer overflow**
+  (`src/frontend/lex.cyr`, `src/frontend/parse.cyr`, `src/main.cyr`).
+  Bote (v1.5.0) surfaced that overflow of `tok_names`
+  (the 64 KB identifier region at `S+0x60000`) could report a
+  cascading parse error (`error:lib/assert.cyr:3: expected '=', got
+  string`) instead of the buffer-full message. Two root causes:
+  - `LEXID`'s entry check at `npos >= 65500` left only 36 bytes of
+    slack; long mangled identifiers (`libro_patra_store_open_with_
+    capacity` et al.) exceeded it and the inner write loop continued
+    past `0x70000`, corrupting `str_pos`/`data_size` and downstream
+    token values. Threshold tightened to `65300` (236-byte slack).
+  - Every mangled-name writer in `parse.cyr` / `main.cyr`
+    (enum-variant ctors, `alloc`-call synthesis, closure names,
+    `BUILD_OP_NAME`, `for-in` helper names, module-prefix mangling,
+    `use`-alias mangling) wrote to `S+0x60000+cwp` with no bounds
+    check. Added `NPOS_GUARD(S, need)` helper (in `lex.cyr`) and
+    invoked it before each site so overflow errors cleanly from
+    where it actually occurs rather than propagating silent
+    corruption into later tokens.
+
+### Validation
+- Bote repro (`cyrius-4.5.1-repro.cyr`, 2033 lines, ~2000 long fn
+  names): emits the clean diagnostic — `error: identifier buffer
+  full (65530/65536 bytes) — reduce included modules or split into
+  separate unit`.
+- cc3 self-host stable (two-step bootstrap byte-identical).
+- 5/5 check.sh PASS.
+
+### Why a patch release
+Fix is purely diagnostic — code paths that USED to overflow still
+overflow, they just report accurately. Cap raise (moving
+`str_pos`/`data_size` off `S+0x70000` and expanding `tok_names` to
+128 KB) is scoped as 4.6.2; it needs a heap-layout change and
+two-step bootstrap verify.
+
 ## [4.6.0] — 2026-04-14
 
 ### Added
