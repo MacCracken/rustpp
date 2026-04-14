@@ -46,6 +46,48 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.8.0-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **`u128` type annotation** (`src/frontend/parse.cyr`). Global and
+  local vars can now be declared `: u128` and receive a 16-byte slot
+  (two 64-bit limbs, little-endian in memory). Zero-initialized.
+  Recognized alongside `i8` / `i16` / `i32` / `i64` as a scalar type.
+  ```
+  var x: u128 = 0;
+  store64(&x, 42);       # low limb
+  store64(&x + 8, 100);  # high limb
+  ```
+- **16-byte var allocation**. `var_sizes` entry = 16 for u128 vars;
+  the slot is addressable via pointer arithmetic (`&x`, `&x + 8`)
+  just like any other struct-sized region.
+
+### Known limits (alpha1)
+- No arithmetic — alpha3 lands `+` / `-` via `ADD` + `ADC`, alpha4
+  does `*`. Today, operations touching a u128 var treat it as i64
+  (low limb only).
+- No literal syntax beyond `0` — alpha2 adds `0xDEAD_BEEF_CAFE_BABE_...`
+  parsing.
+- Struct fields and fn params can't be typed `u128` yet — alpha1
+  only covers `var` declarations. Follow-up patches extend coverage.
+
+### Regression tests added this cycle
+- `tests/regression-shared.sh` — C harness dlopens a `.so` produced
+  by `shared;`, validates `dlsym` + call on add / rodata / mutable
+  data / DT_INIT initializer.
+- `tests/regression-linker.sh` — two cross-module link scenarios:
+  fn resolution (exit 43) and cross-module `.data` + init ordering
+  (exit 44).
+- `tests/tcyr/method_dispatch.tcyr` — ~20-module include pressure
+  (pushes `tok_names` well past the 30 K mark that pre-4.7.1
+  `BUILD_METHOD_NAME` clobbered) + struct method dispatch with a
+  mix of receivers and arg counts.
+- `scripts/check.sh` wires all three into the standard audit.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS (added Shared-object + Linker sections).
+
 ## [4.7.1] — 2026-04-14
 
 ### Fixed

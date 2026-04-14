@@ -1845,6 +1845,7 @@ fn PARSE_GVAR_REG(S) {
                 elif (ann_tn & 0xFFFFFF == 0x363169) { ann_scalar = 2; }
                 elif (ann_tn & 0xFFFFFF == 0x323369) { ann_scalar = 4; }
                 elif (ann_tn & 0xFFFFFF == 0x343669) { ann_scalar = 8; }
+                elif (ann_tn & 0xFFFFFFFF == 0x38323175) { ann_scalar = 16; }
                 else { ann_sid = FINDSTRUCT(S, ann_sn); }
             }
             STI(S, GTI(S) + 1); SKIP_GENERICS(S);
@@ -1890,7 +1891,11 @@ fn PARSE_GVAR_REG(S) {
                 S64(S + 0x12A000 + vcnt * 8, ann_scalar);
                 SVTYPE(S, vcnt, ann_scalar);
             } else {
-                S64(S + 0x12A000 + vcnt * 8, 8);
+                # 8 (i64) or 16 (u128) — allocate the full width.
+                # No type marker for now: u128 bytes live in the slot,
+                # scalar ops touch the low 64 bits until alpha3 lands
+                # proper arithmetic.
+                S64(S + 0x12A000 + vcnt * 8, ann_scalar);
             }
         } else {
             S64(S + 0x12A000 + vcnt * 8, 8);
