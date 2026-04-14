@@ -256,3 +256,116 @@ fn u128_shreq(dst, n) { return u128_shr(dst, dst, n); }
 fn u128_andeq(dst, src) { return u128_and(dst, dst, src); }
 fn u128_oreq(dst, src)  { return u128_or(dst, dst, src); }
 fn u128_xoreq(dst, src) { return u128_xor(dst, dst, src); }
+
+# -------- Unsigned comparisons + divmod (v4.8.0-alpha7) --------
+#
+# Cyrius native `<` / `>` / `>=` are signed. For u64 pieces we need
+# an unsigned interpretation (bit 63 is a real value bit, not a
+# sign flag).
+
+# Unsigned a > b on 64-bit limbs.
+fn _u64_ugt(a, b) {
+    if (a >= 0) {
+        if (b >= 0) { if (a > b) { return 1; } return 0; }
+        return 0;           # a non-negative, b "negative" (bit 63 set) → b larger
+    }
+    if (b >= 0) { return 1; }   # a "negative" (huge unsigned), b non-negative
+    if (a > b) { return 1; }     # both "negative" — signed order matches unsigned here
+    return 0;
+}
+
+fn _u64_uge(a, b) {
+    if (a == b) { return 1; }
+    return _u64_ugt(a, b);
+}
+
+# u128 unsigned comparisons. `a` / `b` are pointers to u128 slots.
+fn u128_ugt(a, b) {
+    var a_hi = load64(a + 8);
+    var b_hi = load64(b + 8);
+    if (a_hi != b_hi) { return _u64_ugt(a_hi, b_hi); }
+    return _u64_ugt(load64(a), load64(b));
+}
+
+fn u128_uge(a, b) {
+    var a_hi = load64(a + 8);
+    var b_hi = load64(b + 8);
+    if (a_hi != b_hi) { return _u64_ugt(a_hi, b_hi); }
+    return _u64_uge(load64(a), load64(b));
+}
+
+fn u128_ult(a, b) { return u128_ugt(b, a); }
+fn u128_ule(a, b) { return u128_uge(b, a); }
+
+# Unsigned two-limb subtract helper — writes (a - b) into (*out_lo,
+# *out_hi) with natural mod-2^128 wrap. Shared between divmod and
+# anything else that needs scalar-limb borrow propagation.
+# (Kept local to the file; public callers use u128_sub.)
+
+# (qdst, rdst) = (a / b, a % b)  — shift-subtract long division.
+# On b == 0, writes "u128: division by zero" to stderr and exits 1.
+# Algorithm:
+#   q = 0, r = 0
+#   for i in 127..0:
+#       r = (r << 1) | bit_i(a)
+#       if r >= b: r -= b; q |= (1 << i)
+fn u128_divmod(qdst, rdst, a, b) {
+    if (u128_is_zero(b) == 1) {
+        syscall(SYS_WRITE, 2, "u128: division by zero\n", 23);
+        syscall(SYS_EXIT, 1);
+    }
+    var a_lo = load64(a);
+    var a_hi = load64(a + 8);
+    var b_lo = load64(b);
+    var b_hi = load64(b + 8);
+    var q_lo = 0;
+    var q_hi = 0;
+    var r_lo = 0;
+    var r_hi = 0;
+    var i = 127;
+    while (i >= 0) {
+        # r <<= 1 (128-bit) — top bit of r_lo spills into r_hi
+        var spill = _u128_lshr64(r_lo, 63) & 1;
+        r_hi = (r_hi << 1) | spill;
+        r_lo = r_lo << 1;
+        # Bring bit i of `a` into r's LSB.
+        var bit = 0;
+        if (i >= 64) { bit = _u128_lshr64(a_hi, i - 64) & 1; }
+        else { bit = _u128_lshr64(a_lo, i) & 1; }
+        r_lo = r_lo | bit;
+        # Compare r >= b (unsigned 128-bit).
+        var ge = 0;
+        if (r_hi != b_hi) { ge = _u64_ugt(r_hi, b_hi); }
+        else { ge = _u64_uge(r_lo, b_lo); }
+        if (ge == 1) {
+            # r -= b
+            var borrow = 0;
+            if (_u64_ugt(b_lo, r_lo) == 1) { borrow = 1; }
+            r_lo = r_lo - b_lo;
+            r_hi = r_hi - b_hi - borrow;
+            # q |= (1 << i)
+            if (i >= 64) { q_hi = q_hi | (1 << (i - 64)); }
+            else { q_lo = q_lo | (1 << i); }
+        }
+        i = i - 1;
+    }
+    store64(qdst, q_lo);
+    store64(qdst + 8, q_hi);
+    store64(rdst, r_lo);
+    store64(rdst + 8, r_hi);
+    return 0;
+}
+
+# Convenience: quotient only / remainder only. Uses a module-level
+# scratch u128 for the discarded half.
+var _u128_discard: u128 = 0;
+
+fn u128_div(dst, a, b) {
+    return u128_divmod(dst, &_u128_discard, a, b);
+}
+fn u128_mod(dst, a, b) {
+    return u128_divmod(&_u128_discard, dst, a, b);
+}
+
+fn u128_diveq(dst, src) { return u128_div(dst, dst, src); }
+fn u128_modeq(dst, src) { return u128_mod(dst, dst, src); }

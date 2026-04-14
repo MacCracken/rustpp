@@ -4,6 +4,51 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha7] — 2026-04-14 (unreleased)
+
+### Added
+- **Unsigned 64 + 128-bit compare helpers**:
+  - Private `_u64_ugt(a, b)` / `_u64_uge(a, b)` — treat both i64s as
+    unsigned. Four-case split on whether each operand has bit 63 set
+    (cyrius's signed `>` disagrees with unsigned when bit 63 differs).
+  - Public `u128_ugt` / `u128_uge` / `u128_ult` / `u128_ule` —
+    lexicographic compare on (hi, lo).
+- **`u128_divmod(qdst, rdst, a, b)`** — 128-iteration shift-subtract
+  long division. Writes quotient to `qdst` and remainder to `rdst`.
+  On `b == 0`, emits `u128: division by zero\n` to stderr and exits
+  1. Body operates on scalar limbs (locals) — no u128 local types
+  needed yet (deferred to later alpha).
+- **`u128_div` / `u128_mod`** — quotient-only / remainder-only
+  wrappers using a module-level `_u128_discard: u128` scratch slot.
+- **`u128_diveq` / `u128_modeq`** — in-place.
+
+### Validation
+- `tests/tcyr/u128.tcyr` grew to **96 assertions**. New coverage:
+  - Unsigned compare: equality, `max_u64 > 1` (signed says
+    `-1 < 1`, but unsigned 0xFFFF.. > 1), cross-limb ordering, both
+    hi "negative" regime.
+  - Divmod: `0/1`, `42/5 = (8, 2)`, `100/10 = (10, 0)`,
+    `max_u128 / 1 = (max_u128, 0)`, `2^64 / 2 = 2^63`, divisor >
+    dividend (q=0, r=a), cross-limb `(0xDEAD_BEEF, 1) / 0x10000`
+    with `r = 0xBEEF`, and a `q*b + r == a` round-trip invariant.
+  - `u128_div` / `u128_mod`: `101 / 7 = (14, 3)`.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+
+### u128 stdlib surface — complete
+Construction: `u128_set`, `u128_from_u64`, `u128_copy`.
+Inspection: `u128_lo`, `u128_hi`, `u128_eq`, `u128_is_zero`.
+Arithmetic: `u128_add`, `u128_sub`, `u128_mul`, `u128_divmod`,
+`u128_div`, `u128_mod`, `u128_muleq` (etc.).
+Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
+`u128_not`, `u128_shleq` (etc.).
+Compare: `u128_ugt`, `u128_uge`, `u128_ult`, `u128_ule`.
+
+### Next
+Tag **4.8.0** — u128 MVP shipped. Remaining 4.8.x roadmap items
+(jump tables, register alloc, defmt) are independent tracks — each
+opens with its own alpha.
+
 ## [4.8.0-alpha6] — 2026-04-14 (unreleased)
 
 ### Added

@@ -274,4 +274,91 @@ var bw_r2: u128 = 0;
 u128_not(&bw_r2, &bw_r);
 assert_eq(u128_eq(&bw_r2, &bw_a), 1, "~~x == x");
 
+test_group("u128 unsigned compare (alpha7)");
+var c_a: u128 = 0;
+var c_b: u128 = 0;
+# equal
+u128_set(&c_a, 42, 0);
+u128_set(&c_b, 42, 0);
+assert_eq(u128_ugt(&c_a, &c_b), 0, "42 !ugt 42");
+assert_eq(u128_uge(&c_a, &c_b), 1, "42 uge 42");
+assert_eq(u128_ult(&c_a, &c_b), 0, "42 !ult 42");
+# high bit (unsigned) comparisons
+u128_set(&c_a, 1, 0);
+u128_set(&c_b, 0xFFFF_FFFF_FFFF_FFFF, 0);
+assert_eq(u128_ugt(&c_b, &c_a), 1, "max_u64 ugt 1 (unsigned, not signed)");
+assert_eq(u128_ult(&c_a, &c_b), 1, "1 ult max_u64");
+# hi limb differs
+u128_set(&c_a, 0xFFFF_FFFF_FFFF_FFFF, 0);
+u128_set(&c_b, 0, 1);
+assert_eq(u128_ult(&c_a, &c_b), 1, "(max_u64, 0) < (0, 1)");
+# both hi "negative" (bit 63 set)
+u128_set(&c_a, 0, 0x8000_0000_0000_0000);
+u128_set(&c_b, 0, 0xC000_0000_0000_0000);
+assert_eq(u128_ult(&c_a, &c_b), 1, "hi=0x80.. < 0xC0..");
+
+test_group("u128_divmod");
+var d_a: u128 = 0;
+var d_b: u128 = 0;
+var d_q: u128 = 0;
+var d_r: u128 = 0;
+# 0 / 1 = (0, 0)
+u128_set(&d_b, 1, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_is_zero(&d_q), 1, "0/1 q = 0");
+assert_eq(u128_is_zero(&d_r), 1, "0/1 r = 0");
+# 42 / 5 = (8, 2)
+u128_set(&d_a, 42, 0);
+u128_set(&d_b, 5, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_lo(&d_q), 8, "42/5 q = 8");
+assert_eq(u128_lo(&d_r), 2, "42/5 r = 2");
+# 100 / 10 = (10, 0)
+u128_set(&d_a, 100, 0);
+u128_set(&d_b, 10, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_lo(&d_q), 10, "100/10 q = 10");
+assert_eq(u128_lo(&d_r), 0, "100/10 r = 0");
+# max_u128 / 1 = (max_u128, 0)
+u128_set(&d_a, 0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF);
+u128_set(&d_b, 1, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_eq(&d_q, &d_a), 1, "max/1 q = max");
+assert_eq(u128_is_zero(&d_r), 1, "max/1 r = 0");
+# 2^64 / 2 = 2^63, r = 0
+u128_set(&d_a, 0, 1);
+u128_set(&d_b, 2, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_lo(&d_q), 0x8000_0000_0000_0000, "2^64/2 q = 2^63");
+assert_eq(u128_hi(&d_q), 0, "2^64/2 q hi = 0");
+assert_eq(u128_is_zero(&d_r), 1, "2^64/2 r = 0");
+# Divisor > dividend: q = 0, r = a
+u128_set(&d_a, 7, 0);
+u128_set(&d_b, 10, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_is_zero(&d_q), 1, "7/10 q = 0");
+assert_eq(u128_lo(&d_r), 7, "7/10 r = 7");
+# Large cross-limb: (0xDEAD_BEEF, 1) / 0x10000 = ((...), (...))
+# a = 0xDEAD_BEEF + 2^64 = 18446744077592317679
+# / 0x10000 = 281474976716918 remainder 0xBEEF
+u128_set(&d_a, 0xDEAD_BEEF, 1);
+u128_set(&d_b, 0x10000, 0);
+u128_divmod(&d_q, &d_r, &d_a, &d_b);
+assert_eq(u128_lo(&d_r), 0xBEEF, "big div: r = 0xBEEF");
+# Round-trip: q*b + r == a
+var d_tmp: u128 = 0;
+u128_mul(&d_tmp, &d_q, &d_b);
+u128_addeq(&d_tmp, &d_r);
+assert_eq(u128_eq(&d_tmp, &d_a), 1, "q*b + r == a");
+
+test_group("u128_div / u128_mod convenience");
+var div_r: u128 = 0;
+var mod_r: u128 = 0;
+u128_set(&d_a, 101, 0);
+u128_set(&d_b, 7, 0);
+u128_div(&div_r, &d_a, &d_b);
+u128_mod(&mod_r, &d_a, &d_b);
+assert_eq(u128_lo(&div_r), 14, "101 / 7 = 14");
+assert_eq(u128_lo(&mod_r), 3, "101 % 7 = 3");
+
 assert_summary();
