@@ -333,6 +333,51 @@ fn u128_divmod(qdst, rdst, a, b) {
     var a_hi = load64(a + 8);
     var b_lo = load64(b);
     var b_hi = load64(b + 8);
+    # v4.8.5-alpha1: hardware fast-path when the divisor fits in 64
+    # bits. Covers every `(u64 * u64) % u64` pipeline — Miller-Rabin,
+    # Pollard rho, RSA, `random::shuffle`, hashing. The slow path
+    # below burns 128 shift-subtract iterations even when the top
+    # half of b is zero; this path takes two hardware `div`
+    # instructions instead, trading O(128) on the critical path for
+    # O(1). Abaco's ntheory::mod_mul gets ~40× on the hot loop.
+    #
+    # Two hardware `div` steps back-to-back, both inside one asm
+    # block so both divisions run UNSIGNED (Cyrius's `/` operator
+    # lowers to `idiv` — signed — which would mis-compute whenever
+    # an operand has its top bit set, mulmod's common case):
+    #   step 1:  rax = a_hi, rdx = 0
+    #            div b_lo           ; rax = q_hi, rdx = r1
+    #   step 2:  rax = a_lo, rdx = r1 (carried from step 1)
+    #            div b_lo           ; rax = q_lo, rdx = r_final
+    # When a_hi == 0, step 1 returns q_hi=0, r1=0 and step 2 falls
+    # through to straight 64-bit a_lo/b_lo — so this same block
+    # handles both a_hi==0 and a_hi!=0 correctly. r1 < b_lo by the
+    # definition of the first remainder, so step 2 never trips #DE.
+    if (b_hi == 0) {
+        var q_hi_fast = 0;
+        var q_lo_fast = 0;
+        var r_final   = 0;
+        # Local layout after this point (flat fn index order):
+        #   qdst(0), rdst(1), a(2), b(3),
+        #   a_lo(4), a_hi(5), b_lo(6), b_hi(7),
+        #   q_hi_fast(8), q_lo_fast(9), r_final(10)
+        # disp8 = -(idx+1)*8.
+        asm {
+            0x48; 0x8B; 0x45; 0xD0;   # mov rax, [rbp-48]   ; a_hi
+            0x48; 0x31; 0xD2;         # xor rdx, rdx        ; zero-ext
+            0x48; 0xF7; 0x75; 0xC8;   # div qword [rbp-56]  ; / b_lo
+            0x48; 0x89; 0x45; 0xB8;   # mov [rbp-72], rax   ; q_hi_fast
+            0x48; 0x8B; 0x45; 0xD8;   # mov rax, [rbp-40]   ; a_lo
+            0x48; 0xF7; 0x75; 0xC8;   # div qword [rbp-56]  ; rdx:rax/b_lo
+            0x48; 0x89; 0x45; 0xB0;   # mov [rbp-80], rax   ; q_lo_fast
+            0x48; 0x89; 0x55; 0xA8;   # mov [rbp-88], rdx   ; r_final
+        }
+        store64(qdst,     q_lo_fast);
+        store64(qdst + 8, q_hi_fast);
+        store64(rdst,     r_final);
+        store64(rdst + 8, 0);
+        return 0;
+    }
     var q_lo = 0;
     var q_hi = 0;
     var r_lo = 0;

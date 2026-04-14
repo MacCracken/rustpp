@@ -4,6 +4,54 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **Hardware fast-path in `u128_divmod`** (`lib/u128.cyr`). When
+  `b_hi == 0` — the shape every `(u64 * u64) % u64` pipeline
+  collapses to (Miller-Rabin, Pollard rho, RSA, `random::shuffle`,
+  hashing) — skip the 128-iteration shift-subtract loop and do
+  two hardware `div` instructions back-to-back:
+  ```
+  step 1:  rax = a_hi, rdx = 0
+           div b_lo        ; rax = q_hi, rdx = r1
+  step 2:  rax = a_lo, rdx = r1 (carried)
+           div b_lo        ; rax = q_lo, rdx = r_final
+  ```
+  Both divs run inside one `asm { }` block so they're unsigned —
+  Cyrius's `/` operator lowers to `idiv` (signed), which would
+  mis-compute step 1 whenever `a_hi` has its top bit set (exactly
+  the case mulmod produces). When `a_hi == 0`, step 1 returns
+  `q_hi=0, r1=0` and step 2 falls through to the 64-bit
+  `a_lo/b_lo`, so the same block handles both sub-cases without a
+  separate branch.
+- **Fast-path regression coverage** (`tests/tcyr/u128.tcyr`). Four
+  new assertions under `u128_divmod fast-path (b_hi == 0)` covering
+  `a_hi == 0` (77/13), `a_hi != 0` with small operands ((2^64+5)/7),
+  round-trip via `q*b + r == a` on a max-ish 128-bit dividend, and
+  the full `u128_mul + u128_mod` mulmod shape on (2^32−1)² mod
+  (2^32−5).
+
+### Unblocks
+Every existing `u128_mul + u128_mod` call shape picks up the
+speedup with no source change. Abaco's `ntheory::mod_mul` is the
+motivating consumer — the agent report noted a ~40× regression vs
+the binary double-and-add loop; this closes it.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 104/104 assertions in `tests/tcyr/u128.tcyr` (was 96/96).
+- 8/8 check.sh PASS.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path (this release).
+- alpha2 — `u64_powmod` companion + Miller-Rabin microbench that
+  locks in the alpha1 win.
+- alpha3 — f64 math constants (π, τ, e, ½, √2⁻¹, …).
+- alpha4 — inverse trig (`f64_asin` / `acos` / `atan` / `atan2`).
+- alpha5 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha6 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+
 ## [4.8.4] — 2026-04-14
 
 **Register allocation + bote blocker triad.** `#regalloc` graduates
