@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.2-alpha3] — 2026-04-14 (unreleased)
+
+### Added
+- **`benches/bench_switch.bcyr`** — measures if-chain vs
+  jump-table dispatch cost for 8-way and 16-way switches on
+  consecutive integers. Each benchmark iterates across all case
+  values to average out first-case-match bias.
+
+### Observed (on this machine)
+| Bench | avg | relative |
+|---|---|---|
+| `dispatch/chain_8` | 458 ns | baseline |
+| `dispatch/switch_8` | 428 ns | −7% |
+| `dispatch/chain_16` | 524 ns | baseline |
+| `dispatch/switch_16` | 467 ns | −11% |
+
+Jump table wins as expected; the spread widens with fanout. The
+roadmap's "10–35×" is the *worst-case-match* advantage (last case
+in an N-case chain vs. O(1) jump table); averaged over all N case
+values the improvement is steady but narrower — the chain's early
+cases are already fast. Alpha4 / alpha5 can benchmark
+auto-converted if-chains and 32-way enums respectively.
+
+### Validation
+- cc3 self-host byte-identical.
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
 ## [4.8.2-alpha2] — 2026-04-14 (unreleased)
 
 ### Changed

@@ -1,0 +1,140 @@
+# bench_switch.bcyr — switch dispatch microbenchmarks
+# Tier 1: codegen performance — if-chain vs jump-table dispatch.
+#
+# v4.8.2-alpha1/alpha2 lowered the switch density threshold (50% →
+# 33%) and raised the range cap (256 → 1024). This bench measures
+# the concrete dispatch cost of the two regimes so we can:
+#   (1) verify the jump-table path is faster than a comparable
+#       if-chain at the densities we now route through it;
+#   (2) set a baseline before the alpha3 auto-conversion (detecting
+#       if-chains that should become switches).
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+# --- if-chain, 8-way dispatch on consecutive values ---
+fn dispatch_chain_8(x) {
+    if (x == 0) { return 1; }
+    else { if (x == 1) { return 2; }
+    else { if (x == 2) { return 3; }
+    else { if (x == 3) { return 4; }
+    else { if (x == 4) { return 5; }
+    else { if (x == 5) { return 6; }
+    else { if (x == 6) { return 7; }
+    else { if (x == 7) { return 8; }
+    else { return 0; } } } } } } } }
+}
+
+# --- switch 8-way, same consecutive values — hits jump table ---
+fn dispatch_switch_8(x) {
+    switch (x) {
+        case 0: { return 1; }
+        case 1: { return 2; }
+        case 2: { return 3; }
+        case 3: { return 4; }
+        case 4: { return 5; }
+        case 5: { return 6; }
+        case 6: { return 7; }
+        case 7: { return 8; }
+        default: { return 0; }
+    }
+}
+
+# --- 16-way — bigger fan-out stresses chain more ---
+fn dispatch_chain_16(x) {
+    if (x == 0) { return 1; }
+    else { if (x == 1) { return 2; }
+    else { if (x == 2) { return 3; }
+    else { if (x == 3) { return 4; }
+    else { if (x == 4) { return 5; }
+    else { if (x == 5) { return 6; }
+    else { if (x == 6) { return 7; }
+    else { if (x == 7) { return 8; }
+    else { if (x == 8) { return 9; }
+    else { if (x == 9) { return 10; }
+    else { if (x == 10) { return 11; }
+    else { if (x == 11) { return 12; }
+    else { if (x == 12) { return 13; }
+    else { if (x == 13) { return 14; }
+    else { if (x == 14) { return 15; }
+    else { if (x == 15) { return 16; }
+    else { return 0; } } } } } } } } } } } } } } } }
+}
+
+fn dispatch_switch_16(x) {
+    switch (x) {
+        case 0: { return 1; }
+        case 1: { return 2; }
+        case 2: { return 3; }
+        case 3: { return 4; }
+        case 4: { return 5; }
+        case 5: { return 6; }
+        case 6: { return 7; }
+        case 7: { return 8; }
+        case 8: { return 9; }
+        case 9: { return 10; }
+        case 10: { return 11; }
+        case 11: { return 12; }
+        case 12: { return 13; }
+        case 13: { return 14; }
+        case 14: { return 15; }
+        case 15: { return 16; }
+        default: { return 0; }
+    }
+}
+
+# The benchmark calls each dispatch across all its values every
+# iteration — averages out the "lucky early match" bias that would
+# otherwise favor chain dispatch when the first case hits.
+fn work_chain_8() {
+    var i = 0;
+    while (i < 8) { dispatch_chain_8(i); i = i + 1; }
+    return 0;
+}
+fn work_switch_8() {
+    var i = 0;
+    while (i < 8) { dispatch_switch_8(i); i = i + 1; }
+    return 0;
+}
+fn work_chain_16() {
+    var i = 0;
+    while (i < 16) { dispatch_chain_16(i); i = i + 1; }
+    return 0;
+}
+fn work_switch_16() {
+    var i = 0;
+    while (i < 16) { dispatch_switch_16(i); i = i + 1; }
+    return 0;
+}
+
+var N = 100000;
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("dispatch/chain_8");
+    bench_run(b1, &work_chain_8, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("dispatch/switch_8");
+    bench_run(b2, &work_switch_8, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("dispatch/chain_16");
+    bench_run(b3, &work_chain_16, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("dispatch/switch_16");
+    bench_run(b4, &work_switch_16, N);
+    vec_push(all, b4);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);
