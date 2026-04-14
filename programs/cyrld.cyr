@@ -504,17 +504,146 @@ fn apply_relocations() {
     return errs;
 }
 
+# Look up a LOCAL symbol by name in a specific module. Returns the
+# symbol's final VA, or -1 if not found. Used to find `_cyrius_init`
+# for entry-point selection (it's STB_LOCAL per 4.6.0-alpha2).
+fn find_local_sym(mi, name) {
+    var buf = load64(&MOD_BUF + mi * 8);
+    var symtab_off = load64(&MOD_SYMTAB_OFF + mi * 8);
+    var symtab_size = load64(&MOD_SYMTAB_SIZE + mi * 8);
+    var strtab_off = load64(&MOD_STRTAB_OFF + mi * 8);
+    var tbase = load64(&MOD_TEXT_BASE + mi * 8);
+    var nsyms = symtab_size / 24;
+    var si = 1;
+    while (si < nsyms) {
+        var sym = buf + symtab_off + si * 24;
+        var st_name = read_u32(sym, 0);
+        var st_shndx = read_u16(sym, 6);
+        var st_value = load64(sym + 8);
+        if (st_shndx != 0) {
+            var name_ptr = buf + strtab_off + st_name;
+            if (streq(name_ptr, name) == 1) {
+                return ENTRY_VA + tbase + st_value;
+            }
+        }
+        si = si + 1;
+    }
+    return 0 - 1;
+}
+
+# Write the linked merged .text as an ET_EXEC ELF to `out_path`.
+# Entry is a 14-byte `_start` stub appended after merged_text that calls
+# `_cyrius_init` of the FIRST module, then exits with rax as the status.
+# Stub needed because _cyrius_init ends with `leave; ret` — returning to
+# the kernel-supplied stack top (argc) would SIGSEGV.
+# Layout: 64 B ELF header + 56 B program header + merged_text + 14 B _start.
+# Code-only — no .data, .rodata, or dynamic relocations. That's beta1.
+fn emit_executable(out_path) {
+    var init_va = find_local_sym(0, "_cyrius_init");
+    if (init_va < 0) {
+        emsg("error: first module has no _cyrius_init — cannot select entry\n");
+        return 1;
+    }
+    var stub_size = 14;
+    var hdr_size = 120;  # 64 ELF header + 56 program header
+    var total = hdr_size + MERGED_TEXT_SIZE + stub_size;
+    # Round up to 8 for ELF niceness.
+    total = (total + 7) & (0 - 8);
+    var O = alloc(total);
+    # _start stub lives at end of merged_text; entry is its VA.
+    var stub_off = hdr_size + MERGED_TEXT_SIZE;
+    var entry = ENTRY_VA + MERGED_TEXT_SIZE;
+    # Zero fill (for padding)
+    var zi = 0;
+    while (zi < total) { store8(O + zi, 0); zi = zi + 1; }
+    # ---- ELF64 header (64 bytes) ----
+    store64(O + 0, 0x00010102464C457F);   # magic, class=ELF64, data=LSB, version=1, pad
+    # e_type=ET_EXEC(2), e_machine=x86_64(0x3E), e_version=1
+    store64(O + 16, 0x00000001003E0002);
+    store64(O + 24, entry);                # e_entry
+    store64(O + 32, 0x40);                 # e_phoff = 64 (right after ELF header)
+    store64(O + 40, 0);                    # e_shoff = 0 (no section headers)
+    store8(O + 48, 0); store8(O + 49, 0); store8(O + 50, 0); store8(O + 51, 0); # e_flags
+    store8(O + 52, 64); store8(O + 53, 0); # e_ehsize
+    store8(O + 54, 56); store8(O + 55, 0); # e_phentsize
+    store8(O + 56, 1); store8(O + 57, 0);  # e_phnum
+    store8(O + 58, 0); store8(O + 59, 0);  # e_shentsize
+    store8(O + 60, 0); store8(O + 61, 0);  # e_shnum
+    store8(O + 62, 0); store8(O + 63, 0);  # e_shstrndx
+    # ---- Program header (56 bytes, PT_LOAD RWX) ----
+    store8(O + 64, 1); store8(O + 65, 0); store8(O + 66, 0); store8(O + 67, 0);  # p_type = PT_LOAD
+    store8(O + 68, 7); store8(O + 69, 0); store8(O + 70, 0); store8(O + 71, 0);  # p_flags = R|W|X
+    store64(O + 72, 0);                    # p_offset (file offset of segment — start of file)
+    store64(O + 80, 0x400000);             # p_vaddr
+    store64(O + 88, 0x400000);             # p_paddr
+    store64(O + 96, total);                # p_filesz
+    store64(O + 104, total + 4096);        # p_memsz (headroom)
+    store64(O + 112, 0x1000);              # p_align
+    # ---- Merged .text starting at file offset 120 (= VA 0x400078) ----
+    var ci = 0;
+    while (ci < MERGED_TEXT_SIZE) {
+        store8(O + hdr_size + ci, load8(MERGED_TEXT + ci));
+        ci = ci + 1;
+    }
+    # ---- _start stub at end of text ----
+    # E8 xx xx xx xx      call rel32 (_cyrius_init)
+    # 89 C7               mov edi, eax      (exit status = init's return)
+    # B8 3C 00 00 00      mov eax, 60       (SYS_EXIT)
+    # 0F 05               syscall
+    var rel = init_va - (entry + 5);
+    store8(O + stub_off + 0, 0xE8);
+    store8(O + stub_off + 1, rel & 0xFF);
+    store8(O + stub_off + 2, (rel >> 8) & 0xFF);
+    store8(O + stub_off + 3, (rel >> 16) & 0xFF);
+    store8(O + stub_off + 4, (rel >> 24) & 0xFF);
+    store8(O + stub_off + 5, 0x89);
+    store8(O + stub_off + 6, 0xC7);
+    store8(O + stub_off + 7, 0xB8);
+    store8(O + stub_off + 8, 0x3C);
+    store8(O + stub_off + 9, 0x00);
+    store8(O + stub_off + 10, 0x00);
+    store8(O + stub_off + 11, 0x00);
+    store8(O + stub_off + 12, 0x0F);
+    store8(O + stub_off + 13, 0x05);
+    # Write to disk.
+    var fd = syscall(SYS_OPEN, out_path, 0x241, 0x1ED);  # O_WRONLY|O_CREAT|O_TRUNC, 0755
+    if (fd < 0) {
+        emsg("error: cannot open output "); emsg(out_path); emsg("\n");
+        return 1;
+    }
+    var written = 0;
+    while (written < total) {
+        var w = syscall(SYS_WRITE, fd, O + written, total - written);
+        if (w <= 0) { syscall(SYS_CLOSE, fd); emsg("error: write failed\n"); return 1; }
+        written = written + w;
+    }
+    syscall(SYS_CLOSE, fd);
+    # chmod +x (best effort)
+    syscall(90, out_path, 0x1ED);
+    prints("  wrote "); printn(total); prints(" bytes to "); prints(out_path); prints("\n");
+    prints("  entry: 0x"); printhex(entry); prints("\n");
+    return 0;
+}
+
 fn main() {
     alloc_init();
     args_init();
     if (argc() < 2) {
-        emsg("Usage: cyrld <file.o> [more.o ...]\n");
-        emsg("  alpha2: loads N .o files, merges symbol tables, reports\n");
-        emsg("  plan and flags unresolved/duplicate-strong. Linking proper\n");
-        emsg("  (relocation application + executable emission) is alpha3+.\n");
+        emsg("Usage: cyrld [-o out] <file.o> [more.o ...]\n");
+        emsg("  With -o: links into an ET_EXEC at <out> (beta1).\n");
+        emsg("  Without -o: dump + validate only.\n");
         return 1;
     }
-    var i = 1;
+    # Simple -o parse: if arg 1 is "-o", arg 2 is output path, rest are inputs.
+    var out_path = 0;
+    var arg0 = 1;
+    if (argc() >= 3) {
+        if (streq(argv(1), "-o") == 1) {
+            out_path = argv(2);
+            arg0 = 3;
+        }
+    }
+    var i = arg0;
     while (i < argc()) {
         if (load_module(argv(i)) < 0) { return 1; }
         i = i + 1;
@@ -529,7 +658,6 @@ fn main() {
         emsg(" resolution error(s)\n");
         return 1;
     }
-    # alpha3: build merged .text buffer and apply relocations.
     if (build_merged_text(total) == 0) { return 1; }
     var rerrs = apply_relocations();
     if (rerrs > 0) {
@@ -537,6 +665,9 @@ fn main() {
         syscall(SYS_WRITE, 2, &reb, rel);
         emsg(" relocation error(s)\n");
         return 1;
+    }
+    if (out_path != 0) {
+        if (emit_executable(out_path) != 0) { return 1; }
     }
     return 0;
 }

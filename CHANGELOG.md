@@ -46,6 +46,55 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.6.0-beta1] — 2026-04-14 (unreleased)
+
+### Added
+- **cyrld emits runnable ET_EXEC** (`programs/cyrld.cyr`).
+  `cyrld -o <out> a.o b.o ...` now produces an executable binary that
+  loads at VA `0x400000` and actually runs.
+  - 64 B ELF header + 56 B program header (single `PT_LOAD` RWX at
+    `0x400000`, `p_align=0x1000`) + merged `.text` + 14 B `_start` stub.
+  - `_start` stub: `call _cyrius_init` of the first module, then
+    `mov edi, eax; mov eax, 60; syscall` — return status of top-level
+    code becomes the exit code. Needed because `_cyrius_init` ends with
+    `leave; ret`; returning to the kernel-supplied stack top (argc)
+    would SIGSEGV.
+  - `find_local_sym(mi, name)` — resolves a `STB_LOCAL` symbol (needed
+    because 4.6.0-alpha2 made `_cyrius_init` module-private).
+  - `emit_executable(out_path)` — writes the file via
+    `sys_open(O_WRONLY|O_CREAT|O_TRUNC, 0755)` + `sys_write` loop +
+    `sys_close`, `chmod +x` best-effort.
+- **`-o` CLI flag** — without it, cyrld just dumps + validates
+  (alpha3 behavior preserved).
+
+### Validation
+- Merge of `a.o` (`greet` returns 42, kept live by `greet_twice`)
+  and `c.o` (`call_greet` = `greet() + 1`, top-level
+  `var result = call_greet()`): linked binary exits `43`.
+  Cross-module call resolves correctly; entry stub wires
+  `_cyrius_init` return → exit status.
+- cc3 self-host stable (two-step bootstrap: cc3 compiles itself
+  byte-identical).
+- Build: 353KB compiler unchanged; cyrld = 217KB.
+
+### Known limits (beta1)
+- Code-only — `.data`/`.rodata`/`.bss` not merged. Top-level globals
+  work *only* if they stay within the caller's stack frame (currently
+  the case for simple `var x = fn()` because cc3 emits the global's
+  address as a PC-relative LEA that, with no `.data` section, resolves
+  to the start of `.text`; harmless for read-and-return flow).
+- Multi-globals that cross modules will break until `.data` merging lands
+  in beta2. Same story for string literals / `.rodata`.
+- Surfaced `cc3` object-mode bug: functions only referenced externally
+  (no in-module caller) get an elided body — the symbol points to the
+  fallback `xor eax,eax; ret` stub. Fix tracked for 4.6.0-beta2.
+
+### Next (beta2)
+- Merge `.data` / `.rodata` / `.bss` into separate segments
+  (RW and RO PT_LOADs).
+- Fix cc3 object-mode elision of externally-referenced functions.
+- Emit real section headers so `objdump -d` works without warnings.
+
 ## [4.6.0-alpha3] — 2026-04-14 (unreleased)
 
 ### Added
