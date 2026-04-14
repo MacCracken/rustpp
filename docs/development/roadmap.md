@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.3.0.** 309KB self-hosting compiler, x86_64 + aarch64.
+> **v4.3.1.** 309KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (309KB). Closure verified.
 > 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
 > `cyrius build` auto-resolves deps + auto-includes. File:line error messages.
@@ -16,7 +16,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| Layout-dependent codegen Heisenbug | Libro PatraStore tests | Workaround: isolated test binary. Needs basic-block analysis to diagnose. Not blocking releases. |
+| Layout-dependent memory corruption | Libro PatraStore tests | v4.3.1: localized with `CYRIUS_SYMS`. Crash is `memeq` called with NUL data ptr from `str_eq(entry_hash(a), entry_hash(b))` in large libro binary. Each `println` shifts the site — classic memory corruption signature. Root cause fix deferred to v4.4.0 CFG pass. Workaround still in place (isolated test binary). |
 
 ---
 

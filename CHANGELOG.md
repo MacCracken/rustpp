@@ -4,6 +4,21 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.3.1] — 2026-04-13
+
+### Added
+- **Symbol dump via `CYRIUS_SYMS` env var** (`src/backend/x86/fixup.cyr`):
+  when set to a file path, cc3 writes `VA name\n` per function during
+  fixup. Maps crash RIPs from coredumpctl/gdb to function+offset. Zero
+  overhead when unset (env read skipped). Enabled the libro PatraStore
+  Heisenbug localization: crash traced in minutes from `0x400219` →
+  `memeq + 0x71`, caller → `str_eq`, chain → `test_patrastore_append_load`
+  comparing corrupt `entry_hash()` results. Root cause still open (tracked
+  for 4.4.0 CFG pass), but diagnosis is now a tool away.
+- **`_read_env(name)`** helper in backend/x86/fixup.cyr: reads
+  `/proc/self/environ`, returns pointer to NUL-terminated value or 0.
+  Uses a 256-byte static scratch buffer (no heap needed in cc3).
+
 ## [4.3.0] — 2026-04-13
 
 ### Added

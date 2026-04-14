@@ -2,6 +2,49 @@
 # FIXUP — patch variable addresses after codegen
 # ================================================================
 
+# Static scratch for env value (256 bytes)
+var _env_scratch[256];
+
+# Read an env var by name. Returns &_env_scratch (NUL-terminated value) or 0.
+fn _read_env(name) {
+    var ebuf[8192];
+    var efd = syscall(2, "/proc/self/environ", 0, 0);
+    if (efd < 0) { return 0; }
+    var elen = syscall(0, efd, &ebuf, 8191);
+    syscall(3, efd);
+    if (elen <= 0) { return 0; }
+    store8(&ebuf + elen, 0);
+    var nlen = 0;
+    while (load8(name + nlen) != 0) { nlen = nlen + 1; }
+    var pos = 0;
+    while (pos < elen) {
+        var end = pos;
+        while (end < elen && load8(&ebuf + end) != 0) { end = end + 1; }
+        if (end - pos > nlen && load8(&ebuf + pos + nlen) == 61) {
+            var matched = 1;
+            var k = 0;
+            while (k < nlen) {
+                if (load8(&ebuf + pos + k) != load8(name + k)) { matched = 0; break; }
+                k = k + 1;
+            }
+            if (matched == 1) {
+                var vstart = pos + nlen + 1;
+                var vlen = end - vstart;
+                if (vlen > 255) { vlen = 255; }
+                var ci = 0;
+                while (ci < vlen) {
+                    store8(&_env_scratch + ci, load8(&ebuf + vstart + ci));
+                    ci = ci + 1;
+                }
+                store8(&_env_scratch + vlen, 0);
+                return &_env_scratch;
+            }
+        }
+        pos = end + 1;
+    }
+    return 0;
+}
+
 fn FIXUP(S) {
     # Align code to 8 (don't write — leave as zeros, matching cyrc)
     var cp = GCP(S);
@@ -100,6 +143,41 @@ fn FIXUP(S) {
         PRNUM(fnc);
         syscall(SYS_WRITE, 2, " total)\n", 8);
     }
+    # Symbol dump — opt-in via CYRIUS_SYMS env var (value = output path)
+    # Writes "VA name" per line to the given file. Used for crash localization:
+    # map RIP from coredumpctl to function+offset. See docs/diagnosis-symbols.md.
+    var sym_path = _read_env("CYRIUS_SYMS");
+    if (sym_path != 0) {
+        var symfd = syscall(2, sym_path, 0x241, 0x1A4);
+        if (symfd >= 0) {
+            var sfi = 0;
+            while (sfi < fnc) {
+                var foff = L64(S + 0xC4000 + sfi * 8);
+                if (foff >= 0) {
+                    var vabuf[20];
+                    var va = entry + foff;
+                    var vi2 = 15;
+                    while (vi2 >= 0) {
+                        var hd = va & 15;
+                        if (hd < 10) { store8(&vabuf + vi2, 48 + hd); }
+                        else { store8(&vabuf + vi2, 87 + hd); }
+                        va = va >> 4;
+                        vi2 = vi2 - 1;
+                    }
+                    syscall(1, symfd, &vabuf, 16);
+                    syscall(1, symfd, " ", 1);
+                    var nptr = S + 0x60000 + L64(S + 0xC0000 + sfi * 8);
+                    var nlen = 0;
+                    while (load8(nptr + nlen) != 0) { nlen = nlen + 1; }
+                    syscall(1, symfd, nptr, nlen);
+                    syscall(1, symfd, "\n", 1);
+                }
+                sfi = sfi + 1;
+            }
+            syscall(3, symfd);
+        }
+    }
+
     # Walk fixup table
     var fcnt = GFCNT(S);
     var fi = 0;
