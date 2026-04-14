@@ -176,8 +176,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     SNPOS(S, cwp2);
                     var cfi = FINDFN(S, cnoff2);
                     if (cfi >= 0) {
-                        S64(S + 0xC4000 + cfi * 8, GCP(S));
-                        S64(S + 0xC8000 + cfi * 8, 1);
+                        S64(S + 0xE92000 + cfi * 8, GCP(S));
+                        S64(S + 0xE9A000 + cfi * 8, 1);
                         EFNPRO(S);
                         var ctor_frame = ESUBRSP(S);
                         ESTOREPARM(S, 0, 0, 0);
@@ -191,7 +191,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         SNPOS(S, awnp + 6);
                         var afi = FINDFN(S, awnp);
                         if (afi < 0) { afi = REGFN(S, awnp); }
-                        var afoff = L64(S + 0xC4000 + afi * 8);
+                        var afoff = L64(S + 0xE92000 + afi * 8);
                         if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
                         ECALLCLEAN(S, 1);
                         EFLSTORE(S, 1);
@@ -808,7 +808,7 @@ fn PARSE_FACTOR(S) {
         SSDEP(S, 0);
         # Emit function prologue
         var cl_jmp = EJMP0(S);
-        S64(S + 0xC4000 + clfi * 8, GCP(S));
+        S64(S + 0xE92000 + clfi * 8, GCP(S));
         EFNPRO(S);
         # Parse params until |
         var clpc = 0;
@@ -828,7 +828,7 @@ fn PARSE_FACTOR(S) {
                 else { cpgo = 0; }
             }
         }
-        S64(S + 0xC8000 + clfi * 8, clpc);
+        S64(S + 0xE9A000 + clfi * 8, clpc);
         if (PEEKT(S) != 35) { ERR_EXPECT(S, 35); }
         STI(S, GTI(S) + 1);  # consume closing |
         ESUBRSP(S, GFLC(S));
@@ -1278,7 +1278,7 @@ fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
     ECALLPOPS(S, 2);
     var ofi = FINDFN(S, opnoff);
     if (ofi < 0) { ofi = REGFN(S, opnoff); }
-    var ofoff = L64(S + 0xC4000 + ofi * 8);
+    var ofoff = L64(S + 0xE92000 + ofi * 8);
     if (ofoff >= 0) { ECALLTO(S, ofoff); }
     else { ECALLFIX(S, ofi); }
     ECALLCLEAN(S, 2);
@@ -1525,10 +1525,19 @@ fn PARSE_ARRAY(S, noff) {
     return 0;
 }
 
-# Build mangled method name: StructName_method in tok_names scratch area.
-# Returns noff of the combined name. Uses end of tok_names as scratch.
+# Build mangled method name: StructName_method in tok_names scratch.
+# Returns noff of the combined name. Uses the region AFTER current
+# npos as scratch — writing past live identifiers so FINDFN's byte
+# compare sees a clean name. Does NOT advance npos (this is lookup-
+# only; the method fn was registered at struct-def time).
+# Pre-4.7.1 this wrote to a fixed offset 30000, which silently
+# corrupted real identifiers in any program with >30 KB of names.
+# Bote saw the downstream mis-parse as `lib/assert.cyr:3: expected
+# '=', got string` because a post-corruption token noff now pointed
+# at garbled bytes.
 fn BUILD_METHOD_NAME(S, si, mnoff) {
-    var scratch = 30000;
+    NPOS_GUARD(S, 256);
+    var scratch = GNPOS(S);
     var wp = scratch;
     # Copy struct name
     var snoff = L64(S + 0x8E630 + si * 8);
@@ -1616,7 +1625,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
         ECALLPOPS(S, argc);
         var mfi = FINDFN(S, mname);
         if (mfi < 0) { mfi = REGFN(S, mname); }
-        var mfoff = L64(S + 0xC4000 + mfi * 8);
+        var mfoff = L64(S + 0xE92000 + mfi * 8);
         if (mfoff >= 0) { ECALLTO(S, mfoff); }
         else { ECALLFIX(S, mfi); }
         ECALLCLEAN(S, argc);
@@ -2411,7 +2420,7 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vlnp + 8);
                 vlfi = FINDFN(S, vlnp);
                 if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
-                var vloff = L64(S + 0xC4000 + vlfi * 8);
+                var vloff = L64(S + 0xE92000 + vlfi * 8);
                 if (vloff >= 0) { ECALLTO(S, vloff); } else { ECALLFIX(S, vlfi); }
                 ECALLCLEAN(S, 1);
                 # Store length in hidden var
@@ -2472,7 +2481,7 @@ fn PARSE_FOR(S) {
                 SNPOS(S, vgnp + 8);
                 vgfi = FINDFN(S, vgnp);
                 if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
-                var vgoff = L64(S + 0xC4000 + vgfi * 8);
+                var vgoff = L64(S + 0xE92000 + vgfi * 8);
                 if (vgoff >= 0) { ECALLTO(S, vgoff); } else { ECALLFIX(S, vgfi); }
                 ECALLCLEAN(S, 2);
                 EFLSTORE(S, fiitem);
@@ -2671,15 +2680,15 @@ fn PARSE_FOR(S) {
 # Register new function, return index
 fn REGFN(S, noff) {
     var fc = GFNC(S);
-    if (fc >= 2048) {
+    if (fc >= 4096) {
         syscall(SYS_WRITE, 2, "error: function table full (", 28);
         PRNUM(fc);
-        syscall(SYS_WRITE, 2, "/2048) — split into separate compilation units\n", 48);
+        syscall(SYS_WRITE, 2, "/4096) — split into separate compilation units\n", 48);
         syscall(SYS_EXIT, 1);
     }
-    S64(S + 0xC0000 + fc * 8, noff);
-    S64(S + 0xC4000 + fc * 8, 0 - 1);
-    S64(S + 0xC8000 + fc * 8, 0);
+    S64(S + 0xE8A000 + fc * 8, noff);
+    S64(S + 0xE92000 + fc * 8, 0 - 1);
+    S64(S + 0xE9A000 + fc * 8, 0);
     SFNC(S, fc + 1);
     return fc;
 }
@@ -2689,7 +2698,7 @@ fn FINDFN(S, noff) {
     var fc = GFNC(S);
     var i = 0;
     while (i < fc) {
-        var sn = L64(S + 0xC0000 + i * 8);
+        var sn = L64(S + 0xE8A000 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
@@ -2783,7 +2792,7 @@ fn PARSE_RETURN(S) {
                     if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
                     if (tcargc > 6) {
                         # >6 args: normal call (stack args clobbered by tail call epilogue)
-                        var foff2 = L64(S + 0xC4000 + tcfi * 8);
+                        var foff2 = L64(S + 0xE92000 + tcfi * 8);
                         if (foff2 >= 0) { ECALLTO(S, foff2); }
                         else { ECALLFIX(S, tcfi); }
                         ECALLCLEAN(S, tcargc);
@@ -2855,7 +2864,7 @@ fn PARSE_FNCALL(S, noff) {
     if (fi < 0) { fi = REGFN(S, noff); }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
         # INLINE PATH: replay function body tokens at call site
-        var pc = L64(S + 0xC8000 + fi * 8);
+        var pc = L64(S + 0xE9A000 + fi * 8);
         var saved_flc = GFLC(S);
         # Allocate fresh frame slots for callee params
         var p0_slot = saved_flc;
@@ -2912,7 +2921,7 @@ fn PARSE_FNCALL(S, noff) {
     # ESTORESTACKPARM compensates for the reversed register assignment.
     # Auto-coerce string literals to Str for params annotated : Str.
     var argc = 0;
-    var smask = L64(S + 0xDC000 + fi * 8);
+    var smask = L64(S + 0xEBA000 + fi * 8);
     if (PEEKT(S) != 11) {
         var argo = 1;
         while (argo == 1) {
@@ -2926,7 +2935,7 @@ fn PARSE_FNCALL(S, noff) {
                     EPUSHR(S);
                     ECALLPOPS(S, 1);
                     if (sf_fi >= 0) {
-                        var sfoff = L64(S + 0xC4000 + sf_fi * 8);
+                        var sfoff = L64(S + 0xE92000 + sf_fi * 8);
                         if (sfoff >= 0) { ECALLTO(S, sfoff); }
                         else { ECALLFIX(S, sf_fi); }
                     }
@@ -2948,7 +2957,7 @@ fn PARSE_FNCALL(S, noff) {
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
     ECALLPOPS(S, argc);
-    var foff = L64(S + 0xC4000 + fi * 8);
+    var foff = L64(S + 0xE92000 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -3090,7 +3099,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     # Set fn offset to current CP
-    S64(S + 0xC4000 + fi * 8, GCP(S));
+    S64(S + 0xE92000 + fi * 8, GCP(S));
     # Save compiler state
     var saved_lv = GLVAR(S);
     SINFN(S, 1);
@@ -3143,9 +3152,9 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
-    S64(S + 0xC8000 + fi * 8, pc);
+    S64(S + 0xE9A000 + fi * 8, pc);
     # Store Str param mask — bit N set = param N is : Str
-    S64(S + 0xDC000 + fi * 8, str_mask);
+    S64(S + 0xEBA000 + fi * 8, str_mask);
     # Record first param name offset for inlining (stored in fn_inline later)
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.7.0.** 353KB self-hosting compiler, x86_64 + aarch64.
+> **v4.7.1.** 353KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (353KB). Closure verified.
 > 41 test suites, 11 benchmarks, 5 fuzz harnesses. **42 stdlib modules** + 5 deps.
 > New in 4.5.0: `lib/http_server.cyr` — HTTP/1.1 primitives, Content-Length-aware reads, URL decode, chunked/SSE.

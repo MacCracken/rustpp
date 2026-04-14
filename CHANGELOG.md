@@ -46,6 +46,71 @@ landed after a `cyrfmt` normalization pass.
 - cc3 self-host unchanged (stdlib-only addition; compiler not touched).
 - 5/5 check.sh PASS.
 
+## [4.7.1] — 2026-04-14
+
+### Fixed
+- **`BUILD_METHOD_NAME` scratch corruption** (`src/frontend/parse.cyr`).
+  Method dispatch pre-4.7.1 wrote the mangled name `StructName_method`
+  at a fixed `tok_names` offset of 30 000 bytes. Any program with
+  more than ~30 KB of identifier data had real tokens pointing into
+  that region; the scratch write silently overwrote them, and later
+  parsing mis-read the corrupted bytes. This is what bote's
+  *"4.6.1 diagnostic fix doesn't cover our path"* report surfaced —
+  the `lib/assert.cyr:3: expected '=', got string` error came from a
+  token whose noff pointed at bytes that had been clobbered by a
+  method-name scratch write elsewhere in the unit. Fix: scratch now
+  starts at `GNPOS(S)` (past the current live identifiers) with an
+  `NPOS_GUARD(S, 256)` and does *not* advance npos — lookup-only,
+  bytes past npos are safe because the next `LEXID` will just
+  overwrite them.
+
+### Changed
+- **Function table cap raised 2048 → 4096** (`src/frontend/parse.cyr`,
+  `src/main.cyr`, `src/main_cx.cyr`, `src/common/util.cyr`,
+  `src/backend/x86/fixup.cyr`, `src/backend/aarch64/fixup.cyr`).
+  Bote sits at ~1800 / 2048 before `lib/ws_server.cyr` lands, and
+  `ws_server.cyr` adds 16 fns — we'd tip over with no realistic
+  remediation ("split into compilation units" isn't an option while
+  the linker is per-compilation-unit).
+  - All 8 fn tables relocated from `0xC0000–0xE4000` to
+    `0xE8A000–0xECA000` (the 256 KB scratch region past the runtime
+    fixup table at `0xE4A000+16384×16`). Each table doubled from
+    16 KB to 32 KB, holding 4096 entries:
+    - `fn_names` → `0xE8A000`
+    - `fn_offsets` → `0xE92000`
+    - `fn_params` → `0xE9A000`
+    - `fn_body_start` → `0xEA2000`
+    - `fn_body_end` → `0xEAA000`
+    - `fn_inline` → `0xEB2000`
+    - `fn_param_str_mask` → `0xEBA000`
+    - `fn_code_end` → `0xEC2000`
+  - `REGFN` cap updated to `4096`; error message reports `/4096`.
+  - Old `0xC0000–0xE4000` region (144 KB) is now free, available for
+    a future reorg.
+  - Bridge compiler unaffected (maintains its own heap layout; does
+    not reference these addresses).
+
+### Validation
+- 3500-fn stress test (short names to avoid ident buffer): previously
+  hit the fn cap at 2048; now compiles through to 4096, then reports
+  the clean diagnostic `error: function table full (4096/4096) —
+  split into separate compilation units`.
+- 3500-fn stress with long names: hits the 128 KB identifier buffer
+  first with `error: identifier buffer full (130819/131072 bytes)
+  — reduce included modules or split into separate unit`.
+- Bote's `cyrius-4.5.1-repro.cyr` (2000 long-named fns) compiles
+  clean; was previously near the ceiling.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 5/5 check.sh PASS.
+
+### Why a patch release
+Addresses the two downstream items bote flagged after 4.6.1/4.6.2:
+(1) a real corruption bug in `BUILD_METHOD_NAME` that the diagnostic
+patch couldn't cover because the overflow *path* was corruption, not
+buffer growth; (2) cap headroom for the fn table. Both fixes are
+contained: (1) is a one-site change, (2) moves addresses but doesn't
+change the compiler's external contract.
+
 ## [4.7.0] — 2026-04-14
 
 ### Added (GA highlights)

@@ -69,20 +69,24 @@
 #   0x92000  macro tables                16 macros (names, offsets, bodies)
 #   0x92200  local_types                 local variable type tracking
 #
-# --- Function tables ---
+# --- Function tables (relocated v4.7.1 — caps raised 2048 → 4096) ---
 #   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
-#   0xC0000  fn_names      [16384]       2048 function name offsets
-#   0xC4000  fn_offsets    [16384]       2048 function code offsets
-#   0xC8000  fn_params     [16384]       2048 function param counts
-#   0xCC000  fn_body_start [16384]       2048 inline body start
-#   0xD0000  fn_body_end   [16384]       2048 inline body end
-#   0xD4000  fn_inline     [16384]       2048 inline flags
+#   0xE8A000 fn_names      [32768]       4096 function name offsets
+#   0xE92000 fn_offsets    [32768]       4096 function code offsets
+#   0xE9A000 fn_params     [32768]       4096 function param counts
+#   0xEA2000 fn_body_start [32768]       4096 inline body start
+#   0xEAA000 fn_body_end   [32768]       4096 inline body end
+#   0xEB2000 fn_inline     [32768]       4096 inline flags
+#   0xEBA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
+#   0xEC2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
+# Tables relocated past the runtime fixup_tbl (at 0xE4A000 × 16 B ×
+# 16384 = ends at 0xE8A000). Fits exactly in the 256 KB between that
+# end and brk's top at 0xECA000.
 #
 # --- Reclaimable / scratch ---
+#   0xC0000  (free 144 KB) former fn-tables home, reclaimable v4.7.1+
 #   0xD8000  (free)        [8192]        was struct_fnames, moved to 0xDCA000
 #   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
-#   0xE0000  fn_code_end   [16384]       2048 fn code END offsets (v4.4.0 DCE — paired with fn starts at 0xC4000)
-#   0xDC000  fn_param_str_mask [16384]   2048 Str-param bitmasks (v3.6.0 auto-coercion)
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
@@ -154,7 +158,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.7.0\n", 10);
+                syscall(SYS_WRITE, 1, "cc3 4.7.1\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -501,7 +505,7 @@ while (topgo == 1) {
             # Register or find function and set its offset to stub
             var stub_fi = FINDFN(S, stub_noff);
             if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            S64(S + 0xC4000 + stub_fi * 8, GCP(S));
+            S64(S + 0xE92000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -564,9 +568,9 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0xC4000 + wfi * 8) < 0) {
+    if (L64(S + 0xE92000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0xC0000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0xE8A000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;
