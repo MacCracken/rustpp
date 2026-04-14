@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha2] — 2026-04-14 (unreleased)
+
+### Added
+- **Underscore separators in numeric literals**
+  (`src/frontend/lex.cyr`). `LEXHEX` and `LEXDEC` now skip `_`
+  silently between digits:
+  ```
+  var a = 0xDEAD_BEEF_CAFE_BABE;   # = 0xDEADBEEFCAFEBABE
+  var b = 1_000_000;               # = 1000000
+  var c = 0xFF_FF;                 # = 0xFFFF
+  ```
+  Trailing / doubled underscores are tolerated. Prereq for the
+  128-bit hex literal parse in alpha3 (e.g.
+  `0xDEAD_BEEF_CAFE_BABE_1234_5678_9ABC_DEF0`).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS.
+
 ## [4.5.1] — 2026-04-14
 
 ### Added

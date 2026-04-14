@@ -1528,12 +1528,16 @@ fn LEXHEX(S, p) {
         if (p >= GBL(S)) { go = 0; }
         if (go == 1) {
             var c = load8(S + 4497408 + p);
-            var hd = 0 - 1;
-            if (c >= 48) { if (c <= 57) { hd = c - 48; } }
-            if (c >= 97) { if (c <= 102) { hd = c - 87; } }
-            if (c >= 65) { if (c <= 70) { hd = c - 55; } }
-            if (hd >= 0) { val = val << 4 | hd; p = p + 1; }
-            else { go = 0; }
+            # Underscore separator (e.g. 0xDEAD_BEEF) — skip silently.
+            if (c == 95) { p = p + 1; }
+            else {
+                var hd = 0 - 1;
+                if (c >= 48) { if (c <= 57) { hd = c - 48; } }
+                if (c >= 97) { if (c <= 102) { hd = c - 87; } }
+                if (c >= 65) { if (c <= 70) { hd = c - 55; } }
+                if (hd >= 0) { val = val << 4 | hd; p = p + 1; }
+                else { go = 0; }
+            }
         }
     }
     ADDTOK(S, 1, val);
@@ -1550,7 +1554,9 @@ fn LEXDEC(S, p) {
         if (p >= GBL(S)) { go = 0; }
         if (go == 1) {
             c = load8(S + 0x44A000 + p);
-            if (c >= 48) {
+            # Underscore separator (e.g. 1_000_000) — skip silently.
+            if (c == 95) { p = p + 1; }
+            elif (c >= 48) {
                 if (c <= 57) { val = val * 10 + (c - 48); p = p + 1; }
                 else { go = 0; }
             } else { go = 0; }
