@@ -1,0 +1,293 @@
+# cyrld — Cyrius multi-file linker (v4.6.0-alpha1)
+#
+# Reads ET_REL (.o) files produced by `cyrius build -c`, eventually merges
+# them into a single executable. Alpha1 scope: parse one .o file, dump
+# its structure. Following alphas add symbol merging, relocation
+# application, and executable emission.
+#
+# Format reference: EMITELF_OBJ in src/backend/x86/fixup.cyr is the
+# writer side — section order is .text .data .rodata .symtab .strtab
+# .rela.text, with a section header table at the end.
+#
+# ELF64 offsets used here:
+#   ELF header (64 bytes):
+#     e_ident[0..15]    magic + class + data + version + osabi + pad
+#     e_type     @16    2 bytes  ET_REL=1, ET_EXEC=2, ET_DYN=3
+#     e_machine  @18    2 bytes  x86_64=0x3E
+#     e_version  @20    4 bytes
+#     e_entry    @24    8 bytes
+#     e_phoff    @32    8 bytes
+#     e_shoff    @40    8 bytes  (section header table offset)
+#     e_flags    @48    4 bytes
+#     e_ehsize   @52    2 bytes  (64)
+#     e_phentsize@54    2 bytes
+#     e_phnum    @56    2 bytes
+#     e_shentsize@58    2 bytes  (64)
+#     e_shnum    @60    2 bytes
+#     e_shstrndx @62    2 bytes  (section name strtab index)
+#
+#   Section header (64 bytes):
+#     sh_name    @0     4 bytes  (offset into shstrtab)
+#     sh_type    @4     4 bytes  (NULL=0 PROGBITS=1 SYMTAB=2 STRTAB=3 RELA=4 NOBITS=8)
+#     sh_flags   @8     8 bytes
+#     sh_addr    @16    8 bytes
+#     sh_offset  @24    8 bytes
+#     sh_size    @32    8 bytes
+#     sh_link    @40    4 bytes
+#     sh_info    @44    4 bytes
+#     sh_addralign @48  8 bytes
+#     sh_entsize @56    8 bytes
+#
+#   Symbol (24 bytes):
+#     st_name    @0     4 bytes  (offset into strtab)
+#     st_info    @4     1 byte   ((bind << 4) | type); bind: LOCAL=0 GLOBAL=1 WEAK=2; type: NOTYPE=0 FUNC=2 SECTION=3
+#     st_other   @5     1 byte
+#     st_shndx   @6     2 bytes  (section index or SHN_UNDEF=0)
+#     st_value   @8     8 bytes
+#     st_size    @16    8 bytes
+#
+#   Rela entry (24 bytes):
+#     r_offset   @0     8 bytes  (offset into target section — .text usually)
+#     r_info     @8     8 bytes  ((sym_idx << 32) | type); type: R_X86_64_PC32=2, PLT32=4, GOTPCREL=9, 64=1
+#     r_addend   @16    8 bytes  (signed)
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/args.cyr"
+include "lib/syscalls.cyr"
+
+var SHT_NULL     = 0;
+var SHT_PROGBITS = 1;
+var SHT_SYMTAB   = 2;
+var SHT_STRTAB   = 3;
+var SHT_RELA     = 4;
+var SHT_NOBITS   = 8;
+
+var R_X86_64_PC32     = 2;
+var R_X86_64_PLT32    = 4;
+var R_X86_64_GOTPCREL = 9;
+var R_X86_64_64       = 1;
+
+var STT_NOTYPE  = 0;
+var STT_FUNC    = 2;
+var STT_SECTION = 3;
+
+var STB_LOCAL  = 0;
+var STB_GLOBAL = 1;
+var STB_WEAK   = 2;
+
+fn emsg(s) {
+    syscall(SYS_WRITE, 2, s, strlen(s));
+    return 0;
+}
+
+fn prints(s) {
+    syscall(SYS_WRITE, 1, s, strlen(s));
+    return 0;
+}
+
+fn printn(n) {
+    var buf[24];
+    var len = fmt_int_buf(n, &buf);
+    syscall(SYS_WRITE, 1, &buf, len);
+    return 0;
+}
+
+# Read a little-endian unsigned 16-bit value at buf + off.
+fn read_u16(buf, off) {
+    return load8(buf + off) | (load8(buf + off + 1) << 8);
+}
+
+# Read a little-endian unsigned 32-bit value at buf + off.
+fn read_u32(buf, off) {
+    return load8(buf + off)
+         | (load8(buf + off + 1) << 8)
+         | (load8(buf + off + 2) << 16)
+         | (load8(buf + off + 3) << 24);
+}
+
+# Read a little-endian 64-bit value at buf + off.
+fn read_u64(buf, off) {
+    return load64(buf + off);
+}
+
+# Verify the ELF64 header matches what we can link. Returns 1 on OK.
+fn verify_elf_header(buf, len) {
+    if (len < 64) { emsg("error: file too short for ELF header\n"); return 0; }
+    if (load8(buf) != 0x7F) { emsg("error: missing ELF magic\n"); return 0; }
+    if (load8(buf + 1) != 69) { emsg("error: missing ELF magic (E)\n"); return 0; }
+    if (load8(buf + 2) != 76) { emsg("error: missing ELF magic (L)\n"); return 0; }
+    if (load8(buf + 3) != 70) { emsg("error: missing ELF magic (F)\n"); return 0; }
+    if (load8(buf + 4) != 2)  { emsg("error: not ELFCLASS64\n"); return 0; }
+    if (load8(buf + 5) != 1)  { emsg("error: not ELFDATA2LSB (little-endian)\n"); return 0; }
+    var etype = read_u16(buf, 16);
+    if (etype != 1) { emsg("error: not ET_REL (object file)\n"); return 0; }
+    var emachine = read_u16(buf, 18);
+    if (emachine != 0x3E) { emsg("error: not x86_64 machine\n"); return 0; }
+    return 1;
+}
+
+# Print the name of a section type.
+fn type_name(t) {
+    if (t == SHT_NULL)     { prints("NULL"); return 0; }
+    if (t == SHT_PROGBITS) { prints("PROGBITS"); return 0; }
+    if (t == SHT_SYMTAB)   { prints("SYMTAB"); return 0; }
+    if (t == SHT_STRTAB)   { prints("STRTAB"); return 0; }
+    if (t == SHT_RELA)     { prints("RELA"); return 0; }
+    if (t == SHT_NOBITS)   { prints("NOBITS"); return 0; }
+    prints("?("); printn(t); prints(")");
+    return 0;
+}
+
+fn reloc_name(t) {
+    if (t == R_X86_64_64)       { prints("R_X86_64_64"); return 0; }
+    if (t == R_X86_64_PC32)     { prints("R_X86_64_PC32"); return 0; }
+    if (t == R_X86_64_PLT32)    { prints("R_X86_64_PLT32"); return 0; }
+    if (t == R_X86_64_GOTPCREL) { prints("R_X86_64_GOTPCREL"); return 0; }
+    prints("?("); printn(t); prints(")");
+    return 0;
+}
+
+# Dump a parsed .o file to stdout (alpha1: validation / sanity).
+fn dump_o(path) {
+    var buf = alloc(1048576);
+    var n = file_read_all(path, buf, 1048576);
+    if (n <= 0) { emsg("error: cannot read "); emsg(path); emsg("\n"); return 1; }
+
+    if (verify_elf_header(buf, n) == 0) { return 1; }
+
+    var shoff = read_u64(buf, 40);
+    var shnum = read_u16(buf, 60);
+    var shstrndx = read_u16(buf, 62);
+
+    prints("=== "); prints(path); prints(" ===\n");
+    prints("  sections: "); printn(shnum);
+    prints("  shoff: 0x"); var sbuf[16]; var slen = fmt_hex_buf(shoff, &sbuf); syscall(SYS_WRITE, 1, &sbuf, slen);
+    prints("  shstrndx: "); printn(shstrndx); prints("\n");
+
+    # Locate section-name strtab (for printing section names).
+    var sh_base = buf + shoff;
+    var shstr_off = read_u64(sh_base, shstrndx * 64 + 24);
+    var shstr_buf = buf + shstr_off;
+
+    # Walk sections.
+    var symtab_off = 0; var symtab_size = 0; var symtab_link = 0;
+    var strtab_off = 0;
+    var rela_off = 0;   var rela_size = 0;
+    var text_off = 0;   var text_size = 0;
+    var i = 0;
+    prints("  idx  type        size       name\n");
+    while (i < shnum) {
+        var sh = sh_base + i * 64;
+        var name_off = read_u32(sh, 0);
+        var sh_type = read_u32(sh, 4);
+        var sh_off = read_u64(sh, 24);
+        var sh_size = read_u64(sh, 32);
+        var sh_link = read_u32(sh, 40);
+        var name_ptr = shstr_buf + name_off;
+        prints("  ");
+        printn(i);
+        prints("    ");
+        type_name(sh_type);
+        prints("    ");
+        printn(sh_size);
+        prints("    ");
+        syscall(SYS_WRITE, 1, name_ptr, strlen(name_ptr));
+        prints("\n");
+        if (sh_type == SHT_SYMTAB) {
+            symtab_off = sh_off; symtab_size = sh_size; symtab_link = sh_link;
+        }
+        if (sh_type == SHT_PROGBITS) {
+            if (memeq(name_ptr, ".text", 5) == 1 && load8(name_ptr + 5) == 0) {
+                text_off = sh_off; text_size = sh_size;
+            }
+        }
+        if (sh_type == SHT_RELA) { rela_off = sh_off; rela_size = sh_size; }
+        i = i + 1;
+    }
+    # strtab is pointed at by symtab's sh_link
+    if (symtab_link > 0 && symtab_link < shnum) {
+        strtab_off = read_u64(sh_base, symtab_link * 64 + 24);
+    }
+
+    # Print symtab summary + defined symbols
+    if (symtab_size > 0) {
+        var nsyms = symtab_size / 24;
+        prints("  symbols: "); printn(nsyms); prints("\n");
+        var strtab_buf = buf + strtab_off;
+        var si = 1;  # skip null symbol
+        while (si < nsyms) {
+            var sym = buf + symtab_off + si * 24;
+            var st_name = read_u32(sym, 0);
+            var st_info = load8(sym + 4);
+            var st_shndx = read_u16(sym, 6);
+            var st_value = read_u64(sym, 8);
+            var bind = st_info >> 4;
+            var sttyp = st_info & 15;
+            var name_ptr = strtab_buf + st_name;
+            var nl = strlen(name_ptr);
+            if (nl > 0) {
+                prints("    ");
+                if (bind == STB_GLOBAL) { prints("G "); } elif (bind == STB_WEAK) { prints("W "); } else { prints("L "); }
+                if (sttyp == STT_FUNC) { prints("FN "); } elif (sttyp == STT_SECTION) { prints("SEC "); } else { prints("   "); }
+                if (st_shndx == 0) { prints("UND  "); } else { prints("def  "); }
+                syscall(SYS_WRITE, 1, name_ptr, nl);
+                prints("  @0x");
+                var hb[16]; var hl = fmt_hex_buf(st_value, &hb);
+                syscall(SYS_WRITE, 1, &hb, hl);
+                prints("\n");
+            }
+            si = si + 1;
+        }
+    }
+
+    # Print rela summary
+    if (rela_size > 0) {
+        var nrela = rela_size / 24;
+        prints("  relocations: "); printn(nrela); prints("\n");
+        var ri = 0;
+        while (ri < nrela) {
+            var rel = buf + rela_off + ri * 24;
+            var r_off = read_u64(rel, 0);
+            var r_info = read_u64(rel, 8);
+            var r_type = r_info & 0xFFFFFFFF;
+            var r_sym = r_info >> 32;
+            var r_add = read_u64(rel, 16);
+            prints("    @0x");
+            var ohb[16]; var ohl = fmt_hex_buf(r_off, &ohb);
+            syscall(SYS_WRITE, 1, &ohb, ohl);
+            prints("  sym#"); printn(r_sym);
+            prints("  ");
+            reloc_name(r_type);
+            prints("  +"); printn(r_add);
+            prints("\n");
+            ri = ri + 1;
+        }
+    }
+
+    prints("  .text: "); printn(text_size); prints(" bytes\n");
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+    if (argc() < 2) {
+        emsg("Usage: cyrld <file.o> [more.o ...]\n");
+        emsg("  (alpha1: dumps .o structure; linking comes in later alphas)\n");
+        return 1;
+    }
+    var i = 1;
+    var rv = 0;
+    while (i < argc()) {
+        var r = dump_o(argv(i));
+        if (r != 0) { rv = 1; }
+        i = i + 1;
+    }
+    return rv;
+}
+var r = main();
+syscall(SYS_EXIT, r);

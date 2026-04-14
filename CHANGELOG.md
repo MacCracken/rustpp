@@ -4,6 +4,27 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.6.0-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **`programs/cyrld.cyr`** — multi-file linker scaffold. alpha1 scope:
+  parse ET_REL (.o) files written by `EMITELF_OBJ`, validate ELF64
+  header, walk section headers, dump symtab + relocation table.
+  Handles all sections `cyrius build -c` produces: `.text`, `.data`,
+  `.rodata`, `.symtab`, `.strtab`, `.rela.text`. Output matches
+  `readelf -S`/`-s`/`-r` on the same files.
+- Reloc-type classification: `R_X86_64_64`, `R_X86_64_PC32`,
+  `R_X86_64_PLT32`, `R_X86_64_GOTPCREL` (the four types cc3 emits).
+- Symbol-type classification: bind (LOCAL/GLOBAL/WEAK) and type
+  (NOTYPE/FUNC/SECTION) from `st_info`; `UND` for undefined symbols.
+
+### Next alphas
+- **alpha2**: read N .o files, merge symtabs, resolve cross-unit
+  references, flag unresolved + duplicate-strong.
+- **alpha3**: apply relocations on the merged .text.
+- **beta1**: emit ET_EXEC executable (ET_DYN / PIC stays with v4.7.0).
+- **4.6.0**: cross-unit DCE, `cyrius build -c` workflow, docs + tests.
+
 ## [4.5.0] — 2026-04-14
 
 ### Added
