@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.2] — 2026-04-13
+
+### Fixed
+- **`var buf[N]` overflow error names the offending variable**
+  (`src/backend/x86/fixup.cyr`). When total output exceeds 1MB, the error
+  now walks the `var_sizes` table to find the top 3 largest vars by
+  size and prints their names alongside byte counts. Previously the
+  error just showed aggregate totals (`code:N data:M strings:K`) leaving
+  the user to grep their source for the culprit. Surfaced by bote
+  feedback item 4.
+- **`file:line` for parse errors in main source without includes**
+  (`src/frontend/lex.cyr`). `PP_PASS` now emits an initial `#@file
+  "<source>"` marker at the top of preprocessed output unconditionally,
+  so `FM_LOOKUP` always finds a file-map entry for main-source lines —
+  not just when at least one include fires. Previously, errors in
+  main source could fall through to the raw preprocessed line number
+  (e.g. `error:1729: expected '=', got string`) with no file prefix.
+  Surfaced by bote feedback item 6.
+
 ## [4.4.1] — 2026-04-13
 
 ### Fixed

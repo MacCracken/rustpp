@@ -1082,6 +1082,28 @@ fn PP_PASS(S) {
     var skip_depth = 0;
     var had_include = 0;
     var source_marked = 0;
+    # Emit an initial `#@file "<source>"` marker so the main source is
+    # ALWAYS covered by the file map — even if no includes fire. Fixes
+    # bote feedback item 6 where a parse error in main source with no
+    # preceding includes fell through to the raw preprocessed line number.
+    store8(out + op, 35); op = op + 1;   # '#'
+    store8(out + op, 64); op = op + 1;   # '@'
+    store8(out + op, 102); op = op + 1;  # 'f'
+    store8(out + op, 105); op = op + 1;  # 'i'
+    store8(out + op, 108); op = op + 1;  # 'l'
+    store8(out + op, 101); op = op + 1;  # 'e'
+    store8(out + op, 32); op = op + 1;   # ' '
+    store8(out + op, 34); op = op + 1;   # '"'
+    store8(out + op, 60); op = op + 1;   # '<'
+    store8(out + op, 115); op = op + 1;  # 's'
+    store8(out + op, 111); op = op + 1;  # 'o'
+    store8(out + op, 117); op = op + 1;  # 'u'
+    store8(out + op, 114); op = op + 1;  # 'r'
+    store8(out + op, 99); op = op + 1;   # 'c'
+    store8(out + op, 101); op = op + 1;  # 'e'
+    store8(out + op, 62); op = op + 1;   # '>'
+    store8(out + op, 34); op = op + 1;   # '"'
+    store8(out + op, 10); op = op + 1;   # '\n'
     while (ip < bl) {
         var c = load8(S + ip);
         var handled = 0;
