@@ -3332,6 +3332,67 @@ fn PARSE_FN_DEF(S) {
         } } }
         lase_i += 1;
     }
+    # v4.8.4-alpha7: #regalloc routing. Post-body byte-level peephole
+    # that routes the first non-param local (idx `pc`) through rbx.
+    # Turns every `mov rax, [rbp+hot_disp]` (7 B) into `mov rax, rbx`
+    # + 4 NOPs, and every `mov [rbp+hot_disp], rax` into `mov rbx, rax`
+    # + 4 NOPs. Padding keeps code offsets stable for jump targets.
+    # Bails out if the hot local's address is taken (`lea rax,
+    # [rbp+hot_disp]`) — &local must still point at the stack slot.
+    # Width-aware accesses (movzx, byte/word/dword stores) aren't
+    # patched yet; alpha8 can add the safety scan + wider patterns.
+    if (_cur_fn_regalloc == 1) {
+        var ra_flc = GFLC(S);
+        if (pc < ra_flc) {
+            var hot_disp = 0 - ((pc + 2) * 8);
+            var hot_disp32 = hot_disp & 0xFFFFFFFF;
+            # Safety pre-scan: abort on any lea [rbp+hot_disp] (&local).
+            var ra_safe = 1;
+            var ra_s = fn_start;
+            var ra_end = GCP(S);
+            while (ra_s + 7 <= ra_end) {
+                if (load8(S + 0x54A000 + ra_s) == 0x48) {
+                if (load8(S + 0x54A000 + ra_s + 1) == 0x8D) {
+                if (load8(S + 0x54A000 + ra_s + 2) == 0x85) {
+                if (load32(S + 0x54A000 + ra_s + 3) == hot_disp32) {
+                    ra_safe = 0;
+                } } } }
+                ra_s = ra_s + 1;
+            }
+            if (ra_safe == 1) {
+                # Patch pass: rewrite matching loads/stores in place.
+                var ra_p = fn_start;
+                while (ra_p + 7 <= ra_end) {
+                    if (load8(S + 0x54A000 + ra_p) == 0x48) {
+                    var op1 = load8(S + 0x54A000 + ra_p + 1);
+                    if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
+                    if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
+                        if (op1 == 0x8B) {
+                            # mov rax, [rbp+disp] → mov rax, rbx; nop*4
+                            store8(S + 0x54A000 + ra_p + 0, 0x48);
+                            store8(S + 0x54A000 + ra_p + 1, 0x89);
+                            store8(S + 0x54A000 + ra_p + 2, 0xD8);
+                            store8(S + 0x54A000 + ra_p + 3, 0x90);
+                            store8(S + 0x54A000 + ra_p + 4, 0x90);
+                            store8(S + 0x54A000 + ra_p + 5, 0x90);
+                            store8(S + 0x54A000 + ra_p + 6, 0x90);
+                        }
+                        if (op1 == 0x89) {
+                            # mov [rbp+disp], rax → mov rbx, rax; nop*4
+                            store8(S + 0x54A000 + ra_p + 0, 0x48);
+                            store8(S + 0x54A000 + ra_p + 1, 0x89);
+                            store8(S + 0x54A000 + ra_p + 2, 0xC3);
+                            store8(S + 0x54A000 + ra_p + 3, 0x90);
+                            store8(S + 0x54A000 + ra_p + 4, 0x90);
+                            store8(S + 0x54A000 + ra_p + 5, 0x90);
+                            store8(S + 0x54A000 + ra_p + 6, 0x90);
+                        }
+                    } } }
+                    ra_p = ra_p + 1;
+                }
+            }
+        }
+    }
     # Patch frame size
     var flc = GFLC(S);
     # v4.8.4-alpha6: #regalloc fns reserve an extra 8-byte slot at

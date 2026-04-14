@@ -4,6 +4,72 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.4-alpha7] — 2026-04-14 (unreleased)
+
+### Added (`#regalloc` actually routes now)
+- **Hot-local → `rbx` post-emit peephole**
+  (`src/frontend/parse.cyr`, `PARSE_FN_DEF`). For `#regalloc` fns
+  with at least one non-param local, the first non-param local
+  (index `pc`) is designated the hot slot. After the body emits
+  (and after LASE runs), a byte-level patcher walks
+  `[fn_start, GCP)` and rewrites:
+  * `48 8B 85 <hot_disp>` (`mov rax, [rbp+hot_disp]`, 7 B)
+    → `48 89 D8` (`mov rax, rbx`) + 4× `0x90`
+  * `48 89 85 <hot_disp>` (`mov [rbp+hot_disp], rax`, 7 B)
+    → `48 89 C3` (`mov rbx, rax`) + 4× `0x90`
+  Both rewrites keep the 7-byte footprint with NOP padding so jump
+  targets within the body stay anchored — same offset-preservation
+  trick LASE uses.
+- **`&local` safety pre-scan.** Before patching, the pass scans
+  for `48 8D 85 <hot_disp>` (`lea rax, [rbp+hot_disp]`). If any
+  address-taking site is found for the candidate slot, routing
+  aborts and the fn compiles as if the directive weren't present
+  (save/restore from alpha6 still runs, rbx is just unused). This
+  guarantees `&local` inside a `#regalloc` fn still yields the
+  correct stack-slot address.
+
+### Limitations
+- **Single hot slot only.** rbx is the only routed register this
+  alpha; `r12..r15` stay unused. Picker is "first non-param local"
+  (positional), not use-count-driven — simple enough to ship, plenty
+  of headroom to refine.
+- **Width-aware accesses aren't patched.** `i8` / `i16` / `i32`
+  locals routed through `EFLLOAD_W` / `EFLSTORE_W` emit different
+  opcodes (`movzx`, `88 85`, `66 89 85`, `89 85`) that the current
+  patcher ignores. A #regalloc fn whose hot slot is accessed via
+  these widths will still be correct — stores land in the stack
+  slot, reads come from the stack slot — but the `mov rbx, rax`
+  emitted by patched 8-byte stores will leave stale data in rbx
+  that isn't observable unless mixed-width code runs. Alpha8 can
+  tighten this with a fuller safety scan + the equivalent width-
+  aware patterns.
+- **Loop-var cache collision.** `ELVRINIT`'s `48 8B A5 <disp>`
+  (mov r12, ...) uses a different ModR/M so it's not patched; if
+  the hot slot is also the loop var, r12 gets the stack value
+  (correct) and rbx gets whatever it happened to hold (unused). No
+  correctness issue at present.
+
+### Observable in disassembly
+A minimal `#regalloc` fn (`var x = 100; x = x + 5; x = x + 10;
+return x;`) now emits `mov rbx, rax` for every write to `x` and
+`mov rax, rbx` for every read — confirmed by `ndisasm` on a
+stand-alone test binary. The plain-fn counterpart still writes
+through `[rbp-8]`.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 check.sh PASS. 44/0 test suite.
+- Parity test: `hot_fn(10,20) == plain_fn(10,20) == 230`.
+- `&local` test: address-of inside `#regalloc` fn still sums 4-slot
+  array to 60 — routing correctly aborts on that fn.
+
+### Roadmap (4.8.4)
+- alpha1..alpha6 ✅
+- alpha7 ✅ — picker + routing (this release).
+- alpha8 (potential) — width-aware patching + multi-reg (r12..r15)
+  extension + use-count picker instead of positional. Or: close 4.8.4,
+  open 4.8.5 for defmt, bring multi-reg back as a 4.9.x minor.
+
 ## [4.8.4-alpha6] — 2026-04-14 (unreleased)
 
 ### Added (frame layout for `#regalloc` fns)
