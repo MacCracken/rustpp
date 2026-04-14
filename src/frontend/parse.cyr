@@ -2119,8 +2119,12 @@ fn PARSE_VAR(S) {
                 SVTYPE(S, vcnt, scalar_type);
                 EVSTORE_W(S, vcnt, scalar_type);
             } else {
-                # i64 explicit — same as default
-                S64(S + 0x12A000 + vcnt * 8, 8);
+                # 8 (i64 explicit) or 16 (u128) — allocate the full width.
+                # Pre-4.8.0-alpha3 this hardcoded 8, truncating u128 vars
+                # declared in the PARSE_PROG path (e.g. after a top-level
+                # expression statement like `alloc_init();` that stops
+                # pass 1 — see main.cyr's pass-1 loop termination).
+                S64(S + 0x12A000 + vcnt * 8, scalar_type);
                 EVSTORE(S, vcnt);
             }
         } else {

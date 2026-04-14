@@ -4,6 +4,39 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0-alpha3] — 2026-04-14 (unreleased)
+
+### Fixed
+- **`u128` var-slot truncation in PARSE_VAR** (`src/frontend/parse.cyr`).
+  Alpha1 added `u128` detection and 16-byte allocation in
+  `PARSE_GVAR_REG` (pass 1). But pass 1 terminates at the first
+  top-level expression statement (e.g. `alloc_init();`) — any var
+  declarations *after* that point get registered by PARSE_VAR's
+  global-fallback path (line 2113+), which hardcoded `var_sizes = 8`
+  for `scalar_type >= 8`. Result: a `u128` var declared after a
+  top-level call got only 8 bytes, silently overlapping its hi limb
+  with the next var's lo. Manifested in the stdlib tests as
+  `u128_set(&a, lo, hi)` writing hi at `&a+8` — but `&a+8` already
+  pointed into the next var's space, so `load64(&a+8)` returned that
+  var's value instead. Fixed by routing `scalar_type` (8 or 16)
+  through rather than hardcoding.
+
+### Added
+- **`lib/u128.cyr`** — 128-bit unsigned stdlib helpers built on the
+  16-byte var slot: `u128_set(dst, lo, hi)`, `u128_from_u64(dst, lo)`,
+  `u128_copy(dst, src)`, `u128_lo(ptr)`, `u128_hi(ptr)`, `u128_eq(a, b)`,
+  `u128_is_zero(ptr)`. Pointer-based — no u128 pass-by-value through
+  the single-register ABI yet. Arithmetic (`+`, `-`, `*`) lands in
+  alpha4+.
+- **`tests/tcyr/u128.tcyr`** — 14 assertions covering zero-init,
+  set/read, from_u64, copy, equality, zero-test, plus a regression
+  guard that `&g2 - &g1 == 16` for consecutive u128 vars declared
+  *after* a top-level call (the pre-alpha3 failing case).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. 43 `.tcyr` suites green (added u128).
+
 ## [4.8.0-alpha2] — 2026-04-14 (unreleased)
 
 ### Added

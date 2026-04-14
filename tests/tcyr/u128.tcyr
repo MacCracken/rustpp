@@ -1,0 +1,58 @@
+# Regression: u128 type slot (4.8.0-alpha1 + alpha3) + stdlib helpers.
+#
+# The alpha3 fix (PARSE_VAR's global fallback setting var_size to the
+# full ann_scalar, not hardcoded 8) is what makes this test meaningful:
+# with `alloc_init();` as the first top-level statement, pass 1 stops
+# and the subsequent `var a: u128 = 0;` runs through PARSE_VAR — which
+# pre-alpha3 truncated u128 slots to 8 bytes, silently overlapping hi
+# with the next var's lo.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/u128.cyr"
+
+alloc_init();
+
+test_group("u128 var slot zero-init");
+var z: u128 = 0;
+assert_eq(load64(&z), 0, "lo zero");
+assert_eq(load64(&z + 8), 0, "hi zero");
+
+test_group("u128_set / u128_lo / u128_hi");
+var a: u128 = 0;
+u128_set(&a, 0xDEAD_BEEF_CAFE_BABE, 0x1234_5678_9ABC_DEF0);
+assert_eq(u128_lo(&a), 0xDEADBEEFCAFEBABE, "lo readback");
+assert_eq(u128_hi(&a), 0x123456789ABCDEF0, "hi readback");
+
+test_group("u128_from_u64 zero-extends");
+var b: u128 = 0;
+u128_from_u64(&b, 42);
+assert_eq(u128_lo(&b), 42, "lo = 42");
+assert_eq(u128_hi(&b), 0, "hi = 0");
+
+test_group("u128_copy preserves both limbs");
+var c: u128 = 0;
+u128_copy(&c, &a);
+assert_eq(u128_lo(&c), u128_lo(&a), "lo copied");
+assert_eq(u128_hi(&c), u128_hi(&a), "hi copied");
+
+test_group("u128_eq");
+var d: u128 = 0;
+u128_set(&d, 0xDEADBEEFCAFEBABE, 0x123456789ABCDEF0);
+assert_eq(u128_eq(&a, &d), 1, "a == d");
+assert_eq(u128_eq(&a, &b), 0, "a != b");
+
+test_group("u128_is_zero");
+assert_eq(u128_is_zero(&z), 1, "z is zero");
+assert_eq(u128_is_zero(&a), 0, "a not zero");
+var hi_only: u128 = 0;
+u128_set(&hi_only, 0, 1);
+assert_eq(u128_is_zero(&hi_only), 0, "hi-only not zero");
+
+test_group("16-byte slot layout (alpha3 regression guard)");
+var g1: u128 = 0;
+var g2: u128 = 0;
+assert_eq(&g2 - &g1, 16, "consecutive u128 vars are 16 bytes apart");
+
+assert_summary();

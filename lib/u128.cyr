@@ -1,0 +1,52 @@
+# lib/u128.cyr — 128-bit unsigned integer helpers
+#
+# A u128 is a 16-byte slot: low 8 bytes at ptr+0, high 8 bytes at ptr+8.
+# Declared with `var x: u128 = 0;` (v4.8.0-alpha1 for struct/global
+# positions; v4.8.0-alpha3 extended to the PARSE_VAR fallback path
+# used after a top-level expression statement).
+# Arithmetic in the compiler lands in later 4.8.x alphas; for now
+# these helpers cover construction, copy, part-access, equality.
+#
+# Convention: functions take pointers (returned by `&x`), never values,
+# because the cyrius ABI currently passes / returns scalars in a single
+# register.
+
+# Set both limbs at `dst` to (lo, hi). Both args are u64 treated as
+# unsigned.
+fn u128_set(dst, lo, hi) {
+    store64(dst, lo);
+    store64(dst + 8, hi);
+    return 0;
+}
+
+# Zero-extend a u64 to a u128 at `dst`.
+fn u128_from_u64(dst, lo) {
+    store64(dst, lo);
+    store64(dst + 8, 0);
+    return 0;
+}
+
+# Copy 16 bytes `src` → `dst`. Source and destination must not overlap.
+fn u128_copy(dst, src) {
+    store64(dst, load64(src));
+    store64(dst + 8, load64(src + 8));
+    return 0;
+}
+
+# Low / high 64-bit limbs of a u128 at `ptr`.
+fn u128_lo(ptr) { return load64(ptr); }
+fn u128_hi(ptr) { return load64(ptr + 8); }
+
+# Equality — byte-identical both limbs.
+fn u128_eq(a, b) {
+    if (load64(a) != load64(b)) { return 0; }
+    if (load64(a + 8) != load64(b + 8)) { return 0; }
+    return 1;
+}
+
+# Zero-test.
+fn u128_is_zero(ptr) {
+    if (load64(ptr) != 0) { return 0; }
+    if (load64(ptr + 8) != 0) { return 0; }
+    return 1;
+}
