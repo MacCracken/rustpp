@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.3-alpha2] — 2026-04-14 (unreleased)
+
+### Added
+- **Soft 85% capacity warnings** on default builds
+  (`src/main.cyr`). After FIXUP, each compile-time-bounded table
+  is checked; if utilization ≥ 85%, a `warning: <name> at N% (X/CAP)`
+  line is emitted to stderr. Tables covered: fn table, identifier
+  buffer, var table, fixup table, string data, code buffer.
+  - Suppressed when `CYRIUS_STATS=1` is set (full stats already
+    cover this; avoids duplicate noise).
+  - No warning when comfortably under cap — default cc3 build at
+    8% fn / 6% identifier table stays silent.
+  - Catches "close-to-wall" conditions before a refactor trips the
+    cap. Bote's claims-propagation revert pattern is exactly the
+    case this catches.
+
+### Validation
+- Default build of cc3 self → silent (well under all caps).
+- Synthetic 3500-fn source → emits
+  `warning: fn_table at 85% (3500/4096) — split into compilation
+  units soon`.
+- Same source under `CYRIUS_STATS=1` → full stats only, no
+  duplicate warning.
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+
+### Next (alpha3)
+- `cyrius audit --capacity` shell subcommand wrapping the env-flag
+  path for scripted use (CI dashboards, headroom regression).
+
 ## [4.8.3-alpha1] — 2026-04-14 (unreleased)
 
 ### Added

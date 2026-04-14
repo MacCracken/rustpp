@@ -158,7 +158,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc3 4.8.3-alpha1\n", 17);
+                syscall(SYS_WRITE, 1, "cc3 4.8.3-alpha2\n", 17);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -614,6 +614,48 @@ if (_stats_env != 0) {
         syscall(SYS_WRITE, 2, " / 262144\n",     10);
         syscall(SYS_WRITE, 2, "  code_size:   ", 15); PRNUM(GCP(S));
         syscall(SYS_WRITE, 2, " / 1048576\n",    11);
+    }
+}
+# v4.8.3-alpha2: soft 85% warnings on default builds. Catches
+# "close-to-wall" conditions before a refactor trips the cap.
+# Suppressed under CYRIUS_STATS=1 (already shown above) and under
+# `--version` short-circuit (handled before this point).
+if (_stats_env == 0) {
+    if (GFNC(S) * 100 / 4096 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: fn_table at ", 21);
+        PRNUM(GFNC(S) * 100 / 4096);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GFNC(S));
+        syscall(SYS_WRITE, 2, "/4096) — split into compilation units soon\n", 44);
+    }
+    if (GNPOS(S) * 100 / 131072 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: identifier buffer at ", 30);
+        PRNUM(GNPOS(S) * 100 / 131072);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GNPOS(S));
+        syscall(SYS_WRITE, 2, "/131072 bytes) — reduce includes or split soon\n", 47);
+    }
+    if (GVCNT(S) * 100 / 8192 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: var_table at ", 22);
+        PRNUM(GVCNT(S) * 100 / 8192);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GVCNT(S));
+        syscall(SYS_WRITE, 2, "/8192) — too many globals + locals\n", 35);
+    }
+    if (GFCNT(S) * 100 / 16384 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: fixup_table at ", 24);
+        PRNUM(GFCNT(S) * 100 / 16384);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GFCNT(S));
+        syscall(SYS_WRITE, 2, "/16384) — too many cross-fn refs\n", 33);
+    }
+    if (GSPOS(S) * 100 / 262144 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: string_data at ", 24);
+        PRNUM(GSPOS(S) * 100 / 262144);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GSPOS(S));
+        syscall(SYS_WRITE, 2, "/262144 bytes)\n", 15);
+    }
+    if (GCP(S) * 100 / 1048576 >= 85) {
+        syscall(SYS_WRITE, 2, "warning: code buffer at ", 24);
+        PRNUM(GCP(S) * 100 / 1048576);
+        syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GCP(S));
+        syscall(SYS_WRITE, 2, "/1048576 bytes)\n", 16);
     }
 }
 EMITELF(S);
