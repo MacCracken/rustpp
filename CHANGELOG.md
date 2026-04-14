@@ -4,6 +4,45 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.6] — 2026-04-13
+
+### Closeout (4.4.x)
+Last patch of the 4.4.x series before 4.5.0 opens the multi-file linker
+cycle. Per CLAUDE.md's closeout-pass doctrine.
+
+- **Self-host verified** — cc3 compiles itself byte-identical (353,280
+  bytes, two-step bootstrap clean).
+- **Bootstrap closure verified** — seed (29KB) → cyrc (12KB) → asm → cc3.
+- **Heap map clean** — 47 regions, 0 overlaps, `tests/heapmap.sh` PASS.
+- **Dead code count**: 6 unreachable fns (4,824 bytes) with the v4.4.5
+  decoder-validated DCE. Down from the 4.2.5 closeout baseline of 266,
+  driven by the byte-scan call graph + tail-call E9 detection added in
+  4.4.0.
+- **Downstream sync**: all 10 projects (kybernet, argonaut, nein, sigil,
+  libro, daimon, hoosh, agnoshi, bote, kavach) pinned to 4.4.5 ahead
+  of this closeout.
+- **Security re-scan**: 1 `sys_system` caller (cyrius deps git clone,
+  CVE-01 validated), all `READFILE` callers in compiler paths with
+  bounded buffers. No new attack surface since the 4.2.x audit.
+- **Doc sync** — `docs/architecture/cyrius.md` refreshed from v4.0.0
+  stats (303KB cc3, 8 modules, 36 tests, 6 downstream) to current
+  state (353KB, 9 modules, 40 tests, 10 downstream).
+- **5/5 check.sh** — all lint, format, test, heap, self-host checks PASS.
+
+### Summary of 4.4.x cycle
+- 4.4.0: fn_end tracking, byte-scan call graph, mark-and-sweep DCE,
+  opt-in NOP-fill gated on `CYRIUS_DCE=1`.
+- 4.4.1: `&&`/`||` short-circuit fix (bote silent-miscompile),
+  `cyrius deps` absolute symlink fix (kavach porting).
+- 4.4.2: `var buf[N]` overflow names offending var, `<source>` file
+  map marker for parse errors outside includes.
+- 4.4.3: `fmt_int_fd`/`efmt_int`, cyrlint rule for `is_err` clash.
+- 4.4.4: Third DCE safety gate (epilogue `C9 C3`) — **2× bytes NOPed**
+  on libro, -41% gzip cumulative.
+- 4.4.5: x86-64 length decoder, DCE validator uses it, foundation
+  for 4.5.x CFG work.
+- 4.4.6: closeout.
+
 ## [4.4.5] — 2026-04-13
 
 ### Added

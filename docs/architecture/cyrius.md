@@ -51,7 +51,7 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v4.0.0** — cc3 is the active modular compiler (8 modules, 303KB). 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. 6 downstream projects shipping.
+**v4.4.6** — cc3 is the active modular compiler (9 modules including `src/backend/x86/decode.cyr`, 353KB). 40 test suites, 11 benchmarks, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. Short-circuit `&&`/`||`, named-field struct init, `CYRIUS_SYMS` for crash localization, `CYRIUS_DCE` for opt-in dead-code NOP-fill (41% gzip reduction on libro release artifact). 10 downstream projects shipping: kybernet, argonaut, nein, sigil, libro, daimon, hoosh, agnoshi, bote, kavach.
 
 ```
 sh bootstrap/bootstrap.sh
@@ -83,6 +83,7 @@ The current language (compiled by cc3) supports:
 - `cyrius deps` — auto-resolve from cyrius.toml, namespaced: `lib/{depname}_{basename}`
 - Auto-include: `cyrius build` prepends dep includes before compilation
 - 41 stdlib modules + 5 deps, 57+ programs
+- x86-64 length decoder (`decode.cyr`) — DCE validator, foundation for CFG
 - Limits: 1MB codebuf, 262K tokens, 16384 fixups, 512KB input, 256KB str_data
 - Heap: 14.8MB (brk 0xECA000), aarch64 synced to x86
 
