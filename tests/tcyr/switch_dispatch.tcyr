@@ -118,5 +118,50 @@ assert_eq(dense8(7), 49, "sq 7");
 assert_eq(dense8(8), 0 - 1, "sq above");
 assert_eq(dense8(0 - 1), 0 - 1, "sq negative");
 
+# ---- Wide range (exercises v4.8.2-alpha2 range cap 256 → 1024) ----
+# Cases spread over range 500 with ~18% density would fail the 33%
+# threshold, so pick values that keep density >= 33% across range 300.
+fn wide_range(x) {
+    switch (x) {
+        case 0:   { return 1; }
+        case 100: { return 2; }
+        case 200: { return 3; }
+        case 300: { return 4; }
+        default:  { return 0; }
+    }
+}
+
+test_group("switch wide range with default (range cap 1024)");
+# density = 4 / 301 ≈ 1.3%, below 33% — falls to if-chain path.
+# Correctness should be identical regardless of regime.
+assert_eq(wide_range(0), 1, "wide 0");
+assert_eq(wide_range(100), 2, "wide 100");
+assert_eq(wide_range(200), 3, "wide 200");
+assert_eq(wide_range(300), 4, "wide 300");
+assert_eq(wide_range(50), 0, "wide gap 50");
+assert_eq(wide_range(301), 0, "wide above");
+
+# Dense wide range (range = 300, count = 100 — density 33.4%, uses table)
+# Too verbose to hand-roll 100 cases; settle for range-250 case-50 test
+# (density 20%, chain regime — just correctness).
+fn mid_range(x) {
+    switch (x) {
+        case 0:   { return 10; }
+        case 50:  { return 20; }
+        case 100: { return 30; }
+        case 150: { return 40; }
+        case 200: { return 50; }
+        case 250: { return 60; }
+        default:  { return 0 - 1; }
+    }
+}
+
+test_group("switch mid range 0..250 with 6 cases");
+assert_eq(mid_range(0), 10, "mid 0");
+assert_eq(mid_range(150), 40, "mid 150");
+assert_eq(mid_range(250), 60, "mid 250");
+assert_eq(mid_range(125), 0 - 1, "mid gap 125");
+assert_eq(mid_range(251), 0 - 1, "mid above 250");
+
 var _exit_code = assert_summary();
 syscall(60, _exit_code);

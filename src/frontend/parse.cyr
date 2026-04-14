@@ -3368,7 +3368,12 @@ fn PARSE_SWITCH(S) {
     var use_table = 0;
     if (case_count >= 4) {
         if (range + 1 <= case_count * 3) {
-            if (range < 256) { use_table = 1; }
+            # v4.8.2-alpha2: range cap raised 256 → 1024. Jump table is
+            # (range+1) × 4 bytes, so a 1024-range table is ~4 KB of
+            # .text — still tiny, and wider enum dispatches (e.g. the
+            # 40+-variant tagged-union switches in libro / kybernet)
+            # now hit the O(1) path.
+            if (range < 1024) { use_table = 1; }
         }
     }
     # Allocate hidden global to hold switch value

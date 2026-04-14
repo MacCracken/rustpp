@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.2-alpha2] — 2026-04-14 (unreleased)
+
+### Changed
+- **Switch jump-table range cap raised 256 → 1024**
+  (`src/frontend/parse.cyr`). The 256-byte cap was a conservative
+  guard against huge jump tables (`(range+1) × 4` bytes of `.text`).
+  At 1024 the table tops out at ~4 KB — still trivial — and wider
+  enum dispatches (e.g. kybernet / libro tagged-union switches with
+  40+ variants spanning a few hundred values) now meet the criteria
+  for O(1) dispatch. Density threshold unchanged at 33% (set in
+  alpha1).
+
+### Added
+- **Wide-range switch tests** in `tests/tcyr/switch_dispatch.tcyr`
+  (up to 42 assertions):
+  - `wide_range` — cases 0/100/200/300, tests chain-regime correctness
+    at low density with a default clause.
+  - `mid_range` — 6 cases spread 0..250, stresses the chain regime
+    across 250-byte range with gaps.
+  Both confirm the default routes correctly and gaps in the case
+  values fall through.
+
+### Validation
+- cc3 self-host byte-identical.
+- 7/7 check.sh PASS.
+- CI-style exit-code loop: 44 / 0.
+
 ## [4.8.2-alpha1] — 2026-04-14 (unreleased)
 
 ### Fixed
