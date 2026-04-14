@@ -4,6 +4,60 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.5.0] — 2026-04-14
+
+### Added
+- **`lib/http_server.cyr`** — HTTP/1.1 server primitives in the stdlib.
+  Companion to the existing `lib/http.cyr` (HTTP/1.0 client-only).
+  Surface:
+  - Status constants (`HTTP_OK`, `HTTP_NOT_FOUND`, `HTTP_INTERNAL`, …)
+  - Request parsing: `http_get_method`, `http_get_path`, `http_find_header`
+    (case-insensitive), `http_body_offset`, `http_content_length`
+  - Path + query helpers: `http_path_only`, `http_url_decode`,
+    `http_get_param` (auto-decoded), `http_path_segment`
+  - Response builders: `http_send_status`, `http_send_response`,
+    `http_send_204`
+  - Chunked / SSE: `http_send_chunked_start`, `http_send_chunk`,
+    `http_send_chunked_end`
+  - Content-Length-aware request reading: `http_recv_request`
+  - Server lifecycle: `http_server_run(addr, port, handler_fp, ctx)`
+- **`tests/tcyr/http_server.tcyr`** — 31 assertions covering status codes,
+  method/path/header parsing, body-offset detection, Content-Length
+  parsing, case-insensitive header lookup, path-only stripping, URL
+  decoding (alphanumeric, `%20`, `+`, `%2F`, lowercase hex), query-param
+  extraction (with/without query string), path segmentation.
+
+### Why
+bote + vidya independently hand-rolled ~750 LOC of HTTP plumbing.
+Shapes were nearly identical (`make_crlf`, parse path, send response,
+accept loop). Lifting the common primitives into stdlib:
+- Removes ~250 LOC from bote's `transport_http.cyr` and similar from
+  `bridge.cyr` and vidya's `cmd_serve`.
+- Gives every cyrius project Content-Length-aware reads, percent
+  decoding, path segmentation, and chunked/SSE responses for free.
+- Shrinks per-project fn counts — relevant to the libro-integration
+  heisenbug where the cumulative allocator state at boundary was
+  size-sensitive.
+
+Reference impl authored by the bote team's proposal in
+`bote/docs/proposals/cyrius-stdlib-http-server.md`; landed verbatim
+after a `cyrfmt` normalization pass.
+
+### Validation
+- Unit tests: 31/31 pass on pure-parse helpers.
+- End-to-end: spawned server on `127.0.0.1:34567`, verified `/hello`,
+  `/echo?msg=hello%20world` (URL-decoded), and `/missing` (404 status).
+- cc3 self-host: byte-identical.
+- 5/5 check.sh PASS.
+
+### Deferred (noted in proposal § "Open questions")
+- Keep-alive responses (currently `Connection: close` on every reply) —
+  needs non-blocking accept, target 4.6.0.
+- Per-thread request buffers — currently process-global; revisit when
+  Cyrius grows a threading story.
+- Socket errors silently close the connection; future rev could log
+  via `sakshi_warn` when `lib/sakshi.cyr` is in scope.
+
 ## [4.4.6] — 2026-04-13
 
 ### Closeout (4.4.x)

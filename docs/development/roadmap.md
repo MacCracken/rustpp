@@ -1,11 +1,12 @@
 # Cyrius Development Roadmap
 
-> **v4.4.6.** 309KB self-hosting compiler, x86_64 + aarch64.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (309KB). Closure verified.
-> 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
+> **v4.5.0.** 353KB self-hosting compiler, x86_64 + aarch64.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (353KB). Closure verified.
+> 41 test suites, 11 benchmarks, 5 fuzz harnesses. **42 stdlib modules** + 5 deps.
+> New in 4.5.0: `lib/http_server.cyr` — HTTP/1.1 primitives, Content-Length-aware reads, URL decode, chunked/SSE.
 > `cyrius build` auto-resolves deps + auto-includes. File:line error messages.
-> `+=`, `-=`, negative literals, `#derive(accessors)`, multi-return, switch blocks, defer.
-> Undefined function diagnostic. 10+ downstream projects shipping.
+> Short-circuit `&&`/`||`, named-field struct init, x86-64 length decoder, `CYRIUS_SYMS`, `CYRIUS_DCE` (41% gzip cut).
+> 10 downstream projects shipping.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -104,16 +105,27 @@ The compiler learns control flow. Foundation for all advanced optimizations.
 
 ---
 
-## v4.5.0 — Multi-File Linker & Cross-Unit DCE
+## v4.5.0 — `lib/http_server.cyr` (shipped)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **HTTP/1.1 server primitives** | Medium | Parse/build request+response, Content-Length-aware read, URL-decode, path segments, chunked/SSE support, accept-loop `http_server_run`. Unblocks bote, vidya, and any future service port — removes ~750 LOC of hand-rolled HTTP across consumers. Reference impl from bote team's proposal. |
+
+Reordered from the original "multi-file linker" scope — porting pressure from bote/vidya shifted the priority to concrete stdlib infra. Linker work moves to v4.6.0.
+
+---
+
+## v4.6.0 — Multi-File Linker & Cross-Unit DCE
 
 | Feature | Effort | Details |
 |---------|--------|---------|
 | **Multi-file linker** | High | .o emission done (v2.6.4). Read .o, resolve symbols, patch relocations, emit executable. |
 | **Cross-unit DCE** | High | Extend 4.4.0 single-CU DCE across object files once the linker lands. kybernet 486KB → est. 150-200KB. |
+| **HTTP keep-alive** | Low | Non-blocking accept + keep-alive replies for `lib/http_server.cyr`. Deferred from 4.5.0 per proposal § open questions. |
 
 ---
 
-## v4.6.0 — PIC Codegen
+## v4.7.0 — PIC Codegen
 
 | Feature | Effort | Details |
 |---------|--------|---------|
@@ -121,7 +133,7 @@ The compiler learns control flow. Foundation for all advanced optimizations.
 
 ---
 
-## v4.7.0 — Types & Codegen
+## v4.8.0 — Types & Codegen
 
 | Feature | Effort | Details |
 |---------|--------|---------|
@@ -131,20 +143,20 @@ The compiler learns control flow. Foundation for all advanced optimizations.
 
 ---
 
-## v4.8.0 — macOS
+## v4.9.0 — macOS
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. Depends on PIC codegen (v4.6.0). |
+| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. Depends on PIC codegen (v4.7.0). |
 | **macOS aarch64** | High | Mach-O emitter. Apple Silicon native. |
 
 ---
 
-## v4.9.0 — Windows
+## v4.10.0 — Windows
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. Depends on PIC codegen (v4.6.0). |
+| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. Depends on PIC codegen (v4.7.0). |
 
 ---
 
