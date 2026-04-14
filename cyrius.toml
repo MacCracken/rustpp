@@ -21,7 +21,7 @@ modules = ["dist/patra.cyr"]
 
 [deps.sigil]
 git = "https://github.com/MacCracken/sigil.git"
-tag = "2.0.1"
+tag = "2.1.2"
 modules = ["dist/sigil.cyr"]
 
 [deps.yukti]
