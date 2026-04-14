@@ -317,6 +317,10 @@ fn http_send_204(cfd, extra_headers) {
 #   http_send_chunk(cfd, "data: world\n\n", 13);
 #   http_send_chunked_end(cfd);
 
+# Begin a chunked / SSE response. Sends the HTTP/1.1 status line plus
+# Transfer-Encoding: chunked. Follow with repeated http_send_chunk calls
+# and finish with http_send_chunked_end. extra_headers is a cstr of
+# CRLF-terminated header lines or 0.
 fn http_send_chunked_start(cfd, code, content_type, extra_headers) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "HTTP/1.1 ");
@@ -331,6 +335,9 @@ fn http_send_chunked_start(cfd, code, content_type, extra_headers) {
     return 0;
 }
 
+# Send one chunk of a chunked-transfer response. Emits the chunk-length
+# as lowercase hex followed by CRLF, then `len` bytes of `data`, then
+# another CRLF. Use between http_send_chunked_start and http_send_chunked_end.
 fn http_send_chunk(cfd, data, len) {
     var hexbuf[32];
     var hi = 0;
@@ -361,6 +368,8 @@ fn http_send_chunk(cfd, data, len) {
     return 0;
 }
 
+# Terminate a chunked-transfer response. Sends the zero-length chunk
+# that tells the client the body is complete ("0\r\n\r\n").
 fn http_send_chunked_end(cfd) {
     sock_send(cfd, "0\r\n\r\n", 5);
     return 0;
