@@ -4,6 +4,68 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.0] — 2026-04-14
+
+### Arc summary
+Eight-alpha incremental land of the `u128` track from the 4.8.x
+roadmap. Parser + heap work on one side, a complete unsigned-128
+stdlib on the other.
+
+- **alpha1** — `u128` recognized as scalar type in `PARSE_GVAR_REG`
+  (pass 1); 16-byte var slot with zero init.
+- **alpha2** — `_` separator in hex + decimal literals
+  (`0xDEAD_BEEF_CAFE_BABE`).
+- **alpha3** — Fixed `PARSE_VAR`'s global-fallback path (truncated
+  u128 to 8 bytes when pass 1 terminated before the declaration,
+  e.g. after a top-level `alloc_init();`). Shipped `lib/u128.cyr`
+  with set / copy / access / equality.
+- **alpha4** — `u128_add` / `u128_sub` / `*eq` via 32-bit chunk
+  carry propagation.
+- **alpha5** — `u128_mul` (+ `u128_muleq`) via schoolbook.
+  `a·b mod 2^128 = a_lo·b_lo + (a_hi·b_lo + a_lo·b_hi)·2^64`.
+- **alpha6** — shifts (`u128_shl` / `u128_shr`) + bitwise
+  (`and` / `or` / `xor` / `not`) + `*eq`. Private `_u128_lshr64`
+  helper to work around cyrius's arithmetic `>>`.
+- **alpha7** — unsigned compare (`ugt` / `uge` / `ult` / `ule`) +
+  `u128_divmod` (128-iter shift-subtract) + `u128_div` /
+  `u128_mod` + `*eq`. Closes the stdlib.
+
+### u128 stdlib — at-a-glance
+| Category | Functions |
+|---|---|
+| Construction | `u128_set(dst, lo, hi)`, `u128_from_u64(dst, lo)`, `u128_copy(dst, src)` |
+| Inspection | `u128_lo(ptr)`, `u128_hi(ptr)`, `u128_eq(a, b)`, `u128_is_zero(ptr)` |
+| Arithmetic | `u128_add`, `u128_sub`, `u128_mul`, `u128_divmod`, `u128_div`, `u128_mod` (+ `*eq` in-place) |
+| Bit-level | `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`, `u128_not` (+ `*eq` in-place) |
+| Compare | `u128_ugt`, `u128_uge`, `u128_ult`, `u128_ule` |
+
+Convention throughout: pointer arguments (cyrius's single-register
+ABI doesn't carry u128 values).
+
+### Validation
+- **96 assertions** in `tests/tcyr/u128.tcyr` across 11 groups — zero
+  / one / max wrap / cross-limb / round-trip invariants for each op.
+- cc3 self-host byte-identical.
+- 7/7 check.sh PASS.
+
+### Known limits (for subsequent alphas)
+- `u128` as a fn-param or fn-return type — not yet. Callers pass
+  pointers. Would require ABI work (register pair or stack) and
+  compiler surgery.
+- `u128` as a struct field — not yet; only `var` declarations.
+- `u128` locals inside fns — same issue as above (8-byte stack slot).
+- No literal syntax for 128-bit constants — users must combine two
+  `u64`s via `u128_set`. Alpha-future work.
+
+### What's next in 4.8.x
+| Track | Scope |
+|---|---|
+| **4.8.1** | Jump tables for enum dispatch — lower switch density threshold, add `match`, auto-convert if-chains. |
+| **4.8.2** | Register allocation (`#regalloc`) on top of the CFG from 4.4.0. |
+| **4.8.3** | `defmt` — compile-time format string interning. |
+
+After 4.8.x closes, 5.0 opens with the cc5 uplift + macOS / Windows.
+
 ## [4.8.0-alpha7] — 2026-04-14 (unreleased)
 
 ### Added
