@@ -3232,6 +3232,10 @@ fn PARSE_FN_DEF(S) {
     var flc = GFLC(S);
     var fsz = (flc * 8 + 15) & (0 - 16);
     EPATCHFRAME(S, frame_patch, fsz);
+    # Record fn code end (v4.4.0 DCE) — this is GCP after epilogue + LASE + frame patch.
+    # Paired with fn_start at 0xC4000[fi], the [start, end) range bounds the emitted
+    # body bytes for this fn, usable by the FIXUP pass to NOP dead functions safely.
+    SFNE(S, fi, GCP(S));
     # Restore state (DON'T restore VCNT — arrays inside functions are globals that persist)
     SLVAR(S, saved_lv);
     SINFN(S, 0);

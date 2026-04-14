@@ -81,6 +81,7 @@
 # --- Reclaimable / scratch ---
 #   0xD8000  (free)        [8192]        was struct_fnames, moved to 0xDCA000
 #   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
+#   0xE0000  fn_code_end   [16384]       2048 fn code END offsets (v4.4.0 DCE — paired with fn starts at 0xC4000)
 #   0xDC000  fn_param_str_mask [16384]   2048 Str-param bitmasks (v3.6.0 auto-coercion)
 #
 # --- Variable tables ---

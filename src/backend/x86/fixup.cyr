@@ -106,57 +106,16 @@ fn FIXUP(S) {
         }
         ufi = ufi + 1;
     }
-    # Dead-code elimination (single-CU, direct-reference).
-    # A function is dead iff the fixup table has ZERO call/addr references
-    # to it — provably unreachable because every call and fn-ptr read goes
-    # through a fixup. For each dead fn we recover its body extent by
-    # decoding the JMP-over that PARSE_PROG emitted immediately before the
-    # body: `E9 rel32` at (fn_start - 5). fn_end = fn_start + rel32.
-    # We NOP-fill [fn_start, fn_end) — the binary size is unchanged but
-    # the bytes compress vastly better and the dead code is provably inert.
-    var fnc = GFNC(S);
-    var called[256];
-    var ci = 0;
-    while (ci < 256) { store8(&called + ci, 0); ci = ci + 1; }
-    var dfi = 0;
-    while (dfi < fcnt_pre) {
-        var dfaddr = S + 0xE4A000 + dfi * 16;
-        var draw = L64(dfaddr + 8);
-        var dftype = draw >> 56;
-        var didx = draw & 0x00FFFFFFFFFFFFFF;
-        if (dftype == 2 || dftype == 3) {
-            if (didx < 2048) { store8(&called + (didx >> 3), load8(&called + (didx >> 3)) | (1 << (didx & 7))); }
-        }
-        dfi = dfi + 1;
-    }
-    var dwi = 0;
-    var dead_count = 0;
-    while (dwi < fnc) {
-        var dfoff = L64(S + 0xC4000 + dwi * 8);
-        if (dfoff >= 0) {
-            var is_called = load8(&called + (dwi >> 3)) & (1 << (dwi & 7));
-            if (is_called == 0) {
-                dead_count = dead_count + 1;
-            }
-        }
-        dwi = dwi + 1;
-    }
-    if (dead_count > 0) {
-        syscall(SYS_WRITE, 2, "note: ", 6);
-        PRNUM(dead_count);
-        syscall(SYS_WRITE, 2, " unused functions (", 19);
-        PRNUM(fnc);
-        syscall(SYS_WRITE, 2, " total)\n", 8);
-    }
     # Symbol dump — opt-in via CYRIUS_SYMS env var (value = output path)
     # Writes "VA name" per line to the given file. Used for crash localization:
     # map RIP from coredumpctl to function+offset. See docs/diagnosis-symbols.md.
+    var sym_fnc = GFNC(S);
     var sym_path = _read_env("CYRIUS_SYMS");
     if (sym_path != 0) {
         var symfd = syscall(2, sym_path, 0x241, 0x1A4);
         if (symfd >= 0) {
             var sfi = 0;
-            while (sfi < fnc) {
+            while (sfi < sym_fnc) {
                 var foff = L64(S + 0xC4000 + sfi * 8);
                 if (foff >= 0) {
                     var vabuf[20];
@@ -214,6 +173,234 @@ fn FIXUP(S) {
             }
         } } }
         fi = fi + 1;
+    }
+    # Dead-code elimination — mark-and-sweep reachability from entry.
+    #
+    # Building blocks already in place:
+    #   0xC4000: fn_start   [fnc]  start offset of each defined fn
+    #   0xE0000: fn_end     [fnc]  end offset (GFNE) — recorded by PARSE_FN_DEF
+    #   0xE4A000: fixup_tbl [fcnt] (coff, type|idx) — all calls + addr-of refs
+    #
+    # Algorithm:
+    # 1. For each fixup (type 2 call, type 3 addr-of), classify the source:
+    #    - If coff lies inside some fn's [start, end) → edge: host_fn → target
+    #    - Else (entry / top-level code) → root: target is live
+    # 2. Every type-3 (address-taken) target is ALSO a conservative root,
+    #    regardless of host, because function pointers can dispatch indirectly
+    #    in ways the static fixup graph doesn't capture.
+    # 3. BFS from the root set along edges until fixpoint.
+    # 4. Any fn not marked live AND with a valid JMP-over preamble is dead;
+    #    NOP-fill [fn_start, fn_end).
+    #
+    # NOP-fill (not code shifting) is the intentional tradeoff:
+    #   - O(n) one pass, no fixup rework, deterministic (self-host stable)
+    #   - Binary size unchanged (compresses vastly better though)
+    #   - Code shifting would break cc3==cc3 byte-identity; deferred.
+    #
+    # Opt-in via CYRIUS_DCE=1 until the pass is battle-tested across
+    # downstream ports. Default is report-only.
+    var fnc = GFNC(S);
+    var dce_enabled = 0;
+    var dce_env = _read_env("CYRIUS_DCE");
+    if (dce_env != 0) {
+        if (load8(dce_env) == 49 && load8(dce_env + 1) == 0) { dce_enabled = 1; }
+    }
+    # live[i] = 1 iff fn i is reachable from entry.
+    var live[256];
+    var ci = 0;
+    while (ci < 256) { store8(&live + ci, 0); ci = ci + 1; }
+    # Call-graph construction is BYTE-SCAN-based, not fixup-based, because
+    # Cyrius emits top-level/late calls via ECALLTO (direct rel32, no fixup)
+    # once the target's offset is known. Only forward-reference calls go
+    # through ECALLFIX into the fixup table. To get a complete call graph
+    # we walk the whole code buffer looking for `E8 rel32` bytes and
+    # decoding their targets.
+    #
+    # Build a reverse map: fn_start_offset → fn_idx. fn starts are rare
+    # (~315 of them across ~300KB of code), so linear lookup per match is
+    # acceptable. For larger binaries a sorted array + bsearch would help.
+    #
+    # Source of call (host fn): identified by scanning the emitted bytes
+    # looking for E8 at known-instruction positions. We approximate
+    # "known-instruction position" conservatively: any byte that happens
+    # to be E8 and has rel32 bytes following that decode to a valid
+    # fn_start is assumed to be a real call. False positives (E8 appearing
+    # inside an imm32/disp32 whose rel32 coincidentally targets a fn_start)
+    # only OVER-estimate liveness, which is SAFE for DCE (never deletes a
+    # live fn).
+    #
+    # Pass A: seed the live set.
+    #   For each E8 candidate, find host fn (fn whose [start, end) contains
+    #   the E8 offset). If host is "none" (call sits in entry/top-level
+    #   code), the target is a ROOT. Also: type-3 fixups add conservative
+    #   roots for address-taken fns.
+    # Pass B (propagate): worklist until fixpoint.
+    #   For each E8 call with a live host, mark the target live.
+    var b_base = S + 0x54A000;
+    # Type-3 address-of fixups are still roots.
+    var t3i = 0;
+    while (t3i < fcnt_pre) {
+        var t3a = S + 0xE4A000 + t3i * 16;
+        var t3r = L64(t3a + 8);
+        if ((t3r >> 56) == 3) {
+            var t3idx = t3r & 0x00FFFFFFFFFFFFFF;
+            if (t3idx < 2048) {
+                store8(&live + (t3idx >> 3), load8(&live + (t3idx >> 3)) | (1 << (t3idx & 7)));
+            }
+        }
+        t3i = t3i + 1;
+    }
+    # Seed pass: scan rel32 control transfers, classify by host fn, mark
+    # targets live when host is entry (outside all fn bodies).
+    # We treat BOTH E8 (CALL rel32) AND E9 (JMP rel32) as potential calls,
+    # because Cyrius uses E9 for tail calls (ETAILJMP) AND for plain
+    # intra-fn jumps. Over-approximation (treating an intra-fn JMP as a
+    # call) is SAFE for DCE — it only keeps extra things alive. The target
+    # must be a known fn_start for the edge to count; intra-fn jumps target
+    # arbitrary offsets and won't match.
+    var scn = 0;
+    while (scn < acp) {
+        var op = load8(b_base + scn);
+        if (op == 0xE8 || op == 0xE9) {
+            if (scn + 5 <= acp) {
+                var rel = load32(b_base + scn + 1);
+                if (rel >= 0x80000000) { rel = rel - 0x100000000; }
+                var tgt = scn + 5 + rel;
+                if (tgt >= 0 && tgt < acp) {
+                    # Look up fn_idx by fn_start == tgt
+                    var fnhit = 0 - 1;
+                    var fi3 = 0;
+                    while (fi3 < fnc) {
+                        if (L64(S + 0xC4000 + fi3 * 8) == tgt) { fnhit = fi3; fi3 = fnc; }
+                        else { fi3 = fi3 + 1; }
+                    }
+                    if (fnhit >= 0) {
+                        # Host = fn containing scn. If none, entry = ROOT.
+                        var host = 0 - 1;
+                        var fj = 0;
+                        while (fj < fnc) {
+                            var fs = L64(S + 0xC4000 + fj * 8);
+                            if (fs >= 0) {
+                                var fe = GFNE(S, fj);
+                                if (fe > fs && scn >= fs && scn < fe) {
+                                    host = fj; fj = fnc;
+                                }
+                            }
+                            if (host < 0) { fj = fj + 1; }
+                        }
+                        if (host < 0) {
+                            store8(&live + (fnhit >> 3), load8(&live + (fnhit >> 3)) | (1 << (fnhit & 7)));
+                        }
+                    }
+                }
+            }
+        }
+        scn = scn + 1;
+    }
+    # Propagate: for each live fn, find E8 calls inside its body and mark
+    # their targets live. Fixpoint loop.
+    var changed = 1;
+    var iters = 0;
+    while (changed == 1 && iters < 512) {
+        changed = 0;
+        iters = iters + 1;
+        var pfi = 0;
+        while (pfi < fnc) {
+            var phl = load8(&live + (pfi >> 3)) & (1 << (pfi & 7));
+            if (phl != 0) {
+                var pfs = L64(S + 0xC4000 + pfi * 8);
+                var pfe = GFNE(S, pfi);
+                if (pfs >= 0 && pfe > pfs) {
+                    var pscn = pfs;
+                    while (pscn < pfe) {
+                        var pop = load8(b_base + pscn);
+                        if (pop == 0xE8 || pop == 0xE9) {
+                            if (pscn + 5 <= pfe) {
+                                var prel = load32(b_base + pscn + 1);
+                                if (prel >= 0x80000000) { prel = prel - 0x100000000; }
+                                var ptgt = pscn + 5 + prel;
+                                if (ptgt >= 0 && ptgt < acp) {
+                                    var phit = 0 - 1;
+                                    var pi4 = 0;
+                                    while (pi4 < fnc) {
+                                        if (L64(S + 0xC4000 + pi4 * 8) == ptgt) { phit = pi4; pi4 = fnc; }
+                                        else { pi4 = pi4 + 1; }
+                                    }
+                                    if (phit >= 0) {
+                                        var prev_live = load8(&live + (phit >> 3)) & (1 << (phit & 7));
+                                        if (prev_live == 0) {
+                                            store8(&live + (phit >> 3), load8(&live + (phit >> 3)) | (1 << (phit & 7)));
+                                            changed = 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        pscn = pscn + 1;
+                    }
+                }
+            }
+            pfi = pfi + 1;
+        }
+    }
+    # Sweep: count + (optionally) NOP-fill dead fns.
+    var dead_count = 0;
+    var dce_bytes = 0;
+    var dwi = 0;
+    while (dwi < fnc) {
+        var dfoff = L64(S + 0xC4000 + dwi * 8);
+        if (dfoff >= 0) {
+            var is_live = load8(&live + (dwi >> 3)) & (1 << (dwi & 7));
+            if (is_live == 0) {
+                dead_count = dead_count + 1;
+                var dfend = GFNE(S, dwi);
+                # Safety gate for NOP-fill: prove no fallthrough reaches
+                # the body. Accept EITHER of two patterns immediately
+                # before fn_start:
+                #   (a) 0xC3 (RET) at fn_start - 1 — previous fn's epilogue
+                #       terminator; fallthrough impossible.
+                #   (b) 0xE9 rel32 at fn_start - 5 whose target >= fn_end —
+                #       explicit JMP-over (global entry JMP or per-fn
+                #       JMP-over from PARSE_PROG).
+                # Either proves execution cannot enter the body via linear
+                # fallthrough — combined with "nothing calls it" (the
+                # byte-scan reachability already confirmed), the body is
+                # provably dead.
+                if (dfend > dfoff && dfoff >= 1) {
+                    var safe = 0;
+                    if (load8(S + 0x54A000 + dfoff - 1) == 0xC3) { safe = 1; }
+                    if (safe == 0 && dfoff >= 5) {
+                        if (load8(S + 0x54A000 + dfoff - 5) == 0xE9) {
+                            var rel32 = load32(S + 0x54A000 + dfoff - 4);
+                            if (rel32 >= 0x80000000) { rel32 = rel32 - 0x100000000; }
+                            if (dfoff + rel32 >= dfend) { safe = 1; }
+                        }
+                    }
+                    if (safe == 1) {
+                        dce_bytes = dce_bytes + (dfend - dfoff);
+                        if (dce_enabled == 1) {
+                            var nop_i = dfoff;
+                            while (nop_i < dfend) {
+                                store8(S + 0x54A000 + nop_i, 0x90);
+                                nop_i = nop_i + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dwi = dwi + 1;
+    }
+    if (dead_count > 0) {
+        syscall(SYS_WRITE, 2, "note: ", 6);
+        PRNUM(dead_count);
+        syscall(SYS_WRITE, 2, " unreachable fns (", 18);
+        PRNUM(dce_bytes);
+        if (dce_enabled == 1) {
+            syscall(SYS_WRITE, 2, " bytes NOPed)\n", 14);
+        } else {
+            syscall(SYS_WRITE, 2, " bytes — set CYRIUS_DCE=1 to eliminate)\n", 40);
+        }
     }
     # Store data_size
     S64(S + 0x70008, totvar);

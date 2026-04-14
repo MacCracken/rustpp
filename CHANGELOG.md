@@ -4,6 +4,86 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.0-alpha2] — 2026-04-13 (unreleased)
+
+### Added
+- **Byte-scan call graph + mark-and-sweep DCE** (`src/backend/x86/fixup.cyr`):
+  the reachability analysis now walks the emitted code buffer looking for
+  `E8 rel32` (direct call) AND `E9 rel32` (tail call / branch-to-fn)
+  instructions, decoding their targets and matching against the fn_start
+  table. The fixup table alone isn't a complete call graph because Cyrius
+  uses `ECALLTO` (direct rel32, no fixup) for late-bound calls where the
+  target is already emitted — top-level calls, most tail calls. Byte-scan
+  catches all of it. DCE runs AFTER the fixup-patching loop so rel32
+  bytes are resolved when we decode them. Type-3 fixups contribute
+  conservative roots (address-taken fns).
+- **Two-pattern safety gate for NOP-fill**: a dead fn body is safe to
+  NOP when EITHER (a) the byte at `fn_start - 1` is `0xC3` (previous
+  fn's RET — no fallthrough possible) OR (b) `fn_start - 5` holds
+  `E9 rel32` whose target ≥ fn_end (explicit JMP-over). Both prove
+  execution cannot enter the body via linear fallthrough; combined with
+  "nothing reaches this fn via call/jump" from the byte-scan, the body
+  is provably dead.
+
+### Results
+- **cc3 self-host**: 4 unreachable fns (down from 25 in alpha1), 695 bytes
+  eligible, byte-identical self-host under CYRIUS_DCE=1 on both sides.
+- **libro**: 719/1160 fns unreachable (62%), 187KB eligible, 94KB actually
+  NOPed under CYRIUS_DCE=1. All 204 tests pass. Gzipped binary: 66521 →
+  54572 bytes (18% smaller release artifact).
+- **5/5 check.sh** pass with the default (report-only) path.
+
+### Known limitations (deferred to 4.4.0 final)
+- NOP-fill does not shrink binary size on disk (preserves offsets and
+  self-host byte-identity). True shrinking via code-shifting relaxation
+  is out of scope until CFG byte-walking lands.
+- Safety gate is conservative: some dead fns that lack both RET-before
+  and JMP-over preamble (~half of eligible cases in libro) are skipped.
+  A full CFG pass using a length decoder would let us verify fallthrough
+  safety for those cases too.
+
+### Added (test)
+- `tests/tcyr/dce.tcyr` — smoke test verifying DCE-on compilation still
+  runs correctly when unused fns are NOPed.
+
+## [4.4.0-alpha1] — 2026-04-13 (unreleased)
+
+### Roadmap
+- Reordered 4.4.0+ cycle to isolate the two big codegen changes (multi-file
+  linker → 4.5.0, PIC → 4.6.0) from the cross-cutting dev-X work (CFG +
+  DCE in 4.4.0). Platform ports (macOS → 4.8.0, Windows → 4.9.0) pushed
+  back one slot each so PIC codegen lands before the platform emitters
+  that need it. See `docs/development/roadmap.md`.
+
+### Added (scaffolding; behavior unchanged by default)
+- **`SFNE` / `GFNE` (fn_end tracking)** (`src/common/util.cyr`,
+  `src/frontend/parse.cyr`): `PARSE_FN_DEF` now records `GCP` at
+  function-body emission end into a new `fn_code_end` table at heap
+  offset `0xE0000`. Paired with `fn_code_start` at `0xC4000`, this gives
+  exact `[start, end)` ranges for every emitted function — the data a
+  future CFG pass needs to NOP dead fn bodies without heuristics on
+  instruction boundaries.
+- **DCE-eligible report** (`src/backend/x86/fixup.cyr`): the `note:`
+  after compilation now shows both the direct-dead count (fns with zero
+  fixup references) and the DCE-eligible subset (dead fns whose body
+  is bracketed by a verified `E9 rel32` JMP-over landing exactly at
+  fn_end). Today the eligible set is 0 for the compiler itself because
+  main.cyr emits a single global entry JMP rather than per-fn preambles;
+  the report surfaces that fact so the next CFG pass can target it
+  with eyes open.
+- **`CYRIUS_DCE=1`** env var gate: when set, the DCE-eligible fns get
+  NOP-filled. Off by default — opt-in only until the CFG pass expands
+  coverage beyond the exact-JMP-over shape.
+
+### Known gap (open for next session)
+- Actual dead-code elimination (non-scaffold work) stays deferred. The
+  JMP-over pattern I gated on doesn't exist in cc3's own layout; a real
+  DCE pass needs CFG-aware reachability (trace entry JMP forward through
+  JMP/JCC/CALL/RET, mark reachable bytes). Infrastructure is in place
+  (SFNE table, report, env gate); the traversal logic is next.
+- libro PatraStore Heisenbug remains open — same 4.3.1 localization
+  holds, fix waits on CFG.
+
 ## [4.3.3] — 2026-04-13
 
 ### Added

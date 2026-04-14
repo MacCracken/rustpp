@@ -1,0 +1,26 @@
+# DCE smoke test — verify a binary with many unused fns still runs correctly
+include "lib/assert.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/alloc.cyr"
+
+fn never_called_1() { return 1; }
+fn never_called_2() { return 2; }
+fn never_called_3() { return 3; }
+fn never_called_4() { return 4; }
+fn never_called_5() { return 5; }
+
+fn used_helper(x) { return x + 1; }
+
+alloc_init();
+
+test_group("DCE safety");
+assert_eq(used_helper(41), 42, "used fn still works");
+assert_eq(used_helper(0), 1, "used fn returns sum");
+
+# The never_called_* fns should be marked unreachable by DCE and NOPed
+# when CYRIUS_DCE=1. This test doesn't directly verify NOP-fill but
+# confirms that the rest of the program still runs when they are.
+
+var r = assert_summary();
