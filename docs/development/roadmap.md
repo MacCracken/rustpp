@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.3.3.** 309KB self-hosting compiler, x86_64 + aarch64.
+> **v4.4.0.** 309KB self-hosting compiler, x86_64 + aarch64.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (309KB). Closure verified.
 > 36 test suites, 102 regression assertions, 5 fuzz harnesses. 41 stdlib modules + 5 deps.
 > `cyrius build` auto-resolves deps + auto-includes. File:line error messages.
@@ -93,17 +93,34 @@ The compiler learns control flow. Foundation for all advanced optimizations.
 
 ---
 
-## v4.4.0 — Multi-File & Dead-Code Elimination
+## v4.4.0 — CFG & Single-CU Dead-Code Elimination
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Multi-file linker** | High | .o emission done (v2.6.4). Read .o, resolve symbols, patch relocations, emit executable. Unblocks true DCE across compilation units. |
-| **Dead-code elimination** | High | With linker + CFG, only emit functions actually called. kybernet 486KB → estimated 150-200KB. |
-| **PIC codegen** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. |
+| **Basic-block / CFG pass** | Medium | Build per-function control flow graph from emitted bytes + jump target table (v4.2.0 infra). Foundation for DCE, LASE soundness, register alloc, Heisenbug diagnosis. |
+| **Single-CU DCE** | Medium | With CFG, drop functions unreachable from `main` + referenced globals. Binary-size win without the multi-file linker prerequisite. |
+| **libro PatraStore Heisenbug** | Medium | Use CFG to find the memory-corruption source flagged by CYRIUS_SYMS in 4.3.1. Unblocks libro's full test suite. |
 
 ---
 
-## v4.5.0 — Types & Codegen
+## v4.5.0 — Multi-File Linker & Cross-Unit DCE
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **Multi-file linker** | High | .o emission done (v2.6.4). Read .o, resolve symbols, patch relocations, emit executable. |
+| **Cross-unit DCE** | High | Extend 4.4.0 single-CU DCE across object files once the linker lands. kybernet 486KB → est. 150-200KB. |
+
+---
+
+## v4.6.0 — PIC Codegen
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **PIC codegen** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. Last piece before multi-platform work, since Mach-O/PE need position-independent references. |
+
+---
+
+## v4.7.0 — Types & Codegen
 
 | Feature | Effort | Details |
 |---------|--------|---------|
@@ -113,20 +130,20 @@ The compiler learns control flow. Foundation for all advanced optimizations.
 
 ---
 
-## v4.6.0 — macOS
+## v4.8.0 — macOS
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. |
+| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. Depends on PIC codegen (v4.6.0). |
 | **macOS aarch64** | High | Mach-O emitter. Apple Silicon native. |
 
 ---
 
-## v4.7.0 — Windows
+## v4.9.0 — Windows
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. |
+| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. Depends on PIC codegen (v4.6.0). |
 
 ---
 

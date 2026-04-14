@@ -106,14 +106,18 @@ fn FIXUP(S) {
         }
         ufi = ufi + 1;
     }
-    # Dead function warning: functions defined but never called
-    # Build a bitmap of called function indices from the fixup table
+    # Dead-code elimination (single-CU, direct-reference).
+    # A function is dead iff the fixup table has ZERO call/addr references
+    # to it — provably unreachable because every call and fn-ptr read goes
+    # through a fixup. For each dead fn we recover its body extent by
+    # decoding the JMP-over that PARSE_PROG emitted immediately before the
+    # body: `E9 rel32` at (fn_start - 5). fn_end = fn_start + rel32.
+    # We NOP-fill [fn_start, fn_end) — the binary size is unchanged but
+    # the bytes compress vastly better and the dead code is provably inert.
     var fnc = GFNC(S);
-    # Use a simple array on the stack — mark called[i] = 1
     var called[256];
     var ci = 0;
     while (ci < 256) { store8(&called + ci, 0); ci = ci + 1; }
-    # Scan fixups for function call/addr references
     var dfi = 0;
     while (dfi < fcnt_pre) {
         var dfaddr = S + 0xE4A000 + dfi * 16;
@@ -125,14 +129,15 @@ fn FIXUP(S) {
         }
         dfi = dfi + 1;
     }
-    # Warn about defined but uncalled functions (skip main/alloc_init/internal)
     var dwi = 0;
     var dead_count = 0;
     while (dwi < fnc) {
         var dfoff = L64(S + 0xC4000 + dwi * 8);
         if (dfoff >= 0) {
             var is_called = load8(&called + (dwi >> 3)) & (1 << (dwi & 7));
-            if (is_called == 0) { dead_count = dead_count + 1; }
+            if (is_called == 0) {
+                dead_count = dead_count + 1;
+            }
         }
         dwi = dwi + 1;
     }
