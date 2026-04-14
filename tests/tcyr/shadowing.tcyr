@@ -1,0 +1,92 @@
+# Variable scoping / shadowing rules — covers 4.4.x behavior.
+# Documents what works today:
+#   - Reassignment without `var`: always fine.
+#   - `var` inside nested if/while/for WITHIN A FN: shadows outer local.
+#   - `var` inside a bare `{ }` block WITHIN A FN: shadows outer local.
+# Note: top-level `var` is a GLOBAL — nested blocks at top level do NOT
+# create scopes; they reassign the global. Wrap scoping tests in a fn.
+# Also: same-scope `var x = a; ...; var x = b;` errors as "duplicate
+# variable" — see `feedback_var_shadowing` memory; not tested here because
+# .tcyr files must compile.
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+fn test_reassign() {
+    test_group("reassignment (no var)");
+    var x = 1;
+    x = 2;
+    x = 3;
+    assert_eq(x, 3, "plain reassignment chains");
+    return 0;
+}
+
+fn test_nested_if() {
+    test_group("nested if-block shadows outer local");
+    var y = 10;
+    if (1 == 1) {
+        var y = 20;
+        assert_eq(y, 20, "inner y is 20");
+    }
+    assert_eq(y, 10, "outer y unchanged after if exits");
+    return 0;
+}
+
+fn test_nested_while() {
+    test_group("nested while-block shadows outer local");
+    var w = 100;
+    var wi = 0;
+    while (wi < 1) {
+        var w = 200;
+        assert_eq(w, 200, "inner w is 200 inside while");
+        wi = wi + 1;
+    }
+    assert_eq(w, 100, "outer w unchanged after while exits");
+    return 0;
+}
+
+fn test_bare_block() {
+    test_group("bare {} block shadows outer local");
+    var z = 1;
+    {
+        var z = 2;
+        assert_eq(z, 2, "bare-block z is 2");
+    }
+    assert_eq(z, 1, "outer z unchanged");
+    return 0;
+}
+
+fn test_sibling_blocks() {
+    test_group("sequential bare blocks each get their own scope");
+    var total = 0;
+    { var n = 10; total = total + n; }
+    { var n = 20; total = total + n; }
+    { var n = 30; total = total + n; }
+    assert_eq(total, 60, "three same-name vars in sibling blocks coexist");
+    return 0;
+}
+
+fn test_triple_nested() {
+    test_group("nested shadowing in multiple layers");
+    var q = 1;
+    if (1 == 1) {
+        var q = 2;
+        if (1 == 1) {
+            var q = 3;
+            assert_eq(q, 3, "triple-nested q is 3");
+        }
+        assert_eq(q, 2, "middle q restored to 2");
+    }
+    assert_eq(q, 1, "outer q restored to 1");
+    return 0;
+}
+
+alloc_init();
+test_reassign();
+test_nested_if();
+test_nested_while();
+test_bare_block();
+test_sibling_blocks();
+test_triple_nested();
+var r = assert_summary();

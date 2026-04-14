@@ -27,6 +27,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   uses `getcwd(2)` to make every symlink target absolute before
   `symlink(2)`. Surfaced during kavach porting.
 
+### Added
+- **`tests/tcyr/short_circuit.tcyr`** — 13 assertions covering `&&` / `||`
+  short-circuit semantics: side-effect ordering, guarded null check pattern
+  (the bote regression), chain evaluation, expression-context use.
+- **`tests/tcyr/shadowing.tcyr`** — 11 assertions covering fn-local scoping:
+  reassignment, nested if / while / bare-block shadowing, sibling blocks,
+  multi-layer nesting. Documents that top-level `var` creates globals
+  (no scoping) — wrap in a fn for proper shadowing.
+- **`benches/bench_shortcircuit.bcyr`** — 6 microbenchmarks measuring the
+  short-circuit win: skip paths run ~21% faster than full-evaluation paths
+  (413 vs 522 ns for `&&`, 404 vs 520 ns for `||`). Scales with RHS cost.
+
 ## [4.4.0] — 2026-04-13
 
 ### Added

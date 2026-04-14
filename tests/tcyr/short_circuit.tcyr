@@ -1,0 +1,104 @@
+# Short-circuit evaluation of && and || — 4.4.1 fix.
+# Covers: basic boolean cases, side-effect ordering, guarded null checks,
+# chain evaluation, precedence with ==/!=, use in both if-conditions and
+# as plain expressions.
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+# Global counter used to detect whether a side-effecting helper ran.
+var _sc_calls = 0;
+
+fn sc_side_true() {
+    _sc_calls = _sc_calls + 1;
+    return 1;
+}
+fn sc_side_false() {
+    _sc_calls = _sc_calls + 1;
+    return 0;
+}
+fn sc_side_42() {
+    _sc_calls = _sc_calls + 1;
+    return 42;
+}
+# Dereferences its argument — crashes if called with 0.
+fn sc_side_deref(p) {
+    _sc_calls = _sc_calls + 1;
+    return load64(p);
+}
+
+fn reset() { _sc_calls = 0; return 0; }
+
+alloc_init();
+
+test_group("&& short-circuit: right side skipped when left is 0");
+reset();
+var a1 = 0;
+if (a1 != 0 && sc_side_deref(a1) == 0) {
+    assert(0 == 1, "should not enter if");
+}
+assert_eq(_sc_calls, 0, "right side not evaluated on && with false left");
+
+test_group("&& right side evaluates when left is truthy");
+reset();
+if (sc_side_true() == 1 && sc_side_42() == 42) {
+    # both ran
+}
+assert_eq(_sc_calls, 2, "both sides evaluated on && with true left");
+
+test_group("|| short-circuit: right side skipped when left is non-zero");
+reset();
+var b1 = 1;
+if (b1 == 1 || sc_side_42() == 42) {
+    # ok
+}
+assert_eq(_sc_calls, 0, "right side not evaluated on || with true left");
+
+test_group("|| right side evaluates when left is false");
+reset();
+if (sc_side_false() == 1 || sc_side_true() == 1) {
+    # ok
+}
+assert_eq(_sc_calls, 2, "both sides evaluated on || with false left");
+
+test_group("&& chain: a && b && c short-circuits at first false");
+reset();
+if (sc_side_true() == 1 && sc_side_false() == 1 && sc_side_deref(0) == 0) {
+    assert(0 == 1, "should not enter");
+}
+assert_eq(_sc_calls, 2, "third operand skipped after second is false");
+
+test_group("|| chain: a || b || c short-circuits at first true");
+reset();
+if (sc_side_false() == 1 || sc_side_true() == 1 || sc_side_42() == 42) {
+    # ok
+}
+assert_eq(_sc_calls, 2, "third operand skipped after second is true");
+
+test_group("&& as plain boolean expression (not in if)");
+reset();
+var r1 = sc_side_true() == 1 && sc_side_false() == 1;
+assert_eq(r1, 0, "true && false = 0");
+assert_eq(_sc_calls, 2, "both ran on expression");
+reset();
+var r2 = sc_side_false() == 1 && sc_side_deref(0) == 0;
+assert_eq(r2, 0, "false && _ = 0");
+assert_eq(_sc_calls, 1, "short-circuit in expression context");
+
+test_group("|| as plain boolean expression");
+reset();
+var r3 = sc_side_true() == 1 || sc_side_deref(0) == 0;
+assert_eq(r3, 1, "true || _ = 1");
+assert_eq(_sc_calls, 1, "short-circuit in || expression context");
+
+test_group("guarded null check pattern (the bote regression)");
+reset();
+var p1 = 0;
+if (p1 != 0 && sc_side_deref(p1) != 0) {
+    assert(0 == 1, "must not deref null");
+}
+# If we got here without crashing, the bug is fixed.
+assert_eq(_sc_calls, 0, "null guard prevents dereference");
+
+var r = assert_summary();

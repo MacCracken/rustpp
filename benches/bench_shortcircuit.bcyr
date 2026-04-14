@@ -1,0 +1,102 @@
+# bench_shortcircuit.bcyr — short-circuit && / || performance
+# Added 4.4.1 alongside the short-circuit fix. Measures the runtime win
+# vs non-short-circuit (both-sides-evaluated) semantics. The left-false
+# and left-true cases exercise the fast path; the both-eval cases give
+# a worst-case baseline.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+
+# Expensive right operand — not inlined by the compiler because it takes
+# a parameter that varies at runtime. If short-circuit works, this never
+# runs in the "short-circuit" cases.
+fn expensive(x) {
+    var acc = 0;
+    var i = 0;
+    while (i < 64) {
+        acc = acc + (x * i);
+        i = i + 1;
+    }
+    return acc;
+}
+
+# && short-circuit fast path: left is 0, right skipped entirely.
+fn work_and_shortcut() {
+    var p = 0;
+    if (p != 0 && expensive(p) > 0) { }
+    return 0;
+}
+
+# && slow path: left is truthy, right must run.
+fn work_and_both() {
+    var p = 1;
+    if (p != 0 && expensive(p) > 0) { }
+    return 0;
+}
+
+# || short-circuit fast path: left is truthy, right skipped entirely.
+fn work_or_shortcut() {
+    var p = 1;
+    if (p != 0 || expensive(p) > 0) { }
+    return 0;
+}
+
+# || slow path: left is 0, right must run.
+fn work_or_both() {
+    var p = 0;
+    if (p != 0 || expensive(p) > 0) { }
+    return 0;
+}
+
+# Three-term && chain, all true — full evaluation.
+fn work_and_chain_all_true() {
+    var a = 1; var b = 2; var c = 3;
+    if (a > 0 && b > 0 && c > 0) { }
+    return 0;
+}
+
+# Three-term && chain, first false — rest skipped.
+fn work_and_chain_first_false() {
+    var a = 0; var b = 2; var c = 3;
+    if (a > 0 && b > 0 && c > 0) { }
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    var N = 10000;
+    var all = vec_new();
+
+    var b1 = bench_new("shortcircuit/and_skip");
+    bench_run(b1, &work_and_shortcut, N);
+    vec_push(all, b1);
+
+    var b2 = bench_new("shortcircuit/and_both");
+    bench_run(b2, &work_and_both, N);
+    vec_push(all, b2);
+
+    var b3 = bench_new("shortcircuit/or_skip");
+    bench_run(b3, &work_or_shortcut, N);
+    vec_push(all, b3);
+
+    var b4 = bench_new("shortcircuit/or_both");
+    bench_run(b4, &work_or_both, N);
+    vec_push(all, b4);
+
+    var b5 = bench_new("shortcircuit/and_chain_all");
+    bench_run(b5, &work_and_chain_all_true, N);
+    vec_push(all, b5);
+
+    var b6 = bench_new("shortcircuit/and_chain_skip");
+    bench_run(b6, &work_and_chain_first_false, N);
+    vec_push(all, b6);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);
