@@ -4,6 +4,31 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.2] — 2026-04-14
+
+### Arc summary
+Three-alpha switch jump-table tuning cycle.
+
+- **alpha1** — Fixed a real bug in the existing jump-table emitter:
+  values inside `[case_min, case_max]` not matching any `case` fell
+  through to *end-of-switch* instead of routing to `default:`.
+  Invisible at the old 50%-density threshold (dense cases leave no
+  gaps); exposed by lowering threshold to 33%. Same patch lands the
+  threshold change. Plus `tests/tcyr/switch_dispatch.tcyr` (31
+  assertions) covering chain / dense / sparse / gaps / nonzero-base
+  / above/below default.
+- **alpha2** — Range cap raised 256 → 1024. Wider enum dispatches
+  (40+ variants over a few hundred values) now meet the criteria
+  for O(1) jump table. Test grew to 42 assertions.
+- **alpha3** — `benches/bench_switch.bcyr` measures dispatch cost.
+  Jump table −7% on 8-way, −11% on 16-way (averaged over all case
+  values; worst-case-match advantage is wider).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 7/7 check.sh PASS. CI-style 44 / 0.
+- 42 `.tcyr` switch-dispatch assertions all green.
+
 ## [4.8.2-alpha3] — 2026-04-14 (unreleased)
 
 ### Added
