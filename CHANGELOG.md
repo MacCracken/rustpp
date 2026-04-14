@@ -4,85 +4,64 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [4.4.0-alpha2] — 2026-04-13 (unreleased)
+## [4.4.0] — 2026-04-13
 
 ### Added
-- **Byte-scan call graph + mark-and-sweep DCE** (`src/backend/x86/fixup.cyr`):
-  the reachability analysis now walks the emitted code buffer looking for
-  `E8 rel32` (direct call) AND `E9 rel32` (tail call / branch-to-fn)
-  instructions, decoding their targets and matching against the fn_start
-  table. The fixup table alone isn't a complete call graph because Cyrius
-  uses `ECALLTO` (direct rel32, no fixup) for late-bound calls where the
-  target is already emitted — top-level calls, most tail calls. Byte-scan
-  catches all of it. DCE runs AFTER the fixup-patching loop so rel32
-  bytes are resolved when we decode them. Type-3 fixups contribute
-  conservative roots (address-taken fns).
-- **Two-pattern safety gate for NOP-fill**: a dead fn body is safe to
-  NOP when EITHER (a) the byte at `fn_start - 1` is `0xC3` (previous
-  fn's RET — no fallthrough possible) OR (b) `fn_start - 5` holds
-  `E9 rel32` whose target ≥ fn_end (explicit JMP-over). Both prove
-  execution cannot enter the body via linear fallthrough; combined with
-  "nothing reaches this fn via call/jump" from the byte-scan, the body
-  is provably dead.
+- **`fn_code_end` tracking** (`src/common/util.cyr`, `src/frontend/parse.cyr`):
+  `PARSE_FN_DEF` records `GCP` at function-body emission end into a new table
+  at heap offset `0xE0000`. Paired with `fn_code_start` at `0xC4000`, this
+  gives exact `[start, end)` ranges for every emitted function. New accessors
+  `SFNE(S, fi, v)` / `GFNE(S, fi)`.
+- **Byte-scan call graph** (`src/backend/x86/fixup.cyr`): scans the emitted
+  code buffer for `E8 rel32` (direct call) AND `E9 rel32` (tail call /
+  branch-to-fn) instructions, decoding their targets and matching against
+  the fn_start table. This catches calls that `ECALLTO` emits directly
+  without going through the fixup table — the fixup table alone is not a
+  complete call graph.
+- **Mark-and-sweep DCE** (`src/backend/x86/fixup.cyr`): reachability from
+  entry using the byte-scan call graph. Seeds the live set from calls in
+  entry/top-level code (outside all fn bodies) and type-3 (address-taken)
+  fixups as conservative roots. Propagates through the call graph to
+  fixpoint, then NOP-fills dead fn bodies when a safety gate is satisfied.
+  Runs AFTER the fixup-patching loop so `rel32` bytes are resolved when
+  decoded.
+- **Two-pattern NOP-fill safety gate**: a dead fn body is safe to NOP
+  when EITHER (a) the byte at `fn_start - 1` is `0xC3` (previous fn's RET
+  — no fallthrough possible) OR (b) `fn_start - 5` holds `E9 rel32` whose
+  target ≥ fn_end (explicit JMP-over). Either proves execution cannot enter
+  the body via linear fallthrough.
+- **`CYRIUS_DCE=1`** env var gate: opt-in NOP-fill. Off by default —
+  report-only until the pass is battle-tested across downstream ports.
+- **`tests/tcyr/dce.tcyr`** — smoke test verifying DCE-on compilation still
+  runs correctly when unused fns are NOPed.
+
+### Changed
+- Roadmap reordered: multi-file linker → 4.5.0, PIC codegen → 4.6.0,
+  Types (u128/defmt/jump-tables) → 4.7.0, macOS → 4.8.0, Windows → 4.9.0.
+  Platform ports pushed back one slot each so PIC codegen lands before the
+  platform emitters that need it. See `docs/development/roadmap.md`.
+- Dead-function report replaced with mark-and-sweep `unreachable fns` count
+  plus eligible-bytes estimate.
 
 ### Results
-- **cc3 self-host**: 4 unreachable fns (down from 25 in alpha1), 695 bytes
-  eligible, byte-identical self-host under CYRIUS_DCE=1 on both sides.
+- **cc3 self-host**: 4 unreachable fns, 695 bytes eligible. Byte-identical
+  self-host under `CYRIUS_DCE=1` on both sides.
 - **libro**: 719/1160 fns unreachable (62%), 187KB eligible, 94KB actually
-  NOPed under CYRIUS_DCE=1. All 204 tests pass. Gzipped binary: 66521 →
+  NOPed under `CYRIUS_DCE=1`. All 204 tests pass. Gzipped binary: 66521 →
   54572 bytes (18% smaller release artifact).
 - **5/5 check.sh** pass with the default (report-only) path.
 
-### Known limitations (deferred to 4.4.0 final)
+### Known limitations (tracked for 4.4.x / 4.5.0)
 - NOP-fill does not shrink binary size on disk (preserves offsets and
   self-host byte-identity). True shrinking via code-shifting relaxation
-  is out of scope until CFG byte-walking lands.
-- Safety gate is conservative: some dead fns that lack both RET-before
-  and JMP-over preamble (~half of eligible cases in libro) are skipped.
-  A full CFG pass using a length decoder would let us verify fallthrough
-  safety for those cases too.
-
-### Added (test)
-- `tests/tcyr/dce.tcyr` — smoke test verifying DCE-on compilation still
-  runs correctly when unused fns are NOPed.
-
-## [4.4.0-alpha1] — 2026-04-13 (unreleased)
-
-### Roadmap
-- Reordered 4.4.0+ cycle to isolate the two big codegen changes (multi-file
-  linker → 4.5.0, PIC → 4.6.0) from the cross-cutting dev-X work (CFG +
-  DCE in 4.4.0). Platform ports (macOS → 4.8.0, Windows → 4.9.0) pushed
-  back one slot each so PIC codegen lands before the platform emitters
-  that need it. See `docs/development/roadmap.md`.
-
-### Added (scaffolding; behavior unchanged by default)
-- **`SFNE` / `GFNE` (fn_end tracking)** (`src/common/util.cyr`,
-  `src/frontend/parse.cyr`): `PARSE_FN_DEF` now records `GCP` at
-  function-body emission end into a new `fn_code_end` table at heap
-  offset `0xE0000`. Paired with `fn_code_start` at `0xC4000`, this gives
-  exact `[start, end)` ranges for every emitted function — the data a
-  future CFG pass needs to NOP dead fn bodies without heuristics on
-  instruction boundaries.
-- **DCE-eligible report** (`src/backend/x86/fixup.cyr`): the `note:`
-  after compilation now shows both the direct-dead count (fns with zero
-  fixup references) and the DCE-eligible subset (dead fns whose body
-  is bracketed by a verified `E9 rel32` JMP-over landing exactly at
-  fn_end). Today the eligible set is 0 for the compiler itself because
-  main.cyr emits a single global entry JMP rather than per-fn preambles;
-  the report surfaces that fact so the next CFG pass can target it
-  with eyes open.
-- **`CYRIUS_DCE=1`** env var gate: when set, the DCE-eligible fns get
-  NOP-filled. Off by default — opt-in only until the CFG pass expands
-  coverage beyond the exact-JMP-over shape.
-
-### Known gap (open for next session)
-- Actual dead-code elimination (non-scaffold work) stays deferred. The
-  JMP-over pattern I gated on doesn't exist in cc3's own layout; a real
-  DCE pass needs CFG-aware reachability (trace entry JMP forward through
-  JMP/JCC/CALL/RET, mark reachable bytes). Infrastructure is in place
-  (SFNE table, report, env gate); the traversal logic is next.
+  is deferred — would break `cc3==cc3` byte-identity unless fully
+  deterministic.
+- Safety gate is conservative: dead fns without RET-before or JMP-over
+  preamble (~half of eligible cases in libro) are skipped. A proper
+  instruction-length decoder (researched in vidya `instruction_encoding`)
+  would verify fallthrough safety for those cases too.
 - libro PatraStore Heisenbug remains open — same 4.3.1 localization
-  holds, fix waits on CFG.
+  holds, fix waits on full byte-walking CFG.
 
 ## [4.3.3] — 2026-04-13
 
