@@ -120,6 +120,52 @@ stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "ass
 TOML
 echo "  Created cyrius.toml"
 
+# Generate .gitignore — mirrors cyrius-init.sh plus /rust-old/target/ so a
+# local `cargo build` in rust-old/ (for parity checks against the port) does
+# not drop hundreds of MB of build artifacts into git.
+if [ ! -f .gitignore ]; then
+    cat > .gitignore << 'GITIGNORE'
+# Build output
+/build/
+/rust-old/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Core dumps
+*.core
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Coverage
+/coverage/
+*.profraw
+*.profdata
+GITIGNORE
+    echo "  Created .gitignore"
+else
+    # .gitignore exists (carried over from Rust project) — ensure rust-old/target/ is covered
+    if ! grep -qE '^/?rust-old/target/?' .gitignore; then
+        printf "\n# Cyrius port\n/rust-old/target/\n/build/\n" >> .gitignore
+        echo "  Appended /rust-old/target/ and /build/ to existing .gitignore"
+    fi
+fi
+
 # Generate CI workflow
 cat > .github/workflows/ci.yml << 'CI'
 name: CI

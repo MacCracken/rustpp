@@ -116,7 +116,8 @@ var b = *(p + 1);      # 20 (adds 8 bytes, not 1)
 ```
 struct Point { x; y; }
 
-var p = Point { 10, 20 };
+var p = Point { 10, 20 };           # Positional — fields in declaration order
+var q = Point { x: 10, y: 20 };     # Named — any order, every field required
 var sum = p.x + p.y;    # 30
 p.x = 42;               # Field assignment
 

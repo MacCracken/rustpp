@@ -32,4 +32,17 @@ var s = Seg { 1, 2, 3, 4 };
 assert_eq(s.start.x, 1, "nested start.x");
 assert_eq(s.end.y, 4, "nested end.y");
 
+test_group("named-field init");
+var np = Point { x: 7, y: 9 };
+assert_eq(np.x, 7, "named Point.x");
+assert_eq(np.y, 9, "named Point.y");
+# Order-independence: y before x should yield the same result
+var rp = Point { y: 33, x: 11 };
+assert_eq(rp.x, 11, "reversed Point.x");
+assert_eq(rp.y, 33, "reversed Point.y");
+# Typed fields
+var pk = Packet { tag: 1, len: 2, data: 3, payload: 4 };
+assert_eq(pk.tag, 1, "named Packet.tag");
+assert_eq(pk.data, 3, "named Packet.data");
+
 var r = assert_summary();

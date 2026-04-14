@@ -4,6 +4,26 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.3.3] — 2026-04-13
+
+### Added
+- **Named-field struct initializer syntax** (`src/frontend/parse.cyr`):
+  `var p = Point { x: 10, y: 20 }` alongside the existing positional form
+  `Point { 10, 20 }`. Fields can appear in any order; each must appear
+  exactly once. Errors clearly at compile time: `unknown struct field in
+  initializer`, `struct field initialized twice`, `missing struct field
+  in initializer` — all with file:line via FM_LOOKUP. Nested-struct
+  fields still require positional form (flattening by name is v4.4.0+).
+- `GETFNAME(S, si, fi)` + `STREQTOK(S, a, b)` helpers for field-name
+  lookup. Identifiers are interned by the lexer so direct offset equality
+  usually hits; STREQTOK is the defensive fallback.
+- **`.gitignore` scaffolding in `cyrius port`** (`scripts/cyrius-port.sh`):
+  fresh ports get the standard cyrius `.gitignore` (mirrors
+  `cyrius-init.sh`). If a Rust-project `.gitignore` is already present,
+  `/rust-old/target/` and `/build/` are appended — prevents `cargo build`
+  in the preserved Rust tree from dropping hundreds of MB of untracked
+  artifacts into the port.
+
 ## [4.3.2] — 2026-04-13
 
 ### Fixed
