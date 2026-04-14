@@ -133,30 +133,25 @@ Reordered from the original "multi-file linker" scope — porting pressure from 
 
 ---
 
-## v4.8.0 — Types & Codegen
+## v4.8.0 — Types & Codegen (final 4.x minor)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
 | **u128** | High | 128-bit integers via register pairs. Unblocks native bigint. |
 | **Deferred formatting (defmt)** | High | String interning + decode ring. Format strings as interned IDs at runtime. |
 | **Jump tables for enum dispatch** | High | 79 if-chains → O(1) indexed branch. 10-35x on enum-heavy code. |
+| **Register allocation** | High | Per-function `#regalloc`. Keep hot locals in callee-saved registers. Independent of cc5; ships on cc3. Key benchmark: 249 ns → sub-100 ns. |
 
 ---
 
-## v4.9.0 — macOS
+## v5.0.0 — cc5 + multi-platform (major)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **macOS x86_64** | High | Mach-O emitter. Stubs scaffolded in v3.1. Depends on PIC codegen (v4.7.0). |
-| **macOS aarch64** | High | Mach-O emitter. Apple Silicon native. |
-
----
-
-## v4.10.0 — Windows
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **Windows x86_64** | High | PE/COFF emitter. Stub scaffolded in v3.1. Depends on PIC codegen (v4.7.0). |
+| **cc3 → cc5 uplift** | High | Generation bump. cc3 has carried the self-hosting toolchain from v2.2 through v4.x — heap map near capacity (14.8MB), single-pass codegen, flat fn scope. cc5 re-lands the compiler on top of the full 4.x infrastructure (CFG, length decoder, linker, PIC) to enable per-block scoping, incremental compilation, and multi-arch backend selection from one binary. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
+| **macOS x86_64 + aarch64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. Built once on cc5, not twice across cc3/cc5. |
+| **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
+| **Language-level changes** | TBD | Collected from 4.x lessons — to be scoped closer to 5.0 cut. |
 
 ---
 

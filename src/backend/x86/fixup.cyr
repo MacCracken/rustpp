@@ -723,12 +723,20 @@ fn EMITELF_OBJ(S) {
         # st_info: STT_FUNC=2, STB_GLOBAL=1 → (1 << 4) | 2 = 0x12
         store8(symp + 4, 0x12);
         # st_other: 0
-        # st_shndx: 1 (.text)
-        store8(symp + 6, 1); store8(symp + 7, 0);
-        # st_value: function offset in .text (8 bytes LE)
+        # st_shndx / st_value depend on whether fn is defined here.
+        # Undefined (fn_offset == -1) → SHN_UNDEF (0) with value 0, which
+        # is what the ELF spec wants for cross-unit references. Emitting
+        # them as if they were in .text at offset 0 made the linker see
+        # false duplicate-strong definitions when two objects referenced
+        # the same extern. Fixed in 4.6.0 alpha2.
         var foff = L64(S + 0xC4000 + fi * 8);
-        if (foff < 0) { foff = 0; }
-        S64(symp + 8, foff);
+        if (foff < 0) {
+            store8(symp + 6, 0); store8(symp + 7, 0);   # st_shndx = SHN_UNDEF
+            S64(symp + 8, 0);                           # st_value = 0
+        } else {
+            store8(symp + 6, 1); store8(symp + 7, 0);   # st_shndx = .text
+            S64(symp + 8, foff);                        # st_value = function offset
+        }
         # st_size: 0 (unknown)
         fi = fi + 1;
     }
@@ -739,7 +747,14 @@ fn EMITELF_OBJ(S) {
     store8(init_symp + 1, (init_strtab_off >> 8) & 0xFF);
     store8(init_symp + 2, (init_strtab_off >> 16) & 0xFF);
     store8(init_symp + 3, (init_strtab_off >> 24) & 0xFF);
-    store8(init_symp + 4, 0x12);  # STT_FUNC | STB_GLOBAL
+    # _cyrius_init is module-private — each .o has its own, the linker
+    # invokes them in order. Must be STB_LOCAL or multiple objects appear
+    # to each define the symbol when merged. Fixed in 4.6.0 alpha2.
+    # Note: ELF requires locals to come before globals in symtab; this
+    # leaves _cyrius_init at the tail (after globals), which cyrld handles
+    # correctly but is technically spec-non-conformant. Proper reorder is
+    # a follow-up (alpha3+).
+    store8(init_symp + 4, 0x02);  # STT_FUNC | STB_LOCAL
     store8(init_symp + 6, 1); store8(init_symp + 7, 0);  # st_shndx = .text
     S64(init_symp + 8, L64(S + 0x903F8));  # st_value = init offset
 

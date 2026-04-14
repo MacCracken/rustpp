@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.6.0-alpha2] — 2026-04-14 (unreleased)
+
+### Added
+- **cyrld multi-file merge** (`programs/cyrld.cyr`). Loads N .o files,
+  concatenates `.text` (assigns each module a base offset in merged
+  output), walks every module's symtab to build a combined global
+  symbol table, and classifies each symbol as defined/weak/undefined.
+  Reports the merge plan — per-module .text sizes + bases, total merged
+  size, per-symbol resolution (`def/weak/UND [mod + offset → final]`).
+- **Error detection**: unresolved reference (symbol UND in every module
+  that mentions it), duplicate-strong definition (two GLOBAL defs of the
+  same name). Strong beats weak beats unresolved in the merge rules.
+
+### Fixed (cc3 writer bugs surfaced by the linker)
+- **Undefined symbols now emit `SHN_UNDEF`** (`src/backend/x86/fixup.cyr`).
+  `EMITELF_OBJ` was emitting every function symbol with `st_shndx=1`
+  regardless of whether the fn had a definition in the module, pointing
+  "undefined" references at .text offset 0. A merged binary with two
+  such .o files looked like duplicate-strong definitions of the same
+  extern. Now: `st_shndx=0, st_value=0` when `fn_offset < 0` (true undef).
+- **`_cyrius_init` is now `STB_LOCAL`** — it's module-private (each .o
+  has its own init wrapper for top-level code), not a cross-unit symbol.
+  Was GLOBAL; merging two objects showed two `_cyrius_init` as duplicate.
+  (ELF requires locals before globals; cyrld tolerates the current tail
+  placement. Strict reorder is alpha3+.)
+
+### Next
+- **alpha3**: apply relocations against the merged symbol table.
+- **beta1**: wrap output in PT_LOAD ET_EXEC, runnable binary.
+
 ## [4.6.0-alpha1] — 2026-04-14 (unreleased)
 
 ### Added
