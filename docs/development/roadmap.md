@@ -16,7 +16,8 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| Layout-dependent memory corruption | Libro PatraStore tests | v4.3.1: localized with `CYRIUS_SYMS`. Crash is `memeq` called with NUL data ptr from `str_eq(entry_hash(a), entry_hash(b))` in large libro binary. Each `println` shifts the site — classic memory corruption signature. Root cause fix deferred to v4.4.0 CFG pass. Workaround still in place (isolated test binary). |
+| Layout-dependent memory corruption | Libro PatraStore tests | v4.3.1: localized with `CYRIUS_SYMS`. Crash is `memeq` called with NUL data ptr from `str_eq(entry_hash(a), entry_hash(b))` in large libro binary. Each `println` shifts the site — classic memory corruption signature. Root cause fix deferred to post-4.4.0 when byte-walking CFG lands. Workaround still in place (isolated test binary). |
+| `&&` / `||` do not short-circuit | Silent miscompile; any guarded null check (`if (p != 0 && vec_len(p) > 0)`) crashes because the right side evaluates unconditionally | Confirmed active on 4.4.0 via bote feedback doc (item 2). Documented as short-circuit in `docs/cyrius-guide.md`. Workaround: nest `if` blocks. Real fix: short-circuit codegen emits `je`/`jne` over the right operand evaluation. |
 
 ---
 
