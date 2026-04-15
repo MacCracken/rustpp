@@ -580,7 +580,7 @@ fn dynlib_open(path) {
             var page_adj = va - page_va;
             var map_sz = (fsz + page_adj + 4095) & (0 - 4096);
             cyr_mmap(bias + page_va, map_sz, map_prot,
-                     MAP_PRIVATE | MAP_FIXED, fd, page_off);
+            MAP_PRIVATE | MAP_FIXED, fd, page_off);
             # Zero BSS (memsz > filesz)
             if (msz > fsz) {
                 var bss_start = bias + va + fsz;
