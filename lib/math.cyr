@@ -177,10 +177,7 @@ fn f64_atanh(x) {
 # Handles: optional sign, integer part, optional fraction,
 # optional e/E exponent with optional sign, NaN, Inf, -Inf.
 #
-# For callers that need to distinguish 0.0 from parse failure,
-# use f64_parse_ok which returns the result via pointer and
-# a success flag (1=ok, 0=fail).
-
+# Parse a null-terminated cstring to an f64 bit pattern (0 on failure)
 fn f64_parse(s) {
     var i = 0;
     var neg = 0;
