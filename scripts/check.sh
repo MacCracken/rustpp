@@ -4,7 +4,12 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="$ROOT/build/cc3"
+# Find compiler: cc5 first, fall back to cc3
+if [ -x "$ROOT/build/cc5" ]; then
+    CC="$ROOT/build/cc5"
+else
+    CC="$ROOT/build/cc3"
+fi
 CYRFMT="$ROOT/build/cyrfmt"
 CYRLINT="$ROOT/build/cyrlint"
 
@@ -34,15 +39,15 @@ echo ""
 
 # ── 1. Self-hosting (two-step) ──
 echo "── Self-Hosting ──"
-cc3="/tmp/audit_cc3_$$"
-cc4="/tmp/audit_cc4_$$"
-cat "$ROOT/src/main.cyr" | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
-cat "$ROOT/src/main.cyr" | "$cc3" > "$cc4" 2>/dev/null
-cmp -s "$cc3" "$cc4" 2>/dev/null
-check "cc3==cc3 byte-identical" "$?"
-sz=$(wc -c < "$cc3")
+cc_a="/tmp/audit_cc_a_$$"
+cc_b="/tmp/audit_cc_b_$$"
+cat "$ROOT/src/main.cyr" | "$CC" > "$cc_a" 2>/dev/null && chmod +x "$cc_a"
+cat "$ROOT/src/main.cyr" | "$cc_a" > "$cc_b" 2>/dev/null
+cmp -s "$cc_a" "$cc_b" 2>/dev/null
+check "cc5==cc5 byte-identical" "$?"
+sz=$(wc -c < "$cc_a")
 printf "    binary: %d bytes\n" "$sz"
-rm -f "$cc3" "$cc4"
+rm -f "$cc_a" "$cc_b"
 echo ""
 
 # ── 2. Heap Map Audit ──

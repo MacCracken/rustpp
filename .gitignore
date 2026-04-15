@@ -1,14 +1,9 @@
 # Build artifacts
 /build/*
 !/build/cc3
+!/build/cc5
 !/build/cc3-native-aarch64
-/target/
-
-# Archived Rust seed
-/archive/seed/target/
-
-# Assembled binaries
-*.elf
+!/build/cc5-native-aarch64
 
 # Temporary files
 /tmp/
@@ -36,11 +31,7 @@ Thumbs.db
 *.pem
 *.key
 
-# Rust backup files
-**/*.rs.bk
-
 # Coverage / profiling
 /coverage/
 *.profraw
 *.profdata
-*.core

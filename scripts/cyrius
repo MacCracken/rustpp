@@ -17,17 +17,16 @@ elif [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
 else
     VERSION="unknown"
 fi
-# Find cc3: installed version, then local repo fallback
-CC="${CYRIUS_DIR}/bin/cc3"
-if [ ! -x "$CC" ]; then
-    # Try relative to this script (dev mode)
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    if [ -x "$SCRIPT_DIR/../build/cc3" ]; then
-        CC="$SCRIPT_DIR/../build/cc3"
-    else
-        echo "error: cc3 not found. Install Cyrius or set CYRIUS_HOME." >&2
-        exit 1
-    fi
+# Find compiler: cc5 first, fall back to cc3 (pre-5.0 installs)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CC=""
+for _try in "${CYRIUS_DIR}/bin/cc5" "${CYRIUS_DIR}/bin/cc3" \
+            "$SCRIPT_DIR/../build/cc5" "$SCRIPT_DIR/../build/cc3"; do
+    if [ -x "$_try" ]; then CC="$_try"; break; fi
+done
+if [ -z "$CC" ]; then
+    echo "error: cc5/cc3 not found. Install Cyrius or set CYRIUS_HOME." >&2
+    exit 1
 fi
 
 # Find companion tools directory
