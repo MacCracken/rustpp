@@ -598,13 +598,13 @@ fn ir_build_bbs(S) {
                 store64(S + 0x12CA000 + cur_bb * 32 + 8, i + 1);
             }
         }
-        # NOP landing pads also start new BBs (except at the very start)
-        elif (op == IR_NOP && i > 0) {
-            var prev_op = IR_NODE_OP(S, i - 1);
-            # Only split if previous node wasn't already a terminator
-            if (prev_op != IR_JMP && prev_op != IR_JCC && prev_op != IR_JMP_BACK && prev_op != IR_EPILOGUE) {
+        # NOP with patch offset = landing pad → always starts a new BB
+        # This ensures every EPATCH target gets its own BB for edge matching.
+        elif (op == IR_NOP && i > 0 && IR_NODE_A1(S, i) != 0) {
+            var cur_first = IR_BB_FIRST(S, cur_bb);
+            if (i > cur_first) {
                 var base = S + 0x12CA000 + cur_bb * 32;
-                store64(base + 16, i - IR_BB_FIRST(S, cur_bb));
+                store64(base + 16, i - cur_first);
                 cur_bb = ir_bb_new(S);
                 ir_set_bb(S, cur_bb);
                 store64(S + 0x12CA000 + cur_bb * 32 + 8, i);
@@ -790,8 +790,20 @@ fn ir_dead_block_elim(S) {
             ei = ei + 1;
         }
 
+        # Extra safety: only eliminate if ALL nodes in the BB are NOP/ELIMINATED
+        # (avoid killing BBs with real code that just have missing edges)
+        var all_nop = 1;
         if (has_pred == 0) {
-            # Dead block — NOP-fill its codebuf range
+            var ci = first;
+            while (ci < first + count) {
+                var cop = IR_NODE_OP(S, ci);
+                if (cop != IR_NOP && cop != IR_ELIMINATED) { all_nop = 0; ci = first + count; }
+                ci = ci + 1;
+            }
+        }
+
+        if (has_pred == 0 && all_nop == 1) {
+            # Dead NOP-only block — safe to NOP-fill
             var cp_start = IR_NODE_CP(S, first);
             var cp_end = cp_start;
             if (first + count < IR_NCNT(S)) {

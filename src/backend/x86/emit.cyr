@@ -172,6 +172,7 @@ fn EVLOAD(S, idx) {
 
 # Width-aware var load: rcx = &var; load_width [rcx] → rax
 fn EVLOAD_W(S, idx, width) {
+    if (_IR_REC(S, IR_LOAD_GLOBAL, width, idx, 0) == 1) { return 0; }
     _EVRCX(S, idx);
     if (width == 1) { ELOAD8(S); return 0; }
     if (width == 2) { ELOAD16(S); return 0; }
@@ -182,6 +183,7 @@ fn EVLOAD_W(S, idx, width) {
 
 # Width-aware var store: rcx = &var; store_width [rcx] ← rax
 fn EVSTORE_W(S, idx, width) {
+    if (_IR_REC(S, IR_STORE_GLOBAL, width, idx, 0) == 1) { return 0; }
     _EVRCX(S, idx);
     if (width == 1) { ESTORE8(S); return 0; }
     if (width == 2) { ESTORE16(S); return 0; }
@@ -192,6 +194,7 @@ fn EVSTORE_W(S, idx, width) {
 
 # Width-aware local load: load_width [rbp-off] → rax
 fn EFLLOAD_W(S, idx, width) {
+    if (_IR_REC(S, IR_LOAD_LOCAL, width, idx, 0) == 1) { return 0; }
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: #regalloc fns reserve [rbp-8] for the saved rbx,
     # so every user-visible local sits 8 bytes deeper in the frame.
@@ -221,6 +224,7 @@ fn EFLLOAD_W(S, idx, width) {
 
 # Width-aware local store: rax → store_width [rbp-off]
 fn EFLSTORE_W(S, idx, width) {
+    if (_IR_REC(S, IR_STORE_LOCAL, width, idx, 0) == 1) { return 0; }
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
@@ -265,6 +269,7 @@ fn EVADDR(S, idx) {
 
 # emit string addr: rax = &string (object mode: LEA, else: MOV imm64)
 fn ESADDR(S, soff) {
+    if (_IR_REC1(S, IR_LOAD_STR, soff) == 1) { return 0; }
     var fc = GFCNT(S);
     if (fc >= 16384) {
         syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
@@ -291,6 +296,7 @@ fn ESADDR(S, soff) {
 
 # emit syscall pops for N args then syscall
 fn ESCPOPS(S, n) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit1(S, IR_CALL_POPS, n); }
     if (n >= 7) { EPOPR9(S); }
     if (n >= 6) { EPOPR8(S); }
     if (n >= 5) { EPOPR10(S); }
@@ -348,6 +354,7 @@ fn EFNPRO(S) {
 
 # Emit sub rsp, imm32 — returns patch offset for the imm32
 fn ESUBRSP(S) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit0(S, IR_ALLOC_FRAME); }
     E3(S, 0xEC8148);
     var patch = GCP(S);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
@@ -363,6 +370,7 @@ fn EFNEPI(S) {
 
 # Emit call rel32 to known target
 fn ECALLTO(S, target) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit(S, IR_CALL_KNOWN, 0, 0, target); }
     EB(S, 0xE8);
     var cp = GCP(S);
     var rel = target - cp - 4;
@@ -451,6 +459,7 @@ fn ECALLCLEAN(S, n) {
 
 # Emit tail call: epilogue + jmp (instead of call + epilogue)
 fn ETAILJMP(S, fnidx) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit1(S, IR_TAIL_JMP, fnidx); }
     # v4.9.1: restore callee-saved registers before tearing down frame.
     # Reverse order of save (parse.cyr prologue).
     if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
@@ -508,6 +517,7 @@ fn ESTORESTACKPARM(S, pidx, disp, pc) {
 }
 
 fn ESTOREPARM(S, pidx, lidx, pc) {
+    if (_IR_REC(S, IR_STORE_PARM, 0, pidx, lidx) == 1) { return 0; }
     var disp = 0 - ((lidx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
@@ -534,6 +544,7 @@ fn EFLLOAD(S, idx) {
 
 # Load variable address into rcx (x86: mov rcx, <addr>)
 fn EVADDR_X1(S, idx) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit1(S, IR_LOAD_ADDR_G, idx); }
     E2(S, 0xB948);
     RECFIX(S, idx);
     E8(S, 0);
@@ -542,6 +553,7 @@ fn EVADDR_X1(S, idx) {
 
 # Add immediate to rcx (x86: add rcx, imm32)
 fn EADDIMM_X1(S, val) {
+    if (_IR_REC(S, IR_ADD_IMM_X1, 0, 0, val) == 1) { return 0; }
     E3(S, 0xC18148);
     EB(S, val & 0xFF); EB(S, val >> 8 & 0xFF);
     EB(S, val >> 16 & 0xFF); EB(S, val >> 24 & 0xFF);
@@ -550,6 +562,7 @@ fn EADDIMM_X1(S, val) {
 
 # Patch frame size: write imm32 at the sub rsp placeholder
 fn EPATCHFRAME(S, patch, size) {
+    var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit(S, IR_PATCH_FRAME, 0, patch, size); }
     var pa = S + 0x54A000 + patch;
     S64(pa, (L64(pa) >> 32 << 32) | (size & 0xFFFFFFFF));
     return 0;

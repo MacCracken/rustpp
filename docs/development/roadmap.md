@@ -159,6 +159,20 @@ in 5.x depends on the CFG foundation landing here.
 | **Shell script maintenance** | Low | Updated `release-lib.sh` for sankoch dep. Shell→Cyrius rewrites deferred — scripts depend on `grep`/`sed`/`awk`/`find`/`timeout` which Cyrius can't replace yet. Revisit when Cyrius has regex or subprocess piping. |
 | **CLI tool integrations** | Low | `cyrius init --cmtools[=starship]` installs prompt/editor configs. Starship: detect `cyrius.cyml`/`cyrius.toml`, show toolchain version. Future: shell completions, editor syntax highlighting, git hooks. Interactive prompt or `--cmtools=X` to bypass. |
 
+---
+
+## v5.0.1 — Security Hardening (patch)
+
+**Stdlib security fixes from downstream audits (shravan 2026-04-15).**
+
+| Issue | Severity | Details |
+|-------|----------|---------|
+| **alloc() heap pointer overflow** | P0 | `_heap_ptr + size` has no overflow check. Wraps to negative if sum exceeds INT64_MAX, corrupting allocator state. Fix: `if (_heap_ptr + size < _heap_ptr) { return 0; }` |
+| **vec capacity doubling overflow** | P1 | `new_cap = cap * 2` overflows at cap >= 2^62. Subsequent `alloc(new_cap * 8)` allocates tiny buffer. Fix: cap max at 2^30 or check `cap > MAX_CAP / 2` before doubling. |
+| **No allocation size cap** | P1 | `alloc(0x7FFFFFFFFFFFFFFF)` is accepted — attempts 8 EB allocation. All downstream codecs processing untrusted input are vulnerable to DoS. Fix: configurable max (default 256MB), return 0 on exceed. |
+
+---
+
 ### Alpha → Beta → GA release phases
 
 **Alpha** (current): Feature development. IR, CFG, LASE, edge analysis,
