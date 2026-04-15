@@ -642,10 +642,9 @@ if (IR_ENABLED(S) == 1) {
     var ir_lase_n = ir_lase(S);
     var ir_lase_bytes = ir_apply_lase(S);
     var ir_dbe_bytes = 0;
-    # DBE disabled — edge analysis incomplete (forward JMP targets resolved
-    # by EPATCH can jump many BBs ahead, not just next). Needs CP-to-BB
-    # mapping for EPATCH patch offsets to be sound. Tracked for future.
-    # if (load8(_ir_env) == 51) { ir_dbe_bytes = ir_dead_block_elim(S); }
+    # DBE behind flag — edge analysis improved (patch-offset matching) but
+    # still incomplete for some control flow patterns. Beta validation needed.
+    # CYRIUS_IR=3 to test: if (load8(_ir_env) == 51) { ir_dbe_bytes = ir_dead_block_elim(S); }
     syscall(SYS_WRITE, 2, "ir: ", 4);
     PRNUM(IR_NCNT(S));
     syscall(SYS_WRITE, 2, " nodes, ", 8);

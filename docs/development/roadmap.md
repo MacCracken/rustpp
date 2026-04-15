@@ -159,6 +159,28 @@ in 5.x depends on the CFG foundation landing here.
 | **Shell script maintenance** | Low | Updated `release-lib.sh` for sankoch dep. Shell→Cyrius rewrites deferred — scripts depend on `grep`/`sed`/`awk`/`find`/`timeout` which Cyrius can't replace yet. Revisit when Cyrius has regex or subprocess piping. |
 | **CLI tool integrations** | Low | `cyrius init --cmtools[=starship]` installs prompt/editor configs. Starship: detect `cyrius.cyml`/`cyrius.toml`, show toolchain version. Future: shell completions, editor syntax highlighting, git hooks. Interactive prompt or `--cmtools=X` to bypass. |
 
+### Alpha → Beta → GA release phases
+
+**Alpha** (current): Feature development. IR, CFG, LASE, edge analysis,
+aarch64 native, cyrius.cyml, tooling. Self-host + check.sh at every commit.
+
+**Beta** (feature-complete → release candidate): No new features. Focus on:
+- **Test coverage**: every new IR opcode, BB construction edge case, LASE
+  pattern, and cyrius.cyml migration path gets a dedicated .tcyr test.
+- **Benchmarks**: compile-time benchmarks with CYRIUS_IR=1 vs off. Track
+  node count, BB count, edge count, LASE hits across releases.
+- **Fuzz harnesses**: .fcyr files that feed random/adversarial source to
+  the compiler with IR enabled. Verify no crashes, no buffer overflows
+  in the IR node/BB/edge tables.
+- **Soak tests**: compile all downstream projects (agnostik, argonaut,
+  kybernet, sigil, sankoch, etc.) with CYRIUS_IR=1 and verify
+  byte-identical output. Any divergence is a bug.
+- **Security re-scan**: IR heap region bounds, edge table overflow,
+  CP tracking array bounds.
+
+**GA**: Tag v5.0.0 only after beta passes all of the above with zero
+failures across the full downstream portfolio.
+
 ---
 
 ## v5.1.0 — macOS x86_64

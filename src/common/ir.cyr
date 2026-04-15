@@ -665,6 +665,26 @@ fn _ir_find_bb_for_cp(S, target_cp) {
     return 0 - 1;  # not found
 }
 
+# Find the BB that contains a NOP landing pad whose arg1 matches patch_off.
+# Scans all nodes (not just first) because multiple NOPs can land in one BB.
+fn _ir_find_bb_for_patch(S, patch_off) {
+    var bcnt = IR_BCNT(S);
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        var ni = first;
+        while (ni < first + count) {
+            if (IR_NODE_OP(S, ni) == IR_NOP) {
+                if (IR_NODE_A1(S, ni) == patch_off) { return bi; }
+            }
+            ni = ni + 1;
+        }
+        bi = bi + 1;
+    }
+    return 0 - 1;
+}
+
 fn ir_build_edges(S) {
     var bcnt = IR_BCNT(S);
     IR_SECNT(S, 0);
@@ -678,40 +698,49 @@ fn ir_build_edges(S) {
             var last_ni = first + count - 1;
             var op = IR_NODE_OP(S, last_ni);
 
-            if (op == IR_JMP || op == IR_JMP_BACK) {
-                # Unconditional jump — find target BB
-                if (op == IR_JMP_BACK) {
-                    var target_cp = IR_NODE_A2(S, last_ni);
-                    var target_bb = _ir_find_bb_for_cp(S, target_cp);
+            if (op == IR_JMP) {
+                # Forward JMP — patch offset stored in arg2
+                var patch_off = IR_NODE_A2(S, last_ni);
+                if (patch_off > 0) {
+                    var target_bb = _ir_find_bb_for_patch(S, patch_off);
                     if (target_bb >= 0) {
                         ir_bb_set_succ(S, bi, target_bb);
                         ir_add_edge(S, bi, target_bb);
                         edges = edges + 1;
                     }
-                } else {
-                    # Forward JMP — target is the NEXT BB (fall-through after patch)
-                    if (bi + 1 < bcnt) {
-                        ir_bb_set_succ(S, bi, bi + 1);
-                        ir_add_edge(S, bi, bi + 1);
-                        edges = edges + 1;
-                    }
+                }
+            }
+            elif (op == IR_JMP_BACK) {
+                # Backward jump — target CP in arg2
+                var target_cp = IR_NODE_A2(S, last_ni);
+                var target_bb = _ir_find_bb_for_cp(S, target_cp);
+                if (target_bb >= 0) {
+                    ir_bb_set_succ(S, bi, target_bb);
+                    ir_add_edge(S, bi, target_bb);
+                    edges = edges + 1;
                 }
             }
             elif (op == IR_JCC) {
-                # Conditional — true body follows, false body after next patch
+                # Conditional — fall-through to next BB + jump to patch target
+                # Fall-through (condition false — continues to next BB)
                 if (bi + 1 < bcnt) {
-                    var false_bb = bi + 1;
-                    if (bi + 2 < bcnt) { false_bb = bi + 2; }
-                    ir_bb_set_cond(S, bi, bi + 1, false_bb);
                     ir_add_edge(S, bi, bi + 1);
                     edges = edges + 1;
-                    if (false_bb != bi + 1) {
-                        ir_add_edge(S, bi, false_bb);
+                }
+                # Jump target (condition true — resolved via patch offset)
+                var patch_off = IR_NODE_A2(S, last_ni);
+                if (patch_off > 0) {
+                    var target_bb = _ir_find_bb_for_patch(S, patch_off);
+                    if (target_bb >= 0) {
+                        var fall_bb = bi;
+                        if (bi + 1 < bcnt) { fall_bb = bi + 1; }
+                        ir_bb_set_cond(S, bi, fall_bb, target_bb);
+                        ir_add_edge(S, bi, target_bb);
                         edges = edges + 1;
                     }
                 }
             }
-            elif (op != IR_EPILOGUE && op != IR_RET) {
+            elif (op != IR_EPILOGUE) {
                 # Fall-through to next BB
                 if (bi + 1 < bcnt) {
                     ir_bb_set_succ(S, bi, bi + 1);
