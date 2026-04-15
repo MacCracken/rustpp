@@ -51,7 +51,17 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v4.4.6** — cc3 is the active modular compiler (9 modules including `src/backend/x86/decode.cyr`, 353KB). 40 test suites, 11 benchmarks, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. Short-circuit `&&`/`||`, named-field struct init, `CYRIUS_SYMS` for crash localization, `CYRIUS_DCE` for opt-in dead-code NOP-fill (41% gzip reduction on libro release artifact). 10 downstream projects shipping: kybernet, argonaut, nein, sigil, libro, daimon, hoosh, agnoshi, bote, kavach.
+**v4.8.5** — cc3 is the active modular compiler (~373KB, modules split across `frontend/`, `backend/x86/`, `backend/aarch64/`, `backend/cx/`, `common/`). 51 .tcyr test suites (396 assertions), 11 benchmarks, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. 10+ downstream projects shipping: kybernet, argonaut, nein, sigil, libro, daimon, hoosh, agnoshi, bote, kavach, abaco.
+
+Recent feature cadence:
+- **v4.8.5** — math stdlib pack (u128 hardware fast-path ~12× on Miller-Rabin; `u64_mulmod` / `u64_powmod`; inverse trig with correct `atan2` quadrants; inverse hyperbolic; f64 constants; ASCII case helpers). CRLF injection hardening in `lib/http.cyr` (CVE-2019-9741 pattern). TLS interface scaffold in `lib/tls.cyr` — live libssl bridge pending dynlib hardening (4.8.8).
+- **v4.8.4** — `#regalloc` per-fn opt-in hot-local routing through rbx (post-emit peephole with use-count picker + width-aware safety abort). Retagged post-GA to fold in a `PP_IFDEF_PASS` 256 KB scan-blindness fix that bote 2.5.0 surfaced.
+- **v4.8.3** — capacity meter (`CYRIUS_STATS=1`, default 85% warnings, `cyrius capacity` subcommand). Catches "close to wall" before a real refactor trips it.
+- **v4.8.0–4.8.2** — u128 stdlib, base64url, switch jump-table tuning.
+
+Capacity at self-compile: `fn=324/4096 ident=8146/131072 var=100/8192 fixup=1621/16384 code=345368/1048576` — plenty of headroom on every axis. **Recommended minimum: ≥ 4.8.4** (the preprocessor fix is load-bearing for any consumer whose transitive include graph expands past 512 KB).
+
+Earlier carry-forward features: short-circuit `&&`/`||`, named-field struct init, `CYRIUS_SYMS` for crash localization, `CYRIUS_DCE` for opt-in dead-code NOP-fill (41% gzip reduction on libro release artifact).
 
 ```
 sh bootstrap/bootstrap.sh

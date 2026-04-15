@@ -165,4 +165,4 @@ docs/                Architecture, roadmap, benchmarks, language guide
 - Do not skip self-hosting verification after compiler changes
 - Do not modify parse.cyr arch-specific functions — they live in emit files
 - Do not remove build/cc3-native-aarch64 — ARM binary needed for self-hosting on ARM hardware
-- **v3.4.0 is the recommended minimum** — all downstream repos should pin to >= 3.4.0 (hex parser fix, tok_names 64KB, multi-break, 512KB codebuf)
+- **v4.8.4 is the recommended minimum** — PP_IFDEF_PASS 256 KB scan-blindness fix (post-GA retag) is critical for any consumer whose transitive include graph expands past 512 KB. Below that floor large units can fail with a misleading `lib/assert.cyr:3: expected '=', got string` parse error. (v4.8.5 adds math stdlib + CRLF hardening in `lib/http.cyr` on top.)

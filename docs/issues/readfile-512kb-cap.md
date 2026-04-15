@@ -1,4 +1,17 @@
-# cc3 READFILE 512KB Cap in Include Processing
+# cc3 READFILE 512KB Cap in Include Processing — RESOLVED
+
+**Status: RESOLVED.** READFILE calls at `src/frontend/lex.cyr:1243`
+and `:1478` now use `1048576 - op`, matching the 1 MB preprocess_out
+buffer. The 4.8.4 post-GA retag added a `PP_IFDEF_PASS` size guard
+that emits a clear *"expanded source exceeds 1 MB"* error on
+overflow instead of silently truncating; the companion fix
+(directive detection reads from the mmap'd `tmp` buffer so the
+S+0 cap doesn't blind the scan) resolved the "expected '=', got
+..." misleading-error class this issue was tracking. Entry kept
+for history — downstream projects on ≥ 4.8.4 retagged don't need
+to work around this anymore.
+
+---
 
 **Discovered:** 2026-04-11 during argonaut libro 1.0.2 integration
 **Severity:** Medium — workaround exists but limits large projects

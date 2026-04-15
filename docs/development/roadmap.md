@@ -176,7 +176,7 @@ codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-ref
 - Dispatch benchmark (`benches/bench_switch.bcyr`): jump table ~7%
   faster on 8-way, ~11% on 16-way.
 
-### v4.8.3 — Capacity visibility (planned)
+### v4.8.3 — Capacity visibility (shipped) ✅
 
 | Feature | Effort | Details |
 |---------|--------|---------|
@@ -184,45 +184,60 @@ codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-ref
 | **`cyrius audit --capacity`** | Low | Standalone subcommand that compiles the unit and prints the same table. Wraps the env-flag path for scripted use. |
 | **Warn at 85% utilization** | Low | Soft warning on build when any cap crosses 85% — catches "close to wall" before a real refactor trips it. |
 
-### v4.8.4 — Register allocation (planned)
+### v4.8.4 — Register allocation (shipped) ✅
+
+Shipped `#regalloc` end-to-end: fn_regalloc metadata table, frame-
+slot reservation at `[rbp-8]` for saved rbx, post-body byte-level
+peephole patcher with use-count picker, width-aware + address-of
+safety abort, and a 4-byte NOP pad (`0F 1F 40 00`) to keep jump
+offsets stable after the 7→3 byte rewrite. Nested-accumulator
+microbench: ~12% faster than plain. Multi-register extension
+(`r12..r15`) deferred to 4.9.x.
+
+Along the way: closed bote's 4.8.3 blocker triad (path-traversal
+env override, include-once cap 64→256, `PP_IFDEF_PASS` fixpoint
+loop for nested includes past the first level). Retagged post-GA
+to fold in the `PP_IFDEF_PASS` 256 KB scan blindness fix — IS*
+helpers now read from the mmap'd `tmp` buffer directly so the
+cap on S+0 copy no longer blinds the scan on ≥ 512 KB compile
+units.
+
+### v4.8.5 — Math stdlib pack + HTTP defence-in-depth (shipped) ✅
+
+Shipped the full abaco math triage in one minor: `u128_divmod`
+hardware fast-path (two back-to-back unsigned hardware `div`
+instructions in one asm block when `b_hi == 0`), asm-direct
+`u64_mulmod` / `u64_powmod` (~12× on a full Miller-Rabin round,
+~1.5× on the primitive), f64 constants (π, τ, e, ln2, ln10, ½,
+√2 etc.), inverse trig with correct atan2 quadrants, inverse
+hyperbolic completing the sinh/cosh/tanh symmetry, ASCII case
+helpers.
+
+Security-side: CVE-2019-9741 pattern closed in
+`_http_parse_url` (reject CR / LF / TAB / SPACE, empty host,
+port 0 / > 65535), `http_get` surfaces `HTTP_ERROR` without
+touching the network. `lib/tls.cyr` interface scaffold shipped
+with fail-clean stubs — live libssl bridge deferred to a later
+4.8.x pending a `lib/dynlib.cyr` hardening pass.
+
+### v4.8.6 — Deferred formatting (next up)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Per-function `#regalloc`** | High | Opt-in attribute. Use the CFG + lifetime analysis from 4.4.0 to assign hot locals to callee-saved regs (`rbx` / `r12..r15`). Benchmark target: 249 ns → sub-100 ns on the key dispatch path. Independent of cc5; ships on cc3. |
-
-### v4.8.5 — Math stdlib pack (planned — next up)
-
-Closes the abaco-surfaced math gaps in one coherent landing.
-Reordered ahead of defmt after 4.8.4 GA so abaco gets Miller-Rabin
-perf parity + atan2 quadrant correctness on the near edge of the
-release cadence. See
-`docs/issues/stdlib-math-recommendations-from-abaco.md` for the
-full triage and the per-item acceptance rationale.
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`u128_mod` hardware fast-path** | Medium | Detect `divisor_hi == 0` and emit a single hardware `div` instead of the software long-division loop. No new API — every existing `u128_mul + u128_mod` caller picks up the ~40× win automatically. Unblocks abaco's Miller-Rabin perf parity with the Rust `u128` semantics. |
-| **`u64_powmod`** (`lib/u128.cyr`) | Low | 12-line companion to the `mulmod` fast-path; pairs naturally in primality, RSA, and hashing. |
-| **Inverse trig** (`lib/math.cyr`) | Medium | `f64_asin`, `f64_acos`, `f64_atan`, `f64_atan2`. Polynomial + range reduction, ~40 lines. Headline fix is `atan2` quadrant correctness — abaco's current identity-based stopgap gets Q2/Q3 wrong. |
-| **Inverse hyperbolic** (`lib/math.cyr`) | Low | `f64_asinh`, `f64_acosh`, `f64_atanh`. Three 6-line fns, ships alongside the inverse trig alpha. |
-| **f64 math constants** (`lib/math.cyr`) | Low | `F64_HALF`, `F64_PI`, `F64_PI_2`, `F64_PI_4`, `F64_TAU`, `F64_E`, `F64_LN2`, `F64_LN10`, `F64_FRAC_1_SQRT2`, `F64_SQRT2`. Bit-pattern form avoids init-time parse cost. |
-| **Cstring case helpers** (`lib/string.cyr`) | Low | `str_lower_cstr` / `str_upper_cstr`. ASCII-only, matches existing conventions; de-duplicates abaco + vidya. |
-
-**Validation target:** a Miller-Rabin microbench showing the
-`mulmod` fast-path win, plus `atan2` quadrant tests covering all
-four quadrants and the signed-zero edge cases.
-
-### v4.8.6 — Deferred formatting (planned)
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. Slid from 4.8.5 to make room for the math pack. |
+| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. |
 
 ### v4.8.7 — f64 parsing (planned)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. Shipped as its own minor so the grammar can absorb feedback from additional math consumers that land between 4.8.5 and this cut. |
+| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. |
+
+### v4.8.8 — Live TLS bridge (planned)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`lib/dynlib.cyr` hardening** | Medium | ELF loader currently segfaults on `libssl.so.3` parse — prereq for TLS. |
+| **Live libssl bridge** | Medium | Wire `lib/tls.cyr`'s 4.8.5 interface through `dynlib_open` → libssl.so.3 → SSL_CTX_new / SSL_connect / SSL_read / SSL_write with SNI + system-CA peer verification on by default. |
 
 ### v4.8.x — Cleanup ramp to 5.0
 
@@ -378,4 +393,4 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 - Two-step bootstrap for any heap offset change
 - Test after EVERY change, not after the feature is done
 - **Never use raw `cat | cc3` for projects** — always `cyrius build`
-- **v4.0.0 recommended minimum** — auto-include, deps, file:line, undefined function diagnostic
+- **v4.8.4 recommended minimum** — PP_IFDEF_PASS 256 KB scan-blindness fix (post-GA retag) is critical for any consumer with ≥ 512 KB expanded compile units. Below that floor, large units can fail with a misleading `lib/assert.cyr:3: expected '=', got string` parser error. v4.0.0 still covers auto-include / deps / file:line / undefined-function diagnostics; v4.8.4 adds the preprocessor fix + `#regalloc` + capacity meter. v4.8.5 adds math stdlib + CRLF hardening in `lib/http.cyr`.
