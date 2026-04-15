@@ -11,14 +11,15 @@
 #   dynlib_sym(handle, name)  → function pointer (address) or 0 if not found
 #   dynlib_close(handle)      → 0
 #
-# DynLib struct layout (56 bytes):
+# DynLib struct layout (64 bytes):
 #   +0:  base       — mmap'd base address
-#   +8:  size       — mmap'd file size
+#   +8:  size       — mmap'd total span
 #   +16: dynsym     — pointer to .dynsym section
 #   +24: dynstr     — pointer to .dynstr section
 #   +32: nsyms      — number of symbols in .dynsym
 #   +40: load_bias  — difference between mmap'd base and ELF p_vaddr
 #   +48: gnu_hash   — pointer to .gnu.hash section (0 if not present)
+#   +56: strtab_sz  — size of .dynstr in bytes (bounds checking)
 
 # ================================================================
 # ELF64 constants
@@ -98,6 +99,7 @@ fn _dynlib_dynstr(h)   { return load64(h + 24); }
 fn _dynlib_nsyms(h)    { return load64(h + 32); }
 fn _dynlib_bias(h)     { return load64(h + 40); }
 fn _dynlib_gnuhash(h)  { return load64(h + 48); }
+fn _dynlib_strsz(h)    { return load64(h + 56); }
 
 # ================================================================
 # ELF64 header field readers (from mmap'd base)
@@ -221,11 +223,14 @@ fn _gnu_hash(name) {
 #   +16+bloom_size*8: buckets[nbuckets] (u32 each)
 #   after buckets: chains[] (u32 each, one per symbol starting from symoffset)
 
-fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, bias, name) {
+fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, strsz, bias, name) {
     var nbuckets    = load32(gnuhash);
     var symoffset   = load32(gnuhash + 4);
     var bloom_size  = load32(gnuhash + 8);
     var bloom_shift = load32(gnuhash + 12);
+
+    # Guard against zero divisors and degenerate tables
+    if (nbuckets == 0 || bloom_size == 0) { return 0; }
 
     var h1 = _gnu_hash(name);
 
@@ -241,11 +246,14 @@ fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, bias, name) {
     var sym_idx = load32(buckets_base + bucket_idx * 4);
     if (sym_idx == 0) { return 0; }
 
-    # Chain walk
+    # Chain walk — limit iterations to prevent infinite loops on corrupt data
     var chains_base = buckets_base + nbuckets * 4;
     var h1_masked = h1 | 1;  # Set bottom bit for comparison
+    var max_iter = 16384;
 
-    while (1 == 1) {
+    while (max_iter > 0) {
+        max_iter -= 1;
+        if (sym_idx < symoffset) { return 0; }
         var chain_val = load32(chains_base + (sym_idx - symoffset) * 4);
 
         # Compare hash (ignoring bottom bit which marks chain end)
@@ -253,6 +261,7 @@ fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, bias, name) {
             # Hash matches — verify string
             var sym_entry = dynsym + sym_idx * SYM_SIZE;
             var st_name_off = load32(sym_entry);  # st_name (u32 offset into dynstr)
+            if (strsz > 0 && st_name_off >= strsz) { return 0; }
             var sym_name = dynstr + st_name_off;
             if (streq(sym_name, name) == 1) {
                 # Found it — return address
@@ -274,7 +283,7 @@ fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, bias, name) {
 # Linear symbol search fallback (no GNU hash)
 # ================================================================
 
-fn _linear_sym_lookup(dynsym, dynstr, nsyms, bias, name) {
+fn _linear_sym_lookup(dynsym, dynstr, nsyms, strsz, bias, name) {
     # Skip symbol 0 (null entry)
     for (var i = 1; i < nsyms; i = i + 1) {
         var sym = dynsym + i * SYM_SIZE;
@@ -284,6 +293,9 @@ fn _linear_sym_lookup(dynsym, dynstr, nsyms, bias, name) {
 
         # Skip undefined symbols
         if (st_value == 0) { continue; }
+
+        # Validate string table offset
+        if (strsz > 0 && st_name_off >= strsz) { continue; }
 
         # Check binding: must be GLOBAL or WEAK
         var binding = st_info >> 4;
@@ -309,7 +321,9 @@ fn _linear_sym_lookup(dynsym, dynstr, nsyms, bias, name) {
 fn _estimate_nsyms(symtab_vaddr, strtab_vaddr) {
     if (strtab_vaddr <= symtab_vaddr) { return 256; }  # fallback guess
     var gap = strtab_vaddr - symtab_vaddr;
-    return gap / SYM_SIZE;
+    var n = gap / SYM_SIZE;
+    if (n > 16384) { n = 16384; }
+    return n;
 }
 
 # ================================================================
@@ -408,6 +422,8 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
 
     var dynsym = load64(handle + 16);
     var dynstr = load64(handle + 24);
+    var span   = load64(handle + 8);
+    var strsz  = load64(handle + 56);
 
     # Phase 1: RELATIVE
     var pos = rela_addr;
@@ -416,8 +432,10 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
         var rtype = load64(pos + 8) & 0xFFFFFFFF;
         if (rtype == R_X86_64_RELATIVE) {
             var r_offset = load64(pos);
-            var r_addend = load64(pos + 16);
-            store64(bias + r_offset, bias + r_addend);
+            if (r_offset < span) {
+                var r_addend = load64(pos + 16);
+                store64(bias + r_offset, bias + r_addend);
+            }
         }
         pos += 24;
     }
@@ -432,15 +450,22 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
             if (rsym > 0) {
                 var sym_entry = dynsym + rsym * SYM_SIZE;
                 var st_name_off = load32(sym_entry);
+                # Validate string table offset before resolving
+                if (strsz > 0 && st_name_off >= strsz) {
+                    pos = pos + 24;
+                    continue;
+                }
                 var sym_name = dynstr + st_name_off;
                 var addr = _dynlib_resolve_global(sym_name);
                 if (addr != 0) {
                     var r_offset = load64(pos);
-                    var target = bias + r_offset;
-                    if (rtype == R_X86_64_64) {
-                        store64(target, addr + load64(pos + 16));
-                    } else {
-                        store64(target, addr);
+                    if (r_offset < span) {
+                        var target = bias + r_offset;
+                        if (rtype == R_X86_64_64) {
+                            store64(target, addr + load64(pos + 16));
+                        } else {
+                            store64(target, addr);
+                        }
                     }
                 }
             }
@@ -511,6 +536,18 @@ fn dynlib_open(path) {
     var phoff = _elf_phoff(hdr);
     var phnum = _elf_phnum(hdr);
     var phentsz = _elf_phentsize(hdr);
+
+    # Validate program header table fits within file
+    if (phentsz < PHDR_SIZE) {
+        cyr_munmap(hdr, file_size);
+        syscall(3, fd);
+        return 0;
+    }
+    if (phoff + phnum * phentsz > file_size) {
+        cyr_munmap(hdr, file_size);
+        syscall(3, fd);
+        return 0;
+    }
 
     var lo_vaddr = 0xFFFFFFFFFFFFFFFF;
     var hi_vaddr = 0;
@@ -609,6 +646,7 @@ fn dynlib_open(path) {
         return 0;
     }
 
+    var strtab_size = load64(dinfo + 16);
     var dynsym = bias + symtab_vaddr;
     var dynstr = bias + strtab_vaddr;
     var gnuhash = 0;
@@ -616,7 +654,7 @@ fn dynlib_open(path) {
     var nsyms = _estimate_nsyms(symtab_vaddr, strtab_vaddr);
 
     # Allocate handle
-    var h = alloc(56);
+    var h = alloc(64);
     store64(h, base);
     store64(h + 8, span);
     store64(h + 16, dynsym);
@@ -624,6 +662,7 @@ fn dynlib_open(path) {
     store64(h + 32, nsyms);
     store64(h + 40, bias);
     store64(h + 48, gnuhash);
+    store64(h + 56, strtab_size);
 
     # Register before loading deps (prevents circular loading)
     _dynlib_register(path, h);
@@ -633,6 +672,11 @@ fn dynlib_open(path) {
     var ni = 0;
     while (ni < needed_count) {
         var name_off = load64(dinfo + 88 + ni * 8);
+        # Validate name offset is within string table
+        if (strtab_size > 0 && name_off >= strtab_size) {
+            ni += 1;
+            continue;
+        }
         var dep_name = dynstr + name_off;
         # Skip ld-linux (already loaded by kernel)
         if (memeq(dep_name, "ld-linux", 8) == 0) {
@@ -672,12 +716,13 @@ fn dynlib_sym(handle, name) {
     var nsyms   = _dynlib_nsyms(handle);
     var bias    = _dynlib_bias(handle);
     var gnuhash = _dynlib_gnuhash(handle);
+    var strsz   = _dynlib_strsz(handle);
 
     # Use GNU hash if available (fast O(1) average), else linear scan
     if (gnuhash != 0) {
-        return _gnu_hash_lookup(gnuhash, dynsym, dynstr, bias, name);
+        return _gnu_hash_lookup(gnuhash, dynsym, dynstr, strsz, bias, name);
     }
-    return _linear_sym_lookup(dynsym, dynstr, nsyms, bias, name);
+    return _linear_sym_lookup(dynsym, dynstr, nsyms, strsz, bias, name);
 }
 
 # Close a loaded library (unmap)
