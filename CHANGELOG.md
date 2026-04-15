@@ -4,6 +4,34 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha7] — 2026-04-14 (unreleased)
+
+### Added — ASCII case helpers (`lib/string.cyr`)
+Four helpers, two copy + two in-place:
+- **`str_lower_cstr(s)`** — `strlen(s)+1` bytes alloc'd, lowercase copy.
+- **`str_upper_cstr(s)`** — same, uppercase copy.
+- **`str_lower_cstr_inplace(s)`** — mutates caller's buffer, returns `s`.
+- **`str_upper_cstr_inplace(s)`** — same for upper.
+
+ASCII-only by design — matches the existing `lib/string.cyr`
+convention. Non-ASCII bytes (≥ 0x80) pass through untouched so
+UTF-8-encoded content doesn't corrupt when callers case-normalise
+ASCII-only metadata (JSON keys, HTTP headers, option flags, etc.).
+abaco's `src/core.cyr` and vidya were each carrying the same
+twelve-line loop; de-duplicated here.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 50 files / 386 assertions (new:
+  `string_case.tcyr` 17/0, including a UTF-8 bit-preservation
+  check and in-place pointer-identity verification).
+
+### Roadmap (4.8.5)
+- alpha1..alpha6 ✅
+- alpha7 ✅ — ASCII case helpers (this release).
+- beta1 — tests + benchmarks wrap-up.
+- GA — close-out.
+
 ## [4.8.5-alpha6] — 2026-04-14 (unreleased)
 
 ### Added — inverse hyperbolic (`lib/math.cyr`)
