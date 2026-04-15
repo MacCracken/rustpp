@@ -240,13 +240,15 @@ fn compile(source, output) {
     if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
     if (_defines != 0) { if (vec_len(_defines) > 0) { need_tmp = 1; } }
     if (need_tmp == 1) {
-        # Use PID in temp path to avoid symlink race (CVE-10)
+        # Atomic temp file: O_EXCL rejects if path already exists (TOCTOU safe)
         var pid = syscall(39);
         var tmp_sb = str_builder_new();
         str_builder_add_cstr(tmp_sb, "/tmp/cyrius_cpp_");
         str_builder_add_int(tmp_sb, pid);
         var tmp = str_data(str_builder_build(tmp_sb));
-        var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
+        # Unlink first so O_EXCL succeeds on re-runs with same PID
+        sys_unlink(tmp);
+        var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0x180);
         if (tfd >= 0) {
             # Prepend dep includes
             if (_dep_includes != 0) {

@@ -11,7 +11,7 @@ var HTTP_ERROR = 0 - 1;
 # Returns {host, port, path} as 3 values packed in alloc'd struct.
 # Returns 0 on malformed or unsafe input (caller must null-check).
 #
-# v4.8.5-alpha3: CRLF injection hardening (CVE-2019-9741 pattern).
+# CRLF injection hardening (CVE-2019-9741 pattern).
 # A URL containing raw CR (0x0D) or LF (0x0A) bytes can otherwise be
 # forged to smuggle extra HTTP headers into the request line —
 # e.g. `http://host\r\nEvil: x/path` would produce a request that

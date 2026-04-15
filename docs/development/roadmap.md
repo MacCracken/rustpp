@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v4.9.3.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.10.0.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
-> **53 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
+> **57 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -128,18 +128,20 @@ suite (`tests/tcyr/tls.tcyr`).
 
 ---
 
-## v4.10.0 — Cleanup & Consolidation (last 4.x)
+## v4.10.0 — Cleanup & Consolidation (shipped) ✅
 
 **No new features.** Full codebase audit so 5.0 starts clean.
 
-| Item | Details |
-|------|---------|
-| **Heap map consolidation** | Audit every allocation in src/main.cyr, reclaim dead regions, document the map for cc5 migration. cc3 heap is near 14.8MB capacity — map every byte for the generation bump. |
-| **Code audit + refactor** | Dead code removal, naming consistency, comment hygiene across parse.cyr, lex.cyr, emit.cyr, fixup.cyr. Remove stale TODO/FIXME markers. |
-| **Test coverage gaps** | Every stdlib module without a dedicated test file gets one. Benchmark baselines captured for 5.0 regression testing. |
-| **Documentation freeze** | cyrius-guide.md, CLAUDE.md, known-limits, gotchas table — all accurate as of this release. Version refs, feature claims, and capacity numbers verified. |
-| **Security re-scan** | Grep for `sys_system` / `READFILE` with unvalidated paths, unchecked writes near region boundaries, stale fixed-size caps. |
-| **P(-1) scaffold hardening** | Full checklist: `cyrius fmt --check`, `cyrius lint`, `cyrius vet`, all .tcyr pass, heap audit clean, self-hosting verified, benchmark baseline. |
+- **Security fixes**: `fmt_sprintf` buffer overflow (added `bufsz` param),
+  temp file TOCTOU race (`O_EXCL`), `_dynlib_find_path` stack buffer
+  overflow (`var paths[4]` → `var paths[32]`).
+- **Test coverage**: 4 new test suites (string 38, fmt 28, vec 21,
+  hashmap 22). Total: 53 → 57 test files.
+- **Stale comment sweep**: removed alpha version refs from u128, math,
+  string, http, http_server, ws_server, fmt headers.
+- **Tooling**: `cyrius init` now reads `VERSION` for `.cyrius-toolchain`
+  instead of hardcoded `4.2.1`. `*.core` added to `.gitignore`.
+- **Documentation freeze**: CLAUDE.md, roadmap, changelog all verified.
 
 ---
 

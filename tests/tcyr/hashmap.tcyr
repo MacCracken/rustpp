@@ -1,0 +1,69 @@
+# Test: hashmap stdlib module
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/syscalls.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/fnptr.cyr"
+include "lib/hashmap.cyr"
+
+alloc_init();
+
+test_group("map_new / map_count");
+var m = map_new();
+assert_eq(map_count(m), 0, "empty count");
+assert_eq(map_size(m), 0, "empty size");
+
+test_group("map_set / map_get");
+map_set(m, "alpha", 10);
+map_set(m, "beta", 20);
+map_set(m, "gamma", 30);
+assert_eq(map_get(m, "alpha"), 10, "get alpha");
+assert_eq(map_get(m, "beta"), 20, "get beta");
+assert_eq(map_get(m, "gamma"), 30, "get gamma");
+assert_eq(map_count(m), 3, "count after 3 puts");
+
+test_group("map_set overwrite");
+map_set(m, "beta", 99);
+assert_eq(map_get(m, "beta"), 99, "overwrite beta");
+assert_eq(map_count(m), 3, "count unchanged after overwrite");
+
+test_group("map_has");
+assert_eq(map_has(m, "alpha"), 1, "has existing key");
+assert_eq(map_has(m, "missing"), 0, "has missing key");
+
+test_group("map_get missing");
+assert_eq(map_get(m, "nope"), 0, "get missing returns 0");
+assert_eq(map_get_or(m, "nope", 42), 42, "get_or default");
+assert_eq(map_get_or(m, "alpha", 42), 10, "get_or existing");
+
+test_group("map_delete");
+var del = map_delete(m, "gamma");
+assert_eq(del, 1, "delete found");
+assert_eq(map_has(m, "gamma"), 0, "deleted key gone");
+assert_eq(map_count(m), 2, "count after delete");
+assert_eq(map_delete(m, "gamma"), 0, "delete missing");
+
+test_group("map_clear");
+map_set(m, "x", 1);
+map_clear(m);
+assert_eq(map_count(m), 0, "count after clear");
+assert_eq(map_has(m, "alpha"), 0, "cleared key gone");
+
+test_group("grow / rehash");
+var m2 = map_new();
+var gi = 0;
+while (gi < 20) {
+    var key = alloc(4);
+    store8(key, 65 + gi);
+    store8(key + 1, 0);
+    map_set(m2, key, gi);
+    gi = gi + 1;
+}
+assert_eq(map_count(m2), 20, "count after grow");
+assert_eq(map_get(m2, "A"), 0, "get first after grow");
+assert_eq(map_get(m2, "T"), 19, "get last after grow");
+
+var r = assert_summary();

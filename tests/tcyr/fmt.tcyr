@@ -1,0 +1,95 @@
+# Test: fmt module — buffer formatting functions
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# --- fmt_int_buf ---
+test_group("fmt_int_buf");
+
+var buf[32];
+
+var len = fmt_int_buf(0, &buf);
+assert_eq(len, 1, "int_buf 0 len");
+assert_streq(&buf, "0", "int_buf 0 str");
+
+len = fmt_int_buf(42, &buf);
+assert_eq(len, 2, "int_buf 42 len");
+assert_streq(&buf, "42", "int_buf 42 str");
+
+len = fmt_int_buf(12345, &buf);
+assert_eq(len, 5, "int_buf 12345 len");
+assert_streq(&buf, "12345", "int_buf 12345 str");
+
+len = fmt_int_buf(-7, &buf);
+assert_eq(len, 2, "int_buf -7 len");
+assert_streq(&buf, "-7", "int_buf -7 str");
+
+len = fmt_int_buf(1000000, &buf);
+assert_eq(len, 7, "int_buf 1000000 len");
+assert_streq(&buf, "1000000", "int_buf 1000000 str");
+
+# --- fmt_hex_buf ---
+test_group("fmt_hex_buf");
+
+len = fmt_hex_buf(0, &buf);
+assert_eq(len, 1, "hex_buf 0 len");
+assert_streq(&buf, "0", "hex_buf 0 str");
+
+len = fmt_hex_buf(255, &buf);
+assert_eq(len, 2, "hex_buf 0xff len");
+assert_streq(&buf, "ff", "hex_buf 0xff str");
+
+len = fmt_hex_buf(0xdead, &buf);
+assert_eq(len, 4, "hex_buf 0xdead len");
+assert_streq(&buf, "dead", "hex_buf 0xdead str");
+
+len = fmt_hex_buf(16, &buf);
+assert_eq(len, 2, "hex_buf 16 len");
+assert_streq(&buf, "10", "hex_buf 16 str");
+
+# --- fmt_float_buf ---
+test_group("fmt_float_buf");
+
+len = fmt_float_buf(f64_from(3), &buf, 2);
+assert_eq(load8(&buf), 51, "float_buf 3.00 first char '3'");
+assert_eq(load8(&buf + 1), 46, "float_buf 3.00 dot");
+assert_streq(&buf, "3.00", "float_buf 3.00 str");
+
+len = fmt_float_buf(f64_from(0), &buf, 1);
+assert_streq(&buf, "0.0", "float_buf 0.0 str");
+
+# --- fmt_sprintf ---
+test_group("fmt_sprintf");
+
+var sbuf[128];
+var args = vec_new();
+vec_push(args, 42);
+len = fmt_sprintf(&sbuf, 128, "val=%d", args);
+assert_streq(&sbuf, "val=42", "sprintf %d");
+
+args = vec_new();
+vec_push(args, 255);
+len = fmt_sprintf(&sbuf, 128, "hex=%x", args);
+assert_streq(&sbuf, "hex=ff", "sprintf %x");
+
+args = vec_new();
+vec_push(args, "world");
+len = fmt_sprintf(&sbuf, 128, "hello %s!", args);
+assert_streq(&sbuf, "hello world!", "sprintf %s");
+
+args = vec_new();
+len = fmt_sprintf(&sbuf, 128, "100%%", args);
+assert_streq(&sbuf, "100%", "sprintf %%");
+
+args = vec_new();
+vec_push(args, 7);
+vec_push(args, "ok");
+len = fmt_sprintf(&sbuf, 128, "%d-%s", args);
+assert_streq(&sbuf, "7-ok", "sprintf multi-arg");
+assert_eq(len, 4, "sprintf multi-arg len");
+
+var r = assert_summary();

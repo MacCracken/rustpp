@@ -235,7 +235,8 @@ syscall(60, r);
 EOF
 
 # === .cyrius-toolchain ===
-CYRIUS_VER="${CYRIUS_VER:-4.2.1}"
+# Pin to the version of the cyrius that's running init
+CYRIUS_VER="${CYRIUS_VER:-$(cat "$CYRIUS/VERSION" 2>/dev/null || echo "4.9.3")}"
 echo "$CYRIUS_VER" > "$NAME/.cyrius-toolchain"
 
 # === CI ===

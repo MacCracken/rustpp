@@ -4,6 +4,43 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.10.0] — 2026-04-15
+
+**Cleanup & consolidation — last 4.x. Security fixes, test coverage, stale sweep.**
+
+### Added
+- **`tests/tcyr/string.tcyr`** — 38 assertions (strlen, streq, memeq,
+  memcpy, memset, memchr, strchr, atoi, strstr).
+- **`tests/tcyr/fmt.tcyr`** — 28 assertions (fmt_int_buf, fmt_hex_buf,
+  fmt_float_buf, fmt_sprintf with bounds checking).
+- **`tests/tcyr/vec.tcyr`** — 21 assertions (new, push, get, set, pop,
+  find, remove, grow past initial capacity).
+- **`tests/tcyr/hashmap.tcyr`** — 22 assertions (new, set, get, has,
+  overwrite, delete, clear, grow/rehash past capacity).
+
+### Fixed
+- **P1: `fmt_sprintf` buffer overflow** — added `bufsz` parameter. All
+  writes now clamped to `bufsz - 1`. `fmt_printf` passes 512.
+  Signature: `fmt_sprintf(buf, bufsz, format, args)`.
+- **P1: Temp file TOCTOU race** — `cyrius.cyr` temp file creation now
+  uses `O_CREAT | O_EXCL` (atomic create-or-fail) + `sys_unlink` before
+  open. Permissions tightened from 0x1ED (rwxr-xr-x) to 0x180 (rw-------).
+- **`_dynlib_find_path` stack buffer overflow** — `var paths[4]` allocated
+  4 bytes for 4 pointers (32 bytes). Fixed to `var paths[32]`.
+- **`cyrius init` toolchain version** — `.cyrius-toolchain` was hardcoded
+  to `4.2.1`. Now reads from `VERSION` file.
+
+### Changed
+- **Stale version comment sweep** — removed alpha/beta version refs from
+  lib/u128.cyr, lib/math.cyr, lib/string.cyr, lib/http.cyr,
+  lib/http_server.cyr, lib/ws_server.cyr, lib/fmt.cyr headers.
+- **`.gitignore`** — added `*.core` pattern. Removed 30MB of stale
+  qemu core dumps from repo root.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 57 test suites (up from 53).
+
 ## [4.9.3] — 2026-04-15
 
 **Live TLS bridge — dynlib hardening + libssl.so.3 via pure-syscall loader.**

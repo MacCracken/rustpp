@@ -3,8 +3,7 @@
 # Companion to lib/http.cyr (which is HTTP/1.0 client only).
 # Requires: alloc.cyr, string.cyr, fmt.cyr, str.cyr, net.cyr, tagged.cyr, syscalls.cyr
 #
-# Proposed for cyrius 4.5.0. See docs/proposals/cyrius-stdlib-http-server.md
-# in the bote repo for the full design rationale.
+# Shipped in v4.5.0.
 
 # ================================================================
 # Status codes

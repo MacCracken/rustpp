@@ -1,11 +1,9 @@
 # lib/u128.cyr — 128-bit unsigned integer helpers
 #
 # A u128 is a 16-byte slot: low 8 bytes at ptr+0, high 8 bytes at ptr+8.
-# Declared with `var x: u128 = 0;` (v4.8.0-alpha1 for struct/global
-# positions; v4.8.0-alpha3 extended to the PARSE_VAR fallback path
-# used after a top-level expression statement).
-# Arithmetic in the compiler lands in later 4.8.x alphas; for now
-# these helpers cover construction, copy, part-access, equality.
+# Declared with `var x: u128 = 0;` (v4.8.0).
+# These helpers cover construction, copy, part-access, equality,
+# arithmetic, shifts, comparisons, and divmod.
 #
 # Convention: functions take pointers (returned by `&x`), never values,
 # because the cyrius ABI currently passes / returns scalars in a single
@@ -52,7 +50,7 @@ fn u128_is_zero(ptr) {
     return 1;
 }
 
-# -------- Arithmetic (v4.8.0-alpha4) --------
+# -------- Arithmetic --------
 #
 # Carry / borrow detection without an unsigned primitive: split each
 # 64-bit limb into two 32-bit halves, add/subtract in pieces (cyrius's
@@ -161,7 +159,7 @@ fn u128_mul(dst, a, b) {
 # `dst *= src` — wraps at 2^128.
 fn u128_muleq(dst, src) { return u128_mul(dst, dst, src); }
 
-# -------- Shifts & bitwise (v4.8.0-alpha6) --------
+# -------- Shifts & bitwise --------
 #
 # Cyrius `>>` sign-extends (arithmetic). For unsigned semantics we
 # strip the sign bit after a 1-bit shift, then finish the rest:
@@ -268,7 +266,7 @@ fn u128_oreq(dst, src)  { return u128_or(dst, dst, src); }
 # `dst ^= src`.
 fn u128_xoreq(dst, src) { return u128_xor(dst, dst, src); }
 
-# -------- Unsigned comparisons + divmod (v4.8.0-alpha7) --------
+# -------- Unsigned comparisons + divmod --------
 #
 # Cyrius native `<` / `>` / `>=` are signed. For u64 pieces we need
 # an unsigned interpretation (bit 63 is a real value bit, not a
@@ -333,7 +331,7 @@ fn u128_divmod(qdst, rdst, a, b) {
     var a_hi = load64(a + 8);
     var b_lo = load64(b);
     var b_hi = load64(b + 8);
-    # v4.8.5-alpha1: hardware fast-path when the divisor fits in 64
+    # Hardware fast-path when the divisor fits in 64 bits
     # bits. Covers every `(u64 * u64) % u64` pipeline — Miller-Rabin,
     # Pollard rho, RSA, `random::shuffle`, hashing. The slow path
     # below burns 128 shift-subtract iterations even when the top
@@ -435,10 +433,10 @@ fn u128_diveq(dst, src) { return u128_div(dst, dst, src); }
 fn u128_modeq(dst, src) { return u128_mod(dst, dst, src); }
 
 # ================================================================
-# u64 MODULAR ARITHMETIC (v4.8.5-alpha2)
+# u64 MODULAR ARITHMETIC
 # ================================================================
 # Two ergonomic helpers built on top of the `u128_mul + u128_mod`
-# pipeline, whose fast-path (alpha1) now uses hardware `div` when
+# pipeline, whose fast-path now uses hardware `div` when
 # the modulus fits in 64 bits. Purpose is abaco's ntheory::mod_mul
 # / mod_pow call shape — and every RSA / primality / cryptographic-
 # hash consumer that used to hand-roll a double-and-add loop. The

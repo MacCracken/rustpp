@@ -1,0 +1,88 @@
+# string.tcyr — tests for lib/string.cyr core functions
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- strlen ----
+test_group("strlen");
+assert_eq(strlen("hello"), 5, "basic");
+assert_eq(strlen(""), 0, "empty");
+assert_eq(strlen("a"), 1, "single char");
+assert_eq(strlen("twelve chars"), 12, "spaces");
+assert_eq(strlen("abcdefghijklmnop"), 16, "crosses word boundary");
+
+# ---- streq ----
+test_group("streq");
+assert(streq("hello", "hello") == 1, "equal strings");
+assert(streq("hello", "world") == 0, "different strings");
+assert(streq("", "") == 1, "both empty");
+assert(streq("abc", "abcd") == 0, "different lengths");
+assert(streq("abcd", "abc") == 0, "different lengths reversed");
+
+# ---- memeq ----
+test_group("memeq");
+assert(memeq("abcdef", "abcxyz", 3) == 1, "first 3 equal");
+assert(memeq("abcdef", "abcxyz", 4) == 0, "first 4 differ");
+assert(memeq("abc", "abc", 0) == 1, "zero length");
+
+# ---- memcpy ----
+test_group("memcpy");
+var cpybuf[32];
+memset(&cpybuf, 0, 32);
+memcpy(&cpybuf, "hello", 5);
+store8(&cpybuf + 5, 0);
+assert(streq(&cpybuf, "hello") == 1, "copy hello");
+
+memcpy(&cpybuf, "overwrite", 9);
+store8(&cpybuf + 9, 0);
+assert(streq(&cpybuf, "overwrite") == 1, "overwrite");
+
+# ---- memset ----
+test_group("memset");
+var setbuf[16];
+memset(&setbuf, 65, 5);   # 65 = 'A'
+store8(&setbuf + 5, 0);
+assert(streq(&setbuf, "AAAAA") == 1, "fill A");
+
+memset(&setbuf, 0, 16);
+assert_eq(load8(&setbuf), 0, "zero fill first byte");
+assert_eq(load8(&setbuf + 7), 0, "zero fill mid byte");
+
+# ---- memchr ----
+test_group("memchr");
+assert_eq(memchr("abcdef", 99, 6), 2, "find c");        # 99 = 'c'
+assert_eq(memchr("abcdef", 97, 6), 0, "find a at 0");   # 97 = 'a'
+assert_eq(memchr("abcdef", 102, 6), 5, "find f at end"); # 102 = 'f'
+assert_eq(memchr("abcdef", 120, 6), 0 - 1, "not found");
+
+# ---- strchr ----
+test_group("strchr");
+assert_eq(strchr("hello world", 32), 5, "find space");   # 32 = ' '
+assert_eq(strchr("hello", 104), 0, "find h at 0");       # 104 = 'h'
+assert_eq(strchr("hello", 111), 4, "find o at 4");       # 111 = 'o'
+assert_eq(strchr("hello", 120), 0 - 1, "not found");
+
+# ---- atoi ----
+test_group("atoi");
+assert_eq(atoi("42"), 42, "positive");
+assert_eq(atoi("0"), 0, "zero");
+assert_eq(atoi("-7"), 0 - 7, "negative");
+assert_eq(atoi("12345"), 12345, "multi-digit");
+assert_eq(atoi("100abc"), 100, "trailing non-digits");
+assert_eq(atoi(""), 0, "empty string");
+
+# ---- strstr ----
+test_group("strstr");
+assert_eq(strstr("hello world", "world"), 6, "find suffix");
+assert_eq(strstr("hello world", "hello"), 0, "find prefix");
+assert_eq(strstr("hello world", "lo w"), 3, "find middle");
+assert_eq(strstr("hello world", "xyz"), 0 - 1, "not found");
+assert_eq(strstr("hello", ""), 0, "empty needle");
+assert_eq(strstr("hi", "hello"), 0 - 1, "needle longer than haystack");
+
+var r = assert_summary();

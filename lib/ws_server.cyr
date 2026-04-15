@@ -9,8 +9,7 @@
 # place, then runs the read/write loop. When the loop exits, the http
 # handler returns and http_server_run closes cfd as normal.
 #
-# Proposed for cyrius (post-4.5.0). See docs/proposals/cyrius-stdlib-ws-server.md
-# in the bote repo for the full design rationale.
+# Shipped post-4.5.0.
 
 # ================================================================
 # WebSocket constants

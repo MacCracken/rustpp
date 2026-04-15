@@ -7,9 +7,8 @@
 
 # Constants (f64 bit patterns)
 #
-# v4.8.5-alpha4: extended the F64_ONE / F64_TWO pair with the
-# universal mathematical constants every downstream math crate
-# (abaco, dhvani, future geometry / GL) was re-deriving.
+# Universal mathematical constants (f64 bit patterns).
+# Covers the set every downstream math consumer needs.
 # Literals are in hex for traceability — each byte group maps
 # directly to the IEEE 754 sign/exponent/mantissa split.
 var F64_ONE           = 0x3FF0_0000_0000_0000;   # 1.0
@@ -74,7 +73,7 @@ fn f64_max(a, b) {
 }
 
 # ================================================================
-# Inverse trigonometry (v4.8.5-alpha5)
+# Inverse trigonometry
 # ================================================================
 # x87 `fpatan` (exposed by Cyrius as the `f64_atan` builtin) is a
 # single-argument arctangent returning a value in [-π/2, π/2]. The
@@ -134,7 +133,7 @@ fn f64_atan2(y, x) {
 }
 
 # ================================================================
-# Inverse hyperbolic (v4.8.5-alpha6)
+# Inverse hyperbolic
 # ================================================================
 # Closes the symmetry with `f64_sinh` / `cosh` / `tanh` that's been
 # in this file since day one. Identity-based implementations —
