@@ -4,7 +4,9 @@
 # ================================================================
 
 # Emit conditional jump (0F cc 00000000), return patch offset
+# cc5: records IR_JCC node with condition code in flags
 fn EJCC(S, cc) {
+    if (IR_ENABLED(S) == 1) { ir_emit(S, IR_JCC, cc, 0, 0); }
     EB(S, 0x0F);
     EB(S, cc);
     var patch = GCP(S);
@@ -14,7 +16,9 @@ fn EJCC(S, cc) {
 
 # Emit unconditional jmp to target (E9 rel32)
 # Also records target as a jump target for basic-block analysis.
+# cc5: records IR_JMP_BACK with absolute target offset
 fn EJMP(S, target) {
+    if (IR_ENABLED(S) == 1) { ir_emit(S, IR_JMP_BACK, 0, 0, target); }
     EB(S, 0xE9);
     var cp = GCP(S);
     var rel = target - cp - 4;
@@ -34,7 +38,9 @@ fn EJMP(S, target) {
 }
 
 # Emit jmp placeholder (E9 00000000), return patch offset
+# cc5: records IR_JMP node (forward, target resolved at EPATCH)
 fn EJMP0(S) {
+    if (IR_ENABLED(S) == 1) { ir_emit(S, IR_JMP, 0, 0, 0); }
     EB(S, 0xE9);
     var patch = GCP(S);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
@@ -43,7 +49,9 @@ fn EJMP0(S) {
 
 # Patch a previously emitted rel32 at codebuf offset to jump here
 # Also records GCP(S) as a jump target for basic-block analysis.
+# cc5: records IR_NOP as BB boundary marker (landing pad)
 fn EPATCH(S, off) {
+    if (IR_ENABLED(S) == 1) { ir_emit0(S, IR_NOP); }
     var cp = GCP(S);
     var rel = cp - off - 4;
     var addr = S + 0x54A000 + off;

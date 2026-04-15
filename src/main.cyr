@@ -115,11 +115,11 @@
 #
 # --- cc5 IR region (v5.0.0) ---
 #   0xECA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
-#   0x12CA000 ir_blocks    [262144]      8192 basic blocks × 32 bytes
-#   0x130A000 ir_state     [4096]        IR builder state (counters, current BB)
-#   0x130B000 ir_edges     [65536]       8192 CFG edges × 8 bytes (successor links)
+#   0x12CA000 ir_blocks    [1048576]     32768 basic blocks × 32 bytes
+#   0x13CA000 ir_state     [4096]        IR builder state (counters, current BB)
+#   0x13CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
 #
-#   0x131B000 brk                         19.1MB total heap
+#   0x140B000 brk                         20.0MB total heap
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -177,7 +177,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x131B000);
+syscall(SYS_BRK, S + 0x140B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -195,11 +195,11 @@ S64(S + 0x8DA08, 0);
 S64(S + 0x8DA10, 0);
 S64(S + 0x8DC20, 0);
 # IR state (cc5)
-S64(S + 0x130A000, 0);    # ir_node_count
-S64(S + 0x130A008, 0);    # ir_block_count
-S64(S + 0x130A010, 0);    # ir_cur_block (current BB index, -1 = none)
-S64(S + 0x130A018, 0);    # ir_edge_count
-S64(S + 0x130A020, 0);    # ir_enabled (0=off, 1=on)
+S64(S + 0x13CA000, 0);    # ir_node_count
+S64(S + 0x13CA008, 0);    # ir_block_count
+S64(S + 0x13CA010, 0);    # ir_cur_block (current BB index, -1 = none)
+S64(S + 0x13CA018, 0);    # ir_edge_count
+S64(S + 0x13CA020, 0);    # ir_enabled (0=off, 1=on)
 # Struct state
 S64(S + 0x8F830, 0);
 # Condition patch state
@@ -636,9 +636,15 @@ if (_epi_km == 3 || _epi_km == 2) {
 
 # cc5: IR stats/dump
 if (IR_ENABLED(S) == 1) {
+    var ir_bbs = ir_build_bbs(S);
+    var ir_lase_n = ir_lase(S);
     syscall(SYS_WRITE, 2, "ir: ", 4);
     PRNUM(IR_NCNT(S));
-    syscall(SYS_WRITE, 2, " nodes recorded\n", 16);
+    syscall(SYS_WRITE, 2, " nodes, ", 8);
+    PRNUM(ir_bbs);
+    syscall(SYS_WRITE, 2, " BBs, ", 6);
+    PRNUM(ir_lase_n);
+    syscall(SYS_WRITE, 2, " LASE eliminated\n", 18);
     # CYRIUS_IR=2: verbose dump
     if (load8(_ir_env) == 50) { ir_dump(S); }
 }

@@ -6,8 +6,8 @@
 # Memory layout (all relative to S):
 #   0xECA000  ir_nodes    [4MB]   262144 nodes × 16 bytes
 #   0x12CA000  ir_blocks   [256KB] 8192 blocks × 32 bytes
-#   0x130A000 ir_state    [4KB]   counters + current state
-#   0x130B000 ir_edges    [64KB]  8192 edges × 8 bytes
+#   0x13CA000 ir_state    [4KB]   counters + current state
+#   0x13CB000 ir_edges    [64KB]  8192 edges × 8 bytes
 #
 # IRNode (16 bytes):
 #   +0: opcode (i16) + flags (i16) packed in low 32 bits
@@ -108,16 +108,16 @@ enum IROp {
 # IR state accessors
 # ================================================================
 
-fn IR_NCNT(S)       { return L64(S + 0x130A000); }
-fn IR_SNCNT(S, v)   { S64(S + 0x130A000, v); return 0; }
-fn IR_BCNT(S)       { return L64(S + 0x130A008); }
-fn IR_SBCNT(S, v)   { S64(S + 0x130A008, v); return 0; }
-fn IR_CURBB(S)      { return L64(S + 0x130A010); }
-fn IR_SCURBB(S, v)  { S64(S + 0x130A010, v); return 0; }
-fn IR_ECNT(S)       { return L64(S + 0x130A018); }
-fn IR_SECNT(S, v)   { S64(S + 0x130A018, v); return 0; }
-fn IR_ENABLED(S)    { return L64(S + 0x130A020); }
-fn IR_SENABLE(S, v) { S64(S + 0x130A020, v); return 0; }
+fn IR_NCNT(S)       { return L64(S + 0x13CA000); }
+fn IR_SNCNT(S, v)   { S64(S + 0x13CA000, v); return 0; }
+fn IR_BCNT(S)       { return L64(S + 0x13CA008); }
+fn IR_SBCNT(S, v)   { S64(S + 0x13CA008, v); return 0; }
+fn IR_CURBB(S)      { return L64(S + 0x13CA010); }
+fn IR_SCURBB(S, v)  { S64(S + 0x13CA010, v); return 0; }
+fn IR_ECNT(S)       { return L64(S + 0x13CA018); }
+fn IR_SECNT(S, v)   { S64(S + 0x13CA018, v); return 0; }
+fn IR_ENABLED(S)    { return L64(S + 0x13CA020); }
+fn IR_SENABLE(S, v) { S64(S + 0x13CA020, v); return 0; }
 
 # ================================================================
 # IR node read/write
@@ -175,7 +175,7 @@ fn IR_BB_SUCC1(S, bi)  { return (load64(S + 0x12CA000 + bi * 32 + 24) >> 32) & 0
 # Create a new basic block. Returns block index.
 fn ir_bb_new(S) {
     var bi = IR_BCNT(S);
-    if (bi >= 8192) {
+    if (bi >= 32768) {
         syscall(SYS_WRITE, 2, "error: IR block table full\n", 28);
         syscall(SYS_EXIT, 1);
     }
@@ -239,14 +239,14 @@ fn ir_bb_set_cond(S, bi, true_bb, false_bb) {
 fn ir_add_edge(S, from_bb, to_bb) {
     var ec = IR_ECNT(S);
     if (ec >= 8192) { return 0; }
-    var base = S + 0x130B000 + ec * 8;
+    var base = S + 0x13CB000 + ec * 8;
     store64(base, (from_bb & 0xFFFFFFFF) | ((to_bb & 0xFFFFFFFF) << 32));
     IR_SECNT(S, ec + 1);
     return 0;
 }
 
-fn IR_EDGE_FROM(S, ei) { return load64(S + 0x130B000 + ei * 8) & 0xFFFFFFFF; }
-fn IR_EDGE_TO(S, ei)   { return (load64(S + 0x130B000 + ei * 8) >> 32) & 0xFFFFFFFF; }
+fn IR_EDGE_FROM(S, ei) { return load64(S + 0x13CB000 + ei * 8) & 0xFFFFFFFF; }
+fn IR_EDGE_TO(S, ei)   { return (load64(S + 0x13CB000 + ei * 8) >> 32) & 0xFFFFFFFF; }
 
 # Reset IR state (between functions or at start of compilation)
 fn ir_reset(S) {
@@ -407,7 +407,166 @@ fn _ir_opname(op) {
     if (op == IR_MOV_RDX_RAX)  { return "MVDXA"; }
     if (op == IR_MOV_RAX_RDX)  { return "MVAXD"; }
     if (op == IR_XOR_AA)       { return "XOR_AA"; }
+    if (op == IR_JMP)          { return "JMP"; }
+    if (op == IR_JCC)          { return "JCC"; }
+    if (op == IR_JMP_BACK)     { return "JMPB"; }
+    if (op == IR_RET)          { return "RET"; }
+    if (op == IR_LOAD_ADDR_L)  { return "ADDR_L"; }
     return "???";
+}
+
+# ================================================================
+# LASE — Load After Store Elimination
+# ================================================================
+# Scan each BB. Track which local index is "live in rax" (just stored).
+# If we see LOAD_LOCAL for the same index without intervening clobber,
+# the load is redundant. Mark it as NOP.
+#
+# Clobber set: anything that writes rax — PUSH, POP_RAX, MOV_CA,
+# ADD, SUB, MUL, LOAD_IMM, LOAD_GLOBAL, LOAD8-64, SETCC, CALL, SYSCALL,
+# XOR_AA, MOV_RAX_RDX, LOAD_ADDR_G, LOAD_STR, and any terminator.
+#
+# Returns: number of loads eliminated.
+
+fn _ir_clobbers_rax(op) {
+    if (op == IR_LOAD_IMM)     { return 1; }
+    if (op == IR_LOAD_LOCAL)   { return 1; }
+    if (op == IR_LOAD_GLOBAL)  { return 1; }
+    if (op == IR_LOAD_ADDR_G)  { return 1; }
+    if (op == IR_LOAD_ADDR_L)  { return 1; }
+    if (op == IR_LOAD_STR)     { return 1; }
+    if (op == IR_ADD)          { return 1; }
+    if (op == IR_SUB)          { return 1; }
+    if (op == IR_MUL)          { return 1; }
+    if (op == IR_AND)          { return 1; }
+    if (op == IR_OR)           { return 1; }
+    if (op == IR_XOR)          { return 1; }
+    if (op == IR_NOT)          { return 1; }
+    if (op == IR_SHL)          { return 1; }
+    if (op == IR_SHR)          { return 1; }
+    if (op == IR_POP_RAX)      { return 1; }
+    if (op == IR_LOAD8)        { return 1; }
+    if (op == IR_LOAD16)       { return 1; }
+    if (op == IR_LOAD32)       { return 1; }
+    if (op == IR_LOAD64)       { return 1; }
+    if (op == IR_SETCC)        { return 1; }
+    if (op == IR_XOR_AA)       { return 1; }
+    if (op == IR_MOV_RAX_RDX)  { return 1; }
+    if (op == IR_CALL)         { return 1; }
+    if (op == IR_CALL_KNOWN)   { return 1; }
+    if (op == IR_SYSCALL)      { return 1; }
+    return 0;
+}
+
+fn ir_lase(S) {
+    var eliminated = 0;
+    var bcnt = IR_BCNT(S);
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        # Track: last_store_idx = local index that was just stored (-1 = none)
+        var last_store_idx = 0 - 1;
+
+        var ni = first;
+        while (ni < first + count) {
+            var op = IR_NODE_OP(S, ni);
+            var a1 = IR_NODE_A1(S, ni);
+
+            if (op == IR_STORE_LOCAL) {
+                last_store_idx = a1;
+            } elif (op == IR_LOAD_LOCAL) {
+                if (a1 == last_store_idx) {
+                    # Redundant load — value still in rax from the store
+                    # Mark as NOP (optimization: would skip this in codegen)
+                    _ir_set_node(S, ni, _ir_pack_op(IR_NOP, 0), 0, 0);
+                    eliminated = eliminated + 1;
+                } else {
+                    # Loading a different local — clobbers rax
+                    last_store_idx = 0 - 1;
+                }
+            } elif (op == IR_PUSH || op == IR_MOV_CA) {
+                # PUSH/MOV_CA read rax but don't clobber it — keep tracking
+            } elif (_ir_clobbers_rax(op) == 1) {
+                last_store_idx = 0 - 1;
+            }
+
+            ni = ni + 1;
+        }
+        bi = bi + 1;
+    }
+    return eliminated;
+}
+
+# ================================================================
+# BB construction pass
+# ================================================================
+# Walk the recorded IR nodes and split them into basic blocks.
+# BB boundaries at: PROLOG, EPILOG, JMP, JCC, JMP_BACK, NOP (landing pads)
+# Call after compilation, before optimization.
+
+fn ir_build_bbs(S) {
+    var ncnt = IR_NCNT(S);
+    if (ncnt == 0) { return 0; }
+
+    IR_SBCNT(S, 0);
+    IR_SECNT(S, 0);
+
+    # First BB starts at node 0
+    var cur_bb = ir_bb_new(S);
+    ir_set_bb(S, cur_bb);
+
+    var i = 0;
+    while (i < ncnt) {
+        var op = IR_NODE_OP(S, i);
+
+        # Terminators end the current BB and start a new one
+        if (op == IR_JMP || op == IR_JCC || op == IR_JMP_BACK || op == IR_EPILOGUE || op == IR_RET) {
+            # This node belongs to current BB — update count
+            var base = S + 0x12CA000 + cur_bb * 32;
+            store64(base + 16, i - IR_BB_FIRST(S, cur_bb) + 1);
+
+            # Start new BB at next node
+            if (i + 1 < ncnt) {
+                cur_bb = ir_bb_new(S);
+                ir_set_bb(S, cur_bb);
+                # Set first_node for the new BB
+                store64(S + 0x12CA000 + cur_bb * 32 + 8, i + 1);
+            }
+        }
+        # NOP landing pads also start new BBs (except at the very start)
+        elif (op == IR_NOP && i > 0) {
+            var prev_op = IR_NODE_OP(S, i - 1);
+            # Only split if previous node wasn't already a terminator
+            if (prev_op != IR_JMP && prev_op != IR_JCC && prev_op != IR_JMP_BACK && prev_op != IR_EPILOGUE) {
+                var base = S + 0x12CA000 + cur_bb * 32;
+                store64(base + 16, i - IR_BB_FIRST(S, cur_bb));
+                cur_bb = ir_bb_new(S);
+                ir_set_bb(S, cur_bb);
+                store64(S + 0x12CA000 + cur_bb * 32 + 8, i);
+            }
+        }
+        # PROLOG starts a new BB (function entry)
+        elif (op == IR_PROLOGUE && i > 0) {
+            var base = S + 0x12CA000 + cur_bb * 32;
+            store64(base + 16, i - IR_BB_FIRST(S, cur_bb));
+            cur_bb = ir_bb_new(S);
+            ir_set_bb(S, cur_bb);
+            store64(S + 0x12CA000 + cur_bb * 32 + 8, i);
+        }
+
+        i = i + 1;
+    }
+
+    # Finalize last BB's node count
+    if (IR_BCNT(S) > 0) {
+        var last = IR_BCNT(S) - 1;
+        var base = S + 0x12CA000 + last * 32;
+        var first = load64(base + 8);
+        store64(base + 16, ncnt - first);
+    }
+
+    return IR_BCNT(S);
 }
 
 fn ir_dump(S) {
