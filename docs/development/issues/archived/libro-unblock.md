@@ -1,4 +1,11 @@
-# Libro Unblock — v3.4.20 P(-1) Review
+# Libro Unblock — v3.4.20 P(-1) Review — RESOLVED
+
+**Archived 2026-04-14.** Resolved on the libro side (missing
+includes added to `src/main.cyr`); libro has since shipped 1.0.0 →
+1.0.3 and is a healthy Cyrius ecosystem dep. Cyrius-side follow-up
+on the underlying "undefined function → NULL stub jump" diagnostic
+landed across 4.x (v4.2+ `warning: undefined function '...' (will
+crash at runtime)` emission in pass 2). Entry kept for history.
 
 ## Status: **Root cause identified, fix proposed, WIP separation needed**
 

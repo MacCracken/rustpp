@@ -1,4 +1,7 @@
-# Bug #32: Parser overflow at ~12K expanded lines
+# Bug #32: Parser overflow at ~12K expanded lines — RESOLVED
+
+**Archived 2026-04-14.** Resolved in v3.3.17 — `preprocess_out`
+buffer expanded to 1 MB. Entry kept for history.
 
 ## Status: **Resolved in v3.3.17**
 

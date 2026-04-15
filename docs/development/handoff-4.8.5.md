@@ -82,7 +82,7 @@ jump the queue if any consumer hits a dynlib segfault.
 - **Consumer-driven stdlib additions only.** Every 4.8.5 helper
   traced back to an abaco or bote stopgap. No speculative
   additions. The triage doc
-  (`docs/issues/stdlib-math-recommendations-from-abaco.md`)
+  (`docs/development/issues/stdlib-math-recommendations-from-abaco.md`)
   is the template — use it when the next consumer submits a
   recommendation list.
 
@@ -91,8 +91,9 @@ jump the queue if any consumer hits a dynlib segfault.
 - `CLAUDE.md` — non-negotiables.
 - `CHANGELOG.md` head → `## [4.8.5]` GA entry (current state) and
   `## [4.8.4]` (register allocation + bote triad).
-- `docs/language-development-notes.md` — outgoing agent's opinion
-  piece. Not doctrine.
+- `../vidya/content/cyrius/field_notes/meta.toml` entry
+  `handoff_at_4_8_5` — outgoing agent's opinion piece on the 4.8.x
+  trajectory. Not doctrine.
 - `docs/development/roadmap.md` — shipped vs. planned.
 - `src/main.cyr` heap map header (lines 10–115). The state layout
   is load-bearing; every new table goes through that map.
