@@ -2,10 +2,29 @@
 # Usage: include "lib/string.cyr"
 # All functions take raw pointers (addresses from &var or &buf).
 
-# Length of null-terminated string
+# Length of null-terminated string (word-at-a-time, portable)
 fn strlen(s) {
+    # Byte-at-a-time until 8-byte aligned
     var n: i64 = 0;
-    while (load8(s + n) != 0) { n = n + 1; }
+    while ((s + n) & 7 != 0) {
+        if (load8(s + n) == 0) { return n; }
+        n = n + 1;
+    }
+    # Word-at-a-time: read 8 bytes, detect any zero byte via
+    # (v - 0x0101..01) & ~v & 0x8080..80
+    var lo = 0x0101010101010101;
+    var hi = 0x8080808080808080;
+    var done = 0;
+    while (done == 0) {
+        var v = load64(s + n);
+        if ((v - lo) & (v ^ 0xFFFFFFFFFFFFFFFF) & hi != 0) {
+            # Zero byte found in this word — find which one
+            for (var i = 0; i < 8; i = i + 1) {
+                if (load8(s + n + i) == 0) { return n + i; }
+            }
+        }
+        n = n + 8;
+    }
     return n;
 }
 

@@ -4,6 +4,55 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.9.0] — 2026-04-14
+
+**Stdlib completions, diagnostics, and internal doc audit.**
+
+### Added
+- **`f64_parse(cstr)` + `f64_parse_ok(cstr, out)`** in `lib/math.cyr`.
+  String-to-f64 parser handling optional sign, integer/fraction parts,
+  `e[+-]?digits` scientific notation, and `NaN`/`Inf`/`-Inf` text.
+  `f64_parse_ok` writes the result via pointer and returns 1/0 for
+  callers that need to distinguish `0.0` from parse failure. Closes
+  the symmetric gap with `fmt_float` (flagged by abaco triage).
+- **Per-function dead fn names** in compiler diagnostics. Dead function
+  reporting now lists each unreachable function by name
+  (`dead: FUNCNAME`) after the aggregate count, instead of just
+  `note: N unreachable fns`. Immediate DX win for debugging binary size.
+- **`_read_env` for aarch64 backend** — `src/backend/aarch64/fixup.cyr`
+  was missing this function (only defined in x86 fixup). Added with
+  aarch64 syscall numbers (openat=56, read=63, close=57).
+
+### Changed
+- **Word-at-a-time `strlen`** in `lib/string.cyr`. Upgraded from
+  byte-at-a-time loop to 8-byte aligned word reads with
+  `(v - 0x0101..01) & ~v & 0x8080..80` zero detection. Falls back to
+  byte-at-a-time for initial alignment. Portable to aarch64 (no SIMD).
+- **`.gitignore`** — `build/cc3-native-aarch64` now exempted (was
+  previously excluded by `/build/*`, never tracked despite being
+  referenced in `.gitattributes` and CLAUDE.md).
+
+### Fixed
+- **41 stale `(unreleased)` markers** removed from CHANGELOG alpha/beta
+  entries for shipped releases (4.6.0 through 4.8.5).
+- **Roadmap drift** — versions 4.1.x through 4.7.0 described work that
+  had already shipped (DCE, short-circuit, struct init, LSP, linker,
+  PIC, regalloc, rep movsb, bump reset). Collapsed into Shipped
+  accordion. Active Bugs updated: short-circuit `&&`/`||` removed
+  (fixed), `#ref` preprocessor and aarch64 native bugs added.
+- **CLAUDE.md stats** corrected: compiler 303KB→364KB, tests 36→51,
+  benchmarks 10→14, stdlib 41→56 modules, programs 57→59.
+- **Roadmap Open Limits** corrected: Functions 2048→4096 (raised
+  v4.7.1), Identifier names 64KB→128KB (raised v4.6.2).
+- **Platform Targets** — aarch64 native marked "Partial" (cross works,
+  native hangs due to host/target syscall conflation, deferred to 5.0).
+- Stray `--target` and `-o` files removed from repo root (accidental
+  build artifacts from mis-invoked `cyrius build`).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS.
+
 ## [4.8.5-1] — 2026-04-14
 
 ### Fixed

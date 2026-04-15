@@ -168,3 +168,113 @@ fn f64_atanh(x) {
     var den = f64_sub(F64_ONE, x);
     return f64_mul(F64_HALF, f64_ln(f64_div(num, den)));
 }
+
+# ================================================================
+# f64 PARSING
+# ================================================================
+# Parse a null-terminated string to an f64 bit pattern.
+# Returns the f64 bit pattern, or 0 on failure.
+# Handles: optional sign, integer part, optional fraction,
+# optional e/E exponent with optional sign, NaN, Inf, -Inf.
+#
+# For callers that need to distinguish 0.0 from parse failure,
+# use f64_parse_ok which returns the result via pointer and
+# a success flag (1=ok, 0=fail).
+
+fn f64_parse(s) {
+    var i = 0;
+    var neg = 0;
+
+    # Skip leading whitespace
+    while (load8(s + i) == 32 || load8(s + i) == 9) { i = i + 1; }
+
+    # Sign
+    if (load8(s + i) == 45) { neg = 1; i = i + 1; }
+    elif (load8(s + i) == 43) { i = i + 1; }
+
+    # NaN
+    if (load8(s + i) == 78 || load8(s + i) == 110) {
+        if ((load8(s+i+1) == 97 || load8(s+i+1) == 65) && (load8(s+i+2) == 78 || load8(s+i+2) == 110)) {
+            return 0x7FF8000000000000;
+        }
+    }
+    # Inf
+    if (load8(s + i) == 73 || load8(s + i) == 105) {
+        if ((load8(s+i+1) == 110 || load8(s+i+1) == 78) && (load8(s+i+2) == 102 || load8(s+i+2) == 70)) {
+            if (neg == 1) { return 0xFFF0000000000000; }
+            return 0x7FF0000000000000;
+        }
+    }
+
+    # Integer part
+    var has_digits = 0;
+    var result = f64_from(0);
+    var ten = f64_from(10);
+    while (load8(s + i) >= 48 && load8(s + i) <= 57) {
+        result = f64_add(f64_mul(result, ten), f64_from(load8(s + i) - 48));
+        has_digits = 1;
+        i = i + 1;
+    }
+
+    # Fractional part
+    if (load8(s + i) == 46) {
+        i = i + 1;
+        var frac_scale = f64_from(1);
+        while (load8(s + i) >= 48 && load8(s + i) <= 57) {
+            frac_scale = f64_div(frac_scale, ten);
+            result = f64_add(result, f64_mul(f64_from(load8(s + i) - 48), frac_scale));
+            has_digits = 1;
+            i = i + 1;
+        }
+    }
+
+    if (has_digits == 0) { return 0; }
+
+    # Exponent
+    if (load8(s + i) == 101 || load8(s + i) == 69) {
+        i = i + 1;
+        var exp_neg = 0;
+        if (load8(s + i) == 45) { exp_neg = 1; i = i + 1; }
+        elif (load8(s + i) == 43) { i = i + 1; }
+        var exp_val = 0;
+        while (load8(s + i) >= 48 && load8(s + i) <= 57) {
+            exp_val = exp_val * 10 + (load8(s + i) - 48);
+            i = i + 1;
+        }
+        # Apply exponent: result * 10^exp
+        var exp_scale = f64_from(1);
+        var ei = 0;
+        while (ei < exp_val) {
+            exp_scale = f64_mul(exp_scale, ten);
+            ei = ei + 1;
+        }
+        if (exp_neg == 1) {
+            result = f64_div(result, exp_scale);
+        } else {
+            result = f64_mul(result, exp_scale);
+        }
+    }
+
+    if (neg == 1) { result = f64_neg(result); }
+    return result;
+}
+
+# Parse with success flag. Writes f64 result to *out, returns 1 on
+# success, 0 on failure (out unchanged on failure).
+fn f64_parse_ok(s, out) {
+    var i = 0;
+    while (load8(s + i) == 32 || load8(s + i) == 9) { i = i + 1; }
+    # Reject empty / whitespace-only
+    if (load8(s + i) == 0) { return 0; }
+    # Check for at least one digit or NaN/Inf after sign
+    var ci = i;
+    if (load8(s + ci) == 45 || load8(s + ci) == 43) { ci = ci + 1; }
+    var c = load8(s + ci);
+    if (c < 48 || c > 57) {
+        # Allow NaN/Inf
+        if (c != 78 && c != 110 && c != 73 && c != 105 && c != 46) { return 0; }
+    }
+    var val = f64_parse(s);
+    store64(out, val);
+    return 1;
+}

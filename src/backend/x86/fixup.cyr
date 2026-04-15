@@ -462,6 +462,20 @@ fn FIXUP(S) {
         } else {
             syscall(SYS_WRITE, 2, " bytes — set CYRIUS_DCE=1 to eliminate)\n", 40);
         }
+        # Print individual dead function names
+        var dni = 0;
+        while (dni < fnc) {
+            var dnoff = L64(S + 0xE92000 + dni * 8);
+            if (dnoff >= 0) {
+                var dn_live = load8(&live + (dni >> 3)) & (1 << (dni & 7));
+                if (dn_live == 0) {
+                    syscall(SYS_WRITE, 2, "  dead: ", 8);
+                    PRSTR(S + 0x60000 + L64(S + 0xE8A000 + dni * 8));
+                    syscall(SYS_WRITE, 2, "\n", 1);
+                }
+            }
+            dni = dni + 1;
+        }
     }
     # Store data_size
     S64(S + 0x8FCD0, totvar);

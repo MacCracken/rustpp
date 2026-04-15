@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.8.5-1.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.9.0.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (364KB). Closure verified.
 > **51 test suites**, 14 benchmarks, 5 fuzz harnesses. **56 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -86,20 +86,24 @@ Items originally roadmapped for these versions shipped across multiple releases:
 
 ---
 
-## v4.9.0 — Practical Backlog
+## v4.9.0 — Stdlib Completions + Diagnostics (shipped) ✅
 
-Concrete items with live consumers or clear gaps. No speculation.
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **Multi-register `#regalloc` (r12–r15)** | Medium | 4.8.4 shipped single-rbx with frame layout, safety-scan, and peephole patcher. Extending to r12–r15 reuses all that infrastructure. Measurable perf win for hot loops — the 4.8.4 microbench showed ~12% on a single register; multi-register targets sub-100ns on the 249ns struct-creation benchmark. |
-| **`f64_parse(cstr)`** | Medium | Symmetric gap with existing `fmt_float`. abaco triage flagged it. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN`/`Inf` text. |
-| **Per-function dead fn names** | Low | Currently `note: N unreachable fns (M bytes)` as aggregate. Surface individual function names from the fixup table. Immediate DX win for all consumers debugging binary size. |
-| **Word-at-a-time strlen** | Low | `lib/string.cyr` strlen is byte-at-a-time. Use 8-byte word reads with magic-constant zero detection. Portable to aarch64 (no SIMD). |
+| Feature | Details |
+|---------|---------|
+| **`f64_parse(cstr)` + `f64_parse_ok`** | String-to-f64 parser. Optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN`/`Inf`/`-Inf`. `f64_parse_ok` writes result via pointer and returns 1/0. Closes the symmetric gap with `fmt_float`. |
+| **Per-function dead fn names** | Dead function reporting now lists each unreachable function by name (`dead: FUNCNAME`), not just the aggregate count. |
+| **Word-at-a-time strlen** | `lib/string.cyr` strlen upgraded from byte-at-a-time to 8-byte aligned word reads with magic-constant zero detection. Portable (no SIMD). |
+| **Internal doc audit** | Roadmap restructured (stale 4.1.x–4.7.0 archived, stats corrected). CLAUDE.md updated. CHANGELOG cleaned. `_read_env` added to aarch64 fixup.cyr. `.gitignore` updated for `cc3-native-aarch64`. |
 
 ---
 
-## v4.9.1 — Live TLS Bridge
+## v4.9.1 — Multi-Register `#regalloc` (r12–r15)
+
+Focused compiler work on its own branch. 4.8.4 shipped single-rbx with frame layout, safety-scan, and peephole patcher. Extending to r12–r15 reuses all that infrastructure. Measurable perf win for hot loops.
+
+---
+
+## v4.9.2 — Live TLS Bridge
 
 Single focused deliverable. Isolates security-sensitive work.
 
