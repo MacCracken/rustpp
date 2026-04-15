@@ -9,12 +9,11 @@
 # the metadata so the attribute survives into fn-level state.
 var _regalloc_pending = 0;
 
-# v4.8.4-alpha5: current-fn #regalloc flag, set inside PARSE_FN_DEF so
-# codegen helpers (ETAILJMP, EFNEPI call sites) can decide whether to
-# restore rbx before the epilogue. Reset to 0 at fn exit. Separate
-# from `_regalloc_pending` (which tracks directive → next-fn transfer):
-# once PARSE_FN_DEF owns a fn, this mirrors fn_regalloc[fi] for the
-# duration of that fn's body.
+# v4.9.1: current-fn #regalloc register count, set inside PARSE_FN_DEF.
+# 0 = default ABI, 1 = rbx only (4.8.4 behavior), 2 = rbx+r12,
+# 3 = rbx+r12+r13, 4 = rbx+r12+r13+r14, 5 = rbx+r12+r13+r14+r15.
+# Codegen uses this to compute displacement shifts (N*8 bytes reserved)
+# and to save/restore the correct set of callee-saved registers.
 var _cur_fn_regalloc = 0;
 
 # ================================================================
@@ -647,10 +646,8 @@ fn PARSE_FACTOR(S) {
             if (ali >= 0) {
                 E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
-                # v4.8.4-alpha6: shift past the reserved rbx save slot
-                # so `&local` in a #regalloc fn points to the real
-                # stack-backed slot rather than the rbx save.
-                if (_cur_fn_regalloc == 1) { adisp = adisp - 8; }
+                # v4.9.1: shift past all reserved callee-saved slots
+                if (_cur_fn_regalloc > 0) { adisp = adisp - _cur_fn_regalloc * 8; }
                 var aaddr = S + 0x54A000 + GCP(S);
                 S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
                 SCP(S, GCP(S) + 4);
@@ -3130,7 +3127,8 @@ fn PARSE_FN_DEF(S) {
     # v4.8.4-alpha4: transfer any pending `#regalloc` directive onto
     # this fn's metadata slot. Cleared whether consumed or not so a
     # stale flag from a prior parse error can't leak to the next fn.
-    if (_regalloc_pending == 1) { SFRA(S, fi, 1); _regalloc_pending = 0; }
+    # v4.9.1: store 5 (max register count: rbx, r12-r15) for #regalloc fns.
+    if (_regalloc_pending == 1) { SFRA(S, fi, 5); _regalloc_pending = 0; }
     # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
     # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
     # the end of PARSE_FN_DEF.
@@ -3148,12 +3146,15 @@ fn PARSE_FN_DEF(S) {
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);
     # v4.8.4-alpha6: save rbx into its reserved slot at [rbp-8]. Must
-    # come AFTER `sub rsp, fsz` — otherwise rsp would point past the
-    # save on entry to the body, misaligning any syscall/call that
-    # follows. Encoding: 48 89 5D F8 = mov [rbp-8], rbx.
-    if (_cur_fn_regalloc == 1) {
-        E3(S, 0x5D8948); EB(S, 0xF8);
-    }
+    # v4.9.1: save callee-saved registers into reserved slots.
+    # rbx→[rbp-8], r12→[rbp-16], r13→[rbp-24], r14→[rbp-32], r15→[rbp-40].
+    # Encodings: REX.WR=4C for r12-r15 (REX.R=1), opcode 89 (mov r/m,r),
+    # ModR/M byte encodes register + [rbp+disp8].
+    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
+    if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
+    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
+    if (_cur_fn_regalloc >= 4) { E3(S, 0x75894C); EB(S, 0xE0); }  # mov [rbp-32], r14
+    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D894C); EB(S, 0xD8); }  # mov [rbp-40], r15
     var fn_start = GCP(S);
     # Parse params
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
@@ -3294,11 +3295,12 @@ fn PARSE_FN_DEF(S) {
         }
         EPOPR(S);  # restore return value
     }
-    # v4.8.4-alpha6: restore rbx from its save slot before `leave/ret`.
-    # 48 8B 5D F8 = mov rbx, [rbp-8].
-    if (_cur_fn_regalloc == 1) {
-        E3(S, 0x5D8B48); EB(S, 0xF8);
-    }
+    # v4.9.1: restore callee-saved registers (reverse order of save).
+    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
+    if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
+    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]
+    if (_cur_fn_regalloc >= 2) { E3(S, 0x658B4C); EB(S, 0xF0); }  # mov r12, [rbp-16]
+    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8B48); EB(S, 0xF8); }  # mov rbx, [rbp-8]
     # Emit epilogue
     EFNEPI(S);
     DSE_PASS(S, fn_start);
@@ -3343,7 +3345,7 @@ fn PARSE_FN_DEF(S) {
     #      byte/word/dword store, loop-var r12 cache), since those
     #      still hit the stack slot and would diverge from rbx.
     # The `&local` abort (lea [rbp+hot_disp]) also stays in effect.
-    if (_cur_fn_regalloc == 1) {
+    if (_cur_fn_regalloc > 0) {
         var ra_flc = GFLC(S);
         if (pc < ra_flc) {
             var ra_start = fn_start;
@@ -3374,9 +3376,9 @@ fn PARSE_FN_DEF(S) {
                         # Sign-extend the 32-bit signed disp.
                         if (ra_d >= 0x80000000) { ra_d = ra_d - 0x100000000; }
                         if (ra_d < 0) {
-                            # disp = -(idx+2)*8 for #regalloc, so
-                            # idx = -ra_d/8 - 2.
-                            var ra_idx = (0 - ra_d) / 8 - 2;
+                            # disp = -(idx+1+N)*8 where N = _cur_fn_regalloc,
+                            # so idx = -ra_d/8 - 1 - N.
+                            var ra_idx = (0 - ra_d) / 8 - 1 - _cur_fn_regalloc;
                             if (ra_idx >= pc) {
                             if (ra_idx < ra_flc) {
                                 var ra_cur = load64(&ra_counts + ra_idx * 8);
@@ -3386,78 +3388,114 @@ fn PARSE_FN_DEF(S) {
                     } } }
                     ra_s = ra_s + 1;
                 }
-                # Pick max-count non-param slot. Threshold = 2: a
-                # single write + single read isn't worth the rbx
-                # reservation on its own.
-                var ra_best = 0 - 1;
-                var ra_bestc = 1;
-                var ra_pi = pc;
-                while (ra_pi < ra_flc) {
-                    var ra_cc = load64(&ra_counts + ra_pi * 8);
-                    if (ra_cc > ra_bestc) {
-                        ra_bestc = ra_cc;
-                        ra_best = ra_pi;
-                    }
-                    ra_pi = ra_pi + 1;
-                }
-                if (ra_best >= 0) {
-                    var hot_disp = 0 - ((ra_best + 2) * 8);
-                    var hot_disp32 = hot_disp & 0xFFFFFFFF;
-                    # -- Safety scan. Any `85 <hot_disp>` at a
-                    # position whose two preceding bytes are NOT
-                    # `48 8B` or `48 89` is an access we can't
-                    # patch: lea, movzx, width-aware store, or
-                    # loop-var cache. Abort in that case.
-                    var ra_safe = 1;
-                    var ra_sp = ra_start;
-                    while (ra_sp + 7 <= ra_end) {
-                        if (load8(S + 0x54A000 + ra_sp + 2) == 0x85) {
-                        if (load32(S + 0x54A000 + ra_sp + 3) == hot_disp32) {
-                            var ra_px1 = load8(S + 0x54A000 + ra_sp);
-                            var ra_px2 = load8(S + 0x54A000 + ra_sp + 1);
-                            var ra_ok = 0;
-                            if (ra_px1 == 0x48) {
-                                if (ra_px2 == 0x8B) { ra_ok = 1; }
-                                if (ra_px2 == 0x89) { ra_ok = 1; }
-                            }
-                            if (ra_ok == 0) { ra_safe = 0; }
-                        } }
-                        ra_sp = ra_sp + 1;
-                    }
-                    if (ra_safe == 1) {
-                        # Patch pass: rewrite matching loads/stores.
-                        var ra_p = ra_start;
-                        while (ra_p + 7 <= ra_end) {
-                            if (load8(S + 0x54A000 + ra_p) == 0x48) {
-                            var op1 = load8(S + 0x54A000 + ra_p + 1);
-                            if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
-                            if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
-                                if (op1 == 0x8B) {
-                                    # mov rax,[rbp+disp] → mov rax,rbx; 4-byte NOP
-                                    # beta1: one multi-byte NOP beats four 0x90s —
-                                    # single decoder slot instead of four.
-                                    store8(S + 0x54A000 + ra_p + 0, 0x48);
-                                    store8(S + 0x54A000 + ra_p + 1, 0x89);
-                                    store8(S + 0x54A000 + ra_p + 2, 0xD8);
-                                    store8(S + 0x54A000 + ra_p + 3, 0x0F);
-                                    store8(S + 0x54A000 + ra_p + 4, 0x1F);
-                                    store8(S + 0x54A000 + ra_p + 5, 0x40);
-                                    store8(S + 0x54A000 + ra_p + 6, 0x00);
-                                }
-                                if (op1 == 0x89) {
-                                    # mov [rbp+disp],rax → mov rbx,rax; 4-byte NOP
-                                    store8(S + 0x54A000 + ra_p + 0, 0x48);
-                                    store8(S + 0x54A000 + ra_p + 1, 0x89);
-                                    store8(S + 0x54A000 + ra_p + 2, 0xC3);
-                                    store8(S + 0x54A000 + ra_p + 3, 0x0F);
-                                    store8(S + 0x54A000 + ra_p + 4, 0x1F);
-                                    store8(S + 0x54A000 + ra_p + 5, 0x40);
-                                    store8(S + 0x54A000 + ra_p + 6, 0x00);
-                                }
-                            } } }
-                            ra_p = ra_p + 1;
+                # v4.9.1: pick up to _cur_fn_regalloc hot locals.
+                # Register assignment table (3-byte mov encodings):
+                #   reg 0 (rbx): load=48 89 D8, store=48 89 C3
+                #   reg 1 (r12): load=4C 89 E0, store=49 89 C4
+                #   reg 2 (r13): load=4C 89 E8, store=49 89 C5
+                #   reg 3 (r14): load=4C 89 F0, store=49 89 C6
+                #   reg 4 (r15): load=4C 89 F8, store=49 89 C7
+                # "load" = mov rax, reg; "store" = mov reg, rax.
+                var ra_load_b0[5]; var ra_load_b1[5]; var ra_load_b2[5];
+                var ra_store_b0[5]; var ra_store_b1[5]; var ra_store_b2[5];
+                store8(&ra_load_b0, 0x48); store8(&ra_load_b1, 0x89); store8(&ra_load_b2, 0xD8);
+                store8(&ra_store_b0, 0x48); store8(&ra_store_b1, 0x89); store8(&ra_store_b2, 0xC3);
+                store8(&ra_load_b0+1, 0x4C); store8(&ra_load_b1+1, 0x89); store8(&ra_load_b2+1, 0xE0);
+                store8(&ra_store_b0+1, 0x49); store8(&ra_store_b1+1, 0x89); store8(&ra_store_b2+1, 0xC4);
+                store8(&ra_load_b0+2, 0x4C); store8(&ra_load_b1+2, 0x89); store8(&ra_load_b2+2, 0xE8);
+                store8(&ra_store_b0+2, 0x49); store8(&ra_store_b1+2, 0x89); store8(&ra_store_b2+2, 0xC5);
+                store8(&ra_load_b0+3, 0x4C); store8(&ra_load_b1+3, 0x89); store8(&ra_load_b2+3, 0xF0);
+                store8(&ra_store_b0+3, 0x49); store8(&ra_store_b1+3, 0x89); store8(&ra_store_b2+3, 0xC6);
+                store8(&ra_load_b0+4, 0x4C); store8(&ra_load_b1+4, 0x89); store8(&ra_load_b2+4, 0xF8);
+                store8(&ra_store_b0+4, 0x49); store8(&ra_store_b1+4, 0x89); store8(&ra_store_b2+4, 0xC7);
+                # Pick top N hot locals (greedy: pick best, zero it, repeat).
+                var ra_assigned[5];  # ra_assigned[reg] = local idx (-1 = unused)
+                var ra_num_assigned = 0;
+                var ra_ri = 0;
+                while (ra_ri < _cur_fn_regalloc) {
+                    var ra_best = 0 - 1;
+                    var ra_bestc = 1;  # threshold: >= 2 uses
+                    var ra_pi = pc;
+                    while (ra_pi < ra_flc) {
+                        var ra_cc = load64(&ra_counts + ra_pi * 8);
+                        if (ra_cc > ra_bestc) {
+                            ra_bestc = ra_cc;
+                            ra_best = ra_pi;
                         }
+                        ra_pi = ra_pi + 1;
                     }
+                    if (ra_best < 0) { ra_ri = _cur_fn_regalloc; }
+                    else {
+                        # Safety scan for this candidate.
+                        var cand_disp = 0 - ((ra_best + 1 + _cur_fn_regalloc) * 8);
+                        var cand_disp32 = cand_disp & 0xFFFFFFFF;
+                        var ra_safe = 1;
+                        var ra_sp = ra_start;
+                        while (ra_sp + 7 <= ra_end) {
+                            if (load8(S + 0x54A000 + ra_sp + 2) == 0x85) {
+                            if (load32(S + 0x54A000 + ra_sp + 3) == cand_disp32) {
+                                var ra_px1 = load8(S + 0x54A000 + ra_sp);
+                                var ra_px2 = load8(S + 0x54A000 + ra_sp + 1);
+                                var ra_ok = 0;
+                                if (ra_px1 == 0x48) {
+                                    if (ra_px2 == 0x8B) { ra_ok = 1; }
+                                    if (ra_px2 == 0x89) { ra_ok = 1; }
+                                }
+                                if (ra_ok == 0) { ra_safe = 0; }
+                            } }
+                            ra_sp = ra_sp + 1;
+                        }
+                        if (ra_safe == 1) {
+                            store64(&ra_assigned + ra_num_assigned * 8, ra_best);
+                            ra_num_assigned = ra_num_assigned + 1;
+                        }
+                        # Zero this slot so next iteration picks the next hottest
+                        store64(&ra_counts + ra_best * 8, 0);
+                    }
+                    ra_ri = ra_ri + 1;
+                }
+                # Patch pass: for each assigned register, rewrite its locals.
+                var ra_ai = 0;
+                while (ra_ai < ra_num_assigned) {
+                    var ra_local = load64(&ra_assigned + ra_ai * 8);
+                    var hot_disp = 0 - ((ra_local + 1 + _cur_fn_regalloc) * 8);
+                    var hot_disp32 = hot_disp & 0xFFFFFFFF;
+                    var lb0 = load8(&ra_load_b0 + ra_ai);
+                    var lb1 = load8(&ra_load_b1 + ra_ai);
+                    var lb2 = load8(&ra_load_b2 + ra_ai);
+                    var sb0 = load8(&ra_store_b0 + ra_ai);
+                    var sb1 = load8(&ra_store_b1 + ra_ai);
+                    var sb2 = load8(&ra_store_b2 + ra_ai);
+                    var ra_p = ra_start;
+                    while (ra_p + 7 <= ra_end) {
+                        if (load8(S + 0x54A000 + ra_p) == 0x48) {
+                        var op1 = load8(S + 0x54A000 + ra_p + 1);
+                        if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
+                        if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
+                            if (op1 == 0x8B) {
+                                # mov rax,[rbp+disp] → mov rax,REG; 4-byte NOP
+                                store8(S + 0x54A000 + ra_p + 0, lb0);
+                                store8(S + 0x54A000 + ra_p + 1, lb1);
+                                store8(S + 0x54A000 + ra_p + 2, lb2);
+                                store8(S + 0x54A000 + ra_p + 3, 0x0F);
+                                store8(S + 0x54A000 + ra_p + 4, 0x1F);
+                                store8(S + 0x54A000 + ra_p + 5, 0x40);
+                                store8(S + 0x54A000 + ra_p + 6, 0x00);
+                            }
+                            if (op1 == 0x89) {
+                                # mov [rbp+disp],rax → mov REG,rax; 4-byte NOP
+                                store8(S + 0x54A000 + ra_p + 0, sb0);
+                                store8(S + 0x54A000 + ra_p + 1, sb1);
+                                store8(S + 0x54A000 + ra_p + 2, sb2);
+                                store8(S + 0x54A000 + ra_p + 3, 0x0F);
+                                store8(S + 0x54A000 + ra_p + 4, 0x1F);
+                                store8(S + 0x54A000 + ra_p + 5, 0x40);
+                                store8(S + 0x54A000 + ra_p + 6, 0x00);
+                            }
+                        } } }
+                        ra_p = ra_p + 1;
+                    }
+                    ra_ai = ra_ai + 1;
                 }
             }
         }
@@ -3468,7 +3506,7 @@ fn PARSE_FN_DEF(S) {
     # [rbp-8] for the saved rbx. Bumping flc by 1 pre-rounding keeps
     # the 16-byte alignment formula valid — call-site rsp stays 16-
     # aligned for SSE-safe callees.
-    if (_cur_fn_regalloc == 1) { flc = flc + 1; }
+    if (_cur_fn_regalloc > 0) { flc = flc + _cur_fn_regalloc; }
     var fsz = (flc * 8 + 15) & (0 - 16);
     EPATCHFRAME(S, frame_patch, fsz);
     # Record fn code end (v4.4.0 DCE) — this is GCP after epilogue + LASE + frame patch.
