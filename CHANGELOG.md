@@ -4,6 +4,46 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.0] — 2026-04-15
+
+**Major release. cc5 generation — IR, CFG, tooling overhaul.**
+
+### Added
+- **cc5 IR infrastructure** (`src/common/ir.cyr`, 812 lines) — basic-block
+  intermediate representation between parse and emit. 40 opcodes, BB
+  construction, CFG edge builder (patch-offset matching), LASE analysis,
+  dead block detection, IR dump. `CYRIUS_IR=1` for stats, `=2` for dump.
+  Self-compile: 119K nodes, 8.7K BBs, 11K edges, 675 LASE candidates.
+- **43 emit/jump functions instrumented** for IR recording. Transparent —
+  zero impact on output. Proven across 59 test suites (IR soak: 58/58).
+- **CP tracking** — per-node codebuf position recording for future
+  optimization passes.
+- **`cyrius.cyml` manifest** — `cyrius deps` tries `cyrius.cyml` first,
+  falls back to `cyrius.toml`. CYML body stripped, TOML header parsed.
+  `cyrius update` auto-migrates `cyrius.toml` → `cyrius.cyml`.
+  `cyrius init` generates `cyrius.cyml` by default.
+- **`cyrius version`** — shows toolchain version (from `~/.cyrius/current`).
+  `cyrius version --project` for project version. Fixed in both shell
+  wrapper and compiled tool.
+- **CLI tool integrations** — `cyrius init --cmtools[=starship]` installs
+  starship prompt segment. Detects `cyrius.cyml` and `cyrius.toml`.
+- **`tests/tcyr/ir.tcyr`** — 29 assertions covering IR-compiled code
+  (functions, control flow, loops, short-circuit, switch, defer, LASE patterns).
+- **Alpha → Beta → GA release phases** documented in roadmap with
+  concrete checklist (tests, benchmarks, fuzz, soak, security scan).
+
+### Changed
+- **Heap extended** 14.3MB → 21MB (IR nodes 4MB, blocks 1MB, state 4KB,
+  edges 256KB, CP tracking 1MB).
+- **`release-lib.sh`** updated with sankoch 1.0.0 and patra 0.15.0 deps.
+- **Patra dep** updated to 0.15.0 (WHERE-with-no-conditions fix).
+
+### Validation
+- cc5 two-step bootstrap PASS (cc4==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 59 test suites.
+- 58/58 IR soak (all .tcyr with CYRIUS_IR=1, byte-identical output).
+- Compile-time: 0.26s normal, 1.59s with IR (analysis mode only).
+
 ## [4.10.3] — 2026-04-15
 
 **Linalg Tier 2 — SVD, eigendecomposition, pseudoinverse. Last 4.x patch.**
