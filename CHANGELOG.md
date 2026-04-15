@@ -4,6 +4,71 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5] — 2026-04-14
+
+**Math stdlib pack + HTTP defence-in-depth.** Closes the
+abaco-surfaced math gaps in one coherent minor (triage tracked in
+`docs/issues/stdlib-math-recommendations-from-abaco.md`), lands a
+hardware fast-path on `u128_mod` that the whole Miller-Rabin hot
+path compounds through (~12× on a full round), and hardens
+`_http_parse_url` against the CVE-2019-9741 CRLF-injection class
+reported by bote during 4.8.4 consumption.
+
+### Track summary
+
+| Alpha/beta | Work |
+|---|---|
+| alpha1 | `u128_divmod` hardware fast-path: detect `b_hi == 0` and emit two back-to-back unsigned `div` instructions in one asm block. Transparent win for every `u128_mul + u128_mod` call shape. |
+| alpha2 | `u64_mulmod` / `u64_powmod` — asm-direct ergonomic helpers. `mulmod` collapses to `mul; div; mov` (three instructions). `benches/bench_mulmod.bcyr` pairs binary double-and-add vs the new path against a Miller-Rabin round. |
+| alpha3 | CRLF-injection hardening in `lib/http.cyr::_http_parse_url` + `http_get` surfacing `HTTP_ERROR`. `lib/tls.cyr` interface scaffold — `tls_available` / `tls_connect` / `tls_write` / `tls_read` / `tls_close` with fail-clean stubs until the live libssl bridge lands. |
+| alpha4 | f64 math constants in `lib/math.cyr` — `F64_HALF` / `F64_ONE_HALF` / `F64_TWO_HALF` / `F64_PI{,_2,_4}` / `F64_TAU` / `F64_E` / `F64_LN2` / `F64_LN10` / `F64_SQRT2` / `F64_FRAC_1_SQRT2`. Hex-with-underscore literal form, one nibble group per IEEE 754 field. |
+| alpha5 | Inverse trigonometry — `f64_asin` / `f64_acos` / `f64_atan2`, with full-plane quadrant correction (closes abaco's Q2/Q3 atan2 bug). |
+| alpha6 | Inverse hyperbolic — `f64_asinh` / `f64_acosh` / `f64_atanh`, closing the symmetry with the existing sinh/cosh/tanh family. |
+| alpha7 | ASCII case helpers in `lib/string.cyr` — `str_lower_cstr` / `str_upper_cstr` plus the in-place variants. UTF-8 bytes ≥ 0x80 pass through untouched. |
+| beta1 | `tests/tcyr/math_pack_integration.tcyr` — 10-assertion cross-cutting test that exercises every alpha in one compile unit. Benchmark snapshot captured in the changelog. |
+
+### Headline numbers
+
+```
+  mulmod/binary_slow:  618 ns avg   (pre-alpha1 pure-Cyrius shape)
+  mulmod/u64_fast:     402 ns avg   ← 1.54× on the primitive
+  miller_rabin/slow:    11 µs avg
+  miller_rabin/fast:   956 ns avg   ← ~12× on a full MR round
+```
+
+### Security
+- **CVE-2019-9741 pattern closed** in `_http_parse_url`. Reject
+  CR / LF / TAB / SPACE / NUL anywhere in the URL, empty host,
+  port 0, port > 65535. `http_get` returns `HTTP_ERROR` without
+  touching the network. 18-assertion regression net in
+  `tests/tcyr/http_crlf.tcyr`.
+
+### Consumer impact
+- **abaco** — `ntheory::mod_mul` gets the 40×-class perf gap closed
+  via `u64_mulmod`; `atan2` is quadrant-correct; all four f64
+  constant tables + case helpers can delete their local copies.
+- **bote** — CRLF-hardened `lib/http.cyr` + forward-compatible
+  `lib/tls.cyr` interface ready to wire through when the libssl
+  bridge lands (alpha3 ships the stable API with fail-clean stubs).
+
+### Deferred to future minors
+- **Live libssl TLS bridge** — interface is stable, wire-up
+  pending a hardening pass on `lib/dynlib.cyr` (ELF loader
+  segfaults on libssl.so.3 on the dev box; owned separately).
+  Consumers get `tls_available() == 0` and fall back cleanly.
+- **`parse_f64(cstr)`** — 4.8.6 per the abaco triage. Scope
+  (scientific notation, round-to-nearest, `Inf`/`NaN`) deserves
+  its own minor.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- Bootstrap closure: seed → cyrc → asm → cyrc clean.
+- 8/8 `check.sh` PASS. 51 test files / 396 assertions.
+- Dead-fn count stable at 7 (no regression from 4.8.4).
+- Capacity at cc3 self-compile: `fn=324/4096 ident=8146/131072
+  var=100/8192 fixup=1621/16384 string=5493/262144
+  code=345368/1048576` — plenty of headroom.
+
 ## [4.8.5-beta1] — 2026-04-14 (unreleased)
 
 ### Added — integration coverage + snapshot benchmarks
