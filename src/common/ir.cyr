@@ -21,6 +21,13 @@
 #   +24: succ0 (first successor BB, -1 = none)
 #        succ1 packed in high 32 bits (for conditional branches)
 
+# IR_ENABLED modes:
+#   0 = off (normal direct emit)
+#   1 = dual (record IR AND emit x86 — for analysis/debugging)
+#   2 = record-only (record IR, skip x86 — for IR-driven codegen)
+#
+# After parsing with mode 2, call ir_lower_all with mode 0 to emit x86.
+
 # ================================================================
 # IR opcodes
 # ================================================================
@@ -102,6 +109,26 @@ enum IROp {
     IR_XOR_AA      = 93;  # xor rax, rax
     IR_STORE_PARM  = 94;  # arg1 = param_idx, arg2 = local_idx
     IR_ADD_IMM_X1  = 95;  # rcx += arg2
+}
+
+# Helper: record IR node and return 1 if should skip x86 (mode 2), 0 if should emit
+fn _IR_REC0(S, op) {
+    var m = IR_ENABLED(S);
+    if (m >= 1) { ir_emit0(S, op); }
+    if (m == 2) { return 1; }
+    return 0;
+}
+fn _IR_REC1(S, op, a1) {
+    var m = IR_ENABLED(S);
+    if (m >= 1) { ir_emit1(S, op, a1); }
+    if (m == 2) { return 1; }
+    return 0;
+}
+fn _IR_REC(S, op, fl, a1, a2) {
+    var m = IR_ENABLED(S);
+    if (m >= 1) { ir_emit(S, op, fl, a1, a2); }
+    if (m == 2) { return 1; }
+    return 0;
 }
 
 # ================================================================
