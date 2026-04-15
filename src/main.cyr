@@ -114,12 +114,12 @@
 #   0xE4A000 (fixup table: 16384 entries × 16 bytes ends at 0xE8A000)
 #
 # --- cc5 IR region (v5.0.0) ---
-#   0xECA000 ir_nodes      [1048576]     65536 IR nodes × 16 bytes
-#   0xFCA000 ir_blocks     [262144]      8192 basic blocks × 32 bytes
-#   0x100A000 ir_state     [4096]        IR builder state (counters, current BB)
-#   0x100B000 ir_edges     [65536]       8192 CFG edges × 8 bytes (successor links)
+#   0xECA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
+#   0x12CA000 ir_blocks    [262144]      8192 basic blocks × 32 bytes
+#   0x130A000 ir_state     [4096]        IR builder state (counters, current BB)
+#   0x130B000 ir_edges     [65536]       8192 CFG edges × 8 bytes (successor links)
 #
-#   0x101B000 brk                         16.1MB total heap
+#   0x131B000 brk                         19.1MB total heap
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -177,7 +177,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x101B000);
+syscall(SYS_BRK, S + 0x131B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -195,11 +195,11 @@ S64(S + 0x8DA08, 0);
 S64(S + 0x8DA10, 0);
 S64(S + 0x8DC20, 0);
 # IR state (cc5)
-S64(S + 0x100A000, 0);    # ir_node_count
-S64(S + 0x100A008, 0);    # ir_block_count
-S64(S + 0x100A010, 0);    # ir_cur_block (current BB index, -1 = none)
-S64(S + 0x100A018, 0);    # ir_edge_count
-S64(S + 0x100A020, 0);    # ir_enabled (0=off, 1=on)
+S64(S + 0x130A000, 0);    # ir_node_count
+S64(S + 0x130A008, 0);    # ir_block_count
+S64(S + 0x130A010, 0);    # ir_cur_block (current BB index, -1 = none)
+S64(S + 0x130A018, 0);    # ir_edge_count
+S64(S + 0x130A020, 0);    # ir_enabled (0=off, 1=on)
 # Struct state
 S64(S + 0x8F830, 0);
 # Condition patch state
@@ -449,6 +449,16 @@ while (dce_ti < dce_tc) {
     dce_ti = dce_ti + 1;
 }
 
+# cc5: opt-in IR recording via CYRIUS_IR=1|2
+var _ir_env = _read_env("CYRIUS_IR");
+if (_ir_env != 0) {
+    var _ir_ch = load8(_ir_env);
+    if (_ir_ch == 49 || _ir_ch == 50) {
+        IR_SENABLE(S, 1);
+        ir_reset(S);
+    }
+}
+
 # Pass 2: Parse struct and fn definitions (vars already registered)
 STI(S, 0);
 var topgo = 1;
@@ -622,6 +632,15 @@ if (_epi_km == 3 || _epi_km == 2) {
 } else {
     # Executable mode: exit via syscall(60, exit_code)
     EEXIT(S);
+}
+
+# cc5: IR stats/dump
+if (IR_ENABLED(S) == 1) {
+    syscall(SYS_WRITE, 2, "ir: ", 4);
+    PRNUM(IR_NCNT(S));
+    syscall(SYS_WRITE, 2, " nodes recorded\n", 16);
+    # CYRIUS_IR=2: verbose dump
+    if (load8(_ir_env) == 50) { ir_dump(S); }
 }
 
 # Fixup + ELF + write
