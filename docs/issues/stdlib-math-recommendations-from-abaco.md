@@ -1,4 +1,4 @@
-# stdlib math & utility recommendations (from abaco 1.1.0)
+# stdlib math & utility recommendations (from abaco 2.0.0)
 
 **Source**: abaco — math engine (expression eval, unit conversion, DSP).
 Repo: `/home/macro/Repos/abaco`. Port target: Cyrius 4.8.3.
@@ -314,10 +314,12 @@ to 5.0; new stdlib surface lands here when it enables downstream
 unblocks, and the 4.9 minor is reserved for its own focus plus
 fix patches. Dispositions below reflect that framing.
 
-### Accepted — landing in **4.8.6** (math pack)
+### Accepted — landing in **4.8.5** (math pack, next up)
 
 Single coherent minor. All math-adjacent, roughly 5–6 alphas ending
 with a Miller-Rabin microbench that demonstrates the `mulmod` win.
+Reordered ahead of defmt after 4.8.4 GA so abaco gets the
+unblocks on the near edge of the cadence.
 
 | ID   | Disposition | Notes |
 |------|-------------|-------|
@@ -343,8 +345,8 @@ with a Miller-Rabin microbench that demonstrates the `mulmod` win.
 ### Release order
 
 ```
-4.8.5  — defmt (roadmap-locked, unchanged)
-4.8.6  — math pack (P1-1 + P3-2 + P1-2 + P2-1 + P2-4 + P2-3)
+4.8.5  — math pack (P1-1 + P3-2 + P1-2 + P2-1 + P2-4 + P2-3)  ← next
+4.8.6  — defmt (format-string interning, slid from 4.8.5)
 4.8.7  — parse_f64 + any additional math-crate feedback
 4.8.x  — cleanup ramp to 5.0; new stdlib surface lands here when
          it unblocks a concrete downstream caller

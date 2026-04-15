@@ -4,55 +4,416 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased — patch release for bote]
+## [4.8.5] — 2026-04-14
 
-### Fixed (regression reported by bote 2.5.0 — `docs/bugs/` upstream)
-- **`PP_IFDEF_PASS` scan went blind past 256 KB on large units**
-  (`src/frontend/lex.cyr`). The 4.8.3 design copies the
-  preprocessor output back to `S+0` (capped) so helpers like
-  `ISINCLUDE` / `ISDEFINE` can read via `S+ip`. The cap formula
-  dropped to `262144` whenever `bl > 524288`, so on compile units
-  whose preprocessed source exceeded 512 KB (bote 2.5.0 with
-  `src/audit_libro.cyr` + `src/events_majra.cyr` + full libro/majra
-  deps — ~525 KB), every `include` / `#define` / `#ifdef` directive
-  past offset 262144 was invisible to the scan. The alpha3
-  fixpoint loop couldn't help because it needed the scan to even
-  *find* directives to mark them. Bote's symptom was the
-  misleading `lib/assert.cyr:3: expected '=', got string` — the
-  parser saw the raw `include "lib/string.cyr"` bytes (from
-  `assert.cyr` at offset ~525000) as if it were an expression.
-  Two changes:
-  * Raised the cap from `262144` to `524288`. Writing up to
-    `0x80000` into `S+0` is safe — compiler state doesn't start
-    until `0x8C100`, with input_buf nominally covering
-    `0..0x80000`.
-  * Directive DETECTION (`ISDEFINE` / `ISIFDEF` / `ISIF` /
-    `ISENDIF` / `ISDERIVE{,_DE,_ACC}` / `ISINCLUDE` / `PP_SKIPLINE`)
-    now reads from the mmap'd `tmp` buffer directly, so the scan
-    sees the full 1 MB regardless of where directives land.
-    Handlers that touch state (`PP_DEFINE` / `PP_DEFINED` /
-    `PP_EVAL_IF` / `PP_DERIVE_*`) still take `S` as base — they
-    need to reach `S+0x90800` etc. — so they remain correct
-    within the (now larger) `S+0` window.
-- **`PP_IFDEF_PASS` size guard**. Added the matching `op >
-  1048576` guard that `PP_PASS` already has, so a silent overflow
-  into the codebuf region at `S+0x54A000+` errors out loudly
-  instead of surfacing as garbled parser errors downstream.
+**Math stdlib pack + HTTP defence-in-depth.** Closes the
+abaco-surfaced math gaps in one coherent minor (triage tracked in
+`docs/issues/stdlib-math-recommendations-from-abaco.md`), lands a
+hardware fast-path on `u128_mod` that the whole Miller-Rabin hot
+path compounds through (~12× on a full round), and hardens
+`_http_parse_url` against the CVE-2019-9741 CRLF-injection class
+reported by bote during 4.8.4 consumption.
+
+### Track summary
+
+| Alpha/beta | Work |
+|---|---|
+| alpha1 | `u128_divmod` hardware fast-path: detect `b_hi == 0` and emit two back-to-back unsigned `div` instructions in one asm block. Transparent win for every `u128_mul + u128_mod` call shape. |
+| alpha2 | `u64_mulmod` / `u64_powmod` — asm-direct ergonomic helpers. `mulmod` collapses to `mul; div; mov` (three instructions). `benches/bench_mulmod.bcyr` pairs binary double-and-add vs the new path against a Miller-Rabin round. |
+| alpha3 | CRLF-injection hardening in `lib/http.cyr::_http_parse_url` + `http_get` surfacing `HTTP_ERROR`. `lib/tls.cyr` interface scaffold — `tls_available` / `tls_connect` / `tls_write` / `tls_read` / `tls_close` with fail-clean stubs until the live libssl bridge lands. |
+| alpha4 | f64 math constants in `lib/math.cyr` — `F64_HALF` / `F64_ONE_HALF` / `F64_TWO_HALF` / `F64_PI{,_2,_4}` / `F64_TAU` / `F64_E` / `F64_LN2` / `F64_LN10` / `F64_SQRT2` / `F64_FRAC_1_SQRT2`. Hex-with-underscore literal form, one nibble group per IEEE 754 field. |
+| alpha5 | Inverse trigonometry — `f64_asin` / `f64_acos` / `f64_atan2`, with full-plane quadrant correction (closes abaco's Q2/Q3 atan2 bug). |
+| alpha6 | Inverse hyperbolic — `f64_asinh` / `f64_acosh` / `f64_atanh`, closing the symmetry with the existing sinh/cosh/tanh family. |
+| alpha7 | ASCII case helpers in `lib/string.cyr` — `str_lower_cstr` / `str_upper_cstr` plus the in-place variants. UTF-8 bytes ≥ 0x80 pass through untouched. |
+| beta1 | `tests/tcyr/math_pack_integration.tcyr` — 10-assertion cross-cutting test that exercises every alpha in one compile unit. Benchmark snapshot captured in the changelog. |
+
+### Headline numbers
+
+```
+  mulmod/binary_slow:  618 ns avg   (pre-alpha1 pure-Cyrius shape)
+  mulmod/u64_fast:     402 ns avg   ← 1.54× on the primitive
+  miller_rabin/slow:    11 µs avg
+  miller_rabin/fast:   956 ns avg   ← ~12× on a full MR round
+```
+
+### Security
+- **CVE-2019-9741 pattern closed** in `_http_parse_url`. Reject
+  CR / LF / TAB / SPACE / NUL anywhere in the URL, empty host,
+  port 0, port > 65535. `http_get` returns `HTTP_ERROR` without
+  touching the network. 18-assertion regression net in
+  `tests/tcyr/http_crlf.tcyr`.
+
+### Consumer impact
+- **abaco** — `ntheory::mod_mul` gets the 40×-class perf gap closed
+  via `u64_mulmod`; `atan2` is quadrant-correct; all four f64
+  constant tables + case helpers can delete their local copies.
+- **bote** — CRLF-hardened `lib/http.cyr` + forward-compatible
+  `lib/tls.cyr` interface ready to wire through when the libssl
+  bridge lands (alpha3 ships the stable API with fail-clean stubs).
+
+### Deferred to future minors
+- **Live libssl TLS bridge** — interface is stable, wire-up
+  pending a hardening pass on `lib/dynlib.cyr` (ELF loader
+  segfaults on libssl.so.3 on the dev box; owned separately).
+  Consumers get `tls_available() == 0` and fall back cleanly.
+- **`parse_f64(cstr)`** — 4.8.6 per the abaco triage. Scope
+  (scientific notation, round-to-nearest, `Inf`/`NaN`) deserves
+  its own minor.
 
 ### Validation
 - cc3 self-host byte-identical (two-step bootstrap).
-- 8/8 `check.sh` PASS. 45 test files / 299 assertions.
-- Bote 2.5.0 reproducer (`tests/bote.tcyr` + 18 libro/majra/
-  sakshi/sigil/bigint includes + `src/audit_libro.cyr` +
-  `src/events_majra.cyr`, ~525 KB preprocessed) compiles cleanly.
-  `cyrius test tests/bote.tcyr` still passes the lean suite
-  (386/386).
+- Bootstrap closure: seed → cyrc → asm → cyrc clean.
+- 8/8 `check.sh` PASS. 51 test files / 396 assertions.
+- Dead-fn count stable at 7 (no regression from 4.8.4).
+- Capacity at cc3 self-compile: `fn=324/4096 ident=8146/131072
+  var=100/8192 fixup=1621/16384 string=5493/262144
+  code=345368/1048576` — plenty of headroom.
+
+## [4.8.5-beta1] — 2026-04-14 (unreleased)
+
+### Added — integration coverage + snapshot benchmarks
+- **`tests/tcyr/math_pack_integration.tcyr`** — 10-assertion
+  cross-cutting test that exercises every alpha1..alpha7 deliverable
+  in a single compile unit. Not re-proving per-fn correctness (each
+  alpha ships its own focused regression); instead verifying the
+  pack plays together cleanly: `u64_powmod` satisfies Fermat,
+  `u128_mod` fast-path picks up transparently on a `b_hi == 0`
+  divmod, f64 constants round-trip through arithmetic, inverse trig
+  composes correctly with sin/cos (`atan2(sin θ, cos θ) = θ`),
+  hyperbolic identity `cosh² − sinh² = 1` holds for `asinh(2)`, and
+  the ASCII case helpers agree with `streq`.
+
+### Benchmark snapshot
+`benches/bench_mulmod.bcyr` run for the record (post-alpha2
+combination of fast-path `u128_mod` + asm-direct `u64_mulmod`):
+```
+  mulmod/binary_slow:  618 ns avg  (100k iters, pure-Cyrius double-and-add)
+  mulmod/u64_fast:     402 ns avg  (  hardware mul + div)
+  miller_rabin/slow:    11 µs avg  (1k iters, binary-mulmod path)
+  miller_rabin/fast:   956 ns avg  ( u64_mulmod path)
+```
+Miller-Rabin speedup: **~12×**. Single mulmod: **~1.5×** (call
+overhead dominates at the primitive level; the MR compounding is
+where the hardware-div win lands).
+
+### Known gaps carried from alpha3 to post-4.8.5
+- **Live libssl TLS bridge** — interface in `lib/tls.cyr` is
+  stable (alpha3), but the wire-up through `lib/dynlib.cyr` has
+  to wait on a dynlib hardening pass. `tls_available()` returns 0
+  until that lands; consumers fall back cleanly.
+- **`parse_f64(cstr)`** — 4.8.6 standalone as per the triage in
+  `docs/issues/stdlib-math-recommendations-from-abaco.md`.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 51 files / 396 assertions (new:
+  `math_pack_integration.tcyr` 10/0).
+- Bench suite runs clean, numbers captured in the snapshot above.
+
+### Roadmap (4.8.5)
+- alpha1..alpha7 ✅
+- beta1 ✅ — integration coverage + bench snapshot (this release).
+- GA (next) — close-out audit, no new features.
+
+## [4.8.5-alpha7] — 2026-04-14 (unreleased)
+
+### Added — ASCII case helpers (`lib/string.cyr`)
+Four helpers, two copy + two in-place:
+- **`str_lower_cstr(s)`** — `strlen(s)+1` bytes alloc'd, lowercase copy.
+- **`str_upper_cstr(s)`** — same, uppercase copy.
+- **`str_lower_cstr_inplace(s)`** — mutates caller's buffer, returns `s`.
+- **`str_upper_cstr_inplace(s)`** — same for upper.
+
+ASCII-only by design — matches the existing `lib/string.cyr`
+convention. Non-ASCII bytes (≥ 0x80) pass through untouched so
+UTF-8-encoded content doesn't corrupt when callers case-normalise
+ASCII-only metadata (JSON keys, HTTP headers, option flags, etc.).
+abaco's `src/core.cyr` and vidya were each carrying the same
+twelve-line loop; de-duplicated here.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 50 files / 386 assertions (new:
+  `string_case.tcyr` 17/0, including a UTF-8 bit-preservation
+  check and in-place pointer-identity verification).
+
+### Roadmap (4.8.5)
+- alpha1..alpha6 ✅
+- alpha7 ✅ — ASCII case helpers (this release).
+- beta1 — tests + benchmarks wrap-up.
+- GA — close-out.
+
+## [4.8.5-alpha6] — 2026-04-14 (unreleased)
+
+### Added — inverse hyperbolic (`lib/math.cyr`)
+Closes the symmetry with the existing `f64_sinh` / `cosh` / `tanh`
+family that's been in `math.cyr` since day one. Identity-based
+implementations — accurate enough for most consumers, loses ~1-2
+ulp at small |x| for asinh and near ±1 for atanh (standard
+catastrophic-cancellation behavior from `1 − x²` and `ln(1 + ε)`).
+Sub-ulp callers should roll their own range-reduced series; most
+downstream (abaco, dhvani) don't need that.
+- **`f64_asinh(x)`** — `ln(x + √(x² + 1))`. All real x.
+- **`f64_acosh(x)`** — `ln(x + √(x² − 1))`. Domain x ≥ 1.
+- **`f64_atanh(x)`** — `½·ln((1 + x) / (1 − x))`. Domain |x| < 1.
+
+Out-of-domain inputs propagate NaN via sqrt/ln of negative,
+matching C libm semantics.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 49 files / 369 assertions (new:
+  `math_inverse_hyperbolic.tcyr` 13/0 covering round-trip
+  identities + sign + monotonicity).
+
+### Roadmap (4.8.5)
+- alpha1..alpha5 ✅
+- alpha6 ✅ — inverse hyperbolic (this release).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
+## [4.8.5-alpha5] — 2026-04-14 (unreleased)
+
+### Added — inverse trigonometry (`lib/math.cyr`)
+- **`f64_asin(x)`** — `atan(x / √(1 − x²))`. Domain |x| ≤ 1;
+  outside-domain inputs propagate NaN from the sqrt, matching
+  C libm semantics.
+- **`f64_acos(x)`** — `π/2 − asin(x)`.
+- **`f64_atan2(y, x)`** — full-plane two-argument arctangent with
+  quadrant correction. Range `(-π, π]`. Handles all four quadrants
+  plus the ±x and ±y axes and the `(0, 0)` convention (returns 0).
+
+These build on the existing `f64_atan` x87 `fpatan` builtin. abaco
+1.1.0's ntheory port was carrying the same identities inline but
+with a broken `atan2` (no quadrant correction → wrong in Q2/Q3).
+The headline deliverable of this alpha is **atan2 quadrant
+correctness**, pinned by 17 new assertions in
+`tests/tcyr/math_inverse_trig.tcyr` (4 quadrants × cardinal
+directions + axis + origin cases).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 48 files / 356 assertions (new:
+  `math_inverse_trig.tcyr` 17/0).
+
+### Roadmap (4.8.5)
+- alpha1..alpha4 ✅
+- alpha5 ✅ — inverse trig (this release).
+- alpha6 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
+## [4.8.5-alpha4] — 2026-04-14 (unreleased)
+
+### Added — f64 math constants (`lib/math.cyr`)
+Extended the pre-existing `F64_ONE` / `F64_TWO` pair with the
+universal mathematical constants that every downstream math crate
+(abaco DSP, future geometry / GL / numerics) was re-deriving from
+scratch. Literals are written in hex-with-underscore form so each
+byte group maps directly to the IEEE 754 sign(1) / exponent(11) /
+mantissa(52) split — trivial to audit against a calculator.
+- `F64_HALF` (0.5), `F64_ONE_HALF` (1.5), `F64_TWO_HALF` (2.5)
+- `F64_PI`, `F64_PI_2`, `F64_PI_4`, `F64_TAU`
+- `F64_E`, `F64_LN2`, `F64_LN10`
+- `F64_SQRT2`, `F64_FRAC_1_SQRT2`
+
+Also renormalised `F64_ONE` / `F64_TWO` from decimal-integer
+literal form to the same hex layout — value-identical, easier to
+diff against IEEE 754 tables.
 
 ### Notes
-- Fix lands on `main`, ahead of the 4.8.5 math pack work that's in
-  flight on the `4.8.5` branch. Version bump left to the
-  maintainer — candidates: `4.8.4.1` (new point convention),
-  `4.8.5` (fold fix, push math pack to `4.8.6`), or similar.
+Live libssl bridge deferred out of 4.8.5: `dynlib_open` segfaults
+on `libssl.so.3` on the dev box, and a proper fix requires a
+pass on the ELF loader itself that doesn't belong inside this
+math-pack minor. The alpha3 interface scaffold remains — bote /
+abaco get a stable API to target and a clean fallback path in the
+meantime. Bridge lands when `lib/dynlib.cyr` is stable.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 47 files / 339 assertions (new:
+  `math_constants.tcyr` 22/0).
+
+### Roadmap (4.8.5)
+- alpha1..alpha3 ✅
+- alpha4 ✅ — f64 math constants (this release).
+- alpha5 — inverse trig (`f64_asin` / `acos` / `atan` / `atan2`).
+- alpha6 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
+## [4.8.5-alpha3] — 2026-04-14 (unreleased)
+
+### Security — defence-in-depth for HTTP clients (reported by bote)
+- **CVE-2019-9741 pattern closed in `_http_parse_url`** (`lib/http.cyr`).
+  A URL containing raw CR (0x0D), LF (0x0A), TAB, or SPACE in the
+  host/port/path slot could be forged to smuggle extra HTTP
+  request-line bytes (the Python httplib class of bug). The parser
+  now validates the whole URL *before* allocating any downstream
+  pointers and returns `0` on any control-byte or whitespace
+  rejection. Also rejects empty host (`http://`, `http:///path`)
+  and port 0 / > 65535. `http_get` surfaces rejected URLs as a
+  response with status == `HTTP_ERROR`, so callers fail fast
+  without a separate validator and without ever touching the
+  network.
+- **`tests/tcyr/http_crlf.tcyr`** — 18-assertion regression net
+  covering valid URLs, CRLF injection at host / path / request-
+  line boundaries, whitespace splitters, and malformed hosts/ports.
+
+### Added — TLS client interface scaffold
+- **`lib/tls.cyr`** — new stdlib module with the stable
+  `tls_available` / `tls_connect(sock, host)` / `tls_write` /
+  `tls_read` / `tls_close` interface that downstream consumers
+  (bote, abaco currency fetch, any outbound-HTTPS tool) can target
+  today. Alpha3 ships the INTERFACE only — every call returns the
+  "not available" value (`tls_available` → 0, `tls_connect` → 0,
+  reads / writes → -1). This is a deliberate policy choice: the
+  pre-existing scaffold always left sessions in `TLS_STATE_ERROR`
+  after ClientHello (because sigil lacks X25519) which was crash
+  bait for any caller that assumed the state machine progressed.
+  The new scaffold **fails cleanly and consistently** so consumers
+  get a reliable fallback path.
+- Planned alpha4: wire the live libssl.so.3 bridge through
+  `lib/dynlib.cyr` (SNI + system-CA peer verification on by
+  default). The bridge was drafted against the final interface;
+  `dynlib_open` segfaults on `libssl.so.3` on the dev box, so
+  `lib/dynlib.cyr` itself needs a hardening pass before it can
+  carry TLS reliably. Tracking the dynlib fix separately.
+
+### Notes
+- Preprocessor fix from 4.8.4 retag merged in from `main`. cc3 on
+  this branch now incorporates the `PP_IFDEF_PASS` cap fix along
+  with the alpha1+alpha2+alpha3 deltas.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 46 test files / 317 assertions (new:
+  `http_crlf.tcyr` 18/0).
+- TLS interface contract test: `tls_available() == 0`,
+  `tls_connect(_, _) == 0`, `tls_write/read == -1`, `tls_close == 0`.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path.
+- alpha2 ✅ — `u64_mulmod` / `u64_powmod` + Miller-Rabin bench.
+- alpha3 ✅ — HTTP CRLF hardening + TLS interface scaffold (this
+  release).
+- alpha4 — live libssl bridge (pending dynlib hardening).
+- alpha5 — f64 math constants.
+- alpha6 — inverse trig.
+- alpha7 — inverse hyperbolic.
+- alpha8 — cstring case helpers.
+
+## [4.8.5-alpha2] — 2026-04-14 (unreleased)
+
+### Added
+- **`u64_mulmod(a, b, m)`** (`lib/u128.cyr`). Collapses to three
+  hardware instructions — `mul b ; div m ; mov result, rdx` —
+  no u128 intermediate, no shift-subtract loop, no function call
+  tree inside the hot path. Caller preconditions: `m > 0`,
+  `a < m`, `b < m` (satisfied trivially by Miller-Rabin / Pollard
+  rho / RSA since they always reduce operands below the modulus).
+  Violating the precondition trips #DE at the `div`.
+- **`u64_powmod(base, exp, m)`** (`lib/u128.cyr`). Square-and-
+  multiply exponentiation driven by `u64_mulmod`. Loop count is
+  the bit-length of `exp`, so primality-grade moduli run
+  ~60 iterations where every iteration is 3-instruction mulmod.
+  Handles `m == 1` as a special case returning 0.
+- **`benches/bench_mulmod.bcyr`** — pairs the stdlib helpers
+  against a pure-Cyrius double-and-add reference, on both the
+  single-call primitive and a full Miller-Rabin round against
+  `2^61 - 1`. Locks in the alpha1 + alpha2 win so future
+  refactors catch perf regressions directly.
+- **Test coverage** (`tests/tcyr/u128.tcyr`). Fourteen new
+  assertions under `u64_mulmod` and `u64_powmod` groups covering
+  zero/identity edges, Fermat's little theorem sanity, the
+  `m == 1` special case, and mixed-width products that would
+  overflow a raw `a * b` in Cyrius's i64 arithmetic.
+
+### Benchmark snapshot
+```
+  mulmod/binary_slow:   623 ns avg  (100000 iters)
+  mulmod/u64_fast:      400 ns avg   ← 1.56× faster on primitive
+  miller_rabin/slow:     12 µs avg    (1000 iters)
+  miller_rabin/fast:    964 ns avg   ← 12.4× faster on full round
+```
+Miller-Rabin amplifies the per-call win because one round fires
+~60 `u64_powmod` iterations, each driving several `u64_mulmod`
+calls. The compounded speedup on the abaco primality hot path is
+the concrete deliverable of the 4.8.5 alpha1+alpha2 pair.
+
+### Implementation note
+`var x: u128` at fn scope currently allocates only an 8-byte slot
+(type-annotated locals carry their size on globals but not on
+locals). Backed each u128 intermediate with `var buf[16]` instead
+for the u128-pipeline helper variant that predated the asm-direct
+rewrite. The asm-direct `u64_mulmod` doesn't need u128 scratch at
+all, so the final shipped code is simpler — but the `[16]`-backed
+pattern is documented alongside for future helpers that do need
+the u128 intermediate.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 118/118 assertions in `tests/tcyr/u128.tcyr` (was 104/104).
+- 8/8 check.sh PASS.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path.
+- alpha2 ✅ — `u64_mulmod` / `u64_powmod` + Miller-Rabin bench (this release).
+- alpha3 — f64 math constants.
+- alpha4 — inverse trig.
+- alpha5 — inverse hyperbolic.
+- alpha6 — cstring case helpers.
+
+## [4.8.5-alpha1] — 2026-04-14 (unreleased)
+
+### Added
+- **Hardware fast-path in `u128_divmod`** (`lib/u128.cyr`). When
+  `b_hi == 0` — the shape every `(u64 * u64) % u64` pipeline
+  collapses to (Miller-Rabin, Pollard rho, RSA, `random::shuffle`,
+  hashing) — skip the 128-iteration shift-subtract loop and do
+  two hardware `div` instructions back-to-back:
+  ```
+  step 1:  rax = a_hi, rdx = 0
+           div b_lo        ; rax = q_hi, rdx = r1
+  step 2:  rax = a_lo, rdx = r1 (carried)
+           div b_lo        ; rax = q_lo, rdx = r_final
+  ```
+  Both divs run inside one `asm { }` block so they're unsigned —
+  Cyrius's `/` operator lowers to `idiv` (signed), which would
+  mis-compute step 1 whenever `a_hi` has its top bit set (exactly
+  the case mulmod produces). When `a_hi == 0`, step 1 returns
+  `q_hi=0, r1=0` and step 2 falls through to the 64-bit
+  `a_lo/b_lo`, so the same block handles both sub-cases without a
+  separate branch.
+- **Fast-path regression coverage** (`tests/tcyr/u128.tcyr`). Four
+  new assertions under `u128_divmod fast-path (b_hi == 0)` covering
+  `a_hi == 0` (77/13), `a_hi != 0` with small operands ((2^64+5)/7),
+  round-trip via `q*b + r == a` on a max-ish 128-bit dividend, and
+  the full `u128_mul + u128_mod` mulmod shape on (2^32−1)² mod
+  (2^32−5).
+
+### Unblocks
+Every existing `u128_mul + u128_mod` call shape picks up the
+speedup with no source change. Abaco's `ntheory::mod_mul` is the
+motivating consumer — the agent report noted a ~40× regression vs
+the binary double-and-add loop; this closes it.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 104/104 assertions in `tests/tcyr/u128.tcyr` (was 96/96).
+- 8/8 check.sh PASS.
+
+### Roadmap (4.8.5)
+- alpha1 ✅ — `u128_mod` hardware fast-path (this release).
+- alpha2 — `u64_powmod` companion + Miller-Rabin microbench that
+  locks in the alpha1 win.
+- alpha3 — f64 math constants (π, τ, e, ½, √2⁻¹, …).
+- alpha4 — inverse trig (`f64_asin` / `acos` / `atan` / `atan2`).
+- alpha5 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha6 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
 
 ## [4.8.4] — 2026-04-14
 

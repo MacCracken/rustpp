@@ -1,0 +1,62 @@
+# math_pack_integration.tcyr — cross-cutting 4.8.5 coverage
+#
+# beta1: lock in that every alpha1..alpha7 deliverable plays well
+# with the others in one compile unit. Not trying to re-prove the
+# per-fn correctness (each alpha ships its own focused regression),
+# just exercising the pack as a whole so a later refactor can't
+# break the integration without a loud failure here.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/u128.cyr"
+include "lib/math.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+var EPS = 0x3E11_2E0B_E826_D695;   # 1e-9 as f64
+fn near(a, b) { return f64_lt(f64_abs(f64_sub(a, b)), EPS); }
+
+# -------- alpha1 + alpha2 — u128 fast-path + u64 helpers ----------
+test_group("u128 fast-path + u64_mulmod/powmod");
+# Fermat's little theorem sanity via the asm-direct helpers.
+assert_eq(u64_powmod(2, 16, 17), 1, "2^16 mod 17 = 1 (Fermat)");
+assert_eq(u64_powmod(3, 12, 13), 1, "3^12 mod 13 = 1 (Fermat)");
+# u128_mod fast-path transparently picks up on a b_hi==0 divmod.
+var d_a: u128 = 0;
+var d_b: u128 = 0;
+var d_r: u128 = 0;
+u128_set(&d_a, 5, 1);         # 2^64 + 5
+u128_set(&d_b, 7, 0);
+u128_mod(&d_r, &d_a, &d_b);
+assert_eq(u128_lo(&d_r), 0, "(2^64+5) mod 7 = 0");
+
+# -------- alpha4 — f64 constants ---------------------------------
+test_group("f64 constants");
+assert_eq(f64_mul(F64_PI, F64_TWO), F64_TAU,  "2π = τ");
+assert_eq(f64_add(F64_HALF, F64_HALF), F64_ONE, "½ + ½ = 1");
+
+# -------- alpha5 + alpha6 — inverse trig / hyperbolic ------------
+test_group("inverse trig + hyperbolic round-trip");
+# sin(asin(½)) = ½ — sanity at exactly-rational input.
+assert_eq(near(f64_sin(f64_asin(F64_HALF)), F64_HALF), 1,
+          "sin(asin(½)) = ½");
+# cosh(asinh(2))² − sinh(asinh(2))² = 1 (hyperbolic identity).
+var s = f64_asinh(F64_TWO);
+var c2 = f64_mul(f64_cosh(s), f64_cosh(s));
+var s2 = f64_mul(f64_sinh(s), f64_sinh(s));
+assert_eq(near(f64_sub(c2, s2), F64_ONE), 1,
+          "cosh² − sinh² = 1");
+# atan2(sin, cos) reconstructs the angle.
+var theta = F64_PI_4;
+var recon = f64_atan2(f64_sin(theta), f64_cos(theta));
+assert_eq(near(recon, theta), 1, "atan2(sin θ, cos θ) = θ");
+
+# -------- alpha7 — ASCII case helpers ----------------------------
+test_group("case helpers");
+assert(streq(str_lower_cstr("MiXeD"), "mixed") == 1, "lower");
+assert(streq(str_upper_cstr("MiXeD"), "MIXED") == 1, "upper");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

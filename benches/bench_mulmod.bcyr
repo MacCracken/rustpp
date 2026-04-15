@@ -1,0 +1,137 @@
+# bench_mulmod.bcyr — (u64 * u64) % u64 microbench (v4.8.5-alpha2)
+#
+# 4.8.5-alpha1 added a hardware fast-path to `u128_divmod` that
+# fires whenever the divisor fits in 64 bits. That's the shape
+# every Miller-Rabin / Pollard rho / RSA mulmod pipeline collapses
+# to, and the alpha2 `u64_mulmod` / `u64_powmod` helpers expose
+# it as a clean API. This bench pairs three implementations
+# against each other on the primitive and on a Miller-Rabin hot
+# path so the win is measurable, not theoretical:
+#
+#   1. `mulmod_binary`   — the double-and-add loop every stdlib
+#                          rolls from scratch when no hardware
+#                          `div` is available. ~64 iterations per
+#                          call. Represents pre-alpha1 abaco.
+#   2. `u64_mulmod`      — the stdlib alpha2 helper backed by the
+#                          `u128_mul + u128_mod` pipeline and the
+#                          alpha1 fast-path. Two hardware `div`
+#                          instructions per call.
+#   3. Miller-Rabin      — one round against a 60-bit witness,
+#                          modulus 2^61-1 (a Mersenne prime).
+#                          Drives ~60 iterations of `u64_powmod`,
+#                          which in turn drives thousands of
+#                          `u64_mulmod` calls. This is where the
+#                          alpha1 fast-path pays the real rent.
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+include "lib/u128.cyr"
+
+# Reference: double-and-add binary mulmod. No hardware div, no u128
+# intermediate. This is the shape abaco's ntheory.cyr had before
+# alpha2's stdlib helpers landed.
+fn mulmod_binary(a, b, m) {
+    var r = 0;
+    a = a % m;
+    while (b > 0) {
+        if ((b & 1) == 1) { r = (r + a) % m; }
+        a = (a + a) % m;
+        b = b >> 1;
+    }
+    return r;
+}
+
+# Reference `powmod` built on the binary mulmod — same loop
+# structure as the alpha2 `u64_powmod` but with the slow mulmod.
+fn powmod_binary(base, exp, m) {
+    if (m == 1) { return 0; }
+    var result = 1;
+    base = base % m;
+    while (exp > 0) {
+        if ((exp & 1) == 1) { result = mulmod_binary(result, base, m); }
+        exp = exp >> 1;
+        if (exp > 0) { base = mulmod_binary(base, base, m); }
+    }
+    return result;
+}
+
+# Miller-Rabin single-round test. Returns 1 if `a` is a witness
+# that n is composite, 0 if n passes this round (probably prime).
+fn mr_round_slow(n, a) {
+    if (n < 2) { return 1; }
+    if (n == 2) { return 0; }
+    if ((n & 1) == 0) { return 1; }
+    var d = n - 1;
+    var r = 0;
+    while ((d & 1) == 0) { d = d >> 1; r = r + 1; }
+    var x = powmod_binary(a, d, n);
+    if (x == 1) { return 0; }
+    if (x == n - 1) { return 0; }
+    var i = 0;
+    while (i < r - 1) {
+        x = mulmod_binary(x, x, n);
+        if (x == n - 1) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn mr_round_fast(n, a) {
+    if (n < 2) { return 1; }
+    if (n == 2) { return 0; }
+    if ((n & 1) == 0) { return 1; }
+    var d = n - 1;
+    var r = 0;
+    while ((d & 1) == 0) { d = d >> 1; r = r + 1; }
+    var x = u64_powmod(a, d, n);
+    if (x == 1) { return 0; }
+    if (x == n - 1) { return 0; }
+    var i = 0;
+    while (i < r - 1) {
+        x = u64_mulmod(x, x, n);
+        if (x == n - 1) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Workload wrappers — each does ONE full MR round per call so the
+# measured per-iter cost reflects a realistic primality check.
+var MR_N = 2305843009213693951;   # 2^61 - 1, a Mersenne prime
+var MR_A = 1234567890123456789;   # arbitrary large witness
+
+fn work_mulmod_slow() { mulmod_binary(MR_A, MR_A, MR_N); return 0; }
+fn work_mulmod_fast() { u64_mulmod(MR_A, MR_A, MR_N);   return 0; }
+fn work_mr_slow()     { mr_round_slow(MR_N, 2);         return 0; }
+fn work_mr_fast()     { mr_round_fast(MR_N, 2);         return 0; }
+
+fn main() {
+    alloc_init();
+    var all = vec_new();
+
+    var b1 = bench_new("mulmod/binary_slow");
+    bench_run(b1, &work_mulmod_slow, 100000);
+    vec_push(all, b1);
+
+    var b2 = bench_new("mulmod/u64_fast");
+    bench_run(b2, &work_mulmod_fast, 100000);
+    vec_push(all, b2);
+
+    var b3 = bench_new("miller_rabin/slow");
+    bench_run(b3, &work_mr_slow, 1000);
+    vec_push(all, b3);
+
+    var b4 = bench_new("miller_rabin/fast");
+    bench_run(b4, &work_mr_fast, 1000);
+    vec_push(all, b4);
+
+    bench_report_all(all);
+    return 0;
+}
+var exit_code = main();
+syscall(60, exit_code);

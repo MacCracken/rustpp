@@ -1,0 +1,68 @@
+# http_crlf.tcyr — CRLF injection hardening for `_http_parse_url`
+# (v4.8.5-alpha3, CVE-2019-9741 defence-in-depth).
+#
+# Any URL containing raw CR, LF, TAB, or SPACE in the host/port/path
+# slot can be forged to smuggle extra HTTP request-line bytes. The
+# parser must reject such URLs *before* emitting a request. Returning
+# 0 from `_http_parse_url` is the signal; `http_get` surfaces this
+# as a response with status == HTTP_ERROR so callers can fail fast.
+#
+# Bote 2.5.0 spotted the gap (`docs/bugs/...`) — this test locks in
+# the fix so future refactors can't regress it.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/str.cyr"
+include "lib/net.cyr"
+include "lib/http.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---------------- Accepted URLs ----------------
+test_group("valid URLs still parse");
+assert(_http_parse_url("http://example.com/")          != 0, "plain");
+assert(_http_parse_url("http://example.com")           != 0, "no trailing /");
+assert(_http_parse_url("http://example.com:8080/api")  != 0, "explicit port");
+assert(_http_parse_url("http://192.168.1.1/")          != 0, "ipv4 host");
+
+# ---------------- Rejected URLs ----------------
+test_group("CRLF injection rejected");
+# CRLF at host boundary — classic response-splitting / smuggling.
+assert_eq(_http_parse_url("http://evil.com\r\nEvil: x/path"), 0,
+          "reject CRLF after host");
+assert_eq(_http_parse_url("http://evil.com\nBad: y/"), 0,
+          "reject bare LF");
+assert_eq(_http_parse_url("http://evil.com\rBad"), 0,
+          "reject bare CR");
+# CRLF inside path.
+assert_eq(_http_parse_url("http://example.com/\r\nX:y"), 0,
+          "reject CRLF in path");
+
+test_group("request-line splitting rejected");
+# Embedded SPACE — ends up as `GET http://bad host/path HTTP/1.0`
+# which the upstream parses as two headers.
+assert_eq(_http_parse_url("http://bad host/"), 0, "reject space in host");
+assert_eq(_http_parse_url("http://host/bad path"), 0, "reject space in path");
+# Embedded TAB — RFC 7230 treats as whitespace too.
+assert_eq(_http_parse_url("http://host\t/path"), 0, "reject TAB in host");
+
+test_group("malformed input rejected");
+assert_eq(_http_parse_url("http://"), 0, "reject empty host");
+assert_eq(_http_parse_url("http:///path"), 0, "reject host-less URL");
+assert_eq(_http_parse_url("http://host:0/"), 0, "reject port 0");
+assert_eq(_http_parse_url("http://host:65536/"), 0, "reject port > 65535");
+assert_eq(_http_parse_url("http://host:99999/"), 0, "reject port overflow");
+
+test_group("http_get surfaces HTTP_ERROR on bad URL");
+# We don't actually open a socket — the parse rejection happens
+# before the connect syscall. status == HTTP_ERROR (-1) confirms
+# the guard fired without touching the network.
+var resp = http_get("http://evil.com\r\nEvil: x/");
+assert_eq(http_status(resp), HTTP_ERROR, "CRLF URL → HTTP_ERROR");
+resp = http_get("http://");
+assert_eq(http_status(resp), HTTP_ERROR, "empty host → HTTP_ERROR");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

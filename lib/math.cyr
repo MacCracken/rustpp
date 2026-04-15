@@ -6,8 +6,26 @@
 # All functions operate on f64 bit patterns.
 
 # Constants (f64 bit patterns)
-var F64_ONE = 4607182418800017408;
-var F64_TWO = 4611686018427387904;
+#
+# v4.8.5-alpha4: extended the F64_ONE / F64_TWO pair with the
+# universal mathematical constants every downstream math crate
+# (abaco, dhvani, future geometry / GL) was re-deriving.
+# Literals are in hex for traceability — each byte group maps
+# directly to the IEEE 754 sign/exponent/mantissa split.
+var F64_ONE           = 0x3FF0_0000_0000_0000;   # 1.0
+var F64_TWO           = 0x4000_0000_0000_0000;   # 2.0
+var F64_HALF          = 0x3FE0_0000_0000_0000;   # 0.5
+var F64_ONE_HALF      = 0x3FF8_0000_0000_0000;   # 1.5
+var F64_TWO_HALF      = 0x4004_0000_0000_0000;   # 2.5
+var F64_PI            = 0x4009_21FB_5444_2D18;   # π
+var F64_PI_2          = 0x3FF9_21FB_5444_2D18;   # π/2
+var F64_PI_4          = 0x3FE9_21FB_5444_2D18;   # π/4
+var F64_TAU           = 0x4019_21FB_5444_2D18;   # 2π
+var F64_E             = 0x4005_BF0A_8B14_5769;   # e
+var F64_LN2           = 0x3FE6_2E42_FEFA_39EF;   # ln(2)
+var F64_LN10          = 0x4002_6BB1_BBB5_5516;   # ln(10)
+var F64_FRAC_1_SQRT2  = 0x3FE6_A09E_667F_3BCD;   # 1/√2
+var F64_SQRT2         = 0x3FF6_A09E_667F_3BCD;   # √2
 
 # sinh(x) = (exp(x) - exp(-x)) / 2
 fn f64_sinh(x) {
@@ -53,4 +71,100 @@ fn f64_min(a, b) {
 fn f64_max(a, b) {
     if (f64_gt(a, b) == 1) { return a; }
     return b;
+}
+
+# ================================================================
+# Inverse trigonometry (v4.8.5-alpha5)
+# ================================================================
+# x87 `fpatan` (exposed by Cyrius as the `f64_atan` builtin) is a
+# single-argument arctangent returning a value in [-π/2, π/2]. The
+# helpers below build the rest of the inverse-trig family on top of
+# it via standard identities:
+#
+#   asin(x) = atan(x / √(1 − x²))
+#   acos(x) = π/2 − asin(x)
+#   atan2(y, x) = atan(y / x) corrected per quadrant
+#
+# abaco 1.1.0's ntheory port was carrying the same identities
+# inline but with a broken atan2 (no quadrant fix → wrong in Q2/Q3).
+# This hardens that fix and makes it available to every consumer.
+#
+# Domain notes:
+#   asin / acos: |x| ≤ 1. Outside the domain sqrt yields NaN and
+#     the atan chain propagates it — consistent with C's libm.
+#   atan:  any finite x. Returns value in (-π/2, π/2).
+#   atan2: defined for (y, x) ≠ (0, 0). The (0, 0) case returns 0
+#     by convention (matches C libm).
+
+# asin(x) = atan(x / √(1 − x²))
+fn f64_asin(x) {
+    var one_minus_xx = f64_sub(F64_ONE, f64_mul(x, x));
+    var denom = f64_sqrt(one_minus_xx);
+    return f64_atan(f64_div(x, denom));
+}
+
+# acos(x) = π/2 − asin(x)
+fn f64_acos(x) {
+    return f64_sub(F64_PI_2, f64_asin(x));
+}
+
+# Two-argument arctangent with full-plane quadrant handling. Result
+# is in (-π, π]. Quadrant map:
+#   x > 0            : atan(y/x)                   (Q1 / Q4)
+#   x < 0, y ≥ 0     : atan(y/x) + π               (Q2)
+#   x < 0, y < 0     : atan(y/x) − π               (Q3)
+#   x == 0, y > 0    : +π/2
+#   x == 0, y < 0    : −π/2
+#   x == 0, y == 0   : 0  (convention — C libm matches)
+# Zero comparisons use bit equality against the f64 representation
+# of 0.0 (IEEE 754: both +0 and −0 compare equal via f64_eq).
+var _F64_ZERO = 0;
+
+fn f64_atan2(y, x) {
+    if (f64_eq(x, _F64_ZERO) == 1) {
+        if (f64_eq(y, _F64_ZERO) == 1) { return _F64_ZERO; }
+        if (f64_gt(y, _F64_ZERO) == 1) { return F64_PI_2; }
+        return f64_neg(F64_PI_2);
+    }
+    var q = f64_atan(f64_div(y, x));
+    if (f64_gt(x, _F64_ZERO) == 1) { return q; }
+    # x < 0.
+    if (f64_lt(y, _F64_ZERO) == 1) { return f64_sub(q, F64_PI); }
+    return f64_add(q, F64_PI);
+}
+
+# ================================================================
+# Inverse hyperbolic (v4.8.5-alpha6)
+# ================================================================
+# Closes the symmetry with `f64_sinh` / `cosh` / `tanh` that's been
+# in this file since day one. Identity-based implementations —
+# accurate enough for most consumers, loses ~1-2 ulp at small |x|
+# for asinh and near ±1 for atanh (classic catastrophic
+# cancellation from `1 − x²` and `ln(1 + small)`). Downstream
+# crates that need sub-ulp accuracy should roll their own
+# range-reduced series; most consumers (abaco, dhvani) don't.
+#
+# Domains:
+#   asinh: all real x.
+#   acosh: x ≥ 1.       Below domain, sqrt(x²−1) propagates NaN.
+#   atanh: |x| < 1.     At ±1 the ln diverges; outside domain it
+#                       propagates NaN via ln of a negative.
+
+# asinh(x) = ln(x + √(x² + 1))
+fn f64_asinh(x) {
+    var x2_plus_1 = f64_add(f64_mul(x, x), F64_ONE);
+    return f64_ln(f64_add(x, f64_sqrt(x2_plus_1)));
+}
+
+# acosh(x) = ln(x + √(x² − 1)), x ≥ 1
+fn f64_acosh(x) {
+    var x2_minus_1 = f64_sub(f64_mul(x, x), F64_ONE);
+    return f64_ln(f64_add(x, f64_sqrt(x2_minus_1)));
+}
+
+# atanh(x) = ½ · ln((1 + x) / (1 − x)), |x| < 1
+fn f64_atanh(x) {
+    var num = f64_add(F64_ONE, x);
+    var den = f64_sub(F64_ONE, x);
+    return f64_mul(F64_HALF, f64_ln(f64_div(num, den)));
 }

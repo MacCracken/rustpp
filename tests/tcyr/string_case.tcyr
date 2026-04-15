@@ -1,0 +1,69 @@
+# string_case.tcyr — ASCII case helpers in lib/string.cyr
+# (v4.8.5-alpha7)
+#
+# Four helpers: copy + in-place, lower + upper. ASCII-only by
+# design — matches the rest of lib/string.cyr. Non-ASCII bytes
+# pass through untouched, which callers rely on (JSON keys,
+# HTTP header names, etc. are all ASCII; UTF-8 payload bytes
+# ≥ 0x80 must not be clobbered).
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("str_lower_cstr (copy)");
+assert(streq(str_lower_cstr("Hello"), "hello") == 1, "Hello");
+assert(streq(str_lower_cstr("HELLO WORLD"), "hello world") == 1, "HELLO WORLD");
+assert(streq(str_lower_cstr(""), "") == 1, "empty");
+assert(streq(str_lower_cstr("already lower"), "already lower") == 1, "already lower");
+assert(streq(str_lower_cstr("MixED 123!@#"), "mixed 123!@#") == 1,
+       "digits+punct untouched");
+
+test_group("str_upper_cstr (copy)");
+assert(streq(str_upper_cstr("Hello"), "HELLO") == 1, "Hello");
+assert(streq(str_upper_cstr("hello world"), "HELLO WORLD") == 1, "hello world");
+assert(streq(str_upper_cstr(""), "") == 1, "empty");
+assert(streq(str_upper_cstr("ALREADY UPPER"), "ALREADY UPPER") == 1, "already upper");
+assert(streq(str_upper_cstr("MixED 123!@#"), "MIXED 123!@#") == 1,
+       "digits+punct untouched");
+
+test_group("non-ASCII bytes pass through");
+# UTF-8 "é" = 0xC3 0xA9 — must be preserved bit-for-bit.
+var utf = alloc(8);
+store8(utf + 0, 65);    # 'A'
+store8(utf + 1, 0xC3);
+store8(utf + 2, 0xA9);
+store8(utf + 3, 0);
+var lo = str_lower_cstr(utf);
+# First byte lowercased, UTF-8 pair untouched.
+assert_eq(load8(lo + 0), 97,   "A → a");
+assert_eq(load8(lo + 1), 0xC3, "0xC3 preserved");
+assert_eq(load8(lo + 2), 0xA9, "0xA9 preserved");
+assert_eq(load8(lo + 3), 0,    "null terminator");
+
+test_group("in-place variants");
+# In-place mutates + returns the same pointer. Need a mutable buffer
+# (allocated — string literals live in data and aren't writable in
+# some emission modes).
+var mut = alloc(16);
+var src = "HeLLo";
+var i = 0;
+while (i < 5) { store8(mut + i, load8(src + i)); i = i + 1; }
+store8(mut + 5, 0);
+var r = str_lower_cstr_inplace(mut);
+assert_eq(r, mut, "returns same pointer");
+assert(streq(mut, "hello") == 1, "HeLLo → hello in place");
+
+var mut2 = alloc(16);
+var src2 = "HeLLo";
+i = 0;
+while (i < 5) { store8(mut2 + i, load8(src2 + i)); i = i + 1; }
+store8(mut2 + 5, 0);
+str_upper_cstr_inplace(mut2);
+assert(streq(mut2, "HELLO") == 1, "HeLLo → HELLO in place");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

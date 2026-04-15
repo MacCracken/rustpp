@@ -333,6 +333,51 @@ fn u128_divmod(qdst, rdst, a, b) {
     var a_hi = load64(a + 8);
     var b_lo = load64(b);
     var b_hi = load64(b + 8);
+    # v4.8.5-alpha1: hardware fast-path when the divisor fits in 64
+    # bits. Covers every `(u64 * u64) % u64` pipeline — Miller-Rabin,
+    # Pollard rho, RSA, `random::shuffle`, hashing. The slow path
+    # below burns 128 shift-subtract iterations even when the top
+    # half of b is zero; this path takes two hardware `div`
+    # instructions instead, trading O(128) on the critical path for
+    # O(1). Abaco's ntheory::mod_mul gets ~40× on the hot loop.
+    #
+    # Two hardware `div` steps back-to-back, both inside one asm
+    # block so both divisions run UNSIGNED (Cyrius's `/` operator
+    # lowers to `idiv` — signed — which would mis-compute whenever
+    # an operand has its top bit set, mulmod's common case):
+    #   step 1:  rax = a_hi, rdx = 0
+    #            div b_lo           ; rax = q_hi, rdx = r1
+    #   step 2:  rax = a_lo, rdx = r1 (carried from step 1)
+    #            div b_lo           ; rax = q_lo, rdx = r_final
+    # When a_hi == 0, step 1 returns q_hi=0, r1=0 and step 2 falls
+    # through to straight 64-bit a_lo/b_lo — so this same block
+    # handles both a_hi==0 and a_hi!=0 correctly. r1 < b_lo by the
+    # definition of the first remainder, so step 2 never trips #DE.
+    if (b_hi == 0) {
+        var q_hi_fast = 0;
+        var q_lo_fast = 0;
+        var r_final   = 0;
+        # Local layout after this point (flat fn index order):
+        #   qdst(0), rdst(1), a(2), b(3),
+        #   a_lo(4), a_hi(5), b_lo(6), b_hi(7),
+        #   q_hi_fast(8), q_lo_fast(9), r_final(10)
+        # disp8 = -(idx+1)*8.
+        asm {
+            0x48; 0x8B; 0x45; 0xD0;   # mov rax, [rbp-48]   ; a_hi
+            0x48; 0x31; 0xD2;         # xor rdx, rdx        ; zero-ext
+            0x48; 0xF7; 0x75; 0xC8;   # div qword [rbp-56]  ; / b_lo
+            0x48; 0x89; 0x45; 0xB8;   # mov [rbp-72], rax   ; q_hi_fast
+            0x48; 0x8B; 0x45; 0xD8;   # mov rax, [rbp-40]   ; a_lo
+            0x48; 0xF7; 0x75; 0xC8;   # div qword [rbp-56]  ; rdx:rax/b_lo
+            0x48; 0x89; 0x45; 0xB0;   # mov [rbp-80], rax   ; q_lo_fast
+            0x48; 0x89; 0x55; 0xA8;   # mov [rbp-88], rdx   ; r_final
+        }
+        store64(qdst,     q_lo_fast);
+        store64(qdst + 8, q_hi_fast);
+        store64(rdst,     r_final);
+        store64(rdst + 8, 0);
+        return 0;
+    }
     var q_lo = 0;
     var q_hi = 0;
     var r_lo = 0;
@@ -388,3 +433,72 @@ fn u128_mod(dst, a, b) {
 fn u128_diveq(dst, src) { return u128_div(dst, dst, src); }
 # `dst %= src`.
 fn u128_modeq(dst, src) { return u128_mod(dst, dst, src); }
+
+# ================================================================
+# u64 MODULAR ARITHMETIC (v4.8.5-alpha2)
+# ================================================================
+# Two ergonomic helpers built on top of the `u128_mul + u128_mod`
+# pipeline, whose fast-path (alpha1) now uses hardware `div` when
+# the modulus fits in 64 bits. Purpose is abaco's ntheory::mod_mul
+# / mod_pow call shape — and every RSA / primality / cryptographic-
+# hash consumer that used to hand-roll a double-and-add loop. The
+# helpers keep the u128 machinery hidden from the caller.
+#
+# Preconditions (caller-enforced; no runtime checks):
+#   u64_mulmod(a, b, m): m > 0. a and b may be >= m (they're
+#     reduced internally via the mod), but for abaco's Miller-
+#     Rabin style workloads a, b < m is the common case.
+#   u64_powmod(base, exp, m): m > 0. On m == 1, returns 0 without
+#     touching the fast path.
+#
+# `u64_mulmod` stack scratch: two u128 locals (product + modulus
+# envelope). The abaco bench in benches/bench_mulmod.bcyr shows
+# the concrete win versus a pure-Cyrius double-and-add reference.
+
+# Return (a * b) mod m, all u64. Collapses to three hardware
+# instructions: `mul b ; div m ; mov result, rdx` — no u128
+# intermediate, no shift-subtract loop, no Cyrius-level function
+# calls inside the hot path.
+#
+# Preconditions (caller-enforced; a violation trips #DE at the
+# `div`):
+#   - m > 0
+#   - a < m AND b < m   (so the 128-bit product / m fits in u64)
+# Miller-Rabin, Pollard rho, RSA, and every other modular-arith
+# consumer naturally reduces its operands below the modulus, so
+# this precondition is free in practice. Callers working with
+# unreduced inputs should pre-reduce via `a % m` (Cyrius's `%`
+# is signed, so only safe while m < 2^63) or fall back to the
+# u128 pipeline.
+fn u64_mulmod(a, b, m) {
+    var result = 0;
+    # Locals: a(0)=[rbp-8], b(1)=[rbp-16], m(2)=[rbp-24],
+    #         result(3)=[rbp-32].
+    asm {
+        0x48; 0x8B; 0x45; 0xF8;   # mov rax, [rbp-8]    ; a
+        0x48; 0xF7; 0x65; 0xF0;   # mul qword [rbp-16]  ; rdx:rax = a*b
+        0x48; 0xF7; 0x75; 0xE8;   # div qword [rbp-24]  ; rax=quot rdx=rem
+        0x48; 0x89; 0x55; 0xE0;   # mov [rbp-32], rdx   ; result = rem
+    }
+    return result;
+}
+
+# Return base^exp mod m, all u64. Square-and-multiply via
+# u64_mulmod on every step, so the inner loop cost is two hardware
+# `div` instructions per iteration instead of a 128-iter shift-
+# subtract. Loop count is exactly the bit-length of `exp`.
+fn u64_powmod(base, exp, m) {
+    if (m == 1) { return 0; }
+    var result = 1;
+    base = base % m;
+    while (exp > 0) {
+        if ((exp & 1) == 1) {
+            result = u64_mulmod(result, base, m);
+        }
+        exp = exp >> 1;
+        if (exp > 0) {
+            base = u64_mulmod(base, base, m);
+        }
+    }
+    return result;
+}

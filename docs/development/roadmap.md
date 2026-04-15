@@ -190,15 +190,12 @@ codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-ref
 |---------|--------|---------|
 | **Per-function `#regalloc`** | High | Opt-in attribute. Use the CFG + lifetime analysis from 4.4.0 to assign hot locals to callee-saved regs (`rbx` / `r12..r15`). Benchmark target: 249 ns → sub-100 ns on the key dispatch path. Independent of cc5; ships on cc3. |
 
-### v4.8.5 — Deferred formatting (planned)
+### v4.8.5 — Math stdlib pack (planned — next up)
 
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. |
-
-### v4.8.6 — Math stdlib pack (planned)
-
-Closes the abaco-surfaced math gaps in one coherent landing. See
+Closes the abaco-surfaced math gaps in one coherent landing.
+Reordered ahead of defmt after 4.8.4 GA so abaco gets Miller-Rabin
+perf parity + atan2 quadrant correctness on the near edge of the
+release cadence. See
 `docs/issues/stdlib-math-recommendations-from-abaco.md` for the
 full triage and the per-item acceptance rationale.
 
@@ -215,11 +212,17 @@ full triage and the per-item acceptance rationale.
 `mulmod` fast-path win, plus `atan2` quadrant tests covering all
 four quadrants and the signed-zero edge cases.
 
+### v4.8.6 — Deferred formatting (planned)
+
+| Feature | Effort | Details |
+|---------|--------|---------|
+| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. Slid from 4.8.5 to make room for the math pack. |
+
 ### v4.8.7 — f64 parsing (planned)
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. Shipped as its own minor so the grammar can absorb feedback from additional math consumers that land between 4.8.6 and this cut. |
+| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. Shipped as its own minor so the grammar can absorb feedback from additional math consumers that land between 4.8.5 and this cut. |
 
 ### v4.8.x — Cleanup ramp to 5.0
 
