@@ -657,3 +657,301 @@ fn mat_least_squares(a, b, out_x) {
     }
     return 0;
 }
+
+# ================================================================
+# Tier 2 — Advanced decomposition
+# ================================================================
+
+# Eigendecomposition for real symmetric matrices via Jacobi rotation.
+# out_vals: flat f64 array of length n (caller allocates via alloc(n*8)).
+# out_vecs: n×n matrix (caller allocates via mat_new). Columns are eigenvectors.
+# Returns number of iterations, or -1 if max iterations exceeded.
+# Max 100*n^2 iterations. Converges when off-diagonal sum < LINALG_EPS.
+fn mat_eigen_sym(m, out_vals, out_vecs) {
+    _linalg_init_eps();
+    var n = mat_rows(m);
+
+    # Copy m into working matrix A (will be diagonalized in place)
+    var a = mat_copy(m);
+
+    # Initialize out_vecs to identity (accumulates rotations)
+    var i = 0;
+    var total = n * n;
+    while (i < total) { store64(out_vecs + 16 + i * 8, f64_from(0)); i = i + 1; }
+    i = 0;
+    while (i < n) { mat_set(out_vecs, i, i, f64_from(1)); i = i + 1; }
+
+    var max_iter = 100 * n * n;
+    var iter = 0;
+    while (iter < max_iter) {
+        # Find largest off-diagonal element
+        var max_off = f64_from(0);
+        var p = 0;
+        var q = 1;
+        i = 0;
+        while (i < n) {
+            var j = i + 1;
+            while (j < n) {
+                var aij = f64_abs(mat_get(a, i, j));
+                if (f64_gt(aij, max_off) == 1) {
+                    max_off = aij;
+                    p = i;
+                    q = j;
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+
+        # Converged?
+        if (f64_lt(max_off, LINALG_EPS) == 1) {
+            # Extract eigenvalues from diagonal
+            i = 0;
+            while (i < n) {
+                store64(out_vals + i * 8, mat_get(a, i, i));
+                i = i + 1;
+            }
+            return iter;
+        }
+
+        # Compute rotation angle
+        var app = mat_get(a, p, p);
+        var aqq = mat_get(a, q, q);
+        var apq = mat_get(a, p, q);
+
+        var theta = f64_div(f64_sub(aqq, app),
+        f64_mul(f64_from(2), apq));
+        # t = sign(theta) / (|theta| + sqrt(theta^2 + 1))
+        var t = f64_from(0);
+        var abs_theta = f64_abs(theta);
+        var denom = f64_add(abs_theta,
+        f64_sqrt(f64_add(f64_mul(theta, theta), f64_from(1))));
+        if (f64_gt(theta, f64_from(0)) == 1) {
+            t = f64_div(f64_from(1), denom);
+        } else {
+            t = f64_neg(f64_div(f64_from(1), denom));
+        }
+
+        var c = f64_div(f64_from(1),
+        f64_sqrt(f64_add(f64_mul(t, t), f64_from(1))));
+        var s = f64_mul(t, c);
+        var tau = f64_div(s, f64_add(f64_from(1), c));
+
+        # Apply rotation to A
+        # Update rows/cols p and q
+        i = 0;
+        while (i < n) {
+            if (i != p && i != q) {
+                var aip = mat_get(a, i, p);
+                var aiq = mat_get(a, i, q);
+                mat_set(a, i, p, f64_sub(aip, f64_mul(s,
+                f64_add(aiq, f64_mul(tau, aip)))));
+                mat_set(a, i, q, f64_add(aiq, f64_mul(s,
+                f64_sub(aip, f64_mul(tau, aiq)))));
+                mat_set(a, p, i, mat_get(a, i, p));
+                mat_set(a, q, i, mat_get(a, i, q));
+            }
+            i = i + 1;
+        }
+
+        # Update diagonal
+        mat_set(a, p, p, f64_sub(app, f64_mul(t, apq)));
+        mat_set(a, q, q, f64_add(aqq, f64_mul(t, apq)));
+        mat_set(a, p, q, f64_from(0));
+        mat_set(a, q, p, f64_from(0));
+
+        # Accumulate rotation into eigenvector matrix
+        i = 0;
+        while (i < n) {
+            var vip = mat_get(out_vecs, i, p);
+            var viq = mat_get(out_vecs, i, q);
+            mat_set(out_vecs, i, p, f64_sub(vip, f64_mul(s,
+            f64_add(viq, f64_mul(tau, vip)))));
+            mat_set(out_vecs, i, q, f64_add(viq, f64_mul(s,
+            f64_sub(vip, f64_mul(tau, viq)))));
+            i = i + 1;
+        }
+
+        iter = iter + 1;
+    }
+
+    # Didn't converge — still extract what we have
+    i = 0;
+    while (i < n) {
+        store64(out_vals + i * 8, mat_get(a, i, i));
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# SVD via eigendecomposition of A^T*A.
+# For m×n matrix A (m >= n):
+#   A = U * diag(sigma) * V^T
+# out_u: m×n matrix (caller allocates).
+# out_sigma: flat f64 array of length n (singular values).
+# out_vt: n×n matrix (caller allocates, V transposed).
+# Returns 0 on success.
+fn mat_svd(m, out_u, out_sigma, out_vt) {
+    var rows = mat_rows(m);
+    var cols = mat_cols(m);
+    _linalg_init_eps();
+
+    # Compute A^T * A (n×n symmetric)
+    var mt = mat_transpose(m);
+    var ata = mat_mul(mt, m);
+
+    # Eigendecompose A^T*A → V, lambda
+    var lambda = alloc(cols * 8);
+    var v = mat_new(cols, cols);
+    mat_eigen_sym(ata, lambda, v);
+
+    # Singular values = sqrt(eigenvalues), V^T = transpose of eigenvectors
+    var i = 0;
+    while (i < cols) {
+        var ev = load64(lambda + i * 8);
+        if (f64_lt(ev, f64_from(0)) == 1) { ev = f64_from(0); }
+        store64(out_sigma + i * 8, f64_sqrt(ev));
+        i = i + 1;
+    }
+
+    # Sort singular values descending (and corresponding V columns)
+    i = 0;
+    while (i < cols) {
+        var max_idx = i;
+        var max_sv = load64(out_sigma + i * 8);
+        var j = i + 1;
+        while (j < cols) {
+            if (f64_gt(load64(out_sigma + j * 8), max_sv) == 1) {
+                max_sv = load64(out_sigma + j * 8);
+                max_idx = j;
+            }
+            j = j + 1;
+        }
+        if (max_idx != i) {
+            # Swap sigma
+            var tmp = load64(out_sigma + i * 8);
+            store64(out_sigma + i * 8, load64(out_sigma + max_idx * 8));
+            store64(out_sigma + max_idx * 8, tmp);
+            # Swap V columns
+            var k = 0;
+            while (k < cols) {
+                var tv = mat_get(v, k, i);
+                mat_set(v, k, i, mat_get(v, k, max_idx));
+                mat_set(v, k, max_idx, tv);
+                k = k + 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    # V^T
+    var vt_tmp = mat_transpose(v);
+    i = 0;
+    var vt_total = cols * cols;
+    while (i < vt_total) {
+        store64(out_vt + 16 + i * 8, load64(vt_tmp + 16 + i * 8));
+        i = i + 1;
+    }
+
+    # U = A * V * Sigma_inv (column by column)
+    # For each column j: u_j = (1/sigma_j) * A * v_j
+    var j = 0;
+    while (j < cols) {
+        var sv = load64(out_sigma + j * 8);
+        if (f64_gt(sv, LINALG_EPS) == 1) {
+            var inv_sv = f64_div(f64_from(1), sv);
+            # Compute A * v_j
+            i = 0;
+            while (i < rows) {
+                var sum = f64_from(0);
+                var k = 0;
+                while (k < cols) {
+                    sum = f64_add(sum, f64_mul(mat_get(m, i, k), mat_get(v, k, j)));
+                    k = k + 1;
+                }
+                mat_set(out_u, i, j, f64_mul(sum, inv_sv));
+                i = i + 1;
+            }
+        } else {
+            # Zero singular value — zero column in U
+            i = 0;
+            while (i < rows) {
+                mat_set(out_u, i, j, f64_from(0));
+                i = i + 1;
+            }
+        }
+        j = j + 1;
+    }
+    return 0;
+}
+
+# Moore-Penrose pseudoinverse via SVD.
+# Returns new n×m matrix (pseudoinverse of m×n input).
+fn mat_pseudo_inv(m) {
+    var rows = mat_rows(m);
+    var cols = mat_cols(m);
+    _linalg_init_eps();
+
+    var u = mat_new(rows, cols);
+    var sigma = alloc(cols * 8);
+    var vt = mat_new(cols, cols);
+    mat_svd(m, u, sigma, vt);
+
+    # Pseudo-inverse = V * Sigma_inv * U^T
+    # Build Sigma_inv diagonal matrix
+    var sigma_inv = mat_new(cols, cols);
+    var i = 0;
+    while (i < cols) {
+        var sv = load64(sigma + i * 8);
+        if (f64_gt(sv, LINALG_EPS) == 1) {
+            mat_set(sigma_inv, i, i, f64_div(f64_from(1), sv));
+        }
+        i = i + 1;
+    }
+
+    # V = transpose of V^T
+    var v = mat_transpose(vt);
+    var ut = mat_transpose(u);
+
+    # V * Sigma_inv
+    var vs = mat_mul(v, sigma_inv);
+    # (V * Sigma_inv) * U^T
+    return mat_mul(vs, ut);
+}
+
+# Numerical rank: count of singular values above tolerance.
+fn mat_rank(m, tol) {
+    var cols = mat_cols(m);
+    var u = mat_new(mat_rows(m), cols);
+    var sigma = alloc(cols * 8);
+    var vt = mat_new(cols, cols);
+    mat_svd(m, u, sigma, vt);
+
+    var rank = 0;
+    var i = 0;
+    while (i < cols) {
+        if (f64_gt(load64(sigma + i * 8), tol) == 1) {
+            rank = rank + 1;
+        }
+        i = i + 1;
+    }
+    return rank;
+}
+
+# Condition number: sigma_max / sigma_min.
+# Returns f64. Returns -1 if matrix is singular (sigma_min ≈ 0).
+fn mat_condition(m) {
+    var cols = mat_cols(m);
+    _linalg_init_eps();
+
+    var u = mat_new(mat_rows(m), cols);
+    var sigma = alloc(cols * 8);
+    var vt = mat_new(cols, cols);
+    mat_svd(m, u, sigma, vt);
+
+    var smax = load64(sigma);
+    var smin = load64(sigma + (cols - 1) * 8);
+
+    if (f64_lt(smin, LINALG_EPS) == 1) { return f64_neg(f64_from(1)); }
+    return f64_div(smax, smin);
+}

@@ -4,6 +4,31 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.10.3] — 2026-04-15
+
+**Linalg Tier 2 — SVD, eigendecomposition, pseudoinverse. Last 4.x patch.**
+
+### Added
+- **`lib/linalg.cyr` Tier 2** (957 lines total, +298 new) — advanced
+  decompositions completing the hisab proposal:
+  - `mat_eigen_sym(m, out_vals, out_vecs)` — Jacobi rotation for real
+    symmetric matrices. Converges when off-diagonal < LINALG_EPS.
+    Max 100*n^2 iterations.
+  - `mat_svd(m, out_u, out_sigma, out_vt)` — SVD via eigendecomposition
+    of A^T*A. Singular values sorted descending. U columns computed
+    as A*v_j/sigma_j.
+  - `mat_pseudo_inv(m)` — Moore-Penrose pseudoinverse via SVD.
+  - `mat_rank(m, tol)` — numerical rank (singular value count above tol).
+  - `mat_condition(m)` — condition number (sigma_max / sigma_min).
+- **Linalg Tier 2 tests** — 17 new assertions (51 total) covering
+  eigendecomposition (2x2 + 3x3, trace/det invariants, V*D*V^T
+  reconstruction), SVD (square + non-square, U*S*V^T reconstruction),
+  pseudoinverse (A+*A = I), rank (full + deficient), condition number.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 58 test suites.
+
 ## [4.10.2] — 2026-04-15
 
 **Dense linear algebra stdlib — Tier 1 + Tier 3 from hisab proposal.**

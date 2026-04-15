@@ -186,4 +186,108 @@ var atax1 = f64_add(f64_mul(mat_get(ata, 1, 0), load64(ox)), f64_mul(mat_get(ata
 assert_f64_near(atax0, load64(atb_vec), "least sq normal eq [0]");
 assert_f64_near(atax1, load64(atb_vec + 8), "least sq normal eq [1]");
 
+# ── Tier 2: eigendecomposition ──
+test_group("mat_eigen_sym 2x2");
+# Symmetric: [[2, 1], [1, 3]] eigenvalues ≈ 1.382, 3.618
+var esym = mat_new(2, 2);
+mat_set(esym, 0, 0, f(2)); mat_set(esym, 0, 1, f(1));
+mat_set(esym, 1, 0, f(1)); mat_set(esym, 1, 1, f(3));
+var evals = alloc(16);
+var evecs = mat_new(2, 2);
+var eiter = mat_eigen_sym(esym, evals, evecs);
+assert(eiter >= 0, "eigen converged");
+# Eigenvalues should sum to trace (2+3=5) and product to det (6-1=5)
+var esum = f64_add(load64(evals), load64(evals + 8));
+assert_f64_near(esum, f(5), "eigenvalue sum = trace");
+var eprod = f64_mul(load64(evals), load64(evals + 8));
+assert_f64_near(eprod, f(5), "eigenvalue product = det");
+# V * diag(lambda) * V^T should reconstruct A
+var d_mat = mat_new(2, 2);
+mat_set(d_mat, 0, 0, load64(evals)); mat_set(d_mat, 1, 1, load64(evals + 8));
+var vt_e = mat_transpose(evecs);
+var recon = mat_mul(mat_mul(evecs, d_mat), vt_e);
+assert_eq(mat_eq(esym, recon, eps), 1, "V*D*V^T = A");
+
+test_group("mat_eigen_sym 3x3");
+var e3 = mat_new(3, 3);
+mat_set(e3, 0, 0, f(4)); mat_set(e3, 0, 1, f(1)); mat_set(e3, 0, 2, f(0));
+mat_set(e3, 1, 0, f(1)); mat_set(e3, 1, 1, f(3)); mat_set(e3, 1, 2, f(1));
+mat_set(e3, 2, 0, f(0)); mat_set(e3, 2, 1, f(1)); mat_set(e3, 2, 2, f(2));
+var ev3 = alloc(24);
+var evec3 = mat_new(3, 3);
+mat_eigen_sym(e3, ev3, evec3);
+var esum3 = f64_add(f64_add(load64(ev3), load64(ev3 + 8)), load64(ev3 + 16));
+assert_f64_near(esum3, f(9), "3x3 eigenvalue sum = trace");
+
+# ── Tier 2: SVD ──
+test_group("mat_svd 2x2");
+var svd_a = mat_new(2, 2);
+mat_set(svd_a, 0, 0, f(3)); mat_set(svd_a, 0, 1, f(0));
+mat_set(svd_a, 1, 0, f(0)); mat_set(svd_a, 1, 1, f(4));
+var svd_u = mat_new(2, 2);
+var svd_s = alloc(16);
+var svd_vt = mat_new(2, 2);
+mat_svd(svd_a, svd_u, svd_s, svd_vt);
+# Singular values of diagonal matrix are the diagonal values (sorted desc)
+var sv0 = load64(svd_s);
+var sv1 = load64(svd_s + 8);
+assert_f64_near(sv0, f(4), "svd sigma[0] = 4");
+assert_f64_near(sv1, f(3), "svd sigma[1] = 3");
+# U * diag(sigma) * V^T should reconstruct A
+var svd_diag = mat_new(2, 2);
+mat_set(svd_diag, 0, 0, sv0); mat_set(svd_diag, 1, 1, sv1);
+var svd_recon = mat_mul(mat_mul(svd_u, svd_diag), svd_vt);
+assert_eq(mat_eq(svd_a, svd_recon, eps), 1, "U*S*V^T = A");
+
+test_group("mat_svd non-square");
+# 3x2 matrix
+var svd_b = mat_new(3, 2);
+mat_set(svd_b, 0, 0, f(1)); mat_set(svd_b, 0, 1, f(0));
+mat_set(svd_b, 1, 0, f(0)); mat_set(svd_b, 1, 1, f(1));
+mat_set(svd_b, 2, 0, f(1)); mat_set(svd_b, 2, 1, f(1));
+var svd_u2 = mat_new(3, 2);
+var svd_s2 = alloc(16);
+var svd_vt2 = mat_new(2, 2);
+mat_svd(svd_b, svd_u2, svd_s2, svd_vt2);
+# Reconstruct: U * diag(sigma) * V^T
+var svd_d2 = mat_new(2, 2);
+mat_set(svd_d2, 0, 0, load64(svd_s2)); mat_set(svd_d2, 1, 1, load64(svd_s2 + 8));
+var svd_r2 = mat_mul(mat_mul(svd_u2, svd_d2), svd_vt2);
+assert_eq(mat_eq(svd_b, svd_r2, eps), 1, "SVD 3x2 reconstruct");
+
+# ── Tier 2: pseudoinverse ──
+test_group("mat_pseudo_inv");
+# Pseudoinverse of [[1,0],[0,1],[1,1]] — overdetermined
+var pi_a = mat_new(3, 2);
+mat_set(pi_a, 0, 0, f(1)); mat_set(pi_a, 0, 1, f(0));
+mat_set(pi_a, 1, 0, f(0)); mat_set(pi_a, 1, 1, f(1));
+mat_set(pi_a, 2, 0, f(1)); mat_set(pi_a, 2, 1, f(1));
+var pinv = mat_pseudo_inv(pi_a);
+# A+ * A should be close to I (2x2)
+var apa = mat_mul(pinv, pi_a);
+assert_f64_near(mat_get(apa, 0, 0), f(1), "A+*A [0,0]");
+assert_f64_near(mat_get(apa, 0, 1), f(0), "A+*A [0,1]");
+assert_f64_near(mat_get(apa, 1, 0), f(0), "A+*A [1,0]");
+assert_f64_near(mat_get(apa, 1, 1), f(1), "A+*A [1,1]");
+
+# ── Tier 2: rank + condition ──
+test_group("mat_rank");
+var rk_full = mat_identity(3);
+assert_eq(mat_rank(rk_full, eps), 3, "rank I3 = 3");
+# Rank-deficient: row 2 = row 0 + row 1
+var rk_def = mat_new(3, 3);
+mat_set(rk_def, 0, 0, f(1)); mat_set(rk_def, 0, 1, f(0)); mat_set(rk_def, 0, 2, f(0));
+mat_set(rk_def, 1, 0, f(0)); mat_set(rk_def, 1, 1, f(1)); mat_set(rk_def, 1, 2, f(0));
+mat_set(rk_def, 2, 0, f(1)); mat_set(rk_def, 2, 1, f(1)); mat_set(rk_def, 2, 2, f(0));
+assert_eq(mat_rank(rk_def, eps), 2, "rank deficient = 2");
+
+test_group("mat_condition");
+var cond_id = mat_condition(mat_identity(3));
+assert_f64_near(cond_id, f(1), "condition I = 1");
+# Well-conditioned diagonal
+var cond_d = mat_new(2, 2);
+mat_set(cond_d, 0, 0, f(4)); mat_set(cond_d, 1, 1, f(2));
+var cond_val = mat_condition(cond_d);
+assert_f64_near(cond_val, f(2), "condition diag(4,2) = 2");
+
 var result = assert_summary();
