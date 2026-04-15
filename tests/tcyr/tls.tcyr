@@ -1,0 +1,97 @@
+# Test: TLS bridge via dynlib → libssl.so.3
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/syscalls.cyr"
+include "lib/mmap.cyr"
+include "lib/fnptr.cyr"
+include "lib/dynlib.cyr"
+include "lib/tls.cyr"
+
+alloc_init();
+
+# ── dynlib: load libssl.so.3 ──
+test_group("dynlib libssl load");
+
+var hc = dynlib_open("libcrypto.so.3");
+assert(hc != 0, "libcrypto.so.3 loaded");
+
+var h = dynlib_open("libssl.so.3");
+assert(h != 0, "libssl.so.3 loaded");
+
+# ── symbol resolution ──
+test_group("symbol resolution");
+
+var sym_method = dynlib_sym(h, "TLS_client_method");
+assert(sym_method != 0, "TLS_client_method resolved");
+
+var sym_ctx_new = dynlib_sym(h, "SSL_CTX_new");
+assert(sym_ctx_new != 0, "SSL_CTX_new resolved");
+
+var sym_new = dynlib_sym(h, "SSL_new");
+assert(sym_new != 0, "SSL_new resolved");
+
+var sym_set_fd = dynlib_sym(h, "SSL_set_fd");
+assert(sym_set_fd != 0, "SSL_set_fd resolved");
+
+var sym_ctrl = dynlib_sym(h, "SSL_ctrl");
+assert(sym_ctrl != 0, "SSL_ctrl resolved");
+
+var sym_connect = dynlib_sym(h, "SSL_connect");
+assert(sym_connect != 0, "SSL_connect resolved");
+
+var sym_read = dynlib_sym(h, "SSL_read");
+assert(sym_read != 0, "SSL_read resolved");
+
+var sym_write = dynlib_sym(h, "SSL_write");
+assert(sym_write != 0, "SSL_write resolved");
+
+var sym_shutdown = dynlib_sym(h, "SSL_shutdown");
+assert(sym_shutdown != 0, "SSL_shutdown resolved");
+
+var sym_free = dynlib_sym(h, "SSL_free");
+assert(sym_free != 0, "SSL_free resolved");
+
+var sym_ctx_free = dynlib_sym(h, "SSL_CTX_free");
+assert(sym_ctx_free != 0, "SSL_CTX_free resolved");
+
+var sym_verify = dynlib_sym(h, "SSL_CTX_set_default_verify_paths");
+assert(sym_verify != 0, "SSL_CTX_set_default_verify_paths resolved");
+
+var sym_set_verify = dynlib_sym(h, "SSL_CTX_set_verify");
+assert(sym_set_verify != 0, "SSL_CTX_set_verify resolved");
+
+var sym_get_err = dynlib_sym(h, "SSL_get_error");
+assert(sym_get_err != 0, "SSL_get_error resolved");
+
+# ── global resolution (cross-library) ──
+test_group("cross-library resolution");
+
+var g_method = _dynlib_resolve_global("TLS_client_method");
+assert(g_method != 0, "global TLS_client_method");
+assert_eq(g_method, sym_method, "global == direct");
+
+# Resolve a libcrypto symbol via global search
+var g_err = _dynlib_resolve_global("ERR_get_error");
+assert(g_err != 0, "libcrypto ERR_get_error via global");
+
+# ── tls_available ──
+test_group("tls interface");
+
+var avail = tls_available();
+assert_eq(avail, 1, "tls_available");
+
+# ── negative: unknown symbol ──
+test_group("negative cases");
+
+var bad = dynlib_sym(h, "SSL_DOES_NOT_EXIST_xyz");
+assert_eq(bad, 0, "unknown symbol returns 0");
+
+# ── dedup: re-open returns same handle ──
+test_group("dedup");
+
+var h2 = dynlib_open("libssl.so.3");
+assert_eq(h, h2, "re-open returns same handle");
+
+var r = assert_summary();
