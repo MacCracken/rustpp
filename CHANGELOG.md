@@ -4,6 +4,32 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.9.1] — 2026-04-14
+
+**Multi-register `#regalloc` — rbx + r12–r15.**
+
+### Changed
+- **`#regalloc` extended from single-register (rbx) to five callee-saved
+  registers (rbx, r12, r13, r14, r15).** The peephole patcher now picks
+  up to 5 hottest non-param locals per function (greedy, threshold ≥ 2
+  uses) and assigns each to a dedicated register. Each candidate gets an
+  independent safety scan — unsafe locals are skipped without blocking
+  allocation of others.
+- **Prologue/epilogue** saves and restores all allocated registers into
+  reserved frame slots: rbx at `[rbp-8]`, r12 at `[rbp-16]`, r13 at
+  `[rbp-24]`, r14 at `[rbp-32]`, r15 at `[rbp-40]`.
+- **Displacement calculation** generalized from `disp - 8` to
+  `disp - N*8` where N is the register count, across all load/store
+  paths in emit.cyr and the `&local` address-of path in parse.cyr.
+- **ETAILJMP** restores all allocated registers before frame teardown.
+- **`_cur_fn_regalloc`** upgraded from boolean (0/1) to register count
+  (0–5). All codegen checks changed from `== 1` to `> 0` / `>= N`.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS.
+- Test program with 3 hot locals verified against non-regalloc baseline.
+
 ## [4.9.0] — 2026-04-14
 
 **Stdlib completions, diagnostics, and internal doc audit.**

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.9.0.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.9.1.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (364KB). Closure verified.
 > **51 test suites**, 14 benchmarks, 5 fuzz harnesses. **56 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -97,9 +97,13 @@ Items originally roadmapped for these versions shipped across multiple releases:
 
 ---
 
-## v4.9.1 — Multi-Register `#regalloc` (r12–r15)
+## v4.9.1 — Multi-Register `#regalloc` (shipped) ✅
 
-Focused compiler work on its own branch. 4.8.4 shipped single-rbx with frame layout, safety-scan, and peephole patcher. Extending to r12–r15 reuses all that infrastructure. Measurable perf win for hot loops.
+Extended `#regalloc` from single-register (rbx) to five callee-saved
+registers (rbx, r12–r15). Peephole patcher picks up to 5 hottest
+non-param locals per function with independent safety scans.
+Displacement generalized to N*8, prologue/epilogue saves/restores
+all allocated registers.
 
 ---
 
