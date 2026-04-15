@@ -21,7 +21,7 @@ fn warn(line, msg) {
     syscall(1, 2, ": ", 2);
     syscall(1, 2, msg, strlen(msg));
     syscall(1, 2, "\n", 1);
-    _warnings = _warnings + 1;
+    _warnings += 1;
     return 0;
 }
 
@@ -45,17 +45,17 @@ fn lint_file(buf, total) {
     while (px < total) {
         if (memeq(buf + px, "include \"lib/syscalls.cyr\"", 26) == 1) { has_syscalls = 1; }
         if (memeq(buf + px, "include \"lib/tagged.cyr\"", 24) == 1) { has_tagged = 1; }
-        px = px + 1;
+        px += 1;
     }
     var is_err_clash = 0;
-    if (has_syscalls == 1) { if (has_tagged == 1) { is_err_clash = 1; } }
+    if (has_syscalls == 1 && has_tagged == 1) { is_err_clash = 1; }
 
     while (pos < total) {
         # Find end of line
         var eol = pos;
         while (eol < total) {
             if (load8(buf + eol) == 10) { break; }
-            eol = eol + 1;
+            eol += 1;
         }
         var linelen = eol - pos;
 
@@ -66,7 +66,7 @@ fn lint_file(buf, total) {
             var si = pos;
             while (si + 9 < eol) {
                 if (memeq(buf + si, "#skip-lint", 10) == 1) { skip_line = 1; si = eol; }
-                si = si + 1;
+                si += 1;
             }
         }
 
@@ -86,7 +86,7 @@ fn lint_file(buf, total) {
                 warn(lineno, "tab character (use 4 spaces)");
                 ti = eol;
             }
-            ti = ti + 1;
+            ti += 1;
         }
 
         # === Rule: line too long (>120 chars) ===
@@ -115,7 +115,7 @@ fn lint_file(buf, total) {
                         ic = eol;
                     }
                 }
-                ic = ic + 1;
+                ic += 1;
             }
         }
 
@@ -133,7 +133,7 @@ fn lint_file(buf, total) {
         var first = pos;
         while (first < eol) {
             if (load8(buf + first) != 32) { break; }
-            first = first + 1;
+            first += 1;
         }
         var content_len = eol - first;
 
@@ -163,7 +163,7 @@ fn lint_file(buf, total) {
                             if (nc >= 97) { if (nc <= 122) { prev_lower = 1; } }
                             elif (nc >= 65) { if (nc <= 90) { if (prev_lower == 1) { is_camel = 1; } prev_lower = 0; } }
                             else { prev_lower = 0; }
-                            sci = sci + 1;
+                            sci += 1;
                         }
                         if (is_camel == 1) {
                             warn(lineno, "fn name should be snake_case");
@@ -192,18 +192,18 @@ fn lint_file(buf, total) {
                 }
                 elif (bc == 34) {
                     # Skip string literal: advance past closing quote
-                    bi = bi + 1;
+                    bi += 1;
                     while (bi < eol) {
-                        if (load8(buf + bi) == 92) { bi = bi + 1; }
+                        if (load8(buf + bi) == 92) { bi += 1; }
                         elif (load8(buf + bi) == 34) { break; }
-                        bi = bi + 1;
+                        bi += 1;
                     }
-                    bi = bi + 1;
+                    bi += 1;
                 }
                 else {
-                    if (bc == 123) { brace_depth = brace_depth + 1; }
-                    if (bc == 125) { brace_depth = brace_depth - 1; }
-                    bi = bi + 1;
+                    if (bc == 123) { brace_depth += 1; }
+                    if (bc == 125) { brace_depth -= 1; }
+                    bi += 1;
                 }
             }
 
@@ -214,7 +214,7 @@ fn lint_file(buf, total) {
         }
 
         pos = eol + 1;
-        lineno = lineno + 1;
+        lineno += 1;
     }
 
     # === Rule: unclosed braces at end ===
