@@ -454,7 +454,7 @@ while (dce_ti < dce_tc) {
 var _ir_env = _read_env("CYRIUS_IR");
 if (_ir_env != 0) {
     var _ir_ch = load8(_ir_env);
-    if (_ir_ch == 49 || _ir_ch == 50) {
+    if (_ir_ch >= 49 && _ir_ch <= 51) {
         IR_SENABLE(S, 1);
         ir_reset(S);
     }
@@ -638,17 +638,29 @@ if (_epi_km == 3 || _epi_km == 2) {
 # cc5: IR stats/dump
 if (IR_ENABLED(S) == 1) {
     var ir_bbs = ir_build_bbs(S);
+    var ir_edges = ir_build_edges(S);
     var ir_lase_n = ir_lase(S);
     var ir_lase_bytes = ir_apply_lase(S);
+    var ir_dbe_bytes = 0;
+    # DBE disabled — edge analysis incomplete (forward JMP targets resolved
+    # by EPATCH can jump many BBs ahead, not just next). Needs CP-to-BB
+    # mapping for EPATCH patch offsets to be sound. Tracked for future.
+    # if (load8(_ir_env) == 51) { ir_dbe_bytes = ir_dead_block_elim(S); }
     syscall(SYS_WRITE, 2, "ir: ", 4);
     PRNUM(IR_NCNT(S));
     syscall(SYS_WRITE, 2, " nodes, ", 8);
     PRNUM(ir_bbs);
     syscall(SYS_WRITE, 2, " BBs, ", 6);
+    PRNUM(ir_edges);
+    syscall(SYS_WRITE, 2, " edges, ", 8);
     PRNUM(ir_lase_n);
-    syscall(SYS_WRITE, 2, " LASE (", 7);
-    PRNUM(ir_lase_bytes);
-    syscall(SYS_WRITE, 2, " bytes)\n", 8);
+    syscall(SYS_WRITE, 2, " LASE", 5);
+    if (ir_dbe_bytes > 0) {
+        syscall(SYS_WRITE, 2, ", ", 2);
+        PRNUM(ir_dbe_bytes);
+        syscall(SYS_WRITE, 2, "B DBE", 5);
+    }
+    syscall(SYS_WRITE, 2, "\n", 1);
     # CYRIUS_IR=2: verbose dump
     if (load8(_ir_env) == 50) { ir_dump(S); }
 }

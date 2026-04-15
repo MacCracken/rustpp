@@ -633,6 +633,157 @@ fn ir_build_bbs(S) {
     return IR_BCNT(S);
 }
 
+# ================================================================
+# CFG edge builder
+# ================================================================
+# After BBs are constructed, walk each BB's terminator node and
+# connect to successor BBs. Uses CP tracking to match jump targets.
+# Returns number of edges added.
+
+# Find which BB contains the given codebuf offset (binary search)
+fn _ir_find_bb_for_cp(S, target_cp) {
+    var bcnt = IR_BCNT(S);
+    # Linear scan (good enough for <32K BBs)
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        if (count > 0) {
+            var bb_cp_start = IR_NODE_CP(S, first);
+            var bb_cp_end = bb_cp_start;
+            if (first + count < IR_NCNT(S)) {
+                bb_cp_end = IR_NODE_CP(S, first + count);
+            } else {
+                bb_cp_end = GCP(S);
+            }
+            if (target_cp >= bb_cp_start && target_cp < bb_cp_end) {
+                return bi;
+            }
+        }
+        bi = bi + 1;
+    }
+    return 0 - 1;  # not found
+}
+
+fn ir_build_edges(S) {
+    var bcnt = IR_BCNT(S);
+    IR_SECNT(S, 0);
+    var edges = 0;
+
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        if (count > 0) {
+            var last_ni = first + count - 1;
+            var op = IR_NODE_OP(S, last_ni);
+
+            if (op == IR_JMP || op == IR_JMP_BACK) {
+                # Unconditional jump — find target BB
+                if (op == IR_JMP_BACK) {
+                    var target_cp = IR_NODE_A2(S, last_ni);
+                    var target_bb = _ir_find_bb_for_cp(S, target_cp);
+                    if (target_bb >= 0) {
+                        ir_bb_set_succ(S, bi, target_bb);
+                        ir_add_edge(S, bi, target_bb);
+                        edges = edges + 1;
+                    }
+                } else {
+                    # Forward JMP — target is the NEXT BB (fall-through after patch)
+                    if (bi + 1 < bcnt) {
+                        ir_bb_set_succ(S, bi, bi + 1);
+                        ir_add_edge(S, bi, bi + 1);
+                        edges = edges + 1;
+                    }
+                }
+            }
+            elif (op == IR_JCC) {
+                # Conditional — true body follows, false body after next patch
+                if (bi + 1 < bcnt) {
+                    var false_bb = bi + 1;
+                    if (bi + 2 < bcnt) { false_bb = bi + 2; }
+                    ir_bb_set_cond(S, bi, bi + 1, false_bb);
+                    ir_add_edge(S, bi, bi + 1);
+                    edges = edges + 1;
+                    if (false_bb != bi + 1) {
+                        ir_add_edge(S, bi, false_bb);
+                        edges = edges + 1;
+                    }
+                }
+            }
+            elif (op != IR_EPILOGUE && op != IR_RET) {
+                # Fall-through to next BB
+                if (bi + 1 < bcnt) {
+                    ir_bb_set_succ(S, bi, bi + 1);
+                    ir_add_edge(S, bi, bi + 1);
+                    edges = edges + 1;
+                }
+            }
+        }
+        bi = bi + 1;
+    }
+    return edges;
+}
+
+# ================================================================
+# Dead block elimination
+# ================================================================
+# Find BBs with no incoming edges and no PROLOG (entry points).
+# NOP-fill their codebuf bytes.
+# Returns bytes eliminated.
+
+fn ir_dead_block_elim(S) {
+    var bcnt = IR_BCNT(S);
+    var ecnt = IR_ECNT(S);
+    var bytes = 0;
+
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        if (count == 0) { bi = bi + 1; continue; }
+
+        # Skip entry blocks (first BB, or BBs starting with PROLOG)
+        var first_op = IR_NODE_OP(S, first);
+        if (bi == 0 || first_op == IR_PROLOGUE) {
+            bi = bi + 1;
+            continue;
+        }
+
+        # Check if any edge targets this BB
+        var has_pred = 0;
+        var ei = 0;
+        while (ei < ecnt) {
+            if (IR_EDGE_TO(S, ei) == bi) {
+                has_pred = 1;
+                ei = ecnt;  # break
+            }
+            ei = ei + 1;
+        }
+
+        if (has_pred == 0) {
+            # Dead block — NOP-fill its codebuf range
+            var cp_start = IR_NODE_CP(S, first);
+            var cp_end = cp_start;
+            if (first + count < IR_NCNT(S)) {
+                cp_end = IR_NODE_CP(S, first + count);
+            }
+            var sz = cp_end - cp_start;
+            if (sz > 0 && sz < 4096) {
+                var j = 0;
+                while (j < sz) {
+                    store8(S + 0x54A000 + cp_start + j, 0x90);
+                    j = j + 1;
+                }
+                bytes = bytes + sz;
+            }
+        }
+
+        bi = bi + 1;
+    }
+    return bytes;
+}
+
 fn ir_dump(S) {
     var ncnt = IR_NCNT(S);
     syscall(SYS_WRITE, 2, "=== IR DUMP (", 13);
