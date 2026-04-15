@@ -170,8 +170,15 @@ all emit paths go through IR. The path:
 | **Done** | sakshi, majra, bsp, cyrius-doom, mabda, hadara |
 | **Done** | sigil, patra, libro, shravan, tarang, yukti |
 | **Done** | avatara, ai-hwaccel, hoosh, itihas, sankoch |
-| **In progress** | bhava, hisab |
+| **Done** | hisab |
+| **In progress** | bhava |
 | **Blocked** | vidya MCP (needs bote) |
+
+
+## Future 6.0
+
+* Book - PDF writen using Vidya and Documentation to Flesh out what the Lanaguage looks
+like at 6.0 - publish and amazon / packt
 
 ---
 
