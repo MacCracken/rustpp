@@ -1356,6 +1356,18 @@ fn cmd_update() {
     sys_write(STDOUT_FD, " (", 2);
     fmt_int(copied);
     println(" files)");
+
+    # Update .cyrius-toolchain to match installed version
+    if (cur != 0 && file_exists(".cyrius-toolchain") == 1) {
+        var tc_sb = str_builder_new();
+        str_builder_add_cstr(tc_sb, cur);
+        str_builder_add_cstr(tc_sb, "\n");
+        var tc_str = str_data(str_builder_build(tc_sb));
+        file_write_all(".cyrius-toolchain", tc_str, strlen(tc_str));
+        sys_write(STDOUT_FD, "  .cyrius-toolchain -> ", 23);
+        println(cur);
+    }
+
     return 0;
 }
 

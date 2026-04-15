@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.10.1] — 2026-04-15
+
+**Sankoch compression dep + CI hardening.**
+
+### Added
+- **`sankoch` dep** — lossless compression library (LZ4, DEFLATE, zlib,
+  gzip). Added to `cyrius.toml` as 6th stdlib dep at tag 1.0.0.
+  `include "lib/sankoch.cyr"` provides `compress()`, `decompress()`,
+  `detect_format()` across all four formats. 2982-line bundle,
+  2127 assertions in sankoch's own test suite.
+
+### Fixed
+- **CI test runner `set -e` crash** — `output=$("$tmpbin" 2>&1); ec=$?`
+  aborted the entire CI script when a test binary segfaulted, because
+  GitHub Actions runs `sh -e`. Fixed to
+  `output=$("$tmpbin" 2>&1) && ec=0 || ec=$?` which captures the exit
+  code without triggering errexit. Applied to both cyrius and sankoch CI.
+
+### Changed
+- **`cyrius update`** now updates `.cyrius-toolchain` to match the
+  installed Cyrius version.
+- Stdlib module count: 57 → 58 (sankoch). Dep count: 5 → 6.
+- Vidya: added `content/cyrius/dependencies.toml` — 6 entries covering
+  stdlib deps, project deps, bundle pattern, `cyrius update` flow,
+  and the dep registry.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 57 test suites.
+
 ## [4.10.0] — 2026-04-15
 
 **Cleanup & consolidation — last 4.x. Security fixes, test coverage, stale sweep.**

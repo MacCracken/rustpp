@@ -168,7 +168,7 @@ jobs:
             tmpbin="/tmp/ci_t_$$"
             cat "$t" | ./build/cc3 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
             if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
-            output=$("$tmpbin" 2>&1); ec=$?
+            output=$("$tmpbin" 2>&1) && ec=0 || ec=$?
             rm -f "$tmpbin"
             f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
             if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then
@@ -210,7 +210,7 @@ jobs:
             tmpbin="/tmp/ci_t_$$"
             cat "$t" | ./build/cc3 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
             if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
-            output=$("$tmpbin" 2>&1); ec=$?
+            output=$("$tmpbin" 2>&1) && ec=0 || ec=$?
             rm -f "$tmpbin"
             f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
             if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then

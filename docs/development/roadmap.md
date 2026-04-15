@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v4.10.0.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.10.1.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
-> **57 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
+> **57 test suites**, 14 benchmarks, 5 fuzz harnesses. **58 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -159,6 +159,8 @@ suite (`tests/tcyr/tls.tcyr`).
 | **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
 | **RISC-V (ELF)** | High | rv64 backend on cc5. First-class 5.0 target alongside Mach-O/PE. |
 | **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0 shape, documented as first-class. |
+| **cyrius.cyml manifest** | Medium | Replace `cyrius.toml` with `cyrius.cyml` (CYML parser shipped in 4.9.2). `cyrius update` auto-migrates existing `cyrius.toml` → `cyrius.cyml` so downstream projects upgrade in place. TOML parser stays as fallback for one minor cycle, then removed. |
+| **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54 lines), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts (`init`, `port`, `install`, `check`, `version-bump`) stay shell — they need heredocs, `sed -i`, or system tool orchestration that Cyrius doesn't cover yet. |
 
 ---
 
@@ -203,6 +205,7 @@ Collected from 4.x lessons and downstream port feedback. None block platform lan
 | Security (dep) | sigil |
 | Hardware (dep) | yukti |
 | GPU (dep) | mabda |
+| Compression (dep) | sankoch |
 
 ---
 
