@@ -4,6 +4,38 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha5] — 2026-04-14 (unreleased)
+
+### Added — inverse trigonometry (`lib/math.cyr`)
+- **`f64_asin(x)`** — `atan(x / √(1 − x²))`. Domain |x| ≤ 1;
+  outside-domain inputs propagate NaN from the sqrt, matching
+  C libm semantics.
+- **`f64_acos(x)`** — `π/2 − asin(x)`.
+- **`f64_atan2(y, x)`** — full-plane two-argument arctangent with
+  quadrant correction. Range `(-π, π]`. Handles all four quadrants
+  plus the ±x and ±y axes and the `(0, 0)` convention (returns 0).
+
+These build on the existing `f64_atan` x87 `fpatan` builtin. abaco
+1.1.0's ntheory port was carrying the same identities inline but
+with a broken `atan2` (no quadrant correction → wrong in Q2/Q3).
+The headline deliverable of this alpha is **atan2 quadrant
+correctness**, pinned by 17 new assertions in
+`tests/tcyr/math_inverse_trig.tcyr` (4 quadrants × cardinal
+directions + axis + origin cases).
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 48 files / 356 assertions (new:
+  `math_inverse_trig.tcyr` 17/0).
+
+### Roadmap (4.8.5)
+- alpha1..alpha4 ✅
+- alpha5 ✅ — inverse trig (this release).
+- alpha6 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
 ## [4.8.5-alpha4] — 2026-04-14 (unreleased)
 
 ### Added — f64 math constants (`lib/math.cyr`)

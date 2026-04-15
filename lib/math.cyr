@@ -72,3 +72,63 @@ fn f64_max(a, b) {
     if (f64_gt(a, b) == 1) { return a; }
     return b;
 }
+
+# ================================================================
+# Inverse trigonometry (v4.8.5-alpha5)
+# ================================================================
+# x87 `fpatan` (exposed by Cyrius as the `f64_atan` builtin) is a
+# single-argument arctangent returning a value in [-π/2, π/2]. The
+# helpers below build the rest of the inverse-trig family on top of
+# it via standard identities:
+#
+#   asin(x) = atan(x / √(1 − x²))
+#   acos(x) = π/2 − asin(x)
+#   atan2(y, x) = atan(y / x) corrected per quadrant
+#
+# abaco 1.1.0's ntheory port was carrying the same identities
+# inline but with a broken atan2 (no quadrant fix → wrong in Q2/Q3).
+# This hardens that fix and makes it available to every consumer.
+#
+# Domain notes:
+#   asin / acos: |x| ≤ 1. Outside the domain sqrt yields NaN and
+#     the atan chain propagates it — consistent with C's libm.
+#   atan:  any finite x. Returns value in (-π/2, π/2).
+#   atan2: defined for (y, x) ≠ (0, 0). The (0, 0) case returns 0
+#     by convention (matches C libm).
+
+# asin(x) = atan(x / √(1 − x²))
+fn f64_asin(x) {
+    var one_minus_xx = f64_sub(F64_ONE, f64_mul(x, x));
+    var denom = f64_sqrt(one_minus_xx);
+    return f64_atan(f64_div(x, denom));
+}
+
+# acos(x) = π/2 − asin(x)
+fn f64_acos(x) {
+    return f64_sub(F64_PI_2, f64_asin(x));
+}
+
+# Two-argument arctangent with full-plane quadrant handling. Result
+# is in (-π, π]. Quadrant map:
+#   x > 0            : atan(y/x)                   (Q1 / Q4)
+#   x < 0, y ≥ 0     : atan(y/x) + π               (Q2)
+#   x < 0, y < 0     : atan(y/x) − π               (Q3)
+#   x == 0, y > 0    : +π/2
+#   x == 0, y < 0    : −π/2
+#   x == 0, y == 0   : 0  (convention — C libm matches)
+# Zero comparisons use bit equality against the f64 representation
+# of 0.0 (IEEE 754: both +0 and −0 compare equal via f64_eq).
+var _F64_ZERO = 0;
+
+fn f64_atan2(y, x) {
+    if (f64_eq(x, _F64_ZERO) == 1) {
+        if (f64_eq(y, _F64_ZERO) == 1) { return _F64_ZERO; }
+        if (f64_gt(y, _F64_ZERO) == 1) { return F64_PI_2; }
+        return f64_neg(F64_PI_2);
+    }
+    var q = f64_atan(f64_div(y, x));
+    if (f64_gt(x, _F64_ZERO) == 1) { return q; }
+    # x < 0.
+    if (f64_lt(y, _F64_ZERO) == 1) { return f64_sub(q, F64_PI); }
+    return f64_add(q, F64_PI);
+}
