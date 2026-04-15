@@ -4,6 +4,20 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-1] — 2026-04-14
+
+### Fixed
+- **Version-string cosmetic fix**. `cc3 --version` printed
+  `cc3 4.8.4-alpha2` all the way through the 4.8.5 release —
+  the hardcoded literal in `src/main.cyr` (syscall-emitted
+  greeting for the `--version` arg) was never bumped through
+  the alpha cycle. Now reports `cc3 4.8.5-1` matching the
+  tagged release. Purely cosmetic; no behavior change.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS.
+
 ## [4.8.5] — 2026-04-14
 
 **Math stdlib pack + HTTP defence-in-depth.** Closes the
