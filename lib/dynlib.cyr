@@ -419,7 +419,7 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
             var r_addend = load64(pos + 16);
             store64(bias + r_offset, bias + r_addend);
         }
-        pos = pos + 24;
+        pos += 24;
     }
 
     # Phase 2: GLOB_DAT, JUMP_SLOT, 64
@@ -448,19 +448,12 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
         pos = pos + 24;
     }
 
-    # Phase 3: IRELATIVE (calls into resolved code)
-    pos = rela_addr;
-    while (pos < end) {
-        var rtype = load64(pos + 8) & 0xFFFFFFFF;
-        if (rtype == R_X86_64_IRELATIVE) {
-            var r_offset = load64(pos);
-            var r_addend = load64(pos + 16);
-            var resolver = bias + r_addend;
-            var result = fncall0(resolver);
-            store64(bias + r_offset, result);
-        }
-        pos = pos + 24;
-    }
+    # Phase 3: IRELATIVE (calls resolver functions to pick IFUNC impls)
+    # These resolvers read CPU features via __cpu_features or CPUID.
+    # On a statically-linked binary, the CPU features struct isn't
+    # initialized by glibc's startup code. Skip IRELATIVE for now —
+    # the default symbol table entries cover the basic implementations.
+    # TODO: initialize CPU features struct or call resolvers safely.
 
     return 0;
 }
@@ -578,14 +571,25 @@ fn dynlib_open(path) {
             var page_va = va & (0 - 4096);
             var page_off = off & (0 - 4096);
             var page_adj = va - page_va;
-            var map_sz = (fsz + page_adj + 4095) & (0 - 4096);
-            cyr_mmap(bias + page_va, map_sz, map_prot,
+            var map_fsz = (fsz + page_adj + 4095) & (0 - 4096);
+            var map_msz = (msz + page_adj + 4095) & (0 - 4096);
+            # Map file-backed portion
+            cyr_mmap(bias + page_va, map_fsz, map_prot,
             MAP_PRIVATE | MAP_FIXED, fd, page_off);
-            # Zero BSS (memsz > filesz)
+            # BSS: if memsz > filesz, map anonymous pages for the rest
+            if (map_msz > map_fsz) {
+                cyr_mmap(bias + page_va + map_fsz,
+                map_msz - map_fsz, map_prot,
+                MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS,
+                0 - 1, 0);
+            }
+            # Zero partial BSS within the last file-backed page
             if (msz > fsz) {
                 var bss_start = bias + va + fsz;
-                var bss_len = msz - fsz;
-                memset(bss_start, 0, bss_len);
+                var bss_in_page = map_fsz - (fsz + page_adj);
+                if (bss_in_page > 0) {
+                    memset(bss_start, 0, bss_in_page);
+                }
             }
         }
     }
@@ -595,7 +599,6 @@ fn dynlib_open(path) {
     syscall(3, fd);
 
     # Parse dynamic section from the properly loaded segments
-    # dyn_offset is now the vaddr of PT_DYNAMIC; bias + vaddr = mapped address
     var dinfo = _parse_dynamic(bias, dyn_offset, dyn_size);
     var symtab_vaddr  = load64(dinfo);
     var strtab_vaddr  = load64(dinfo + 8);
@@ -635,7 +638,7 @@ fn dynlib_open(path) {
         if (memeq(dep_name, "ld-linux", 8) == 0) {
             dynlib_open(dep_name);
         }
-        ni = ni + 1;
+        ni += 1;
     }
 
     # Process relocations (RELA + JMPREL)
@@ -651,21 +654,10 @@ fn dynlib_open(path) {
     }
 
     # Run init functions
-    var init_vaddr = load64(dinfo + 64);
-    if (init_vaddr != 0) {
-        fncall0(bias + init_vaddr);
-    }
-    var init_arr_vaddr = load64(dinfo + 72);
-    var init_arr_size  = load64(dinfo + 80);
-    if (init_arr_vaddr != 0 && init_arr_size > 0) {
-        var ia = bias + init_arr_vaddr;
-        var ia_end = ia + init_arr_size;
-        while (ia < ia_end) {
-            var ifn = load64(ia);
-            if (ifn != 0) { fncall0(ifn); }
-            ia = ia + 8;
-        }
-    }
+    # Skip init functions for now — they depend on IRELATIVE resolvers
+    # which we can't call safely from a static binary. Symbol resolution
+    # still works; most functions are callable without init.
+    # TODO: implement CPU feature detection to enable IRELATIVE + init.
 
     return h;
 }
