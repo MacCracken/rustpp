@@ -157,6 +157,7 @@ in 5.x depends on the CFG foundation landing here.
 | **Libro PatraStore Heisenbug** | Medium | CFG-based diagnosis of the layout-dependent memory corruption. Gets own version bump within the 5.0 alpha cycle. Does not block 5.0 GA if it proves deeper than expected. |
 | **cyrius.cyml manifest** | Medium | Replace `cyrius.toml` with `cyrius.cyml` (CYML parser shipped in 4.9.2). `cyrius update` auto-migrates existing `cyrius.toml` → `cyrius.cyml` so downstream projects upgrade in place. TOML parser stays as fallback for one minor cycle, then removed. |
 | **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts stay shell. |
+| **CLI tool integrations** | Low | `cyrius init --cmtools[=starship]` installs prompt/editor configs. Starship: detect `cyrius.cyml`/`cyrius.toml`, show toolchain version. Future: shell completions, editor syntax highlighting, git hooks. Interactive prompt or `--cmtools=X` to bypass. |
 
 ---
 

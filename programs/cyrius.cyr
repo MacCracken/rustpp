@@ -903,14 +903,28 @@ fn cmd_deps() {
         println("dry-run: would resolve deps from cyrius.toml into lib/");
         return 0;
     }
-    if (file_exists("cyrius.toml") == 0) {
-        println("error: no cyrius.toml found");
+    # Try cyrius.cyml first, fall back to cyrius.toml
+    var _manifest = "cyrius.cyml";
+    if (file_exists(_manifest) == 0) { _manifest = "cyrius.toml"; }
+    if (file_exists(_manifest) == 0) {
+        println("error: no cyrius.cyml or cyrius.toml found");
         return 1;
     }
     sys_mkdir("lib", 0x1ED);
     var buf = alloc(32768);
-    var n = file_read_all("cyrius.toml", buf, 32767);
-    if (n <= 0) { println("error: cannot read cyrius.toml"); return 1; }
+    var n = file_read_all(_manifest, buf, 32767);
+    if (n <= 0) { println("error: cannot read manifest"); return 1; }
+    # If CYML: strip body (everything after ---) — only parse TOML header
+    var hdr_end = n;
+    var si_sep = 0;
+    while (si_sep + 3 < n) {
+        if (load8(buf + si_sep) == 10 && load8(buf + si_sep + 1) == 45 && load8(buf + si_sep + 2) == 45 && load8(buf + si_sep + 3) == 45) {
+            hdr_end = si_sep;
+            si_sep = n;  # break
+        }
+        si_sep = si_sep + 1;
+    }
+    n = hdr_end;
     store8(buf + n, 0);
     var copied = 0;
     var errors = 0;
@@ -1245,12 +1259,14 @@ fn cmd_deps() {
     return errors;
 }
 
-# Auto-resolve deps if cyrius.toml has [deps] section.
+# Auto-resolve deps if manifest has [deps] section.
 # Called before build/run/test to ensure lib/ is populated.
 fn _auto_deps() {
-    if (file_exists("cyrius.toml") == 0) { return 0; }
+    var _ad_manifest = "cyrius.cyml";
+    if (file_exists(_ad_manifest) == 0) { _ad_manifest = "cyrius.toml"; }
+    if (file_exists(_ad_manifest) == 0) { return 0; }
     var buf = alloc(4096);
-    var n = file_read_all("cyrius.toml", buf, 4095);
+    var n = file_read_all(_ad_manifest, buf, 4095);
     if (n <= 0) { return 0; }
     store8(buf + n, 0);
     # Check if [deps] section exists
@@ -1272,12 +1288,12 @@ fn cmd_package() {
     var entry = "src/main.cyr";
     var output_name = "main";
 
-    if (file_exists("cyrius.toml") == 1) {
-        # Simple TOML reading: find name = "..." lines
+    var _pkg_manifest = "cyrius.cyml";
+    if (file_exists(_pkg_manifest) == 0) { _pkg_manifest = "cyrius.toml"; }
+    if (file_exists(_pkg_manifest) == 1) {
         var buf = alloc(4096);
-        var n = file_read_all("cyrius.toml", buf, 4095);
+        var n = file_read_all(_pkg_manifest, buf, 4095);
         store8(buf + n, 0);
-        # For now use simple defaults
     }
     if (file_exists("VERSION") == 1) {
         ver = read_file_str("VERSION");
@@ -1368,6 +1384,30 @@ fn cmd_update() {
         println(cur);
     }
 
+    # Migrate cyrius.toml → cyrius.cyml if toml exists and cyml doesn't
+    if (file_exists("cyrius.toml") == 1 && file_exists("cyrius.cyml") == 0) {
+        var toml_buf = alloc(32768);
+        var toml_n = file_read_all("cyrius.toml", toml_buf, 32767);
+        if (toml_n > 0) {
+            # Write cyrius.cyml: TOML content + separator + empty body
+            var cyml_sb = str_builder_new();
+            var ti = 0;
+            while (ti < toml_n) {
+                str_builder_add_byte(cyml_sb, load8(toml_buf + ti));
+                ti = ti + 1;
+            }
+            # Ensure trailing newline before separator
+            if (toml_n > 0 && load8(toml_buf + toml_n - 1) != 10) {
+                str_builder_add_cstr(cyml_sb, "\n");
+            }
+            str_builder_add_cstr(cyml_sb, "---\n");
+            var cyml_str = str_data(str_builder_build(cyml_sb));
+            file_write_all("cyrius.cyml", cyml_str, strlen(cyml_str));
+            sys_unlink("cyrius.toml");
+            println("  migrated cyrius.toml -> cyrius.cyml");
+        }
+    }
+
     return 0;
 }
 
@@ -1416,7 +1456,8 @@ fn usage() {
     println("  lsp                             build + install cyrius-lsp");
     println("");
     println("Info:");
-    println("  version                         show cyrius version");
+    println("  version                         show cyrius toolchain version");
+    println("  version --project               show project version (from VERSION)");
     println("  which                           show path to cc3");
     println("  help                            show this help");
     return 0;
@@ -1750,8 +1791,26 @@ fn main() {
     if (is_ver == 0) { is_ver = streq(cmd, "--version"); }
     if (is_ver == 0) { is_ver = streq(cmd, "-v"); }
     if (is_ver == 1) {
+        # cyrius version --project → project version (from ./VERSION)
+        if (argc() > 2) {
+            if (streq(argv(2), "--project") == 1) {
+                sys_write(STDOUT_FD, _version, strlen(_version));
+                sys_write(STDOUT_FD, "\n", 1);
+                return 0;
+            }
+        }
+        # cyrius version → toolchain version
+        var _tc_ver = 0;
+        if (_home != 0) {
+            _tc_ver = read_file_str(make_path(_home, "current"));
+        }
+        if (_tc_ver == 0) {
+            # Fallback: use project VERSION (dev mode — running from source)
+            _tc_ver = _version;
+        }
         sys_write(STDOUT_FD, "cyrius ", 7);
-        println(_version);
+        sys_write(STDOUT_FD, _tc_ver, strlen(_tc_ver));
+        sys_write(STDOUT_FD, "\n", 1);
         return 0;
     }
 
