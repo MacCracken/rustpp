@@ -156,7 +156,7 @@ in 5.x depends on the CFG foundation landing here.
 | **aarch64 native self-hosting** | Medium | Separate host-syscall constants from target-ISA emission via cc5 backend-table dispatch. Fix `#ref` preprocessor string/comment blindness. Produce a working `cc3-native-aarch64` that self-hosts on ARM. |
 | **Libro PatraStore Heisenbug** | Medium | CFG-based diagnosis of the layout-dependent memory corruption. Gets own version bump within the 5.0 alpha cycle. Does not block 5.0 GA if it proves deeper than expected. |
 | **cyrius.cyml manifest** | Medium | Replace `cyrius.toml` with `cyrius.cyml` (CYML parser shipped in 4.9.2). `cyrius update` auto-migrates existing `cyrius.toml` → `cyrius.cyml` so downstream projects upgrade in place. TOML parser stays as fallback for one minor cycle, then removed. |
-| **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts stay shell. |
+| **Shell script maintenance** | Low | Updated `release-lib.sh` for sankoch dep. Shell→Cyrius rewrites deferred — scripts depend on `grep`/`sed`/`awk`/`find`/`timeout` which Cyrius can't replace yet. Revisit when Cyrius has regex or subprocess piping. |
 | **CLI tool integrations** | Low | `cyrius init --cmtools[=starship]` installs prompt/editor configs. Starship: detect `cyrius.cyml`/`cyrius.toml`, show toolchain version. Future: shell completions, editor syntax highlighting, git hooks. Interactive prompt or `--cmtools=X` to bypass. |
 
 ---
