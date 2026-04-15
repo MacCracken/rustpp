@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.10.3.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v5.0.0.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
 > **58 test suites**, 14 benchmarks, 5 fuzz harnesses. **59 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -145,22 +145,91 @@ suite (`tests/tcyr/tls.tcyr`).
 
 ---
 
-## v5.0.0 — Multi-Platform (major)
+## v5.0.0 — cc5 Uplift + Tooling (major)
 
-**Scope: platforms only.** This is the release where Cyrius leaves single-platform ELF and lands on every OS and ISA that matters. Language refinements ship in 5.x minors after the cut. A narrow 5.0 scope keeps the release auditable and the platform story clear.
+**Core compiler generation bump + aarch64 + tooling.** Everything else
+in 5.x depends on the CFG foundation landing here.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
 | **cc3 → cc5 uplift** | High | Generation bump. Basic-block CFG is the foundation — enables LASE (load-after-store elimination), sound multi-register allocation, and the backend-table dispatch that multi-platform requires. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
 | **aarch64 native self-hosting** | Medium | Separate host-syscall constants from target-ISA emission via cc5 backend-table dispatch. Fix `#ref` preprocessor string/comment blindness. Produce a working `cc3-native-aarch64` that self-hosts on ARM. |
 | **Libro PatraStore Heisenbug** | Medium | CFG-based diagnosis of the layout-dependent memory corruption. Gets own version bump within the 5.0 alpha cycle. Does not block 5.0 GA if it proves deeper than expected. |
-| **macOS x86_64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. |
-| **macOS aarch64** | High | Mach-O emitter on cc5. Apple Silicon native. |
-| **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
-| **RISC-V (ELF)** | High | rv64 backend on cc5. First-class 5.0 target alongside Mach-O/PE. |
-| **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0 shape, documented as first-class. |
 | **cyrius.cyml manifest** | Medium | Replace `cyrius.toml` with `cyrius.cyml` (CYML parser shipped in 4.9.2). `cyrius update` auto-migrates existing `cyrius.toml` → `cyrius.cyml` so downstream projects upgrade in place. TOML parser stays as fallback for one minor cycle, then removed. |
-| **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54 lines), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts (`init`, `port`, `install`, `check`, `version-bump`) stay shell — they need heredocs, `sed -i`, or system tool orchestration that Cyrius doesn't cover yet. |
+| **Shell script maintenance** | Low | Updated `release-lib.sh` for sankoch dep. Shell→Cyrius rewrites deferred — scripts depend on `grep`/`sed`/`awk`/`find`/`timeout` which Cyrius can't replace yet. Revisit when Cyrius has regex or subprocess piping. |
+| **CLI tool integrations** | Low | `cyrius init --cmtools[=starship]` installs prompt/editor configs. Starship: detect `cyrius.cyml`/`cyrius.toml`, show toolchain version. Future: shell completions, editor syntax highlighting, git hooks. Interactive prompt or `--cmtools=X` to bypass. |
+
+---
+
+## v5.0.1 — Security Hardening (patch)
+
+**Stdlib security fixes from downstream audits (shravan 2026-04-15).**
+
+| Issue | Severity | Details |
+|-------|----------|---------|
+| **alloc() heap pointer overflow** | P0 | `_heap_ptr + size` has no overflow check. Wraps to negative if sum exceeds INT64_MAX, corrupting allocator state. Fix: `if (_heap_ptr + size < _heap_ptr) { return 0; }` |
+| **vec capacity doubling overflow** | P1 | `new_cap = cap * 2` overflows at cap >= 2^62. Subsequent `alloc(new_cap * 8)` allocates tiny buffer. Fix: cap max at 2^30 or check `cap > MAX_CAP / 2` before doubling. |
+| **No allocation size cap** | P1 | `alloc(0x7FFFFFFFFFFFFFFF)` is accepted — attempts 8 EB allocation. All downstream codecs processing untrusted input are vulnerable to DoS. Fix: configurable max (default 256MB), return 0 on exceed. |
+
+---
+
+### Alpha → Beta → GA release phases
+
+**Alpha** (current): Feature development. IR, CFG, LASE, edge analysis,
+aarch64 native, cyrius.cyml, tooling. Self-host + check.sh at every commit.
+
+**Beta** (feature-complete → release candidate): No new features. Focus on:
+- **Test coverage**: every new IR opcode, BB construction edge case, LASE
+  pattern, and cyrius.cyml migration path gets a dedicated .tcyr test.
+- **Benchmarks**: compile-time benchmarks with CYRIUS_IR=1 vs off. Track
+  node count, BB count, edge count, LASE hits across releases.
+- **Fuzz harnesses**: .fcyr files that feed random/adversarial source to
+  the compiler with IR enabled. Verify no crashes, no buffer overflows
+  in the IR node/BB/edge tables.
+- **Soak tests**: compile all downstream projects (agnostik, argonaut,
+  kybernet, sigil, sankoch, etc.) with CYRIUS_IR=1 and verify
+  byte-identical output. Any divergence is a bug.
+- **Security re-scan**: IR heap region bounds, edge table overflow,
+  CP tracking array bounds.
+
+**GA**: Tag v5.0.0 only after beta passes all of the above with zero
+failures across the full downstream portfolio.
+
+---
+
+## v5.1.0 — macOS x86_64
+
+Mach-O emitter on cc5. Stubs scaffolded in v3.1. First non-Linux
+platform. Proves the backend-table dispatch architecture.
+
+---
+
+## v5.2.0 — macOS aarch64
+
+Mach-O emitter for Apple Silicon. Builds on 5.1.0 Mach-O work +
+5.0.0 aarch64 backend. Native compilation on M-series Macs.
+
+---
+
+## v5.3.0 — Windows x86_64
+
+PE/COFF emitter on cc5. Stub scaffolded in v3.1. Windows syscall
+layer (ntdll). Brings Cyrius to the largest desktop platform.
+
+---
+
+## v5.4.0 — RISC-V rv64 (ELF)
+
+rv64gc backend on cc5. First-class RISC-V target. ELF output
+(same linker infrastructure as Linux x86_64/aarch64).
+
+---
+
+## v5.5.0 — Bare-metal / Freestanding
+
+No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0
+shape, documented as first-class. The target that makes Cyrius a
+true systems language — kernel code compiled without any OS.
 
 ---
 

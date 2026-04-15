@@ -9,12 +9,15 @@ set -e
 
 DRY_RUN=0
 AGENT=""
+CMTOOLS=""
 NAME=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
         --agent) AGENT="generic" ;;
         --agent=*) AGENT="${arg#--agent=}" ;;
+        --cmtools) CMTOOLS="starship" ;;
+        --cmtools=*) CMTOOLS="${arg#--cmtools=}" ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) NAME="$arg" ;;
     esac
@@ -35,6 +38,8 @@ if [ -z "$NAME" ]; then
     echo "  --dry-run          show what would be created without writing"
     echo "  --agent            create a CLAUDE.md for generic Cyrius projects"
     echo "  --agent=<preset>   create a CLAUDE.md from a preset (agnos, claude)"
+    echo "  --cmtools          install CLI tool integrations (default: starship)"
+    echo "  --cmtools=<name>   install specific tool (starship)"
     exit 1
 fi
 
@@ -47,7 +52,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/"
     echo "  $NAME/src/main.cyr"
     echo "  $NAME/src/test.cyr"
-    echo "  $NAME/cyrius.toml"
+    echo "  $NAME/cyrius.cyml"
     echo "  $NAME/VERSION            (0.1.0)"
     echo "  $NAME/.gitignore"
     echo "  $NAME/LICENSE            (GPL-3.0-only)"
@@ -146,8 +151,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial project scaffold
 CHANGELOG
 
-# === cyrius.toml ===
-cat > "$NAME/cyrius.toml" << EOF
+# === cyrius.cyml ===
+cat > "$NAME/cyrius.cyml" << EOF
 [package]
 name = "$PROJ"
 version = "0.1.0"
@@ -162,6 +167,7 @@ output = "$PROJ"
 
 [deps]
 stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert"]
+---
 EOF
 
 # === src/main.cyr ===
@@ -477,6 +483,37 @@ cyrius test                          # run test suite
 - Do not modify \`lib/\` files (vendored stdlib)
 - Do not skip \`cyrius deps\` before builds
 AGENT_FALLBACK_EOF
+            ;;
+    esac
+fi
+
+# === CLI tool integrations ===
+if [ -n "$CMTOOLS" ]; then
+    case "$CMTOOLS" in
+        starship|all)
+            STARSHIP_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
+            if [ -f "$STARSHIP_CONF" ]; then
+                if ! grep -q 'custom.cyrius' "$STARSHIP_CONF" 2>/dev/null; then
+                    cat >> "$STARSHIP_CONF" << 'STARSHIP'
+
+[custom.cyrius]
+command = "cyrius version 2>/dev/null | awk '{print $2}'"
+when = "test -f cyrius.cyml -o -f cyrius.toml"
+symbol = "𝕮"
+style = "bg:teal"
+format = '[[ $symbol( $output) ](fg:base bg:teal)]($style)'
+detect_files = ["cyrius.cyml", "cyrius.toml"]
+STARSHIP
+                    echo "  starship: added Cyrius segment to $STARSHIP_CONF"
+                else
+                    echo "  starship: Cyrius segment already configured"
+                fi
+            else
+                echo "  starship: no config found at $STARSHIP_CONF (skipped)"
+            fi
+            ;;
+        *)
+            echo "  note: unknown cmtools preset '$CMTOOLS', available: starship"
             ;;
     esac
 fi

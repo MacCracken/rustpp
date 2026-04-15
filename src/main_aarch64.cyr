@@ -57,9 +57,8 @@
 # ================================================================
 # MODULES
 # ================================================================
-# Syscall numbers for the COMPILER's own execution
-# Cross-compiler runs on x86, so uses x86 numbers
-# When self-hosting on aarch64, these get the aarch64 values
+# HOST syscall numbers — x86_64 Linux (cross-compiler runs on x86)
+# For native aarch64 self-hosting, use main_aarch64_native.cyr instead.
 enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
 
 include "src/common/util.cyr"

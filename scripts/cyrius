@@ -7,18 +7,16 @@
 
 set -e
 
-# Read version from VERSION file (check: install dir, repo root, CWD)
+# Toolchain version: from ~/.cyrius/current (installed), else from repo VERSION
 SCRIPT_DIR_V="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
+CYRIUS_DIR="${CYRIUS_HOME:-$HOME/.cyrius}"
+if [ -f "$CYRIUS_DIR/current" ]; then
+    VERSION=$(cat "$CYRIUS_DIR/current" | tr -d '[:space:]')
+elif [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
     VERSION=$(cat "$SCRIPT_DIR_V/../VERSION" | tr -d '[:space:]')
-elif [ -f "$SCRIPT_DIR_V/../../VERSION" ]; then
-    VERSION=$(cat "$SCRIPT_DIR_V/../../VERSION" | tr -d '[:space:]')
-elif [ -f "VERSION" ]; then
-    VERSION=$(cat VERSION | tr -d '[:space:]')
 else
     VERSION="unknown"
 fi
-CYRIUS_DIR="${CYRIUS_HOME:-$HOME/.cyrius}"
 # Find cc3: installed version, then local repo fallback
 CC="${CYRIUS_DIR}/bin/cc3"
 if [ ! -x "$CC" ]; then
@@ -1576,7 +1574,17 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     # === Info commands ===
     version|--version|-v)
-        echo "cyrius $VERSION"
+        if [ "${2:-}" = "--project" ]; then
+            if [ -f "VERSION" ]; then
+                cat VERSION | tr -d '[:space:]'
+                echo ""
+            else
+                echo "error: no VERSION file in current directory"
+                exit 1
+            fi
+        else
+            echo "cyrius $VERSION"
+        fi
         ;;
 
     which)

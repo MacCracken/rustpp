@@ -25,10 +25,11 @@ done
 DEPS="
 sakshi    0.9.0   sakshi.cyr
 sakshi    0.9.0   sakshi_full.cyr
-sigil     2.0.1   dist/sigil.cyr
-patra     0.14.0  dist/patra.cyr
+sigil     2.1.2   dist/sigil.cyr
+patra     1.0.0   dist/patra.cyr
 yukti     1.2.0   dist/yukti.cyr
 mabda     2.1.2   dist/mabda.cyr
+sankoch   1.2.0   dist/sankoch.cyr
 "
 
 echo "$DEPS" | while read -r REPO TAG FILE; do
