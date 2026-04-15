@@ -108,6 +108,8 @@ fn f64_acos(x) {
     return f64_sub(F64_PI_2, f64_asin(x));
 }
 
+var _F64_ZERO = 0;
+
 # Two-argument arctangent with full-plane quadrant handling. Result
 # is in (-π, π]. Quadrant map:
 #   x > 0            : atan(y/x)                   (Q1 / Q4)
@@ -118,8 +120,6 @@ fn f64_acos(x) {
 #   x == 0, y == 0   : 0  (convention — C libm matches)
 # Zero comparisons use bit equality against the f64 representation
 # of 0.0 (IEEE 754: both +0 and −0 compare equal via f64_eq).
-var _F64_ZERO = 0;
-
 fn f64_atan2(y, x) {
     if (f64_eq(x, _F64_ZERO) == 1) {
         if (f64_eq(y, _F64_ZERO) == 1) { return _F64_ZERO; }
