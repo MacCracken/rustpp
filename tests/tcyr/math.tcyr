@@ -26,4 +26,50 @@ assert_eq(f64_to(f64_from(0)), 0, "zero");
 assert_eq(f64_to(f64_from(1)), 1, "one");
 assert_eq(f64_to(f64_from(100)), 100, "hundred");
 
+var eps = f64_div(f64_from(1), f64_from(1000000));
+
+fn near(a, b) {
+    var diff = f64_abs(f64_sub(a, b));
+    return f64_lt(diff, eps);
+}
+
+test_group("f64 lerp");
+assert(near(f64_lerp(f64_from(0), f64_from(10), f64_from(0)) == 1, f64_from(0)), "lerp t=0");
+assert_eq(f64_to(f64_lerp(f64_from(0), f64_from(10), f64_from(1))), 10, "lerp t=1");
+assert_eq(f64_to(f64_lerp(f64_from(0), f64_from(10), f64_div(f64_from(1), f64_from(2)))), 5, "lerp t=0.5");
+
+test_group("f64 hypot");
+assert_eq(f64_to(f64_hypot(f64_from(3), f64_from(4))), 5, "hypot 3-4-5");
+
+test_group("f64 sign");
+assert(near(f64_sign(f64_from(42)), f64_from(1)) == 1, "sign pos");
+assert(near(f64_sign(f64_neg(f64_from(7))), f64_neg(f64_from(1))) == 1, "sign neg");
+assert(near(f64_sign(f64_from(0)), f64_from(0)) == 1, "sign zero");
+
+test_group("f64 trunc/fract");
+assert_eq(f64_to(f64_trunc(f64_div(f64_from(7), f64_from(2)))), 3, "trunc 3.5");
+assert_eq(f64_to(f64_trunc(f64_neg(f64_div(f64_from(7), f64_from(2))))), 0 - 3, "trunc -3.5");
+
+test_group("gcd/lcm");
+assert_eq(gcd(12, 8), 4, "gcd 12,8");
+assert_eq(gcd(17, 5), 1, "gcd coprime");
+assert_eq(gcd(0, 7), 7, "gcd 0,7");
+assert_eq(gcd(0 - 12, 8), 4, "gcd negative");
+assert_eq(lcm(4, 6), 12, "lcm 4,6");
+assert_eq(lcm(0, 5), 0, "lcm 0");
+
+test_group("fibonacci");
+assert_eq(fibonacci(0), 0, "fib 0");
+assert_eq(fibonacci(1), 1, "fib 1");
+assert_eq(fibonacci(10), 55, "fib 10");
+assert_eq(fibonacci(20), 6765, "fib 20");
+assert_eq(fibonacci(93), 0 - 1, "fib overflow");
+
+test_group("binomial");
+assert_eq(binomial(5, 2), 10, "C(5,2)");
+assert_eq(binomial(10, 0), 1, "C(n,0)");
+assert_eq(binomial(10, 10), 1, "C(n,n)");
+assert_eq(binomial(3, 5), 0, "C(3,5) invalid");
+assert_eq(binomial(20, 10), 184756, "C(20,10)");
+
 var r = assert_summary();

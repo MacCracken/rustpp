@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v4.10.1.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.10.2.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
-> **57 test suites**, 14 benchmarks, 5 fuzz harnesses. **58 stdlib modules** (includes 6 deps).
+> **58 test suites**, 14 benchmarks, 5 fuzz harnesses. **59 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 

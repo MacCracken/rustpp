@@ -1,0 +1,189 @@
+# Test: linalg stdlib module
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/math.cyr"
+include "lib/matrix.cyr"
+include "lib/linalg.cyr"
+
+alloc_init();
+
+var eps = f64_div(f64_from(1), f64_from(1000000));  # 1e-6
+
+fn f(v) { return f64_from(v); }
+
+fn assert_f64_near(a, b, msg) {
+    var diff = f64_abs(f64_sub(a, b));
+    assert(f64_lt(diff, eps) == 1, msg);
+    return 0;
+}
+
+# ── Tier 3: utilities ──
+test_group("mat_copy");
+var m1 = mat_new(2, 2);
+mat_set(m1, 0, 0, f(3)); mat_set(m1, 0, 1, f(7));
+mat_set(m1, 1, 0, f(1)); mat_set(m1, 1, 1, f(5));
+var m1c = mat_copy(m1);
+assert_f64_near(mat_get(m1c, 0, 1), f(7), "copy [0,1]");
+assert_eq(mat_rows(m1c), 2, "copy rows");
+
+test_group("mat_neg");
+var mn = mat_neg(m1);
+assert_f64_near(mat_get(mn, 0, 0), f64_neg(f(3)), "neg [0,0]");
+
+test_group("mat_row/col");
+var row0 = mat_row(m1, 0);
+assert_f64_near(load64(row0), f(3), "row0[0]");
+assert_f64_near(load64(row0 + 8), f(7), "row0[1]");
+var col1 = mat_col(m1, 1);
+assert_f64_near(load64(col1), f(7), "col1[0]");
+assert_f64_near(load64(col1 + 8), f(5), "col1[1]");
+
+test_group("mat_trace");
+assert_f64_near(mat_trace(m1), f(8), "trace 3+5");
+
+test_group("mat_frobenius");
+var id2 = mat_identity(2);
+assert_f64_near(mat_frobenius(id2), f64_sqrt(f(2)), "frobenius I2");
+
+test_group("mat_is_symmetric");
+var sym = mat_new(2, 2);
+mat_set(sym, 0, 0, f(4)); mat_set(sym, 0, 1, f(2));
+mat_set(sym, 1, 0, f(2)); mat_set(sym, 1, 1, f(3));
+assert_eq(mat_is_symmetric(sym, eps), 1, "symmetric yes");
+mat_set(sym, 1, 0, f(9));
+assert_eq(mat_is_symmetric(sym, eps), 0, "symmetric no");
+
+test_group("mat_eq");
+var a2 = mat_identity(2);
+var b2 = mat_identity(2);
+assert_eq(mat_eq(a2, b2, eps), 1, "eq identity");
+mat_set(b2, 0, 0, f(2));
+assert_eq(mat_eq(a2, b2, eps), 0, "eq differ");
+
+# ── Tier 1: LU decomposition ──
+test_group("mat_lu 2x2");
+# A = [[4, 3], [6, 3]]
+var a = mat_new(2, 2);
+mat_set(a, 0, 0, f(4)); mat_set(a, 0, 1, f(3));
+mat_set(a, 1, 0, f(6)); mat_set(a, 1, 1, f(3));
+var lu = mat_new(2, 2);
+var piv = alloc(16);
+var sign = mat_lu(a, lu, piv);
+assert(sign != 0, "lu not singular");
+
+test_group("mat_lu_solve");
+# Solve Ax = [1, 0] (first column of inverse)
+var bvec = alloc(16);
+store64(bvec, f(1)); store64(bvec + 8, f(0));
+var xvec = alloc(16);
+mat_lu_solve(lu, piv, bvec, xvec);
+# Verify A * x ≈ b
+var check0 = f64_add(f64_mul(f(4), load64(xvec)), f64_mul(f(3), load64(xvec + 8)));
+assert_f64_near(check0, f(1), "Ax=b check[0]");
+var check1 = f64_add(f64_mul(f(6), load64(xvec)), f64_mul(f(3), load64(xvec + 8)));
+assert_f64_near(check1, f(0), "Ax=b check[1]");
+
+test_group("mat_det");
+# det([[4,3],[6,3]]) = 4*3 - 3*6 = -6
+assert_f64_near(mat_det(a), f64_neg(f(6)), "det 2x2");
+
+test_group("mat_det 3x3");
+var a3 = mat_new(3, 3);
+mat_set(a3, 0, 0, f(1)); mat_set(a3, 0, 1, f(2)); mat_set(a3, 0, 2, f(3));
+mat_set(a3, 1, 0, f(0)); mat_set(a3, 1, 1, f(1)); mat_set(a3, 1, 2, f(4));
+mat_set(a3, 2, 0, f(5)); mat_set(a3, 2, 1, f(6)); mat_set(a3, 2, 2, f(0));
+# det = 1*(0-24) - 2*(0-20) + 3*(0-5) = -24+40-15 = 1
+assert_f64_near(mat_det(a3), f(1), "det 3x3");
+
+test_group("mat_inv");
+var inv = mat_inv(a);
+assert(inv != 0, "inv not singular");
+# A * A^-1 should be I
+var prod = mat_mul(a, inv);
+assert_f64_near(mat_get(prod, 0, 0), f(1), "A*Ainv [0,0]");
+assert_f64_near(mat_get(prod, 0, 1), f(0), "A*Ainv [0,1]");
+assert_f64_near(mat_get(prod, 1, 0), f(0), "A*Ainv [1,0]");
+assert_f64_near(mat_get(prod, 1, 1), f(1), "A*Ainv [1,1]");
+
+test_group("mat_cholesky");
+# A = [[4, 2], [2, 3]] — symmetric positive definite
+var spd = mat_new(2, 2);
+mat_set(spd, 0, 0, f(4)); mat_set(spd, 0, 1, f(2));
+mat_set(spd, 1, 0, f(2)); mat_set(spd, 1, 1, f(3));
+var low = mat_new(2, 2);
+var chol_ok = mat_cholesky(spd, low);
+assert_eq(chol_ok, 1, "cholesky success");
+# L * L^T should equal A
+var lt = mat_transpose(low);
+var chol_prod = mat_mul(low, lt);
+assert_eq(mat_eq(spd, chol_prod, eps), 1, "LL^T = A");
+
+test_group("mat_cholesky_solve");
+var cb = alloc(16);
+store64(cb, f(1)); store64(cb + 8, f(2));
+var cx = alloc(16);
+mat_cholesky_solve(low, cb, cx);
+# Verify A * x ≈ b
+var cc0 = f64_add(f64_mul(f(4), load64(cx)), f64_mul(f(2), load64(cx + 8)));
+var cc1 = f64_add(f64_mul(f(2), load64(cx)), f64_mul(f(3), load64(cx + 8)));
+assert_f64_near(cc0, f(1), "cholesky solve [0]");
+assert_f64_near(cc1, f(2), "cholesky solve [1]");
+
+test_group("mat_qr");
+# A = [[1, -1], [1, 1]] — simple QR
+var qm = mat_new(2, 2);
+mat_set(qm, 0, 0, f(1)); mat_set(qm, 0, 1, f64_neg(f(1)));
+mat_set(qm, 1, 0, f(1)); mat_set(qm, 1, 1, f(1));
+var q = mat_new(2, 2);
+var r = mat_new(2, 2);
+mat_qr(qm, q, r);
+# Q * R should equal A
+var qr_prod = mat_mul(q, r);
+assert_eq(mat_eq(qm, qr_prod, eps), 1, "QR = A");
+# Q should be orthogonal: Q^T * Q = I
+var qtq = mat_mul(mat_transpose(q), q);
+assert_eq(mat_eq(qtq, mat_identity(2), eps), 1, "Q^T*Q = I");
+
+test_group("mat_gaussian_elim");
+# Solve 2x + 3y = 8, x + y = 3 → x=1, y=2
+var aug = mat_new(2, 3);
+mat_set(aug, 0, 0, f(2)); mat_set(aug, 0, 1, f(3)); mat_set(aug, 0, 2, f(8));
+mat_set(aug, 1, 0, f(1)); mat_set(aug, 1, 1, f(1)); mat_set(aug, 1, 2, f(3));
+assert_eq(mat_gaussian_elim(aug), 1, "gauss success");
+assert_f64_near(mat_get(aug, 0, 2), f(1), "gauss x=1");
+assert_f64_near(mat_get(aug, 1, 2), f(2), "gauss y=2");
+
+test_group("mat_least_squares");
+# Overdetermined: 3 equations, 2 unknowns
+# x + y = 1, 2x + y = 2, x + 2y = 2  → least squares ~ x≈0.5, y≈0.5
+var ols = mat_new(3, 2);
+mat_set(ols, 0, 0, f(1)); mat_set(ols, 0, 1, f(1));
+mat_set(ols, 1, 0, f(2)); mat_set(ols, 1, 1, f(1));
+mat_set(ols, 2, 0, f(1)); mat_set(ols, 2, 1, f(2));
+var ob = alloc(24);
+store64(ob, f(1)); store64(ob + 8, f(2)); store64(ob + 16, f(2));
+var ox = alloc(16);
+mat_least_squares(ols, ob, ox);
+# Residuals should be small — check A^T * A * x ≈ A^T * b (normal equations)
+var ata = mat_mul(mat_transpose(ols), ols);
+var atb_vec = alloc(16);
+var i = 0;
+while (i < 2) {
+    var sum = f64_from(0);
+    var j = 0;
+    while (j < 3) {
+        sum = f64_add(sum, f64_mul(mat_get(ols, j, i), load64(ob + j * 8)));
+        j = j + 1;
+    }
+    store64(atb_vec + i * 8, sum);
+    i = i + 1;
+}
+# A^T*A*x should ≈ A^T*b
+var atax0 = f64_add(f64_mul(mat_get(ata, 0, 0), load64(ox)), f64_mul(mat_get(ata, 0, 1), load64(ox + 8)));
+var atax1 = f64_add(f64_mul(mat_get(ata, 1, 0), load64(ox)), f64_mul(mat_get(ata, 1, 1), load64(ox + 8)));
+assert_f64_near(atax0, load64(atb_vec), "least sq normal eq [0]");
+assert_f64_near(atax1, load64(atb_vec + 8), "least sq normal eq [1]");
+
+var result = assert_summary();

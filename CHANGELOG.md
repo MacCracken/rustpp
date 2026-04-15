@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.10.2] — 2026-04-15
+
+**Dense linear algebra stdlib — Tier 1 + Tier 3 from hisab proposal.**
+
+### Added
+- **`lib/linalg.cyr`** (659 lines) — dense linear algebra on f64
+  matrices, building on `matrix.cyr`'s storage layer. Out-param API
+  (no tuples). Partial pivoting only (complete pivoting out of scope).
+  `LINALG_EPS` default tolerance (1e-12).
+  - **Tier 1 solvers**: `mat_lu` (partial pivoting, packed L\U + pivot
+    vector), `mat_lu_solve`, `mat_det` (wrapper around LU),
+    `mat_inv` (wrapper — solves LU against identity columns),
+    `mat_cholesky` (SPD), `mat_cholesky_solve`, `mat_qr` (Householder),
+    `mat_gaussian_elim` (augmented matrix), `mat_least_squares` (via QR),
+    `mat_trace`.
+  - **Tier 3 utilities**: `mat_copy`, `mat_neg`, `mat_row`, `mat_col`,
+    `mat_set_row`, `mat_set_col`, `mat_submatrix`, `mat_frobenius`,
+    `mat_max_norm`, `mat_is_symmetric`, `mat_eq`.
+- **`tests/tcyr/linalg.tcyr`** — 34 assertions covering LU (2x2, 3x3),
+  LU solve, determinant, inverse, Cholesky + solve, QR + orthogonality,
+  Gaussian elimination, least squares (normal equation verification),
+  and all Tier 3 utilities.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 58 test suites.
+
 ## [4.10.1] — 2026-04-15
 
 **Sankoch compression dep + CI hardening.**
