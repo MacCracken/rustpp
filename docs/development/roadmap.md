@@ -118,7 +118,7 @@ all allocated registers.
 
 ---
 
-## v4.9.2 — Live TLS Bridge
+## v4.9.3 — Live TLS Bridge
 
 Single focused deliverable. Isolates security-sensitive work.
 
