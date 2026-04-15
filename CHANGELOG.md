@@ -4,6 +4,47 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.9.3] — 2026-04-15
+
+**Live TLS bridge — dynlib hardening + libssl.so.3 via pure-syscall loader.**
+
+### Added
+- **Live `lib/tls.cyr` bridge** — wires the 4.8.5 TLS interface through
+  `dynlib_open` → libssl.so.3 → SSL_CTX_new / SSL_connect / SSL_read /
+  SSL_write. Loads `libcrypto.so.3` first so cross-library symbol
+  resolution works. All symbols resolved via `_dynlib_resolve_global`.
+  `SSL_set_tlsext_host_name` replaced with `SSL_ctrl(ssl, 55, 0, host)`
+  — it's a macro in OpenSSL, not an exported function. SNI and system-CA
+  peer verification on by default via `SSL_CTX_set_default_verify_paths`
+  + `SSL_CTX_set_verify(SSL_VERIFY_PEER)`. `tls_available()` returns 1
+  when libssl found and all critical symbols resolve. bote is the
+  concrete consumer.
+- **`tests/tcyr/tls.tcyr`** — 22-assertion test suite covering dynlib
+  load, symbol resolution (14 SSL functions), cross-library resolution
+  (libcrypto `ERR_get_error` via global search), `tls_available()`,
+  negative symbol lookup, and handle dedup.
+
+### Changed
+- **`lib/dynlib.cyr` hardened** — DynLib struct extended from 56 to 64
+  bytes (+56: `strtab_sz` for string table bounds checking). Nine bounds
+  checks added:
+  - Program header overflow: `phentsz >= PHDR_SIZE` and
+    `phoff + phnum * phentsz <= file_size`.
+  - `_estimate_nsyms` capped at 16384.
+  - GNU hash zero-divisor guard: early return if `nbuckets == 0` or
+    `bloom_size == 0`.
+  - GNU hash chain walk: iteration limit (16384) + `sym_idx < symoffset`
+    guard prevents infinite loops on corrupt chains.
+  - String table OOB: `st_name_off >= strsz` check in both
+    `_gnu_hash_lookup` and `_linear_sym_lookup`.
+  - Relocation target OOB: `r_offset < span` before every `store64`.
+  - Relocation symbol name OOB: `st_name_off >= strsz` skip.
+  - DT_NEEDED name OOB: `name_off >= strtab_size` skip.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 53 test suites.
+
 ## [4.9.2] — 2026-04-14
 
 **CYML format + `cyrius init --agent` + tooling.**

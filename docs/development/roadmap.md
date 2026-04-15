@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v4.9.2.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v4.9.3.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
-> **52 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
+> **53 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -118,14 +118,13 @@ all allocated registers.
 
 ---
 
-## v4.9.3 — Live TLS Bridge
+## v4.9.3 — Live TLS Bridge (shipped) ✅
 
-Single focused deliverable. Isolates security-sensitive work.
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`lib/dynlib.cyr` hardening** | Medium | ELF loader segfaults on `libssl.so.3` parse. Harden the section/symbol table walk. |
-| **Live libssl bridge** | Medium | Wire `lib/tls.cyr`'s 4.8.5 interface through `dynlib_open` → libssl.so.3 → SSL_CTX_new / SSL_connect / SSL_read / SSL_write. SNI + system-CA peer verification on by default. `tls_available()` returns 1 when libssl found. bote is the concrete consumer. |
+Hardened `lib/dynlib.cyr` ELF loader (9 bounds checks, strtab_sz field,
+struct 56→64 bytes). Wired `lib/tls.cyr` through `dynlib_open` →
+libssl.so.3 with libcrypto preload, `SSL_ctrl` for SNI (macro
+workaround), system-CA peer verification by default. 22-assertion test
+suite (`tests/tcyr/tls.tcyr`).
 
 ---
 
