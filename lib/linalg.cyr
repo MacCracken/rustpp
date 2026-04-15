@@ -264,7 +264,7 @@ fn mat_lu(m, out_lu, out_piv) {
             var j = k + 1;
             while (j < n) {
                 var val = f64_sub(mat_get(out_lu, i, j),
-                                  f64_mul(factor, mat_get(out_lu, k, j)));
+                f64_mul(factor, mat_get(out_lu, k, j)));
                 mat_set(out_lu, i, j, val);
                 j = j + 1;
             }
@@ -594,7 +594,7 @@ fn mat_gaussian_elim(aug) {
             var j = k;
             while (j <= n) {
                 mat_set(aug, i, j, f64_sub(mat_get(aug, i, j),
-                                           f64_mul(factor, mat_get(aug, k, j))));
+                f64_mul(factor, mat_get(aug, k, j))));
                 j = j + 1;
             }
             i = i + 1;
