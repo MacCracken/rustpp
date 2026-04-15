@@ -8,17 +8,20 @@
 set -e
 
 DRY_RUN=0
+AGENT=""
 NAME=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
+        --agent) AGENT="generic" ;;
+        --agent=*) AGENT="${arg#--agent=}" ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) NAME="$arg" ;;
     esac
 done
 
 if [ -z "$NAME" ]; then
-    echo "Usage: cyrius init [--dry-run] <project-name>"
+    echo "Usage: cyrius init [--dry-run] [--agent[=preset]] <project-name>"
     echo ""
     echo "Creates a new Cyrius project with:"
     echo "  cyrius.toml    project manifest + deps"
@@ -29,7 +32,9 @@ if [ -z "$NAME" ]; then
     echo "  docs, CI, version files"
     echo ""
     echo "Options:"
-    echo "  --dry-run      show what would be created without writing"
+    echo "  --dry-run          show what would be created without writing"
+    echo "  --agent            create a CLAUDE.md for generic Cyrius projects"
+    echo "  --agent=<preset>   create a CLAUDE.md from a preset (agnos, claude)"
     exit 1
 fi
 
@@ -51,7 +56,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/CONTRIBUTING.md"
     echo "  $NAME/SECURITY.md"
     echo "  $NAME/CODE_OF_CONDUCT.md"
-    echo "  $NAME/CLAUDE.md"
+    if [ -n "$AGENT" ]; then
+        echo "  $NAME/CLAUDE.md          (agent preset: $AGENT)"
+    fi
     echo "  $NAME/tests/${NAME}.tcyr   (test suite)"
     echo "  $NAME/tests/${NAME}.bcyr   (benchmarks)"
     echo "  $NAME/tests/${NAME}.fcyr   (fuzz harness)"
@@ -333,6 +340,145 @@ jobs:
           generate_release_notes: true
           files: build/*
 RELEASE
+
+# === CLAUDE.md (agent file, opt-in) ===
+if [ -n "$AGENT" ]; then
+    case "$AGENT" in
+        generic)
+            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+# $PROJ
+
+Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
+
+## Build
+
+\`\`\`sh
+cyrius deps                          # resolve dependencies
+cyrius build src/main.cyr build/$PROJ  # compile
+cyrius test                          # run test suite
+\`\`\`
+
+## Conventions
+
+- Source lives in \`src/\`, tests in \`tests/\`
+- Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
+- Toolchain version pinned in \`.cyrius-toolchain\`
+- \`var buf[N]\` is N **bytes**, not elements
+- No closures — use named functions + globals
+- \`&&\`/\`||\` short-circuit; mixed requires explicit parens
+
+## Do Not
+
+- Do not commit or push without user approval
+- Do not modify \`lib/\` files (vendored stdlib)
+- Do not skip \`cyrius deps\` before builds
+AGENT_EOF
+            ;;
+        agnos)
+            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+# $PROJ — AGNOS Ecosystem
+
+Part of the [AGNOS](https://github.com/MacCracken) ecosystem.
+Written in [Cyrius](https://github.com/MacCracken/cyrius).
+
+## Build
+
+\`\`\`sh
+cyrius deps                          # resolve dependencies
+cyrius build src/main.cyr build/$PROJ  # compile
+cyrius test                          # run test suite
+\`\`\`
+
+## AGNOS Conventions
+
+- All AGNOS projects use GPL-3.0-only
+- Pin toolchain version in \`.cyrius-toolchain\` to latest stable
+- Use \`assert_summary()\` exit pattern in tests
+- Stdlib modules are vendored in \`lib/\`; do not modify
+- Prefix public functions with project name to avoid collisions
+- \`var buf[N]\` is N **bytes**, not elements
+- No closures — use named functions + globals
+
+## Testing
+
+- \`.tcyr\` files are test suites (run via \`cyrius test\`)
+- \`.bcyr\` files are benchmarks (run via \`cyrius bench\`)
+- \`.fcyr\` files are fuzz harnesses (run via \`cyrius fuzz\`)
+- Always exit with \`syscall(60, assert_summary())\`
+
+## Do Not
+
+- Do not commit or push without user approval
+- Do not modify \`lib/\` files (vendored stdlib)
+- Do not skip \`cyrius deps\` before builds
+- Do not add features without tests
+AGENT_EOF
+            ;;
+        claude)
+            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+# $PROJ
+
+Written in [Cyrius](https://github.com/MacCracken/cyrius).
+
+## Build
+
+\`\`\`sh
+cyrius deps && cyrius build src/main.cyr build/$PROJ
+cyrius test
+\`\`\`
+
+## Key Facts
+
+- Source in \`src/\`, tests in \`tests/\`, stdlib in \`lib/\` (vendored, do not edit)
+- Dependencies declared in \`cyrius.toml\`
+- Toolchain pinned in \`.cyrius-toolchain\`
+
+## Language Notes
+
+- \`var buf[N]\` is N bytes, not elements
+- \`&&\`/\`||\` short-circuit; mixed requires parens: \`a && (b || c)\`
+- No closures — use named functions
+- Test exit pattern: \`syscall(60, assert_summary())\`
+
+## Do Not
+
+- Do not commit or push without user approval
+- Do not modify files in \`lib/\`
+AGENT_EOF
+            ;;
+        *)
+            echo "  note: unknown preset '$AGENT', using generic"
+            cat > "$NAME/CLAUDE.md" << AGENT_FALLBACK_EOF
+# $PROJ
+
+Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
+
+## Build
+
+\`\`\`sh
+cyrius deps                          # resolve dependencies
+cyrius build src/main.cyr build/$PROJ  # compile
+cyrius test                          # run test suite
+\`\`\`
+
+## Conventions
+
+- Source lives in \`src/\`, tests in \`tests/\`
+- Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
+- Toolchain version pinned in \`.cyrius-toolchain\`
+- \`var buf[N]\` is N **bytes**, not elements
+- No closures — use named functions + globals
+- \`&&\`/\`||\` short-circuit; mixed requires explicit parens
+
+## Do Not
+
+- Do not commit or push without user approval
+- Do not modify \`lib/\` files (vendored stdlib)
+- Do not skip \`cyrius deps\` before builds
+AGENT_FALLBACK_EOF
+            ;;
+    esac
+fi
 
 # === Vendor stdlib ===
 echo "Vendoring Cyrius stdlib..."

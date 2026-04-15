@@ -112,7 +112,7 @@ Build:
   clean                           remove build/ contents
 
 Project:
-  init <name>                     scaffold a new project
+  init [--agent[=preset]] <name>  scaffold a new project
   package                         create .ark distributable
   publish                         push package to Ark registry
   install <pkg>                   install package from registry
