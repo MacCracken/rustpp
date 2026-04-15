@@ -4,6 +4,52 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-beta1] — 2026-04-14 (unreleased)
+
+### Added — integration coverage + snapshot benchmarks
+- **`tests/tcyr/math_pack_integration.tcyr`** — 10-assertion
+  cross-cutting test that exercises every alpha1..alpha7 deliverable
+  in a single compile unit. Not re-proving per-fn correctness (each
+  alpha ships its own focused regression); instead verifying the
+  pack plays together cleanly: `u64_powmod` satisfies Fermat,
+  `u128_mod` fast-path picks up transparently on a `b_hi == 0`
+  divmod, f64 constants round-trip through arithmetic, inverse trig
+  composes correctly with sin/cos (`atan2(sin θ, cos θ) = θ`),
+  hyperbolic identity `cosh² − sinh² = 1` holds for `asinh(2)`, and
+  the ASCII case helpers agree with `streq`.
+
+### Benchmark snapshot
+`benches/bench_mulmod.bcyr` run for the record (post-alpha2
+combination of fast-path `u128_mod` + asm-direct `u64_mulmod`):
+```
+  mulmod/binary_slow:  618 ns avg  (100k iters, pure-Cyrius double-and-add)
+  mulmod/u64_fast:     402 ns avg  (  hardware mul + div)
+  miller_rabin/slow:    11 µs avg  (1k iters, binary-mulmod path)
+  miller_rabin/fast:   956 ns avg  ( u64_mulmod path)
+```
+Miller-Rabin speedup: **~12×**. Single mulmod: **~1.5×** (call
+overhead dominates at the primitive level; the MR compounding is
+where the hardware-div win lands).
+
+### Known gaps carried from alpha3 to post-4.8.5
+- **Live libssl TLS bridge** — interface in `lib/tls.cyr` is
+  stable (alpha3), but the wire-up through `lib/dynlib.cyr` has
+  to wait on a dynlib hardening pass. `tls_available()` returns 0
+  until that lands; consumers fall back cleanly.
+- **`parse_f64(cstr)`** — 4.8.6 standalone as per the triage in
+  `docs/issues/stdlib-math-recommendations-from-abaco.md`.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 51 files / 396 assertions (new:
+  `math_pack_integration.tcyr` 10/0).
+- Bench suite runs clean, numbers captured in the snapshot above.
+
+### Roadmap (4.8.5)
+- alpha1..alpha7 ✅
+- beta1 ✅ — integration coverage + bench snapshot (this release).
+- GA (next) — close-out audit, no new features.
+
 ## [4.8.5-alpha7] — 2026-04-14 (unreleased)
 
 ### Added — ASCII case helpers (`lib/string.cyr`)
