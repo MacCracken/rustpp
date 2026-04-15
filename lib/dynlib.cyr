@@ -385,8 +385,8 @@ fn _dynlib_resolve_global(name) {
 # Try to find a .so file on common search paths
 # Writes the full path into buf, returns 1 on success
 fn _dynlib_find_path(name, buf, bufsz) {
-    # Try common library paths
-    var paths[4];
+    # Try common library paths (4 pointers × 8 bytes = 32 bytes)
+    var paths[32];
     store64(&paths, "/usr/lib/");
     store64(&paths + 8, "/lib/");
     store64(&paths + 16, "/usr/lib/x86_64-linux-gnu/");

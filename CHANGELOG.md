@@ -22,7 +22,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`tests/tcyr/tls.tcyr`** — 22-assertion test suite covering dynlib
   load, symbol resolution (14 SSL functions), cross-library resolution
   (libcrypto `ERR_get_error` via global search), `tls_available()`,
-  negative symbol lookup, and handle dedup.
+  negative symbol lookup, and handle dedup. Skips gracefully on systems
+  without libssl (3 degradation assertions instead).
 
 ### Changed
 - **`lib/dynlib.cyr` hardened** — DynLib struct extended from 56 to 64
@@ -40,6 +41,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Relocation target OOB: `r_offset < span` before every `store64`.
   - Relocation symbol name OOB: `st_name_off >= strsz` skip.
   - DT_NEEDED name OOB: `name_off >= strtab_size` skip.
+
+### Fixed
+- **`_dynlib_find_path` stack buffer overflow** — `var paths[4]` allocated
+  4 bytes for 4 pointers (32 bytes needed). Writes past the buffer
+  clobbered the return address, segfaulting on systems where all search
+  paths fail (e.g. CI without libssl). Fixed to `var paths[32]`.
 
 ### Validation
 - cc3 self-host byte-identical (two-step bootstrap).

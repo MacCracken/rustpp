@@ -1,4 +1,5 @@
 # Test: TLS bridge via dynlib → libssl.so.3
+# Skips gracefully if libssl/libcrypto not installed.
 include "lib/string.cyr"
 include "lib/fmt.cyr"
 include "lib/alloc.cyr"
@@ -11,10 +12,26 @@ include "lib/tls.cyr"
 
 alloc_init();
 
-# ── dynlib: load libssl.so.3 ──
+# ── check if libssl is available on this system ──
 test_group("dynlib libssl load");
 
 var hc = dynlib_open("libcrypto.so.3");
+if (hc == 0) {
+    # No libssl on this system — verify graceful degradation only
+    test_group("graceful skip (no libssl)");
+    var avail = tls_available();
+    assert_eq(avail, 0, "tls_available returns 0 without libssl");
+
+    var hs = dynlib_open("libssl.so.3");
+    assert_eq(hs, 0, "libssl.so.3 returns 0");
+
+    var bad = dynlib_sym(0, "SSL_connect");
+    assert_eq(bad, 0, "dynlib_sym(0) returns 0");
+
+    var r = assert_summary();
+    syscall(60, r);
+}
+
 assert(hc != 0, "libcrypto.so.3 loaded");
 
 var h = dynlib_open("libssl.so.3");
