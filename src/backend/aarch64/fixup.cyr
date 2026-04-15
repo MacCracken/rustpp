@@ -4,6 +4,48 @@
 # Patches MOVZ/MOVK sequences for variable/string/function addresses.
 # Emits aarch64 ELF64 binary (e_machine=0xB7=183).
 
+var _env_scratch[256];
+# Read an env var by name. Returns &_env_scratch (NUL-terminated value) or 0.
+# aarch64 Linux syscalls: openat=56, read=63, close=57.
+fn _read_env(name) {
+    var ebuf[8192];
+    var efd = syscall(56, 0 - 100, "/proc/self/environ", 0, 0);
+    if (efd < 0) { return 0; }
+    var elen = syscall(63, efd, &ebuf, 8191);
+    syscall(57, efd);
+    if (elen <= 0) { return 0; }
+    store8(&ebuf + elen, 0);
+    var nlen = 0;
+    while (load8(name + nlen) != 0) { nlen = nlen + 1; }
+    var pos = 0;
+    while (pos < elen) {
+        var end = pos;
+        while (end < elen && load8(&ebuf + end) != 0) { end = end + 1; }
+        if (end - pos > nlen && load8(&ebuf + pos + nlen) == 61) {
+            var matched = 1;
+            var k = 0;
+            while (k < nlen) {
+                if (load8(&ebuf + pos + k) != load8(name + k)) { matched = 0; break; }
+                k = k + 1;
+            }
+            if (matched == 1) {
+                var vstart = pos + nlen + 1;
+                var vlen = end - vstart;
+                if (vlen > 255) { vlen = 255; }
+                var ci = 0;
+                while (ci < vlen) {
+                    store8(&_env_scratch + ci, load8(&ebuf + vstart + ci));
+                    ci = ci + 1;
+                }
+                store8(&_env_scratch + vlen, 0);
+                return &_env_scratch;
+            }
+        }
+        pos = end + 1;
+    }
+    return 0;
+}
+
 fn FIXUP(S) {
     var cp = GCP(S);
     cp = (cp + 3) & (0 - 4);

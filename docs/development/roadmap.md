@@ -1,13 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v4.8.2.** 353KB self-hosting compiler, x86_64 + aarch64.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (353KB). Closure verified.
-> **44 test suites**, 12 benchmarks, 5 fuzz harnesses. **43 stdlib modules** + 5 deps.
-> New in 4.6.0: multi-file linker (`programs/cyrld.cyr`) + cross-unit DCE.
-> New in 4.7.0: real dlopen-able `.so` from `shared;` (PT_DYNAMIC, PT_GNU_STACK, DT_INIT, PIC LEA).
-> New in 4.8.0: `u128` stdlib (96 assertions). 4.8.1: `base64url`. 4.8.2: switch jump-table tuning.
+> **v4.8.5-1.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (364KB). Closure verified.
+> **51 test suites**, 14 benchmarks, 5 fuzz harnesses. **56 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
-> 10 downstream projects shipping.
+> 10+ downstream projects shipping.
 
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
@@ -18,15 +15,16 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 | Bug | Impact | Status |
 |-----|--------|--------|
-| Layout-dependent memory corruption | Libro PatraStore tests | v4.3.1: localized with `CYRIUS_SYMS`. Crash is `memeq` called with NUL data ptr from `str_eq(entry_hash(a), entry_hash(b))` in large libro binary. Each `println` shifts the site — classic memory corruption signature. Root cause fix deferred to post-4.4.0 when byte-walking CFG lands. Workaround still in place (isolated test binary). |
-| `&&` / `||` do not short-circuit | Silent miscompile; any guarded null check (`if (p != 0 && vec_len(p) > 0)`) crashes because the right side evaluates unconditionally | Confirmed active on 4.4.0 via bote feedback doc (item 2). Documented as short-circuit in `docs/cyrius-guide.md`. Workaround: nest `if` blocks. Real fix: short-circuit codegen emits `je`/`jne` over the right operand evaluation. |
+| Layout-dependent memory corruption | Libro PatraStore tests | v4.3.1: localized with `CYRIUS_SYMS`. Crash is `memeq` called with NUL data ptr from `str_eq(entry_hash(a), entry_hash(b))` in large libro binary. Each `println` shifts the site — classic memory corruption signature. Root cause needs CFG to diagnose. Workaround: isolated test binary. Fix deferred to 5.0 (gets own version bump within alpha cycle). |
+| `#ref` preprocessor matches inside strings/comments | `PP_REF_PASS` scans every byte position for `#ref ` without skipping string literals or comments. Source containing `"#ref "` silently corrupts the preprocessor state, producing a 136-byte stub. | x86 self-hosting unaffected (pass ordering protects it). Exposed when feeding pre-expanded source to cross-compiler. Deferred to 5.0 (cc5 preprocessor redesign). |
+| aarch64 native binary non-functional | `cc3-native-aarch64` hangs on any input on ARM hardware | `main_aarch64.cyr` uses x86 syscall numbers for the compiler's own I/O — correct for the cross-compiler but wrong for native. Deferred to 5.0 (aarch64 native self-hosting item). `_read_env` added to aarch64 fixup.cyr in 4.8.5-1. |
 
 ---
 
 ## Shipped
 
 <details>
-<summary>Click to expand shipped items (v3.7.0 → v4.1.0)</summary>
+<summary>Click to expand shipped items (v3.7.0 → v4.8.5)</summary>
 
 ### v3.7.x — Language Features
 - `#derive(accessors)`, native multi-return, switch case blocks, float literal fix, fixup table 8192→16384
@@ -56,245 +54,115 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - `error:lib/alloc.cyr:42:` instead of `error:10169:`
 - All 12 error/warning call sites updated
 
+### v4.2.x–v4.4.x — Compiler & Stdlib (shipped out of sequence)
+Items originally roadmapped for these versions shipped across multiple releases:
+- **Dead function warning** (aggregate count) — fixup.cyr, `note: N unreachable fns`
+- **Single-CU DCE** — `CYRIUS_DCE=1` NOP-fill for unreachable functions
+- **Short-circuit `&&`/`||`** — full `je`/`jne` codegen in parse.cyr
+- **`rep movsb`/`rep stosb`** — hardware memcpy/memset in lib/string.cyr
+- **Bump allocator soft reset** — `alloc_reset()` in lib/alloc.cyr
+- **Struct initializer syntax** — `Name { field: expr }` (named + positional) in parse.cyr
+- **LSP** — programs/cyrius-lsp.cyr (didOpen, didSave, didChange, diagnostics)
+
+### v4.5.0 — HTTP Server
+- `lib/http_server.cyr`: parse/build request+response, Content-Length read, URL-decode, chunked/SSE, `http_server_run` accept-loop
+
+### v4.6.0 — Multi-File Linker & Cross-Unit DCE
+- `programs/cyrld.cyr` linker: read .o, resolve symbols, patch relocations, emit executable
+- Cross-unit DCE across object files
+
+### v4.7.0 — PIC Codegen & Shared Objects
+- `.so` output (ET_DYN), GOT/PLT, PT_DYNAMIC, PT_GNU_STACK, DT_INIT, PIC LEA
+
+### v4.8.0–v4.8.5 — Types, Codegen, Capacity & Math
+- **4.8.0**: u128 stdlib (96 assertions)
+- **4.8.1**: base64url (RFC 4648 §5)
+- **4.8.2**: Switch jump-table tuning (density 50%→33%, range 256→1024)
+- **4.8.3**: `CYRIUS_STATS=1` capacity report, `cyrius audit --capacity`, 85% utilization warning
+- **4.8.4**: `#regalloc` (single rbx), PP_IFDEF_PASS 256KB scan-blindness fix
+- **4.8.5**: Math stdlib pack (u128_divmod fast-path, u64_mulmod/powmod, f64 constants, inverse trig/hyperbolic, ASCII case), CVE-2019-9741 CRLF hardening in http.cyr, TLS interface scaffold
+
 </details>
 
 ---
 
-## v4.1.x — Compiler Optimization
+## v4.9.0 — Practical Backlog
 
-Performance and binary size. The compiler understands its output better.
+Concrete items with live consumers or clear gaps. No speculation.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Dead function warning** | Low | Functions included but never called still emit code. Warn at fixup time. Helps binary-size-conscious work. |
-| **`rep movsb`/`rep stosb`** | Low | Fast memcpy/memset in stdlib. 369ns → sub-10ns for 128-byte copies. |
-| **Optimized strlen** | Low | SSE4.2 `pcmpistri` or word-at-a-time. 94ns → sub-20ns for 52 chars. |
-| **Bump allocator soft reset** | Low | `alloc_reset()` without brk syscall. 1175ns → sub-10ns. |
+| **Multi-register `#regalloc` (r12–r15)** | Medium | 4.8.4 shipped single-rbx with frame layout, safety-scan, and peephole patcher. Extending to r12–r15 reuses all that infrastructure. Measurable perf win for hot loops — the 4.8.4 microbench showed ~12% on a single register; multi-register targets sub-100ns on the 249ns struct-creation benchmark. |
+| **`f64_parse(cstr)`** | Medium | Symmetric gap with existing `fmt_float`. abaco triage flagged it. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN`/`Inf` text. |
+| **Per-function dead fn names** | Low | Currently `note: N unreachable fns (M bytes)` as aggregate. Surface individual function names from the fixup table. Immediate DX win for all consumers debugging binary size. |
+| **Word-at-a-time strlen** | Low | `lib/string.cyr` strlen is byte-at-a-time. Use 8-byte word reads with magic-constant zero detection. Portable to aarch64 (no SIMD). |
 
 ---
 
-## v4.2.0 — Basic-Block Analysis & Register Allocation
+## v4.9.1 — Live TLS Bridge
 
-The compiler learns control flow. Foundation for all advanced optimizations.
+Single focused deliverable. Isolates security-sensitive work.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **Basic-block analysis** | Medium | Build CFG per function. Foundation for LASE, register alloc, Heisenbug diagnosis. |
-| **Per-function register alloc** | Medium | Opt-in `#regalloc`. Keep hot locals in callee-saved registers. Key benchmark: 249ns → target sub-100ns. |
-| **LASE (load-after-store elimination)** | Medium | With CFG, safely eliminate redundant stack loads. The v3.8.1 attempt failed without CFG. |
-| **Layout Heisenbug diagnosis** | Medium | With CFG, audit the libro PatraStore codegen. Jump target analysis should expose the misfire. |
+| **`lib/dynlib.cyr` hardening** | Medium | ELF loader segfaults on `libssl.so.3` parse. Harden the section/symbol table walk. |
+| **Live libssl bridge** | Medium | Wire `lib/tls.cyr`'s 4.8.5 interface through `dynlib_open` → libssl.so.3 → SSL_CTX_new / SSL_connect / SSL_read / SSL_write. SNI + system-CA peer verification on by default. `tls_available()` returns 1 when libssl found. bote is the concrete consumer. |
 
 ---
 
-## v4.3.0 — LSP & Developer Experience
+## v4.10.0 — Cleanup & Consolidation (last 4.x)
 
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **LSP** | High | Language Server Protocol. Go-to-definition, diagnostics, hover, completions. Written in Cyrius, built on cc4's file map and symbol tables. |
-| **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
-| **Struct initializer syntax** | Medium | `var p = Point { x: a, y: b }` instead of alloc + store64. |
+**No new features.** Full codebase audit so 5.0 starts clean.
 
----
-
-## v4.4.0 — CFG & Single-CU Dead-Code Elimination
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **Basic-block / CFG pass** | Medium | Build per-function control flow graph from emitted bytes + jump target table (v4.2.0 infra). Foundation for DCE, LASE soundness, register alloc, Heisenbug diagnosis. |
-| **Single-CU DCE** | Medium | With CFG, drop functions unreachable from `main` + referenced globals. Binary-size win without the multi-file linker prerequisite. |
-| **libro PatraStore Heisenbug** | Medium | Use CFG to find the memory-corruption source flagged by CYRIUS_SYMS in 4.3.1. Unblocks libro's full test suite. |
-
----
-
-## v4.5.0 — `lib/http_server.cyr` (shipped)
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **HTTP/1.1 server primitives** | Medium | Parse/build request+response, Content-Length-aware read, URL-decode, path segments, chunked/SSE support, accept-loop `http_server_run`. Unblocks bote, vidya, and any future service port — removes ~750 LOC of hand-rolled HTTP across consumers. Reference impl from bote team's proposal. |
-
-Reordered from the original "multi-file linker" scope — porting pressure from bote/vidya shifted the priority to concrete stdlib infra. Linker work moves to v4.6.0.
-
----
-
-## v4.6.0 — Multi-File Linker & Cross-Unit DCE
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **Multi-file linker** | High | .o emission done (v2.6.4). Read .o, resolve symbols, patch relocations, emit executable. |
-| **Cross-unit DCE** | High | Extend 4.4.0 single-CU DCE across object files once the linker lands. kybernet 486KB → est. 150-200KB. |
-| **HTTP keep-alive** | Low | Non-blocking accept + keep-alive replies for `lib/http_server.cyr`. Deferred from 4.5.0 per proposal § open questions. |
-
----
-
-## v4.7.0 — PIC Codegen
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **PIC codegen** | High | `.so` output (ET_DYN), GOT/PLT. Partial in v3.4.12. Last piece before multi-platform work, since Mach-O/PE need position-independent references. |
-
----
-
-## v4.8.x — Types, Codegen & Capacity (final 4.x minor series)
-
-The 4.8 series breaks the single-feature "u128 everything" plan into
-independent shippable minors. Each can be picked up / deferred without
-blocking the rest.
-
-### v4.8.0 — `u128` (shipped, with performance caveat) ✅
-Pointer-based stdlib (`lib/u128.cyr`): `set` / `from_u64` / `copy` /
-`lo` / `hi` / `eq` / `is_zero` / `add` / `sub` / `mul` / `divmod` /
-`div` / `mod` / `shl` / `shr` / `and` / `or` / `xor` / `not` / `ugt` /
-`uge` / `ult` / `ule` + `*eq` in-place variants. 96-assertion
-regression test.
-
-**Known gaps:** u128 as fn param / struct field / local — stack slot
-is 8 bytes. Follow-up patches needed.
-
-**Performance caveat (downstream evidence):** `u128_mod` via software
-long-division is ~**40× slower** than binary double-and-add on
-`is_prime`-style benchmarks (reported by abaco/hisab during port). For
-hot-path modular arithmetic, consumers should prefer algorithm
-substitution (Montgomery, binary exponentiation) over the generic
-`u128_mod` until Cyrius codegen emits hardware 128-bit div-mod
-(`divq`/`idivq` on x86_64, `udiv`+`mul`-sub on aarch64). Revisit as a
-codegen task post-5.0 — see [v5.x — Language Refinements](#v5x--language-refinements-post-platform-minors).
-
-### v4.8.1 — `base64url` + bote-reported fixes (shipped) ✅
-- `base64url_encode` / `base64url_decode` in `lib/base64.cyr` (RFC
-  4648 §5; JWT, OAuth 2.1, capability URLs).
-- CI-discovered `method_dispatch` / `u128` test exit-code fix (needed
-  explicit `syscall(60, assert_summary())`).
-- 18 undocumented `lib/u128.cyr` helpers documented.
-
-### v4.8.2 — Switch jump-table tuning (shipped) ✅
-- Gap-to-default fix — values in `[min, max]` with no case now route
-  to `default:` (previously fell through end-of-switch; invisible at
-  the old 50% density threshold because dense cases have no gaps).
-- Density threshold lowered 50% → 33%.
-- Range cap raised 256 → 1024 — wider enum switches (40+ variants
-  over a few hundred values) now hit O(1) dispatch.
-- Dispatch benchmark (`benches/bench_switch.bcyr`): jump table ~7%
-  faster on 8-way, ~11% on 16-way.
-
-### v4.8.3 — Capacity visibility (shipped) ✅
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`CYRIUS_STATS=1` compile-time usage report** | Low | Print fn-table (X/4096), identifier buffer (Y/131072), var table (Z/8192), fixup table, string data when set. Consumer projects (bote, kybernet, libro) hit silent capacity walls — bote reverted claims-propagation twice from ceiling pressure. Visibility lets refactors size themselves. |
-| **`cyrius audit --capacity`** | Low | Standalone subcommand that compiles the unit and prints the same table. Wraps the env-flag path for scripted use. |
-| **Warn at 85% utilization** | Low | Soft warning on build when any cap crosses 85% — catches "close to wall" before a real refactor trips it. |
-
-### v4.8.4 — Register allocation (shipped) ✅
-
-Shipped `#regalloc` end-to-end: fn_regalloc metadata table, frame-
-slot reservation at `[rbp-8]` for saved rbx, post-body byte-level
-peephole patcher with use-count picker, width-aware + address-of
-safety abort, and a 4-byte NOP pad (`0F 1F 40 00`) to keep jump
-offsets stable after the 7→3 byte rewrite. Nested-accumulator
-microbench: ~12% faster than plain. Multi-register extension
-(`r12..r15`) deferred to 4.9.x.
-
-Along the way: closed bote's 4.8.3 blocker triad (path-traversal
-env override, include-once cap 64→256, `PP_IFDEF_PASS` fixpoint
-loop for nested includes past the first level). Retagged post-GA
-to fold in the `PP_IFDEF_PASS` 256 KB scan blindness fix — IS*
-helpers now read from the mmap'd `tmp` buffer directly so the
-cap on S+0 copy no longer blinds the scan on ≥ 512 KB compile
-units.
-
-### v4.8.5 — Math stdlib pack + HTTP defence-in-depth (shipped) ✅
-
-Shipped the full abaco math triage in one minor: `u128_divmod`
-hardware fast-path (two back-to-back unsigned hardware `div`
-instructions in one asm block when `b_hi == 0`), asm-direct
-`u64_mulmod` / `u64_powmod` (~12× on a full Miller-Rabin round,
-~1.5× on the primitive), f64 constants (π, τ, e, ln2, ln10, ½,
-√2 etc.), inverse trig with correct atan2 quadrants, inverse
-hyperbolic completing the sinh/cosh/tanh symmetry, ASCII case
-helpers.
-
-Security-side: CVE-2019-9741 pattern closed in
-`_http_parse_url` (reject CR / LF / TAB / SPACE, empty host,
-port 0 / > 65535), `http_get` surfaces `HTTP_ERROR` without
-touching the network. `lib/tls.cyr` interface scaffold shipped
-with fail-clean stubs — live libssl bridge deferred to a later
-4.8.x pending a `lib/dynlib.cyr` hardening pass.
-
-### v4.8.6 — Deferred formatting (next up)
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`defmt`** | High | Compile-time format-string interning + runtime decode ring. Format strings become IDs at the call site; stdlib expands at drain time. Binary-size win for embedded / kernel / AGNOS targets. |
-
-### v4.8.7 — f64 parsing (planned)
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`f64_parse(cstr)` + `f64_parse_prefix(cstr, out_end)`** | Medium | Ok/Err cstring-to-f64 parser. Handles optional sign, integer/fraction, `e[+-]?digits` scientific notation, `NaN` / `Inf` text. Closes the symmetric gap with existing `fmt_float`. |
-
-### v4.8.8 — Live TLS bridge (planned)
-
-| Feature | Effort | Details |
-|---------|--------|---------|
-| **`lib/dynlib.cyr` hardening** | Medium | ELF loader currently segfaults on `libssl.so.3` parse — prereq for TLS. |
-| **Live libssl bridge** | Medium | Wire `lib/tls.cyr`'s 4.8.5 interface through `dynlib_open` → libssl.so.3 → SSL_CTX_new / SSL_connect / SSL_read / SSL_write with SNI + system-CA peer verification on by default. |
-
-### v4.8.x — Cleanup ramp to 5.0
-
-4.8.x is the cleanup ramp. New stdlib surface lands here when —
-and only when — it unblocks a concrete downstream caller. No
-speculative additions; everything traces back to a live consumer
-request with a stopgap in their tree today.
-
-### v4.9 — TBD (own focus + fix patches)
-
-Reserved for its own minor theme (scope set when we cut) plus
-regression/fix patches for 4.8.x features. Not a catch-all for
-deferred work from 4.8.x.
-
-Candidate themes being weighed (none committed):
-- Multi-register `#regalloc` (`r12..r15` extension, inherits
-  4.8.4's frame layout and safety-scan infrastructure).
-- IR-based codegen pass to replace the current post-emit peephole
-  (eliminates the NOP padding by allowing real code-size changes).
+| Item | Details |
+|------|---------|
+| **Heap map consolidation** | Audit every allocation in src/main.cyr, reclaim dead regions, document the map for cc5 migration. cc3 heap is near 14.8MB capacity — map every byte for the generation bump. |
+| **Code audit + refactor** | Dead code removal, naming consistency, comment hygiene across parse.cyr, lex.cyr, emit.cyr, fixup.cyr. Remove stale TODO/FIXME markers. |
+| **Test coverage gaps** | Every stdlib module without a dedicated test file gets one. Benchmark baselines captured for 5.0 regression testing. |
+| **Documentation freeze** | cyrius-guide.md, CLAUDE.md, known-limits, gotchas table — all accurate as of this release. Version refs, feature claims, and capacity numbers verified. |
+| **Security re-scan** | Grep for `sys_system` / `READFILE` with unvalidated paths, unchecked writes near region boundaries, stale fixed-size caps. |
+| **P(-1) scaffold hardening** | Full checklist: `cyrius fmt --check`, `cyrius lint`, `cyrius vet`, all .tcyr pass, heap audit clean, self-hosting verified, benchmark baseline. |
 
 ---
 
 ## v5.0.0 — Multi-Platform (major)
 
-**Scope: platforms only.** This is the release where Cyrius leaves single-platform ELF and lands on every OS and ISA that matters. Language refinements and DX improvements do not belong here — they ship in 4.x minors before the cut and 5.x minors after. A narrow 5.0 scope keeps the release auditable and the platform story clear.
-
-The cc5 uplift is included **only as the platform enabler** — the mechanism by which a single compiler binary selects Mach-O / PE / ELF backends at runtime. Language-level cc5 benefits (per-block scoping, incremental compilation) are split out to 5.x; if they can ship earlier as 4.x incremental work, they will.
+**Scope: platforms only.** This is the release where Cyrius leaves single-platform ELF and lands on every OS and ISA that matters. Language refinements ship in 5.x minors after the cut. A narrow 5.0 scope keeps the release auditable and the platform story clear.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **cc3 → cc5 uplift (platform-scoped)** | High | Generation bump focused on multi-arch backend selection from one binary. cc3 has carried self-hosting from v2.2 through 4.x — heap map near 14.8MB capacity, single-pass codegen. cc5 re-lands the compiler on top of the full 4.x infrastructure (CFG, length decoder, linker, PIC) for the backend-table dispatch that Mach-O/PE/ELF/RISC-V require. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
+| **cc3 → cc5 uplift** | High | Generation bump. Basic-block CFG is the foundation — enables LASE (load-after-store elimination), sound multi-register allocation, and the backend-table dispatch that multi-platform requires. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
+| **aarch64 native self-hosting** | Medium | Separate host-syscall constants from target-ISA emission via cc5 backend-table dispatch. Fix `#ref` preprocessor string/comment blindness. Produce a working `cc3-native-aarch64` that self-hosts on ARM. |
+| **Libro PatraStore Heisenbug** | Medium | CFG-based diagnosis of the layout-dependent memory corruption. Gets own version bump within the 5.0 alpha cycle. Does not block 5.0 GA if it proves deeper than expected. |
 | **macOS x86_64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. |
 | **macOS aarch64** | High | Mach-O emitter on cc5. Apple Silicon native. |
 | **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
-| **RISC-V (ELF)** | High | rv64 backend on cc5. Promoted from "planned" — RISC-V is now a first-class 5.0 target alongside Mach-O/PE. |
-| **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel and other embedded consumers. Linker flag + crt0 shape, documented as a first-class target. |
+| **RISC-V (ELF)** | High | rv64 backend on cc5. First-class 5.0 target alongside Mach-O/PE. |
+| **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0 shape, documented as first-class. |
 
 ---
 
 ## v5.x — Language Refinements (post-platform minors)
 
-Collected from 4.x lessons and downstream port feedback. None of these block platform landing. All ship as 5.x minors after 5.0 cuts, prioritized by port-feedback tallies.
+Collected from 4.x lessons and downstream port feedback. None block platform landing. Prioritized by port-feedback tallies.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
-| **cc5 per-block scoping** | Medium | Proper lexical scope for `var` in nested blocks. Currently flat. Ships post-platform because the uplift groundwork lives in 5.0 already. |
+| **cc5 per-block scoping** | Medium | Proper lexical scope for `var` in nested blocks. Currently flat. |
 | **Incremental compilation** | High | Per-module recompile. Depends on cc5's separated frontend. |
-| **Generics / traits** | High | Collapse N near-identical functions to one. **Port-feedback votes: 1 (kavach).** Jumps priority on third cite. |
-| **Pattern-match destructuring** | Medium | One-line field extraction where current code walks struct offsets manually. **Port-feedback votes: 1 (kavach).** |
+| **Stack slices** | High | `var buf[512]: slice` — stack buffer with companion length. |
+| **defmt** | High | Compile-time format-string interning + runtime decode ring. Binary-size win for embedded/kernel targets. No concrete consumer blocker yet — revisit when demanded. |
+| **Generics / traits** | High | Collapse N near-identical functions to one. **Port-feedback votes: 1 (kavach).** |
+| **Pattern-match destructuring** | Medium | One-line field extraction. **Port-feedback votes: 1 (kavach).** |
 | **Enum exhaustiveness checking** | Low | Match-must-cover-all-variants compile-time rule. **Port-feedback votes: 1 (kavach).** |
-| **Closures capturing variables** | High | Currently a known gotcha (#8). Demand-gated. |
-| **Hardware 128-bit div-mod codegen** | Medium | Emit `divq`/`idivq` (x86_64) and multi-instruction `udiv` sequence (aarch64) for `u128_divmod` / `u128_mod`. Closes the ~40× software-long-division gap reported by abaco/hisab. Consumers currently bypass `u128_mod` on hot paths. Unblocks generic bigint arithmetic without algorithm substitution. |
-| **Math stdlib polish** | Low | `asin` / `acos` / `atan` currently stopgap formulas (usable, accuracy-limited at range extremes). `dBFS` deferred — log-scale unit needs special handling for ±∞ and zero-silence conventions. Both are marked in `lib/math.cyr` with `# STOPGAP:` comments so consumers know the ceiling. |
+| **Closures capturing variables** | High | Currently gotcha #8. Demand-gated. |
+| **Hardware 128-bit div-mod codegen** | Medium | Emit `divq`/`idivq` (x86_64) and `udiv` sequence (aarch64). Closes ~40× software gap. |
+| **Math stdlib polish** | Low | `asin`/`acos`/`atan` range-extreme accuracy. `dBFS` log-scale handling. |
+| **SIMD strlen** | Low | SSE4.2 `pcmpistri` path. Word-at-a-time in 4.9.0 closes the practical gap; SIMD is a nice-to-have. |
 
 ---
 
-## Stdlib (41 modules + 5 deps)
+## Stdlib (56 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -302,8 +170,8 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 | Types | tagged, hashmap, hashmap_fast, trait, assert, bounds |
 | System | syscalls, callback, process, bench |
 | Concurrency | thread, async, freelist |
-| Data | json, toml, csv, base64, regex, math, matrix, bigint |
-| Network | net, http, ws, tls |
+| Data | json, toml, csv, base64, regex, math, matrix, bigint, u128 |
+| Network | net, http, http_server, ws, tls |
 | Filesystem | fs |
 | Audio | audio (ALSA PCM) |
 | Logging | log |
@@ -322,13 +190,13 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, 353KB self-hosting |
-| Linux aarch64 | ELF | **Done** — cross + native |
+| Linux x86_64 | ELF | **Done** — primary, 364KB self-hosting |
+| Linux aarch64 | ELF | **Partial** — cross-compiler works, native hangs (5.0) |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | Stub (v3.1) — **v5.0.0** |
 | macOS aarch64 | Mach-O | Stub — **v5.0.0** |
 | Windows x86_64 | PE/COFF | Stub (v3.1) — **v5.0.0** |
-| RISC-V (rv64) | ELF | **v5.0.0** (promoted from "planned") |
+| RISC-V (rv64) | ELF | **v5.0.0** |
 | Bare-metal / freestanding | ELF (no-libc) | **v5.0.0** — AGNOS kernel target |
 
 ---
@@ -350,7 +218,7 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 
 | Limit | Current | Notes |
 |-------|---------|-------|
-| Functions | 2048 | |
+| Functions | 4096 | Raised from 2048 in v4.7.1 |
 | Variables | 8192 | |
 | Globals (initialized) | 1024 | Use enums for constants |
 | Locals per function | 256 | |
@@ -361,7 +229,7 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 | Code buffer | 1MB | |
 | Output buffer | 1MB | |
 | String data | 256KB | |
-| Identifier names | 64KB | |
+| Identifier names | 128KB | Raised from 64KB in v4.6.2 |
 | Tokens | 262144 | |
 
 ---
@@ -393,4 +261,4 @@ Collected from 4.x lessons and downstream port feedback. None of these block pla
 - Two-step bootstrap for any heap offset change
 - Test after EVERY change, not after the feature is done
 - **Never use raw `cat | cc3` for projects** — always `cyrius build`
-- **v4.8.4 recommended minimum** — PP_IFDEF_PASS 256 KB scan-blindness fix (post-GA retag) is critical for any consumer with ≥ 512 KB expanded compile units. Below that floor, large units can fail with a misleading `lib/assert.cyr:3: expected '=', got string` parser error. v4.0.0 still covers auto-include / deps / file:line / undefined-function diagnostics; v4.8.4 adds the preprocessor fix + `#regalloc` + capacity meter. v4.8.5 adds math stdlib + CRLF hardening in `lib/http.cyr`.
+- **v4.8.4 recommended minimum** — PP_IFDEF_PASS 256 KB scan-blindness fix is critical for any consumer with ≥ 512 KB expanded compile units. v4.8.5 adds math stdlib + CRLF hardening in `lib/http.cyr`.

@@ -83,7 +83,7 @@ reported by bote during 4.8.4 consumption.
   var=100/8192 fixup=1621/16384 string=5493/262144
   code=345368/1048576` — plenty of headroom.
 
-## [4.8.5-beta1] — 2026-04-14 (unreleased)
+## [4.8.5-beta1] — 2026-04-14
 
 ### Added — integration coverage + snapshot benchmarks
 - **`tests/tcyr/math_pack_integration.tcyr`** — 10-assertion
@@ -129,7 +129,7 @@ where the hardware-div win lands).
 - beta1 ✅ — integration coverage + bench snapshot (this release).
 - GA (next) — close-out audit, no new features.
 
-## [4.8.5-alpha7] — 2026-04-14 (unreleased)
+## [4.8.5-alpha7] — 2026-04-14
 
 ### Added — ASCII case helpers (`lib/string.cyr`)
 Four helpers, two copy + two in-place:
@@ -157,7 +157,7 @@ twelve-line loop; de-duplicated here.
 - beta1 — tests + benchmarks wrap-up.
 - GA — close-out.
 
-## [4.8.5-alpha6] — 2026-04-14 (unreleased)
+## [4.8.5-alpha6] — 2026-04-14
 
 ### Added — inverse hyperbolic (`lib/math.cyr`)
 Closes the symmetry with the existing `f64_sinh` / `cosh` / `tanh`
@@ -187,7 +187,7 @@ matching C libm semantics.
 - beta1 — tests + benchmarks.
 - GA — close-out.
 
-## [4.8.5-alpha5] — 2026-04-14 (unreleased)
+## [4.8.5-alpha5] — 2026-04-14
 
 ### Added — inverse trigonometry (`lib/math.cyr`)
 - **`f64_asin(x)`** — `atan(x / √(1 − x²))`. Domain |x| ≤ 1;
@@ -219,7 +219,7 @@ directions + axis + origin cases).
 - beta1 — tests + benchmarks.
 - GA — close-out.
 
-## [4.8.5-alpha4] — 2026-04-14 (unreleased)
+## [4.8.5-alpha4] — 2026-04-14
 
 ### Added — f64 math constants (`lib/math.cyr`)
 Extended the pre-existing `F64_ONE` / `F64_TWO` pair with the
@@ -259,7 +259,7 @@ meantime. Bridge lands when `lib/dynlib.cyr` is stable.
 - beta1 — tests + benchmarks.
 - GA — close-out.
 
-## [4.8.5-alpha3] — 2026-04-14 (unreleased)
+## [4.8.5-alpha3] — 2026-04-14
 
 ### Security — defence-in-depth for HTTP clients (reported by bote)
 - **CVE-2019-9741 pattern closed in `_http_parse_url`** (`lib/http.cyr`).
@@ -320,7 +320,7 @@ meantime. Bridge lands when `lib/dynlib.cyr` is stable.
 - alpha7 — inverse hyperbolic.
 - alpha8 — cstring case helpers.
 
-## [4.8.5-alpha2] — 2026-04-14 (unreleased)
+## [4.8.5-alpha2] — 2026-04-14
 
 ### Added
 - **`u64_mulmod(a, b, m)`** (`lib/u128.cyr`). Collapses to three
@@ -381,7 +381,7 @@ the u128 intermediate.
 - alpha5 — inverse hyperbolic.
 - alpha6 — cstring case helpers.
 
-## [4.8.5-alpha1] — 2026-04-14 (unreleased)
+## [4.8.5-alpha1] — 2026-04-14
 
 ### Added
 - **Hardware fast-path in `u128_divmod`** (`lib/u128.cyr`). When
@@ -486,7 +486,7 @@ accommodates the extension.
 - `bench_regalloc` snapshot (N=10000 iters, 1000 inner): nested
   8us → 7us, sum + fnv at parity.
 
-## [4.8.4-beta1] — 2026-04-14 (unreleased)
+## [4.8.4-beta1] — 2026-04-14
 
 ### Added (tests + benchmarks — the beta deliverable)
 - **`tests/tcyr/regalloc.tcyr`** — 16-assertion regression net for
@@ -547,7 +547,7 @@ with the add and there's nothing left to hide.
   new features; multi-reg (`r12..r15`) extension defers to a 4.9.x
   minor.
 
-## [4.8.4-alpha8] — 2026-04-14 (unreleased)
+## [4.8.4-alpha8] — 2026-04-14
 
 ### Added
 - **Use-count picker for `#regalloc`**
@@ -600,7 +600,7 @@ while the first and third locals stay on the stack:
   about tests and benchmarks" framing, then GA. Multi-reg
   (`r12..r15`) extension defers to a 4.9.x minor.
 
-## [4.8.4-alpha7] — 2026-04-14 (unreleased)
+## [4.8.4-alpha7] — 2026-04-14
 
 ### Added (`#regalloc` actually routes now)
 - **Hot-local → `rbx` post-emit peephole**
@@ -666,7 +666,7 @@ through `[rbp-8]`.
   extension + use-count picker instead of positional. Or: close 4.8.4,
   open 4.8.5 for defmt, bring multi-reg back as a 4.9.x minor.
 
-## [4.8.4-alpha6] — 2026-04-14 (unreleased)
+## [4.8.4-alpha6] — 2026-04-14
 
 ### Added (frame layout for `#regalloc` fns)
 - **Reserved `[rbp-8]` save slot for rbx**
@@ -714,7 +714,7 @@ through `[rbp-8]`.
 - alpha6 ✅ — frame reservation + save/restore + local-disp shift (this release).
 - alpha7 (next) — picker + `rbx` routing for the selected hot local.
 
-## [4.8.4-alpha5] — 2026-04-14 (unreleased)
+## [4.8.4-alpha5] — 2026-04-14
 
 ### Added
 - **`_cur_fn_regalloc` current-fn mirror** (`src/frontend/parse.cyr`).
@@ -754,7 +754,7 @@ scaffolding. Alpha6 will land the full design in one shot.
 - alpha6 (next) — frame-slot design for rbx save + use-counting
   picker + `EFLLOAD`/`EFLSTORE` routing for the selected hot local.
 
-## [4.8.4-alpha4] — 2026-04-14 (unreleased)
+## [4.8.4-alpha4] — 2026-04-14
 
 ### Added
 - **`#regalloc` metadata attachment** (`src/frontend/parse.cyr`,
@@ -797,7 +797,7 @@ scaffolding. Alpha6 will land the full design in one shot.
 - alpha5 (next) — hot-local use counting + callee-saved assignment
   (`rbx` / `r12..r15`), prologue save / epilogue restore.
 
-## [4.8.4-alpha3] — 2026-04-14 (unreleased)
+## [4.8.4-alpha3] — 2026-04-14
 
 ### Added
 - **Capacity dump on `ERR_EXPECT` parse failures**
@@ -839,7 +839,7 @@ string"* now build and run.
 - Direct test: `cyrius build tests/bote_content.tcyr` on bote@2.4.0
   builds cleanly.
 
-## [4.8.4-alpha2] — 2026-04-14 (unreleased)
+## [4.8.4-alpha2] — 2026-04-14
 
 ### Fixed (bote 4.8.3 blockers — found while attempting to compile bote)
 - **Path traversal rejection too strict for sibling-directory deps**
@@ -875,7 +875,7 @@ alpha3.
   on bote now passes the path-traversal + include-cap walls;
   failure mode advances to the deeper diagnostic-misleading bug.
 
-## [4.8.4-alpha1] — 2026-04-14 (unreleased)
+## [4.8.4-alpha1] — 2026-04-14
 
 ### Added
 - **`#regalloc` directive recognized** (`src/frontend/lex.cyr`,
@@ -971,7 +971,7 @@ With this release, bote can:
 The "silent capacity ceiling that triggered two reverts" is now
 caught at build time.
 
-## [4.8.3-beta1] — 2026-04-14 (unreleased)
+## [4.8.3-beta1] — 2026-04-14
 
 ### Added
 - **`tests/regression-capacity.sh`** — 7-test regression net for the
@@ -1012,7 +1012,7 @@ return.
   ~zero — six writes to stderr).
 - Otherwise tag 4.8.3 GA.
 
-## [4.8.3-alpha5] — 2026-04-14 (unreleased)
+## [4.8.3-alpha5] — 2026-04-14
 
 ### Added
 - **`cyrius capacity --json`** mode (`scripts/cyrius`). Parses the
@@ -1048,7 +1048,7 @@ Six surfaces shipped:
 
 beta1 will focus on tests + benchmarks.
 
-## [4.8.3-alpha4] — 2026-04-14 (unreleased)
+## [4.8.3-alpha4] — 2026-04-14
 
 ### Added
 - **`cyrius capacity --check`** mode (`scripts/cyrius`). Compiles
@@ -1091,7 +1091,7 @@ beta1 will focus on tests + benchmarks.
 - alpha3 — `cyrius capacity` subcommand.
 - alpha4 — `--check` CI gate + latent fnc > 2048 fixes.
 
-## [4.8.3-alpha3] — 2026-04-14 (unreleased)
+## [4.8.3-alpha3] — 2026-04-14
 
 ### Added
 - **`cyrius capacity [file.cyr]`** subcommand (`scripts/cyrius`).
@@ -1131,7 +1131,7 @@ unless near a wall, opt-in detail, scriptable subcommand. The
 "silent capacity ceiling" pattern that triggered claims-propagation
 to revert twice is now caught at build time.
 
-## [4.8.3-alpha2] — 2026-04-14 (unreleased)
+## [4.8.3-alpha2] — 2026-04-14
 
 ### Added
 - **Soft 85% capacity warnings** on default builds
@@ -1161,7 +1161,7 @@ to revert twice is now caught at build time.
 - `cyrius audit --capacity` shell subcommand wrapping the env-flag
   path for scripted use (CI dashboards, headroom regression).
 
-## [4.8.3-alpha1] — 2026-04-14 (unreleased)
+## [4.8.3-alpha1] — 2026-04-14
 
 ### Added
 - **`CYRIUS_STATS=1` capacity meter** (`src/main.cyr`). When the
@@ -1220,7 +1220,7 @@ Three-alpha switch jump-table tuning cycle.
 - 7/7 check.sh PASS. CI-style 44 / 0.
 - 42 `.tcyr` switch-dispatch assertions all green.
 
-## [4.8.2-alpha3] — 2026-04-14 (unreleased)
+## [4.8.2-alpha3] — 2026-04-14
 
 ### Added
 - **`benches/bench_switch.bcyr`** — measures if-chain vs
@@ -1247,7 +1247,7 @@ auto-converted if-chains and 32-way enums respectively.
 - cc3 self-host byte-identical.
 - 7/7 check.sh PASS. CI-style 44 / 0.
 
-## [4.8.2-alpha2] — 2026-04-14 (unreleased)
+## [4.8.2-alpha2] — 2026-04-14
 
 ### Changed
 - **Switch jump-table range cap raised 256 → 1024**
@@ -1274,7 +1274,7 @@ auto-converted if-chains and 32-way enums respectively.
 - 7/7 check.sh PASS.
 - CI-style exit-code loop: 44 / 0.
 
-## [4.8.2-alpha1] — 2026-04-14 (unreleased)
+## [4.8.2-alpha1] — 2026-04-14
 
 ### Fixed
 - **`switch` jump-table gap handling** (`src/frontend/parse.cyr`).
@@ -1433,7 +1433,7 @@ ABI doesn't carry u128 values).
 
 After 4.8.x closes, 5.0 opens with the cc5 uplift + macOS / Windows.
 
-## [4.8.0-alpha7] — 2026-04-14 (unreleased)
+## [4.8.0-alpha7] — 2026-04-14
 
 ### Added
 - **Unsigned 64 + 128-bit compare helpers**:
@@ -1478,7 +1478,7 @@ Tag **4.8.0** — u128 MVP shipped. Remaining 4.8.x roadmap items
 (jump tables, register alloc, defmt) are independent tracks — each
 opens with its own alpha.
 
-## [4.8.0-alpha6] — 2026-04-14 (unreleased)
+## [4.8.0-alpha6] — 2026-04-14
 
 ### Added
 - **`u128_shl` / `u128_shr`** — bit-level shift by 0..127 (counts ≥
@@ -1522,7 +1522,7 @@ Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
   LOC and makes the stdlib feature-complete for the "u128 as
   primitive" use case.
 
-## [4.8.0-alpha5] — 2026-04-14 (unreleased)
+## [4.8.0-alpha5] — 2026-04-14
 
 ### Added
 - **`u128_mul`** in `lib/u128.cyr` — schoolbook multiply that wraps at
@@ -1551,7 +1551,7 @@ Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
   `u128_xor`, `u128_not`. Straightforward once add/mul are stable.
 - `u128_divmod` is the last big piece — scope it in alpha7 if needed.
 
-## [4.8.0-alpha4] — 2026-04-14 (unreleased)
+## [4.8.0-alpha4] — 2026-04-14
 
 ### Added
 - **`u128_add` / `u128_sub`** in `lib/u128.cyr` — two-limb add/subtract
@@ -1577,7 +1577,7 @@ Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
 - `u128_mul` via schoolbook (3-mul variant: `lo·lo`, `hi·lo + lo·hi`,
   carry). Division is `u128_divmod` in alpha6.
 
-## [4.8.0-alpha3] — 2026-04-14 (unreleased)
+## [4.8.0-alpha3] — 2026-04-14
 
 ### Fixed
 - **`u128` var-slot truncation in PARSE_VAR** (`src/frontend/parse.cyr`).
@@ -1610,7 +1610,7 @@ Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
 - cc3 self-host byte-identical (two-step bootstrap).
 - 7/7 check.sh PASS. 43 `.tcyr` suites green (added u128).
 
-## [4.8.0-alpha2] — 2026-04-14 (unreleased)
+## [4.8.0-alpha2] — 2026-04-14
 
 ### Added
 - **Underscore separators in numeric literals**
@@ -1629,7 +1629,7 @@ Bit-level: `u128_shl`, `u128_shr`, `u128_and`, `u128_or`, `u128_xor`,
 - cc3 self-host byte-identical (two-step bootstrap).
 - 7/7 check.sh PASS.
 
-## [4.8.0-alpha1] — 2026-04-14 (unreleased)
+## [4.8.0-alpha1] — 2026-04-14
 
 ### Added
 - **`u128` type annotation** (`src/frontend/parse.cyr`). Global and
@@ -1808,7 +1808,7 @@ change the compiler's external contract.
   enum dispatch, register allocation).
 - After that: cc5 uplift + multi-platform for 5.0.
 
-## [4.7.0-alpha2] — 2026-04-14 (unreleased)
+## [4.7.0-alpha2] — 2026-04-14
 
 ### Fixed
 - **PIC-safe data + string refs in shared mode** (`src/backend/x86/emit.cyr`,
@@ -1856,7 +1856,7 @@ change the compiler's external contract.
 - Package a .tcyr or .bcyr test that spawns a `.so` build + Python
   ctypes round-trip so this path is continuously covered by the suite.
 
-## [4.7.0-alpha1] — 2026-04-14 (unreleased)
+## [4.7.0-alpha1] — 2026-04-14
 
 ### Added
 - **Real shared-object (`.so`) emission** (`src/backend/x86/fixup.cyr`).
@@ -2080,7 +2080,7 @@ two-step bootstrap verify.
 - 4.7.0: PIC codegen (per roadmap).
 - 4.8.0: Types + register allocation.
 
-## [4.6.0-beta3] — 2026-04-14 (unreleased)
+## [4.6.0-beta3] — 2026-04-14
 
 ### Added
 - **Cross-unit DCE — analysis pass** (`programs/cyrld.cyr`).
@@ -2137,7 +2137,7 @@ Shipping analysis first means:
   150-200 KB).
 - Migrate `FN_*` tables off `var T[N]` to `alloc()`.
 
-## [4.6.0-beta2] — 2026-04-14 (unreleased)
+## [4.6.0-beta2] — 2026-04-14
 
 ### Added
 - **`.data` / `.rodata` merge** (`programs/cyrld.cyr`).
@@ -2200,7 +2200,7 @@ Shipping analysis first means:
 - Cross-unit DCE against the final symbol graph (4.6.0 GA target).
 - Multi-segment PT_LOAD (RX text + RW data + RO rodata).
 
-## [4.6.0-beta1] — 2026-04-14 (unreleased)
+## [4.6.0-beta1] — 2026-04-14
 
 ### Added
 - **cyrld emits runnable ET_EXEC** (`programs/cyrld.cyr`).
@@ -2249,7 +2249,7 @@ Shipping analysis first means:
 - Fix cc3 object-mode elision of externally-referenced functions.
 - Emit real section headers so `objdump -d` works without warnings.
 
-## [4.6.0-alpha3] — 2026-04-14 (unreleased)
+## [4.6.0-alpha3] — 2026-04-14
 
 ### Added
 - **cyrld builds merged `.text` + applies relocations** (`programs/cyrld.cyr`).
@@ -2281,7 +2281,7 @@ Shipping analysis first means:
   `_start`), write the executable to disk. That's the first run-capable
   linker output.
 
-## [4.6.0-alpha2] — 2026-04-14 (unreleased)
+## [4.6.0-alpha2] — 2026-04-14
 
 ### Added
 - **cyrld multi-file merge** (`programs/cyrld.cyr`). Loads N .o files,
@@ -2311,7 +2311,7 @@ Shipping analysis first means:
 - **alpha3**: apply relocations against the merged symbol table.
 - **beta1**: wrap output in PT_LOAD ET_EXEC, runnable binary.
 
-## [4.6.0-alpha1] — 2026-04-14 (unreleased)
+## [4.6.0-alpha1] — 2026-04-14
 
 ### Added
 - **`programs/cyrld.cyr`** — multi-file linker scaffold. alpha1 scope:

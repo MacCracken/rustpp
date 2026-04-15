@@ -1,6 +1,7 @@
 # Build artifacts
 /build/*
 !/build/cc3
+!/build/cc3-native-aarch64
 /target/
 
 # Archived Rust seed
