@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v4.10.3.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> **v5.0.0-alpha1.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
 > **58 test suites**, 14 benchmarks, 5 fuzz harnesses. **59 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -145,22 +145,54 @@ suite (`tests/tcyr/tls.tcyr`).
 
 ---
 
-## v5.0.0 — Multi-Platform (major)
+## v5.0.0 — cc5 Uplift + Tooling (major)
 
-**Scope: platforms only.** This is the release where Cyrius leaves single-platform ELF and lands on every OS and ISA that matters. Language refinements ship in 5.x minors after the cut. A narrow 5.0 scope keeps the release auditable and the platform story clear.
+**Core compiler generation bump + aarch64 + tooling.** Everything else
+in 5.x depends on the CFG foundation landing here.
 
 | Feature | Effort | Details |
 |---------|--------|---------|
 | **cc3 → cc5 uplift** | High | Generation bump. Basic-block CFG is the foundation — enables LASE (load-after-store elimination), sound multi-register allocation, and the backend-table dispatch that multi-platform requires. Two-step bootstrap doctrine stays: cc5 compiles cc5 byte-identical. |
 | **aarch64 native self-hosting** | Medium | Separate host-syscall constants from target-ISA emission via cc5 backend-table dispatch. Fix `#ref` preprocessor string/comment blindness. Produce a working `cc3-native-aarch64` that self-hosts on ARM. |
 | **Libro PatraStore Heisenbug** | Medium | CFG-based diagnosis of the layout-dependent memory corruption. Gets own version bump within the 5.0 alpha cycle. Does not block 5.0 GA if it proves deeper than expected. |
-| **macOS x86_64** | High | Mach-O emitter on cc5. Stubs scaffolded in v3.1. |
-| **macOS aarch64** | High | Mach-O emitter on cc5. Apple Silicon native. |
-| **Windows x86_64** | High | PE/COFF emitter on cc5. Stub scaffolded in v3.1. |
-| **RISC-V (ELF)** | High | rv64 backend on cc5. First-class 5.0 target alongside Mach-O/PE. |
-| **Bare-metal / freestanding** | Medium | No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0 shape, documented as first-class. |
 | **cyrius.cyml manifest** | Medium | Replace `cyrius.toml` with `cyrius.cyml` (CYML parser shipped in 4.9.2). `cyrius update` auto-migrates existing `cyrius.toml` → `cyrius.cyml` so downstream projects upgrade in place. TOML parser stays as fallback for one minor cycle, then removed. |
-| **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54 lines), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts (`init`, `port`, `install`, `check`, `version-bump`) stay shell — they need heredocs, `sed -i`, or system tool orchestration that Cyrius doesn't cover yet. |
+| **Shell → Cyrius tool migration** | Low | Rewrite 5 shell scripts as Cyrius programs: `cyrius-header.sh` (54), `cyrius-watch.sh` (37), `release-lib.sh` (45), `cyrius-coverage.sh` (90), `cyrius-doctest.sh` (93). Remaining shell scripts stay shell. |
+
+---
+
+## v5.1.0 — macOS x86_64
+
+Mach-O emitter on cc5. Stubs scaffolded in v3.1. First non-Linux
+platform. Proves the backend-table dispatch architecture.
+
+---
+
+## v5.2.0 — macOS aarch64
+
+Mach-O emitter for Apple Silicon. Builds on 5.1.0 Mach-O work +
+5.0.0 aarch64 backend. Native compilation on M-series Macs.
+
+---
+
+## v5.3.0 — Windows x86_64
+
+PE/COFF emitter on cc5. Stub scaffolded in v3.1. Windows syscall
+layer (ntdll). Brings Cyrius to the largest desktop platform.
+
+---
+
+## v5.4.0 — RISC-V rv64 (ELF)
+
+rv64gc backend on cc5. First-class RISC-V target. ELF output
+(same linker infrastructure as Linux x86_64/aarch64).
+
+---
+
+## v5.5.0 — Bare-metal / Freestanding
+
+No-libc, no-syscalls target for AGNOS kernel. Linker flag + crt0
+shape, documented as first-class. The target that makes Cyrius a
+true systems language — kernel code compiled without any OS.
 
 ---
 

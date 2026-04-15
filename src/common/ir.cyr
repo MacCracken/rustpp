@@ -1,0 +1,362 @@
+# ir.cyr — cc5 intermediate representation
+#
+# Basic-block CFG between parse (frontend) and emit (backend).
+# Parse builds IR; lowering pass walks IR and calls emit functions.
+#
+# Memory layout (all relative to S):
+#   0xECA000  ir_nodes    [1MB]   65536 nodes × 16 bytes
+#   0xFCA000  ir_blocks   [256KB] 8192 blocks × 32 bytes
+#   0x100A000 ir_state    [4KB]   counters + current state
+#   0x100B000 ir_edges    [64KB]  8192 edges × 8 bytes
+#
+# IRNode (16 bytes):
+#   +0: opcode (i16) + flags (i16) packed in low 32 bits
+#   +4: arg1 (i32) — var index, block target, immediate
+#   +8: arg2 (i64) — large immediate, fn index, etc.
+#
+# BB (32 bytes):
+#   +0:  id
+#   +8:  first_node (index into ir_nodes)
+#   +16: node_count
+#   +24: succ0 (first successor BB, -1 = none)
+#        succ1 packed in high 32 bits (for conditional branches)
+
+# ================================================================
+# IR opcodes
+# ================================================================
+
+enum IROp {
+    # -- Values --
+    IR_NOP         = 0;
+    IR_LOAD_IMM    = 1;   # arg2 = immediate value → rax
+    IR_LOAD_LOCAL  = 2;   # arg1 = local index → rax
+    IR_STORE_LOCAL = 3;   # arg1 = local index ← rax
+    IR_LOAD_GLOBAL = 4;   # arg1 = var index → rax
+    IR_STORE_GLOBAL= 5;   # arg1 = var index ← rax
+    IR_LOAD_ADDR_L = 6;   # arg1 = local index → rax = &local
+    IR_LOAD_ADDR_G = 7;   # arg1 = var index → rax = &global
+    IR_LOAD_STR    = 8;   # arg1 = string offset → rax
+
+    # -- Arithmetic --
+    IR_ADD         = 10;  # rax = rcx + rax
+    IR_SUB         = 11;  # rax = rcx - rax
+    IR_MUL         = 12;  # rax = rcx * rax (imul)
+    IR_DIV         = 13;  # rax = rcx / rax (idiv, cqo)
+    IR_MOD         = 14;  # rax = rcx % rax (idiv, rdx)
+    IR_NEG         = 15;  # rax = -rax
+
+    # -- Bitwise --
+    IR_AND         = 20;
+    IR_OR          = 21;
+    IR_XOR         = 22;
+    IR_NOT         = 23;
+    IR_SHL         = 24;  # rax = rcx << rax
+    IR_SHR         = 25;  # rax = rcx >> rax
+
+    # -- Stack --
+    IR_PUSH        = 30;  # push rax
+    IR_POP_RAX     = 31;  # pop rax
+    IR_POP_RCX     = 32;  # pop rcx
+    IR_MOV_CA      = 33;  # mov rcx, rax
+
+    # -- Memory --
+    IR_LOAD8       = 40;  # rax = zero_extend(byte [rax])
+    IR_LOAD16      = 41;
+    IR_LOAD32      = 42;
+    IR_LOAD64      = 43;  # rax = [rax]
+    IR_STORE8      = 44;  # [rcx] = al
+    IR_STORE16     = 45;
+    IR_STORE32     = 46;
+    IR_STORE64     = 47;  # [rcx] = rax
+
+    # -- Compare --
+    IR_CMP         = 50;  # cmp rax, rcx (sets flags)
+    IR_SETCC       = 51;  # arg1 = condition code → rax = 0 or 1
+    IR_TEST_AZ     = 52;  # test rax, rax
+
+    # -- Calls --
+    IR_CALL        = 60;  # arg1 = fn index (fixup)
+    IR_CALL_KNOWN  = 61;  # arg2 = code offset (direct)
+    IR_CALL_POPS   = 62;  # arg1 = argc (pop args into regs)
+    IR_CALL_CLEAN  = 63;  # arg1 = argc (stack cleanup)
+    IR_TAIL_JMP    = 64;  # arg1 = fn index
+    IR_SYSCALL     = 65;  # syscall instruction
+
+    # -- Control flow (terminators) --
+    IR_JMP         = 70;  # arg1 = target BB index
+    IR_JCC         = 71;  # arg1 = true BB, arg2 = false BB, flags = cc
+    IR_RET         = 72;  # return (jump to epilogue)
+    IR_JMP_BACK    = 73;  # arg2 = absolute code offset (loop back-edge)
+    IR_SWITCH      = 74;  # arg1 = table BB index
+
+    # -- Frame --
+    IR_PROLOGUE    = 80;  # push rbp; mov rbp, rsp
+    IR_ALLOC_FRAME = 81;  # sub rsp, N (arg1 = patch offset)
+    IR_EPILOGUE    = 82;  # leave; ret
+    IR_PATCH_FRAME = 83;  # arg1 = patch offset, arg2 = frame size
+
+    # -- Special --
+    IR_RAW_BYTE    = 90;  # arg1 = byte value (inline asm)
+    IR_MOV_RDX_RAX = 91;  # mov rdx, rax
+    IR_MOV_RAX_RDX = 92;  # mov rax, rdx
+    IR_XOR_AA      = 93;  # xor rax, rax
+    IR_STORE_PARM  = 94;  # arg1 = param_idx, arg2 = local_idx
+    IR_ADD_IMM_X1  = 95;  # rcx += arg2
+}
+
+# ================================================================
+# IR state accessors
+# ================================================================
+
+fn IR_NCNT(S)       { return L64(S + 0x100A000); }
+fn IR_SNCNT(S, v)   { S64(S + 0x100A000, v); return 0; }
+fn IR_BCNT(S)       { return L64(S + 0x100A008); }
+fn IR_SBCNT(S, v)   { S64(S + 0x100A008, v); return 0; }
+fn IR_CURBB(S)      { return L64(S + 0x100A010); }
+fn IR_SCURBB(S, v)  { S64(S + 0x100A010, v); return 0; }
+fn IR_ECNT(S)       { return L64(S + 0x100A018); }
+fn IR_SECNT(S, v)   { S64(S + 0x100A018, v); return 0; }
+fn IR_ENABLED(S)    { return L64(S + 0x100A020); }
+fn IR_SENABLE(S, v) { S64(S + 0x100A020, v); return 0; }
+
+# ================================================================
+# IR node read/write
+# ================================================================
+
+# Pack opcode (16 bit) + flags (16 bit) into one i64 low 32 bits
+fn _ir_pack_op(op, flags) {
+    return (op & 0xFFFF) | ((flags & 0xFFFF) << 16);
+}
+
+# Write an IR node at index ni
+fn _ir_set_node(S, ni, opflags, arg1, arg2) {
+    var base = S + 0xECA000 + ni * 16;
+    store32(base, opflags);
+    store32(base + 4, arg1);
+    store64(base + 8, arg2);
+    return 0;
+}
+
+# Read IR node fields
+fn IR_NODE_OP(S, ni)   { return load16(S + 0xECA000 + ni * 16); }
+fn IR_NODE_FL(S, ni)   { return load16(S + 0xECA000 + ni * 16 + 2); }
+fn IR_NODE_A1(S, ni)   { return load32(S + 0xECA000 + ni * 16 + 4); }
+fn IR_NODE_A2(S, ni)   { return load64(S + 0xECA000 + ni * 16 + 8); }
+
+# ================================================================
+# Basic block read/write
+# ================================================================
+
+# BB layout (32 bytes):
+#   +0:  id
+#   +8:  first_node
+#   +16: node_count
+#   +24: succ0 | (succ1 << 32)
+
+fn _ir_set_bb(S, bi, first, count, succ0, succ1) {
+    var base = S + 0xFCA000 + bi * 32;
+    store64(base, bi);
+    store64(base + 8, first);
+    store64(base + 16, count);
+    store64(base + 24, (succ0 & 0xFFFFFFFF) | ((succ1 & 0xFFFFFFFF) << 32));
+    return 0;
+}
+
+fn IR_BB_ID(S, bi)     { return load64(S + 0xFCA000 + bi * 32); }
+fn IR_BB_FIRST(S, bi)  { return load64(S + 0xFCA000 + bi * 32 + 8); }
+fn IR_BB_COUNT(S, bi)  { return load64(S + 0xFCA000 + bi * 32 + 16); }
+fn IR_BB_SUCC0(S, bi)  { return load64(S + 0xFCA000 + bi * 32 + 24) & 0xFFFFFFFF; }
+fn IR_BB_SUCC1(S, bi)  { return (load64(S + 0xFCA000 + bi * 32 + 24) >> 32) & 0xFFFFFFFF; }
+
+# ================================================================
+# IR builder — Phase 2 API
+# ================================================================
+
+# Create a new basic block. Returns block index.
+fn ir_bb_new(S) {
+    var bi = IR_BCNT(S);
+    if (bi >= 8192) {
+        syscall(SYS_WRITE, 2, "error: IR block table full\n", 28);
+        syscall(SYS_EXIT, 1);
+    }
+    var ni = IR_NCNT(S);
+    _ir_set_bb(S, bi, ni, 0, 0 - 1, 0 - 1);
+    IR_SBCNT(S, bi + 1);
+    return bi;
+}
+
+# Set current basic block for subsequent ir_emit calls
+fn ir_set_bb(S, bi) {
+    IR_SCURBB(S, bi);
+    return 0;
+}
+
+# Emit an IR node into the current basic block.
+# Returns node index.
+fn ir_emit(S, op, flags, arg1, arg2) {
+    var ni = IR_NCNT(S);
+    if (ni >= 65536) {
+        syscall(SYS_WRITE, 2, "error: IR node buffer full\n", 28);
+        syscall(SYS_EXIT, 1);
+    }
+    _ir_set_node(S, ni, _ir_pack_op(op, flags), arg1, arg2);
+    IR_SNCNT(S, ni + 1);
+
+    # Update current BB's node count
+    var bi = IR_CURBB(S);
+    if (bi >= 0 && bi < 8192) {
+        var base = S + 0xFCA000 + bi * 32;
+        store64(base + 16, load64(base + 16) + 1);
+    }
+    return ni;
+}
+
+# Convenience: emit with just opcode (no args)
+fn ir_emit0(S, op) { return ir_emit(S, op, 0, 0, 0); }
+
+# Convenience: emit with opcode + arg1
+fn ir_emit1(S, op, arg1) { return ir_emit(S, op, 0, arg1, 0); }
+
+# Convenience: emit with opcode + arg2 (large immediate)
+fn ir_emit2(S, op, arg2) { return ir_emit(S, op, 0, 0, arg2); }
+
+# Set BB successor (unconditional jump)
+fn ir_bb_set_succ(S, bi, target) {
+    var base = S + 0xFCA000 + bi * 32;
+    var cur = load64(base + 24);
+    store64(base + 24, (target & 0xFFFFFFFF) | (cur & 0xFFFFFFFF00000000));
+    return 0;
+}
+
+# Set BB successors (conditional: true_bb, false_bb)
+fn ir_bb_set_cond(S, bi, true_bb, false_bb) {
+    var base = S + 0xFCA000 + bi * 32;
+    store64(base + 24, (true_bb & 0xFFFFFFFF) | ((false_bb & 0xFFFFFFFF) << 32));
+    return 0;
+}
+
+# Add a CFG edge (for analysis passes)
+fn ir_add_edge(S, from_bb, to_bb) {
+    var ec = IR_ECNT(S);
+    if (ec >= 8192) { return 0; }
+    var base = S + 0x100B000 + ec * 8;
+    store64(base, (from_bb & 0xFFFFFFFF) | ((to_bb & 0xFFFFFFFF) << 32));
+    IR_SECNT(S, ec + 1);
+    return 0;
+}
+
+fn IR_EDGE_FROM(S, ei) { return load64(S + 0x100B000 + ei * 8) & 0xFFFFFFFF; }
+fn IR_EDGE_TO(S, ei)   { return (load64(S + 0x100B000 + ei * 8) >> 32) & 0xFFFFFFFF; }
+
+# Reset IR state (between functions or at start of compilation)
+fn ir_reset(S) {
+    IR_SNCNT(S, 0);
+    IR_SBCNT(S, 0);
+    IR_SCURBB(S, 0 - 1);
+    IR_SECNT(S, 0);
+    return 0;
+}
+
+# ================================================================
+# IR→x86 lowering (Phase 3)
+# ================================================================
+# Walks all basic blocks in order, emits x86 for each IR node
+# by calling the existing emit.cyr functions.
+# This function is the bridge: same output as direct emission,
+# but driven from the IR data structure.
+
+fn ir_lower_all(S) {
+    var bi = 0;
+    var bcnt = IR_BCNT(S);
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        var ni = first;
+        while (ni < first + count) {
+            var op = IR_NODE_OP(S, ni);
+            var fl = IR_NODE_FL(S, ni);
+            var a1 = IR_NODE_A1(S, ni);
+            var a2 = IR_NODE_A2(S, ni);
+            _ir_lower_node(S, op, fl, a1, a2);
+            ni = ni + 1;
+        }
+        bi = bi + 1;
+    }
+    return 0;
+}
+
+# Lower a single IR node to x86 via emit.cyr functions
+fn _ir_lower_node(S, op, fl, a1, a2) {
+    if (op == IR_NOP)           { return 0; }
+    if (op == IR_LOAD_IMM)      { EMOVI(S, a2); return 0; }
+    if (op == IR_LOAD_LOCAL)    { EFLLOAD(S, a1); return 0; }
+    if (op == IR_STORE_LOCAL)   { EFLSTORE(S, a1); return 0; }
+    if (op == IR_LOAD_GLOBAL)   { EVLOAD(S, a1); return 0; }
+    if (op == IR_STORE_GLOBAL)  { EVSTORE(S, a1); return 0; }
+    if (op == IR_LOAD_ADDR_L)   {
+        # LEA rax, [rbp + disp32] — emit inline (no dedicated emit fn)
+        var disp = 0 - ((a1 + 1) * 8);
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0x85);
+        EDISP32(S, disp);
+        return 0;
+    }
+    if (op == IR_LOAD_ADDR_G)   { EVADDR(S, a1); return 0; }
+    if (op == IR_LOAD_STR)      { ESADDR(S, a1); return 0; }
+
+    if (op == IR_ADD)           { EADDR(S); return 0; }
+    if (op == IR_SUB)           { ESUBR(S); return 0; }
+    if (op == IR_MUL)           { EIMUL(S); return 0; }
+    if (op == IR_DIV)           { ECQO(S); EIDIV(S); return 0; }
+    if (op == IR_MOD)           { ECQO(S); EIDIV(S); EMOVDR(S); return 0; }
+
+    if (op == IR_AND)           { EANDR(S); return 0; }
+    if (op == IR_OR)            { EORR(S); return 0; }
+    if (op == IR_XOR)           { EXORR(S); return 0; }
+    if (op == IR_NOT)           { ENOTR(S); return 0; }
+    if (op == IR_SHL)           { ESHLCL(S); return 0; }
+    if (op == IR_SHR)           { ESHRCL(S); return 0; }
+
+    if (op == IR_PUSH)          { EPUSHR(S); return 0; }
+    if (op == IR_POP_RAX)       { EPOPR(S); return 0; }
+    if (op == IR_POP_RCX)       { EPOPC(S); return 0; }
+    if (op == IR_MOV_CA)        { EMOVCA(S); return 0; }
+
+    if (op == IR_LOAD8)         { ELOAD8(S); return 0; }
+    if (op == IR_LOAD16)        { ELOAD16(S); return 0; }
+    if (op == IR_LOAD32)        { ELOAD32(S); return 0; }
+    if (op == IR_LOAD64)        { ELOAD64(S); return 0; }
+    if (op == IR_STORE8)        { ESTORE8(S); return 0; }
+    if (op == IR_STORE16)       { ESTORE16(S); return 0; }
+    if (op == IR_STORE32)       { ESTORE32(S); return 0; }
+    if (op == IR_STORE64)       { ESTORE64(S); return 0; }
+
+    if (op == IR_CMP)           { ECMPR(S); return 0; }
+    if (op == IR_SETCC)         { ESETCC(S, a1); return 0; }
+    if (op == IR_TEST_AZ)       { ETESTAZ(S); return 0; }
+
+    if (op == IR_CALL)          { ECALLFIX(S, a1); return 0; }
+    if (op == IR_CALL_KNOWN)    { ECALLTO(S, a2); return 0; }
+    if (op == IR_CALL_POPS)     { ECALLPOPS(S, a1); return 0; }
+    if (op == IR_CALL_CLEAN)    { ECALLCLEAN(S, a1); return 0; }
+    if (op == IR_TAIL_JMP)      { ETAILJMP(S, a1); return 0; }
+    if (op == IR_SYSCALL)       { ESYSCALL(S); return 0; }
+
+    if (op == IR_PROLOGUE)      { EFNPRO(S); return 0; }
+    if (op == IR_ALLOC_FRAME)   { ESUBRSP(S); return 0; }
+    if (op == IR_EPILOGUE)      { EFNEPI(S); return 0; }
+    if (op == IR_PATCH_FRAME)   { EPATCHFRAME(S, a1, a2); return 0; }
+
+    if (op == IR_RAW_BYTE)      { EB(S, a1); return 0; }
+    if (op == IR_MOV_RDX_RAX)   { EMOVRDXRAX(S); return 0; }
+    if (op == IR_MOV_RAX_RDX)   { EMOVRA_RDX(S); return 0; }
+    if (op == IR_XOR_AA)        { EXORAA(S); return 0; }
+    if (op == IR_STORE_PARM)    { ESTOREPARM(S, a1, a2, 0); return 0; }
+    if (op == IR_ADD_IMM_X1)    { EADDIMM_X1(S, a2); return 0; }
+
+    # Jump terminators are handled by the BB walker, not individual lowering
+    if (op == IR_JMP)           { EJMP(S, a2); return 0; }
+    if (op == IR_JCC)           { EJCC(S, fl); return 0; }
+    if (op == IR_RET)           { return 0; }  # epilogue emitted separately
+
+    return 0;
+}
