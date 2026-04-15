@@ -1,0 +1,54 @@
+# math_constants.tcyr — f64 constants in lib/math.cyr (v4.8.5-alpha4)
+#
+# Universal mathematical constants — π, τ, e, ln2, ln10, ½, 1.5, 2.5,
+# √2, 1/√2 — that abaco's DSP module + vidya notebooks + any future
+# geometry / graphics / numerics code used to re-derive from scratch.
+# Locking in the bit patterns here so a future constant-table shuffle
+# can't silently change their values.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/math.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("basic identities");
+assert_eq(f64_add(F64_ONE, F64_ONE), F64_TWO,  "1 + 1 = 2");
+assert_eq(f64_add(F64_HALF, F64_HALF), F64_ONE, "0.5 + 0.5 = 1");
+assert_eq(f64_mul(F64_TWO, F64_HALF), F64_ONE,  "2 * 0.5 = 1");
+assert_eq(f64_add(F64_ONE, F64_HALF), F64_ONE_HALF, "1 + 0.5 = 1.5");
+assert_eq(f64_add(F64_TWO, F64_HALF), F64_TWO_HALF, "2 + 0.5 = 2.5");
+
+test_group("pi family");
+assert_eq(f64_mul(F64_PI, F64_TWO),   F64_TAU,  "2π = τ");
+assert_eq(f64_div(F64_TAU, F64_TWO),  F64_PI,   "τ/2 = π");
+assert_eq(f64_div(F64_PI, F64_TWO),   F64_PI_2, "π/2");
+assert_eq(f64_div(F64_PI_2, F64_TWO), F64_PI_4, "π/4");
+assert_eq(f64_add(F64_PI_2, F64_PI_2), F64_PI,  "π/2 + π/2 = π");
+
+test_group("sign + exponent bit layout sanity");
+# IEEE 754 binary64: sign(1) | exponent(11) | mantissa(52)
+# F64_ONE  exponent = 0x3FF (bias 1023, so 2^0)
+# F64_TWO  exponent = 0x400 (2^1)
+# F64_HALF exponent = 0x3FE (2^-1)
+# Mantissa 0 across all three.
+assert_eq(F64_ONE  >> 52 & 0x7FF, 0x3FF, "F64_ONE exponent");
+assert_eq(F64_TWO  >> 52 & 0x7FF, 0x400, "F64_TWO exponent");
+assert_eq(F64_HALF >> 52 & 0x7FF, 0x3FE, "F64_HALF exponent");
+assert_eq(F64_ONE  & 0xF_FFFF_FFFF_FFFF, 0, "F64_ONE mantissa");
+assert_eq(F64_TWO  & 0xF_FFFF_FFFF_FFFF, 0, "F64_TWO mantissa");
+assert_eq(F64_HALF & 0xF_FFFF_FFFF_FFFF, 0, "F64_HALF mantissa");
+
+test_group("positivity");
+# All constants are positive (sign bit 0). Checking the top bit is
+# unset guards against a paste-error that flipped the sign.
+assert_eq(F64_PI  >> 63 & 1, 0, "π positive");
+assert_eq(F64_E   >> 63 & 1, 0, "e positive");
+assert_eq(F64_LN2 >> 63 & 1, 0, "ln2 positive");
+assert_eq(F64_LN10 >> 63 & 1, 0, "ln10 positive");
+assert_eq(F64_SQRT2 >> 63 & 1, 0, "√2 positive");
+assert_eq(F64_FRAC_1_SQRT2 >> 63 & 1, 0, "1/√2 positive");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

@@ -6,8 +6,26 @@
 # All functions operate on f64 bit patterns.
 
 # Constants (f64 bit patterns)
-var F64_ONE = 4607182418800017408;
-var F64_TWO = 4611686018427387904;
+#
+# v4.8.5-alpha4: extended the F64_ONE / F64_TWO pair with the
+# universal mathematical constants every downstream math crate
+# (abaco, dhvani, future geometry / GL) was re-deriving.
+# Literals are in hex for traceability — each byte group maps
+# directly to the IEEE 754 sign/exponent/mantissa split.
+var F64_ONE           = 0x3FF0_0000_0000_0000;   # 1.0
+var F64_TWO           = 0x4000_0000_0000_0000;   # 2.0
+var F64_HALF          = 0x3FE0_0000_0000_0000;   # 0.5
+var F64_ONE_HALF      = 0x3FF8_0000_0000_0000;   # 1.5
+var F64_TWO_HALF      = 0x4004_0000_0000_0000;   # 2.5
+var F64_PI            = 0x4009_21FB_5444_2D18;   # π
+var F64_PI_2          = 0x3FF9_21FB_5444_2D18;   # π/2
+var F64_PI_4          = 0x3FE9_21FB_5444_2D18;   # π/4
+var F64_TAU           = 0x4019_21FB_5444_2D18;   # 2π
+var F64_E             = 0x4005_BF0A_8B14_5769;   # e
+var F64_LN2           = 0x3FE6_2E42_FEFA_39EF;   # ln(2)
+var F64_LN10          = 0x4002_6BB1_BBB5_5516;   # ln(10)
+var F64_FRAC_1_SQRT2  = 0x3FE6_A09E_667F_3BCD;   # 1/√2
+var F64_SQRT2         = 0x3FF6_A09E_667F_3BCD;   # √2
 
 # sinh(x) = (exp(x) - exp(-x)) / 2
 fn f64_sinh(x) {

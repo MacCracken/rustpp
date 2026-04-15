@@ -4,6 +4,46 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha4] — 2026-04-14 (unreleased)
+
+### Added — f64 math constants (`lib/math.cyr`)
+Extended the pre-existing `F64_ONE` / `F64_TWO` pair with the
+universal mathematical constants that every downstream math crate
+(abaco DSP, future geometry / GL / numerics) was re-deriving from
+scratch. Literals are written in hex-with-underscore form so each
+byte group maps directly to the IEEE 754 sign(1) / exponent(11) /
+mantissa(52) split — trivial to audit against a calculator.
+- `F64_HALF` (0.5), `F64_ONE_HALF` (1.5), `F64_TWO_HALF` (2.5)
+- `F64_PI`, `F64_PI_2`, `F64_PI_4`, `F64_TAU`
+- `F64_E`, `F64_LN2`, `F64_LN10`
+- `F64_SQRT2`, `F64_FRAC_1_SQRT2`
+
+Also renormalised `F64_ONE` / `F64_TWO` from decimal-integer
+literal form to the same hex layout — value-identical, easier to
+diff against IEEE 754 tables.
+
+### Notes
+Live libssl bridge deferred out of 4.8.5: `dynlib_open` segfaults
+on `libssl.so.3` on the dev box, and a proper fix requires a
+pass on the ELF loader itself that doesn't belong inside this
+math-pack minor. The alpha3 interface scaffold remains — bote /
+abaco get a stable API to target and a clean fallback path in the
+meantime. Bridge lands when `lib/dynlib.cyr` is stable.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 47 files / 339 assertions (new:
+  `math_constants.tcyr` 22/0).
+
+### Roadmap (4.8.5)
+- alpha1..alpha3 ✅
+- alpha4 ✅ — f64 math constants (this release).
+- alpha5 — inverse trig (`f64_asin` / `acos` / `atan` / `atan2`).
+- alpha6 — inverse hyperbolic (`f64_asinh` / `acosh` / `atanh`).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
 ## [4.8.5-alpha3] — 2026-04-14 (unreleased)
 
 ### Security — defence-in-depth for HTTP clients (reported by bote)
