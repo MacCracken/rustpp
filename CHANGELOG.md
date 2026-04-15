@@ -4,6 +4,29 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.9.2] — 2026-04-14
+
+**CYML format + `cyrius init --agent` + tooling.**
+
+### Added
+- **`lib/cyml.cyr`** — CYML parser (TOML header + markdown body). New
+  file format that is TOML above `---`, markdown below. Zero-copy
+  parser returns pointers into the input buffer. Supports single-entry
+  and multi-entry (`[[entries]]`) files. 16 functions (13 public),
+  22-assertion test suite. Primary consumer: vidya content migration.
+- **`cyrius init --agent[=preset]`** — opt-in CLAUDE.md generation
+  during project scaffold. No agent file by default (clean for end
+  users). Presets: `generic` (default Cyrius project), `agnos` (AGNOS
+  ecosystem conventions), `claude` (minimal). Unknown presets fall back
+  to generic with a note.
+- **`tests/tcyr/cyml.tcyr`** — 22-assertion test suite covering
+  single-entry, multi-entry, no-body, split convenience, and header-only
+  entry cases.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 52 test suites.
+
 ## [4.9.1] — 2026-04-14
 
 **Multi-register `#regalloc` — rbx + r12–r15.**

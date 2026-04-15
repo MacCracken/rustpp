@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v4.9.1.** 364KB self-hosting compiler, x86_64 + aarch64 cross.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (364KB). Closure verified.
-> **51 test suites**, 14 benchmarks, 5 fuzz harnesses. **56 stdlib modules** (includes 5 deps).
+> **v4.9.2.** 368KB self-hosting compiler, x86_64 + aarch64 cross.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc3 (368KB). Closure verified.
+> **52 test suites**, 14 benchmarks, 5 fuzz harnesses. **57 stdlib modules** (includes 5 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -107,6 +107,17 @@ all allocated registers.
 
 ---
 
+## v4.9.2 — CYML + Tooling (shipped) ✅
+
+- **`lib/cyml.cyr`** — CYML parser (TOML above `---`, markdown below).
+  Zero-copy, single-entry and multi-entry (`[[entries]]`), 22-assertion
+  test suite. Replaces triple-quoted TOML strings for structured
+  content with prose.
+- **`cyrius init --agent[=preset]`** — opt-in CLAUDE.md generation.
+  No agent file by default. Presets: generic, agnos, claude.
+
+---
+
 ## v4.9.2 — Live TLS Bridge
 
 Single focused deliverable. Isolates security-sensitive work.
@@ -170,7 +181,7 @@ Collected from 4.x lessons and downstream port feedback. None block platform lan
 
 ---
 
-## Stdlib (56 modules)
+## Stdlib (57 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -178,7 +189,7 @@ Collected from 4.x lessons and downstream port feedback. None block platform lan
 | Types | tagged, hashmap, hashmap_fast, trait, assert, bounds |
 | System | syscalls, callback, process, bench |
 | Concurrency | thread, async, freelist |
-| Data | json, toml, csv, base64, regex, math, matrix, bigint, u128 |
+| Data | json, toml, cyml, csv, base64, regex, math, matrix, bigint, u128 |
 | Network | net, http, http_server, ws, tls |
 | Filesystem | fs |
 | Audio | audio (ALSA PCM) |

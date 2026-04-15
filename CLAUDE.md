@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 4.9.1
+- **Version**: 4.9.2
 
 ## Goal
 
@@ -14,9 +14,9 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 364KB (x86_64), aarch64 cross-compiler (native non-functional until 5.0), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc`, single-CU DCE
-- **Tests**: 51 .tcyr files, 5 .fcyr fuzz harnesses, 14 .bcyr benchmarks, heap audit, self-hosting (two-step)
-- **Libraries**: 56 stdlib modules (includes 5 deps: sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
+- **Compiler**: 368KB (x86_64), aarch64 cross-compiler (native non-functional until 5.0), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc` (multi-register), single-CU DCE, CYML parser
+- **Tests**: 52 .tcyr files, 5 .fcyr fuzz harnesses, 14 .bcyr benchmarks, heap audit, self-hosting (two-step)
+- **Libraries**: 57 stdlib modules (includes 5 deps: sakshi, patra, sigil, yukti, mabda via `cyrius deps`)
 - **Build tool**: `cyrius deps` resolves from cyrius.toml, auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
 - **Ecosystem**: agnostik, agnosys, argonaut, majra, libro (209 tests), sakshi, bsp, cyrius-doom, mabda, kybernet (140 tests), hadara (329 tests), ai-hwaccel (491 tests)
 
