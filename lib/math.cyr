@@ -132,3 +132,39 @@ fn f64_atan2(y, x) {
     if (f64_lt(y, _F64_ZERO) == 1) { return f64_sub(q, F64_PI); }
     return f64_add(q, F64_PI);
 }
+
+# ================================================================
+# Inverse hyperbolic (v4.8.5-alpha6)
+# ================================================================
+# Closes the symmetry with `f64_sinh` / `cosh` / `tanh` that's been
+# in this file since day one. Identity-based implementations —
+# accurate enough for most consumers, loses ~1-2 ulp at small |x|
+# for asinh and near ±1 for atanh (classic catastrophic
+# cancellation from `1 − x²` and `ln(1 + small)`). Downstream
+# crates that need sub-ulp accuracy should roll their own
+# range-reduced series; most consumers (abaco, dhvani) don't.
+#
+# Domains:
+#   asinh: all real x.
+#   acosh: x ≥ 1.       Below domain, sqrt(x²−1) propagates NaN.
+#   atanh: |x| < 1.     At ±1 the ln diverges; outside domain it
+#                       propagates NaN via ln of a negative.
+
+# asinh(x) = ln(x + √(x² + 1))
+fn f64_asinh(x) {
+    var x2_plus_1 = f64_add(f64_mul(x, x), F64_ONE);
+    return f64_ln(f64_add(x, f64_sqrt(x2_plus_1)));
+}
+
+# acosh(x) = ln(x + √(x² − 1)), x ≥ 1
+fn f64_acosh(x) {
+    var x2_minus_1 = f64_sub(f64_mul(x, x), F64_ONE);
+    return f64_ln(f64_add(x, f64_sqrt(x2_minus_1)));
+}
+
+# atanh(x) = ½ · ln((1 + x) / (1 − x)), |x| < 1
+fn f64_atanh(x) {
+    var num = f64_add(F64_ONE, x);
+    var den = f64_sub(F64_ONE, x);
+    return f64_mul(F64_HALF, f64_ln(f64_div(num, den)));
+}

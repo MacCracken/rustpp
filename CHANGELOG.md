@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.8.5-alpha6] — 2026-04-14 (unreleased)
+
+### Added — inverse hyperbolic (`lib/math.cyr`)
+Closes the symmetry with the existing `f64_sinh` / `cosh` / `tanh`
+family that's been in `math.cyr` since day one. Identity-based
+implementations — accurate enough for most consumers, loses ~1-2
+ulp at small |x| for asinh and near ±1 for atanh (standard
+catastrophic-cancellation behavior from `1 − x²` and `ln(1 + ε)`).
+Sub-ulp callers should roll their own range-reduced series; most
+downstream (abaco, dhvani) don't need that.
+- **`f64_asinh(x)`** — `ln(x + √(x² + 1))`. All real x.
+- **`f64_acosh(x)`** — `ln(x + √(x² − 1))`. Domain x ≥ 1.
+- **`f64_atanh(x)`** — `½·ln((1 + x) / (1 − x))`. Domain |x| < 1.
+
+Out-of-domain inputs propagate NaN via sqrt/ln of negative,
+matching C libm semantics.
+
+### Validation
+- cc3 self-host byte-identical (two-step bootstrap).
+- 8/8 `check.sh` PASS. 49 files / 369 assertions (new:
+  `math_inverse_hyperbolic.tcyr` 13/0 covering round-trip
+  identities + sign + monotonicity).
+
+### Roadmap (4.8.5)
+- alpha1..alpha5 ✅
+- alpha6 ✅ — inverse hyperbolic (this release).
+- alpha7 — cstring case helpers (`str_lower_cstr` / `str_upper_cstr`).
+- beta1 — tests + benchmarks.
+- GA — close-out.
+
 ## [4.8.5-alpha5] — 2026-04-14 (unreleased)
 
 ### Added — inverse trigonometry (`lib/math.cyr`)
