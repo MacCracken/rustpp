@@ -109,6 +109,7 @@ enum IROp {
     IR_XOR_AA      = 93;  # xor rax, rax
     IR_STORE_PARM  = 94;  # arg1 = param_idx, arg2 = local_idx
     IR_ADD_IMM_X1  = 95;  # rcx += arg2
+    IR_ELIMINATED  = 99;  # LASE-eliminated node (NOP-fill in codebuf)
 }
 
 # Helper: record IR node and return 1 if should skip x86 (mode 2), 0 if should emit
@@ -165,6 +166,7 @@ fn _ir_set_node(S, ni, opflags, arg1, arg2) {
 }
 
 # Read IR node fields
+fn IR_NODE_CP(S, ni)   { return load32(S + 0x140B000 + ni * 4); }
 fn IR_NODE_OP(S, ni)   { return load16(S + 0xECA000 + ni * 16); }
 fn IR_NODE_FL(S, ni)   { return load16(S + 0xECA000 + ni * 16 + 2); }
 fn IR_NODE_A1(S, ni)   { return load32(S + 0xECA000 + ni * 16 + 4); }
@@ -219,6 +221,7 @@ fn ir_set_bb(S, bi) {
 }
 
 # Emit an IR node into the current basic block.
+# Also records current CP for post-LASE NOP patching.
 # Returns node index.
 fn ir_emit(S, op, flags, arg1, arg2) {
     var ni = IR_NCNT(S);
@@ -227,11 +230,13 @@ fn ir_emit(S, op, flags, arg1, arg2) {
         syscall(SYS_EXIT, 1);
     }
     _ir_set_node(S, ni, _ir_pack_op(op, flags), arg1, arg2);
+    # Record codebuf position (32-bit, CP fits in 1MB)
+    store32(S + 0x140B000 + ni * 4, GCP(S));
     IR_SNCNT(S, ni + 1);
 
     # Update current BB's node count
     var bi = IR_CURBB(S);
-    if (bi >= 0 && bi < 8192) {
+    if (bi >= 0 && bi < 32768) {
         var base = S + 0x12CA000 + bi * 32;
         store64(base + 16, load64(base + 16) + 1);
     }
@@ -505,8 +510,7 @@ fn ir_lase(S) {
             } elif (op == IR_LOAD_LOCAL) {
                 if (a1 == last_store_idx) {
                     # Redundant load — value still in rax from the store
-                    # Mark as NOP (optimization: would skip this in codegen)
-                    _ir_set_node(S, ni, _ir_pack_op(IR_NOP, 0), 0, 0);
+                    _ir_set_node(S, ni, _ir_pack_op(IR_ELIMINATED, 0), a1, 0);
                     eliminated = eliminated + 1;
                 } else {
                     # Loading a different local — clobbers rax
@@ -523,6 +527,39 @@ fn ir_lase(S) {
         bi = bi + 1;
     }
     return eliminated;
+}
+
+# Apply LASE: NOP-fill codebuf bytes for eliminated nodes.
+# Must run after ir_lase() and before FIXUP.
+# Returns bytes eliminated.
+fn ir_apply_lase(S) {
+    var ncnt = IR_NCNT(S);
+    var bytes = 0;
+    var ni = 0;
+    while (ni < ncnt) {
+        var op = IR_NODE_OP(S, ni);
+        if (op == IR_ELIMINATED) {
+            var cp_start = IR_NODE_CP(S, ni);
+            # Find the next node's CP to determine the byte range
+            var cp_end = cp_start;
+            if (ni + 1 < ncnt) {
+                cp_end = IR_NODE_CP(S, ni + 1);
+            }
+            var sz = cp_end - cp_start;
+            # Only NOP-fill if there's actual code to eliminate
+            # (landing-pad NOPs have sz==0 since they don't emit x86)
+            if (sz > 0 && sz < 16) {
+                var j = 0;
+                while (j < sz) {
+                    store8(S + 0x54A000 + cp_start + j, 0x90);
+                    j = j + 1;
+                }
+                bytes = bytes + sz;
+            }
+        }
+        ni = ni + 1;
+    }
+    return bytes;
 }
 
 # ================================================================
