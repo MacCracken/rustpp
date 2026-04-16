@@ -4,6 +4,31 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.10] — 2026-04-16
+
+**Fix toml_get/toml_get_sections cstring crash (ark SA-002).**
+
+### Fixed
+- **`toml_get()` and `toml_get_sections()` segfault** — both functions
+  passed the `key`/`name` parameter to `str_eq()` which dereferences it
+  as a Str struct. Callers pass cstring literals (`"name"`, `"package"`),
+  causing `str_eq` to read garbage for the length field → segfault or
+  wrong comparison. Fix: use `str_eq_cstr()` which compares a Str
+  against a null-terminated cstring. Reported by ark agent via
+  `tests/cyml-crash-repro.tcyr`.
+- **Note**: the ark repro also shows a `cyml_parse` segfault in large
+  compilation units (~900 functions). This is the same class as the
+  existing layout-dependent memory corruption bug (libro). The toml fix
+  resolves the `toml_get` failures; the cyml crash in large binaries
+  remains open.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.10`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- Minimal `toml_parse` + `toml_get` test: PASS.
+- Ark `tests/cyml-crash-repro.tcyr`: toml_basic PASS, cyml_basic still
+  crashes in large binary (layout-dependent, same as libro bug).
+
 ## [5.1.9] — 2026-04-16
 
 **Cleanup — stale refs, LSP tool fix, CLAUDE.md sync, ARM test results.**
