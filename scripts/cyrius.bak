@@ -1,0 +1,1620 @@
+#!/bin/sh
+# cyrius — Cyrius Build Tool
+# Dispatcher that routes subcommands to individual tools.
+#
+# Like git dispatches to git-commit, git-push, etc.
+# Each subcommand is either a Cyrius binary or a shell script.
+
+set -e
+
+# Toolchain version: from ~/.cyrius/current (installed), else from repo VERSION
+SCRIPT_DIR_V="$(cd "$(dirname "$0")" && pwd)"
+CYRIUS_DIR="${CYRIUS_HOME:-$HOME/.cyrius}"
+if [ -f "$CYRIUS_DIR/current" ]; then
+    VERSION=$(cat "$CYRIUS_DIR/current" | tr -d '[:space:]')
+elif [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
+    VERSION=$(cat "$SCRIPT_DIR_V/../VERSION" | tr -d '[:space:]')
+else
+    VERSION="unknown"
+fi
+# Find compiler: cc5 first, fall back to cc5 (pre-5.0 installs)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CC=""
+for _try in "${CYRIUS_DIR}/bin/cc5" "${CYRIUS_DIR}/bin/cc5" \
+            "$SCRIPT_DIR/../build/cc5" "$SCRIPT_DIR/../build/cc5"; do
+    if [ -x "$_try" ]; then CC="$_try"; break; fi
+done
+if [ -z "$CC" ]; then
+    echo "error: cc5/cc5 not found. Install Cyrius or set CYRIUS_HOME." >&2
+    exit 1
+fi
+
+# Find companion tools directory
+TOOLS_DIR="$(dirname "$CC")"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd 2>/dev/null || pwd)"
+
+# Shared fmt/lint walkers (skip symlinked deps). Try the repo layout first
+# (scripts/lib/audit-walk.sh), then the installed layout (next to the binary).
+# If not found, fall back to inline implementations in the `audit` block.
+for _awalk in \
+    "$REPO_ROOT/scripts/lib/audit-walk.sh" \
+    "$SCRIPTS_DIR/lib/audit-walk.sh" \
+    "$TOOLS_DIR/lib/audit-walk.sh" \
+    "$TOOLS_DIR/../scripts/lib/audit-walk.sh"; do
+    if [ -f "$_awalk" ]; then
+        . "$_awalk"
+        break
+    fi
+done
+unset _awalk
+
+# Read a key from cyrius.toml (section-aware, handles quotes)
+# Usage: toml_get <file> <key> [section]
+toml_get() {
+    local file="$1" key="$2" section="${3:-}"
+    if [ ! -f "$file" ]; then return 1; fi
+    if [ -n "$section" ]; then
+        # Extract section, then find key within it
+        awk -v sec="[$section]" -v k="$key" '
+            $0 == sec { in_sec=1; next }
+            /^\[/ { in_sec=0 }
+            in_sec && $1 == k { gsub(/.*= *"?/, ""); gsub(/".*/, ""); print; exit }
+        ' "$file"
+    else
+        # Top-level key (before any section or in [package])
+        awk -v k="$key" '
+            /^\[/ && !/^\[package\]/ { exit }
+            $1 == k { gsub(/.*= *"?/, ""); gsub(/".*/, ""); print; exit }
+        ' "$file"
+    fi
+}
+
+# Read all package metadata from cyrius.toml
+# Find manifest: prefer cyrius.cyml, fall back to cyrius.toml
+find_manifest() {
+    if [ -f "cyrius.cyml" ]; then echo "cyrius.cyml"
+    elif [ -f "cyrius.toml" ]; then echo "cyrius.toml"
+    else echo ""; fi
+}
+
+read_manifest() {
+    local mf="$(find_manifest)"
+    if [ -n "$mf" ]; then
+        PKG_NAME=$(toml_get "$mf" name)
+        PKG_VERSION=$(toml_get "$mf" version)
+        PKG_DESC=$(toml_get "$mf" description)
+        PKG_ENTRY=$(toml_get "$mf" entry)
+        PKG_OUTPUT=$(toml_get "$mf" output)
+        PKG_LICENSE=$(toml_get "$mf" license)
+    elif [ -f "VERSION" ]; then
+        PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+        PKG_NAME=$(basename "$(pwd)")
+        PKG_DESC="$PKG_NAME"
+        PKG_ENTRY="src/main.cyr"
+        PKG_OUTPUT="$PKG_NAME"
+        PKG_LICENSE="GPL-3.0-only"
+    else
+        echo "error: no cyrius.cyml, cyrius.toml, or VERSION" >&2
+        return 1
+    fi
+}
+
+usage() {
+    cat << EOF
+cyrius ${VERSION} — Cyrius Build Tool
+
+Usage: cyrius <command> [options]
+
+Build:
+  build [--aarch64 [--native]] <src> <out>  compile a program
+  run [--aarch64 [--native]] <source.cyr>  compile + run (no output file)
+  test [--aarch64 [--native]] [test.cyr]   compile + run (no args: discover .tcyr)
+  bench [--tier1|2|3] [file.bcyr]  run benchmarks (no args: all tiers with history)
+  check <source.cyr>              syntax check (compile without output)
+  self                            self-hosting check (cc5==cc5)
+  pulsar                          rebuild cc5 + tools from source, install, purge old versions
+  clean                           remove build/ contents
+
+Project:
+  init [--agent[=preset]] <name>  scaffold a new project
+  package                         create .ark distributable
+  publish                         push package to Ark registry
+  install <pkg>                   install package from registry
+  update                          update vendored stdlib
+  deps                            show resolved dependencies from cyrius.toml
+
+Quality:
+  serve [src] [out]               dev server — watch, recompile, restart on .cyr change
+  audit                           full check: self-host, test, fmt, lint, vet, deny, bench
+  capacity [--check] [--json] [file.cyr]
+                                  compile-time table utilization; --check exits 1 if any cap >= 85%; --json for dashboards
+  fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
+  soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
+  fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc5)
+  fmt <file.cyr> [--check]        format code (or check formatting)
+  lint <file.cyr>                 static analysis warnings
+  doc [--check] <file.cyr>        generate/check documentation
+  vet <source.cyr>                audit include dependencies
+  deny <source.cyr>               enforce project policies
+
+Testing:
+  coverage                        report test coverage by library file
+  doctest <file.cyr> [...]        run doc examples (# >>> / # ===)
+
+Documentation:
+  docs [--agent] [--port N]       serve project docs (default: HTML, --agent: markdown)
+
+Interactive:
+  repl                            interactive expression evaluator
+
+Info:
+  version                         show cyrius version
+  which                           show path to cc5
+  help                            show this help
+
+EOF
+}
+
+# ── Dependency resolution ──
+
+# Read array value from TOML: stdlib = ["a", "b", "c"] → "a b c"
+toml_array() {
+    local file="$1" key="$2" section="${3:-deps}"
+    awk -v sec="[$section]" -v k="$key" '
+        $0 == sec { in_sec=1; next }
+        /^\[/ && in_sec { in_sec=0 }
+        in_sec && $0 ~ k {
+            gsub(/.*\[/, ""); gsub(/\].*/, "");
+            gsub(/"/, ""); gsub(/,/, " "); gsub(/  +/, " ");
+            gsub(/^ +| +$/, ""); print; exit
+        }
+    ' "$file"
+}
+
+# Read dep sections: [deps.NAME] with path= or git= and tag=
+toml_dep_names() {
+    local file="$1"
+    grep '^\[deps\.' "$file" 2>/dev/null | sed 's/\[deps\.//; s/\]//' | sort -u
+}
+
+# Fetch git dependency to ~/.cyrius/deps/<name>/<tag>/
+fetch_git_dep() {
+    local name="$1" url="$2" tag="$3"
+    local dest="$CYRIUS_DIR/deps/$name/$tag"
+    if [ -d "$dest" ] && [ "$(ls -A "$dest" 2>/dev/null)" ]; then return 0; fi
+    rm -rf "$dest"
+    mkdir -p "$(dirname "$dest")"
+    echo "  fetch $name@$tag..."
+    git clone --depth 1 --branch "$tag" "$url" "$dest" 2>&1 || \
+        git clone --depth 1 "$url" "$dest" 2>&1 || \
+        echo "  warning: failed to fetch $name@$tag" >&2
+    return 0
+}
+
+# Resolve all dependencies from cyrius.toml → write include list to file
+# Output: one "include ..." line per dependency, in correct order
+resolve_deps() {
+    local manifest="${1:-}"
+    if [ -z "$manifest" ]; then
+        if [ -f "cyrius.cyml" ]; then manifest="cyrius.cyml"
+        else manifest="cyrius.toml"; fi
+    fi
+    local outfile="$2"
+    if [ ! -f "$manifest" ]; then return 1; fi
+
+    # 1. Stdlib modules
+    local stdlib=$(toml_array "$manifest" "stdlib")
+    for mod in $stdlib; do
+        # Check local lib/ first, then installed
+        if [ -f "lib/${mod}.cyr" ]; then
+            echo "include \"lib/${mod}.cyr\"" >> "$outfile"
+        elif [ -f "$CYRIUS_DIR/versions/$(cat "$CYRIUS_DIR/current" 2>/dev/null)/lib/${mod}.cyr" ]; then
+            local slib="$CYRIUS_DIR/versions/$(cat "$CYRIUS_DIR/current" 2>/dev/null)/lib/${mod}.cyr"
+            echo "include \"$slib\"" >> "$outfile"
+        fi
+    done
+
+    # 2. Path and git dependencies
+    for dep in $(toml_dep_names "$manifest"); do
+        local dpath=$(toml_get "$manifest" "path" "deps.$dep")
+        local dgit=$(toml_get "$manifest" "git" "deps.$dep")
+        local dtag=$(toml_get "$manifest" "tag" "deps.$dep")
+        local resolve_dir=""
+
+        if [ -n "$dpath" ]; then
+            resolve_dir="$dpath"
+        elif [ -n "$dgit" ]; then
+            if [ -z "$dtag" ]; then dtag="main"; fi
+            fetch_git_dep "$dep" "$dgit" "$dtag"
+            resolve_dir="$CYRIUS_DIR/deps/$dep/$dtag"
+        fi
+
+        if [ -n "$resolve_dir" ] && [ -d "$resolve_dir" ]; then
+            # Check for modules filter: modules = ["lib/syscalls.cyr", "src/error.cyr"]
+            local mods=$(toml_array "$manifest" "modules" "deps.$dep")
+            if [ -n "$mods" ]; then
+                # Selective: only listed modules
+                for mod in $mods; do
+                    local mf="$resolve_dir/$mod"
+                    if [ -f "$mf" ]; then
+                        echo "include \"$mf\"" >> "$outfile"
+                        # Symlink into lib/ so relative includes work
+                        local bname=$(basename "$mf")
+                        # Avoid collisions: lib.cyr → <depname>.cyr
+                        if [ "$bname" = "lib.cyr" ]; then bname="${dep}.cyr"; fi
+                        if [ ! -f "lib/$bname" ] && [ -d "lib" ]; then
+                            ln -sf "$(cd "$(dirname "$mf")" && pwd)/$(basename "$mf")" "lib/$bname"
+                        fi
+                    fi
+                done
+            else
+                # All: include lib/*.cyr + src/*.cyr (excluding main.cyr)
+                for f in "$resolve_dir"/lib/*.cyr; do
+                    if [ -f "$f" ]; then
+                        echo "include \"$f\"" >> "$outfile"
+                        local bname=$(basename "$f")
+                        if [ ! -f "lib/$bname" ] && [ -d "lib" ]; then
+                            ln -sf "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")" "lib/$bname"
+                        fi
+                    fi
+                done
+                for f in "$resolve_dir"/src/*.cyr; do
+                    [ -f "$f" ] && [ "$(basename "$f")" != "main.cyr" ] && \
+                        echo "include \"$f\"" >> "$outfile"
+                done
+            fi
+        fi
+    done
+}
+
+# Compare version strings: returns 0 if $1 >= $2, 1 if $1 < $2
+version_gte() {
+    local a="$1" b="$2"
+    local a1=$(echo "$a" | cut -d. -f1) a2=$(echo "$a" | cut -d. -f2) a3=$(echo "$a" | cut -d. -f3)
+    local b1=$(echo "$b" | cut -d. -f1) b2=$(echo "$b" | cut -d. -f2) b3=$(echo "$b" | cut -d. -f3)
+    [ "${a1:-0}" -gt "${b1:-0}" ] && return 0
+    [ "${a1:-0}" -lt "${b1:-0}" ] && return 1
+    [ "${a2:-0}" -gt "${b2:-0}" ] && return 0
+    [ "${a2:-0}" -lt "${b2:-0}" ] && return 1
+    [ "${a3:-0}" -ge "${b3:-0}" ] && return 0
+    return 1
+}
+
+# Check cyrius.toml minimum version requirement
+check_min_version() {
+    local _mf="$(find_manifest)"
+    [ -n "$_mf" ] || return 0
+    local min=$(toml_get "$_mf" cyrius 2>/dev/null)
+    [ -z "$min" ] && return 0
+    # Get actual compiler version from cc5 --version
+    local actual=""
+    actual=$("$CC" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') || true
+    [ -z "$actual" ] && actual="$VERSION"
+    # Compare
+    if version_gte "$actual" "$min"; then
+        return 0
+    fi
+    echo "error: this project requires Cyrius >= $min (you have $actual)"
+    echo "  update: curl -sSf https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh | sh"
+    exit 1
+}
+
+compile() {
+    check_min_version
+    local src="$1" out="$2" compiler="$CC"
+    if [ "$3" = "aarch64" ]; then
+        compiler="${TOOLS_DIR}/cc5_aarch64"
+        if [ ! -x "$compiler" ]; then
+            echo "error: cc5_aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            return 1
+        fi
+    elif [ "$3" = "aarch64-native" ]; then
+        compiler="${TOOLS_DIR}/cc5-native-aarch64"
+        if [ ! -x "$compiler" ]; then
+            echo "error: cc5-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            return 1
+        fi
+    fi
+    # Prepend -D defines to source
+    shift 3 2>/dev/null || true
+    local defines=""
+    while [ -n "$1" ]; do
+        defines="${defines}#define $1
+"
+        shift
+    done
+    # Resolve dependencies from cyrius.toml if present. Bench/test/fuzz
+    # files (.bcyr / .tcyr / .fcyr) are self-contained by convention —
+    # they declare their own includes and must not inherit the project's
+    # [deps] overlay. Without this skip, running `cyrius test` or
+    # `cyrius bench` from a repo whose cyrius.toml declares downstream
+    # deps (e.g. Cyrius itself with [deps.mabda] + yukti + patra + ...)
+    # would prepend ~400KB of unrelated sources to every test, blowing
+    # past the preprocessor cap and confusing the consumer.
+    local depfile=""
+    local skip_deps=0
+    case "$src" in
+        *.bcyr|*.tcyr|*.fcyr) skip_deps=1 ;;
+    esac
+    local _bmf="$(find_manifest)"
+    if [ -n "$_bmf" ] && [ "$skip_deps" -eq 0 ]; then
+        local has_deps=$(grep -c '^\[deps' "$_bmf" 2>/dev/null || echo 0)
+        if [ "$has_deps" -gt 0 ]; then
+            depfile="/tmp/cyrius_deps_$$"
+            resolve_deps "$_bmf" "$depfile"
+        fi
+    fi
+    # Build: defines + deps + source → compiler
+    {
+        [ -n "$defines" ] && printf '%s\n' "$defines"
+        [ -n "$depfile" ] && [ -f "$depfile" ] && cat "$depfile"
+        cat "$src"
+    } | "$compiler" > "$out" && chmod +x "$out"
+    local rc=$?
+    [ -n "$depfile" ] && rm -f "$depfile"
+    return $rc
+}
+
+# Run a binary (x86 direct, aarch64 via qemu)
+run_binary() {
+    local bin="$1" arch="${2:-x86}"
+    if [ "$arch" = "aarch64" ] || [ "$arch" = "aarch64-native" ]; then
+        qemu-aarch64 "$bin" 2>/dev/null || qemu-aarch64-static "$bin" 2>/dev/null
+    else
+        "$bin"
+    fi
+}
+
+case "${1:-help}" in
+    # === Build commands ===
+    build)
+        shift
+        arch="x86"
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
+        # Collect -D flags: -D NAME or -DNAME
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                *) break ;;
+            esac
+        done
+        verbose=0
+        while true; do
+            case "$1" in
+                -v|--verbose) verbose=1; shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$1" ] || [ -z "$2" ]; then
+            echo "Usage: cyrius build [--aarch64] [-v] [-D NAME]... <source.cyr> <output>"
+            exit 1
+        fi
+        src="$1"; out="$2"
+        # Count source lines (including includes)
+        t_start=$(date +%s%N 2>/dev/null || echo 0)
+        warns="/tmp/cyrius_warns_$$"
+        if compile "$src" "$out" "$arch" $defines 2>"$warns"; then
+            t_end=$(date +%s%N 2>/dev/null || echo 0)
+            sz=$(wc -c < "$out")
+            if [ "$t_start" != "0" ] && [ "$t_end" != "0" ]; then
+                elapsed=$(( (t_end - t_start) / 1000000 ))
+                printf "  %s -> %s  %d bytes  %dms  [%s]\n" "$src" "$out" "$sz" "$elapsed" "$arch"
+            else
+                printf "  %s -> %s  %d bytes  [%s]\n" "$src" "$out" "$sz" "$arch"
+            fi
+            wc=$(grep -c "warning:" "$warns" 2>/dev/null || true)
+            wc=${wc:-0}
+            if [ "$wc" -gt 0 ] 2>/dev/null; then
+                printf "  %d warning(s)\n" "$wc"
+                if [ "$verbose" -eq 1 ]; then
+                    cat "$warns" >&2
+                fi
+            fi
+        else
+            echo "  FAIL: $src"
+            cat "$warns" >&2
+            rm -f "$warns"
+            exit 1
+        fi
+        rm -f "$warns"
+        ;;
+
+    test)
+        shift
+        arch="x86"
+        test_verbose=0
+        test_filter=""
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                -v|--verbose) test_verbose=1; shift ;;
+                --filter) test_filter="$2"; shift 2 ;;
+                --filter=*) test_filter="${1#--filter=}"; shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$1" ]; then
+            # No args: auto-discover .tcyr files in tests/ and src/
+            found=0
+            total_pass=0
+            total_fail=0
+            total_assertions=0
+            for tfile in tests/*.tcyr tests/tcyr/*.tcyr src/*.tcyr *.tcyr; do
+                [ -f "$tfile" ] || continue
+                name=$(basename "$tfile" .tcyr)
+                # Apply filter if set
+                if [ -n "$test_filter" ]; then
+                    case "$name" in *${test_filter}*) ;; *) continue ;; esac
+                fi
+                found=1
+                # Parse metadata from comments: # expect: N, # skip: reason
+                expect_code=0
+                skip=""
+                while IFS= read -r line; do
+                    case "$line" in
+                        "# expect: "*) expect_code="${line#\# expect: }" ;;
+                        "# skip: "*)   skip="${line#\# skip: }" ;;
+                        "# skip")      skip="no reason" ;;
+                    esac
+                done < "$tfile"
+                if [ -n "$skip" ]; then
+                    printf "  %-30s SKIP (%s)\n" "$name" "$skip"
+                    continue
+                fi
+                tmpbin="/tmp/cyrius_test_$$"
+                tmpout="/tmp/cyrius_tout_$$"
+                printf "  %-30s " "$name"
+                if compile "$tfile" "$tmpbin" "$arch" $defines 2>/dev/null; then
+                    run_binary "$tmpbin" "$arch" > "$tmpout" 2>&1
+                    ec=$?
+                    rm -f "$tmpbin"
+                    if [ "$ec" -eq "$expect_code" ]; then
+                        # Parse assert_summary output if present
+                        summary=$(grep -o '[0-9]* passed, [0-9]* failed' "$tmpout" 2>/dev/null | tail -1)
+                        if [ -n "$summary" ]; then
+                            p=$(echo "$summary" | grep -o '^[0-9]*')
+                            f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*')
+                            total_assertions=$((total_assertions + p + f))
+                            if [ "$f" -gt 0 ]; then
+                                echo "FAIL ($summary)"
+                                total_fail=$((total_fail + 1))
+                                grep "FAIL:" "$tmpout" 2>/dev/null | head -5
+                            else
+                                echo "PASS ($summary)"
+                                total_pass=$((total_pass + 1))
+                            fi
+                            if [ "$test_verbose" -eq 1 ]; then
+                                cat "$tmpout" | sed 's/^/    /'
+                            fi
+                        else
+                            echo "PASS"
+                            total_pass=$((total_pass + 1))
+                        fi
+                    else
+                        echo "FAIL (exit $ec, expected $expect_code)"
+                        total_fail=$((total_fail + 1))
+                    fi
+                else
+                    echo "FAIL (compile)"
+                    total_fail=$((total_fail + 1))
+                fi
+                rm -f "$tmpbin" "$tmpout"
+            done
+            if [ "$found" -eq 0 ]; then
+                echo "No .tcyr files found in tests/, src/, or ."
+                echo "Usage: cyrius test [--aarch64] [-D NAME]... <test.cyr>"
+                exit 1
+            fi
+            echo ""
+            if [ "$total_assertions" -gt 0 ]; then
+                echo "$total_pass files passed, $total_fail failed ($total_assertions assertions)"
+            else
+                echo "$total_pass passed, $total_fail failed"
+            fi
+            [ "$total_fail" -gt 0 ] && exit 1
+            exit 0
+        fi
+        tmpbin="/tmp/cyrius_test_$$"
+        if compile "$1" "$tmpbin" "$arch" $defines; then
+            run_binary "$tmpbin" "$arch"
+            exit_code=$?
+            rm -f "$tmpbin"
+            exit $exit_code
+        else
+            echo "FAIL: compile error" >&2
+            rm -f "$tmpbin"
+            exit 1
+        fi
+        ;;
+
+    bench)
+        shift
+        if [ -z "$1" ]; then
+            # No args: auto-discover .bcyr files with tier grouping
+            bcyr_found=0
+            # Try bench-history.sh first (has tier structure + CSV tracking)
+            if [ -f "$REPO_ROOT/scripts/bench-history.sh" ]; then
+                exec sh "$REPO_ROOT/scripts/bench-history.sh"
+            fi
+            # Fallback: discover and run .bcyr files
+            for bfile in benches/*.bcyr tests/*.bcyr tests/bcyr/*.bcyr *.bcyr; do
+                [ -f "$bfile" ] || continue
+                bcyr_found=1
+                name=$(basename "$bfile" .bcyr)
+                tmpbin="/tmp/cyrius_bench_$$"
+                printf "  %-35s " "$name"
+                if compile "$bfile" "$tmpbin" 2>/dev/null; then
+                    "$tmpbin" 2>/dev/null
+                    rm -f "$tmpbin"
+                    echo ""
+                else
+                    echo "FAIL (compile)"
+                    rm -f "$tmpbin"
+                fi
+            done
+            if [ "$bcyr_found" -eq 0 ]; then
+                echo "No .bcyr files found. Create benches/*.bcyr or run cyrius bench <file>."
+            fi
+            exit 0
+        fi
+        case "$1" in
+            --tier1|--tier2|--tier3)
+                if [ -f "$REPO_ROOT/scripts/bench-history.sh" ]; then
+                    exec sh "$REPO_ROOT/scripts/bench-history.sh" "$1"
+                else
+                    echo "error: bench-history.sh not found" >&2
+                    exit 1
+                fi
+                ;;
+            *)
+                # Single benchmark file
+                tmpbin="/tmp/cyrius_bench_$$"
+                if compile "$1" "$tmpbin"; then
+                    "$tmpbin"
+                    rm -f "$tmpbin"
+                else
+                    echo "FAIL: compile error" >&2
+                    rm -f "$tmpbin"
+                    exit 1
+                fi
+                ;;
+        esac
+        ;;
+
+    self)
+        echo "=== Self-Hosting Check ==="
+        cc5="/tmp/cyrius_cc5_$$"
+        cc4="/tmp/cyrius_cc4_$$"
+        # Find cc5.cyr source
+        CC2_SRC=""
+        if [ -f "src/main.cyr" ]; then CC2_SRC="src/main.cyr"; fi
+        if [ -f "../cyrius/src/main.cyr" ]; then CC2_SRC="../cyrius/src/main.cyr"; fi
+        if [ -z "$CC2_SRC" ]; then
+            echo "error: src/main.cyr not found" >&2
+            exit 1
+        fi
+        cat "$CC2_SRC" | "$CC" > "$cc5" && chmod +x "$cc5"
+        cat "$CC2_SRC" | "$cc5" > "$cc4"
+        if cmp -s "$cc5" "$cc4"; then
+            echo "  PASS: cc5==cc5 byte-identical"
+            rm -f "$cc5" "$cc4"
+        else
+            echo "  FAIL: cc5!=cc5"
+            rm -f "$cc5" "$cc4"
+            exit 1
+        fi
+        ;;
+
+    # === Project commands ===
+    init)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: cyrius init <project-name>"
+            exit 1
+        fi
+        # Find the init script
+        init_script=""
+        for p in "$CYRIUS_DIR/bin/cyrius-init" "$SCRIPTS_DIR/cyrius-init.sh" "$SCRIPTS_DIR/../scripts/cyrius-init.sh"; do
+            if [ -x "$p" ]; then init_script="$p"; break; fi
+        done
+        if [ -z "$init_script" ]; then
+            echo "error: cyrius-init not found" >&2
+            exit 1
+        fi
+        sh "$init_script" "$@"
+        ;;
+
+    package)
+        shift
+        read_manifest || exit 1
+        echo "=== cyrius package ==="
+        echo "  name:    $PKG_NAME"
+        echo "  version: $PKG_VERSION"
+        echo "  entry:   $PKG_ENTRY"
+        # Build
+        mkdir -p build
+        if [ -f "$PKG_ENTRY" ]; then
+            echo "  compiling..."
+            cat "$PKG_ENTRY" | "$CC" > "build/$PKG_OUTPUT" && chmod +x "build/$PKG_OUTPUT"
+        fi
+        # Create .ark package
+        mkdir -p "build/pkg"
+        cat > "build/pkg/manifest.json" << MANIFEST
+{"name": "$PKG_NAME", "version": "$PKG_VERSION", "description": "$PKG_DESC", "license": "$PKG_LICENSE", "type": "binary"}
+MANIFEST
+        if [ -x "build/$PKG_OUTPUT" ]; then
+            cp "build/$PKG_OUTPUT" "build/pkg/"
+        fi
+        tar -czf "build/${PKG_NAME}-${PKG_VERSION}.ark" -C "build/pkg" .
+        rm -rf "build/pkg"
+        SZ=$(wc -c < "build/${PKG_NAME}-${PKG_VERSION}.ark")
+        echo "  -> build/${PKG_NAME}-${PKG_VERSION}.ark ($SZ bytes)"
+        ;;
+
+    publish)
+        shift
+        # Find the .ark package
+        if [ ! -f "VERSION" ]; then
+            echo "error: no VERSION file" >&2
+            exit 1
+        fi
+        PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+        PKG_NAME=$(basename "$(pwd)")
+        PKG_FILE="build/${PKG_NAME}-${PKG_VERSION}.ark"
+        if [ ! -f "$PKG_FILE" ]; then
+            echo "error: package not found. Run 'cyrius package' first." >&2
+            exit 1
+        fi
+        echo "=== cyrius publish ==="
+        echo "  package: $PKG_FILE"
+        echo "  registry: Ark marketplace"
+        echo ""
+        echo "Publishing not yet connected to registry."
+        echo "Package is ready at: $PKG_FILE"
+        echo "Upload manually or wait for Ark registry integration."
+        ;;
+
+    install)
+        shift
+        if [ -z "$1" ]; then
+            echo "Usage: cyrius install <package>"
+            exit 1
+        fi
+        echo "=== cyrius install ==="
+        echo "  package: $1"
+        echo ""
+        echo "Package registry not yet available."
+        echo "Install from source: git clone <repo> && cd <repo> && cyrius build"
+        ;;
+
+    # === Quality commands ===
+    vet)
+        shift
+        cyrc="${TOOLS_DIR}/cyrc"
+        if [ ! -x "$cyrc" ]; then
+            # Fallback: try to find in scripts dir
+            echo "error: cyrc not found" >&2
+            exit 1
+        fi
+        "$cyrc" vet "$@"
+        ;;
+
+    deny)
+        shift
+        cyrc="${TOOLS_DIR}/cyrc"
+        if [ ! -x "$cyrc" ]; then
+            echo "error: cyrc not found" >&2
+            exit 1
+        fi
+        "$cyrc" deny "$@"
+        ;;
+
+    # === Capacity meter (compile-time table utilization) ===
+    capacity)
+        shift
+        # Usage: cyrius capacity [--check] [--json] [file.cyr]
+        # Default: compiles under CYRIUS_STATS=1, prints fn / ident /
+        # var / fixup / string / code utilization to stderr.
+        # --check: exit 1 if any cap >= 85% (CI gate).
+        # --json:  machine-readable output to stdout for dashboards.
+        CHECK_MODE=0
+        JSON_MODE=0
+        while [ "${1:-}" = "--check" ] || [ "${1:-}" = "--json" ]; do
+            if [ "$1" = "--check" ]; then CHECK_MODE=1; fi
+            if [ "$1" = "--json" ];  then JSON_MODE=1;  fi
+            shift
+        done
+        SRC="${1:-}"
+        if [ -z "$SRC" ]; then
+            _cmf="$(find_manifest)"
+            if [ -n "$_cmf" ]; then
+                SRC=$(toml_get "$_cmf" "src" "build")
+            fi
+            if [ -z "$SRC" ]; then
+                if [ -f "src/lib.cyr" ]; then SRC="src/lib.cyr";
+                elif [ -f "src/main.cyr" ]; then SRC="src/main.cyr";
+                fi
+            fi
+        fi
+        if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
+            echo "usage: cyrius capacity [--check] [file.cyr]" >&2
+            echo "  no file given and no entry point auto-detected" >&2
+            exit 1
+        fi
+        if [ "$JSON_MODE" = "1" ]; then
+            # Compile under CYRIUS_STATS=1; parse the structured stats
+            # (lines like "  fn_table:    322 / 4096") into JSON.
+            TMPERR=$(mktemp)
+            cat "$SRC" | CYRIUS_STATS=1 "$CC" > /dev/null 2>"$TMPERR"
+            rc=$?
+            if [ "$rc" -ne 0 ]; then cat "$TMPERR" >&2; rm -f "$TMPERR"; exit "$rc"; fi
+            awk '
+              BEGIN { print "{"; first = 1 }
+              /^  [a-z_]+:[[:space:]]+[0-9]+[[:space:]]+\/[[:space:]]+[0-9]+/ {
+                gsub(/[:,\/]/, " ")
+                name = $1; used = $2 + 0; cap = $3 + 0
+                pct = (cap > 0) ? int(used * 100 / cap) : 0
+                if (!first) printf ",\n"
+                printf "  \"%s\": {\"used\": %d, \"cap\": %d, \"pct\": %d}", name, used, cap, pct
+                first = 0
+              }
+              END { print ""; print "}" }
+            ' "$TMPERR"
+            rm -f "$TMPERR"
+        elif [ "$CHECK_MODE" = "1" ]; then
+            # Capture stderr; the compiler's own 85% warnings carry
+            # `at NN%` so we can detect them without parsing every
+            # warning category.
+            TMPERR=$(mktemp)
+            cat "$SRC" | "$CC" > /dev/null 2>"$TMPERR"
+            rc=$?
+            cat "$TMPERR" >&2
+            # `grep -c` exits 1 when no matches; with `set -e` at top
+            # of the script that would kill us. Force success path.
+            HITS=$(grep -c "^warning:.* at .*%" "$TMPERR" 2>/dev/null || true)
+            HITS=${HITS:-0}
+            rm -f "$TMPERR"
+            if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+            if [ "$HITS" -gt 0 ] 2>/dev/null; then
+                echo "cyrius capacity --check: $HITS table(s) at >=85% — failing" >&2
+                exit 1
+            fi
+            echo "cyrius capacity --check: ok (all caps under 85%)"
+        else
+            cat "$SRC" | CYRIUS_STATS=1 "$CC" > /dev/null
+        fi
+        ;;
+
+    # === Audit (full project check) ===
+    audit)
+        shift
+        # Generic audit: works in any Cyrius project
+        # 1. Project-specific check.sh (if exists)
+        # 2. Generic: compile check + .tcyr tests + lint + fmt
+        if [ -f "scripts/check.sh" ]; then
+            sh scripts/check.sh
+        else
+            echo "=== Cyrius Project Audit ==="
+            echo ""
+            AUDIT_PASS=0; AUDIT_FAIL=0
+
+            # Compile check (build entry point from manifest, or src/main.cyr)
+            echo "── Compile ──"
+            BUILD_SRC=""
+            _amf="$(find_manifest)"
+            if [ -n "$_amf" ]; then
+                BUILD_SRC=$(toml_get "$_amf" "src" "build")
+            fi
+            if [ -z "$BUILD_SRC" ]; then
+                if [ -f "src/lib.cyr" ]; then BUILD_SRC="src/lib.cyr";
+                elif [ -f "src/main.cyr" ]; then BUILD_SRC="src/main.cyr";
+                fi
+            fi
+            if [ -n "$BUILD_SRC" ] && [ -f "$BUILD_SRC" ]; then
+                if cat "$BUILD_SRC" | "$CC" > /dev/null 2>&1; then
+                    echo "  PASS: $BUILD_SRC"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: $BUILD_SRC"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+            else
+                echo "  SKIP: no build entry point found"
+            fi
+            echo ""
+
+            # Tests
+            echo "── Tests ──"
+            tcyr_found=0
+            for t in tests/*.tcyr tests/tcyr/*.tcyr; do
+                [ -f "$t" ] || continue
+                tcyr_found=1
+                name=$(basename "$t" .tcyr)
+                tmpbin="/tmp/cyrius_audit_$$"
+                if cat "$t" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
+                    output=$("$tmpbin" 2>&1); ec=$?
+                    rm -f "$tmpbin"
+                    summary=$(echo "$output" | grep -o '[0-9]* passed, [0-9]* failed' | tail -1)
+                    f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*' || echo "")
+                    if [ "$ec" -eq 0 ] && { [ -z "$f" ] || [ "$f" -eq 0 ]; }; then
+                        echo "  PASS: $name${summary:+ ($summary)}"
+                        AUDIT_PASS=$((AUDIT_PASS + 1))
+                    else
+                        echo "  FAIL: $name"
+                        AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                    fi
+                else
+                    echo "  FAIL: $name (compile)"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                    rm -f "$tmpbin"
+                fi
+            done
+            if [ "$tcyr_found" -eq 0 ]; then echo "  (no .tcyr files found)"; fi
+            echo ""
+
+            # Lint + Format share the skip-symlink walkers with scripts/check.sh
+            # via scripts/lib/audit-walk.sh. If the helper isn't sourced (old
+            # install layout), fall back to inline implementations.
+            CYRLINT="${TOOLS_DIR}/cyrlint"
+            if [ -x "$CYRLINT" ]; then
+                echo "── Lint ──"
+                if command -v audit_lint_walk > /dev/null 2>&1; then
+                    audit_lint_walk "$CYRLINT" lib src
+                    lint_total="$AW_LINT_TOTAL"
+                    lint_skipped="$AW_LINT_SKIPPED"
+                else
+                    lint_total=0; lint_skipped=0
+                    for f in lib/*.cyr src/*.cyr; do
+                        [ -f "$f" ] || continue
+                        if [ -L "$f" ]; then lint_skipped=$((lint_skipped + 1)); continue; fi
+                        w=$("$CYRLINT" "$f" 2>&1 | tail -1 | grep -o '^[0-9]*' || echo 0)
+                        lint_total=$((lint_total + w))
+                    done
+                fi
+                if [ "$lint_total" -eq 0 ]; then
+                    echo "  PASS: lint (0 warnings)"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: lint ($lint_total warnings)"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+                if [ "$lint_skipped" -gt 0 ]; then
+                    echo "  ($lint_skipped dep files skipped)"
+                fi
+                echo ""
+            fi
+
+            CYRFMT="${TOOLS_DIR}/cyrfmt"
+            if [ -x "$CYRFMT" ]; then
+                echo "── Format ──"
+                if command -v audit_fmt_walk > /dev/null 2>&1; then
+                    audit_fmt_walk "$CYRFMT" lib src
+                    fmt_fail="$AW_FMT_FAIL"
+                    fmt_files="$AW_FMT_FILES"
+                    fmt_skipped="$AW_FMT_SKIPPED"
+                else
+                    fmt_fail=0; fmt_files=""; fmt_skipped=0
+                    for f in lib/*.cyr src/*.cyr; do
+                        [ -f "$f" ] || continue
+                        if [ -L "$f" ]; then fmt_skipped=$((fmt_skipped + 1)); continue; fi
+                        "$CYRFMT" "$f" > /tmp/cyrius_fmt_$$ 2>/dev/null
+                        if ! diff -q "$f" /tmp/cyrius_fmt_$$ > /dev/null 2>&1; then
+                            fmt_fail=1
+                            fmt_files="$fmt_files $(basename $f)"
+                        fi
+                        rm -f /tmp/cyrius_fmt_$$
+                    done
+                fi
+                if [ "$fmt_fail" -eq 0 ]; then
+                    echo "  PASS: format"
+                    AUDIT_PASS=$((AUDIT_PASS + 1))
+                else
+                    echo "  FAIL: format —$fmt_files"
+                    AUDIT_FAIL=$((AUDIT_FAIL + 1))
+                fi
+                if [ "$fmt_skipped" -gt 0 ]; then
+                    echo "  ($fmt_skipped dep files skipped)"
+                fi
+                echo ""
+            fi
+
+            echo "════════════════════════"
+            echo "$AUDIT_PASS passed, $AUDIT_FAIL failed"
+            [ "$AUDIT_FAIL" -gt 0 ] && exit 1
+            exit 0
+        fi
+        ;;
+
+    # === Format + Lint ===
+    fmt)
+        shift
+        cyrfmt="${TOOLS_DIR}/cyrfmt"
+        if [ ! -x "$cyrfmt" ]; then
+            echo "error: cyrfmt not found" >&2; exit 1
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrius fmt <file.cyr> [--check]"; exit 1; fi
+        if [ "$2" = "--check" ]; then
+            tmpf="/tmp/cyrius_fmt_$$"
+            "$cyrfmt" "$1" > "$tmpf"
+            if diff -q "$1" "$tmpf" > /dev/null 2>&1; then
+                echo "ok: $1"; rm -f "$tmpf"
+            else
+                echo "needs formatting: $1"; rm -f "$tmpf"; exit 1
+            fi
+        else
+            "$cyrfmt" "$1"
+        fi
+        ;;
+
+    lint)
+        shift
+        cyrlint="${TOOLS_DIR}/cyrlint"
+        if [ ! -x "$cyrlint" ]; then
+            echo "error: cyrlint not found" >&2; exit 1
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrius lint <file.cyr>"; exit 1; fi
+        "$cyrlint" "$@"
+        ;;
+
+    doc)
+        shift
+        cyrdoc="${TOOLS_DIR}/cyrdoc"
+        if [ ! -x "$cyrdoc" ]; then
+            echo "error: cyrdoc not found" >&2; exit 1
+        fi
+        # doc --serve [port]: generate docs + serve via HTTP
+        if [ "$1" = "--serve" ]; then
+            shift
+            DOC_PORT="${1:-8080}"
+            mkdir -p build/docs
+            echo "=== cyrius doc --serve ==="
+            echo "  generating docs..."
+            for f in lib/*.cyr src/*.cyr; do
+                [ -f "$f" ] || continue
+                name=$(basename "$f" .cyr)
+                {
+                    echo "<html><head><title>$name — Cyrius Docs</title>"
+                    echo "<style>body{font-family:monospace;max-width:80ch;margin:2em auto;line-height:1.5}pre{background:#f4f4f4;padding:1em;overflow-x:auto}h3{border-bottom:1px solid #ccc}</style></head><body>"
+                    echo "<p><a href=\"index.html\">← index</a></p>"
+                    echo "<pre>"
+                    "$cyrdoc" "$f" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+                    echo "</pre></body></html>"
+                } > "build/docs/${name}.html"
+            done
+            # Generate index
+            {
+                echo "<html><head><title>Cyrius Docs</title></head><body>"
+                echo "<h1>Cyrius Documentation</h1><ul>"
+                for f in build/docs/*.html; do
+                    [ -f "$f" ] || continue
+                    name=$(basename "$f")
+                    echo "<li><a href=\"$name\">$name</a></li>"
+                done
+                echo "</ul></body></html>"
+            } > build/docs/index.html
+            echo "  serving at http://localhost:$DOC_PORT"
+            echo "  ctrl-c to stop"
+            # Use python if available, otherwise basic shell server
+            if command -v python3 > /dev/null 2>&1; then
+                cd build/docs && python3 -m http.server "$DOC_PORT"
+            else
+                echo "error: python3 required for doc --serve" >&2; exit 1
+            fi
+            exit 0
+        fi
+        if [ -z "$1" ]; then echo "Usage: cyrius doc [--check|--serve] <file.cyr>"; exit 1; fi
+        "$cyrdoc" "$@"
+        ;;
+
+    docs)
+        shift
+        REPO_ROOT="$(cd "$SCRIPTS_DIR/.." 2>/dev/null && pwd || cd "$(dirname "$CC")/.." && pwd)"
+        PORT="${1:-8080}"
+        AGENT_MODE=0
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --agent) AGENT_MODE=1; shift ;;
+                --port) shift; PORT="$1"; shift ;;
+                *) PORT="$1"; shift ;;
+            esac
+        done
+        if [ "$AGENT_MODE" = "1" ]; then
+            echo "Serving docs (markdown/agent mode) on http://localhost:$PORT"
+            echo "Press Ctrl+C to stop."
+            cd "$REPO_ROOT"
+            python3 -c "
+import http.server, os, sys
+
+class MarkdownHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        path = self.path.lstrip('/')
+        if path == '' or path == '/':
+            # Index: list all .md files
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/markdown')
+            self.end_headers()
+            self.wfile.write(b'# Cyrius Documentation Index\n\n')
+            for root, dirs, files in os.walk('.'):
+                dirs[:] = [d for d in dirs if d not in ('.git', '.claude', 'build', 'node_modules')]
+                for f in sorted(files):
+                    if f.endswith('.md'):
+                        p = os.path.join(root, f)[2:]
+                        self.wfile.write(f'- [{p}](/{p})\n'.encode())
+            return
+        # Serve .md files as text/markdown, .cyr as text/plain
+        if os.path.isfile(path):
+            self.send_response(200)
+            if path.endswith('.md'):
+                self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+            elif path.endswith('.cyr') or path.endswith('.toml'):
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            else:
+                self.send_header('Content-Type', 'application/octet-stream')
+            self.end_headers()
+            with open(path, 'rb') as f:
+                self.wfile.write(f.read())
+        else:
+            self.send_response(404)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Not found\n')
+
+http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
+" 2>&1
+        else
+            echo "Serving docs (HTML) on http://localhost:$PORT"
+            echo "Press Ctrl+C to stop."
+            cd "$REPO_ROOT"
+            python3 -m http.server "$PORT" 2>&1
+        fi
+        ;;
+
+    # === Run / Clean / Update / Check ===
+    header)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-header.sh" "$@"
+        ;;
+
+    port)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-port.sh" "$@"
+        ;;
+
+    # === Deps: show dependency map from manifest ===
+    deps)
+        shift
+        MANIFEST="$(find_manifest)"
+        if [ -z "$MANIFEST" ]; then
+            echo "No cyrius.cyml or cyrius.toml found in current directory."
+            exit 1
+        fi
+        echo "=== $(toml_get "$MANIFEST" name) $(toml_get "$MANIFEST" version) ==="
+        echo ""
+        mkdir -p lib
+        # Resolve: fetch git deps, symlink into lib/
+        depfile="/tmp/cyrius_deps_$$"
+        > "$depfile"
+        resolve_deps "$MANIFEST" "$depfile"
+        dep_count=0
+        for dep in $(toml_dep_names "$MANIFEST"); do
+            dgit=$(toml_get "$MANIFEST" "git" "deps.$dep")
+            dtag=$(toml_get "$MANIFEST" "tag" "deps.$dep")
+            mods=$(toml_array "$MANIFEST" "modules" "deps.$dep")
+            if [ -n "$dgit" ]; then
+                printf "  %-20s %s@%s\n" "$dep" "$dgit" "${dtag:-main}"
+            fi
+            if [ -n "$mods" ]; then
+                for mod in $mods; do
+                    bname=$(basename "$mod")
+                    if [ "$bname" = "lib.cyr" ]; then bname="${dep}.cyr"; fi
+                    if [ -L "lib/$bname" ] || [ -f "lib/$bname" ]; then
+                        printf "    %-18s → lib/%s [ok]\n" "$mod" "$bname"
+                    else
+                        printf "    %-18s → lib/%s [missing]\n" "$mod" "$bname"
+                    fi
+                done
+            fi
+            dep_count=$((dep_count + 1))
+        done
+        if [ $dep_count -eq 0 ]; then
+            echo "  (no dependencies)"
+        fi
+        rm -f "$depfile"
+        echo ""
+        echo "$dep_count dependencies resolved"
+        ;;
+
+
+    coverage)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-coverage.sh" "$@"
+        ;;
+
+    doctest)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-doctest.sh" "$CC" "$@"
+        ;;
+
+    repl)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-repl.sh" "$CC" "$@"
+        ;;
+
+    run)
+        shift
+        arch="x86"
+        if [ "$1" = "--aarch64" ]; then
+            arch="aarch64"; shift
+            if [ "$1" = "--native" ]; then arch="aarch64-native"; shift; fi
+        fi
+        defines=""
+        while true; do
+            case "$1" in
+                -D) defines="$defines $2"; shift 2 ;;
+                -D*) defines="$defines ${1#-D}"; shift ;;
+                *) break ;;
+            esac
+        done
+        if [ -z "$1" ]; then echo "Usage: cyrius run [--aarch64] [-D NAME]... <source.cyr>"; exit 1; fi
+        tmpbin="/tmp/cyrius_run_$$"
+        if compile "$1" "$tmpbin" "$arch" $defines; then
+            run_binary "$tmpbin" "$arch"
+            exit_code=$?
+            rm -f "$tmpbin"
+            exit $exit_code
+        else
+            echo "error: compile failed" >&2
+            rm -f "$tmpbin"
+            exit 1
+        fi
+        ;;
+
+    check)
+        shift
+        if [ -z "$1" ]; then echo "Usage: cyrius check <source.cyr>"; exit 1; fi
+        if cat "$1" | "$CC" > /dev/null 2>&1; then
+            echo "ok: $1"
+        else
+            echo "error: $1" >&2
+            exit 1
+        fi
+        ;;
+
+    deps)
+        shift
+        _smf="$(find_manifest)"
+        if [ -z "$_smf" ]; then echo "no cyrius.cyml or cyrius.toml"; exit 1; fi
+        echo "=== Dependencies for $(toml_get "$_smf" name) ==="
+        _stdlib=$(toml_array "$_smf" "stdlib")
+        if [ -n "$_stdlib" ]; then
+            echo "stdlib: $_stdlib"
+        fi
+        for dep in $(toml_dep_names "$_smf"); do
+            _dp=$(toml_get "$_smf" "path" "deps.$dep")
+            _dg=$(toml_get "$_smf" "git" "deps.$dep")
+            _dt=$(toml_get "$_smf" "tag" "deps.$dep")
+            if [ -n "$_dp" ]; then
+                echo "$dep: path=$_dp"
+            elif [ -n "$_dg" ]; then
+                _cached="$CYRIUS_DIR/deps/$dep/${_dt:-main}"
+                _status="not fetched"
+                [ -d "$_cached" ] && _status="cached"
+                echo "$dep: git=$_dg tag=${_dt:-main} ($_status)"
+            fi
+        done
+        echo ""
+        echo "=== Resolved includes ==="
+        _tmpf="/tmp/cyrius_deps_show_$$"
+        resolve_deps "$_smf" "$_tmpf"
+        if [ -f "$_tmpf" ]; then cat "$_tmpf"; rm -f "$_tmpf"; fi
+        ;;
+
+    clean)
+        if [ -d "build" ]; then
+            # Preserve bootstrap compiler (cc5, cyrc, asm)
+            for f in build/*; do
+                base=$(basename "$f")
+                case "$base" in
+                    cc5|cyrc|asm) ;; # keep
+                    *) rm -f "$f" ;;
+                esac
+            done
+            echo "cleaned build/ (preserved cc5, cyrc, asm)"
+        else
+            echo "nothing to clean"
+        fi
+        ;;
+
+    # === Soak: overnight validation loop ===
+    soak)
+        shift
+        SOAK_ITERS="${1:-100}"
+        SOAK_REPOS="${2:-}"
+        echo "=== cyrius soak test ==="
+        echo "  iterations: $SOAK_ITERS"
+        echo "  cc5: $CC"
+        echo ""
+        # Find repos to test
+        repos=""
+        if [ -n "$SOAK_REPOS" ]; then
+            repos="$SOAK_REPOS"
+        else
+            # Known validated repos (not auto-discover — too many false positives)
+            for rname in agnostik agnosys argonaut sakshi majra libro bsp cyrius-doom; do
+                if [ -f "../$rname/src/main.cyr" ]; then
+                    repos="$repos $rname"
+                fi
+            done
+        fi
+        echo "  repos: $repos"
+        echo ""
+        soak_pass=0; soak_fail=0; soak_iter=0
+        while [ $soak_iter -lt "$SOAK_ITERS" ]; do
+            soak_iter=$((soak_iter + 1))
+            printf "[%d/%d] " "$soak_iter" "$SOAK_ITERS"
+            iter_ok=1
+            # 1. Self-hosting check (two-step: cc5 compiles cc4, cc5==cc4)
+            cc5="/tmp/cyrius_soak_cc5"
+            cc4="/tmp/cyrius_soak_cc4"
+            cat src/main.cyr | "$CC" > "$cc5" 2>/dev/null && chmod +x "$cc5"
+            cat src/main.cyr | "$cc5" > "$cc4" 2>/dev/null
+            if ! cmp -s "$cc5" "$cc4" 2>/dev/null; then
+                echo "FAIL: self-hosting (cc5!=cc4)"; iter_ok=0
+            fi
+            rm -f "$cc5" "$cc4"
+            # 2. Test suite
+            for t in tests/tcyr/*.tcyr; do
+                [ -f "$t" ] || continue
+                tmpbin="/tmp/cyrius_soak_t"
+                cat "$t" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+                output=$("$tmpbin" 2>&1); ec=$?
+                rm -f "$tmpbin"
+                f=$(echo "$output" | grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*')
+                if [ "$ec" -ne 0 ] || { [ -n "$f" ] && [ "$f" -gt 0 ]; }; then
+                    echo "FAIL: $(basename "$t")"; iter_ok=0; break
+                fi
+            done
+            # 3. Fuzz harnesses
+            for f in fuzz/*.fcyr; do
+                [ -f "$f" ] || continue
+                tmpbin="/tmp/cyrius_soak_f"
+                cat "$f" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+                timeout 10 "$tmpbin" 100 > /dev/null 2>&1; fec=$?
+                rm -f "$tmpbin"
+                if [ $fec -eq 139 ] || [ $fec -eq 134 ]; then
+                    echo "FUZZ CRASH: $(basename "$f")"; iter_ok=0; break
+                fi
+            done
+            # 4. Downstream repos (compile only — some are binaries not test suites)
+            for rname in $repos; do
+                rdir="$REPO_ROOT/../$rname"
+                [ -f "$rdir/src/main.cyr" ] || continue
+                tmpbin="/tmp/cyrius_soak_r"
+                (cd "$rdir" && cat src/main.cyr | "$CC" > "$tmpbin" 2>/dev/null)
+                if [ $? -ne 0 ]; then
+                    echo "COMPILE FAIL: $rname"; iter_ok=0; break
+                fi
+                rm -f "$tmpbin"
+            done
+            if [ $iter_ok -eq 1 ]; then
+                soak_pass=$((soak_pass + 1))
+                echo "ok"
+            else
+                soak_fail=$((soak_fail + 1))
+                echo "FAILED at iteration $soak_iter"
+            fi
+        done
+        echo ""
+        echo "=== soak complete: $soak_pass/$SOAK_ITERS passed, $soak_fail failed ==="
+        [ $soak_fail -gt 0 ] && exit 1; exit 0
+        ;;
+
+    # === Fuzz: project-level library fuzzing + compiler fuzzing ===
+    fuzz)
+        shift
+        FUZZ_ITERS="${1:-1000}"
+        # Check for --compiler flag (fuzz the compiler itself)
+        if [ "$1" = "--compiler" ] || [ "$1" = "--seed" ]; then
+            shift
+            FUZZ_ITERS="${1:-1000}"
+            FUZZ_SEED_DIR="${2:-tests/tcyr}"
+            echo "=== cyrius fuzz --compiler ==="
+            echo "  iterations: $FUZZ_ITERS"
+            echo "  seeds:      $FUZZ_SEED_DIR"
+            echo ""
+            crashes=0; tested=0
+            seeds=""
+            for f in $(find "$FUZZ_SEED_DIR" -name '*.tcyr' -o -name '*.cyr' 2>/dev/null) $(find src lib -name '*.cyr' 2>/dev/null); do
+                [ -f "$f" ] && seeds="$seeds $f"
+            done
+            if [ -z "$seeds" ]; then echo "no seed files found"; exit 1; fi
+            i=0
+            while [ $i -lt "$FUZZ_ITERS" ]; do
+                strategy=$((i % 5))
+                case $strategy in
+                    0) input=$(head -c $((64 + i % 4096)) /dev/urandom | tr -dc 'a-zA-Z0-9 _;{}()=+\-*/<>!&|^~.,\n#"' | head -c $((64 + i % 2048))) ;;
+                    1) seed=$(echo $seeds | tr ' ' '\n' | shuf -n1 2>/dev/null || echo $seeds | awk '{print $1}')
+                       input=$(cat "$seed" 2>/dev/null | awk -v s=$i 'BEGIN{srand(s)} {for(j=1;j<=length($0);j++){c=substr($0,j,1); if(rand()<0.05) c=sprintf("%c",32+int(rand()*95)); printf "%s",c} print ""}') ;;
+                    2) input=$(python3 -c "print('if (1) { ' * $((10+i%200)) + 'var x=1;' + ' }' * $((10+i%200)))" 2>/dev/null || echo "var x=1;") ;;
+                    3) input=$(python3 -c "print('var x = ' + '+'.join(['1']*$((10+i%500))) + ';')" 2>/dev/null || echo "var x=1;") ;;
+                    4) input=$(python3 -c "import random;random.seed($i);kw='var fn if else while for return struct enum break continue'.split();print(' '.join(random.choice(kw) for _ in range(50+$i%200))+';')" 2>/dev/null || echo "var x=1;") ;;
+                esac
+                ec=0; echo "$input" | timeout 5 "$CC" > /dev/null 2>&1 || ec=$?
+                tested=$((tested + 1))
+                if [ $ec -eq 139 ] || [ $ec -eq 134 ] || [ $ec -eq 136 ]; then
+                    crashes=$((crashes + 1))
+                    echo "  CRASH (exit $ec) at iteration $i"
+                    echo "$input" > "/tmp/cyrius_fuzz_crash_${i}.cyr"
+                fi
+                if [ $((i % 100)) -eq 0 ] && [ $i -gt 0 ]; then
+                    printf "  [%d/%d] %d crashes\r" "$i" "$FUZZ_ITERS" "$crashes"
+                fi
+                i=$((i + 1))
+            done
+            echo ""; echo "=== complete: $tested tested, $crashes crashes ==="
+            [ $crashes -gt 0 ] && exit 1; exit 0
+        fi
+        # Default: project-level library fuzzing
+        # Discovers fuzz/*.cyr harnesses, compiles and runs each
+        fuzz_found=0
+        fuzz_pass=0; fuzz_fail=0
+        echo "=== cyrius fuzz ==="
+        echo "  iterations per harness: $FUZZ_ITERS"
+        echo ""
+        for harness in fuzz/*.fcyr fuzz/*.cyr fuzz/*.tcyr; do
+            [ -f "$harness" ] || continue
+            fuzz_found=1
+            name=$(basename "$harness" .cyr)
+            name=$(echo "$name" | sed 's/.tcyr$//')
+            tmpbin="/tmp/cyrius_fuzz_$$"
+            printf "  %-25s " "$name"
+            if compile "$harness" "$tmpbin" 2>/dev/null; then
+                chmod +x "$tmpbin"
+                ec=0; timeout 30 "$tmpbin" "$FUZZ_ITERS" > /dev/null 2>&1 || ec=$?
+                rm -f "$tmpbin"
+                if [ $ec -eq 139 ] || [ $ec -eq 134 ] || [ $ec -eq 136 ]; then
+                    echo "CRASH (exit $ec)"
+                    fuzz_fail=$((fuzz_fail + 1))
+                elif [ $ec -ne 0 ]; then
+                    echo "FAIL (exit $ec)"
+                    fuzz_fail=$((fuzz_fail + 1))
+                else
+                    echo "PASS"
+                    fuzz_pass=$((fuzz_pass + 1))
+                fi
+            else
+                echo "COMPILE FAIL"
+                fuzz_fail=$((fuzz_fail + 1))
+                rm -f "$tmpbin"
+            fi
+        done
+        if [ "$fuzz_found" -eq 0 ]; then
+            echo "  No fuzz harnesses found in fuzz/"
+            echo ""
+            echo "  Create fuzz/*.fcyr files to test library functions."
+            echo "  Each harness receives iteration count as argv(1)."
+            echo "  Exit 0 = pass, non-zero = fail, 139 = crash."
+            echo ""
+            echo "  For compiler fuzzing: cyrius fuzz --compiler [N]"
+            exit 0
+        fi
+        echo ""
+        echo "=== $fuzz_pass passed, $fuzz_fail failed ==="
+        [ $fuzz_fail -gt 0 ] && exit 1; exit 0
+        ;;
+
+    update)
+        echo "=== cyrius update ==="
+        CYRIUS_LIB="${CYRIUS_DIR}/versions/$(cat "${CYRIUS_DIR}/current" 2>/dev/null)/lib"
+        if [ -d "$CYRIUS_LIB" ] && [ -d "lib" ]; then
+            cp "$CYRIUS_LIB"/*.cyr lib/ 2>/dev/null
+            mkdir -p lib/agnosys
+            cp "$CYRIUS_LIB"/agnosys/*.cyr lib/agnosys/ 2>/dev/null
+            echo "updated vendored stdlib from $(cat "${CYRIUS_DIR}/current")"
+        else
+            echo "no installed stdlib found or no lib/ directory"
+            echo "manual update: cp ../cyrius/lib/*.cyr lib/"
+        fi
+        ;;
+
+    # === Serve: dev server with file watching ===
+    watch)
+        shift
+        exec sh "$SCRIPTS_DIR/cyrius-watch.sh" "$@"
+        ;;
+
+    serve)
+        shift
+        src="${1:-src/main.cyr}"
+        out="${2:-build/serve_bin}"
+        port="${3:-8080}"
+        if [ ! -f "$src" ]; then
+            echo "Usage: cyrius serve [source.cyr] [output] [port]"
+            echo "  Watches .cyr files, recompiles and restarts on change."
+            echo "  Default: cyrius serve src/main.cyr build/serve_bin"
+            exit 1
+        fi
+        mkdir -p "$(dirname "$out")"
+        echo "cyrius serve: watching $src"
+        echo "  compile: $src -> $out"
+        echo "  press Ctrl+C to stop"
+        echo ""
+        pid=0
+        compile_and_run() {
+            # Kill previous instance
+            if [ "$pid" -gt 0 ] 2>/dev/null; then
+                kill "$pid" 2>/dev/null
+                wait "$pid" 2>/dev/null
+            fi
+            printf "  [%s] compiling... " "$(date +%H:%M:%S)"
+            if cat "$src" | "$CC" > "$out" 2>/tmp/cyrius_serve_err; then
+                chmod +x "$out"
+                sz=$(wc -c < "$out")
+                echo "ok (${sz} bytes)"
+                # Run in background
+                "$out" &
+                pid=$!
+                echo "  [$(date +%H:%M:%S)] running (pid $pid)"
+            else
+                echo "FAIL"
+                cat /tmp/cyrius_serve_err >&2
+                pid=0
+            fi
+        }
+        # Initial compile + run
+        compile_and_run
+        # Watch for changes using inotifywait if available, else poll
+        if command -v inotifywait > /dev/null 2>&1; then
+            while true; do
+                inotifywait -q -r -e modify,create,delete --include '\.cyr$' . 2>/dev/null
+                echo ""
+                compile_and_run
+            done
+        else
+            # Fallback: poll every 2 seconds
+            last_hash=""
+            while true; do
+                sleep 2
+                cur_hash=$(find . -name '*.cyr' -newer "$out" 2>/dev/null | head -1)
+                if [ -n "$cur_hash" ]; then
+                    echo ""
+                    compile_and_run
+                fi
+            done
+        fi
+        ;;
+
+    # === Pulsar: rebuild + reinstall from source ===
+    pulsar)
+        shift
+        echo "pulsar: rebuilding from source..."
+        # Find repo root
+        REPO="$SCRIPT_DIR_V/.."
+        if [ ! -f "$REPO/src/main.cyr" ]; then
+            echo "error: not in a cyrius repo (no src/main.cyr)" >&2
+            exit 1
+        fi
+        VER=$(cat "$REPO/VERSION" | tr -d '[:space:]')
+
+        # Step 1: rebuild cc5 from source
+        echo "  cc5..."
+        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrius_pulsar_cc5 2>/dev/null
+        chmod +x /tmp/cyrius_pulsar_cc5
+        cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc5 > /tmp/cyrius_pulsar_cc4 2>/dev/null
+        if ! cmp -s /tmp/cyrius_pulsar_cc5 /tmp/cyrius_pulsar_cc4; then
+            # Two-step bootstrap needed
+            chmod +x /tmp/cyrius_pulsar_cc4
+            cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc4 > /tmp/cyrius_pulsar_cc5 2>/dev/null
+            if ! cmp -s /tmp/cyrius_pulsar_cc4 /tmp/cyrius_pulsar_cc5; then
+                echo "  FAIL: self-hosting diverges" >&2
+                rm -f /tmp/cyrius_pulsar_cc*
+                exit 1
+            fi
+            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc5"
+        else
+            cp /tmp/cyrius_pulsar_cc5 "$REPO/build/cc5"
+        fi
+        chmod +x "$REPO/build/cc5"
+        echo "  cc5: $(wc -c < "$REPO/build/cc5") bytes (self-host OK)"
+
+        # Step 2: rebuild aarch64 compilers
+        echo "  cc5_aarch64 (cross)..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc5" > "$REPO/build/cc5_aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc5_aarch64"
+        echo "  cc5_aarch64: $(wc -c < "$REPO/build/cc5_aarch64") bytes (x86→aarch64 cross-compiler)"
+        echo "  cc5-native-aarch64..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc5_aarch64" > "$REPO/build/cc5-native-aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc5-native-aarch64"
+        echo "  cc5-native-aarch64: $(wc -c < "$REPO/build/cc5-native-aarch64") bytes ($(file "$REPO/build/cc5-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
+
+        # Step 3: rebuild tools
+        echo "  tools..."
+        for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
+            if [ -f "$REPO/programs/${tool}.cyr" ]; then
+                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc5" > "$REPO/build/${tool}" 2>/dev/null
+                chmod +x "$REPO/build/${tool}"
+            fi
+        done
+
+        # Step 4: install
+        echo "  install $VER..."
+        DEST="$CYRIUS_DIR/versions/$VER"
+        rm -rf "$DEST"
+        mkdir -p "$DEST/lib"
+        cp "$REPO/build/cc5" "$DEST/cc5"
+        chmod +x "$DEST/cc5"
+        cp "$REPO/build/cc5_aarch64" "$DEST/cc5_aarch64" 2>/dev/null && chmod +x "$DEST/cc5_aarch64"
+        cp "$REPO/build/cc5-native-aarch64" "$DEST/cc5-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc5-native-aarch64"
+        cp "$REPO/lib/"*.cyr "$DEST/lib/"
+        # Install cyrius shell script + helpers (NOT the compiled binary)
+        cp "$REPO/scripts/cyrius" "$DEST/cyrius" && chmod +x "$DEST/cyrius"
+        for script in "$REPO"/scripts/cyrius-*.sh; do
+            [ -f "$script" ] && cp "$script" "$DEST/" && chmod +x "$DEST/$(basename "$script")"
+        done
+        ln -sf "$DEST/cc5" "$CYRIUS_DIR/bin/cc5"
+        ln -sf "$DEST/cyrius" "$CYRIUS_DIR/bin/cyrius"
+        ln -sf "$DEST/cc5_aarch64" "$CYRIUS_DIR/bin/cc5_aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc5-native-aarch64" "$CYRIUS_DIR/bin/cc5-native-aarch64" 2>/dev/null || true
+
+        # Cleanup old versions
+        for d in "$CYRIUS_DIR/versions/"*; do
+            dname=$(basename "$d")
+            if [ "$dname" != "$VER" ]; then
+                rm -rf "$d"
+                echo "  removed $dname"
+            fi
+        done
+        echo "$VER" > "$CYRIUS_DIR/current"
+
+        rm -f /tmp/cyrius_pulsar_cc* /tmp/cyrius_pulsar_cross
+        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc5" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
+        pv_rc=0; /tmp/pv 2>/dev/null || pv_rc=$?
+        rm -f /tmp/pv
+        if [ "$pv_rc" = "42" ]; then
+            echo "pulsar: $VER installed. verified."
+        else
+            echo "pulsar: $VER installed. verify FAILED (got $pv_rc, expected 42)"
+        fi
+        ;;
+
+    # === Info commands ===
+    version|--version|-v)
+        if [ "${2:-}" = "--project" ]; then
+            if [ -f "VERSION" ]; then
+                cat VERSION | tr -d '[:space:]'
+                echo ""
+            else
+                echo "error: no VERSION file in current directory"
+                exit 1
+            fi
+        else
+            echo "cyrius $VERSION"
+        fi
+        ;;
+
+    which)
+        echo "$CC"
+        ;;
+
+    help|--help|-h)
+        usage
+        ;;
+
+    *)
+        echo "Unknown command: $1"
+        echo "Run 'cyrius help' for usage."
+        exit 1
+        ;;
+esac

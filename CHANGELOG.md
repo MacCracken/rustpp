@@ -4,6 +4,27 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.12] — 2026-04-16
+
+**5.1.x closeout — shell shim, heapmap audit, capacity fix, patra 1.1.0.**
+
+### Changed
+- **Shell dispatcher → 30-line shim** — `scripts/cyrius` reduced from
+  1620 lines to 30. Finds compiled `build/cyrius` binary and execs it.
+  Old dispatcher backed up as `scripts/cyrius.bak`.
+- **patra dep 1.0.0 → 1.1.0** — cleaner modular structure.
+- **`cyrius capacity --check`** — now parses `used / cap` stats lines
+  and computes percentages. Previously searched for `"at NN%"` warning
+  strings which only appeared in non-STATS mode.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.12`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- Heapmap audit: 43 regions, 0 overlaps, 0 warnings.
+- Benchmark baseline (tier 1): all sub-20μs.
+- Dead code: 19 fns / 13KB (all intentionally kept for future use).
+- `cyrius capacity --check` on 3500-fn file: correctly exits 1.
+
 ## [5.1.11] — 2026-04-16
 
 **Dep cleanup, cyriusly cmdtools, starship fix.**

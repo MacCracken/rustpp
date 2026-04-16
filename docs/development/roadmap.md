@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.11.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.12.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -79,6 +79,12 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 ### v5.1.8 — Native capacity, soak, pulsar
 - `cyrius capacity/soak/pulsar` all native in cbt/, tool 129KB
 
+### v5.1.9–v5.1.12 — Cleanup, fixes, closeout
+- Stale refs swept, LSP cc3→cc5, starship fixed, cyriusly cmdtools
+- toml_get cstring crash fixed, dep duplicates removed
+- Shell dispatcher → 30-line shim, heapmap audit, benchmark baseline
+- patra 1.1.0, capacity --check fixed
+
 </details>
 
 ---
@@ -102,12 +108,11 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - `cyrius capacity` (--check, --json), `cyrius soak`, `cyrius pulsar`
 - `cbt/pulsar.cyr` module (165 lines), tool 129KB
 
-### v5.1.9 — Shell shim + cleanup audit
-- Shell dispatcher → thin shim (~50 lines: find cc5, find compiled cyrius, exec)
-- Remove redundant shell logic (1619 → ~50 lines)
-- P(-1) scaffold hardening pass: heapmap audit, dead code sweep, stale comment grep
-- Benchmark baseline + post-cleanup comparison
-- Final 5.1.x test sweep, doc alignment, vidya sync
+### v5.1.12 — Shell shim + cleanup audit (shipped) ✅
+- Shell dispatcher 1620 → 30 lines (thin shim, execs compiled tool)
+- Heapmap audit: 43 regions, 0 overlaps. Dead code: 19 fns (kept).
+- Benchmark baseline captured. Capacity --check fixed.
+- patra 1.0.0 → 1.1.0
 
 ---
 

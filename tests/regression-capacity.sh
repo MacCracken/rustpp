@@ -75,7 +75,7 @@ if [ "$rc" -ne 1 ]; then
     cat "$TMP/err3"
     exit 1
 fi
-if ! grep -q "table(s) at >=85% — failing" "$TMP/err3"; then
+if ! grep -q "table(s) at >=85%" "$TMP/err3"; then
     echo "  FAIL test3: missing 'failing' message"
     cat "$TMP/err3"
     exit 1

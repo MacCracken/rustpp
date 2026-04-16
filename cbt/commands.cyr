@@ -418,20 +418,52 @@ fn cmd_capacity(source, check_mode, json_mode) {
         println("");
         println("}");
     } elif (check_mode == 1) {
-        # Print stats to stderr, check for 85%+ warnings
+        # Print stats to stderr
         sys_write(STDERR_FD, errbuf, errlen);
-        # Count "at NN%" patterns
+        # Parse "  name:    used / cap" lines, check if any >= 85%
         var hits = 0;
-        var ci = 0;
-        while (ci < errlen - 5) {
-            if (memeq(errbuf + ci, "at ", 3) == 1) {
-                if (load8(errbuf + ci + 3) >= 48 && load8(errbuf + ci + 3) <= 57) {
-                    if (load8(errbuf + ci + 5) == 37 || load8(errbuf + ci + 4) == 37) {
-                        hits = hits + 1;
+        var pos = 0;
+        while (pos < errlen) {
+            # Look for lines with " / " (stats format)
+            if (pos + 4 < errlen && load8(errbuf + pos) == 32 && load8(errbuf + pos + 1) == 32) {
+                # Find the / separator
+                var sl = pos;
+                var has_slash = 0;
+                var slash_pos = 0;
+                while (sl < errlen && load8(errbuf + sl) != 10) {
+                    if (load8(errbuf + sl) == 47) {
+                        if (sl > 0 && load8(errbuf + sl - 1) == 32 && sl + 1 < errlen && load8(errbuf + sl + 1) == 32) {
+                            has_slash = 1;
+                            slash_pos = sl;
+                        }
+                    }
+                    sl = sl + 1;
+                }
+                if (has_slash == 1) {
+                    # Parse used (digits before " / ")
+                    var ui = slash_pos - 2;
+                    while (ui > pos && load8(errbuf + ui) >= 48 && load8(errbuf + ui) <= 57) { ui = ui - 1; }
+                    ui = ui + 1;
+                    var used = 0;
+                    while (ui < slash_pos && load8(errbuf + ui) >= 48 && load8(errbuf + ui) <= 57) {
+                        used = used * 10 + load8(errbuf + ui) - 48;
+                        ui = ui + 1;
+                    }
+                    # Parse cap (digits after " / ")
+                    var ci2 = slash_pos + 2;
+                    var cap = 0;
+                    while (ci2 < errlen && load8(errbuf + ci2) >= 48 && load8(errbuf + ci2) <= 57) {
+                        cap = cap * 10 + load8(errbuf + ci2) - 48;
+                        ci2 = ci2 + 1;
+                    }
+                    if (cap > 0) {
+                        var pct = used * 100 / cap;
+                        if (pct >= 85) { hits = hits + 1; }
                     }
                 }
             }
-            ci = ci + 1;
+            while (pos < errlen && load8(errbuf + pos) != 10) { pos = pos + 1; }
+            pos = pos + 1;
         }
         if (hits > 0) {
             sys_write(STDERR_FD, "cyrius capacity --check: ", 25);
