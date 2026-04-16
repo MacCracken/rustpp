@@ -4,8 +4,8 @@
 # Same language as cc.cyr, split into modules using include.
 # Compiled by cc (cyrc's extended language).
 #
-# Build: cat cc3.cyr | ./build/cc > cc3
-# Self-host: cat cc3.cyr | ./cc3 > cc3 && cmp cc3 cc3
+# Build: cat src/main.cyr | ./build/cc5 > /tmp/cc5 && chmod +x /tmp/cc5
+# Self-host: cat src/main.cyr | /tmp/cc5 > /tmp/cc5b && cmp /tmp/cc5 /tmp/cc5b
 # ================================================================
 # HEAP MAP — Authoritative offset registry (v3.6.10)
 # ================================================================
@@ -172,7 +172,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc5 5.1.8\n", 10);
+                syscall(SYS_WRITE, 1, "cc5 5.1.9\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }

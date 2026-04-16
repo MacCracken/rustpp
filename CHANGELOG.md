@@ -4,6 +4,29 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.9] — 2026-04-16
+
+**Cleanup — stale refs, LSP tool fix, CLAUDE.md sync, ARM test results.**
+
+### Fixed
+- **CLAUDE.md test count** — 59 → 60 .tcyr files.
+- **LSP tool cc3 → cc5** — `programs/cyrius-lsp.cyr` was completely
+  non-functional (searched for cc3 binary). All references updated.
+- **Source header comments** — `src/main.cyr`, `src/main_aarch64.cyr`,
+  `src/main_aarch64_native.cyr`, `src/compiler.cyr`,
+  `src/compiler_aarch64.cyr` build instructions updated from cc2/cc3
+  to cc5 with correct commands.
+- **aarch64 heap sync** — both `main_aarch64.cyr` and
+  `main_aarch64_native.cyr` heap allocation synced from 14.8MB to
+  21MB (matching main.cyr v5.0.0).
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.9`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- ARM hardware test (agnosarm.local, Raspberry Pi aarch64):
+  cross-compiled exit(42) PASS. Native compiler FIXUP address mismatch
+  remains open (cross-compiler is shipping path).
+
 ## [5.1.8] — 2026-04-16
 
 **Native capacity, soak, pulsar + build modules support.**

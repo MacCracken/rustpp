@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.8.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.9.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -16,7 +16,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). |
-| aarch64 native output addresses wrong | Cross-compiled test42 runs on Pi (exit 42). Native cc5 compiles but output binaries crash — FIXUP computes wrong data offsets. Root cause: heap size mismatch between cross (14.8MB at compile time) and native (21MB). Needs heap map sync between all entry points. | Tested on real Pi (agnosarm.local). |
+| aarch64 native FIXUP address mismatch | Cross-compiled binaries run on Pi (exit 42 PASS). Native cc5 compiles input but output has wrong MOVZ/MOVK data addresses (0x800120 vs expected 0x4000A8). Heap synced to 21MB. Likely a 64-bit arithmetic or heap corruption issue in the native binary. Cross-compiler is the shipping path. | Tested on real Pi (agnosarm.local, Raspberry Pi aarch64). |
 
 ---
 

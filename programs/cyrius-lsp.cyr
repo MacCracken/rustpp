@@ -1,5 +1,5 @@
 # cyrius-lsp — Language Server Protocol implementation for Cyrius
-# Provides: diagnostics (errors/warnings from cc3)
+# Provides: diagnostics (errors/warnings from cc5)
 # Protocol: JSON-RPC 2.0 over stdin/stdout
 #
 # Usage: cyrius-lsp (launched by editor)
@@ -179,22 +179,22 @@ fn uri_to_path(uri) {
 # COMPILER INTEGRATION
 # ================================================================
 
-# Global: path to cc3 binary
-var _cc3_path = 0;
+# Global: path to cc5 binary
+var _cc5_path = 0;
 
-# Find cc3 binary — check common locations
-fn find_cc3() {
-    # Try ./build/cc3
-    var p1 = "build/cc3";
+# Find cc5 binary — check common locations
+fn find_cc5() {
+    # Try ./build/cc5
+    var p1 = "build/cc5";
     var fd = syscall(2, p1, 0, 0);
     if (fd >= 0) { syscall(3, fd); return p1; }
 
-    # Try /usr/local/lib/cyrius/cc3
-    var p2 = "/usr/local/lib/cyrius/cc3";
+    # Try /usr/local/lib/cyrius/cc5
+    var p2 = "/usr/local/lib/cyrius/cc5";
     fd = syscall(2, p2, 0, 0);
     if (fd >= 0) { syscall(3, fd); return p2; }
 
-    # Try CYRIUS_HOME/cc3 via /proc/self/environ
+    # Try CYRIUS_HOME/cc5 via /proc/self/environ
     var envfd = syscall(2, "/proc/self/environ", 0, 0);
     if (envfd >= 0) {
         var ebuf = alloc(32768);
@@ -217,7 +217,7 @@ fn find_cc3() {
                 memcpy(val, ebuf + vstart, vlen);
                 store8(val + vlen, 0);
                 str_builder_add_cstr(sb, val);
-                str_builder_add_cstr(sb, "/cc3");
+                str_builder_add_cstr(sb, "/cc5");
                 var p3 = str_data(str_builder_build(sb));
                 fd = syscall(2, p3, 0, 0);
                 if (fd >= 0) { syscall(3, fd); return p3; }
@@ -228,10 +228,10 @@ fn find_cc3() {
     return 0;
 }
 
-# Run cc3 on a file path, capture stderr for errors.
+# Run cc5 on a file path, capture stderr for errors.
 # Returns a pointer to the stderr output (null-terminated), or 0 on failure.
 fn compile_and_capture(filepath) {
-    if (_cc3_path == 0) { return 0; }
+    if (_cc5_path == 0) { return 0; }
 
     # Create pipe for stderr capture
     var pipe_fds[2];
@@ -242,7 +242,7 @@ fn compile_and_capture(filepath) {
 
     var pid = sys_fork();
     if (pid == 0) {
-        # Child: run cc3 with source on stdin, /dev/null on stdout, pipe on stderr
+        # Child: run cc5 with source on stdin, /dev/null on stdout, pipe on stderr
         sys_close(pipe_read);
 
         var sfd = sys_open(filepath, 0, 0);
@@ -262,12 +262,12 @@ fn compile_and_capture(filepath) {
         sys_close(pipe_write);
 
         var argv[2];
-        store64(&argv, _cc3_path);
+        store64(&argv, _cc5_path);
         store64(&argv + 8, 0);
         # envp = NULL (minimal env)
         var envp[1];
         store64(&envp, 0);
-        sys_execve(_cc3_path, &argv, &envp);
+        sys_execve(_cc5_path, &argv, &envp);
         syscall(60, 127);
     }
 
@@ -295,8 +295,8 @@ fn compile_and_capture(filepath) {
 # DIAGNOSTIC PARSING
 # ================================================================
 
-# Parse cc3 stderr output into LSP diagnostics JSON.
-# cc3 format: "error:filename:line: message\n" or "warning:filename:line: message\n"
+# Parse cc5 stderr output into LSP diagnostics JSON.
+# cc5 format: "error:filename:line: message\n" or "warning:filename:line: message\n"
 # Sends publishDiagnostics notification for the given URI.
 fn parse_and_send_diagnostics(uri, stderr_output) {
     var sb = str_builder_new();
@@ -337,7 +337,7 @@ fn parse_and_send_diagnostics(uri, stderr_output) {
         }
 
         if (severity > 0) {
-            # Parse cc3 error format after "error:" or "warning:" prefix
+            # Parse cc5 error format after "error:" or "warning:" prefix
             # Formats:
             #   "error: message"                    (no location)
             #   "error:42: message"                 (line only)
@@ -507,12 +507,12 @@ fn handle_did_open_or_save(body) {
 fn main() {
     alloc_init();
 
-    # Find cc3
-    _cc3_path = find_cc3();
-    if (_cc3_path == 0) {
-        log_msg("warning: cc3 not found — diagnostics disabled");
+    # Find cc5
+    _cc5_path = find_cc5();
+    if (_cc5_path == 0) {
+        log_msg("warning: cc5 not found — diagnostics disabled");
     } else {
-        log_msg("found cc3");
+        log_msg("found cc5");
     }
 
     # Main loop: read JSON-RPC messages

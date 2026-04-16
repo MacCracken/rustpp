@@ -4,8 +4,8 @@
 # Same language as cc.cyr, split into modules using include.
 # Compiled by cc (cyrc's extended language).
 #
-# Build: cat cc2.cyr | ./build/cc > cc2
-# Self-host: cat cc2.cyr | ./cc2 > cc3 && cmp cc2 cc3
+# Build: (legacy — see src/main_aarch64.cyr for current cross-compiler)
+# Historical: single-file aarch64 compiler predecessor
 # ================================================================
 # HEAP MAP — Authoritative offset registry
 # ================================================================
