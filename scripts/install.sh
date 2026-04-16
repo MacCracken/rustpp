@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="5.1.3"
+        VERSION="5.1.4"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
@@ -345,11 +345,11 @@ if [ -f "$STARSHIP_CONFIG" ] && command -v starship > /dev/null 2>&1; then
 
 [custom.cyrius]
 command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc5 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
-when = "test -f cyrius.toml"
+when = "test -f cyrius.cyml || test -f cyrius.toml"
 symbol = "𝕮"
 style = "bg:teal"
 format = '[[ $symbol( $output) ](fg:base bg:teal)]($style)'
-detect_files = ["cyrius.toml"]
+detect_files = ["cyrius.cyml", "cyrius.toml"]
 STARSHIP
         info "Starship prompt configured (shows toolchain version in Cyrius projects)"
     fi
@@ -359,11 +359,11 @@ elif command -v starship > /dev/null 2>&1; then
     cat > "$STARSHIP_CONFIG" << 'STARSHIP'
 [custom.cyrius]
 command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc5 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
-when = "test -f cyrius.toml"
+when = "test -f cyrius.cyml || test -f cyrius.toml"
 symbol = "𝕮"
 style = "bg:teal"
 format = '[[ $symbol( $output) ](fg:base bg:teal)]($style)'
-detect_files = ["cyrius.toml"]
+detect_files = ["cyrius.cyml", "cyrius.toml"]
 STARSHIP
     info "Starship config created with Cyrius prompt"
 fi

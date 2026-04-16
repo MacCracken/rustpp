@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.4.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -61,7 +61,28 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - cyrius-port.sh generates cyrius.cyml, read_manifest() prefers cyml
 - CLAUDE.md recommended minimum → v5.0.0
 
+### v5.1.4 — Starship + Dispatcher Fixes
+- Starship detects cyrius.cyml, dispatcher manifest refs unified via find_manifest()
+- Deep cc3→cc5 sweep: install.sh, ci.sh, dispatcher, regression tests, check.sh
+
 </details>
+
+---
+
+## v5.1.x — Tooling Consolidation
+
+Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entry point.
+
+| Item | Effort | Status |
+|------|--------|--------|
+| Inline `cyrius-coverage.sh` into cyrius.cyr | Low | Not started |
+| Inline `cyrius-doctest.sh` into cyrius.cyr | Low | Not started |
+| Inline `cyrius-header.sh` into cyrius.cyr | Low | Not started |
+| Add `capacity` subcommand to cyrius.cyr | Medium | Shell only (regression-capacity.sh) |
+| Add `soak` subcommand to cyrius.cyr | Medium | Shell only |
+| Add `pulsar` (rebuild+install) to cyrius.cyr | High | Shell only (scripts/cyrius ~100 lines) |
+| Shell dispatcher → thin shim | Medium | Currently 1619 lines, should become ~50 (find cc5, find compiled cyrius, exec) |
+| Remove shell scripts after native coverage | Low | Blocked on above items |
 
 ---
 

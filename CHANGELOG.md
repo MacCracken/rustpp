@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.4] — 2026-04-16
+
+**Starship cyml detection, dispatcher manifest fixes, deep cc3 sweep.**
+
+### Fixed
+- **Starship config detects `cyrius.cyml`** — `install.sh` starship
+  segment now uses `detect_files = ["cyrius.cyml", "cyrius.toml"]` and
+  `when = "test -f cyrius.cyml || test -f cyrius.toml"`. Previously
+  only detected `cyrius.toml`, breaking prompt in cyml-only projects.
+- **Dispatcher `local` outside function** — `find_manifest()` calls in
+  case blocks used `local` keyword which is only valid inside functions.
+  Caused `regression-capacity.sh` to fail with shell syntax error.
+- **Deep cc3→cc5 sweep** — install.sh, ci.sh, cyrius dispatcher (61K,
+  ~60 references), regression-capacity.sh, regression-linker.sh,
+  regression-shared.sh, check.sh fallback all updated. Zero cc3
+  references remain outside historical docs.
+
+### Changed
+- **`programs/cyrius.cyr` manifest references** — comments and dry-run
+  messages updated from cyrius.toml to cyrius.cyml. Compiled tool
+  (105KB) rebuilt.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cc5 --version` reports `cc5 5.1.4`.
+
 ## [5.1.3] — 2026-04-16
 
 **Codebase cleanup — stale reference sweep, manifest migration, doc alignment.**

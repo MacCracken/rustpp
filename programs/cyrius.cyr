@@ -571,7 +571,7 @@ fn cmd_bench(source) {
 
 fn cmd_check(source) {
     # If source has no include directives, try to find an entry point
-    # that includes it (check cyrius.toml or default to src/main.cyr)
+    # that includes it (check cyrius.cyml or default to src/main.cyr)
     var actual = source;
     var check_buf = alloc(4096);
     var cn = file_read_all(source, check_buf, 4095);
@@ -767,7 +767,7 @@ fn cmd_repl() {
 # ================================================================
 # Dependency resolution: cyrius deps
 # ================================================================
-# Reads cyrius.toml, resolves:
+# Reads cyrius.cyml (or cyrius.toml fallback), resolves:
 #   [deps] stdlib = ["string", "fmt", ...] → copy from cyrius stdlib
 #   [deps.name] path = "../repo" modules = ["src/foo.cyr"] → copy from sibling
 # All deps land in lib/ (created if needed).
@@ -900,7 +900,7 @@ fn _parse_toml_str_array(buf, len, pos) {
 
 fn cmd_deps() {
     if (_dry_run == 1) {
-        println("dry-run: would resolve deps from cyrius.toml into lib/");
+        println("dry-run: would resolve deps from cyrius.cyml into lib/");
         return 0;
     }
     # Try cyrius.cyml first, fall back to cyrius.toml
@@ -1282,7 +1282,7 @@ fn _auto_deps() {
 }
 
 fn cmd_package() {
-    # Read cyrius.toml if present
+    # Read manifest if present
     var name = "unknown";
     var ver = _version;
     var entry = "src/main.cyr";
