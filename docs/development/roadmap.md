@@ -1,8 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v5.0.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.0.1.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
-> **59 test suites**, 14 benchmarks, 5 fuzz harnesses. **59 stdlib modules** (includes 6 deps).
+> **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -69,13 +69,15 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
-## v5.0.1 — Security Hardening (patch)
+## v5.0.1 — Security Hardening (shipped) ✅
 
-| Issue | Severity | Details |
-|-------|----------|---------|
-| **alloc() heap pointer overflow** | P0 | `_heap_ptr + size` wraps past INT64_MAX. Fix: overflow check before advance. |
-| **vec capacity doubling overflow** | P1 | `cap * 2` overflows at cap >= 2^62. Fix: cap max check. |
-| **No allocation size cap** | P1 | `alloc(0x7FFFFFFFFFFFFFFF)` accepted. Fix: configurable max (default 256MB). |
+| Issue | Severity | Fix |
+|-------|----------|-----|
+| **alloc() heap pointer overflow** | P0 | Overflow guard: reject if `new_ptr < ptr`. Reject negative/zero. |
+| **No allocation size cap** | P1 | `ALLOC_MAX` (256MB). Reject above cap. |
+| **vec capacity doubling overflow** | P1 | `VEC_CAP_MAX` (2^28). Abort on overflow. Check alloc return. |
+| **map capacity doubling overflow** | P1 | `MAP_CAP_MAX` (2^26). Same pattern. |
+| **arena_alloc pointer overflow** | P2 | Same overflow guard as global alloc. |
 
 ---
 

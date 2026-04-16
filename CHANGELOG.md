@@ -4,6 +4,36 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.1] — 2026-04-15
+
+**Security hardening — heap overflow guards, allocation caps, vec/map growth limits.**
+
+### Fixed
+- **`alloc()` heap pointer overflow** (P0) — `_heap_ptr + size` could wrap
+  past INT64_MAX, bypassing the `> _heap_end` check. Fix: overflow guard
+  rejects if `new_ptr < ptr` after addition. Also rejects negative and
+  zero-size allocations.
+- **`alloc()` no size cap** (P1) — arbitrarily large allocations accepted.
+  Fix: `ALLOC_MAX` (256MB default) rejects single allocations above the cap.
+- **`vec_push()` capacity doubling overflow** (P1) — `cap * 2` could wrap
+  at cap >= 2^62, producing a tiny allocation then writing past the end.
+  Fix: `VEC_CAP_MAX` (2^28 = 268M elements) ceiling with abort on overflow.
+  Also checks `alloc()` return for failure.
+- **`_map_grow()` capacity doubling overflow** (P1) — same pattern as vec.
+  Fix: `MAP_CAP_MAX` (2^26 = ~67M entries) ceiling with abort on overflow.
+  Also checks `alloc()` return for failure.
+- **`arena_alloc()` pointer overflow** — `ptr + size` could wrap, same as
+  global `alloc()`. Fix: overflow guard + negative/zero rejection.
+
+### Added
+- **`tests/tcyr/alloc_safety.tcyr`** — 11 assertions covering negative,
+  zero, and oversized allocation rejection; arena overflow/bounds; vec
+  normal operation post-hardening.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.0.0] — 2026-04-15
 
 **Major release. cc5 generation — IR, CFG, tooling overhaul.**
