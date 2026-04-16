@@ -30,6 +30,7 @@ fn compile(source, output) {
     var need_tmp = 0;
     if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
     if (_defines != 0) { if (vec_len(_defines) > 0) { need_tmp = 1; } }
+    if (_build_modules != 0) { if (vec_len(_build_modules) > 0) { need_tmp = 1; } }
     if (need_tmp == 1) {
         # Atomic temp file: O_EXCL rejects if path already exists (TOCTOU safe)
         var pid = syscall(39);
@@ -61,6 +62,25 @@ fn compile(source, output) {
                     sys_write(tfd, def, strlen(def));
                     sys_write(tfd, "\n", 1);
                     di = di + 1;
+                }
+            }
+            # Append build modules (concatenated before entry point)
+            if (_build_modules != 0) {
+                var mi = 0;
+                while (mi < vec_len(_build_modules)) {
+                    var mpath = vec_get(_build_modules, mi);
+                    var mfd = sys_open(mpath, O_RDONLY, 0);
+                    if (mfd >= 0) {
+                        var mbuf = alloc(32768);
+                        var mn = 1;
+                        while (mn > 0) {
+                            mn = syscall(0, mfd, mbuf, 32768);
+                            if (mn > 0) { syscall(1, tfd, mbuf, mn); }
+                        }
+                        sys_close(mfd);
+                        sys_write(tfd, "\n", 1);
+                    }
+                    mi = mi + 1;
                 }
             }
             # Append source file (stream copy for large files)

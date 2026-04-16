@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [5.1.8] — 2026-04-16
 
-**Native capacity, soak, pulsar subcommands.**
+**Native capacity, soak, pulsar + build modules support.**
 
 ### Added
 - **`cyrius capacity [--check] [--json] [file]`** — native compiler table
@@ -27,6 +27,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.8`.
 - 8/8 `check.sh` PASS. 60 test suites.
 - `cyrius capacity --check src/main.cyr` → ok (all caps under 85%).
+- **`[build] modules` support** — multi-module projects can declare
+  concatenation order in the manifest. `cyrius build` prepends modules
+  before the entry point automatically, eliminating custom build scripts.
+  Tested on ark (6 modules, 2084 lines).
 
 ## [5.1.7] — 2026-04-16
 

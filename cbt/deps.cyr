@@ -502,7 +502,34 @@ fn _auto_deps() {
         i = i + 1;
     }
     if (has_deps == 0) { return 0; }
-    return cmd_deps();
+    var dr = cmd_deps();
+
+    # Also read [build] modules if present — for multi-module projects
+    # that declare concatenation order in the manifest instead of using
+    # include directives. The modules are prepended before the entry point.
+    i = 0;
+    while (i < n) {
+        if (memeq(buf + i, "[build]", 7) == 1) {
+            # Scan within [build] section for modules = [...]
+            var bi = i + 7;
+            while (bi < n) {
+                if (load8(buf + bi) == 91 && load8(buf + bi + 1) != 91) {
+                    # Hit next section
+                    break;
+                }
+                if (memeq(buf + bi, "modules", 7) == 1) {
+                    _build_modules = _parse_toml_str_array(buf, n, bi);
+                    break;
+                }
+                while (bi < n && load8(buf + bi) != 10) { bi = bi + 1; }
+                bi = bi + 1;
+            }
+            break;
+        }
+        i = i + 1;
+    }
+
+    return dr;
 }
 
 fn cmd_package() {
