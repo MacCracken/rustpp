@@ -16,7 +16,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). |
-| aarch64 native untested on hardware | `main_aarch64_native.cyr` compiles but needs ARM hardware validation | Syscall numbers fixed (v5.0.3). Needs real ARM test: pipe source, verify output binary. |
+| aarch64 native output addresses wrong | Cross-compiled test42 runs on Pi (exit 42). Native cc5 compiles but output binaries crash — FIXUP computes wrong data offsets. Root cause: heap size mismatch between cross (14.8MB at compile time) and native (21MB). Needs heap map sync between all entry points. | Tested on real Pi (agnosarm.local). |
 
 ---
 

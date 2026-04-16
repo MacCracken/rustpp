@@ -51,7 +51,8 @@
 #   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields
 #   0xDCA000 struct_fnames [16384]
 #   0xE4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
-#   0xECA000 brk                         14.8MB total heap
+#   0xECA000 (fn tables end here — IR region not used by aarch64 compiler)
+#   0x150B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
 
 
 # ================================================================
@@ -76,7 +77,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0xECA000);
+syscall(SYS_BRK, S + 0x150B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
