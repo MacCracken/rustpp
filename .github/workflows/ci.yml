@@ -281,6 +281,47 @@ jobs:
           echo "$pass passed, $fail failed"
           test $fail -eq 0
 
+  # ── macOS Mach-O ──
+  macho:
+    name: Mach-O Cross
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup compiler
+        run: |
+          chmod +x build/cc5
+      - name: Mach-O compilation tests
+        run: |
+          pass=0; fail=0
+          for test in \
+            "exit42:include \"lib/syscalls_macos.cyr\"\nsyscall(SYS_EXIT, 42);" \
+            "write:include \"lib/syscalls_macos.cyr\"\nsyscall(SYS_WRITE, 1, \"ok\", 2);\nsyscall(SYS_EXIT, 0);" \
+            "vars:include \"lib/syscalls_macos.cyr\"\nvar x = 20 + 22;\nsyscall(SYS_EXIT, x);" \
+            "fn:include \"lib/syscalls_macos.cyr\"\nfn f(a, b) { return a + b; }\nsyscall(SYS_EXIT, f(20, 22));"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2-)
+            printf "$code" | CYRIUS_MACHO=1 ./build/cc5 2>/dev/null > /tmp/macho_test
+            # Verify: non-empty, Mach-O magic (FEEDFACF little-endian = CF FA ED FE)
+            sz=$(wc -c < /tmp/macho_test)
+            magic=$(xxd -l4 -p /tmp/macho_test)
+            if [ "$sz" -gt 0 ] && [ "$magic" = "cffa edfe" -o "$magic" = "cffaedfe" ]; then
+              pass=$((pass+1))
+            else
+              echo "FAIL: $name (size=$sz magic=$magic)"
+              fail=$((fail+1))
+            fi
+          done
+          echo "$pass passed, $fail failed"
+          test $fail -eq 0
+      - name: Mach-O file identification
+        run: |
+          echo 'include "lib/syscalls_macos.cyr"
+          syscall(SYS_WRITE, 1, "hello\n", 6);
+          syscall(SYS_EXIT, 0);' | CYRIUS_MACHO=1 ./build/cc5 2>/dev/null > /tmp/macho_id
+          file /tmp/macho_id | grep -q "Mach-O 64-bit x86_64"
+
   # ── Documentation ──
   doc:
     name: Documentation

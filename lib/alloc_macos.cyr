@@ -68,6 +68,7 @@ fn alloc_used() {
 # Arena allocator — independent memory pools (same API as alloc.cyr)
 # ================================================================
 
+# Create a new arena with the given capacity (bytes)
 fn arena_new(capacity) {
     var a = alloc(24);
     var base = alloc(capacity);
@@ -77,6 +78,7 @@ fn arena_new(capacity) {
     return a;
 }
 
+# Allocate size bytes from the arena, 8-byte aligned. Returns 0 on overflow.
 fn arena_alloc(a, size) {
     if (size <= 0) { return 0; }
     size = (size + 7) & (0 - 8);
@@ -88,15 +90,18 @@ fn arena_alloc(a, size) {
     return ptr;
 }
 
+# Reset the arena — all allocations from this arena are freed
 fn arena_reset(a) {
     store64(a + 8, load64(a));
     return 0;
 }
 
+# Return bytes used in the arena
 fn arena_used(a) {
     return load64(a + 8) - load64(a);
 }
 
+# Return bytes remaining in the arena
 fn arena_remaining(a) {
     return load64(a + 16) - load64(a + 8);
 }
