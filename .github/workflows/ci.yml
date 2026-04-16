@@ -22,35 +22,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup compiler
-        run: chmod +x build/cc3
+        run: chmod +x build/cc5
       - name: Build x86_64 compiler from source
         run: |
-          cat src/main.cyr | ./build/cc3 > /tmp/cc3 && chmod +x /tmp/cc3
-          SZ=$(wc -c < /tmp/cc3)
-          echo "cc3 (x86_64): $SZ bytes"
+          cat src/main.cyr | ./build/cc5 > /tmp/cc5 && chmod +x /tmp/cc5
+          SZ=$(wc -c < /tmp/cc5)
+          echo "cc5 (x86_64): $SZ bytes"
           test $SZ -gt 80000
       - name: Self-hosting verify
         run: |
-          cat src/main.cyr | /tmp/cc3 > /tmp/cc4
-          cmp /tmp/cc3 /tmp/cc4
-          echo "PASS: cc3==cc3 byte-identical"
+          cat src/main.cyr | /tmp/cc5 > /tmp/cc5b
+          cmp /tmp/cc5 /tmp/cc5b
+          echo "PASS: cc5==cc5 byte-identical"
       - name: Build aarch64 cross-compiler
         run: |
-          echo "build/cc3: $(wc -c < ./build/cc3) bytes"
-          echo "build/cc3 md5: $(md5sum build/cc3 | cut -d' ' -f1)"
+          echo "build/cc5: $(wc -c < ./build/cc5) bytes"
+          echo "build/cc5 md5: $(md5sum build/cc5 | cut -d' ' -f1)"
           echo "lex.cyr md5: $(md5sum src/frontend/lex.cyr | cut -d' ' -f1)"
           echo "main_aarch64 md5: $(md5sum src/main_aarch64.cyr | cut -d' ' -f1)"
-          ./build/cc3 --version || echo "cc3 --version failed"
-          cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
-          echo "cc3_aarch64: $(wc -c < ./build/cc3_aarch64) bytes"
-          file ./build/cc3_aarch64
+          ./build/cc5 --version || echo "cc5 --version failed"
+          cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64
+          echo "cc5_aarch64: $(wc -c < ./build/cc5_aarch64) bytes"
+          file ./build/cc5_aarch64
       - name: Build tools
         run: |
-          cat programs/cyrfmt.cyr | ./build/cc3 > ./build/cyrfmt && chmod +x ./build/cyrfmt
-          cat programs/cyrlint.cyr | ./build/cc3 > ./build/cyrlint && chmod +x ./build/cyrlint
-          cat programs/cyrdoc.cyr | ./build/cc3 > ./build/cyrdoc && chmod +x ./build/cyrdoc
-          cat programs/cyrc.cyr | ./build/cc3 > ./build/cyrc && chmod +x ./build/cyrc
-          cat programs/ark.cyr | ./build/cc3 > ./build/ark && chmod +x ./build/ark
+          cat programs/cyrfmt.cyr | ./build/cc5 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat programs/cyrlint.cyr | ./build/cc5 > ./build/cyrlint && chmod +x ./build/cyrlint
+          cat programs/cyrdoc.cyr | ./build/cc5 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          cat programs/cyrc.cyr | ./build/cc5 > ./build/cyrc && chmod +x ./build/cyrc
+          cat programs/ark.cyr | ./build/cc5 > ./build/ark && chmod +x ./build/ark
 
   # ── Check & Format ──
   check:
@@ -60,9 +60,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup
         run: |
-          chmod +x build/cc3
-          cat programs/cyrfmt.cyr | ./build/cc3 > ./build/cyrfmt && chmod +x ./build/cyrfmt
-          cat programs/cyrlint.cyr | ./build/cc3 > ./build/cyrlint && chmod +x ./build/cyrlint
+          chmod +x build/cc5
+          cat programs/cyrfmt.cyr | ./build/cc5 > ./build/cyrfmt && chmod +x ./build/cyrfmt
+          cat programs/cyrlint.cyr | ./build/cc5 > ./build/cyrlint && chmod +x ./build/cyrlint
       - name: Resolve dependencies
         run: |
           chmod +x scripts/cyrius
@@ -99,8 +99,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup
         run: |
-          chmod +x build/cc3
-          cat programs/cyrc.cyr | ./build/cc3 > ./build/cyrc && chmod +x ./build/cyrc
+          chmod +x build/cc5
+          cat programs/cyrc.cyr | ./build/cc5 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Vet
         run: |
           for f in programs/ark.cyr programs/cyrius.cyr programs/cyrc.cyr; do
@@ -133,7 +133,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup compiler
-        run: chmod +x build/cc3
+        run: chmod +x build/cc5
       - name: Benchmark suite (tier 1+2)
         run: sh scripts/bench-history.sh --tier2
       - name: Upload benchmark artifacts
@@ -153,7 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup compiler
-        run: chmod +x build/cc3
+        run: chmod +x build/cc5
       - name: Resolve dependencies
         run: |
           chmod +x scripts/cyrius
@@ -166,7 +166,7 @@ jobs:
           for t in tests/tcyr/*.tcyr; do
             name=$(basename "$t" .tcyr)
             tmpbin="/tmp/ci_t_$$"
-            cat "$t" | ./build/cc3 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+            cat "$t" | ./build/cc5 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
             if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
             output=$("$tmpbin" 2>&1) && ec=0 || ec=$?
             rm -f "$tmpbin"
@@ -192,7 +192,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup compiler
         run: |
-          chmod +x build/cc3
+          chmod +x build/cc5
           if command -v git >/dev/null 2>&1; then
             chmod +x scripts/cyrius
             ./scripts/cyrius deps
@@ -208,7 +208,7 @@ jobs:
             case "$name" in sakshi|sakshi_full) [ ! -f lib/sakshi.cyr ] && echo "SKIP: $name (no deps)" && continue ;; esac
             name=$(basename "$t" .tcyr)
             tmpbin="/tmp/ci_t_$$"
-            cat "$t" | ./build/cc3 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
+            cat "$t" | ./build/cc5 > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"
             if [ $? -ne 0 ]; then echo "FAIL (compile): $name"; fail=$((fail+1)); continue; fi
             output=$("$tmpbin" 2>&1) && ec=0 || ec=$?
             rm -f "$tmpbin"
@@ -233,13 +233,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
       - name: Setup compilers
         run: |
-          chmod +x build/cc3
-          echo "build/cc3: $(wc -c < ./build/cc3) bytes"
-          echo "build/cc3 md5: $(md5sum build/cc3 | cut -d' ' -f1)"
+          chmod +x build/cc5
+          echo "build/cc5: $(wc -c < ./build/cc5) bytes"
+          echo "build/cc5 md5: $(md5sum build/cc5 | cut -d' ' -f1)"
           echo "lex.cyr md5: $(md5sum src/frontend/lex.cyr | cut -d' ' -f1)"
-          ./build/cc3 --version || echo "cc3 --version failed with exit $?"
-          cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
-          echo "cc3_aarch64: $(wc -c < ./build/cc3_aarch64) bytes"
+          ./build/cc5 --version || echo "cc5 --version failed with exit $?"
+          cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64
+          echo "cc5_aarch64: $(wc -c < ./build/cc5_aarch64) bytes"
       - name: aarch64 tests
         run: |
           pass=0; fail=0
@@ -274,7 +274,7 @@ jobs:
             name=$(echo "$test" | cut -d: -f1)
             code=$(echo "$test" | cut -d: -f2)
             expected=$(echo "$test" | cut -d: -f3)
-            echo "$code" | ./build/cc3_aarch64 > /tmp/a64_t && chmod +x /tmp/a64_t
+            echo "$code" | ./build/cc5_aarch64 > /tmp/a64_t && chmod +x /tmp/a64_t
             result=$(timeout 5 qemu-aarch64-static /tmp/a64_t >/dev/null 2>&1; echo $?)
             if [ "$result" = "$expected" ]; then pass=$((pass+1)); else echo "FAIL: $name"; fail=$((fail+1)); fi
           done
@@ -330,8 +330,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build cyrdoc
         run: |
-          chmod +x build/cc3
-          cat programs/cyrdoc.cyr | ./build/cc3 > ./build/cyrdoc && chmod +x ./build/cyrdoc
+          chmod +x build/cc5
+          cat programs/cyrdoc.cyr | ./build/cc5 > ./build/cyrdoc && chmod +x ./build/cyrdoc
       - name: Doc coverage (stdlib)
         run: |
           total=0
