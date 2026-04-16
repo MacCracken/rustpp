@@ -1102,6 +1102,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         fi
         echo "=== $(toml_get "$MANIFEST" name) $(toml_get "$MANIFEST" version) ==="
         echo ""
+        mkdir -p lib
         # Resolve: fetch git deps, symlink into lib/
         depfile="/tmp/cyrius_deps_$$"
         > "$depfile"

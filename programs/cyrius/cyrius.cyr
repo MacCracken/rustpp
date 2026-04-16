@@ -187,27 +187,27 @@ fn find_tools() {
         _home = make_path(proc_home, ".cyrius");
     }
 
-    # Try installed cc3 first
-    var installed_cc = make_path(_home, "bin/cc3");
+    # Try installed cc5 first
+    var installed_cc = make_path(_home, "bin/cc5");
     if (file_exists(installed_cc) == 1) {
         _cc = installed_cc;
         _tools_dir = make_path(_home, "bin");
     } else {
-        # Dev mode: ./build/cc3
-        if (file_exists("./build/cc3") == 1) {
-            _cc = "./build/cc3";
+        # Dev mode: ./build/cc5
+        if (file_exists("./build/cc5") == 1) {
+            _cc = "./build/cc5";
             _tools_dir = "./build";
         } else {
-            # cc3 not found — ok for deps/clean/init/version/help, fatal for build/run/test
+            # cc5 not found — ok for deps/clean/init/version/help, fatal for build/run/test
             _cc = 0;
             _tools_dir = make_path(_home, "bin");
         }
     }
     # Search for aarch64 cross-compiler: tools dir, then ./build/
-    _cc_arm = make_path(_tools_dir, "cc3_aarch64");
+    _cc_arm = make_path(_tools_dir, "cc5_aarch64");
     if (file_exists(_cc_arm) == 0) {
-        if (file_exists("./build/cc3_aarch64") == 1) {
-            _cc_arm = "./build/cc3_aarch64";
+        if (file_exists("./build/cc5_aarch64") == 1) {
+            _cc_arm = "./build/cc5_aarch64";
         }
     }
 
@@ -660,12 +660,12 @@ fn cmd_self() {
         store64(&argv + 8, "-c");
         var script = alloc(512);
         var sb = str_builder_new();
-        str_builder_add_cstr(sb, "cc3=/tmp/cyr_cc3_$$;cc4=/tmp/cyr_cc4_$$;");
+        str_builder_add_cstr(sb, "cc5=/tmp/cyr_cc5_$$;cc4=/tmp/cyr_cc4_$$;");
         str_builder_add_cstr(sb, "cat src/compiler.cyr|");
         str_builder_add_cstr(sb, _cc);
-        str_builder_add_cstr(sb, ">$cc3&&chmod +x $cc3&&cat src/compiler.cyr|$cc3>$cc4&&");
-        str_builder_add_cstr(sb, "cmp -s $cc3 $cc4&&echo '  PASS: cc3==cc3 byte-identical'||");
-        str_builder_add_cstr(sb, "(echo '  FAIL: cc3!=cc3';exit 1)");
+        str_builder_add_cstr(sb, ">$cc5&&chmod +x $cc5&&cat src/compiler.cyr|$cc5>$cc4&&");
+        str_builder_add_cstr(sb, "cmp -s $cc5 $cc4&&echo '  PASS: cc5==cc5 byte-identical'||");
+        str_builder_add_cstr(sb, "(echo '  FAIL: cc5!=cc5';exit 1)");
         var cmd = str_builder_build(sb);
         store64(&argv + 16, str_data(cmd));
         store64(&argv + 24, 0);
@@ -680,7 +680,7 @@ fn cmd_self() {
 }
 
 fn cmd_clean() {
-    # Remove build/ contents except cc3, cyrc, asm
+    # Remove build/ contents except cc5, cyrc, asm
     if (is_dir(str_from("build")) == 0) {
         println("nothing to clean");
         return 0;
@@ -692,10 +692,10 @@ fn cmd_clean() {
         var name = vec_get(entries, ci);
         var skip = 0;
         if (str_eq(name, str_from("cc")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("cc3")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc5")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cyrc")) == 1) { skip = 1; }
         if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
-        if (str_eq(name, str_from("cc3_aarch64")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc5_aarch64")) == 1) { skip = 1; }
         if (str_eq(name, str_from("cyrius")) == 1) { skip = 1; }
         if (skip == 0) {
             var full = make_path("build", str_data(name));
@@ -712,7 +712,7 @@ fn cmd_clean() {
     if (_dry_run == 1) {
         sys_write(STDOUT_FD, "dry-run: would remove ", 22);
     } else {
-        sys_write(STDOUT_FD, "cleaned build/ (preserved cc3, cyrc, asm, cyrius) — removed ", 60);
+        sys_write(STDOUT_FD, "cleaned build/ (preserved cc5, cyrc, asm, cyrius) — removed ", 60);
     }
     fmt_int(cleaned);
     println(" files");
@@ -1558,7 +1558,8 @@ fn cmd_deps() {
                             if (file_exists(alt) == 1) { src = alt; }
                         }
                     }
-                    # Destination: lib/{depname}_{basename} — always namespaced
+                    # Destination: lib/{basename} if it starts with depname,
+                    # else lib/{depname}_{basename} to avoid collisions.
                     var base = mod_path;
                     var bi = 0;
                     while (load8(mod_path + bi) != 0) {
@@ -1567,9 +1568,20 @@ fn cmd_deps() {
                     }
                     var sb3 = str_builder_new();
                     str_builder_add_cstr(sb3, "lib/");
-                    str_builder_add_cstr(sb3, dep_name);
-                    str_builder_add_cstr(sb3, "_");
-                    str_builder_add_cstr(sb3, base);
+                    var _dnl = strlen(dep_name);
+                    var _bsd = 1;
+                    var _ck = 0;
+                    while (_ck < _dnl) {
+                        if (load8(base + _ck) != load8(dep_name + _ck)) { _bsd = 0; break; }
+                        _ck = _ck + 1;
+                    }
+                    if (_bsd == 1) {
+                        str_builder_add_cstr(sb3, base);
+                    } else {
+                        str_builder_add_cstr(sb3, dep_name);
+                        str_builder_add_cstr(sb3, "_");
+                        str_builder_add_cstr(sb3, base);
+                    }
                     var dst = str_data(str_builder_build(sb3));
                     # Symlink dep into lib/ — audit walkers skip symlinks,
                     # treating them as upstream-owned and not subject to local
@@ -1598,30 +1610,8 @@ fn cmd_deps() {
                             }
                             copied = copied + 1;
                         }
-                        # Also emit lib/{depname}.cyr alias if basename matches
-                        # "{depname}.cyr" exactly — preserves the canonical single-
-                        # module import path for consumers using `include "lib/sigil.cyr"`.
-                        var dnlen = strlen(dep_name);
-                        var blen = strlen(base);
-                        if (blen == dnlen + 4) {
-                            var matches = 1;
-                            var ck = 0;
-                            while (ck < dnlen) {
-                                if (load8(base + ck) != load8(dep_name + ck)) { matches = 0; break; }
-                                ck = ck + 1;
-                            }
-                            if (matches == 1 && load8(base + dnlen) == 46 && load8(base + dnlen + 1) == 99 && load8(base + dnlen + 2) == 121 && load8(base + dnlen + 3) == 114) {
-                                var alias_sb = str_builder_new();
-                                str_builder_add_cstr(alias_sb, "lib/");
-                                str_builder_add_cstr(alias_sb, base);
-                                var alias_dst = str_data(str_builder_build(alias_sb));
-                                # Symlink to the cache source, not copy — audit
-                                # walkers skip symlinks (treated as dep-owned).
-                                # Absolute target (see note at primary symlink above).
-                                sys_unlink(alias_dst);
-                                syscall(88, _abs_path(src), alias_dst);
-                            }
-                        }
+                        # No alias needed — basename-starts-with-depname check
+                        # above already places the file at lib/{basename}.
                     } elif (cr2 == 1) { errors = errors + 1; }
                     mi = mi + 1;
                 }
@@ -1817,7 +1807,7 @@ fn usage() {
     println("  test [--aarch64] <test.cyr>     compile + run, check exit 0");
     println("  bench <bench.cyr>               compile + run benchmarks");
     println("  check <source.cyr>              syntax check");
-    println("  self                            self-hosting check (cc3==cc3)");
+    println("  self                            self-hosting check (cc5==cc5)");
     println("  clean                           remove build/ contents");
     println("");
     println("Project:");
@@ -1847,7 +1837,7 @@ fn usage() {
     println("Info:");
     println("  version                         show cyrius toolchain version");
     println("  version --project               show project version (from VERSION)");
-    println("  which                           show path to cc3");
+    println("  which                           show path to cc5");
     println("  help                            show this help");
     return 0;
 }
