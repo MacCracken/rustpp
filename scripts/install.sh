@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="5.1.10"
+        VERSION="5.1.11"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
@@ -281,6 +281,109 @@ case "${1:-help}" in
         fi
         ;;
 
+    cmdtools)
+        shift
+        _CT_ACTION="${1:-list}"
+        _CT_TOOL="${2:-}"
+
+        _starship_conf="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
+        _p10k_conf="$HOME/.p10k.zsh"
+
+        _CYRIUS_STARSHIP='[custom.cyrius]
+command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc5 --version 2>/dev/null | awk '"'"'{print $2}'"'"' || cat ~/.cyrius/current 2>/dev/null || echo '"'"'?'"'"'; fi"""
+when = "test -f cyrius.cyml || test -f cyrius.toml"
+symbol = "𝕮"
+style = "bg:teal"
+format = '"'"'[[ $symbol( $output) ](fg:base bg:teal)]($style)'"'"'
+detect_files = ["cyrius.cyml", "cyrius.toml"]'
+
+        _CYRIUS_P10K='# Cyrius prompt segment
+function prompt_cyrius() {
+  local ver=""
+  if [[ -f cyrius.cyml ]] || [[ -f cyrius.toml ]]; then
+    if [[ -f bootstrap/asm ]]; then ver=$(cat VERSION 2>/dev/null)
+    else ver=$(cc5 --version 2>/dev/null | awk "{print \$2}" || cat ~/.cyrius/current 2>/dev/null || echo "?"); fi
+    [[ -n "$ver" ]] && p10k segment -f teal -t "𝕮 $ver"
+  fi
+}'
+
+        case "$_CT_ACTION" in
+            list)
+                echo "cmdtools integrations:"
+                if grep -q "custom.cyrius" "$_starship_conf" 2>/dev/null; then
+                    echo "  * starship  (installed)"
+                elif command -v starship > /dev/null 2>&1; then
+                    echo "    starship  (available, not configured)"
+                fi
+                if grep -q "prompt_cyrius" "$_p10k_conf" 2>/dev/null; then
+                    echo "  * p10k      (installed)"
+                elif [ -f "$_p10k_conf" ]; then
+                    echo "    p10k      (available, not configured)"
+                fi
+                ;;
+            install|add)
+                case "$_CT_TOOL" in
+                    starship)
+                        if ! command -v starship > /dev/null 2>&1; then
+                            echo "error: starship not installed"
+                            exit 1
+                        fi
+                        if grep -q "custom.cyrius" "$_starship_conf" 2>/dev/null; then
+                            # Update existing
+                            sed -i '/\[custom\.cyrius\]/,/^$/d' "$_starship_conf"
+                        fi
+                        echo "" >> "$_starship_conf"
+                        echo "$_CYRIUS_STARSHIP" >> "$_starship_conf"
+                        echo "starship: Cyrius segment installed in $_starship_conf"
+                        ;;
+                    p10k|powerlevel10k)
+                        if [ ! -f "$_p10k_conf" ]; then
+                            echo "error: ~/.p10k.zsh not found (run p10k configure first)"
+                            exit 1
+                        fi
+                        if grep -q "prompt_cyrius" "$_p10k_conf" 2>/dev/null; then
+                            echo "p10k: Cyrius segment already installed"
+                        else
+                            echo "" >> "$_p10k_conf"
+                            echo "$_CYRIUS_P10K" >> "$_p10k_conf"
+                            echo "p10k: Cyrius segment installed in $_p10k_conf"
+                            echo "  Add 'cyrius' to POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS in ~/.p10k.zsh"
+                        fi
+                        ;;
+                    *)
+                        echo "Available tools: starship, p10k"
+                        ;;
+                esac
+                ;;
+            remove)
+                case "$_CT_TOOL" in
+                    starship)
+                        if grep -q "custom.cyrius" "$_starship_conf" 2>/dev/null; then
+                            sed -i '/\[custom\.cyrius\]/,/^$/d' "$_starship_conf"
+                            echo "starship: Cyrius segment removed"
+                        else
+                            echo "starship: no Cyrius segment found"
+                        fi
+                        ;;
+                    p10k|powerlevel10k)
+                        if grep -q "prompt_cyrius" "$_p10k_conf" 2>/dev/null; then
+                            sed -i '/# Cyrius prompt segment/,/^}/d' "$_p10k_conf"
+                            echo "p10k: Cyrius segment removed"
+                        else
+                            echo "p10k: no Cyrius segment found"
+                        fi
+                        ;;
+                    *)
+                        echo "Available tools: starship, p10k"
+                        ;;
+                esac
+                ;;
+            *)
+                echo "Usage: cyriusly cmdtools [list|install|remove] [starship|p10k]"
+                ;;
+        esac
+        ;;
+
     help|--help|-h)
         echo "cyriusly - Cyrius version manager"
         echo ""
@@ -296,12 +399,14 @@ case "${1:-help}" in
         echo "    update              Check for new versions"
         echo "    which               Show path to active compiler"
         echo "    home                Show install directory"
+        echo "    cmdtools [action]   Manage prompt integrations (starship, p10k)"
         echo "    help                Show this help"
         echo ""
         echo "EXAMPLES:"
-        echo "    cyriusly install 2.4.0"
-        echo "    cyriusly use 2.4.0"
-        echo "    cyriusly list"
+        echo "    cyriusly install 5.1.11"
+        echo "    cyriusly use 5.1.11"
+        echo "    cyriusly cmdtools install starship"
+        echo "    cyriusly cmdtools list"
         ;;
 
     *)
