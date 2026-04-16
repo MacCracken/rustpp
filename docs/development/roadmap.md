@@ -51,6 +51,11 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - log.cyr level mapping + output routing rewrite (delegates to sakshi)
 - Removed duplicate sakshi symlinks, migrated to cyrius.cyml, CI cc3→cc5
 
+### v5.1.2 — sakshi 1.0.0 + Release Pipeline
+- sakshi 0.9.3 → 1.0.0 (first stable release)
+- macOS Mach-O tarball in release pipeline (three-platform release)
+- release.yml cc3→cc5, dep resolver prefers cyrius.cyml
+
 </details>
 
 ---

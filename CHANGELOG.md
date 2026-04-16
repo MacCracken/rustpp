@@ -4,6 +4,24 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.2] — 2026-04-16
+
+**sakshi 1.0.0, macOS release pipeline, dep resolver fix.**
+
+### Changed
+- **sakshi dep 0.9.3 → 1.0.0** — first stable sakshi release.
+- **Release pipeline: macOS tarball** — `release.yml` now builds
+  `cyrius-{ver}-x86_64-macos.tar.gz` with Mach-O cyrfmt/cyrlint/cyrdoc,
+  `lib/syscalls_macos.cyr`, and `lib/alloc_macos.cyr`. Three-platform
+  release: Linux x86_64, Linux aarch64, macOS x86_64.
+- **Release pipeline: cc3 → cc5** — all `release.yml` references updated.
+- **Dep resolver prefers cyrius.cyml** — `scripts/cyrius` now checks for
+  `cyrius.cyml` before falling back to `cyrius.toml`.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.1.1] — 2026-04-16
 
 **Stdlib fixes — sakshi 0.9.3, log.cyr rewrite, manifest migration.**
