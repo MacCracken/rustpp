@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.0.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -23,29 +23,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 ## Shipped
 
 <details>
-<summary>Click to expand shipped items (v3.7.0 → v5.0.3)</summary>
-
-### v3.7.x–v3.10.x — Language & Tooling
-- `#derive(accessors)`, multi-return, switch, defer (all exit paths)
-- `+=`/`-=`/`*=` compound ops, negative literals, undefined fn diagnostic
-- `cyrius deps`, auto-include, namespaced deps, `.cyrius-toolchain`
-- `cyrius init`, CI/release workflows, aarch64 cross-compiler
-
-### v4.0.0–v4.8.5 — Compiler & Stdlib
-- File:line errors, DCE, short-circuit `&&`/`||`, struct init syntax
-- LSP, HTTP server, linker, PIC/shared objects
-- u128, base64, math pack, `#regalloc` (multi-register)
-
-### v4.9.x — Stdlib & TLS
-- f64_parse, word-at-a-time strlen, CYML parser
-- `lib/dynlib.cyr` hardening (9 bounds checks), live TLS bridge (libssl.so.3)
-
-### v4.10.x — Cleanup, Deps, Linalg
-- Security: fmt_sprintf bounds, temp file O_EXCL, dynlib stack overflow
-- 4 new test suites (string, fmt, vec, hashmap)
-- sankoch 1.0.0 dep (compression), linalg (LU/QR/Cholesky/SVD/eigen)
-- Math utilities from abaco (lerp, hypot, sign, gcd, lcm, fibonacci, binomial)
-- CI `set -e` fix, `cyrius update` toolchain pin
+<summary>Click to expand shipped v5.x items</summary>
 
 ### v5.0.0 — cc5 Generation Bump
 - cc5 IR (812 lines, 40 opcodes), CFG edge builder, LASE analysis, dead block detection
@@ -64,7 +42,22 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - `main_aarch64_native.cyr` with host syscall numbers (openat, native read/write/brk/exit)
 - Version check openat-aware, `version-bump.sh` cc3→cc5 fix
 
+### v5.1.0 — macOS x86_64 (Mach-O)
+- `CYRIUS_MACHO=1` triggers Mach-O output, tested on real hardware
+- `lib/syscalls_macos.cyr`, `lib/alloc_macos.cyr` (mmap-based)
+
 </details>
+
+---
+
+## v5.1.1 — Stdlib: sakshi + log.cyr Fixes
+
+| # | Item | Impact | Status |
+|---|------|--------|--------|
+| 1 | Update bundled sakshi to 0.9.3 (currently 0.9.0) | All consumers missing SA-001 CRITICAL UDP fix, SK_FATAL, trace ID, perf improvements | Not started |
+| 2 | Fix `log.cyr` level mapping — inverted vs sakshi | `log_init(LOG_ERROR)` sets sakshi to SK_DEBUG (level 4). Level semantics are backwards. Values match by coincidence at INFO only. | Not started |
+| 3 | Fix `log.cyr` output routing — bypasses sakshi | `_log_emit` does raw `syscall(1, 2, ...)` to stderr, ignoring sakshi's file/ring/UDP targets. Should delegate to sakshi_info etc. | Not started |
+| 4 | Remove `sakshi_sakshi.cyr` naming artifact | `release-lib.sh` generates `{dep}_{file}` duplicate. 225-line exact copy of `sakshi.cyr`. | Not started |
 
 ---
 
@@ -75,7 +68,7 @@ enables adding new targets without touching the frontend.
 
 | Release | Platform | Format | Status |
 |---------|----------|--------|--------|
-| **v5.1.0** | macOS x86_64 | Mach-O | Stubs scaffolded (v3.1) |
+| **v5.1.0** | macOS x86_64 | Mach-O | **Done** — CYRIUS_MACHO=1, tested on hardware |
 | **v5.2.0** | macOS aarch64 | Mach-O | Apple Silicon native |
 | **v5.3.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
 | **v5.4.0** | RISC-V rv64 | ELF | First-class RISC-V target |
@@ -143,7 +136,7 @@ all emit paths go through IR. The path:
 | Linux x86_64 | ELF | **Done** — primary, cc5 408KB self-hosting |
 | Linux aarch64 | ELF | **Partial** — cross-compiler works, native entry point ready (v5.0.3, needs ARM hardware validation) |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
-| macOS x86_64 | Mach-O | Stub — **v5.1.0** |
+| macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
 | macOS aarch64 | Mach-O | Stub — **v5.2.0** |
 | Windows x86_64 | PE/COFF | Stub — **v5.3.0** |
 | RISC-V (rv64) | ELF | **v5.4.0** |

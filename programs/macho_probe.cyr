@@ -1,0 +1,155 @@
+# macho_probe.cyr — emit a minimal Mach-O x86_64 binary to stdout
+# The generated binary does: exit(42)
+#
+# Build:  cat programs/macho_probe.cyr | build/cc5 > /tmp/macho_probe && chmod +x /tmp/macho_probe
+# Run:    /tmp/macho_probe > /tmp/exit42.macho
+# Test:   scp /tmp/exit42.macho mac:~ && ssh mac 'chmod +x exit42.macho && ./exit42.macho; echo $?'
+# Expect: 42
+
+# Write helpers
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w16(buf, off, v) { store8(buf + off, v & 0xFF); store8(buf + off + 1, (v >> 8) & 0xFF); return off + 2; }
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wz(buf, off, n) {
+    for (var i = 0; i < n; i = i + 1) { store8(buf + off + i, 0); }
+    return off + n;
+}
+# Write a 16-byte null-padded name
+fn wname(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < 16) { store8(buf + off + i, 0); i = i + 1; }
+    return off + 16;
+}
+
+# x86_64 code for: mov edi, 42; mov eax, 0x2000001; syscall
+# 42 = 0x2A
+# Encoding:
+#   BF 2A 00 00 00          mov edi, 42
+#   B8 01 00 00 02          mov eax, 0x2000001
+#   0F 05                   syscall
+var CODE_SIZE = 12;
+
+# Layout:
+#   0:    mach_header_64         32 bytes
+#   32:   LC_SEGMENT_64 __PAGEZERO  72 bytes
+#   104:  LC_SEGMENT_64 __TEXT    72 + 80 = 152 bytes (1 section)
+#   256:  LC_UNIXTHREAD          184 bytes
+#   440:  code start
+#   452:  end
+#   Round __TEXT vmsize/filesize to 4096
+
+var HDR_SIZE = 440;
+var PAGE_SIZE = 4096;
+var TEXT_VMADDR = 0x100000000;
+var CODE_OFF = HDR_SIZE;
+
+var buf[1024];
+var o = 0;
+
+# ================================================================
+# mach_header_64 (32 bytes)
+# ================================================================
+o = w32(&buf, o, 0xFEEDFACF);     # magic
+o = w32(&buf, o, 0x01000007);     # cputype = CPU_TYPE_X86_64
+o = w32(&buf, o, 0x00000003);     # cpusubtype = CPU_SUBTYPE_X86_64_ALL
+o = w32(&buf, o, 0x00000002);     # filetype = MH_EXECUTE
+o = w32(&buf, o, 3);              # ncmds = 3
+o = w32(&buf, o, 72 + 152 + 184); # sizeofcmds = 408
+o = w32(&buf, o, 0x00000001);     # flags = MH_NOUNDEFS
+o = w32(&buf, o, 0);              # reserved
+
+# ================================================================
+# LC_SEGMENT_64 __PAGEZERO (72 bytes)
+# ================================================================
+o = w32(&buf, o, 0x19);           # cmd = LC_SEGMENT_64
+o = w32(&buf, o, 72);             # cmdsize
+o = wname(&buf, o, "__PAGEZERO");  # segname
+o = w64(&buf, o, 0);              # vmaddr
+o = w64(&buf, o, 0x100000000);    # vmsize = 4GB
+o = w64(&buf, o, 0);              # fileoff
+o = w64(&buf, o, 0);              # filesize
+o = w32(&buf, o, 0);              # maxprot
+o = w32(&buf, o, 0);              # initprot
+o = w32(&buf, o, 0);              # nsects
+o = w32(&buf, o, 0);              # flags
+
+# ================================================================
+# LC_SEGMENT_64 __TEXT + __text section (152 bytes)
+# ================================================================
+o = w32(&buf, o, 0x19);           # cmd = LC_SEGMENT_64
+o = w32(&buf, o, 152);            # cmdsize (72 + 80 for 1 section)
+o = wname(&buf, o, "__TEXT");      # segname
+o = w64(&buf, o, TEXT_VMADDR);    # vmaddr
+o = w64(&buf, o, PAGE_SIZE);      # vmsize (1 page)
+o = w64(&buf, o, 0);              # fileoff (segment starts at file start)
+o = w64(&buf, o, PAGE_SIZE);      # filesize
+o = w32(&buf, o, 5);              # maxprot = VM_PROT_READ | VM_PROT_EXECUTE
+o = w32(&buf, o, 5);              # initprot
+o = w32(&buf, o, 1);              # nsects = 1
+o = w32(&buf, o, 0);              # flags
+
+# section_64 __text (80 bytes)
+o = wname(&buf, o, "__text");      # sectname
+o = wname(&buf, o, "__TEXT");      # segname
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);  # addr
+o = w64(&buf, o, CODE_SIZE);      # size
+o = w32(&buf, o, CODE_OFF);       # offset (from file start)
+o = w32(&buf, o, 0);              # align (2^0 = 1)
+o = w32(&buf, o, 0);              # reloff
+o = w32(&buf, o, 0);              # nreloc
+o = w32(&buf, o, 0x80000400);     # flags = S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS
+o = w32(&buf, o, 0);              # reserved1
+o = w32(&buf, o, 0);              # reserved2
+o = w32(&buf, o, 0);              # reserved3
+
+# ================================================================
+# LC_UNIXTHREAD (184 bytes)
+# ================================================================
+o = w32(&buf, o, 0x05);           # cmd = LC_UNIXTHREAD
+o = w32(&buf, o, 184);            # cmdsize
+o = w32(&buf, o, 4);              # flavor = x86_THREAD_STATE64
+o = w32(&buf, o, 42);             # count = 42 (21 regs * 2 uint32)
+
+# Thread state: 21 x uint64_t (168 bytes)
+# Order: rax, rbx, rcx, rdx, rdi, rsi, rbp, rsp,
+#        r8, r9, r10, r11, r12, r13, r14, r15,
+#        rip, rflags, cs, fs, gs
+# All zero except rip = entry point
+for (var ri = 0; ri < 16; ri = ri + 1) { o = w64(&buf, o, 0); }
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);  # rip
+o = w64(&buf, o, 0);              # rflags
+o = w64(&buf, o, 0);              # cs
+o = w64(&buf, o, 0);              # fs
+o = w64(&buf, o, 0);              # gs
+
+# ================================================================
+# Code: exit(42)
+# ================================================================
+# mov edi, 42
+o = w8(&buf, o, 0xBF);
+o = w32(&buf, o, 42);
+# mov eax, 0x2000001
+o = w8(&buf, o, 0xB8);
+o = w32(&buf, o, 0x2000001);
+# syscall
+o = w8(&buf, o, 0x0F);
+o = w8(&buf, o, 0x05);
+
+# Pad to PAGE_SIZE
+while (o < PAGE_SIZE) { o = w8(&buf, o, 0); }
+
+# Write to stdout
+syscall(1, 1, &buf, o);
+syscall(60, 0);

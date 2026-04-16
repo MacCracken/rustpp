@@ -151,6 +151,7 @@ include "src/backend/x86/decode.cyr"
 include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/parse.cyr"
+include "src/backend/macho/emit.cyr"
 include "src/backend/x86/fixup.cyr"
 
 # ================================================================
@@ -171,7 +172,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc5 5.0.3\n", 10);
+                syscall(SYS_WRITE, 1, "cc5 5.1.0\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }
@@ -450,6 +451,14 @@ while (dce_ti < dce_tc) {
     }
     dce_prev = dce_tt;
     dce_ti = dce_ti + 1;
+}
+
+# Mach-O output via CYRIUS_MACHO=1
+var _macho_env = _read_env("CYRIUS_MACHO");
+if (_macho_env != 0) {
+    if (load8(_macho_env) == 49 && load8(_macho_env + 1) == 0) {
+        _TARGET_MACHO = 1;
+    }
 }
 
 # cc5: opt-in IR recording via CYRIUS_IR=1|2

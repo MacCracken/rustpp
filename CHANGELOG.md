@@ -4,6 +4,38 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.0] — 2026-04-15
+
+**macOS x86_64 — first non-Linux platform target.**
+
+### Added
+- **Mach-O x86_64 executable output** — `CYRIUS_MACHO=1` env var triggers
+  Mach-O emission instead of ELF. `src/backend/macho/emit.cyr` implements
+  `EMITMACHO_EXEC`: mach_header_64 + __PAGEZERO + __TEXT (RWX, flat layout
+  matching FIXUP expectations) + LC_UNIXTHREAD entry point. Virtual base
+  at 0x100000000 with code at page offset 4096.
+- **`lib/syscalls_macos.cyr`** — macOS x86_64 BSD syscall constants
+  (exit, read, write, open, close, mmap, munmap, etc.) with 0x2000000
+  prefix. Programs targeting macOS include this instead of using Linux
+  numbers.
+- **`lib/alloc_macos.cyr`** — mmap-based bump allocator for macOS (which
+  has no brk syscall). Drop-in replacement for `alloc.cyr` with identical
+  API: `alloc_init()`, `alloc(size)`, `alloc_reset()`, `alloc_used()`,
+  plus arena support. Grows in 1MB mmap chunks with contiguity check.
+- **`programs/macho_probe.cyr`** — standalone Mach-O format probe that
+  generates a minimal exit(42) binary for format validation.
+- **`_TARGET_MACHO` flag** in emit.cyr — controls EEXIT syscall number
+  (0x2000001 for macOS vs 60 for Linux) and FIXUP base address
+  (0x100001000 vs 0x400078).
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+- Tested on real macOS hardware (2018 MacBook Pro x86_64):
+  - `exit(42)` probe — PASS
+  - `hello mac` (write + exit) — PASS
+  - Variables + functions + strings (full FIXUP path) — PASS
+
 ## [5.0.3] — 2026-04-15
 
 **aarch64 native entry point + version tooling fixes.**

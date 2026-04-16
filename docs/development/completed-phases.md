@@ -248,3 +248,12 @@ Deferred: error message line numbers, performance pass, block scoping.
 - **`src/main_aarch64_native.cyr`** — native aarch64 compiler entry point with host syscall numbers (read=63, write=64, openat=56, close=57, brk=214, exit=93).
 - **Version check openat-aware** — `main.cyr` branches on `SYS_OPEN == 2` for `/proc/self/cmdline`.
 - **`version-bump.sh`** — fixed stale `cc3` pattern → `cc5`. Version string was stuck at `cc5 5.0.0` for two releases.
+
+## v5.1.0 — macOS x86_64 (Mach-O)
+
+- **`EMITMACHO_EXEC`** (`src/backend/macho/emit.cyr`) — Mach-O x86_64 executable emission. mach_header_64, __PAGEZERO (4GB null guard), __TEXT (RWX flat layout: code + vars + strings), LC_UNIXTHREAD (sets RIP to entry). Virtual base 0x100000000, code at page offset 4096. Triggered by `CYRIUS_MACHO=1` env var.
+- **`_TARGET_MACHO` flag** — controls EEXIT (macOS exit = 0x2000001) and FIXUP base (0x100001000).
+- **`lib/syscalls_macos.cyr`** — macOS BSD syscall constants with 0x2000000 prefix.
+- **`lib/alloc_macos.cyr`** — mmap-based bump allocator (macOS has no brk). Drop-in alloc.cyr replacement.
+- **`programs/macho_probe.cyr`** — format validation probe.
+- Tested on 2018 MacBook Pro: exit(42), hello world, variables + functions + strings all pass.

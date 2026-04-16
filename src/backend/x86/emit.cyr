@@ -308,10 +308,14 @@ fn ESCPOPS(S, n) {
     return 0;
 }
 
-# emit exit epilogue: mov rdi, rax; mov rax, 60; syscall
+# Target format: 0=ELF (Linux), 1=Mach-O (macOS)
+var _TARGET_MACHO = 0;
+
+# emit exit epilogue: mov rdi, rax; mov rax, <exit_nr>; syscall
 fn EEXIT(S) {
     EMOVRDI(S);
-    EMOVI(S, 60);
+    if (_TARGET_MACHO == 1) { EMOVI(S, 0x2000001); }
+    else { EMOVI(S, 60); }
     ESYSCALL(S);
     return 0;
 }
