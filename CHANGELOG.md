@@ -6,20 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [5.1.11] — 2026-04-16
 
-**Dep cleanup — remove duplicate symlinks, verify release contents.**
+**Dep cleanup, cyriusly cmdtools, starship fix.**
+
+### Added
+- **`cyriusly cmdtools`** subcommand — manage prompt integrations.
+  `cmdtools list` shows installed/available tools. `cmdtools install
+  starship` installs Cyrius segment (cc5, cyml detection). `cmdtools
+  install p10k` installs powerlevel10k segment. `cmdtools remove` to
+  uninstall.
 
 ### Fixed
 - **Removed 5 duplicate dep symlinks** from `lib/` — `mabda_mabda.cyr`,
   `patra_patra.cyr`, `sankoch_sankoch.cyr`, `sigil_sigil.cyr`,
   `yukti_yukti.cyr`. Legacy artifacts from pre-5.1.7 dep resolver.
-  Some pointed to stale versions (patra 0.14.0, sankoch 1.0.0).
+- **Starship segment** — updated cc3→cc5, detects `cyrius.cyml`.
 
 ### Validation
 - cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.11`.
 - 8/8 `check.sh` PASS. 60 test suites.
-- Release tarball verified: 55 lib files, no duplicates, no tests/benchmarks.
-- All dep versions correct: sakshi 1.0.0, patra 1.0.0, sigil 2.1.2,
-  yukti 1.2.0, mabda 2.1.2, sankoch 1.2.0.
+- `cyriusly cmdtools list` → starship (installed).
+- Release tarball verified: 55 lib files, no duplicates.
 
 ## [5.1.10] — 2026-04-16
 
