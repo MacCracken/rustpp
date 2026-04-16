@@ -1,0 +1,307 @@
+# ================================================================
+# Subcommands
+# ================================================================
+
+fn cmd_build(source, output) {
+    # Ensure output directory exists
+    var oi = 0;
+    var last_slash = 0 - 1;
+    while (load8(output + oi) != 0) {
+        if (load8(output + oi) == 47) { last_slash = oi; }
+        oi = oi + 1;
+    }
+    if (last_slash > 0) {
+        var dir = alloc(last_slash + 1);
+        memcpy(dir, output, last_slash);
+        store8(dir + last_slash, 0);
+        sys_mkdir(dir, 0x1ED);
+    }
+    if (_dry_run == 1) {
+        sys_write(STDOUT_FD, "dry-run: compile ", 17);
+        sys_write(STDOUT_FD, source, strlen(source));
+        sys_write(STDOUT_FD, " -> ", 4);
+        sys_write(STDOUT_FD, output, strlen(output));
+        sys_write(STDOUT_FD, "\n", 1);
+        return 0;
+    }
+    sys_write(STDOUT_FD, "compile ", 8);
+    sys_write(STDOUT_FD, source, strlen(source));
+    sys_write(STDOUT_FD, " -> ", 4);
+    sys_write(STDOUT_FD, output, strlen(output));
+    sys_write(STDOUT_FD, " [", 2);
+    var an = arch_name();
+    sys_write(STDOUT_FD, an, strlen(an));
+    sys_write(STDOUT_FD, "] ", 2);
+    var r = compile(source, output);
+    if (r == 0) {
+        println("OK");
+    } else {
+        println("FAIL");
+    }
+    return r;
+}
+
+fn cmd_run(source) {
+    if (_dry_run == 1) {
+        sys_write(STDOUT_FD, "dry-run: compile + run ", 23);
+        sys_write(STDOUT_FD, source, strlen(source));
+        sys_write(STDOUT_FD, "\n", 1);
+        return 0;
+    }
+    var tmpbin = "/tmp/cyrius_run";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        _err("compile failed");
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    return exit_code;
+}
+
+fn cmd_test(source) {
+    _total = _total + 1;
+    var tmpbin = "/tmp/cyrius_test_bin";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        sys_write(STDERR_FD, "  FAIL: ", 8);
+        sys_write(STDERR_FD, source, strlen(source));
+        sys_write(STDERR_FD, " (compile error)\n", 17);
+        _fail = _fail + 1;
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    if (exit_code == 0) {
+        _pass = _pass + 1;
+        return 0;
+    }
+    _fail = _fail + 1;
+    return exit_code;
+}
+
+fn cmd_fuzz() {
+    # Discover fuzz/*.fcyr harnesses, compile and run each
+    _status("=== cyrius fuzz ===");
+    var entries = dir_list(str_from("fuzz"));
+    var fi = 0;
+    var fuzz_pass = 0;
+    var fuzz_fail = 0;
+    var found = 0;
+    while (fi < vec_len(entries)) {
+        var name = vec_get(entries, fi);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        # Check if .fcyr file
+        if (nl > 5) {
+            if (memeq(nd + nl - 5, ".fcyr", 5) == 1) {
+                found = 1;
+                var path = make_path("fuzz", nd);
+                var tmpbin = "/tmp/cyrius_fuzz";
+                sys_write(STDOUT_FD, "  ", 2);
+                sys_write(STDOUT_FD, nd, nl);
+                var pad = 26 - nl;
+                while (pad > 0) { sys_write(STDOUT_FD, " ", 1); pad = pad - 1; }
+                if (compile(path, tmpbin) == 0) {
+                    var ec = run_binary(tmpbin);
+                    sys_unlink(tmpbin);
+                    if (ec == 0) {
+                        println("PASS");
+                        fuzz_pass = fuzz_pass + 1;
+                    } else {
+                        println("FAIL");
+                        fuzz_fail = fuzz_fail + 1;
+                    }
+                } else {
+                    println("COMPILE FAIL");
+                    fuzz_fail = fuzz_fail + 1;
+                    sys_unlink(tmpbin);
+                }
+            }
+        }
+        fi = fi + 1;
+    }
+    if (found == 0) {
+        println("  No fuzz harnesses found in fuzz/");
+        println("  Create fuzz/*.fcyr files to test library functions.");
+        return 0;
+    }
+    sys_write(STDOUT_FD, "\n=== ", 5);
+    fmt_int(fuzz_pass);
+    sys_write(STDOUT_FD, " passed, ", 9);
+    fmt_int(fuzz_fail);
+    println(" failed ===");
+    if (fuzz_fail > 0) { return 1; }
+    return 0;
+}
+
+fn cmd_bench(source) {
+    if (source == 0) {
+        # No args: run full bench suite
+        var script = make_path(_scripts_dir, "bench-history.sh");
+        return run_script(script, 0, 0);
+    }
+    var tmpbin = "/tmp/cyrius_bench";
+    var r = compile(source, tmpbin);
+    if (r != 0) {
+        sys_write(STDERR_FD, "FAIL: compile error\n", 20);
+        sys_unlink(tmpbin);
+        return 1;
+    }
+    var exit_code = run_binary(tmpbin);
+    sys_unlink(tmpbin);
+    return exit_code;
+}
+
+fn cmd_check(source) {
+    # If source has no include directives, try to find an entry point
+    # that includes it (check cyrius.cyml or default to src/main.cyr)
+    var actual = source;
+    var check_buf = alloc(4096);
+    var cn = file_read_all(source, check_buf, 4095);
+    if (cn > 0) {
+        store8(check_buf + cn, 0);
+        # Check if file has include directives (build needle at runtime to
+        # avoid cyrc vet detecting the literal as an include directive)
+        var needle = alloc(9);
+        store8(needle, 105); store8(needle + 1, 110); store8(needle + 2, 99);
+        store8(needle + 3, 108); store8(needle + 4, 117); store8(needle + 5, 100);
+        store8(needle + 6, 101); store8(needle + 7, 32); store8(needle + 8, 0);
+        var has_inc = 0;
+        var ci = 0;
+        while (ci < cn - 8) {
+            if (memeq(check_buf + ci, needle, 8) == 1) { has_inc = 1; break; }
+            ci = ci + 1;
+        }
+        if (has_inc == 0) {
+            # Try project entry point
+            if (file_exists("src/main.cyr") == 1) {
+                actual = "src/main.cyr";
+                sys_write(STDOUT_FD, "check via ", 10);
+                sys_write(STDOUT_FD, actual, strlen(actual));
+                sys_write(STDOUT_FD, " (", 2);
+                sys_write(STDOUT_FD, source, strlen(source));
+                sys_write(STDOUT_FD, " is a module)\n", 14);
+            }
+        }
+    }
+    var r = compile(actual, "/dev/null");
+    if (r == 0) {
+        sys_write(STDOUT_FD, "ok: ", 4);
+        println(source);
+    } else {
+        sys_write(STDERR_FD, "error: ", 7);
+        println(source);
+    }
+    return r;
+}
+
+fn cmd_self() {
+    # Delegate to inline self-hosting check script
+    # (keeps fixup table small — full inline version needs too many relocations)
+    _status("=== Self-Hosting Check ===");
+    var pid = sys_fork();
+    if (pid == 0) {
+        var argv[4];
+        store64(&argv, "/bin/sh");
+        store64(&argv + 8, "-c");
+        var script = alloc(512);
+        var sb = str_builder_new();
+        str_builder_add_cstr(sb, "cc5=/tmp/cyr_cc5_$$;cc4=/tmp/cyr_cc4_$$;");
+        str_builder_add_cstr(sb, "cat src/compiler.cyr|");
+        str_builder_add_cstr(sb, _cc);
+        str_builder_add_cstr(sb, ">$cc5&&chmod +x $cc5&&cat src/compiler.cyr|$cc5>$cc4&&");
+        str_builder_add_cstr(sb, "cmp -s $cc5 $cc4&&echo '  PASS: cc5==cc5 byte-identical'||");
+        str_builder_add_cstr(sb, "(echo '  FAIL: cc5!=cc5';exit 1)");
+        var cmd = str_builder_build(sb);
+        store64(&argv + 16, str_data(cmd));
+        store64(&argv + 24, 0);
+        sys_execve("/bin/sh", &argv, _envp);
+        sys_exit(127);
+    }
+    var status_buf[1];
+    sys_waitpid(pid, &status_buf, 0);
+    var status = load32(&status_buf);
+    if (WIFEXITED(status) == 1) { return WEXITSTATUS(status); }
+    return 1;
+}
+
+fn cmd_clean() {
+    # Remove build/ contents except cc5, cyrc, asm
+    if (is_dir(str_from("build")) == 0) {
+        println("nothing to clean");
+        return 0;
+    }
+    var entries = dir_list(str_from("build"));
+    var ci = 0;
+    var cleaned = 0;
+    while (ci < vec_len(entries)) {
+        var name = vec_get(entries, ci);
+        var skip = 0;
+        if (str_eq(name, str_from("cc")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc5")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cyrc")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("asm")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cc5_aarch64")) == 1) { skip = 1; }
+        if (str_eq(name, str_from("cyrius")) == 1) { skip = 1; }
+        if (skip == 0) {
+            var full = make_path("build", str_data(name));
+            if (_dry_run == 1) {
+                sys_write(STDOUT_FD, "  would remove: ", 16);
+                println(full);
+            } else {
+                sys_unlink(full);
+            }
+            cleaned = cleaned + 1;
+        }
+        ci = ci + 1;
+    }
+    if (_dry_run == 1) {
+        sys_write(STDOUT_FD, "dry-run: would remove ", 22);
+    } else {
+        sys_write(STDOUT_FD, "cleaned build/ (preserved cc5, cyrc, asm, cyrius) — removed ", 60);
+    }
+    fmt_int(cleaned);
+    println(" files");
+    return 0;
+}
+
+# ================================================================
+# Quality commands — delegate to companion tools
+# ================================================================
+
+fn cmd_fmt(file, check_mode) {
+    var cyrfmt = make_path(_tools_dir, "cyrfmt");
+    if (check_mode == 1) {
+        return run_tool(cyrfmt, file, "--check", 0);
+    }
+    return run_tool(cyrfmt, file, 0, 0);
+}
+
+fn cmd_lint(file) {
+    var cyrlint = make_path(_tools_dir, "cyrlint");
+    return run_tool(cyrlint, file, 0, 0);
+}
+
+fn cmd_doc(arg1, arg2) {
+    var cyrdoc = make_path(_tools_dir, "cyrdoc");
+    return run_tool(cyrdoc, arg1, arg2, 0);
+}
+
+fn cmd_vet(file) {
+    var cyrc = make_path(_tools_dir, "cyrc");
+    return run_tool(cyrc, "vet", file, 0);
+}
+
+fn cmd_deny(file) {
+    var cyrc = make_path(_tools_dir, "cyrc");
+    return run_tool(cyrc, "deny", file, 0);
+}
+
+fn cmd_audit() {
+    var script = make_path(_scripts_dir, "check.sh");
+    return run_script(script, 0, 0);
+}
+

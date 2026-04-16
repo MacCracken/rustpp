@@ -1,0 +1,637 @@
+# ================================================================
+# Dependency resolution: cyrius deps
+# ================================================================
+# Reads cyrius.cyml (or cyrius.toml fallback), resolves:
+#   [deps] stdlib = ["string", "fmt", ...] → copy from cyrius stdlib
+#   [deps.name] path = "../repo" modules = ["src/foo.cyr"] → copy from sibling
+# All deps land in lib/ (created if needed).
+
+fn _file_size(path) {
+    var stat_buf[144];
+    var r = syscall(4, path, &stat_buf);
+    if (r != 0) { return 0 - 1; }
+    return load64(&stat_buf + 48);
+}
+
+# Resolve a (possibly relative) path to absolute using getcwd(2).
+# Needed for symlink creation: a relative symlink target is resolved
+# relative to the SYMLINK's parent directory, not the caller's CWD.
+# When we write `lib/{dep}.cyr -> ../sigil/dist/sigil.cyr`, that resolves
+# to `{proj}/sigil/dist/sigil.cyr` (wrong) instead of `{sibling}/sigil/...`.
+# Fix: make every symlink target absolute. Absolute paths are unambiguous.
+# Returns src unchanged if already absolute, else allocates an absolute copy.
+fn _abs_path(src) {
+    if (load8(src) == 47) { return src; }
+    var cwd[4096];
+    # syscall 79 = getcwd(buf, size); returns length incl. nul, or -errno.
+    var n = syscall(79, &cwd, 4096);
+    if (n <= 0) { return src; }
+    # Strip trailing nul from length
+    var cwd_len = n - 1;
+    var src_len = 0;
+    while (load8(src + src_len) != 0) { src_len = src_len + 1; }
+    var out = alloc(cwd_len + 1 + src_len + 1);
+    var oi = 0;
+    var ci = 0;
+    while (ci < cwd_len) {
+        store8(out + oi, load8(&cwd + ci));
+        oi = oi + 1;
+        ci = ci + 1;
+    }
+    store8(out + oi, 47);  # '/'
+    oi = oi + 1;
+    var si = 0;
+    while (si < src_len) {
+        store8(out + oi, load8(src + si));
+        oi = oi + 1;
+        si = si + 1;
+    }
+    store8(out + oi, 0);
+    return out;
+}
+
+fn _dep_copy_file(src, dst) {
+    # Skip if destination exists and same size (already resolved)
+    var src_sz = _file_size(src);
+    var dst_sz = _file_size(dst);
+    if (src_sz > 0 && src_sz == dst_sz) { return 2; }
+    # CVE-04: reject dep writes outside lib/ (path traversal)
+    var di = 0;
+    while (load8(dst + di) != 0) {
+        if (load8(dst + di) == 46 && load8(dst + di + 1) == 46) {
+            sys_write(STDERR_FD, "  error: path traversal in dep destination: ", 44);
+            sys_write(STDERR_FD, dst, strlen(dst));
+            sys_write(STDERR_FD, "\n", 1);
+            return 1;
+        }
+        di += 1;
+    }
+    var sfd = sys_open(src, O_RDONLY, 0);
+    if (sfd < 0) {
+        sys_write(STDERR_FD, "  error: cannot read ", 21);
+        sys_write(STDERR_FD, src, strlen(src));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    var dfd = sys_open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (dfd < 0) {
+        sys_close(sfd);
+        sys_write(STDERR_FD, "  error: cannot write ", 22);
+        sys_write(STDERR_FD, dst, strlen(dst));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    # Stream copy in 32KB chunks — handles files of any size
+    var buf = alloc(32768);
+    var total = 0;
+    var go = 1;
+    while (go == 1) {
+        var n = syscall(0, sfd, buf, 32768);
+        if (n <= 0) { go = 0; }
+        else { syscall(1, dfd, buf, n); total = total + n; }
+    }
+    sys_close(sfd);
+    sys_close(dfd);
+    if (total == 0) { return 1; }
+    return 0;
+}
+
+fn _dep_find_stdlib_dir() {
+    # Try installed cyrius stdlib first
+    var installed = make_path(_home, "lib");
+    if (is_dir(str_from(installed)) == 1) { return installed; }
+    # Dev mode: ./lib in the compiler repo
+    if (is_dir(str_from("./lib")) == 1) { return "./lib"; }
+    return 0;
+}
+
+# Parse a TOML array of strings: ["a", "b", "c"] starting at buf[pos]
+# Returns a vec of cstrings. Advances pos past the closing ].
+fn _parse_toml_str_array(buf, len, pos) {
+    var result = vec_new();
+    # Skip to [
+    while (pos < len && load8(buf + pos) != 91) { pos = pos + 1; }
+    pos = pos + 1;
+    while (pos < len) {
+        var c = load8(buf + pos);
+        if (c == 93) { break; }
+        if (c == 34) {
+            pos = pos + 1;
+            var start = pos;
+            while (pos < len && load8(buf + pos) != 34) { pos = pos + 1; }
+            var slen = pos - start;
+            var s = alloc(slen + 1);
+            memcpy(s, buf + start, slen);
+            store8(s + slen, 0);
+            vec_push(result, s);
+            pos = pos + 1;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    return result;
+}
+
+fn cmd_deps() {
+    if (_dry_run == 1) {
+        println("dry-run: would resolve deps from cyrius.cyml into lib/");
+        return 0;
+    }
+    # Try cyrius.cyml first, fall back to cyrius.toml
+    var _manifest = "cyrius.cyml";
+    if (file_exists(_manifest) == 0) { _manifest = "cyrius.toml"; }
+    if (file_exists(_manifest) == 0) {
+        _err("no cyrius.cyml or cyrius.toml found");
+        return 1;
+    }
+    sys_mkdir("lib", 0x1ED);
+    var buf = alloc(32768);
+    var n = file_read_all(_manifest, buf, 32767);
+    if (n <= 0) { _err("cannot read manifest"); return 1; }
+    # If CYML: strip body (everything after ---) — only parse TOML header
+    var hdr_end = n;
+    var si_sep = 0;
+    while (si_sep + 3 < n) {
+        if (load8(buf + si_sep) == 10 && load8(buf + si_sep + 1) == 45 && load8(buf + si_sep + 2) == 45 && load8(buf + si_sep + 3) == 45) {
+            hdr_end = si_sep;
+            si_sep = n;  # break
+        }
+        si_sep = si_sep + 1;
+    }
+    n = hdr_end;
+    store8(buf + n, 0);
+    var copied = 0;
+    var errors = 0;
+    _dep_includes = vec_new();
+
+    # === Phase 1: stdlib deps ===
+    # Find: stdlib = ["string", "fmt", ...]
+    var si = 0;
+    while (si < n) {
+        if (memeq(buf + si, "stdlib", 6) == 1) {
+            if (si + 6 < n && load8(buf + si + 6) == 32 || load8(buf + si + 6) == 61) {
+                var stdlib_dir = _dep_find_stdlib_dir();
+                if (stdlib_dir == 0) {
+                    println("  error: cannot find cyrius stdlib");
+                    errors = errors + 1;
+                } else {
+                    var mods = _parse_toml_str_array(buf, n, si);
+                    var mi = 0;
+                    while (mi < vec_len(mods)) {
+                        var mod_name = vec_get(mods, mi);
+                        var sb = str_builder_new();
+                        str_builder_add_cstr(sb, stdlib_dir);
+                        str_builder_add_cstr(sb, "/");
+                        str_builder_add_cstr(sb, mod_name);
+                        str_builder_add_cstr(sb, ".cyr");
+                        var src = str_data(str_builder_build(sb));
+                        var dst = make_path("lib", mod_name);
+                        var sb2 = str_builder_new();
+                        str_builder_add_cstr(sb2, dst);
+                        str_builder_add_cstr(sb2, ".cyr");
+                        var dst_full = str_data(str_builder_build(sb2));
+                        var cr = _dep_copy_file(src, dst_full);
+                        if (cr == 0 || cr == 2) {
+                            vec_push(_dep_includes, dst_full);
+                            if (cr == 0) {
+                                if (_verbose == 1) {
+                                    sys_write(STDERR_FD, "  stdlib: ", 10);
+                                    sys_write(STDERR_FD, mod_name, strlen(mod_name));
+                                    sys_write(STDERR_FD, "\n", 1);
+                                }
+                                copied = copied + 1;
+                            }
+                        } elif (cr == 1) { errors = errors + 1; }
+                        mi = mi + 1;
+                    }
+                }
+                break;
+            }
+        }
+        si = si + 1;
+    }
+
+    # === Phase 2: named deps ===
+    # Find: [deps.NAME] sections with path = "..." and modules = [...]
+    si = 0;
+    while (si < n) {
+        if (memeq(buf + si, "[deps.", 6) == 1) {
+            # Extract dep name
+            var name_start = si + 6;
+            var name_end = name_start;
+            while (name_end < n && load8(buf + name_end) != 93) { name_end = name_end + 1; }
+            var dep_name_len = name_end - name_start;
+            var dep_name = alloc(dep_name_len + 1);
+            memcpy(dep_name, buf + name_start, dep_name_len);
+            store8(dep_name + dep_name_len, 0);
+            si = name_end + 1;
+            # Find path/git/tag/modules in this section
+            var dep_path = 0;
+            var dep_git = 0;
+            var dep_tag = 0;
+            var dep_modules = 0;
+            while (si < n) {
+                # Stop at next section header
+                if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) {
+                    if (memeq(buf + si, "[deps.", 6) != 1 && memeq(buf + si, "[build", 6) != 1 && memeq(buf + si, "[package", 8) != 1) {
+                    }
+                    if (load8(buf + si + 1) != 91) {
+                        if (memeq(buf + si, "[deps.", 6) == 1) { break; }
+                        if (memeq(buf + si, "[deps]", 6) == 1) { break; }
+                        if (load8(buf + si + 1) != 100) { break; }
+                    }
+                }
+                if (memeq(buf + si, "path", 4) == 1 && load8(buf + si + 4) != 0 && (load8(buf + si + 4) == 32 || load8(buf + si + 4) == 61)) {
+                    var pi = si + 4;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    pi = pi + 1;
+                    var ps = pi;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    var plen = pi - ps;
+                    dep_path = alloc(plen + 1);
+                    memcpy(dep_path, buf + ps, plen);
+                    store8(dep_path + plen, 0);
+                }
+                if (memeq(buf + si, "git", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var gi = si + 3;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    gi = gi + 1;
+                    var gs = gi;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    var glen = gi - gs;
+                    dep_git = alloc(glen + 1);
+                    memcpy(dep_git, buf + gs, glen);
+                    store8(dep_git + glen, 0);
+                }
+                if (memeq(buf + si, "tag", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var ti = si + 3;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    ti = ti + 1;
+                    var ts = ti;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    var tlen = ti - ts;
+                    dep_tag = alloc(tlen + 1);
+                    memcpy(dep_tag, buf + ts, tlen);
+                    store8(dep_tag + tlen, 0);
+                }
+                if (memeq(buf + si, "modules", 7) == 1) {
+                    dep_modules = _parse_toml_str_array(buf, n, si);
+                }
+                while (si < n && load8(buf + si) != 10) { si = si + 1; }
+                si = si + 1;
+            }
+            # Resolve dep_path: prefer explicit path, else git-clone to a
+            # tag-versioned cache so a cyrius.toml tag bump triggers a fresh
+            # clone automatically (no stale cache at the un-versioned path).
+            # Cache layout: $CYRIUS_HOME/deps/{name}/{tag}/ (or /tmp/cyrius_deps/{name}_{tag}).
+            var need_clone = 0;
+            if (dep_git != 0 && dep_modules != 0) {
+                if (dep_path == 0) {
+                    need_clone = 1;
+                } elif (is_dir(str_from(dep_path)) == 0) {
+                    need_clone = 1;
+                }
+            }
+            if (need_clone == 1) {
+                var clone_sb = str_builder_new();
+                if (_home != 0) {
+                    str_builder_add_cstr(clone_sb, _home);
+                    str_builder_add_cstr(clone_sb, "/deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    str_builder_add_cstr(clone_sb, "/");
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    } else {
+                        str_builder_add_cstr(clone_sb, "main");
+                    }
+                } else {
+                    str_builder_add_cstr(clone_sb, "/tmp/cyrius_deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, "_");
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    }
+                }
+                var clone_dir = str_data(str_builder_build(clone_sb));
+                if (_home != 0) {
+                    var pdir_sb = str_builder_new();
+                    str_builder_add_cstr(pdir_sb, _home);
+                    str_builder_add_cstr(pdir_sb, "/deps");
+                    sys_mkdir(str_data(str_builder_build(pdir_sb)), 0x1ED);
+                    var pdir2_sb = str_builder_new();
+                    str_builder_add_cstr(pdir2_sb, _home);
+                    str_builder_add_cstr(pdir2_sb, "/deps/");
+                    str_builder_add_cstr(pdir2_sb, dep_name);
+                    sys_mkdir(str_data(str_builder_build(pdir2_sb)), 0x1ED);
+                } else {
+                    sys_mkdir("/tmp/cyrius_deps", 0x1ED);
+                }
+                if (is_dir(str_from(clone_dir)) == 0) {
+                    # CVE-01: validate git URL — reject shell metacharacters
+                    var git_ok = 1;
+                    var gi2 = 0;
+                    while (load8(dep_git + gi2) != 0) {
+                        var gc = load8(dep_git + gi2);
+                        if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
+                            git_ok = 0;
+                        }
+                        gi2 += 1;
+                    }
+                    if (dep_tag != 0) {
+                        var ti2 = 0;
+                        while (load8(dep_tag + ti2) != 0) {
+                            var tc2 = load8(dep_tag + ti2);
+                            if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
+                                git_ok = 0;
+                            }
+                            ti2 += 1;
+                        }
+                    }
+                    if (git_ok == 0) {
+                        sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
+                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                        sys_write(STDERR_FD, "\n", 1);
+                        errors += 1;
+                    }
+                    if (git_ok == 1) {
+                        var cmd_sb = str_builder_new();
+                        str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
+                        if (dep_tag != 0) {
+                            str_builder_add_cstr(cmd_sb, "-b ");
+                            str_builder_add_cstr(cmd_sb, dep_tag);
+                            str_builder_add_cstr(cmd_sb, " ");
+                        }
+                        str_builder_add_cstr(cmd_sb, dep_git);
+                        str_builder_add_cstr(cmd_sb, " ");
+                        str_builder_add_cstr(cmd_sb, clone_dir);
+                        var cmd = str_data(str_builder_build(cmd_sb));
+                        if (_verbose == 1) {
+                            sys_write(STDERR_FD, "  git: ", 7);
+                            sys_write(STDERR_FD, cmd, strlen(cmd));
+                            sys_write(STDERR_FD, "\n", 1);
+                        }
+                        sys_system(cmd);
+                    }
+                }
+                dep_path = clone_dir;
+            }
+            # Copy modules from dep_path
+            if (dep_path != 0 && dep_modules != 0) {
+                var mi = 0;
+                while (mi < vec_len(dep_modules)) {
+                    var mod_path = vec_get(dep_modules, mi);
+                    # Source: dep_path/mod_path
+                    var sb = str_builder_new();
+                    str_builder_add_cstr(sb, dep_path);
+                    str_builder_add_cstr(sb, "/");
+                    str_builder_add_cstr(sb, mod_path);
+                    var src = str_data(str_builder_build(sb));
+                    # Fallback: if path has subdirs and doesn't exist, try flat
+                    if (file_exists(src) == 0) {
+                        var fb = mod_path;
+                        var fbi = 0;
+                        while (load8(mod_path + fbi) != 0) {
+                            if (load8(mod_path + fbi) == 47) { fb = mod_path + fbi + 1; }
+                            fbi = fbi + 1;
+                        }
+                        if (fb != mod_path) {
+                            var sb_fb = str_builder_new();
+                            str_builder_add_cstr(sb_fb, dep_path);
+                            str_builder_add_cstr(sb_fb, "/lib/");
+                            str_builder_add_cstr(sb_fb, fb);
+                            var alt = str_data(str_builder_build(sb_fb));
+                            if (file_exists(alt) == 1) { src = alt; }
+                        }
+                    }
+                    # Destination: lib/{basename} if it starts with depname,
+                    # else lib/{depname}_{basename} to avoid collisions.
+                    var base = mod_path;
+                    var bi = 0;
+                    while (load8(mod_path + bi) != 0) {
+                        if (load8(mod_path + bi) == 47) { base = mod_path + bi + 1; }
+                        bi = bi + 1;
+                    }
+                    var sb3 = str_builder_new();
+                    str_builder_add_cstr(sb3, "lib/");
+                    var _dnl = strlen(dep_name);
+                    var _bsd = 1;
+                    var _ck = 0;
+                    while (_ck < _dnl) {
+                        if (load8(base + _ck) != load8(dep_name + _ck)) { _bsd = 0; break; }
+                        _ck = _ck + 1;
+                    }
+                    if (_bsd == 1) {
+                        str_builder_add_cstr(sb3, base);
+                    } else {
+                        str_builder_add_cstr(sb3, dep_name);
+                        str_builder_add_cstr(sb3, "_");
+                        str_builder_add_cstr(sb3, base);
+                    }
+                    var dst = str_data(str_builder_build(sb3));
+                    # Symlink dep into lib/ — audit walkers skip symlinks,
+                    # treating them as upstream-owned and not subject to local
+                    # format/lint. Falls back to copy if symlink() fails.
+                    # Symlink target MUST be absolute: a relative target like
+                    # `../sigil/dist/sigil.cyr` resolves relative to the link's
+                    # parent (lib/), giving the wrong path. Fixed in 4.4.1.
+                    var sym_src = _abs_path(src);
+                    var cr2 = 2;
+                    sys_unlink(dst);
+                    var srv = syscall(88, sym_src, dst);
+                    if (srv < 0) {
+                        cr2 = _dep_copy_file(src, dst);
+                    } else {
+                        cr2 = 0;
+                    }
+                    if (cr2 == 0 || cr2 == 2) {
+                        vec_push(_dep_includes, dst);
+                        if (cr2 == 0) {
+                            if (_verbose == 1) {
+                                sys_write(STDERR_FD, "  ", 2);
+                                sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                                sys_write(STDERR_FD, ": ", 2);
+                                sys_write(STDERR_FD, base, strlen(base));
+                                sys_write(STDERR_FD, "\n", 1);
+                            }
+                            copied = copied + 1;
+                        }
+                        # No alias needed — basename-starts-with-depname check
+                        # above already places the file at lib/{basename}.
+                    } elif (cr2 == 1) { errors = errors + 1; }
+                    mi = mi + 1;
+                }
+            }
+        } else {
+            si = si + 1;
+        }
+    }
+
+    # Summary (only print if something was copied or errored)
+    if (copied > 0 || errors > 0) {
+        var nb[24];
+        var nl = fmt_int_buf(copied, &nb);
+        sys_write(STDOUT_FD, &nb, nl);
+        sys_write(STDOUT_FD, " deps resolved", 14);
+        if (errors > 0) {
+            sys_write(STDOUT_FD, ", ", 2);
+            nl = fmt_int_buf(errors, &nb);
+            sys_write(STDOUT_FD, &nb, nl);
+            sys_write(STDOUT_FD, " errors", 7);
+        }
+        sys_write(STDOUT_FD, "\n", 1);
+    }
+    return errors;
+}
+
+# Auto-resolve deps if manifest has [deps] section.
+# Called before build/run/test to ensure lib/ is populated.
+fn _auto_deps() {
+    var _ad_manifest = "cyrius.cyml";
+    if (file_exists(_ad_manifest) == 0) { _ad_manifest = "cyrius.toml"; }
+    if (file_exists(_ad_manifest) == 0) { return 0; }
+    var buf = alloc(4096);
+    var n = file_read_all(_ad_manifest, buf, 4095);
+    if (n <= 0) { return 0; }
+    store8(buf + n, 0);
+    # Check if [deps] section exists
+    var has_deps = 0;
+    var i = 0;
+    while (i < n) {
+        if (memeq(buf + i, "[deps]", 6) == 1) { has_deps = 1; break; }
+        if (memeq(buf + i, "[deps.", 6) == 1) { has_deps = 1; break; }
+        i = i + 1;
+    }
+    if (has_deps == 0) { return 0; }
+    return cmd_deps();
+}
+
+fn cmd_package() {
+    # Read manifest if present
+    var name = "unknown";
+    var ver = _version;
+    var entry = "src/main.cyr";
+    var output_name = "main";
+
+    var _pkg_manifest = "cyrius.cyml";
+    if (file_exists(_pkg_manifest) == 0) { _pkg_manifest = "cyrius.toml"; }
+    if (file_exists(_pkg_manifest) == 1) {
+        var buf = alloc(4096);
+        var n = file_read_all(_pkg_manifest, buf, 4095);
+        store8(buf + n, 0);
+    }
+    if (file_exists("VERSION") == 1) {
+        ver = read_file_str("VERSION");
+        # Use directory name as package name
+    }
+
+    _status("=== cyrius package ===");
+    sys_write(STDOUT_FD, "  version: ", 11);
+    println(ver);
+
+    # Compile if entry exists
+    sys_mkdir("build", 0x1ED);
+    if (file_exists(entry) == 1) {
+        println("  compiling...");
+        var out = make_path("build", output_name);
+        compile(entry, out);
+    }
+    println("  package ready in build/");
+    return 0;
+}
+
+fn cmd_update() {
+    _status("=== cyrius update ===");
+    # Find installed stdlib
+    var cur = read_file_str(make_path(_home, "current"));
+    var src_lib = 0;
+    if (cur != 0) {
+        var ver_dir = make_path(_home, "versions");
+        ver_dir = make_path(ver_dir, cur);
+        src_lib = make_path(ver_dir, "lib");
+    }
+    if (src_lib == 0) {
+        # Fallback: try ../cyrius/lib
+        if (is_dir(str_from("../cyrius/lib")) == 1) {
+            src_lib = "../cyrius/lib";
+        }
+    }
+    if (src_lib == 0) {
+        _err("cannot find Cyrius stdlib");
+        println("  expected: ~/.cyrius/versions/<ver>/lib/ or ../cyrius/lib/");
+        return 1;
+    }
+    # Ensure lib/ exists
+    sys_mkdir("lib", 0x1ED);
+    # Copy all .cyr files from source to lib/
+    var entries = dir_list(str_from(src_lib));
+    var copied = 0;
+    var ei = 0;
+    while (ei < vec_len(entries)) {
+        var name = vec_get(entries, ei);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        # Check if .cyr file (ends with .cyr)
+        if (nl > 4) {
+            if (load8(nd + nl - 4) == 46) {
+                if (load8(nd + nl - 3) == 99) {
+                    if (load8(nd + nl - 2) == 121) {
+                        if (load8(nd + nl - 1) == 114) {
+                            var from = make_path(src_lib, nd);
+                            var to = make_path("lib", nd);
+                            var fbuf = alloc(32768);
+                            var fn_read = file_read_all(from, fbuf, 32767);
+                            if (fn_read > 0) {
+                                file_write_all(to, fbuf, fn_read);
+                                copied = copied + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ei = ei + 1;
+    }
+    sys_write(STDOUT_FD, "  updated lib/ from ", 20);
+    sys_write(STDOUT_FD, src_lib, strlen(src_lib));
+    sys_write(STDOUT_FD, " (", 2);
+    fmt_int(copied);
+    println(" files)");
+
+    # Update .cyrius-toolchain to match installed version
+    if (cur != 0 && file_exists(".cyrius-toolchain") == 1) {
+        var tc_sb = str_builder_new();
+        str_builder_add_cstr(tc_sb, cur);
+        str_builder_add_cstr(tc_sb, "\n");
+        var tc_str = str_data(str_builder_build(tc_sb));
+        file_write_all(".cyrius-toolchain", tc_str, strlen(tc_str));
+        sys_write(STDOUT_FD, "  .cyrius-toolchain -> ", 23);
+        println(cur);
+    }
+
+    # Migrate cyrius.toml → cyrius.cyml if toml exists and cyml doesn't
+    if (file_exists("cyrius.toml") == 1 && file_exists("cyrius.cyml") == 0) {
+        var toml_buf = alloc(32768);
+        var toml_n = file_read_all("cyrius.toml", toml_buf, 32767);
+        if (toml_n > 0) {
+            # Write cyrius.cyml: TOML content + separator + empty body
+            var cyml_sb = str_builder_new();
+            var ti = 0;
+            while (ti < toml_n) {
+                str_builder_add_byte(cyml_sb, load8(toml_buf + ti));
+                ti = ti + 1;
+            }
+            # Ensure trailing newline before separator
+            if (toml_n > 0 && load8(toml_buf + toml_n - 1) != 10) {
+                str_builder_add_cstr(cyml_sb, "\n");
+            }
+            str_builder_add_cstr(cyml_sb, "---\n");
+            var cyml_str = str_data(str_builder_build(cyml_sb));
+            file_write_all("cyrius.cyml", cyml_str, strlen(cyml_str));
+            sys_unlink("cyrius.toml");
+            println("  migrated cyrius.toml -> cyrius.cyml");
+        }
+    }
+
+    return 0;
+}
+

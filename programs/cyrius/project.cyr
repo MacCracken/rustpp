@@ -1,0 +1,25 @@
+# ================================================================
+# Project commands
+# ================================================================
+
+fn cmd_init(name) {
+    var script = make_path(_scripts_dir, "cyrius-init.sh");
+    if (file_exists(script) == 0) {
+        script = make_path(_home, "bin/cyrius-init.sh");
+    }
+    return run_script(script, name, 0);
+}
+
+fn cmd_init_args(arg1, arg2) {
+    var script = make_path(_scripts_dir, "cyrius-init.sh");
+    if (file_exists(script) == 0) {
+        script = make_path(_home, "bin/cyrius-init.sh");
+    }
+    return run_script(script, arg1, arg2);
+}
+
+fn cmd_port(arg) {
+    var script = make_path(_scripts_dir, "cyrius-port.sh");
+    return run_script(script, arg, 0);
+}
+
