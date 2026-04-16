@@ -9,7 +9,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="$ROOT/build/cc3"
+CC="$ROOT/build/cc5"
 CYRLD="$ROOT/build/cyrld"
 
 if [ ! -x "$CYRLD" ]; then

@@ -4,12 +4,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# Find compiler: cc5 first, fall back to cc3
-if [ -x "$ROOT/build/cc5" ]; then
-    CC="$ROOT/build/cc5"
-else
-    CC="$ROOT/build/cc3"
-fi
+CC="$ROOT/build/cc5"
 CYRFMT="$ROOT/build/cyrfmt"
 CYRLINT="$ROOT/build/cyrlint"
 

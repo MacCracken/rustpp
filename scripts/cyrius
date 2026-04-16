@@ -17,15 +17,15 @@ elif [ -f "$SCRIPT_DIR_V/../VERSION" ]; then
 else
     VERSION="unknown"
 fi
-# Find compiler: cc5 first, fall back to cc3 (pre-5.0 installs)
+# Find compiler: cc5 first, fall back to cc5 (pre-5.0 installs)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CC=""
-for _try in "${CYRIUS_DIR}/bin/cc5" "${CYRIUS_DIR}/bin/cc3" \
-            "$SCRIPT_DIR/../build/cc5" "$SCRIPT_DIR/../build/cc3"; do
+for _try in "${CYRIUS_DIR}/bin/cc5" "${CYRIUS_DIR}/bin/cc5" \
+            "$SCRIPT_DIR/../build/cc5" "$SCRIPT_DIR/../build/cc5"; do
     if [ -x "$_try" ]; then CC="$_try"; break; fi
 done
 if [ -z "$CC" ]; then
-    echo "error: cc5/cc3 not found. Install Cyrius or set CYRIUS_HOME." >&2
+    echo "error: cc5/cc5 not found. Install Cyrius or set CYRIUS_HOME." >&2
     exit 1
 fi
 
@@ -71,11 +71,15 @@ toml_get() {
 }
 
 # Read all package metadata from cyrius.toml
+# Find manifest: prefer cyrius.cyml, fall back to cyrius.toml
+find_manifest() {
+    if [ -f "cyrius.cyml" ]; then echo "cyrius.cyml"
+    elif [ -f "cyrius.toml" ]; then echo "cyrius.toml"
+    else echo ""; fi
+}
+
 read_manifest() {
-    local mf=""
-    if [ -f "cyrius.cyml" ]; then mf="cyrius.cyml"
-    elif [ -f "cyrius.toml" ]; then mf="cyrius.toml"
-    fi
+    local mf="$(find_manifest)"
     if [ -n "$mf" ]; then
         PKG_NAME=$(toml_get "$mf" name)
         PKG_VERSION=$(toml_get "$mf" version)
@@ -108,8 +112,8 @@ Build:
   test [--aarch64 [--native]] [test.cyr]   compile + run (no args: discover .tcyr)
   bench [--tier1|2|3] [file.bcyr]  run benchmarks (no args: all tiers with history)
   check <source.cyr>              syntax check (compile without output)
-  self                            self-hosting check (cc3==cc3)
-  pulsar                          rebuild cc3 + tools from source, install, purge old versions
+  self                            self-hosting check (cc5==cc5)
+  pulsar                          rebuild cc5 + tools from source, install, purge old versions
   clean                           remove build/ contents
 
 Project:
@@ -127,7 +131,7 @@ Quality:
                                   compile-time table utilization; --check exits 1 if any cap >= 85%; --json for dashboards
   fuzz [N]                         run fuzz/*.fcyr harnesses (project library fuzzing)
   soak [N]                         overnight validation loop (self-host + tests + fuzz + repos)
-  fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc3)
+  fuzz --compiler [N]              mutation fuzz the compiler (feed garbage to cc5)
   fmt <file.cyr> [--check]        format code (or check formatting)
   lint <file.cyr>                 static analysis warnings
   doc [--check] <file.cyr>        generate/check documentation
@@ -146,7 +150,7 @@ Interactive:
 
 Info:
   version                         show cyrius version
-  which                           show path to cc3
+  which                           show path to cc5
   help                            show this help
 
 EOF
@@ -279,10 +283,11 @@ version_gte() {
 
 # Check cyrius.toml minimum version requirement
 check_min_version() {
-    [ -f "cyrius.toml" ] || return 0
-    local min=$(toml_get cyrius.toml cyrius 2>/dev/null)
+    local _mf="$(find_manifest)"
+    [ -n "$_mf" ] || return 0
+    local min=$(toml_get "$_mf" cyrius 2>/dev/null)
     [ -z "$min" ] && return 0
-    # Get actual compiler version from cc3 --version
+    # Get actual compiler version from cc5 --version
     local actual=""
     actual=$("$CC" --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+') || true
     [ -z "$actual" ] && actual="$VERSION"
@@ -299,15 +304,15 @@ compile() {
     check_min_version
     local src="$1" out="$2" compiler="$CC"
     if [ "$3" = "aarch64" ]; then
-        compiler="${TOOLS_DIR}/cc3_aarch64"
+        compiler="${TOOLS_DIR}/cc5_aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc3_aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            echo "error: cc5_aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     elif [ "$3" = "aarch64-native" ]; then
-        compiler="${TOOLS_DIR}/cc3-native-aarch64"
+        compiler="${TOOLS_DIR}/cc5-native-aarch64"
         if [ ! -x "$compiler" ]; then
-            echo "error: cc3-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
+            echo "error: cc5-native-aarch64 not found (run 'cyrius pulsar' to build)" >&2
             return 1
         fi
     fi
@@ -332,11 +337,12 @@ compile() {
     case "$src" in
         *.bcyr|*.tcyr|*.fcyr) skip_deps=1 ;;
     esac
-    if [ -f "cyrius.toml" ] && [ "$skip_deps" -eq 0 ]; then
-        local has_deps=$(grep -c '^\[deps' cyrius.toml 2>/dev/null || echo 0)
+    local _bmf="$(find_manifest)"
+    if [ -n "$_bmf" ] && [ "$skip_deps" -eq 0 ]; then
+        local has_deps=$(grep -c '^\[deps' "$_bmf" 2>/dev/null || echo 0)
         if [ "$has_deps" -gt 0 ]; then
             depfile="/tmp/cyrius_deps_$$"
-            resolve_deps "cyrius.toml" "$depfile"
+            resolve_deps "$_bmf" "$depfile"
         fi
     fi
     # Build: defines + deps + source → compiler
@@ -589,9 +595,9 @@ case "${1:-help}" in
 
     self)
         echo "=== Self-Hosting Check ==="
-        cc3="/tmp/cyrius_cc3_$$"
+        cc5="/tmp/cyrius_cc5_$$"
         cc4="/tmp/cyrius_cc4_$$"
-        # Find cc3.cyr source
+        # Find cc5.cyr source
         CC2_SRC=""
         if [ -f "src/main.cyr" ]; then CC2_SRC="src/main.cyr"; fi
         if [ -f "../cyrius/src/main.cyr" ]; then CC2_SRC="../cyrius/src/main.cyr"; fi
@@ -599,14 +605,14 @@ case "${1:-help}" in
             echo "error: src/main.cyr not found" >&2
             exit 1
         fi
-        cat "$CC2_SRC" | "$CC" > "$cc3" && chmod +x "$cc3"
-        cat "$CC2_SRC" | "$cc3" > "$cc4"
-        if cmp -s "$cc3" "$cc4"; then
-            echo "  PASS: cc3==cc3 byte-identical"
-            rm -f "$cc3" "$cc4"
+        cat "$CC2_SRC" | "$CC" > "$cc5" && chmod +x "$cc5"
+        cat "$CC2_SRC" | "$cc5" > "$cc4"
+        if cmp -s "$cc5" "$cc4"; then
+            echo "  PASS: cc5==cc5 byte-identical"
+            rm -f "$cc5" "$cc4"
         else
-            echo "  FAIL: cc3!=cc3"
-            rm -f "$cc3" "$cc4"
+            echo "  FAIL: cc5!=cc5"
+            rm -f "$cc5" "$cc4"
             exit 1
         fi
         ;;
@@ -732,8 +738,9 @@ MANIFEST
         done
         SRC="${1:-}"
         if [ -z "$SRC" ]; then
-            if [ -f "cyrius.toml" ]; then
-                SRC=$(toml_get "cyrius.toml" "src" "build")
+            _cmf="$(find_manifest)"
+            if [ -n "$_cmf" ]; then
+                SRC=$(toml_get "$_cmf" "src" "build")
             fi
             if [ -z "$SRC" ]; then
                 if [ -f "src/lib.cyr" ]; then SRC="src/lib.cyr";
@@ -803,11 +810,12 @@ MANIFEST
             echo ""
             AUDIT_PASS=0; AUDIT_FAIL=0
 
-            # Compile check (build entry point from cyrius.toml, or src/main.cyr)
+            # Compile check (build entry point from manifest, or src/main.cyr)
             echo "── Compile ──"
             BUILD_SRC=""
-            if [ -f "cyrius.toml" ]; then
-                BUILD_SRC=$(toml_get "cyrius.toml" "src" "build")
+            _amf="$(find_manifest)"
+            if [ -n "$_amf" ]; then
+                BUILD_SRC=$(toml_get "$_amf" "src" "build")
             fi
             if [ -z "$BUILD_SRC" ]; then
                 if [ -f "src/lib.cyr" ]; then BUILD_SRC="src/lib.cyr";
@@ -1084,12 +1092,12 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         exec sh "$SCRIPTS_DIR/cyrius-port.sh" "$@"
         ;;
 
-    # === Deps: show dependency map from cyrius.toml ===
+    # === Deps: show dependency map from manifest ===
     deps)
         shift
-        MANIFEST="cyrius.toml"
-        if [ ! -f "$MANIFEST" ]; then
-            echo "No cyrius.toml found in current directory."
+        MANIFEST="$(find_manifest)"
+        if [ -z "$MANIFEST" ]; then
+            echo "No cyrius.cyml or cyrius.toml found in current directory."
             exit 1
         fi
         echo "=== $(toml_get "$MANIFEST" name) $(toml_get "$MANIFEST" version) ==="
@@ -1185,16 +1193,17 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
 
     deps)
         shift
-        if [ ! -f "cyrius.toml" ]; then echo "no cyrius.toml"; exit 1; fi
-        echo "=== Dependencies for $(toml_get cyrius.toml name) ==="
-        _stdlib=$(toml_array "cyrius.toml" "stdlib")
+        _smf="$(find_manifest)"
+        if [ -z "$_smf" ]; then echo "no cyrius.cyml or cyrius.toml"; exit 1; fi
+        echo "=== Dependencies for $(toml_get "$_smf" name) ==="
+        _stdlib=$(toml_array "$_smf" "stdlib")
         if [ -n "$_stdlib" ]; then
             echo "stdlib: $_stdlib"
         fi
-        for dep in $(toml_dep_names "cyrius.toml"); do
-            _dp=$(toml_get "cyrius.toml" "path" "deps.$dep")
-            _dg=$(toml_get "cyrius.toml" "git" "deps.$dep")
-            _dt=$(toml_get "cyrius.toml" "tag" "deps.$dep")
+        for dep in $(toml_dep_names "$_smf"); do
+            _dp=$(toml_get "$_smf" "path" "deps.$dep")
+            _dg=$(toml_get "$_smf" "git" "deps.$dep")
+            _dt=$(toml_get "$_smf" "tag" "deps.$dep")
             if [ -n "$_dp" ]; then
                 echo "$dep: path=$_dp"
             elif [ -n "$_dg" ]; then
@@ -1207,21 +1216,21 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         echo ""
         echo "=== Resolved includes ==="
         _tmpf="/tmp/cyrius_deps_show_$$"
-        resolve_deps "cyrius.toml" "$_tmpf"
+        resolve_deps "$_smf" "$_tmpf"
         if [ -f "$_tmpf" ]; then cat "$_tmpf"; rm -f "$_tmpf"; fi
         ;;
 
     clean)
         if [ -d "build" ]; then
-            # Preserve bootstrap compiler (cc3, cyrc, asm)
+            # Preserve bootstrap compiler (cc5, cyrc, asm)
             for f in build/*; do
                 base=$(basename "$f")
                 case "$base" in
-                    cc3|cyrc|asm) ;; # keep
+                    cc5|cyrc|asm) ;; # keep
                     *) rm -f "$f" ;;
                 esac
             done
-            echo "cleaned build/ (preserved cc3, cyrc, asm)"
+            echo "cleaned build/ (preserved cc5, cyrc, asm)"
         else
             echo "nothing to clean"
         fi
@@ -1234,7 +1243,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         SOAK_REPOS="${2:-}"
         echo "=== cyrius soak test ==="
         echo "  iterations: $SOAK_ITERS"
-        echo "  cc3: $CC"
+        echo "  cc5: $CC"
         echo ""
         # Find repos to test
         repos=""
@@ -1255,15 +1264,15 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
             soak_iter=$((soak_iter + 1))
             printf "[%d/%d] " "$soak_iter" "$SOAK_ITERS"
             iter_ok=1
-            # 1. Self-hosting check (two-step: cc3 compiles cc4, cc3==cc4)
-            cc3="/tmp/cyrius_soak_cc3"
+            # 1. Self-hosting check (two-step: cc5 compiles cc4, cc5==cc4)
+            cc5="/tmp/cyrius_soak_cc5"
             cc4="/tmp/cyrius_soak_cc4"
-            cat src/main.cyr | "$CC" > "$cc3" 2>/dev/null && chmod +x "$cc3"
-            cat src/main.cyr | "$cc3" > "$cc4" 2>/dev/null
-            if ! cmp -s "$cc3" "$cc4" 2>/dev/null; then
-                echo "FAIL: self-hosting (cc3!=cc4)"; iter_ok=0
+            cat src/main.cyr | "$CC" > "$cc5" 2>/dev/null && chmod +x "$cc5"
+            cat src/main.cyr | "$cc5" > "$cc4" 2>/dev/null
+            if ! cmp -s "$cc5" "$cc4" 2>/dev/null; then
+                echo "FAIL: self-hosting (cc5!=cc4)"; iter_ok=0
             fi
-            rm -f "$cc3" "$cc4"
+            rm -f "$cc5" "$cc4"
             # 2. Test suite
             for t in tests/tcyr/*.tcyr; do
                 [ -f "$t" ] || continue
@@ -1498,12 +1507,12 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         fi
         VER=$(cat "$REPO/VERSION" | tr -d '[:space:]')
 
-        # Step 1: rebuild cc3 from source
-        echo "  cc3..."
-        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrius_pulsar_cc3 2>/dev/null
-        chmod +x /tmp/cyrius_pulsar_cc3
-        cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc3 > /tmp/cyrius_pulsar_cc4 2>/dev/null
-        if ! cmp -s /tmp/cyrius_pulsar_cc3 /tmp/cyrius_pulsar_cc4; then
+        # Step 1: rebuild cc5 from source
+        echo "  cc5..."
+        cat "$REPO/src/main.cyr" | "$CC" > /tmp/cyrius_pulsar_cc5 2>/dev/null
+        chmod +x /tmp/cyrius_pulsar_cc5
+        cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc5 > /tmp/cyrius_pulsar_cc4 2>/dev/null
+        if ! cmp -s /tmp/cyrius_pulsar_cc5 /tmp/cyrius_pulsar_cc4; then
             # Two-step bootstrap needed
             chmod +x /tmp/cyrius_pulsar_cc4
             cat "$REPO/src/main.cyr" | /tmp/cyrius_pulsar_cc4 > /tmp/cyrius_pulsar_cc5 2>/dev/null
@@ -1512,28 +1521,28 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
                 rm -f /tmp/cyrius_pulsar_cc*
                 exit 1
             fi
-            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc3"
+            cp /tmp/cyrius_pulsar_cc4 "$REPO/build/cc5"
         else
-            cp /tmp/cyrius_pulsar_cc3 "$REPO/build/cc3"
+            cp /tmp/cyrius_pulsar_cc5 "$REPO/build/cc5"
         fi
-        chmod +x "$REPO/build/cc3"
-        echo "  cc3: $(wc -c < "$REPO/build/cc3") bytes (self-host OK)"
+        chmod +x "$REPO/build/cc5"
+        echo "  cc5: $(wc -c < "$REPO/build/cc5") bytes (self-host OK)"
 
         # Step 2: rebuild aarch64 compilers
-        echo "  cc3_aarch64 (cross)..."
-        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc3" > "$REPO/build/cc3_aarch64" 2>/dev/null
-        chmod +x "$REPO/build/cc3_aarch64"
-        echo "  cc3_aarch64: $(wc -c < "$REPO/build/cc3_aarch64") bytes (x86→aarch64 cross-compiler)"
-        echo "  cc3-native-aarch64..."
-        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc3_aarch64" > "$REPO/build/cc3-native-aarch64" 2>/dev/null
-        chmod +x "$REPO/build/cc3-native-aarch64"
-        echo "  cc3-native-aarch64: $(wc -c < "$REPO/build/cc3-native-aarch64") bytes ($(file "$REPO/build/cc3-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
+        echo "  cc5_aarch64 (cross)..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc5" > "$REPO/build/cc5_aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc5_aarch64"
+        echo "  cc5_aarch64: $(wc -c < "$REPO/build/cc5_aarch64") bytes (x86→aarch64 cross-compiler)"
+        echo "  cc5-native-aarch64..."
+        cat "$REPO/src/main_aarch64.cyr" | "$REPO/build/cc5_aarch64" > "$REPO/build/cc5-native-aarch64" 2>/dev/null
+        chmod +x "$REPO/build/cc5-native-aarch64"
+        echo "  cc5-native-aarch64: $(wc -c < "$REPO/build/cc5-native-aarch64") bytes ($(file "$REPO/build/cc5-native-aarch64" | grep -o 'ARM aarch64' || echo 'WARN: not aarch64'))"
 
         # Step 3: rebuild tools
         echo "  tools..."
         for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
             if [ -f "$REPO/programs/${tool}.cyr" ]; then
-                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc3" > "$REPO/build/${tool}" 2>/dev/null
+                cat "$REPO/programs/${tool}.cyr" | "$REPO/build/cc5" > "$REPO/build/${tool}" 2>/dev/null
                 chmod +x "$REPO/build/${tool}"
             fi
         done
@@ -1543,20 +1552,20 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         DEST="$CYRIUS_DIR/versions/$VER"
         rm -rf "$DEST"
         mkdir -p "$DEST/lib"
-        cp "$REPO/build/cc3" "$DEST/cc3"
-        chmod +x "$DEST/cc3"
-        cp "$REPO/build/cc3_aarch64" "$DEST/cc3_aarch64" 2>/dev/null && chmod +x "$DEST/cc3_aarch64"
-        cp "$REPO/build/cc3-native-aarch64" "$DEST/cc3-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc3-native-aarch64"
+        cp "$REPO/build/cc5" "$DEST/cc5"
+        chmod +x "$DEST/cc5"
+        cp "$REPO/build/cc5_aarch64" "$DEST/cc5_aarch64" 2>/dev/null && chmod +x "$DEST/cc5_aarch64"
+        cp "$REPO/build/cc5-native-aarch64" "$DEST/cc5-native-aarch64" 2>/dev/null && chmod +x "$DEST/cc5-native-aarch64"
         cp "$REPO/lib/"*.cyr "$DEST/lib/"
         # Install cyrius shell script + helpers (NOT the compiled binary)
         cp "$REPO/scripts/cyrius" "$DEST/cyrius" && chmod +x "$DEST/cyrius"
         for script in "$REPO"/scripts/cyrius-*.sh; do
             [ -f "$script" ] && cp "$script" "$DEST/" && chmod +x "$DEST/$(basename "$script")"
         done
-        ln -sf "$DEST/cc3" "$CYRIUS_DIR/bin/cc3"
+        ln -sf "$DEST/cc5" "$CYRIUS_DIR/bin/cc5"
         ln -sf "$DEST/cyrius" "$CYRIUS_DIR/bin/cyrius"
-        ln -sf "$DEST/cc3_aarch64" "$CYRIUS_DIR/bin/cc3_aarch64" 2>/dev/null || true
-        ln -sf "$DEST/cc3-native-aarch64" "$CYRIUS_DIR/bin/cc3-native-aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc5_aarch64" "$CYRIUS_DIR/bin/cc5_aarch64" 2>/dev/null || true
+        ln -sf "$DEST/cc5-native-aarch64" "$CYRIUS_DIR/bin/cc5-native-aarch64" 2>/dev/null || true
 
         # Cleanup old versions
         for d in "$CYRIUS_DIR/versions/"*; do
@@ -1569,7 +1578,7 @@ http.server.HTTPServer(('', $PORT), MarkdownHandler).serve_forever()
         echo "$VER" > "$CYRIUS_DIR/current"
 
         rm -f /tmp/cyrius_pulsar_cc* /tmp/cyrius_pulsar_cross
-        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc3" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
+        echo 'var x=42;syscall(60,x);' | "$CYRIUS_DIR/bin/cc5" > /tmp/pv 2>/dev/null && chmod +x /tmp/pv
         pv_rc=0; /tmp/pv 2>/dev/null || pv_rc=$?
         rm -f /tmp/pv
         if [ "$pv_rc" = "42" ]; then

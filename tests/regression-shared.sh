@@ -9,7 +9,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="$ROOT/build/cc3"
+CC="$ROOT/build/cc5"
 
 if ! command -v cc >/dev/null 2>&1; then
     echo "  skip: no cc in PATH (dlopen harness needs a C compiler)"

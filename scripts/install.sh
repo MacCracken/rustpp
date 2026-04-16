@@ -121,34 +121,34 @@ if [ "$installed" -eq 0 ]; then
     cd cyrius
 
     sh bootstrap/bootstrap.sh
-    chmod +x build/cc3
+    chmod +x build/cc5
 
     # Verify self-hosting
-    cat src/main.cyr | ./build/cc3 > /tmp/cc3_verify
-    chmod +x /tmp/cc3_verify
-    cat src/main.cyr | /tmp/cc3_verify > /tmp/cc3_verify2
-    if cmp -s /tmp/cc3_verify /tmp/cc3_verify2; then
+    cat src/main.cyr | ./build/cc5 > /tmp/cc5_verify
+    chmod +x /tmp/cc5_verify
+    cat src/main.cyr | /tmp/cc5_verify > /tmp/cc5_verify2
+    if cmp -s /tmp/cc5_verify /tmp/cc5_verify2; then
         info "self-hosting verified"
     else
-        warn "self-hosting check failed, using committed cc3"
+        warn "self-hosting check failed, using committed cc5"
     fi
 
     # Build tools (including cyrius build tool from Cyrius source)
     for tool in cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
         if [ -f "programs/${tool}.cyr" ]; then
-            cat "programs/${tool}.cyr" | ./build/cc3 > "./build/${tool}" 2>/dev/null && \
+            cat "programs/${tool}.cyr" | ./build/cc5 > "./build/${tool}" 2>/dev/null && \
                 chmod +x "./build/${tool}" || true
         fi
     done
 
     # Cross-compiler
     if [ -f src/main_aarch64.cyr ]; then
-        cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 2>/dev/null && \
-            chmod +x ./build/cc3_aarch64 || true
+        cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 2>/dev/null && \
+            chmod +x ./build/cc5_aarch64 || true
     fi
 
     # Copy binaries
-    for bin in cc3 cc3_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
+    for bin in cc5 cc5_aarch64 cyrfmt cyrlint cyrdoc cyrc ark; do
         if [ -x "./build/$bin" ]; then
             cp "./build/$bin" "$CYRIUS_HOME/versions/$VERSION/bin/"
         fi
@@ -259,7 +259,7 @@ case "${1:-help}" in
         ;;
 
     which)
-        echo "$CYRIUS_HOME/versions/$(current)/bin/cc3"
+        echo "$CYRIUS_HOME/versions/$(current)/bin/cc5"
         ;;
 
     home)
@@ -344,7 +344,7 @@ if [ -f "$STARSHIP_CONFIG" ] && command -v starship > /dev/null 2>&1; then
         cat >> "$STARSHIP_CONFIG" << 'STARSHIP'
 
 [custom.cyrius]
-command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc3 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
+command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc5 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
 when = "test -f cyrius.toml"
 symbol = "𝕮"
 style = "bg:teal"
@@ -358,7 +358,7 @@ elif command -v starship > /dev/null 2>&1; then
     mkdir -p "$(dirname "$STARSHIP_CONFIG")"
     cat > "$STARSHIP_CONFIG" << 'STARSHIP'
 [custom.cyrius]
-command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc3 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
+command = """if [ -f bootstrap/asm ]; then cat VERSION 2>/dev/null; else cc5 --version 2>/dev/null | awk '{print $2}' || cat ~/.cyrius/current 2>/dev/null || echo '?'; fi"""
 when = "test -f cyrius.toml"
 symbol = "𝕮"
 style = "bg:teal"
@@ -374,13 +374,13 @@ printf "\n${BOLD}Cyrius ${VERSION} installed successfully!${RESET}\n\n"
 
 # Show what was installed
 echo "  Toolchain:"
-for bin in cc3 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
+for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
     if [ -x "$CYRIUS_HOME/bin/$bin" ]; then
         printf "    ${GREEN}+${RESET} %s\n" "$bin"
     fi
 done
-if [ -x "$CYRIUS_HOME/bin/cc3_aarch64" ]; then
-    printf "    ${GREEN}+${RESET} %s\n" "cc3_aarch64 (cross-compiler)"
+if [ -x "$CYRIUS_HOME/bin/cc5_aarch64" ]; then
+    printf "    ${GREEN}+${RESET} %s\n" "cc5_aarch64 (cross-compiler)"
 fi
 echo ""
 echo "  To get started:"

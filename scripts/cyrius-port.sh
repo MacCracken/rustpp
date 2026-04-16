@@ -78,8 +78,8 @@ mkdir -p src tests build docs/development .github/workflows
 
 # Detect current toolchain version
 CYRIUS_VER="4.2.1"
-if command -v cc3 >/dev/null 2>&1; then
-    CYRIUS_VER=$(cc3 --version 2>&1 | head -1 | awk '{print $2}')
+if command -v cc5 >/dev/null 2>&1; then
+    CYRIUS_VER=$(cc5 --version 2>&1 | head -1 | awk '{print $2}')
 fi
 echo "$CYRIUS_VER" > .cyrius-toolchain
 

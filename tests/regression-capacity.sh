@@ -18,12 +18,12 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-# The `cyrius` wrapper invokes the INSTALLED cc3 ($CYRIUS_HOME/bin/cc3),
-# not build/cc3. Sync them so the test exercises the real wrapper path
+# The `cyrius` wrapper invokes the INSTALLED cc5 ($CYRIUS_HOME/bin/cc5),
+# not build/cc5. Sync them so the test exercises the real wrapper path
 # against the binary we just built — otherwise a stale install hides the
 # alpha1+ stats meter (the very thing we're testing).
-if [ -d "$HOME/.cyrius/bin" ] && [ -x "$ROOT/build/cc3" ]; then
-    cp "$ROOT/build/cc3" "$HOME/.cyrius/bin/cc3"
+if [ -d "$HOME/.cyrius/bin" ] && [ -x "$ROOT/build/cc5" ]; then
+    cp "$ROOT/build/cc5" "$HOME/.cyrius/bin/cc5"
 fi
 
 TMP=$(mktemp -d)
@@ -85,7 +85,7 @@ fi
 # (this is the latent EMITELF_OBJ + live[] bug fix from alpha4 —
 # pre-fix this segfaulted)
 set +e
-cat "$BIG" | "$ROOT/build/cc3" > "$TMP/big.o" 2>/dev/null
+cat "$BIG" | "$ROOT/build/cc5" > "$TMP/big.o" 2>/dev/null
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
