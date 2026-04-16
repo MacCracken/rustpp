@@ -219,3 +219,32 @@ Deferred: error message line numbers, performance pass, block scoping.
 - break in deeply nested while/if — linked-list (v3.3.15)
 - #derive(Serialize) composable 2-arg form (v3.2.3)
 - #derive(Deserialize) single-pass parser (v3.4.1)
+
+## v5.0.0 — cc5 Generation Bump
+
+- **cc5 IR** (`src/common/ir.cyr`, 812 lines) — 40 opcodes, BB construction, CFG edge builder (patch-offset matching), LASE analysis, dead block detection. Self-compile: 119K nodes, 8.7K BBs, 11K edges, 675 LASE candidates. 43 instrumented emit/jump functions. Analysis-only (transparent).
+- **cyrius.cyml manifest** — replaces cyrius.toml. `cyrius update` auto-migrates.
+- **`cyrius version`** — toolchain version. `--project` for project version.
+- **CLI tool integrations** — `--cmtools=starship`.
+- **cc3→cc5 rename** — binary, scripts, docs all updated.
+- **Deps**: patra 1.0.0, sankoch 1.2.0.
+- Heap extended 14.3MB → 21MB. 59 test suites. Compile-time: 0.26s normal, 1.59s with IR.
+
+## v5.0.1 — Security Hardening
+
+- **alloc() heap pointer overflow** (P0) — overflow guard rejects if `new_ptr < ptr`. Rejects negative/zero.
+- **alloc() size cap** (P1) — `ALLOC_MAX` (256MB) rejects oversized single allocations.
+- **vec_push() capacity overflow** (P1) — `VEC_CAP_MAX` (2^28) ceiling. Checks alloc return.
+- **_map_grow() capacity overflow** (P1) — `MAP_CAP_MAX` (2^26) ceiling. Checks alloc return.
+- **arena_alloc() overflow** (P2) — same overflow guard as global alloc.
+- 60 test suites. `alloc_safety.tcyr` added (11 assertions).
+
+## v5.0.2 — Preprocessor Fix
+
+- **`#ref` bol tracking** — `PP_REF_PASS` now checks beginning-of-line before matching `#ref` directives, matching the pattern in `PP_PASS` and `PP_IFDEF_PASS`. Prevents false matches inside strings or mid-line.
+
+## v5.0.3 — aarch64 Native + Version Tooling
+
+- **`src/main_aarch64_native.cyr`** — native aarch64 compiler entry point with host syscall numbers (read=63, write=64, openat=56, close=57, brk=214, exit=93).
+- **Version check openat-aware** — `main.cyr` branches on `SYS_OPEN == 2` for `/proc/self/cmdline`.
+- **`version-bump.sh`** — fixed stale `cc3` pattern → `cc5`. Version string was stuck at `cc5 5.0.0` for two releases.

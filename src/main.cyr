@@ -159,7 +159,9 @@ include "src/backend/x86/fixup.cyr"
 
 # --version check: read /proc/self/cmdline, look for --version arg
 var _vbuf[256];
-var _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0);
+var _vfd = 0;
+if (SYS_OPEN == 2) { _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0); }
+else { _vfd = syscall(SYS_OPEN, 0 - 100, "/proc/self/cmdline", 0, 0); }
 var _vn = syscall(SYS_READ, _vfd, &_vbuf, 255);
 syscall(SYS_CLOSE, _vfd);
 if (_vn > 0) {
@@ -169,7 +171,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc5 5.0.0\n", 10);
+                syscall(SYS_WRITE, 1, "cc5 5.0.3\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }

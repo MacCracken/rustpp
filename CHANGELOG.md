@@ -4,6 +4,51 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.3] — 2026-04-15
+
+**aarch64 native entry point + version tooling fixes.**
+
+### Added
+- **`src/main_aarch64_native.cyr`** — native aarch64 compiler entry point
+  with host syscall numbers (read=63, write=64, openat=56, close=57,
+  brk=214, exit=93). The existing `main_aarch64.cyr` remains the
+  cross-compiler (x86 host, aarch64 target). `lex.cyr` already handles
+  the `SYS_OPEN != 2` → openat branch, so no shared code changes needed.
+
+### Fixed
+- **Version check uses openat on aarch64** — `main.cyr` version check
+  (`/proc/self/cmdline`) now branches on `SYS_OPEN == 2` for openat
+  compatibility, matching the pattern in `lex.cyr`.
+- **`version-bump.sh` stale `cc3` pattern** — script searched for
+  `cc3 X.Y.Z` in `src/main.cyr` but the binary was renamed to `cc5`
+  in 5.0.0. Version string was stuck at `cc5 5.0.0` for two releases.
+  Fixed: all references now use `cc5`.
+- **Version string updated** — `cc5 --version` now correctly reports
+  `cc5 5.0.3`.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- aarch64 cross-compiler builds (304KB).
+- aarch64 native entry point compiles (304KB, untested on ARM hardware).
+- 8/8 `check.sh` PASS. 60 test suites.
+
+## [5.0.2] — 2026-04-15
+
+**Preprocessor fix — `#ref` no longer matches inside strings or mid-line.**
+
+### Fixed
+- **`#ref` preprocessor matches inside strings/comments** — `PP_REF_PASS`
+  scanned raw bytes without checking line position. A string containing
+  `"#ref "` or a `#ref` appearing mid-line would be incorrectly expanded.
+  Fix: added `bol` (beginning-of-line) tracking, matching the pattern used
+  by `PP_PASS` and `PP_IFDEF_PASS`. x86 self-hosting was protected by pass
+  ordering; the bug was exposed when feeding pre-expanded source to the
+  cross-compiler.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.0.1] — 2026-04-15
 
 **Security hardening — heap overflow guards, allocation caps, vec/map growth limits.**

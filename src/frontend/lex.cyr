@@ -1520,46 +1520,56 @@ fn PP_REF_PASS(S) {
     var op = 0;
     var ip = 0;
     var found = 0;
+    var bol = 1;
     while (ip < bl) {
-        if (ISREF(S, ip, bl) == 1) {
-            ip = ip + 5;
-            if (load8(S + ip) == 34) {
-                ip = ip + 1;
-                var rfn = S + 0x90400;
-                var rfi = 0;
-                while (ip < bl) {
-                    var rc = load8(S + ip);
-                    if (rc == 34) { ip = ip + 1; break; }
-                    store8(rfn + rfi, rc); rfi = rfi + 1; ip = ip + 1;
-                }
-                store8(rfn + rfi, 0);
-                while (ip < bl) { if (load8(S + ip) == 10) { ip = ip + 1; break; } ip = ip + 1; }
-                var rnr = READFILE(rfn, S + 0x91800, 16384);
-                # Inline: emit var declarations for each key-value line
-                var ri = 0;
-                while (ri < rnr) {
-                    var rch = load8(S + 0x91800 + ri);
-                    if (rch <= 32) { ri = ri + 1; }
-                    elif (rch == 35) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
-                    elif (rch == 91) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
-                    elif (rch >= 65) {
-                        store8(out + op, 118); store8(out + op + 1, 97);
-                        store8(out + op + 2, 114); store8(out + op + 3, 32); op = op + 4;
-                        while (ri < rnr) {
-                            rch = load8(S + 0x91800 + ri);
-                            if (rch == 10) { ri = ri + 1; break; }
-                            store8(out + op, rch); op = op + 1; ri = ri + 1;
-                        }
-                        while (load8(out + op - 1) == 32) { op = op - 1; }
-                        store8(out + op, 59); store8(out + op + 1, 10); op = op + 2;
+        var _refc = load8(S + ip);
+        if (bol == 1) {
+            if (ISREF(S, ip, bl) == 1) {
+                ip = ip + 5;
+                if (load8(S + ip) == 34) {
+                    ip = ip + 1;
+                    var rfn = S + 0x90400;
+                    var rfi = 0;
+                    while (ip < bl) {
+                        var rc = load8(S + ip);
+                        if (rc == 34) { ip = ip + 1; break; }
+                        store8(rfn + rfi, rc); rfi = rfi + 1; ip = ip + 1;
                     }
-                    else { ri = ri + 1; }
+                    store8(rfn + rfi, 0);
+                    while (ip < bl) { if (load8(S + ip) == 10) { ip = ip + 1; break; } ip = ip + 1; }
+                    var rnr = READFILE(rfn, S + 0x91800, 16384);
+                    # Inline: emit var declarations for each key-value line
+                    var ri = 0;
+                    while (ri < rnr) {
+                        var rch = load8(S + 0x91800 + ri);
+                        if (rch <= 32) { ri = ri + 1; }
+                        elif (rch == 35) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
+                        elif (rch == 91) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
+                        elif (rch >= 65) {
+                            store8(out + op, 118); store8(out + op + 1, 97);
+                            store8(out + op + 2, 114); store8(out + op + 3, 32); op = op + 4;
+                            while (ri < rnr) {
+                                rch = load8(S + 0x91800 + ri);
+                                if (rch == 10) { ri = ri + 1; break; }
+                                store8(out + op, rch); op = op + 1; ri = ri + 1;
+                            }
+                            while (load8(out + op - 1) == 32) { op = op - 1; }
+                            store8(out + op, 59); store8(out + op + 1, 10); op = op + 2;
+                        }
+                        else { ri = ri + 1; }
+                    }
+                    found = 1;
+                    bol = 1;
                 }
-                found = 1;
+            } else {
+                store8(out + op, _refc);
+                op = op + 1; ip = ip + 1;
+                if (_refc == 10) { bol = 1; } else { bol = 0; }
             }
         } else {
-            store8(out + op, load8(S + ip));
+            store8(out + op, _refc);
             op = op + 1; ip = ip + 1;
+            if (_refc == 10) { bol = 1; } else { bol = 0; }
         }
     }
     if (found == 1) {

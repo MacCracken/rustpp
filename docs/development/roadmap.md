@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.0.1.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.0.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -16,15 +16,14 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). |
-| `#ref` preprocessor matches inside strings/comments | `PP_REF_PASS` scans raw bytes without skipping string literals or comments | x86 self-hosting unaffected (pass ordering protects it). Exposed when feeding pre-expanded source to cross-compiler. |
-| aarch64 native binary non-functional | `cc5-native-aarch64` hangs on any input on ARM hardware | Host syscall numbers are x86 (correct for cross-compiler, wrong for native). Needs SYS_OPEN→SYS_OPENAT migration + heap map sync. |
+| aarch64 native untested on hardware | `main_aarch64_native.cyr` compiles but needs ARM hardware validation | Syscall numbers fixed (v5.0.3). Needs real ARM test: pipe source, verify output binary. |
 
 ---
 
 ## Shipped
 
 <details>
-<summary>Click to expand shipped items (v3.7.0 → v4.10.3)</summary>
+<summary>Click to expand shipped items (v3.7.0 → v5.0.3)</summary>
 
 ### v3.7.x–v3.10.x — Language & Tooling
 - `#derive(accessors)`, multi-return, switch, defer (all exit paths)
@@ -48,36 +47,24 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - Math utilities from abaco (lerp, hypot, sign, gcd, lcm, fibonacci, binomial)
 - CI `set -e` fix, `cyrius update` toolchain pin
 
+### v5.0.0 — cc5 Generation Bump
+- cc5 IR (812 lines, 40 opcodes), CFG edge builder, LASE analysis, dead block detection
+- cyrius.cyml manifest, `cyrius version`, CLI tool integrations
+- cc3→cc5 rename, patra 1.0.0, sankoch 1.2.0
+
+### v5.0.1 — Security Hardening
+- alloc() overflow guard + size cap (256MB), negative/zero rejection
+- vec/map capacity doubling overflow caps, alloc return checks
+- arena_alloc overflow guard
+
+### v5.0.2 — Preprocessor Fix
+- `#ref` bol tracking — no longer matches inside strings or mid-line
+
+### v5.0.3 — aarch64 Native + Version Tooling
+- `main_aarch64_native.cyr` with host syscall numbers (openat, native read/write/brk/exit)
+- Version check openat-aware, `version-bump.sh` cc3→cc5 fix
+
 </details>
-
----
-
-## v5.0.0 — cc5 Generation Bump (shipped) ✅
-
-**cc3→cc5. IR, CFG, tooling overhaul.**
-
-- **cc5 IR** (`src/common/ir.cyr`, 812 lines) — 40 opcodes, BB construction,
-  CFG edge builder (patch-offset matching), LASE analysis, dead block
-  detection. Self-compile: 119K nodes, 8.7K BBs, 11K edges, 675 LASE.
-  43 instrumented emit/jump functions. Analysis-only (transparent).
-- **cyrius.cyml manifest** — replaces cyrius.toml. `cyrius update`
-  auto-migrates. `cyrius init` generates cyrius.cyml by default.
-- **`cyrius version`** — toolchain version. `--project` for project version.
-- **CLI tool integrations** — `--cmtools=starship`.
-- **cc3→cc5 rename** — binary, scripts, docs all updated.
-- **Deps**: patra 1.0.0, sankoch 1.2.0.
-
----
-
-## v5.0.1 — Security Hardening (shipped) ✅
-
-| Issue | Severity | Fix |
-|-------|----------|-----|
-| **alloc() heap pointer overflow** | P0 | Overflow guard: reject if `new_ptr < ptr`. Reject negative/zero. |
-| **No allocation size cap** | P1 | `ALLOC_MAX` (256MB). Reject above cap. |
-| **vec capacity doubling overflow** | P1 | `VEC_CAP_MAX` (2^28). Abort on overflow. Check alloc return. |
-| **map capacity doubling overflow** | P1 | `MAP_CAP_MAX` (2^26). Same pattern. |
-| **arena_alloc pointer overflow** | P2 | Same overflow guard as global alloc. |
 
 ---
 
@@ -124,7 +111,7 @@ all emit paths go through IR. The path:
 
 ---
 
-## Stdlib (59 modules)
+## Stdlib (60 modules)
 
 | Category | Modules |
 |----------|---------|
@@ -154,7 +141,7 @@ all emit paths go through IR. The path:
 | Platform | Format | Status |
 |----------|--------|--------|
 | Linux x86_64 | ELF | **Done** — primary, cc5 408KB self-hosting |
-| Linux aarch64 | ELF | **Partial** — cross-compiler works, native needs host syscall fix |
+| Linux aarch64 | ELF | **Partial** — cross-compiler works, native entry point ready (v5.0.3, needs ARM hardware validation) |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | Stub — **v5.1.0** |
 | macOS aarch64 | Mach-O | Stub — **v5.2.0** |
