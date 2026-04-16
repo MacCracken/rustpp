@@ -1,0 +1,52 @@
+# Test: alloc safety — overflow guards, size caps, arena bounds
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/vec.cyr"
+
+alloc_init();
+
+test_group("alloc rejects negative size");
+var p1 = alloc(0 - 1);
+assert_eq(p1, 0, "alloc(-1) returns 0");
+
+test_group("alloc rejects zero size");
+var p2 = alloc(0);
+assert_eq(p2, 0, "alloc(0) returns 0");
+
+test_group("alloc rejects oversized");
+var p3 = alloc(0x10000001);
+assert_eq(p3, 0, "alloc(256MB+1) returns 0");
+
+test_group("alloc accepts normal size");
+var p4 = alloc(64);
+assert(p4 != 0, "alloc(64) succeeds");
+
+test_group("arena rejects negative size");
+var a = arena_new(4096);
+var ap1 = arena_alloc(a, 0 - 1);
+assert_eq(ap1, 0, "arena_alloc(-1) returns 0");
+
+test_group("arena rejects zero size");
+var ap2 = arena_alloc(a, 0);
+assert_eq(ap2, 0, "arena_alloc(0) returns 0");
+
+test_group("arena rejects exceeding capacity");
+var ap3 = arena_alloc(a, 8192);
+assert_eq(ap3, 0, "arena_alloc(8192) on 4096 arena returns 0");
+
+test_group("arena accepts valid size");
+var ap4 = arena_alloc(a, 64);
+assert(ap4 != 0, "arena_alloc(64) succeeds");
+
+test_group("vec normal operation after hardening");
+var v = vec_new();
+for (var i = 0; i < 100; i = i + 1) {
+    vec_push(v, i);
+}
+assert_eq(vec_len(v), 100, "vec holds 100 elements");
+assert_eq(vec_get(v, 0), 0, "vec first element");
+assert_eq(vec_get(v, 99), 99, "vec last element");
+
+var r = assert_summary();

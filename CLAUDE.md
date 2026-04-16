@@ -14,10 +14,10 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 368KB (x86_64), aarch64 cross-compiler (native non-functional until 5.0), self-hosting, multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc` (multi-register), single-CU DCE, CYML parser
-- **Tests**: 58 .tcyr files, 5 .fcyr fuzz harnesses, 14 .bcyr benchmarks, heap audit, self-hosting (two-step)
-- **Libraries**: 59 stdlib modules (includes 6 deps: sakshi, patra, sigil, yukti, mabda, sankoch via `cyrius deps`)
-- **Build tool**: `cyrius deps` resolves from cyrius.toml, auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
+- **Compiler**: 408KB (x86_64), aarch64 cross-compiler (native non-functional until 5.0), self-hosting, IR (40 opcodes, CFG, LASE, DBE), multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc` (multi-register), single-CU DCE, CYML parser
+- **Tests**: 59 .tcyr files, 5 .fcyr fuzz harnesses, 14 .bcyr benchmarks, heap audit, self-hosting (two-step)
+- **Libraries**: 60 stdlib modules (includes 6 deps: sakshi, patra, sigil, yukti, mabda, sankoch via `cyrius deps`)
+- **Build tool**: `cyrius deps` resolves from cyrius.cyml (falls back to cyrius.toml), auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
 - **Ecosystem**: agnostik, agnosys, argonaut, majra, libro (209 tests), sakshi, bsp, cyrius-doom, mabda, kybernet (140 tests), hadara (329 tests), ai-hwaccel (491 tests)
 
 ## Consumers
@@ -141,10 +141,11 @@ src/
   backend/x86/       emit.cyr, jump.cyr, fixup.cyr
   backend/aarch64/   emit.cyr, jump.cyr, fixup.cyr
   backend/cx/        emit.cyr (cyrius-x bytecode)
-  common/            util.cyr
-lib/                 Standard library (41 modules + 5 deps)
+  common/            util.cyr, ir.cyr
+lib/                 Standard library (54 modules + 6 deps)
 programs/            59 programs (tools, tests, demos, algorithms)
-tests/               Test suites (tcyr/*.tcyr, bcyr/*.bcyr, heapmap.sh)
+tests/               Test suites (tcyr/*.tcyr, heapmap.sh)
+benches/             Benchmarks (*.bcyr)
 fuzz/                Fuzz harnesses (*.fcyr)
 build/               Generated binaries (gitignored except cc5)
 docs/                Architecture, roadmap, benchmarks, language guide
