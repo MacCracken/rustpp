@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.5.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.6.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -69,6 +69,10 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - Native coverage, doctest, header in cyrius.cyr (115KB)
 - Removed 3 shell scripts (237 lines)
 
+### v5.1.6 — Modular Refactor
+- Split cyrius.cyr into 7 modules (core, build, commands, project, quality, deps, main)
+- cc3→cc5 in tool discovery
+
 </details>
 
 ---
@@ -81,12 +85,16 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - Native `cmd_coverage()`, `cmd_doctest()`, `cmd_header()` in cyrius.cyr
 - Removed 3 shell scripts (237 lines → 0), compiled tool handles all natively
 
-### v5.1.6 — Native capacity, soak, pulsar
+### v5.1.6 — Refactor cyrius tool into modules (shipped) ✅
+- Split 2249-line monolith into 7 modules: core, build, commands, project, quality, deps, cyrius
+- cc3→cc5 in tool discovery, output helpers, --quiet flag
+
+### v5.1.7 — Native capacity, soak, pulsar
 - Add `capacity` subcommand (CYRIUS_STATS parsing, --check, --json)
 - Add `soak` subcommand (extended test loop with IR/DCE matrix)
 - Add `pulsar` subcommand (rebuild cc5 + tools, install, purge old versions)
 
-### v5.1.7 — Shell shim + cleanup audit
+### v5.1.8 — Shell shim + cleanup audit
 - Shell dispatcher → thin shim (~50 lines: find cc5, find compiled cyrius, exec)
 - Remove redundant shell logic (1619 → ~50 lines)
 - P(-1) scaffold hardening pass: heapmap audit, dead code sweep, stale comment grep

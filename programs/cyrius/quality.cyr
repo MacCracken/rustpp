@@ -1,0 +1,373 @@
+# quality.cyr — coverage, doctest, header, repl
+# ================================================================
+# Native coverage: scan lib/*.cyr functions, check if tested
+# ================================================================
+fn cmd_coverage() {
+    _status("=== Coverage Report ===");
+    println("");
+    # Collect all test content into one buffer for searching
+    var corpus = alloc(262144);
+    var corpus_len = 0;
+    var tent = dir_list(str_from("tests/tcyr"));
+    var ti = 0;
+    while (ti < vec_len(tent)) {
+        var tn = str_data(vec_get(tent, ti));
+        var tl = str_len(vec_get(tent, ti));
+        if (tl > 5) {
+            if (memeq(tn + tl - 5, ".tcyr", 5) == 1) {
+                var tp = make_path("tests/tcyr", tn);
+                var n = file_read_all(tp, corpus + corpus_len, 262144 - corpus_len - 1);
+                if (n > 0) { corpus_len = corpus_len + n; }
+            }
+        }
+        ti = ti + 1;
+    }
+    store8(corpus + corpus_len, 0);
+
+    var lib_ent = dir_list(str_from("lib"));
+    var li = 0;
+    var total_libs = 0;
+    var covered_libs = 0;
+    var total_fns = 0;
+    var covered_fns = 0;
+    while (li < vec_len(lib_ent)) {
+        var lname = str_data(vec_get(lib_ent, li));
+        var llen = str_len(vec_get(lib_ent, li));
+        li = li + 1;
+        if (llen < 5) { continue; }
+        if (memeq(lname + llen - 4, ".cyr", 4) == 0) { continue; }
+        # Skip symlinks (dep files) — check if it's a real file
+        var lpath = make_path("lib", lname);
+        total_libs = total_libs + 1;
+
+        # Read lib file and count public functions
+        var lbuf = alloc(32768);
+        var ln = file_read_all(lpath, lbuf, 32767);
+        if (ln <= 0) { continue; }
+        store8(lbuf + ln, 0);
+
+        # Count "fn " at line starts (not "_" private)
+        var pub_fns = 0;
+        var called = 0;
+        var pos = 0;
+        while (pos < ln) {
+            # Find "fn " at start of line
+            if (pos == 0 || load8(lbuf + pos - 1) == 10) {
+                if (memeq(lbuf + pos, "fn ", 3) == 1) {
+                    # Extract function name
+                    var ns = pos + 3;
+                    var ne = ns;
+                    while (ne < ln) {
+                        var nc = load8(lbuf + ne);
+                        if (nc == 40 || nc == 32 || nc == 10) { break; }
+                        ne = ne + 1;
+                    }
+                    var fname_len = ne - ns;
+                    if (fname_len > 0) {
+                        if (load8(lbuf + ns) != 95) {
+                            pub_fns = pub_fns + 1;
+                            total_fns = total_fns + 1;
+                            # Search corpus for this function name
+                            var found = 0;
+                            var ci = 0;
+                            while (ci < corpus_len - fname_len) {
+                                if (memeq(corpus + ci, lbuf + ns, fname_len) == 1) {
+                                    found = 1;
+                                    break;
+                                }
+                                ci = ci + 1;
+                            }
+                            if (found == 1) {
+                                called = called + 1;
+                                covered_fns = covered_fns + 1;
+                            }
+                        }
+                    }
+                }
+            }
+            pos = pos + 1;
+        }
+
+        # Print module line
+        sys_write(STDOUT_FD, "  ", 2);
+        sys_write(STDOUT_FD, lname, llen);
+        var pad = 22 - llen;
+        while (pad > 0) { sys_write(STDOUT_FD, " ", 1); pad = pad - 1; }
+        if (pub_fns > 0) {
+            covered_libs = covered_libs + 1;
+            fmt_int(called);
+            sys_write(STDOUT_FD, "/", 1);
+            fmt_int(pub_fns);
+            sys_write(STDOUT_FD, " fns\n", 5);
+        } else {
+            println("  (no public fns)");
+        }
+    }
+
+    println("");
+    println("-- Summary --");
+    sys_write(STDOUT_FD, "  Libraries: ", 13);
+    fmt_int(covered_libs);
+    sys_write(STDOUT_FD, "/", 1);
+    fmt_int(total_libs);
+    println(" covered");
+    sys_write(STDOUT_FD, "  Functions: ", 13);
+    fmt_int(covered_fns);
+    sys_write(STDOUT_FD, "/", 1);
+    fmt_int(total_fns);
+    println("");
+    return 0;
+}
+
+# ================================================================
+# Native doctest: extract # >>> / # === patterns, compile, run
+# ================================================================
+fn cmd_doctest(arg) {
+    if (arg == 0) {
+        println("Usage: cyrius doctest <file.cyr>");
+        return 1;
+    }
+    var fbuf = alloc(65536);
+    var fn_read = file_read_all(arg, fbuf, 65535);
+    if (fn_read <= 0) {
+        sys_write(STDERR_FD, "error: cannot read ", 19);
+        sys_write(STDERR_FD, arg, strlen(arg));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    store8(fbuf + fn_read, 0);
+
+    var dt_pass = 0;
+    var dt_fail = 0;
+    var dt_total = 0;
+    var code = alloc(8192);
+    var code_len = 0;
+    var in_example = 0;
+    var line_num = 0;
+
+    var pos = 0;
+    while (pos < fn_read) {
+        # Read one line
+        var ls = pos;
+        while (pos < fn_read) {
+            if (load8(fbuf + pos) == 10) { pos = pos + 1; break; }
+            pos = pos + 1;
+        }
+        var le = pos;
+        if (le > ls) { if (load8(fbuf + le - 1) == 10) { le = le - 1; } }
+        line_num = line_num + 1;
+        var ll = le - ls;
+
+        if (ll >= 6) {
+            if (memeq(fbuf + ls, "# >>> ", 6) == 1) {
+                # New or continuation example line
+                var snippet = fbuf + ls + 6;
+                var slen = ll - 6;
+                if (in_example == 0) { code_len = 0; }
+                memcpy(code + code_len, snippet, slen);
+                code_len = code_len + slen;
+                store8(code + code_len, 10);
+                code_len = code_len + 1;
+                in_example = 1;
+                continue;
+            }
+        }
+        if (ll >= 6) {
+            if (memeq(fbuf + ls, "# === ", 6) == 1) {
+                if (in_example == 1) {
+                    # Parse expected exit code
+                    var exp_str = fbuf + ls + 6;
+                    var expected = atoi(exp_str);
+                    store8(code + code_len, 0);
+                    dt_total = dt_total + 1;
+
+                    # Write code to temp file, compile, run
+                    var tmpf = "/tmp/cyrius_dt_src";
+                    var fd = syscall(2, tmpf, 0x241, 0x1A4);
+                    if (fd >= 0) {
+                        syscall(1, fd, code, code_len);
+                        syscall(3, fd);
+                        var tmpbin = "/tmp/cyrius_dt_bin";
+                        if (compile(tmpf, tmpbin) == 0) {
+                            var ec = run_binary(tmpbin);
+                            if (ec == expected) {
+                                dt_pass = dt_pass + 1;
+                            } else {
+                                sys_write(STDERR_FD, "  FAIL: ", 8);
+                                sys_write(STDERR_FD, arg, strlen(arg));
+                                sys_write(STDERR_FD, ":", 1);
+                                fmt_int_fd(STDERR_FD, line_num);
+                                sys_write(STDERR_FD, " (expected ", 11);
+                                fmt_int_fd(STDERR_FD, expected);
+                                sys_write(STDERR_FD, ", got ", 6);
+                                fmt_int_fd(STDERR_FD, ec);
+                                sys_write(STDERR_FD, ")\n", 2);
+                                dt_fail = dt_fail + 1;
+                            }
+                            sys_unlink(tmpbin);
+                        } else {
+                            sys_write(STDERR_FD, "  FAIL: ", 8);
+                            sys_write(STDERR_FD, arg, strlen(arg));
+                            sys_write(STDERR_FD, ":", 1);
+                            fmt_int_fd(STDERR_FD, line_num);
+                            sys_write(STDERR_FD, " (compile error)\n", 17);
+                            dt_fail = dt_fail + 1;
+                        }
+                        sys_unlink(tmpf);
+                    }
+                }
+                code_len = 0;
+                in_example = 0;
+                continue;
+            }
+        }
+        # Non-matching line ends example
+        if (in_example == 1) {
+            if (ll >= 2) {
+                if (memeq(fbuf + ls, "# ", 2) == 1) {
+                    # Continuation comment line
+                    var snippet = fbuf + ls + 2;
+                    var slen = ll - 2;
+                    memcpy(code + code_len, snippet, slen);
+                    code_len = code_len + slen;
+                    store8(code + code_len, 10);
+                    code_len = code_len + 1;
+                    continue;
+                }
+            }
+            code_len = 0;
+            in_example = 0;
+        }
+    }
+
+    println("");
+    fmt_int(dt_pass);
+    sys_write(STDOUT_FD, " passed, ", 9);
+    fmt_int(dt_fail);
+    sys_write(STDOUT_FD, " failed (", 9);
+    fmt_int(dt_total);
+    println(" total doc tests)");
+    if (dt_fail > 0) { return 1; }
+    return 0;
+}
+
+# ================================================================
+# Native header: scan pub fn declarations, emit C prototypes
+# ================================================================
+fn cmd_header(arg) {
+    if (arg == 0) {
+        println("Usage: cyrius header <file.cyr>");
+        return 1;
+    }
+    var hbuf = alloc(65536);
+    var hn = file_read_all(arg, hbuf, 65535);
+    if (hn <= 0) {
+        sys_write(STDERR_FD, "error: cannot read ", 19);
+        sys_write(STDERR_FD, arg, strlen(arg));
+        sys_write(STDERR_FD, "\n", 1);
+        return 1;
+    }
+    store8(hbuf + hn, 0);
+
+    println("/* Auto-generated by cyrius header -- do not edit */");
+    println("#ifndef CYRIUS_FFI_H");
+    println("#define CYRIUS_FFI_H");
+    println("");
+    println("#include <stdint.h>");
+    println("");
+    println("/* All Cyrius values are 64-bit integers */");
+    println("typedef int64_t cyr_val;");
+    println("");
+
+    var pos = 0;
+    while (pos < hn) {
+        var ls = pos;
+        while (pos < hn) {
+            if (load8(hbuf + pos) == 10) { pos = pos + 1; break; }
+            pos = pos + 1;
+        }
+        var le = pos;
+        if (le > ls) { if (load8(hbuf + le - 1) == 10) { le = le - 1; } }
+        var ll = le - ls;
+
+        # Match "pub fn " or "fn " at start of line
+        var fname_start = 0;
+        if (ll >= 7) {
+            if (memeq(hbuf + ls, "pub fn ", 7) == 1) { fname_start = ls + 7; }
+        }
+        if (fname_start == 0) { continue; }
+
+        # Extract function name
+        var ne = fname_start;
+        while (ne < le) {
+            if (load8(hbuf + ne) == 40) { break; }
+            ne = ne + 1;
+        }
+        if (ne >= le) { continue; }
+        var fname_len = ne - fname_start;
+
+        # Extract params between ( and )
+        var ps = ne + 1;
+        var pe = ps;
+        while (pe < le) {
+            if (load8(hbuf + pe) == 41) { break; }
+            pe = pe + 1;
+        }
+
+        sys_write(STDOUT_FD, "cyr_val ", 8);
+        sys_write(STDOUT_FD, hbuf + fname_start, fname_len);
+        sys_write(STDOUT_FD, "(", 1);
+        if (pe == ps) {
+            sys_write(STDOUT_FD, "void", 4);
+        } else {
+            # Count and emit params
+            var pi = ps;
+            var first = 1;
+            while (pi < pe) {
+                # Skip whitespace
+                while (pi < pe) {
+                    if (load8(hbuf + pi) != 32) { break; }
+                    pi = pi + 1;
+                }
+                var pns = pi;
+                while (pi < pe) {
+                    var pc = load8(hbuf + pi);
+                    if (pc == 44 || pc == 58 || pc == 41) { break; }
+                    pi = pi + 1;
+                }
+                var pne = pi;
+                # Trim trailing space
+                while (pne > pns) {
+                    if (load8(hbuf + pne - 1) != 32) { break; }
+                    pne = pne - 1;
+                }
+                # Skip type annotation if present
+                if (pi < pe) { if (load8(hbuf + pi) == 58) {
+                    while (pi < pe) {
+                        if (load8(hbuf + pi) == 44) { break; }
+                        pi = pi + 1;
+                    }
+                } }
+                if (pne > pns) {
+                    if (first == 0) { sys_write(STDOUT_FD, ", ", 2); }
+                    sys_write(STDOUT_FD, "cyr_val ", 8);
+                    sys_write(STDOUT_FD, hbuf + pns, pne - pns);
+                    first = 0;
+                }
+                # Skip comma
+                if (pi < pe) { if (load8(hbuf + pi) == 44) { pi = pi + 1; } }
+            }
+        }
+        println(");");
+    }
+
+    println("");
+    println("#endif /* CYRIUS_FFI_H */");
+    return 0;
+}
+
+fn cmd_repl() {
+    var script = make_path(_scripts_dir, "cyrius-repl.sh");
+    return run_script(script, _cc, 0);
+}
+

@@ -1,0 +1,227 @@
+# core.cyr — globals, output, paths, env, tool discovery
+
+# ================================================================
+# Global state
+# ================================================================
+
+var _cc = 0;
+var _cc_arm = 0;
+var _arch = 0;
+var _defines = 0;
+var _pass = 0;
+var _fail = 0;
+var _total = 0;
+var _tools_dir = 0;
+var _scripts_dir = 0;
+var _repo_root = 0;
+var _version = 0;
+var _home = 0;
+var _envp = 0;
+var _verbose = 0;
+var _quiet = 0;
+var _dry_run = 0;
+var _dep_includes = 0;
+
+# ================================================================
+# Output helpers — consistent error/warn/info/status
+# ================================================================
+
+# Error: always prints to stderr
+fn _err(msg) {
+    sys_write(STDERR_FD, "error: ", 7);
+    sys_write(STDERR_FD, msg, strlen(msg));
+    sys_write(STDERR_FD, "\n", 1);
+    return 0;
+}
+
+# Error with context: "error: msg: ctx"
+fn _err_ctx(msg, ctx) {
+    sys_write(STDERR_FD, "error: ", 7);
+    sys_write(STDERR_FD, msg, strlen(msg));
+    sys_write(STDERR_FD, ": ", 2);
+    sys_write(STDERR_FD, ctx, strlen(ctx));
+    sys_write(STDERR_FD, "\n", 1);
+    return 0;
+}
+
+# Warning: prints to stderr unless --quiet
+fn _warn(msg) {
+    if (_quiet == 1) { return 0; }
+    sys_write(STDERR_FD, "warn: ", 6);
+    sys_write(STDERR_FD, msg, strlen(msg));
+    sys_write(STDERR_FD, "\n", 1);
+    return 0;
+}
+
+# Status: prints to stdout unless --quiet
+fn _status(msg) {
+    if (_quiet == 1) { return 0; }
+    sys_write(STDOUT_FD, msg, strlen(msg));
+    sys_write(STDOUT_FD, "\n", 1);
+    return 0;
+}
+
+var ARCH_X86 = 0;
+var ARCH_AARCH64 = 1;
+
+# ================================================================
+# Path helpers
+# ================================================================
+
+# Build a path: dir + "/" + name (C strings)
+fn make_path(dir, name) {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, dir);
+    str_builder_add_cstr(sb, "/");
+    str_builder_add_cstr(sb, name);
+    var result = str_builder_build(sb);
+    return str_data(result);
+}
+
+# Read file contents into allocated buffer, null-terminate, return ptr
+# Returns 0 on failure
+fn read_file_str(path) {
+    var buf = alloc(4096);
+    var n = file_read_all(path, buf, 4095);
+    if (n <= 0) { return 0; }
+    # Trim trailing whitespace
+    while (n > 0) {
+        var c = load8(buf + n - 1);
+        if (c == 10) { n = n - 1; }
+        elif (c == 13) { n = n - 1; }
+        elif (c == 32) { n = n - 1; }
+        else { break; }
+    }
+    store8(buf + n, 0);
+    return buf;
+}
+
+# ================================================================
+# Environment passthrough
+# ================================================================
+
+fn load_environ() {
+    var buf = alloc(8192);
+    var n = file_read_all("/proc/self/environ", buf, 8191);
+    if (n <= 0) {
+        _envp = alloc(8);
+        store64(_envp, 0);
+        return 0;
+    }
+    var count = 0;
+    var i = 0;
+    while (i < n) {
+        count = count + 1;
+        while (i < n) {
+            if (load8(buf + i) == 0) { i = i + 1; break; }
+            i = i + 1;
+        }
+    }
+    _envp = alloc((count + 1) * 8);
+    var ei = 0;
+    i = 0;
+    while (i < n) {
+        store64(_envp + ei * 8, buf + i);
+        ei = ei + 1;
+        while (i < n) {
+            if (load8(buf + i) == 0) { i = i + 1; break; }
+            i = i + 1;
+        }
+    }
+    store64(_envp + ei * 8, 0);
+    return 0;
+}
+
+# ================================================================
+# Tool discovery
+# ================================================================
+
+fn find_tools() {
+    # Read environment to find HOME and CYRIUS_HOME
+    var env_buf = alloc(32768);
+    var env_n = file_read_all("/proc/self/environ", env_buf, 32767);
+    var proc_home = 0;
+    var cyrius_home = 0;
+    if (env_n > 0) {
+        store8(env_buf + env_n, 0);
+        var ei = 0;
+        while (ei < env_n) {
+            if (memeq(env_buf + ei, "HOME=", 5) == 1) {
+                proc_home = env_buf + ei + 5;
+            }
+            if (memeq(env_buf + ei, "CYRIUS_HOME=", 12) == 1) {
+                cyrius_home = env_buf + ei + 12;
+            }
+            # Skip to next null
+            while (ei < env_n) {
+                if (load8(env_buf + ei) == 0) { ei = ei + 1; break; }
+                ei = ei + 1;
+            }
+        }
+    }
+    if (proc_home == 0) { proc_home = "/root"; }
+    # CYRIUS_HOME overrides default ~/.cyrius
+    if (cyrius_home != 0) {
+        _home = cyrius_home;
+    } else {
+        _home = make_path(proc_home, ".cyrius");
+    }
+
+    # Try installed cc5 first
+    var installed_cc = make_path(_home, "bin/cc5");
+    if (file_exists(installed_cc) == 1) {
+        _cc = installed_cc;
+        _tools_dir = make_path(_home, "bin");
+    } else {
+        # Dev mode: ./build/cc5
+        if (file_exists("./build/cc5") == 1) {
+            _cc = "./build/cc5";
+            _tools_dir = "./build";
+        } else {
+            # cc5 not found — ok for deps/clean/init/version/help, fatal for build/run/test
+            _cc = 0;
+            _tools_dir = make_path(_home, "bin");
+        }
+    }
+    # Search for aarch64 cross-compiler: tools dir, then ./build/
+    _cc_arm = make_path(_tools_dir, "cc5_aarch64");
+    if (file_exists(_cc_arm) == 0) {
+        if (file_exists("./build/cc5_aarch64") == 1) {
+            _cc_arm = "./build/cc5_aarch64";
+        }
+    }
+
+    # Scripts dir: relative to repo
+    if (file_exists("./scripts/cyrius") == 1) {
+        _scripts_dir = "./scripts";
+        _repo_root = ".";
+    } else {
+        _scripts_dir = make_path(_home, "bin");
+        _repo_root = ".";
+    }
+
+    # Read version
+    _version = read_file_str("VERSION");
+    if (_version == 0) {
+        var vpath = make_path(_repo_root, "VERSION");
+        _version = read_file_str(vpath);
+    }
+    if (_version == 0) { _version = "unknown"; }
+    return 0;
+}
+
+fn set_arch(arch) {
+    _arch = arch;
+    return 0;
+}
+
+fn current_cc() {
+    if (_arch == ARCH_AARCH64) { return _cc_arm; }
+    return _cc;
+}
+
+fn arch_name() {
+    if (_arch == ARCH_AARCH64) { return "aarch64"; }
+    return "x86_64";
+}
+

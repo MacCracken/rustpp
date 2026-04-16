@@ -4,6 +4,26 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.6] — 2026-04-16
+
+**Refactor cyrius tool into modules.**
+
+### Changed
+- **`programs/cyrius/cyrius.cyr` split into 7 modules**:
+  - `core.cyr` (227 lines) — globals, output helpers, paths, env, tool discovery
+  - `build.cyr` (205 lines) — compile, sys_system, run_binary, run_tool, run_script
+  - `commands.cyr` (308 lines) — cmd_build/run/test/fuzz/bench/check/self/clean + quality delegates
+  - `project.cyr` (26 lines) — cmd_init, cmd_port
+  - `quality.cyr` (373 lines) — cmd_coverage, cmd_doctest, cmd_header, cmd_repl
+  - `deps.cyr` (648 lines) — dependency resolution, cmd_package, cmd_update
+  - `cyrius.cyr` (280 lines) — usage, main dispatch, global flag parsing
+- **cc3 → cc5** in `core.cyr` tool discovery (installed and dev mode paths).
+- Compiled tool: 116KB (same functionality, modular structure).
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.1.5] — 2026-04-16
 
 **Tooling consolidation — 3 shell scripts inlined into native cyrius tool.**
