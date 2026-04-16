@@ -187,7 +187,11 @@ fetch_git_dep() {
 # Resolve all dependencies from cyrius.toml → write include list to file
 # Output: one "include ..." line per dependency, in correct order
 resolve_deps() {
-    local manifest="${1:-cyrius.toml}"
+    local manifest="${1:-}"
+    if [ -z "$manifest" ]; then
+        if [ -f "cyrius.cyml" ]; then manifest="cyrius.cyml"
+        else manifest="cyrius.toml"; fi
+    fi
     local outfile="$2"
     if [ ! -f "$manifest" ]; then return 1; fi
 

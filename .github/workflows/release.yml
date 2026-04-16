@@ -34,31 +34,31 @@ jobs:
       - name: Bootstrap fresh toolchain
         run: |
           sh bootstrap/bootstrap.sh
-          chmod +x build/cc3
-          cat src/main.cyr | ./build/cc3 > /tmp/cc3_release
-          chmod +x /tmp/cc3_release
-          cat src/main.cyr | /tmp/cc3_release > /tmp/cc3_verify
-          cmp /tmp/cc3_release /tmp/cc3_verify
-          echo "PASS: cc3 self-hosts (x86_64)"
-          cp /tmp/cc3_release build/cc3
+          chmod +x build/cc5
+          cat src/main.cyr | ./build/cc5 > /tmp/cc5_release
+          chmod +x /tmp/cc5_release
+          cat src/main.cyr | /tmp/cc5_release > /tmp/cc5_verify
+          cmp /tmp/cc5_release /tmp/cc5_verify
+          echo "PASS: cc5 self-hosts (x86_64)"
+          cp /tmp/cc5_release build/cc5
 
       - name: Build tools
         run: |
           for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
             if [ -f "programs/${tool}.cyr" ]; then
-              cat programs/${tool}.cyr | ./build/cc3 > ./build/${tool} && chmod +x ./build/${tool}
+              cat programs/${tool}.cyr | ./build/cc5 > ./build/${tool} && chmod +x ./build/${tool}
             fi
           done
           # cyrius build tool — compiled from Cyrius (auto-include, deps, -v)
-          cat programs/cyrius.cyr | ./build/cc3 > ./build/cyrius && chmod +x ./build/cyrius
+          cat programs/cyrius.cyr | ./build/cc5 > ./build/cyrius && chmod +x ./build/cyrius
           echo "cyrius tool: $(wc -c < ./build/cyrius) bytes"
           # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
-          cat src/main_aarch64.cyr | ./build/cc3 > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
+          cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64
 
       - name: Verify x86_64 binary
         run: |
-          file build/cc3 | grep -q "ELF 64-bit.*x86-64" || { echo "ERROR: cc3 not x86_64"; file build/cc3; exit 1; }
-          echo "PASS: cc3 is x86_64 ELF"
+          file build/cc5 | grep -q "ELF 64-bit.*x86-64" || { echo "ERROR: cc5 not x86_64"; file build/cc5; exit 1; }
+          echo "PASS: cc5 is x86_64 ELF"
 
       - name: Package x86_64 tarball
         run: |
@@ -66,11 +66,11 @@ jobs:
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          for bin in cc3 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
+          for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
             [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
           # Include cross-compiler separately (not in bin/ — it's a dev tool)
-          [ -f "build/cc3_aarch64" ] && cp "build/cc3_aarch64" "$STAGE/"
+          [ -f "build/cc5_aarch64" ] && cp "build/cc5_aarch64" "$STAGE/"
           cp bootstrap/asm "$STAGE/bin/"
           for script in scripts/cyrius-*.sh; do
             [ -f "$script" ] && cp "$script" "$STAGE/bin/"
@@ -105,16 +105,16 @@ jobs:
 
       - name: Build native aarch64 compiler
         run: |
-          chmod +x build/cc3
-          # Step 1: x86 cc3 → cross-compiler (x86 binary that emits aarch64)
-          cat src/main_aarch64.cyr | ./build/cc3 > /tmp/cc3_cross && chmod +x /tmp/cc3_cross
+          chmod +x build/cc5
+          # Step 1: x86 cc5 → cross-compiler (x86 binary that emits aarch64)
+          cat src/main_aarch64.cyr | ./build/cc5 > /tmp/cc5_cross && chmod +x /tmp/cc5_cross
           # Step 2: cross-compiler → native aarch64 binary
-          cat src/main_aarch64.cyr | /tmp/cc3_cross > ./build/cc3_aarch64 && chmod +x ./build/cc3_aarch64
-          echo "cc3_aarch64: $(wc -c < ./build/cc3_aarch64) bytes"
+          cat src/main_aarch64.cyr | /tmp/cc5_cross > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64
+          echo "cc5_aarch64: $(wc -c < ./build/cc5_aarch64) bytes"
           # Verify architecture
-          file ./build/cc3_aarch64 | grep -q "ARM aarch64" || { echo "ERROR: not aarch64"; file ./build/cc3_aarch64; exit 1; }
+          file ./build/cc5_aarch64 | grep -q "ARM aarch64" || { echo "ERROR: not aarch64"; file ./build/cc5_aarch64; exit 1; }
           # Smoke test: cross-compiler produces working binaries
-          echo "var x = 42;" | /tmp/cc3_cross > /tmp/a64_test && chmod +x /tmp/a64_test
+          echo "var x = 42;" | /tmp/cc5_cross > /tmp/a64_test && chmod +x /tmp/a64_test
           result=$(timeout 5 qemu-aarch64-static /tmp/a64_test; echo $?)
           test "$result" = "42" && echo "PASS: cross-compiler output works under qemu"
           # NOTE: native compiler smoke test skipped — self-hosted aarch64 binary
@@ -128,7 +128,7 @@ jobs:
           STAGE="cyrius-${VER}-aarch64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          cp build/cc3_aarch64 "$STAGE/bin/cc3"
+          cp build/cc5_aarch64 "$STAGE/bin/cc5"
           # Build cyrius tool for aarch64 tarball (x86 binary — runs on host for cross builds)
           if [ -f "build/cyrius" ]; then cp build/cyrius "$STAGE/bin/"; fi
           cp scripts/cyrius-init.sh "$STAGE/bin/" 2>/dev/null || true
@@ -149,10 +149,75 @@ jobs:
           name: release-aarch64
           path: dist/
 
+  # ── Build macOS x86_64 (Mach-O) ──
+  build-macos:
+    name: Build macOS x86_64
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build macOS compiler + tools
+        run: |
+          chmod +x build/cc5
+          # Build cc5 from source (for reproducibility)
+          cat src/main.cyr | ./build/cc5 > /tmp/cc5_fresh && chmod +x /tmp/cc5_fresh
+          # Cross-compile: cc5 itself as a Mach-O binary
+          # (The Mach-O cc5 won't self-host on Linux — it's for macOS)
+          # Instead, compile key tools for macOS
+          for tool in cyrfmt cyrlint cyrdoc; do
+            if [ -f "programs/${tool}.cyr" ]; then
+              cat programs/${tool}.cyr | CYRIUS_MACHO=1 /tmp/cc5_fresh > ./build/${tool}_macho 2>/dev/null
+              echo "${tool}_macho: $(wc -c < ./build/${tool}_macho) bytes"
+              # Verify Mach-O magic
+              magic=$(xxd -l4 -p ./build/${tool}_macho)
+              test "$magic" = "cffaedfe" || { echo "ERROR: ${tool} not Mach-O"; exit 1; }
+            fi
+          done
+
+      - name: Verify Mach-O binaries
+        run: |
+          for f in build/*_macho; do
+            [ -f "$f" ] || continue
+            file "$f" | grep -q "Mach-O 64-bit x86_64" || { echo "ERROR: $f not Mach-O x86_64"; exit 1; }
+          done
+          echo "PASS: all Mach-O binaries verified"
+
+      - name: Package macOS tarball
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          STAGE="cyrius-${VER}-x86_64-macos"
+          mkdir -p "$STAGE/bin" "$STAGE/lib"
+
+          # Rename tools (strip _macho suffix)
+          for f in build/*_macho; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f" _macho)
+            cp "$f" "$STAGE/bin/$name"
+            chmod +x "$STAGE/bin/$name"
+          done
+
+          # Include macOS-specific stdlib
+          sh scripts/release-lib.sh "$STAGE/lib"
+          cp lib/syscalls_macos.cyr "$STAGE/lib/"
+          cp lib/alloc_macos.cyr "$STAGE/lib/"
+          cp VERSION LICENSE "$STAGE/"
+
+          tar czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+
+          mkdir -p dist
+          mv "${STAGE}.tar.gz" "${STAGE}.tar.gz.sha256" dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/
+
   # ── Create GitHub Release ──
   release:
     name: Create GitHub Release
-    needs: [build-x86, build-aarch64]
+    needs: [build-x86, build-aarch64, build-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -165,6 +230,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: release-aarch64
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-macos
           path: dist/
 
       - name: Add standalone installer
