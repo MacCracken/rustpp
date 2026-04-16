@@ -4,6 +4,30 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.13] — 2026-04-16
+
+**Stdlib dep updates, CI fix, CYML value expansion.**
+
+### Added
+- **`cyml_expand_value(val)`** — expands `${file:PATH}` and `${env:NAME}`
+  references in CYML/TOML value strings. `${file:VERSION}` reads the
+  VERSION file, trimmed. `${env:HOME}` reads the environment variable.
+  Plain strings returned unchanged. Missing files/vars return original.
+  Enables `version = "${file:VERSION}"` in cyrius.cyml — VERSION file
+  becomes single source of truth.
+
+### Changed
+- **patra 1.1.0 → 1.1.1** — patch release.
+- **CI builds `build/cyrius` from `cbt/cyrius.cyr`** in all jobs that
+  call `scripts/cyrius`. The thin shim (5.1.12) requires the compiled
+  binary which isn't committed — CI now builds it in Setup steps.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.13`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyml_expand_value("${file:VERSION}")` → `5.1.13`.
+- `cyml_expand_value("${env:HOME}")` → `/home/macro`.
+
 ## [5.1.12] — 2026-04-16
 
 **5.1.x closeout — shell shim, heapmap audit, capacity fix, patra 1.1.0.**

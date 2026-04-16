@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.12.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.13.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -113,6 +113,27 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - Heapmap audit: 43 regions, 0 overlaps. Dead code: 19 fns (kept).
 - Benchmark baseline captured. Capacity --check fixed.
 - patra 1.0.0 → 1.1.0
+
+---
+
+## v5.2.x — Distribution & Packaging
+
+### v5.2.0 — `cyrius build --distlib`
+- Single-command library distribution: bundles `src/` modules into `dist/{name}.cyr`
+- Respects `[build] modules` ordering from manifest
+- Strips `include` directives (self-contained output)
+- Reproducible: re-running produces byte-identical dist
+- Replaces per-repo `scripts/bundle.sh` across all deps (sakshi, patra, sigil, yukti, mabda, sankoch)
+
+### v5.2.1 — `cyrius publish` + dep integrity
+- `cyrius publish` pushes tagged release with dist bundle
+- SHA256 checksum in release assets for dep integrity verification
+- `cyrius deps --verify` checks checksums against published hashes
+
+### v5.2.2 — macOS aarch64 (Mach-O ARM64)
+- CPU type `0x0100000C` in Mach-O header
+- libSystem linking (Apple Silicon forbids raw syscalls)
+- Test on iPad Pro via SSH
 
 ---
 
