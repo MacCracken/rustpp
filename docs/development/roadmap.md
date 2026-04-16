@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.1.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -46,18 +46,12 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - `CYRIUS_MACHO=1` triggers Mach-O output, tested on real hardware
 - `lib/syscalls_macos.cyr`, `lib/alloc_macos.cyr` (mmap-based)
 
+### v5.1.1 — Stdlib: sakshi + log.cyr
+- sakshi 0.9.0 → 0.9.3 (SA-001 UDP fix, SK_FATAL, trace ID)
+- log.cyr level mapping + output routing rewrite (delegates to sakshi)
+- Removed duplicate sakshi symlinks, migrated to cyrius.cyml, CI cc3→cc5
+
 </details>
-
----
-
-## v5.1.1 — Stdlib: sakshi + log.cyr Fixes
-
-| # | Item | Impact | Status |
-|---|------|--------|--------|
-| 1 | Update bundled sakshi to 0.9.3 (currently 0.9.0) | All consumers missing SA-001 CRITICAL UDP fix, SK_FATAL, trace ID, perf improvements | Not started |
-| 2 | Fix `log.cyr` level mapping — inverted vs sakshi | `log_init(LOG_ERROR)` sets sakshi to SK_DEBUG (level 4). Level semantics are backwards. Values match by coincidence at INFO only. | Not started |
-| 3 | Fix `log.cyr` output routing — bypasses sakshi | `_log_emit` does raw `syscall(1, 2, ...)` to stderr, ignoring sakshi's file/ring/UDP targets. Should delegate to sakshi_info etc. | Not started |
-| 4 | Remove `sakshi_sakshi.cyr` naming artifact | `release-lib.sh` generates `{dep}_{file}` duplicate. 225-line exact copy of `sakshi.cyr`. | Not started |
 
 ---
 

@@ -4,6 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.1] — 2026-04-16
+
+**Stdlib fixes — sakshi 0.9.3, log.cyr rewrite, manifest migration.**
+
+### Fixed
+- **`log.cyr` level mapping inverted** — log.cyr used severity-ascending
+  (TRACE=0..FATAL=5) but passed raw values to sakshi which uses
+  severity-descending (ERROR=0..TRACE=4). `log_init(LOG_ERROR)` was
+  setting sakshi to `SK_TRACE`. Fix: `_log_to_sk()` maps between the
+  two conventions.
+- **`log.cyr` output routing bypassed sakshi** — `_log_emit` wrote
+  directly to stderr via raw syscalls, ignoring sakshi's file/ring/UDP
+  transport. Rewritten to delegate to `sakshi_error`/`warn`/`info`/
+  `debug`/`trace` based on level.
+- **`sakshi_sakshi.cyr` duplicate symlinks** — `cyrius deps` generated
+  `{dep}_{file}` duplicates (sakshi_sakshi.cyr, sakshi_sakshi_full.cyr).
+  Removed.
+- **`sakshi_full.tcyr` ring count** — sakshi 0.9.3 records mode-switch
+  events in ring buffer. Added `sakshi_ring_clear()` before count test.
+
+### Changed
+- **sakshi dep 0.9.0 → 0.9.3** — SA-001 CRITICAL UDP fix, SK_FATAL
+  level, trace ID, performance improvements.
+- **`cyrius.toml` → `cyrius.cyml`** — manifest migrated to CYML format.
+  Updated version to 5.1.1, build output to `build/cc5`.
+- **`release-lib.sh`** — sakshi version updated to 0.9.3.
+- **CI cc3 → cc5** — all GitHub Actions workflow references updated from
+  cc3 to cc5 (stale since 5.0.0 rename). Added Mach-O compilation test
+  job.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.1.0] — 2026-04-15
 
 **macOS x86_64 — first non-Linux platform target.**

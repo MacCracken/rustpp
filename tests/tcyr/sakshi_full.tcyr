@@ -44,6 +44,7 @@ assert_eq(sakshi_span_depth(), 0, "depth back 0");
 test_group("output routing");
 # Buffer mode
 sakshi_output_buffer();
+sakshi_ring_clear();
 sakshi_info("test msg", 8);
 var rlen = sakshi_ring_len();
 assert_eq(rlen > 0, 1, "ring has data");
