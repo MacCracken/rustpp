@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.4.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.5.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -65,6 +65,10 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - Starship detects cyrius.cyml, dispatcher manifest refs unified via find_manifest()
 - Deep cc3→cc5 sweep: install.sh, ci.sh, dispatcher, regression tests, check.sh
 
+### v5.1.5 — Script Inlining
+- Native coverage, doctest, header in cyrius.cyr (115KB)
+- Removed 3 shell scripts (237 lines)
+
 </details>
 
 ---
@@ -73,16 +77,21 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entry point.
 
-| Item | Effort | Status |
-|------|--------|--------|
-| Inline `cyrius-coverage.sh` into cyrius.cyr | Low | Not started |
-| Inline `cyrius-doctest.sh` into cyrius.cyr | Low | Not started |
-| Inline `cyrius-header.sh` into cyrius.cyr | Low | Not started |
-| Add `capacity` subcommand to cyrius.cyr | Medium | Shell only (regression-capacity.sh) |
-| Add `soak` subcommand to cyrius.cyr | Medium | Shell only |
-| Add `pulsar` (rebuild+install) to cyrius.cyr | High | Shell only (scripts/cyrius ~100 lines) |
-| Shell dispatcher → thin shim | Medium | Currently 1619 lines, should become ~50 (find cc5, find compiled cyrius, exec) |
-| Remove shell scripts after native coverage | Low | Blocked on above items |
+### v5.1.5 — Inline shell scripts into cyrius.cyr (shipped) ✅
+- Native `cmd_coverage()`, `cmd_doctest()`, `cmd_header()` in cyrius.cyr
+- Removed 3 shell scripts (237 lines → 0), compiled tool handles all natively
+
+### v5.1.6 — Native capacity, soak, pulsar
+- Add `capacity` subcommand (CYRIUS_STATS parsing, --check, --json)
+- Add `soak` subcommand (extended test loop with IR/DCE matrix)
+- Add `pulsar` subcommand (rebuild cc5 + tools, install, purge old versions)
+
+### v5.1.7 — Shell shim + cleanup audit
+- Shell dispatcher → thin shim (~50 lines: find cc5, find compiled cyrius, exec)
+- Remove redundant shell logic (1619 → ~50 lines)
+- P(-1) scaffold hardening pass: heapmap audit, dead code sweep, stale comment grep
+- Benchmark baseline + post-cleanup comparison
+- Final 5.1.x test sweep, doc alignment, vidya sync
 
 ---
 

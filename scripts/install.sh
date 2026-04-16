@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="5.1.4"
+        VERSION="5.1.5"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
@@ -154,7 +154,7 @@ if [ "$installed" -eq 0 ]; then
         fi
     done
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
-    # cyrius binary already built from programs/cyrius.cyr above
+    # cyrius binary already built from programs/cyrius/cyrius.cyr above
     for script in scripts/cyrius-*.sh; do
         [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
             chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"

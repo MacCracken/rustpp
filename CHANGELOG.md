@@ -4,6 +4,43 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.5] — 2026-04-16
+
+**Tooling consolidation — 3 shell scripts inlined into native cyrius tool.**
+
+### Added
+- **Native `cmd_coverage()`** — scans lib/*.cyr for public functions,
+  searches test corpus for references. Reports per-module coverage.
+  Replaces `cyrius-coverage.sh` (90 lines).
+- **Native `cmd_doctest()`** — extracts `# >>> ` / `# === ` patterns
+  from .cyr files, compiles, runs, checks exit code. Replaces
+  `cyrius-doctest.sh` (93 lines).
+- **Native `cmd_header()`** — scans `pub fn` declarations, emits C
+  header prototypes (all types → `cyr_val`). Replaces
+  `cyrius-header.sh` (54 lines).
+
+### Removed
+- **`scripts/cyrius-coverage.sh`** — replaced by native implementation.
+- **`scripts/cyrius-doctest.sh`** — replaced by native implementation.
+- **`scripts/cyrius-header.sh`** — replaced by native implementation.
+
+### Changed
+- Compiled `cyrius` tool: 105KB → 116KB (3 native commands + output system).
+- **`-q` / `--quiet` global flag** — suppresses status banners. Errors
+  always print to stderr. Available on all subcommands.
+- **`_err()` / `_err_ctx()` / `_warn()` / `_status()` helpers** —
+  consistent error/warning/status output. Errors go to stderr, status
+  respects `--quiet`. Replaces ad-hoc `println("error: ...")`
+  (was printing errors to stdout) and multi-line `sys_write` sequences.
+- **Global flag parsing** — `-q`/`-v` parsed before subcommand dispatch,
+  works with any subcommand (not just build).
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyrius coverage` / `doctest` / `header` verified native.
+- `cyrius -q coverage` suppresses banner, shows data only.
+
 ## [5.1.4] — 2026-04-16
 
 **Starship cyml detection, dispatcher manifest fixes, deep cc3 sweep.**
