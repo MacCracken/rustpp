@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.2.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -55,6 +55,11 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - sakshi 0.9.3 → 1.0.0 (first stable release)
 - macOS Mach-O tarball in release pipeline (three-platform release)
 - release.yml cc3→cc5, dep resolver prefers cyrius.cyml
+
+### v5.1.3 — Codebase Cleanup
+- Removed stale cyrius.toml, all cc2/cc3 refs in scripts + docs + programs
+- cyrius-port.sh generates cyrius.cyml, read_manifest() prefers cyml
+- CLAUDE.md recommended minimum → v5.0.0
 
 </details>
 

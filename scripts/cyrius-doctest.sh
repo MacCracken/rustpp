@@ -10,7 +10,7 @@
 #
 # Usage: cyrius doctest lib/*.cyr
 
-CC="${1:-./build/cc3}"
+CC="${1:-./build/cc5}"
 shift 2>/dev/null || true
 
 if [ -z "$1" ]; then

@@ -16,7 +16,7 @@ set -e
 #   3 — Compiler/toolchain (self-compile, tools)   ~30s
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CC="$REPO_ROOT/build/cc3"
+CC="$REPO_ROOT/build/cc5"
 HISTORY_FILE="$REPO_ROOT/bench-history.csv"
 BENCHMARKS_MD="$REPO_ROOT/BENCHMARKS.md"
 TMPDIR="/tmp/cyr_bench_$$"
@@ -162,10 +162,10 @@ bench_cmd "compiler/self_compile" "cat $REPO_ROOT/src/main.cyr | $CC > /dev/null
 bench_cmd "compiler/bridge" "cat $REPO_ROOT/src/bridge.cyr | $CC > /dev/null"
 
 # Binary sizes (not timing, but track as metrics)
-if [ -f "$REPO_ROOT/build/cc3" ]; then
-    local_cc2_size=$(wc -c < "$REPO_ROOT/build/cc3")
-    echo "${TIMESTAMP},${COMMIT},${BRANCH},size/cc2_bytes,${local_cc2_size}" >> "$HISTORY_FILE"
-    printf "  %-35s %d bytes\n" "size/cc3" "$local_cc2_size"
+if [ -f "$REPO_ROOT/build/cc5" ]; then
+    local_cc5_size=$(wc -c < "$REPO_ROOT/build/cc5")
+    echo "${TIMESTAMP},${COMMIT},${BRANCH},size/cc5_bytes,${local_cc5_size}" >> "$HISTORY_FILE"
+    printf "  %-35s %d bytes\n" "size/cc5" "$local_cc5_size"
 fi
 
 # Tool compile times

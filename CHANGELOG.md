@@ -4,6 +4,28 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.3] — 2026-04-16
+
+**Codebase cleanup — stale reference sweep, manifest migration, doc alignment.**
+
+### Changed
+- **Removed `cyrius.toml`** — stale at v3.4.19 with `build/cc3` output.
+  `cyrius.cyml` is the sole manifest. `read_manifest()` and
+  `resolve_deps()` both prefer cyml with toml fallback.
+- **5 scripts cc3 → cc5** — coverage, repl, doctest, watch, bench-history
+  all referenced `build/cc3`. Updated to `build/cc5`.
+- **`cyrius-port.sh`** — generates `cyrius.cyml` instead of `cyrius.toml`.
+- **Tutorial, CONTRIBUTING, FAQ, README** — all cc2/cc3 references
+  updated to cc5. README bootstrap chain updated (408KB, 9 modules).
+- **`cyrius-guide.md`** — `cyrius.toml` references updated to `cyrius.cyml`.
+- **CLAUDE.md** — recommended minimum updated from v4.8.4 to v5.0.0.
+- **Program build comments** — cat.cyr, echo.cyr, head.cyr, tee.cyr
+  updated from cc2 to cc5.
+
+### Validation
+- cc5 two-step bootstrap PASS (cc5==cc5 byte-identical).
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.1.2] — 2026-04-16
 
 **sakshi 1.0.0, macOS release pipeline, dep resolver fix.**

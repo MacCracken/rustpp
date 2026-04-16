@@ -72,13 +72,17 @@ toml_get() {
 
 # Read all package metadata from cyrius.toml
 read_manifest() {
-    if [ -f "cyrius.toml" ]; then
-        PKG_NAME=$(toml_get cyrius.toml name)
-        PKG_VERSION=$(toml_get cyrius.toml version)
-        PKG_DESC=$(toml_get cyrius.toml description)
-        PKG_ENTRY=$(toml_get cyrius.toml entry)
-        PKG_OUTPUT=$(toml_get cyrius.toml output)
-        PKG_LICENSE=$(toml_get cyrius.toml license)
+    local mf=""
+    if [ -f "cyrius.cyml" ]; then mf="cyrius.cyml"
+    elif [ -f "cyrius.toml" ]; then mf="cyrius.toml"
+    fi
+    if [ -n "$mf" ]; then
+        PKG_NAME=$(toml_get "$mf" name)
+        PKG_VERSION=$(toml_get "$mf" version)
+        PKG_DESC=$(toml_get "$mf" description)
+        PKG_ENTRY=$(toml_get "$mf" entry)
+        PKG_OUTPUT=$(toml_get "$mf" output)
+        PKG_LICENSE=$(toml_get "$mf" license)
     elif [ -f "VERSION" ]; then
         PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
         PKG_NAME=$(basename "$(pwd)")
@@ -87,7 +91,7 @@ read_manifest() {
         PKG_OUTPUT="$PKG_NAME"
         PKG_LICENSE="GPL-3.0-only"
     else
-        echo "error: no cyrius.toml or VERSION" >&2
+        echo "error: no cyrius.cyml, cyrius.toml, or VERSION" >&2
         return 1
     fi
 }

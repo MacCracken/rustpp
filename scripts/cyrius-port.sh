@@ -1,7 +1,7 @@
 #!/bin/sh
 # cyrius port — prepare a Rust project for Cyrius porting
 # Moves Rust code to rust-old/, scaffolds Cyrius project structure,
-# generates cyrius.toml with deps, .cyrius-toolchain, CI/release workflows.
+# generates cyrius.cyml with deps, .cyrius-toolchain, CI/release workflows.
 #
 # Usage: cyrius port /path/to/rust-project
 #        cyrius port --dry-run /path/to/rust-project
@@ -49,7 +49,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo ""
     echo "Would create:"
     echo "  src/main.cyr              (entry point skeleton)"
-    echo "  cyrius.toml               ([package] + [build] + [deps])"
+    echo "  cyrius.cyml               ([package] + [build] + [deps])"
     echo "  .cyrius-toolchain         (pins toolchain version)"
     echo "  .github/workflows/ci.yml"
     echo "  .github/workflows/release.yml"
@@ -83,12 +83,12 @@ if command -v cc3 >/dev/null 2>&1; then
 fi
 echo "$CYRIUS_VER" > .cyrius-toolchain
 
-# Generate source skeleton (no manual includes — auto-included via cyrius.toml)
+# Generate source skeleton (no manual includes — auto-included via cyrius.cyml)
 cat > src/main.cyr << CYRSRC
 # $NAME — Cyrius port
 # Ported from ${RUST_LOC:-0} lines of Rust
 
-# Stdlib auto-included via cyrius.toml
+# Stdlib auto-included via cyrius.cyml
 
 fn main() {
     alloc_init();
@@ -101,8 +101,8 @@ syscall(SYS_EXIT, r);
 CYRSRC
 echo "  Created src/main.cyr"
 
-# Generate cyrius.toml
-cat > cyrius.toml << TOML
+# Generate cyrius.cyml
+cat > cyrius.cyml << TOML
 [package]
 name = "$NAME"
 version = "0.1.0"
@@ -118,7 +118,7 @@ output = "$NAME"
 [deps]
 stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "assert"]
 TOML
-echo "  Created cyrius.toml"
+echo "  Created cyrius.cyml"
 
 # Generate .gitignore — mirrors cyrius-init.sh plus /rust-old/target/ so a
 # local `cargo build` in rust-old/ (for parity checks against the port) does
@@ -217,7 +217,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check required docs
         run: |
-          for doc in README.md CHANGELOG.md VERSION LICENSE cyrius.toml; do
+          for doc in README.md CHANGELOG.md VERSION LICENSE cyrius.cyml; do
             test -f "$doc" && echo "OK: $doc" || { echo "MISSING: $doc"; exit 1; }
           done
 CI
@@ -344,7 +344,7 @@ echo ""
 echo "Next steps:"
 echo "  1. Read rust-old/src/ to understand the API"
 echo "  2. Port module by module into src/main.cyr"
-echo "  3. Add deps to cyrius.toml as needed"
+echo "  3. Add deps to cyrius.cyml as needed"
 echo "  4. Build: cyrius build src/main.cyr build/$NAME"
 echo "  5. Test:  cyrius test tests/${NAME}.tcyr"
 echo "  6. Bench: cyrius bench tests/${NAME}.bcyr"

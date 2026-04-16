@@ -5,7 +5,7 @@
 ## Quick Start
 
 ```sh
-cyrius build hello.cyr build/hello           # Compile (resolves deps from cyrius.toml)
+cyrius build hello.cyr build/hello           # Compile (resolves deps from cyrius.cyml)
 ./build/hello; echo $?                       # Run → 42
 ```
 
@@ -211,7 +211,7 @@ include "lib/string.cyr"
 ## Build Tool & Dependencies
 
 ```sh
-# cyrius.toml declares deps — build auto-resolves them
+# cyrius.cyml declares deps — build auto-resolves them
 cyrius build src/main.cyr build/myapp   # resolves deps + compiles
 cyrius deps                              # manually resolve deps
 cyrius build -v src/main.cyr build/myapp # verbose (shows compiler, binary size)
@@ -219,7 +219,7 @@ cyrius test tests/test.tcyr             # resolve deps + compile + run
 ```
 
 ```toml
-# cyrius.toml
+# cyrius.cyml
 [deps]
 stdlib = ["string", "fmt", "alloc", "io", "vec", "str"]
 
