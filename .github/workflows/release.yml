@@ -50,7 +50,7 @@ jobs:
             fi
           done
           # cyrius build tool — compiled from Cyrius (auto-include, deps, -v)
-          cat programs/cyrius/cyrius.cyr | ./build/cc5 > ./build/cyrius && chmod +x ./build/cyrius
+          cat cbt/cyrius.cyr | ./build/cc5 > ./build/cyrius && chmod +x ./build/cyrius
           echo "cyrius tool: $(wc -c < ./build/cyrius) bytes"
           # Cross-compile aarch64 compiler for inclusion in x86_64 tarball
           cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64

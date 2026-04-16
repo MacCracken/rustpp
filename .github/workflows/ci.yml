@@ -103,12 +103,12 @@ jobs:
           cat programs/cyrc.cyr | ./build/cc5 > ./build/cyrc && chmod +x ./build/cyrc
       - name: Vet
         run: |
-          for f in programs/ark.cyr programs/cyrius/cyrius.cyr programs/cyrc.cyr; do
+          for f in programs/ark.cyr cbt/cyrius.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then ./build/cyrc vet "$f"; fi
           done
       - name: Deny
         run: |
-          for f in programs/ark.cyr programs/cyrius/cyrius.cyr programs/cyrc.cyr; do
+          for f in programs/ark.cyr cbt/cyrius.cyr programs/cyrc.cyr; do
             if [ -f "$f" ]; then ./build/cyrc deny "$f"; fi
           done
 

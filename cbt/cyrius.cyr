@@ -18,12 +18,12 @@ include "lib/fs.cyr"
 include "lib/process.cyr"
 include "lib/syscalls.cyr"
 
-include "programs/cyrius/core.cyr"
-include "programs/cyrius/build.cyr"
-include "programs/cyrius/commands.cyr"
-include "programs/cyrius/project.cyr"
-include "programs/cyrius/quality.cyr"
-include "programs/cyrius/deps.cyr"
+include "cbt/core.cyr"
+include "cbt/build.cyr"
+include "cbt/commands.cyr"
+include "cbt/project.cyr"
+include "cbt/quality.cyr"
+include "cbt/deps.cyr"
 
 # ================================================================
 # Usage / help

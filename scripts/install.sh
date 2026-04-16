@@ -154,7 +154,7 @@ if [ "$installed" -eq 0 ]; then
         fi
     done
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
-    # cyrius binary already built from programs/cyrius/cyrius.cyr above
+    # cyrius binary already built from cbt/cyrius.cyr above
     for script in scripts/cyrius-*.sh; do
         [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
             chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"

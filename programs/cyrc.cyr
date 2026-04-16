@@ -19,8 +19,9 @@ fn _init_pat() {
 
 fn is_trusted(path) {
     if (memeq(path, "lib/", 4) == 1) { return 1; }
-    if (memeq(path, "src/cc/", 7) == 1) { return 1; }
-    if (memeq(path, "src/arch/", 9) == 1) { return 1; }
+    if (memeq(path, "src/", 4) == 1) { return 1; }
+    if (memeq(path, "programs/", 9) == 1) { return 1; }
+    if (memeq(path, "cbt/", 4) == 1) { return 1; }
     if (memeq(path, "kernel/", 7) == 1) { return 1; }
     return 0;
 }
