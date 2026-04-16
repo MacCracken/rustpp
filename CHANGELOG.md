@@ -4,9 +4,32 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [5.1.6] — 2026-04-16
+## [5.1.7] — 2026-04-16
 
-**Refactor cyrius tool into modules.**
+**Top-level `cbt/`, dep duplicate fix, cyrc vet trust.**
+
+### Changed
+- **Build tool moved to `cbt/`** — top-level directory for the Cyrius
+  Build Tool. 7 modules: core, build, commands, project, quality, deps,
+  cyrius (entry). Previously `programs/cyrius/`.
+- **Dep resolver duplicate symlink fix** — `lib/{depname}_{basename}`
+  was always created even when basename already started with depname
+  (e.g. `sakshi_sakshi.cyr`). Now skips the namespace prefix when
+  basename is already namespaced. Alias code removed.
+- **`cyrc vet` trusts `cbt/` and `programs/`** — first-party tool and
+  program code no longer flagged as untrusted.
+- **Shell dispatcher `mkdir -p lib`** in deps command — downstream
+  projects without an existing `lib/` directory can now resolve deps.
+- **Phylax sigil dep path** — `["sigil.cyr"]` → `["dist/sigil.cyr"]`.
+- cc3→cc5 in build tool monolith (help text, tool discovery).
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.7`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyrc vet cbt/cyrius.cyr` → 16 deps, 0 untrusted, 0 missing.
+- Phylax dep resolution: no duplicate symlinks.
+
+## [5.1.6] — 2026-04-16
 
 ### Changed
 - **`programs/cyrius/cyrius.cyr` split into 7 modules**:
