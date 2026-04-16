@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.1.7.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.1.8.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -73,6 +73,12 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 - Split cyrius.cyr into 7 modules (core, build, commands, project, quality, deps, main)
 - cc3→cc5 in tool discovery
 
+### v5.1.7 — cbt/ + Dep Fix
+- Build tool → top-level `cbt/`, dep duplicate symlink fix, cyrc vet trust
+
+### v5.1.8 — Native capacity, soak, pulsar
+- `cyrius capacity/soak/pulsar` all native in cbt/, tool 129KB
+
 </details>
 
 ---
@@ -89,12 +95,14 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - Split 2249-line monolith into 7 modules: core, build, commands, project, quality, deps, cyrius
 - cc3→cc5 in tool discovery, output helpers, --quiet flag
 
-### v5.1.7 — Native capacity, soak, pulsar
-- Add `capacity` subcommand (CYRIUS_STATS parsing, --check, --json)
-- Add `soak` subcommand (extended test loop with IR/DCE matrix)
-- Add `pulsar` subcommand (rebuild cc5 + tools, install, purge old versions)
+### v5.1.7 — Top-level cbt/, dep duplicate fix (shipped) ✅
+- Build tool → `cbt/`, cyrc vet trusts cbt/, dep resolver no duplicate symlinks
 
-### v5.1.8 — Shell shim + cleanup audit
+### v5.1.8 — Native capacity, soak, pulsar (shipped) ✅
+- `cyrius capacity` (--check, --json), `cyrius soak`, `cyrius pulsar`
+- `cbt/pulsar.cyr` module (165 lines), tool 129KB
+
+### v5.1.9 — Shell shim + cleanup audit
 - Shell dispatcher → thin shim (~50 lines: find cc5, find compiled cyrius, exec)
 - Remove redundant shell logic (1619 → ~50 lines)
 - P(-1) scaffold hardening pass: heapmap audit, dead code sweep, stale comment grep

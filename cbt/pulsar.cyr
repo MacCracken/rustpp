@@ -1,0 +1,188 @@
+# pulsar.cyr — rebuild cc5 + tools from source, install, purge old versions
+
+fn cmd_pulsar() {
+    _status("pulsar: rebuilding from source...");
+    if (file_exists("src/main.cyr") == 0) {
+        _err("not in a cyrius repo (no src/main.cyr)");
+        return 1;
+    }
+    var ver = read_file_str("VERSION");
+    if (ver == 0) { ver = "unknown"; }
+
+    # Step 1: rebuild cc5
+    _status("  cc5...");
+    var cc5_a = "/tmp/cyrius_pulsar_a";
+    var cc5_b = "/tmp/cyrius_pulsar_b";
+    if (compile("src/main.cyr", cc5_a) != 0) {
+        _err("cc5 compile failed");
+        return 1;
+    }
+
+    # Two-step self-hosting
+    var pid2 = sys_fork();
+    if (pid2 == 0) {
+        var sfd = sys_open("src/main.cyr", O_RDONLY, 0);
+        sys_dup2(sfd, 0); sys_close(sfd);
+        var ofd = sys_open(cc5_b, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
+        sys_dup2(ofd, 1); sys_close(ofd);
+        var argv[2];
+        store64(&argv, cc5_a);
+        store64(&argv + 8, 0);
+        sys_execve(cc5_a, &argv, _envp);
+        sys_exit(127);
+    }
+    var sb[1];
+    sys_waitpid(pid2, &sb, 0);
+
+    var sz_a = _file_size(cc5_a);
+    var sz_b = _file_size(cc5_b);
+    if (sz_a != sz_b || sz_a <= 0) {
+        # Try three-step
+        var cc5_c = "/tmp/cyrius_pulsar_c";
+        var pid3 = sys_fork();
+        if (pid3 == 0) {
+            var sfd = sys_open("src/main.cyr", O_RDONLY, 0);
+            sys_dup2(sfd, 0); sys_close(sfd);
+            var ofd = sys_open(cc5_c, O_WRONLY | O_CREAT | O_TRUNC, 0x1ED);
+            sys_dup2(ofd, 1); sys_close(ofd);
+            sys_chmod(cc5_b, 0x1ED);
+            var argv[2];
+            store64(&argv, cc5_b);
+            store64(&argv + 8, 0);
+            sys_execve(cc5_b, &argv, _envp);
+            sys_exit(127);
+        }
+        var sb3[1];
+        sys_waitpid(pid3, &sb3, 0);
+        var sz_c = _file_size(cc5_c);
+        if (sz_b != sz_c || sz_b <= 0) {
+            _err("self-hosting diverges after 3 steps");
+            sys_unlink(cc5_a); sys_unlink(cc5_b); sys_unlink(cc5_c);
+            return 1;
+        }
+        # cc5_b == cc5_c, use cc5_b
+        _dep_copy_file(cc5_b, "build/cc5");
+        sys_unlink(cc5_c);
+    } else {
+        _dep_copy_file(cc5_a, "build/cc5");
+    }
+    sys_chmod("build/cc5", 0x1ED);
+    sys_unlink(cc5_a); sys_unlink(cc5_b);
+
+    sys_write(STDOUT_FD, "  cc5: ", 7);
+    fmt_int(_file_size("build/cc5"));
+    println(" bytes (self-host OK)");
+
+    # Step 2: rebuild aarch64 compilers
+    if (file_exists("src/main_aarch64.cyr") == 1) {
+        _status("  cc5_aarch64 (cross)...");
+        compile("src/main_aarch64.cyr", "build/cc5_aarch64");
+        sys_write(STDOUT_FD, "  cc5_aarch64: ", 15);
+        fmt_int(_file_size("build/cc5_aarch64"));
+        println(" bytes");
+    }
+
+    # Step 3: rebuild tools
+    _status("  tools...");
+    var tools[6];
+    store64(&tools, "cyrfmt");
+    store64(&tools + 8, "cyrlint");
+    store64(&tools + 16, "cyrdoc");
+    store64(&tools + 24, "cyrc");
+    store64(&tools + 32, "ark");
+    store64(&tools + 40, 0);
+    var ti = 0;
+    while (load64(&tools + ti * 8) != 0) {
+        var tool = load64(&tools + ti * 8);
+        var src_sb = str_builder_new();
+        str_builder_add_cstr(src_sb, "programs/");
+        str_builder_add_cstr(src_sb, tool);
+        str_builder_add_cstr(src_sb, ".cyr");
+        var src_path = str_data(str_builder_build(src_sb));
+        if (file_exists(src_path) == 1) {
+            var dst_sb = str_builder_new();
+            str_builder_add_cstr(dst_sb, "build/");
+            str_builder_add_cstr(dst_sb, tool);
+            compile(src_path, str_data(str_builder_build(dst_sb)));
+        }
+        ti = ti + 1;
+    }
+    # Build cyrius tool from cbt/
+    if (file_exists("cbt/cyrius.cyr") == 1) {
+        compile("cbt/cyrius.cyr", "build/cyrius");
+    }
+
+    # Step 4: install
+    sys_write(STDOUT_FD, "  install ", 10);
+    sys_write(STDOUT_FD, ver, strlen(ver));
+    println("...");
+    var dest_sb = str_builder_new();
+    str_builder_add_cstr(dest_sb, _home);
+    str_builder_add_cstr(dest_sb, "/versions/");
+    str_builder_add_cstr(dest_sb, ver);
+    var dest = str_data(str_builder_build(dest_sb));
+    sys_mkdir(dest, 0x1ED);
+    var dest_lib = make_path(dest, "lib");
+    sys_mkdir(dest_lib, 0x1ED);
+
+    # Copy binaries
+    var bins[8];
+    store64(&bins, "cc5");
+    store64(&bins + 8, "cc5_aarch64");
+    store64(&bins + 16, "cyrius");
+    store64(&bins + 24, "cyrfmt");
+    store64(&bins + 32, "cyrlint");
+    store64(&bins + 40, "cyrdoc");
+    store64(&bins + 48, "cyrc");
+    store64(&bins + 56, 0);
+    var bi = 0;
+    while (load64(&bins + bi * 8) != 0) {
+        var bname = load64(&bins + bi * 8);
+        var bsrc = make_path("build", bname);
+        if (file_exists(bsrc) == 1) {
+            var bdst = make_path(dest, bname);
+            _dep_copy_file(bsrc, bdst);
+            sys_chmod(bdst, 0x1ED);
+        }
+        bi = bi + 1;
+    }
+
+    # Copy stdlib
+    var lib_ent = dir_list(str_from("lib"));
+    var li = 0;
+    while (li < vec_len(lib_ent)) {
+        var lname = str_data(vec_get(lib_ent, li));
+        var llen = str_len(vec_get(lib_ent, li));
+        if (llen > 4) {
+            if (memeq(lname + llen - 4, ".cyr", 4) == 1) {
+                var lsrc = make_path("lib", lname);
+                var ldst = make_path(dest_lib, lname);
+                _dep_copy_file(lsrc, ldst);
+            }
+        }
+        li = li + 1;
+    }
+
+    # Update current
+    var cur_path = make_path(_home, "current");
+    var cfd = sys_open(cur_path, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (cfd >= 0) {
+        sys_write(cfd, ver, strlen(ver));
+        sys_write(cfd, "\n", 1);
+        sys_close(cfd);
+    }
+
+    # Symlinks
+    var bin_link = make_path(_home, "bin");
+    var lib_link = make_path(_home, "lib");
+    sys_unlink(bin_link);
+    sys_unlink(lib_link);
+    syscall(88, dest, bin_link);
+    syscall(88, dest_lib, lib_link);
+
+    # Verify
+    sys_write(STDOUT_FD, "pulsar: ", 8);
+    sys_write(STDOUT_FD, ver, strlen(ver));
+    println(" installed.");
+    return 0;
+}

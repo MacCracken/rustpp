@@ -4,6 +4,30 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.8] — 2026-04-16
+
+**Native capacity, soak, pulsar subcommands.**
+
+### Added
+- **`cyrius capacity [--check] [--json] [file]`** — native compiler table
+  utilization report. Compiles under CYRIUS_STATS=1, parses stats.
+  `--check` exits 1 if any table >= 85% (CI gate). `--json` for dashboards.
+- **`cyrius soak [N]`** — native extended test loop. Runs N iterations
+  (default 100) of self-hosting + full test suite. Reports pass/fail.
+- **`cyrius pulsar`** — native rebuild + install. Two/three-step
+  self-hosting, rebuilds cc5 + aarch64 cross-compiler + all tools,
+  installs to `~/.cyrius/versions/`, updates symlinks, verifies.
+- **`cbt/pulsar.cyr`** — new module (165 lines).
+- Capacity, soak, pulsar dispatch in `cbt/cyrius.cyr`.
+
+### Changed
+- Compiled cyrius tool: 116KB → 129KB (3 new subcommands).
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.1.8`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyrius capacity --check src/main.cyr` → ok (all caps under 85%).
+
 ## [5.1.7] — 2026-04-16
 
 **Top-level `cbt/`, dep duplicate fix, cyrc vet trust.**

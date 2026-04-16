@@ -24,6 +24,7 @@ include "cbt/commands.cyr"
 include "cbt/project.cyr"
 include "cbt/quality.cyr"
 include "cbt/deps.cyr"
+include "cbt/pulsar.cyr"
 
 # ================================================================
 # Usage / help
@@ -256,6 +257,31 @@ fn main() {
         if (argc() > 2 && streq(argv(2), "--dry-run") == 1) { _dry_run = 1; }
         return cmd_clean();
     }
+
+    if (streq(cmd, "capacity") == 1) {
+        var cap_check = 0;
+        var cap_json = 0;
+        var cap_src = 0;
+        var ci = cmd_idx + 1;
+        while (ci < argc()) {
+            if (streq(argv(ci), "--check") == 1) { cap_check = 1; ci = ci + 1; }
+            elif (streq(argv(ci), "--json") == 1) { cap_json = 1; ci = ci + 1; }
+            else { cap_src = argv(ci); ci = ci + 1; }
+        }
+        if (cap_src == 0) {
+            if (file_exists("src/main.cyr") == 1) { cap_src = "src/main.cyr"; }
+            elif (file_exists("src/lib.cyr") == 1) { cap_src = "src/lib.cyr"; }
+        }
+        return cmd_capacity(cap_src, cap_check, cap_json);
+    }
+
+    if (streq(cmd, "soak") == 1) {
+        var soak_n = 100;
+        if (argc() > cmd_idx + 1) { soak_n = atoi(argv(cmd_idx + 1)); }
+        return cmd_soak(soak_n);
+    }
+
+    if (streq(cmd, "pulsar") == 1) { return cmd_pulsar(); }
 
     # --- Project commands ---
     if (streq(cmd, "init") == 1) {
