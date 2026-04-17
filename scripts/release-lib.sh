@@ -24,7 +24,7 @@ done
 #    Format: repo tag path-in-repo
 DEPS="
 sakshi    2.0.0   dist/sakshi.cyr
-sigil     2.1.2   dist/sigil.cyr
+sigil     2.8.3   dist/sigil.cyr
 patra     1.1.1   dist/patra.cyr
 yukti     1.2.0   dist/yukti.cyr
 mabda     2.1.2   dist/mabda.cyr

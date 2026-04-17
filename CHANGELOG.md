@@ -4,6 +4,18 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.2] — 2026-04-16
+
+**sigil 2.8.3 — TPM_SHA256 fix landed.**
+
+### Changed
+- **sigil 2.1.2 → 2.8.3** — 2.8.2 had undefined `TPM_SHA256` in dist
+  bundle. 2.8.3 defines the constant locally (self-contained bundle).
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.2.2`.
+- 8/8 `check.sh` PASS. 60 test suites.
+
 ## [5.2.1] — 2026-04-16
 
 **Dep integrity, publish command, distlib validation.**
