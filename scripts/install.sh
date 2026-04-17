@@ -217,10 +217,10 @@ case "${1:-help}" in
 
     list|ls)
         echo "Installed versions:"
-        local cur=$(current)
+        cur=$(current)
         for d in "$CYRIUS_HOME/versions"/*/; do
             [ -d "$d" ] || continue
-            local v=$(basename "$d")
+            v=$(basename "$d")
             if [ "$v" = "$cur" ]; then
                 echo "  * $v (active)"
             else
@@ -245,7 +245,7 @@ case "${1:-help}" in
 
     uninstall)
         [ -z "$2" ] && echo "Usage: cyriusly uninstall <version>" && exit 1
-        local cur=$(current)
+        cur=$(current)
         if [ "$2" = "$cur" ]; then
             echo "Cannot uninstall active version. Switch first: cyriusly use <other>"
             exit 1

@@ -137,6 +137,50 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 
 ---
 
+## v5.2.x / v5.3.x — Sigil 3.0 enablers
+
+Items the downstream `sigil` crate needs in the Cyrius toolchain to
+unlock its v3.0 scope (PQC + parallel batch verify + cleaner
+crypto primitives). Sigil will track these as "blocked on Cyrius"
+in its own roadmap; landing them here removes the block.
+
+### v5.2.x — stdlib crypto extensions (non-breaking)
+
+- **`lib/keccak.cyr`** — Keccak-f[1600] permutation + sponge API
+  (SHAKE-128 / SHAKE-256). NIST FIPS 202. Required for
+  ML-DSA-65's XOF step in sigil 3.0 PQC. Self-contained, no
+  external deps. Benchmark target: 4 KB SHAKE-256 within 2× of
+  sigil's existing `sha256_4kb` (~250 µs).
+- **`ct_select(cond, a, b)` helper** in `lib/ct.cyr` (new stdlib
+  module, or add to an existing one). Branchless select returning
+  `a` if `cond == 0`, `b` if `cond == 1`. Sigil currently inlines
+  `mask = 0 - bit; r = r ^ (mask & (r ^ s))` at multiple sites
+  (`ge_cmov`, `_ge_table_select`, `canonical-S` reject path); a
+  standard helper with a guaranteed no-branch codegen contract
+  would de-duplicate those and shrink the security-audit surface.
+
+### v5.3.x — language-level security primitives (may be breaking)
+
+- **Zeroize-on-scope-exit for secret locals.** Attribute or keyword
+  (`secret var key[32]` or `#secret var key[32]`) that inserts a
+  `memset(ptr, 0, size)` at every scope-exit path — matching
+  Rust's `Zeroizing<T>`. Eliminates the manual `memset(sk, 0, 64)`
+  pattern at every function tail in sigil's crypto hot paths
+  (currently 8 call sites). Catches forgotten zeroisation at
+  compile time.
+- **`mulh64(a, b) → u64`** builtin returning the high 64 bits of
+  an unsigned 64×64 multiply. Sigil's `_mul64_full` manually
+  splits into 32-bit halves and reconstructs — a native builtin
+  would remove ~20 lines of workaround per multiply and likely
+  win ~15 % on `fp_mul`. (`u128` already exists; this is a narrower
+  primitive for the common "I just need the high half" case.)
+
+Release targeting: SHAKE + `ct_select` are additive and fit in the
+v5.2.x patch train. The `secret` keyword is a language change and
+wants v5.3.0 as the natural bump.
+
+---
+
 ## v5.x — Platform Targets
 
 Each platform is one minor release. cc5 backend-table dispatch
@@ -162,6 +206,16 @@ all emit paths go through IR. The path:
 3. DBE becomes safe → dead block NOP-fill
 4. Sound multi-register allocation on IR (replaces peephole #regalloc)
 5. Constant folding, strength reduction
+
+---
+
+## v5.x — Toolchain Quality
+
+| Feature | Effort | Description |
+|---------|--------|-------------|
+| `cyrius api-surface` | Medium | Snapshot-based API surface diffing. Scans `fn` declarations, tracks `mod::name/arity`, diffs against committed snapshot. Catches breaking removals/renames, allows additions. Pattern from agnosys `scripts/check-api-surface.sh`. |
+| `cyrius api-surface --update` | Low | Regenerate snapshot after intentional API bump. |
+| CI template with api-surface gate | Low | Standard downstream CI step: `cyrius api-surface` fails on breakage. |
 
 ---
 

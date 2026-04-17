@@ -208,6 +208,37 @@ include "lib/string.cyr"
 # Textual inclusion — file contents replace the include line
 ```
 
+## Project Structure
+
+```
+myproject/
+  cyrius.cyml          manifest (package, build, deps)
+  VERSION              version source of truth
+  src/
+    main.cyr           entry point
+    lib.cyr            library entry (for libs)
+    *.cyr              source modules
+  tests/
+    tcyr/              test suites — cyrius test scans here
+      core.tcyr
+      parse.tcyr
+  benches/             benchmarks — cyrius bench scans here
+    bench_alloc.bcyr
+  fuzz/                fuzz harnesses — cyrius fuzz scans here
+    fuzz_parse.fcyr
+  dist/                bundled distribution (cyrius distlib)
+    myproject.cyr
+  lib/                 resolved deps (created by cyrius deps)
+  build/               compiled binaries (gitignored)
+```
+
+**Important**: test/bench/fuzz files MUST be in the correct subdirectories.
+- `.tcyr` files → `tests/tcyr/` (NOT `tests/` root)
+- `.bcyr` files → `benches/` (NOT `tests/bcyr/`)
+- `.fcyr` files → `fuzz/`
+
+Files in the wrong location will be silently ignored by the toolchain.
+
 ## Build Tool & Dependencies
 
 ```sh

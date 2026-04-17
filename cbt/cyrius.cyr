@@ -31,9 +31,8 @@ include "cbt/pulsar.cyr"
 # ================================================================
 
 fn usage() {
-    sys_write(STDOUT_FD, "cyrius ", 7);
-    sys_write(STDOUT_FD, _version, strlen(_version));
-    println(" — Cyrius Build Tool");
+    println("Cyrius Build Tool");
+    println("");
     println("");
     println("Usage: cyrius <command> [options]");
     println("");
