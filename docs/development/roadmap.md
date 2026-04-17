@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.2.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.2.1.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).

@@ -296,8 +296,14 @@ fn main() {
     }
 
     if (streq(cmd, "deps") == 1) {
+        if (argc() > cmd_idx + 1) {
+            if (streq(argv(cmd_idx + 1), "--verify") == 1) { return cmd_deps_verify(); }
+            if (streq(argv(cmd_idx + 1), "--lock") == 1) { return cmd_deps_lock(); }
+        }
         return cmd_deps();
     }
+
+    if (streq(cmd, "publish") == 1) { return cmd_publish(); }
 
     if (streq(cmd, "package") == 1) {
         return cmd_package();

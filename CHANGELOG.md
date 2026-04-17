@@ -4,6 +4,38 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.1] — 2026-04-16
+
+**Dep integrity, publish command, distlib validation.**
+
+### Added
+- **`cyrius deps --lock`** — generates `cyrius.lock` with SHA256 hashes
+  for all dep files in `lib/`. Uses `sha256sum` for hashing.
+- **`cyrius deps --verify`** — checks current dep files against
+  `cyrius.lock`. Exits 1 on hash mismatch. CI gate for supply chain.
+- **`cyrius publish`** — tags release, runs distlib if modules defined,
+  generates lockfile, prints `gh release create` command.
+- **`cyrius distlib` compile-check** — after generating the dist bundle,
+  compile-checks it to catch undefined symbols from stripped includes.
+  Warns if bundle is not self-contained.
+
+### Changed
+- sakshi 1.0.0 → 2.0.0 (merged sakshi_full, single dist).
+- patra 1.1.0 → 1.1.1.
+- sigil stays at 2.1.2 — 2.8.2 has broken dist bundle (undefined
+  `TPM_SHA256` from agnosys dep not bundled). Reported to sigil repo.
+- Help banner no longer shows version number (was confusing project vs
+  toolchain version).
+- `.cyrius-toolchain` deprecated — `cyrius` field in manifest is single
+  source. CI templates and init/port scripts updated.
+- Test include order: yukti before sigil in large_input/large_source.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.2.1`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyrius deps --lock` → 6 deps locked.
+- `cyrius deps --verify` → 6 verified, 0 failed.
+
 ## [5.2.0] — 2026-04-16
 
 **`cyrius distlib` — single-command library distribution bundling.**

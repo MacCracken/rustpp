@@ -737,6 +737,13 @@ fn cmd_distlib() {
 
     sys_close(ofd);
 
+    # Compile-check the output — catches undefined symbols from stripped includes
+    var check_r = compile(out_path, "/dev/null");
+    if (check_r != 0) {
+        _warn("dist bundle has compile errors — likely missing symbol from a stripped include");
+        _warn("the bundle is NOT self-contained. Fix module order or add missing definitions.");
+    }
+
     # Report
     sys_write(STDOUT_FD, out_path, strlen(out_path));
     sys_write(STDOUT_FD, ": ", 2);
@@ -744,5 +751,79 @@ fn cmd_distlib() {
     sys_write(STDOUT_FD, " lines (v", 9);
     sys_write(STDOUT_FD, pkg_ver, strlen(pkg_ver));
     println(")");
+    if (check_r != 0) { return 1; }
+    return 0;
+}
+
+# ================================================================
+# publish — tag, distlib, and create release
+# ================================================================
+
+fn cmd_publish() {
+    var ver = read_file_str("VERSION");
+    if (ver == 0) { _err("no VERSION file"); return 1; }
+
+    _status("=== cyrius publish ===");
+    sys_write(STDOUT_FD, "  version: ", 11);
+    println(ver);
+
+    # Step 1: distlib if manifest has modules
+    var mf = "cyrius.cyml";
+    if (file_exists(mf) == 0) { mf = "cyrius.toml"; }
+    if (file_exists(mf) == 1) {
+        var mbuf = alloc(4096);
+        var mn = file_read_all(mf, mbuf, 4095);
+        if (mn > 0) {
+            store8(mbuf + mn, 0);
+            var has_modules = 0;
+            var mi = 0;
+            while (mi < mn) {
+                if (memeq(mbuf + mi, "modules", 7) == 1) { has_modules = 1; break; }
+                mi = mi + 1;
+            }
+            if (has_modules == 1) {
+                _status("  distlib...");
+                cmd_distlib();
+            }
+        }
+    }
+
+    # Step 2: lock deps
+    _status("  locking deps...");
+    cmd_deps_lock();
+
+    # Step 3: git tag
+    sys_write(STDOUT_FD, "  tag: v", 8);
+    println(ver);
+
+    var tag_sb = str_builder_new();
+    str_builder_add_cstr(tag_sb, "git tag -a v");
+    str_builder_add_cstr(tag_sb, ver);
+    str_builder_add_cstr(tag_sb, " -m 'Release v");
+    str_builder_add_cstr(tag_sb, ver);
+    str_builder_add_cstr(tag_sb, "'");
+    var tag_cmd = str_data(str_builder_build(tag_sb));
+    var tr = sys_system(tag_cmd);
+    if (tr != 0) {
+        _warn("git tag failed (may already exist)");
+    }
+
+    # Step 4: push tag
+    var push_sb = str_builder_new();
+    str_builder_add_cstr(push_sb, "git push origin v");
+    str_builder_add_cstr(push_sb, ver);
+    var push_cmd = str_data(str_builder_build(push_sb));
+
+    println("");
+    println("  Next steps:");
+    sys_write(STDOUT_FD, "    git push origin v", 21);
+    println(ver);
+    println("    # or if CI creates releases automatically, just push the tag");
+    println("");
+    println("  To create release manually:");
+    sys_write(STDOUT_FD, "    gh release create v", 22);
+    sys_write(STDOUT_FD, ver, strlen(ver));
+    println(" --generate-notes dist/* cyrius.lock");
+
     return 0;
 }

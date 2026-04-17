@@ -59,7 +59,7 @@ if [ -z "$VERSION" ]; then
     VERSION=$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
         grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
     if [ -z "$VERSION" ]; then
-        VERSION="5.2.0"
+        VERSION="5.2.1"
         warn "could not fetch latest version, defaulting to ${VERSION}"
     fi
 fi
