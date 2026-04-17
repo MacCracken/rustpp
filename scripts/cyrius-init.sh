@@ -67,7 +67,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/tests/${NAME}.tcyr   (test suite)"
     echo "  $NAME/tests/${NAME}.bcyr   (benchmarks)"
     echo "  $NAME/tests/${NAME}.fcyr   (fuzz harness)"
-    echo "  $NAME/.cyrius-toolchain  (pins Cyrius version)"
+    echo "  $NAME/cyrius.cyml (cyrius field)  (pins Cyrius version)"
     echo "  $NAME/.github/workflows/ci.yml"
     echo "  $NAME/.github/workflows/release.yml"
     echo "  $NAME/docs/development/"
@@ -240,10 +240,9 @@ var r = main();
 syscall(60, r);
 EOF
 
-# === .cyrius-toolchain ===
-# Pin to the version of the cyrius that's running init
-CYRIUS_VER="${CYRIUS_VER:-$(cat "$CYRIUS/VERSION" 2>/dev/null || echo "4.9.3")}"
-echo "$CYRIUS_VER" > "$NAME/.cyrius-toolchain"
+# Toolchain version goes in cyrius.cyml as cyrius = "X.Y.Z"
+# cyrius.cyml (cyrius field) is deprecated — manifest is the single source
+CYRIUS_VER="${CYRIUS_VER:-$(cat "$CYRIUS/VERSION" 2>/dev/null || echo "5.2.0")}"
 
 # === CI ===
 cat > "$NAME/.github/workflows/ci.yml" << 'CI'
@@ -268,7 +267,7 @@ jobs:
 
       - name: Install Cyrius toolchain
         run: |
-          CYRIUS_VERSION="${CYRIUS_VERSION:-$(cat .cyrius-toolchain | tr -d '[:space:]')}"
+          CYRIUS_VERSION="${CYRIUS_VERSION:-$(grep 'cyrius *= *"' cyrius.cyml 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')}"
           echo "Installing Cyrius $CYRIUS_VERSION"
           curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
           tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
@@ -323,7 +322,7 @@ jobs:
 
       - name: Install Cyrius toolchain
         run: |
-          CYRIUS_VERSION="${CYRIUS_VERSION:-$(cat .cyrius-toolchain | tr -d '[:space:]')}"
+          CYRIUS_VERSION="${CYRIUS_VERSION:-$(grep 'cyrius *= *"' cyrius.cyml 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')}"
           echo "Installing Cyrius $CYRIUS_VERSION"
           curl -sLO "https://github.com/MacCracken/cyrius/releases/download/$CYRIUS_VERSION/cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
           tar xzf "cyrius-$CYRIUS_VERSION-x86_64-linux.tar.gz"
@@ -369,7 +368,7 @@ cyrius test                          # run test suite
 
 - Source lives in \`src/\`, tests in \`tests/\`
 - Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`.cyrius-toolchain\`
+- Toolchain version pinned in \`cyrius.cyml (cyrius field)\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
 - \`&&\`/\`||\` short-circuit; mixed requires explicit parens
@@ -399,7 +398,7 @@ cyrius test                          # run test suite
 ## AGNOS Conventions
 
 - All AGNOS projects use GPL-3.0-only
-- Pin toolchain version in \`.cyrius-toolchain\` to latest stable
+- Pin toolchain version in \`cyrius.cyml (cyrius field)\` to latest stable
 - Use \`assert_summary()\` exit pattern in tests
 - Stdlib modules are vendored in \`lib/\`; do not modify
 - Prefix public functions with project name to avoid collisions
@@ -438,7 +437,7 @@ cyrius test
 
 - Source in \`src/\`, tests in \`tests/\`, stdlib in \`lib/\` (vendored, do not edit)
 - Dependencies declared in \`cyrius.toml\`
-- Toolchain pinned in \`.cyrius-toolchain\`
+- Toolchain pinned in \`cyrius.cyml (cyrius field)\`
 
 ## Language Notes
 
@@ -472,7 +471,7 @@ cyrius test                          # run test suite
 
 - Source lives in \`src/\`, tests in \`tests/\`
 - Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`.cyrius-toolchain\`
+- Toolchain version pinned in \`cyrius.cyml (cyrius field)\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
 - \`&&\`/\`||\` short-circuit; mixed requires explicit parens

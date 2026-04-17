@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 5.1.13
+- **Version**: 5.2.0
 
 ## Goal
 
@@ -81,7 +81,7 @@ Run a closeout pass before tagging x.Y.0 or x.0.0. Ship as the last patch of the
 3. **Dead code audit** — check dead function count, remove dead source code
 4. **Stale comment sweep** — grep for old version refs, outdated TODOs
 5. **Heap map verify** — main.cyr heap map matches actual usage
-6. **Downstream check** — all .cyrius-toolchain files point to current release
+6. **Downstream check** — all `cyrius.cyml` `cyrius` fields point to current release
 7. **Security re-scan** — quick grep for new `sys_system`, `READFILE`, unchecked writes
 8. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state
 9. **Full check.sh** — 5/5 pass

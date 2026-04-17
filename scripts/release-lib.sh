@@ -23,8 +23,7 @@ done
 # 2. Dep bundles — fetch from GitHub if not already copied
 #    Format: repo tag path-in-repo
 DEPS="
-sakshi    1.0.0   sakshi.cyr
-sakshi    1.0.0   sakshi_full.cyr
+sakshi    2.0.0   dist/sakshi.cyr
 sigil     2.1.2   dist/sigil.cyr
 patra     1.1.1   dist/patra.cyr
 yukti     1.2.0   dist/yukti.cyr

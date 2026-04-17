@@ -11,8 +11,8 @@ output = "build/cc5"
 
 [deps.sakshi]
 git = "https://github.com/MacCracken/sakshi.git"
-tag = "1.0.0"
-modules = ["sakshi.cyr", "sakshi_full.cyr"]
+tag = "2.0.0"
+modules = ["dist/sakshi.cyr"]
 
 [deps.patra]
 git = "https://github.com/MacCracken/patra.git"

@@ -4,7 +4,7 @@ include "lib/string.cyr"
 include "lib/fmt.cyr"
 include "lib/syscalls.cyr"
 include "lib/io.cyr"
-include "lib/sakshi_full.cyr"
+include "lib/sakshi.cyr"
 include "lib/assert.cyr"
 
 alloc_init();

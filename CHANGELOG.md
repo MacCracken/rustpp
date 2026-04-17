@@ -4,6 +4,33 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.0] — 2026-04-16
+
+**`cyrius distlib` — single-command library distribution bundling.**
+
+### Added
+- **`cyrius distlib`** — reads `[build] modules` (or `[lib] modules`)
+  from manifest, concatenates source modules in declared order into
+  `dist/{name}.cyr`. Strips `include` directives for self-contained
+  output. Header includes package name, version, generator tag.
+  Replaces per-repo `scripts/bundle.sh` across all dep libraries.
+- **`cyml_expand_value()`** — expands `${file:PATH}` and `${env:NAME}`
+  in CYML value strings. Enables `version = "${file:VERSION}"` for
+  single source of truth.
+
+### Changed
+- **sakshi 1.0.0 → 2.0.0** — merged sakshi + sakshi_full into single
+  `dist/sakshi.cyr`. One include for all features. `sakshi_full.cyr`
+  removed from dep list. Test updated.
+- patra 1.1.0 → 1.1.1.
+- CI builds `build/cyrius` in all jobs (thin shim fix).
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.2.0`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- `cyrius distlib` tested on synthetic 3-module library: correct
+  concatenation, include stripping, header generation.
+
 ## [5.1.13] — 2026-04-16
 
 **Stdlib dep updates, CI fix, CYML value expansion.**
