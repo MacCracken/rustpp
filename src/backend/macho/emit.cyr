@@ -177,48 +177,115 @@ fn EMITMACHO_EXEC(S) {
 }
 
 # ================================================================
-# Mach-O ARM64 executable emission
+# Mach-O ARM64 executable emission (v5.3.0 rewrite)
 # ================================================================
-# Triggered by CYRIUS_MACHO_ARM=1. Same flat layout as x86_64 but
-# with ARM64 CPU type, thread state, and page size (16KB on Apple Silicon).
+# Triggered by CYRIUS_MACHO_ARM=1. Layout matches the validated
+# Stage 2 probe (programs/macho_probe_arm.cyr) — 15 load commands
+# proven on macOS 26.4.1 Apple Silicon hardware.
+#
+# v5.3.0 scope: syscall-only programs. totvar>0, spos>0, or function-
+# table entries that need absolute addressing → error out for now
+# (Phase 3 adds string + variable + import support).
+#
+# Discovery 2026-04-18: raw `svc #0x80` works for the BSD syscall
+# whitelist (_exit, _write, and likely more) when the binary has
+# LC_LOAD_DYLIB libSystem.B.dylib in its load graph. The binary
+# never has to actually call into libSystem — dyld just has to see
+# it in the dependency list. This collapses what would have been
+# the stubs/GOT/chained-fixup emitter into a simple SVC-translation
+# pass in the aarch64 backend.
+#
+# File layout:
+#   page 0 (0..16383):    headers + LCs + padding
+#   page 1 (16384..):     __text (code, padded to PAGE)
+#   page 2 (32768..):     __LINKEDIT (chain_fixups + exports_trie +
+#                                      function_starts + symtab + strtab)
+#
+# 15 load commands (sizeofcmds = 648 pre-signing; codesign adds
+# LC_CODE_SIGNATURE = 16 more bytes):
+#   __PAGEZERO(72) + __TEXT(152) + __LINKEDIT(72)
+#   + CHAINED_FIXUPS(16) + EXPORTS_TRIE(16) + SYMTAB(24)
+#   + DYSYMTAB(80) + LOAD_DYLINKER(32) + UUID(24)
+#   + BUILD_VERSION(32) + SOURCE_VERSION(16) + LC_MAIN(24)
+#   + LOAD_DYLIB(56) + FUNCTION_STARTS(16) + DATA_IN_CODE(16)
+#   = 648 bytes
+
+fn _macho_wstr_pad(O, off, s, width) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(O + off + i, load8(s + i)); i = i + 1; }
+    while (i < width) { store8(O + off + i, 0); i = i + 1; }
+    return off + width;
+}
 
 fn EMITMACHO_ARM64(S) {
     var cp = GCP(S);
     var totvar = L64(S + 0x8FCD0);
     var spos = GSPOS(S);
 
-    var PAGE = 16384;
-    var TEXT_BASE = 0x100000000;
-
-    # ARM64 LC_UNIXTHREAD: flavor=6 (ARM_THREAD_STATE64), count=68
-    # cmdsize = 4+4+4+4 + 68*4 = 288
-    # Header: 32 + __PAGEZERO(72) + __TEXT(152) + LC_UNIXTHREAD(288) = 544
-    var code_off = PAGE;
-
-    var content_sz = cp + totvar + spos;
-    content_sz = (content_sz + 7) & (0 - 8);
-    var seg_filesz = code_off + content_sz;
-    var seg_vmsz = (seg_filesz + PAGE - 1) & (0 - PAGE);
-
-    if (content_sz > 1048576) {
-        syscall(SYS_WRITE, 2, "error: Mach-O ARM64 output too large\n", 37);
+    # v5.3.0 scope check — reject programs that need features deferred
+    # to Phase 3 (strings, variables, named function address refs).
+    if (totvar > 0) {
+        syscall(SYS_WRITE, 2,
+            "error: Mach-O ARM64 (v5.3.0) does not yet support global variables (Phase 3)\n",
+            79);
         syscall(SYS_EXIT, 1);
     }
+    if (spos > 0) {
+        syscall(SYS_WRITE, 2,
+            "error: Mach-O ARM64 (v5.3.0) does not yet support string literals (Phase 3)\n",
+            77);
+        syscall(SYS_EXIT, 1);
+    }
+
+    var PAGE = 16384;
+    var TEXT_BASE = 0x100000000;
+    var CODE_OFF = PAGE;                   # code starts at page 1
+    var LINKEDIT_FILEOFF = PAGE * 2;       # __LINKEDIT at page 2
+    var LINKEDIT_VMADDR = TEXT_BASE + PAGE * 2;
+
+    # Round code size up to 8-byte alignment
+    var code_sz = (cp + 7) & (0 - 8);
+
+    if (code_sz > 1048576) {
+        syscall(SYS_WRITE, 2, "error: Mach-O ARM64 code too large (> 1MB)\n", 44);
+        syscall(SYS_EXIT, 1);
+    }
+
+    # __LINKEDIT content layout (pre-signing)
+    var CHAIN_OFF = LINKEDIT_FILEOFF;
+    var CHAIN_SIZE = 56;
+    var EXPORTS_OFF = CHAIN_OFF + CHAIN_SIZE;
+    var EXPORTS_SIZE = 49;                 # main addr 0x4000 → ULEB 3 bytes
+    # 8-byte align exports → pad to 56
+    var EXPORTS_PADDED = 56;
+    var FNSTART_OFF = EXPORTS_OFF + EXPORTS_PADDED;
+    var FNSTART_SIZE = 8;
+    var SYMTAB_OFF = FNSTART_OFF + FNSTART_SIZE;
+    var SYMTAB_COUNT = 2;
+    var SYMTAB_SIZE = 32;                  # 2 * 16
+    var STRTAB_OFF = SYMTAB_OFF + SYMTAB_SIZE;
+    var STRTAB_SIZE = 32;
+    var LINKEDIT_CONTENT_SIZE = STRTAB_OFF + STRTAB_SIZE - LINKEDIT_FILEOFF;
+    var FILE_END = LINKEDIT_FILEOFF + LINKEDIT_CONTENT_SIZE;
 
     var O = S + 0x64A000;
     var o = 0;
 
-    # mach_header_64 (32 bytes)
-    o = _macho_w32(O, o, 0xFEEDFACF);     # magic
-    o = _macho_w32(O, o, 0x0100000C);     # cputype = CPU_TYPE_ARM64
-    o = _macho_w32(O, o, 0x00000000);     # cpusubtype = ARM64_ALL
-    o = _macho_w32(O, o, 0x00000002);     # filetype = MH_EXECUTE
-    o = _macho_w32(O, o, 3);              # ncmds
-    o = _macho_w32(O, o, 72 + 152 + 288); # sizeofcmds = 512
-    o = _macho_w32(O, o, 0x00000001);     # flags = MH_NOUNDEFS
-    o = _macho_w32(O, o, 0);              # reserved
+    # ================================================================
+    # mach_header_64 (32)
+    # ================================================================
+    o = _macho_w32(O, o, 0xFEEDFACF);
+    o = _macho_w32(O, o, 0x0100000C);      # CPU_TYPE_ARM64
+    o = _macho_w32(O, o, 0x00000000);
+    o = _macho_w32(O, o, 0x00000002);      # MH_EXECUTE
+    o = _macho_w32(O, o, 15);              # ncmds
+    o = _macho_w32(O, o, 648);             # sizeofcmds
+    o = _macho_w32(O, o, 0x00200085);      # MH_NOUNDEFS|MH_DYLDLINK|MH_TWOLEVEL|MH_PIE
+    o = _macho_w32(O, o, 0);
 
-    # LC_SEGMENT_64 __PAGEZERO (72 bytes)
+    # ================================================================
+    # LC_SEGMENT_64 __PAGEZERO (72)
+    # ================================================================
     o = _macho_w32(O, o, 0x19);
     o = _macho_w32(O, o, 72);
     o = _macho_wname(O, o, "__PAGEZERO");
@@ -226,69 +293,228 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w64(O, o, TEXT_BASE);
     o = _macho_w64(O, o, 0);
     o = _macho_w64(O, o, 0);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
 
-    # LC_SEGMENT_64 __TEXT + __text section (152 bytes)
+    # ================================================================
+    # LC_SEGMENT_64 __TEXT (152 = 72 + 80)
+    # Spans 2 pages: page 0 headers + page 1 code. initprot = R|X.
+    # ================================================================
     o = _macho_w32(O, o, 0x19);
     o = _macho_w32(O, o, 152);
     o = _macho_wname(O, o, "__TEXT");
     o = _macho_w64(O, o, TEXT_BASE);
-    o = _macho_w64(O, o, seg_vmsz);
+    o = _macho_w64(O, o, PAGE * 2);        # vmsize = 2 pages
     o = _macho_w64(O, o, 0);
-    o = _macho_w64(O, o, seg_vmsz);
-    o = _macho_w32(O, o, 7);              # maxprot = RWX
-    o = _macho_w32(O, o, 7);              # initprot = RWX
+    o = _macho_w64(O, o, PAGE * 2);        # filesize = 2 pages
+    o = _macho_w32(O, o, 5);               # maxprot = R|X
+    o = _macho_w32(O, o, 5);               # initprot = R|X
     o = _macho_w32(O, o, 1);
     o = _macho_w32(O, o, 0);
 
-    # section_64 __text (80 bytes)
+    # section __text
     o = _macho_wname(O, o, "__text");
     o = _macho_wname(O, o, "__TEXT");
-    o = _macho_w64(O, o, TEXT_BASE + code_off);
-    o = _macho_w64(O, o, content_sz);
-    o = _macho_w32(O, o, code_off);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0x80000400);
-    o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0);
+    o = _macho_w64(O, o, TEXT_BASE + CODE_OFF);
+    o = _macho_w64(O, o, code_sz);
+    o = _macho_w32(O, o, CODE_OFF);
+    o = _macho_w32(O, o, 2);               # align 2^2 = 4
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0x80000400);      # PURE_INSTRUCTIONS|SOME_INSTRUCTIONS
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+
+    # ================================================================
+    # LC_SEGMENT_64 __LINKEDIT (72)
+    # ================================================================
+    o = _macho_w32(O, o, 0x19);
+    o = _macho_w32(O, o, 72);
+    o = _macho_wname(O, o, "__LINKEDIT");
+    o = _macho_w64(O, o, LINKEDIT_VMADDR);
+    o = _macho_w64(O, o, PAGE);            # vmsize
+    o = _macho_w64(O, o, LINKEDIT_FILEOFF);
+    o = _macho_w64(O, o, LINKEDIT_CONTENT_SIZE);
+    o = _macho_w32(O, o, 1); o = _macho_w32(O, o, 1);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+
+    # LC_DYLD_CHAINED_FIXUPS
+    o = _macho_w32(O, o, 0x80000034);
+    o = _macho_w32(O, o, 16);
+    o = _macho_w32(O, o, CHAIN_OFF);
+    o = _macho_w32(O, o, CHAIN_SIZE);
+
+    # LC_DYLD_EXPORTS_TRIE
+    o = _macho_w32(O, o, 0x80000033);
+    o = _macho_w32(O, o, 16);
+    o = _macho_w32(O, o, EXPORTS_OFF);
+    o = _macho_w32(O, o, EXPORTS_SIZE);
+
+    # LC_SYMTAB
+    o = _macho_w32(O, o, 0x02);
+    o = _macho_w32(O, o, 24);
+    o = _macho_w32(O, o, SYMTAB_OFF);
+    o = _macho_w32(O, o, SYMTAB_COUNT);
+    o = _macho_w32(O, o, STRTAB_OFF);
+    o = _macho_w32(O, o, STRTAB_SIZE);
+
+    # LC_DYSYMTAB
+    o = _macho_w32(O, o, 0x0B);
+    o = _macho_w32(O, o, 80);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 2);
+    o = _macho_w32(O, o, 2); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+
+    # LC_LOAD_DYLINKER
+    o = _macho_w32(O, o, 0x0E);
+    o = _macho_w32(O, o, 32);
+    o = _macho_w32(O, o, 12);
+    o = _macho_wstr_pad(O, o, "/usr/lib/dyld", 20);
+
+    # LC_UUID — placeholder (codesign recomputes any actual signature hash)
+    o = _macho_w32(O, o, 0x1B);
+    o = _macho_w32(O, o, 24);
+    o = _macho_w32(O, o, 0xBEBAFECA);
+    o = _macho_w32(O, o, 0x00040005);
+    o = _macho_w32(O, o, 0x00000080);
+    o = _macho_w32(O, o, 0x04000000);
+
+    # LC_BUILD_VERSION (platform=macOS, minos=26.0, sdk=26.0, 1 tool entry)
+    o = _macho_w32(O, o, 0x32);
+    o = _macho_w32(O, o, 32);
+    o = _macho_w32(O, o, 1);
+    o = _macho_w32(O, o, 0x001A0000);
+    o = _macho_w32(O, o, 0x001A0000);
+    o = _macho_w32(O, o, 1);
+    o = _macho_w32(O, o, 3);
+    o = _macho_w32(O, o, 0x04F20800);
+
+    # LC_SOURCE_VERSION
+    o = _macho_w32(O, o, 0x2A);
+    o = _macho_w32(O, o, 16);
+    o = _macho_w64(O, o, 0);
+
+    # LC_MAIN
+    o = _macho_w32(O, o, 0x80000028);
+    o = _macho_w32(O, o, 24);
+    o = _macho_w64(O, o, CODE_OFF);
+    o = _macho_w64(O, o, 0);
+
+    # LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib
+    o = _macho_w32(O, o, 0x0C);
+    o = _macho_w32(O, o, 56);
+    o = _macho_w32(O, o, 24);
+    o = _macho_w32(O, o, 2);
+    o = _macho_w32(O, o, 0x054C0000);
+    o = _macho_w32(O, o, 0x00010000);
+    o = _macho_wstr_pad(O, o, "/usr/lib/libSystem.B.dylib", 32);
+
+    # LC_FUNCTION_STARTS
+    o = _macho_w32(O, o, 0x26);
+    o = _macho_w32(O, o, 16);
+    o = _macho_w32(O, o, FNSTART_OFF);
+    o = _macho_w32(O, o, FNSTART_SIZE);
+
+    # LC_DATA_IN_CODE
+    o = _macho_w32(O, o, 0x29);
+    o = _macho_w32(O, o, 16);
+    o = _macho_w32(O, o, SYMTAB_OFF);      # dataoff is benign, size=0
     o = _macho_w32(O, o, 0);
 
-    # LC_UNIXTHREAD ARM64 (288 bytes)
-    o = _macho_w32(O, o, 0x05);           # cmd = LC_UNIXTHREAD
-    o = _macho_w32(O, o, 288);            # cmdsize
-    o = _macho_w32(O, o, 6);              # flavor = ARM_THREAD_STATE64
-    o = _macho_w32(O, o, 68);             # count = 34 regs * 2 uint32
+    # Pad page 0 out to CODE_OFF
+    while (o < CODE_OFF) { store8(O + o, 0); o = o + 1; }
 
-    # ARM64 thread state: 34 x uint64_t
-    # x0-x28 (29 regs), fp(x29), lr(x30), sp, pc, cpsr
-    # All zero except pc = entry point
-    var ri = 0;
-    while (ri < 32) { o = _macho_w64(O, o, 0); ri = ri + 1; }
-    o = _macho_w64(O, o, TEXT_BASE + code_off);  # pc = entry point
-    o = _macho_w64(O, o, 0);              # cpsr
-
-    # Pad to PAGE boundary
-    while (o < code_off) { store8(O + o, 0); o = o + 1; }
-
-    # Code
+    # ================================================================
+    # __text page — copy compiled code, pad to PAGE
+    # ================================================================
     var i = 0;
     while (i < cp) { store8(O + o, load8(S + 0x54A000 + i)); o = o + 1; i = i + 1; }
+    while (o < LINKEDIT_FILEOFF) { store8(O + o, 0); o = o + 1; }
 
-    # Variable data (zeroed)
-    i = 0;
-    while (i < totvar) { store8(O + o, 0); o = o + 1; i = i + 1; }
+    # ================================================================
+    # __LINKEDIT content
+    # ================================================================
 
-    # String data
-    i = 0;
-    while (i < spos) { store8(O + o, load8(S + 0x14A000 + i)); o = o + 1; i = i + 1; }
+    # chain_fixups (56 bytes, zero imports)
+    o = _macho_w32(O, o, 0);               # version
+    o = _macho_w32(O, o, 32);              # starts_offset
+    o = _macho_w32(O, o, 48);              # imports_offset
+    o = _macho_w32(O, o, 48);              # symbols_offset
+    o = _macho_w32(O, o, 0);               # imports_count
+    o = _macho_w32(O, o, 1);               # imports_format = DYLD_CHAINED_IMPORT
+    o = _macho_w32(O, o, 0);               # symbols_format
+    o = _macho_w32(O, o, 0);               # pad
+    o = _macho_w32(O, o, 3);               # seg_count = 3 (PZ, TEXT, LE)
+    o = _macho_w32(O, o, 0);               # seg_info_offset[0]
+    o = _macho_w32(O, o, 0);               # seg_info_offset[1]
+    o = _macho_w32(O, o, 0);               # seg_info_offset[2]
+    o = _macho_w32(O, o, 0);               # tail padding
+    o = _macho_w32(O, o, 0);
 
-    while (o % 8 != 0) { store8(O + o, 0); o = o + 1; }
-    while (o % PAGE != 0) { store8(O + o, 0); o = o + 1; }
+    # exports_trie (49 bytes; padded to 56 for alignment)
+    # Encodes __mh_execute_header (at 0x0) + _main (at 0x4000).
+    # ULEB128(0x4000) = 0x80 0x80 0x01 (3 bytes, vs 2 bytes for Stage 2).
+    store8(O + o, 0x00); store8(O + o + 1, 0x01); store8(O + o + 2, 0x5F); store8(O + o + 3, 0x00);
+    store8(O + o + 4, 0x12); store8(O + o + 5, 0x00); store8(O + o + 6, 0x00); store8(O + o + 7, 0x00);
+    store8(O + o + 8, 0x00); store8(O + o + 9, 0x02); store8(O + o + 10, 0x00); store8(O + o + 11, 0x00);
+    store8(O + o + 12, 0x00); store8(O + o + 13, 0x03); store8(O + o + 14, 0x00);
+    # ULEB128(0x4000) for _main (3 bytes)
+    store8(O + o + 15, 0x80); store8(O + o + 16, 0x80); store8(O + o + 17, 0x01);
+    store8(O + o + 18, 0x00); store8(O + o + 19, 0x02);
+    # "_mh_execute_header\0"
+    store8(O + o + 20, 0x5F); store8(O + o + 21, 0x6D); store8(O + o + 22, 0x68); store8(O + o + 23, 0x5F);
+    store8(O + o + 24, 0x65); store8(O + o + 25, 0x78); store8(O + o + 26, 0x65); store8(O + o + 27, 0x63);
+    store8(O + o + 28, 0x75); store8(O + o + 29, 0x74); store8(O + o + 30, 0x65); store8(O + o + 31, 0x5F);
+    store8(O + o + 32, 0x68); store8(O + o + 33, 0x65); store8(O + o + 34, 0x61); store8(O + o + 35, 0x64);
+    store8(O + o + 36, 0x65); store8(O + o + 37, 0x72); store8(O + o + 38, 0x00);
+    store8(O + o + 39, 0x09);
+    # "main\0"
+    store8(O + o + 40, 0x6D); store8(O + o + 41, 0x61); store8(O + o + 42, 0x69); store8(O + o + 43, 0x6E);
+    store8(O + o + 44, 0x00); store8(O + o + 45, 0x0D);
+    store8(O + o + 46, 0x00); store8(O + o + 47, 0x00); store8(O + o + 48, 0x00);
+    o = o + 49;
+    # Pad exports trie region to 56 bytes (8-byte aligned)
+    while ((o - EXPORTS_OFF) < EXPORTS_PADDED) { store8(O + o, 0); o = o + 1; }
+
+    # function_starts (8 bytes) — ULEB128(0x4000) = 3 bytes + 5 zeros
+    store8(O + o, 0x80); store8(O + o + 1, 0x80); store8(O + o + 2, 0x01);
+    store8(O + o + 3, 0x00); store8(O + o + 4, 0x00); store8(O + o + 5, 0x00);
+    store8(O + o + 6, 0x00); store8(O + o + 7, 0x00);
+    o = o + 8;
+
+    # symtab — 2 x nlist_64
+    # [0] __mh_execute_header: strx=2, type=0x0F, sect=1, desc=0x10, value=0x100000000
+    o = _macho_w32(O, o, 2);
+    store8(O + o, 0x0F); store8(O + o + 1, 0x01);
+    store8(O + o + 2, 0x10); store8(O + o + 3, 0x00);
+    o = o + 4;
+    o = _macho_w64(O, o, 0x100000000);
+
+    # [1] _main: strx=22, type=0x0F, sect=1, desc=0, value=0x100004000
+    o = _macho_w32(O, o, 22);
+    store8(O + o, 0x0F); store8(O + o + 1, 0x01);
+    store8(O + o + 2, 0x00); store8(O + o + 3, 0x00);
+    o = o + 4;
+    o = _macho_w64(O, o, TEXT_BASE + CODE_OFF);
+
+    # strtab — " \0__mh_execute_header\0_main\0" + trailing zeros
+    store8(O + o, 0x20); store8(O + o + 1, 0x00);
+    store8(O + o + 2, 0x5F); store8(O + o + 3, 0x5F); store8(O + o + 4, 0x6D); store8(O + o + 5, 0x68);
+    store8(O + o + 6, 0x5F); store8(O + o + 7, 0x65); store8(O + o + 8, 0x78); store8(O + o + 9, 0x65);
+    store8(O + o + 10, 0x63); store8(O + o + 11, 0x75); store8(O + o + 12, 0x74); store8(O + o + 13, 0x65);
+    store8(O + o + 14, 0x5F); store8(O + o + 15, 0x68); store8(O + o + 16, 0x65); store8(O + o + 17, 0x61);
+    store8(O + o + 18, 0x64); store8(O + o + 19, 0x65); store8(O + o + 20, 0x72); store8(O + o + 21, 0x00);
+    store8(O + o + 22, 0x5F); store8(O + o + 23, 0x6D); store8(O + o + 24, 0x61); store8(O + o + 25, 0x69);
+    store8(O + o + 26, 0x6E); store8(O + o + 27, 0x00);
+    store8(O + o + 28, 0x00); store8(O + o + 29, 0x00); store8(O + o + 30, 0x00); store8(O + o + 31, 0x00);
+    o = o + 32;
+
+    # Pad to FILE_END if not already there
+    while (o < FILE_END) { store8(O + o, 0); o = o + 1; }
 
     S64(S + 0x903F8, o);
     return 0;

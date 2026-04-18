@@ -4,6 +4,70 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.0] — 2026-04-18
+
+**Apple Silicon emitter (syscall-only) — first Cyrius-compiled arm64
+Mach-O binaries running on macOS Apple Silicon.**
+
+### Added
+- **`programs/macho_probe_arm_rawsvc.cyr`** — probe that proved raw
+  `svc #0x80` works on Apple Silicon for BSD syscalls (_write, _exit,
+  likely the full classic whitelist) when the binary has
+  `LC_LOAD_DYLIB libSystem.B.dylib` in its load graph. Binary never
+  has to call libSystem — dyld just has to see the dep. This finding
+  collapsed what would have been a stubs/GOT/chained-fixup emitter
+  into a simple SVC-translation pass in the aarch64 backend.
+- **`src/backend/macho/imports.cyr`** — libSystem import table at
+  heap 0xD8000 (255 entries × 32 B). Staged for v5.3.1+ use when
+  syscalls fall outside the BSD whitelist; not called today.
+- **`docs/development/v5.3.0-apple-silicon-emitter.md`** — staged
+  implementation plan (Phase 1 research + audit + design).
+
+### Changed
+- **`src/backend/macho/emit.cyr:EMITMACHO_ARM64`** rewritten top to
+  bottom. Emits the 15-load-command Stage 2 probe layout: __PAGEZERO,
+  __TEXT (R|X, 2 pages), __LINKEDIT (chain_fixups empty blob,
+  exports_trie, symtab, strtab, function_starts, data_in_code),
+  LC_LOAD_DYLINKER, LC_LOAD_DYLIB libSystem.B.dylib, LC_MAIN,
+  LC_BUILD_VERSION (macOS 26.0), LC_UUID, LC_SOURCE_VERSION,
+  LC_DYSYMTAB, LC_DYLD_EXPORTS_TRIE, LC_DYLD_CHAINED_FIXUPS.
+  Replaces the previous LC_UNIXTHREAD + RWX + raw-SVC stub which was
+  SIGKILL'd at exec on all Apple Silicon kernels.
+- **`src/backend/aarch64/emit.cyr`** — `ESYSCALL` emits `svc #0x80`
+  when `_TARGET_MACHO == 2` (else `svc #0`). `ESYSXLAT` has a
+  parallel BSD path: comparing x8 against Linux numbers and writing
+  BSD numbers into x16 (not x8). `EEXIT` emits
+  `movz x16,#1; svc #0x80` on Mach-O ARM instead of the Linux
+  `movz x8,#93; svc #0` sequence.
+- **`src/main_aarch64.cyr`** now reads `CYRIUS_MACHO_ARM=1` env var
+  and sets `_TARGET_MACHO = 2`. The x86 main.cyr already had this
+  detection; the aarch64 cross-compiler was missing it, so
+  compilations with the env var silently took the Linux path.
+- **Heap map** — region 0xD8000 (previously "free, was struct_fnames")
+  documented as `macho_imports` in `src/main.cyr`.
+- **Roadmap** — Apple Silicon row in Platform Status table is now
+  "Syscall-only Done (v5.3.0)". New v5.3.1 entry added for strings
+  + globals (hello-world completeness).
+
+### Scope / limitations
+- v5.3.0 supports Cyrius programs using only `syscall(...)` calls.
+- String literals (`"hello"`), global variables, and function
+  address references that need absolute addressing are **not
+  supported yet** — the existing aarch64 FIXUP uses MOVZ/MOVK
+  absolute address sequences which break under PIE slide. v5.3.1
+  replaces those with PIE-safe `adrp + add` / `adrp + ldr`.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.3.0`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- End-to-end hardware test (macOS 26.4.1, Apple Silicon MacBook Pro):
+  ```
+  echo 'syscall(60, 42);' | CYRIUS_MACHO_ARM=1 build/cc5_aarch64 > exit.macho
+  codesign -s - --force exit.macho
+  ./exit.macho; echo $?
+  → 42
+  ```
+
 ## [5.2.3] — 2026-04-17
 
 **Apple Silicon Mach-O probes — first arm64 binaries running on macOS 26.**

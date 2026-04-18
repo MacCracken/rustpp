@@ -247,6 +247,14 @@ while (scan == 1) {
 # Reset module for pass 2
 SMOD(S, 0);
 
+# Mach-O output via CYRIUS_MACHO_ARM=1 (aarch64 cross-compiler path)
+var _macho_arm_env = _read_env("CYRIUS_MACHO_ARM");
+if (_macho_arm_env != 0) {
+    if (load8(_macho_arm_env) == 49 && load8(_macho_arm_env + 1) == 0) {
+        _TARGET_MACHO = 2;
+    }
+}
+
 # Pass 2: Parse struct and fn definitions (vars already registered)
 # Synced with main.cyr v2.1 — includes mod/pub/use/impl/union/enum-ctor support
 STI(S, 0);

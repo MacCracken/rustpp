@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.2.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -142,6 +142,34 @@ Validated on macOS 26.4.1 (MacBook Pro, Apple Silicon):
   16KB pages, ad-hoc `codesign -s -`
 - Full emitter fold (replacing `EMITMACHO_ARM64`) deferred to v5.3.0
 
+### v5.3.0 — Apple Silicon emitter (syscall-only) ✅
+First Cyrius-compiled arm64 Mach-O binaries running on Apple Silicon.
+- `EMITMACHO_ARM64` rewritten (15 LCs, code at page 1, __LINKEDIT
+  at page 2). Matches Stage 2 probe layout byte-compatible.
+- `ESYSCALL`/`ESYSXLAT`/`EEXIT` branch on `_TARGET_MACHO==2` —
+  emit `svc #0x80` and BSD syscall numbers in x16.
+- Probe finding exploited: raw `svc #0x80` works on Apple Silicon
+  when binary has `LC_LOAD_DYLIB libSystem.B.dylib` in load graph,
+  even without calling libSystem. No stubs needed for BSD whitelist.
+- `programs/macho_probe_arm_rawsvc.cyr` validates _write on whitelist.
+- Scope: programs using only `syscall(...)` (no strings, no globals).
+- End-to-end: `syscall(60,42);` Cyrius → cc5_aarch64 with
+  `CYRIUS_MACHO_ARM=1` → codesign → runs → exit=42.
+
+### v5.3.1 — Apple Silicon strings + globals (hello-world)
+Complete the useful Cyrius-on-Mac target.
+- PIE-safe PC-relative addressing — replace aarch64 FIXUP's MOVZ/MOVK
+  absolute-address sequence with `adrp + add` or `adrp + ldr` for
+  Mach-O ARM target. Absolute addressing breaks under PIE slide;
+  PC-relative is sole correct approach.
+- `__cstring` section in `__TEXT` for string literals (R|X segment
+  is fine — strings are read-only).
+- `__DATA` segment (R|W, initprot=3) for mutable globals.
+- `__DATA_CONST` segment only needed if we later add libSystem imports
+  (not in v5.3.1 scope).
+- Target test: a `println("hello")`-style Cyrius program compiles,
+  signs, runs on Apple Silicon, prints "hello", exits cleanly.
+
 ### v5.2.4 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
 
 Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
@@ -231,7 +259,8 @@ enables adding new targets without touching the frontend.
 |---------|----------|--------|--------|
 | **v5.1.0** | macOS x86_64 | Mach-O | **Done** — CYRIUS_MACHO=1, tested on hardware |
 | **v5.2.3** | macOS aarch64 | Mach-O | Probes validated on hardware; emitter fold v5.3.0 |
-| **v5.3.0** | macOS aarch64 emitter | Mach-O | Full `EMITMACHO_ARM64` rewrite with libSystem stubs |
+| **v5.3.0** | macOS aarch64 (syscall-only) | Mach-O | EMITMACHO_ARM64 full rewrite; raw BSD svc #0x80 |
+| **v5.3.1** | macOS aarch64 strings+globals | Mach-O | PIE-safe adrp+add fixup; __cstring + __DATA |
 | **v5.4.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
@@ -309,7 +338,7 @@ all emit paths go through IR. The path:
 | Linux aarch64 | ELF | **Partial** — cross-compiler works, native entry point ready (v5.0.3, needs ARM hardware validation) |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
-| macOS aarch64 | Mach-O | **Probes landed** (v5.2.3) — byte-identical hand-written Mach-O runs on macOS 26.4.1. Emitter fold = v5.3.0 |
+| macOS aarch64 | Mach-O | **Syscall-only Done** (v5.3.0) — EMITMACHO_ARM64 emits 15-LC Stage 2 layout, runs on macOS 26.4.1 Apple Silicon. Strings + globals = v5.3.1. |
 | Windows x86_64 | PE/COFF | Stub — **v5.4.0** |
 | RISC-V (rv64) | ELF | **v5.5.0** |
 | Bare-metal | ELF (no-libc) | **v5.6.0** |

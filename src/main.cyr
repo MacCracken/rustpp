@@ -86,7 +86,8 @@
 # --- Reclaimable / scratch ---
 #   0xC0000  include_fnames[32768]       256 include-once filenames × 128 B (v4.8.4-alpha2)
 #   0xC8000  fn_regalloc   [32768]       4096 per-fn #regalloc flags (v4.8.4-alpha4)
-#   0xD8000  (free)        [8192]        was struct_fnames, moved to 0xDCA000
+#   0xD8000  macho_imports [8192]        255 libSystem import entries × 32 B (v5.3.0+; Phase 3)
+#            +0 count, +0x10 entries[i]: name_ptr(8), stub_off(8), got_off(8), sc_num(8)
 #   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
 #
 # --- Variable tables ---
@@ -173,7 +174,7 @@ if (_vn > 0) {
     if (_vi + 4 <= _vn) {
         if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
             if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc5 5.2.3\n", 10);
+                syscall(SYS_WRITE, 1, "cc5 5.3.0\n", 10);
                 syscall(SYS_EXIT, 0);
             } }
         } }

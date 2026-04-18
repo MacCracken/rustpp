@@ -137,8 +137,11 @@ fn EXORAA(S) { EW(S, 0xCA000000); return 0; }    # eor x0, x0, x0 (zero)
 fn EMOVRDI(S) { return 0; }  # no-op: x0 is already the first arg on aarch64
 
 # === Syscall ===
-# SVC #0 (supervisor call)
-fn ESYSCALL(S) { EW(S, 0xD4000001); return 0; }  # svc #0
+# SVC #0 (Linux) or SVC #0x80 (macOS/BSD)
+fn ESYSCALL(S) {
+    if (_TARGET_MACHO == 2) { EW(S, 0xD4001001); return 0; }  # svc #0x80
+    EW(S, 0xD4000001); return 0;                               # svc #0
+}
 
 # === Syscall argument pops ===
 # On aarch64, syscall args are x0-x5 (already in the right regs from Cyrius calling convention)
@@ -232,6 +235,34 @@ fn ESADDR(S, soff) {
 # Pop syscall args then SVC
 # Translate x86 syscall number (in x8) to aarch64 equivalent
 fn ESYSXLAT(S) {
+    # Mach-O ARM (Apple Silicon, BSD syscall convention):
+    #   - syscall number goes in x16 (not x8)
+    #   - svc #0x80 (not #0)
+    #   - BSD numbers, not Linux: read=3, write=4, open=5, close=6,
+    #     mmap=197, mprotect=74, munmap=73, exit=1
+    # Emit chained cmp/b.ne/movz pattern, comparing x8 (Linux num) and
+    # writing BSD num to x16. The caller-side ESYSCALL emits svc #0x80.
+    if (_TARGET_MACHO == 2) {
+        # read: 0→3     movz x16,#3  = 0xD2800070
+        EW(S, 0xF100011F); EW(S, 0x54000041); EW(S, 0xD2800070);
+        # write: 1→4    movz x16,#4  = 0xD2800090
+        EW(S, 0xF100051F); EW(S, 0x54000041); EW(S, 0xD2800090);
+        # open: 2→5     movz x16,#5  = 0xD28000B0
+        EW(S, 0xF100091F); EW(S, 0x54000041); EW(S, 0xD28000B0);
+        # close: 3→6    movz x16,#6  = 0xD28000D0
+        EW(S, 0xF1000D1F); EW(S, 0x54000041); EW(S, 0xD28000D0);
+        # mmap: 9→197   movz x16,#197 = 0xD2801890 (197 << 5 = 0x18A0, wrong)
+        #   movz x16,#imm = 0xD2800000 | (imm << 5) | 16
+        #   197 = 0xC5, <<5 = 0x18A0, |0x10 = 0x18B0 → 0xD28018B0
+        EW(S, 0xF100251F); EW(S, 0x54000041); EW(S, 0xD28018B0);
+        # mprotect: 10→74  74 = 0x4A, <<5 = 0x940, |0x10 = 0x950 → 0xD2800950
+        EW(S, 0xF100291F); EW(S, 0x54000041); EW(S, 0xD2800950);
+        # munmap: 11→73   73 = 0x49, <<5 = 0x920, |0x10 = 0x930 → 0xD2800930
+        EW(S, 0xF1002D1F); EW(S, 0x54000041); EW(S, 0xD2800930);
+        # exit: 60→1    movz x16,#1  = 0xD2800030
+        EW(S, 0xF100F11F); EW(S, 0x54000041); EW(S, 0xD2800030);
+        return 0;
+    }
     # Emit: compare x8 against known x86 numbers, replace with aarch64
     # x86:0=read→a64:63, x86:1=write→a64:64, x86:2=open→a64:56
     # x86:3=close→a64:57, x86:12=brk→a64:214, x86:60=exit→a64:93
@@ -295,10 +326,15 @@ fn ESCPOPS(S, n) {
     return 0;
 }
 
-# Exit: mov x8, #93; mov x0, rax; svc #0
+# Exit: on Linux, movz x8,#93; svc #0.  On macOS/BSD, movz x16,#1; svc #0x80.
 fn EEXIT(S) {
     # x0 already has the exit value
-    EW(S, 0xD2800BA8);  # movz x8, #93 (exit syscall)
+    if (_TARGET_MACHO == 2) {
+        EW(S, 0xD2800030);    # movz x16, #1 (BSD _exit)
+        EW(S, 0xD4001001);    # svc #0x80
+        return 0;
+    }
+    EW(S, 0xD2800BA8);  # movz x8, #93 (aarch64 Linux exit)
     ESYSCALL(S);
     return 0;
 }
