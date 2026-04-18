@@ -1,19 +1,14 @@
-# Test: dynlib full init flow — cpu_features + TLS + stack_end bootstrap
-# unlocks calling libc entry points from a Cyrius static binary.
+# Test: dynlib end-to-end libc — cpu_features + TLS + stack_end +
+# IFUNC-aware symbol lookup (v5.3.11) let Cyrius static binaries
+# drive libc string/memory/syscall functions through dlopen.
 #
-# v5.3.9 landed the TLS and `__libc_stack_end` bootstrap helpers.
-# Combined with `dynlib_bootstrap_cpu_features` (v5.3.8) and the
-# IRELATIVE walker (v5.3.7), statically-linked Cyrius programs can
-# now drive simple libc functions (`getpid`, `getuid`) through
-# `dynlib_open` + `dynlib_sym` + `fncall*`.
+# The symbol lookup now detects STT_GNU_IFUNC entries and calls
+# the resolver so `dynlib_sym("strlen")` returns a real strlen
+# implementation rather than the resolver address.
 #
-# Still broken (beyond v5.3.9 scope):
-#   - NSS-dispatching functions (getgrouplist, getpwent) hang inside
-#     nsswitch.conf parsing / dlopen of NSS modules
-#   - Full pthread state (locale, malloc arenas) isn't set up, so
-#     anything that touches locale or large mallocs crashes
-# These require more of `__libc_start_main`'s preamble to be
-# emulated; tracked for a follow-up patch.
+# NSS-dispatching functions (getgrouplist, getaddrinfo) still hang
+# inside nsswitch.conf parsing / NSS module dlopen — that surface
+# needs locale + NSS table bootstrap tracked for a follow-up.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -34,10 +29,8 @@ if (boot_rc != 0) {
     syscall(60, 0);
 }
 assert_eq(boot_rc, 0, "dynlib_bootstrap_cpu_features returns 0");
-
 var tls = dynlib_bootstrap_tls();
 assert(tls != 0, "dynlib_bootstrap_tls returns non-null TLS block");
-
 var sr = dynlib_bootstrap_stack_end(0);
 assert_eq(sr, 0, "dynlib_bootstrap_stack_end returns 0");
 
@@ -54,18 +47,29 @@ _dynlib_apply_irelative(hc, bias, load64(hc + 88), load64(hc + 96));
 _dynlib_apply_irelative(hc, bias, load64(hc + 104), load64(hc + 112));
 assert(1, "IRELATIVE walked both tables without crash");
 
-test_group("libc syscall wrapper dispatch works");
-# These are simple syscall wrappers that return positive values.
-# Before v5.3.9 they SIGSEGVed inside libc on uninitialised TLS/stack.
+test_group("IFUNC-aware symbol lookup returns real implementations");
+var fp_strlen = dynlib_sym(hc, "strlen");
+assert(fp_strlen != 0, "strlen resolves");
+assert_eq(fncall1(fp_strlen, "hello there"), 11, "strlen(\"hello there\") = 11");
+assert_eq(fncall1(fp_strlen, ""), 0, "strlen(\"\") = 0");
+
+var fp_strcmp = dynlib_sym(hc, "strcmp");
+assert(fp_strcmp != 0, "strcmp resolves");
+assert_eq(fncall2(fp_strcmp, "abc", "abc"), 0, "strcmp equal = 0");
+assert(fncall2(fp_strcmp, "abc", "abd") != 0, "strcmp unequal != 0");
+
+var fp_memcmp = dynlib_sym(hc, "memcmp");
+assert(fp_memcmp != 0, "memcmp resolves");
+assert_eq(fncall3(fp_memcmp, "abcdef", "abcdef", 6), 0, "memcmp equal = 0");
+
+test_group("syscall wrapper libc calls");
 var fp_getpid = dynlib_sym(hc, "getpid");
-assert(fp_getpid != 0, "getpid resolves");
 var pid = fncall0(fp_getpid);
-assert(pid > 0, "getpid returns positive PID");
+assert(pid > 0, "getpid > 0");
 
 var fp_getuid = dynlib_sym(hc, "getuid");
-assert(fp_getuid != 0, "getuid resolves");
 var uid = fncall0(fp_getuid);
-assert(uid >= 0, "getuid returns non-negative UID");
+assert(uid >= 0, "getuid >= 0");
 
 var r = assert_summary();
 syscall(60, 0);

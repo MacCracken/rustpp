@@ -87,6 +87,7 @@ enum ElfStBind {
 enum ElfStType {
     STT_FUNC    = 2;
     STT_OBJECT  = 1;
+    STT_GNU_IFUNC = 10;        # GNU IFUNC — st_value points at a resolver
 }
 
 # ELF64 struct sizes
@@ -96,6 +97,18 @@ enum ElfSizes {
     SYM_SIZE    = 24;          # Elf64_Sym entry
     DYN_SIZE    = 16;          # Elf64_Dyn entry
 }
+
+# ================================================================
+# Module-level flags
+# ================================================================
+# `_dynlib_ifunc_safe` is set to 1 by `dynlib_bootstrap_cpu_features()`
+# once glibc's `__cpu_features` struct has been zero-filled via the
+# ld-linux getter. While it's 0, IFUNC resolvers in loaded libraries
+# (libcrypto etc.) are unsafe to call — their HWCAP reads segfault.
+# While it's 1, `dynlib_sym` auto-resolves `STT_GNU_IFUNC` symbols by
+# calling the resolver; callers see the concrete implementation
+# pointer rather than the resolver address.
+var _dynlib_ifunc_safe = 0;
 
 # ================================================================
 # DynLib struct accessors
@@ -273,10 +286,20 @@ fn _gnu_hash_lookup(gnuhash, dynsym, dynstr, strsz, bias, name) {
             if (strsz > 0 && st_name_off >= strsz) { return 0; }
             var sym_name = dynstr + st_name_off;
             if (streq(sym_name, name) == 1) {
-                # Found it — return address
-                var st_value = load64(sym_entry + 8);  # st_value at +8
-                if (st_value == 0) { return 0; }       # Undefined symbol
-                return bias + st_value;
+                # Found it — return address. For STT_GNU_IFUNC symbols
+                # the address points at a resolver; call it to get the
+                # concrete impl, but only after `_dynlib_ifunc_safe`
+                # is set (cpu_features bootstrap has run). Otherwise
+                # return the resolver address — matches pre-v5.3.11
+                # behaviour for consumers that aren't bootstrapping.
+                var st_value = load64(sym_entry + 8);
+                if (st_value == 0) { return 0; }
+                var st_info = load8(sym_entry + 4);
+                var addr = bias + st_value;
+                if ((st_info & 0xF) == STT_GNU_IFUNC) {
+                    if (_dynlib_ifunc_safe == 1) { addr = fncall0(addr); }
+                }
+                return addr;
             }
         }
 
@@ -315,7 +338,11 @@ fn _linear_sym_lookup(dynsym, dynstr, nsyms, strsz, bias, name) {
         # Compare name
         var sym_name = dynstr + st_name_off;
         if (streq(sym_name, name) == 1) {
-            return bias + st_value;
+            var addr = bias + st_value;
+            if ((st_info & 0xF) == STT_GNU_IFUNC) {
+                if (_dynlib_ifunc_safe == 1) { addr = fncall0(addr); }
+            }
+            return addr;
         }
     }
     return 0;
@@ -862,6 +889,9 @@ fn dynlib_bootstrap_cpu_features() {
     if (cpf == 0) { return 3; }
     var i = 0;
     while (i < 768) { store8(cpf + i, 0); i = i + 1; }
+    # From here on, IFUNC resolvers can be safely invoked (they read
+    # cpu_features and now see the SSE2-baseline zero state).
+    _dynlib_ifunc_safe = 1;
     return 0;
 }
 

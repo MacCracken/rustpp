@@ -4,6 +4,48 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.11] — 2026-04-18
+
+**IFUNC-aware `dynlib_sym` — libc string/memory functions now return
+correct results when invoked through dynlib.**
+
+### Added
+- **`STT_GNU_IFUNC` detection in `_gnu_hash_lookup` /
+  `_linear_sym_lookup`** — when a resolved symbol's `st_info` type
+  is 10 (GNU IFUNC), `dynlib_sym` calls the resolver with zero args
+  and returns its result. Callers receive the concrete
+  implementation pointer instead of the resolver address.
+- **`_dynlib_ifunc_safe` module-level flag** — set to 1 by
+  `dynlib_bootstrap_cpu_features()`. While it's 0, IFUNC symbols
+  return the resolver address (pre-v5.3.11 behaviour) so
+  consumers that haven't bootstrapped glibc's `cpu_features`
+  don't trigger resolver segfaults on libraries like libcrypto.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
+- **`dynlib_init.tcyr` expanded from 9 to 15 assertions** covering
+  the IFUNC path on real libc.so.6:
+  `strlen("hello there") = 11`, `strlen("") = 0`,
+  `strcmp("abc","abc") = 0`, `strcmp("abc","abd") != 0`,
+  `memcmp("abcdef","abcdef",6) = 0`,
+  plus the existing `getpid > 0` / `getuid >= 0` syscall-wrapper
+  checks. Previously strlen returned 144 (the resolver address's
+  low byte) instead of 11.
+- **`tls.tcyr` regression-free** (22/22): bootstrap isn't called,
+  flag stays 0, IFUNC resolvers on libcrypto are not invoked.
+
+### Scope / limitations
+- **NSS dispatch still hangs.** `getgrouplist` / `getaddrinfo` /
+  `getpwent` crash inside nsswitch.conf parsing and NSS module
+  dlopen — those paths need locale init (`__ctype_init`), malloc
+  arena setup, and the NSS module table populated. Calling
+  `__ctype_init` alone doesn't unblock them. Tracked as a
+  follow-up after the v5.3.13 Apple Silicon leftovers.
+- Consumers of libcrypto/libssl (e.g. `lib/tls.cyr`) should
+  continue to NOT call `dynlib_bootstrap_cpu_features` unless
+  they also intend to bootstrap libcrypto's own IFUNCs safely —
+  IFUNC resolvers there expect libcrypto's init to have run.
+
 ## [5.3.10] — 2026-04-18
 
 **`cyrius distlib [profile]` — opt-in multi-bundle support for
