@@ -4,6 +4,50 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.8] — 2026-04-18
+
+**`dynlib_bootstrap_cpu_features()` — unblock IRELATIVE resolvers in
+statically-linked Cyrius binaries.**
+
+### Added
+- **`dynlib_bootstrap_cpu_features()`** public API. Loads
+  `/lib64/ld-linux-x86-64.so.2` via `dynlib_open`, calls its
+  exported `_dl_x86_get_cpu_features@@GLIBC_PRIVATE` getter to
+  obtain a pointer to glibc's internal `cpu_features` struct
+  (nested inside `_rtld_global_ro`), and zero-fills 768 bytes
+  there. With all "usable" flags cleared, IFUNC resolvers fall
+  back to the SSE2-baseline implementation — guaranteed available
+  on every x86_64 CPU and safe to call without the usual
+  kernel/auxv startup machinery.
+
+### Changed
+- `dynlib_init` docs updated to reflect the new recommended flow:
+  call `dynlib_bootstrap_cpu_features()` before `dynlib_init(hc)`
+  on a libc handle.
+- `tests/tcyr/dynlib_init.tcyr` now exercises the bootstrap path
+  (`_dl_x86_get_cpu_features` round-trip, zero-fill, IRELATIVE
+  walk) in addition to the v5.3.7 handle-metadata checks.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
+- Experimentally verified on this host (glibc 2.41): the
+  `_dynlib_apply_irelative` walker now completes against
+  `libc.so.6`'s `.rela.dyn` + `.rela.plt` tables without SIGSEGV
+  — previously crashed on the first IFUNC resolver call.
+- `tls` test still passes (22/22) — bootstrap is opt-in, existing
+  `dynlib_open` flow unchanged.
+
+### Scope / limitations
+- **NSS/PAM end-to-end still deferred.** Even with IRELATIVE
+  resolved, calling a libc entry point (e.g. `getpid`) crashes
+  inside functions that touch uninitialised TLS, `__libc_stack_end`,
+  or locale state. Populating those requires emulating more of
+  glibc's startup (auxv / `__libc_start_main`) — tracked as the
+  next v5.3.x follow-up. This patch gets us past the first cliff.
+- The 768-byte zero-fill assumes glibc's current `cpu_features`
+  struct layout. Versions older than ~2.30 or newer than ~2.40
+  may need adjustment; current glibc 2.41 validated.
+
 ## [5.3.7] — 2026-04-18
 
 **`lib/dynlib.cyr` opt-in init runner + IRELATIVE machinery — the

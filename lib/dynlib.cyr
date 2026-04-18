@@ -785,16 +785,55 @@ fn dynlib_open(path) {
     return h;
 }
 
+# Bootstrap glibc's `__cpu_features` struct to a zero-initialised
+# (SSE2-baseline) state so IRELATIVE resolvers can run without the
+# usual kernel-provided auxv setup. Returns 0 on success, non-zero
+# if the dynamic linker can't be loaded or the getter is missing.
+#
+# How it works: `/lib64/ld-linux-x86-64.so.2` exports
+# `_dl_x86_get_cpu_features@@GLIBC_PRIVATE`, a getter that returns
+# a pointer to the `cpu_features` struct inside `_rtld_global_ro`.
+# We call it and zero the first 768 bytes — covers the struct layout
+# across current glibc versions. With all "usable" flags cleared,
+# IFUNC resolvers fall back to the SSE2-baseline implementation
+# (guaranteed on every x86_64 CPU).
+#
+# This unblocks IRELATIVE resolution but NOT the rest of glibc
+# startup state (TLS, `__libc_stack_end`, stdio buffers, locale).
+# Calling libc entry points after just this bootstrap still crashes
+# inside functions that touch those — full NSS/PAM requires the
+# follow-on work to populate TLS and stack end too.
+fn dynlib_bootstrap_cpu_features() {
+    var hld = dynlib_open("/lib64/ld-linux-x86-64.so.2");
+    if (hld == 0) { hld = dynlib_open("ld-linux-x86-64.so.2"); }
+    if (hld == 0) { return 1; }
+    var getter = dynlib_sym(hld, "_dl_x86_get_cpu_features");
+    if (getter == 0) { return 2; }
+    var cpf = fncall0(getter);
+    if (cpf == 0) { return 3; }
+    var i = 0;
+    while (i < 768) { store8(cpf + i, 0); i = i + 1; }
+    return 0;
+}
+
 # Opt-in full initialisation: applies IRELATIVE relocations THEN runs
 # DT_INIT + DT_INIT_ARRAY. Use only when the loaded library's init
 # surface is compatible with a Cyrius static binary (libc.so.6 for
-# NSS/PAM; skip for libcrypto/libssl which expect the glibc startup
-# machinery). Returns 0 on success, 1 if the handle is invalid.
+# NSS/PAM after `dynlib_bootstrap_cpu_features` has run; skip for
+# libcrypto/libssl which expect the full glibc startup machinery).
+# Returns 0 on success, 1 if the handle is invalid.
 #
-# Consumers that need NSS group resolution or PAM authentication should
-# call this on the libc.so.6 handle before dispatching getgrouplist,
-# pam_start, etc. Without it, those entry points reach into uninitialised
-# locale/NSS state and SIGSEGV.
+# Typical usage for NSS/PAM:
+#   dynlib_bootstrap_cpu_features();
+#   var hc = dynlib_open("libc.so.6");
+#   dynlib_init(hc);
+#   var fp = dynlib_sym(hc, "getgrouplist");
+#   fncall4(fp, user, gid, buf, ngroups_ptr);
+#
+# Note: current status — IRELATIVE resolves, but libc entry points
+# still crash on uninitialised TLS / `__libc_stack_end`. Tracked for
+# a follow-up patch. Consumers should treat `dynlib_init` + libc as
+# experimental until TLS bootstrap lands.
 fn dynlib_init(handle) {
     if (handle == 0) { return 1; }
     var bias = load64(handle + 40);
