@@ -1,0 +1,295 @@
+# macho_probe_arm_rawsvc.cyr — test: does raw svc #0x80 work for _write
+# on Apple Silicon, or is it whitelisted to just _exit?
+#
+# Based on Stage 2 probe layout (LC_MAIN + libSystem in load graph,
+# binary never actually calls into libSystem). Code does:
+#   write(1, "hello\n", 6); exit(42)
+# via raw svc #0x80 twice — zero libSystem calls.
+#
+# Build on Linux:
+#   cat programs/macho_probe_arm_rawsvc.cyr | build/cc5 > /tmp/rawsvc \
+#     && chmod +x /tmp/rawsvc
+#   /tmp/rawsvc > /tmp/rawsvc.macho
+#
+# On Apple Silicon:
+#   chmod +x rawsvc.macho
+#   codesign -s - --force rawsvc.macho
+#   ./rawsvc.macho; echo "exit=$?"
+#
+# Interpretation:
+#   "hello" + exit=42 → raw SVC works for _write → Phase 2b simpler
+#   exit=137 / "killed" / SIGILL → _write rejected; only a narrow
+#                                    whitelist includes _exit. Stubs needed.
+
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wname(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < 16) { store8(buf + off + i, 0); i = i + 1; }
+    return off + 16;
+}
+fn wstr_pad(buf, off, s, width) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < width) { store8(buf + off + i, 0); i = i + 1; }
+    return off + width;
+}
+
+# Using Stage 2 probe's exact load command set (15 LCs, proven to
+# survive kernel gates on Apple Silicon). String is embedded directly
+# in __text at offset 36 from code start — same page, adrp offset 0.
+#
+# Code (36 bytes, 9 instructions) at CODE_OFF=808 (matches Stage 2):
+#   mov  w0, #1                  52800020
+#   adrp x1, page0               90000001
+#   add  x1, x1, #0x34C          91 0D 30 21  (0x34C = CODE_OFF+36 = 0x34C)
+#   mov  x2, #6                  D28000C2
+#   mov  x16, #4                 D2800090
+#   svc  #0x80                   D4001001
+#   mov  x0, #42                 D2800540
+#   mov  x16, #1                 D2800030
+#   svc  #0x80                   D4001001
+#
+# String at file offset 808+36 = 844 = 0x34C, vaddr same.
+# Total __text content size: 36 + 7 = 43 bytes, pad to alignment.
+
+var PAGE_SIZE = 16384;
+var TEXT_VMADDR = 0x100000000;
+var CODE_OFF = 808;
+var TEXT_SIZE = 43;             # 36 code + 7 string
+var LINKEDIT_FILEOFF = 16384;
+var LINKEDIT_VMADDR = 0x100004000;
+var FILE_END = 16560;
+
+var buf[32768];
+var o = 0;
+
+# mach_header_64 (32)
+o = w32(&buf, o, 0xFEEDFACF);
+o = w32(&buf, o, 0x0100000C);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000002);
+o = w32(&buf, o, 15);
+o = w32(&buf, o, 648);                 # sizeofcmds: __TEXT has 1 section not 2 (-80)
+o = w32(&buf, o, 0x00200085);
+o = w32(&buf, o, 0);
+
+# LC_SEGMENT_64 __PAGEZERO
+o = w32(&buf, o, 0x19); o = w32(&buf, o, 72);
+o = wname(&buf, o, "__PAGEZERO");
+o = w64(&buf, o, 0); o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, 0); o = w64(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# LC_SEGMENT_64 __TEXT (1 section)
+o = w32(&buf, o, 0x19); o = w32(&buf, o, 152);
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, 0);
+o = w64(&buf, o, PAGE_SIZE);
+o = w32(&buf, o, 5); o = w32(&buf, o, 5);
+o = w32(&buf, o, 1); o = w32(&buf, o, 0);
+
+# section __text
+o = wname(&buf, o, "__text");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);
+o = w64(&buf, o, TEXT_SIZE);
+o = w32(&buf, o, CODE_OFF);
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x80000400);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# LC_SEGMENT_64 __LINKEDIT
+o = w32(&buf, o, 0x19); o = w32(&buf, o, 72);
+o = wname(&buf, o, "__LINKEDIT");
+o = w64(&buf, o, LINKEDIT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, LINKEDIT_FILEOFF);
+o = w64(&buf, o, FILE_END - LINKEDIT_FILEOFF);
+o = w32(&buf, o, 1); o = w32(&buf, o, 1);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# LC_DYLD_CHAINED_FIXUPS (56 byte empty blob at file offset 16384)
+o = w32(&buf, o, 0x80000034); o = w32(&buf, o, 16);
+o = w32(&buf, o, 16384); o = w32(&buf, o, 56);
+
+# LC_DYLD_EXPORTS_TRIE (48 bytes)
+o = w32(&buf, o, 0x80000033); o = w32(&buf, o, 16);
+o = w32(&buf, o, 16440); o = w32(&buf, o, 48);
+
+# LC_SYMTAB (2 syms, 32 strtab)
+o = w32(&buf, o, 0x02); o = w32(&buf, o, 24);
+o = w32(&buf, o, 16496); o = w32(&buf, o, 2);
+o = w32(&buf, o, 16528); o = w32(&buf, o, 32);
+
+# LC_DYSYMTAB
+o = w32(&buf, o, 0x0B); o = w32(&buf, o, 80);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 2);
+o = w32(&buf, o, 2); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# LC_LOAD_DYLINKER
+o = w32(&buf, o, 0x0E); o = w32(&buf, o, 32);
+o = w32(&buf, o, 12);
+o = wstr_pad(&buf, o, "/usr/lib/dyld", 20);
+
+# LC_UUID
+o = w32(&buf, o, 0x1B); o = w32(&buf, o, 24);
+o = w8(&buf, o, 0xCA); o = w8(&buf, o, 0xFE); o = w8(&buf, o, 0xBA); o = w8(&buf, o, 0xBE);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x05);
+o = w8(&buf, o, 0x40); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x80); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x05);
+
+# LC_BUILD_VERSION
+o = w32(&buf, o, 0x32); o = w32(&buf, o, 32);
+o = w32(&buf, o, 1);
+o = w32(&buf, o, 0x001A0000);
+o = w32(&buf, o, 0x001A0000);
+o = w32(&buf, o, 1);
+o = w32(&buf, o, 3);
+o = w32(&buf, o, 0x04F20800);
+
+# LC_SOURCE_VERSION
+o = w32(&buf, o, 0x2A); o = w32(&buf, o, 16);
+o = w64(&buf, o, 0);
+
+# LC_MAIN
+o = w32(&buf, o, 0x80000028); o = w32(&buf, o, 24);
+o = w64(&buf, o, CODE_OFF);
+o = w64(&buf, o, 0);
+
+# LC_LOAD_DYLIB libSystem.B (even though we never call into it)
+o = w32(&buf, o, 0x0C); o = w32(&buf, o, 56);
+o = w32(&buf, o, 24); o = w32(&buf, o, 2);
+o = w32(&buf, o, 0x054C0000); o = w32(&buf, o, 0x00010000);
+o = wstr_pad(&buf, o, "/usr/lib/libSystem.B.dylib", 32);
+
+# LC_FUNCTION_STARTS (8 bytes of ULEB128 at 16488)
+o = w32(&buf, o, 0x26); o = w32(&buf, o, 16);
+o = w32(&buf, o, 16488); o = w32(&buf, o, 8);
+
+# LC_DATA_IN_CODE
+o = w32(&buf, o, 0x29); o = w32(&buf, o, 16);
+o = w32(&buf, o, 16496); o = w32(&buf, o, 0);
+
+# Pad header to CODE_OFF (808)
+while (o < CODE_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __text — 9 instructions + "hello\n" (43 bytes)
+# ================================================================
+# String vaddr = CODE_OFF + 36 = 844 = 0x34C
+# adrp computes target_page - pc_page, both 0x100000000 page, diff=0
+# add x1, x1, #0x34C:
+#   imm12 = 0x34C, sh=0, Rn=1, Rd=1
+#   0x91000000 | (0x34C << 10) | (1 << 5) | 1 = 0x910D3021
+o = w32(&buf, o, 0x52800020);        # mov  w0, #1
+o = w32(&buf, o, 0x90000001);        # adrp x1, 0
+o = w32(&buf, o, 0x910D3021);        # add  x1, x1, #0x34C
+o = w32(&buf, o, 0xD28000C2);        # mov  x2, #6
+o = w32(&buf, o, 0xD2800090);        # mov  x16, #4 (BSD _write)
+o = w32(&buf, o, 0xD4001001);        # svc  #0x80
+o = w32(&buf, o, 0xD2800540);        # mov  x0, #42
+o = w32(&buf, o, 0xD2800030);        # mov  x16, #1 (BSD _exit)
+o = w32(&buf, o, 0xD4001001);        # svc  #0x80
+
+# "hello\n\0" at offset 844 (vaddr 0x10000034C)
+o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x6C);
+o = w8(&buf, o, 0x6C); o = w8(&buf, o, 0x6F); o = w8(&buf, o, 0x0A);
+o = w8(&buf, o, 0x00);
+
+# Pad __TEXT page to LINKEDIT_FILEOFF
+while (o < LINKEDIT_FILEOFF) { o = w8(&buf, o, 0); }
+
+# __LINKEDIT content — copied from Stage 2 probe (exports trie, symtab,
+# strtab for __mh_execute_header + _main). Chain fixups: zero-import
+# empty blob.
+
+# chain_fixups (56 bytes, zero imports)
+o = w32(&buf, o, 0);                   # version
+o = w32(&buf, o, 32);                  # starts_offset
+o = w32(&buf, o, 48);                  # imports_offset
+o = w32(&buf, o, 48);                  # symbols_offset
+o = w32(&buf, o, 0);                   # imports_count
+o = w32(&buf, o, 1);                   # imports_format
+o = w32(&buf, o, 0);                   # symbols_format
+o = w32(&buf, o, 0);                   # pad
+o = w32(&buf, o, 3);                   # seg_count (3: PAGEZERO, TEXT, LINKEDIT)
+o = w32(&buf, o, 0);                   # offset[0]
+o = w32(&buf, o, 0);                   # offset[1]
+o = w32(&buf, o, 0);                   # offset[2]
+o = w32(&buf, o, 0);                   # tail pad
+o = w32(&buf, o, 0);
+
+# exports_trie (48 bytes) — _mh_execute_header + _main at CODE_OFF
+# ULEB128(808) = 0xA8 0x06
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x12); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x03); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0xA8);
+o = w8(&buf, o, 0x06); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x63);
+o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x64);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x09);
+o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69); o = w8(&buf, o, 0x6E);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x0D); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# function_starts (8 bytes)
+o = w8(&buf, o, 0xA8); o = w8(&buf, o, 0x06);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# symtab (2 nlist_64 entries — __mh_execute_header + _main)
+o = w32(&buf, o, 2);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x10); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, 0x100000000);
+
+o = w32(&buf, o, 22);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, 0x100000328);
+
+# strtab (32 bytes)
+o = w8(&buf, o, 0x20); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x63); o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61);
+o = w8(&buf, o, 0x64); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x6E); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+while (o < FILE_END) { o = w8(&buf, o, 0); }
+
+syscall(1, 1, &buf, o);
+syscall(60, 0);
