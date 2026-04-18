@@ -151,6 +151,7 @@ include "src/backend/x86/decode.cyr"
 include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/parse.cyr"
+include "src/backend/macho/imports.cyr"
 include "src/backend/macho/emit.cyr"
 include "src/backend/x86/fixup.cyr"
 
