@@ -1,0 +1,169 @@
+# macho_probe_arm.cyr — emit a minimal Mach-O ARM64 binary to stdout.
+# The generated binary does: exit(42) via raw svc #0x80 (BSD syscall 1).
+#
+# Stage 1 probe — validates whether an LC_UNIXTHREAD ARM64 binary that is
+# R|X-only (not RWX) and ad-hoc signed can load on Apple Silicon and
+# whether raw SVC syscalls still work in userspace.
+#
+# Build on Linux:
+#   cat programs/macho_probe_arm.cyr | build/cc5 > /tmp/macho_probe_arm \
+#     && chmod +x /tmp/macho_probe_arm
+#   /tmp/macho_probe_arm > /tmp/exit42_arm.macho
+#
+# Transfer + ad-hoc sign + run on Apple Silicon:
+#   scp /tmp/exit42_arm.macho mac:~
+#   ssh mac 'chmod +x exit42_arm.macho \
+#     && codesign -s - --force exit42_arm.macho \
+#     && ./exit42_arm.macho; echo "exit=$?"'
+#
+# Interpretation:
+#   exit=42    — full path works, raw SVC accepted by kernel
+#   exit=132   — SIGILL: loaded, but SVC blocked → need libSystem (Stage 2)
+#   exit=133   — SIGBUS: similar diagnosis
+#   "killed"   — SIGKILL at exec: signature/layout still rejected → investigate
+#
+# Differences from macho_probe.cyr (x86_64):
+#   - CPU type 0x0100000C (CPU_TYPE_ARM64) vs 0x01000007
+#   - 16KB pages vs 4KB
+#   - LC_UNIXTHREAD flavor=6 (ARM_THREAD_STATE64), count=68, cmdsize=288
+#   - __TEXT initprot=5 (R|X) not 7 (RWX) — Apple Silicon W^X
+#   - ARM64 exit code: movz x0,#42; movz x16,#1; svc #0x80
+
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wname(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < 16) { store8(buf + off + i, 0); i = i + 1; }
+    return off + 16;
+}
+
+# ARM64 code for: movz x0,#42; movz x16,#1; svc #0x80
+# movz Xd, #imm16 = 0xD2800000 | (imm16 << 5) | rd
+#   movz x0,  #42 = 0xD2800000 | (42 << 5) | 0  = 0xD2800540
+#   movz x16, #1  = 0xD2800000 | (1  << 5) | 16 = 0xD2800030
+# svc #0x80      = 0xD4001001
+var CODE_SIZE = 12;
+
+# Layout sizes
+#   mach_header_64         32
+#   LC_SEGMENT_64 __PAGEZERO  72
+#   LC_SEGMENT_64 __TEXT    72 + 80 = 152 (1 section)
+#   LC_UNIXTHREAD (ARM64)   288
+#   header total          = 544
+#   padded to PAGE (16384) — code starts at 16384
+var HDR_TOTAL = 544;
+var PAGE_SIZE = 16384;
+var TEXT_VMADDR = 0x100000000;
+var CODE_OFF = PAGE_SIZE;
+
+var buf[32768];
+var o = 0;
+
+# ================================================================
+# mach_header_64 (32 bytes)
+# ================================================================
+o = w32(&buf, o, 0xFEEDFACF);     # magic MH_MAGIC_64
+o = w32(&buf, o, 0x0100000C);     # cputype = CPU_TYPE_ARM64
+o = w32(&buf, o, 0x00000000);     # cpusubtype = ARM64_ALL
+o = w32(&buf, o, 0x00000002);     # filetype = MH_EXECUTE
+o = w32(&buf, o, 3);              # ncmds = 3
+o = w32(&buf, o, 72 + 152 + 288); # sizeofcmds = 512
+o = w32(&buf, o, 0x00000001);     # flags = MH_NOUNDEFS
+o = w32(&buf, o, 0);              # reserved
+
+# ================================================================
+# LC_SEGMENT_64 __PAGEZERO (72 bytes)
+# ================================================================
+o = w32(&buf, o, 0x19);           # cmd = LC_SEGMENT_64
+o = w32(&buf, o, 72);             # cmdsize
+o = wname(&buf, o, "__PAGEZERO");
+o = w64(&buf, o, 0);              # vmaddr
+o = w64(&buf, o, TEXT_VMADDR);    # vmsize = 4GB
+o = w64(&buf, o, 0);              # fileoff
+o = w64(&buf, o, 0);              # filesize
+o = w32(&buf, o, 0);              # maxprot
+o = w32(&buf, o, 0);              # initprot
+o = w32(&buf, o, 0);              # nsects
+o = w32(&buf, o, 0);              # flags
+
+# ================================================================
+# LC_SEGMENT_64 __TEXT + __text section (152 bytes)
+# RX only (initprot=5), NOT RWX — Apple Silicon enforces W^X.
+# ================================================================
+o = w32(&buf, o, 0x19);           # cmd = LC_SEGMENT_64
+o = w32(&buf, o, 152);            # cmdsize
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR);    # vmaddr
+o = w64(&buf, o, PAGE_SIZE);      # vmsize = one 16KB page
+o = w64(&buf, o, 0);              # fileoff
+o = w64(&buf, o, PAGE_SIZE);      # filesize
+o = w32(&buf, o, 5);              # maxprot = R|X
+o = w32(&buf, o, 5);              # initprot = R|X
+o = w32(&buf, o, 1);              # nsects = 1
+o = w32(&buf, o, 0);              # flags
+
+# section_64 __text (80 bytes)
+o = wname(&buf, o, "__text");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);  # addr
+o = w64(&buf, o, CODE_SIZE);      # size
+o = w32(&buf, o, CODE_OFF);       # offset
+o = w32(&buf, o, 2);              # align = 2^2 = 4 (ARM64 instrs are 4-aligned)
+o = w32(&buf, o, 0);              # reloff
+o = w32(&buf, o, 0);              # nreloc
+o = w32(&buf, o, 0x80000400);     # flags = PURE_INSTRUCTIONS | SOME_INSTRUCTIONS
+o = w32(&buf, o, 0);              # reserved1
+o = w32(&buf, o, 0);              # reserved2
+o = w32(&buf, o, 0);              # reserved3
+
+# ================================================================
+# LC_UNIXTHREAD ARM64 (288 bytes)
+# flavor=6 (ARM_THREAD_STATE64), count=68 (34 uint64 = 272 bytes state)
+# cmdsize = 4(cmd) + 4(cmdsize) + 4(flavor) + 4(count) + 272(state) = 288
+# ================================================================
+o = w32(&buf, o, 0x05);           # cmd = LC_UNIXTHREAD
+o = w32(&buf, o, 288);            # cmdsize
+o = w32(&buf, o, 6);              # flavor = ARM_THREAD_STATE64
+o = w32(&buf, o, 68);             # count = 34 * 2 uint32
+
+# Thread state: 34 x uint64
+#   x0..x28 (29)  -> indices 0..28
+#   fp (x29)      -> 29
+#   lr (x30)      -> 30
+#   sp            -> 31
+#   pc            -> 32  (entry point goes here)
+#   cpsr          -> 33
+for (var ri = 0; ri < 32; ri = ri + 1) { o = w64(&buf, o, 0); }
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);  # pc
+o = w64(&buf, o, 0);              # cpsr
+
+# ================================================================
+# Pad header region to PAGE boundary
+# ================================================================
+while (o < CODE_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# Code: exit(42) via raw svc #0x80
+# ================================================================
+o = w32(&buf, o, 0xD2800540);     # movz x0,  #42   (exit status)
+o = w32(&buf, o, 0xD2800030);     # movz x16, #1    (BSD syscall: exit)
+o = w32(&buf, o, 0xD4001001);     # svc #0x80
+
+# Pad to PAGE_SIZE — segment filesize must equal vmsize
+while (o < CODE_OFF + PAGE_SIZE) { o = w8(&buf, o, 0); }
+
+# Write to stdout (Linux syscall write=1, exit=60)
+syscall(1, 1, &buf, o);
+syscall(60, 0);
