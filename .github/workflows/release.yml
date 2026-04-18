@@ -214,10 +214,81 @@ jobs:
           name: release-macos
           path: dist/
 
+  # ── Build macOS arm64 (Mach-O, Apple Silicon) ──
+  # Mirrors build-macos but uses the aarch64 cross-compiler with
+  # CYRIUS_MACHO_ARM=1 to emit arm64 Mach-O binaries instead of x86_64.
+  # Multi-page __TEXT landed in v5.3.6 — tools larger than 16KB
+  # (cyrfmt, cyrlint, cyrdoc) now fit.
+  build-macos-arm64:
+    name: Build macOS arm64
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build arm64 cross-compiler
+        run: |
+          chmod +x build/cc5
+          cat src/main.cyr | ./build/cc5 > /tmp/cc5_fresh && chmod +x /tmp/cc5_fresh
+          cat src/main_aarch64.cyr | /tmp/cc5_fresh > /tmp/cc5_cross_arm && chmod +x /tmp/cc5_cross_arm
+          echo "arm64 cross-compiler: $(wc -c < /tmp/cc5_cross_arm) bytes"
+
+      - name: Cross-compile tools as Mach-O arm64
+        run: |
+          for tool in cyrfmt cyrlint cyrdoc; do
+            if [ -f "programs/${tool}.cyr" ]; then
+              cat programs/${tool}.cyr | CYRIUS_MACHO_ARM=1 /tmp/cc5_cross_arm > ./build/${tool}_macho_arm 2>/dev/null
+              sz=$(wc -c < ./build/${tool}_macho_arm)
+              echo "${tool}_macho_arm: $sz bytes"
+              magic=$(xxd -l4 -p ./build/${tool}_macho_arm | tr -d ' \n')
+              cputype=$(xxd -s4 -l4 -p ./build/${tool}_macho_arm | tr -d ' \n')
+              test "$magic" = "cffaedfe" || { echo "ERROR: $tool wrong magic ($magic)"; exit 1; }
+              test "$cputype" = "0c000001" || { echo "ERROR: $tool not arm64 (cputype=$cputype)"; exit 1; }
+            fi
+          done
+
+      - name: Verify Mach-O arm64 binaries
+        run: |
+          for f in build/*_macho_arm; do
+            [ -f "$f" ] || continue
+            file "$f" | grep -q "Mach-O 64-bit arm64" || { echo "ERROR: $f not Mach-O arm64"; exit 1; }
+          done
+          echo "PASS: all Mach-O arm64 binaries verified"
+
+      - name: Package macOS arm64 tarball
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          STAGE="cyrius-${VER}-aarch64-macos"
+          mkdir -p "$STAGE/bin" "$STAGE/lib"
+
+          # Rename tools (strip _macho_arm suffix)
+          for f in build/*_macho_arm; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f" _macho_arm)
+            cp "$f" "$STAGE/bin/$name"
+            chmod +x "$STAGE/bin/$name"
+          done
+
+          sh scripts/release-lib.sh "$STAGE/lib"
+          cp lib/syscalls_macos.cyr "$STAGE/lib/"
+          cp lib/alloc_macos.cyr "$STAGE/lib/"
+          cp VERSION LICENSE "$STAGE/"
+
+          tar czf "${STAGE}.tar.gz" "$STAGE"
+          sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
+
+          mkdir -p dist
+          mv "${STAGE}.tar.gz" "${STAGE}.tar.gz.sha256" dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: dist/
+
   # ── Create GitHub Release ──
   release:
     name: Create GitHub Release
-    needs: [build-x86, build-aarch64, build-macos]
+    needs: [build-x86, build-aarch64, build-macos, build-macos-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -235,6 +306,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: release-macos
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-macos-arm64
           path: dist/
 
       - name: Add standalone installer

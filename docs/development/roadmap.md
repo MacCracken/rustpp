@@ -1,8 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v5.3.5.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
-> Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add),
-> CI-gated via `macho-arm64` (ubuntu static) + `macho-arm64-native` (macos-14 run).
+> **v5.3.6.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
+> Apple Silicon strings + globals + **multi-page `__TEXT`** so real tools
+> fit. Release workflow now ships `aarch64-macos` tarballs alongside
+> x86_64/arm64 Linux + x86_64 macOS.
 > `lib/ct.cyr` branchless select + `mulh64` builtin + `secret var` zeroise-on-exit
 > for the sigil 3.0 crypto toolkit.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (425KB). Closure verified.

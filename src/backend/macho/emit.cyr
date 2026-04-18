@@ -234,20 +234,24 @@ fn EMITMACHO_ARM64(S) {
     var has_data = 0;
     if (totvar > 0) { has_data = 1; }
 
-    # __TEXT stays 2 pages (page 0 = headers, page 1 = code + __cstring).
-    # Code + strings must fit in 1 page for v5.3.1 scope.
-    if (code_aligned + spos > PAGE) {
-        syscall(SYS_WRITE, 2,
-            "error: Mach-O ARM64 code+strings exceed one page (16KB)\n", 57);
-        syscall(SYS_EXIT, 1);
+    # __TEXT content spans code + __cstring, rounded up to whole pages.
+    # text_content_pages is the number of 16KB pages needed for that payload;
+    # __TEXT itself is 1 header page + content pages. Multi-page __TEXT
+    # enables real toolchain binaries (cyrfmt, cyrlint, cyrdoc, cc5) — a
+    # single page was the v5.3.1 bootstrap limit.
+    var text_content_sz = code_aligned + spos;
+    var text_content_pages = 1;
+    if (text_content_sz > 0) {
+        text_content_pages = (text_content_sz + PAGE - 1) / PAGE;
+        if (text_content_pages < 1) { text_content_pages = 1; }
     }
-    if (totvar > PAGE) {
-        syscall(SYS_WRITE, 2,
-            "error: Mach-O ARM64 global vars exceed one page (16KB)\n", 56);
-        syscall(SYS_EXIT, 1);
+    var data_pages = 0;
+    if (has_data == 1) {
+        data_pages = (totvar + PAGE - 1) / PAGE;
+        if (data_pages < 1) { data_pages = 1; }
     }
-    if (code_aligned > 1048576) {
-        syscall(SYS_WRITE, 2, "error: Mach-O ARM64 code too large (> 1MB)\n", 44);
+    if (code_aligned > 16777216) {
+        syscall(SYS_WRITE, 2, "error: Mach-O ARM64 code too large (> 16MB)\n", 45);
         syscall(SYS_EXIT, 1);
     }
 
@@ -255,16 +259,18 @@ fn EMITMACHO_ARM64(S) {
     var CSTRING_OFF_REL = code_aligned;
     var CSTRING_VADDR = TEXT_BASE + CODE_OFF + CSTRING_OFF_REL;
 
-    # __DATA at page 2 (vmaddr 0x100008000) when has_data.
-    var DATA_VMADDR = TEXT_BASE + PAGE * 2;
-    var DATA_FILEOFF = PAGE * 2;
+    # __TEXT occupies (1 + text_content_pages) pages; __DATA sits right after.
+    var TEXT_VMSIZE = (1 + text_content_pages) * PAGE;
+    var DATA_VMADDR = TEXT_BASE + TEXT_VMSIZE;
+    var DATA_FILEOFF = TEXT_VMSIZE;
+    var DATA_VMSIZE = data_pages * PAGE;
 
-    # __LINKEDIT at page 2 or page 3 depending on __DATA presence.
-    var LINKEDIT_FILEOFF = PAGE * 2;
-    var LINKEDIT_VMADDR = TEXT_BASE + PAGE * 2;
+    # __LINKEDIT follows __TEXT (and __DATA if present).
+    var LINKEDIT_FILEOFF = TEXT_VMSIZE;
+    var LINKEDIT_VMADDR = TEXT_BASE + TEXT_VMSIZE;
     if (has_data == 1) {
-        LINKEDIT_FILEOFF = PAGE * 3;
-        LINKEDIT_VMADDR = TEXT_BASE + PAGE * 3;
+        LINKEDIT_FILEOFF = TEXT_VMSIZE + DATA_VMSIZE;
+        LINKEDIT_VMADDR = TEXT_BASE + TEXT_VMSIZE + DATA_VMSIZE;
     }
 
     # __TEXT cmdsize: 72 header + nsects * 80
@@ -330,16 +336,16 @@ fn EMITMACHO_ARM64(S) {
 
     # ================================================================
     # LC_SEGMENT_64 __TEXT (cmdsize = 72 + nsects*80)
-    # Spans 2 pages: page 0 headers + page 1 code (+ optional __cstring).
-    # initprot = R|X.
+    # Spans (1 + text_content_pages) pages: page 0 headers + content pages
+    # holding code (and __cstring when spos > 0). initprot = R|X.
     # ================================================================
     o = _macho_w32(O, o, 0x19);
     o = _macho_w32(O, o, text_cmdsize);
     o = _macho_wname(O, o, "__TEXT");
     o = _macho_w64(O, o, TEXT_BASE);
-    o = _macho_w64(O, o, PAGE * 2);        # vmsize = 2 pages
+    o = _macho_w64(O, o, TEXT_VMSIZE);
     o = _macho_w64(O, o, 0);
-    o = _macho_w64(O, o, PAGE * 2);        # filesize = 2 pages
+    o = _macho_w64(O, o, TEXT_VMSIZE);
     o = _macho_w32(O, o, 5);               # maxprot = R|X
     o = _macho_w32(O, o, 5);               # initprot = R|X
     o = _macho_w32(O, o, text_nsects);
@@ -378,9 +384,9 @@ fn EMITMACHO_ARM64(S) {
         o = _macho_w32(O, o, 152);
         o = _macho_wname(O, o, "__DATA");
         o = _macho_w64(O, o, DATA_VMADDR);
-        o = _macho_w64(O, o, PAGE);
+        o = _macho_w64(O, o, DATA_VMSIZE);
         o = _macho_w64(O, o, DATA_FILEOFF);
-        o = _macho_w64(O, o, PAGE);
+        o = _macho_w64(O, o, DATA_VMSIZE);
         o = _macho_w32(O, o, 3);               # maxprot = R|W
         o = _macho_w32(O, o, 3);               # initprot = R|W
         o = _macho_w32(O, o, 1);
@@ -516,9 +522,8 @@ fn EMITMACHO_ARM64(S) {
         i = 0;
         while (i < spos) { store8(O + o, load8(S + 0x14A000 + i)); o = o + 1; i = i + 1; }
     }
-    # Zero-fill to end of __TEXT page 1 (next segment starts at page 2).
-    var page1_end = PAGE * 2;
-    while (o < page1_end) { store8(O + o, 0); o = o + 1; }
+    # Zero-fill to end of __TEXT segment (next segment starts at TEXT_VMSIZE).
+    while (o < TEXT_VMSIZE) { store8(O + o, 0); o = o + 1; }
 
     # ================================================================
     # __DATA page (optional) — zero-initialised globals.

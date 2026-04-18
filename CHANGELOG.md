@@ -4,6 +4,50 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.6] — 2026-04-18
+
+**macOS arm64 release tarballs + multi-page `__TEXT` so real tools
+fit.**
+
+### Added
+- **`.github/workflows/release.yml:build-macos-arm64`** job — mirrors
+  `build-macos` but runs the aarch64 cross-compiler with
+  `CYRIUS_MACHO_ARM=1` to emit arm64 Mach-O binaries. Cross-compiles
+  `cyrfmt`, `cyrlint`, `cyrdoc` as Apple Silicon Mach-O, verifies
+  magic/CPU type, packages as
+  `cyrius-${VER}-aarch64-macos.tar.gz` with SHA256 checksum and
+  macOS-specific stdlib (`syscalls_macos.cyr`, `alloc_macos.cyr`).
+- **`release:` job** now depends on `build-macos-arm64` and
+  downloads the new artifact alongside the other platforms.
+
+### Changed
+- **`src/backend/macho/emit.cyr:EMITMACHO_ARM64`** — `__TEXT` now
+  spans `(1 + ceil((code_aligned + spos) / 16384))` pages instead
+  of a fixed 2. Eliminates the v5.3.1-era
+  `error: Mach-O ARM64 code+strings exceed one page (16KB)` gate
+  that made every tool larger than 16KB uncompilable. Layout
+  (`__DATA` + `__LINKEDIT` placement) shifts with the new
+  `TEXT_VMSIZE`. The 1 MB code cap is replaced with a 16 MB cap;
+  anything larger still errors cleanly.
+- **`src/backend/aarch64/fixup.cyr:FIXUP`** — the Mach-O ARM path
+  computes `data_vmaddr = TEXT_BASE + (1 + ceil((acp+spos)/16384))
+  * PAGE` to stay in lockstep with `EMITMACHO_ARM64`. Previously
+  hardcoded to `0x100008000` (the 2-page layout).
+- **`src/backend/macho/emit.cyr`** — `__DATA` segment now sized by
+  `DATA_VMSIZE = ceil(totvar / PAGE) * PAGE` so programs with
+  >16KB of globals fit (previously a hard 1-page cap).
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS, 63 tests, cc5 self-host
+  byte-identical (435088 bytes).
+- Cross-compiled `programs/cyrfmt.cyr` as arm64 Mach-O:
+  65720 bytes, `file` reports "Mach-O 64-bit arm64 executable,
+  flags:<NOUNDEFS|DYLDLINK|TWOLEVEL|PIE>". Previously failed with
+  the 16KB limit error.
+- v5.3.0 syscall-only `exit42.macho` unchanged at 32952 bytes
+  (regression-safe).
+- v5.3.1 `hello` test unchanged at 49336 bytes.
+
 ## [5.3.5] — 2026-04-18
 
 **`secret var` zeroise-on-exit for crypto locals + CI bash-e safety fix
