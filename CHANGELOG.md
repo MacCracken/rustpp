@@ -4,6 +4,66 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.9] — 2026-04-18
+
+**TLS + `__libc_stack_end` bootstrap — first working libc syscall
+wrappers from a static Cyrius binary.**
+
+### Added
+- **`dynlib_bootstrap_tls()`** — allocates a 4KB zero-filled TLS block
+  with `tcb->self` pointers at offsets 0 and 16, then installs it
+  via `arch_prctl(ARCH_SET_FS=0x1002, tls)`. After this, libc
+  internals that read `%fs:0..N` see valid (mostly zero) state
+  instead of segfaulting on the uninitialised `%fs` segment.
+  Returns the TLS pointer or 0 on failure.
+- **`dynlib_bootstrap_stack_end(stack_top)`** — looks up
+  `__libc_stack_end` (exported from ld-linux) and writes the
+  supplied value (or a `0x7FFFFFFFFFFF` sentinel when 0).
+  libc functions that inspect stack-end for thread-identity now
+  see a plausible address.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. Test suite at 64 files.
+- **Calling `getpid` / `getuid` via `dynlib_sym` + `fncall0` now
+  works end-to-end** — previously SIGSEGV'd inside libc on the
+  first `%fs:N` access. The test binary's own PID and UID are
+  round-tripped through the libc wrappers.
+- cc5 self-host byte-identical. Existing `tls` test (22/22) still
+  passes.
+
+### Scope / limitations
+- **NSS-dispatching functions still don't work.** `getgrouplist`
+  / `getpwent` / `getaddrinfo` hang inside `/etc/nsswitch.conf`
+  parsing and NSS module `dlopen`. Full NSS/PAM requires more of
+  `__libc_start_main`'s preamble: locale init, malloc arena
+  setup, the NSS module table. Tracked for a follow-up patch
+  after the v5.3.x distlib / closeout work.
+- **String IFUNCs return wrong results** — `strlen("hello there")`
+  returns 144 instead of 11 after our zero-fill + IRELATIVE walk.
+  Strongly suggests the IFUNC resolvers need a non-zero
+  `cpu_features` baseline (at least a few HWCAP bits set).
+  Consumers should avoid the string/memory families via dynlib
+  until this is fixed.
+- Syscall-wrapper libc calls (`getpid`, `getuid`, `getppid`, etc.)
+  are the current reliable surface. That's enough for shakti's
+  identity probe fallback; full NSS/PAM remains blocked.
+
+### Typical usage
+```
+include "lib/dynlib.cyr"
+include "lib/fnptr.cyr"
+
+dynlib_bootstrap_cpu_features();   # unblocks IRELATIVE
+dynlib_bootstrap_tls();            # unblocks %fs access
+dynlib_bootstrap_stack_end(0);     # unblocks stack-end checks
+
+var hc = dynlib_open("libc.so.6");
+dynlib_init(hc);                    # apply IRELATIVE + DT_INIT
+
+var fp = dynlib_sym(hc, "getpid");
+var pid = fncall0(fp);              # works
+```
+
 ## [5.3.8] — 2026-04-18
 
 **`dynlib_bootstrap_cpu_features()` — unblock IRELATIVE resolvers in

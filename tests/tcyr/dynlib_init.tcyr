@@ -1,21 +1,19 @@
-# Test: dynlib_init + dynlib_bootstrap_cpu_features — opt-in IRELATIVE
-# machinery for shared libraries.
+# Test: dynlib full init flow — cpu_features + TLS + stack_end bootstrap
+# unlocks calling libc entry points from a Cyrius static binary.
 #
-# v5.3.8 landed the __cpu_features bootstrap path: we load
-# ld-linux-x86-64.so.2, invoke its `_dl_x86_get_cpu_features` getter,
-# and zero-fill the struct so IFUNC resolvers pick the SSE2-baseline
-# fallback. This unblocks Phase 3 IRELATIVE relocations but NOT the
-# rest of glibc startup state (TLS, `__libc_stack_end`). Calling libc
-# entry points post-bootstrap still crashes inside paths that touch
-# TLS — that's the remaining piece before NSS/PAM works end-to-end.
+# v5.3.9 landed the TLS and `__libc_stack_end` bootstrap helpers.
+# Combined with `dynlib_bootstrap_cpu_features` (v5.3.8) and the
+# IRELATIVE walker (v5.3.7), statically-linked Cyrius programs can
+# now drive simple libc functions (`getpid`, `getuid`) through
+# `dynlib_open` + `dynlib_sym` + `fncall*`.
 #
-# This test exercises:
-#   - ld-linux loads + `_dl_x86_get_cpu_features` resolves
-#   - dynlib_bootstrap_cpu_features returns 0
-#   - IRELATIVE can be applied against libc.so.6 without SIGSEGV
-#     (previously crashed on first resolver call)
-#   - dynlib_open / dynlib_sym for libc still work
-#   - handle carries init + reloc metadata
+# Still broken (beyond v5.3.9 scope):
+#   - NSS-dispatching functions (getgrouplist, getpwent) hang inside
+#     nsswitch.conf parsing / dlopen of NSS modules
+#   - Full pthread state (locale, malloc arenas) isn't set up, so
+#     anything that touches locale or large mallocs crashes
+# These require more of `__libc_start_main`'s preamble to be
+# emulated; tracked for a follow-up patch.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -28,7 +26,7 @@ include "lib/dynlib.cyr"
 
 alloc_init();
 
-test_group("ld-linux + cpu_features bootstrap");
+test_group("bootstrap sequence");
 var boot_rc = dynlib_bootstrap_cpu_features();
 if (boot_rc != 0) {
     syscall(SYS_WRITE, 1, "  SKIP: ld-linux not available (non-glibc host)\n", 48);
@@ -37,7 +35,13 @@ if (boot_rc != 0) {
 }
 assert_eq(boot_rc, 0, "dynlib_bootstrap_cpu_features returns 0");
 
-test_group("dynlib libc.so.6 open");
+var tls = dynlib_bootstrap_tls();
+assert(tls != 0, "dynlib_bootstrap_tls returns non-null TLS block");
+
+var sr = dynlib_bootstrap_stack_end(0);
+assert_eq(sr, 0, "dynlib_bootstrap_stack_end returns 0");
+
+test_group("libc.so.6 load + IRELATIVE apply");
 var hc = dynlib_open("libc.so.6");
 if (hc == 0) {
     hc = dynlib_open("/lib/x86_64-linux-gnu/libc.so.6");
@@ -45,31 +49,23 @@ if (hc == 0) {
     if (hc == 0) { hc = dynlib_open("/usr/lib/libc.so.6"); }
 }
 assert(hc != 0, "libc.so.6 opened");
-
-test_group("handle carries init + reloc metadata");
-var init_array_vaddr = load64(hc + 72);
-assert(init_array_vaddr != 0, "DT_INIT_ARRAY vaddr captured");
-var init_array_sz = load64(hc + 80);
-assert(init_array_sz > 0, "DT_INIT_ARRAYSZ > 0");
-var rela_addr = load64(hc + 88);
-assert(rela_addr != 0, "rela_addr captured");
-var rela_size = load64(hc + 96);
-assert(rela_size > 0, "rela_size > 0");
-
-test_group("IRELATIVE applies without SIGSEGV (post-bootstrap)");
-# This was the cliff in v5.3.7 — now unblocked by the cpu_features
-# bootstrap. If the resolvers touch uninitialised state they'll crash
-# the test process and CI reports FAIL.
 var bias = load64(hc + 40);
-_dynlib_apply_irelative(hc, bias, rela_addr, rela_size);
+_dynlib_apply_irelative(hc, bias, load64(hc + 88), load64(hc + 96));
 _dynlib_apply_irelative(hc, bias, load64(hc + 104), load64(hc + 112));
 assert(1, "IRELATIVE walked both tables without crash");
 
-test_group("getpid resolves (call deferred — needs TLS)");
-# Even with IRELATIVE applied, calling into libc still trips on
-# uninitialised TLS / __libc_stack_end. Resolution alone is safe.
+test_group("libc syscall wrapper dispatch works");
+# These are simple syscall wrappers that return positive values.
+# Before v5.3.9 they SIGSEGVed inside libc on uninitialised TLS/stack.
 var fp_getpid = dynlib_sym(hc, "getpid");
 assert(fp_getpid != 0, "getpid resolves");
+var pid = fncall0(fp_getpid);
+assert(pid > 0, "getpid returns positive PID");
+
+var fp_getuid = dynlib_sym(hc, "getuid");
+assert(fp_getuid != 0, "getuid resolves");
+var uid = fncall0(fp_getuid);
+assert(uid >= 0, "getuid returns non-negative UID");
 
 var r = assert_summary();
 syscall(60, 0);

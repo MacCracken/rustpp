@@ -785,6 +785,55 @@ fn dynlib_open(path) {
     return h;
 }
 
+# Bootstrap a minimal x86_64 TLS block so libc entry points that
+# access thread-local state (errno, tid cache) don't crash on an
+# uninitialised `%fs` segment. The kernel normally sets this up via
+# `__libc_start_main`; a statically-linked Cyrius binary has to do
+# it by hand.
+#
+# Layout: 4KB zero-filled buffer with two NPTL-compatible anchors —
+#   offset  0: tcb->self  (pointer to the block itself)
+#   offset 16: self       (NPTL requires this for __pthread_self())
+# Then `arch_prctl(ARCH_SET_FS, tls)` installs the base. After this
+# call, `mov %fs:0, rax` reads the self-pointer and most libc
+# internals that touch `%fs:N` for small `N` see zeroed slots
+# instead of segfaulting.
+#
+# Returns the TLS block pointer (caller can keep it for debugging)
+# or 0 if the syscall failed.
+fn dynlib_bootstrap_tls() {
+    var tls = alloc(4096);
+    if (tls == 0) { return 0; }
+    var i = 0;
+    while (i < 4096) { store8(tls + i, 0); i = i + 1; }
+    store64(tls, tls);            # tcb->self
+    store64(tls + 16, tls);       # NPTL self-pointer
+    # arch_prctl(ARCH_SET_FS=0x1002, tls) — syscall 158
+    var rc = syscall(158, 0x1002, tls);
+    if (rc != 0) { return 0; }
+    return tls;
+}
+
+# Populate `__libc_stack_end` (exported from ld-linux) with a sensible
+# high stack-top value. libc internals consult this to find the top of
+# the main thread's stack — the kernel fills it from auxv, but a
+# static Cyrius binary has to supply it. Pass 0 to use a default
+# "top of user VA" value that works as a sentinel; pass a specific
+# address if you want the real RSP top.
+#
+# Returns 0 on success, 1 if ld-linux isn't reachable.
+fn dynlib_bootstrap_stack_end(stack_top) {
+    var hld = dynlib_open("/lib64/ld-linux-x86-64.so.2");
+    if (hld == 0) { hld = dynlib_open("ld-linux-x86-64.so.2"); }
+    if (hld == 0) { return 1; }
+    var sep = dynlib_sym(hld, "__libc_stack_end");
+    if (sep == 0) { return 2; }
+    var v = stack_top;
+    if (v == 0) { v = 0x7FFFFFFFFFFF; }
+    store64(sep, v);
+    return 0;
+}
+
 # Bootstrap glibc's `__cpu_features` struct to a zero-initialised
 # (SSE2-baseline) state so IRELATIVE resolvers can run without the
 # usual kernel-provided auxv setup. Returns 0 on success, non-zero
