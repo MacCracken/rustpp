@@ -411,14 +411,15 @@ jobs:
         run: |
           chmod +x ./macho-arm64/exit42.macho
           codesign -s - --force ./macho-arm64/exit42.macho
-          ./macho-arm64/exit42.macho; ec=$?
+          # Capture exit code without tripping bash -e on the non-zero exit.
+          ./macho-arm64/exit42.macho && ec=0 || ec=$?
           test $ec -eq 42 || { echo "exit42: expected 42, got $ec"; exit 1; }
           echo "PASS: exit42 → $ec"
       - name: Codesign and run write (v5.3.0 scope)
         run: |
           chmod +x ./macho-arm64/write.macho
           codesign -s - --force ./macho-arm64/write.macho
-          out=$(./macho-arm64/write.macho); ec=$?
+          out=$(./macho-arm64/write.macho) && ec=0 || ec=$?
           test $ec -eq 0 || { echo "write: expected exit 0, got $ec"; exit 1; }
           test "$out" = "ok" || { echo "write: expected 'ok', got '$out'"; exit 1; }
           echo "PASS: write → 'ok' (exit 0)"
@@ -426,7 +427,7 @@ jobs:
         run: |
           chmod +x ./macho-arm64/string_literal.macho
           codesign -s - --force ./macho-arm64/string_literal.macho
-          out=$(./macho-arm64/string_literal.macho); ec=$?
+          out=$(./macho-arm64/string_literal.macho) && ec=0 || ec=$?
           test $ec -eq 0 || { echo "string_literal: expected exit 0, got $ec"; exit 1; }
           test "$out" = "hi" || { echo "string_literal: expected 'hi', got '$out'"; exit 1; }
           echo "PASS: string_literal → 'hi' (exit 0)"
@@ -434,7 +435,7 @@ jobs:
         run: |
           chmod +x ./macho-arm64/global_var.macho
           codesign -s - --force ./macho-arm64/global_var.macho
-          out=$(./macho-arm64/global_var.macho); ec=$?
+          out=$(./macho-arm64/global_var.macho) && ec=0 || ec=$?
           test $ec -eq 0 || { echo "global_var: expected exit 0, got $ec"; exit 1; }
           test "$out" = "hello" || { echo "global_var: expected 'hello', got '$out'"; exit 1; }
           echo "PASS: global_var → 'hello' (exit 0)"
@@ -442,7 +443,7 @@ jobs:
         run: |
           chmod +x ./macho-arm64/var_plus_string.macho
           codesign -s - --force ./macho-arm64/var_plus_string.macho
-          out=$(./macho-arm64/var_plus_string.macho); ec=$?
+          out=$(./macho-arm64/var_plus_string.macho) && ec=0 || ec=$?
           test $ec -eq 0 || { echo "var_plus_string: expected exit 0, got $ec"; exit 1; }
           test "$out" = "ok" || { echo "var_plus_string: expected 'ok', got '$out'"; exit 1; }
           echo "PASS: var_plus_string → 'ok' (exit 0)"
