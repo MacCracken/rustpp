@@ -176,6 +176,124 @@ fn EMITMACHO_EXEC(S) {
     return 0;
 }
 
+# ================================================================
+# Mach-O ARM64 executable emission
+# ================================================================
+# Triggered by CYRIUS_MACHO_ARM=1. Same flat layout as x86_64 but
+# with ARM64 CPU type, thread state, and page size (16KB on Apple Silicon).
+
+fn EMITMACHO_ARM64(S) {
+    var cp = GCP(S);
+    var totvar = L64(S + 0x8FCD0);
+    var spos = GSPOS(S);
+
+    var PAGE = 16384;
+    var TEXT_BASE = 0x100000000;
+
+    # ARM64 LC_UNIXTHREAD: flavor=6 (ARM_THREAD_STATE64), count=68
+    # cmdsize = 4+4+4+4 + 68*4 = 288
+    # Header: 32 + __PAGEZERO(72) + __TEXT(152) + LC_UNIXTHREAD(288) = 544
+    var code_off = PAGE;
+
+    var content_sz = cp + totvar + spos;
+    content_sz = (content_sz + 7) & (0 - 8);
+    var seg_filesz = code_off + content_sz;
+    var seg_vmsz = (seg_filesz + PAGE - 1) & (0 - PAGE);
+
+    if (content_sz > 1048576) {
+        syscall(SYS_WRITE, 2, "error: Mach-O ARM64 output too large\n", 37);
+        syscall(SYS_EXIT, 1);
+    }
+
+    var O = S + 0x64A000;
+    var o = 0;
+
+    # mach_header_64 (32 bytes)
+    o = _macho_w32(O, o, 0xFEEDFACF);     # magic
+    o = _macho_w32(O, o, 0x0100000C);     # cputype = CPU_TYPE_ARM64
+    o = _macho_w32(O, o, 0x00000000);     # cpusubtype = ARM64_ALL
+    o = _macho_w32(O, o, 0x00000002);     # filetype = MH_EXECUTE
+    o = _macho_w32(O, o, 3);              # ncmds
+    o = _macho_w32(O, o, 72 + 152 + 288); # sizeofcmds = 512
+    o = _macho_w32(O, o, 0x00000001);     # flags = MH_NOUNDEFS
+    o = _macho_w32(O, o, 0);              # reserved
+
+    # LC_SEGMENT_64 __PAGEZERO (72 bytes)
+    o = _macho_w32(O, o, 0x19);
+    o = _macho_w32(O, o, 72);
+    o = _macho_wname(O, o, "__PAGEZERO");
+    o = _macho_w64(O, o, 0);
+    o = _macho_w64(O, o, TEXT_BASE);
+    o = _macho_w64(O, o, 0);
+    o = _macho_w64(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+
+    # LC_SEGMENT_64 __TEXT + __text section (152 bytes)
+    o = _macho_w32(O, o, 0x19);
+    o = _macho_w32(O, o, 152);
+    o = _macho_wname(O, o, "__TEXT");
+    o = _macho_w64(O, o, TEXT_BASE);
+    o = _macho_w64(O, o, seg_vmsz);
+    o = _macho_w64(O, o, 0);
+    o = _macho_w64(O, o, seg_vmsz);
+    o = _macho_w32(O, o, 7);              # maxprot = RWX
+    o = _macho_w32(O, o, 7);              # initprot = RWX
+    o = _macho_w32(O, o, 1);
+    o = _macho_w32(O, o, 0);
+
+    # section_64 __text (80 bytes)
+    o = _macho_wname(O, o, "__text");
+    o = _macho_wname(O, o, "__TEXT");
+    o = _macho_w64(O, o, TEXT_BASE + code_off);
+    o = _macho_w64(O, o, content_sz);
+    o = _macho_w32(O, o, code_off);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0x80000400);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0);
+
+    # LC_UNIXTHREAD ARM64 (288 bytes)
+    o = _macho_w32(O, o, 0x05);           # cmd = LC_UNIXTHREAD
+    o = _macho_w32(O, o, 288);            # cmdsize
+    o = _macho_w32(O, o, 6);              # flavor = ARM_THREAD_STATE64
+    o = _macho_w32(O, o, 68);             # count = 34 regs * 2 uint32
+
+    # ARM64 thread state: 34 x uint64_t
+    # x0-x28 (29 regs), fp(x29), lr(x30), sp, pc, cpsr
+    # All zero except pc = entry point
+    var ri = 0;
+    while (ri < 32) { o = _macho_w64(O, o, 0); ri = ri + 1; }
+    o = _macho_w64(O, o, TEXT_BASE + code_off);  # pc = entry point
+    o = _macho_w64(O, o, 0);              # cpsr
+
+    # Pad to PAGE boundary
+    while (o < code_off) { store8(O + o, 0); o = o + 1; }
+
+    # Code
+    var i = 0;
+    while (i < cp) { store8(O + o, load8(S + 0x54A000 + i)); o = o + 1; i = i + 1; }
+
+    # Variable data (zeroed)
+    i = 0;
+    while (i < totvar) { store8(O + o, 0); o = o + 1; i = i + 1; }
+
+    # String data
+    i = 0;
+    while (i < spos) { store8(O + o, load8(S + 0x14A000 + i)); o = o + 1; i = i + 1; }
+
+    while (o % 8 != 0) { store8(O + o, 0); o = o + 1; }
+    while (o % PAGE != 0) { store8(O + o, 0); o = o + 1; }
+
+    S64(S + 0x903F8, o);
+    return 0;
+}
+
 fn EMITMACHO_OBJ(S) {
     syscall(SYS_WRITE, 2, "error: Mach-O .o output not yet implemented\n", 45);
     syscall(SYS_EXIT, 1);

@@ -453,11 +453,17 @@ while (dce_ti < dce_tc) {
     dce_ti = dce_ti + 1;
 }
 
-# Mach-O output via CYRIUS_MACHO=1
+# Mach-O output via CYRIUS_MACHO=1 (x86_64) or CYRIUS_MACHO_ARM=1 (ARM64)
 var _macho_env = _read_env("CYRIUS_MACHO");
 if (_macho_env != 0) {
     if (load8(_macho_env) == 49 && load8(_macho_env + 1) == 0) {
         _TARGET_MACHO = 1;
+    }
+}
+var _macho_arm_env = _read_env("CYRIUS_MACHO_ARM");
+if (_macho_arm_env != 0) {
+    if (load8(_macho_arm_env) == 49 && load8(_macho_arm_env + 1) == 0) {
+        _TARGET_MACHO = 2;
     }
 }
 

@@ -70,8 +70,10 @@ fn FIXUP(S) {
     # Shared objects: p_vaddr=0, code starts right after 3 PHs (hdr=232).
     # All data/string refs must be RIP-relative for load-bias safety.
     if (kmode == 2) { entry = 232; }
-    # Mach-O: code at TEXT_BASE + 4096 (first page after header)
+    # Mach-O x86_64: code at TEXT_BASE + 4096 (4KB page)
     if (_TARGET_MACHO == 1) { entry = 0x100001000; }
+    # Mach-O ARM64: code at TEXT_BASE + 16384 (16KB page on Apple Silicon)
+    if (_TARGET_MACHO == 2) { entry = 0x100004000; }
     var dbase = entry + acp;
     # Precompute cumulative var offsets (prefix sum — O(n) instead of O(n²) per fixup)
     var vcnt = GVCNT(S);
@@ -1284,6 +1286,7 @@ fn EMITELF_OBJ(S) {
 
 fn EMITELF(S) {
     if (_TARGET_MACHO == 1) { EMITMACHO_EXEC(S); return 0; }
+    if (_TARGET_MACHO == 2) { EMITMACHO_ARM64(S); return 0; }
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
     if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }

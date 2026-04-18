@@ -9,10 +9,12 @@ var _env_scratch[256];
 # aarch64 Linux syscalls: openat=56, read=63, close=57.
 fn _read_env(name) {
     var ebuf[8192];
-    var efd = syscall(56, 0 - 100, "/proc/self/environ", 0, 0);
+    var efd = 0;
+    if (SYS_OPEN == 2) { efd = syscall(SYS_OPEN, "/proc/self/environ", 0, 0); }
+    else { efd = syscall(SYS_OPEN, 0 - 100, "/proc/self/environ", 0, 0); }
     if (efd < 0) { return 0; }
-    var elen = syscall(63, efd, &ebuf, 8191);
-    syscall(57, efd);
+    var elen = syscall(SYS_READ, efd, &ebuf, 8191);
+    syscall(SYS_CLOSE, efd);
     if (elen <= 0) { return 0; }
     store8(&ebuf + elen, 0);
     var nlen = 0;
@@ -47,6 +49,13 @@ fn _read_env(name) {
 }
 
 fn FIXUP(S) {
+    # Check for Mach-O ARM64 output mode
+    var _ma_env = _read_env("CYRIUS_MACHO_ARM");
+    if (_ma_env != 0) {
+        if (load8(_ma_env) == 49 && load8(_ma_env + 1) == 0) {
+            _TARGET_MACHO = 2;
+        }
+    }
     var cp = GCP(S);
     cp = (cp + 3) & (0 - 4);
     SCP(S, cp);
@@ -55,6 +64,8 @@ fn FIXUP(S) {
     var entry = 0x400078;
     var preamble = 0;
     if (kmode == 1) { entry = 0x40000078; preamble = 16; }
+    # Mach-O ARM64: code at TEXT_BASE + 16384 (16KB page)
+    if (_TARGET_MACHO == 2) { entry = 0x100004000; }
     var dbase = entry + preamble + acp;
     var vcnt = GVCNT(S);
     var totvar = 0;
@@ -161,6 +172,7 @@ fn FIXUP_MOV(S, coff, addr) {
 # ================================================================
 
 fn EMITELF(S) {
+    if (_TARGET_MACHO == 2) { EMITMACHO_ARM64(S); return 0; }
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     var cp = GCP(S);
     var totvar = L64(S + 0x8FCD0);

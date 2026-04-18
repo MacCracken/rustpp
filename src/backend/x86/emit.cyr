@@ -308,7 +308,7 @@ fn ESCPOPS(S, n) {
     return 0;
 }
 
-# Target format: 0=ELF (Linux), 1=Mach-O (macOS)
+# Target format: 0=ELF (Linux), 1=Mach-O x86_64 (macOS), 2=Mach-O ARM64
 var _TARGET_MACHO = 0;
 
 # emit exit epilogue: mov rdi, rax; mov rax, <exit_nr>; syscall

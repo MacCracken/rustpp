@@ -130,10 +130,44 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - SHA256 checksum in release assets for dep integrity verification
 - `cyrius deps --verify` checks checksums against published hashes
 
-### v5.2.2 — macOS aarch64 (Mach-O ARM64)
+### v5.2.3 — macOS aarch64 (Mach-O ARM64)
 - CPU type `0x0100000C` in Mach-O header
 - libSystem linking (Apple Silicon forbids raw syscalls)
 - Test on iPad Pro via SSH
+
+### v5.2.3 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
+
+Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
+unaffected; downstream libs that need more than one bundle per
+package (kernel-safe core + full userland) can opt in.
+
+- **`cyrius distlib [profile]`** — optional positional arg
+  - No arg (today's behaviour): read `[build] modules` or `[lib] modules`,
+    write `dist/{name}.cyr`
+  - With `profile=X`: read `[lib.X] modules`, write `dist/{name}-X.cyr`
+- Header line gets a `# Profile: X` row for traceability when non-default
+- Compile-check still runs against the emitted bundle
+- Reject profile names with `/`, `..`, or shell metachars; restrict to
+  `[a-zA-Z0-9_-]+` (output path safety)
+
+**Downstream driver — yukti 1.3.0 dual-mode split** (verified blocked
+today; distlib silently ignores `[lib.core]` and positional args):
+
+1. Split `src/device.cyr` → `src/core.cyr` (enums, struct layout,
+   accessors — pure data, no syscalls) + `src/device.cyr` keeps
+   `query_permissions` / `query_device_health`
+2. New `src/pci.cyr` — PCI class/subclass + vendor/device ID tables,
+   pure table lookups, **zero heap** (kernel-safe)
+3. Kernel-facing API restricted to non-allocating lookups
+   (`pci_class_to_device_type`, `pci_vendor_name`,
+   `pci_device_name`) — avoids exporting yukti's bump allocator
+4. Second bundle via `cyrius distlib core` →
+   `dist/yukti-core.cyr` for AGNOS kernel bare-metal PCI ID
+5. Add kernel-style smoke test: compile a no-libc, no-alloc
+   program importing only `yukti-core.cyr` with 0 undefined refs
+
+Item (4) is the only piece that lives in cyrius — the rest ships in
+yukti once distlib profiles are available.
 
 ---
 

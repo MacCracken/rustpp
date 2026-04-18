@@ -5,6 +5,9 @@
 # Register mapping: x0=rax(result), x1=rcx(scratch), x0-x7=args
 # x9-x15 = temporaries, x29=fp(rbp), x30=lr, sp=rsp
 
+# Target format: 0=ELF (Linux), 2=Mach-O ARM64 (macOS)
+var _TARGET_MACHO = 0;
+
 # Emit one byte to codebuf
 fn EB(S, b) {
     var cp = GCP(S);
