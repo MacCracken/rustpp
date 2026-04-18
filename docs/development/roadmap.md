@@ -170,6 +170,51 @@ Complete the useful Cyrius-on-Mac target.
 - Target test: a `println("hello")`-style Cyrius program compiles,
   signs, runs on Apple Silicon, prints "hello", exits cleanly.
 
+### v5.3.1 — `lib/dynlib.cyr`: callable libc (NSS/PAM enablement)
+
+`dynlib_open` + `dynlib_sym` work today for trivial leaf functions
+(verified: `getpid` resolves and returns the correct pid from a
+statically-linked Cyrius binary), but calling anything that touches
+libc internals SIGSEGVs. Existing TODO in `lib/dynlib.cyr:481` and
+`:700` flags exactly this — IRELATIVE relocations and `DT_INIT_ARRAY`
+init functions are skipped because the CPU-features struct glibc
+expects isn't initialized in a static binary.
+
+**Downstream impact**: shakti 0.2.x cannot restore NSS group resolution
+(`getgrouplist`) or real PAM authentication (`pam_start` /
+`pam_authenticate`) without this. Two open regressions vs. the Rust
+0.1.x build are currently parked on it (see shakti
+`docs/development/roadmap.md` "Cyrius port regressions"). Other
+downstream consumers needing any libc beyond bare syscalls will hit
+the same wall.
+
+Reproducer (segfaults at step 5):
+```
+var h  = dynlib_open("libc.so.6");           # OK
+var fp = dynlib_sym(h, "getpid");            # OK
+var pid = fncall0(fp);                       # OK, matches sys_getpid()
+var ggl = dynlib_sym(h, "getgrouplist");     # OK (resolves)
+fncall4(ggl, "root", 0, buf, ngroups_ptr);   # SIGSEGV
+```
+
+Scope:
+- Bootstrap glibc's `__cpu_features` struct (or equivalent CPUID-fed
+  state) so IRELATIVE resolvers can pick a baseline IFUNC impl on
+  x86_64 (SSE2 baseline is universally safe).
+- Process Phase 3 IRELATIVE relocations in `_dynlib_process_rela`
+  (resolver invocation; result written back at `bias + r_offset`).
+- Run `DT_INIT` and walk `DT_INIT_ARRAY` after relocations are
+  finalized, so libc's per-loaded-object constructors set up locale,
+  malloc state, the NSS module table, etc.
+- Smoke probe added to test suite: dlopen libc, call `getgrouplist`
+  for `root`, assert non-segfault and non-empty result.
+- aarch64 IFUNC story (`STT_GNU_IFUNC` + AT_HWCAP feeding) — defer
+  to a follow-up (x86_64 covers shakti's immediate need).
+
+Once landed, shakti can drop `src/identity.cyr` for the supp-GIDs path
+and replace the `/usr/bin/su` shim in `src/auth.cyr` with a real PAM
+conversation, closing both port regressions.
+
 ### v5.2.4 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
 
 Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
