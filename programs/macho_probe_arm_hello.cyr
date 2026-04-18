@@ -1,0 +1,556 @@
+# macho_probe_arm_hello.cyr — Stage 3 ARM64 Mach-O probe.
+# Emits a binary that calls write(1,"hello\n",6) via libSystem and
+# returns 42. Replicates clang's layout for
+#   #include <unistd.h>
+#   int main(void){write(1,"hello\n",6);return 42;}
+# byte-for-byte so codesign/dyld/kernel are happy on Apple Silicon.
+#
+# Build on Linux:
+#   cat programs/macho_probe_arm_hello.cyr | build/cc5 > /tmp/macho_probe_arm_hello \
+#     && chmod +x /tmp/macho_probe_arm_hello
+#   /tmp/macho_probe_arm_hello > /tmp/hello_arm.macho
+#
+# On Apple Silicon:
+#   chmod +x hello_arm.macho
+#   codesign -s - --force hello_arm.macho
+#   ./hello_arm.macho; echo "exit=$?"
+# Expected: prints "hello", exit=42
+
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wname(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < 16) { store8(buf + off + i, 0); i = i + 1; }
+    return off + 16;
+}
+fn wstr_pad(buf, off, s, width) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < width) { store8(buf + off + i, 0); i = i + 1; }
+    return off + width;
+}
+
+# Layout constants
+var PAGE_SIZE = 16384;
+var TEXT_VMADDR = 0x100000000;
+
+# __TEXT content offsets (match reference exactly)
+var CODE_OFF = 1120;
+var TEXT_SIZE = 52;          # main: 13 instructions
+var STUBS_OFF = 1172;
+var STUBS_SIZE = 12;
+var CSTRING_OFF = 1184;
+var CSTRING_SIZE = 7;
+var UNWIND_OFF = 1192;
+var UNWIND_SIZE = 88;
+
+# __DATA_CONST at page 1
+var DATA_CONST_FILEOFF = 16384;
+var DATA_CONST_VMADDR = 0x100004000;
+var GOT_OFF = 16384;
+var GOT_SIZE = 8;
+
+# __LINKEDIT at page 2
+var LINKEDIT_FILEOFF = 32768;
+var LINKEDIT_VMADDR = 0x100008000;
+var CHAIN_OFF = 32768; var CHAIN_SIZE = 96;
+var EXPORTS_OFF = 32864; var EXPORTS_SIZE = 48;
+var FNSTART_OFF = 32912; var FNSTART_SIZE = 8;
+var DATACODE_OFF = 32920; var DATACODE_SIZE = 0;
+var SYMTAB_OFF = 32920; var SYMTAB_COUNT = 3;
+var ISYMTAB_OFF = 32968; var ISYMTAB_COUNT = 2;
+var STRTAB_OFF = 32976; var STRTAB_SIZE = 40;
+var FILE_END = 33024;            # pre-signing; codesign appends signature
+
+var buf[40960];
+var o = 0;
+
+# ================================================================
+# mach_header_64 (32 bytes)
+# ================================================================
+o = w32(&buf, o, 0xFEEDFACF);
+o = w32(&buf, o, 0x0100000C);          # ARM64
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000002);          # MH_EXECUTE
+o = w32(&buf, o, 16);                  # ncmds (pre-signing)
+o = w32(&buf, o, 1040);                # sizeofcmds (pre-signing)
+o = w32(&buf, o, 0x00200085);          # NOUNDEFS|DYLDLINK|TWOLEVEL|PIE
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __PAGEZERO (72)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 72);
+o = wname(&buf, o, "__PAGEZERO");
+o = w64(&buf, o, 0);
+o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, 0);
+o = w64(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __TEXT (392 = 72 + 4*80)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 392);
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, 0);
+o = w64(&buf, o, PAGE_SIZE);
+o = w32(&buf, o, 5); o = w32(&buf, o, 5);
+o = w32(&buf, o, 4);                   # nsects
+o = w32(&buf, o, 0);
+
+# section __text
+o = wname(&buf, o, "__text");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);
+o = w64(&buf, o, TEXT_SIZE);
+o = w32(&buf, o, CODE_OFF);
+o = w32(&buf, o, 2);                   # align 4
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x80000400);          # PURE_INSTRUCTIONS|SOME_INSTRUCTIONS
+o = w32(&buf, o, 0); o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# section __stubs
+o = wname(&buf, o, "__stubs");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + STUBS_OFF);
+o = w64(&buf, o, STUBS_SIZE);
+o = w32(&buf, o, STUBS_OFF);
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x80000408);          # PURE_INSTRUCTIONS|SOME_INSTRUCTIONS|S_SYMBOL_STUBS
+o = w32(&buf, o, 0);                   # reserved1 = indirect sym index 0
+o = w32(&buf, o, 12);                  # reserved2 = stub size
+o = w32(&buf, o, 0);
+
+# section __cstring
+o = wname(&buf, o, "__cstring");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + CSTRING_OFF);
+o = w64(&buf, o, CSTRING_SIZE);
+o = w32(&buf, o, CSTRING_OFF);
+o = w32(&buf, o, 0);                   # align 1
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x00000002);          # S_CSTRING_LITERALS
+o = w32(&buf, o, 0); o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# section __unwind_info
+o = wname(&buf, o, "__unwind_info");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + UNWIND_OFF);
+o = w64(&buf, o, UNWIND_SIZE);
+o = w32(&buf, o, UNWIND_OFF);
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __DATA_CONST (152 = 72 + 80)
+# flags = SG_READ_ONLY (0x10) — dyld makes this RO after fixups.
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 152);
+o = wname(&buf, o, "__DATA_CONST");
+o = w64(&buf, o, DATA_CONST_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, DATA_CONST_FILEOFF);
+o = w64(&buf, o, PAGE_SIZE);
+o = w32(&buf, o, 3); o = w32(&buf, o, 3);  # initprot R|W (dyld flips to R)
+o = w32(&buf, o, 1);                       # nsects
+o = w32(&buf, o, 0x10);                    # SG_READ_ONLY
+
+# section __got
+o = wname(&buf, o, "__got");
+o = wname(&buf, o, "__DATA_CONST");
+o = w64(&buf, o, DATA_CONST_VMADDR);
+o = w64(&buf, o, GOT_SIZE);
+o = w32(&buf, o, GOT_OFF);
+o = w32(&buf, o, 3);                       # align 2^3 = 8
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x00000006);              # S_NON_LAZY_SYMBOL_POINTERS
+o = w32(&buf, o, 1);                       # reserved1 = indirect sym index 1
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __LINKEDIT (72)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 72);
+o = wname(&buf, o, "__LINKEDIT");
+o = w64(&buf, o, LINKEDIT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, LINKEDIT_FILEOFF);
+o = w64(&buf, o, FILE_END - LINKEDIT_FILEOFF);   # filesize (pre-signing)
+o = w32(&buf, o, 1); o = w32(&buf, o, 1);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_DYLD_CHAINED_FIXUPS (16)
+# ================================================================
+o = w32(&buf, o, 0x80000034);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, CHAIN_OFF);
+o = w32(&buf, o, CHAIN_SIZE);
+
+# ================================================================
+# LC_DYLD_EXPORTS_TRIE (16)
+# ================================================================
+o = w32(&buf, o, 0x80000033);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, EXPORTS_OFF);
+o = w32(&buf, o, EXPORTS_SIZE);
+
+# ================================================================
+# LC_SYMTAB (24)
+# ================================================================
+o = w32(&buf, o, 0x02);
+o = w32(&buf, o, 24);
+o = w32(&buf, o, SYMTAB_OFF);
+o = w32(&buf, o, SYMTAB_COUNT);
+o = w32(&buf, o, STRTAB_OFF);
+o = w32(&buf, o, STRTAB_SIZE);
+
+# ================================================================
+# LC_DYSYMTAB (80)
+# iextdefsym=0 nextdefsym=2 iundefsym=2 nundefsym=1
+# indirectsymoff=ISYMTAB_OFF nindirectsyms=2
+# ================================================================
+o = w32(&buf, o, 0x0B);
+o = w32(&buf, o, 80);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 2);
+o = w32(&buf, o, 2); o = w32(&buf, o, 1);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, ISYMTAB_OFF); o = w32(&buf, o, ISYMTAB_COUNT);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+o = w32(&buf, o, 0); o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_LOAD_DYLINKER (32)
+# ================================================================
+o = w32(&buf, o, 0x0E);
+o = w32(&buf, o, 32);
+o = w32(&buf, o, 12);
+o = wstr_pad(&buf, o, "/usr/lib/dyld", 20);
+
+# ================================================================
+# LC_UUID (24) — placeholder; codesign recomputes signature
+# ================================================================
+o = w32(&buf, o, 0x1B);
+o = w32(&buf, o, 24);
+o = w8(&buf, o, 0xCA); o = w8(&buf, o, 0xFE); o = w8(&buf, o, 0xBA); o = w8(&buf, o, 0xBE);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x03);
+o = w8(&buf, o, 0x40); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x80); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x03);
+
+# ================================================================
+# LC_BUILD_VERSION (32)  platform=macOS, minos=26.0, sdk=26.0
+# ================================================================
+o = w32(&buf, o, 0x32);
+o = w32(&buf, o, 32);
+o = w32(&buf, o, 1);
+o = w32(&buf, o, 0x001A0000);
+o = w32(&buf, o, 0x001A0000);
+o = w32(&buf, o, 1);
+o = w32(&buf, o, 3);
+o = w32(&buf, o, 0x04F20800);
+
+# ================================================================
+# LC_SOURCE_VERSION (16)
+# ================================================================
+o = w32(&buf, o, 0x2A);
+o = w32(&buf, o, 16);
+o = w64(&buf, o, 0);
+
+# ================================================================
+# LC_MAIN (24)
+# ================================================================
+o = w32(&buf, o, 0x80000028);
+o = w32(&buf, o, 24);
+o = w64(&buf, o, CODE_OFF);
+o = w64(&buf, o, 0);
+
+# ================================================================
+# LC_LOAD_DYLIB libSystem.B (56)
+# ================================================================
+o = w32(&buf, o, 0x0C);
+o = w32(&buf, o, 56);
+o = w32(&buf, o, 24);
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 0x054C0000);
+o = w32(&buf, o, 0x00010000);
+o = wstr_pad(&buf, o, "/usr/lib/libSystem.B.dylib", 32);
+
+# ================================================================
+# LC_FUNCTION_STARTS (16)
+# ================================================================
+o = w32(&buf, o, 0x26);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, FNSTART_OFF);
+o = w32(&buf, o, FNSTART_SIZE);
+
+# ================================================================
+# LC_DATA_IN_CODE (16)
+# ================================================================
+o = w32(&buf, o, 0x29);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, DATACODE_OFF);
+o = w32(&buf, o, DATACODE_SIZE);
+
+# ================================================================
+# Pad to CODE_OFF (1120) — leaves room for codesign to append
+# LC_CODE_SIGNATURE (16 bytes) without disturbing __text.
+# ================================================================
+while (o < CODE_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __text (52 bytes) — byte-identical to clang's output.
+# main:
+#   sub   sp, sp, #0x20                  D10083FF
+#   stp   x29, x30, [sp, #0x10]          A9017BFD
+#   add   x29, sp, #0x10                 910043FD
+#   stur  wzr, [x29, #-4]                B81FC3BF
+#   mov   w0, #1                         52800020
+#   adrp  x1, 0x100000000                90000001
+#   add   x1, x1, #0x4A0                 91128021
+#   mov   x2, #6                         D28000C2
+#   bl    __stubs (+0x14)                94000005
+#   mov   w0, #42                        52800540
+#   ldp   x29, x30, [sp, #0x10]          A9417BFD
+#   add   sp, sp, #0x20                  910083FF
+#   ret                                  D65F03C0
+# ================================================================
+o = w32(&buf, o, 0xD10083FF);
+o = w32(&buf, o, 0xA9017BFD);
+o = w32(&buf, o, 0x910043FD);
+o = w32(&buf, o, 0xB81FC3BF);
+o = w32(&buf, o, 0x52800020);
+o = w32(&buf, o, 0x90000001);
+o = w32(&buf, o, 0x91128021);
+o = w32(&buf, o, 0xD28000C2);
+o = w32(&buf, o, 0x94000005);
+o = w32(&buf, o, 0x52800540);
+o = w32(&buf, o, 0xA9417BFD);
+o = w32(&buf, o, 0x910083FF);
+o = w32(&buf, o, 0xD65F03C0);
+
+# ================================================================
+# __stubs (12 bytes) — _write stub.
+#   adrp x16, 0x100004000  (= __got page)    90000030
+#   ldr  x16, [x16, #0]                       F9400210
+#   br   x16                                  D61F0200
+# ================================================================
+o = w32(&buf, o, 0x90000030);
+o = w32(&buf, o, 0xF9400210);
+o = w32(&buf, o, 0xD61F0200);
+
+# ================================================================
+# __cstring "hello\n\0" (7 bytes)
+# ================================================================
+o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x6C);
+o = w8(&buf, o, 0x6C); o = w8(&buf, o, 0x6F); o = w8(&buf, o, 0x0A);
+o = w8(&buf, o, 0x00);
+
+# Pad to UNWIND_OFF (1192)
+while (o < UNWIND_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __unwind_info (88 bytes) — verbatim copy from reference.
+# Addresses inside (0x460, 0x494) match our __text / __stubs
+# because we placed them at the same offsets as clang.
+# ================================================================
+o = w32(&buf, o, 0x00000001);
+o = w32(&buf, o, 0x0000001C);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x0000001C);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x0000001C);
+o = w32(&buf, o, 0x00000002);
+o = w32(&buf, o, 0x00000460);
+o = w32(&buf, o, 0x00000040);
+o = w32(&buf, o, 0x00000040);
+o = w32(&buf, o, 0x00000494);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000040);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x00000003);
+o = w32(&buf, o, 0x0001000C);
+o = w32(&buf, o, 0x00010010);
+o = w32(&buf, o, 0x00000000);
+o = w32(&buf, o, 0x04000000);
+o = w32(&buf, o, 0x00000000);
+
+# Pad __TEXT page to 16384
+while (o < DATA_CONST_FILEOFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __DATA_CONST.__got (8 bytes) — DYLD_CHAINED_PTR_64 bind entry.
+# 64-bit value: bind=1 (bit 63), next=0, ordinal=0 → import[0] = _write.
+# Bytes: 00 00 00 00 00 00 00 80
+# ================================================================
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x80);
+
+# Pad __DATA_CONST page to 32768
+while (o < LINKEDIT_FILEOFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __LINKEDIT.chain_fixups (96 bytes)
+# Header:
+#   version=0, starts_offset=32, imports_offset=80, symbols_offset=84
+#   imports_count=1, imports_format=1, symbols_format=0
+# starts_in_image at +32:
+#   seg_count=4, seg_info_offset[2]=24, others 0
+# starts_in_segment for __DATA_CONST at +32+24 = +56:
+#   size=24, page_size=16384, pointer_format=6 (PTR_64),
+#   segment_offset=0x4000, max_valid_pointer=0, page_count=1,
+#   page_start[0]=0
+# imports at +80:
+#   import[0] = 0x00000201 (lib_ord=1, weak=0, name_offset=1)
+# symbols at +84:
+#   "\0_write\0" (9 bytes; last bytes zero-pad to 96)
+# ================================================================
+o = w32(&buf, o, 0);                  # version
+o = w32(&buf, o, 32);                 # starts_offset
+o = w32(&buf, o, 80);                 # imports_offset
+o = w32(&buf, o, 84);                 # symbols_offset
+o = w32(&buf, o, 1);                  # imports_count
+o = w32(&buf, o, 1);                  # imports_format
+o = w32(&buf, o, 0);                  # symbols_format
+o = w32(&buf, o, 0);                  # pad
+
+# starts_in_image (24 bytes)
+o = w32(&buf, o, 4);                  # seg_count
+o = w32(&buf, o, 0);                  # seg_info_offset[0]
+o = w32(&buf, o, 0);                  # seg_info_offset[1]
+o = w32(&buf, o, 24);                 # seg_info_offset[2] = 24
+o = w32(&buf, o, 0);                  # seg_info_offset[3]
+o = w32(&buf, o, 0);                  # alignment pad (to reach +24 from starts_in_image start)
+
+# starts_in_segment for __DATA_CONST (24 bytes) at fixup-blob offset +56
+o = w32(&buf, o, 24);                 # size
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x40);   # page_size = 16384 (uint16 LE)
+o = w8(&buf, o, 0x06); o = w8(&buf, o, 0x00);   # pointer_format = 6
+o = w64(&buf, o, 0x00004000);         # segment_offset
+o = w32(&buf, o, 0);                  # max_valid_pointer
+o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x00);   # page_count = 1
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);   # page_start[0] = 0
+
+# imports at +80
+o = w32(&buf, o, 0x00000201);         # lib_ord=1, weak=0, name_offset=1
+
+# symbols at +84: "\0_write\0" then pad to 96
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x77); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x00);
+# Tail pad: CHAIN ends at CHAIN_OFF + 96
+while (o < EXPORTS_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __LINKEDIT.exports_trie (48 bytes) — verbatim, main at 0x460.
+# ULEB128 for 0x460 = 0xE0 0x08 (diff from Stage 2 which was 0xA8 0x06).
+# ================================================================
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x12); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x03); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0xE0);
+o = w8(&buf, o, 0x08); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x63);
+o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x64);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x09);
+o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69); o = w8(&buf, o, 0x6E);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x0D); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# ================================================================
+# __LINKEDIT.function_starts (8 bytes) — ULEB128(0x460) + zeros
+# ================================================================
+o = w8(&buf, o, 0xE0); o = w8(&buf, o, 0x08);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# ================================================================
+# __LINKEDIT.symtab (48 bytes, 3 x nlist_64)
+#   [0] __mh_execute_header: strx=2, type=0x0F, sect=1, desc=0x10,
+#       value=0x100000000
+#   [1] _main: strx=22, type=0x0F, sect=1, desc=0, value=0x100000460
+#   [2] _write: strx=28, type=0x01 (N_EXT undef), sect=0, desc=1
+#       (libSystem ord), value=0
+# ================================================================
+o = w32(&buf, o, 2);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x10); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, 0x100000000);
+
+o = w32(&buf, o, 22);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, 0x100000460);
+
+o = w32(&buf, o, 28);
+o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x01);
+o = w64(&buf, o, 0);
+
+# ================================================================
+# __LINKEDIT.indirect_symtab (8 bytes) — both entries point at
+# symtab[2] (_write): __stubs[0] and __got[0].
+# ================================================================
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 2);
+
+# ================================================================
+# __LINKEDIT.strtab (40 bytes)
+# " \0__mh_execute_header\0_main\0_write\0\0\0\0\0\0"
+# ================================================================
+o = w8(&buf, o, 0x20); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x63); o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61);
+o = w8(&buf, o, 0x64); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x6E); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x77); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00);
+
+# Pad to FILE_END (33024)
+while (o < FILE_END) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# Write to stdout (Linux syscalls: write=1, exit=60).
+# ================================================================
+syscall(1, 1, &buf, o);
+syscall(60, 0);
