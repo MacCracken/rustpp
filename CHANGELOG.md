@@ -4,6 +4,25 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.2] — 2026-04-18
+
+**`ct_select` branchless select for constant-time crypto.**
+
+### Added
+- **`lib/ct.cyr`** — new stdlib module for constant-time primitives.
+  `ct_select(cond, a, b)` returns `a` when `cond == 0` and `b` when
+  `cond == 1`, computed as `a ^ ((0 - cond) & (a ^ b))`. No
+  data-dependent branch in the emitted code (verified via
+  x86-64 disassembly: only `sub`, `xor`, `and`; no `jcc`).
+  Replacement target for sigil 3.0's hand-rolled mask-xor sites
+  (`ge_cmov`, `_ge_table_select`, canonical-S reject path).
+- **`tests/tcyr/ct.tcyr`** — 10 assertions across cond=0, cond=1,
+  full 64-bit values, and per-bit differing inputs.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. Test suite grew to 61 files.
+- cc5 self-host byte-identical.
+
 ## [5.3.1] — 2026-04-18
 
 **Apple Silicon: strings + globals — PIE-safe PC-relative addressing

@@ -1,9 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v5.3.1.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.2.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add).
+> `lib/ct.cyr` branchless select shipped for sigil 3.0 constant-time paths.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
-> **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
+> **61 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -269,13 +270,12 @@ in its own roadmap; landing them here removes the block.
   ML-DSA-65's XOF step in sigil 3.0 PQC. Self-contained, no
   external deps. Benchmark target: 4 KB SHAKE-256 within 2× of
   sigil's existing `sha256_4kb` (~250 µs).
-- **`ct_select(cond, a, b)` helper** in `lib/ct.cyr` (new stdlib
-  module, or add to an existing one). Branchless select returning
-  `a` if `cond == 0`, `b` if `cond == 1`. Sigil currently inlines
-  `mask = 0 - bit; r = r ^ (mask & (r ^ s))` at multiple sites
-  (`ge_cmov`, `_ge_table_select`, `canonical-S` reject path); a
-  standard helper with a guaranteed no-branch codegen contract
-  would de-duplicate those and shrink the security-audit surface.
+- ✅ **`ct_select(cond, a, b)` in `lib/ct.cyr`** (shipped v5.3.2).
+  Branchless select returning `a` if `cond == 0`, `b` if
+  `cond == 1`. Implemented as `a ^ ((0 - cond) & (a ^ b))`;
+  x86-64 disasm confirms only `sub`/`xor`/`and` — no `jcc`.
+  Sigil can drop its inline mask-xor at `ge_cmov`,
+  `_ge_table_select`, and the canonical-S reject path.
 
 ### v5.3.x — language-level security primitives (may be breaking)
 

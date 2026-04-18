@@ -1,0 +1,26 @@
+# Test: lib/ct.cyr constant-time primitives
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+include "lib/ct.cyr"
+
+test_group("ct_select cond=0 returns a");
+assert_eq(ct_select(0, 42, 99), 42, "ct_select(0, 42, 99) = 42");
+assert_eq(ct_select(0, 0, 1), 0, "ct_select(0, 0, 1) = 0");
+assert_eq(ct_select(0, 0 - 1, 0), 0 - 1, "ct_select(0, -1, 0) = -1");
+
+test_group("ct_select cond=1 returns b");
+assert_eq(ct_select(1, 42, 99), 99, "ct_select(1, 42, 99) = 99");
+assert_eq(ct_select(1, 0, 1), 1, "ct_select(1, 0, 1) = 1");
+assert_eq(ct_select(1, 0 - 1, 0), 0, "ct_select(1, -1, 0) = 0");
+
+test_group("ct_select handles full 64-bit values");
+assert_eq(ct_select(0, 0x7FFFFFFFFFFFFFFF, 0), 0x7FFFFFFFFFFFFFFF, "ct_select(0, INT64_MAX, 0)");
+assert_eq(ct_select(1, 0, 0x7FFFFFFFFFFFFFFF), 0x7FFFFFFFFFFFFFFF, "ct_select(1, 0, INT64_MAX)");
+
+test_group("ct_select preserves each arg when the other matters");
+# a and b differ in every bit: 0xAA... vs 0x55...
+assert_eq(ct_select(0, 0xAAAAAAAAAAAAAAAA, 0x5555555555555555), 0xAAAAAAAAAAAAAAAA, "ct_select(0, 0xAA, 0x55)");
+assert_eq(ct_select(1, 0xAAAAAAAAAAAAAAAA, 0x5555555555555555), 0x5555555555555555, "ct_select(1, 0xAA, 0x55)");
+
+var r = assert_summary();
