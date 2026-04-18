@@ -1,12 +1,11 @@
 # Cyrius Development Roadmap
 
-> **v5.3.9.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.10.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon strings + globals + multi-page `__TEXT`. Release workflow
 > ships `aarch64-macos` tarballs. Crypto primitives: `lib/ct.cyr` +
 > `mulh64` + `secret var`. dynlib: `cpu_features` + `TLS` + `stack_end`
-> bootstrap — **first working libc syscall wrappers** (`getpid`, `getuid`)
-> from a static Cyrius binary. NSS/PAM still pending (locale + NSS
-> module state).
+> bootstrap (libc syscall wrappers work from a static binary). `cyrius
+> distlib [profile]` for dual-mode library bundles.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (425KB). Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -234,7 +233,7 @@ Once landed, shakti can drop `src/identity.cyr` for the supp-GIDs path
 and replace the `/usr/bin/su` shim in `src/auth.cyr` with a real PAM
 conversation, closing both port regressions.
 
-### v5.2.4 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
+### v5.3.10 — `cyrius distlib` multi-profile (yukti dual-mode enabler) ✅
 
 Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
 unaffected; downstream libs that need more than one bundle per

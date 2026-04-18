@@ -589,11 +589,41 @@ fn cmd_soak(iters) {
 # ================================================================
 # distlib — bundle src/ modules into dist/{name}.cyr
 # ================================================================
-# Reads [build] modules or [lib] modules from manifest.
-# Concatenates in order, strips include directives.
-# Output: dist/{name}.cyr with header comment.
+# With no profile: reads [build] modules or [lib] modules, writes
+# dist/{name}.cyr.
+# With profile=X: reads [lib.X] modules, writes dist/{name}-X.cyr.
+# Lets downstream libs (e.g. yukti) ship a kernel-safe core bundle
+# alongside the full userland bundle without duplicating the build
+# tool.
+# Profile names are restricted to [a-zA-Z0-9_-]+, max 32 chars
+# (output path safety — no "/", no "..", no shell metachars).
 
-fn cmd_distlib() {
+# Validate a profile name. Returns 1 if safe, 0 if not.
+fn _distlib_valid_profile(p) {
+    if (p == 0) { return 1; }
+    var len = strlen(p);
+    if (len == 0) { return 0; }
+    if (len > 32) { return 0; }
+    var i = 0;
+    while (i < len) {
+        var c = load8(p + i);
+        var ok = 0;
+        if (c >= 48 && c <= 57) { ok = 1; }     # 0-9
+        if (c >= 65 && c <= 90) { ok = 1; }     # A-Z
+        if (c >= 97 && c <= 122) { ok = 1; }    # a-z
+        if (c == 45) { ok = 1; }                # '-'
+        if (c == 95) { ok = 1; }                # '_'
+        if (ok == 0) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn cmd_distlib(profile) {
+    if (_distlib_valid_profile(profile) == 0) {
+        _err("invalid profile name (allowed: [a-zA-Z0-9_-]{1,32})");
+        return 1;
+    }
     # Read manifest
     var mf = "cyrius.cyml";
     if (file_exists(mf) == 0) { mf = "cyrius.toml"; }
@@ -630,13 +660,42 @@ fn cmd_distlib() {
     # Extract version via cyml_expand_value
     var pkg_ver = _version;
 
-    # Find modules list — check [build] modules and [lib] modules
+    # Find modules list. With a profile, we look for [lib.PROFILE] only;
+    # otherwise the existing [build] / [lib] fallback applies.
     var modules = 0;
+    var profile_hdr = 0;
+    var profile_hdr_len = 0;
+    if (profile != 0) {
+        # Build "[lib.PROFILE]" header once for section matching.
+        var plen = strlen(profile);
+        profile_hdr = alloc(plen + 8);
+        memcpy(profile_hdr, "[lib.", 5);
+        memcpy(profile_hdr + 5, profile, plen);
+        store8(profile_hdr + 5 + plen, 93);    # ']'
+        store8(profile_hdr + 6 + plen, 0);
+        profile_hdr_len = 6 + plen;
+    }
     var si = 0;
     while (si < mlen) {
-        if (memeq(mbuf + si, "[build]", 7) == 1 || memeq(mbuf + si, "[lib]", 5) == 1) {
-            var bi = si + 5;
-            if (load8(mbuf + si + 1) == 98) { bi = si + 7; }
+        var matched = 0;
+        var header_len = 0;
+        if (profile != 0) {
+            if (memeq(mbuf + si, profile_hdr, profile_hdr_len) == 1) {
+                matched = 1;
+                header_len = profile_hdr_len;
+            }
+        } else {
+            if (memeq(mbuf + si, "[build]", 7) == 1) {
+                matched = 1;
+                header_len = 7;
+            }
+            elif (memeq(mbuf + si, "[lib]", 5) == 1) {
+                matched = 1;
+                header_len = 5;
+            }
+        }
+        if (matched == 1) {
+            var bi = si + header_len;
             while (bi < mlen) {
                 if (load8(mbuf + bi) == 91 && load8(mbuf + bi + 1) != 91) { break; }
                 if (memeq(mbuf + bi, "modules", 7) == 1) {
@@ -652,18 +711,27 @@ fn cmd_distlib() {
     }
 
     if (modules == 0 || vec_len(modules) == 0) {
-        _err("no [build] modules or [lib] modules found in manifest");
-        println("  Add modules = [\"src/types.cyr\", \"src/lib.cyr\", ...] to your manifest.");
+        if (profile != 0) {
+            _err_ctx("no modules found for profile", profile);
+            println("  Add modules = [...] under the matching [lib.PROFILE] section.");
+        } else {
+            _err("no [build] modules or [lib] modules found in manifest");
+            println("  Add modules = [\"src/types.cyr\", \"src/lib.cyr\", ...] to your manifest.");
+        }
         return 1;
     }
 
     # Create dist/ directory
     sys_mkdir("dist", 0x1ED);
 
-    # Build output path: dist/{name}.cyr
+    # Build output path: dist/{name}.cyr or dist/{name}-{profile}.cyr
     var out_sb = str_builder_new();
     str_builder_add_cstr(out_sb, "dist/");
     str_builder_add_cstr(out_sb, pkg_name);
+    if (profile != 0) {
+        str_builder_add_cstr(out_sb, "-");
+        str_builder_add_cstr(out_sb, profile);
+    }
     str_builder_add_cstr(out_sb, ".cyr");
     var out_path = str_data(str_builder_build(out_sb));
 
@@ -680,6 +748,11 @@ fn cmd_distlib() {
     sys_write(ofd, "# Version: ", 11);
     sys_write(ofd, pkg_ver, strlen(pkg_ver));
     sys_write(ofd, "\n", 1);
+    if (profile != 0) {
+        sys_write(ofd, "# Profile: ", 11);
+        sys_write(ofd, profile, strlen(profile));
+        sys_write(ofd, "\n", 1);
+    }
     sys_write(ofd, "# Generated by: cyrius distlib\n", 31);
     sys_write(ofd, "# Do not edit -- rebuild with: cyrius distlib\n", 46);
     sys_write(ofd, "\n", 1);
@@ -783,7 +856,7 @@ fn cmd_publish() {
             }
             if (has_modules == 1) {
                 _status("  distlib...");
-                cmd_distlib();
+                cmd_distlib(0);
             }
         }
     }

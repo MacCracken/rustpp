@@ -116,7 +116,11 @@ fn main() {
     }
 
     # --- Build commands ---
-    if (streq(cmd, "distlib") == 1) { return cmd_distlib(); }
+    if (streq(cmd, "distlib") == 1) {
+        var dprof = 0;
+        if (argc() > cmd_idx + 1) { dprof = argv(cmd_idx + 1); }
+        return cmd_distlib(dprof);
+    }
 
     if (streq(cmd, "build") == 1) {
         var ai = 2;

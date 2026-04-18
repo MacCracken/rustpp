@@ -4,6 +4,51 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.10] — 2026-04-18
+
+**`cyrius distlib [profile]` — opt-in multi-bundle support for
+downstream libs (yukti dual-mode enabler).**
+
+### Added
+- **`cmd_distlib(profile)`** — positional `profile` argument. No arg
+  preserves v5.3.x behaviour (read `[build]` / `[lib]` modules,
+  write `dist/{name}.cyr`). With `profile=X`: read `[lib.X]` modules
+  and write `dist/{name}-X.cyr`. Bundle header gains a
+  `# Profile: X` line for traceability.
+- **`_distlib_valid_profile(p)`** — rejects profile names containing
+  `/`, `..`, spaces, or any char outside `[a-zA-Z0-9_-]`. Caps at
+  32 chars. Output-path safety (can't escape `dist/`).
+- Dispatcher passes `argv(cmd_idx + 1)` to `cmd_distlib` when a
+  positional follows the command.
+
+### Changed
+- `cmd_distlib` signature now `cmd_distlib(profile)` — callers that
+  need the default path (e.g. `cmd_publish`) pass `0`.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
+- Smoke test against a temp manifest with `[lib]`, `[lib.core]`,
+  `[lib.full]` sections:
+  - `cyrius distlib` → `dist/mylib.cyr` (lib section)
+  - `cyrius distlib core` → `dist/mylib-core.cyr` (lib.core section,
+    `# Profile: core` header present)
+  - `cyrius distlib full` → `dist/mylib-full.cyr` (lib.full section)
+- Bad names rejected cleanly: `../etc/passwd`, `bad/slash`,
+  `with space`, 50-char strings.
+
+### Downstream unlock
+yukti 1.3.0 can split `src/device.cyr` → `src/core.cyr` (kernel-safe
+data-only) + full userland and ship both bundles from one manifest:
+```
+[lib.core]
+modules = ["src/core.cyr", "src/pci.cyr"]
+
+[lib]
+modules = ["src/core.cyr", "src/pci.cyr", "src/device.cyr"]
+```
+`cyrius distlib core` → `dist/yukti-core.cyr` for AGNOS bare-metal.
+`cyrius distlib` → `dist/yukti.cyr` for full userland.
+
 ## [5.3.9] — 2026-04-18
 
 **TLS + `__libc_stack_end` bootstrap — first working libc syscall
