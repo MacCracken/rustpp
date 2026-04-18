@@ -1,6 +1,8 @@
 # dynlib.cyr — pure Cyrius dynamic library loader (ELF .so)
 # Usage: include "lib/dynlib.cyr"
 # Requires: string.cyr, syscalls.cyr, mmap.cyr
+
+include "lib/fnptr.cyr"
 #
 # Loads ELF shared objects via mmap, parses ELF64 headers,
 # walks .dynsym + .dynstr to resolve exported symbols.
@@ -11,15 +13,22 @@
 #   dynlib_sym(handle, name)  → function pointer (address) or 0 if not found
 #   dynlib_close(handle)      → 0
 #
-# DynLib struct layout (64 bytes):
-#   +0:  base       — mmap'd base address
-#   +8:  size       — mmap'd total span
-#   +16: dynsym     — pointer to .dynsym section
-#   +24: dynstr     — pointer to .dynstr section
-#   +32: nsyms      — number of symbols in .dynsym
-#   +40: load_bias  — difference between mmap'd base and ELF p_vaddr
-#   +48: gnu_hash   — pointer to .gnu.hash section (0 if not present)
-#   +56: strtab_sz  — size of .dynstr in bytes (bounds checking)
+# DynLib struct layout (120 bytes):
+#   +0:  base            — mmap'd base address
+#   +8:  size            — mmap'd total span
+#   +16: dynsym          — pointer to .dynsym section
+#   +24: dynstr          — pointer to .dynstr section
+#   +32: nsyms           — number of symbols in .dynsym
+#   +40: load_bias       — difference between mmap'd base and ELF p_vaddr
+#   +48: gnu_hash        — pointer to .gnu.hash section (0 if not present)
+#   +56: strtab_sz       — size of .dynstr in bytes (bounds checking)
+#   +64: init_vaddr      — DT_INIT entry offset (0 if absent)
+#   +72: init_array_vaddr — DT_INIT_ARRAY offset
+#   +80: init_array_sz   — DT_INIT_ARRAYSZ (bytes)
+#   +88: rela_addr       — absolute address of .rela.dyn (for opt-in IRELATIVE)
+#   +96: rela_size       — bytes
+#   +104: jmprel_addr    — absolute address of .rela.plt
+#   +112: jmprel_size    — bytes
 
 # ================================================================
 # ELF64 constants
@@ -473,13 +482,66 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
         pos = pos + 24;
     }
 
-    # Phase 3: IRELATIVE (calls resolver functions to pick IFUNC impls)
-    # These resolvers read CPU features via __cpu_features or CPUID.
-    # On a statically-linked binary, the CPU features struct isn't
-    # initialized by glibc's startup code. Skip IRELATIVE for now —
-    # the default symbol table entries cover the basic implementations.
-    # TODO: initialize CPU features struct or call resolvers safely.
+    # Phase 3 IRELATIVE is intentionally NOT run here — see
+    # _dynlib_apply_irelative. Calling IFUNC resolvers without a
+    # populated glibc `__cpu_features` segfaults for the resolvers
+    # that read it (most of libcrypto's, much of libc's hot
+    # string/memory paths). Consumers that need IRELATIVE call
+    # dynlib_init(handle) to opt in.
 
+    return 0;
+}
+
+# Opt-in Phase 3: walk the same RELA/JMPREL tables and invoke each
+# IRELATIVE resolver, writing the returned pointer back. Zero-arg
+# invocation is tolerated by the SSE2-baseline resolvers in modern
+# glibc. Unsafe for libcrypto/libssl — call only on libraries that
+# are known to behave (currently just libc.so.6 / NSS modules).
+fn _dynlib_apply_irelative(handle, bias, rela_addr, rela_size) {
+    if (rela_addr == 0 || rela_size == 0) { return 0; }
+    var span = load64(handle + 8);
+    var pos = rela_addr;
+    var end = pos + rela_size;
+    while (pos < end) {
+        var r_info = load64(pos + 8);
+        var rtype = r_info & 0xFFFFFFFF;
+        if (rtype == R_X86_64_IRELATIVE) {
+            var r_offset = load64(pos);
+            if (r_offset < span) {
+                var r_addend = load64(pos + 16);
+                var resolver = bias + r_addend;
+                var resolved = fncall0(resolver);
+                if (resolved != 0) {
+                    store64(bias + r_offset, resolved);
+                }
+            }
+        }
+        pos = pos + 24;
+    }
+    return 0;
+}
+
+# Run DT_INIT (single init func) and DT_INIT_ARRAY (array of init funcs).
+# Must run AFTER _dynlib_process_rela for both RELA and JMPREL so that
+# any libc-internal pointers the init functions reach through are fixed.
+# DT_INIT runs first, then DT_INIT_ARRAY in ascending order — matches
+# the ELF ABI contract (libc sets up locale, malloc state, NSS module
+# table, etc. inside these; skipping them is what broke getgrouplist).
+fn _dynlib_run_init(bias, init_vaddr, init_array_vaddr, init_array_sz) {
+    if (init_vaddr != 0) {
+        fncall0(bias + init_vaddr);
+    }
+    if (init_array_vaddr != 0 && init_array_sz > 0) {
+        var n_inits = init_array_sz / 8;
+        var ii = 0;
+        while (ii < n_inits) {
+            var fp = load64(bias + init_array_vaddr + ii * 8);
+            if (fp != 0) {
+                fncall0(fp);
+            }
+            ii = ii + 1;
+        }
+    }
     return 0;
 }
 
@@ -654,7 +716,7 @@ fn dynlib_open(path) {
     var nsyms = _estimate_nsyms(symtab_vaddr, strtab_vaddr);
 
     # Allocate handle
-    var h = alloc(64);
+    var h = alloc(120);
     store64(h, base);
     store64(h + 8, span);
     store64(h + 16, dynsym);
@@ -663,6 +725,21 @@ fn dynlib_open(path) {
     store64(h + 40, bias);
     store64(h + 48, gnuhash);
     store64(h + 56, strtab_size);
+    store64(h + 64, load64(dinfo + 64));       # init_vaddr
+    store64(h + 72, load64(dinfo + 72));       # init_array_vaddr
+    store64(h + 80, load64(dinfo + 80));       # init_array_sz
+    var _r_v = load64(dinfo + 32);
+    var _r_s = load64(dinfo + 40);
+    var _jr_v = load64(dinfo + 48);
+    var _jr_s = load64(dinfo + 56);
+    var _rela = 0;
+    if (_r_v != 0) { _rela = bias + _r_v; }
+    var _jmprel = 0;
+    if (_jr_v != 0) { _jmprel = bias + _jr_v; }
+    store64(h + 88, _rela);
+    store64(h + 96, _r_s);
+    store64(h + 104, _jmprel);
+    store64(h + 112, _jr_s);
 
     # Register before loading deps (prevents circular loading)
     _dynlib_register(path, h);
@@ -697,13 +774,41 @@ fn dynlib_open(path) {
         _dynlib_process_rela(h, bias, bias + jmprel_vaddr, jmprel_size);
     }
 
-    # Run init functions
-    # Skip init functions for now — they depend on IRELATIVE resolvers
-    # which we can't call safely from a static binary. Symbol resolution
-    # still works; most functions are callable without init.
-    # TODO: implement CPU feature detection to enable IRELATIVE + init.
+    # Run DT_INIT + DT_INIT_ARRAY only when the caller opted in. These
+    # initialise locale, malloc state, NSS module tables, stdio buffers,
+    # etc. — needed for NSS/PAM flows but they expect a real glibc
+    # runtime (auxv, TLS, __libc_stack_end) which a static Cyrius binary
+    # doesn't set up. Running them against libcrypto for example SIGSEGVs
+    # at first touch. Consumers that need NSS/PAM call
+    # dynlib_run_init(h) explicitly after dynlib_open succeeds.
 
     return h;
+}
+
+# Opt-in full initialisation: applies IRELATIVE relocations THEN runs
+# DT_INIT + DT_INIT_ARRAY. Use only when the loaded library's init
+# surface is compatible with a Cyrius static binary (libc.so.6 for
+# NSS/PAM; skip for libcrypto/libssl which expect the glibc startup
+# machinery). Returns 0 on success, 1 if the handle is invalid.
+#
+# Consumers that need NSS group resolution or PAM authentication should
+# call this on the libc.so.6 handle before dispatching getgrouplist,
+# pam_start, etc. Without it, those entry points reach into uninitialised
+# locale/NSS state and SIGSEGV.
+fn dynlib_init(handle) {
+    if (handle == 0) { return 1; }
+    var bias = load64(handle + 40);
+    var rela_addr = load64(handle + 88);
+    var rela_size = load64(handle + 96);
+    var jmprel_addr = load64(handle + 104);
+    var jmprel_size = load64(handle + 112);
+    _dynlib_apply_irelative(handle, bias, rela_addr, rela_size);
+    _dynlib_apply_irelative(handle, bias, jmprel_addr, jmprel_size);
+    var init_vaddr = load64(handle + 64);
+    var init_array_vaddr = load64(handle + 72);
+    var init_array_sz = load64(handle + 80);
+    _dynlib_run_init(bias, init_vaddr, init_array_vaddr, init_array_sz);
+    return 0;
 }
 
 # Look up a symbol by name in a loaded library

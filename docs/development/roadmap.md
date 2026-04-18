@@ -1,13 +1,13 @@
 # Cyrius Development Roadmap
 
-> **v5.3.6.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
-> Apple Silicon strings + globals + **multi-page `__TEXT`** so real tools
-> fit. Release workflow now ships `aarch64-macos` tarballs alongside
-> x86_64/arm64 Linux + x86_64 macOS.
-> `lib/ct.cyr` branchless select + `mulh64` builtin + `secret var` zeroise-on-exit
-> for the sigil 3.0 crypto toolkit.
+> **v5.3.7.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
+> Apple Silicon strings + globals + multi-page `__TEXT` so real tools fit.
+> Release workflow ships `aarch64-macos` tarballs. `lib/ct.cyr` branchless
+> select + `mulh64` builtin + `secret var` zeroise-on-exit + `dynlib_init`
+> opt-in IRELATIVE/DT_INIT machinery (full NSS/PAM pending
+> `__cpu_features` bootstrap).
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (425KB). Closure verified.
-> **63 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
+> **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -179,6 +179,14 @@ Hardware-verified on macOS 26.4.1.
   compiles → codesigns → prints "hello" on-device → exit 0.
 
 ### v5.3.x — `lib/dynlib.cyr`: callable libc (NSS/PAM enablement)
+
+**v5.3.7 shipped the machinery half:** `dynlib_init(handle)` now walks
+`.rela.dyn`/`.rela.plt` for `R_X86_64_IRELATIVE` entries and invokes
+each resolver, then runs `DT_INIT` + `DT_INIT_ARRAY`. Handle carries
+the reloc/init addresses captured at `dynlib_open` time. Still
+segfaults against `libc.so.6` — IRELATIVE resolvers touch
+uninitialised `__cpu_features`. That bootstrap is the outstanding
+piece.
 
 `dynlib_open` + `dynlib_sym` work today for trivial leaf functions
 (verified: `getpid` resolves and returns the correct pid from a

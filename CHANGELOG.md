@@ -4,6 +4,65 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.7] — 2026-04-18
+
+**`lib/dynlib.cyr` opt-in init runner + IRELATIVE machinery — the
+infrastructure half of NSS/PAM enablement.**
+
+### Added
+- **`dynlib_init(handle)`** public API — runs Phase 3 IRELATIVE
+  relocations for `.rela.dyn` and `.rela.plt`, then invokes
+  `DT_INIT` and walks `DT_INIT_ARRAY` in ascending order. Matches
+  the ELF ABI contract for calling an ld.so would execute.
+- **`_dynlib_apply_irelative(handle, bias, rela_addr, rela_size)`**
+  — internal helper that scans a RELA table for `R_X86_64_IRELATIVE`
+  entries, calls each resolver via `fncall0`, and writes the
+  returned address back at `bias + r_offset`.
+- **`_dynlib_run_init(bias, init_vaddr, init_array_vaddr,
+  init_array_sz)`** — internal helper that calls DT_INIT then walks
+  DT_INIT_ARRAY.
+- **DynLib handle extended from 64 → 120 bytes** to carry the init
+  and reloc addresses populated from `PT_DYNAMIC` at `dynlib_open`
+  time, so `dynlib_init` can find them without re-parsing.
+- **`include "lib/fnptr.cyr"`** at the top of `lib/dynlib.cyr` —
+  required for `fncall0` used by the init path. Cyrius's include-
+  once dedup means consumers that already include `fnptr.cyr` (like
+  `lib/tls.cyr`) aren't affected.
+- **`tests/tcyr/dynlib_init.tcyr`** — 8 assertions validating:
+  `libc.so.6` opens, handle fields at +64..+112 populate correctly
+  (DT_INIT_ARRAY vaddr, rela addresses), `getpid`/`getgrouplist`
+  still resolve, trivial syscall wrapper still works.
+
+### Changed
+- **`_dynlib_process_rela`** still skips IRELATIVE. Previously this
+  was a latent TODO; now the skip is a deliberate API contract
+  so that libraries expecting a glibc runtime (libcrypto, libssl)
+  don't SIGSEGV at `dynlib_open`. Consumers opt in via
+  `dynlib_init(handle)` when they know the library is safe.
+
+### Scope / limitations
+- **`dynlib_init(handle)` still SIGSEGVs against `libc.so.6`**
+  because IRELATIVE resolvers read `__cpu_features`, which is
+  uninitialised in a static Cyrius binary. The struct must be
+  populated with at least a zero-filled (SSE2-baseline) layout
+  before the resolvers can run safely. That bootstrap is a follow-
+  up patch in the v5.3.x train — this release lands the machinery
+  and the handle bookkeeping.
+- Today's test exercises the infrastructure only (field
+  population, symbol resolution) and does not invoke the init
+  path. Flipping the test to drive `getgrouplist` end-to-end
+  happens when `__cpu_features` bootstrap lands.
+- Consumers must not call `dynlib_init` on libcrypto/libssl —
+  those expect glibc startup (auxv, TLS, `__libc_stack_end`)
+  that a Cyrius binary doesn't provide.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. Test suite grew to 64 files.
+- cc5 self-host byte-identical.
+- Existing dynlib consumers (`tls`, `large_input`, `large_source`)
+  pass without regression — `dynlib_open` remains the safe minimal
+  loader.
+
 ## [5.3.6] — 2026-04-18
 
 **macOS arm64 release tarballs + multi-page `__TEXT` so real tools
