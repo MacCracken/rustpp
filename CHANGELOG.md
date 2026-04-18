@@ -4,6 +4,53 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.3] — 2026-04-17
+
+**Apple Silicon Mach-O probes — first arm64 binaries running on macOS 26.**
+
+### Added
+- **`programs/macho_probe_arm.cyr`** — hand-written arm64 Mach-O
+  generator that emits a byte-identical replica of clang's output for
+  `int main(void){return 42;}`. After `codesign -s - --force`, runs on
+  macOS 26.4.1 (Apple Silicon MacBook Pro) and returns exit 42.
+- **`programs/macho_probe_arm_hello.cyr`** — extended probe that
+  imports `_write` from libSystem via `__DATA_CONST.__got` and a
+  DYLD_CHAINED_PTR_64 bind entry. Prints `hello`, returns 42. Proves
+  the full dyld + libSystem + chained-fixups path on Apple Silicon.
+
+### Validated
+- MH_PIE + MH_DYLDLINK + MH_TWOLEVEL flags all required by kernel
+- `LC_MAIN` (not `LC_UNIXTHREAD`) — unixthread binaries are SIGKILL'd
+  at exec on arm64 macOS regardless of signing, PIE, or BUILD_VERSION
+- `LC_LOAD_DYLINKER` + `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib`
+  mandatory even for zero-import binaries (startup runtime lives in
+  libSystem)
+- `LC_DYLD_CHAINED_FIXUPS` with `DYLD_CHAINED_PTR_64` (pointer_format=6)
+  and `DYLD_CHAINED_IMPORT` (imports_format=1) for bindings
+- `__TEXT` must be R|X (initprot=5), W^X enforced at map time
+- 16KB page size; `LC_BUILD_VERSION` with macOS platform and
+  minos/sdk encoded as `(major<<16)|(minor<<8)|patch`
+- Ad-hoc `codesign -s -` required — unsigned arm64 binaries SIGKILL'd
+
+### Changed
+- **`docs/development/roadmap.md`** — resolved duplicate v5.2.3
+  entries. Apple Silicon probes = v5.2.3 (this release); `cyrius
+  distlib` multi-profile pushed to v5.2.4. Platform targets table
+  renumbered: Windows v5.4.0, RISC-V v5.5.0, Bare-metal v5.6.0.
+- Platform Status table reflects "Probes landed" for macOS arm64
+  instead of "Stub".
+
+### Deferred to v5.3.0
+- Folding probe layout into `src/backend/macho/emit.cyr:EMITMACHO_ARM64`
+  (current emitter is the pre-probe LC_UNIXTHREAD + RWX + raw-SVC stub).
+- Dynamic import tracking in compiler state + ARM64 codegen swap from
+  `svc #0` to `bl __stub_N` when `CYRIUS_MACHO_ARM=1`.
+
+### Validation
+- cc5 two-step bootstrap PASS. `cc5 --version` → `cc5 5.2.3`.
+- 8/8 `check.sh` PASS. 60 test suites.
+- Both probes tested on real hardware (macOS 26.4.1, Apple Silicon).
+
 ## [5.2.2] — 2026-04-16
 
 **sigil 2.8.3 — TPM_SHA256 fix landed.**

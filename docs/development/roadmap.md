@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.2.2.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.2.3.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -130,12 +130,19 @@ Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entr
 - SHA256 checksum in release assets for dep integrity verification
 - `cyrius deps --verify` checks checksums against published hashes
 
-### v5.2.3 — macOS aarch64 (Mach-O ARM64)
-- CPU type `0x0100000C` in Mach-O header
-- libSystem linking (Apple Silicon forbids raw syscalls)
-- Test on iPad Pro via SSH
+### v5.2.3 — Apple Silicon Mach-O probes ✅
+Validated on macOS 26.4.1 (MacBook Pro, Apple Silicon):
+- `programs/macho_probe_arm.cyr` — exit-only arm64 Mach-O, runs
+  byte-identical to clang's output, returns exit status 42
+- `programs/macho_probe_arm_hello.cyr` — libSystem `_write` via
+  chained-fixup GOT binding, prints "hello" + returns 42
+- Kernel requirements captured: MH_PIE, MH_DYLDLINK, LC_MAIN (not
+  LC_UNIXTHREAD), LC_LOAD_DYLINKER, LC_LOAD_DYLIB libSystem,
+  LC_BUILD_VERSION, LC_DYLD_CHAINED_FIXUPS, __TEXT R|X (not RWX),
+  16KB pages, ad-hoc `codesign -s -`
+- Full emitter fold (replacing `EMITMACHO_ARM64`) deferred to v5.3.0
 
-### v5.2.3 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
+### v5.2.4 — `cyrius distlib` multi-profile (yukti dual-mode enabler)
 
 Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
 unaffected; downstream libs that need more than one bundle per
@@ -223,10 +230,11 @@ enables adding new targets without touching the frontend.
 | Release | Platform | Format | Status |
 |---------|----------|--------|--------|
 | **v5.1.0** | macOS x86_64 | Mach-O | **Done** — CYRIUS_MACHO=1, tested on hardware |
-| **v5.2.0** | macOS aarch64 | Mach-O | Apple Silicon native |
-| **v5.3.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
-| **v5.4.0** | RISC-V rv64 | ELF | First-class RISC-V target |
-| **v5.5.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
+| **v5.2.3** | macOS aarch64 | Mach-O | Probes validated on hardware; emitter fold v5.3.0 |
+| **v5.3.0** | macOS aarch64 emitter | Mach-O | Full `EMITMACHO_ARM64` rewrite with libSystem stubs |
+| **v5.4.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
+| **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
+| **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 
 ---
 
@@ -301,10 +309,10 @@ all emit paths go through IR. The path:
 | Linux aarch64 | ELF | **Partial** — cross-compiler works, native entry point ready (v5.0.3, needs ARM hardware validation) |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
-| macOS aarch64 | Mach-O | Stub — **v5.2.0** |
-| Windows x86_64 | PE/COFF | Stub — **v5.3.0** |
-| RISC-V (rv64) | ELF | **v5.4.0** |
-| Bare-metal | ELF (no-libc) | **v5.5.0** |
+| macOS aarch64 | Mach-O | **Probes landed** (v5.2.3) — byte-identical hand-written Mach-O runs on macOS 26.4.1. Emitter fold = v5.3.0 |
+| Windows x86_64 | PE/COFF | Stub — **v5.4.0** |
+| RISC-V (rv64) | ELF | **v5.5.0** |
+| Bare-metal | ELF (no-libc) | **v5.6.0** |
 
 ---
 

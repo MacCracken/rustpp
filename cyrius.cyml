@@ -1,6 +1,6 @@
 [package]
 name = "cyrius"
-version = "5.1.1"
+version = "${file:VERSION}"
 description = "Sovereign, self-hosting systems language"
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/cyrius"
