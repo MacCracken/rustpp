@@ -4,6 +4,67 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.5] — 2026-04-18
+
+**`secret var` zeroise-on-exit for crypto locals + CI bash-e safety fix
+for the Apple Silicon native runner.**
+
+### Added
+- **`secret var name[N];`** — new language-level security primitive.
+  The declared array is registered normally, and a synthetic
+  zeroise body is threaded into the function's defer chain so
+  every return path (explicit `return`, fall-through, error paths
+  that eventually return) runs `store64 [ptr], 0; ptr += 8` across
+  the whole buffer before the epilogue exits. Mirrors Rust's
+  `Zeroizing<T>` semantics.
+- **New token (`108`) + keyword "secret"** in `src/frontend/lex.cyr`.
+  The keyword is scoped to statement position inside functions;
+  using it at top level emits
+  `error: secret var only allowed inside a function`.
+- **`src/backend/x86/emit.cyr:EADDIMM_X1`** — emits `add rcx, imm8`
+  (REX.W + 83 /0 ib). Symmetric to aarch64's existing
+  `EADDIMM_X1` which emits `add x1, x1, #imm12`. Both advance the
+  pointer scratch register during the unrolled zeroise loop.
+- **`tests/tcyr/secret.tcyr`** — 9 assertions covering 16/32/64-byte
+  secret buffers, plus a control test confirming plain
+  (non-`secret`) vars are NOT zeroed at return (so we know the
+  zeroise is specifically tied to the keyword, not a side effect).
+
+### Changed
+- **`src/frontend/parse.cyr:PARSE_STMT`** — gains typ==108 handler
+  that consumes `secret`, parses the following `var name[N];`,
+  then emits the defer bookkeeping (flag local, jmp-over, zeroise
+  body, epilogue-patched jmp, defer-table registration). Arrays
+  only in v5.3.5 scope — scalar locals are deferred until a real
+  consumer requests them.
+- **`.github/workflows/ci.yml:macho-arm64-native`** — the five
+  run steps now capture the child binary's exit code via
+  `cmd && ec=0 || ec=$?` instead of `cmd; ec=$?`. Under `bash -e`
+  the old form exited the whole step the instant a test binary
+  returned non-zero (including the expected `exit 42` case,
+  which caused the v5.3.4 CI failure). The new form is
+  `set -e` transparent.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. Test suite grew to 63 files.
+- `secret` fires on both x86-64 (exit=0 for "zero after return"
+  check) and aarch64 cross-compiled under qemu (exit=42 control
+  test).
+- Control test: plain `var plain[16]` holds its
+  `0xDEADBEEFCAFEBABE` after return — only `secret var` clears.
+- cc5 self-host byte-identical (435104 bytes).
+
+### Scope / limitations
+- Arrays only. Scalar locals (`secret var k: i64;`) are rejected
+  with a clear error pointing at the array requirement.
+- Uses the same 8-entry defer table as `defer { ... }`. A function
+  that declares `secret` vars + `defer` blocks totalling > 8
+  hits the existing "too many defer blocks" limit.
+- Zeroise is tied to **function** scope, not lexical block. A
+  `secret var` declared in an inner `if` body is still cleared at
+  function return, not when the inner block exits. Matches defer
+  semantics; suits the typical "key at top of function" pattern.
+
 ## [5.3.4] — 2026-04-18
 
 **CI coverage for Apple Silicon Mach-O — regression-gate for the

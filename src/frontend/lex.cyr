@@ -1689,6 +1689,8 @@ fn LEXKW_EXT(kw, klen, S, ws) {
         if (kw & 0xFFFFFFFFFFFF == 0x746567746962) { return 102; }
         if (kw & 0xFFFFFFFFFFFF == 0x746573746962) { return 103; }
         if (kw & 0xFFFFFFFFFFFF == 0x726C63746962) { return 104; }
+        # "secret" = 0x746572636573 — zeroise-on-return attribute for local arrays
+        if (kw & 0xFFFFFFFFFFFF == 0x746572636573) { return 108; }
     }
     # SIMD + trig keywords
     if (klen == 8) {

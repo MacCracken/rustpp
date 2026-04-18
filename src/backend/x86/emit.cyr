@@ -75,6 +75,15 @@ var _LOOPVAR_OK = 0;  # loop var r12 caching disabled (caused 2x regression + st
 fn ESPILL(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); return 0; }
 fn EUNSPILL(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); return 0; }
 fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); return 0; }
+# EADDIMM_X1: add rcx, imm8 — the "pointer scratch reg" increment.
+# Named to match the aarch64 backend's EADDIMM_X1 (both advance the
+# store-pointer register after ESTORE64). Used by `secret var` zeroise.
+# imm must fit in a signed 8-bit field.
+fn EADDIMM_X1(S, imm) {
+    if (IR_ENABLED(S) == 2) { return 0; }
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC1); EB(S, imm & 0xFF);
+    return 0;
+}
 fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } E3(S, 0xC80148); return 0; }
 fn ESUBR(S) { if (_IR_REC0(S, IR_SUB) == 1) { return 0; } E3(S, 0xC82948); return 0; }
 fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } E3(S, 0xE9F748); return 0; }

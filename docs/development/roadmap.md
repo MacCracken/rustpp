@@ -1,11 +1,12 @@
 # Cyrius Development Roadmap
 
-> **v5.3.4.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.5.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add),
 > CI-gated via `macho-arm64` (ubuntu static) + `macho-arm64-native` (macos-14 run).
-> `lib/ct.cyr` branchless select + `mulh64` builtin (unsigned 64×64 high).
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
-> **62 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
+> `lib/ct.cyr` branchless select + `mulh64` builtin + `secret var` zeroise-on-exit
+> for the sigil 3.0 crypto toolkit.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (425KB). Closure verified.
+> **63 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -280,13 +281,15 @@ in its own roadmap; landing them here removes the block.
 
 ### v5.3.x — language-level security primitives (may be breaking)
 
-- **Zeroize-on-scope-exit for secret locals.** Attribute or keyword
-  (`secret var key[32]` or `#secret var key[32]`) that inserts a
-  `memset(ptr, 0, size)` at every scope-exit path — matching
-  Rust's `Zeroizing<T>`. Eliminates the manual `memset(sk, 0, 64)`
-  pattern at every function tail in sigil's crypto hot paths
-  (currently 8 call sites). Catches forgotten zeroisation at
-  compile time.
+- ✅ **`secret var name[N];`** (shipped v5.3.5). Zeroise-on-return
+  for local arrays: each declaration injects a synthetic entry
+  into the function's defer chain that writes zero across the
+  buffer before the epilogue exits. Matches Rust's
+  `Zeroizing<T>`. Sigil's 8 manual `memset(sk, 0, N)` call sites
+  can be deleted once the downstream port lands. Scoped to
+  arrays (not scalars) and tied to function exit (not inner
+  lexical block) — deliberately narrower than the Rust analogue
+  but sufficient for the crypto patterns that prompted it.
 - ✅ **`mulh64(a, b) → u64` builtin** (shipped v5.3.3). High 64 bits
   of unsigned 64×64 multiply. x86-64 emits `mul rcx; mov rax, rdx`;
   aarch64 emits the single `umulh x0, x1, x0` instruction. Sigil's
