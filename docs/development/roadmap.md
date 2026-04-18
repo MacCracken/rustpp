@@ -1,7 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v5.3.3.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
-> Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add).
+> **v5.3.4.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add),
+> CI-gated via `macho-arm64` (ubuntu static) + `macho-arm64-native` (macos-14 run).
 > `lib/ct.cyr` branchless select + `mulh64` builtin (unsigned 64×64 high).
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
 > **62 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).

@@ -327,6 +327,126 @@ jobs:
           syscall(SYS_EXIT, 0);' | CYRIUS_MACHO=1 ./build/cc5 2>/dev/null > /tmp/macho_id
           file /tmp/macho_id | grep -q "Mach-O 64-bit x86_64"
 
+  # ── macOS Apple Silicon (arm64) — static verification ──
+  # Compiles arm64 Mach-O binaries with the cross-compiler on ubuntu
+  # and verifies the file structure. Runtime verification happens in
+  # macho-arm64-native on a macos-14 runner.
+  macho-arm64:
+    name: Mach-O ARM64 Cross
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup cross-compiler
+        run: |
+          chmod +x build/cc5
+          cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 && chmod +x ./build/cc5_aarch64
+          echo "cc5_aarch64: $(wc -c < ./build/cc5_aarch64) bytes"
+      - name: Mach-O ARM64 compilation tests
+        run: |
+          mkdir -p /tmp/macho_arm_out
+          pass=0; fail=0
+          # Covers v5.3.0 (syscall-only) + v5.3.1 (strings, globals)
+          for test in \
+            "exit42:syscall(60, 42);" \
+            "write:syscall(1, 1, \"ok\", 2); syscall(60, 0);" \
+            "string_literal:syscall(1, 1, \"hi\\n\", 3); syscall(60, 0);" \
+            "global_var:var msg = \"hello\\n\"; syscall(1, 1, msg, 6); syscall(60, 0);" \
+            "multi_var:var a = 10; var b = 32; syscall(60, a + b);" \
+            "var_plus_string:var m = \"ok\\n\"; var n = 3; syscall(1, 1, m, n); syscall(60, 0);"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2-)
+            out="/tmp/macho_arm_out/$name.macho"
+            printf "$code\n" | CYRIUS_MACHO_ARM=1 ./build/cc5_aarch64 2>/dev/null > "$out"
+            sz=$(wc -c < "$out")
+            magic=$(xxd -l4 -p "$out" | tr -d ' \n')
+            cputype=$(xxd -s4 -l4 -p "$out" | tr -d ' \n')
+            # Mach-O LE magic = cffaedfe, CPU_TYPE_ARM64 (0x0100000C) LE = 0c000001
+            if [ "$sz" -gt 0 ] && [ "$magic" = "cffaedfe" ] && [ "$cputype" = "0c000001" ]; then
+              pass=$((pass+1))
+            else
+              echo "FAIL: $name (size=$sz magic=$magic cputype=$cputype)"
+              fail=$((fail+1))
+            fi
+          done
+          echo "$pass passed, $fail failed"
+          test $fail -eq 0
+      - name: Mach-O ARM64 file identification
+        run: |
+          file /tmp/macho_arm_out/exit42.macho | grep -q "arm64"
+      - name: Verify MH_PIE flag (0x00200085) is set
+        run: |
+          # mach_header_64.flags at offset 24-27 (LE = 85 00 20 00)
+          for f in /tmp/macho_arm_out/*.macho; do
+            flags=$(xxd -s24 -l4 -p "$f" | tr -d ' \n')
+            test "$flags" = "85002000" || {
+              echo "FAIL: $(basename $f) flags=$flags (expected 85002000)"
+              exit 1
+            }
+          done
+          echo "PASS: MH_PIE|MH_DYLDLINK|MH_TWOLEVEL|MH_NOUNDEFS on all binaries"
+      - name: Upload arm64 Mach-O binaries for native run
+        uses: actions/upload-artifact@v4
+        with:
+          name: macho-arm64-binaries
+          path: /tmp/macho_arm_out/
+          retention-days: 7
+
+  # ── macOS Apple Silicon (arm64) — native run ──
+  # Downloads binaries from macho-arm64, codesigns ad-hoc, and runs them on
+  # a real Apple Silicon runner. Validates the v5.3.1 hello-world path
+  # end-to-end against the macOS kernel's MH_PIE, codesign, and dyld gates.
+  macho-arm64-native:
+    name: Mach-O ARM64 Native
+    needs: [macho-arm64]
+    runs-on: macos-14
+    steps:
+      - name: Download arm64 Mach-O binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: macho-arm64-binaries
+          path: ./macho-arm64
+      - name: Codesign and run exit42 (v5.3.0 scope)
+        run: |
+          chmod +x ./macho-arm64/exit42.macho
+          codesign -s - --force ./macho-arm64/exit42.macho
+          ./macho-arm64/exit42.macho; ec=$?
+          test $ec -eq 42 || { echo "exit42: expected 42, got $ec"; exit 1; }
+          echo "PASS: exit42 → $ec"
+      - name: Codesign and run write (v5.3.0 scope)
+        run: |
+          chmod +x ./macho-arm64/write.macho
+          codesign -s - --force ./macho-arm64/write.macho
+          out=$(./macho-arm64/write.macho); ec=$?
+          test $ec -eq 0 || { echo "write: expected exit 0, got $ec"; exit 1; }
+          test "$out" = "ok" || { echo "write: expected 'ok', got '$out'"; exit 1; }
+          echo "PASS: write → 'ok' (exit 0)"
+      - name: Codesign and run string_literal (v5.3.1 scope)
+        run: |
+          chmod +x ./macho-arm64/string_literal.macho
+          codesign -s - --force ./macho-arm64/string_literal.macho
+          out=$(./macho-arm64/string_literal.macho); ec=$?
+          test $ec -eq 0 || { echo "string_literal: expected exit 0, got $ec"; exit 1; }
+          test "$out" = "hi" || { echo "string_literal: expected 'hi', got '$out'"; exit 1; }
+          echo "PASS: string_literal → 'hi' (exit 0)"
+      - name: Codesign and run global_var (v5.3.1 scope)
+        run: |
+          chmod +x ./macho-arm64/global_var.macho
+          codesign -s - --force ./macho-arm64/global_var.macho
+          out=$(./macho-arm64/global_var.macho); ec=$?
+          test $ec -eq 0 || { echo "global_var: expected exit 0, got $ec"; exit 1; }
+          test "$out" = "hello" || { echo "global_var: expected 'hello', got '$out'"; exit 1; }
+          echo "PASS: global_var → 'hello' (exit 0)"
+      - name: Codesign and run var_plus_string (v5.3.1 scope)
+        run: |
+          chmod +x ./macho-arm64/var_plus_string.macho
+          codesign -s - --force ./macho-arm64/var_plus_string.macho
+          out=$(./macho-arm64/var_plus_string.macho); ec=$?
+          test $ec -eq 0 || { echo "var_plus_string: expected exit 0, got $ec"; exit 1; }
+          test "$out" = "ok" || { echo "var_plus_string: expected 'ok', got '$out'"; exit 1; }
+          echo "PASS: var_plus_string → 'ok' (exit 0)"
+
   # ── Documentation ──
   doc:
     name: Documentation

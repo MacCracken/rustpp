@@ -4,6 +4,42 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.4] — 2026-04-18
+
+**CI coverage for Apple Silicon Mach-O — regression-gate for the
+arm64 target.**
+
+### Added
+- **`.github/workflows/ci.yml:macho-arm64`** job — compiles a spread
+  of arm64 Mach-O test cases on `ubuntu-latest` using
+  `CYRIUS_MACHO_ARM=1` and verifies: Mach-O magic (`cffaedfe`),
+  CPU_TYPE_ARM64 (`0c000001`), MH_PIE|MH_DYLDLINK|MH_TWOLEVEL|
+  MH_NOUNDEFS flags (`85002000`), and `file` identifies each output
+  as arm64 Mach-O. Test matrix covers v5.3.0 syscall-only
+  (`exit42`, `write`) and v5.3.1 strings + globals
+  (`string_literal`, `global_var`, `multi_var`, `var_plus_string`).
+  Compiled binaries uploaded as artifact for the native job.
+- **`.github/workflows/ci.yml:macho-arm64-native`** job — runs on
+  `macos-14` (Apple Silicon). Downloads the artifact, `codesign -s -
+  --force`s each binary, executes it, and asserts expected exit code
+  and stdout. Closes the CI loop against the real macOS kernel's
+  MH_PIE, codesign, and dyld gates that broke earlier iterations.
+
+### Why
+v5.3.0 / v5.3.1 shipped Apple Silicon support but only the local
+dev machine guarded against regressions. Any future aarch64 backend
+or Mach-O emitter change (PC-relative addressing, segment layout,
+chain-fixups) could silently break the target and reach a release
+tarball. These jobs catch the break in the PR.
+
+### Validation
+- Static verification job locally: 6/6 compile tests PASS, flags
+  check confirms `MH_PIE|MH_DYLDLINK|MH_TWOLEVEL|MH_NOUNDEFS` on
+  every binary; `file` identifies exit42 as
+  "Mach-O 64-bit arm64 executable, flags:
+  <NOUNDEFS|DYLDLINK|TWOLEVEL|PIE>".
+- `sh scripts/check.sh`: 8/8 PASS, cc5 self-host byte-identical.
+
 ## [5.3.3] — 2026-04-18
 
 **`mulh64(a, b)` builtin — high 64 bits of 64×64 unsigned multiply.**
