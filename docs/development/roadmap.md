@@ -1,7 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v5.3.0.** cc5 compiler (408KB), x86_64 + aarch64 cross. IR + CFG.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (408KB). Closure verified.
+> **v5.3.1.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add).
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
 > **60 test suites**, 14 benchmarks, 5 fuzz harnesses. **60 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
@@ -156,21 +157,24 @@ First Cyrius-compiled arm64 Mach-O binaries running on Apple Silicon.
 - End-to-end: `syscall(60,42);` Cyrius → cc5_aarch64 with
   `CYRIUS_MACHO_ARM=1` → codesign → runs → exit=42.
 
-### v5.3.1 — Apple Silicon strings + globals (hello-world)
-Complete the useful Cyrius-on-Mac target.
-- PIE-safe PC-relative addressing — replace aarch64 FIXUP's MOVZ/MOVK
-  absolute-address sequence with `adrp + add` or `adrp + ldr` for
-  Mach-O ARM target. Absolute addressing breaks under PIE slide;
-  PC-relative is sole correct approach.
-- `__cstring` section in `__TEXT` for string literals (R|X segment
-  is fine — strings are read-only).
-- `__DATA` segment (R|W, initprot=3) for mutable globals.
-- `__DATA_CONST` segment only needed if we later add libSystem imports
-  (not in v5.3.1 scope).
-- Target test: a `println("hello")`-style Cyrius program compiles,
-  signs, runs on Apple Silicon, prints "hello", exits cleanly.
+### v5.3.1 — Apple Silicon strings + globals (hello-world) ✅
+Cyrius programs with string literals and globals run on Apple Silicon.
+Hardware-verified on macOS 26.4.1.
+- `EADRP` / `EADD_IMM12` placeholder encoders + `FIXUP_ADRP_ADD` patch
+  routine in the aarch64 backend. `EVADDR_X1`, `EVSTORE`, `EVLOAD`,
+  `EVADDR`, `ESADDR` gated to emit the adrp+add pair (8 bytes) under
+  `_TARGET_MACHO==2`, falling back to MOVZ/MOVK for Linux.
+- `__cstring` section added to `__TEXT` when `spos > 0`
+  (S_CSTRING_LITERALS, placed immediately after 4-byte aligned code).
+- `__DATA` segment (R|W, 1 page) emitted when `totvar > 0`, vmaddr
+  `TEXT_BASE + 0x8000`. Zero-initialised; `__LINKEDIT` shifts to
+  page 3 when `__DATA` present.
+- FIXUP dispatch computes string addr as `entry + acp + soff` and
+  var addr as `0x100008000 + cumul` for Mach-O ARM.
+- End-to-end: `var msg="hello\n"; syscall(1,1,msg,6); syscall(60,0);`
+  compiles → codesigns → prints "hello" on-device → exit 0.
 
-### v5.3.1 — `lib/dynlib.cyr`: callable libc (NSS/PAM enablement)
+### v5.3.x — `lib/dynlib.cyr`: callable libc (NSS/PAM enablement)
 
 `dynlib_open` + `dynlib_sym` work today for trivial leaf functions
 (verified: `getpid` resolves and returns the correct pid from a
@@ -305,7 +309,7 @@ enables adding new targets without touching the frontend.
 | **v5.1.0** | macOS x86_64 | Mach-O | **Done** — CYRIUS_MACHO=1, tested on hardware |
 | **v5.2.3** | macOS aarch64 | Mach-O | Probes validated on hardware; emitter fold v5.3.0 |
 | **v5.3.0** | macOS aarch64 (syscall-only) | Mach-O | EMITMACHO_ARM64 full rewrite; raw BSD svc #0x80 |
-| **v5.3.1** | macOS aarch64 strings+globals | Mach-O | PIE-safe adrp+add fixup; __cstring + __DATA |
+| **v5.3.1** | macOS aarch64 strings+globals | Mach-O | **Done** — PIE-safe adrp+add; __cstring + __DATA, hardware-verified |
 | **v5.4.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |

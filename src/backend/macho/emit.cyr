@@ -63,7 +63,7 @@ fn EMITMACHO_EXEC(S) {
     }
 
     # ncmds=3: __PAGEZERO + __TEXT + LC_UNIXTHREAD
-    # sizeofcmds = 72 + 152 + 184 = 408
+    # lc_total = 72 + 152 + 184 = 408
 
     var O = S + 0x64A000;
     var o = 0;
@@ -76,7 +76,7 @@ fn EMITMACHO_EXEC(S) {
     o = _macho_w32(O, o, 0x00000003);     # cpusubtype
     o = _macho_w32(O, o, 0x00000002);     # filetype = MH_EXECUTE
     o = _macho_w32(O, o, 3);              # ncmds
-    o = _macho_w32(O, o, 72 + 152 + 184); # sizeofcmds = 408
+    o = _macho_w32(O, o, 72 + 152 + 184); # lc_total = 408
     o = _macho_w32(O, o, 0x00000001);     # flags = MH_NOUNDEFS
     o = _macho_w32(O, o, 0);              # reserved
 
@@ -201,7 +201,7 @@ fn EMITMACHO_EXEC(S) {
 #   page 2 (32768..):     __LINKEDIT (chain_fixups + exports_trie +
 #                                      function_starts + symtab + strtab)
 #
-# 15 load commands (sizeofcmds = 648 pre-signing; codesign adds
+# 15 load commands (lc_total = 648 pre-signing; codesign adds
 # LC_CODE_SIGNATURE = 16 more bytes):
 #   __PAGEZERO(72) + __TEXT(152) + __LINKEDIT(72)
 #   + CHAINED_FIXUPS(16) + EXPORTS_TRIE(16) + SYMTAB(24)
@@ -222,34 +222,66 @@ fn EMITMACHO_ARM64(S) {
     var totvar = L64(S + 0x8FCD0);
     var spos = GSPOS(S);
 
-    # v5.3.0 scope check — reject programs that need features deferred
-    # to Phase 3 (strings, variables, named function address refs).
-    if (totvar > 0) {
-        syscall(SYS_WRITE, 2,
-            "error: Mach-O ARM64 (v5.3.0) does not yet support global variables (Phase 3)\n",
-            79);
-        syscall(SYS_EXIT, 1);
-    }
-    if (spos > 0) {
-        syscall(SYS_WRITE, 2,
-            "error: Mach-O ARM64 (v5.3.0) does not yet support string literals (Phase 3)\n",
-            77);
-        syscall(SYS_EXIT, 1);
-    }
-
     var PAGE = 16384;
     var TEXT_BASE = 0x100000000;
     var CODE_OFF = PAGE;                   # code starts at page 1
-    var LINKEDIT_FILEOFF = PAGE * 2;       # __LINKEDIT at page 2
-    var LINKEDIT_VMADDR = TEXT_BASE + PAGE * 2;
 
-    # Round code size up to 8-byte alignment
-    var code_sz = (cp + 7) & (0 - 8);
+    # Code is 4-byte aligned (matches FIXUP's acp). Strings follow inside __TEXT.
+    var code_aligned = (cp + 3) & (0 - 4);
 
-    if (code_sz > 1048576) {
+    var has_cstring = 0;
+    if (spos > 0) { has_cstring = 1; }
+    var has_data = 0;
+    if (totvar > 0) { has_data = 1; }
+
+    # __TEXT stays 2 pages (page 0 = headers, page 1 = code + __cstring).
+    # Code + strings must fit in 1 page for v5.3.1 scope.
+    if (code_aligned + spos > PAGE) {
+        syscall(SYS_WRITE, 2,
+            "error: Mach-O ARM64 code+strings exceed one page (16KB)\n", 57);
+        syscall(SYS_EXIT, 1);
+    }
+    if (totvar > PAGE) {
+        syscall(SYS_WRITE, 2,
+            "error: Mach-O ARM64 global vars exceed one page (16KB)\n", 56);
+        syscall(SYS_EXIT, 1);
+    }
+    if (code_aligned > 1048576) {
         syscall(SYS_WRITE, 2, "error: Mach-O ARM64 code too large (> 1MB)\n", 44);
         syscall(SYS_EXIT, 1);
     }
+
+    # __cstring offsets inside __TEXT.
+    var CSTRING_OFF_REL = code_aligned;
+    var CSTRING_VADDR = TEXT_BASE + CODE_OFF + CSTRING_OFF_REL;
+
+    # __DATA at page 2 (vmaddr 0x100008000) when has_data.
+    var DATA_VMADDR = TEXT_BASE + PAGE * 2;
+    var DATA_FILEOFF = PAGE * 2;
+
+    # __LINKEDIT at page 2 or page 3 depending on __DATA presence.
+    var LINKEDIT_FILEOFF = PAGE * 2;
+    var LINKEDIT_VMADDR = TEXT_BASE + PAGE * 2;
+    if (has_data == 1) {
+        LINKEDIT_FILEOFF = PAGE * 3;
+        LINKEDIT_VMADDR = TEXT_BASE + PAGE * 3;
+    }
+
+    # __TEXT cmdsize: 72 header + nsects * 80
+    var text_nsects = 1;
+    var text_cmdsize = 152;
+    if (has_cstring == 1) {
+        text_nsects = 2;
+        text_cmdsize = 232;
+    }
+
+    # Load command sizes (baseline 648 matches v5.3.0 exactly)
+    var lc_total = 648;
+    if (has_cstring == 1) { lc_total = lc_total + 80; }
+    if (has_data == 1) { lc_total = lc_total + 152; }
+
+    var ncmds = 15;
+    if (has_data == 1) { ncmds = 16; }
 
     # __LINKEDIT content layout (pre-signing)
     var CHAIN_OFF = LINKEDIT_FILEOFF;
@@ -278,8 +310,8 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, 0x0100000C);      # CPU_TYPE_ARM64
     o = _macho_w32(O, o, 0x00000000);
     o = _macho_w32(O, o, 0x00000002);      # MH_EXECUTE
-    o = _macho_w32(O, o, 15);              # ncmds
-    o = _macho_w32(O, o, 648);             # sizeofcmds
+    o = _macho_w32(O, o, ncmds);
+    o = _macho_w32(O, o, lc_total);
     o = _macho_w32(O, o, 0x00200085);      # MH_NOUNDEFS|MH_DYLDLINK|MH_TWOLEVEL|MH_PIE
     o = _macho_w32(O, o, 0);
 
@@ -297,11 +329,12 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
 
     # ================================================================
-    # LC_SEGMENT_64 __TEXT (152 = 72 + 80)
-    # Spans 2 pages: page 0 headers + page 1 code. initprot = R|X.
+    # LC_SEGMENT_64 __TEXT (cmdsize = 72 + nsects*80)
+    # Spans 2 pages: page 0 headers + page 1 code (+ optional __cstring).
+    # initprot = R|X.
     # ================================================================
     o = _macho_w32(O, o, 0x19);
-    o = _macho_w32(O, o, 152);
+    o = _macho_w32(O, o, text_cmdsize);
     o = _macho_wname(O, o, "__TEXT");
     o = _macho_w64(O, o, TEXT_BASE);
     o = _macho_w64(O, o, PAGE * 2);        # vmsize = 2 pages
@@ -309,19 +342,61 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w64(O, o, PAGE * 2);        # filesize = 2 pages
     o = _macho_w32(O, o, 5);               # maxprot = R|X
     o = _macho_w32(O, o, 5);               # initprot = R|X
-    o = _macho_w32(O, o, 1);
+    o = _macho_w32(O, o, text_nsects);
     o = _macho_w32(O, o, 0);
 
     # section __text
     o = _macho_wname(O, o, "__text");
     o = _macho_wname(O, o, "__TEXT");
     o = _macho_w64(O, o, TEXT_BASE + CODE_OFF);
-    o = _macho_w64(O, o, code_sz);
+    o = _macho_w64(O, o, code_aligned);
     o = _macho_w32(O, o, CODE_OFF);
     o = _macho_w32(O, o, 2);               # align 2^2 = 4
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
     o = _macho_w32(O, o, 0x80000400);      # PURE_INSTRUCTIONS|SOME_INSTRUCTIONS
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+
+    # section __cstring (when spos > 0)
+    if (has_cstring == 1) {
+        o = _macho_wname(O, o, "__cstring");
+        o = _macho_wname(O, o, "__TEXT");
+        o = _macho_w64(O, o, CSTRING_VADDR);
+        o = _macho_w64(O, o, spos);
+        o = _macho_w32(O, o, CODE_OFF + CSTRING_OFF_REL);
+        o = _macho_w32(O, o, 0);               # align 2^0 = 1
+        o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+        o = _macho_w32(O, o, 0x00000002);      # S_CSTRING_LITERALS
+        o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    }
+
+    # ================================================================
+    # LC_SEGMENT_64 __DATA (optional — when totvar > 0)
+    # R|W segment at page 2 holding zero-initialised global vars.
+    # ================================================================
+    if (has_data == 1) {
+        o = _macho_w32(O, o, 0x19);
+        o = _macho_w32(O, o, 152);
+        o = _macho_wname(O, o, "__DATA");
+        o = _macho_w64(O, o, DATA_VMADDR);
+        o = _macho_w64(O, o, PAGE);
+        o = _macho_w64(O, o, DATA_FILEOFF);
+        o = _macho_w64(O, o, PAGE);
+        o = _macho_w32(O, o, 3);               # maxprot = R|W
+        o = _macho_w32(O, o, 3);               # initprot = R|W
+        o = _macho_w32(O, o, 1);
+        o = _macho_w32(O, o, 0);
+
+        # section __data
+        o = _macho_wname(O, o, "__data");
+        o = _macho_wname(O, o, "__DATA");
+        o = _macho_w64(O, o, DATA_VMADDR);
+        o = _macho_w64(O, o, totvar);
+        o = _macho_w32(O, o, DATA_FILEOFF);
+        o = _macho_w32(O, o, 3);               # align 2^3 = 8
+        o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+        o = _macho_w32(O, o, 0);               # flags = S_REGULAR
+        o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    }
 
     # ================================================================
     # LC_SEGMENT_64 __LINKEDIT (72)
@@ -429,11 +504,30 @@ fn EMITMACHO_ARM64(S) {
     while (o < CODE_OFF) { store8(O + o, 0); o = o + 1; }
 
     # ================================================================
-    # __text page — copy compiled code, pad to PAGE
+    # __text page — code + optional __cstring, padded to page boundary.
     # ================================================================
     var i = 0;
     while (i < cp) { store8(O + o, load8(S + 0x54A000 + i)); o = o + 1; i = i + 1; }
-    while (o < LINKEDIT_FILEOFF) { store8(O + o, 0); o = o + 1; }
+    # Pad code to 4-byte alignment (matches FIXUP's acp, which determines
+    # the string addresses).
+    while ((o - CODE_OFF) < code_aligned) { store8(O + o, 0); o = o + 1; }
+    # __cstring data (if any) sits immediately after padded code.
+    if (has_cstring == 1) {
+        i = 0;
+        while (i < spos) { store8(O + o, load8(S + 0x14A000 + i)); o = o + 1; i = i + 1; }
+    }
+    # Zero-fill to end of __TEXT page 1 (next segment starts at page 2).
+    var page1_end = PAGE * 2;
+    while (o < page1_end) { store8(O + o, 0); o = o + 1; }
+
+    # ================================================================
+    # __DATA page (optional) — zero-initialised globals.
+    # ================================================================
+    if (has_data == 1) {
+        i = 0;
+        while (i < totvar) { store8(O + o, 0); o = o + 1; i = i + 1; }
+        while (o < LINKEDIT_FILEOFF) { store8(O + o, 0); o = o + 1; }
+    }
 
     # ================================================================
     # __LINKEDIT content
@@ -448,12 +542,22 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, 1);               # imports_format = DYLD_CHAINED_IMPORT
     o = _macho_w32(O, o, 0);               # symbols_format
     o = _macho_w32(O, o, 0);               # pad
-    o = _macho_w32(O, o, 3);               # seg_count = 3 (PZ, TEXT, LE)
+    # seg_count: 3 (PZ, TEXT, LE) or 4 (PZ, TEXT, DATA, LE)
+    # Total size stays 56 bytes — the extra offset[3] steals 4 bytes from tail pad.
+    var seg_count = 3;
+    if (has_data == 1) { seg_count = 4; }
+    o = _macho_w32(O, o, seg_count);
     o = _macho_w32(O, o, 0);               # seg_info_offset[0]
     o = _macho_w32(O, o, 0);               # seg_info_offset[1]
     o = _macho_w32(O, o, 0);               # seg_info_offset[2]
-    o = _macho_w32(O, o, 0);               # tail padding
-    o = _macho_w32(O, o, 0);
+    if (has_data == 1) {
+        o = _macho_w32(O, o, 0);           # seg_info_offset[3]
+        o = _macho_w32(O, o, 0);           # tail pad
+    }
+    else {
+        o = _macho_w32(O, o, 0);           # tail pad
+        o = _macho_w32(O, o, 0);
+    }
 
     # exports_trie (49 bytes; padded to 56 for alignment)
     # Encodes __mh_execute_header (at 0x0) + _main (at 0x4000).

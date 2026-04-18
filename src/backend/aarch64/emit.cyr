@@ -153,6 +153,21 @@ fn EPOPR10(S) { EW(S, 0xF8410FE3); return 0; }  # ldr x3, [sp], #16 (arg4)
 fn EPOPR8(S) { EW(S, 0xF8410FE4); return 0; }   # ldr x4, [sp], #16 (arg5)
 fn EPOPR9(S) { EW(S, 0xF8410FE5); return 0; }   # ldr x5, [sp], #16
 
+# === PIE-safe PC-relative addressing (Mach-O ARM) ===
+# ADRP xN, #0 — placeholder, page-diff patched by FIXUP_ADRP_ADD.
+# Encoding: 0x90000000 | Rd (bits 4:0). immlo/immhi fields start at 0.
+fn EADRP(S, reg) {
+    EW(S, 0x90000000 | (reg & 0x1F));
+    return 0;
+}
+
+# ADD xN, xN, #0 — placeholder, imm12 patched by FIXUP_ADRP_ADD.
+# Encoding: 0x91000000 | (Rn << 5) | Rd, with Rn == Rd == reg.
+fn EADD_IMM12(S, reg) {
+    EW(S, 0x91000000 | ((reg & 0x1F) << 5) | (reg & 0x1F));
+    return 0;
+}
+
 # === Fixup + variable access ===
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
@@ -172,6 +187,11 @@ fn RECFIX(S, idx) {
 # Load variable address into x1 (for struct field access)
 fn EVADDR_X1(S, idx) {
     RECFIX(S, idx);
+    if (_TARGET_MACHO == 2) {
+        EADRP(S, 1);          # adrp x1, <page>
+        EADD_IMM12(S, 1);     # add  x1, x1, #<lo12>
+        return 0;
+    }
     EW(S, 0xD2800001);  # movz x1, #0
     EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
     EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
@@ -187,8 +207,13 @@ fn EADDIMM_X1(S, val) {
 
 # Store: mov x1, <addr>; str x0, [x1]
 fn EVSTORE(S, idx) {
-    # RECFIX before MOVZ so fixup patches the right 3 instructions
+    # RECFIX before the address sequence so fixup patches the right instructions
     RECFIX(S, idx);
+    if (_TARGET_MACHO == 2) {
+        EADRP(S, 1); EADD_IMM12(S, 1);
+        EW(S, 0xF9000020);  # str x0, [x1]
+        return 0;
+    }
     EW(S, 0xD2800001);  # movz x1, #0
     EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
     EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
@@ -199,6 +224,11 @@ fn EVSTORE(S, idx) {
 # Load: mov x1, <addr>; ldr x0, [x1]
 fn EVLOAD(S, idx) {
     RECFIX(S, idx);
+    if (_TARGET_MACHO == 2) {
+        EADRP(S, 1); EADD_IMM12(S, 1);
+        EW(S, 0xF9400020);  # ldr x0, [x1]
+        return 0;
+    }
     EW(S, 0xD2800001);  # movz x1, #0
     EW(S, 0xF2A00001);  # movk x1, #0, lsl 16
     EW(S, 0xF2C00001);  # movk x1, #0, lsl 32
@@ -209,6 +239,10 @@ fn EVLOAD(S, idx) {
 # Address: mov x0, <addr>
 fn EVADDR(S, idx) {
     RECFIX(S, idx);
+    if (_TARGET_MACHO == 2) {
+        EADRP(S, 0); EADD_IMM12(S, 0);
+        return 0;
+    }
     EW(S, 0xD2800000);  # movz x0, #0
     EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
     EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
@@ -226,6 +260,10 @@ fn ESADDR(S, soff) {
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
+    if (_TARGET_MACHO == 2) {
+        EADRP(S, 0); EADD_IMM12(S, 0);
+        return 0;
+    }
     EW(S, 0xD2800000);  # movz x0, #0
     EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
     EW(S, 0xF2C00000);  # movk x0, #0, lsl 32

@@ -125,7 +125,11 @@ fn FIXUP(S) {
             S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
         }
         else { if (ftype == 1) {
-            FIXUP_MOV(S, coff, dbase + totvar + idx);
+            # String address: Linux flat layout vs Mach-O ARM __cstring section.
+            var saddr = dbase + totvar + idx;
+            if (_TARGET_MACHO == 2) { saddr = entry + acp + idx; }
+            if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, saddr); }
+            else { FIXUP_MOV(S, coff, saddr); }
         }
         else {
             var cumul = 0;
@@ -134,11 +138,39 @@ fn FIXUP(S) {
                 cumul = cumul + L64(S + 0x12A000 + vi * 8);
                 vi = vi + 1;
             }
-            FIXUP_MOV(S, coff, dbase + cumul);
+            # Variable address: Linux flat layout vs Mach-O ARM __DATA segment at page 2.
+            var vaddr = dbase + cumul;
+            if (_TARGET_MACHO == 2) { vaddr = 0x100008000 + cumul; }
+            if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, vaddr); }
+            else { FIXUP_MOV(S, coff, vaddr); }
         } } }
         fi = fi + 1;
     }
     S64(S + 0x8FCD0, totvar);
+    return 0;
+}
+
+# PIE-safe ADRP+ADD patch (Mach-O ARM). Pair at coff:
+#   ADRP xN, <page>   (offset +0)  — immhi/immlo hold target-page diff (4KB units)
+#   ADD  xN, xN, #lo  (offset +4)  — imm12 holds target address low 12 bits
+# Apple Silicon enforces MH_PIE, so absolute addressing (MOVZ/MOVK) is unsafe.
+# This pair is PC-relative and survives the ASLR slide.
+fn FIXUP_ADRP_ADD(S, coff, addr) {
+    var pc = 0x100004000 + coff;
+    var pc_page = pc >> 12;
+    var target_page = addr >> 12;
+    var page_diff = target_page - pc_page;
+    var immlo = page_diff & 0x3;
+    var immhi = (page_diff >> 2) & 0x7FFFF;
+    var adrp_base = S + 0x54A000 + coff;
+    var adrp_insn = L64(adrp_base) & 0xFFFFFFFF;
+    adrp_insn = (adrp_insn & 0x9F00001F) | (immlo << 29) | (immhi << 5);
+    S64(adrp_base, (L64(adrp_base) >> 32 << 32) | (adrp_insn & 0xFFFFFFFF));
+    var add_base = S + 0x54A000 + coff + 4;
+    var add_insn = L64(add_base) & 0xFFFFFFFF;
+    var low12 = addr & 0xFFF;
+    add_insn = (add_insn & 0xFFC003FF) | (low12 << 10);
+    S64(add_base, (L64(add_base) >> 32 << 32) | (add_insn & 0xFFFFFFFF));
     return 0;
 }
 

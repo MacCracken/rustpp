@@ -4,6 +4,78 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.1] — 2026-04-18
+
+**Apple Silicon: strings + globals — PIE-safe PC-relative addressing
+lands the first useful Cyrius programs on macOS 26.4.1.**
+
+### Added
+- **`src/backend/aarch64/emit.cyr:EADRP` / `EADD_IMM12`** — placeholder
+  encoders for the `adrp xN, #0` + `add xN, xN, #0` pair. Page-diff
+  and low-12 fields patched by FIXUP_ADRP_ADD after the codebuf
+  finalises.
+- **`src/backend/aarch64/fixup.cyr:FIXUP_ADRP_ADD`** — patches the
+  two-instruction pair at `coff` with a 48-bit target address. ADRP
+  encodes `(target_page - pc_page) >> 12` split across immlo
+  (bits 30:29) and immhi (bits 23:5); ADD gets `addr & 0xFFF` in
+  its imm12 field. PC-relative output survives Apple Silicon's
+  mandatory `MH_PIE` ASLR slide.
+
+### Changed
+- **`src/backend/aarch64/emit.cyr`** — `EVADDR_X1`, `EVSTORE`,
+  `EVLOAD`, `EVADDR`, `ESADDR` each gain a `_TARGET_MACHO == 2`
+  branch emitting `EADRP + EADD_IMM12` (8 bytes, 2 insns) instead
+  of the Linux `MOVZ + MOVK(lsl 16) + MOVK(lsl 32)` triple
+  (12 bytes, 3 insns). Linux codegen unchanged.
+- **`src/backend/aarch64/fixup.cyr:FIXUP`** — when
+  `_TARGET_MACHO == 2`, string address is `entry + acp + soff`
+  (points into `__cstring` right after the code) and variable
+  address is `0x100008000 + cumul` (points into `__DATA` at page 2).
+  Dispatch calls `FIXUP_ADRP_ADD` instead of `FIXUP_MOV` on the
+  same fixup-table entries.
+- **`src/backend/macho/emit.cyr:EMITMACHO_ARM64`** now emits:
+  - A `__cstring` section inside `__TEXT` when `spos > 0`
+    (S_CSTRING_LITERALS, `addr = TEXT_BASE + CODE_OFF + acp`).
+  - A `__DATA` segment (R|W, 1 page) when `totvar > 0`, placed at
+    `TEXT_BASE + 0x8000`. Contains a single `__data` section sized
+    at `totvar` bytes, zero-initialised.
+  - `__LINKEDIT` shifted to page 3 (`TEXT_BASE + 0xC000`) when
+    `__DATA` is present; stays at page 2 otherwise.
+  - `ncmds` becomes 16 when `__DATA` present (was 15), `lc_total`
+    grows by 80 per `__cstring` section and 152 per `__DATA`
+    segment. `chain_fixups.seg_count` becomes 4.
+  - Removed the `spos > 0` and `totvar > 0` early-error gates.
+- **`src/backend/macho/emit.cyr`** — renamed local `sizeofcmds` to
+  `lc_total` to avoid tokenising as `sizeof` + `cmds`.
+
+### Validation
+- cc5 two-step bootstrap PASS (432536 bytes, +2944 from 5.3.0 baseline).
+- 8/8 `check.sh` PASS. 60 test suites, heap audit, lint, format clean.
+- End-to-end hardware test on macOS 26.4.1, Apple Silicon:
+  ```
+  echo 'var msg = "hello\n"; syscall(1,1,msg,6); syscall(60,0);' \
+    | CYRIUS_MACHO_ARM=1 build/cc5_aarch64 > hello.macho
+  codesign -s - --force hello.macho
+  ./hello.macho; echo $?
+  → hello
+  → 0
+  ```
+- Binary layout verified: ncmds=16, sizeofcmds=0x370(880),
+  `__cstring` contains `"hello\n\0"` at `TEXT_BASE + 0x4164`,
+  `__DATA` at `TEXT_BASE + 0x8000` sized for the single `msg`
+  pointer global. Codegen emits
+  `adrp x0, 0x4000; add x0, x0, #0x164` for the string ref and
+  `adrp x1, 0x8000; add x1, x1, #0x0` for the global ref.
+
+### Scope / limitations
+- Code + `__cstring` must fit in one 16KB page; globals in one page.
+  Typical for v5.3.1 target programs; larger programs need a
+  multi-page `__TEXT` extension (deferred).
+- libSystem imports (`NSS`, `PAM`, `printf`, etc.) still deferred
+  (`src/backend/macho/imports.cyr` staged but not wired).
+- aarch64 Linux codegen unchanged; cross-compile path for Raspberry
+  Pi and the existing Linux aarch64 target are byte-identical to v5.3.0.
+
 ## [5.3.0] — 2026-04-18
 
 **Apple Silicon emitter (syscall-only) — first Cyrius-compiled arm64
