@@ -1,10 +1,10 @@
 # Cyrius Development Roadmap
 
-> **v5.3.2.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.3.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon strings + globals hardware-verified (PIE-safe adrp+add).
-> `lib/ct.cyr` branchless select shipped for sigil 3.0 constant-time paths.
+> `lib/ct.cyr` branchless select + `mulh64` builtin (unsigned 64×64 high).
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
-> **61 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
+> **62 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
 
@@ -286,12 +286,12 @@ in its own roadmap; landing them here removes the block.
   pattern at every function tail in sigil's crypto hot paths
   (currently 8 call sites). Catches forgotten zeroisation at
   compile time.
-- **`mulh64(a, b) → u64`** builtin returning the high 64 bits of
-  an unsigned 64×64 multiply. Sigil's `_mul64_full` manually
-  splits into 32-bit halves and reconstructs — a native builtin
-  would remove ~20 lines of workaround per multiply and likely
-  win ~15 % on `fp_mul`. (`u128` already exists; this is a narrower
-  primitive for the common "I just need the high half" case.)
+- ✅ **`mulh64(a, b) → u64` builtin** (shipped v5.3.3). High 64 bits
+  of unsigned 64×64 multiply. x86-64 emits `mul rcx; mov rax, rdx`;
+  aarch64 emits the single `umulh x0, x1, x0` instruction. Sigil's
+  `_mul64_full` can be replaced by a direct `mulh64` call at each
+  site (~20 lines saved per multiply, expected ~15 % win on
+  `fp_mul`).
 
 Release targeting: SHAKE + `ct_select` are additive and fit in the
 v5.2.x patch train. The `secret` keyword is a language change and

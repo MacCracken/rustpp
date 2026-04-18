@@ -91,6 +91,8 @@ fn EADDR(S) { EW(S, 0x8B010000); return 0; }     # add x0, x0, x1
 fn ESUBR(S) { EW(S, 0xCB010000); return 0; }     # sub x0, x0, x1
 # mul x0, x0, x1
 fn EIMUL(S) { EW(S, 0x9B017C00); return 0; }     # mul x0, x0, x1
+# EMULH: high 64 bits of unsigned x1 * x0 into x0. Used by mulh64(a, b).
+fn EMULH(S) { EW(S, 0x9BC07C20); return 0; }     # umulh x0, x1, x0
 # sdiv x0, x0, x1
 # Division: sdiv x0, x2, x1 (uses saved dividend from ECQO)
 fn EIDIV(S) { EW(S, 0x9AC10C40); return 0; }     # sdiv x0, x2, x1

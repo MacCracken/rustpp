@@ -78,6 +78,9 @@ fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); r
 fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } E3(S, 0xC80148); return 0; }
 fn ESUBR(S) { if (_IR_REC0(S, IR_SUB) == 1) { return 0; } E3(S, 0xC82948); return 0; }
 fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } E3(S, 0xE9F748); return 0; }
+# EMULH: high 64 bits of unsigned rcx * rax. MUL rcx → rdx:rax; then rax = rdx.
+# Used by the mulh64(a, b) builtin.
+fn EMULH(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xE1F748); E3(S, 0xD08948); return 0; }
 fn ECQO(S) { if (IR_ENABLED(S) == 2) { return 0; } E2(S, 0x9948); return 0; }
 fn EIDIV(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xF9F748); return 0; }
 fn EMOVDR(S) { if (_IR_REC0(S, IR_MOV_RAX_RDX) == 1) { return 0; } E3(S, 0xD08948); return 0; }

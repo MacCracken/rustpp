@@ -4,6 +4,46 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.3] — 2026-04-18
+
+**`mulh64(a, b)` builtin — high 64 bits of 64×64 unsigned multiply.**
+
+Native primitive for cryptographic code that needs a 128-bit
+intermediate without pulling in the full `u128` module. Target
+customer: sigil's `_mul64_full` currently splits into 32-bit halves
+and reconstructs — `mulh64` replaces ~20 lines of workaround per
+multiply site and saves the splits.
+
+### Added
+- **`src/frontend/parse.cyr`** — `mulh64(a, b)` recognised in
+  `PARSE_FACTOR` as a builtin (identifier match, like `sizeof`).
+  Parses two comma-separated expressions, pushes first to stack,
+  pops into `rcx` / `x1` after parsing the second, then calls
+  `EMULH`. Returns the high 64 bits of the 128-bit product in
+  `rax` / `x0`.
+- **`src/backend/x86/emit.cyr:EMULH`** — emits `mul rcx`
+  (0x48 0xF7 0xE1, **unsigned** — not `imul`) followed by
+  `mov rax, rdx` (0x48 0x89 0xD0). Unsigned mul guarantees the
+  `u64` interpretation the cryptographic callers expect.
+- **`src/backend/aarch64/emit.cyr:EMULH`** — emits `umulh x0, x1, x0`
+  (0x9BC07C20), a native single-instruction unsigned high-multiply.
+- **`tests/tcyr/mulh64.tcyr`** — 11 assertions covering small
+  values, powers of two, full-width unsigned arithmetic
+  (guards against accidental signed `imul`), commutativity, and
+  known 128-bit products.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. Test suite grew to 62 files.
+- aarch64 cross-compiler emits `9bc07c20 umulh x0, x1, x0`
+  (verified via `objdump -b binary -m aarch64`).
+- cc5 self-host byte-identical.
+
+### Scope / compatibility
+- IR codegen path (`IR_ENABLED > 0`) bypasses `EMULH` in mode 2
+  without recording an IR op — safe today because IR defaults off,
+  flagged for a future `IR_MULH` opcode when IR becomes the
+  primary lowering path.
+
 ## [5.3.2] — 2026-04-18
 
 **`ct_select` branchless select for constant-time crypto.**
