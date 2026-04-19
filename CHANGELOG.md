@@ -4,7 +4,35 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [5.4.1] — unreleased
+## [5.4.2] — unreleased
+
+**`EMITPE` backend — cc5 emits PE binaries directly.** Third stage
+of the v5.4.x Windows arc: with both PE probes (v5.4.0 exit-42,
+v5.4.1 hello-world) locked as byte-level references, cc5 starts
+emitting Win64 PE32+ images directly from `.cyr` source.
+
+### Direction (locked 2026-04-19)
+
+- **Backend layout.** Win64 stays gated inside the x86 backend
+  behind `#ifdef CYRIUS_ARCH_X86_WIN` (or equivalent) for the
+  v5.4.x cycle. PE headers + import-table layout diverge sharply
+  from ELF, so a clean separation sweep to `src/backend/pe/` is
+  the eventual right call — but carved out as its own focused
+  release, not rolled into the initial emit work.
+- **Entry point.** `cc5_win.cyr` mirrors `cc5_aarch64.cyr`: its
+  own entry that swaps the include chain and flips the arch
+  marker. Same pattern as the aarch64 cross, no shared
+  multiplexed entry.
+
+### Planned
+- `src/backend/pe/emit.cyr` (under x86 backend for v5.4.x) —
+  `EMITPE` instruction, `CYRIUS_TARGET_WIN=1` env gate, Win64
+  ABI arm in `parse.cyr`'s `fncall*` / `&fn` / direct-`EB` paths
+  (RCX/RDX/R8/R9 + 32 B shadow space + RSP 16-alignment).
+- `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` —
+  kernel32 stdio wrappers + VirtualAlloc-backed heap.
+
+## [5.4.1] — 2026-04-19
 
 Stage-2 PE probe: **full Win64 ABI call path** — stdio via
 `kernel32!GetStdHandle` + `WriteFile`, then `ExitProcess`. Second
@@ -51,7 +79,13 @@ hello-world probe).
 - **`lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`** —
   kernel32 stdio wrappers + VirtualAlloc-backed heap.
 
-## [5.4.0] — unreleased
+> Resolved at v5.4.2 open (2026-04-19): Win64 stays gated in the
+> x86 backend under `#ifdef CYRIUS_ARCH_X86_WIN` for the v5.4.x
+> cycle; separation to `src/backend/pe/` deferred to its own
+> focused release. `cc5_win.cyr` mirrors `cc5_aarch64.cyr` entry
+> pattern. See the `[5.4.2]` section above.
+
+## [5.4.0] — 2026-04-19
 
 **Windows platform target — first bytes.** First Cyrius-produced
 binary to execute on real Windows. Opens the v5.4.x Windows arc

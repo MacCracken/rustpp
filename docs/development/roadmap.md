@@ -1,24 +1,23 @@
 # Cyrius Development Roadmap
 
-> **v5.4.1.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **v5.3 minor-version closeout** — last patch
-> before v5.4.0. aarch64 port is fully online: `regression.tcyr`
-> passes **102/102** on real Pi (Raspberry Pi aarch64, agnosarm.local),
-> native `cc5` self-hosts byte-identical, and the compiler dispatches
-> per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` (PP_PREDEFINE
-> from v5.3.16). The full v5.3.14–v5.3.18 sweep closed three
-> distinct issue classes: Apple Silicon Mach-O self-host (v5.3.13),
-> x86-asm leakage into aarch64 emit (v5.3.15 memcpy/asm-block
-> padding → v5.3.16 `fncall*` + `&fn` + preprocessor whitespace
-> → v5.3.17 EMOVI signed-cmp + getpid + %= → v5.3.18 f64 literal
-> + compare), and small safety / validation fixes
-> (`lib/args.cyr` empty-string argv, `dynlib_init` bootstrap gates,
-> `cyrius distlib ""` rejection, `_dynlib_fp_in_span` bounds
-> checks). **v5.4.0 opens Windows** — `programs/pe_probe.cyr`
-> emits a 1536 B PE32+ exit-42 binary validated on Windows 11
-> Home (ERRORLEVEL=42); byte-level floor captured, `EMITPE`
-> backend queued for v5.4.1+. **Still deferred to v5.4.x**:
-> Win64 ABI emit (RCX/RDX/R8/R9 + 32 B shadow space),
+> **v5.4.2.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stage 3: `EMITPE` backend.**
+> v5.4.0 + v5.4.1 shipped the PE byte-level floor: `pe_probe.cyr`
+> (1536 B PE32+ exit-42, validated on Windows 11 Home, ERRORLEVEL=42)
+> and `pe_probe_hello.cyr` (full Win64 ABI call path — GetStdHandle
+> + WriteFile + ExitProcess with RCX/RDX/R8/R9 + 32 B shadow space,
+> prints `hello\n` on Windows 11 Home). v5.4.2 teaches cc5 to emit
+> PE directly: `CYRIUS_TARGET_WIN=1` env gate, Win64 ABI arm in
+> `parse.cyr`'s `fncall*` / `&fn` / direct-`EB` paths, `cc5_win.cyr`
+> mirroring `cc5_aarch64.cyr`'s swap-include-chain pattern. Win64
+> stays gated inside the x86 backend under `#ifdef CYRIUS_ARCH_X86_WIN`
+> for the v5.4.x cycle — a clean separation sweep to `src/backend/pe/`
+> is deferred to its own focused release once the emit path
+> stabilises. aarch64 port remains fully online (`regression.tcyr`
+> 102/102 on real Pi, native `cc5` self-hosts byte-identical,
+> per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16).
+> Apple Silicon Mach-O self-hosts byte-identically on M-series
+> (v5.3.13, 475320 B). **Still deferred to v5.4.x / v5.5.x**:
 > NSS/PAM end-to-end, libro layout corruption, `lib/hashmap_fast`
 > / `u128` / `mabda` arch-gating, yukti `include` rename.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
