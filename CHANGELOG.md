@@ -4,6 +4,50 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.17] — unreleased
+
+Three surgical aarch64 emit fixes bring `regression.tcyr` on Pi to
+**100/102 passing** (was 90/102 post-v5.3.16, 0/102 pre-v5.3.16).
+Remaining 2 failures are both f64 compare ops which use x86-only
+SSE emit paths — scoped for v5.3.18+.
+
+### Fixed
+- **`EMOVI` signed-comparison bug.** Negative 64-bit values were
+  emitted as single `MOVZ` instructions with the upper 48 bits
+  left zero — `-1` compiled to `0xFFFF` (65535), `-10` to
+  `0xFFF6` (65526), and so on. Root cause: `if (v > 0xFFFF)`
+  evaluated as signed 64-bit, so `-1 > 65535` was false and the
+  high `MOVK` instructions were skipped. Fix: replace the signed
+  range comparisons with bit-mask tests (`((v >> 16) & 0xFFFF)
+  != 0`) so any non-zero 16-bit chunk — including the all-ones
+  upper words of a negative value — produces the corresponding
+  `MOVK`. 8 regression tests flipped to passing in one edit.
+- **`ESYSXLAT` missing `getpid` translation.** `syscall(39)` on
+  aarch64 was hitting SYS_SCHED_SETPARAM (which returns -EINVAL)
+  instead of SYS_GETPID (172). Added `cmp x8, #39; b.ne +8; movz
+  x8, #172` to the translation chain in
+  `src/backend/aarch64/emit.cyr:ESYSXLAT`.
+- **`%=` / `for` loop modulo compound-assign on aarch64.** The
+  emit sequence called `EMOVRA_RDX` (multi-return low-half read)
+  after `EIDIV` to extract the remainder. On x86 that was fine —
+  `mov rax, rdx` because `rdx` holds both the second return value
+  and the idiv remainder. On aarch64 it was wrong — aarch64
+  multi-return uses `(x0, x2)` (not x1), and `mov x0, x2` after
+  `sdiv x0, x2, x1` just restores the dividend rather than
+  computing the remainder. Fix: `x %= y` at `parse.cyr:2725`
+  (for-step) and `:4228` (compound-assign) now call `EMOVDR`,
+  which was already wired to `msub x0, x0, x1, x2` on aarch64
+  (`x2 - x0*x1` = `dividend - quotient*divisor` = remainder) and
+  to `mov rax, rdx` on x86. `EMOVRA_RDX` retains its
+  multi-return semantics.
+
+### Known limitations (v5.3.18+)
+- **f64 compare ops still SSE-only.** `PF64CMP` in `parse.cyr`
+  emits `ucomisd xmm0, xmm1` + SSE2 mask bytes. aarch64 would
+  need `fcmp d0, d1` + `cset` to land in x0. Two regression
+  tests still fail on Pi (`0.5 not zero`, `0.25 not zero`).
+  Low priority — most integer-heavy programs aren't affected.
+
 ## [5.3.16] — unreleased
 
 Continuing the aarch64 x86-asm-leakage drain from v5.3.15. **Function

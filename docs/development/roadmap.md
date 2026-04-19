@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.3.16.** cc5 compiler (432928 B x86_64, post-marker-removal
+> **v5.3.17.** cc5 compiler (432928 B x86_64, post-marker-removal
 > rebuild), x86_64 + aarch64 cross. IR + CFG. **v5.3.14 post-Apple-
 > Silicon cleanup**: `lib/args.cyr` empty-string arg handling fix
 > (unlocks `cyrius distlib ""` validation); `dynlib_init` safety
@@ -34,7 +34,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug — was calling wrong function signature (nous.cyr 1-arg vs cyml.cyr 2-arg). |
-| aarch64 x86-asm leakage (supersedes "native FIXUP address mismatch") | Native `cc5` on aarch64 self-hosts **byte-identically** as of v5.3.15. v5.3.16 scaffolded `#ifdef CYRIUS_ARCH_{X86,AARCH64}` via `PP_PREDEFINE`, shipped aarch64 `fncall0`–`fncall6` bodies in `lib/fnptr.cyr`, added aarch64 `&fn` emit (MOVZ/MOVK + fixup type 3), and made the preprocessor tolerate indented `#ifdef` (cyrfmt-friendly). On Pi, `regression.tcyr` now passes **90/102** (was SIGILL-at-entry). Residual 12 failures trace to x86-only direct-`EB(...)` emit in `parse.cyr` for: f64 compare (`PF64CMP`), sub-8-byte struct field loads (lines 1713–1715), and `#regalloc` prologue/epilogue. Each needs an `if (_AARCH64_BACKEND == 1) { ... }` arm with the aarch64-equivalent sequence. `lib/hashmap_fast.cyr` / `lib/u128.cyr` / `lib/mabda.cyr` still contain ungated x86 asm blocks (lower priority — mitigated by v5.3.15's asm-block alignment padding). | Validated on real Pi (agnosarm.local, Raspberry Pi aarch64). |
+| aarch64 x86-asm leakage (supersedes "native FIXUP address mismatch") | Native `cc5` on aarch64 self-hosts **byte-identically** as of v5.3.15. v5.3.16 scaffolded `#ifdef CYRIUS_ARCH_{X86,AARCH64}`, shipped aarch64 `fncall*` + `&fn` emit. v5.3.17 fixed `EMOVI` signed-comparison truncation of negative immediates, added `getpid` syscall translation, and corrected `%=` / `for` modulo compound-assign to use `EMOVDR` (msub) instead of `EMOVRA_RDX`. On Pi, `regression.tcyr` now passes **100/102** (was SIGILL-at-entry pre-5.3.16). Residual 2 failures are f64 compare ops (`PF64CMP` in `parse.cyr` emits SSE2 bytes; aarch64 needs `fcmp`/`cset`). `lib/hashmap_fast.cyr` / `lib/u128.cyr` / `lib/mabda.cyr` still contain ungated x86 asm blocks (lower priority — mitigated by v5.3.15's asm-block alignment padding). | Validated on real Pi (agnosarm.local, Raspberry Pi aarch64). |
 
 ---
 

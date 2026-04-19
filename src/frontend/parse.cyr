@@ -2722,7 +2722,7 @@ fn PARSE_FOR(S) {
         elif (step_cop == 7) { ESUBR(S); }
         elif (step_cop == 8) { EIMUL(S); }
         elif (step_cop == 9) { ECQO(S); EIDIV(S); }
-        elif (step_cop == 34) { ECQO(S); EIDIV(S); EMOVRA_RDX(S); }
+        elif (step_cop == 34) { ECQO(S); EIDIV(S); EMOVDR(S); }
     } else {
         PCMPE(S);
     }
@@ -4225,7 +4225,7 @@ fn PARSE_STMT(S) {
             elif (compound_op == 7) { ESUBR(S); }
             elif (compound_op == 8) { EIMUL(S); }
             elif (compound_op == 9) { ECQO(S); EIDIV(S); }
-            elif (compound_op == 34) { ECQO(S); EIDIV(S); EMOVRA_RDX(S); }
+            elif (compound_op == 34) { ECQO(S); EIDIV(S); EMOVDR(S); }
             elif (compound_op == 27) { EANDR(S); }
             elif (compound_op == 35) { EORR(S); }
             elif (compound_op == 36) { EXORR(S); }
