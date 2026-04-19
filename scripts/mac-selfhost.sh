@@ -43,11 +43,45 @@ if ! codesign -dv "$CC5" >/dev/null 2>&1; then
 fi
 
 # Round 1: use the cc5_macho to compile itself → cc5_macho_b.
+# Guarded by a 30s watchdog: a correct compile on M-series takes <2s, so if
+# we're past 30s the compiler is looping and we bail with enough context.
 echo "=== Round 1: compile self ==="
-"$CC5" < "$SRC" > cc5_macho_b
+echo "  cc5:  $CC5 ($(wc -c < "$CC5") bytes)"
+echo "  src:  $SRC ($(wc -c < "$SRC") bytes)"
+echo "  starting compile..."
+
+"$CC5" < "$SRC" > cc5_macho_b 2> cc5_macho_b.err &
+pid=$!
+elapsed=0
+while kill -0 $pid 2>/dev/null; do
+    sleep 1
+    elapsed=$((elapsed + 1))
+    if [ $elapsed -ge 30 ]; then
+        echo "  TIMEOUT after ${elapsed}s — compiler is stuck. Killing pid $pid."
+        kill -9 $pid 2>/dev/null
+        wait $pid 2>/dev/null
+        echo "  partial stdout (first 256 bytes):"
+        head -c 256 cc5_macho_b | xxd | head -4
+        echo "  stderr:"
+        head -20 cc5_macho_b.err
+        echo
+        echo "FAIL: self-host compile hung. Likely causes:"
+        echo "  - cc5_macho built with wrong backend (re-check it's cc5_aarch64 output)"
+        echo "  - infinite loop in a host-specific code path"
+        echo "  - stdin redirect not wired; try: cat \"$SRC\" | \"$CC5\" > cc5_macho_b"
+        exit 1
+    fi
+done
+wait $pid
+rc=$?
+echo "  finished in ${elapsed}s, cc5_macho_b: $(wc -c < cc5_macho_b 2>/dev/null) bytes, exit=$rc"
+if [ $rc -ne 0 ]; then
+    echo "  stderr:"
+    head -20 cc5_macho_b.err
+    exit 1
+fi
 chmod +x cc5_macho_b
 codesign -s - --force cc5_macho_b
-echo "  cc5_macho_b: $(wc -c < cc5_macho_b) bytes"
 
 # Round 2: verify byte-identical.
 if cmp "$CC5" cc5_macho_b; then

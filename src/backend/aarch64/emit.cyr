@@ -8,6 +8,12 @@
 # Target format: 0=ELF (Linux), 2=Mach-O ARM64 (macOS)
 var _TARGET_MACHO = 0;
 
+# Marker that the aarch64 backend is present in this compiler binary.
+# Checked by EMITMACHO_ARM64 to refuse Mach-O ARM output when accidentally
+# invoked through the x86 backend (which would emit x86 code inside an
+# arm64 Mach-O header — silently broken, SIGILLs on Apple Silicon).
+var _AARCH64_BACKEND = 1;
+
 # Emit one byte to codebuf
 fn EB(S, b) {
     var cp = GCP(S);

@@ -4,7 +4,10 @@
 # Same language as cc.cyr, split into modules using include.
 # Compiled by cc (cyrc's extended language).
 #
-# Build: CYRIUS_MACHO_ARM=1 cat src/main_aarch64_macho.cyr | ./build/cc5 > cc5_macho
+# Build: cat src/main_aarch64_macho.cyr | CYRIUS_MACHO_ARM=1 ./build/cc5_aarch64 > cc5_macho
+# NOTE: must be cc5_aarch64 (aarch64 backend), NOT cc5 (x86_64 backend).
+# cc5 with CYRIUS_MACHO_ARM=1 wraps x86 machine code in an arm64 Mach-O
+# header — the binary looks valid to `file` but SIGILLs on Apple Silicon.
 # Mac self-host target: produces arm64 Mach-O that runs on Apple Silicon.
 # Only deviation from main_aarch64.cyr is the heap-init syscall — brk
 # (12) is Linux-only, so this variant uses mmap with macOS MAP_ANON flag

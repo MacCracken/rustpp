@@ -1286,7 +1286,16 @@ fn EMITELF_OBJ(S) {
 
 fn EMITELF(S) {
     if (_TARGET_MACHO == 1) { EMITMACHO_EXEC(S); return 0; }
-    if (_TARGET_MACHO == 2) { EMITMACHO_ARM64(S); return 0; }
+    if (_TARGET_MACHO == 2) {
+        # The x86 backend cannot emit arm64 code. Calling EMITMACHO_ARM64
+        # here wraps x86 machine code in an arm64 Mach-O header — the
+        # kernel SIGILLs at first instruction. Refuse at emit time so
+        # users get a clear error pointing at the right compiler.
+        syscall(SYS_WRITE, 2,
+            "error: CYRIUS_MACHO_ARM=1 requires the aarch64 backend. Use ./build/cc5_aarch64, not ./build/cc5.\n",
+            103);
+        syscall(SYS_EXIT, 1);
+    }
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
     if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }

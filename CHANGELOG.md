@@ -17,9 +17,12 @@ cc5 Mach-O self-host scaffold added.**
   swapped for `mmap(9)` with the macOS `MAP_PRIVATE | MAP_ANON`
   flag (`0x1002`). `_TARGET_MACHO` is forced to 2 at startup so
   the compiler's default emit target on Mac is Mach-O ARM.
-  Cross-compile path:
+  Cross-compile path (**must use `cc5_aarch64`**, not `cc5` — the
+  latter wraps x86_64 code in an arm64 Mach-O header and SIGILLs on
+  Apple Silicon):
   ```
-  CYRIUS_MACHO_ARM=1 cat src/main_aarch64_macho.cyr | ./build/cc5 > cc5_macho
+  cat src/main_aarch64_macho.cyr | CYRIUS_MACHO_ARM=1 \
+      ./build/cc5_aarch64 > cc5_macho
   ```
   Result: 360632-byte Mach-O arm64 executable with PIE,
   NOUNDEFS|DYLDLINK|TWOLEVEL flags. `file` reports
