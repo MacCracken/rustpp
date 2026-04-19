@@ -500,12 +500,27 @@ fn ECALLCLEAN(S, n) {
 # Helper: not needed on aarch64 but must exist for parse.cyr
 fn EDISP32(S, disp) { return 0; }
 
+# Compute x9 = x29 + disp for local access when disp is outside the
+# LDUR/STUR signed 9-bit immediate range (-256..+255). Called only with
+# disp <= -256 (locals at idx >= 32). Assumes |disp| fits in 16 bits —
+# Cyrius functions with >= 8192 locals are implausible.
+fn _EFP_ADDR_X9(S, disp) {
+    var abs = 0 - disp;
+    EW(S, 0xD2800009 | ((abs & 0xFFFF) << 5));  # movz x9, #abs
+    EW(S, 0xCB0903A9);                            # sub x9, x29, x9
+    return 0;
+}
+
 # Store parameter to frame: str xN, [x29, #-offset]
 fn ESTOREREGPARM(S, pidx, disp) {
-    # str xPIDX, [x29, #disp] — use STUR for negative offsets
     # STUR Xt, [Xn, #simm9]: 1111 1000 000 simm9 00 Xn Xt
-    var off9 = disp & 0x1FF;
-    EW(S, 0xF80003A0 | (off9 << 12) | pidx);
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        EW(S, 0xF80003A0 | (off9 << 12) | pidx);  # stur xPIDX, [x29, #disp]
+        return 0;
+    }
+    _EFP_ADDR_X9(S, disp);
+    EW(S, 0xF9000120 | pidx);  # str xPIDX, [x9]
     return 0;
 }
 
@@ -516,11 +531,18 @@ fn ESTORESTACKPARM(S, pidx, disp, pc) {
     var nstack = pc - 6;
     var si = nstack - 1 - (pidx - 6);
     var soff = 16 + si * 16;
-    # ldr x9, [x29, #soff]
-    EW(S, 0xF94003A9 | ((soff / 8) << 10));  # ldr x9, [x29, #soff]
-    # stur x9, [x29, #disp]
-    var off9 = disp & 0x1FF;
-    EW(S, 0xF80003A9 | (off9 << 12));  # stur x9, [x29, #disp]
+    # ldr x9, [x29, #soff]   (soff positive, LDR imm12*8 range — 32760 max)
+    EW(S, 0xF94003A9 | ((soff / 8) << 10));
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        EW(S, 0xF80003A9 | (off9 << 12));  # stur x9, [x29, #disp]
+        return 0;
+    }
+    # disp out of range — compute dest addr in x10 (x9 holds value), str x9, [x10]
+    var abs = 0 - disp;
+    EW(S, 0xD280000A | ((abs & 0xFFFF) << 5));  # movz x10, #abs
+    EW(S, 0xCB0A03AA);                            # sub x10, x29, x10
+    EW(S, 0xF9000149);                            # str x9, [x10]
     return 0;
 }
 
@@ -537,16 +559,26 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
 # Local variable load: ldur x0, [x29, #-offset]
 fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
-    var off9 = disp & 0x1FF;
-    EW(S, 0xF85003A0 | (off9 << 12));  # ldur x0, [x29, #disp]
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        EW(S, 0xF84003A0 | (off9 << 12));  # ldur x0, [x29, #disp]
+        return 0;
+    }
+    _EFP_ADDR_X9(S, disp);
+    EW(S, 0xF9400120);  # ldr x0, [x9]
     return 0;
 }
 
 # Local variable store: stur x0, [x29, #-offset]
 fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
-    var off9 = disp & 0x1FF;
-    EW(S, 0xF80003A0 | (off9 << 12));  # stur x0, [x29, #disp]
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        EW(S, 0xF80003A0 | (off9 << 12));  # stur x0, [x29, #disp]
+        return 0;
+    }
+    _EFP_ADDR_X9(S, disp);
+    EW(S, 0xF9000120);  # str x0, [x9]
     return 0;
 }
 
@@ -556,22 +588,38 @@ fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
 # Width-aware local load: ldurb/ldurh/ldur w0/ldur x0 from [x29, #-offset]
 fn EFLLOAD_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
-    var off9 = disp & 0x1FF;
-    if (width == 1) { EW(S, 0x384003A0 | (off9 << 12)); return 0; }
-    if (width == 2) { EW(S, 0x784003A0 | (off9 << 12)); return 0; }
-    if (width == 4) { EW(S, 0xB84003A0 | (off9 << 12)); return 0; }
-    EW(S, 0xF84003A0 | (off9 << 12));
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        if (width == 1) { EW(S, 0x384003A0 | (off9 << 12)); return 0; }
+        if (width == 2) { EW(S, 0x784003A0 | (off9 << 12)); return 0; }
+        if (width == 4) { EW(S, 0xB84003A0 | (off9 << 12)); return 0; }
+        EW(S, 0xF84003A0 | (off9 << 12));
+        return 0;
+    }
+    _EFP_ADDR_X9(S, disp);
+    if (width == 1) { EW(S, 0x39400120); return 0; }  # ldrb w0, [x9]
+    if (width == 2) { EW(S, 0x79400120); return 0; }  # ldrh w0, [x9]
+    if (width == 4) { EW(S, 0xB9400120); return 0; }  # ldr w0, [x9]
+    EW(S, 0xF9400120);  # ldr x0, [x9]
     return 0;
 }
 
 # Width-aware local store: sturb/sturh/stur w0/stur x0 to [x29, #-offset]
 fn EFLSTORE_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
-    var off9 = disp & 0x1FF;
-    if (width == 1) { EW(S, 0x380003A0 | (off9 << 12)); return 0; }
-    if (width == 2) { EW(S, 0x780003A0 | (off9 << 12)); return 0; }
-    if (width == 4) { EW(S, 0xB80003A0 | (off9 << 12)); return 0; }
-    EW(S, 0xF80003A0 | (off9 << 12));
+    if (disp >= 0 - 256) {
+        var off9 = disp & 0x1FF;
+        if (width == 1) { EW(S, 0x380003A0 | (off9 << 12)); return 0; }
+        if (width == 2) { EW(S, 0x780003A0 | (off9 << 12)); return 0; }
+        if (width == 4) { EW(S, 0xB80003A0 | (off9 << 12)); return 0; }
+        EW(S, 0xF80003A0 | (off9 << 12));
+        return 0;
+    }
+    _EFP_ADDR_X9(S, disp);
+    if (width == 1) { EW(S, 0x39000120); return 0; }  # strb w0, [x9]
+    if (width == 2) { EW(S, 0x79000120); return 0; }  # strh w0, [x9]
+    if (width == 4) { EW(S, 0xB9000120); return 0; }  # str w0, [x9]
+    EW(S, 0xF9000120);  # str x0, [x9]
     return 0;
 }
 

@@ -8,10 +8,20 @@ is here or linked.
 
 ## Where we are
 
-**v5.3.12 is tagged and released.** v5.3.13 work is staged on `main` but
-NOT yet tagged — the scaffold is in the tree and compiles cleanly on
-Linux, but the produced `cc5_macho` binary does not yet self-host on
-Apple Silicon. Every "was a compiler bug" has been fixed across the
+**v5.3.13 self-hosts byte-identically on Apple Silicon as of 2026-04-18.**
+Validated end-to-end on macOS 26.4.1 (Ecbatana.local):
+
+- Linux cross-compile (cc5_aarch64 → cc5_macho): 475320 bytes,
+  md5 `18301fb3c5d5004c21e84726f4aafab7`
+- Mac self-compile round 1: same 475320 bytes, same md5
+- Mac self-compile round 2 (Mac-built compiler → its own output): same
+- Full progress-marker sequence `ab12pqrst345cdef` prints on every run
+- Compile time on M-series: < 1s
+
+**v5.3.12 is tagged and released.** v5.3.13 is staged on `main` and
+ready for closeout + tag. Still TODO before tag: remove progress
+markers (see cleanup list below), rerun Linux self-host byte-identity
+after marker removal, and update CHANGELOG/roadmap. Every "was a compiler bug" has been fixed across the
 session; the remaining obstacle is a runtime loop inside the compiler's
 pass 1 scan phase that manifests only when running on macOS.
 
@@ -181,65 +191,121 @@ parse errors.
 **Fix**: none — this is expected. Mac user must run from a checkout
 of the repo where include paths resolve. Documented in mac-selfhost.sh.
 
-## Remaining bug — pass 1 scan loop
+## Root cause found (2026-04-18, local Mac session) — BUG #5: aarch64 LDUR sign-bit + 9-bit imm wrap
 
-After fixes 1-4, markers sit at `ab12pqrst345c`. Either pass 1 hangs
-inside its `while (scan == 1) { ... }` loop, or pass 1 emits a warning
-(`syscall arity mismatch` was observed) and then the warning/error
-handler itself hangs. Unclear which without more data.
+The `c` marker does get printed. The hang is in **pass 2** (LASE
+optimisation), inside `parse.cyr:3346-3376`:
 
-### Suspects
-
-1. **Warning/error handler writes to stderr via a syscall that hangs** —
-   BSD write(2) behavior with a corrupt fd + our carry fix should
-   work, but worth verifying. Unlikely: `b` marker proved stderr
-   writes work.
-2. **Token stream corruption** — something LEX emitted on Mac that
-   parse doesn't expect, causing an infinite PEEKT/STI cycle that
-   never advances. Would require comparing the token stream between
-   Linux and Mac runs. Tedious but decisive.
-3. **Pass 1 looping on a specific token type** — a case in the
-   `while (scan == 1) { ... }` dispatch that branches without
-   calling `STI(S, GTI(S) + 1)` on Mac because some condition
-   evaluates differently. Would be an arithmetic or endianness bug.
-
-### Recommended next steps (in order)
-
-**Step 1 — lldb backtrace of the hung process.** This is the fastest
-path. On the Mac:
+```cyr
+DSE_PASS(S, fn_start);
+var lase_cp = GCP(S);
+var lase_i = fn_start;
+var lase_count = 0;
+while (lase_i + 14 <= lase_cp) {
+    if (load8(S + 0x54A000 + lase_i) == 0x48) { ... }
+    lase_i += 1;
+}
 ```
-./cc5_macho < src/main_aarch64_macho.cyr > /tmp/out 2> /tmp/err &
-pid=$!
-sleep 5
-lldb -p $pid -b -o "process interrupt" -o "register read pc x0 x1 x2" \
-     -o "disassemble --pc --count 16" -o "bt 10" -o "detach" -o "quit"
-kill $pid
+
+lldb attach on the hung process showed PC cycling in a 116-byte band
+with **fp pinned** (i.e. tight loop in a single frame, not recursion).
+Reading the locals directly from the stack: `lase_i ≈ 0x10081d1d0`,
+`lase_cp ≈ 0x105cba0e0` — both absolute pointers, difference ~88 MB.
+The loop runs ~88 million iterations before terminating; the 30s
+watchdog fires first.
+
+### Why lase_i/lase_cp hold absolute pointers, not small offsets
+
+PARSE_FN_DEF has so many locals that by the time `lase_cp`, `lase_i`,
+`lase_count` are declared, their local index is ≥ 32. In
+`src/backend/aarch64/emit.cyr`, `EFLLOAD`/`EFLSTORE` (and the width-
+aware variants, plus `ESTOREREGPARM`/`ESTORESTACKPARM`) all computed:
+
+```cyr
+var disp = 0 - ((idx + 1) * 8);
+var off9 = disp & 0x1FF;
+EW(S, <base> | (off9 << 12));
 ```
-**The pc + backtrace tells us the loop location immediately.** If the
-symbol is somewhere in pass 1's PEEKT/STI chain, case 2 or 3 above. If
-it's inside `PARSE_STRUCT_DEF` or similar recursive descent, that
-function loops on a specific token.
 
-**Step 2 — add a tick marker inside the scan loop that prints the
-current token type every iteration.** Gets rebuilt on Linux, pushed to
-Mac, run with stderr captured to file. The repeating pattern tells us
-which token type the loop spins on.
+with **no bounds check**. For idx ≥ 32, disp < -256, which is outside
+the LDUR/STUR signed 9-bit imm9 range (-256..+255). `disp & 0x1FF`
+silently wraps.
 
-**Step 3 — if pass 1 really has completed and the hang is in a warn
-or error path**: instrument `WARN` / `ERR_MSG` in
-`src/frontend/parse.cyr` with entry markers. If the last marker seen
-is one of those, the parse code reached an error path and its write
-to stderr hangs.
+Two compounding problems:
+1. **Typo in EFLLOAD's base**: `0xF85003A0` should be `0xF84003A0`. The
+   `5` (vs. `4`) sets bit 20 of the instruction — which is the sign bit
+   of imm9. EFLLOAD's base therefore hardcoded "negative" into every
+   load. EFLSTORE's base correctly had `0xF80003A0` (bit 20 clear).
+2. **No range check**. Even with the typo fixed, offsets beyond -256
+   still wrap the imm9 field with no guard.
+
+For `lase_i` (idx 36, disp = -296):
+- `off9 = -296 & 0x1FF = 0xD8`
+- EFLSTORE (bit 20 = 0) encodes `stur x0, [fp + 216]` (+0xD8 — above fp,
+  in *caller's frame*).
+- EFLLOAD (bit 20 = 1) encodes `ldur x0, [fp - 40]` (-0x28 — a
+  completely different, low-idx local that happens to hold a stable
+  value).
+
+Store and load for the same variable diverge. The loop test keeps
+reading the same stable value and the increment never reaches the
+condition's RHS. Loop spins ~88 M iterations until watchdog.
+
+### Fix applied (2026-04-18)
+
+`src/backend/aarch64/emit.cyr` — six functions patched:
+- `EFLLOAD`, `EFLSTORE`
+- `EFLLOAD_W`, `EFLSTORE_W`
+- `ESTOREREGPARM`, `ESTORESTACKPARM`
+
+Each now checks `if (disp >= 0 - 256) { <fast path, imm9 as before> }`
+and falls through to an out-of-range path that computes the address
+into a scratch register first:
+
+```
+movz x9, #abs_disp
+sub  x9, x29, x9
+ldr/str Xt, [x9]
+```
+
+`ESTORESTACKPARM` uses x10 for the address since x9 already holds the
+loaded caller-stack value (`str x9, [x10]`).
+
+EFLLOAD's typo is also corrected: `0xF85003A0` → `0xF84003A0`.
+
+Helper `_EFP_ADDR_X9` centralises the 2-instruction address compute.
+MOVZ encodes a 16-bit imm; |disp| fits in 16 bits until a function has
+>= 8192 locals (implausible).
+
+### Cross-platform impact
+
+The x86_64 backend is unaffected — disp32 has plenty of range.
+The Linux aarch64 cross-compiler path (`build/cc5_aarch64` emitting
+`main_aarch64.cyr` for Linux aarch64) has the same latent bug but it
+would only manifest on a native aarch64 Linux host running the
+compiler itself; cross-builds emitting output that's never executed
+by the buggy compiler won't surface it.
+
+### Remaining work before tagging v5.3.13
+
+1. **Rebuild `cc5_macho` from the fixed source.** Requires running
+   `CYRIUS_MACHO_ARM=1 build/cc5_aarch64 < src/main_aarch64_macho.cyr
+   > cc5_macho_new` on a Linux x86_64 host. (Mac has no working
+   cross-compiler locally yet — Docker/Lima would close that gap.)
+2. **Validate two-round self-host on Mac** via `mac-selfhost.sh`.
+3. **Remove progress markers** from `main_aarch64_macho.cyr` and
+   `lex.cyr:PREPROCESS` per the cleanup checklist below.
+4. **Re-verify Linux self-host** byte-identity after marker removal
+   and emit.cyr changes.
 
 ## Infrastructure / environment notes
 
-- **Mac hostname**: `archaemenid.local` (from the Linux side). Username
-  on Mac is `macro`.
-- **Linux hostname** (from Mac): `archaemenid.local` also — Tailscale
-  or local DNS resolves the same name to different machines.
+- **Mac hostname**: as of 2026-04-18 the repo lives on `Ecbatana.local`
+  (Darwin 25.4.0, macOS 26.4.1, arm64). Prior sessions used
+  `archaemenid.local`.
 - **Cyrius repo on Linux**: `/home/macro/Repos/cyrius/`.
-- **Cyrius repo on Mac**: `/Users/macro/cyrius/` (user's choice; the
-  selfhost script doesn't care as long as `src/` is reachable).
+- **Cyrius repo on Mac**: `/Users/macro/Repos/cyrius/` (checkout is
+  full — includes resolve relative to cwd).
 - **Mac OS version**: macOS 26.4.1 (Tahoe). arm64. Apple Silicon.
   Model Mac17,8.
 - **macOS 26 quirk**: `com.apple.provenance` xattr + persistent
@@ -267,21 +333,33 @@ to stderr hangs.
 5. Attempt 4: narrowed to PP_IFDEF_PASS via sub-markers (markers
    `ab12pqr`), found mmap flag mismatch, added fallback.
 6. Attempt 5: got past preprocess + lex + EJMP0 into pass 1
-   (markers `ab12pqrst345c`), watchdog fired at 30s. Current state.
+   (markers `ab12pqrst345c`), watchdog fired at 30s.
+7. 2026-04-18 (local Mac session): lldb attach on the hung process
+   pinned the spin inside LASE (`parse.cyr:3351`). Read locals
+   directly — `lase_i`/`lase_cp` held absolute pointers ~88 MB apart.
+   Traced the ~88 M-iteration loop to the aarch64 emit.cyr imm9
+   wrap + EFLLOAD typo. Fix applied; waiting on a Linux rebuild of
+   `cc5_macho` to validate.
 
 ## Files touched
 
-- `src/main_aarch64_macho.cyr` (new — has progress markers; **remove
-  markers before tagging v5.3.13**)
+- `src/main_aarch64_macho.cyr` (new). Progress markers (`a`/`b`/`1`–
+  `5`/`c`–`f`) were present during debug; all removed 2026-04-18.
 - `src/main_aarch64.cyr` — unchanged
 - `src/main.cyr` — heap map updated to free 0xD8000
 - `src/backend/macho/emit.cyr` — EMITMACHO_OBJ removed, stale Phase 3
   comment replaced
 - `src/backend/aarch64/emit.cyr` — ESYSCALL emits csneg after svc for
-  Mach-O ARM; `_AARCH64_BACKEND = 1` marker added (unused, safe)
+  Mach-O ARM; `_AARCH64_BACKEND = 1` marker added (unused, safe);
+  **2026-04-18 imm9 wrap fix**: EFLLOAD/EFLSTORE, EFLLOAD_W/EFLSTORE_W,
+  ESTOREREGPARM/ESTORESTACKPARM now range-guard disp and fall through
+  to a `movz+sub+ldr/str` sequence for locals at idx ≥ 32; also fixes
+  EFLLOAD base typo `0xF85003A0` → `0xF84003A0`. New helper
+  `_EFP_ADDR_X9` centralises the out-of-range address compute.
 - `src/backend/x86/fixup.cyr` — Mach-O ARM gate in EMITELF dispatch
-- `src/frontend/lex.cyr` — PP_IFDEF_PASS mmap flag fallback; progress
-  markers in PREPROCESS sub-passes (**remove before tagging**)
+- `src/frontend/lex.cyr` — PP_IFDEF_PASS mmap flag fallback. Progress
+  markers were added during debug and removed 2026-04-18 after the
+  self-host closed.
 - `src/frontend/parse.cyr` — BSD SVC whitelist gate (v5.3.12)
 - `scripts/mac-selfhost.sh` (new)
 - `scripts/mac-diagnose.sh` (new)
@@ -290,22 +368,18 @@ to stderr hangs.
 - `CHANGELOG.md`, `VERSION`, `CLAUDE.md`, `docs/development/roadmap.md`
 - `docs/development/issues/2026-04-18-cc5-macho-sigill.md`
 
-## Cleanup before tagging v5.3.13
+## Closeout (completed 2026-04-18)
 
-1. **Remove progress markers from `src/main_aarch64_macho.cyr`** (lines
-   containing `syscall(SYS_WRITE, 2, "..."", 1)` — search for the
-   `# PROGRESS MARKER` comment block).
-2. **Remove progress markers from `src/frontend/lex.cyr:PREPROCESS`**
-   (the `p`/`q`/`r`/`s`/`t` writes inside PREPROCESS).
-3. **Verify self-host on Linux still byte-identical** after marker
-   removal.
-4. **Verify `cyrfmt`/`cyrlint`/`cyrdoc` still produce identical Linux
-   output** — marker writes in `main_aarch64_macho.cyr` don't affect
-   them, but the BSD-carry-flag change in `aarch64/emit.cyr:ESYSCALL`
-   could (only under `_TARGET_MACHO == 2`; should be fine).
-5. Once `cc5_macho` self-hosts on Mac, **run the two-round test via
-   `mac-selfhost.sh`** and cmp for byte-identity. That closes the
-   loop and v5.3.13 can ship with a real validation claim.
+1. ✅ Progress markers removed from `src/main_aarch64_macho.cyr` and
+   `src/frontend/lex.cyr:PREPROCESS`.
+2. ✅ Linux self-host byte-identical after marker removal (432928 B,
+   cc5 → cc5_new → cc5_new2 all match).
+3. ✅ `cc5_aarch64` cross-compiler rebuilt from new source
+   (331896 B, regression-free).
+4. ✅ Mac self-host: Linux cross-compile == Mac round 1 == Mac
+   round 2 (475320 B, md5 stable). Full `mac-selfhost.sh` PASS.
+5. ✅ `mac-selfhost.sh` updated to compare unsigned outputs (ad-hoc
+   codesign is non-deterministic — signed cmp always false-failed).
 
 ## What v5.3.14 should NOT pick up
 
@@ -317,5 +391,5 @@ Keep v5.3.14's nice-to-haves-roundup scope separate:
 - `dynlib_init` safety
 - `distlib ""` validation
 
-The pass-1 hang is v5.3.13-exclusive work. Once resolved, tag v5.3.13
-and move on to v5.3.14.
+Apple Silicon self-host is v5.3.13-exclusive. With it closed, tag
+v5.3.13 and move on to v5.3.14.

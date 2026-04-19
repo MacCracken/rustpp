@@ -6,72 +6,111 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [5.3.13] — 2026-04-18
 
-**Apple Silicon leftovers — `EMITMACHO_OBJ` dead code removed,
-cc5 Mach-O self-host scaffold added.**
+**Apple Silicon self-host verified byte-identical** — the Mach-O ARM
+variant of cc5 now compiles itself to a fixed point on M-series
+hardware, gated on four compiler bugs that had to fall first: x86
+backend wrongly wrapping code in an arm64 Mach-O header; BSD raw-SVC
+errno convention; Linux-only mmap flags in PP_IFDEF_PASS; **and an
+aarch64 EFLLOAD sign-bit typo + 9-bit imm wrap** that only manifested
+in functions with ≥ 32 locals (notably `PARSE_FN_DEF`'s LASE loop).
 
 ### Added
-- **`src/main_aarch64_macho.cyr`** — a new compiler entry point
-  that produces an arm64 Mach-O `cc5` binary intended to run
-  natively on Apple Silicon. The only deviation from
-  `main_aarch64.cyr` is the heap-init syscall: Linux `brk(12)` is
-  swapped for `mmap(9)` with the macOS `MAP_PRIVATE | MAP_ANON`
-  flag (`0x1002`). `_TARGET_MACHO` is forced to 2 at startup so
-  the compiler's default emit target on Mac is Mach-O ARM.
-  Cross-compile path (**must use `cc5_aarch64`**, not `cc5` — the
-  latter wraps x86_64 code in an arm64 Mach-O header and SIGILLs on
-  Apple Silicon):
+- **`src/main_aarch64_macho.cyr`** — new compiler entry point that
+  produces an arm64 Mach-O `cc5` binary for Apple Silicon. Differs
+  from `main_aarch64.cyr` only in the heap-init syscall (`mmap(9)`
+  with `MAP_PRIVATE | MAP_ANON = 0x1002` instead of Linux `brk(12)`)
+  and a forced `_TARGET_MACHO = 2` at startup. Cross-compile path
+  (**must use `cc5_aarch64`**, not `cc5` — the latter wraps x86_64
+  code in an arm64 Mach-O header and SIGILLs on Apple Silicon):
   ```
   cat src/main_aarch64_macho.cyr | CYRIUS_MACHO_ARM=1 \
       ./build/cc5_aarch64 > cc5_macho
   ```
-  Result: 360632-byte Mach-O arm64 executable with PIE,
-  NOUNDEFS|DYLDLINK|TWOLEVEL flags. `file` reports
-  "Mach-O 64-bit arm64 executable". **Untested on hardware** —
-  validation steps (Mac builds, Linux pulls the artifacts back):
-  ```
-  # On the Mac (archaemenid.local), build + self-host:
-  # CYRIUS_MACHO_ARM=1 build/cc5 < src/main_aarch64_macho.cyr > cc5_macho
-  # chmod +x cc5_macho && codesign -s - --force cc5_macho
-  # ./cc5_macho < src/main_aarch64_macho.cyr > cc5_macho_b
-  # cmp cc5_macho cc5_macho_b && echo "SELF-HOST OK"
+  Result: 475320-byte Mach-O arm64 executable with PIE,
+  NOUNDEFS|DYLDLINK|TWOLEVEL flags. Verified byte-identical round-
+  trip on macOS 26.4.1 Apple Silicon: Linux cross-compile == Mac
+  self-compile round 1 == Mac self-compile round 2.
 
-  # From Linux, pull the round-tripped binaries for archival / diff:
-  scp macro@archaemenid.local:~/cc5_macho   /tmp/
-  scp macro@archaemenid.local:~/cc5_macho_b /tmp/
-  cmp /tmp/cc5_macho /tmp/cc5_macho_b
-  ```
-  Byte-identity of `cc5_macho == cc5_macho_b` confirms the full
-  dogfood.
+### Fixed
+- **aarch64 `EFLLOAD` sign-bit typo + imm9 wrap.** The LDUR base
+  encoding was `0xF85003A0` (bit 20 set → imm9 sign bit hardcoded to
+  1) while STUR used the correct `0xF80003A0` (bit 20 clear). For
+  locals at idx ≥ 32 (disp < -256), `disp & 0x1FF` produced an
+  off9 with its own bit 8 clear, which STUR encoded as a positive
+  imm9 (corrupting the caller's frame above fp) while LDUR forced
+  the sign bit back on (reading from a totally different low-idx
+  local). Store and load for the same variable diverged; LASE's
+  88-MB loop over `lase_i + 14 <= lase_cp` spun until the test
+  watchdog fired. Fix in `src/backend/aarch64/emit.cyr`:
+  - Base typo corrected: `0xF85003A0` → `0xF84003A0`.
+  - `EFLLOAD`, `EFLSTORE`, `EFLLOAD_W`, `EFLSTORE_W`,
+    `ESTOREREGPARM`, `ESTORESTACKPARM` now range-guard `disp` and,
+    when outside [-256, +255], emit a `movz x9, #|disp|; sub x9,
+    x29, x9; ldr/str Xt, [x9]` sequence via new helper
+    `_EFP_ADDR_X9`. `ESTORESTACKPARM` uses x10 for the address
+    (x9 already holds the loaded caller-stack value).
+- **x86 backend Mach-O ARM gate** (`src/backend/x86/fixup.cyr`) —
+  `CYRIUS_MACHO_ARM=1 ./build/cc5 < ...` now errors at emit time
+  with a clear "use `./build/cc5_aarch64`" message, instead of
+  silently producing an arm64-wrapped x86_64 binary that SIGILLs
+  on first instruction. Detected via
+  `_AARCH64_BACKEND = 1` marker in `src/backend/aarch64/emit.cyr`.
+- **BSD carry-flag errno in `ESYSCALL`** (`src/backend/aarch64/emit.cyr`) —
+  every `svc #0x80` under `_TARGET_MACHO == 2` is now followed by
+  `csneg x0, x0, x0, cc` (encoding `0xDA803400`). On BSD raw syscall
+  error the kernel sets CF and returns `errno` as a small positive
+  in x0; the csneg negates x0 to `-errno`, matching Linux
+  convention. Higher-level `if (result < 0) { ... }` now fires
+  correctly on both platforms.
+- **Cross-platform mmap flag fallback in `PP_IFDEF_PASS`**
+  (`src/frontend/lex.cyr`) — was hardcoded to Linux
+  `MAP_PRIVATE | MAP_ANONYMOUS = 0x22`; mmap on macOS rejects
+  `0x22` because the MAP_ANON bit is `0x1000` there. Now tries
+  `0x22` first, falls back to `0x1002` on negative return. Single
+  code path for both hosts.
+
+### Added (tooling)
+- **`scripts/mac-selfhost.sh`** — runs the two-round self-host
+  validation on Mac: strips `com.apple.provenance` xattrs, ad-hoc
+  re-signs, compiles cc5_macho → cc5_macho_b, then cc5_macho_b →
+  cc5_macho_c, and cmps the unsigned outputs (ad-hoc signatures
+  are non-deterministic — the script saves a pre-sign copy for the
+  byte-identity check). Built-in 30s watchdog for the round-1
+  compile.
+- **`scripts/mac-diagnose.sh`** — SIGILL / crash triage: dumps
+  `file`, `otool -h`, `codesign`, direct-run exit code, and any
+  landing `DiagnosticReports/cc5_macho-*.ips`. Avoids `lldb
+  process launch` (first-invocation on M-series can hang the
+  terminal); uses attach-to-running-pid for live debug.
+- **`docs/development/handoff-v5.3.13-mac-selfhost.md`** — the
+  full debugging trail, from the initial SIGILL through the LASE
+  loop discovery and the imm9 wrap fix.
 
 ### Removed
 - **`EMITMACHO_OBJ`** (5 lines of stub that returned
   `"error: Mach-O .o output not yet implemented"` and exited).
-  The function was never referenced anywhere in the codebase.
-  Cyrius's model is direct-executable emission without a linker,
-  so a relocatable `.o` path isn't on the roadmap at all. Removed
-  rather than left as a dead stub.
+  Never referenced. Cyrius emits executables directly without a
+  linker, so a relocatable `.o` path isn't on the roadmap.
 
 ### Validation
-- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
-- Linux cross-compile of `main_aarch64.cyr` still builds
-  (`build/cc5_aarch64` 330400 bytes, regression-free).
-- `CYRIUS_MACHO_ARM=1 build/cc5 < src/main_aarch64_macho.cyr`
-  produces a valid arm64 Mach-O binary on the first try — parse
-  gate from v5.3.12 is satisfied (only whitelist syscalls in the
-  source).
+- `sh scripts/check.sh`: 8/8 PASS. Linux cc5 self-host byte-
+  identical (432928 bytes, md5 stable across cc5 → cc5_new →
+  cc5_new2).
+- `build/cc5_aarch64` rebuilds regression-free (331896 bytes).
+- `cc5_macho` self-host on Apple Silicon: Linux cross-compile ==
+  Mac round 1 == Mac round 2 (475320 bytes, md5 stable).
+- `./scripts/mac-selfhost.sh` PASSES end-to-end on M-series.
 
 ### Scope / limitations
-- **Mac self-host is UNTESTED on hardware.** The binary compiles,
-  passes `file` validation, and uses only operations proven to
-  work on Apple Silicon (mmap via raw BSD SVC, Mach-O ARM code
-  gen). Runtime behaviour — especially whether the
-  `/proc/self/cmdline` read for `--version` fails gracefully on
-  macOS and whether the full parser + emit path runs to
-  completion — needs a real Mac.
 - `main_aarch64_macho.cyr` duplicates most of `main_aarch64.cyr`.
   Follows the existing `main.cyr` / `main_aarch64.cyr` /
   `main_aarch64_native.cyr` pattern — Cyrius has no `#ifdef`.
   A future refactor could factor the shared body into an include.
+- The imm9-wrap fix adds a 3-instruction fallback for out-of-range
+  disp (idx ≥ 32). For pathologically huge functions (idx ≥ 8192),
+  the single `movz x9, #imm16` can't encode the full offset; add a
+  second `movk` if that ever matters. No function in the current
+  tree has more than ~50 locals.
 
 ## [5.3.12] — 2026-04-18
 

@@ -1590,18 +1590,13 @@ fn PP_REF_PASS(S) {
 }
 
 fn PREPROCESS(S) {
-    syscall(SYS_WRITE, 2, "p", 1);
     # Pre-pass: expand #ref directives (TOML → var declarations)
     PP_REF_PASS(S);
-    syscall(SYS_WRITE, 2, "q", 1);
     PP_PASS(S);
-    syscall(SYS_WRITE, 2, "r", 1);
     # Pass 2: evaluate #ifdef/#define in included content
     PP_IFDEF_PASS(S);
-    syscall(SYS_WRITE, 2, "s", 1);
     # Final pass: expand macros with args
     PP_MACRO_PASS(S);
-    syscall(SYS_WRITE, 2, "t", 1);
     return 0;
 }
 
