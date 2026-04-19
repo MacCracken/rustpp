@@ -1,16 +1,18 @@
 # Cyrius Development Roadmap
 
-> **v5.3.14.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
-> Apple Silicon BSD SVC whitelist + parse-time rejection of out-of-whitelist
-> syscalls. **`src/main_aarch64_macho.cyr` self-hosts byte-identically on
-> Apple Silicon** — Linux cross-compile == Mac round 1 == Mac round 2
-> (475320 bytes, macOS 26.4.1). Root-caused and fixed an aarch64 EFLLOAD
-> sign-bit typo + imm9 wrap bug affecting any function with ≥ 32 locals
-> (see `docs/development/handoff-v5.3.13-mac-selfhost.md`). BSD carry-
-> flag errno + cross-platform mmap fallback + x86-backend Mach-O-ARM
-> refusal gate landed alongside. dynlib libc wrappers + `cyrius distlib
-> [profile]` + `secret var` + `mulh64` + `ct_select`.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
+> **v5.3.14.** cc5 compiler (432928 B x86_64, post-marker-removal
+> rebuild), x86_64 + aarch64 cross. IR + CFG. **v5.3.14 post-Apple-
+> Silicon cleanup**: `lib/args.cyr` empty-string arg handling fix
+> (unlocks `cyrius distlib ""` validation); `dynlib_init` safety
+> gates (refuses without `dynlib_bootstrap_cpu_features`, rejects
+> corrupted `init_array_sz`); three `fncall0` sites in
+> `lib/dynlib.cyr` now bounds-check resolver fptrs against the
+> library span; `cbt/cyrius.cyr` missing `lib/tagged.cyr` include
+> added; committed `build/cc5` rebuilt (`pqrst` stderr leak gone).
+> Apple Silicon Mach-O self-host from v5.3.13 remains verified.
+> **Explicitly deferred** (tracked below, not buried in a handoff):
+> NSS/PAM end-to-end, aarch64 native FIXUP, libro layout corruption.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.
@@ -270,6 +272,71 @@ today; distlib silently ignores `[lib.core]` and positional args):
 
 Item (4) is the only piece that lives in cyrius — the rest ships in
 yukti once distlib profiles are available.
+
+### v5.3.14 — post-Apple-Silicon cleanup ✅ (items 1–3)
+
+Three of the six follow-ups from the v5.3.13 handoff doc land here.
+The other two are explicitly deferred to v5.3.15+ (see queue below),
+not buried in a handoff.
+
+Shipped:
+- **`lib/args.cyr` empty-string arg bug** — `argc()` counted args by
+  flipping a flag on the first non-null byte, so bare `\0` entries
+  in `/proc/self/cmdline` (empty args) were invisible. `cyrius
+  distlib ""` fell through to the no-profile branch instead of
+  being rejected by the profile validator. Fix: save the cmdline
+  length from `args_init()` and count `\0` bytes in `[0, len)`.
+- **`dynlib_init` safety gates** — returns `2` if
+  `dynlib_bootstrap_cpu_features` hasn't run (IRELATIVE resolvers
+  need zeroed `__cpu_features` or they crash), `3` if
+  `init_array_sz` exceeds 1 MB (corruption sentinel). Defense-in-
+  depth guard in `_dynlib_apply_irelative` matches the existing
+  IFUNC guards in `_gnu_hash_lookup` / `_linear_sym_lookup`.
+- **`fncall0` bounds checks** — IRELATIVE resolver, `DT_INIT`, and
+  `DT_INIT_ARRAY` entries now validated against the library's
+  mapped span via new `_dynlib_fp_in_span(handle, fp)` helper. A
+  corrupted dynamic-section entry now fails closed rather than
+  jumping to arbitrary memory.
+- **`println` audit — clean.** All callers pass cstr literals,
+  `argv()` pointers, `str_data(...)` extraction, or null-checked
+  `read_file_str()` results. Documented; no code changes.
+- **Build hygiene** — `cbt/cyrius.cyr` missing
+  `include "lib/tagged.cyr"` (documented by `lib/process.cyr`
+  header) caused `undefined function 'Err'/'Ok'` warnings on dead
+  paths; include added. Committed `build/cc5` rebuilt from
+  post-marker-removal source — every compilation had been leaking
+  `pqrst` to stderr because cc5 predated
+  `b63f6d7`'s marker removal in `src/frontend/lex.cyr`.
+
+### v5.3.15+ Queue — explicitly deferred (not hidden)
+
+Items from the v5.3.13 handoff doc's "v5.3.14's nice-to-haves-
+roundup scope" that did NOT land in v5.3.14. Each is a multi-
+session piece; shipping them under a sloppy banner in v5.3.14
+would have been dishonest.
+
+- **NSS/PAM end-to-end** (dynlib follow-up). Simple libc calls
+  (`getpid`, `strlen`, `strcmp`, `memcmp`) work end-to-end today
+  through `dynlib_open` + `dynlib_bootstrap_cpu_features` + TLS +
+  `stack_end`. `getgrouplist` / `pam_authenticate` still SIGSEGV
+  inside libc — locale init, nsswitch.conf parse, and NSS module
+  dlopen state are missing. Scope: populate those. Reproducer +
+  existing bootstrap infra live in `lib/dynlib.cyr` and
+  `tests/tcyr/dynlib_init.tcyr`. Downstream blocker for shakti
+  0.2.x.
+- **aarch64 native FIXUP address mismatch** (Active Bug, see
+  table). Cross-compiled binaries run on real Pi (exit 42 PASS).
+  Native `cc5` on aarch64 compiles input but emits wrong
+  MOVZ/MOVK data addresses (0x800120 vs. expected 0x4000A8)
+  despite heap sync to 21 MB. Likely 64-bit arithmetic or heap
+  corruption in the native-emit path. Cross-compiler is the
+  shipping aarch64 story; native cc5 parked until a dedicated
+  debug session.
+
+**libro layout corruption** (Active Bug, see table) is tracked
+separately — it's an old, memory-corruption-signature bug where
+each `println` shifts the crash site. Not in the v5.3.13 handoff
+scope; isolated test binary works as a workaround.
 
 ---
 

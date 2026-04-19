@@ -6,8 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [5.3.14] — unreleased
 
-Nice-to-haves roundup after v5.3.13's Apple Silicon self-host closeout.
-Scope: drain the outstanding-issues list so v5.4.0 can tag cleanly.
+Post-v5.3.13 cleanup — three of the six follow-up items from the
+Apple Silicon handoff doc land here; the other two (NSS/PAM
+end-to-end, aarch64 native FIXUP) are explicitly deferred to later
+patches, tracked in `docs/development/roadmap.md` rather than buried
+in a handoff. **libro layout corruption** remains an active bug
+(separate, long-standing investigation).
 
 ### Fixed
 - **`lib/args.cyr` — empty-string args were silently dropped.**
@@ -72,6 +76,19 @@ Scope: drain the outstanding-issues list so v5.4.0 can tag cleanly.
   of Str structs, or `read_file_str(...)` results that are null-
   checked before being forwarded to `println`. No Str-struct-into-
   cstr-slot leaks, no unguarded nullable cstr paths.
+
+### Deferred (tracked in roadmap, not hidden)
+- **NSS/PAM end-to-end** (dynlib follow-up) — simple libc calls
+  (`getpid`, `strlen`, `strcmp`, `memcmp`) work via `dynlib_open` +
+  `dynlib_sym` + `fncall*` after `dynlib_bootstrap_cpu_features` +
+  TLS + stack_end. `getgrouplist` / `pam_authenticate` still
+  SIGSEGV inside libc because locale / nsswitch.conf / NSS module
+  dlopen state isn't populated. Needs a dedicated session.
+- **aarch64 native FIXUP address mismatch** (Active Bug) — native
+  `cc5` compiles input but emits wrong MOVZ/MOVK data addresses
+  (0x800120 vs. expected 0x4000A8) despite heap being synced to
+  21 MB. Cross-compiler is the shipping aarch64 path; native cc5
+  on real Pi hardware remains parked.
 
 ## [5.3.13] — 2026-04-18
 
