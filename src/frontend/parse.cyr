@@ -736,6 +736,32 @@ fn PARSE_FACTOR(S) {
                 }
             }
         }
+        # PE32+ (Windows): reroute `syscall(60, code)` → ExitProcess(code).
+        # The x86_64 `syscall` instruction (0F 05) is Linux-only and would
+        # crash on Windows. For v5.4.4 only exit is routed; other syscall
+        # numbers would need their own Win32 API mappings (WriteFile,
+        # ReadFile, etc. — tracked in v5.4.5+ import-registration work).
+        if (_TARGET_PE == 1) {
+            if (sc_num == 60) {
+                if (argc == 2) {
+                    # Stack top-down: [exit_code] [syscall_nr=60]
+                    EPOPR(S);                    # pop rax = exit code
+                    # add rsp, 8 — discard the syscall_nr below exit_code
+                    EB(S, 0x48); EB(S, 0x83);
+                    EB(S, 0xC4); EB(S, 0x08);
+                    EEXIT(S);                    # emits Win64 ExitProcess call
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # Non-exit syscalls are not yet mapped to Win32. Emitting the
+            # generic ESCPOPS path below would produce an `0F 05` syscall
+            # that crashes on Windows. Warn now; hard-error once the
+            # import-registration mechanism lands in v5.4.5+.
+            syscall(SYS_WRITE, 2,
+                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 only routes n=60 (ExitProcess) today; others will crash on Windows.\n",
+                117);
+        }
         ESCPOPS(S, argc);
         _cfo = 0;
         # Syscall arity check — warn if arg count doesn't match the

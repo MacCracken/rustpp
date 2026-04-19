@@ -1,20 +1,18 @@
 # Cyrius Development Roadmap
 
-> **v5.4.3.** cc5 compiler (452376 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stages 3+4 shipped.**
-> v5.4.2 landed the structural `EMITPE_EXEC` backend (valid
-> PE32+ under `CYRIUS_TARGET_WIN=1`, byte-count match with the
-> `pe_probe.cyr` reference). v5.4.3 adds the **PE fixup
-> infrastructure** (new `ftype=4` IAT-reference slot in the
-> existing `fixup_tbl`, `_pe_layout` promoted to run inside
-> `FIXUP`) and the **`EEXIT` Win64 branch** — explicit exit
-> dispatches through the `ExitProcess` IAT with a properly
-> patched RIP-relative disp32. Disassembly-verified. Remaining
-> correctness work (general Win64 ABI at `fncall*`,
-> `syscall(...)` rerouting, import-registration mechanism,
-> `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
-> `cc5_win.cyr` cross-entry, on-hardware execution gate) is the
-> v5.4.4+ queue. **v5.4.x runs a parallel compiler-optimization
+> **v5.4.4.** cc5 compiler (452800 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3–5 shipped.**
+> v5.4.2 landed the structural `EMITPE_EXEC` backend. v5.4.3
+> added the PE fixup infrastructure + `EEXIT` Win64 branch.
+> v5.4.4 reroutes explicit `syscall(60, code)` calls through
+> the same `ExitProcess` IAT path at parse time — compiled
+> `CYRIUS_TARGET_WIN=1` binaries now contain zero Linux `0F 05`
+> syscall bytes for the exit case. Remaining correctness work
+> (general Win64 ABI at `fncall*`, import-registration for
+> `WriteFile` and the rest of kernel32, `lib/syscalls_windows.cyr`
+> + `lib/alloc_windows.cyr`, `cc5_win.cyr` cross-entry,
+> on-hardware execution gate, byte-cmp polish) is the v5.4.5+
+> queue. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -124,6 +122,23 @@ correctness → stdlib wrappers → native self-host.
   → `PE32+ executable for MS Windows 6.00 (console), x86-64,
   2 sections`, 1536 B (byte-count match with `pe_probe.cyr`).
   Code-emission correctness (below) queued for v5.4.3+.
+
+### v5.4.4 — `syscall(60, code)` → `ExitProcess` rerouting ✅
+- **`_TARGET_PE` branch in `src/frontend/parse.cyr`'s syscall
+  handler.** When `sc_num == 60` under `CYRIUS_TARGET_WIN=1`,
+  the parser pops the exit code to `rax`, discards the
+  syscall-number slot (`add rsp, 8`), and calls `EEXIT(S)`
+  which emits the Win64 `ExitProcess` call sequence from
+  v5.4.3. Non-60 syscalls under `_TARGET_PE` still fall
+  through to the Linux emission and emit a stderr warning.
+- **Gate**: compiled `syscall(60, 42);` `.text` contains
+  zero `0F 05` bytes (Linux syscall absent). Binary remains
+  1536 B `file(1)`-valid PE32+. On-hardware execution gate
+  untested but should now work (deferred to v5.4.5+ alongside
+  other kernel32 mappings).
+- **Still held for byte-cmp vs `pe_probe.cyr`**: initial
+  `jmp +0` prelude removal + implicit-EEXIT suppression when
+  source already exited. Polish, not correctness.
 
 ### v5.4.3 — PE fixup infrastructure + `EEXIT` Win64 branch ✅
 - **`ftype=4` IAT-reference fixup** added to the existing
@@ -364,7 +379,8 @@ enables adding new targets without touching the frontend.
 | **v5.4.1** | Windows x86_64 (hello-world probe) | PE/COFF | **Done** — full Win64 ABI call path, prints `hello\n` on hardware |
 | **v5.4.2** | Windows x86_64 (`EMITPE_EXEC` structural) | PE/COFF | **Done** — compiler emits valid PE32+ (1536 B, `file(1)` verified); correctness queued for v5.4.3+ |
 | **v5.4.3** | Windows x86_64 (PE fixup + EEXIT Win32) | PE/COFF | **Done** — `EEXIT` emits Win64 ExitProcess call; `ftype=4` IAT-ref fixups resolve; disassembly-verified |
-| **v5.4.4+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
+| **v5.4.4** | Windows x86_64 (syscall(60) rerouting) | PE/COFF | **Done** — explicit `syscall(60, N)` routes to `ExitProcess`; Linux `0F 05` absent from compiled `.text` |
+| **v5.4.5+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

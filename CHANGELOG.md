@@ -4,6 +4,56 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.4] — 2026-04-19
+
+Next item from the v5.4.4+ PE correctness queue: **`syscall(60, code)`
+rerouted to Win64 `ExitProcess` under `_TARGET_PE`**. Compiled
+Cyrius binaries targeting Windows no longer emit the Linux
+`0F 05` syscall instruction for the common exit path — they
+call through the IAT like a native Win32 executable would.
+
+### Added
+- **`_TARGET_PE` branch in `src/frontend/parse.cyr`'s `syscall(...)`
+  handler** (right after the existing Mach-O ARM BSD-whitelist
+  check). When `sc_num == 60` and `argc == 2` at parse time,
+  pops the already-evaluated exit code to `rax`, discards the
+  syscall-number slot via `add rsp, 8`, and calls `EEXIT(S)` —
+  which emits the Win64 ExitProcess call sequence from v5.4.3.
+- **Warning for unmapped syscalls on `_TARGET_PE`.** Any
+  `syscall(n, ...)` with `n != 60` under `CYRIUS_TARGET_WIN=1`
+  emits a `warning:` to stderr noting the call will crash on
+  Windows (the generic `ESCPOPS` path still emits `0F 05`).
+  Will become a hard error once the import-registration
+  mechanism lands in v5.4.5+.
+
+### Verified
+- `syscall(60, 42);` compiled with `CYRIUS_TARGET_WIN=1` produces
+  a 1536 B PE32+ image. `.text` section no longer contains
+  `0F 05` — replaced by the 13-byte Win64 ExitProcess call
+  sequence (89 C1 / 48 83 EC 28 / FF 15 disp32 / CC). Implicit
+  end-of-program `EEXIT` still emits a second ExitProcess call
+  as dead code after the first's `int3`; suppressing the
+  implicit path when source already ended with exit is a
+  separate refinement (not v5.4.4 scope).
+- Self-host byte-identical.
+- `sh scripts/check.sh` 8/8 pass.
+- Compiler: 452376 → 452800 B (+424 B).
+
+### Still held for later in v5.4.x
+- **Byte-for-byte `cmp` against `pe_probe.cyr`.** Blocked on:
+  initial fn-body-skip `jmp +0` prelude removal, dead-code
+  suppression of the implicit `EEXIT` when source already
+  exited, and matching pe_probe's exact immediate-in-mov shape.
+  None are required for functional execution; all are polish.
+- **`syscall(1, fd, buf, len)` → `WriteFile`**, plus the other
+  kernel32 mappings — folds into the v5.4.5+
+  import-registration patch.
+- **On-hardware execution gate** — scp compiled `.exe` to the
+  Windows 11 host, run, verify `ERRORLEVEL == 42`. Should work
+  with today's output but has not been tested.
+
+## [5.4.3] — 2026-04-19
+
 ## [5.4.3] — 2026-04-19
 
 First item from the v5.4.3+ PE correctness queue: **PE fixup
