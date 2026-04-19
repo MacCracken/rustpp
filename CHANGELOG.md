@@ -4,6 +4,73 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.3] — 2026-04-19
+
+First item from the v5.4.3+ PE correctness queue: **PE fixup
+infrastructure + `EEXIT` Win64 branch**. `ExitProcess` now
+dispatches through the IAT with a properly patched
+RIP-relative disp32.
+
+### Added
+- **`_pe_iat_fixup_add(S, coff, imp_idx)`** in
+  `src/backend/pe/emit.cyr` — registers an IAT-reference fixup
+  using the existing 16-byte `fixup_tbl` slot format with a new
+  `ftype = 4`. Mirrors the registration shape of types 0–3
+  (`var`, `string`, `fncall`, `fnaddr`) — no new heap region
+  needed.
+- **`ftype == 4` patch branch** in `src/backend/x86/fixup.cyr`
+  `FIXUP(S)`. Computes
+  `rel32 = (_pe_idata_rva + _pe_iat_sub_off + idx * 8)
+          - (_pe_text_rva + coff + 4)`
+  and patches the `FF 15 <disp32>` call site via the standard
+  `(old >> 32 << 32) | (rel & 0xFFFFFFFF)` preserve-upper-32
+  pattern the other rel32 branches use.
+- **`EEXIT` `_TARGET_PE` branch** in `src/backend/x86/emit.cyr`
+  emits the Win64 `ExitProcess` call sequence:
+  ```
+  89 C1               mov ecx, eax              ; arg1 = exit code
+  48 83 EC 28         sub rsp, 0x28             ; 32 B shadow + 16-align
+  FF 15 <disp32>      call [rip+ExitProcess]    ; IAT-dispatched
+  CC                  int3                      ; unreachable
+  ```
+  13 bytes; `_pe_iat_fixup_add(S, GCP(S), 0)` registers the
+  disp32 fixup (import index 0 = `ExitProcess`, hardcoded by
+  `_pe_layout` in v5.4.2).
+
+### Changed
+- **`_pe_layout(S)` moved from `EMITELF`'s PE branch to early
+  in `FIXUP(S)`** (before the main patch loop) so ftype=4
+  fixups can resolve against populated `_pe_idata_rva` /
+  `_pe_iat_sub_off` globals. `EMITELF`'s PE branch just calls
+  `EMITPE_EXEC(S)` now.
+
+### Verification
+- **Disassembly of a `CYRIUS_TARGET_WIN=1` compiled
+  `syscall(60, 42);`** shows the `EEXIT` sequence at the end
+  of `.text` with disp32 = `0x0FDF`. Manual math:
+  `IAT_RVA 0x2000 − RIP_after (0x1000 + coff 29 + 4) = 0x0FDF` ✓.
+  IAT slot at file offset 0x400 holds `0x00002048`, the RVA
+  of the Hint/Name entry for `ExitProcess`
+  (`idata_rva 0x2000 + hint_name_sub_off 0x48`) ✓.
+- Self-host byte-identical after each substep (4 substeps).
+- `sh scripts/check.sh` 8/8 pass.
+- Compiler: 451312 → 452376 B (+1064 B across the full cycle).
+
+### Out of scope for v5.4.3 (queued)
+- **General `syscall(...)` rerouting on `_TARGET_PE`.** Today
+  an explicit `syscall(60, 42)` in source emits the Linux
+  syscall sequence (`mov eax, 60; … 0F 05`) *in addition* to
+  the implicit `EEXIT` at program end. The Linux `syscall`
+  instruction will crash on Windows. Routing `syscall(60, N)`
+  to a Win32 `ExitProcess` call (and `syscall(1, …)` to
+  `WriteFile`, etc.) is the **import-registration mechanism**
+  item from the v5.4.3+ queue — its own patch.
+- **Byte-for-byte `cmp` against `pe_probe.cyr`** waits on the
+  above. For v5.4.3 the gate is disassembly-verified
+  correctness of the `EEXIT` branch and fixup.
+
+## [5.4.2] — 2026-04-19
+
 ## [5.4.2] — 2026-04-19
 
 **`EMITPE_EXEC` structural backend — cc5 emits valid PE32+

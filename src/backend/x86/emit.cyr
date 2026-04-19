@@ -342,6 +342,23 @@ var _TARGET_PE = 0;
 
 # emit exit epilogue: mov rdi, rax; mov rax, <exit_nr>; syscall
 fn EEXIT(S) {
+    if (_TARGET_PE == 1) {
+        # Win64 ExitProcess call. Exit code is already in rax
+        # (expression result). Sequence (13 bytes total):
+        #   89 C1                 mov ecx, eax              arg1 = exit code
+        #   48 83 EC 28           sub rsp, 0x28             32 B shadow + 8 B align
+        #   FF 15 <disp32>        call [rip+ExitProcess]    IAT-dispatched
+        #   CC                    int3                      unreachable
+        # FIXUP later patches disp32 = IAT_RVA - (text_rva + coff + 4)
+        # where coff is the 4-byte disp32 position (imp_idx=0 → ExitProcess).
+        EB(S, 0x89); EB(S, 0xC1);
+        EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x28);
+        EB(S, 0xFF); EB(S, 0x15);
+        _pe_iat_fixup_add(S, GCP(S), 0);
+        EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+        EB(S, 0xCC);
+        return 0;
+    }
     EMOVRDI(S);
     if (_TARGET_MACHO == 1) { EMOVI(S, 0x2000001); }
     else { EMOVI(S, 60); }

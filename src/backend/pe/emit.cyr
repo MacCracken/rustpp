@@ -180,6 +180,27 @@ fn _pe_imp_add(name) {
     return 0;
 }
 
+# Register a PE IAT reference fixup. `coff` is the code offset
+# where the 4-byte disp32 placeholder lives (inside a
+# `FF 15 <disp32>` call). `imp_idx` is the import index into the
+# imports registry (0 = ExitProcess for v5.4.3). At FIXUP time,
+# ftype=4 entries are patched with
+#   disp32 = IAT_RVA - (text_rva + coff + 4)
+# where IAT_RVA = _pe_idata_rva + _pe_iat_sub_off + imp_idx * 8.
+fn _pe_iat_fixup_add(S, coff, imp_idx) {
+    var fc = GFCNT(S);
+    if (fc >= 16384) {
+        syscall(SYS_WRITE, 2,
+            "error: fixup table full (16384)\n", 32);
+        syscall(SYS_EXIT, 1);
+    }
+    var faddr = S + 0xE4A000 + fc * 16;
+    SFCNT(S, fc + 1);
+    S64(faddr, coff);
+    S64(faddr + 8, (4 << 56) | imp_idx);
+    return 0;
+}
+
 # ================================================================
 # Pass 1: layout
 # ================================================================

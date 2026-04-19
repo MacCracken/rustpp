@@ -1,23 +1,24 @@
 # Cyrius Development Roadmap
 
-> **v5.4.2.** cc5 compiler (451312 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stage 3 shipped:
-> `EMITPE_EXEC` structural backend.** cc5 now emits valid PE32+
-> binaries under `CYRIUS_TARGET_WIN=1`:
-> `echo 'syscall(60,42);' | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe`
-> produces 1536 B that `file(1)` identifies as
-> `PE32+ executable for MS Windows 6.00 (console), x86-64, 2 sections`
-> — byte-count match with the v5.4.0 `pe_probe.cyr` reference.
-> Pattern mirrors the Mach-O backend: `src/backend/pe/emit.cyr`
-> is a self-contained format emitter (byte writers +
-> region-geometry globals + imports registry + two-pass layout),
-> dispatched from `EMITELF(S)` in `fixup.cyr` under a runtime
-> `_TARGET_PE` flag. **Scope intentionally narrowed** to
-> structural validity — code-emission correctness (Win64 ABI
-> arm, `EEXIT` Win32 branch, import-registration mechanism,
+> **v5.4.3.** cc5 compiler (452376 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3+4 shipped.**
+> v5.4.2 landed the structural `EMITPE_EXEC` backend (valid
+> PE32+ under `CYRIUS_TARGET_WIN=1`, byte-count match with the
+> `pe_probe.cyr` reference). v5.4.3 adds the **PE fixup
+> infrastructure** (new `ftype=4` IAT-reference slot in the
+> existing `fixup_tbl`, `_pe_layout` promoted to run inside
+> `FIXUP`) and the **`EEXIT` Win64 branch** — explicit exit
+> dispatches through the `ExitProcess` IAT with a properly
+> patched RIP-relative disp32. Disassembly-verified. Remaining
+> correctness work (general Win64 ABI at `fncall*`,
+> `syscall(...)` rerouting, import-registration mechanism,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
 > `cc5_win.cyr` cross-entry, on-hardware execution gate) is the
-> v5.4.3+ queue. aarch64 port remains fully online (`regression.tcyr`
+> v5.4.4+ queue. **v5.4.x runs a parallel compiler-optimization
+> track** (phases O1–O6: instrumentation + FNV-1a symbol table,
+> peephole quick wins, IR passes, linear-scan regalloc,
+> maximal-munch instruction selection) synthesized from vidya
+> and external research (QBE / TCC / Poletto-Sarkar / Agner Fog). aarch64 port remains fully online (`regression.tcyr`
 > 102/102 on real Pi, native `cc5` self-hosts byte-identical,
 > per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16).
 > Apple Silicon Mach-O self-hosts byte-identically on M-series
@@ -39,76 +40,10 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug — was calling wrong function signature (nous.cyr 1-arg vs cyml.cyr 2-arg). |
-| ~~aarch64 x86-asm leakage~~ — **CLOSED v5.3.18** | v5.3.18 adds aarch64 `EMIT_FLOAT_LIT` (scvtf+fdiv+fmov) and `PF64CMP` (fmov+fcmp+cset) paths. `regression.tcyr` on real Pi (agnosarm.local, Raspberry Pi aarch64) now **102/102 PASS** (was SIGILL-at-entry pre-v5.3.16, 100/102 post-v5.3.17). Native `cc5` self-hosts byte-identical. Three libs still contain ungated x86 asm blocks (`lib/hashmap_fast.cyr` / `lib/u128.cyr` / `lib/mabda.cyr`) — they'll never execute correctly on aarch64 but misalignment is already mitigated by v5.3.15's asm-block alignment padding, and no consumer currently depends on their aarch64 behavior. Downstream arch-gating on those three is a future cleanup, not a blocker. | Validated on real Pi through v5.3.18 closeout. |
 
----
-
-## Shipped
-
-<details>
-<summary>Click to expand shipped v5.x items</summary>
-
-### v5.0.0 — cc5 Generation Bump
-- cc5 IR (812 lines, 40 opcodes), CFG edge builder, LASE analysis, dead block detection
-- cyrius.cyml manifest, `cyrius version`, CLI tool integrations
-- cc3→cc5 rename, patra 1.0.0, sankoch 1.2.0
-
-### v5.0.1 — Security Hardening
-- alloc() overflow guard + size cap (256MB), negative/zero rejection
-- vec/map capacity doubling overflow caps, alloc return checks
-- arena_alloc overflow guard
-
-### v5.0.2 — Preprocessor Fix
-- `#ref` bol tracking — no longer matches inside strings or mid-line
-
-### v5.0.3 — aarch64 Native + Version Tooling
-- `main_aarch64_native.cyr` with host syscall numbers (openat, native read/write/brk/exit)
-- Version check openat-aware, `version-bump.sh` cc3→cc5 fix
-
-### v5.1.0 — macOS x86_64 (Mach-O)
-- `CYRIUS_MACHO=1` triggers Mach-O output, tested on real hardware
-- `lib/syscalls_macos.cyr`, `lib/alloc_macos.cyr` (mmap-based)
-
-### v5.1.1 — Stdlib: sakshi + log.cyr
-- sakshi 0.9.0 → 0.9.3 (SA-001 UDP fix, SK_FATAL, trace ID)
-- log.cyr level mapping + output routing rewrite (delegates to sakshi)
-- Removed duplicate sakshi symlinks, migrated to cyrius.cyml, CI cc3→cc5
-
-### v5.1.2 — sakshi 1.0.0 + Release Pipeline
-- sakshi 0.9.3 → 1.0.0 (first stable release)
-- macOS Mach-O tarball in release pipeline (three-platform release)
-- release.yml cc3→cc5, dep resolver prefers cyrius.cyml
-
-### v5.1.3 — Codebase Cleanup
-- Removed stale cyrius.toml, all cc2/cc3 refs in scripts + docs + programs
-- cyrius-port.sh generates cyrius.cyml, read_manifest() prefers cyml
-- CLAUDE.md recommended minimum → v5.0.0
-
-### v5.1.4 — Starship + Dispatcher Fixes
-- Starship detects cyrius.cyml, dispatcher manifest refs unified via find_manifest()
-- Deep cc3→cc5 sweep: install.sh, ci.sh, dispatcher, regression tests, check.sh
-
-### v5.1.5 — Script Inlining
-- Native coverage, doctest, header in cyrius.cyr (115KB)
-- Removed 3 shell scripts (237 lines)
-
-### v5.1.6 — Modular Refactor
-- Split cyrius.cyr into 7 modules (core, build, commands, project, quality, deps, main)
-- cc3→cc5 in tool discovery
-
-### v5.1.7 — cbt/ + Dep Fix
-- Build tool → top-level `cbt/`, dep duplicate symlink fix, cyrc vet trust
-
-### v5.1.8 — Native capacity, soak, pulsar
-- `cyrius capacity/soak/pulsar` all native in cbt/, tool 129KB
-
-### v5.1.9–v5.1.12 — Cleanup, fixes, closeout
-- Stale refs swept, LSP cc3→cc5, starship fixed, cyriusly cmdtools
-- toml_get cstring crash fixed, dep duplicates removed
-- Shell dispatcher → 30-line shim, heapmap audit, benchmark baseline
-- patra 1.1.0, capacity --check fixed
-
-</details>
+For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
+truth) and the high-level phase summaries in
+[completed-phases.md](completed-phases.md).
 
 ---
 
@@ -176,32 +111,53 @@ correctness → stdlib wrappers → native self-host.
   import dispatch, RIP-relative `call [rip+disp32]` to IAT,
   RIP-relative `lea` for static data, Win64 shadow+arg frame.
 
-### v5.4.2 — `EMITPE_EXEC` structural backend (in progress)
+### v5.4.2 — `EMITPE_EXEC` structural backend ✅
 - `CYRIUS_TARGET_WIN=1` env gate; runtime `_TARGET_PE` flag on
   `src/backend/x86/emit.cyr` (mirrors `_TARGET_MACHO` pattern).
 - `src/backend/pe/emit.cyr` fleshed out from 35-line stub:
-  byte writers (`_pe_w8/16/32/64/str/pad`), region globals,
+  byte writers (`_pe_w8/16/32/64/wstr/wpad`), region globals,
   imports registry, two-pass layout (`_pe_layout` computes
   all RVAs/file offsets; `EMITPE_EXEC` walks and writes).
 - Dispatch wire in `src/backend/x86/fixup.cyr` `EMITELF(S)`.
-- **Scope explicitly limited to structural validity.**
-  Success = `file(1)` identifies output as `PE32+ executable
-  for MS Windows (console), x86-64`. No `cmp`-vs-reference
-  byte gate, no on-hardware execution gate. Code-emission
-  correctness (below) deferred to v5.4.3+.
+- **Scope limited to structural validity.** Gate passed:
+  `echo 'syscall(60,42);' | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe`
+  → `PE32+ executable for MS Windows 6.00 (console), x86-64,
+  2 sections`, 1536 B (byte-count match with `pe_probe.cyr`).
+  Code-emission correctness (below) queued for v5.4.3+.
 
-### v5.4.3+ Queue — PE correctness (tracked, not hidden)
+### v5.4.3 — PE fixup infrastructure + `EEXIT` Win64 branch ✅
+- **`ftype=4` IAT-reference fixup** added to the existing
+  `fixup_tbl` at `0xE4A000`. `_pe_iat_fixup_add(S, coff, imp_idx)`
+  registers; `FIXUP` patches
+  `disp32 = (_pe_idata_rva + _pe_iat_sub_off + idx*8) -
+           (_pe_text_rva + coff + 4)`.
+- **`_pe_layout(S)` call moved from `EMITELF` to early in
+  `FIXUP(S)`** so ftype=4 fixups resolve against populated RVAs
+  before the patch loop runs.
+- **`EEXIT` `_TARGET_PE` branch** in `src/backend/x86/emit.cyr`
+  emits 13 bytes:
+  `mov ecx, eax; sub rsp, 0x28; call [rip+ExitProcess]; int3`.
+- Disassembly-verified: disp32 resolves to the correct RVA
+  delta (0x0FDF for the exit-42 test case), IAT slot at file
+  offset 0x400 holds the Hint/Name entry RVA for `ExitProcess`.
+- Byte-for-byte `cmp` against `pe_probe.cyr` deferred to the
+  general-`syscall(...)`-rerouting patch (v5.4.4+) — today an
+  explicit `syscall(60, 42)` in source still emits the Linux
+  syscall instructions alongside the implicit `EEXIT`.
+
+### v5.4.4+ Queue — PE correctness (tracked, not hidden)
 
 What v5.4.2 explicitly does NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.2 plus" would
 conflate unrelated work.
 
-- **`EEXIT` `_TARGET_PE` branch** (`src/backend/x86/emit.cyr`).
-  Today `EEXIT` emits `mov eax,60; mov edi,42; syscall`
-  (Linux). Under PE, must emit `mov ecx, <code>; sub rsp,
-  0x28; call [rip+disp32 → ExitProcess IAT slot]; int3`.
-  Single-site change; gates byte-level `cmp` against
-  `pe_probe.cyr`.
+- ✅ **`EEXIT` `_TARGET_PE` branch + PE fixup infrastructure**
+  (shipped v5.4.3). `EEXIT` emits the Win64 ExitProcess call
+  sequence; new `ftype=4` IAT-reference fixup in the existing
+  `fixup_tbl`; `_pe_layout` runs early in `FIXUP` so disp32
+  fixups resolve. Disassembly-verified. Byte-level `cmp`
+  against `pe_probe.cyr` deferred until general `syscall(...)`
+  rerouting lands (next item).
 - **Win64 ABI arm at general call sites**
   (`src/backend/x86/emit.cyr` `fncall0`–`fncall6`, `&fn`,
   direct-`EB` sequences in `src/frontend/parse.cyr`).
@@ -266,50 +222,130 @@ conflate unrelated work.
   exceptions, debugger stack walks, ETW profiling. Tracked
   here for completeness; no v5.4.x release targets this.
 
+### v5.4.x Queue — Compiler Optimization (parallel track)
+
+Phased plan synthesized from vidya
+(`content/optimization_passes`, `content/code_generation`,
+`content/allocators`) and external research (QBE, TCC, QBE arm64
+peephole — Brian Callahan, Poletto/Sarkar linear scan, Agner Fog
+x86_64 microarchitecture notes). Runs alongside the Windows
+correctness queue above; phases are independently shippable as
+patch releases. **Non-negotiable across every phase**: byte-identical
+self-host must hold; every pass must be deterministic.
+
+**Guardrails (both research tracks converged on these "don't"s):**
+- No graph-coloring register allocation (3–5× the code of linear
+  scan for ~10 % marginal quality on our function sizes).
+- No iterated register coalescing (Appel) — nondeterminism risk.
+- No static instruction scheduling on x86_64 (OoO hardware hides it).
+- No SCCP / GVN / polyhedral (out of scope for a ~450 KB compiler).
+- No PEXT/PDEP/BMI2 opportunistic (pre-Haswell portability trap).
+- No multi-arena heap restructuring (the 21 MB flat heap map is
+  auditable state; lifetime partitioning is already static).
+
+#### Phase O1 — Instrumentation + symbol-table upgrade
+Baseline before tuning anything. Without per-phase numbers we
+can't tell which optimization actually moved the needle.
+- Per-phase `rdtsc` counters (`lex` / `preprocess` / `parse` /
+  `ir-lower` / `emit` / `fixup`) gated behind a compile-time
+  flag, written to a static buffer, dumped at exit. ~40 LOC.
+- **Symbol-table hash upgrade**: current `fn_names[4096]` /
+  `struct_names` / identifier-pool use linear scan (O(N) per
+  identifier touch). Replace with FNV-1a open-addressing hash
+  (load factor ≤ 0.7) keyed by offset-into-pool. Expected win:
+  10–25 % compile-throughput on self-host once `fn_count > ~200`.
+  ~200 LOC.
+- Gate: baseline numbers in `docs/development/benchmarks.md`;
+  self-hosting byte-identical.
+
+#### Phase O2 — Peephole quick wins (x86_64 + aarch64)
+All deterministic, small, bang-for-buck. Vidya and external
+research both called these out as first-wave.
+- **Strength reduction**: `x * 2^n` → `shl/lsl`, `x / 2^n` →
+  `shr/lsr`/`asr`, `x * 0` → `xor`, `x * 1` → copy, `x ± 0`
+  → copy. Pattern detection via `(n & (n - 1)) == 0`. ~60 LOC
+  across both backends.
+- **Flag-result reuse**: track a "last flags producer" slot in
+  emit state; invalidate on any flag-clobber; skip redundant
+  `cmp` / `cmn` when preceding arithmetic already set flags.
+  ~80 LOC.
+- **Redundant-move / self-move elimination**: `mov rX, rX`;
+  post-emit pass collapses no-ops from regalloc+inline
+  interactions. ~100 LOC.
+- **LEA combining** (x86_64): `mov rX, rA; add rX, rB; add rX, imm`
+  → single `lea rX, [rA+rB+imm]`; avoid 3-operand LEA on RBP/R13
+  base (port-1 latency trap per Agner Fog). ~120 LOC.
+- **aarch64 fused ops**: `mul + add` → `madd`, `mul + sub` →
+  `msub`, `and + lsr mask` → `ubfx`, signed variant → `sbfx`.
+  ~150 LOC. Saves one instruction per site.
+
+#### Phase O3 — IR-driven passes
+Builds on the existing LASE / DBE / CFG infrastructure that's
+already instrumented but not yet on every emit path.
+- **Precondition**: finish IR instrumentation across the
+  remaining ~50 direct emit sites (`EB` / `E2` / `E3` calls in
+  `src/frontend/parse.cyr`). Without this, LASE codebuf patching
+  is unsafe — same blocker the current v5.x IR plan noted.
+- **Constant folding + propagation on IR**: promote the existing
+  parse-time folding into a CFG-aware pass. Integer arithmetic,
+  boolean, comparisons on constant operands. ~200 LOC.
+- **Bitmap-based liveness + DCE**: one u64 = liveness for 64
+  virtual registers; backward sweep; mark defs with no live
+  uses as dead. Pattern lifted from
+  `vidya/content/optimization_passes/cyrius.cyr`. ~60 LOC.
+- **Copy propagation + dead-store elimination**: forward sweep
+  with per-vreg "current copy-of" map; backward sweep marking
+  live stores. ~300 LOC.
+- **Fixed-point driver**: run fold → propagate → reduce → DCE
+  in a loop until no-change. Essential because each pass
+  enables the next. ~30 LOC.
+
+#### Phase O4 — Linear-scan register allocation
+The big investment. Replaces today's peephole `#regalloc`. Both
+research tracks pointed at this as the highest-quality-per-LOC
+single optimization.
+- Sort live intervals by start point; greedy assignment with
+  spill heuristic = furthest next use (Poletto & Sarkar).
+  ~600–900 LOC for: live-range build, active-set management,
+  spill slot assignment, parallel-move resolution at block
+  boundaries.
+- **Determinism guard**: keep hint-based preferences but skip
+  iterated coalescing — byte-identical self-host must hold.
+- Depends on Phase O3's completed IR coverage (live ranges
+  need every def and use to be in IR).
+- Expected output-code speedup: 2–3× over current stack-machine
+  baseline on hot inner loops; 10–20 % quality gap vs.
+  graph-coloring at a fraction of the code.
+
+#### Phase O5 — Maximal-munch instruction selection
+Formalize the existing ad-hoc tile patterns (mem-operand
+`add`/`sub` on x86_64, aarch64 addressing modes) into a tile
+pattern database. Walker traverses IR tree bottom-up, matching
+largest subtree to a single machine instruction. Opens the door
+for future target-specific tiles (RISC-V v5.5.0) without
+touching the walker.
+- ~300–500 LOC for the tiling infrastructure; per-target tile
+  tables live in each backend's `emit.cyr`.
+
+#### Phase O6 — Optional, measurement-gated
+- **Slab allocator for IR node pools**: `vidya/content/allocators`
+  documents 20–30× speedup over bump for fixed-size object
+  churn. Only worth it if Phase O4's profiling shows bump
+  allocation hot during live-range construction. ~150 LOC.
+
 ---
 
-## v5.2.x / v5.3.x — Sigil 3.0 enablers
+## Sigil 3.0 enablers — remaining
 
-Items the downstream `sigil` crate needs in the Cyrius toolchain to
-unlock its v3.0 scope (PQC + parallel batch verify + cleaner
-crypto primitives). Sigil will track these as "blocked on Cyrius"
-in its own roadmap; landing them here removes the block.
-
-### v5.2.x — stdlib crypto extensions (non-breaking)
+Downstream `sigil` items the Cyrius toolchain still owes. Shipped
+enablers (`ct_select` v5.3.2, `mulh64` v5.3.3, `secret var` v5.3.5)
+are in CHANGELOG.
 
 - **`lib/keccak.cyr`** — Keccak-f[1600] permutation + sponge API
   (SHAKE-128 / SHAKE-256). NIST FIPS 202. Required for
   ML-DSA-65's XOF step in sigil 3.0 PQC. Self-contained, no
   external deps. Benchmark target: 4 KB SHAKE-256 within 2× of
   sigil's existing `sha256_4kb` (~250 µs).
-- ✅ **`ct_select(cond, a, b)` in `lib/ct.cyr`** (shipped v5.3.2).
-  Branchless select returning `a` if `cond == 0`, `b` if
-  `cond == 1`. Implemented as `a ^ ((0 - cond) & (a ^ b))`;
-  x86-64 disasm confirms only `sub`/`xor`/`and` — no `jcc`.
-  Sigil can drop its inline mask-xor at `ge_cmov`,
-  `_ge_table_select`, and the canonical-S reject path.
-
-### v5.3.x — language-level security primitives (may be breaking)
-
-- ✅ **`secret var name[N];`** (shipped v5.3.5). Zeroise-on-return
-  for local arrays: each declaration injects a synthetic entry
-  into the function's defer chain that writes zero across the
-  buffer before the epilogue exits. Matches Rust's
-  `Zeroizing<T>`. Sigil's 8 manual `memset(sk, 0, N)` call sites
-  can be deleted once the downstream port lands. Scoped to
-  arrays (not scalars) and tied to function exit (not inner
-  lexical block) — deliberately narrower than the Rust analogue
-  but sufficient for the crypto patterns that prompted it.
-- ✅ **`mulh64(a, b) → u64` builtin** (shipped v5.3.3). High 64 bits
-  of unsigned 64×64 multiply. x86-64 emits `mul rcx; mov rax, rdx`;
-  aarch64 emits the single `umulh x0, x1, x0` instruction. Sigil's
-  `_mul64_full` can be replaced by a direct `mulh64` call at each
-  site (~20 lines saved per multiply, expected ~15 % win on
-  `fp_mul`).
-
-Release targeting: SHAKE + `ct_select` are additive and fit in the
-v5.2.x patch train. The `secret` keyword is a language change and
-wants v5.3.0 as the natural bump.
 
 ---
 
@@ -327,22 +363,10 @@ enables adding new targets without touching the frontend.
 | **v5.4.0** | Windows x86_64 (exit-42 probe) | PE/COFF | **Done** — 1536 B PE32+, hardware-verified (Windows 11, ERRORLEVEL=42) |
 | **v5.4.1** | Windows x86_64 (hello-world probe) | PE/COFF | **Done** — full Win64 ABI call path, prints `hello\n` on hardware |
 | **v5.4.2** | Windows x86_64 (`EMITPE_EXEC` structural) | PE/COFF | **Done** — compiler emits valid PE32+ (1536 B, `file(1)` verified); correctness queued for v5.4.3+ |
-| **v5.4.3+** | Windows x86_64 (PE correctness) | PE/COFF | Queued — EEXIT Win32 branch, Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
+| **v5.4.3** | Windows x86_64 (PE fixup + EEXIT Win32) | PE/COFF | **Done** — `EEXIT` emits Win64 ExitProcess call; `ftype=4` IAT-ref fixups resolve; disassembly-verified |
+| **v5.4.4+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
-
----
-
-## v5.x — IR-Driven Optimization (when complete emit coverage)
-
-LASE and DBE analysis is proven but codebuf patching is unsafe until
-all emit paths go through IR. The path:
-
-1. Instrument remaining ~50 emit calls (direct EB/E2/E3 from parse.cyr)
-2. LASE codebuf patching becomes safe → redundant load elimination
-3. DBE becomes safe → dead block NOP-fill
-4. Sound multi-register allocation on IR (replaces peephole #regalloc)
-5. Constant folding, strength reduction
 
 ---
 
@@ -400,14 +424,14 @@ all emit paths go through IR. The path:
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, cc5 408KB self-hosting |
-| Linux aarch64 | ELF | **Partial** — cross-compiler works, native entry point ready (v5.0.3, needs ARM hardware validation) |
+| Linux x86_64 | ELF | **Done** — primary, cc5 451 KB self-hosting |
+| Linux aarch64 | ELF | **Done** — cross + native self-host byte-identical on real Pi (v5.3.15+); `regression.tcyr` 102/102 (v5.3.18). Three libs (`lib/hashmap_fast`, `lib/u128`, `lib/mabda`) contain ungated x86 asm — arch-gating queued. |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
-| macOS aarch64 | Mach-O | **Syscall-only Done** (v5.3.0) — EMITMACHO_ARM64 emits 15-LC Stage 2 layout, runs on macOS 26.4.1 Apple Silicon. Strings + globals = v5.3.1. |
-| Windows x86_64 | PE/COFF | Stub — **v5.4.0** |
-| RISC-V (rv64) | ELF | **v5.5.0** |
-| Bare-metal | ELF (no-libc) | **v5.6.0** |
+| macOS aarch64 | Mach-O | **Done** (v5.3.13) — self-hosts byte-identically on Apple Silicon, 475 KB. Strings + globals v5.3.1. |
+| Windows x86_64 | PE/COFF | **Structural done** (v5.4.2) — compiler emits valid PE32+ (1536 B, `file(1)` verified). Win64 ABI correctness + on-hardware gate queued for v5.4.3+. |
+| RISC-V (rv64) | ELF | Queued — **v5.5.0** |
+| Bare-metal | ELF (no-libc) | Queued — **v5.6.0** (AGNOS kernel target) |
 
 ---
 

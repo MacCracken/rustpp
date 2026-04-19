@@ -74,6 +74,10 @@ fn FIXUP(S) {
     if (_TARGET_MACHO == 1) { entry = 0x100001000; }
     # Mach-O ARM64: code at TEXT_BASE + 16384 (16KB page on Apple Silicon)
     if (_TARGET_MACHO == 2) { entry = 0x100004000; }
+    # PE32+ (Windows): run the PE layout pass now so any ftype=4
+    # IAT-reference fixups can resolve against `_pe_*` RVAs during
+    # the patch loop below. EMITPE_EXEC reads the same globals.
+    if (_TARGET_PE == 1) { _pe_layout(S); }
     var dbase = entry + acp;
     # Precompute cumulative var offsets (prefix sum — O(n) instead of O(n²) per fixup)
     var vcnt = GVCNT(S);
@@ -190,6 +194,17 @@ fn FIXUP(S) {
                 S64(S + 0x54A000 + coff, tgt1);
             }
         }
+        else { if (ftype == 4) {
+            # PE IAT reference — patch disp32 for `FF 15 <disp32>`
+            # (call [rip+disp32]) to reach the IAT slot for import
+            # `idx`. IAT_RVA = _pe_idata_rva + _pe_iat_sub_off + idx*8.
+            # RIP at the disp32 read is text_rva + coff + 4 (coff
+            # points at the 4-byte disp32; +4 skips past it).
+            var iat_rva = _pe_idata_rva + _pe_iat_sub_off + idx * 8;
+            var rel4 = iat_rva - (_pe_text_rva + coff + 4);
+            var p4 = S + 0x54A000 + coff;
+            S64(p4, (L64(p4) >> 32 << 32) | (rel4 & 0xFFFFFFFF));
+        }
         else {
             # Variable address (type 0) — use prefix sum.
             # Shared: patch rel32 for LEA; else: patch imm64.
@@ -203,7 +218,7 @@ fn FIXUP(S) {
                     S64(S + 0x54A000 + coff, tgt0);
                 }
             }
-        } } }
+        } } } }
         fi = fi + 1;
     }
     # Dead-code elimination — mark-and-sweep reachability from entry.
@@ -1298,10 +1313,9 @@ fn EMITELF(S) {
     }
     if (_TARGET_PE == 1) {
         # PE32+ (Windows x86_64) output via CYRIUS_TARGET_WIN=1.
-        # Layout pass populates region globals in src/backend/pe/emit.cyr;
-        # emit pass writes headers + .text + .idata into output_buf.
-        # v5.4.2 scope: structural validity only (see roadmap v5.4.x).
-        _pe_layout(S);
+        # `_pe_layout(S)` already ran inside FIXUP so any IAT-ref
+        # fixups could resolve; region globals are populated. This
+        # pass just serialises headers + .text + .idata to output_buf.
         EMITPE_EXEC(S);
         return 0;
     }
