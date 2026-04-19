@@ -77,7 +77,35 @@ program running on the Windows platform target.
   doesn't use either) — no arch shim needed.
 - cc5: 464224 → 466560 B (+2336 B across the cycle).
 
-### v5.4.9+ follow-ups (tracked, not blocking)
+### Fixed
+- **cc5_aarch64 cross-compile emitted x86 bytes for `&local_var`**
+  (`src/frontend/parse.cyr` ~line 670). The `&local` factor path
+  unconditionally emitted `LEA rax, [rbp + disp32]` (3-byte opcode
+  + 4-byte disp = 7 bytes ≡ 3 mod 4) regardless of `_AARCH64_BACKEND`.
+  With multiple `&local` uses across the auto-prepended stdlib, the
+  shift compounded; the entry branch landed on the last byte of a
+  trailing RET, decoding as `0x800000d6` (unallocated) → SIGILL.
+  Reproduced on yukti `programs/core_smoke.cyr` cross-built and run
+  on a real Pi 4 (`runner@agnosarm.local`, Cortex-A72, Ubuntu 24.04
+  aarch64); same pattern reproduced with a 4-line program using only
+  `var v = vec_new(); vec_push(...)`. Fix arch-dispatches the emit:
+  aarch64 path now emits `SUB X0, X29, #|disp|` (1 instruction = 4
+  bytes, aligned), with `MOVZ + MOVK + SUB Xd, Xn, Xm` fallback for
+  displacements outside imm12 range. Verified end-to-end:
+  `core_smoke-aarch64` PASS exit 0 on Pi, yukti main CLI exits 0.
+  Filed in mabda/yukti context as the cc5_aarch64 SIGILL blocker
+  (yukti `docs/development/issues/2026-04-19-cc5-aarch64-repro.md`).
+
+### v5.4.10+ follow-ups (tracked, not blocking)
+- **`_cyrius_init` GLOBAL in `object;` mode** — the immediate v5.4.9
+  scope; see roadmap.
+- **Other unguarded x86 emits in shared `parse.cyr`** — closure
+  address (~line 970), struct field byte/word/dword load (1777-1779),
+  `#regalloc` callee-saved save/restore (3257-3261 / 3403-3407), x87
+  float fallbacks. None fire on the programs verified for v5.4.8 but
+  any downstream that hits one gets the same SIGILL signature. A
+  permanent `EW` alignment assert in `src/backend/aarch64/emit.cyr`
+  is the catch-everything net (use it during the audit pass).
 - **RW split for `.rdata`**. Real `.rdata` (CNT_INITIALIZED_DATA |
   MEM_READ) for strings + `.data` (CNT_INITIALIZED_DATA | MEM_READ |
   MEM_WRITE) for gvars. Harmless conflation today; honest naming

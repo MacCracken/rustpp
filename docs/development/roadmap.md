@@ -20,7 +20,11 @@
 > ABI at `fncall*`, `syscall(n)` for the rest,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
 > `cc5_win.cyr` cross-entry, RW-split between `.rdata` and
-> `.data`, byte-cmp polish) is the v5.4.9+ queue. **v5.4.x runs a parallel compiler-optimization
+> `.data`, byte-cmp polish) is the v5.4.10+ queue. **v5.4.9 is
+> claimed by mabda's `_cyrius_init` GLOBAL fix** (regression
+> from v4.6.0 alpha2 — blocks any cyrius `.o` linked into a
+> C-entry-point binary; mabda phase0 today, soorat/rasa/ranga/
+> bijli/aethersafta/kiran the moment they bump their pin). **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -177,6 +181,25 @@ correctness → stdlib wrappers → native self-host.
   (2048 B, 3 sections) runs clean.
 - cc5: 464224 → 466560 B; self-host byte-identical;
   `sh scripts/check.sh` 8/8.
+- **Also fixed: cc5_aarch64 cross-compile `&local` x86 leak.**
+  `src/frontend/parse.cyr` ~line 670 unconditionally emitted x86
+  `LEA rax, [rbp+disp32]` (3+4 = 7 bytes ≡ 3 mod 4) for the
+  address-of-local factor; with multiple `&local` uses across the
+  auto-prepended stdlib, the misalignment compounded to +1 byte by
+  ELF entry, which landed the entry branch on the last byte of a
+  trailing RET (decoded as `0x800000d6`, unallocated → SIGILL).
+  Filed as the cc5_aarch64 SIGILL blocker in yukti's
+  `docs/development/issues/2026-04-19-cc5-aarch64-repro.md`. Fix
+  arch-dispatches the emit: aarch64 path now emits `SUB X0, X29,
+  #|disp|` (1 instruction = 4 bytes, aligned), with MOVZ+MOVK+SUB
+  fallback for displacements outside imm12 range. Verified on real
+  Pi 4 (`runner@agnosarm.local`): `core_smoke-aarch64` PASS exit 0,
+  yukti main CLI exits 0. Other unguarded x86-emit paths in
+  `parse.cyr` (closure address ~970, struct field byte/word/dword
+  load 1777-1779, `#regalloc` callee-saved 3257/3403, x87) are
+  audited in v5.4.10+ along with a permanent `EW` alignment assert
+  in aarch64 emit.
+
 
 ### v5.4.7 — `syscall(1)` → `GetStdHandle + WriteFile` ✅
 - **`EWRITE_PE(S)` in `src/backend/x86/emit.cyr`** consumes the
@@ -270,7 +293,61 @@ correctness → stdlib wrappers → native self-host.
   explicit `syscall(60, 42)` in source still emits the Linux
   syscall instructions alongside the implicit `EEXIT`.
 
-### v5.4.9+ Queue — PE correctness (tracked, not hidden)
+### v5.4.9 — `_cyrius_init` GLOBAL in `object;` mode (mabda blocker)
+
+Regression filed by mabda
+(`mabda/docs/issues/2026-04-19-phase0-build-broken.md`,
+"Issue 1"). cc5 currently emits the compiler-generated
+`_cyrius_init` symbol with `STB_LOCAL` (`src/backend/x86/fixup.cyr`
+~line 1080). That's correct for cyrld's multi-object link model
+(each `.o` carries its own `_cyrius_init`; cyrld stitches them
+into a `_start` chain — see `programs/cyrld.cyr:1038-1105`), but
+breaks the case where a cyrius `.o` is linked into a C-entry-point
+binary by the system linker. The C launcher calls
+`_cyrius_init()` before `mabda_main()`; with `STB_LOCAL` the
+symbol isn't visible and `ld` fails with `undefined reference to
+_cyrius_init`.
+
+Fixed at v3.4.14, regressed at v4.6.0 alpha2 (per the comment at
+`fixup.cyr:1073-1075`); confirmed against v5.4.7+. Affects every
+downstream that links a cyrius-compiled `.o` into a non-cyrld
+binary: today **mabda** (`programs/phase0.cyr` + the upcoming
+`compute_e2e.cyr` / `render_e2e.cyr`); next-up **soorat / rasa /
+ranga / bijli / aethersafta / kiran** the moment they bump their
+toolchain pin to 5.4.x.
+
+**Scope:**
+- `src/backend/x86/fixup.cyr` `EMITELF_OBJ` (the `object;` path):
+  emit `_cyrius_init` with `STB_GLOBAL` binding so `ld` can resolve
+  external references. Today the byte at `init_symp + 4` is
+  hard-coded `0x02` (STT_FUNC | STB_LOCAL); should be `0x12`
+  (STT_FUNC | STB_GLOBAL).
+- **Coordinate with cyrld.** cyrld merges multiple `.o` each with
+  a `_cyrius_init`; if all are GLOBAL the standard collision rule
+  triggers. Either (a) cyrld renames per-module (`_cyrius_init` →
+  `_cyrius_init_<mod>`) before merging and synthesises the
+  call-chain, or (b) cyrld strips the global binding back to local
+  on its inputs. Option (a) is the cleaner direction and lines up
+  with the multi-CU work already on the cy5 branch.
+- **Regression test.** Add `tests/regression-object-init.sh`:
+  compile a one-line `object;` program, `readelf -s` the result,
+  assert `_cyrius_init` shows `GLOBAL` binding. Wire into
+  `scripts/check.sh` so this can't silently regress again.
+
+**Queued (not in v5.4.9 scope, queued for v5.4.10+):**
+- **Hard-error mode for `undefined function` warnings.** Mabda's
+  Issue 2 was a missing `include "lib/str.cyr"` that cc5 caught
+  at parse time as a warning but still produced an object — the
+  link failed downstream. A `--strict` flag (or a build-mode that
+  treats those warnings as errors) would fail the compile at the
+  source-of-truth point. Mabda proposes a CI-only `make
+  build-gpu-programs` target that compiles-but-doesn't-link and
+  fails on any cc5 warning; we can offer a first-class
+  `cyrius build --strict` (or an env-gate) so every downstream
+  gets it for free. Issue 2 itself is mabda-side; the toolchain
+  enhancement here closes the regression class.
+
+### v5.4.10+ Queue — PE correctness (tracked, not hidden)
 
 What v5.4.2–v5.4.8 explicitly do NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.x plus" would
