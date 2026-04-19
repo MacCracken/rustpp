@@ -513,6 +513,36 @@ jobs:
             fi
           done
           echo "PASS: no Linux syscall bytes in any PE32+ output"
+      - name: v5.4.7 syscall(1) → WriteFile structural gate
+        run: |
+          # Compile a syscall(1) program with CYRIUS_TARGET_WIN=1 and
+          # verify the emitted PE32+:
+          #   (a) is structurally valid (MZ / PE / Machine = 0x8664),
+          #   (b) imports GetStdHandle + WriteFile + ExitProcess from
+          #       kernel32.dll (all three names present in .idata),
+          #   (c) contains no Linux `0F 05` syscall bytes.
+          # On-hardware execution gate is deferred to the patch that
+          # ships PE-aware data placement (gvars / string literals);
+          # until then, the buffer pointer argument passed to WriteFile
+          # resolves to an ELF-style VA that does not exist in the PE
+          # image. Structural correctness is the v5.4.7 scope.
+          printf 'syscall(1, 1, "hi\\n", 3); syscall(60, 0);\n' \
+            | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > /tmp/win_out/write.exe
+          sz=$(wc -c < /tmp/win_out/write.exe)
+          magic=$(xxd -l2 -p /tmp/win_out/write.exe | tr -d ' \n')
+          machine=$(xxd -s68 -l2 -p /tmp/win_out/write.exe | tr -d ' \n')
+          test "$sz" -gt 0 && test "$magic" = "4d5a" && test "$machine" = "6486" || {
+            echo "FAIL: write.exe structural (sz=$sz magic=$magic machine=$machine)"; exit 1;
+          }
+          if xxd -p /tmp/win_out/write.exe | tr -d '\n' | grep -qE '0f05'; then
+            echo "FAIL: write.exe contains 0F 05"; exit 1
+          fi
+          for sym in ExitProcess GetStdHandle WriteFile kernel32.dll; do
+            if ! grep -a -q "$sym" /tmp/win_out/write.exe; then
+              echo "FAIL: write.exe missing import: $sym"; exit 1
+            fi
+          done
+          echo "PASS: v5.4.7 syscall(1) PE32+ structural gate"
       - name: Upload PE32+ binaries for native run
         uses: actions/upload-artifact@v4
         with:

@@ -736,11 +736,15 @@ fn PARSE_FACTOR(S) {
                 }
             }
         }
-        # PE32+ (Windows): reroute `syscall(60, code)` → ExitProcess(code).
-        # The x86_64 `syscall` instruction (0F 05) is Linux-only and would
-        # crash on Windows. For v5.4.4 only exit is routed; other syscall
-        # numbers would need their own Win32 API mappings (WriteFile,
-        # ReadFile, etc. — tracked in v5.4.5+ import-registration work).
+        # PE32+ (Windows): reroute recognised Linux syscall numbers to
+        # kernel32 IAT calls so the generic `ESCPOPS` path below
+        # (which would emit the x86_64 `syscall` instruction, 0F 05,
+        # a Linux-only encoding) is bypassed. Mappings so far:
+        #   syscall(60, code)           → ExitProcess(code)     (v5.4.4)
+        #   syscall(1, fd, buf, len)    → GetStdHandle+WriteFile (v5.4.7)
+        # Other syscall numbers still fall through with a warning and
+        # produce a non-functional binary; wrap them in syscalls_windows.cyr
+        # shape helpers as they're needed.
         if (_TARGET_PE == 1) {
             if (sc_num == 60) {
                 if (argc == 2) {
@@ -754,13 +758,24 @@ fn PARSE_FACTOR(S) {
                     return 0;
                 }
             }
-            # Non-exit syscalls are not yet mapped to Win32. Emitting the
-            # generic ESCPOPS path below would produce an `0F 05` syscall
-            # that crashes on Windows. Warn now; hard-error once the
-            # import-registration mechanism lands in v5.4.5+.
+            if (sc_num == 1) {
+                if (argc == 4) {
+                    # EWRITE_PE consumes [len][buf][fd][sc_nr=1] from
+                    # the stack and emits the GetStdHandle+WriteFile
+                    # sequence. Registers GetStdHandle + WriteFile as
+                    # pending IAT imports on first use.
+                    EWRITE_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # Non-mapped syscalls: emitting the generic ESCPOPS path
+            # below would produce an `0F 05` syscall that crashes on
+            # Windows. Warn now; hard-error once the full
+            # syscalls_windows.cyr stdlib lands in v5.4.x.
             syscall(SYS_WRITE, 2,
-                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 only routes n=60 (ExitProcess) today; others will crash on Windows.\n",
-                117);
+                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 only routes n=1 (WriteFile) and n=60 (ExitProcess) today; others will crash on Windows.\n",
+                136);
         }
         ESCPOPS(S, argc);
         _cfo = 0;

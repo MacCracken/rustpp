@@ -366,6 +366,70 @@ fn EEXIT(S) {
     return 0;
 }
 
+# emit Win64 write epilogue: consume stack args pushed by the
+# generic syscall-argument loop for `syscall(1, fd, buf, len)` and
+# reroute to `GetStdHandle(fd) + WriteFile(hFile, buf, len, &n, 0)`.
+# Result in rax (bytes written, or 0 on error). No Linux `0F 05`
+# emitted — the parser's `_TARGET_PE && sc_num == 1` branch calls
+# this and returns before falling into `ESCPOPS`.
+#
+# Stack layout on entry (top→bottom): [len] [buf] [fd] [sc_nr=1].
+#
+# Local frame layout (after `sub rsp, 0x40`):
+#   [rsp+0x00..0x1F]  shadow space for both calls (32 B, Win64 ABI)
+#   [rsp+0x20]        lpOverlapped slot (5th WriteFile arg, = 0)
+#   [rsp+0x28]        scratch DWORD for lpBytesWritten (r9 target)
+#   [rsp+0x30]        saved `buf` (rdx) across GetStdHandle call
+#   [rsp+0x38]        saved `len` (r8)  across GetStdHandle call
+# 0x40 bytes keeps RSP 16-aligned at each `call` site (caller's RSP
+# was 8-mod-16 entering this fn because of the implicit return
+# address on the stack — same guarantee EEXIT relies on).
+fn EWRITE_PE(S) {
+    _pe_ensure_stdio(S);
+    var gsh_idx = _pe_stdio_getstd_get();
+    var wf_idx  = _pe_stdio_writef_get();
+
+    # Pop args off the expr stack into Win64 ABI registers.
+    EB(S, 0x58);                                   # pop rax (len)
+    EB(S, 0x49); EB(S, 0x89); EB(S, 0xC0);         # mov r8, rax
+    EB(S, 0x58);                                   # pop rax (buf)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC2);         # mov rdx, rax
+    EB(S, 0x58);                                   # pop rax (fd)
+    # fd → nStdHandle: 0→-10 (stdin), 1→-11 (stdout), 2→-12 (stderr).
+    # `neg rax; sub rax, 10` handles the common fd range in two instr.
+    EB(S, 0x48); EB(S, 0xF7); EB(S, 0xD8);         # neg rax
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xE8); EB(S, 0x0A); # sub rax, 10
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);         # mov rcx, rax
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+
+    # Allocate 64 B frame and stash buf/len across the GetStdHandle call.
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x40); # sub rsp, 0x40
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x30); # mov [rsp+0x30], rdx
+    EB(S, 0x4C); EB(S, 0x89); EB(S, 0x44); EB(S, 0x24); EB(S, 0x38); # mov [rsp+0x38], r8
+
+    # call [rip+GetStdHandle]
+    EB(S, 0xFF); EB(S, 0x15);
+    _pe_iat_fixup_add(S, GCP(S), gsh_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    # Reload WriteFile args; hFile = rax.
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);         # mov rcx, rax
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x54); EB(S, 0x24); EB(S, 0x30); # mov rdx, [rsp+0x30]
+    EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x38); # mov r8, [rsp+0x38]
+    EB(S, 0x4C); EB(S, 0x8D); EB(S, 0x4C); EB(S, 0x24); EB(S, 0x28); # lea r9, [rsp+0x28]
+    # 5th arg: lpOverlapped = 0 at [rsp+0x20].
+    EB(S, 0x48); EB(S, 0xC7); EB(S, 0x44); EB(S, 0x24); EB(S, 0x20);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    # call [rip+WriteFile]
+    EB(S, 0xFF); EB(S, 0x15);
+    _pe_iat_fixup_add(S, GCP(S), wf_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
+    return 0;
+}
+
 # ================================================================
 # SETCC — comparison to value (0 or 1 in rax)
 # Emit: cmp rax, rcx; setCC al; movzx rax, al

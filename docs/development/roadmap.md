@@ -1,20 +1,22 @@
 # Cyrius Development Roadmap
 
-> **v5.4.6.** cc5 compiler (461880 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stages 3–7 shipped.**
+> **v5.4.7.** cc5 compiler (464224 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3–8 shipped.**
 > v5.4.2 landed the structural `EMITPE_EXEC` backend. v5.4.3
 > added the PE fixup infrastructure + `EEXIT` Win64 branch.
 > v5.4.4 reroutes explicit `syscall(60, code)` calls through
 > the same `ExitProcess` IAT path at parse time. v5.4.5 adds
 > the on-hardware CI gate on `windows-latest`. v5.4.6 adds the
-> `#pe_import("kernel32.dll", "Symbol")` directive so source
-> code declares arbitrary kernel32 IAT imports alongside the
-> hardcoded `ExitProcess` — foundation for the v5.4.7+
-> `syscall(1,…)` → `WriteFile` rerouting + stdlib wrappers.
-> Remaining correctness work (general Win64 ABI at `fncall*`,
-> `syscall(n)` mapping for n≠60, `lib/syscalls_windows.cyr` +
-> `lib/alloc_windows.cyr`, `cc5_win.cyr` cross-entry, byte-cmp
-> polish) is the v5.4.7+ queue. **v5.4.x runs a parallel compiler-optimization
+> `#pe_import("kernel32.dll", "Symbol")` directive. v5.4.7
+> reroutes `syscall(1, fd, buf, len)` to
+> `GetStdHandle + WriteFile` via the auto-registered IAT —
+> first functional kernel32 call path, structural scope (the
+> on-hardware print gate waits on PE-aware gvar / string
+> placement). Remaining correctness work (general Win64 ABI
+> at `fncall*`, PE data placement, `syscall(n)` for the rest,
+> `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
+> `cc5_win.cyr` cross-entry, byte-cmp polish) is the v5.4.8+
+> queue. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -142,6 +144,49 @@ correctness → stdlib wrappers → native self-host.
   `jmp +0` prelude removal + implicit-EEXIT suppression when
   source already exited. Polish, not correctness.
 
+### v5.4.7 — `syscall(1)` → `GetStdHandle + WriteFile` ✅
+- **`EWRITE_PE(S)` in `src/backend/x86/emit.cyr`** consumes the
+  `[len][buf][fd][sc_nr=1]` stack layout left by parse.cyr's
+  generic push loop and emits the Win64 call sequence against
+  an auto-registered IAT: `pop/mov` into `r8/rdx/rcx`, a
+  two-instruction `fd → nStdHandle` transform (`neg rax;
+  sub rax, 10`), a 64-B stack frame (`sub rsp, 0x40`) that
+  keeps RSP 16-aligned and leaves room for shadow + 5th arg +
+  scratch, a save of `rdx`/`r8` across `GetStdHandle`, and a
+  reload + `WriteFile(hFile, buf, len, &n, NULL)` with
+  `lpOverlapped = NULL` at `[rsp+0x20]`.
+- **`_pe_ensure_stdio(S)` in `src/backend/pe/emit.cyr`**
+  lazily registers `GetStdHandle` + `WriteFile` in the
+  `_pe_pending_imp_*` queue on first `syscall(1)` use and
+  records their future `imp_idx`s so `EWRITE_PE` can encode
+  the correct `ftype=4` IAT-reference fixups. `ExitProcess`
+  stays at `imp_idx=0` unconditionally so `EEXIT` (v5.4.3)
+  keeps working.
+- **`src/frontend/parse.cyr`** — new
+  `_TARGET_PE && sc_num == 1 && argc == 4` branch sibling to
+  the v5.4.4 `sc_num == 60` branch; calls `EWRITE_PE(S)` and
+  returns before falling into `ESCPOPS`.
+- **aarch64 shim** (`src/backend/aarch64/emit.cyr`) for
+  `EWRITE_PE`, following the v5.4.4 / v5.4.6 arch-flag lesson.
+- **Gate**: `echo 'syscall(1, 1, "hi\n", 3); syscall(60, 0);'
+  | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe` →
+  - 1536 B PE32+, `file(1)`-valid.
+  - IAT has 4 thunks in order `[ExitProcess, GetStdHandle,
+    WriteFile, NULL]`; `.text` disassembly shows all 4 call
+    sites resolving to the right slots (GetStdHandle=1,
+    WriteFile=2, explicit exit=0, implicit trailing EEXIT=0).
+  - Zero `0F 05` syscall bytes.
+  - `sh scripts/check.sh` 8/8 pass; self-host byte-identical;
+    cc5: 461880 → 464224 B.
+- **On-hardware print gate deferred**. Today the buffer pointer
+  passed to WriteFile comes from `movabs rax, imm64` with an
+  ELF-style ImageBase (`0x400…`), so the pointer is unmapped
+  under PE's `0x140000000` ImageBase and WriteFile returns
+  `FALSE` without writing. Structural correctness is the
+  v5.4.7 scope; the native CI job can grow a `hello.exe →
+  "hi\n" → exit 0` assertion once PE-aware gvar / string
+  placement lands (v5.4.8+).
+
 ### v5.4.6 — `#pe_import` directive ✅
 - Source-level directive `#pe_import("dll", "symbol");` registers
   a kernel32 IAT import at parse time. Mirrors `#assert` /
@@ -191,10 +236,10 @@ correctness → stdlib wrappers → native self-host.
   explicit `syscall(60, 42)` in source still emits the Linux
   syscall instructions alongside the implicit `EEXIT`.
 
-### v5.4.4+ Queue — PE correctness (tracked, not hidden)
+### v5.4.8+ Queue — PE correctness (tracked, not hidden)
 
-What v5.4.2 explicitly does NOT deliver. Each item is a
-distinct patch or minor; shipping them as "v5.4.2 plus" would
+What v5.4.2–v5.4.7 explicitly do NOT deliver. Each item is a
+distinct patch or minor; shipping them as "v5.4.x plus" would
 conflate unrelated work.
 
 - ✅ **`EEXIT` `_TARGET_PE` branch + PE fixup infrastructure**
@@ -413,7 +458,8 @@ enables adding new targets without touching the frontend.
 | **v5.4.4** | Windows x86_64 (syscall(60) rerouting) | PE/COFF | **Done** — explicit `syscall(60, N)` routes to `ExitProcess`; Linux `0F 05` absent from compiled `.text` |
 | **v5.4.5** | Windows x86_64 (on-hardware CI gate) | PE/COFF | **Done** — `windows-cross` + `windows-native` CI jobs validate ExitProcess path end-to-end on `windows-latest`; ERRORLEVEL verified for N ∈ {0, 1, 42, 255} |
 | **v5.4.6** | Windows x86_64 (`#pe_import` directive) | PE/COFF | **Done** — declarative kernel32 symbol registration; compiler emits IAT with arbitrary imports beyond the hardcoded `ExitProcess` |
-| **v5.4.7+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, `syscall(1,...)` → `WriteFile` rerouting, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, byte-cmp polish |
+| **v5.4.7** | Windows x86_64 (`syscall(1)` → WriteFile) | PE/COFF | **Done** — `EWRITE_PE` emits GetStdHandle + WriteFile call sequence via auto-registered IAT; structural scope (on-hardware print awaits PE data placement) |
+| **v5.4.8+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, PE-aware gvar / string placement (on-hardware print gate), remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, byte-cmp polish |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

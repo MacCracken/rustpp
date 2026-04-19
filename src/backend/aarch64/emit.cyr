@@ -28,6 +28,16 @@ fn _pe_pending_imp_add(S, name) {
     return 0;
 }
 
+# No-op shim for the Win64 `syscall(1)` rerouting helper (v5.4.7).
+# Same rationale as the `_pe_pending_imp_add` shim above: parse.cyr
+# calls `EWRITE_PE` unconditionally inside its `_TARGET_PE == 1`
+# branch, so the compile-time symbol must resolve when the aarch64
+# backend builds. The branch is statically dead at runtime because
+# `_TARGET_PE` is always 0 on aarch64 targets.
+fn EWRITE_PE(S) {
+    return 0;
+}
+
 # Marker that the aarch64 backend is present in this compiler binary.
 # Checked by EMITMACHO_ARM64 to refuse Mach-O ARM output when accidentally
 # invoked through the x86 backend (which would emit x86 code inside an

@@ -198,6 +198,42 @@ var _pe_pending_imp_offs[256];    # 32 slots × 8-byte offsets
 var _pe_pending_imp_count = 0;
 var _pe_pending_imp_pos   = 0;
 
+# ================================================================
+# Stdio auto-imports — GetStdHandle + WriteFile lazily registered
+# on the first `syscall(1, fd, buf, len)` the parser sees under
+# `CYRIUS_TARGET_WIN=1`. Replaces v5.4.6's #pe_import boilerplate
+# that every Win-targeted program would otherwise need. Idempotent:
+# the `_pe_stdio_ready` flag guards against duplicate registration
+# across many syscall(1) call sites.
+#
+# The final imp_idxs for these two symbols depend on how many
+# #pe_import directives were processed *before* the first
+# syscall(1). _pe_layout places ExitProcess at imp_idx=0 and then
+# walks the pending queue in order; we capture each symbol's future
+# imp_idx at registration time so EWRITE_PE can encode the correct
+# IAT-reference fixup (`ftype=4`) as it emits the call bytes.
+# ================================================================
+
+var _pe_stdio_ready       = 0;
+var _pe_stdio_getstd_idx  = 0;
+var _pe_stdio_writef_idx  = 0;
+
+fn _pe_ensure_stdio(S) {
+    if (_pe_stdio_ready == 1) { return 0; }
+    _pe_stdio_getstd_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "GetStdHandle");
+    _pe_stdio_writef_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "WriteFile");
+    _pe_stdio_ready = 1;
+    return 0;
+}
+
+# Accessors used by EWRITE_PE in x86/emit.cyr. Globals are visible
+# cross-file but accessing them via helper fns keeps the contract
+# one-way: pe/emit.cyr owns the idx state, x86/emit.cyr reads it.
+fn _pe_stdio_getstd_get() { return _pe_stdio_getstd_idx; }
+fn _pe_stdio_writef_get() { return _pe_stdio_writef_idx; }
+
 # Called from `parse.cyr`'s `#pe_import("dll", "symbol")` handler
 # with `name` pointing at the NUL-terminated symbol string inside
 # str_data. Appends the name to the pending buffer; `_pe_layout`

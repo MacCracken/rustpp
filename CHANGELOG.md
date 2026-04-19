@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.7] — 2026-04-19
+
+**`syscall(1, fd, buf, len)` → `GetStdHandle + WriteFile` rerouting.**
+First functional kernel32 call path built on top of v5.4.6's
+`#pe_import` plumbing: the compiler recognises Linux write(2)
+syscall form under `CYRIUS_TARGET_WIN=1` and emits the Win64
+`GetStdHandle(fd)` → `WriteFile(hFile, buf, len, &n, NULL)`
+sequence against an auto-registered IAT, bypassing the Linux-only
+`syscall` instruction (`0F 05`). ExitProcess stays at `imp_idx=0`;
+GetStdHandle and WriteFile are lazily appended to the pending-imports
+queue on the first `syscall(1)` the parser sees. Structural scope —
+on-hardware end-to-end `hello\n` output still requires PE-aware data
+placement (gvars / string literals), which is a separate follow-up.
+
+### Added
+- **`EWRITE_PE(S)` in `src/backend/x86/emit.cyr`** — 85-byte emit
+  routine that consumes the `[len][buf][fd][sc_nr=1]` stack layout
+  left by the generic syscall-argument push loop and produces:
+  ```
+  pop rax; mov r8, rax      ; len
+  pop rax; mov rdx, rax     ; buf
+  pop rax; neg rax; sub rax, 10; mov rcx, rax  ; fd → nStdHandle
+  add rsp, 8                ; drop syscall nr
+  sub rsp, 0x40             ; frame: shadow + lpOverlapped + scratch + saves
+  mov [rsp+0x30], rdx       ; save buf across GetStdHandle
+  mov [rsp+0x38], r8        ; save len across GetStdHandle
+  call [rip+GetStdHandle]   ; → ftype=4 IAT fixup at imp_idx=gsh_idx
+  mov rcx, rax              ; hFile
+  mov rdx, [rsp+0x30]       ; reload buf
+  mov r8,  [rsp+0x38]       ; reload len
+  lea r9,  [rsp+0x28]       ; &lpBytesWritten (scratch DWORD)
+  mov qword [rsp+0x20], 0   ; 5th arg: lpOverlapped = NULL
+  call [rip+WriteFile]      ; → ftype=4 IAT fixup at imp_idx=wf_idx
+  add rsp, 0x40
+  ```
+  `fd → nStdHandle` is a two-instruction transform (`neg; sub 10`):
+  0 → `STD_INPUT_HANDLE` (-10), 1 → `STD_OUTPUT_HANDLE` (-11),
+  2 → `STD_ERROR_HANDLE` (-12). Frame size 0x40 keeps RSP
+  16-aligned at each `call` site and leaves `[rsp+0x20]` free for
+  the 5th WriteFile arg per Win64 ABI.
+- **`_pe_ensure_stdio(S)` in `src/backend/pe/emit.cyr`** —
+  idempotent helper that registers `GetStdHandle` and `WriteFile`
+  in the `_pe_pending_imp_*` queue on first `syscall(1)` use.
+  Captures their future `imp_idx`s (`_pe_stdio_getstd_idx`,
+  `_pe_stdio_writef_idx`) at registration time, relative to
+  however many `#pe_import` directives were parsed first.
+  `ExitProcess` continues to occupy `imp_idx=0` unconditionally so
+  `EEXIT`'s hardcoded slot survives.
+- **`_pe_stdio_getstd_get()` / `_pe_stdio_writef_get()` accessors**
+  that `EWRITE_PE` reads to encode the right `ftype=4` IAT-reference
+  fixup offset. Keeps PE state ownership one-directional (pe/emit.cyr
+  writes, x86/emit.cyr reads).
+- **`src/frontend/parse.cyr` syscall handler** — new
+  `_TARGET_PE && sc_num == 1 && argc == 4` branch sibling to the
+  v5.4.4 `sc_num == 60` branch. Calls `EWRITE_PE(S)` and returns
+  before falling into the generic `ESCPOPS` path. Warning message
+  for unmapped syscalls now lists n=1 alongside n=60.
+- **`src/backend/aarch64/emit.cyr`** — no-op `EWRITE_PE` shim,
+  same pattern as the `_pe_pending_imp_add` shim (v5.4.6) and the
+  `_TARGET_PE` var shim (v5.4.4). aarch64-backed `main_*.cyr`
+  entries don't pull in `pe/emit.cyr`, so parse.cyr's unconditional
+  `EWRITE_PE` symbol reference needs a resolver on that backend.
+  Statically dead at runtime (`_TARGET_PE` is always 0 on aarch64).
+- **`.github/workflows/ci.yml`** — new `windows-cross` step
+  *"v5.4.7 syscall(1) → WriteFile structural gate"* that compiles
+  `syscall(1, 1, "hi\n", 3); syscall(60, 0);` with `CYRIUS_TARGET_WIN=1`
+  and asserts the output is (a) structurally valid PE32+
+  (MZ / PE / `Machine = 0x8664`), (b) imports `ExitProcess`,
+  `GetStdHandle`, `WriteFile`, `kernel32.dll` in `.idata`, and
+  (c) contains zero `0F 05` bytes.
+
+### Verified
+- `printf 'syscall(1, 1, "hi\\n", 3); syscall(60, 0);' | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe`:
+  - 1536 B PE32+, `file(1)`-valid.
+  - IAT at file offset `0x400` holds 4 thunks in order
+    `[ExitProcess, GetStdHandle, WriteFile, NULL]` (3 real + terminator).
+  - `.text` disassembly shows 4 `call [rip+disp32]` sites resolving to
+    `imp_idx={1, 2, 0, 0}` (GetStdHandle, WriteFile, explicit ExitProcess,
+    implicit trailing `EEXIT`).
+  - Zero `0F 05` syscall bytes anywhere in the image.
+- `sh scripts/check.sh` 8/8 pass (64-file test suite, shared objects,
+  cross-module link, capacity meter, format, lint).
+- Self-host byte-identical across every substep (helper add → emitter
+  add → aarch64 shim → parse.cyr wiring → version bump).
+- cc5: 461880 → 464224 B (+2344 B across the cycle).
+
+### Deferred to v5.4.8+
+- **On-hardware print gate** — writing `hi\n` to stdout on Windows
+  requires the buffer pointer passed to WriteFile to resolve to a
+  real PE VA. Today, string literals and gvar addresses emit
+  `movabs rax, imm64` with an ELF-style ImageBase (`0x400…`)
+  rather than a PE ImageBase (`0x140000000…`), so WriteFile sees an
+  unmapped pointer and returns `FALSE` without writing. Ship with
+  PE-aware gvar / string-literal placement, at which point the
+  windows-native CI job can grow a `hello.exe → "hi\n" → exit 0`
+  assertion. Call-sequence correctness (what v5.4.7 delivers) is
+  verified structurally and by disassembly.
+- **Additional syscall mappings** — read(3) / open / close / stat etc.
+  await `lib/syscalls_windows.cyr` and are tracked in the v5.4.7+
+  queue as before.
+
 ## [5.4.6] — 2026-04-19
 
 **`#pe_import` directive — declarative kernel32 import registration.**
