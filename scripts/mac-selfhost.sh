@@ -35,12 +35,15 @@ echo "cc5:    $CC5 ($(wc -c < "$CC5") bytes)"
 echo "source: $SRC ($(wc -c < "$SRC") bytes)"
 echo ""
 
-# Sanity check the signature — unsigned ad-hoc binaries segfault on Apple
-# Silicon before they even reach main.
-if ! codesign -dv "$CC5" >/dev/null 2>&1; then
-    echo "  note: $CC5 is not codesigned. Signing ad-hoc..."
-    codesign -s - --force "$CC5"
-fi
+# Strip macOS 26 quarantine xattrs BEFORE signing. The Codex CLI team
+# documented this (github.com/openai/codex issues/17447): on macOS 26.4.1,
+# binaries carrying `com.apple.provenance` get silently blocked by
+# AppleSystemPolicy and hang at `_dyld_start` — no output, no crash, no
+# stderr. `xattr -c` clears all xattrs; re-signing is mandatory after.
+echo "  stripping macOS 26 quarantine xattrs..."
+xattr -c "$CC5" 2>/dev/null
+echo "  re-signing ad-hoc..."
+codesign --force --sign - "$CC5"
 
 # Round 1: use the cc5_macho to compile itself → cc5_macho_b.
 # Guarded by a 30s watchdog: a correct compile on M-series takes <2s, so if

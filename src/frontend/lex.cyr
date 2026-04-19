@@ -1356,9 +1356,18 @@ fn PP_IFDEF_PASS(S) {
     # Allocate a temp buffer via mmap to hold the source. This avoids copying
     # to S+0 (which overflows into heap state for programs >256KB — Bug #35).
     # The temp buffer is separate memory that the helpers can safely read from.
+    #
+    # mmap flags differ between Linux and macOS:
+    #   Linux: MAP_PRIVATE(2) | MAP_ANONYMOUS(0x20) = 0x22 = 34
+    #   macOS: MAP_PRIVATE(2) | MAP_ANON(0x1000)    = 0x1002
+    # We try Linux flags first (runs fine on Linux host), fall back to
+    # macOS flags if the kernel rejects them (EINVAL on macOS — BSD raw
+    # SVC returns -errno now that ESYSCALL emits `csneg x0, x0, x0, cc`).
     var prot = 3;     # PROT_READ | PROT_WRITE
-    var flags = 34;   # MAP_PRIVATE | MAP_ANONYMOUS
-    var tmp = syscall(9, 0, 1048576, prot, flags, 0 - 1, 0);
+    var tmp = syscall(9, 0, 1048576, prot, 34, 0 - 1, 0);
+    if (tmp < 0) {
+        tmp = syscall(9, 0, 1048576, prot, 0x1002, 0 - 1, 0);
+    }
     # v4.8.4-alpha3: fixpoint loop so nested includes in files expanded
     # during this pass (e.g. registry.cyr → hashmap.cyr → fnptr.cyr)
     # are themselves scanned for further includes. Without the loop only
@@ -1581,13 +1590,18 @@ fn PP_REF_PASS(S) {
 }
 
 fn PREPROCESS(S) {
+    syscall(SYS_WRITE, 2, "p", 1);
     # Pre-pass: expand #ref directives (TOML → var declarations)
     PP_REF_PASS(S);
+    syscall(SYS_WRITE, 2, "q", 1);
     PP_PASS(S);
+    syscall(SYS_WRITE, 2, "r", 1);
     # Pass 2: evaluate #ifdef/#define in included content
     PP_IFDEF_PASS(S);
+    syscall(SYS_WRITE, 2, "s", 1);
     # Final pass: expand macros with args
     PP_MACRO_PASS(S);
+    syscall(SYS_WRITE, 2, "t", 1);
     return 0;
 }
 

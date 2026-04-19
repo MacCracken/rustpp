@@ -95,6 +95,10 @@ if (S < 0x100000) {
     syscall(SYS_WRITE, 2, "cc5_macho: mmap heap init failed\n", 33);
     syscall(SYS_EXIT, 1);
 }
+# PROGRESS MARKER — remove once self-host is stable. Prints single char
+# to stderr after each phase so we can narrow down where a hang happens
+# on Apple Silicon. Expected sequence on success: "abcdef".
+syscall(SYS_WRITE, 2, "a", 1);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -157,17 +161,23 @@ while (done == 0) {
         }
     }
 }
+syscall(SYS_WRITE, 2, "b", 1);  # after stdin read
 SBL(S, bl);
+syscall(SYS_WRITE, 2, "1", 1);  # after SBL
 
 # Preprocess includes
 _init_cyrius_lib();
+syscall(SYS_WRITE, 2, "2", 1);  # after _init_cyrius_lib
 PREPROCESS(S);
+syscall(SYS_WRITE, 2, "3", 1);  # after PREPROCESS
 
 # Lex
 LEX(S);
+syscall(SYS_WRITE, 2, "4", 1);  # after LEX
 
 # Emit initial branch over fn bodies (aarch64: B +0, patch later)
 var jmp_patch = EJMP0(S);
+syscall(SYS_WRITE, 2, "5", 1);  # after EJMP0
 
 # Pass 1: Pre-scan to register all global vars and structs (no fn bodies)
 # Synced with main.cyr v2.1 — includes mod/pub/use/impl/union support
@@ -260,6 +270,8 @@ while (scan == 1) {
     else { scan = 0; } } } } } } } } } } }
 }
 
+syscall(SYS_WRITE, 2, "c", 1);  # after pass 1 (lex + top-level scan)
+
 # Reset module for pass 2
 SMOD(S, 0);
 
@@ -339,10 +351,13 @@ PARSE_PROG(S);
 var lv = GLVAR(S);
 if (lv >= 0) { EVLOAD(S, lv); }
 EEXIT(S);
+syscall(SYS_WRITE, 2, "d", 1);  # after pass 2 (parse + emit)
 
 # Fixup + ELF + write
 FIXUP(S);
+syscall(SYS_WRITE, 2, "e", 1);  # after FIXUP
 EMITELF(S);
+syscall(SYS_WRITE, 2, "f", 1);  # after EMITMACHO_ARM64
 # Write ELF output (loop on partial writes)
 var olen = L64(S + 0x903F8);
 var written = 0;

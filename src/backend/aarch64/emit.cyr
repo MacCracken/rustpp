@@ -145,9 +145,19 @@ fn EXORAA(S) { EW(S, 0xCA000000); return 0; }    # eor x0, x0, x0 (zero)
 fn EMOVRDI(S) { return 0; }  # no-op: x0 is already the first arg on aarch64
 
 # === Syscall ===
-# SVC #0 (Linux) or SVC #0x80 (macOS/BSD)
+# SVC #0 (Linux) or SVC #0x80 (macOS/BSD). On BSD the error convention
+# is "carry flag set → errno in x0 as a small positive"; Linux uses
+# "-errno in rax/x0". To make higher-level code (which checks
+# `if (result < 0) ...`) work identically on both platforms, we append
+# a `csneg x0, x0, x0, cc` after the Mach-O ARM SVC: if carry clear
+# (success) x0 is unchanged; if carry set (error) x0 gets negated so
+# the returned value is -errno, matching Linux.
 fn ESYSCALL(S) {
-    if (_TARGET_MACHO == 2) { EW(S, 0xD4001001); return 0; }  # svc #0x80
+    if (_TARGET_MACHO == 2) {
+        EW(S, 0xD4001001);      # svc #0x80
+        EW(S, 0xDA803400);      # csneg x0, x0, x0, cc
+        return 0;
+    }
     EW(S, 0xD4000001); return 0;                               # svc #0
 }
 
