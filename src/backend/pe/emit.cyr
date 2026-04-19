@@ -458,7 +458,18 @@ fn EMITPE_EXEC(S) {
     # COFF file header (20 bytes)
     # ============================================================
     o = _pe_w16(O, o, 0x8664);          # Machine = AMD64
-    o = _pe_w16(O, o, 3);               # NumberOfSections (text + idata + rdata)
+    # NumberOfSections — drop `.rdata` when there are no gvars and no
+    # string literals (e.g. exit-only programs). A section header with
+    # `VirtualSize == 0 && SizeOfRawData == 0` makes the Windows loader
+    # reject the image as "%1 is not a valid Win32 application" — the
+    # CI gate caught this on `exit0/exit1/exit42/exit255` after v5.4.8
+    # added the unconditional 3rd section. The header bytes that would
+    # have described `.rdata` still get emitted (as zeros) into the
+    # 448-byte header allotment, harmless because NumberOfSections=2
+    # tells the loader to ignore that slot.
+    var _nsec = 3;
+    if (_pe_rdata_vsize == 0) { _nsec = 2; }
+    o = _pe_w16(O, o, _nsec);
     o = _pe_w32(O, o, 0);               # TimeDateStamp (0 = unbound)
     o = _pe_w32(O, o, 0);               # PointerToSymbolTable
     o = _pe_w32(O, o, 0);               # NumberOfSymbols
@@ -573,33 +584,41 @@ fn EMITPE_EXEC(S) {
     o = _pe_w16(O, o, 0);
     o = _pe_w32(O, o, 0xC0000040);           # CNT_INIT_DATA | MEM_READ | MEM_WRITE
 
-    # .rdata — gvar storage + string literals (v5.4.8)
-    store8(O + o,     0x2E);    # '.'
-    store8(O + o + 1, 0x72);    # 'r'
-    store8(O + o + 2, 0x64);    # 'd'
-    store8(O + o + 3, 0x61);    # 'a'
-    store8(O + o + 4, 0x74);    # 't'
-    store8(O + o + 5, 0x61);    # 'a'
-    store8(O + o + 6, 0);
-    store8(O + o + 7, 0);
-    o = o + 8;
-    o = _pe_w32(O, o, _pe_rdata_vsize);
-    o = _pe_w32(O, o, _pe_rdata_rva);
-    o = _pe_w32(O, o, _pe_rdata_file_size);
-    o = _pe_w32(O, o, _pe_rdata_file_off);
-    o = _pe_w32(O, o, 0);
-    o = _pe_w32(O, o, 0);
-    o = _pe_w16(O, o, 0);
-    o = _pe_w16(O, o, 0);
-    # CNT_INIT_DATA | MEM_READ | MEM_WRITE. For v5.4.8 gvar storage
-    # and string literals share one section. Name is `.rdata` for
-    # historical symmetry with the sub-region naming in this file,
-    # but permissions are RW because Cyrius gvars are writable at
-    # runtime (`var x = 0; x = 42;`). Splitting into real `.rdata`
-    # (RO strings) + `.data` (RW gvars) is a follow-up cleanup —
-    # harmless today because PE loaders honor section flags, not
-    # section names.
-    o = _pe_w32(O, o, 0xC0000040);
+    # .rdata — gvar storage + string literals (v5.4.8). Only emit the
+    # section header when there's actually content: a 0-vsize/0-rsize
+    # section descriptor passes our local sanity checks but the
+    # Windows loader rejects it as `%1 is not a valid Win32
+    # application`. exit-only programs (`syscall(60, 0);` etc.) have
+    # zero gvars and zero string literals — for those we keep
+    # NumberOfSections=2 (set above) and skip the descriptor entirely.
+    if (_pe_rdata_vsize != 0) {
+        store8(O + o,     0x2E);    # '.'
+        store8(O + o + 1, 0x72);    # 'r'
+        store8(O + o + 2, 0x64);    # 'd'
+        store8(O + o + 3, 0x61);    # 'a'
+        store8(O + o + 4, 0x74);    # 't'
+        store8(O + o + 5, 0x61);    # 'a'
+        store8(O + o + 6, 0);
+        store8(O + o + 7, 0);
+        o = o + 8;
+        o = _pe_w32(O, o, _pe_rdata_vsize);
+        o = _pe_w32(O, o, _pe_rdata_rva);
+        o = _pe_w32(O, o, _pe_rdata_file_size);
+        o = _pe_w32(O, o, _pe_rdata_file_off);
+        o = _pe_w32(O, o, 0);
+        o = _pe_w32(O, o, 0);
+        o = _pe_w16(O, o, 0);
+        o = _pe_w16(O, o, 0);
+        # CNT_INIT_DATA | MEM_READ | MEM_WRITE. For v5.4.8 gvar storage
+        # and string literals share one section. Name is `.rdata` for
+        # historical symmetry with the sub-region naming in this file,
+        # but permissions are RW because Cyrius gvars are writable at
+        # runtime (`var x = 0; x = 42;`). Splitting into real `.rdata`
+        # (RO strings) + `.data` (RW gvars) is a follow-up cleanup —
+        # harmless today because PE loaders honor section flags, not
+        # section names.
+        o = _pe_w32(O, o, 0xC0000040);
+    }
 
     # Pad headers to FileAlignment.
     o = _pe_wpad(O, o, 0x200);

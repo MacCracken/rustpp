@@ -78,6 +78,19 @@ program running on the Windows platform target.
 - cc5: 464224 → 466560 B (+2336 B across the cycle).
 
 ### Fixed
+- **Empty `.rdata` section rejected by Windows loader.** v5.4.8's
+  unconditional 3rd PE section emitted a `vsize=0 / rsize=0`
+  descriptor for programs with no gvars and no string literals (the
+  `exit0/exit1/exit42/exit255` CI test programs are this shape). The
+  windows-cross step accepted them as structurally valid PE32+ but
+  the windows-native step (`Start-Process -FilePath` on
+  `windows-latest`) failed with `%1 is not a valid Win32
+  application` — the loader rejects a 0/0 section. Fixed in
+  `src/backend/pe/emit.cyr`: when `_pe_rdata_vsize == 0` we now set
+  `NumberOfSections=2` and skip the descriptor entirely. hello.exe
+  still emits 3 sections (`.rdata` vsize=0x4 for `"hi\n\0"`); exit
+  programs collapse back to text+idata. Self-host byte-identical;
+  `sh scripts/check.sh` 8/8.
 - **cc5_aarch64 cross-compile emitted x86 bytes for `&local_var`**
   (`src/frontend/parse.cyr` ~line 670). The `&local` factor path
   unconditionally emitted `LEA rax, [rbp + disp32]` (3-byte opcode
