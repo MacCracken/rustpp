@@ -448,6 +448,112 @@ jobs:
           test "$out" = "ok" || { echo "var_plus_string: expected 'ok', got '$out'"; exit 1; }
           echo "PASS: var_plus_string → 'ok' (exit 0)"
 
+  # ── Windows x86_64 PE32+ cross-compile ──
+  # Runs on ubuntu-latest; compiles exit-code programs with
+  # CYRIUS_TARGET_WIN=1 and uploads the .exe artifacts so the
+  # windows-native job can execute them on real Windows. Validates
+  # v5.4.2 (structural PE32+), v5.4.3 (EEXIT → ExitProcess via IAT
+  # fixup), and v5.4.4 (syscall(60) reroute) at the compiler level.
+  windows-cross:
+    name: Windows PE32+ Cross
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup compiler
+        run: chmod +x build/cc5
+      - name: Compile exit-code PE32+ test binaries
+        run: |
+          mkdir -p /tmp/win_out
+          pass=0; fail=0
+          # Each test: "name:source:expected_errorlevel"
+          # Exercises syscall(60) reroute (v5.4.4) + EEXIT Win64 branch
+          # (v5.4.3) + IAT fixup (v5.4.3) + structural PE32+ (v5.4.2).
+          for test in \
+            "exit0:syscall(60, 0);:0" \
+            "exit1:syscall(60, 1);:1" \
+            "exit42:syscall(60, 42);:42" \
+            "exit255:syscall(60, 255);:255"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2)
+            expected=$(echo "$test" | cut -d: -f3)
+            out="/tmp/win_out/$name.exe"
+            printf "$code\n" | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > "$out"
+            sz=$(wc -c < "$out")
+            # Validate PE32+ signature at container level
+            magic=$(xxd -l2 -p "$out" | tr -d ' \n')
+            pesig=$(xxd -s64 -l4 -p "$out" | tr -d ' \n')
+            machine=$(xxd -s68 -l2 -p "$out" | tr -d ' \n')
+            if [ "$sz" -gt 0 ] \
+                && [ "$magic" = "4d5a" ] \
+                && [ "$pesig" = "50450000" ] \
+                && [ "$machine" = "6486" ]; then
+              pass=$((pass+1))
+              # Stash expected errorlevel for the native-run step to pick up
+              echo "$expected" > "/tmp/win_out/$name.expected"
+            else
+              echo "FAIL cross: $name (size=$sz magic=$magic pesig=$pesig machine=$machine)"
+              fail=$((fail+1))
+            fi
+          done
+          echo "cross: $pass passed, $fail failed"
+          test $fail -eq 0
+      - name: Assert zero Linux `0F 05` syscall bytes in `.text`
+        run: |
+          # v5.4.4 gate: compiled syscall(60,N) must route to the Win64
+          # ExitProcess call, not the Linux `0F 05` syscall instruction.
+          for f in /tmp/win_out/*.exe; do
+            # Grep the full file; .text is always past header (offset 0x200+)
+            # and the IAT disp32 follows `FF 15` not `0F 05`, so any `0F 05`
+            # byte pair would be a regression.
+            if xxd -p "$f" | tr -d '\n' | grep -qE '0f05'; then
+              echo "FAIL: $(basename $f) contains 0F 05 (Linux syscall) bytes"
+              exit 1
+            fi
+          done
+          echo "PASS: no Linux syscall bytes in any PE32+ output"
+      - name: Upload PE32+ binaries for native run
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-pe-binaries
+          path: /tmp/win_out/
+          retention-days: 7
+
+  # ── Windows x86_64 native run ──
+  # Downloads the cross-compiled .exe binaries, runs them on a real
+  # windows-latest runner, and verifies ERRORLEVEL matches. This is
+  # the on-hardware gate for the v5.4.x Windows arc.
+  windows-native:
+    name: Windows PE32+ Native
+    needs: [windows-cross]
+    runs-on: windows-latest
+    steps:
+      - name: Download PE32+ binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-pe-binaries
+          path: ./win
+      - name: Run exit-code tests on Windows
+        shell: pwsh
+        run: |
+          $pass = 0
+          $fail = 0
+          foreach ($name in @("exit0", "exit1", "exit42", "exit255")) {
+            $exe = ".\win\$name.exe"
+            $expected = (Get-Content ".\win\$name.expected" -Raw).Trim()
+            $proc = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -eq [int]$expected) {
+              Write-Host "PASS ${name}: ERRORLEVEL=$($proc.ExitCode)"
+              $pass++
+            } else {
+              Write-Host "FAIL ${name}: expected $expected, got $($proc.ExitCode)"
+              $fail++
+            }
+          }
+          Write-Host "native: $pass passed, $fail failed"
+          if ($fail -gt 0) { exit 1 }
+
   # ── Documentation ──
   doc:
     name: Documentation

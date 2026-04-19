@@ -1,17 +1,21 @@
 # Cyrius Development Roadmap
 
-> **v5.4.4.** cc5 compiler (452800 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stages 3–5 shipped.**
+> **v5.4.5.** cc5 compiler (452800 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3–6 shipped.**
 > v5.4.2 landed the structural `EMITPE_EXEC` backend. v5.4.3
 > added the PE fixup infrastructure + `EEXIT` Win64 branch.
 > v5.4.4 reroutes explicit `syscall(60, code)` calls through
 > the same `ExitProcess` IAT path at parse time — compiled
 > `CYRIUS_TARGET_WIN=1` binaries now contain zero Linux `0F 05`
-> syscall bytes for the exit case. Remaining correctness work
-> (general Win64 ABI at `fncall*`, import-registration for
-> `WriteFile` and the rest of kernel32, `lib/syscalls_windows.cyr`
-> + `lib/alloc_windows.cyr`, `cc5_win.cyr` cross-entry,
-> on-hardware execution gate, byte-cmp polish) is the v5.4.5+
+> syscall bytes for the exit case. v5.4.5 adds the on-hardware
+> CI gate: a `windows-cross` + `windows-native` job pair in
+> `.github/workflows/ci.yml` cross-compiles four exit-code
+> programs on ubuntu-latest and runs them on `windows-latest`,
+> verifying `ERRORLEVEL` matches. Remaining correctness work
+> (general Win64 ABI at `fncall*`, import-registration
+> `#pe_import` for `WriteFile` + rest of kernel32,
+> `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
+> `cc5_win.cyr` cross-entry, byte-cmp polish) is the v5.4.6+
 > queue. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
@@ -139,6 +143,19 @@ correctness → stdlib wrappers → native self-host.
 - **Still held for byte-cmp vs `pe_probe.cyr`**: initial
   `jmp +0` prelude removal + implicit-EEXIT suppression when
   source already exited. Polish, not correctness.
+
+### v5.4.5 — On-hardware Windows CI gate ✅
+- **`windows-cross` + `windows-native` jobs** in
+  `.github/workflows/ci.yml`. Cross-compiles exit-code programs
+  under `CYRIUS_TARGET_WIN=1` on ubuntu-latest, validates the
+  structural signature (MZ / PE\0\0 / `Machine = 0x8664`) and
+  zero `0F 05` bytes, uploads `.exe` artifacts, then runs each
+  on a real `windows-latest` runner via PowerShell and verifies
+  `ExitCode` matches.
+- Tests: `syscall(60, N);` for N ∈ {0, 1, 42, 255}. Closes the
+  "on-hardware execution gate" queue item from v5.4.4's CHANGELOG.
+- No compiler source change; validates the existing v5.4.2 +
+  v5.4.3 + v5.4.4 work end-to-end against the Windows loader.
 
 ### v5.4.3 — PE fixup infrastructure + `EEXIT` Win64 branch ✅
 - **`ftype=4` IAT-reference fixup** added to the existing
@@ -380,7 +397,8 @@ enables adding new targets without touching the frontend.
 | **v5.4.2** | Windows x86_64 (`EMITPE_EXEC` structural) | PE/COFF | **Done** — compiler emits valid PE32+ (1536 B, `file(1)` verified); correctness queued for v5.4.3+ |
 | **v5.4.3** | Windows x86_64 (PE fixup + EEXIT Win32) | PE/COFF | **Done** — `EEXIT` emits Win64 ExitProcess call; `ftype=4` IAT-ref fixups resolve; disassembly-verified |
 | **v5.4.4** | Windows x86_64 (syscall(60) rerouting) | PE/COFF | **Done** — explicit `syscall(60, N)` routes to `ExitProcess`; Linux `0F 05` absent from compiled `.text` |
-| **v5.4.5+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
+| **v5.4.5** | Windows x86_64 (on-hardware CI gate) | PE/COFF | **Done** — `windows-cross` + `windows-native` CI jobs validate ExitProcess path end-to-end on `windows-latest`; ERRORLEVEL verified for N ∈ {0, 1, 42, 255} |
+| **v5.4.6+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry (`#pe_import`), stdlib wrappers, cc5_win.cyr, byte-cmp polish |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

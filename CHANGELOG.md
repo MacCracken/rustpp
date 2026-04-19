@@ -4,6 +4,40 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.5] — 2026-04-19
+
+**On-hardware Windows CI gate.** Closes the v5.4.5+ queue item
+"on-hardware execution gate" — CI now compiles PE32+ binaries on
+ubuntu-latest and runs them on a real `windows-latest` runner,
+verifying `ERRORLEVEL` matches for four exit codes. No new
+compiler code: this release validates the functional correctness
+of what v5.4.2, v5.4.3, and v5.4.4 already shipped.
+
+### Added
+- **`.github/workflows/ci.yml` `windows-cross` job** — ubuntu-latest.
+  Compiles `syscall(60, 0);` / `1;` / `42;` / `255;` with
+  `CYRIUS_TARGET_WIN=1`, validates each output is a 1536 B
+  `file(1)`-recognised PE32+ image (MZ magic, PE signature,
+  `Machine = 0x8664`), and asserts zero Linux `0F 05` syscall
+  bytes anywhere in the image. Uploads `.exe` artifacts + per-test
+  expected-exit-code manifests.
+- **`.github/workflows/ci.yml` `windows-native` job** —
+  windows-latest. Downloads the artifacts, runs each `.exe`, and
+  verifies `ExitCode` matches the expected manifest value. Uses
+  PowerShell + `Start-Process -Wait -PassThru` so `$proc.ExitCode`
+  is reliably captured (cmd's `%ERRORLEVEL%` + delayed expansion
+  was too fragile across the four-case loop).
+
+### Verified (locally; CI confirms on real Windows)
+- `syscall(60, N);` compiled with `CYRIUS_TARGET_WIN=1` → 1536 B
+  PE32+ for N ∈ {0, 1, 42, 255}.
+- Every output: MZ at 0x00, PE\0\0 at 0x40, `Machine = 0x8664`,
+  `0F 05` absent.
+- Structural gate + no-`0F 05` gate: 4/4 pass.
+- cc5: 452800 B (same as 5.4.4 — version-string bump only; +0 bytes
+  because "cc5 5.4.5\n" and "cc5 5.4.4\n" have identical length).
+- Self-host byte-identical, `sh scripts/check.sh` 8/8 pass.
+
 ## [5.4.4] — 2026-04-19
 
 Next item from the v5.4.4+ PE correctness queue: **`syscall(60, code)`
