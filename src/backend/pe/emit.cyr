@@ -260,13 +260,264 @@ fn _pe_layout(S) {
 }
 
 # ================================================================
-# Stubs — filled in at substep 2e (EMITPE_EXEC).
+# Pass 2: serialize
 # ================================================================
+# Walks regions in file order, writing bytes into output_buf at
+# S + 0x64A000. _pe_layout must have been called first. All
+# loop-local vars are hoisted to the function top because cc5
+# treats sequential `var x` declarations in the same scope as
+# redeclaration (reassignment is the supported pattern).
 
-fn EMITPE_OBJ(S) {
+fn EMITPE_EXEC(S) {
+    var O = S + 0x64A000;
+    var o = 0;
+    var cp = GCP(S);
+    var cb = S + 0x54A000;       # codebuf base
+    var imp_count = _pe_imp_count;
+    var dd_idx = 0;
+    var ii = 0;
+    var hn_off = 0;
+    var name_off = 0;
+    var np = 0;
+    var nlen = 0;
+    var esz = 0;
+    var entry_rva = 0;
+    var idata_start = 0;
+    var idata_pad_target = 0;
+    var ti = 0;
+
+    # ============================================================
+    # DOS header (64 bytes). "MZ" magic + e_lfanew at 0x3C pointing
+    # at the PE signature directly after the header. No DOS stub —
+    # loaders tolerate a bare header.
+    # ============================================================
+    o = _pe_w16(O, o, 0x5A4D);          # "MZ"
+    while (o < 60) { store8(O + o, 0); o = o + 1; }
+    o = _pe_w32(O, o, 64);              # e_lfanew
+
+    # ============================================================
+    # PE signature (4 bytes)
+    # ============================================================
+    o = _pe_w32(O, o, 0x00004550);      # "PE\0\0"
+
+    # ============================================================
+    # COFF file header (20 bytes)
+    # ============================================================
+    o = _pe_w16(O, o, 0x8664);          # Machine = AMD64
+    o = _pe_w16(O, o, 2);               # NumberOfSections
+    o = _pe_w32(O, o, 0);               # TimeDateStamp (0 = unbound)
+    o = _pe_w32(O, o, 0);               # PointerToSymbolTable
+    o = _pe_w32(O, o, 0);               # NumberOfSymbols
+    o = _pe_w16(O, o, 240);             # SizeOfOptionalHeader
+    o = _pe_w16(O, o, 0x0023);          # Characteristics:
+                                         #   EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+                                         #   | RELOCS_STRIPPED (no .reloc — v5.4.2)
+
+    # ============================================================
+    # Optional header PE32+ (240 bytes = 24 standard + 88 Win + 128 data-dirs)
+    # ============================================================
+    # Standard fields (24 bytes)
+    o = _pe_w16(O, o, 0x020B);          # Magic = PE32+
+    o = _pe_w8(O, o, 0);                # MajorLinkerVersion
+    o = _pe_w8(O, o, 0);                # MinorLinkerVersion
+    o = _pe_w32(O, o, _pe_text_file_size);   # SizeOfCode
+    o = _pe_w32(O, o, _pe_idata_file_size);  # SizeOfInitializedData
+    o = _pe_w32(O, o, 0);                    # SizeOfUninitializedData
+    o = _pe_w32(O, o, _pe_text_rva);         # AddressOfEntryPoint
+    o = _pe_w32(O, o, _pe_text_rva);         # BaseOfCode
+
+    # Windows-specific fields (88 bytes for PE32+)
+    o = _pe_w64(O, o, 0x140000000);     # ImageBase
+    o = _pe_w32(O, o, 0x1000);          # SectionAlignment
+    o = _pe_w32(O, o, 0x200);           # FileAlignment
+    o = _pe_w16(O, o, 6);               # MajorOSVersion
+    o = _pe_w16(O, o, 0);               # MinorOSVersion
+    o = _pe_w16(O, o, 0);               # MajorImageVersion
+    o = _pe_w16(O, o, 0);               # MinorImageVersion
+    o = _pe_w16(O, o, 6);               # MajorSubsystemVersion
+    o = _pe_w16(O, o, 0);               # MinorSubsystemVersion
+    o = _pe_w32(O, o, 0);               # Win32VersionValue (reserved)
+    o = _pe_w32(O, o, _pe_image_size);        # SizeOfImage (virtual)
+    o = _pe_w32(O, o, _pe_hdr_aligned_size);  # SizeOfHeaders
+    o = _pe_w32(O, o, 0);               # CheckSum (0 OK for user-mode)
+    o = _pe_w16(O, o, 3);               # Subsystem = WINDOWS_CUI
+    o = _pe_w16(O, o, 0);               # DllCharacteristics (RELOCS_STRIPPED → 0)
+    o = _pe_w64(O, o, 0x100000);        # SizeOfStackReserve (1 MB)
+    o = _pe_w64(O, o, 0x1000);          # SizeOfStackCommit  (4 KB)
+    o = _pe_w64(O, o, 0x100000);        # SizeOfHeapReserve  (1 MB)
+    o = _pe_w64(O, o, 0x1000);          # SizeOfHeapCommit   (4 KB)
+    o = _pe_w32(O, o, 0);               # LoaderFlags
+    o = _pe_w32(O, o, 16);              # NumberOfRvaAndSizes
+
+    # Data directories (16 × 8 bytes). Only [1] Import and [12] IAT
+    # are populated; everything else is zero for v5.4.2.
+    # [0] Export
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    # [1] Import
+    o = _pe_w32(O, o, _pe_idata_rva + _pe_imp_dir_sub_off);
+    o = _pe_w32(O, o, _pe_imp_dir_size);
+    # [2..11] = zero (10 entries × 8 bytes)
+    dd_idx = 2;
+    while (dd_idx < 12) {
+        o = _pe_w32(O, o, 0);
+        o = _pe_w32(O, o, 0);
+        dd_idx = dd_idx + 1;
+    }
+    # [12] IAT
+    o = _pe_w32(O, o, _pe_idata_rva + _pe_iat_sub_off);
+    o = _pe_w32(O, o, _pe_iat_size);
+    # [13..15] = zero
+    dd_idx = 13;
+    while (dd_idx < 16) {
+        o = _pe_w32(O, o, 0);
+        o = _pe_w32(O, o, 0);
+        dd_idx = dd_idx + 1;
+    }
+
+    # ============================================================
+    # Section headers (40 bytes each)
+    # ============================================================
+    # .text
+    store8(O + o, 0x2E);        # '.'
+    store8(O + o + 1, 0x74);    # 't'
+    store8(O + o + 2, 0x65);    # 'e'
+    store8(O + o + 3, 0x78);    # 'x'
+    store8(O + o + 4, 0x74);    # 't'
+    store8(O + o + 5, 0);
+    store8(O + o + 6, 0);
+    store8(O + o + 7, 0);
+    o = o + 8;
+    o = _pe_w32(O, o, _pe_text_vsize);       # VirtualSize
+    o = _pe_w32(O, o, _pe_text_rva);         # VirtualAddress
+    o = _pe_w32(O, o, _pe_text_file_size);   # SizeOfRawData
+    o = _pe_w32(O, o, _pe_text_file_off);    # PointerToRawData
+    o = _pe_w32(O, o, 0);                    # PointerToRelocations
+    o = _pe_w32(O, o, 0);                    # PointerToLinenumbers
+    o = _pe_w16(O, o, 0);                    # NumberOfRelocations
+    o = _pe_w16(O, o, 0);                    # NumberOfLinenumbers
+    o = _pe_w32(O, o, 0x60000020);           # CNT_CODE | MEM_EXECUTE | MEM_READ
+
+    # .idata
+    store8(O + o, 0x2E);        # '.'
+    store8(O + o + 1, 0x69);    # 'i'
+    store8(O + o + 2, 0x64);    # 'd'
+    store8(O + o + 3, 0x61);    # 'a'
+    store8(O + o + 4, 0x74);    # 't'
+    store8(O + o + 5, 0x61);    # 'a'
+    store8(O + o + 6, 0);
+    store8(O + o + 7, 0);
+    o = o + 8;
+    o = _pe_w32(O, o, _pe_idata_vsize);
+    o = _pe_w32(O, o, _pe_idata_rva);
+    o = _pe_w32(O, o, _pe_idata_file_size);
+    o = _pe_w32(O, o, _pe_idata_file_off);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w16(O, o, 0);
+    o = _pe_w16(O, o, 0);
+    o = _pe_w32(O, o, 0xC0000040);           # CNT_INIT_DATA | MEM_READ | MEM_WRITE
+
+    # Pad headers to FileAlignment.
+    o = _pe_wpad(O, o, 0x200);
+
+    # ============================================================
+    # .text section — copy codebuf verbatim, pad to FileAlignment
+    # ============================================================
+    ti = 0;
+    while (ti < cp) {
+        store8(O + o + ti, load8(cb + ti));
+        ti = ti + 1;
+    }
+    o = o + cp;
+    o = _pe_wpad(O, o, 0x200);
+
+    # ============================================================
+    # .idata section
+    # ============================================================
+    idata_start = o;
+
+    # IAT — each thunk is the RVA of its IMAGE_IMPORT_BY_NAME entry.
+    # High bit clear = import-by-name (not ordinal).
+    ii = 0;
+    hn_off = 0;
+    while (ii < imp_count) {
+        entry_rva = _pe_idata_rva + _pe_hint_name_sub_off + hn_off;
+        o = _pe_w64(O, o, entry_rva);
+        name_off = L64(&_pe_imp_name_offs + ii * 8);
+        np = &_pe_imp_name_buf + name_off;
+        nlen = 0;
+        while (load8(np + nlen) != 0) { nlen = nlen + 1; }
+        esz = 2 + nlen + 1;
+        esz = (esz + 1) & (0 - 2);
+        hn_off = hn_off + esz;
+        ii = ii + 1;
+    }
+    o = _pe_w64(O, o, 0);       # IAT null terminator
+
+    # Import Directory — one kernel32 descriptor + null terminator
+    o = _pe_w32(O, o, _pe_idata_rva + _pe_ilt_sub_off);     # OriginalFirstThunk (ILT)
+    o = _pe_w32(O, o, 0);                                    # TimeDateStamp
+    o = _pe_w32(O, o, 0);                                    # ForwarderChain
+    o = _pe_w32(O, o, _pe_idata_rva + _pe_dll_name_sub_off); # Name (DLL name RVA)
+    o = _pe_w32(O, o, _pe_idata_rva + _pe_iat_sub_off);      # FirstThunk (IAT)
+    # 20 bytes of zero — terminator descriptor
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+
+    # ILT — mirrors IAT (same thunk RVAs). Spec wants both; the
+    # loader only strictly needs IAT, but emitting ILT costs
+    # nothing and avoids loader-version compatibility surprises.
+    ii = 0;
+    hn_off = 0;
+    while (ii < imp_count) {
+        entry_rva = _pe_idata_rva + _pe_hint_name_sub_off + hn_off;
+        o = _pe_w64(O, o, entry_rva);
+        name_off = L64(&_pe_imp_name_offs + ii * 8);
+        np = &_pe_imp_name_buf + name_off;
+        nlen = 0;
+        while (load8(np + nlen) != 0) { nlen = nlen + 1; }
+        esz = 2 + nlen + 1;
+        esz = (esz + 1) & (0 - 2);
+        hn_off = hn_off + esz;
+        ii = ii + 1;
+    }
+    o = _pe_w64(O, o, 0);       # ILT null terminator
+
+    # Hint/Name table — per import: 2-byte hint (0 = name lookup),
+    # NUL-terminated name, pad to 2-byte alignment.
+    ii = 0;
+    while (ii < imp_count) {
+        o = _pe_w16(O, o, 0);   # Hint (0 is fine — loader falls back to name)
+        name_off = L64(&_pe_imp_name_offs + ii * 8);
+        np = &_pe_imp_name_buf + name_off;
+        o = _pe_wstr(O, o, np);
+        o = _pe_wpad(O, o, 2);
+        ii = ii + 1;
+    }
+
+    # DLL name — "kernel32.dll"
+    o = _pe_wstr(O, o, "kernel32.dll");
+    o = _pe_wpad(O, o, 2);
+
+    # Pad .idata to FileAlignment.
+    idata_pad_target = idata_start + _pe_idata_file_size;
+    while (o < idata_pad_target) {
+        store8(O + o, 0);
+        o = o + 1;
+    }
+
+    # ============================================================
+    # Final image size — FIXUP reads this from 0x903F8 to know how
+    # much of output_buf to write to stdout.
+    # ============================================================
+    S64(S + 0x903F8, _pe_image_file_size);
     return 0;
 }
 
-fn EMITPE_EXEC(S) {
+fn EMITPE_OBJ(S) {
     return 0;
 }

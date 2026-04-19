@@ -4,48 +4,118 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [5.4.2] — unreleased
+## [5.4.2] — 2026-04-19
 
-**`EMITPE` backend — cc5 emits PE binaries directly.** Third stage
-of the v5.4.x Windows arc: with both PE probes (v5.4.0 exit-42,
-v5.4.1 hello-world) locked as byte-level references, cc5 starts
-emitting Win64 PE32+ images directly from `.cyr` source.
+**`EMITPE_EXEC` structural backend — cc5 emits valid PE32+
+binaries.** Third stage of the v5.4.x Windows arc: compiler now
+produces on-disk-valid PE32+ images when `CYRIUS_TARGET_WIN=1`.
+Scope explicitly limited to **structural validity** — the
+Win64 code-emission arm (`EEXIT` branch, `fncall*` shadow
+space, RCX/RDX/R8/R9 register convention) remains in the
+v5.4.3+ queue so this release lands as a clean bisect anchor
+for the format layer.
 
-### Direction (locked 2026-04-19)
+### Gate
 
-- **Backend layout — follow the Mach-O pattern.** PE emit lives
-  in `src/backend/pe/emit.cyr` (already scaffolded as a 35-line
-  stub since v3.1+), fleshed out to mirror `src/backend/macho/emit.cyr`
-  in shape and size. Gating is **runtime, not preprocessor**: a
-  `_TARGET_PE` flag on `src/backend/x86/emit.cyr` (analogous to
-  `_TARGET_MACHO` on the aarch64 emitter), set from
-  `CYRIUS_TARGET_WIN=1`, driving `if (_TARGET_PE)` branches at
-  Win64-ABI-divergent call sites (fncall*, &fn, direct-`EB`).
-  The "clean separation sweep later" refers to eventually
-  hoisting those inline `if (_TARGET_*)` branches out of the
-  arch emitters into the format emitters — not to restructuring
-  the directory tree (which already has the split).
-- **Entry point.** `cc5_win.cyr` mirrors `main_aarch64_macho.cyr`:
-  its own entry that swaps the include chain to pull in
-  `src/backend/pe/emit.cyr` and sets `_TARGET_PE = 1` (or reads
-  the env gate). Same shape as the aarch64-macho cross, no
-  shared multiplexed entry.
+```
+$ echo 'syscall(60, 42);' | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe
+$ file out.exe
+out.exe: PE32+ executable for MS Windows 6.00 (console), x86-64, 2 sections
+$ wc -c out.exe
+1536 out.exe
+```
 
-### Planned
-- `src/backend/pe/emit.cyr` — fill out `EMITPE_EXEC` to emit
-  a full PE32+ image (DOS stub, PE header, COFF file header,
-  optional header, `.text` + `.idata` sections, kernel32
-  import directory). Byte-level reference is the v5.4.0
-  `pe_probe.cyr` + v5.4.1 `pe_probe_hello.cyr` output.
-- `src/backend/x86/emit.cyr` — Win64 ABI arm: RCX/RDX/R8/R9
-  first-four-args, 32 B shadow space, 5th+ args at `[RSP+32+]`,
-  `sub rsp, 40` pre-alignment so RSP is 16-aligned at each
-  `call`. Gated via `if (_TARGET_PE)` inside `fncall*`, `&fn`,
-  direct-`EB` paths.
-- `cc5_win.cyr` — cross-compiler entry, mirrors the
-  `main_aarch64_macho.cyr` template.
-- `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` —
-  kernel32 stdio wrappers + VirtualAlloc-backed heap.
+Byte-count matches `programs/pe_probe.cyr`'s hand-crafted
+reference exactly (1536 B).
+
+### Added
+- **`src/backend/pe/emit.cyr`** — fleshed out from a 35-line
+  v3.1 stub to a full two-pass emitter. `_pe_w8/16/32/64/wstr/wpad`
+  byte writers mirror the `_macho_wXX` shape; `_pe_imp_add`
+  registers imports into a heap-free packed-string buffer
+  (v5.4.2 hardcodes `kernel32!ExitProcess`). `_pe_layout(S)`
+  computes region geometry (DOS+PE+COFF+OPT+SHDR×2, `.text`,
+  `.idata` with IAT/ILT/ImportDir/Hint-Name/DLL-Name sub-regions)
+  into named globals. `EMITPE_EXEC(S)` walks regions in file
+  order and writes bytes into `output_buf` at `S + 0x64A000`.
+  Final image size lands at `S + 0x903F8` (same dual-use slot
+  FIXUP reads for ELF output length).
+- **`src/backend/x86/emit.cyr`** — `_TARGET_PE` runtime flag
+  (0/1) next to `_TARGET_MACHO`, driving future Win64 ABI
+  branches (queued, not yet wired).
+- **`src/main.cyr`** — `CYRIUS_TARGET_WIN=1` env read block
+  mirrors the `CYRIUS_MACHO` / `CYRIUS_MACHO_ARM` pattern; sets
+  `_TARGET_PE` at compiler startup. `include "src/backend/pe/emit.cyr"`
+  added next to the Mach-O include, landing the PE emitter in
+  the x86 Linux host cc5.
+- **`src/backend/x86/fixup.cyr`** — `EMITELF(S)` dispatch adds
+  `if (_TARGET_PE == 1) { _pe_layout(S); EMITPE_EXEC(S); return 0; }`
+  after the MACHO branches and before the ELF-kind checks.
+
+### Design decisions (locked)
+- **Backend layout follows the Mach-O pattern, not a new ifdef
+  scheme.** `src/backend/pe/emit.cyr` lives parallel to
+  `src/backend/macho/emit.cyr` as a self-contained format
+  emitter. Per-target quirks inside the arch emitter (future
+  Win64 ABI work) gate via runtime `if (_TARGET_PE)` branches,
+  matching the 8+ `if (_TARGET_MACHO == 2)` branches in the
+  aarch64 emitter. The tree already has the split; the "clean
+  separation sweep later" (mentioned in v5.4.1 deferred-items)
+  refers to eventually hoisting those inline branches out of
+  arch emitters into format emitters — not to restructuring
+  the directory layout.
+- **Storage is named globals, not heap.** Heap map is dense;
+  the 8 KB `0xD8000` free slot is reserved for libSystem.
+  PE state is bounded (~12 geometry scalars + 512 B imports
+  buffer + 256 B offsets = ~800 B); globals are the right
+  shape.
+- **Two-pass table-driven emitter** per external research
+  (goblin, LLD, TinyPE-on-Win10 writeups). Pass 1 computes all
+  RVAs / file offsets / sizes into named globals; pass 2
+  linearly serializes. Avoids the inline-offset pattern that
+  doesn't scale once imports grow past kernel32.
+- **`IMAGE_FILE_RELOCS_STRIPPED` set** — `.reloc` section
+  skipped for v5.4.2. Adding `.reloc` + clearing the flag is
+  a v5.5.x task for ASLR / DLL output.
+
+### Deferred (tracked in roadmap v5.4.x / v5.4.3+ queue)
+See `docs/development/roadmap.md` `## v5.4.x — Windows
+x86_64 (PE/COFF)` for the full correctness queue:
+- `EEXIT` `_TARGET_PE` branch (emit `mov ecx, imm32; sub rsp,
+  0x28; call [rip+ExitProcess]; int3` instead of Linux exit
+  syscall) — single-site change; gates byte-level `cmp`
+  against `pe_probe.cyr`.
+- Win64 ABI arm at `fncall*` / `&fn` / direct-`EB` paths.
+- Import-registration mechanism (hardcoded `ExitProcess`
+  → compiler-source-driven).
+- `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`.
+- `src/cc5_win.cyr` cross-compiler entry.
+- On-hardware end-to-end gate (scp to Windows 11, verify
+  stdout and ERRORLEVEL).
+
+### Verification
+- Self-host byte-identical after each substep (7 substeps).
+- `sh scripts/check.sh` 8/8 pass after each substep.
+- Compiler size: 434736 → 451312 B (+16576 B across the full
+  PE emitter).
+
+### Repo cleanup (bundled)
+- Removed `cc5_macho` (494 KB) from repo root. Regeneratable
+  from `src/main_aarch64_macho.cyr` via the command in its
+  header; added to `.gitignore` along with sibling
+  `cc5_macho_b` / `cc5_macho_c` testing artifacts.
+- Archived 4 shipped-work docs to `docs/development/archive/`
+  and `docs/development/issues/archived/`:
+  `handoff-v5.3.13-mac-selfhost.md`,
+  `v5.3.0-apple-silicon-emitter.md`, `cyml-format.md`,
+  `2026-04-18-cc5-macho-sigill.md`. Deleted empty
+  `docs/development/proposals/`. Updated
+  `src/main_aarch64_macho.cyr:19` comment to point at the
+  archived handoff.
+- Pruned 207 lines of shipped v5.1.x / v5.2.x / v5.3.x
+  narrative out of `docs/development/roadmap.md` (656 → 448
+  lines). Content preserved in CHANGELOG.md (source of truth).
+  `v5.3.15+ Queue` promoted to `## v5.3.x — Open items`.
 
 ## [5.4.1] — 2026-04-19
 

@@ -1296,6 +1296,15 @@ fn EMITELF(S) {
             103);
         syscall(SYS_EXIT, 1);
     }
+    if (_TARGET_PE == 1) {
+        # PE32+ (Windows x86_64) output via CYRIUS_TARGET_WIN=1.
+        # Layout pass populates region globals in src/backend/pe/emit.cyr;
+        # emit pass writes headers + .text + .idata into output_buf.
+        # v5.4.2 scope: structural validity only (see roadmap v5.4.x).
+        _pe_layout(S);
+        EMITPE_EXEC(S);
+        return 0;
+    }
     if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
     if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }
