@@ -14,9 +14,9 @@
 # (0x1002 = MAP_PRIVATE|MAP_ANON). Everything else relies on ESYSXLAT
 # translating Linux syscall numbers to BSD at emit time.
 #
-# UNTESTED as of v5.3.13 — no Mac hardware access during creation.
-# Validation path: scp the produced cc5_macho to a Mac, codesign, run
-# against src/main_aarch64_macho.cyr itself, cmp for byte-identity.
+# VALIDATED v5.3.13 on macOS 26.4.1 Apple Silicon: self-hosts
+# byte-identically (cross-compiled == Mac round 1 == Mac round 2 at
+# 475320 B). See docs/development/handoff-v5.3.13-mac-selfhost.md.
 # ================================================================
 # HEAP MAP — Synced with main.cyr (v4.2)
 # ================================================================

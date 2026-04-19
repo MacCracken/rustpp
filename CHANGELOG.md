@@ -4,6 +4,55 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.18] — unreleased
+
+Closeout patch before v5.4.0. **aarch64 regression.tcyr now passes
+102/102** on real Pi (Raspberry Pi 5, Ubuntu 24.04) — full closure
+of the aarch64 x86-asm-leakage Active Bug surface that's been open
+across v5.3.15–v5.3.17. Ships the two remaining aarch64 f64 emit
+paths (literal + compare), plus minor-version doc hygiene.
+
+### Fixed
+- **`EMIT_FLOAT_LIT` was a no-op stub on aarch64.** `var f1 = 0.5;`
+  assigned 0 because the backend emitted no code for the literal.
+  Implemented the aarch64 path in `src/backend/aarch64/emit.cyr`
+  mirroring x86/float.cyr's numer/denom strategy: `EMOVI`/`scvtf`
+  for each operand, `fdiv d0, d0, d1`, then `fmov x0, d0` to land
+  the IEEE-754 bit pattern in the result register. Closed
+  `regression.tcyr` assertions `"0.5 not zero"` and `"0.25 not zero"`.
+- **`PF64CMP` emitted x86 SSE bytes unconditionally.** Added an
+  aarch64 arm that moves operands into `d0`/`d1` via `fmov`,
+  emits `fcmp d0, d1`, then `cset x0, <cond>` with ordered-compare
+  conditions (`EQ` for `f64_eq`, `MI` for `f64_lt`, `GT` for `f64_gt`
+  — all NaN-safe, zero when unordered).
+
+### Minor
+- **Stale `cc3` refs cleaned up.** Comments in
+  `src/backend/x86/fixup.cyr` (DCE design note — "cc3==cc3
+  byte-identity" → "cc5==cc5") and `lib/json.cyr` (historical
+  chained-if bug) updated. Were harmless but pre-cc5 references.
+- **`src/main_aarch64_macho.cyr` header updated.** The file's
+  top-of-file banner still said "UNTESTED as of v5.3.13"; it's
+  been self-host-validated on Mac since v5.3.13. Banner now
+  points at the v5.3.13 handoff doc.
+
+### Closeout pass (step 1–9 per CLAUDE.md)
+1. Self-host byte-identical — cc5 → cc5 at 434736 B ✓
+2. Bootstrap closure — seed → cyrc → asm → cyrc byte-identical ✓
+3. Dead code — 20 unreachable fns (13380 B); entries documented,
+   no source removal this patch (most are IR scaffolding /
+   deliberate stubs / macho helpers kept for reinstatement).
+4. Stale comment sweep — 3 cc3-era refs updated; version mentions
+   in other files are intentional historical context.
+5. Heap map — `tests/heapmap.sh` PASS (43 regions, 0 overlaps).
+6. Downstream cyrius.cyml refs — all pin to released versions
+   (range 4.10.3 to 5.2.1); no broken or unreleased pins.
+7. Security re-scan — no new `sys_system` / `READFILE` /
+   unchecked-write patterns introduced this minor.
+8. CHANGELOG / roadmap / CLAUDE.md — synced (this entry +
+   top-blurb roadmap + Active Bugs table).
+9. Full `scripts/check.sh` — 8/8 PASS.
+
 ## [5.3.17] — unreleased
 
 Three surgical aarch64 emit fixes bring `regression.tcyr` on Pi to

@@ -1,24 +1,22 @@
 # Cyrius Development Roadmap
 
-> **v5.3.18.** cc5 compiler (432928 B x86_64, post-marker-removal
-> rebuild), x86_64 + aarch64 cross. IR + CFG. **v5.3.14 post-Apple-
-> Silicon cleanup**: `lib/args.cyr` empty-string arg handling fix
-> (unlocks `cyrius distlib ""` validation); `dynlib_init` safety
-> gates (refuses without `dynlib_bootstrap_cpu_features`, rejects
-> corrupted `init_array_sz`); three `fncall0` sites in
-> `lib/dynlib.cyr` now bounds-check resolver fptrs against the
-> library span; `cbt/cyrius.cyr` missing `lib/tagged.cyr` include
-> added; committed `build/cc5` rebuilt (`pqrst` stderr leak gone).
-> Apple Silicon Mach-O self-host from v5.3.13 remains verified.
-> **v5.3.15** picked up the aarch64 native FIXUP investigation:
-> native self-host now byte-identical; root cause of the original
-> "wrong MOVZ/MOVK addresses" claim was silently fixed by the
-> v5.3.13 imm9-wrap patch. Uncovered a separate x86-asm-leakage
-> class of bug (`lib/string.cyr` memcpy asm misaligned aarch64
-> emit); primary surface closed this patch. **Explicitly
-> deferred**: NSS/PAM end-to-end, aarch64 x86-asm leakage
-> residuals (fncall*, f64 ops, bitfield loads), libro layout
-> corruption.
+> **v5.3.18.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **v5.3 minor-version closeout** — last patch
+> before v5.4.0. aarch64 port is fully online: `regression.tcyr`
+> passes **102/102** on real Pi (Raspberry Pi aarch64, agnosarm.local),
+> native `cc5` self-hosts byte-identical, and the compiler dispatches
+> per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` (PP_PREDEFINE
+> from v5.3.16). The full v5.3.14–v5.3.18 sweep closed three
+> distinct issue classes: Apple Silicon Mach-O self-host (v5.3.13),
+> x86-asm leakage into aarch64 emit (v5.3.15 memcpy/asm-block
+> padding → v5.3.16 `fncall*` + `&fn` + preprocessor whitespace
+> → v5.3.17 EMOVI signed-cmp + getpid + %= → v5.3.18 f64 literal
+> + compare), and small safety / validation fixes
+> (`lib/args.cyr` empty-string argv, `dynlib_init` bootstrap gates,
+> `cyrius distlib ""` rejection, `_dynlib_fp_in_span` bounds
+> checks). **Deferred to v5.4.x**: NSS/PAM end-to-end, Windows
+> platform target, libro layout corruption, `lib/hashmap_fast` /
+> `u128` / `mabda` arch-gating.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -34,7 +32,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug — was calling wrong function signature (nous.cyr 1-arg vs cyml.cyr 2-arg). |
-| aarch64 x86-asm leakage (supersedes "native FIXUP address mismatch") | Native `cc5` on aarch64 self-hosts **byte-identically** as of v5.3.15. v5.3.16 scaffolded `#ifdef CYRIUS_ARCH_{X86,AARCH64}`, shipped aarch64 `fncall*` + `&fn` emit. v5.3.17 fixed `EMOVI` signed-comparison truncation of negative immediates, added `getpid` syscall translation, and corrected `%=` / `for` modulo compound-assign to use `EMOVDR` (msub) instead of `EMOVRA_RDX`. On Pi, `regression.tcyr` now passes **100/102** (was SIGILL-at-entry pre-5.3.16). Residual 2 failures are f64 compare ops (`PF64CMP` in `parse.cyr` emits SSE2 bytes; aarch64 needs `fcmp`/`cset`). `lib/hashmap_fast.cyr` / `lib/u128.cyr` / `lib/mabda.cyr` still contain ungated x86 asm blocks (lower priority — mitigated by v5.3.15's asm-block alignment padding). | Validated on real Pi (agnosarm.local, Raspberry Pi aarch64). |
+| ~~aarch64 x86-asm leakage~~ — **CLOSED v5.3.18** | v5.3.18 adds aarch64 `EMIT_FLOAT_LIT` (scvtf+fdiv+fmov) and `PF64CMP` (fmov+fcmp+cset) paths. `regression.tcyr` on real Pi (agnosarm.local, Raspberry Pi aarch64) now **102/102 PASS** (was SIGILL-at-entry pre-v5.3.16, 100/102 post-v5.3.17). Native `cc5` self-hosts byte-identical. Three libs still contain ungated x86 asm blocks (`lib/hashmap_fast.cyr` / `lib/u128.cyr` / `lib/mabda.cyr`) — they'll never execute correctly on aarch64 but misalignment is already mitigated by v5.3.15's asm-block alignment padding, and no consumer currently depends on their aarch64 behavior. Downstream arch-gating on those three is a future cleanup, not a blocker. | Validated on real Pi through v5.3.18 closeout. |
 
 ---
 

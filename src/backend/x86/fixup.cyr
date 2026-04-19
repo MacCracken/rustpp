@@ -227,7 +227,7 @@ fn FIXUP(S) {
     # NOP-fill (not code shifting) is the intentional tradeoff:
     #   - O(n) one pass, no fixup rework, deterministic (self-host stable)
     #   - Binary size unchanged (compresses vastly better though)
-    #   - Code shifting would break cc3==cc3 byte-identity; deferred.
+    #   - Code shifting would break cc5==cc5 byte-identity; deferred.
     #
     # Opt-in via CYRIUS_DCE=1 until the pass is battle-tested across
     # downstream ports. Default is report-only.

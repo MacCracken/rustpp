@@ -747,7 +747,23 @@ fn EF64ROUND(S) { return 0; }
 fn EX87PUSH(S) { return 0; }
 fn EX87POP(S) { return 0; }
 fn EMIT_F64_BINOP(S, fop) { return 0; }
-fn EMIT_FLOAT_LIT(S, fval) { return 0; }
+
+# Load a float literal into x0 as IEEE 754 bits. The lexer encodes
+# fval as `(denom << 32) | numer` so we reconstruct the double at
+# runtime via scvtf + fdiv, matching x86/float.cyr's strategy.
+# Mirrors the EMIT_FLOAT_LIT in x86/float.cyr — same input shape,
+# same output (f64 bit pattern in x0/rax), aarch64 FP instructions.
+fn EMIT_FLOAT_LIT(S, fval) {
+    var numer = fval & 0xFFFFFFFF;
+    var denom = (fval >> 32) & 0xFFFFFFFF;
+    EMOVI(S, numer);           # x0 = numer
+    EW(S, 0x9E620000);         # scvtf d0, x0   — d0 = (double) numer
+    EMOVI(S, denom);           # x0 = denom (clobbers x0; that's fine)
+    EW(S, 0x9E620001);         # scvtf d1, x0   — d1 = (double) denom
+    EW(S, 0x1E611800);         # fdiv d0, d0, d1
+    EW(S, 0x9E660000);         # fmov x0, d0    — x0 = f64 bit pattern
+    return 0;
+}
 # Expression spill stubs
 fn ESPILL(S) { EPUSHR(S); return 0; }
 fn EUNSPILL(S) { EPOPR(S); return 0; }

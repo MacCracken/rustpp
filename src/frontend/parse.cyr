@@ -964,6 +964,21 @@ fn PF64CMP(S, tok) {
     if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
     PCMPE(S);
     EPOPC(S); EPUSHR(S);
+    # At this point x1 = a, stack = [b], x0 (/ rax on x86) = b.
+    if (_AARCH64_BACKEND == 1) {
+        # aarch64 f64 compare: move both operands into FP registers,
+        # FCMP, then CSET on the ordered condition (MI rather than LT
+        # for lt so unordered/NaN yields 0 rather than 1).
+        EW(S, 0x9E670020);  # fmov d0, x1   — d0 = a
+        EPOPR(S);           # pop b back to x0 (stack now empty)
+        EW(S, 0x9E670001);  # fmov d1, x0   — d1 = b
+        EW(S, 0x1E612000);  # fcmp d0, d1
+        if (tok == 68) { EW(S, 0x9A9F17E0); }  # cset x0, eq
+        if (tok == 69) { EW(S, 0x9A9F57E0); }  # cset x0, mi  (ordered less)
+        if (tok == 70) { EW(S, 0x9A9FD7E0); }  # cset x0, gt  (ordered greater)
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
     EB(S, 0x48); EB(S, 0x89); EB(S, 0xC8);
     EMOVQ_X0_A(S); EPOPR(S);
     EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
