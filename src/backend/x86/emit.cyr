@@ -333,6 +333,13 @@ fn ESCPOPS(S, n) {
 # Target format: 0=ELF (Linux), 1=Mach-O x86_64 (macOS), 2=Mach-O ARM64
 var _TARGET_MACHO = 0;
 
+# PE32+ (Windows x86_64) output target: 0=off, 1=on. Set from
+# CYRIUS_TARGET_WIN=1 in main.cyr. Mirrors _TARGET_MACHO shape —
+# runtime flag read at Win64-ABI-divergent call sites inside this
+# emitter (fncall*, &fn, direct-EB) and at final emit dispatch
+# which routes to EMITPE_EXEC in src/backend/pe/emit.cyr.
+var _TARGET_PE = 0;
+
 # emit exit epilogue: mov rdi, rax; mov rax, <exit_nr>; syscall
 fn EEXIT(S) {
     EMOVRDI(S);

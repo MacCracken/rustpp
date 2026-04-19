@@ -13,22 +13,37 @@ emitting Win64 PE32+ images directly from `.cyr` source.
 
 ### Direction (locked 2026-04-19)
 
-- **Backend layout.** Win64 stays gated inside the x86 backend
-  behind `#ifdef CYRIUS_ARCH_X86_WIN` (or equivalent) for the
-  v5.4.x cycle. PE headers + import-table layout diverge sharply
-  from ELF, so a clean separation sweep to `src/backend/pe/` is
-  the eventual right call — but carved out as its own focused
-  release, not rolled into the initial emit work.
-- **Entry point.** `cc5_win.cyr` mirrors `cc5_aarch64.cyr`: its
-  own entry that swaps the include chain and flips the arch
-  marker. Same pattern as the aarch64 cross, no shared
-  multiplexed entry.
+- **Backend layout — follow the Mach-O pattern.** PE emit lives
+  in `src/backend/pe/emit.cyr` (already scaffolded as a 35-line
+  stub since v3.1+), fleshed out to mirror `src/backend/macho/emit.cyr`
+  in shape and size. Gating is **runtime, not preprocessor**: a
+  `_TARGET_PE` flag on `src/backend/x86/emit.cyr` (analogous to
+  `_TARGET_MACHO` on the aarch64 emitter), set from
+  `CYRIUS_TARGET_WIN=1`, driving `if (_TARGET_PE)` branches at
+  Win64-ABI-divergent call sites (fncall*, &fn, direct-`EB`).
+  The "clean separation sweep later" refers to eventually
+  hoisting those inline `if (_TARGET_*)` branches out of the
+  arch emitters into the format emitters — not to restructuring
+  the directory tree (which already has the split).
+- **Entry point.** `cc5_win.cyr` mirrors `main_aarch64_macho.cyr`:
+  its own entry that swaps the include chain to pull in
+  `src/backend/pe/emit.cyr` and sets `_TARGET_PE = 1` (or reads
+  the env gate). Same shape as the aarch64-macho cross, no
+  shared multiplexed entry.
 
 ### Planned
-- `src/backend/pe/emit.cyr` (under x86 backend for v5.4.x) —
-  `EMITPE` instruction, `CYRIUS_TARGET_WIN=1` env gate, Win64
-  ABI arm in `parse.cyr`'s `fncall*` / `&fn` / direct-`EB` paths
-  (RCX/RDX/R8/R9 + 32 B shadow space + RSP 16-alignment).
+- `src/backend/pe/emit.cyr` — fill out `EMITPE_EXEC` to emit
+  a full PE32+ image (DOS stub, PE header, COFF file header,
+  optional header, `.text` + `.idata` sections, kernel32
+  import directory). Byte-level reference is the v5.4.0
+  `pe_probe.cyr` + v5.4.1 `pe_probe_hello.cyr` output.
+- `src/backend/x86/emit.cyr` — Win64 ABI arm: RCX/RDX/R8/R9
+  first-four-args, 32 B shadow space, 5th+ args at `[RSP+32+]`,
+  `sub rsp, 40` pre-alignment so RSP is 16-aligned at each
+  `call`. Gated via `if (_TARGET_PE)` inside `fncall*`, `&fn`,
+  direct-`EB` paths.
+- `cc5_win.cyr` — cross-compiler entry, mirrors the
+  `main_aarch64_macho.cyr` template.
 - `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` —
   kernel32 stdio wrappers + VirtualAlloc-backed heap.
 
@@ -79,11 +94,16 @@ hello-world probe).
 - **`lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`** —
   kernel32 stdio wrappers + VirtualAlloc-backed heap.
 
-> Resolved at v5.4.2 open (2026-04-19): Win64 stays gated in the
-> x86 backend under `#ifdef CYRIUS_ARCH_X86_WIN` for the v5.4.x
-> cycle; separation to `src/backend/pe/` deferred to its own
-> focused release. `cc5_win.cyr` mirrors `cc5_aarch64.cyr` entry
-> pattern. See the `[5.4.2]` section above.
+> Resolved at v5.4.2 open (2026-04-19): PE emit follows the
+> Mach-O pattern, not a new `#ifdef` scheme. `src/backend/pe/emit.cyr`
+> (already stubbed since v3.1+) gets fleshed out to mirror
+> `src/backend/macho/emit.cyr`; a runtime `_TARGET_PE` flag on
+> `src/backend/x86/emit.cyr` gates Win64-ABI-divergent call
+> sites via `if (_TARGET_PE)` branches. `cc5_win.cyr` mirrors
+> `main_aarch64_macho.cyr`. The eventual "clean separation
+> sweep" means hoisting inline format branches out of arch
+> emitters, not restructuring the directory tree. See the
+> `[5.4.2]` section above.
 
 ## [5.4.0] — 2026-04-19
 

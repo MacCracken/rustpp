@@ -474,6 +474,15 @@ if (_macho_arm_env != 0) {
     }
 }
 
+# PE32+ output via CYRIUS_TARGET_WIN=1 (x86_64 Windows .exe).
+# Routes final emit through src/backend/pe/emit.cyr's EMITPE_EXEC.
+var _pe_env = _read_env("CYRIUS_TARGET_WIN");
+if (_pe_env != 0) {
+    if (load8(_pe_env) == 49 && load8(_pe_env + 1) == 0) {
+        _TARGET_PE = 1;
+    }
+}
+
 # cc5: opt-in IR recording via CYRIUS_IR=1|2
 var _ir_env = _read_env("CYRIUS_IR");
 if (_ir_env != 0) {

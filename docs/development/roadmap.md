@@ -6,14 +6,19 @@
 > (1536 B PE32+ exit-42, validated on Windows 11 Home, ERRORLEVEL=42)
 > and `pe_probe_hello.cyr` (full Win64 ABI call path — GetStdHandle
 > + WriteFile + ExitProcess with RCX/RDX/R8/R9 + 32 B shadow space,
-> prints `hello\n` on Windows 11 Home). v5.4.2 teaches cc5 to emit
-> PE directly: `CYRIUS_TARGET_WIN=1` env gate, Win64 ABI arm in
-> `parse.cyr`'s `fncall*` / `&fn` / direct-`EB` paths, `cc5_win.cyr`
-> mirroring `cc5_aarch64.cyr`'s swap-include-chain pattern. Win64
-> stays gated inside the x86 backend under `#ifdef CYRIUS_ARCH_X86_WIN`
-> for the v5.4.x cycle — a clean separation sweep to `src/backend/pe/`
-> is deferred to its own focused release once the emit path
-> stabilises. aarch64 port remains fully online (`regression.tcyr`
+> prints `hello\n` on Windows 11 Home). v5.4.2 teaches cc5 to
+> emit PE directly, following the existing Mach-O pattern:
+> `src/backend/pe/emit.cyr` (stubbed since v3.1+) gets fleshed
+> out to mirror `src/backend/macho/emit.cyr`, a runtime
+> `_TARGET_PE` flag on `src/backend/x86/emit.cyr` (analogous to
+> `_TARGET_MACHO` on the aarch64 emitter) is set from
+> `CYRIUS_TARGET_WIN=1`, and Win64-ABI-divergent call sites
+> (fncall*, &fn, direct-`EB`) branch on `if (_TARGET_PE)` for
+> RCX/RDX/R8/R9 + 32 B shadow space. `cc5_win.cyr` mirrors
+> `main_aarch64_macho.cyr`'s swap-include-chain pattern. The
+> "clean separation sweep later" refers to eventually hoisting
+> inline format branches out of arch emitters, not
+> restructuring the tree — which already has the split. aarch64 port remains fully online (`regression.tcyr`
 > 102/102 on real Pi, native `cc5` self-hosts byte-identical,
 > per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16).
 > Apple Silicon Mach-O self-hosts byte-identically on M-series
