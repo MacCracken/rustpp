@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.3.14.** cc5 compiler (432928 B x86_64, post-marker-removal
+> **v5.3.15.** cc5 compiler (432928 B x86_64, post-marker-removal
 > rebuild), x86_64 + aarch64 cross. IR + CFG. **v5.3.14 post-Apple-
 > Silicon cleanup**: `lib/args.cyr` empty-string arg handling fix
 > (unlocks `cyrius distlib ""` validation); `dynlib_init` safety
@@ -10,8 +10,15 @@
 > library span; `cbt/cyrius.cyr` missing `lib/tagged.cyr` include
 > added; committed `build/cc5` rebuilt (`pqrst` stderr leak gone).
 > Apple Silicon Mach-O self-host from v5.3.13 remains verified.
-> **Explicitly deferred** (tracked below, not buried in a handoff):
-> NSS/PAM end-to-end, aarch64 native FIXUP, libro layout corruption.
+> **v5.3.15** picked up the aarch64 native FIXUP investigation:
+> native self-host now byte-identical; root cause of the original
+> "wrong MOVZ/MOVK addresses" claim was silently fixed by the
+> v5.3.13 imm9-wrap patch. Uncovered a separate x86-asm-leakage
+> class of bug (`lib/string.cyr` memcpy asm misaligned aarch64
+> emit); primary surface closed this patch. **Explicitly
+> deferred**: NSS/PAM end-to-end, aarch64 x86-asm leakage
+> residuals (fncall*, f64 ops, bitfield loads), libro layout
+> corruption.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -27,7 +34,7 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 | Bug | Impact | Status |
 |-----|--------|--------|
 | Layout-dependent memory corruption | Libro PatraStore tests | Localized with `CYRIUS_SYMS`. Classic memory corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG now available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug — was calling wrong function signature (nous.cyr 1-arg vs cyml.cyr 2-arg). |
-| aarch64 native FIXUP address mismatch | Cross-compiled binaries run on Pi (exit 42 PASS). Native cc5 compiles input but output has wrong MOVZ/MOVK data addresses (0x800120 vs expected 0x4000A8). Heap synced to 21MB. Likely a 64-bit arithmetic or heap corruption issue in the native binary. Cross-compiler is the shipping path. | Tested on real Pi (agnosarm.local, Raspberry Pi aarch64). |
+| aarch64 x86-asm leakage (supersedes "native FIXUP address mismatch") | Native `cc5` on aarch64 self-hosts **byte-identically** as of v5.3.15 — cross-built and native-built `cc5_native_aarch64` cmp-equal at 414464 B on agnosarm.local (Pi, Ubuntu 24.04). The original "wrong MOVZ/MOVK data addresses (0x800120 vs 0x4000A8)" symptom was silently resolved by v5.3.13's `EFLLOAD` imm9-wrap fix. New finding: residual x86-specific emit in `src/frontend/parse.cyr` (direct `EB(...)` sequences for f64 compare, sub-8-byte struct field loads, regalloc prologue/epilogue) still leaks into aarch64 output for specific source patterns. v5.3.15 closed the biggest surface (`lib/string.cyr` memcpy/memset + asm-block 4-byte alignment padding). `lib/fnptr.cyr` `fncall*` still has no aarch64 body — `include` without calling now works; calling still crashes. | Validated on real Pi (agnosarm.local, Raspberry Pi aarch64). |
 
 ---
 
@@ -324,14 +331,17 @@ would have been dishonest.
   existing bootstrap infra live in `lib/dynlib.cyr` and
   `tests/tcyr/dynlib_init.tcyr`. Downstream blocker for shakti
   0.2.x.
-- **aarch64 native FIXUP address mismatch** (Active Bug, see
-  table). Cross-compiled binaries run on real Pi (exit 42 PASS).
-  Native `cc5` on aarch64 compiles input but emits wrong
-  MOVZ/MOVK data addresses (0x800120 vs. expected 0x4000A8)
-  despite heap sync to 21 MB. Likely 64-bit arithmetic or heap
-  corruption in the native-emit path. Cross-compiler is the
-  shipping aarch64 story; native cc5 parked until a dedicated
-  debug session.
+- **aarch64 x86-asm leakage** (Active Bug — supersedes the former
+  "native FIXUP address mismatch"). Native self-host verified
+  byte-identical on Pi in v5.3.15. Residual work is not native-
+  specific: `src/frontend/parse.cyr` still has direct `EB(...)`
+  opcode sequences for f64 compare, sub-8-byte struct field
+  loads, and regalloc prologue/epilogue that only match x86.
+  v5.3.15 closed the biggest surface (memcpy/memset asm removal +
+  asm-block alignment padding). Next steps: implement
+  aarch64-native `fncall0`–`fncall6` (needs per-arch lib or
+  preprocessor gating — neither scaffolded yet), and add aarch64
+  branches to the remaining direct-emit x86 paths in parse.cyr.
 
 **libro layout corruption** (Active Bug, see table) is tracked
 separately — it's an old, memory-corruption-signature bug where
@@ -495,8 +505,14 @@ all emit paths go through IR. The path:
 
 ## Future 6.0
 
-* Book - PDF writen using Vidya and Documentation to Flesh out what the Lanaguage looks
-like at 6.0 - publish and amazon / packt
+*(TBD — book deferred to the public release cycle, see below.)*
+
+## Public Release (~v7.0) — "Cyrius ONE"
+
+* **Cyrius ONE** — first book, written from Vidya + documentation, published
+  alongside the public release (Amazon / Packt). Kicked back from v6 so the
+  language surface is stable before the manuscript lands. Exact version TBD
+  — lands with whatever version the public release cuts on (current guess: v7).
 
 ---
 

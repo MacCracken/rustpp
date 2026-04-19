@@ -4111,6 +4111,17 @@ fn PARSE_STMT(S) {
             }
         }
         STI(S, GTI(S) + 1);
+        # aarch64 requires every instruction 4-byte aligned. Existing
+        # lib/*.cyr asm blocks are x86-specific byte sequences that the
+        # aarch64 backend pastes verbatim; if the length isn't a multiple
+        # of 4, every downstream instruction decodes at the wrong offset
+        # and the program SIGILLs long before it ever reaches the x86
+        # bytes. Pad with zeros so downstream emit stays aligned. The x86
+        # backend is variable-length and doesn't care about alignment, so
+        # this costs nothing there — on aarch64 `_AARCH64_BACKEND == 1`.
+        if (_AARCH64_BACKEND == 1) {
+            while ((GCP(S) & 3) != 0) { EB(S, 0); }
+        }
         return 0;
     }
     # *expr = val; (pointer store)

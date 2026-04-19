@@ -4,7 +4,74 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [5.3.14] — unreleased
+## [5.3.15] — unreleased
+
+Draining the v5.3.14 "deferred" queue. This patch picks up the
+**aarch64 native FIXUP** investigation and reports two concrete
+findings:
+
+1. **Original roadmap claim is stale.** Native `cc5` on aarch64
+   (`agnosarm.local`, Raspberry Pi, Ubuntu 24.04) now self-hosts
+   byte-identical: `cc5_native_aarch64` compiled by `cc5_aarch64`
+   (cross) produces 414464 bytes, matching `cc5_native_aarch64`
+   compiled by itself byte-for-byte. Hello-world programs with
+   string literals + syscalls work end-to-end. The v5.3.13
+   `EFLLOAD` imm9-wrap fix (which fixed any aarch64-emitted
+   function with ≥ 32 locals) silently resolved this as a
+   side-effect.
+2. **A separate aarch64 emit bug was uncovered during the
+   investigation**: non-trivial programs (anything `include`ing
+   `lib/string.cyr` and beyond ~20 KB of output) SIGILL on
+   aarch64. Root cause is not native-specific — the cross
+   compiler (`cc5_aarch64`) emits byte-identical broken output on
+   x86. Patches in this release close the primary source; see
+   `docs/development/roadmap.md` Active Bugs for the residual
+   surface.
+
+### Fixed
+- **`lib/string.cyr:memcpy`/`memset` — x86 `rep movsb`/`rep stosb`
+  inline asm removed.** The asm block was 15 bytes on x86 (fine —
+  variable-length ISA), but the aarch64 backend pastes asm blocks
+  byte-for-byte, so the odd length misaligned every downstream
+  aarch64 instruction. Any program `include`ing `lib/string.cyr`
+  SIGILL'd on aarch64 — typically inside libc-style data access
+  patterns near code offset 0x178d8 in the ~114 KB
+  `regression.tcyr` output. Replaced with pure-Cyrius `while`
+  loops. `rep movsb` was a micro-optimisation; measurements in
+  `lib/bench.cyr` never depended on it.
+- **`src/frontend/parse.cyr` — aarch64 backend now pads
+  `asm { ... }` blocks to 4-byte alignment.** x86 asm blocks in
+  `lib/fnptr.cyr` (`fncall0`–`fncall6`: 10–18 bytes each) are
+  x86-specific instruction bytes that aarch64 cannot execute
+  anyway, but were misaligning every instruction emitted after
+  them. When `_AARCH64_BACKEND == 1` (marker declared in
+  `src/backend/aarch64/emit.cyr`), the parser now pads zero bytes
+  after each asm block until cp is 4-byte aligned. Calling
+  `fncall*` on aarch64 still crashes (the bytes are x86 opcodes),
+  but programs that `include "lib/fnptr.cyr"` without invoking
+  `fncall*` at runtime now compile and execute cleanly.
+- **`src/backend/x86/emit.cyr` — mirror `_AARCH64_BACKEND = 0`**
+  so the shared `parse.cyr` can gate aarch64-only code via a
+  plain `if`, no `#ifdef` scaffolding required.
+
+### Known limitations (follow-up in v5.3.16+)
+- `fncall0`–`fncall6` still have no aarch64 implementation.
+  Programs that `include "lib/fnptr.cyr"` now compile on aarch64
+  but crash if they actually invoke `fncall*`. Fixing requires
+  aarch64-specific inline asm (BLR xN) selected via preprocessor
+  or per-arch lib file — neither scaffolded yet.
+- `lib/hashmap_fast.cyr`, `lib/u128.cyr`, `lib/mabda.cyr` contain
+  the same pattern of x86-only asm blocks; downstream programs
+  `include`ing them on aarch64 will hit the same class of issue.
+- `src/frontend/parse.cyr` still has direct `EB(...)` calls
+  emitting x86 opcode sequences inline (f64 compare ops at
+  `PF64CMP`, struct-field loads at lines 1713–1715 for sub-8-byte
+  widths, regalloc prologue/epilogue). These trigger only on
+  specific source patterns (float arith, bitfield-sized struct
+  fields, `#regalloc` functions). For integer programs avoiding
+  those patterns, aarch64 output is now correct.
+
+## [5.3.14] — 2026-04-18
 
 Post-v5.3.13 cleanup — three of the six follow-up items from the
 Apple Silicon handoff doc land here; the other two (NSS/PAM

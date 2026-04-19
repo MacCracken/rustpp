@@ -2,6 +2,11 @@
 # CODE EMISSION (writes to codebuf at S+0x54A000+CP (1MB since v3.5.1))
 # ================================================================
 
+# Mirror of the aarch64 backend's marker. Lets arch-neutral code
+# (e.g. parse.cyr asm-block handling) check which backend is live
+# via a plain `if` without touching the preprocessor.
+var _AARCH64_BACKEND = 0;
+
 fn EB(S, b) {
     var cp = GCP(S);
     if (cp >= 1048576) {
