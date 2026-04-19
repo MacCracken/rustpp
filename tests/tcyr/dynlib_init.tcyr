@@ -71,5 +71,13 @@ var fp_getuid = dynlib_sym(hc, "getuid");
 var uid = fncall0(fp_getuid);
 assert(uid >= 0, "getuid >= 0");
 
+test_group("dynlib_init safety gates");
+assert_eq(dynlib_init(0), 1, "dynlib_init(null) returns 1");
+# Can't exercise the full-success path against libc.so.6 — DT_INIT
+# still SIGSEGVs until TLS bootstrap is complete (tracked). Return-2
+# (no cpu_features bootstrap) and return-3 (oversized init_array_sz)
+# paths require module state reset / a crafted handle, respectively —
+# code paths are trivial but not covered here.
+
 var r = assert_summary();
 syscall(60, 0);

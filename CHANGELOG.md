@@ -4,6 +4,75 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.14] — unreleased
+
+Nice-to-haves roundup after v5.3.13's Apple Silicon self-host closeout.
+Scope: drain the outstanding-issues list so v5.4.0 can tag cleanly.
+
+### Fixed
+- **`lib/args.cyr` — empty-string args were silently dropped.**
+  `argc()` counted arguments by flipping a `in_arg` flag on the first
+  non-null byte, so a bare `\0` in `/proc/self/cmdline` (the encoding
+  of an empty arg) didn't register. `cyrius distlib ""` therefore fell
+  through to the no-profile branch instead of being rejected by the
+  profile validator. Fix: save the cmdline length returned by
+  `args_init()` as `_args_len` and count null terminators in
+  `[0, _args_len)` — matches the kernel's documented
+  `/proc/self/cmdline` format (each arg, including empty, ends in
+  `\0`). `argv()` also bounded by `_args_len` for safety.
+- **`cbt/cyrius.cyr` — missing `lib/tagged.cyr` include.** `lib/process.cyr`'s
+  header documents `tagged.cyr` as a dependency (for `Ok`/`Err`
+  Result constructors), but the cyrius tool's top-level include
+  chain didn't pull it in. Compile emitted `warning: undefined
+  function 'Err'/'Ok'` and `error: ... (will crash at runtime)` on
+  the dead process.cyr paths. Added the include before
+  `lib/process.cyr` — tool now compiles warning-free.
+- **`build/cc5` rebuilt from post-marker-removal source.** The
+  committed cc5 (433160 B) had been produced before commit
+  `b63f6d7 fixing aarch mac issues` removed `PREPROCESS` progress
+  markers from `src/frontend/lex.cyr`. Every compilation leaked
+  `pqrst` to stderr. Rebuilt cc5 from current source → 432928 B,
+  self-host byte-identical across two rounds.
+
+### Changed
+- **`lib/dynlib.cyr:dynlib_init` — tightened safety gates.** Calling
+  it without `dynlib_bootstrap_cpu_features()` first had been a
+  silent foot-gun: IRELATIVE resolvers would run against
+  uninitialised `__cpu_features` and crash on the first x86_64
+  feature probe. New return codes:
+  - `0` — success
+  - `1` — handle is null (unchanged)
+  - `2` — `dynlib_bootstrap_cpu_features()` hasn't run
+  - `3` — `init_array_sz > 1 MB` (corrupted handle / garbage
+    struct — refuse to iterate rather than run arbitrary fptrs)
+
+  Defense-in-depth guard added to `_dynlib_apply_irelative`: bails
+  early if `_dynlib_ifunc_safe == 0`, matching the existing IFUNC
+  guards in `_gnu_hash_lookup` / `_linear_sym_lookup`.
+  `tests/tcyr/dynlib_init.tcyr` extended with the null-handle
+  safety assertion (16 assertions, up from 15).
+- **`fncall0` audit — three indirect-call sites in `lib/dynlib.cyr`
+  now bounds-check the function pointer against the mapped library
+  span** before invoking it:
+  - IRELATIVE resolver (`_dynlib_apply_irelative`, formerly
+    `fncall0(bias + r_addend)`)
+  - `DT_INIT` (`_dynlib_run_init`, formerly `fncall0(bias + init_vaddr)`)
+  - `DT_INIT_ARRAY` entries (`_dynlib_run_init`, formerly
+    `fncall0(fp)` after just a null-check)
+
+  New helper `_dynlib_fp_in_span(handle, fp)` returns 1 iff `fp`
+  lies in `[base, base+span)` for the given handle. A corrupted or
+  hostile dynamic section entry (garbage r_addend, out-of-range
+  init_vaddr, planted fptr in DT_INIT_ARRAY) now fails closed
+  instead of jumping to arbitrary memory. `_dynlib_run_init`
+  signature gains a leading `handle` parameter; the single caller
+  (`dynlib_init`) is updated.
+- **`println` audit — no issues found.** All callers pass either
+  string literals, `argv()` pointers, `str_data(...)` extraction
+  of Str structs, or `read_file_str(...)` results that are null-
+  checked before being forwarded to `println`. No Str-struct-into-
+  cstr-slot leaks, no unguarded nullable cstr paths.
+
 ## [5.3.13] — 2026-04-18
 
 **Apple Silicon self-host verified byte-identical** — the Mach-O ARM

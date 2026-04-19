@@ -524,8 +524,15 @@ fn _dynlib_process_rela(handle, bias, rela_addr, rela_size) {
 # invocation is tolerated by the SSE2-baseline resolvers in modern
 # glibc. Unsafe for libcrypto/libssl — call only on libraries that
 # are known to behave (currently just libc.so.6 / NSS modules).
+#
+# Defense in depth: refuses to run if `_dynlib_ifunc_safe` is 0
+# (cpu_features bootstrap hasn't run). This matches the IFUNC
+# guards in `_gnu_hash_lookup` and `_linear_sym_lookup` — calling
+# a resolver without a zeroed cpu_features segfaults on the first
+# x86_64 feature-probe inside glibc.
 fn _dynlib_apply_irelative(handle, bias, rela_addr, rela_size) {
     if (rela_addr == 0 || rela_size == 0) { return 0; }
+    if (_dynlib_ifunc_safe == 0) { return 0; }
     var span = load64(handle + 8);
     var pos = rela_addr;
     var end = pos + rela_size;
@@ -537,9 +544,14 @@ fn _dynlib_apply_irelative(handle, bias, rela_addr, rela_size) {
             if (r_offset < span) {
                 var r_addend = load64(pos + 16);
                 var resolver = bias + r_addend;
-                var resolved = fncall0(resolver);
-                if (resolved != 0) {
-                    store64(bias + r_offset, resolved);
+                # Resolver must live inside the mapped library. A
+                # corrupted r_addend would otherwise jump to arbitrary
+                # memory on the first IFUNC call.
+                if (_dynlib_fp_in_span(handle, resolver) == 1) {
+                    var resolved = fncall0(resolver);
+                    if (resolved != 0) {
+                        store64(bias + r_offset, resolved);
+                    }
                 }
             }
         }
@@ -548,22 +560,41 @@ fn _dynlib_apply_irelative(handle, bias, rela_addr, rela_size) {
     return 0;
 }
 
+# Returns 1 if `fp` falls inside the mapped span of `handle`.
+# Used to refuse calling function pointers derived from
+# corrupted/untrusted dynamic-section entries — every DT_INIT,
+# DT_INIT_ARRAY, and IRELATIVE resolver address should resolve
+# to code inside the library we loaded.
+fn _dynlib_fp_in_span(handle, fp) {
+    if (handle == 0 || fp == 0) { return 0; }
+    var base = load64(handle);
+    var span = load64(handle + 8);
+    if (fp < base) { return 0; }
+    if (fp >= base + span) { return 0; }
+    return 1;
+}
+
 # Run DT_INIT (single init func) and DT_INIT_ARRAY (array of init funcs).
 # Must run AFTER _dynlib_process_rela for both RELA and JMPREL so that
 # any libc-internal pointers the init functions reach through are fixed.
 # DT_INIT runs first, then DT_INIT_ARRAY in ascending order — matches
 # the ELF ABI contract (libc sets up locale, malloc state, NSS module
 # table, etc. inside these; skipping them is what broke getgrouplist).
-fn _dynlib_run_init(bias, init_vaddr, init_array_vaddr, init_array_sz) {
+#
+# Every fptr is bounds-checked against the library's mapped span
+# before being invoked. A corrupted init_array_vaddr or init_vaddr
+# (or a garbage entry in the array) won't jump into random memory.
+fn _dynlib_run_init(handle, bias, init_vaddr, init_array_vaddr, init_array_sz) {
     if (init_vaddr != 0) {
-        fncall0(bias + init_vaddr);
+        var ifp = bias + init_vaddr;
+        if (_dynlib_fp_in_span(handle, ifp) == 1) { fncall0(ifp); }
     }
     if (init_array_vaddr != 0 && init_array_sz > 0) {
         var n_inits = init_array_sz / 8;
         var ii = 0;
         while (ii < n_inits) {
             var fp = load64(bias + init_array_vaddr + ii * 8);
-            if (fp != 0) {
+            if (fp != 0 && _dynlib_fp_in_span(handle, fp) == 1) {
                 fncall0(fp);
             }
             ii = ii + 1;
@@ -900,7 +931,17 @@ fn dynlib_bootstrap_cpu_features() {
 # surface is compatible with a Cyrius static binary (libc.so.6 for
 # NSS/PAM after `dynlib_bootstrap_cpu_features` has run; skip for
 # libcrypto/libssl which expect the full glibc startup machinery).
-# Returns 0 on success, 1 if the handle is invalid.
+#
+# Returns:
+#   0  — success
+#   1  — handle is null
+#   2  — `dynlib_bootstrap_cpu_features()` has not run yet (required —
+#        IRELATIVE resolvers read glibc's `__cpu_features` struct;
+#        calling them without it being zeroed crashes on the first
+#        x86_64 feature probe)
+#   3  — init_array_sz is implausibly large (> 1 MB = 131072 init
+#        funcs). Indicates a corrupted handle or a misparsed dynamic
+#        section — refuse to iterate rather than run arbitrary fptrs
 #
 # Typical usage for NSS/PAM:
 #   dynlib_bootstrap_cpu_features();
@@ -915,6 +956,11 @@ fn dynlib_bootstrap_cpu_features() {
 # experimental until TLS bootstrap lands.
 fn dynlib_init(handle) {
     if (handle == 0) { return 1; }
+    if (_dynlib_ifunc_safe == 0) { return 2; }
+    var init_array_sz = load64(handle + 80);
+    # 1 MB of fptrs is already ~131k inits — any real library has
+    # O(10) entries. Reject anything larger as corruption.
+    if (init_array_sz > 0x100000) { return 3; }
     var bias = load64(handle + 40);
     var rela_addr = load64(handle + 88);
     var rela_size = load64(handle + 96);
@@ -924,8 +970,7 @@ fn dynlib_init(handle) {
     _dynlib_apply_irelative(handle, bias, jmprel_addr, jmprel_size);
     var init_vaddr = load64(handle + 64);
     var init_array_vaddr = load64(handle + 72);
-    var init_array_sz = load64(handle + 80);
-    _dynlib_run_init(bias, init_vaddr, init_array_vaddr, init_array_sz);
+    _dynlib_run_init(handle, bias, init_vaddr, init_array_vaddr, init_array_sz);
     return 0;
 }
 

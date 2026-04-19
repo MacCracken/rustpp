@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.3.13.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.14.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon BSD SVC whitelist + parse-time rejection of out-of-whitelist
 > syscalls. **`src/main_aarch64_macho.cyr` self-hosts byte-identically on
 > Apple Silicon** — Linux cross-compile == Mac round 1 == Mac round 2

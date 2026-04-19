@@ -12,13 +12,18 @@
 
 | Metric | Count |
 |--------|-------|
-| Total Rust repos | 107 |
-| Total lines of Rust | ~980,000 |
-| Already converted | 5 (wave 1) |
-| Remaining | 102 |
-| Repos depending on hisab | 37 |
+| Total Rust repos (original inventory) | 107 |
+| Total lines of Rust (original) | ~980,000 |
+| Already ported (confirmed `.cyr` source) | 19 |
+| Remaining | ~88 |
+| **Keystone: hisab ported** | unblocks Wave 4 (37 dependents) |
+| bhava pending | 8 dependents |
 | Repos using tokio (async) | 48 |
 | Repos using serde | 90+ |
+
+Compiler is on **v5.3.14** with Apple Silicon Mach-O self-hosting. Shared-library
+emission (`.so` / dynlib) shipped in v5.3.x, so bridge strategies below are
+available today rather than "v1.1+ future work".
 
 ### Size Distribution
 
@@ -31,11 +36,11 @@
 
 ### Dependency Keystone
 
-**hisab** (32K lines, math library) is the keystone — 37 repos depend on it.
-Once hisab ports, a third of the ecosystem follows.
+**hisab** (32K lines, math library) — the keystone. **Ported.** 37 repos
+depend on it; their ports are now unblocked (Wave 4).
 
-**bhava** (30K lines, emotion engine) — 8 direct dependents.
-Both require: generics, operator overloading, const generics, derive macros.
+**bhava** (30K lines, emotion engine) — 8 direct dependents. Still Rust.
+Requires: generics, operator overloading, const generics, derive macros.
 
 ---
 
@@ -43,15 +48,52 @@ Both require: generics, operator overloading, const generics, derive macros.
 
 ### Wave 0 — Done
 
-5 repos already converted in Cyrius (v0.9.0):
+19 repos from the original Rust inventory now ship as `.cyr` source.
+Versions as of cyrius v5.3.14 (2026-04-18):
 
-| Repo | Rust LOC | Cyrius LOC | Reduction |
-|------|----------|------------|-----------|
-| agnostik | ~2K | ~800 | 60% |
-| agnosys | ~2K | ~600 | 70% |
-| kybernet | 1,649 | 727 | 56% |
-| nous | ~2K | ~500 | 75% |
-| ark | ~4K | ~2K | 50% |
+**Original Wave 0 (v0.9.0):**
+
+| Repo | Rust LOC | Cyrius version | Notes |
+|------|----------|----------------|-------|
+| agnostik | ~2K | 0.97.1 | 58 tests |
+| agnosys | ~2K | 1.0.0 | 20 syscall modules |
+| kybernet | 1,649 | 1.0.1 | 140 tests |
+| nous | ~2K | 1.1.1 | dep resolver |
+| ark | ~4K | — | package manager |
+
+**Keystone + small ports (Wave 1/2/3):**
+
+| Repo | Cyrius version | Notes |
+|------|----------------|-------|
+| **hisab** | ported | **keystone — unblocks Wave 4 (37 dependents)** |
+| vidya | 2.2.0 | content loader + registry |
+| vidhana | — | small port |
+
+**Security + infrastructure (Wave 5 — 7 of 8 done):**
+
+| Repo | Cyrius version | Notes |
+|------|----------------|-------|
+| sigil | 2.8.3 | 206 tests |
+| majra | 2.2.0 | |
+| nein | — | |
+| bote | 2.5.1 | MCP core service (JSON-RPC 2.0) |
+| t-ron | — | |
+| phylax | 1.0.0 | |
+| kavach | 3.0.0 | *last port blocking server-OS stack closeout* |
+
+**AI + Platform (Wave 6 — partial):**
+
+| Repo | Cyrius version | Notes |
+|------|----------------|-------|
+| ai-hwaccel | 2.0.0 | 491 tests |
+| hoosh | 2.0.0 | |
+| agnoshi | 1.0.0 | |
+| avatara | 2.3.0 | |
+
+Other Cyrius-native projects shipping alongside (not Rust ports, but part of
+the ecosystem): sakshi 2.0.0, patra 1.1.1, sankoch 1.2.0, yukti 1.2.0,
+mabda 2.1.2, hadara 1.0.0, libro 1.0.3, shravan 2.3.2, cyrius-doom 0.24.5,
+bsp 1.0.1, argonaut 1.2.0, daimon 1.1.1.
 
 ### Wave 1 — Small Repos (<1K lines)
 
@@ -82,38 +124,38 @@ Both require: generics, operator overloading, const generics, derive macros.
 
 21 repos. Most need serde (JSON serialization). Subprocess bridge covers external deps.
 
-| Repo | Lines | Key Deps |
-|------|-------|----------|
-| tara | 4,814 | hisab, serde |
-| badal | 4,805 | hisab, serde |
-| seema | 4,607 | tokio, serde |
-| hisab-mimamsa | 4,519 | hisab, serde |
-| brahmanda | 4,257 | hisab, serde |
-| jnana | 4,130 | hisab, serde |
-| selah | 4,096 | hisab, tokio, serde |
-| shakti | 3,934 | serde |
-| muharrir | 3,797 | serde |
-| agnova | 3,656 | serde |
-| prani | 3,527 | hisab, serde |
-| ghurni | 3,054 | serde |
-| vidya | 2,382 | serde |
-| jalwa | 2,076 | tokio, serde |
-| takumi | 2,034 | serde |
-| aegis | 1,893 | serde |
-| murti | 1,525 | tokio, serde |
-| samay | 1,479 | serde |
-| taswir | 1,329 | tokio, serde |
-| ark | 4,363 | serde (already converted) |
-| nous | 2,143 | serde (already converted) |
+| Repo | Lines | Key Deps | Status |
+|------|-------|----------|--------|
+| tara | 4,814 | hisab, serde | Rust |
+| badal | 4,805 | hisab, serde | Rust |
+| seema | 4,607 | tokio, serde | Rust |
+| hisab-mimamsa | 4,519 | hisab, serde | Rust |
+| brahmanda | 4,257 | hisab, serde | Rust |
+| jnana | 4,130 | hisab, serde | Rust |
+| selah | 4,096 | hisab, tokio, serde | Rust |
+| shakti | 3,934 | serde | Rust |
+| muharrir | 3,797 | serde | Rust |
+| agnova | 3,656 | serde | Rust |
+| prani | 3,527 | hisab, serde | Rust |
+| ghurni | 3,054 | serde | Rust |
+| vidya | 2,382 | serde | **Ported (2.2.0)** |
+| jalwa | 2,076 | tokio, serde | Rust |
+| takumi | 2,034 | serde | Rust |
+| aegis | 1,893 | serde | Rust |
+| murti | 1,525 | tokio, serde | Rust |
+| samay | 1,479 | serde | Rust |
+| taswir | 1,329 | tokio, serde | Rust |
+| ark | 4,363 | serde | **Ported** |
+| nous | 2,143 | serde | **Ported (1.1.1)** |
 
 ### Wave 3 — Keystone Libraries
 
 Port the two libraries that unlock the rest:
 
-| Repo | Lines | Dependents | Requires |
-|------|-------|------------|----------|
-| **hisab** | 31,795 | 37 repos | Generics, const generics, operator overloading, derive |
-| **bhava** | 29,750 | 8 repos | Traits, iterators, closures, derive |
+| Repo | Lines | Dependents | Requires | Status |
+|------|-------|------------|----------|--------|
+| **hisab** | 31,795 | 37 repos | Generics, const generics, operator overloading, derive | **Ported — unblocks Wave 4** |
+| **bhava** | 29,750 | 8 repos | Traits, iterators, closures, derive | Rust |
 
 ### Wave 4 — Hisab Dependents (5K–15K)
 
@@ -145,34 +187,37 @@ Port the two libraries that unlock the rest:
 
 ### Wave 5 — Security + Infrastructure
 
-| Repo | Lines | Requires |
-|------|-------|----------|
-| kavach | 25,935 | Ownership, sandbox borrow checker |
-| phylax | 14,133 | Ownership |
-| sigil | ~5K | Ownership |
-| seema | 4,607 | tokio |
-| majra | 12,969 | |
-| nein | ~5K | |
-| bote | ~5K | |
-| t-ron | ~5K | |
+Server-OS stack: 10 layers, 9 complete. **kavach is the last port**
+blocking closeout of the hardened server.
+
+| Repo | Lines | Requires | Status |
+|------|-------|----------|--------|
+| kavach | 25,935 | Ownership, sandbox borrow checker | **Ported (3.0.0) — closeout blocker** |
+| phylax | 14,133 | Ownership | **Ported (1.0.0)** |
+| sigil | ~5K | Ownership | **Ported (2.8.3)** |
+| majra | 12,969 | | **Ported (2.2.0)** |
+| nein | ~5K | | **Ported** |
+| bote | ~5K | | **Ported (2.5.1)** — MCP core |
+| t-ron | ~5K | | **Ported** |
+| seema | 4,607 | tokio | Rust (only Wave 5 port remaining) |
 
 ### Wave 6 — AI + Platform
 
-| Repo | Lines | Requires |
-|------|-------|----------|
-| ifran | 53,612 | Concurrency, generics |
-| tarang | 33,438 | Concurrency |
-| agnosai | 27,686 | Concurrency, bhava |
-| agnoshi | 27,251 | Concurrency |
-| aethersafha | 27,207 | Concurrency |
-| hoosh | 21,833 | Concurrency, bhava |
-| dhvani | 23,695 | Concurrency |
-| raasta | 20,043 | hisab, tokio |
-| kiran | 19,976 | hisab, bhava |
-| ai-hwaccel | 17,335 | FFI, subprocess |
-| stiva | 18,622 | |
-| impetus | 18,414 | hisab |
-| avatara | 18,804 | |
+| Repo | Lines | Requires | Status |
+|------|-------|----------|--------|
+| ifran | 53,612 | Concurrency, generics | Rust |
+| tarang | 33,438 | Concurrency | Rust |
+| agnosai | 27,686 | Concurrency, bhava | Rust |
+| agnoshi | 27,251 | Concurrency | **Ported (1.0.0)** |
+| aethersafha | 27,207 | Concurrency | Rust |
+| hoosh | 21,833 | Concurrency, bhava | **Ported (2.0.0)** |
+| dhvani | 23,695 | Concurrency | Rust |
+| raasta | 20,043 | hisab, tokio | Rust |
+| kiran | 19,976 | hisab, bhava | Rust |
+| ai-hwaccel | 17,335 | FFI, subprocess | **Ported (2.0.0) — 491 tests** |
+| stiva | 18,622 | | Rust |
+| impetus | 18,414 | hisab | Rust |
+| avatara | 18,804 | | **Ported (2.3.0)** |
 
 ---
 
@@ -200,14 +245,17 @@ cyrius header lib/mylib.cyr > mylib.h
 
 Generates C prototypes. Other languages can see what functions exist.
 
-### Shared Library (.so) — v1.1
+### Shared Library (.so) — available now (v5.3.x)
 
-Emit position-independent ELF shared objects. Enables `dlopen` from C/Python/Rust.
+Emit position-independent ELF shared objects via `cyrius distlib [profile]`.
+`lib/dynlib.cyr` wraps libc `dlopen`/`dlsym`. Enables loading Cyrius code from
+C/Python/Rust and linking against system libraries.
 
-### Protocol Bridge — v1.1+
+### Protocol Bridge — available now
 
-Cyrius services communicate via TCP/UDP (net.cyr). TypeScript/Python frontends
-talk to Cyrius backends over HTTP or Unix domain sockets.
+Cyrius services communicate via TCP/UDP (`lib/net.cyr`, `lib/http_server.cyr`).
+TypeScript/Python frontends talk to Cyrius backends over HTTP, JSON-RPC 2.0
+(see bote), or Unix domain sockets.
 
 ---
 
@@ -236,11 +284,14 @@ talk to Cyrius backends over HTTP or Unix domain sockets.
 ### Per-Repo Workflow
 
 1. Move Rust code to `rust-old/`
-2. Create `src/`, `lib/`, `programs/` directories
-3. Vendor Cyrius stdlib: `cyrius init --vendor`
-4. Port module by module, test incrementally
-5. Use subprocess bridge for external deps
-6. Run `cyrius audit` before each commit
+2. Create `src/`, `lib/`, `programs/`, `tests/` directories
+3. Author `cyrius.cyml` manifest; pin toolchain to latest released tag
+   (see `feedback_pin_released` — never a dev version)
+4. Resolve deps: `cyrius deps` (auto-runs on build/run/test, symlinks into
+   `lib/{depname}_{basename}`)
+5. Port module by module, test incrementally with `cyrius test`
+6. Use subprocess / dynlib / HTTP bridge for external deps
+7. Run `sh scripts/check.sh` (or project equivalent) before each commit
 
 ---
 
@@ -248,15 +299,15 @@ talk to Cyrius backends over HTTP or Unix domain sockets.
 
 | Wave | Repos | Lines | Status |
 |------|-------|-------|--------|
-| 0 | 5 | ~12K | **Done** |
-| 1 | 18 | ~6K | Ready to start |
-| 2 | 21 | ~65K | Ready (serde = json.cyr) |
-| 3 | 2 | ~62K | Needs generics + derive |
-| 4 | 37 | ~300K | After wave 3 |
-| 5 | 15 | ~80K | Needs ownership |
-| 6 | 13 | ~350K | Needs concurrency |
-| Remaining | ~10 | ~100K | After all features |
-| **Total** | **107** | **~980K** | |
+| 0 (originals) | 5 | ~12K | **Done** |
+| 1 (small) | 18 | ~6K | 1 done (vidhana); 11 Rust; 6 skeletons |
+| 2 (medium) | 21 | ~65K | 3 done (ark, nous, vidya); 18 Rust |
+| 3 (keystones) | 2 | ~62K | **hisab done**; bhava pending |
+| 4 (hisab deps) | 37 | ~300K | **Unblocked** by hisab — all still Rust |
+| 5 (security) | 8 | ~80K | **7/8 done**; seema is last Rust port; kavach closeout blocker for server-OS stack |
+| 6 (AI/platform) | 13 | ~350K | **4/13 done** (agnoshi, hoosh, ai-hwaccel, avatara) |
+| **Total ported** | **19** | — | |
+| **Total inventory** | **107** | **~980K** | |
 
 ---
 

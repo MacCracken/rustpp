@@ -15,6 +15,7 @@ include "lib/vec.cyr"
 include "lib/str.cyr"
 include "lib/args.cyr"
 include "lib/fs.cyr"
+include "lib/tagged.cyr"
 include "lib/process.cyr"
 include "lib/syscalls.cyr"
 
