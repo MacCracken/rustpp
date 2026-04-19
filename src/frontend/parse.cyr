@@ -667,13 +667,33 @@ fn PARSE_FACTOR(S) {
         if (GINFN(S) == 1) {
             var ali = FINDLOCAL(S, anoff);
             if (ali >= 0) {
-                E3(S, 0x858D48);
                 var adisp = 0 - ((ali + 1) * 8);
                 # v4.9.1: shift past all reserved callee-saved slots
                 if (_cur_fn_regalloc > 0) { adisp = adisp - _cur_fn_regalloc * 8; }
-                var aaddr = S + 0x54A000 + GCP(S);
-                S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
-                SCP(S, GCP(S) + 4);
+                if (_AARCH64_BACKEND == 1) {
+                    # aarch64: SUB X0, X29, #|adisp|. adisp is negative.
+                    # x86 emitted `LEA rax, [rbp+disp32]` here as 7 raw
+                    # bytes (3 + 4) — that's 3 mod 4 and corrupted code
+                    # alignment downstream (every &local mis-shifted the
+                    # codebuf, accumulating SIGILLs by ELF entry time).
+                    var disp_abs = 0 - adisp;
+                    if (disp_abs <= 4095) {
+                        # SUB X0, X29, #imm12: 0xD10003A0 | (imm12 << 10)
+                        EW(S, 0xD10003A0 | ((disp_abs & 0xFFF) << 10));
+                    } else {
+                        # MOVZ X0, #lo16; (MOVK X0, #hi16, LSL 16); SUB X0, X29, X0
+                        EW(S, 0xD2800000 | ((disp_abs & 0xFFFF) << 5));
+                        if (((disp_abs >> 16) & 0xFFFF) != 0) {
+                            EW(S, 0xF2A00000 | (((disp_abs >> 16) & 0xFFFF) << 5));
+                        }
+                        EW(S, 0xCB0003A0);  # sub x0, x29, x0
+                    }
+                } else {
+                    E3(S, 0x858D48);
+                    var aaddr = S + 0x54A000 + GCP(S);
+                    S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
+                    SCP(S, GCP(S) + 4);
+                }
                 return 0;
             }
         }
