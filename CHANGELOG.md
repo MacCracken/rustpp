@@ -90,6 +90,16 @@ placement (gvars / string literals), which is a separate follow-up.
   add → aarch64 shim → parse.cyr wiring → version bump).
 - cc5: 461880 → 464224 B (+2344 B across the cycle).
 
+### Dependency bumps
+- **yukti 1.2.0 → 1.3.0** (`cyrius.cyml`). Brings the new
+  kernel-safe subset (`core.cyr` + `pci.cyr`, 451-line
+  `dist/yukti-core.cyr` profile for AGNOS PCI identification)
+  and multi-dist profile support (`[lib.PROFILE]` sections).
+  yukti 1.3.0 pins its toolchain floor at Cyrius 5.4.6+, which
+  v5.4.7 satisfies. Full `dist/yukti.cyr` (4929 lines) remains
+  the default profile for this repo. `cyrius deps` resolves
+  clean; self-host byte-identical; `sh scripts/check.sh` 8/8.
+
 ### Deferred to v5.4.8+
 - **On-hardware print gate** — writing `hi\n` to stdout on Windows
   requires the buffer pointer passed to WriteFile to resolve to a
