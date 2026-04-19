@@ -8,6 +8,15 @@
 # Target format: 0=ELF (Linux), 2=Mach-O ARM64 (macOS)
 var _TARGET_MACHO = 0;
 
+# PE32+ (Windows x86_64) output target is x86-only — declared here
+# as an always-zero shim so `src/frontend/parse.cyr`'s `_TARGET_PE`
+# reference (for the `syscall(60)` Win32 reroute) resolves when
+# compiling the aarch64-backed entry points (`main_aarch64*.cyr`).
+# Mirrors the parallel `_TARGET_MACHO` declaration pattern between
+# the two backends. The `if (_TARGET_PE == 1)` branches in parse.cyr
+# are statically dead on aarch64 targets — Windows PE is x86_64 only.
+var _TARGET_PE = 0;
+
 # Marker that the aarch64 backend is present in this compiler binary.
 # Checked by EMITMACHO_ARM64 to refuse Mach-O ARM output when accidentally
 # invoked through the x86 backend (which would emit x86 code inside an

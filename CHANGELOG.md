@@ -25,6 +25,15 @@ call through the IAT like a native Win32 executable would.
   Windows (the generic `ESCPOPS` path still emits `0F 05`).
   Will become a hard error once the import-registration
   mechanism lands in v5.4.5+.
+- **`var _TARGET_PE = 0;` shim** in `src/backend/aarch64/emit.cyr`
+  next to the existing `_TARGET_MACHO = 0;`. Required because
+  `parse.cyr` now references `_TARGET_PE`, and aarch64-backed
+  entry points (`main_aarch64*.cyr`) pull in
+  `backend/aarch64/emit.cyr` instead of x86's. Mirrors the
+  parallel-declaration pattern Mach-O already uses.
+  Pre-tag fix — initial v5.4.4 parse.cyr edit referenced the
+  flag without an aarch64 shim and produced zero-byte
+  `cc5_aarch64` on CI; caught before the tag landed.
 
 ### Verified
 - `syscall(60, 42);` compiled with `CYRIUS_TARGET_WIN=1` produces
