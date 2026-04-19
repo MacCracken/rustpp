@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.3.18.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
+> **v5.4.0.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **v5.3 minor-version closeout** — last patch
 > before v5.4.0. aarch64 port is fully online: `regression.tcyr`
 > passes **102/102** on real Pi (Raspberry Pi aarch64, agnosarm.local),
@@ -14,9 +14,13 @@
 > + compare), and small safety / validation fixes
 > (`lib/args.cyr` empty-string argv, `dynlib_init` bootstrap gates,
 > `cyrius distlib ""` rejection, `_dynlib_fp_in_span` bounds
-> checks). **Deferred to v5.4.x**: NSS/PAM end-to-end, Windows
-> platform target, libro layout corruption, `lib/hashmap_fast` /
-> `u128` / `mabda` arch-gating.
+> checks). **v5.4.0 opens Windows** — `programs/pe_probe.cyr`
+> emits a 1536 B PE32+ exit-42 binary validated on Windows 11
+> Home (ERRORLEVEL=42); byte-level floor captured, `EMITPE`
+> backend queued for v5.4.1+. **Still deferred to v5.4.x**:
+> Win64 ABI emit (RCX/RDX/R8/R9 + 32 B shadow space),
+> NSS/PAM end-to-end, libro layout corruption, `lib/hashmap_fast`
+> / `u128` / `mabda` arch-gating, yukti `include` rename.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).

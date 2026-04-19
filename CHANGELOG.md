@@ -4,6 +4,47 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.0] — unreleased
+
+**Windows platform target — first bytes.** First Cyrius-produced
+binary to execute on real Windows. Opens the v5.4.x Windows arc
+(mirroring how v5.2.3 → v5.3.0 brought Apple Silicon online).
+
+### Added
+- **`programs/pe_probe.cyr`** — handcrafted minimal PE32+ (x86_64)
+  binary emitter. Writes a 1536-byte Windows `.exe` to stdout
+  consisting of: DOS header, PE signature, COFF file header
+  (Machine=AMD64), PE32+ optional header (Magic=0x20B, Subsystem=3
+  WINDOWS_CUI, 16 data directories), `.text` + `.idata` section
+  headers, code `mov ecx,42; sub rsp,0x28; call [ExitProcess]; int3`,
+  and an import table resolving `kernel32!ExitProcess` via a single
+  FirstThunk entry. Linux's `file(1)` recognises the output as
+  `PE32+ executable for MS Windows 6.00 (console), x86-64, 2
+  sections`. Validated end-to-end on Windows 11 Home (build 26200,
+  `nejad@hp`): `exit42.exe` produces ERRORLEVEL=42 via
+  `cmd /v:on /c "exit42.exe & echo !ERRORLEVEL!"`.
+
+  Byte-level reference for the v5.4.1+ `EMITPE` backend. Follows
+  the `programs/macho_probe_arm.cyr` pattern — no compiler
+  involvement yet, just the floor for the format.
+
+### Deferred to v5.4.1+
+- **`src/backend/pe/emit.cyr` — `EMITPE` backend + Win64 ABI.**
+  Second stage: teach cc5 to emit PE binaries directly via
+  `CYRIUS_TARGET_WIN=1`. Needs Win64 calling convention (first four
+  int args in RCX/RDX/R8/R9, 32 B shadow space on every call), so
+  `fncall*` / `&fn` / the direct-EB paths in `parse.cyr` will need
+  a third arch arm alongside x86 (System V) and aarch64.
+- **`lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`** — NT-era
+  stdio (`GetStdHandle`/`WriteFile`/`ExitProcess`) and
+  `VirtualAlloc`-backed heap.
+- **Hello-world probe** (`programs/pe_probe_hello.cyr`) — builds
+  on the exit-42 probe with a second import (`GetStdHandle` +
+  `WriteFile`), writes "hello\n" to stdout before exit. Blocked on
+  only: confirming the current probe handles multi-entry imports
+  cleanly (its structure already does; just needs a second
+  probe file).
+
 ## [5.3.18] — unreleased
 
 Closeout patch before v5.4.0. **aarch64 regression.tcyr now passes
