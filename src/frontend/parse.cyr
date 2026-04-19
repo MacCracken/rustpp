@@ -3992,6 +3992,32 @@ fn PARSE_STMT(S) {
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
         return 0;
     }
+    # #pe_import("kernel32.dll", "WriteFile"); — declare a PE32+ IAT
+    # import symbol at parse time. The dll string is accepted but
+    # ignored in v5.4.6 (kernel32.dll is the only supported DLL);
+    # the symbol string is handed to the pe emitter's pending-
+    # imports buffer, to be folded into the real imports registry
+    # by `_pe_layout` during FIXUP.
+    if (typ == 110) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+        STI(S, GTI(S) + 1);
+        # dll name (ignored for v5.4.6)
+        if (PEEKT(S) != 30) { ERR_EXPECT(S, 30); }
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); }
+        STI(S, GTI(S) + 1);
+        # symbol name
+        if (PEEKT(S) != 30) { ERR_EXPECT(S, 30); }
+        var pe_sv = PEEKV(S);
+        var pe_soff = pe_sv >> 16;
+        _pe_pending_imp_add(S, S + 0x14A000 + pe_soff);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        return 0;
+    }
     if (typ == 3) { PARSE_VAR(S); return 0; }
     # secret var buf[N]; — declares an array that is memset(0) at every
     # function-return path. Implemented as a synthetic defer body: the

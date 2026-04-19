@@ -2023,6 +2023,34 @@ fn LEX(S) {
                     continue;
                 } } } } } } } }
             }
+            # Check for #pe_import (v5.4.6) — PE32+ kernel32 symbol
+            # registration directive. Parser consumes (dll, symbol)
+            # string-literal args and forwards to the pe emitter's
+            # pending-imports buffer.
+            # bytes: 23 70 65 5F 69 6D 70 6F 72 74 = "#pe_import" (10 chars)
+            if (p + 9 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 112) {
+                if (load8(S + 0x44A000 + p + 2) == 101) {
+                if (load8(S + 0x44A000 + p + 3) == 95) {
+                if (load8(S + 0x44A000 + p + 4) == 105) {
+                if (load8(S + 0x44A000 + p + 5) == 109) {
+                if (load8(S + 0x44A000 + p + 6) == 112) {
+                if (load8(S + 0x44A000 + p + 7) == 111) {
+                if (load8(S + 0x44A000 + p + 8) == 114) {
+                if (load8(S + 0x44A000 + p + 9) == 116) {
+                    ADDTOK(S, 110, 0);   # token 110 = HASH_PE_IMPORT
+                    p = p + 10;
+                    while (p < bl) {
+                        var wc3 = load8(S + 0x44A000 + p);
+                        if (wc3 == 32 || wc3 == 9 || wc3 == 10 || wc3 == 13) {
+                            if (wc3 == 10) { SCLINE(S, GCLINE(S) + 1); }
+                            p = p + 1;
+                        }
+                        else { break; }
+                    }
+                    continue;
+                } } } } } } } } }
+            }
             # Regular comment — skip to newline
             p = p + 1;
             var cgo = 1;

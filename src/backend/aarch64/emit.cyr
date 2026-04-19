@@ -17,6 +17,17 @@ var _TARGET_MACHO = 0;
 # are statically dead on aarch64 targets — Windows PE is x86_64 only.
 var _TARGET_PE = 0;
 
+# No-op shim for the PE pending-imports helper, same reasoning:
+# `parse.cyr` calls `_pe_pending_imp_add` from the `#pe_import`
+# directive handler unconditionally so the compile-time name
+# resolves. aarch64-backed `main_*.cyr` entry points don't include
+# `src/backend/pe/emit.cyr`, so the real helper isn't available —
+# this stub is. Harmless: `#pe_import` on aarch64 outputs is a no-op
+# because Windows PE is x86_64 only.
+fn _pe_pending_imp_add(S, name) {
+    return 0;
+}
+
 # Marker that the aarch64 backend is present in this compiler binary.
 # Checked by EMITMACHO_ARM64 to refuse Mach-O ARM output when accidentally
 # invoked through the x86 backend (which would emit x86 code inside an

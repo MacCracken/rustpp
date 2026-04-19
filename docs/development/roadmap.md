@@ -1,22 +1,20 @@
 # Cyrius Development Roadmap
 
-> **v5.4.5.** cc5 compiler (452800 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stages 3–6 shipped.**
+> **v5.4.6.** cc5 compiler (461880 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3–7 shipped.**
 > v5.4.2 landed the structural `EMITPE_EXEC` backend. v5.4.3
 > added the PE fixup infrastructure + `EEXIT` Win64 branch.
 > v5.4.4 reroutes explicit `syscall(60, code)` calls through
-> the same `ExitProcess` IAT path at parse time — compiled
-> `CYRIUS_TARGET_WIN=1` binaries now contain zero Linux `0F 05`
-> syscall bytes for the exit case. v5.4.5 adds the on-hardware
-> CI gate: a `windows-cross` + `windows-native` job pair in
-> `.github/workflows/ci.yml` cross-compiles four exit-code
-> programs on ubuntu-latest and runs them on `windows-latest`,
-> verifying `ERRORLEVEL` matches. Remaining correctness work
-> (general Win64 ABI at `fncall*`, import-registration
-> `#pe_import` for `WriteFile` + rest of kernel32,
-> `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
-> `cc5_win.cyr` cross-entry, byte-cmp polish) is the v5.4.6+
-> queue. **v5.4.x runs a parallel compiler-optimization
+> the same `ExitProcess` IAT path at parse time. v5.4.5 adds
+> the on-hardware CI gate on `windows-latest`. v5.4.6 adds the
+> `#pe_import("kernel32.dll", "Symbol")` directive so source
+> code declares arbitrary kernel32 IAT imports alongside the
+> hardcoded `ExitProcess` — foundation for the v5.4.7+
+> `syscall(1,…)` → `WriteFile` rerouting + stdlib wrappers.
+> Remaining correctness work (general Win64 ABI at `fncall*`,
+> `syscall(n)` mapping for n≠60, `lib/syscalls_windows.cyr` +
+> `lib/alloc_windows.cyr`, `cc5_win.cyr` cross-entry, byte-cmp
+> polish) is the v5.4.7+ queue. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -143,6 +141,22 @@ correctness → stdlib wrappers → native self-host.
 - **Still held for byte-cmp vs `pe_probe.cyr`**: initial
   `jmp +0` prelude removal + implicit-EEXIT suppression when
   source already exited. Polish, not correctness.
+
+### v5.4.6 — `#pe_import` directive ✅
+- Source-level directive `#pe_import("dll", "symbol");` registers
+  a kernel32 IAT import at parse time. Mirrors `#assert` /
+  `#regalloc` prefix style. Parser hands the symbol bytes
+  (from `str_data`) to a new pending-imports buffer in
+  `src/backend/pe/emit.cyr`; `_pe_layout` appends them to the
+  real imports registry after `ExitProcess` (which stays at
+  imp_idx=0 so `EEXIT`'s slot is untouched).
+- **Gate**: `echo '#pe_import("kernel32.dll", "WriteFile")
+  syscall(60, 0);' | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe`
+  produces a PE32+ with 2 real IAT thunks + null terminator;
+  `strings` shows `ExitProcess` / `WriteFile` / `kernel32.dll`.
+- aarch64 shim added in `backend/aarch64/emit.cyr` per the
+  v5.4.4 arch-flag lesson — `#pe_import` on aarch64 targets
+  is a no-op (Windows PE is x86_64 only).
 
 ### v5.4.5 — On-hardware Windows CI gate ✅
 - **`windows-cross` + `windows-native` jobs** in
@@ -398,7 +412,8 @@ enables adding new targets without touching the frontend.
 | **v5.4.3** | Windows x86_64 (PE fixup + EEXIT Win32) | PE/COFF | **Done** — `EEXIT` emits Win64 ExitProcess call; `ftype=4` IAT-ref fixups resolve; disassembly-verified |
 | **v5.4.4** | Windows x86_64 (syscall(60) rerouting) | PE/COFF | **Done** — explicit `syscall(60, N)` routes to `ExitProcess`; Linux `0F 05` absent from compiled `.text` |
 | **v5.4.5** | Windows x86_64 (on-hardware CI gate) | PE/COFF | **Done** — `windows-cross` + `windows-native` CI jobs validate ExitProcess path end-to-end on `windows-latest`; ERRORLEVEL verified for N ∈ {0, 1, 42, 255} |
-| **v5.4.6+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, import registry (`#pe_import`), stdlib wrappers, cc5_win.cyr, byte-cmp polish |
+| **v5.4.6** | Windows x86_64 (`#pe_import` directive) | PE/COFF | **Done** — declarative kernel32 symbol registration; compiler emits IAT with arbitrary imports beyond the hardcoded `ExitProcess` |
+| **v5.4.7+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, `syscall(1,...)` → `WriteFile` rerouting, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, byte-cmp polish |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

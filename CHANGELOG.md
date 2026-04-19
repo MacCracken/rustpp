@@ -4,6 +4,67 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.6] — 2026-04-19
+
+**`#pe_import` directive — declarative kernel32 import registration.**
+Replaces v5.4.2's hardcoded single-import (`ExitProcess`) with a
+parse-time directive that appends arbitrary kernel32 symbols to
+the IAT. First real step toward Win32 stdlib wrappers — the
+compiler can now produce PE32+ binaries that import `WriteFile`,
+`GetStdHandle`, etc. alongside `ExitProcess`. Consumers of those
+imports at runtime is the v5.4.7+ work (`syscall(1, ...)` →
+`WriteFile` rerouting + `lib/syscalls_windows.cyr` wrappers).
+
+### Added
+- **`#pe_import("dll", "symbol");` directive** at source level.
+  Mirrors the `#assert` / `#regalloc` prefix pattern. Parser
+  consumes `(dll_string, symbol_string)`, extracts the symbol
+  bytes out of `str_data`, and forwards the pointer to a
+  parse-time pending-imports buffer. The dll string is accepted
+  but ignored for v5.4.6 (kernel32-only); reserved for
+  multi-DLL support in v5.4.7+.
+- **`src/frontend/lex.cyr`** — 10-char byte-match for
+  `#pe_import`, emits token `110` (HASH_PE_IMPORT), skips
+  trailing whitespace like `#regalloc`.
+- **`src/frontend/parse.cyr`** — top-level `PARSE_STMT`
+  handler for token 110. Consumes `("dll", "symbol")`,
+  ignores the dll arg, calls
+  `_pe_pending_imp_add(S, S + 0x14A000 + symbol_offset)`.
+- **`src/backend/pe/emit.cyr`** — new `_pe_pending_imp_*`
+  buffer (512-byte packed C-strings + 32-slot offsets) plus
+  `_pe_pending_imp_add(S, name)` helper. `_pe_layout(S)`
+  keeps `ExitProcess` at imp_idx=0 (so `EEXIT`'s hardcoded
+  slot still works) then iterates the pending buffer and
+  appends each symbol at imp_idx=1+.
+- **`src/backend/aarch64/emit.cyr`** — no-op
+  `_pe_pending_imp_add` shim, same pattern as the `_TARGET_PE`
+  shim from v5.4.4. Required because `parse.cyr`'s
+  `#pe_import` handler references the helper name
+  unconditionally; aarch64-backed `main_*.cyr` entry points
+  don't pull in `pe/emit.cyr` and need the stub to resolve
+  the call.
+
+### Verified
+- `echo '#pe_import("kernel32.dll", "WriteFile") syscall(60, 0);'
+  | CYRIUS_TARGET_WIN=1 build/cc5 > out.exe`:
+  - 1536 B PE32+, `file(1)`-valid.
+  - IAT at file offset `0x400` has two real thunks
+    (`0x2058` → ExitProcess Hint/Name, `0x2066` → WriteFile
+    Hint/Name) followed by the null terminator.
+  - `.idata` string scan shows `ExitProcess`, `WriteFile`,
+    `kernel32.dll`.
+- Self-host byte-identical after each of 4 substeps.
+- aarch64 cross (`main_aarch64.cyr`) compiles clean through
+  every substep — the `_pe_pending_imp_add` shim pattern
+  holds. `sh scripts/check.sh` 8/8 pass.
+- cc5: 452800 → 461880 B (+9080 B across the cycle).
+
+### Backward compatibility
+Programs without any `#pe_import` directive get
+`ExitProcess` only (same as v5.4.5). Existing exit-code tests
+and the `windows-cross` / `windows-native` CI jobs are
+unchanged.
+
 ## [5.4.5] — 2026-04-19
 
 **On-hardware Windows CI gate.** Closes the v5.4.5+ queue item
