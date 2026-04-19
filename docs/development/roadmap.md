@@ -1,11 +1,14 @@
 # Cyrius Development Roadmap
 
-> **v5.3.13.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> **v5.3.13 (in progress).** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
 > Apple Silicon BSD SVC whitelist + parse-time rejection of out-of-whitelist
-> syscalls. **`src/main_aarch64_macho.cyr` self-host scaffold** — produces
-> a 360KB arm64 Mach-O cc5 binary for Apple Silicon (untested on
-> hardware, ready for user validation). dynlib libc wrappers +
-> `cyrius distlib [profile]` + `secret var` + `mulh64` + `ct_select`.
+> syscalls. **`src/main_aarch64_macho.cyr` self-host scaffold** — compiles to
+> a 459KB arm64 Mach-O binary on Linux; **gets through startup, preprocess,
+> lex, and into pass 1 on Apple Silicon** but hangs mid-pass-1 (pending
+> debug — see `docs/development/handoff-v5.3.13-mac-selfhost.md`). BSD
+> carry-flag errno + cross-platform mmap fallback landed as side wins.
+> dynlib libc wrappers + `cyrius distlib [profile]` + `secret var` +
+> `mulh64` + `ct_select`.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
