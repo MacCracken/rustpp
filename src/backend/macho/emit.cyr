@@ -638,8 +638,3 @@ fn EMITMACHO_ARM64(S) {
     return 0;
 }
 
-fn EMITMACHO_OBJ(S) {
-    syscall(SYS_WRITE, 2, "error: Mach-O .o output not yet implemented\n", 45);
-    syscall(SYS_EXIT, 1);
-    return 0;
-}

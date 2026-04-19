@@ -1,0 +1,355 @@
+# ================================================================
+# Cyrius Compiler v2 — Modular Self-Hosting Compiler
+# ================================================================
+# Same language as cc.cyr, split into modules using include.
+# Compiled by cc (cyrc's extended language).
+#
+# Build: CYRIUS_MACHO_ARM=1 cat src/main_aarch64_macho.cyr | ./build/cc5 > cc5_macho
+# Mac self-host target: produces arm64 Mach-O that runs on Apple Silicon.
+# Only deviation from main_aarch64.cyr is the heap-init syscall — brk
+# (12) is Linux-only, so this variant uses mmap with macOS MAP_ANON flag
+# (0x1002 = MAP_PRIVATE|MAP_ANON). Everything else relies on ESYSXLAT
+# translating Linux syscall numbers to BSD at emit time.
+#
+# UNTESTED as of v5.3.13 — no Mac hardware access during creation.
+# Validation path: scp the produced cc5_macho to a Mac, codesign, run
+# against src/main_aarch64_macho.cyr itself, cmp for byte-identity.
+# ================================================================
+# HEAP MAP — Synced with main.cyr (v4.2)
+# ================================================================
+# Identical layout to x86. All offsets in parse.cyr/lex.cyr are shared.
+# See main.cyr for authoritative heap map with detailed annotations.
+#
+#   0x00000  input_buf     [524288]      512KB raw stdin input
+#   0x60000  tok_names     [131072]      128KB packed identifier strings (v4.6.2)
+#   0x8FCC8  str_pos       [8]           string write position (moved in v4.6.2)
+#   0x8FCD0  data_size     [8]           total variable data bytes (moved in v4.6.2)
+#   0x8E630  struct_names  [256]         struct name offsets (64 cap)
+#   0x8E830  struct_fcounts[512]         struct field counts
+#   0x8F830  struct_count  [8]
+#   0x8C100  BL,CP,VCNT,TCNT,TI,NPOS    compiler state
+#   0x8DA00  fn_count, in_fn, local_cnt
+#   0x8DA20  ret_patches   [512]         64 return patch offsets
+#   0x8F900  defer_count   [8]           + defer_addrs [192]
+#   0x90500  include_fname [256]
+#   0x91000  fn_local_names
+#   0x91800  local_depths  [512]
+#   0x92000  macro tables
+#   0x92200  local_types
+#   0x98000  gvar_toks     [8192]
+#   0x9A000  gvar_cnt      [8]
+#   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
+#   0xC0000  fn_names      [16384]       2048 functions
+#   0xC4000  fn_offsets    [16384]
+#   0xC8000  fn_params     [16384]
+#   0xCC000  fn_body_start [16384]
+#   0xD0000  fn_body_end   [16384]
+#   0xD4000  fn_inline     [16384]
+#   0xDC000  fn_param_str_mask [16384]
+#   0x11A000 var_noffs     [65536]       8192 variables
+#   0x12A000 var_sizes     [65536]
+#   0x13A000 var_types     [65536]
+#   0x14A000 str_data      [262144]      256KB string literal bytes
+#   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
+#   0x54A000 codebuf       [1048576]     1MB generated machine code
+#   0x64A000 output_buf    [1048576]     1MB ELF output
+#   0x74A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0x94A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xB4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields
+#   0xDCA000 struct_fnames [16384]
+#   0xE4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
+#   0xECA000 (fn tables end here — IR region not used by aarch64 compiler)
+#   0x150B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
+
+
+# ================================================================
+# MODULES
+# ================================================================
+# HOST syscall numbers — x86_64 Linux (cross-compiler runs on x86)
+# For native aarch64 self-hosting, use main_aarch64_native.cyr instead.
+enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
+
+include "src/common/util.cyr"
+include "src/backend/aarch64/emit.cyr"
+include "src/backend/aarch64/jump.cyr"
+include "src/frontend/lex.cyr"
+include "src/frontend/parse.cyr"
+include "src/backend/macho/emit.cyr"
+include "src/backend/aarch64/fixup.cyr"
+
+# ================================================================
+# MAIN
+# ================================================================
+
+# Allocate heap via mmap — macOS has no brk. The Linux syscall number 9
+# gets translated to BSD 197 (_mmap) by ESYSXLAT at emit time; the flag
+# value 0x1002 (MAP_PRIVATE | MAP_ANON on macOS) is baked in as an
+# immediate, so it reaches the kernel unchanged at runtime.
+# Size 0x150B000 (~21 MB) matches main.cyr's brk expansion.
+var S = syscall(9, 0, 0x150B000, 3, 0x1002, 0 - 1, 0);
+if (S < 0x100000) {
+    syscall(SYS_WRITE, 2, "cc5_macho: mmap heap init failed\n", 33);
+    syscall(SYS_EXIT, 1);
+}
+
+# Zero state
+S64(S + 0x8C100, 0);
+S64(S + 0x8C108, 0);
+S64(S + 0x8C110, 0);
+S64(S + 0x8C118, 0);
+S64(S + 0x8C120, 0);
+S64(S + 0x8C128, 0);
+S64(S + 0x8FCA8, 0);
+S64(S + 0x8FCB0, 0 - 1);
+S64(S + 0x8FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
+# Function state
+S64(S + 0x8DA00, 0);
+S64(S + 0x8DA08, 0);
+S64(S + 0x8DA10, 0);
+S64(S + 0x8DC20, 0);
+# Struct state
+S64(S + 0x8F830, 0);
+# Condition patch state
+S64(S + 0x8F888, 0);
+# Continue forward patch (for-loop)
+S64(S + 0x8F898, 0);
+# Global var init state
+S64(S + 0x9A000, 0);
+
+# Kernel mode
+S64(S + 0x8FCA0, 0);
+# Lexer line tracking
+S64(S + 0x8FCB8, 1);
+# Block scoping
+S64(S + 0x8FCC0, 0);
+# Expression type tracking
+S64(S + 0x903D8, 0);
+# Inline depth
+S64(S + 0x903E8, 0);
+# Expression width
+S64(S + 0x903F0, 0);
+# Continue forward patch
+S64(S + 0x8F898, 0);
+# Module system
+S64(S + 0x8FEC8, 0);
+S64(S + 0x903D0, 0);
+
+# Read input (256KB, v3.4.19 — see src/main.cyr for rationale)
+var bl = 0;
+var done = 0;
+while (done == 0) {
+    var n = syscall(SYS_READ, 0, S + bl, 524288 - bl);
+    if (n <= 0) { done = 1; }
+    else {
+        bl = bl + n;
+        if (bl >= 524288) {
+            var probe[1];
+            var pn = syscall(SYS_READ, 0, &probe, 1);
+            if (pn > 0) {
+                syscall(SYS_WRITE, 2, "error: input exceeds 512KB buffer (raise input_buf in src/main.cyr)\n", 68);
+                syscall(SYS_EXIT, 1);
+            }
+            done = 1;
+        }
+    }
+}
+SBL(S, bl);
+
+# Preprocess includes
+_init_cyrius_lib();
+PREPROCESS(S);
+
+# Lex
+LEX(S);
+
+# Emit initial branch over fn bodies (aarch64: B +0, patch later)
+var jmp_patch = EJMP0(S);
+
+# Pass 1: Pre-scan to register all global vars and structs (no fn bodies)
+# Synced with main.cyr v2.1 — includes mod/pub/use/impl/union support
+STI(S, 0);
+var scan = 1;
+while (scan == 1) {
+    if (PEEKT(S) == 72) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 2) { SMOD(S, PEEKV(S)); STI(S, GTI(S) + 1); }
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    }
+    else { if (PEEKT(S) == 73) {
+        STI(S, GTI(S) + 1);
+    }
+    else { if (PEEKT(S) == 74) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 2) {
+            var umod = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 41) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) == 2) {
+                    var ufn = PEEKV(S);
+                    STI(S, GTI(S) + 1);
+                    var uc = GUSEC(S);
+                    S64(S + 0x8FFD0 + uc * 8, ufn);
+                    var apos = GNPOS(S);
+                    var ri = 0;
+                    var rc = load8(S + 0x60000 + umod + ri);
+                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
+                    store8(S + 0x60000 + apos, 95); apos = apos + 1;
+                    ri = 0; rc = load8(S + 0x60000 + ufn + ri);
+                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
+                    store8(S + 0x60000 + apos, 0); apos = apos + 1;
+                    var alias_noff = GNPOS(S);
+                    SNPOS(S, apos);
+                    S64(S + 0x901D0 + uc * 8, alias_noff);
+                    SUSEC(S, uc + 1);
+                }
+            }
+        }
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    }
+    else { if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
+    else { if (PEEKT(S) == 101) { PARSE_UNION_DEF(S); }
+    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
+    else { if (PEEKT(S) == 32) {
+        STI(S, GTI(S) + 1);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+        var dep = 0;
+        var fsk = 1;
+        while (fsk == 1) {
+            var ft = PEEKT(S);
+            if (ft == 13) { dep = dep + 1; }
+            if (ft == 14) { dep = dep - 1; if (dep == 0) { fsk = 0; } }
+            if (ft == 12) { fsk = 0; }
+            STI(S, GTI(S) + 1);
+        }
+    }
+    else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
+    else { if (PEEKT(S) == 56) {
+        S64(S + 0x8FCA0, 1);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    }
+    else { if (PEEKT(S) == 78) {
+        S64(S + 0x8FCA0, 2);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    }
+    else { if (PEEKT(S) == 77) {
+        STI(S, GTI(S) + 1);
+        STI(S, GTI(S) + 1);
+        STI(S, GTI(S) + 1);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 13) {
+            STI(S, GTI(S) + 1);
+            var idep = 0;
+            var isk = 1;
+            while (isk == 1) {
+                var it = PEEKT(S);
+                if (it == 13) { idep = idep + 1; }
+                if (it == 14) { if (idep == 0) { isk = 0; } else { idep = idep - 1; } }
+                if (it == 12) { isk = 0; }
+                STI(S, GTI(S) + 1);
+            }
+        }
+    }
+    else { scan = 0; } } } } } } } } } } }
+}
+
+# Reset module for pass 2
+SMOD(S, 0);
+
+# cc5_macho runs on Apple Silicon; its default output target is Mach-O
+# ARM64. Forced here rather than env-gated because this variant only
+# makes sense on macOS — a Mac user invoking it without the env var
+# would otherwise silently emit Linux aarch64 ELF, which is surprising.
+_TARGET_MACHO = 2;
+
+# Pass 2: Parse struct and fn definitions (vars already registered)
+# Synced with main.cyr v2.1 — includes mod/pub/use/impl/union/enum-ctor support
+STI(S, 0);
+var topgo = 1;
+while (topgo == 1) {
+    if (PEEKT(S) == 72) { STI(S, GTI(S) + 1); if (PEEKT(S) == 2) { SMOD(S, PEEKV(S)); STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+    else { if (PEEKT(S) == 73) { STI(S, GTI(S) + 1); }
+    else { if (PEEKT(S) == 74) { while (PEEKT(S) != 5) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+    else { if (PEEKT(S) == 40) {
+        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+        if (PEEKT(S) != 13) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        var ssk = 1;
+        while (ssk == 1) { if (PEEKT(S) == 14) { ssk = 0; } else { STI(S, GTI(S) + 1); } }
+        STI(S, GTI(S) + 1);
+    }
+    else { if (PEEKT(S) == 101) {
+        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 13) { ERR(S); }
+        STI(S, GTI(S) + 1);
+        var usk = 1;
+        while (usk == 1) { if (PEEKT(S) == 14) { usk = 0; } else { STI(S, GTI(S) + 1); } }
+        STI(S, GTI(S) + 1);
+    }
+    else { if (PEEKT(S) == 60) {
+        PARSE_ENUM_DEF(S, 2);
+    }
+    else { if (PEEKT(S) == 56) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+    }
+    else { if (PEEKT(S) == 32) {
+        PARSE_FN_DEF(S);
+    }
+    else { if (PEEKT(S) == 3) {
+        var vsk = 1;
+        while (vsk == 1) { if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); vsk = 0; } else { STI(S, GTI(S) + 1); } }
+    }
+    else { if (PEEKT(S) == 77) { PARSE_IMPL(S); }
+    else { if (PEEKT(S) == 78) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+    else { topgo = 0; } } } } } } } } } } }
+}
+
+# Reset module
+SMOD(S, 0);
+
+# Patch jmp to land here (start of main code)
+EPATCH(S, jmp_patch);
+
+# Emit enum initializations FIRST (before gvar inits)
+var gvar_save_ti = GTI(S);
+STI(S, 0);
+var escan = 1;
+while (escan == 1) {
+    if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 1); }
+    else { if (PEEKT(S) == 12) { escan = 0; }
+    else { STI(S, GTI(S) + 1); } }
+}
+# Emit deferred global var initializations
+EMIT_GVAR_INITS(S);
+STI(S, gvar_save_ti);
+
+# Parse main code (top-level statements)
+PARSE_PROG(S);
+
+# Exit epilogue — load last var
+var lv = GLVAR(S);
+if (lv >= 0) { EVLOAD(S, lv); }
+EEXIT(S);
+
+# Fixup + ELF + write
+FIXUP(S);
+EMITELF(S);
+# Write ELF output (loop on partial writes)
+var olen = L64(S + 0x903F8);
+var written = 0;
+var wgo = 1;
+while (wgo == 1) {
+    var w = syscall(SYS_WRITE, 1, S + 0x64A000 + written, olen - written);
+    if (w <= 0) { wgo = 0; }
+    else {
+        written = written + w;
+        if (written >= olen) { wgo = 0; }
+    }
+}
+syscall(SYS_EXIT, 0);

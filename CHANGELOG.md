@@ -4,6 +4,72 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.13] — 2026-04-18
+
+**Apple Silicon leftovers — `EMITMACHO_OBJ` dead code removed,
+cc5 Mach-O self-host scaffold added.**
+
+### Added
+- **`src/main_aarch64_macho.cyr`** — a new compiler entry point
+  that produces an arm64 Mach-O `cc5` binary intended to run
+  natively on Apple Silicon. The only deviation from
+  `main_aarch64.cyr` is the heap-init syscall: Linux `brk(12)` is
+  swapped for `mmap(9)` with the macOS `MAP_PRIVATE | MAP_ANON`
+  flag (`0x1002`). `_TARGET_MACHO` is forced to 2 at startup so
+  the compiler's default emit target on Mac is Mach-O ARM.
+  Cross-compile path:
+  ```
+  CYRIUS_MACHO_ARM=1 cat src/main_aarch64_macho.cyr | ./build/cc5 > cc5_macho
+  ```
+  Result: 360632-byte Mach-O arm64 executable with PIE,
+  NOUNDEFS|DYLDLINK|TWOLEVEL flags. `file` reports
+  "Mach-O 64-bit arm64 executable". **Untested on hardware** —
+  validation steps (Mac builds, Linux pulls the artifacts back):
+  ```
+  # On the Mac (archaemenid.local), build + self-host:
+  # CYRIUS_MACHO_ARM=1 build/cc5 < src/main_aarch64_macho.cyr > cc5_macho
+  # chmod +x cc5_macho && codesign -s - --force cc5_macho
+  # ./cc5_macho < src/main_aarch64_macho.cyr > cc5_macho_b
+  # cmp cc5_macho cc5_macho_b && echo "SELF-HOST OK"
+
+  # From Linux, pull the round-tripped binaries for archival / diff:
+  scp macro@archaemenid.local:~/cc5_macho   /tmp/
+  scp macro@archaemenid.local:~/cc5_macho_b /tmp/
+  cmp /tmp/cc5_macho /tmp/cc5_macho_b
+  ```
+  Byte-identity of `cc5_macho == cc5_macho_b` confirms the full
+  dogfood.
+
+### Removed
+- **`EMITMACHO_OBJ`** (5 lines of stub that returned
+  `"error: Mach-O .o output not yet implemented"` and exited).
+  The function was never referenced anywhere in the codebase.
+  Cyrius's model is direct-executable emission without a linker,
+  so a relocatable `.o` path isn't on the roadmap at all. Removed
+  rather than left as a dead stub.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
+- Linux cross-compile of `main_aarch64.cyr` still builds
+  (`build/cc5_aarch64` 330400 bytes, regression-free).
+- `CYRIUS_MACHO_ARM=1 build/cc5 < src/main_aarch64_macho.cyr`
+  produces a valid arm64 Mach-O binary on the first try — parse
+  gate from v5.3.12 is satisfied (only whitelist syscalls in the
+  source).
+
+### Scope / limitations
+- **Mac self-host is UNTESTED on hardware.** The binary compiles,
+  passes `file` validation, and uses only operations proven to
+  work on Apple Silicon (mmap via raw BSD SVC, Mach-O ARM code
+  gen). Runtime behaviour — especially whether the
+  `/proc/self/cmdline` read for `--version` fails gracefully on
+  macOS and whether the full parser + emit path runs to
+  completion — needs a real Mac.
+- `main_aarch64_macho.cyr` duplicates most of `main_aarch64.cyr`.
+  Follows the existing `main.cyr` / `main_aarch64.cyr` /
+  `main_aarch64_native.cyr` pattern — Cyrius has no `#ifdef`.
+  A future refactor could factor the shared body into an include.
+
 ## [5.3.12] — 2026-04-18
 
 **Apple Silicon syscall safety — compile-time error for out-of-
