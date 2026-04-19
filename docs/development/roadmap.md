@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.3.17.** cc5 compiler (432928 B x86_64, post-marker-removal
+> **v5.3.18.** cc5 compiler (432928 B x86_64, post-marker-removal
 > rebuild), x86_64 + aarch64 cross. IR + CFG. **v5.3.14 post-Apple-
 > Silicon cleanup**: `lib/args.cyr` empty-string arg handling fix
 > (unlocks `cyrius distlib ""` validation); `dynlib_init` safety
