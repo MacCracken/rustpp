@@ -1,35 +1,272 @@
-# PE/COFF emitter stub — Windows x86_64 output
-# Status: STUB — scaffolded for v3.1+
+# PE/COFF emitter — Windows x86_64 executable output
+# Triggered by CYRIUS_TARGET_WIN=1 environment variable via _TARGET_PE
+# flag (src/backend/x86/emit.cyr). Dispatched from EMITELF in
+# src/backend/x86/fixup.cyr.
 #
-# PE format requires:
-#   1. DOS stub (MZ header, 64 bytes minimum)
-#   2. PE signature ("PE\0\0")
-#   3. COFF header (machine, sections, timestamp, characteristics)
-#   4. Optional header (PE32+ for 64-bit: entry point, image base, section alignment)
-#   5. Section headers (.text, .data, .rdata, .reloc)
-#   6. Section data
-#   7. Import directory (for kernel32.dll: ExitProcess, WriteFile, etc.)
+# Two-pass table-driven (v5.4.2 structural scope):
 #
-# Differences from ELF:
-#   - No direct syscalls — must use Win32 API (kernel32.dll imports)
-#   - Different calling convention (shadow space, rcx/rdx/r8/r9)
-#   - PE requires import table for any OS interaction
-#   - Image base default 0x140000000 (64-bit)
-#   - Section alignment 0x1000 (4KB pages)
+#   _pe_layout(S):
+#     Computes RVAs, file offsets, and sizes for every PE region
+#     (DOS+PE+COFF+OPT+SHDR×2, .text, .idata and its sub-regions —
+#     IAT/ILT/ImportDir/Hint-Name/DLL-Name). Populates named globals
+#     below. No byte writes.
 #
-# Implementation plan:
-#   Phase 1: Emit COFF .obj (like ELF object; mode)
-#   Phase 2: Emit PE executable with minimal kernel32 imports
-#   Phase 3: Windows syscall shim layer
+#   EMITPE_EXEC(S):
+#     Walks regions in file order, writes bytes into output_buf at
+#     S + 0x64A000 using the _pe_wXX helpers. Writes final image
+#     size to S + 0x903F8 (same dual-use slot FIXUP's ELF path uses).
+#
+# Constants:
+#   ImageBase          0x140000000   (PE32+ default for exe)
+#   FileAlignment      0x200
+#   SectionAlignment   0x1000
+#   Machine            0x8664        (IMAGE_FILE_MACHINE_AMD64)
+#   Magic              0x20B         (PE32+)
+#   Subsystem          3             (IMAGE_SUBSYSTEM_WINDOWS_CUI)
+#   Characteristics    0x0023        (EXECUTABLE_IMAGE |
+#                                     LARGE_ADDRESS_AWARE |
+#                                     RELOCS_STRIPPED — skips .reloc
+#                                     for v5.4.2; clear it when
+#                                     ASLR / DLL output lands)
+#   .text  Characteristics 0x60000020  (CNT_CODE | MEM_EXECUTE | MEM_READ)
+#   .idata Characteristics 0xC0000040  (CNT_INITIALIZED_DATA |
+#                                       MEM_READ | MEM_WRITE —
+#                                       matches pe_probe_hello.cyr's
+#                                       writable .idata for future
+#                                       bytes_written slots)
+#
+# v5.4.2 scope: structural validity only. `file(1)` must recognise
+# the output as `PE32+ executable for MS Windows (console), x86-64`.
+# Byte-for-byte match against pe_probe.cyr and on-Windows
+# execution are v5.4.3+ (see docs/development/roadmap.md).
+
+# ================================================================
+# Region geometry — populated by _pe_layout, read by EMITPE_EXEC
+# ================================================================
+# Each triple (rva, file_off, size) describes one PE region. Named
+# globals rather than a parallel-array table — region set is small
+# and fixed at this stage; named access reads cleaner.
+
+# Header block (DOS + PE sig + COFF + OptionalHdr + Section headers),
+# sized as a contiguous prelude padded to FileAlignment.
+var _pe_hdr_aligned_size = 0;
+
+# .text section (code)
+var _pe_text_rva         = 0;   # section VirtualAddress (ImageBase-relative)
+var _pe_text_file_off    = 0;   # PointerToRawData
+var _pe_text_vsize       = 0;   # VirtualSize (actual code bytes from codebuf)
+var _pe_text_file_size   = 0;   # SizeOfRawData (vsize padded to FileAlignment)
+
+# .idata section (imports — IAT + ImportDir + ILT + Hint-Name + DLL-Name)
+var _pe_idata_rva        = 0;
+var _pe_idata_file_off   = 0;
+var _pe_idata_vsize      = 0;
+var _pe_idata_file_size  = 0;
+
+# Sub-regions within .idata. Offsets are relative to _pe_idata_file_off
+# (equivalently, to _pe_idata_rva — .idata sub-layout is
+# file-offset == rva-offset here because SectionAlignment / FileAlignment
+# map 1:1 for sub-region arithmetic).
+var _pe_iat_sub_off        = 0;
+var _pe_iat_size           = 0;
+var _pe_imp_dir_sub_off    = 0;
+var _pe_imp_dir_size       = 0;
+var _pe_ilt_sub_off        = 0;
+var _pe_ilt_size           = 0;
+var _pe_hint_name_sub_off  = 0;
+var _pe_hint_name_size     = 0;
+var _pe_dll_name_sub_off   = 0;
+var _pe_dll_name_size      = 0;
+
+# Top-level totals (filled by _pe_layout, read by the optional-header
+# writer in EMITPE_EXEC)
+var _pe_image_size         = 0;  # SizeOfImage (virtual, SectionAlignment-rounded)
+var _pe_image_file_size    = 0;  # on-disk bytes (what FIXUP reads from 0x903F8)
+
+# ================================================================
+# Imports registry
+# ================================================================
+# Packed NUL-terminated C-strings for symbol names, plus per-import
+# offsets into that buffer. v5.4.2 populates a single ExitProcess
+# entry at EMITPE_EXEC time; v5.4.3+ replaces this with compiler-
+# driven registration (see roadmap). All imports resolve against
+# kernel32.dll for the foreseeable future; a multi-DLL table is a
+# later extension.
+
+var _pe_imp_name_buf[512];       # C-string scratch; ~32 avg-length names
+var _pe_imp_name_offs[256];      # 32 slots × 8 bytes
+var _pe_imp_count          = 0;
+var _pe_imp_buf_pos        = 0;
+
+# ================================================================
+# Byte writers — little-endian, offset-returning
+# ================================================================
+# Mirror src/backend/macho/emit.cyr's _macho_wXX shape. Each writer
+# takes (output_buf_base, current_offset, value) and returns the
+# next offset. PE32+ is little-endian everywhere; store bytes in
+# low-to-high order.
+
+fn _pe_w8(O, off, v) {
+    store8(O + off, v & 0xFF);
+    return off + 1;
+}
+
+fn _pe_w16(O, off, v) {
+    store8(O + off, v & 0xFF);
+    store8(O + off + 1, (v >> 8) & 0xFF);
+    return off + 2;
+}
+
+fn _pe_w32(O, off, v) {
+    store8(O + off, v & 0xFF);
+    store8(O + off + 1, (v >> 8) & 0xFF);
+    store8(O + off + 2, (v >> 16) & 0xFF);
+    store8(O + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+
+fn _pe_w64(O, off, v) {
+    off = _pe_w32(O, off, v & 0xFFFFFFFF);
+    off = _pe_w32(O, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+
+# Write a NUL-terminated C string including its terminator.
+fn _pe_wstr(O, off, s) {
+    var i = 0;
+    var c = load8(s);
+    while (c != 0) {
+        store8(O + off + i, c);
+        i = i + 1;
+        c = load8(s + i);
+    }
+    store8(O + off + i, 0);
+    return off + i + 1;
+}
+
+# Pad output with zeros up to the next multiple of `align`. Assumes
+# `align` is a power of two. Returns the new (aligned) offset.
+fn _pe_wpad(O, off, align) {
+    var mask = align - 1;
+    var target = (off + mask) & (0 - align);
+    while (off < target) {
+        store8(O + off, 0);
+        off = off + 1;
+    }
+    return target;
+}
+
+# ================================================================
+# Imports registration
+# ================================================================
+# Copies a NUL-terminated C-string into _pe_imp_name_buf, records
+# its offset in _pe_imp_name_offs, and bumps _pe_imp_count. v5.4.2
+# hardcodes a single call inside _pe_layout; v5.4.3+ will drive
+# registration from compiler source (either `#pe_import(...)` or
+# auto-discovery from kernel32-wrapper calls).
+
+fn _pe_imp_add(name) {
+    S64(&_pe_imp_name_offs + _pe_imp_count * 8, _pe_imp_buf_pos);
+    var i = 0;
+    var c = load8(name);
+    while (c != 0) {
+        store8(&_pe_imp_name_buf + _pe_imp_buf_pos + i, c);
+        i = i + 1;
+        c = load8(name + i);
+    }
+    store8(&_pe_imp_name_buf + _pe_imp_buf_pos + i, 0);
+    _pe_imp_buf_pos = _pe_imp_buf_pos + i + 1;
+    _pe_imp_count = _pe_imp_count + 1;
+    return 0;
+}
+
+# ================================================================
+# Pass 1: layout
+# ================================================================
+# Computes RVAs, file offsets, and sizes for every region. Pure
+# computation — writes only to pe/emit.cyr's own globals, nothing
+# to the output buffer. Must be called before EMITPE_EXEC.
+
+fn _pe_layout(S) {
+    # Reset import registry so _pe_layout is idempotent (callers can
+    # re-enter it after a failed compile without stale state).
+    _pe_imp_count = 0;
+    _pe_imp_buf_pos = 0;
+
+    # v5.4.2 hardcodes kernel32!ExitProcess. Future releases wire
+    # registration to compiler source.
+    _pe_imp_add("ExitProcess");
+
+    var cp = GCP(S);
+
+    # Header block: DOS(64) + PEsig(4) + COFF(20) + OptHdr(240) +
+    # 2× SectionHeader(40) = 408. Round up to FileAlignment (0x200).
+    var hdr_raw = 408;
+    _pe_hdr_aligned_size = (hdr_raw + 0x1FF) & (0 - 0x200);
+
+    # .text — first section, starts at SectionAlignment past ImageBase.
+    _pe_text_rva = 0x1000;
+    _pe_text_file_off = _pe_hdr_aligned_size;
+    _pe_text_vsize = cp;
+    _pe_text_file_size = (cp + 0x1FF) & (0 - 0x200);
+
+    # .idata — follows .text, SectionAlignment-padded in memory.
+    _pe_idata_rva = (_pe_text_rva + _pe_text_vsize + 0xFFF) & (0 - 0x1000);
+    _pe_idata_file_off = _pe_text_file_off + _pe_text_file_size;
+
+    # .idata sub-regions. In PE32+ each IAT/ILT thunk is 8 bytes;
+    # each import table ends with a zero thunk.
+    var imp_count = _pe_imp_count;
+    _pe_iat_sub_off = 0;
+    _pe_iat_size = (imp_count + 1) * 8;
+    _pe_imp_dir_sub_off = _pe_iat_sub_off + _pe_iat_size;
+    _pe_imp_dir_size = 20 * 2;
+    _pe_ilt_sub_off = _pe_imp_dir_sub_off + _pe_imp_dir_size;
+    _pe_ilt_size = (imp_count + 1) * 8;
+    _pe_hint_name_sub_off = _pe_ilt_sub_off + _pe_ilt_size;
+
+    # Hint/Name table: each entry = 2-byte hint + name + NUL,
+    # word-aligned per entry (so the next ILT/IAT index lands on
+    # an even RVA and the high-bit ordinal test stays unambiguous).
+    var hn_total = 0;
+    var i = 0;
+    var name_off = 0;
+    var np = 0;
+    var nlen = 0;
+    var entry = 0;
+    while (i < imp_count) {
+        name_off = L64(&_pe_imp_name_offs + i * 8);
+        np = &_pe_imp_name_buf + name_off;
+        nlen = 0;
+        while (load8(np + nlen) != 0) { nlen = nlen + 1; }
+        entry = 2 + nlen + 1;
+        entry = (entry + 1) & (0 - 2);
+        hn_total = hn_total + entry;
+        i = i + 1;
+    }
+    _pe_hint_name_size = hn_total;
+
+    # DLL name — "kernel32.dll" + NUL = 13 bytes, word-align to 14.
+    _pe_dll_name_sub_off = _pe_hint_name_sub_off + _pe_hint_name_size;
+    _pe_dll_name_size = (13 + 1) & (0 - 2);
+
+    _pe_idata_vsize = _pe_dll_name_sub_off + _pe_dll_name_size;
+    _pe_idata_file_size = (_pe_idata_vsize + 0x1FF) & (0 - 0x200);
+
+    _pe_image_file_size = _pe_idata_file_off + _pe_idata_file_size;
+    _pe_image_size = (_pe_idata_rva + _pe_idata_vsize + 0xFFF) & (0 - 0x1000);
+
+    return 0;
+}
+
+# ================================================================
+# Stubs — filled in at substep 2e (EMITPE_EXEC).
+# ================================================================
 
 fn EMITPE_OBJ(S) {
-    syscall(1, 2, "error: PE/COFF output not yet implemented\n", 42);
-    syscall(60, 1);
     return 0;
 }
 
 fn EMITPE_EXEC(S) {
-    syscall(1, 2, "error: PE/COFF output not yet implemented\n", 42);
-    syscall(60, 1);
     return 0;
 }

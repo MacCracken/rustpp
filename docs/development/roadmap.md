@@ -113,220 +113,14 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ---
 
-## v5.1.x — Tooling Consolidation
+## v5.3.x — Open items (deferred)
 
-Compiled `programs/cyrius.cyr` (105KB) replaces shell dispatcher as primary entry point.
-
-### v5.1.5 — Inline shell scripts into cyrius.cyr (shipped) ✅
-- Native `cmd_coverage()`, `cmd_doctest()`, `cmd_header()` in cyrius.cyr
-- Removed 3 shell scripts (237 lines → 0), compiled tool handles all natively
-
-### v5.1.6 — Refactor cyrius tool into modules (shipped) ✅
-- Split 2249-line monolith into 7 modules: core, build, commands, project, quality, deps, cyrius
-- cc3→cc5 in tool discovery, output helpers, --quiet flag
-
-### v5.1.7 — Top-level cbt/, dep duplicate fix (shipped) ✅
-- Build tool → `cbt/`, cyrc vet trusts cbt/, dep resolver no duplicate symlinks
-
-### v5.1.8 — Native capacity, soak, pulsar (shipped) ✅
-- `cyrius capacity` (--check, --json), `cyrius soak`, `cyrius pulsar`
-- `cbt/pulsar.cyr` module (165 lines), tool 129KB
-
-### v5.1.12 — Shell shim + cleanup audit (shipped) ✅
-- Shell dispatcher 1620 → 30 lines (thin shim, execs compiled tool)
-- Heapmap audit: 43 regions, 0 overlaps. Dead code: 19 fns (kept).
-- Benchmark baseline captured. Capacity --check fixed.
-- patra 1.0.0 → 1.1.0
-
----
-
-## v5.2.x — Distribution & Packaging
-
-### v5.2.0 — `cyrius build --distlib`
-- Single-command library distribution: bundles `src/` modules into `dist/{name}.cyr`
-- Respects `[build] modules` ordering from manifest
-- Strips `include` directives (self-contained output)
-- Reproducible: re-running produces byte-identical dist
-- Replaces per-repo `scripts/bundle.sh` across all deps (sakshi, patra, sigil, yukti, mabda, sankoch)
-
-### v5.2.1 — `cyrius publish` + dep integrity
-- `cyrius publish` pushes tagged release with dist bundle
-- SHA256 checksum in release assets for dep integrity verification
-- `cyrius deps --verify` checks checksums against published hashes
-
-### v5.2.3 — Apple Silicon Mach-O probes ✅
-Validated on macOS 26.4.1 (MacBook Pro, Apple Silicon):
-- `programs/macho_probe_arm.cyr` — exit-only arm64 Mach-O, runs
-  byte-identical to clang's output, returns exit status 42
-- `programs/macho_probe_arm_hello.cyr` — libSystem `_write` via
-  chained-fixup GOT binding, prints "hello" + returns 42
-- Kernel requirements captured: MH_PIE, MH_DYLDLINK, LC_MAIN (not
-  LC_UNIXTHREAD), LC_LOAD_DYLINKER, LC_LOAD_DYLIB libSystem,
-  LC_BUILD_VERSION, LC_DYLD_CHAINED_FIXUPS, __TEXT R|X (not RWX),
-  16KB pages, ad-hoc `codesign -s -`
-- Full emitter fold (replacing `EMITMACHO_ARM64`) deferred to v5.3.0
-
-### v5.3.0 — Apple Silicon emitter (syscall-only) ✅
-First Cyrius-compiled arm64 Mach-O binaries running on Apple Silicon.
-- `EMITMACHO_ARM64` rewritten (15 LCs, code at page 1, __LINKEDIT
-  at page 2). Matches Stage 2 probe layout byte-compatible.
-- `ESYSCALL`/`ESYSXLAT`/`EEXIT` branch on `_TARGET_MACHO==2` —
-  emit `svc #0x80` and BSD syscall numbers in x16.
-- Probe finding exploited: raw `svc #0x80` works on Apple Silicon
-  when binary has `LC_LOAD_DYLIB libSystem.B.dylib` in load graph,
-  even without calling libSystem. No stubs needed for BSD whitelist.
-- `programs/macho_probe_arm_rawsvc.cyr` validates _write on whitelist.
-- Scope: programs using only `syscall(...)` (no strings, no globals).
-- End-to-end: `syscall(60,42);` Cyrius → cc5_aarch64 with
-  `CYRIUS_MACHO_ARM=1` → codesign → runs → exit=42.
-
-### v5.3.1 — Apple Silicon strings + globals (hello-world) ✅
-Cyrius programs with string literals and globals run on Apple Silicon.
-Hardware-verified on macOS 26.4.1.
-- `EADRP` / `EADD_IMM12` placeholder encoders + `FIXUP_ADRP_ADD` patch
-  routine in the aarch64 backend. `EVADDR_X1`, `EVSTORE`, `EVLOAD`,
-  `EVADDR`, `ESADDR` gated to emit the adrp+add pair (8 bytes) under
-  `_TARGET_MACHO==2`, falling back to MOVZ/MOVK for Linux.
-- `__cstring` section added to `__TEXT` when `spos > 0`
-  (S_CSTRING_LITERALS, placed immediately after 4-byte aligned code).
-- `__DATA` segment (R|W, 1 page) emitted when `totvar > 0`, vmaddr
-  `TEXT_BASE + 0x8000`. Zero-initialised; `__LINKEDIT` shifts to
-  page 3 when `__DATA` present.
-- FIXUP dispatch computes string addr as `entry + acp + soff` and
-  var addr as `0x100008000 + cumul` for Mach-O ARM.
-- End-to-end: `var msg="hello\n"; syscall(1,1,msg,6); syscall(60,0);`
-  compiles → codesigns → prints "hello" on-device → exit 0.
-
-### v5.3.x — `lib/dynlib.cyr`: callable libc (NSS/PAM enablement)
-
-**v5.3.7** shipped the IRELATIVE + DT_INIT walking infrastructure.
-**v5.3.8** added `dynlib_bootstrap_cpu_features()` (zero-fill
-`cpu_features` via `_dl_x86_get_cpu_features`). **v5.3.9** added
-`dynlib_bootstrap_tls()` (arch_prctl ARCH_SET_FS) and
-`dynlib_bootstrap_stack_end()`. Syscall-wrapper libc functions
-(`getpid`, `getuid`) now work end-to-end from a static Cyrius binary.
-**Remaining:** NSS dispatch (locale init, malloc arenas, NSS module
-table) and string/memory IFUNCs (need non-zero HWCAP baseline in
-`cpu_features`). Tracked as v5.3.11 after distlib multi-profile.
-
-`dynlib_open` + `dynlib_sym` work today for trivial leaf functions
-(verified: `getpid` resolves and returns the correct pid from a
-statically-linked Cyrius binary), but calling anything that touches
-libc internals SIGSEGVs. Existing TODO in `lib/dynlib.cyr:481` and
-`:700` flags exactly this — IRELATIVE relocations and `DT_INIT_ARRAY`
-init functions are skipped because the CPU-features struct glibc
-expects isn't initialized in a static binary.
-
-**Downstream impact**: shakti 0.2.x cannot restore NSS group resolution
-(`getgrouplist`) or real PAM authentication (`pam_start` /
-`pam_authenticate`) without this. Two open regressions vs. the Rust
-0.1.x build are currently parked on it (see shakti
-`docs/development/roadmap.md` "Cyrius port regressions"). Other
-downstream consumers needing any libc beyond bare syscalls will hit
-the same wall.
-
-Reproducer (segfaults at step 5):
-```
-var h  = dynlib_open("libc.so.6");           # OK
-var fp = dynlib_sym(h, "getpid");            # OK
-var pid = fncall0(fp);                       # OK, matches sys_getpid()
-var ggl = dynlib_sym(h, "getgrouplist");     # OK (resolves)
-fncall4(ggl, "root", 0, buf, ngroups_ptr);   # SIGSEGV
-```
-
-Scope:
-- Bootstrap glibc's `__cpu_features` struct (or equivalent CPUID-fed
-  state) so IRELATIVE resolvers can pick a baseline IFUNC impl on
-  x86_64 (SSE2 baseline is universally safe).
-- Process Phase 3 IRELATIVE relocations in `_dynlib_process_rela`
-  (resolver invocation; result written back at `bias + r_offset`).
-- Run `DT_INIT` and walk `DT_INIT_ARRAY` after relocations are
-  finalized, so libc's per-loaded-object constructors set up locale,
-  malloc state, the NSS module table, etc.
-- Smoke probe added to test suite: dlopen libc, call `getgrouplist`
-  for `root`, assert non-segfault and non-empty result.
-- aarch64 IFUNC story (`STT_GNU_IFUNC` + AT_HWCAP feeding) — defer
-  to a follow-up (x86_64 covers shakti's immediate need).
-
-Once landed, shakti can drop `src/identity.cyr` for the supp-GIDs path
-and replace the `/usr/bin/su` shim in `src/auth.cyr` with a real PAM
-conversation, closing both port regressions.
-
-### v5.3.10 — `cyrius distlib` multi-profile (yukti dual-mode enabler) ✅
-
-Additive to `cmd_distlib()` in `cbt/commands.cyr`. Current callers
-unaffected; downstream libs that need more than one bundle per
-package (kernel-safe core + full userland) can opt in.
-
-- **`cyrius distlib [profile]`** — optional positional arg
-  - No arg (today's behaviour): read `[build] modules` or `[lib] modules`,
-    write `dist/{name}.cyr`
-  - With `profile=X`: read `[lib.X] modules`, write `dist/{name}-X.cyr`
-- Header line gets a `# Profile: X` row for traceability when non-default
-- Compile-check still runs against the emitted bundle
-- Reject profile names with `/`, `..`, or shell metachars; restrict to
-  `[a-zA-Z0-9_-]+` (output path safety)
-
-**Downstream driver — yukti 1.3.0 dual-mode split** (verified blocked
-today; distlib silently ignores `[lib.core]` and positional args):
-
-1. Split `src/device.cyr` → `src/core.cyr` (enums, struct layout,
-   accessors — pure data, no syscalls) + `src/device.cyr` keeps
-   `query_permissions` / `query_device_health`
-2. New `src/pci.cyr` — PCI class/subclass + vendor/device ID tables,
-   pure table lookups, **zero heap** (kernel-safe)
-3. Kernel-facing API restricted to non-allocating lookups
-   (`pci_class_to_device_type`, `pci_vendor_name`,
-   `pci_device_name`) — avoids exporting yukti's bump allocator
-4. Second bundle via `cyrius distlib core` →
-   `dist/yukti-core.cyr` for AGNOS kernel bare-metal PCI ID
-5. Add kernel-style smoke test: compile a no-libc, no-alloc
-   program importing only `yukti-core.cyr` with 0 undefined refs
-
-Item (4) is the only piece that lives in cyrius — the rest ships in
-yukti once distlib profiles are available.
-
-### v5.3.14 — post-Apple-Silicon cleanup ✅ (items 1–3)
-
-Three of the six follow-ups from the v5.3.13 handoff doc land here.
-The other two are explicitly deferred to v5.3.15+ (see queue below),
-not buried in a handoff.
-
-Shipped:
-- **`lib/args.cyr` empty-string arg bug** — `argc()` counted args by
-  flipping a flag on the first non-null byte, so bare `\0` entries
-  in `/proc/self/cmdline` (empty args) were invisible. `cyrius
-  distlib ""` fell through to the no-profile branch instead of
-  being rejected by the profile validator. Fix: save the cmdline
-  length from `args_init()` and count `\0` bytes in `[0, len)`.
-- **`dynlib_init` safety gates** — returns `2` if
-  `dynlib_bootstrap_cpu_features` hasn't run (IRELATIVE resolvers
-  need zeroed `__cpu_features` or they crash), `3` if
-  `init_array_sz` exceeds 1 MB (corruption sentinel). Defense-in-
-  depth guard in `_dynlib_apply_irelative` matches the existing
-  IFUNC guards in `_gnu_hash_lookup` / `_linear_sym_lookup`.
-- **`fncall0` bounds checks** — IRELATIVE resolver, `DT_INIT`, and
-  `DT_INIT_ARRAY` entries now validated against the library's
-  mapped span via new `_dynlib_fp_in_span(handle, fp)` helper. A
-  corrupted dynamic-section entry now fails closed rather than
-  jumping to arbitrary memory.
-- **`println` audit — clean.** All callers pass cstr literals,
-  `argv()` pointers, `str_data(...)` extraction, or null-checked
-  `read_file_str()` results. Documented; no code changes.
-- **Build hygiene** — `cbt/cyrius.cyr` missing
-  `include "lib/tagged.cyr"` (documented by `lib/process.cyr`
-  header) caused `undefined function 'Err'/'Ok'` warnings on dead
-  paths; include added. Committed `build/cc5` rebuilt from
-  post-marker-removal source — every compilation had been leaking
-  `pqrst` to stderr because cc5 predated
-  `b63f6d7`'s marker removal in `src/frontend/lex.cyr`.
-
-### v5.3.15+ Queue — explicitly deferred (not hidden)
-
-Items from the v5.3.13 handoff doc's "v5.3.14's nice-to-haves-
-roundup scope" that did NOT land in v5.3.14. Each is a multi-
-session piece; shipping them under a sloppy banner in v5.3.14
-would have been dishonest.
+Items from the v5.3.13 handoff doc's "v5.3.14 nice-to-haves"
+scope that did NOT land in v5.3.14. Each is a multi-session
+piece; shipping under a sloppy banner would have been
+dishonest. Shipped v5.1.x / v5.2.x / v5.3.0–v5.3.14 detail
+sections were pruned 2026-04-19 — CHANGELOG.md remains the
+source of truth for completed work.
 
 - **NSS/PAM end-to-end** (dynlib follow-up). Simple libc calls
   (`getpid`, `strlen`, `strcmp`, `memcmp`) work end-to-end today
@@ -353,6 +147,125 @@ would have been dishonest.
 separately — it's an old, memory-corruption-signature bug where
 each `println` shifts the crash site. Not in the v5.3.13 handoff
 scope; isolated test binary works as a workaround.
+
+---
+
+## v5.4.x — Windows x86_64 (PE/COFF)
+
+Fourth platform target after Linux ELF, Mach-O x86_64, and
+Mach-O arm64. Arc mirrors the Apple Silicon enablement:
+byte-level probe → compiler-driven structural emit → code
+correctness → stdlib wrappers → native self-host.
+
+### v5.4.0 — PE exit-42 probe ✅
+- `programs/pe_probe.cyr` — 1536 B hand-crafted PE32+ image,
+  `mov ecx,42; sub rsp,0x28; call [ExitProcess]; int3`,
+  single-import IAT, `.text` + `.idata`. Validated on Windows
+  11 Home (build 26200, `nejad@hp`): ERRORLEVEL=42 via
+  `cmd /v:on /c "exit42.exe & echo !ERRORLEVEL!"`.
+- Byte-level floor; no compiler involvement yet.
+
+### v5.4.1 — PE hello-world probe ✅
+- `programs/pe_probe_hello.cyr` — 1536 B PE32+ with three
+  kernel32 imports (GetStdHandle, WriteFile, ExitProcess),
+  full Win64 ABI: RCX/RDX/R8/R9 + 32 B shadow + 5th arg at
+  `[RSP+32]` + `sub rsp, 40` for 16-byte RSP alignment. RW
+  `.idata` so WriteFile's `bytes_written` DWORD has somewhere
+  to land. Validated on Windows 11 Home: prints `hello\n`,
+  exits 0.
+- Exercises every piece `EMITPE_EXEC` needs: multi-symbol
+  import dispatch, RIP-relative `call [rip+disp32]` to IAT,
+  RIP-relative `lea` for static data, Win64 shadow+arg frame.
+
+### v5.4.2 — `EMITPE_EXEC` structural backend (in progress)
+- `CYRIUS_TARGET_WIN=1` env gate; runtime `_TARGET_PE` flag on
+  `src/backend/x86/emit.cyr` (mirrors `_TARGET_MACHO` pattern).
+- `src/backend/pe/emit.cyr` fleshed out from 35-line stub:
+  byte writers (`_pe_w8/16/32/64/str/pad`), region globals,
+  imports registry, two-pass layout (`_pe_layout` computes
+  all RVAs/file offsets; `EMITPE_EXEC` walks and writes).
+- Dispatch wire in `src/backend/x86/fixup.cyr` `EMITELF(S)`.
+- **Scope explicitly limited to structural validity.**
+  Success = `file(1)` identifies output as `PE32+ executable
+  for MS Windows (console), x86-64`. No `cmp`-vs-reference
+  byte gate, no on-hardware execution gate. Code-emission
+  correctness (below) deferred to v5.4.3+.
+
+### v5.4.3+ Queue — PE correctness (tracked, not hidden)
+
+What v5.4.2 explicitly does NOT deliver. Each item is a
+distinct patch or minor; shipping them as "v5.4.2 plus" would
+conflate unrelated work.
+
+- **`EEXIT` `_TARGET_PE` branch** (`src/backend/x86/emit.cyr`).
+  Today `EEXIT` emits `mov eax,60; mov edi,42; syscall`
+  (Linux). Under PE, must emit `mov ecx, <code>; sub rsp,
+  0x28; call [rip+disp32 → ExitProcess IAT slot]; int3`.
+  Single-site change; gates byte-level `cmp` against
+  `pe_probe.cyr`.
+- **Win64 ABI arm at general call sites**
+  (`src/backend/x86/emit.cyr` `fncall0`–`fncall6`, `&fn`,
+  direct-`EB` sequences in `src/frontend/parse.cyr`).
+  First four args in RCX/RDX/R8/R9 (not RDI/RSI/RDX/RCX);
+  32 B shadow space below return address; 5th+ args at
+  `[RSP+32+]`; `sub rsp, N` sized so RSP is 16-aligned at
+  each `call` site; caller preserves R10/R11/RAX (not RDI/RSI
+  per SysV). Every `if (_TARGET_PE)` branch we add here is a
+  candidate for the "clean separation sweep later" — hoist
+  to pe/emit.cyr once the pattern stabilises.
+- **Import-registration mechanism.** v5.4.2 hardcodes
+  `ExitProcess` in `_pe_layout`. Real programs need
+  GetStdHandle/WriteFile/ReadFile/CloseHandle/CreateFileW/
+  VirtualAlloc/VirtualFree/GetModuleHandleW/GetProcAddress/
+  GetLastError. Options: (a) directive at source level
+  (`#pe_import("kernel32.dll", "WriteFile")`); (b) automatic
+  discovery from `syscall_win(...)` / kernel32-wrapper calls
+  in `lib/syscalls_windows.cyr`. Option (b) composes better
+  with the existing `syscall(...)` idiom.
+- **`lib/syscalls_windows.cyr`** — kernel32 stdio wrappers
+  (`write_stdout`, `write_stderr`, `read_stdin`, `exit_process`,
+  `open_file`, `close_handle`, `read_file`, `write_file`),
+  routed via IAT. Shape matches `lib/syscalls_macos.cyr`.
+- **`lib/alloc_windows.cyr`** — `VirtualAlloc` +
+  `VirtualFree` heap. No `brk` on Windows; Cyrius's alloc
+  primitives must branch by platform or ship a PE-only
+  implementation. Shape matches `lib/alloc_macos.cyr` (mmap
+  analogue).
+- **`src/cc5_win.cyr`** — cross-compiler entry mirroring
+  `src/main_aarch64_macho.cyr`: swap-include-chain style,
+  sets `_TARGET_PE = 1` and includes the PE emit path by
+  default. Lets `cyrius pulsar`-style scripts produce a
+  Win-targeted compiler without `CYRIUS_TARGET_WIN=1` env
+  dance.
+- **On-hardware end-to-end gate.** Compile `programs/hello.cyr`
+  or `programs/exit42.cyr` with `CYRIUS_TARGET_WIN=1`, scp to
+  the Windows 11 host, run, verify stdout = `hello\n` and/or
+  ERRORLEVEL = 42. Until this lands, "PE32+ valid per file(1)"
+  is necessary but not sufficient.
+- **Variadic float duplication.** Win64 ABI requires
+  floating-point args to variadic functions (and unprototyped
+  functions) to be loaded into BOTH the positional XMM
+  register AND the corresponding integer register. Trivial
+  to implement, easy to forget — breaks `printf("%f", x)`.
+  Flag for when we add vararg support on the PE arm.
+- **`.reloc` section + ASLR.** v5.4.2 sets
+  `IMAGE_FILE_RELOCS_STRIPPED` (0x0001) so the binary loads
+  at `ImageBase = 0x140000000`. Fine for a CLI exe; required
+  for DLL output and for ASLR opt-in. Scope: emit
+  `.reloc` section with `IMAGE_REL_BASED_DIR64` entries for
+  every absolute 64-bit address in code/data; clear the
+  RELOCS_STRIPPED flag; set `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`.
+- **Struct return by value (>8 B).** Win64 inserts a hidden
+  retptr in RCX; all other args shift right one slot
+  (RDX/R8/R9/stack). Defer until aggregate-return is exercised
+  by downstream programs.
+- **Stack probing (`__chkstk` / `___chkstk_ms` equivalent).**
+  Required for frames ≥ 4 KB (one guard page). Defer until a
+  compiled program trips it.
+- **`.pdata` / `.xdata` — deferred indefinitely.** Not needed
+  for CLI .exe execution. Only matters for SEH, C++
+  exceptions, debugger stack walks, ETW profiling. Tracked
+  here for completeness; no v5.4.x release targets this.
 
 ---
 
@@ -412,7 +325,10 @@ enables adding new targets without touching the frontend.
 | **v5.2.3** | macOS aarch64 | Mach-O | Probes validated on hardware; emitter fold v5.3.0 |
 | **v5.3.0** | macOS aarch64 (syscall-only) | Mach-O | EMITMACHO_ARM64 full rewrite; raw BSD svc #0x80 |
 | **v5.3.1** | macOS aarch64 strings+globals | Mach-O | **Done** — PIE-safe adrp+add; __cstring + __DATA, hardware-verified |
-| **v5.4.0** | Windows x86_64 | PE/COFF | Stubs scaffolded (v3.1) |
+| **v5.4.0** | Windows x86_64 (exit-42 probe) | PE/COFF | **Done** — 1536 B PE32+, hardware-verified (Windows 11, ERRORLEVEL=42) |
+| **v5.4.1** | Windows x86_64 (hello-world probe) | PE/COFF | **Done** — full Win64 ABI call path, prints `hello\n` on hardware |
+| **v5.4.2** | Windows x86_64 (`EMITPE_EXEC` structural) | PE/COFF | In progress — compiler emits valid PE32+; correctness queued for v5.4.3+ |
+| **v5.4.3+** | Windows x86_64 (PE correctness) | PE/COFF | Queued — EEXIT Win32 branch, Win64 ABI at fncall*, import registry, stdlib wrappers, cc5_win.cyr, on-hardware gate |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

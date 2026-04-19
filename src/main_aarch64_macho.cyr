@@ -16,7 +16,8 @@
 #
 # VALIDATED v5.3.13 on macOS 26.4.1 Apple Silicon: self-hosts
 # byte-identically (cross-compiled == Mac round 1 == Mac round 2 at
-# 475320 B). See docs/development/handoff-v5.3.13-mac-selfhost.md.
+# 475320 B). Debug handoff archived at
+# docs/development/archive/handoff-v5.3.13-mac-selfhost.md.
 # ================================================================
 # HEAP MAP — Synced with main.cyr (v4.2)
 # ================================================================

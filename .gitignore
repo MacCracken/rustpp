@@ -4,6 +4,12 @@
 !/build/cc5
 !/build/cc3-native-aarch64
 !/build/cc5-native-aarch64
+# Ad-hoc cross-compiled outputs at repo root (regenerated on demand;
+# see src/main_aarch64_macho.cyr header and scripts/mac-selfhost.sh).
+/cc5_macho
+/cc5_macho_b
+/cc5_macho_b_unsigned
+/cc5_macho_c
 
 # Temporary files
 /tmp/
