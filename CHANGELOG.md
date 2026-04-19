@@ -4,6 +4,72 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.16] — unreleased
+
+Continuing the aarch64 x86-asm-leakage drain from v5.3.15. **Function
+pointers (`fncall0`–`fncall6`) now work on aarch64** — the biggest
+single downstream blocker for porting function-pointer-using code
+(hashmap, vec, callbacks, plugins, method dispatch) to aarch64. On
+real Pi hardware, `regression.tcyr` goes from SIGILL-at-entry to
+**90/102 tests passing**; residual failures are in deeper
+x86-only-emit surfaces (sub-8-byte bitfield loads, f64 ops,
+`#regalloc` prologue) tracked for v5.3.17+.
+
+### Added
+- **`PP_PREDEFINE(S, name)` — compiler-builtin preprocessor defines.**
+  New in `src/frontend/lex.cyr`. Registers a `#define NAME` entry
+  at startup (value 0) so `#ifdef NAME` gates can fire without the
+  user writing a `#define` themselves. Used to inject arch markers:
+  - `src/main.cyr` predefines `CYRIUS_ARCH_X86`
+  - `src/main_aarch64.cyr`, `src/main_aarch64_native.cyr`,
+    `src/main_aarch64_macho.cyr` predefine `CYRIUS_ARCH_AARCH64`
+  Lib files can now select per-arch asm via standard `#ifdef`.
+- **`PP_SKIP_WS(S, pos, bl)` — leading-whitespace skip helper.**
+  Used inside the dispatch loop in both `PP_PASS` and
+  `PP_IFDEF_PASS` so `    #ifdef FOO` (cyrfmt's default indentation
+  for preprocessor directives inside function bodies) still fires
+  as a directive. `ISINCLUDE` stays strict — `    include = 0;` on
+  an indented variable named `include` remains an expression, not a
+  `include "..."` directive. Covers `#define`, `#ifdef`, `#if`,
+  `#endif`, `#derive(Serialize|Deserialize|accessors)`.
+- **`lib/fnptr.cyr:fncall0`–`fncall6` — aarch64 implementations.**
+  Each fncallN now has two arch-gated asm blocks: x86_64 System V
+  (rdi/rsi/rdx/rcx/r8/r9) for `CYRIUS_ARCH_X86`, AAPCS64 (x0–x5 +
+  BLR x9) for `CYRIUS_ARCH_AARCH64`. Calls flow through
+  `ldur`/`stur` pairs against `[x29, #-N]` at Cyrius's standard
+  param-slot offsets. `fncall3(&mul3, 2, 3, 7)` returns 42 on both
+  arches; 90/102 assertions in `regression.tcyr` now pass on Pi
+  (was 0 — SIGILL at entry).
+- **aarch64 `&fn` (function-address) emit.** `src/frontend/parse.cyr`
+  now emits three MOVZ/MOVK instructions (12 bytes) for a function
+  address placeholder when `_AARCH64_BACKEND == 1`; fixup type 3
+  (function address) now has an aarch64 handler in
+  `src/backend/aarch64/fixup.cyr` that uses `FIXUP_MOV` with the
+  target = function offset + entry base. Was the biggest remaining
+  source of misalignment in aarch64 output (10 bytes of x86 `mov
+  rax, imm64` bytes leaked in, shifted every downstream instruction).
+
+### Changed
+- **`src/backend/x86/emit.cyr` — added `_AARCH64_BACKEND = 0`
+  mirror + `EW` stub.** Lets arch-shared parse.cyr reference
+  aarch64-only emit primitives under `if (_AARCH64_BACKEND == 1)`
+  gates without the x86 build failing with `undefined function`.
+  Stub is dead on x86 at runtime.
+
+### Known limitations (follow-up in v5.3.17+)
+- **12 aarch64 regression.tcyr failures** remaining. Spot-checked
+  causes trace to x86-only direct-`EB(...)` emit in parse.cyr:
+  `PF64CMP`, sub-8-byte struct field loads at 1713–1715, and
+  `#regalloc` prologue/epilogue at 3193–3197/3339–3342. Each
+  needs an `if (_AARCH64_BACKEND == 1) { ... }` arm with the
+  corresponding aarch64 sequence.
+- `lib/hashmap_fast.cyr`, `lib/u128.cyr`, `lib/mabda.cyr` still
+  have raw x86 asm blocks without `#ifdef` gates. Downstream
+  programs that `include` them on aarch64 will still hit the
+  misalignment issue (mitigated by v5.3.15's `asm { ... }` block
+  alignment padding, but the asm itself won't do anything useful
+  on aarch64).
+
 ## [5.3.15] — unreleased
 
 Draining the v5.3.14 "deferred" queue. This patch picks up the

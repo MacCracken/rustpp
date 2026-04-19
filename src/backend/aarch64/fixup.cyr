@@ -116,6 +116,14 @@ fn FIXUP(S) {
             var insn = 0x94000000 | (rel & 0x3FFFFFF);
             S64(pa, (L64(pa) >> 32 << 32) | (insn & 0xFFFFFFFF));
         }
+        else { if (ftype == 3) {
+            # Function address: patch 3 MOVZ/MOVK instructions with the
+            # absolute target (coff of fn body + entry base). Mirrors
+            # FIXUP_MOV's layout; ftype 3 is the function-pointer
+            # counterpart to ftype 0 (var address).
+            var ftarget = L64(S + 0xE92000 + idx * 8) + entry;
+            FIXUP_MOV(S, coff, ftarget);
+        }
         else { if (ftype == 4) {
             # Tail call: patch B rel26 (not BL — no link register update)
             var target = L64(S + 0xE92000 + idx * 8);
@@ -155,7 +163,7 @@ fn FIXUP(S) {
             }
             if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, vaddr); }
             else { FIXUP_MOV(S, coff, vaddr); }
-        } } }
+        } } } }
         fi = fi + 1;
     }
     S64(S + 0x8FCD0, totvar);

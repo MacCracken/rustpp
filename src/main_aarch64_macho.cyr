@@ -161,6 +161,7 @@ SBL(S, bl);
 
 # Preprocess includes
 _init_cyrius_lib();
+PP_PREDEFINE(S, "CYRIUS_ARCH_AARCH64");
 PREPROCESS(S);
 
 # Lex

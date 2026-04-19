@@ -7,6 +7,11 @@
 # via a plain `if` without touching the preprocessor.
 var _AARCH64_BACKEND = 0;
 
+# Stub so parse.cyr's `_AARCH64_BACKEND == 1` branches can reference
+# aarch64 emit primitives without the x86 build emitting an
+# "undefined function" warning. Dead on x86 at runtime.
+fn EW(S, w) { return 0; }
+
 fn EB(S, b) {
     var cp = GCP(S);
     if (cp >= 1048576) {

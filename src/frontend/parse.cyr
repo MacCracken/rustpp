@@ -638,20 +638,28 @@ fn PARSE_FACTOR(S) {
                 syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
                 syscall(SYS_EXIT, 1);
             }
-            if (_IS_OBJ(S) == 1) {
+            # Register the function-address fixup (common to both
+            # backends — only the placeholder bytes differ).
+            var fnaddr = S + 0xE4A000 + fc * 16;
+            SFCNT(S, fc + 1);
+            if (_AARCH64_BACKEND == 1) {
+                # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that
+                # FIXUP patches to the resolved function address.
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
+                EW(S, 0xD2800000);  # movz x0, #0
+                EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
+                EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
+            } elif (_IS_OBJ(S) == 1) {
                 # LEA rax, [rip+disp32]: 48 8D 05 <rel32> (PIC-safe)
                 EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
-                var faddr = S + 0xE4A000 + fc * 16;
-                S64(faddr, GCP(S));
-                S64(faddr + 8, (3 << 56) | fni);
-                SFCNT(S, fc + 1);
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
                 EDISP32(S, 0);
             } else {
                 E2(S, 0xB848);
-                var faddr = S + 0xE4A000 + fc * 16;
-                S64(faddr, GCP(S));
-                S64(faddr + 8, (3 << 56) | fni);
-                SFCNT(S, fc + 1);
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
                 E8(S, 0);
             }
             return 0;
