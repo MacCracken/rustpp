@@ -4,6 +4,53 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.1] — unreleased
+
+Stage-2 PE probe: **full Win64 ABI call path** — stdio via
+`kernel32!GetStdHandle` + `WriteFile`, then `ExitProcess`. Second
+piece of the v5.4.x Windows arc (mirrors Apple Silicon's v5.2.3
+hello-world probe).
+
+### Added
+- **`programs/pe_probe_hello.cyr`** — handcrafted 1536-byte PE32+
+  image that prints `hello\n` to stdout and exits 0. Three kernel32
+  imports in one directory entry (GetStdHandle, WriteFile,
+  ExitProcess) — thunks laid out in IAT (RVA 0x2000), ILT mirrors,
+  hint/name tables at known offsets. Code uses the full Win64
+  convention: RCX/RDX/R8/R9 for the first four args, 32 B shadow
+  space, 5th arg (`lpOverlapped = NULL`) at `[RSP+32]`, and stack
+  pre-alignment via `sub rsp, 40` so RSP is 16-aligned at each
+  `call`. Writable `bytes_written` DWORD lives in `.idata`
+  (`.idata` is `MEM_READ|MEM_WRITE`), so WriteFile's 4th arg
+  points at a valid region of the image.
+
+  Validated on Windows 11 Home (`nejad@hp`, build 26200):
+  ```
+  $ hello.exe
+  hello
+  exit=0
+  ```
+
+  Exercises every piece the v5.4.2+ `EMITPE` backend needs to
+  emit for a typical program: multi-symbol import dispatch,
+  RIP-relative `call [rip+disp32]` to the IAT, RIP-relative
+  `lea` for static data pointers, and the Win64 shadow+arg
+  stack frame.
+
+### Deferred to v5.4.2+
+- **`src/backend/pe/emit.cyr` — cc5 emits PE binaries directly.**
+  With both probes passing, the byte-level reference is locked.
+  Next step is teaching cc5 to emit via `CYRIUS_TARGET_WIN=1`
+  env gate, with `#ifdef CYRIUS_ARCH_X86_WIN` (or similar)
+  driving the Win64 ABI arm in `parse.cyr`'s `fncall*` / `&fn` /
+  direct-`EB` paths. **Biggest design question to resolve first**:
+  whether to gate Win64 as a third-arch-in-one-backend
+  (`_AARCH64_BACKEND`-style) or as a separate `src/backend/pe/`
+  tree. Cleanest is probably the latter since PE headers +
+  import layout diverge sharply from ELF.
+- **`lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`** —
+  kernel32 stdio wrappers + VirtualAlloc-backed heap.
+
 ## [5.4.0] — unreleased
 
 **Windows platform target — first bytes.** First Cyrius-produced

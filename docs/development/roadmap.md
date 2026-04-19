@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.0.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
+> **v5.4.1.** cc5 compiler (434736 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **v5.3 minor-version closeout** — last patch
 > before v5.4.0. aarch64 port is fully online: `regression.tcyr`
 > passes **102/102** on real Pi (Raspberry Pi aarch64, agnosarm.local),

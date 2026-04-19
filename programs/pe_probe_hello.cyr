@@ -1,0 +1,297 @@
+# pe_probe_hello.cyr — Stage 2 PE32+ probe: prints "hello\n" on Windows.
+#
+# Builds on pe_probe.cyr (exit-42) by adding two more kernel32.dll
+# imports — GetStdHandle + WriteFile — and enough Win64 ABI
+# scaffolding (shadow space + 5th-arg slot) to invoke a variadic-
+# style WinAPI call.
+#
+# Pseudo-C:
+#   void _start(void) {
+#       HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);   // -11 → stdout
+#       DWORD  written;
+#       WriteFile(h, "hello\n", 6, &written, NULL);
+#       ExitProcess(0);
+#   }
+#
+# Layout is identical to pe_probe.cyr except:
+#   - IAT / ILT grow from 1 thunk to 3 (GetStdHandle, WriteFile,
+#     ExitProcess) — still one kernel32.dll import directory entry
+#   - .idata holds the message string + a 4-byte `bytes_written`
+#     DWORD the writable section can back (WriteFile requires a
+#     non-NULL out pointer when lpOverlapped is NULL)
+#
+# Build on Linux:
+#   cat programs/pe_probe_hello.cyr | build/cc5 > /tmp/pe_probe_hello \
+#     && chmod +x /tmp/pe_probe_hello
+#   /tmp/pe_probe_hello > /tmp/hello.exe
+#
+# On Windows:
+#   scp /tmp/hello.exe user@host:hello.exe
+#   ssh user@host 'cmd /v:on /c "hello.exe & echo exit=!ERRORLEVEL!"'
+# Expected: stdout "hello", exit=0.
+
+include "lib/syscalls.cyr"
+
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w16(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    return off + 2;
+}
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wstr(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) {
+        store8(buf + off + i, load8(s + i));
+        i = i + 1;
+    }
+    store8(buf + off + i, 0);
+    return off + i + 1;
+}
+fn wzero(buf, off, n) {
+    var i = 0;
+    while (i < n) { store8(buf + off + i, 0); i = i + 1; }
+    return off + n;
+}
+
+# File offsets
+var _HDR_DOS       = 0x0000;
+var _HDR_PE_SIG    = 0x0080;
+var _HDR_COFF      = 0x0084;
+var _HDR_OPT       = 0x0098;
+var _HDR_SECTIONS  = 0x0188;
+var _FILE_TEXT     = 0x0200;
+var _FILE_IDATA    = 0x0400;
+var _FILE_END      = 0x0600;
+
+# RVAs (VirtualAddress + ImageBase = runtime address)
+var _RVA_TEXT      = 0x1000;
+var _RVA_IDATA     = 0x2000;
+
+# .idata sub-layout (offsets relative to RVA_IDATA)
+# 3 IAT thunks + null terminator = 32 B
+var _OFF_IAT       = 0x00;
+var _OFF_IMPDIR    = 0x20;    # 2 × 20 B (kernel32 entry + null)
+var _OFF_ILT       = 0x48;    # 3 × 8 B + null
+var _OFF_DLLNAME   = 0x68;    # "kernel32.dll\0" (13)
+var _OFF_HINT_GSH  = 0x78;    # hint(2) + "GetStdHandle\0" (13)
+var _OFF_HINT_WF   = 0x88;    # hint(2) + "WriteFile\0" (10)
+var _OFF_HINT_EP   = 0x98;    # hint(2) + "ExitProcess\0" (12)
+var _OFF_MSG       = 0xA8;    # "hello\n" (6)
+var _OFF_BWRITTEN  = 0xB0;    # DWORD (zero-init)
+
+# Derived RVAs
+var _RVA_IAT       = _RVA_IDATA + _OFF_IAT;
+var _RVA_IAT_GSH   = _RVA_IAT;
+var _RVA_IAT_WF    = _RVA_IAT + 8;
+var _RVA_IAT_EP    = _RVA_IAT + 16;
+var _RVA_IMPDIR    = _RVA_IDATA + _OFF_IMPDIR;
+var _RVA_ILT       = _RVA_IDATA + _OFF_ILT;
+var _RVA_DLLNAME   = _RVA_IDATA + _OFF_DLLNAME;
+var _RVA_HINT_GSH  = _RVA_IDATA + _OFF_HINT_GSH;
+var _RVA_HINT_WF   = _RVA_IDATA + _OFF_HINT_WF;
+var _RVA_HINT_EP   = _RVA_IDATA + _OFF_HINT_EP;
+var _RVA_MSG       = _RVA_IDATA + _OFF_MSG;
+var _RVA_BWRITTEN  = _RVA_IDATA + _OFF_BWRITTEN;
+
+# ImageBase 0x140000000 (standard PE64 EXE)
+var _IMAGE_BASE_LO = 0x40000000;
+var _IMAGE_BASE_HI = 0x1;
+
+var image[1536];
+wzero(&image, 0, 1536);
+
+# ---- DOS header ----
+w8(&image, 0x00, 0x4D); w8(&image, 0x01, 0x5A);   # 'MZ'
+w32(&image, 0x3C, _HDR_PE_SIG);
+
+# ---- PE signature ----
+w8(&image, _HDR_PE_SIG + 0, 0x50);   # 'P'
+w8(&image, _HDR_PE_SIG + 1, 0x45);   # 'E'
+
+# ---- COFF file header ----
+w16(&image, _HDR_COFF + 0x00, 0x8664);   # Machine: AMD64
+w16(&image, _HDR_COFF + 0x02, 2);        # NumberOfSections
+w16(&image, _HDR_COFF + 0x10, 0xF0);     # SizeOfOptionalHeader
+w16(&image, _HDR_COFF + 0x12, 0x22);     # Characteristics
+
+# ---- PE32+ optional header ----
+w16(&image, _HDR_OPT + 0x00, 0x20B);                     # Magic: PE32+
+w8(&image,  _HDR_OPT + 0x02, 14);                        # MajorLinkerVersion
+w32(&image, _HDR_OPT + 0x04, 0x200);                     # SizeOfCode
+w32(&image, _HDR_OPT + 0x08, 0x200);                     # SizeOfInitializedData
+w32(&image, _HDR_OPT + 0x10, _RVA_TEXT);                 # AddressOfEntryPoint
+w32(&image, _HDR_OPT + 0x14, _RVA_TEXT);                 # BaseOfCode
+w32(&image, _HDR_OPT + 0x18, _IMAGE_BASE_LO);            # ImageBase lo
+w32(&image, _HDR_OPT + 0x1C, _IMAGE_BASE_HI);            # ImageBase hi
+w32(&image, _HDR_OPT + 0x20, 0x1000);                    # SectionAlignment
+w32(&image, _HDR_OPT + 0x24, 0x200);                     # FileAlignment
+w16(&image, _HDR_OPT + 0x28, 6);                         # MajorOSVersion
+w16(&image, _HDR_OPT + 0x30, 6);                         # MajorSubsystemVersion
+w32(&image, _HDR_OPT + 0x38, 0x3000);                    # SizeOfImage
+w32(&image, _HDR_OPT + 0x3C, 0x200);                     # SizeOfHeaders
+w16(&image, _HDR_OPT + 0x44, 3);                         # Subsystem: WINDOWS_CUI
+w32(&image, _HDR_OPT + 0x48, 0x100000);                  # SizeOfStackReserve
+w32(&image, _HDR_OPT + 0x50, 0x1000);                    # SizeOfStackCommit
+w32(&image, _HDR_OPT + 0x58, 0x100000);                  # SizeOfHeapReserve
+w32(&image, _HDR_OPT + 0x60, 0x1000);                    # SizeOfHeapCommit
+w32(&image, _HDR_OPT + 0x6C, 16);                        # NumberOfRvaAndSizes
+
+# Data directory [1] IMPORT TABLE
+w32(&image, _HDR_OPT + 0x70 + 1*8 + 0, _RVA_IMPDIR);
+w32(&image, _HDR_OPT + 0x70 + 1*8 + 4, 40);              # 2 × 20 B
+# Data directory [12] IAT
+w32(&image, _HDR_OPT + 0x70 + 12*8 + 0, _RVA_IAT);
+w32(&image, _HDR_OPT + 0x70 + 12*8 + 4, 32);             # 3 thunks + null = 32 B
+
+# ---- Section headers ----
+w8(&image, _HDR_SECTIONS + 0, 0x2E); w8(&image, _HDR_SECTIONS + 1, 0x74);
+w8(&image, _HDR_SECTIONS + 2, 0x65); w8(&image, _HDR_SECTIONS + 3, 0x78);
+w8(&image, _HDR_SECTIONS + 4, 0x74);
+w32(&image, _HDR_SECTIONS + 0x08, 0x200);
+w32(&image, _HDR_SECTIONS + 0x0C, _RVA_TEXT);
+w32(&image, _HDR_SECTIONS + 0x10, 0x200);
+w32(&image, _HDR_SECTIONS + 0x14, _FILE_TEXT);
+w32(&image, _HDR_SECTIONS + 0x24, 0x60000020);
+
+var _IH2 = _HDR_SECTIONS + 40;
+w8(&image, _IH2 + 0, 0x2E); w8(&image, _IH2 + 1, 0x69);
+w8(&image, _IH2 + 2, 0x64); w8(&image, _IH2 + 3, 0x61);
+w8(&image, _IH2 + 4, 0x74); w8(&image, _IH2 + 5, 0x61);
+w32(&image, _IH2 + 0x08, 0x200);
+w32(&image, _IH2 + 0x0C, _RVA_IDATA);
+w32(&image, _IH2 + 0x10, 0x200);
+w32(&image, _IH2 + 0x14, _FILE_IDATA);
+w32(&image, _IH2 + 0x24, 0xC0000040);                    # IDATA | READ | WRITE
+
+# ---- .text: code ----
+# Win64 ABI: first 4 int/ptr args in RCX, RDX, R8, R9. Shadow space
+# of 32 B always reserved by caller. Stack 16-aligned at `call`;
+# entry gives RSP ≡ 8 mod 16, so `sub rsp, 40` aligns it (40 ≡ 8
+# mod 16), leaves 32 B shadow + 8 B for the 5th arg.
+#
+# Code @ RVA 0x1000 (offsets inside .text):
+#   +0x00 48 83 EC 28               sub  rsp, 0x28  (40 = 32 shadow + 8 for 5th arg)
+#   +0x04 48 C7 44 24 20 00 00 00 00
+#                                  mov  qword [rsp+32], 0  (lpOverlapped=NULL)
+#   +0x0D B9 F5 FF FF FF            mov  ecx, -11 (STD_OUTPUT_HANDLE)
+#   +0x12 FF 15 <d32>               call qword [rip+GSH_IAT]
+#   +0x18 48 89 C1                  mov  rcx, rax  (handle → 1st arg)
+#   +0x1B 48 8D 15 <d32>            lea  rdx, [rip+msg]   (2nd arg)
+#   +0x22 41 B8 06 00 00 00         mov  r8d, 6    (3rd arg: len)
+#   +0x28 4C 8D 0D <d32>            lea  r9, [rip+bytes_written]  (4th arg)
+#   +0x2F FF 15 <d32>               call qword [rip+WF_IAT]
+#   +0x35 31 C9                     xor  ecx, ecx  (exit code 0)
+#   +0x37 FF 15 <d32>               call qword [rip+EP_IAT]
+#   +0x3D CC                        int3
+#
+# RIP at the moment the CPU reads a 4-byte displacement equals
+# (instruction-start + insn-length). For `FF 15 disp32` that's
+# instruction-start + 6. For `LEA rXX, [rip+disp32]` (REX.W + 8D
+# modRM + disp32) that's instruction-start + 7.
+var tp = _FILE_TEXT;
+var code_base = _RVA_TEXT;            # where .text lives in memory
+
+# sub rsp, 0x28
+tp = w8(&image, tp, 0x48); tp = w8(&image, tp, 0x83); tp = w8(&image, tp, 0xEC); tp = w8(&image, tp, 0x28);
+# mov qword [rsp+32], 0
+tp = w8(&image, tp, 0x48); tp = w8(&image, tp, 0xC7); tp = w8(&image, tp, 0x44); tp = w8(&image, tp, 0x24);
+tp = w8(&image, tp, 0x20);
+tp = w32(&image, tp, 0);
+# mov ecx, -11 (STD_OUTPUT_HANDLE = 0xFFFFFFF5)
+tp = w8(&image, tp, 0xB9);
+tp = w32(&image, tp, 0xFFFFFFF5);
+# call [GSH_IAT]
+tp = w8(&image, tp, 0xFF); tp = w8(&image, tp, 0x15);
+# next RIP = current file offset (tp+4) relative to code_base
+var rip_after = (tp - _FILE_TEXT) + 4 + code_base;
+tp = w32(&image, tp, _RVA_IAT_GSH - rip_after);
+# mov rcx, rax
+tp = w8(&image, tp, 0x48); tp = w8(&image, tp, 0x89); tp = w8(&image, tp, 0xC1);
+# lea rdx, [rip+msg]  (48 8D 15 <d32>)
+tp = w8(&image, tp, 0x48); tp = w8(&image, tp, 0x8D); tp = w8(&image, tp, 0x15);
+rip_after = (tp - _FILE_TEXT) + 4 + code_base;
+tp = w32(&image, tp, _RVA_MSG - rip_after);
+# mov r8d, 6  (41 B8 imm32)
+tp = w8(&image, tp, 0x41); tp = w8(&image, tp, 0xB8);
+tp = w32(&image, tp, 6);
+# lea r9, [rip+bytes_written]  (4C 8D 0D <d32>)
+tp = w8(&image, tp, 0x4C); tp = w8(&image, tp, 0x8D); tp = w8(&image, tp, 0x0D);
+rip_after = (tp - _FILE_TEXT) + 4 + code_base;
+tp = w32(&image, tp, _RVA_BWRITTEN - rip_after);
+# call [WF_IAT]
+tp = w8(&image, tp, 0xFF); tp = w8(&image, tp, 0x15);
+rip_after = (tp - _FILE_TEXT) + 4 + code_base;
+tp = w32(&image, tp, _RVA_IAT_WF - rip_after);
+# xor ecx, ecx
+tp = w8(&image, tp, 0x31); tp = w8(&image, tp, 0xC9);
+# call [EP_IAT]
+tp = w8(&image, tp, 0xFF); tp = w8(&image, tp, 0x15);
+rip_after = (tp - _FILE_TEXT) + 4 + code_base;
+tp = w32(&image, tp, _RVA_IAT_EP - rip_after);
+# int3
+tp = w8(&image, tp, 0xCC);
+
+# ---- .idata: imports + data ----
+var ip = _FILE_IDATA;
+
+# IAT: 3 thunks pointing at hint/names, then null
+ip = w64(&image, ip, _RVA_HINT_GSH);
+ip = w64(&image, ip, _RVA_HINT_WF);
+ip = w64(&image, ip, _RVA_HINT_EP);
+ip = w64(&image, ip, 0);
+
+# Import directory: kernel32.dll (OriginalFirstThunk=ILT, Name=DLL, FirstThunk=IAT)
+ip = w32(&image, ip, _RVA_ILT);
+ip = w32(&image, ip, 0);
+ip = w32(&image, ip, 0);
+ip = w32(&image, ip, _RVA_DLLNAME);
+ip = w32(&image, ip, _RVA_IAT);
+# Null terminator entry
+ip = w32(&image, ip, 0); ip = w32(&image, ip, 0);
+ip = w32(&image, ip, 0); ip = w32(&image, ip, 0); ip = w32(&image, ip, 0);
+
+# ILT: same 3 thunks + null
+ip = w64(&image, ip, _RVA_HINT_GSH);
+ip = w64(&image, ip, _RVA_HINT_WF);
+ip = w64(&image, ip, _RVA_HINT_EP);
+ip = w64(&image, ip, 0);
+
+# DLL name
+ip = wstr(&image, ip, "kernel32.dll");
+while (ip < _FILE_IDATA + _OFF_HINT_GSH) { ip = w8(&image, ip, 0); }
+
+# Hint/Name entries: u16 hint + symbol name
+ip = w16(&image, ip, 0); ip = wstr(&image, ip, "GetStdHandle");
+while (ip < _FILE_IDATA + _OFF_HINT_WF) { ip = w8(&image, ip, 0); }
+
+ip = w16(&image, ip, 0); ip = wstr(&image, ip, "WriteFile");
+while (ip < _FILE_IDATA + _OFF_HINT_EP) { ip = w8(&image, ip, 0); }
+
+ip = w16(&image, ip, 0); ip = wstr(&image, ip, "ExitProcess");
+while (ip < _FILE_IDATA + _OFF_MSG) { ip = w8(&image, ip, 0); }
+
+# Message + bytes_written
+ip = w8(&image, ip, 0x68);   # 'h'
+ip = w8(&image, ip, 0x65);   # 'e'
+ip = w8(&image, ip, 0x6C);   # 'l'
+ip = w8(&image, ip, 0x6C);   # 'l'
+ip = w8(&image, ip, 0x6F);   # 'o'
+ip = w8(&image, ip, 0x0A);   # '\n'
+while (ip < _FILE_IDATA + _OFF_BWRITTEN) { ip = w8(&image, ip, 0); }
+# bytes_written DWORD (will be overwritten by WriteFile)
+ip = w32(&image, ip, 0);
+
+syscall(SYS_WRITE, 1, &image, _FILE_END);
+syscall(SYS_EXIT, 0);
