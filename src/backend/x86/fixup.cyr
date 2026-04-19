@@ -185,7 +185,13 @@ fn FIXUP(S) {
         else { if (ftype == 1) {
             # String address: dbase + totvar + string_offset.
             # Shared: patch rel32 for LEA; else: patch imm64.
+            # PE32+ (v5.4.8): strings live in .rdata at
+            # ImageBase + _pe_rdata_rva + _pe_rdata_str_off + idx
+            # instead of the ELF `dbase + totvar + idx`.
             var tgt1 = dbase + totvar + idx;
+            if (_TARGET_PE == 1) {
+                tgt1 = 0x140000000 + _pe_rdata_rva + _pe_rdata_str_off + idx;
+            }
             if (kmode == 2) {
                 var rel1 = tgt1 - (entry + coff + 4);
                 var p1 = S + 0x54A000 + coff;
@@ -208,8 +214,14 @@ fn FIXUP(S) {
         else {
             # Variable address (type 0) — use prefix sum.
             # Shared: patch rel32 for LEA; else: patch imm64.
+            # PE32+ (v5.4.8): gvars live in .rdata at
+            # ImageBase + _pe_rdata_rva + prefix_sum[idx]
+            # (_pe_rdata_gvar_off is 0 by construction).
             if (idx < vcnt) {
                 var tgt0 = dbase + L64(pfx + idx * 8);
+                if (_TARGET_PE == 1) {
+                    tgt0 = 0x140000000 + _pe_rdata_rva + L64(pfx + idx * 8);
+                }
                 if (kmode == 2) {
                     var rel0 = tgt0 - (entry + coff + 4);
                     var p0 = S + 0x54A000 + coff;

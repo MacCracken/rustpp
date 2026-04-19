@@ -63,6 +63,22 @@ var _pe_idata_file_off   = 0;
 var _pe_idata_vsize      = 0;
 var _pe_idata_file_size  = 0;
 
+# .rdata section (gvars + string literals). Added v5.4.8 so `movabs
+# rax, imm64` fixups for string/gvar addresses (ftype=0 / ftype=1
+# in `src/backend/x86/fixup.cyr`) can resolve to a real PE VA
+# (ImageBase + _pe_rdata_rva + per-item offset) instead of the
+# ELF-style `entry + acp + …` that v5.4.7 emitted, which pointed
+# into unmapped memory on Windows. Sub-layout: gvars first (zero-
+# filled, `totvar` bytes) then string bytes (`spos` bytes).
+var _pe_rdata_rva        = 0;
+var _pe_rdata_file_off   = 0;
+var _pe_rdata_vsize      = 0;
+var _pe_rdata_file_size  = 0;
+var _pe_rdata_gvar_off   = 0;   # always 0 — gvars at the start of rdata
+var _pe_rdata_str_off    = 0;   # = totvar (strings follow gvars)
+var _pe_rdata_totvar     = 0;   # snapshot of totvar computed inside _pe_layout
+var _pe_rdata_spos       = 0;   # snapshot of GSPOS(S)
+
 # Sub-regions within .idata. Offsets are relative to _pe_idata_file_off
 # (equivalently, to _pe_idata_rva — .idata sub-layout is
 # file-offset == rva-offset here because SectionAlignment / FileAlignment
@@ -310,8 +326,9 @@ fn _pe_layout(S) {
     var cp = GCP(S);
 
     # Header block: DOS(64) + PEsig(4) + COFF(20) + OptHdr(240) +
-    # 2× SectionHeader(40) = 408. Round up to FileAlignment (0x200).
-    var hdr_raw = 408;
+    # 3× SectionHeader(40) = 448. Round up to FileAlignment (0x200).
+    # Third section (.rdata) added v5.4.8 for gvar + string data.
+    var hdr_raw = 448;
     _pe_hdr_aligned_size = (hdr_raw + 0x1FF) & (0 - 0x200);
 
     # .text — first section, starts at SectionAlignment past ImageBase.
@@ -363,8 +380,35 @@ fn _pe_layout(S) {
     _pe_idata_vsize = _pe_dll_name_sub_off + _pe_dll_name_size;
     _pe_idata_file_size = (_pe_idata_vsize + 0x1FF) & (0 - 0x200);
 
-    _pe_image_file_size = _pe_idata_file_off + _pe_idata_file_size;
-    _pe_image_size = (_pe_idata_rva + _pe_idata_vsize + 0xFFF) & (0 - 0x1000);
+    # .rdata — gvar storage (zero-filled) followed by string literals.
+    # totvar/spos are computed here from the same state FIXUP later
+    # walks; snapshotting them onto globals keeps EMITPE_EXEC and
+    # fixup.cyr's ftype=0/1 branches pulling from one source of truth.
+    var vcnt = GVCNT(S);
+    var totvar = 0;
+    var rvi = 0;
+    while (rvi < vcnt) {
+        totvar = totvar + L64(S + 0x12A000 + rvi * 8);
+        rvi = rvi + 1;
+    }
+    var spos = GSPOS(S);
+    _pe_rdata_totvar = totvar;
+    _pe_rdata_spos   = spos;
+    _pe_rdata_gvar_off = 0;
+    _pe_rdata_str_off  = totvar;
+
+    _pe_rdata_rva = (_pe_idata_rva + _pe_idata_vsize + 0xFFF) & (0 - 0x1000);
+    _pe_rdata_file_off = _pe_idata_file_off + _pe_idata_file_size;
+    _pe_rdata_vsize = totvar + spos;
+    _pe_rdata_file_size = (_pe_rdata_vsize + 0x1FF) & (0 - 0x200);
+
+    _pe_image_file_size = _pe_rdata_file_off + _pe_rdata_file_size;
+    # SizeOfImage is virtual: last section's virtual end, rounded to
+    # SectionAlignment. Use vsize even if zero — PE requires the
+    # section descriptor to be consistent with file-layout order.
+    var rdata_end_rva = _pe_rdata_rva + _pe_rdata_vsize;
+    if (_pe_rdata_vsize == 0) { rdata_end_rva = _pe_rdata_rva; }
+    _pe_image_size = (rdata_end_rva + 0xFFF) & (0 - 0x1000);
 
     return 0;
 }
@@ -414,7 +458,7 @@ fn EMITPE_EXEC(S) {
     # COFF file header (20 bytes)
     # ============================================================
     o = _pe_w16(O, o, 0x8664);          # Machine = AMD64
-    o = _pe_w16(O, o, 2);               # NumberOfSections
+    o = _pe_w16(O, o, 3);               # NumberOfSections (text + idata + rdata)
     o = _pe_w32(O, o, 0);               # TimeDateStamp (0 = unbound)
     o = _pe_w32(O, o, 0);               # PointerToSymbolTable
     o = _pe_w32(O, o, 0);               # NumberOfSymbols
@@ -431,7 +475,8 @@ fn EMITPE_EXEC(S) {
     o = _pe_w8(O, o, 0);                # MajorLinkerVersion
     o = _pe_w8(O, o, 0);                # MinorLinkerVersion
     o = _pe_w32(O, o, _pe_text_file_size);   # SizeOfCode
-    o = _pe_w32(O, o, _pe_idata_file_size);  # SizeOfInitializedData
+    # SizeOfInitializedData covers .idata + .rdata (both CNT_INITIALIZED_DATA).
+    o = _pe_w32(O, o, _pe_idata_file_size + _pe_rdata_file_size);
     o = _pe_w32(O, o, 0);                    # SizeOfUninitializedData
     o = _pe_w32(O, o, _pe_text_rva);         # AddressOfEntryPoint
     o = _pe_w32(O, o, _pe_text_rva);         # BaseOfCode
@@ -528,6 +573,34 @@ fn EMITPE_EXEC(S) {
     o = _pe_w16(O, o, 0);
     o = _pe_w32(O, o, 0xC0000040);           # CNT_INIT_DATA | MEM_READ | MEM_WRITE
 
+    # .rdata — gvar storage + string literals (v5.4.8)
+    store8(O + o,     0x2E);    # '.'
+    store8(O + o + 1, 0x72);    # 'r'
+    store8(O + o + 2, 0x64);    # 'd'
+    store8(O + o + 3, 0x61);    # 'a'
+    store8(O + o + 4, 0x74);    # 't'
+    store8(O + o + 5, 0x61);    # 'a'
+    store8(O + o + 6, 0);
+    store8(O + o + 7, 0);
+    o = o + 8;
+    o = _pe_w32(O, o, _pe_rdata_vsize);
+    o = _pe_w32(O, o, _pe_rdata_rva);
+    o = _pe_w32(O, o, _pe_rdata_file_size);
+    o = _pe_w32(O, o, _pe_rdata_file_off);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w32(O, o, 0);
+    o = _pe_w16(O, o, 0);
+    o = _pe_w16(O, o, 0);
+    # CNT_INIT_DATA | MEM_READ | MEM_WRITE. For v5.4.8 gvar storage
+    # and string literals share one section. Name is `.rdata` for
+    # historical symmetry with the sub-region naming in this file,
+    # but permissions are RW because Cyrius gvars are writable at
+    # runtime (`var x = 0; x = 42;`). Splitting into real `.rdata`
+    # (RO strings) + `.data` (RW gvars) is a follow-up cleanup —
+    # harmless today because PE loaders honor section flags, not
+    # section names.
+    o = _pe_w32(O, o, 0xC0000040);
+
     # Pad headers to FileAlignment.
     o = _pe_wpad(O, o, 0x200);
 
@@ -616,6 +689,36 @@ fn EMITPE_EXEC(S) {
     # Pad .idata to FileAlignment.
     idata_pad_target = idata_start + _pe_idata_file_size;
     while (o < idata_pad_target) {
+        store8(O + o, 0);
+        o = o + 1;
+    }
+
+    # ============================================================
+    # .rdata section — gvar storage (zero-filled) + string bytes.
+    # Strings are copied from the compiler's str_data region
+    # (S + 0x14A000) so `movabs rax, imm64` fixups patched with
+    # ImageBase + _pe_rdata_rva + totvar + str_offset resolve to
+    # real content at runtime. gvars stay zero-initialized on PE
+    # (same treatment as ELF); runtime stores into them use the
+    # same movabs+store path that works once the VA is mapped.
+    # ============================================================
+    ti = 0;
+    while (ti < _pe_rdata_totvar) {
+        store8(O + o + ti, 0);
+        ti = ti + 1;
+    }
+    o = o + _pe_rdata_totvar;
+    ti = 0;
+    while (ti < _pe_rdata_spos) {
+        store8(O + o + ti, load8(S + 0x14A000 + ti));
+        ti = ti + 1;
+    }
+    o = o + _pe_rdata_spos;
+    # Pad rdata to FileAlignment (the in-memory tail beyond vsize
+    # stays zero; the file-aligned pad keeps the on-disk image
+    # aligned so SizeOfImage / PointerToRawData arithmetic holds).
+    var rdata_pad_target = _pe_rdata_file_off + _pe_rdata_file_size;
+    while (o < rdata_pad_target) {
         store8(O + o, 0);
         o = o + 1;
     }

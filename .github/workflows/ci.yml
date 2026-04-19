@@ -513,36 +513,46 @@ jobs:
             fi
           done
           echo "PASS: no Linux syscall bytes in any PE32+ output"
-      - name: v5.4.7 syscall(1) → WriteFile structural gate
+      - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
-          # Compile a syscall(1) program with CYRIUS_TARGET_WIN=1 and
-          # verify the emitted PE32+:
-          #   (a) is structurally valid (MZ / PE / Machine = 0x8664),
-          #   (b) imports GetStdHandle + WriteFile + ExitProcess from
-          #       kernel32.dll (all three names present in .idata),
-          #   (c) contains no Linux `0F 05` syscall bytes.
-          # On-hardware execution gate is deferred to the patch that
-          # ships PE-aware data placement (gvars / string literals);
-          # until then, the buffer pointer argument passed to WriteFile
-          # resolves to an ELF-style VA that does not exist in the PE
-          # image. Structural correctness is the v5.4.7 scope.
+          # Compile a syscall(1) hello-world program and verify:
+          #   (a) structurally valid PE32+ with 3 sections including `.rdata`,
+          #   (b) imports GetStdHandle + WriteFile + ExitProcess,
+          #   (c) zero Linux `0F 05` syscall bytes,
+          #   (d) string bytes live in `.rdata` (not floating in free space),
+          #   (e) the compiled movabs targets `0x140…` (PE VA), not
+          #       `0x400…` (ELF VA) — v5.4.8 data-placement regression gate.
           printf 'syscall(1, 1, "hi\\n", 3); syscall(60, 0);\n' \
-            | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > /tmp/win_out/write.exe
-          sz=$(wc -c < /tmp/win_out/write.exe)
-          magic=$(xxd -l2 -p /tmp/win_out/write.exe | tr -d ' \n')
-          machine=$(xxd -s68 -l2 -p /tmp/win_out/write.exe | tr -d ' \n')
-          test "$sz" -gt 0 && test "$magic" = "4d5a" && test "$machine" = "6486" || {
-            echo "FAIL: write.exe structural (sz=$sz magic=$magic machine=$machine)"; exit 1;
+            | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > /tmp/win_out/hello.exe
+          sz=$(wc -c < /tmp/win_out/hello.exe)
+          magic=$(xxd -l2 -p /tmp/win_out/hello.exe | tr -d ' \n')
+          machine=$(xxd -s68 -l2 -p /tmp/win_out/hello.exe | tr -d ' \n')
+          nsec=$(python3 -c "import sys; d=open('/tmp/win_out/hello.exe','rb').read(); print(int.from_bytes(d[0x46:0x48],'little'))")
+          test "$sz" -gt 0 && test "$magic" = "4d5a" && test "$machine" = "6486" && test "$nsec" = "3" || {
+            echo "FAIL: hello.exe structural (sz=$sz magic=$magic machine=$machine nsec=$nsec)"; exit 1;
           }
-          if xxd -p /tmp/win_out/write.exe | tr -d '\n' | grep -qE '0f05'; then
-            echo "FAIL: write.exe contains 0F 05"; exit 1
+          if xxd -p /tmp/win_out/hello.exe | tr -d '\n' | grep -qE '0f05'; then
+            echo "FAIL: hello.exe contains 0F 05"; exit 1
           fi
           for sym in ExitProcess GetStdHandle WriteFile kernel32.dll; do
-            if ! grep -a -q "$sym" /tmp/win_out/write.exe; then
-              echo "FAIL: write.exe missing import: $sym"; exit 1
+            if ! grep -a -q "$sym" /tmp/win_out/hello.exe; then
+              echo "FAIL: hello.exe missing import: $sym"; exit 1
             fi
           done
-          echo "PASS: v5.4.7 syscall(1) PE32+ structural gate"
+          python3 -c "
+          d=open('/tmp/win_out/hello.exe','rb').read()
+          for i in range(0x200, 0x400-10):
+              if d[i]==0x48 and d[i+1]==0xB8:
+                  imm=int.from_bytes(d[i+2:i+10],'little')
+                  assert 0x140000000 <= imm < 0x200000000, f'movabs imm=0x{imm:x} not in PE VA range'
+                  print(f'PASS: movabs rax, 0x{imm:x} (PE VA)')
+                  break
+          else:
+              raise SystemExit('FAIL: no movabs in .text')
+          "
+          echo "hi" > /tmp/win_out/hello.expected_stdout
+          echo "0"  > /tmp/win_out/hello.expected
+          echo "PASS: v5.4.8 PE data placement gate"
       - name: Upload PE32+ binaries for native run
         uses: actions/upload-artifact@v4
         with:
@@ -564,6 +574,27 @@ jobs:
         with:
           name: windows-pe-binaries
           path: ./win
+      - name: Run hello-world on Windows (v5.4.8 end-to-end gate)
+        shell: pwsh
+        run: |
+          # v5.4.8 on-hardware gate: compiled syscall(1, 1, "hi\n", 3);
+          # syscall(60, 0); must print "hi" and exit 0 on a real Windows
+          # runner. Validates that the movabs-patched PE VA resolves to
+          # the `.rdata` section's "hi\n" bytes and WriteFile succeeds.
+          $exe = ".\win\hello.exe"
+          $expectedStdout = (Get-Content ".\win\hello.expected_stdout" -Raw).Trim()
+          $expectedExit = [int](Get-Content ".\win\hello.expected" -Raw).Trim()
+          $stdoutFile = ".\win\hello.stdout"
+          $proc = Start-Process -FilePath $exe -Wait -PassThru `
+                                -NoNewWindow -RedirectStandardOutput $stdoutFile
+          $actualStdout = (Get-Content $stdoutFile -Raw).Trim()
+          if ($proc.ExitCode -eq $expectedExit -and $actualStdout -eq $expectedStdout) {
+            Write-Host "PASS hello: stdout='$actualStdout' exit=$($proc.ExitCode)"
+          } else {
+            Write-Host "FAIL hello: expected stdout='$expectedStdout' exit=$expectedExit"
+            Write-Host "       got stdout='$actualStdout' exit=$($proc.ExitCode)"
+            exit 1
+          }
       - name: Run exit-code tests on Windows
         shell: pwsh
         run: |

@@ -4,6 +4,95 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.8] — 2026-04-19
+
+**PE-aware data placement — hello-world runs end-to-end on Windows.**
+v5.4.7 wired the `syscall(1, fd, buf, len)` → `WriteFile` call
+sequence but left the buffer pointer resolving to an ELF VA
+(`0x400…`) unmapped under PE's `ImageBase = 0x140000000`. v5.4.8
+adds a third PE section (`.rdata`), places gvar storage + string
+literals inside it, and patches the compiler's `movabs rax, imm64`
+fixups (ftype=0 / ftype=1 in `src/backend/x86/fixup.cyr`) to target
+`ImageBase + _pe_rdata_rva + …`. Result: `syscall(1, 1, "hi\n", 3);
+syscall(60, 0);` compiled with `CYRIUS_TARGET_WIN=1` now prints
+`hi` and exits 0 on a real Windows runner — first genuine Cyrius
+program running on the Windows platform target.
+
+### Added
+- **`.rdata` section in PE output** (`src/backend/pe/emit.cyr`).
+  Layout:
+  - `[0..totvar)` — zero-filled gvar storage
+  - `[totvar..totvar+spos)` — string literal bytes copied from
+    `S + 0x14A000` (the compiler's `str_data` region)
+  Geometry computed inside `_pe_layout`:
+  `_pe_rdata_rva = align(_pe_idata_rva + _pe_idata_vsize, 0x1000)`,
+  `_pe_rdata_file_off = _pe_idata_file_off + _pe_idata_file_size`,
+  `_pe_rdata_vsize = totvar + spos`,
+  `_pe_rdata_file_size = align(vsize, 0x200)`.
+  Exposed to `fixup.cyr` via `_pe_rdata_rva`, `_pe_rdata_str_off`
+  (=totvar) and `_pe_rdata_gvar_off` (=0) globals.
+- **Third section header in `EMITPE_EXEC`**. `NumberOfSections`
+  bumped 2 → 3; `hdr_raw` bumped 408 → 448 to fit the extra 40-byte
+  `IMAGE_SECTION_HEADER` (still rounds to `FileAlignment` = 512).
+  `SizeOfInitializedData` now covers `.idata + .rdata`.
+  Characteristics: `0xC0000040` (`CNT_INITIALIZED_DATA | MEM_READ |
+  MEM_WRITE`). Name is `.rdata` for internal symmetry with the
+  sub-region names; `MEM_WRITE` is set because Cyrius gvars are
+  writable at runtime. Splitting into a true R-only `.rdata` +
+  RW `.data` pair is a cleanup follow-up, not correctness.
+- **PE-aware fixup branches** in
+  `src/backend/x86/fixup.cyr` (`FIXUP(S)`) for
+  `ftype == 1` (string address) and `ftype == 0` (gvar address):
+  ```
+  tgt_pe = 0x140000000 + _pe_rdata_rva + rdata_offset
+  ```
+  where `rdata_offset = _pe_rdata_str_off + string_off` for strings
+  and `prefix_sum[var_idx]` for gvars. Patched as a full 8-byte
+  `imm64` into the existing `movabs rax, imm64` encoding; no
+  changes to emitter instruction selection.
+- **CI hello-world gate**. `windows-cross` now compiles
+  `syscall(1, 1, "hi\n", 3); syscall(60, 0);` under
+  `CYRIUS_TARGET_WIN=1`, asserts the PE image has 3 sections and
+  that the compiled `movabs` targets `0x140000000..0x200000000`
+  (not the ELF `0x400…` range — that regression check prevents
+  future gvar/string emit paths from silently re-introducing the
+  pre-v5.4.8 bug). `windows-native` then runs the executable
+  on `windows-latest` and asserts `stdout == "hi"`, `ExitCode == 0`.
+  First Cyrius-compiled program exercising a real kernel32 I/O
+  call on hardware end-to-end.
+
+### Verified
+- `printf 'syscall(1, 1, "hi\\n", 3); syscall(60, 0);' | CYRIUS_TARGET_WIN=1 build/cc5 > hello.exe`:
+  - 2048 B PE32+ with 3 sections (`.text`, `.idata`, `.rdata`).
+  - `.rdata` at file offset 0x600 holds `68 69 0A 00` (`hi\n\0`).
+  - `.text` contains `48 B8 00 30 00 40 01 00 00 00` — `movabs rax,
+    0x140003000` (PE ImageBase + `_pe_rdata_rva(0x3000)` +
+    `str_off(0)`), the exact address the `.rdata` string lives at.
+  - `file(1)`-valid PE32+, zero `0F 05` bytes, IAT imports
+    unchanged (ExitProcess, GetStdHandle, WriteFile, kernel32.dll).
+- `sh scripts/check.sh` 8/8 pass; self-host byte-identical.
+- aarch64 cross-compiler builds clean; the new `_pe_rdata_*`
+  globals live in `pe/emit.cyr` (not included by `main_aarch64.cyr`)
+  and the fixup branches live in `x86/fixup.cyr` (which aarch64
+  doesn't use either) — no arch shim needed.
+- cc5: 464224 → 466560 B (+2336 B across the cycle).
+
+### v5.4.9+ follow-ups (tracked, not blocking)
+- **RW split for `.rdata`**. Real `.rdata` (CNT_INITIALIZED_DATA |
+  MEM_READ) for strings + `.data` (CNT_INITIALIZED_DATA | MEM_READ |
+  MEM_WRITE) for gvars. Harmless conflation today; honest naming
+  tomorrow.
+- **Win64 ABI at general call sites** — still outstanding as a
+  prerequisite for compiling any Cyrius program that uses fn calls
+  with >0 args on the PE target. Programs using top-level code +
+  syscall(1) / syscall(60) only (hello.exe) are unblocked as of
+  v5.4.8; fn-call-heavy programs still hit the ABI mismatch.
+- `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` — stdlib
+  wrappers so downstream code doesn't have to write raw
+  `syscall(1, …)` calls.
+- `cc5_win.cyr` cross-entry so the env-var `CYRIUS_TARGET_WIN=1`
+  dance can be skipped for Win-targeted compiler builds.
+
 ## [5.4.7] — 2026-04-19
 
 **`syscall(1, fd, buf, len)` → `GetStdHandle + WriteFile` rerouting.**

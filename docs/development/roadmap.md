@@ -1,22 +1,26 @@
 # Cyrius Development Roadmap
 
-> **v5.4.7.** cc5 compiler (464224 B x86_64), x86_64 + aarch64
-> cross. IR + CFG. **Windows arc — stages 3–8 shipped.**
-> v5.4.2 landed the structural `EMITPE_EXEC` backend. v5.4.3
-> added the PE fixup infrastructure + `EEXIT` Win64 branch.
-> v5.4.4 reroutes explicit `syscall(60, code)` calls through
-> the same `ExitProcess` IAT path at parse time. v5.4.5 adds
-> the on-hardware CI gate on `windows-latest`. v5.4.6 adds the
+> **v5.4.8.** cc5 compiler (466560 B x86_64), x86_64 + aarch64
+> cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
+> Cyrius program runs end-to-end on real Windows.** v5.4.2
+> landed the structural `EMITPE_EXEC` backend. v5.4.3 added
+> the PE fixup infrastructure + `EEXIT` Win64 branch. v5.4.4
+> reroutes explicit `syscall(60, code)` through the same
+> `ExitProcess` IAT path at parse time. v5.4.5 adds the
+> on-hardware CI gate on `windows-latest`. v5.4.6 adds the
 > `#pe_import("kernel32.dll", "Symbol")` directive. v5.4.7
 > reroutes `syscall(1, fd, buf, len)` to
-> `GetStdHandle + WriteFile` via the auto-registered IAT —
-> first functional kernel32 call path, structural scope (the
-> on-hardware print gate waits on PE-aware gvar / string
-> placement). Remaining correctness work (general Win64 ABI
-> at `fncall*`, PE data placement, `syscall(n)` for the rest,
+> `GetStdHandle + WriteFile` via the auto-registered IAT.
+> **v5.4.8 adds the PE `.rdata` section + PE-aware
+> `movabs rax, imm64` fixups** — gvars / string literals now
+> land at real PE VAs (`ImageBase + _pe_rdata_rva + …`), so
+> `syscall(1, 1, "hi\n", 3); syscall(60, 0);` compiled with
+> `CYRIUS_TARGET_WIN=1` prints `hi` and exits 0 on
+> `windows-latest`. Remaining correctness work (general Win64
+> ABI at `fncall*`, `syscall(n)` for the rest,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
-> `cc5_win.cyr` cross-entry, byte-cmp polish) is the v5.4.8+
-> queue. **v5.4.x runs a parallel compiler-optimization
+> `cc5_win.cyr` cross-entry, RW-split between `.rdata` and
+> `.data`, byte-cmp polish) is the v5.4.9+ queue. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -144,6 +148,36 @@ correctness → stdlib wrappers → native self-host.
   `jmp +0` prelude removal + implicit-EEXIT suppression when
   source already exited. Polish, not correctness.
 
+### v5.4.8 — PE data placement (`.rdata` + PE-VA fixups) ✅
+- **Third PE section `.rdata`** (`src/backend/pe/emit.cyr`)
+  holds gvar storage + string literal bytes. Sub-layout: gvars
+  first (zero-filled, `totvar` bytes) then strings
+  (`GSPOS(S)` bytes, copied from `S + 0x14A000`).
+  `_pe_rdata_rva / _pe_rdata_str_off / _pe_rdata_gvar_off`
+  globals published for `fixup.cyr` to consume.
+- **`NumberOfSections` 2 → 3**, `hdr_raw` 408 → 448 (extra
+  40-byte section header, still rounds to `FileAlignment`=512),
+  `SizeOfInitializedData` now covers `.idata + .rdata`.
+- **PE-aware `FIXUP(S)` branches** in
+  `src/backend/x86/fixup.cyr` for `ftype == 1` (string) and
+  `ftype == 0` (gvar): target = `0x140000000 + _pe_rdata_rva +
+  rdata_offset`. Patched as the full 8-byte `imm64` in the
+  already-emitted `movabs rax, imm64` encoding; no changes to
+  emitter instruction selection.
+- **CI hello-world gate**. `windows-cross` compiles
+  `syscall(1, 1, "hi\n", 3); syscall(60, 0);`, asserts the
+  PE output has 3 sections AND that the compiled `movabs`
+  targets `0x140000000..0x200000000` (regression gate — catches
+  any future emit path that reintroduces the pre-v5.4.8 ELF-VA
+  bug). `windows-native` runs the resulting `hello.exe` on
+  `windows-latest`, captures stdout, and asserts
+  `stdout == "hi"`, `ExitCode == 0`.
+- **Gate on hardware**: first Cyrius-compiled program that
+  exercises a real kernel32 I/O call end-to-end. `hello.exe`
+  (2048 B, 3 sections) runs clean.
+- cc5: 464224 → 466560 B; self-host byte-identical;
+  `sh scripts/check.sh` 8/8.
+
 ### v5.4.7 — `syscall(1)` → `GetStdHandle + WriteFile` ✅
 - **`EWRITE_PE(S)` in `src/backend/x86/emit.cyr`** consumes the
   `[len][buf][fd][sc_nr=1]` stack layout left by parse.cyr's
@@ -236,9 +270,9 @@ correctness → stdlib wrappers → native self-host.
   explicit `syscall(60, 42)` in source still emits the Linux
   syscall instructions alongside the implicit `EEXIT`.
 
-### v5.4.8+ Queue — PE correctness (tracked, not hidden)
+### v5.4.9+ Queue — PE correctness (tracked, not hidden)
 
-What v5.4.2–v5.4.7 explicitly do NOT deliver. Each item is a
+What v5.4.2–v5.4.8 explicitly do NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.x plus" would
 conflate unrelated work.
 
@@ -458,8 +492,9 @@ enables adding new targets without touching the frontend.
 | **v5.4.4** | Windows x86_64 (syscall(60) rerouting) | PE/COFF | **Done** — explicit `syscall(60, N)` routes to `ExitProcess`; Linux `0F 05` absent from compiled `.text` |
 | **v5.4.5** | Windows x86_64 (on-hardware CI gate) | PE/COFF | **Done** — `windows-cross` + `windows-native` CI jobs validate ExitProcess path end-to-end on `windows-latest`; ERRORLEVEL verified for N ∈ {0, 1, 42, 255} |
 | **v5.4.6** | Windows x86_64 (`#pe_import` directive) | PE/COFF | **Done** — declarative kernel32 symbol registration; compiler emits IAT with arbitrary imports beyond the hardcoded `ExitProcess` |
-| **v5.4.7** | Windows x86_64 (`syscall(1)` → WriteFile) | PE/COFF | **Done** — `EWRITE_PE` emits GetStdHandle + WriteFile call sequence via auto-registered IAT; structural scope (on-hardware print awaits PE data placement) |
-| **v5.4.8+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, PE-aware gvar / string placement (on-hardware print gate), remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, byte-cmp polish |
+| **v5.4.7** | Windows x86_64 (`syscall(1)` → WriteFile) | PE/COFF | **Done** — `EWRITE_PE` emits GetStdHandle + WriteFile call sequence via auto-registered IAT; structural scope |
+| **v5.4.8** | Windows x86_64 (PE data placement) | PE/COFF | **Done** — `.rdata` section holds gvars + strings; `movabs rax, imm64` fixups resolve to `ImageBase + _pe_rdata_rva + …`; `hello.exe` prints `hi\n` and exits 0 on real Windows |
+| **v5.4.9+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, RW-split between `.rdata` and `.data`, byte-cmp polish |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 
