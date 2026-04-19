@@ -183,9 +183,18 @@ fn EMITMACHO_EXEC(S) {
 # Stage 2 probe (programs/macho_probe_arm.cyr) — 15 load commands
 # proven on macOS 26.4.1 Apple Silicon hardware.
 #
-# v5.3.0 scope: syscall-only programs. totvar>0, spos>0, or function-
-# table entries that need absolute addressing → error out for now
-# (Phase 3 adds string + variable + import support).
+# v5.3.1+ supports strings + globals via PIE-safe adrp+add and a
+# dedicated `__DATA` segment. v5.3.6+ supports multi-page __TEXT so
+# tool-size binaries (cyrfmt, cyrlint, cyrdoc) fit.
+#
+# Current scope is still the BSD SVC whitelist (read, write, open,
+# close, mmap, mprotect, munmap, exit). Anything beyond that —
+# `printf`, `fopen`, `pthread_create`, any POSIX not covered by
+# BSD SVCs — needs libSystem imports (`__stubs` + `__DATA_CONST`
+# `__got` + chained-fixup bind entries). v5.3.12 made the parser
+# reject out-of-whitelist syscall numbers at compile time so users
+# get a clear error instead of a silently-broken binary. The full
+# import wire-up is a v5.4.x target.
 #
 # Discovery 2026-04-18: raw `svc #0x80` works for the BSD syscall
 # whitelist (_exit, _write, and likely more) when the binary has

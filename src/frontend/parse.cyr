@@ -703,6 +703,31 @@ fn PARSE_FACTOR(S) {
         }
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
         STI(S, GTI(S) + 1);
+        # Mach-O ARM target: the aarch64 ESYSXLAT chain only translates the
+        # BSD SVC whitelist (read, write, open, close, mmap, mprotect,
+        # munmap, exit). Any other syscall number would hit SVC with a
+        # garbage x16, so detect at parse time and error out rather than
+        # emit a silently-broken binary. libSystem imports for the
+        # broader POSIX surface is tracked as a follow-up feature.
+        if (_TARGET_MACHO == 2) {
+            if (sc_num >= 0) {
+                var sc_ok = 0;
+                if (sc_num == 0) { sc_ok = 1; }
+                elif (sc_num == 1) { sc_ok = 1; }
+                elif (sc_num == 2) { sc_ok = 1; }
+                elif (sc_num == 3) { sc_ok = 1; }
+                elif (sc_num == 9) { sc_ok = 1; }
+                elif (sc_num == 10) { sc_ok = 1; }
+                elif (sc_num == 11) { sc_ok = 1; }
+                elif (sc_num == 60) { sc_ok = 1; }
+                if (sc_ok == 0) {
+                    syscall(SYS_WRITE, 2,
+                        "error: syscall not available on Mach-O ARM target (BSD whitelist: 0,1,2,3,9,10,11,60). libSystem imports pending.\n",
+                        118);
+                    syscall(SYS_EXIT, 1);
+                }
+            }
+        }
         ESCPOPS(S, argc);
         _cfo = 0;
         # Syscall arity check — warn if arg count doesn't match the

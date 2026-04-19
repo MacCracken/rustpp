@@ -1,12 +1,12 @@
 # Cyrius Development Roadmap
 
-> **v5.3.11.** cc5 compiler (425KB), x86_64 + aarch64 cross. IR + CFG.
-> Apple Silicon strings + globals + multi-page `__TEXT`. Release workflow
-> ships `aarch64-macos` tarballs. Crypto primitives: `lib/ct.cyr` +
-> `mulh64` + `secret var`. dynlib: `cpu_features` + `TLS` + `stack_end`
-> bootstrap + **IFUNC-aware `dynlib_sym`** — libc string/memory/syscall
-> wrappers all work from a static binary. `cyrius distlib [profile]`.
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (425KB). Closure verified.
+> **v5.3.12.** cc5 compiler (423KB), x86_64 + aarch64 cross. IR + CFG.
+> Apple Silicon BSD SVC whitelist (read/write/open/close/mmap/mprotect/
+> munmap/exit) with parse-time rejection of out-of-whitelist syscalls.
+> dynlib: libc string/memory/syscall wrappers work from a static binary.
+> `cyrius distlib [profile]`. `secret var` + `mulh64` + `ct_select` for
+> crypto. libSystem imports deferred to v5.4.x.
+> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5 (423KB). Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
 > 10+ downstream projects shipping.

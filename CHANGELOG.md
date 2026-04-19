@@ -4,6 +4,62 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.3.12] — 2026-04-18
+
+**Apple Silicon syscall safety — compile-time error for out-of-
+whitelist syscalls; removed 124 lines of unused libSystem imports
+staging.**
+
+### Context
+Pre-v5.3.12, `syscall(N, ...)` on a Mach-O ARM target silently
+produced a broken binary when `N` wasn't in the BSD SVC whitelist:
+the `ESYSXLAT` translation chain would fall through without setting
+`x16`, then hit `svc #0x80` with whatever junk x16 held. On macOS
+that's a SIGSYS or worse. Now the compiler catches this at parse
+time and emits a clear error instead.
+
+### Added
+- **Parse-time gate** in `src/frontend/parse.cyr` for the syscall
+  statement. Under `_TARGET_MACHO == 2`, a constant first-arg
+  outside the BSD whitelist (`read=0`, `write=1`, `open=2`,
+  `close=3`, `mmap=9`, `mprotect=10`, `munmap=11`, `exit=60`)
+  now produces:
+  ```
+  error: syscall not available on Mach-O ARM target
+  (BSD whitelist: 0,1,2,3,9,10,11,60). libSystem imports pending.
+  ```
+
+### Removed
+- **`src/backend/macho/imports.cyr`** (124 lines). The staged
+  libSystem import table — `macho_import_register`,
+  `macho_syscall_to_libsystem`, etc. — was never wired into the
+  emitter or parser. Now deleted. Will return in v5.4.x alongside
+  the actual `__stubs` / `__DATA_CONST` / chained-fixup bind
+  implementation. `src/main.cyr` + `src/main_aarch64.cyr` lost
+  their `include` of the file; heap region `0xD8000` freed.
+- Stale "(Phase 3 adds string + variable + import support)" comment
+  in `EMITMACHO_ARM64` replaced with the v5.3.6+ reality and a
+  clear note that libSystem imports are a v5.4.x target.
+
+### Validation
+- `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
+- Whitelist syscall (`syscall(60, 42)`) compiles to same 32952-byte
+  Mach-O ARM binary as v5.3.11.
+- Out-of-whitelist (`syscall(228, 0, 0)` for clock_gettime) now
+  errors cleanly at compile time instead of silently producing a
+  crashing binary.
+
+### Scope / limitations
+- **Full libSystem imports deferred to v5.4.x.** The probe at
+  `programs/macho_probe_arm_hello.cyr` shows the byte-exact target
+  layout (16 LCs, `__stubs` + `__DATA_CONST` with chained-fixup
+  binds, undef symtab, dysymtab nundefsym, indirect symtab) — a
+  substantial emitter expansion that belongs in its own minor
+  bump. Until then Apple Silicon programs are limited to the BSD
+  SVC whitelist, which covers exit-only, hello-world, and basic
+  I/O patterns but not `printf`, `fopen`, `pthread_*`, clock APIs,
+  etc.
+
 ## [5.3.11] — 2026-04-18
 
 **IFUNC-aware `dynlib_sym` — libc string/memory functions now return

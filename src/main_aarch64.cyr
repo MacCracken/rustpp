@@ -67,7 +67,6 @@ include "src/backend/aarch64/emit.cyr"
 include "src/backend/aarch64/jump.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/parse.cyr"
-include "src/backend/macho/imports.cyr"
 include "src/backend/macho/emit.cyr"
 include "src/backend/aarch64/fixup.cyr"
 
