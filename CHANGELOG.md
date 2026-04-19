@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 **Apple Silicon syscall safety — compile-time error for out-of-
 whitelist syscalls; removed 124 lines of unused libSystem imports
-staging.**
+staging; honest macOS arm64 release tarball.**
 
 ### Context
 Pre-v5.3.12, `syscall(N, ...)` on a Mach-O ARM target silently
@@ -16,7 +16,13 @@ produced a broken binary when `N` wasn't in the BSD SVC whitelist:
 the `ESYSXLAT` translation chain would fall through without setting
 `x16`, then hit `svc #0x80` with whatever junk x16 held. On macOS
 that's a SIGSYS or worse. Now the compiler catches this at parse
-time and emits a clear error instead.
+time and emits a clear error instead. v5.3.6's release workflow
+was (wrongly) packaging cyrfmt/cyrlint/cyrdoc as arm64 Mach-O —
+those tools pull in `brk` (via `lib/alloc.cyr`) and `flock` (via
+`lib/io.cyr`), so they crashed on first allocation. v5.3.12's
+parse gate correctly blocks them, which caught the latent bug in
+CI: the fix is to stop shipping broken binaries, not to downgrade
+the gate.
 
 ### Added
 - **Parse-time gate** in `src/frontend/parse.cyr` for the syscall
@@ -41,6 +47,19 @@ time and emits a clear error instead.
   in `EMITMACHO_ARM64` replaced with the v5.3.6+ reality and a
   clear note that libSystem imports are a v5.4.x target.
 
+### Changed
+- **`.github/workflows/release.yml:build-macos-arm64`** — stopped
+  attempting to cross-compile `cyrfmt`/`cyrlint`/`cyrdoc` as arm64
+  Mach-O (they pull in out-of-whitelist syscalls; v5.3.6 was
+  silently packaging binaries that SIGSYS on first alloc). The
+  tarball now ships the stdlib bundle (`lib/` + `syscalls_macos.cyr`
+  + `alloc_macos.cyr`), a 49KB `smoke.macho` that exercises the
+  cross-compile toolchain end-to-end (prints to stdout, exits 0
+  on Apple Silicon), `VERSION`, `LICENSE`, and a `README.md`
+  documenting the current BSD-whitelist scope and the cross-
+  compile workflow from a Linux host. Honest packaging that
+  reflects the actual v5.3.x capability.
+
 ### Validation
 - `sh scripts/check.sh`: 8/8 PASS. cc5 self-host byte-identical.
 - Whitelist syscall (`syscall(60, 42)`) compiles to same 32952-byte
@@ -48,6 +67,10 @@ time and emits a clear error instead.
 - Out-of-whitelist (`syscall(228, 0, 0)` for clock_gettime) now
   errors cleanly at compile time instead of silently producing a
   crashing binary.
+- Smoke binary (`var msg = "cyrius arm64 mach-o\n"; syscall(1, 1,
+  msg, 21); syscall(60, 0);`) builds to 49336 bytes, `file`
+  reports "Mach-O 64-bit arm64 executable,
+  flags:<NOUNDEFS|DYLDLINK|TWOLEVEL|PIE>".
 
 ### Scope / limitations
 - **Full libSystem imports deferred to v5.4.x.** The probe at

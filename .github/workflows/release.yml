@@ -215,10 +215,14 @@ jobs:
           path: dist/
 
   # ── Build macOS arm64 (Mach-O, Apple Silicon) ──
-  # Mirrors build-macos but uses the aarch64 cross-compiler with
-  # CYRIUS_MACHO_ARM=1 to emit arm64 Mach-O binaries instead of x86_64.
-  # Multi-page __TEXT landed in v5.3.6 — tools larger than 16KB
-  # (cyrfmt, cyrlint, cyrdoc) now fit.
+  # Ships the Apple Silicon stdlib bundle + a minimal hello-world smoke
+  # binary so the tarball has verifiable arm64 Mach-O content. Full
+  # toolchain binaries (cyrfmt, cyrlint, cyrdoc) are NOT yet available
+  # for arm64 because they pull in syscalls outside the BSD whitelist
+  # (brk, flock) — v5.3.12's parse-time gate correctly rejects these,
+  # and the fix is libSystem imports (v5.4.x). Until then, users on
+  # Apple Silicon cross-compile from a Linux host with
+  # `CYRIUS_MACHO_ARM=1 build/cc5_aarch64`.
   build-macos-arm64:
     name: Build macOS arm64
     needs: [ci]
@@ -233,47 +237,78 @@ jobs:
           cat src/main_aarch64.cyr | /tmp/cc5_fresh > /tmp/cc5_cross_arm && chmod +x /tmp/cc5_cross_arm
           echo "arm64 cross-compiler: $(wc -c < /tmp/cc5_cross_arm) bytes"
 
-      - name: Cross-compile tools as Mach-O arm64
+      - name: Compile arm64 smoke test (syscall-only whitelist)
         run: |
-          for tool in cyrfmt cyrlint cyrdoc; do
-            if [ -f "programs/${tool}.cyr" ]; then
-              cat programs/${tool}.cyr | CYRIUS_MACHO_ARM=1 /tmp/cc5_cross_arm > ./build/${tool}_macho_arm 2>/dev/null
-              sz=$(wc -c < ./build/${tool}_macho_arm)
-              echo "${tool}_macho_arm: $sz bytes"
-              magic=$(xxd -l4 -p ./build/${tool}_macho_arm | tr -d ' \n')
-              cputype=$(xxd -s4 -l4 -p ./build/${tool}_macho_arm | tr -d ' \n')
-              test "$magic" = "cffaedfe" || { echo "ERROR: $tool wrong magic ($magic)"; exit 1; }
-              test "$cputype" = "0c000001" || { echo "ERROR: $tool not arm64 (cputype=$cputype)"; exit 1; }
-            fi
-          done
-
-      - name: Verify Mach-O arm64 binaries
-        run: |
-          for f in build/*_macho_arm; do
-            [ -f "$f" ] || continue
-            file "$f" | grep -q "Mach-O 64-bit arm64" || { echo "ERROR: $f not Mach-O arm64"; exit 1; }
-          done
-          echo "PASS: all Mach-O arm64 binaries verified"
+          # This validates the cross-compiler against the BSD SVC
+          # whitelist end-to-end. It's the same payload as the hello
+          # probe in v5.3.1 — strings + globals + the whitelist exit.
+          mkdir -p build
+          printf 'var msg = "cyrius arm64 mach-o\\n";\nsyscall(1, 1, msg, 21);\nsyscall(60, 0);\n' \
+            | CYRIUS_MACHO_ARM=1 /tmp/cc5_cross_arm > ./build/smoke_macho_arm 2>/dev/null
+          sz=$(wc -c < ./build/smoke_macho_arm)
+          echo "smoke_macho_arm: $sz bytes"
+          magic=$(xxd -l4 -p ./build/smoke_macho_arm | tr -d ' \n')
+          cputype=$(xxd -s4 -l4 -p ./build/smoke_macho_arm | tr -d ' \n')
+          test "$magic" = "cffaedfe" || { echo "ERROR: wrong magic ($magic)"; exit 1; }
+          test "$cputype" = "0c000001" || { echo "ERROR: not arm64 (cputype=$cputype)"; exit 1; }
+          file build/smoke_macho_arm | grep -q "Mach-O 64-bit arm64" || { echo "ERROR: file reports wrong arch"; exit 1; }
 
       - name: Package macOS arm64 tarball
         run: |
           VER="${GITHUB_REF_NAME}"
           STAGE="cyrius-${VER}-aarch64-macos"
-          mkdir -p "$STAGE/bin" "$STAGE/lib"
+          mkdir -p "$STAGE/lib"
 
-          # Rename tools (strip _macho_arm suffix)
-          for f in build/*_macho_arm; do
-            [ -f "$f" ] || continue
-            name=$(basename "$f" _macho_arm)
-            cp "$f" "$STAGE/bin/$name"
-            chmod +x "$STAGE/bin/$name"
-          done
-
+          # Full stdlib bundle for cross-compile consumers.
           sh scripts/release-lib.sh "$STAGE/lib"
           cp lib/syscalls_macos.cyr "$STAGE/lib/"
           cp lib/alloc_macos.cyr "$STAGE/lib/"
           cp VERSION LICENSE "$STAGE/"
 
+          # The smoke binary validates the toolchain produces working
+          # arm64 Mach-O. Users who want the full toolchain cross-compile
+          # from the Linux x86_64 tarball with CYRIUS_MACHO_ARM=1.
+          cp build/smoke_macho_arm "$STAGE/smoke.macho"
+
+          cat > "$STAGE/README.md" <<'README'
+# Cyrius — Apple Silicon (arm64 Mach-O)
+
+This tarball ships the Apple Silicon stdlib (including
+`syscalls_macos.cyr` and `alloc_macos.cyr`) plus a `smoke.macho`
+binary proving the cross-compile toolchain produces valid arm64
+Mach-O output.
+
+## Current scope (v5.3.12)
+
+Apple Silicon Cyrius programs support the BSD SVC whitelist:
+`read`, `write`, `open`, `close`, `mmap`, `mprotect`, `munmap`,
+`exit`. PIE-safe addressing (adrp+add), strings, globals, and
+multi-page `__TEXT` all work. This covers syscall-only programs
+(agent probes, simple CLI tools written against raw syscalls).
+
+## Not yet available
+
+Programs using `brk`-based allocation (`lib/alloc.cyr`) or file
+locking (`lib/io.cyr:syscall(73)`) will fail to compile with a
+clear error. Tools like `cyrfmt`, `cyrlint`, `cyrdoc` fall into
+this category and are therefore NOT included here. Full libSystem
+imports — the path that would unlock `printf`, `pthread`, `fopen`,
+and the rest — is a v5.4.x target.
+
+## Cross-compiling on macOS
+
+Install the Linux x86_64 tarball on a Linux host (or via Rosetta /
+Lima / Docker on macOS) and run:
+
+    CYRIUS_MACHO_ARM=1 build/cc5_aarch64 < my.cyr > my.macho
+    chmod +x my.macho
+    codesign -s - --force my.macho
+    ./my.macho
+
+See `smoke.macho` in this bundle for a working example.
+README
+
+          chmod +x "$STAGE/smoke.macho"
           tar czf "${STAGE}.tar.gz" "$STAGE"
           sha256sum "${STAGE}.tar.gz" > "${STAGE}.tar.gz.sha256"
 
