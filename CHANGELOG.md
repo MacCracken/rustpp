@@ -4,6 +4,135 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.11] — 2026-04-19
+
+**aarch64 Linux syscall stdlib (yukti blocker) + aarch64 thread
+trampoline.** `lib/syscalls.cyr` was hardcoded Linux x86_64 syscall
+numbers (`SYS_OPEN=2`, `SYS_STAT=4`, `SYS_MKDIR=83`, `SYS_CLONE=56`,
+…). Cross-built aarch64 binaries inherited those numbers verbatim;
+`syscall(SYS_STAT, …)` invoked `pivot_root` on aarch64 instead of
+`stat`, SIGSEGV'ing yukti's `test_query_permissions_dev_null` on
+real Pi hardware (filed
+`yukti/docs/development/issues/2026-04-19-aarch64-syscall-portability.md`).
+v5.4.10's `lib/thread.cyr` post-clone trampoline fix landed for
+x86 only — aarch64 was stubbed `_thread_spawn` returns -1 because
+`SYS_CLONE = 56` is `io_setup` on aarch64. v5.4.11 splits the
+syscall stdlib into per-arch peers and lands the aarch64 thread
+trampoline; both unblocks land together because the syscall number
+fix is a prerequisite for thread.
+
+### Added
+- **`lib/syscalls_aarch64_linux.cyr`** — Linux aarch64 generic
+  syscall table from `include/uapi/asm-generic/unistd.h`.
+  ~40 enum entries (SYS_READ=63, SYS_WRITE=64, SYS_OPENAT=56,
+  SYS_NEWFSTATAT=79, SYS_MKDIRAT=34, SYS_UNLINKAT=35,
+  SYS_FCHMODAT=53, SYS_FACCESSAT=48, SYS_PIPE2=59, SYS_PPOLL=73,
+  SYS_CLONE=220, SYS_EXIT=93, …) plus at-family wrappers that
+  expose the same `sys_open(path, flags, mode)` /
+  `sys_stat(path, buf)` / `sys_mkdir(path, mode)` /
+  `sys_rmdir(path)` / `sys_unlink(path)` / `sys_pipe(fds)` /
+  `sys_fork()` / etc. surface as the x86_64 peer — consumers
+  see no API change.
+- **`lib/syscalls_x86_64_linux.cyr`** — content of v5.4.10's
+  `lib/syscalls.cyr` moved verbatim into the x86_64 peer. Same
+  enum names, same wrapper signatures. x86 path stays
+  byte-identical.
+- **`lib/syscalls.cyr` selector** — 4-line two-arm `#ifdef
+  CYRIUS_ARCH_X86` / `#ifdef CYRIUS_ARCH_AARCH64` dispatch to the
+  right peer. Public include point unchanged for consumers
+  (`include "lib/syscalls.cyr"` keeps working). Top-level
+  `#ifdef` + `include` pattern verified in cyrius's preprocessor
+  before landing.
+- **Arch-dispatched `Stat` enum** in both peers. x86_64 layout
+  (`arch/x86/include/uapi/asm/stat.h`, 144 bytes): `STAT_MODE=24`,
+  `STAT_UID=28`, `STAT_GID=32`. aarch64 generic layout
+  (`include/uapi/asm-generic/stat.h`, 128 bytes):
+  `STAT_MODE=16`, `STAT_UID=20`, `STAT_GID=24`. `STAT_BUFSZ=144`
+  (max of both) on both peers so consumer alloc/var sites stay
+  arch-clean. Migration path for downstream consumers
+  (yukti `device.cyr:154,157-159`, yukti `storage.cyr:574-578`,
+  agnosys `fuse.cyr:272`): replace literal `&buf + 24` with
+  `&buf + STAT_MODE`. Lands at each downstream's pin-bump time.
+- **`tests/regression-aarch64-syscalls.sh`** — cross-build a
+  syscall + thread test pair, scp to `pi` (via `~/.ssh/config`
+  alias, key-based auth — no passwords in CI), assert exit codes
+  + output. Skips cleanly when `pi` is unreachable so cyrius CI
+  stays hermetic. Wired into `scripts/check.sh` (gate 4e, brings
+  the local count to 10).
+
+### Fixed
+- **aarch64 `lib/thread.cyr` post-clone trampoline** — replaced
+  v5.4.10's stub-returns-`-1` aarch64 branch with the inline-asm
+  transpose of the x86 trampoline: `svc #0`, args `x0..x4`,
+  `mov x8, #220` (SYS_CLONE), child path uses `ldp x9, x0, [sp],
+  #16` to pop `fp` and `arg` in one 16-byte step (see
+  alignment-fix below), then `blr x9` to call user fn, then
+  `mov x8, #93` + `svc #0` to SYS_EXIT. aarch64 clone arg order
+  differs from x86_64 (`flags, stack, parent_tid, tls,
+  child_tid` vs x86's `flags, stack, parent_tid, child_tid,
+  tls`); asm marshals correctly.
+- **AArch64 SP 16-byte alignment crash in thread trampoline** —
+  initial draft used two sequential `ldr xN, [sp], #8` to pop
+  fp + arg; aarch64 enforces a Stack Pointer Alignment Check
+  (SPAlignmentCheck) that SIGBUSs any SP-base memory op when SP
+  isn't 16-byte aligned, and the intermediate state between the
+  two LDRs left SP at an 8-byte-not-16 offset. Fixed by using
+  LDP (load-pair) — one instruction, 16-byte step, no
+  intermediate misalignment. Captured in
+  `feedback_aarch64_sp_alignment.md` so future asm work doesn't
+  rediscover it.
+- **Install-snapshot dep drift discovered + tactically fixed**
+  — `~/.cyrius/versions/<ver>/{lib,bin}/` rotted silently
+  through v5.4.x (sigil 2.8.4 in repo, 2.8.3 in install; yukti
+  1.3.0 vs 1.2.0; 7+ canonical binaries drifted from current
+  `build/`). Audit + manual resync done; structural fix
+  (`version-bump.sh` invokes `install.sh --refresh-only`)
+  claimed by v5.4.13 closeout. Memory:
+  `feedback_install_snapshot_drift.md`.
+
+### Dependency bumps
+- **sankoch 1.2.0 → 2.0.0** (`cyrius.cyml` `[deps.sankoch]`).
+  Major version: stable-cut tag for the v2.0.0 track (1.5
+  adaptive DEFLATE block splitting, 1.6 LZ4 multi-block frames,
+  1.6.1 xxHash32 spec compliance, 1.7 incremental streaming).
+  Per upstream changelog: **no public-API breaks vs 1.7.0** —
+  same function signatures, byte-for-byte identical wire format.
+  Anything that compiled against 1.x compiles + runs against
+  2.0.0. cyrius itself doesn't use sankoch in-tree (declared
+  dep for downstream consumers only); pin update is the entire
+  scope here. `cyrius deps` re-symlinks
+  `lib/sankoch.cyr → ~/.cyrius/deps/sankoch/2.0.0/dist/sankoch.cyr`;
+  install snapshot synced too.
+
+### Verified
+- `sh scripts/check.sh` 10/10 PASS (new `aarch64 syscalls +
+  threads` gate active).
+- aarch64 cross-built `sys_open("/etc/hostname", O_RDONLY, 0);
+  sys_read; sys_write` runs on real Pi 4 (`runner@agnosarm.local`,
+  Cortex-A72, Ubuntu 24.04 aarch64) and prints `agnosarm`,
+  exit 0. Confirms the syscall-number fix end-to-end —
+  `syscall(4, …)` would have invoked `pivot_root` and failed.
+- aarch64 cross-built `thread_create(&w, 0); thread_join(t)`
+  runs on Pi, prints `joined`, exit 0. Confirms the
+  trampoline + LDP alignment fix end-to-end.
+- cc5 + cc5_aarch64 self-host byte-identical (467104 B + 337504
+  B respectively). Lib-only changes don't touch the compiler's
+  own image.
+
+### v5.4.12+ companions (queued, not in v5.4.11 scope)
+- **v5.4.12 — `lib/keccak.cyr`** (sigil 3.0 PQC enabler,
+  Keccak-f[1600] + SHAKE-128/256). See roadmap §v5.4.12.
+- **v5.4.13 — v5.4.x closeout pass** (dead-code audit, doc/vidya
+  sync, parse.cyr unguarded x86-emit cleanup, permanent `EW`
+  alignment assert in aarch64 emit, `version-bump.sh`
+  install-refresh hook, `#ifplat` directive, optional
+  `cyrius build --strict`). See roadmap §v5.4.13.
+- **v5.5.0 — PE correctness completion** (Win64 ABI at fncall*,
+  remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr`,
+  `lib/alloc_windows.cyr`, `cc5_win.cyr`, RW-split). The v5.4.x
+  PE queue is now the FIRST item of v5.5 rather than scattered
+  patches.
+
 ## [5.4.10] — 2026-04-19
 
 **`lib/thread.cyr` post-clone child path + thread_join wake-flag

@@ -85,14 +85,48 @@ fn _thread_spawn(flags, child_stack, t) {
     }
     #endif
     #ifdef CYRIUS_ARCH_AARCH64
-    # aarch64 thread support is queued for v5.4.11 alongside the
-    # per-arch syscall stdlib split (lib/syscalls.cyr's
-    # SYS_CLONE = 56 is the x86_64 number; on aarch64 that's
-    # io_setup, not clone). Until then, _thread_spawn on aarch64
-    # returns -1 so thread_create fails fast rather than silently
-    # corrupting state. Cross-built aarch64 binaries that call
-    # thread_create get a clean failure path instead of SIGSEGV.
-    ret = 0 - 1;
+    asm {
+        # --- pre-syscall: marshal params from cyrius locals ---
+        # Frame layout (cyrius convention, x29 = FP):
+        #   [x29-8]  flags          [x29-24] t (parent_tidptr / child_tidptr)
+        #   [x29-16] child_stack    [x29-32] ret
+        #
+        # aarch64 Linux clone arg order (differs from x86_64!):
+        #   x0 = flags, x1 = newsp, x2 = parent_tidptr,
+        #   x3 = tls,   x4 = child_tidptr
+        # We pass t for both parent_tidptr (x2) and child_tidptr (x4);
+        # tls = 0 (x3).
+        0xA0; 0x83; 0x5F; 0xF8;        # ldur x0, [x29, #-8]    ; flags
+        0xA1; 0x03; 0x5F; 0xF8;        # ldur x1, [x29, #-16]   ; child_stack
+        0xA2; 0x83; 0x5E; 0xF8;        # ldur x2, [x29, #-24]   ; t (parent_tidptr)
+        0x03; 0x00; 0x80; 0xD2;        # mov x3, #0             ; tls = 0
+        0xA4; 0x83; 0x5E; 0xF8;        # ldur x4, [x29, #-24]   ; t (child_tidptr)
+        0x88; 0x1B; 0x80; 0xD2;        # mov x8, #220           ; SYS_CLONE
+        0x01; 0x00; 0x00; 0xD4;        # svc #0                 ; x0 = child_tid (parent) | 0 (child) | -errno
+
+        # --- post-syscall: dispatch on x0 ---
+        0xC0; 0x00; 0x00; 0xB5;        # cbnz x0, +24           ; -> parent_path (skip 5 child instrs)
+
+        # --- child path: sp = child_stack (kernel-set), no rbp/x29 use ---
+        # child_stack layout (written by parent's thread_create):
+        #   [sp]    fp   (call target)
+        #   [sp+8]  arg  (first arg per AAPCS64)
+        #
+        # Use LDP (pair, 16 bytes at once) rather than two LDRs.
+        # aarch64 enforces a 16-byte SP alignment check when SP is
+        # the base register for memory ops; two LDRs of 8 bytes
+        # each would leave SP at an 8-byte-but-not-16-byte offset
+        # mid-sequence and the second LDR SIGBUSs. LDP stays in
+        # 16-byte steps so the alignment check never trips.
+        0xE9; 0x03; 0xC1; 0xA8;        # ldp x9, x0, [sp], #16  ; fp→x9, arg→x0, sp+=16
+        0x20; 0x01; 0x3F; 0xD6;        # blr x9                 ; fn(arg); x0 = result (discarded)
+        0x00; 0x00; 0x80; 0xD2;        # mov x0, #0             ; status = 0
+        0xA8; 0x0B; 0x80; 0xD2;        # mov x8, #93            ; SYS_EXIT (aarch64)
+        0x01; 0x00; 0x00; 0xD4;        # svc #0                 ; never returns
+
+        # --- parent path: x0 already holds child_tid (or -errno) ---
+        0xA0; 0x03; 0x1E; 0xF8;        # stur x0, [x29, #-32]   ; ret = x0
+    }
     #endif
     return ret;
 }

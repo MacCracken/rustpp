@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.10.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.11.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -432,7 +432,7 @@ never exercised the surface.
   `CLONE_VM`. Separate investigation + likely per-thread
   arenas.
 
-### v5.4.11 — aarch64 Linux syscall stdlib (yukti blocker)
+### v5.4.11 — aarch64 Linux syscall stdlib (yukti blocker) ✅
 
 Filed 2026-04-19 in
 `docs/proposals/2026-04-19-aarch64-syscall-stdlib.md`,
@@ -590,7 +590,45 @@ Platform Targets" below).
    `READFILE`, unchecked writes (we haven't run a full audit
    since v5.0.1).
 8. CHANGELOG / roadmap / vidya sync — all docs reflect current
-   state.
+   state. Vidya is the silent-rot one (no compile-time check),
+   so this expands per the CLAUDE.md §"Closeout Pass" sub-list:
+   - **`vidya/content/cyrius/language.toml`** — add `[[entries]]`
+     for new syntax / builtins / directives shipped in v5.4.x
+     that aren't there yet (e.g. `secret var`, `#regalloc`,
+     `#pe_import`, `#pe_export` if it lands, multi-return,
+     struct initializer, `&local` arch-dispatched form). Update
+     existing entries when behavior changed (`_cyrius_init`
+     binding, `&local` emit). Refresh the `overview` entry's
+     compiler size / cc binary name / version line so it points
+     at v5.4.13.
+   - **`vidya/content/cyrius/field_notes/compiler.toml`** — add
+     field notes for non-obvious gotchas surfaced this minor:
+     RBP-after-`clone()` race (v5.4.10), `FUTEX_PRIVATE_FLAG` vs
+     kernel `CLONE_CHILD_CLEARTID` shared wake (v5.4.10),
+     parse.cyr unguarded x86-emit paths (v5.4.8 / pending audit),
+     empty `.rdata` PE section loader rejection (v5.4.8),
+     `_cyrius_init` STB_LOCAL ELF-spec non-conformance fixed by
+     STB_GLOBAL flip (v5.4.9), aarch64 syscall-number stdlib
+     split (v5.4.11), keccak Keccak-f[1600] entry (v5.4.12). One
+     entry per gotcha; future-claude searching vidya before
+     reimplementing should hit them.
+   - **`vidya/content/cyrius/field_notes/language.toml`** —
+     user-facing gotchas: no `var` redecl in same scope, no
+     comparisons in fn-call args, parser's `#ifdef`-but-not-
+     `#else` (per the v5.4.11 proposal verification note).
+   - **`vidya/content/cyrius/implementation.toml`** /
+     **`types.toml`** — bump version refs and capture structural
+     changes (heap map slots, fixup table cap, fn table cap, IR
+     opcode count, backend modules added/removed).
+   - **`vidya/content/cyrius/dependencies.toml`** /
+     **`ecosystem.toml`** — refresh dep tags (sigil 2.8.4 →
+     whatever's current at closeout) and downstream consumer
+     test counts (yukti, libro, agnostik, kybernet, hadara,
+     ai-hwaccel — those numbers in CLAUDE.md must match).
+   - **Cross-check**: every vidya file mentioning a `cc?`
+     version (`cc3 4.8.5`, `cc5 5.4.x`, etc.) matches the
+     current `VERSION` file. `version-bump.sh` doesn't touch
+     vidya — it's manual at closeout, every time.
 9. Full `sh scripts/check.sh` — 10/10 PASS (gates at v5.4.12
    = 9 existing + keccak's NIST-vector regression).
 
@@ -615,11 +653,79 @@ Platform Targets" below).
   warnings to hard errors) if it can land cheaply — closes
   the regression class that mabda Issue 2 represents. Otherwise
   defer to v5.5.x.
+- **`#ifplat` preprocessor directive** — replaces the verbose
+  `#ifdef CYRIUS_ARCH_X86` / `#ifdef CYRIUS_ARCH_AARCH64`
+  pattern with `#ifplat x86` / `#ifplat aarch64` plus proper
+  `#elseplat` / `#endplat` family. Captures the (arch, format)
+  dimension that today is split between `#ifdef CYRIUS_ARCH_*`
+  (preprocessor) and `_TARGET_MACHO` / `_TARGET_PE` (runtime
+  flags) — `#ifplat aarch64-macho`, `#ifplat x86-pe` work
+  uniformly. Lex/preprocessor change in `src/frontend/lex.cyr`
+  (~80-150 LOC), plus migration of the ~3 existing call sites
+  (`lib/fnptr.cyr`, `lib/thread.cyr`, the v5.4.11 `lib/syscalls.cyr`
+  selector). **Why now (v5.4.13) not later (v6.0.0)**: v5.5.0
+  is about to add many more dispatch sites (PE syscalls,
+  `lib/syscalls_windows.cyr`, `cc5_win.cyr` cross-entry); landing
+  the convention before v5.5.x prevents another wave of
+  `_TARGET_PE == 1` runtime branches that v6.0.0 would then
+  need to clean up. Migration cost stays small (3 sites) if we
+  do it now; balloons if deferred. Earlier confirmed during
+  v5.4.11 planning that bundling into v5.4.11 itself would
+  force functionality where it doesn't belong (syntactic
+  improvement vs the v5.4.11 correctness fix); v5.4.13's
+  cleanup theme is the right home.
 - Verify the post-v5.4.10 thread surface: TLS gap, atomics
   gap, and runtime thread-safety surface (alloc / freelist /
   hashmap under `CLONE_VM`) are all flagged but not yet on a
   minor. Closeout decides whether any of those need a v5.4.x
   patch slot or all push to v5.5.x.
+- **Install-snapshot drift fix + audit**.
+  `~/.cyrius/versions/<ver>/{lib,bin}/` is created/refreshed by
+  `install.sh`, which copies stdlib + canonical binaries
+  (dereferenced) at install time and never auto-updates. When
+  `cyrius.cyml` bumps a dep tag (e.g. sigil 2.8.3 → 2.8.4 in
+  v5.4.9) and `cyrius deps` updates the cyrius repo's local
+  `lib/{dep}.cyr` symlink, the install snapshot stays at the
+  old content. `version-bump.sh` doesn't run install.sh either,
+  so binaries also rot. Result: new downstream projects built
+  via the installed cyrius CLI silently get OLD deps + OLD
+  toolchain bins until reinstall.
+
+  Discovered during v5.4.11 Chunk B work. Audit scope at the
+  time of discovery:
+  - **lib/** — sigil 2.8.4 (repo) vs 2.8.3 (install), yukti
+    1.3.0 vs 1.2.0, plus syscalls.cyr / syscalls_x86_64_linux.cyr
+    drift from the v5.4.11 split. 4/56 files drifted.
+  - **bin/** — cyrc, cyrdoc, cyrfmt, cyrius, cyrlint, cc5_aarch64
+    all drifted from current build/. ~7 binaries out of sync.
+
+  Fix in two layers:
+
+  1. **Tactical** (`version-bump.sh` post-bump hook): run
+     `install.sh --refresh-only` at the end so bump-time always
+     reconciles. `--refresh-only` skips the bootstrap-from-source
+     phase and only re-copies lib/ + bin/ from the current repo
+     state. Adds ~2s to a bump but eliminates the silent-rot
+     class entirely.
+
+  2. **Closeout audit** (this section, every closeout): run
+     the dep+bin currency loop:
+     ```sh
+     for f in lib/*.cyr build/*; do
+         cmp -s "$f" "~/.cyrius/versions/$(cat VERSION)/$(dirname $f | sed s,^,, )/$(basename $f)" \
+             || echo "DRIFT $f"
+     done
+     ```
+     Any DRIFT output blocks the closeout — refresh first, then
+     re-audit. The previous "downstream check" step covers
+     downstream consumer pins; this NEW step covers our OWN
+     install snapshot's currency.
+
+  Why **don't** widen `cyrius deps` to write outside the
+  project: it's project-scoped by contract; widening would
+  surprise users whose project deps would leak into other
+  projects. Keep the install-snapshot refresh in
+  `version-bump.sh` / `install.sh` where it belongs.
 
 After v5.4.13 ships, the next tag is **v5.5.0** — which is
 itself claimed by the PE correctness completion below. The new
@@ -943,7 +1049,155 @@ enables adding new targets without touching the frontend.
 
 ## Future 6.0
 
-*(TBD — book deferred to the public release cycle, see below.)*
+v6.0.0 is the major-version bump after the v5.x platform-targets
+arc closes. Scope is **refactoring and cleanup** that's been
+accumulating debt across the v5.x line and that's risky or
+disruptive to land mid-minor (rename, dead-code removal,
+consolidation of `_TARGET_*` shim layers). Major bump gives
+downstreams an explicit signal to re-pin and re-verify rather
+than discovering breakage at random patch boundaries.
+
+### v6.0.0 — first item: rename `cc5` → `cyc`
+
+The `cc5` name was meaningful when the major-version digit
+identified the compiler-line lineage (`cc` for cyrius compiler,
+`5` for the cc5-era IR / module split that landed in v5.0.0).
+With `cc5 --version` reporting the actual semver since v5.0.x —
+and version baked into the build output — the trailing `5`
+duplicates information now carried in `VERSION`, every binary's
+`--version`, every `cyrius.cyml` `cyrius` field, and every
+release tag.
+
+**Rename:** `cc5` → `cyc` (canonical name) everywhere:
+- `build/cc5` → `build/cyc`
+- `build/cc5_aarch64` → `build/cyc_aarch64`
+- `~/.cyrius/bin/cc5` → `~/.cyrius/bin/cyc` (install.sh, deps.cyr)
+- `src/main.cyr` self-name in `cyc --version` output
+- All `bootstrap/`, `scripts/`, `cbt/`, `programs/` references
+- All `tests/`, `benches/`, `fuzz/` references
+- All vidya `cc?` mentions (closeout-pass step 8 covers the
+  ongoing per-minor refresh; v6.0.0 is the bulk pass)
+- Downstream `cyrius.cyml` files don't change (`cyrius` build
+  field already names the tool, not the binary), but downstream
+  CI scripts that hard-coded `cc5` (e.g. yukti's
+  `retest-aarch64.sh`) need a sweep — track which projects via
+  the v6.0.0 closeout downstream-check step.
+- Bootstrap chain comment chain: `cyrc → bridge → cc5` becomes
+  `cyrc → bridge → cyc`. The seed binary path doesn't change
+  (`bootstrap/asm` is an assembler, not the compiler).
+
+**Compatibility:** v6.0.0 install ships a `cc5` symlink → `cyc`
+for one minor (v6.0.x) so downstream toolchain scripts have a
+window to migrate. v6.1.0 drops the symlink.
+
+**Why a major bump:**
+- Renaming the binary breaks every shell script and CI that
+  invokes `cc5` directly. SemVer's whole point.
+- Bootstrap chain touch — even for a rename — deserves the
+  ceremony of a major.
+- Bundles cleanly with the rest of the v6.0.0 cleanup so
+  downstreams take one breakage hit, not many.
+
+**Why `cyc` and not `cc6` / `cc7` / etc. — clean break, one-time
+cost, forevermore source-of-truth:**
+- The `cc<N>` scheme couples the binary name to the major
+  version. Every major bump (v6 → v7 → v8 …) would otherwise
+  trigger another rename + downstream churn. We did this once
+  already (cc3 → cc5 with v5.0.0 — see CHANGELOG, vidya, and
+  every `cc3 4.8.5` residue we're still cleaning up).
+- `cyc` is **version-agnostic, permanently**. The binary stays
+  `cyc` from v6.0.0 onward — through v7, v8, v∞. Version
+  surfaces only via `cyc --version` and the `VERSION` file.
+  Future major bumps run `version-bump.sh` and ship; no
+  rename, no downstream sweep, no vidya `cc?` residue.
+- **Anti-pattern that this rename explicitly forecloses:**
+  the temptation at v7.0.0 to "match the cc3 → cc5 → cyc → cc7
+  cadence." Don't. v6.0.0 is the *last* name change the
+  compiler binary ever takes. If a future session is reading
+  this and wondering whether to bump `cyc` → `cc7` at v7.0.0
+  or `cc8` at v8.0.0 or whatever — the answer is **no**. The
+  whole point of paying the v6.0.0 rename cost is that the
+  pattern stops there. `VERSION` file + `cyc --version` output
+  are the only sources of truth for "what version is this?"
+- Cleanup-cost asymmetry: this rename is easier than cc3 → cc5
+  was (smaller surface, fewer downstream consumers at the time,
+  more discipline now via `version-bump.sh` + closeout pass) —
+  so the one-time cost is small and it buys the property of
+  *no more rename passes ever*. That's the load-bearing reason
+  to spend the major-bump ceremony on it.
+- **Same rule applies to every other binary in the toolchain.**
+  `cyrc` (bootstrap compiler) stays `cyrc`. `asm` stays `asm`.
+  `cyrius` (build tool) stays `cyrius`. `cyrld` (linker) stays
+  `cyrld`. `cyrfmt` / `cyrlint` / `cyrdoc` / `cyrc` / `ark`
+  stay as-is. No version digits anywhere in the binary
+  name-space, ever. This is now a Key Principle in CLAUDE.md.
+
+### v6.0.0 — accompanying refactor / cleanup
+
+Items that have been queued or accreted across v5.x and that
+benefit from landing in the rename pass rather than as scattered
+patches:
+
+- **Dead-code sweep on the standing reachability list.** Every
+  `sh scripts/check.sh` run since v5.4.x has reported ~21
+  unreachable fns in cc5 itself (`ELVRLOAD`/`ELVRSTORE`,
+  `CLASSIFY_CF`/`CF_TARGET`, IR scaffolding `IR_NODE_FL`,
+  `IR_BB_*`, `IR_EDGE_*`, `ir_emit2`, `ir_lower_all`,
+  `ir_apply_lase`, `ir_dead_block_elim`, `PARSE_ASSIGN`,
+  `_macho_wstr_pad`, `EMITMACHO_ARM64`, `EMITPE_OBJ`,
+  `SYSV_HASH`). Audit which are speculative scaffolding for
+  future work vs genuinely dead, and delete the latter. Mid-minor
+  removal is risky if any downstream calls into these via dynlib
+  bootstrap; major bump is the right slot.
+- **`_TARGET_*` flag consolidation.** v5.4.x accumulated
+  `_TARGET_MACHO`, `_TARGET_PE`, `_AARCH64_BACKEND`, plus
+  per-arch `#ifdef CYRIUS_ARCH_{X86,AARCH64}` and per-arch
+  `EWRITE_PE` / `_pe_pending_imp_add` / `EDISP32` shim families.
+  Each was added as a tactical fix; collectively they're hard
+  to reason about. Consolidate into a single backend-dispatch
+  table keyed on `(arch, format)` — the same shape v5.x
+  Platform Targets section anticipated when it said "cc5
+  backend-table dispatch enables adding new targets without
+  touching the frontend." Land the dispatch table at v6.0.0;
+  delete the ad-hoc shims one by one in v6.0.x patches.
+- **Bridge-compiler retirement assessment.** `src/bridge.cyr`
+  exists to bridge cyrc's feature set to cc5's. With cc5 long
+  past cyrc's surface, audit whether bridge can be retired or
+  collapsed into cyrc's path — fewer compiler binaries in the
+  bootstrap chain = less to verify byte-identical at every
+  cycle.
+- **`cc3`-era residue.** Vidya entries, comments in source,
+  test fixtures still reference `cc3 4.8.5` and earlier. Sweep
+  pass: anything mentioning a pre-cc5 binary either gets
+  updated to `cyc` or moved to a `vidya/content/cyrius/history/`
+  folder if the entry is genuinely about the historical lineage.
+- **Heap-map tightening.** `src/main.cyr`'s heap map has
+  accumulated regions across v5.x (the v5.4.6.2 ident-buffer
+  bump, IR region added then unused on aarch64, etc.). Audit
+  which regions are still load-bearing; reclaim wasted address
+  space; document the post-v6.0.0 layout as the new baseline.
+- **Backend module collapse where viable.** `src/backend/x86/`
+  and `src/backend/aarch64/` each have parallel `emit.cyr`,
+  `jump.cyr`, `fixup.cyr`. Some of the per-arch fixup logic is
+  identical (e.g. function-call rel32 patching). Audit which
+  helpers can move to `src/backend/common/` without entangling
+  the asm-byte tables.
+- **`cyrius build --strict` mode** — escalate `undefined
+  function` warnings to hard errors. Drafted as a v5.4.12+
+  follow-up after mabda Issue 2; lands cleanly with the v6.0.0
+  rename pass since `--strict` is a flag-surface change that's
+  major-bump-friendly.
+
+### v6.0.0 — closeout
+
+Same closeout checklist as every minor (CLAUDE.md §"Closeout
+Pass") plus:
+- Verify the `cc5` symlink works end-to-end on a clean install
+  before tagging. Downstream CI failure on day-one of v6.0.0 is
+  exactly the breakage-hit we're trying to avoid.
+- Bulk vidya refresh — the rename touches every `cc?` mention,
+  not just the version line. Use the closeout's vidya checklist
+  as the audit list.
 
 ## Public Release (~v7.0) — "Cyrius ONE"
 

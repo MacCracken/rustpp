@@ -127,6 +127,15 @@ if [ "$oi_result" -ne 0 ]; then cat /tmp/audit_oi_$$; fi
 rm -f /tmp/audit_oi_$$
 echo ""
 
+# ── 4e. aarch64 syscall stdlib + thread trampoline (5.4.11) ──
+echo "── aarch64 syscalls + threads ──"
+sh "$ROOT/tests/regression-aarch64-syscalls.sh" > /tmp/audit_aa_$$ 2>&1
+aa_result=$?
+check "aarch64 syscall stdlib + post-clone trampoline (via ssh pi)" "$aa_result"
+if [ "$aa_result" -ne 0 ]; then cat /tmp/audit_aa_$$; fi
+rm -f /tmp/audit_aa_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

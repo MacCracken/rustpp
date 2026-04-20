@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 5.4.10
+- **Version**: 5.4.11
 
 ## Goal
 
@@ -59,6 +59,7 @@ cyrius bench                       # run .bcyr benchmarks
 - **Research before implementation** — vidya entry before code
 - **3 failed attempts = defer and document** — don't burn time
 - **Bootstrap chain integrity** — never break seed → cyrc → bridge → cc5
+- **Version lives in `VERSION` + `--version`, never in binary names** — after the v6.0.0 `cc5` → `cyc` rename, the compiler binary is `cyc` *forever*. No `cc6` at v7.0.0, no `cc7` at v8.0.0, no funny business. The cc3 → cc5 rename at v5.0.0 was the last name-change penalty paid; v6.0.0 fixes the pattern. Anyone tempted to add a version digit to a binary name (compiler, linker, formatter, anything) is reintroducing the bug we explicitly removed. `VERSION` file + binary `--version` output are the only sources of truth.
 
 ## P(-1): Scaffold Hardening
 
@@ -83,7 +84,13 @@ Run a closeout pass before tagging x.Y.0 or x.0.0. Ship as the last patch of the
 5. **Heap map verify** — main.cyr heap map matches actual usage
 6. **Downstream check** — all `cyrius.cyml` `cyrius` fields point to current release
 7. **Security re-scan** — quick grep for new `sys_system`, `READFILE`, unchecked writes
-8. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state
+8. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state. Vidya in particular needs explicit refresh per minor (it falls out of sync silently otherwise — there's no compile-time check):
+   - **`vidya/content/cyrius/language.toml`** — language usage. Add `[[entries]]` blocks for any new syntax / builtins / directives shipped this minor (e.g. `#regalloc`, `secret var`, `#pe_import`, multi-return, struct initializer). Update existing entries when behavior changed (e.g. `&local` arch dispatch, `_cyrius_init` binding flip). Refresh the `overview` entry's compiler-size + cc-binary-name + version line at every minor.
+   - **`vidya/content/cyrius/field_notes/compiler.toml`** — compiler internals + non-obvious gotchas. Add field notes for anything that surprised us this minor (e.g. RBP-after-`clone()` race, `FUTEX_PRIVATE_FLAG` mismatch with kernel `CLONE_CHILD_CLEARTID`, parse.cyr unguarded x86-emit paths that shipped silently). One entry per gotcha; future-claude searching vidya before reimplementing should hit them.
+   - **`vidya/content/cyrius/field_notes/language.toml`** — user-facing language gotchas (e.g. no `var` redecl in same scope, no comparisons in fn-call args, parser's `#ifdef`-but-not-`#else`).
+   - **`vidya/content/cyrius/implementation.toml`** / **`types.toml`** — bump version refs and any structural changes (heap map, fixup table, fn table caps, IR opcode count, backend modules).
+   - **`vidya/content/cyrius/dependencies.toml`** / **`ecosystem.toml`** — refresh when deps bump (sigil 2.8.4 → next, etc.) and when downstream consumer counts / test counts change.
+   - **Cross-check the version**: every vidya file mentioning a `cc?` version (`cc3 4.8.5`, `cc5 5.4.x`, etc.) should match the current `VERSION` file. `version-bump.sh` doesn't touch vidya — that's manual at closeout.
 9. **Full check.sh** — 5/5 pass
 
 ## Security Audit Process

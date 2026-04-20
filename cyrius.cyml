@@ -36,5 +36,5 @@ modules = ["dist/mabda.cyr"]
 
 [deps.sankoch]
 git = "https://github.com/MacCracken/sankoch.git"
-tag = "1.2.0"
+tag = "2.0.0"
 modules = ["dist/sankoch.cyr"]
