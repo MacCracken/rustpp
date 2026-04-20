@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.14] — 2026-04-20
+
+**`lib/hashmap.cyr` Str-struct key fix (marja-surfaced data loss).**
+Before this release, `hash_str` walked its input byte-by-byte
+until a NUL terminator — correct for cstr keys but silently broken
+for Str-struct keys, which are fat `{data_ptr, len}` pairs with no
+NUL at position 0. The byte-walk read the struct's address bytes
+and adjacent freelist memory, producing address-derived hashes
+that collided constantly. `_map_find`'s tombstone/probe path then
+silently overwrote earlier entries — majra's soak tests measured
+~3% entry loss at counts from 50 to 5000.
+
+v5.4.14 is **additive, no breaking change**. Existing cstr-keyed
+maps (`map_new()` + `map_set(m, "literal", v)`) keep working
+unchanged; a new `map_new_str()` constructor creates a Str-keyed
+map that hashes by content. The map header grows from 24 → 32
+bytes to carry a `key_type` tag; `_map_find` + `map_print` branch
+on that tag to pick the right hash + equality. At v6.0.0 the map
+collapses to Str-only (per the v6.0.0 cyc-rename cleanup era);
+this release is the bridge.
+
+Pure stdlib fix. Compiler unchanged beyond the version-string
+literal. Self-host byte-identical on x86_64 and aarch64.
+
+### Added
+- **`map_new_str()`** — constructor for Str-keyed maps. Keys are
+  Str struct pointers (from `str_from` / `str_from_int` /
+  `str_new` / ...). Use this for any map whose keys are built via
+  `str_from_int(n)` or similar.
+- **`hash_str_v(s)`** — FNV-1a hash over `str_data(s)` for
+  `str_len(s)` bytes. Content-derived, not address-derived.
+- **`_map_hash(m, key)`** + **`_map_key_eq(m, a, b)`** internal
+  helpers — dispatch to `hash_str`/`hash_str_v` and `streq`/`str_eq`
+  based on the map's `key_type` tag at `m+24`.
+- **`tests/tcyr/hashmap_str_keys.tcyr`** — 17-assertion regression
+  covering: 500 `str_from_int`-keyed entries all survive, 500
+  round-trips return correct values, overwrite-by-value works,
+  2000-entry grow crosses the 70% load threshold without loss,
+  cstr legacy path unchanged, delete+has on both key types.
+  Verified 17/17 PASS on x86_64 and aarch64 (cross-built,
+  run via ssh pi).
+
+### Changed
+- **Map header size: 24 → 32 bytes.** New field at `m+24` carries
+  `key_type`: `0` = cstr (legacy default, set by `map_new()`),
+  `1` = Str (set by `map_new_str()`). Any code inspecting raw
+  map-header bytes needs to update; no known consumers do.
+- **`_map_find` routes via `_map_hash` / `_map_key_eq`** instead of
+  hardcoded `hash_str` / `streq`. Same function serves both key
+  types; `_map_grow`'s existing `map_set`-based re-insertion
+  picks up the correct hash automatically because the map's
+  `key_type` persists through grow.
+- **`map_print` branches on `key_type`** for key rendering: cstr
+  uses `strlen`, Str uses `str_data` + `str_len`.
+- **Doc comment at top of `lib/hashmap.cyr`** updated to name
+  both constructors and point at the v5.4.14 context.
+
+### Fixed
+- **Str-struct key silent entry loss** (majra-surfaced, filed in
+  `docs/development/issues/stdlib-hashmap-str-key-collision.md`).
+  Previously: `map_new() + map_set(m, str_from_int(i), v)` dropped
+  ~3% of entries. Now: use `map_new_str()` for that pattern, 100%
+  survival. The cstr path is unchanged.
+
+### Migration
+- **No changes required** for cstr-keyed maps (`map_new()` +
+  `"literal"` keys). Keep working as before.
+- **For Str-keyed maps**: switch `map_new()` → `map_new_str()` at
+  the call site. The rest of the API (`map_set` / `map_get` /
+  `map_has` / `map_delete` / `map_size` / `map_keys` /
+  `map_values` / `map_clear` / `map_iter` / `map_print`) is
+  unchanged — the map's stored `key_type` routes internally.
+- **majra v2.4.0-dev** can drop its `counter_inc`-backed
+  `mq_total_completed` invariant workaround and stop marking
+  `mq_job_count` as informational-only in its soak harness;
+  bump `cyrius.cyml` pin `5.4.11` → `5.4.14`.
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- `tests/tcyr/hashmap_str_keys.tcyr` — 17/17 PASS on x86_64 and
+  aarch64 (via ssh pi).
+- cc5 + cc5_aarch64 self-host byte-identical (compiler unchanged
+  beyond the version-string literal).
+
 ## [5.4.13] — 2026-04-19
 
 **fncall ceiling lift (6 → 8) + FFI struct-packing policy.**

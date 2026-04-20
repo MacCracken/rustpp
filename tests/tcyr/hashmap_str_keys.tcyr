@@ -1,0 +1,87 @@
+# Regression for v5.4.14 — hashmap Str-struct key fix.
+#
+# Before v5.4.14, `hash_str` byte-walked a Str-struct pointer as if
+# it were a cstr, producing an address-derived hash. Colliding
+# buckets took a tombstone/probe path that silently overwrote
+# earlier entries — marja's soak tests measured ~3% entry loss
+# at counts from 50 to 5000.
+#
+# v5.4.14 added `map_new_str()` + `hash_str_v` + key_type branching
+# in `_map_find` / `_map_grow`. A Str-keyed map now hashes the
+# key's *content* (str_data bytes over str_len), so 500 distinct
+# str_from_int(1..500) entries must all survive. The cstr path is
+# unchanged — regression here too.
+
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/fmt.cyr"
+include "lib/hashmap.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+test_group("Str-keyed map — populate 500 via str_from_int");
+var sm = map_new_str();
+var i = 1;
+while (i <= 500) {
+    var key = str_from_int(i);
+    map_set(sm, key, i);
+    i = i + 1;
+}
+assert_eq(map_size(sm), 500, "map_new_str: 500 distinct Str keys all present");
+
+test_group("Str-keyed map — round-trip each value");
+var round_fail = 0;
+var j = 1;
+while (j <= 500) {
+    var key = str_from_int(j);
+    if (map_get(sm, key) != j) { round_fail = round_fail + 1; }
+    j = j + 1;
+}
+assert_eq(round_fail, 0, "map_get returns the value inserted for every key");
+
+test_group("Str-keyed map — overwrite same key");
+var ok_key = str_from_int(42);
+map_set(sm, ok_key, 9999);
+assert_eq(map_get(sm, ok_key), 9999, "overwrite by-value Str key");
+assert_eq(map_size(sm), 500, "overwrite doesn't grow count");
+
+test_group("Str-keyed map — grow crosses 70% load threshold");
+var gm = map_new_str();
+var g = 1;
+while (g <= 2000) {
+    var gk = str_from_int(g);
+    map_set(gm, gk, g * 2);
+    g = g + 1;
+}
+assert_eq(map_size(gm), 2000, "2000-entry Str map survives multiple grows");
+
+test_group("cstr-keyed map — legacy path unchanged");
+var cm = map_new();
+map_set(cm, "alpha", 1);
+map_set(cm, "beta", 2);
+map_set(cm, "gamma", 3);
+assert_eq(map_size(cm), 3, "cstr map basic insert");
+assert_eq(map_get(cm, "alpha"), 1, "cstr key alpha");
+assert_eq(map_get(cm, "beta"), 2, "cstr key beta");
+assert_eq(map_get(cm, "gamma"), 3, "cstr key gamma");
+map_set(cm, "beta", 99);
+assert_eq(map_get(cm, "beta"), 99, "cstr key overwrite");
+assert_eq(map_size(cm), 3, "cstr overwrite doesn't grow count");
+
+test_group("cstr-keyed map — delete + has");
+assert_eq(map_has(cm, "alpha"), 1, "cstr has alpha");
+map_delete(cm, "alpha");
+assert_eq(map_has(cm, "alpha"), 0, "cstr delete removes alpha");
+assert_eq(map_size(cm), 2, "cstr delete decrements count");
+
+test_group("Str-keyed map — delete + has");
+assert_eq(map_has(sm, ok_key), 1, "str_has 42");
+map_delete(sm, ok_key);
+assert_eq(map_has(sm, ok_key), 0, "str_delete removes 42");
+assert_eq(map_size(sm), 499, "str delete decrements count");
+
+var r = assert_summary();

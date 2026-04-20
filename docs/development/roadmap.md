@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.13.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.14.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -882,6 +882,23 @@ Platform Targets" below).
   hashmap under `CLONE_VM`) are all flagged but not yet on a
   minor. Closeout decides whether any of those need a v5.4.x
   patch slot or all push to v5.5.x.
+- **`lib/toml.cyr` multi-line array fix.** Surfaced during
+  v5.4.13 shakti review (shakti issue
+  `docs/development/issues/2026-04-19-mini-toml-parser-limits.md`).
+  `lib/toml.cyr:192` terminates unquoted values at the first
+  `\n`, so a TOML value starting with `[` truncates to just
+  `"["` when the array spans multiple lines. Same bug-class as
+  shakti's own local parser; user observation 2026-04-19:
+  migrating shakti to `lib/toml.cyr` would not have fixed
+  anything. Dormant today because cyrius's current consumers
+  (cyrius.cyml, vidya TOML content) all use single-line
+  arrays. **Fix shape**: detect `[` as value-start, scan for
+  matching `]` tracking quote + bracket state (ignoring `\n`
+  inside arrays). Same algorithm shakti applies locally.
+  ~20 LOC + `tests/tcyr/toml_multiline.tcyr` regression.
+  **Coordination**: shakti holds its 0.2.1 parser fix until
+  after v5.4.16 ships so it can reference the canonical fix
+  pattern. No other downstream is blocked.
 - **Release scaffold — collapse tool-list multi-refs to a
   single source of truth.** Surfaced at v5.4.12-1 as the
   sibling of the dep-tag drift (release-lib.sh). Today the
