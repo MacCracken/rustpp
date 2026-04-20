@@ -4,6 +4,105 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.20] — 2026-04-20
+
+**v5.4.x closeout.** Final patch in the v5.4.x series, last release
+before v5.5.0 opens with PE correctness completion. Shipped on 4/20
+intentionally — the number lined up. Per CLAUDE.md §"Closeout Pass"
+9-step checklist, every item verified clean:
+
+| Step | Check                                   | Result              |
+|------|-----------------------------------------|---------------------|
+| 1    | Self-host verify (cc5 byte-identical)  | ✅ 471216 B three-step |
+| 2    | Bootstrap closure (seed → cyrc → cc5)  | ✅                  |
+| 3    | Dead code audit                         | ✅ 21 fns (IR / backend scaffolding; leave for v6.0.0 cleanup) |
+| 4    | Stale comment sweep                     | ✅ cc2/cc3 refs all in archived docs only |
+| 5    | Heap map verify (`tests/heapmap.sh`)    | ✅ 43 regions, 0 overlaps, 0 warnings |
+| 6    | Downstream check (pins informational)   | mabda @ 5.4.10, sigil @ 5.4.8, libro @ 5.4.7, shakti @ 5.4.17, yukti @ 5.4.8, majra @ 5.4.17, sakshi @ 5.1.13 |
+| 7    | Security re-scan                        | ✅ no new `sys_system`, `READFILE` sites appropriately gated |
+| 8    | Vidya sync (the silent-rot one)         | ✅ overview rewritten, 5 new language.toml entries, 21-gotcha compiler.toml bundle |
+| 9    | Full `sh scripts/check.sh`              | ✅ 10/10, 69 test files |
+
+No new compiler features this release — just doc + vidya catch-up,
+install-snapshot refresh (via v5.4.18's post-bump hook fired
+automatically at version-bump), and the standard pre-minor-bump
+hygiene pass.
+
+### Vidya updates (docs/canonical knowledge base)
+- **`language.toml` overview entry** rewritten end-to-end. Was
+  dated to cc3 / 4.8.5 / 41 stdlib modules / 5 deps — now reflects
+  cc5 / 5.4.20 / 61 stdlib modules / 6 deps (sigil 2.9.0 with
+  HKDF + SHAKE), Windows PE status, --strict, #ifplat, keccak,
+  fncall ceiling, hashmap str-keys, 471 KB compiler on x86_64.
+- **5 new `[[entries]]`** in language.toml:
+  `ifplat_directive`, `strict_mode`, `hashmap_str_keys`,
+  `fncall_ceiling`, `secret_var_compound_ops` (bundled syntax
+  additions). All 5 give future agents a direct named lookup
+  for the v5.3.x–v5.4.x feature surface.
+- **21-gotcha `v5_4_x_gotchas_bundle` entry** in
+  `field_notes/compiler.toml`. Each gotcha cost a debug cycle;
+  recording so future agents don't re-discover. Covers syntax /
+  type system (var[N] is bytes not elements, `^` binds tighter
+  than binary `-`, cyrius `>>` is logical shift, no same-scope
+  var redecl, str_data not NUL-terminated), preprocessor
+  (undefined-fn soft before --strict, #ifplat dispatch order),
+  aarch64 cross-compile (rebuild cc5_aarch64 after lex changes,
+  parse.cyr x86-leak sites), calling convention (cyrius aarch64
+  uses x0..x5 not x0..x7, struct-by-value needs C shim), runtime
+  (thread trampoline RBP discipline, join futex wake semantics,
+  include-boundary inline-asm bug), release machinery (tool-list
+  6× duplication pre-v5.4.18, install-snapshot drift pre-v5.4.12-1,
+  release-lib.sh dep-tag drift), test harness (stderr-in-stdout,
+  syscalls_x86_64_linux alloc dep).
+
+### v5.4.x release arc — what shipped
+| Release    | Theme                                         |
+|------------|-----------------------------------------------|
+| v5.4.10    | `lib/thread.cyr` post-clone trampoline (majra)|
+| v5.4.11    | aarch64 Linux syscall stdlib (yukti)          |
+| v5.4.12    | Tool-cleanup pass (cyriusly, pulsar layout)   |
+| v5.4.12-1  | `release-lib.sh` dep-tag drift hotfix         |
+| v5.4.13    | fncall ceiling 6→8 (mabda wgpu render-pass)   |
+| v5.4.14    | Hashmap Str-struct key fix (marja)            |
+| v5.4.15    | `lib/keccak.cyr` + sigil 2.9.0                |
+| v5.4.16    | Stdlib perf pass (`_keccak_rotl64` inline)    |
+| v5.4.17    | `lib/toml.cyr` multi-line array fix (shakti)  |
+| v5.4.18    | Release-scaffold hardening (`[release]` table)|
+| v5.4.19    | Compiler hardening (`#ifplat`, EW assert, `--strict`) |
+| v5.4.20    | **This release — closeout**                   |
+
+### Deferred / carried forward to v5.5.x
+- **Lib call-site migration to `#ifplat`** — directive live,
+  migration deferred after v5.4.19 regression.
+- **Inline-asm include-boundary bug** (v5.5.x pillar 8) —
+  sigil 2.9.1 AES-NI blocker.
+- **Static `parse.cyr` unguarded x86-emit audit** — EW assert
+  catches dynamically; static pass is belt-and-suspenders.
+- **`lib/syscalls_x86_64_linux.cyr` alloc dep** — standalone
+  include emits warning; low-priority cleanup.
+- **Field-notes language.toml + implementation.toml + ecosystem.toml
+  catch-up** — vidya's biggest lift; the overview + compiler
+  field-notes got the high-impact slice; the rest rots less
+  dangerously and can roll into v5.5.x closeout.
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS (69 test files).
+- cc5 + cc5_aarch64 self-host byte-identical.
+- `tests/heapmap.sh` — 43 regions, 0 overlaps, 0 warnings.
+- Install-snapshot refreshed automatically via v5.4.18's
+  post-bump hook on `version-bump.sh 5.4.20`.
+
+### Next
+**v5.5.0** — PE correctness completion. Windows Win64 ABI at
+`fncall*`, remaining `syscall(n)` reroutes,
+`lib/syscalls_windows.cyr`, `lib/alloc_windows.cyr`,
+`cc5_win.cyr` cross-entry, `.rdata`/`.data` RW-split, byte-cmp
+polish on real `windows-latest`. Plus the v5.5.x pillars:
+aarch64 native-syscall self-host, NSS/PAM end-to-end (shakti
+0.2.x blocker), TLS via `arch_prctl`, atomics + memory barriers,
+runtime thread-safety audit, RISC-V rv64, and the
+include-boundary inline-asm bug (sigil 2.9.1 blocker).
+
 ## [5.4.19] — 2026-04-20
 
 **Compiler hardening: `#ifplat` directive, aarch64 EW alignment
