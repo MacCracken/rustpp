@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.2.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.5.2.** cc5 compiler (478608 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -67,11 +67,14 @@
 > out of the v5.5.x list on 2026-04-20 — new arch port deserves
 > its own release, not one item in a runtime-correctness arc).
 > **v5.7.0 is bare-metal / AGNOS kernel target.**
-> **v5.4.x runs a parallel compiler-optimization
+> **v5.5.x inherits the parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
-> maximal-munch instruction selection) synthesized from vidya
-> and external research (QBE / TCC / Poletto-Sarkar / Agner Fog). aarch64 port remains fully online (`regression.tcyr`
+> maximal-munch instruction selection) — originally queued under
+> v5.4.x but none shipped during that minor, so the full sequence
+> carries forward as explicit v5.5.x pillars. Synthesized from
+> vidya and external research (QBE / TCC / Poletto-Sarkar /
+> Agner Fog). aarch64 port remains fully online (`regression.tcyr`
 > 102/102 on real Pi, native `cc5` self-hosts byte-identical,
 > per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16).
 > Apple Silicon Mach-O self-hosts byte-identically on M-series
@@ -1123,8 +1126,59 @@ explicit homes here so they stop accreting "soon" notes.
    Fix needs someone who can read the cc5 backend's emit-fn-body
    / fixup-pass / include-resolution interaction. Not scoped for
    v5.4.17 closeout because the investigation is open-ended.
+11. **Phase O1 — instrumentation + FNV-1a symbol table**
+   (~240 LOC). Per-phase `rdtsc` counters behind a compile-time
+   flag, and replacement of linear-scan `fn_names` /
+   `struct_names` lookups with FNV-1a open-addressing hash.
+   Expected: 10–25% compile-throughput win once `fn_count >
+   ~200`. Baseline gate for every later phase — none of the
+   quantitative claims below are worth anything without this.
+   Detailed scope in §"v5.5.x Queue — Compiler Optimization".
+12. **Phase O2 — peephole quick wins** (~510 LOC). Strength
+   reduction, flag-result reuse, redundant-move elimination,
+   LEA combining on x86_64, aarch64 `madd`/`msub`/`ubfx`/
+   `sbfx` fusions. All deterministic, all first-wave per
+   vidya + QBE/TCC research. Expected to land as one or two
+   patches on top of O1.
+13. **Phase O3 — IR-driven passes** (~590 LOC). Const fold +
+   prop on the IR (not just at parse time), bitmap-based DCE,
+   copy propagation, dead-store elimination. Precondition:
+   finish IR instrumentation across the ~50 remaining direct
+   `EB`/`E2`/`E3` emit sites in `src/frontend/parse.cyr`
+   (same blocker v5.x IR work flagged). Fixed-point driver
+   loops fold → prop → reduce → DCE until no-change.
+14. **Phase O4 — linear-scan register allocation**
+   (~600–900 LOC). Poletto-Sarkar greedy with furthest-next-use
+   spill heuristic. Replaces today's peephole `#regalloc`.
+   Depends on O3's completed IR coverage. Expected: 2–3× on
+   hot inner loops over the current stack-machine baseline;
+   10–20% quality gap vs. graph-coloring at a fraction of the
+   code. Determinism guard: no iterated coalescing —
+   byte-identical self-host stays the gate.
+15. **Phase O5 — maximal-munch instruction selection**
+   (~300–500 LOC). Formalize today's ad-hoc tiling into a
+   pattern table per backend; walker traverses IR bottom-up
+   matching largest subtree to a single machine instruction.
+   Makes RISC-V (v5.6.0) and aarch64 emission cleaner — new
+   tile tables per backend, walker stays shared.
+16. **Phase O6 — slab allocator for IR pools** (~150 LOC,
+   MEASUREMENT-GATED). `vidya/content/allocators` documents
+   20–30× speedup over bump for fixed-size churn. Only worth
+   it if O4's profiling shows bump allocation hot during
+   live-range construction. If O4 benchmarks say it's not
+   hot, skip this — this is the one phase that has an
+   explicit "don't bother" exit condition.
 
-These nine post-v5.5.0 pillars don't have minor numbers
+Pillars 11–16 (the O1–O6 compiler-optimization phases) run in
+parallel to 2–10 (the platform / runtime pillars). They DON'T
+block self-host or any target correctness work; they're quality
+investments the compiler earns as it stabilizes. Ordering
+constraint within the track: O1 before any later phase (no
+baseline = no evidence the later work helped); O3 before O4
+(linear-scan needs complete IR coverage); O6 gated on O4's
+profile.
+
+These fifteen post-v5.5.0 pillars don't have minor numbers
 assigned yet; they'll claim slots in order as work begins.
 v5.5.x is expected to be a real arc — the Platform Targets
 table is honest about that. Pillars 2 and 3 in particular close
@@ -1215,16 +1269,91 @@ conflate unrelated work.
   exceptions, debugger stack walks, ETW profiling. Tracked
   here for completeness; no v5.4.x release targets this.
 
-### v5.4.x Queue — Compiler Optimization (parallel track)
+### v5.5.3 — Win64 ABI at `fncall0..fncall8` (planned next)
+
+Highest-risk item remaining in the v5.5.x PE arc. Today cyrius-
+to-cyrius fn calls on PE targets use System V AMD64 ABI (same
+as Linux ELF) — which happens to not crash because we haven't
+yet invoked Win32 callbacks from cyrius user code, but is wrong
+and will bite the moment we do. Syscall reroutes (v5.4.4 /
+v5.4.7 / v5.5.1) already set up Win64 ABI correctly at the
+Win32 boundary; this release lifts the internal fn call
+convention to match, ending the "half-Win64" state.
+
+**Scope** — all `_TARGET_PE`-guarded; Linux/Mach-O paths
+untouched:
+
+- **`fncall0..fncall8`** (x86_64 backend): swap the SysV
+  register tuple (RDI/RSI/RDX/RCX/R8/R9, first 6 args in regs,
+  7th+ on stack) for the Win64 tuple (RCX/RDX/R8/R9, first 4 in
+  regs, 5th+ on stack at `[RSP+32+]`). Args 5–8 live in the
+  stack region *after* the 32 B shadow space.
+- **Shadow space** — every call site emits `sub rsp, 32`
+  (minimum 32 B shadow, rounded to keep RSP 16-aligned at
+  the `call` instruction). The PE syscall reroutes already
+  do this per-call; generalize the pattern to every ECALLFIX /
+  ECALLTO path under `_TARGET_PE`.
+- **Callee-save register set flip** — Win64 adds RDI/RSI
+  (callee-saved on Win64, caller-saved on SysV) and XMM6–XMM15
+  (callee-saved on Win64, caller-saved on SysV). EFNPRO /
+  EFNEPI under `_TARGET_PE` must save/restore RDI/RSI if the
+  fn uses them; XMM6–15 only matter once we start emitting SSE
+  user code, so scope-deferred to the first release that ships
+  FP-intensive codegen.
+- **`ESTOREPARM`** — parameter-slot assignment table needs the
+  Win64 ordering. Today the fn prologue stores incoming args
+  from RDI/RSI/… into local slots; under `_TARGET_PE` it reads
+  from RCX/RDX/… and the 5th+ from `[RBP+16+8i]` (past return
+  address + RBP save).
+
+**Risk profile** — touches every fncall site in codegen, every
+fn prologue, every fn epilogue. Mitigations:
+- `_TARGET_PE` guards keep Linux/Mach-O paths unchanged —
+  verify each by running the full `check.sh` suite post-edit.
+- aarch64 backend untouched entirely (different backend file).
+- Self-host fixpoint check remains the authoritative gate:
+  build cc5_v3 from cc5_v2, cc5_v4 from cc5_v3, assert
+  cc5_v3 == cc5_v4 byte-identical. Discover any bug the
+  moment the compiler self-compiles.
+- CLAUDE.md "3 failed attempts = defer and document" applies:
+  if self-host fixpoint fails three distinct attempts, split
+  into (a) arg-register mapping only, (b) shadow space +
+  callee-save set in a later patch. Don't force the full
+  bundle.
+
+**Scope NOT included** (carry to v5.5.4+):
+- Win64 self-host on `windows-latest` — separate pillar.
+- Struct-return-by-value via hidden RCX retptr — defer until
+  aggregate returns appear in Windows-compiled code.
+- `__chkstk` / stack-probe for frames ≥ 4 KB — defer until
+  a compiled program trips it.
+- Variadic float duplication (`xmm0` + `rdx` for `printf("%f", x)`)
+  — defer until vararg support on the PE arm.
+
+After v5.5.3 ships, v5.5.4 claims native Windows self-host
+completion (pillar 2 above) — `cc5_win` compiling itself
+byte-identical on `windows-latest` + full `.tcyr` suite gated
+on Windows CI.
+
+### v5.5.x Queue — Compiler Optimization (parallel track)
 
 Phased plan synthesized from vidya
 (`content/optimization_passes`, `content/code_generation`,
 `content/allocators`) and external research (QBE, TCC, QBE arm64
 peephole — Brian Callahan, Poletto/Sarkar linear scan, Agner Fog
-x86_64 microarchitecture notes). Runs alongside the Windows
-correctness queue above; phases are independently shippable as
-patch releases. **Non-negotiable across every phase**: byte-identical
-self-host must hold; every pass must be deterministic.
+x86_64 microarchitecture notes). Originally queued under v5.4.x
+but no phase shipped during that minor — the v5.4.x tail (v5.4.17–
+v5.4.20) prioritized correctness cleanup (toml, release scaffold,
+`#ifplat`, closeout) over the optimizer work. Carries forward
+intact as the v5.5.x parallel track, running alongside the
+platform-completion pillars (Windows self-host, Apple Silicon
+toolchain, Linux runtime). Phases are independently shippable as
+patch releases — claim a slot in order as each one's gate passes.
+**Non-negotiable across every phase**: byte-identical self-host
+must hold; every pass must be deterministic.
+
+**Current shipping status**: none shipped yet — all six phases
+open under v5.5.x.
 
 **Guardrails (both research tracks converged on these "don't"s):**
 - No graph-coloring register allocation (3–5× the code of linear
