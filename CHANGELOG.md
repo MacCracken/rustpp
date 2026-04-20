@@ -4,6 +4,75 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.8] — 2026-04-20
+
+**Windows heap bootstrap via SYS_MMAP instead of SYS_BRK.** Small
+focused fix surfaced during the native-self-host probe.
+`src/main_win.cyr`'s heap init used the Linux-style
+`syscall(SYS_BRK, 0)` / extend pattern — Windows has no brk and
+the PE backend doesn't reroute `syscall(12)`, so cc5_win.exe
+crashed with STATUS_ACCESS_VIOLATION trying to execute the raw
+`0F 05` Linux syscall bytes the fall-through path emits.
+
+v5.5.8 switches to `syscall(SYS_MMAP, 0, 32MB, 3, 0x22, -1, 0)`
+which works on **both** paths of main_win.cyr's build chain:
+
+- `cc5` (Linux) compiles `main_win.cyr` → `cc5_win_linux` (ELF):
+  heap init runs on Linux as `mmap(0, 32MB, PROT_READ|PROT_WRITE,
+  MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)` — the PROT/flags values are
+  valid Linux flags.
+- `cc5_win_linux` compiles `main_win.cyr` → `cc5_win.exe` (PE):
+  heap init runs on Windows, v5.5.1's `EMMAP_PE` reroutes to
+  `VirtualAlloc(0, 32MB, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE)`.
+  EMMAP_PE drops prot/flags/fd/offset so the Linux values don't
+  leak.
+
+Scope deliberately narrow — this is a prerequisite for v5.5.9
+native Windows self-host, not the self-host itself. Pinned as
+its own patch per the "pin each prerequisite" discipline.
+
+**Necessary but not sufficient.** `cc5_win.exe` (built from the
+fixed `main_win.cyr`) still crashes at startup BEFORE writing
+any output. ERRORLEVEL -1073741819 = STATUS_ACCESS_VIOLATION; 0
+bytes stdout, 0 bytes stderr. A standalone
+`syscall(SYS_MMAP, ..., store64, load64, syscall(SYS_EXIT))` program
+runs fine on real Windows 11 — so the mmap reroute works. But the
+full compiler (~550 KB cc5_win.exe) faults somewhere later in
+startup, before the compile logic begins. v5.5.9 scopes the
+continued debugging with a probe-first methodology (breadcrumbs
+after each init stage, `_init_cyrius_lib` `/proc/self/environ`
+audit, structural PE validation, optional WinDbg attach on
+`nejad@hp`).
+
+Verified: Linux self-host byte-identical (483440 B, unchanged —
+`main.cyr` untouched; only `src/main_win.cyr` enum + heap-init
+lines changed). `check.sh` 10/10. Raw `syscall(SYS_MMAP, ...)`
+probe PASSes on real Windows 11.
+
+### Added
+- **`src/main_win.cyr` `SYS_MMAP` enum variant** — adds `SYS_MMAP = 9`
+  to the `enum Sys` so the heap-init line can reference it
+  symbolically.
+- **`src/main_win.cyr` heap init swap** — replaces the two
+  `syscall(SYS_BRK, ...)` calls with one
+  `syscall(SYS_MMAP, 0, 0x2000000, 3, 0x22, -1, 0)`.
+
+### Fixed
+- **cc5_win.exe STATUS_ACCESS_VIOLATION at heap-init time** on
+  Windows. Was emitting raw Linux `0F 05` syscall bytes because
+  `syscall(12)` falls through the PE parse-time dispatch. Now
+  uses an already-rerouted syscall.
+
+### Not in scope (v5.5.9+)
+- **Native Windows self-host** — further unblocking needed after
+  this fix. cc5_win.exe still crashes at a later stage. Pinned to
+  v5.5.9 with probe-first debugging plan documented in roadmap.
+- Rest of v5.5.x table shifts +1: Apple Silicon → v5.5.10,
+  aarch64 native → v5.5.11, include-asm bug → v5.5.12,
+  NSS/PAM → v5.5.13, TLS → v5.5.14, atomics → v5.5.15,
+  thread-safety → v5.5.16, .reloc → v5.5.17, PE tail → v5.5.18,
+  closeout → v5.5.19.
+
 ## [5.5.7] — 2026-04-20
 
 **Strict Win64 shadow-space compliance at every cyrius-to-cyrius

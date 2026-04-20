@@ -141,7 +141,7 @@
 
 
 # x86_64 syscall number constants (used by shared cc/ modules)
-enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
+enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_MMAP = 9; SYS_BRK = 12; SYS_EXIT = 60; }
 
 # ================================================================
 # MODULES
@@ -202,9 +202,20 @@ if (_vn > 0) {
     }
 }
 
-# Allocate heap
-var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x150B000);
+# Allocate heap.
+# Windows has no brk (the Linux-style `syscall(SYS_BRK, 0)` / extend
+# pattern crashes with STATUS_ACCESS_VIOLATION on PE because SYS_BRK
+# isn't rerouted). v5.5.8: use SYS_MMAP which works on both paths of
+# this file's build chain:
+#   - cc5 (Linux) compiles main_win.cyr → cc5_win_linux (Linux ELF):
+#     heap init runs on Linux, calls mmap(0, 32MB, PROT_RW=3,
+#     MAP_PRIVATE|MAP_ANONYMOUS=0x22, -1, 0) → valid region.
+#   - cc5_win_linux compiles main_win.cyr → cc5_win.exe (PE):
+#     heap init runs on Windows, PE backend (v5.5.1) routes to
+#     VirtualAlloc(0, 32MB, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE).
+#     The prot/flags/fd/offset are ignored by EMMAP_PE.
+# 32 MB covers the 21 MB heap with margin + page-alignment.
+var S = syscall(SYS_MMAP, 0, 0x2000000, 3, 0x22, 0 - 1, 0);
 
 # Zero state
 S64(S + 0x8C100, 0);
