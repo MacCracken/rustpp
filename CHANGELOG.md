@@ -4,6 +4,55 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.12-1] — 2026-04-19
+
+**Hotfix: release tarballs were shipping wrong dep versions.**
+v5.4.12's tarball bundled sigil 2.8.3 (cyrius.cyml says 2.8.4),
+yukti 1.2.0 (vs 1.3.0), and sankoch 1.2.0 (vs 2.0.0). Root
+cause: `scripts/release-lib.sh` kept its own parallel list of
+hardcoded dep tags that silently drifted every time
+`cyrius.cyml` bumped a dep. On CI (where the local
+`~/.cyrius/deps/…` symlinks don't exist), step 1's `cp -L`
+skipped the broken symlinks and step 2 fetched from the stale
+hardcoded URLs. v5.4.12 was the third shipped release with
+this drift unnoticed (sigil 2.8.3 → 2.8.4 happened at v5.4.9).
+
+Audit also surfaced three minor sibling drifts: `cyrius-port.sh`
+had `CYRIUS_VER="4.2.1"` as the initial value before its
+`cc5 --version` detection; `cyrius-init.sh` had `"5.2.0"` as
+the final fallback in a triple-cascade; `cyriusly` help text
+referenced `install 5.1.11` / `use 5.1.11`. None were loading
+stale data into released artifacts, but all were stale defaults
+that could silently seed ancient versions into new projects or
+mislead users who copy-paste help output.
+
+Pure packaging/scripting fix. Compiler byte-identical to
+v5.4.12; no self-host reroll; no `cc5 --version` change.
+Downstream pins bump 5.4.12 → 5.4.12-1 at their leisure.
+
+### Fixed
+- **`scripts/release-lib.sh`** — parses dep tags from
+  `cyrius.cyml`'s `[deps.NAME]` blocks via awk (name / tag /
+  modules triples), fetches from the resolved tag. Hardcoded
+  DEPS list removed. Cannot drift from the manifest again.
+- **`scripts/cyrius-port.sh`** — removed hardcoded
+  `CYRIUS_VER="4.2.1"` initial value; cascade is now
+  env → `cc5 --version` → `~/.cyrius/current` → hard error.
+- **`scripts/cyrius-init.sh`** — removed hardcoded `"5.2.0"`
+  fallback; cascade is env → install VERSION file → `cc5
+  --version` → `~/.cyrius/current` → hard error.
+- **`scripts/cyriusly`** — help examples show `<version>`
+  placeholders instead of a stale v5.1.11 reference.
+
+### Verification
+- `awk` dry-run on current `cyrius.cyml` emits the correct
+  triples: `sigil 2.8.4`, `yukti 1.3.0`, `sankoch 2.0.0`, plus
+  `sakshi 2.0.0`, `patra 1.1.1`, `mabda 2.1.2`.
+- `sh scripts/release-lib.sh /tmp/…` round-trip produces
+  sigil.cyr = 189204 B (matches repo's 2.8.4 content).
+- Compiler untouched; no `cc5` rebuild required; no
+  self-host hold to verify.
+
 ## [5.4.12] — 2026-04-19
 
 **Tool-cleanup pass: install / pulsar / release unification.**

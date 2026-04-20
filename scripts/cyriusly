@@ -207,8 +207,8 @@ function prompt_cyrius() {
         echo "    help                Show this help"
         echo ""
         echo "EXAMPLES:"
-        echo "    cyriusly install 5.1.11"
-        echo "    cyriusly use 5.1.11"
+        echo "    cyriusly install <version>   # e.g. the latest release tag"
+        echo "    cyriusly use <version>       # switch the active toolchain"
         echo "    cyriusly cmdtools install starship"
         echo "    cyriusly cmdtools list"
         ;;

@@ -76,10 +76,19 @@ echo "${RUST_LOC:-0}" > rust-old/LINES_OF_RUST.txt
 # Create structure
 mkdir -p src tests build docs/development .github/workflows
 
-# Detect current toolchain version
-CYRIUS_VER="4.2.1"
-if command -v cc5 >/dev/null 2>&1; then
+# Detect current toolchain version (cascade: env → cc5 binary → install snapshot)
+# NEVER hardcode a fallback here — stale fallbacks silently seed ancient versions
+# into freshly-ported projects (the v5.4.12 release-lib.sh drift class).
+CYRIUS_VER="${CYRIUS_VER:-}"
+if [ -z "$CYRIUS_VER" ] && command -v cc5 >/dev/null 2>&1; then
     CYRIUS_VER=$(cc5 --version 2>&1 | head -1 | awk '{print $2}')
+fi
+if [ -z "$CYRIUS_VER" ] && [ -f "$HOME/.cyrius/current" ]; then
+    CYRIUS_VER=$(tr -d '[:space:]' < "$HOME/.cyrius/current")
+fi
+if [ -z "$CYRIUS_VER" ]; then
+    echo "  error: no cyrius toolchain detected — install first or set CYRIUS_VER" >&2
+    exit 1
 fi
 # Toolchain version goes in cyrius.cyml as cyrius = "X.Y.Z"
 # .cyrius-toolchain is deprecated — manifest is the single source

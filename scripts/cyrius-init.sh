@@ -241,8 +241,23 @@ syscall(60, r);
 EOF
 
 # Toolchain version goes in cyrius.cyml as cyrius = "X.Y.Z"
-# cyrius.cyml (cyrius field) is deprecated — manifest is the single source
-CYRIUS_VER="${CYRIUS_VER:-$(cat "$CYRIUS/VERSION" 2>/dev/null || echo "5.2.0")}"
+# Cascade: env → install VERSION → live cc5 → install snapshot. NEVER hardcode
+# a fallback (stale fallbacks silently seed ancient versions into new projects
+# — the v5.4.12 release-lib.sh drift class).
+CYRIUS_VER="${CYRIUS_VER:-}"
+if [ -z "$CYRIUS_VER" ] && [ -f "$CYRIUS/VERSION" ]; then
+    CYRIUS_VER=$(tr -d '[:space:]' < "$CYRIUS/VERSION")
+fi
+if [ -z "$CYRIUS_VER" ] && command -v cc5 >/dev/null 2>&1; then
+    CYRIUS_VER=$(cc5 --version 2>&1 | head -1 | awk '{print $2}')
+fi
+if [ -z "$CYRIUS_VER" ] && [ -f "$HOME/.cyrius/current" ]; then
+    CYRIUS_VER=$(tr -d '[:space:]' < "$HOME/.cyrius/current")
+fi
+if [ -z "$CYRIUS_VER" ]; then
+    echo "  error: no cyrius toolchain detected — install first or set CYRIUS_VER" >&2
+    exit 1
+fi
 
 # === CI ===
 cat > "$NAME/.github/workflows/ci.yml" << 'CI'

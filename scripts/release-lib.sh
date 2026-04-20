@@ -4,6 +4,12 @@
 #
 # Copies real .cyr files from lib/, follows valid symlinks,
 # fetches dep bundles from GitHub when symlinks are broken (CI).
+#
+# Dep tags are parsed from cyrius.cyml — NEVER hardcode them here.
+# v5.4.12 shipped sigil 2.8.3 instead of 2.8.4 because this script
+# used to keep its own parallel DEPS list that drifted every time
+# cyrius.cyml bumped a dep. Fixed in v5.4.12-1: tags now come from
+# the [deps.NAME] blocks in cyrius.cyml at release time.
 
 set -e
 DEST="$1"
@@ -20,26 +26,42 @@ for f in lib/*.cyr; do
     fi
 done
 
-# 2. Dep bundles — fetch from GitHub if not already copied
-#    Format: repo tag path-in-repo
-DEPS="
-sakshi    2.0.0   dist/sakshi.cyr
-sigil     2.8.3   dist/sigil.cyr
-patra     1.1.1   dist/patra.cyr
-yukti     1.2.0   dist/yukti.cyr
-mabda     2.1.2   dist/mabda.cyr
-sankoch   1.2.0   dist/sankoch.cyr
-"
-
-echo "$DEPS" | while read -r REPO TAG FILE; do
-    [ -z "$REPO" ] && continue
-    BASE=$(basename "$FILE")
-    if [ ! -f "$DEST/$BASE" ]; then
-        URL="https://raw.githubusercontent.com/MacCracken/$REPO/$TAG/$FILE"
-        printf "  fetch: %s@%s → %s\n" "$REPO" "$TAG" "$BASE"
-        curl -sfL "$URL" -o "$DEST/$BASE" || echo "  WARN: failed to fetch $BASE"
-    fi
-done
+# 2. Dep bundles — single source of truth is cyrius.cyml.
+CYML="${CYRIUS_CYML:-cyrius.cyml}"
+if [ ! -f "$CYML" ]; then
+    echo "  WARN: $CYML not found, skipping dep fetch"
+else
+    awk '
+        /^\[deps\./ {
+            name = $0
+            gsub(/\[deps\.|\]/, "", name)
+        }
+        /^tag = / {
+            gsub(/[" ]/, "")
+            sub(/^tag=/, "")
+            tag = $0
+        }
+        /^modules = / {
+            gsub(/^modules = \[|\]$/, "")
+            gsub(/"/, "")
+            gsub(/,/, " ")
+            if (name != "" && tag != "") {
+                printf "%s %s %s\n", name, tag, $0
+                name = ""; tag = ""
+            }
+        }
+    ' "$CYML" | while read -r REPO TAG MODS; do
+        [ -z "$REPO" ] && continue
+        for MOD in $MODS; do
+            BASE=$(basename "$MOD")
+            if [ ! -f "$DEST/$BASE" ]; then
+                URL="https://raw.githubusercontent.com/MacCracken/$REPO/$TAG/$MOD"
+                printf "  fetch: %s@%s → %s\n" "$REPO" "$TAG" "$BASE"
+                curl -sfL "$URL" -o "$DEST/$BASE" || echo "  WARN: failed to fetch $BASE"
+            fi
+        done
+    done
+fi
 
 COUNT=$(ls "$DEST"/*.cyr 2>/dev/null | wc -l)
 echo "  $COUNT stdlib files staged"
