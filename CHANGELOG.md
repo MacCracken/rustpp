@@ -4,6 +4,93 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.13] — 2026-04-19
+
+**fncall ceiling lift (6 → 8) + FFI struct-packing policy.**
+Unblocks mabda's render-pass arc by giving cyrius two more
+direct-call slots (`fncall7`, `fncall8`) in `lib/fnptr.cyr`, and
+nails down the C-shim-vs-direct-call decision as a documented
+policy so downstream FFI consumers stop re-discovering the
+struct-by-value / float / variadic / aarch64-7-8-arg failure
+classes one by one. Also ruled out the long-standing "cyrius has
+a fncall6 bug" theory — a cyrius-only repro in
+`tests/tcyr/fncall_ceiling.tcyr` proves fncall6 is correct; the
+mabda-observed crashes are wgpu-native ABI handshakes (struct-
+by-value, per SysV §3.2.3 aggregate rules) that cyrius's integer-
+register-only `fncallN` can't satisfy.
+
+Pure stdlib + docs + tests release. Compiler byte-identical to
+v5.4.12-1 (src/main.cyr's only change is the version string's
+`5.4.12-1 → 5.4.13` literal). Self-host holds on x86_64 and
+aarch64.
+
+### Added
+- **`fncall7`** and **`fncall8`** in `lib/fnptr.cyr` — per-arch
+  inline asm bodies following cyrius's own calling convention
+  (x0..x5 / rdi..r9 for args 1-6; stack for args 7+). aarch64
+  stack args use `str xN, [sp, #-16]!` (16 bytes per slot to
+  preserve SP alignment) matching the caller-side pattern in
+  `src/backend/aarch64/emit.cyr:ECALLPOPS`. x86_64 reserves 16
+  bytes via `sub rsp, 16` to keep RSP 16-byte aligned at `call`.
+- **`tests/tcyr/fncall_ceiling.tcyr`** — regression for
+  `fncall0..fncall8` on both arches. 14 assertions across
+  arg-count coverage, register-order discrimination (distinct
+  prime-like inputs catch swapped-register bugs uniquely), and
+  callee-with-local-stack (catches red-zone / alignment
+  regressions that only surface when the callee touches its
+  own frame). Verified 14/14 PASS on x86_64 and on aarch64
+  (via ssh pi).
+- **`docs/ffi/fncall-abi.md`** — calling convention reference +
+  direct-call-vs-shim decision table (scalar-only, ≤ 8 args,
+  no float/variadic, ≤ 6 args calling C on aarch64).
+- **`docs/ffi/struct-packing.md`** — canonical C-shim pattern
+  with three worked examples from mabda's `deps/wgpu_main.c`
+  (`wgpu_shim_buffer_map`, `wgpu_shim_copy_buffer_to_buffer`,
+  and the nested `WGPURenderPassDescriptor` case).
+- **`lib/fnptr.cyr` header comment** — summarises the
+  convention + limitations + cross-link to
+  `docs/ffi/fncall-abi.md` so the next FFI consumer reads the
+  policy before hitting the same wall mabda did.
+
+### Documented (upstream ↔ mabda)
+- **mabda `docs/issues/2026-04-19-fncall6-wgpu-crash-resolution.md`**
+  — written by lang-agent for the mabda agent. Proves fncall6
+  is correct cyrius-side (references the new
+  `fncall_ceiling.tcyr` test), identifies struct-by-value as the
+  likely crash class, codifies the C-shim policy, and lists the
+  concrete mabda-side follow-ups (memory update, audit, proposal
+  tweak, pin bump). Nothing to change in mabda's existing shims
+  — they're already canonical.
+
+### Investigation outcome (not a cyrius fix)
+- The mabda-reported `fncall6 + wgpu-native` crash is **not** a
+  cyrius bug. cyrius-side repro (`tests/tcyr/fncall_ceiling.tcyr`)
+  exercises `fncall6` with distinct primes, callee-with-stack,
+  and register-order discrimination on both arches — all PASS.
+  The crash mabda observes comes from wgpu-native C functions
+  that take at least one struct-by-value parameter; SysV §3.2.3
+  aggregate-classification rules put these on the stack, which
+  cyrius's register-only `fncallN` doesn't set up. The correct
+  fix is always-on struct-packing via C shim, which mabda is
+  already doing in its canonical `WgpuMapArgs` / `WgpuCopyArgs`
+  forms.
+
+### Queued follow-ups (not in this release)
+- **`fncall_variadic`** helper that zeros `AL` before the `call`
+  for SysV variadic callees. ~10 LOC; targets v5.4.15 closeout.
+- **Vidya catch-up** — `language.toml` gains a `[[entries]]`
+  block for `fncall7`/`fncall8` + the new `docs/ffi/`;
+  `field_notes/compiler.toml` gains an entry on aarch64's
+  6-register convention divergence from AAPCS64. Lands at
+  v5.4.15 closeout (see §"Closeout Pass" in CLAUDE.md).
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- `tests/tcyr/fncall_ceiling.tcyr` — 14/14 PASS on x86_64 and
+  aarch64 (cross-built with `cc5_aarch64`, run via ssh pi).
+- cc5 self-host byte-identical (compiler unchanged beyond the
+  version-string literal; pure stdlib release).
+
 ## [5.4.12-1] — 2026-04-19
 
 **Hotfix: release tarballs were shipping wrong dep versions.**

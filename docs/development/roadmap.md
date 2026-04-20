@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.12-1.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.13.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -882,6 +882,32 @@ Platform Targets" below).
   hashmap under `CLONE_VM`) are all flagged but not yet on a
   minor. Closeout decides whether any of those need a v5.4.x
   patch slot or all push to v5.5.x.
+- **Release scaffold — collapse tool-list multi-refs to a
+  single source of truth.** Surfaced at v5.4.12-1 as the
+  sibling of the dep-tag drift (release-lib.sh). Today the
+  toolchain binary list is duplicated 6 times:
+  `.github/workflows/release.yml` (tool-build loop at :47 and
+  bin-copy loop at :69), `scripts/install.sh` (source-bootstrap
+  tool loop at :137, bin-copy loop at :151, summary display at
+  :482), and `cbt/pulsar.cyr` (bins array at :129-137). Adding
+  a tool — `cyrld` at v5.4.12 is the recent case — requires
+  six synchronized edits; missing any one silently drops the
+  tool from a codepath (CI built cyrld but release.yml didn't
+  ship it for months). **Fix shape**: new `[release]` table in
+  `cyrius.cyml` (`bins = [...]`, `cross_bins = [...]`,
+  `scripts = [...]`). release.yml + install.sh parse it with
+  the same awk pattern release-lib.sh uses; pulsar.cyr extends
+  its existing CYML parser to populate the bins/scripts arrays
+  at runtime instead of hardcoding them. **Why closeout
+  (v5.4.15), not earlier**: this touches release.yml and
+  pulsar.cyr — the release pipeline itself. Bundling into a
+  correctness-fix release risks breaking the actual release
+  mechanism while shipping something unrelated. Closeout is
+  the natural home for packaging refactors because the next
+  release is v5.5.0 and we need clean ground under it. ~100
+  LOC net across four files; should land with the #ifplat +
+  install-snapshot refresh work since all three are packaging
+  hardening.
 - **Install-snapshot drift fix + audit**.
   `~/.cyrius/versions/<ver>/{lib,bin}/` is created/refreshed by
   `install.sh`, which copies stdlib + canonical binaries
