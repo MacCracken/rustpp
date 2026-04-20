@@ -58,8 +58,22 @@ fn EB(S, b) {
     return 0;
 }
 
-# Emit 32-bit instruction word (little-endian)
+# Emit 32-bit instruction word (little-endian).
+# v5.4.19: alignment assert. aarch64 instructions must land on a
+# 4-byte boundary; the hardware decoder assumes this. Any prior
+# emit sequence that leaves the code position at a non-multiple-
+# of-4 (e.g. a stray x86-leak E2/EB from the shared frontend) would
+# produce an undecoded instruction stream. Catch it loudly here
+# rather than debugging a SIGILL in the emitted binary. Adds ~7
+# LOC per EW call — negligible against the 4 EB calls that follow.
 fn EW(S, w) {
+    var cp = GCP(S);
+    if ((cp & 3) != 0) {
+        syscall(SYS_WRITE, 2, "error: EW misaligned at cp=", 27);
+        PRNUM(cp);
+        syscall(SYS_WRITE, 2, " (not 4-byte boundary; shared parse.cyr leaked x86 bytes to aarch64 stream?)\n", 77);
+        syscall(SYS_EXIT, 1);
+    }
     EB(S, w & 0xFF);
     EB(S, (w >> 8) & 0xFF);
     EB(S, (w >> 16) & 0xFF);

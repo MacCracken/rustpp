@@ -162,7 +162,11 @@ include "src/backend/x86/fixup.cyr"
 # MAIN
 # ================================================================
 
-# --version check: read /proc/self/cmdline, look for --version arg
+# --version + --strict parsing (v5.4.19): read /proc/self/cmdline.
+# --strict sets _strict_mode = 1, which fixup.cyr reads to decide
+# whether undefined-function warnings should hard-fail the compile
+# (vs the default: warn and continue into a known-to-crash binary).
+var _strict_mode = 0;
 var _vbuf[256];
 var _vfd = 0;
 if (SYS_OPEN == 2) { _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0); }
@@ -172,14 +176,29 @@ syscall(SYS_CLOSE, _vfd);
 if (_vn > 0) {
     var _vi = 0;
     while (_vi < _vn) { if (load8(&_vbuf + _vi) == 0) { _vi = _vi + 1; break; } _vi = _vi + 1; }
-    # Check "--ve" (--version)
-    if (_vi + 4 <= _vn) {
-        if (load8(&_vbuf + _vi) == 45) { if (load8(&_vbuf + _vi + 1) == 45) {
-            if (load8(&_vbuf + _vi + 2) == 118) { if (load8(&_vbuf + _vi + 3) == 101) {
-                syscall(SYS_WRITE, 1, "cc5 5.4.18\n", 11);
-                syscall(SYS_EXIT, 0);
-            } }
-        } }
+    # Walk the cmdline args, looking for --version or --strict. Each
+    # arg is NUL-terminated; cmdline contains argv[0]\0argv[1]\0...
+    while (_vi < _vn) {
+        # "--ve" (--version) — short-circuit exit
+        if (_vi + 4 <= _vn) {
+            if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
+                if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
+                    syscall(SYS_WRITE, 1, "cc5 5.4.19\n", 11);
+                    syscall(SYS_EXIT, 0);
+                }
+            }
+        }
+        # "--st" (--strict) — set flag, keep parsing
+        if (_vi + 4 <= _vn) {
+            if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
+                if (load8(&_vbuf + _vi + 2) == 115 && load8(&_vbuf + _vi + 3) == 116) {
+                    _strict_mode = 1;
+                }
+            }
+        }
+        # Skip to next arg (past next \0)
+        while (_vi < _vn && load8(&_vbuf + _vi) != 0) { _vi = _vi + 1; }
+        _vi = _vi + 1;
     }
 }
 

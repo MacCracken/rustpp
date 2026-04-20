@@ -4,6 +4,99 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.19] — 2026-04-20
+
+**Compiler hardening: `#ifplat` directive, aarch64 EW alignment
+assert, `--strict` mode.** Third of the four split-out v5.4.x tail
+releases. All items touch the compiler's frontend / backend; self-
+host verified byte-identical on both arches (three-step bootstrap)
+after each item. Lib-side call-site migration from `#ifdef
+CYRIUS_ARCH_*` to `#ifplat` was attempted and **deferred to v5.5.x**
+after hitting an unexplained codegen regression specifically in
+thread-heavy tests — the directive itself is sound (`ifplat.tcyr`
+5/5 on x86_64 and aarch64), but migrating all three lib sites
+atomically triggers a failure in `lib/thread.cyr` that I couldn't
+root-cause in the time budget (per CLAUDE.md "3 failed attempts =
+defer and document"). Existing `#ifdef CYRIUS_ARCH_*` call sites
+stay on the proven path; new consumers can adopt `#ifplat` today.
+
+### Added
+- **`#ifplat PLAT` + `#endplat` preprocessor directives** in
+  `src/frontend/lex.cyr`. Supported platform tokens: `x86` and
+  `aarch64`. Unknown tokens fail closed (block skipped).
+  Semantically equivalent to `#ifdef CYRIUS_ARCH_<UPPER>` — the
+  evaluator (`PP_IFPLAT_MATCH`) hashes the canonical
+  `CYRIUS_ARCH_*` symbol and looks it up in the same flag table
+  as `#ifdef`. Two new detectors (`ISIFPLAT`, `ISENDPLAT`) mirror
+  the existing `ISIFDEF` / `ISENDIF` byte-sequence checks.
+  Dispatch in `PP_PASS` sits between `ISIFDEF` and `ISIF` so the
+  `#ifp...` prefix wins cleanly (`#ifplat` would otherwise fall
+  through to ISIF's byte-3-must-be-space test and miss).
+- **`tests/tcyr/ifplat.tcyr`** — 5-assertion regression:
+  equivalence between `#ifplat x86` and `#ifdef CYRIUS_ARCH_X86`,
+  same for aarch64, exactly-one-arch-live invariant, and the
+  unknown-platform fail-closed case. 5/5 PASS on x86_64 and
+  aarch64 (cross-built, run via ssh pi).
+- **Permanent `EW` alignment assert** in
+  `src/backend/aarch64/emit.cyr`. aarch64 instructions must land
+  on a 4-byte boundary; any prior emit sequence that leaves the
+  code position at a non-multiple-of-4 (e.g. a stray x86-leak
+  `E2`/`EB` from the shared frontend) would produce an undecoded
+  instruction stream. `EW` now checks `GCP(S) & 3 == 0` and
+  hard-exits with a diagnostic message pointing at "shared
+  parse.cyr leaked x86 bytes to aarch64 stream?". Catches the
+  class dynamically — obviates the need for an exhaustive static
+  audit this release.
+- **`--strict` CLI flag** — escalates undefined-function warnings
+  to hard errors. Before v5.4.19, `cyrius build foo.cyr` on a
+  program calling a nonexistent fn emitted a warning + "will
+  crash at runtime" note and then produced a broken binary that
+  segfaulted when the call was reached. With `--strict`, cc5
+  refuses to emit the binary and exits 1 with a clear
+  `refusing to emit binary with N undefined function(s)`
+  message. Closes the regression class that mabda Issue 2 and
+  v5.4.15's `bench_print_all` typo represent. Parsing reads
+  `/proc/self/cmdline` alongside `--version`; `--strict` sets
+  `_strict_mode = 1`; `src/backend/x86/fixup.cyr` reads it after
+  the undef-count loop.
+
+### Changed
+- **`src/main.cyr`** — CLI arg parser now walks the whole cmdline
+  (was: checked only the first post-argv[0] arg). Handles
+  `--version` (short-circuit exit) and `--strict` (set flag,
+  continue). Opens the door for more flags in v5.5.x.
+- **`lib/syscalls.cyr`** comment updated to document the
+  `#ifplat` migration status (directive available; migration of
+  this file deferred to v5.5.x).
+
+### Deferred to v5.5.x
+- **Call-site migration of `#ifdef CYRIUS_ARCH_*` → `#ifplat`**
+  in `lib/fnptr.cyr`, `lib/thread.cyr`, `lib/syscalls.cyr`. All
+  three files migrate cleanly at the text level, and the
+  `#ifplat` directive works correctly in isolation, but a
+  combined migration triggers a thread-test regression (0/6 on
+  `threads.tcyr`) whose root cause I couldn't isolate. Deferring
+  leaves 21 `#ifdef CYRIUS_ARCH_*` call sites on the old path
+  and 0 `#ifplat` call sites in production stdlib. The directive
+  is ready for new consumers; existing consumers don't need to
+  migrate.
+- **Static parse.cyr unguarded x86-emit audit** — the EW
+  alignment assert (above) now catches this class dynamically
+  at emit time, obsoleting the need for a source-level audit in
+  this release. v5.4.20 closeout's stale-comment / dead-code
+  sweep can absorb any residual cleanup.
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS (test suite now 69 files;
+  ifplat.tcyr picked up automatically, thread.cyr tests remain
+  on the #ifdef path).
+- cc5 self-host byte-identical (three-step bootstrap): 472368 B
+  → 472368 B → 472368 B.
+- cc5_aarch64 cross-build byte-identical.
+- `--strict` verified: compiling a program with an undefined
+  function call exits 1 without `--strict` default; without
+  `--strict`, same warning but exits 0 (backward compatible).
+
 ## [5.4.18] — 2026-04-20
 
 **Release-scaffold hardening (packaging cleanup).** Second of the

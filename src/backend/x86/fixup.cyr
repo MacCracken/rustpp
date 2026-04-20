@@ -90,7 +90,11 @@ fn FIXUP(S) {
         totvar = totvar + L64(S + 0x12A000 + vi * 8);
         vi = vi + 1;
     }
-    # Check for undefined functions that are actually called (have fixup entries)
+    # Check for undefined functions that are actually called (have fixup entries).
+    # v5.4.19: if the compiler was invoked with `--strict`, any undefined
+    # function becomes a hard failure rather than a "will crash at runtime"
+    # warning. Closes the mabda Issue 2 / v5.4.15 bench_print_all regression
+    # class — typos in fn names silently produce broken binaries today.
     var undef_count = 0;
     var fcnt_pre = GFCNT(S);
     var ufi = 0;
@@ -116,6 +120,13 @@ fn FIXUP(S) {
             }
         }
         ufi = ufi + 1;
+    }
+    # --strict mode: refuse to emit a binary with undefined-fn fixups.
+    if (_strict_mode == 1 && undef_count > 0) {
+        syscall(SYS_WRITE, 2, "error: --strict: refusing to emit binary with ", 46);
+        PRNUM(undef_count);
+        syscall(SYS_WRITE, 2, " undefined function(s)\n", 23);
+        syscall(SYS_EXIT, 1);
     }
     # Symbol dump — opt-in via CYRIUS_SYMS env var (value = output path)
     # Writes "VA name" per line to the given file. Used for crash localization:

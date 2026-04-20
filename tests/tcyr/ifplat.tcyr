@@ -1,0 +1,55 @@
+# Regression for v5.4.19 — #ifplat preprocessor directive.
+#
+# Sugar for #ifdef CYRIUS_ARCH_<UPPER>. Both old and new forms
+# must gate identically under both x86 and aarch64 builds. The
+# test doesn't need to know which arch it's running on; it just
+# asserts that the #ifplat-gated path and the #ifdef-gated path
+# produce the same value for every platform token.
+
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/string.cyr"
+include "lib/vec.cyr"
+
+alloc_init();
+
+# ── Equivalence: #ifplat x86 ↔ #ifdef CYRIUS_ARCH_X86 ──
+test_group("ifplat x86 mirrors ifdef CYRIUS_ARCH_X86");
+var old_x86 = 0;
+var new_x86 = 0;
+#ifdef CYRIUS_ARCH_X86
+old_x86 = 1;
+#endif
+#ifplat x86
+new_x86 = 1;
+#endplat
+assert_eq(old_x86, new_x86, "ifplat x86 gates same as ifdef CYRIUS_ARCH_X86");
+
+# ── Equivalence: #ifplat aarch64 ↔ #ifdef CYRIUS_ARCH_AARCH64 ──
+test_group("ifplat aarch64 mirrors ifdef CYRIUS_ARCH_AARCH64");
+var old_arm = 0;
+var new_arm = 0;
+#ifdef CYRIUS_ARCH_AARCH64
+old_arm = 1;
+#endif
+#ifplat aarch64
+new_arm = 1;
+#endplat
+assert_eq(old_arm, new_arm, "ifplat aarch64 gates same as ifdef CYRIUS_ARCH_AARCH64");
+
+# ── At least one arch must be active (current build is one of them) ──
+test_group("exactly one arch is defined");
+assert_eq(old_x86 + old_arm, 1, "exactly one of x86 / aarch64 is the live arch");
+assert_eq(new_x86 + new_arm, 1, "ifplat reports same liveness as ifdef");
+
+# ── Unknown platform falls through as false ──
+test_group("unknown platform is fail-closed");
+var unknown_flag = 1;
+#ifplat riscv64
+unknown_flag = 0;
+#endplat
+# unknown_flag should still be 1 because #ifplat riscv64 never matches
+# on x86 or aarch64 — the body is skipped.
+assert_eq(unknown_flag, 1, "#ifplat for unknown plat skips body (fail-closed)");
+
+var r = assert_summary();
