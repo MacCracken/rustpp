@@ -18,11 +18,16 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-# The `cyrius` wrapper invokes the INSTALLED cc5 ($CYRIUS_HOME/bin/cc5),
-# not build/cc5. Sync them so the test exercises the real wrapper path
-# against the binary we just built — otherwise a stale install hides the
-# alpha1+ stats meter (the very thing we're testing).
-if [ -d "$HOME/.cyrius/bin" ] && [ -x "$ROOT/build/cc5" ]; then
+# The `cyrius` wrapper resolves cc5 via (1) $HOME/.cyrius/bin/cc5 if
+# present, else (2) ./build/cc5 relative to CWD. Test 7 deliberately
+# cds into an empty directory, so (2) isn't available — sync the
+# just-built binary to (1) so cmd_capacity's cc-lookup succeeds and we
+# exercise the real arg-parsing error path ("no file given") instead
+# of bailing early on "cc5 not found". Dev machines already have the
+# directory; CI runners don't — mkdir unconditionally so the sync is
+# hermetic under both.
+if [ -x "$ROOT/build/cc5" ]; then
+    mkdir -p "$HOME/.cyrius/bin"
     cp "$ROOT/build/cc5" "$HOME/.cyrius/bin/cc5"
 fi
 

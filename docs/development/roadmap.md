@@ -20,11 +20,17 @@
 > ABI at `fncall*`, `syscall(n)` for the rest,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
 > `cc5_win.cyr` cross-entry, RW-split between `.rdata` and
-> `.data`, byte-cmp polish) is the v5.4.10+ queue. **v5.4.9 is
-> claimed by mabda's `_cyrius_init` GLOBAL fix** (regression
-> from v4.6.0 alpha2 — blocks any cyrius `.o` linked into a
-> C-entry-point binary; mabda phase0 today, soorat/rasa/ranga/
-> bijli/aethersafta/kiran the moment they bump their pin). **v5.4.x runs a parallel compiler-optimization
+> `.data`, byte-cmp polish) is the v5.4.11+ queue. **v5.4.9
+> ships the `_cyrius_init` GLOBAL fix + sigil 2.8.4 pin** (the
+> GLOBAL regression from v4.6.0 alpha2 blocked any cyrius `.o`
+> linked into a C-entry-point binary — mabda phase0 today,
+> soorat/rasa/ranga/bijli/aethersafta/kiran the moment they
+> bump their pin). **v5.4.10 is claimed by `lib/thread.cyr`**
+> (majra blocker: every `thread_create + thread_join` SIGSEGVs
+> because the post-`clone()` child branch reads locals via
+> parent's RBP; investigation captured during the v5.4.9 cycle,
+> fix + `tests/tcyr/threads.tcyr` deferred so 5.4.9 ships
+> narrowly). **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -347,7 +353,82 @@ toolchain pin to 5.4.x.
   gets it for free. Issue 2 itself is mabda-side; the toolchain
   enhancement here closes the regression class.
 
-### v5.4.10+ Queue — PE correctness (tracked, not hidden)
+### v5.4.10 — `lib/thread.cyr` post-clone child path (majra blocker)
+
+Filed 2026-04-19 in
+`docs/development/issues/majra-cbarrier-arrive-and-wait-crash.md`
+as a futex/barrier SIGSEGV, investigated during v5.4.9, and found
+to be a deeper structural bug in `lib/thread.cyr`: every
+`thread_create(&fn, arg); thread_join(t);` call crashes today,
+with or without a barrier. The repro strips to two lines:
+
+```cyr
+var t = thread_create(&worker, 0);
+thread_join(t);   # → exit 139, child thread SIGSEGVs
+```
+
+**Root cause.** `lib/thread.cyr:62-72` runs the post-`clone()`
+child branch as plain cyrius code:
+
+```cyr
+if (r == 0) {
+    var child_fp = load64(child_stack);
+    var child_arg = load64(child_stack + 8);
+    fncall1(child_fp, child_arg);
+    syscall(SYS_EXIT, 0);
+}
+```
+
+After `clone(CLONE_VM)` the child has a new `rsp` (the mmap'd
+stack we passed) but **inherits `rbp` pointing into the parent's
+frame**. cc5-emitted code reads/writes locals as `[rbp-N]`, so
+the child's reads/stores for `child_fp` / `child_arg` land in
+the parent's stack slots — which the parent has already
+overwritten on its way through `store64(t, r); return t;`. The
+race is consistent enough to crash every run; coredump shows the
+faulting PC inside the heap (corrupted function pointer loaded
+from garbage locals). The comment at thread.cyr:65 already calls
+this out — "We need inline asm to pop and call" — then takes
+the shortcut that's broken.
+
+**Why this never surfaced in CI.** `tests/tcyr/` has zero thread
+tests today. Downstream users (majra) hit it first; cyrius CI
+never exercised the surface.
+
+**Scope:**
+- `lib/thread.cyr` post-clone child branch rewritten as inline
+  `asm { ... }` that reads `fp` and `arg` from the new stack
+  (`[rsp]` and `[rsp+8]`) and calls through them without any
+  cyrius local-variable emission. Per-arch via
+  `#ifdef CYRIUS_ARCH_{X86,AARCH64}` — x86 uses `call rax` after
+  loading from the new stack, aarch64 uses `blr x9`.
+- Add `tests/tcyr/threads.tcyr` covering: spawn+join, two
+  threads + shared counter under mutex, futex wait/wake
+  roundtrip, a barrier arrive+wait (the original majra repro,
+  reduced). Expect to land 5–10 assertions.
+- `scripts/check.sh` picks the new `threads.tcyr` up
+  automatically via the `tests/tcyr/*.tcyr` glob (already wired).
+- `.github/workflows/ci.yml` — threading already rides inside
+  the test-ubuntu `.tcyr` loop; no new step needed.
+- Memory: `feedback_thread_post_clone.md` so the next RBP-
+  inheritance-after-clone surprise can cite the rule.
+
+**Queued (not in v5.4.10 scope; future work):**
+- **Thread-local storage.** majra's `_aaw_result_state` global
+  pattern (the "promote cross-call state to globals" dodge) is
+  fundamentally not thread-safe; the post-clone fix doesn't
+  help that. A real fix is TLS via `arch_prctl(ARCH_SET_FS)`
+  or `%fs:`-relative addressing. Bigger than v5.4.10.
+- **Atomic operations / memory barriers.** cyrius has no
+  `atomic_add` / `atomic_cas` / `mfence` today. Concurrent
+  stdlib code (hashmap mutation under threads, freelist across
+  threads) is exposed to data races.
+- **Runtime thread-safety audit.** alloc/freelist/hashmap/
+  vec all make single-thread assumptions that break under
+  `CLONE_VM`. Separate investigation + likely per-thread
+  arenas.
+
+### v5.4.11+ Queue — PE correctness (tracked, not hidden)
 
 What v5.4.2–v5.4.8 explicitly do NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.x plus" would

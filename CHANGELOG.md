@@ -52,8 +52,16 @@ next silent flip can't ship.
   just-verified cc5 (instead of trusting whatever was last
   committed to `build/cyrld`).
 
+### Dependency bumps
+- **sigil 2.8.3 → 2.8.4** (`cyrius.cyml` `[deps.sigil]`).
+  Upstream ships AES-GCM fix + hardening pass. `cyrius deps`
+  re-symlinks `lib/sigil.cyr` to
+  `~/.cyrius/deps/sigil/2.8.4/dist/sigil.cyr`; `sh scripts/check.sh`
+  9/9 still green after the bump.
+
 ### Verified
-- `sh scripts/check.sh` 9/9 pass (including the new gate).
+- `sh scripts/check.sh` 9/9 pass (including the new gate, with
+  the sigil 2.8.4 dep active).
 - `tests/regression-linker.sh` (cyrld multi-module) passes after
   the GLOBAL flip — confirms the cyrld dup-skip handshake.
 - cc5 self-host byte-identical (binding change is a single byte
@@ -63,11 +71,20 @@ next silent flip can't ship.
   multi-module program after the dup-skip handshake.
 
 ### v5.4.10+ companion (queued, not in v5.4.9 scope)
-- **`cyrius build --strict`** to escalate `undefined function`
-  warnings to hard errors. Closes the regression class that mabda
-  Issue 2 (missing `include "lib/str.cyr"` in `programs/phase0.cyr`)
-  represents — cc5 caught the dangling reference at parse time but
-  still produced an object; `ld` failed downstream. Issue 2 itself
+- **v5.4.10 — `lib/thread.cyr` post-clone child path.** Every
+  `thread_create + thread_join` crashes today because the
+  post-`clone()` child branch is plain cyrius code that reads
+  locals via parent's inherited RBP. Filed by majra
+  (`docs/development/issues/majra-cbarrier-arrive-and-wait-crash.md`),
+  investigated during the v5.4.9 cycle, found to be structural,
+  deferred to its own patch with `tests/tcyr/threads.tcyr`
+  coverage. See roadmap §v5.4.10.
+- **v5.4.11+ — `cyrius build --strict`** to escalate
+  `undefined function` warnings to hard errors. Closes the
+  regression class that mabda Issue 2 (missing
+  `include "lib/str.cyr"` in `programs/phase0.cyr`) represents —
+  cc5 caught the dangling reference at parse time but still
+  produced an object; `ld` failed downstream. Issue 2 itself
   is mabda-side; this toolchain enhancement protects every
   downstream from the same shape of bug.
 
@@ -176,9 +193,10 @@ program running on the Windows platform target.
   Filed in mabda/yukti context as the cc5_aarch64 SIGILL blocker
   (yukti `docs/development/issues/2026-04-19-cc5-aarch64-repro.md`).
 
-### v5.4.10+ follow-ups (tracked, not blocking)
-- **`_cyrius_init` GLOBAL in `object;` mode** — the immediate v5.4.9
-  scope; see roadmap.
+### v5.4.11+ follow-ups (tracked, not blocking)
+- **`_cyrius_init` GLOBAL in `object;` mode** — shipped as v5.4.9.
+- **`lib/thread.cyr` post-clone child path** — claimed by v5.4.10
+  (separate patch; see roadmap §v5.4.10).
 - **Other unguarded x86 emits in shared `parse.cyr`** — closure
   address (~line 970), struct field byte/word/dword load (1777-1779),
   `#regalloc` callee-saved save/restore (3257-3261 / 3403-3407), x87
