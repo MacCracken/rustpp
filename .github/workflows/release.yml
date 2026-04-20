@@ -44,7 +44,18 @@ jobs:
 
       - name: Build tools
         run: |
-          for tool in cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
+          # Read tool list from cyrius.cyml [release].bins (v5.4.18) — skip
+          # cc5 (already built by bootstrap) and cyrius (special-cased below).
+          BINS=$(awk -v k="bins" '
+              /^\[release\]/ { in_r = 1; next }
+              in_r && /^\[/ { exit }
+              in_r && $1 == k {
+                  sub(/^[^=]+= \[/, ""); sub(/\].*$/, "")
+                  gsub(/[",]/, " "); gsub(/ +/, " ")
+                  sub(/^ +/, ""); sub(/ +$/, ""); print; exit
+              }' cyrius.cyml)
+          for tool in $BINS; do
+            if [ "$tool" = "cc5" ] || [ "$tool" = "cyrius" ]; then continue; fi
             if [ -f "programs/${tool}.cyr" ]; then
               cat programs/${tool}.cyr | ./build/cc5 > ./build/${tool} && chmod +x ./build/${tool}
             fi
@@ -66,17 +77,33 @@ jobs:
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
+          # Bins + scripts from cyrius.cyml [release] (v5.4.18 unified source).
+          BINS=$(awk -v k="bins" '
+              /^\[release\]/ { in_r = 1; next }
+              in_r && /^\[/ { exit }
+              in_r && $1 == k {
+                  sub(/^[^=]+= \[/, ""); sub(/\].*$/, "")
+                  gsub(/[",]/, " "); gsub(/ +/, " ")
+                  sub(/^ +/, ""); sub(/ +$/, ""); print; exit
+              }' cyrius.cyml)
+          SCRIPTS=$(awk -v k="scripts" '
+              /^\[release\]/ { in_r = 1; next }
+              in_r && /^\[/ { exit }
+              in_r && $1 == k {
+                  sub(/^[^=]+= \[/, ""); sub(/\].*$/, "")
+                  gsub(/[",]/, " "); gsub(/ +/, " ")
+                  sub(/^ +/, ""); sub(/ +$/, ""); print; exit
+              }' cyrius.cyml)
+          for bin in $BINS; do
             [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
           # Include cross-compiler separately (not in bin/ — it's a dev tool)
           [ -f "build/cc5_aarch64" ] && cp "build/cc5_aarch64" "$STAGE/"
           cp bootstrap/asm "$STAGE/bin/"
-          for script in scripts/cyrius-*.sh; do
-            [ -f "$script" ] && cp "$script" "$STAGE/bin/"
+          for script in $SCRIPTS; do
+            [ -f "scripts/$script" ] && cp "scripts/$script" "$STAGE/bin/"
           done
           cp scripts/ci.sh "$STAGE/bin/" 2>/dev/null || true
-          cp scripts/cyriusly "$STAGE/bin/"
           chmod +x "$STAGE/bin"/*
 
           sh scripts/release-lib.sh "$STAGE/lib"

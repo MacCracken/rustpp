@@ -4,6 +4,120 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.18] — 2026-04-20
+
+**Release-scaffold hardening (packaging cleanup).** Second of the
+four split-out v5.4.x tail releases. Two related items that both
+touch the release pipeline; shipped together so the release
+mechanism gets one consistent audit boundary.
+
+**Item 1 — tool-list single source of truth.** Before v5.4.18 the
+toolchain binary list was hardcoded in 6 places:
+`.github/workflows/release.yml` (tool-build loop + bin-copy loop),
+`scripts/install.sh` (source-bootstrap tool loop, bin-copy loop,
+summary display), and `cbt/pulsar.cyr` (bins array). Adding a tool
+— `cyrld` at v5.4.12 is the case in point — required six
+synchronized edits; missing any one silently dropped the tool
+from a codepath (CI built cyrld but release.yml didn't ship it
+for months). Now: a new `[release]` table in `cyrius.cyml` lists
+`bins`, `cross_bins`, and `scripts` arrays. All three consumers
+parse it with the same awk pattern (`install.sh`,
+`.github/workflows/release.yml`) or Cyrius TOML helper
+(`cbt/pulsar.cyr` via `_pulsar_release_array`). Adding a tool is
+now one `cyrius.cyml` edit.
+
+**Item 2 — install-snapshot refresh hook.** Before v5.4.18,
+`~/.cyrius/versions/<ver>/{lib,bin}/` was created/refreshed only
+at install time; subsequent dep bumps in `cyrius.cyml` (e.g.
+sigil 2.8.3 → 2.8.4 at v5.4.9) and tool rebuilds went into the
+repo's `lib/` and `build/` but never propagated to the install
+snapshot. Audit at discovery (v5.4.11): 4 lib files + 7 binaries
+drifted. Fix: `install.sh` gains a `--refresh-only` fast-path
+that skips tarball fetch / source bootstrap and only re-copies
+bins/scripts named in `[release]` + all of `lib/` into
+`~/.cyrius/versions/$VERSION/`. `version-bump.sh` calls it as a
+post-bump hook so every version bump reconciles the install
+snapshot automatically. This release is the first to demonstrate
+it in action: `version-bump.sh 5.4.18` emitted `refreshed 14
+bins/scripts + 58 stdlib files`.
+
+Compiler byte-identical to v5.4.17 beyond the version literal.
+Self-host held on both arches. No stdlib API changes.
+
+### Added
+- **`[release]` table in `cyrius.cyml`** with three arrays:
+  `bins` (8 entries: cc5, cyrius, cyrfmt, cyrlint, cyrdoc, cyrc,
+  ark, cyrld), `cross_bins` (1 entry: cc5_aarch64), `scripts`
+  (5 entries: cyriusly, cyrius-init.sh, cyrius-port.sh,
+  cyrius-repl.sh, cyrius-watch.sh).
+- **`install.sh --refresh-only` mode** — skips banner / version
+  resolve / tarball fetch / source bootstrap. Just re-copies
+  build/ bins + scripts/ named in `[release]` + `lib/*.cyr`
+  (with symlinks dereferenced) into
+  `~/.cyrius/versions/$VERSION/`. Exits early with a summary.
+- **`_parse_release_array(key)` shell helper** in `install.sh` —
+  awk over `cyrius.cyml`, emits space-separated entries of
+  `[release].<key>`. Used by the tarball path, source-bootstrap
+  path, and summary display.
+- **`_pulsar_release_array(key)` Cyrius fn** in `cbt/pulsar.cyr`
+  — reads `cyrius.cyml`, finds `[release]` section, locates
+  `key = [...]`, calls the existing `_parse_toml_str_array`
+  helper from `cbt/deps.cyr`, returns a vec of cstr.
+
+### Changed
+- **`.github/workflows/release.yml`** — tool-build loop and
+  bin-copy loop both parse `[release].bins` / `[release].scripts`
+  from `cyrius.cyml` instead of hardcoded lists.
+- **`scripts/install.sh`** — source-bootstrap path's tool-build
+  loop, bin-copy loop, and summary display all call
+  `_parse_release_array`. `cyrius` build tool special-cased
+  because its source lives in `cbt/`, not `programs/`.
+- **`cbt/pulsar.cyr`** — replaces two hardcoded arrays (bins[9]
+  + scripts[6]) with calls to `_pulsar_release_array("bins")`,
+  `_pulsar_release_array("cross_bins")`, and
+  `_pulsar_release_array("scripts")`. Iteration pattern stays
+  the same; data source moves to the manifest.
+- **`scripts/version-bump.sh`** — post-bump hook runs
+  `install.sh --refresh-only` so every bump reconciles the
+  install snapshot. Silent on failure (non-fatal) so existing
+  bump workflows keep working without a cyrius checkout.
+
+### Verification
+- **End-to-end `cyrius pulsar` round-trip** — rebuilt cyrius
+  binary from cbt/cyrius.cyr (with the new pulsar helper) and
+  ran `cyrius pulsar`. Installed 16 items to
+  `~/.cyrius/versions/5.4.17/bin/` (all 8 bins + cross-compiler
+  + 5 scripts + bootstrap/asm + ci.sh leftover). Every file
+  came from `[release]` table lookup, not hardcoded arrays.
+- **`install.sh --refresh-only` sandbox test** — ran with
+  `CYRIUS_HOME=/tmp/cyr_refresh_test`; reported "refreshed 13
+  bins/scripts + 58 stdlib files" and produced a working
+  `versions/<ver>/bin/` layout.
+- **Post-bump hook live** — `version-bump.sh 5.4.18` emitted
+  "refreshed 14 bins/scripts + 58 stdlib files" as part of the
+  standard bump output.
+- `sh scripts/check.sh` — 10/10 PASS.
+- cc5 + cc5_aarch64 self-host byte-identical.
+
+### Migration
+- **No downstream action required.** `[release]` is a manifest
+  addition; absent it, the helpers return empty vecs and
+  consumers do nothing (they silently skip, so release.yml /
+  install.sh / pulsar still run but install nothing new).
+  Because `cyrius.cyml` at v5.4.18 ships with `[release]`
+  populated, downstream projects bumping their cyrius pin to
+  5.4.18 get the correct behavior automatically.
+- **Downstream projects with their own `cyrius.cyml`** can
+  optionally add their own `[release]` tables if they ever
+  need a release-scaffold; today only cyrius itself does.
+
+### Next in the v5.4.x split
+- **v5.4.19** — `#ifplat` + compiler hardening (parse.cyr
+  unguarded x86-emit audit + aarch64 `EW` alignment assert +
+  optional `--strict` mode).
+- **v5.4.20** — TRUE closeout (dead-code sweep, full vidya
+  catch-up, CLAUDE.md §"Closeout Pass" 9-step checklist).
+
 ## [5.4.17] — 2026-04-20
 
 **`lib/toml.cyr` multi-line array fix (shakti unblock).**

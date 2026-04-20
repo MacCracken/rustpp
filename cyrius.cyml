@@ -9,6 +9,18 @@ repository = "https://github.com/MacCracken/cyrius"
 src = "src/main.cyr"
 output = "build/cc5"
 
+# Release-scaffold manifest (v5.4.18). Single source of truth for the
+# toolchain binary + helper-script lists that release.yml, install.sh,
+# and cbt/pulsar.cyr all need to stay in sync on. Before v5.4.18 these
+# were hardcoded in 6 places (release.yml ×2, install.sh ×3, pulsar ×1)
+# and `cyrld` shipped months after CI built it because one of the
+# hardcoded lists was never updated. Now: add a binary here, every
+# consumer picks it up automatically.
+[release]
+bins = ["cc5", "cyrius", "cyrfmt", "cyrlint", "cyrdoc", "cyrc", "ark", "cyrld"]
+cross_bins = ["cc5_aarch64"]
+scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cyrius-watch.sh"]
+
 [deps.sakshi]
 git = "https://github.com/MacCracken/sakshi.git"
 tag = "2.0.0"

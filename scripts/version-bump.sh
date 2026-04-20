@@ -54,9 +54,17 @@ fi
 # 5. Roadmap header
 sed -i "s/> \*\*v$OLD\.\*\*/> **v$NEW.**/" docs/development/roadmap.md 2>/dev/null || true
 
-# 6. cyrius — update version in installed copies
-# When installed, cyrius can't read ../VERSION. Copy VERSION to version dir.
-# The install.sh script copies this alongside the binaries.
+# 6. Install-snapshot refresh (v5.4.18): reconcile
+# ~/.cyrius/versions/$NEW/ with the current repo so a dep bump or
+# new tool appears immediately — no waiting for the next full install.
+# install.sh --refresh-only skips tarball fetch / bootstrap and just
+# re-copies build/ + scripts/ named in cyrius.cyml [release] + lib/.
+# Skipped silently if install.sh is missing (shouldn't happen in a
+# normal cyrius checkout).
+if [ -x scripts/install.sh ]; then
+    sh scripts/install.sh --refresh-only 2>/dev/null || \
+        echo "  warning: install-snapshot refresh failed (non-fatal)" >&2
+fi
 
 echo "$OLD -> $NEW"
 echo ""
@@ -66,6 +74,7 @@ echo "  CLAUDE.md"
 echo "  CHANGELOG.md"
 echo "  docs/development/roadmap.md"
 echo "  scripts/install.sh"
+echo "  ~/.cyrius/versions/$NEW/ (install snapshot refreshed)"
 echo ""
 echo "Still manual:"
 echo "  - CHANGELOG.md entries (add Fixed/Changed/Added sections)"

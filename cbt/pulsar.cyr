@@ -1,5 +1,54 @@
 # pulsar.cyr — rebuild cc5 + tools from source, install, purge old versions
 
+# Parse an array field from cyrius.cyml's [release] table (v5.4.18).
+# Returns a vec of cstr (NUL-terminated). Empty vec if manifest or
+# section is missing. Uses the same `_parse_toml_str_array` helper
+# as cbt/deps.cyr uses for [deps.*].modules. Key is a cstr like
+# "bins", "cross_bins", "scripts".
+fn _pulsar_release_array(key) {
+    var empty = vec_new();
+    if (file_exists("cyrius.cyml") == 0) { return empty; }
+    var buf = alloc(32768);
+    var n = file_read_all("cyrius.cyml", buf, 32767);
+    if (n <= 0) { return empty; }
+
+    # Locate [release] section header
+    var pos = 0;
+    while (pos < n) {
+        if (memeq(buf + pos, "[release]", 9) == 1) { break; }
+        pos = pos + 1;
+    }
+    if (pos >= n) { return empty; }
+    pos = pos + 9;
+
+    # Within [release] block, scan line-by-line for `key = [...]`.
+    # Stop at the next section header (`[` at line start).
+    var klen = strlen(key);
+    while (pos < n) {
+        # Skip leading whitespace / newlines
+        while (pos < n && (load8(buf + pos) == 10 || load8(buf + pos) == 32 || load8(buf + pos) == 9)) {
+            pos = pos + 1;
+        }
+        if (pos >= n) { return empty; }
+        # New section header ends the block
+        if (load8(buf + pos) == 91) { return empty; }
+        # Check for `key = `
+        if (memeq(buf + pos, key, klen) == 1) {
+            var after = pos + klen;
+            # Accept `key =` or `key=` (with optional whitespace before `=`)
+            while (after < n && (load8(buf + after) == 32 || load8(buf + after) == 9)) {
+                after = after + 1;
+            }
+            if (after < n && load8(buf + after) == 61) {
+                return _parse_toml_str_array(buf, n, after);
+            }
+        }
+        # Skip to end of line and continue
+        while (pos < n && load8(buf + pos) != 10) { pos = pos + 1; }
+    }
+    return empty;
+}
+
 fn cmd_pulsar() {
     _status("pulsar: rebuilding from source...");
     if (file_exists("src/main.cyr") == 0) {
@@ -127,20 +176,14 @@ fn cmd_pulsar() {
     var dest_lib = make_path(dest, "lib");
     sys_mkdir(dest_lib, 0x1ED);
 
-    # Copy binaries
-    var bins[9];
-    store64(&bins, "cc5");
-    store64(&bins + 8, "cc5_aarch64");
-    store64(&bins + 16, "cyrius");
-    store64(&bins + 24, "cyrfmt");
-    store64(&bins + 32, "cyrlint");
-    store64(&bins + 40, "cyrdoc");
-    store64(&bins + 48, "cyrc");
-    store64(&bins + 56, "cyrld");
-    store64(&bins + 64, 0);
+    # Copy binaries — list from cyrius.cyml [release].bins +
+    # [release].cross_bins (v5.4.18 single source of truth; see
+    # _pulsar_release_array below).
+    var bins = _pulsar_release_array("bins");
+    var cross_bins = _pulsar_release_array("cross_bins");
     var bi = 0;
-    while (load64(&bins + bi * 8) != 0) {
-        var bname = load64(&bins + bi * 8);
+    while (bi < vec_len(bins)) {
+        var bname = vec_get(bins, bi);
         var bsrc = make_path("build", bname);
         if (file_exists(bsrc) == 1) {
             var bdst = make_path(dest_bin, bname);
@@ -149,18 +192,23 @@ fn cmd_pulsar() {
         }
         bi = bi + 1;
     }
+    var ci = 0;
+    while (ci < vec_len(cross_bins)) {
+        var cbname = vec_get(cross_bins, ci);
+        var cbsrc = make_path("build", cbname);
+        if (file_exists(cbsrc) == 1) {
+            var cbdst = make_path(dest_bin, cbname);
+            _dep_copy_file(cbsrc, cbdst);
+            sys_chmod(cbdst, 0x1ED);
+        }
+        ci = ci + 1;
+    }
 
-    # Copy scripts (version manager + helper dispatchers)
-    var scripts[6];
-    store64(&scripts, "cyriusly");
-    store64(&scripts + 8, "cyrius-init.sh");
-    store64(&scripts + 16, "cyrius-port.sh");
-    store64(&scripts + 24, "cyrius-repl.sh");
-    store64(&scripts + 32, "cyrius-watch.sh");
-    store64(&scripts + 40, 0);
+    # Copy scripts from [release].scripts
+    var scripts = _pulsar_release_array("scripts");
     var si = 0;
-    while (load64(&scripts + si * 8) != 0) {
-        var sname = load64(&scripts + si * 8);
+    while (si < vec_len(scripts)) {
+        var sname = vec_get(scripts, si);
         var ssrc = make_path("scripts", sname);
         if (file_exists(ssrc) == 1) {
             var sdst = make_path(dest_bin, sname);

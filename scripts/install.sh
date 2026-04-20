@@ -21,6 +21,36 @@ REPO="MacCracken/cyrius"
 VERSION="${CYRIUS_VERSION:-}"
 ARCH=$(uname -m)
 
+# v5.4.18: --refresh-only mode. Skips tarball fetch / source bootstrap
+# and only re-copies lib/ + bin/ from the CURRENT REPO state into
+# ~/.cyrius/versions/$VERSION/. Called by version-bump.sh post-bump so
+# the install snapshot never lags the repo after a dep or tool bump.
+# Only makes sense when run from within a cyrius repo checkout.
+REFRESH_ONLY=0
+if [ "${1:-}" = "--refresh-only" ]; then
+    REFRESH_ONLY=1
+    VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null)"
+    if [ -z "$VERSION" ]; then
+        echo "error: --refresh-only must run from a cyrius repo (VERSION file not found)" >&2
+        exit 1
+    fi
+fi
+
+# Parse a single array from cyrius.cyml's [release] table. Outputs
+# space-separated entries. Returns empty if key/section missing.
+_parse_release_array() {
+    local cyml="${CYRIUS_CYML:-cyrius.cyml}"
+    [ -f "$cyml" ] || return 0
+    awk -v k="$1" '
+        /^\[release\]/ { in_r = 1; next }
+        in_r && /^\[/ { exit }
+        in_r && $1 == k {
+            sub(/^[^=]+= \[/, ""); sub(/\].*$/, "")
+            gsub(/[",]/, " "); gsub(/ +/, " ")
+            sub(/^ +/, ""); sub(/ +$/, ""); print; exit
+        }' "$cyml"
+}
+
 # Colors (if terminal)
 if [ -t 1 ]; then
     BOLD="\033[1m"
@@ -50,6 +80,57 @@ case "$OS" in
     linux) ;;
     *) err "unsupported OS: $OS (Cyrius targets Linux only)" ;;
 esac
+
+# ── --refresh-only fast path (v5.4.18) ──
+# Skips the Installer banner, version resolve, tarball fetch, and source
+# bootstrap. Just re-copies the current repo's build/ + lib/ + scripts
+# named in cyrius.cyml [release] into ~/.cyrius/versions/$VERSION/.
+# Purpose: version-bump.sh calls this after bumping so the install
+# snapshot never rots behind dep/tool bumps.
+if [ "$REFRESH_ONLY" -eq 1 ]; then
+    printf "\n${BOLD}Refreshing install snapshot for %s${RESET}\n" "$VERSION"
+    mkdir -p "$CYRIUS_HOME/versions/$VERSION/bin"
+    mkdir -p "$CYRIUS_HOME/versions/$VERSION/lib"
+
+    _R_BINS=$(_parse_release_array bins)
+    _R_CROSS=$(_parse_release_array cross_bins)
+    _R_SCRIPTS=$(_parse_release_array scripts)
+
+    _refreshed=0
+    for bin in $_R_BINS $_R_CROSS; do
+        if [ -x "build/$bin" ]; then
+            cp "build/$bin" "$CYRIUS_HOME/versions/$VERSION/bin/"
+            _refreshed=$((_refreshed + 1))
+        fi
+    done
+    [ -f bootstrap/asm ] && cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
+
+    for script in $_R_SCRIPTS; do
+        if [ -f "scripts/$script" ]; then
+            cp "scripts/$script" "$CYRIUS_HOME/versions/$VERSION/bin/"
+            chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$script"
+            _refreshed=$((_refreshed + 1))
+        fi
+    done
+
+    # Stdlib refresh (follow symlinks so dep content gets dereferenced)
+    _lib_count=0
+    for f in lib/*.cyr; do
+        [ -e "$f" ] || continue
+        if [ -L "$f" ]; then
+            cp -L "$f" "$CYRIUS_HOME/versions/$VERSION/lib/"
+        else
+            cp "$f" "$CYRIUS_HOME/versions/$VERSION/lib/"
+        fi
+        _lib_count=$((_lib_count + 1))
+    done
+
+    echo "$VERSION" > "$CYRIUS_HOME/current"
+    echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"
+
+    info "refreshed $_refreshed bins/scripts + $_lib_count stdlib files"
+    exit 0
+fi
 
 printf "\n${BOLD}Cyrius Installer${RESET}\n\n"
 
@@ -136,38 +217,46 @@ if [ "$installed" -eq 0 ]; then
         warn "self-hosting check failed, using committed cc5"
     fi
 
-    # Build tools (including cyrius build tool from Cyrius source)
-    for tool in cyrius cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
+    # Build tools from cyrius.cyml [release].bins + cross_bins
+    # (single source of truth introduced at v5.4.18). cyrius itself is
+    # special-cased below because its source lives in cbt/, not programs/.
+    _BINS=$(_parse_release_array bins)
+    _CROSS_BINS=$(_parse_release_array cross_bins)
+    for tool in $_BINS; do
+        if [ "$tool" = "cc5" ] || [ "$tool" = "cyrius" ]; then continue; fi
         if [ -f "programs/${tool}.cyr" ]; then
             cat "programs/${tool}.cyr" | ./build/cc5 > "./build/${tool}" 2>/dev/null && \
                 chmod +x "./build/${tool}" || true
         fi
     done
+    # cyrius build tool (lives in cbt/cyrius.cyr, not programs/)
+    if [ -f cbt/cyrius.cyr ]; then
+        cat cbt/cyrius.cyr | ./build/cc5 > ./build/cyrius 2>/dev/null && \
+            chmod +x ./build/cyrius || true
+    fi
 
-    # Cross-compiler
+    # Cross-compiler(s)
     if [ -f src/main_aarch64.cyr ]; then
         cat src/main_aarch64.cyr | ./build/cc5 > ./build/cc5_aarch64 2>/dev/null && \
             chmod +x ./build/cc5_aarch64 || true
     fi
 
     # Copy binaries
-    for bin in cc5 cc5_aarch64 cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
+    for bin in $_BINS $_CROSS_BINS; do
         if [ -x "./build/$bin" ]; then
             cp "./build/$bin" "$CYRIUS_HOME/versions/$VERSION/bin/"
         fi
     done
     cp bootstrap/asm "$CYRIUS_HOME/versions/$VERSION/bin/"
-    # cyrius binary already built from cbt/cyrius.cyr above
-    for script in scripts/cyrius-*.sh; do
-        [ -f "$script" ] && cp "$script" "$CYRIUS_HOME/versions/$VERSION/bin/" && \
-            chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$(basename "$script")"
-    done
 
-    # Version manager (cyriusly)
-    if [ -f scripts/cyriusly ]; then
-        cp scripts/cyriusly "$CYRIUS_HOME/versions/$VERSION/bin/cyriusly"
-        chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/cyriusly"
-    fi
+    # Scripts from [release].scripts (includes cyriusly + cyrius-*.sh)
+    _SCRIPTS=$(_parse_release_array scripts)
+    for script in $_SCRIPTS; do
+        if [ -f "scripts/$script" ]; then
+            cp "scripts/$script" "$CYRIUS_HOME/versions/$VERSION/bin/"
+            chmod +x "$CYRIUS_HOME/versions/$VERSION/bin/$script"
+        fi
+    done
 
     # Shared audit helpers (sourced by the cyrius dispatcher)
     if [ -d scripts/lib ]; then
@@ -275,16 +364,20 @@ fi
 
 printf "\n${BOLD}Cyrius ${VERSION} installed successfully!${RESET}\n\n"
 
-# Show what was installed
+# Show what was installed — bin list from [release] (single source of truth).
 echo "  Toolchain:"
-for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
+_SUMMARY_BINS=$(_parse_release_array bins)
+for bin in $_SUMMARY_BINS; do
     if [ -x "$CYRIUS_HOME/bin/$bin" ]; then
         printf "    ${GREEN}+${RESET} %s\n" "$bin"
     fi
 done
-if [ -x "$CYRIUS_HOME/bin/cc5_aarch64" ]; then
-    printf "    ${GREEN}+${RESET} %s\n" "cc5_aarch64 (cross-compiler)"
-fi
+_SUMMARY_CROSS=$(_parse_release_array cross_bins)
+for bin in $_SUMMARY_CROSS; do
+    if [ -x "$CYRIUS_HOME/bin/$bin" ]; then
+        printf "    ${GREEN}+${RESET} %s (cross-compiler)\n" "$bin"
+    fi
+done
 echo ""
 echo "  To get started:"
 echo "    ${DIM}# restart your shell, or:${RESET}"
