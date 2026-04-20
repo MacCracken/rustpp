@@ -169,6 +169,15 @@ include "src/backend/x86/fixup.cyr"
 var _strict_mode = 0;
 var _vbuf[256];
 var _vfd = 0;
+# v5.5.9: --version / --strict parsing uses /proc/self/cmdline, a
+# Linux-only pseudofile. On Windows this CreateFileW returns
+# INVALID_HANDLE_VALUE and subsequent ReadFile on the bad handle
+# crashes cc5_win.exe at startup. Gate the whole block on
+# CYRIUS_TARGET_LINUX so cc5_win.exe (built by cc5_win_linux with
+# CYRIUS_TARGET_WIN predefined at runtime) skips it entirely.
+# Downside: no --version / --strict support on Windows yet;
+# GetCommandLineW-based replacement queued for v5.5.x tail.
+#ifdef CYRIUS_TARGET_LINUX
 if (SYS_OPEN == 2) { _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0); }
 else { _vfd = syscall(SYS_OPEN, 0 - 100, "/proc/self/cmdline", 0, 0); }
 var _vn = syscall(SYS_READ, _vfd, &_vbuf, 255);
@@ -201,6 +210,7 @@ if (_vn > 0) {
         _vi = _vi + 1;
     }
 }
+#endif
 
 # Allocate heap.
 # Windows has no brk (the Linux-style `syscall(SYS_BRK, 0)` / extend

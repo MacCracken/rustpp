@@ -4,6 +4,71 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.9] — 2026-04-20
+
+**Native Windows self-compilation works end-to-end.** cc5_win.exe
+(a Windows-native PE binary of the cyrius compiler) now reads
+cyrius source from stdin, compiles it, and writes a valid PE32+
+output that runs on Windows. 2/2 matrix PASS on real Windows 11
+(`nejad@hp`, build 26200): simple `syscall(60, 42);` exits 42,
+multi-fn `fn add(a,b){return a+b;} syscall(60, add(17, 25));`
+exits 42.
+
+**Fix:** three `/proc/self/*` Linux-ism readbacks gated behind
+`#ifdef CYRIUS_TARGET_LINUX` so cc5_win.exe (built by cc5_win_linux
+with `CYRIUS_TARGET_WIN` predefined at runtime) skips them:
+
+1. **`src/main_win.cyr` /proc/self/cmdline read** (--version /
+   --strict arg parsing). Linux opens the pseudo-file, reads
+   the command line, scans for "--version" or "--strict".
+   Windows CreateFileW returns INVALID_HANDLE_VALUE; downstream
+   ReadFile on the bad handle faulted cc5_win.exe at startup.
+2. **`src/frontend/lex.cyr` `_init_cyrius_lib()`**: reads
+   /proc/self/environ to find `HOME=` and build a fallback path
+   for include resolution (`$HOME/.cyrius/lib/`). Same pattern
+   failure on Windows. Gated; Windows has no fallback path
+   (include resolution falls back to CWD, fine for stdin-fed
+   compilation).
+3. **`src/backend/x86/fixup.cyr` `_read_env()`**: reads
+   /proc/self/environ to look up arbitrary env var values. Used
+   for CYRIUS_TARGET_WIN, CYRIUS_IR, CYRIUS_STATS, etc. Gated;
+   Windows returns 0 (env var not found), falling back to
+   defaults (`_TARGET_PE=1` stays, IR stays off, stats stays
+   off). GetEnvironmentVariableW-based replacement queued.
+
+Systematic probe methodology via breadcrumbs (`syscall(SYS_WRITE,
+2, "Bn\n", 3)` between stages) found each blocker in one
+round-trip to `nejad@hp`. Breadcrumbs removed post-fix.
+
+### Added
+- **`#ifdef CYRIUS_TARGET_LINUX` gates** on three `/proc/self/*`
+  readback blocks. All three return 0 / no-op cleanly on Windows.
+
+### Fixed
+- **cc5_win.exe STATUS_ACCESS_VIOLATION at startup** on real
+  Windows. Was faulting in `/proc/self/cmdline` /
+  `_init_cyrius_lib` / `_read_env` after v5.5.8 got past the
+  heap-init. Now startup completes and compile runs.
+
+### Known bugs (pinned to v5.5.10)
+- **Output PE size bloat** — cc5_win.exe emits a ~1.18 MB PE
+  for any compile input. Linux cross-build emits ~1.5 KB for the
+  same input. `_pe_image_file_size` calc in
+  `src/backend/pe/emit.cyr` diverges when running on Windows vs
+  Linux. Structurally valid (PE32+ with correct section headers,
+  runs correctly on Windows — just way too much trailing
+  zero padding). Byte-identical self-host fixpoint is impossible
+  until this is fixed; pinned to v5.5.10 as its own concern.
+
+### Not in scope (v5.5.10+)
+- **Output PE size bloat fix** — v5.5.10.
+- **Byte-identical self-host fixpoint** — v5.5.10 (after the
+  bloat fix makes byte-identity possible).
+- **`GetCommandLineW`-based --version/--strict** replacement —
+  queued for v5.5.x tail.
+- **`GetEnvironmentVariableW`-based env reads** replacement —
+  queued for v5.5.x tail.
+
 ## [5.5.8] — 2026-04-20
 
 **Windows heap bootstrap via SYS_MMAP instead of SYS_BRK.** Small

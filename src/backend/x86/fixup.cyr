@@ -6,7 +6,11 @@
 var _env_scratch[256];
 
 # Read an env var by name. Returns &_env_scratch (NUL-terminated value) or 0.
+# v5.5.9: /proc/self/environ is Linux-only. On Windows, gate the whole
+# body so the fn returns 0 (env var not found). GetEnvironmentVariableW-
+# based lookup queued for v5.5.x tail. Same pattern as _init_cyrius_lib.
 fn _read_env(name) {
+    #ifdef CYRIUS_TARGET_LINUX
     var ebuf[8192];
     var efd = syscall(2, "/proc/self/environ", 0, 0);
     if (efd < 0) { return 0; }
@@ -42,6 +46,7 @@ fn _read_env(name) {
         }
         pos = end + 1;
     }
+    #endif
     return 0;
 }
 

@@ -131,6 +131,16 @@ var _cyrius_lib[256];
 var _cyrius_lib_len = 0;
 
 fn _init_cyrius_lib() {
+    # v5.5.9: /proc/self/environ readback is Linux-only. On Windows
+    # CreateFileW returns INVALID_HANDLE_VALUE for the non-existent
+    # path; the `if (efd < 0)` guard below should handle it but in
+    # practice cc5_win.exe crashes somewhere in this fn's early
+    # syscall chain (exact cause TBD). Gate the whole body on
+    # CYRIUS_TARGET_LINUX so Windows gets a no-op that leaves
+    # _cyrius_lib empty — include-resolution falls back to CWD,
+    # fine for stdin-fed compilation. GetEnvironmentVariableW-based
+    # HOME lookup queued for v5.5.x tail.
+    #ifdef CYRIUS_TARGET_LINUX
     # Read /proc/self/environ to find HOME=
     var ebuf[4096];
     var efd = syscall(2, "/proc/self/environ", 0, 0);
@@ -180,6 +190,7 @@ fn _init_cyrius_lib() {
         while (ei < elen) { if (load8(&ebuf + ei) == 0) { break; } ei = ei + 1; }
         ei = ei + 1;
     }
+    #endif
     return 0;
 }
 
