@@ -4,6 +4,66 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.7] — 2026-04-20
+
+**Strict Win64 shadow-space compliance at every cyrius-to-cyrius
+call site — closes the C-FFI-via-fnptr gap deferred in v5.5.4 and
+v5.5.6.** Retroactive addition, pinned as its own release per the
+roadmap discipline (no "documented limitations kicked to
+the future"). After v5.5.7, a Win64 C function called through
+`fncallN` works without a shim; a cyrius fn called by Win64 C code
+through its fn pointer also works. Strict ABI everywhere.
+
+**Why v5.5.4/v5.5.6 skipped shadow:** the original shortcut reasoned
+"cyrius callees spill arg regs to their own `[rbp+disp]` locals —
+the 32 B home area is wasted bytes." True for cyrius-to-cyrius, but
+wrong at the FFI boundary. v5.5.7 pays the strict-compliance cost
+once rather than forcing every Windows-FFI consumer to work around it.
+
+Verified on real Windows 11 (`nejad@hp`, build 26200): 9/9 mixed
+matrix PASS — w_arg1/2/4/5/8 (direct fn calls) + w_fnptr0/4/5/8
+(indirect through fncallN). Linux 2/2 PASS (fncall SysV path
+unaffected — `_TARGET_PE`-guarded). `check.sh` 10/10. Self-host
+byte-identical (483440 B, +296 B over v5.5.6 for the shadow adds).
+
+### Added
+- **`ECALLPOPS` Win64 shadow** (`src/backend/x86/emit.cyr`): N≤4
+  case emits `sub rsp, 0x20` after popping arg regs. N>4 case
+  framesize grows from `round_up_16(nextra*8)` to
+  `round_up_16(32 + nextra*8)`. Extras land at `[rsp+32..]`
+  instead of `[rsp+0..]`.
+- **`ECALLCLEAN` Win64**: unconditional `add rsp, 0x20` for N≤4;
+  `add rsp, 32 + round_up_16((n-4)*8)` for N>4.
+- **`ESTORESTACKPARM` Win64 offset**: `[rbp+16+32+(pidx-4)*8]` —
+  the +32 accounts for the caller's shadow area below the return
+  address. Matches the caller-side layout.
+- **`lib/fnptr.cyr` fncall0..fncall8 Win64 shadow**: each block
+  gains a `sub rsp, 0x20` before the indirect `call rax` and an
+  `add rsp, 0x20` (or larger when stack args present) after. For
+  fncall5..fncall8, stack args also move from `[rsp+0..]` to
+  `[rsp+32..]` above shadow; framesize grows accordingly.
+- **CI gate** (`windows-cross`): byte-level regex asserts
+  `59 48 83 EC 20` (`pop rcx; sub rsp, 0x20`) appears after
+  4-arg call-site arg-pop sequence, and the fncall0 indirect
+  call is wrapped in shadow alloc/cleanup.
+
+### Fixed
+- **C-FFI-via-fnptr on Windows**. Previously the no-shadow
+  convention broke any cyrius program that took a C fn's
+  address and called it via `fncallN` — the C callee would
+  spill arg regs into the caller's stack memory (the
+  non-allocated "shadow") corrupting whatever lived there.
+  Now the shadow is present; C callees spill into it safely.
+
+### Not in scope (v5.5.8+)
+- Native Windows self-host slides to **v5.5.8** (was v5.5.7
+  before this split).
+- Rest of v5.5.x table shifts by +1: Apple Silicon → v5.5.9,
+  aarch64 native → v5.5.10, include-asm bug → v5.5.11,
+  NSS/PAM → v5.5.12, TLS → v5.5.13, atomics → v5.5.14,
+  thread-safety → v5.5.15, .reloc → v5.5.16, PE tail → v5.5.17,
+  closeout → v5.5.18.
+
 ## [5.5.6] — 2026-04-20
 
 **`lib/fnptr.cyr` Win64 `fncallN` variants — indirect
