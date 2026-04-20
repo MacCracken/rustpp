@@ -1,0 +1,104 @@
+# Regression for v5.4.17 — lib/toml.cyr multi-line array fix.
+#
+# Before v5.4.17, `lib/toml.cyr`'s unquoted-value scan terminated at
+# the first `\n` after `=`, so any TOML value starting with `[` that
+# spanned multiple lines truncated to just `"["`. Surfaced during
+# the shakti review (shakti issue
+# `2026-04-19-mini-toml-parser-limits.md`) — shakti's local mini-TOML
+# parser had the same bug. Cyrius-side fix first; shakti 0.2.1 copies
+# the same algorithm.
+#
+# The fix detects `[` as the value-start char and walks forward
+# tracking quote state + bracket depth (ignoring `\n` inside the
+# array body). Existing single-line array + scalar + string paths
+# are unchanged.
+
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/fmt.cyr"
+include "lib/toml.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ── Helper: find a key's raw value string in a TOML doc ──
+# Returns the Str value for `key` in the first (unnamed) section,
+# or str_from("MISSING") if not found. Uses toml_get which does
+# Str-to-cstr equality via str_eq_cstr (streq on str_data would
+# walk off the non-NUL-terminated Str backing).
+fn find_value(doc, key) {
+    var src = str_from(doc);
+    var sections = toml_parse(src);
+    if (vec_len(sections) == 0) { return str_from("MISSING"); }
+    var sec = vec_get(sections, 0);
+    var pairs = toml_section_pairs(sec);
+    var v = toml_get(pairs, key);
+    if (v == 0) { return str_from("MISSING"); }
+    return v;
+}
+
+# ── 1. Multi-line array — the headline case ──
+# Operators write one entry per line for reviewability; used to
+# truncate to just "[" silently.
+test_group("multi-line array parses as a single value");
+var doc1 = "commands = [\n    \"/usr/bin/id\",\n    \"/usr/bin/whoami\",\n    \"/usr/bin/date\",\n]\nname = \"alice\"\n";
+var v1 = find_value(doc1, "commands");
+# Value should include all three entries between the brackets.
+assert_eq(str_len(v1) > 20, 1, "multi-line array captures full span, not just '['");
+
+# Downstream still gets the other keys after the array.
+var n1 = find_value(doc1, "name");
+assert_eq(str_eq_cstr(n1, "alice"), 1,
+    "key after multi-line array still parses");
+
+# ── 2. Single-line array — legacy path unchanged ──
+test_group("single-line array unchanged");
+var doc2 = "commands = [\"/usr/bin/id\", \"/usr/bin/whoami\"]\n";
+var v2 = find_value(doc2, "commands");
+assert_eq(str_len(v2) > 10, 1, "single-line array captures full span");
+
+# ── 3. Empty array ──
+test_group("empty array [] parses cleanly");
+var doc3 = "empty = []\nname = \"bob\"\n";
+var v3 = find_value(doc3, "empty");
+assert_eq(str_len(v3) >= 2, 1, "empty array has at least '[]'");
+var n3 = find_value(doc3, "name");
+assert_eq(str_eq_cstr(n3, "bob"), 1,
+    "key after empty array still parses");
+
+# ── 4. Quoted `]` inside a string — must not close the outer array ──
+test_group("quoted ] inside array body doesn't close the outer bracket");
+var doc4 = "paths = [\n    \"weird]path\",\n    \"normal\",\n]\n";
+var v4 = find_value(doc4, "paths");
+# The value should include both the quoted "]" and the closing ].
+# If the fix is wrong, the quote-state tracking would let the first
+# `]` inside "weird]path" close the array early, truncating v4.
+assert_eq(str_len(v4) > 15, 1, "quoted ] absorbed by quote state, not array terminator");
+
+# ── 5. Trailing comma before ] ──
+test_group("trailing comma before ]");
+var doc5 = "items = [\n    \"a\",\n    \"b\",\n]\n";
+var v5 = find_value(doc5, "items");
+assert_eq(str_len(v5) > 5, 1, "trailing-comma array parses");
+
+# ── 6. Scalar values unchanged ──
+test_group("scalar value path unchanged");
+var doc6 = "port = 8080\nhost = \"example.com\"\nenabled = true\n";
+var p6 = find_value(doc6, "port");
+assert_eq(str_eq_cstr(p6, "8080"), 1, "integer scalar");
+var h6 = find_value(doc6, "host");
+assert_eq(str_eq_cstr(h6, "example.com"), 1, "string scalar");
+var e6 = find_value(doc6, "enabled");
+assert_eq(str_eq_cstr(e6, "true"), 1, "boolean scalar");
+
+# ── 7. Mixed multi-line and single-line — surrounding context intact ──
+test_group("mixed multi-line + single-line in same doc");
+var doc7 = "a = 1\nb = [\n    \"x\",\n    \"y\",\n]\nc = 3\n";
+var a7 = find_value(doc7, "a");
+assert_eq(str_eq_cstr(a7, "1"), 1, "scalar before multi-line array");
+var c7 = find_value(doc7, "c");
+assert_eq(str_eq_cstr(c7, "3"), 1, "scalar after multi-line array");
+
+var r = assert_summary();

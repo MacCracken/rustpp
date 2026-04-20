@@ -4,6 +4,69 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.17] — 2026-04-20
+
+**`lib/toml.cyr` multi-line array fix (shakti unblock).**
+Narrow single-issue release — first of four split-out cleanup
+releases in the v5.4.x tail. Previously `lib/toml.cyr:192`
+terminated unquoted values at the first `\n`, so any TOML value
+starting with `[` that spanned multiple lines truncated to just
+`"["`. Dormant in cyrius's own consumers (all use single-line
+arrays) but blocking shakti's sudoers schema, which operators
+want to write one entry per line for reviewability. Same
+bug-class as shakti's own mini-TOML parser in `src/policy.cyr`;
+this release lands the canonical fix algorithm so shakti 0.2.1
+can port it verbatim. Compiler byte-identical beyond the version
+literal; self-host held on both arches.
+
+### Fixed
+- **Multi-line arrays now parse correctly.** `lib/toml.cyr`
+  detects `[` as the first non-space character after `=` and
+  walks forward tracking quote state (quotes toggle in_quote,
+  so quoted `]` inside a string doesn't close the array) and
+  bracket depth (nested `[` bump depth defensively). The scan
+  sets the value's end position to immediately after the
+  matching `]`, regardless of how many `\n` bytes the body
+  contains. Existing scalar / string / single-line array paths
+  are unchanged; the new branch sits between the double-quoted
+  string and the fall-through unquoted-value scan.
+
+### Added
+- **`tests/tcyr/toml_multiline.tcyr`** — 12-assertion regression
+  covering: multi-line array captures full span (not just `"["`);
+  key after multi-line array still parses; single-line array
+  unchanged; empty `[]` parses cleanly; quoted `]` inside array
+  body absorbed by quote state (doesn't close outer bracket);
+  trailing comma before `]`; scalar / string / boolean values
+  unchanged; mixed multi-line + scalar in the same doc. All
+  12/12 PASS on x86_64 and aarch64 (cross-built, run via ssh
+  pi).
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS (68 test files; new
+  regression picked up automatically).
+- `tests/tcyr/toml.tcyr` — existing TOML regression still
+  passes (single-line arrays + scalars untouched).
+- cc5 + cc5_aarch64 self-host byte-identical.
+
+### Coordination — downstream
+- **Shakti** can now start the 0.2.1 work per
+  `shakti/docs/development/issues/2026-04-19-mini-toml-parser-limits.md`.
+  Algorithm in `lib/toml.cyr`'s new `elif (vc == 91)` branch is
+  the canonical reference; shakti ports into
+  `src/policy.cyr`'s `parse_policy` value-extract block using
+  the same bracket/quote state machine.
+
+### Next in the v5.4.x split
+- **v5.4.18** — release-scaffold hardening (tool-list
+  consolidation into `[release]` cyrius.cyml table +
+  install-snapshot refresh hook).
+- **v5.4.19** — `#ifplat` + compiler hardening (parse.cyr
+  unguarded x86-emit audit + aarch64 `EW` alignment assert +
+  optional `--strict` mode).
+- **v5.4.20** — TRUE closeout (dead-code sweep, full vidya
+  catch-up, CLAUDE.md §"Closeout Pass" 9-step checklist).
+
 ## [5.4.16] — 2026-04-20
 
 **Stdlib perf pass — `_keccak_rotl64` inlined.** Mechanical
