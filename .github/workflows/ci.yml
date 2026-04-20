@@ -409,17 +409,21 @@ jobs:
       - name: Mach-O ARM64 file identification
         run: |
           file /tmp/macho_arm_out/exit42.macho | grep -q "arm64"
-      - name: Verify MH_PIE flag (0x00200085) is set
+      - name: Verify MH_PIE flag (0x00200084) is set
         run: |
-          # mach_header_64.flags at offset 24-27 (LE = 85 00 20 00)
+          # mach_header_64.flags at offset 24-27 (LE = 84 00 20 00).
+          # MH_NOUNDEFS (0x1) was dropped at v5.5.12 — the compiler now
+          # emits `_exit` as a real undef resolved by dyld via LC_DYLD_INFO_ONLY
+          # classic binds, so NOUNDEFS would be contradictory. Remaining flags:
+          # MH_DYLDLINK | MH_TWOLEVEL | MH_PIE = 0x00200084.
           for f in /tmp/macho_arm_out/*.macho; do
             flags=$(xxd -s24 -l4 -p "$f" | tr -d ' \n')
-            test "$flags" = "85002000" || {
-              echo "FAIL: $(basename $f) flags=$flags (expected 85002000)"
+            test "$flags" = "84002000" || {
+              echo "FAIL: $(basename $f) flags=$flags (expected 84002000)"
               exit 1
             }
           done
-          echo "PASS: MH_PIE|MH_DYLDLINK|MH_TWOLEVEL|MH_NOUNDEFS on all binaries"
+          echo "PASS: MH_PIE|MH_DYLDLINK|MH_TWOLEVEL on all binaries"
       - name: Upload arm64 Mach-O binaries for native run
         uses: actions/upload-artifact@v4
         with:
