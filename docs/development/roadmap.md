@@ -43,8 +43,13 @@
 > per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16).
 > Apple Silicon Mach-O self-hosts byte-identically on M-series
 > (v5.3.13, 475320 B). **Still deferred to v5.4.x / v5.5.x**:
-> NSS/PAM end-to-end, libro layout corruption, `lib/hashmap_fast`
-> / `u128` / `mabda` arch-gating, yukti `include` rename.
+> libro layout corruption, `lib/hashmap_fast` / `u128` / `mabda`
+> arch-gating, yukti `include` rename. **NSS/PAM end-to-end**
+> moves out of "deferred" into a named v5.5.x pillar (see
+> §v5.5.x pillars) so it stops accreting "soon" notes —
+> shakti 0.2.x is the immediate blocker, and the libpam SIGSEGV
+> root cause (NSS dispatch + locale init bootstrap) is the same
+> shape as the rest of the v5.5.x runtime work.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -84,7 +89,13 @@ source of truth for completed work.
   dlopen state are missing. Scope: populate those. Reproducer +
   existing bootstrap infra live in `lib/dynlib.cyr` and
   `tests/tcyr/dynlib_init.tcyr`. Downstream blocker for shakti
-  0.2.x.
+  0.2.x (today shakti's `pam_authenticate` is a stub returning
+  `SHK_ERR_PAM_UNAVAILABLE`; the caller falls through to
+  `/usr/bin/su` — works but isn't the long-term shape).
+  **Now claimed as a v5.5.x pillar — see §"v5.5.x pillars"
+  below.** Carrying it forward verbatim here so the v5.3.x
+  context (the actual reproducer + the reason the SIGSEGV
+  happens) doesn't get amputated when the work begins.
 - **aarch64 x86-asm leakage** (Active Bug — supersedes the former
   "native FIXUP address mismatch"). Native self-host verified
   byte-identical on Pi in v5.3.15. Residual work is not native-
@@ -732,10 +743,47 @@ itself claimed by the PE correctness completion below. The new
 minor opens with the same Windows arc that closed v5.4.x: ship
 the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
 mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
-+ `cc5_win.cyr` cross-entry + RW-split as v5.5.0, then v5.5.x
-patch releases follow with the aarch64 native-syscall
-self-host (currently x86-cross only) and any other platform
-gaps surfaced during the closeout.
++ `cc5_win.cyr` cross-entry + RW-split as v5.5.0.
+
+**v5.5.x pillars** (named explicitly so they don't slip):
+1. **v5.5.0** — PE correctness completion (above).
+2. **aarch64 native-syscall self-host** — currently
+   x86-cross only via `cc5_aarch64`; native compile + run on
+   the Pi using `cc5_native_aarch64` is verified at
+   v5.3.15+ for `regression.tcyr` 102/102, but the wider
+   stdlib (alloc, fs, threading, mutex chains under
+   `CLONE_VM`) needs a dedicated pass on real hardware.
+3. **NSS/PAM end-to-end** — `lib/dynlib.cyr` can open
+   libpam / libc and resolve symbols today; calling
+   `pam_authenticate` / `getgrouplist` SIGSEGVs inside libc
+   because nsswitch dispatch + locale init + NSS-module
+   dlopen graph aren't bootstrapped. shakti 0.2.x is the
+   immediate downstream blocker (today shakti's
+   `pam_authenticate` is a stub returning UNAVAILABLE so
+   the caller falls through to `/usr/bin/su` — works but is
+   the wrong shape long-term). Carries from the v5.3.x
+   deferred queue with an explicit v5.5.x claim now so it
+   stops accreting "soon" notes across every minor.
+   Reproducer + bootstrap infra: `lib/dynlib.cyr` +
+   `tests/tcyr/dynlib_init.tcyr`.
+4. **TLS via `arch_prctl(ARCH_SET_FS)` / `%fs:`-relative**
+   addressing (queued from v5.4.10 thread work — majra's
+   `_aaw_result_state` global pattern needs TLS to be
+   thread-safe).
+5. **Atomics + memory barriers** — cyrius has no
+   `atomic_add` / `atomic_cas` / `mfence` today; concurrent
+   stdlib code (hashmap mutation under threads, freelist) is
+   exposed to data races (queued from v5.4.10).
+6. **Runtime thread-safety audit** — alloc / freelist /
+   hashmap / vec all make single-thread assumptions that
+   break under `CLONE_VM` (queued from v5.4.10).
+7. **RISC-V rv64** as a new platform target (per Platform
+   Targets table below).
+
+These six post-v5.5.0 pillars don't have minor numbers
+assigned yet; they'll claim slots in order as work begins.
+v5.5.x is expected to be a real arc (more than a couple of
+patches) — the Platform Targets table is honest about that.
 
 ### v5.5.0 — PE correctness completion
 
