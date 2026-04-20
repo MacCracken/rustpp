@@ -4,6 +4,77 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.4] — 2026-04-20
+
+**Win64 ABI call-site completion — `>4-arg` cyrius-to-cyrius
+calls now compile correctly.** v5.5.3 flipped the ≤4-arg register
+mapping; v5.5.4 closes the call-site half of the Win64 ABI so
+cyrius programs of any arity produce correct code on Windows.
+`lib/fnptr.cyr` indirect fn-pointer calls still use SysV — that's
+v5.5.5.
+
+Reproduced bug first: `f(a,b,c,d,e){return a+b+c+d+e;}` with
+`f(10,20,3,8,1)` returned exit code 44 on real Windows 11 (10+20+3+8+3,
+where arg 4's value was silently overwritten by arg 2's r8 assignment
+from v5.5.3's incomplete EPOPARG fallthrough). v5.5.4 returns the
+correct 42.
+
+Deliberately **no shadow space** at cyrius-to-cyrius call sites.
+Cyrius callees spill arg regs to their own `[rbp+disp]` local slots
+via `ESTOREREGPARM` — they ignore the 32 B shadow home area. Adding
+it would buy strict Win64 compliance but doesn't functionally help
+internal calls. If/when compliance is needed (DLL export, cyrius-
+called-by-C via COM/callback), add it then.
+
+Verified end-to-end on real Windows 11 (`nejad@hp`, build 26200):
+5/5 >4-arg matrix PASS (arg5/6/7/8 plus order-sensitive arg5_order).
+v5.5.3 ≤4-arg tests unaffected (arg1 + arg4 still PASS). Linux
+`check.sh` 10/10 green. Self-host byte-identical (482008 B, +2568 B
+over v5.5.3 for the shuttle + ESTORESTACKPARM paths).
+
+### Added
+- **`ECALLPOPS` Win64 shuttle for N>4** (`src/backend/x86/emit.cyr`):
+  pops top (N-4) extras into r10/r11/r14/r15 via `pop rax; mov rN, rax`
+  pairs, pops 4 register args into RCX/RDX/R8/R9, allocates
+  `nextra*8` bytes rounded up to 16, `mov`s the extras into
+  `[rsp+0..(nextra-1)*8]` in the correct order so a[4] lands at
+  `[rsp]`, a[5] at `[rsp+8]`, etc. Mirrors the existing SysV N>6
+  shuttle pattern but with Win64 register tuple and no push-back
+  phase.
+- **`ECALLCLEAN` Win64 path**: `add rsp, framesize` where framesize
+  matches what `ECALLPOPS` allocated. No cleanup for N≤4.
+- **`ESTOREPARM` `_TARGET_PE` dispatch**: pidx<4 → register
+  spill (via `ESTOREREGPARM`, already Win64 from v5.5.3); pidx≥4 →
+  stack read (via the new `ESTORESTACKPARM` Win64 branch).
+- **`ESTORESTACKPARM` Win64 branch**: reads stack arg from
+  `[rbp+16+(pidx-4)*8]`. Matches the caller-side layout — a[4] at
+  `[rbp+16]`, a[5] at `[rbp+24]`, no shadow gap. Differs from SysV's
+  reverse-order formula (SysV pushes register shuttle pushes args
+  in reverse; Win64 writes them directly in forward order).
+- **CI gate**: new "v5.5.4 Win64 ABI fncall gate (>4 args)" step in
+  `windows-cross` compiles 5 fn-call programs (w_arg5..w_arg8 +
+  w_arg5_order), asserts byte-level presence of the shuttle's
+  `58 49 89 C2` (`pop rax; mov r10, rax`) sequence, and
+  `windows-native` runs each on `windows-latest` asserting
+  ERRORLEVEL=42.
+
+### Fixed
+- **>4-arg mis-compile under `CYRIUS_TARGET_WIN=1`**. v5.5.3 left
+  `EPOPARG` falling through to SysV encoding for n≥4 (`pop r8` for
+  arg 4, `pop r9` for arg 5), which collided with the Win64 branch's
+  `pop r8` for arg 2 / `pop r9` for arg 3. Result: args 4+ silently
+  clobbered. v5.5.4's `ECALLPOPS` Win64 branch bypasses the per-arg
+  `EPOPARG` loop entirely for N>4, emitting the shuttle directly.
+
+### Not in scope (v5.5.5+)
+- **`lib/fnptr.cyr` Win64 `fncallN` variants.** 9 hand-rolled x86
+  asm blocks still use SysV register mappings for indirect fn-pointer
+  calls. v5.5.5 adds `#ifdef CYRIUS_TARGET_WIN` parallel blocks.
+- **Shadow space at cyrius-to-cyrius calls**. Deferred indefinitely
+  until a strict-compliance need surfaces.
+- **Native Windows self-host** (cc5_win compiling itself ON
+  Windows) slides to v5.5.6.
+
 ## [5.5.3] — 2026-04-20
 
 **Win64 arg-register flip for cyrius-to-cyrius fn calls (≤4 args).**

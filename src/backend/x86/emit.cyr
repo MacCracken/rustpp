@@ -772,6 +772,66 @@ fn EPOPARG(S, n) {
 #   Pop them to temp (r11), pop 6 register args, push them back.
 fn ECALLPOPS(S, n) {
     if (_IR_REC1(S, IR_CALL_POPS, n) == 1) { return 0; }
+    # Win64 path (v5.5.4): ≤4 args pop into RCX/RDX/R8/R9; >4 args
+    # shuttle the extras through r10/r11/r14/r15 and land them at
+    # [rsp+0..] just before the call (a[4] at [rsp], a[5] at
+    # [rsp+8], …). No shadow space at cyrius-to-cyrius call sites —
+    # cyrius callees ignore it (they spill arg regs to their own
+    # [rbp+disp] locals via ESTOREREGPARM). ESTORESTACKPARM reads
+    # stack args at [rbp+16+(pidx-4)*8] to match this layout.
+    if (_TARGET_PE == 1) {
+        if (n <= 4) {
+            var i = n - 1;
+            while (i >= 0) { EPOPARG(S, i); i = i - 1; }
+            return 0;
+        }
+        # n > 4: shuttle extras, pop register args, write extras
+        # to stack at [rsp+0..(nextra-1)*8]. Stack on entry:
+        # [a[n-1], a[n-2], …, a[0]] with a[n-1] on top.
+        var nextra = n - 4;
+        # Pop extras into r10/r11/r14/r15. First pop = top = a[n-1]
+        # → r10; second pop = a[n-2] → r11; etc.
+        if (nextra >= 1) { EB(S, 0x58); E3(S, 0xC28949); }   # pop rax; mov r10, rax (a[n-1])
+        if (nextra >= 2) { EB(S, 0x58); E3(S, 0xC38949); }   # pop rax; mov r11, rax (a[n-2])
+        if (nextra >= 3) { EB(S, 0x58); E3(S, 0xC68949); }   # pop rax; mov r14, rax (a[n-3])
+        if (nextra >= 4) { EB(S, 0x58); E3(S, 0xC78949); }   # pop rax; mov r15, rax (a[n-4])
+        # Pop 4 register args (stack now has a[3],a[2],a[1],a[0] top-down).
+        EB(S, 0x41); EB(S, 0x59);                             # pop r9   (a[3])
+        EB(S, 0x41); EB(S, 0x58);                             # pop r8   (a[2])
+        EB(S, 0x5A);                                          # pop rdx  (a[1])
+        EB(S, 0x59);                                          # pop rcx  (a[0])
+        # Allocate stack-arg frame (16-aligned). framesize =
+        # nextra*8 rounded up to 16.
+        var framesize = nextra * 8;
+        if ((framesize & 15) != 0) { framesize = framesize + 8; }
+        EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, framesize);  # sub rsp, framesize (imm8)
+        # Write extras to [rsp+k*8]. Layout at call point:
+        #   [rsp]     = a[4]   # lowest addr = first stack arg
+        #   [rsp+8]   = a[5]
+        #   [rsp+16]  = a[6]
+        #   [rsp+24]  = a[7]
+        # Register assignments: r15=a[n-4], r14=a[n-3], r11=a[n-2], r10=a[n-1].
+        # For each nextra value, the source registers differ.
+        if (nextra == 1) {
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x14); EB(S, 0x24);                           # mov [rsp],   r10 (a[4])
+        }
+        if (nextra == 2) {
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x1C); EB(S, 0x24);                           # mov [rsp],   r11 (a[4])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x08);              # mov [rsp+8], r10 (a[5])
+        }
+        if (nextra == 3) {
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x34); EB(S, 0x24);                           # mov [rsp],    r14 (a[4])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x5C); EB(S, 0x24); EB(S, 0x08);              # mov [rsp+8],  r11 (a[5])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x10);              # mov [rsp+16], r10 (a[6])
+        }
+        if (nextra == 4) {
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x3C); EB(S, 0x24);                           # mov [rsp],    r15 (a[4])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x74); EB(S, 0x24); EB(S, 0x08);              # mov [rsp+8],  r14 (a[5])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x5C); EB(S, 0x24); EB(S, 0x10);              # mov [rsp+16], r11 (a[6])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x18);              # mov [rsp+24], r10 (a[7])
+        }
+        return 0;
+    }
     if (n <= 6) {
         var i = n - 1;
         while (i >= 0) { EPOPARG(S, i); i = i - 1; }
@@ -798,9 +858,19 @@ fn ECALLPOPS(S, n) {
     return 0;
 }
 
-# Emit stack cleanup after call with >6 args
+# Emit stack cleanup after call.
+# SysV: >6 args needed `(n-6)*8` bytes of caller-side stack-arg slots.
+# Win64 (v5.5.4): >4 args needed `nextra*8` rounded up to 16 for RSP
+# alignment — matches the framesize ECALLPOPS allocated.
 fn ECALLCLEAN(S, n) {
     if (_IR_REC1(S, IR_CALL_CLEAN, n) == 1) { return 0; }
+    if (_TARGET_PE == 1) {
+        if (n <= 4) { return 0; }
+        var framesize = (n - 4) * 8;
+        if ((framesize & 15) != 0) { framesize = framesize + 8; }
+        EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, framesize);   # add rsp, framesize (imm8)
+        return 0;
+    }
     if (n > 6) {
         var extra = (n - 6) * 8;
         E3(S, 0xC48148);
@@ -859,14 +929,13 @@ fn ESTOREREGPARM(S, pidx, disp) {
     # ≤4-arg-only caller surface never produces pidx>=4 on
     # Windows-compiled code paths the tests exercise).
     if (_TARGET_PE == 1) {
+        # pidx 0..3 arrive in Win64 arg regs. pidx>=4 is routed to
+        # ESTORESTACKPARM by ESTOREPARM's v5.5.4 dispatch — this fn
+        # is never called with pidx>=4 under _TARGET_PE.
         if (pidx == 0) { E3(S, 0x8D8948); }       # mov [rbp+disp], rcx
         if (pidx == 1) { E3(S, 0x958948); }       # mov [rbp+disp], rdx
         if (pidx == 2) { E3(S, 0x85894C); }       # mov [rbp+disp], r8
         if (pidx == 3) { E3(S, 0x8D894C); }       # mov [rbp+disp], r9
-        if (pidx >= 4) {
-            if (pidx == 4) { E3(S, 0x85894C); }   # SysV r8 (wrong for Win64)
-            if (pidx == 5) { E3(S, 0x8D894C); }   # SysV r9 (wrong for Win64)
-        }
         EDISP32(S, disp);
         return 0;
     }
@@ -881,6 +950,19 @@ fn ESTOREREGPARM(S, pidx, disp) {
 }
 
 fn ESTORESTACKPARM(S, pidx, disp, pc) {
+    # Win64 (v5.5.4): caller placed a[4] at [rsp], a[5] at [rsp+8],
+    # ... at the call site (no shadow). After `call` pushes ret
+    # addr and callee's `push rbp`, these land at [rbp+16],
+    # [rbp+16+8], ... ESTORESTACKPARM reads [rbp+sdisp] into rax
+    # and stores to the caller-side local slot.
+    if (_TARGET_PE == 1) {
+        var win_sdisp = 16 + (pidx - 4) * 8;
+        E3(S, 0x858B48);                                             # mov rax, [rbp+sdisp]
+        EDISP32(S, win_sdisp);
+        E3(S, 0x858948);                                             # mov [rbp+disp], rax
+        EDISP32(S, disp);
+        return 0;
+    }
     var nstack = pc - 6;
     var si = nstack - 1 - (pidx - 6);
     var sdisp = 16 + si * 8;
@@ -896,6 +978,17 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
     var disp = 0 - ((lidx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    # Win64 (v5.5.4): dispatch boundary is 4 (register args) vs
+    # SysV's 6. Args 4+ go through ESTORESTACKPARM with the Win64
+    # stack layout formula.
+    if (_TARGET_PE == 1) {
+        if (pidx < 4) {
+            ESTOREREGPARM(S, pidx, disp);
+        } else {
+            ESTORESTACKPARM(S, pidx, disp, pc);
+        }
+        return 0;
+    }
     if (pidx < 6) {
         ESTOREREGPARM(S, pidx, disp);
     } else {

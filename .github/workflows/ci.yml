@@ -589,6 +589,49 @@ jobs:
           fi
           echo "Win64 fncall cross: $pass passed, $fail failed"
           test $fail -eq 0
+      - name: v5.5.4 Win64 ABI fncall gate (>4 args)
+        run: |
+          # v5.5.4: cyrius-to-cyrius fn calls with 5-8 args under
+          # CYRIUS_TARGET_WIN=1. ECALLPOPS shuttles extras via
+          # r10/r11/r14/r15, pops register args, then writes extras
+          # to [rsp+0..(nextra-1)*8]. ECALLCLEAN unwinds. ESTOREPARM
+          # dispatch boundary flips to pidx<4 under _TARGET_PE;
+          # ESTORESTACKPARM reads pidx>=4 from [rbp+16+(pidx-4)*8].
+          # No shadow space — cyrius callees don't use it.
+          pass=0; fail=0
+          for test in \
+            "w_arg5:fn f(a,b,c,d,e){return a+b+c+d+e;} syscall(60, f(10, 20, 3, 8, 1));:42" \
+            "w_arg6:fn f(a,b,c,d,e,g){return a+b+c+d+e+g;} syscall(60, f(10, 20, 3, 5, 2, 2));:42" \
+            "w_arg7:fn f(a,b,c,d,e,g,h){return a+b+c+d+e+g+h;} syscall(60, f(10, 10, 10, 5, 3, 2, 2));:42" \
+            "w_arg8:fn f(a,b,c,d,e,g,h,i){return a+b+c+d+e+g+h+i;} syscall(60, f(5, 5, 5, 5, 10, 6, 3, 3));:42" \
+            "w_arg5_order:fn f(a,b,c,d,e){return a-b-c-d-e;} syscall(60, f(100, 10, 20, 13, 15));:42"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2)
+            expected=$(echo "$test" | cut -d: -f3)
+            out="/tmp/win_out/$name.exe"
+            printf "%s\n" "$code" | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > "$out"
+            sz=$(wc -c < "$out")
+            magic=$(xxd -l2 -p "$out" | tr -d ' \n')
+            pesig=$(xxd -s64 -l4 -p "$out" | tr -d ' \n')
+            if [ "$sz" -gt 0 ] && [ "$magic" = "4d5a" ] && [ "$pesig" = "50450000" ]; then
+              pass=$((pass+1))
+              echo "$expected" > "/tmp/win_out/$name.expected"
+            else
+              echo "FAIL cross: $name (size=$sz magic=$magic pesig=$pesig)"
+              fail=$((fail+1))
+            fi
+          done
+          # Byte-level gate: w_arg5.exe must contain the shuttle's
+          # `pop rax; mov r10, rax` = `58 49 89 C2` sequence. If the
+          # middle byte-order typo that bit during development
+          # (v5.5.4-alpha) regresses, we'd see `58 89 49 C2` instead.
+          if ! xxd -p /tmp/win_out/w_arg5.exe | tr -d '\n' | grep -qE '58498[9]c2'; then
+            echo "FAIL: w_arg5.exe missing shuttle 'pop rax; mov r10, rax' (58 49 89 C2)"
+            exit 1
+          fi
+          echo "Win64 >4-arg fncall cross: $pass passed, $fail failed"
+          test $fail -eq 0
       - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
           # Compile a syscall(1) hello-world program and verify:
@@ -677,11 +720,12 @@ jobs:
           $pass = 0
           $fail = 0
           # exit{N} = v5.4.x exit-code reroute (no fn calls).
-          # w_arg{N}/w_nested = v5.5.3 Win64 ABI fncall gate — verifies
-          # the caller's Win64 arg register pops (EPOPARG) and the
-          # callee's Win64 spill (ESTOREREGPARM) interlock on hardware.
+          # w_arg{1..4}/w_nested = v5.5.3 Win64 ≤4-arg gate.
+          # w_arg{5..8}/w_arg5_order = v5.5.4 Win64 >4-arg shuttle +
+          # ESTOREPARM dispatch + ESTORESTACKPARM shadow-less layout.
           foreach ($name in @("exit0", "exit1", "exit42", "exit255",
-                              "w_arg1", "w_arg2", "w_arg3", "w_arg4", "w_nested")) {
+                              "w_arg1", "w_arg2", "w_arg3", "w_arg4", "w_nested",
+                              "w_arg5", "w_arg6", "w_arg7", "w_arg8", "w_arg5_order")) {
             $exe = ".\win\$name.exe"
             $expected = (Get-Content ".\win\$name.expected" -Raw).Trim()
             $proc = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
