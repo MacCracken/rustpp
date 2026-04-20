@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.15.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.16.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -28,32 +28,32 @@
 > wake-flag fix** (majra unblocked). **v5.4.11 ships aarch64
 > Linux syscall stdlib + aarch64 thread trampoline + sankoch
 > 2.0.0** (yukti unblocked: `syscall(4, …)` no longer
-> `pivot_root` on aarch64). **v5.4.12 is claimed by the
-> tool-cleanup pass** — `cyriusly` version manager
-> extracted to its own committed file (was missing from
-> `cyrius pulsar` installs); `cbt/pulsar.cyr` layout
-> unified with `install.sh` (`versions/$V/bin/` subdir,
-> not flat); `cyrld` wired into release tarballs + pulsar;
-> `scripts/cyrius.bak` (legacy 61KB dispatcher) deleted;
-> `install.sh` hardcoded version fallback replaced with
-> a live `raw.githubusercontent.com/…/VERSION` fetch;
-> shell-script migration plan recorded (bootstrap-bound vs
-> migration-candidate). **v5.4.13 is claimed by the fncall
-> ceiling lift / render-pass FFI unblock** (mabda blocker:
-> their wgpu render-pass path is forced into C-side
-> struct-packing because cyrius caps `fncallN` at 6 args +
-> `fncall6 + wgpu` crashes; v5.4.13 root-causes the crash
-> and lifts the ceiling so mabda can flatten its direct-
-> call path). **v5.4.14 is claimed by `lib/keccak.cyr`**
-> (sigil 3.0 PQC enabler — pulled in from "remaining
-> enablers" so sigil isn't blocked through the v5.5 cycle).
-> **v5.4.15 is the v5.4.x closeout pass** (per CLAUDE.md
+> `pivot_root` on aarch64). **v5.4.12 ✅ tool-cleanup pass**
+> — `cyriusly` extracted, pulsar/install.sh layout unified,
+> cyrld shipping, cyrius.bak deleted, shell-migration plan
+> recorded. **v5.4.12-1 ✅ release-lib.sh dep-tag drift
+> hotfix** — hardcoded dep tags parallel to cyrius.cyml
+> rot silently; fixed by awk-parsing the manifest directly.
+> **v5.4.13 ✅ fncall ceiling lift** (mabda wgpu render-pass
+> unblock — fncall7 / fncall8 in lib/fnptr.cyr + FFI
+> struct-packing policy docs). **v5.4.14 ✅ hashmap
+> Str-struct key fix** (marja-surfaced data loss, ~3%
+> entry loss on str_from_int-keyed maps; additive
+> map_new_str() + hash_str_v(), no API break). **v5.4.15 ✅
+> `lib/keccak.cyr` + sigil 2.9.0** (sigil 3.0 PQC enabler:
+> Keccak-f[1600] + SHAKE-128/256 sponge, NIST-verified on
+> both arches, SHAKE-256 4KB at 329µs within 2× sha256_4kb
+> budget). **v5.4.16 is claimed by a stdlib perf pass** —
+> mechanical inlining of hot helpers, starting with
+> `_keccak_rotl64` (~20k fn calls per 4KB SHAKE eliminated).
+> **v5.4.17 is the v5.4.x closeout pass** (per CLAUDE.md
 > §"Closeout Pass" — dead-code audit, doc / vidya sync,
 > residual parse.cyr unguarded x86-emit cleanup, permanent
 > `EW` alignment assert on aarch64, `version-bump.sh`
-> install-refresh hook, `#ifplat` directive, optional
-> `cyrius build --strict`); after v5.4.15 ships, the next
-> tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
+> install-refresh hook, `#ifplat` directive, `lib/toml.cyr`
+> multi-line array fix, release-scaffold tool-list
+> consolidation, optional `cyrius build --strict`); after
+> v5.4.17 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -617,7 +617,7 @@ bump by one.
 ### Shell-script migration plan (scripts/ → native cyrius)
 
 Recorded at v5.4.12 so future cleanup work (likely
-v5.4.15 closeout or v5.5.x) has an authoritative list.
+v5.4.17 closeout or v5.5.x) has an authoritative list.
 
 **Bootstrap-bound (stay shell forever):**
 - `scripts/install.sh` — curl-piped entry point; can't
@@ -646,7 +646,7 @@ v5.4.15 closeout or v5.5.x) has an authoritative list.
 | `cyrius-watch.sh`        |  37 | `cyrius watch` (needs inotify)         |
 
 Net migration: ~1900 LOC shell → native cyrius, leaving
-~570 LOC bootstrap-bound. Sequencing decided at v5.4.15
+~570 LOC bootstrap-bound. Sequencing decided at v5.4.17
 closeout; individual migrations can land across v5.5.x
 patches without blocking the pillars.
 
@@ -717,61 +717,83 @@ fncall ceiling, not mabda-native architecture.
    args-struct workaround); the workaround stays in place
    for genuinely-nested struct cases.
 
-**Companion (queued for v5.4.15 closeout):** audit the
+**Companion (queued for v5.4.17 closeout):** audit the
 ceiling on every fncall consumer in stdlib + downstreams to
 identify which `fncall2(...args_struct...)` paths can flatten
 to direct `fncallN` once 7 and 8 are available.
 
-### v5.4.14 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
+### v5.4.14 — `lib/hashmap.cyr` Str-struct key fix (marja) ✅
 
-Pulled in from "Sigil 3.0 enablers — remaining" — sibling of the
-`ct_select` (v5.3.2), `mulh64` (v5.3.3), `secret var` (v5.3.5)
-items already shipped from that cohort. Self-contained stdlib
-work; no compiler changes.
+Shipped 2026-04-20. Marja's soak tests surfaced ~3% entry loss
+on Str-struct-keyed maps: `hash_str` was byte-walking the Str
+struct as if it were a cstr, producing address-derived hashes.
+Fix shipped additive (no API break) — new `map_new_str()`
+constructor + `hash_str_v()` + `key_type` tag in the map header
+(24→32 bytes). `_map_find` + `map_print` branch on the tag.
+Existing cstr-keyed maps work unchanged. See CHANGELOG [5.4.14]
+for the full entry.
 
-**Why before closeout:** sigil 3.0 PQC migration is calendar-
-pressured; `lib/keccak.cyr` is the last toolchain-side block.
-Letting it slip to v5.5.x means sigil stays blocked through
-the v5.5 release cycle. Small enough to fit comfortably as a
-v5.4.x patch (~300 LOC for permutation + sponge; pure stdlib),
-and v5.4.15 (closeout) is the natural wrap-up slot for the
-line.
+### v5.4.15 — `lib/keccak.cyr` + sigil 2.9.0 (sigil 3.0 PQC enabler) ✅
+
+Shipped 2026-04-20. Keccak-f[1600] + SHAKE-128 / SHAKE-256
+sponge landed in `lib/keccak.cyr`; 7 NIST vectors verified via
+Python hashlib on both x86_64 and aarch64. `benches/bench_keccak.bcyr`
+measured SHAKE-256 4 KB at **329 µs avg** (target ≤ 500 µs /
+2× sha256_4kb; actual 1.3× ratio — within budget). `cyrius.cyml`
+sigil pin bumped 2.8.4 → 2.9.0 alongside the keccak landing;
+sigil 2.9.0 ships HKDF live, AES-NI deferred to 2.9.1 pending
+the include-boundary inline-asm bug (filed at v5.5.x pillar 8).
+See CHANGELOG [5.4.15] for the full entry.
+
+### v5.4.16 — stdlib perf pass
+
+Small, focused optimization release before the bulk closeout at
+v5.4.17. Measurable wins that don't fit alongside broader
+cleanup work.
 
 **Scope:**
-- **Keccak-f[1600] permutation** — the 24-round
-  `theta / rho / pi / chi / iota` core. Bit-interleaved or
-  64-bit-lane implementation; the cyrius `u64` arithmetic +
-  rotate primitives already cover what's needed.
-- **Sponge construction** with absorb / squeeze separation
-  for SHAKE-128 (rate 1344 bits) and SHAKE-256 (rate 1088
-  bits), per FIPS 202.
-- **No external deps.** Self-contained `lib/keccak.cyr` —
-  belongs alongside `lib/sha256.cyr` (already in stdlib).
-- **Benchmark target:** 4 KB SHAKE-256 within 2× of sigil's
-  existing `sha256_4kb` (~250 µs). Wire into `benches/` so
-  regressions are visible.
-- **`tests/tcyr/keccak.tcyr`** — at minimum the FIPS 202
-  Appendix A.1 / A.2 NIST test vectors for SHAKE-128 and
-  SHAKE-256 (empty input + a few short messages), plus a
-  4 KB round-trip case for the bench-shape.
+- **Inline `_keccak_rotl64` at each call site in
+  `lib/keccak.cyr`** — the permutation's inner loop calls
+  `_keccak_rotl64` ~29 times per round × 24 rounds × 30 blocks
+  ≈ 20 k function calls per 4 KB SHAKE-256 hash. On x86_64
+  each call is prologue/epilogue + 1 conditional branch (the
+  `n == 0` guard). Inlining should remove 15-25 % from the
+  329 µs we measured at v5.4.15 — pulls the SHAKE-256 4 KB
+  ratio from 1.3× down toward parity with sha256_4kb. Gate:
+  `benches/bench_keccak.bcyr` numbers improve; NIST vectors
+  still match; self-host byte-identical (lib-only).
+- **Audit adjacent stdlib hot paths for the same pattern** —
+  `lib/u128.cyr` multiplication, `lib/sha256.cyr` schedule
+  (if it exists), any fn whose inner loop makes >1000 calls
+  into a single-line helper. One round of inlining per
+  identified hot path, each gated by a bench number.
+- **No compiler changes.** This is a mechanical
+  inline-the-helper pass, not a compiler optimization. The
+  compiler's own perf track (phases O1–O6 in the v5.4.x
+  optimization arc per the top-of-file banner) stays
+  separate.
 
 **Acceptance:**
-1. `tests/tcyr/keccak.tcyr` PASS — NIST vectors match.
-2. `benches/keccak.bcyr` lands within the 2× sha256 budget.
-3. `sh scripts/check.sh` 12/12 (gates 11 from v5.4.13 +
-   keccak's NIST-vector regression).
-4. cc5 + cc5_aarch64 self-host byte-identical (lib-only
-   change; should be trivial).
-5. **sigil 3.0 unblock**: with the v5.4.14 toolchain, sigil's
-   ML-DSA-65 XOF step can stop stubbing the SHAKE call and
-   ship the real PQC path. Verified at sigil's pin-bump time,
-   not in cyrius CI.
+1. `sh scripts/check.sh` 10/10 PASS (no new gates; existing
+   correctness regressions hold).
+2. `benches/bench_keccak.bcyr` SHAKE-256 4 KB **≤ 270 µs avg**
+   (20 % improvement target; will accept any measurable win).
+3. cc5 + cc5_aarch64 self-host byte-identical.
+4. Bench-history CSV (`benches/bench-history.csv`) gains a
+   v5.4.16 row with the new numbers so we can see the trend.
 
-### v5.4.15 — v5.4.x closeout pass (then v5.5.0)
+**Out of scope** (push to v5.4.17 closeout or later):
+- Compiler-side optimization (regalloc, peephole, IR passes —
+  the O1–O6 track).
+- Non-crypto stdlib perf (e.g. vec grow strategy, hashmap load
+  factor tuning).
+- Any change that alters observable API.
+
+### v5.4.17 — v5.4.x closeout pass (then v5.5.0)
 
 Per the closeout-pass procedure in `CLAUDE.md` (run before every
 minor/major bump, ship as the last patch of the current minor —
-e.g. 4.2.5 before 4.3.0). v5.4.15 is the v5.4.x closeout; tagging
+e.g. 4.2.5 before 4.3.0). v5.4.17 is the v5.4.x closeout; tagging
 it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
 Platform Targets" below).
 
@@ -866,7 +888,7 @@ Platform Targets" below).
   uniformly. Lex/preprocessor change in `src/frontend/lex.cyr`
   (~80-150 LOC), plus migration of the ~3 existing call sites
   (`lib/fnptr.cyr`, `lib/thread.cyr`, the v5.4.11 `lib/syscalls.cyr`
-  selector). **Why now (v5.4.15) not later (v6.0.0)**: v5.5.0
+  selector). **Why now (v5.4.17) not later (v6.0.0)**: v5.5.0
   is about to add many more dispatch sites (PE syscalls,
   `lib/syscalls_windows.cyr`, `cc5_win.cyr` cross-entry); landing
   the convention before v5.5.x prevents another wave of
@@ -875,7 +897,7 @@ Platform Targets" below).
   do it now; balloons if deferred. Earlier confirmed during
   v5.4.11 planning that bundling into v5.4.11 itself would
   force functionality where it doesn't belong (syntactic
-  improvement vs the v5.4.11 correctness fix); v5.4.15's
+  improvement vs the v5.4.11 correctness fix); v5.4.17's
   cleanup theme is the right home.
 - Verify the post-v5.4.10 thread surface: TLS gap, atomics
   gap, and runtime thread-safety surface (alloc / freelist /
@@ -897,7 +919,7 @@ Platform Targets" below).
   inside arrays). Same algorithm shakti applies locally.
   ~20 LOC + `tests/tcyr/toml_multiline.tcyr` regression.
   **Coordination**: shakti holds its 0.2.1 parser fix until
-  after v5.4.16 ships so it can reference the canonical fix
+  after v5.4.17 ships so it can reference the canonical fix
   pattern. No other downstream is blocked.
 - **Release scaffold — collapse tool-list multi-refs to a
   single source of truth.** Surfaced at v5.4.12-1 as the
@@ -916,7 +938,7 @@ Platform Targets" below).
   the same awk pattern release-lib.sh uses; pulsar.cyr extends
   its existing CYML parser to populate the bins/scripts arrays
   at runtime instead of hardcoding them. **Why closeout
-  (v5.4.15), not earlier**: this touches release.yml and
+  (v5.4.17), not earlier**: this touches release.yml and
   pulsar.cyr — the release pipeline itself. Bundling into a
   correctness-fix release risks breaking the actual release
   mechanism while shipping something unrelated. Closeout is
@@ -973,7 +995,7 @@ Platform Targets" below).
   projects. Keep the install-snapshot refresh in
   `version-bump.sh` / `install.sh` where it belongs.
 
-After v5.4.15 ships, the next tag is **v5.5.0** — which is
+After v5.4.17 ships, the next tag is **v5.5.0** — which is
 itself claimed by the PE correctness completion below. The new
 minor opens with the same Windows arc that closed v5.4.x: ship
 the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
@@ -1014,8 +1036,26 @@ mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
    break under `CLONE_VM` (queued from v5.4.10).
 7. **RISC-V rv64** as a new platform target (per Platform
    Targets table below).
+8. **`include`-boundary inline-asm codegen bug** — filed at
+   v5.4.15 during sigil 2.9.0 AES-NI work (see
+   `docs/development/issues/inline-asm-stores-silently-drop-when-fn-included.md`).
+   Byte-identical machine code is emitted for both same-TU and
+   `include`d callees, but stores through a caller-supplied
+   output pointer no-op at runtime when the emitting fn is
+   pulled in via `include`. Minimal cases (single-byte store,
+   MOVDQU/XMM) don't reproduce; sigil's 120-byte 14-round
+   AES-256 block does. Speculative causes: fixup-table pressure
+   on disp32 forward refs inside a single asm block across an
+   `include` boundary, DCE over-stripping in include context,
+   prologue/epilogue clobber of the pointer register. Downstream
+   impact: sigil 2.9.0 had to pin `aes_ni_available()` to 0
+   and ship the software AES-GCM path only; AES-NI deferred to
+   sigil 2.9.1. HKDF (the other 2.9.0 feature) ships live.
+   Fix needs someone who can read the cc5 backend's emit-fn-body
+   / fixup-pass / include-resolution interaction. Not scoped for
+   v5.4.17 closeout because the investigation is open-ended.
 
-These six post-v5.5.0 pillars don't have minor numbers
+These seven post-v5.5.0 pillars don't have minor numbers
 assigned yet; they'll claim slots in order as work begins.
 v5.5.x is expected to be a real arc (more than a couple of
 patches) — the Platform Targets table is honest about that.

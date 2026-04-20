@@ -4,6 +4,74 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.16] — 2026-04-20
+
+**Stdlib perf pass — `_keccak_rotl64` inlined.** Mechanical
+single-change release. The previous helper fn accounted for ~20k
+function-call round-trips per 4 KB SHAKE-256 hash (5 theta
+rotations × 1 arg + 24 rho+pi rotations, all inside 24 rounds ×
+30 blocks); inlining the naive `(x << n) | (x >> (64 - n))`
+formula at every call site removes those calls. NIST test vectors
+still pass; no correctness change. Scope intentionally narrow —
+the v5.4.17 closeout absorbs broader cleanup work.
+
+**Bench numbers** (Linux x86_64, `benches/bench_keccak.bcyr`):
+
+| Benchmark                      | v5.4.15   | v5.4.16   | Δ        |
+|--------------------------------|-----------|-----------|----------|
+| SHAKE-256 empty                | 11 µs avg | 10 µs avg | −9 %     |
+| **SHAKE-256 4 KB**             | **314 µs**| **262 µs**| **−17 %**|
+| SHAKE-128 4 KB                 | 255 µs    | 214 µs    | −16 %    |
+| SHAKE-256 extend → 1 KB        | 79 µs     | 68 µs     | −14 %    |
+
+SHAKE-256 4 KB at 262 µs vs sigil's sha256_4kb at ~250 µs lands
+within ~5 % parity — well under the 2× budget from v5.4.15's
+acceptance gate and comfortably under the v5.4.16 ≤ 270 µs
+target. Compiler byte-identical beyond the version-string
+literal; self-host held on x86_64 and aarch64.
+
+### Changed
+- **`lib/keccak.cyr`** — `_keccak_rotl64(x, n)` helper deleted;
+  replaced at all 5 theta call sites with
+  `(Cx << 1) | (Cx >> 63)` (rotate-by-1) and at the 1 rho+pi
+  site with `(current << offset_t) | (current >> (64 -
+  offset_t))`. All 24 rho+pi offsets are pre-known non-zero
+  (1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8,
+  25, 43, 62, 18, 39, 61, 20, 44), so the previous `n == 0`
+  guard is unnecessary inline. Header comment updated to
+  document the inlining + the logical-shift property that
+  makes the naive formula correct.
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- `tests/tcyr/keccak.tcyr` — 7/7 PASS on x86_64 and aarch64
+  (cross-built, run via ssh pi).
+- `benches/bench_keccak.bcyr` — targets above met (see table).
+- cc5 + cc5_aarch64 self-host byte-identical (compiler unchanged
+  beyond version-string literal).
+
+### Audit results (checked, not changed this release)
+- **`lib/u128.cyr` `_u128_lshr64`** — called from bignum /
+  shift paths, not hot on typical workloads. Pass.
+- **`lib/u128.cyr` `_u64_ugt` / `_u64_uge`** — tiny helpers
+  with identical property. Cold-path. Pass.
+- **`lib/hashmap.cyr` `_map_hash` / `_map_key_eq`** — 2-line
+  dispatchers called once per map op. Hot under map-heavy
+  workloads but the call overhead is a tiny fraction of the
+  hash work itself. Pass for v5.4.16; revisit if a downstream
+  benchmark shows map dispatch as bottleneck.
+- **No stdlib sha256** — owned by sigil, not in cyrius.
+
+### Not in this release (queued)
+- **v5.4.17 closeout** absorbs broader cleanup: `lib/toml.cyr`
+  multi-line array fix (shakti unblock), `#ifplat` directive,
+  install-snapshot refresh hook, tool-list consolidation into
+  `[release]` cyrius.cyml table, parse.cyr unguarded x86-emit
+  audit, permanent `EW` alignment assert on aarch64, dead-code
+  sweep, full vidya catch-up, optional `cyrius build --strict`.
+- Compiler optimization track (phases O1–O6) stays separate —
+  that's the parallel arc, not a v5.4.x patch release.
+
 ## [5.4.15] — 2026-04-20
 
 **`lib/keccak.cyr` — Keccak-f[1600] + SHAKE-128 / SHAKE-256 (sigil 3.0
