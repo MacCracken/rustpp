@@ -183,7 +183,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.0\n", 10);
+                    syscall(SYS_WRITE, 1, "cc5_win 5.5.0\n", 14);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -287,12 +287,11 @@ _init_cyrius_lib();
 # Register compiler-builtin arch marker so lib files can `#ifdef
 # CYRIUS_ARCH_X86` to select x86-specific asm over aarch64 asm.
 PP_PREDEFINE(S, "CYRIUS_ARCH_X86");
-# v5.5.0: CYRIUS_TARGET_LINUX selects Linux-shaped stdlib peers
-# when the target OS isn't explicitly Windows (cc5_win) or Mac
-# (CYRIUS_MACHO envs). Paired with CYRIUS_TARGET_WIN (cc5_win.cyr)
-# so stdlib selectors can pick per-OS peers without juggling
-# missing `#else` / `#ifndef` directives.
-PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+# v5.5.0: cc5_win also defines CYRIUS_TARGET_WIN so stdlib can
+# `#ifdef CYRIUS_TARGET_WIN` to select Windows-shaped includes
+# (syscalls_windows.cyr + alloc_windows.cyr) instead of the
+# Linux peers that ship by default on the x86 branch.
+PP_PREDEFINE(S, "CYRIUS_TARGET_WIN");
 
 # Preprocess includes
 PREPROCESS(S);
@@ -500,12 +499,13 @@ if (_macho_arm_env != 0) {
     }
 }
 
-# PE32+ output via CYRIUS_TARGET_WIN=1 (x86_64 Windows .exe).
-# Routes final emit through src/backend/pe/emit.cyr's EMITPE_EXEC.
+# PE32+ output is the DEFAULT for cc5_win (this file). CYRIUS_TARGET_WIN=0
+# opts out and emits ELF instead (rare — use cc5 for ELF).
+_TARGET_PE = 1;
 var _pe_env = _read_env("CYRIUS_TARGET_WIN");
 if (_pe_env != 0) {
-    if (load8(_pe_env) == 49 && load8(_pe_env + 1) == 0) {
-        _TARGET_PE = 1;
+    if (load8(_pe_env) == 48 && load8(_pe_env + 1) == 0) {
+        _TARGET_PE = 0;
     }
 }
 

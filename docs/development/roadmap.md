@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.20.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.5.0.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -57,7 +57,17 @@
 > `--strict` mode), **v5.4.20 TRUE closeout** (dead-code
 > sweep, full vidya catch-up, CLAUDE.md §"Closeout Pass"
 > 9-step checklist). After v5.4.20 ships, the next tag is
-> **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
+> **v5.5.0** (PE correctness completion), opening the v5.5.x
+> platform-rounding arc: v5.5.0 (PE correctness), v5.5.x pillar
+> 2 (Windows self-host completion), v5.5.x pillar 3 (Apple
+> Silicon toolchain completion via libSystem imports), plus the
+> Linux-runtime pillars (aarch64 native self-host, NSS/PAM, TLS,
+> atomics, thread-safety audit, include-boundary inline-asm bug).
+> **v5.6.0 is claimed by RISC-V rv64** as its own minor (pulled
+> out of the v5.5.x list on 2026-04-20 — new arch port deserves
+> its own release, not one item in a runtime-correctness arc).
+> **v5.7.0 is bare-metal / AGNOS kernel target.**
+> **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -1030,15 +1040,48 @@ the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
 mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
 + `cc5_win.cyr` cross-entry + RW-split as v5.5.0.
 
-**v5.5.x pillars** (named explicitly so they don't slip):
-1. **v5.5.0** — PE correctness completion (above).
-2. **aarch64 native-syscall self-host** — currently
+**v5.5.x pillars** (named explicitly so they don't slip). The
+arc is intentionally platform-rounded — v5.3.x closed Apple
+Silicon syscall-only, v5.4.x closed Windows structural-to-hello.
+v5.5.x finishes BOTH those arcs (full toolchain, full self-host)
+alongside the Linux runtime work. Previously-deferred items get
+explicit homes here so they stop accreting "soon" notes.
+
+1. **v5.5.0** — PE correctness completion (above). Ships the
+   Win64 ABI, syscall reroutes, stdlib wrappers, cc5_win
+   cross-entry, RW-split.
+2. **Windows self-host completion** — v5.5.0 closes
+   correctness; this pillar closes the full arc: cc5 compiling
+   cc5 byte-identical on `windows-latest` (native Windows
+   self-host), the full `.tcyr` test suite gated on Windows CI
+   (not just the v5.4.5 hello-world probe), `cc5_win` ships in
+   the tarball as a first-class cross-compiler. Mirrors what
+   v5.3.13 did for Apple Silicon: PE-structural → PE-hello
+   (v5.4.x) → PE-self-host-byte-identical → full test matrix
+   (v5.5.x). Without this pillar, Windows stays at hello-world
+   scope and `windows-latest` CI is a token gate.
+3. **Apple Silicon toolchain completion (libSystem imports)**
+   — v5.3.13 closed Mach-O arm64 self-host at 475 KB, but the
+   full toolchain (`cyrfmt`, `cyrlint`, `cyrdoc`, `cyrc`) is
+   STILL not shipped for arm64. Programs using `brk`-based
+   `lib/alloc.cyr` or `syscall(73)` flock fail with a clear
+   compile-time error; the BSD SVC whitelist (`read`, `write`,
+   `open`, `close`, `mmap`, `mprotect`, `munmap`, `exit`)
+   covers agent probes but not tools. The blocker is libSystem
+   dynamic imports — the Mach-O equivalent of PE's IAT. Once
+   that lands, `malloc` / `pthread` / `fopen` unlock, and the
+   arm64 release tarball gets the full toolchain same as the
+   x86_64 tarball. `scripts/macos-arm64-README.md`'s "Not yet
+   available" section shrinks to empty. CI matrix gains a real
+   `macos-14` / `macos-15` arm64 runner gate (beyond the
+   cross-build smoke check).
+4. **aarch64 native-syscall self-host (Linux)** — currently
    x86-cross only via `cc5_aarch64`; native compile + run on
    the Pi using `cc5_native_aarch64` is verified at
    v5.3.15+ for `regression.tcyr` 102/102, but the wider
    stdlib (alloc, fs, threading, mutex chains under
    `CLONE_VM`) needs a dedicated pass on real hardware.
-3. **NSS/PAM end-to-end** — `lib/dynlib.cyr` can open
+6. **NSS/PAM end-to-end** — `lib/dynlib.cyr` can open
    libpam / libc and resolve symbols today; calling
    `pam_authenticate` / `getgrouplist` SIGSEGVs inside libc
    because nsswitch dispatch + locale init + NSS-module
@@ -1051,20 +1094,18 @@ mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
    stops accreting "soon" notes across every minor.
    Reproducer + bootstrap infra: `lib/dynlib.cyr` +
    `tests/tcyr/dynlib_init.tcyr`.
-4. **TLS via `arch_prctl(ARCH_SET_FS)` / `%fs:`-relative**
+7. **TLS via `arch_prctl(ARCH_SET_FS)` / `%fs:`-relative**
    addressing (queued from v5.4.10 thread work — majra's
    `_aaw_result_state` global pattern needs TLS to be
    thread-safe).
-5. **Atomics + memory barriers** — cyrius has no
+8. **Atomics + memory barriers** — cyrius has no
    `atomic_add` / `atomic_cas` / `mfence` today; concurrent
    stdlib code (hashmap mutation under threads, freelist) is
    exposed to data races (queued from v5.4.10).
-6. **Runtime thread-safety audit** — alloc / freelist /
+9. **Runtime thread-safety audit** — alloc / freelist /
    hashmap / vec all make single-thread assumptions that
    break under `CLONE_VM` (queued from v5.4.10).
-7. **RISC-V rv64** as a new platform target (per Platform
-   Targets table below).
-8. **`include`-boundary inline-asm codegen bug** — filed at
+10. **`include`-boundary inline-asm codegen bug** — filed at
    v5.4.15 during sigil 2.9.0 AES-NI work (see
    `docs/development/issues/inline-asm-stores-silently-drop-when-fn-included.md`).
    Byte-identical machine code is emitted for both same-TU and
@@ -1083,10 +1124,19 @@ mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
    / fixup-pass / include-resolution interaction. Not scoped for
    v5.4.17 closeout because the investigation is open-ended.
 
-These seven post-v5.5.0 pillars don't have minor numbers
+These nine post-v5.5.0 pillars don't have minor numbers
 assigned yet; they'll claim slots in order as work begins.
-v5.5.x is expected to be a real arc (more than a couple of
-patches) — the Platform Targets table is honest about that.
+v5.5.x is expected to be a real arc — the Platform Targets
+table is honest about that. Pillars 2 and 3 in particular close
+platform arcs that v5.3.x and v5.4.x intentionally deferred;
+they matter as much as the Linux runtime work.
+
+**RISC-V rv64 — v5.6.0** (reassigned 2026-04-20). Pulled out of
+the v5.5.x pillar list: a new platform target is big enough
+(new backend module, new stdlib syscall peer, new test runner,
+new CI matrix) to deserve its own minor rather than being one
+item in an arc dominated by platform-completion + Linux runtime
+work. See §"v5.6.0 — RISC-V rv64" below.
 
 ### v5.5.0 — PE correctness completion
 
@@ -1293,6 +1343,63 @@ are in CHANGELOG.
 
 ---
 
+## v5.6.0 — RISC-V rv64
+
+First-class RISC-V 64-bit target, elevated from the v5.5.x
+pillar list to its own minor on 2026-04-20. Rationale: a new
+architecture is structurally different from v5.5.x's items
+(which are correctness / completion / runtime work on existing
+platforms). RISC-V needs:
+
+- **New backend module** — `src/backend/riscv64/` with its own
+  `emit.cyr`, `jump.cyr`, `fixup.cyr` mirroring x86/aarch64.
+- **New stdlib syscall peer** — `lib/syscalls_riscv64_linux.cyr`
+  with the Linux rv64 generic-table numbers (different from
+  aarch64's even though both use the generic table — numbers
+  match aarch64 for most syscalls but rv64 drops `renameat`,
+  `link`, `unlink` which means the at-family wrappers need
+  review). Selector in `lib/syscalls.cyr` gains an `#ifplat
+  riscv64` arm (the v5.4.19 directive extends naturally here).
+- **New cross-entry** — `src/main_riscv64.cyr` mirroring
+  `main_aarch64.cyr`'s arch-include swap.
+- **New test runner** — QEMU or real hardware (HiFive Unmatched
+  or equivalent) for self-host verification.
+- **New CI matrix** — `linux/riscv64` runners via qemu-user-
+  static, analogous to the aarch64 cross-test flow.
+- **ABI** — RISC-V Linux ELF psABI (different register names:
+  `a0–a7` for args, `sp` for stack, no frame pointer by default
+  but we'll use `s0` for parity with aarch64's `x29`).
+
+**Acceptance gates:**
+1. Cross-compiler (`build/cc5_riscv64`) emits valid rv64 ELF
+   that `file(1)` identifies correctly.
+2. A single-syscall "exit 42" probe runs under `qemu-riscv64-
+   static` and exits 42.
+3. Hello-world probe via `sys_write` + `sys_exit` runs under
+   QEMU.
+4. `regression.tcyr` 102/102 via QEMU cross-test.
+5. Native self-host byte-identical on real rv64 hardware (not
+   QEMU — hardware-gated like the aarch64 ssh-pi check).
+6. Tarball includes `cc5_riscv64` alongside `cc5_aarch64`.
+7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
+   entry for `cc5_riscv64`.
+
+**Prerequisites that must ship before v5.6.0 starts:**
+- **v5.5.x pillar 2** — Windows self-host completion. Proves
+  the PE arc honestly closed before we open another.
+- **v5.5.x pillar 3** — Apple Silicon toolchain completion.
+  Same reason.
+- **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
+  uses the new syntax from day one, no legacy `#ifdef
+  CYRIUS_ARCH_RISCV64` sites to migrate.
+
+Deliberately NOT bundling v5.5.x items into v5.6.0 — a new
+architecture port is plenty of work on its own, and mixing it
+with runtime correctness fixes would obscure which changes
+caused which regressions.
+
+---
+
 ## v5.x — Platform Targets
 
 Each platform is one minor release. cc5 backend-table dispatch
@@ -1378,10 +1485,10 @@ enables adding new targets without touching the frontend.
 | Linux aarch64 | ELF | **Done** — cross + native self-host byte-identical on real Pi (v5.3.15+); `regression.tcyr` 102/102 (v5.3.18). Three libs (`lib/hashmap_fast`, `lib/u128`, `lib/mabda`) contain ungated x86 asm — arch-gating queued. |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
-| macOS aarch64 | Mach-O | **Done** (v5.3.13) — self-hosts byte-identically on Apple Silicon, 475 KB. Strings + globals v5.3.1. |
-| Windows x86_64 | PE/COFF | **Structural done** (v5.4.2) — compiler emits valid PE32+ (1536 B, `file(1)` verified). Win64 ABI correctness + on-hardware gate queued for v5.4.3+. |
-| RISC-V (rv64) | ELF | Queued — **v5.5.0** |
-| Bare-metal | ELF (no-libc) | Queued — **v5.6.0** (AGNOS kernel target) |
+| macOS aarch64 | Mach-O | **Partial** — self-hosts byte-identically on Apple Silicon (v5.3.13, 475 KB). Full toolchain (`cyrfmt`/`cyrlint`/`cyrdoc`) NOT yet shipped for arm64 — blocked on libSystem imports. Queued as **v5.5.x pillar 3** (Apple Silicon toolchain completion). |
+| Windows x86_64 | PE/COFF | **Partial** — `hello\n` runs end-to-end on `windows-latest` (v5.4.8). Correctness + stdlib wrappers + cc5_win cross-entry queued for **v5.5.0**; native self-host + full test-suite gate queued for **v5.5.x pillar 2** (Windows self-host completion). |
+| RISC-V (rv64) | ELF | Queued — **v5.6.0** (reassigned 2026-04-20; own minor, was v5.5.x pillar) |
+| Bare-metal | ELF (no-libc) | Queued — **v5.7.0** (AGNOS kernel target; bumped with RISC-V move) |
 
 ---
 

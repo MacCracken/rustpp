@@ -145,6 +145,8 @@ SBL(S, bl);
 # Preprocess includes
 _init_cyrius_lib();
 PP_PREDEFINE(S, "CYRIUS_ARCH_AARCH64");
+# v5.5.0: Linux peer selector flag, mirrors main.cyr.
+PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
 PREPROCESS(S);
 
 # Lex

@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.0] — 2026-04-20
+
+**Windows PE foundation — `cc5_win` cross-entry + stdlib peers.**
+Minor-version bump opens the v5.5.x platform-rounding arc. First
+release lands the foundation pieces: a dedicated Windows
+cross-compiler (`cc5_win`), per-OS stdlib peers (`lib/syscalls_windows.cyr`,
+`lib/alloc_windows.cyr`), and a selector pattern in `lib/syscalls.cyr`
++ `lib/alloc.cyr` that routes by predefined target flag
+(`CYRIUS_TARGET_WIN` vs `CYRIUS_TARGET_LINUX`). Higher-risk
+items in the v5.5.0 original scope (Win64 ABI at fncall sites,
+remaining syscall reroutes beyond WriteFile / ExitProcess) split
+out to v5.5.0.x patches + v5.5.1 so each bisects clean.
+
+### Added
+- **`src/main_win.cyr`** — new cross-entry mirroring
+  `main_aarch64.cyr`'s structural pattern. Same includes as
+  `main.cyr` (x86 backend + PE emit module), but predefines
+  `CYRIUS_TARGET_WIN` (rather than `CYRIUS_TARGET_LINUX`) so
+  stdlib selectors pick the Windows peer, and defaults
+  `_TARGET_PE = 1` so PE output is the default (opt-out via
+  `CYRIUS_TARGET_WIN=0` env). `--version` string reads
+  `cc5_win 5.5.0\n`. Binary is `build/cc5_win` (472 KB).
+- **`lib/syscalls_windows.cyr`** — Win32 API wrapper peer. Same
+  `SYS_*` constant surface as the Linux peer (so cross-platform
+  stdlib code compiles unchanged); the PE backend reroutes
+  `syscall(N, …)` calls at emit time to kernel32 IAT entries.
+  Syscalls without a Windows equivalent (`fork`, `clone`,
+  `futex`, `epoll_*`, `signalfd`) are deliberately omitted —
+  attempting them on Windows triggers the existing undefined-
+  syscall warning (escalatable via `cc5_win --strict` from
+  v5.4.19).
+- **`lib/alloc_windows.cyr`** — `VirtualAlloc`-backed bump
+  allocator. Same public surface as Linux's `alloc.cyr`
+  (`alloc_init` / `alloc` / `alloc_reset` / `alloc_used` /
+  `ALLOC_MAX`). Reserves a 16 MB region at `alloc_init` and
+  bump-allocates within it; no grow (Windows `VirtualAlloc`
+  can't extend a committed region in-place).
+- **`CYRIUS_TARGET_WIN` + `CYRIUS_TARGET_LINUX` preprocessor
+  flags** predefined by the respective cross-entries. Allows
+  `lib/syscalls.cyr` and `lib/alloc.cyr` to pick the right peer
+  via `#ifdef CYRIUS_TARGET_WIN` / `#ifdef CYRIUS_TARGET_LINUX`
+  (mutually exclusive; only one set per compile). Circumvents
+  the lack of `#else` / `#ifndef` in cyrius's preprocessor.
+
+### Changed
+- **`lib/syscalls.cyr`** selector — gained a Windows arm. Three
+  mutually-exclusive `#ifdef` blocks (Windows / Linux-x86 /
+  Linux-aarch64) replace the previous two-arm Linux-only
+  selector. `#ifplat` migration still deferred (see v5.4.19
+  notes) until the thread-test regression is root-caused.
+- **`lib/alloc.cyr`** selector — new top-level `#ifdef
+  CYRIUS_TARGET_WIN` includes `alloc_windows.cyr`; the brk-
+  based Linux path is guarded by `#ifdef CYRIUS_TARGET_LINUX`.
+  Arena allocators (`arena_new` / `arena_alloc` / `arena_reset`
+  / etc.) stay OS-agnostic — shipped inline after the
+  selector, same implementation on both platforms.
+- **`src/main.cyr` + `src/main_aarch64.cyr`** — both now
+  predefine `CYRIUS_TARGET_LINUX` alongside their existing
+  `CYRIUS_ARCH_*` flag. Additive; doesn't affect existing
+  call sites.
+
+### Deferred (tracked for v5.5.0.x patches and v5.5.1)
+- **Remaining `syscall(n)` reroutes** — `ReadFile`,
+  `CreateFileW`, `CloseHandle`, `VirtualAlloc` via syscall(9),
+  `SetFilePointerEx` via syscall(8). Each is a ~50 LOC PE emit
+  helper + IAT registration + parse.cyr dispatch slot. Landing
+  incrementally as v5.5.0.x releases. Today: `sys_write` on
+  PE goes through the existing WriteFile reroute (v5.4.7);
+  `sys_exit` goes through ExitProcess (v5.4.4); everything
+  else warns at compile time and produces a binary that would
+  crash if the unmapped syscall is reached at runtime.
+- **Win64 ABI at `fncall0..fncall8`** — queued for v5.5.1 as
+  its own release. Touches every fncall site in codegen; own
+  tag for bisect isolation.
+- **RW-split `.rdata` / `.data`** — investigation showed
+  v5.4.8's `.rdata` is already flagged `CNT_INITIALIZED_DATA
+  | MEM_READ | MEM_WRITE` (0xC0000040), so gvar mutation works
+  today and strings are harmless in an RW section. A true
+  split (separate RO `.rdata` + RW `.data`) is cosmetic /
+  security-hardening, not a correctness fix. Queued for
+  v5.5.x when there's reason (security hardening sweep).
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- cc5 self-host byte-identical (472424 B, three-step verified).
+- cc5_aarch64 cross-build byte-identical.
+- `build/cc5_win` compiles a minimal `syscall(1, 1, "hi\n", 3);
+  syscall(60, 0);` source into a valid PE32+ executable (2048 B,
+  3 sections, `file(1)` verified).
+- `windows-latest` on-hardware CI gate (v5.4.5) unchanged — still
+  runs the `hello\n` probe end-to-end.
+
+### Next
+- **v5.5.0.x** — individual PE `syscall(n)` reroute patches
+  (each one a ~50 LOC chunk; ship per-syscall).
+- **v5.5.1** — Win64 ABI at `fncall0..fncall8` (high-risk,
+  own release).
+- **v5.5.2** — Windows self-host completion (native cc5
+  self-host on `windows-latest` + full `.tcyr` test suite
+  gate).
+
 ## [5.4.20] — 2026-04-20
 
 **v5.4.x closeout.** Final patch in the v5.4.x series, last release
