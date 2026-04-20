@@ -1,0 +1,462 @@
+# macho_libsystem_probe.cyr — v5.5.11 ARM64 Mach-O probe with libSystem call.
+#
+# Stage 3: main explicitly calls `_exit(42)` through a __got slot bound by
+# dyld at load time. If this runs and exits 42 on Apple Silicon, user code
+# can reach libSystem — the prerequisite for cyrfmt/cyrlint/cyrdoc on arm64
+# (they need malloc, fopen, pthread, etc.).
+#
+# Uses CLASSIC binds (LC_DYLD_INFO_ONLY) rather than chained fixups
+# (LC_DYLD_CHAINED_FIXUPS). Classic bind opcodes are well-documented,
+# supported on macOS 11.0+, and match the format of the clang reference
+# binary (-mmacosx-version-min=10.9) that was verified to run on ecb.
+#
+# Build on Linux:
+#   cat programs/macho_libsystem_probe.cyr | build/cc5 > /tmp/macho_libsys \
+#     && chmod +x /tmp/macho_libsys
+#   /tmp/macho_libsys > /tmp/libsys_exit42.macho
+#
+# On Apple Silicon (`ssh ecb`):
+#   codesign -s - --force libsys_exit42.macho
+#   ./libsys_exit42.macho; echo "exit=$?"
+# Expected: exit=42 — via libSystem._exit (not main's return).
+
+fn w8(buf, off, v) { store8(buf + off, v); return off + 1; }
+fn w32(buf, off, v) {
+    store8(buf + off, v & 0xFF);
+    store8(buf + off + 1, (v >> 8) & 0xFF);
+    store8(buf + off + 2, (v >> 16) & 0xFF);
+    store8(buf + off + 3, (v >> 24) & 0xFF);
+    return off + 4;
+}
+fn w64(buf, off, v) {
+    off = w32(buf, off, v & 0xFFFFFFFF);
+    off = w32(buf, off, (v >> 32) & 0xFFFFFFFF);
+    return off;
+}
+fn wname(buf, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < 16) { store8(buf + off + i, 0); i = i + 1; }
+    return off + 16;
+}
+fn wstr_pad(buf, off, s, width) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(buf + off + i, load8(s + i)); i = i + 1; }
+    while (i < width) { store8(buf + off + i, 0); i = i + 1; }
+    return off + width;
+}
+
+# ================================================================
+# LAYOUT
+# ================================================================
+var PAGE_SIZE       = 16384;
+var TEXT_VMADDR     = 0x100000000;
+var DATA_VMADDR     = 0x100004000;
+var LINKEDIT_VMADDR = 0x100008000;
+
+var TEXT_FILEOFF     = 0;
+var DATA_FILEOFF     = 16384;
+var LINKEDIT_FILEOFF = 32768;
+
+# Header region: 32 + 72 + 152 + 152 + 72 + 48 + 24 + 80 + 32 + 24 + 32 + 16
+#              + 24 + 56 + 16 + 16 = 848 bytes. Pad to 960 so main lands at
+#              a tidy round offset; ULEB128(960) = 0xC0 0x07.
+var CODE_OFF  = 960;
+var TEXT_SIZE = 16;
+
+var GOT_OFF   = 16384;
+var GOT_VADDR = 0x100004000;
+var GOT_SIZE  = 8;
+
+# __LINKEDIT payload (classic binds):
+#   bind opcodes  : 32768..32784  (16)
+#   exports trie  : 32784..32832  (48)
+#   function_starts: 32832..32840 (8)
+#   data_in_code  : 32840..32840  (0)
+#   symtab        : 32840..32888  (48 = 3 × 16)
+#   strtab        : 32888..32928  (40)
+#   indirect symtab: 32928..32932 (4 = 1 × 4)
+#   FILE_END      : 32932
+var BIND_OFF       = 32768;
+var BIND_SIZE      = 16;
+var EXPORTS_OFF    = 32784;
+var EXPORTS_SIZE   = 48;
+var FNSTART_OFF    = 32832;
+var FNSTART_SIZE   = 8;
+var DATACODE_OFF   = 32840;
+var DATACODE_SIZE  = 0;
+var SYMTAB_OFF     = 32840;
+var SYMTAB_SIZE    = 48;
+var STRTAB_OFF     = 32888;
+var STRTAB_SIZE    = 40;
+var INDIRECT_OFF   = 32928;
+var INDIRECT_SIZE  = 4;
+var FILE_END       = 32932;
+
+var buf[65536];
+var o = 0;
+
+# ================================================================
+# mach_header_64 (32)
+# ================================================================
+o = w32(&buf, o, 0xFEEDFACF);      # magic
+o = w32(&buf, o, 0x0100000C);      # cputype ARM64
+o = w32(&buf, o, 0x00000000);      # cpusubtype
+o = w32(&buf, o, 0x00000002);      # MH_EXECUTE
+o = w32(&buf, o, 15);              # ncmds
+o = w32(&buf, o, 816);             # sizeofcmds (848 - 32)
+o = w32(&buf, o, 0x00200084);      # DYLDLINK | TWOLEVEL | PIE (NOUNDEFS dropped — have _exit undef)
+o = w32(&buf, o, 0);               # reserved
+
+# ================================================================
+# LC_SEGMENT_64 __PAGEZERO (72)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 72);
+o = wname(&buf, o, "__PAGEZERO");
+o = w64(&buf, o, 0);
+o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, 0);
+o = w64(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __TEXT (152 = 72 + 80)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 152);
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, TEXT_FILEOFF);
+o = w64(&buf, o, PAGE_SIZE);
+o = w32(&buf, o, 5);                # maxprot R|X
+o = w32(&buf, o, 5);                # initprot R|X
+o = w32(&buf, o, 1);                # nsects
+o = w32(&buf, o, 0);
+
+# __text section (80)
+o = wname(&buf, o, "__text");
+o = wname(&buf, o, "__TEXT");
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);
+o = w64(&buf, o, TEXT_SIZE);
+o = w32(&buf, o, CODE_OFF);
+o = w32(&buf, o, 2);                # align 2^2 = 4
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x80000400);       # PURE_INSTRUCTIONS | SOME_INSTRUCTIONS
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __DATA_CONST (152 = 72 + 80)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 152);
+o = wname(&buf, o, "__DATA_CONST");
+o = w64(&buf, o, DATA_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, DATA_FILEOFF);
+o = w64(&buf, o, PAGE_SIZE);
+o = w32(&buf, o, 3);                # maxprot R|W
+o = w32(&buf, o, 3);                # initprot R|W
+o = w32(&buf, o, 1);                # nsects
+o = w32(&buf, o, 0x10);             # flags SG_READ_ONLY
+
+# __got section (80) — S_NON_LAZY_SYMBOL_POINTERS, reserved1 = 0 (indirect sym index)
+o = wname(&buf, o, "__got");
+o = wname(&buf, o, "__DATA_CONST");
+o = w64(&buf, o, GOT_VADDR);
+o = w64(&buf, o, GOT_SIZE);
+o = w32(&buf, o, GOT_OFF);
+o = w32(&buf, o, 3);                # align 2^3 = 8
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0x00000006);       # S_NON_LAZY_SYMBOL_POINTERS
+o = w32(&buf, o, 0);                # reserved1 = indirect sym index
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_SEGMENT_64 __LINKEDIT (72)
+# ================================================================
+o = w32(&buf, o, 0x19);
+o = w32(&buf, o, 72);
+o = wname(&buf, o, "__LINKEDIT");
+o = w64(&buf, o, LINKEDIT_VMADDR);
+o = w64(&buf, o, PAGE_SIZE);
+o = w64(&buf, o, LINKEDIT_FILEOFF);
+o = w64(&buf, o, FILE_END - LINKEDIT_FILEOFF);
+o = w32(&buf, o, 1);                # maxprot R
+o = w32(&buf, o, 1);                # initprot R
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_DYLD_INFO_ONLY (48) — classic bind opcodes + export trie
+# ================================================================
+o = w32(&buf, o, 0x80000022);       # LC_REQ_DYLD | 0x22
+o = w32(&buf, o, 48);
+o = w32(&buf, o, 0);                # rebase_off
+o = w32(&buf, o, 0);                # rebase_size
+o = w32(&buf, o, BIND_OFF);         # bind_off
+o = w32(&buf, o, BIND_SIZE);        # bind_size
+o = w32(&buf, o, 0);                # weak_bind_off
+o = w32(&buf, o, 0);                # weak_bind_size
+o = w32(&buf, o, 0);                # lazy_bind_off
+o = w32(&buf, o, 0);                # lazy_bind_size
+o = w32(&buf, o, EXPORTS_OFF);      # export_off
+o = w32(&buf, o, EXPORTS_SIZE);     # export_size
+
+# ================================================================
+# LC_SYMTAB (24)
+# ================================================================
+o = w32(&buf, o, 0x02);
+o = w32(&buf, o, 24);
+o = w32(&buf, o, SYMTAB_OFF);
+o = w32(&buf, o, 3);
+o = w32(&buf, o, STRTAB_OFF);
+o = w32(&buf, o, STRTAB_SIZE);
+
+# ================================================================
+# LC_DYSYMTAB (80)
+#   nextdefsym=2 (__mh_execute_header + _main)
+#   nundefsym=1 (_exit)
+#   nindirectsyms=1 (for __got[0])
+# ================================================================
+o = w32(&buf, o, 0x0B);
+o = w32(&buf, o, 80);
+o = w32(&buf, o, 0);                # ilocalsym
+o = w32(&buf, o, 0);                # nlocalsym
+o = w32(&buf, o, 0);                # iextdefsym
+o = w32(&buf, o, 2);                # nextdefsym
+o = w32(&buf, o, 2);                # iundefsym
+o = w32(&buf, o, 1);                # nundefsym
+o = w32(&buf, o, 0);                # tocoff
+o = w32(&buf, o, 0);                # ntoc
+o = w32(&buf, o, 0);                # modtaboff
+o = w32(&buf, o, 0);                # nmodtab
+o = w32(&buf, o, 0);                # extrefsymoff
+o = w32(&buf, o, 0);                # nextrefsyms
+o = w32(&buf, o, INDIRECT_OFF);     # indirectsymoff
+o = w32(&buf, o, 1);                # nindirectsyms
+o = w32(&buf, o, 0);                # extreloff
+o = w32(&buf, o, 0);                # nextrel
+o = w32(&buf, o, 0);                # locreloff
+o = w32(&buf, o, 0);                # nlocrel
+
+# ================================================================
+# LC_LOAD_DYLINKER (32)
+# ================================================================
+o = w32(&buf, o, 0x0E);
+o = w32(&buf, o, 32);
+o = w32(&buf, o, 12);
+o = wstr_pad(&buf, o, "/usr/lib/dyld", 20);
+
+# ================================================================
+# LC_UUID (24)
+# ================================================================
+o = w32(&buf, o, 0x1B);
+o = w32(&buf, o, 24);
+o = w32(&buf, o, 0xDEADBEEF);
+o = w32(&buf, o, 0xCAFEF00D);
+o = w32(&buf, o, 0x12345678);
+o = w32(&buf, o, 0x87654321);
+
+# ================================================================
+# LC_BUILD_VERSION (32) — minos 11.0 (ARM64 macOS floor)
+# ================================================================
+o = w32(&buf, o, 0x32);
+o = w32(&buf, o, 32);
+o = w32(&buf, o, 1);                # PLATFORM_MACOS
+o = w32(&buf, o, 0x000B0000);       # minos 11.0.0
+o = w32(&buf, o, 0x000B0000);       # sdk   11.0.0
+o = w32(&buf, o, 1);                # ntools
+o = w32(&buf, o, 3);                # tool = ld
+o = w32(&buf, o, 0x04F20800);
+
+# ================================================================
+# LC_SOURCE_VERSION (16)
+# ================================================================
+o = w32(&buf, o, 0x2A);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, 0);
+o = w32(&buf, o, 0);
+
+# ================================================================
+# LC_MAIN (24) — entryoff = CODE_OFF
+# ================================================================
+o = w32(&buf, o, 0x80000028);
+o = w32(&buf, o, 24);
+o = w64(&buf, o, CODE_OFF);
+o = w64(&buf, o, 0);
+
+# ================================================================
+# LC_LOAD_DYLIB libSystem.B.dylib (56)
+# ================================================================
+o = w32(&buf, o, 0x0C);
+o = w32(&buf, o, 56);
+o = w32(&buf, o, 24);
+o = w32(&buf, o, 2);
+o = w32(&buf, o, 0x054C0000);
+o = w32(&buf, o, 0x00010000);
+o = wstr_pad(&buf, o, "/usr/lib/libSystem.B.dylib", 32);
+
+# ================================================================
+# LC_FUNCTION_STARTS (16)
+# ================================================================
+o = w32(&buf, o, 0x26);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, FNSTART_OFF);
+o = w32(&buf, o, FNSTART_SIZE);
+
+# ================================================================
+# LC_DATA_IN_CODE (16)
+# ================================================================
+o = w32(&buf, o, 0x29);
+o = w32(&buf, o, 16);
+o = w32(&buf, o, DATACODE_OFF);
+o = w32(&buf, o, DATACODE_SIZE);
+
+# ================================================================
+# Pad header region (ends at 848) to CODE_OFF (960)
+# ================================================================
+while (o < CODE_OFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __text (16) — 4 ARM64 instructions:
+#   adrp x16, __got@PAGE           ; x16 = page(PC) + 4*4096 = 0x100004000
+#   ldr  x16, [x16, #0]            ; x16 = *__got[0] = &_exit (dyld-bound)
+#   mov  w0, #42                   ; argument
+#   br   x16                       ; tail-call _exit (no return)
+#
+# adrp encoding for x16, imm=4 pages:
+#   op=1 immlo=0 10000 immhi=1 rd=16
+#   = 1 00 10000 0000000000000000001 10000
+#   = 0x90000030
+# ================================================================
+o = w32(&buf, o, 0x90000030);       # adrp x16, #4 pages (→ DATA_VMADDR)
+o = w32(&buf, o, 0xF9400210);       # ldr  x16, [x16, #0]
+o = w32(&buf, o, 0x52800540);       # mov  w0, #42
+o = w32(&buf, o, 0xD61F0200);       # br   x16
+
+# ================================================================
+# Pad __TEXT page to 16384
+# ================================================================
+while (o < DATA_FILEOFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# __DATA_CONST.__got (8) — dyld writes &_exit here at load time
+# ================================================================
+o = w64(&buf, o, 0);
+
+# ================================================================
+# Pad __DATA_CONST page to 32768
+# ================================================================
+while (o < LINKEDIT_FILEOFF) { o = w8(&buf, o, 0); }
+
+# ================================================================
+# bind opcodes (16) — non-lazy bind of _exit@libSystem into __DATA_CONST[0]
+#   0x11        SET_DYLIB_ORDINAL_IMM | 1 (libSystem)
+#   0x40 + str  SET_SYMBOL_TRAILING_FLAGS_IMM | 0, then "_exit\0"
+#   0x51        SET_TYPE_IMM | 1 (BIND_TYPE_POINTER)
+#   0x72 0x00   SET_SEGMENT_AND_OFFSET_ULEB | 2 (__DATA_CONST), offset=0
+#   0x90        DO_BIND
+#   0x00        DONE
+# 13 bytes of opcodes + 3 pad bytes
+# ================================================================
+o = w8(&buf, o, 0x11);
+o = w8(&buf, o, 0x40);
+o = w8(&buf, o, 0x5F);              # '_'
+o = w8(&buf, o, 0x65);              # 'e'
+o = w8(&buf, o, 0x78);              # 'x'
+o = w8(&buf, o, 0x69);              # 'i'
+o = w8(&buf, o, 0x74);              # 't'
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x51);
+o = w8(&buf, o, 0x72);
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x90);
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00);
+
+# ================================================================
+# export trie (48) — exports __mh_execute_header@0 + _main@CODE_OFF=960
+# Stage 2 trie verbatim. ULEB128(960) = 0xC0 0x07.
+# ================================================================
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x12); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x03); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0xC0);
+o = w8(&buf, o, 0x07); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x02);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x63);
+o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x5F);
+o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x64);
+o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x09);
+o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69); o = w8(&buf, o, 0x6E);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x0D); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# ================================================================
+# function_starts (8) — ULEB128(960) = 0xC0 0x07
+# ================================================================
+o = w8(&buf, o, 0xC0); o = w8(&buf, o, 0x07);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# ================================================================
+# symtab (48) — 3 nlist_64 entries
+# [0] __mh_execute_header — N_EXT|N_SECT, sect=1, desc=0x10, val=TEXT_VMADDR
+# [1] _main               — N_EXT|N_SECT, sect=1, val=TEXT_VMADDR + CODE_OFF
+# [2] _exit  undef        — N_EXT|N_UNDF, desc=0x0100 (lib ordinal 1)
+# ================================================================
+o = w32(&buf, o, 2);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x10); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, TEXT_VMADDR);
+
+o = w32(&buf, o, 22);
+o = w8(&buf, o, 0x0F); o = w8(&buf, o, 0x01);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w64(&buf, o, TEXT_VMADDR + CODE_OFF);
+
+o = w32(&buf, o, 28);
+o = w8(&buf, o, 0x01); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x01);   # n_desc = 0x0100 → lib ordinal 1
+o = w64(&buf, o, 0);
+
+# ================================================================
+# strtab (40)
+#   " \0__mh_execute_header\0_main\0_exit\0" + 6 pad
+#   2 + 20 + 6 + 6 + 6 = 40
+# ================================================================
+o = w8(&buf, o, 0x20); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x68);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x63); o = w8(&buf, o, 0x75); o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x65);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x68); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x61);
+o = w8(&buf, o, 0x64); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x72); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x6D); o = w8(&buf, o, 0x61); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x6E); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x5F); o = w8(&buf, o, 0x65); o = w8(&buf, o, 0x78); o = w8(&buf, o, 0x69);
+o = w8(&buf, o, 0x74); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+o = w8(&buf, o, 0x00); o = w8(&buf, o, 0x00);
+
+# ================================================================
+# indirect symtab (4) — __got[0] → symtab[2] (_exit)
+# ================================================================
+o = w32(&buf, o, 2);
+
+# ================================================================
+# Emit to stdout
+# ================================================================
+syscall(1, 1, &buf, o);
+syscall(60, 0);

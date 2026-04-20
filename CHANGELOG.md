@@ -4,6 +4,82 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.11] — 2026-04-20
+
+**Apple Silicon libSystem probe: hand-crafted Mach-O arm64 binary
+calls `_exit(42)` through libSystem and returns 42 on macOS. The
+dyld binding path is proven; compiler-driven libSystem emission
+unblocks for v5.5.12+ (cyrfmt/cyrlint/cyrdoc on arm64).**
+
+Stage 2 (macho_probe_arm.cyr, v5.3.0) proved an empty `main`
+could return through libSystem's `_start` wrapper. Stage 3
+(this release) goes further: `main` makes an explicit call out
+to `_exit` via a `__got` slot that dyld resolves at load time.
+If dyld can bind one libSystem symbol into a Cyrius-emitted
+Mach-O, it can bind any of them — `malloc`, `fopen`, `pthread_*`,
+etc. — which is the prerequisite for porting the Cyrius tool
+binaries (cyrfmt, cyrlint, cyrdoc) to arm64 in the v5.5.x arc.
+
+### Probe (`programs/macho_libsystem_probe.cyr`)
+Hand-emits a 32,932 B Mach-O arm64 executable with:
+- `__PAGEZERO` (4 GB guard)
+- `__TEXT` with a 16-byte `main`:
+  `adrp x16, #4 pages` → `ldr x16, [x16]` → `mov w0, #42` → `br x16`
+- `__DATA_CONST` with `__got` (8 B, one slot for `_exit`)
+- `__LINKEDIT` carrying classic dyld-info binds,
+  an exports trie, symtab + strtab, and an indirect-symtab entry
+- `LC_DYLD_INFO_ONLY` (not chained fixups — targets macOS 11 floor
+  and matches the clang reference format we dissected on ecb)
+- `LC_LOAD_DYLIB /usr/lib/libSystem.B.dylib` + `LC_LOAD_DYLINKER`
+- 15 load commands total; `MH_NOUNDEFS` dropped because `_exit`
+  is an honest undef resolved by dyld.
+
+### Bind opcodes (`__LINKEDIT` @ offset 0)
+```
+11 40 "_exit\0" 51 72 00 90 00
+```
+- `0x11`: `SET_DYLIB_ORDINAL_IMM | 1` (libSystem)
+- `0x40 _exit\0`: `SET_SYMBOL_TRAILING_FLAGS_IMM` + name
+- `0x51`: `SET_TYPE_IMM | 1` (`BIND_TYPE_POINTER`)
+- `0x72 0x00`: `SET_SEGMENT_AND_OFFSET_ULEB | 2`, offset=0
+  (segment 2 = `__DATA_CONST`)
+- `0x90`: `DO_BIND`
+- `0x00`: `DONE`
+
+### Verification
+Built on Linux (`cat programs/macho_libsystem_probe.cyr | build/cc5 >
+/tmp/macho_libsys`), emits `/tmp/libsys_exit42.macho` (32,932 B,
+recognised as `Mach-O 64-bit arm64 executable` by `file`). Pushed
+to `ecb` (Apple Silicon runner), ad-hoc codesigned with
+`codesign -s - --force`, executed: **exit code 42** — dyld bound
+`_exit` into `__got[0]`, `main` loaded the pointer via adrp+ldr
+and tail-branched into `_exit`.
+
+### Added
+- **`programs/macho_libsystem_probe.cyr`**: hand-emitted arm64
+  Mach-O probe with one-symbol libSystem bind. First Cyrius-built
+  Mach-O that calls INTO libSystem rather than just being loaded
+  by it. Referenced by the v5.5.12 compiler-driven libSystem
+  emission task.
+
+### Fixed during probe iteration
+- Earlier chained-fixups layout (`LC_DYLD_CHAINED_FIXUPS`) failed
+  codesign with `object file format unrecognized`. Switched to
+  classic binds; `adrp x16, #imm` encoding corrected from an
+  accidental `#8 pages` (would have loaded from `__LINKEDIT`) to
+  the intended `#4 pages` landing on `__DATA_CONST`. Instruction
+  word is `0x90000030` (op=1, immlo=0, immhi=1, rd=16).
+
+### Not in scope (v5.5.12+)
+- **Compiler-driven Mach-O libSystem emission** — v5.5.12. Promote
+  the probe's layout into `src/backend/aarch64/macho.cyr` (or the
+  existing Mach-O emitter) so ordinary `syscall(...)` calls on the
+  arm64-darwin target route to libSystem imports instead of raw
+  `svc #0x80`. Probe is the reference; compiler is next.
+- **cyrfmt/cyrlint/cyrdoc arm64 macOS binaries** — v5.5.13+, once
+  the compiler can emit the imports. Each tool brings its own
+  mini-surface of libSystem symbols (`malloc`, `fopen`, `getopt`).
+
 ## [5.5.10] — 2026-04-20
 
 **`EWRITE_PE` returned WriteFile's BOOL success flag instead of
