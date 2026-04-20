@@ -431,6 +431,235 @@ fn EWRITE_PE(S) {
 }
 
 # ================================================================
+# v5.5.1 — remaining kernel32 syscall reroutes (Read / Close /
+# Seek / Map / Open). Each mirrors EWRITE_PE's shape: pop args off
+# the expr stack into Win64 ABI registers, allocate a 16-aligned
+# frame with 32 B shadow, IAT-call through an auto-registered
+# import, unwind the frame. The parser's _TARGET_PE dispatch in
+# parse.cyr calls the appropriate helper and returns before falling
+# into ESCPOPS (which would emit the Linux-only `0F 05`).
+# ================================================================
+
+# emit Win64 close: `syscall(3, fd)` → CloseHandle(fd).
+# Stack on entry (top→bottom): [fd] [sc_nr=3]. Return in rax is
+# the BOOL from CloseHandle (1 = success, 0 = failure) — callers
+# coding to `sys_close` semantics should treat non-zero as success.
+fn ECLOSE_PE(S) {
+    _pe_ensure_closeh(S);
+    var ch_idx = _pe_closeh_get();
+
+    EB(S, 0x58);                                        # pop rax (fd)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);              # mov rcx, rax
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x28); # sub rsp, 0x28
+
+    EB(S, 0xFF); EB(S, 0x15);
+    _pe_iat_fixup_add(S, GCP(S), ch_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x28); # add rsp, 0x28
+    return 0;
+}
+
+# emit Win64 read epilogue: `syscall(0, fd, buf, len)` →
+# `GetStdHandle(fd) + ReadFile(hFile, buf, len, &n, 0)`. Stack on
+# entry (top→bottom): [len] [buf] [fd] [sc_nr=0]. Mirrors
+# EWRITE_PE's 0x40 frame layout — the GetStdHandle call clobbers
+# rdx/r8/r9 so we stash `buf` and `len` in the frame first.
+fn EREAD_PE(S) {
+    _pe_ensure_readf(S);
+    var gsh_idx = _pe_stdio_getstd_get();
+    var rf_idx  = _pe_readf_get();
+
+    EB(S, 0x58);                                   # pop rax (len)
+    EB(S, 0x49); EB(S, 0x89); EB(S, 0xC0);         # mov r8, rax
+    EB(S, 0x58);                                   # pop rax (buf)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC2);         # mov rdx, rax
+    EB(S, 0x58);                                   # pop rax (fd)
+    # Map Linux fd {0,1,2} → Win32 nStdHandle {-10,-11,-12}:
+    # neg rax; sub rax, 10.
+    EB(S, 0x48); EB(S, 0xF7); EB(S, 0xD8);         # neg rax
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xE8); EB(S, 0x0A); # sub rax, 10
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);         # mov rcx, rax
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+
+    # 64 B frame + stash buf/len across GetStdHandle.
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x40); # sub rsp, 0x40
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x30); # mov [rsp+0x30], rdx
+    EB(S, 0x4C); EB(S, 0x89); EB(S, 0x44); EB(S, 0x24); EB(S, 0x38); # mov [rsp+0x38], r8
+
+    EB(S, 0xFF); EB(S, 0x15);                      # call [rip+GetStdHandle]
+    _pe_iat_fixup_add(S, GCP(S), gsh_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    # Reload ReadFile args; hFile = rax.
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);         # mov rcx, rax
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x54); EB(S, 0x24); EB(S, 0x30); # mov rdx, [rsp+0x30]
+    EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x38); # mov r8, [rsp+0x38]
+    EB(S, 0x4C); EB(S, 0x8D); EB(S, 0x4C); EB(S, 0x24); EB(S, 0x28); # lea r9, [rsp+0x28] (lpNumberOfBytesRead)
+    EB(S, 0x48); EB(S, 0xC7); EB(S, 0x44); EB(S, 0x24); EB(S, 0x20); # mov qword [rsp+0x20], 0 (lpOverlapped)
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    EB(S, 0xFF); EB(S, 0x15);                      # call [rip+ReadFile]
+    _pe_iat_fixup_add(S, GCP(S), rf_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    # Return the bytes-read count (not the BOOL success flag).
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
+    return 0;
+}
+
+# emit Win64 seek: `syscall(8, fd, offset, whence)` →
+# SetFilePointerEx(hFile, liDistanceToMove, lpNewFilePointer, dwMoveMethod).
+# Stack on entry (top→bottom): [whence] [offset] [fd] [sc_nr=8].
+# Frame is 0x30: shadow (32 B) + new-position output slot at
+# [rsp+0x28] + 8 B align pad. Returns the new file position (or -1
+# packed as 0xFFFFFFFF if the API returned 0 for failure — callers
+# should range-check if distinguishing from a valid offset of -1).
+fn ELSEEK_PE(S) {
+    _pe_ensure_seekfp(S);
+    var spe_idx = _pe_seekfp_get();
+
+    EB(S, 0x58);                                   # pop rax (whence)
+    EB(S, 0x49); EB(S, 0x89); EB(S, 0xC1);         # mov r9, rax (dwMoveMethod)
+    EB(S, 0x58);                                   # pop rax (offset)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC2);         # mov rdx, rax (liDistanceToMove)
+    EB(S, 0x58);                                   # pop rax (fd)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);         # mov rcx, rax (hFile)
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x30); # sub rsp, 0x30
+    # Zero the lpNewFilePointer output slot at [rsp+0x28].
+    EB(S, 0x48); EB(S, 0xC7); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    # lea r8, [rsp+0x28] (lpNewFilePointer arg)
+    EB(S, 0x4C); EB(S, 0x8D); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28);
+
+    EB(S, 0xFF); EB(S, 0x15);                      # call [rip+SetFilePointerEx]
+    _pe_iat_fixup_add(S, GCP(S), spe_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    # Return the new offset (always 64-bit — LARGE_INTEGER in slot).
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x30); # add rsp, 0x30
+    return 0;
+}
+
+# emit Win64 memory map: `syscall(9, addr, length, prot, flags, fd, offset)` →
+# VirtualAlloc(lpAddress, dwSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE).
+# Stack on entry (top→bottom): [offset] [fd] [flags] [prot] [length] [addr] [sc_nr=9].
+# `prot`/`flags`/`fd`/`offset` from the Linux mmap surface are
+# dropped — v5.5.1 uses fixed RW protection and always reserves +
+# commits. Future patches can derive flProtect from prot if needed.
+fn EMMAP_PE(S) {
+    _pe_ensure_vallo(S);
+    var va_idx = _pe_vallo_get();
+
+    # Drop offset/fd/flags/prot (4 slots = 32 B).
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x20); # add rsp, 0x20
+    EB(S, 0x58);                                        # pop rax (length)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC2);              # mov rdx, rax (dwSize)
+    EB(S, 0x58);                                        # pop rax (addr)
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);              # mov rcx, rax (lpAddress)
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+
+    # mov r8d, 0x3000 (MEM_COMMIT | MEM_RESERVE)
+    EB(S, 0x41); EB(S, 0xB8); EB(S, 0x00); EB(S, 0x30); EB(S, 0x00); EB(S, 0x00);
+    # mov r9d, 0x04 (PAGE_READWRITE)
+    EB(S, 0x41); EB(S, 0xB9); EB(S, 0x04); EB(S, 0x00); EB(S, 0x00); EB(S, 0x00);
+
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x28); # sub rsp, 0x28
+    EB(S, 0xFF); EB(S, 0x15);                           # call [rip+VirtualAlloc]
+    _pe_iat_fixup_add(S, GCP(S), va_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x28); # add rsp, 0x28
+    return 0;
+}
+
+# emit Win64 open: `syscall(2, path, flags, mode)` →
+# CreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
+#             lpSecurityAttributes, dwCreationDisposition,
+#             dwFlagsAndAttributes, hTemplateFile).
+# Stack on entry (top→bottom): [mode] [flags] [path] [sc_nr=2].
+#
+# v5.5.1 simplifications (document in CHANGELOG):
+#  1. `path` is widened inline from UTF-8 to UTF-16LE assuming
+#     ASCII bytes (copy each byte as a WCHAR). Non-ASCII paths
+#     will not round-trip correctly; proper UTF-8→UTF-16 is a
+#     v5.5.x+ refinement when Windows filesystem tests need it.
+#  2. `dwDesiredAccess` is hardcoded to GENERIC_READ|GENERIC_WRITE
+#     (0xC0000000) regardless of O_RDONLY / O_WRONLY / O_RDWR.
+#     Generous but lets a single reroute cover all three modes.
+#  3. `dwCreationDisposition` derives from the O_CREAT bit only:
+#     OPEN_EXISTING (3) if clear, OPEN_ALWAYS (4) if set. O_TRUNC
+#     / O_EXCL refinements are deferred — most downstream code
+#     opens existing or open-or-create, covered by this pair.
+#
+# Frame layout (0x250 = 592 B):
+#   [rsp+0x000..0x01F]  shadow space (32 B, Win64 ABI)
+#   [rsp+0x020]         dwCreationDisposition stack arg (8 B)
+#   [rsp+0x028]         dwFlagsAndAttributes stack arg (8 B)
+#   [rsp+0x030]         hTemplateFile stack arg (8 B, = 0)
+#   [rsp+0x038..0x247]  widened UTF-16 path buffer (528 B ≈ 264 WCHARs)
+#   [rsp+0x248..0x24F]  8 B align pad
+fn EOPEN_PE(S) {
+    _pe_ensure_createf(S);
+    var cf_idx = _pe_createf_get();
+
+    EB(S, 0x58);                                        # pop rax (mode, ignored)
+    EB(S, 0x58);                                        # pop rax (flags)
+    # Derive disposition = 3 + ((flags >> 6) & 1); result in r10d.
+    EB(S, 0xC1); EB(S, 0xE8); EB(S, 0x06);              # shr eax, 6
+    EB(S, 0x83); EB(S, 0xE0); EB(S, 0x01);              # and eax, 1
+    EB(S, 0x83); EB(S, 0xC0); EB(S, 0x03);              # add eax, 3
+    EB(S, 0x41); EB(S, 0x89); EB(S, 0xC2);              # mov r10d, eax
+    EB(S, 0x58);                                        # pop rax (path ptr)
+    EB(S, 0x49); EB(S, 0x89); EB(S, 0xC3);              # mov r11, rax (stash path)
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x08); # add rsp, 8 (drop sc_nr)
+
+    # Allocate frame (0x250 keeps RSP 16-aligned at the call).
+    EB(S, 0x48); EB(S, 0x81); EB(S, 0xEC);
+    EB(S, 0x50); EB(S, 0x02); EB(S, 0x00); EB(S, 0x00);
+
+    # rsi = r11 (source UTF-8); rdi = rsp+0x38 (dest UTF-16).
+    EB(S, 0x4C); EB(S, 0x89); EB(S, 0xDE);              # mov rsi, r11
+    EB(S, 0x48); EB(S, 0x8D); EB(S, 0x7C); EB(S, 0x24); EB(S, 0x38); # lea rdi, [rsp+0x38]
+    EB(S, 0x31); EB(S, 0xC9);                           # xor ecx, ecx
+
+    # widen_loop: 24 bytes total.
+    EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x04); EB(S, 0x0E); # movzx eax, byte [rsi+rcx]
+    EB(S, 0x66); EB(S, 0x89); EB(S, 0x04); EB(S, 0x4F); # mov [rdi+rcx*2], ax
+    EB(S, 0x85); EB(S, 0xC0);                           # test eax, eax
+    EB(S, 0x74); EB(S, 0x0C);                           # jz widen_done (skip next 12 B)
+    EB(S, 0xFF); EB(S, 0xC1);                           # inc ecx
+    EB(S, 0x81); EB(S, 0xF9); EB(S, 0x04); EB(S, 0x01); EB(S, 0x00); EB(S, 0x00); # cmp ecx, 260
+    EB(S, 0x73); EB(S, 0x02);                           # jae widen_done (skip next 2 B)
+    EB(S, 0xEB); EB(S, 0xE8);                           # jmp widen_loop (-24)
+    # widen_done: force NUL WCHAR terminator in case we hit the cap.
+    EB(S, 0x66); EB(S, 0xC7); EB(S, 0x04); EB(S, 0x4F); EB(S, 0x00); EB(S, 0x00); # mov word [rdi+rcx*2], 0
+
+    # Set up CreateFileW args.
+    EB(S, 0x48); EB(S, 0x8D); EB(S, 0x4C); EB(S, 0x24); EB(S, 0x38); # lea rcx, [rsp+0x38]
+    EB(S, 0xBA); EB(S, 0x00); EB(S, 0x00); EB(S, 0x00); EB(S, 0xC0); # mov edx, 0xC0000000 (GENERIC_READ|GENERIC_WRITE)
+    EB(S, 0x41); EB(S, 0xB8); EB(S, 0x03); EB(S, 0x00); EB(S, 0x00); EB(S, 0x00); # mov r8d, 3 (FILE_SHARE_READ|WRITE)
+    EB(S, 0x4D); EB(S, 0x31); EB(S, 0xC9);                           # xor r9, r9
+    EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x20); # mov [rsp+0x20], r10 (dwCreationDisposition)
+    EB(S, 0x48); EB(S, 0xC7); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov qword [rsp+0x28], 0x80 (FILE_ATTRIBUTE_NORMAL)
+    EB(S, 0x80); EB(S, 0x00); EB(S, 0x00); EB(S, 0x00);
+    EB(S, 0x48); EB(S, 0xC7); EB(S, 0x44); EB(S, 0x24); EB(S, 0x30); # mov qword [rsp+0x30], 0 (hTemplateFile)
+    EB(S, 0x00); EB(S, 0x00); EB(S, 0x00); EB(S, 0x00);
+
+    EB(S, 0xFF); EB(S, 0x15);                           # call [rip+CreateFileW]
+    _pe_iat_fixup_add(S, GCP(S), cf_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+
+    EB(S, 0x48); EB(S, 0x81); EB(S, 0xC4);              # add rsp, 0x250
+    EB(S, 0x50); EB(S, 0x02); EB(S, 0x00); EB(S, 0x00);
+    return 0;
+}
+
+# ================================================================
 # SETCC — comparison to value (0 or 1 in rax)
 # Emit: cmp rax, rcx; setCC al; movzx rax, al
 # ================================================================

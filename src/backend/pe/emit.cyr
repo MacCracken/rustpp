@@ -250,6 +250,74 @@ fn _pe_ensure_stdio(S) {
 fn _pe_stdio_getstd_get() { return _pe_stdio_getstd_idx; }
 fn _pe_stdio_writef_get() { return _pe_stdio_writef_idx; }
 
+# ================================================================
+# v5.5.1 — additional kernel32 auto-imports for the remaining PE
+# syscall reroutes: ReadFile, CloseHandle, SetFilePointerEx,
+# VirtualAlloc, CreateFileW. Same lazy-register shape as
+# `_pe_ensure_stdio`: first-use captures the future imp_idx before
+# appending to the pending-imports queue; `_pe_layout` later walks
+# that queue in order. Imp_idxs are stable at that point because
+# every reroute goes through this pending path — ExitProcess sits
+# at imp_idx=0 (hardcoded by EEXIT) and user `#pe_import` symbols
+# are interleaved in registration order.
+# ================================================================
+
+var _pe_readf_ready       = 0;
+var _pe_readf_idx         = 0;
+fn _pe_ensure_readf(S) {
+    if (_pe_readf_ready == 1) { return 0; }
+    _pe_ensure_stdio(S);
+    _pe_readf_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "ReadFile");
+    _pe_readf_ready = 1;
+    return 0;
+}
+fn _pe_readf_get() { return _pe_readf_idx; }
+
+var _pe_closeh_ready      = 0;
+var _pe_closeh_idx        = 0;
+fn _pe_ensure_closeh(S) {
+    if (_pe_closeh_ready == 1) { return 0; }
+    _pe_closeh_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "CloseHandle");
+    _pe_closeh_ready = 1;
+    return 0;
+}
+fn _pe_closeh_get() { return _pe_closeh_idx; }
+
+var _pe_seekfp_ready      = 0;
+var _pe_seekfp_idx        = 0;
+fn _pe_ensure_seekfp(S) {
+    if (_pe_seekfp_ready == 1) { return 0; }
+    _pe_seekfp_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "SetFilePointerEx");
+    _pe_seekfp_ready = 1;
+    return 0;
+}
+fn _pe_seekfp_get() { return _pe_seekfp_idx; }
+
+var _pe_vallo_ready       = 0;
+var _pe_vallo_idx         = 0;
+fn _pe_ensure_vallo(S) {
+    if (_pe_vallo_ready == 1) { return 0; }
+    _pe_vallo_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "VirtualAlloc");
+    _pe_vallo_ready = 1;
+    return 0;
+}
+fn _pe_vallo_get() { return _pe_vallo_idx; }
+
+var _pe_createf_ready     = 0;
+var _pe_createf_idx       = 0;
+fn _pe_ensure_createf(S) {
+    if (_pe_createf_ready == 1) { return 0; }
+    _pe_createf_idx = 1 + _pe_pending_imp_count;
+    _pe_pending_imp_add(S, "CreateFileW");
+    _pe_createf_ready = 1;
+    return 0;
+}
+fn _pe_createf_get() { return _pe_createf_idx; }
+
 # Called from `parse.cyr`'s `#pe_import("dll", "symbol")` handler
 # with `name` pointing at the NUL-terminated symbol string inside
 # str_data. Appends the name to the pending buffer; `_pe_layout`

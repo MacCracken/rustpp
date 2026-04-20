@@ -4,6 +4,124 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.1] — 2026-04-20
+
+**PE32+ syscall reroutes bundled — Read / Open / Close / Seek / Map.**
+Second v5.5.x release. Fills in the remaining five `syscall(n)`
+reroutes the v5.5.0 foundation left for follow-up, each routed
+through a kernel32 IAT import registered lazily on first use. Same
+shape of change per syscall (IAT ensure helper in `pe/emit.cyr` +
+emit fn in `x86/emit.cyr` + dispatch arm in `parse.cyr`); bundled
+because the five are structurally parallel and cheap to ship
+together. Compiler grew ~9 KB to 481464 B; self-host byte-identical
+(three-step verified).
+
+### Added
+- **`syscall(0, fd, buf, len)` → `GetStdHandle + ReadFile`** —
+  mirrors v5.4.7's `EWRITE_PE` / WriteFile shape: fd maps to the
+  nStdHandle ordinal (`-10`/`-11`/`-12` for stdin/stdout/stderr)
+  via `neg rax; sub rax, 10`; 64 B frame stashes `buf`/`len`
+  across the GetStdHandle call, then hands them to `ReadFile`.
+  Returns the bytes-read count (read from the
+  `lpNumberOfBytesRead` output slot), not the BOOL success flag.
+  Imports `GetStdHandle` + `ReadFile`; reuses the v5.4.7
+  `_pe_ensure_stdio` for the shared GetStdHandle IAT slot.
+- **`syscall(2, path, flags, mode)` → `CreateFileW`** — only
+  seven-arg Win64 import in this batch (lpFileName,
+  dwDesiredAccess, dwShareMode, lpSecurityAttributes,
+  dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile).
+  592-byte frame absorbs 32 B shadow + three 8-byte stack-arg
+  slots + a 528-byte inline UTF-16 path buffer. Widen loop
+  copies each UTF-8 byte as a WCHAR up to 260 wchars then forces
+  a NUL terminator; v5.5.1 simplifies to ASCII paths only (proper
+  UTF-8 → UTF-16 conversion is deferred until Windows filesystem
+  tests need non-ASCII paths). `dwDesiredAccess` is hardcoded
+  `GENERIC_READ | GENERIC_WRITE` (0xC0000000) regardless of
+  `O_RDONLY` / `O_WRONLY` / `O_RDWR`; `dwCreationDisposition`
+  derives from the `O_CREAT` bit only (OPEN_EXISTING → OPEN_ALWAYS);
+  `O_TRUNC` / `O_EXCL` are deferred refinements.
+- **`syscall(3, fd)` → `CloseHandle`** — simplest reroute in the
+  batch (single-arg, single call). 40 B frame for the ABI shadow.
+  Returns the BOOL success flag; callers using the `sys_close`
+  Linux semantics should treat zero as failure.
+- **`syscall(8, fd, offset, whence)` → `SetFilePointerEx`** —
+  the 64-bit-capable seek API (distinct from `SetFilePointer`'s
+  32-bit `LARGE_INTEGER`-via-two-DWORDs contract). Four Win64
+  regs (rcx / rdx / r8 / r9) consumed directly from the expr
+  stack. Zero-init'd 8-byte `lpNewFilePointer` output slot at
+  `[rsp+0x28]`; helper returns that value as the new file
+  position. 48 B frame.
+- **`syscall(9, addr, len, prot, flags, fd, offset)` →
+  `VirtualAlloc`** — Linux-mmap's 6 unused args (prot / flags /
+  fd / offset — only `addr` + `len` survive) are dropped from the
+  expr stack. Allocation type is hardcoded
+  `MEM_COMMIT | MEM_RESERVE` (0x3000); protection is
+  `PAGE_READWRITE` (0x04). 40 B frame. Pairs with the v5.5.0
+  `lib/alloc_windows.cyr` bump allocator — now `alloc_init` can
+  reserve its 16 MB region from cyrius source rather than from
+  a stubbed manual loop.
+- **Five `_pe_ensure_*` IAT registration helpers in
+  `src/backend/pe/emit.cyr`** — one per new import (ReadFile,
+  CreateFileW, CloseHandle, SetFilePointerEx, VirtualAlloc).
+  Same lazy-register shape as v5.4.7's `_pe_ensure_stdio`:
+  first-use captures the future `imp_idx` before appending to
+  the pending-imports queue, which `_pe_layout` walks in order
+  after placing `ExitProcess` at `imp_idx=0`. Accessors
+  (`_pe_*_get`) expose the captured idx to x86/emit.cyr.
+
+### Changed
+- **`src/frontend/parse.cyr`** `_TARGET_PE` dispatch block — five
+  new `(sc_num == N)` arms added alongside the existing `== 1`
+  (WriteFile) and `== 60` (ExitProcess) arms. Fall-through
+  warning text updated to list all seven now-routed numbers
+  (0, 1, 2, 3, 8, 9, 60).
+
+### Fixed
+- (Nothing from v5.5.0 needs backfill; the reroutes are additive.)
+
+### Known limitations
+- **Enum-constant sc_num detection** — the parser's `_cfo`/`_cfv`
+  compile-time-constant tracking only fires for integer literals,
+  not for enum reads like `SYS_WRITE`. The `sys_*` wrapper fns in
+  `lib/syscalls_windows.cyr` (which internally call
+  `syscall(SYS_*, …)` with enum constants) therefore still
+  produce the "unmapped syscall" warning at compile time —
+  direct-literal syscalls (`syscall(1, 1, "hi\n", 3)`) reroute
+  cleanly. Running a PE program that *actually reaches* a wrapper
+  fn would crash on Windows (the wrapper body contains an
+  `0F 05` Linux-only encoding). Workaround until the
+  enum-constant folding lands: call `syscall(N, …)` directly with
+  a numeric literal. This is a pre-existing v5.5.0 limitation —
+  v5.5.1's reroutes don't make it worse, but also don't fix it.
+  Tracked for a follow-up v5.5.x patch (small parser change in
+  `PARSE_FACTOR`'s enum-resolution path).
+- **Win64 ABI at `fncall0..fncall8`** — still v5.5.2's item.
+  syscall reroutes use the Win64 ABI correctly inside the
+  generated PE code, but cyrius-to-cyrius fn calls still use
+  SysV AMD64. Mixed programs that mix user fns with Win32
+  imports work as long as no fncall routes through a Win32
+  callback.
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- cc5 self-host byte-identical (481464 B, three-step verified).
+- cc5_aarch64 cross-build rebuilt cleanly (342544 B).
+- `build/cc5_win` compiles a minimal two-syscall source
+  (`syscall(1, 1, "hi\n", 3); syscall(60, 0);`) into a valid
+  PE32+ executable (3072 B, 3 sections); IAT now shows 7
+  potential imports (ExitProcess + GetStdHandle + WriteFile +
+  the 5 v5.5.1 auto-imports), registered lazily so only
+  actually-used symbols appear in the final IAT.
+- on-hardware Windows CI gate unchanged — still runs the
+  `hello\n` probe end-to-end.
+
+### Next
+- **v5.5.2** — Win64 ABI at `fncall0..fncall8`. Highest-risk
+  v5.5.x item; own release for bisect isolation.
+- **v5.5.3** — Windows self-host completion (native `cc5_win`
+  self-host byte-identical on `windows-latest` + full `.tcyr`
+  test-suite gate).
+
 ## [5.5.0] — 2026-04-20
 
 **Windows PE foundation — `cc5_win` cross-entry + stdlib peers.**
@@ -65,19 +183,21 @@ out to v5.5.0.x patches + v5.5.1 so each bisects clean.
   `CYRIUS_ARCH_*` flag. Additive; doesn't affect existing
   call sites.
 
-### Deferred (tracked for v5.5.0.x patches and v5.5.1)
+### Deferred (tracked for v5.5.1+)
 - **Remaining `syscall(n)` reroutes** — `ReadFile`,
   `CreateFileW`, `CloseHandle`, `VirtualAlloc` via syscall(9),
   `SetFilePointerEx` via syscall(8). Each is a ~50 LOC PE emit
-  helper + IAT registration + parse.cyr dispatch slot. Landing
-  incrementally as v5.5.0.x releases. Today: `sys_write` on
-  PE goes through the existing WriteFile reroute (v5.4.7);
-  `sys_exit` goes through ExitProcess (v5.4.4); everything
-  else warns at compile time and produces a binary that would
-  crash if the unmapped syscall is reached at runtime.
-- **Win64 ABI at `fncall0..fncall8`** — queued for v5.5.1 as
-  its own release. Touches every fncall site in codegen; own
-  tag for bisect isolation.
+  helper + IAT registration + parse.cyr dispatch slot. Bundled
+  into **v5.5.1** (same shape of change — emit helper +
+  import + dispatch — applied to different syscall numbers;
+  cheap to ship together). Today: `sys_write` on PE goes
+  through the existing WriteFile reroute (v5.4.7); `sys_exit`
+  goes through ExitProcess (v5.4.4); everything else warns at
+  compile time and produces a binary that would crash if the
+  unmapped syscall is reached at runtime.
+- **Win64 ABI at `fncall0..fncall8`** — queued for **v5.5.2**
+  as its own release. Touches every fncall site in codegen;
+  own tag for bisect isolation.
 - **RW-split `.rdata` / `.data`** — investigation showed
   v5.4.8's `.rdata` is already flagged `CNT_INITIALIZED_DATA
   | MEM_READ | MEM_WRITE` (0xC0000040), so gvar mutation works
@@ -97,13 +217,21 @@ out to v5.5.0.x patches + v5.5.1 so each bisects clean.
   runs the `hello\n` probe end-to-end.
 
 ### Next
-- **v5.5.0.x** — individual PE `syscall(n)` reroute patches
-  (each one a ~50 LOC chunk; ship per-syscall).
-- **v5.5.1** — Win64 ABI at `fncall0..fncall8` (high-risk,
+- **v5.5.1** — remaining PE `syscall(n)` reroutes bundled
+  (ReadFile + CreateFileW + CloseHandle + VirtualAlloc +
+  SetFilePointerEx). Same shape of change across 5 syscalls,
+  cheap to ship together.
+- **v5.5.2** — Win64 ABI at `fncall0..fncall8` (high-risk,
   own release).
-- **v5.5.2** — Windows self-host completion (native cc5
-  self-host on `windows-latest` + full `.tcyr` test suite
-  gate).
+- **v5.5.3** — Windows self-host completion (native `cc5_win`
+  self-host byte-identical on `windows-latest` + full `.tcyr`
+  test-suite gate).
+
+**Version naming note**: `-N` suffix (e.g. `5.4.12-1`) is
+**hotfix only** — used for release-pipeline or dep-drift
+fixes that need to land outside the normal feature cadence.
+Incremental feature work uses regular minor bumps
+(v5.5.1, v5.5.2, …) even when each release is small.
 
 ## [5.4.20] — 2026-04-20
 

@@ -759,9 +759,14 @@ fn PARSE_FACTOR(S) {
         # PE32+ (Windows): reroute recognised Linux syscall numbers to
         # kernel32 IAT calls so the generic `ESCPOPS` path below
         # (which would emit the x86_64 `syscall` instruction, 0F 05,
-        # a Linux-only encoding) is bypassed. Mappings so far:
-        #   syscall(60, code)           → ExitProcess(code)     (v5.4.4)
-        #   syscall(1, fd, buf, len)    → GetStdHandle+WriteFile (v5.4.7)
+        # a Linux-only encoding) is bypassed. Mappings:
+        #   syscall(0, fd, buf, len)       → GetStdHandle+ReadFile   (v5.5.1)
+        #   syscall(1, fd, buf, len)       → GetStdHandle+WriteFile  (v5.4.7)
+        #   syscall(2, path, flags, mode)  → CreateFileW             (v5.5.1)
+        #   syscall(3, fd)                 → CloseHandle             (v5.5.1)
+        #   syscall(8, fd, off, whence)    → SetFilePointerEx        (v5.5.1)
+        #   syscall(9, addr, len, ...)     → VirtualAlloc            (v5.5.1)
+        #   syscall(60, code)              → ExitProcess             (v5.4.4)
         # Other syscall numbers still fall through with a warning and
         # produce a non-functional binary; wrap them in syscalls_windows.cyr
         # shape helpers as they're needed.
@@ -789,13 +794,53 @@ fn PARSE_FACTOR(S) {
                     return 0;
                 }
             }
+            if (sc_num == 0) {
+                if (argc == 4) {
+                    # syscall(0, fd, buf, len) → GetStdHandle + ReadFile.
+                    EREAD_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 2) {
+                if (argc == 4) {
+                    # syscall(2, path, flags, mode) → CreateFileW.
+                    EOPEN_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 3) {
+                if (argc == 2) {
+                    # syscall(3, fd) → CloseHandle.
+                    ECLOSE_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 8) {
+                if (argc == 4) {
+                    # syscall(8, fd, offset, whence) → SetFilePointerEx.
+                    ELSEEK_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 9) {
+                if (argc == 7) {
+                    # syscall(9, addr, len, prot, flags, fd, offset) → VirtualAlloc.
+                    EMMAP_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
             # Non-mapped syscalls: emitting the generic ESCPOPS path
             # below would produce an `0F 05` syscall that crashes on
             # Windows. Warn now; hard-error once the full
-            # syscalls_windows.cyr stdlib lands in v5.4.x.
+            # syscalls_windows.cyr stdlib lands in v5.5.x.
             syscall(SYS_WRITE, 2,
-                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 only routes n=1 (WriteFile) and n=60 (ExitProcess) today; others will crash on Windows.\n",
-                136);
+                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 routes n=0,1,2,3,8,9,60 today; others will crash on Windows.\n",
+                109);
         }
         ESCPOPS(S, argc);
         _cfo = 0;
