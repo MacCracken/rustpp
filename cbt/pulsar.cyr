@@ -122,11 +122,13 @@ fn cmd_pulsar() {
     str_builder_add_cstr(dest_sb, ver);
     var dest = str_data(str_builder_build(dest_sb));
     sys_mkdir(dest, 0x1ED);
+    var dest_bin = make_path(dest, "bin");
+    sys_mkdir(dest_bin, 0x1ED);
     var dest_lib = make_path(dest, "lib");
     sys_mkdir(dest_lib, 0x1ED);
 
     # Copy binaries
-    var bins[8];
+    var bins[9];
     store64(&bins, "cc5");
     store64(&bins + 8, "cc5_aarch64");
     store64(&bins + 16, "cyrius");
@@ -134,17 +136,38 @@ fn cmd_pulsar() {
     store64(&bins + 32, "cyrlint");
     store64(&bins + 40, "cyrdoc");
     store64(&bins + 48, "cyrc");
-    store64(&bins + 56, 0);
+    store64(&bins + 56, "cyrld");
+    store64(&bins + 64, 0);
     var bi = 0;
     while (load64(&bins + bi * 8) != 0) {
         var bname = load64(&bins + bi * 8);
         var bsrc = make_path("build", bname);
         if (file_exists(bsrc) == 1) {
-            var bdst = make_path(dest, bname);
+            var bdst = make_path(dest_bin, bname);
             _dep_copy_file(bsrc, bdst);
             sys_chmod(bdst, 0x1ED);
         }
         bi = bi + 1;
+    }
+
+    # Copy scripts (version manager + helper dispatchers)
+    var scripts[6];
+    store64(&scripts, "cyriusly");
+    store64(&scripts + 8, "cyrius-init.sh");
+    store64(&scripts + 16, "cyrius-port.sh");
+    store64(&scripts + 24, "cyrius-repl.sh");
+    store64(&scripts + 32, "cyrius-watch.sh");
+    store64(&scripts + 40, 0);
+    var si = 0;
+    while (load64(&scripts + si * 8) != 0) {
+        var sname = load64(&scripts + si * 8);
+        var ssrc = make_path("scripts", sname);
+        if (file_exists(ssrc) == 1) {
+            var sdst = make_path(dest_bin, sname);
+            _dep_copy_file(ssrc, sdst);
+            sys_chmod(sdst, 0x1ED);
+        }
+        si = si + 1;
     }
 
     # Copy stdlib
@@ -177,7 +200,7 @@ fn cmd_pulsar() {
     var lib_link = make_path(_home, "lib");
     sys_unlink(bin_link);
     sys_unlink(lib_link);
-    syscall(88, dest, bin_link);
+    syscall(88, dest_bin, bin_link);
     syscall(88, dest_lib, lib_link);
 
     # Verify

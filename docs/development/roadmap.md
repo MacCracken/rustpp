@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.11.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.12.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -29,21 +29,31 @@
 > Linux syscall stdlib + aarch64 thread trampoline + sankoch
 > 2.0.0** (yukti unblocked: `syscall(4, …)` no longer
 > `pivot_root` on aarch64). **v5.4.12 is claimed by the
-> fncall ceiling lift / render-pass FFI unblock** (mabda
-> blocker: their wgpu render-pass path is forced into
-> C-side struct-packing because cyrius caps `fncallN` at 6
-> args + `fncall6 + wgpu` crashes; v5.4.12 root-causes the
-> crash and lifts the ceiling so mabda can flatten its
-> direct-call path). **v5.4.13 is claimed by
-> `lib/keccak.cyr`** (sigil 3.0 PQC enabler — pulled in from
-> "remaining enablers" so sigil isn't blocked through the
-> v5.5 cycle). **v5.4.14 is the v5.4.x closeout pass** (per
-> CLAUDE.md §"Closeout Pass" — dead-code audit, doc /
-> vidya sync, residual parse.cyr unguarded x86-emit cleanup,
-> permanent `EW` alignment assert on aarch64,
-> `version-bump.sh` install-refresh hook, `#ifplat`
-> directive, optional `cyrius build --strict`); after
-> v5.4.14 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
+> tool-cleanup pass** — `cyriusly` version manager
+> extracted to its own committed file (was missing from
+> `cyrius pulsar` installs); `cbt/pulsar.cyr` layout
+> unified with `install.sh` (`versions/$V/bin/` subdir,
+> not flat); `cyrld` wired into release tarballs + pulsar;
+> `scripts/cyrius.bak` (legacy 61KB dispatcher) deleted;
+> `install.sh` hardcoded version fallback replaced with
+> a live `raw.githubusercontent.com/…/VERSION` fetch;
+> shell-script migration plan recorded (bootstrap-bound vs
+> migration-candidate). **v5.4.13 is claimed by the fncall
+> ceiling lift / render-pass FFI unblock** (mabda blocker:
+> their wgpu render-pass path is forced into C-side
+> struct-packing because cyrius caps `fncallN` at 6 args +
+> `fncall6 + wgpu` crashes; v5.4.13 root-causes the crash
+> and lifts the ceiling so mabda can flatten its direct-
+> call path). **v5.4.14 is claimed by `lib/keccak.cyr`**
+> (sigil 3.0 PQC enabler — pulled in from "remaining
+> enablers" so sigil isn't blocked through the v5.5 cycle).
+> **v5.4.15 is the v5.4.x closeout pass** (per CLAUDE.md
+> §"Closeout Pass" — dead-code audit, doc / vidya sync,
+> residual parse.cyr unguarded x86-emit cleanup, permanent
+> `EW` alignment assert on aarch64, `version-bump.sh`
+> install-refresh hook, `#ifplat` directive, optional
+> `cyrius build --strict`); after v5.4.15 ships, the next
+> tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -479,7 +489,7 @@ ran clean on the Pi), but the translation is incomplete and
 hidden inside the emitter. Expanding the table further hides
 the platform dispatch in code emission. The stdlib is the
 honest seam — same pattern as `lib/syscalls_macos.cyr` (already
-shipping) and `lib/syscalls_windows.cyr` (queued for v5.4.12+).
+shipping) and `lib/syscalls_windows.cyr` (queued for v5.4.13+).
 
 **Scope:**
 - New `lib/syscalls_aarch64_linux.cyr` peer with the aarch64
@@ -535,14 +545,112 @@ here so they aren't forgotten):
   CI on downstream retests — keep cyrius CI hermetic. When a
   downstream bumps to v5.4.11+, its own CI reports green.
 
-**Companion (queued for v5.4.12+, not v5.4.11 scope):** audit
+**Companion (queued for v5.4.13+, not v5.4.11 scope):** audit
 `src/frontend/parse.cyr` syscall rerouting — either cover the
 full Linux table deterministically OR remove the subset
 translation and require consumers to go through
 `lib/syscalls*`. Pairs naturally with the existing v5.5.x
 audit of unguarded x86-emit paths in shared parse.cyr.
 
-### v5.4.12 — fncall ceiling lift / render-pass FFI unblock (mabda blocker)
+### v5.4.12 — tool-cleanup pass (install / pulsar / release unification)
+
+Reclaims the v5.4.12 slot for a focused tooling housekeeping
+release after v5.4.11's yukti-unblock landed. Surfaced while
+investigating a "cyriusly missing" report: the native `cyrius
+pulsar` install path never shipped the version manager, and
+its on-disk layout (`versions/$V/` flat) disagreed with
+`install.sh`'s layout (`versions/$V/bin/` subdir) — whichever
+ran second dangled symlinks. Scoped small enough to ship a
+week after v5.4.11 without deferring the mabda / sigil
+unblocks; all three (fncall ceiling, keccak, closeout) just
+bump by one.
+
+**Scope:**
+- **`cyriusly` extracted** to `scripts/cyriusly` (committed
+  source of truth). `install.sh` no longer heredocs it.
+  `release.yml` copies it into every tarball bin/ (x86_64,
+  aarch64, macos, macos-arm64). `cbt/pulsar.cyr` copies it
+  into `versions/$V/bin/cyriusly`.
+- **Layout unification.** `cbt/pulsar.cyr` now builds
+  `versions/$V/bin/` and `versions/$V/lib/` subdirs
+  (matching `install.sh`). Binaries go into `bin/`, not
+  flat at the version root. Symlink points
+  `$HOME/.cyrius/bin → versions/$V/bin`. Users who want
+  `cyriusly use <older-version>` on a pre-5.4.12 flat
+  install must reinstall that version via the release
+  tarball.
+- **`cyrld` in the tarball.** Was built by CI but missing
+  from release tarballs + pulsar's bins array. Wired into
+  `release.yml` tool loop, tarball bin-copy list,
+  `install.sh` source-bootstrap tool list, and pulsar's
+  bins array.
+- **`scripts/cyrius.bak` deleted** (61KB legacy monolithic
+  dispatcher, superseded by the 31-line shim; no references
+  outside CHANGELOG).
+- **`install.sh` hardcoded version fallback removed.** The
+  `VERSION="5.4.11"` default-on-GitHub-API-fail was destined
+  to rot. Replaced with a live
+  `raw.githubusercontent.com/$REPO/main/VERSION` fetch; if
+  both GitHub API and raw fail, hard-error with a
+  `CYRIUS_VERSION=<tag>` hint. `version-bump.sh`'s sed for
+  this fallback becomes a no-op (the `|| true` tolerates
+  that).
+- **Stale `/tmp/cc2_verify*` cleanup line** deleted from
+  `install.sh` — pre-cc3-rename residue.
+- **Shell-script migration plan recorded** (see
+  §"Shell-script migration plan" below).
+
+**Acceptance:**
+1. `sh scripts/check.sh` 10/10 (unchanged gate count; pure
+   tooling release).
+2. `cc5` and `cc5_aarch64` self-host byte-identical
+   (compiler untouched).
+3. Fresh `cyrius pulsar` on a clean `~/.cyrius` produces a
+   `versions/$V/bin/` subdir with all 8 binaries (cc5,
+   cc5_aarch64, cyrius, cyrfmt, cyrlint, cyrdoc, cyrc,
+   cyrld) + cyriusly + `cyrius-*.sh` scripts.
+4. `cyriusly list` / `use` / `version` all work after both
+   `install.sh` and `cyrius pulsar` paths.
+5. Release tarballs for x86_64/aarch64/macos/macos-arm64
+   all include `bin/cyriusly`.
+
+### Shell-script migration plan (scripts/ → native cyrius)
+
+Recorded at v5.4.12 so future cleanup work (likely
+v5.4.15 closeout or v5.5.x) has an authoritative list.
+
+**Bootstrap-bound (stay shell forever):**
+- `scripts/install.sh` — curl-piped entry point; can't
+  require cyrius binary.
+- `scripts/cyriusly` — manages which cc5 is active;
+  chicken-and-egg.
+- `scripts/cyrius` — thin dispatch shim; retire once the
+  compiled `cbt/cyrius.cyr` binary is universally
+  deployed.
+- `scripts/mac-selfhost.sh` — maintainer-only manual
+  verification on mac hardware; not worth migrating.
+
+**Migration candidates (native target exists or is cheap):**
+| Script                   | LOC | Native target                           |
+|--------------------------|-----|-----------------------------------------|
+| `cyrius-init.sh`         | 549 | `cbt/project.cyr` → new `init_impl`    |
+| `cyrius-port.sh`         | 351 | `cbt/project.cyr` → new `port_impl`    |
+| `bench-history.sh`       | 300 | `cyrius bench --history`                |
+| `check.sh`               | 181 | `cyrius audit` in `cbt/quality.cyr`    |
+| `cyrius-repl.sh`         |  98 | `cyrius repl` or standalone `cyrl`     |
+| `version-bump.sh`        |  73 | `cyrius version bump <semver>`         |
+| `lib/audit-walk.sh`      |  60 | folds into `cyrius audit`              |
+| `ci.sh`                  |  57 | `cyrius ci` — fold into `quality.cyr` |
+| `release-lib.sh`         |  45 | `cyrius release-lib`                   |
+| `mac-diagnose.sh`        |  43 | debug tool — deprioritize             |
+| `cyrius-watch.sh`        |  37 | `cyrius watch` (needs inotify)         |
+
+Net migration: ~1900 LOC shell → native cyrius, leaving
+~570 LOC bootstrap-bound. Sequencing decided at v5.4.15
+closeout; individual migrations can land across v5.5.x
+patches without blocking the pillars.
+
+### v5.4.13 — fncall ceiling lift / render-pass FFI unblock (mabda blocker)
 
 Filed by mabda
 (`mabda/docs/proposals/2026-04-19-render-pass-ffi.md`). mabda
@@ -564,7 +672,7 @@ enc, args_ptr)`. Every new wgpu surface they need adds another
 C-side struct-packing shim. That's a workaround for cyrius's
 fncall ceiling, not mabda-native architecture.
 
-**Scope (cyrius v5.4.12):**
+**Scope (cyrius v5.4.13):**
 - **Root-cause the fncall6 + wgpu-native crash.** First
   question is whether it's a fncall6 bug (in `lib/fnptr.cyr`'s
   per-arch inline asm — the SysV/AAPCS register-loading
@@ -586,7 +694,7 @@ fncall ceiling, not mabda-native architecture.
   Write `docs/ffi/struct-packing.md` with the WgpuMapArgs /
   WgpuCopyArgs / new WgpuBeginPassArgs / WgpuCopyTexToBufArgs
   worked examples copy-pasteable.
-- **Stays mabda-side** (NOT cyrius v5.4.12): the C shims, the
+- **Stays mabda-side** (NOT cyrius v5.4.13): the C shims, the
   wgpu_ffi.cyr wrappers, render_e2e.cyr, the per-mabda tests.
   mabda owns its rendering arc; we just remove the toolchain
   ceiling that's forcing the workaround.
@@ -604,17 +712,17 @@ fncall ceiling, not mabda-native architecture.
 4. `sh scripts/check.sh` 11/11 (gates 10 + new ceiling-test
    gate).
 5. cc5 + cc5_aarch64 self-host byte-identical.
-6. mabda-side gate: their pin-bump to v5.4.12 lets them
+6. mabda-side gate: their pin-bump to v5.4.13 lets them
    replace their 7-arg cases with direct `fncall7` (vs the
    args-struct workaround); the workaround stays in place
    for genuinely-nested struct cases.
 
-**Companion (queued for v5.4.14 closeout):** audit the
+**Companion (queued for v5.4.15 closeout):** audit the
 ceiling on every fncall consumer in stdlib + downstreams to
 identify which `fncall2(...args_struct...)` paths can flatten
 to direct `fncallN` once 7 and 8 are available.
 
-### v5.4.13 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
+### v5.4.14 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
 
 Pulled in from "Sigil 3.0 enablers — remaining" — sibling of the
 `ct_select` (v5.3.2), `mulh64` (v5.3.3), `secret var` (v5.3.5)
@@ -626,7 +734,7 @@ pressured; `lib/keccak.cyr` is the last toolchain-side block.
 Letting it slip to v5.5.x means sigil stays blocked through
 the v5.5 release cycle. Small enough to fit comfortably as a
 v5.4.x patch (~300 LOC for permutation + sponge; pure stdlib),
-and v5.4.14 (closeout) is the natural wrap-up slot for the
+and v5.4.15 (closeout) is the natural wrap-up slot for the
 line.
 
 **Scope:**
@@ -650,20 +758,20 @@ line.
 **Acceptance:**
 1. `tests/tcyr/keccak.tcyr` PASS — NIST vectors match.
 2. `benches/keccak.bcyr` lands within the 2× sha256 budget.
-3. `sh scripts/check.sh` 12/12 (gates 11 from v5.4.12 +
+3. `sh scripts/check.sh` 12/12 (gates 11 from v5.4.13 +
    keccak's NIST-vector regression).
 4. cc5 + cc5_aarch64 self-host byte-identical (lib-only
    change; should be trivial).
-5. **sigil 3.0 unblock**: with the v5.4.13 toolchain, sigil's
+5. **sigil 3.0 unblock**: with the v5.4.14 toolchain, sigil's
    ML-DSA-65 XOF step can stop stubbing the SHAKE call and
    ship the real PQC path. Verified at sigil's pin-bump time,
    not in cyrius CI.
 
-### v5.4.14 — v5.4.x closeout pass (then v5.5.0)
+### v5.4.15 — v5.4.x closeout pass (then v5.5.0)
 
 Per the closeout-pass procedure in `CLAUDE.md` (run before every
 minor/major bump, ship as the last patch of the current minor —
-e.g. 4.2.5 before 4.3.0). v5.4.14 is the v5.4.x closeout; tagging
+e.g. 4.2.5 before 4.3.0). v5.4.15 is the v5.4.x closeout; tagging
 it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
 Platform Targets" below).
 
@@ -693,7 +801,7 @@ Platform Targets" below).
      existing entries when behavior changed (`_cyrius_init`
      binding, `&local` emit). Refresh the `overview` entry's
      compiler size / cc binary name / version line so it points
-     at v5.4.13.
+     at v5.4.14.
    - **`vidya/content/cyrius/field_notes/compiler.toml`** — add
      field notes for non-obvious gotchas surfaced this minor:
      RBP-after-`clone()` race (v5.4.10), `FUTEX_PRIVATE_FLAG` vs
@@ -702,7 +810,7 @@ Platform Targets" below).
      empty `.rdata` PE section loader rejection (v5.4.8),
      `_cyrius_init` STB_LOCAL ELF-spec non-conformance fixed by
      STB_GLOBAL flip (v5.4.9), aarch64 syscall-number stdlib
-     split (v5.4.11), keccak Keccak-f[1600] entry (v5.4.12). One
+     split (v5.4.11), keccak Keccak-f[1600] entry (v5.4.14). One
      entry per gotcha; future-claude searching vidya before
      reimplementing should hit them.
    - **`vidya/content/cyrius/field_notes/language.toml`** —
@@ -723,8 +831,8 @@ Platform Targets" below).
      current `VERSION` file. `version-bump.sh` doesn't touch
      vidya — it's manual at closeout, every time.
 9. Full `sh scripts/check.sh` — 12/12 PASS (gates accumulated
-   through v5.4.13: 10 existing at v5.4.11 + the v5.4.12
-   fncall-ceiling regression + v5.4.13's keccak NIST-vector
+   through v5.4.14: 10 existing at v5.4.11 + the v5.4.13
+   fncall-ceiling regression + v5.4.14's keccak NIST-vector
    regression).
 
 **Scope:**
@@ -758,7 +866,7 @@ Platform Targets" below).
   uniformly. Lex/preprocessor change in `src/frontend/lex.cyr`
   (~80-150 LOC), plus migration of the ~3 existing call sites
   (`lib/fnptr.cyr`, `lib/thread.cyr`, the v5.4.11 `lib/syscalls.cyr`
-  selector). **Why now (v5.4.13) not later (v6.0.0)**: v5.5.0
+  selector). **Why now (v5.4.15) not later (v6.0.0)**: v5.5.0
   is about to add many more dispatch sites (PE syscalls,
   `lib/syscalls_windows.cyr`, `cc5_win.cyr` cross-entry); landing
   the convention before v5.5.x prevents another wave of
@@ -767,7 +875,7 @@ Platform Targets" below).
   do it now; balloons if deferred. Earlier confirmed during
   v5.4.11 planning that bundling into v5.4.11 itself would
   force functionality where it doesn't belong (syntactic
-  improvement vs the v5.4.11 correctness fix); v5.4.13's
+  improvement vs the v5.4.11 correctness fix); v5.4.15's
   cleanup theme is the right home.
 - Verify the post-v5.4.10 thread surface: TLS gap, atomics
   gap, and runtime thread-safety surface (alloc / freelist /
@@ -822,7 +930,7 @@ Platform Targets" below).
   projects. Keep the install-snapshot refresh in
   `version-bump.sh` / `install.sh` where it belongs.
 
-After v5.4.14 ships, the next tag is **v5.5.0** — which is
+After v5.4.15 ships, the next tag is **v5.5.0** — which is
 itself claimed by the PE correctness completion below. The new
 minor opens with the same Windows arc that closed v5.4.x: ship
 the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
@@ -1069,8 +1177,8 @@ are in CHANGELOG.
   (SHAKE-128 / SHAKE-256). NIST FIPS 202. Required for
   ML-DSA-65's XOF step in sigil 3.0 PQC. Self-contained, no
   external deps. Benchmark target: 4 KB SHAKE-256 within 2× of
-  sigil's existing `sha256_4kb` (~250 µs). **Claimed by v5.4.12
-  — see roadmap §v5.4.12.**
+  sigil's existing `sha256_4kb` (~250 µs). **Claimed by v5.4.14
+  — see roadmap §v5.4.14.**
 
 ---
 
@@ -1315,7 +1423,7 @@ patches:
   helpers can move to `src/backend/common/` without entangling
   the asm-byte tables.
 - **`cyrius build --strict` mode** — escalate `undefined
-  function` warnings to hard errors. Drafted as a v5.4.12+
+  function` warnings to hard errors. Drafted as a v5.4.13+
   follow-up after mabda Issue 2; lands cleanly with the v6.0.0
   rename pass since `--strict` is a flag-surface change that's
   major-bump-friendly.

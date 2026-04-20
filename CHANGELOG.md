@@ -4,6 +4,87 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.12] — 2026-04-19
+
+**Tool-cleanup pass: install / pulsar / release unification.**
+Reclaims the v5.4.12 slot for housekeeping after investigating a
+"cyriusly missing" report. Two root causes surfaced: (1) the
+native `cyrius pulsar` install path never copied the version
+manager into `~/.cyrius/`, and (2) pulsar's on-disk layout
+(`versions/$V/` flat) disagreed with `scripts/install.sh`'s
+layout (`versions/$V/bin/` subdir) — whichever ran second left
+dangling symlinks. Also bundled: `cyrld` wiring into tarballs,
+legacy `cyrius.bak` deletion, install-fallback hardening,
+shell-script migration plan. No compiler changes; `cc5` +
+`cc5_aarch64` self-host byte-identical. Previously-planned 5.4.12
+(fncall ceiling / render-pass FFI) pushes to 5.4.13; keccak to
+5.4.14; closeout to 5.4.15.
+
+### Added
+- **`scripts/cyriusly`** — committed source of truth for the
+  Cyrius version manager (previously heredocced inside
+  `scripts/install.sh`). 221 LOC extracted verbatim; all
+  subcommands unchanged (`version`, `list`, `use`, `install`,
+  `uninstall`, `which`, `home`, `update`, `cmdtools`, `help`).
+- **`cyrld` in every release tarball** — `release.yml` now
+  rebuilds and ships `cyrld` in the x86_64 tool list and
+  bin-copy loop (was built in CI but never packaged). Also
+  added to `install.sh`'s source-bootstrap tool list and
+  `cbt/pulsar.cyr`'s bins array (now 8 binaries: cc5,
+  cc5_aarch64, cyrius, cyrfmt, cyrlint, cyrdoc, cyrc, cyrld).
+- **Scripts loop in `cbt/pulsar.cyr`** — new iteration that
+  copies `cyriusly`, `cyrius-init.sh`, `cyrius-port.sh`,
+  `cyrius-repl.sh`, `cyrius-watch.sh` from `scripts/` to
+  `versions/$V/bin/`. Matches the source-bootstrap path in
+  `install.sh`.
+
+### Changed
+- **Pulsar install layout unified with install.sh.**
+  `cbt/pulsar.cyr` now creates `versions/$V/bin/` and
+  `versions/$V/lib/` subdirectories. Binaries + scripts go
+  into `bin/`, stdlib into `lib/`. Symlink `$HOME/.cyrius/bin`
+  now points to `versions/$V/bin` (was `versions/$V`). Users
+  with pre-5.4.12 flat-layout installs of older versions must
+  reinstall those via `cyriusly install <ver>` (tarball path)
+  if they want `cyriusly use` to work cleanly.
+- **`scripts/install.sh` no longer heredocs `cyriusly`.** The
+  version manager is copied from `scripts/cyriusly` in the
+  source-bootstrap path and from the tarball's `bin/` in the
+  release path. As a safety net for pre-5.4.12 tarballs that
+  don't ship cyriusly, the script fetches
+  `raw.githubusercontent.com/$REPO/$VERSION/scripts/cyriusly`
+  on demand.
+- **`scripts/install.sh` hardcoded version fallback removed.**
+  When both GitHub API (releases/latest) and raw VERSION
+  fetches fail, the script now hard-errors with a
+  `CYRIUS_VERSION=<tag>` hint instead of silently defaulting
+  to a pinned version that ages out. `version-bump.sh`'s sed
+  for `VERSION="..."` becomes a no-op (the `|| true` tolerates
+  the miss).
+
+### Removed
+- **`scripts/cyrius.bak`** (61 KB) — legacy monolithic
+  dispatcher, superseded by the 31-line shim. Last touched
+  2026-04-16; no references outside CHANGELOG. Delete-safe.
+- **`/tmp/cc2_verify` cleanup line** in `install.sh` — pre-
+  cc3-rename residue; replaced with the correct
+  `/tmp/cc5_verify*` paths.
+
+### Documented
+- **Shell-script migration plan** in
+  `docs/development/roadmap.md` §"Shell-script migration plan"
+  (under the v5.4.12 section). Categorizes every shell script
+  in `scripts/` as bootstrap-bound (install.sh, cyriusly,
+  cyrius shim, mac-selfhost.sh) or migration-candidate (~1900
+  LOC across 10+ scripts, with a table mapping each to its
+  native `cyrius` subcommand target). No sequencing committed
+  here; individual migrations land across v5.5.x patches.
+
+### Verification
+- `cc5` + `cc5_aarch64` self-host byte-identical (compiler
+  unchanged; pure tooling release).
+- `sh scripts/check.sh` — 10/10 (unchanged gate count).
+
 ## [5.4.11] — 2026-04-19
 
 **aarch64 Linux syscall stdlib (yukti blocker) + aarch64 thread

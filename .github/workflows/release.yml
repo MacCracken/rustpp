@@ -44,7 +44,7 @@ jobs:
 
       - name: Build tools
         run: |
-          for tool in cyrfmt cyrlint cyrdoc cyrc ark; do
+          for tool in cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
             if [ -f "programs/${tool}.cyr" ]; then
               cat programs/${tool}.cyr | ./build/cc5 > ./build/${tool} && chmod +x ./build/${tool}
             fi
@@ -66,7 +66,7 @@ jobs:
           STAGE="cyrius-${VER}-x86_64-linux"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
 
-          for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark; do
+          for bin in cc5 cyrius cyrfmt cyrlint cyrdoc cyrc ark cyrld; do
             [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
           # Include cross-compiler separately (not in bin/ — it's a dev tool)
@@ -76,6 +76,7 @@ jobs:
             [ -f "$script" ] && cp "$script" "$STAGE/bin/"
           done
           cp scripts/ci.sh "$STAGE/bin/" 2>/dev/null || true
+          cp scripts/cyriusly "$STAGE/bin/"
           chmod +x "$STAGE/bin"/*
 
           sh scripts/release-lib.sh "$STAGE/lib"
@@ -132,6 +133,7 @@ jobs:
           # Build cyrius tool for aarch64 tarball (x86 binary — runs on host for cross builds)
           if [ -f "build/cyrius" ]; then cp build/cyrius "$STAGE/bin/"; fi
           cp scripts/cyrius-init.sh "$STAGE/bin/" 2>/dev/null || true
+          cp scripts/cyriusly "$STAGE/bin/"
           chmod +x "$STAGE/bin"/*
 
           sh scripts/release-lib.sh "$STAGE/lib"
@@ -196,6 +198,10 @@ jobs:
             cp "$f" "$STAGE/bin/$name"
             chmod +x "$STAGE/bin/$name"
           done
+
+          # Version manager
+          cp scripts/cyriusly "$STAGE/bin/"
+          chmod +x "$STAGE/bin/cyriusly"
 
           # Include macOS-specific stdlib
           sh scripts/release-lib.sh "$STAGE/lib"
