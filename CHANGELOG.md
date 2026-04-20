@@ -13,7 +13,8 @@ rotations × 1 arg + 24 rho+pi rotations, all inside 24 rounds ×
 30 blocks); inlining the naive `(x << n) | (x >> (64 - n))`
 formula at every call site removes those calls. NIST test vectors
 still pass; no correctness change. Scope intentionally narrow —
-the v5.4.17 closeout absorbs broader cleanup work.
+the v5.4.x tail is split into focused cleanup releases
+(v5.4.17 through v5.4.20) rather than one grab-bag closeout.
 
 **Bench numbers** (Linux x86_64, `benches/bench_keccak.bcyr`):
 
@@ -63,12 +64,17 @@ literal; self-host held on x86_64 and aarch64.
 - **No stdlib sha256** — owned by sigil, not in cyrius.
 
 ### Not in this release (queued)
-- **v5.4.17 closeout** absorbs broader cleanup: `lib/toml.cyr`
-  multi-line array fix (shakti unblock), `#ifplat` directive,
-  install-snapshot refresh hook, tool-list consolidation into
-  `[release]` cyrius.cyml table, parse.cyr unguarded x86-emit
-  audit, permanent `EW` alignment assert on aarch64, dead-code
-  sweep, full vidya catch-up, optional `cyrius build --strict`.
+- **v5.4.17** — `lib/toml.cyr` multi-line array fix (shakti
+  unblock — narrow single-issue release).
+- **v5.4.18** — release-scaffold hardening (tool-list
+  consolidation into a `[release]` table in `cyrius.cyml` +
+  install-snapshot refresh hook in `version-bump.sh`).
+- **v5.4.19** — `#ifplat` directive + compiler hardening
+  (parse.cyr unguarded x86-emit audit, permanent `EW`
+  alignment assert on aarch64, optional `cyrius build
+  --strict`).
+- **v5.4.20** — TRUE closeout (dead-code sweep, full vidya
+  catch-up, CLAUDE.md §"Closeout Pass" 9-step checklist).
 - Compiler optimization track (phases O1–O6) stays separate —
   that's the parallel arc, not a v5.4.x patch release.
 

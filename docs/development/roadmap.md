@@ -43,17 +43,21 @@
 > `lib/keccak.cyr` + sigil 2.9.0** (sigil 3.0 PQC enabler:
 > Keccak-f[1600] + SHAKE-128/256 sponge, NIST-verified on
 > both arches, SHAKE-256 4KB at 329µs within 2× sha256_4kb
-> budget). **v5.4.16 is claimed by a stdlib perf pass** —
-> mechanical inlining of hot helpers, starting with
-> `_keccak_rotl64` (~20k fn calls per 4KB SHAKE eliminated).
-> **v5.4.17 is the v5.4.x closeout pass** (per CLAUDE.md
-> §"Closeout Pass" — dead-code audit, doc / vidya sync,
-> residual parse.cyr unguarded x86-emit cleanup, permanent
-> `EW` alignment assert on aarch64, `version-bump.sh`
-> install-refresh hook, `#ifplat` directive, `lib/toml.cyr`
-> multi-line array fix, release-scaffold tool-list
-> consolidation, optional `cyrius build --strict`); after
-> v5.4.17 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
+> budget). **v5.4.16 ✅ stdlib perf pass** — `_keccak_rotl64`
+> inlined at 5 theta + 1 rho+pi sites; SHAKE-256 4KB 314µs →
+> 262µs (−17%, within ~5% of sigil sha256_4kb parity). **The
+> v5.4.x tail splits cleanup into four focused releases
+> rather than one grab-bag closeout** (each single-issue so
+> bisect stays trivial): **v5.4.17 `lib/toml.cyr` multi-line
+> array fix** (shakti unblock), **v5.4.18 release-scaffold
+> hardening** (tool-list → `[release]` cyrius.cyml table +
+> install-snapshot refresh hook), **v5.4.19 `#ifplat` +
+> compiler hardening** (lex directive + parse.cyr unguarded
+> x86-emit audit + aarch64 `EW` alignment assert + optional
+> `--strict` mode), **v5.4.20 TRUE closeout** (dead-code
+> sweep, full vidya catch-up, CLAUDE.md §"Closeout Pass"
+> 9-step checklist). After v5.4.20 ships, the next tag is
+> **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -789,96 +793,132 @@ cleanup work.
   factor tuning).
 - Any change that alters observable API.
 
-### v5.4.17 — v5.4.x closeout pass (then v5.5.0)
+### v5.4.17 — `lib/toml.cyr` multi-line array fix (shakti unblock)
 
-Per the closeout-pass procedure in `CLAUDE.md` (run before every
-minor/major bump, ship as the last patch of the current minor —
-e.g. 4.2.5 before 4.3.0). v5.4.17 is the v5.4.x closeout; tagging
-it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
-Platform Targets" below).
-
-**Closeout checklist (verbatim from CLAUDE.md §"Closeout Pass"):**
-1. Self-host verify — cc5 compiles itself byte-identical.
-2. Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
-3. Dead code audit — check dead function count, remove dead
-   source code (the standing 21-fn list at v5.4.10 is a good
-   floor; trim what's reachable to drop).
-4. Stale comment sweep — grep for old version refs, outdated
-   TODOs.
-5. Heap map verify — main.cyr heap map matches actual usage.
-6. Downstream check — every `cyrius.cyml` `cyrius` field
-   across the ecosystem repos points to the released v5.4.x
-   tag, not a dev pin.
-7. Security re-scan — quick grep for new `sys_system`,
-   `READFILE`, unchecked writes (we haven't run a full audit
-   since v5.0.1).
-8. CHANGELOG / roadmap / vidya sync — all docs reflect current
-   state. Vidya is the silent-rot one (no compile-time check),
-   so this expands per the CLAUDE.md §"Closeout Pass" sub-list:
-   - **`vidya/content/cyrius/language.toml`** — add `[[entries]]`
-     for new syntax / builtins / directives shipped in v5.4.x
-     that aren't there yet (e.g. `secret var`, `#regalloc`,
-     `#pe_import`, `#pe_export` if it lands, multi-return,
-     struct initializer, `&local` arch-dispatched form). Update
-     existing entries when behavior changed (`_cyrius_init`
-     binding, `&local` emit). Refresh the `overview` entry's
-     compiler size / cc binary name / version line so it points
-     at v5.4.14.
-   - **`vidya/content/cyrius/field_notes/compiler.toml`** — add
-     field notes for non-obvious gotchas surfaced this minor:
-     RBP-after-`clone()` race (v5.4.10), `FUTEX_PRIVATE_FLAG` vs
-     kernel `CLONE_CHILD_CLEARTID` shared wake (v5.4.10),
-     parse.cyr unguarded x86-emit paths (v5.4.8 / pending audit),
-     empty `.rdata` PE section loader rejection (v5.4.8),
-     `_cyrius_init` STB_LOCAL ELF-spec non-conformance fixed by
-     STB_GLOBAL flip (v5.4.9), aarch64 syscall-number stdlib
-     split (v5.4.11), keccak Keccak-f[1600] entry (v5.4.14). One
-     entry per gotcha; future-claude searching vidya before
-     reimplementing should hit them.
-   - **`vidya/content/cyrius/field_notes/language.toml`** —
-     user-facing gotchas: no `var` redecl in same scope, no
-     comparisons in fn-call args, parser's `#ifdef`-but-not-
-     `#else` (per the v5.4.11 proposal verification note).
-   - **`vidya/content/cyrius/implementation.toml`** /
-     **`types.toml`** — bump version refs and capture structural
-     changes (heap map slots, fixup table cap, fn table cap, IR
-     opcode count, backend modules added/removed).
-   - **`vidya/content/cyrius/dependencies.toml`** /
-     **`ecosystem.toml`** — refresh dep tags (sigil 2.8.4 →
-     whatever's current at closeout) and downstream consumer
-     test counts (yukti, libro, agnostik, kybernet, hadara,
-     ai-hwaccel — those numbers in CLAUDE.md must match).
-   - **Cross-check**: every vidya file mentioning a `cc?`
-     version (`cc3 4.8.5`, `cc5 5.4.x`, etc.) matches the
-     current `VERSION` file. `version-bump.sh` doesn't touch
-     vidya — it's manual at closeout, every time.
-9. Full `sh scripts/check.sh` — 12/12 PASS (gates accumulated
-   through v5.4.14: 10 existing at v5.4.11 + the v5.4.13
-   fncall-ceiling regression + v5.4.14's keccak NIST-vector
-   regression).
+Narrow single-issue release. `lib/toml.cyr:192` terminates
+unquoted values at the first `\n`, so a TOML value starting
+with `[` truncates to just `"["` when the array spans multiple
+lines. Same bug-class as shakti's own local parser; user
+observation 2026-04-19: migrating shakti to `lib/toml.cyr`
+would not have fixed anything because the bug is in both
+parsers. Dormant in cyrius-side consumers today (cyrius.cyml,
+vidya TOML content all use single-line arrays) but shakti's
+sudoers schema wants multi-line arrays for operator
+reviewability.
 
 **Scope:**
-- Audit the parse.cyr unguarded x86-emit paths flagged in
-  v5.4.10's memory (`feedback_unguarded_x86_emit.md`) — closure
-  address @970, struct field byte/word/dword load 1777-1779,
-  `#regalloc` callee-saved 3257/3403, x87 fallbacks. Fix what
-  fires under any current downstream's exercise; queue what
-  doesn't to v5.5.x.
-- Permanent `EW` alignment assert in
-  `src/backend/aarch64/emit.cyr` — the catch-everything net
-  for any future RBP-shift / alignment regression on aarch64.
-  Cheap; should have been there since v5.4.8.
-- Audit `src/frontend/parse.cyr`'s opaque syscall rerouting
-  (the partial translation that makes `syscall(1)` and
-  `syscall(60)` work on aarch64 today) — either complete the
-  table deterministically or remove the subset and require
-  consumers to go through `lib/syscalls*` (now per-arch as of
-  v5.4.11).
-- `cyrius build --strict` mode (escalate `undefined function`
-  warnings to hard errors) if it can land cheaply — closes
-  the regression class that mabda Issue 2 represents. Otherwise
-  defer to v5.5.x.
-- **`#ifplat` preprocessor directive** — replaces the verbose
+- In `lib/toml.cyr`'s value-extract block, detect `[` as the
+  first non-space char after `=`. If present, scan forward
+  tracking quote + bracket state (quotes toggle in_quote,
+  brackets bump depth) and ignore `\n` inside the array body.
+  Set the value end to the position after the matching `]`
+  (plus optional trailing `\n`).
+- Otherwise the old single-line scan applies unchanged.
+- ~20 LOC in `lib/toml.cyr`, no new dependencies.
+
+**Tests:**
+- `tests/tcyr/toml_multiline.tcyr` — new regression. Parse a
+  TOML input with a multi-line `commands = [ "a", "b", "c" ]`
+  array and assert `vec_len(... )` == 3 (not 0). Add a
+  quoted-`]` edge case (`["weird]path"]`) and a trailing-comma
+  edge case. Existing `tests/tcyr/toml.tcyr` continues to pass.
+
+**Acceptance:**
+1. `tests/tcyr/toml_multiline.tcyr` PASS — multi-line arrays
+   parse to the full list.
+2. `tests/tcyr/toml.tcyr` continues to pass (legacy single-line
+   arrays + scalar values unchanged).
+3. `sh scripts/check.sh` 10/10 (existing gates).
+4. cc5 + cc5_aarch64 self-host byte-identical (pure stdlib
+   change).
+5. **Shakti unblock**: shakti-agent copies the canonical
+   algorithm into `src/policy.cyr` and tags shakti 0.2.1 after
+   v5.4.17 ships. No cyrius CI gate on shakti (stays hermetic).
+
+**Why its own release:** shakti is waiting. Bundling with
+release-scaffold hardening (v5.4.18) or the compiler-side
+cleanup (v5.4.19) would delay an operator-facing ergonomic
+fix behind larger, higher-risk surface-area changes. Single-
+issue diff = cleanest bisect if something regresses.
+
+### v5.4.18 — release-scaffold hardening (packaging cleanup)
+
+Packaging / data-hygiene pass. Two related items, both
+surfaced during earlier releases but deferred because they
+touch the release pipeline itself and we didn't want to mix
+them with correctness fixes.
+
+**Scope:**
+
+- **Tool-list multi-ref collapse.** Surfaced at v5.4.12-1 as
+  the sibling of the release-lib.sh dep-tag drift. Today the
+  toolchain binary list is duplicated 6 times:
+  `.github/workflows/release.yml` (tool-build loop at :47 and
+  bin-copy loop at :69), `scripts/install.sh` (source-
+  bootstrap tool loop at :137, bin-copy loop at :151, summary
+  display at :482), and `cbt/pulsar.cyr` (bins array at
+  :129-137). Adding a tool — `cyrld` at v5.4.12 is the recent
+  case — requires six synchronized edits; missing any one
+  silently drops the tool from a codepath (CI built cyrld but
+  release.yml didn't ship it for months). **Fix shape**: new
+  `[release]` table in `cyrius.cyml`
+  (`bins = [...]`, `cross_bins = [...]`, `scripts = [...]`).
+  `release.yml` + `install.sh` parse it with the same awk
+  pattern `release-lib.sh` uses; `cbt/pulsar.cyr` extends its
+  existing CYML parser to populate the bins/scripts arrays at
+  runtime. ~100 LOC net across four files.
+- **Install-snapshot refresh hook.** Discovered during
+  v5.4.11 Chunk B work. `~/.cyrius/versions/<ver>/{lib,bin}/`
+  is created/refreshed by `install.sh`, which copies stdlib
+  + canonical binaries (dereferenced) at install time and
+  never auto-updates. When `cyrius.cyml` bumps a dep tag
+  (e.g. sigil 2.8.3 → 2.8.4 in v5.4.9) and `cyrius deps`
+  updates the repo's local `lib/{dep}.cyr` symlink, the
+  install snapshot stays at the old content. `version-bump.sh`
+  doesn't run `install.sh` either, so binaries also rot.
+  Audit snapshot at the time of discovery: 4 lib files + 7
+  binaries out of sync. **Fix shape**: `version-bump.sh`
+  post-bump hook runs `install.sh --refresh-only` to re-copy
+  `lib/` + `bin/` from current repo state. Skips the
+  bootstrap-from-source phase. Adds ~2s to a version bump;
+  eliminates the silent-rot class entirely.
+
+**Acceptance:**
+1. `[release]` table in `cyrius.cyml` is the single source of
+   truth for all binary and script lists; `release.yml`,
+   `install.sh`, and `cbt/pulsar.cyr` all read from it. A new
+   tool is added with one `cyrius.cyml` edit.
+2. `version-bump.sh <version>` runs `install.sh --refresh-only`
+   at the end; drift audit afterwards shows 0 stale files in
+   `~/.cyrius/versions/<version>/{lib,bin}/`.
+3. `sh scripts/check.sh` 10/10.
+4. cc5 self-host byte-identical.
+5. **Pulsar round-trip**: a clean `rm -rf ~/.cyrius && cyrius
+   pulsar` installs a working toolchain, verified by running
+   `cyriusly list` + `cyrius --version` + a trivial program
+   compile.
+
+**Why bundled together:** both items are about the release
+pipeline's correctness under change. Fixing one without the
+other leaves drift-prone layering (bumping a tool's version
+refreshes the snapshot but not its appearance in `release.yml`;
+or vice versa). Shipped together gives the release pipeline
+one consistent audit boundary.
+
+**Why its own release:** touches `release.yml` and `pulsar.cyr`.
+Bundling with the compiler-side cleanup (v5.4.19) would mix
+a release-mechanism change with a compiler-internal change —
+if the release pipeline breaks, bisecting becomes harder.
+
+### v5.4.19 — `#ifplat` + compiler hardening (frontend/backend)
+
+Compiler-side cleanup pass. All items touch `src/` frontend
+or backend; shipping them together keeps the self-host risk
+concentrated in one release.
+
+**Scope:**
+
+- **`#ifplat` preprocessor directive.** Replaces the verbose
   `#ifdef CYRIUS_ARCH_X86` / `#ifdef CYRIUS_ARCH_AARCH64`
   pattern with `#ifplat x86` / `#ifplat aarch64` plus proper
   `#elseplat` / `#endplat` family. Captures the (arch, format)
@@ -887,115 +927,103 @@ Platform Targets" below).
   flags) — `#ifplat aarch64-macho`, `#ifplat x86-pe` work
   uniformly. Lex/preprocessor change in `src/frontend/lex.cyr`
   (~80-150 LOC), plus migration of the ~3 existing call sites
-  (`lib/fnptr.cyr`, `lib/thread.cyr`, the v5.4.11 `lib/syscalls.cyr`
-  selector). **Why now (v5.4.17) not later (v6.0.0)**: v5.5.0
+  (`lib/fnptr.cyr`, `lib/thread.cyr`, the v5.4.11
+  `lib/syscalls.cyr` selector). **Why before v6.0.0**: v5.5.0
   is about to add many more dispatch sites (PE syscalls,
-  `lib/syscalls_windows.cyr`, `cc5_win.cyr` cross-entry); landing
-  the convention before v5.5.x prevents another wave of
-  `_TARGET_PE == 1` runtime branches that v6.0.0 would then
-  need to clean up. Migration cost stays small (3 sites) if we
-  do it now; balloons if deferred. Earlier confirmed during
-  v5.4.11 planning that bundling into v5.4.11 itself would
-  force functionality where it doesn't belong (syntactic
-  improvement vs the v5.4.11 correctness fix); v5.4.17's
-  cleanup theme is the right home.
-- Verify the post-v5.4.10 thread surface: TLS gap, atomics
-  gap, and runtime thread-safety surface (alloc / freelist /
-  hashmap under `CLONE_VM`) are all flagged but not yet on a
-  minor. Closeout decides whether any of those need a v5.4.x
-  patch slot or all push to v5.5.x.
-- **`lib/toml.cyr` multi-line array fix.** Surfaced during
-  v5.4.13 shakti review (shakti issue
-  `docs/development/issues/2026-04-19-mini-toml-parser-limits.md`).
-  `lib/toml.cyr:192` terminates unquoted values at the first
-  `\n`, so a TOML value starting with `[` truncates to just
-  `"["` when the array spans multiple lines. Same bug-class as
-  shakti's own local parser; user observation 2026-04-19:
-  migrating shakti to `lib/toml.cyr` would not have fixed
-  anything. Dormant today because cyrius's current consumers
-  (cyrius.cyml, vidya TOML content) all use single-line
-  arrays. **Fix shape**: detect `[` as value-start, scan for
-  matching `]` tracking quote + bracket state (ignoring `\n`
-  inside arrays). Same algorithm shakti applies locally.
-  ~20 LOC + `tests/tcyr/toml_multiline.tcyr` regression.
-  **Coordination**: shakti holds its 0.2.1 parser fix until
-  after v5.4.17 ships so it can reference the canonical fix
-  pattern. No other downstream is blocked.
-- **Release scaffold — collapse tool-list multi-refs to a
-  single source of truth.** Surfaced at v5.4.12-1 as the
-  sibling of the dep-tag drift (release-lib.sh). Today the
-  toolchain binary list is duplicated 6 times:
-  `.github/workflows/release.yml` (tool-build loop at :47 and
-  bin-copy loop at :69), `scripts/install.sh` (source-bootstrap
-  tool loop at :137, bin-copy loop at :151, summary display at
-  :482), and `cbt/pulsar.cyr` (bins array at :129-137). Adding
-  a tool — `cyrld` at v5.4.12 is the recent case — requires
-  six synchronized edits; missing any one silently drops the
-  tool from a codepath (CI built cyrld but release.yml didn't
-  ship it for months). **Fix shape**: new `[release]` table in
-  `cyrius.cyml` (`bins = [...]`, `cross_bins = [...]`,
-  `scripts = [...]`). release.yml + install.sh parse it with
-  the same awk pattern release-lib.sh uses; pulsar.cyr extends
-  its existing CYML parser to populate the bins/scripts arrays
-  at runtime instead of hardcoding them. **Why closeout
-  (v5.4.17), not earlier**: this touches release.yml and
-  pulsar.cyr — the release pipeline itself. Bundling into a
-  correctness-fix release risks breaking the actual release
-  mechanism while shipping something unrelated. Closeout is
-  the natural home for packaging refactors because the next
-  release is v5.5.0 and we need clean ground under it. ~100
-  LOC net across four files; should land with the #ifplat +
-  install-snapshot refresh work since all three are packaging
-  hardening.
-- **Install-snapshot drift fix + audit**.
-  `~/.cyrius/versions/<ver>/{lib,bin}/` is created/refreshed by
-  `install.sh`, which copies stdlib + canonical binaries
-  (dereferenced) at install time and never auto-updates. When
-  `cyrius.cyml` bumps a dep tag (e.g. sigil 2.8.3 → 2.8.4 in
-  v5.4.9) and `cyrius deps` updates the cyrius repo's local
-  `lib/{dep}.cyr` symlink, the install snapshot stays at the
-  old content. `version-bump.sh` doesn't run install.sh either,
-  so binaries also rot. Result: new downstream projects built
-  via the installed cyrius CLI silently get OLD deps + OLD
-  toolchain bins until reinstall.
+  `lib/syscalls_windows.cyr`, `cc5_win.cyr` cross-entry);
+  landing the convention before v5.5.x prevents another wave
+  of `_TARGET_PE == 1` runtime branches that v6.0.0 would
+  then need to clean up. Migration cost stays small (3 sites)
+  if we do it now; balloons if deferred.
+- **`parse.cyr` unguarded x86-emit audit.** Flagged in
+  v5.4.10's memory (`feedback_unguarded_x86_emit.md`) —
+  closure address @970, struct field byte/word/dword load
+  1777-1779, `#regalloc` callee-saved 3257/3403, x87
+  fallbacks. Fix what fires under any current downstream's
+  exercise; queue what doesn't to v5.5.x.
+- **Permanent `EW` alignment assert** in
+  `src/backend/aarch64/emit.cyr` — the catch-everything net
+  for any future RBP-shift / alignment regression on aarch64.
+  Cheap; should have been there since v5.4.8.
+- **Audit `src/frontend/parse.cyr`'s opaque syscall
+  rerouting** (the partial translation that makes `syscall(1)`
+  and `syscall(60)` work on aarch64 today) — either complete
+  the table deterministically or remove the subset and
+  require consumers to go through `lib/syscalls*` (now per-arch
+  as of v5.4.11).
+- **`cyrius build --strict` mode** (escalate `undefined
+  function` warnings to hard errors) if it can land cheaply —
+  closes the regression class that mabda Issue 2 represents
+  and that v5.4.15's `bench_print_all` typo demonstrated.
+  Otherwise defer to v5.5.x.
 
-  Discovered during v5.4.11 Chunk B work. Audit scope at the
-  time of discovery:
-  - **lib/** — sigil 2.8.4 (repo) vs 2.8.3 (install), yukti
-    1.3.0 vs 1.2.0, plus syscalls.cyr / syscalls_x86_64_linux.cyr
-    drift from the v5.4.11 split. 4/56 files drifted.
-  - **bin/** — cyrc, cyrdoc, cyrfmt, cyrius, cyrlint, cc5_aarch64
-    all drifted from current build/. ~7 binaries out of sync.
+**Acceptance:**
+1. `#ifplat` + `#elseplat` + `#endplat` parse correctly in
+   `src/frontend/lex.cyr`; 3 existing dispatch sites migrated
+   and work identically.
+2. `tests/tcyr/ifplat.tcyr` new regression gating arch
+   dispatch under both the old `#ifdef` form (backward-compat)
+   and the new `#ifplat` form (equivalence check).
+3. No new unguarded x86-emit sites remain in the cross-built
+   aarch64 compiler output (audit loop clean).
+4. aarch64 `EW` alignment assert fires under a synthetic
+   misalignment (test) and not under normal compile (existing
+   tests pass).
+5. `cyrius build --strict` with an undefined-function program
+   exits non-zero with a clear error.
+6. `sh scripts/check.sh` 11/11 (adds the `#ifplat`
+   equivalence gate).
+7. cc5 + cc5_aarch64 self-host byte-identical under the new
+   conventions.
 
-  Fix in two layers:
+**Why its own release:** all compiler-internal surface. Self-
+host is the critical path — a regression here means cc5 won't
+compile itself. Isolating to one release lets us verify the
+self-host hold after EACH item and bisect cleanly if
+something breaks.
 
-  1. **Tactical** (`version-bump.sh` post-bump hook): run
-     `install.sh --refresh-only` at the end so bump-time always
-     reconciles. `--refresh-only` skips the bootstrap-from-source
-     phase and only re-copies lib/ + bin/ from the current repo
-     state. Adds ~2s to a bump but eliminates the silent-rot
-     class entirely.
+### v5.4.20 — v5.4.x closeout pass (then v5.5.0)
 
-  2. **Closeout audit** (this section, every closeout): run
-     the dep+bin currency loop:
-     ```sh
-     for f in lib/*.cyr build/*; do
-         cmp -s "$f" "~/.cyrius/versions/$(cat VERSION)/$(dirname $f | sed s,^,, )/$(basename $f)" \
-             || echo "DRIFT $f"
-     done
-     ```
-     Any DRIFT output blocks the closeout — refresh first, then
-     re-audit. The previous "downstream check" step covers
-     downstream consumer pins; this NEW step covers our OWN
-     install snapshot's currency.
+Per the closeout-pass procedure in `CLAUDE.md` (run before every
+minor/major bump, ship as the last patch of the current minor —
+e.g. 4.2.5 before 4.3.0). v5.4.20 is the v5.4.x closeout; tagging
+it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
+Platform Targets" below).
 
-  Why **don't** widen `cyrius deps` to write outside the
-  project: it's project-scoped by contract; widening would
-  surprise users whose project deps would leak into other
-  projects. Keep the install-snapshot refresh in
-  `version-bump.sh` / `install.sh` where it belongs.
+**Scope** — mechanical pass, no new features:
+- Dead-code audit (remove any unreachable fns; the standing
+  21-fn list at v5.4.10 is a good floor).
+- Stale comment sweep (grep for old version refs, outdated
+  TODOs, references to renamed fns).
+- Heap map verify (main.cyr heap map matches actual usage).
+- Downstream check (every `cyrius.cyml` `cyrius` field across
+  ecosystem repos points at the released v5.4.x tag).
+- Security re-scan (quick grep for new `sys_system`,
+  `READFILE`, unchecked writes — last full audit was v5.0.1).
+- CHANGELOG / roadmap / vidya sync (vidya is the silent-rot
+  one; per-file checklist below).
+- Full `sh scripts/check.sh` — 11/11 PASS (accumulated gates
+  through v5.4.19).
+- Post-v5.4.10 thread-surface verification (TLS gap, atomics
+  gap, runtime thread-safety under `CLONE_VM`): decide whether
+  any of those need a v5.4.x patch slot or all push to v5.5.x.
 
-After v5.4.17 ships, the next tag is **v5.5.0** — which is
+**Closeout checklist** (verbatim from CLAUDE.md §"Closeout Pass"):
+
+1. Self-host verify — cc5 compiles itself byte-identical.
+2. Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
+3. Dead code audit (see bullet above).
+4. Stale comment sweep.
+5. Heap map verify.
+6. Downstream check.
+7. Security re-scan.
+8. CHANGELOG / roadmap / vidya sync — per-file vidya
+   breakdown in `feedback_vidya_closeout.md` memory; at
+   closeout, walk through every vidya file referenced there
+   and bring it current with what shipped across v5.4.x.
+9. Full `sh scripts/check.sh` — 11/11 PASS.
+
+After v5.4.20 ships, the next tag is **v5.5.0** — which is
 itself claimed by the PE correctness completion below. The new
 minor opens with the same Windows arc that closed v5.4.x: ship
 the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
