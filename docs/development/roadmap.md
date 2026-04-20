@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.4.** cc5 compiler (478608 B x86_64), x86_64 + aarch64
+> **v5.5.5.** cc5 compiler (478608 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -60,13 +60,14 @@
 > **v5.5.0** opened the v5.5.x platform-rounding arc. Every
 > remaining v5.5.x item now has a **concrete patch number** in
 > the release table below (§"v5.5.x pillars") — v5.5.4 Win64 ABI
-> call-site completion, v5.5.5 `lib/fnptr.cyr` Win64 variants,
-> v5.5.6 Windows self-host, v5.5.7 Apple Silicon toolchain,
-> v5.5.8 aarch64 native Linux self-host, v5.5.9 include-asm bug,
-> v5.5.10 NSS/PAM, v5.5.11 TLS, v5.5.12 atomics, v5.5.13
-> thread-safety audit, v5.5.14 PE .reloc+ASLR, v5.5.15 PE
-> struct-return+variadic+__chkstk tail, v5.5.16 closeout. No
-> more "pillar N / parallel track" ambiguity.
+> call-site completion, v5.5.5 `&fn` PE VA fixup, v5.5.6
+> `lib/fnptr.cyr` Win64 variants, v5.5.7 Windows self-host,
+> v5.5.8 Apple Silicon toolchain, v5.5.9 aarch64 native Linux
+> self-host, v5.5.10 include-asm bug, v5.5.11 NSS/PAM, v5.5.12
+> TLS, v5.5.13 atomics, v5.5.14 thread-safety audit, v5.5.15
+> PE .reloc+ASLR, v5.5.16 PE struct-return+variadic+__chkstk
+> tail, v5.5.17 closeout. No more "pillar N / parallel track"
+> ambiguity.
 > **After v5.5.x:**
 > **v5.6.0–5.6.5 is the compiler-optimization arc** (pinned
 > 2026-04-20; was a "parallel track" across v5.4.x/v5.5.x with no
@@ -769,7 +770,7 @@ measured SHAKE-256 4 KB at **329 µs avg** (target ≤ 500 µs /
 2× sha256_4kb; actual 1.3× ratio — within budget). `cyrius.cyml`
 sigil pin bumped 2.8.4 → 2.9.0 alongside the keccak landing;
 sigil 2.9.0 ships HKDF live, AES-NI deferred to 2.9.1 pending
-the include-boundary inline-asm bug (pinned to v5.5.9).
+the include-boundary inline-asm bug (pinned to v5.5.10).
 See CHANGELOG [5.4.15] for the full entry.
 
 ### v5.4.16 — stdlib perf pass
@@ -1075,33 +1076,34 @@ before opening the next platform port.
 | **v5.5.2** ✅ | Enum-constant sc_num fold | `syscall(SYS_WRITE, …)` wrappers route cleanly |
 | **v5.5.3** ✅ | Win64 arg-register flip (≤4 args) | EPOPARG + ESTOREREGPARM under `_TARGET_PE` |
 | **v5.5.4** | Win64 ABI call-site completion | Shadow space at cyrius-to-cyrius call sites + >4-arg stack shuttle in `ECALLPOPS`/`ECALLCLEAN` + `ESTOREPARM` dispatch boundary + `ESTORESTACKPARM` shadow offset. Compiler-backend concern. |
-| **v5.5.5** | `lib/fnptr.cyr` Win64 `fncallN` variants | Indirect fn-pointer calls need Win64 arg-register mapping + 32 B shadow allocation before the indirect `call`. 9 `#ifdef CYRIUS_TARGET_WIN` parallel asm blocks. Stdlib concern (distinct surface from v5.5.4's backend work). |
-| **v5.5.6** | Native Windows self-host | `cc5_win` compiling itself on `windows-latest`, full `.tcyr` suite gated on Windows CI. Mirrors v5.3.13's Apple Silicon close. |
-| **v5.5.7** | Apple Silicon toolchain completion | libSystem dynamic imports (the Mach-O equivalent of PE's IAT) unlock `malloc`/`pthread`/`fopen` on arm64 → `cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc` ship for arm64. Drops `scripts/macos-arm64-README.md`'s "Not yet available" section to empty. Verification host: `ssh ecb` (MBP). |
-| **v5.5.8** | aarch64 native Linux self-host | Wider stdlib pass on real Pi hardware — alloc, fs, threading, mutex chains under `CLONE_VM`. `regression.tcyr` 102/102 already holds from v5.3.18; this completes the consumer-facing modules. |
-| **v5.5.9** | `include`-boundary inline-asm bug fix | Filed v5.4.15 (sigil 2.9.0 AES-NI blocker). Stores through caller-pointer from `include`d fn with big asm block no-op silently; byte-identical objdump either way. Speculative causes: fixup-table pressure on disp32 forward refs, DCE over-stripping in include context, prologue/epilogue clobber of pointer register. Sigil 2.9.1 unblocked. |
-| **v5.5.10** | NSS/PAM end-to-end | `pam_authenticate` / `getgrouplist` SIGSEGV in libc today because nsswitch + locale init + NSS-module dlopen graph aren't bootstrapped. shakti 0.2.x is the downstream blocker; currently stubs `pam_authenticate` to UNAVAILABLE and falls through to `/usr/bin/su`. |
-| **v5.5.11** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
-| **v5.5.12** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. |
-| **v5.5.13** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.12 if scope stays small. |
-| **v5.5.14** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
-| **v5.5.15** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.15 groups the pre-emptive fixes. |
-| **v5.5.16** | v5.5.x closeout | Last patch before v5.6.0. Self-host verify, bootstrap closure, dead-code audit, stale-comment sweep, heap-map verify, downstream dep-pointer check, security re-scan, CHANGELOG/roadmap/vidya sync per CLAUDE.md "Closeout Pass" 9-step checklist. |
+| **v5.5.5** | `&fn` PE VA fixup | Prerequisite for v5.5.6 (fnptr.cyr) surfaced during testing: `fixup.cyr` ftype=3 (fn-address) computed `entry + fn_offset` using the ELF entry point, not the PE `ImageBase + .text RVA + fn_offset`. `&fn` under `CYRIUS_TARGET_WIN=1` emits an ELF-style VA that Windows rejects with error 216 ("not compatible"). 3-line patch mirroring the existing ftype=1 string-address PE branch. |
+| **v5.5.6** | `lib/fnptr.cyr` Win64 `fncallN` variants | Indirect fn-pointer calls need Win64 arg-register mapping + 32 B shadow allocation before the indirect `call`. 9 `#ifdef CYRIUS_TARGET_WIN` parallel asm blocks. Stdlib concern (distinct surface from v5.5.4's backend work). Depends on v5.5.5. |
+| **v5.5.7** | Native Windows self-host | `cc5_win` compiling itself on `windows-latest`, full `.tcyr` suite gated on Windows CI. Mirrors v5.3.13's Apple Silicon close. |
+| **v5.5.8** | Apple Silicon toolchain completion | libSystem dynamic imports (the Mach-O equivalent of PE's IAT) unlock `malloc`/`pthread`/`fopen` on arm64 → `cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc` ship for arm64. Drops `scripts/macos-arm64-README.md`'s "Not yet available" section to empty. Verification host: `ssh ecb` (MBP). |
+| **v5.5.9** | aarch64 native Linux self-host | Wider stdlib pass on real Pi hardware — alloc, fs, threading, mutex chains under `CLONE_VM`. `regression.tcyr` 102/102 already holds from v5.3.18; this completes the consumer-facing modules. |
+| **v5.5.10** | `include`-boundary inline-asm bug fix | Filed v5.4.15 (sigil 2.9.0 AES-NI blocker). Stores through caller-pointer from `include`d fn with big asm block no-op silently; byte-identical objdump either way. Speculative causes: fixup-table pressure on disp32 forward refs, DCE over-stripping in include context, prologue/epilogue clobber of pointer register. Sigil 2.9.1 unblocked. |
+| **v5.5.11** | NSS/PAM end-to-end | `pam_authenticate` / `getgrouplist` SIGSEGV in libc today because nsswitch + locale init + NSS-module dlopen graph aren't bootstrapped. shakti 0.2.x is the downstream blocker; currently stubs `pam_authenticate` to UNAVAILABLE and falls through to `/usr/bin/su`. |
+| **v5.5.12** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
+| **v5.5.13** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. |
+| **v5.5.14** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.13 if scope stays small. |
+| **v5.5.15** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
+| **v5.5.16** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.16 groups the pre-emptive fixes. |
+| **v5.5.17** | v5.5.x closeout | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.16 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. See §"v5.5.17" below. |
 
 **Why this sequence:**
 - v5.5.4–5.5.5 finish the Windows arc (Win64 ABI + native
   self-host). v5.3.x/v5.4.x started Windows; v5.5.x honest-closes
   it.
-- v5.5.7 finishes the Apple Silicon arc (same shape — libSystem
+- v5.5.8 finishes the Apple Silicon arc (same shape — libSystem
   imports are arm64's last missing ingredient, like IAT was for
   PE).
-- v5.5.8–5.5.13 are Linux runtime correctness — items that have
+- v5.5.9–5.5.14 are Linux runtime correctness — items that have
   been carrying forward across multiple minors with shifting
   release targets. Pinning them to concrete patch numbers means
   they can't slip silently.
-- v5.5.14–5.5.15 are the PE correctness tail — defer-able but
+- v5.5.15–5.5.16 are the PE correctness tail — defer-able but
   recorded so they don't get forgotten.
-- v5.5.16 is the formal closeout before v5.6.0 (optimization arc).
+- v5.5.17 is the formal closeout before v5.6.0 (optimization arc).
 
 **After v5.5.x:**
 - **v5.6.0–5.6.5** — Compiler optimization arc (§"v5.6.0 —
@@ -1213,10 +1215,12 @@ branches). CI gate added to both `windows-cross` (byte-level
 Win64 spill-quartet assertion) and `windows-native` (ERRORLEVEL
 check on windows-latest).
 
-**Out of scope (unbundled across v5.5.4 + v5.5.5):**
+**Out of scope (unbundled across v5.5.4 + v5.5.5 + v5.5.6):**
 - v5.5.4 = shadow-space enforcement at cyrius-to-cyrius call sites
   + >4-arg stack shuttle (backend concern, in `src/backend/x86/emit.cyr`).
-- v5.5.5 = `lib/fnptr.cyr` Win64 `fncallN` variants (stdlib concern,
+- v5.5.5 = `&fn` PE VA fixup (fixup.cyr ftype=3 PE branch —
+  prerequisite for any indirect-fn-pointer testing on Windows).
+- v5.5.6 = `lib/fnptr.cyr` Win64 `fncallN` variants (stdlib concern,
   distinct surface — split for single-concern bisect signal).
 
 Programs using >4-arg fns under `CYRIUS_TARGET_WIN=1` mis-compile
@@ -1229,7 +1233,7 @@ Closes the cyrius-to-cyrius call-site half of the Win64 ABI lift.
 After v5.5.4, cyrius programs of any arity compile correctly on
 Windows at the compiler-backend level. Indirect fn-pointer calls
 through `lib/fnptr.cyr` still use SysV register mappings — that's
-v5.5.5's scope.
+v5.5.6's scope (via v5.5.5's `&fn` PE VA prerequisite).
 
 **Scope** — all `_TARGET_PE`-guarded; Linux/Mach-O paths
 untouched:
@@ -1262,18 +1266,48 @@ untouched:
 **Self-host fixpoint is the authoritative gate** — Linux
 `cc5 → cc5b` byte-identical stays green (code guarded by
 `_TARGET_PE`). Windows-native fixpoint (cc5_win compiling itself
-ON Windows) is v5.5.6.
+ON Windows) is v5.5.7.
 
 **CLAUDE.md "3 failed attempts = defer" still applies.** If
 fixpoint fails three distinct v5.5.4 attempts, split further —
 e.g. ship shadow space alone as v5.5.4, defer stack shuttle to
 its own patch.
 
-### v5.5.5 — `lib/fnptr.cyr` Win64 `fncallN` variants (planned after v5.5.4)
+### v5.5.5 — `&fn` PE VA fixup (planned next)
+
+Small prerequisite patch surfaced while preparing v5.5.6 (the
+lib/fnptr.cyr Win64 variants). `src/backend/x86/fixup.cyr` at
+ftype=3 (fn-address) computed the target as `entry + fn_offset`
+using the ELF entry point, which is correct for ELF output but
+wrong for PE. Under `CYRIUS_TARGET_WIN=1`, `&fn` therefore emits
+a `movabs rax, imm64` with an ELF-style VA (e.g. 0x4000d8) instead
+of the PE VA (`0x140000000 + _pe_text_rva + fn_offset`), causing
+Windows to reject the resulting .exe with error 216 ("not
+compatible").
+
+**Scope** — 3-line patch at the ftype=3 branch in `fixup.cyr`
+mirroring the existing ftype=1 (string-address) PE guard at
+line 203–205. No other files touched; no ABI change.
+
+**Why split from v5.5.6:** `&fn` PE VA fixup is a compiler-
+backend concern in `fixup.cyr`; fnptr.cyr Win64 variants is a
+stdlib-runtime concern. Different file, different invariant,
+independent bisect signal. Without v5.5.5, v5.5.6 can't be
+tested because every indirect call starts with `&fn` and
+crashes the PE before reaching fncallN.
+
+**Verification** — compile a program that takes a fn's address
+under CYRIUS_TARGET_WIN=1, scp to nejad@hp, confirm it no longer
+trips Windows' load-time rejection. Byte-level gate: the
+`movabs rax, 0x140…` immediate must land in the PE VA range
+[0x140000000, 0x200000000) — same regression gate v5.4.8 used
+for string-address PE VAs.
+
+### v5.5.6 — `lib/fnptr.cyr` Win64 `fncallN` variants (planned after v5.5.5)
 
 Indirect fn-pointer calls go through `lib/fnptr.cyr`'s
 `fncall0..fncall8` — 9 hand-rolled x86 asm blocks that load args
-from `[rbp-disp]` into RDI/RSI/.../R9. v5.5.5 adds
+from `[rbp-disp]` into RDI/RSI/.../R9. v5.5.6 adds
 `#ifdef CYRIUS_TARGET_WIN` parallel blocks so indirect calls on
 Windows use the Win64 register tuple + 32 B shadow + 5th-plus
 stack slots at `[rsp+32+]`.
@@ -1281,7 +1315,9 @@ stack slots at `[rsp+32+]`.
 Splits from v5.5.4 because it touches a different file
 (`lib/fnptr.cyr` vs `src/backend/x86/emit.cyr`), a different
 invariant (runtime helper ABI vs compiler-emitted ABI), and
-has independent bisect signal.
+has independent bisect signal. Depends on v5.5.5's `&fn` PE VA
+fixup — without it, the fn-pointer value passed into fncallN
+is an invalid VA and crashes before the indirect call.
 
 **Scope** — all `_TARGET_PE`-guarded; SysV blocks stay active on
 Linux/Mach-O:
@@ -1294,14 +1330,14 @@ Linux/Mach-O:
 
 Lines affected: 9 blocks across lines 43–322 of `lib/fnptr.cyr`.
 
-### v5.5.6 — Native Windows self-host (planned after v5.5.5)
+### v5.5.7 — Native Windows self-host (planned after v5.5.6)
 
 `cc5_win` compiling itself on a real `windows-latest` runner,
 byte-identical to the ubuntu-cross build. Depends on v5.5.4 +
-v5.5.5 (cc5's own source + stdlib have both >4-arg fns and
-indirect fn-pointer calls). Full plan in vidya
+v5.5.5 + v5.5.6 (cc5's own source + stdlib have both >4-arg fns
+and indirect fn-pointer calls via `&fn`). Full plan in vidya
 `implementation.toml :: plan_windows_self_host_v554` (filename
-retained; content keyed to v5.5.6 now). Key infra beats:
+retained; content keyed to v5.5.7 now). Key infra beats:
 - `shell: cmd` for binary stdin→stdout pipe on windows-latest
   (PowerShell `>` corrupts binary streams — UTF-16/UTF-8 BOM).
 - Two-step bootstrap shape: Linux cross → cc5_win_v1 artifact,
@@ -1311,13 +1347,103 @@ retained; content keyed to v5.5.6 now). Key infra beats:
   v5.5.1/v5.5.2 reroutes; tests needing fork/clone/futex tagged
   `# platform: linux`.
 
-**Scope NOT included** (carries to v5.5.7+):
+**Scope NOT included** (carries to v5.5.8+):
 - `.reloc` section + ASLR (needed for DLL output).
 - `__chkstk` / stack-probe for frames ≥ 4 KB (no Cyrius fn
   currently trips this).
 - Struct-return-by-value via hidden RCX retptr.
 - Variadic float duplication (`xmm0` + `rdx` for `printf("%f", x)`).
 - SEH `.pdata`/`.xdata` (indefinite — CLI .exe doesn't need it).
+
+### v5.5.17 — v5.5.x closeout pass (then v5.6.0)
+
+Last patch of the v5.5.x minor. Full CLAUDE.md §"Closeout Pass"
+11-step checklist run with v5.5.x-specific scope — this minor
+added substantial `_TARGET_PE` surface area, a new heap region
+(v5.5.2's enum-const table at 0xD8000), and enough ABI parallel
+paths that a dedicated refactor + code review window is earned.
+
+**Mechanical (CLAUDE.md steps 1-3):**
+- Self-host verify — cc5 compiles itself byte-identical (Linux).
+- Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
+- Full `sh scripts/check.sh` — 10+/10+ PASS (gates accumulated
+  through v5.5.16; exact count depends on what v5.5.7 native
+  self-host adds).
+
+**Judgment-call passes (CLAUDE.md steps 4-8):**
+- **Heap map audit** — v5.5.x added at least one named region
+  (enum-const table, 0xD8000, 8 KB). Verify no collisions with
+  the free gap it consumed. Walk every region in `src/main.cyr`'s
+  heap map: confirm it's used, sized correctly, at a stable
+  offset. Flag caps that got close to exhaustion across v5.5.x
+  (fn table at 4096, fixup table at 16384, ident buffer at 128KB
+  — did any approach limits?). Look for consolidation: adjacent
+  regions owned by the same subsystem might merge.
+- **Dead code audit** — the standing 21-unreachable-fn list from
+  v5.4.10 is the floor. Did v5.5.x add new dead entries? Remove
+  them. Record the new floor.
+- **Refactor pass** — v5.5.x added _TARGET_PE branches in:
+  EPOPARG (v5.5.3), ESTOREREGPARM (v5.5.3), ECALLPOPS + ECALLCLEAN
+  (v5.5.4), ESTOREPARM + ESTORESTACKPARM (v5.5.4), plus EEXIT /
+  EWRITE_PE / v5.5.1-syscall-reroute-bundle (v5.5.0/1), plus
+  `lib/fnptr.cyr` fncallN Win64 variants (v5.5.5). That's a LOT
+  of `if (_TARGET_PE == 1) { … }` blocks. Evaluate whether the
+  dispatch pattern has stabilized enough to factor into a single
+  "abi_kind" switch or helpers. Land consolidation IF self-host
+  stays byte-identical; otherwise file as v5.6.x first-patch work
+  with a concrete patch number, not "queued for later".
+- **Code review pass** — walk every v5.5.0–v5.5.15 diff end-to-end.
+  Specifically look for:
+  - Unguarded x86 encodings on non-x86 paths (pattern from v5.4.19
+    aarch64 `&local` leak; the `EW` alignment assert should have
+    caught any new one, but verify).
+  - SysV leaks on `_TARGET_PE` paths (pattern from v5.5.3's
+    EPOPARG fallthrough that v5.5.4 fixed). Are there other
+    `if (_TARGET_PE) { … } /* fallthrough to SysV */` shapes where
+    the fallthrough is wrong?
+  - Byte-order typos in hand-rolled hex literals (pattern from
+    v5.5.4-alpha's `0xC24989` that should have been `0xC28949`).
+    Cross-check every `E3(S, 0x…89…)` literal against a disasm
+    verification.
+  - Silently-ignored error returns from new kernel32 reroute
+    helpers (`_pe_ensure_*`).
+  - Off-by-one in fixup arithmetic (pattern from v5.4.8-alpha
+    cc5_aarch64 `&local` leak).
+- **Cleanup sweep** — stale comments referencing pre-v5.5.x state
+  (e.g. "queued for v5.5.x pillar N" phrasing, now superseded by
+  pinned patch numbers). Dead `#ifdef` branches. Orphaned files.
+
+**Compliance (CLAUDE.md steps 9-10):**
+- **Security re-scan** — last full audit was v5.0.1. If no v5.5.x
+  patch added `sys_system`, `READFILE`, or unchecked writes, the
+  quick grep is enough; else schedule a full audit for v5.6.x.
+- **Downstream check** — every ecosystem repo's `cyrius.cyml`
+  `cyrius` field points at v5.5.x tag. With 15 patches in this
+  minor, downstream drift is likely — bump each repo to the
+  final v5.5.x tag before v5.6.0 opens.
+
+**Docs (CLAUDE.md step 11):**
+- **Vidya full pass** per `feedback_vidya_closeout.md` memory —
+  language.toml overview entry version/size, compiler.toml new
+  gotcha entries (shadow-space-skip decision at v5.5.4, byte-order
+  trap from v5.5.4-alpha, PowerShell `>` binary corruption from
+  v5.5.6), implementation.toml heap-map changes (enum-const
+  table), dependencies.toml dep bumps.
+- Roadmap: verify every v5.5.x row in the release table has the
+  ✅ marker and matches what actually shipped. Any patch that
+  slipped scope gets a note explaining the slip.
+- CHANGELOG: entries present for v5.5.0 through v5.5.15. Cross-
+  check the dates.
+
+**Benchmark refresh:**
+- `cyrius bench` at v5.5.16, comparing v5.5.0 baseline. Record in
+  `bench-history.csv`. Expected trend: compiler size grew (~2.5%
+  per Win64-branch patch); runtime for most benchmarks flat
+  (optimizer arc is v5.6.x, not v5.5.x). Any unexpected slowdown
+  points at a v5.5.x regression the other passes missed.
+
+After v5.5.16 ships, the next tag is **v5.6.0** — Phase O1 of the
+compiler-optimization arc.
 
 ---
 

@@ -632,6 +632,37 @@ jobs:
           fi
           echo "Win64 >4-arg fncall cross: $pass passed, $fail failed"
           test $fail -eq 0
+      - name: v5.5.5 `&fn` PE VA fixup gate
+        run: |
+          # v5.5.5: address-of-fn (`&fn`) under CYRIUS_TARGET_WIN=1
+          # must emit a `movabs rax, imm64` with imm64 in the PE VA
+          # range [0x140000000, 0x200000000). Pre-v5.5.5 emitted an
+          # ELF-style VA (e.g. 0x4000d8) which Windows rejects at
+          # load time with error 216 ("not compatible"). Fix was a
+          # 3-line PE branch in src/backend/x86/fixup.cyr ftype=3
+          # mirroring the existing ftype=1 string-address guard.
+          printf 'fn f() { return 42; } var fp = &f; syscall(60, 0);\n' \
+            | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > /tmp/win_out/w_fnaddr.exe
+          sz=$(wc -c < /tmp/win_out/w_fnaddr.exe)
+          test "$sz" -gt 0 || { echo "FAIL: w_fnaddr.exe empty"; exit 1; }
+          # Scan .text (file offset 0x200+) for `48 B8 <imm64>` and
+          # assert imm64 lives in the PE VA range. A single hit is
+          # sufficient; fail on any ELF-range leak.
+          python3 -c "
+          d=open('/tmp/win_out/w_fnaddr.exe','rb').read()
+          found = False
+          for i in range(0x200, min(0x800, len(d)-10)):
+              if d[i]==0x48 and d[i+1]==0xB8:
+                  imm=int.from_bytes(d[i+2:i+10],'little')
+                  if 0x140000000 <= imm < 0x200000000:
+                      print(f'PASS: &fn movabs rax, 0x{imm:x} (PE VA)')
+                      found = True
+                  else:
+                      raise SystemExit(f'FAIL: &fn movabs imm=0x{imm:x} outside PE VA range')
+          if not found: raise SystemExit('FAIL: no movabs in .text')
+          "
+          echo "0" > /tmp/win_out/w_fnaddr.expected
+          echo "PASS: v5.5.5 &fn PE VA gate"
       - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
           # Compile a syscall(1) hello-world program and verify:
@@ -725,7 +756,8 @@ jobs:
           # ESTOREPARM dispatch + ESTORESTACKPARM shadow-less layout.
           foreach ($name in @("exit0", "exit1", "exit42", "exit255",
                               "w_arg1", "w_arg2", "w_arg3", "w_arg4", "w_nested",
-                              "w_arg5", "w_arg6", "w_arg7", "w_arg8", "w_arg5_order")) {
+                              "w_arg5", "w_arg6", "w_arg7", "w_arg8", "w_arg5_order",
+                              "w_fnaddr")) {
             $exe = ".\win\$name.exe"
             $expected = (Get-Content ".\win\$name.expected" -Raw).Trim()
             $proc = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow

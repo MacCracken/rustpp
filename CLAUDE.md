@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 5.5.4
+- **Version**: 5.5.5
 
 ## Goal
 
@@ -14,7 +14,7 @@ Own the language. Own the toolchain. No crates.io. No external governance. Assem
 
 ## Current State
 
-- **Compiler**: 482008 B (x86_64), aarch64 cross-compiler + native self-host byte-identical on real Pi (v5.3.15+), **`regression.tcyr` 102/102 PASS on aarch64 (v5.3.18)**, Apple Silicon Mach-O target **(self-hosts byte-identically on M-series as of v5.3.13 — 475320 B, Linux cross == Mac round 1 == Mac round 2)**, **Windows PE32+ target (v5.4.2 structural, v5.4.3 `EEXIT` Win64 + IAT fixup, v5.4.4 `syscall(60)` rerouted, v5.4.5 on-hardware CI gate, v5.4.6 `#pe_import` directive, v5.4.7 `syscall(1)` → `GetStdHandle + WriteFile`, v5.4.8 PE data placement — `hello\n` runs end-to-end on Windows; v5.5.0 foundation: `build/cc5_win` cross-entry + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` + `CYRIUS_TARGET_WIN/LINUX` selectors; v5.5.1 bundles 5 more reroutes — `syscall(0)`→ReadFile, `syscall(2)`→CreateFileW, `syscall(3)`→CloseHandle, `syscall(8)`→SetFilePointerEx, `syscall(9)`→VirtualAlloc; v5.5.2 adds enum-constant sc_num folding so `syscall(SYS_WRITE, ...)` via the `lib/syscalls_windows.cyr` wrappers routes cleanly through the IAT instead of falling through to the 0F 05 Linux encoding; v5.5.3 flips EPOPARG + ESTOREREGPARM to Win64 arg registers (RCX/RDX/R8/R9) under `_TARGET_PE` for cyrius-to-cyrius fn calls with ≤4 args; **v5.5.4 completes the call-site Win64 ABI — `ECALLPOPS` shuttles extras via r10/r11/r14/r15 for >4 args, `ECALLCLEAN` unwinds the stack-arg frame, `ESTOREPARM` dispatch boundary flips to pidx<4, `ESTORESTACKPARM` reads [rbp+16+(pidx-4)*8] — verified on real Windows 11 (`nejad@hp`), 5/5 >4-arg matrix PASS (arg5/6/7/8 + order-sensitive), no Linux regression (check.sh 10/10)**; `lib/fnptr.cyr` Win64 fncallN variants queued for v5.5.5, native Windows self-host for v5.5.6)**, **v5.4.8 also fixes the cc5_aarch64 cross-compile `&local` x86-leak (parse.cyr now arch-dispatches the `&local` emit; yukti `core_smoke` + main CLI run exit-0 on real Pi 4)**, **v5.4.9 ships `_cyrius_init` STB_GLOBAL in `object;` mode (mabda C-launcher unblocked) + sigil 2.8.4**, **v5.4.10 fixes `lib/thread.cyr` post-`clone()` child trampoline + `thread_join` shared/private futex mismatch (majra `cbarrier_arrive_and_wait` unblocked; `tests/tcyr/threads.tcyr` regression coverage)**, self-hosting, IR (40 opcodes, CFG, LASE, DBE), per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` (v5.3.16), multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`/`%=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc` (multi-register), single-CU DCE, CYML parser
+- **Compiler**: 482152 B (x86_64), aarch64 cross-compiler + native self-host byte-identical on real Pi (v5.3.15+), **`regression.tcyr` 102/102 PASS on aarch64 (v5.3.18)**, Apple Silicon Mach-O target **(self-hosts byte-identically on M-series as of v5.3.13 — 475320 B, Linux cross == Mac round 1 == Mac round 2)**, **Windows PE32+ target (v5.4.2 structural, v5.4.3 `EEXIT` Win64 + IAT fixup, v5.4.4 `syscall(60)` rerouted, v5.4.5 on-hardware CI gate, v5.4.6 `#pe_import` directive, v5.4.7 `syscall(1)` → `GetStdHandle + WriteFile`, v5.4.8 PE data placement — `hello\n` runs end-to-end on Windows; v5.5.0 foundation: `build/cc5_win` cross-entry + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr` + `CYRIUS_TARGET_WIN/LINUX` selectors; v5.5.1 bundles 5 more reroutes — `syscall(0)`→ReadFile, `syscall(2)`→CreateFileW, `syscall(3)`→CloseHandle, `syscall(8)`→SetFilePointerEx, `syscall(9)`→VirtualAlloc; v5.5.2 adds enum-constant sc_num folding so `syscall(SYS_WRITE, ...)` via the `lib/syscalls_windows.cyr` wrappers routes cleanly through the IAT instead of falling through to the 0F 05 Linux encoding; v5.5.3 flips EPOPARG + ESTOREREGPARM to Win64 arg registers (RCX/RDX/R8/R9) under `_TARGET_PE` for cyrius-to-cyrius fn calls with ≤4 args; v5.5.4 completes the call-site Win64 ABI — `ECALLPOPS` shuttles extras via r10/r11/r14/r15 for >4 args, `ECALLCLEAN` unwinds the stack-arg frame, `ESTOREPARM` dispatch boundary flips to pidx<4, `ESTORESTACKPARM` reads [rbp+16+(pidx-4)*8]; **v5.5.5 fixes the `&fn` PE VA fixup in `src/backend/x86/fixup.cyr` ftype=3 — prior to v5.5.5, address-of-fn under `CYRIUS_TARGET_WIN=1` emitted an ELF-style VA (~0x4000d8) that Windows rejected at load time with error 216; v5.5.5's 3-line PE branch now emits `0x140000000 + _pe_text_rva + fn_offset` matching the existing ftype=1 string-address treatment, verified on real Windows 11 (`nejad@hp`), binary loads cleanly, exit 0, Linux fnptr round-trip exit 42, no regression (check.sh 10/10)**; `lib/fnptr.cyr` Win64 fncallN variants queued for v5.5.6, native Windows self-host for v5.5.7)**, **v5.4.8 also fixes the cc5_aarch64 cross-compile `&local` x86-leak (parse.cyr now arch-dispatches the `&local` emit; yukti `core_smoke` + main CLI run exit-0 on real Pi 4)**, **v5.4.9 ships `_cyrius_init` STB_GLOBAL in `object;` mode (mabda C-launcher unblocked) + sigil 2.8.4**, **v5.4.10 fixes `lib/thread.cyr` post-`clone()` child trampoline + `thread_join` shared/private futex mismatch (majra `cbarrier_arrive_and_wait` unblocked; `tests/tcyr/threads.tcyr` regression coverage)**, self-hosting, IR (40 opcodes, CFG, LASE, DBE), per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` (v5.3.16), multi-width types, sizeof, unions, bitfields, defer (all exit paths), expression-position comparisons, `#assert`, Str/cstr auto-coercion, string interning, syscall arity warnings, `#derive(accessors)`, native multi-return, switch case blocks, `+=`/`-=`/`*=`/`%=`, negative literals, undefined function diagnostic, short-circuit `&&`/`||`, struct initializer syntax, `#regalloc` (multi-register), single-CU DCE, CYML parser
 - **Tests**: 65 .tcyr files, 5 .fcyr fuzz harnesses, 14 .bcyr benchmarks, heap audit, self-hosting (two-step)
 - **Libraries**: 60 stdlib modules (includes 6 deps: sakshi, patra, sigil, yukti, mabda, sankoch via `cyrius deps`)
 - **Build tool**: `cyrius deps` resolves from cyrius.cyml (falls back to cyrius.toml), auto-runs on build/run/test. Namespaced deps: `lib/{depname}_{basename}`. Auto-prepends includes.
@@ -75,23 +75,38 @@ Before starting new work on a release, run this audit phase:
 
 ## Closeout Pass (before every minor/major bump)
 
-Run a closeout pass before tagging x.Y.0 or x.0.0. Ship as the last patch of the current minor (e.g. 4.2.5 before 4.3.0):
+Run a closeout pass before tagging x.Y.0 or x.0.0. Ship as the last patch of the current minor (e.g. 4.2.5 before 4.3.0). **Mechanical checks first, then the judgment-call passes (refactor / code review / cleanup), then the doc sync.**
 
+### Mechanical (automated, fast-fail)
 1. **Self-host verify** — cc5 compiles itself byte-identical
 2. **Bootstrap closure** — seed → cyrc → asm → cyrc byte-identical
-3. **Dead code audit** — check dead function count, remove dead source code
-4. **Stale comment sweep** — grep for old version refs, outdated TODOs
-5. **Heap map verify** — main.cyr heap map matches actual usage
-6. **Downstream check** — all `cyrius.cyml` `cyrius` fields point to current release
-7. **Security re-scan** — quick grep for new `sys_system`, `READFILE`, unchecked writes
-8. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state. Vidya in particular needs explicit refresh per minor (it falls out of sync silently otherwise — there's no compile-time check):
+3. **Full check.sh** — all gates green (count grows per minor; record the number)
+
+### Judgment-call passes (where bugs hide)
+4. **Heap map audit** — beyond "verify the map matches usage", evaluate:
+   - Newly-added regions (are they documented, sized correctly, at stable offsets)
+   - Unused / stale regions (any region no code writes to → candidate for removal)
+   - Regions that hit caps across the minor (grow before they bite)
+   - Opportunity for consolidation (adjacent regions owned by the same subsystem)
+5. **Dead code audit** — remove unreachable fns; record the remaining floor in CHANGELOG. The `note: N unreachable fns` output from cc5 is the baseline.
+6. **Refactor pass** — review the minor's additions for consolidation. When a minor added multiple `_TARGET_X` branches / new enum variants / new heap regions / parallel codepaths, check whether the dispatch can collapse into a single switch, whether helpers can merge, whether repeated inline asm blocks want a common emitter. Not about rewriting — about spotting the 2-3 obvious consolidations the minor earned.
+7. **Code review pass** — walk the minor's diffs end-to-end. Specifically look for: ABI leaks (unguarded x86 encodings on non-x86 paths, SysV leaks on Win64 paths), missed `_TARGET_PE` guards, byte-order typos in hand-rolled encoding hex literals, silently-ignored errors, off-by-one in fixup arithmetic. The places automated tests don't catch.
+8. **Cleanup sweep** — stale comments (grep for old version refs, outdated TODOs, references to renamed fns), dead `#ifdef` branches, unused includes, orphaned files in `build/` / `tests/`.
+
+### Compliance / external
+9. **Security re-scan** — quick grep for new `sys_system`, `READFILE`, unchecked writes. Full audit every 2-3 minors (last: v5.0.1).
+10. **Downstream check** — all `cyrius.cyml` `cyrius` fields across ecosystem repos point to the released tag.
+
+### Docs (silent-rot prevention)
+11. **CHANGELOG/roadmap/vidya sync** — all docs reflect current state. Vidya in particular needs explicit refresh per minor (it falls out of sync silently — no compile-time check):
    - **`vidya/content/cyrius/language.toml`** — language usage. Add `[[entries]]` blocks for any new syntax / builtins / directives shipped this minor (e.g. `#regalloc`, `secret var`, `#pe_import`, multi-return, struct initializer). Update existing entries when behavior changed (e.g. `&local` arch dispatch, `_cyrius_init` binding flip). Refresh the `overview` entry's compiler-size + cc-binary-name + version line at every minor.
-   - **`vidya/content/cyrius/field_notes/compiler.toml`** — compiler internals + non-obvious gotchas. Add field notes for anything that surprised us this minor (e.g. RBP-after-`clone()` race, `FUTEX_PRIVATE_FLAG` mismatch with kernel `CLONE_CHILD_CLEARTID`, parse.cyr unguarded x86-emit paths that shipped silently). One entry per gotcha; future-claude searching vidya before reimplementing should hit them.
+   - **`vidya/content/cyrius/field_notes/compiler.toml`** — compiler internals + non-obvious gotchas. Add field notes for anything that surprised us this minor (e.g. RBP-after-`clone()` race, `FUTEX_PRIVATE_FLAG` mismatch with kernel `CLONE_CHILD_CLEARTID`, parse.cyr unguarded x86-emit paths that shipped silently, `mov rN, rax` byte-order typos that segfault on Windows). One entry per gotcha; future-claude searching vidya before reimplementing should hit them.
    - **`vidya/content/cyrius/field_notes/language.toml`** — user-facing language gotchas (e.g. no `var` redecl in same scope, no comparisons in fn-call args, parser's `#ifdef`-but-not-`#else`).
    - **`vidya/content/cyrius/implementation.toml`** / **`types.toml`** — bump version refs and any structural changes (heap map, fixup table, fn table caps, IR opcode count, backend modules).
    - **`vidya/content/cyrius/dependencies.toml`** / **`ecosystem.toml`** — refresh when deps bump (sigil 2.8.4 → next, etc.) and when downstream consumer counts / test counts change.
    - **Cross-check the version**: every vidya file mentioning a `cc?` version (`cc3 4.8.5`, `cc5 5.4.x`, etc.) should match the current `VERSION` file. `version-bump.sh` doesn't touch vidya — that's manual at closeout.
-9. **Full check.sh** — 5/5 pass
+
+Order matters: mechanical checks fail-fast (if self-host breaks, stop). Judgment passes uncover scope for a follow-up patch if needed (landing the refactor during closeout is fine IF it stays byte-identical; otherwise defer to the next minor's first patch). Doc sync is last so it reflects whatever the judgment passes changed.
 
 ## Security Audit Process
 

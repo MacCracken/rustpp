@@ -4,6 +4,63 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.5] — 2026-04-20
+
+**`&fn` PE VA fixup — address-of-fn under `CYRIUS_TARGET_WIN=1`
+no longer produces unloadable binaries.** Prerequisite bug
+surfaced while preparing v5.5.5 (originally scoped as `lib/fnptr.cyr`
+Win64 fncallN variants, now renumbered v5.5.6). 3-line patch in
+`src/backend/x86/fixup.cyr` at the ftype=3 (fn-address) branch,
+mirroring the existing ftype=1 (string-address) PE guard.
+
+Pre-fix: `&fn` under `CYRIUS_TARGET_WIN=1` emitted a `movabs rax,
+imm64` where imm64 was `entry + fn_offset` using the ELF entry
+point (e.g. `0x4000d8`). Windows' loader rejected the resulting
+.exe with error 216 ("not compatible with the version of Windows
+you're running") before code even ran — the VA wasn't in any
+loaded section. Post-fix: imm64 is `0x140000000 + _pe_text_rva +
+fn_offset` (the ImageBase-relative PE VA), binary loads cleanly,
+exit 0.
+
+Why split from v5.5.6: `fixup.cyr` is a compiler-backend file;
+`fnptr.cyr` is a stdlib runtime helper. Different surface,
+different invariant, independent bisect signal. And v5.5.6 can't
+be tested without v5.5.5 — every indirect-call test path starts
+with `&fn` and crashes the PE before reaching any `fncallN` asm.
+
+Verified on real Windows 11 (`nejad@hp`, build 26200): binary with
+`fn f() { return 42; } var fp = &f; syscall(60, 0);` now loads
+and exits 0 (previously error 216). Linux fnptr round-trip
+(`fncall0(&f)`) still exits 42 — no regression. `check.sh` 10/10
+green. Self-host byte-identical (482152 B, +144 B over v5.5.4 for
+the PE branch).
+
+### Added
+- **`fixup.cyr` ftype=3 PE branch** (`src/backend/x86/fixup.cyr`
+  lines 183–197). When `_TARGET_PE == 1`: `tgt3 = 0x140000000 +
+  _pe_text_rva + L64(S + 0xE92000 + idx * 8)` (ImageBase + text
+  RVA + fn_offset). SysV / Mach-O paths unchanged.
+- **CI gate** (`.github/workflows/ci.yml` `windows-cross` job):
+  new "v5.5.5 `&fn` PE VA fixup gate" step compiles a program
+  that takes a fn's address, scans `.text` for every `movabs rax,
+  imm64` encoding, and asserts the imm64 lives in the PE VA range
+  `[0x140000000, 0x200000000)`. Also adds `w_fnaddr` to the
+  `windows-native` load-and-exit matrix (expect ERRORLEVEL 0).
+
+### Fixed
+- **Windows load-time error 216 for any program using `&fn` under
+  `CYRIUS_TARGET_WIN=1`**. The fn-address fixup was computing VAs
+  using the ELF entry point, producing addresses outside any PE
+  section. Fixed by adding a PE-specific target computation
+  mirroring the existing string-address PE treatment (v5.4.8).
+
+### Not in scope (v5.5.6+)
+- `lib/fnptr.cyr` Win64 `fncallN` variants — stdlib runtime
+  helper still uses SysV arg-register mapping in hand-rolled asm.
+  v5.5.6 adds `#ifdef CYRIUS_TARGET_WIN` parallel blocks.
+- Native Windows self-host now v5.5.7 (was v5.5.6; slid by one
+  for the v5.5.5 insert).
+
 ## [5.5.4] — 2026-04-20
 
 **Win64 ABI call-site completion — `>4-arg` cyrius-to-cyrius

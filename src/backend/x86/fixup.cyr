@@ -184,7 +184,16 @@ fn FIXUP(S) {
             # Function address. Shared: LEA [rip+disp32] — patch 4-byte
             # PC-relative (next_instr = coff+4 since coff points at disp32).
             # Else: MOV imm64 — patch 8-byte absolute.
+            # PE32+ (v5.5.5): function bodies live at
+            # ImageBase + _pe_text_rva + fn_offset instead of the ELF
+            # `entry + fn_offset`. Mirrors the ftype=1 string-address
+            # PE branch a dozen lines below. Without this the
+            # address-of-fn operator (`&fn`) emits an ELF-style VA
+            # that Windows rejects with error 216 at load time.
             var tgt3 = entry + L64(S + 0xE92000 + idx * 8);
+            if (_TARGET_PE == 1) {
+                tgt3 = 0x140000000 + _pe_text_rva + L64(S + 0xE92000 + idx * 8);
+            }
             if (kmode == 2) {
                 var rel3 = tgt3 - (entry + coff + 4);
                 var p3 = S + 0x54A000 + coff;
