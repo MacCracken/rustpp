@@ -177,47 +177,44 @@ fn EMITMACHO_EXEC(S) {
 }
 
 # ================================================================
-# Mach-O ARM64 executable emission (v5.3.0 rewrite)
+# Mach-O ARM64 executable emission (v5.5.12 libSystem imports)
 # ================================================================
-# Triggered by CYRIUS_MACHO_ARM=1. Layout matches the validated
-# Stage 2 probe (programs/macho_probe_arm.cyr) — 15 load commands
-# proven on macOS 26.4.1 Apple Silicon hardware.
+# Triggered by CYRIUS_MACHO_ARM=1.
 #
-# v5.3.1+ supports strings + globals via PIE-safe adrp+add and a
-# dedicated `__DATA` segment. v5.3.6+ supports multi-page __TEXT so
-# tool-size binaries (cyrfmt, cyrlint, cyrdoc) fit.
+# v5.5.12 promotes the probe layout from programs/macho_libsystem_probe.cyr
+# into the compiler: every arm64-darwin Mach-O now ships a __DATA_CONST
+# segment with a __got slot bound to libSystem._exit via classic dyld
+# bind opcodes (LC_DYLD_INFO_ONLY — not chained fixups, which require
+# macOS 12 and failed codesign during v5.5.11 iteration). The import
+# infrastructure is present; subsequent patches wire specific syscall
+# numbers through the __got (v5.5.13 syscall(60)→_exit, later ones for
+# malloc/fopen/pthread).
 #
-# Current scope is still the BSD SVC whitelist (read, write, open,
-# close, mmap, mprotect, munmap, exit). Anything beyond that —
-# `printf`, `fopen`, `pthread_create`, any POSIX not covered by
-# BSD SVCs — needs libSystem imports (`__stubs` + `__DATA_CONST`
-# `__got` + chained-fixup bind entries). v5.3.12 made the parser
-# reject out-of-whitelist syscall numbers at compile time so users
-# get a clear error instead of a silently-broken binary. The full
-# import wire-up is a v5.4.x target.
+# Pre-v5.5.12 predecessors:
+#   v5.3.0  — first Mach-O arm64 emission (empty main, 15 LCs,
+#             chained fixups with zero imports).
+#   v5.3.1  — PIE-safe adrp+add, __cstring section.
+#   v5.3.6  — multi-page __TEXT (tool-size binaries fit).
+#   v5.3.13 — Apple Silicon self-host byte-identical fixpoint.
+#   v5.5.11 — hand-emitted libSystem probe proved the classic-bind
+#             path works on real Apple Silicon.
 #
-# Discovery 2026-04-18: raw `svc #0x80` works for the BSD syscall
-# whitelist (_exit, _write, and likely more) when the binary has
-# LC_LOAD_DYLIB libSystem.B.dylib in its load graph. The binary
-# never has to actually call into libSystem — dyld just has to see
-# it in the dependency list. This collapses what would have been
-# the stubs/GOT/chained-fixup emitter into a simple SVC-translation
-# pass in the aarch64 backend.
+# File layout (post-v5.5.12):
+#   page 0 (0..16383):              headers + LCs + padding
+#   page 1..N (16384..):            __TEXT (code, __cstring)
+#   page after __TEXT:              __DATA_CONST (__got, 1 page)
+#   (optional) page after:          __DATA (globals, N pages)
+#   last page:                      __LINKEDIT
 #
-# File layout:
-#   page 0 (0..16383):    headers + LCs + padding
-#   page 1 (16384..):     __text (code, padded to PAGE)
-#   page 2 (32768..):     __LINKEDIT (chain_fixups + exports_trie +
-#                                      function_starts + symtab + strtab)
+# 15 load commands baseline (16 with __DATA), lc_total = 816:
+#   __PAGEZERO(72) + __TEXT(152) + __DATA_CONST(152) + __LINKEDIT(72)
+#   + DYLD_INFO_ONLY(48) + SYMTAB(24) + DYSYMTAB(80)
+#   + LOAD_DYLINKER(32) + UUID(24) + BUILD_VERSION(32)
+#   + SOURCE_VERSION(16) + LC_MAIN(24) + LOAD_DYLIB(56)
+#   + FUNCTION_STARTS(16) + DATA_IN_CODE(16)
+#   = 816 bytes (was 648 pre-v5.5.12; +152 __DATA_CONST + +16 DYLD_INFO).
 #
-# 15 load commands (lc_total = 648 pre-signing; codesign adds
-# LC_CODE_SIGNATURE = 16 more bytes):
-#   __PAGEZERO(72) + __TEXT(152) + __LINKEDIT(72)
-#   + CHAINED_FIXUPS(16) + EXPORTS_TRIE(16) + SYMTAB(24)
-#   + DYSYMTAB(80) + LOAD_DYLINKER(32) + UUID(24)
-#   + BUILD_VERSION(32) + SOURCE_VERSION(16) + LC_MAIN(24)
-#   + LOAD_DYLIB(56) + FUNCTION_STARTS(16) + DATA_IN_CODE(16)
-#   = 648 bytes
+# MH_NOUNDEFS is dropped: _exit is a real undef resolved by dyld.
 
 fn _macho_wstr_pad(O, off, s, width) {
     var i = 0;
@@ -268,18 +265,30 @@ fn EMITMACHO_ARM64(S) {
     var CSTRING_OFF_REL = code_aligned;
     var CSTRING_VADDR = TEXT_BASE + CODE_OFF + CSTRING_OFF_REL;
 
-    # __TEXT occupies (1 + text_content_pages) pages; __DATA sits right after.
+    # __TEXT occupies (1 + text_content_pages) pages.
     var TEXT_VMSIZE = (1 + text_content_pages) * PAGE;
-    var DATA_VMADDR = TEXT_BASE + TEXT_VMSIZE;
-    var DATA_FILEOFF = TEXT_VMSIZE;
+
+    # __DATA_CONST follows __TEXT — 1 page for the __got (1 slot today
+    # for _exit; any additional imports added by future patches grow into
+    # the same page up to 2048 entries).
+    var DATA_CONST_VMADDR = TEXT_BASE + TEXT_VMSIZE;
+    var DATA_CONST_FILEOFF = TEXT_VMSIZE;
+    var DATA_CONST_VMSIZE = PAGE;
+    var GOT_VADDR = DATA_CONST_VMADDR;
+    var GOT_FILEOFF = DATA_CONST_FILEOFF;
+    var GOT_SIZE = 8;                      # 1 entry × 8 bytes
+
+    # __DATA (globals) sits after __DATA_CONST when present.
+    var DATA_VMADDR = DATA_CONST_VMADDR + DATA_CONST_VMSIZE;
+    var DATA_FILEOFF = DATA_CONST_FILEOFF + DATA_CONST_VMSIZE;
     var DATA_VMSIZE = data_pages * PAGE;
 
-    # __LINKEDIT follows __TEXT (and __DATA if present).
-    var LINKEDIT_FILEOFF = TEXT_VMSIZE;
-    var LINKEDIT_VMADDR = TEXT_BASE + TEXT_VMSIZE;
+    # __LINKEDIT follows everything else.
+    var LINKEDIT_FILEOFF = DATA_CONST_FILEOFF + DATA_CONST_VMSIZE;
+    var LINKEDIT_VMADDR = DATA_CONST_VMADDR + DATA_CONST_VMSIZE;
     if (has_data == 1) {
-        LINKEDIT_FILEOFF = TEXT_VMSIZE + DATA_VMSIZE;
-        LINKEDIT_VMADDR = TEXT_BASE + TEXT_VMSIZE + DATA_VMSIZE;
+        LINKEDIT_FILEOFF = DATA_FILEOFF + DATA_VMSIZE;
+        LINKEDIT_VMADDR = DATA_VMADDR + DATA_VMSIZE;
     }
 
     # __TEXT cmdsize: 72 header + nsects * 80
@@ -290,29 +299,39 @@ fn EMITMACHO_ARM64(S) {
         text_cmdsize = 232;
     }
 
-    # Load command sizes (baseline 648 matches v5.3.0 exactly)
-    var lc_total = 648;
+    # Load command sizes (v5.5.12 baseline 816):
+    # Was 648 (v5.3.x) — swap LC_DYLD_CHAINED_FIXUPS(16)+EXPORTS_TRIE(16)
+    # = 32 for LC_DYLD_INFO_ONLY(48) = +16, plus __DATA_CONST LC(152).
+    var lc_total = 816;
     if (has_cstring == 1) { lc_total = lc_total + 80; }
     if (has_data == 1) { lc_total = lc_total + 152; }
 
+    # ncmds: __PAGEZERO, __TEXT, __DATA_CONST, (__DATA?), __LINKEDIT,
+    # DYLD_INFO_ONLY, SYMTAB, DYSYMTAB, LOAD_DYLINKER, UUID,
+    # BUILD_VERSION, SOURCE_VERSION, LC_MAIN, LOAD_DYLIB,
+    # FUNCTION_STARTS, DATA_IN_CODE = 15 baseline, 16 with __DATA.
     var ncmds = 15;
     if (has_data == 1) { ncmds = 16; }
 
-    # __LINKEDIT content layout (pre-signing)
-    var CHAIN_OFF = LINKEDIT_FILEOFF;
-    var CHAIN_SIZE = 56;
-    var EXPORTS_OFF = CHAIN_OFF + CHAIN_SIZE;
-    var EXPORTS_SIZE = 49;                 # main addr 0x4000 → ULEB 3 bytes
-    # 8-byte align exports → pad to 56
-    var EXPORTS_PADDED = 56;
+    # __LINKEDIT content layout (pre-signing).
+    # Order: bind opcodes → exports_trie → function_starts → symtab →
+    # strtab → indirect_symtab. Classic dyld-info binds route
+    # libSystem._exit into __got[0] at load time.
+    var BIND_OFF = LINKEDIT_FILEOFF;
+    var BIND_SIZE = 16;                    # 13 opcode bytes + 3 pad
+    var EXPORTS_OFF = BIND_OFF + BIND_SIZE;
+    var EXPORTS_SIZE = 49;                 # _main address ULEB
+    var EXPORTS_PADDED = 56;               # 8-byte align
     var FNSTART_OFF = EXPORTS_OFF + EXPORTS_PADDED;
     var FNSTART_SIZE = 8;
     var SYMTAB_OFF = FNSTART_OFF + FNSTART_SIZE;
-    var SYMTAB_COUNT = 2;
-    var SYMTAB_SIZE = 32;                  # 2 * 16
+    var SYMTAB_COUNT = 3;                  # +_exit undef
+    var SYMTAB_SIZE = 48;                  # 3 × 16
     var STRTAB_OFF = SYMTAB_OFF + SYMTAB_SIZE;
-    var STRTAB_SIZE = 32;
-    var LINKEDIT_CONTENT_SIZE = STRTAB_OFF + STRTAB_SIZE - LINKEDIT_FILEOFF;
+    var STRTAB_SIZE = 40;                  # " \0__mh_execute_header\0_main\0_exit\0" + pad
+    var INDIRECT_OFF = STRTAB_OFF + STRTAB_SIZE;
+    var INDIRECT_SIZE = 4;                 # 1 indirect sym × 4 bytes
+    var LINKEDIT_CONTENT_SIZE = INDIRECT_OFF + INDIRECT_SIZE - LINKEDIT_FILEOFF;
     var FILE_END = LINKEDIT_FILEOFF + LINKEDIT_CONTENT_SIZE;
 
     var O = S + 0x64A000;
@@ -327,7 +346,7 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, 0x00000002);      # MH_EXECUTE
     o = _macho_w32(O, o, ncmds);
     o = _macho_w32(O, o, lc_total);
-    o = _macho_w32(O, o, 0x00200085);      # MH_NOUNDEFS|MH_DYLDLINK|MH_TWOLEVEL|MH_PIE
+    o = _macho_w32(O, o, 0x00200084);      # MH_DYLDLINK|MH_TWOLEVEL|MH_PIE (NOUNDEFS dropped — _exit is undef)
     o = _macho_w32(O, o, 0);
 
     # ================================================================
@@ -385,8 +404,38 @@ fn EMITMACHO_ARM64(S) {
     }
 
     # ================================================================
+    # LC_SEGMENT_64 __DATA_CONST (152) — holds __got for libSystem binds.
+    # initprot R|W so dyld can write the bound pointer; SG_READ_ONLY flag
+    # tells the loader to remap read-only after binding.
+    # ================================================================
+    o = _macho_w32(O, o, 0x19);
+    o = _macho_w32(O, o, 152);
+    o = _macho_wname(O, o, "__DATA_CONST");
+    o = _macho_w64(O, o, DATA_CONST_VMADDR);
+    o = _macho_w64(O, o, DATA_CONST_VMSIZE);
+    o = _macho_w64(O, o, DATA_CONST_FILEOFF);
+    o = _macho_w64(O, o, DATA_CONST_VMSIZE);
+    o = _macho_w32(O, o, 3);               # maxprot = R|W
+    o = _macho_w32(O, o, 3);               # initprot = R|W
+    o = _macho_w32(O, o, 1);               # nsects
+    o = _macho_w32(O, o, 0x10);            # flags = SG_READ_ONLY
+
+    # section __got (80) — S_NON_LAZY_SYMBOL_POINTERS, reserved1 = 0
+    # points to the start of the indirect symtab window for this section.
+    o = _macho_wname(O, o, "__got");
+    o = _macho_wname(O, o, "__DATA_CONST");
+    o = _macho_w64(O, o, GOT_VADDR);
+    o = _macho_w64(O, o, GOT_SIZE);
+    o = _macho_w32(O, o, GOT_FILEOFF);
+    o = _macho_w32(O, o, 3);               # align 2^3 = 8
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0x00000006);      # S_NON_LAZY_SYMBOL_POINTERS
+    o = _macho_w32(O, o, 0);               # reserved1 = indirect sym index
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+
+    # ================================================================
     # LC_SEGMENT_64 __DATA (optional — when totvar > 0)
-    # R|W segment at page 2 holding zero-initialised global vars.
+    # R|W segment holding zero-initialised global vars.
     # ================================================================
     if (has_data == 1) {
         o = _macho_w32(O, o, 0x19);
@@ -426,15 +475,16 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, 1); o = _macho_w32(O, o, 1);
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
 
-    # LC_DYLD_CHAINED_FIXUPS
-    o = _macho_w32(O, o, 0x80000034);
-    o = _macho_w32(O, o, 16);
-    o = _macho_w32(O, o, CHAIN_OFF);
-    o = _macho_w32(O, o, CHAIN_SIZE);
-
-    # LC_DYLD_EXPORTS_TRIE
-    o = _macho_w32(O, o, 0x80000033);
-    o = _macho_w32(O, o, 16);
+    # LC_DYLD_INFO_ONLY (48) — classic binds (macOS 11+ compatible;
+    # chained fixups only works on 12+ and failed codesign during
+    # v5.5.11 iteration). Only bind + export populated.
+    o = _macho_w32(O, o, 0x80000022);
+    o = _macho_w32(O, o, 48);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);   # rebase
+    o = _macho_w32(O, o, BIND_OFF);
+    o = _macho_w32(O, o, BIND_SIZE);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);   # weak_bind
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);   # lazy_bind
     o = _macho_w32(O, o, EXPORTS_OFF);
     o = _macho_w32(O, o, EXPORTS_SIZE);
 
@@ -446,18 +496,20 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, STRTAB_OFF);
     o = _macho_w32(O, o, STRTAB_SIZE);
 
-    # LC_DYSYMTAB
+    # LC_DYSYMTAB (80)
+    # nextdefsym=2 (__mh_execute_header + _main), nundefsym=1 (_exit)
+    # nindirectsyms=1 (__got[0] → symtab[2] _exit)
     o = _macho_w32(O, o, 0x0B);
     o = _macho_w32(O, o, 80);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 2);
-    o = _macho_w32(O, o, 2); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
-    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # ilocal, nlocal
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 2);           # iextdef=0, nextdef=2
+    o = _macho_w32(O, o, 2); o = _macho_w32(O, o, 1);           # iundef=2, nundef=1
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # tocoff, ntoc
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # modtaboff, nmodtab
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # extrefsymoff, nextrefsyms
+    o = _macho_w32(O, o, INDIRECT_OFF); o = _macho_w32(O, o, 1); # indirectsymoff, nindirectsyms
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # extreloff, nextrel
+    o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # locreloff, nlocrel
 
     # LC_LOAD_DYLINKER
     o = _macho_w32(O, o, 0x0E);
@@ -535,6 +587,13 @@ fn EMITMACHO_ARM64(S) {
     while (o < TEXT_VMSIZE) { store8(O + o, 0); o = o + 1; }
 
     # ================================================================
+    # __DATA_CONST page — __got[0] is zero at rest; dyld writes the
+    # resolved libSystem._exit pointer at load time via bind opcodes.
+    # ================================================================
+    o = _macho_w64(O, o, 0);
+    while (o < (DATA_CONST_FILEOFF + DATA_CONST_VMSIZE)) { store8(O + o, 0); o = o + 1; }
+
+    # ================================================================
     # __DATA page (optional) — zero-initialised globals.
     # ================================================================
     if (has_data == 1) {
@@ -547,31 +606,26 @@ fn EMITMACHO_ARM64(S) {
     # __LINKEDIT content
     # ================================================================
 
-    # chain_fixups (56 bytes, zero imports)
-    o = _macho_w32(O, o, 0);               # version
-    o = _macho_w32(O, o, 32);              # starts_offset
-    o = _macho_w32(O, o, 48);              # imports_offset
-    o = _macho_w32(O, o, 48);              # symbols_offset
-    o = _macho_w32(O, o, 0);               # imports_count
-    o = _macho_w32(O, o, 1);               # imports_format = DYLD_CHAINED_IMPORT
-    o = _macho_w32(O, o, 0);               # symbols_format
-    o = _macho_w32(O, o, 0);               # pad
-    # seg_count: 3 (PZ, TEXT, LE) or 4 (PZ, TEXT, DATA, LE)
-    # Total size stays 56 bytes — the extra offset[3] steals 4 bytes from tail pad.
-    var seg_count = 3;
-    if (has_data == 1) { seg_count = 4; }
-    o = _macho_w32(O, o, seg_count);
-    o = _macho_w32(O, o, 0);               # seg_info_offset[0]
-    o = _macho_w32(O, o, 0);               # seg_info_offset[1]
-    o = _macho_w32(O, o, 0);               # seg_info_offset[2]
-    if (has_data == 1) {
-        o = _macho_w32(O, o, 0);           # seg_info_offset[3]
-        o = _macho_w32(O, o, 0);           # tail pad
-    }
-    else {
-        o = _macho_w32(O, o, 0);           # tail pad
-        o = _macho_w32(O, o, 0);
-    }
+    # bind opcodes (16) — classic dyld-info bind of libSystem._exit
+    # into __DATA_CONST[0] (the single __got slot).
+    # Segment index of __DATA_CONST: PAGEZERO(0) + TEXT(1) + DATA_CONST(2).
+    # With __DATA present order is PAGEZERO(0) + TEXT(1) + DATA_CONST(2)
+    # + DATA(3) + LINKEDIT(4) — __DATA_CONST stays seg=2 in both cases.
+    store8(O + o, 0x11);                   # SET_DYLIB_ORDINAL_IMM | 1
+    store8(O + o + 1, 0x40);               # SET_SYMBOL_TRAILING_FLAGS_IMM | 0
+    store8(O + o + 2, 0x5F);               # '_'
+    store8(O + o + 3, 0x65);               # 'e'
+    store8(O + o + 4, 0x78);               # 'x'
+    store8(O + o + 5, 0x69);               # 'i'
+    store8(O + o + 6, 0x74);               # 't'
+    store8(O + o + 7, 0x00);               # '\0'
+    store8(O + o + 8, 0x51);               # SET_TYPE_IMM | BIND_TYPE_POINTER(1)
+    store8(O + o + 9, 0x72);               # SET_SEGMENT_AND_OFFSET_ULEB | 2
+    store8(O + o + 10, 0x00);              # ULEB offset = 0
+    store8(O + o + 11, 0x90);              # DO_BIND
+    store8(O + o + 12, 0x00);              # DONE
+    store8(O + o + 13, 0x00); store8(O + o + 14, 0x00); store8(O + o + 15, 0x00);
+    o = o + 16;
 
     # exports_trie (49 bytes; padded to 56 for alignment)
     # Encodes __mh_execute_header (at 0x0) + _main (at 0x4000).
@@ -604,7 +658,7 @@ fn EMITMACHO_ARM64(S) {
     store8(O + o + 6, 0x00); store8(O + o + 7, 0x00);
     o = o + 8;
 
-    # symtab — 2 x nlist_64
+    # symtab — 3 × nlist_64 (48 bytes)
     # [0] __mh_execute_header: strx=2, type=0x0F, sect=1, desc=0x10, value=0x100000000
     o = _macho_w32(O, o, 2);
     store8(O + o, 0x0F); store8(O + o + 1, 0x01);
@@ -619,7 +673,15 @@ fn EMITMACHO_ARM64(S) {
     o = o + 4;
     o = _macho_w64(O, o, TEXT_BASE + CODE_OFF);
 
-    # strtab — " \0__mh_execute_header\0_main\0" + trailing zeros
+    # [2] _exit undef: strx=28, type=0x01 (N_EXT|N_UNDF), sect=0,
+    #     desc=0x0100 (lib ordinal 1 in high byte → libSystem).
+    o = _macho_w32(O, o, 28);
+    store8(O + o, 0x01); store8(O + o + 1, 0x00);
+    store8(O + o + 2, 0x00); store8(O + o + 3, 0x01);
+    o = o + 4;
+    o = _macho_w64(O, o, 0);
+
+    # strtab (40) — " \0__mh_execute_header\0_main\0_exit\0" + 6 pad
     store8(O + o, 0x20); store8(O + o + 1, 0x00);
     store8(O + o + 2, 0x5F); store8(O + o + 3, 0x5F); store8(O + o + 4, 0x6D); store8(O + o + 5, 0x68);
     store8(O + o + 6, 0x5F); store8(O + o + 7, 0x65); store8(O + o + 8, 0x78); store8(O + o + 9, 0x65);
@@ -628,8 +690,14 @@ fn EMITMACHO_ARM64(S) {
     store8(O + o + 18, 0x64); store8(O + o + 19, 0x65); store8(O + o + 20, 0x72); store8(O + o + 21, 0x00);
     store8(O + o + 22, 0x5F); store8(O + o + 23, 0x6D); store8(O + o + 24, 0x61); store8(O + o + 25, 0x69);
     store8(O + o + 26, 0x6E); store8(O + o + 27, 0x00);
-    store8(O + o + 28, 0x00); store8(O + o + 29, 0x00); store8(O + o + 30, 0x00); store8(O + o + 31, 0x00);
-    o = o + 32;
+    store8(O + o + 28, 0x5F); store8(O + o + 29, 0x65); store8(O + o + 30, 0x78); store8(O + o + 31, 0x69);
+    store8(O + o + 32, 0x74); store8(O + o + 33, 0x00);
+    store8(O + o + 34, 0x00); store8(O + o + 35, 0x00); store8(O + o + 36, 0x00); store8(O + o + 37, 0x00);
+    store8(O + o + 38, 0x00); store8(O + o + 39, 0x00);
+    o = o + 40;
+
+    # indirect symtab (4) — __got[0] → symtab[2] (_exit)
+    o = _macho_w32(O, o, 2);
 
     # Pad to FILE_END if not already there
     while (o < FILE_END) { store8(O + o, 0); o = o + 1; }

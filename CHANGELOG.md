@@ -4,6 +4,83 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.12] — 2026-04-20
+
+**Compiler-driven Mach-O libSystem emission: the probe layout from
+v5.5.11 is now baked into `EMITMACHO_ARM64`. Every arm64-darwin
+Mach-O binary the compiler emits ships a `__DATA_CONST` segment
+with a `__got` slot bound to `libSystem._exit` via classic dyld
+bind opcodes. `nm` on a fresh cross-build now lists `_exit` as an
+undefined import; `otool -l` shows the new segment + `LC_DYLD_INFO_ONLY`.
+The binding path is live — subsequent patches wire specific syscall
+numbers through the `__got` (v5.5.13 first reroute).**
+
+Builds on v5.5.11 (standalone hand-emitted probe) — v5.5.12 moves
+the exact same layout into the backend. Mirror of the Windows arc:
+v5.4.2 shipped structural PE emission, v5.4.3 added the first IAT
+reroute (`EEXIT` → `ExitProcess`). Mach-O takes the same two-step:
+v5.5.12 = infrastructure, v5.5.13 = first reroute.
+
+### Structural changes to `src/backend/macho/emit.cyr`
+Drop-ins, all gated to the `CYRIUS_MACHO_ARM=1` path:
+- `MH_NOUNDEFS` flag dropped (`0x00200085` → `0x00200084`).
+  `_exit` is an honest undef; asserting NOUNDEFS with an undef sym
+  would be contradictory and rejected by the loader.
+- New `LC_SEGMENT_64 __DATA_CONST` between `__TEXT` and `__LINKEDIT`
+  (one page; holds the 8-byte `__got` entry). `SG_READ_ONLY` flag set
+  so dyld can remap read-only post-bind.
+- `__got` section (`S_NON_LAZY_SYMBOL_POINTERS`) with one slot.
+  `reserved1 = 0` points at indirect symtab index 0.
+- `LC_DYLD_CHAINED_FIXUPS(16) + LC_DYLD_EXPORTS_TRIE(16)` replaced by
+  `LC_DYLD_INFO_ONLY(48)`. Classic binds are macOS 11+ compatible
+  and survive codesign; chained fixups failed codesign during the
+  v5.5.11 probe iteration with the useless "object file format
+  unrecognized" error.
+- `LC_DYSYMTAB` populated: `nundefsym = 1`, `nindirectsyms = 1`,
+  `indirectsymoff` points to the indirect symtab in `__LINKEDIT`.
+- `__LINKEDIT` payload grows from 96→164 B:
+  - Bind opcodes `11 40 "_exit\0" 51 72 00 90 00` (16 B with pad)
+  - Exports trie (48 B, unchanged — `__mh_execute_header` + `_main`)
+  - function_starts (8 B, ULEB(0x4000))
+  - Symtab: 2 → 3 entries (`+_exit` as `N_EXT|N_UNDF`, lib ordinal 1)
+  - Strtab: 32 → 40 bytes (`+_exit\0`)
+  - Indirect symtab: 4 bytes, 1 entry → `symtab[2]` (`_exit`)
+- Byte layout: baseline `lc_total` grew 648 → 816 (+168 = net +16
+  for DYLD_INFO swap, +152 for `__DATA_CONST` LC), and file grows
+  by one 16 KB page.
+
+### Verification (Apple Silicon, `ssh ecb`)
+- `file`: `Mach-O 64-bit arm64 executable, flags:<|DYLDLINK|TWOLEVEL|PIE>`
+  (no more NOUNDEFS, correct).
+- `otool -l`: load commands now include `LC_SEGMENT_64 __DATA_CONST`
+  and `LC_DYLD_INFO_ONLY` (CHAINED_FIXUPS + EXPORTS_TRIE gone).
+- `nm`: `U _exit` present alongside the existing `T _main` and
+  `T __mh_execute_header`.
+- `codesign -s - --force`: accepted.
+- Runtime behavior unchanged — binaries still use the existing
+  svc-based syscall path. Any pre-v5.5.12 functional issues with
+  svc-based syscalls carry forward (to be addressed by the
+  per-syscall reroutes in v5.5.13+).
+
+### Byte-identical self-host
+Linux x86_64 cc5 still compiles itself byte-identically after the
+change. cc5 grew 483,544 → 485,616 B (+2,072 B) from the new
+emission bytes.
+
+### Not in scope (v5.5.13+)
+- **First syscall reroute through `__got`** — v5.5.13. Wire
+  `syscall(60, code)` on `_TARGET_MACHO == 2` to `adrp x16, __got;
+  ldr x16, [x16]; br x16` targeting the now-bound `__got[0]`.
+  Gives the first observable behavior change. Mirror of v5.4.3's
+  `EEXIT` reroute on PE.
+- **Additional imports** (`_write`, `_read`, `_malloc`, `_fopen`,
+  `_pthread_create`). Each one is: (a) bind-opcode entry, (b) new
+  `__got` slot, (c) symtab+strtab entry, (d) indirect-symtab entry.
+  The infrastructure now supports them trivially.
+- **macOS arm64 tool binaries** (`cyrfmt`, `cyrlint`, `cyrdoc`,
+  `cyrc`) — final shipping step once `malloc`/`fopen`/`pthread_*`
+  reroutes land.
+
 ## [5.5.11] — 2026-04-20
 
 **Apple Silicon libSystem probe: hand-crafted Mach-O arm64 binary
