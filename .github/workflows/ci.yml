@@ -663,6 +663,47 @@ jobs:
           "
           echo "0" > /tmp/win_out/w_fnaddr.expected
           echo "PASS: v5.5.5 &fn PE VA gate"
+      - name: v5.5.6 `lib/fnptr.cyr` Win64 `fncallN` gate
+        run: |
+          # v5.5.6: indirect fn-pointer calls via fncall0..fncall8
+          # under CYRIUS_TARGET_WIN=1 must use Win64 arg registers
+          # (RCX/RDX/R8/R9) and place args 5+ at [rsp+0..] in the
+          # no-shadow layout v5.5.4 established for cyrius-to-cyrius
+          # calls. Pre-fix the CYRIUS_ARCH_X86 SysV block was always
+          # active and crashed or returned garbage on Windows.
+          # v5.5.6 also bumped v5.5.4's ECALLPOPS nextra ceiling
+          # from 4→5 so fncall8 (9-arg) works.
+          # Also requires v5.5.6's main.cyr env-var predefine of
+          # CYRIUS_TARGET_WIN before PREPROCESS so #ifdef guards fire.
+          pass=0; fail=0
+          for test in \
+            "w_fnptr0:fn f(){return 42;} syscall(60, fncall0(&f));:42" \
+            "w_fnptr1:fn f(a){return a*2;} syscall(60, fncall1(&f, 21));:42" \
+            "w_fnptr2:fn f(a,b){return a+b;} syscall(60, fncall2(&f, 30, 12));:42" \
+            "w_fnptr3:fn f(a,b,c){return a*b+c;} syscall(60, fncall3(&f, 6, 5, 12));:42" \
+            "w_fnptr4:fn f(a,b,c,d){return a+b+c+d;} syscall(60, fncall4(&f, 10, 20, 3, 9));:42" \
+            "w_fnptr5:fn f(a,b,c,d,e){return a+b+c+d+e;} syscall(60, fncall5(&f, 10, 20, 3, 8, 1));:42" \
+            "w_fnptr6:fn f(a,b,c,d,e,g){return a+b+c+d+e+g;} syscall(60, fncall6(&f, 10, 20, 3, 5, 2, 2));:42" \
+            "w_fnptr7:fn f(a,b,c,d,e,g,h){return a+b+c+d+e+g+h;} syscall(60, fncall7(&f, 10, 10, 10, 5, 3, 2, 2));:42" \
+            "w_fnptr8:fn f(a,b,c,d,e,g,h,i){return a+b+c+d+e+g+h+i;} syscall(60, fncall8(&f, 5, 5, 5, 5, 10, 6, 3, 3));:42"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2)
+            expected=$(echo "$test" | cut -d: -f3)
+            out="/tmp/win_out/$name.exe"
+            printf 'include "lib/fnptr.cyr"\n%s\n' "$code" \
+              | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > "$out"
+            sz=$(wc -c < "$out")
+            if [ "$sz" -gt 0 ]; then
+              pass=$((pass+1))
+              echo "$expected" > "/tmp/win_out/$name.expected"
+            else
+              echo "FAIL cross: $name"
+              fail=$((fail+1))
+            fi
+          done
+          echo "Win64 fnptr cross: $pass passed, $fail failed"
+          test $fail -eq 0
       - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
           # Compile a syscall(1) hello-world program and verify:
@@ -757,7 +798,9 @@ jobs:
           foreach ($name in @("exit0", "exit1", "exit42", "exit255",
                               "w_arg1", "w_arg2", "w_arg3", "w_arg4", "w_nested",
                               "w_arg5", "w_arg6", "w_arg7", "w_arg8", "w_arg5_order",
-                              "w_fnaddr")) {
+                              "w_fnaddr",
+                              "w_fnptr0", "w_fnptr1", "w_fnptr2", "w_fnptr3", "w_fnptr4",
+                              "w_fnptr5", "w_fnptr6", "w_fnptr7", "w_fnptr8")) {
             $exe = ".\win\$name.exe"
             $expected = (Get-Content ".\win\$name.expected" -Raw).Trim()
             $proc = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow

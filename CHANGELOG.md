@@ -4,6 +4,81 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.6] — 2026-04-20
+
+**`lib/fnptr.cyr` Win64 `fncallN` variants — indirect
+fn-pointer calls on Windows now work for all 9 arities (0..8
+args).** Completes the Win64 FFI-adjacent surface by adding
+`#ifdef CYRIUS_TARGET_WIN` parallel asm blocks for each of
+`fncall0..fncall8`, using v5.5.4's no-shadow convention so
+cyrius-to-cyrius indirect calls interop cleanly with Win64 ABI
+at the compiler-backend level.
+
+Also fixes two upstream issues surfaced during testing:
+
+1. **`CYRIUS_TARGET_WIN` preprocessor predefine gap.** Prior to
+   v5.5.6, `CYRIUS_TARGET_WIN=1` env var set the runtime
+   `_TARGET_PE = 1` flag AFTER `PREPROCESS(S)` ran — so user
+   code's `#ifdef CYRIUS_TARGET_WIN` blocks never fired when
+   using the standalone cc5 binary (they only fired for cc5_win
+   which `PP_PREDEFINE`s the symbol at entry). This meant the
+   fnptr.cyr Win64 blocks were preprocessed AWAY, silently
+   falling back to the SysV blocks. v5.5.6 moves the env-var
+   check before PREPROCESS and conditionally predefines
+   `CYRIUS_TARGET_WIN` vs `CYRIUS_TARGET_LINUX`.
+
+2. **ECALLPOPS Win64 shuttle capacity cap.** v5.5.4 capped
+   nextra at 4 (N=8 args max). Calling fncall8 — a 9-param
+   function — pushes N=9 (nextra=5) and fell off the end of
+   the shuttle. v5.5.6 extends the shuttle to nextra=5 using
+   r12 as the 5th scratch. Now fncall8 works on Windows.
+
+Verified on real Windows 11 (`nejad@hp`, build 26200): 9/9
+fncall matrix PASS (fncall0..fncall8 all return 42), plus
+order-sensitive variants (fnptr5_ord, fnptr8_ord). Linux fnptr
+round-trip 3/3 PASS (no regression in SysV paths).
+`check.sh` 10/10 green. Self-host byte-identical (483144 B,
++992 B over v5.5.5 for the env-var check + shuttle extension +
+nothing from fnptr.cyr since it's stdlib not compiler).
+
+### Added
+- **`lib/fnptr.cyr` Win64 blocks** — 9 new `#ifdef
+  CYRIUS_TARGET_WIN` asm blocks (one per fncallN). Block
+  structure restructured from flat `#ifdef CYRIUS_ARCH_*` to
+  `#ifdef CYRIUS_TARGET_LINUX { #ifdef CYRIUS_ARCH_{X86,AARCH64}
+  ... }` + `#ifdef CYRIUS_TARGET_WIN { ... }` to route
+  cleanly. Args 0–3 → RCX/RDX/R8/R9; args 4+ at `[rsp+0..]` (no
+  shadow, matching v5.5.4's cyrius-to-cyrius convention).
+- **`src/main.cyr` early env-var → predefine plumbing** —
+  `CYRIUS_TARGET_WIN=1` now predefines `CYRIUS_TARGET_WIN` and
+  suppresses the `CYRIUS_TARGET_LINUX` predefine, so
+  preprocessor `#ifdef` blocks match the runtime `_TARGET_PE`
+  flag.
+- **ECALLPOPS nextra=5** (`src/backend/x86/emit.cyr`): extends
+  v5.5.4's 4-extra shuttle with a 5th scratch register (r12)
+  so fncall8 (9 args total) can be called on Win64.
+- **CI gate** — new "v5.5.6 `lib/fnptr.cyr` Win64 `fncallN`
+  gate" in windows-cross compiles w_fnptr0..w_fnptr8;
+  windows-native runs each on windows-latest asserting
+  ERRORLEVEL=42.
+
+### Fixed
+- **Preprocessor silently falling back to SysV blocks for
+  Windows targets.** `#ifdef CYRIUS_TARGET_WIN` never fired
+  when `CYRIUS_TARGET_WIN=1` env var was used with cc5.
+- **fncall8 hit v5.5.4's ECALLPOPS shuttle capacity cap.**
+
+### Known limitations (documented, not scoped for v5.5.6)
+- **C-FFI-via-fnptr** — calling a Win64 C function through
+  fncallN breaks because C expects the 32 B shadow home area.
+  The no-shadow convention works for cyrius-to-cyrius but not
+  cyrius-to-C. Shim required for C FFI; document in
+  `docs/ffi/fncall-abi.md`.
+
+### Not in scope (v5.5.7+)
+- **Native Windows self-host** (cc5_win compiling itself on
+  `windows-latest`). Prerequisite v5.5.6 now met.
+
 ## [5.5.5] — 2026-04-20
 
 **`&fn` PE VA fixup — address-of-fn under `CYRIUS_TARGET_WIN=1`

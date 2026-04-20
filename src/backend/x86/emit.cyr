@@ -788,13 +788,19 @@ fn ECALLPOPS(S, n) {
         # n > 4: shuttle extras, pop register args, write extras
         # to stack at [rsp+0..(nextra-1)*8]. Stack on entry:
         # [a[n-1], a[n-2], …, a[0]] with a[n-1] on top.
+        # Max nextra = 5 (v5.5.6 extended from v5.5.4's 4) to
+        # accommodate fncall8 which takes 9 params (fp + 8 args =
+        # N=9 pushes = nextra=5). 5 scratch regs: r10/r11/r14/r15 +
+        # r12. No save/restore needed — cyrius fncallN bodies don't
+        # read r12 beyond this asm block.
         var nextra = n - 4;
-        # Pop extras into r10/r11/r14/r15. First pop = top = a[n-1]
-        # → r10; second pop = a[n-2] → r11; etc.
+        # Pop extras into r10/r11/r14/r15/r12. First pop = top =
+        # a[n-1] → r10; second pop = a[n-2] → r11; etc.
         if (nextra >= 1) { EB(S, 0x58); E3(S, 0xC28949); }   # pop rax; mov r10, rax (a[n-1])
         if (nextra >= 2) { EB(S, 0x58); E3(S, 0xC38949); }   # pop rax; mov r11, rax (a[n-2])
         if (nextra >= 3) { EB(S, 0x58); E3(S, 0xC68949); }   # pop rax; mov r14, rax (a[n-3])
         if (nextra >= 4) { EB(S, 0x58); E3(S, 0xC78949); }   # pop rax; mov r15, rax (a[n-4])
+        if (nextra >= 5) { EB(S, 0x58); E3(S, 0xC48949); }   # pop rax; mov r12, rax (a[n-5])
         # Pop 4 register args (stack now has a[3],a[2],a[1],a[0] top-down).
         EB(S, 0x41); EB(S, 0x59);                             # pop r9   (a[3])
         EB(S, 0x41); EB(S, 0x58);                             # pop r8   (a[2])
@@ -829,6 +835,13 @@ fn ECALLPOPS(S, n) {
             EB(S, 0x4C); EB(S, 0x89); EB(S, 0x74); EB(S, 0x24); EB(S, 0x08);              # mov [rsp+8],  r14 (a[5])
             EB(S, 0x4C); EB(S, 0x89); EB(S, 0x5C); EB(S, 0x24); EB(S, 0x10);              # mov [rsp+16], r11 (a[6])
             EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x18);              # mov [rsp+24], r10 (a[7])
+        }
+        if (nextra == 5) {
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x24); EB(S, 0x24);                           # mov [rsp],    r12 (a[4])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x7C); EB(S, 0x24); EB(S, 0x08);              # mov [rsp+8],  r15 (a[5])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x74); EB(S, 0x24); EB(S, 0x10);              # mov [rsp+16], r14 (a[6])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x5C); EB(S, 0x24); EB(S, 0x18);              # mov [rsp+24], r11 (a[7])
+            EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, 0x20);              # mov [rsp+32], r10 (a[8])
         }
         return 0;
     }

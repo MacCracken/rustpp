@@ -183,7 +183,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.5\n", 10);
+                    syscall(SYS_WRITE, 1, "cc5 5.5.6\n", 10);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -292,7 +292,25 @@ PP_PREDEFINE(S, "CYRIUS_ARCH_X86");
 # (CYRIUS_MACHO envs). Paired with CYRIUS_TARGET_WIN (cc5_win.cyr)
 # so stdlib selectors can pick per-OS peers without juggling
 # missing `#else` / `#ifndef` directives.
-PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+# v5.5.6: honor the CYRIUS_TARGET_WIN=1 env var early (before
+# PREPROCESS) so `#ifdef CYRIUS_TARGET_WIN` blocks in user code
+# (notably lib/fnptr.cyr's Win64 fncallN variants) are actually
+# emitted when this cc5 binary is invoked with the env var to
+# produce PE output. Without this check the preprocessor saw
+# only CYRIUS_TARGET_LINUX and the Win64 blocks never fired,
+# silently falling back to SysV asm that crashed on Windows.
+var _pe_env_early = _read_env("CYRIUS_TARGET_WIN");
+var _is_pe_build = 0;
+if (_pe_env_early != 0) {
+    if (load8(_pe_env_early) == 49 && load8(_pe_env_early + 1) == 0) {
+        _is_pe_build = 1;
+    }
+}
+if (_is_pe_build == 1) {
+    PP_PREDEFINE(S, "CYRIUS_TARGET_WIN");
+} else {
+    PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+}
 
 # Preprocess includes
 PREPROCESS(S);
