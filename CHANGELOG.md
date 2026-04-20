@@ -86,18 +86,33 @@ found to be two distinct stdlib bugs that compounded:
   pattern transposes directly to aarch64 (`svc #0`, args in
   `x0..x4` instead of `rdi/rsi/rdx/r10/r8`, function pointer
   via `blr x9`). See roadmap §v5.4.11.
+- **`lib/keccak.cyr`** — Keccak-f[1600] permutation + sponge
+  API (SHAKE-128 / SHAKE-256, NIST FIPS 202). Sigil 3.0 PQC
+  enabler. Claimed by v5.4.12 — pulled in from "Sigil 3.0
+  enablers — remaining" because sigil 3.0 migration is
+  calendar-pressured and the work is self-contained
+  (~300 LOC, pure stdlib). See roadmap §v5.4.12.
+- **v5.4.13 closeout pass** before v5.5.0 — dead-code audit,
+  doc sync, residual parse.cyr unguarded x86-emit cleanup,
+  permanent `EW` alignment assert in aarch64 emit, optional
+  `cyrius build --strict`. See roadmap §v5.4.13.
+- **v5.5.0 — PE correctness completion** opens the next
+  minor with the Windows arc that v5.4.x didn't finish:
+  Win64 ABI rework at `fncall*`, remaining `syscall(n)`
+  mappings, `lib/syscalls_windows.cyr`, `lib/alloc_windows.cyr`,
+  `cc5_win.cyr` cross-entry, RW-split. See roadmap §v5.5.0.
 - **Thread-local storage** via `arch_prctl(ARCH_SET_FS)` /
   `%fs:`-relative addressing — majra's `_aaw_result_state`
   global-promotion pattern is fundamentally not thread-safe
   even with the post-clone fix; TLS is the right primitive.
-  Larger surface; queued for v5.4.12+.
+  Larger surface; queued for v5.5.x.
 - **Atomics + memory barriers** — cyrius has no `atomic_add`
   / `atomic_cas` / `mfence` today; concurrent stdlib code
   (hashmap mutation across threads, freelist) is exposed to
-  data races. Queued.
+  data races. Queued for v5.5.x.
 - **Runtime thread-safety audit** — alloc / freelist / hashmap
   / vec all make single-thread assumptions. Separate
-  investigation, likely per-thread arenas.
+  investigation, likely per-thread arenas. Queued for v5.5.x.
 
 ## [5.4.9] — 2026-04-19
 

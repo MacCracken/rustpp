@@ -20,21 +20,21 @@
 > ABI at `fncall*`, `syscall(n)` for the rest,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
 > `cc5_win.cyr` cross-entry, RW-split between `.rdata` and
-> `.data`, byte-cmp polish) is the v5.4.12+ queue. **v5.4.9
-> ships the `_cyrius_init` GLOBAL fix + sigil 2.8.4 pin** (the
-> GLOBAL regression from v4.6.0 alpha2 blocked any cyrius `.o`
-> linked into a C-entry-point binary — mabda phase0 today,
-> soorat/rasa/ranga/bijli/aethersafta/kiran the moment they
-> bump their pin). **v5.4.10 is claimed by `lib/thread.cyr`**
-> (majra blocker: every `thread_create + thread_join` SIGSEGVs
-> because the post-`clone()` child branch reads locals via
-> parent's RBP). **v5.4.11 is claimed by aarch64 Linux syscall
-> stdlib** (yukti blocker: `lib/syscalls.cyr` is hardcoded
-> Linux x86_64; aarch64 cross-builds hit the wrong kernel
-> entry point for every `SYS_*` lookup — `syscall(4, …)` is
-> `pivot_root`, not `stat`). Both v5.4.10 and v5.4.11 were
-> investigated during the v5.4.9 cycle and deferred so 5.4.9
-> shipped narrowly. **v5.4.x runs a parallel compiler-optimization
+> `.data`, byte-cmp polish) opens **v5.5.0** as its first
+> item — the v5.5 minor begins with the Windows arc that
+> v5.4.x didn't finish. **v5.4.9 ships the `_cyrius_init`
+> GLOBAL fix + sigil 2.8.4 pin**. **v5.4.10 ships
+> `lib/thread.cyr` post-`clone()` child trampoline + futex
+> wake-flag fix** (majra unblocked). **v5.4.11 is claimed by
+> aarch64 Linux syscall stdlib** (yukti blocker:
+> `syscall(4, …)` is `pivot_root` on aarch64, not `stat`).
+> **v5.4.12 is claimed by `lib/keccak.cyr`** (sigil 3.0 PQC
+> enabler — pulled in from "remaining enablers" so sigil
+> isn't blocked through the v5.5 cycle). **v5.4.13 is the
+> v5.4.x closeout pass** (per CLAUDE.md §"Closeout Pass" —
+> dead-code audit, doc sync, residual parse.cyr unguarded
+> x86-emit cleanup, permanent `EW` alignment assert on
+> aarch64); after v5.4.13 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -519,10 +519,119 @@ here so they aren't forgotten):
 `src/frontend/parse.cyr` syscall rerouting — either cover the
 full Linux table deterministically OR remove the subset
 translation and require consumers to go through
-`lib/syscalls*`. Pairs naturally with the existing v5.4.12+
+`lib/syscalls*`. Pairs naturally with the existing v5.5.x
 audit of unguarded x86-emit paths in shared parse.cyr.
 
-### v5.4.12+ Queue — PE correctness (tracked, not hidden)
+### v5.4.12 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
+
+Pulled in from "Sigil 3.0 enablers — remaining" — sibling of the
+`ct_select` (v5.3.2), `mulh64` (v5.3.3), `secret var` (v5.3.5)
+items already shipped from that cohort. Self-contained stdlib
+work; no compiler changes.
+
+**Why now:** sigil 3.0 PQC migration is calendar-pressured;
+`lib/keccak.cyr` is the last toolchain-side block. Letting it
+slip to v5.5.x means sigil stays blocked through the v5.5
+release cycle. Small enough to fit comfortably as a v5.4.x
+patch (~300 LOC for permutation + sponge; pure stdlib), and
+v5.4.13 (closeout) is the natural wrap-up slot for the line.
+
+**Scope:**
+- **Keccak-f[1600] permutation** — the 24-round
+  `theta / rho / pi / chi / iota` core. Bit-interleaved or
+  64-bit-lane implementation; the cyrius `u64` arithmetic +
+  rotate primitives already cover what's needed.
+- **Sponge construction** with absorb / squeeze separation
+  for SHAKE-128 (rate 1344 bits) and SHAKE-256 (rate 1088
+  bits), per FIPS 202.
+- **No external deps.** Self-contained `lib/keccak.cyr` —
+  belongs alongside `lib/sha256.cyr` (already in stdlib).
+- **Benchmark target:** 4 KB SHAKE-256 within 2× of sigil's
+  existing `sha256_4kb` (~250 µs). Wire into `benches/` so
+  regressions are visible.
+- **`tests/tcyr/keccak.tcyr`** — at minimum the FIPS 202
+  Appendix A.1 / A.2 NIST test vectors for SHAKE-128 and
+  SHAKE-256 (empty input + a few short messages), plus a
+  4 KB round-trip case for the bench-shape.
+
+**Acceptance:**
+1. `tests/tcyr/keccak.tcyr` PASS — NIST vectors match.
+2. `benches/keccak.bcyr` lands within the 2× sha256 budget.
+3. `sh scripts/check.sh` 9/9 (count stays at 10 once the
+   keccak gate is wired — see below).
+4. cc5 + cc5_aarch64 self-host byte-identical (lib-only
+   change; should be trivial).
+5. **sigil 3.0 unblock**: with the v5.4.12 toolchain, sigil's
+   ML-DSA-65 XOF step can stop stubbing the SHAKE call and
+   ship the real PQC path. Verified at sigil's pin-bump time,
+   not in cyrius CI.
+
+### v5.4.13 — v5.4.x closeout pass (then v5.5.0)
+
+Per the closeout-pass procedure in `CLAUDE.md` (run before every
+minor/major bump, ship as the last patch of the current minor —
+e.g. 4.2.5 before 4.3.0). v5.4.13 is the v5.4.x closeout; tagging
+it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
+Platform Targets" below).
+
+**Closeout checklist (verbatim from CLAUDE.md §"Closeout Pass"):**
+1. Self-host verify — cc5 compiles itself byte-identical.
+2. Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
+3. Dead code audit — check dead function count, remove dead
+   source code (the standing 21-fn list at v5.4.10 is a good
+   floor; trim what's reachable to drop).
+4. Stale comment sweep — grep for old version refs, outdated
+   TODOs.
+5. Heap map verify — main.cyr heap map matches actual usage.
+6. Downstream check — every `cyrius.cyml` `cyrius` field
+   across the ecosystem repos points to the released v5.4.x
+   tag, not a dev pin.
+7. Security re-scan — quick grep for new `sys_system`,
+   `READFILE`, unchecked writes (we haven't run a full audit
+   since v5.0.1).
+8. CHANGELOG / roadmap / vidya sync — all docs reflect current
+   state.
+9. Full `sh scripts/check.sh` — 10/10 PASS (gates at v5.4.12
+   = 9 existing + keccak's NIST-vector regression).
+
+**Scope:**
+- Audit the parse.cyr unguarded x86-emit paths flagged in
+  v5.4.10's memory (`feedback_unguarded_x86_emit.md`) — closure
+  address @970, struct field byte/word/dword load 1777-1779,
+  `#regalloc` callee-saved 3257/3403, x87 fallbacks. Fix what
+  fires under any current downstream's exercise; queue what
+  doesn't to v5.5.x.
+- Permanent `EW` alignment assert in
+  `src/backend/aarch64/emit.cyr` — the catch-everything net
+  for any future RBP-shift / alignment regression on aarch64.
+  Cheap; should have been there since v5.4.8.
+- Audit `src/frontend/parse.cyr`'s opaque syscall rerouting
+  (the partial translation that makes `syscall(1)` and
+  `syscall(60)` work on aarch64 today) — either complete the
+  table deterministically or remove the subset and require
+  consumers to go through `lib/syscalls*` (now per-arch as of
+  v5.4.11).
+- `cyrius build --strict` mode (escalate `undefined function`
+  warnings to hard errors) if it can land cheaply — closes
+  the regression class that mabda Issue 2 represents. Otherwise
+  defer to v5.5.x.
+- Verify the post-v5.4.10 thread surface: TLS gap, atomics
+  gap, and runtime thread-safety surface (alloc / freelist /
+  hashmap under `CLONE_VM`) are all flagged but not yet on a
+  minor. Closeout decides whether any of those need a v5.4.x
+  patch slot or all push to v5.5.x.
+
+After v5.4.13 ships, the next tag is **v5.5.0** — which is
+itself claimed by the PE correctness completion below. The new
+minor opens with the same Windows arc that closed v5.4.x: ship
+the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
+mappings + `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`
++ `cc5_win.cyr` cross-entry + RW-split as v5.5.0, then v5.5.x
+patch releases follow with the aarch64 native-syscall
+self-host (currently x86-cross only) and any other platform
+gaps surfaced during the closeout.
+
+### v5.5.0 — PE correctness completion
 
 What v5.4.2–v5.4.8 explicitly do NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.x plus" would
@@ -722,7 +831,8 @@ are in CHANGELOG.
   (SHAKE-128 / SHAKE-256). NIST FIPS 202. Required for
   ML-DSA-65's XOF step in sigil 3.0 PQC. Self-contained, no
   external deps. Benchmark target: 4 KB SHAKE-256 within 2× of
-  sigil's existing `sha256_4kb` (~250 µs).
+  sigil's existing `sha256_4kb` (~250 µs). **Claimed by v5.4.12
+  — see roadmap §v5.4.12.**
 
 ---
 
