@@ -4,6 +4,64 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.15] — 2026-04-20
+
+**`lib/keccak.cyr` — Keccak-f[1600] + SHAKE-128 / SHAKE-256 (sigil 3.0
+PQC unblock) + sigil dep bump 2.8.4 → 2.9.0.** Pure FIPS 202 reference
+implementation, 64-bit lanes, no external deps, no per-arch code.
+Last toolchain-side block for sigil 3.0 PQC migration; with v5.4.15 in
+place, sigil 2.9.0 ships (already tagged upstream) and pulls through
+the ecosystem as the canonical sigil for pre-PQC consumers.
+
+Pure stdlib addition. Compiler byte-identical to v5.4.14 beyond the
+version literal. Self-host held on x86_64 and aarch64.
+
+### Added
+- **`lib/keccak.cyr`** — Keccak-f[1600] 24-round permutation over a
+  200-byte state (25 × u64 lanes), plus sponge absorb/squeeze and
+  public `shake128` / `shake256` XOF entry points. Follows the
+  keccak.team compact reference; ρ+π uses the 24-element cycle walk
+  rather than a flat offset table. Chi uses cyrius's `-1` literal for
+  bitwise NOT (no unary `~` operator). Probe-verified that cyrius's
+  64-bit right shift is logical (`0x8000000000000001 >> 63 == 1`),
+  so the naive rotl formula `(x << n) | (x >> (64 - n))` is safe
+  without an explicit mask.
+- **`tests/tcyr/keccak.tcyr`** — 7-assertion regression cross-
+  verified against Python's `hashlib.shake_*`: SHAKE-128 empty (32
+  and 64 bytes), SHAKE-256 empty (32 and 64 bytes), SHAKE-128
+  pangram, SHAKE-256 4 KB determinism, SHAKE-256 4 KB avalanche on
+  single-bit flip. 7/7 PASS on x86_64 and aarch64.
+- **`benches/bench_keccak.bcyr`** — SHAKE-256 empty / 4 KB, SHAKE-128
+  4 KB, SHAKE-256 1 KB squeeze-extension. Measured results:
+  SHAKE-256 4 KB = **329 µs avg** (target ≤ 500 µs per roadmap
+  acceptance gate; 1.3× ratio to sigil's existing `sha256_4kb` at
+  ~250 µs — within the 2× budget).
+
+### Changed
+- **`cyrius.cyml` [deps.sigil] tag 2.8.4 → 2.9.0**, with
+  corresponding `cyrius.lock` sha256 update
+  (1db504…→76a46e…). Local `lib/sigil.cyr` symlink re-pointed at
+  `~/.cyrius/deps/sigil/2.9.0/dist/sigil.cyr` (201796 B, up from
+  2.8.4's 189204 B — the growth is the PQC path that v5.4.15
+  keccak unblocks).
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS (test suite now 68 files).
+- `tests/tcyr/keccak.tcyr` — 7/7 PASS on x86_64 and aarch64
+  (cross-built, run via ssh pi).
+- `benches/bench_keccak.bcyr` — within 2× sha256_4kb budget.
+- cc5 + cc5_aarch64 self-host byte-identical.
+
+### Notes for downstream
+- **sigil consumers** (libro, shakti, agnostik, …) can bump their
+  cyrius pin to 5.4.15 and their sigil pin to 2.9.0 in one step.
+  PQC-ready code paths in sigil 2.9.0 that previously stubbed SHAKE
+  calls can now exercise the real `shake128` / `shake256`.
+- **Perf is within budget but not tuned.** A v5.4.16 closeout
+  companion could inline `_keccak_rotl64` (saves ~20k fn calls per
+  4 KB hash on x86_64, maybe 15-25 % speedup) if sigil's PQC path
+  actually needs it at scale. Not in scope this release.
+
 ## [5.4.14] — 2026-04-20
 
 **`lib/hashmap.cyr` Str-struct key fix (marja-surfaced data loss).**

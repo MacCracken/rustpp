@@ -1,0 +1,79 @@
+# bench_keccak.bcyr — Keccak-f[1600] permutation + SHAKE-256 throughput
+# Landed v5.4.15 alongside lib/keccak.cyr.
+#
+# Comparison baseline (roadmap v5.4.15 §"Why now" target):
+# SHAKE-256 4 KB should land within 2× sigil's existing sha256_4kb
+# (~250 µs per call). Anything ≤ 500 µs ships; > 500 µs queues a
+# perf pass for v5.4.16 closeout.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
+include "lib/bench.cyr"
+include "lib/keccak.cyr"
+
+# Globals for the work fn (bench harness passes no args).
+var _bench_msg = 0;
+var _bench_out = 0;
+
+fn work_shake256_empty() {
+    var out[32];
+    shake256("", 0, &out, 32);
+    return 0;
+}
+
+fn work_shake256_4kb() {
+    shake256(_bench_msg, 4096, _bench_out, 32);
+    return 0;
+}
+
+fn work_shake128_4kb() {
+    shake128(_bench_msg, 4096, _bench_out, 32);
+    return 0;
+}
+
+fn work_shake256_extend_1kb() {
+    # 1 KB of squeeze output from a short message — exercises the
+    # squeeze loop + permute-between-blocks path.
+    shake256("seed", 4, _bench_out, 1024);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+
+    # Set up 4 KB input (byte-counter pattern; content-irrelevant for perf).
+    _bench_msg = alloc(4096);
+    _bench_out = alloc(1024);
+    var i = 0;
+    while (i < 4096) {
+        store8(_bench_msg + i, i & 0xFF);
+        i = i + 1;
+    }
+
+    var all = vec_new();
+
+    var b1 = bench_new("keccak/shake256/empty");
+    bench_run(b1, &work_shake256_empty, 1000);
+    vec_push(all, b1);
+
+    var b2 = bench_new("keccak/shake256/4KB");
+    bench_run(b2, &work_shake256_4kb, 200);
+    vec_push(all, b2);
+
+    var b3 = bench_new("keccak/shake128/4KB");
+    bench_run(b3, &work_shake128_4kb, 200);
+    vec_push(all, b3);
+
+    var b4 = bench_new("keccak/shake256/extend_1KB");
+    bench_run(b4, &work_shake256_extend_1kb, 500);
+    vec_push(all, b4);
+
+    bench_report_all(all);
+    return 0;
+}
+
+var r = main();
+syscall(60, r);

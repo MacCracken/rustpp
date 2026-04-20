@@ -1,0 +1,125 @@
+# Regression for v5.4.15 — Keccak-f[1600] + SHAKE-128 / SHAKE-256.
+#
+# Test vectors pulled from the NIST FIPS 202 Appendix-A intermediate
+# values document (https://csrc.nist.gov/projects/cryptographic-
+# standards-and-guidelines/example-values#aHashing). We test the
+# empty message (smallest padding case) at two output lengths plus
+# a known short-message vector. A 4 KB round-trip proxy exercises
+# the squeeze loop and matches the bench shape.
+
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/keccak.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ── Helper: compare `got` (bytes) against expected hex cstring ──
+# expected_hex is a NUL-terminated char* of lowercase hex digits
+# (2 chars per output byte). Returns 1 on exact match, 0 otherwise.
+fn _hex_digit(c) {
+    if (c >= 48 && c <= 57) { return c - 48; }         # '0'..'9'
+    if (c >= 97 && c <= 102) { return c - 97 + 10; }   # 'a'..'f'
+    if (c >= 65 && c <= 70)  { return c - 65 + 10; }   # 'A'..'F'
+    return 0;
+}
+
+fn bytes_eq_hex(got, got_len, expected_hex) {
+    var exp_len = strlen(expected_hex);
+    if (exp_len != got_len * 2) { return 0; }
+    var i = 0;
+    while (i < got_len) {
+        var hi = _hex_digit(load8(expected_hex + i * 2));
+        var lo = _hex_digit(load8(expected_hex + i * 2 + 1));
+        var expected_byte = (hi << 4) | lo;
+        if (load8(got + i) != expected_byte) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# ── SHAKE-128, empty input, 32-byte output ──
+# NIST known answer: first 32 bytes of SHAKE128("") =
+# 7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26
+test_group("SHAKE-128 — empty input, 32 bytes");
+var out1 = alloc(32);
+shake128("", 0, out1, 32);
+assert_eq(bytes_eq_hex(out1, 32,
+    "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26"),
+    1, "SHAKE128('') first 32 bytes");
+
+# ── SHAKE-128, empty input, 64-byte output ──
+# Extended output exercises the squeeze loop's re-permute.
+# Expected (first 32 bytes of SHAKE128('') as above + next 32):
+# ...66ef26 9e183366ada57700e06a1ef65b4e1c3c76df99091fab71098a7e4dfdb8fea28b
+test_group("SHAKE-128 — empty input, 64 bytes");
+var out2 = alloc(64);
+shake128("", 0, out2, 64);
+assert_eq(bytes_eq_hex(out2, 64,
+    "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef263cb1eea988004b93103cfb0aeefd2a686e01fa4a58e8a3639ca8a1e3f9ae57e2"),
+    1, "SHAKE128('') 64-byte extended output");
+
+# ── SHAKE-256, empty input, 32-byte output ──
+# NIST known answer: first 32 bytes of SHAKE256("") =
+# 46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f
+test_group("SHAKE-256 — empty input, 32 bytes");
+var out3 = alloc(32);
+shake256("", 0, out3, 32);
+assert_eq(bytes_eq_hex(out3, 32,
+    "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f"),
+    1, "SHAKE256('') first 32 bytes");
+
+# ── SHAKE-256, empty input, 64 bytes ──
+# Second half verifies squeeze continuation.
+test_group("SHAKE-256 — empty input, 64 bytes");
+var out4 = alloc(64);
+shake256("", 0, out4, 64);
+assert_eq(bytes_eq_hex(out4, 64,
+    "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762fd75dc4ddd8c0f200cb05019d67b592f6fc821c49479ab48640292eacb3b7c4be"),
+    1, "SHAKE256('') extends to 64 bytes");
+
+# ── SHAKE-128, short ASCII input ──
+# "The quick brown fox jumps over the lazy dog" is a known test input.
+# SHAKE128(msg) first 32 bytes =
+# f4202e3c5852f9182a0430fd8144f0a74b95e7417ecae17db0f8cfeed0e3e66e
+test_group("SHAKE-128 — pangram input");
+var msg = "The quick brown fox jumps over the lazy dog";
+var out5 = alloc(32);
+shake128(msg, 43, out5, 32);
+assert_eq(bytes_eq_hex(out5, 32,
+    "f4202e3c5852f9182a0430fd8144f0a74b95e7417ecae17db0f8cfeed0e3e66e"),
+    1, "SHAKE128('The quick brown fox…') first 32 bytes");
+
+# ── 4 KB input → SHAKE-256 (bench-shape round-trip) ──
+# Verifies correctness at the benchmark input size. We don't know the
+# exact expected bytes without a reference tool run, so we assert
+# two things: (a) two identical runs produce identical output
+# (determinism), and (b) flipping one input byte produces a
+# completely different output (avalanche). Combined, these catch
+# any state-corruption or per-block-partial regression.
+test_group("SHAKE-256 — 4 KB determinism + avalanche");
+var msg4k_a = alloc(4096);
+var msg4k_b = alloc(4096);
+var ki = 0;
+while (ki < 4096) {
+    store8(msg4k_a + ki, ki & 0xFF);
+    store8(msg4k_b + ki, ki & 0xFF);
+    ki = ki + 1;
+}
+var digest_a1 = alloc(32);
+var digest_a2 = alloc(32);
+shake256(msg4k_a, 4096, digest_a1, 32);
+shake256(msg4k_a, 4096, digest_a2, 32);
+assert_eq(memeq(digest_a1, digest_a2, 32), 1,
+    "SHAKE256(4KB A) is deterministic across two runs");
+
+# Flip byte 2047 of msg_b
+store8(msg4k_b + 2047, load8(msg4k_b + 2047) ^ 1);
+var digest_b = alloc(32);
+shake256(msg4k_b, 4096, digest_b, 32);
+assert_eq(memeq(digest_a1, digest_b, 32), 0,
+    "SHAKE256 avalanches on a single bit flip in the middle block");
+
+var r = assert_summary();
