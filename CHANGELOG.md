@@ -4,6 +4,101 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.10] — 2026-04-19
+
+**`lib/thread.cyr` post-clone child path + thread_join wake-flag
+mismatch (majra blocker).** Filed by majra
+(`docs/development/issues/majra-cbarrier-arrive-and-wait-crash.md`)
+as a futex/barrier crash; investigated during the v5.4.9 cycle and
+found to be two distinct stdlib bugs that compounded:
+
+1. After `clone(CLONE_VM)` the child thread shares the address
+   space with the parent but inherits the parent's `rbp` — the
+   kernel only updates `rsp` to the `child_stack` we pass. cc5
+   emits every local read/write as `[rbp-N]`, so the previous
+   "plain cyrius" child branch
+   (`var child_fp = load64(child_stack); fncall1(...);`) read /
+   wrote the parent's stack slots. The parent had already moved
+   on through `store64(t, r); return t;` and stomped those slots
+   — every `thread_create + thread_join` SIGSEGV'd. The child
+   trampoline now lives in inline asm in a new `_thread_spawn`
+   helper that does the entire syscall + dispatch without
+   touching cyrius locals after the syscall — only `rsp`
+   (kernel-set to `child_stack`, with `[fp][arg]` at the top) and
+   `rax` (per-thread).
+2. `thread_join` was using
+   `FUTEX_WAIT | FUTEX_PRIVATE_FLAG`, but the kernel's
+   `CLONE_CHILD_CLEARTID` action issues a SHARED (non-private)
+   futex_wake on thread exit. A FUTEX_WAIT_PRIVATE waiter sits
+   on a different hash bucket and never sees that wake — so
+   even after the child trampoline fix landed, every join hung
+   forever. Exposed empirically once the trampoline stopped
+   crashing first; verified that FUTEX_WAIT (= 0) wakes
+   correctly while FUTEX_WAIT|FUTEX_PRIVATE_FLAG (= 128) hangs.
+   Pre-v5.4.10 there were zero thread tests in `tests/tcyr/`,
+   so this shipped silently.
+
+### Added
+- **`lib/thread.cyr` `_thread_spawn(flags, child_stack, t)`** —
+  per-arch inline-asm helper that issues the CLONE syscall and
+  handles the child branch entirely without cyrius local-variable
+  emission. x86 path encoded as 49 bytes spanning syscall +
+  dispatch + child trampoline (pop fp, pop arg, call rax,
+  SYS_EXIT) + parent store. aarch64 path stubbed to return -1
+  pending v5.4.11 (`lib/syscalls.cyr` is hardcoded x86_64
+  syscall numbers; aarch64 needs the per-arch syscall stdlib
+  before threads can work cross-arch).
+- **`tests/tcyr/threads.tcyr`** — regression coverage:
+  spawn+join basic (verifies arg passing), multi-spawn (5
+  concurrent threads + sum check + mutex contention).
+  6 assertions; runs via `scripts/check.sh` test-suite glob and
+  the CI `test-ubuntu` step automatically.
+
+### Fixed
+- **`lib/thread.cyr` post-`clone()` child branch** — see
+  preamble. Fix: route through `_thread_spawn` inline asm.
+- **`lib/thread.cyr` `thread_join`** — `FUTEX_WAIT | FUTEX_PRIVATE_FLAG`
+  → `FUTEX_WAIT` (no private flag). Matches the kernel's
+  `CLONE_CHILD_CLEARTID` shared wake.
+- **`lib/thread.cyr` `thread_create`** — removed the explicit
+  `store64(t, r);` after `_thread_spawn` returns. Kernel's
+  `CLONE_PARENT_SETTID` already wrote the tid; an explicit
+  parent-side store racing with `CLONE_CHILD_CLEARTID`'s zero
+  could resurrect the tid and hang any subsequent
+  `thread_join`.
+
+### Verified
+- `sh scripts/check.sh` 9/9 PASS — including the new
+  `threads.tcyr` test suite (6/6 assertions).
+- Majra's original repro
+  (`tests/repro_aaw_crash.cyr`, 3 threads on a barrier) prints
+  `OK: all three threads woke from barrier` and exits 0.
+- cc5 self-host byte-identical (467104 B; same as v5.4.9 — only
+  `lib/` files changed, which don't enter cc5's own build).
+- Mutex contention confirmed serialising correctly (sum of 1..5
+  across 5 worker threads = 15 deterministically).
+
+### v5.4.11+ companions (queued, not in v5.4.10 scope)
+- **aarch64 `lib/thread.cyr`** — currently stubbed to return
+  -1 because `lib/syscalls.cyr` ships x86_64 syscall numbers
+  (`SYS_CLONE = 56` is `io_setup` on aarch64). Fix lands with
+  v5.4.11's per-arch syscall stdlib split; the asm trampoline
+  pattern transposes directly to aarch64 (`svc #0`, args in
+  `x0..x4` instead of `rdi/rsi/rdx/r10/r8`, function pointer
+  via `blr x9`). See roadmap §v5.4.11.
+- **Thread-local storage** via `arch_prctl(ARCH_SET_FS)` /
+  `%fs:`-relative addressing — majra's `_aaw_result_state`
+  global-promotion pattern is fundamentally not thread-safe
+  even with the post-clone fix; TLS is the right primitive.
+  Larger surface; queued for v5.4.12+.
+- **Atomics + memory barriers** — cyrius has no `atomic_add`
+  / `atomic_cas` / `mfence` today; concurrent stdlib code
+  (hashmap mutation across threads, freelist) is exposed to
+  data races. Queued.
+- **Runtime thread-safety audit** — alloc / freelist / hashmap
+  / vec all make single-thread assumptions. Separate
+  investigation, likely per-thread arenas.
+
 ## [5.4.9] — 2026-04-19
 
 **`_cyrius_init` GLOBAL in `object;` mode (mabda blocker).** v3.4.14
@@ -70,7 +165,7 @@ next silent flip can't ship.
 - cyrld rebuilds clean and links the `regression-linker.sh`
   multi-module program after the dup-skip handshake.
 
-### v5.4.10+ companion (queued, not in v5.4.9 scope)
+### v5.4.10+ companions (queued, not in v5.4.9 scope)
 - **v5.4.10 — `lib/thread.cyr` post-clone child path.** Every
   `thread_create + thread_join` crashes today because the
   post-`clone()` child branch is plain cyrius code that reads
@@ -79,7 +174,18 @@ next silent flip can't ship.
   investigated during the v5.4.9 cycle, found to be structural,
   deferred to its own patch with `tests/tcyr/threads.tcyr`
   coverage. See roadmap §v5.4.10.
-- **v5.4.11+ — `cyrius build --strict`** to escalate
+- **v5.4.11 — aarch64 Linux syscall stdlib.** `lib/syscalls.cyr`
+  is hardcoded Linux x86_64 (e.g. `SYS_OPEN = 2`,
+  `SYS_STAT = 4`, `SYS_MKDIR = 83`); cross-built aarch64 binaries
+  hit the wrong kernel entry point for every `SYS_*` lookup —
+  yukti 2.1.0 reproduces as `syscall(4, …)` invoking
+  `pivot_root` instead of `stat`. Proposal at
+  `docs/proposals/2026-04-19-aarch64-syscall-stdlib.md` (pulled
+  in from its original v5.5.x target because the regression is
+  actively broken today). Design reuses the existing
+  `lib/syscalls_macos.cyr` pattern; no new infrastructure. See
+  roadmap §v5.4.11.
+- **v5.4.12+ — `cyrius build --strict`** to escalate
   `undefined function` warnings to hard errors. Closes the
   regression class that mabda Issue 2 (missing
   `include "lib/str.cyr"` in `programs/phase0.cyr`) represents —
@@ -193,10 +299,12 @@ program running on the Windows platform target.
   Filed in mabda/yukti context as the cc5_aarch64 SIGILL blocker
   (yukti `docs/development/issues/2026-04-19-cc5-aarch64-repro.md`).
 
-### v5.4.11+ follow-ups (tracked, not blocking)
+### v5.4.12+ follow-ups (tracked, not blocking)
 - **`_cyrius_init` GLOBAL in `object;` mode** — shipped as v5.4.9.
 - **`lib/thread.cyr` post-clone child path** — claimed by v5.4.10
   (separate patch; see roadmap §v5.4.10).
+- **aarch64 Linux syscall stdlib** — claimed by v5.4.11
+  (separate patch; see roadmap §v5.4.11).
 - **Other unguarded x86 emits in shared `parse.cyr`** — closure
   address (~line 970), struct field byte/word/dword load (1777-1779),
   `#regalloc` callee-saved save/restore (3257-3261 / 3403-3407), x87

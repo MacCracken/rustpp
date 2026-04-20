@@ -1,8 +1,10 @@
 # Proposal: aarch64 Linux syscall table in stdlib
 
-**Status**: draft (pending acceptance)
+**Status**: accepted (claimed by v5.4.11)
 **Date**: 2026-04-19
-**Target**: v5.5.x
+**Target**: v5.4.11 (was v5.5.x in original draft — pulled in
+because yukti is actively broken on aarch64 today and v5.5.x is
+months out)
 **Affects**: `lib/syscalls.cyr`, every consumer that cross-builds
 with `cyrius build --aarch64`
 
@@ -163,16 +165,27 @@ fn sys_poll(pfd_ptr, nfds, timeout_ms) {
 
 ### 2. `lib/syscalls.cyr` becomes an arch selector
 
+Cyrius preprocessor uses bare `include "..."` (no `#`) for file
+inclusion; `#ifdef` / `#endif` are the conditional-compilation
+directives. So the selector reads:
+
 ```cyr
 # syscalls.cyr — Linux syscall wrappers (arch-dispatched)
 # Selects the right per-arch peer based on CYRIUS_ARCH_*.
 
 #ifdef CYRIUS_ARCH_AARCH64
-#include "lib/syscalls_aarch64_linux.cyr"
-#else
-#include "lib/syscalls_x86_64_linux.cyr"
+include "lib/syscalls_aarch64_linux.cyr"
+#endif
+#ifdef CYRIUS_ARCH_X86
+include "lib/syscalls_x86_64_linux.cyr"
 #endif
 ```
+
+(Two-arm `#ifdef` rather than `#ifdef`/`#else` matches the
+existing pattern in `lib/fnptr.cyr`, which is the only other
+file in the tree using `#ifdef CYRIUS_ARCH_*` today. If
+`#else` works, collapse — but verify against the preprocessor
+implementation in `src/frontend/lex.cyr` first.)
 
 The existing x86_64 content moves verbatim into
 `lib/syscalls_x86_64_linux.cyr`, preserving all identifiers and
@@ -181,12 +194,23 @@ stub + one new aarch64 peer.
 
 ### 3. `struct stat` layout helper
 
-x86_64 `stat(2)` and aarch64 `newfstatat(2)` both populate
-`struct stat` in the generic kernel layout
-(`include/uapi/asm-generic/stat.h`) — `st_mode` at offset 16,
-`st_uid` at 20, `st_gid` at 24 on **aarch64**, whereas x86_64's
-`stat` syscall uses a different 144-byte layout with `st_mode`
-at offset 24. Offset constants must also be arch-dispatched:
+x86_64 `stat(2)` returns a 144-byte struct with `st_mode` at
+offset 24; aarch64 `newfstatat(2)` returns the generic kernel
+layout (`include/uapi/asm-generic/stat.h`) with `st_mode` at
+offset 16, `st_uid` at 20, `st_gid` at 24.
+
+**Decision to make at implementation time:** keep both arches'
+native layouts and arch-dispatch the offset constants (the
+proposal's original design, below) **OR** route x86_64 through
+`newfstatat` too so both arches share the generic-stat layout
+and the offsets become arch-independent. Vote: route both
+through `newfstatat` for consistency — slightly more syscall
+args per call, much smaller cognitive surface for stdlib
+maintainers. Decide after auditing yukti's `device.cyr:157-159`
+and `storage.cyr:568` for any latent dependence on the 144-byte
+layout's specific fields.
+
+If we keep arch-dispatched offsets:
 
 ```cyr
 #ifdef CYRIUS_ARCH_AARCH64
@@ -196,7 +220,8 @@ enum Stat {
     STAT_GID  = 24;
     STAT_SIZE = 48;
 }
-#else
+#endif
+#ifdef CYRIUS_ARCH_X86
 enum Stat {
     STAT_MODE = 24;
     STAT_UID  = 28;
@@ -210,6 +235,23 @@ yukti's `device.cyr:157-159` and `storage.cyr:568` are the
 first consumers that would break on the layout change; the fix
 in yukti becomes "replace `&buf + 24` with `&buf + STAT_MODE`"
 once this proposal lands.
+
+### 4. `sys_fstat` on aarch64
+
+aarch64 doesn't expose a bare `fstat`. The closest equivalent
+is `fstatat(fd, "", buf, AT_EMPTY_PATH)` (modern Linux ≥ 2.6.39,
+which every aarch64 build target satisfies). Wrapper:
+
+```cyr
+fn sys_fstat(fd, buf_ptr) {
+    var empty[1]; store8(&empty, 0);
+    return syscall(SYS_NEWFSTATAT, fd, &empty, buf_ptr, 0x1000);  # AT_EMPTY_PATH
+}
+```
+
+Or — if we go the consistency route from §3 — both arches use
+the same `fstatat` form, no per-arch wrapper needed. Same
+decision point.
 
 ## Acceptance criteria
 
@@ -241,13 +283,30 @@ yukti-local follow-up tracked separately.
 
 ## Rollout
 
-- **v5.4.10+**: land the file rename + selector stub behind a
-  feature flag so the x86_64 path stays byte-identical.
-- **v5.5.0**: flip the default on `--aarch64`; run downstream
-  gate across all first-party consumers.
+Originally drafted for "v5.4.10+ behind a feature flag" then
+"v5.5.0 flip default" — collapsed into a single v5.4.11 patch
+because:
+- `#ifdef CYRIUS_ARCH_AARCH64` already *is* the gate; no
+  feature flag needed. x86 builds stay byte-identical because
+  the new `lib/syscalls.cyr` selector delegates to a renamed
+  `lib/syscalls_x86_64_linux.cyr` carrying today's verbatim
+  content.
+- Yukti is actively broken on aarch64 today; v5.5.x is months
+  out. The honest rollout matches the urgency.
+
+- **v5.4.11**: land the new `lib/syscalls_aarch64_linux.cyr`
+  peer + the selector stub in `lib/syscalls.cyr` + the
+  arch-dispatched `Stat` enum (or, per §3 decision, the
+  consistency-routed unified layout). x86 path stays
+  byte-identical; aarch64 cross-builds finally hit the right
+  kernel entry points.
+- **Downstream pin bumps land at downstream's own pace**;
+  cyrius CI doesn't re-run downstreams' aarch64 retest scripts
+  (keeps cyrius CI hermetic). When a downstream bumps its pin
+  to v5.4.11+, its own CI reports green.
 - **Documentation**: update `docs/stdlib-reference.md` line 311
   ("Linux x86_64 syscall bindings") and
-  `docs/cyrius-guide.md` line 406.
+  `docs/cyrius-guide.md` line 406 in the same patch.
 
 ## Risks
 
@@ -258,11 +317,22 @@ yukti-local follow-up tracked separately.
   in practice — yukti, sigil, and agnosys already treat
   `sys_open < 0` as "failed, read errno from negated return".
 - **`fork` → `clone` translation**: aarch64 has no `fork`.
-  `sys_fork` wrapper must call `clone(CLONE_CHILD|SIGCHLD, 0,
-  0, 0, 0)`. Needs careful verification against libro's fork
-  tests.
+  Original draft suggested `clone(CLONE_CHILD|SIGCHLD, 0, 0,
+  0, 0)` but **`CLONE_CHILD` isn't a Linux clone flag**. The
+  POSIX-fork-equivalent is `clone(SIGCHLD, 0, 0, 0, 0)` — the
+  bare `SIGCHLD` term tells the kernel to send SIGCHLD to the
+  parent on child exit, with no `CLONE_*` bits set so the
+  child gets its own VM, files, signal handlers, etc. Verify
+  against libro's fork tests; if libro relies on
+  copy-on-write semantics, also confirm that's preserved
+  (without `CLONE_VM` it should be).
 - **`pipe` → `pipe2`**: aarch64 has no `pipe`, only `pipe2`.
   Wrapper passes `flags=0`. Behaviorally identical.
 - **Byte-count regression**: `cc5` and `cc5_aarch64` must still
   self-host byte-identical after the stdlib refactor. Covered
   by existing `sh scripts/check.sh` gates.
+- **`#ifdef`/`#else` support**: the proposal's selector
+  example uses two-arm `#ifdef` rather than `#ifdef`/`#else`
+  because the latter is unverified in cyrius's preprocessor.
+  If `#else` works (verify against `src/frontend/lex.cyr`
+  before landing), collapse the two arms.

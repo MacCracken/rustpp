@@ -1,0 +1,78 @@
+# threads.tcyr — regression coverage for lib/thread.cyr (v5.4.10)
+#
+# Filed by majra after every `thread_create + thread_join` SIGSEGV'd
+# on cc5 5.4.x (docs/development/issues/majra-cbarrier-arrive-and-wait-crash.md).
+# Root cause: post-`clone(CLONE_VM)` child branch was plain cyrius
+# code that read locals via parent's inherited RBP — child stomped
+# parent's stack slots. Fixed v5.4.10 by routing the child trampoline
+# through inline asm in `_thread_spawn`. Companion fix: thread_join
+# was using FUTEX_PRIVATE_FLAG which doesn't match the kernel's
+# shared CLONE_CHILD_CLEARTID wake — drop the flag.
+#
+# Coverage:
+#   1. spawn+join basic
+#   2. multi-spawn (5 concurrent threads, all joined)
+#   3. shared counter under mutex (correctness AND no SIGSEGV under
+#      contention)
+#   4. arg passing (each thread receives a distinct value)
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/thread.cyr"
+
+var _t_done = 0;
+var _t_mtx = 0;
+var _t_sum = 0;
+
+# Worker that bumps a global under mutex.
+fn _bump(arg) {
+    mutex_lock(_t_mtx);
+    _t_done = _t_done + 1;
+    _t_sum = _t_sum + arg;
+    mutex_unlock(_t_mtx);
+    return 0;
+}
+
+fn test_spawn_join() {
+    test_group("thread spawn+join");
+    _t_done = 0;
+    _t_mtx = mutex_new();
+    var t = thread_create(&_bump, 7);
+    assert_neq(t, 0, "thread_create returned non-null");
+    var rj = thread_join(t);
+    assert_eq(rj, 0, "thread_join returned 0");
+    assert_eq(_t_done, 1, "worker ran once");
+    assert_eq(_t_sum, 7, "worker received arg=7");
+}
+
+fn test_multi_spawn() {
+    test_group("thread multi-spawn");
+    _t_done = 0;
+    _t_sum = 0;
+    _t_mtx = mutex_new();
+    var t1 = thread_create(&_bump, 1);
+    var t2 = thread_create(&_bump, 2);
+    var t3 = thread_create(&_bump, 3);
+    var t4 = thread_create(&_bump, 4);
+    var t5 = thread_create(&_bump, 5);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    thread_join(t5);
+    assert_eq(_t_done, 5, "five workers ran");
+    assert_eq(_t_sum, 15, "sum 1+2+3+4+5 == 15 (mutex serialised correctly)");
+}
+
+fn main() {
+    alloc_init();
+    test_spawn_join();
+    test_multi_spawn();
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);

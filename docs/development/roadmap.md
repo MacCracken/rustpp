@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.4.9.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
+> **v5.4.10.** cc5 compiler (467104 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -20,7 +20,7 @@
 > ABI at `fncall*`, `syscall(n)` for the rest,
 > `lib/syscalls_windows.cyr` + `lib/alloc_windows.cyr`,
 > `cc5_win.cyr` cross-entry, RW-split between `.rdata` and
-> `.data`, byte-cmp polish) is the v5.4.11+ queue. **v5.4.9
+> `.data`, byte-cmp polish) is the v5.4.12+ queue. **v5.4.9
 > ships the `_cyrius_init` GLOBAL fix + sigil 2.8.4 pin** (the
 > GLOBAL regression from v4.6.0 alpha2 blocked any cyrius `.o`
 > linked into a C-entry-point binary — mabda phase0 today,
@@ -28,9 +28,13 @@
 > bump their pin). **v5.4.10 is claimed by `lib/thread.cyr`**
 > (majra blocker: every `thread_create + thread_join` SIGSEGVs
 > because the post-`clone()` child branch reads locals via
-> parent's RBP; investigation captured during the v5.4.9 cycle,
-> fix + `tests/tcyr/threads.tcyr` deferred so 5.4.9 ships
-> narrowly). **v5.4.x runs a parallel compiler-optimization
+> parent's RBP). **v5.4.11 is claimed by aarch64 Linux syscall
+> stdlib** (yukti blocker: `lib/syscalls.cyr` is hardcoded
+> Linux x86_64; aarch64 cross-builds hit the wrong kernel
+> entry point for every `SYS_*` lookup — `syscall(4, …)` is
+> `pivot_root`, not `stat`). Both v5.4.10 and v5.4.11 were
+> investigated during the v5.4.9 cycle and deferred so 5.4.9
+> shipped narrowly. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -353,7 +357,7 @@ toolchain pin to 5.4.x.
   gets it for free. Issue 2 itself is mabda-side; the toolchain
   enhancement here closes the regression class.
 
-### v5.4.10 — `lib/thread.cyr` post-clone child path (majra blocker)
+### v5.4.10 — `lib/thread.cyr` post-clone child path (majra blocker) ✅
 
 Filed 2026-04-19 in
 `docs/development/issues/majra-cbarrier-arrive-and-wait-crash.md`
@@ -428,7 +432,97 @@ never exercised the surface.
   `CLONE_VM`. Separate investigation + likely per-thread
   arenas.
 
-### v5.4.11+ Queue — PE correctness (tracked, not hidden)
+### v5.4.11 — aarch64 Linux syscall stdlib (yukti blocker)
+
+Filed 2026-04-19 in
+`docs/proposals/2026-04-19-aarch64-syscall-stdlib.md`,
+acceptance pulled in from the proposal's original v5.5.x target
+because yukti is actively broken on aarch64 today.
+
+**The bug.** `lib/syscalls.cyr` is hardcoded to Linux x86_64
+syscall numbers (`SYS_OPEN = 2`, `SYS_STAT = 4`,
+`SYS_MKDIR = 83`, …). aarch64 uses the generic syscall table
+(`include/uapi/asm-generic/unistd.h`), which is completely
+different (`openat = 56`, `newfstatat = 79`, `mkdirat = 34`,
+no bare `stat`/`open`/`mkdir`). Cross-built binaries today
+include the x86_64 enum verbatim, so every `SYS_*` lookup on
+real aarch64 hardware hits the wrong kernel entry point. Yukti
+2.1.0 reproduces: `core_smoke` passes on the Pi (no `SYS_*`
+calls), but `yukti-test-aarch64` segfaults at
+`test_query_permissions_dev_null` because `syscall(4, …)`
+invokes `pivot_root` on aarch64 instead of `stat`.
+
+**Why it's stdlib, not compiler.** `parse.cyr` already does
+some opaque syscall-number rerouting for aarch64 (`syscall(1)`
+and `syscall(60)` work because main CLI's write+exit calls
+ran clean on the Pi), but the translation is incomplete and
+hidden inside the emitter. Expanding the table further hides
+the platform dispatch in code emission. The stdlib is the
+honest seam — same pattern as `lib/syscalls_macos.cyr` (already
+shipping) and `lib/syscalls_windows.cyr` (queued for v5.4.12+).
+
+**Scope:**
+- New `lib/syscalls_aarch64_linux.cyr` peer with the aarch64
+  generic-table numbers (~40 enum entries) + at-family wrappers
+  (`sys_open` → `openat(AT_FDCWD, …)`, `sys_stat` →
+  `newfstatat(AT_FDCWD, …)`, `sys_mkdir` → `mkdirat`, etc.).
+- `lib/syscalls.cyr` becomes a 4-line selector: `#ifdef
+  CYRIUS_ARCH_AARCH64` → include the aarch64 peer; `#ifdef
+  CYRIUS_ARCH_X86` → include `lib/syscalls_x86_64_linux.cyr`
+  (renamed from today's `lib/syscalls.cyr` content,
+  byte-identical move).
+- `struct stat` layout helper. **Decision deferred to
+  implementation time** (proposal §3): either keep arch-
+  dispatched offset constants, OR route x86_64 through
+  `newfstatat` too so both arches share the generic-stat layout.
+  Vote: route both for consistency. Decide after auditing
+  yukti's `device.cyr:157-159` and `storage.cyr:568` for
+  latent dependence on the 144-byte x86 layout.
+- `sys_fstat` on aarch64 maps to `fstatat(fd, "",
+  AT_EMPTY_PATH)` (or unified via the consistency route above).
+- New `tests/regression-aarch64-syscalls.sh`: cross-build a
+  one-line program calling `sys_open`/`sys_stat`/`sys_mkdir`,
+  scp to `runner@agnosarm.local`, assert exit 0 + correct
+  errno on a missing path. Wired into `scripts/check.sh` (gate
+  10) but skipped in CI environments without ssh access to
+  the Pi (matching the existing yukti `retest-aarch64.sh`
+  pattern).
+
+**Acceptance criteria** (from the proposal, tightened):
+1. `cyrius build --aarch64 lib/syscalls.cyr /tmp/null` clean
+   on x86 host AND aarch64 native.
+2. Every `.tcyr` in `tests/tcyr/` plus `regression.tcyr` passes
+   when cross-built and run on real Pi.
+3. yukti's `scripts/retest-aarch64.sh` runs every target to
+   exit 0 (the current `yukti-test-aarch64` regression goes
+   green).
+4. cc5 + cc5_aarch64 self-host byte-identical.
+5. `lib/syscalls.cyr` header line 1 reads "Linux
+   (arch-dispatched)", not "Linux x86_64".
+
+**Open questions** (resolved at implementation time, captured
+here so they aren't forgotten):
+- The `SYS_FORK` translation: `clone(SIGCHLD, 0, 0, 0, 0)` is
+  the right POSIX-fork-equivalent (proposal's original
+  `CLONE_CHILD|SIGCHLD` was wrong — `CLONE_CHILD` isn't a
+  real Linux clone flag). Verify against libro's fork tests
+  before landing.
+- Two-arm `#ifdef` vs `#ifdef`/`#else` in cyrius preprocessor.
+  Only `#ifdef` (no `#else`) is verified in-tree today
+  (`lib/fnptr.cyr`); check `src/frontend/lex.cyr` for `#else`
+  support before betting on it.
+- Downstream pin-bump strategy. Consensus: don't gate cyrius
+  CI on downstream retests — keep cyrius CI hermetic. When a
+  downstream bumps to v5.4.11+, its own CI reports green.
+
+**Companion (queued for v5.4.12+, not v5.4.11 scope):** audit
+`src/frontend/parse.cyr` syscall rerouting — either cover the
+full Linux table deterministically OR remove the subset
+translation and require consumers to go through
+`lib/syscalls*`. Pairs naturally with the existing v5.4.12+
+audit of unguarded x86-emit paths in shared parse.cyr.
+
+### v5.4.12+ Queue — PE correctness (tracked, not hidden)
 
 What v5.4.2–v5.4.8 explicitly do NOT deliver. Each item is a
 distinct patch or minor; shipping them as "v5.4.x plus" would
