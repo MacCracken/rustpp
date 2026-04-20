@@ -4,6 +4,62 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.3] — 2026-04-20
+
+**Win64 arg-register flip for cyrius-to-cyrius fn calls (≤4 args).**
+Under `CYRIUS_TARGET_WIN=1`, `EPOPARG` and `ESTOREREGPARM` now use
+the Win64 ABI tuple (RCX/RDX/R8/R9) instead of the SysV tuple
+(RDI/RSI/RDX/RCX) for the first four fn args. Caller and callee
+sides flip symmetrically — caller pops args into RCX/RDX/R8/R9 at
+the call site; callee spills the same registers into its local
+frame at function entry. Cyrius-to-cyrius calls with 1–4 args now
+round-trip correctly on Windows; arg-count 5+ falls through to the
+SysV encoding (wrong on Win64 but non-crashing; proper handling
+queued for v5.5.4 alongside shadow-space enforcement).
+
+Scope deliberately narrow per "one change at a time" — the full
+Win64 ABI lift (shadow space at cyrius-to-cyrius call sites,
+`ECALLPOPS/ECALLCLEAN` stack-arg shuttle for >4 args, `fnptr.cyr`
+Win64 `fncallN` variants) is v5.5.4. Native Windows self-host
+(`cc5_win` compiling itself on `windows-latest`) slides to v5.5.5.
+
+Verified end-to-end on real Windows 11 (`nejad@hp`, build 26200):
+5/5 fncall matrix PASS (arg1/arg2/arg3/arg4/nested all exit 42).
+`hello.exe` still runs (stdout "hi", exit 0). Linux: `check.sh`
+10/10 green, 70 .tcyr suites PASS, self-host byte-identical
+(479440 B, +832 B over v5.5.2 for the new branches).
+
+### Added
+- **`EPOPARG` `_TARGET_PE` branch** (`src/backend/x86/emit.cyr`
+  lines 745-767). When `_TARGET_PE == 1`: n=0 → `pop rcx` (0x59),
+  n=1 → `pop rdx` (0x5A), n=2 → `pop r8` (0x5841), n=3 → `pop r9`
+  (0x5941). n≥4 falls through to the SysV encoding.
+- **`ESTOREREGPARM` `_TARGET_PE` branch** (same file, lines 852-880).
+  Symmetric flip: pidx=0 → `mov [rbp+disp], rcx` (0x8D8948),
+  pidx=1 → `mov [rbp+disp], rdx` (0x958948), pidx=2 →
+  `mov [rbp+disp], r8` (0x85894C), pidx=3 → `mov [rbp+disp], r9`
+  (0x8D894C). pidx≥4 falls through.
+- **CI gate** (`.github/workflows/ci.yml` `windows-cross` job):
+  new "v5.5.3 Win64 ABI fncall gate" step compiles 5 fn-call
+  programs (`w_arg1`..`w_arg4`, `w_nested`) under
+  `CYRIUS_TARGET_WIN=1`, asserts byte-level presence of the
+  Win64 spill quartet (rcx/rdx/r8/r9), and the `windows-native`
+  job runs each on `windows-latest` asserting ERRORLEVEL=42.
+
+### Not in scope (v5.5.4+)
+- **Shadow-space allocation at cyrius-to-cyrius call sites**
+  (ECALLPOPS/ECALLCLEAN). Today the kernel32 reroutes (EEXIT/
+  EWRITE_PE/v5.5.1 bundle) set up shadow independently; cyrius-
+  to-cyrius calls skip it. Strict Win64 compliance needs it;
+  v5.5.4 will add.
+- **>4-arg stack shuttle.** Programs using fns with 5+ args under
+  `CYRIUS_TARGET_WIN=1` will mis-compile silently in v5.5.3.
+  v5.5.4 adds the stack-arg register shuttle mirroring the
+  existing SysV >6-arg path.
+- **`lib/fnptr.cyr` Win64 `fncallN` variants.** Indirect calls
+  through fn pointers still use SysV registers in hand-rolled asm.
+  v5.5.4 adds `#ifdef CYRIUS_TARGET_WIN` parallel blocks.
+
 ## [5.5.2] — 2026-04-20
 
 **Enum-constant sc_num fold — closes out the v5.5.0/v5.5.1 PE

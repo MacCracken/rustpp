@@ -741,8 +741,20 @@ fn ECALLFIX(S, fnidx) {
     return 0;
 }
 
-# Emit pop into System V register for arg N
+# Emit pop into arg register for arg N.
+# SysV x86_64: n=0..5 → rdi/rsi/rdx/rcx/r8/r9.
+# Win64   (v5.5.3): n=0..3 → rcx/rdx/r8/r9. n>=4 falls through to
+# the SysV encoding (incorrect on Win64 — proper stack-arg handling
+# queued for v5.5.4). Cyrius-to-cyrius call sites with >=5 args are
+# out of scope for v5.5.3 and will mis-compile under CYRIUS_TARGET_WIN
+# until v5.5.4 lands the shadow-space + stack-arg shuttle.
 fn EPOPARG(S, n) {
+    if (_TARGET_PE == 1) {
+        if (n == 0) { EB(S, 0x59); return 0; }     # pop rcx  (arg 0)
+        if (n == 1) { EB(S, 0x5A); return 0; }     # pop rdx  (arg 1)
+        if (n == 2) { E2(S, 0x5841); return 0; }   # pop r8   (arg 2)
+        if (n == 3) { E2(S, 0x5941); return 0; }   # pop r9   (arg 3)
+    }
     if (n == 0) { EB(S, 0x5F); return 0; }
     if (n == 1) { EB(S, 0x5E); return 0; }
     if (n == 2) { EB(S, 0x5A); return 0; }
@@ -838,6 +850,26 @@ fn EDISP32(S, disp) {
 }
 
 fn ESTOREREGPARM(S, pidx, disp) {
+    # Callee-side symmetric flip with EPOPARG. Under _TARGET_PE,
+    # incoming args 0..3 arrive in rcx/rdx/r8/r9 (Win64 ABI) not
+    # rdi/rsi/rdx/rcx (SysV). Spill-to-local encoding changes
+    # accordingly; disp32 payload is written by EDISP32 below.
+    # pidx>=4 under Win64 falls through to SysV encoding (wrong
+    # register mapping on Win64; acceptable for v5.5.3 since the
+    # ≤4-arg-only caller surface never produces pidx>=4 on
+    # Windows-compiled code paths the tests exercise).
+    if (_TARGET_PE == 1) {
+        if (pidx == 0) { E3(S, 0x8D8948); }       # mov [rbp+disp], rcx
+        if (pidx == 1) { E3(S, 0x958948); }       # mov [rbp+disp], rdx
+        if (pidx == 2) { E3(S, 0x85894C); }       # mov [rbp+disp], r8
+        if (pidx == 3) { E3(S, 0x8D894C); }       # mov [rbp+disp], r9
+        if (pidx >= 4) {
+            if (pidx == 4) { E3(S, 0x85894C); }   # SysV r8 (wrong for Win64)
+            if (pidx == 5) { E3(S, 0x8D894C); }   # SysV r9 (wrong for Win64)
+        }
+        EDISP32(S, disp);
+        return 0;
+    }
     if (pidx == 0) { E3(S, 0xBD8948); }
     if (pidx == 1) { E3(S, 0xB58948); }
     if (pidx == 2) { E3(S, 0x958948); }

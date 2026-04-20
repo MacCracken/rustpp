@@ -547,6 +547,48 @@ jobs:
             fi
           done
           echo "PASS: no Linux syscall bytes in any PE32+ output"
+      - name: v5.5.3 Win64 ABI fncall gate (≤4 args)
+        run: |
+          # v5.5.3: internal cyrius-to-cyrius fn calls under _TARGET_PE
+          # use Win64 arg registers (RCX/RDX/R8/R9) instead of SysV
+          # (RDI/RSI/RDX/RCX). EPOPARG flips to Win64 encoding under
+          # _TARGET_PE; ESTOREREGPARM symmetrically flips the callee-
+          # side spill. Scope limited to ≤4 args; >4-arg stack shuttle
+          # + shadow-space enforcement queued for v5.5.4.
+          pass=0; fail=0
+          # arg{N} covers the N-arg fn; nested exercises fn-calling-fn.
+          for test in \
+            "w_arg1:fn f(a){return a*7;} syscall(60, f(6));:42" \
+            "w_arg2:fn f(a,b){return a+b;} syscall(60, f(30, 12));:42" \
+            "w_arg3:fn f(a,b,c){return a*b+c;} syscall(60, f(6, 5, 12));:42" \
+            "w_arg4:fn f(a,b,c,d){return a+b+c+d;} syscall(60, f(10, 20, 3, 9));:42" \
+            "w_nested:fn g(x){return x+1;} fn f(a,b){return g(a)+g(b);} syscall(60, f(19, 21));:42"
+          do
+            name=$(echo "$test" | cut -d: -f1)
+            code=$(echo "$test" | cut -d: -f2)
+            expected=$(echo "$test" | cut -d: -f3)
+            out="/tmp/win_out/$name.exe"
+            printf "%s\n" "$code" | CYRIUS_TARGET_WIN=1 ./build/cc5 2>/dev/null > "$out"
+            sz=$(wc -c < "$out")
+            magic=$(xxd -l2 -p "$out" | tr -d ' \n')
+            pesig=$(xxd -s64 -l4 -p "$out" | tr -d ' \n')
+            if [ "$sz" -gt 0 ] && [ "$magic" = "4d5a" ] && [ "$pesig" = "50450000" ]; then
+              pass=$((pass+1))
+              echo "$expected" > "/tmp/win_out/$name.expected"
+            else
+              echo "FAIL cross: $name (size=$sz magic=$magic pesig=$pesig)"
+              fail=$((fail+1))
+            fi
+          done
+          # Byte-level gate: w_arg4 must contain the Win64 spill quartet
+          # (mov [rbp+disp], rcx/rdx/r8/r9). If EPOPARG/ESTOREREGPARM
+          # drifts back to SysV we'd see rdi/rsi markers instead.
+          if ! xxd -p /tmp/win_out/w_arg4.exe | tr -d '\n' | grep -qE '48898d[0-9a-f]{8}4889[0-9a-f]{2}[0-9a-f]{8}4c8985[0-9a-f]{8}4c898d'; then
+            echo "FAIL: w_arg4.exe missing Win64 spill quartet (rcx/rdx/r8/r9)"
+            exit 1
+          fi
+          echo "Win64 fncall cross: $pass passed, $fail failed"
+          test $fail -eq 0
       - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
           # Compile a syscall(1) hello-world program and verify:
@@ -634,7 +676,12 @@ jobs:
         run: |
           $pass = 0
           $fail = 0
-          foreach ($name in @("exit0", "exit1", "exit42", "exit255")) {
+          # exit{N} = v5.4.x exit-code reroute (no fn calls).
+          # w_arg{N}/w_nested = v5.5.3 Win64 ABI fncall gate — verifies
+          # the caller's Win64 arg register pops (EPOPARG) and the
+          # callee's Win64 spill (ESTOREREGPARM) interlock on hardware.
+          foreach ($name in @("exit0", "exit1", "exit42", "exit255",
+                              "w_arg1", "w_arg2", "w_arg3", "w_arg4", "w_nested")) {
             $exe = ".\win\$name.exe"
             $expected = (Get-Content ".\win\$name.expected" -Raw).Trim()
             $proc = Start-Process -FilePath $exe -Wait -PassThru -NoNewWindow
