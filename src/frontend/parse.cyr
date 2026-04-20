@@ -24,9 +24,10 @@ var _cur_fn_regalloc = 0;
 #   0x13A000 var_types[8192]      65536 bytes — struct_id per var (0=scalar)
 #   0x8E630  struct_names[32]     256 bytes — name offset per struct
 #   0x8E730  struct_fcounts[32]   256 bytes — field count per struct (bit 63 = union)
-#   0x8A000  struct_ftypes[1024]  8192 bytes — 32×32 field type IDs (stride 256)
-#   0xD8000  struct_fnames[1024]  8192 bytes — 32×32 field name offsets (stride 256)
+#   0xD4A000 struct_ftypes        8192 bytes — 32×32 field type IDs  (stride 256)
+#   0xDCA000 struct_fnames        8192 bytes — 32×32 field name offsets (stride 256)
 #   0x8F830  struct_count         8 bytes
+#   0xD8000  enum_const_val[8192] 8192 bytes — 1024 × 8 B enum-fold table (v5.5.2)
 
 fn GSTC(S) { return L64(S + 0x8F830); }
 fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
@@ -224,6 +225,17 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 var vcnt = GVCNT(S);
                 S64(S + 0x11A000 + vcnt * 8, vnoff);
                 S64(S + 0x12A000 + vcnt * 8, 8);
+                # v5.5.2: record enum variant's compile-time value in the
+                # enum_const_val table at 0xD8000 (1024 entries × 8 B).
+                # Bit 63 = "is enum const" marker; low 63 bits = value.
+                # PARSE_FACTOR reads this when resolving a bare/qualified
+                # identifier and folds to EMOVI + _cfo=1 so callers like
+                # the syscall-reroute dispatch see sc_num correctly.
+                # Variants registered at idx >= 1024 fall through to the
+                # existing EVLOAD path (correct but not folded).
+                if (vcnt < 1024) {
+                    S64(S + 0xD8000 + vcnt * 8, (1 << 63) | val);
+                }
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
                 if (has_ctor == 1) {
@@ -563,8 +575,25 @@ fn PARSE_FACTOR(S) {
                 var vn = PEEKV(S);
                 var vi = FINDVAR(S, vn);
                 if (vi >= 0) {
-                    # Enum.VARIANT — load the variant's global value
+                    # Enum.VARIANT — load the variant's global value.
+                    # v5.5.2: if this gvar was registered by PARSE_ENUM_DEF
+                    # as an enum constant (marker bit 63 set in the
+                    # 0xD8000 table), fold to EMOVI and mark _cfo=1 so
+                    # callers like the syscall sc_num dispatch can read
+                    # the compile-time value. Falls through to EVLOAD if
+                    # the idx is out of the 1024-slot cap.
                     STI(S, GTI(S) + 1);
+                    if (vi < 1024) {
+                        var _ecvq = L64(S + 0xD8000 + vi * 8);
+                        if (_ecvq < 0) {
+                            var _evq = _ecvq & 0x7FFFFFFFFFFFFFFF;
+                            _cfp = GCP(S);
+                            EMOVI(S, _evq);
+                            if (_evq < 0x10000) { _cfv = _evq; _cfo = 1; }
+                            else { _cfo = 0; }
+                            return 0;
+                        }
+                    }
                     EVLOAD(S, vi);
                     _cfo = 0;
                     return 0;
@@ -611,6 +640,23 @@ fn PARSE_FACTOR(S) {
             }
             SESTYPE(S, vt);
             if (gvsz > 8) { SESVAR(S, idx); }
+        }
+        # v5.5.2: bare identifier resolving to an enum constant folds to
+        # EMOVI with _cfo=1 so the syscall-reroute dispatch (and any
+        # other _cfv-driven optimization) can see the value at parse
+        # time. Enum registration writes the marker at 0xD8000; any
+        # gvar whose slot has bit 63 set is a fold candidate. Same
+        # 1024-slot cap as the qualified path.
+        if (idx < 1024) {
+            var _ecv = L64(S + 0xD8000 + idx * 8);
+            if (_ecv < 0) {
+                var _ev = _ecv & 0x7FFFFFFFFFFFFFFF;
+                _cfp = GCP(S);
+                EMOVI(S, _ev);
+                if (_ev < 0x10000) { _cfv = _ev; _cfo = 1; }
+                else { _cfo = 0; }
+                return 0;
+            }
         }
         EVLOAD(S, idx);
         return 0;

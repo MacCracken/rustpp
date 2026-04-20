@@ -4,6 +4,98 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.2] — 2026-04-20
+
+**Enum-constant sc_num fold — closes out the v5.5.0/v5.5.1 PE
+reroute work.** Parser change: identifiers resolving to an enum
+variant now fold to `EMOVI(val)` with `_cfo=1` / `_cfv=val` just
+like integer literals, instead of emitting an `EVLOAD` memory-read.
+This unblocks the `lib/syscalls_windows.cyr` wrapper fns
+(`sys_write(fd, buf, len)` → `syscall(SYS_WRITE, fd, buf, len)`):
+at parse time the PE dispatch now sees `sc_num = 1` and reroutes
+cleanly to `GetStdHandle + WriteFile`, instead of falling through
+to the "unmapped syscall" warning and emitting a Linux-only `0F 05`
+into the PE output. Verified on a minimal Windows-wrapper test
+program: warnings dropped from 9 → 2 (the remaining two are for
+`sys_munmap`/`sys_brk`, both intentionally unrouted on PE — no
+VirtualFree/brk-shim reroute planned).
+
+Side benefit: every enum-const read in cc5's own body now emits
+5 bytes (`mov rax, imm32`) instead of ~10 bytes (`mov rcx, gvaddr; mov rax, [rcx]`).
+Self-host shrank from 481464 B → 478608 B (−2856 B, −0.6%). Also
+eliminates the indirect load on the runtime hot path for any
+code using syscalls, enum-tagged bit masks, etc.
+
+### Added
+- **Enum-const-value side table** at state-heap offset `0xD8000`
+  (1024 × 8 B). PARSE_ENUM_DEF pass 1 writes `(1 << 63) | val`
+  per variant (bit 63 = "is enum const" marker, low 63 bits =
+  value). 8 KB — fits in the previously-free 0xD8000/0xDA000
+  gap documented in the main.cyr heap map.
+- **PARSE_FACTOR const-fold path** — both the bareword-IDENT
+  resolver (line 615) and the `Enum.VARIANT` qualified resolver
+  (line 568) now check the enum-const table before emitting.
+  When the marker bit is set, they emit `EMOVI(val)` and update
+  `_cfp` / `_cfv` / `_cfo` to match the integer-literal path's
+  invariants (so arithmetic-folding at higher precedence levels
+  also kicks in for `SYS_WRITE + 1`, `SYS_READ | SYS_WRITE`, etc.).
+
+### Changed
+- **`lib/syscalls_windows.cyr` wrapper fns now compile cleanly on
+  PE** — `sys_write` / `sys_read` / `sys_open` / `sys_close` /
+  `sys_lseek` / `sys_exit` / `sys_mmap` reroute through their
+  kernel32 IAT imports instead of warning. `sys_munmap` (11) and
+  `sys_brk` (12) still warn because no Windows reroute is wired
+  (by design: heap is handled by `alloc_windows.cyr`'s
+  `VirtualAlloc` up front, and `munmap` would map to `VirtualFree`
+  only if cross-platform code needs it; deferred).
+- **`src/main.cyr` + `src/main_win.cyr` + `src/main_aarch64.cyr`
+  heap map comments** updated to document `enum_const_val` at
+  0xD8000, replacing the "(free — 8 KB)" annotation.
+- **`src/frontend/parse.cyr` struct heap-comment** stale ref to
+  `0xD8000 struct_fnames` corrected to `0xDCA000` (struct_fnames
+  had moved but the local comment didn't follow).
+
+### Known limitations
+- **1024-slot cap** on the enum_const_val table — variants
+  registered at gvar idx ≥ 1024 fall through to the `EVLOAD`
+  path unchanged. Correct but not folded; the syscall reroute
+  would miss the const-fold for those late-registered enums.
+  cc5 today registers stdlib enum consts at gvar idx 0..~200;
+  the cap is well above the practical ceiling. Bump if cc5 gvar
+  count grows past ~900 (the fn-count cap will bite first).
+- **Enum-const arithmetic fold only triggers for values < 0x10000**.
+  Matches the existing integer-literal fold rule at parse.cyr:544
+  (`EMOVI` emits a compact 5-byte encoding; larger values would
+  need a 10-byte form, and the `SCP / EMOVI` rewrite used by
+  chained const-folding would over-write 5 bytes short). Small
+  syscall numbers and typical bitflag masks are well under this.
+  Large enum values still emit correctly (just not foldable in
+  `cfv * crv` style expressions).
+
+### Verification
+- `sh scripts/check.sh` — 10/10 PASS.
+- Two-step bootstrap verified: cc5_v2 (from old cc5) built cc5_v3
+  (from new cc5_v2) built cc5_v4 (from new cc5_v3); cc5_v3 ==
+  cc5_v4 byte-identical (478608 B). cc5_v2 ≠ cc5_v3 as expected
+  (old compiler emits EVLOAD for enums; new compiler emits EMOVI).
+  build/cc5 replaced with cc5_v3 as the new canonical binary.
+- cc5_aarch64 rebuilt (342032 B, ~512 B smaller than v5.5.1).
+- cc5_win rebuilt (478600 B); `sys_write(1, "hi\n", 3); sys_exit(0);`
+  compiles to a valid PE32+ executable with only the two expected
+  warnings (sys_munmap, sys_brk — neither is on the test path).
+
+### Next
+- **v5.5.3** — Win64 ABI at `fncall0..fncall8`. Highest-risk
+  v5.5.x item; own release for bisect isolation.
+- **v5.5.4** — Windows self-host completion (native `cc5_win`
+  self-host byte-identical on `windows-latest` + full `.tcyr`
+  test-suite gate).
+
+(v5.5.x release count slipped by one vs the v5.5.1 forecast
+because this enum-const fold landed as its own release to close
+out the PE reroute work cleanly before the higher-risk ABI item.)
+
 ## [5.5.1] — 2026-04-20
 
 **PE32+ syscall reroutes bundled — Read / Open / Close / Seek / Map.**

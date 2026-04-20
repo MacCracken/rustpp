@@ -86,10 +86,10 @@
 # --- Reclaimable / scratch ---
 #   0xC0000  include_fnames[32768]       256 include-once filenames × 128 B (v4.8.4-alpha2)
 #   0xC8000  fn_regalloc   [32768]       4096 per-fn #regalloc flags (v4.8.4-alpha4)
-#   0xD8000  (free — 8 KB)               reclaimed v5.3.12 when the unused macho
-#                                        imports staging was removed; reserved
-#                                        for the eventual libSystem imports
-#                                        wire-up (v5.4.x)
+#   0xD8000  enum_const_val[8192]        1024 slots × 8 B — PARSE_ENUM_DEF
+#                                        stores (1<<63)|val per variant; read
+#                                        by PARSE_FACTOR to const-fold enum
+#                                        identifiers at parse time (v5.5.2)
 #   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
 #
 # --- Variable tables ---
