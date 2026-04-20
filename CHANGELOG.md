@@ -4,6 +4,71 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.10] — 2026-04-20
+
+**`EWRITE_PE` returned WriteFile's BOOL success flag instead of
+bytes-written — caused the v5.5.9 output-size bloat. 5-byte fix.
+Native Windows self-host BYTE-IDENTICAL FIXPOINT achieved.**
+
+Root cause of v5.5.9's 1.18 MB output bloat: `EWRITE_PE` in
+`src/backend/x86/emit.cyr` called `call [rip+WriteFile]` then
+unwound the frame without touching RAX. WriteFile returns a BOOL
+(0 on failure, 1 on success) in RAX. main_win.cyr's output write
+loop then did:
+
+```
+var w = syscall(SYS_WRITE, 1, addr, len);
+if (w <= 0) { wgo = 0; } else { written = written + w; ... }
+```
+
+With `w = 1` each iteration, `written` advanced by 1 byte per
+call while the `syscall(SYS_WRITE, 1, addr+written, olen-written)`
+actually wrote `olen - written` bytes to the handle each time.
+Cumulative stdout: `olen + (olen-1) + ... + 1 = olen*(olen+1)/2`
+= **exactly the 1,180,416 bytes observed for olen=1536**.
+
+**Fix:** 5-byte `mov rax, [rsp+0x28]` (read `lpNumberOfBytesWritten`
+from the output-count slot) before `add rsp, 0x40`. Mirrors
+`EREAD_PE`'s existing post-call fixup (line 508) which already
+did this correctly.
+
+### Byte-identical fixpoint achieved
+Same source through two different build paths produces
+identical bytes:
+- `CYRIUS_TARGET_WIN=1 cc5 < syscall(60,42); > linux.exe` →
+  1536 B, md5 `199c7ae...`
+- `cc5_win.exe < syscall(60,42); > win.exe` on real Windows 11 →
+  1536 B, md5 `199c7ae...` (byte-identical)
+- Also verified on multi-fn `fn add(a,b){return a+b;}
+  syscall(60, add(17, 25));` — both paths 1536 B, matching md5.
+
+### Size context (exit42 program)
+- Cyrius PE: **1,536 B**
+- Rust debug ELF (rustc): 3,888,160 B (**2,531× larger**)
+- Rust -O ELF (rustc -O): 3,887,480 B
+- Rust -O stripped ELF: 344,856 B (**225× larger**)
+- Cyrius produces a working Windows PE at about the size of a
+  Rust symbol table entry.
+
+### Added
+- **`EWRITE_PE` bytes-written return** (`src/backend/x86/emit.cyr`
+  line 433 area): 5-byte `48 8B 44 24 28` loads actual write
+  count from `lpNumberOfBytesWritten` at `[rsp+0x28]`.
+
+### Fixed
+- **PE output size bloat** — cc5_win.exe now produces
+  correctly-sized PE outputs on Windows (was ~1.18 MB for any
+  input, now matches Linux cross-build size).
+- **Byte-identical native Windows self-host** — the v5.5.9 gate
+  that couldn't hold due to size mismatch now passes.
+
+### Not in scope (v5.5.11+)
+- Full `.tcyr` suite on windows-latest CI (moved from v5.5.10
+  scope to v5.5.11 since the core self-host gate is now green).
+- `GetCommandLineW`-based --version/--strict replacement (still
+  queued for v5.5.x tail).
+- `GetEnvironmentVariableW`-based env-var reads (still queued).
+
 ## [5.5.9] — 2026-04-20
 
 **Native Windows self-compilation works end-to-end.** cc5_win.exe

@@ -426,6 +426,12 @@ fn EWRITE_PE(S) {
     _pe_iat_fixup_add(S, GCP(S), wf_idx);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
 
+    # v5.5.10: return the bytes-written count (not WriteFile's BOOL
+    # success flag). Without this, the caller's
+    # `written += syscall_result` loop sees `w=1` each iteration
+    # and writes `olen*(olen+1)/2` bytes total — the 1.18 MB bloat
+    # for a 1.5 KB output. Mirrors EREAD_PE's post-call fixup.
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
     return 0;
 }
