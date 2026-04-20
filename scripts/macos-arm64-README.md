@@ -13,14 +13,31 @@ Apple Silicon Cyrius programs support the BSD SVC whitelist:
 multi-page `__TEXT` all work. This covers syscall-only programs
 (agent probes, simple CLI tools written against raw syscalls).
 
-## Not yet available
+## libSystem import status
 
-Programs using `brk`-based allocation (`lib/alloc.cyr`) or file
-locking (`lib/io.cyr:syscall(73)`) fail to compile with a clear
-error. Tools like `cyrfmt`, `cyrlint`, `cyrdoc` fall into this
-category and are therefore NOT included here. Full libSystem
-imports — the path that would unlock `printf`, `pthread`, `fopen`,
-and the rest — is a v5.4.x target.
+v5.5.11 (2026-04-20) proved the classic-bind path end-to-end with a
+hand-emitted probe: `programs/macho_libsystem_probe.cyr` calls
+`libSystem._exit(42)` via a `__got` slot resolved by dyld, verified
+on Apple Silicon (`ssh ecb`).
+
+v5.5.12 grafted the probe layout into `EMITMACHO_ARM64` — every
+compiled arm64 Mach-O now ships `__DATA_CONST` + `__got` +
+`LC_DYLD_INFO_ONLY` classic binds for `libSystem._exit`. `nm`
+shows `U _exit`; `otool -l` shows the new segment. Infrastructure
+is live; specific syscall numbers are still svc-based until the
+reroute patches land (below).
+
+Remaining for full toolchain shipping:
+
+| Patch | Scope |
+|-------|-------|
+| v5.5.13 | First `__got` reroute — `syscall(60, N)` → `libSystem._exit` via `adrp x16, __got@PAGE; ldr x16, [x16]; br x16`. |
+| v5.5.14 | Multi-symbol imports — grow `__got` to N slots; add `_write`, `_read`, `_malloc`, `_fopen`, `_pthread_create`. Table-driven like `syscall_pe_tbl`. |
+| v5.5.15 | `cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc` cross-compiled + verified on `ssh ecb`. |
+
+Programs still using `brk`-based allocation (`lib/alloc.cyr`) or
+file locking (`lib/io.cyr:syscall(73)`) fail to compile with a
+clear error today. v5.5.15 closes the gap.
 
 ## Cross-compiling on macOS
 

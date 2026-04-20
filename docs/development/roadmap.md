@@ -1869,8 +1869,12 @@ enables adding new targets without touching the frontend.
 | **v5.4.6** | Windows x86_64 (`#pe_import` directive) | PE/COFF | **Done** — declarative kernel32 symbol registration; compiler emits IAT with arbitrary imports beyond the hardcoded `ExitProcess` |
 | **v5.4.7** | Windows x86_64 (`syscall(1)` → WriteFile) | PE/COFF | **Done** — `EWRITE_PE` emits GetStdHandle + WriteFile call sequence via auto-registered IAT; structural scope |
 | **v5.4.8** | Windows x86_64 (PE data placement) | PE/COFF | **Done** — `.rdata` section holds gvars + strings; `movabs rax, imm64` fixups resolve to `ImageBase + _pe_rdata_rva + …`; `hello.exe` prints `hi\n` and exits 0 on real Windows |
-| **v5.4.9+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, RW-split between `.rdata` and `.data`, byte-cmp polish |
-| **v5.5.x** | Linux aarch64 stdlib syscall table | ELF | Queued — `lib/syscalls.cyr` is Linux x86_64 only today; aarch64 cross-builds inherit wrong numbers (yukti `test_query_permissions_dev_null` segfaults on Pi because `syscall(4)` is `pivot_root` on aarch64, not `stat`). Split into `syscalls_x86_64_linux.cyr` + `syscalls_aarch64_linux.cyr`, dispatch via `#ifdef CYRIUS_ARCH_AARCH64`. Design doc: [`docs/proposals/2026-04-19-aarch64-syscall-stdlib.md`](../proposals/2026-04-19-aarch64-syscall-stdlib.md). Unblocks every first-party aarch64 consumer (yukti, sigil, sakshi, libro, agnosys, mabda). |
+| **v5.5.0–5.5.10** | Windows x86_64 (full PE arc) | PE/COFF | **Done** — v5.5.0 foundation (cc5_win cross-entry + syscalls_windows/alloc_windows libs), v5.5.1 five IAT reroutes, v5.5.2 enum-const sc_num fold, v5.5.3 Win64 arg-register flip, v5.5.4 call-site completion (ECALLPOPS/ESTORESTACKPARM), v5.5.5 `&fn` PE VA fixup, v5.5.6 fnptr.cyr Win64 variants, v5.5.7 strict shadow-space, v5.5.8 heap SYS_MMAP, v5.5.9 native self-compile, v5.5.10 byte-identical fixpoint. Verified 10/10 on `nejad@hp`. Tail items (`.reloc`, struct-return, variadic, `__chkstk`) pinned to v5.5.22/v5.5.23. |
+| **v5.5.11** | macOS aarch64 libSystem probe | Mach-O | **Done** — hand-emitted probe proves LC_DYLD_INFO_ONLY classic-bind path on `ssh ecb`. `exit=42` via `libSystem._exit`. |
+| **v5.5.12** | macOS aarch64 libSystem compiler emission (infra) | Mach-O | **Done** — `EMITMACHO_ARM64` ships `__DATA_CONST` + `__got` + bind for `_exit` on every build. `nm` → `U _exit`, `otool -l` → new segment. |
+| **v5.5.13** | First Mach-O `__got` reroute | Mach-O | `syscall(60, code)` on _TARGET_MACHO==2 → `adrp x16, __got@PAGE; ldr x16, [x16]; br x16`. Mirror of PE v5.4.3. |
+| **v5.5.14** | Mach-O multi-symbol imports | Mach-O | Grow `__got` to N slots; add `_write`/`_read`/`_malloc`/`_fopen`/`_pthread_create`. Table-driven like `syscall_pe_tbl`. |
+| **v5.5.15** | macOS aarch64 tool-binary shipping | Mach-O | `cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc` cross-compiled for arm64 macOS, verified on `ssh ecb`. Closes the macOS aarch64 target. |
 | **v5.7.0** | RISC-V rv64 | ELF | First-class RISC-V target (reassigned from v5.6.0 on 2026-04-20 so v5.6.x optimization lands first; new port inherits optimized compiler) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target (slid from v5.7.0 with the optimization minor insert) |
 
@@ -1930,12 +1934,12 @@ enables adding new targets without touching the frontend.
 
 | Platform | Format | Status |
 |----------|--------|--------|
-| Linux x86_64 | ELF | **Done** — primary, cc5 451 KB self-hosting |
+| Linux x86_64 | ELF | **Done** — primary, cc5 485 KB self-hosting (v5.5.12) |
 | Linux aarch64 | ELF | **Done** — cross + native self-host byte-identical on real Pi (v5.3.15+); `regression.tcyr` 102/102 (v5.3.18). Three libs (`lib/hashmap_fast`, `lib/u128`, `lib/mabda`) contain ungated x86 asm — arch-gating queued. |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
-| macOS aarch64 | Mach-O | **Partial** — self-hosts byte-identically on Apple Silicon (v5.3.13, 475 KB). Full toolchain (`cyrfmt`/`cyrlint`/`cyrdoc`) NOT yet shipped for arm64 — blocked on libSystem imports. Pinned to **v5.5.6** (Apple Silicon toolchain completion). |
-| Windows x86_64 | PE/COFF | **Partial** — `hello\n` runs end-to-end on `windows-latest` (v5.4.8). v5.5.0–5.5.2 landed the PE foundation; v5.5.3 shipped Win64 arg-register flip. Remaining: v5.5.4 Win64 ABI completion, v5.5.5 native Windows self-host. |
+| macOS aarch64 | Mach-O | **Near-complete** — self-hosts byte-identically on Apple Silicon (v5.3.13, 475 KB). v5.5.11 probe proved libSystem binding works end-to-end on `ssh ecb`. v5.5.12 grafted the layout into `EMITMACHO_ARM64` — every compiled binary now ships `__DATA_CONST` + `__got` + bind for `_exit`. Remaining: v5.5.13 first `__got` reroute, v5.5.14 multi-symbol growth, v5.5.15 tool-binary shipping (`cyrfmt`/`cyrlint`/`cyrdoc`). |
+| Windows x86_64 | PE/COFF | **Done** — full native self-host + byte-identical fixpoint achieved v5.5.10. `cc5_win.exe` on Windows 11 reads stdin, compiles, emits PE byte-identical to Linux cross-build. Test matrix 10/10 PASS on `nejad@hp`. Exit42 PE = 1,536 B (vs Rust stripped 344,856 B = 225× smaller). v5.5.22/v5.5.23 hold the PE correctness tail (`.reloc` section, struct-return, variadic, `__chkstk`) — defer-able, not currently triggered. |
 | Compiler optimization (O1–O6) | — | Queued — **v5.6.0–5.6.5** (pinned 2026-04-20; each phase gets its own patch number — no more "parallel track" drift) |
 | RISC-V (rv64) | ELF | Queued — **v5.7.0** (slid from v5.6.0 on 2026-04-20 so the optimization minor lands first) |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** (AGNOS kernel target; slid with the optimization minor insert) |
