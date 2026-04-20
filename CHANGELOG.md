@@ -120,13 +120,19 @@ fix is a prerequisite for thread.
   own image.
 
 ### v5.4.12+ companions (queued, not in v5.4.11 scope)
-- **v5.4.12 — `lib/keccak.cyr`** (sigil 3.0 PQC enabler,
-  Keccak-f[1600] + SHAKE-128/256). See roadmap §v5.4.12.
-- **v5.4.13 — v5.4.x closeout pass** (dead-code audit, doc/vidya
+- **v5.4.12 — fncall ceiling lift / render-pass FFI unblock**
+  (mabda blocker — root-cause `fncall6 + wgpu-native` crash;
+  add `fncall7` + `fncall8` to `lib/fnptr.cyr`; publish
+  `docs/ffi/struct-packing.md` for the cases where C-side
+  packing still wins). See roadmap §v5.4.12 and
+  `mabda/docs/proposals/2026-04-19-render-pass-ffi.md`.
+- **v5.4.13 — `lib/keccak.cyr`** (sigil 3.0 PQC enabler,
+  Keccak-f[1600] + SHAKE-128/256). See roadmap §v5.4.13.
+- **v5.4.14 — v5.4.x closeout pass** (dead-code audit, doc/vidya
   sync, parse.cyr unguarded x86-emit cleanup, permanent `EW`
   alignment assert in aarch64 emit, `version-bump.sh`
   install-refresh hook, `#ifplat` directive, optional
-  `cyrius build --strict`). See roadmap §v5.4.13.
+  `cyrius build --strict`). See roadmap §v5.4.14.
 - **v5.5.0 — PE correctness completion** (Win64 ABI at fncall*,
   remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr`,
   `lib/alloc_windows.cyr`, `cc5_win.cyr`, RW-split). The v5.4.x
@@ -445,10 +451,12 @@ program running on the Windows platform target.
 
 ### v5.4.12+ follow-ups (tracked, not blocking)
 - **`_cyrius_init` GLOBAL in `object;` mode** — shipped as v5.4.9.
-- **`lib/thread.cyr` post-clone child path** — claimed by v5.4.10
-  (separate patch; see roadmap §v5.4.10).
-- **aarch64 Linux syscall stdlib** — claimed by v5.4.11
-  (separate patch; see roadmap §v5.4.11).
+- **`lib/thread.cyr` post-clone child path** — shipped as v5.4.10.
+- **aarch64 Linux syscall stdlib** — shipped as v5.4.11.
+- **fncall ceiling lift / render-pass FFI unblock** — claimed
+  by v5.4.12 (mabda blocker; see roadmap §v5.4.12).
+- **`lib/keccak.cyr`** — claimed by v5.4.13 (sigil 3.0 PQC
+  enabler; see roadmap §v5.4.13).
 - **Other unguarded x86 emits in shared `parse.cyr`** — closure
   address (~line 970), struct field byte/word/dword load (1777-1779),
   `#regalloc` callee-saved save/restore (3257-3261 / 3403-3407), x87

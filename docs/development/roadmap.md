@@ -25,16 +25,25 @@
 > v5.4.x didn't finish. **v5.4.9 ships the `_cyrius_init`
 > GLOBAL fix + sigil 2.8.4 pin**. **v5.4.10 ships
 > `lib/thread.cyr` post-`clone()` child trampoline + futex
-> wake-flag fix** (majra unblocked). **v5.4.11 is claimed by
-> aarch64 Linux syscall stdlib** (yukti blocker:
-> `syscall(4, …)` is `pivot_root` on aarch64, not `stat`).
-> **v5.4.12 is claimed by `lib/keccak.cyr`** (sigil 3.0 PQC
-> enabler — pulled in from "remaining enablers" so sigil
-> isn't blocked through the v5.5 cycle). **v5.4.13 is the
-> v5.4.x closeout pass** (per CLAUDE.md §"Closeout Pass" —
-> dead-code audit, doc sync, residual parse.cyr unguarded
-> x86-emit cleanup, permanent `EW` alignment assert on
-> aarch64); after v5.4.13 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
+> wake-flag fix** (majra unblocked). **v5.4.11 ships aarch64
+> Linux syscall stdlib + aarch64 thread trampoline + sankoch
+> 2.0.0** (yukti unblocked: `syscall(4, …)` no longer
+> `pivot_root` on aarch64). **v5.4.12 is claimed by the
+> fncall ceiling lift / render-pass FFI unblock** (mabda
+> blocker: their wgpu render-pass path is forced into
+> C-side struct-packing because cyrius caps `fncallN` at 6
+> args + `fncall6 + wgpu` crashes; v5.4.12 root-causes the
+> crash and lifts the ceiling so mabda can flatten its
+> direct-call path). **v5.4.13 is claimed by
+> `lib/keccak.cyr`** (sigil 3.0 PQC enabler — pulled in from
+> "remaining enablers" so sigil isn't blocked through the
+> v5.5 cycle). **v5.4.14 is the v5.4.x closeout pass** (per
+> CLAUDE.md §"Closeout Pass" — dead-code audit, doc /
+> vidya sync, residual parse.cyr unguarded x86-emit cleanup,
+> permanent `EW` alignment assert on aarch64,
+> `version-bump.sh` install-refresh hook, `#ifplat`
+> directive, optional `cyrius build --strict`); after
+> v5.4.14 ships, the next tag is **v5.5.0**. **v5.4.x runs a parallel compiler-optimization
 > track** (phases O1–O6: instrumentation + FNV-1a symbol table,
 > peephole quick wins, IR passes, linear-scan regalloc,
 > maximal-munch instruction selection) synthesized from vidya
@@ -533,19 +542,92 @@ translation and require consumers to go through
 `lib/syscalls*`. Pairs naturally with the existing v5.5.x
 audit of unguarded x86-emit paths in shared parse.cyr.
 
-### v5.4.12 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
+### v5.4.12 — fncall ceiling lift / render-pass FFI unblock (mabda blocker)
+
+Filed by mabda
+(`mabda/docs/proposals/2026-04-19-render-pass-ffi.md`). mabda
+v2.4.2 closeout is blocked on FFI slots that don't exist in
+the current `deps/wgpu_main.c` fn-table — render-pass encoding,
+draw-call dispatch, texture-to-buffer copy. The proposal walks
+through ~7 new slots + 2 C struct-packing shims; **most of the
+work is mabda-side** (their `deps/wgpu_main.c`, their
+`src/wgpu_ffi.cyr` wrappers, their `programs/render_e2e.cyr`).
+The cyrius-side scope is sharper than the proposal implies.
+
+**The real cyrius issue:** cyrius's `lib/fnptr.cyr` exposes
+`fncall0` through `fncall6` only. mabda hits a documented
+crash with `fncall6 + wgpu-native` (their
+`feedback_fncall6_wgpu` memory) and a hard ceiling at 6 args
+(their `feedback_cyrius_param_ceiling` memory), so they're
+forced to pack args into structs and call via `fncall2(_fp,
+enc, args_ptr)`. Every new wgpu surface they need adds another
+C-side struct-packing shim. That's a workaround for cyrius's
+fncall ceiling, not mabda-native architecture.
+
+**Scope (cyrius v5.4.12):**
+- **Root-cause the fncall6 + wgpu-native crash.** First
+  question is whether it's a fncall6 bug (in `lib/fnptr.cyr`'s
+  per-arch inline asm — the SysV/AAPCS register-loading
+  sequence at the 6th arg) or a wgpu-native ABI quirk that
+  cyrius's calling convention happens to violate. Reproduce
+  in isolation (cyrius-only, no wgpu) before deciding fix
+  shape.
+- **Lift the fncall ceiling.** Add `fncall7` and `fncall8` to
+  `lib/fnptr.cyr` (and the per-arch inline asm bodies). x86_64
+  SysV passes args 7+ on the stack; aarch64 AAPCS64 puts args
+  9+ on the stack (so 7 and 8 are still register-passed,
+  trivial). Stack-passed args need careful frame setup +
+  16-byte SP alignment (per `feedback_aarch64_sp_alignment`).
+  ~80-120 LOC across both arches.
+- **Document the struct-packing pattern as a fallback.** Even
+  with the ceiling lifted to 8, complex C APIs with deeply
+  nested structs (the `WGPURenderPassDescriptor` colour-
+  attachment array case) still benefit from C-side packing.
+  Write `docs/ffi/struct-packing.md` with the WgpuMapArgs /
+  WgpuCopyArgs / new WgpuBeginPassArgs / WgpuCopyTexToBufArgs
+  worked examples copy-pasteable.
+- **Stays mabda-side** (NOT cyrius v5.4.12): the C shims, the
+  wgpu_ffi.cyr wrappers, render_e2e.cyr, the per-mabda tests.
+  mabda owns its rendering arc; we just remove the toolchain
+  ceiling that's forcing the workaround.
+
+**Acceptance:**
+1. fncall6+wgpu crash reproduced in isolation, root cause
+   documented in a new `feedback_fncall6_root_cause` memory
+   (or merged into the existing mabda one).
+2. `lib/fnptr.cyr` exposes `fncall7` + `fncall8` for both
+   x86_64 and aarch64, with inline-asm bodies tested by a
+   new `tests/tcyr/fncall_ceiling.tcyr` that calls a 7-arg
+   and 8-arg fn pointer (sum the args, verify result).
+3. `docs/ffi/struct-packing.md` published with mabda's
+   existing args-struct examples as the canonical pattern.
+4. `sh scripts/check.sh` 11/11 (gates 10 + new ceiling-test
+   gate).
+5. cc5 + cc5_aarch64 self-host byte-identical.
+6. mabda-side gate: their pin-bump to v5.4.12 lets them
+   replace their 7-arg cases with direct `fncall7` (vs the
+   args-struct workaround); the workaround stays in place
+   for genuinely-nested struct cases.
+
+**Companion (queued for v5.4.14 closeout):** audit the
+ceiling on every fncall consumer in stdlib + downstreams to
+identify which `fncall2(...args_struct...)` paths can flatten
+to direct `fncallN` once 7 and 8 are available.
+
+### v5.4.13 — `lib/keccak.cyr` (sigil 3.0 PQC enabler)
 
 Pulled in from "Sigil 3.0 enablers — remaining" — sibling of the
 `ct_select` (v5.3.2), `mulh64` (v5.3.3), `secret var` (v5.3.5)
 items already shipped from that cohort. Self-contained stdlib
 work; no compiler changes.
 
-**Why now:** sigil 3.0 PQC migration is calendar-pressured;
-`lib/keccak.cyr` is the last toolchain-side block. Letting it
-slip to v5.5.x means sigil stays blocked through the v5.5
-release cycle. Small enough to fit comfortably as a v5.4.x
-patch (~300 LOC for permutation + sponge; pure stdlib), and
-v5.4.13 (closeout) is the natural wrap-up slot for the line.
+**Why before closeout:** sigil 3.0 PQC migration is calendar-
+pressured; `lib/keccak.cyr` is the last toolchain-side block.
+Letting it slip to v5.5.x means sigil stays blocked through
+the v5.5 release cycle. Small enough to fit comfortably as a
+v5.4.x patch (~300 LOC for permutation + sponge; pure stdlib),
+and v5.4.14 (closeout) is the natural wrap-up slot for the
+line.
 
 **Scope:**
 - **Keccak-f[1600] permutation** — the 24-round
@@ -568,20 +650,20 @@ v5.4.13 (closeout) is the natural wrap-up slot for the line.
 **Acceptance:**
 1. `tests/tcyr/keccak.tcyr` PASS — NIST vectors match.
 2. `benches/keccak.bcyr` lands within the 2× sha256 budget.
-3. `sh scripts/check.sh` 9/9 (count stays at 10 once the
-   keccak gate is wired — see below).
+3. `sh scripts/check.sh` 12/12 (gates 11 from v5.4.12 +
+   keccak's NIST-vector regression).
 4. cc5 + cc5_aarch64 self-host byte-identical (lib-only
    change; should be trivial).
-5. **sigil 3.0 unblock**: with the v5.4.12 toolchain, sigil's
+5. **sigil 3.0 unblock**: with the v5.4.13 toolchain, sigil's
    ML-DSA-65 XOF step can stop stubbing the SHAKE call and
    ship the real PQC path. Verified at sigil's pin-bump time,
    not in cyrius CI.
 
-### v5.4.13 — v5.4.x closeout pass (then v5.5.0)
+### v5.4.14 — v5.4.x closeout pass (then v5.5.0)
 
 Per the closeout-pass procedure in `CLAUDE.md` (run before every
 minor/major bump, ship as the last patch of the current minor —
-e.g. 4.2.5 before 4.3.0). v5.4.13 is the v5.4.x closeout; tagging
+e.g. 4.2.5 before 4.3.0). v5.4.14 is the v5.4.x closeout; tagging
 it clears the path for v5.5.0 (Platform Targets — see §"v5.x —
 Platform Targets" below).
 
@@ -640,8 +722,10 @@ Platform Targets" below).
      version (`cc3 4.8.5`, `cc5 5.4.x`, etc.) matches the
      current `VERSION` file. `version-bump.sh` doesn't touch
      vidya — it's manual at closeout, every time.
-9. Full `sh scripts/check.sh` — 10/10 PASS (gates at v5.4.12
-   = 9 existing + keccak's NIST-vector regression).
+9. Full `sh scripts/check.sh` — 12/12 PASS (gates accumulated
+   through v5.4.13: 10 existing at v5.4.11 + the v5.4.12
+   fncall-ceiling regression + v5.4.13's keccak NIST-vector
+   regression).
 
 **Scope:**
 - Audit the parse.cyr unguarded x86-emit paths flagged in
@@ -738,7 +822,7 @@ Platform Targets" below).
   projects. Keep the install-snapshot refresh in
   `version-bump.sh` / `install.sh` where it belongs.
 
-After v5.4.13 ships, the next tag is **v5.5.0** — which is
+After v5.4.14 ships, the next tag is **v5.5.0** — which is
 itself claimed by the PE correctness completion below. The new
 minor opens with the same Windows arc that closed v5.4.x: ship
 the `fncall*` Win64 ABI rework + the remaining `syscall(n)`
