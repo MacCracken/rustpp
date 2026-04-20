@@ -343,7 +343,23 @@ fn merge_symbols() {
                 # Skip section symbols — they aren't names we link by.
                 if (sttyp != STT_SECTION) {
                     var name_ptr = buf + strtab_off + st_name;
-                    if (strlen(name_ptr) > 0) {
+                    # `_cyrius_init` is intentionally per-module: cc5
+                    # emits it GLOBAL from v5.4.9 so external linkers
+                    # (the system `ld` invoked by C-launcher builds —
+                    # e.g. mabda's GPU integration) can resolve it,
+                    # but cyrld treats it per-module via the per-mi
+                    # `find_local_sym(mi, "_cyrius_init")` lookup in
+                    # the `_start` stub builder (~line 1093). Skip it
+                    # from the global symbol table so the
+                    # duplicate-strong-definition rule (~line 350)
+                    # doesn't fire on every multi-module link.
+                    var skip_gsym = 0;
+                    if (strlen(name_ptr) == 12) {
+                        if (streq(name_ptr, "_cyrius_init") == 1) {
+                            skip_gsym = 1;
+                        }
+                    }
+                    if (strlen(name_ptr) > 0 && skip_gsym == 0) {
                         var gi = gsym_find_or_add(name_ptr);
                         if (st_shndx != 0) {
                             # This module defines the symbol.

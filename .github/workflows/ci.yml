@@ -158,6 +158,12 @@ jobs:
         run: |
           chmod +x build/cc5
           cat cbt/cyrius.cyr | ./build/cc5 > ./build/cyrius 2>/dev/null && chmod +x ./build/cyrius
+          # cyrld is needed by tests/regression-linker.sh + the
+          # v5.4.9 _cyrius_init handshake gate further down. Build
+          # it from source against the just-verified cc5 so the
+          # gate exercises the same toolchain the rest of the job
+          # does, not whatever was last committed to build/cyrld.
+          cat programs/cyrld.cyr | ./build/cc5 > ./build/cyrld 2>/dev/null && chmod +x ./build/cyrld
       - name: Resolve dependencies
         run: |
           chmod +x scripts/cyrius
@@ -183,6 +189,34 @@ jobs:
           done
           echo "$pass passed, $fail failed"
           test $fail -eq 0
+      - name: Regression — _cyrius_init STB_GLOBAL in object; mode (v5.4.9)
+        run: |
+          # Mabda's GPU integration links a cyrius `.o` into a
+          # C-launcher binary; that requires `_cyrius_init` to be
+          # GLOBAL so the system linker can resolve external refs.
+          # v3.4.14 had this right; v4.6.0-alpha2 silently flipped
+          # it back to STB_LOCAL on a cyrld-multi-module worry that
+          # cyrld actually handles per-module via `find_local_sym`.
+          # v5.4.9 re-flipped to GLOBAL + taught cyrld to skip the
+          # symbol from its dup-check. This gate is the tripwire so
+          # the next silent flip can't ship.
+          sh tests/regression-object-init.sh
+      - name: Regression — cyrld multi-module link
+        run: |
+          # Companion gate: cyrld must still link multi-module
+          # programs after the v5.4.9 GLOBAL flip. Catches any
+          # regression in the dup-symbol-skip handshake between
+          # cc5 (`src/backend/x86/fixup.cyr`) and cyrld
+          # (`programs/cyrld.cyr` `merge_symbols`).
+          if [ -x build/cyrld ]; then
+            sh tests/regression-linker.sh
+          else
+            echo "skip: build/cyrld not present"
+          fi
+      - name: Regression — shared object (.so + dlopen)
+        run: sh tests/regression-shared.sh
+      - name: Regression — cyrius capacity meter
+        run: sh tests/regression-capacity.sh
 
   # ── Tests (AGNOS) ──
   test-agnos:

@@ -293,7 +293,7 @@ correctness → stdlib wrappers → native self-host.
   explicit `syscall(60, 42)` in source still emits the Linux
   syscall instructions alongside the implicit `EEXIT`.
 
-### v5.4.9 — `_cyrius_init` GLOBAL in `object;` mode (mabda blocker)
+### v5.4.9 — `_cyrius_init` GLOBAL in `object;` mode (mabda blocker) ✅
 
 Regression filed by mabda
 (`mabda/docs/issues/2026-04-19-phase0-build-broken.md`,
@@ -572,6 +572,7 @@ enables adding new targets without touching the frontend.
 | **v5.4.7** | Windows x86_64 (`syscall(1)` → WriteFile) | PE/COFF | **Done** — `EWRITE_PE` emits GetStdHandle + WriteFile call sequence via auto-registered IAT; structural scope |
 | **v5.4.8** | Windows x86_64 (PE data placement) | PE/COFF | **Done** — `.rdata` section holds gvars + strings; `movabs rax, imm64` fixups resolve to `ImageBase + _pe_rdata_rva + …`; `hello.exe` prints `hi\n` and exits 0 on real Windows |
 | **v5.4.9+** | Windows x86_64 (remaining PE correctness) | PE/COFF | Queued — Win64 ABI at fncall*, remaining `syscall(n)` mappings, `lib/syscalls_windows.cyr` wrappers, `lib/alloc_windows.cyr`, `cc5_win.cyr`, RW-split between `.rdata` and `.data`, byte-cmp polish |
+| **v5.5.x** | Linux aarch64 stdlib syscall table | ELF | Queued — `lib/syscalls.cyr` is Linux x86_64 only today; aarch64 cross-builds inherit wrong numbers (yukti `test_query_permissions_dev_null` segfaults on Pi because `syscall(4)` is `pivot_root` on aarch64, not `stat`). Split into `syscalls_x86_64_linux.cyr` + `syscalls_aarch64_linux.cyr`, dispatch via `#ifdef CYRIUS_ARCH_AARCH64`. Design doc: [`docs/proposals/2026-04-19-aarch64-syscall-stdlib.md`](../proposals/2026-04-19-aarch64-syscall-stdlib.md). Unblocks every first-party aarch64 consumer (yukti, sigil, sakshi, libro, agnosys, mabda). |
 | **v5.5.0** | RISC-V rv64 | ELF | First-class RISC-V target |
 | **v5.6.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target |
 

@@ -118,6 +118,15 @@ if [ "$cap_result" -ne 0 ]; then cat /tmp/audit_cap_$$; fi
 rm -f /tmp/audit_cap_$$
 echo ""
 
+# ── 4d. object;-mode init binding (5.4.9) ──
+echo "── Object init binding ──"
+sh "$ROOT/tests/regression-object-init.sh" > /tmp/audit_oi_$$ 2>&1
+oi_result=$?
+check "_cyrius_init STB_GLOBAL in object; mode" "$oi_result"
+if [ "$oi_result" -ne 0 ]; then cat /tmp/audit_oi_$$; fi
+rm -f /tmp/audit_oi_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

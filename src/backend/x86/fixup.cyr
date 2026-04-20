@@ -1070,14 +1070,33 @@ fn EMITELF_OBJ(S) {
     store8(init_symp + 1, (init_strtab_off >> 8) & 0xFF);
     store8(init_symp + 2, (init_strtab_off >> 16) & 0xFF);
     store8(init_symp + 3, (init_strtab_off >> 24) & 0xFF);
-    # _cyrius_init is module-private — each .o has its own, the linker
-    # invokes them in order. Must be STB_LOCAL or multiple objects appear
-    # to each define the symbol when merged. Fixed in 4.6.0 alpha2.
-    # Note: ELF requires locals to come before globals in symtab; this
-    # leaves _cyrius_init at the tail (after globals), which cyrld handles
-    # correctly but is technically spec-non-conformant. Proper reorder is
-    # a follow-up (alpha3+).
-    store8(init_symp + 4, 0x02);  # STT_FUNC | STB_LOCAL
+    # _cyrius_init binding: STB_GLOBAL (v5.4.9). Mabda's GPU
+    # integration calls a cyrius `.o`'s `_cyrius_init` from a C
+    # launcher (`deps/wgpu_main.c`) before `mabda_main()`; with
+    # STB_LOCAL (the v4.6.0-alpha2..v5.4.8 binding) the system
+    # linker can't resolve the external reference and fails with
+    # `undefined reference to _cyrius_init`. v3.4.14 had this
+    # right; v4.6.0-alpha2 silently regressed it under the cyrld
+    # multi-module concern below. Re-fixed for v5.4.9 because it
+    # blocks every downstream that links a cyrius `.o` into a
+    # non-cyrld binary (mabda today; soorat / rasa / ranga /
+    # bijli / aethersafta / kiran on their next pin bump).
+    #
+    # cyrld safety: cyrld merges modules per-module — its
+    # `collect_functions` (programs/cyrld.cyr ~700) keys symbols
+    # by `(FN_MODULE, name)`, not by name alone, and `_start`
+    # synthesis (~line 1093) calls each module's own
+    # `_cyrius_init` via `find_local_sym(mi, ...)`. Multiple
+    # GLOBAL `_cyrius_init`s across modules pass through cyrld
+    # without collision. Standard `ld` linking *multiple*
+    # cyrius `.o`s would still error — that case is what cyrld
+    # is for; tests/regression-linker.sh exercises it.
+    #
+    # Bonus: GLOBAL also fixes the spec-non-conformance the old
+    # comment flagged (locals must precede globals in .symtab) —
+    # the symbol now sits in the global block alongside the user
+    # functions, so sh_info=4 (set below) is correct.
+    store8(init_symp + 4, 0x12);  # STT_FUNC | STB_GLOBAL
     store8(init_symp + 6, 1); store8(init_symp + 7, 0);  # st_shndx = .text
     S64(init_symp + 8, L64(S + 0x903F8));  # st_value = init offset
 

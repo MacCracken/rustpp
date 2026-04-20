@@ -4,6 +4,73 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.4.9] — 2026-04-19
+
+**`_cyrius_init` GLOBAL in `object;` mode (mabda blocker).** v3.4.14
+made the compiler-generated init symbol GLOBAL so external linkers
+could resolve it from C-launcher binaries; v4.6.0-alpha2 silently
+flipped it back to STB_LOCAL on a cyrld-multi-module worry that
+cyrld actually handles per-module via `find_local_sym`. Mabda's
+GPU integration filed the regression
+(`mabda/docs/issues/2026-04-19-phase0-build-broken.md`, Issue 1) —
+`deps/wgpu_main.c:290` calls `_cyrius_init()` before
+`mabda_main()` and fails at link with `undefined reference to
+_cyrius_init`. v5.4.9 re-fixes the binding and teaches cyrld to
+skip the symbol from its dup-strong-definition check so multi-
+module cyrld builds keep working. Tripwire CI gate added so the
+next silent flip can't ship.
+
+### Fixed
+- **`_cyrius_init` emitted as STB_LOCAL** (`src/backend/x86/fixup.cyr`
+  ~line 1080). Bind byte changed from `0x02` (STT_FUNC | STB_LOCAL)
+  to `0x12` (STT_FUNC | STB_GLOBAL). Bonus: also fixes the
+  spec-non-conformance the old comment flagged — the symbol now
+  sits in the global block alongside user functions, so
+  `sh_info=4` (first non-local) is correct without the LOCAL-after-
+  GLOBAL ordering exception cyrld used to tolerate.
+
+### Changed
+- **cyrld skips `_cyrius_init` from its global symbol table**
+  (`programs/cyrld.cyr` `merge_symbols`, ~line 345). Each module
+  legitimately has its own `_cyrius_init`; cyrld already handles
+  them per-module via `find_local_sym(mi, "_cyrius_init")` in the
+  `_start` stub builder. Skipping the symbol from `gsym_find_or_add`
+  prevents the v5.4.9 GLOBAL flip from triggering the
+  duplicate-strong-definition rule on every multi-module link.
+
+### Added
+- **`tests/regression-object-init.sh`** — compile a one-line
+  `object;` program, `readelf -s` the result, assert `_cyrius_init`
+  binding is GLOBAL. Wired into `scripts/check.sh` (4d gate, brings
+  the local gate count to 9) and `.github/workflows/ci.yml`'s
+  `test-ubuntu` job. Adjacent CI improvement: the existing
+  `regression-linker.sh`, `regression-shared.sh`, and
+  `regression-capacity.sh` scripts are now invoked from CI too —
+  previously they only ran via local `scripts/check.sh`, so a CI-
+  green commit could still break cyrld / .so / capacity gates.
+  The cyrld step builds `build/cyrld` from source against the
+  just-verified cc5 (instead of trusting whatever was last
+  committed to `build/cyrld`).
+
+### Verified
+- `sh scripts/check.sh` 9/9 pass (including the new gate).
+- `tests/regression-linker.sh` (cyrld multi-module) passes after
+  the GLOBAL flip — confirms the cyrld dup-skip handshake.
+- cc5 self-host byte-identical (binding change is a single byte
+  in the emitted symbol-table entry; cc5's own self-image grows
+  trivially, dominated by the new comment text).
+- cyrld rebuilds clean and links the `regression-linker.sh`
+  multi-module program after the dup-skip handshake.
+
+### v5.4.10+ companion (queued, not in v5.4.9 scope)
+- **`cyrius build --strict`** to escalate `undefined function`
+  warnings to hard errors. Closes the regression class that mabda
+  Issue 2 (missing `include "lib/str.cyr"` in `programs/phase0.cyr`)
+  represents — cc5 caught the dangling reference at parse time but
+  still produced an object; `ld` failed downstream. Issue 2 itself
+  is mabda-side; this toolchain enhancement protects every
+  downstream from the same shape of bug.
+
 ## [5.4.8] — 2026-04-19
 
 **PE-aware data placement — hello-world runs end-to-end on Windows.**
