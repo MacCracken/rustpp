@@ -147,9 +147,14 @@ fn FIXUP(S) {
                 vi = vi + 1;
             }
             # Variable address: Linux flat layout vs Mach-O ARM __DATA segment.
-            # __DATA sits immediately after __TEXT; __TEXT is 1 header page +
-            # ceil((acp + spos) / PAGE) content pages. Must stay in lockstep
-            # with the layout EMITMACHO_ARM64 emits.
+            # Mach-O arm64 layout (v5.5.12+):
+            #   page 0              headers
+            #   page 1..mfp         __TEXT content (code + __cstring)
+            #   page 1+mfp          __DATA_CONST (__got, 1 page; added v5.5.12)
+            #   page 2+mfp..        __DATA (globals)
+            # Must stay in lockstep with EMITMACHO_ARM64. Pre-v5.5.12 the
+            # formula was (1 + mfp) × PAGE; the +1 below is the __DATA_CONST
+            # page inserted between __TEXT and __DATA.
             var vaddr = dbase + cumul;
             if (_TARGET_MACHO == 2) {
                 var mfspos = GSPOS(S);
@@ -159,7 +164,7 @@ fn FIXUP(S) {
                     mfp = (mfts + 16384 - 1) / 16384;
                     if (mfp < 1) { mfp = 1; }
                 }
-                vaddr = 0x100000000 + (1 + mfp) * 16384 + cumul;
+                vaddr = 0x100000000 + (2 + mfp) * 16384 + cumul;
             }
             if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, vaddr); }
             else { FIXUP_MOV(S, coff, vaddr); }

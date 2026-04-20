@@ -1557,6 +1557,19 @@ paths that a dedicated refactor + code review window is earned.
 - **Cleanup sweep** — stale comments referencing pre-v5.5.x state
   (e.g. "queued for v5.5.x pillar N" phrasing, now superseded by
   pinned patch numbers). Dead `#ifdef` branches. Orphaned files.
+- **Internal build-warning cleanup** — `cc5` emits a set of
+  warnings on its own source during the self-host step (syscall
+  arity mismatches in `src/frontend/lex.cyr:227` and `:240`,
+  the `note: N unreachable fns` tail, any `warning: large static
+  data` noise from hand-emitted probe programs). These are
+  ours — the compiler is right that the warnings apply, but the
+  flagged sites are intentional (e.g. the stat/readlink calls in
+  lex.cyr use the 2-arg BSD form that cc5's arity check is too
+  strict about on the Linux side). Triage: either suppress the
+  false positives with a `#noarity` pragma, relax the arity check
+  to match the real kernel entry points, or silence via targeted
+  rewrite. Zero self-warnings on the bootstrap `build/cc5`
+  self-compile before v5.5.x closes.
 
 **Compliance (CLAUDE.md steps 9-10):**
 - **Security re-scan** — last full audit was v5.0.1. If no v5.5.x
