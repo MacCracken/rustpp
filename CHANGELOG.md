@@ -4,6 +4,71 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.22] — 2026-04-21
+
+**`cyrfmt` gains `--write` / `-w` — in-place file rewrite.** Closes
+a gap filed by sankoch's format-pass consumer: `programs/cyrfmt.cyr`
+had a hardcoded `syscall(1, 1, ptr, len)` write-to-stdout path, a
+`--check` flag that routed to a memory buffer for diff, and nothing
+in between. Downstream tooling had to pipe cyrfmt through a shell
+one-liner to edit files in place.
+
+### New flags
+
+- `cyrfmt --write <file>` — read, format, overwrite the file.
+- `cyrfmt -w <file>` — short form, matches `gofmt -w` convention.
+- Existing flags unchanged: `cyrfmt <file>` (→ stdout), `cyrfmt
+  --check <file>` (→ exit 0/1).
+
+### Behavior
+
+Reads file into a 128 KB buffer, formats into a second buffer,
+then calls `file_write_all` (O_WRONLY | O_CREAT | O_TRUNC) if the
+output differs from the input. Truncate-and-overwrite, not
+atomic-via-temp+rename — matches `gofmt -w` in practice. Cyrius
+doesn't yet expose `sys_rename`; if a future consumer needs
+crash-safe atomic rewrite, that's a follow-up patch adding the
+syscall wrapper + a new `cyrfmt --write --atomic` mode.
+
+### Idempotent — mtime preserved on already-clean files
+
+If the formatted output matches the input byte-for-byte, `--write`
+short-circuits before `file_write_all`. No write syscall fires,
+the file's mtime doesn't change. Incremental build systems that
+watch mtime don't see spurious rebuilds when cyrfmt is run on a
+clean tree (matters for `cyrius build` loops that format-on-save).
+
+### Test coverage (`tests/regression-cyrfmt-write.sh`, 7 sub-tests)
+
+1. `--check` on unformatted file → rc=1.
+2. `--check` doesn't modify the file.
+3. `--write` reformats the file in place (byte-compared against
+   canonical output).
+4. `--check` on the rewritten file → rc=0.
+5. `-w` short form produces identical result to `--write`.
+6. Re-running `--write` on an already-clean file leaves mtime
+   unchanged (no-churn short-circuit).
+7. Default (no flag) still goes to stdout, file unchanged.
+
+Wired into `scripts/check.sh` as gate 4g (**12/12 now**).
+
+### Compiler size
+
+cc5 486,552 B — unchanged (stdlib program-only change, cc5 doesn't
+include `programs/cyrfmt.cyr`). cc5_aarch64 347,024 B — unchanged.
+`build/cyrfmt` binary grew from ~28 KB to 32,504 B (+new flag
+parsing + write branch).
+
+### Regression
+
+- `sh scripts/check.sh` — 12/12 PASS (new gate 4g added).
+- v5.5.13/14/17/18/21 platform + codegen regressions all still green.
+
+### Sankoch unblock
+
+Sankoch's format pass can now call `cyrfmt --write` directly. The
+"shell one-liner forever" fallback retires.
+
 ## [5.5.21] — 2026-04-21
 
 **The v5.4.15-filed "include-boundary inline-asm" bug is fixed.

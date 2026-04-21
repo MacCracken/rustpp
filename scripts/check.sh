@@ -145,6 +145,15 @@ if [ "$ia_result" -ne 0 ]; then cat /tmp/audit_ia_$$; fi
 rm -f /tmp/audit_ia_$$
 echo ""
 
+# ── 4g. cyrfmt --write in-place rewrite (5.5.22) ──
+echo "── cyrfmt --write ──"
+sh "$ROOT/tests/regression-cyrfmt-write.sh" > /tmp/audit_cf_$$ 2>&1
+cf_result=$?
+check "cyrfmt --write / -w in-place rewrite + idempotent mtime" "$cf_result"
+if [ "$cf_result" -ne 0 ]; then cat /tmp/audit_cf_$$; fi
+rm -f /tmp/audit_cf_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
