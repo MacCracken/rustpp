@@ -4,6 +4,128 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.29] — 2026-04-21
+
+**`lib/fdlopen.cyr` orchestration — attempt + investigation
+log.** v5.5.28 shipped the primitives (setjmp/longjmp, helper
+path resolution, 256-byte state shape). This patch writes the
+in-process ld.so-entry orchestration: ELF PT_LOAD mapper for
+helper + ld.so, kernel-style argc/argv/envp/auxv stack
+construction, the switch-rsp/jmp inline asm. Three probe
+attempts hit the CLAUDE.md "3 failed attempts = defer and
+document" rule; shipping the committed code + the empirical
+findings so v5.5.30 has a concrete starting point rather than
+a blank page.
+
+### Added
+
+* **`_fdlopen_mmap_elf(path, out_info)`** — minimal ELF PT_LOAD
+  mapper. Opens, mmaps file read-only, parses ehdr (verifies
+  ELFMAG + ELFCLASS64 + ET_DYN/ET_EXEC), scans phdrs for
+  PT_LOAD to compute total span, allocates anon PIE region,
+  copies each segment (file data + BSS zero-fill), mprotects
+  per p_flags (PF_X/PF_W/PF_R → PROT_EXEC/WRITE/READ extracted
+  via div+mod since cyrius lacks bitwise AND). Emits five u64
+  slots: base, absolute entry, phdr address, phnum, phentsize.
+  Independently useful — separately-probed in isolation and
+  works on both `~/.cyrius/dlopen-helper` and
+  `/lib64/ld-linux-x86-64.so.2`.
+* **`_fdlopen_build_stack(region, size, helper_info, ldso_info,
+  auxv_buf, auxv_len, state_addr, cb_addr)`** — lays out the
+  kernel-style startup stack at the top of a 64 KB mmap'd
+  region. Fills downward: 16-byte AT_RANDOM pool + hex-encoded
+  callback + hex-encoded state + helper path (string table),
+  then 16-byte-aligned argc/argv[0..2]/NULL/envp NULL + 15
+  auxv pairs (AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_BASE,
+  AT_FLAGS, AT_ENTRY, AT_UID, AT_EUID, AT_GID, AT_EGID,
+  AT_HWCAP, AT_SECURE, AT_RANDOM, AT_EXECFN, AT_SYSINFO_EHDR)
+  + AT_NULL. Auxv UID/GID/HWCAP/SYSINFO_EHDR sourced from our
+  own `/proc/self/auxv` via `dynlib_auxv_get`.
+* **`_fdlopen_hex64(v, out)`** — formats a u64 as 16 lowercase
+  hex chars + NUL, for encoding addresses into the argv the
+  helper parses.
+* **`_fdlopen_enter_ldso(ldso_entry, new_rsp)`** — raw-hex
+  inline asm that loads the ld.so entry address into rax,
+  switches rsp to the constructed stack top, zeros rdx (no
+  atexit), and `jmp rax`. Never returns normally.
+* **`_fdlopen_cb()`** — the callback the helper invokes after
+  populating state fn-pointer slots. Invokes `dl_longjmp` to
+  unwind back into the cyrius static binary's setjmp frame.
+* **`_fdlopen_run_loader(state)`** — the orchestrator. Reads
+  auxv, resolves helper path, maps helper + ld.so, allocates
+  the 64 KB stack, builds the startup layout, dl_setjmp's,
+  fires the jump.
+* **`fdlopen_init_full(state)`** — opt-in public entry for the
+  full orchestration. The default `fdlopen_init` remains
+  shape-stable and returns `FDL_ERR_UNINIT` (-8) so existing
+  tests keep passing while the investigation completes.
+
+### Investigation log (3 attempts, per CLAUDE.md)
+
+**Attempt 1** (plain p_flags → prot translation using
+`if ((p_fl/4)*4 == p_fl) { }`): first-instruction SIGSEGV
+(exit 139). Translation bug — the expression didn't actually
+extract the R bit.
+
+**Attempt 2** (fixed R/W/X extraction via div+mod): exit 0,
+silent. ld.so doesn't crash. But no helper output either.
+
+**Attempt 3** (added AT_UID / AT_EUID / AT_GID / AT_EGID /
+AT_HWCAP / AT_SECURE / AT_FLAGS to the auxv — the "required
+by ld.so" set per glibc elf/rtld.c): exit 0, still silent.
+Raw-write breadcrumb at the top of
+`programs/dlopen-helper.c::main` confirmed helper main is
+NEVER reached. ld.so enters `_dl_start` cleanly (no crash)
+but exits the process via some path that doesn't invoke
+`__libc_start_main(helper_main)`.
+
+### Pinned: v5.5.30 — fdlopen orchestration completion
+
+Concrete next steps (not speculation — each is a specific
+diagnostic against the empirical findings above):
+
+1. **Verify AT_PHDR contents.** Dump the 56×N bytes at
+   `helper_info + 16` and compare byte-for-byte against the
+   file. If the copy pass missed an offset, ld.so's phdr
+   walk silently fails.
+2. **Check whether ld.so needs file-backed mmap of helper
+   PT_LOAD** (not anon+memcpy). Cosmopolitan uses file-backed
+   mmap with `MAP_PRIVATE`; our approach is anon+memcpy. May
+   matter for ld.so's `/proc/self/maps`-driven self-check.
+3. **Run a side-by-side strace** (on a host with strace
+   installed) of `./dlopen-helper ARG ARG` vs our jump
+   sequence. Pinpoint the first diverging syscall.
+4. **Test AT_PHDR pointing at the file mapping** (read-only)
+   rather than into the loaded-segment region. Kernel
+   convention puts phdrs INSIDE the first PT_LOAD; ours too.
+   But worth confirming.
+5. **Verify the `mov rsp, [rbp-16]` encoding preserves flags
+   that ld.so's _start expects.** `xor edx, edx` is before
+   the rsp switch — if rdx has a leftover value from cyrius's
+   callee-saved state, ld.so might misinterpret it as an
+   atexit handler pointer.
+6. **Cross-reference Cosmopolitan's `cosmo_dlopen.c`** for
+   any step we're skipping (locale init before jump, TLS base
+   setup, stack canary).
+
+### Other changes
+
+* `_fdlopen_cb` breadcrumb removed (was for probing).
+* `programs/dlopen-helper.c` breadcrumb removed (was for
+  probing).
+
+### Size
+
+* cc5 x86_64: **488,864 B unchanged** — compiler untouched.
+  Self-host byte-identical.
+* `lib/fdlopen.cyr`: 280 → 500 lines.
+
+### check.sh gates
+
+* 15 unchanged (same 4j gate covers primitives; full-path
+  gate pinned to v5.5.30 once orchestration reaches helper
+  main).
+
 ## [5.5.28] — 2026-04-21
 
 **Third and final patch of the NSS real-fix arc: `lib/fdlopen.cyr`

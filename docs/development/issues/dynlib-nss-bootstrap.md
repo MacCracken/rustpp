@@ -177,6 +177,91 @@ at all. If a future maintainer still wants to try the synthesis
 path, see `programs/nss_probe.cyr` for
 a reproduced starting point.
 
+## v5.5.29 — foreign-dlopen orchestration attempt (partial)
+
+Shipped the orchestration code for Path B (foreign-dlopen),
+hit 3-attempts-defer per CLAUDE.md rule on making it actually
+run helper main. All primitives work in isolation; end-to-end
+path fails silently.
+
+### What works
+
+- `_fdlopen_mmap_elf(path, out)` — minimal ELF PT_LOAD mapper.
+  Tested in isolation on both `~/.cyrius/dlopen-helper` and
+  `/lib64/ld-linux-x86-64.so.2`. Returns correct base, entry,
+  phdr address, phnum, phentsize. Anonymous mmap + memcpy from
+  file-backed mmap + mprotect per PF_* → PROT_* translation.
+- `_fdlopen_build_stack` — lays out kernel-style startup data
+  at a 64 KB stack region: argc=3, argv[0..2] (helper path,
+  state-hex, cb-hex), NULL, empty envp NULL, 15 auxv pairs
+  (AT_PHDR/PHENT/PHNUM/PAGESZ/BASE/FLAGS/ENTRY/UID/EUID/GID/
+  EGID/HWCAP/SECURE/RANDOM/EXECFN/SYSINFO_EHDR/NULL).
+  Returns 16-byte-aligned RSP.
+- `_fdlopen_hex64` — u64 to 16-char lowercase hex + NUL.
+- `_fdlopen_cb` + `dl_longjmp` — tested direct-call round
+  trip; setjmp receives rt=1 correctly.
+- `fdlopen_init` returns shape-stable FDL_ERR_UNINIT (-8) after
+  helper probe succeeds; existing tests stay green.
+
+### What fails
+
+Invoking `_fdlopen_enter_ldso(ldso_entry, new_rsp)` fires the
+raw-hex inline asm `mov rsp, new_rsp; xor edx, edx; jmp rax`.
+Ld.so enters (no SIGSEGV from the first instruction). But the
+process then exits cleanly (exit 0) without ever invoking
+helper main.
+
+A raw-write `write(2, "HELPER-MAIN\n", 12)` at the very first
+line of `programs/dlopen-helper.c::main` confirmed: helper
+main is NEVER reached under our constructed-stack jump. Ld.so
+is running some code path that concludes without calling
+`__libc_start_main` on the helper.
+
+### Three attempts per CLAUDE.md
+
+1. **Plain p_flags → prot** with `(p_fl/4)*4 == p_fl` bit
+   extraction. SIGSEGV at first jmp. Translation bug — the
+   expression didn't extract R correctly.
+2. **Fixed R/W/X via div+mod**: `r_half = p_fl/4`, `if
+   r_half - (r_half/2)*2 == 1` etc. Ld.so enters cleanly, no
+   crash, but exits 0 silent. Helper main never reached.
+3. **Added AT_UID/EUID/GID/EGID/HWCAP/SECURE/FLAGS** sourced
+   from our own `/proc/self/auxv` via `dynlib_auxv_get`. Same
+   result: exit 0 silent.
+
+### Pinned: v5.5.30 completion — concrete starting points
+
+Not speculation — each is a specific diagnostic against the
+empirical findings above:
+
+1. **AT_PHDR content verification.** Dump `helper_info + 16`
+   bytes and compare byte-for-byte against `readelf -l
+   ~/.cyrius/dlopen-helper` output for the phdr range. If
+   mismatch, our copy pass has a bug.
+2. **File-backed mmap of helper PT_LOAD.** Switch from
+   `mmap_anon + memcpy` to `mmap(base+p_vaddr, memsz, prot,
+   MAP_PRIVATE|MAP_FIXED, fd, p_offset & ~4095)`.
+   Cosmopolitan uses file-backed; may be load-bearing for
+   ld.so's self-map introspection via `/proc/self/maps`.
+3. **strace diff.** Run on a host with strace installed:
+   `strace -f ./dlopen-helper ADDR ADDR` vs probe2 with
+   strace. Pinpoint the first syscall that diverges.
+4. **Cosmopolitan cosmo_dlopen cross-reference.** Walk
+   `libc/dlopen/dlopen.c` in the cosmopolitan repo for any
+   pre-jump setup step we're skipping: locale init, TLS base
+   setup via `arch_prctl`, signal mask save/restore, stack
+   canary init, rseq init.
+5. **Register state at jump.** Verify `xor edx, edx` happens
+   BEFORE `mov rsp, new_rsp` (currently correct in
+   `_fdlopen_enter_ldso`). Also check whether ld.so needs
+   `rdi` cleared — some dl-machine.h variants assume rdi is
+   zero or matches rsp.
+
+All of this is reproducible: `/home/macro/.cyrius/dlopen-helper`
+is the compiled helper on my development host. The 64 KB
+anonymous stack is allocated fresh each call. The bug is
+deterministic (reproduces every run).
+
 ## Shipped primitives (v5.5.24 + v5.5.25)
 
 | function                         | since  | purpose |
