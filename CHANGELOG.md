@@ -4,6 +4,65 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.26-1] — 2026-04-21
+
+**Hotfix only.** Two regressions surfaced on CI after v5.5.26 shipped:
+
+1. Patra 1.5.5's CI (which pulls `cyrius-5.5.26-x86_64-linux.tar.gz`
+   from the release) crashed with `cannot read /home/runner/.cyrius/lib/src/file.cyr.cyr`
+   for each module in its `[lib] modules = [...]` list. Root cause:
+   `cbt/deps.cyr` Phase 1 matched "stdlib" anywhere in the manifest,
+   including inside comment text. Patra's `[lib]` comment contained
+   "the bundle carries its stdlib prerequisites at the top" — the
+   raw `memeq("stdlib", 6)` caught it, then `_parse_toml_str_array`
+   grabbed the next array (patra's `[lib] modules`), and each
+   element was copied from the stdlib dir with `.cyr` appended.
+2. Cyrius's own CI doc-coverage gate failed with `12 undocumented`
+   across `lib/pwd.cyr` + `lib/grp.cyr`: the per-fn doc-comment
+   format cyrdoc expects was omitted on the convenience accessors
+   (pwd_uid / pwd_gid / … / grp_gid / grp_name / grp_passwd) —
+   they lived under a shared block comment that cyrdoc counts per-fn.
+
+Matches the `-N suffix hotfix` pattern from v5.4.12-1 (release-lib
+tag drift fix). No feature work, no compiler changes.
+
+### Fixed
+
+* **`cbt/deps.cyr`** — `stdlib` key matcher now does a proper
+  key-boundary check: reject the match if the preceding byte is
+  alphanumeric / `_` (substring of a longer identifier), or if the
+  line is a comment (first non-space is `#`). Covers the case that
+  broke patra's CI; defense-in-depth against any downstream that
+  mentions "stdlib" in a manifest comment or string. Other `memeq`
+  key matchers (`path`, `git`, `tag`, `modules` in phase 2) are
+  bounded to `[deps.NAME]` section scans and haven't triggered
+  this class; follow-up only if needed.
+* **`lib/pwd.cyr`, `lib/grp.cyr`** — each convenience accessor now
+  has its own one-line doc comment (`pwd_uid`, `pwd_gid`, `pwd_name`,
+  `pwd_passwd`, `pwd_gecos`, `pwd_dir`, `pwd_shell`, `grp_invalidate_cache`,
+  `grp_getgrgid`, `grp_getgrnam`, `grp_gid`, `grp_name`, `grp_passwd`).
+  cyrdoc's rule: one `#` comment immediately before the `fn`. Was
+  shared-block in v5.5.26, which cyrdoc counted per-fn (12
+  undocumented). Now `0 undocumented` across all of `lib/`.
+
+### Verified
+
+* Patra CI reproducer passes on the fixed cyrius CLI (deps resolve
+  without stdlib misinterpretation).
+* `./build/cyrdoc --check lib/*.cyr` → `0 undocumented` total
+  (matches ci.yml's `test $total -eq 0` gate).
+* `scripts/check.sh` 13/13.
+* Self-host byte-identical via two-step bootstrap.
+* `cc5` 488,864 → **488,872 B** (+8 B from the longer `"cc5 5.5.26-1\n"`
+  version string literal). Compiler behavior unchanged.
+
+### Downstream
+
+* **Patra cyrius pin** should bump `5.5.26` → `5.5.26-1` in
+  patra's `cyrius.cyml` so its CI pulls the fixed tarball. The
+  defense-in-depth "stdlib" comment removal from patra's cyml
+  stays; works with either cyrius toolchain version.
+
 ## [5.5.26] — 2026-04-21
 
 **First of three-patch NSS real-fix arc. `lib/pwd.cyr` + `lib/grp.cyr`
@@ -56,13 +115,31 @@ the file-based lookups that cover 95% of Linux deployments.
   be used as an identifier; rename the variable/field/fn)` with
   the capacity-meter tail. New helper `IS_KEYWORD_TOK(typ)` covers
   24 keyword token types.
+* **`cbt/deps.cyr` — `stdlib` key matcher now checks boundaries.**
+  Phase 1 scan was a raw `memeq("stdlib", 6)` substring match with
+  only a post-byte check. When a comment or string contained the
+  word "stdlib" (e.g. patra 1.5.5 initially had "stdlib
+  prerequisites" in a `[lib]` comment), the matcher accepted it,
+  and `_parse_toml_str_array` then grabbed whatever array came
+  next — in patra's case, `[lib] modules = ["src/file.cyr", ...]`
+  — and tried to copy each element from the stdlib directory,
+  producing `cannot read /home/runner/.cyrius/lib/src/file.cyr.cyr`.
+  New logic rejects the match if (a) the preceding byte is
+  alphanumeric / `_` (substring of a longer identifier), or
+  (b) the line is a comment (first non-space byte is `#`). The
+  other `memeq` key matchers in phase 2 (path / git / tag /
+  modules) are bounded to inside `[deps.NAME]` section scans and
+  haven't triggered this class of bug; follow-up if needed.
 * **patra 1.5.4 → 1.5.5 (`cyrius.cyml`)** — patra switched its
   bundle generation from an ad-hoc `scripts/bundle.sh` shell script
   to `cyrius distlib`. Same shape, same content, no source-level
   diff. `[lib] modules = [...]` declares the concatenation order
   in patra's own `cyrius.cyml`; cyrius distlib reads it and writes
   `dist/patra.cyr`. One less ecosystem shell script. Cyrius dep
-  pin updated accordingly.
+  pin updated accordingly. Patra's `[lib]` comment also rewritten
+  to not contain the word "stdlib" — defense-in-depth against
+  older cyrius toolchains (<5.5.26) whose matcher was the loose
+  substring form.
 
 ### Why this sequence
 

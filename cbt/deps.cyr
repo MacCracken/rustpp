@@ -166,10 +166,44 @@ fn cmd_deps() {
 
     # === Phase 1: stdlib deps ===
     # Find: stdlib = ["string", "fmt", ...]
+    # Key-boundary-aware: "stdlib" must be preceded by start-of-file,
+    # newline, or whitespace (i.e. not `a-zA-Z0-9_`), and followed
+    # by ` ` or `=`. Prevents false-positive on comment substrings
+    # like "bundles the stdlib prerequisites" which previously matched
+    # and caused `_parse_toml_str_array` to grab the next array in the
+    # file (e.g. patra's `[lib] modules = ["src/file.cyr", ...]`),
+    # surfacing in v5.5.26 when patra added a `[lib]` section above
+    # a comment that mentioned "stdlib".
     var si = 0;
     while (si < n) {
         if (memeq(buf + si, "stdlib", 6) == 1) {
-            if (si + 6 < n && load8(buf + si + 6) == 32 || load8(buf + si + 6) == 61) {
+            var pre_ok = 1;
+            if (si > 0) {
+                var pc = load8(buf + si - 1);
+                # alnum/underscore = continuation of a longer identifier,
+                # so "stdlib" is a substring, not a key.
+                if (pc >= 48 && pc <= 57)   { pre_ok = 0; }   # 0-9
+                if (pc >= 65 && pc <= 90)   { pre_ok = 0; }   # A-Z
+                if (pc >= 97 && pc <= 122)  { pre_ok = 0; }   # a-z
+                if (pc == 95)               { pre_ok = 0; }   # _
+                # Line must not be a comment. Scan back to line start
+                # and check if the first non-space is `#`.
+                if (pre_ok == 1) {
+                    var ls = si;
+                    while (ls > 0) {
+                        var lc = load8(buf + ls - 1);
+                        if (lc == 10) { break; }
+                        ls = ls - 1;
+                    }
+                    while (ls < si) {
+                        var wc = load8(buf + ls);
+                        if (wc == 35) { pre_ok = 0; break; }  # '#'
+                        if (wc != 32 && wc != 9) { break; }
+                        ls = ls + 1;
+                    }
+                }
+            }
+            if (pre_ok == 1 && si + 6 < n && (load8(buf + si + 6) == 32 || load8(buf + si + 6) == 61)) {
                 var stdlib_dir = _dep_find_stdlib_dir();
                 if (stdlib_dir == 0) {
                     println("  error: cannot find cyrius stdlib");
