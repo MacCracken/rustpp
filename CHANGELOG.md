@@ -4,6 +4,105 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.20] — 2026-04-20
+
+**`lib/hashmap.cyr` gains a u64-keyed variant — the mabda
+cache-hot-path unblock. Consumers with pre-computed u64 hashes
+skip the `alloc()` + decimal-string detour that made cyrius
+`shader_cache_hit` 15× slower than Rust on Criterion. Zero
+allocations on the get/has/set-of-existing-key path. Slot
+layout tightens from 24 B (key-ptr + value + state) to 16 B
+(key + value, sentinels in key field) — 33% smaller, one
+fewer load per probe.**
+
+Part of the v5.5.x Linux-stdlib arc; the detailed scope was
+pre-written at `docs/development/roadmap.md` §"v5.5.20 —
+`lib/hashmap.cyr` u64-key variant" when the item was filed
+after mabda's first GPU benchmark run (May 2026). v5.5.19's
+roadmap audit caught that the item had a full spec but no
+release-table row; v5.5.20 lands the implementation.
+
+### API (added to `lib/hashmap.cyr`)
+
+```
+map_u64_new()                — create u64-keyed map (cap 16)
+map_u64_set(m, key, value)   — insert/overwrite (grows at 70%)
+map_u64_get(m, key)          — lookup, returns 0 on miss
+map_u64_get_or(m, key, def)  — lookup with explicit default
+map_u64_has(m, key)          — 1 if present, 0 otherwise
+map_u64_delete(m, key)       — delete, 1 if found
+map_u64_size(m)              — occupied count
+map_u64_clear(m)             — reset to empty, keep capacity
+hash_u64(k)                  — SplitMix64 public helper
+```
+
+### Implementation
+
+- Slot layout `{ key: u64, value: i64 } = 16 B`. No state field;
+  sentinels live in the key itself:
+  - `MAP_U64_EMPTY = 0`
+  - `MAP_U64_TOMB  = 0xFFFFFFFFFFFFFFFF`
+  Users who must store key=0 or key=u64::MAX pre-shift by +1
+  (documented; no real-world consumer hits this).
+- Hash is SplitMix64 (Vigna) — fast, bijective, passes BigCrush.
+  Raw u64 keys that happen to cluster in low bits (pointers mod
+  page, small dense IDs) spread evenly across buckets.
+- Open addressing with linear probing, same 70% load grow trigger
+  as the Str-keyed variant (`_map_u64_grow`). Rehash walks old
+  slots and re-inserts via `map_u64_set`.
+- Dedicated `_map_u64_find` rather than sharing `_map_find` —
+  the 16 B slot stride + sentinel-encoded state preclude code
+  reuse. The cstr/Str/u64 variants each have their own find/grow
+  pair; `_map_hash` / `_map_key_eq` dispatch is unchanged.
+
+### Tests (`tests/tcyr/hashmap_u64_keys.tcyr`, new — 30 assertions)
+
+Covers: basic set/get, overwrite, has, get_or, delete + re-insert
+(tombstone reuse), clear, adjacent-sentinel keys (1 and
+u64::MAX-1 and the sign-bit value), 1024-key grow stress,
+retrieval after grow, delete-half verify-remainder, and the
+crucial alloc-stability check — `alloc_used()` before and after
+a get/has/set-of-existing-key sequence must not change.
+
+All 30 pass. `sh scripts/check.sh` 11/11 PASS.
+
+### Compatibility with existing map surface
+
+`map_new()` (cstr) and `map_new_str()` (Str) unchanged. The
+cstr/Str helpers (`map_keys`, `map_values`, `map_iter`,
+`map_print`) walk 24 B slot strides and do NOT work on u64 maps;
+the u64 surface stays minimal (new/set/get/has/delete/size/clear
+per the v5.5.20 scope — all known consumers today are cache
+hot-paths that don't iterate). u64 iter/keys/values helpers land
+when a consumer actually needs them.
+
+### Downstream
+
+Downstream **mabda** is the only confirmed consumer. With v5.5.20
+shipped, mabda v2.5.x can:
+- Delete `src/cache_key.cyr` (`_hash_to_heap_key` helper goes
+  away).
+- Switch `shader_cache.cyr` / `pipeline_cache.cyr` /
+  `bind_group_cache.cyr` / `texture_cache.cyr` to `map_u64_*`.
+- Run `bench_shader_cache_hit` + `bench_bind_group_cache_hit` at
+  Criterion's default iteration count without arena exhaustion.
+- Expect per-lookup time ≤ 50 ns (target: within 2× of Rust's
+  13-36 ns; previous cyrius number was 553 ns = 15× Rust).
+
+That's a mabda-side migration — tracked in mabda's repo, not
+blocking cyrius v5.5.20.
+
+### Byte-identical self-host
+
+cc5 **486,352 B (unchanged)** — `lib/hashmap.cyr` isn't included
+by cc5 itself; the additions only land in programs that
+`include "lib/hashmap.cyr"`. cc5_aarch64 unchanged at 346,976 B.
+
+### Regression
+
+- `sh scripts/check.sh` — 11/11 PASS.
+- v5.5.13–v5.5.18 platform regressions all still green.
+
 ## [5.5.19] — 2026-04-20
 
 **Inline-asm discard-result bug narrowed; the "include-boundary"
