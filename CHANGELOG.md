@@ -4,6 +4,140 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.14] — 2026-04-20
+
+**Mach-O `__got` grows from 1 slot to 6. `EMITMACHO_ARM64` now emits
+bind entries for `_exit`, `_write`, `_read`, `_malloc`, `_fopen`,
+`_pthread_create` — all dyld-bound at load via shared classic-bind
+opcode stream. Syscall reroutes for the BSD-mappable subset land
+alongside: `syscall(1, fd, buf, len)` → `libSystem._write` and
+`syscall(0, fd, buf, len)` → `libSystem._read` (mirrors the PE
+v5.5.1 bundle). `_malloc`/`_fopen`/`_pthread_create` ship as
+imports-only — call sites arrive with the tool-binary port
+(v5.5.15) or C-FFI-to-libSystem.**
+
+Mirror of the Windows arc's v5.5.1 reroute bundle. Infrastructure
+locked in here — each future libSystem import is (1) append-symbol
+in `EMITMACHO_ARM64`'s bind/symtab/strtab/indirect-symtab blocks,
+(2) one slot number in the parse-time dispatch table.
+
+### Multi-slot fixup
+
+New `FIXUP_ADRP_LDR` in `src/backend/aarch64/fixup.cyr` — same
+page-diff patch as `FIXUP_ADRP_ADD`, but the second instruction's
+imm12 encodes the target's low 12 bits **scaled by 8** (the
+64-bit LDR variant multiplies imm12 by 8 at load). Slot 0 keeps
+reusing `FIXUP_ADRP_ADD` (low12 = 0 on a page-aligned base, and
+the ADD's imm12 happens to coincide with the LDR's imm12=0).
+Non-zero slots (1..5) use `FIXUP_ADRP_LDR` with scaled imm12.
+The `ftype=5` branch in `FIXUP(S)` now forks on `idx == 0`.
+
+### `EMITMACHO_ARM64` growth
+
+- `GOT_SIZE` 8 → 48 (6 slots × 8 B, still fits one page;
+  headroom to ~2048 slots).
+- `BIND_SIZE` 16 → 72. Bind stream restructured from one
+  per-symbol opcode block to a shared header (ORDINAL_IMM,
+  TYPE_IMM, SEGMENT_AND_OFFSET_ULEB, ULEB 0) followed by six
+  per-symbol `SET_SYMBOL_TRAILING_FLAGS_IMM + name\0 + DO_BIND`
+  triples. `DO_BIND` auto-advances the bind offset by
+  `pointer_size = 8`, so slots resolve to `__got[0..5]` in order.
+- `SYMTAB_COUNT` 3 → 8 (two defined + six libSystem undefs);
+  `SYMTAB_SIZE` 48 → 128.
+- `STRTAB_SIZE` 40 → 80 (78 B used + 2 pad). Layout encoded as
+  cumulative cstrings; strx values hand-verified against
+  bind/symtab consumers.
+- `INDIRECT_SIZE` 4 → 24 (six entries, `__got[i] → symtab[2+i]`).
+- `LC_DYSYMTAB` `nundefsym` 1 → 6, `nindirectsyms` 1 → 6.
+- Three new helpers encapsulate the repetition: `_macho_wcstr`
+  (write NUL-terminated string), `_macho_wsymundef` (nlist_64
+  undef entry), `_macho_wbindsym` (per-symbol bind subsequence).
+
+### Slot assignment (must stay lockstep with parse.cyr + fixup.cyr)
+
+| slot | symbol            | syscall reroute              |
+|------|-------------------|------------------------------|
+| 0    | `_exit`           | `syscall(60, code)` (v5.5.13) |
+| 1    | `_write`          | `syscall(1, fd, buf, len)`    |
+| 2    | `_read`           | `syscall(0, fd, buf, len)`    |
+| 3    | `_malloc`         | (imports-only)               |
+| 4    | `_fopen`          | (imports-only)               |
+| 5    | `_pthread_create` | (imports-only)               |
+
+### Parse-time dispatch
+
+`src/frontend/parse.cyr` `_TARGET_MACHO == 2` block gains two
+branches: `sc_num == 1, argc == 4 → EMACHO_WRITE_ARM` and
+`sc_num == 0, argc == 4 → EMACHO_READ_ARM`.
+
+### Backend reroute implementations
+
+`src/backend/aarch64/emit.cyr` new `_EMACHO_BLR_GOT(S, slot)`
+helper — records ftype=5 fixup at current CP and emits
+`adrp x16, #0; ldr x16, [x16, #0]; blr x16` (slot>0 patched by
+`FIXUP_ADRP_LDR`). Wrapped by `EMACHO_WRITE_ARM` (pops `len/buf/fd`
+into `x2/x1/x0`, discards sc_num, BLRs slot 1) and
+`EMACHO_READ_ARM` (same, slot 2). `EMACHO_EXIT_ARM` retains its
+inline encoding because it BRs (tail-call, no return), while the
+read/write paths BLR so x0 carries the return value back to the
+caller per AAPCS64 + the cyrius syscall convention.
+
+`src/backend/x86/emit.cyr` adds empty `EMACHO_WRITE_ARM` +
+`EMACHO_READ_ARM` stubs, same link-only reason as v5.5.13's
+`EMACHO_EXIT_ARM` stub.
+
+### Pre-existing fix: literal-0 const-fold unblocked
+
+`src/frontend/parse.cyr:550` restricted const-fold of integer
+literals to `val > 0 && val < 0x10000`, excluding literal `0`.
+Consequence: `syscall(0, fd, buf, len)` never set `_cfo = 1`,
+`sc_num` stayed at `-1`, and the syscall-reroute dispatch (both
+Mach-O and PE) silently fell through to the generic svc/syscall
+path. Relaxing the guard to `val >= 0` is safe — `EMOVI(S, 0)`
+emits a 2 B `xor eax, eax` (vs 5 B for val > 0), and the
+const-fold rewrite path is size-agnostic (`SCP + re-emit`
+truncates + rewrites). Also unblocks `syscall(0, ...)` reroute
+on PE where `lib/syscalls_windows.cyr` uses `SYS_READ` enum but
+user code hitting literal `0` would have hit the same bug.
+
+### Verification (Apple Silicon, `ssh ecb`)
+
+Three compiler-emitted cyrius programs cross-built, codesign'd,
+executed on M-series:
+
+- `syscall(60, 42)` → `_exit(42)` → exit=42 (v5.5.13 regression).
+- `syscall(1, 1, "hello\n", 6); syscall(60, 0)` → prints `hello`,
+  exit=0 (slot 1 proof — `FIXUP_ADRP_LDR` with imm12=1).
+- `var buf[64]; var n = syscall(0, 0, &buf, 64); syscall(1, 1, &buf, n);
+  syscall(60, 0)` — echoes stdin, exit=0 (slot 2 proof; all three
+  slots exercised in one binary).
+
+Code-region disassembly on each binary confirms the adrp bits
+encode `0x90000030` (v5.5.11 probe-validated page-diff) and
+the LDR imm12 fields encode 0/1/2 for `_exit`/`_write`/`_read`
+respectively.
+
+### Byte-identical self-host
+
+cc5 485,816 → 485,744 B (**−72 B**). The net shrink is expected:
+the strtab/bind/indirect blocks moved from inline byte-by-byte
+`store8` sequences (many individual instruction emits per byte)
+to helper calls iterating over cstrings (loop-compressed emits).
+Cross-compiler cc5_aarch64 grew 345,104 → 346,496 B (+1,392 B)
+from the new read/write emit paths.
+
+### Not in scope (v5.5.15+)
+
+- **Tool-binary shipping** (`cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc`
+  on arm64 macOS) — v5.5.15. Needs the `_malloc` / `_fopen` /
+  `_pthread_create` call sites wired up or an arm64 macOS C-FFI
+  surface. With v5.5.14 the imports are bound at load and `nm`
+  lists all six — the `__got` slots are present but zero-called.
+- **Additional libSystem imports** as real programs demand
+  (`_close`, `_open`, `_mmap`, `_pthread_*`, `_dlopen`). Each new
+  import = one cstring in `EMITMACHO_ARM64`'s symbol list + one
+  parse.cyr dispatch line + one slot number.
+
 ## [5.5.13] — 2026-04-20
 
 **First Mach-O syscall reroute through `__got`. `syscall(60, code)`

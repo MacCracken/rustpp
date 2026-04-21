@@ -376,6 +376,17 @@ fn EMACHO_EXIT_ARM(S) {
     return 0;
 }
 
+# v5.5.14 x86 stubs for EMACHO_WRITE_ARM / EMACHO_READ_ARM. Same story
+# as EMACHO_EXIT_ARM — unreachable on x86 but must link on both backends
+# so shared parse.cyr stays arch-portable.
+fn EMACHO_WRITE_ARM(S) {
+    return 0;
+}
+
+fn EMACHO_READ_ARM(S) {
+    return 0;
+}
+
 # emit Win64 write epilogue: consume stack args pushed by the
 # generic syscall-argument loop for `syscall(1, fd, buf, len)` and
 # reroute to `GetStdHandle(fd) + WriteFile(hFile, buf, len, &n, 0)`.

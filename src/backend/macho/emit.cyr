@@ -39,6 +39,42 @@ fn _macho_wname(O, off, s) {
     return off + 16;
 }
 
+# v5.5.14 helper: write a NUL-terminated C string (no padding) at offset
+# and return the new offset. Used for strtab names and bind-opcode names
+# where symbol lengths are variable.
+fn _macho_wcstr(O, off, s) {
+    var i = 0;
+    while (load8(s + i) != 0) { store8(O + off + i, load8(s + i)); i = i + 1; }
+    store8(O + off + i, 0);
+    return off + i + 1;
+}
+
+# v5.5.14 helper: write one undef nlist_64 symtab entry (libSystem import).
+# All undefs share n_type = 0x01 (N_EXT|N_UNDF), n_sect = 0, desc = 0x0100
+# (lib ordinal 1 = libSystem, stored little-endian as 00 01). Returns new
+# offset (advances by 16).
+fn _macho_wsymundef(O, off, strx) {
+    var o = off;
+    o = _macho_w32(O, o, strx);
+    store8(O + o, 0x01); store8(O + o + 1, 0x00);
+    store8(O + o + 2, 0x00); store8(O + o + 3, 0x01);
+    o = o + 4;
+    o = _macho_w64(O, o, 0);
+    return o;
+}
+
+# v5.5.14 helper: emit per-symbol bind subsequence. After the fixed bind
+# header (ORDINAL_IMM | TYPE_IMM | SEGMENT_AND_OFFSET_ULEB | ULEB 0),
+# each import gets: SET_SYMBOL_TRAILING_FLAGS_IMM (0x40) + name\0 +
+# DO_BIND (0x90). DO_BIND auto-advances the bind offset by pointer_size
+# (8 B) so sequential calls hit __got[0], __got[1], __got[2], … in order.
+fn _macho_wbindsym(O, off, s) {
+    store8(O + off, 0x40);
+    var o = _macho_wcstr(O, off + 1, s);
+    store8(O + o, 0x90);
+    return o + 1;
+}
+
 fn EMITMACHO_EXEC(S) {
     var cp = GCP(S);
     var totvar = L64(S + 0x8FCD0);
@@ -268,15 +304,16 @@ fn EMITMACHO_ARM64(S) {
     # __TEXT occupies (1 + text_content_pages) pages.
     var TEXT_VMSIZE = (1 + text_content_pages) * PAGE;
 
-    # __DATA_CONST follows __TEXT — 1 page for the __got (1 slot today
-    # for _exit; any additional imports added by future patches grow into
-    # the same page up to 2048 entries).
+    # __DATA_CONST follows __TEXT — 1 page for the __got. v5.5.14 grows
+    # it from 1 slot to 6: [0]=_exit, [1]=_write, [2]=_read, [3]=_malloc,
+    # [4]=_fopen, [5]=_pthread_create. Still fits one page; grows up to
+    # 2048 entries before needing a second page.
     var DATA_CONST_VMADDR = TEXT_BASE + TEXT_VMSIZE;
     var DATA_CONST_FILEOFF = TEXT_VMSIZE;
     var DATA_CONST_VMSIZE = PAGE;
     var GOT_VADDR = DATA_CONST_VMADDR;
     var GOT_FILEOFF = DATA_CONST_FILEOFF;
-    var GOT_SIZE = 8;                      # 1 entry × 8 bytes
+    var GOT_SIZE = 48;                     # 6 entries × 8 bytes
 
     # __DATA (globals) sits after __DATA_CONST when present.
     var DATA_VMADDR = DATA_CONST_VMADDR + DATA_CONST_VMSIZE;
@@ -318,19 +355,28 @@ fn EMITMACHO_ARM64(S) {
     # strtab → indirect_symtab. Classic dyld-info binds route
     # libSystem._exit into __got[0] at load time.
     var BIND_OFF = LINKEDIT_FILEOFF;
-    var BIND_SIZE = 16;                    # 13 opcode bytes + 3 pad
+    # v5.5.14 bind layout: 4-byte header (ordinal, type, seg/off, ULEB 0),
+    # then per-symbol (0x40 + name\0 + 0x90 DO_BIND) auto-advancing by
+    # pointer_size (8) between slots, then 0x00 DONE:
+    #   hdr (4) + _exit (8) + _write (9) + _read (8) + _malloc (10)
+    #   + _fopen (9) + _pthread_create (18) + DONE (1) = 67 B, pad to 72.
+    var BIND_SIZE = 72;
     var EXPORTS_OFF = BIND_OFF + BIND_SIZE;
     var EXPORTS_SIZE = 49;                 # _main address ULEB
     var EXPORTS_PADDED = 56;               # 8-byte align
     var FNSTART_OFF = EXPORTS_OFF + EXPORTS_PADDED;
     var FNSTART_SIZE = 8;
     var SYMTAB_OFF = FNSTART_OFF + FNSTART_SIZE;
-    var SYMTAB_COUNT = 3;                  # +_exit undef
-    var SYMTAB_SIZE = 48;                  # 3 × 16
+    # v5.5.14 symtab: 2 defined (__mh_execute_header, _main) + 6 libSystem
+    # undefs (_exit, _write, _read, _malloc, _fopen, _pthread_create).
+    var SYMTAB_COUNT = 8;
+    var SYMTAB_SIZE = 128;                 # 8 × 16
     var STRTAB_OFF = SYMTAB_OFF + SYMTAB_SIZE;
-    var STRTAB_SIZE = 40;                  # " \0__mh_execute_header\0_main\0_exit\0" + pad
+    # v5.5.14 strtab: " \0__mh_execute_header\0_main\0_exit\0_write\0_read\0
+    # _malloc\0_fopen\0_pthread_create\0" = 78 B, pad to 80 (8-align).
+    var STRTAB_SIZE = 80;
     var INDIRECT_OFF = STRTAB_OFF + STRTAB_SIZE;
-    var INDIRECT_SIZE = 4;                 # 1 indirect sym × 4 bytes
+    var INDIRECT_SIZE = 24;                # 6 indirect syms × 4 bytes
     var LINKEDIT_CONTENT_SIZE = INDIRECT_OFF + INDIRECT_SIZE - LINKEDIT_FILEOFF;
     var FILE_END = LINKEDIT_FILEOFF + LINKEDIT_CONTENT_SIZE;
 
@@ -496,18 +542,19 @@ fn EMITMACHO_ARM64(S) {
     o = _macho_w32(O, o, STRTAB_OFF);
     o = _macho_w32(O, o, STRTAB_SIZE);
 
-    # LC_DYSYMTAB (80)
-    # nextdefsym=2 (__mh_execute_header + _main), nundefsym=1 (_exit)
-    # nindirectsyms=1 (__got[0] → symtab[2] _exit)
+    # LC_DYSYMTAB (80) — v5.5.14
+    # nextdefsym=2 (__mh_execute_header + _main), nundefsym=6 (libSystem
+    # imports _exit, _write, _read, _malloc, _fopen, _pthread_create).
+    # nindirectsyms=6 — one per __got slot; __got[i] → symtab[2+i].
     o = _macho_w32(O, o, 0x0B);
     o = _macho_w32(O, o, 80);
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # ilocal, nlocal
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 2);           # iextdef=0, nextdef=2
-    o = _macho_w32(O, o, 2); o = _macho_w32(O, o, 1);           # iundef=2, nundef=1
+    o = _macho_w32(O, o, 2); o = _macho_w32(O, o, 6);           # iundef=2, nundef=6
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # tocoff, ntoc
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # modtaboff, nmodtab
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # extrefsymoff, nextrefsyms
-    o = _macho_w32(O, o, INDIRECT_OFF); o = _macho_w32(O, o, 1); # indirectsymoff, nindirectsyms
+    o = _macho_w32(O, o, INDIRECT_OFF); o = _macho_w32(O, o, 6); # indirectsymoff, nindirectsyms
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # extreloff, nextrel
     o = _macho_w32(O, o, 0); o = _macho_w32(O, o, 0);           # locreloff, nlocrel
 
@@ -606,26 +653,27 @@ fn EMITMACHO_ARM64(S) {
     # __LINKEDIT content
     # ================================================================
 
-    # bind opcodes (16) — classic dyld-info bind of libSystem._exit
-    # into __DATA_CONST[0] (the single __got slot).
-    # Segment index of __DATA_CONST: PAGEZERO(0) + TEXT(1) + DATA_CONST(2).
-    # With __DATA present order is PAGEZERO(0) + TEXT(1) + DATA_CONST(2)
-    # + DATA(3) + LINKEDIT(4) — __DATA_CONST stays seg=2 in both cases.
-    store8(O + o, 0x11);                   # SET_DYLIB_ORDINAL_IMM | 1
-    store8(O + o + 1, 0x40);               # SET_SYMBOL_TRAILING_FLAGS_IMM | 0
-    store8(O + o + 2, 0x5F);               # '_'
-    store8(O + o + 3, 0x65);               # 'e'
-    store8(O + o + 4, 0x78);               # 'x'
-    store8(O + o + 5, 0x69);               # 'i'
-    store8(O + o + 6, 0x74);               # 't'
-    store8(O + o + 7, 0x00);               # '\0'
-    store8(O + o + 8, 0x51);               # SET_TYPE_IMM | BIND_TYPE_POINTER(1)
-    store8(O + o + 9, 0x72);               # SET_SEGMENT_AND_OFFSET_ULEB | 2
-    store8(O + o + 10, 0x00);              # ULEB offset = 0
-    store8(O + o + 11, 0x90);              # DO_BIND
-    store8(O + o + 12, 0x00);              # DONE
-    store8(O + o + 13, 0x00); store8(O + o + 14, 0x00); store8(O + o + 15, 0x00);
-    o = o + 16;
+    # bind opcodes — classic dyld-info binds of libSystem imports into
+    # __DATA_CONST.__got[0..5]. Segment index of __DATA_CONST is 2
+    # (PAGEZERO=0, TEXT=1, DATA_CONST=2 — holds whether __DATA follows
+    # or not). Shared header sets ordinal=1 (libSystem), type=POINTER,
+    # seg=2, offset=0; each DO_BIND auto-advances offset by 8 B so
+    # binds land at __got[0], __got[1], … in order. Must stay
+    # lockstep with parse.cyr's _TARGET_MACHO==2 slot assignments and
+    # the indirect symtab below.
+    var bind_start = o;
+    store8(O + o, 0x11); o = o + 1;        # SET_DYLIB_ORDINAL_IMM | 1
+    store8(O + o, 0x51); o = o + 1;        # SET_TYPE_IMM | BIND_TYPE_POINTER(1)
+    store8(O + o, 0x72); o = o + 1;        # SET_SEGMENT_AND_OFFSET_ULEB | 2
+    store8(O + o, 0x00); o = o + 1;        # ULEB offset = 0
+    o = _macho_wbindsym(O, o, "_exit");            # __got[0]
+    o = _macho_wbindsym(O, o, "_write");           # __got[1]
+    o = _macho_wbindsym(O, o, "_read");            # __got[2]
+    o = _macho_wbindsym(O, o, "_malloc");          # __got[3]
+    o = _macho_wbindsym(O, o, "_fopen");           # __got[4]
+    o = _macho_wbindsym(O, o, "_pthread_create");  # __got[5]
+    store8(O + o, 0x00); o = o + 1;        # BIND_DONE
+    while ((o - bind_start) < BIND_SIZE) { store8(O + o, 0); o = o + 1; }
 
     # exports_trie (49 bytes; padded to 56 for alignment)
     # Encodes __mh_execute_header (at 0x0) + _main (at 0x4000).
@@ -658,7 +706,7 @@ fn EMITMACHO_ARM64(S) {
     store8(O + o + 6, 0x00); store8(O + o + 7, 0x00);
     o = o + 8;
 
-    # symtab — 3 × nlist_64 (48 bytes)
+    # symtab — v5.5.14: 8 × nlist_64 (128 bytes)
     # [0] __mh_execute_header: strx=2, type=0x0F, sect=1, desc=0x10, value=0x100000000
     o = _macho_w32(O, o, 2);
     store8(O + o, 0x0F); store8(O + o + 1, 0x01);
@@ -673,31 +721,47 @@ fn EMITMACHO_ARM64(S) {
     o = o + 4;
     o = _macho_w64(O, o, TEXT_BASE + CODE_OFF);
 
-    # [2] _exit undef: strx=28, type=0x01 (N_EXT|N_UNDF), sect=0,
-    #     desc=0x0100 (lib ordinal 1 in high byte → libSystem).
-    o = _macho_w32(O, o, 28);
-    store8(O + o, 0x01); store8(O + o + 1, 0x00);
-    store8(O + o + 2, 0x00); store8(O + o + 3, 0x01);
-    o = o + 4;
-    o = _macho_w64(O, o, 0);
+    # [2..7] libSystem undefs. strx values match the layout in the
+    # strtab block below.
+    o = _macho_wsymundef(O, o, 28);        # [2] _exit
+    o = _macho_wsymundef(O, o, 34);        # [3] _write
+    o = _macho_wsymundef(O, o, 41);        # [4] _read
+    o = _macho_wsymundef(O, o, 47);        # [5] _malloc
+    o = _macho_wsymundef(O, o, 55);        # [6] _fopen
+    o = _macho_wsymundef(O, o, 62);        # [7] _pthread_create
 
-    # strtab (40) — " \0__mh_execute_header\0_main\0_exit\0" + 6 pad
-    store8(O + o, 0x20); store8(O + o + 1, 0x00);
-    store8(O + o + 2, 0x5F); store8(O + o + 3, 0x5F); store8(O + o + 4, 0x6D); store8(O + o + 5, 0x68);
-    store8(O + o + 6, 0x5F); store8(O + o + 7, 0x65); store8(O + o + 8, 0x78); store8(O + o + 9, 0x65);
-    store8(O + o + 10, 0x63); store8(O + o + 11, 0x75); store8(O + o + 12, 0x74); store8(O + o + 13, 0x65);
-    store8(O + o + 14, 0x5F); store8(O + o + 15, 0x68); store8(O + o + 16, 0x65); store8(O + o + 17, 0x61);
-    store8(O + o + 18, 0x64); store8(O + o + 19, 0x65); store8(O + o + 20, 0x72); store8(O + o + 21, 0x00);
-    store8(O + o + 22, 0x5F); store8(O + o + 23, 0x6D); store8(O + o + 24, 0x61); store8(O + o + 25, 0x69);
-    store8(O + o + 26, 0x6E); store8(O + o + 27, 0x00);
-    store8(O + o + 28, 0x5F); store8(O + o + 29, 0x65); store8(O + o + 30, 0x78); store8(O + o + 31, 0x69);
-    store8(O + o + 32, 0x74); store8(O + o + 33, 0x00);
-    store8(O + o + 34, 0x00); store8(O + o + 35, 0x00); store8(O + o + 36, 0x00); store8(O + o + 37, 0x00);
-    store8(O + o + 38, 0x00); store8(O + o + 39, 0x00);
-    o = o + 40;
+    # strtab — v5.5.14 (78 B used, pad to 80 for 8-align). Offsets must
+    # match the strx values above exactly; a one-byte drift is a
+    # dyld-level "Symbol not found: _…" failure at load.
+    #   0  " \0"                    (padding slot, must stay at strx=0)
+    #   2  "__mh_execute_header\0"  (20 B)
+    #  22  "_main\0"                (6 B)
+    #  28  "_exit\0"                (6 B)
+    #  34  "_write\0"               (7 B)
+    #  41  "_read\0"                (6 B)
+    #  47  "_malloc\0"              (8 B)
+    #  55  "_fopen\0"               (7 B)
+    #  62  "_pthread_create\0"      (16 B → ends at 78)
+    var strtab_start = o;
+    o = _macho_wcstr(O, o, " ");
+    o = _macho_wcstr(O, o, "__mh_execute_header");
+    o = _macho_wcstr(O, o, "_main");
+    o = _macho_wcstr(O, o, "_exit");
+    o = _macho_wcstr(O, o, "_write");
+    o = _macho_wcstr(O, o, "_read");
+    o = _macho_wcstr(O, o, "_malloc");
+    o = _macho_wcstr(O, o, "_fopen");
+    o = _macho_wcstr(O, o, "_pthread_create");
+    while ((o - strtab_start) < STRTAB_SIZE) { store8(O + o, 0); o = o + 1; }
 
-    # indirect symtab (4) — __got[0] → symtab[2] (_exit)
-    o = _macho_w32(O, o, 2);
+    # indirect symtab (24) — 6 entries, one per __got slot:
+    # __got[i] → symtab[2 + i] (undef block starts at index 2).
+    o = _macho_w32(O, o, 2);               # __got[0] → _exit
+    o = _macho_w32(O, o, 3);               # __got[1] → _write
+    o = _macho_w32(O, o, 4);               # __got[2] → _read
+    o = _macho_w32(O, o, 5);               # __got[3] → _malloc
+    o = _macho_w32(O, o, 6);               # __got[4] → _fopen
+    o = _macho_w32(O, o, 7);               # __got[5] → _pthread_create
 
     # Pad to FILE_END if not already there
     while (o < FILE_END) { store8(O + o, 0); o = o + 1; }

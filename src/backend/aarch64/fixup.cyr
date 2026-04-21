@@ -140,7 +140,7 @@ fn FIXUP(S) {
             else { FIXUP_MOV(S, coff, saddr); }
         }
         else { if (ftype == 5) {
-            # v5.5.13 Mach-O arm64 __got reference. idx = slot number.
+            # Mach-O arm64 __got reference. idx = slot number.
             # __got sits at the start of __DATA_CONST, which follows __TEXT
             # in VM. Layout matches EMITMACHO_ARM64's computation in
             # ftype=0 variable-address path (must stay in lockstep).
@@ -152,11 +152,14 @@ fn FIXUP(S) {
                 if (gfp < 1) { gfp = 1; }
             }
             var got_addr = 0x100000000 + (1 + gfp) * 16384 + idx * 8;
-            # Slot 0 is page-aligned, so reusing FIXUP_ADRP_ADD is safe —
-            # the ADD's imm12 ends up 0 which leaves the LDR's imm12 at 0.
-            # Multi-slot imports (v5.5.14+) will need a dedicated
-            # FIXUP_ADRP_LDR here that divides the in-page offset by 8.
-            FIXUP_ADRP_ADD(S, coff, got_addr);
+            # Slot 0 is page-aligned — the ADD's imm12 ends up 0, which
+            # coincides with the LDR's imm12 at rest. Non-zero slots need
+            # FIXUP_ADRP_LDR because the LDR encodes imm12 scaled by 8
+            # (offset = imm12 * 8 for the 64-bit LDR variant); feeding
+            # an ADD-style low12 in would multiply the intended offset
+            # by 8 at load time.
+            if (idx == 0) { FIXUP_ADRP_ADD(S, coff, got_addr); }
+            else { FIXUP_ADRP_LDR(S, coff, got_addr); }
         }
         else {
             var cumul = 0;
@@ -215,6 +218,32 @@ fn FIXUP_ADRP_ADD(S, coff, addr) {
     var low12 = addr & 0xFFF;
     add_insn = (add_insn & 0xFFC003FF) | (low12 << 10);
     S64(add_base, (L64(add_base) >> 32 << 32) | (add_insn & 0xFFFFFFFF));
+    return 0;
+}
+
+# Patch ADRP + LDR (unsigned offset, 64-bit) pair for a PC-relative load.
+# Same adrp page-diff patch as FIXUP_ADRP_ADD, but the second instruction
+# is `ldr xN, [xN, #imm12]` where imm12 is SCALED by 8 for the 64-bit
+# variant. So the encoded imm12 field = (low 12 bits of target) >> 3.
+# v5.5.14 uses this for non-zero __got slots; slot 0 still reuses
+# FIXUP_ADRP_ADD because its low 12 bits are 0, and 0 in the ADD's
+# imm12 field coincides with 0 in the LDR's imm12 field.
+fn FIXUP_ADRP_LDR(S, coff, addr) {
+    var pc = 0x100004000 + coff;
+    var pc_page = pc >> 12;
+    var target_page = addr >> 12;
+    var page_diff = target_page - pc_page;
+    var immlo = page_diff & 0x3;
+    var immhi = (page_diff >> 2) & 0x7FFFF;
+    var adrp_base = S + 0x54A000 + coff;
+    var adrp_insn = L64(adrp_base) & 0xFFFFFFFF;
+    adrp_insn = (adrp_insn & 0x9F00001F) | (immlo << 29) | (immhi << 5);
+    S64(adrp_base, (L64(adrp_base) >> 32 << 32) | (adrp_insn & 0xFFFFFFFF));
+    var ldr_base = S + 0x54A000 + coff + 4;
+    var ldr_insn = L64(ldr_base) & 0xFFFFFFFF;
+    var scaled = (addr & 0xFFF) >> 3;
+    ldr_insn = (ldr_insn & 0xFFC003FF) | (scaled << 10);
+    S64(ldr_base, (L64(ldr_base) >> 32 << 32) | (ldr_insn & 0xFFFFFFFF));
     return 0;
 }
 

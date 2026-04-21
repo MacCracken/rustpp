@@ -552,8 +552,15 @@ fn PARSE_FACTOR(S) {
         STI(S, GTI(S) + 1);
         _cfp = GCP(S);
         EMOVI(S, val);
-        # Mark as foldable only if small positive (5-byte EMOVI)
-        if (val > 0) { if (val < 0x10000) { _cfv = val; _cfo = 1; } }
+        # Mark as foldable for small non-negative literals. Originally
+        # guarded `val > 0` because EMOVI(S, 0) emits 2 B (`xor eax, eax`)
+        # vs 5 B for val > 0, and we worried const-fold rewrites assumed
+        # a fixed slot size. Rewrites actually use `SCP(_cfp); EMOVI(_, v)`
+        # which truncates + re-emits, so the emitted size doesn't matter
+        # — any const, including 0, folds safely. Dropping the 0 exclusion
+        # unblocks `syscall(0, ...)` reroute dispatch on both Mach-O and PE
+        # (v5.5.14 — stdlib `lib/io.cyr` uses literal 0 for SYS_READ).
+        if (val >= 0) { if (val < 0x10000) { _cfv = val; _cfo = 1; } }
         return 0;
     }
     if (typ == 2) {
@@ -816,13 +823,34 @@ fn PARSE_FACTOR(S) {
         # Other syscall numbers still fall through with a warning and
         # produce a non-functional binary; wrap them in syscalls_windows.cyr
         # shape helpers as they're needed.
-        # v5.5.13 Mach-O arm64 first __got reroute — syscall(60, code)
-        # goes through libSystem._exit via __DATA_CONST.__got[0] instead of
-        # the existing ESYSXLAT+svc path. Mirror of PE v5.4.3 EEXIT reroute.
+        # Mach-O arm64 __got reroutes — syscalls whose libSystem equivalents
+        # are bound into __DATA_CONST.__got[N] in EMITMACHO_ARM64 get short-
+        # circuited here instead of falling through to ESYSXLAT+svc (which
+        # needs BSD-number translation and has lingering edge cases). Slot
+        # indices must match the symbol order in macho/emit.cyr's symtab +
+        # bind opcodes + indirect symtab. Mirror of the PE syscall-reroute
+        # block below (v5.4.4/5.4.7/5.5.1/5.5.2 bundle).
+        #   syscall(0, fd, buf, len) → __got[2] = libSystem._read   (v5.5.14)
+        #   syscall(1, fd, buf, len) → __got[1] = libSystem._write  (v5.5.14)
+        #   syscall(60, code)        → __got[0] = libSystem._exit   (v5.5.13)
         if (_TARGET_MACHO == 2) {
             if (sc_num == 60) {
                 if (argc == 2) {
                     EMACHO_EXIT_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 1) {
+                if (argc == 4) {
+                    EMACHO_WRITE_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 0) {
+                if (argc == 4) {
+                    EMACHO_READ_ARM(S);
                     _cfo = 0;
                     return 0;
                 }

@@ -485,6 +485,50 @@ fn EMACHO_EXIT_ARM(S) {
     return 0;
 }
 
+# Shared helper: record a ftype=5 __got-ref fixup at GCP + emit the
+# adrp/ldr/blr trio that calls through __got[slot]. Returns 0.
+# Non-zero slots are patched by FIXUP_ADRP_LDR (imm12 scaled /8);
+# slot 0 reuses FIXUP_ADRP_ADD.
+fn _EMACHO_BLR_GOT(S, slot) {
+    var fc = GFCNT(S);
+    if (fc >= 16384) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+        syscall(SYS_EXIT, 1);
+    }
+    var faddr = S + 0xE4A000 + fc * 16;
+    S64(faddr, GCP(S));
+    S64(faddr + 8, (5 << 56) | slot);
+    SFCNT(S, fc + 1);
+    EW(S, 0x90000010);             # adrp x16, #0 (placeholder — patched)
+    EW(S, 0xF9400210);             # ldr  x16, [x16, #0] — imm12 patched for slot>0
+    EW(S, 0xD63F0200);             # blr  x16 — result in x0
+    return 0;
+}
+
+# v5.5.14 Mach-O arm64 syscall(1, fd, buf, len) → libSystem._write(fd, buf, len).
+# Stack top-down (argc==4): [len][buf][fd][sc_num=1]. AAPCS64 wants x0=fd,
+# x1=buf, x2=len, so pop top→x2, next→x1, next→x0, then discard sc_num.
+# Return value lands in x0 per both AAPCS64 and the syscall convention.
+fn EMACHO_WRITE_ARM(S) {
+    EPOPARG(S, 2);                 # ldr x2, [sp], #16 — len
+    EPOPARG(S, 1);                 # ldr x1, [sp], #16 — buf
+    EPOPARG(S, 0);                 # ldr x0, [sp], #16 — fd
+    EW(S, 0x910043FF);             # add sp, sp, #16 — discard sc_num
+    _EMACHO_BLR_GOT(S, 1);         # __got[1] = _write
+    return 0;
+}
+
+# v5.5.14 Mach-O arm64 syscall(0, fd, buf, len) → libSystem._read(fd, buf, len).
+# Same stack layout as EMACHO_WRITE_ARM; dispatches through __got[2] = _read.
+fn EMACHO_READ_ARM(S) {
+    EPOPARG(S, 2);                 # ldr x2, [sp], #16 — len
+    EPOPARG(S, 1);                 # ldr x1, [sp], #16 — buf
+    EPOPARG(S, 0);                 # ldr x0, [sp], #16 — fd
+    EW(S, 0x910043FF);             # add sp, sp, #16 — discard sc_num
+    _EMACHO_BLR_GOT(S, 2);         # __got[2] = _read
+    return 0;
+}
+
 # ================================================================
 # FUNCTION CALLING CONVENTION (aarch64 AAPCS64)
 # x29=frame pointer, x30=link register, x0-x7=args
