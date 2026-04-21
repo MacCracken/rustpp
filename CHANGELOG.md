@@ -4,6 +4,102 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.24] — 2026-04-21
+
+**NSS dispatch investigation + `dynlib_bootstrap_environ(hc)`.**
+Three attempts used per CLAUDE.md's defer rule; no safe full-NSS
+bootstrap found. Shipped the smaller fix that did fall out:
+initialising `__environ` / `environ` with an empty terminator-
+only array unblocks `getenv` (was NULL → SIGSEGV on any
+env-touching call). Full NSS dispatch stays deferred — the real
+fix requires reverse-engineering `__libc_start_main`'s
+auxv-consuming flow against a moving glibc target, which isn't
+tractable in a patch release.
+
+### What the investigation ruled out
+
+**Attempt 1 — init `__environ` / `environ`.** `__environ` starts
+NULL; `getenv` and NSS internals walk it. Pointing it at a valid
+empty terminator-only array makes `getenv` work but `getpwuid`
+still SIGSEGVs. **Shipped as `dynlib_bootstrap_environ(hc)`.**
+
+**Attempt 2 — probe available libc private init symbols.**
+Checked `nm -D libc.so.6`:
+
+| symbol                         | exported |
+|--------------------------------|----------|
+| `__libc_init_first`            | ✓ |
+| `__libc_early_init`            | ✓ |
+| `__pthread_initialize_minimal` | ✗ |
+| `__nss_database_lookup2`       | ✗ |
+| `__nss_disable_nscd`           | ✗ |
+| `__libc_enable_secure`         | ✗ |
+
+The NSS dispatch private symbols aren't exported in glibc 2.34+
+(the module surface was inlined when `libnss_files.so.2` was
+retired). No direct API to pre-warm the dispatch table.
+
+**Attempt 3 — call `__libc_early_init(1)` directly.** The two
+exported private init symbols SIGFPE (exit 136) when called
+directly — they expect auxv state we haven't populated. Hand-
+synthesizing auxv by parsing `/proc/self/auxv` is possible but
+glibc-version-fragile; not patch-release scope.
+
+Full write-up: `docs/development/issues/dynlib-nss-bootstrap.md`.
+
+### What works today (after all v5.5.24 bootstraps)
+
+```
+dynlib_bootstrap_cpu_features();
+dynlib_bootstrap_tls();
+dynlib_bootstrap_stack_end(0);
+var hc = dynlib_open("libc.so.6");
+dynlib_init(hc);
+dynlib_bootstrap_locale(hc);       // v5.5.23
+dynlib_bootstrap_environ(hc);      // v5.5.24 ← new
+```
+
+After this sequence: `strlen` / `strcmp` / `memcmp` / `getpid` /
+`getuid` / `gettimeofday` / `setlocale(LC_ALL, NULL)` query /
+`newlocale` + `uselocale` / **`getenv`** all work.
+
+Still SIGSEGV (deferred): `setlocale(LC_ALL, "C")` (modifying),
+`setenv`, `strerror`, `getpwuid`, `getgrouplist`,
+`pam_authenticate`, `getaddrinfo`, `__nss_configure_lookup`.
+
+### Shakti impact
+
+No change from v5.5.23 — `pam_authenticate` stub stays, caller
+falls through to `/usr/bin/su`. Getting shakti off the stub
+needs the NSS dispatch half which remains blocked on the
+auxv-synthesis approach (documented in the issues file).
+
+### Test coverage
+
+`tests/tcyr/dynlib_init.tcyr` gains a 3-assertion
+"dynlib_bootstrap_environ" group:
+- null-handle rejection
+- success against libc handle
+- `getenv("_V5524_NO_SUCH_VAR")` returns null (as if env empty)
+
+**20 → 23 assertions, all pass.** `sh scripts/check.sh` 12/12
+PASS.
+
+### Roadmap
+
+The NSS dispatch full fix (the other half of the original
+v5.5.23 NSS/PAM pillar) stays pinned at v5.5.25 with explicit
+"auxv synthesis or bust" scope notes. Everything past that
+shifts by one. If a future session tries the auxv approach and
+hits 3 attempts again, the pillar can legitimately be unpinned
+("not tractable without a glibc version-lock discipline we don't
+have").
+
+### Byte-identical self-host
+
+cc5 486,552 B (unchanged — `lib/dynlib.cyr` isn't compiled into
+cc5). cc5_aarch64 347,024 B unchanged.
+
 ## [5.5.23] — 2026-04-21
 
 **Locale bootstrap for dlopen'd libc + three consumer dep bumps.**

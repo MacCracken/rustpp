@@ -979,6 +979,54 @@ fn dynlib_bootstrap_locale(hc) {
     return 0;
 }
 
+# Populate glibc's `__environ` / `environ` globals with a valid
+# empty-but-terminated env array so getenv() doesn't dereference
+# null. `__libc_start_main` normally sets these from argv's envp;
+# a static Cyrius binary has to point them at something
+# non-null before any libc fn that walks the env array
+# (getenv, secure_getenv, setenv, strerror on some glibc builds,
+# NSS setup, ...). With both slots set to an empty terminator-
+# only array, getenv returns null for any name (as if env were
+# empty) and the internal walks don't crash.
+#
+# Returns:
+#   0  — both symbols located and initialised
+#   1  — hc is null
+#   2  — neither `__environ` nor `environ` symbol exported
+#   3  — alloc failed
+#
+# Usage (after the other bootstraps):
+#   dynlib_bootstrap_cpu_features();
+#   dynlib_bootstrap_tls();
+#   dynlib_bootstrap_stack_end(0);
+#   var hc = dynlib_open("libc.so.6");
+#   dynlib_init(hc);
+#   dynlib_bootstrap_locale(hc);
+#   dynlib_bootstrap_environ(hc);      // ← this fn
+#
+# v5.5.24 — intermediate step toward NSS/PAM. After this, getenv
+# and simple env-query surfaces work, but NSS-dispatching calls
+# (getpwuid / getgrouplist / pam_authenticate / __nss_configure_lookup)
+# and strerror still SIGSEGV. Those require deeper libc init that
+# isn't tractable in a patch release; pinned forward. See
+# docs/development/issues/dynlib-nss-bootstrap.md for the
+# investigation log.
+fn dynlib_bootstrap_environ(hc) {
+    if (hc == 0) { return 1; }
+    var fp_env  = dynlib_sym(hc, "__environ");
+    var fp_env2 = dynlib_sym(hc, "environ");
+    if (fp_env == 0) {
+        if (fp_env2 == 0) { return 2; }
+    }
+    var empty = alloc(16);
+    if (empty == 0) { return 3; }
+    store64(empty, 0);       # env[0] = NULL (terminator)
+    store64(empty + 8, 0);   # slack — libc sometimes reads one past
+    if (fp_env  != 0) { store64(fp_env,  empty); }
+    if (fp_env2 != 0) { store64(fp_env2, empty); }
+    return 0;
+}
+
 # Opt-in full initialisation: applies IRELATIVE relocations THEN runs
 # DT_INIT + DT_INIT_ARRAY. Use only when the loaded library's init
 # surface is compatible with a Cyrius static binary (libc.so.6 for

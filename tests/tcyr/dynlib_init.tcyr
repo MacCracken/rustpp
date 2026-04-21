@@ -102,5 +102,21 @@ assert(tloc != 0, "uselocale(0) returns non-null thread-local locale");
 # still SIGSEGV — the NSS module-table state is not initialised by
 # dynlib_bootstrap_locale. Tracked for the next patch.
 
+# v5.5.24 — dynlib_bootstrap_environ. Sidesteps NULL-__environ
+# SIGSEGVs in getenv / NSS internals. Not a full NSS fix; see
+# docs/development/issues/dynlib-nss-bootstrap.md.
+test_group("dynlib_bootstrap_environ");
+assert_eq(dynlib_bootstrap_environ(0), 1, "dynlib_bootstrap_environ(null) returns 1");
+var be = dynlib_bootstrap_environ(hc);
+assert_eq(be, 0, "dynlib_bootstrap_environ(libc) returns 0");
+
+# After environ bootstrap, getenv works (returns null for missing
+# keys instead of SIGSEGVing). Verify via getenv("NO_SUCH_VAR").
+var fp_getenv = dynlib_sym(hc, "getenv");
+if (fp_getenv != 0) {
+    var gv = fncall1(fp_getenv, "_V5524_NO_SUCH_VAR");
+    assert_eq(gv, 0, "getenv(\"_V5524_NO_SUCH_VAR\") returns null post-bootstrap");
+}
+
 var r = assert_summary();
 syscall(60, 0);
