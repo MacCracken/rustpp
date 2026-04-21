@@ -172,6 +172,20 @@ PREPROCESS(S);
 # Lex
 LEX(S);
 
+# v5.5.17: Mach-O arm64 entry prologue — save argc/argv before the
+# branch-over-fn-bodies. At LC_MAIN entry the Darwin ABI hands us
+# argc in x0, argv in x1, envp in x2, apple[] in x3 (same as C main).
+# Linux has them on the stack; Mach-O has them in registers that any
+# subsequent gvar/enum-init emit will clobber. Push x0/x1 onto the
+# stack and stash the pointer in x28 (callee-saved per AAPCS64, not
+# used anywhere else by the cyrius aarch64 backend per a grep of
+# src/backend/aarch64). `lib/args_macos.cyr` reads x28 via inline asm
+# to expose argc()/argv(n) without any /proc/self/cmdline reach-around.
+if (_is_macho_arm_build == 1) {
+    EW(S, 0xA9BF07E0);  # stp x0, x1, [sp, #-16]!
+    EW(S, 0x910003FC);  # mov x28, sp
+}
+
 # Emit initial branch over fn bodies (aarch64: B +0, patch later)
 var jmp_patch = EJMP0(S);
 

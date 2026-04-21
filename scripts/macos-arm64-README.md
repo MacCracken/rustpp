@@ -1,52 +1,89 @@
 # Cyrius — Apple Silicon (arm64 Mach-O)
 
-This tarball ships the Apple Silicon stdlib (including
-`syscalls_macos.cyr` and `alloc_macos.cyr`) plus a `smoke.macho`
-binary proving the cross-compile toolchain produces valid arm64
-Mach-O output.
+This tarball ships the Apple Silicon stdlib and the four Cyrius
+tool binaries (`cyrfmt`, `cyrlint`, `cyrdoc`, `cyrc`) built as
+arm64 Mach-O. Verified end-to-end on Apple Silicon.
 
-## Current scope
+## Status: closed (as of v5.5.17)
 
-Apple Silicon Cyrius programs support the BSD SVC whitelist:
-`read`, `write`, `open`, `close`, `mmap`, `mprotect`, `munmap`,
-`exit`. PIE-safe addressing (adrp+add), strings, globals, and
-multi-page `__TEXT` all work. This covers syscall-only programs
-(agent probes, simple CLI tools written against raw syscalls).
+The macOS aarch64 target reached full functional parity with Linux
+x86_64 / aarch64 and Windows PE32+ over the v5.5.11–v5.5.17 arc.
+Cross-compiled Cyrius binaries run through `libSystem` via
+classic dyld binds, use an mmap-based heap, read command-line
+args from the Darwin ABI entry registers, and call out to
+`_exit` / `_write` / `_read` through a bound `__got`.
 
-## libSystem import status
+## How it works
 
-v5.5.11 (2026-04-20) proved the classic-bind path end-to-end with a
-hand-emitted probe: `programs/macho_libsystem_probe.cyr` calls
-`libSystem._exit(42)` via a `__got` slot resolved by dyld, verified
-on Apple Silicon (`ssh ecb`).
+### libSystem import layer (v5.5.11–14)
 
-v5.5.12 grafted the probe layout into `EMITMACHO_ARM64` — every
-compiled arm64 Mach-O now ships `__DATA_CONST` + `__got` +
-`LC_DYLD_INFO_ONLY` classic binds for `libSystem._exit`. `nm`
-shows `U _exit`; `otool -l` shows the new segment. Infrastructure
-is live; specific syscall numbers are still svc-based until the
-reroute patches land (below).
+`EMITMACHO_ARM64` embeds a `__DATA_CONST` segment with a `__got`
+section holding six slots — bound by dyld at load time to:
 
-Remaining for full toolchain shipping:
+| slot | libSystem symbol   | use                                 |
+|------|--------------------|-------------------------------------|
+| 0    | `_exit`            | `syscall(60, code)` tail-call       |
+| 1    | `_write`           | `syscall(1, fd, buf, len)` reroute  |
+| 2    | `_read`            | `syscall(0, fd, buf, len)` reroute  |
+| 3    | `_malloc`          | imports-only (reserved for C FFI)   |
+| 4    | `_fopen`           | imports-only                        |
+| 5    | `_pthread_create`  | imports-only                        |
 
-| Patch | Scope |
-|-------|-------|
-| v5.5.13 | First `__got` reroute — `syscall(60, N)` → `libSystem._exit` via `adrp x16, __got@PAGE; ldr x16, [x16]; br x16`. |
-| v5.5.14 | Multi-symbol imports — grow `__got` to N slots; add `_write`, `_read`, `_malloc`, `_fopen`, `_pthread_create`. Table-driven like `syscall_pe_tbl`. |
-| v5.5.15 | `cyrfmt`/`cyrlint`/`cyrdoc`/`cyrc` cross-compiled + verified on `ssh ecb`. |
+Reroutes compile to `adrp x16, __got@PAGE; ldr x16, [x16, #slot*8]; br/blr x16`.
+`FIXUP_ADRP_LDR` (v5.5.14) scales the LDR imm12 field by /8 for
+non-zero slots.
 
-Programs still using `brk`-based allocation (`lib/alloc.cyr`) or
-file locking (`lib/io.cyr:syscall(73)`) fail to compile with a
-clear error today. v5.5.15 closes the gap.
+### Per-OS stdlib dispatch (v5.5.16)
 
-## Cross-compiling on macOS
+When `CYRIUS_MACHO_ARM=1` is set, `cc5_aarch64` predefines
+`CYRIUS_TARGET_MACOS` (instead of `CYRIUS_TARGET_LINUX`). Stdlib
+modules dispatch per-OS:
 
-Install the Linux x86_64 tarball on a Linux host (or via Rosetta /
-Lima / Docker on macOS) and run:
+- `lib/alloc.cyr` → `lib/alloc_macos.cyr` (mmap-based, no brk).
+- `lib/args.cyr` → `lib/args_macos.cyr` (see argv plumbing below).
+- `lib/io.cyr` flock helpers are `#ifdef CYRIUS_TARGET_LINUX`-gated
+  (Darwin BSD flock number doesn't match Linux's 73).
+
+### argv plumbing (v5.5.17)
+
+At LC_MAIN entry the Darwin ABI hands `argc` in x0, `argv` in x1,
+`envp` in x2, and `apple[]` in x3. `main_aarch64.cyr` emits an
+entry prologue BEFORE any other code runs:
+
+    stp x0, x1, [sp, #-16]!    ; push argc/argv
+    mov x28, sp                 ; x28 = base pointer
+
+x28 is callee-saved per AAPCS64 and the cyrius aarch64 backend
+doesn't touch it, so the pointer stays durable for the program's
+lifetime. `lib/args_macos.cyr` reads x28 via inline asm to expose
+`argc()` and `argv(n)` with the same API as the Linux peer — no
+`/proc/self/cmdline` reach-around (XNU has no procfs).
+
+## Cross-compiling
+
+Install the Linux x86_64 tarball on a Linux host and run:
 
     CYRIUS_MACHO_ARM=1 build/cc5_aarch64 < my.cyr > my.macho
     chmod +x my.macho
-    codesign -s - --force my.macho
-    ./my.macho
+    scp my.macho apple-silicon-host:/tmp/
+    ssh apple-silicon-host 'codesign -s - /tmp/my.macho && /tmp/my.macho'
 
-See `smoke.macho` in this bundle for a working example.
+Tool binaries ship pre-built in this tarball:
+
+    ./cyrfmt file.cyr               # format to stdout
+    ./cyrfmt --check file.cyr       # exit 1 if formatting differs
+    ./cyrlint file.cyr              # lint warnings
+    ./cyrdoc file.cyr               # generate markdown API reference
+    ./cyrc vet file.cyr             # scan dependencies
+
+## Known limitations
+
+- `src/main.cyr`'s `--version` / `--strict` flag parsing still reads
+  `/proc/self/cmdline`. Only relevant if `cc5` itself is ever
+  built as a macOS binary (not today's flow — `cc5_aarch64` cross-
+  compiles FROM Linux TO Mach-O).
+- `envp` / `apple[]` are not exposed by `lib/args_macos.cyr`.
+  Trivial follow-up: grow the entry prologue to push x2/x3 too.
+- `_malloc` / `_fopen` / `_pthread_create` are bound at load but
+  have no `syscall()`-shape reroute. Reserved for future C-FFI
+  calls.

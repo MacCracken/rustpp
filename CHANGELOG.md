@@ -4,6 +4,123 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.17] — 2026-04-20
+
+**argv works on macOS arm64 — all 4 cyrius tool binaries now run
+end-to-end on Apple Silicon. The Mach-O entry prologue stashes the
+Darwin-ABI argc/argv registers in x28 before any gvar initializer
+can clobber them; `lib/args_macos.cyr` reads x28 via inline asm and
+exposes argc()/argv(n) with the same surface as the Linux peer.
+`cyrfmt` formats, `cyrlint` lints, `cyrdoc` generates markdown, and
+`cyrc vet` scans dependencies — all verified on `ssh ecb`. macOS
+aarch64 target is functionally closed.**
+
+Part 3 of 3 of the tool-binary shipping split. v5.5.15 unblocked
+cross-compilation; v5.5.16 unblocked runtime startup; v5.5.17 closes
+argv. The original single-patch v5.5.15 roadmap entry landed across
+three bisectable patches.
+
+### Entry prologue (`src/main_aarch64.cyr`)
+
+Two instructions emitted before `EJMP0` under `_is_macho_arm_build == 1`:
+
+```
+stp x0, x1, [sp, #-16]!   ; 0xA9BF07E0 — push argc/argv
+mov x28, sp               ; 0x910003FC — x28 = pointer
+```
+
+At LC_MAIN entry the Darwin ABI hands us argc in x0, argv in x1,
+envp in x2, apple[] in x3 (same shape as a C `main`). The stp/mov
+pair runs BEFORE the branch-over-fn-bodies, enum initialization,
+and gvar initialization — none of which touch x28 (callee-saved per
+AAPCS64 and unused by the cyrius aarch64 emit surface). The pointer
+stays stable for the program's lifetime.
+
+### `lib/args_macos.cyr` (new)
+
+47-line stdlib peer. Public API matches `lib/args.cyr`: `args_init()`
+(no-op on macOS; the prologue already captured the values), `argc()`
+(load64 at `[x28]`), `argv(n)` (load64 at `[x28+8]` then index the
+char** table).
+
+Inline asm for reading x28 mirrors the `lib/fnptr.cyr` pattern:
+
+```
+asm {
+    0xE0; 0x03; 0x1C; 0xAA;    # mov x0, x28
+    0xA0; 0x83; 0x1F; 0xF8;    # stur x0, [x29, #-8]  (result)
+}
+```
+
+Considered and rejected: importing `_NSGetArgc` / `_NSGetArgv` as
+two more `__got` slots (v5.5.14 extension). The register-save
+approach needs zero new libSystem imports, zero new parse-time
+dispatch branches, and keeps the fix contained to a single
+compiler prologue + a stdlib peer file.
+
+### `lib/args.cyr` dispatch
+
+`lib/args.cyr` gains a `#ifdef CYRIUS_TARGET_MACOS include "lib/args_macos.cyr"`
+branch and wraps the existing Linux cmdline path in `#ifdef CYRIUS_TARGET_LINUX`.
+Same mutual-exclusion shape as `lib/alloc.cyr` / `lib/syscalls.cyr`.
+
+### Tool runtime status on `ssh ecb` (vs v5.5.16)
+
+```
+             v5.5.16              v5.5.17
+             ───────              ───────
+cyrfmt       prints USAGE banner  formats /tmp/test.cyr → stdout, rc=0
+cyrlint      prints USAGE banner  "0 warnings", rc=0
+cyrdoc       prints USAGE banner  generates markdown API reference, rc=0
+cyrc         prints USAGE banner  "cyrc vet": scans deps, rc=0
+```
+
+First cyrius binaries to do real user-facing work on Apple Silicon.
+All through the v5.5.13/14 `__got` reroute path (`_exit`/`_write`/
+`_read`) and the v5.5.16 mmap-based heap.
+
+### argv probe verification
+
+```
+$ CYRIUS_MACHO_ARM=1 build/cc5_aarch64 < argv_probe.cyr > probe
+$ ssh ecb 'codesign -s - /tmp/probe && /tmp/probe foo bar baz; echo $?'
+/tmp/probe
+foo
+bar
+baz
+4
+```
+
+argc=4, argv[0]=program path, argv[1..3]=foo/bar/baz. Exit code =
+argc. The `/proc/self/cmdline` reach-around is gone on macOS.
+
+### Byte-identical self-host
+
+cc5 486,352 → 486,352 B (**±0 B**). The patch only touches
+`src/main_aarch64.cyr` (cross-compiler only) and lib files, not
+`src/main.cyr` — so the x86 self-host is literally identical to
+v5.5.16. cc5_aarch64 346,864 → 346,976 B (+112 B from the new
+prologue emit).
+
+### Regression
+
+- `sh scripts/check.sh` — 10/10 PASS.
+- v5.5.13 exit42 and v5.5.14 hello both retested on ecb.
+- Linux tool binaries unchanged — `lib/args.cyr` still reads
+  `/proc/self/cmdline` under `CYRIUS_TARGET_LINUX`.
+
+### Out of scope / intentionally deferred
+
+- **`--version` / `--strict` parsing in `src/main.cyr`** still uses
+  `/proc/self/cmdline`. That path only fires when cc5 itself runs
+  on Linux producing output; cross-building to Mach-O on a Linux
+  host doesn't touch it. If cc5 ever self-hosts on macOS
+  (v5.6.x+ territory), the same x28-prologue trick applies.
+- **envp / apple[]** — Darwin ABI also passes these at entry
+  (x2, x3). Not needed for any current tool; easy follow-up
+  (grow the prologue to push x2/x3 too, export `envp()` /
+  `apple_strs()` from lib/args_macos.cyr).
+
 ## [5.5.16] — 2026-04-20
 
 **`CYRIUS_TARGET_MACOS` predefine + stdlib per-OS dispatch. The cross-
