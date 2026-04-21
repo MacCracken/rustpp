@@ -926,6 +926,59 @@ fn dynlib_bootstrap_cpu_features() {
     return 0;
 }
 
+# Bootstrap per-thread locale via glibc's `newlocale` + `uselocale`
+# rather than `setlocale`. Why the detour: calling
+# `setlocale(LC_ALL, "C")` from a cyrius-driven libc handle SIGSEGVs
+# inside `__libc_setlocale_lock` / the global-locale rwlock — that
+# state expects `__libc_start_main`'s full init, which we don't
+# run. `newlocale` builds a thread-local locale_t object, and
+# `uselocale` installs it for the current thread without touching
+# the global lock. The "C" locale is built-in (no /usr/lib/locale
+# file loading), so this works on every glibc host.
+#
+# Call sequence expected by consumers:
+#   dynlib_bootstrap_cpu_features();
+#   dynlib_bootstrap_tls();
+#   dynlib_bootstrap_stack_end(0);
+#   var hc = dynlib_open("libc.so.6");
+#   dynlib_init(hc);                  # IRELATIVE + DT_INIT_ARRAY
+#   dynlib_bootstrap_locale(hc);      # ← this fn
+#   # ... now strftime / strtol / other locale-aware fns work
+#
+# After this, `setlocale(LC_ALL, NULL)` (query) and any locale-
+# dependent parsing / formatting runs correctly.
+#
+# What this does NOT fix: NSS dispatch (`getpwuid` / `getgrouplist`
+# / `pam_authenticate` / `getaddrinfo`). Those crash in a different
+# libc layer (NSS module-table walk). Tracked for a follow-up
+# patch — v5.5.23 is scoped to locale only after the v5.5.23
+# reproducer-staging session found:
+#   • setlocale(LC_ALL, "C")  SIGSEGV  (the modifying global path)
+#   • setlocale(LC_ALL, NULL) works    (query-only)
+#   • newlocale + uselocale  works     (per-thread path)
+#   • getpwuid(0)            SIGSEGV  (NSS dispatch — separate)
+#
+# Returns:
+#   0  — locale installed successfully
+#   1  — hc is null or newlocale symbol missing
+#   2  — uselocale symbol missing
+#   3  — newlocale returned null (allocation failed inside libc)
+#
+# LC_ALL_MASK = 0x1FBF on x86_64 glibc (LC_{CTYPE,NUMERIC,TIME,
+    # COLLATE,MONETARY,MESSAGES,PAPER,NAME,ADDRESS,TELEPHONE,
+    # MEASUREMENT,IDENTIFICATION} = bits 0-12 with LC_ALL excluded).
+fn dynlib_bootstrap_locale(hc) {
+    if (hc == 0) { return 1; }
+    var fp_newlocale = dynlib_sym(hc, "newlocale");
+    if (fp_newlocale == 0) { return 1; }
+    var fp_uselocale = dynlib_sym(hc, "uselocale");
+    if (fp_uselocale == 0) { return 2; }
+    var loc = fncall3(fp_newlocale, 0x1FBF, "C", 0);
+    if (loc == 0) { return 3; }
+    fncall1(fp_uselocale, loc);
+    return 0;
+}
+
 # Opt-in full initialisation: applies IRELATIVE relocations THEN runs
 # DT_INIT + DT_INIT_ARRAY. Use only when the loaded library's init
 # surface is compatible with a Cyrius static binary (libc.so.6 for

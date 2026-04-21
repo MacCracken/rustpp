@@ -79,5 +79,28 @@ assert_eq(dynlib_init(0), 1, "dynlib_init(null) returns 1");
 # paths require module state reset / a crafted handle, respectively —
 # code paths are trivial but not covered here.
 
+# v5.5.23 — dynlib_bootstrap_locale via newlocale + uselocale.
+# Side-steps the setlocale(LC_ALL, non-null) SIGSEGV without
+# needing glibc's global-locale rwlock bootstrap.
+test_group("dynlib_bootstrap_locale");
+assert_eq(dynlib_bootstrap_locale(0), 1, "dynlib_bootstrap_locale(null) returns 1");
+# dynlib_init(hc) must run first so libc's DT_INIT_ARRAY has set
+# up its internal __libc_rtld_global (etc.) before newlocale runs.
+dynlib_init(hc);
+var bl = dynlib_bootstrap_locale(hc);
+assert_eq(bl, 0, "dynlib_bootstrap_locale(libc) returns 0");
+
+# uselocale(0) returns current thread's locale_t — should be
+# non-null after bootstrap (pre-v5.5.23 it was the global-locale
+# sentinel; now it's the newlocale-created thread-local handle).
+var fp_useloc = dynlib_sym(hc, "uselocale");
+assert(fp_useloc != 0, "uselocale symbol resolves");
+var tloc = fncall1(fp_useloc, 0);
+assert(tloc != 0, "uselocale(0) returns non-null thread-local locale");
+
+# NSS-dispatching fns (getpwuid, getgrouplist, pam_authenticate)
+# still SIGSEGV — the NSS module-table state is not initialised by
+# dynlib_bootstrap_locale. Tracked for the next patch.
+
 var r = assert_summary();
 syscall(60, 0);

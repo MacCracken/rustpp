@@ -4,6 +4,128 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.23] — 2026-04-21
+
+**Locale bootstrap for dlopen'd libc + three consumer dep bumps.**
+Adds `dynlib_bootstrap_locale(hc)` to `lib/dynlib.cyr` — a
+`newlocale` + `uselocale` wrapper that sidesteps the
+`setlocale(LC_ALL, non-null)` SIGSEGV when calling glibc from a
+statically-linked Cyrius binary. Scope honestly narrowed from the
+roadmap's "NSS/PAM end-to-end" ambition once a staged reproducer
+confirmed the NSS layer is a separate problem requiring more work
+than fits a patch release; that work now lives at v5.5.24
+(NSS module dispatch) and stays pinned.
+
+Dep bumps bundled in the same release — all three consumers
+tagged against v5.5.22 and ready to pin forward:
+
+- **mabda** 2.1.2 → **2.5.0**
+- **patra** 1.1.1 → **1.5.4**
+- **sankoch** 2.0.0 → **2.0.1**
+
+`cyrius deps` resolves all six deps cleanly (3 bumped + sakshi /
+sigil / yukti unchanged).
+
+### What the staged reproducer found
+
+Bootstrap sequence (cpu_features → TLS → stack_end → libc dlopen →
+`dynlib_init` DT_INIT_ARRAY run) completes cleanly. After that:
+
+| call                              | result                   |
+|-----------------------------------|--------------------------|
+| `strlen` / `strcmp` / `memcmp`    | works (pre-existing)     |
+| `getpid` / `getuid`               | works (pre-existing)     |
+| `setlocale(LC_ALL, NULL)` (query) | works                    |
+| `uselocale(0)` (query)            | works                    |
+| **`setlocale(LC_ALL, "C")`**      | **SIGSEGV**              |
+| **`newlocale(LC_ALL_MASK, "C", NULL)` + `uselocale(loc)`** | **works** |
+| `getpwuid(0)`                     | SIGSEGV (NSS layer)      |
+| `__nss_configure_lookup(...)`     | SIGSEGV (NSS layer)      |
+
+Root cause of the setlocale crash: `__libc_setlocale_lock` (the
+global-locale rwlock) expects `__libc_start_main`'s full init,
+which a static Cyrius binary doesn't run. The `newlocale` +
+`uselocale` path is per-thread and doesn't touch that lock.
+
+### `dynlib_bootstrap_locale(hc)`
+
+New helper in `lib/dynlib.cyr:930`. Resolves `newlocale` +
+`uselocale` via the handle, calls
+`newlocale(LC_ALL_MASK=0x1FBF, "C", NULL)` to build a thread-local
+locale_t, and installs it via `uselocale`. Returns:
+- `0` — installed
+- `1` — `hc` null or `newlocale` symbol missing
+- `2` — `uselocale` symbol missing
+- `3` — `newlocale` returned null
+
+### Updated call sequence for consumers
+
+```cyrius
+dynlib_bootstrap_cpu_features();
+dynlib_bootstrap_tls();
+dynlib_bootstrap_stack_end(0);
+var hc = dynlib_open("libc.so.6");
+dynlib_init(hc);                  // IRELATIVE + DT_INIT_ARRAY
+dynlib_bootstrap_locale(hc);      // ← new in v5.5.23
+// strftime, strtol, locale-aware parsing all work from here
+```
+
+### NSS / PAM — still not in scope
+
+`getpwuid` / `getgrouplist` / `pam_authenticate` / `getaddrinfo`
+still SIGSEGV in the NSS module-table walk. The fix requires
+understanding glibc's internal NSS dispatch (now largely
+inlined into libc since glibc 2.34 retired the
+`libnss_files.so.2` module model) and hand-bootstrapping it —
+a real backend dig, not a patch-release item. **Pinned to
+v5.5.24 with honest scope** (it was v5.5.23 before this patch
+shipped; the pillar slipped one to reflect what's tractable).
+
+Consumer impact: **shakti's `pam_authenticate` stub stays for
+now**; the fallthrough to `/usr/bin/su` remains the shipping
+path. Upside: `dynlib_bootstrap_locale` does unblock any
+consumer that just wanted to call glibc's locale-dependent
+string/number formatting (strftime, strtod with decimal point,
+etc.) from a Cyrius binary.
+
+### Updated `tests/tcyr/dynlib_init.tcyr`
+
+New "dynlib_bootstrap_locale" test group with 4 assertions:
+- null-handle rejection
+- successful bootstrap against libc handle
+- `uselocale(0)` returns non-null thread-local locale post-bootstrap
+- (plus pre-existing coverage, total 20 assertions, all pass)
+
+### Dogfooded `cyrfmt --write`
+
+v5.5.22's `cyrfmt --write` retired the shell-one-liner workflow
+for running the formatter over the lib/ tree — used it on
+`lib/dynlib.cyr` during this patch.
+
+### Dep bumps (`cyrius.cyml`)
+
+| dep     | from   | to     |
+|---------|--------|--------|
+| mabda   | 2.1.2  | **2.5.0**  |
+| patra   | 1.1.1  | **1.5.4**  |
+| sankoch | 2.0.0  | **2.0.1**  |
+
+All three were tagged against cyrius 5.5.22; ready to pin in
+5.5.23. sakshi (2.0.0), sigil (2.9.0), yukti (2.1.1) unchanged —
+no newer tag available for those this cycle. `cyrius deps`
+resolves clean, `sh scripts/check.sh` still 12/12 PASS.
+
+### Byte-identical self-host
+
+cc5 486,552 B (unchanged — `lib/dynlib.cyr` isn't included by cc5).
+cc5_aarch64 347,024 B unchanged.
+
+### Regression
+
+- `sh scripts/check.sh` — 12/12 PASS.
+- v5.5.21 SSE alignment fix + v5.5.22 cyrfmt --write + v5.5.13/14/17/18
+  platform gates all still green.
+
 ## [5.5.22] — 2026-04-21
 
 **`cyrfmt` gains `--write` / `-w` — in-place file rewrite.** Closes

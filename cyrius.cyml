@@ -28,7 +28,7 @@ modules = ["dist/sakshi.cyr"]
 
 [deps.patra]
 git = "https://github.com/MacCracken/patra.git"
-tag = "1.1.1"
+tag = "1.5.4"
 modules = ["dist/patra.cyr"]
 
 [deps.sigil]
@@ -43,10 +43,10 @@ modules = ["dist/yukti.cyr"]
 
 [deps.mabda]
 git = "https://github.com/MacCracken/mabda.git"
-tag = "2.1.2"
+tag = "2.5.0"
 modules = ["dist/mabda.cyr"]
 
 [deps.sankoch]
 git = "https://github.com/MacCracken/sankoch.git"
-tag = "2.0.0"
+tag = "2.0.1"
 modules = ["dist/sankoch.cyr"]
