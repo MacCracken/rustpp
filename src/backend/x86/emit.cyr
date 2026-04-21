@@ -366,6 +366,16 @@ fn EEXIT(S) {
     return 0;
 }
 
+# v5.5.13 x86 stub: the `_TARGET_MACHO == 2` branch in parse.cyr that
+# calls EMACHO_EXIT_ARM is unreachable on the x86 compiler — fixup.cyr
+# hard-errors on CYRIUS_MACHO_ARM=1 against cc5 before the parser gets
+# here. This stub exists purely to resolve the symbol at link time so
+# parse.cyr can be built for both backends. If this ever emits bytes,
+# something routed a Mach-O arm64 build through the x86 backend.
+fn EMACHO_EXIT_ARM(S) {
+    return 0;
+}
+
 # emit Win64 write epilogue: consume stack args pushed by the
 # generic syscall-argument loop for `syscall(1, fd, buf, len)` and
 # reroute to `GetStdHandle(fd) + WriteFile(hFile, buf, len, &n, 0)`.

@@ -139,6 +139,25 @@ fn FIXUP(S) {
             if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, saddr); }
             else { FIXUP_MOV(S, coff, saddr); }
         }
+        else { if (ftype == 5) {
+            # v5.5.13 Mach-O arm64 __got reference. idx = slot number.
+            # __got sits at the start of __DATA_CONST, which follows __TEXT
+            # in VM. Layout matches EMITMACHO_ARM64's computation in
+            # ftype=0 variable-address path (must stay in lockstep).
+            var gfspos = GSPOS(S);
+            var gfts = acp + gfspos;
+            var gfp = 1;
+            if (gfts > 0) {
+                gfp = (gfts + 16384 - 1) / 16384;
+                if (gfp < 1) { gfp = 1; }
+            }
+            var got_addr = 0x100000000 + (1 + gfp) * 16384 + idx * 8;
+            # Slot 0 is page-aligned, so reusing FIXUP_ADRP_ADD is safe —
+            # the ADD's imm12 ends up 0 which leaves the LDR's imm12 at 0.
+            # Multi-slot imports (v5.5.14+) will need a dedicated
+            # FIXUP_ADRP_LDR here that divides the in-page offset by 8.
+            FIXUP_ADRP_ADD(S, coff, got_addr);
+        }
         else {
             var cumul = 0;
             vi = 0;
@@ -168,7 +187,7 @@ fn FIXUP(S) {
             }
             if (_TARGET_MACHO == 2) { FIXUP_ADRP_ADD(S, coff, vaddr); }
             else { FIXUP_MOV(S, coff, vaddr); }
-        } } } }
+        } } } } }
         fi = fi + 1;
     }
     S64(S + 0x8FCD0, totvar);

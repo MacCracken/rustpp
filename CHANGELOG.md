@@ -4,6 +4,101 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.13] — 2026-04-20
+
+**First Mach-O syscall reroute through `__got`. `syscall(60, code)`
+on `_TARGET_MACHO == 2` no longer falls through to svc+ESYSXLAT —
+it compiles to `adrp x16, __got@PAGE; ldr x16, [x16, #0]; br x16`,
+tail-calling the `libSystem._exit` slot dyld bound at load time.
+First observable behavior change for compiler-emitted arm64
+Mach-O binaries since v5.5.12.**
+
+Mirror of the PE arc's v5.4.3 step (`EEXIT` → `ExitProcess` via
+IAT). v5.5.12 put `__got` + bind opcodes + indirect symtab in
+place; v5.5.13 is the first reroute that actually consumes them.
+Pattern locked in here extends trivially to the v5.5.14 multi-
+symbol growth (`_write`, `_read`, `_malloc`, `_fopen`,
+`_pthread_create`) — each new libSystem import is (a) bind entry
++ got slot in `EMITMACHO_ARM64`, (b) a `syscall(N, …) → EMACHO_*`
+branch in `parse.cyr`, (c) a matching `ftype=5` fixup with
+`idx=slot`.
+
+### Wire-up
+
+`src/frontend/parse.cyr` (PARSE_FACTOR, +12 lines):
+- Under `_TARGET_MACHO == 2`, `syscall(60, code)` with `argc == 2`
+  dispatches to `EMACHO_EXIT_ARM(S)` instead of the generic
+  ESYSXLAT path. Sits above the existing `_TARGET_PE == 1`
+  branch so the structure mirrors the PE reroute table.
+
+`src/backend/aarch64/emit.cyr` (`EMACHO_EXIT_ARM`, +39 lines):
+- `ldr x0, [sp], #16` — pop exit code (verified EPOPR, post-indexed).
+- `add sp, sp, #16` — discard the `sc_num = 60` sentinel left by
+  the generic syscall-argument push.
+- Records an `ftype=5` fixup at the adrp site (idx=0 → `__got[0]`).
+- `adrp x16, #0` (placeholder, patched by fixup).
+- `ldr x16, [x16, #0]` — load the dyld-bound `_exit` pointer.
+- `br x16` — tail-call; no return.
+
+`src/backend/aarch64/fixup.cyr` (+20 lines):
+- New `ftype == 5` branch. Computes `__got` VA as
+  `0x100000000 + (1 + gfp) * 16384 + idx * 8` — the same formula
+  `EMITMACHO_ARM64` uses for `__DATA_CONST` placement, so the two
+  stay in lockstep. Slot 0 is page-aligned; reuses `FIXUP_ADRP_ADD`
+  safely (the ADD's imm12 ends up 0, which is also the correct
+  imm12 for the LDR that follows). Multi-slot imports (v5.5.14+)
+  will need a dedicated `FIXUP_ADRP_LDR` that scales the imm12
+  field by 8 for non-zero slots.
+
+`src/backend/x86/emit.cyr` (+10 lines):
+- Empty `EMACHO_EXIT_ARM(S)` stub. The `_TARGET_MACHO == 2`
+  branch in `parse.cyr` is unreachable on the x86 compiler path
+  (fixup.cyr hard-errors on `CYRIUS_MACHO_ARM=1` before parse
+  runs), but both backends have to link `parse.cyr`, so the
+  symbol must resolve on x86 too. Stub asserts nothing — if it
+  ever emits bytes, something routed an arm64 Mach-O build
+  through the x86 backend.
+
+### Adrp encoding sanity (v5.5.11 probe parity)
+
+The patched adrp word on the emitted sequence is `0x90000030` —
+matching the value the v5.5.11 hand-emitted probe converged on
+after the `0x90000050 → 0x90000030` fix. The compiler-emitted
+reroute inherits the probe's byte-layout exactly.
+
+### Verification (Apple Silicon, `ssh ecb`)
+
+- `CYRIUS_MACHO_ARM=1 build/cc5_aarch64 < exit42.cyr > exit42`
+- `scp exit42 ecb:/tmp/ && ssh ecb 'codesign -s - /tmp/exit42 && /tmp/exit42; echo $?'`
+- Exit code: `42`.
+
+First compiler-emitted cyrius binary that exits through
+`libSystem._exit` rather than the `svc` + raw syscall-number
+translation path.
+
+### Byte-identical self-host
+
+Linux x86_64 cc5 still compiles itself byte-identically after
+the change. cc5 grew 485,616 → 485,816 B (+200 B — the new
+`EMACHO_EXIT_ARM` body plus the fixup-table branch).
+
+### Dep bumps
+
+- **yukti 1.3.0 → 2.1.1.** Three tags stepped over (`2.0.0`,
+  `2.1.0`). Bundled here rather than split into its own patch;
+  unrelated to the Mach-O reroute.
+
+### Not in scope (v5.5.14+)
+
+- **Multi-symbol `__got` growth** — v5.5.14. `_write`, `_read`,
+  `_malloc`, `_fopen`, `_pthread_create`. Each is one more bind
+  entry + got slot + `EMACHO_*` branch + `ftype=5` fixup
+  (with `idx=slot`). Will also motivate a dedicated
+  `FIXUP_ADRP_LDR` so non-slot-0 imports get the correct LDR
+  imm12 scale (÷8).
+- **macOS arm64 tool binaries** (`cyrfmt`, `cyrlint`, `cyrdoc`)
+  — v5.5.15, once v5.5.14's multi-symbol surface lands.
+
 ## [5.5.12] — 2026-04-20
 
 **Compiler-driven Mach-O libSystem emission: the probe layout from

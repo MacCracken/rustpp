@@ -816,6 +816,18 @@ fn PARSE_FACTOR(S) {
         # Other syscall numbers still fall through with a warning and
         # produce a non-functional binary; wrap them in syscalls_windows.cyr
         # shape helpers as they're needed.
+        # v5.5.13 Mach-O arm64 first __got reroute — syscall(60, code)
+        # goes through libSystem._exit via __DATA_CONST.__got[0] instead of
+        # the existing ESYSXLAT+svc path. Mirror of PE v5.4.3 EEXIT reroute.
+        if (_TARGET_MACHO == 2) {
+            if (sc_num == 60) {
+                if (argc == 2) {
+                    EMACHO_EXIT_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+        }
         if (_TARGET_PE == 1) {
             if (sc_num == 60) {
                 if (argc == 2) {
