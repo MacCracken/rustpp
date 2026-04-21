@@ -4,6 +4,145 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.16] — 2026-04-20
+
+**`CYRIUS_TARGET_MACOS` predefine + stdlib per-OS dispatch. The cross-
+compiler now predefines `CYRIUS_TARGET_MACOS` (not `CYRIUS_TARGET_LINUX`)
+when `CYRIUS_MACHO_ARM=1` is set, so `#ifdef CYRIUS_TARGET_MACOS`
+branches in stdlib actually activate. `lib/alloc.cyr` gains a
+delegation to `lib/alloc_macos.cyr` (mmap-based, self-contained) for
+macOS builds. All 4 tool binaries now start up cleanly on `ssh ecb`
+— each prints its usage banner from a working heap.**
+
+Part 2 of 3 of the tool-binary shipping split. v5.5.15 unblocked
+cross-compilation; v5.5.16 unblocks runtime startup; v5.5.17 will
+close the remaining runtime syscall gaps surfaced by this patch
+(chiefly argv reading on macOS — `/proc/self/cmdline` doesn't exist
+on XNU, so `lib/args.cyr`'s file-based approach currently returns
+argc=0).
+
+### Predefine plumbing
+
+`src/main.cyr:285–336` and `src/main_aarch64.cyr:147–174` both gain
+an early `_read_env` + `PP_PREDEFINE` trio mirroring the Windows
+arm's v5.5.6 shape:
+
+- `CYRIUS_TARGET_WIN` if `CYRIUS_TARGET_WIN=1` in env (unchanged).
+- **`CYRIUS_TARGET_MACOS` if `CYRIUS_MACHO=1` or `CYRIUS_MACHO_ARM=1`
+  in env (NEW)** — selects Darwin stdlib peers.
+- `CYRIUS_TARGET_LINUX` otherwise (unchanged default).
+
+Mutually exclusive by construction; stdlib selector blocks don't
+need `#else` / `#ifndef`.
+
+Prior to this patch `CYRIUS_TARGET_LINUX` was unconditionally
+predefined on every non-Windows build, so Mach-O targets got the
+Linux branch of `lib/alloc.cyr` — which called `syscall(12, 0)`
+expecting brk semantics. On XNU syscall 12 is `chdir`, so
+`chdir(NULL)` ran instead: `_heap_base` became a negative errno,
+`_heap_end` a garbage address, and later `alloc()` calls wrote to
+invalid memory. Tools exited silently with rc=0 before producing
+any output (the v5.5.15 project note documented this path).
+
+### `lib/alloc.cyr` dispatch
+
+`lib/alloc.cyr:14–17` gains a `#ifdef CYRIUS_TARGET_MACOS` block
+that delegates to `lib/alloc_macos.cyr` (already present in the
+tree since v5.3.1, unused by dispatch until now). Sits alongside
+the existing `CYRIUS_TARGET_WIN` → `lib/alloc_windows.cyr` branch;
+the default bodyless fall-through is the Linux brk path.
+
+### `lib/alloc_macos.cyr` self-contained
+
+Replaced `SYS_MMAP` / `SYS_MUNMAP` / `SYS_WRITE` / `SYS_EXIT` named
+references (which required an external `include "lib/syscalls.cyr"`)
+with literal Linux syscall numbers (`9`, `11`, `1`, `60`). The
+aarch64 ESYSXLAT chain translates them to BSD-arm64 equivalents
+(mmap 9→197, munmap 11→73) at emit time, so the literals stay
+portable. Mirrors the self-contained shape of `lib/alloc_windows.cyr`
+— `lib/alloc.cyr` drops each per-OS implementation in with zero
+preamble, all three branches symmetric.
+
+### `lib/io.cyr` flock helpers Linux-gated
+
+Wrapped `file_lock` / `file_unlock` / `file_trylock` / `file_lock_shared`
+/ `file_append_locked` in `#ifdef CYRIUS_TARGET_LINUX` / `#endif`.
+These use `syscall(73)` which is `flock` on Linux but a different
+BSD number on macOS (131), and ESYSXLAT doesn't currently translate
+it. Rather than emit warnings on every Mach-O cross-build for
+dead-code the tools never call, skip the block on non-Linux.
+v5.5.17 can add BSD flock translation if a consumer actually needs
+it on Mach-O.
+
+### Tool cross-build status (vs v5.5.15)
+
+```
+           v5.5.15        v5.5.16
+           ───────        ───────
+cyrfmt     82288 B  7w    82288 B  0w
+cyrlint    98672 B  7w    98672 B  0w
+cyrdoc     98672 B  7w    98672 B  0w
+cyrc       82288 B  7w    82288 B  0w
+```
+
+Warnings drop from 7 per tool to 0. Binary sizes unchanged — the
+flock helpers were always dead code for these tools; v5.5.16 just
+stops the parser from seeing them under MACOS.
+
+### Tool runtime status on `ssh ecb` (vs v5.5.15)
+
+```
+              v5.5.15                    v5.5.16
+              ───────                    ───────
+cyrfmt   rc=140 (SIGSYS, unhandled)    rc=1, prints usage banner
+cyrlint  rc=0, silent                  rc=1, prints usage banner
+cyrdoc   rc=0, silent                  rc=0, prints usage banner
+cyrc     rc=0, silent                  rc=0, prints usage banner
+```
+
+All four tools now run far enough to:
+- Initialize the heap (mmap-based via `lib/alloc_macos.cyr`).
+- Parse argv (sort of — see below).
+- Print usage text via `syscall(1, ...)` → `__got[1]` = `_write`.
+- Exit cleanly via `syscall(60, ...)` → `__got[0]` = `_exit`.
+
+The remaining behavior (printing USAGE instead of doing work) is
+argv related: `lib/args.cyr` reads arguments from `/proc/self/cmdline`,
+which doesn't exist on XNU. `syscall(2, "/proc/self/cmdline", ...)`
+returns `-ENOENT`, `argc()` returns 0, and each tool hits its
+"no args supplied, print usage" branch. That's pinned to v5.5.17.
+
+### Pinned forward (v5.5.17)
+
+- **argv on macOS** — XNU has no `/procfs`; argv is passed on the
+  initial process stack (same as Linux, but without a `/proc/self/cmdline`
+  fallback). Options: (a) read argc/argv from the process stack directly
+  in a Darwin-only path in `lib/args.cyr`, (b) add a `#ifdef CYRIUS_TARGET_MACOS`
+  delegation to a new `lib/args_macos.cyr` peer. Option (a) is the
+  closer analog to how the Linux branch behaves today (main.cyr's
+  `--version` / `--strict` parsing also walks /proc/self/cmdline;
+  those need the same fix).
+- **Any remaining syscalls that tools hit at runtime** after argv
+  works — expected candidates: `lseek` (8 → BSD 199), `fstat` (5 →
+  BSD 339), `stat` (4 → BSD 338), `clock_gettime` (228). Each gets
+  either an ESYSXLAT translation or a `__got` reroute per case.
+
+### Byte-identical self-host
+
+cc5 485,736 → 486,352 B (**+616 B**). Cost of the early env-var read
++ new predefine branch in both `main.cyr` and `main_aarch64.cyr`.
+cc5_aarch64 346,488 → 346,864 B (+376 B).
+
+### Regression
+
+- `sh scripts/check.sh` — 10/10 PASS.
+- v5.5.13 `syscall(60, 42)` → exit=42 on ecb (retested).
+- v5.5.14 `syscall(1, 1, "hello\n", 6); syscall(60, 0)` → prints
+  `hello`, exit=0 on ecb (retested).
+- Linux builds unchanged — `CYRIUS_TARGET_LINUX` is still the
+  default when no env flag is set, and the `lib/io.cyr` flock block
+  stays live under that target.
+
 ## [5.5.15] — 2026-04-20
 
 **Mach-O tool-binary cross-build unblocked. The parse-time hard-error

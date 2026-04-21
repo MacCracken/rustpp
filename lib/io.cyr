@@ -68,6 +68,13 @@ fn file_write_all(path, buf, len) {
     return written;
 }
 
+# v5.5.16: flock helpers gated to CYRIUS_TARGET_LINUX. syscall(73) is
+# flock on Linux but a different BSD number on macOS (131), and the
+# ESYSXLAT chain doesn't currently translate it. Rather than emit
+# warnings on every Mach-O cross-build for dead-code the tools don't
+# call, skip the block entirely on non-Linux. v5.5.17 can add a BSD
+# translation if a real consumer needs file locking on Mach-O.
+#ifdef CYRIUS_TARGET_LINUX
 # Exclusive file lock (blocking). Use for append-only logs, audit chains.
 fn file_lock(fd) {
     return syscall(73, fd, LOCK_EX);
@@ -99,6 +106,7 @@ fn file_append_locked(path, buf, len) {
     file_close(fd);
     return n;
 }
+#endif
 
 # Check if file exists (try to open read-only)
 fn file_exists(path) {

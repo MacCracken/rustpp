@@ -146,8 +146,27 @@ SBL(S, bl);
 # Preprocess includes
 _init_cyrius_lib();
 PP_PREDEFINE(S, "CYRIUS_ARCH_AARCH64");
-# v5.5.0: Linux peer selector flag, mirrors main.cyr.
-PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+# v5.5.16: check CYRIUS_MACHO_ARM early so `#ifdef CYRIUS_TARGET_MACOS`
+# activates for stdlib per-OS dispatch (lib/alloc.cyr → alloc_macos.cyr,
+# Linux-ism guards in lib/io.cyr etc.). Before v5.5.16 this branch
+# unconditionally predefined CYRIUS_TARGET_LINUX even under
+# CYRIUS_MACHO_ARM=1, so stdlib's brk-based Linux alloc path ran on
+# Darwin — BSD syscall 12 is chdir, not brk, which silently corrupted
+# the heap base (manifest as tool binaries exiting 0 with no output
+# on ecb per v5.5.15). Mirrors the main.cyr Mach-O early-check added
+# in the same minor.
+var _macho_arm_env_early = _read_env("CYRIUS_MACHO_ARM");
+var _is_macho_arm_build = 0;
+if (_macho_arm_env_early != 0) {
+    if (load8(_macho_arm_env_early) == 49 && load8(_macho_arm_env_early + 1) == 0) {
+        _is_macho_arm_build = 1;
+    }
+}
+if (_is_macho_arm_build == 1) {
+    PP_PREDEFINE(S, "CYRIUS_TARGET_MACOS");
+} else {
+    PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+}
 PREPROCESS(S);
 
 # Lex

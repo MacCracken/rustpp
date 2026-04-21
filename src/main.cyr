@@ -183,7 +183,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.15\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.5.16\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -306,11 +306,36 @@ if (_pe_env_early != 0) {
         _is_pe_build = 1;
     }
 }
+# v5.5.16: check the Mach-O env vars at the same early point so
+# `#ifdef CYRIUS_TARGET_MACOS` branches in stdlib (e.g. lib/alloc.cyr
+# → lib/alloc_macos.cyr) activate on cross-builds to arm64 / x86_64
+# Darwin. Before this patch the compiler unconditionally predefined
+# CYRIUS_TARGET_LINUX for every non-Windows build — so on Mach-O
+# targets `lib/alloc.cyr`'s brk-based Linux path fired, silently
+# broken (brk is Linux-only; BSD syscall 12 is chdir, so the heap
+# base turned into garbage and tool binaries exited 0 with no
+# output — see v5.5.15 project note). CYRIUS_MACHO selects the
+# x86_64 Mach-O path; CYRIUS_MACHO_ARM selects arm64 Darwin.
+var _macho_env_early = _read_env("CYRIUS_MACHO");
+var _macho_arm_env_early = _read_env("CYRIUS_MACHO_ARM");
+var _is_macho_build = 0;
+if (_macho_env_early != 0) {
+    if (load8(_macho_env_early) == 49 && load8(_macho_env_early + 1) == 0) {
+        _is_macho_build = 1;
+    }
+}
+if (_macho_arm_env_early != 0) {
+    if (load8(_macho_arm_env_early) == 49 && load8(_macho_arm_env_early + 1) == 0) {
+        _is_macho_build = 1;
+    }
+}
 if (_is_pe_build == 1) {
     PP_PREDEFINE(S, "CYRIUS_TARGET_WIN");
+} else { if (_is_macho_build == 1) {
+    PP_PREDEFINE(S, "CYRIUS_TARGET_MACOS");
 } else {
     PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
-}
+} }
 
 # Preprocess includes
 PREPROCESS(S);
