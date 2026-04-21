@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.19] — 2026-04-20
+
+**Inline-asm discard-result bug narrowed; the "include-boundary"
+framing from v5.4.15's filing was a red herring. Real trigger:
+large (~120-byte) asm block in a callee fn, caller passes stack-
+array pointers, caller's next statement is a discarded-result
+`sys_write(...)` call. Shape-sensitive to whether the callee's
+translation unit has preceding globals — bug fires without, dodges
+with. Root cause pinned to v5.5.20+; v5.5.19 ships the investigation
+write-up, a regression gate that locks in the known-working shape,
+and a workaround recipe for sigil 2.9.1 (the one-line
+`_aes_ni_cache` flip works as-is because `src/aes_ni.cyr` already
+has the leading global).**
+
+Hit CLAUDE.md's "3 failed attempts = defer and document" rule on
+the root-cause dig. Ship what we've got; v5.5.20 can re-open with
+fresh eyes.
+
+### Investigation summary
+
+Three repro attempts:
+
+1. **Minimal disp32 AESENC via include** — cross-TU split with an
+   identical asm body. Produced byte-identical binaries (`cmp`),
+   same runtime behavior. The original "include boundary" framing
+   does not reproduce in isolation.
+2. **Sigil's actual `src/aes_ni.cyr` included** — binaries differed
+   (more content in the included file), both SIGSEGV'd on zero
+   round keys (CPU-level crash, not codegen).
+3. **Shape-matched inline vs included with the same content** —
+   byte-identical binaries; both wrote 0 bytes or 16 bytes
+   depending on surrounding TU content, **not** on which TU the
+   asm-block fn lived in.
+
+Attempt 3 narrowed the trigger: the caller's `sys_write(1, &ct, 16)`
+after the asm call writes 0 bytes IFF the callee's TU has no
+preceding global var declarations. Adding `var _anything = 0;`
+before the asm-block fn declaration makes the bug go away. sigil's
+real `src/aes_ni.cyr` has a leading `_aes_ni_cache` global, so the
+file layout was already in the passing shape — which means sigil
+2.9.1 can wire AES-NI in with no code changes beyond the
+`_aes_ni_cache` flip.
+
+### Root cause (still speculative)
+
+Most consistent with the "fixup-table pressure / CP miscounting"
+theory from the original report: a ~120-byte asm block probably
+crosses a fixup window boundary in a way that offsets the CP
+tracking for the next function's emit. Leading globals shift the
+layout enough that the boundary lands elsewhere. Downstream, the
+next syscall wrapper's args resolve to a wrong address or length
+and write returns 0. Confirming this needs an instrumented cc5
+backend walk — deferred to v5.5.20.
+
+### Landed
+
+`tests/regression-inline-asm-discard.sh` — locks in the
+known-working "global var + assigned-return sys_write after 120B
+asm fn" shape. Wired into `scripts/check.sh` as gate 4f. When
+v5.5.20 fixes the underlying codegen, the regression gains a
+second assertion against the "no leading global" shape.
+
+`docs/development/issues/inline-asm-stores-silently-drop-when-fn-included.md`
+updated with the v5.5.19 narrowing: workaround recipe, pinned
+root-cause target, why the original framing was misleading.
+
+### Not landed (pinned v5.5.20+)
+
+- Actual backend fix. Suspected location: `src/backend/x86/fixup.cyr`
+  or the CP-tracking path through `src/frontend/parse.cyr`'s
+  asm-block emit. Requires a full instrumented walk of what CP +
+  fixup state look like before/after the 120B asm block.
+
+### Byte-identical self-host
+
+cc5 486,352 B (unchanged — no compiler changes in v5.5.19, only
+the regression test + issue doc + CHANGELOG entry).
+
+### Regression
+
+- `sh scripts/check.sh` — **11/11** PASS (was 10/10; new gate 4f
+  is the inline-asm discard-result test).
+- v5.5.13/14/17/18 regressions all still green.
+
 ## [5.5.18] — 2026-04-20
 
 **aarch64 native Linux stdlib shakedown on real Pi 4. `lib/io.cyr`

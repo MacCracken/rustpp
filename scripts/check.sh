@@ -136,6 +136,15 @@ if [ "$aa_result" -ne 0 ]; then cat /tmp/audit_aa_$$; fi
 rm -f /tmp/audit_aa_$$
 echo ""
 
+# ── 4f. inline-asm discard-result gate (5.5.19) ──
+echo "── Inline-asm discard-result ──"
+sh "$ROOT/tests/regression-inline-asm-discard.sh" > /tmp/audit_ia_$$ 2>&1
+ia_result=$?
+check "120B asm fn + standalone sys_write (sigil AES-NI shape)" "$ia_result"
+if [ "$ia_result" -ne 0 ]; then cat /tmp/audit_ia_$$; fi
+rm -f /tmp/audit_ia_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

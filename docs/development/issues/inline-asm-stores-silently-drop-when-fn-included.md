@@ -2,8 +2,59 @@
 
 **Discovered:** 2026-04-20 during sigil 2.9.0 AES-NI implementation
 **Severity:** High
-**Affects:** cc5 5.4.12, 5.4.12-1 (likely all 5.4.x with inline-asm
-support; filing against the current active version)
+**Affects:** cc5 5.4.12, 5.4.12-1, v5.5.19 (still reproduces; see
+v5.5.19 update below — root cause pinned to v5.5.20)
+
+## v5.5.19 update — bug narrowed, root cause deferred
+
+The v5.5.19 investigation failed to reproduce the bug at "include
+boundary" as originally framed. Cyrius compiles byte-identical
+binaries when the same content is split between files vs. inlined;
+runtime behavior matches. The actual trigger is a DIFFERENT
+codegen defect that happens to manifest under the same circumstances
+sigil ran into:
+
+- Callee fn has a ~120-byte asm block (7+ disp8 indexed reads, 6
+  disp32 indexed reads, movdqu store — AES-NI shape).
+- Caller allocates multiple stack arrays (`var rk[240]; var pt[16];
+  var ct[16];`).
+- Caller makes the asm-block call, then immediately does a
+  `sys_write(...)` or similar syscall wrapper with one of the
+  stack-array pointers.
+
+**Narrower trigger discovered in v5.5.19:** the bug is sensitive
+to whether the callee's translation-unit (same-TU *or* included)
+contains preceding global variable declarations. With a global var
+preceding the asm-block fn, the subsequent `sys_write` writes 16
+bytes. Without, it writes 0. This shape-sensitivity is why sigil
+saw the bug on `src/aes_ni.cyr` (the real file has no leading
+global in some configurations) and why our minimal repros didn't
+fire (they had no globals, or the file layout happened to align
+the fixup window to a working offset).
+
+**Workaround for sigil (v5.5.19+):** keep the scaffold in the same
+TU as the caller, or add a leading global var in the included file
+before the asm-block fn declaration. The existing `_aes_ni_cache`
+global in `src/aes_ni.cyr` is already positioned correctly — sigil
+2.9.1 can ship with AES-NI wired into the GCM dispatch without
+code changes beyond the one-line `_aes_ni_cache` flip. The v5.5.19
+regression test (`tests/regression-inline-asm-discard.sh`) locks
+in the workaround shape so future stdlib changes don't accidentally
+re-break it.
+
+**Root cause (still speculative):** most likely the fixup-table
+pressure theory from the original report. A ~120-byte asm block
+inside a fn (same-TU or include'd) probably crosses a fixup window
+boundary in a way that offsets the CP tracking for the FOLLOWING
+function's emit. Leading globals shift the layout enough to avoid
+the boundary crossover. The CP miscounting causes the next
+syscall's args to resolve to a wrong address or length, so
+`sys_write` sees count=0 and returns 0.
+
+**Pinned to v5.5.20** for an actual backend fix. The regression
+test acts as the gate — when v5.5.20 lands a real fix, the test
+gets a second assertion asserting both shapes (with and without
+leading globals) write 16 bytes.
 
 ## Summary
 
