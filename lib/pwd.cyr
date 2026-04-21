@@ -252,10 +252,18 @@ fn pwd_getpwnam(name, pwrec, strbuf, strbufsz) {
 # Convenience accessors — for callers that prefer reading fields
 # by name over raw load64 offsets. All return the value at the
 # fixed layout offset.
+
+# Return the numeric uid from a parsed pwrec.
 fn pwd_uid(pwrec)    { return load64(pwrec); }
+# Return the numeric primary gid from a parsed pwrec.
 fn pwd_gid(pwrec)    { return load64(pwrec + 8); }
+# Return the username cstring (points into strbuf).
 fn pwd_name(pwrec)   { return load64(pwrec + 16); }
+# Return the passwd field (usually "x" on modern shadow systems).
 fn pwd_passwd(pwrec) { return load64(pwrec + 24); }
+# Return the GECOS / finger-info cstring.
 fn pwd_gecos(pwrec)  { return load64(pwrec + 32); }
+# Return the home-directory cstring.
 fn pwd_dir(pwrec)    { return load64(pwrec + 40); }
+# Return the login-shell cstring.
 fn pwd_shell(pwrec)  { return load64(pwrec + 48); }

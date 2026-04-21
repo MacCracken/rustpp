@@ -36,6 +36,8 @@ var GRP_BUF_MAX = 0x20000;
 var _grp_buf = 0;
 var _grp_buf_len = 0;
 
+# Force a re-read of /etc/group on the next lookup. Use after
+# editing the file (e.g. `groupadd` from cyrius tooling).
 fn grp_invalidate_cache() {
     _grp_buf_len = 0;
     return 0;
@@ -164,10 +166,12 @@ fn _grp_match_name(grrec, ctx) {
     return 0;
 }
 
+# Look up a group record by numeric gid.
 fn grp_getgrgid(gid, grrec, strbuf, strbufsz) {
     return _grp_find(&_grp_match_gid, gid, grrec, strbuf, strbufsz);
 }
 
+# Look up a group record by name (null-terminated cstring).
 fn grp_getgrnam(name, grrec, strbuf, strbufsz) {
     return _grp_find(&_grp_match_name, name, grrec, strbuf, strbufsz);
 }
@@ -281,6 +285,9 @@ fn grp_getgrouplist(user, primary_gid, gid_buf, max) {
     return count;
 }
 
+# Return the numeric gid from a parsed grrec.
 fn grp_gid(grrec)    { return load64(grrec); }
+# Return the group name cstring (points into strbuf).
 fn grp_name(grrec)   { return load64(grrec + 8); }
+# Return the group passwd field (rarely used; usually "x").
 fn grp_passwd(grrec) { return load64(grrec + 16); }
