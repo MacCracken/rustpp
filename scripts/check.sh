@@ -172,6 +172,15 @@ if [ "$sp_result" -ne 0 ]; then cat /tmp/audit_sp_$$; fi
 rm -f /tmp/audit_sp_$$
 echo ""
 
+# ── 4j. lib/fdlopen.cyr primitives (5.5.28) ──
+echo "── fdlopen primitives ──"
+sh "$ROOT/tests/regression-fdlopen.sh" > /tmp/audit_fdl_$$ 2>&1
+fdl_result=$?
+check "setjmp/longjmp + helper-path + state-buf API" "$fdl_result"
+if [ "$fdl_result" -ne 0 ]; then cat /tmp/audit_fdl_$$; fi
+rm -f /tmp/audit_fdl_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

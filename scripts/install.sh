@@ -305,6 +305,43 @@ if [ ! -x "$CYRIUS_HOME/bin/cyriusly" ]; then
     fi
 fi
 
+# ── Build dlopen-helper (v5.5.28) ──
+# lib/fdlopen.cyr (foreign-dlopen pattern for static-binary access to
+# full glibc state) invokes a tiny C helper built against the host
+# libc. Compile at install time; cache version-agnostically at
+# $CYRIUS_HOME/dlopen-helper (helper is tied to host libc, not to
+# the cyrius version). If cc is missing we silently skip — fdlopen
+# is opt-in and consumers get a clear FDL_ERR_HELPER_MISSING code.
+_DLOPEN_HELPER_SRC=""
+if [ -f "programs/dlopen-helper.c" ]; then
+    _DLOPEN_HELPER_SRC="programs/dlopen-helper.c"
+elif [ -f "$CYRIUS_HOME/versions/$VERSION/bin/dlopen-helper.c" ]; then
+    _DLOPEN_HELPER_SRC="$CYRIUS_HOME/versions/$VERSION/bin/dlopen-helper.c"
+fi
+if [ -n "$_DLOPEN_HELPER_SRC" ]; then
+    if command -v cc > /dev/null 2>&1; then
+        _CC=cc
+    elif command -v gcc > /dev/null 2>&1; then
+        _CC=gcc
+    else
+        _CC=""
+    fi
+    if [ -n "$_CC" ]; then
+        if "$_CC" -O2 -fPIE -pie -o "$CYRIUS_HOME/dlopen-helper" \
+            "$_DLOPEN_HELPER_SRC" -ldl 2>/dev/null; then
+            info "dlopen-helper compiled (v5.5.28 foreign-dlopen)"
+        else
+            warn "dlopen-helper compile failed — fdlopen will report FDL_ERR_HELPER_MISSING"
+        fi
+    else
+        warn "no C compiler found — fdlopen unavailable (install cc or gcc)"
+    fi
+    # Stash the source so the refresh-only path can rebuild after
+    # a host libc upgrade without needing the original checkout.
+    mkdir -p "$CYRIUS_HOME/versions/$VERSION/bin"
+    cp "$_DLOPEN_HELPER_SRC" "$CYRIUS_HOME/versions/$VERSION/bin/dlopen-helper.c"
+fi
+
 # ── Setup PATH ──
 
 add_to_path() {

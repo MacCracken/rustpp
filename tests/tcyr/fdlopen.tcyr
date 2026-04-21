@@ -1,0 +1,139 @@
+# Test: lib/fdlopen.cyr primitives (v5.5.28)
+#
+# Covers the pieces of foreign-dlopen that land in v5.5.28:
+#   - setjmp/longjmp round-trip (x86_64 Linux)
+#   - helper-path resolution reads $HOME from /proc/self/environ
+#   - fdlopen_helper_available probes for the compiled helper binary
+#   - fdlopen_init/fdlopen_status/fdlopen_slot API shape
+#   - state buffer layout matches C helper's expected offsets
+#
+# Does NOT exercise the full ld.so-entry orchestration — that lands
+# with the first consumer that drives the remaining path. When it
+# does, this test file extends but does not break.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/syscalls.cyr"
+include "lib/mmap.cyr"
+include "lib/fnptr.cyr"
+include "lib/dynlib.cyr"
+include "lib/fdlopen.cyr"
+
+alloc_init();
+
+test_group("setjmp / longjmp round-trip");
+
+var buf = alloc(128);
+assert(buf != 0, "jmp_buf allocated");
+
+var zero_i = 0;
+while (zero_i < 128) { store8(buf + zero_i, 0); zero_i = zero_i + 1; }
+
+# Direct call returns 0
+var r = dl_setjmp(buf);
+assert_eq(r, 0, "dl_setjmp direct call returns 0");
+
+# Saved RIP should be a non-zero address (somewhere in .text)
+var saved_rip = load64(buf + 56);
+assert(saved_rip != 0, "dl_setjmp saved non-zero return rip");
+
+# Saved caller RSP should be non-zero and near the real stack
+var saved_rsp = load64(buf + 48);
+assert(saved_rsp != 0, "dl_setjmp saved non-zero caller rsp");
+
+# Round-trip: setjmp, longjmp(42), observe rc==42 on the longjmp path
+var rt_count = 0;
+var rt_val = dl_setjmp(buf);
+rt_count = rt_count + 1;
+if (rt_count == 1) {
+    if (rt_val != 0) {
+        assert(0, "first setjmp should return 0, got non-zero");
+    }
+    dl_longjmp(buf, 42);
+    assert(0, "unreachable: dl_longjmp returned");
+}
+assert_eq(rt_val, 42, "dl_longjmp(buf, 42) -> setjmp returns 42");
+assert_eq(rt_count, 2, "loop re-entered exactly once via longjmp");
+
+# longjmp(0) must surface as 1 (POSIX)
+var z_count = 0;
+var z_val = dl_setjmp(buf);
+z_count = z_count + 1;
+if (z_count == 1) {
+    dl_longjmp(buf, 0);
+    assert(0, "unreachable: dl_longjmp(0) returned");
+}
+assert_eq(z_val, 1, "dl_longjmp(buf, 0) -> setjmp returns 1 (POSIX)");
+
+test_group("state buffer shape");
+
+assert_eq(fdlopen_state_size(), 256, "fdlopen_state_size is 256");
+
+var st = alloc(256);
+assert(st != 0, "state buffer allocated");
+var ci = 0;
+while (ci < 256) { store8(st + ci, 0); ci = ci + 1; }
+
+# Uninitialised state returns 0 from every slot accessor
+assert_eq(fdlopen_dlopen(st), 0, "dlopen slot is 0 pre-init");
+assert_eq(fdlopen_getaddrinfo(st), 0, "getaddrinfo slot is 0 pre-init");
+assert_eq(fdlopen_status(st), 0, "status is 0 pre-init");
+
+# Slot offsets match the C helper's expectation
+assert_eq(FDL_DLOPEN, 128, "FDL_DLOPEN offset");
+assert_eq(FDL_DLSYM, 136, "FDL_DLSYM offset");
+assert_eq(FDL_DLCLOSE, 144, "FDL_DLCLOSE offset");
+assert_eq(FDL_DLERROR, 152, "FDL_DLERROR offset");
+assert_eq(FDL_GETADDRINFO, 160, "FDL_GETADDRINFO offset");
+assert_eq(FDL_FREEADDRINFO, 168, "FDL_FREEADDRINFO offset");
+assert_eq(FDL_GAI_STRERROR, 176, "FDL_GAI_STRERROR offset");
+assert_eq(FDL_STRERROR, 184, "FDL_STRERROR offset");
+assert_eq(FDL_SETLOCALE, 192, "FDL_SETLOCALE offset");
+assert_eq(FDL_SETENV, 200, "FDL_SETENV offset");
+assert_eq(FDL_UNSETENV, 208, "FDL_UNSETENV offset");
+assert_eq(FDL_STATUS, 216, "FDL_STATUS offset");
+
+test_group("helper-path resolution");
+
+var pbuf = alloc(512);
+assert(pbuf != 0, "path buffer allocated");
+var pl = _fdlopen_helper_path(pbuf, 512);
+# If $HOME isn't in /proc/self/environ (odd sandbox), pl==0 and that's OK;
+# otherwise pl points at "$HOME/.cyrius/dlopen-helper"
+if (pl > 0) {
+    # Path should end in "dlopen-helper"
+    var tail = pbuf + (pl - 13);
+    assert_eq(load8(tail + 0), 100, "path ends 'd' of dlopen-helper");  # 'd'
+    assert_eq(load8(tail + 1), 108, "path ends 'l'");                    # 'l'
+    assert_eq(load8(tail + 12), 114, "path ends 'r' of dlopen-helper");  # 'r'
+    assert_eq(load8(pbuf + pl), 0, "path is NUL-terminated");
+} else {
+    # Environment too stripped to find HOME — acceptable, skip
+    assert(1, "skipped path check: no HOME in /proc/self/environ");
+}
+
+test_group("fdlopen_init returns a clean status code");
+
+var st2 = alloc(256);
+assert(st2 != 0, "second state buffer allocated");
+var c2 = 0;
+while (c2 < 256) { store8(st2 + c2, 0); c2 = c2 + 1; }
+
+var ir = fdlopen_init(st2);
+# Acceptable outcomes in v5.5.28:
+#   FDL_OK (0)                   — full path landed (future)
+#   FDL_ERR_HELPER_MISSING (-1)  — helper not compiled yet (most common)
+#   FDL_ERR_ARCH_UNSUPPORTED (-6) — non-x86_64 (aarch64 build)
+#   FDL_ERR_UNINIT (-8)          — orchestration not in this cut
+# All other codes mean something broke inside the primitives.
+var ok = 0;
+if (ir == 0) { ok = 1; }
+if (ir == 0 - 1) { ok = 1; }
+if (ir == 0 - 6) { ok = 1; }
+if (ir == 0 - 8) { ok = 1; }
+assert_eq(ok, 1, "fdlopen_init returned a documented status code");
+assert_eq(fdlopen_status(st2), ir, "fdlopen_status reflects init return");
+
+var rc = assert_summary();

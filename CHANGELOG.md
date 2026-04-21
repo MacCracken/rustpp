@@ -4,6 +4,120 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.28] — 2026-04-21
+
+**Third and final patch of the NSS real-fix arc: `lib/fdlopen.cyr`
+foreign-dlopen primitives + C helper + install-time compile hook.**
+v5.5.26 shipped `lib/pwd.cyr` + `lib/grp.cyr` (musl-style identity
+lookups). v5.5.27 shipped `lib/shadow.cyr` + `lib/pam.cyr`
+(unix_chkpwd non-root auth). This patch ships the **Path B**
+foreign-dlopen surface — the pfalcon / Cosmopolitan libc pattern
+— for the remaining consumers that genuinely need glibc's full
+state (getaddrinfo / strerror-with-locale /
+setlocale(LC_ALL, "C") / setenv realloc path).
+
+### Scope
+
+v5.5.28 ships the **primitives + infrastructure** that the full
+in-process ld.so-entry orchestration depends on. The state buffer
+shape, error codes, and API surface are stable from this release:
+when the full orchestration lands (pinned against the first
+consumer that drives it end-to-end, not floated), callers written
+against `fdlopen_init` / `fdlopen_slot` / the convenience accessors
+do not move.
+
+### Added
+
+* **`lib/fdlopen.cyr`** — new stdlib module. 280 lines. x86_64
+  Linux foreign-dlopen scaffold.
+  - **`dl_setjmp(buf)` / `dl_longjmp(buf, val)`** — System V x86_64
+    setjmp/longjmp primitives in raw-hex inline asm. Saves
+    callee-saved GPRs (rbx, rbp, r12-r15) + return rip + caller
+    rsp into a 128-byte buffer. POSIX `longjmp(0) → setjmp returns 1`
+    convention via `cmove`. Aarch64 Linux / Darwin / Windows gated
+    as no-ops (foreign-dlopen is inherently glibc-shaped).
+  - **`fdlopen_helper_available()`** — probes whether
+    `$HOME/.cyrius/dlopen-helper` exists. Reads `$HOME` from
+    `/proc/self/environ` directly (pre-bootstrap safe).
+  - **`_fdlopen_helper_path(buf, bufsz)`** — builds the helper
+    path into a caller-provided buffer without touching getenv.
+  - **`fdlopen_init(state)`** — initialises a 256-byte state
+    buffer. Returns `0` on full success, negative error codes
+    otherwise (`-1` = helper missing, `-6` = non-x86_64, `-8` =
+    orchestration not yet landed, etc.). State `+216` holds the
+    live status.
+  - **`fdlopen_slot(state, off)` + convenience accessors** —
+    `fdlopen_dlopen`, `fdlopen_dlsym`, `fdlopen_dlclose`,
+    `fdlopen_dlerror`, `fdlopen_getaddrinfo`, `fdlopen_freeaddrinfo`,
+    `fdlopen_gai_strerror`, `fdlopen_strerror`, `fdlopen_setlocale`,
+    `fdlopen_setenv`, `fdlopen_unsetenv`. Return 0 on uninitialised
+    state so caller branches cleanly.
+  - **`FdlopenOff` enum** — slot offsets (128/136/…/216) that
+    `programs/dlopen-helper.c` MUST match byte-for-byte.
+* **`programs/dlopen-helper.c`** — the ~100-line C bridge. Linked
+  against the host glibc + libdl. Reads `argv[1]` (state-buffer
+  hex address) + `argv[2]` (callback hex address), resolves the
+  fixed set of libc / libdl symbols via real `dlsym`, stores
+  function pointers at the documented state offsets, invokes the
+  cyrius-side callback (which is expected to `dl_longjmp` back
+  into the caller's setjmp frame).
+* **`scripts/install.sh`** — install-time compile hook. After the
+  binary + stdlib snapshot is laid down, attempts `cc -O2 -fPIE
+  -pie -o $CYRIUS_HOME/dlopen-helper programs/dlopen-helper.c
+  -ldl`. On success, caches at `$CYRIUS_HOME/dlopen-helper`
+  (version-agnostic — helper is tied to host libc, not cyrius).
+  On cc-missing or compile-failure: warns but does not fail
+  install; `fdlopen_init` surfaces `FDL_ERR_HELPER_MISSING` at
+  runtime. The `.c` source is also stashed under the version
+  tree so refreshes can rebuild after a host libc upgrade.
+* **`tests/tcyr/fdlopen.tcyr`** + **`tests/regression-fdlopen.sh`**
+  — 32 assertions covering setjmp/longjmp direct-call (returns 0),
+  longjmp round-trip (returns val), POSIX longjmp(0)→1 promotion,
+  state-buffer shape (size 256, all slot offsets), helper-path
+  resolution (reads `$HOME` from `/proc/self/environ`, builds
+  `"$HOME/.cyrius/dlopen-helper"`, NUL-terminates), and
+  `fdlopen_init` returning one of the documented status codes.
+  Gate 4j in check.sh (14 → 15).
+
+### Architecture background
+
+See `docs/development/issues/dynlib-nss-bootstrap.md` for the
+six-release investigation log (v5.5.23 locale → v5.5.24 environ
+→ v5.5.25 auxv → v5.5.26 pwd/grp → v5.5.27 shadow/pam → v5.5.28
+fdlopen) and `vidya :: linking_and_loading/static_dlopen_and_nss_bootstrap_limits`
+for the authoritative "why you don't hand-populate `_rtld_global_ro`"
+writeup.
+
+### Size
+
+* cc5 x86_64: **488,864 B unchanged** — compiler untouched in this
+  release. All changes are in `lib/*.cyr` (new module), `programs/`
+  (new C helper), `scripts/install.sh` (new hook), and `tests/`.
+  Self-host byte-identical.
+* `build/dlopen-helper` (compiled at install time): ~16 KB,
+  dynamically linked against host glibc + libdl.
+
+### check.sh gates
+
+* 14 → **15** (added: 4j fdlopen primitives). 32 new assertions.
+  Known pre-existing harness issue (`cyrius test` auto-prepends
+  deps before stdlib → `PROT_READ` / `SYS_LSEEK` undefined) still
+  unfixed; direct `build/cc5` compile paths work and every gate
+  uses them.
+
+### Known scope
+
+The remaining piece — the in-process mmap of helper + ld.so, auxv
+construction, and ld.so-entry jump — is slotted against the first
+concrete consumer (not a fixed patch number). Until it lands,
+`fdlopen_init` returns `FDL_ERR_UNINIT` (-8) after the helper
+probe succeeds, and consumers can branch cleanly on that code.
+This is deliberate: the orchestration is Cosmopolitan-scale work
+(~200 LoC with dozens of TLS / signal-mask / stack-alignment
+edge cases) and landing it without a driving consumer risks
+subtly-wrong code that breaks silently. Ship the stable surface
+now; land the orchestration against a real driver.
+
 ## [5.5.27] — 2026-04-21
 
 **Second of the three-patch NSS real-fix arc: `lib/shadow.cyr` +

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.27.** cc5 compiler (486552 B x86_64), x86_64 + aarch64
+> **v5.5.28.** cc5 compiler (488,864 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -87,7 +87,8 @@
 > getaddrinfo/strerror/setlocale), v5.5.29 TLS, v5.5.30 atomics,
 > v5.5.31 thread-safety
 > audit, v5.5.32 PE .reloc+ASLR, v5.5.33 PE
-> struct-return+variadic+__chkstk tail, v5.5.34 closeout. The
+> struct-return+variadic+__chkstk tail, v5.5.34 `lib/flags.cyr`
+> CLI flag parser (tools/ecosystem unblock), v5.5.35 closeout. The
 > original v5.5.15 "tool-binary shipping" single-patch scope split
 > three ways on 2026-04-20 once the real blockers (parse-time
 > whitelist, missing `CYRIUS_TARGET_MACOS`, runtime syscall gaps)
@@ -111,7 +112,11 @@
 > so the optimization arc lands first — new port inherits an
 > optimized compiler, rv64 backend lands against v5.6.4's new
 > tile walker on day one). **v5.8.0 is bare-metal / AGNOS kernel
-> target** (slid with the optimization minor insert). aarch64
+> target** (slid with the optimization minor insert). **v5.9.0–
+> 5.9.5 is the pure-cyrius TLS 1.3 arc** — X25519 +
+> ChaCha20-Poly1305 + record layer + handshake, retires the
+> `libssl.so.3` dynlib bridge; slotted after bare-metal because
+> AGNOS kernel needs pure-cyrius crypto. aarch64
 > port remains fully online (`regression.tcyr` 102/102 on real
 > Pi, native `cc5` self-hosts byte-identical, per-arch asm via
 > `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from v5.3.16). Apple Silicon
@@ -1153,13 +1158,15 @@ before opening the next platform port.
 | **v5.5.25** ⚠️ | NSS dispatch auxv investigation + `dynlib_read_auxv` / `dynlib_auxv_get` primitives | Pre-labeled "may never land in a patch" — confirmed. Hit 3-attempts-defer again. (1) Shipped `dynlib_read_auxv(buf, maxbytes)` + `dynlib_auxv_get(buf, bytes, tag)` — slurp /proc/self/auxv and scan for tags (AT_PAGESZ, AT_RANDOM, AT_SYSINFO_EHDR / vDSO base, AT_HWCAP). Independently useful. (2) `programs/nss_probe.cyr` confirmed GLOB_DAT resolution for `_rtld_global_ro` DOES work (libc's GOT slot matches ld.so's export after `dynlib_open`) — v5.5.24 SIGFPE was NOT a missing-GOT bug. The struct is mapped-but-zero-filled because ld.so's `_dl_start` never ran. Populating +0x2a0/+0x2a8 moves past SIGFPE → SIGSEGV elsewhere; direct `getpwuid(0)` still SIGSEGVs in NSS dispatch. (3) Populating more struct fields each reveals a new uninitialised field — fragile, glibc-version-coupled, insufficient. **Full NSS dispatch fix unpinned** — consumers use documented workarounds (fork+/usr/bin/su, or read /etc/passwd directly). `tests/tcyr/dynlib_init.tcyr` +10 assertions (33 total). cc5 486,552 B unchanged. |
 | **v5.5.26** | `lib/pwd.cyr` + `lib/grp.cyr` — NSS-free musl-style identity lookups | Real fix for the NSS dispatch pillar (supersedes v5.5.25's "unpinned" after external research). Port musl's `getpwuid` / `getpwnam` / `getgrgid` / `getgrnam` / `getgrouplist` to pure cyrius — read `/etc/passwd` and `/etc/group` directly, colon-split parse. Musl proves this is ~50 LoC of real logic per lookup; ~500 LoC total for the full identity surface. **Bypasses glibc NSS entirely.** No version coupling, no `_rtld_global_ro`, no `auxv` — deterministic file parsing. Handles 95% of Linux deployments (`passwd: files` is default on desktops + servers + containers). Same architectural stance as musl, by-design. |
 | **v5.5.27** ✅ | `lib/shadow.cyr` + `lib/pam.cyr` (unix_chkpwd) + ecosystem UX | Second NSS-arc patch shipped 2026-04-21. `shadow_getspnam` reads `/etc/shadow` directly (rc=-1 when non-root EACCES). `pam_unix_authenticate(user, password)` forks `/usr/sbin/unix_chkpwd` (Linux-PAM's own setuid-root helper), pipes password via stdin, returns OK / FAIL / infrastructure-error constants. Same shape `pam_unix.so` itself uses from unprivileged processes — works against any NSS backend. Scope narrowed: inline `$6$salt$hash` SHA-512-crypt deferred (Drepper's algorithm is ~120 LoC of interleaved hashing, error-prone; `unix_chkpwd` fork is ~1 ms and works against every crypt type). Also bundled: `cyrius distlib` compile-check softened from fatal → info (fixed patra 1.5.5 release CI regression where `distlib` exited 1 on consumer-bundle unresolved symbols); `cyrius bench` no-args walker now discovers `benches/*.bcyr` + `tests/bcyr/*.bcyr` like `cyrius fuzz`/`test` (takumi-filed UX gotcha — was invoking cyrius-repo-specific `bench-history.sh` for downstream projects). Tests: +6 assertions, new check.sh gate 4i (13 → 14). cc5 unchanged. |
-| **v5.5.28** | `lib/fdlopen.cyr` — foreign-dlopen pattern for real full-libc access | For the remaining cases that genuinely need glibc's state (getaddrinfo, setlocale(LC_ALL,"C"), strerror with locale, setenv realloc path): implement the "foreign-dlopen" pattern used by pfalcon/foreign-dlopen + Cosmopolitan libc. Compile a ~40-line C helper at install time, cache at `~/.cyrius/dlopen-helper`. mmap the helper ELF + ld.so, construct a real-shaped auxv on a fresh 64 KB stack, jump to ld.so's ELF entry point with the constructed stack. ld.so runs its normal `_dl_start` → populates `_rtld_global_ro` legitimately → invokes helper's main → helper captures fn pointers via real `dlsym` and longjmps back with a `{dlopen, dlsym, getaddrinfo, ...}` struct. This is the approach glibc maintainers themselves endorse (Weimer libc-alpha 2017). ~200 LoC cyrius + ~40 LoC C helper + setjmp/longjmp primitives (10 lines inline asm each). Multi-session, ambitious. |
-| **v5.5.29** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
-| **v5.5.30** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. Also fixes the non-atomic mutex fast-path in `lib/thread.cyr` (documented-in-v5.5.18 as works-in-practice). |
-| **v5.5.31** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.29 if scope stays small. |
-| **v5.5.32** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
-| **v5.5.33** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.32 groups the pre-emptive fixes. |
-| **v5.5.34** | v5.5.x closeout | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.33 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. See §"v5.5.34" below. |
+| **v5.5.28** ✅ | `lib/fdlopen.cyr` primitives + C helper + install hook | Third and final patch of the NSS real-fix arc, shipped 2026-04-21. `lib/fdlopen.cyr` (280 LoC) ships `dl_setjmp` / `dl_longjmp` in raw-hex SysV x86_64 inline asm (saves rbx/rbp/r12-r15/rsp/retip to a 128-byte buffer; POSIX `longjmp(0)→1` via `cmove`), `fdlopen_helper_available` (stat-probe for `$HOME/.cyrius/dlopen-helper`, reads `$HOME` from `/proc/self/environ` pre-bootstrap), `_fdlopen_helper_path`, `fdlopen_init` / `fdlopen_status` / `fdlopen_slot` + 11 convenience accessors (`fdlopen_dlopen` / `fdlopen_dlsym` / `fdlopen_getaddrinfo` / …), state-buffer shape (256 B, slot offsets 128–216). `programs/dlopen-helper.c` (~100 LoC) links against host glibc + libdl, reads `argv[1..2]` as hex state + callback addresses, resolves the fixed symbol set via real `dlsym`, stores fn pointers into the state buffer, invokes the callback (which is expected to `dl_longjmp` back). `scripts/install.sh` compiles the helper at install time (`cc -O2 -fPIE -pie`, falls back to `gcc`, silently skips if no cc — `fdlopen_init` then reports FDL_ERR_HELPER_MISSING); source is stashed under the version tree so refreshes rebuild after a host libc upgrade. `tests/tcyr/fdlopen.tcyr` + `tests/regression-fdlopen.sh` add gate 4j (14 → **15**) with 32 assertions. cc5 unchanged (488,864 B — stdlib-only change, self-host byte-identical). **Known scope (pinned forward to v5.5.29):** the in-process mmap of helper + ld.so + auxv construction + ld.so-entry jump lands as v5.5.29 — the next patch. Until it ships, `fdlopen_init` returns `FDL_ERR_UNINIT` (-8) after the helper probe succeeds; API surface is stable across the transition. |
+| **v5.5.29** | `lib/fdlopen.cyr` orchestration — ld.so-entry jump + auxv construction | Completes the v5.5.28 foreign-dlopen surface. Implements `_fdlopen_run_loader` body: (1) read /proc/self/auxv via `dynlib_read_auxv` to source AT_PAGESZ / AT_RANDOM / AT_SYSINFO_EHDR; (2) mmap `$HOME/.cyrius/dlopen-helper` ELF (parse PT_LOAD segments, lay them at a PIE base, record AT_PHDR / AT_PHNUM / AT_ENTRY from the helper's headers); (3) mmap `/lib64/ld-linux-x86-64.so.2` (parse ELF, record AT_BASE + ld.so e_entry); (4) `mmap_anon` a 64 KB stack region; (5) construct kernel-style startup layout at stack top — `argc=3`, `argv[0..2]` (helper path, state-addr hex, callback-addr hex), NULL, empty envp NULL, auxv pairs ({AT_PHDR,…}, {AT_PHENT,56}, {AT_PHNUM,…}, {AT_BASE,…}, {AT_ENTRY,…}, {AT_PAGESZ,4096}, {AT_RANDOM,rnd}, {AT_SYSINFO_EHDR,vdso}, {AT_EXECFN,helper_path}, AT_NULL), followed by the string table for argv + AT_RANDOM's 16 bytes; (6) `dl_setjmp(state)` captures return; (7) raw-hex inline asm switches RSP to the constructed stack top and `jmp` to ld.so's e_entry. ld.so runs its normal `_dl_start` → `dl_main` → `__libc_start_main` flow, populates `_rtld_global_ro` **legitimately** (no hand-populate — the maintainers' endorsed path per Weimer libc-alpha 2017), and invokes the helper's `main()`; helper resolves {dlopen, dlsym, dlclose, dlerror, getaddrinfo, freeaddrinfo, gai_strerror, strerror, setlocale, setenv, unsetenv} via real `dlsym`, stores pointers into the caller's state buffer, calls the callback (a cyrius fn we register in an extended state slot) which `dl_longjmp`s back to the setjmp frame. Post-return, `fdlopen_init` sets state status to `FDL_OK` and the 11 fn pointers are live for the process lifetime. **Risks + mitigations:** (a) locale double-init vs `dynlib_bootstrap_locale` — fdlopen owns locale setup from v5.5.29 onward, document call-order constraint; (b) TLS %fs collision with prior `dynlib_bootstrap_tls` — ld.so clobbers %fs, any prior TLS state is lost (cyrius stdlib uses rbp-relative locals, not %fs, so this is OK in practice — assert + document); (c) stack alignment at ld.so entry (16-byte), AT_RANDOM must be stable-addressed 16 bytes, AT_SYSINFO_EHDR pass-through value (not freshly-mapped vDSO); (d) helper's `__libc_start_main` exits on main return — our callback must `dl_longjmp`, never return. Reference implementations: pfalcon/foreign-dlopen + Cosmopolitan `cosmo_dlopen` (copy their TLS + locale handling verbatim). **Acceptance:** (1) `fdlopen_init` returns 0 on a glibc host with compiled helper; (2) `fncall0(fdlopen_dlopen(state))` loads `libresolv.so.2` and returns non-null; (3) `fncall4(fdlopen_getaddrinfo(state), "example.com", 0, 0, &out)` succeeds; (4) `fncall1(fdlopen_strerror(state), 2)` returns "No such file or directory" (locale-aware — the v5.5.23 `bootstrap_locale` path can't do this); (5) check.sh gate 4j extended with a "full path" sub-test gated on host providing `cc` + glibc + helper; (6) self-host byte-identical. Expected ~250 LoC additions to `lib/fdlopen.cyr` + an extended state layout (+8 bytes for callback fn pointer slot). |
+| **v5.5.30** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. Must land after v5.5.29 because fdlopen's ld.so-entry jump clobbers %fs; documenting the call-order constraint lives with this patch. |
+| **v5.5.31** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. Also fixes the non-atomic mutex fast-path in `lib/thread.cyr` (documented-in-v5.5.18 as works-in-practice). |
+| **v5.5.32** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.31 if scope stays small. |
+| **v5.5.33** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
+| **v5.5.34** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.33 groups the pre-emptive fixes. |
+| **v5.5.35** | `lib/flags.cyr` — CLI flag parser (tools/ecosystem unblock) | Narrow stdlib addition. `lib/args.cyr` today only exposes argc/argv (reads `/proc/self/cmdline` on Linux, `x28` entry-prologue on macOS). Every toolchain binary (cyrius, ark, cyrld, cyrfmt, cyrlint, cyrdoc, cyrc) and every consumer project reinvents flag parsing with ad-hoc `streq("--foo", argv(i))` loops — no common shape, no `--help` generator, no short/long equivalence, no `--foo=value` vs `--foo value` normalization. Add `lib/flags.cyr` modelled on getopt-long: `flags_new()` → handle, `flags_add_bool(handle, "--verbose", "-v", "help text")`, `flags_add_str(handle, "--output", "-o", default, "help text")`, `flags_add_int(handle, "--level", 0, 9, default, "help text")`, `flags_parse(handle, argc, argv)` returns remaining positional args + populates values, `flags_print_help(handle, program_name)` emits standard `--help` output. Idiomatic error: unknown flag prints `"error: unknown flag '--foo'"` and flags_parse returns -1. ~200 LoC cyrius + ~15-test regression. Consumer migration optional (existing call sites keep working) but every new tool / dep binary in the ecosystem gets a real flag parser on day one. cc5 unchanged (stdlib-only). **Why this slot:** last patch before closeout is the right place for a low-risk narrow unblock that every downstream tool benefits from — no codegen risk, no ABI changes, no heap-map change. |
+| **v5.5.36** | v5.5.x closeout | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.35 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. See §"v5.5.36" below. |
 
 **Why this sequence:**
 - v5.5.4–5.5.5 finish the Windows arc (Win64 ABI + native
@@ -1212,7 +1219,11 @@ before opening the next platform port.
   they can't slip silently.
 - v5.5.32–5.5.33 are the PE correctness tail — defer-able but
   recorded so they don't get forgotten.
-- v5.5.34 is the formal closeout before v5.6.0 (optimization arc).
+- v5.5.34 is the `lib/flags.cyr` CLI flag parser — narrow stdlib
+  unblock for every downstream tool (pinned 2026-04-21 during the
+  stdlib-coverage sweep). Last patch before closeout because it's
+  a low-risk stdlib-only addition with no codegen or ABI risk.
+- v5.5.35 is the formal closeout before v5.6.0 (optimization arc).
 
 **After v5.5.x:**
 - **v5.6.0–5.6.5** — Compiler optimization arc (§"v5.6.0 —
@@ -1227,6 +1238,11 @@ before opening the next platform port.
   Slid one minor from v5.6.0 so the optimization arc lands
   first. A new platform should inherit an optimized compiler.
 - **v5.8.0** — Bare-metal / AGNOS kernel target.
+- **v5.9.0–5.9.5** — Pure-cyrius TLS 1.3 arc (§"v5.9.0 — Pure-cyrius
+  TLS 1.3 arc" below). X25519 + ChaCha20-Poly1305 + record layer
+  + handshake; retires the `libssl.so.3` dynlib bridge. Slotted
+  after bare-metal because AGNOS kernel needs pure-cyrius crypto
+  (can't dlopen).
 
 ### v5.5.0 — PE correctness completion
 
@@ -1686,7 +1702,83 @@ consumer. Once shipped, mabda v2.5.x can retire `cache_key.cyr`
 and expect cache-hit benchmarks to land within 2× of Rust v1
 (closing the last outlier in the Rust→Cyrius comparison).
 
-### v5.5.34 — v5.5.x closeout pass (then v5.6.0)
+### v5.5.34 — `lib/flags.cyr` CLI flag parser (tools/ecosystem unblock)
+
+Narrow stdlib addition. `lib/args.cyr` today only exposes
+argc/argv (`/proc/self/cmdline` on Linux, `x28` entry-prologue
+on macOS). Every toolchain binary (cyrius, ark, cyrld, cyrfmt,
+cyrlint, cyrdoc, cyrc) and every consumer project reinvents flag
+parsing with ad-hoc `streq("--foo", argv(i))` loops — no common
+shape, no `--help` generator, no short/long equivalence, no
+`--foo=value` vs `--foo value` normalization.
+
+**Scope:**
+
+- `lib/flags.cyr` modelled on getopt-long:
+  - `flags_new()` → handle (bumps from alloc).
+  - `flags_add_bool(handle, "--verbose", "-v", "help text")`.
+  - `flags_add_str(handle, "--output", "-o", default, "help text")`.
+  - `flags_add_int(handle, "--level", 0, 9, default, "help text")`.
+  - `flags_parse(handle, argc, argv)` — returns remaining positional
+    args count + populates values; -1 on unknown flag / parse error.
+  - `flags_print_help(handle, program_name)` — standard `--help`
+    emission with aligned columns.
+  - `flags_get_bool(handle, "--verbose")`, `flags_get_str(...)`,
+    `flags_get_int(...)` for post-parse access.
+- Accepts both `--foo=value` and `--foo value` forms (normalise in
+  parser, not at caller site).
+- Short-flag bundling: `-xvf foo.tar` equivalent to `-x -v -f foo.tar`.
+- `--` terminator stops flag parsing; everything after is positional.
+- Error emission: `"error: unknown flag '--foo'"` / `"error: --level
+  out of range [0,9]"` to stderr; `flags_parse` returns -1 so
+  callers can `return 2` with an idiomatic usage-error exit.
+
+**Why this, why now:**
+
+Every tool and consumer repo currently rolls its own flag-parsing
+loop. Running `grep -rn 'streq.*"--' programs/ lib/` in the cyrius
+repo alone returns 60+ hits across cyrius, cyrfmt, cyrlint, cyrdoc,
+cyrc, ark, cyrld; the ecosystem (argonaut / majra / shakti /
+takumi / yukti / mabda) adds dozens more. A `lib/flags.cyr` lets
+new tools land with a real flag parser on day one and gives
+existing tools a consistent `--help` format if they opt in.
+
+**Acceptance:**
+
+1. `sh scripts/check.sh` PASSes (existing gates hold; one new gate
+   `tests/regression-lib-flags.sh` covering: bool / str / int flag
+   registration, `--foo value` vs `--foo=value` parsing, short-flag
+   bundling, `--` terminator, unknown-flag error, out-of-range int,
+   help emission formatting).
+2. `tests/tcyr/flags.tcyr` — ~15 assertions.
+3. cc5 + cc5_aarch64 self-host byte-identical (lib-only change).
+4. At least one tool migrated (`programs/cyrfmt.cyr` is the
+   smallest; proves the API shape on a real consumer before
+   freezing).
+
+**Out of scope** (follow-ups, not blockers):
+
+- Subcommand parsing (`cyrius build` vs `cyrius test`) — current
+  tools do this manually; the flag parser handles flags within a
+  subcommand, not subcommand dispatch. Can layer later if needed.
+- Long-option abbreviation (`--ver` matching `--version`) — getopt
+  supports this; skip for now (error-prone, ambiguity-resolution
+  logic).
+- Man-page / shell-completion generation — defer until a second
+  consumer asks.
+
+**Downstream coordination:** new tools adopt immediately. Existing
+tools migrate opportunistically — no forced bump. Drop-in
+replacement for the majority of existing `streq("--", argv(i))`
+loops.
+
+**Why this slot:** last patch before closeout is the right place
+for a low-risk narrow unblock that every downstream tool benefits
+from. No codegen risk, no ABI changes, no heap-map change.
+
+---
+
+### v5.5.35 — v5.5.x closeout pass (then v5.6.0)
 
 Last patch of the v5.5.x minor. Full CLAUDE.md §"Closeout Pass"
 11-step checklist run with v5.5.x-specific scope — this minor
@@ -1698,9 +1790,9 @@ paths that a dedicated refactor + code review window is earned.
 - Self-host verify — cc5 compiles itself byte-identical (Linux).
 - Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
 - Full `sh scripts/check.sh` — 11+/11+ PASS (gates accumulated
-  through v5.5.33; 12 at v5.5.22 after the cyrfmt --write gate
-  result gate landed; exact final count depends on what later
-  patches add).
+  through v5.5.34; 12 at v5.5.22 after the cyrfmt --write gate
+  result gate landed, +1 at v5.5.34 for the flags regression;
+  exact final count depends on what later patches add).
 
 **Judgment-call passes (CLAUDE.md steps 4-8):**
 - **Heap map audit** — v5.5.x added at least one named region
@@ -1724,7 +1816,7 @@ paths that a dedicated refactor + code review window is earned.
   "abi_kind" switch or helpers. Land consolidation IF self-host
   stays byte-identical; otherwise file as v5.6.x first-patch work
   with a concrete patch number, not "queued for later".
-- **Code review pass** — walk every v5.5.0–v5.5.33 diff end-to-end.
+- **Code review pass** — walk every v5.5.0–v5.5.34 diff end-to-end.
   Specifically look for:
   - Unguarded x86 encodings on non-x86 paths (pattern from v5.4.19
     aarch64 `&local` leak; the `EW` alignment assert should have
@@ -1777,17 +1869,17 @@ paths that a dedicated refactor + code review window is earned.
 - Roadmap: verify every v5.5.x row in the release table has the
   ✅ marker and matches what actually shipped. Any patch that
   slipped scope gets a note explaining the slip.
-- CHANGELOG: entries present for v5.5.0 through v5.5.33. Cross-
+- CHANGELOG: entries present for v5.5.0 through v5.5.34. Cross-
   check the dates.
 
 **Benchmark refresh:**
-- `cyrius bench` at v5.5.34, comparing v5.5.0 baseline. Record in
+- `cyrius bench` at v5.5.35, comparing v5.5.0 baseline. Record in
   `bench-history.csv`. Expected trend: compiler size grew (~2.5%
   per Win64-branch patch); runtime for most benchmarks flat
   (optimizer arc is v5.6.x, not v5.5.x). Any unexpected slowdown
   points at a v5.5.x regression the other passes missed.
 
-After v5.5.34 ships, the next tag is **v5.6.0** — Phase O1 of the
+After v5.5.35 ships, the next tag is **v5.6.0** — Phase O1 of the
 compiler-optimization arc.
 
 ---
@@ -2049,6 +2141,109 @@ caused which regressions.
 
 ---
 
+## v5.9.0 — Pure-cyrius TLS 1.3 arc
+
+Dedicated minor for a pure-cyrius TLS 1.3 client + record layer,
+replacing the current `lib/tls.cyr` `libssl.so.3` dynlib bridge.
+Slotted **after bare-metal (v5.8.0)** because the AGNOS kernel
+target is the concrete consumer that needs this — bare-metal
+can't `dlopen` libssl, so the sovereign-crypto story is a
+prerequisite for secure networking in the kernel arc. **Pinned
+to concrete patch numbers** so it can't drift into a "parallel
+track" again (same discipline as O1–O6).
+
+**Why this, why now:**
+
+- `lib/tls.cyr` today is a thin shim over `libssl.so.3` via
+  `lib/dynlib.cyr`. Works for userspace Linux targets that have
+  OpenSSL installed, breaks the sovereign story (toolchain
+  depends on a non-Cyrius crypto library), and **cannot run on
+  bare-metal** (no dlopen, no libc). Any AGNOS kernel component
+  that talks TLS (remote logging, update fetch, attestation)
+  needs pure-cyrius crypto.
+- `sigil` already ships the symmetric primitives (SHA-256/512,
+  HMAC, HKDF, SHAKE-128/256, Ed25519, AES-NI fast-path via
+  v5.5.21's SSE m128 alignment fix). What's missing for TLS 1.3
+  is X25519 ECDH, ChaCha20-Poly1305 AEAD, and the TLS 1.3 record
+  layer + handshake state machine.
+- Cleanest shape is a dedicated multi-patch minor rather than
+  squeezing into v5.8.x (bare-metal is already a large arc).
+
+**Pinned sub-patches:**
+
+- **v5.9.0** — X25519 scalar multiplication in pure cyrius.
+  Curve25519 Montgomery ladder over GF(2^255 - 19). ~300 LoC,
+  NIST/IETF test-vector gate. Lands in `sigil` first, re-exposed
+  to stdlib via dep bump.
+- **v5.9.1** — ChaCha20 + Poly1305 + ChaCha20-Poly1305 AEAD.
+  RFC 8439 test vectors. Constant-time primitives use `secret
+  var` + `lib/ct.cyr` (shipped v5.3.5). `sigil` addition.
+- **v5.9.2** — `lib/tls.cyr` record layer: TLSPlaintext /
+  TLSInnerPlaintext / TLSCiphertext shapes, AEAD wrap/unwrap,
+  key schedule (HKDF-Expand-Label via sigil HKDF from v5.4.15).
+  No handshake yet — record layer first so it can be tested in
+  isolation against a recorded session transcript.
+- **v5.9.3** — `lib/tls.cyr` handshake state machine: ClientHello
+  / ServerHello / EncryptedExtensions / Certificate / CertificateVerify
+  / Finished. X25519 key share only (no RSA, no secp256r1 in v1
+  — ship-scope narrowing; can add curves later if a consumer
+  needs them). Ed25519 cert verification via sigil.
+- **v5.9.4** — Retire the `libssl.so.3` dynlib bridge from
+  `lib/tls.cyr`. Consumer migration: any tool using `tls_*` APIs
+  picks up the pure-cyrius implementation with zero source
+  change. `lib/dynlib.cyr` retains the generic `.so` loading
+  primitives — only the TLS-specific bridge gets removed.
+- **v5.9.5** — v5.9.x closeout (CLAUDE.md §"Closeout Pass").
+  Benchmark vs libssl baseline (expect ~2× slower handshakes,
+  within 10% of libssl on bulk AEAD throughput once AVX2 is
+  added in a later minor), security audit focused on timing
+  side-channels + constant-time assertions, heap-map review
+  (TLS session state is a new region), downstream ecosystem
+  bump.
+
+**Acceptance gates (per patch):**
+
+1. Each patch self-contained: test vectors PASS, self-host
+   byte-identical, no cross-patch dependencies that require the
+   minor to land as a batch.
+2. v5.9.3 gate: handshake succeeds against `google.com:443` and
+   `github.com:443` via real TLS 1.3 (pure-cyrius client,
+   real-world server).
+3. v5.9.4 gate: `cyrius deps` of any consumer previously using
+   `lib/tls.cyr` builds clean with the libssl bridge removed.
+4. v5.9.5 gate: full benchmark + security re-scan checklist.
+
+**Out of scope** (pin to v5.10.x or later if demand surfaces):
+
+- TLS server (listener side) — consumer demand not yet present;
+  AGNOS kernel talks outbound, not inbound.
+- Older protocol versions (TLS 1.0, 1.1, 1.2). TLS 1.3 is the
+  only version worth implementing in 2026+. Consumers needing
+  legacy can fork.
+- QUIC / HTTP/3 — separate protocol, separate minor.
+- secp256r1 / secp384r1 / RSA key exchange — X25519 covers the
+  modern cert / key-share path. If a legacy server needs
+  secp256r1, add later.
+- Post-quantum hybrid key-share (X25519+Kyber) — pinned to a
+  future `sigil` PQC release; TLS arc lands classical crypto
+  first, adds hybrid later without breaking API.
+
+**Prerequisite:** `sigil` 3.0 PQC enabler arc (see §"Sigil 3.0
+enablers — remaining") must close its classical-crypto items
+before v5.9.0 opens — specifically the Keccak / SHAKE work
+already landed in v5.4.15 + AES-NI unblock in v5.5.21. X25519
+is the last outstanding sigil-side primitive before TLS can
+start.
+
+**Downstream coordination:** AGNOS kernel + any consumer binary
+that talks TLS (argonaut sync, ark package fetch, future shakti
+remote-auth paths) picks up the swap transparently at v5.9.4.
+No API break — the current `tls_connect` / `tls_read` /
+`tls_write` / `tls_close` shape ports 1:1 to the pure-cyrius
+backend.
+
+---
+
 ## v5.x — Platform Targets
 
 Each platform is one minor release. cc5 backend-table dispatch
@@ -2077,6 +2272,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.15–5.5.17** ✅ | macOS aarch64 tool-binary shipping (3-way split) | Mach-O | v5.5.15 softened parse.cyr's Mach-O syscall-whitelist hard-error so tools cross-build past dead-code stdlib syscalls; v5.5.16 predefined `CYRIUS_TARGET_MACOS` + added `#ifdef CYRIUS_TARGET_MACOS` dispatch in `lib/alloc.cyr` (→ `lib/alloc_macos.cyr` mmap path) + gated `lib/io.cyr` flock Linux-only; v5.5.17 added Mach-O arm64 entry prologue (`stp x0, x1, [sp, #-16]! ; mov x28, sp`) + `lib/args_macos.cyr` peer reading x28 via inline asm for argv access. All 4 tool binaries (cyrfmt/cyrlint/cyrdoc/cyrc) do real work on `ssh ecb`. macOS aarch64 target closed — `__got` infrastructure (v5.5.11–14) + per-OS stdlib dispatch (v5.5.16) + argv plumbing (v5.5.17). |
 | **v5.7.0** | RISC-V rv64 | ELF | First-class RISC-V target (reassigned from v5.6.0 on 2026-04-20 so v5.6.x optimization lands first; new port inherits optimized compiler) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | AGNOS kernel target (slid from v5.7.0 with the optimization minor insert) |
+| **v5.9.0–5.9.5** | Pure-cyrius TLS 1.3 arc | — | X25519 + ChaCha20-Poly1305 + record layer + handshake; retires the `libssl.so.3` dynlib bridge. Slotted after bare-metal because AGNOS kernel needs pure-cyrius crypto (can't dlopen). Pinned to concrete patch numbers — see §"v5.9.0 — Pure-cyrius TLS 1.3 arc". |
 
 ---
 
@@ -2143,6 +2339,7 @@ enables adding new targets without touching the frontend.
 | Compiler optimization (O1–O6) | — | Queued — **v5.6.0–5.6.5** (pinned 2026-04-20; each phase gets its own patch number — no more "parallel track" drift) |
 | RISC-V (rv64) | ELF | Queued — **v5.7.0** (slid from v5.6.0 on 2026-04-20 so the optimization minor lands first) |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** (AGNOS kernel target; slid with the optimization minor insert) |
+| Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** (X25519 + ChaCha20-Poly1305 + record layer + handshake; retires the `libssl.so.3` dynlib bridge. Lands after bare-metal because AGNOS kernel needs pure-cyrius crypto — can't dlopen.) |
 
 ---
 
