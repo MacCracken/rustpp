@@ -1,0 +1,92 @@
+# pwd_grp.tcyr — /etc/passwd + /etc/group reader (v5.5.26).
+# Bypasses glibc NSS; musl pattern.
+
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fnptr.cyr"
+include "lib/pwd.cyr"
+include "lib/grp.cyr"
+
+alloc_init();
+
+test_group("lib/pwd.cyr");
+
+var pwrec[56];
+var strbuf[1024];
+
+var rc_root = pwd_getpwuid(0, &pwrec, &strbuf, 1024);
+assert_eq(rc_root, 1, "getpwuid(0) finds root");
+assert_eq(pwd_uid(&pwrec), 0, "root uid == 0");
+assert_eq(pwd_gid(&pwrec), 0, "root gid == 0");
+
+# Name should be "root" — spot-check first 4 bytes + null
+var rn = pwd_name(&pwrec);
+assert_eq(load8(rn),     114, "root name[0] == 'r'");
+assert_eq(load8(rn + 1), 111, "root name[1] == 'o'");
+assert_eq(load8(rn + 2), 111, "root name[2] == 'o'");
+assert_eq(load8(rn + 3), 116, "root name[3] == 't'");
+assert_eq(load8(rn + 4), 0,   "root name is null-terminated");
+
+# Cached — second call should hit the cache, not re-read the file
+var rc_root2 = pwd_getpwuid(0, &pwrec, &strbuf, 1024);
+assert_eq(rc_root2, 1, "getpwuid(0) still finds root (cached path)");
+
+# Miss
+var rc_miss = pwd_getpwuid(999999, &pwrec, &strbuf, 1024);
+assert_eq(rc_miss, 0, "getpwuid(999999) returns 0 (not found)");
+
+# Name lookup
+var rc_by_name = pwd_getpwnam("root", &pwrec, &strbuf, 1024);
+assert_eq(rc_by_name, 1, "getpwnam(\"root\") finds root");
+assert_eq(pwd_uid(&pwrec), 0, "getpwnam result uid == 0");
+
+# Nonexistent name
+var rc_miss2 = pwd_getpwnam("_nosuchuser_v5526_", &pwrec, &strbuf, 1024);
+assert_eq(rc_miss2, 0, "getpwnam nonexistent returns 0");
+
+# Too-small strbuf → returns -2 (overflow). 16 bytes can't fit any
+# real /etc/passwd record (name+passwd+gecos+dir+shell + 5 null
+# terminators exceeds 16 for every real record).
+var tinybuf[16];
+var rc_tiny = pwd_getpwuid(0, &pwrec, &tinybuf, 16);
+assert_eq(rc_tiny, 0 - 2, "strbuf=16 triggers overflow rc=-2");
+
+test_group("lib/grp.cyr");
+
+var grrec[24];
+
+var rcg = grp_getgrgid(0, &grrec, &strbuf, 1024);
+assert_eq(rcg, 1, "getgrgid(0) finds root group");
+assert_eq(grp_gid(&grrec), 0, "root gid == 0");
+var gn = grp_name(&grrec);
+assert_eq(load8(gn),     114, "root group name[0] == 'r'");
+assert_eq(load8(gn + 4), 0,   "root group name null-term at 4");
+
+var rcgn = grp_getgrnam("root", &grrec, &strbuf, 1024);
+assert_eq(rcgn, 1, "getgrnam(\"root\") succeeds");
+assert_eq(grp_gid(&grrec), 0, "root group gid via name == 0");
+
+var rcg_miss = grp_getgrgid(999999, &grrec, &strbuf, 1024);
+assert_eq(rcg_miss, 0, "getgrgid(999999) returns 0");
+
+# getgrouplist: always includes the primary gid, even if no
+# /etc/group membership record matches.
+var gids[32];
+var n_root = grp_getgrouplist("root", 0, &gids, 32);
+assert(n_root >= 1, "getgrouplist(root, 0) count >= 1");
+assert_eq(load64(&gids), 0, "primary gid appears at slot 0");
+
+# Buffer-too-small path. max=0 is the cleanest trigger.
+var n_nobuf = grp_getgrouplist("root", 0, &gids, 0);
+assert_eq(n_nobuf, 0 - 2, "max=0 triggers rc=-2");
+
+# Nonexistent user: only the primary gid comes back.
+var n_nou = grp_getgrouplist("_nosuchuser_v5526_", 42, &gids, 32);
+assert_eq(n_nou, 1, "nonexistent user yields just primary");
+assert_eq(load64(&gids), 42, "that single gid is the primary");
+
+var r = assert_summary();
+syscall(60, 0);

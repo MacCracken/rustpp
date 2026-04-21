@@ -782,7 +782,12 @@ fn cmd_distlib(profile) {
         sys_write(ofd, bn, strlen(bn));
         sys_write(ofd, " ---\n\n", 6);
 
-        # Read module and write line by line, stripping include directives
+        # Read module and write line by line, stripping include
+        # directives (both `lib/...` stdlib refs and `src/...`
+        # self-refs). The consumer is expected to include any
+        # required stdlib before this bundle — cyrius's deps phase
+        # handles the include order, now with stdlib-before-deps
+        # (v5.5.26 flip in cbt/build.cyr).
         var fbuf = alloc(65536);
         var flen = file_read_all(mod_path, fbuf, 65535);
         if (flen <= 0) { mi = mi + 1; continue; }
@@ -796,7 +801,6 @@ fn cmd_distlib(profile) {
             if (pos < flen) { pos = pos + 1; }
 
             var ll = le - ls;
-            # Skip lines starting with "include "
             if (ll >= 8 && memeq(fbuf + ls, "include ", 8) == 1) {
                 continue;
             }

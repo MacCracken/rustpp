@@ -154,6 +154,15 @@ if [ "$cf_result" -ne 0 ]; then cat /tmp/audit_cf_$$; fi
 rm -f /tmp/audit_cf_$$
 echo ""
 
+# ── 4h. Reserved-keyword diagnostic (5.5.26) ──
+echo "── Reserved-keyword diag ──"
+sh "$ROOT/tests/regression-reserved-kw-diag.sh" > /tmp/audit_kw_$$ 2>&1
+kw_result=$?
+check "'var match/in/default/shared' → 'reserved keyword ... cannot be used as identifier'" "$kw_result"
+if [ "$kw_result" -ne 0 ]; then cat /tmp/audit_kw_$$; fi
+rm -f /tmp/audit_kw_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

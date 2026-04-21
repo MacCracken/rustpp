@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.26] — 2026-04-21
+
+**First of three-patch NSS real-fix arc. `lib/pwd.cyr` + `lib/grp.cyr`
+(musl-style identity lookups, bypass glibc NSS) + reserved-keyword
+diagnostic improvement + patra 1.5.5 switch from `bundle.sh` to
+`cyrius distlib`.** v5.5.25 deferred the full NSS fix with an honest
+"may never land" caveat; same-day external research produced a
+concrete three-patch plan (see v5.5.25 entry). This is patch 1/3 —
+the file-based lookups that cover 95% of Linux deployments.
+
+### Added
+
+* **`lib/pwd.cyr`** — `pwd_getpwuid(uid, pwrec, strbuf, strbufsz)`
+  and `pwd_getpwnam(name, …)`. Reads `/etc/passwd` directly, parses
+  POSIX colon-separated records. Caller protocol: 56 B `pwrec`
+  (uid, gid, name ptr, passwd ptr, gecos ptr, dir ptr, shell ptr) +
+  scratch `strbuf` for string fields. Internal cache keeps
+  `/etc/passwd` contents in a heap buffer after first read;
+  `pwd_invalidate_cache()` forces a re-read. Convenience accessors
+  `pwd_uid` / `pwd_gid` / `pwd_name` / `pwd_passwd` / `pwd_gecos` /
+  `pwd_dir` / `pwd_shell`. Return values: 1 = found, 0 = not found,
+  -1 = `/etc/passwd` not readable, -2 = strbuf too small.
+* **`lib/grp.cyr`** — `grp_getgrgid(gid, grrec, strbuf, strbufsz)`,
+  `grp_getgrnam(name, …)`, and `grp_getgrouplist(user, primary_gid,
+  gid_buf, max)`. Same pattern for `/etc/group`. `grp_getgrouplist`
+  walks the file enumerating every group that lists `user` as a
+  member, always prepending `primary_gid`. Matches glibc's
+  `getgrouplist` semantics for 95% of Linux deployments
+  (`group: files` is the default).
+* **`tests/tcyr/pwd_grp.tcyr`** — 26 assertions covering name/uid
+  lookup, cache path, miss path, buffer-too-small, grouplist with
+  member match + nonexistent user (primary-only result). Runs
+  clean on direct `build/cc5` compile; the `cyrius test` harness
+  has a pre-existing dep-auto-prepend-before-stdlib ordering issue
+  orthogonal to this patch that surfaces unresolved stdlib
+  references in any test that pulls deps in (tracked for v5.5.27+).
+* **`tests/regression-reserved-kw-diag.sh`** + check.sh gate 4h —
+  asserts the keyword-as-identifier diagnostic fires cleanly on
+  `var match` / `var in` / `var default` / `var shared`, with
+  negative control for legitimate identifiers. 12 → 13 gates.
+
+### Changed
+
+* **`src/common/util.cyr`** — `TOKNAME` gained cases for previously-
+  missing reserved keywords (23 `else`, 58 `case`, 59 `default`, 76
+  `in`, 78 `shared`, 79 `object`) so the error message never says
+  "got unknown." `ERR_EXPECT` now detects the
+  expected-identifier-but-got-keyword case specifically and prints:
+  `error: expected identifier, got reserved keyword 'match' (cannot
+  be used as an identifier; rename the variable/field/fn)` with
+  the capacity-meter tail. New helper `IS_KEYWORD_TOK(typ)` covers
+  24 keyword token types.
+* **patra 1.5.4 → 1.5.5 (`cyrius.cyml`)** — patra switched its
+  bundle generation from an ad-hoc `scripts/bundle.sh` shell script
+  to `cyrius distlib`. Same shape, same content, no source-level
+  diff. `[lib] modules = [...]` declares the concatenation order
+  in patra's own `cyrius.cyml`; cyrius distlib reads it and writes
+  `dist/patra.cyr`. One less ecosystem shell script. Cyrius dep
+  pin updated accordingly.
+
+### Why this sequence
+
+Per v5.5.25 research, two paths beat the auxv-synthesis dead-end:
+
+1. **Bypass glibc NSS entirely** (this patch + v5.5.27) — what musl
+   does. Parse `/etc/passwd` / `/etc/group` directly. 50 LoC of
+   real logic per lookup. No glibc version coupling.
+2. **Run ld.so legitimately** (v5.5.28 foreign-dlopen) — for the
+   remaining cases that truly need full glibc state.
+
+Together these cover 100% of consumer needs without ever touching
+`_rtld_global_ro`.
+
+### Also
+
+The reserved-keyword diagnostic was the thing that surfaced during
+the `lib/grp.cyr` implementation itself — I wrote `var match = 1;`
+inside the member-matcher and got the same misleading error
+downstream projects had been filing for weeks. Fix shipped in the
+same patch as the work that triggered the latest repro — exactly
+the "ship the fix where you hit the bug" pattern.
+
+### Known pre-existing issue (not fixed here)
+
+`cyrius test` auto-prepends dep-include directives BEFORE the test
+file's own includes. This breaks tests whose deps transitively
+reference stdlib (patra → freelist → `PROT_READ`, dynlib → SYS_LSEEK,
+etc.) — the stdlib isn't in scope yet when the dep is concatenated.
+Pre-existing (same root cause hit across v5.5.23–v5.5.25 dynlib
+work). Affects the harness only; **direct `build/cc5` compile of
+every test passes, and check.sh 13/13 is green**. A proper fix means
+reordering the auto-prepend so stdlib includes come before dep
+includes (or making each dep bundle declare its stdlib prereqs and
+hoisting them). Tracked for v5.5.27 or a dedicated harness patch.
+
+### Size
+
+* cc5 x86_64: **486,552 B → 488,864 B** (+2,312 B = 0.48%). New
+  TOKNAME cases + `IS_KEYWORD_TOK` helper + the expected-identifier
+  branch in `ERR_EXPECT`. Two-step bootstrap byte-identical.
+
 ## [5.5.25] — 2026-04-21
 
 **NSS auxv investigation + `dynlib_read_auxv` / `dynlib_auxv_get`
