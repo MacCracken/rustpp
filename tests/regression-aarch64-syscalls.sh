@@ -130,4 +130,156 @@ elif [ "$out" != "joined" ]; then
     fail=$((fail+1))
 fi
 
+# ---- Test 3 (v5.5.18): alloc stress — 256 × 1KB blocks
+#      Exercises lib/alloc.cyr's brk-based Linux path on real Pi.
+#      A smoke test the bump allocator survives 256 back-to-back
+#      alloc() calls without falling off the end of the heap's
+#      initial 1 MB window; the heap has never been asked for
+#      anything larger in automated testing.
+cat > "$TMP/alloc_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+
+fn main() {
+    alloc_init();
+    var i = 0;
+    var last = 0;
+    while (i < 256) {
+        var p = alloc(1024);
+        if (p == 0) { syscall(SYS_EXIT, 31); }
+        store64(p, i);
+        last = p;
+        i = i + 1;
+    }
+    if (load64(last) != 255) { syscall(SYS_EXIT, 32); }
+    sys_write(STDOUT_FD, "alloc_ok\n", 9);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/alloc_test.cyr" | "$CC_ARM" > "$TMP/alloc_test" 2>/dev/null
+chmod +x "$TMP/alloc_test"
+scp -q "$TMP/alloc_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_3" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_3; /tmp/cyr_aarch64_regr_3')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test3 (alloc stress): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "alloc_ok" ]; then
+    echo "  FAIL test3 (alloc stress): got '$out' expected 'alloc_ok'"
+    fail=$((fail+1))
+fi
+
+# ---- Test 4 (v5.5.18): fs roundtrip — write-then-read a scratch file
+#      Exercises lib/io.cyr's file_open/file_write/file_read/file_close
+#      on real Pi. Pre-v5.5.18 lib/io.cyr hardcoded Linux x86_64
+#      syscall numbers (2/3/0/1) — those mean io_setup/io_destroy/
+#      io_submit/io_cancel on aarch64, so file_open returned -1
+#      immediately. v5.5.18 routes io.cyr through the per-arch
+#      sys_open/sys_close/sys_read/sys_write wrappers that already
+#      existed for the same-category v5.4.11 yukti fix.
+cat > "$TMP/fs_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+
+fn main() {
+    var path = "/tmp/cyrius_regr_fs_probe.txt";
+    var msg = "hello_fs\n";
+    var mlen = 9;
+    var fd = file_open(path, O_WRONLY | O_CREAT | O_TRUNC, 0x1A4);
+    if (fd < 0) { syscall(60, 41); }
+    var w = file_write(fd, msg, mlen);
+    file_close(fd);
+    if (w != mlen) { syscall(60, 42); }
+    var rfd = file_open(path, O_RDONLY, 0);
+    if (rfd < 0) { syscall(60, 43); }
+    var buf[64];
+    var n = file_read(rfd, &buf, 64);
+    file_close(rfd);
+    if (n != mlen) { syscall(60, 44); }
+    var i = 0;
+    while (i < mlen) {
+        if (load8(&buf + i) != load8(msg + i)) { syscall(60, 45); }
+        i = i + 1;
+    }
+    syscall(1, 1, "fs_ok\n", 6);
+    syscall(60, 0);
+}
+main();
+EOF
+cat "$TMP/fs_test.cyr" | "$CC_ARM" > "$TMP/fs_test" 2>/dev/null
+chmod +x "$TMP/fs_test"
+scp -q "$TMP/fs_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_4" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_4; /tmp/cyr_aarch64_regr_4')
+rc=$?
+ssh "$SSH_TARGET" 'rm -f /tmp/cyrius_regr_fs_probe.txt' >/dev/null 2>&1
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test4 (fs roundtrip): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "fs_ok" ]; then
+    echo "  FAIL test4 (fs roundtrip): got '$out' expected 'fs_ok'"
+    fail=$((fail+1))
+fi
+
+# ---- Test 5 (v5.5.18): multi-thread spawn (4 × parallel)
+#      Scales test 2 from 1 thread to 4. Confirms that the v5.4.11
+#      aarch64 clone trampoline, v5.4.10 futex-private alignment,
+#      and `lib/alloc.cyr`'s brk-based heap all survive parallel
+#      thread creation + join. Note the `handles[32]` sizing —
+#      cyrius `var[N]` is **bytes** not elements (4 threads × 8 B
+#      each = 32 B); easy gotcha to miss, and using `var[4]` silently
+#      clobbers adjacent globals when loops store past the 4th byte.
+cat > "$TMP/mt_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/thread.cyr"
+
+fn _worker(arg) {
+    var x = 0;
+    var i = 0;
+    while (i < 100) { x = x + i; i = i + 1; }
+    syscall(SYS_EXIT, 0);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    var handles[32];                       # 4 × 8 B — bytes not elements
+    var i = 0;
+    while (i < 4) {
+        var t = thread_create(&_worker, i);
+        if (t == 0) { syscall(SYS_EXIT, 51); }
+        store64(&handles + i * 8, t);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 4) {
+        var rj = thread_join(load64(&handles + i * 8));
+        if (rj != 0) { syscall(SYS_EXIT, 52); }
+        i = i + 1;
+    }
+    sys_write(STDOUT_FD, "mt_ok\n", 6);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/mt_test.cyr" | "$CC_ARM" > "$TMP/mt_test" 2>/dev/null
+chmod +x "$TMP/mt_test"
+scp -q "$TMP/mt_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_5" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_5; /tmp/cyr_aarch64_regr_5')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test5 (multi-thread × 4): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "mt_ok" ]; then
+    echo "  FAIL test5 (multi-thread × 4): got '$out' expected 'mt_ok'"
+    fail=$((fail+1))
+fi
+
 exit $fail

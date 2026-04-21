@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.17.** cc5 compiler (486352 B x86_64), x86_64 + aarch64
+> **v5.5.18.** cc5 compiler (486352 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -1100,7 +1100,7 @@ before opening the next platform port.
 | **v5.5.15** ✅ | Mach-O tool-binary cross-build (whitelist soften) | Part 1 of 3 of the tool-binary shipping split. parse.cyr:787–811 Mach-O whitelist hard-error demoted to warning (message updated to flag runtime hazard + forward-point to v5.5.17). All 4 tools (`cyrfmt` / `cyrlint` / `cyrdoc` / `cyrc`) cross-compile to arm64 Mach-O and codesign cleanly on `ssh ecb`. Runtime status mixed as expected: cyrfmt SIGSYSes on an unhandled syscall (rc=140 = 128+12); cyrlint/cyrdoc/cyrc silently exit 0 without output (likely `alloc_init`'s `syscall(12)` brk returning garbage on macOS where BSD 12 is `chdir` — blocks output before real work). Those failures feed v5.5.16/v5.5.17 scope. cc5 485,744 → 485,736 B (−8 B). |
 | **v5.5.16** ✅ | `CYRIUS_TARGET_MACOS` predefine + stdlib per-OS dispatch | Part 2 of 3 of the tool-binary shipping split. main.cyr + main_aarch64.cyr check `CYRIUS_MACHO` / `CYRIUS_MACHO_ARM` env early and predefine `CYRIUS_TARGET_MACOS` (not `CYRIUS_TARGET_LINUX`) under them. `lib/alloc.cyr` gains a `#ifdef CYRIUS_TARGET_MACOS` → `include "lib/alloc_macos.cyr"` branch; `lib/alloc_macos.cyr` self-contained (inline Linux syscall numbers 9/11/1/60, ESYSXLAT translates to BSD-arm64 on emit). `lib/io.cyr` flock helpers wrapped in `#ifdef CYRIUS_TARGET_LINUX`. All 4 tools now start up cleanly on `ssh ecb` — each prints its usage banner from a working mmap-based heap (cyrfmt rc=140 SIGSYS → rc=1 usage; cyrlint/cyrdoc/cyrc rc=0 silent → rc=0/1 with usage output). Warnings drop from 7 per tool to 0. Remaining blocker for real work: argv on macOS (no `/proc/self/cmdline`) → v5.5.17. cc5 485,736 → 486,352 B (+616 B). |
 | **v5.5.17** ✅ | argv on macOS — Mach-O entry prologue stashes argc/argv in x28 | Part 3 of 3. Scope flipped from "ESYSXLAT/`__got` expansion" to "argv fix" once v5.5.16 proved all syscalls the tools exercise were already whitelisted/rerouted — the actual runtime gap was argv access. `main_aarch64.cyr` emits `stp x0, x1, [sp, #-16]!` + `mov x28, sp` (8 bytes, pre-`EJMP0`) under `_is_macho_arm_build`. New `lib/args_macos.cyr` peer reads x28 via inline asm (`mov x0, x28 ; stur x0, [x29, #-8]`) to expose argc()/argv(n). `lib/args.cyr` dispatches under `#ifdef CYRIUS_TARGET_MACOS`. All 4 tool binaries now do real work on `ssh ecb`: cyrfmt formats files, cyrlint reports "0 warnings", cyrdoc generates markdown, cyrc vet scans dependencies. macOS aarch64 target closed. cc5 unchanged (only main_aarch64.cyr + lib/ touched); cc5_aarch64 +112 B. |
-| **v5.5.18** | aarch64 native Linux self-host | Wider stdlib pass on real Pi hardware — alloc, fs, threading, mutex chains under `CLONE_VM`. `regression.tcyr` 102/102 already holds from v5.3.18; this completes the consumer-facing modules. |
+| **v5.5.18** ✅ | aarch64 native Linux self-host — stdlib shakedown on real Pi | `lib/io.cyr` routed through per-arch `sys_*` wrappers (was emitting literal Linux x86_64 syscall numbers — `file_open` = `io_setup` on aarch64; same bug class as the v5.4.11 yukti fix, io.cyr was missed during that split). `tests/regression-aarch64-syscalls.sh` grows from 2 → 5 sub-tests (adds alloc stress, fs roundtrip, 4-thread spawn/join). All four stdlib areas verified on real Pi 4 (`ssh pi`): `alloc_ok` / `fs_ok` / `mt_ok` / `mutex_ok`. Non-atomic mutex fast-path documented as works-in-practice, deterministic fix pinned to v5.5.22 atomics. `var[N]` = bytes-not-elements gotcha resurfaced and noted in the test comment. cc5 unchanged (io.cyr only matters to user programs that include it). |
 | **v5.5.19** | `include`-boundary inline-asm bug fix | Filed v5.4.15 (sigil 2.9.0 AES-NI blocker). Stores through caller-pointer from `include`d fn with big asm block no-op silently; byte-identical objdump either way. Speculative causes: fixup-table pressure on disp32 forward refs, DCE over-stripping in include context, prologue/epilogue clobber of pointer register. Sigil 2.9.1 unblocked. |
 | **v5.5.20** | NSS/PAM end-to-end | `pam_authenticate` / `getgrouplist` SIGSEGV in libc today because nsswitch + locale init + NSS-module dlopen graph aren't bootstrapped. shakti 0.2.x is the downstream blocker; currently stubs `pam_authenticate` to UNAVAILABLE and falls through to `/usr/bin/su`. |
 | **v5.5.21** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
@@ -1513,6 +1513,98 @@ methodology that avoided weeks of blind iteration):
 - Struct-return-by-value via hidden RCX retptr.
 - Variadic float duplication (`xmm0` + `rdx` for `printf("%f", x)`).
 - SEH `.pdata`/`.xdata` (indefinite — CLI .exe doesn't need it).
+
+### v5.5.20 — `lib/hashmap.cyr` u64-key variant (mabda cache hot-path)
+
+Narrow stdlib perf slot. Adds a u64-keyed hashmap alongside the
+existing `Str`-keyed one so consumers with numeric hash keys can
+skip the decimal-string detour that dominates their hot loop.
+
+**Why this, why now:**
+
+The `lib/hashmap.cyr` API as of v5.5.18 stores keys as `Str`
+structs. Consumers that produce a `u64` hash (FNV, xxhash, etc.)
+have to convert it to a null-terminated decimal string before
+`map_set` / `map_get` accept it. mabda landed a shared helper
+(`src/cache_key.cyr :: _hash_to_heap_key`) for this — heap-allocs
+the key string, writes the digits, null-terminates — and every
+`shader_cache_get_or_compile` / `bind_group_cache_get` call routes
+through it.
+
+mabda v2.4.4's first-ever GPU benchmark run measured the damage:
+
+| Bench | Rust v1 (ns) | Cyrius v2.4.4 (ns) | Ratio |
+|---|---:|---:|---:|
+| `shader_cache_hit` | 36 | 553 | 15× |
+| `bind_group_cache_hit` | 13 | 210 | 16× |
+
+Of the 13 GPU benchmarks mabda ran, these two are the only ones
+>10× slower than Rust. Every other Cyrius number is either faster
+than Rust or within 2×. The bottleneck is entirely the per-lookup
+`alloc() + digit-writing loop` — Rust's `HashMap<u64, T>` uses the
+key directly. See
+[mabda docs/benchmarks-rust-v-cyrius.md §"Note on cache-hit
+benchmarks"](../../../mabda/docs/benchmarks-rust-v-cyrius.md) for
+the full measurement.
+
+Secondary symptom: the per-lookup heap alloc exhausts cyrius's
+alloc arena under heavy iteration. mabda's benchmarks had to cap
+`shader_cache_hit` at 10 000 iters and `bind_group_cache_hit` at
+10 000 iters to avoid OOM partway through the run (Rust's version
+comfortably runs Criterion's default iteration count). A u64-keyed
+map removes the allocation entirely.
+
+**Scope:**
+
+- New public API in `lib/hashmap.cyr`: `map_u64_new()`,
+  `map_u64_set(map, key_u64, value)`, `map_u64_get(map, key_u64)`,
+  `map_u64_has(map, key_u64)`, `map_u64_delete(map, key_u64)`,
+  `map_u64_size(map)`, `map_u64_clear(map)`. Same open-addressing
+  strategy as the Str-keyed variant; the only internal difference
+  is the slot layout stores a `u64` key inline instead of a
+  `Str*` pointer.
+- Rehash uses the key directly (Wang mix or similar) — no string
+  hash function needed at all.
+- Zero allocation on `get` / `has` / `set` of an already-present
+  key. `set` of a new key grows the backing store at the same
+  thresholds as `map_new`.
+- Distinguished "empty slot" / "tombstone" sentinel: reserve
+  `u64::MAX` as the tombstone and `0` as "empty". Consumers that
+  need to store key `0` (none known today) can pre-shift keys
+  by +1 — document this in the header.
+- **No change to the existing Str-keyed surface.** Both coexist.
+
+**Acceptance:**
+
+1. `sh scripts/check.sh` 10/10 PASS (existing correctness
+   regressions hold).
+2. New `lib/hashmap.cyr` tests: insert 1M u64 keys, confirm
+   retrieval, delete, re-insert, clear cycle all work with no
+   heap allocation on hot path (verify via `alloc_used()` before
+   and after the hot loop).
+3. mabda consumer migration path verified end-to-end:
+   `src/cache_key.cyr` retired, `shader_cache.cyr` /
+   `pipeline_cache.cyr` / `bind_group_cache.cyr` /
+   `texture_cache.cyr` switched to `map_u64_*`. mabda's
+   `bench_bind_group_cache_hit` + `bench_shader_cache_hit` run
+   at ≥ 100 000 iters each without arena exhaustion, and report
+   ≤ 50 ns / lookup (target: within 2× of Rust's 13-36 ns).
+4. cc5 + cc5_aarch64 self-host byte-identical (lib-only change —
+   should be trivial).
+
+**Out of scope** (push to v5.6.x or later):
+
+- u32-key or f64-key variants — no consumer demand yet.
+- Generic monomorphized hashmap (key/value type parameters) —
+  cyrius doesn't do generics; the two concrete variants (Str,
+  u64) cover every observed use case in the ecosystem.
+- Load-factor tuning for the existing Str-keyed map — separate
+  concern, separate slot.
+
+**Downstream coordination:** mabda is the only confirmed
+consumer. Once shipped, mabda v2.5.x can retire `cache_key.cyr`
+and expect cache-hit benchmarks to land within 2× of Rust v1
+(closing the last outlier in the Rust→Cyrius comparison).
 
 ### v5.5.26 — v5.5.x closeout pass (then v5.6.0)
 

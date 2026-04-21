@@ -4,6 +4,97 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.18] — 2026-04-20
+
+**aarch64 native Linux stdlib shakedown on real Pi 4. `lib/io.cyr`
+fixed to route through per-arch `sys_*` wrappers (was emitting
+Linux x86_64 syscall numbers verbatim — file_open = io_setup on
+aarch64). Regression test expands from 2 sub-tests to 5: alloc,
+fs, and 4-thread spawn/join all verified in addition to the
+v5.4.11 sys_open + single-thread gates.**
+
+### `lib/io.cyr` fix
+
+`file_open` / `file_close` / `file_read` / `file_write` previously
+called `syscall(2, ...)` / `syscall(3, ...)` / `syscall(0, ...)` /
+`syscall(1, ...)` with literal Linux x86_64 numbers. On aarch64
+those are `io_setup` / `io_destroy` / `io_submit` / `io_cancel` —
+io.cyr's wrappers fired entirely wrong syscalls on arm64. Same
+root-cause class as the v5.4.11 yukti / syscalls.cyr fix; io.cyr
+was overlooked during that split. v5.5.18 routes the four helpers
+through `sys_open` / `sys_close` / `sys_read` / `sys_write` from
+the `lib/syscalls.cyr` selector, which already dispatches to the
+right per-arch peer (x86_64 direct, aarch64 openat(AT_FDCWD)).
+
+### Regression test expansion
+
+`tests/regression-aarch64-syscalls.sh` gains three new sub-tests
+(all run via ssh pi after cross-build):
+
+| # | Name                | What it proves                               |
+|---|---------------------|----------------------------------------------|
+| 1 | sys_open + stdlib   | v5.4.11 per-arch syscall routing (pre-exist) |
+| 2 | single-thread       | v5.4.11 aarch64 clone trampoline (pre-exist) |
+| 3 | **alloc stress**    | 256 × 1KB alloc() calls, value retention     |
+| 4 | **fs roundtrip**    | file_open/write/close/open/read/close/cmp   |
+| 5 | **4-thread spawn**  | parallel thread_create + join, no corruption |
+
+Tests 3–5 are new in v5.5.18. Test 5 specifically stores 4 thread
+handles in `var handles[32]` (bytes, not elements — see gotcha
+below) and loops through create/join.
+
+### Gotcha surfaced during the shakedown
+
+Writing the multi-thread test with `var handles[4]` (intending
+"4 slots of 8 bytes") allocated only a **4-byte** array — cyrius
+`var[N]` is bytes, not elements (already a documented gotcha in
+vidya, but easy to trip over when the intent reads as an element
+count). Stored writes past byte 3 silently clobber adjacent
+globals, which manifests as string-literal corruption in later
+`sys_write` calls on both x86 and aarch64. Correct sizing for
+N × i64 is `var handles[N*8]`. Test 5 uses `var handles[32]`.
+
+### Stdlib surface verified on Pi 4 (real hardware)
+
+End-to-end on `ssh pi` (aarch64, `Linux agnosarm 6.8.0-raspi`):
+
+```
+alloc:       alloc_ok       rc=0
+fs:          fs_ok          rc=0 (post-io.cyr fix)
+multithread: mt_ok          rc=0 (4 threads, parallel, no corruption)
+mutex:       mutex_ok       rc=0 (4-thread contended counter = 400)
+```
+
+Contended mutex works via the futex-private spin-wait path in
+`lib/thread.cyr` — race-prone in theory (v5.5.22 atomics will
+make it deterministic) but resilient in practice on Pi.
+
+### Not fixed in v5.5.18
+
+- **`lib/thread.cyr` mutex non-atomic load/store.** The fast path
+  is `if (s == 0) { store64(m, 1); }` with no CAS — two threads
+  can both observe 0 and both set 1. Doesn't block the current
+  test counter (futex-wait catches the contention quickly) but
+  will be rewritten in v5.5.22 atomics + memory barriers.
+- **`src/main.cyr`'s --version / --strict parsing** still uses
+  `/proc/self/cmdline`. Only fires on cc5 self-invocation; the
+  v5.5.17 x28 prologue trick would apply if cc5 ever natively
+  compiles on macOS (v5.6.x territory).
+
+### Byte-identical self-host
+
+cc5 486,352 B (**unchanged** from v5.5.17 — `lib/io.cyr` is only
+compiled into programs that `include "lib/io.cyr"`; cc5 itself
+uses raw `syscall()` calls and doesn't pull in io.cyr). cc5_aarch64
+346,976 B (unchanged).
+
+### Regression
+
+- `sh scripts/check.sh` — 10/10 PASS (aarch64 subgate now runs
+  5 tests instead of 2).
+- v5.5.13/14/17 Apple Silicon regression retested on ecb: exit42,
+  hello, cyrfmt all still correct.
+
 ## [5.5.17] — 2026-04-20
 
 **argv works on macOS arm64 — all 4 cyrius tool binaries now run
