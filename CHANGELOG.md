@@ -4,6 +4,157 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.25] — 2026-04-21
+
+**NSS auxv investigation + `dynlib_read_auxv` / `dynlib_auxv_get`
+primitives. Full NSS dispatch fix unpinned.** v5.5.25 was pinned
+with the explicit "auxv synthesis may never land in a patch"
+caveat when v5.5.24 shipped. Three attempts used (CLAUDE.md defer
+rule); the caveat is now confirmed. Shipped the narrow piece that
+fell out — the auxv-read primitives — and unpinned the full NSS
+dispatch fix from the roadmap. Consumers route via the documented
+workarounds (fork + `/usr/bin/su`, or direct `/etc/passwd` read).
+
+### What the v5.5.25 probe found
+
+`programs/nss_probe.cyr` is a minimal reproducer that runs the
+full bootstrap sequence and prints the state of the critical
+glibc globals after. Key finding:
+
+* **GLOB_DAT resolution already works.** `_dynlib_process_rela`
+  walks libc.so.6's `.rela.dyn`, finds `_rtld_global_ro` via
+  `_dynlib_resolve_global` against the already-registered
+  `/lib64/ld-linux-x86-64.so.2`, and writes ld.so's exported
+  address into libc's GOT slot at `bias + 0x1e6e18`. Verified:
+  the slot value matches `dynlib_sym(hld, "_rtld_global_ro")`.
+* **`_rtld_global_ro` is mapped-but-zero-filled.** Offsets `+0x2a0`
+  and `+0x2a8` are both 0 because ld.so's `_dl_start` never ran
+  — our static Cyrius binary bypasses `PT_INTERP`, so the struct
+  fields ld.so would populate from auxv stay at zero.
+* The v5.5.24 **SIGFPE in `__libc_early_init` is `div %r8` where
+  r8 was loaded from `*(rtld_ro + 0x2a8)`** (which is 0). Not a
+  GOT-resolution bug; a zero-field bug.
+
+### The 3 attempts
+
+**Attempt 1 — `dynlib_read_auxv` / `dynlib_auxv_get` primitives.**
+`/proc/self/auxv` is a sequence of `(u64 type, u64 value)` pairs
+terminated by `(AT_NULL=0, 0)`. `dynlib_read_auxv(buf, maxbytes)`
+slurps the file; `dynlib_auxv_get(buf, bytes, tag)` scans for a
+specific tag. Exposes `AT_PAGESZ` (6), `AT_RANDOM` (25),
+`AT_SYSINFO_EHDR` / vDSO (33), `AT_HWCAP` (16), etc. Useful
+independently of the NSS outcome. **Shipped.**
+
+**Attempt 2 — populate `_rtld_global_ro` from auxv, call
+`__libc_early_init(1)`.** Wrote `AT_PAGESZ` to `+0x2a8` and 8 MB
+to `+0x2a0`. Moved past SIGFPE → SIGSEGV elsewhere in the same
+function. The struct has many more private fields the function
+touches; we'd need to reverse-engineer each from a specific glibc
+binary.
+
+**Attempt 3 — skip `__libc_early_init`, call `getpwuid(0)`
+directly.** With the two populated struct fields still in place,
+`getpwuid(0)` SIGSEGVs inside NSS dispatch. The NSS module table
+is private-static state populated only by a code path we cannot
+reach through exported symbols.
+
+### Conclusion — auxv-synthesis path confirmed dead-end
+
+The auxv-synthesis approach is fragile (glibc-version-coupled),
+insufficient (each populated field reveals another uninitialised
+one), and ultimately doesn't reach NSS's private dispatch table
+anyway. Without running ld.so's `_dl_start` on the real stack
+with proper `PT_INTERP` wiring — which requires not being a
+static binary — libc's internal state cannot be made consistent
+from outside.
+
+### Same-day re-plan (external research)
+
+After v5.5.25 shipped with NSS "unpinned," dual external research
+agents converged on glibc maintainers' own guidance (Weimer,
+libc-alpha 2017): *stop fighting `_rtld_global_ro`*. The real
+path forward is pinned as a three-patch arc:
+
+* **v5.5.26** — `lib/pwd.cyr` + `lib/grp.cyr` (musl-style pure-
+  cyrius `/etc/passwd` + `/etc/group` reader). Bypasses glibc
+  NSS entirely; ~50 LoC of real logic per lookup (musl is the
+  reference). Handles 95% of Linux deployments (`passwd: files`
+  is the default NSS config).
+* **v5.5.27** — `lib/shadow.cyr` + shakti PAM via sigil crypt.
+  Parse `/etc/shadow`, verify unix `crypt(3)` format using
+  sigil's existing SHA-256/SHA-512. Non-root fallback: fork
+  `/usr/sbin/unix_chkpwd` (setuid-root, pipe-driven — exactly
+  how Linux-PAM's `pam_unix` authenticates).
+* **v5.5.28** — `lib/fdlopen.cyr` (foreign-dlopen pattern). For
+  cases that genuinely need full glibc state: mmap ld.so + a
+  small helper binary, construct real-shaped auxv on a fresh
+  stack, jump to ld.so's ELF entry point. ld.so runs its normal
+  `_dl_start` legitimately. Reference implementations:
+  `pfalcon/foreign-dlopen` (GitHub), Cosmopolitan libc's
+  `cosmo_dlopen`.
+
+**Roadmap cascade:** +3 slots on everything v5.5.26+. Old v5.5.26
+(TLS) → v5.5.29. Old v5.5.31 (closeout) → v5.5.34.
+
+Vidya entry `static_dlopen_and_nss_bootstrap_limits` saved to
+`vidya/content/linking_and_loading/concept.toml` so future
+investigators don't repeat the auxv-synthesis dead-end.
+
+`programs/nss_probe.cyr` remains in the tree as reference.
+
+### Consumer workarounds (unchanged from v5.5.24)
+
+* **shakti's `pam_authenticate`** — stays stubbed; caller falls
+  through to `syscall(execve, "/usr/bin/su", …)`.
+* **Any consumer needing `getpwuid`** — read `/etc/passwd`
+  directly via cyrius file I/O. Works on any host with
+  `passwd: files` NSS config, which is most of them.
+
+### Added
+
+* **`lib/dynlib.cyr`** — `dynlib_read_auxv(buf, maxbytes)` +
+  `dynlib_auxv_get(auxv, auxv_bytes, tag)` primitives. Open,
+  slurp, close `/proc/self/auxv`; scan the resulting buffer for
+  a specific tag. Returns negative error codes on failure.
+* **`programs/nss_probe.cyr`** — reference investigation probe.
+  Runs the full bootstrap sequence and dumps the state of
+  `_rtld_global_ro` and libc's GOT. Kept in the tree for future
+  maintainers.
+* **`tests/tcyr/dynlib_init.tcyr`** — +10 assertions for the new
+  primitives (null-buf, short-buf, positive return, 16-byte
+  alignment, `AT_PAGESZ` present-and-positive-and-%4096,
+  unknown-tag returns 0). Now 33 total (was 23), all pass.
+
+### Changed
+
+* **`docs/development/issues/dynlib-nss-bootstrap.md`** — updated
+  with v5.5.25 findings (GLOB_DAT works, zero-filled struct is
+  the real issue, 3-attempt log).
+* **`docs/development/roadmap.md`** — v5.5.25 row marked ⚠️ with
+  "unpinned full NSS fix" framing; `NSS/PAM end-to-end` open-items
+  entry rewritten to "unpinned" with consumer workaround pointers.
+
+### Size
+
+* cc5 x86_64: **486,552 B → 486,552 B** (unchanged — stdlib + docs
+  only). Self-host fixpoint byte-identical.
+
+### Pattern
+
+This is the third consecutive "3-attempts-defer" in the NSS pillar
+arc (v5.5.23 locale half, v5.5.24 environ + investigation, v5.5.25
+auxv investigation + unpin). Each patch shipped a narrow primitive
+that fell out of the investigation:
+
+* v5.5.23: `dynlib_bootstrap_locale(hc)`
+* v5.5.24: `dynlib_bootstrap_environ(hc)`
+* v5.5.25: `dynlib_read_auxv` / `dynlib_auxv_get`
+
+Matches the v5.5.19 (inline-asm investigation → v5.5.21 fix) and
+v5.5.11 (libSystem probe → v5.5.12 compiler emission) shapes:
+ship the piece that falls out, document the remainder, unpin
+once the hard part is confirmed out-of-scope.
+
 ## [5.5.24] — 2026-04-21
 
 **NSS dispatch investigation + `dynlib_bootstrap_environ(hc)`.**

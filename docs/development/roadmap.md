@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.24.** cc5 compiler (486552 B x86_64), x86_64 + aarch64
+> **v5.5.25.** cc5 compiler (486552 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -76,10 +76,18 @@
 > v5.5.19), v5.5.22 cyrfmt --write (sankoch unblock), v5.5.23
 > locale bootstrap (NSS/PAM scope narrowed after staged repro),
 > v5.5.24 NSS investigation + environ bootstrap, v5.5.25 NSS
-> dispatch full fix (auxv synthesis — deferred, may never land
-> in a patch), v5.5.26 TLS, v5.5.27 atomics, v5.5.28 thread-safety
-> audit, v5.5.29 PE .reloc+ASLR, v5.5.30 PE
-> struct-return+variadic+__chkstk tail, v5.5.31 closeout. The
+> auxv investigation + `dynlib_read_auxv` / `dynlib_auxv_get`
+> primitives (auxv-synthesis approach confirmed insufficient —
+> glibc maintainers' own guidance is "don't fight
+> `_rtld_global_ro`"), v5.5.26 `lib/pwd.cyr` + `lib/grp.cyr`
+> (musl-style NSS-free identity lookups, bypasses glibc NSS
+> entirely), v5.5.27 `lib/shadow.cyr` + shakti PAM via sigil
+> crypt, v5.5.28 `lib/fdlopen.cyr` (foreign-dlopen pattern from
+> Cosmopolitan / pfalcon — real full-libc access for
+> getaddrinfo/strerror/setlocale), v5.5.29 TLS, v5.5.30 atomics,
+> v5.5.31 thread-safety
+> audit, v5.5.32 PE .reloc+ASLR, v5.5.33 PE
+> struct-return+variadic+__chkstk tail, v5.5.34 closeout. The
 > original v5.5.15 "tool-binary shipping" single-patch scope split
 > three ways on 2026-04-20 once the real blockers (parse-time
 > whitelist, missing `CYRIUS_TARGET_MACOS`, runtime syscall gaps)
@@ -110,10 +118,18 @@
 > Mach-O self-hosts byte-identically on M-series (v5.3.13,
 > 475320 B). **Still deferred to later v5.5.x patches**: libro
 > layout corruption, `lib/hashmap_fast` / `u128` / `mabda`
-> arch-gating, yukti `include` rename. **NSS/PAM end-to-end** is
-> now pinned to **v5.5.25** (shakti 0.2.x is the downstream
-> blocker; libpam SIGSEGV root cause = NSS dispatch + locale init
-> bootstrap).
+> arch-gating, yukti `include` rename. **NSS/PAM end-to-end**
+> replanned 2026-04-21 after v5.5.25's auxv-synthesis dead-end:
+> v5.5.26 ports musl's `/etc/passwd` + `/etc/group` readers to
+> pure cyrius (bypasses glibc NSS entirely — same architectural
+> stance as musl); v5.5.27 handles shadow auth via sigil crypt
+> (shakti PAM unblocked); v5.5.28 implements the foreign-dlopen
+> pattern (Cosmopolitan / pfalcon) for the getaddrinfo /
+> strerror / setlocale cases that genuinely need full glibc
+> state. Glibc maintainers' own guidance (Weimer libc-alpha
+> 2017) is "stop fighting `_rtld_global_ro` — either bypass
+> glibc like musl or run ld.so legitimately"; this plan does
+> both, each in its appropriate slot.
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
 > **64 test suites**, 14 benchmarks, 5 fuzz harnesses. **61 stdlib modules** (includes 6 deps).
 > Caps: ident buffer 128KB (4.6.2), fn table 4096 (4.7.1).
@@ -148,18 +164,39 @@ source of truth for completed work.
 - **NSS/PAM end-to-end** (dynlib follow-up). Simple libc calls
   (`getpid`, `strlen`, `strcmp`, `memcmp`) work end-to-end today
   through `dynlib_open` + `dynlib_bootstrap_cpu_features` + TLS +
-  `stack_end`. `getgrouplist` / `pam_authenticate` still SIGSEGV
-  inside libc — locale init, nsswitch.conf parse, and NSS module
-  dlopen state are missing. Scope: populate those. Reproducer +
-  existing bootstrap infra live in `lib/dynlib.cyr` and
-  `tests/tcyr/dynlib_init.tcyr`. Downstream blocker for shakti
-  0.2.x (today shakti's `pam_authenticate` is a stub returning
-  `SHK_ERR_PAM_UNAVAILABLE`; the caller falls through to
-  `/usr/bin/su` — works but isn't the long-term shape).
-  **Pinned to v5.5.25** — see the numbered release table in the
-  §"v5.5.x pillars" section below. Carrying forward the full v5.3.x
-  context (reproducer + SIGSEGV root cause) verbatim here so it
-  doesn't get amputated when the work begins.
+  `stack_end` + locale + environ + auxv-read primitives.
+  `getgrouplist` / `pam_authenticate` / `getpwuid` still SIGSEGV
+  inside libc's NSS dispatch via the v5.5.23/24/25 arc (locale
+  half shipped v5.5.23; environ half shipped v5.5.24; auxv-
+  synthesis attempt confirmed insufficient v5.5.25 — see
+  `docs/development/issues/dynlib-nss-bootstrap.md` for the full
+  empirical record).
+  **Re-planned 2026-04-21** after dual external research agents
+  converged on glibc maintainers' own guidance: don't hand-
+  populate `_rtld_global_ro`; it has ~100 fields across many
+  substructs, each field revealing the next uninitialised one
+  when fixed. Two real paths:
+  - **v5.5.26** — pure-cyrius `lib/pwd.cyr` + `lib/grp.cyr`
+    (musl pattern). `/etc/passwd` + `/etc/group` are simple
+    colon-split formats; musl proves ~50 LoC per lookup. Solves
+    95% of consumers without touching glibc. This is what musl
+    does; `passwd: files` is the default NSS config on essentially
+    every desktop, server, and container.
+  - **v5.5.27** — `lib/shadow.cyr` + shakti PAM via sigil crypt.
+    `/etc/shadow` is same format + sigil's existing SHA-256 /
+    SHA-512 families implement unix `crypt(3)` format
+    (`$6$salt$hash`). Fallback for non-root processes:
+    `/usr/sbin/unix_chkpwd` (setuid-root, pipe-driven — exactly
+    what Linux-PAM's `pam_unix` uses).
+  - **v5.5.28** — `lib/fdlopen.cyr` (foreign-dlopen pattern).
+    For the cases that *genuinely* need full glibc state
+    (getaddrinfo DNS, strerror with locale messages, setenv
+    realloc path): mmap ld.so + a small helper binary, construct
+    real-shaped auxv on a fresh stack, jump to ld.so's ELF entry
+    point. ld.so then runs its normal `_dl_start` legitimately.
+    Reference implementations: `pfalcon/foreign-dlopen`,
+    Cosmopolitan's `cosmo_dlopen`. Glibc maintainer-endorsed
+    (Weimer libc-alpha 2017).
 - **aarch64 x86-asm leakage** (Active Bug — supersedes the former
   "native FIXUP address mismatch"). Native self-host verified
   byte-identical on Pi in v5.3.15. Residual work is not native-
@@ -1113,13 +1150,16 @@ before opening the next platform port.
 | **v5.5.22** ✅ | `cyrfmt --write` / `-w` in-place file rewrite (sankoch unblock) | `programs/cyrfmt.cyr` previously hardcoded stdout emit + a `--check` memory-buffer branch with no file-write path. sankoch filed the gap; v5.5.22 adds `--write` (long) / `-w` (short, gofmt convention) that routes emit to a buffer then `file_write_all`s back to the source file. Idempotent: re-running on an already-clean file short-circuits before the write syscall so mtime doesn't churn (incremental build systems). Truncate-and-overwrite (not atomic via temp+rename; cyrius doesn't expose `sys_rename` yet — if a crash-safe mode is ever needed, that's a follow-up). `tests/regression-cyrfmt-write.sh` landed with 7 sub-tests; check.sh grows 11 → 12 gates. cc5 unchanged (program-only change). `build/cyrfmt` grew to 32,504 B. |
 | **v5.5.23** ✅ | Locale bootstrap for dlopen'd libc + 3 consumer dep bumps | Originally slated as "NSS/PAM end-to-end" but a staged reproducer found the NSS layer and the locale layer are separate crashes with separate fixes. v5.5.23 ships the locale piece — `dynlib_bootstrap_locale(hc)` in `lib/dynlib.cyr` uses `newlocale` + `uselocale` to build a thread-local locale_t, sidestepping the `__libc_setlocale_lock` rwlock that SIGSEGVs when `setlocale(LC_ALL, "C")` is called from a static Cyrius binary. After bootstrap, `strftime` / `strtod` / other locale-aware libc fns work. NSS dispatch (`getpwuid` / `getgrouplist` / `pam_authenticate`) still SIGSEGV — split out as v5.5.24. `tests/tcyr/dynlib_init.tcyr` gains a 4-assertion "dynlib_bootstrap_locale" test group (20 total now, all pass). Also bumps three ecosystem deps that all tagged against v5.5.22: mabda 2.1.2 → 2.5.0, patra 1.1.1 → 1.5.4, sankoch 2.0.0 → 2.0.1. cc5 unchanged (stdlib-only change). |
 | **v5.5.24** ⚠️ | NSS dispatch investigation + `dynlib_bootstrap_environ` | Hit "3 failed attempts = defer" on the full NSS dispatch fix. Shipped the narrower piece that fell out: `dynlib_bootstrap_environ(hc)` initialises `__environ` / `environ` with an empty terminator-only array — `getenv` now returns null safely for missing keys instead of SIGSEGVing on NULL. Attempts ruled out: (1) environ-only bootstrap (getpwuid still crashes), (2) probing for exported private init symbols (`__pthread_initialize_minimal` + 3 NSS internals not exported in glibc 2.34+ since `libnss_files.so.2` retirement), (3) calling `__libc_early_init(1)` directly (SIGFPE — needs auxv). Full findings: `docs/development/issues/dynlib-nss-bootstrap.md`. Dispatch full fix pinned to v5.5.25 with "auxv synthesis" scope. `tests/tcyr/dynlib_init.tcyr` +3 assertions (23 total). cc5 unchanged. |
-| **v5.5.25** | NSS dispatch full fix — auxv synthesis approach (may never land in a patch) | v5.5.24 documented the dead-ends. Remaining path: parse `/proc/self/auxv`, synthesize the auxv vector at a stable stack location (AT_RANDOM, AT_PLATFORM, AT_SYSINFO_EHDR, etc.), call `__libc_early_init(1)` + `__libc_init_first` in order. Downsides: (a) couples cyrius to a specific glibc's auxv expectations (version-fragile), (b) AT_RANDOM needs a real /dev/urandom read and a stable address, (c) may not actually unblock NSS because the module table layout itself is private. Honest scope: if 3 attempts don't land, unpin and mark "consumers route NSS via fork+/usr/bin/su or read /etc/passwd directly." |
-| **v5.5.26** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
-| **v5.5.27** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. Also fixes the non-atomic mutex fast-path in `lib/thread.cyr` (documented-in-v5.5.18 as works-in-practice). |
-| **v5.5.28** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.26 if scope stays small. |
-| **v5.5.29** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
-| **v5.5.30** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.29 groups the pre-emptive fixes. |
-| **v5.5.31** | v5.5.x closeout | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.30 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. See §"v5.5.31" below. |
+| **v5.5.25** ⚠️ | NSS dispatch auxv investigation + `dynlib_read_auxv` / `dynlib_auxv_get` primitives | Pre-labeled "may never land in a patch" — confirmed. Hit 3-attempts-defer again. (1) Shipped `dynlib_read_auxv(buf, maxbytes)` + `dynlib_auxv_get(buf, bytes, tag)` — slurp /proc/self/auxv and scan for tags (AT_PAGESZ, AT_RANDOM, AT_SYSINFO_EHDR / vDSO base, AT_HWCAP). Independently useful. (2) `programs/nss_probe.cyr` confirmed GLOB_DAT resolution for `_rtld_global_ro` DOES work (libc's GOT slot matches ld.so's export after `dynlib_open`) — v5.5.24 SIGFPE was NOT a missing-GOT bug. The struct is mapped-but-zero-filled because ld.so's `_dl_start` never ran. Populating +0x2a0/+0x2a8 moves past SIGFPE → SIGSEGV elsewhere; direct `getpwuid(0)` still SIGSEGVs in NSS dispatch. (3) Populating more struct fields each reveals a new uninitialised field — fragile, glibc-version-coupled, insufficient. **Full NSS dispatch fix unpinned** — consumers use documented workarounds (fork+/usr/bin/su, or read /etc/passwd directly). `tests/tcyr/dynlib_init.tcyr` +10 assertions (33 total). cc5 486,552 B unchanged. |
+| **v5.5.26** | `lib/pwd.cyr` + `lib/grp.cyr` — NSS-free musl-style identity lookups | Real fix for the NSS dispatch pillar (supersedes v5.5.25's "unpinned" after external research). Port musl's `getpwuid` / `getpwnam` / `getgrgid` / `getgrnam` / `getgrouplist` to pure cyrius — read `/etc/passwd` and `/etc/group` directly, colon-split parse. Musl proves this is ~50 LoC of real logic per lookup; ~500 LoC total for the full identity surface. **Bypasses glibc NSS entirely.** No version coupling, no `_rtld_global_ro`, no `auxv` — deterministic file parsing. Handles 95% of Linux deployments (`passwd: files` is default on desktops + servers + containers). Same architectural stance as musl, by-design. |
+| **v5.5.27** | `lib/shadow.cyr` + shakti PAM via `sigil` SHA-512-crypt | Read `/etc/shadow` directly (requires setuid or CAP_DAC_READ_SEARCH — matches glibc's own `getspnam` behavior). Route shakti's `pam_authenticate` through the existing sigil crypt family (cyrius already has SHA-512 + SHA-256 via keccak/sha implementations) — unix `crypt(3)` format is `$6$salt$hash` / `$5$salt$hash`, parse-then-verify. Alternative for systems where shadow is 600 root:root and cyrius isn't root: fork `/usr/sbin/unix_chkpwd` (setuid-root, designed for pipe-based invocation by non-root PAM modules — documented in Linux-PAM source). |
+| **v5.5.28** | `lib/fdlopen.cyr` — foreign-dlopen pattern for real full-libc access | For the remaining cases that genuinely need glibc's state (getaddrinfo, setlocale(LC_ALL,"C"), strerror with locale, setenv realloc path): implement the "foreign-dlopen" pattern used by pfalcon/foreign-dlopen + Cosmopolitan libc. Compile a ~40-line C helper at install time, cache at `~/.cyrius/dlopen-helper`. mmap the helper ELF + ld.so, construct a real-shaped auxv on a fresh 64 KB stack, jump to ld.so's ELF entry point with the constructed stack. ld.so runs its normal `_dl_start` → populates `_rtld_global_ro` legitimately → invokes helper's main → helper captures fn pointers via real `dlsym` and longjmps back with a `{dlopen, dlsym, getaddrinfo, ...}` struct. This is the approach glibc maintainers themselves endorse (Weimer libc-alpha 2017). ~200 LoC cyrius + ~40 LoC C helper + setjmp/longjmp primitives (10 lines inline asm each). Multi-session, ambitious. |
+| **v5.5.29** | TLS via `arch_prctl(ARCH_SET_FS)` | `%fs:`-relative addressing for thread-local globals. Queued from v5.4.10 thread work — majra's `_aaw_result_state` global needs TLS to be thread-safe. |
+| **v5.5.30** | Atomics + memory barriers | `atomic_add` / `atomic_cas` / `mfence` builtins. Today concurrent stdlib code (hashmap mutation under threads, freelist) is exposed to data races. Queued from v5.4.10. Also fixes the non-atomic mutex fast-path in `lib/thread.cyr` (documented-in-v5.5.18 as works-in-practice). |
+| **v5.5.31** | Runtime thread-safety audit | Sweep alloc / freelist / hashmap / vec for single-thread assumptions that break under `CLONE_VM`. May bundle into v5.5.29 if scope stays small. |
+| **v5.5.32** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
+| **v5.5.33** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.32 groups the pre-emptive fixes. |
+| **v5.5.34** | v5.5.x closeout | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.33 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. See §"v5.5.34" below. |
 
 **Why this sequence:**
 - v5.5.4–5.5.5 finish the Windows arc (Win64 ABI + native
@@ -1151,15 +1191,28 @@ before opening the next platform port.
   pillar (staged repro showed the pillar was two separate bugs).
 - v5.5.24 is the NSS investigation / environ bootstrap (3 attempts
   used; full dispatch deferred).
-- v5.5.25 is the NSS dispatch full-fix attempt (auxv synthesis;
-  may get unpinned if 3 attempts don't land).
-- v5.5.26–5.5.28 are Linux runtime correctness — items that have
+- v5.5.25 is the NSS auxv investigation (3 attempts used —
+  confirmed the "may never land" caveat for hand-populating
+  `_rtld_global_ro`; shipped auxv-read primitives that fell out).
+- v5.5.26–5.5.28 are the **real NSS fix** (research-driven,
+  post-v5.5.25 re-plan 2026-04-21 after dual external research
+  agents confirmed glibc maintainers' own guidance: stop fighting
+  `_rtld_global_ro`, either bypass NSS entirely like musl or
+  run ld.so legitimately like cosmopolitan):
+  - v5.5.26: musl-style pure-cyrius `/etc/passwd` + `/etc/group`
+    reader. Unblocks 95% of consumers (`passwd: files` default).
+  - v5.5.27: shadow auth via `sigil` crypt + `/usr/sbin/unix_chkpwd`
+    fallback. Unblocks shakti PAM.
+  - v5.5.28: `lib/fdlopen.cyr` foreign-dlopen pattern for the
+    cases that need real glibc (getaddrinfo, strerror, setlocale).
+    Cosmopolitan/pfalcon reference implementations exist.
+- v5.5.29–5.5.31 are Linux runtime correctness — items that have
   been carrying forward across multiple minors with shifting
   release targets. Pinning them to concrete patch numbers means
   they can't slip silently.
-- v5.5.29–5.5.30 are the PE correctness tail — defer-able but
+- v5.5.32–5.5.33 are the PE correctness tail — defer-able but
   recorded so they don't get forgotten.
-- v5.5.31 is the formal closeout before v5.6.0 (optimization arc).
+- v5.5.34 is the formal closeout before v5.6.0 (optimization arc).
 
 **After v5.5.x:**
 - **v5.6.0–5.6.5** — Compiler optimization arc (§"v5.6.0 —
@@ -1633,7 +1686,7 @@ consumer. Once shipped, mabda v2.5.x can retire `cache_key.cyr`
 and expect cache-hit benchmarks to land within 2× of Rust v1
 (closing the last outlier in the Rust→Cyrius comparison).
 
-### v5.5.31 — v5.5.x closeout pass (then v5.6.0)
+### v5.5.34 — v5.5.x closeout pass (then v5.6.0)
 
 Last patch of the v5.5.x minor. Full CLAUDE.md §"Closeout Pass"
 11-step checklist run with v5.5.x-specific scope — this minor
@@ -1645,7 +1698,7 @@ paths that a dedicated refactor + code review window is earned.
 - Self-host verify — cc5 compiles itself byte-identical (Linux).
 - Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
 - Full `sh scripts/check.sh` — 11+/11+ PASS (gates accumulated
-  through v5.5.30; 12 at v5.5.22 after the cyrfmt --write gate
+  through v5.5.33; 12 at v5.5.22 after the cyrfmt --write gate
   result gate landed; exact final count depends on what later
   patches add).
 
@@ -1671,7 +1724,7 @@ paths that a dedicated refactor + code review window is earned.
   "abi_kind" switch or helpers. Land consolidation IF self-host
   stays byte-identical; otherwise file as v5.6.x first-patch work
   with a concrete patch number, not "queued for later".
-- **Code review pass** — walk every v5.5.0–v5.5.30 diff end-to-end.
+- **Code review pass** — walk every v5.5.0–v5.5.33 diff end-to-end.
   Specifically look for:
   - Unguarded x86 encodings on non-x86 paths (pattern from v5.4.19
     aarch64 `&local` leak; the `EW` alignment assert should have
@@ -1724,17 +1777,17 @@ paths that a dedicated refactor + code review window is earned.
 - Roadmap: verify every v5.5.x row in the release table has the
   ✅ marker and matches what actually shipped. Any patch that
   slipped scope gets a note explaining the slip.
-- CHANGELOG: entries present for v5.5.0 through v5.5.30. Cross-
+- CHANGELOG: entries present for v5.5.0 through v5.5.33. Cross-
   check the dates.
 
 **Benchmark refresh:**
-- `cyrius bench` at v5.5.31, comparing v5.5.0 baseline. Record in
+- `cyrius bench` at v5.5.34, comparing v5.5.0 baseline. Record in
   `bench-history.csv`. Expected trend: compiler size grew (~2.5%
   per Win64-branch patch); runtime for most benchmarks flat
   (optimizer arc is v5.6.x, not v5.5.x). Any unexpected slowdown
   points at a v5.5.x regression the other passes missed.
 
-After v5.5.31 ships, the next tag is **v5.6.0** — Phase O1 of the
+After v5.5.34 ships, the next tag is **v5.6.0** — Phase O1 of the
 compiler-optimization arc.
 
 ---
@@ -2086,7 +2139,7 @@ enables adding new targets without touching the frontend.
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) — CYRIUS_MACHO=1, tested on 2018 MacBook Pro |
 | macOS aarch64 | Mach-O | **Done** — self-hosts byte-identically on Apple Silicon (v5.3.13, 475 KB); v5.5.11 probe proved libSystem binding on `ssh ecb`; v5.5.12 grafted layout into `EMITMACHO_ARM64`; v5.5.13 wired `syscall(60)` → `_exit`; v5.5.14 grew `__got` 1 → 6 slots (`_write`/`_read` + imports-only `_malloc`/`_fopen`/`_pthread_create`); v5.5.15 softened the parse-time syscall whitelist; v5.5.16 added `CYRIUS_TARGET_MACOS` predefine + `lib/alloc.cyr` → `lib/alloc_macos.cyr` mmap dispatch; v5.5.17 added entry prologue (`stp x0,x1,[sp,#-16]!; mov x28, sp`) + `lib/args_macos.cyr` for argv access. All 4 Cyrius tool binaries (cyrfmt/cyrlint/cyrdoc/cyrc) verified doing real work on `ssh ecb`. |
-| Windows x86_64 | PE/COFF | **Done** — full native self-host + byte-identical fixpoint achieved v5.5.10. `cc5_win.exe` on Windows 11 reads stdin, compiles, emits PE byte-identical to Linux cross-build. Test matrix 10/10 PASS on `nejad@hp`. Exit42 PE = 1,536 B (vs Rust stripped 344,856 B = 225× smaller). v5.5.29/v5.5.30 hold the PE correctness tail (`.reloc` section, struct-return, variadic, `__chkstk`) — defer-able, not currently triggered. |
+| Windows x86_64 | PE/COFF | **Done** — full native self-host + byte-identical fixpoint achieved v5.5.10. `cc5_win.exe` on Windows 11 reads stdin, compiles, emits PE byte-identical to Linux cross-build. Test matrix 10/10 PASS on `nejad@hp`. Exit42 PE = 1,536 B (vs Rust stripped 344,856 B = 225× smaller). v5.5.32/v5.5.33 hold the PE correctness tail (`.reloc` section, struct-return, variadic, `__chkstk`) — defer-able, not currently triggered. |
 | Compiler optimization (O1–O6) | — | Queued — **v5.6.0–5.6.5** (pinned 2026-04-20; each phase gets its own patch number — no more "parallel track" drift) |
 | RISC-V (rv64) | ELF | Queued — **v5.7.0** (slid from v5.6.0 on 2026-04-20 so the optimization minor lands first) |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** (AGNOS kernel target; slid with the optimization minor insert) |

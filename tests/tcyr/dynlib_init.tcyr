@@ -118,5 +118,30 @@ if (fp_getenv != 0) {
     assert_eq(gv, 0, "getenv(\"_V5524_NO_SUCH_VAR\") returns null post-bootstrap");
 }
 
+# v5.5.25 — dynlib_read_auxv / dynlib_auxv_get primitives.
+# Shipped as the narrow piece that fell out of the NSS-dispatch
+# investigation. See docs/development/issues/dynlib-nss-bootstrap.md.
+test_group("dynlib_read_auxv + dynlib_auxv_get");
+var abuf = alloc(4096);
+assert(abuf != 0, "auxv buffer alloc succeeds");
+var ar = dynlib_read_auxv(0, 4096);
+assert_eq(ar, 0 - 3, "dynlib_read_auxv(null,_) returns -3");
+var ar2 = dynlib_read_auxv(abuf, 8);
+assert_eq(ar2, 0 - 3, "dynlib_read_auxv(_, <16 bytes) returns -3");
+var ar3 = dynlib_read_auxv(abuf, 4096);
+assert(ar3 > 0, "dynlib_read_auxv returns positive byte count");
+assert_eq(ar3 % 16, 0, "dynlib_read_auxv bytes is a multiple of 16");
+
+# AT_PAGESZ (tag 6) is always present on Linux and always positive.
+var page = dynlib_auxv_get(abuf, ar3, 6);
+assert(page > 0, "AT_PAGESZ present and positive");
+assert_eq(page % 4096, 0, "AT_PAGESZ is a multiple of 4096");
+
+# AT_NULL terminator — looking up tag 0 (AT_NULL) returns 0 because
+# the scan stops there, and looking up a bogus high tag returns 0.
+assert_eq(dynlib_auxv_get(abuf, ar3, 0xFFFFFF), 0, "unknown auxv tag returns 0");
+assert_eq(dynlib_auxv_get(0, ar3, 6), 0, "null auxv buffer returns 0");
+assert_eq(dynlib_auxv_get(abuf, 8, 6), 0, "short auxv buffer returns 0");
+
 var r = assert_summary();
 syscall(60, 0);

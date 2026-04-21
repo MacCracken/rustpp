@@ -1,0 +1,77 @@
+# NSS-dispatch investigation probe — v5.5.25 reference artifact.
+#
+# Confirms the findings recorded in
+# docs/development/issues/dynlib-nss-bootstrap.md:
+#
+#   * /proc/self/auxv read works (dynlib_read_auxv returns the raw
+#     (tag, value) pairs; dynlib_auxv_get looks up individual tags).
+#   * libc.so.6's GLOB_DAT relocation against ld-linux's exported
+#     `_rtld_global_ro` resolves correctly during dynlib_open's
+#     _dynlib_process_rela pass — the GOT slot at bias+0x1e6e18
+#     equals the ld.so export.
+#   * `_rtld_global_ro` is valid-but-zero-filled: offsets +0x2a0 and
+#     +0x2a8 are zero because ld.so's `_dl_start` never ran (we
+#     bypassed ld.so as a loader). `__libc_early_init` divides by
+#     *(rtld_ro + 0x2a8) — with 0 there, SIGFPE.
+#   * Populating +0x2a0 / +0x2a8 from auxv moves past SIGFPE to a
+#     subsequent SIGSEGV — the struct's missing-init cascade is
+#     wider than two fields, and NSS private-static dispatch tables
+#     aren't touched by this path anyway. Full NSS dispatch via
+#     auxv-synthesis approach **does not land in a patch**.
+#
+# Left in the tree as a reference entry point for anyone picking up
+# this investigation. Consumers wanting NSS should use the documented
+# workarounds (fork+/usr/bin/su, or read /etc/passwd directly).
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/mmap.cyr"
+include "lib/fnptr.cyr"
+include "lib/dynlib.cyr"
+
+alloc_init();
+
+fn wrs(s) { syscall(SYS_WRITE, 1, s, strlen(s)); }
+fn wrh(n) { var b[32]; fmt_hex_buf(n, &b); syscall(SYS_WRITE, 1, &b, strlen(&b)); }
+fn wri(n) { var b[32]; fmt_int_buf(n, &b); syscall(SYS_WRITE, 1, &b, strlen(&b)); }
+
+wrs("=== v5.5.25 NSS probe ===\n");
+
+var abuf = alloc(4096);
+var ab = dynlib_read_auxv(abuf, 4096);
+if (ab < 0) { wrs("auxv read failed\n"); syscall(60, 1); }
+wrs("auxv bytes     = "); wri(ab); wrs("\n");
+wrs("AT_PAGESZ      = "); wri(dynlib_auxv_get(abuf, ab, 6)); wrs("\n");
+wrs("AT_RANDOM      = 0x"); wrh(dynlib_auxv_get(abuf, ab, 25)); wrs("\n");
+wrs("AT_SYSINFO_EHDR = 0x"); wrh(dynlib_auxv_get(abuf, ab, 33)); wrs("\n");
+
+if (dynlib_bootstrap_cpu_features() != 0) {
+    wrs("not glibc — probe skipped\n"); syscall(60, 0);
+}
+dynlib_bootstrap_tls();
+dynlib_bootstrap_stack_end(0);
+var hc = dynlib_open("libc.so.6");
+if (hc == 0) { hc = dynlib_open("/lib64/libc.so.6"); }
+if (hc == 0) { wrs("libc.so.6 not found\n"); syscall(60, 2); }
+dynlib_init(hc);
+dynlib_bootstrap_locale(hc);
+dynlib_bootstrap_environ(hc);
+
+var hld = dynlib_open("/lib64/ld-linux-x86-64.so.2");
+if (hld == 0) { hld = dynlib_open("ld-linux-x86-64.so.2"); }
+var rtld_ro = dynlib_sym(hld, "_rtld_global_ro");
+var bias    = load64(hc + 40);
+var got_ro  = load64(bias + 0x1e6e18);
+
+wrs("\nGLOB_DAT check: libc GOT[rtld_ro] == ld.so &_rtld_global_ro : ");
+if (got_ro == rtld_ro) { wrs("YES\n"); } else { wrs("NO (bug)\n"); }
+
+wrs("\n_rtld_global_ro zero-filled state:\n");
+wrs("  +0x2a0 = 0x"); wrh(load64(rtld_ro + 0x2a0)); wrs("\n");
+wrs("  +0x2a8 = 0x"); wrh(load64(rtld_ro + 0x2a8)); wrs("\n");
+wrs("(both are 0 — ld.so's _dl_start never ran since we're static.)\n");
+
+wrs("\n=== probe done — see docs/development/issues/dynlib-nss-bootstrap.md ===\n");
+syscall(60, 0);
