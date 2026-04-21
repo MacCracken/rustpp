@@ -784,12 +784,21 @@ fn PARSE_FACTOR(S) {
         }
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
         STI(S, GTI(S) + 1);
-        # Mach-O ARM target: the aarch64 ESYSXLAT chain only translates the
+        # Mach-O ARM target: the aarch64 ESYSXLAT chain translates the
         # BSD SVC whitelist (read, write, open, close, mmap, mprotect,
-        # munmap, exit). Any other syscall number would hit SVC with a
-        # garbage x16, so detect at parse time and error out rather than
-        # emit a silently-broken binary. libSystem imports for the
-        # broader POSIX surface is tracked as a follow-up feature.
+        # munmap, exit). Non-whitelisted syscalls fall through to svc with
+        # a Linux number, which is either nonexistent on XNU or carries
+        # different semantics — a real runtime hazard. v5.5.15 demoted
+        # this from a hard parse-time error to a warning because the old
+        # error rejected syscalls inside UNCALLED stdlib helpers (e.g.
+        # `lib/io.cyr`'s `syscall(73)` flock wrappers) and blocked
+        # cross-compiling Cyrius tool binaries whose hot paths only touch
+        # the whitelist. If the warned syscall is actually reachable at
+        # runtime, the resulting binary faults visibly on macOS — which
+        # is a strictly better failure mode than a compile-time refusal
+        # to build something that would have worked. v5.5.17 pins the
+        # follow-up that adds ESYSXLAT translations or `__got` reroutes
+        # for specific syscalls the tools actually exercise.
         if (_TARGET_MACHO == 2) {
             if (sc_num >= 0) {
                 var sc_ok = 0;
@@ -803,9 +812,8 @@ fn PARSE_FACTOR(S) {
                 elif (sc_num == 60) { sc_ok = 1; }
                 if (sc_ok == 0) {
                     syscall(SYS_WRITE, 2,
-                        "error: syscall not available on Mach-O ARM target (BSD whitelist: 0,1,2,3,9,10,11,60). libSystem imports pending.\n",
-                        118);
-                    syscall(SYS_EXIT, 1);
+                        "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60); runtime call will fault unless v5.5.17 adds a reroute.\n",
+                        130);
                 }
             }
         }

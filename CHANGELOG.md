@@ -4,6 +4,100 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.15] — 2026-04-20
+
+**Mach-O tool-binary cross-build unblocked. The parse-time hard-error
+that rejected any non-whitelisted syscall on `_TARGET_MACHO == 2`
+— even inside stdlib functions the program never called — is now a
+warning. All four Cyrius tools (`cyrfmt`, `cyrlint`, `cyrdoc`, `cyrc`)
+cross-compile to arm64 Mach-O and codesign cleanly. Runtime behavior
+on `ssh ecb` is mixed as expected and feeds the v5.5.16 / v5.5.17
+follow-up scope.**
+
+Part 1 of 3 of the tool-binary shipping split. The original v5.5.15
+"tool-binary shipping" single-patch scope split three ways on
+2026-04-20 once the real blockers separated cleanly: parse-time
+rejection (v5.5.15), missing `CYRIUS_TARGET_MACOS` predefine +
+stdlib per-OS dispatch (v5.5.16), runtime syscall gaps (v5.5.17).
+This patch is strictly the parse-time unblock; the tools don't
+necessarily RUN yet, they just BUILD.
+
+### The change
+
+`src/frontend/parse.cyr:787–811`:
+- Hard-error on non-whitelisted Mach-O syscalls demoted to warning.
+- Message updated to flag the specific failure mode ("runtime call
+  will fault unless v5.5.17 adds a reroute") and the forward
+  pointer to the patch that will close each gap.
+- `syscall(SYS_EXIT, 1)` that aborted the compile is deleted.
+
+The whitelist itself (BSD-SVC-translatable: 0, 1, 2, 3, 9, 10, 11, 60)
+is unchanged. `ESYSXLAT` still refuses to translate anything outside
+the list, so a non-whitelisted syscall reached at runtime still
+faults on Apple Silicon — just at runtime instead of at compile time.
+That is a strictly better failure mode: tools with dead-code stdlib
+syscalls (e.g. `cyrfmt` including `lib/io.cyr` with its `syscall(73)`
+flock helpers that the tool never calls) can now ship.
+
+### Cross-build status (all 4 tools)
+
+```
+cyrfmt   82,288 B  7 warnings
+cyrlint  98,672 B  7 warnings
+cyrdoc   98,672 B  7 warnings
+cyrc     82,288 B  7 warnings
+```
+
+Each warning is a distinct non-whitelisted syscall site reachable by
+the parser (most from `lib/io.cyr:73,78,83,88` — flock wrappers the
+tools don't actually call). The identical sizes pair
+(cyrfmt==cyrc, cyrlint==cyrdoc) fall out of the stdlib include set
+each tool pulls in, not DCE.
+
+### Runtime status on `ssh ecb`
+
+Verified after codesign:
+- `cyrfmt /tmp/test.cyr` → `rc=140` (SIGSYS, signal 12 — "bad system
+  call"; tool reached an unhandled syscall number).
+- `cyrlint /tmp/test.cyr` → `rc=0`, no output (silent exit before
+  producing lint results — likely `alloc_init`'s `syscall(12)` brk
+  returning garbage on macOS where BSD syscall 12 is `chdir`, so
+  heap base is wrong and later accesses fault or short-circuit).
+- `cyrdoc /tmp/test.cyr` → `rc=0`, no output. Same root cause.
+- `cyrc < /tmp/test.cyr` → `rc=0`, no output. Same.
+
+All four tools codesign successfully and produce valid Mach-O
+binaries — no loader errors, no `dyld: unbound symbol`. That's
+exactly the scope-bound goal of v5.5.15.
+
+### Pinned forward
+
+- **v5.5.16** — predefine `CYRIUS_TARGET_MACOS` when
+  `CYRIUS_MACHO_ARM=1` (today `src/main_aarch64.cyr:150` unconditionally
+  predefines `CYRIUS_TARGET_LINUX`). Add a `#ifdef CYRIUS_TARGET_MACOS`
+  branch in `lib/alloc.cyr` that delegates to the already-written
+  `lib/alloc_macos.cyr` (mmap-based, no brk). This is the first-order
+  fix for the silent `rc=0` failures — tools aren't breaking on the
+  flock warnings, they're breaking because `alloc_init`'s brk call is
+  meaningless on XNU.
+- **v5.5.17** — whichever specific syscalls cyrfmt's hot path actually
+  hits at runtime on macOS and causes the SIGSYS. Candidates: `lseek`
+  (syscall 8, BSD 199), `fstat` (syscall 5, BSD 339), `stat` (syscall
+  4, BSD 338). Each gets either an ESYSXLAT entry or a `__got` reroute.
+
+### Byte-identical self-host
+
+cc5 485,744 → 485,736 B (−8 B; dropping the `syscall(SYS_EXIT, 1)`
+call plus a few bytes from the shorter warning message).
+cc5_aarch64 346,496 → 346,488 B.
+
+### Regression
+
+- `sh scripts/check.sh` — 10/10 PASS.
+- v5.5.13 `syscall(60, 42)` → exit=42 on ecb (retested).
+- v5.5.14 `syscall(1, 1, "hello\n", 6); syscall(60, 0)` → prints
+  `hello` and exits 0 on ecb (retested).
+
 ## [5.5.14] — 2026-04-20
 
 **Mach-O `__got` grows from 1 slot to 6. `EMITMACHO_ARM64` now emits
