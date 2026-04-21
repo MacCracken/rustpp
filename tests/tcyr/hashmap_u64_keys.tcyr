@@ -116,4 +116,4 @@ map_u64_has(m, 99999);             # pure read, missing
 var after = alloc_used();
 assert_eq(after, before, "no alloc on overwrite/get/has hot path");
 
-return assert_summary();
+var r = assert_summary();
