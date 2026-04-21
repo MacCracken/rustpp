@@ -4,6 +4,81 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.27] — 2026-04-21
+
+**Second of the three-patch NSS real-fix arc: `lib/shadow.cyr` +
+`lib/pam.cyr` (unix_chkpwd) + a few ecosystem UX fixes.** v5.5.26
+shipped the `/etc/passwd` + `/etc/group` readers. This patch
+finishes the identity-auth surface that shakti (and any other
+consumer) actually needs: read `/etc/shadow` where possible, and
+fall through to the setuid-root `unix_chkpwd` helper when we're
+not root.
+
+### Added
+
+* **`lib/shadow.cyr`** — `shadow_getspnam(name, sprec, strbuf,
+  strbufsz)` reads `/etc/shadow` directly (same musl pattern as
+  `lib/pwd.cyr` / `lib/grp.cyr`). 24-byte `sprec` layout: name
+  cstr, hash cstr (the `$6$salt$hash` crypt(3) encoding), days-
+  since-epoch last_change. Accessors `shadow_name` / `shadow_hash`
+  / `shadow_last_change`. Returns -1 when `/etc/shadow` is
+  unreadable (EACCES as non-root is the common case).
+* **`lib/pam.cyr`** — `pam_unix_authenticate(user, password)`
+  forks `/usr/sbin/unix_chkpwd` (Linux-PAM's own setuid-root
+  helper), pipes the password to its stdin, waits for exit.
+  Exactly the path `pam_unix.so` itself takes from an unprivileged
+  process. Return constants: `PAM_AUTH_OK` (0), `PAM_AUTH_FAIL`
+  (1), `PAM_AUTH_HELPER_MISSING` (-2), `PAM_AUTH_PIPE_FAILED`
+  (-3), `PAM_AUTH_FORK_FAILED` (-4), `PAM_AUTH_EXEC_FAILED` (-5).
+  Probe helper availability via `pam_unix_available()`. Works
+  against any NSS backend the system is configured for (files,
+  LDAP, SSSD, …) — `unix_chkpwd` does a normal glibc lookup
+  inside its setuid environment.
+* **`tests/tcyr/shadow_pam.tcyr`** + **`tests/regression-shadow-pam.sh`**
+  — 6 assertions covering non-root-EACCES path, helper-availability
+  probe, wrong-password rejection, nonexistent-user rejection.
+  Gate 4i in check.sh (13 → 14).
+
+### Changed
+
+* **`cbt/commands.cyr` — `cyrius distlib` verify step is now
+  informational, not fatal.** v5.5.26 introduced a standalone
+  compile-check on the generated bundle that returned exit 1 when
+  the bundle had unresolved symbols. A consumer-included bundle
+  (patra's `dist/patra.cyr`, yukti's `dist/yukti.cyr`, …) is
+  designed to be concatenated into the consumer's compile unit
+  that already has the stdlib in scope — the bundle's own
+  includes are intentionally stripped. The old behavior broke
+  patra 1.5.5's release CI. Now prints an info note instead of
+  failing. Added `_info` helper in `cbt/core.cyr`.
+* **`cbt/commands.cyr` — `cyrius bench` with no args discovers
+  `benches/*.bcyr` and `tests/bcyr/*.bcyr`**, compiles each and
+  runs, mirrors `cyrius fuzz` / `cyrius test` shape. Previously it
+  invoked the cyrius-repo-specific `bench-history.sh` install-dir
+  script, which made no sense for downstream projects (takumi had
+  a comment pointing out the UX gotcha). Cyrius's own CI calls
+  `sh scripts/bench-history.sh` directly so it's unaffected.
+
+### Downstream
+
+* **Patra `cyrius.cyml`** pin bumped `5.5.26-1` → `5.5.27` so its
+  release CI picks up the `cyrius distlib` soften fix (v1.5.5
+  was stuck after the `bundle.sh` → `distlib` switch because
+  `cyrius distlib` exited 1 on the standalone-compile check).
+
+### Size
+
+* cc5 x86_64: **488,864 B unchanged** — compiler untouched in
+  this release. All changes are in `cbt/*.cyr` (cyrius CLI) and
+  `lib/*.cyr` (stdlib). Self-host fixpoint byte-identical.
+
+### check.sh gates
+
+* 13 → **14** (added: 4i shadow + PAM). Known pre-existing
+  harness issue (`cyrius test` auto-prepends deps before stdlib
+  → `PROT_READ` / `SYS_LSEEK` undefined) still unfixed; direct
+  `build/cc5` compile paths work and every gate uses them.
+
 ## [5.5.26-1] — 2026-04-21
 
 **Hotfix only.** Two regressions surfaced on CI after v5.5.26 shipped:

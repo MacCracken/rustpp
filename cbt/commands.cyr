@@ -137,22 +137,87 @@ fn cmd_fuzz() {
     return 0;
 }
 
-fn cmd_bench(source) {
-    if (source == 0) {
-        # No args: run full bench suite
-        var script = make_path(_scripts_dir, "bench-history.sh");
-        return run_script(script, 0, 0);
-    }
+# Run one .bcyr file: compile, execute, propagate exit code.
+# Returns 0 on success, 1 on compile error, or the binary's exit code.
+fn _bench_run_one(path) {
     var tmpbin = "/tmp/cyrius_bench";
-    var r = compile(source, tmpbin);
+    var r = compile(path, tmpbin);
     if (r != 0) {
         sys_write(STDERR_FD, "FAIL: compile error\n", 20);
         sys_unlink(tmpbin);
         return 1;
     }
-    var exit_code = run_binary(tmpbin);
+    var ec = run_binary(tmpbin);
     sys_unlink(tmpbin);
-    return exit_code;
+    return ec;
+}
+
+# Walk `dir` for `*.bcyr` files and run each via _bench_run_one.
+# Updates *passcnt / *failcnt / *found via caller-owned i64 storage.
+# Returns the number of benches attempted.
+fn _bench_walk_dir(dir, passcnt_ptr, failcnt_ptr, found_ptr) {
+    if (file_exists(dir) == 0) { return 0; }
+    var entries = dir_list(str_from(dir));
+    var fi = 0;
+    var n = 0;
+    while (fi < vec_len(entries)) {
+        var name = vec_get(entries, fi);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        if (nl > 5) {
+            if (memeq(nd + nl - 5, ".bcyr", 5) == 1) {
+                store64(found_ptr, 1);
+                var path = make_path(dir, nd);
+                sys_write(STDOUT_FD, "  ", 2);
+                sys_write(STDOUT_FD, path, strlen(path));
+                sys_write(STDOUT_FD, "\n", 1);
+                var ec = _bench_run_one(path);
+                if (ec == 0) {
+                    store64(passcnt_ptr, load64(passcnt_ptr) + 1);
+                } else {
+                    store64(failcnt_ptr, load64(failcnt_ptr) + 1);
+                }
+                n = n + 1;
+            }
+        }
+        fi = fi + 1;
+    }
+    return n;
+}
+
+fn cmd_bench(source) {
+    if (source != 0) {
+        return _bench_run_one(source);
+    }
+    # No-arg mode: discover and run every `*.bcyr` in `benches/`
+    # and `tests/bcyr/`. Mirrors `cmd_fuzz` / `cmd_test` shape so
+    # downstream projects (takumi, majra, mabda, …) get the
+    # obvious behavior instead of the cyrius-repo-specific
+    # `bench-history.sh` shell script they never asked for. (The
+    # cyrius repo's own CI invokes that script directly via
+    # `sh scripts/bench-history.sh`.) (v5.5.27)
+    _status("=== cyrius bench ===");
+    var pass_store[1];
+    store64(&pass_store, 0);
+    var fail_store[1];
+    store64(&fail_store, 0);
+    var found_store[1];
+    store64(&found_store, 0);
+    _bench_walk_dir("benches", &pass_store, &fail_store, &found_store);
+    _bench_walk_dir("tests/bcyr", &pass_store, &fail_store, &found_store);
+    if (load64(&found_store) == 0) {
+        println("  No benchmarks found (looked in benches/ and tests/bcyr/).");
+        println("  Create `benches/*.bcyr` files, or pass an explicit path:");
+        println("    cyrius bench path/to/my_bench.bcyr");
+        return 0;
+    }
+    sys_write(STDOUT_FD, "\n=== ", 5);
+    fmt_int(load64(&pass_store));
+    sys_write(STDOUT_FD, " passed, ", 9);
+    fmt_int(load64(&fail_store));
+    println(" failed ===");
+    if (load64(&fail_store) > 0) { return 1; }
+    return 0;
 }
 
 fn cmd_check(source) {
@@ -814,11 +879,26 @@ fn cmd_distlib(profile) {
 
     sys_close(ofd);
 
-    # Compile-check the output — catches undefined symbols from stripped includes
+    # Standalone compile-check is informational only (v5.5.27).
+    # A bundle like `dist/patra.cyr` is DESIGNED to be concatenated
+    # into a consumer's compile unit that already has the stdlib in
+    # scope (via the consumer's own `include "lib/syscalls.cyr"` or
+    # via cyrius's own `[deps] stdlib = [...]` resolution). The
+    # bundle's include directives are stripped during concatenation,
+    # so references like `SYS_LSEEK` are intentionally unresolved
+    # until the consumer includes them. A non-zero compile result
+    # is therefore NOT a bundle defect; it's expected for bundles
+    # whose stdlib deps are declared in cyrius.cyml rather than
+    # re-included per module. Emit an info note instead of failing
+    # the command.
+    #
+    # Prior behavior exited 1 here, which broke patra 1.5.5's
+    # release CI (the release workflow runs `cyrius distlib` as a
+    # step; every consumer-bundle shape tripped the same check).
     var check_r = compile(out_path, "/dev/null");
     if (check_r != 0) {
-        _warn("dist bundle has compile errors — likely missing symbol from a stripped include");
-        _warn("the bundle is NOT self-contained. Fix module order or add missing definitions.");
+        _info("note: bundle has unresolved symbols (expected for consumer-included");
+        _info("      bundles; stdlib is supplied by the consumer's `[deps] stdlib` list).");
     }
 
     # Report
@@ -828,7 +908,6 @@ fn cmd_distlib(profile) {
     sys_write(STDOUT_FD, " lines (v", 9);
     sys_write(STDOUT_FD, pkg_ver, strlen(pkg_ver));
     println(")");
-    if (check_r != 0) { return 1; }
     return 0;
 }
 

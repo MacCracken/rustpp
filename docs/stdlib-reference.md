@@ -315,3 +315,68 @@ See [agnosys documentation](cyrius-guide.md#agnos-system-libraries) for full API
 Key functions: `sys_open`, `sys_close`, `sys_read`, `sys_write`, `sys_fork`, `sys_execve`, `sys_pipe`, `sys_waitpid`, `sys_kill`, `sys_mount`, `sys_mkdir`, `sys_rmdir`, `sys_sigprocmask`, `sys_signalfd`, `sys_epoll_create`, `sys_epoll_ctl`, `sys_epoll_wait`, `sys_timerfd_create`.
 
 Helper functions: `sigset_new`, `sigset_add`, `sigset_has`, `epoll_event_new`, `timerspec_new`, `WIFEXITED`, `WEXITSTATUS`, `WIFSIGNALED`, `WTERMSIG`, `is_err`, `err_code`.
+
+## Identity & Authentication
+
+Pure-cyrius parsers for `/etc/passwd`, `/etc/group`, `/etc/shadow` that bypass glibc NSS entirely — same architectural stance musl libc takes. Added in v5.5.26 (pwd/grp) and v5.5.27 (shadow/pam) as the landing for the NSS-dispatch work that the v5.5.23-25 arc proved was not tractable through glibc's dlopen surface. See `docs/development/issues/dynlib-nss-bootstrap.md` for the full why.
+
+### pwd.cyr (v5.5.26)
+
+`/etc/passwd` reader. Caller protocol: 56 B `pwrec` (uid, gid, name ptr, passwd ptr, gecos ptr, dir ptr, shell ptr) + a `strbuf` scratch for the string fields.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `pwd_getpwuid` | `(uid, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by uid |
+| `pwd_getpwnam` | `(name, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name |
+| `pwd_invalidate_cache` | `() → 0` | Force re-read on next call |
+| `pwd_uid` / `pwd_gid` / `pwd_name` / `pwd_passwd` / `pwd_gecos` / `pwd_dir` / `pwd_shell` | `(pwrec) → value` | Accessors |
+
+Returns `1` = found, `0` = not found, `-1` = `/etc/passwd` unreadable, `-2` = strbuf too small.
+
+### grp.cyr (v5.5.26)
+
+`/etc/group` reader with `getgrouplist` semantics matching glibc (primary gid prepended, supplementary gids appended for every group that lists `user` as a member).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `grp_getgrgid` | `(gid, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by gid |
+| `grp_getgrnam` | `(name, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name |
+| `grp_getgrouplist` | `(user, primary_gid, gid_buf, max) → count / -1 / -2` | All gids for user |
+| `grp_invalidate_cache` | `() → 0` | Force re-read on next call |
+| `grp_gid` / `grp_name` / `grp_passwd` | `(grrec) → value` | Accessors |
+
+24 B `grrec`. `grp_getgrouplist` returns the count of gids written (always ≥ 1 if `primary_gid` fit); `-2` means the `gid_buf` was too small.
+
+### shadow.cyr (v5.5.27)
+
+`/etc/shadow` reader. On a normal Linux system the file is mode `0600 root:root`; non-root callers get `rc=-1` (EACCES). For non-root authentication, use `lib/pam.cyr` below — same path `pam_unix.so` itself takes from unprivileged processes.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `shadow_getspnam` | `(name, sprec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by username |
+| `shadow_invalidate_cache` | `() → 0` | Force re-read on next call |
+| `shadow_name` / `shadow_hash` / `shadow_last_change` | `(sprec) → value` | Accessors |
+
+24 B `sprec` (name, hash, last_change). The hash is the full crypt(3) encoding (`$6$salt$hash` / `$5$salt$hash` / `*` / `!`).
+
+### pam.cyr (v5.5.27)
+
+Non-root password verification via the setuid-root `unix_chkpwd` helper that Linux-PAM ships for exactly this purpose. Forks the helper, pipes the password to its stdin, returns based on its exit code. Works against any NSS backend the system is configured for (`files`, LDAP, SSSD, …) — `unix_chkpwd` does a normal glibc lookup inside its setuid environment.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `pam_unix_available` | `() → 0/1` | `1` if `/usr/sbin/unix_chkpwd` or `/usr/bin/unix_chkpwd` is present |
+| `pam_unix_authenticate` | `(user, password) → PAM_AUTH_*` | Verify `password` for `user` |
+
+Return constants:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `PAM_AUTH_OK` | `0` | Password verified |
+| `PAM_AUTH_FAIL` | `1` | Rejected (wrong password, locked, disabled) |
+| `PAM_AUTH_HELPER_MISSING` | `-2` | `unix_chkpwd` not on system |
+| `PAM_AUTH_PIPE_FAILED` | `-3` | `sys_pipe` errored |
+| `PAM_AUTH_FORK_FAILED` | `-4` | `sys_fork` errored |
+| `PAM_AUTH_EXEC_FAILED` | `-5` | Helper present but couldn't run |
+
+An inline cyrius SHA-512-crypt implementation (for root consumers that want to skip the subprocess fork) was considered for v5.5.27 but deferred — Drepper's algorithm is ~120 LoC of error-prone interleaved hashing, and `unix_chkpwd` is ~1 ms and covers every crypt type the system supports automatically. Can land as a future patch if a zero-fork consumer needs it.

@@ -1,0 +1,67 @@
+# shadow_pam.tcyr — /etc/shadow reader + unix_chkpwd PAM auth (v5.5.27).
+# Second of the three-patch NSS real-fix arc.
+
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fnptr.cyr"
+include "lib/shadow.cyr"
+include "lib/pam.cyr"
+
+alloc_init();
+
+test_group("lib/shadow.cyr (non-root path)");
+
+var sprec[24];
+var strbuf[512];
+
+# /etc/shadow is 0600 root:root on every mainstream Linux. A
+# non-root test process gets EACCES → return -1. A root test
+# process gets the real record. We handle both so the test is
+# stable across CI environments.
+var rc = shadow_getspnam("root", &sprec, &strbuf, 512);
+if (rc == 0 - 1) {
+    # Non-root — expected path in CI.
+    assert_eq(rc, 0 - 1, "shadow_getspnam returns -1 when /etc/shadow is unreadable (non-root)");
+} else {
+    # Root or world-readable shadow (e.g. dev container).
+    assert_eq(rc, 1, "shadow_getspnam(root) found the record");
+    var nm = shadow_name(&sprec);
+    assert_eq(load8(nm), 114, "shadow name starts with 'r'");
+    assert_eq(load8(nm + 4), 0, "shadow name null-term at 4 ('root')");
+    # Hash field is either `$<algo>$...` (real hash), `*` (no
+    # password / system account), or `!` / `!!` (locked).
+    # All are valid — just assert it's non-empty.
+    var hh = shadow_hash(&sprec);
+    assert(load8(hh) != 0, "shadow hash is non-empty");
+}
+
+test_group("lib/pam.cyr — unix_chkpwd availability");
+
+# On any modern Linux the helper is present. On minimal containers
+# it may not be — skip assertions if unavailable rather than fail.
+var avail = pam_unix_available();
+if (avail == 0) {
+    syscall(SYS_WRITE, 1, "  SKIP: unix_chkpwd not installed — skipping auth tests\n", 56);
+} else {
+    assert_eq(avail, 1, "pam_unix_available detects the helper");
+
+    test_group("lib/pam.cyr — authentication paths");
+
+    # Wrong password for a known-existent user must fail cleanly
+    # (rc=1 = PAM_AUTH_FAIL). Never pass, never crash. We use a
+    # password that cannot possibly match any real shadow entry.
+    var r1 = pam_unix_authenticate("root", "___definitely_not_the_root_password_v5527___");
+    assert(r1 >= 0, "wrong-password auth does not return infrastructure error");
+    assert(r1 != 0, "wrong-password auth is not PAM_AUTH_OK");
+
+    # Non-existent user: helper returns fail.
+    var r2 = pam_unix_authenticate("_nosuch_user_v5527_", "any");
+    assert(r2 >= 0, "nonexistent-user auth does not return infrastructure error");
+    assert(r2 != 0, "nonexistent-user auth is not PAM_AUTH_OK");
+}
+
+var r = assert_summary();
+syscall(60, 0);
