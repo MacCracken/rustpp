@@ -16,11 +16,12 @@ with. Root cause pinned to v5.5.20+; v5.5.19 ships the investigation
 write-up, a regression gate that locks in the known-working shape,
 and a workaround recipe for sigil 2.9.1 (the one-line
 `_aes_ni_cache` flip works as-is because `src/aes_ni.cyr` already
-has the leading global).**
+has the leading global). Actual codegen fix slotted as v5.5.21
+so it can't get lost in "deferred with no slot" limbo.**
 
 Hit CLAUDE.md's "3 failed attempts = defer and document" rule on
-the root-cause dig. Ship what we've got; v5.5.20 can re-open with
-fresh eyes.
+the root-cause dig. Ship what we've got; the fix lives at v5.5.21
+so it's pinned-to-a-number rather than floating.
 
 ### Investigation summary
 
@@ -70,12 +71,15 @@ second assertion against the "no leading global" shape.
 updated with the v5.5.19 narrowing: workaround recipe, pinned
 root-cause target, why the original framing was misleading.
 
-### Not landed (pinned v5.5.20+)
+### Not landed (pinned v5.5.21)
 
 - Actual backend fix. Suspected location: `src/backend/x86/fixup.cyr`
   or the CP-tracking path through `src/frontend/parse.cyr`'s
   asm-block emit. Requires a full instrumented walk of what CP +
-  fixup state look like before/after the 120B asm block.
+  fixup state look like before/after the 120 B asm block. Slotted
+  as v5.5.21 in the roadmap (right after the u64-hashmap perf
+  slot) so the fix is pinned to a concrete patch number, not
+  floating as "deferred, no slot".
 
 ### Byte-identical self-host
 
