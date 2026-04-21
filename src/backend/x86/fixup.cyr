@@ -91,8 +91,23 @@ fn FIXUP(S) {
     # Store prefix sums in scratch area (output_buf tail, safe — ELF not written yet)
     var pfx = S + 0x64A000 + 131072;
     while (vi < vcnt) {
+        var vsize = L64(S + 0x12A000 + vi * 8);
+        # v5.5.21: arrays (size > 8) used as SSE m128 memory operands —
+        # PXOR xmm, m128 / MOVDQA / MOVAPS / AESENC m128 form / etc. —
+        # require 16-byte alignment of the memory operand. 8-byte-aligned
+        # addresses (cyrius default) crash the CPU with #GP (SIGSEGV) on
+        # misaligned m128 loads. Pad totvar so the array's VA
+        # (dbase + totvar) is 16-aligned. Scalars stay at 8-byte alignment
+        # (no observed consumer uses a scalar i64 global as an m128
+        # operand). Surfaced by sigil 2.9.0's aes256_encrypt_block_ni
+        # `pxor xmm0, [rdi]` over `var round_keys[240]` — narrowed in
+        # v5.5.19, fixed here.
+        if (vsize > 8) {
+            var va = dbase + totvar;
+            totvar = totvar + ((0 - va) & 15);
+        }
         S64(pfx + vi * 8, totvar);
-        totvar = totvar + L64(S + 0x12A000 + vi * 8);
+        totvar = totvar + vsize;
         vi = vi + 1;
     }
     # Check for undefined functions that are actually called (have fixup entries).

@@ -2,8 +2,42 @@
 
 **Discovered:** 2026-04-20 during sigil 2.9.0 AES-NI implementation
 **Severity:** High
-**Affects:** cc5 5.4.12, 5.4.12-1, v5.5.19 (still reproduces; see
-v5.5.19 update below — root cause pinned to v5.5.20)
+**Affects:** cc5 5.4.12 through 5.5.20 (inclusive)
+**Fixed in:** v5.5.21
+
+## v5.5.21 — FIXED
+
+Root cause identified and fixed: cyrius placed array globals at
+8-byte-aligned addresses, but SSE m128 memory operands (PXOR /
+MOVDQA / AESENC m128-form / etc.) require 16-byte alignment. When
+the program's total code size caused an array global (e.g. the
+240-byte round-key buffer sigil's aes256_encrypt_block_ni reads
+through rdi) to land on an 8-aligned-but-not-16-aligned address,
+the CPU signalled #GP (SIGSEGV) on the first m128 load.
+
+The observed "preceding-globals in the TU changes the outcome"
+symptom from v5.5.19 falls out of this: adding or removing any
+global shifts all subsequent global VAs, so whether a particular
+array happened to sit on a 16-aligned slot depended on code/global
+layout ahead of it. The misleading shape-sensitivity made the bug
+look like an asm-emission issue when it was actually a data-layout
+issue.
+
+**Fix:** 4 lines in `src/backend/x86/fixup.cyr`'s prefix-sum pass.
+When a gvar's size > 8 (arrays), pad `totvar` so the array's VA
+is 16-byte aligned. Scalars stay at 8-byte alignment (no observed
+consumer uses a scalar i64 global as an SSE m128 operand).
+
+**Verification:** bisected N AESENCs in [0..7] and recorded rc vs
+&rk mod 16 — crash iff mod 16 != 0, with perfect correlation.
+Post-fix all N pass. `tests/regression-inline-asm-discard.sh` now
+asserts both shapes (with + without leading global) write 16 B.
+
+**Sigil impact:** 2.9.1 can now wire `aes_ni_available()` into
+`aes_gcm_encrypt` without the layout-dependent workaround — the
+fix is in cyrius itself.
+
+---
 
 ## v5.5.19 update — bug narrowed, root cause deferred
 

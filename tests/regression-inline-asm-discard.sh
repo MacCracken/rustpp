@@ -1,28 +1,24 @@
 #!/bin/sh
-# Regression: narrowed repro for v5.4.15's "include-boundary inline-asm"
-# bug (pinned to v5.5.19 investigation).
+# Regression: inline-asm SSE m128 operand alignment fix (v5.5.21).
 #
-# The v5.5.19 investigation narrowed the bug: it is NOT an include-
-# boundary issue per se. The actual trigger is a shape-sensitive
-# codegen defect that combines:
-#   - a large (~120-byte) asm block in a callee fn
-#   - the caller passes stack-array pointers (`var ct[16]` etc.)
-#   - the caller follows the callee call with a standalone fn call
-#     whose return is discarded (`sys_write(1, &ct, 16);` with no
-#     `var _ = ...` wrapper)
-#   - and specifically, the presence/absence of preceding globals
-#     in the translation unit shifts whether the bug fires
+# v5.4.15 filed as "include-boundary inline-asm" bug (sigil 2.9.0
+# AES-NI blocker). v5.5.19 investigated: found the real trigger
+# was shape-sensitive on whether the callee TU had preceding
+# globals — a misleading symptom of the actual root cause. v5.5.21
+# identified the root cause: cyrius placed global arrays at
+# 8-byte-aligned addresses, but SSE m128 memory operands
+# (PXOR xmm,m128 / MOVDQA / AESENC m128 form / etc.) require
+# 16-byte alignment. When a program's code size happened to land
+# `var rk[240]` on an 8-aligned-not-16-aligned address, any SSE
+# m128 operand load faulted with #GP → SIGSEGV. Fixed by
+# 16-aligning arrays (size > 8) in `src/backend/x86/fixup.cyr`'s
+# prefix-sum pass.
 #
-# The bug manifests as the following `sys_write` writing 0 bytes
-# (or some other value less than `count`), not the correct count.
-# Capturing the return into a var (`var n = sys_write(...)`) doesn't
-# dodge the bug by itself — presence of globals in the included file
-# does. This is the shape sigil's AES-NI 2.9.0 path originally
-# tripped on; sigil's workaround is to use the "with globals" shape.
-#
-# Tests below assert the KNOWN-WORKING shape (global var present in
-# the included file). Pin a stronger assertion here once v5.5.20+
-# fixes the root cause.
+# This test asserts BOTH shapes now work end-to-end — the original
+# "with leading global" path that sigil 2.9.0 shipped on as a
+# workaround, AND the "no leading global" path that previously
+# crashed. If cyrius ever regresses the array-alignment fix, this
+# test catches it.
 
 set -e
 
@@ -37,18 +33,15 @@ fi
 TMP=$(mktemp -d)
 trap "rm -rf $TMP" EXIT
 
-# Shared asm-block fn. Mirrors sigil's aes256_encrypt_block_ni shape:
-# 3 pointer params, 120-byte asm body with movdqu+pxor+13 AESENCs+AESENCLAST.
-# The asm runs whether or not AES-NI is available — invalid memory
-# won't be dereferenced because the caller supplies valid in-bounds
-# pointers (`var rk[240]` global-backed array).
-cat > "$TMP/common.cyr" <<'EOF'
-# v5.5.19 regression: global var before the fn is LOAD-BEARING for
-# the codegen path today. Removing it flips the following sys_write
-# to write 0 bytes instead of 16. Do NOT delete this var without
-# verifying v5.5.20+ fixes the underlying bug.
-var _v5519_regression_global = 0;
-
+# Shared asm-block fn — mirrors sigil's aes256_encrypt_block_ni
+# shape. 120-byte body with movdqu+pxor+13 AESENCs+AESENCLAST.
+# PXOR xmm,m128 and the AESENC m128 form are the alignment-
+# sensitive ops; `var rk[240]` feeds them through rdi.
+_write_common () {
+    local path="$1"
+    local leading_global="$2"
+    cat > "$path" <<EOF
+$leading_global
 fn _big_asm_fn(a, b, c) {
     asm {
         0x48; 0x8B; 0x7D; 0xF8;
@@ -75,12 +68,14 @@ fn _big_asm_fn(a, b, c) {
     return 0;
 }
 EOF
+}
 
-# Test A: known-working shape. Global var in included file present,
-# standalone sys_write after the asm call. Writes 16 bytes today.
-cat > "$TMP/ta.cyr" <<EOF
+_write_main () {
+    local path="$1"
+    local common="$2"
+    cat > "$path" <<EOF
 include "lib/syscalls.cyr"
-include "$TMP/common.cyr"
+include "$common"
 
 fn main() {
     var rk[240];
@@ -98,15 +93,33 @@ fn main() {
 var r = main();
 syscall(SYS_EXIT, r);
 EOF
+}
 
+fail=0
+
+# Test A: "with leading global" — sigil's 2.9.0 workaround shape.
+# Post-v5.5.21 still works.
+_write_common "$TMP/common_a.cyr" "var _regression_marker = 0;"
+_write_main "$TMP/ta.cyr" "$TMP/common_a.cyr"
 cat "$TMP/ta.cyr" | "$CC" > "$TMP/ta" 2>/dev/null
 chmod +x "$TMP/ta"
 ta_bytes=$("$TMP/ta" | wc -c)
-
-fail=0
 if [ "$ta_bytes" -ne 16 ]; then
-    echo "  FAIL: workaround shape (global var + assigned sys_write) wrote $ta_bytes bytes (expected 16)"
-    echo "        sigil's AES-NI 2.9.1 depends on this shape working."
+    echo "  FAIL: shape A (with leading global) wrote $ta_bytes bytes (expected 16)"
+    fail=$((fail+1))
+fi
+
+# Test B: "no leading global" — the shape that CRASHED pre-v5.5.21
+# with SIGSEGV from PXOR xmm,m128 on a misaligned &rk. Post-v5.5.21
+# the 16-alignment fix in fixup.cyr makes this shape work too.
+_write_common "$TMP/common_b.cyr" "# no leading global"
+_write_main "$TMP/tb.cyr" "$TMP/common_b.cyr"
+cat "$TMP/tb.cyr" | "$CC" > "$TMP/tb" 2>/dev/null
+chmod +x "$TMP/tb"
+tb_bytes=$("$TMP/tb" | wc -c)
+if [ "$tb_bytes" -ne 16 ]; then
+    echo "  FAIL: shape B (no leading global, previously SIGSEGV) wrote $tb_bytes bytes (expected 16)"
+    echo "        v5.5.21 array-alignment fix regressed?"
     fail=$((fail+1))
 fi
 

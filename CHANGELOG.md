@@ -4,6 +4,124 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.21] — 2026-04-21
+
+**The v5.4.15-filed "include-boundary inline-asm" bug is fixed.
+Root cause: cyrius placed array globals at 8-byte-aligned addresses,
+but SSE m128 memory operands (PXOR / MOVDQA / AESENC m128-form /
+etc.) require 16-byte alignment. When a program's code size happened
+to land `var rk[240]` on an 8-aligned-not-16-aligned address, any
+SSE m128 operand load faulted with #GP (SIGSEGV). The shape-
+sensitivity observed in v5.5.19 — "works with leading global, fails
+without" — falls out of the fact that adding or removing any global
+shifts every subsequent global's VA, so the leading-global presence
+changed whether `rk` happened to land on a 16-aligned address.**
+
+### The fix (4 lines of real work)
+
+`src/backend/x86/fixup.cyr:88..101` — FIXUP's gvar prefix-sum pass
+now pads `totvar` up to a 16-byte boundary before placing any
+global with `var_size > 8` (arrays). Scalars (i64, pointers) keep
+the 8-byte alignment they already had — no observed consumer uses
+a scalar global as an m128 operand.
+
+```
+while (vi < vcnt) {
+    var vsize = L64(S + 0x12A000 + vi * 8);
+    if (vsize > 8) {
+        var va = dbase + totvar;
+        totvar = totvar + ((0 - va) & 15);   # pad up to 16-align
+    }
+    S64(pfx + vi * 8, totvar);
+    totvar = totvar + vsize;
+    vi = vi + 1;
+}
+```
+
+### Why v5.5.19 mis-framed it
+
+The v5.5.19 investigation landed on "preceding-globals in the TU"
+as the trigger because adding a `var _leading = 0;` before an
+asm-block fn shifted rk's VA by 8 bytes — enough to flip its
+mod-16 alignment. Three attempts found the symptom but not the
+mechanism. The regression test v5.5.19 shipped (`tests/
+regression-inline-asm-discard.sh`) locked in the "with leading
+global" shape as a workaround; v5.5.21 expands it to assert BOTH
+shapes pass and adds a clear comment explaining the real root
+cause.
+
+### Verification bisect
+
+Walked from 0 to 7 AESENC-in-callee instructions and recorded
+both rk's VA and the program's exit code pre-fix:
+
+| N AESENCs | rk VA pre-fix | rk mod 16 | rc (pre-fix) | rc (post-fix) |
+|-----------|---------------|-----------|--------------|---------------|
+| 0         | 0x401f90      | 0         | 0 ✓          | 0 ✓           |
+| 1         | 0x401f98      | 8         | **139** #GP  | 0 ✓           |
+| 2         | 0x401fa0      | 0         | 0 ✓          | 0 ✓           |
+| 3         | 0x401fa0      | 0         | 0 ✓          | 0 ✓           |
+| 4         | 0x401fa8      | 8         | **139** #GP  | 0 ✓           |
+| 5         | 0x401fb0      | 0         | 0 ✓          | 0 ✓           |
+| 6         | 0x401fb8      | 8         | **139** #GP  | 0 ✓           |
+| 7         | 0x401fb8      | 8         | **139** #GP  | 0 ✓           |
+
+Perfect correlation between rk mod 16 and the crash — #GP fires
+iff the memory operand isn't 16-byte aligned. Post-fix, all N
+values succeed.
+
+### Two-step bootstrap (heap layout change)
+
+cc5 compiling cc5 isn't byte-identical across the fix because the
+compiler's own global arrays (256 KB `input_buf`, 1 MB
+`preprocess_out`, etc.) now receive 16-aligned addresses. Per
+CLAUDE.md's "Two-step bootstrap for heap changes" rule, ran
+`cc5_new → cc5_new` and confirmed byte-identical fixpoint at
+**486,552 B**. cc5_aarch64 grew to **347,024 B**.
+
+### Regression coverage
+
+`tests/regression-inline-asm-discard.sh` rewritten to assert BOTH
+shapes pass:
+- Shape A (with leading global): sigil's 2.9.0 workaround path.
+- Shape B (no leading global): the previously-SIGSEGV path.
+
+Both write 16 bytes post-fix. If cyrius ever regresses the
+array-alignment logic, CI catches it.
+
+Also retested the actual sigil `src/aes_ni.cyr` path (full 14-round
+AES-256 encryption with 240-byte round-key schedule) from an
+include — exits 0, writes the 16 B ciphertext cleanly.
+
+### Sigil 2.9.1 unblocked — cleanly
+
+v5.5.19 shipped a workaround recipe: "your `src/aes_ni.cyr` already
+has `_aes_ni_cache` as a leading global, so the file layout dodges
+the bug". That's no longer needed. sigil 2.9.1 can ship AES-NI
+wired into `aes_gcm_encrypt` via the normal one-line
+`_aes_ni_cache = probe_result` flip, with no layout-dependent
+assumptions about cyrius code size.
+
+### Byte-identical self-host
+
+cc5 486,352 → **486,552 B** (+200 B: the 16-align arithmetic +
+comments). Two-step byte-identical fixpoint confirmed.
+cc5_aarch64 346,976 → 347,024 B (+48 B).
+
+### Regression gates
+
+- `sh scripts/check.sh` — 11/11 PASS.
+- v5.5.13/14/17/18 Apple Silicon + Pi regressions all still green
+  (alignment fix is x86-only; aarch64 backend is unchanged).
+
+### aarch64 deferred
+
+`src/backend/aarch64/fixup.cyr` has a similar gvar layout loop but
+different alignment constraints (NEON/ASIMD doesn't require m128
+alignment the same way SSE does). No observed aarch64 consumer
+trips an alignment fault. If one surfaces later, the same fix
+pattern applies — pad `totvar` when placing arrays.
+
 ## [5.5.20] — 2026-04-20
 
 **`lib/hashmap.cyr` gains a u64-keyed variant — the mabda
