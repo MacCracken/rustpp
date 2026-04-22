@@ -979,6 +979,117 @@ fn dynlib_bootstrap_locale(hc) {
     return 0;
 }
 
+# Populate glibc's `__environ` / `environ` globals with a valid
+# empty-but-terminated env array so getenv() doesn't dereference
+# null. `__libc_start_main` normally sets these from argv's envp;
+# a static Cyrius binary has to point them at something
+# non-null before any libc fn that walks the env array
+# (getenv, secure_getenv, setenv, strerror on some glibc builds,
+# NSS setup, ...). With both slots set to an empty terminator-
+# only array, getenv returns null for any name (as if env were
+# empty) and the internal walks don't crash.
+#
+# Returns:
+#   0  — both symbols located and initialised
+#   1  — hc is null
+#   2  — neither `__environ` nor `environ` symbol exported
+#   3  — alloc failed
+#
+# Usage (after the other bootstraps):
+#   dynlib_bootstrap_cpu_features();
+#   dynlib_bootstrap_tls();
+#   dynlib_bootstrap_stack_end(0);
+#   var hc = dynlib_open("libc.so.6");
+#   dynlib_init(hc);
+#   dynlib_bootstrap_locale(hc);
+#   dynlib_bootstrap_environ(hc);      // ← this fn
+#
+# v5.5.24 — intermediate step toward NSS/PAM. After this, getenv
+# and simple env-query surfaces work, but NSS-dispatching calls
+# (getpwuid / getgrouplist / pam_authenticate / __nss_configure_lookup)
+# and strerror still SIGSEGV. Those require deeper libc init that
+# isn't tractable in a patch release; pinned forward. See
+# docs/development/issues/dynlib-nss-bootstrap.md for the
+# investigation log.
+fn dynlib_bootstrap_environ(hc) {
+    if (hc == 0) { return 1; }
+    var fp_env  = dynlib_sym(hc, "__environ");
+    var fp_env2 = dynlib_sym(hc, "environ");
+    if (fp_env == 0) {
+        if (fp_env2 == 0) { return 2; }
+    }
+    var empty = alloc(16);
+    if (empty == 0) { return 3; }
+    store64(empty, 0);       # env[0] = NULL (terminator)
+    store64(empty + 8, 0);   # slack — libc sometimes reads one past
+    if (fp_env  != 0) { store64(fp_env,  empty); }
+    if (fp_env2 != 0) { store64(fp_env2, empty); }
+    return 0;
+}
+
+# Read the kernel's auxiliary vector (auxv) for the current process
+# by slurping /proc/self/auxv. The file contains a sequence of
+# (u64 type, u64 value) pairs terminated by (AT_NULL=0, 0).
+#
+# Copies the raw pairs into buf, up to maxbytes. Returns bytes read
+# on success (always a multiple of 16), or a negative error code:
+#   -1 — open failed (no /proc mounted, or sandboxed)
+#   -2 — read failed
+#   -3 — buf is null or maxbytes < 16
+#
+# Typical auxv entries of interest:
+#   AT_PAGESZ    = 6    bytes per page (usually 4096)
+#   AT_CLKTCK    = 17   sysconf(_SC_CLK_TCK)
+#   AT_HWCAP     = 16   arch-specific CPU feature bitmap
+#   AT_SYSINFO_EHDR = 33  VDSO base address (x86_64)
+#   AT_RANDOM    = 25   pointer to 16 bytes of kernel randomness
+#   AT_EXECFN    = 31   pointer to program path
+#
+# Caller walks the pairs: for (p = buf; load64(p) != 0; p += 16).
+# Shipping this primitive standalone — useful independent of the
+# NSS dispatch work (v5.5.25 auxv synthesis investigation).
+fn dynlib_read_auxv(buf, maxbytes) {
+    if (buf == 0) { return 0 - 3; }
+    if (maxbytes < 16) { return 0 - 3; }
+    var path = "/proc/self/auxv";
+    var fd = syscall(2, path, 0, 0);  # open(O_RDONLY)
+    if (fd < 0) { return 0 - 1; }
+    var total = 0;
+    while (total < maxbytes) {
+        var want = maxbytes - total;
+        var n = syscall(0, fd, buf + total, want);
+        if (n < 0) { syscall(3, fd); return 0 - 2; }
+        if (n == 0) { break; }
+        total = total + n;
+    }
+    syscall(3, fd);
+    return total;
+}
+
+# Scan auxv pairs for a specific tag. Returns the value associated
+# with that tag, or 0 if not present. `auxv_bytes` must be the return
+# value from `dynlib_read_auxv`.
+#
+# Common uses:
+#   var r = dynlib_read_auxv(abuf, 4096);
+#   var page = dynlib_auxv_get(abuf, r, 6);       # AT_PAGESZ
+#   var rnd  = dynlib_auxv_get(abuf, r, 25);      # AT_RANDOM ptr
+#   var vdso = dynlib_auxv_get(abuf, r, 33);      # AT_SYSINFO_EHDR
+fn dynlib_auxv_get(auxv, auxv_bytes, tag) {
+    if (auxv == 0) { return 0; }
+    if (auxv_bytes < 16) { return 0; }
+    var p = auxv;
+    var end = auxv + auxv_bytes;
+    while (p + 16 <= end) {
+        var t = load64(p);
+        var v = load64(p + 8);
+        if (t == 0) { return 0; }          # AT_NULL — end of list
+        if (t == tag) { return v; }
+        p = p + 16;
+    }
+    return 0;
+}
+
 # Opt-in full initialisation: applies IRELATIVE relocations THEN runs
 # DT_INIT + DT_INIT_ARRAY. Use only when the loaded library's init
 # surface is compatible with a Cyrius static binary (libc.so.6 for
