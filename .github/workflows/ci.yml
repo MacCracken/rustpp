@@ -733,7 +733,10 @@ jobs:
       - name: v5.4.7/v5.4.8 hello-world structural + data-placement gate
         run: |
           # Compile a syscall(1) hello-world program and verify:
-          #   (a) structurally valid PE32+ with 3 sections including `.rdata`,
+          #   (a) structurally valid PE32+ with 4 sections (.text, .idata,
+          #       .rdata, .reloc) — `.reloc` was added in v5.5.35 for
+          #       DYNAMIC_BASE ASLR; any program with a string literal or
+          #       gvar gets DIR64 fixups and therefore a 4th section,
           #   (b) imports GetStdHandle + WriteFile + ExitProcess,
           #   (c) zero Linux `0F 05` syscall bytes,
           #   (d) string bytes live in `.rdata` (not floating in free space),
@@ -745,8 +748,8 @@ jobs:
           magic=$(xxd -l2 -p /tmp/win_out/hello.exe | tr -d ' \n')
           machine=$(xxd -s68 -l2 -p /tmp/win_out/hello.exe | tr -d ' \n')
           nsec=$(python3 -c "import sys; d=open('/tmp/win_out/hello.exe','rb').read(); print(int.from_bytes(d[0x46:0x48],'little'))")
-          test "$sz" -gt 0 && test "$magic" = "4d5a" && test "$machine" = "6486" && test "$nsec" = "3" || {
-            echo "FAIL: hello.exe structural (sz=$sz magic=$magic machine=$machine nsec=$nsec)"; exit 1;
+          test "$sz" -gt 0 && test "$magic" = "4d5a" && test "$machine" = "6486" && test "$nsec" = "4" || {
+            echo "FAIL: hello.exe structural (sz=$sz magic=$magic machine=$machine nsec=$nsec, expected nsec=4 since v5.5.35)"; exit 1;
           }
           if xxd -p /tmp/win_out/hello.exe | tr -d '\n' | grep -qE '0f05'; then
             echo "FAIL: hello.exe contains 0F 05"; exit 1
