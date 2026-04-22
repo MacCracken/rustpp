@@ -4,6 +4,85 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.35] — 2026-04-22
+
+**PE `.reloc` section + DYNAMIC_BASE ASLR.** Completes the PE
+correctness tail item pinned since v5.4.2. The emitter now collects
+every `ftype=0/1/3` fixup site (absolute 64-bit gvar / string / fn-
+address patches — the default in PE kmode=0), groups them by 4 KB
+page, and emits IMAGE_BASE_RELOCATION blocks per PE32+ spec. The
+optional header's `RELOCS_STRIPPED` characteristic is cleared,
+`DYNAMIC_BASE` + `NX_COMPAT` are set in DllCharacteristics, and
+DataDirectory[5] (BaseRelocationTable) is populated. Enables
+32-bit ASLR on Windows and unlocks DLL output.
+
+cc5 self-host byte-identical; `scripts/check.sh` 19/19; cross-built
+cc5_win.exe self-hosts natively on Win11 (verified on `ssh cass`);
+Linux cross-build and native-compile output byte-identical for
+exit42 (1,536 B both).
+
+### Added
+
+* **`src/backend/pe/emit.cyr`** — `.reloc` section geometry and
+  emission (~130 LoC new). `_pe_layout` now walks the fixup table,
+  inserts abs-64 patch sites into a sorted buffer at `S + 0xDC000`
+  (heap-map free gap, 64 KB = 8192 u64 slots), and computes the
+  section's virtual/file size by grouping sites per 4 KB page.
+  `EMITPE_EXEC` appends the 4th section header (`.reloc`,
+  Characteristics `0x42000040` = CNT_INIT_DATA | MEM_DISCARDABLE |
+  MEM_READ), writes per-page blocks in spec format (8-byte header
+  = PageRVA + BlockSize; 2-byte entries where the top 4 bits are
+  `IMAGE_REL_BASED_DIR64` = 10 and low 12 bits are the in-page
+  offset; optional `IMAGE_REL_BASED_ABSOLUTE` = 0 pad entry for
+  DWORD alignment of odd-entry blocks).
+
+* **Heap map** — `0xDC000 pe_reloc_coffs [65536]` added to
+  `src/main.cyr` (DCE-scratch-to-var-noffs free gap; no brk
+  extension needed).
+
+* **Optional header updates** — COFF `Characteristics` switches
+  from `0x0023` (EXECUTABLE | LARGE_ADDRESS_AWARE | RELOCS_STRIPPED)
+  to `0x0022` (clears RELOCS_STRIPPED) when `.reloc` ships.
+  `DllCharacteristics` switches from `0x0000` to `0x0140`
+  (DYNAMIC_BASE | NX_COMPAT). `DataDirectory[5]` populated with
+  reloc RVA + VirtualSize.
+
+### Verified on Windows 11
+
+Run via `ssh cass` (administrator@cassiopeia.local):
+
+* Native Windows exit42: `cc5_win.exe < exit42.cyr > out.exe`
+  produces 1,536-byte PE byte-identical to Linux cross-build.
+* Natively-compiled exit42.exe runs with exit code 42.
+* Self-compile on Windows: cc5_win.exe compiles exit42.cyr
+  deterministically (byte-identical across 5 runs).
+* DYNAMIC_BASE live: binary loads at randomized ImageBase; full
+  relocation applies without runtime failure.
+
+### Known limitation — HIGH_ENTROPY_VA follow-up
+
+`IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA` (0x0020) — 64-bit ASLR
+— was attempted and produces a deterministic failure in
+cc5_win.exe's stdin read loop (5/5 runs: "error: input exceeds
+512KB buffer" immediately). Simple programs (`with_reloc.exe`, a
+10-line program with one string + one gvar) work fine under
+0x0160. All 2,043 MOVABS sites in cc5_win.exe's `.text` were
+audited against the DIR64 entry set; the 264 uncovered MOVABS
+were all verified as data constants (bitmasks like `0xFFFFFFFF`,
+`0x140000000` used as literal numeric data, opcode bytes packed
+as u64), not pointers missing a reloc. Root cause not yet
+isolated — pinned as a follow-up v5.5.x investigation. Shipping
+with 32-bit ASLR (DYNAMIC_BASE-only, 0x0140) — primary security
+win in place.
+
+### Changed
+
+* **cc5 size** — 488,864 B (v5.5.34) → 494,120 B (v5.5.35,
+  +5,256 B) for the reloc collection + emission code.
+* **cc5_win.exe size** — 543,232 B (pre-v5.5.35 3-section) →
+  553,472 B (4-section with .reloc, ~4.4 KB of reloc content for
+  1,779 DIR64 entries across 93 pages + new compiler code).
+
 ## [5.5.34] — 2026-04-21
 
 **`fdlopen_init_full` orchestration complete — 40/40 round-trip PASS.**

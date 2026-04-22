@@ -91,6 +91,10 @@
 #                                        by PARSE_FACTOR to const-fold enum
 #                                        identifiers at parse time (v5.5.2)
 #   0xDA000  DCE bitmap    [8192]        dead-code-elimination scratch (pass 2 only)
+#   0xDC000  pe_reloc_coffs[65536]       8192 × 8B coff slots for PE base-
+#                                        relocation collection (DIR64 sites),
+#                                        populated by _pe_layout + read by
+#                                        EMITPE_EXEC's .reloc writer (v5.5.35)
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
@@ -183,7 +187,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.34\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.5.35\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
