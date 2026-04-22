@@ -1,0 +1,150 @@
+# atomics.tcyr — regression coverage for lib/atomic.cyr (v5.5.31)
+#
+# Pre-v5.5.31 `lib/thread.cyr::mutex_lock` had a racy load+store
+# fast-path — two threads could both observe state 0 and both
+# "acquire" the lock. v5.5.31 ships inline-asm primitives (x86
+# `lock cmpxchg` / `lock xadd` / `mfence`; aarch64 `ldxr`/`stxr`
+# LL-SC loops + `dmb ish`) and makes mutex CAS-based for
+# correctness-by-construction.
+#
+# Coverage:
+#   1. atomic_load / atomic_store round-trip
+#   2. atomic_cas success (swap) + failure (mismatch)
+#   3. atomic_fetch_add returns OLD value; ptr advances by delta
+#   4. atomic_fence smoke (no-observable-effect; just compile +
+#      execute without crashing)
+#   5. contention: four workers each atomic_fetch_add(p, 1) × 2500;
+#      final value == 10000. Without atomic_fetch_add, concurrent
+#      increments would race and lose updates.
+#   6. contention: four workers each CAS-spin-increment a counter
+#      × 1000; final value == 4000. Stresses atomic_cas retry.
+#   7. mutex regression: 4 workers × 1000 mutex_lock + counter++ +
+#      mutex_unlock; final counter == 4000 (no lost updates =>
+#      mutex is race-free).
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/atomic.cyr"
+include "lib/thread.cyr"
+
+var _a_counter = 0;
+var _a_cas_counter = 0;
+var _a_mtx_counter = 0;
+var _a_mtx = 0;
+
+fn _a_add_worker(arg) {
+    var p = arg;
+    var i = 0;
+    while (i < 2500) {
+        atomic_fetch_add(p, 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _a_cas_worker(arg) {
+    var p = arg;
+    var i = 0;
+    while (i < 1000) {
+        var go = 1;
+        while (go == 1) {
+            var old = atomic_load(p);
+            if (atomic_cas(p, old, old + 1) == 1) { go = 0; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _a_mtx_worker(arg) {
+    var i = 0;
+    while (i < 1000) {
+        mutex_lock(_a_mtx);
+        _a_mtx_counter = _a_mtx_counter + 1;
+        mutex_unlock(_a_mtx);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_basic() {
+    test_group("atomic_load / atomic_store / cas / fetch_add basics");
+    var p = alloc(8);
+    atomic_store(p, 100);
+    assert_eq(atomic_load(p), 100, "store/load round-trip");
+
+    assert_eq(atomic_cas(p, 100, 200), 1, "cas 100→200 swapped");
+    assert_eq(atomic_load(p), 200, "value now 200");
+
+    assert_eq(atomic_cas(p, 999, 300), 0, "cas 999→300 mismatch");
+    assert_eq(atomic_load(p), 200, "value still 200 on mismatch");
+
+    assert_eq(atomic_fetch_add(p, 42), 200, "fetch_add returns old 200");
+    assert_eq(atomic_load(p), 242, "value now 242");
+
+    assert_eq(atomic_fetch_add(p, 0 - 10), 242, "fetch_add negative returns old 242");
+    assert_eq(atomic_load(p), 232, "value now 232");
+
+    atomic_fence();  # smoke — just shouldn't crash
+    assert_eq(atomic_load(p), 232, "fence preserves value");
+}
+
+fn test_fetch_add_contention() {
+    test_group("atomic_fetch_add under 4-thread contention");
+    var p = alloc(8);
+    atomic_store(p, 0);
+    var t1 = thread_create(&_a_add_worker, p);
+    var t2 = thread_create(&_a_add_worker, p);
+    var t3 = thread_create(&_a_add_worker, p);
+    var t4 = thread_create(&_a_add_worker, p);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(atomic_load(p), 10000, "4 × 2500 fetch_add landed");
+}
+
+fn test_cas_contention() {
+    test_group("atomic_cas-spin increment under 4-thread contention");
+    var p = alloc(8);
+    atomic_store(p, 0);
+    var t1 = thread_create(&_a_cas_worker, p);
+    var t2 = thread_create(&_a_cas_worker, p);
+    var t3 = thread_create(&_a_cas_worker, p);
+    var t4 = thread_create(&_a_cas_worker, p);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(atomic_load(p), 4000, "4 × 1000 CAS-spin increments landed");
+}
+
+fn test_mutex_race_free() {
+    test_group("mutex_lock fast-path race-free under contention");
+    _a_mtx = mutex_new();
+    _a_mtx_counter = 0;
+    var t1 = thread_create(&_a_mtx_worker, 0);
+    var t2 = thread_create(&_a_mtx_worker, 0);
+    var t3 = thread_create(&_a_mtx_worker, 0);
+    var t4 = thread_create(&_a_mtx_worker, 0);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(_a_mtx_counter, 4000, "4 × 1000 mutex-guarded increments — no lost updates");
+}
+
+fn main() {
+    alloc_init();
+    test_basic();
+    test_fetch_add_contention();
+    test_cas_contention();
+    test_mutex_race_free();
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);

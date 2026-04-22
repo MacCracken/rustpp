@@ -346,4 +346,70 @@ elif [ "$out" != "tl_ok" ]; then
     fail=$((fail+1))
 fi
 
+# ---- Test 7 (v5.5.31): atomics LL-SC encoding verification
+#      Verifies `lib/atomic.cyr`'s aarch64 path — `ldxr` /
+#      `stxr` / `clrex` / `cmp` / `b.ne` / `cbnz` / `dmb ish`
+#      encodings execute correctly on real Pi 4 (ARMv8.0-A,
+#      no LSE atomics). Stresses atomic_cas + atomic_fetch_add
+#      under 4-thread contention — without a working LL-SC
+#      retry loop, concurrent increments lose updates and the
+#      final tally falls short of the expected sum.
+cat > "$TMP/at_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/atomic.cyr"
+include "lib/thread.cyr"
+
+fn _at_worker(arg) {
+    var p = arg;
+    var i = 0;
+    while (i < 500) {
+        atomic_fetch_add(p, 1);
+        i = i + 1;
+    }
+    syscall(SYS_EXIT, 0);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    var p = alloc(8);
+    atomic_store(p, 0);
+    # CAS success + failure
+    if (atomic_cas(p, 0, 100) != 1) { syscall(SYS_EXIT, 71); }
+    if (atomic_load(p) != 100) { syscall(SYS_EXIT, 72); }
+    if (atomic_cas(p, 999, 200) != 0) { syscall(SYS_EXIT, 73); }
+    if (atomic_load(p) != 100) { syscall(SYS_EXIT, 74); }
+    # fetch_add basic
+    if (atomic_fetch_add(p, 50) != 100) { syscall(SYS_EXIT, 75); }
+    if (atomic_load(p) != 150) { syscall(SYS_EXIT, 76); }
+    # Reset and stress under contention
+    atomic_store(p, 0);
+    var t1 = thread_create(&_at_worker, p);
+    var t2 = thread_create(&_at_worker, p);
+    var t3 = thread_create(&_at_worker, p);
+    var t4 = thread_create(&_at_worker, p);
+    thread_join(t1); thread_join(t2); thread_join(t3); thread_join(t4);
+    if (atomic_load(p) != 2000) { syscall(SYS_EXIT, 77); }
+    atomic_fence();
+    sys_write(STDOUT_FD, "at_ok\n", 6);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/at_test.cyr" | "$CC_ARM" > "$TMP/at_test" 2>/dev/null
+chmod +x "$TMP/at_test"
+scp -q "$TMP/at_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_7" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_7; /tmp/cyr_aarch64_regr_7')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test7 (atomics LL-SC): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "at_ok" ]; then
+    echo "  FAIL test7 (atomics LL-SC): got '$out' expected 'at_ok'"
+    fail=$((fail+1))
+fi
+
 exit $fail

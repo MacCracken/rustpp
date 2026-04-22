@@ -4,6 +4,123 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.31] — 2026-04-21
+
+**Atomic memory primitives + race-free mutex.** `lib/thread.cyr`'s
+pre-v5.5.31 `mutex_lock` did a plain `load64` + `store64` fast
+path — two threads could both observe state 0 and both "acquire"
+the lock. v5.5.31 ships five inline-asm primitives in
+`lib/atomic.cyr` (`atomic_load/store/cas/fetch_add/fence`) and
+rewrites `mutex_lock` / `mutex_unlock` around `atomic_cas` for
+correctness-by-construction.
+
+**Scope pivot vs the v5.5.30 ship.** v5.5.31 was `lib/fdlopen.cyr`
+orchestration completion after the v5.5.30 TLS swap. Another
+same-day pivot pulls atomics (was v5.5.32) and runtime thread-
+safety (was v5.5.33) forward of fdlopen, which slides to v5.5.33
+with the same pinned diagnostic starting points. Rationale:
+v5.5.29 fdlopen hit 3-attempts-defer and multi-attempt restarts
+burn cycles without the diagnostic angles (AT_PHDR dump /
+file-backed mmap / strace diff / cosmo_dlopen cross-ref) having
+been investigated; atomics has a concrete driver already
+(`_aaw_result_state`-class races live in `lib/thread.cyr` itself)
+and unblocks the thread-safety audit queued as v5.5.32.
+
+### Added
+
+* **`lib/atomic.cyr`** — 5 primitives behind a pure-inline-asm
+  wrapper, no compiler change. `atomic_load(ptr)` /
+  `atomic_store(ptr, val)` compile to plain `load64`/`store64`
+  (aligned 8-byte loads/stores are atomic on both x86_64 TSO and
+  aarch64) exposed as API for documented intent.
+  `atomic_cas(ptr, expected, new)` returns 1 on swap / 0 on
+  mismatch — x86 emits `lock cmpxchg` + `sete al` + `movzx`;
+  aarch64 emits an `ldxr` / `cmp` / `b.ne` / `stxr` / `cbnz`
+  LL-SC retry loop (plain `cas` / `ldadd` are ARMv8.1-LSE and
+  not available on Pi 4 A72 — ARMv8.0-A). `atomic_fetch_add(ptr,
+  delta)` returns the OLD value (matches x86 `lock xadd` +
+  Rust / C11 fetch_add convention); aarch64 uses an `ldxr` /
+  `add` / `stxr` / `cbnz` LL-SC loop. `atomic_fence()` emits
+  `mfence` on x86 and `dmb ish` on aarch64.
+
+* **`tests/tcyr/atomics.tcyr`** — 13 assertions across four
+  groups: basics (load/store/cas-success/cas-fail/fetch_add/
+  fetch_add-negative/fence, 10 assertions), fetch_add contention
+  (4 × 2500 workers landing exactly 10000), CAS-spin contention
+  (4 × 1000 CAS retries landing exactly 4000), mutex race-free
+  (4 × 1000 mutex-guarded counter bumps landing exactly 4000 —
+  zero lost updates proves the atomic_cas fast-path + memory
+  fences are correct).
+
+* **`tests/regression-atomics.sh`** — check.sh gate 4l (16 → 17
+  gates green). Direct `build/cc5` compile to bypass the cyrius-
+  test dep-ordering harness issue tracked from v5.5.26.
+
+* **`tests/regression-aarch64-syscalls.sh` test 7** — cross-
+  builds an atomics-under-contention scenario, scps to
+  `$SSH_TARGET` (default `pi`), verifies `ldxr` / `stxr` /
+  `clrex` / `cbnz` / `cmp` / `dmb ish` encodings execute
+  correctly on real Pi 4 (ARMv8.0-A, no LSE) under 4-thread
+  contention (6 → 7 sub-tests).
+
+### Changed
+
+* **`lib/thread.cyr::mutex_lock`** — was a 3-state (0/1/2)
+  scheme with a racy plain load+store fast-path. Now a 2-state
+  (0/1) scheme with `atomic_cas(m, 0, 1)` acquire and
+  `atomic_fence()` acquire barrier after successful CAS. The
+  fence prevents critical-section loads/stores from being
+  reordered BEFORE the CAS on aarch64's weak memory model;
+  x86 TSO's `lock cmpxchg` already implies this but the fence
+  is a cheap no-op there.
+
+* **`lib/thread.cyr::mutex_unlock`** — now emits `atomic_fence()`
+  before `atomic_store(m, 0)` to flush critical-section writes
+  before releasing the lock. Without this on aarch64, a holder's
+  writes inside the critical section can be reordered after the
+  lock-release store — a subsequent acquirer then reads stale
+  state and silently loses updates. Surfaced during v5.5.31 Pi 4
+  verification: 2 × 1000 mutex-guarded increments landed at 1999
+  (one lost update) without the fence; exactly 2000 with it.
+  Always wakes exactly one waiter via `FUTEX_WAKE`; kernel
+  no-ops if there are none. Trade-off vs the 3-state scheme:
+  one extra syscall per unlock when uncontended, in exchange
+  for drop-dead-simple correctness.
+
+* **`lib/thread.cyr` header** — now explicitly
+  `include "lib/atomic.cyr"` so existing callers of thread.cyr
+  don't have to know about the new dependency; include-once
+  dedupes if callers already pulled atomic.cyr in themselves.
+
+### Verified
+
+* `sh scripts/check.sh` 17/17 gates green on x86_64.
+* Real Pi 4 aarch64: `tests/regression-aarch64-syscalls.sh`
+  7/7 sub-tests PASS via `ssh pi`, including test 7 (`at_ok` —
+  atomic_cas + atomic_fetch_add + 4-thread contention via LL-SC).
+* Existing `tests/tcyr/threads.tcyr` (6 assertions) and
+  `tests/tcyr/thread_local.tcyr` (11 assertions) still pass
+  with the atomic_cas mutex — backward-compatible.
+* cc5 self-host fixpoint byte-identical (488,864 B) — 1st and
+  2nd gen match; lib/ changes don't touch src/main.cyr so cc5
+  size unchanged.
+
+### Fixed (during implementation)
+
+* **aarch64 `atomic_cas` cbnz offset bug** — initial encoding
+  had imm19=-3 (0xA5) which jumps to `cmp` instead of `ldxr`;
+  the stxr-without-preceding-ldxr retry loops infinitely when
+  contended (Pi 4 test hung for minutes). Fixed to imm19=-4
+  (0x85). x86 `lock cmpxchg` self-contained so x86 path was
+  unaffected.
+
+* **aarch64 mutex lost-update race** — surfaced during Pi 4
+  verification: weak memory model allows `_counter = _counter
+  + 1`'s store to reorder past `atomic_store(m, 0)` in unlock,
+  causing a subsequent acquirer to read stale state. Fixed by
+  adding `atomic_fence()` bracketing in mutex_lock (acquire)
+  and mutex_unlock (release).
+
 ## [5.5.30] — 2026-04-21
 
 **TLS slot storage via `%fs` / `TPIDR_EL0` + automatic

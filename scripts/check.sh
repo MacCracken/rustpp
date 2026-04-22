@@ -190,6 +190,15 @@ if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
 rm -f /tmp/audit_tl_$$
 echo ""
 
+# ── 4l. lib/atomic.cyr primitives + mutex race-free (5.5.31) ──
+echo "── atomics + mutex race-free ──"
+sh "$ROOT/tests/regression-atomics.sh" > /tmp/audit_at_$$ 2>&1
+at_result=$?
+check "atomic_cas/fetch_add/fence + 4-thread contention + mutex" "$at_result"
+if [ "$at_result" -ne 0 ]; then cat /tmp/audit_at_$$; fi
+rm -f /tmp/audit_at_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

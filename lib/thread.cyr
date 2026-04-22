@@ -1,6 +1,6 @@
 # thread.cyr — thread creation, joining, and synchronization
 # Usage: include "lib/thread.cyr"
-# Requires: syscalls.cyr, alloc.cyr
+# Requires: syscalls.cyr, alloc.cyr, atomic.cyr (transitively via mutex)
 #
 # Threads share the process address space (CLONE_VM).
 # Each thread gets its own stack via mmap.
@@ -9,6 +9,12 @@
 # >>> include "lib/syscalls.cyr"
 # >>> include "lib/alloc.cyr"
 # >>> include "lib/thread.cyr"
+
+# v5.5.31: mutex_lock / mutex_unlock use atomic_cas for race-free
+# acquisition. Explicit include so existing callers of thread.cyr
+# don't have to know about atomic.cyr (include-once dedupes the
+# double-include if callers already pulled it in).
+include "lib/atomic.cyr"
 
 # Stack size per thread (64KB default)
 var THREAD_STACK_SIZE = 65536;
@@ -231,8 +237,17 @@ fn gettid() {
     return syscall(SYS_GETTID);
 }
 
-# Mutex: futex-based lock. 0=unlocked, 1=locked, 2=locked+contended
+# Mutex: futex-based lock. 0=unlocked, 1=locked.
 # Layout: { state: i64 } = 8 bytes
+#
+# Pre-v5.5.31 used a 3-state (0/1/2) scheme with a plain load +
+# store fast path — racy: two threads could both observe state 0
+# and both "acquire" the lock. v5.5.31 replaces the load+store
+# with `atomic_cas` (lock cmpxchg / ldxr-stxr) for correctness,
+# and collapses to 2-state. Trade-off: unconditional FUTEX_WAKE
+# on every unlock (one syscall even when nobody's waiting) in
+# exchange for drop-dead-simple correctness. Works-in-practice
+# mutex fast-path is now correct-by-construction.
 var MUTEX_SIZE = 8;
 
 # Create a new mutex (unlocked)
@@ -243,32 +258,34 @@ fn mutex_new() {
     return m;
 }
 
-# Lock mutex (blocks if contended)
+# Lock mutex. Blocks via futex when contended.
 fn mutex_lock(m) {
-    # Try fast lock: CAS 0 → 1
-    # Without atomic CAS, use futex-based spinlock
-    var go = 1;
-    while (go == 1) {
-        var s = load64(m);
-        if (s == 0) {
-            store64(m, 1);
-            go = 0;
-        } else {
-            store64(m, 2);
-            syscall(SYS_FUTEX, m, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 2, 0, 0, 0);
-        }
+    while (atomic_cas(m, 0, 1) == 0) {
+        # Someone else holds the lock. FUTEX_WAIT atomically
+        # checks `*m == 1` against the kernel — if the holder
+        # just released (m == 0), the syscall returns EAGAIN
+        # and we retry CAS. No lost wakeup window.
+        syscall(SYS_FUTEX, m, FUTEX_WAIT | FUTEX_PRIVATE_FLAG, 1, 0, 0, 0);
     }
+    # Acquire barrier: prevent critical-section loads/stores from
+    # being reordered BEFORE the CAS. aarch64's weak memory model
+    # allows this without an explicit fence; x86 TSO implies it
+    # via `lock cmpxchg` but atomic_fence is a cheap no-op there.
+    atomic_fence();
     return 0;
 }
 
-# Unlock mutex
+# Unlock mutex. Always wakes exactly one waiter (if any);
+# kernel no-ops the wake when the futex has no waiters.
 fn mutex_unlock(m) {
-    var s = load64(m);
-    store64(m, 0);
-    if (s == 2) {
-        # There are waiters — wake one
-        syscall(SYS_FUTEX, m, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, 0, 0);
-    }
+    # Release barrier: flush critical-section writes before the
+    # lock-release store. Without this on aarch64, a holder's
+    # writes inside the critical section can be reordered after
+    # `atomic_store(m, 0)` — a subsequent acquirer then reads
+    # stale state and silently loses updates.
+    atomic_fence();
+    atomic_store(m, 0);
+    syscall(SYS_FUTEX, m, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, 0, 0);
     return 0;
 }
 
