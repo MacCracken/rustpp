@@ -412,4 +412,78 @@ elif [ "$out" != "at_ok" ]; then
     fail=$((fail+1))
 fi
 
+# ---- Test 8 (v5.5.32): stdlib thread-safety pattern
+#      Verifies mutex-wrapped hashmap / vec under 4-thread
+#      contention works on aarch64 — exercises the full stack
+#      (atomic_cas, mutex_lock, map_u64_set, vec_push) on
+#      ARMv8.0-A without LSE. Pre-v5.5.31 would lose updates
+#      to the memory-model race in mutex_unlock; v5.5.31's
+#      fences and this test together confirm the pattern is
+#      field-ready.
+cat > "$TMP/ts_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/atomic.cyr"
+include "lib/thread.cyr"
+
+var _ts_mtx = 0;
+var _ts_map = 0;
+
+fn _ts_worker(arg) {
+    var tid = arg;
+    var i = 0;
+    while (i < 50) {
+        mutex_lock(_ts_mtx);
+        map_u64_set(_ts_map, tid * 1000 + i, tid * 10000 + i);
+        mutex_unlock(_ts_mtx);
+        i = i + 1;
+    }
+    syscall(SYS_EXIT, 0);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    _ts_mtx = mutex_new();
+    _ts_map = map_u64_new();
+    var t1 = thread_create(&_ts_worker, 1);
+    var t2 = thread_create(&_ts_worker, 2);
+    var t3 = thread_create(&_ts_worker, 3);
+    var t4 = thread_create(&_ts_worker, 4);
+    thread_join(t1); thread_join(t2); thread_join(t3); thread_join(t4);
+    if (map_u64_size(_ts_map) != 200) { syscall(SYS_EXIT, 81); }
+    var tid = 1;
+    while (tid < 5) {
+        var i = 0;
+        while (i < 50) {
+            if (map_u64_get(_ts_map, tid * 1000 + i) != tid * 10000 + i) {
+                syscall(SYS_EXIT, 82);
+            }
+            i = i + 1;
+        }
+        tid = tid + 1;
+    }
+    sys_write(STDOUT_FD, "ts_ok\n", 6);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/ts_test.cyr" | "$CC_ARM" > "$TMP/ts_test" 2>/dev/null
+chmod +x "$TMP/ts_test"
+scp -q "$TMP/ts_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_8" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_8; /tmp/cyr_aarch64_regr_8')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test8 (thread-safety pattern): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "ts_ok" ]; then
+    echo "  FAIL test8 (thread-safety pattern): got '$out' expected 'ts_ok'"
+    fail=$((fail+1))
+fi
+
 exit $fail

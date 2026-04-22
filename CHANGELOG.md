@@ -4,6 +4,94 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.32] — 2026-04-21
+
+**Stdlib thread-safety audit — findings documented + canonical
+safe-pattern test.** v5.5.31 landed the atomic primitives and
+made `mutex_lock` race-free; v5.5.32 audits the container layer
+(`alloc`, `hashmap`, `vec`) for single-thread assumptions that
+break under `CLONE_VM`, documents the findings in the CHANGELOG,
+and ships a regression that validates the caller-side safe
+pattern (mutex-wrapped container access) on both arches.
+
+No `lib/*.cyr` production code changes this patch — cc5 stays
+byte-identical (488,864 B). Hardening lands in a follow-on
+patch once the approach converges.
+
+### Audit findings
+
+- **`lib/alloc.cyr` Linux path (bump pointer)** — `_heap_ptr`
+  load + store across two threads can overlap: both observe
+  the same `ptr`, both return, second store wins, the first
+  return's block and the second return's block partially
+  share memory. `_heap_end` grow-path races on `brk` too.
+  Impact: any multithreaded consumer that allocates from more
+  than one thread is exposed. Workaround until alloc-level
+  hardening lands: serialize callers externally (mutex around
+  each `alloc` call, or arena-per-thread).
+
+- **`lib/hashmap.cyr`** — `map_set` / `map_delete` mutate the
+  slot array without synchronization; `map_set` concurrent
+  with a rehash sees torn state; `map_get` during a grow
+  reads from the old entries after `store64(m, new_entries)`.
+  Workaround: wrap all ops in a mutex from `lib/thread.cyr`
+  when the map is shared across threads.
+
+- **`lib/vec.cyr`** — `vec_push` races on `len`: two pushers
+  both observe `len < cap`, both write to the same slot, both
+  bump `len` — one store silently discarded. Grow path races
+  on `data_ptr` + `cap`. Same workaround as hashmap.
+
+- **`lib/string.cyr`** — all functions operate on caller-owned
+  buffers + return fresh pointers. No shared mutable state.
+  Safe by construction under threads.
+
+- **`lib/atomic.cyr`** (v5.5.31) — safe by design. Every op
+  is a full memory barrier on x86 (`lock` prefix or `mfence`)
+  or ordered via `ldxr`/`stxr`/`dmb ish` on aarch64.
+
+- **`lib/thread.cyr::mutex_lock` / `mutex_unlock`** (v5.5.31) —
+  safe. `atomic_cas` acquire + `atomic_fence` bracketing cover
+  both x86 TSO and aarch64 weak memory model.
+
+- **`lib/assert.cyr` `_assert_total` / `_assert_pass` /
+  `_assert_fail`** — racy if tests call assertions from
+  multiple threads. Low priority (test-only state; current
+  tests assert only from main thread post-join).
+
+### Added
+
+* **`tests/tcyr/thread_safety.tcyr`** — 5 assertions across
+  three groups: mutex-wrapped `map_u64_*` under 4 × 100
+  contention (400 distinct keys, each mapping to expected
+  value); mutex-wrapped `vec_push` under 4 × 100 contention
+  (400 distinct values, each present exactly once);
+  mutex-wrapped counter smoke (4 × 1000 = 4000). Validates
+  that callers who follow the documented safe pattern get
+  correct results under real contention.
+
+* **`tests/regression-thread-safety.sh`** — check.sh gate 4m
+  (17 → 18 gates green).
+
+* **`tests/regression-aarch64-syscalls.sh` test 8** — cross-
+  builds a mutex-wrapped hashmap scenario, ssh-runs on real
+  Pi 4, verifies all keys landed with correct values on
+  ARMv8.0-A (7 → 8 sub-tests).
+
+### Deferred
+
+* **alloc-level hardening** — approach TBD (full-`alloc`
+  spinlock trades single-thread perf; per-thread arenas need
+  a thread-local registry; atomic-CAS bump pointer needs
+  careful overflow / grow handling). No patch number pinned
+  yet; will re-open when the design converges.
+
+* **hashmap / vec internal locking** — no plan to add.
+  Containers stay caller-serialized (mutex-wrapped) by
+  design; per-container locks cost every single-threaded
+  user for a scenario only a minority hit. Documented as
+  the intended model.
+
 ## [5.5.31] — 2026-04-21
 
 **Atomic memory primitives + race-free mutex.** `lib/thread.cyr`'s

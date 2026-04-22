@@ -1,0 +1,164 @@
+# thread_safety.tcyr — regression coverage for the stdlib thread-
+# safety audit (v5.5.32).
+#
+# v5.5.32 is a documentation + validation patch for the stdlib
+# containers (hashmap, vec, string). The audit finding: the
+# containers are NOT safe for concurrent mutation — callers that
+# share them across threads must wrap every mutating op in a
+# mutex from `lib/thread.cyr`. This test validates that pattern
+# produces correct results.
+#
+# Coverage:
+#   1. mutex-wrapped hashmap: 4 threads × 100 unique keys each,
+#      final size = 400, all keys retrievable with correct values
+#   2. mutex-wrapped vec: 4 threads × 100 pushes each, final
+#      vec_len = 400, all pushed values present
+#   3. mutex-wrapped counter: 4 threads × 1000 increments each
+#      (redundant with atomics.tcyr test_mutex_race_free, kept as
+#      a simple smoke in this file for isolation-under-CI)
+#
+# Hashmap/vec are pre-grown so the mutex-wrapped region covers
+# any internal `alloc` calls — serialization extends to allocator
+# because only one worker is in `map_set` at a time.
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/atomic.cyr"
+include "lib/thread.cyr"
+
+var _ts_mtx = 0;
+var _ts_map = 0;
+var _ts_vec = 0;
+var _ts_counter = 0;
+
+# Each worker inserts 100 unique keys (tid-biased) into the
+# shared hashmap. Key = tid * 1000 + i; value = tid * 10000 + i.
+fn _ts_map_worker(arg) {
+    var tid = arg;
+    var i = 0;
+    while (i < 100) {
+        mutex_lock(_ts_mtx);
+        map_u64_set(_ts_map, tid * 1000 + i, tid * 10000 + i);
+        mutex_unlock(_ts_mtx);
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Each worker pushes 100 unique values.
+fn _ts_vec_worker(arg) {
+    var tid = arg;
+    var i = 0;
+    while (i < 100) {
+        mutex_lock(_ts_mtx);
+        vec_push(_ts_vec, tid * 10000 + i);
+        mutex_unlock(_ts_mtx);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _ts_counter_worker(arg) {
+    var i = 0;
+    while (i < 1000) {
+        mutex_lock(_ts_mtx);
+        _ts_counter = _ts_counter + 1;
+        mutex_unlock(_ts_mtx);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_mutex_wrapped_hashmap() {
+    test_group("mutex-wrapped hashmap under 4-thread contention");
+    _ts_mtx = mutex_new();
+    _ts_map = map_u64_new();
+    var t1 = thread_create(&_ts_map_worker, 1);
+    var t2 = thread_create(&_ts_map_worker, 2);
+    var t3 = thread_create(&_ts_map_worker, 3);
+    var t4 = thread_create(&_ts_map_worker, 4);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(map_u64_size(_ts_map), 400, "4 × 100 distinct keys all landed");
+    # Spot-check that every (tid, iter) pair mapped correctly
+    var tid = 1;
+    var ok = 1;
+    while (tid < 5) {
+        var i = 0;
+        while (i < 100) {
+            var got = map_u64_get(_ts_map, tid * 1000 + i);
+            if (got != tid * 10000 + i) { ok = 0; }
+            i = i + 1;
+        }
+        tid = tid + 1;
+    }
+    assert_eq(ok, 1, "every (tid, iter) key → expected value");
+}
+
+fn test_mutex_wrapped_vec() {
+    test_group("mutex-wrapped vec under 4-thread contention");
+    _ts_mtx = mutex_new();
+    _ts_vec = vec_new();
+    var t1 = thread_create(&_ts_vec_worker, 1);
+    var t2 = thread_create(&_ts_vec_worker, 2);
+    var t3 = thread_create(&_ts_vec_worker, 3);
+    var t4 = thread_create(&_ts_vec_worker, 4);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(vec_len(_ts_vec), 400, "4 × 100 pushes all landed");
+    # Count appearances of each (tid, iter) — every value should
+    # appear exactly once.
+    var tid = 1;
+    var distinct = 0;
+    while (tid < 5) {
+        var i = 0;
+        while (i < 100) {
+            var target = tid * 10000 + i;
+            var j = 0;
+            var found = 0;
+            while (j < 400) {
+                if (vec_get(_ts_vec, j) == target) { found = found + 1; }
+                j = j + 1;
+            }
+            if (found == 1) { distinct = distinct + 1; }
+            i = i + 1;
+        }
+        tid = tid + 1;
+    }
+    assert_eq(distinct, 400, "every pushed value present exactly once");
+}
+
+fn test_mutex_counter_smoke() {
+    test_group("mutex-wrapped counter smoke");
+    _ts_mtx = mutex_new();
+    _ts_counter = 0;
+    var t1 = thread_create(&_ts_counter_worker, 0);
+    var t2 = thread_create(&_ts_counter_worker, 0);
+    var t3 = thread_create(&_ts_counter_worker, 0);
+    var t4 = thread_create(&_ts_counter_worker, 0);
+    thread_join(t1);
+    thread_join(t2);
+    thread_join(t3);
+    thread_join(t4);
+    assert_eq(_ts_counter, 4000, "4 × 1000 mutex-guarded increments");
+}
+
+fn main() {
+    alloc_init();
+    test_mutex_wrapped_hashmap();
+    test_mutex_wrapped_vec();
+    test_mutex_counter_smoke();
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);

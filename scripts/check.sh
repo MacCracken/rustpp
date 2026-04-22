@@ -199,6 +199,15 @@ if [ "$at_result" -ne 0 ]; then cat /tmp/audit_at_$$; fi
 rm -f /tmp/audit_at_$$
 echo ""
 
+# ── 4m. stdlib thread-safety audit pattern (5.5.32) ──
+echo "── thread-safety pattern ──"
+sh "$ROOT/tests/regression-thread-safety.sh" > /tmp/audit_ts_$$ 2>&1
+ts_result=$?
+check "mutex-wrapped hashmap + vec under 4-thread contention" "$ts_result"
+if [ "$ts_result" -ne 0 ]; then cat /tmp/audit_ts_$$; fi
+rm -f /tmp/audit_ts_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
