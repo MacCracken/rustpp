@@ -181,6 +181,15 @@ if [ "$fdl_result" -ne 0 ]; then cat /tmp/audit_fdl_$$; fi
 rm -f /tmp/audit_fdl_$$
 echo ""
 
+# ── 4k. lib/thread_local.cyr per-thread slots (5.5.30) ──
+echo "── thread-local slots ──"
+sh "$ROOT/tests/regression-thread-local.sh" > /tmp/audit_tl_$$ 2>&1
+tl_result=$?
+check "%fs / TPIDR_EL0 slots + CLONE_SETTLS worker isolation" "$tl_result"
+if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
+rm -f /tmp/audit_tl_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

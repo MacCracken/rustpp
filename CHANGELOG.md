@@ -4,6 +4,99 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.30] — 2026-04-21
+
+**TLS slot storage via `%fs` / `TPIDR_EL0` + automatic
+CLONE_SETTLS on worker threads.** majra-surfaced: the
+`_aaw_result_state` module-scope global in `cbarrier_arrive_
+and_wait` is a single shared slot that multiple threads
+clobber during barrier release. Fix is per-thread storage
+backed by the CPU's thread-pointer register, installed by
+the kernel at clone time so worker threads get a fresh
+block with no explicit init call.
+
+**Scope pivot from the original roadmap row.** v5.5.30 was
+previously pinned to fdlopen orchestration completion (from
+the v5.5.29 investigation log). After path review the TLS
+pillar moved forward — fdlopen hit 3-attempts-defer and
+restarting same-day risked burning another cycle; TLS is a
+cleaner win that unblocks the concrete majra driver.
+fdlopen completion slides to v5.5.31 with the same pinned
+diagnostic starting points.
+
+Also pivot vs the roadmap's implied "compiler-level
+`thread_local var` syntax" — shipping as a runtime slot API
+instead. Zero new syntax, zero compiler bytes (cc5 size
+stable at 488,864 B). `thread_local var` can land cleanly
+on top in a later minor once there is more than one driver.
+
+### Added
+
+* **`lib/thread_local.cyr`** — per-thread i64 slot storage
+  (16 slots × 8 B). API: `thread_local_init()` (call once
+  per main thread; worker threads auto-init via CLONE_SETTLS),
+  `thread_local_get(slot)`, `thread_local_set(slot, val)`.
+  x86_64 uses `arch_prctl(ARCH_SET_FS, tls)` for install and
+  `mov rax, %fs:[rdi]` for slot access; aarch64 uses `msr
+  TPIDR_EL0, x0` for install and `mrs x1, TPIDR_EL0` +
+  `ldr x2, [x1, x0, lsl #3]` for slot access. NOT named
+  `tls.cyr` to avoid collision with the libssl.so.3 TLS-
+  protocol client at `lib/tls.cyr` (retired by the v5.9.x
+  pure-cyrius TLS arc).
+
+* **`tests/tcyr/thread_local.tcyr`** — 11 assertions across
+  three groups: main-thread round-trip (4 slots, slot
+  independence), multi-slot set (3 slots), four-worker
+  isolation (each worker writes own tid into slot 0, reads
+  it back; main's slot 0 sentinel untouched after all join).
+
+* **`tests/regression-thread-local.sh`** — check.sh gate 4k
+  (15 → 16 gates green). Direct `build/cc5` compile to
+  bypass the cyrius-test dep-ordering harness issue tracked
+  from v5.5.26.
+
+* **`tests/regression-aarch64-syscalls.sh` test 6** — cross-
+  builds the thread_local scenario, scps to `$SSH_TARGET`
+  (default `pi`), verifies `msr TPIDR_EL0` + `mrs` +
+  `ldr/str [x1, x0, lsl #3]` encodings actually execute on
+  real Pi 4 hardware (5 → 6 sub-tests).
+
+### Changed
+
+* **`lib/thread.cyr`** — `thread_create` allocates a 4KB
+  per-thread TLS block (`THREAD_TLS_SIZE`) and passes it to
+  `_thread_spawn`; `_thread_spawn` gains a `tls` parameter
+  and flips the `xor r8, r8` / `mov x3, #0` (was: tls=0) to
+  load the block pointer from the 4th param slot. Clone
+  flags now include `CLONE_SETTLS`. Frame layout updated:
+  old `[rbp-32]=ret` / `[x29-32]=ret` → `[rbp-32]=tls` +
+  `[rbp-40]=ret` / `[x29-32]=tls` + `[x29-40]=ret`. Inline
+  asm encodings updated accordingly (`mov r8, [rbp-32]`,
+  `ldur x3, [x29, #-32]`, parent-path ret store shifted to
+  the deeper slot).
+
+* **Call-order constraint with fdlopen** (documented in
+  `lib/thread_local.cyr` header): when v5.5.31+ fdlopen
+  orchestration lands on x86_64, ld.so will clobber `%fs`
+  during its own TLS setup. Programs that mix the two MUST
+  call `thread_local_init` AFTER `fdlopen_init_full`
+  completes, or re-invoke it after foreign-dlopen returns.
+  On aarch64 the constraint doesn't apply (fdlopen's x86
+  pattern doesn't translate).
+
+### Verified
+
+* Existing `tests/tcyr/threads.tcyr` (6 assertions) still
+  passes with CLONE_SETTLS active — backward-compatible.
+* `sh scripts/check.sh` 16/16 gates green on x86_64.
+* Real Pi 4 aarch64 hardware: `tests/regression-aarch64-
+  syscalls.sh` 6/6 sub-tests PASS via `ssh pi`, including
+  test 6 (`tl_ok` — CLONE_SETTLS→TPIDR_EL0 wiring + slot
+  API round-trip + worker isolation).
+* cc5 self-host fixpoint byte-identical (488,864 B), 1st
+  and 2nd gen match — lib/ changes don't touch src/main.cyr
+  so cc5 size unchanged.
+
 ## [5.5.29] — 2026-04-21
 
 **`lib/fdlopen.cyr` orchestration — attempt + investigation

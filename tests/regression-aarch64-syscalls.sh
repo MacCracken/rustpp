@@ -282,4 +282,68 @@ elif [ "$out" != "mt_ok" ]; then
     fail=$((fail+1))
 fi
 
+# ---- Test 6 (v5.5.30): thread_local slots via TPIDR_EL0
+#      Verifies `lib/thread_local.cyr`'s aarch64 path — `msr
+#      TPIDR_EL0, x0` install + `mrs x1, TPIDR_EL0` + `ldr/str
+#      [x1, x0, lsl #3]` slot access. Also exercises CLONE_SETTLS
+#      wiring in `_thread_spawn` for aarch64 (kernel copies tls
+#      arg into TPIDR_EL0 at clone time).
+cat > "$TMP/tl_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/thread.cyr"
+include "lib/thread_local.cyr"
+
+var _tl_mtx = 0;
+var _tl_mismatches = 0;
+
+fn _tl_worker(arg) {
+    var tid = gettid();
+    thread_local_set(0, tid);
+    var i = 0;
+    while (i < 1000) { i = i + 1; }
+    if (thread_local_get(0) != tid) {
+        mutex_lock(_tl_mtx);
+        _tl_mismatches = _tl_mismatches + 1;
+        mutex_unlock(_tl_mtx);
+    }
+    syscall(SYS_EXIT, 0);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    if (thread_local_init() != 1) { syscall(SYS_EXIT, 61); }
+    thread_local_set(0, 0x5A5A5A5A);
+    thread_local_set(7, 0xCAFEBABE);
+    if (thread_local_get(0) != 0x5A5A5A5A) { syscall(SYS_EXIT, 62); }
+    if (thread_local_get(7) != 0xCAFEBABE) { syscall(SYS_EXIT, 63); }
+    _tl_mtx = mutex_new();
+    var t1 = thread_create(&_tl_worker, 0);
+    var t2 = thread_create(&_tl_worker, 0);
+    var t3 = thread_create(&_tl_worker, 0);
+    var t4 = thread_create(&_tl_worker, 0);
+    thread_join(t1); thread_join(t2); thread_join(t3); thread_join(t4);
+    if (_tl_mismatches != 0) { syscall(SYS_EXIT, 64); }
+    if (thread_local_get(0) != 0x5A5A5A5A) { syscall(SYS_EXIT, 65); }
+    sys_write(STDOUT_FD, "tl_ok\n", 6);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/tl_test.cyr" | "$CC_ARM" > "$TMP/tl_test" 2>/dev/null
+chmod +x "$TMP/tl_test"
+scp -q "$TMP/tl_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_6" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_6; /tmp/cyr_aarch64_regr_6')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test6 (thread_local via TPIDR_EL0): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "tl_ok" ]; then
+    echo "  FAIL test6 (thread_local via TPIDR_EL0): got '$out' expected 'tl_ok'"
+    fail=$((fail+1))
+fi
+
 exit $fail
