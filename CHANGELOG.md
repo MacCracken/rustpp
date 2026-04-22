@@ -4,6 +4,80 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.33] — 2026-04-21
+
+**`lib/flags.cyr` — getopt-long CLI flag parser.** Replaces
+the 60+ ad-hoc `streq("--foo", argv(i))` loops that every
+toolchain binary (cyrius, ark, cyrld, cyrfmt, cyrlint, cyrdoc,
+cyrc) and every consumer project has been reinventing on top
+of `lib/args.cyr`'s bare argc/argv surface since the v5.4.x
+toolchain split.
+
+**Scope pivot #4 in the v5.5.x arc** (user-directed): flags
+pulled forward from v5.5.36; fdlopen completion cascaded to
+v5.5.34 with the same pinned diagnostic starting points (still
+not restarted after v5.5.29's 3-attempts-defer). PE .reloc →
+v5.5.35, PE struct tail → v5.5.36, closeout+LSP → v5.5.37. New
+file, bounded mechanical scope, no platform-specific asm — low
+risk in a release arc that has seen three scope pivots and a
+recurring mystery stripping of `lib/dynlib.cyr` across sessions.
+
+cc5 byte-identical (488,864 B — stdlib-only change).
+
+### Added
+
+* **`lib/flags.cyr`** — ~300 LoC. API:
+  * `flags_new()` → context handle
+  * `flags_add_bool(h, short_ch, long_name, default, help)` → flag index
+  * `flags_add_int(h, short_ch, long_name, default, help)` → flag index
+  * `flags_add_str(h, short_ch, long_name, default, help)` → flag index
+  * `flags_parse(h, argc, argv)` → 0 success / -1 error
+  * `flags_get_bool(h, idx)` / `flags_get_int(h, idx)` / `flags_get_str(h, idx)`
+  * `flags_positional_count(h)` / `flags_positional(h, idx)`
+  * `flags_error(h)` → FlagErr enum (NONE / UNKNOWN / MISSING_VALUE / BAD_INT / BUNDLED)
+  * `flags_print_help(h)` — walks registered flags, prints short+long+type+help to stderr
+
+  Supported syntax:
+  * `--name` (bool)
+  * `--name=value` (attached value)
+  * `--name value` (space-separated value)
+  * `-x` (short bool)
+  * `-x value` (short with value)
+  * `--` terminator — everything after is positional
+  * positional args accumulate in argv order
+
+  Out of scope (explicit):
+  * bundled short bools (`-abc` rejected as FLAG_ERR_BUNDLED) — use `-a -b -c`
+  * attached short values (`-xvalue`) — use `-x value`
+  * negated long forms (`--no-foo`) — caller toggles explicitly
+
+  Caps: 32 flags × 128 positionals per context. Bounded equality
+  compare avoids the argv-mutation trick (no temporary NUL at `=`).
+
+* **`tests/tcyr/flags.tcyr`** — 33 assertions across 11 groups:
+  bool long+short, int via `=` syntax, int via space syntax,
+  str via short form, defaults preserved, positional capture +
+  `--` terminator routing, unknown-flag error, missing-value
+  error, bad-int error, bundled-short rejection, realistic
+  mixed invocation (cyrfmt-shaped).
+
+* **`tests/regression-flags.sh`** — check.sh gate 4n
+  (18 → **19 gates green**).
+
+* **`tests/regression-aarch64-syscalls.sh` test 9** — cross-
+  builds a minimal flags scenario (bool + int via `=` + str
+  via short + positional), ssh-runs on real Pi 4, verifies
+  end-to-end parse works on aarch64 (8 → 9 sub-tests).
+
+### Verified
+
+* `sh scripts/check.sh` 19/19 gates green on x86_64
+* Real Pi 4 aarch64: `regression-aarch64-syscalls.sh` 9/9
+  sub-tests PASS via `ssh pi`, including test 9 (`fl_ok`)
+* cc5 self-host fixpoint gen1==gen2 (488,864 B — lib/ addition,
+  no src/ changes)
+* `lib/flags.cyr` cyrfmt-stable (format gate 5 green)
+
 ## [5.5.32] — 2026-04-21
 
 **Stdlib thread-safety audit — findings documented + canonical

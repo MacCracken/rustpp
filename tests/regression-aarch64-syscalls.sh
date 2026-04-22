@@ -486,4 +486,53 @@ elif [ "$out" != "ts_ok" ]; then
     fail=$((fail+1))
 fi
 
+# ---- Test 9 (v5.5.33): lib/flags.cyr — CLI flag parser on aarch64
+#      The parser is pure cyrius (no inline asm), so this is a
+#      smoke test for the end-to-end compile+run path on Pi 4:
+#      bool/int/str flags, `--foo=val`, positional capture.
+cat > "$TMP/fl_test.cyr" <<'EOF'
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/flags.cyr"
+
+fn main() {
+    alloc_init();
+    var fs = flags_new();
+    var f_v = flags_add_bool(fs, 118, "verbose", 0, "");
+    var f_n = flags_add_int(fs, 110, "count", 0, "");
+    var f_o = flags_add_str(fs, 111, "output", 0, "");
+    var argv = alloc(6 * 8);
+    store64(argv + 0,  "prog");
+    store64(argv + 8,  "-v");
+    store64(argv + 16, "--count=42");
+    store64(argv + 24, "-o");
+    store64(argv + 32, "/tmp/out");
+    store64(argv + 40, "file.cyr");
+    if (flags_parse(fs, 6, argv) != 0) { syscall(SYS_EXIT, 91); }
+    if (flags_get_bool(fs, f_v) != 1) { syscall(SYS_EXIT, 92); }
+    if (flags_get_int(fs, f_n) != 42) { syscall(SYS_EXIT, 93); }
+    if (streq(flags_get_str(fs, f_o), "/tmp/out") != 1) { syscall(SYS_EXIT, 94); }
+    if (flags_positional_count(fs) != 1) { syscall(SYS_EXIT, 95); }
+    if (streq(flags_positional(fs, 0), "file.cyr") != 1) { syscall(SYS_EXIT, 96); }
+    sys_write(STDOUT_FD, "fl_ok\n", 6);
+    syscall(SYS_EXIT, 0);
+}
+main();
+EOF
+cat "$TMP/fl_test.cyr" | "$CC_ARM" > "$TMP/fl_test" 2>/dev/null
+chmod +x "$TMP/fl_test"
+scp -q "$TMP/fl_test" "$SSH_TARGET:/tmp/cyr_aarch64_regr_9" >/dev/null 2>&1
+set +e
+out=$(ssh "$SSH_TARGET" 'chmod +x /tmp/cyr_aarch64_regr_9; /tmp/cyr_aarch64_regr_9')
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+    echo "  FAIL test9 (flags parser): exit=$rc (expected 0)"
+    fail=$((fail+1))
+elif [ "$out" != "fl_ok" ]; then
+    echo "  FAIL test9 (flags parser): got '$out' expected 'fl_ok'"
+    fail=$((fail+1))
+fi
+
 exit $fail

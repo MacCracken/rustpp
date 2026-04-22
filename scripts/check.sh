@@ -208,6 +208,15 @@ if [ "$ts_result" -ne 0 ]; then cat /tmp/audit_ts_$$; fi
 rm -f /tmp/audit_ts_$$
 echo ""
 
+# ── 4n. lib/flags.cyr getopt-long parser (5.5.33) ──
+echo "── flags parser ──"
+sh "$ROOT/tests/regression-flags.sh" > /tmp/audit_fl_$$ 2>&1
+fl_result=$?
+check "bool/int/str flags + positionals + error paths" "$fl_result"
+if [ "$fl_result" -ne 0 ]; then cat /tmp/audit_fl_$$; fi
+rm -f /tmp/audit_fl_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
