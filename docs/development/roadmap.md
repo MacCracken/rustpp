@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.33.** cc5 compiler (488,864 B x86_64), x86_64 + aarch64
+> **v5.5.34.** cc5 compiler (488,864 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -1173,7 +1173,7 @@ before opening the next platform port.
 | **v5.5.31** ✅ | Atomics + memory barriers | Shipped 2026-04-21. `lib/atomic.cyr` ships 5 inline-asm primitives (`atomic_load/store/cas/fetch_add/fence`). x86 uses `lock cmpxchg` / `lock xadd` / `mfence`; aarch64 uses `ldxr`/`stxr` LL-SC retry loops + `dmb ish` (Pi 4 A72 is ARMv8.0-A, no LSE). `lib/thread.cyr::mutex_lock / mutex_unlock` rewritten around `atomic_cas` + `atomic_fence` bracketing — 3-state racy load+store scheme collapsed to 2-state race-free. Closes works-in-practice mutex fast-path documented in v5.5.18. 13-assertion test, gate 4l (16 → **17**), aarch64 test 7 via `ssh pi`. cc5 unchanged (488,864 B). |
 | **v5.5.32** ✅ | Runtime thread-safety audit | Shipped 2026-04-21 as **documentation + validation only**. Audit found `lib/alloc.cyr` bump pointer (load+store race), `lib/hashmap.cyr` slot-array + rehash races, `lib/vec.cyr` len+grow races. Findings documented in CHANGELOG; `lib/string.cyr` + `lib/atomic.cyr` + v5.5.31 mutex confirmed safe. Validates the caller-side safe pattern (mutex-wrapped containers) with `tests/tcyr/thread_safety.tcyr` (5 assertions: 4-thread-mutex-wrapped `map_u64_set` and `vec_push` land correctly on both x86 + real Pi 4), gate 4m (17 → **18**), aarch64 test 8 (7 → 8 sub-tests). **Deferred:** alloc-level hardening (spinlock vs atomic-fetch-add vs per-thread arenas — design TBD; no patch pinned, re-opens when approach converges). **No lib/ code changes this patch** — cc5 byte-identical (488,864 B). |
 | **v5.5.33** ✅ | `lib/flags.cyr` — CLI flag parser (tools/ecosystem unblock) | Shipped 2026-04-21 (**pulled forward from v5.5.36** — scope pivot #4 in the v5.5.x arc; fdlopen completion cascaded to v5.5.34 with same pinned diagnostics, PE .reloc → v5.5.35, PE struct tail → v5.5.36, closeout → v5.5.37). Replaces 60+ ad-hoc `streq("--foo", argv(i))` loops across every toolchain binary (cyrius, ark, cyrld, cyrfmt, cyrlint, cyrdoc, cyrc) and consumer project. `lib/flags.cyr` (~300 LoC): `flags_new`, `flags_add_bool/int/str`, `flags_parse`, `flags_get_*`, `flags_positional*`, `flags_print_help`, `flags_error`. Syntax: `--name`, `--name=value`, `--name value`, `-x`, `-x value`, `--` terminator, positional capture in argv order. Out-of-scope (explicit): bundled shorts `-abc`, attached values `-xvalue`, negated longs `--no-foo`. Caps 32 flags × 128 positionals. Bounded equality compare (no argv mutation). `tests/tcyr/flags.tcyr` 33 assertions across 11 groups, gate 4n (18 → **19**); `regression-aarch64-syscalls.sh` test 9 on Pi 4 (8 → 9 sub-tests). cc5 unchanged (488,864 B). |
-| **v5.5.34** | `lib/fdlopen.cyr` orchestration — completion | Finishes what v5.5.29 started (**pushed again from v5.5.33** — fourth position in the cascade; fdlopen stays 3-attempts-deferred and multi-attempt restarts burn cycles without the new diagnostic angles having been investigated). Concrete diagnostic starting points (from the v5.5.29 investigation log, pinned here so v5.5.34 doesn't start from a blank page): (1) **Dump AT_PHDR bytes** — compare `helper_info + 16` against file offset 0x40..0x350 of `~/.cyrius/dlopen-helper`. Mismatch means the copy pass missed an offset. (2) **File-backed mmap of helper PT_LOAD** — switch from anon+memcpy to `mmap(base+p_vaddr, p_memsz, prot, MAP_PRIVATE|MAP_FIXED, fd, p_offset & ~4095)` per segment. Cosmopolitan uses file-backed; may be load-bearing for ld.so's `/proc/self/maps` introspection. (3) **strace diff** — `strace -f ./dlopen-helper ADDR ADDR` vs probe-with-strace. First diverging syscall pinpoints the failure. (4) **Cosmopolitan cosmo_dlopen.c cross-ref** — walk the pre-jump setup (locale init, TLS base setup, signal mask save, stack canary) for steps v5.5.29 skips. **Acceptance:** `fdlopen_init_full` returns 0 on glibc host; `fncall0(fdlopen_dlopen(state))` loads libresolv; `fncall4(fdlopen_getaddrinfo(state), ...)` succeeds; check.sh gate 4j gains a "full path" sub-test; self-host byte-identical. **Ordering constraint with TLS (v5.5.30):** on x86_64 this patch's ld.so-entry jump clobbers `%fs`; caller docs must state that `thread_local_init` has to be re-invoked after any `fdlopen_init_full` completes. aarch64 disjoint. |
+| **v5.5.34** ✅ | `lib/fdlopen.cyr` orchestration — completion + cross-repo strip root-cause | Shipped 2026-04-21. Closes the v5.5.28–v5.5.33 arc. Root cause of the v5.5.29 "ld.so enters and exits 0 silent" was a 6-line prot-bit encoding bug in `_fdlopen_mmap_elf`: ELF `p_flags` (`PF_X=1`, `PF_W=2`, `PF_R=4`) are NOT 1:1 with mmap `prot` (`PROT_READ=1`, `PROT_WRITE=2`, `PROT_EXEC=4`) — R and X are swapped. PF_R-only segments were being mprotect'd exec-only, so ld.so's auxv walk SIGSEGV'd silently inside its own fault handler. A1 diagnostic (`programs/fdlopen-phdr-probe.cyr`, 180 LoC, kept in-tree) localised the SIGSEGV; the fix is `src/fdlopen.cyr:402-435` swap + `prot == 0` fallback. `tests/tcyr/fdlopen.tcyr` PASSes 40/40 on glibc x86_64 — full round-trip `fncall2(fdlopen_dlopen, "libc.so.6", 2)` → `fncall2(fdlopen_dlsym, libc, "getpid")` → `fncall0(fp_getpid) == syscall(SYS_GETPID)`. Gracefully skips with documented error code on non-x86_64 / helper-missing hosts. **Also closed same release:** recurring "`lib/dynlib.cyr` gets stripped between sessions" bug root-caused — `/home/macro/Repos/mabda/lib` was a symlink to `/home/macro/Repos/cyrius/lib`, so agent-driven edits in mabda wrote through the symlink into this repo. mabda fixed (real `lib/` populated by `cyrius deps`, Makefile `check-lib-wiring` guard, CI workflows updated, CLAUDE.md "Dependency wiring" section). cyrius `CLAUDE.md` gained a "Downstream repo setup (ecosystem rule)" section applying to every ecosystem repo. cc5 byte-identical (488,864 B — stdlib + program + test changes only). |
 | **v5.5.35** | PE `.reloc` section + ASLR | `IMAGE_REL_BASED_DIR64` entries for every absolute 64-bit address. Enables DLL output and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE`. ~6-9 KB of .reloc for a ~475 KB PE. See `vidya :: plan_pe_correctness_tail_v555plus` for block format. |
 | **v5.5.36** | PE struct-return + variadic + __chkstk tail | Hidden RCX retptr for >8-byte structs, variadic float duplication to XMM + GP, `__chkstk` stack-probe for frames ≥ 4 KB. All three are defer-until-triggered today; v5.5.35 groups the pre-emptive fixes. |
 | **v5.5.37** | v5.5.x closeout + LSP color-coding | Last patch before v5.6.0. Full CLAUDE.md §"Closeout Pass" 11-step checklist with v5.5.x-specific scope: heap-map AUDIT (not just verify — regions added during v5.5.x include the enum-const table at 0xD8000 from v5.5.2), REFACTOR pass on the accumulated `_TARGET_PE` branch surface (EPOPARG / ESTOREREGPARM / ECALLPOPS / ECALLCLEAN / ESTOREPARM / ESTORESTACKPARM + EEXIT / EWRITE_PE + fnptr.cyr fncallN Win64 variants — consolidate if the dispatch pattern stabilizes), CODE REVIEW of every v5.5.0–v5.5.36 diff for Win64/SysV ABI leaks, cleanup sweep, benchmark refresh vs v5.5.0 baseline. **LSP color-coding (new 2026-04-21 scope):** extend the cyrius LSP server to emit semantic-token types (keyword / type / identifier / comment / string / number / directive / function / variable) so editor integrations syntax-highlight cyrius sources with colors instead of plain-text rendering. Needed for productive authoring during v5.6.x+ compiler work. Semantic-tokens follows microsoft/language-server-protocol semanticTokens spec: token classifier in the LSP handler, token-type legend defined up-front, theme-agnostic class emission. Out of scope: custom colour-theme shipping, embedded-language highlighting (CYML markdown bodies). |
@@ -1227,13 +1227,16 @@ before opening the next platform port.
   been carrying forward across multiple minors with shifting
   release targets. Pinning them to concrete patch numbers means
   they can't slip silently.
-- v5.5.32–5.5.33 are the PE correctness tail — defer-able but
-  recorded so they don't get forgotten.
-- v5.5.34 is the `lib/flags.cyr` CLI flag parser — narrow stdlib
-  unblock for every downstream tool (pinned 2026-04-21 during the
-  stdlib-coverage sweep). Last patch before closeout because it's
-  a low-risk stdlib-only addition with no codegen or ABI risk.
-- v5.5.35 is the formal closeout before v5.6.0 (optimization arc).
+- v5.5.33 is `lib/flags.cyr` — pulled forward from v5.5.36 (scope
+  pivot #4 in the v5.5.x arc) when the fdlopen completion slipped
+  after v5.5.29's 3-attempts-defer. Narrow stdlib unblock for
+  every downstream tool.
+- v5.5.34 closes the v5.5.28–v5.5.33 fdlopen arc and roots out the
+  cross-repo `lib/dynlib.cyr` strip bug (mabda `lib -> cyrius/lib`
+  symlink). Last v5.5.x patch to add semantic scope.
+- v5.5.35/v5.5.36 are the PE correctness tail — defer-able but
+  pinned so they don't get forgotten.
+- v5.5.37 is the formal closeout before v5.6.0 (optimization arc).
 
 **After v5.5.x:**
 - **v5.6.0–5.6.5** — Compiler optimization arc (§"v5.6.0 —
@@ -1712,83 +1715,64 @@ consumer. Once shipped, mabda v2.5.x can retire `cache_key.cyr`
 and expect cache-hit benchmarks to land within 2× of Rust v1
 (closing the last outlier in the Rust→Cyrius comparison).
 
-### v5.5.34 — `lib/flags.cyr` CLI flag parser (tools/ecosystem unblock)
+### v5.5.34 — `fdlopen_init_full` orchestration complete ✅
 
-Narrow stdlib addition. `lib/args.cyr` today only exposes
-argc/argv (`/proc/self/cmdline` on Linux, `x28` entry-prologue
-on macOS). Every toolchain binary (cyrius, ark, cyrld, cyrfmt,
-cyrlint, cyrdoc, cyrc) and every consumer project reinvents flag
-parsing with ad-hoc `streq("--foo", argv(i))` loops — no common
-shape, no `--help` generator, no short/long equivalence, no
-`--foo=value` vs `--foo value` normalization.
+Closes the v5.5.28–v5.5.33 arc. `fdlopen_init` in v5.5.28 was
+opt-in primitives only; v5.5.29 shipped ~250 LoC of orchestration
+that entered ld.so and silently exited 0; v5.5.34 roots out why
+and ships the real end-to-end path.
 
-**Scope:**
+**Root cause (shipped fix):** `_fdlopen_mmap_elf`'s second-pass
+mprotect had ELF `p_flags` → mmap `prot` bits crossed. `PF_R=4` was
+becoming `prot += 4 = PROT_EXEC`; `PF_X=1` was becoming
+`prot += 1 = PROT_READ`. PF_R-only segments (the helper's `.rodata`
+and GOT-bearing pages) landed as execute-only, so ld.so's auxv /
+phdr walk SIGSEGV'd on the first read, inside ld.so's own error-
+suppressing fault handler — exit 0 silent. 6-line arithmetic swap
+in `src/fdlopen.cyr` lines ~402-435, plus the `prot == 0` fallback
+switching from `4` to `1` (PROT_READ).
 
-- `lib/flags.cyr` modelled on getopt-long:
-  - `flags_new()` → handle (bumps from alloc).
-  - `flags_add_bool(handle, "--verbose", "-v", "help text")`.
-  - `flags_add_str(handle, "--output", "-o", default, "help text")`.
-  - `flags_add_int(handle, "--level", 0, 9, default, "help text")`.
-  - `flags_parse(handle, argc, argv)` — returns remaining positional
-    args count + populates values; -1 on unknown flag / parse error.
-  - `flags_print_help(handle, program_name)` — standard `--help`
-    emission with aligned columns.
-  - `flags_get_bool(handle, "--verbose")`, `flags_get_str(...)`,
-    `flags_get_int(...)` for post-parse access.
-- Accepts both `--foo=value` and `--foo value` forms (normalise in
-  parser, not at caller site).
-- Short-flag bundling: `-xvf foo.tar` equivalent to `-x -v -f foo.tar`.
-- `--` terminator stops flag parsing; everything after is positional.
-- Error emission: `"error: unknown flag '--foo'"` / `"error: --level
-  out of range [0,9]"` to stderr; `flags_parse` returns -1 so
-  callers can `return 2` with an idiomatic usage-error exit.
+A1 diagnostic: `programs/fdlopen-phdr-probe.cyr` (180 LoC; reads
+`base[0]` post-`_fdlopen_mmap_elf` before handing control to ld.so)
+localized the SIGSEGV to mprotect'd segments. Kept in-tree —
+normal error reporting can't observe this path.
 
-**Why this, why now:**
+**Acceptance** (all met):
 
-Every tool and consumer repo currently rolls its own flag-parsing
-loop. Running `grep -rn 'streq.*"--' programs/ lib/` in the cyrius
-repo alone returns 60+ hits across cyrius, cyrfmt, cyrlint, cyrdoc,
-cyrc, ark, cyrld; the ecosystem (argonaut / majra / shakti /
-takumi / yukti / mabda) adds dozens more. A `lib/flags.cyr` lets
-new tools land with a real flag parser on day one and gives
-existing tools a consistent `--help` format if they opt in.
+1. `tests/tcyr/fdlopen.tcyr` PASSes 40/40 on glibc x86_64, including
+   a new end-to-end group:
+   - `fdlopen_init_full(state) == 0`
+   - `fdlopen_status(state) == 1`
+   - all 11 fn-pointer slots populated
+   - `fncall2(fdlopen_dlopen, "libc.so.6", 2) != 0`
+   - `fncall2(fdlopen_dlsym, libc, "getpid") != 0`
+   - `fncall0(fp_getpid) == syscall(SYS_GETPID)` ← the load-bearing
+     invariant; proves the resolved dlsym fn is actually callable
+     from a static Cyrius binary
+2. Gracefully skips with documented error code
+   (`FDL_ERR_HELPER_MISSING` / `FDL_ERR_ARCH_UNSUPPORTED`) on
+   non-x86_64 or hosts where `scripts/install.sh` hasn't compiled
+   `~/.cyrius/dlopen-helper`.
+3. cc5 self-host byte-identical at 488,864 B (lib + test + program
+   changes only, no `src/` touched).
+4. `scripts/check.sh` 19/19 gates green (fdlopen-primitives gate
+   covers both the v5.5.28 primitive assertions and the new
+   end-to-end group).
 
-**Acceptance:**
-
-1. `sh scripts/check.sh` PASSes (existing gates hold; one new gate
-   `tests/regression-lib-flags.sh` covering: bool / str / int flag
-   registration, `--foo value` vs `--foo=value` parsing, short-flag
-   bundling, `--` terminator, unknown-flag error, out-of-range int,
-   help emission formatting).
-2. `tests/tcyr/flags.tcyr` — ~15 assertions.
-3. cc5 + cc5_aarch64 self-host byte-identical (lib-only change).
-4. At least one tool migrated (`programs/cyrfmt.cyr` is the
-   smallest; proves the API shape on a real consumer before
-   freezing).
-
-**Out of scope** (follow-ups, not blockers):
-
-- Subcommand parsing (`cyrius build` vs `cyrius test`) — current
-  tools do this manually; the flag parser handles flags within a
-  subcommand, not subcommand dispatch. Can layer later if needed.
-- Long-option abbreviation (`--ver` matching `--version`) — getopt
-  supports this; skip for now (error-prone, ambiguity-resolution
-  logic).
-- Man-page / shell-completion generation — defer until a second
-  consumer asks.
-
-**Downstream coordination:** new tools adopt immediately. Existing
-tools migrate opportunistically — no forced bump. Drop-in
-replacement for the majority of existing `streq("--", argv(i))`
-loops.
-
-**Why this slot:** last patch before closeout is the right place
-for a low-risk narrow unblock that every downstream tool benefits
-from. No codegen risk, no ABI changes, no heap-map change.
+**Cross-repo fix (same release):** the "`lib/dynlib.cyr` gets
+stripped between sessions" bug that drove the v5.5.29–v5.5.33
+restore-commit cluster is root-caused — `mabda/lib` was a symlink
+to `cyrius/lib`, so agent-driven edits in mabda (format / lint /
+dead-code) wrote through the symlink into this repo. Fix spans
+both repos (see CHANGELOG "Fixed (cross-repo)" section for the
+full list). This repo's `CLAUDE.md` gains a "Downstream repo setup
+(ecosystem rule)" section so the pattern can't recur silently in
+sigil / sakshi / yukti / kybernet / hadara / any future ecosystem
+repo.
 
 ---
 
-### v5.5.35 — v5.5.x closeout pass (then v5.6.0)
+### v5.5.37 — v5.5.x closeout pass + LSP color-coding (then v5.6.0)
 
 Last patch of the v5.5.x minor. Full CLAUDE.md §"Closeout Pass"
 11-step checklist run with v5.5.x-specific scope — this minor
@@ -1799,10 +1783,12 @@ paths that a dedicated refactor + code review window is earned.
 **Mechanical (CLAUDE.md steps 1-3):**
 - Self-host verify — cc5 compiles itself byte-identical (Linux).
 - Bootstrap closure — seed → cyrc → asm → cyrc byte-identical.
-- Full `sh scripts/check.sh` — 11+/11+ PASS (gates accumulated
-  through v5.5.34; 12 at v5.5.22 after the cyrfmt --write gate
-  result gate landed, +1 at v5.5.34 for the flags regression;
-  exact final count depends on what later patches add).
+- Full `sh scripts/check.sh` — 19+/19+ PASS (gates accumulated
+  through v5.5.34; 12 at v5.5.22 after cyrfmt --write gate
+  landed, +1 at v5.5.28 for fdlopen primitives, +1 at v5.5.30
+  for thread-local, +1 at v5.5.31 for atomics, +1 at v5.5.32
+  for thread-safety, +1 at v5.5.33 for flags; exact final count
+  depends on what v5.5.35/36 add).
 
 **Judgment-call passes (CLAUDE.md steps 4-8):**
 - **Heap map audit** — v5.5.x added at least one named region

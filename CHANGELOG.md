@@ -4,6 +4,102 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.34] — 2026-04-21
+
+**`fdlopen_init_full` orchestration complete — 40/40 round-trip PASS.**
+The v5.5.28 primitives + v5.5.29 partial orchestration + v5.5.30
+TLS slots + v5.5.31 atomics arc closes here. A static Cyrius binary
+can now `fdlopen_init_full(state)`, resolve real glibc fn pointers
+(dlopen / dlsym / getaddrinfo / setlocale / setenv / …), and call
+them via the populated state buffer. The full NSS dispatch problem
+pinned as "may never land" in v5.5.25 is solved.
+
+The v5.5.29 "ld.so enters and exits 0 silent — helper main never
+reached" 3-attempts-defer turned out to be a narrow encoding bug
+in `_fdlopen_mmap_elf`'s second-pass mprotect: ELF `p_flags` bits
+(`PF_X=1`, `PF_W=2`, `PF_R=4`) are NOT 1:1 with Linux mmap prot
+bits (`PROT_READ=1`, `PROT_WRITE=2`, `PROT_EXEC=4`). R and X are
+swapped between the two encodings. Pre-fix, `PF_R`-only segments
+were being mprotect'd `PROT_EXEC`-only (unreadable), so ld.so's
+auxv walk over the helper's ELF segments SIGSEGV'd silently inside
+its own error-suppressing fault handler — never reached the helper
+entry. Six-line fix swaps the `prot += 4` / `prot += 1` arithmetic
+and the `prot == 0` fallback.
+
+A1 diagnostic (`programs/fdlopen-phdr-probe.cyr`, 180 LoC — reads
+`base[0]` post-`_fdlopen_mmap_elf` before calling ld.so) surfaced
+the SIGSEGV location; normal end-to-end error reporting couldn't,
+because ld.so's fault handler swallows the SIGSEGV and exits 0.
+
+cc5 size unchanged at 488,864 B (program + stdlib + test changes
+only; `src/` untouched apart from the `cc5 5.5.34` version string
+in `src/main.cyr`). Self-host fixpoint holds: gen1 == gen2.
+
+### Fixed
+
+* **`lib/fdlopen.cyr:_fdlopen_mmap_elf`** — 6-line prot-bit
+  encoding fix (lines 402–435). PF/PROT bit tables now spelled out
+  in a comment so this can't silently regress.
+* **`tests/tcyr/fdlopen.tcyr`** — new `test_group("fdlopen_init_full
+  end-to-end (v5.5.34)")` with 40 total assertions (was 27).
+  Exercises: `fdlopen_init_full` returns 0, `fdlopen_status`
+  reports 1 (init OK), all 11 fn pointers populated, and the real
+  acceptance test — `fncall2(fdlopen_dlopen, "libc.so.6", RTLD_NOW)`
+  returns non-null, `fncall2(fdlopen_dlsym, libc, "getpid")`
+  returns non-null, `fncall0(fp_getpid) == syscall(SYS_GETPID)`.
+  Gracefully skips with documented error code on non-x86_64 or
+  helper-missing hosts.
+* **`programs/fdlopen-phdr-probe.cyr`** — new A1 diagnostic program
+  (180 LoC). Kept in-tree for future investigations of this loader
+  path, which is inherently hard to observe from ld.so's side.
+
+### Fixed (cross-repo — recurring `lib/dynlib.cyr` strip)
+
+The "functions disappear between sessions" bug that surfaced as
+the restore-commit cluster (`0e535e4`, `dec65e9`, `2a3733c`,
+`10e62a4`) through v5.5.30–v5.5.33 is root-caused and closed.
+
+**Cause:** `/home/macro/Repos/mabda/lib` was a symlink to
+`/home/macro/Repos/cyrius/lib`. Any Claude session working in
+mabda that ran Write/Edit on `lib/<anything>.cyr` (format, lint,
+dead-code cleanup) wrote through the symlink into this repo.
+mabda-scope agents had no visibility into cyrius-side callers, so
+dead-code passes against `lib/dynlib.cyr` deterministically
+removed `dynlib_bootstrap_environ` / `dynlib_read_auxv` /
+`dynlib_auxv_get` — used only by `lib/fdlopen.cyr`, which mabda
+doesn't include. Same 111 lines, same syntactic boundaries every
+time — because it was the same well-reasoned (but cross-repo-
+blind) decision.
+
+**Fix** (spans mabda + cyrius):
+
+* **mabda:** `lib/` is now a real directory populated by `cyrius
+  deps`. `.gitignore` ignores `/lib/`. `Makefile` has a new
+  `check-lib-wiring` target that fails `make build/test/bench` if
+  `lib/` is ever a symlink again. `.github/workflows/{ci,release}.yml`
+  "Setup lib symlink" steps replaced with `rm -rf lib && mkdir
+  lib && cyrius deps`. `CLAUDE.md` gains a "Dependency wiring
+  (HARD RULE)" section documenting the forbidden pattern.
+
+* **cyrius** (this repo): `CLAUDE.md` gains a "Downstream repo
+  setup (ecosystem rule)" section with the two `find` commands to
+  diagnose any inbound symlink recurrence. The rule applies to
+  every ecosystem repo (sigil, sakshi, yukti, kybernet, hadara,
+  etc.) — not mabda-specific.
+
+### Verified
+
+* `sh scripts/check.sh` 19/19 gates PASS on x86_64 (fdlopen
+  primitives gate expanded from 27 → 40 assertions).
+* `tests/tcyr/fdlopen.tcyr` PASSes end-to-end on x86_64 glibc —
+  real `getpid` via fdlopen == `syscall(SYS_GETPID)`.
+* cc5 self-host fixpoint gen1 == gen2 at 488,864 B (same size as
+  v5.5.33; content differs by the one `cc5 5.5.34` version-string
+  byte in `src/main.cyr`).
+* `mabda` builds clean (`cyrius build programs/smoke.cyr`,
+  227,312 B smoke binary) against the new `cyrius deps`-populated
+  `lib/`.
+
 ## [5.5.33] — 2026-04-21
 
 **`lib/flags.cyr` — getopt-long CLI flag parser.** Replaces
