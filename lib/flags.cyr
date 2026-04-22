@@ -82,6 +82,10 @@ var FLAGS_ENTRY_SIZE = 48;
 #  +32  default_value   : i64 (preserves original for reset)
 #  +40  help            : i64 (cstr)
 
+# Allocate a fresh flags context. Returns an opaque handle that
+# all other flags_* functions take as their first argument. The
+# context owns its entries + positional arrays; do not free
+# individually.
 fn flags_new() {
     var h = alloc(FLAGS_CTX_SIZE);
     var entries = alloc(FLAGS_MAX * FLAGS_ENTRY_SIZE);
@@ -117,14 +121,24 @@ fn _flags_add(h, short_ch, long_name, type, default_val, help) {
     return count;
 }
 
+# Register a bool flag. `short_ch` is an ASCII byte (0 = no short
+# form), `long_name` is a cstr (0 = no long form), `default_val`
+# is 0 or 1 (used until parse sets it), `help` is a cstr printed
+# by flags_print_help. Returns the flag index for later get_*.
 fn flags_add_bool(h, short_ch, long_name, default_val, help) {
     return _flags_add(h, short_ch, long_name, FLAG_BOOL, default_val, help);
 }
 
+# Register an int flag. Same arg shape as flags_add_bool;
+# `default_val` is the i64 used until parse sets it. Parse
+# accepts decimal with optional leading minus.
 fn flags_add_int(h, short_ch, long_name, default_val, help) {
     return _flags_add(h, short_ch, long_name, FLAG_INT, default_val, help);
 }
 
+# Register a string flag. Same arg shape as flags_add_bool;
+# `default_val` is a cstr ptr (or 0). Parse stores the argv
+# token directly — no copy.
 fn flags_add_str(h, short_ch, long_name, default_val, help) {
     return _flags_add(h, short_ch, long_name, FLAG_STR, default_val, help);
 }
@@ -133,18 +147,37 @@ fn _flags_entry(h, idx) {
     return load64(h) + idx * FLAGS_ENTRY_SIZE;
 }
 
+# Read the bool flag at `idx`. Returns 0 (default / not set) or
+# 1 (parse saw the flag). Caller must have registered idx via
+# flags_add_bool.
 fn flags_get_bool(h, idx) { return load64(_flags_entry(h, idx) + 24); }
+
+# Read the int flag at `idx`. Returns the parsed value or the
+# registered default. Caller must have registered idx via
+# flags_add_int.
 fn flags_get_int(h, idx)  { return load64(_flags_entry(h, idx) + 24); }
+
+# Read the str flag at `idx`. Returns a cstr ptr — either the
+# parsed argv token or the registered default. Caller must have
+# registered idx via flags_add_str.
 fn flags_get_str(h, idx)  { return load64(_flags_entry(h, idx) + 24); }
 
+# Number of positional (non-flag) args captured during parse.
+# Includes everything after a `--` terminator.
 fn flags_positional_count(h) { return load64(h + 40); }
 
+# Return positional arg at `idx` (0-indexed) as a cstr ptr.
+# Returns 0 if idx is out of range. Order matches argv order.
 fn flags_positional(h, idx) {
     if (idx < 0) { return 0; }
     if (idx >= load64(h + 40)) { return 0; }
     return load64(load64(h + 24) + idx * 8);
 }
 
+# Last parse error code (FlagErr enum). FLAG_ERR_NONE on
+# success; UNKNOWN / MISSING_VALUE / BAD_INT / BUNDLED on
+# specific failures. Caller checks after a non-zero return
+# from flags_parse to decide what to print.
 fn flags_error(h) { return load64(h + 56); }
 
 # Bounded equality: compare `len` bytes of `a` against `b`, where
