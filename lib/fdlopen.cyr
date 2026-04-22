@@ -402,10 +402,15 @@ fn _fdlopen_mmap_elf(path, out_info) {
         pi = pi + 1;
     }
 
-    # Second pass: mprotect per p_flags (PF_X=1, PF_W=2, PF_R=4)
-    # PF bits happen to match PROT bits 1-for-1 on x86_64 Linux
-    # (PF_X=1=PROT_EXEC, PF_W=2=PROT_WRITE, PF_R=4=PROT_READ), but
-    # cyrius lacks bitwise AND so we extract each bit via div+mod.
+    # Second pass: mprotect per p_flags. NB — PF bits and PROT bits
+    # are NOT 1:1. ELF p_flags: PF_X=1, PF_W=2, PF_R=4. Linux mmap
+    # prot: PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4. R and X are
+    # swapped between the two encodings. v5.5.34 A1 investigation
+    # found pre-v5.5.34 code erroneously mapped PF_R→prot+=4 and
+    # PF_X→prot+=1, making PF_R-only segments execute-only (reads
+    # SIGSEGV'd silently, which is why v5.5.29's helper main was
+    # never reached — ld.so's auxv walk hit unreadable pages).
+    # cyrius lacks bitwise AND so each bit is extracted via div+mod.
     pi = 0;
     while (pi < ephnum) {
         var ph3 = fmap + ephoff + pi * ephent;
@@ -414,21 +419,21 @@ fn _fdlopen_mmap_elf(path, out_info) {
             var p_va2 = load64(ph3 + 16);
             var p_mz2 = load64(ph3 + 40);
             var prot = 0;
-            # R bit (value 4)
+            # PF_R (bit 2, value 4) → PROT_READ (value 1)
             var r_half = p_fl / 4;
             var r_quarter = r_half / 2;
-            if (r_half - r_quarter * 2 == 1) { prot = prot + 4; }
-            # W bit (value 2)
+            if (r_half - r_quarter * 2 == 1) { prot = prot + 1; }
+            # PF_W (bit 1, value 2) → PROT_WRITE (value 2)
             var w_half = p_fl / 2;
             var w_quarter = w_half / 2;
             if (w_half - w_quarter * 2 == 1) { prot = prot + 2; }
-            # X bit (value 1)
+            # PF_X (bit 0, value 1) → PROT_EXEC (value 4)
             var x_half = p_fl / 2;
-            if (p_fl - x_half * 2 == 1) { prot = prot + 1; }
+            if (p_fl - x_half * 2 == 1) { prot = prot + 4; }
             # Page-align vaddr down, length up
             var vpg = p_va2 / 4096 * 4096;
             var vend = (p_va2 + p_mz2 + 4095) / 4096 * 4096;
-            if (prot == 0) { prot = 4; }
+            if (prot == 0) { prot = 1; }                # PROT_READ fallback
             syscall(10, base + vpg, vend - vpg, prot);
         }
         pi = pi + 1;

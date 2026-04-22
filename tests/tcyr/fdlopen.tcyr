@@ -136,4 +136,47 @@ if (ir == 0 - 8) { ok = 1; }
 assert_eq(ok, 1, "fdlopen_init returned a documented status code");
 assert_eq(fdlopen_status(st2), ir, "fdlopen_status reflects init return");
 
+test_group("fdlopen_init_full end-to-end (v5.5.34)");
+
+# v5.5.34 finished the orchestration started in v5.5.29. The
+# missing piece was a prot-bit encoding bug in _fdlopen_mmap_elf:
+# PF_R (=4) was being mapped to prot+=4 (PROT_EXEC), and PF_X (=1)
+# to prot+=1 (PROT_READ). Result: PF_R-only segments became
+# execute-only, ld.so's auxv walk hit unreadable pages, and the
+# helper main was never reached. A1 diagnostic (reading base[0]
+# post-mmap_elf) exposed the SIGSEGV; 6-line swap of the prot
+# arithmetic fixed it.
+#
+# This group exercises the full path. Skips cleanly on non-x86_64
+# or if the helper is missing.
+var st3 = alloc(256);
+var c3 = 0;
+while (c3 < 256) { store8(st3 + c3, 0); c3 = c3 + 1; }
+
+var frc = fdlopen_init_full(st3);
+if (frc == 0) {
+    assert_eq(frc, 0, "fdlopen_init_full returns 0 on glibc host");
+    assert_eq(fdlopen_status(st3), 1, "fdlopen_status reports init OK (1)");
+    assert(fdlopen_dlopen(st3) != 0, "dlopen fn pointer populated");
+    assert(fdlopen_dlsym(st3) != 0, "dlsym fn pointer populated");
+    assert(fdlopen_getaddrinfo(st3) != 0, "getaddrinfo fn pointer populated");
+    # Prove the resolved dlopen is actually callable — open libc,
+    # resolve getpid, call it, compare to our own getpid() syscall.
+    var libc = fncall2(fdlopen_dlopen(st3), "libc.so.6", 2);  # RTLD_NOW
+    assert(libc != 0, "dlopen(libc.so.6) returned non-null handle");
+    var fp_getpid = fncall2(fdlopen_dlsym(st3), libc, "getpid");
+    assert(fp_getpid != 0, "dlsym(getpid) returned non-null fn ptr");
+    var pid_via_fdlopen = fncall0(fp_getpid);
+    var pid_via_syscall = syscall(39);  # SYS_GETPID
+    assert_eq(pid_via_fdlopen, pid_via_syscall,
+              "glibc getpid() via fdlopen == SYS_GETPID");
+} else {
+    # Allowed reasons to fall back: arch-unsupported, helper-missing,
+    # or the three transient error codes that v5.5.34 didn't touch.
+    var skip_ok = 0;
+    if (frc == 0 - 1) { skip_ok = 1; }  # HELPER_MISSING
+    if (frc == 0 - 6) { skip_ok = 1; }  # ARCH_UNSUPPORTED
+    assert_eq(skip_ok, 1, "full path skipped with documented reason");
+}
+
 var rc = assert_summary();

@@ -1,0 +1,180 @@
+# fdlopen-phdr-probe.cyr — A1 diagnostic for v5.5.34 fdlopen
+# orchestration.
+#
+# Investigates whether _fdlopen_mmap_elf correctly lands the
+# phdr block at `base + ephoff` (which is what we hand to
+# build_stack as AT_PHDR). If the mapped bytes at that address
+# match the raw file bytes at `ephoff`, the copy pass is fine
+# and the bug must lie elsewhere. If they diverge, we know
+# exactly where the copy is broken.
+#
+# Approach:
+#   1. Read helper file via mmap, extract ehdr fields
+#   2. Call _fdlopen_mmap_elf(helper_path, info) — normal path
+#   3. Dump 16-byte chunks from (a) file+ephoff and (b) base+ephoff
+#      over 0x40..0x350 (the phdr range v5.5.29 investigation
+#      flagged as suspect)
+#   4. Print side-by-side + report first mismatch offset or "match"
+#
+# Run: cat programs/fdlopen-phdr-probe.cyr | build/cc5 > /tmp/phdr
+#      && chmod +x /tmp/phdr && /tmp/phdr
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/mmap.cyr"
+include "lib/fnptr.cyr"
+include "lib/dynlib.cyr"
+include "lib/fdlopen.cyr"
+
+fn _hex2(v, out) {
+    var hi = v / 16;
+    var lo = v - hi * 16;
+    var hc = 48; if (hi >= 10) { hc = 87; }  # 0-9 or a-f
+    var lc = 48; if (lo >= 10) { lc = 87; }
+    store8(out + 0, hc + hi); if (hi >= 10) { store8(out + 0, hi - 10 + 97); }
+    store8(out + 1, lc + lo); if (lo >= 10) { store8(out + 1, lo - 10 + 97); }
+    return 0;
+}
+
+fn dump_16(label, ptr, off) {
+    syscall(SYS_WRITE, 1, label, strlen(label));
+    syscall(SYS_WRITE, 1, "[0x", 3);
+    var hxbuf[8];
+    var shift = off;
+    var digits[8];
+    var n = 0;
+    if (shift == 0) { store8(&digits, 48); n = 1; }
+    while (shift > 0) {
+        var d = shift - (shift / 16) * 16;
+        var ch = 48; if (d >= 10) { ch = 87; }
+        store8(&digits + n, ch + d); if (d >= 10) { store8(&digits + n, d - 10 + 97); }
+        shift = shift / 16;
+        n = n + 1;
+    }
+    var ri = n - 1;
+    while (ri >= 0) {
+        var rb[1];
+        store8(&rb, load8(&digits + ri));
+        syscall(SYS_WRITE, 1, &rb, 1);
+        ri = ri - 1;
+    }
+    syscall(SYS_WRITE, 1, "]: ", 3);
+    var i = 0;
+    while (i < 16) {
+        var b = load8(ptr + i);
+        var hxb[2];
+        _hex2(b, &hxb);
+        syscall(SYS_WRITE, 1, &hxb, 2);
+        syscall(SYS_WRITE, 1, " ", 1);
+        i = i + 1;
+    }
+    syscall(SYS_WRITE, 1, "\n", 1);
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+
+    # Resolve helper path (same logic as fdlopen_helper_available)
+    var pbuf = alloc(4096);
+    var plen = _fdlopen_helper_path(pbuf, 4096);
+    if (plen <= 0) {
+        syscall(SYS_WRITE, 2, "helper path not resolvable (no $HOME?)\n", 40);
+        syscall(SYS_EXIT, 1);
+    }
+    syscall(SYS_WRITE, 1, "helper: ", 8);
+    syscall(SYS_WRITE, 1, pbuf, plen);
+    syscall(SYS_WRITE, 1, "\n", 1);
+
+    # Raw-file mmap of helper (for comparison against mmap_elf result)
+    var fd = syscall(2, pbuf, 0, 0);
+    if (fd < 0) {
+        syscall(SYS_WRITE, 2, "open helper failed\n", 19);
+        syscall(SYS_EXIT, 2);
+    }
+    var stbuf = alloc(144);
+    syscall(5, fd, stbuf);
+    var fsize = load64(stbuf + 48);
+    var fmap = syscall(9, 0, fsize, 1, 2, fd, 0);
+    syscall(3, fd);
+    if (fmap < 0) { syscall(SYS_EXIT, 3); }
+
+    var ephoff = load64(fmap + 32);
+    var ephnum = load16(fmap + 56);
+    var ephent = load16(fmap + 54);
+    syscall(SYS_WRITE, 1, "file ephoff=", 12);
+    fmt_int(ephoff);
+    syscall(SYS_WRITE, 1, " ephnum=", 8);
+    fmt_int(ephnum);
+    syscall(SYS_WRITE, 1, " ephent=", 8);
+    fmt_int(ephent);
+    syscall(SYS_WRITE, 1, "\n", 1);
+
+    # Normal mmap_elf path
+    var info = alloc(64);
+    var mrc = _fdlopen_mmap_elf(pbuf, info);
+    if (mrc != 0) {
+        syscall(SYS_WRITE, 2, "mmap_elf failed\n", 16);
+        syscall(SYS_EXIT, 4);
+    }
+    var base = load64(info + 0);
+    var phdr_va = load64(info + 16);
+    syscall(SYS_WRITE, 1, "mapped base=0x", 14);
+    _fdlopen_hex64(base, alloc(16));
+    fmt_int(base);
+    syscall(SYS_WRITE, 1, " phdr_va=0x", 11);
+    fmt_int(phdr_va);
+    syscall(SYS_WRITE, 1, "\n\n", 2);
+
+    # Compare 16-byte rows from 0x00..0x350
+    syscall(SYS_WRITE, 1, "-- compare phdr range (file vs mapped) --\n", 42);
+    var cmp_limit = ephoff + ephnum * ephent + 64;
+    if (cmp_limit < 0x350) { cmp_limit = 0x350; }
+    if (cmp_limit > 0x400) { cmp_limit = 0x400; }
+
+    var off = 0;
+    var first_diff = 0 - 1;
+    while (off < cmp_limit) {
+        # First 4 and last 4 rows: print both; middle: only print if diff
+        var should_print = 0;
+        if (off < 64) { should_print = 1; }
+        if (off >= cmp_limit - 64) { should_print = 1; }
+        if (off >= ephoff && off < ephoff + ephent) { should_print = 1; }
+        var file_ptr = fmap + off;
+        var map_ptr = base + off;
+        var diff_in_row = 0;
+        var bi = 0;
+        while (bi < 16) {
+            if (off + bi < cmp_limit) {
+                if (load8(file_ptr + bi) != load8(map_ptr + bi)) {
+                    diff_in_row = 1;
+                    if (first_diff < 0) { first_diff = off + bi; }
+                }
+            }
+            bi = bi + 1;
+        }
+        if (diff_in_row == 1) { should_print = 1; }
+        if (should_print == 1) {
+            dump_16("  file", file_ptr, off);
+            dump_16("  map ", map_ptr, off);
+            if (diff_in_row == 1) {
+                syscall(SYS_WRITE, 1, "  >>> DIFF in this row <<<\n", 27);
+            }
+            syscall(SYS_WRITE, 1, "\n", 1);
+        }
+        off = off + 16;
+    }
+
+    if (first_diff < 0) {
+        syscall(SYS_WRITE, 1, "VERDICT: file[0..0x350] == mapped[0..0x350] — phdr copy CORRECT\n", 64);
+        syscall(SYS_WRITE, 1, "         bug is not in the copy pass; investigate stack/auxv\n", 62);
+    } else {
+        syscall(SYS_WRITE, 1, "VERDICT: first divergence at offset 0x", 38);
+        fmt_int(first_diff);
+        syscall(SYS_WRITE, 1, "\n", 1);
+    }
+    syscall(SYS_EXIT, 0);
+}
+main();
