@@ -68,6 +68,15 @@ fn SFINL(S, fi, v) { S64(S + 0xEB2000 + fi * 8, v); return 0; }
 # via a path that bypasses the recording site).
 fn GFNE(S, fi) { return L64(S + 0xEC2000 + fi * 8); }
 fn SFNE(S, fi, v) { S64(S + 0xEC2000 + fi * 8, v); return 0; }
+
+# v5.5.36 Phase 2b — per-fn struct return ID. 0 = scalar return,
+# sid = returns StructName. Set by PARSE_FN when signature has
+# `: StructName` annotation; consulted at PARSE_RETURN to emit
+# the by-value copy and at call sites to pre-allocate caller-
+# side struct space + pass &space as hidden first arg in
+# RDI (SysV) or RCX (Win64).
+fn GFRS(S, fi) { return L64(S + 0xEC000 + fi * 8); }
+fn SFRS(S, fi, v) { S64(S + 0xEC000 + fi * 8, v); return 0; }
 # Per-fn #regalloc flag (v4.8.4-alpha4). 0 = default ABI, 1 = opt-in
 # to callee-saved hot-local allocation. Set when `#regalloc` precedes
 # a `fn` definition; read by codegen in subsequent alphas.

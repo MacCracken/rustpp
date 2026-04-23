@@ -3458,6 +3458,10 @@ fn PARSE_FN_DEF(S) {
     # Register or find fn
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
+    # v5.5.36 Phase 2b — clear fn's struct-return slot. The `: StructName`
+    # annotation after `)` sets it later if present; otherwise this fn
+    # returns a scalar value in rax as usual.
+    SFRS(S, fi, 0);
     # v4.8.4-alpha4: transfer any pending `#regalloc` directive onto
     # this fn's metadata slot. Cleared whether consumed or not so a
     # stale flag from a prior parse error can't leak to the next fn.
@@ -3534,6 +3538,22 @@ fn PARSE_FN_DEF(S) {
     S64(S + 0xE9A000 + fi * 8, pc);
     # Store Str param mask — bit N set = param N is : Str
     S64(S + 0xEBA000 + fi * 8, str_mask);
+    # v5.5.36 Phase 2b — optional `: StructName` return-type annotation:
+    # `fn make(): Point { ... return p; }`. Sets fn_ret_sid[fi] = sid;
+    # PARSE_RETURN + call-site consult it to emit the Win64 hidden-RCX /
+    # SysV-RDI retptr convention (see main.cyr heap map 0xEC000).
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);                         # consume ':'
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var rt_noff = PEEKV(S);
+        var rt_sid = FINDSTRUCT(S, rt_noff);
+        if (rt_sid <= 0) {
+            ERR_MSG(S, "fn return type must be a struct name", 37);
+        }
+        SFRS(S, fi, rt_sid);
+        STI(S, GTI(S) + 1);                         # consume struct name
+        SKIP_GENERICS(S);
+    }
     # Record first param name offset for inlining (stored in fn_inline later)
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {

@@ -95,6 +95,12 @@
 #                                        relocation collection (DIR64 sites),
 #                                        populated by _pe_layout + read by
 #                                        EMITPE_EXEC's .reloc writer (v5.5.35)
+#   0xEC000  fn_ret_sid    [32768]       4096 × 8B — per-fn struct return id
+#                                        (0 = scalar return, sid = struct;
+#                                        set by PARSE_FN `: StructName` annot,
+#                                        read by PARSE_RETURN + call-site to
+#                                        emit Win64 hidden-RCX / SysV-RDI
+#                                        retptr convention (v5.5.36 Phase 2b)
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
