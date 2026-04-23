@@ -7,6 +7,19 @@
 # via a plain `if` without touching the preprocessor.
 var _AARCH64_BACKEND = 0;
 
+# v5.6.8 O2 category 2: flag-result reuse tracking. When set to 1,
+# the most-recent x86 emit left ZF reflecting "rax == 0" (i.e., any
+# subsequent `test rax, rax` is redundant). Set by arith helpers
+# that compute into rax AND set ZF from the result; set by the
+# xor-rax-zero path in EMOVI(0) and EXORAA (both yield ZF=1); set
+# by ETESTAZ itself (it IS the test-from-rax). Cleared by any emit
+# that modifies rax without a matching ZF update (EPOPR, EMOVI
+# with nonzero immediate, load helpers, EIMUL whose ZF is
+# architecturally undefined per Intel SDM). Read by ECONDCMP in
+# parse_ctrl.cyr to skip a redundant ETESTAZ when the bare-value-
+# in-rax flow already has correct ZF.
+var _flags_reflect_rax = 0;
+
 # Stub so parse.cyr's `_AARCH64_BACKEND == 1` branches can reference
 # aarch64 emit primitives without the x86 build emitting an
 # "undefined function" warning. Dead on x86 at runtime.
@@ -51,6 +64,7 @@ fn EMOVI(S, v) {
     if (v == 0) {
         # xor eax, eax (2 bytes, clears rax — faster and smaller than movabs)
         EB(S, 0x31); EB(S, 0xC0);
+        _flags_reflect_rax = 1;   # xor rax, rax → ZF=1; flag good
         return 0;
     }
     if (v > 0) { if (v < 0x80000000) {
@@ -58,10 +72,12 @@ fn EMOVI(S, v) {
         EB(S, 0xB8);
         EB(S, v & 0xFF); EB(S, (v >> 8) & 0xFF);
         EB(S, (v >> 16) & 0xFF); EB(S, (v >> 24) & 0xFF);
+        _flags_reflect_rax = 0;   # mov doesn't set flags; rax changed
         return 0;
     } }
     E2(S, 0xB848);
     E8(S, v);
+    _flags_reflect_rax = 0;
     return 0;
 }
 
@@ -77,13 +93,13 @@ fn E3(S, v) {
 # cc5: all record IR nodes when IR_ENABLED(S)==1
 fn EPUSHR(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); return 0; }
 fn EPOPC(S) { if (_IR_REC0(S, IR_POP_RCX) == 1) { return 0; } EB(S, 0x59); return 0; }
-fn EPOPR(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); return 0; }
+fn EPOPR(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); _flags_reflect_rax = 0; return 0; }
 
 # Expression spill: identical to push/pop
 var _INLINE_OK = 0;
 var _LOOPVAR_OK = 0;  # loop var r12 caching disabled (caused 2x regression + stack corruption)
 fn ESPILL(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); return 0; }
-fn EUNSPILL(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); return 0; }
+fn EUNSPILL(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); _flags_reflect_rax = 0; return 0; }
 fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); return 0; }
 # EADDIMM_X1: add rcx, imm8 — the "pointer scratch reg" increment.
 # Named to match the aarch64 backend's EADDIMM_X1 (both advance the
@@ -94,44 +110,48 @@ fn EADDIMM_X1(S, imm) {
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC1); EB(S, imm & 0xFF);
     return 0;
 }
-fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } E3(S, 0xC80148); return 0; }
-fn ESUBR(S) { if (_IR_REC0(S, IR_SUB) == 1) { return 0; } E3(S, 0xC82948); return 0; }
-fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } E3(S, 0xE9F748); return 0; }
+fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } E3(S, 0xC80148); _flags_reflect_rax = 1; return 0; }
+fn ESUBR(S) { if (_IR_REC0(S, IR_SUB) == 1) { return 0; } E3(S, 0xC82948); _flags_reflect_rax = 1; return 0; }
+fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } E3(S, 0xE9F748); _flags_reflect_rax = 0; return 0; }
 # EMULH: high 64 bits of unsigned rcx * rax. MUL rcx → rdx:rax; then rax = rdx.
 # Used by the mulh64(a, b) builtin.
 fn EMULH(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xE1F748); E3(S, 0xD08948); return 0; }
 fn ECQO(S) { if (IR_ENABLED(S) == 2) { return 0; } E2(S, 0x9948); return 0; }
 fn EIDIV(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xF9F748); return 0; }
-fn EMOVDR(S) { if (_IR_REC0(S, IR_MOV_RAX_RDX) == 1) { return 0; } E3(S, 0xD08948); return 0; }
-fn ELODC(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0x018B48); return 0; }
+fn EMOVDR(S) { if (_IR_REC0(S, IR_MOV_RAX_RDX) == 1) { return 0; } E3(S, 0xD08948); _flags_reflect_rax = 0; return 0; }
+fn ELODC(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0x018B48); _flags_reflect_rax = 0; return 0; }
 fn ESTOC(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0x018948); return 0; }
-fn ECMPR(S) { if (_IR_REC0(S, IR_CMP) == 1) { return 0; } E3(S, 0xC83948); return 0; }
-fn ETESTAZ(S) { if (_IR_REC0(S, IR_TEST_AZ) == 1) { return 0; } E3(S, 0xC08548); return 0; }
+fn ECMPR(S) { if (_IR_REC0(S, IR_CMP) == 1) { return 0; } E3(S, 0xC83948); _flags_reflect_rax = 0; return 0; }
+fn ETESTAZ(S) { if (_IR_REC0(S, IR_TEST_AZ) == 1) { return 0; } E3(S, 0xC08548); _flags_reflect_rax = 1; return 0; }
 fn EMOVRDXRAX(S) { if (_IR_REC0(S, IR_MOV_RDX_RAX) == 1) { return 0; } E3(S, 0xC28948); return 0; }
-fn EMOVRA_RDX(S) { if (_IR_REC0(S, IR_MOV_RAX_RDX) == 1) { return 0; } E3(S, 0xD08948); return 0; }
+fn EMOVRA_RDX(S) { if (_IR_REC0(S, IR_MOV_RAX_RDX) == 1) { return 0; } E3(S, 0xD08948); _flags_reflect_rax = 0; return 0; }
 fn EMOVRDI(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xC78948); return 0; }
 fn ESYSCALL(S) { if (_IR_REC0(S, IR_SYSCALL) == 1) { return 0; } E2(S, 0x050F); return 0; }
-fn ELOAD8(S) { if (_IR_REC0(S, IR_LOAD8) == 1) { return 0; } EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x00); return 0; }
-fn ELOAD16(S) { if (_IR_REC0(S, IR_LOAD16) == 1) { return 0; } EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x00); return 0; }
-fn ELOAD32(S) { if (_IR_REC0(S, IR_LOAD32) == 1) { return 0; } EB(S, 0x8B); EB(S, 0x00); return 0; }
-fn ELOAD64(S) { if (_IR_REC0(S, IR_LOAD64) == 1) { return 0; } E3(S, 0x008B48); return 0; }
+fn ELOAD8(S) { if (_IR_REC0(S, IR_LOAD8) == 1) { return 0; } EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x00); _flags_reflect_rax = 0; return 0; }
+fn ELOAD16(S) { if (_IR_REC0(S, IR_LOAD16) == 1) { return 0; } EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x00); _flags_reflect_rax = 0; return 0; }
+fn ELOAD32(S) { if (_IR_REC0(S, IR_LOAD32) == 1) { return 0; } EB(S, 0x8B); EB(S, 0x00); _flags_reflect_rax = 0; return 0; }
+fn ELOAD64(S) { if (_IR_REC0(S, IR_LOAD64) == 1) { return 0; } E3(S, 0x008B48); _flags_reflect_rax = 0; return 0; }
 fn ESTORE8(S) { if (_IR_REC0(S, IR_STORE8) == 1) { return 0; } E2(S, 0x0188); return 0; }
 fn ESTORE16(S) { if (_IR_REC0(S, IR_STORE16) == 1) { return 0; } EB(S, 0x66); E2(S, 0x0189); return 0; }
 fn ESTORE32(S) { if (_IR_REC0(S, IR_STORE32) == 1) { return 0; } E2(S, 0x0189); return 0; }
 fn ESTORE64(S) { if (_IR_REC0(S, IR_STORE64) == 1) { return 0; } E3(S, 0x018948); return 0; }
-fn EXORAA(S) { if (_IR_REC0(S, IR_XOR_AA) == 1) { return 0; } E3(S, 0xC03148); return 0; }
+fn EXORAA(S) { if (_IR_REC0(S, IR_XOR_AA) == 1) { return 0; } E3(S, 0xC03148); _flags_reflect_rax = 1; return 0; }
 # Bitwise
-fn EANDR(S) { if (_IR_REC0(S, IR_AND) == 1) { return 0; } E3(S, 0xC82148); return 0; }
-fn EORR(S) { if (_IR_REC0(S, IR_OR) == 1) { return 0; } E3(S, 0xC80948); return 0; }
-fn EXORR(S) { if (_IR_REC0(S, IR_XOR) == 1) { return 0; } E3(S, 0xC83148); return 0; }
+fn EANDR(S) { if (_IR_REC0(S, IR_AND) == 1) { return 0; } E3(S, 0xC82148); _flags_reflect_rax = 1; return 0; }
+fn EORR(S) { if (_IR_REC0(S, IR_OR) == 1) { return 0; } E3(S, 0xC80948); _flags_reflect_rax = 1; return 0; }
+fn EXORR(S) { if (_IR_REC0(S, IR_XOR) == 1) { return 0; } E3(S, 0xC83148); _flags_reflect_rax = 1; return 0; }
 fn ENOTR(S) { if (_IR_REC0(S, IR_NOT) == 1) { return 0; } E3(S, 0xD0F748); return 0; }
-fn ESHLCL(S) { if (_IR_REC0(S, IR_SHL) == 1) { return 0; } E3(S, 0xE0D348); return 0; }
-fn ESHRCL(S) { if (_IR_REC0(S, IR_SHR) == 1) { return 0; } E3(S, 0xE8D348); return 0; }
+fn ESHLCL(S) { if (_IR_REC0(S, IR_SHL) == 1) { return 0; } E3(S, 0xE0D348); _flags_reflect_rax = 0; return 0; }
+fn ESHRCL(S) { if (_IR_REC0(S, IR_SHR) == 1) { return 0; } E3(S, 0xE8D348); _flags_reflect_rax = 0; return 0; }
 # v5.6.7 O2: shift rax by immediate (1..63). Encoding: 48 C1 E0 imm8
 # for shl; 48 C1 E8 imm8 for shr. Used by strength-reduction peephole
 # (x * 2^n → shl rax, n and x / 2^n → shr rax, n for unsigned).
-fn ESHLIMM(S, n) { EB(S, 0x48); EB(S, 0xC1); EB(S, 0xE0); EB(S, n & 0x3F); return 0; }
-fn ESHRIMM(S, n) { EB(S, 0x48); EB(S, 0xC1); EB(S, 0xE8); EB(S, n & 0x3F); return 0; }
+# v5.6.8 O2: shift-by-1-or-more sets ZF from result; shift-by-0 is a
+# no-op and doesn't modify flags. Callers only pass n>=1, so the
+# "set flag" path is always safe. Still clear defensively so an
+# accidental n==0 caller doesn't leave a stale 1.
+fn ESHLIMM(S, n) { EB(S, 0x48); EB(S, 0xC1); EB(S, 0xE0); EB(S, n & 0x3F); if (n > 0) { _flags_reflect_rax = 1; } return 0; }
+fn ESHRIMM(S, n) { EB(S, 0x48); EB(S, 0xC1); EB(S, 0xE8); EB(S, n & 0x3F); if (n > 0) { _flags_reflect_rax = 1; } return 0; }
 # Syscall pop helpers
 fn EPOPRDI(S) { EB(S, 0x5F); return 0; }
 fn EPOPRSI(S) { EB(S, 0x5E); return 0; }

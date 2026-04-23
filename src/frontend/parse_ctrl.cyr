@@ -32,13 +32,20 @@ fn ECONDOPT(S, op) {
 fn ECONDCMP(S) {
     PCMPE(S);
     var op = PEEKT(S);
-    # If no comparison operator follows, treat value as boolean (cmp rax, 0)
+    # If no comparison operator follows, treat value as boolean.
+    # v5.6.8 O2 category 2: flag-result reuse. Pre-v5.6.8 this path
+    # emitted push/xor/movca/pop/cmp (5 insns, ~10 bytes) to land a
+    # `cmp rax, 0`. Strictly equivalent to `test rax, rax` (3 bytes),
+    # which ETESTAZ already emits. ALSO: if the last emit-helper set
+    # ZF based on rax (arith that updates rax in place — add/sub/
+    # and/or/xor/not/shl/shr/xor-rax-rax/movi-zero), ZF is already
+    # valid and the test itself is redundant — skip emit entirely.
+    # Tracked in `_flags_reflect_rax` (see x86/emit.cyr). aarch64
+    # currently emits non-S-variant add/sub so the flag never goes
+    # true there; the skip becomes a no-op and ETESTAZ fires as
+    # before.
     if (op < 17 || op > 22) {
-        EPUSHR(S);
-        EMOVI(S, 0);
-        EMOVCA(S);
-        EPOPR(S);
-        ECMPR(S);
+        if (_flags_reflect_rax == 0) { ETESTAZ(S); }
         return 18;
     }
     EPUSHR(S);

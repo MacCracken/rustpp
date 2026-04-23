@@ -22,6 +22,7 @@ matters is the relative delta between releases on the same machine.
 | v5.6.5 (O1: FNV-1a FINDFN + PROF scaffold) | 402 | −7 ms (−1.7 %) | FNV-1a hash table for fn-name lookup at 0x10C000 (16 KB, 8192 slots, load factor 0.5); open-addressing with linear probing; existing linear-scan fallback preserved for use-alias resolution. |
 | v5.6.6 (CYRIUS_PROF cross-platform) | 402 | −7 ms (−1.7 %) | No Linux-path change; adds PE GetTickCount64 + Mach-O libSystem _clock_gettime_nsec_np for cross-platform parity. |
 | v5.6.7 (O2 strength reduction: `x * 2^n → shl`) | 405 | −4 ms (−1.0 %) | Compile wall-clock ~flat (peephole check is O(1) at each multiply); **the win is on output-byte count**: cc5 itself shrinks 528,144 → 526,272 B (−1,872 B / −0.35 %) because cyrius hits `imul`-replaceable patterns in its own source. |
+| v5.6.8 (O2 flag-reuse + `test rax, rax`) | 355 | −54 ms (−13.2 %) | Biggest single-patch win of the arc so far. Two peepholes combined: (1) `ECONDCMP`'s bare-value path was emitting `push/xor/movca/pop/cmp` (10 B) — replaced with `test rax, rax` (3 B), saving 7 B × every `if (x)` site; (2) `_flags_reflect_rax` tracker skips the `test` entirely when preceding arith already set ZF from rax — another 3 B per site where it fires. cc5 shrinks 526,272 → 504,416 B (−21,856 B / **−4.15 %**). |
 
 ### v5.6.5 finding vs v5.6.4 prediction
 
@@ -63,12 +64,20 @@ a more stable signal than compile wall-clock.
 | v5.6.5 | 526,888 | +1,544 | FNV-1a code added, no generated-output change. |
 | v5.6.6 | 528,144 | +2,800 | PE GetTickCount64 + Mach-O __got growth code. |
 | v5.6.7 | 526,272 | +928 | Peephole CODE adds ~660 B, but peephole APPLIED to cc5's own compilation saves ~2,540 B, net −1,872 B vs v5.6.6. |
+| v5.6.8 | 504,416 | −20,928 | Flag-reuse + `test rax, rax` replaces `push/xor/movca/pop/cmp` dance. New peephole CODE adds ~430 B but saves ~22,280 B when applied to cc5 compiling itself. **Biggest single-patch shrinkage** of v5.6.x so far. |
 
-Post-v5.6.7 the pattern flips: **new optimizer patches should
-shrink cc5 net**, because cyrius compiles itself and gets its own
-peephole benefit. The v5.6.5 prediction of "10–25 % compile-
-throughput" still hasn't materialized (FINDFN isn't hot) but the
-v5.6.7 effect (output-bytes-shrink) is real and measurable.
+The v5.6.8 delta is an order of magnitude larger than v5.6.7
+because `ECONDCMP` is a hot helper — every `if (x)`, `while (x)`,
+`for (; x; ...)`, etc. condition without an explicit comparator
+ran through the 10-byte dance. Shrinking that dance to 3 B (or
+0 B with flag reuse) cascades across thousands of sites in cc5's
+own source.
+
+The v5.6.5 prediction of "10–25 % compile-throughput" has now
+partially materialized — v5.6.8 alone delivered −13.2 % compile
+time (which also scales the output-bytes win). Future patches
+(v5.6.9 move-elim, v5.6.10 LEA combining, v5.6.11 aarch64 fused
+ops) measure against the 504 KB / 355 ms baseline.
 
 ## 3-step fixpoint verification (new in v5.6.7)
 

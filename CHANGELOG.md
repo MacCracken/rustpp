@@ -4,6 +4,137 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.8] — 2026-04-23
+
+**Phase O2 category 2/5 — flag-result reuse + `test rax, rax`
+replaces `push/xor/movca/pop/cmp` dance.** The single largest
+code-generation improvement shipped to date: cc5 shrank 526,272 →
+504,416 B (−21,856 B, **−4.15 %**), self-host compile time dropped
+405 → 355 ms (−12 %).
+
+### Background — two distinct peepholes in one category
+
+Category 2 in the roadmap is "flag-result reuse": skip a redundant
+`cmp` when the preceding arithmetic already set ZF. But the
+baseline that triggers this opportunity in `ECONDCMP` emitted a
+5-instruction dance (push/xor/movca/pop/cmp, ~10 bytes) for the
+bare `if (x) { ... }` shape. Replacing the dance with a direct
+`ETESTAZ` (`test rax, rax`, 3 bytes) is already ~7 bytes per site;
+THEN layering the flag-reuse on top of that lets us skip the
+`ETESTAZ` entirely in many cases.
+
+### Added — `_flags_reflect_rax` tracking
+
+New global in `src/backend/x86/emit.cyr`. Set to 1 at the end of
+x86 emit helpers that leave ZF reflecting "rax == 0":
+
+- `EADDR`, `ESUBR`, `EANDR`, `EORR`, `EXORR` — arith that writes
+  rax and sets ZF/SF/PF from result.
+- `EXORAA` — `xor rax, rax` yields ZF=1.
+- `EMOVI(0)` — uses the xor path (same reason).
+- `ETESTAZ` itself — tests rax against 0, sets ZF from rax.
+- `ESHLIMM(n>0)`, `ESHRIMM(n>0)` — shift by 1+ sets ZF from result.
+
+Cleared to 0 at the end of x86 emit helpers that modify rax
+WITHOUT setting ZF-from-rax, or that set flags from an unrelated
+computation:
+
+- `EPOPR`, `EUNSPILL` — `pop rax` (rax reloaded; flags unchanged
+  from prior unrelated sequence).
+- `EIMUL` — `imul rcx`; ZF is architecturally undefined for
+  signed multiply (Intel SDM).
+- `ELODC`, `ELOAD8`, `ELOAD16`, `ELOAD32`, `ELOAD64` — loads rax
+  from `[rcx]` or `[rax]`; no flag update.
+- `EMOVRA_RDX`, `EMOVDR` — `mov rax, rdx`; no flags.
+- `EMOVI(v != 0)` — `mov` doesn't touch flags; but rax changed so
+  prior flag state no longer reflects current rax.
+- `ECMPR` — `cmp rax, rcx` sets ZF for equality, NOT for rax==0.
+- `ESHLCL`, `ESHRCL` — shift by cl (dynamic); if cl==0, flags
+  unchanged; conservative: clear.
+
+Not touched (rax unchanged, prior flag state still reflects rax):
+`EPUSHR`, `ESPILL`, `EMOVCA` (writes rcx), `ESTOC`, `ESTORE*`,
+`EMOVRDI`, `ENOTR`.
+
+`src/backend/aarch64/emit.cyr` declares `_flags_reflect_rax = 0`
+as a stub so shared `parse_ctrl.cyr` links cleanly on cross-build.
+The aarch64 arith emits currently use `add`/`sub`/`and` (non-S
+variants — no flag side-effects), so the flag never goes true and
+`ECONDCMP`'s skip is a no-op there (identical to pre-v5.6.8 for
+aarch64). Future v5.6.11 aarch64 work can switch selected arith
+to `adds`/`subs` and start firing the peephole.
+
+### Changed — `ECONDCMP` bare-value path
+
+Pre-v5.6.8 (src/frontend/parse_ctrl.cyr):
+
+```cyr
+if (op < 17 || op > 22) {
+    EPUSHR(S);         # 50             — 1 B
+    EMOVI(S, 0);       # 31 C0 (xor)    — 2 B (post v5.6.7)
+    EMOVCA(S);         # 48 89 C1       — 3 B
+    EPOPR(S);          # 58             — 1 B
+    ECMPR(S);          # 48 39 C8       — 3 B
+    return 18;
+}
+```
+
+Post-v5.6.8:
+
+```cyr
+if (op < 17 || op > 22) {
+    if (_flags_reflect_rax == 0) { ETESTAZ(S); }   # 48 85 C0 — 3 B, or 0 B
+    return 18;
+}
+```
+
+- Baseline (no flag reuse): 10 B → 3 B = **7 B saved per site**.
+- With flag reuse (preceding arith set ZF): 10 B → 0 B = **10 B
+  saved per site**.
+- `return 18` unchanged — the "jump if equal (rax was 0)" case is
+  already inverted-correct in `ECONDOP(18)` = `je`.
+
+### Verified semantics
+
+All three paths cyrius's `ECONDCMP` can land on set ZF
+consistently:
+
+- `test rax, rax` → ZF=1 iff rax==0.
+- arith that updated rax → ZF=1 iff result==0 == iff current rax
+  is 0.
+- `xor rax, rax` / `EMOVI(0)` → ZF=1 (since rax is now 0).
+
+All three make the subsequent `je false_branch` correct.
+
+### Mechanical
+
+- **3-step fixpoint** (v5.6.7-established pattern):
+  - Step a: pre-v5.6.8 cc5 compiles new source → 526,704 B (new
+    peephole CODE present but not applied by old compiler).
+  - Step b: cc5_a compiles new source → **504,416 B** (peephole
+    APPLIED to cyrius's own source).
+  - Step c: cc5_b compiles new source → 504,416 B.
+  - **cc5_b == cc5_c ✓** byte-identical fixpoint.
+- cc5 delta: 526,272 → 504,416 B (**−21,856 B, −4.15 %**).
+- Self-host compile time: **405 → 355 ms, −50 ms / −12 %**.
+- 19/19 check.sh green.
+- cc5_aarch64 cross still emits `e_machine 0xB7`; cc5_win cross
+  still produces valid PE32+.
+
+### Delta scale vs prior optimizer patches
+
+| Patch | cc5 size Δ | Self-host time Δ |
+|-------|-----------|------------------|
+| v5.6.5 (O1 FNV-1a + PROF Linux) | +1,544 B | −7 ms |
+| v5.6.6 (PROF cross-platform)   | +1,256 B | ≈ 0    |
+| v5.6.7 (O2 strength reduction) | −1,872 B | ≈ 0   |
+| **v5.6.8 (O2 flag-reuse + TEST)** | **−21,856 B** | **−50 ms** |
+
+Single biggest optimizer win of the arc so far. The pattern is
+general: a well-placed peephole inside a hot helper (ECONDCMP runs
+once per `if` / `while` condition) cascades across thousands of
+call sites in a real program.
+
 ## [5.6.7] — 2026-04-23
 
 **Phase O2 start — strength reduction (`x * 2^n → shl`).** First

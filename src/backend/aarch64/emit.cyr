@@ -1,3 +1,13 @@
+# v5.6.8 O2 category 2: flag-result-reuse tracker. Declared on both
+# backends so shared parse_ctrl.cyr links cleanly. On aarch64 the
+# arith emits (EADDR/ESUBR/EANDR/etc.) use the non-S-variant opcodes
+# (`add`/`sub`/`and` — no flag side-effect), so this flag never goes
+# true and ECONDCMP's `if (_flags_reflect_rax == 0) { ETESTAZ(S); }`
+# always emits the test — identical behavior to pre-v5.6.8. Future
+# aarch64 work that switches to `adds`/`subs` (e.g. checked overflow
+# from v5.6.2) can start setting this flag and the peephole fires.
+var _flags_reflect_rax = 0;
+
 # ================================================================
 # AARCH64 CODE EMISSION (writes to codebuf at S+0x20000+CP)
 # ================================================================
