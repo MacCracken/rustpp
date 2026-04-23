@@ -58,8 +58,8 @@ fn FINDFN(S, noff) {
 # NOTE: Arch-specific function emit functions (EFNPRO, ESUBRSP, EFNEPI,
 # ECALLTO, ECALLFIX, EPOPARG, ECALLPOPS, ECALLCLEAN, EDISP32,
 # ESTOREREGPARM, ESTORESTACKPARM, ESTOREPARM, EFLLOAD, EFLSTORE)
-# are now in the arch-specific emit files:
-#   x86_64:  src/cc/emit.cyr
+# are in the arch-specific emit files:
+#   x86_64:  src/backend/x86/emit.cyr
 #   aarch64: src/backend/aarch64/emit.cyr
 
 # Find fn local variable by name

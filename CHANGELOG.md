@@ -4,6 +4,89 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.39] — 2026-04-22
+
+**Legacy cc3 retirement — `src/cc/` + cc3 entry points deleted.**
+`src/compiler.cyr` and `src/compiler_aarch64.cyr` were the
+cc3-era compiler entry points; `src/cc/` held their emit / lex /
+parse sources. All had already rotted — `src/compiler.cyr`
+include-references `src/cc/util.cyr`, `src/cc/jump.cyr`, and
+`src/cc/fixup.cyr` which **no longer exist on disk** (removed in
+some earlier cleanup but the top-level entry files kept the
+stale includes). Build output was silently garbage: every
+basic helper call (GCP, SCP, L64, S64, GFCNT, ...) came back as
+"undefined function, will crash at runtime" warnings, and the
+compiler produced a binary of crash stubs.
+
+### Context caught while sweeping
+
+`cbt/commands.cyr`'s `cmd_self` (the `cyrius self` subcommand
+that's supposed to verify cc5 == cc5 byte-identical) was
+piping `src/compiler.cyr` through cc5 for the self-host test.
+Because the input compiled to garbage, the output wasn't even
+self-stable — running `cyrius self` was reporting
+**`FAIL: cc5!=cc5`** on every invocation, and presumably had
+been ever since the cc3 → cc5 rename at v5.0.0.
+
+Fix: repointed `cmd_self` at `src/main.cyr` (the actual
+current compiler). `cyrius self` now passes, reporting
+`PASS: cc5==cc5 byte-identical` honestly.
+
+### Removed
+
+* `src/cc/emit.cyr` (434 LOC)
+* `src/cc/lex.cyr` (477 LOC)
+* `src/cc/parse.cyr` (1,863 LOC)
+* `src/cc/` directory itself
+* `src/compiler.cyr` (282 LOC)
+* `src/compiler_aarch64.cyr` (277 LOC)
+
+**Total: 3,333 LOC of dead cc3-era code retired.** All were
+orphaned since at least v5.1.9's "repairs for 5.1.9 - cleanup
+cc3 refs" commit (visible in `git log` as stale state); the
+entry-point files had kept broken `include` directives that no
+one noticed because nothing in bootstrap / CI / scripts actually
+builds them.
+
+### Fixed
+
+* `cbt/commands.cyr` `cmd_self` → repoints to `src/main.cyr`.
+  Rebuilt `build/cyrius` with the fix. The subcommand now
+  reports `PASS: cc5==cc5 byte-identical` truthfully.
+
+### Changed
+
+* `src/frontend/parse_fn.cyr` — stale comment pointing at the
+  deleted `src/cc/emit.cyr` updated to `src/backend/x86/emit.cyr`
+  (the real location since cc3 was renamed).
+
+### Verified
+
+* `sh scripts/check.sh` 19/19 gates green.
+* `cyrius self` now passes (was silently failing before).
+* cc5 self-host byte-identical; binary size unchanged at
+  507,656 B (removals are source-only — cc3 was never built
+  into the current cc5 binary).
+* No broken references to `src/cc/` or the removed entry
+  points remain anywhere in `src/`, `cbt/`, `scripts/`,
+  `bootstrap/`, `tests/`, or `.github/`.
+
+### Note on `docs/development/completed-phases.md`
+
+An existing v1.10.x-era note mentions these files as "stale
+files" planned for removal. That note is historical/archived
+— the actual deletion lands here in v5.5.39 rather than v1.10.x
+(they were never removed back then; only referenced AS removed
+after someone deleted the missing cc/ helpers but not the
+entry points). Leaving the archival note intact.
+
+### Remaining for v5.5.x
+
+* v5.5.40 — real v5.5.x closeout. Heap-map audit (covers
+  v5.5.37's fixup_tbl reshuffle + v5.5.36's new slots for
+  `fn_ret_sid` and `fn_variadic`), vidya sync, refactor-pass
+  review across the minor's changes, downstream pin check.
+
 ## [5.5.38] — 2026-04-22
 
 **Frontend parser + lexer refactor — split by cohesion.**

@@ -275,9 +275,9 @@ fn cmd_self() {
         var script = alloc(512);
         var sb = str_builder_new();
         str_builder_add_cstr(sb, "cc5=/tmp/cyr_cc5_$$;cc4=/tmp/cyr_cc4_$$;");
-        str_builder_add_cstr(sb, "cat src/compiler.cyr|");
+        str_builder_add_cstr(sb, "cat src/main.cyr|");
         str_builder_add_cstr(sb, _cc);
-        str_builder_add_cstr(sb, ">$cc5&&chmod +x $cc5&&cat src/compiler.cyr|$cc5>$cc4&&");
+        str_builder_add_cstr(sb, ">$cc5&&chmod +x $cc5&&cat src/main.cyr|$cc5>$cc4&&");
         str_builder_add_cstr(sb, "cmp -s $cc5 $cc4&&echo '  PASS: cc5==cc5 byte-identical'||");
         str_builder_add_cstr(sb, "(echo '  FAIL: cc5!=cc5';exit 1)");
         var cmd = str_builder_build(sb);
