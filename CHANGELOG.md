@@ -4,6 +4,187 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.36] — 2026-04-22
+
+**PE Win64 ABI completion via three language-feature additions.**
+Closes the platform arc for every Win64 ABI item that cyrius-
+generatable code can actually reach today. Bundles three phases
+into a single release per the "platform arc must close in v5.5.x"
+directive (splitting across patches would leave Win64 half-
+implemented across the minor).
+
+### Phase 1 — `stack var buf[N];` + `__chkstk` probe
+
+New keyword prefix `stack` puts an array on the call stack
+instead of hoisting it to `.bss` (the default for `var x[N]` in
+a fn). Re-entrant (each invocation gets its own copy), addressed
+via `rbp`-relative displacement through the existing `&local`
+codepath — zero emit changes for access.
+
+`ESUBRSP` under `_TARGET_PE` always emits a 32-byte inline
+`__chkstk`-equivalent probe instead of a bare `sub rsp, imm32`.
+The probe walks the frame in 4 KB steps, storing to each page
+top so Win11's guard-page handler commits them in order. Uses
+**R11 as the scratch iterator** (volatile on both SysV and
+Win64, not an arg register on either) — this matters for Phase
+2b, where RCX carries the hidden struct-return retptr on Win64
+and cannot be clobbered between fn entry and the retptr-stash
+emit.
+
+Allocation trick that kept access code unchanged: register
+`ceil(N/8)` fn-local slots, name all but the last with sentinel
+`-1` (FINDLOCAL's existing `sn >= 0` gate skips them), give the
+last slot the user's name. Since cyrius numbers locals with the
+highest index at the deepest rbp-displacement, FINDLOCAL resolves
+to the bottom of the array — exactly where `&buf` should point
+for byte[0].
+
+Verified on Windows 11 (`ssh cass`): 16 KB, 100 KB, and 500 KB
+stack frames all run to exit 42 — without __chkstk they fault
+on the first access past the guard page.
+
+### Phase 2a — `var p: Point;` stack-local structs
+
+Adds the no-initializer form of struct-typed local var
+declaration. Same anonymous+named-slot trick as Phase 1, with
+the named slot tagged `ltype = -sid`. PARSE_FIELD_LOAD and
+PARSE_FIELD_STORE now branch to `EFLADDR_X1` (new — emits
+`lea rcx, [rbp + disp]`) for struct-local base-pointer loads
+instead of the global-var `EVADDR_X1` (which would have
+registered a bogus fixup for the local-encoded negative index).
+
+Incidentally uncovered and fixed a long-dormant bug in
+`PARSE_FIELD_LOAD`: its local-struct branch has been present
+since struct support landed but called `EVADDR_X1` — that path
+would have mis-registered a fixup as soon as anyone declared
+a struct-typed local. Was unreachable before this patch because
+no cyrius code exercised struct-typed locals.
+
+### Phase 2b — `fn f(): Point { return p; }` + `var got: Point = f();`
+
+Completes the Win64 hidden-retptr ABI for structs >8 B.
+
+**Callee side.** `fn make(): Point { ... }` sets `fn_ret_sid[fi]`
+(new heap slot at `0xEC000`). Compiler look-ahead past `)`
+before param parse detects the `: StructName` annotation so
+param-register assignment can shift `pidx +1` — the user's
+first named param arrives in RSI/RDX, RDI/RCX carries the
+hidden retptr. A new global `_cur_fn_ret_stash` controls an
+8-byte frame slot immediately after the regalloc save area;
+all disp-shift sites (`EFLLOAD` / `EFLSTORE` / `EFLADDR_X1` /
+`EFLADDR` / 4 more) subtract it from the local-displacement
+math. Fn prologue emits `ESTOREREGPARM(S, 0, stash_disp)`
+right after regalloc saves.
+
+`PARSE_RETURN` gains a `_cur_fn_ret_sid > 0` branch: parses
+`return IDENT;` where IDENT is a struct-typed local matching
+the fn's `ret_sid`, emits `lea rsi, [&local]; mov rdi,
+[stash_disp]; mov ecx, size; rep movsb; mov rax,
+[stash_disp]`. RSI/RDI are saved (push/pop) around the copy
+because they're **nonvolatile on Win64** (arg-regs-only on
+SysV — but the save is cheap and keeps the emit uniform).
+
+**Caller side.** New `PARSE_VAR` branch for `var got: Point =
+make(args);` — carefully narrowed to fire only when: inside-fn
++ struct-type annotation + next-token `=` + look-ahead shows
+`IDENT (` + that IDENT is a fn with `GFRS > 0`. Anything else
+(including the existing module-scope `var a: Num = 20;` for
+wrapper-struct-typed scalar globals) falls through to the
+existing path untouched. The branch allocates `got` as a
+stack-local struct (same slot trick), pushes `&got` via the
+new `EFLADDR` emit (rax variant of `EFLADDR_X1`), then parses
+user args; `ECALLPOPS(argc)` counts the hidden retptr so user
+args shift to positions 1..N in the callee ABI view.
+
+### Phase 3-min — `fn f(a, ...)` variadic syntax + per-fn flag
+
+Last of the Win64 ABI items is "variadic float duplication".
+Cyrius had no variadic syntax, so the ABI item couldn't even
+be targeted. Phase 3-min adds:
+
+* **`...` ellipsis lexes as `TOK=112`.** Three-dot-at-a-time
+  lookahead in the lexer; single and double dots still emit
+  `DOT` (struct-field access unaffected).
+* **Param-loop acceptance.** `fn f(a, ...)` / `fn f(...)` /
+  `fn f(a, b, c, ...)` all valid; ellipsis terminates the
+  param list and sets `fn_variadic[fi] = 1` (new heap slot at
+  `0xF4000`).
+* **Callers can pass extra args** beyond the named list —
+  they land in stack slots per the existing `>6-arg` SysV or
+  `>4-arg` Win64 paths; the callee body currently has no way
+  to read them.
+
+**Phase 3-full** (`va_arg` stdlib helper + callee save-area
+prologue that spills arg regs to a known location + Win64
+float-dup emission for f64 args to variadic fns) is pinned as
+a follow-up patch, gated on the first real consumer — cyrius
+has no cross-fn f64-arg plumbing today, so the float-dup code
+path cannot yet fire from any compiler-generated code. The
+platform arc closes cleanly for code cyrius can actually
+produce.
+
+### Added
+
+* **`src/frontend/lex.cyr`** — `stack` keyword (`TOK=111`,
+  klen=5, `0x6B63617473`); three-dot ellipsis collapse to
+  `TOK=112`.
+* **`src/frontend/parse.cyr`** — stack-var statement branch;
+  `var p: StructName;` no-init branch; `var got: Point =
+  make();` assignment branch; PARSE_FN_DEF look-ahead for
+  struct return + retptr-stash emit + param-pidx shift;
+  PARSE_RETURN struct-copy path; PARSE_FIELD_LOAD /
+  PARSE_FIELD_STORE routed through `EFLADDR_X1` for local
+  structs; varargs `...` in param loop.
+* **`src/backend/x86/emit.cyr`** — `ESUBRSP` under `_TARGET_PE`
+  emits 32-byte `__chkstk` probe (R11 scratch); new
+  `EFLADDR_X1` (rcx) and `EFLADDR` (rax) emit fns for
+  struct-local base-pointer loads; disp-shift sites extended
+  with `_cur_fn_ret_stash` subtraction (7 sites in emit.cyr,
+  1 in parse.cyr).
+* **`src/common/util.cyr`** — `GFRS`/`SFRS` (fn ret sid),
+  `GFVA`/`SFVA` (fn variadic flag); `TOKNAME` + `IS_KEYWORD_TOK`
+  updated for `stack`.
+* **`src/main.cyr`** — heap-map entries for `0xEC000
+  fn_ret_sid[32768]` (Phase 2b) and `0xF4000
+  fn_variadic[32768]` (Phase 3).
+* **`tests/tcyr/stack_var.tcyr`** — 4 assertions: basic
+  read/write, re-entrancy (each fn call owns its buf), 16 KB
+  __chkstk-triggering frame, stack var mixed with regular
+  locals.
+* **`tests/tcyr/varargs.tcyr`** — 7 assertions: variadic fn
+  with zero / one / many extras; fully variadic (`fn f(...)`);
+  multi-named + variadic tail.
+* **`lib/fdlopen.cyr`** — renamed `stack` local variable to
+  `stk_region` (Phase 1 keyword collision; sole identifier
+  collision in the entire tree).
+
+### Verified
+
+* `sh scripts/check.sh` 19/19 gates green on x86_64 Linux.
+* Self-host byte-identical: `cc5 → /tmp/cc5_new → /tmp/cc5_new2`;
+  `cmp /tmp/cc5_new /tmp/cc5_new2` returns 0.
+* cc5 506,984 → 507,656 B (+672 B including the Phase 3 lex
+  branch).
+* **Phase 1 Win64**: 500 KB stack frame `exit 42`; 100 KB
+  `exit 42`; 16 KB `exit 42`. Without __chkstk, all three
+  produced `exit 5` (STATUS_STACK_OVERFLOW low byte).
+* **Phase 2b Win64**: `make(): Point` end-to-end via `ssh cass`;
+  3-fn chain (`unit_box` + `scaled` × 2) with `var X: Box =
+  ...` assignments each returning distinct struct values,
+  summed to exit 42 on both Linux and Windows.
+* **Phase 3-min Win64**: `fn f(a, ...)` called with 2 extras
+  exits 42 on Windows (extras land at stack slots per the
+  existing ESTORESTACKPARM path; the callee doesn't use them,
+  which is correct for Phase 3-min).
+
+### v5.5.x arc status after v5.5.36
+
+Windows Win64 ABI — cyrius programs running on Windows 11 are
+now ABI-correct for every code shape cyrius can generate:
+`__chkstk` for large stack frames, hidden-RCX retptr for
+struct-by-value returns, and variadic syntax acceptance ready
+for Phase 3-full when a real consumer needs va_arg.
+
 ## [5.5.35] — 2026-04-22
 
 **PE `.reloc` section + DYNAMIC_BASE ASLR.** Completes the PE
