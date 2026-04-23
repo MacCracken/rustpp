@@ -1849,6 +1849,11 @@ fn LEXKW_EXT(kw, klen, S, ws) {
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6968746572) { return 98; } }
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6E6F696E75) { return 101; } }
     if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x7265666564) { return 106; } }
+    # "stack" = 0x6B63617473 — v5.5.36 stack-local array qualifier:
+    # `stack var buf[N];` inside a fn body reserves N bytes on the
+    # call stack (vs the default of hoisting all `var x[N]` to .bss).
+    # Triggers __chkstk on Win64 when fn frame ≥ 4 KB.
+    if (klen == 5) { if (kw & 0xFFFFFFFFFF == 0x6B63617473) { return 111; } }
     if (klen == 6) {
         if (kw & 0xFFFFFFFFFFFF == 0x746567746962) { return 102; }
         if (kw & 0xFFFFFFFFFFFF == 0x746573746962) { return 103; }

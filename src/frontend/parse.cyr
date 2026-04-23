@@ -4248,6 +4248,74 @@ fn PARSE_STMT(S) {
         EPATCH(S, sjmp);
         return 0;
     }
+    # v5.5.36: `stack var buf[N];` — stack-local array. Unlike the
+    # default `var x[N]` which hoists to .bss as a global, this
+    # reserves N bytes (aligned up to 8) on the call stack. Each fn
+    # invocation gets its own copy (re-entrant-safe). Addressed via
+    # rbp-relative displacement through the existing `&local`
+    # codepath, so no emit-side changes are needed for access.
+    #
+    # Implementation: register ceil(N/8) fn-local slots. The first
+    # nslots-1 are anonymous sentinels (name offset = -1; FINDLOCAL
+    # skips them via its `sn >= 0` gate). The last slot carries the
+    # user's name, so FINDLOCAL returns the deepest (lowest-address)
+    # slot — `&buf` therefore points at the BOTTOM of the array,
+    # with byte[0] at rbp-(nslots*8) and byte[N-1] immediately below
+    # the regular locals block.
+    #
+    # __chkstk for frames ≥ 4 KB under _TARGET_PE is v5.5.36 Phase 1b
+    # (pinned — same patch). For now, small-frame `stack var` lands
+    # cleanly on Windows because Win11 happens to extend stack on
+    # guard-page access for frames ≤ one-page-past-the-guard; deeper
+    # frames need the chkstk walker to touch every page in order.
+    if (typ == 111) {
+        if (GINFN(S) != 1) {
+            ERR_MSG(S, "stack var only allowed inside a function", 40);
+        }
+        STI(S, GTI(S) + 1);                         # consume 'stack'
+        if (PEEKT(S) != 3) { ERR_EXPECT(S, 3); }    # need 'var'
+        STI(S, GTI(S) + 1);                         # consume 'var'
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }    # need IDENT
+        var stk_noff = PEEKV(S);
+        STI(S, GTI(S) + 1);                         # consume IDENT
+        if (PEEKT(S) != 28) { ERR_EXPECT(S, 28); }  # need '['
+        STI(S, GTI(S) + 1);                         # consume '['
+        if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }    # need NUM
+        var stk_size = PEEKV(S);
+        STI(S, GTI(S) + 1);                         # consume NUM
+        if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }  # need ']'
+        STI(S, GTI(S) + 1);                         # consume ']'
+        if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }    # need ';'
+        STI(S, GTI(S) + 1);                         # consume ';'
+        if (stk_size <= 0) {
+            ERR_MSG(S, "stack var size must be > 0", 26);
+        }
+        var stk_aligned = (stk_size + 7) & (0 - 8);
+        var stk_nslots = stk_aligned / 8;
+        # Reject duplicate name (same rule as regular locals)
+        var stk_existing = FINDLOCAL(S, stk_noff);
+        if (stk_existing >= 0) {
+            if (GLDEP(S, stk_existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        # Anonymous filler slots — FINDLOCAL skips `sn < 0` entries.
+        var stk_j = 0;
+        while (stk_j < stk_nslots - 1) {
+            var stk_li = GFLC(S);
+            S64(S + 0x91000 + stk_li * 8, 0 - 1);
+            SLDEP(S, stk_li, GSDEP(S));
+            SLTYPE(S, stk_li, 0);
+            SFLC(S, stk_li + 1);
+            stk_j = stk_j + 1;
+        }
+        # Named slot at the deepest frame offset — this is where
+        # `&buf` and `buf` resolve via FINDLOCAL.
+        var stk_named = GFLC(S);
+        S64(S + 0x91000 + stk_named * 8, stk_noff);
+        SLDEP(S, stk_named, GSDEP(S));
+        SLTYPE(S, stk_named, 0);
+        SFLC(S, stk_named + 1);
+        return 0;
+    }
     # Block statement: { ... }
     if (typ == 13) {
         STI(S, GTI(S) + 1);

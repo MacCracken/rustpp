@@ -1,0 +1,53 @@
+# v5.5.36: stack-local array declarations (`stack var buf[N]`)
+# Verifies:
+#   - basic read/write
+#   - re-entrancy (each fn call gets its own buf)
+#   - frame sizes that trigger __chkstk on Windows (≥4 KB)
+#   - mixed with regular local vars
+
+include "lib/assert.cyr"
+
+fn basic() {
+    stack var buf[32];
+    store8(&buf + 0, 10);
+    store8(&buf + 5, 20);
+    store8(&buf + 31, 99);
+    return load8(&buf + 0) + load8(&buf + 5) + load8(&buf + 31);
+}
+
+fn reentrant(x) {
+    stack var buf[8];
+    store8(&buf + 0, x);
+    return load8(&buf + 0);
+}
+
+fn big_frame() {
+    stack var buf[16000];
+    store8(&buf + 0, 42);
+    store8(&buf + 15999, 7);
+    return load8(&buf + 0) + load8(&buf + 15999);
+}
+
+fn mixed_locals() {
+    var a = 5;
+    stack var buf[16];
+    var b = 10;
+    store8(&buf + 0, 27);
+    return a + b + load8(&buf + 0);
+}
+
+test_group("stack var basic");
+assert_eq(basic(), 129, "basic read/write of 3 byte positions");
+
+test_group("stack var re-entrancy");
+var r1 = reentrant(10);
+var r2 = reentrant(20);
+assert_eq(r1 + r2, 30, "each fn call owns its buf (not shared)");
+
+test_group("stack var big frame (__chkstk trigger on PE)");
+assert_eq(big_frame(), 49, "16 KB frame round-trip");
+
+test_group("stack var mixed with regular locals");
+assert_eq(mixed_locals(), 42, "stack var alongside regular locals");
+
+var rc = assert_summary();

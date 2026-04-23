@@ -722,9 +722,47 @@ fn EFNPRO(S) {
     return 0;
 }
 
-# Emit sub rsp, imm32 — returns patch offset for the imm32
+# Emit sub rsp, imm32 — returns patch offset for the imm32.
+#
+# Under _TARGET_PE (v5.5.36): emit an inline __chkstk-equivalent
+# probe sequence that walks the frame in 4 KB steps, touching each
+# page so Windows kernel-mode guard-page handler commits them in
+# order. Required for any fn with a frame ≥ 4 KB on Win64 — the
+# `sub rsp, N` alone skips past the guard, yielding
+# STATUS_STACK_OVERFLOW on first memory access inside the new
+# frame. Always emitting the probe (vs conditional on frame size)
+# costs ~25 bytes per fn but avoids a two-phase emit — correctness
+# is unconditional, runtime overhead on small frames is one
+# `cmp rsp, rcx; jbe .done` (then the final `mov rsp, rcx` does
+# the whole sub at once).
+#
+# 32-byte PE block:
+#   [ 0] B8 xx xx xx xx       mov eax, imm32   (patched = frame size)
+#   [ 5] 48 89 E1             mov rcx, rsp
+#   [ 8] 48 29 C1             sub rcx, rax     (rcx = target rsp)
+#   [11] 48 39 CC             cmp rsp, rcx     (.probe label)
+#   [14] 76 0D                jbe .done
+#   [16] 48 81 EC 00 10 00 00 sub rsp, 0x1000
+#   [23] 48 89 24 24          mov [rsp], rsp   (touches new page top)
+#   [27] EB EE                jmp .probe       (rel8 = -18)
+#   [29] 48 89 CC             mov rsp, rcx     (.done — exact adjust)
 fn ESUBRSP(S) {
     var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit0(S, IR_ALLOC_FRAME); }
+    if (_TARGET_PE == 1) {
+        EB(S, 0xB8);                                   # mov eax, imm32
+        var patch = GCP(S);
+        EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);        # imm32 placeholder
+        EB(S, 0x48); EB(S, 0x89); EB(S, 0xE1);         # mov rcx, rsp
+        EB(S, 0x48); EB(S, 0x29); EB(S, 0xC1);         # sub rcx, rax
+        EB(S, 0x48); EB(S, 0x39); EB(S, 0xCC);         # cmp rsp, rcx  (.probe)
+        EB(S, 0x76); EB(S, 0x0D);                      # jbe .done (+13)
+        EB(S, 0x48); EB(S, 0x81); EB(S, 0xEC);         # sub rsp, 0x1000
+        EB(S, 0x00); EB(S, 0x10); EB(S, 0x00); EB(S, 0x00);
+        EB(S, 0x48); EB(S, 0x89); EB(S, 0x24); EB(S, 0x24); # mov [rsp], rsp
+        EB(S, 0xEB); EB(S, 0xEE);                      # jmp .probe (-18)
+        EB(S, 0x48); EB(S, 0x89); EB(S, 0xCC);         # mov rsp, rcx  (.done)
+        return patch;
+    }
     E3(S, 0xEC8148);
     var patch = GCP(S);
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);

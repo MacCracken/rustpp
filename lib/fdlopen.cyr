@@ -649,13 +649,15 @@ fn _fdlopen_run_loader(state) {
     if (lr != 0) { return 0 - 2; }
 
     # Allocate fresh 64 KB stack region
+    # (renamed from `stack` → `stk_region` in v5.5.36 because `stack`
+    # became a reserved keyword for stack-local array declarations)
     var stack_sz = 0x10000;
-    var stack = syscall(9, 0, stack_sz, 3, 34, 0 - 1, 0);
-    if (stack < 0) { return 0 - 3; }
+    var stk_region = syscall(9, 0, stack_sz, 3, 34, 0 - 1, 0);
+    if (stk_region < 0) { return 0 - 3; }
 
     # Build startup stack layout
     var cb_addr = &_fdlopen_cb;
-    var new_rsp = _fdlopen_build_stack(stack, stack_sz,
+    var new_rsp = _fdlopen_build_stack(stk_region, stack_sz,
     helper_info, ldso_info,
     auxv, auxv_len,
     state, cb_addr);

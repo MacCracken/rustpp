@@ -224,6 +224,7 @@ fn TOKNAME(typ) {
     if (typ == 77) { return "impl"; }
     if (typ == 78) { return "shared"; }
     if (typ == 79) { return "object"; }
+    if (typ == 111) { return "stack"; }
     return "unknown";
 }
 
@@ -255,6 +256,7 @@ fn IS_KEYWORD_TOK(typ) {
     if (typ == 77) { return 1; }   # impl
     if (typ == 78) { return 1; }   # shared
     if (typ == 79) { return 1; }   # object
+    if (typ == 111) { return 1; }  # stack
     return 0;
 }
 
