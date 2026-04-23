@@ -20,8 +20,13 @@ fi
 awk '
 BEGIN { n = 0; errors = 0; warnings = 0 }
 
-# Match heap map comment lines
-/^#   0x[0-9A-Fa-f]+  +[a-zA-Z_]/ {
+# Match heap map comment lines.
+# v5.5.40: relaxed the space requirement from `  +` (2+) to ` +` (1+)
+# — previously, entries where the hex offset was 7+ chars wide (e.g.
+# 0x11A000, 0x150B000) had only ONE space before the name due to
+# column alignment, which silently dropped them from the audit.
+# Every region past 0xFC000 was invisible until this fix.
+/^#   0x[0-9A-Fa-f]+ +[a-zA-Z_]/ {
     # Extract offset
     match($0, /0x[0-9A-Fa-f]+/)
     offset_str = substr($0, RSTART, RLENGTH)

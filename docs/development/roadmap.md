@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.5.39.** cc5 compiler (488,864 B x86_64), x86_64 + aarch64
+> **v5.5.40.** cc5 compiler (488,864 B x86_64), x86_64 + aarch64
 > cross. IR + CFG. **Windows arc — stages 3–9 shipped; first
 > Cyrius program runs end-to-end on real Windows.** v5.4.2
 > landed the structural `EMITPE_EXEC` backend. v5.4.3 added
@@ -2055,6 +2055,49 @@ Rationale: downstream projects are batching their own arch-neutral
 work against this closeout. If v5.6.6 ships with loose ends, each
 downstream repo absorbs the cost and the sweep fragments. One
 tight closeout here is cheaper than N downstream workarounds.
+
+---
+
+### v5.6.7 — Shared-object emission completion
+
+Finish the `.so` path that has existed in partial form since v2.x
+(`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
+triggered on `kernel_mode == 2`). The hash-table emission isn't
+wired up correctly — `EMITELF_SHARED` skips calling `SYSV_HASH`
+when populating the `.hash` section chain. Surface was surfaced
+during the v5.5.40 closeout dead-code audit: `SYSV_HASH` appears
+as unreachable across every entry point, but the comment at its
+definition explicitly says "Kept even though nbucket=1 makes the
+hash irrelevant for bucket selection — chain lookup needs hash
+comparison to pick the right entry." Either hash lookup against
+this cyrius-emitted `.so` fails at load time, or the field is
+tolerantly ignored by modern glibc — we haven't tested.
+
+**Scope:**
+
+* Audit `EMITELF_SHARED`'s `.hash` / `.dynsym` / `.dynamic`
+  emission against `ld-linux.so.2`'s expectations; wire `SYSV_HASH`
+  where currently skipped.
+* Add a regression test that builds a trivial `.so` via `kmode=2`
+  (shared object mode), `dlopen`s it from a C host, resolves one
+  symbol, compares the returned value. The test requires runtime
+  `libc.so` interop so it's gated behind `HOST_HAS_LD_LINUX`.
+* Confirm the `.gnu.hash` alternative isn't more appropriate
+  today (modern linkers prefer it). If so, migrate and drop
+  `SYSV_HASH` cleanly.
+
+**Why this slot:** not blocking any active consumer, but the
+partial state is a known audit rough edge. v5.6.x closeout
+surfaces the floor; v5.6.7 actually lands the fix before v5.7.0
+opens RISC-V work. An alternate fit is v5.8.1 post-bare-metal,
+but bare-metal doesn't exercise `.so` emission (kernel is static
+all the way down), so slotting earlier is fine and clears the
+audit item ahead of the downstream arch-neutral sweep.
+
+**Downstream:** no current consumer requires `.so` output. Sigil /
+mabda / yukti / kybernet all ship as static libraries or source
+bundles. Unblocks any future "cyrius stdlib available as system
+libc peer" work, which isn't on the roadmap yet.
 
 ---
 

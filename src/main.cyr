@@ -7,10 +7,14 @@
 # Build: cat src/main.cyr | ./build/cc5 > /tmp/cc5 && chmod +x /tmp/cc5
 # Self-host: cat src/main.cyr | /tmp/cc5 > /tmp/cc5b && cmp /tmp/cc5 /tmp/cc5b
 # ================================================================
-# HEAP MAP — Authoritative offset registry (v3.6.10)
+# HEAP MAP — Authoritative offset registry (v5.5.40)
 # ================================================================
 # Check here FIRST before allocating new state.
-# Last full audit: v3.6.10. Verified by tests/heapmap.sh (47 regions, 0 warnings).
+# Last full audit: v5.5.40. Verified by tests/heapmap.sh (72 regions,
+# 0 warnings). The auditor's regex was fixed in v5.5.40 — previously
+# it required 2+ spaces after the hex offset and silently dropped
+# every region past 0xFC000 (including the IR region, output buffers,
+# token arrays, and the v5.5.37 relocated fixup_tbl at 0x150B000).
 #
 # --- Low heap: I/O + identifiers ---
 #   0x00000  input_buf     [524288]      512KB raw stdin input (v3.6.7, was 256KB)
@@ -70,7 +74,6 @@
 #   0x92200  local_types                 local variable type tracking
 #
 # --- Function tables (relocated v4.7.1 — caps raised 2048 → 4096) ---
-#   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
 #   0xE8A000 fn_names      [32768]       4096 function name offsets
 #   0xE92000 fn_offsets    [32768]       4096 function code offsets
 #   0xE9A000 fn_params     [32768]       4096 function param counts
@@ -79,13 +82,9 @@
 #   0xEB2000 fn_inline     [32768]       4096 inline flags
 #   0xEBA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
 #   0xEC2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
-# Tables relocated past the runtime fixup_tbl (at 0xE4A000 × 16 B ×
-# 16384 = ends at 0xE8A000). Fits exactly in the 256 KB between that
-# end and brk's top at 0xECA000.
-#
-# --- Fixup table (relocated v5.5.37, cap raised 16384 → 32768) ---
-# Old slot at 0xE4A000 [262144 B] retired; 256 KB gap now reclaimable.
-# New slot sized 512 KB fits past the IR region at the current brk top.
+# Function tables live back-to-back in the 256 KB band ending at
+# 0xECA000 (the IR region's start). Sized for 4096 fns × 8 bytes per
+# field × 8 fields.
 #
 # --- Reclaimable / scratch ---
 #   0xC0000  include_fnames[32768]       256 include-once filenames × 128 B (v4.8.4-alpha2)
@@ -215,7 +214,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.39\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.5.40\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }

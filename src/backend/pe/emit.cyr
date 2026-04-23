@@ -1063,6 +1063,7 @@ fn EMITPE_EXEC(S) {
     return 0;
 }
 
-fn EMITPE_OBJ(S) {
-    return 0;
-}
+# EMITPE_OBJ removed v5.5.40 closeout — was a no-op stub slotted for
+# future PE .obj emission (relocatable object files); not reached
+# from any entry point. When PE object emission is actually needed,
+# the work starts from an EMITELF_OBJ-shaped analog here.

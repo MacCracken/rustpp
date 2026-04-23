@@ -225,6 +225,16 @@ fn PARSE_RETURN(S) {
         if (_cur_fn_ret_stash > 0) { srn_src_disp = srn_src_disp - _cur_fn_ret_stash; }
         # Retptr stash disp: [rbp - regalloc*8 - 8]
         var srn_stash_disp = 0 - (_cur_fn_regalloc * 8 + 8);
+        # v5.5.40 closeout — GUARD: the struct-return byte-copy is
+        # x86-only today. Emitting these EB() bytes on an aarch64
+        # build would splice x86 opcodes into ARM code and explode
+        # at runtime (v5.4.19's EW alignment assert would catch
+        # it, but we should fail loud at compile time). The aarch64
+        # analog (LDRB/STRB loop with X0..X2 scratch) ships with
+        # Phase 2b-aarch64 as a separate patch.
+        if (_AARCH64_BACKEND == 1) {
+            ERR_MSG(S, "struct return by value is x86-only for v5.5.36; aarch64 pending Phase 2b-aarch64 patch", 90);
+        }
         # Under Win64, RSI and RDI are NONVOLATILE (caller preserves
         # them across calls). `rep movsb` forces us to use both, so
         # save and restore them around the copy. SysV has no such

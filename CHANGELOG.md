@@ -4,6 +4,144 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.40] — 2026-04-22
+
+**v5.5.x closeout — 40 patches, longest minor in cyrius history.**
+The CLAUDE.md §"Closeout Pass" 11-step checklist, run with
+v5.5.x-specific scope. Nothing in this patch changes compiled-
+code behavior; it's the final pre-v5.6.0 sweep for correctness,
+hygiene, and doc-freshness.
+
+### Mechanical (steps 1-3) — all green
+
+* **Self-host verify** — cc5 compiles itself byte-identical.
+* **Bootstrap closure** — `sh bootstrap/bootstrap.sh` produces
+  build/cyrc + build/asm cleanly.
+* **`sh scripts/check.sh`** 19/19 gates green (v5.5.0 had 10).
+
+### Fixed (closeout-discovered)
+
+* **`tests/heapmap.sh` regex dropped every region past `0xFC000`.**
+  The regex `^#   0x[0-9A-Fa-f]+  +[a-zA-Z_]` required 2+ spaces
+  between the hex offset and the region name. For offsets ≥ 7 hex
+  digits (`0x11A000`, `0x150B000`, …) the column-aligned heap-map
+  comments have only ONE space, so the auditor silently skipped
+  them. Relaxed to `1+` spaces — the audit now sees 72 regions
+  instead of 46. No overlaps found across the full set, but the
+  v5.5.37 `fixup_tbl` relocation + v5.5.36 slot additions were
+  previously unverified by the auditor.
+
+* **`cbt/commands.cyr` `cmd_self` fixed in v5.5.39** — see that
+  release. Flagged here because it's the direct reason the
+  v5.5.40 mechanical check is meaningful: pre-v5.5.39, the
+  `cyrius self` subcommand was lying about the self-host state.
+
+* **Unguarded x86 byte emission in v5.5.36 Phase 2b struct-return
+  copy.** My `PARSE_RETURN` struct-copy path in
+  `src/frontend/parse_fn.cyr` emitted `push rsi` / `rep movsb` /
+  etc. as raw `EB(S, 0x…)` bytes **without** a `CYRIUS_ARCH_X86`
+  guard. On aarch64 builds these would splice x86 opcodes into
+  ARM code and explode at runtime (v5.4.19's `EW` alignment assert
+  would catch the misalignment but that's a runtime check, not a
+  compile-time one). Added an explicit `_AARCH64_BACKEND == 1`
+  bail-out that errors with "struct return by value is x86-only
+  for v5.5.36; aarch64 pending Phase 2b-aarch64 patch" so consumers
+  get a clear message. The aarch64 analog (LDRB/STRB loop using
+  X0..X2) ships as its own patch when a real cyrius-aarch64
+  program exercises struct-by-value return.
+
+### Changed — dead-code sweep
+
+* **`PARSE_ASSIGN` retired** (`src/frontend/parse_decl.cyr`).
+  17-line assignment-statement handler that was dead across every
+  entry point — cyrius assignment is handled inline by
+  `PARSE_STMT`'s expression path.
+* **`EMITPE_OBJ` retired** (`src/backend/pe/emit.cyr`). 3-line
+  no-op stub slotted for future PE object emission; nothing
+  reaches it.
+* **`SYSV_HASH` kept intentionally** (`src/backend/x86/fixup.cyr`).
+  Appears dead in the DCE audit, but the fn definition's comment
+  documents that it's partial infrastructure for `EMITELF_SHARED`'s
+  `.hash` section — `EMITELF_SHARED` currently skips the call but
+  should wire it up. Deletion deferred to the v5.6.7 shared-object
+  emission completion patch (newly slotted this release).
+
+### Changed — heap-map hygiene
+
+* **Removed stale `0xA0000 fixup_tbl [131072]` entry.** Was the
+  pre-v4.7.1 fixup-table location; table actually moved to
+  `0xE4A000` in v4.7.1 and then to `0x150B000` in v5.5.37. The
+  stale entry was a tripwire for heap-auditor confusion (and
+  misled the v5.5.40 audit into "47 regions" on the first run
+  before the regex fix exposed the real total).
+* **Heap-map header updated** to reflect v5.5.40 audit state and
+  the region count correction (47 → 72 actual regions).
+
+### Added to roadmap — shared-object emission completion
+
+* **New: v5.6.7 — Shared-object emission completion.** Slotted
+  after the v5.6.6 optimization closeout. Wires `SYSV_HASH` into
+  `EMITELF_SHARED`'s `.hash` / `.dynsym` emission (or migrates
+  to `.gnu.hash` if more appropriate), adds a regression test
+  that `dlopen`s a cyrius-emitted `.so` from a C host.
+  Surfaced during v5.5.40 closeout's dead-code audit; no current
+  consumer blocks, but the partial infrastructure is a known
+  rough edge that deserves a pinned slot.
+
+### Docs
+
+* **Vidya `content/cyrius/language.toml` overview** refreshed —
+  cc5 version bumped to 5.5.40; check.sh gate count 14 → 19;
+  test count 73 → 78; frontend-split note added (parse/types/expr/
+  decl/ctrl/fn + lex/lex_pp); cc3 retirement mentioned. Full-
+  sweep vidya sync across every file referencing cc5 version
+  remains the next-minor closeout's standard doc-rot work.
+* **CHANGELOG/roadmap** in sync with VERSION = 5.5.40.
+
+### Downstream pin audit
+
+Scanned ecosystem repos' `cyrius.cyml` pins:
+
+| repo | pin | action for next downstream cycle |
+|---|---|---|
+| sigil | 5.5.35 | bump to 5.5.40 (parallel batch unblock already in) |
+| patra | 5.5.27 | bump to 5.5.40 |
+| sankoch | 5.5.22 | bump to 5.5.40 |
+| mabda | 5.5.20 | bump to 5.5.40 (also retire `-D SIGIL_BATCH_PARALLEL` per v5.5.37 followup) |
+| sakshi | 5.5.11 | bump to 5.5.40 |
+| yukti | 5.5.11 | bump to 5.5.40 |
+| shakti | 5.4.17 | bump to 5.5.40 |
+| agnosys | 5.2.0 | significantly stale — bump to 5.5.40 with CI validation |
+
+Cross-repo pin bumps are sweep work for the next downstream
+cycle, not gated on this patch. Flagged here so agents picking
+up any of these repos have a clear target.
+
+### Size + verification
+
+* cc5 self-host: byte-identical (gen1 == gen2)
+* cc5 size: 507,136 B (down from 507,656 B — the dead-code
+  deletions saved 520 B in the emitted compiler)
+* 19/19 check.sh gates green; 72 heap regions, 0 overlaps,
+  0 warnings
+* `cyrius self` reports `PASS: cc5==cc5 byte-identical`
+  truthfully
+
+### v5.5.x closed
+
+40 patches. Started 2026-04-20 with v5.5.0 and the Windows PE
+foundation; closed 2026-04-22 with this patch. Platform arcs
+completed: Apple Silicon Mach-O self-host (v5.5.17), Windows
+native self-host (v5.5.10) + ASLR (v5.5.35) + Win64 ABI
+completion (v5.5.36), NSS dispatch without fighting
+`_rtld_global_ro` (v5.5.26 musl-style + v5.5.27 unix_chkpwd +
+v5.5.28/v5.5.34 fdlopen foreign-dlopen). Plus the v5.5.37
+fixup-cap raise (sigil 3.0 parallel unblock), v5.5.38 parser
+split, v5.5.39 legacy cc3 retirement.
+
+**Next: v5.6.0 — Phase O1** (instrumentation + FNV-1a symbol
+table), opening the compiler-optimization arc.
+
 ## [5.5.39] — 2026-04-22
 
 **Legacy cc3 retirement — `src/cc/` + cc3 entry points deleted.**
