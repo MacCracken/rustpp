@@ -16,13 +16,16 @@ var _flags_reflect_rax = 0;
 # aarch64 push/pop are 4-byte instructions (vs 1 byte on x86).
 var _last_push_cp = 0 - 1;
 
-# v5.6.10 O2 category 4 — x86-only tracker declared here as a stub
-# so shared parse.cyr / parse_expr.cyr paths don't hit "undefined
-# variable" when compiled for the aarch64 backend. aarch64 encodes
-# binary ops with explicit src/dst registers (ADD x0, x1, x0) so
-# the x86 accumulator-shuttle (`mov rcx, rax; pop rax; add rax, rcx`)
-# has no counterpart on this backend. Stub stays 0 forever on
-# aarch64; no emit helper on this backend reads it.
+# v5.6.10 O2 category 4 — commutative-combine shuttle trackers.
+# Declared as stubs in v5.6.10 for the shared parse.cyr dispatch;
+# v5.6.11 wires them on aarch64 too. Despite aarch64's 3-register
+# op encoding (ADD x0, x1, x0), `parse.cyr`'s combine codegen is
+# shared and emits the same 12-byte trailer (`mov x1,x0` + `ldr
+# x0,[sp],#16` + `add x0,x0,x1`) as the x86 7-byte shuttle. The
+# v5.6.11 fix rewinds 8 B past mov+pop and replaces them with
+# `ldr x1,[sp],#16` (EPOPC encoding 0xF84107E1, 4 B), netting
+# 12 → 8 B per commutative-op site. 4419 sites in v5.6.10
+# cc5_aarch64 (ADD 4021, AND 266, ORR 95, MUL 35, EOR 2).
 var _last_emovca_cp = 0 - 1;
 var _last_movca_popr_cp = 0 - 1;
 
@@ -176,21 +179,43 @@ fn EPOPR(S) {
         _last_push_cp = 0 - 1;
         return 0;
     }
+    # v5.6.11: remember if the pop landed immediately after EMOVCA,
+    # so a commutative op next can collapse the 12-byte shuttle.
+    var after_movca = 0;
+    if (GCP(S) == _last_emovca_cp) { after_movca = 1; }
     EW(S, 0xF84107E0);     # ldr x0, [sp], #16
+    if (after_movca == 1) { _last_movca_popr_cp = GCP(S); }
     return 0;
 }
 
 # === Register moves ===
 # mov x1, x0 (scratch = result)
-fn EMOVCA(S) { EW(S, 0xAA0003E1); return 0; }    # mov x1, x0
+# v5.6.11: record CP post-emit for combine-shuttle peephole.
+fn EMOVCA(S) { EW(S, 0xAA0003E1); _last_emovca_cp = GCP(S); return 0; }
+
+# v5.6.11: commutative-combine peephole. If current CP matches the
+# GCP recorded when EPOPR/EUNSPILL finished *immediately after*
+# EMOVCA, rewind 8 bytes (past `mov x1,x0; ldr x0,[sp],#16`) and
+# drop in `ldr x1,[sp],#16` (EPOPC encoding 0xF84107E1, 4 B) — the
+# op that follows then reads the correct operand from x1. Only safe
+# for commutative ops because the pop-target swap (lhs now in x1,
+# rhs still in x0) is the inverse of the original shuttle.
+fn _TRY_COMBINE_SHUTTLE(S) {
+    if (GCP(S) == _last_movca_popr_cp) {
+        SCP(S, GCP(S) - 8);
+        EW(S, 0xF84107E1);   # ldr x1, [sp], #16 (matches EPOPC)
+        _last_movca_popr_cp = 0 - 1;
+    }
+    return 0;
+}
 
 # === Arithmetic ===
 # add x0, x0, x1
-fn EADDR(S) { EW(S, 0x8B010000); return 0; }     # add x0, x0, x1
-# sub x0, x0, x1
-fn ESUBR(S) { EW(S, 0xCB010000); return 0; }     # sub x0, x0, x1
-# mul x0, x0, x1
-fn EIMUL(S) { EW(S, 0x9B017C00); return 0; }     # mul x0, x0, x1
+fn EADDR(S) { _TRY_COMBINE_SHUTTLE(S); EW(S, 0x8B010000); return 0; }
+# sub x0, x0, x1 — non-commutative, NOT fused (swap inverts subtract).
+fn ESUBR(S) { EW(S, 0xCB010000); return 0; }
+# mul x0, x0, x1 — commutative.
+fn EIMUL(S) { _TRY_COMBINE_SHUTTLE(S); EW(S, 0x9B017C00); return 0; }
 # EMULH: high 64 bits of unsigned x1 * x0 into x0. Used by mulh64(a, b).
 fn EMULH(S) { EW(S, 0x9BC07C20); return 0; }     # umulh x0, x1, x0
 # sdiv x0, x0, x1
@@ -227,9 +252,10 @@ fn ESTORE32(S) { EW(S, 0xB9000020); return 0; }  # str w0, [x1]
 fn ESTORE64(S) { EW(S, 0xF9000020); return 0; }  # str x0, [x1]
 
 # === Bitwise ===
-fn EANDR(S) { EW(S, 0x8A010000); return 0; }     # and x0, x0, x1
-fn EORR(S) { EW(S, 0xAA010000); return 0; }      # orr x0, x0, x1
-fn EXORR(S) { EW(S, 0xCA010000); return 0; }     # eor x0, x0, x1
+# v5.6.11: commutative bitwise ops wired to combine-shuttle peephole.
+fn EANDR(S) { _TRY_COMBINE_SHUTTLE(S); EW(S, 0x8A010000); return 0; }
+fn EORR(S) { _TRY_COMBINE_SHUTTLE(S); EW(S, 0xAA010000); return 0; }
+fn EXORR(S) { _TRY_COMBINE_SHUTTLE(S); EW(S, 0xCA010000); return 0; }
 fn ENOTR(S) { EW(S, 0xAA2003E0); return 0; }     # mvn x0, x0
 fn ESHLCL(S) { EW(S, 0x9AC12000); return 0; }    # lslv x0, x0, x1
 fn ESHRCL(S) { EW(S, 0x9AC12400); return 0; }    # lsrv x0, x0, x1

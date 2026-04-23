@@ -4,6 +4,138 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.11] — 2026-04-23
+
+**Phase O2 category 5/5 — aarch64 combine-shuttle elim. Closes
+Phase O2.** Aarch64 cross-built cc5 shrank 471,360 → **453,688 B**
+(**−17,672 B, −3.75 %**). x86 cc5 unchanged at 487,040 B
+(aarch64-backend-only patch). Self-host compile time on x86 also
+unchanged (~347 ms — aarch64-only change doesn't touch the x86
+codegen path).
+
+### Background — scope change vs roadmap
+
+v5.6.11 was originally slotted for aarch64 fused ops (`madd` /
+`msub` / `ubfx` / `sbfx`) — a post-emit codebuf peephole matching
+2-instruction sequences aarch64 can fold into one. A pre-
+implementation bytescan on v5.6.10 cc5_aarch64 (470,872 B) showed:
+
+- `mul Xd,Xn,Xm` immediately followed by `add Xd,Xd,Xk`: **0 matches**
+- `mul` followed by `sub`: **0 matches**
+- `lsr Xd,Xn,#s` followed by `and Xd,Xd,#mask`: **0 matches**
+
+Cyrius's combine codegen always shuttles intermediate values
+through the stack (evaluate LHS → push, evaluate rhs → x0,
+shuttle, pop, op) so `mul` and its consumer-`add` are never
+adjacent. Same structural dead-end that killed v5.6.10's
+originally-planned LEA-combine. The originally-planned fused-ops
+work is re-pinned to **v5.6.14**, post-v5.6.13 linear-scan
+regalloc, when intermediate values stay in registers and the
+pairs can actually appear adjacent in the codebuf. Full roadmap
+reshuffle (cascaded v5.6.14→v5.6.22) documented in
+`docs/development/roadmap.md`.
+
+### The real opportunity — v5.6.10 ported to aarch64
+
+v5.6.10's CHANGELOG claimed the aarch64 backend had no
+accumulator-shuttle counterpart because "aarch64 encodes binary
+ops with explicit src/dst regs (ADD x0, x1, x0)." That claim was
+**wrong**: `src/frontend/parse.cyr`'s combine codegen is shared
+across backends and emits the same 12-byte trailer on aarch64
+regardless of the op's own encoding:
+
+```
+E1 03 00 AA    mov x1, x0              (EMOVCA, 4 B)
+E0 07 41 F8    ldr x0, [sp], #16       (EPOPR, 4 B)
+00 00 01 8B    add x0, x0, x1          (EADDR — or AND/ORR/EOR/MUL)
+```
+
+For commutative ops, popping LHS directly into x1 (via the
+already-present `EPOPC` encoding `0xF84107E1` = `ldr x1, [sp], #16`,
+line 169 of `aarch64/emit.cyr`) gives the same answer in 8 bytes
+total. Net: 12 B → 8 B per site, **4 B saved**.
+
+### Added — `_last_emovca_cp` / `_last_movca_popr_cp` wiring
+
+v5.6.10 declared these trackers as always-zero stubs on aarch64.
+v5.6.11 wires them identically to the x86 backend:
+
+- `_last_emovca_cp` = `GCP(S)` after `EMOVCA` emitted its 4 bytes.
+- `_last_movca_popr_cp` = `GCP(S)` after `EPOPR` emitted its 4 bytes,
+  iff the pop landed immediately after `EMOVCA` AND v5.6.9's
+  push/pop-cancel rewind didn't fire.
+
+### Added — `_TRY_COMBINE_SHUTTLE(S)` helper on aarch64
+
+Mirror of the x86 helper. Called at the top of each commutative
+emit fn. Checks `GCP(S) == _last_movca_popr_cp`; on match, rewinds
+8 bytes (past the `AA 03 00 E1 E0 07 41 F8` shuttle), emits
+`0xF84107E1` (ldr x1, [sp], #16 — already-defined `EPOPC`). The
+caller then falls through to its normal 4-byte op encoding, which
+reads from x1 as before. Net: 12 B → 8 B per site.
+
+### Changed — commutative emit fns on aarch64
+
+`EADDR`, `EANDR`, `EORR`, `EXORR`, `EIMUL` now call
+`_TRY_COMBINE_SHUTTLE(S)` before their `EW(...)` op encoding.
+Non-commutative siblings (`ESUBR`) intentionally unchanged — SUB's
+operand swap inverts the subtraction. (Same precedent as v5.6.10
+excluding ESUBR on x86.)
+
+### Numbers
+
+- Cross-compiled native aarch64 cc5: 471,360 → **453,688 B**
+  (**−17,672 B, −3.75 %**).
+- x86 cc5: 487,040 B unchanged. aarch64-only codegen patch.
+- Cross-compiler x86 binary (`build/cc5_aarch64`): 348,184 →
+  **348,600 B** (+416 B of new peephole code in the cross tool
+  itself; the aarch64 output is what got smaller).
+- cc5_win (PE32+): 485,656 B unchanged (rebuilt byte-identical).
+- Shuttle sites verified by pre/post bytescan:
+
+  | op | OLD shuttle | NEW shuttle | NEW collapsed (`ldr x1 + op`) |
+  |----|-------------|-------------|-------------------------------|
+  | ADD | 4021 | **0** | 4021 |
+  | MUL | 35   | **0** | 35   |
+  | AND | 266  | **0** | 266  |
+  | ORR | 95   | **0** | 95   |
+  | EOR | 2    | **0** | 2    |
+  | SUB | 268  | 268 (non-commutative, intentionally skipped) | — |
+
+  **Total commutative shuttles collapsed: 4419 → 0.**
+- Self-host compile time (x86, 5 runs): 345/346/347/348/360 ms →
+  median 347 ms. Same as v5.6.10 — no x86 codegen change.
+- 3-step fixpoint x86: a=b=c=487,040 B ✓.
+- `sh scripts/check.sh` 19/19 green (includes `ssh pi` aarch64
+  runtime test against the new cross-built binaries — real Pi 4
+  runs `alloc_ok` / `fs_ok` / `mt_ok` / `mutex_ok`).
+
+### Scope explicitly deferred (pinned)
+
+- **aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`)** — re-pinned
+  to v5.6.14, post-v5.6.13 linear-scan regalloc. Gate: if v5.6.13
+  ships and a bytescan on new aarch64 cc5 still shows 0× matches,
+  STOP and report (no unilateral re-slip).
+- **aarch64 non-commutative SUB** — 268 sites; operand-swap
+  inverts subtraction, same exclusion as v5.6.10's x86 ESUBR.
+
+### Files touched
+
+- `src/backend/aarch64/emit.cyr` — wire tracker update in `EPOPR`
+  (keeps v5.6.9 push/pop-cancel path), add `_TRY_COMBINE_SHUTTLE`,
+  modify `EMOVCA` to record CP, call helper in `EADDR` / `EANDR` /
+  `EORR` / `EXORR` / `EIMUL`. `ESUBR` untouched.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/roadmap.md` (full v5.6.x cascade reshuffle —
+  inserted new v5.6.14 slot, v5.6.14→v5.6.22 shifted), `CLAUDE.md`.
+
+### Lesson reinforced
+
+Second time in two patches that bytescan-before-implementing
+caught a 0-matches scope (v5.6.10's LEA-combine, now v5.6.11's
+fused ops). **Bytescan is now the mandatory first step** for any
+post-emit peephole patch.
+
 ## [5.6.10] — 2026-04-23
 
 **Phase O2 category 4/5 — commutative combine-shuttle elim.** The
