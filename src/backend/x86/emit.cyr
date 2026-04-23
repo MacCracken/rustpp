@@ -221,6 +221,7 @@ fn EFLLOAD_W(S, idx, width) {
     # v4.8.4-alpha6: #regalloc fns reserve [rbp-8] for the saved rbx,
     # so every user-visible local sits 8 bytes deeper in the frame.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     if (width == 1) {
         # movzx rax, byte [rbp+disp]
         EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x85);
@@ -250,6 +251,7 @@ fn EFLSTORE_W(S, idx, width) {
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     if (width == 1) {
         # mov byte [rbp+disp], al
         EB(S, 0x88); EB(S, 0x85);
@@ -736,31 +738,34 @@ fn EFNPRO(S) {
 # `cmp rsp, rcx; jbe .done` (then the final `mov rsp, rcx` does
 # the whole sub at once).
 #
-# 32-byte PE block:
+# 32-byte PE block (v5.5.36 uses R11 — volatile scratch on BOTH ABIs
+# AND not an arg reg on either, so the probe doesn't clobber RCX
+# which the Win64 ABI uses for the first argument, including the
+# hidden retptr of a struct-returning fn — Phase 2b depends on this):
 #   [ 0] B8 xx xx xx xx       mov eax, imm32   (patched = frame size)
-#   [ 5] 48 89 E1             mov rcx, rsp
-#   [ 8] 48 29 C1             sub rcx, rax     (rcx = target rsp)
-#   [11] 48 39 CC             cmp rsp, rcx     (.probe label)
+#   [ 5] 49 89 E3             mov r11, rsp
+#   [ 8] 49 29 C3             sub r11, rax     (r11 = target rsp)
+#   [11] 4C 39 DC             cmp rsp, r11     (.probe label)
 #   [14] 76 0D                jbe .done
 #   [16] 48 81 EC 00 10 00 00 sub rsp, 0x1000
 #   [23] 48 89 24 24          mov [rsp], rsp   (touches new page top)
 #   [27] EB EE                jmp .probe       (rel8 = -18)
-#   [29] 48 89 CC             mov rsp, rcx     (.done — exact adjust)
+#   [29] 4C 89 DC             mov rsp, r11     (.done — exact adjust)
 fn ESUBRSP(S) {
     var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit0(S, IR_ALLOC_FRAME); }
     if (_TARGET_PE == 1) {
         EB(S, 0xB8);                                   # mov eax, imm32
         var patch = GCP(S);
         EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);        # imm32 placeholder
-        EB(S, 0x48); EB(S, 0x89); EB(S, 0xE1);         # mov rcx, rsp
-        EB(S, 0x48); EB(S, 0x29); EB(S, 0xC1);         # sub rcx, rax
-        EB(S, 0x48); EB(S, 0x39); EB(S, 0xCC);         # cmp rsp, rcx  (.probe)
+        EB(S, 0x49); EB(S, 0x89); EB(S, 0xE3);         # mov r11, rsp
+        EB(S, 0x49); EB(S, 0x29); EB(S, 0xC3);         # sub r11, rax
+        EB(S, 0x4C); EB(S, 0x39); EB(S, 0xDC);         # cmp rsp, r11  (.probe)
         EB(S, 0x76); EB(S, 0x0D);                      # jbe .done (+13)
         EB(S, 0x48); EB(S, 0x81); EB(S, 0xEC);         # sub rsp, 0x1000
         EB(S, 0x00); EB(S, 0x10); EB(S, 0x00); EB(S, 0x00);
         EB(S, 0x48); EB(S, 0x89); EB(S, 0x24); EB(S, 0x24); # mov [rsp], rsp
         EB(S, 0xEB); EB(S, 0xEE);                      # jmp .probe (-18)
-        EB(S, 0x48); EB(S, 0x89); EB(S, 0xCC);         # mov rsp, rcx  (.done)
+        EB(S, 0x4C); EB(S, 0x89); EB(S, 0xDC);         # mov rsp, r11  (.done)
         return patch;
     }
     E3(S, 0xEC8148);
@@ -1070,6 +1075,7 @@ fn ESTOREPARM(S, pidx, lidx, pc) {
     var disp = 0 - ((lidx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     # Win64 (v5.5.4): dispatch boundary is 4 (register args) vs
     # SysV's 6. Args 4+ go through ESTORESTACKPARM with the Win64
     # stack layout formula.
@@ -1095,6 +1101,7 @@ fn EFLLOAD(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0x858B48);
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
@@ -1119,6 +1126,7 @@ fn EVADDR_X1(S, idx) {
 fn EFLADDR_X1(S, lli) {
     var disp = 0 - ((lli + 1) * 8);
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     # lea rcx, [rbp + disp32]: 48 8D 8D <rel32>
     E3(S, 0x8D8D48);
     var addr = S + 0x54A000 + GCP(S);
@@ -1150,6 +1158,7 @@ fn EFLSTORE(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0x858948);
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
@@ -1175,6 +1184,7 @@ fn ELVRINIT(S, idx) {
     var disp = 0 - ((idx + 1) * 8);
     # v4.8.4-alpha6: shift past the reserved rbx save slot.
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0xA58B4C);   # mov r12, [rbp+disp32]
     var addr = S + 0x54A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));

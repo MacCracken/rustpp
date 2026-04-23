@@ -15,6 +15,16 @@ var _regalloc_pending = 0;
 # Codegen uses this to compute displacement shifts (N*8 bytes reserved)
 # and to save/restore the correct set of callee-saved registers.
 var _cur_fn_regalloc = 0;
+# v5.5.36 Phase 2b — nonzero (= 8) when the current fn returns a
+# struct by value. Reserves one 8-byte frame slot for the hidden
+# retptr stash, living immediately after the regalloc save area
+# and before any regular locals. All local-access emits shift disp
+# by this amount so the retptr slot doesn't collide with locals.
+var _cur_fn_ret_stash = 0;
+# Mirrors the same fn's return-struct sid so PARSE_RETURN can emit
+# the struct-copy sequence without re-scanning the fn table. 0 when
+# scalar return. Set/reset in parallel with _cur_fn_ret_stash.
+var _cur_fn_ret_sid = 0;
 
 # ================================================================
 # STRUCT SUPPORT
@@ -723,6 +733,7 @@ fn PARSE_FACTOR(S) {
                 var adisp = 0 - ((ali + 1) * 8);
                 # v4.9.1: shift past all reserved callee-saved slots
                 if (_cur_fn_regalloc > 0) { adisp = adisp - _cur_fn_regalloc * 8; }
+                if (_cur_fn_ret_stash > 0) { adisp = adisp - _cur_fn_ret_stash; }
                 if (_AARCH64_BACKEND == 1) {
                     # aarch64: SUB X0, X29, #|adisp|. adisp is negative.
                     # x86 emitted `LEA rax, [rbp+disp32]` here as 7 raw
@@ -3204,6 +3215,89 @@ fn PARSE_RETURN(S) {
             return 0;
         }
     }
+    # v5.5.36 Phase 2b — struct return by value. When the current fn
+    # has `: StructName` on its signature, `return IDENT;` (where IDENT
+    # is a struct-typed local matching the fn's ret_sid) is emitted as
+    # a byte copy from &IDENT into the hidden retptr stashed at fn
+    # entry. rax is set to the retptr (standard Win64/SysV convention
+    # — caller may read rax to chain the value, though usually ignored
+    # in favor of the caller-allocated destination).
+    #
+    # Only the simple `return IDENT;` form is supported; nested
+    # expressions that produce structs (`return make_other();` etc.)
+    # land in Phase 2c once call-site rewriting exists.
+    if (_cur_fn_ret_sid > 0) {
+        if (PEEKT(S) != 2) {
+            ERR_MSG(S, "struct-return fn: return must be a bare local identifier", 57);
+        }
+        var srn_noff = PEEKV(S);
+        if (TOKTYP(S, GTI(S) + 1) != 5) {
+            ERR_MSG(S, "struct-return fn: return must be a bare local identifier", 57);
+        }
+        var srn_lli = FINDLOCAL(S, srn_noff);
+        if (srn_lli < 0) {
+            ERR_MSG(S, "struct-return: identifier is not a local", 40);
+        }
+        var srn_lt = GLTYPE(S, srn_lli);
+        if (srn_lt >= 0) {
+            ERR_MSG(S, "struct-return: identifier is not struct-typed", 45);
+        }
+        if ((0 - srn_lt) != _cur_fn_ret_sid) {
+            ERR_MSG(S, "struct-return: identifier type != fn ret_sid", 44);
+        }
+        STI(S, GTI(S) + 1);            # consume IDENT
+        STI(S, GTI(S) + 1);            # consume ';'
+        # Byte-copy size (aligned up to 8 — the retptr slot is already
+        # 8-aligned so padded copies are safe)
+        var srn_sz = STRUCTSZ(S, _cur_fn_ret_sid - 1);
+        var srn_aligned = (srn_sz + 7) & (0 - 8);
+        # Source disp: &IDENT (bottom of struct) in the fn's frame
+        var srn_src_disp = 0 - ((srn_lli + 1) * 8);
+        if (_cur_fn_regalloc > 0) { srn_src_disp = srn_src_disp - _cur_fn_regalloc * 8; }
+        if (_cur_fn_ret_stash > 0) { srn_src_disp = srn_src_disp - _cur_fn_ret_stash; }
+        # Retptr stash disp: [rbp - regalloc*8 - 8]
+        var srn_stash_disp = 0 - (_cur_fn_regalloc * 8 + 8);
+        # Under Win64, RSI and RDI are NONVOLATILE (caller preserves
+        # them across calls). `rep movsb` forces us to use both, so
+        # save and restore them around the copy. SysV has no such
+        # rule (RSI/RDI are arg registers, already volatile), but
+        # saving a few bytes is cheap and keeps the emit uniform.
+        EB(S, 0x56);                                   # push rsi
+        EB(S, 0x57);                                   # push rdi
+        # lea rsi, [rbp + src_disp]
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0xB5);
+        var srn_a1 = S + 0x54A000 + GCP(S);
+        S64(srn_a1, (L64(srn_a1) >> 32 << 32) | (srn_src_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # mov rdi, [rbp + stash_disp]   ; retptr
+        EB(S, 0x48); EB(S, 0x8B); EB(S, 0xBD);
+        var srn_a2 = S + 0x54A000 + GCP(S);
+        S64(srn_a2, (L64(srn_a2) >> 32 << 32) | (srn_stash_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # mov ecx, imm32   ; byte count (zero-extends to rcx)
+        EB(S, 0xB9);
+        EB(S, srn_aligned & 0xFF);
+        EB(S, (srn_aligned >> 8) & 0xFF);
+        EB(S, (srn_aligned >> 16) & 0xFF);
+        EB(S, (srn_aligned >> 24) & 0xFF);
+        # rep movsb
+        EB(S, 0xF3); EB(S, 0xA4);
+        EB(S, 0x5F);                                   # pop rdi
+        EB(S, 0x5E);                                   # pop rsi
+        # mov rax, [rbp + stash_disp]   ; return retptr (stash slot
+        # reloaded because rep movsb advanced the rdi copy)
+        EB(S, 0x48); EB(S, 0x8B); EB(S, 0x85);
+        var srn_a3 = S + 0x54A000 + GCP(S);
+        S64(srn_a3, (L64(srn_a3) >> 32 << 32) | (srn_stash_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # jmp to epilogue (regular return-patch path)
+        var srn_rp = EJMP0(S);
+        var srn_rpc = GRPC(S);
+        if (srn_rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+        S64(S + 0x8DA20 + srn_rpc * 8, srn_rp);
+        SRPC(S, srn_rpc + 1);
+        return 0;
+    }
     PCMPE(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);
@@ -3471,6 +3565,29 @@ fn PARSE_FN_DEF(S) {
     # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
     # the end of PARSE_FN_DEF.
     _cur_fn_regalloc = GFRA(S, fi);
+    # v5.5.36 Phase 2b — look ahead past the param list to see whether
+    # the fn signature carries a `: StructName` return annotation. We
+    # need the answer BEFORE param parse begins so local-disp shifts
+    # account for the retptr stash slot (reserved immediately after
+    # regalloc saves, before any regular local). Cheap one-pass scan
+    # that pops TI back to its original position; parenthesis depth
+    # tracking handles nested parens in default-value expressions
+    # (future-proof; current cyrius fn params are name-only or
+    # `name: Type`).
+    _cur_fn_ret_stash = 0;
+    var _rs_save_ti = GTI(S);
+    if (PEEKT(S) == 10) {
+        STI(S, GTI(S) + 1);
+        var _rs_depth = 1;
+        while (_rs_depth > 0 && PEEKT(S) != 12) {
+            var _rs_tk = PEEKT(S);
+            if (_rs_tk == 10) { _rs_depth = _rs_depth + 1; }
+            if (_rs_tk == 11) { _rs_depth = _rs_depth - 1; }
+            STI(S, GTI(S) + 1);
+        }
+        if (PEEKT(S) == 49) { _cur_fn_ret_stash = 8; }
+    }
+    STI(S, _rs_save_ti);
     # Set fn offset to current CP
     S64(S + 0xE92000 + fi * 8, GCP(S));
     # Save compiler state
@@ -3493,6 +3610,13 @@ fn PARSE_FN_DEF(S) {
     if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
     if (_cur_fn_regalloc >= 4) { E3(S, 0x75894C); EB(S, 0xE0); }  # mov [rbp-32], r14
     if (_cur_fn_regalloc >= 5) { E3(S, 0x7D894C); EB(S, 0xD8); }  # mov [rbp-40], r15
+    # v5.5.36 Phase 2b — stash the hidden retptr (SysV: RDI, Win64:
+    # RCX) into the reserved slot immediately after regalloc saves.
+    # ESTOREREGPARM(S, 0, disp) emits the ABI-correct opcode.
+    if (_cur_fn_ret_stash > 0) {
+        var _rs_stash_disp = 0 - (_cur_fn_regalloc * 8 + 8);
+        ESTOREREGPARM(S, 0, _rs_stash_disp);
+    }
     var fn_start = GCP(S);
     # Parse params
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
@@ -3523,9 +3647,14 @@ fn PARSE_FN_DEF(S) {
             var li = GFLC(S);
             S64(S + 0x91000 + li * 8, pnoff);
             SLDEP(S, li, 0);
-            # Only emit register params now (0-5)
-            if (pc < 6) {
-                ESTOREPARM(S, pc, li, 0);
+            # Only emit register params now (0-5). v5.5.36 Phase 2b:
+            # struct-returning fns reserve arg-reg 0 (RDI on SysV, RCX
+            # on Win64) for the hidden retptr, so user param 0 arrives
+            # in the SECOND arg reg — shift pidx +1 when storing.
+            var _pp_shift = 0;
+            if (_cur_fn_ret_stash > 0) { _pp_shift = 1; }
+            if (pc + _pp_shift < 6) {
+                ESTOREPARM(S, pc + _pp_shift, li, 0);
             }
             SFLC(S, li + 1);
             pc = pc + 1;
@@ -3551,6 +3680,7 @@ fn PARSE_FN_DEF(S) {
             ERR_MSG(S, "fn return type must be a struct name", 37);
         }
         SFRS(S, fi, rt_sid);
+        _cur_fn_ret_sid = rt_sid;
         STI(S, GTI(S) + 1);                         # consume struct name
         SKIP_GENERICS(S);
     }
@@ -3861,6 +3991,10 @@ fn PARSE_FN_DEF(S) {
     # the 16-byte alignment formula valid — call-site rsp stays 16-
     # aligned for SSE-safe callees.
     if (_cur_fn_regalloc > 0) { flc = flc + _cur_fn_regalloc; }
+    # v5.5.36 Phase 2b — struct-returning fns reserve one extra
+    # 8-byte slot for the hidden retptr stash (between regalloc
+    # saves and regular locals).
+    if (_cur_fn_ret_stash > 0) { flc = flc + 1; }
     var fsz = (flc * 8 + 15) & (0 - 16);
     EPATCHFRAME(S, frame_patch, fsz);
     # Record fn code end (v4.4.0 DCE) — this is GCP after epilogue + LASE + frame patch.
@@ -3873,6 +4007,9 @@ fn PARSE_FN_DEF(S) {
     # v4.8.4-alpha5: clear #regalloc mirror so nested/sibling fns without
     # the directive don't inherit it.
     _cur_fn_regalloc = 0;
+    # v5.5.36 Phase 2b — same for the ret-stash flag + sid mirror.
+    _cur_fn_ret_stash = 0;
+    _cur_fn_ret_sid = 0;
     return 0;
 }
 
