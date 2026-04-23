@@ -16,21 +16,37 @@
 > retirement. Full per-patch summary lives in
 > [completed-phases.md](completed-phases.md) and CHANGELOG.
 >
-> **What's next (v5.6.x–v5.9.x):**
-> - **v5.6.0–v5.6.5**: compiler-optimization arc (O1 instrumentation
+> **What's next (v5.6.x–v5.12.x):**
+> - **v5.6.0–v5.6.3**: small language polish — `#else`/`#elif`
+>   preprocessor, explicit overflow operators (`+%`/`+|`/`+?`),
+>   `#must_use` + `@unsafe` attributes, `#deprecated` attribute.
+> - **v5.6.4–v5.6.9**: compiler-optimization arc (O1 instrumentation
 >   + FNV-1a, O2 peephole, O3 IR-driven passes, O4 linear-scan
 >   regalloc, O5 maximal-munch, O6 slab allocator — measurement-
 >   gated, may skip).
-> - **v5.6.6**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.10**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi).
-> - **v5.6.7**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.11**: shared-object (.so / .dll / .dylib) emission
 >   completion.
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
-> - **v5.9.0–v5.9.5**: pure-cyrius TLS 1.3 arc (X25519 +
->   ChaCha20-Poly1305 + record layer + handshake), retires the
->   `libssl.so.3` dynlib bridge.
+> - **v5.9.0–v5.9.7**: pure-cyrius TLS 1.3 arc + medium language
+>   additions — first-class slices (`slice<T>` / `[T]`
+>   generalizing `Str`) and per-fn effect annotations (`#pure`,
+>   `#io`, `#alloc`) land first so TLS code adopts them; then
+>   X25519 + ChaCha20-Poly1305 + record layer + handshake, retires
+>   the `libssl.so.3` dynlib bridge.
+> - **v5.10.x**: tagged unions (algebraic data types) +
+>   exhaustive pattern match — own minor. Biggest single-
+>   ergonomics language addition of the v5.x line.
+> - **v5.11.x**: `Result<T,E>` + `?` propagation operator — own
+>   minor, depends on v5.10 ADTs. Replaces -1/0/errno convention
+>   across stdlib.
+> - **v5.12.x**: allocators-as-parameter convention (Zig-style)
+>   — own minor. Every allocating fn takes `Allocator`; failing
+>   allocator harness falls out; retires `alloc_init()` global
+>   singleton.
 >
 > aarch64 port remains fully online (`regression.tcyr` 102/102 on
 > real Pi, native `cc5` self-hosts byte-identical, per-arch asm
@@ -74,14 +90,125 @@ Active Bugs table above.
 
 ---
 
-## v5.6.0 — Compiler optimization arc
+## v5.6.x — Language polish + compiler optimization + shared-object
 
-Dedicated minor for the compiler-optimization phases O1–O6.
-**Pinned to concrete patch numbers** because they've slipped as
-a "parallel track" across v5.4.x and v5.5.x with no numbers,
-and the drift pattern stops here. Lands BEFORE RISC-V (v5.7.0)
-so the new port inherits an optimized compiler, not one still
-queueing optimization.
+The v5.6.x minor bundles three independent-but-related arcs
+before v5.7.0 RISC-V opens:
+
+1. **v5.6.0–v5.6.3 — Small language polish.** Four single-patch
+   additions that remove long-standing friction. Each is
+   isolated, low-risk, and self-contained.
+2. **v5.6.4–v5.6.9 — Compiler optimization arc (O1–O6).** The
+   pinned optimization phases. Lands BEFORE RISC-V so the new
+   port inherits an optimized compiler.
+3. **v5.6.10–v5.6.11 — Closeout + shared-object.** Downstream
+   gate, then the long-deferred `.so` emission fix.
+
+**Pinned to concrete patch numbers** (per the
+`feedback_pin_optimizations` discipline): small items ship
+first because they're cheap, polish the language surface
+before optimization touches backends, and give a quick-win
+baseline before the bigger investments.
+
+### v5.6.0 — `#else` / `#elif` preprocessor directives
+
+Currently every stdlib OS/arch selector writes paired
+`#ifdef CYRIUS_TARGET_LINUX` / `#ifdef CYRIUS_TARGET_WIN`
+blocks because the preprocessor has `#ifdef` + `#endif` but
+no `#else` or `#elif`. v5.4.19 shipped `#ifplat` which
+helped, but the general conditional family is still absent.
+
+**Scope:**
+- Lex `#else` (existing-token repurpose if feasible), `#elif`,
+  `#ifndef` in `src/frontend/lex_pp.cyr`.
+- Extend `PP_IFDEF_PASS` state machine to track nesting depth
+  and branch-taken status.
+- Update stdlib selectors (`lib/syscalls.cyr`, `lib/alloc.cyr`,
+  `lib/io.cyr`, `lib/args.cyr`, the per-arch dispatch in
+  parse.cyr) to use the cleaner form.
+
+**Gate:** existing paired `#ifdef` sites still compile
+byte-identical; new form produces identical tokenstream.
+Regression test: single module using all three forms.
+
+**Tradeoff:** parser change; zero semantic risk. Small win
+per site, large win in aggregate across 60+ stdlib files.
+
+### v5.6.1 — Explicit overflow operators
+
+50 years of C-family overflow UB / wrap-around footguns end
+here. Zig's pattern is proven: three explicit operators +
+keep bare `+` defined in release.
+
+**Scope:**
+- Lex `+%` / `-%` / `*%` (wrapping), `+|` / `-|` / `*|`
+  (saturating), `+?` / `-?` / `*?` (checked — returns 0 or
+  panics on overflow, TBD at impl time).
+- Backend emit: wrapping = current bare-add encoding,
+  saturating = conditional-move on overflow flag, checked =
+  `jo panic` (x86) / `cbnz` (aarch64) after the arithmetic.
+- Bare `+` stays as-is (defined wrap semantics in release, may
+  warn in `--strict` mode).
+
+**Gate:** `tests/tcyr/overflow_ops.tcyr` with all nine
+operators across u32/i32/u64/i64 boundary cases (MAX,
+MIN, MAX+1, MIN-1, product overflow).
+
+**Tradeoff:** new lexer tokens (9 new op-tokens) + 3 opcodes
+per backend. Self-contained.
+
+### v5.6.2 — `#must_use` + `@unsafe` attributes
+
+Two compiler-enforced annotations. `#must_use` on a fn
+declaration makes unused-result a hard error at call sites —
+kills the pervasive silent `-1` ignore. `@unsafe` marks a
+block or fn as crossing a memory/FFI boundary; requires an
+explicit acknowledgment comment or `unsafe { ... }` scope.
+
+**Scope:**
+- Parse `#must_use` as a fn-level decorator (mirrors
+  `#derive(accessors)` shape).
+- Parse `@unsafe` as a block-form keyword or fn-level
+  decorator. Specific syntax TBD but aligned with existing
+  `secret var` shape for consistency.
+- Emit a diagnostic when a `#must_use` fn's result is
+  discarded (not assigned, not used in expression context,
+  not in a discard-explicitly form TBD — likely `_ = foo();`).
+- `@unsafe` is advisory in v5.6.2 (warning if nested unsafe
+  blocks exist; no runtime cost). Future hardening passes
+  can tighten later.
+
+**Gate:** attribute parsing regression + fn-marked-`#must_use`
+sample whose result is dropped triggers the expected error.
+
+**Tradeoff:** tiny parser addition + one diagnostic pass.
+Enables stdlib to annotate `read`/`write`/`alloc` etc. —
+catches real bugs.
+
+### v5.6.3 — `#deprecated("reason / replacement")` attribute
+
+Forces deprecation into the type system instead of
+ecosystem-wide grep sweeps. Pays dividends at v6.0.0 when we
+rename `cc5` → `cyc` — downstream consumers see
+deprecations in their CI without needing to chase them.
+
+**Scope:**
+- Parse `#deprecated("use foo since v5.X")` as a fn-level
+  decorator.
+- Emit a compile-time warning (or hard-error under
+  `--strict`) when a deprecated fn is called.
+- Bundle with `#must_use` attribute pass (same diagnostic
+  infrastructure from v5.6.2).
+
+**Gate:** `tests/tcyr/deprecated.tcyr` — calling a
+`#deprecated` fn triggers warning; `--strict` promotes it to
+error.
+
+**Tradeoff:** one decorator + one diagnostic site. Small.
+
+---
+
+## v5.6.x — Compiler optimization arc (v5.6.4–v5.6.9)
 
 Phased plan synthesized from vidya (`content/optimization_passes`,
 `content/code_generation`, `content/allocators`) and external
@@ -107,7 +234,7 @@ self-host must hold; every pass must be deterministic.
 - O6 gated on O4 — slab only matters if O4 profiling shows
   bump-alloc hot.
 
-### v5.6.0 — Phase O1: instrumentation + FNV-1a symbol table
+### v5.6.4 — Phase O1: instrumentation + FNV-1a symbol table
 
 Baseline before tuning anything. ~240 LOC.
 
@@ -123,7 +250,7 @@ Baseline before tuning anything. ~240 LOC.
 - **Gate**: baseline numbers committed to
   `docs/development/benchmarks.md`; self-hosting byte-identical.
 
-### v5.6.1 — Phase O2: peephole quick wins (x86_64 + aarch64)
+### v5.6.5 — Phase O2: peephole quick wins (x86_64 + aarch64)
 
 All deterministic, small, bang-for-buck. ~510 LOC.
 
@@ -145,7 +272,7 @@ All deterministic, small, bang-for-buck. ~510 LOC.
   `msub`, `and + lsr mask` → `ubfx`, signed variant → `sbfx`.
   ~150 LOC.
 
-### v5.6.2 — Phase O3: IR-driven passes
+### v5.6.6 — Phase O3: IR-driven passes
 
 Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
 
@@ -166,7 +293,7 @@ Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
 - **Fixed-point driver**: run fold → propagate → reduce → DCE
   in a loop until no-change. ~30 LOC.
 
-### v5.6.3 — Phase O4: linear-scan register allocation
+### v5.6.7 — Phase O4: linear-scan register allocation
 
 The big investment. Replaces today's peephole `#regalloc`.
 ~600–900 LOC.
@@ -177,13 +304,13 @@ The big investment. Replaces today's peephole `#regalloc`.
   assignment, parallel-move resolution at block boundaries.
 - **Determinism guard**: keep hint-based preferences but skip
   iterated coalescing — byte-identical self-host must hold.
-- **Depends on v5.6.2's completed IR coverage** (live ranges
+- **Depends on v5.6.6's completed IR coverage** (live ranges
   need every def and use to be in IR).
 - Expected output-code speedup: 2–3× over current stack-machine
   baseline on hot inner loops; 10–20 % quality gap vs.
   graph-coloring at a fraction of the code.
 
-### v5.6.4 — Phase O5: maximal-munch instruction selection
+### v5.6.8 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -192,16 +319,16 @@ The big investment. Replaces today's peephole `#regalloc`.
   database per backend. Walker traverses IR tree bottom-up,
   matching largest subtree to a single machine instruction.
 - Opens the door for target-specific tiles (RISC-V v5.7.0) without
-  touching the walker — v5.6.4 therefore SHIPS BEFORE v5.7.0 so
+  touching the walker — v5.6.8 therefore SHIPS BEFORE v5.7.0 so
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.5 — Phase O6: slab allocator for IR pools (measurement-gated)
+### v5.6.9 — Phase O6: slab allocator for IR pools (measurement-gated)
 
-~150 LOC. **Conditional release** — only ships if v5.6.3's profile
+~150 LOC. **Conditional release** — only ships if v5.6.7's profile
 shows bump-allocation hot during live-range construction. If the
-O4 benchmark says bump is fine, v5.6.5 is **explicitly skipped**
-and the v5.6.x closeout ships at v5.6.5 directly (see below).
+O4 benchmark says bump is fine, v5.6.9 is **explicitly skipped**
+and the v5.6.x closeout ships at v5.6.9 directly (see below).
 
 - `vidya/content/allocators` documents 20–30× speedup over bump
   for fixed-size churn. Applied to IR node pools during live-
@@ -209,13 +336,14 @@ and the v5.6.x closeout ships at v5.6.5 directly (see below).
 - If skipped, record the skip decision in CHANGELOG with the
   specific O4 bench numbers that triggered it.
 
-### v5.6.6 — v5.6.x closeout (or v5.6.5 if O6 skipped)
+### v5.6.10 — v5.6.x closeout (or v5.6.9 if O6 skipped)
 
-Last patch before v5.7.0 (RISC-V). CLAUDE.md "Closeout Pass"
-11-step checklist: self-host verify, bootstrap closure, full
-check.sh, heap-map audit, dead-code audit, refactor pass, code-
-review pass, cleanup sweep, security re-scan, downstream dep-
-pointer check, CHANGELOG/roadmap/vidya sync.
+Last patch before v5.6.11 (shared-object) and eventually
+v5.7.0 (RISC-V). CLAUDE.md "Closeout Pass" 11-step checklist:
+self-host verify, bootstrap closure, full check.sh, heap-map
+audit, dead-code audit, refactor pass, code-review pass,
+cleanup sweep, security re-scan, downstream dep-pointer check,
+CHANGELOG/roadmap/vidya sync.
 
 **Downstream gate.** This closeout is the opening signal for
 genesis repo Phase 13B (arch-neutral boot pipeline —
@@ -231,7 +359,7 @@ carries extra rigor beyond the standard pass —
   orphan allocations surfaced during the optimization arc. Leave
   no "temporary" arenas downstream would have to work around.
 - **Refactor pass** — one targeted sweep for naming/API drift
-  introduced across v5.6.0–v5.6.5. If a public function got
+  introduced across v5.6.0–v5.6.9. If a public function got
   reshaped mid-arc, this is the last chance to stabilize the name
   before downstream repos pin to it.
 - **Audit pass** — dead code, stale comments, orphan tests,
@@ -239,21 +367,21 @@ carries extra rigor beyond the standard pass —
   they mirror in their own sweeps.
 - **Downstream dep-pointer check** — walk every downstream repo's
   `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
-  against the v5.6.6 artifacts. Broken pins get fixed before
+  against the v5.6.10 artifacts. Broken pins get fixed before
   v5.7.0 opens, not after.
-- **Compiler surface freeze signal** — after v5.6.6 ships, public
+- **Compiler surface freeze signal** — after v5.6.10 ships, public
   compiler API is frozen for the duration of the downstream sweep
   (approximately one minor cycle). v5.7.0 RISC-V can add, but not
   reshape, existing surface.
 
 Rationale: downstream projects are batching their own arch-neutral
-work against this closeout. If v5.6.6 ships with loose ends, each
+work against this closeout. If v5.6.10 ships with loose ends, each
 downstream repo absorbs the cost and the sweep fragments. One
 tight closeout here is cheaper than N downstream workarounds.
 
 ---
 
-### v5.6.7 — Shared-object emission completion
+### v5.6.11 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -282,8 +410,8 @@ tolerantly ignored by modern glibc — we haven't tested.
   `SYSV_HASH` cleanly.
 
 **Why this slot:** not blocking any active consumer, but the
-partial state is a known audit rough edge. v5.6.x closeout
-surfaces the floor; v5.6.7 actually lands the fix before v5.7.0
+partial state is a known audit rough edge. v5.6.10 closeout
+surfaces the floor; v5.6.11 actually lands the fix before v5.7.0
 opens RISC-V work. An alternate fit is v5.8.1 post-bare-metal,
 but bare-metal doesn't exercise `.so` emission (kernel is static
 all the way down), so slotting earlier is fine and clears the
@@ -355,12 +483,14 @@ platforms). RISC-V needs:
    entry for `cc5_riscv64`.
 
 **Prerequisites that must ship before v5.7.0 starts:**
-- **v5.6.0–5.6.5** — Compiler optimization arc. New port should
+- **v5.6.4–5.6.9** — Compiler optimization arc. New port should
   inherit an optimized compiler, not one still queueing baseline
-  optimization. v5.6.4 (maximal-munch) in particular matters —
+  optimization. v5.6.8 (maximal-munch) in particular matters —
   rv64 backend lands its tile table against the new walker on
   day one instead of retrofitting.
-- **v5.6.6** — downstream ecosystem sweep gate complete.
+- **v5.6.10** — downstream ecosystem sweep gate complete.
+- **v5.6.11** — shared-object emission landed (audit rough edge
+  closed before new port opens).
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
   uses the new syntax from day one, no legacy `#ifdef
   CYRIUS_ARCH_RISCV64` sites to migrate.
@@ -383,10 +513,15 @@ from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.6 gate).
 
 ---
 
-## v5.9.0 — Pure-cyrius TLS 1.3 arc
+## v5.9.0 — Pure-cyrius TLS 1.3 arc + medium language additions
 
-Dedicated minor for a pure-cyrius TLS 1.3 client + record layer,
-replacing the current `lib/tls.cyr` `libssl.so.3` dynlib bridge.
+Dedicated minor for (1) two medium language additions that
+generalize patterns the TLS code would otherwise re-invent, and
+(2) a pure-cyrius TLS 1.3 client + record layer replacing the
+current `lib/tls.cyr` `libssl.so.3` dynlib bridge. The language
+items land first so TLS code adopts them natively — they're not
+post-hoc retrofits.
+
 Slotted **after bare-metal (v5.8.0)** because the AGNOS kernel
 target is the concrete consumer that needs this — bare-metal
 can't `dlopen` libssl, so the sovereign-crypto story is a
@@ -413,29 +548,53 @@ track" again (same discipline as O1–O6).
 
 **Pinned sub-patches:**
 
-- **v5.9.0** — X25519 scalar multiplication in pure cyrius.
+- **v5.9.0** — **First-class slices** (`slice<T>` / `[T]`
+  generalizing `Str`). A type carrying `(ptr, len)` with
+  bounds-aware APIs. Every `read(buf, len)` /
+  `memcpy(dst, src, n)` / `aead_encrypt(pt, pt_len, ct, ct_len,
+  tag)` today is a ptr+len pair the compiler doesn't check —
+  slices make bounds-aware APIs the default. Lands first so the
+  TLS record layer + handshake use slices natively rather than
+  ptr+len. Scope: lex `[T]` in type positions, parse slice
+  literals and indexing, stdlib migration (`Str` → concrete
+  instance of `slice<u8>`, `vec` / `hashmap` slice getters).
+  Tradeoff: ecosystem-wide rebuild; pays for itself in every
+  crypto/network fn that handles buffers.
+- **v5.9.1** — **Per-fn effect/purity annotations** — `#pure`,
+  `#io`, `#alloc` as compiler-checked tags. Catches helpers that
+  silently allocate or touch I/O in "pure" crypto paths.
+  Simpler than OCaml5 / Koka effects (no polymorphism, no row
+  types) — just three decorators the compiler enforces.
+  Annotate `lib/keccak.cyr`, X25519, AEAD as `#pure` so the
+  compiler catches any accidental allocation regression.
+  Tradeoff: annotation ramp; stdlib + sigil annotated
+  gradually; no runtime cost.
+- **v5.9.2** — X25519 scalar multiplication in pure cyrius.
   Curve25519 Montgomery ladder over GF(2^255 - 19). ~300 LoC,
   NIST/IETF test-vector gate. Lands in `sigil` first, re-exposed
-  to stdlib via dep bump.
-- **v5.9.1** — ChaCha20 + Poly1305 + ChaCha20-Poly1305 AEAD.
+  to stdlib via dep bump. Uses `slice<u8>` (v5.9.0) for key
+  material; annotated `#pure` (v5.9.1).
+- **v5.9.3** — ChaCha20 + Poly1305 + ChaCha20-Poly1305 AEAD.
   RFC 8439 test vectors. Constant-time primitives use `secret
-  var` + `lib/ct.cyr` (shipped v5.3.5). `sigil` addition.
-- **v5.9.2** — `lib/tls.cyr` record layer: TLSPlaintext /
+  var` + `lib/ct.cyr` (shipped v5.3.5). `sigil` addition. Slice-
+  based buffer API; `#pure` annotated.
+- **v5.9.4** — `lib/tls.cyr` record layer: TLSPlaintext /
   TLSInnerPlaintext / TLSCiphertext shapes, AEAD wrap/unwrap,
   key schedule (HKDF-Expand-Label via sigil HKDF from v5.4.15).
   No handshake yet — record layer first so it can be tested in
-  isolation against a recorded session transcript.
-- **v5.9.3** — `lib/tls.cyr` handshake state machine: ClientHello
+  isolation against a recorded session transcript. Slice-based
+  I/O boundary.
+- **v5.9.5** — `lib/tls.cyr` handshake state machine: ClientHello
   / ServerHello / EncryptedExtensions / Certificate / CertificateVerify
   / Finished. X25519 key share only (no RSA, no secp256r1 in v1
   — ship-scope narrowing; can add curves later if a consumer
   needs them). Ed25519 cert verification via sigil.
-- **v5.9.4** — Retire the `libssl.so.3` dynlib bridge from
+- **v5.9.6** — Retire the `libssl.so.3` dynlib bridge from
   `lib/tls.cyr`. Consumer migration: any tool using `tls_*` APIs
   picks up the pure-cyrius implementation with zero source
   change. `lib/dynlib.cyr` retains the generic `.so` loading
   primitives — only the TLS-specific bridge gets removed.
-- **v5.9.5** — v5.9.x closeout (CLAUDE.md §"Closeout Pass").
+- **v5.9.7** — v5.9.x closeout (CLAUDE.md §"Closeout Pass").
   Benchmark vs libssl baseline (expect ~2× slower handshakes,
   within 10% of libssl on bulk AEAD throughput once AVX2 is
   added in a later minor), security audit focused on timing
@@ -448,12 +607,17 @@ track" again (same discipline as O1–O6).
 1. Each patch self-contained: test vectors PASS, self-host
    byte-identical, no cross-patch dependencies that require the
    minor to land as a batch.
-2. v5.9.3 gate: handshake succeeds against `google.com:443` and
+2. v5.9.0 gate: `slice<T>` regression test — ptr+len round-trip,
+   bounds check on out-of-range index, `Str` still byte-
+   identical as a slice specialization.
+3. v5.9.1 gate: `#pure` fn that calls `alloc()` fails
+   compilation; `#io` fn that's declared pure is diagnosed.
+4. v5.9.5 gate: handshake succeeds against `google.com:443` and
    `github.com:443` via real TLS 1.3 (pure-cyrius client,
    real-world server).
-3. v5.9.4 gate: `cyrius deps` of any consumer previously using
+5. v5.9.6 gate: `cyrius deps` of any consumer previously using
    `lib/tls.cyr` builds clean with the libssl bridge removed.
-4. v5.9.5 gate: full benchmark + security re-scan checklist.
+6. v5.9.7 gate: full benchmark + security re-scan checklist.
 
 **Out of scope** (pin to v5.10.x or later if demand surfaces):
 
@@ -475,10 +639,198 @@ gate before v5.9.0 opens.
 
 **Downstream coordination:** AGNOS kernel + any consumer binary
 that talks TLS (argonaut sync, ark package fetch, future shakti
-remote-auth paths) picks up the swap transparently at v5.9.4.
+remote-auth paths) picks up the swap transparently at v5.9.6.
 No API break — the current `tls_connect` / `tls_read` /
 `tls_write` / `tls_close` shape ports 1:1 to the pure-cyrius
 backend.
+
+---
+
+## v5.10.x — Tagged unions + exhaustive pattern match
+
+Own minor for algebraic data types. The single biggest language-
+ergonomics addition of the v5.x line — every ad-hoc `int tag;
+union { ... }` struct pattern across IR walkers, NSS-strategy
+dispatch, fdlopen result codes, parser state machines, and
+hashmap key-typing folds into first-class sum types. Pinned to
+concrete patch numbers so it can't drift; slotted **after
+v5.9.x** because the TLS arc closes the last platform-runtime
+gap before language-surface evolution opens.
+
+**Why this, why now:**
+
+- `Result<T,E>` + `?` propagation (v5.11.x) requires sum types.
+  Can't ship ergonomic error handling without this foundation.
+- Every stdlib module that returns `(value, tag)` pairs —
+  `hashmap.key_type` field, `dynlib` result codes, `json`/`toml`
+  parse results — would collapse to a single `enum`.
+- Exhaustive-check gives the compiler another correctness
+  surface: adding a new variant forces every call-site `switch`
+  to handle it or be explicit about `_ =>`.
+
+**Pinned sub-patches:**
+
+- **v5.10.0** — Sum-type syntax + constructor parsing. Likely
+  `enum Result<T,E> { Ok(T), Err(E) }` or cyrius-flavored
+  equivalent. Concrete syntax TBD at design time — aligned with
+  existing `enum` / `struct` shape so lex / parse reuses
+  existing infrastructure where possible.
+- **v5.10.1** — Exhaustive pattern match in `switch`. Compiler
+  verifies every variant is covered; missing variants → error;
+  `_ =>` explicitly opts out.
+- **v5.10.2** — Stdlib adoption pass 1: collapse ad-hoc tag+
+  union patterns (hashmap `key_type`, dynlib error codes, json/
+  toml parse state) into sum types. No API breakage yet —
+  internal representation swap.
+- **v5.10.3** — Stdlib adoption pass 2: public API migration
+  for modules where the sum-typed form is visibly better (parse
+  results, cross-boundary error returns).
+- **v5.10.4** — v5.10.x closeout. Downstream dep-pointer check
+  (sigil, mabda, yukti, kybernet, etc.) since the stdlib surface
+  shifted. Full 11-step closeout.
+
+**Acceptance gates:**
+
+1. Byte-identical self-host at every patch.
+2. v5.10.1 gate: `tests/tcyr/exhaustive_match.tcyr` — missing
+   variant → compile error; `_ =>` accepted; added variant
+   triggers diagnostic at every uncovered site.
+3. v5.10.2 gate: `cyrius audit` passes with internal-migration-
+   only changes visible.
+4. v5.10.4 gate: every downstream consumer builds against the
+   new stdlib without code changes or explicit migration notes
+   where changes are required.
+
+**Out of scope:** GADTs, higher-kinded types, type-level
+computation. Keep the feature surface boringly orthogonal.
+
+---
+
+## v5.11.x — `Result<T,E>` + `?` propagation operator
+
+Own minor, depends on v5.10.x sum types. Replaces the -1/0/
+errno convention pervasive in stdlib with compiler-enforced
+error handling.
+
+**Why this, why now:**
+
+- Every stdlib I/O / parse / syscall wrapper today returns -1
+  on error with the caller checking (or silently ignoring —
+  exactly what `#must_use` in v5.6.2 was designed to catch).
+  `Result<T, Error>` makes the error value compiler-visible.
+- `?` operator ergonomic: `var x = foo()?;` short-circuits on
+  `Err`, unwraps `Ok`. Half the length of error-checking code
+  in practice.
+- Slots naturally after v5.10.x — the foundation is built,
+  now use it.
+
+**Pinned sub-patches:**
+
+- **v5.11.0** — `Result<T,E>` type in stdlib. `lib/result.cyr`.
+  Convenience constructors `Ok(v)` / `Err(e)`; pattern-match
+  consumers. Use v5.10.x sum types directly.
+- **v5.11.1** — `?` propagation operator. Parses as postfix
+  operator on `Result`-typed expressions; desugars to
+  pattern-match `Err` early-return. Requires the enclosing fn
+  to also return `Result`.
+- **v5.11.2** — Stdlib migration pass 1: `lib/io.cyr` (file_
+  open / read / write), `lib/syscalls.cyr` wrappers, `lib/json.cyr`
+  + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc -1 return
+  convention → `Result<T, IoError>` or similar per-module error
+  types.
+- **v5.11.3** — Stdlib migration pass 2: `lib/net.cyr`,
+  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
+  (`lib/pwd.cyr` / `lib/grp.cyr` / `lib/shadow.cyr` /
+  `lib/pam.cyr`). These modules had the most elaborate
+  error-code conventions — cleanest win.
+- **v5.11.4** — v5.11.x closeout. Full 11-step + downstream
+  migration sweep.
+
+**Acceptance gates:**
+
+1. Byte-identical self-host at every patch.
+2. v5.11.1 gate: `tests/tcyr/result_propagation.tcyr` — `?` on
+   `Err` short-circuits; on `Ok` unwraps; used outside a
+   `Result`-returning fn is a type error.
+3. v5.11.3 gate: cross-repo downstream smoke test — sigil,
+   mabda, yukti, ark compile against migrated stdlib.
+
+**Migration policy:** modules migrate one at a time. `-1`-
+return fns stay callable from non-migrated call sites through
+v5.11.x. v6.0.0 closeout is when the old convention is fully
+removed.
+
+---
+
+## v5.12.x — Allocators-as-parameter convention
+
+Own minor. The largest ecosystem-churn item of the v5.x line
+and the biggest modern-systems-language insight to absorb
+(Zig's contribution). Every allocating fn takes an `Allocator`;
+global `alloc_init()` singleton retires; per-request arenas
+fall out naturally; failing-allocator test harness becomes a
+one-liner.
+
+**Why this, why now:**
+
+- Current `alloc()` is a singleton bump allocator. Tests that
+  want to verify OOM handling can't inject a failing allocator
+  without global mutation.
+- Per-request arenas (HTTP server, compiler passes, parser
+  state) would drastically simplify lifetime management — but
+  only if fns can accept an allocator parameter.
+- Slotted last in the v5.x line because this ripples through
+  every stdlib module that allocates. Rippling through after
+  sum types + Result lands means the migration can use
+  `Result<T, AllocError>` for failure returns — cleaner than
+  doing it before v5.11.x.
+
+**Pinned sub-patches:**
+
+- **v5.12.0** — `Allocator` interface in `lib/alloc.cyr`.
+  vtable shape: `alloc`, `realloc`, `free`, `reset`. Default
+  implementations: `bump_allocator` (current behavior,
+  process-global singleton), `arena_allocator` (scoped),
+  `test_allocator` (tracks every allocation, fails on demand).
+- **v5.12.1** — Failing-allocator test harness. `lib/assert.cyr`
+  extension: `fail_after_n_allocs(n)` helper. Enables
+  `tests/tcyr/oom_handling.tcyr` coverage for stdlib modules.
+- **v5.12.2** — Stdlib migration pass 1 core modules:
+  `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
+  `Allocator` as first argument; default-allocator wrapper
+  preserves current call-sites during migration.
+- **v5.12.3** — Stdlib migration pass 2 peripheral modules:
+  `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
+  `lib/http_server.cyr`. These benefit most from per-request
+  arenas.
+- **v5.12.4** — Retire `alloc_init()` global singleton.
+  Backward compat through a default-allocator shim available as
+  `lib/alloc.default()` for consumers not ready to migrate.
+- **v5.12.5** — v5.12.x closeout. Downstream ecosystem sweep
+  (every repo's allocator usage audited).
+
+**Acceptance gates:**
+
+1. Byte-identical self-host at every patch.
+2. v5.12.1 gate: `tests/tcyr/oom_vec_push.tcyr` — `vec_push`
+   gracefully returns `Err(OutOfMemory)` under `fail_after_n_
+   allocs(1)`.
+3. v5.12.4 gate: every internal compiler path uses an explicit
+   allocator; `alloc_init()` returns the default-allocator shim
+   for one more minor before removal at v6.0.0.
+
+**Migration policy:** allocator parameter is opt-in during
+v5.12.x. Default-allocator wrapper preserves existing
+`vec_push(v, x)` shape as `vec_push(default_alloc(), v, x)`
+syntactic sugar. v6.0.0 closeout is when the default-allocator
+shim is removed and every fn requires explicit allocator.
+
+**Why this is the last v5.x minor:** after v5.12.x closes, the
+language has sum types, exhaustive match, Result+?, allocator-
+parameter convention, slices, effect annotations, overflow
+operators, `#must_use` / `#deprecated`. The surface is stable.
+v6.0.0 opens with the `cc5` → `cyc` rename + the cleanup
+sweep that's been accruing debt across the v5.x line.
 
 ---
 
@@ -517,14 +869,27 @@ enables adding new targets without touching the frontend.
 
 ## v5.x — Language Refinements
 
+**Pinned arc** (2026-04-22):
+
+| Feature | Pinned | Effort |
+|---------|--------|--------|
+| `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.0** | Small |
+| Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.1** | Small |
+| `#must_use` + `@unsafe` attributes | **v5.6.2** | Small |
+| `#deprecated("reason")` attribute | **v5.6.3** | Small |
+| First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium |
+| Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium |
+| Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large |
+| `Result<T,E>` + `?` propagation (own minor) | **v5.11.x** | Large |
+| Allocators-as-parameter (own minor) | **v5.12.x** | Large |
+
+**Still unpinned / lower priority:**
+
 | Feature | Effort | Votes |
 |---------|--------|-------|
 | cc5 per-block scoping | Medium | — |
 | Incremental compilation | High | — |
-| Stack slices | High | — |
 | Generics / traits | High | 1 (kavach) |
-| Pattern-match destructuring | Medium | 1 (kavach) |
-| Enum exhaustiveness checking | Low | 1 (kavach) |
 | Closures capturing variables | High | gotcha #8 |
 | Hardware 128-bit div-mod | Medium | — |
 | parse_*.cyr x86-emit guard sweep | Low | Active Bug follow-up |
