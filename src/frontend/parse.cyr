@@ -2424,6 +2424,107 @@ fn PARSE_VAR(S) {
         STI(S, GTI(S) + 1);   # consume ';'
         return 0;
     }
+    # v5.5.36 Phase 2b — struct-valued assignment from a fn call:
+    #   `var got: Point = make(args);`
+    # Allocates `got` as a stack-local struct (same slot-trick as the
+    # no-init case above), then calls `make` with &got prepended as
+    # the hidden first arg. The callee's `return p;` copies bytes
+    # straight into &got, so `got` is populated when we fall through.
+    # No post-call rax-to-local store is needed; rax = &got (return
+    # convention) is discarded.
+    # Scope the branch strictly: (a) inside a fn, (b) struct type
+    # annotation present, (c) next-token `=`, (d) RHS is IDENT `(`,
+    # (e) that IDENT resolves to a fn with a declared struct return.
+    # This way the existing module-scope pattern
+    # `var a: Num = 20;` (where Num is a wrapper struct and the
+    # init expression is a plain scalar) falls through to PCMPE-
+    # as-usual instead of being rejected here.
+    var asv_try = 0;
+    if ((pscale < 0) && (PEEKT(S) == 4) && (GINFN(S) == 1)) {
+        var _look_ti = GTI(S) + 1;
+        if (TOKTYP(S, _look_ti) == 2) {
+            if (TOKTYP(S, _look_ti + 1) == 10) {
+                var _look_noff = TOKVAL(S, _look_ti);
+                var _look_fi = FINDFN(S, _look_noff);
+                if (_look_fi >= 0) {
+                    if (GFRS(S, _look_fi) > 0) { asv_try = 1; }
+                }
+            }
+        }
+    }
+    if (asv_try == 1) {
+        var asv_sid = 0 - pscale;
+        var asv_sz = STRUCTSZ(S, asv_sid - 1);
+        if (asv_sz < 8) { asv_sz = 8; }
+        var asv_aligned = (asv_sz + 7) & (0 - 8);
+        var asv_nslots = asv_aligned / 8;
+        # Duplicate-name check
+        var asv_existing = FINDLOCAL(S, noff);
+        if (asv_existing >= 0) {
+            if (GLDEP(S, asv_existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        # Reserve ceil(sz/8) fn-local slots; name the last (see Phase 2a for
+        # the anonymous-filler + named-last trick).
+        var asv_j = 0;
+        while (asv_j < asv_nslots - 1) {
+            var asv_li = GFLC(S);
+            S64(S + 0x91000 + asv_li * 8, 0 - 1);
+            SLDEP(S, asv_li, GSDEP(S));
+            SLTYPE(S, asv_li, 0);
+            SFLC(S, asv_li + 1);
+            asv_j = asv_j + 1;
+        }
+        var asv_named = GFLC(S);
+        S64(S + 0x91000 + asv_named * 8, noff);
+        SLDEP(S, asv_named, GSDEP(S));
+        SLTYPE(S, asv_named, 0 - asv_sid);
+        SFLC(S, asv_named + 1);
+        # Now `got` is allocated. Parse `= IDENT(args);`.
+        STI(S, GTI(S) + 1);                         # consume '='
+        if (PEEKT(S) != 2) {
+            ERR_MSG(S, "struct-valued assignment RHS must be a fn call", 47);
+        }
+        var asv_fnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);                         # consume fn-name IDENT
+        if (PEEKT(S) != 10) {
+            ERR_MSG(S, "struct-valued assignment RHS must be a fn call", 47);
+        }
+        var asv_fi = FINDFN(S, asv_fnoff);
+        if (asv_fi < 0) { asv_fi = REGFN(S, asv_fnoff); }
+        var asv_callee_sid = GFRS(S, asv_fi);
+        if (asv_callee_sid == 0) {
+            ERR_MSG(S, "fn does not declare a struct return type", 40);
+        }
+        if (asv_callee_sid != asv_sid) {
+            ERR_MSG(S, "fn return struct-id differs from declared var type", 51);
+        }
+        STI(S, GTI(S) + 1);                         # consume '('
+        # Push &got as the hidden first arg (consumed by ECALLPOPS /
+        # EPOPARG into RDI/RCX via reverse-pop). argc includes it.
+        EFLADDR(S, asv_named);
+        EPUSHR(S);
+        var asv_argc = 1;
+        if (PEEKT(S) != 11) {
+            var asv_go = 1;
+            while (asv_go == 1) {
+                PCMPE(S);
+                EPUSHR(S);
+                asv_argc = asv_argc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { asv_go = 0; }
+            }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);                         # consume ')'
+        ECALLPOPS(S, asv_argc);
+        var asv_fn_target = L64(S + 0xE92000 + asv_fi * 8);
+        if (asv_fn_target >= 0) { ECALLTO(S, asv_fn_target); }
+        else { ECALLFIX(S, asv_fi); }
+        ECALLCLEAN(S, asv_argc);
+        if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+        STI(S, GTI(S) + 1);                         # consume ';'
+        return 0;
+    }
     # Check for array: var buf[N];
     if (PEEKT(S) == 28) {
         PARSE_ARRAY(S, noff);

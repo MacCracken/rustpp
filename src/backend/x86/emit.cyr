@@ -1135,6 +1135,22 @@ fn EFLADDR_X1(S, lli) {
     return 0;
 }
 
+# v5.5.36 Phase 2b — rax variant: `lea rax, [rbp + disp]`. Used at
+# caller-side of a struct-returning call to push the retbuf address
+# as the hidden first arg (RDI on SysV, RCX on Win64 — both filled
+# by ECALLPOPS + EPOPARG from the stack).
+fn EFLADDR(S, lli) {
+    var disp = 0 - ((lli + 1) * 8);
+    if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
+    if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
+    # lea rax, [rbp + disp32]: 48 8D 85 <rel32>
+    E3(S, 0x858D48);
+    var addr = S + 0x54A000 + GCP(S);
+    S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
+    SCP(S, GCP(S) + 4);
+    return 0;
+}
+
 # Add immediate to rcx (x86: add rcx, imm32)
 fn EADDIMM_X1(S, val) {
     if (_IR_REC(S, IR_ADD_IMM_X1, 0, 0, val) == 1) { return 0; }
