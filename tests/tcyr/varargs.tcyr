@@ -1,0 +1,35 @@
+# v5.5.36 Phase 3-min: `fn f(a, ...)` syntax acceptance + per-fn
+# variadic flag. Phase 3-min scope:
+#   - ellipsis lexes as a single TOK=112 (not 3 DOTs)
+#   - param-list tail `, ...` accepted; fn marked variadic
+#   - callers can pass extra args beyond named ones
+#   - extras are NOT yet accessible from the callee body — va_arg /
+#     callee save-area prologue / Win64 float dup are Phase 3-full.
+include "lib/assert.cyr"
+
+fn two_plus_rest(x, ...) {
+    return x * 2;
+}
+
+fn zero_named_then_rest(...) {
+    return 99;
+}
+
+fn multi_named_then_rest(a, b, c, ...) {
+    return a + b + c;
+}
+
+test_group("varargs syntax accepted");
+assert_eq(two_plus_rest(21), 42, "variadic fn called with zero extras");
+assert_eq(two_plus_rest(21, 100), 42, "variadic fn called with one extra");
+assert_eq(two_plus_rest(21, 100, 200, 300), 42, "variadic fn called with three extras");
+
+test_group("fully variadic fn");
+assert_eq(zero_named_then_rest(), 99, "no args at all");
+assert_eq(zero_named_then_rest(1, 2, 3), 99, "several extras, all ignored");
+
+test_group("multiple named + variadic tail");
+assert_eq(multi_named_then_rest(10, 20, 12), 42, "3 named, 0 extras");
+assert_eq(multi_named_then_rest(10, 20, 12, 999, 888), 42, "3 named, 2 extras ignored");
+
+var rc = assert_summary();

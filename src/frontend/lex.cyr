@@ -2176,7 +2176,19 @@ fn LEX(S) {
         }
         else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
         else { if (c == 44) { ADDTOK(S, 31, 0); p = p + 1; }
-        else { if (c == 46) { ADDTOK(S, 41, 0); p = p + 1; }
+        else { if (c == 46) {
+            # v5.5.36 Phase 3 — collapse three consecutive dots into
+            # a single ELLIPSIS token (TOK=112) for variadic fn syntax
+            # `fn f(a, ...)`. Single or double dots still emit DOT
+            # tokens (struct field access, nested `s.inner.field`).
+            if (p + 2 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 46) {
+                    if (load8(S + 0x44A000 + p + 2) == 46) {
+                        ADDTOK(S, 112, 0); p = p + 3;
+                    } else { ADDTOK(S, 41, 0); p = p + 1; }
+                } else { ADDTOK(S, 41, 0); p = p + 1; }
+            } else { ADDTOK(S, 41, 0); p = p + 1; }
+        }
         else { if (c == 58) { ADDTOK(S, 49, 0); p = p + 1; }
         else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
         else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }

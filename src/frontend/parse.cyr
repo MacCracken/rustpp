@@ -3657,6 +3657,9 @@ fn PARSE_FN_DEF(S) {
     # annotation after `)` sets it later if present; otherwise this fn
     # returns a scalar value in rax as usual.
     SFRS(S, fi, 0);
+    # v5.5.36 Phase 3 — clear fn's variadic flag. Set to 1 in the
+    # param loop below if the user writes `fn f(a, ...)`.
+    SFVA(S, fi, 0);
     # v4.8.4-alpha4: transfer any pending `#regalloc` directive onto
     # this fn's metadata slot. Cleared whether consumed or not so a
     # stale flag from a prior parse error can't leak to the next fn.
@@ -3727,6 +3730,19 @@ fn PARSE_FN_DEF(S) {
     if (PEEKT(S) != 11) {
         var pgo = 1;
         while (pgo == 1) {
+            # v5.5.36 Phase 3 — variadic ellipsis terminator:
+            # `fn f(a, ...)`. Must appear at the tail of the param
+            # list (either as the first and only "param" for a
+            # fully-variadic fn, or after at least one named param
+            # with a preceding comma). Sets the fn-variadic flag and
+            # breaks the param loop; no local-var slot is registered
+            # for `...` itself.
+            if (PEEKT(S) == 112) {
+                STI(S, GTI(S) + 1);           # consume '...'
+                SFVA(S, fi, 1);
+                pgo = 0;
+                break;
+            }
             if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
             var pnoff = PEEKV(S);
             STI(S, GTI(S) + 1);

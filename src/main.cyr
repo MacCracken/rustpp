@@ -101,6 +101,15 @@
 #                                        read by PARSE_RETURN + call-site to
 #                                        emit Win64 hidden-RCX / SysV-RDI
 #                                        retptr convention (v5.5.36 Phase 2b)
+#   0xF4000  fn_variadic   [32768]       4096 × 8B — per-fn variadic flag
+#                                        (0 = fixed-arity, 1 = `fn f(a, ...)`
+#                                        took an ellipsis tail); set by
+#                                        PARSE_FN's param loop on seeing
+#                                        `...`. Phase 3-min (v5.5.36) reads
+#                                        it at call sites to emit Win64
+#                                        float-dup when an arg is f64;
+#                                        callee-side save-area prologue +
+#                                        va_arg stdlib is Phase 3-full.
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
