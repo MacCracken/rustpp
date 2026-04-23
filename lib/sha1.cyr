@@ -41,6 +41,10 @@ fn _sha1_rotl32(x, n) {
     return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF;
 }
 
+# Compute the FIPS 180-4 SHA-1 message digest of `data[0..len)`.
+# Writes 20 bytes of big-endian digest to `digest_out` (caller-
+# allocated). Returns 0. NOT a collision-resistant primitive —
+# see module header for the safer alternatives.
 fn sha1(data, len, digest_out) {
     # FIPS 180-4 §5.3.1 — SHA-1 initial hash values H(0).
     var h0 = 0x67452301;

@@ -58,11 +58,46 @@ All 7 vectors PASS.
 
 ### Files touched
 
-- `lib/sha1.cyr` — new, 154 lines.
+- `lib/sha1.cyr` — new, 158 lines.
 - `lib/ws_server.cyr` — delegate + include; shrinks 107 lines.
 - `tests/tcyr/sha1.tcyr` — new, 74 lines.
+- `src/main_aarch64.cyr` — add `include "src/common/ir.cyr"`
+  (post-push CI fix; see "Post-push CI corrections" below).
 - `VERSION`, `CHANGELOG.md`, `docs/development/roadmap.md`,
   `docs/development/benchmarks.md`, `CLAUDE.md`.
+
+### Post-push CI corrections
+
+Two CI failures on the v5.6.13 push were fixed on the same tag
+(no version bump):
+
+- **`lib/sha1.cyr` doc coverage** — `cyrdoc --check` requires a
+  comment block immediately preceding each public fn. The module
+  header describing the API isn't enough. Added a 4-line doc
+  comment directly above `fn sha1(...)`.
+- **aarch64 + mach-o arm cross-build failures** — the v5.6.12
+  instrumentation added `IR_RAW_EMIT` references into shared
+  `parse_*.cyr`, but `src/main_aarch64.cyr` never included
+  `src/common/ir.cyr` (only `main.cyr` did). The x86 path
+  resolved the symbol transitively; the aarch64 path failed with
+  `undefined variable 'IR_RAW_EMIT'` and emitted 0 bytes, which
+  then caused `chmod +x build/cc5_aarch64` to silently succeed
+  on an empty file and all subsequent aarch64/mach-o tests to
+  hit `Permission denied` (empty file isn't executable). Fix:
+  add `include "src/common/ir.cyr"` to `main_aarch64.cyr` between
+  `backend/aarch64/jump.cyr` and `frontend/lex.cyr`. `ir.cyr`'s
+  lowering fns dispatch to emit helpers that exist on both
+  backends (EADDR, ECMPR, …), so the include links cleanly.
+  cc5_aarch64 now 348,600 → 371,376 B (+22,776 B of ir.cyr
+  symbols in the cross-compiler binary).
+  
+  Root cause predates v5.6.13: v5.6.12 introduced the cross-
+  backend IR reference but local verification built x86 and
+  aarch64 paths from the SAME pre-fix build/cc5, masking the gap
+  until a fresh CI checkout tried the aarch64 path from scratch.
+  Lesson: always rebuild the cross-compiler from scratch after
+  any `common/*` or shared-parse change, not just after backend
+  changes.
 
 ### Scope notes
 
