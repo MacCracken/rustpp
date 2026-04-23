@@ -4,7 +4,7 @@
 > languages and platforms. Referenced by external articles and the
 > agnosticos project. Updated as new compiler versions ship.
 >
-> **Last measured**: 2026-04-20, at Cyrius v5.5.10.
+> **Last measured**: 2026-04-21, at Cyrius v5.5.40.
 > **Methodology**: `int main() { return 42; }` (or language equivalent — all
 > sources are ≤ 4 lines), no external dependencies, default invocation
 > unless a size-oriented flag is documented. Sizes are raw `wc -c` bytes
@@ -14,7 +14,7 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5 5.5.10 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
+| **Cyrius** | cc5 5.5.40 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -OReleaseSmall` | 4,840 | 32× |
 | Zig | 0.15.2 `-OReleaseSmall` Windows PE | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 30× |
 | C (GCC) | gcc 15.2.1 `-O2 -s` | `gcc -O2 -s` | 14,248 | 94× |
@@ -32,8 +32,8 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5_win 5.5.10 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
-| **Cyrius** | cc5 5.5.10 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
+| **Cyrius** | cc5_win 5.5.40 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
+| **Cyrius** | cc5 5.5.40 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 3× |
 | Go | go 1.26.2 `-s -w` | `GOOS=windows GOARCH=amd64 go build -ldflags="-s -w"` | 1,492,992 | 972× |
 | Go | go 1.26.2 default | `GOOS=windows GOARCH=amd64 go build` | 2,265,600 | 1,475× |
@@ -62,14 +62,14 @@
 
 ## Cyrius self-host context
 
-For perspective, the Cyrius v5.5.10 compiler itself (cc5) is **483,544 B**
+For perspective, the Cyrius v5.5.40 compiler itself (cc5) is **507,136 B**
 on Linux ELF. It compiles itself byte-identically. At v5.5.10 it also
 compiles itself byte-identically on Windows (cc5_win.exe native →
 out.exe matches Linux cross-build md5). That's the whole
 self-hosting compiler in less disk than Rust's stripped debug exit42.
 
-- Cyrius cc5 (Linux ELF): 483,544 B
-- cc5_win.exe (Windows PE): 553,984 B (PE format overhead)
+- Cyrius cc5 (Linux ELF): 507,136 B (v5.5.40)
+- cc5_win.exe (Windows PE): ~554 KB (PE format overhead + v5.5.35 .reloc)
 - cc5 compiles itself in milliseconds (no cache, no incremental build —
   just `cat src/main.cyr | cc5 > cc5_new`).
 
@@ -105,3 +105,7 @@ echo 'int main(void) { return 42; }' > /tmp/exit42.c && \
 - **v5.5.10** (2026-04-20): first comprehensive multi-platform measurement.
   Native Windows self-host byte-identical fixpoint achieved; Cyrius PE
   confirmed at 1536 B on real Windows 11.
+- **v5.5.40** (2026-04-21): compiler size refreshed to 507,136 B after the
+  v5.5.x minor closed (40-patch arc: Win64 ABI end-to-end, NSS-free
+  identity quartet, foreign-dlopen, thread-local + atomics, parser/lexer
+  split, legacy cc3 retirement). Exit42 PE/ELF numbers unchanged.

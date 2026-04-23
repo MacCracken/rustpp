@@ -1,20 +1,27 @@
 # dynlib NSS-dispatch bootstrap — investigation log
 
-**Status (as of 2026-04-21):** auxv-synthesis approach confirmed
-insufficient in v5.5.25. **Re-planned** same day after external
-research agents converged on glibc maintainers' own guidance.
-Three-patch plan pinned:
+**Status (2026-04-21, closed):** the NSS-dispatch arc is
+CLOSED. The auxv-synthesis approach was confirmed insufficient
+in v5.5.25 and **re-planned** same day after external research
+converged on glibc maintainers' own guidance. The three-patch
+plan that shipped:
 
-* **v5.5.26** — `lib/pwd.cyr` + `lib/grp.cyr` (musl-style pure-
+* **v5.5.26 ✅** — `lib/pwd.cyr` + `lib/grp.cyr` (musl-style pure-
   cyrius `/etc/passwd` + `/etc/group` reader). Bypasses glibc
   NSS entirely. Solves 95% of consumers.
-* **v5.5.27** — `lib/shadow.cyr` + shakti PAM via sigil crypt.
-  Shadow auth without glibc. `/usr/sbin/unix_chkpwd` fallback
-  for non-root scenarios.
-* **v5.5.28** — `lib/fdlopen.cyr` (foreign-dlopen pattern from
-  Cosmopolitan / pfalcon). For cases that need real glibc state
-  (getaddrinfo, strerror with locale, setlocale(LC_ALL,"C"),
-  setenv realloc path).
+* **v5.5.27 ✅** — `lib/shadow.cyr` + `lib/pam.cyr` (forks
+  `/usr/sbin/unix_chkpwd` for non-root auth — same path
+  `pam_unix.so` takes from unprivileged processes). Shadow auth
+  without glibc.
+* **v5.5.28 ✅** — `lib/fdlopen.cyr` primitives + C helper
+  (foreign-dlopen pattern from Cosmopolitan / pfalcon) — the
+  API for the cases that need real glibc state. **v5.5.34**
+  completed orchestration (40/40 round-trip
+  `dlopen("libc.so.6")+dlsym("getpid")` == `syscall(SYS_GETPID)`
+  after the ELF `PF_R/PF_X` ↔ `PROT_READ/PROT_EXEC` bit-swap
+  fix).
+
+Historical log below preserved for future investigators.
 
 The v5.5.23/24/25 primitives (`dynlib_bootstrap_locale`,
 `dynlib_bootstrap_environ`, `dynlib_read_auxv`, `dynlib_auxv_get`)
