@@ -37,13 +37,17 @@
 > - **v5.6.5–v5.6.10**: compiler-optimization arc (O1
 >   instrumentation + FNV-1a, O2 peephole, O3 IR-driven passes, O4
 >   linear-scan regalloc, O5 maximal-munch, O6 slab allocator).
-> - **v5.6.11**: libro layout-dependent memory corruption
+> - **v5.6.11**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+>   in `cyrius-init.sh`).
+> - **v5.6.12**: `lib/sha1.cyr` extraction (promote `_wss_sha1` from
+>   private in `lib/ws_server.cyr` to first-class stdlib module).
+> - **v5.6.13**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.12**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.14**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.13**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.15**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.14**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.16**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
@@ -88,8 +92,10 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 
 | Bug | Impact | Pinned slot |
 |-----|--------|-------------|
-| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.11** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
-| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.12** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.12 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
+| `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.11** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
+| `lib/sha1.cyr` missing (owl) | stdlib layout | **v5.6.12** — promote `_wss_sha1` from private in `lib/ws_server.cyr` to first-class `lib/sha1.cyr` module so consumers (owl, sit, majra) don't vendor-copy. See `docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`. |
+| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.13** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
+| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.14** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.14 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -112,7 +118,7 @@ Active Bugs table above.
 
 ## v5.6.x — Language polish + compiler optimization + shared-object
 
-The v5.6.x minor bundles five arcs before v5.7.0 RISC-V opens:
+The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
 
 1. **v5.6.0 — `parse.cyr` arch-guard cleanup (✅ shipped).** Closes
    the v5.5.40-discovered Active Bug.
@@ -121,12 +127,15 @@ The v5.6.x minor bundles five arcs before v5.7.0 RISC-V opens:
 3. **v5.6.5–v5.6.10 — Compiler optimization arc (O1–O6).** The
    pinned optimization phases. Lands BEFORE RISC-V so the new
    port inherits an optimized compiler.
-4. **v5.6.11–v5.6.12 — Active-bug investigations.** Libro layout
+4. **v5.6.11–v5.6.12 — Consumer-surfaced stdlib / tooling fixes.**
+   `cyrius init` scaffold gaps + `lib/sha1.cyr` extraction, both
+   surfaced by the `owl` bootstrap.
+5. **v5.6.13–v5.6.14 — Active-bug investigations.** Libro layout
    corruption + `cc5_win.exe` HIGH_ENTROPY_VA stdin failure. If an
    investigation doesn't yield, STOP and ask — never defer or
    slip unilaterally.
-5. **v5.6.13 — Shared-object (.so / .dll / .dylib) emission.**
-6. **v5.6.14 — v5.6.x closeout + downstream ecosystem sweep gate.**
+6. **v5.6.15 — Shared-object (.so / .dll / .dylib) emission.**
+7. **v5.6.16 — v5.6.x closeout + downstream ecosystem sweep gate.**
    Last patch of v5.6.x.
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
@@ -427,14 +436,93 @@ empty. Never skip unilaterally — report measurements and ask.
 
 ---
 
-## v5.6.x — Active-bug investigations (v5.6.11–v5.6.12)
+## v5.6.x — Consumer-surfaced tooling / stdlib fixes (v5.6.11–v5.6.12)
+
+Two items raised by the `owl` bootstrap (first Cyrius consumer
+project — `cat`/`bat`-style file viewer for AGNOS). Both are
+low-severity ergonomic / layout work with no compiler code paths
+touched. Details in `docs/development/issues/owl-*.md`.
+
+### v5.6.11 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+
+Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
+out of the box and ships with string drift in generated docs.
+Reference: `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`.
+
+**Scope:**
+- **Issue 1** — write `src/test.cyr` (stub that compiles and exits
+  0 so `cyrius test` passes); the file is announced by the success
+  summary, referenced in generated `cyrius.cyml [build].test` and
+  `.github/workflows/ci.yml`, but never created.
+- **Issue 2** — global-replace `cyrius.toml` → `cyrius.cyml` in the
+  heredocs at `cyrius-init.sh:272/288/305/462/531/565`. Stale
+  boilerplate from before the `.cyml` migration; every new project
+  ships with a wrong-filename comment at the top of `src/main.cyr`
+  and in the generated `CLAUDE.md`.
+- **Issue 3** — regenerate the `--dry-run` listing from the same
+  writer-table the real path uses (or at least gate each dry-run
+  line on `$LANGUAGE`); current listing advertises
+  `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and a
+  populated `docs/development/` that the real path never creates.
+- **Issue 4** — `cyrius.cyml [package].description` always empty.
+  Add `--description=<str>` flag; when absent, default to
+  `"<name> — TODO"` rather than empty string so `cyrius publish` /
+  `cyrius distlib` / ecosystem listings get a placeholder.
+- **Issue 5** — the "directory already exists" hint suggests the
+  same command that just failed. Change the hint to `cd "$NAME" &&
+  cyrius init --language=none .` when `$NAME != "."`.
+- **Adjacent** — the `cbt` front-end caps arg forwarding at 2
+  (`cbt/cyrius.cyr:299` → `cmd_init_args(argv(2), argv(3))`), so
+  `cyrius init --language=none --agent=claude <name>` silently
+  drops later args. Raise to at least 4-arg forwarding so combined
+  flags work via the front-end instead of requiring direct script
+  invocation.
+
+**Gate:** `tests/regression-cyrius-init.sh` — after `cyrius init
+--language=none .` in an empty dir, both (a) `cyrius test` exits 0
+and (b) no generated file contains the literal string
+`cyrius.toml`. Two-flag + three-flag invocation via the `cyrius`
+front-end both reach the script with all args.
+
+### v5.6.12 — `lib/sha1.cyr` extraction
+
+SHA-1 is implemented in the stdlib but buried as private-by-
+convention `_wss_sha1` inside `lib/ws_server.cyr`. Three consumers
+already need it outside a websocket context (owl for git `.git/
+index` integration, majra has a local copy, sit will need it for
+git compat). Reference:
+`docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`.
+
+**Scope:**
+- Create `lib/sha1.cyr` with a clear public API (`fn sha1(data,
+  len, digest_out)`), FIPS 180-4 constants + round function,
+  module header explicitly flagging "NOT a trust primitive — see
+  `lib/sigil.cyr` for SHA-256/512 if you need collision resistance."
+- Route `lib/ws_server.cyr`'s `_wss_sha1` through the new
+  `sha1(...)` (preserve the `_wss_` wrapper at the call site for
+  ws_server-internal readability; the body delegates).
+- Add `"sha1"` to `cyrius deps`' known-stdlib list so
+  `[deps].stdlib = ["sha1", ...]` resolves.
+- `tests/tcyr/sha1.tcyr` — NIST FIPS 180-4 test vectors (`"abc"`,
+  million-`a`, etc.).
+- Downstream majra patch bump (out-of-tree, tracked separately)
+  drops its local copy once `lib/sha1.cyr` ships.
+
+**Gate:** byte-identical self-host (stdlib addition, zero compiler
+change); `tests/tcyr/sha1.tcyr` passes; `lib/ws_server.cyr`
+byte-identical after refactor; v5.6.12 check.sh exercises the new
+test.
+
+---
+
+## v5.6.x — Active-bug investigations (v5.6.13–v5.6.14)
 
 Both surviving Active Bugs investigate on a clean post-optimization
 baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.11 — Libro layout-dependent memory corruption
+### v5.6.13 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -453,14 +541,14 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.12 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.14 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
 fine, but `cc5_win.exe`'s stdin-read path fails 5/5 under 64-bit
 ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only.
 
-**Why re-try at v5.6.12 (vs leave as known-shipping limit):** the
+**Why re-try at v5.6.14 (vs leave as known-shipping limit):** the
 PE backend has changed materially since v5.5.35:
 - v5.5.36 added struct-return + varargs syntax + `__chkstk` (any
   of which may shift the failure surface).
@@ -479,7 +567,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.13 — Shared-object emission completion
+### v5.6.15 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -508,7 +596,7 @@ tolerantly ignored by modern glibc — we haven't tested.
   `SYSV_HASH` cleanly.
 
 **Why this slot:** not blocking any active consumer, but the
-partial state is a known audit rough edge. Lands before v5.6.14
+partial state is a known audit rough edge. Lands before v5.6.16
 closeout so the audit item is cleared before the downstream
 arch-neutral sweep begins. An alternate fit is v5.8.1 post-bare-
 metal, but bare-metal doesn't exercise `.so` emission (kernel is
@@ -521,7 +609,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.14 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.16 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full
@@ -535,7 +623,7 @@ genesis repo Phase 13B (arch-neutral boot pipeline —
 `build-order.txt`) and the ecosystem arch-neutral sweep: must-touch
 (agnos, kybernet, argonaut, agnosys, sigil), should-touch (ark,
 nous, zugot, agnova, takumi), may-touch (phylax, shakti,
-ai-hwaccel, seema). All of them wait on v5.6.14 and must complete
+ai-hwaccel, seema). All of them wait on v5.6.16 and must complete
 before v5.7.0 RISC-V opens. Practical consequence: the closeout
 carries extra rigor beyond the standard pass —
 
@@ -543,7 +631,7 @@ carries extra rigor beyond the standard pass —
   orphan allocations surfaced during the optimization arc. Leave
   no "temporary" arenas downstream would have to work around.
 - **Refactor pass** — one targeted sweep for naming/API drift
-  introduced across v5.6.0–v5.6.13. If a public function got
+  introduced across v5.6.0–v5.6.15. If a public function got
   reshaped mid-arc, this is the last chance to stabilize the name
   before downstream repos pin to it.
 - **Audit pass** — dead code, stale comments, orphan tests,
@@ -551,15 +639,15 @@ carries extra rigor beyond the standard pass —
   they mirror in their own sweeps.
 - **Downstream dep-pointer check** — walk every downstream repo's
   `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
-  against the v5.6.14 artifacts. Broken pins get fixed before
+  against the v5.6.16 artifacts. Broken pins get fixed before
   v5.7.0 opens, not after.
-- **Compiler surface freeze signal** — after v5.6.14 ships, public
+- **Compiler surface freeze signal** — after v5.6.16 ships, public
   compiler API is frozen for the duration of the downstream sweep
   (approximately one minor cycle). v5.7.0 RISC-V can add, but not
   reshape, existing surface.
 
 Rationale: downstream projects are batching their own arch-neutral
-work against this closeout. If v5.6.14 ships with loose ends, each
+work against this closeout. If v5.6.16 ships with loose ends, each
 downstream repo absorbs the cost and the sweep fragments. One
 tight closeout here is cheaper than N downstream workarounds.
 
@@ -629,9 +717,9 @@ platforms). RISC-V needs:
   optimization. v5.6.9 (maximal-munch) in particular matters —
   rv64 backend lands its tile table against the new walker on
   day one instead of retrofitting.
-- **v5.6.13** — shared-object emission landed (audit rough edge
+- **v5.6.15** — shared-object emission landed (audit rough edge
   closed before new port opens).
-- **v5.6.14** — downstream ecosystem sweep gate complete.
+- **v5.6.16** — downstream ecosystem sweep gate complete.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
   uses the new syntax from day one, no legacy `#ifdef
   CYRIUS_ARCH_RISCV64` sites to migrate.
@@ -650,7 +738,7 @@ kernel is the concrete consumer. Slid with the optimization minor
 insert (was v5.7.0 pre-v5.6.x pin). Details pinned closer to
 landing — rough scope: ELF no-libc output format, interrupt-handler
 emit conventions, kernel-mode syscall stubs stripped, boot pipeline
-from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.14 gate).
+from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.16 gate).
 
 ---
 
@@ -1019,8 +1107,10 @@ enables adding new targets without touching the frontend.
 | Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** ✅ | Small |
 | `#must_use` + `@unsafe` attributes | **v5.6.3** ✅ | Small |
 | `#deprecated("reason")` attribute | **v5.6.4** ✅ | Small |
-| Libro layout-corruption investigation | **v5.6.11** | Investigation |
-| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.12** | Investigation |
+| `cyrius init` scaffold gaps (owl) | **v5.6.11** | Small |
+| `lib/sha1.cyr` extraction (owl) | **v5.6.12** | Small |
+| Libro layout-corruption investigation | **v5.6.13** | Investigation |
+| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.14** | Investigation |
 | First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium |
 | Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium |
 | Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large |
@@ -1212,7 +1302,7 @@ patches:
   include `ELVRLOAD`/`ELVRSTORE`, `CLASSIFY_CF`/`CF_TARGET`, IR
   scaffolding `IR_NODE_FL`, `IR_BB_*`, `IR_EDGE_*`, `ir_emit2`,
   `ir_lower_all`, `ir_apply_lase`, `ir_dead_block_elim`,
-  `_macho_wstr_pad`, `SYSV_HASH` (if v5.6.14 doesn't re-wire it).
+  `_macho_wstr_pad`, `SYSV_HASH` (if v5.6.15 doesn't re-wire it).
   Audit which are speculative scaffolding for future work vs
   genuinely dead, and delete the latter.
 - **`_TARGET_*` flag consolidation.** `_TARGET_MACHO`,
