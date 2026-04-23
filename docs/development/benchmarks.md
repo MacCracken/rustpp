@@ -1,0 +1,107 @@
+# Cyrius Compiler Benchmarks
+
+Baseline measurements for the v5.6.x optimization arc (v5.6.5–v5.6.10).
+Numbers gathered with `CYRIUS_PROF=1` in-compiler timing (monotonic
+clock via `clock_gettime(CLOCK_MONOTONIC)` — syscall 228 on Linux
+x86_64, 113 on Linux aarch64) and cross-checked with shell `time`.
+
+Workload: self-host compile (`cc5 < src/main.cyr > /dev/null`). This
+is the canonical benchmark because it exercises every phase of the
+compiler against its own source — the largest, densest input the
+compiler sees in practice. Measured from warm cache (3+ pre-runs
+discarded, best-of-5 median reported).
+
+Hardware: Linux 6.18.22-1-lts, x86_64. Precise chip omitted — what
+matters is the relative delta between releases on the same machine.
+
+## v5.6.x series — `src/main.cyr` self-host compile
+
+| Release | Median (ms) | Δ vs v5.6.4 | Change |
+|---------|-------------|-------------|--------|
+| v5.6.4 (pre-O1 baseline) | 409 | — | — |
+| v5.6.5 (O1: FNV-1a FINDFN + PROF scaffold) | 402 | −7 ms (−1.7 %) | FNV-1a hash table for fn-name lookup at 0x10C000 (16 KB, 8192 slots, load factor 0.5); open-addressing with linear probing; existing linear-scan fallback preserved for use-alias resolution. |
+
+### v5.6.5 finding vs v5.6.4 prediction
+
+The v5.6.5 roadmap entry predicted "10–25 % compile-throughput" from
+the FNV-1a hash. Observed: 1.7 %. Actual FINDFN is not the hot path —
+the compiler's ~500 fn-count stays in a regime where linear scan +
+early-exit STREQ on mismatched prefixes is already fast enough that
+the hash lookup's FNV-1a loop + probe comparison doesn't dominate.
+
+Implication for v5.6.6 peephole work: the parse / emit / fixup
+phases must be the real time sinks. Per-phase instrumentation (which
+v5.6.5 intentionally scoped to just total compile time) is a natural
+v5.6.6 refinement if we need to pick between peephole candidates.
+
+The FNV-1a delta IS real and byte-identical-self-host-safe, so v5.6.5
+ships it. The 1.7 % number just sets expectations: optimization
+predictions are upper bounds, and the O-arc total (10–60 % expected
+per roadmap §v5.6.x) should be re-verified patch-by-patch rather
+than assumed.
+
+## v5.6.x series — regression.tcyr
+
+Smaller workload (~200 LOC, ~40 fns in scope) for sensitivity check.
+
+| Release | Median (ms) | Δ vs v5.6.4 | Notes |
+|---------|-------------|-------------|-------|
+| v5.6.4 (pre-O1 baseline) | 53 | — | Dominated by stdlib-include expansion, not compile-core. |
+| v5.6.5 (O1: FNV-1a FINDFN) | 51 | −2 ms (−3.8 %) | Slightly better relative scaling — smaller fn count means FINDFN weight is proportionally larger. |
+
+## Methodology / tooling
+
+### `CYRIUS_PROF=1` environment flag
+
+v5.6.5 adds `CYRIUS_PROF=1` as an opt-in runtime flag. When set,
+cc5 records `clock_gettime(CLOCK_MONOTONIC)` at entry (after env
+predefines land, before `PREPROCESS`) and again just before
+`syscall(SYS_EXIT, 0)`, printing `prof: compile <ms> ms` to stderr.
+
+Usage:
+
+```sh
+CYRIUS_PROF=1 build/cc5 < src/main.cyr > /tmp/cc5_out 2> /tmp/cc5.prof
+cat /tmp/cc5.prof
+# → prof: compile 400 ms
+```
+
+Costs when CYRIUS_PROF is unset: one env-var lookup (3 syscalls
+against /proc/self/environ, already in init path for other envs) +
+a single `load8` comparison. ~µs, unmeasurable in compile-time deltas.
+
+Costs when CYRIUS_PROF=1: add two `clock_gettime` calls (~100 ns
+each) + a handful of `syscall(SYS_WRITE)` calls at exit. Also <1 ms.
+
+### Per-phase breakdown — deferred
+
+v5.6.5 reports total compile time only. Per-phase counters (lex /
+preprocess / parse / emit / fixup) are a natural extension if a
+specific optimization patch needs to choose between candidates by
+measured phase weight. Not speculatively added — no current patch
+demands it.
+
+### Cross-compiler profiling
+
+`cc5_aarch64` uses syscall 113 (aarch64 Linux generic table number for
+`clock_gettime`); x86 uses 228. Windows PE and macOS Mach-O cross
+outputs fall through to `return 0` in `_prof_clock_ns` since those
+syscall numbers mean something different on those OSes. Profiling
+data on PE / Mach-O is not meaningful for v5.6.5 (prints `0 ms`);
+shell-level timing (`time cc5_win.exe < ...`) is the recommendation
+for those targets until per-target clock wrappers land.
+
+## Notes for v5.6.6 (peephole) and later
+
+- **Don't re-predict 10–25 %** without evidence. The v5.6.5 result
+  shows backend-phase cost dominates, not FINDFN. Peephole wins
+  should fall on emit-phase bytes, and the measurement should be
+  byte-count of generated code rather than (or in addition to)
+  compile wall-clock.
+- **Add per-phase counters when they pay off.** If v5.6.6's
+  strength-reduction / flag-reuse / move-elim produce outputs whose
+  size delta is visible but compile-time delta is noisy, split the
+  prof dump into `lex / parse / emit / fixup` segments at that point
+  and re-measure.
+- **Don't measure on a busy host.** Variance between runs is 2–3 %
+  even on an idle machine; median-of-5 is the floor for reporting.

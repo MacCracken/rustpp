@@ -16,6 +16,39 @@ include "src/frontend/parse_ctrl.cyr"
 # FUNCTION TABLE + CODEGEN
 # ================================================================
 
+# v5.6.5 O1: FNV-1a over the null-terminated ident at S+0x60000+noff.
+# Returns the 64-bit hash. Caller masks with (table_size - 1) to land
+# a slot. Constants are the standard FIPS-spec 64-bit FNV-1a values
+# (offset basis + prime). Cyrius multiplies wrap on 2's-complement so
+# the natural u64 arithmetic this algorithm assumes works directly.
+fn FNV1A_NOFF(S, noff) {
+    var h = 0xcbf29ce484222325;
+    var i = 0;
+    var c = load8(S + 0x60000 + noff + i);
+    while (c != 0) {
+        h = h ^ c;
+        h = h * 0x100000001b3;
+        i = i + 1;
+        c = load8(S + 0x60000 + noff + i);
+    }
+    return h;
+}
+
+# v5.6.5 O1: insert (noff → fi) into fn_name_hash at 0x10C000 via
+# linear probing. Stored value is fi+1 so 0 marks empty (zero-init
+# heap gives us free initialization). Called from REGFN after the
+# fn_names entry is written. Load factor 0.5 at 4096-fn cap means
+# avg ~1.5 probes to insert.
+fn _REGFN_HASH(S, noff, fi) {
+    var h = FNV1A_NOFF(S, noff);
+    var slot = h & 8191;
+    while (load16(S + 0x10C000 + slot * 2) != 0) {
+        slot = (slot + 1) & 8191;
+    }
+    store16(S + 0x10C000 + slot * 2, fi + 1);
+    return 0;
+}
+
 # Register new function, return index
 fn REGFN(S, noff) {
     var fc = GFNC(S);
@@ -29,21 +62,33 @@ fn REGFN(S, noff) {
     S64(S + 0xE92000 + fc * 8, 0 - 1);
     S64(S + 0xE9A000 + fc * 8, 0);
     SFNC(S, fc + 1);
+    _REGFN_HASH(S, noff, fc);
     return fc;
 }
 
-# Find function by name, return index or -1
+# Find function by name, return index or -1. v5.6.5 O1: hash-table
+# fast path first (FNV-1a at 0x10C000). Open-addressing with linear
+# probing; stop on empty slot or content match via STREQ. Fall through
+# to the use-alias linear scan only on hash miss — direct fn-name
+# lookups (the >99% hot path) hit the hash and return immediately.
 fn FINDFN(S, noff) {
-    var fc = GFNC(S);
-    var i = 0;
-    while (i < fc) {
-        var sn = L64(S + 0xE8A000 + i * 8);
-        if (STREQ(S, sn, noff) == 1) { return i; }
-        i = i + 1;
+    var h = FNV1A_NOFF(S, noff);
+    var slot = h & 8191;
+    var probes = 0;
+    while (probes < 8192) {
+        var stored = load16(S + 0x10C000 + slot * 2);
+        if (stored == 0) { probes = 8192; }
+        else {
+            var fi = stored - 1;
+            var sn = L64(S + 0xE8A000 + fi * 8);
+            if (STREQ(S, sn, noff) == 1) { return fi; }
+            slot = (slot + 1) & 8191;
+            probes = probes + 1;
+        }
     }
     # Check use aliases: if noff matches a use_from, look up use_to
     var uc = GUSEC(S);
-    i = 0;
+    var i = 0;
     while (i < uc) {
         var ufrom = L64(S + 0x8FFD0 + i * 8);
         if (STREQ(S, ufrom, noff) == 1) {

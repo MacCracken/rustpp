@@ -1,15 +1,17 @@
 # Cyrius Development Roadmap
 
-> **v5.6.4.** cc5 compiler (525,344 B x86_64), x86_64 + aarch64
+> **v5.6.5.** cc5 compiler (526,888 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
-> 4), Windows 11, and macOS arm64. **v5.6.4 closes the
-> small-language-polish arc with `#deprecated("reason")`** —
-> call-site warning at every invocation, fn_flags bit 2 + string
-> side-table at 0x104000. v5.6.3 added `#must_use` + `@unsafe`;
-> v5.6.2 added explicit overflow operators; v5.6.1 added `#else` /
-> `#elif` / `#ifndef` preprocessor; v5.6.0 closed the v5.5.40
-> `parse.cyr` arch-guard carry-over.
+> 4), Windows 11, and macOS arm64. **v5.6.5 opens the compiler-
+> optimization arc with Phase O1: FNV-1a hash for FINDFN +
+> CYRIUS_PROF=1 total-compile-time instrumentation + baseline
+> numbers in `docs/development/benchmarks.md`.** Measured self-host
+> delta vs v5.6.4: −1.7 % (409 → 402 ms median) — below the 10–25 %
+> prediction; FINDFN is not the hot path. See benchmarks.md for
+> detail. v5.6.1–v5.6.4 closed the small-language-polish arc
+> (`#else`/`#elif`/`#ifndef`, overflow operators, `#must_use` +
+> `@unsafe`, `#deprecated`).
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -331,7 +333,7 @@ self-host must hold; every pass must be deterministic.
   user to decide after the O4 numbers land — not a unilateral
   skip.
 
-### v5.6.5 — Phase O1: instrumentation + FNV-1a symbol table
+### v5.6.5 — Phase O1: instrumentation + FNV-1a symbol table ✅ shipped
 
 Baseline before tuning anything. ~240 LOC.
 

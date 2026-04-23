@@ -5,6 +5,19 @@
 # Emits aarch64 ELF64 binary (e_machine=0xB7=183).
 
 var _env_scratch[256];
+
+# v5.6.5 O1: nanosecond wall clock for CYRIUS_PROF. Linux aarch64:
+# clock_gettime(CLOCK_MONOTONIC=1, &ts) via syscall 113 (generic
+# table number, different from x86_64's 228). See x86 fixup.cyr for
+# the peer + rationale.
+fn _prof_clock_ns() {
+    var ts[16];
+    #ifdef CYRIUS_TARGET_LINUX
+    syscall(113, 1, &ts);
+    #endif
+    return load64(&ts) * 1000000000 + load64(&ts + 8);
+}
+
 # Read an env var by name. Returns &_env_scratch (NUL-terminated value) or 0.
 # aarch64 Linux syscalls: openat=56, read=63, close=57.
 fn _read_env(name) {

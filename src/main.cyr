@@ -132,6 +132,16 @@
 #                                        (same encoding as string-literal
 #                                        token values). Parallel to
 #                                        fn_flags bit 2.
+#   0x10C000 fn_name_hash  [16384]       8192 slots × 2B — FNV-1a open-
+#                                        addressing hash of fn-name strings
+#                                        at S+0x60000+noff → (fi+1). 0 =
+#                                        empty slot (zero-init heap makes
+#                                        this free). Probing: linear with
+#                                        mask 8191. Load factor 0.5 at
+#                                        4096-fn cap. Accelerates FINDFN's
+#                                        hot path from O(N) linear scan to
+#                                        O(1) expected. Use-alias fallback
+#                                        remains linear in FINDFN. v5.6.5.
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
@@ -233,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.4\n", 10);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.5\n", 10);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -386,6 +396,23 @@ if (_is_pe_build == 1) {
 } else {
     PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
 } }
+
+# v5.6.5 O1: total compile-time instrumentation. Gated by the
+# CYRIUS_PROF env var (set to "1" to enable). Reads clock_gettime(
+# CLOCK_MONOTONIC) now, again at exit, prints elapsed-ms to stderr.
+# Cross-arch via #ifdef in _prof_clock_ns — x86_64 uses syscall 228,
+# aarch64 uses 113; other targets return 0 so the breakdown reads
+# "0 ms" but doesn't crash. Env read costs ~3 syscalls; clock reads
+# are ~100 ns each — negligible even when CYRIUS_PROF is off
+# because _prof_t0 still gets captured to keep the init path
+# straight-line (byte-identical doesn't depend on this).
+var _prof_on_env = _read_env("CYRIUS_PROF");
+var _prof_on = 0;
+if (_prof_on_env != 0) {
+    if (load8(_prof_on_env) == 49) { _prof_on = 1; }
+}
+var _prof_t0 = 0;
+if (_prof_on == 1) { _prof_t0 = _prof_clock_ns(); }
 
 # Preprocess includes
 PREPROCESS(S);
@@ -899,5 +926,19 @@ while (wgo == 1) {
         written = written + w;
         if (written >= olen) { wgo = 0; }
     }
+}
+
+# v5.6.5 O1: if CYRIUS_PROF=1, dump total compile time to stderr
+# before exiting. Captured _prof_t0 just after env predefines (top
+# of file); difference is "preprocess + lex + parse + emit + fixup
+# + write" — the full useful span. Per-phase breakdown is a future
+# refinement; total time is enough baseline to measure O2–O6 gains
+# against.
+if (_prof_on == 1) {
+    var _prof_t1 = _prof_clock_ns();
+    var _prof_ms = (_prof_t1 - _prof_t0) / 1000000;
+    syscall(SYS_WRITE, 2, "prof: compile ", 14);
+    PRNUM(_prof_ms);
+    syscall(SYS_WRITE, 2, " ms\n", 4);
 }
 syscall(SYS_EXIT, 0);

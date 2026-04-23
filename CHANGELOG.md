@@ -4,6 +4,103 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.5] — 2026-04-23
+
+**Opens v5.6.x compiler optimization arc — Phase O1: instrumentation
++ FNV-1a symbol table.** Baseline before tuning anything (O2–O6 will
+measure their wins against this release's numbers). Two pieces land
+together: FNV-1a hash acceleration for `FINDFN`/`REGFN`, and a
+`CYRIUS_PROF=1`-gated total-compile-time reporter.
+
+### Added — FNV-1a hash for `FINDFN` / `REGFN` (0x10C000, 16 KB)
+
+Pre-v5.6.5 `FINDFN` was a linear scan over `fn_names[0..fc)` — O(N)
+per call, hit on every identifier reference in the parse stream.
+v5.6.5 adds a parallel hash table at `0x10C000`:
+
+- **Size:** 8192 slots × 2 bytes = 16 KB. Load factor 0.5 at the
+  4096-fn cap; avg 1.5 probes expected for hit, ~1 for miss.
+- **Encoding:** each slot holds `fi + 1`; 0 = empty. Zero-init heap
+  makes setup free (no explicit memset of the region). Cap 4096 fits
+  in u16 cleanly.
+- **Algorithm:** FNV-1a 64-bit hash over the null-terminated ident
+  at `S + 0x60000 + noff` (offset basis `0xcbf29ce484222325`, prime
+  `0x100000001b3`, wrapping u64 multiply — cyrius's bare `*` gives
+  2's-complement wrap for free per v5.6.2 semantics). Slot =
+  `hash & 8191`. Linear probing; stop on empty or on `STREQ` hit.
+- **Call-site integration:** `REGFN` inserts into hash after writing
+  `fn_names[fi]`. `FINDFN` hashes first; on hash miss (empty slot
+  reached without STREQ match) it falls through to the existing
+  use-alias linear scan (rare path). Behavior preserved exactly —
+  byte-identical self-host verified.
+
+Heap placement documented in `src/main.cyr` line 116-ish (now includes
+`fn_name_hash` entry at 0x10C000). v5.5.40 heap-map auditor picks up
+the new region without code change.
+
+### Added — `CYRIUS_PROF=1` total-compile-time reporter
+
+Simple on/off opt-in. When `CYRIUS_PROF=1` is set in the environment,
+cc5 records `clock_gettime(CLOCK_MONOTONIC, &ts)` right after the env
+predefines (top of `main.cyr`, before `PREPROCESS`) and again just
+before `syscall(SYS_EXIT, 0)`, printing `prof: compile <N> ms` to
+stderr.
+
+- **Per-arch:** `_prof_clock_ns()` helper lives in both x86 and aarch64
+  `fixup.cyr`. x86 uses syscall 228; aarch64 uses 113 (generic table
+  number). `#ifdef CYRIUS_TARGET_LINUX` gates the syscall. Non-Linux
+  targets fall through to `return 0` — profiling on PE / Mach-O reads
+  as `0 ms` until a per-target wrapper lands.
+- **Cost when off:** one `_read_env("CYRIUS_PROF")` call (~3 syscalls
+  against `/proc/self/environ`, same path used for other envs) plus a
+  byte comparison. Negligible; absorbed into existing init overhead.
+- **Cost when on:** two `clock_gettime` (~100 ns each) plus a handful
+  of `SYS_WRITE` at exit. <1 ms total.
+- **Per-phase breakdown deferred:** v5.6.5 reports total time only.
+  If a future patch needs to pick between candidates by phase, the
+  scaffold extends cleanly (split `_prof_t0` into `_prof_t_lex`,
+  `_prof_t_parse`, etc.).
+
+### Added — `docs/development/benchmarks.md`
+
+Baseline numbers for the v5.6.x optimization arc. Documents:
+
+- v5.6.4 pre-O1 self-host median: **409 ms**.
+- v5.6.5 (FNV-1a + PROF scaffold off) self-host median: **402 ms**
+  (−7 ms, −1.7 %).
+- Smaller workload (`tests/tcyr/regression.tcyr`) baseline: 53 → 51 ms
+  (−3.8 %).
+- `CYRIUS_PROF=1` usage.
+- Per-phase deferral rationale.
+
+### Reality-check on the v5.6.5 prediction
+
+Roadmap predicted "10–25 % compile-throughput" from FNV-1a. Observed:
+1.7 %. FINDFN is not the hot path — at cc5's ~500 fn count, linear
+scan + early-exit STREQ on mismatched prefixes is already fast enough
+that the hash doesn't dominate. This is useful data for v5.6.6+:
+
+- The parse / emit / fixup phases are the real time sinks.
+- Peephole and IR-driven wins (v5.6.6–v5.6.7) should be measured on
+  generated-code byte count in addition to compile wall-clock.
+- When a specific optimization's effect is ambiguous, extend the
+  prof scaffold to split per-phase and re-measure.
+
+The v5.6.5 numbers set expectations, not targets. Shipping them lets
+v5.6.6 etc. measure real deltas against a stable reference.
+
+### Mechanical
+
+- Self-host byte-identical (cc5 → cc5b).
+- `sh scripts/check.sh` 19/19 green.
+- cc5 size 525,344 → 526,888 B (+1,544 B / +0.29 %). All in the FNV-1a
+  helpers, `_REGFN_HASH` insertion, FINDFN hash-fast-path, `_prof_*`
+  helpers + exit print, and the env-var check.
+- cc5_aarch64 cross still emits `e_machine 0xB7`; cc5_win cross still
+  produces valid PE32+. No arch-specific codegen paths touched —
+  FINDFN/REGFN are shared frontend code, and `_prof_clock_ns` lives
+  in per-arch fixup.cyr to pick the right syscall number.
+
 ## [5.6.4] — 2026-04-22
 
 **`#deprecated("reason / replacement")` fn-level attribute.** Last

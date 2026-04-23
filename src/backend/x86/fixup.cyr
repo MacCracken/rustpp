@@ -5,6 +5,21 @@
 # Static scratch for env value (256 bytes)
 var _env_scratch[256];
 
+# v5.6.5 O1: nanosecond wall clock for CYRIUS_PROF instrumentation.
+# Linux x86_64: clock_gettime(CLOCK_MONOTONIC=1, &ts) via syscall 228.
+# Returns seconds*1e9 + nanoseconds. Non-Linux targets fall through
+# to the `return 0` path (syscall 228 on macOS/PE doesn't exist or
+# means something different, so the ts buffer stays zero-filled and
+# the return is 0). Caller (main.cyr) only calls this when
+# CYRIUS_PROF=1, so the cost on normal builds is zero.
+fn _prof_clock_ns() {
+    var ts[16];
+    #ifdef CYRIUS_TARGET_LINUX
+    syscall(228, 1, &ts);
+    #endif
+    return load64(&ts) * 1000000000 + load64(&ts + 8);
+}
+
 # Read an env var by name. Returns &_env_scratch (NUL-terminated value) or 0.
 # v5.5.9: /proc/self/environ is Linux-only. On Windows, gate the whole
 # body so the fn returns 0 (env var not found). GetEnvironmentVariableW-
