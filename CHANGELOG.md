@@ -4,6 +4,108 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.1] — 2026-04-22
+
+**`#else` / `#elif` / `#ifndef` preprocessor directives.** The long-
+standing gap in the preprocessor family (pair-of-`#ifdef` was the
+only way to express branching). 60+ stdlib selectors that currently
+write paired `#ifdef CYRIUS_TARGET_LINUX` / `#ifdef CYRIUS_TARGET_WIN`
+blocks can migrate at leisure.
+
+### Added — three new preprocessor directives
+
+* **`#ifndef NAME`** — inverse of `#ifdef`. Emits body iff `NAME` is
+  NOT defined. New detector `ISIFNDEF` in
+  `src/frontend/lex_pp.cyr`; handler wires into both `PP_PASS` and
+  `PP_IFDEF_PASS` alongside the existing ISIFDEF case.
+* **`#else`** — flips the current `#if*` level's branch. New
+  detector `ISELSE` (5-byte literal, requires whitespace / newline
+  terminator so hypothetical `#elseif` would not silently match).
+* **`#elif COND`** — conditional-branch continuation. New detector
+  `ISELIF` (6-byte literal, space-separated condition). Condition
+  uses the same `PP_EVAL_IF` evaluator as `#if` — supports `==`,
+  `!=`, `<`, `>`, `<=`, `>=` against integer literals, plus the
+  bare-name truthiness check.
+
+### Changed — per-level preprocessor state machine
+
+Pre-v5.6.1 the preprocessor tracked only a single `skip_depth`
+counter. That's enough for `#ifdef`/`#endif` (increment on push,
+decrement on pop) but loses the per-level "has a true branch
+already been taken here" bit that `#else`/`#elif` need.
+
+v5.6.1 adds a small state stack at heap offset **0x97F10** (64
+bytes, one byte per nesting level — same 64-level cap as the
+existing `defer` / `continue` patch tables). Each byte encodes:
+
+| Code | State        | Meaning                                            |
+|------|--------------|----------------------------------------------------|
+| 0    | EMITTING     | current branch emits; outer emits                  |
+| 1    | SEARCHING    | current branch skips; no true match yet; outer emits |
+| 2    | DONE         | true branch already taken; skip the rest           |
+| 3    | OUTER_SKIP   | outer was skipping on entry; stays skipping        |
+
+Invariant: `skip_depth` == count of stack entries with state ≠ 0.
+The existing "emit iff skip_depth == 0" gate still holds; the stack
+only adds information needed at `#else` / `#elif` / `#endif`.
+
+Transitions (per level):
+
+* Push (`#if` / `#ifdef` / `#ifndef` / `#ifplat`): examine outer
+  `skip_depth`. If > 0, push `3` and increment. If == 0, push `0`
+  (cond true) or `1` (cond false, increment).
+* `#else`: `0 → 2` (was emit, now done-skip, +1), `1 → 0` (was
+  search, else wins, −1), `2 → 2`, `3 → 3`.
+* `#elif COND`: `0 → 2` (+1), `1 → (cond ? 0 : 1)` (−1 on flip),
+  `2 → 2`, `3 → 3`.
+* Pop (`#endif` / `#endplat`): if state ≠ 0, decrement; drop entry.
+
+Heap slot justification: 0x97F10–0x97F4F (64 bytes) sits in the
+248-byte gap between `include_count` (0x97F00) and `gvar_toks`
+(0x98000); nothing else wrote into that region. `pp_depth` remains
+a function-local `var` in each pass (reset at the top of `PP_PASS`
+/ `PP_IFDEF_PASS`) — the shared heap stack is walked by index.
+
+Detector placement is order-sensitive:
+
+* `ISIFDEF` (byte 3 = `d`) and `ISIFNDEF` (byte 3 = `n`) match
+  different byte patterns — either order works.
+* `ISIFPLAT` (byte 3 = `p`) must precede `ISIF` because `ISIF`'s
+  byte-3-must-be-space check fails on `#ifp...`, but the guard
+  against 4th-byte `d` (filtering `#ifdef`) was already present;
+  the new check for 4th-byte `n` is implicit (ISIFNDEF fires first).
+* `ISELIF` and `ISELSE` detectors don't clash with `#endif` / `#endplat`
+  (byte 1 `n` vs `e`) — placed after the push block, before
+  `ISENDIF` in the handler chain.
+* `ISENDPLAT` keeps its position after `ISENDIF` for the same
+  `#endp` → `#end` prefix reason as v5.4.19.
+
+### Mechanical
+
+* Self-host byte-identical (cc5 → cc5_b → cc5_b matches cc5).
+* `sh scripts/check.sh` 19/19 gates green.
+* Seven inline preprocessor scenarios exercised: `#ifndef`
+  (defined/undefined), `#ifdef`+`#else` (both branches), `#if`/
+  `#elif`/`#else` chain (middle match + else match), nested
+  `#ifdef` with `#else` inside both true-outer and false-outer.
+  All seven emit the expected program.
+* cc5 size 508,880 → 515,344 B (+6,464 B / +1.27 %) — state-stack
+  dispatch logic + two new detectors + docs comments. No new
+  runtime overhead outside the preprocessor passes.
+* `e_machine` 0xB7 still produced by `cc5_aarch64` cross; PE32+
+  cross-build still valid; no cc5_win/cc5_aarch64 logic paths
+  affected (preprocessor is arch-neutral frontend code).
+
+### Deferred
+
+Converting the 60+ stdlib paired-`#ifdef` sites to the new cleaner
+`#ifdef / #else / #endif` form is deliberately *not* bundled into
+v5.6.1. It's a byte-identical-outcome mechanical migration that
+can ride individual stdlib-change patches; bundling would make
+this release diff noisy without functional value. CHANGELOG entries
+for such migrations (when they happen) should note which file
+switched form but should not produce a semantic diff.
+
 ## [5.6.0] — 2026-04-22
 
 **Opens v5.6.x — `parse.cyr` arch-guard cleanup.** v5.5.40's closeout

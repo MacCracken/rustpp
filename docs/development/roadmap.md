@@ -1,13 +1,12 @@
 # Cyrius Development Roadmap
 
-> **v5.6.0.** cc5 compiler (508,880 B x86_64), x86_64 + aarch64
+> **v5.6.1.** cc5 compiler (515,344 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
-> 4), Windows 11, and macOS arm64. **Opens v5.6.x with the
-> `parse.cyr` arch-guard cleanup** — closes the v5.5.40-discovered
-> Active Bug by adding `_AARCH64_BACKEND` dispatch (or hard-error
-> with a clear message) to four sites that previously spliced raw
-> x86 bytes into aarch64 codebufs.
+> 4), Windows 11, and macOS arm64. **v5.6.1 adds `#else` / `#elif`
+> / `#ifndef` preprocessor directives** backed by a per-level
+> state stack at heap 0x97F10; v5.6.0 closed the v5.5.40 `parse.cyr`
+> arch-guard carry-over.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -23,9 +22,11 @@
 > **What's next (v5.6.x–v5.12.x):**
 > - **v5.6.0**: ✅ shipped — `parse.cyr` arch-guard cleanup
 >   (closes the v5.5.40 carry-over Active Bug).
-> - **v5.6.1–v5.6.4**: small language polish — `#else`/`#elif`
->   preprocessor, explicit overflow operators (`+%`/`+|`/`+?`),
->   `#must_use` + `@unsafe` attributes, `#deprecated` attribute.
+> - **v5.6.1**: ✅ shipped — `#else` / `#elif` / `#ifndef`
+>   preprocessor directives (per-level state stack at 0x97F10).
+> - **v5.6.2–v5.6.4**: remaining small language polish — explicit
+>   overflow operators (`+%`/`+|`/`+?`), `#must_use` + `@unsafe`
+>   attributes, `#deprecated` attribute.
 > - **v5.6.5**: libro layout-dependent memory corruption
 >   investigation (3-attempts-defer applies).
 > - **v5.6.6**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
@@ -165,29 +166,42 @@ findings:
 507,136 → 508,880 B (+1,744 B). cc5_aarch64 cross still emits
 `e_machine` 0xB7. cc5_win cross still produces valid PE32+.
 
-### v5.6.1 — `#else` / `#elif` preprocessor directives
+### v5.6.1 — `#else` / `#elif` / `#ifndef` preprocessor ✅ shipped
 
-Currently every stdlib OS/arch selector writes paired
-`#ifdef CYRIUS_TARGET_LINUX` / `#ifdef CYRIUS_TARGET_WIN`
-blocks because the preprocessor has `#ifdef` + `#endif` but
-no `#else` or `#elif`. v5.4.19 shipped `#ifplat` which
-helped, but the general conditional family is still absent.
+Closes the long-standing gap where every stdlib selector wrote
+paired `#ifdef CYRIUS_TARGET_LINUX` / `#ifdef CYRIUS_TARGET_WIN`
+blocks. The preprocessor now has the full C-family conditional
+family.
 
-**Scope:**
-- Lex `#else` (existing-token repurpose if feasible), `#elif`,
-  `#ifndef` in `src/frontend/lex_pp.cyr`.
-- Extend `PP_IFDEF_PASS` state machine to track nesting depth
-  and branch-taken status.
-- Update stdlib selectors (`lib/syscalls.cyr`, `lib/alloc.cyr`,
-  `lib/io.cyr`, `lib/args.cyr`, the per-arch dispatch in
-  parse.cyr) to use the cleaner form.
+**What landed:**
+- `ISIFNDEF` (`#ifndef NAME`), `ISELSE` (`#else`, whitespace-
+  terminated), `ISELIF` (`#elif COND`) detectors in
+  `src/frontend/lex_pp.cyr`.
+- Per-level state stack at heap `0x97F10` (64 bytes, 1 byte per
+  level, cap 64 levels — same cap as defer/continue tables).
+  Four-state encoding: 0=EMITTING, 1=SEARCHING, 2=DONE,
+  3=OUTER_SKIP. Invariant: `skip_depth == count of levels with
+  state ≠ 0`.
+- Dispatch wired in both `PP_PASS` and `PP_IFDEF_PASS`. The
+  earlier single-counter `skip_depth` is preserved as the "should
+  this byte emit?" gate; the new stack is consulted only on
+  `#else`/`#elif` state transitions and `#endif` pops.
+- Detector ordering documented inline — ISIFDEF/ISIFNDEF may
+  appear in either order (byte-3 `d` vs `n`), ISIFPLAT before
+  ISIF (byte-3 `p` vs space), ISELIF+ISELSE after the push block
+  and before ISENDIF.
 
-**Gate:** existing paired `#ifdef` sites still compile
-byte-identical; new form produces identical tokenstream.
-Regression test: single module using all three forms.
+**Mechanical:** self-host byte-identical, 19/19 check.sh, 7
+inline scenarios passed (ifndef defined/undefined, ifdef+else
+both branches, if/elif/else chain middle-match + else-match,
+nested ifdef+else inside true-outer and false-outer). cc5 size
+508,880 → 515,344 B (+6,464 / +1.27 %).
 
-**Tradeoff:** parser change; zero semantic risk. Small win
-per site, large win in aggregate across 60+ stdlib files.
+**Deferred (not bundled):** converting the 60+ stdlib
+paired-`#ifdef` sites to the new `#ifdef/#else/#endif` form is a
+byte-identical mechanical migration that rides individual stdlib
+patches — bundling would make this release diff noisy without
+functional value.
 
 ### v5.6.2 — Explicit overflow operators
 
@@ -986,7 +1000,7 @@ enables adding new targets without touching the frontend.
 | Feature | Pinned | Effort |
 |---------|--------|--------|
 | `parse.cyr` arch-guard cleanup | **v5.6.0** ✅ | Small |
-| `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.1** | Small |
+| `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.1** ✅ | Small |
 | Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** | Small |
 | `#must_use` + `@unsafe` attributes | **v5.6.3** | Small |
 | `#deprecated("reason")` attribute | **v5.6.4** | Small |
