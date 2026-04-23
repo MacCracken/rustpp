@@ -4,6 +4,70 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.37] — 2026-04-22
+
+**Fixup table cap raise 16384 → 32768 + heap reshuffle.** Unblocks
+sigil 3.0's parallel `sv_verify_batch` path that was filed as a
+cyrius compile-time blocker on 2026-04-22 (see
+`sigil/docs/development/issues/2026-04-22-cyrius-fixup-cap-raises.md`).
+Sigil's HEAD was sitting immediately below the 16384 ceiling; any
+meaningful new stdlib-primitive call site (threading, crypto, I/O)
+was tipping it over. Doubled cap lands enough headroom for the
+AGNOS ecosystem through 2027 at current growth; runtime dynamic
+sizing (the "cleaner long-term" option in the filed request) is
+deferred pending a real consumer pressure point.
+
+### Changed
+
+* **Fixup table relocated** from `0xE4A000` → `0x150B000`. Growing
+  the old slot in place would have collided with the IR region at
+  `0xECA000`; moving the table past the IR base was the
+  no-reshuffle path. 27 call sites updated
+  (`src/backend/x86/emit.cyr`, `fixup.cyr`;
+  `src/backend/aarch64/emit.cyr`, `fixup.cyr`;
+  `src/backend/cx/emit.cyr`; `src/backend/pe/emit.cyr`;
+  `src/frontend/parse.cyr`).
+* **Heap size 21.0 MB → 21.5 MB.** `brk` top bumped
+  `0x150B000` → `0x158B000` in `main.cyr`, `main_aarch64.cyr`,
+  `main_aarch64_native.cyr`; the `mmap` size in
+  `main_aarch64_macho.cyr` synced to the same value.
+  `main_win.cyr` already allocates 32 MB (0x2000000), well above
+  the new ceiling — no change needed.
+* **Cap-check sites bumped** `fc >= 16384` → `fc >= 32768` across
+  all four backends' emit paths plus `parse.cyr`'s fn-address
+  fixup registration. Error message adjusted to report the new
+  cap ("fixup table full (32768)").
+* **Capacity diagnostics bumped** in `src/common/util.cyr` and
+  the capacity meter in `src/main.cyr` (85 % of 32768 threshold
+  for the warning).
+* **Heap-map header in `main.cyr`** documents the retirement of
+  the `0xE4A000` slot (256 KB now reclaimable — noted as a free
+  zone for future feature work so the v5.5.40 closeout heap
+  audit can slot into it cleanly if useful).
+
+### Verified
+
+* `sh scripts/check.sh` 19/19 gates green.
+* Self-host byte-identical: `cmp` returns 0 on gen1 == gen2; cc5
+  binary size unchanged at 507,656 B (table relocation doesn't
+  change emitted code — same instructions, different patched
+  memory addresses at runtime).
+* **Sigil 3.0 parallel `sv_verify_batch`**: `cyrius build
+  programs/smoke.cyr build/sigil-smoke -D SIGIL_SMOKE -D
+  SIGIL_BATCH_PARALLEL` now succeeds where it was the filed
+  blocker. Default (serial) build also clean.
+
+### Downstream follow-up
+
+* **sigil**: remove the `-D SIGIL_BATCH_PARALLEL` gate in a
+  post-3.0 patch now that the cap raise landed; update the
+  quirk #5 entry in `sigil/CLAUDE.md` ("Fixup table cap:
+  16384 → 32768"). Reply to the filed issue with the v5.5.37
+  resolution.
+* **v5.5.40 closeout** picks up the 256 KB gap at `0xE4A000`
+  during the heap-map audit — either retire it formally or
+  slot a future feature there.
+
 ## [5.5.36] — 2026-04-22
 
 **PE Win64 ABI completion via three language-feature additions.**

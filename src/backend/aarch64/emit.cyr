@@ -238,13 +238,13 @@ fn EADD_IMM12(S, reg) {
 # === Fixup + variable access ===
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    if (fc >= 16384) {
+    if (fc >= 32768) {
         syscall(SYS_WRITE, 2, "error: fixup table full (", 25);
         PRNUM(fc);
-        syscall(SYS_WRITE, 2, "/8192)\n", 7);
+        syscall(SYS_WRITE, 2, "/32768)\n", 8);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0xE4A000 + fc * 16;
+    var addr = S + 0x150B000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -319,11 +319,11 @@ fn EVADDR(S, idx) {
 # String address
 fn ESADDR(S, soff) {
     var fc = GFCNT(S);
-    if (fc >= 16384) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+    if (fc >= 32768) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xE4A000 + fc * 16;
+    var faddr = S + 0x150B000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -471,11 +471,11 @@ fn EMACHO_EXIT_ARM(S) {
     EW(S, 0x910043FF);             # add sp, sp, #16 — discard sc_num
     # Record ftype=5 __got-ref fixup at the adrp that follows.
     var fc = GFCNT(S);
-    if (fc >= 16384) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+    if (fc >= 32768) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xE4A000 + fc * 16;
+    var faddr = S + 0x150B000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (5 << 56) | 0);  # ftype=5, __got slot idx=0 (_exit)
     SFCNT(S, fc + 1);
@@ -491,11 +491,11 @@ fn EMACHO_EXIT_ARM(S) {
 # slot 0 reuses FIXUP_ADRP_ADD.
 fn _EMACHO_BLR_GOT(S, slot) {
     var fc = GFCNT(S);
-    if (fc >= 16384) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+    if (fc >= 32768) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xE4A000 + fc * 16;
+    var faddr = S + 0x150B000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (5 << 56) | slot);
     SFCNT(S, fc + 1);
@@ -574,11 +574,11 @@ fn ECALLFIX(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x94000000);  # bl +0 (placeholder)
     var fc = GFCNT(S);
-    if (fc >= 16384) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+    if (fc >= 32768) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xE4A000 + fc * 16;
+    var faddr = S + 0x150B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -827,11 +827,11 @@ fn ETAILJMP(S, fnidx) {
     var poff = GCP(S);
     EW(S, 0x14000000);  # B placeholder
     var fc = GFCNT(S);
-    if (fc >= 16384) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+    if (fc >= 32768) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0xE4A000 + fc * 16;
+    var faddr = S + 0x150B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (4 << 56) | fnidx);
     SFCNT(S, fc + 1);

@@ -119,7 +119,7 @@ fn FIXUP(S) {
     var fcnt_pre = GFCNT(S);
     var ufi = 0;
     while (ufi < fcnt_pre) {
-        var ufaddr = S + 0xE4A000 + ufi * 16;
+        var ufaddr = S + 0x150B000 + ufi * 16;
         var uraw = L64(ufaddr + 8);
         var uftype = uraw >> 56;
         var uidx = uraw & 0x00FFFFFFFFFFFFFF;
@@ -188,7 +188,7 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0xE4A000 + fi * 16;
+        var faddr = S + 0x150B000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
@@ -341,7 +341,7 @@ fn FIXUP(S) {
     # Type-3 address-of fixups are still roots.
     var t3i = 0;
     while (t3i < fcnt_pre) {
-        var t3a = S + 0xE4A000 + t3i * 16;
+        var t3a = S + 0x150B000 + t3i * 16;
         var t3r = L64(t3a + 8);
         if ((t3r >> 56) == 3) {
             var t3idx = t3r & 0x00FFFFFFFFFFFFFF;
@@ -1151,7 +1151,7 @@ fn EMITELF_OBJ(S) {
 
     fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0xE4A000 + fi * 16;
+        var faddr = S + 0x150B000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;

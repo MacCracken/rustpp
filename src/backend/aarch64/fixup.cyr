@@ -79,7 +79,7 @@ fn FIXUP(S) {
     var fcnt_pre = GFCNT(S);
     var ufi = 0;
     while (ufi < fcnt_pre) {
-        var ufaddr = S + 0xE4A000 + ufi * 16;
+        var ufaddr = S + 0x150B000 + ufi * 16;
         var uraw = L64(ufaddr + 8);
         var uftype = uraw >> 56;
         var uidx = uraw & 0x00FFFFFFFFFFFFFF;
@@ -103,7 +103,7 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0xE4A000 + fi * 16;
+        var faddr = S + 0x150B000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;

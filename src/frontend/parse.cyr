@@ -698,12 +698,12 @@ fn PARSE_FACTOR(S) {
             # Emit function address via fixup type 3
             var fc = GFCNT(S);
             if (fc >= 4096) {
-                syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+                syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
                 syscall(SYS_EXIT, 1);
             }
             # Register the function-address fixup (common to both
             # backends — only the placeholder bytes differ).
-            var fnaddr = S + 0xE4A000 + fc * 16;
+            var fnaddr = S + 0x150B000 + fc * 16;
             SFCNT(S, fc + 1);
             if (_AARCH64_BACKEND == 1) {
                 # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that
@@ -1133,19 +1133,19 @@ fn PARSE_FACTOR(S) {
         # Emit address of closure function (like &fn_name)
         var clfc = GFCNT(S);
         if (clfc >= 4096) {
-            syscall(SYS_WRITE, 2, "error: fixup table full (16384)\n", 31);
+            syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
             syscall(SYS_EXIT, 1);
         }
         if (_IS_OBJ(S) == 1) {
             EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
-            var clfaddr = S + 0xE4A000 + clfc * 16;
+            var clfaddr = S + 0x150B000 + clfc * 16;
             S64(clfaddr, GCP(S));
             S64(clfaddr + 8, (3 << 56) | clfi);
             SFCNT(S, clfc + 1);
             EDISP32(S, 0);
         } else {
             E2(S, 0xB848);
-            var clfaddr = S + 0xE4A000 + clfc * 16;
+            var clfaddr = S + 0x150B000 + clfc * 16;
             S64(clfaddr, GCP(S));
             S64(clfaddr + 8, (3 << 56) | clfi);
             SFCNT(S, clfc + 1);

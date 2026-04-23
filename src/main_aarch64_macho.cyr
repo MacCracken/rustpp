@@ -90,8 +90,9 @@ include "src/backend/aarch64/fixup.cyr"
 # gets translated to BSD 197 (_mmap) by ESYSXLAT at emit time; the flag
 # value 0x1002 (MAP_PRIVATE | MAP_ANON on macOS) is baked in as an
 # immediate, so it reaches the kernel unchanged at runtime.
-# Size 0x150B000 (~21 MB) matches main.cyr's brk expansion.
-var S = syscall(9, 0, 0x150B000, 3, 0x1002, 0 - 1, 0);
+# Size 0x158B000 (~21.5 MB) matches main.cyr's brk expansion (v5.5.37
+# bumped the heap by 512 KB for the relocated fixup table — cap 32768).
+var S = syscall(9, 0, 0x158B000, 3, 0x1002, 0 - 1, 0);
 if (S < 0x100000) {
     syscall(SYS_WRITE, 2, "cc5_macho: mmap heap init failed\n", 33);
     syscall(SYS_EXIT, 1);

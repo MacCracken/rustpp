@@ -83,6 +83,10 @@
 # 16384 = ends at 0xE8A000). Fits exactly in the 256 KB between that
 # end and brk's top at 0xECA000.
 #
+# --- Fixup table (relocated v5.5.37, cap raised 16384 → 32768) ---
+# Old slot at 0xE4A000 [262144 B] retired; 256 KB gap now reclaimable.
+# New slot sized 512 KB fits past the IR region at the current brk top.
+#
 # --- Reclaimable / scratch ---
 #   0xC0000  include_fnames[32768]       256 include-once filenames × 128 B (v4.8.4-alpha2)
 #   0xC8000  fn_regalloc   [32768]       4096 per-fn #regalloc flags (v4.8.4-alpha4)
@@ -133,7 +137,7 @@
 #   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
 #   0xDCA000 struct_fnames [16384]       64 structs × 32 fields × 8 bytes
 #
-#   0xE4A000 (fixup table: 16384 entries × 16 bytes ends at 0xE8A000)
+#   0xE4A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
 #
 # --- cc5 IR region (v5.0.0) ---
 #   0xECA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
@@ -142,7 +146,16 @@
 #   0x13CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
 #   0x140B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
-#   0x150B000 brk                         21.0MB total heap
+# --- Fixup table — NEW slot (v5.5.37) ---
+#   0x150B000 fixup_tbl    [524288]      32768 entries × 16 bytes
+#                                        (cap raised 16384 → 32768;
+#                                        sigil 3.0 parallel batch
+#                                        unblock). Old slot at
+#                                        0xE4A000 now free — 256 KB
+#                                        scratch zone for future use.
+#
+#   0x158B000 brk                         21.5MB total heap (+512 KB
+#                                        from 21.0MB in v5.5.36)
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -202,7 +215,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.5.36\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.5.37\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -223,7 +236,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x150B000);
+syscall(SYS_BRK, S + 0x158B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -807,7 +820,7 @@ if (_stats_env != 0) {
         syscall(SYS_WRITE, 2, "  var_table:   ", 15); PRNUM(GVCNT(S));
         syscall(SYS_WRITE, 2, " / 8192\n",        8);
         syscall(SYS_WRITE, 2, "  fixup_table: ", 15); PRNUM(GFCNT(S));
-        syscall(SYS_WRITE, 2, " / 16384\n",       9);
+        syscall(SYS_WRITE, 2, " / 32768\n",       9);
         syscall(SYS_WRITE, 2, "  string_data: ", 15); PRNUM(GSPOS(S));
         syscall(SYS_WRITE, 2, " / 262144\n",     10);
         syscall(SYS_WRITE, 2, "  code_size:   ", 15); PRNUM(GCP(S));
@@ -837,7 +850,7 @@ if (_stats_env == 0) {
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GVCNT(S));
         syscall(SYS_WRITE, 2, "/8192) — too many globals + locals\n", 35);
     }
-    if (GFCNT(S) * 100 / 16384 >= 85) {
+    if (GFCNT(S) * 100 / 32768 >= 85) {
         syscall(SYS_WRITE, 2, "warning: fixup_table at ", 24);
         PRNUM(GFCNT(S) * 100 / 16384);
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GFCNT(S));
