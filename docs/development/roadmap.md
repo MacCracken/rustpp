@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.11.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.13.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -8,10 +8,10 @@
 > every commit. **Broad-scope self-host** (target binary runs +
 > reproduces itself on native hardware) currently holds on Linux
 > x86_64 + Linux aarch64 cross-built-runs-on-Pi; it is broken on
-> Linux aarch64 native-self-host-on-Pi (pinned **v5.6.21**),
-> macOS arm64 Mach-O (pinned **v5.6.22** — platform drift, bytes
+> Linux aarch64 native-self-host-on-Pi (pinned **v5.6.24**),
+> macOS arm64 Mach-O (pinned **v5.6.25** — platform drift, bytes
 > unchanged since v5.5.13), and Windows 11 24H2 PE
-> (pinned **v5.6.23** — platform drift, bytes unchanged since
+> (pinned **v5.6.26** — platform drift, bytes unchanged since
 > v5.5.10). See `docs/architecture/cyrius.md` §"Self-hosting: two
 > scopes of byte-identity" for the full definition. **v5.6.8 is the biggest
 > single-patch optimizer win of v5.6.x so far**: Phase O2 category
@@ -32,11 +32,15 @@
 > originally-planned `mul+add→madd` / `and+lsr→ubfx` patterns
 > 0× in cc5_aarch64 because the combine shuttle separates the
 > pair; porting v5.6.10 instead closes 4419 shuttle sites).
-> O3–O6 at v5.6.12, v5.6.13, v5.6.15, v5.6.16. The originally-
-> slotted aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`) are
-> re-pinned to v5.6.14, behind v5.6.13 linear-scan regalloc —
-> the precondition that lets the patterns actually appear in
-> the codebuf (intermediate values in regs, not stack).
+> O3 spans v5.6.12 + v5.6.14–v5.6.16 (v5.6.13 is the sha1 quick
+> win, pulled forward between v5.6.12's LASE-bug discovery and
+> v5.6.14's LASE fix). O3 split: O3a (precondition, ✅ shipped) /
+> O3a-fix (LASE correctness) / O3b (fold+liveness+DCE) / O3c
+> (copy-prop+fixpoint). O4–O6 at v5.6.17, v5.6.19, v5.6.20. The
+> originally-slotted aarch64 fused ops (`madd`/`msub`/`ubfx`/
+> `sbfx`) are re-pinned to v5.6.18, behind v5.6.17 linear-scan
+> regalloc — the precondition that lets the patterns actually
+> appear in the codebuf (intermediate values in regs, not stack).
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -84,26 +88,40 @@
 > - **v5.6.11**: Phase O2 category 5/5 — aarch64 port of
 >   v5.6.10's combine-shuttle elim (scope retargeted after
 >   bytescan; 4419 sites, 12 B → 8 B per site). Closes Phase O2.
-> - **v5.6.12**: Phase O3 — IR-driven passes (constant folding,
->   liveness, DCE, copy-prop, dead-store elim).
-> - **v5.6.13**: Phase O4 — linear-scan register allocation.
-> - **v5.6.14**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+> - **v5.6.12** ✅ shipped: Phase O3a — IR-instrumented 76 parse
+>   emit sites with `IR_RAW_EMIT` markers; enable-LASE/DBE attempt
+>   surfaced a pre-existing correctness bug (see v5.6.13). cc5
+>   488,088 B with default IR_ENABLED=0. Instrumentation is the
+>   load-bearing deliverable.
+> - **v5.6.13**: `lib/sha1.cyr` extraction (quick win — promote
+>   `_wss_sha1` from private in `lib/ws_server.cyr` to first-class
+>   stdlib module; pulled forward from v5.6.21 at user request as
+>   a confidence-build between v5.6.12's LASE-bug discovery and
+>   v5.6.14's LASE fix).
+> - **v5.6.14**: Phase O3a-fix — root-cause and repair
+>   `ir_lase` / `ir_apply_lase` so LASE + DBE actually produce
+>   correct output. See §v5.6.14 for the three suspects.
+> - **v5.6.15**: Phase O3b — IR constant folding + propagation
+>   + bitmap liveness + DCE. ~260 LOC. Bails cleanly if byte
+>   savings are 0.
+> - **v5.6.16**: Phase O3c — copy propagation + dead-store elim
+>   + fixed-point driver. ~330 LOC. Bails cleanly if 0.
+> - **v5.6.17**: Phase O4 — linear-scan register allocation.
+> - **v5.6.18**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.13 regalloc is
+>   after bytescan found 0× matches there; v5.6.17 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.15**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.16**: Phase O6 — slab allocator for IR pools
+> - **v5.6.19**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.20**: Phase O6 — slab allocator for IR pools
 >   (conditional on O4 measurements).
-> - **v5.6.17**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+> - **v5.6.21**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.18**: `lib/sha1.cyr` extraction (promote `_wss_sha1` from
->   private in `lib/ws_server.cyr` to first-class stdlib module).
-> - **v5.6.19**: libro layout-dependent memory corruption
+> - **v5.6.22**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.20**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.23**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.21**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.24**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -111,23 +129,23 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.22**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.25**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.23**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.26**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.24**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.27**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.25**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.28**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
@@ -153,10 +171,10 @@
 > (cross-build byte-identity; `regression.tcyr` 102/102 on real
 > Pi; per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from
 > v5.3.16). Broad-scope native self-host on Pi was last verified
-> at v5.3.15 and is currently broken (pinned v5.6.21). Apple
+> at v5.3.15 and is currently broken (pinned v5.6.24). Apple
 > Silicon Mach-O broad-scope self-host was last verified at
 > v5.3.13–v5.5.17 (per-minor exit=42 checks in v5.5.13–v5.5.17)
-> and regressed on macOS Sequoia 15+ (pinned v5.6.22) — the
+> and regressed on macOS Sequoia 15+ (pinned v5.6.25) — the
 > emitted Mach-O bytes are unchanged since verification.
 >
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
@@ -177,13 +195,14 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 
 | Bug | Impact | Pinned slot |
 |-----|--------|-------------|
-| `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.17** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
-| `lib/sha1.cyr` missing (owl) | stdlib layout | **v5.6.18** — promote `_wss_sha1` from private in `lib/ws_server.cyr` to first-class `lib/sha1.cyr` module so consumers (owl, sit, majra) don't vendor-copy. See `docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`. |
-| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.19** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
-| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.20** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.20 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
-| Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.21** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
-| macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.22** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
-| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.23** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
+| `lib/sha1.cyr` missing (owl) | stdlib layout | **v5.6.13** — promote `_wss_sha1` from private in `lib/ws_server.cyr` to first-class `lib/sha1.cyr` module so consumers (owl, sit, majra) don't vendor-copy. Pulled forward from v5.6.21 as a quick-win release between v5.6.12 and the v5.6.14 LASE audit. See `docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`. |
+| `ir_lase` / `ir_apply_lase` correctness bug | LASE/DBE unsafe to enable | **v5.6.14** — surfaced during v5.6.12 when flipping LASE+DBE enabled produced a cc5 binary that parse-errored on trivial input. 811 candidates / 5,692 B "savings" are actually 5,692 B of corruption. Three suspects: (a) `_ir_clobbers_rax` coverage gap, (b) `ir_apply_lase`'s next-node-CP heuristic overreach, (c) `ir_dead_block_elim`'s `all_nop==1` check passing vacuously on zero-IR-node BBs. See §v5.6.14. |
+| `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.21** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
+| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.22** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
+| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.23** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.23 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
+| Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.24** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
+| macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.25** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
+| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.26** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -216,9 +235,11 @@ The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
    Linux + benchmarks baseline.
 4. **v5.6.6 — CYRIUS_PROF cross-platform (✅ shipped).** Windows
    PE GetTickCount64 + macOS Mach-O _clock_gettime_nsec_np.
-5. **v5.6.7–v5.6.16 — Compiler optimization arc continues (O2 split
-   across 5 slots, O3–O6 each their own slot; aarch64 fused-ops
-   peephole slotted at v5.6.14 behind regalloc).**
+5. **v5.6.7–v5.6.20 — Compiler optimization arc continues (O2 split
+   across 5 slots; O3 split across 4 slots after recon +
+   LASE-bug discovery, interleaved with v5.6.13 sha1 quick-win;
+   O4–O6 each their own slot; aarch64 fused-ops peephole slotted
+   at v5.6.18 behind regalloc).**
    Peephole, IR-driven passes, linear-scan regalloc, maximal-munch,
    slab allocator. Lands BEFORE RISC-V so the new port inherits an
    optimized compiler. v5.6.11 was retargeted to port v5.6.10's
@@ -226,16 +247,23 @@ The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
    per site) after bytescan found the originally-planned `madd` /
    `msub` / `ubfx` / `sbfx` patterns 0× in cc5_aarch64 (the
    combine shuttle separates the pair); fused-ops work re-pinned
-   to v5.6.14, post-regalloc, when intermediate values stay in
-   registers and the pairs can actually appear adjacent in the
-   codebuf.
-6. **v5.6.17–v5.6.18 — Consumer-surfaced stdlib / tooling fixes.**
-   `cyrius init` scaffold gaps + `lib/sha1.cyr` extraction, both
-   surfaced by the `owl` bootstrap.
-7. **v5.6.19–v5.6.20 — Pre-existing active-bug investigations.**
+   to v5.6.18, post-regalloc. O3 recon (v5.6.12 kickoff) also
+   surfaced a 590 LOC bundle that would have been too big for one
+   slot — split into v5.6.12 (precondition + instrumentation; ✅
+   shipped), v5.6.14 (LASE correctness fix — surfaced by the
+   v5.6.12 enable attempt), v5.6.15 (fold + liveness+DCE), v5.6.16
+   (copy-prop + fixpoint driver). Each sub-slot bails cleanly if
+   measured byte savings are 0. v5.6.13 slots the `lib/sha1.cyr`
+   extraction between v5.6.12 and v5.6.14 as a quick-win release
+   (stdlib addition, zero compiler change) — momentum between the
+   LASE-bug discovery and the harder correctness audit.
+6. **v5.6.21 — Consumer-surfaced tooling fix.** `cyrius init`
+   scaffold gaps (owl-surfaced). `lib/sha1.cyr` was the second
+   item in this group until pulled forward to v5.6.13.
+7. **v5.6.22–v5.6.23 — Pre-existing active-bug investigations.**
    Libro layout corruption + `cc5_win.exe` HIGH_ENTROPY_VA stdin
    failure.
-8. **v5.6.21–v5.6.23 — Broad-scope platform-runtime repairs.**
+8. **v5.6.24–v5.6.26 — Broad-scope platform-runtime repairs.**
    Three broad-scope failures surfaced during v5.6.11 verification.
    Important framing: **the narrow-scope byte-identity invariant
    (`cc5_a → cc5_b; cc5_a == cc5_b`) holds on every target** — v5.6.11
@@ -244,13 +272,13 @@ The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
    emitted binary can (a) run its own source through itself on
    native hardware, or (b) survive current-gen OS loader
    enforcement. Two distinct root-cause categories:
-   - **Native-runtime capability gap (v5.6.21).** The native
+   - **Native-runtime capability gap (v5.6.24).** The native
      aarch64 cc5 binary fails to parse its own source on a Pi
      because something the x86 cross-compiler does at startup
      (envvar read / include resolution) doesn't work on the
      aarch64 runtime path. A *feature gap in our aarch64 binary*,
      not a codegen bug.
-   - **External platform drift (v5.6.22 + v5.6.23).** The Mach-O
+   - **External platform drift (v5.6.25 + v5.6.26).** The Mach-O
      and PE binaries we emit are **identical** to what was verified
      in v5.5.13 / v5.5.10. What changed is the host OS's tolerance
      for our output: macOS Sequoia 15+ dyld enforces LC_DYLD_INFO /
@@ -265,8 +293,8 @@ The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
    catch future platform-drift the same way).
    If an investigation doesn't yield, STOP and ask — never defer
    or slip unilaterally.
-9. **v5.6.24 — Shared-object (.so / .dll / .dylib) emission.**
-10. **v5.6.25 — v5.6.x closeout + downstream ecosystem sweep gate.**
+9. **v5.6.27 — Shared-object (.so / .dll / .dylib) emission.**
+10. **v5.6.28 — v5.6.x closeout + downstream ecosystem sweep gate.**
     Last patch of v5.6.x.
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
@@ -434,7 +462,7 @@ error.
 
 ---
 
-## v5.6.x — Compiler optimization arc (v5.6.5 ✅ + v5.6.7 ✅ + v5.6.8–v5.6.15)
+## v5.6.x — Compiler optimization arc (v5.6.5 ✅ + v5.6.7 ✅ + v5.6.8–v5.6.20, v5.6.13 interleaved sha1 quick-win)
 
 Phased plan synthesized from vidya (`content/optimization_passes`,
 `content/code_generation`, `content/allocators`) and external
@@ -616,7 +644,7 @@ always separates the multiply result from the subsequent add in
 cyrius's codegen (evaluate MUL → x0, push, evaluate rhs → x0, mov
 x1,x0, pop x0, add — so MUL and ADD are never immediate
 predecessors). The originally-planned patterns are re-pinned to
-v5.6.14, post-regalloc, when intermediate values stay in registers.
+v5.6.18, post-regalloc, when intermediate values stay in registers.
 
 **The real opportunity** is the same shuttle pattern v5.6.10 fixed
 on x86, ported to aarch64. v5.6.10's CHANGELOG claimed aarch64
@@ -667,14 +695,138 @@ Expected: cc5_aarch64 shrinks by ~17 KB (from 470,872 B, ~3.6 %).
 cc5 (x86) unchanged — this is an aarch64-codegen-only patch. 3-step
 fixpoint on aarch64 cross-built cc5 via `ssh pi`. **Closes Phase O2.**
 
-### v5.6.12 — Phase O3: IR-driven passes
+### v5.6.12 — Phase O3a: IR-instrument parse emits + surface LASE bug ✅ shipped
 
-Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
+**Shipped 2026-04-23.** Ships as "precondition + measurement floor"
+per Path B. Splits from original single-slot O3 plan.
 
-- **Precondition**: finish IR instrumentation across the
-  remaining ~50 direct emit sites (`EB` / `E2` / `E3` calls in
-  `src/frontend/parse*.cyr`). Without this, LASE codebuf patching
-  is unsafe — same blocker the current v5.x IR plan noted.
+**What shipped:**
+- 15 `_IR_REC0(S, IR_RAW_EMIT)` markers across parse.cyr /
+  parse_decl.cyr / parse_expr.cyr / parse_fn.cyr covering every
+  direct-emit block (switch jump-table, inline asm, sub-byte field
+  load, `&fn` / `&local` address-emit, closure-literal, f64
+  compare, x87 intrinsics × 7, struct-return rep-movsb, regalloc
+  spill+restore).
+- New `IR_RAW_EMIT = 98` opcode in `src/common/ir.cyr` — no-op in
+  lowering (raw bytes already emitted at record time), conservatively
+  clobbers rax in `_ir_clobbers_rax`, entry in dump table.
+- cc5: 487,040 → **488,088 B** (+1,048 B instrumentation call
+  overhead with default `IR_ENABLED=0`). 3-step fixpoint
+  `a = b = c = 488,088 B` ✓. 22/22 check.sh ✓.
+
+**The LASE/DBE enable FAILED: pre-existing correctness bug found.**
+Wiring `ir_apply_lase(S)` + `ir_dead_block_elim(S)` under
+`CYRIUS_IR=3` produced a cc5 that PARSED ERRORS on even
+`fn main() { return 42; }` (error: "expected '=', got string").
+Ruled out as coverage-gap in the new IR_RAW_EMIT instrumentation —
+LASE alone (without DBE) also broke the binary. Numbers observed
+before rollback:
+- LASE: 811 candidates, 5,692 B NOP-filled (avg 7 B per site —
+  matches `mov rax, [rbp+disp32]` encoding size).
+- DBE: 52,747 B "dead" (10.8% of cc5 — almost certainly false
+  positives).
+- Resulting cc5 binary: broken at first compile.
+
+Root cause almost certainly a hole in `ir_lase`'s rax-tracking OR
+an overreach in `ir_apply_lase`'s "next node CP" heuristic extending
+past the eliminated instruction's actual encoded length. These
+passes have been disabled since they were written and never
+runtime-verified.
+
+**Shipped with LASE/DBE commented out** in `main.cyr:830`. The
+instrumentation IS the load-bearing deliverable — future O3 passes
+can now rely on parse-emit IR markers. LASE correctness fix pinned
+to **v5.6.14** (see below).
+
+### v5.6.13 — `lib/sha1.cyr` extraction (quick win)
+
+**Pulled forward** from v5.6.21 at user request as a quick
+confidence-build between the v5.6.12 LASE-bug discovery and the
+v5.6.14 LASE correctness audit. Small, contained, unblocks three
+consumer repos — good momentum before the harder optimizer work.
+
+SHA-1 is implemented in the stdlib but buried as private-by-
+convention `_wss_sha1` inside `lib/ws_server.cyr`. Three consumers
+already need it outside a websocket context (owl for git `.git/
+index` integration, majra has a local copy, sit will need it for
+git compat). Reference:
+`docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`.
+
+**Scope:**
+- Create `lib/sha1.cyr` with a clear public API (`fn sha1(data,
+  len, digest_out)`), FIPS 180-4 constants + round function,
+  module header explicitly flagging "NOT a trust primitive — see
+  `lib/sigil.cyr` for SHA-256/512 if you need collision resistance."
+- Route `lib/ws_server.cyr`'s `_wss_sha1` through the new
+  `sha1(...)` (preserve the `_wss_` wrapper at the call site for
+  ws_server-internal readability; the body delegates).
+- Add `"sha1"` to `cyrius deps`' known-stdlib list so
+  `[deps].stdlib = ["sha1", ...]` resolves.
+- `tests/tcyr/sha1.tcyr` — NIST FIPS 180-4 test vectors (`"abc"`,
+  million-`a`, etc.).
+- Downstream majra patch bump (out-of-tree, tracked separately)
+  drops its local copy once `lib/sha1.cyr` ships.
+
+**Gate:** byte-identical self-host (stdlib addition, zero compiler
+change); `tests/tcyr/sha1.tcyr` passes; `lib/ws_server.cyr`
+byte-identical after refactor; v5.6.13 check.sh exercises the new
+test.
+
+### v5.6.14 — Phase O3a-fix: ir_lase / ir_apply_lase correctness audit
+
+**Scope expanded from planning** after v5.6.12 surfaced that LASE +
+DBE corrupt cc5's own codegen when enabled. Dedicated slot for
+root-causing and fixing — expected not trivial because:
+- Neither pass has runtime history to bisect against.
+- 5,692 B of "savings" turn into 5,692 B of corruption, suggesting
+  ALL of them are wrong, not an edge case.
+
+**Suspect #1 — `_ir_clobbers_rax` coverage gap.** Some IR op that
+actually clobbers rax is missing from the table. Consequence:
+`last_store_idx` stays valid across an rax-clobber, and LASE
+eliminates a LOAD_LOCAL whose rax value was actually overwritten
+in between. Audit plan: for every opcode handled in `ir_lower_all`,
+check its emit helper in `x86/emit.cyr` and determine whether rax
+survives. Add missing entries.
+
+**Suspect #2 — `ir_apply_lase`'s cp_end heuristic.** Uses next IR
+node's CP as the end boundary. If the eliminated instruction's
+real encoded size is N bytes but the next IR node is M bytes later
+(M > N) — because un-instrumented emits happened between — NOP-fill
+clobbers the M−N bytes that belong to the next instruction's
+leading prefix. Fix: record ENCODED SIZE per-IR-node at record
+time (new 4-byte column in a side table, or fold into existing
+CP table's high bits), use `cp_start + size` instead of next-node
+CP.
+
+**Suspect #3 — `ir_dead_block_elim`'s "dead BB" condition.** A BB
+is declared dead when no edge targets it AND all its nodes are
+NOP/ELIMINATED. But a BB that parse emitted raw into may have
+zero IR nodes AT ALL, which passes the `all_nop == 1` check
+vacuously. Fix: require at least one IR node in the BB to count
+it as "examined" before eliminating.
+
+**Gates:**
+- All three suspects investigated (sequential — stop if one yields
+  a full fix).
+- LASE + DBE enabled under `CYRIUS_IR=3` produces a cc5 that:
+  (a) is byte-identical on repeated `CYRIUS_IR=3` compile (determinism),
+  (b) correctly compiles `fn main() { return 42; }` and runs → 42,
+  (c) successfully cross-builds cc5_aarch64 + cc5_win byte-identical
+  to the non-IR paths.
+- Measured byte savings recorded in `benchmarks.md` — if < 500 B
+  after all 3 suspects investigated, STOP and ask (not worth
+  shipping an enabled pass that barely fires).
+
+~100–300 LOC depending on which suspect root-causes first.
+
+### v5.6.15 — Phase O3b: IR constant folding + propagation, liveness + DCE
+
+**Split out of the original single-slot O3 plan.** Ships the two
+smaller new passes together because they're naturally chained
+(fold reduces node count; liveness runs cleaner on the reduced
+graph) and neither is as big as copy-prop. ~260 LOC.
+
 - **Constant folding + propagation on IR**: promote the existing
   parse-time folding into a CFG-aware pass. Integer arithmetic,
   boolean, comparisons on constant operands. ~200 LOC.
@@ -682,13 +834,27 @@ Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
   virtual registers; backward sweep; mark defs with no live uses
   as dead. Pattern lifted from
   `vidya/content/optimization_passes/cyrius.cyr`. ~60 LOC.
+- **Gate**: byte-identical narrow-scope self-host under both
+  `IR_ENABLED == 0` and `IR_ENABLED == 3`. Measure and record
+  incremental savings over the v5.6.12 floor. **Bails cleanly if
+  measured savings are 0 B** — we STOP and ask rather than ship
+  dead code.
+
+### v5.6.16 — Phase O3c: copy propagation + dead-store elim + fixed-point driver
+
+**Split out of the original single-slot O3 plan.** Last of the
+three O3 patches. ~330 LOC.
+
 - **Copy propagation + dead-store elimination**: forward sweep
   with per-vreg "current copy-of" map; backward sweep marking
   live stores. ~300 LOC.
 - **Fixed-point driver**: run fold → propagate → reduce → DCE
   in a loop until no-change. ~30 LOC.
+- **Gate**: byte-identical narrow-scope self-host under both
+  `IR_ENABLED == 0` and `IR_ENABLED == 3`. Measure incremental
+  savings. Bails cleanly if 0 B.
 
-### v5.6.13 — Phase O4: linear-scan register allocation
+### v5.6.17 — Phase O4: linear-scan register allocation
 
 The big investment. Replaces today's peephole `#regalloc`.
 ~600–900 LOC.
@@ -705,7 +871,7 @@ The big investment. Replaces today's peephole `#regalloc`.
   baseline on hot inner loops; 10–20 % quality gap vs.
   graph-coloring at a fraction of the code.
 
-### v5.6.14 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+### v5.6.18 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -718,19 +884,19 @@ the aarch64 ISA can fold into one:
   mask is contiguous low-bits → `ubfx Xd, Xn, #s, #w` (unsigned
   bit-field extract); signed variant `asr + and` → `sbfx`.
 
-~150 LOC. **Precondition: v5.6.13 linear-scan regalloc.** Today
+~150 LOC. **Precondition: v5.6.17 linear-scan regalloc.** Today
 the combine codegen always shuttles intermediate values through
 the stack (LHS pushed, evaluated, popped), so `mul` and its
-consumer-`add` are never adjacent in the codebuf. After v5.6.13
+consumer-`add` are never adjacent in the codebuf. After v5.6.17
 regalloc can keep intermediate values in registers, and the
 `mul x2, x0, x1; add x0, x2, x3` shape starts to appear. The
 peephole then fires.
 
-Gate: if v5.6.13 ships and a bytescan on the new aarch64 cc5
+Gate: if v5.6.17 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.15 — Phase O5: maximal-munch instruction selection
+### v5.6.19 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -739,11 +905,11 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   database per backend. Walker traverses IR tree bottom-up,
   matching largest subtree to a single machine instruction.
 - Opens the door for target-specific tiles (RISC-V v5.7.0) without
-  touching the walker — v5.6.15 therefore SHIPS BEFORE v5.7.0 so
+  touching the walker — v5.6.19 therefore SHIPS BEFORE v5.7.0 so
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.16 — Phase O6: slab allocator for IR pools (measurement-gated)
+### v5.6.20 — Phase O6: slab allocator for IR pools (measurement-gated)
 
 ~150 LOC. **Conditional on O4 numbers** — ships iff v5.6.9's
 profile shows bump-allocation hot during live-range construction.
@@ -759,14 +925,14 @@ empty. Never skip unilaterally — report measurements and ask.
 
 ---
 
-## v5.6.x — Consumer-surfaced tooling / stdlib fixes (v5.6.17–v5.6.18)
+## v5.6.x — Consumer-surfaced tooling fix (v5.6.21; sha1 pulled to v5.6.13)
 
 Two items raised by the `owl` bootstrap (first Cyrius consumer
 project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.17 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.21 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -807,45 +973,14 @@ and (b) no generated file contains the literal string
 `cyrius.toml`. Two-flag + three-flag invocation via the `cyrius`
 front-end both reach the script with all args.
 
-### v5.6.18 — `lib/sha1.cyr` extraction
-
-SHA-1 is implemented in the stdlib but buried as private-by-
-convention `_wss_sha1` inside `lib/ws_server.cyr`. Three consumers
-already need it outside a websocket context (owl for git `.git/
-index` integration, majra has a local copy, sit will need it for
-git compat). Reference:
-`docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`.
-
-**Scope:**
-- Create `lib/sha1.cyr` with a clear public API (`fn sha1(data,
-  len, digest_out)`), FIPS 180-4 constants + round function,
-  module header explicitly flagging "NOT a trust primitive — see
-  `lib/sigil.cyr` for SHA-256/512 if you need collision resistance."
-- Route `lib/ws_server.cyr`'s `_wss_sha1` through the new
-  `sha1(...)` (preserve the `_wss_` wrapper at the call site for
-  ws_server-internal readability; the body delegates).
-- Add `"sha1"` to `cyrius deps`' known-stdlib list so
-  `[deps].stdlib = ["sha1", ...]` resolves.
-- `tests/tcyr/sha1.tcyr` — NIST FIPS 180-4 test vectors (`"abc"`,
-  million-`a`, etc.).
-- Downstream majra patch bump (out-of-tree, tracked separately)
-  drops its local copy once `lib/sha1.cyr` ships.
-
-**Gate:** byte-identical self-host (stdlib addition, zero compiler
-change); `tests/tcyr/sha1.tcyr` passes; `lib/ws_server.cyr`
-byte-identical after refactor; v5.6.18 check.sh exercises the new
-test.
-
----
-
-## v5.6.x — Active-bug investigations (v5.6.19–v5.6.20)
+## v5.6.x — Active-bug investigations (v5.6.22–v5.6.23)
 
 Both surviving Active Bugs investigate on a clean post-optimization
 baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.19 — Libro layout-dependent memory corruption
+### v5.6.22 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -864,14 +999,14 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.20 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.23 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
 fine, but `cc5_win.exe`'s stdin-read path fails 5/5 under 64-bit
 ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only.
 
-**Why re-try at v5.6.20 (vs leave as known-shipping limit):** the
+**Why re-try at v5.6.23 (vs leave as known-shipping limit):** the
 PE backend has changed materially since v5.5.35:
 - v5.5.36 added struct-return + varargs syntax + `__chkstk` (any
   of which may shift the failure surface).
@@ -890,7 +1025,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.21 — Native aarch64 self-host repair (Pi)
+### v5.6.24 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -915,11 +1050,11 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
      native binary (byte-identical self-host).
 - Wire into `scripts/check.sh` alongside the existing "aarch64
   syscalls + threads" gate.
-- A stub is shipped pre-fix that SKIPs with a clear "pin v5.6.21"
+- A stub is shipped pre-fix that SKIPs with a clear "pin v5.6.24"
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.22 — macOS arm64 runtime regression repair (ecb)
+### v5.6.25 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -956,9 +1091,9 @@ regression.
   4. Assert exit code == 42. Also verify a multi-fn arithmetic
      test (exercises v5.6.11 peephole on Mach-O output).
 - Wire into `scripts/check.sh`.
-- Stub ships SKIPping with "pin v5.6.22" message until the fix lands.
+- Stub ships SKIPping with "pin v5.6.25" message until the fix lands.
 
-### v5.6.23 — Windows 11 runtime regression repair (cass)
+### v5.6.26 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -999,9 +1134,9 @@ v5.6.11 regression.
   4. Assert `%ERRORLEVEL%` == 42. Also verify arithmetic test
      exercising v5.6.10 x86 combine-shuttle peephole.
 - Wire into `scripts/check.sh`.
-- Stub ships SKIPping with "pin v5.6.23" message until the fix lands.
+- Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.24 — Shared-object emission completion
+### v5.6.27 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1030,7 +1165,7 @@ tolerantly ignored by modern glibc — we haven't tested.
   `SYSV_HASH` cleanly.
 
 **Why this slot:** not blocking any active consumer, but the
-partial state is a known audit rough edge. Lands before v5.6.25
+partial state is a known audit rough edge. Lands before v5.6.28
 closeout so the audit item is cleared before the downstream
 arch-neutral sweep begins. An alternate fit is v5.8.1 post-bare-
 metal, but bare-metal doesn't exercise `.so` emission (kernel is
@@ -1043,7 +1178,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.25 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.28 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full
@@ -1057,7 +1192,7 @@ genesis repo Phase 13B (arch-neutral boot pipeline —
 `build-order.txt`) and the ecosystem arch-neutral sweep: must-touch
 (agnos, kybernet, argonaut, agnosys, sigil), should-touch (ark,
 nous, zugot, agnova, takumi), may-touch (phylax, shakti,
-ai-hwaccel, seema). All of them wait on v5.6.17 and must complete
+ai-hwaccel, seema). All of them wait on v5.6.19 and must complete
 before v5.7.0 RISC-V opens. Practical consequence: the closeout
 carries extra rigor beyond the standard pass —
 
@@ -1065,7 +1200,7 @@ carries extra rigor beyond the standard pass —
   orphan allocations surfaced during the optimization arc. Leave
   no "temporary" arenas downstream would have to work around.
 - **Refactor pass** — one targeted sweep for naming/API drift
-  introduced across v5.6.0–v5.6.20. If a public function got
+  introduced across v5.6.0–v5.6.27. If a public function got
   reshaped mid-arc, this is the last chance to stabilize the name
   before downstream repos pin to it.
 - **Audit pass** — dead code, stale comments, orphan tests,
@@ -1073,15 +1208,15 @@ carries extra rigor beyond the standard pass —
   they mirror in their own sweeps.
 - **Downstream dep-pointer check** — walk every downstream repo's
   `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
-  against the v5.6.17 artifacts. Broken pins get fixed before
+  against the v5.6.28 artifacts. Broken pins get fixed before
   v5.7.0 opens, not after.
-- **Compiler surface freeze signal** — after v5.6.17 ships, public
+- **Compiler surface freeze signal** — after v5.6.28 ships, public
   compiler API is frozen for the duration of the downstream sweep
   (approximately one minor cycle). v5.7.0 RISC-V can add, but not
   reshape, existing surface.
 
 Rationale: downstream projects are batching their own arch-neutral
-work against this closeout. If v5.6.21 ships with loose ends, each
+work against this closeout. If v5.6.28 ships with loose ends, each
 downstream repo absorbs the cost and the sweep fragments. One
 tight closeout here is cheaper than N downstream workarounds.
 
@@ -1146,14 +1281,14 @@ platforms). RISC-V needs:
    entry for `cc5_riscv64`.
 
 **Prerequisites that must ship before v5.7.0 starts:**
-- **v5.6.5 + v5.6.7–v5.6.15** — Compiler optimization arc. New port
+- **v5.6.5 + v5.6.7–v5.6.20** — Compiler optimization arc. New port
   should inherit an optimized compiler, not one still queueing
-  baseline optimization. v5.6.14 (maximal-munch) in particular
+  baseline optimization. v5.6.19 (maximal-munch) in particular
   matters — rv64 backend lands its tile table against the new
   walker on day one instead of retrofitting.
-- **v5.6.20** — shared-object emission landed (audit rough edge
+- **v5.6.27** — shared-object emission landed (audit rough edge
   closed before new port opens).
-- **v5.6.21** — downstream ecosystem sweep gate complete.
+- **v5.6.28** — downstream ecosystem sweep gate complete.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
   uses the new syntax from day one, no legacy `#ifdef
   CYRIUS_ARCH_RISCV64` sites to migrate.
@@ -1172,7 +1307,7 @@ kernel is the concrete consumer. Slid with the optimization minor
 insert (was v5.7.0 pre-v5.6.x pin). Details pinned closer to
 landing — rough scope: ELF no-libc output format, interrupt-handler
 emit conventions, kernel-mode syscall stubs stripped, boot pipeline
-from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.21 gate).
+from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.27 gate).
 
 ---
 
@@ -1505,10 +1640,10 @@ enables adding new targets without touching the frontend.
 | Release | Platform | Format | Status |
 |---------|----------|--------|--------|
 | **v5.1.0** | macOS x86_64 | Mach-O | **Done** (narrow-scope) |
-| **v5.3.0–v5.3.18** | macOS aarch64 | Mach-O | **Narrow-scope byte-identity green**; broad-scope self-host on M-series was verified v5.3.13 era — **currently broken on Sequoia 15+** (platform drift, bytes unchanged, pinned **v5.6.22**) |
+| **v5.3.0–v5.3.18** | macOS aarch64 | Mach-O | **Narrow-scope byte-identity green**; broad-scope self-host on M-series was verified v5.3.13 era — **currently broken on Sequoia 15+** (platform drift, bytes unchanged, pinned **v5.6.25**) |
 | **v5.4.2–v5.4.8** | Windows x86_64 (PE foundation) | PE/COFF | **Done** — hello-world end-to-end on real Win11 (older build) |
-| **v5.5.0–v5.5.10** | Windows x86_64 (full PE + native self-host) | PE/COFF | **Narrow-scope byte-identity green** (v5.5.10 md5-match on exit42 + multi-fn add); broad-scope runtime **currently broken on Win11 24H2** (build 26200+) (platform drift, bytes unchanged, pinned **v5.6.23**) |
-| **v5.5.11–v5.5.17** | macOS aarch64 libSystem + argv | Mach-O | v5.5.13–v5.5.17 broad-scope verified on ecb at the time; **currently broken on Sequoia 15+** (see v5.3.0–v5.3.18 row; same platform drift, pinned **v5.6.22**) |
+| **v5.5.0–v5.5.10** | Windows x86_64 (full PE + native self-host) | PE/COFF | **Narrow-scope byte-identity green** (v5.5.10 md5-match on exit42 + multi-fn add); broad-scope runtime **currently broken on Win11 24H2** (build 26200+) (platform drift, bytes unchanged, pinned **v5.6.26**) |
+| **v5.5.11–v5.5.17** | macOS aarch64 libSystem + argv | Mach-O | v5.5.13–v5.5.17 broad-scope verified on ecb at the time; **currently broken on Sequoia 15+** (see v5.3.0–v5.3.18 row; same platform drift, pinned **v5.6.25**) |
 | **v5.5.18–v5.5.22** | aarch64 Linux shakedown + SSE alignment | ELF | **Done** — multi-thread + contended mutex on real Pi 4 |
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` DLL Characteristic; HIGH_ENTROPY_VA deferred (see Active Bugs) |
@@ -1541,10 +1676,14 @@ enables adding new targets without touching the frontend.
 | Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** ✅ | Small |
 | `#must_use` + `@unsafe` attributes | **v5.6.3** ✅ | Small |
 | `#deprecated("reason")` attribute | **v5.6.4** ✅ | Small |
-| `cyrius init` scaffold gaps (owl) | **v5.6.12** | Small |
 | `lib/sha1.cyr` extraction (owl) | **v5.6.13** | Small |
-| Libro layout-corruption investigation | **v5.6.14** | Investigation |
-| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.15** | Investigation |
+| `ir_lase` / `ir_apply_lase` correctness fix | **v5.6.14** | Investigation |
+| `cyrius init` scaffold gaps (owl) | **v5.6.21** | Small |
+| Libro layout-corruption investigation | **v5.6.22** | Investigation |
+| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.23** | Investigation |
+| Native aarch64 self-host repair (Pi) | **v5.6.24** | Investigation |
+| macOS arm64 Mach-O platform drift | **v5.6.25** | Investigation |
+| Windows 11 24H2 PE platform drift | **v5.6.26** | Investigation |
 | First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium |
 | Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium |
 | Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large |
@@ -1597,12 +1736,12 @@ enables adding new targets without touching the frontend.
 | Platform | Format | Status |
 |----------|--------|--------|
 | Linux x86_64 | ELF | **✅ Narrow + Broad** — primary host. cc5 487 KB (v5.6.11); 3-step fixpoint byte-identical; self-host ~347 ms. |
-| Linux aarch64 | ELF | **✅ Narrow** (cross-build byte-identity holds); **⚠️ Broad** — cross-built binary runs fine on Pi (`regression-aarch64-syscalls.sh` 5/5 PASS; `regression.tcyr` 102/102 at v5.3.18) but **native self-host on Pi fails** at parse time (`_TARGET_MACHO` undef; pinned **v5.6.21**). Three libs (`lib/hashmap_fast`, `lib/u128`, `lib/mabda`) still contain ungated x86 asm — arch-gating queued. |
+| Linux aarch64 | ELF | **✅ Narrow** (cross-build byte-identity holds); **⚠️ Broad** — cross-built binary runs fine on Pi (`regression-aarch64-syscalls.sh` 5/5 PASS; `regression.tcyr` 102/102 at v5.3.18) but **native self-host on Pi fails** at parse time (`_TARGET_MACHO` undef; pinned **v5.6.24**). Three libs (`lib/hashmap_fast`, `lib/u128`, `lib/mabda`) still contain ungated x86 asm — arch-gating queued. |
 | cyrius-x bytecode | .cyx | **Done** (v2.5) |
 | macOS x86_64 | Mach-O | **✅ Narrow** (v5.1.0); Broad-scope not retested since. |
-| macOS aarch64 | Mach-O | **✅ Narrow** (cross-build byte-identity holds; bytes unchanged since v5.5.13–v5.5.17); **❌ Broad** — cross-built `syscall(60, 42)` exits 1 instead of 42 on current Sequoia (macOS 15+). **Platform drift, not cyrius regression** — emitted Mach-O bytes are identical to what was verified exit=42 in v5.5.13. Pinned **v5.6.22**. |
-| Windows x86_64 | PE/COFF | **✅ Narrow** — byte-identical fixpoint verified v5.5.10 (md5 match on exit42 + multi-fn add; cc5_win emits PE byte-identical to Linux cross-build). **❌ Broad** — on Windows 11 24H2 (build 26200+), PE `syscall(60, 42)` exits `0x40010080` and cc5_win.exe itself hits `ApplicationFailedException`. **Platform drift, not cyrius regression** — PE bytes unchanged since v5.5.10; Win11 24H2 tightened CET/CFG/ASLR loader enforcement. Pinned **v5.6.23**. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35); HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
-| Compiler optimization (O1–O6) | — | v5.6.5 ✅ + v5.6.7 ✅ + **v5.6.8–v5.6.15** (NEXT) |
+| macOS aarch64 | Mach-O | **✅ Narrow** (cross-build byte-identity holds; bytes unchanged since v5.5.13–v5.5.17); **❌ Broad** — cross-built `syscall(60, 42)` exits 1 instead of 42 on current Sequoia (macOS 15+). **Platform drift, not cyrius regression** — emitted Mach-O bytes are identical to what was verified exit=42 in v5.5.13. Pinned **v5.6.25**. |
+| Windows x86_64 | PE/COFF | **✅ Narrow** — byte-identical fixpoint verified v5.5.10 (md5 match on exit42 + multi-fn add; cc5_win emits PE byte-identical to Linux cross-build). **❌ Broad** — on Windows 11 24H2 (build 26200+), PE `syscall(60, 42)` exits `0x40010080` and cc5_win.exe itself hits `ApplicationFailedException`. **Platform drift, not cyrius regression** — PE bytes unchanged since v5.5.10; Win11 24H2 tightened CET/CFG/ASLR loader enforcement. Pinned **v5.6.26**. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35); HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
+| Compiler optimization (O1–O6) | — | v5.6.5 ✅ + v5.6.7–v5.6.12 ✅ + **v5.6.14–v5.6.20** (NEXT: O3a-fix + O3b + O3c + O4–O6; v5.6.13 is sha1 quick-win) |
 | RISC-V (rv64) | ELF | Queued — **v5.7.0** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 | Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** |
@@ -1736,7 +1875,7 @@ patches:
   include `ELVRLOAD`/`ELVRSTORE`, `CLASSIFY_CF`/`CF_TARGET`, IR
   scaffolding `IR_NODE_FL`, `IR_BB_*`, `IR_EDGE_*`, `ir_emit2`,
   `ir_lower_all`, `ir_apply_lase`, `ir_dead_block_elim`,
-  `_macho_wstr_pad`, `SYSV_HASH` (if v5.6.16 doesn't re-wire it).
+  `_macho_wstr_pad`, `SYSV_HASH` (if v5.6.27 doesn't re-wire it).
   Audit which are speculative scaffolding for future work vs
   genuinely dead, and delete the latter.
 - **`_TARGET_*` flag consolidation.** `_TARGET_MACHO`,

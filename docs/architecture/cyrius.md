@@ -75,9 +75,9 @@ not control:
 |--------|--------------|-------------|-------|
 | Linux x86_64 | ✅ | ✅ | Daily-driver host. Byte-identical 3-step fixpoint, self-host compile ~347 ms. |
 | Linux aarch64 (cross) | ✅ | ✅ (cross-built binary runs on Pi) | `tests/regression-aarch64-syscalls.sh` gates the runtime path. |
-| Linux aarch64 (native self-host on Pi) | ✅ | ❌ | Pinned **v5.6.21**. Native binary fails to parse its own source with `_TARGET_MACHO` undef — a capability gap in our aarch64 runtime, not a codegen / byte-identity issue. |
-| macOS arm64 Mach-O | ✅ | ❌ | Pinned **v5.6.22**. Bytes unchanged since v5.5.13; Sequoia dyld tightened `LC_DYLD_INFO` / `__got` enforcement. Platform drift, not cyrius regression. |
-| Windows 11 PE32+ | ✅ | ❌ | Pinned **v5.6.23**. Bytes unchanged since v5.5.10; Win11 24H2 (build 26200) tightened CET/CFG/ASLR loader checks. Platform drift. |
+| Linux aarch64 (native self-host on Pi) | ✅ | ❌ | Pinned **v5.6.24**. Native binary fails to parse its own source with `_TARGET_MACHO` undef — a capability gap in our aarch64 runtime, not a codegen / byte-identity issue. |
+| macOS arm64 Mach-O | ✅ | ❌ | Pinned **v5.6.25**. Bytes unchanged since v5.5.13; Sequoia dyld tightened `LC_DYLD_INFO` / `__got` enforcement. Platform drift, not cyrius regression. |
+| Windows 11 PE32+ | ✅ | ❌ | Pinned **v5.6.26**. Bytes unchanged since v5.5.10; Win11 24H2 (build 26200) tightened CET/CFG/ASLR loader checks. Platform drift. |
 
 ### Why the distinction matters
 
@@ -94,7 +94,7 @@ conflated:
   way, the fix is scoped work — a repair slot in the current
   minor — not a release blocker on codegen.
 
-Every slot in the v5.6.21–v5.6.23 repair cluster explicitly tags
+Every slot in the v5.6.24–v5.6.26 repair cluster explicitly tags
 which scope it's fixing. `tests/regression-aarch64-native-selfhost.sh`
 / `regression-macho-exit.sh` / `regression-pe-exit.sh` are **broad-
 scope gates** that ship as skip-stubs pre-fix (so check.sh stays

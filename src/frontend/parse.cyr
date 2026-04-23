@@ -160,6 +160,9 @@ fn PARSE_SWITCH(S) {
     EVSTORE(S, swidx);
     if (use_table == 1) {
         # === JUMP TABLE PATH ===
+        # v5.6.12: mark the entire x86 jump-table dispatch block as raw
+        # so DBE/LASE don't try to touch its range.
+        _IR_REC0(S, IR_RAW_EMIT);
         # Emit: sub rax, min
         EPUSHR(S); EMOVI(S, case_min); EMOVCA(S); EPOPR(S);
         E3(S, 0xC82948);
@@ -182,6 +185,8 @@ fn PARSE_SWITCH(S) {
         var la = S + 0x54A000 + lea_patch;
         S64(la, (L64(la) >> 32 << 32) | (lea_disp & 0xFFFFFFFF));
         # Emit table: (range+1) entries * 4 bytes, all zeros initially
+        # v5.6.12: table data — not code. Mark raw so DBE ignores range.
+        _IR_REC0(S, IR_RAW_EMIT);
         var ti = 0;
         while (ti <= range) { EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0); ti = ti + 1; }
         # Parse case bodies, patching table entries
@@ -731,6 +736,9 @@ fn PARSE_STMT(S) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
         STI(S, GTI(S) + 1);
+        # v5.6.12: inline asm block is opaque to IR — each byte is
+        # arbitrary user-provided machine code.
+        _IR_REC0(S, IR_RAW_EMIT);
         var ago = 1;
         while (ago == 1) {
             if (PEEKT(S) == 14) { ago = 0; }

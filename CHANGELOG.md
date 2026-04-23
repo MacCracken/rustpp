@@ -4,6 +4,206 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.13] — 2026-04-23
+
+**`lib/sha1.cyr` extraction — quick-win release.** Pulled forward
+from v5.6.21 at user request as a confidence-build release between
+the v5.6.12 LASE-bug discovery and the harder v5.6.14 correctness
+audit. Small, contained, unblocks three consumer repos (owl for
+git .git/index integration, majra vendor-copy, sit for git compat).
+Zero compiler change — stdlib-only addition. cc5 unchanged at
+**488,088 B** (apart from the `5.6.12` → `5.6.13` version string
+embedded in the compiler binary).
+
+### Added — `lib/sha1.cyr`
+
+New stdlib module with a clear public API and a prominent
+"NOT a trust primitive" warning in the header.
+
+- **`fn sha1(data, len, digest_out)`** — hashes `data[0..len)`
+  with FIPS 180-4 SHA-1, writes 20 bytes big-endian to
+  `digest_out`. Caller allocates the output buffer.
+- **`fn _sha1_rotl32(x, n)`** — private 32-bit rotate-left helper.
+- **Module header** explicitly flags SHA-1's compromised status
+  and redirects to `lib/sigil.cyr` (SHA-256/512) or `lib/keccak.cyr`
+  (SHAKE-128/256) for any collision-resistance use case.
+- Algorithm is straight FIPS 180-4: 80-round MD-style compression
+  function over 512-bit blocks, big-endian word order. Promoted
+  verbatim from `lib/ws_server.cyr`'s `_wss_sha1` (which has been
+  stable in cyrius since v4.5.0).
+
+### Changed — `lib/ws_server.cyr` delegates to `sha1`
+
+The inlined `_wss_sha1` implementation (103 lines, `_wss_rotl32` +
+`_wss_sha1`) is replaced with a 3-line delegate that calls
+`sha1(...)`. Preserves the `_wss_` wrapper at the call site so
+ws_server-internal readability isn't churned. Requires line added
+to header: `include "lib/sha1.cyr"`. Net: `lib/ws_server.cyr`
+shrinks from 420 lines → 313 lines.
+
+### Added — `tests/tcyr/sha1.tcyr`
+
+7 FIPS 180-4 / real-world test vectors, all from `sha1sum`
+ground-truth:
+- Empty string → `da39a3ee...`.
+- `"abc"` → `a9993e36...` (FIPS 180-4 Appendix A §A.1).
+- 56-byte two-block message → `84983e44...` (§A.2).
+- RFC 6455 WebSocket handshake key → `b37a4f2c...` (guards the
+  `_wss_sha1` delegate path).
+- Single byte `"a"` → `86f7e437...`.
+- 55-byte one-block padding edge case → `e1771dfe...`.
+- 64-byte two-block-with-all-padding boundary → `9a6a7301...`.
+
+All 7 vectors PASS.
+
+### Files touched
+
+- `lib/sha1.cyr` — new, 154 lines.
+- `lib/ws_server.cyr` — delegate + include; shrinks 107 lines.
+- `tests/tcyr/sha1.tcyr` — new, 74 lines.
+- `VERSION`, `CHANGELOG.md`, `docs/development/roadmap.md`,
+  `docs/development/benchmarks.md`, `CLAUDE.md`.
+
+### Scope notes
+
+- `cyrius deps` stdlib resolution works by filesystem lookup (no
+  hardcoded list), so `[deps].stdlib = ["sha1", ...]` in a
+  downstream `cyrius.cyml` resolves automatically once `lib/sha1.cyr`
+  exists.
+- Downstream majra's vendored sha1 copy can be dropped in a
+  follow-up majra release (tracked out-of-tree).
+- cc5's embedded version string is the ONLY byte-difference vs
+  v5.6.12 — everything else is stdlib-only.
+
+### Gates
+
+- 3-step fixpoint: `a = b = c = 488,088 B` at v5.6.13 ✓.
+- `tests/tcyr/sha1.tcyr`: 7/7 PASS ✓.
+- 22/22 check.sh ✓ (unchanged — sha1.tcyr is discovered via
+  `cyrius test`, not hardcoded in check.sh).
+- Zero codegen change — `lib/ws_server.cyr` with include +
+  delegate produces byte-identical compiled output to before
+  (once the delegate is removed at `cyrius test` optimization
+  time, which cc5 doesn't do — so `lib/ws_server.cyr`'s footprint
+  grew slightly, but it's not in cc5's own include graph).
+
+## [5.6.12] — 2026-04-23
+
+**Phase O3a — IR-instrument parse emits + surface LASE correctness
+bug.** The v5.6.x optimization arc's third phase opens. Split from
+the original single-slot 590-LOC O3 plan per Path B recon: the
+precondition alone is substantial, and the existing IR infrastructure
+(`ir_lase` / `ir_dead_block_elim`) can't safely NOP-fill bytes
+until parse_*.cyr's direct emits are captured. Shipped the
+instrumentation; attempted to enable LASE + DBE and surfaced a
+pre-existing correctness bug — rolled LASE/DBE back to disabled;
+fix pinned to v5.6.14. cc5: 487,040 → **488,088 B** (+1,048 B of
+instrumentation call overhead with default `IR_ENABLED=0`).
+
+### Added — `IR_RAW_EMIT` opcode (value 98)
+
+New opcode in `src/common/ir.cyr` for "parse_*.cyr emitted raw
+bytes here — treat opaquely." No-op in `ir_lower_all` (raw bytes
+already emitted at record time). Added to `_ir_clobbers_rax`
+(conservatively assume raw bytes clobber rax) and to `_ir_op_name`
+dump table as `"RAW_EM"`. Placed before `IR_ELIMINATED = 99` in
+the opcode-number sequence.
+
+### Added — 15 `_IR_REC0(S, IR_RAW_EMIT)` instrumentation markers
+
+Each marker precedes a contiguous direct-emit block so downstream
+IR passes (LASE / DBE / future O3) know there's opaque real code
+in that CP range. Blocks instrumented:
+
+- `src/frontend/parse.cyr`:
+  - `PARSE_SWITCH` x86 jump-table dispatch (sub/cmp/ja/lea/movsxd/add/jmp).
+  - `PARSE_SWITCH` jump-table data emit (`while ti <= range`).
+  - Inline-asm block opening (`if (typ == 48)` — the `asm {}` body).
+- `src/frontend/parse_decl.cyr`:
+  - `PARSE_FIELD_LOAD` sub-byte movzx / mov sequences (x86-only).
+- `src/frontend/parse_expr.cyr`:
+  - `&fn_name` address-emit (per-arch: aarch64 MOVZ chain / x86 LEA /
+    x86 MOVABS).
+  - `&local` address-emit (aarch64 SUB X0,X29,#imm / x86 LEA).
+  - PE `syscall(60)` discard `add rsp, 8` cleanup.
+  - Closure-literal address-emit (mirrors `&fn_name` shape).
+  - `PF64CMP` f64-compare + SETcc normalization (both arches).
+  - 7 x87/SSE intrinsics (f64_atan, f64_neg, f64_sin, f64_cos,
+    f64_exp, f64_ln, f64_log2, f64_exp2).
+- `src/frontend/parse_fn.cyr`:
+  - Struct-return rep-movsb block (push rsi/rdi / lea / mov ecx /
+    rep movsb / pop rsi/rdi).
+  - `#regalloc` callee-saved spill prologue (mov [rbp-N], rN × 1–5).
+  - `#regalloc` callee-saved restore epilogue.
+
+### Enable attempt — LASE/DBE, reverted
+
+Wired `ir_apply_lase(S)` + `ir_dead_block_elim(S)` at `main.cyr:830`
+under `CYRIUS_IR=3`. Produced these numbers on self-host:
+
+- LASE: 811 candidates, 5,692 B NOP-filled (avg 7 B per site —
+  matches `mov rax, [rbp+disp32]` encoding).
+- DBE: 52,747 B reported dead (~10.8% of cc5 — false positives).
+- Resulting cc5 binary: **broken**. Fails to parse even
+  `fn main() { return 42; }` with error:1: "expected '=', got string".
+
+Ruled out as coverage-gap in new IR_RAW_EMIT instrumentation —
+LASE alone (without DBE) still breaks the binary. Root cause
+almost certainly a pre-existing bug: either `_ir_clobbers_rax`
+has a coverage gap (some IR op writes rax but isn't in the table),
+or `ir_apply_lase`'s "next node CP" cp_end heuristic extends past
+the eliminated instruction's actual encoded length. These passes
+have been DISABLED since they were written and never runtime-
+verified against a self-host-shipping binary. Commented out in
+`main.cyr:830`, pinned for **v5.6.14** dedicated fix.
+
+### Roadmap reshuffle
+
+- Original single-slot O3 (v5.6.12) split into v5.6.12 (precondition
+  + LASE surface) / v5.6.14 (LASE correctness fix) / v5.6.15 (O3b
+  fold + liveness+DCE) / v5.6.16 (O3c copy-prop + fixpoint).
+- `lib/sha1.cyr` extraction pulled forward from v5.6.21 → v5.6.13
+  as a quick-win release between the v5.6.12 LASE-bug discovery
+  and the harder v5.6.14 correctness audit. User request.
+- Cascade: v5.6.13–v5.6.27 → v5.6.14–v5.6.28 net. Total slot count:
+  27 → 29.
+- v5.6.x closeout now at **v5.6.28**.
+
+### Numbers
+
+- cc5: 487,040 → **488,088 B** (+1,048 B, +0.22% — all of it
+  instrumentation call overhead, no codegen change).
+- 3-step fixpoint: `a = b = c = 488,088 B` ✓.
+- 22/22 check.sh ✓.
+- `CYRIUS_IR=0` (default): byte-identical to previous build.
+- `CYRIUS_IR=1`: 139,183 nodes, 10,602 BBs, 13,570 edges, 811 LASE
+  candidates captured (up from 138,851 in v5.6.11 due to new
+  IR_RAW_EMIT markers).
+- `CYRIUS_IR=3`: LASE + DBE would apply ~58 KB of "optimizations"
+  but corrupt the binary — **disabled pending v5.6.14**.
+
+### Files touched
+
+- `src/common/ir.cyr` — `IR_RAW_EMIT = 98` opcode, lowering no-op,
+  `_ir_clobbers_rax` entry, `_ir_op_name` entry.
+- `src/frontend/parse.cyr` — 3 IR_RAW_EMIT markers.
+- `src/frontend/parse_decl.cyr` — 1 marker.
+- `src/frontend/parse_expr.cyr` — 11 markers (incl. 7 x87 intrinsics).
+- `src/frontend/parse_fn.cyr` — 3 markers (struct-return, regalloc
+  prologue, regalloc epilogue).
+- `src/main.cyr` — wired enable site at :830 with inline LASE/DBE
+  calls under `CYRIUS_IR=3`, then commented out after enable failed.
+- `CHANGELOG.md`, `docs/development/roadmap.md` (sha1 ↔ LASE
+  reshuffle, cascade +2), `CLAUDE.md`.
+
+### Lesson reinforced
+
+Enabled-passes that have never been runtime-verified deserve
+dedicated verification when they ship. "Coded but disabled" is a
+different category from "shipping" — v5.6.12 is the first patch
+to actually flip that switch on `ir_lase` / `ir_apply_lase` /
+`ir_dead_block_elim` and the switch-flip surfaced the bugs.
+
 ## [5.6.11] — 2026-04-23
 
 **Phase O2 category 5/5 — aarch64 combine-shuttle elim. Closes

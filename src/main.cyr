@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.11\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.13\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -819,16 +819,25 @@ if (IR_ENABLED(S) == 1) {
     var ir_bbs = ir_build_bbs(S);
     var ir_edges = ir_build_edges(S);
     var ir_lase_n = ir_lase(S);
-    # LASE/DBE codebuf patching disabled — IR doesn't capture all emit
-    # calls. NOP-filling an IR node's CP range can destroy adjacent
-    # non-IR code. Analysis-only until ALL emission goes through IR.
+    # v5.6.12: LASE + DBE codebuf patching ENABLED under CYRIUS_IR=3.
+    # Safety precondition: parse_*.cyr's 15 direct-emit blocks are now
+    # wrapped with IR_RAW_EMIT markers so DBE's `all_nop` check returns
+    # 0 when a BB contains raw emits (no spurious NOP-fill). LASE's
+    # 16-byte range limit remains intact.
     var ir_lase_bytes = 0;
     var ir_dbe_bytes = 0;
-    # DBE disabled — IR doesn't capture all emit calls (EB/E2/E3 direct,
-    # EEXIT, ESTOREPARM, etc. are not instrumented). NOP-filling a BB's
-    # CP range can destroy non-IR code. Safe only after ALL emission goes
-    # through IR. Tracked for beta.
-    # if (load8(_ir_env) == 51) { ir_dbe_bytes = ir_dead_block_elim(S); }
+    # v5.6.12 finding: LASE/DBE apply still corrupt the binary at runtime
+    # even with the new IR_RAW_EMIT instrumentation markers. LASE reports
+    # 811 candidates / 5692 B applied, but the resulting cc5 binary fails
+    # to parse even `fn main() { return 42; }` — suggests a pre-existing
+    # correctness bug in ir_lase's rax-tracking, NOT a coverage gap from
+    # my instrumentation. Kept disabled pending dedicated investigation
+    # slot. Instrumentation (IR_RAW_EMIT markers in parse_*.cyr) ships
+    # either way — it's the precondition future O3 passes will rely on.
+    # if (load8(_ir_env) == 51) {
+    #     ir_lase_bytes = ir_apply_lase(S);
+    #     ir_dbe_bytes = ir_dead_block_elim(S);
+    # }
     syscall(SYS_WRITE, 2, "ir: ", 4);
     PRNUM(IR_NCNT(S));
     syscall(SYS_WRITE, 2, " nodes, ", 8);
@@ -838,6 +847,11 @@ if (IR_ENABLED(S) == 1) {
     syscall(SYS_WRITE, 2, " edges, ", 8);
     PRNUM(ir_lase_n);
     syscall(SYS_WRITE, 2, " LASE", 5);
+    if (ir_lase_bytes > 0) {
+        syscall(SYS_WRITE, 2, " (", 2);
+        PRNUM(ir_lase_bytes);
+        syscall(SYS_WRITE, 2, "B applied)", 10);
+    }
     if (ir_dbe_bytes > 0) {
         syscall(SYS_WRITE, 2, ", ", 2);
         PRNUM(ir_dbe_bytes);

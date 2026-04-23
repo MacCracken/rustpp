@@ -171,6 +171,8 @@ fn PARSE_FIELD_LOAD(S, noff) {
             ERR_MSG(S, "sub-8-byte struct field load is x86-only for v5.6.0; aarch64 LDRB/LDRH/LDR pending", 86);
         }
     }
+    # v5.6.12: sub-byte field load — x86 movzx/mov byte sequences.
+    if (fld_sz == 1 || fld_sz == 2 || fld_sz == 4) { _IR_REC0(S, IR_RAW_EMIT); }
     if (fld_sz == 1) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x01); }   # movzx rax, byte [rcx]
     elif (fld_sz == 2) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x01); }               # movzx eax, word [rcx]
     elif (fld_sz == 4) { EB(S, 0x8B); EB(S, 0x01); }                              # mov eax, [rcx]

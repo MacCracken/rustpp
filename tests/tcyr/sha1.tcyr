@@ -1,0 +1,82 @@
+# Test: lib/sha1.cyr — FIPS 180-4 test vectors
+# Reference: https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program
+#            (secure-hash-standard; SHA-1 byte-oriented short messages KAT)
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/sha1.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Hex-string helper — turns 20-byte digest into 40-char lowercase hex.
+fn _hex40(digest) {
+    var hex = alloc(41);
+    var i = 0;
+    while (i < 20) {
+        var b = load8(digest + i);
+        var hi = (b >> 4) & 0x0F;
+        var lo = b & 0x0F;
+        if (hi < 10) { store8(hex + i * 2, 0x30 + hi); }
+        else { store8(hex + i * 2, 0x61 + hi - 10); }
+        if (lo < 10) { store8(hex + i * 2 + 1, 0x30 + lo); }
+        else { store8(hex + i * 2 + 1, 0x61 + lo - 10); }
+        i = i + 1;
+    }
+    store8(hex + 40, 0);
+    return hex;
+}
+
+test_group("sha1 FIPS 180-4 test vectors");
+
+var digest = alloc(20);
+
+# Vector 1: empty string → da39a3ee5e6b4b0d3255bfef95601890afd80709
+# FIPS 180-4 Appendix A — null-string test vector.
+sha1("", 0, digest);
+assert_eq(streq(_hex40(digest), "da39a3ee5e6b4b0d3255bfef95601890afd80709"), 1, "sha1(\"\")");
+
+# Vector 2: "abc" → a9993e364706816aba3e25717850c26c9cd0d89d
+# FIPS 180-4 Appendix A §A.1 — single-block message.
+sha1("abc", 3, digest);
+assert_eq(streq(_hex40(digest), "a9993e364706816aba3e25717850c26c9cd0d89d"), 1, "sha1(\"abc\")");
+
+# Vector 3: 56-byte two-block message.
+# FIPS 180-4 Appendix A §A.2 — multi-block message.
+var msg3 = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+sha1(msg3, 56, digest);
+assert_eq(streq(_hex40(digest), "84983e441c3bd26ebaae4aa1f95129e5e54670f1"), 1, "sha1(56-byte two-block)");
+
+# Vector 4: RFC 6455 Sec-WebSocket-Accept key (the reason SHA-1 was
+# inlined here originally — guards the _wss_sha1 delegate path).
+# Expected digest for the RFC 6455 §4.2.2 example:
+#   key = "dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+#   sha1(key) = b37a4f2cc0624f1690f64606cf385945b2bec4ea
+#   (→ base64-encoded gives "s3pPLMBiTxaQ9kYRrWlfRbv38CM=" per RFC example)
+var ws_key = "dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+sha1(ws_key, 60, digest);
+assert_eq(streq(_hex40(digest), "b37a4f2cc0624f1690f64606cf385945b2bec4ea"), 1, "sha1(RFC 6455 handshake)");
+
+# Vector 5: single byte. Uses padding edge case — input is 8 bits
+# so total (with 0x80 and 64-bit length) is exactly 72 bits, pads
+# to one 512-bit block.
+sha1("a", 1, digest);
+assert_eq(streq(_hex40(digest), "86f7e437faa5a7fce15d1ddcb9eaeaea377667b8"), 1, "sha1(\"a\")");
+
+# Vector 6: 55-byte message — just fits in one block with padding.
+# Tests the boundary where pad_len computation = 0 (56-byte padded
+# message + 8-byte length = exactly 64 bytes = one block).
+var msg6 = "The quick brown fox jumps over the lazy dog and then so";
+sha1(msg6, 55, digest);
+# Not a named NIST vector; computed offline via `echo -n "..." | sha1sum`
+# for padding-boundary coverage.
+assert_eq(streq(_hex40(digest), "e1771dfe9f35721e8299dc1d6d7f3d6cd4d1eb0b"), 1, "sha1(55-byte one-block)");
+
+# Vector 7: 64-byte message — crosses into the second block with
+# no data; the entire second block is padding (0x80 + 55 zeros +
+# 8-byte length).
+var msg7 = "The quick brown fox jumps over the lazy dog and then som12345678";
+sha1(msg7, 64, digest);
+assert_eq(streq(_hex40(digest), "9a6a7301b3db304e0f397388eeea656a9ff72d62"), 1, "sha1(64-byte boundary)");
+
+var r = assert_summary();

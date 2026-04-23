@@ -298,6 +298,9 @@ fn PARSE_FACTOR(S) {
             # backends — only the placeholder bytes differ).
             var fnaddr = S + 0x150B000 + fc * 16;
             SFCNT(S, fc + 1);
+            # v5.6.12: `&fn_name` address-emit — per-arch raw encoding
+            # with fixup-patched immediate. One marker covers all arches.
+            _IR_REC0(S, IR_RAW_EMIT);
             if (_AARCH64_BACKEND == 1) {
                 # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that
                 # FIXUP patches to the resolved function address.
@@ -327,6 +330,9 @@ fn PARSE_FACTOR(S) {
                 # v4.9.1: shift past all reserved callee-saved slots
                 if (_cur_fn_regalloc > 0) { adisp = adisp - _cur_fn_regalloc * 8; }
                 if (_cur_fn_ret_stash > 0) { adisp = adisp - _cur_fn_ret_stash; }
+                # v5.6.12: `&local` address-emit (x86 LEA vs aarch64
+                # SUB X0, X29, #imm) — raw multi-byte encoding.
+                _IR_REC0(S, IR_RAW_EMIT);
                 if (_AARCH64_BACKEND == 1) {
                     # aarch64: SUB X0, X29, #|adisp|. adisp is negative.
                     # x86 emitted `LEA rax, [rbp+disp32]` here as 7 raw
@@ -484,7 +490,8 @@ fn PARSE_FACTOR(S) {
                 if (argc == 2) {
                     # Stack top-down: [exit_code] [syscall_nr=60]
                     EPOPR(S);                    # pop rax = exit code
-                    # add rsp, 8 — discard the syscall_nr below exit_code
+                    # v5.6.12: add rsp, 8 (4 raw bytes) — discard syscall_nr
+                    _IR_REC0(S, IR_RAW_EMIT);
                     EB(S, 0x48); EB(S, 0x83);
                     EB(S, 0xC4); EB(S, 0x08);
                     EEXIT(S);                    # emits Win64 ExitProcess call
@@ -756,6 +763,8 @@ fn PARSE_FACTOR(S) {
             syscall(SYS_EXIT, 1);
         }
         var clfaddr = S + 0x150B000 + clfc * 16;
+        # v5.6.12: closure-literal address-emit, mirrors `&fn_name` shape.
+        _IR_REC0(S, IR_RAW_EMIT);
         if (_AARCH64_BACKEND == 1) {
             # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that FIXUP
             # patches to the resolved closure address.
@@ -803,6 +812,8 @@ fn PF64CMP(S, tok) {
     PCMPE(S);
     EPOPC(S); EPUSHR(S);
     # At this point x1 = a, stack = [b], x0 (/ rax on x86) = b.
+    # v5.6.12: f64 compare — per-arch raw FCMP/UCOMISD + SETcc chain.
+    _IR_REC0(S, IR_RAW_EMIT);
     if (_AARCH64_BACKEND == 1) {
         # aarch64 f64 compare: move both operands into FP registers,
         # FCMP, then CSET on the ordered condition (MI rather than LT
@@ -922,7 +933,7 @@ fn PARSE_SIMD_EXT(S, ptyp) {
     }
     # f64_atan(x) — x87: fld x, fld1, fpatan
     # v5.6.0: x87 fpatan is x86-only; aarch64 needs a polyfill.
-    if (ptyp == 99) { if (_AARCH64_BACKEND == 1) { ERR_MSG(S, "f64_atan is x86-only for v5.6.0; aarch64 has no native fpatan — needs polyfill", 78); } STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xF3); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 99) { if (_AARCH64_BACKEND == 1) { ERR_MSG(S, "f64_atan is x86-only for v5.6.0; aarch64 has no native fpatan — needs polyfill", 78); } STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xF3); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # rethi() — read rdx from last function call (mov rax, rdx)
     if (ptyp == 98) {
         STI(S, GTI(S) + 1);
@@ -1066,7 +1077,7 @@ fn PARSE_TERM(S) {
     if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     if (ptyp == 67) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF2I(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     if (ptyp >= 68) { if (ptyp <= 70) { PF64CMP(S, ptyp); return 0; } }
-    if (ptyp == 71) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EXORPD_X1(S); EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC8); EMOVAPD_01(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 71) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EXORPD_X1(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC8); EMOVAPD_01(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_sqrt(x) — sqrtsd xmm0, xmm0
     if (ptyp == 79) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64SQRT(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_abs(x) — clear sign bit via integer AND
@@ -1078,17 +1089,17 @@ fn PARSE_TERM(S) {
     # f64_round(x) — roundsd xmm0, xmm0, 0 (round to nearest)
     if (ptyp == 92) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64ROUND(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_sin(x) — x87 fsin (D9 FE)
-    if (ptyp == 83) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xFE); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 83) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xFE); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_cos(x) — x87 fcos (D9 FF)
-    if (ptyp == 84) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xFF); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 84) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xFF); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_exp(x) — x87: fldl2e; fmulp; fld st0; frndint; fsub st1,st0; fxch; f2xm1; fld1; faddp; fscale; fstp st1
-    if (ptyp == 85) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xEA); EB(S, 0xDE); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 85) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xEA); EB(S, 0xDE); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_ln(x) — x87: fldln2; fxch; fyl2x
-    if (ptyp == 86) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xED); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 86) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xED); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_log2(x) — x87: fld1; fxch; fyl2x
-    if (ptyp == 87) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 87) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64_exp2(x) — x87: fld st0; frndint; fsub st1,st0; fxch; f2xm1; fld1; faddp; fscale; fstp st1
-    if (ptyp == 88) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 88) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64v_add/sub/mul(dst, a, b, n) — SSE2 packed f64 batch operations
     if (ptyp >= 89) { if (ptyp <= 91) {
         STI(S, GTI(S) + 1);

@@ -285,6 +285,9 @@ fn PARSE_RETURN(S) {
         # save and restore them around the copy. SysV has no such
         # rule (RSI/RDI are arg registers, already volatile), but
         # saving a few bytes is cheap and keeps the emit uniform.
+        # v5.6.12: the whole struct-return `rep movsb` block is raw
+        # x86 encoding (push/lea/mov/rep/pop chain). One marker.
+        _IR_REC0(S, IR_RAW_EMIT);
         EB(S, 0x56);                                   # push rsi
         EB(S, 0x57);                                   # push rdi
         # lea rsi, [rbp + src_disp]
@@ -669,6 +672,8 @@ fn PARSE_FN_DEF(S) {
     # rbx→[rbp-8], r12→[rbp-16], r13→[rbp-24], r14→[rbp-32], r15→[rbp-40].
     # Encodings: REX.WR=4C for r12-r15 (REX.R=1), opcode 89 (mov r/m,r),
     # ModR/M byte encodes register + [rbp+disp8].
+    # v5.6.12: regalloc callee-saved spill block is raw x86 encoding.
+    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
     if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
     if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
     if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
@@ -857,6 +862,8 @@ fn PARSE_FN_DEF(S) {
         EPOPR(S);  # restore return value
     }
     # v4.9.1: restore callee-saved registers (reverse order of save).
+    # v5.6.12: regalloc callee-saved restore block is raw x86 encoding.
+    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
     if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
     if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
     if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]
