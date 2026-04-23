@@ -700,9 +700,40 @@ fn LEX(S) {
             } else { ADDTOK(S, 41, 0); p = p + 1; }
         }
         else { if (c == 58) { ADDTOK(S, 49, 0); p = p + 1; }
-        else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
-        else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
-        else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
+        # v5.6.2: overflow operators `+%` / `+|` / `+?` (wrapping /
+        # saturating / checked). Lookahead one byte; if no match, fall
+        # back to plain `+` (token 6). Wrapping is semantically identical
+        # to bare `+` — the distinct token carries intent for readers
+        # and future `--strict`-mode diagnostics. Saturating and checked
+        # compile to a stdlib helper call (lib/overflow.cyr — explicit
+        # include required).
+        else { if (c == 43) {
+            if (p + 1 < bl) {
+                var nc = load8(S + 0x44A000 + p + 1);
+                if (nc == 37)      { ADDTOK(S, 113, 0); p = p + 2; }  # +%
+                elif (nc == 124)   { ADDTOK(S, 114, 0); p = p + 2; }  # +|
+                elif (nc == 63)    { ADDTOK(S, 115, 0); p = p + 2; }  # +?
+                else               { ADDTOK(S, 6,   0); p = p + 1; }
+            } else { ADDTOK(S, 6, 0); p = p + 1; }
+        }
+        else { if (c == 45) {
+            if (p + 1 < bl) {
+                var nc = load8(S + 0x44A000 + p + 1);
+                if (nc == 37)      { ADDTOK(S, 116, 0); p = p + 2; }  # -%
+                elif (nc == 124)   { ADDTOK(S, 117, 0); p = p + 2; }  # -|
+                elif (nc == 63)    { ADDTOK(S, 118, 0); p = p + 2; }  # -?
+                else               { ADDTOK(S, 7,   0); p = p + 1; }
+            } else { ADDTOK(S, 7, 0); p = p + 1; }
+        }
+        else { if (c == 42) {
+            if (p + 1 < bl) {
+                var nc = load8(S + 0x44A000 + p + 1);
+                if (nc == 37)      { ADDTOK(S, 119, 0); p = p + 2; }  # *%
+                elif (nc == 124)   { ADDTOK(S, 120, 0); p = p + 2; }  # *|
+                elif (nc == 63)    { ADDTOK(S, 121, 0); p = p + 2; }  # *?
+                else               { ADDTOK(S, 8,   0); p = p + 1; }
+            } else { ADDTOK(S, 8, 0); p = p + 1; }
+        }
         else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
         else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
         else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }

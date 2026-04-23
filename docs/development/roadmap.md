@@ -1,12 +1,14 @@
 # Cyrius Development Roadmap
 
-> **v5.6.1.** cc5 compiler (515,344 B x86_64), x86_64 + aarch64
+> **v5.6.2.** cc5 compiler (518,984 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
-> 4), Windows 11, and macOS arm64. **v5.6.1 adds `#else` / `#elif`
-> / `#ifndef` preprocessor directives** backed by a per-level
-> state stack at heap 0x97F10; v5.6.0 closed the v5.5.40 `parse.cyr`
-> arch-guard carry-over.
+> 4), Windows 11, and macOS arm64. **v5.6.2 adds explicit overflow
+> operators** — 9 tokens (`+%` `-%` `*%` wrapping, `+|` `-|` `*|`
+> saturating, `+?` `-?` `*?` checked-panic) backed by
+> `lib/overflow.cyr`. v5.6.1 added `#else` / `#elif` / `#ifndef`
+> preprocessor; v5.6.0 closed the v5.5.40 `parse.cyr` arch-guard
+> carry-over.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -24,9 +26,10 @@
 >   (closes the v5.5.40 carry-over Active Bug).
 > - **v5.6.1**: ✅ shipped — `#else` / `#elif` / `#ifndef`
 >   preprocessor directives (per-level state stack at 0x97F10).
-> - **v5.6.2–v5.6.4**: remaining small language polish — explicit
->   overflow operators (`+%`/`+|`/`+?`), `#must_use` + `@unsafe`
->   attributes, `#deprecated` attribute.
+> - **v5.6.2**: ✅ shipped — explicit overflow operators
+>   (9 tokens; `lib/overflow.cyr`).
+> - **v5.6.3–v5.6.4**: remaining small language polish —
+>   `#must_use` + `@unsafe` attributes, `#deprecated` attribute.
 > - **v5.6.5**: libro layout-dependent memory corruption
 >   investigation (3-attempts-defer applies).
 > - **v5.6.6**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
@@ -203,28 +206,48 @@ byte-identical mechanical migration that rides individual stdlib
 patches — bundling would make this release diff noisy without
 functional value.
 
-### v5.6.2 — Explicit overflow operators
+### v5.6.2 — Explicit overflow operators ✅ shipped
 
-50 years of C-family overflow UB / wrap-around footguns end
-here. Zig's pattern is proven: three explicit operators +
-keep bare `+` defined in release.
+Nine new operator tokens land; `lib/overflow.cyr` hosts the
+saturating / checked helpers. Scope diverges slightly from the
+v5.6.0 pin in favor of a cleaner, backend-agnostic impl:
 
-**Scope:**
-- Lex `+%` / `-%` / `*%` (wrapping), `+|` / `-|` / `*|`
-  (saturating), `+?` / `-?` / `*?` (checked — returns 0 or
-  panics on overflow, TBD at impl time).
-- Backend emit: wrapping = current bare-add encoding,
-  saturating = conditional-move on overflow flag, checked =
-  `jo panic` (x86) / `cbnz` (aarch64) after the arithmetic.
-- Bare `+` stays as-is (defined wrap semantics in release, may
-  warn in `--strict` mode).
+**What landed (vs original scope):**
+- Lexer: single-byte lookahead after `+` / `-` / `*` produces nine
+  tokens (IDs 113–121). Wrapping-`%` variants fold back to the bare
+  `+ - *` token at dispatch entry so the existing codegen handles
+  them with zero extra bytes.
+- Backend emit: saturating / checked dispatch via a new `EMIT_OVF_CALL`
+  helper in `parse_expr.cyr` that emits a 2-arg call to a named
+  stdlib fn. NOT the original inline `jo panic` / `cmov` plan — the
+  call approach is backend-agnostic (cc5_aarch64 and cc5_win pick
+  it up for free via existing `ECALLPOPS` / `ECALLTO`) and keeps
+  the compiler size delta to +3,640 B instead of the duplicated
+  per-arch encoding it would otherwise need.
+- Stdlib: `lib/overflow.cyr` with six i64 helpers (`_sat_{add,sub,mul}_i64`
+  + `_chk_{add,sub,mul}_i64`) using the `(a^r) & (b^r) & sign_bit`
+  identity for add, its subtraction variant, and divide-back for
+  mul (with the `INT64_MIN * -1` pathological-case guard).
+- Checked-panic: `syscall(60, 57)` — exit code 57 chosen to avoid
+  POSIX `128+N` signal codes and the `assert_summary` 0/1
+  convention. Future v5.11.x `Result<T,E>` work may replace panic
+  with Err propagation; the helper API stays stable.
+- Bare `+ - *` unchanged (wrap on 2's-complement; a `--strict`-mode
+  warning is a natural v5.6.4+ extension).
 
-**Gate:** `tests/tcyr/overflow_ops.tcyr` with all nine
-operators across u32/i32/u64/i64 boundary cases (MAX,
-MIN, MAX+1, MIN-1, product overflow).
+**Gate:** `tests/tcyr/overflow_ops.tcyr` ships with 18 assertions
+across all three families (MAX/MIN edges, wrap check, clamp check,
+on-the-edge checked). Overflow-panic cases can't run inside the
+assert harness (would exit 57); covered by 5 standalone scenarios
+confirmed during dev.
 
-**Tradeoff:** new lexer tokens (9 new op-tokens) + 3 opcodes
-per backend. Self-contained.
+**Mechanical:** self-host byte-identical, 19/19 check.sh, cc5
+515,344 → 518,984 B (+3,640 / +0.71 %). cc5_aarch64 emits
+`e_machine 0xB7`; cc5_win valid PE32+.
+
+**Deferred:** unsigned i64 variants, narrower widths (i32/u32),
+`/?` / `/|` (checked/saturating divide) — all slot in as follow-ups
+without lexer changes.
 
 ### v5.6.3 — `#must_use` + `@unsafe` attributes
 
@@ -1001,7 +1024,7 @@ enables adding new targets without touching the frontend.
 |---------|--------|--------|
 | `parse.cyr` arch-guard cleanup | **v5.6.0** ✅ | Small |
 | `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.1** ✅ | Small |
-| Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** | Small |
+| Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** ✅ | Small |
 | `#must_use` + `@unsafe` attributes | **v5.6.3** | Small |
 | `#deprecated("reason")` attribute | **v5.6.4** | Small |
 | Libro layout-corruption investigation | **v5.6.5** | Investigation |

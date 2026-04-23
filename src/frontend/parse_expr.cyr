@@ -1064,6 +1064,9 @@ fn PARSE_TERM(S) {
     var go = 1;
     while (go == 1) {
         var typ = PEEKT(S);
+        # v5.6.2: `*%` is identical to bare `*` (wrapping default on
+        # 2's-complement). Collapse the token ID.
+        if (typ == 119) { typ = 8; }
         if (typ == 8) {
             var mulst = GESTYPE(S);
             STI(S, GTI(S) + 1);
@@ -1141,8 +1144,26 @@ fn PARSE_TERM(S) {
             } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
             else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); _cfo = 0; }
         }
+        # v5.6.2: *| / *? — saturating / checked mul. Calls into
+        # lib/overflow.cyr. Matches the +|/+? pattern at PEXPR.
+        else { if (typ == 120) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_FACTOR(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_sat_mul_i64");
+            _cfo = 0;
+        }
+        else { if (typ == 121) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            PARSE_FACTOR(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_chk_mul_i64");
+            _cfo = 0;
+        }
         else { go = 0; }
-        } } } }
+        } } } } } }
     }
     return 0;
 }
@@ -1197,12 +1218,48 @@ fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
     return 0;
 }
 
+# v5.6.2: emit a binop as a call to a named stdlib helper fn
+# (`_sat_add_i64` / `_chk_sub_i64` / etc. — see `lib/overflow.cyr`).
+# Assumes lhs is already pushed and rhs is pushed right before the call
+# (ECALLPOPS consumes 2 stack args). If the helper isn't defined at
+# link time the standard "undefined function" diagnostic fires on the
+# generated call — with the v5.6.0 `--strict` flag that's a hard-error.
+fn EMIT_OVF_CALL(S, fname_str) {
+    var flen = 0;
+    while (load8(fname_str + flen) != 0) { flen = flen + 1; }
+    NPOS_GUARD(S, flen + 1);
+    var np = GNPOS(S);
+    var i = 0;
+    while (i < flen) {
+        store8(S + 0x60000 + np + i, load8(fname_str + i));
+        i = i + 1;
+    }
+    store8(S + 0x60000 + np + flen, 0);
+    SNPOS(S, np + flen + 1);
+    var fi = FINDFN(S, np);
+    if (fi < 0) { fi = REGFN(S, np); }
+    ECALLPOPS(S, 2);
+    var foff = L64(S + 0xE92000 + fi * 8);
+    if (foff >= 0) { ECALLTO(S, foff); }
+    else { ECALLFIX(S, fi); }
+    ECALLCLEAN(S, 2);
+    return 0;
+}
+
 fn PEXPR(S) {
     PARSE_TERM(S);
     var ps = GPSC(S);
     var go = 1;
     while (go == 1) {
         var typ = PEEKT(S);
+        # v5.6.2: `+%` / `-%` are semantically identical to bare `+` /
+        # `-` (wrapping is the default on 2's-complement); collapse
+        # token IDs so the existing dispatch below handles them.
+        if (typ == 113) { typ = 6; }
+        elif (typ == 116) { typ = 7; }
+        # `+|` / `+?` / `-|` / `-?` compile to a call to the
+        # corresponding `lib/overflow.cyr` helper. Handled in their own
+        # branches below so the constant-fold paths don't fire on them.
         if (typ == 6) {
             var addst = GESTYPE(S);
             STI(S, GTI(S) + 1);
@@ -1253,6 +1310,51 @@ fn PEXPR(S) {
                     else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
                 } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); _cfo = 0; }
             }
+        }
+        # v5.6.2: +| / +? / -| / -? — saturating / checked add/sub.
+        # Compiles to a call into lib/overflow.cyr. No constant-fold
+        # path; let the helper handle any corner cases. SPSC(0) during
+        # PARSE_TERM so pointer scaling doesn't apply (overflow ops
+        # are defined on integers only).
+        else { if (typ == 114) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            SPSC(S, 0);
+            PARSE_TERM(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_sat_add_i64");
+            SPSC(S, ps);
+            _cfo = 0;
+        }
+        else { if (typ == 115) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            SPSC(S, 0);
+            PARSE_TERM(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_chk_add_i64");
+            SPSC(S, ps);
+            _cfo = 0;
+        }
+        else { if (typ == 117) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            SPSC(S, 0);
+            PARSE_TERM(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_sat_sub_i64");
+            SPSC(S, ps);
+            _cfo = 0;
+        }
+        else { if (typ == 118) {
+            STI(S, GTI(S) + 1);
+            EPUSHR(S);
+            SPSC(S, 0);
+            PARSE_TERM(S);
+            EPUSHR(S);
+            EMIT_OVF_CALL(S, "_chk_sub_i64");
+            SPSC(S, ps);
+            _cfo = 0;
         }
         else { if (typ == 27) {
             # AMPERSAND — binary AND
@@ -1321,7 +1423,7 @@ fn PEXPR(S) {
             } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); _cfo = 0; }
         }
         else { go = 0; }
-        } } } }
+        } } } } } } } }
     }
     return 0;
 }

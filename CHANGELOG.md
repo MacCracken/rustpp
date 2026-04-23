@@ -4,6 +4,104 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.2] — 2026-04-22
+
+**Explicit overflow operators.** 50 years of C-family silent overflow
+foot-gunnery ends here. Zig's three-operator pattern, adapted: three
+new operator families (`%` wrapping, `|` saturating, `?` checked) for
+`+`, `-`, `*` — nine tokens total. Bare `+ - *` remain defined-wrap
+semantics in release (may warn in a future `--strict` extension).
+
+### Added — nine new operator tokens
+
+Lexer (`src/frontend/lex.cyr`) gains single-byte lookahead after
+`+` / `-` / `*`:
+
+| Operator | Token ID | Semantics                                          |
+|----------|----------|----------------------------------------------------|
+| `+%`     | 113      | wrapping add — alias for bare `+`                  |
+| `+\|`    | 114      | saturating add — clamp to INT64_MAX / INT64_MIN    |
+| `+?`     | 115      | checked add — panic (exit 57) on overflow          |
+| `-%`     | 116      | wrapping sub — alias for bare `-`                  |
+| `-\|`    | 117      | saturating sub                                     |
+| `-?`     | 118      | checked sub                                        |
+| `*%`     | 119      | wrapping mul — alias for bare `*`                  |
+| `*\|`    | 120      | saturating mul                                     |
+| `*?`     | 121      | checked mul                                        |
+
+Wrapping tokens are folded back to the bare `+/-/*` tokens at the top
+of `PEXPR` / `PARSE_TERM` so the existing add/sub/mul codegen handles
+them with zero extra bytes. They exist as distinct tokens so the
+reader's intent is explicit and a future `--strict` pass can
+distinguish "deliberate wrap" from "accidental bare arithmetic."
+
+Saturating and checked tokens dispatch to a new helper
+`EMIT_OVF_CALL(S, fname_str)` in `parse_expr.cyr` that emits a
+2-argument call to the named stdlib function (see below). Pointer
+scaling (`SPSC`) is zeroed during the inner `PARSE_TERM` /
+`PARSE_FACTOR` so overflow ops stay integer-only.
+
+### Added — `lib/overflow.cyr` stdlib module
+
+Six helper fns (plus three reference-only wrapping wrappers):
+
+* `_sat_add_i64(a, b)`, `_sat_sub_i64(a, b)`, `_sat_mul_i64(a, b)`
+* `_chk_add_i64(a, b)`, `_chk_sub_i64(a, b)`, `_chk_mul_i64(a, b)`
+
+Overflow detection uses the `(a ^ r) & (b ^ r) & sign_bit` identity
+for `+`; the `(a ^ b) & (a ^ r) & sign_bit` variant for `-`; and the
+divide-back trick for `*` with an explicit `INT64_MIN * -1`
+pathological-case guard (the only pair that divides back cleanly
+while still overflowing).
+
+Saturating helpers clamp to `0x7FFFFFFFFFFFFFFF` on positive
+overflow and `0x8000000000000000` (as `0 - 0x7FFFFFFFFFFFFFFF - 1`)
+on negative overflow. Checked helpers panic via `syscall(60, 57)` —
+exit code 57 chosen to avoid clashes with POSIX `128+N` signal codes
+and the `assert_summary` 0/1 convention. Future v5.11.x `Result<T,E>`
+work may replace the panic with Err propagation; the helper API
+stays the same.
+
+No other stdlib includes required — `lib/overflow.cyr` uses the raw
+`syscall(60, ...)` number so it slots in anywhere without a
+dependency dance. Explicit `include "lib/overflow.cyr"` required at
+use site; saturating / checked ops without the include surface as
+the existing "undefined function" diagnostic (hard-error under
+`--strict`).
+
+### Added — `tests/tcyr/overflow_ops.tcyr`
+
+18 assertions across all three families:
+- Wrapping: basic arithmetic + `INT64_MAX +% 1 → INT64_MIN` + `INT64_MIN -% 1 → INT64_MAX`.
+- Saturating: basic arithmetic + `INT64_MAX +| 5 → INT64_MAX`, `INT64_MIN -| 1 → INT64_MIN`, `INT64_MAX *| 2 → INT64_MAX`, `INT64_MIN *| 2 → INT64_MIN`, `INT64_MIN *| -1 → INT64_MAX` (pathological case).
+- Checked: basic arithmetic + `(MAX-1) +? 1 → MAX` / `(MIN+1) -? 1 → MIN` on-the-edge. Overflow-panic cases can't run inside the assert harness (by design — panic exits 57); covered by standalone scenarios in the v5.6.2 closeout.
+
+Also ran outside the harness: 5 standalone scenarios confirming
+`+?` / `*?` / `+|` / `-|` / `*|` panic and clamp behavior
+independently.
+
+### Mechanical
+
+* Self-host byte-identical (cc5 → cc5b).
+* `sh scripts/check.sh` 19/19 green.
+* cc5 size 515,344 → 518,984 B (+3,640 B / +0.71 %). All in the
+  lexer lookahead, parser dispatch, and the `EMIT_OVF_CALL` helper.
+* cc5_aarch64 cross still emits `e_machine 0xB7`; cc5_win cross
+  still produces valid PE32+. Both backends pick up the new tokens
+  for free — the dispatch uses existing `ECALLPOPS` / `ECALLTO`
+  infrastructure, which is already arch-dispatched.
+
+### Known
+
+* Only signed i64 helpers at this stage. Unsigned variants, shorter
+  widths (i32/u32), and `/?` / `/|` (checked/saturating divide)
+  are out of scope for v5.6.2 — can slot in as follow-ups without
+  changing the lexer.
+* Bare `+ - *` retains its current "wrap silently on overflow"
+  semantics. A `--strict`-mode warning that flags bare arithmetic
+  on potentially-overflowing sites is a natural v5.6.4+ extension
+  (piggybacks on the `#must_use` diagnostic infrastructure).
+
 ## [5.6.1] — 2026-04-22
 
 **`#else` / `#elif` / `#ifndef` preprocessor directives.** The long-
