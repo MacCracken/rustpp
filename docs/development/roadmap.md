@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.13.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.14.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —

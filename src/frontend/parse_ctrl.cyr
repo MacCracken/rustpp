@@ -204,6 +204,13 @@ fn PARSE_WHILE(S) {
     var loop_top = GCP(S);
     S64(S + 0x8F838, loop_top);
     S64(S + 0x8F840, 0);
+    # v5.6.14: record IR_NOP landing pad so BB construction splits
+    # the enclosing block at loop_top. Without this, JMP_BACK targets
+    # land mid-BB and LASE eliminates LOAD_LOCALs whose corresponding
+    # STORE_LOCAL only ran on first-entry (not loop-back iterations).
+    # a1 = loop_top (non-zero → triggers BB split per ir_build_bbs).
+    var _ire_lt = IR_ENABLED(S);
+    if (_ire_lt >= 1) { ir_emit(S, IR_NOP, 0, loop_top, 0); }
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
     STI(S, GTI(S) + 1);
     var patch = ECOND(S);
@@ -319,6 +326,9 @@ fn PARSE_FOR(S) {
                 S64(S + 0x8F838, fitop);
                 S64(S + 0x8F840, 0);
                 S64(S + 0x8F898, 1);
+                # v5.6.14: IR_NOP landing pad at for-in loop top.
+                var _ire_fi1 = IR_ENABLED(S);
+                if (_ire_fi1 >= 1) { ir_emit(S, IR_NOP, 0, fitop, 0); }
                 EFLLOAD(S, fili);
                 EPUSHR(S);
                 EVLOAD(S, filen);
@@ -400,6 +410,9 @@ fn PARSE_FOR(S) {
             S64(S + 0x8F838, fitop);
             S64(S + 0x8F840, 0);
             S64(S + 0x8F898, 1);
+            # v5.6.14: IR_NOP landing pad at range-for loop top.
+            var _ire_fi2 = IR_ENABLED(S);
+            if (_ire_fi2 >= 1) { ir_emit(S, IR_NOP, 0, fitop, 0); }
             # Condition: var < end
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -451,6 +464,9 @@ fn PARSE_FOR(S) {
     S64(S + 0x8F838, ltop);
     S64(S + 0x8F840, 0);
     S64(S + 0x8F898, 1);
+    # v5.6.14: IR_NOP landing pad at classic-for loop top.
+    var _ire_for = IR_ENABLED(S);
+    if (_ire_for >= 1) { ir_emit(S, IR_NOP, 0, ltop, 0); }
     var cpat = ECOND(S);
     if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
     STI(S, GTI(S) + 1);

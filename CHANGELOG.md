@@ -4,6 +4,121 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.14] — 2026-04-23
+
+**Phase O3a-fix — LASE correctness fix.** The LASE pass (surfaced as
+broken in v5.6.12 when first enabled) is now correct. Root cause
+was NOT in `ir_lase` / `ir_apply_lase` themselves — it was in
+**parse_ctrl.cyr**: while/for/for-in/classic-for loops captured
+`loop_top = GCP(S)` without emitting an `IR_NOP` landing-pad node,
+so `ir_build_bbs` didn't split the enclosing BB at the loop top.
+`JMP_BACK` edges then landed mid-BB, letting LASE eliminate
+LOAD_LOCALs whose corresponding STORE_LOCAL only ran on first-entry
+(loop-back iterations had rax clobbered by intervening code).
+
+### Debug path
+
+Bisected LASE elimination count to find the first wrong elimination:
+N=314 works, N=315 breaks. Dumped the BB containing elim #315 —
+sequence was:
+
+```
+... IR_ADD → IR_PUSH → IR_LOAD_IMM → IR_MOV_CA → IR_POP_RAX
+... IR_ADD → IR_LOAD8 → IR_STORE_LOCAL(6) → IR_LOAD_LOCAL(6) ← ELIMINATED
+... JCC to next BB
+```
+
+STORE_LOCAL(6) and LOAD_LOCAL(6) were IR-adjacent, no intervening
+clobber. Size distance was exactly 7 B (LOAD_LOCAL's encoded size).
+The elimination LOOKED safe.
+
+The BB had `bb_first=54826 bb_count=26 bb_succ0=5557 bb_succ1=5558`
+— a conditional branch at the end. This was a loop body. LASE's
+assumption — that the BB's first IR node is its only entry point —
+was violated because the while/for loop's JMP_BACK target landed
+inside this BB (not at the first node) since no NOP landing pad
+had been emitted at `loop_top`.
+
+### Fix — IR_NOP landing pads at every loop_top
+
+Four sites in `src/frontend/parse_ctrl.cyr` capture `loop_top`:
+- PARSE_WHILE (line 204: `var loop_top = GCP(S)`)
+- for-in loop (line 325: `var fitop = GCP(S)`)
+- range-for loop (line 409: `var fitop = GCP(S)`)
+- classic for loop (line 463: `var ltop = GCP(S)`)
+
+Each now also records `ir_emit(S, IR_NOP, 0, loop_top, 0)` under
+`IR_ENABLED >= 1`. This mirrors the existing `EPATCH` convention
+(which emits IR_NOP at every forward-jump target). `ir_build_bbs`
+already splits at `IR_NOP` with non-zero `a1` — no change needed
+there.
+
+Results: 811 → **564** LASE eliminations (−247 false positives);
+BB count 10,602 → 11,000 (+398 BBs from the new landing pads).
+LASE-applied cc5 (via `CYRIUS_IR=3`) now correctly compiles and
+runs trivial + non-trivial programs.
+
+### Also shipped — IR_RAX_CLOBBER coverage (v5.6.12 era gap)
+
+Independent of the loop_top bug, three emit fns clobber rax but
+had no natural IR opcode to record: **EMULH** (mulh64 builtin),
+**EIDIV** (/ and %), **ELODC** (`mov rax, [rcx]` in some field
+loads). They gated only on `IR_ENABLED == 2` (skip direct emit in
+replay mode) and never recorded IR in mode 1.
+
+New `IR_RAX_CLOBBER = 97` opcode in `src/common/ir.cyr` — marker
+that `_ir_clobbers_rax` treats as rax-clobbering; lowering is
+a no-op (raw bytes already emitted by the emit fn). Each of
+EMULH/EIDIV/ELODC now records it before its byte emit. No-op in
+cc5's own compile (doesn't happen to have a `STORE_LOCAL → EMULH
+→ LOAD_LOCAL` pattern), but correct for any user program that
+does.
+
+### DBE remains disabled
+
+`ir_dead_block_elim` has its own separate correctness concern
+(suspect #3 from the roadmap — zero-IR-node BBs pass `all_nop == 1`
+vacuously). Stays disabled pending a future dedicated audit.
+
+### Numbers
+
+- cc5: 488,088 → **488,776 B** (+688 B: 4 IR_NOP emit sites + 3
+  IR_RAX_CLOBBER emit sites + the enable flip in main.cyr, all
+  conditional on `IR_ENABLED >= 1` so near-zero overhead in the
+  default no-IR build).
+- 3-step fixpoint at `IR_ENABLED=0` (default): `a = b = c = 488,776 B` ✓.
+- 3-step fixpoint at `IR_ENABLED=3` (LASE on): deterministic
+  (`a == b` repeated compile) ✓.
+- LASE-applied cc5 correctly compiles: `fn main() { syscall(60, 42); return 0; } main();`
+  exits 42 ✓.
+- 22/22 check.sh ✓.
+- LASE eliminations: 811 → 564 (247 false positives removed).
+- LASE NOP-fills: 5,692 B → 3,963 B (difference matches the
+  247 × 7 B removed false positives).
+
+### Files touched
+
+- `src/frontend/parse_ctrl.cyr` — 4 IR_NOP landing-pad emits at
+  loop_top sites.
+- `src/common/ir.cyr` — `IR_RAX_CLOBBER = 97` opcode + lowering
+  no-op + `_ir_clobbers_rax` entry + `_ir_op_name` entry.
+- `src/backend/x86/emit.cyr` — EMULH, EIDIV, ELODC each record
+  IR_RAX_CLOBBER.
+- `src/main.cyr` — re-wires `ir_apply_lase(S)` under `CYRIUS_IR=3`
+  (DBE stays commented-out).
+- `CHANGELOG.md`, `docs/development/benchmarks.md`, `CLAUDE.md`.
+
+### Lesson reinforced
+
+The LASE pass was disabled since it was written — no runtime
+verification. Enabling exposed both a coverage gap (suspect #1:
+EMULH/EIDIV/ELODC) AND a structural bug (loop tops not BB-split).
+The coverage gap was found first (audit pass) but didn't explain
+the 811 false-positives. The structural bug required bisection
+(binary-search which elimination count first breaks cc5) + IR
+dump inspection to root-cause. Future "enabled for the first time"
+passes need end-to-end bisection plans before merging.
+
 ## [5.6.13] — 2026-04-23
 
 **`lib/sha1.cyr` extraction — quick-win release.** Pulled forward

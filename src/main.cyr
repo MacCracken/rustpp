@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.13\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.14\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -826,18 +826,24 @@ if (IR_ENABLED(S) == 1) {
     # 16-byte range limit remains intact.
     var ir_lase_bytes = 0;
     var ir_dbe_bytes = 0;
-    # v5.6.12 finding: LASE/DBE apply still corrupt the binary at runtime
-    # even with the new IR_RAW_EMIT instrumentation markers. LASE reports
-    # 811 candidates / 5692 B applied, but the resulting cc5 binary fails
-    # to parse even `fn main() { return 42; }` — suggests a pre-existing
-    # correctness bug in ir_lase's rax-tracking, NOT a coverage gap from
-    # my instrumentation. Kept disabled pending dedicated investigation
-    # slot. Instrumentation (IR_RAW_EMIT markers in parse_*.cyr) ships
-    # either way — it's the precondition future O3 passes will rely on.
-    # if (load8(_ir_env) == 51) {
-    #     ir_lase_bytes = ir_apply_lase(S);
-    #     ir_dbe_bytes = ir_dead_block_elim(S);
-    # }
+    # v5.6.14: LASE correctness fix shipped. Root cause was
+    # parse_ctrl.cyr capturing while/for loop_top = GCP(S) WITHOUT
+    # recording an IR_NOP landing pad, so ir_build_bbs didn't split
+    # BBs at loop tops. JMP_BACK targets then landed mid-BB, letting
+    # LASE eliminate LOAD_LOCALs that were "same-BB after STORE_LOCAL"
+    # only on first entry — loop-back iterations had rax clobbered.
+    # Parse now records IR_NOP at each loop_top (4 sites in
+    # parse_ctrl.cyr). Also closed three coverage gaps in EMULH,
+    # EIDIV, ELODC by recording IR_RAX_CLOBBER.
+    #
+    # DBE remains disabled — needs its own correctness audit (suspect
+    # #3 from v5.6.14 roadmap: ir_dead_block_elim's `all_nop == 1`
+    # check passes vacuously on zero-IR-node BBs).
+    if (load8(_ir_env) == 51) {
+        ir_lase_bytes = ir_apply_lase(S);
+        # DBE pinned to a later investigation slot.
+        # ir_dbe_bytes = ir_dead_block_elim(S);
+    }
     syscall(SYS_WRITE, 2, "ir: ", 4);
     PRNUM(IR_NCNT(S));
     syscall(SYS_WRITE, 2, " nodes, ", 8);
