@@ -16,6 +16,16 @@ var _flags_reflect_rax = 0;
 # aarch64 push/pop are 4-byte instructions (vs 1 byte on x86).
 var _last_push_cp = 0 - 1;
 
+# v5.6.10 O2 category 4 — x86-only tracker declared here as a stub
+# so shared parse.cyr / parse_expr.cyr paths don't hit "undefined
+# variable" when compiled for the aarch64 backend. aarch64 encodes
+# binary ops with explicit src/dst registers (ADD x0, x1, x0) so
+# the x86 accumulator-shuttle (`mov rcx, rax; pop rax; add rax, rcx`)
+# has no counterpart on this backend. Stub stays 0 forever on
+# aarch64; no emit helper on this backend reads it.
+var _last_emovca_cp = 0 - 1;
+var _last_movca_popr_cp = 0 - 1;
+
 # ================================================================
 # AARCH64 CODE EMISSION (writes to codebuf at S+0x20000+CP)
 # ================================================================

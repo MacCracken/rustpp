@@ -4,6 +4,101 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.10] — 2026-04-23
+
+**Phase O2 category 4/5 — commutative combine-shuttle elim.** The
+second-largest code-generation win of v5.6.x: cc5 shrank 504,000 →
+**487,040 B** (**−16,960 B, −3.37 %**). Compile wall-clock within
+noise at ~360 ms.
+
+### Background — scope change vs roadmap
+
+The v5.6.10 slot was reserved for literal `mov + add + add imm → lea`
+combining. A pre-implementation bytescan of v5.6.9 cc5 showed
+**zero** matches for that shape (cyrius doesn't emit `add rax, imm`
+at all — raw count 0 for `48 83 C0`). The SAME combine path
+instead emits a **7-byte shuttle** after evaluating both operands:
+
+```
+48 89 C1    mov rcx, rax     (EMOVCA, 3 B)
+58          pop rax          (EPOPR, 1 B)
+48 01 C8    add rax, rcx     (EADDR, 3 B — or AND/OR/XOR/IMUL)
+```
+
+For commutative ops the 3-byte `mov rcx, rax` is pure shuttle:
+popping directly into rcx gives the same answer in 4 bytes total.
+Scoped to commutative ops only (ADD/AND/OR/XOR/IMUL). SUB and CMP
+need flag-order flip / explicit negation — pinned for a later
+LEA-spirit patch.
+
+### Added — `_last_emovca_cp` and `_last_movca_popr_cp` trackers
+
+Two-state tracker in `src/backend/x86/emit.cyr`:
+
+- `_last_emovca_cp` = `GCP(S)` after `EMOVCA` emitted its 3 bytes.
+- `_last_movca_popr_cp` = `GCP(S)` after `EPOPR` / `EUNSPILL`
+  emitted its 1 byte, iff the pop landed immediately after an
+  `EMOVCA` (i.e., `GCP == _last_emovca_cp` on entry).
+
+### Added — `_TRY_COMBINE_SHUTTLE(S)` helper
+
+Called at the top of each commutative emit fn. Checks
+`GCP(S) == _last_movca_popr_cp`; on match, rewinds 4 bytes (past
+the `48 89 C1 58` shuttle) and emits `0x59` (pop rcx, 1 byte).
+The caller then falls through to its normal 3-byte op encoding,
+which reads from rcx as before. Net: 7 B → 4 B per site.
+
+### Changed — commutative emit fns
+
+`EADDR`, `EANDR`, `EORR`, `EXORR`, `EIMUL` now call
+`_TRY_COMBINE_SHUTTLE(S)` before their `E3(...)` op encoding.
+Non-commutative siblings (`ESUBR`, `ECMPR`, `ESHLCL`, `ESHRCL`)
+intentionally unchanged — swapping operand order there would
+invert subtraction or flip flag-comparison semantics.
+
+### aarch64 mirror
+
+Tracker variables declared as always-zero stubs in
+`src/backend/aarch64/emit.cyr` so shared parse.cyr paths link.
+aarch64 encodes binary ops with explicit src/dst registers
+(`ADD x0, x1, x0`) so the accumulator-shuttle pattern has no
+counterpart on this backend; no helper reads the trackers.
+
+### Numbers
+
+- cc5: 504,000 → **487,040 B** (−16,960 B, **−3.37 %**).
+- Shuttle sites replaced: **5861** (5399 ADD + 340 AND + 66 OR
+  + 3 XOR + 53 IMUL), verified by before/after bytescan:
+  `48 89 C1 58 48 ?? ??` occurrences dropped from 5861 → 0;
+  new `59 48 ?? ??` pop-rcx forms present at matching counts.
+- Raw savings: 5861 × 3 = 17,583 B. New peephole CODE + per-emit
+  tracker stores add ~620 B. Net −16,960 B.
+- Self-host compile time: 355 ms → ~360 ms (within 2 % noise).
+- 3-step fixpoint: a=504,624 → b=487,040 → c=487,040, b==c ✓.
+- 19/19 check.sh.
+- cc5_aarch64 cross-emits 0xB7 aarch64 binaries (verified).
+- cc5_win valid PE32+.
+
+### Scope explicitly deferred
+
+- **CMP flag-order flip** — 3880 sites would benefit if the peephole
+  could swap the cmp AND rewrite the subsequent conditional jump
+  (JL ↔ JG, JLE ↔ JGE, JB ↔ JA, JBE ↔ JAE; JE / JNE unchanged).
+  ~5 KB additional savings. Pinned for a dedicated patch.
+- **SUB as `neg + add`** — 392 sites, but costs 3 B of `neg rcx`
+  to set up, netting ~0. Probably not worth a separate patch.
+- **LEA-literal combining** — pattern target for future IR-aware
+  work when it has somewhere to fire; stays on the O-arc.
+
+### Files touched
+
+- `src/backend/x86/emit.cyr` — 2 trackers, `_TRY_COMBINE_SHUTTLE`
+  helper, modified `EMOVCA` / `EPOPR` / `EUNSPILL` / `EADDR` /
+  `EANDR` / `EORR` / `EXORR` / `EIMUL`.
+- `src/backend/aarch64/emit.cyr` — 2-tracker stubs.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/roadmap.md`, `CLAUDE.md`.
+
 ## [5.6.9] — 2026-04-23
 
 **Phase O2 category 3/5 — redundant push/pop elimination.** CP-tracking

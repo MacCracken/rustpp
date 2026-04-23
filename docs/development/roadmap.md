@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.10.** cc5 compiler (504,000 B x86_64), x86_64 + aarch64
+> **v5.6.11.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
 > 4), Windows 11, and macOS arm64. **v5.6.8 is the biggest
@@ -9,9 +9,15 @@
 > push/xor/movca/pop/cmp dance in ECONDCMP's bare-value path).
 > cc5 shrank 526,272 → 504,416 B (**−21,856 B / −4.15 %**);
 > self-host compile time dropped 405 → 355 ms (**−12 %**). v5.6.9
-> added CP-tracking push/pop cancel: 381 adjacent `50 58` pairs
-> in cc5 → 0, cc5 504,416 → 504,000 B. O2 continues at v5.6.10
-> (LEA combining), v5.6.11 (aarch64 fused ops); O3–O6 at
+> added CP-tracking push/pop cancel (381 → 0 pairs, −416 B).
+> v5.6.10 collapsed the commutative combine shuttle
+> (`mov rcx,rax; pop rax; op rax,rcx` → `pop rcx; op rax,rcx`
+> for ADD/AND/OR/XOR/IMUL; 5861 sites; cc5 504,000 → 487,040 B,
+> **−16,960 B / −3.37 %** — second-largest single-patch shrinkage
+> of v5.6.x). Scope retargeted from literal LEA combining, which
+> found 0 matches in cc5 output; non-commutative SUB/CMP flip and
+> the LEA-literal pattern are pinned for a later LEA-spirit patch.
+> O2 continues at v5.6.11 (aarch64 fused ops); O3–O6 at
 > v5.6.12–v5.6.15.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
@@ -50,8 +56,13 @@
 > - **v5.6.9**: ✅ shipped — Phase O2 category 3/5 — redundant
 >   push/pop elim (CP-tracking cancel; 381 → 0 adjacent `50 58`
 >   pairs in cc5; −416 B).
-> - **v5.6.10**: Phase O2 category 4/5 — LEA combining (x86, with
->   Agner Fog port-1-trap avoidance).
+> - **v5.6.10**: ✅ shipped — Phase O2 category 4/5 — commutative
+>   combine-shuttle elim (`mov rcx,rax; pop rax; op rax,rcx` →
+>   `pop rcx; op rax,rcx` for ADD/AND/OR/XOR/IMUL; 5861 sites;
+>   **cc5 −16,960 B / −3.37 %**). Scope retargeted from literal
+>   LEA combining (0 matches in cc5). LEA-literal pattern +
+>   non-commutative SUB/CMP flip are pinned for a later
+>   LEA-spirit patch within the v5.6.x minor.
 > - **v5.6.11**: Phase O2 category 5/5 — aarch64 fused ops (`madd`
 >   / `msub` / `ubfx` / `sbfx`). Closes Phase O2.
 > - **v5.6.12**: Phase O3 — IR-driven passes (constant folding,
@@ -446,13 +457,31 @@ aarch64 −4 B) instead of emitting the pop. cc5 shrank 504,416 →
 in the same patch (shared parse.cyr pattern fires on both).
 3-step fixpoint b=c=504,000 B ✓; 19/19 check.sh.
 
-### v5.6.10 — Phase O2 category 4/5: LEA combining (x86)
+### v5.6.10 ✅ Phase O2 category 4/5: commutative combine-shuttle elim
 
-Pattern `mov rX, rA; add rX, rB; add rX, imm` → single
-`lea rX, [rA+rB+imm]`. 3 instructions + 10 B → 1 instruction + 7 B
-typical. Avoid 3-operand LEA with RBP/R13 base (port-1 latency
-trap per Agner Fog §12.16). Emit-time lookahead or post-emit
-pattern match — post-emit is safer since it's bounded. ~120 LOC.
+**Shipped 2026-04-23.** Scope was retargeted from the originally-
+slotted LEA combining (`mov + add + add imm → lea`) after a
+pre-implementation bytescan of v5.6.9 cc5 found **0 matches**
+for that pattern — cyrius doesn't emit `add rax, imm` at all.
+The SAME combine path instead emits a 7-byte shuttle trailer
+after binary ops: `mov rcx, rax; pop rax; op rax, rcx`.
+For commutative ops (ADD/AND/OR/XOR/IMUL) popping directly into
+rcx gives the same result in 4 bytes. Two-state tracker
+(`_last_emovca_cp`, `_last_movca_popr_cp`) + `_TRY_COMBINE_SHUTTLE`
+helper in `src/backend/x86/emit.cyr` rewinds the 4-byte shuttle
+and drops in `pop rcx` at each commutative-op emit that detects
+the signature. 5861 shuttle sites (5399 ADD + 340 AND + 66 OR
++ 3 XOR + 53 IMUL) collapsed in cc5; **cc5 −16,960 B / −3.37 %**
+(second-largest single-patch win of v5.6.x). aarch64 stubs the
+trackers — it encodes binary ops with explicit src/dst regs so
+the shuttle has no counterpart. 3-step fixpoint b=c=487,040 B;
+19/19 check.sh.
+
+**Pinned for a later LEA-spirit patch within v5.6.x:** literal
+`mov + add + add imm → lea` (once IR-aware work makes it fire),
+non-commutative SUB as `neg + add`, and CMP flag-order flip
+propagated to the subsequent conditional jump (3880 sites,
+~5 KB additional if wired).
 
 ### v5.6.11 — Phase O2 category 5/5: aarch64 fused ops
 

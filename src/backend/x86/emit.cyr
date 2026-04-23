@@ -34,6 +34,30 @@ var _flags_reflect_rax = 0;
 # 2 B per site.
 var _last_push_cp = 0 - 1;
 
+# v5.6.10 O2 category 4: commutative combine-shuttle elim. The
+# compiler's binary-operator codegen path emits (for a+b): eval
+# LHS → push; eval RHS → rax; mov rcx, rax; pop rax; op rax, rcx.
+# The 7-byte trailer `48 89 C1 58 48 01 C8` (EMOVCA + EPOPR + EADDR)
+# is pure shuttle — for commutative ops (ADD/AND/OR/XOR/IMUL) the
+# same result drops out of `pop rcx; op rax, rcx` in 4 bytes.
+#
+# Two-state tracker:
+#   _last_emovca_cp      = GCP after EMOVCA emitted its 3 bytes.
+#   _last_movca_popr_cp  = GCP after EPOPR/EUNSPILL emitted its 1 byte,
+#                          iff the pop immediately followed an EMOVCA.
+#
+# Commutative emit helpers (EADDR/EANDR/EORR/EXORR/EIMUL) check
+# GCP == _last_movca_popr_cp and, on match, rewind 4 bytes (past
+# `48 89 C1 58`), emit `59` (pop rcx), then fall through to the
+# normal op bytes. Net: 7 B → 4 B per site, saves 3 B.
+#
+# Observed v5.6.9 cc5: 5399 ADD + 340 AND + 66 OR + 3 XOR + 53 IMUL
+# sites = 5861 total → ~17.5 KB raw savings. Non-commutative ops
+# (SUB 392, CMP 3880) deliberately excluded — they need flag-order
+# flip / explicit negation, pinned for a later LEA-spirit patch.
+var _last_emovca_cp = 0 - 1;
+var _last_movca_popr_cp = 0 - 1;
+
 # Stub so parse.cyr's `_AARCH64_BACKEND == 1` branches can reference
 # aarch64 emit primitives without the x86 build emitting an
 # "undefined function" warning. Dead on x86 at runtime.
@@ -115,7 +139,12 @@ fn EPOPR(S) {
         _last_push_cp = 0 - 1;
         return 0;
     }
+    # v5.6.10: remember if the pop landed immediately after EMOVCA,
+    # so a commutative op next can collapse the 7-byte shuttle.
+    var after_movca = 0;
+    if (GCP(S) == _last_emovca_cp) { after_movca = 1; }
     EB(S, 0x58);
+    if (after_movca == 1) { _last_movca_popr_cp = GCP(S); }
     _flags_reflect_rax = 0;
     return 0;
 }
@@ -132,11 +161,15 @@ fn EUNSPILL(S) {
         _last_push_cp = 0 - 1;
         return 0;
     }
+    # v5.6.10: same EMOVCA-follow detection as EPOPR.
+    var after_movca = 0;
+    if (GCP(S) == _last_emovca_cp) { after_movca = 1; }
     EB(S, 0x58);
+    if (after_movca == 1) { _last_movca_popr_cp = GCP(S); }
     _flags_reflect_rax = 0;
     return 0;
 }
-fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); return 0; }
+fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); _last_emovca_cp = GCP(S); return 0; }
 # EADDIMM_X1: add rcx, imm8 — the "pointer scratch reg" increment.
 # Named to match the aarch64 backend's EADDIMM_X1 (both advance the
 # store-pointer register after ESTORE64). Used by `secret var` zeroise.
@@ -146,9 +179,22 @@ fn EADDIMM_X1(S, imm) {
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC1); EB(S, imm & 0xFF);
     return 0;
 }
-fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } E3(S, 0xC80148); _flags_reflect_rax = 1; return 0; }
+# v5.6.10: commutative-combine peephole. If current CP matches the
+# GCP recorded when EPOPR/EUNSPILL finished *immediately after*
+# EMOVCA, rewind 4 bytes (past `48 89 C1 58`) and drop in `59`
+# (pop rcx) — the op that follows then reads the correct operand
+# from rcx. Only safe for commutative ops.
+fn _TRY_COMBINE_SHUTTLE(S) {
+    if (GCP(S) == _last_movca_popr_cp) {
+        SCP(S, GCP(S) - 4);
+        EB(S, 0x59);
+        _last_movca_popr_cp = 0 - 1;
+    }
+    return 0;
+}
+fn EADDR(S) { if (_IR_REC0(S, IR_ADD) == 1) { return 0; } _TRY_COMBINE_SHUTTLE(S); E3(S, 0xC80148); _flags_reflect_rax = 1; return 0; }
 fn ESUBR(S) { if (_IR_REC0(S, IR_SUB) == 1) { return 0; } E3(S, 0xC82948); _flags_reflect_rax = 1; return 0; }
-fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } E3(S, 0xE9F748); _flags_reflect_rax = 0; return 0; }
+fn EIMUL(S) { if (_IR_REC0(S, IR_MUL) == 1) { return 0; } _TRY_COMBINE_SHUTTLE(S); E3(S, 0xE9F748); _flags_reflect_rax = 0; return 0; }
 # EMULH: high 64 bits of unsigned rcx * rax. MUL rcx → rdx:rax; then rax = rdx.
 # Used by the mulh64(a, b) builtin.
 fn EMULH(S) { if (IR_ENABLED(S) == 2) { return 0; } E3(S, 0xE1F748); E3(S, 0xD08948); return 0; }
@@ -173,9 +219,9 @@ fn ESTORE32(S) { if (_IR_REC0(S, IR_STORE32) == 1) { return 0; } E2(S, 0x0189); 
 fn ESTORE64(S) { if (_IR_REC0(S, IR_STORE64) == 1) { return 0; } E3(S, 0x018948); return 0; }
 fn EXORAA(S) { if (_IR_REC0(S, IR_XOR_AA) == 1) { return 0; } E3(S, 0xC03148); _flags_reflect_rax = 1; return 0; }
 # Bitwise
-fn EANDR(S) { if (_IR_REC0(S, IR_AND) == 1) { return 0; } E3(S, 0xC82148); _flags_reflect_rax = 1; return 0; }
-fn EORR(S) { if (_IR_REC0(S, IR_OR) == 1) { return 0; } E3(S, 0xC80948); _flags_reflect_rax = 1; return 0; }
-fn EXORR(S) { if (_IR_REC0(S, IR_XOR) == 1) { return 0; } E3(S, 0xC83148); _flags_reflect_rax = 1; return 0; }
+fn EANDR(S) { if (_IR_REC0(S, IR_AND) == 1) { return 0; } _TRY_COMBINE_SHUTTLE(S); E3(S, 0xC82148); _flags_reflect_rax = 1; return 0; }
+fn EORR(S) { if (_IR_REC0(S, IR_OR) == 1) { return 0; } _TRY_COMBINE_SHUTTLE(S); E3(S, 0xC80948); _flags_reflect_rax = 1; return 0; }
+fn EXORR(S) { if (_IR_REC0(S, IR_XOR) == 1) { return 0; } _TRY_COMBINE_SHUTTLE(S); E3(S, 0xC83148); _flags_reflect_rax = 1; return 0; }
 fn ENOTR(S) { if (_IR_REC0(S, IR_NOT) == 1) { return 0; } E3(S, 0xD0F748); return 0; }
 fn ESHLCL(S) { if (_IR_REC0(S, IR_SHL) == 1) { return 0; } E3(S, 0xE0D348); _flags_reflect_rax = 0; return 0; }
 fn ESHRCL(S) { if (_IR_REC0(S, IR_SHR) == 1) { return 0; } E3(S, 0xE8D348); _flags_reflect_rax = 0; return 0; }
