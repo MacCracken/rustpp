@@ -1,15 +1,24 @@
 #!/bin/sh
 # cyrius init — scaffold a new Cyrius project
-# Usage: cyrius-init.sh <project-name>
+# Usage: cyrius-init.sh [flags] <project-name | .>
 #
 # Creates a complete Cyrius project with vendored stdlib,
 # build/test scripts, and documentation templates.
+#
+# v5.6.0: --language=<source-language-posture> selects target shape:
+#   none (default) — greenfield scaffold; if target is `.` or already
+#                    exists, runs in-place and skips-don't-overwrite
+#                    any pre-existing file (safe for git-inited, docs-
+#                    only repos).
+#   rust           — declines and points at `cyrius port <path>`,
+#                    which owns the rust→cyrius migration path.
 
 set -e
 
 DRY_RUN=0
 AGENT=""
 CMTOOLS=""
+LANGUAGE="none"
 NAME=""
 for arg in "$@"; do
     case "$arg" in
@@ -18,13 +27,31 @@ for arg in "$@"; do
         --agent=*) AGENT="${arg#--agent=}" ;;
         --cmtools) CMTOOLS="starship" ;;
         --cmtools=*) CMTOOLS="${arg#--cmtools=}" ;;
+        --language=*) LANGUAGE="${arg#--language=}" ;;
+        --language) echo "error: --language requires a value (none|rust)"; exit 1 ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) NAME="$arg" ;;
     esac
 done
 
+# --language=rust → rust→cyrius migration is owned by `cyrius port`.
+# Don't fork the migration logic into init; route the user to the right
+# tool with a clear pointer.
+if [ "$LANGUAGE" = "rust" ]; then
+    echo "error: --language=rust is for rust→cyrius migration; use:"
+    echo "  cyrius port ${NAME:-<path-to-rust-project>}"
+    exit 1
+fi
+
+if [ "$LANGUAGE" != "none" ]; then
+    echo "error: unsupported --language=$LANGUAGE (supported: none, rust)"
+    echo "  none — greenfield scaffold (default; in-place safe)"
+    echo "  rust — see 'cyrius port <path>'"
+    exit 1
+fi
+
 if [ -z "$NAME" ]; then
-    echo "Usage: cyrius init [--dry-run] [--agent[=preset]] <project-name>"
+    echo "Usage: cyrius init [flags] <project-name | .>"
     echo ""
     echo "Creates a new Cyrius project with:"
     echo "  cyrius.toml    project manifest + deps"
@@ -35,20 +62,44 @@ if [ -z "$NAME" ]; then
     echo "  docs, CI, version files"
     echo ""
     echo "Options:"
+    echo "  --language=<x>     source-language posture (none|rust); default none"
+    echo "                     none — greenfield (in-place safe; skips existing files)"
+    echo "                     rust — declines; use 'cyrius port <path>'"
     echo "  --dry-run          show what would be created without writing"
     echo "  --agent            create a CLAUDE.md for generic Cyrius projects"
     echo "  --agent=<preset>   create a CLAUDE.md from a preset (agnos, claude)"
     echo "  --cmtools          install CLI tool integrations (default: starship)"
     echo "  --cmtools=<name>   install specific tool (starship)"
+    echo ""
+    echo "Targets:"
+    echo "  cyrius init my-proj                 → create ./my-proj/ (errors if exists)"
+    echo "  cyrius init --language=none .       → scaffold INTO current dir (skip-existing)"
+    echo "  cyrius init --language=none my-proj → if my-proj/ exists, scaffold in-place"
     exit 1
 fi
 
 CYRIUS="$(cd "$(dirname "$0")/.." && pwd)"
 
+# In-place vs greenfield. v5.6.0: in-place mode is OPT-IN via NAME=`.`
+# (always) — never auto-triggered by an existing dir match, since
+# `cyrius init my-proj` against an unintentional preexisting `my-proj/`
+# should still hard-error rather than silently scaffold over it. The
+# in-place path makes every writer below skip-if-exists, so docs-only /
+# git-inited repos at the cwd don't get clobbered.
+INPLACE=0
+if [ "$NAME" = "." ]; then
+    INPLACE=1
+    NAME="$(pwd)"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
-    echo "Dry run: cyrius init $NAME"
+    if [ "$INPLACE" -eq 1 ]; then
+        echo "Dry run: cyrius init --language=none $NAME (in-place, skip-existing)"
+    else
+        echo "Dry run: cyrius init $NAME"
+    fi
     echo ""
-    echo "Would create:"
+    echo "Would create (skip if exists in in-place mode):"
     echo "  $NAME/"
     echo "  $NAME/src/main.cyr"
     echo "  $NAME/src/test.cyr"
@@ -67,7 +118,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/tests/${NAME}.tcyr   (test suite)"
     echo "  $NAME/tests/${NAME}.bcyr   (benchmarks)"
     echo "  $NAME/tests/${NAME}.fcyr   (fuzz harness)"
-    echo "  $NAME/cyrius.cyml (cyrius field)  (pins Cyrius version)"
+    echo "  $NAME/cyrius.cyml [package].cyrius  (pins Cyrius version)"
     echo "  $NAME/.github/workflows/ci.yml"
     echo "  $NAME/.github/workflows/release.yml"
     echo "  $NAME/docs/development/"
@@ -76,22 +127,66 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-if [ -d "$NAME" ]; then
+if [ "$INPLACE" -eq 0 ] && [ -d "$NAME" ]; then
     echo "ERROR: directory '$NAME' already exists"
+    echo "  hint: use 'cyrius init --language=none $NAME' to scaffold in-place"
     exit 1
 fi
 
 PROJ="$(basename "$NAME")"
-echo "Creating Cyrius project: $PROJ"
+if [ "$INPLACE" -eq 1 ]; then
+    echo "Initializing Cyrius project in-place: $PROJ ($NAME)"
+else
+    echo "Creating Cyrius project: $PROJ"
+fi
 
-# Create structure
+# write_if_absent <path> <heredoc-marker>: stdin → file unless file
+# already exists. In greenfield mode the file never exists, so this
+# is a plain write; in-place mode it preserves any existing file the
+# user already authored (README, CHANGELOG, .gitignore, LICENSE, etc).
+write_if_absent() {
+    if [ -e "$1" ]; then
+        echo "  skip: $1 (already exists)"
+        cat > /dev/null
+        return 0
+    fi
+    cat > "$1"
+}
+
+# Toolchain version detection — must happen BEFORE cyrius.cyml is
+# written so the manifest's `cyrius = "X.Y.Z"` pin is correct.
+# Cascade: env → install VERSION → live cc5 → install snapshot. NEVER
+# hardcode a fallback (stale fallbacks silently seed ancient versions
+# into new projects — the v5.4.12 release-lib.sh drift class). The CI
+# and release templates below grep this same field out of cyrius.cyml,
+# so it is the single source of truth for downstream consumers.
+CYRIUS_VER="${CYRIUS_VER:-}"
+if [ -z "$CYRIUS_VER" ] && [ -f "$CYRIUS/VERSION" ]; then
+    CYRIUS_VER=$(tr -d '[:space:]' < "$CYRIUS/VERSION")
+fi
+if [ -z "$CYRIUS_VER" ] && command -v cc5 >/dev/null 2>&1; then
+    CYRIUS_VER=$(cc5 --version 2>&1 | head -1 | awk '{print $2}')
+fi
+if [ -z "$CYRIUS_VER" ] && [ -f "$HOME/.cyrius/current" ]; then
+    CYRIUS_VER=$(tr -d '[:space:]' < "$HOME/.cyrius/current")
+fi
+if [ -z "$CYRIUS_VER" ]; then
+    echo "  error: no cyrius toolchain detected — install first or set CYRIUS_VER" >&2
+    exit 1
+fi
+
+# Create structure (mkdir -p is idempotent — safe in both modes)
 mkdir -p "$NAME/src" "$NAME/lib/agnosys" "$NAME/scripts" "$NAME/build" "$NAME/docs/development" "$NAME/.github/workflows"
 
 # === VERSION ===
-echo "0.1.0" > "$NAME/VERSION"
+if [ -e "$NAME/VERSION" ]; then
+    echo "  skip: $NAME/VERSION (already exists)"
+else
+    echo "0.1.0" > "$NAME/VERSION"
+fi
 
 # === .gitignore ===
-cat > "$NAME/.gitignore" << 'GITIGNORE'
+write_if_absent "$NAME/.gitignore" << 'GITIGNORE'
 /build/
 *.core
 .claude/
@@ -108,7 +203,7 @@ cat > "$NAME/.gitignore" << 'GITIGNORE'
 GITIGNORE
 
 # === LICENSE ===
-cat > "$NAME/LICENSE" << 'LICENSE'
+write_if_absent "$NAME/LICENSE" << 'LICENSE'
 GNU GENERAL PUBLIC LICENSE
 Version 3, 29 June 2007
 
@@ -120,7 +215,7 @@ See https://www.gnu.org/licenses/gpl-3.0.html for full text.
 LICENSE
 
 # === README.md ===
-cat > "$NAME/README.md" << EOF
+write_if_absent "$NAME/README.md" << EOF
 # $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius).
@@ -138,7 +233,7 @@ GPL-3.0-only
 EOF
 
 # === CHANGELOG.md ===
-cat > "$NAME/CHANGELOG.md" << 'CHANGELOG'
+write_if_absent "$NAME/CHANGELOG.md" << 'CHANGELOG'
 # Changelog
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
@@ -152,13 +247,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 CHANGELOG
 
 # === cyrius.cyml ===
-cat > "$NAME/cyrius.cyml" << EOF
+write_if_absent "$NAME/cyrius.cyml" << EOF
 [package]
 name = "$PROJ"
 version = "0.1.0"
 description = ""
 license = "GPL-3.0-only"
 language = "cyrius"
+cyrius = "$CYRIUS_VER"
 
 [build]
 entry = "src/main.cyr"
@@ -171,7 +267,7 @@ stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert"]
 EOF
 
 # === src/main.cyr ===
-cat > "$NAME/src/main.cyr" << EOF
+write_if_absent "$NAME/src/main.cyr" << EOF
 # $PROJ — main entry point
 # Stdlib auto-included via cyrius.toml
 
@@ -187,7 +283,7 @@ EOF
 
 # === tests/test.tcyr ===
 mkdir -p "$NAME/tests"
-cat > "$NAME/tests/${PROJ}.tcyr" << EOF
+write_if_absent "$NAME/tests/${PROJ}.tcyr" << EOF
 # $PROJ test suite
 # Stdlib auto-included via cyrius.toml
 
@@ -204,7 +300,7 @@ syscall(60, exit_code);
 EOF
 
 # === tests/bench.bcyr ===
-cat > "$NAME/tests/${PROJ}.bcyr" << EOF
+write_if_absent "$NAME/tests/${PROJ}.bcyr" << EOF
 # $PROJ benchmarks
 # Stdlib auto-included via cyrius.toml
 
@@ -221,7 +317,7 @@ syscall(60, r);
 EOF
 
 # === tests/fuzz.fcyr ===
-cat > "$NAME/tests/${PROJ}.fcyr" << EOF
+write_if_absent "$NAME/tests/${PROJ}.fcyr" << EOF
 # $PROJ fuzz harness
 
 fn fuzz_main(data, len) {
@@ -240,27 +336,8 @@ var r = main();
 syscall(60, r);
 EOF
 
-# Toolchain version goes in cyrius.cyml as cyrius = "X.Y.Z"
-# Cascade: env → install VERSION → live cc5 → install snapshot. NEVER hardcode
-# a fallback (stale fallbacks silently seed ancient versions into new projects
-# — the v5.4.12 release-lib.sh drift class).
-CYRIUS_VER="${CYRIUS_VER:-}"
-if [ -z "$CYRIUS_VER" ] && [ -f "$CYRIUS/VERSION" ]; then
-    CYRIUS_VER=$(tr -d '[:space:]' < "$CYRIUS/VERSION")
-fi
-if [ -z "$CYRIUS_VER" ] && command -v cc5 >/dev/null 2>&1; then
-    CYRIUS_VER=$(cc5 --version 2>&1 | head -1 | awk '{print $2}')
-fi
-if [ -z "$CYRIUS_VER" ] && [ -f "$HOME/.cyrius/current" ]; then
-    CYRIUS_VER=$(tr -d '[:space:]' < "$HOME/.cyrius/current")
-fi
-if [ -z "$CYRIUS_VER" ]; then
-    echo "  error: no cyrius toolchain detected — install first or set CYRIUS_VER" >&2
-    exit 1
-fi
-
 # === CI ===
-cat > "$NAME/.github/workflows/ci.yml" << 'CI'
+write_if_absent "$NAME/.github/workflows/ci.yml" << 'CI'
 name: CI
 
 on:
@@ -307,7 +384,7 @@ jobs:
 CI
 
 # === Release workflow ===
-cat > "$NAME/.github/workflows/release.yml" << 'RELEASE'
+write_if_absent "$NAME/.github/workflows/release.yml" << 'RELEASE'
 name: Release
 
 on:
@@ -366,7 +443,7 @@ RELEASE
 if [ -n "$AGENT" ]; then
     case "$AGENT" in
         generic)
-            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
 # $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
@@ -383,7 +460,7 @@ cyrius test                          # run test suite
 
 - Source lives in \`src/\`, tests in \`tests/\`
 - Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`cyrius.cyml (cyrius field)\`
+- Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
 - \`&&\`/\`||\` short-circuit; mixed requires explicit parens
@@ -396,7 +473,7 @@ cyrius test                          # run test suite
 AGENT_EOF
             ;;
         agnos)
-            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
 # $PROJ — AGNOS Ecosystem
 
 Part of the [AGNOS](https://github.com/MacCracken) ecosystem.
@@ -413,7 +490,7 @@ cyrius test                          # run test suite
 ## AGNOS Conventions
 
 - All AGNOS projects use GPL-3.0-only
-- Pin toolchain version in \`cyrius.cyml (cyrius field)\` to latest stable
+- Pin toolchain version in \`cyrius.cyml [package].cyrius\` to latest stable
 - Use \`assert_summary()\` exit pattern in tests
 - Stdlib modules are vendored in \`lib/\`; do not modify
 - Prefix public functions with project name to avoid collisions
@@ -436,7 +513,7 @@ cyrius test                          # run test suite
 AGENT_EOF
             ;;
         claude)
-            cat > "$NAME/CLAUDE.md" << AGENT_EOF
+            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
 # $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius).
@@ -452,7 +529,7 @@ cyrius test
 
 - Source in \`src/\`, tests in \`tests/\`, stdlib in \`lib/\` (vendored, do not edit)
 - Dependencies declared in \`cyrius.toml\`
-- Toolchain pinned in \`cyrius.cyml (cyrius field)\`
+- Toolchain pinned in \`cyrius.cyml [package].cyrius\`
 
 ## Language Notes
 
@@ -469,7 +546,7 @@ AGENT_EOF
             ;;
         *)
             echo "  note: unknown preset '$AGENT', using generic"
-            cat > "$NAME/CLAUDE.md" << AGENT_FALLBACK_EOF
+            write_if_absent "$NAME/CLAUDE.md" << AGENT_FALLBACK_EOF
 # $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
@@ -486,7 +563,7 @@ cyrius test                          # run test suite
 
 - Source lives in \`src/\`, tests in \`tests/\`
 - Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`cyrius.cyml (cyrius field)\`
+- Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
 - \`&&\`/\`||\` short-circuit; mixed requires explicit parens
@@ -543,22 +620,38 @@ elif [ -d "$CYRIUS/lib" ]; then
     CYRIUS_LIB="$CYRIUS/lib"
 fi
 if [ -n "$CYRIUS_LIB" ]; then
+    # In-place: don't overwrite anything the user authored under lib/.
+    # Greenfield: clobber-OK (lib/ is empty by definition).
+    if [ "$INPLACE" -eq 1 ]; then
+        CP_FLAGS="-n"
+    else
+        CP_FLAGS=""
+    fi
     for f in "$CYRIUS_LIB"/*.cyr; do
-        [ -f "$f" ] && cp "$f" "$NAME/lib/"
+        [ -f "$f" ] && cp $CP_FLAGS "$f" "$NAME/lib/" 2>/dev/null || true
     done
 else
     echo "  warn: Cyrius stdlib not found, lib/ will be empty"
 fi
 
 # === Done ===
-LIB_COUNT=$(find "$NAME/lib" -name '*.cyr' | wc -l)
+LIB_COUNT=$(find "$NAME/lib" -name '*.cyr' 2>/dev/null | wc -l)
 echo ""
-echo "Created $NAME/"
+if [ "$INPLACE" -eq 1 ]; then
+    echo "Initialized $NAME (in-place, --language=none)"
+else
+    echo "Created $NAME/"
+fi
 echo "  $LIB_COUNT stdlib modules vendored"
 echo "  src/main.cyr — entry point"
 echo "  src/test.cyr — test file"
 echo ""
 echo "Next steps:"
-echo "  cd $NAME"
-echo "  sh scripts/build.sh"
-echo "  sh scripts/test.sh"
+if [ "$INPLACE" -eq 1 ]; then
+    echo "  cyrius deps"
+    echo "  cyrius build src/main.cyr build/$PROJ"
+else
+    echo "  cd $NAME"
+    echo "  sh scripts/build.sh"
+    echo "  sh scripts/test.sh"
+fi

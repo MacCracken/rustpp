@@ -1,34 +1,63 @@
 #!/bin/sh
-# cyrius port — prepare a Rust project for Cyrius porting
-# Moves Rust code to rust-old/, scaffolds Cyrius project structure,
-# generates cyrius.cyml with deps, .cyrius-toolchain, CI/release workflows.
+# cyrius port — prepare a non-Cyrius project for Cyrius porting.
+# Moves source code to <lang>-old/, scaffolds Cyrius project structure,
+# generates cyrius.cyml with deps, CI/release workflows.
 #
-# Usage: cyrius port /path/to/rust-project
-#        cyrius port --dry-run /path/to/rust-project
+# Usage: cyrius port [--language=<lang>] [--dry-run] <path-to-project>
+#
+# v5.6.0: --language=<x> selects the source language. Default `rust`
+# (current behavior, made explicit). Future: `go`, `python`, etc.
 
 set -e
 
 DRY_RUN=0
+LANGUAGE="rust"
 TARGET=""
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=1 ;;
+        --language=*) LANGUAGE="${arg#--language=}" ;;
+        --language) echo "error: --language requires a value (rust)"; exit 1 ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) TARGET="$arg" ;;
     esac
 done
 
 if [ -z "$TARGET" ] || [ ! -d "$TARGET" ]; then
-    echo "Usage: cyrius port [--dry-run] <path-to-rust-project>"
-    echo "Moves Rust to rust-old/, creates Cyrius project structure."
+    echo "Usage: cyrius port [--language=<lang>] [--dry-run] <path-to-project>"
+    echo ""
+    echo "Options:"
+    echo "  --language=<x>  source language being ported FROM (default: rust)"
+    echo "                  supported: rust  (future: go, python, …)"
+    echo "  --dry-run       show what would be moved/created without writing"
+    echo ""
+    echo "Greenfield (no source to port) → use 'cyrius init [--language=none] <name>'"
     exit 1
 fi
+
+case "$LANGUAGE" in
+    rust) ;;
+    none)
+        echo "error: --language=none has no source to port"
+        echo "  hint: use 'cyrius init --language=none $TARGET' for greenfield scaffold"
+        exit 1
+        ;;
+    go|python|c|cpp|zig|ocaml|haskell)
+        echo "error: --language=$LANGUAGE not yet supported (planned for future v5.6.x)"
+        echo "  currently supported: rust"
+        exit 1
+        ;;
+    *)
+        echo "error: unsupported --language=$LANGUAGE (supported: rust)"
+        exit 1
+        ;;
+esac
 
 cd "$TARGET"
 NAME=$(basename "$(pwd)")
 
 if [ ! -f "Cargo.toml" ]; then
-    echo "error: no Cargo.toml found in $TARGET"
+    echo "error: no Cargo.toml found in $TARGET (--language=rust expects a Rust project)"
     exit 1
 fi
 
@@ -50,7 +79,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "Would create:"
     echo "  src/main.cyr              (entry point skeleton)"
     echo "  cyrius.cyml               ([package] + [build] + [deps])"
-    echo "  .cyrius-toolchain         (pins toolchain version)"
+    echo "  cyrius.cyml [package].cyrius = \"$CYRIUS_VER\"  (pins toolchain version)"
     echo "  .github/workflows/ci.yml"
     echo "  .github/workflows/release.yml"
     echo ""
@@ -90,8 +119,10 @@ if [ -z "$CYRIUS_VER" ]; then
     echo "  error: no cyrius toolchain detected — install first or set CYRIUS_VER" >&2
     exit 1
 fi
-# Toolchain version goes in cyrius.cyml as cyrius = "X.Y.Z"
-# .cyrius-toolchain is deprecated — manifest is the single source
+# Toolchain version is pinned in cyrius.cyml as `cyrius = "X.Y.Z"` —
+# the manifest is the single source of truth. Legacy `.cyrius-toolchain`
+# is no longer written or read; CI/release workflows below grep the
+# manifest directly.
 
 # Generate source skeleton (no manual includes — auto-included via cyrius.cyml)
 cat > src/main.cyr << CYRSRC
@@ -349,7 +380,7 @@ echo ""
 echo "=== $NAME ready for porting ==="
 echo "  Rust (rust-old/): ${RUST_LOC:-0} lines"
 echo "  Cyrius (src/):    skeleton + test + bench + fuzz"
-echo "  Toolchain:        $CYRIUS_VER (.cyrius-toolchain)"
+echo "  Toolchain:        $CYRIUS_VER (cyrius.cyml)"
 echo ""
 echo "Next steps:"
 echo "  1. Read rust-old/src/ to understand the API"

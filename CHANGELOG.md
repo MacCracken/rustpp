@@ -96,6 +96,62 @@ For the audit record (so a future pass doesn't re-flag them):
   cleanup" / "Re-investigate" phrasing — per the
   `feedback_pin_optimizations` discipline.
 
+### Added — `cyrius init` / `cyrius port` `--language` flag
+
+Both project-scaffolding tools gain a `--language=<x>` flag that
+declares the *source-language posture* of the target. Previously
+`cyrius init` only knew "greenfield from nothing" and `cyrius port`
+silently assumed Rust — neither tool had a sensible answer for "I
+have an empty git-inited repo with a few docs and want a cyrius
+scaffold dropped next to them."
+
+* **`scripts/cyrius-init.sh`** — `--language=<none|rust>`, default
+  `none`.
+  * `--language=none` (default) — greenfield scaffold. New: target
+    `.` enables **in-place mode**, which routes every file write
+    through a `write_if_absent` helper so any pre-existing
+    `README.md` / `LICENSE` / `CHANGELOG.md` / `.gitignore` /
+    `cyrius.cyml` / `src/main.cyr` is preserved (the tool emits
+    `skip: <path> (already exists)` for each). Stdlib vendor under
+    `lib/` switches to `cp -n` in in-place mode for the same reason.
+    The "directory already exists" hard-error is preserved for the
+    `cyrius init <named-dir>` form to avoid silent clobber on typo;
+    in-place is opt-in via the explicit `.` target.
+  * `--language=rust` — declines and points the user at
+    `cyrius port`. Keeps the migration path concentrated in one tool.
+  * Unknown values produce a clear "supported: none, rust" error.
+* **`scripts/cyrius-port.sh`** — `--language=<rust>`, default `rust`
+  (existing behavior, made explicit). `--language=none` redirects to
+  `cyrius init --language=none`. Other languages (`go`, `python`,
+  `c`, `cpp`, `zig`, `ocaml`, `haskell`) produce an explicit "not yet
+  supported (planned for future v5.6.x)" message instead of falling
+  through to the Rust-specific `Cargo.toml` check.
+
+### Changed — toolchain pin lives in `cyrius.cyml`, not `.cyrius-toolchain`
+
+Closing out a long-standing inconsistency: the legacy
+`.cyrius-toolchain` file (separate from the manifest) was already
+deprecated in repo code paths but `scripts/cyrius-init.sh` and
+`scripts/cyrius-port.sh` still mentioned it in dry-run output and
+trailing summary text.
+
+* `scripts/cyrius-init.sh` — toolchain detection moved to run
+  *before* the `cyrius.cyml` template write, so the manifest now
+  carries `cyrius = "$CYRIUS_VER"` in `[package]` from the moment of
+  scaffold (previously the field was missing in init-generated
+  manifests; only `cyrius port` wrote it). Detection cascade
+  unchanged: env → install `VERSION` → live `cc5` → install snapshot,
+  no hardcoded fallback (the v5.4.12 release-lib.sh drift class).
+* `scripts/cyrius-port.sh` — three stale `.cyrius-toolchain` strings
+  removed: the dry-run "Would create" entry now says
+  `cyrius.cyml [package].cyrius = "X.Y.Z"`, the inline comment is
+  rewritten to flag legacy `.cyrius-toolchain` as no-longer-written,
+  and the trailing summary line says `Toolchain: X.Y.Z (cyrius.cyml)`.
+* CI / release workflow templates in both scripts already grep
+  `cyrius *= *"` from `cyrius.cyml` for the toolchain version — no
+  template change needed; this just makes the upstream init path
+  consistent with what the templates were already expecting.
+
 ## [5.5.40] — 2026-04-22
 
 **v5.5.x closeout — 40 patches, longest minor in cyrius history.**
