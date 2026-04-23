@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.8.** cc5 compiler (504,416 B x86_64), x86_64 + aarch64
+> **v5.6.10.** cc5 compiler (504,000 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
 > 4), Windows 11, and macOS arm64. **v5.6.8 is the biggest
@@ -8,9 +8,11 @@
 > 2/5 (flag-result reuse + `test rax, rax` replacing the 10-byte
 > push/xor/movca/pop/cmp dance in ECONDCMP's bare-value path).
 > cc5 shrank 526,272 → 504,416 B (**−21,856 B / −4.15 %**);
-> self-host compile time dropped 405 → 355 ms (**−12 %**). O2
-> continues at v5.6.9 (move-elim), v5.6.10 (LEA combining),
-> v5.6.11 (aarch64 fused ops); O3–O6 at v5.6.12–v5.6.15.
+> self-host compile time dropped 405 → 355 ms (**−12 %**). v5.6.9
+> added CP-tracking push/pop cancel: 381 adjacent `50 58` pairs
+> in cc5 → 0, cc5 504,416 → 504,000 B. O2 continues at v5.6.10
+> (LEA combining), v5.6.11 (aarch64 fused ops); O3–O6 at
+> v5.6.12–v5.6.15.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -45,8 +47,9 @@
 > - **v5.6.8**: ✅ shipped — Phase O2 category 2/5 — flag-result
 >   reuse + `test rax, rax` replacing ECONDCMP's 10-byte dance.
 >   cc5 **−21,856 B**, self-host **−50 ms**.
-> - **v5.6.9**: Phase O2 category 3/5 — redundant-move elimination
->   (`mov rX, rX` post-emit scan).
+> - **v5.6.9**: ✅ shipped — Phase O2 category 3/5 — redundant
+>   push/pop elim (CP-tracking cancel; 381 → 0 adjacent `50 58`
+>   pairs in cc5; −416 B).
 > - **v5.6.10**: Phase O2 category 4/5 — LEA combining (x86, with
 >   Agner Fog port-1-trap avoidance).
 > - **v5.6.11**: Phase O2 category 5/5 — aarch64 fused ops (`madd`
@@ -427,14 +430,21 @@ that a well-placed peephole inside a hot helper (ECONDCMP runs
 once per `if`/`while` condition) cascades across thousands of
 call sites in a real compiler.
 
-### v5.6.9 — Phase O2 category 3/5: redundant-move elimination
+### v5.6.9 ✅ Phase O2 category 3/5: redundant push/pop elimination
 
-Post-emit scan of the codebuf for `mov rX, rX` / `mov xN, xN`
-no-ops introduced by regalloc+inline interactions. On x86 these
-look like `48 89 C0` (`mov rax, rax`); on aarch64, `aa0003e0`
-patterns for `mov xN, xN`. Scan runs after FIXUP, patches the
-bytes in-place to `0x90` NOPs (x86) or `0xD503201F` NOPs
-(aarch64). ~100 LOC.
+**Shipped 2026-04-23.** CP-tracking peephole that cancels an
+adjacent `push rax; pop rax` pair emitted at the same codebuf
+cursor. Pre-scan identified 0 `mov rX, rX` pairs but 381 adjacent
+`50 58` pairs — almost all introduced by v5.6.7's strength-reduction
+helper (`_TRY_MUL_BY_POW2` calls `ESPILL/EUNSPILL` around the LHS
+subtree; when the LHS is a single identifier there's nothing to
+spill across). Implementation: `_last_push_cp` global recorded by
+`EPUSHR`/`ESPILL` after emitting the push; `EPOPR`/`EUNSPILL` check
+`GCP(S) == _last_push_cp` and rewind CP past the push (x86 −1 B;
+aarch64 −4 B) instead of emitting the pop. cc5 shrank 504,416 →
+504,000 B (−416 B); 381 adjacent pairs → 0. aarch64 mirror lands
+in the same patch (shared parse.cyr pattern fires on both).
+3-step fixpoint b=c=504,000 B ✓; 19/19 check.sh.
 
 ### v5.6.10 — Phase O2 category 4/5: LEA combining (x86)
 

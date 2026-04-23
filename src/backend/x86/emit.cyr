@@ -20,6 +20,20 @@ var _AARCH64_BACKEND = 0;
 # in-rax flow already has correct ZF.
 var _flags_reflect_rax = 0;
 
+# v5.6.9 O2 category 3: redundant push/pop cancellation tracker.
+# Records CP immediately AFTER any EPUSHR/ESPILL emit. When the
+# very next emit is EPOPR/EUNSPILL (which check GCP == _last_push_cp),
+# the push/pop pair is known to be back-to-back with no code between
+# — rewind CP by 1 to cancel both. Initialised to -1 so a pop
+# before any push falls through to the normal pop path. ANY
+# intervening emit advances CP, which breaks the equality check
+# naturally — no explicit invalidation needed across other helpers.
+# Observed v5.6.8 cc5 has 381 occurrences of `50 58` (push rax;
+# pop rax) adjacent, mostly from v5.6.7 strength-reduction's
+# ESPILL → _TRY_MUL_BY_POW2 → EUNSPILL pattern. Cancel saves
+# 2 B per site.
+var _last_push_cp = 0 - 1;
+
 # Stub so parse.cyr's `_AARCH64_BACKEND == 1` branches can reference
 # aarch64 emit primitives without the x86 build emitting an
 # "undefined function" warning. Dead on x86 at runtime.
@@ -91,15 +105,37 @@ fn E3(S, v) {
 
 # Standard codegen emissions (match cyrc exactly)
 # cc5: all record IR nodes when IR_ENABLED(S)==1
-fn EPUSHR(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); return 0; }
+fn EPUSHR(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); _last_push_cp = GCP(S); return 0; }
 fn EPOPC(S) { if (_IR_REC0(S, IR_POP_RCX) == 1) { return 0; } EB(S, 0x59); return 0; }
-fn EPOPR(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); _flags_reflect_rax = 0; return 0; }
+fn EPOPR(S) {
+    if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; }
+    if (GCP(S) == _last_push_cp) {
+        # v5.6.9: adjacent push+pop = no-op. Rewind past the push.
+        SCP(S, GCP(S) - 1);
+        _last_push_cp = 0 - 1;
+        return 0;
+    }
+    EB(S, 0x58);
+    _flags_reflect_rax = 0;
+    return 0;
+}
 
 # Expression spill: identical to push/pop
 var _INLINE_OK = 0;
 var _LOOPVAR_OK = 0;  # loop var r12 caching disabled (caused 2x regression + stack corruption)
-fn ESPILL(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); return 0; }
-fn EUNSPILL(S) { if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; } EB(S, 0x58); _flags_reflect_rax = 0; return 0; }
+fn ESPILL(S) { if (_IR_REC0(S, IR_PUSH) == 1) { return 0; } EB(S, 0x50); _last_push_cp = GCP(S); return 0; }
+fn EUNSPILL(S) {
+    if (_IR_REC0(S, IR_POP_RAX) == 1) { return 0; }
+    if (GCP(S) == _last_push_cp) {
+        # v5.6.9: adjacent push+pop = no-op. Rewind past the push.
+        SCP(S, GCP(S) - 1);
+        _last_push_cp = 0 - 1;
+        return 0;
+    }
+    EB(S, 0x58);
+    _flags_reflect_rax = 0;
+    return 0;
+}
 fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); return 0; }
 # EADDIMM_X1: add rcx, imm8 — the "pointer scratch reg" increment.
 # Named to match the aarch64 backend's EADDIMM_X1 (both advance the

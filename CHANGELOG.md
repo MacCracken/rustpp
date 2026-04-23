@@ -4,6 +4,72 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.9] — 2026-04-23
+
+**Phase O2 category 3/5 — redundant push/pop elimination.** CP-tracking
+peephole that cancels an adjacent `push rax; pop rax` pair emitted at
+the same codebuf cursor. cc5 shrank 504,416 → 504,000 B (−416 B,
+−0.082 %). Smaller than v5.6.8's 22 KB win because the dance this
+targets is ~2 bytes per site vs 7 bytes, but it was a visible waste:
+381 adjacent `50 58` pairs in cc5.
+
+### Added — `_last_push_cp` tracker
+
+New global in `src/backend/x86/emit.cyr` and `src/backend/aarch64/emit.cyr`
+(each backend owns its own copy since CP is per-backend state). `EPUSHR`
+and `ESPILL` record `_last_push_cp = GCP(S)` immediately after emitting
+the push byte (x86 `0x50`, 1 B) or instruction (aarch64 `STR x0, [sp, #-16]!`,
+4 B).
+
+### Changed — `EPOPR` / `EUNSPILL` cancel adjacent push
+
+Before emitting the pop, both helpers check `if (GCP(S) == _last_push_cp)`.
+If CP hasn't moved since the last push — i.e. nothing was emitted between
+— the pop and the push are semantically `nop`, so both are elided: the
+pop is suppressed and CP is rewound (x86 `SCP(S, GCP(S) - 1)`; aarch64
+`SCP(S, GCP(S) - 4)`). `_last_push_cp` is reset to `-1` so a subsequent
+pop without a fresh push falls through to the normal emit.
+
+### Where the redundant pairs come from
+
+All 381 were introduced by v5.6.7's strength-reduction peephole:
+`_TRY_MUL_BY_POW2` calls `ESPILL` before the LHS subtree and
+`EUNSPILL` after — but when the LHS is a single identifier load there
+is nothing to spill across. v5.6.9's peephole cleans up those
+spills without changing the strength-reduction logic itself.
+
+### Numbers
+
+- cc5: 504,416 → **504,000 B** (−416 B, −0.082 %).
+- Adjacent `50 58` pairs in cc5 output: 381 → **0** (verified via bytescan).
+- Per-site savings: 2 B (push 1 B + pop 1 B rewound); 381 × 2 = 762 B
+  gross, minus ~346 B from the new peephole code and tracker
+  loads/stores (mostly EPUSHR / ESPILL adding a `_last_push_cp = GCP(S)`
+  store at every push site, which fires whether or not the peephole
+  triggers).
+- Self-host compile time: ~355 ms (unchanged within noise).
+- 3-step fixpoint: a=504,768 → b=504,000 → c=504,000, b==c ✓.
+- 19/19 check.sh.
+- cc5_aarch64 e_machine 0xB7, cross-emits 0xB7 aarch64 output.
+- cc5_win valid PE32+.
+
+### aarch64 mirror
+
+Same tracker, same check. aarch64 push is `F81F0FE0` (4 B) and pop is
+`F84107E0` (4 B); the cancel rewinds 4 bytes instead of 1. Cross-compiled
+`advanced.tcyr` shrank 31,512 → 31,024 B (−488 B); `args.tcyr` shrank
+31,736 → 31,408 B (−328 B). The pattern fires on aarch64 too because
+shared parse.cyr paths (e.g. strength reduction) emit the same
+push-before-subtree shape regardless of backend.
+
+### Files touched
+
+- `src/backend/x86/emit.cyr` — `_last_push_cp` var; EPUSHR / ESPILL
+  record CP; EPOPR / EUNSPILL cancel when CP matches.
+- `src/backend/aarch64/emit.cyr` — identical pattern with 4-byte
+  rewind.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`, `docs/development/roadmap.md`, `CLAUDE.md`.
+
 ## [5.6.8] — 2026-04-23
 
 **Phase O2 category 2/5 — flag-result reuse + `test rax, rax`

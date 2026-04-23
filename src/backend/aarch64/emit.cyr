@@ -8,6 +8,14 @@
 # from v5.6.2) can start setting this flag and the peephole fires.
 var _flags_reflect_rax = 0;
 
+# v5.6.9 O2 category 3: redundant push/pop elimination. Tracks CP
+# immediately after the last EPUSHR/ESPILL. If the very next emit is
+# EPOPR/EUNSPILL with CP unchanged (i.e. nothing emitted between push
+# and pop), both the push and the pop are no-ops — rewind CP past the
+# push instead of emitting the pop. `-1` = no recent push / invalidated.
+# aarch64 push/pop are 4-byte instructions (vs 1 byte on x86).
+var _last_push_cp = 0 - 1;
+
 # ================================================================
 # AARCH64 CODE EMISSION (writes to codebuf at S+0x20000+CP)
 # ================================================================
@@ -147,11 +155,20 @@ fn EMOVI(S, v) {
 # === Stack operations ===
 # aarch64 has no push/pop — use STP/LDP with SP
 # push x0: STR x0, [sp, #-16]! (pre-decrement)
-fn EPUSHR(S) { EW(S, 0xF81F0FE0); return 0; }   # str x0, [sp, #-16]!
+fn EPUSHR(S) { EW(S, 0xF81F0FE0); _last_push_cp = GCP(S); return 0; }   # str x0, [sp, #-16]!
 # pop x1 (into scratch): LDR x1, [sp], #16 (post-increment)
 fn EPOPC(S) { EW(S, 0xF84107E1); return 0; }     # ldr x1, [sp], #16
 # pop x0: LDR x0, [sp], #16 (post-indexed)
-fn EPOPR(S) { EW(S, 0xF84107E0); return 0; }     # ldr x0, [sp], #16
+fn EPOPR(S) {
+    if (GCP(S) == _last_push_cp) {
+        # v5.6.9: adjacent push+pop = no-op. Rewind past the 4-byte push.
+        SCP(S, GCP(S) - 4);
+        _last_push_cp = 0 - 1;
+        return 0;
+    }
+    EW(S, 0xF84107E0);     # ldr x0, [sp], #16
+    return 0;
+}
 
 # === Register moves ===
 # mov x1, x0 (scratch = result)
