@@ -387,6 +387,38 @@ Baseline before tuning anything. ~240 LOC.
 - **Gate**: baseline numbers committed to
   `docs/development/benchmarks.md`; self-hosting byte-identical.
 
+### v5.6.6 — CYRIUS_PROF cross-platform ✅ shipped
+
+v5.6.5 shipped profiling on Linux only (x86_64 + aarch64); this
+patch fills in the remaining two active cyrius targets so the
+instrumentation works everywhere cc5 runs. No Linux paths touched;
+code size +1,256 B.
+
+- **Windows PE (`kernel32!GetTickCount64`).** New
+  `_pe_ensure_gettick` / `_pe_gettick_get` lazy-import pair in
+  `src/backend/pe/emit.cyr`, matching the existing
+  `_pe_ensure_stdio` / `_pe_ensure_readf` scaffolding. New
+  `EGETTICKS_PE` emit fn (Win64 shadow-aware: drop 3 stacked values,
+  `sub rsp, 0x28`, `call [rip+IAT]`, `add rsp, 0x28`; result u64 ms
+  in rax). `_prof_clock_ns` gets a `CYRIUS_TARGET_WIN` branch that
+  scales ms → ns.
+- **macOS Mach-O arm64 (`_clock_gettime_nsec_np` via
+  `__got[6]`).** Grows `__DATA_CONST.__got` from 6 → 7 slots:
+  `GOT_SIZE` 48→56, `BIND_SIZE` 72→96, `SYMTAB_COUNT` 8→9,
+  `STRTAB_SIZE` 80→104, `INDIRECT_SIZE` 24→28, nundefsym 6→7.
+  New `EMACHO_CLOCK_ARM` uses the shared `_EMACHO_BLR_GOT(S, 6)`
+  helper from v5.5.14; returns u64 ns directly (no timespec
+  dance). BSD whitelist in `parse_expr.cyr` extended to include
+  syscall 228.
+- **Reroute in `parse_expr.cyr`:** `_TARGET_PE==1 && sc_num==228`
+  → `EGETTICKS_PE`; `_TARGET_MACHO==2 && sc_num==228` →
+  `EMACHO_CLOCK_ARM`. Shape: `syscall(228, clock_id, &ts)` —
+  matches the Linux call site, arg2 discarded on PE, arg2 repurposed
+  as clock_id on Mach-O.
+
+cc5 526,888 → 528,144 B (+1,256 B / +0.24 %); 19/19 check.sh;
+byte-identical self-host.
+
 ### v5.6.7 — Phase O2 category 1/5: strength reduction ✅ shipped
 
 `x * 2^n` → `shl` (x86) / `lsl` (aarch64). `ESHLIMM` / `ESHRIMM`

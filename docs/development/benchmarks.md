@@ -79,9 +79,12 @@ own source.
 
 The v5.6.5 prediction of "10–25 % compile-throughput" has now
 partially materialized — v5.6.8 alone delivered −13.2 % compile
-time (which also scales the output-bytes win). Future patches
-(v5.6.9 move-elim, v5.6.10 LEA combining, v5.6.11 aarch64 fused
-ops) measure against the 504 KB / 355 ms baseline.
+time (which also scales the output-bytes win). v5.6.9 (push/pop
+cancel) and v5.6.10 (commutative combine-shuttle elim; retargeted
+from the originally-slotted literal LEA combining after a bytescan
+found 0 matches) have since shipped against the 504 KB / 355 ms
+baseline. Remaining O2 slot: v5.6.11 aarch64 fused ops
+(`madd` / `msub` / `ubfx` / `sbfx`).
 
 ## 3-step fixpoint verification (new in v5.6.7)
 
