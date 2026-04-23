@@ -1929,8 +1929,14 @@ fn PARSE_FIELD_LOAD(S, noff) {
         if (ifi < 0) { ERR(S); }
         off = off + FIELDOFF(S, isi, ifi);
     } }
-    # Load variable address + field offset, then load value (width-correct)
-    EVADDR_X1(S, idx);
+    # Load variable address + field offset, then load value (width-correct).
+    # idx < -1 is a local-encoded index from the struct-local branch above
+    # (idx = 0 - 2 - lli, so lli = 0 - 2 - idx). v5.5.36 Phase 2: route
+    # through EFLADDR_X1 (lea rcx, [rbp - disp]) instead of the global
+    # EVADDR_X1 (movabs rcx, abs64 + fixup), which would register a bogus
+    # global fixup for the local-encoded negative idx.
+    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
+    else { EVADDR_X1(S, idx); }
     if (off > 0) { EADDIMM_X1(S, off); }
     var fld_sz = FIELDSZ(S, ft);
     if (fld_sz == 1) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x01); }   # movzx rax, byte [rcx]
@@ -1946,13 +1952,27 @@ fn PARSE_FIELD_STORE(S, noff) {
     if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
     var fnoff = PEEKV(S);
     STI(S, GTI(S) + 1);
-    # Find var + struct type + field
-    var idx = FINDVAR(S, noff);
-    if (idx < 0) {
-        syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
-        PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+    # Find the variable and its struct type (check locals first — mirror
+    # of PARSE_FIELD_LOAD's lookup so v5.5.36's stack-local structs route
+    # through EFLADDR_X1 instead of the global-var EVADDR_X1 + fixup).
+    var idx = 0 - 1;
+    var sid = 0;
+    if (GINFN(S) == 1) {
+        var lli = FINDLOCAL(S, noff);
+        if (lli >= 0) {
+            var lt = GLTYPE(S, lli);
+            if (lt < 0) { sid = 0 - lt; }
+            idx = 0 - 2 - lli;
+        }
     }
-    var sid = GVTYPE(S, idx);
+    if (idx == 0 - 1) {
+        idx = FINDVAR(S, noff);
+        if (idx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+        }
+        sid = GVTYPE(S, idx);
+    }
     if (sid == 0) { ERR(S); }
     var si = sid - 1;
     var fi = FINDFIELD(S, si, fnoff);
@@ -1973,9 +1993,12 @@ fn PARSE_FIELD_STORE(S, noff) {
     if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
     STI(S, GTI(S) + 1);
     PCMPE(S);
-    # Store value to struct field (width-correct)
+    # Store value to struct field (width-correct). Route to local or
+    # global addr-emit based on idx encoding (same convention as
+    # PARSE_FIELD_LOAD; v5.5.36 Phase 2).
     EPUSHR(S);
-    EVADDR_X1(S, idx);
+    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
+    else { EVADDR_X1(S, idx); }
     if (off > 0) { EADDIMM_X1(S, off); }
     EPOPR(S);
     var fst_sz = FIELDSZ(S, ft);
@@ -2341,6 +2364,54 @@ fn PARSE_VAR(S) {
             STI(S, GTI(S) + 1);
             SKIP_GENERICS(S);
         }
+    }
+    # v5.5.36 Phase 2: `var p: StructName;` — stack-local struct
+    # with no initializer. `pscale < 0` means the type annotation
+    # resolved to a struct id (FINDSTRUCT returned sid, `pscale`
+    # was set to 0 - sid above). If the next token is `;`, we've
+    # hit the uninitialized-struct case: allocate stack space and
+    # register a struct-typed local.
+    #
+    # Same anonymous+named-slot trick as `stack var`: reserve
+    # ceil(STRUCTSZ/8) fn-local slots, sentinel-name all but the
+    # last, give the last slot `ltype = -sid` so PARSE_FIELD_LOAD /
+    # PARSE_FIELD_STORE's existing local-struct branch resolves
+    # field offsets correctly. FINDLOCAL skips sentinel slots via
+    # the `sn >= 0` gate, and the named slot lives at the deepest
+    # frame offset — so `&p` points at the BOTTOM of the struct,
+    # which is where field 0 lives.
+    if (pscale < 0 && PEEKT(S) == 5) {
+        if (GINFN(S) != 1) {
+            ERR_MSG(S, "uninitialized struct locals only allowed inside a function", 60);
+        }
+        var sv_sid = 0 - pscale;
+        var sv_sz = STRUCTSZ(S, sv_sid - 1);
+        if (sv_sz < 8) { sv_sz = 8; }
+        var sv_aligned = (sv_sz + 7) & (0 - 8);
+        var sv_nslots = sv_aligned / 8;
+        # Duplicate-name check
+        var sv_existing = FINDLOCAL(S, noff);
+        if (sv_existing >= 0) {
+            if (GLDEP(S, sv_existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        # Anonymous filler slots
+        var sv_j = 0;
+        while (sv_j < sv_nslots - 1) {
+            var sv_li = GFLC(S);
+            S64(S + 0x91000 + sv_li * 8, 0 - 1);
+            SLDEP(S, sv_li, GSDEP(S));
+            SLTYPE(S, sv_li, 0);
+            SFLC(S, sv_li + 1);
+            sv_j = sv_j + 1;
+        }
+        # Named slot with struct-type marker (ltype = -sid)
+        var sv_named = GFLC(S);
+        S64(S + 0x91000 + sv_named * 8, noff);
+        SLDEP(S, sv_named, GSDEP(S));
+        SLTYPE(S, sv_named, 0 - sv_sid);
+        SFLC(S, sv_named + 1);
+        STI(S, GTI(S) + 1);   # consume ';'
+        return 0;
     }
     # Check for array: var buf[N];
     if (PEEKT(S) == 28) {
