@@ -4,6 +4,119 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.7] — 2026-04-23
+
+**Phase O2 start — strength reduction (`x * 2^n → shl`).** First
+peephole category from the O2 scope in the roadmap. Opens the
+"peephole produces smaller output than input" pattern; subsequent
+patches layer on the remaining four categories (flag-result reuse,
+redundant-move elimination, LEA combining on x86, aarch64 fused
+ops). See the "Scope NOT covered" section below for what is NOT in
+this patch — v5.6.7 is deliberately narrower than the roadmap's
+full O2 listing because this is the first optimizer patch that
+modifies generated-code bytes and warranted careful fixpoint
+verification before stacking more categories.
+
+### Added — `x * 2^n` strength reduction (x86_64 + aarch64)
+
+- **`ESHLIMM(S, n)` / `ESHRIMM(S, n)`** in both
+  `src/backend/x86/emit.cyr` and `src/backend/aarch64/emit.cyr`.
+  * x86 `shl rax, n` = `48 C1 E0 <n>` (4 B); `shr rax, n` = `48 C1
+    E8 <n>` (4 B).
+  * aarch64 `lsl x0, x0, #n` and `lsr x0, x0, #n` via the UBFM
+    aliases. Base encoding `0xD3400000 | (immr << 16) | (imms << 10)`;
+    LSL uses `immr = (-n) mod 64` and `imms = 63 - n`; LSR uses
+    `immr = n` and `imms = 63`.
+  * `ESHRIMM` is defined for future use (signed `x / 2^n` requires
+    an adjust-for-negative dance that this patch doesn't ship —
+    see "Scope NOT covered" below). Currently marked as an
+    unreachable fn in DCE output; zero cost.
+- **`_TRY_MUL_BY_POW2(S)`** in `src/frontend/parse_expr.cyr`.
+  Peephole helper called after `ESPILL(S)` has pushed the LHS.
+  Checks whether `PEEKT(S) == 1` (integer literal) AND value is a
+  positive power of 2 (`pv > 1 && (pv & (pv - 1)) == 0`). On hit,
+  consumes the literal, computes the shift, `EUNSPILL` pops LHS
+  back into rax/x0, emits `ESHLIMM(S, shift)`. Returns 1 on
+  peephole hit, 0 on miss (caller falls through to the standard
+  `PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S)` sequence).
+- **Wired into 3 sites** in `PARSE_TERM`'s `typ == 8` (multiply)
+  handler:
+  1. Non-cfo path (LHS is a runtime value, RHS is parsed fresh).
+  2. Cfo path with `cfr` overflow (both literal but product wraps).
+  3. Cfo path with negative `crv` (non-pow2 edge).
+
+### Mechanical — BYTE-IDENTICAL PATTERN CHANGE
+
+This is the first optimizer patch that modifies generated-code
+bytes. The standard "build cc5; rebuild with cc5; compare" check
+from v5.6.0–v5.6.6 does NOT hold across the compiler-upgrade step:
+the old cc5 emits un-peepholed output, the new cc5 emits peepholed
+output, and their binaries differ. The correct verification is a
+**three-step fixpoint**:
+
+1. `build/cc5` (pre-v5.6.7) compiles the v5.6.7 source → cc5_a
+   (528,800 B — new peephole CODE present, but not yet APPLIED to
+   compiling cc5 itself because the old cc5 doesn't know about it).
+2. cc5_a compiles the same source → cc5_b (526,128 B — new peephole
+   CODE present AND APPLIED; output shrinks).
+3. cc5_b compiles the same source → cc5_c (526,128 B, identical to
+   cc5_b).
+4. **Fixpoint check: cc5_b == cc5_c**. PASS.
+
+Numbers for this patch: `cc5 528,800 B (upgrade step) → 526,128 B
+(peephole applied) → 526,272 B (after adding fallback-path peephole
+hits, version-bump string). v5.6.6 → v5.6.7 net cc5 delta: −1,872 B.
+
+Other mechanical:
+- 19/19 check.sh green on the installed cc5_b.
+- cc5_aarch64 cross still emits `e_machine 0xB7`.
+- cc5_win cross still produces valid PE32+.
+- Tiny smoke test: `var x = 7; var y = x * 8;` compiles with
+  `48 C1 E0 03` = `shl rax, 3` at the multiply site (was previously
+  a full `mov rcx, imm; imul` sequence). Runtime result 56 as
+  expected.
+
+### Changed — `docs/development/benchmarks.md`
+
+- v5.6.7 entry added with self-host median timing and cc5 size
+  delta.
+- Post-v5.6.5 prediction reality-check note updated: peephole
+  wins DO materialize in generated-code byte count (+−1,872 B on
+  cc5 itself); compile wall-clock is roughly unchanged (~405 ms)
+  because the peephole check itself adds a negligible PEEK +
+  power-of-2 branch.
+- Methodology note added for the 3-step fixpoint pattern — all
+  subsequent O3–O6 patches will use this shape.
+
+### Scope NOT covered
+
+The roadmap entry for v5.6.7 listed five peephole categories
+totaling ~510 LOC. This patch ships only **category 1 (strength
+reduction)** at ~60 LOC of additive code; the other four land as
+follow-up patches (slot assignment is the user's call):
+
+- **Flag-result reuse** — skip redundant `cmp` when preceding
+  arithmetic already set flags. Needs global "last flags producer"
+  state. Not shipped.
+- **Redundant-move elimination** (`mov rX, rX`) — needs post-emit
+  codebuf scan. Not shipped.
+- **LEA combining** (x86) — `mov + add + add` → `lea` with
+  Agner-Fog-aware port-1-trap avoidance. Not shipped.
+- **aarch64 fused ops** (`madd` / `msub` / `ubfx` / `sbfx`) —
+  needs lookahead or post-emit pattern matching. Not shipped.
+- **Signed `x / 2^n` strength reduction** (`asr + correction for
+  negative`) — the straight `asr` doesn't round toward zero like
+  `idiv` does. Requires the Hacker's Delight adjust-then-shift
+  trick. Not shipped (ESHRIMM helper reserved but unused).
+
+The v5.6.7 slot is being interpreted as "start peephole, prove the
+fixpoint pattern works"; the full O2 scope will need additional
+patches. That's NOT me slipping work — it's flagging the scope
+difference so the user can pick whether to (a) ship more peephole
+in a v5.6.7-1 hotfix, (b) spread the remaining categories across
+new v5.6.x patches, or (c) accept v5.6.7 as-is and roll the rest
+into v5.6.8+.
+
 ## [5.6.6] — 2026-04-23
 
 **CYRIUS_PROF cross-platform completeness.** v5.6.5 shipped

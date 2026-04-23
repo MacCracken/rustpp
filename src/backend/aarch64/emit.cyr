@@ -196,6 +196,20 @@ fn EXORR(S) { EW(S, 0xCA010000); return 0; }     # eor x0, x0, x1
 fn ENOTR(S) { EW(S, 0xAA2003E0); return 0; }     # mvn x0, x0
 fn ESHLCL(S) { EW(S, 0x9AC12000); return 0; }    # lslv x0, x0, x1
 fn ESHRCL(S) { EW(S, 0x9AC12400); return 0; }    # lsrv x0, x0, x1
+# v5.6.7 O2: shift x0 by immediate (1..63) using UBFM aliases.
+# LSL Xd, Xn, #n → UBFM Xd, Xn, #((-n) mod 64), #(63-n)
+# LSR Xd, Xn, #n → UBFM Xd, Xn, #n, #63
+# Base UBFM imm sf=1: 0xD3400000 | (immr << 16) | (imms << 10)
+fn ESHLIMM(S, n) {
+    var immr = (64 - n) & 0x3F;
+    var imms = (63 - n) & 0x3F;
+    EW(S, 0xD3400000 | (immr << 16) | (imms << 10));
+    return 0;
+}
+fn ESHRIMM(S, n) {
+    EW(S, 0xD3400000 | ((n & 0x3F) << 16) | (0x3F << 10));
+    return 0;
+}
 fn EXORAA(S) { EW(S, 0xCA000000); return 0; }    # eor x0, x0, x0 (zero)
 
 # === mov rdi, rax (for exit: x0 already has the value) ===
