@@ -634,6 +634,32 @@ fn LEX(S) {
                     continue;
                 } } } } } } } }
             }
+            # v5.6.3: #must_use — attribute on the next fn def marking
+            # its return as required-to-use. PARSE_STMT's expr-stmt
+            # discard path warns if a must_use fn's result is dropped.
+            # bytes: 23 6D 75 73 74 5F 75 73 65 = "#must_use" (9 chars)
+            if (p + 8 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 109) {
+                if (load8(S + 0x44A000 + p + 2) == 117) {
+                if (load8(S + 0x44A000 + p + 3) == 115) {
+                if (load8(S + 0x44A000 + p + 4) == 116) {
+                if (load8(S + 0x44A000 + p + 5) == 95) {
+                if (load8(S + 0x44A000 + p + 6) == 117) {
+                if (load8(S + 0x44A000 + p + 7) == 115) {
+                if (load8(S + 0x44A000 + p + 8) == 101) {
+                    ADDTOK(S, 122, 0);   # token 122 = HASH_MUST_USE
+                    p = p + 9;
+                    while (p < bl) {
+                        var wcm = load8(S + 0x44A000 + p);
+                        if (wcm == 32 || wcm == 9 || wcm == 10 || wcm == 13) {
+                            if (wcm == 10) { SCLINE(S, GCLINE(S) + 1); }
+                            p = p + 1;
+                        }
+                        else { break; }
+                    }
+                    continue;
+                } } } } } } } }
+            }
             # Check for #pe_import (v5.4.6) — PE32+ kernel32 symbol
             # registration directive. Parser consumes (dll, symbol)
             # string-literal args and forwards to the pe emitter's
@@ -784,6 +810,36 @@ fn LEX(S) {
         }
         else { if (c == 94) { ADDTOK(S, 36, 0); p = p + 1; }
         else { if (c == 126) { ADDTOK(S, 37, 0); p = p + 1; }
+        # v5.6.3: @unsafe — block attribute marking memory/FFI boundary.
+        # bytes: 40 75 6E 73 61 66 65 = "@unsafe" (7 chars). Advisory in
+        # v5.6.3 (nested-unsafe warning only). Parser treats the body as
+        # a plain `{ ... }` block.
+        else { if (c == 64) {
+            if (p + 6 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 117) {
+                if (load8(S + 0x44A000 + p + 2) == 110) {
+                if (load8(S + 0x44A000 + p + 3) == 115) {
+                if (load8(S + 0x44A000 + p + 4) == 97) {
+                if (load8(S + 0x44A000 + p + 5) == 102) {
+                if (load8(S + 0x44A000 + p + 6) == 101) {
+                    ADDTOK(S, 123, 0);   # token 123 = AT_UNSAFE
+                    p = p + 7;
+                    while (p < bl) {
+                        var wcu = load8(S + 0x44A000 + p);
+                        if (wcu == 32 || wcu == 9 || wcu == 10 || wcu == 13) {
+                            if (wcu == 10) { SCLINE(S, GCLINE(S) + 1); }
+                            p = p + 1;
+                        }
+                        else { break; }
+                    }
+                    continue;
+                } } } } } }
+            }
+            # Unknown @-sequence: skip for now. Keeping `@` as a syntax
+            # error rather than a silently-eaten byte would need a
+            # tokname entry; deferred until more `@X` attributes land.
+            p = p + 1;
+        }
         else { if (c == 37) { ADDTOK(S, 34, 0); p = p + 1; }
         # << or <
         # (already handled < and <= above, need << separately)
@@ -888,6 +944,7 @@ fn LEX(S) {
         } } } } } } } } }
         } } } } } } } } }
         } } } } } } } } }
+        }
     }
     ADDTOK(S, 12, 0);
     return 0;

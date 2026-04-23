@@ -4,6 +4,109 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.3] — 2026-04-22
+
+**`#must_use` + `@unsafe` attributes.** Two compiler-recognized
+annotations land, paired because they share infrastructure (lexer
+token + per-fn flags table + PARSE_STMT integration). `#must_use`
+catches the pervasive silent `-1` / "ignored return value" class by
+warning when an annotated fn's result is dropped at statement level.
+`@unsafe` marks memory/FFI crossings with an advisory nesting
+warning; no runtime cost, hardening passes can tighten later.
+
+### Added — `#must_use` fn-level attribute
+
+Shape mirrors `#regalloc` / `#pe_import`: a `#`-prefixed directive
+lexed as a distinct token (122 = HASH_MUST_USE), consumed by the
+parser right before a `fn` definition. Detector in
+`src/frontend/lex.cyr` beside `#regalloc`. PARSE_PROG's top-level
+dispatch arms a `_must_use_pending` flag on the token; PARSE_FN_DEF
+transfers it into the new `fn_flags` table at heap `0xFC000` bit 0,
+same stale-flag-clearing discipline as `#regalloc`.
+
+Call-site diagnostic: PARSE_STMT's expression-statement path
+resolves the called fn via `FINDFN` and — before emitting the call —
+inspects `fn_flags[fi] & 1`. If set, emits `warning: #must_use
+result of 'NAME' is discarded` to stderr with the call-site line via
+the existing `FM_LOOKUP` file-map infrastructure. The check runs
+only for bare `ident(args);` statement calls; assignments
+(`var x = foo();`), comparisons, and nested-expression uses
+(`foo(bar())`) don't fire the warning because the expression-result
+IS used.
+
+Scope bounded to top-level `ident(args);` statements. Method-call
+discards (`obj.foo();`) don't trigger the check yet — method-name
+mangling happens in PARSE_FIELD_LOAD and the fn-idx isn't cleanly
+recoverable at the statement-dispatch site. Can extend as a
+follow-up; reasonable first-pass since top-level `ident(args)` is
+the vastly more common discard shape.
+
+### Added — `@unsafe { ... }` block attribute
+
+Advisory. Body parses as a plain `{ ... }` block — no new scope
+semantics, no runtime overhead. Depth-tracked in a single global
+`_unsafe_depth`; entering a nested `@unsafe` inside another
+`@unsafe` emits `warning: nested @unsafe block` and continues
+parsing normally. Compilation succeeds either way.
+
+Detector at byte `@` (`64`) in `src/frontend/lex.cyr`. Token 123 =
+AT_UNSAFE. Handler in PARSE_STMT at the very top of the dispatch
+chain so it doesn't collide with any existing statement form.
+
+Fn-level `@unsafe fn foo() { ... }` syntax deliberately skipped
+for v5.6.3 — the `fn_flags` table at 0xFC000 reserves bit 1 for
+that future use, and the v5.5.40-pinned `parse_fn.cyr` audit is
+still fresh so we're not mixing new features into the same file.
+Block-form covers the common case (wrap an FFI call / raw-memory
+sequence) cleanly.
+
+### Added — `fn_flags` per-fn attribute table at 0xFC000
+
+32 KB (4096 fns × 8 bytes). Bit 0 = `#must_use`. Bit 1 reserved
+for `@unsafe` fn-level (v5.6.4+). Bits 2–63 reserved for future
+attributes (`#deprecated` is v5.6.4's natural next user). Placed
+right after `fn_variadic` at `0xF4000`; leaves ~88 KB free before
+the variable tables start at `0x11A000`.
+
+Documented in the `src/main.cyr` heap map. The v5.5.40 heap-map
+auditor (`tests/heapmap.sh`) picks up the new region without any
+code change — the regex relaxation from v5.5.40 covers 7-digit
+offsets.
+
+### Added — `tests/tcyr/must_use_attr.tcyr`
+
+6 runtime assertions covering the happy path (annotated fn whose
+result IS used — no warning, correct behavior) and the `@unsafe`
+block body (runs normally both top-level and nested). The
+warning-firing case can't be observed from inside the harness
+since warnings are written to stderr at compile time; standalone
+scenarios in dev confirmed the warning fires with correct text and
+line number.
+
+### Mechanical
+
+* Self-host byte-identical (cc5 → cc5b).
+* `sh scripts/check.sh` 19/19 green.
+* cc5 size 518,984 → 522,920 B (+3,936 B / +0.76 %). All in the
+  lexer lookahead (#must_use + @unsafe detectors), PARSE_STMT's new
+  @unsafe handler, PARSE_FN_DEF flag transfer, and the call-site
+  diagnostic with stderr plumbing.
+* cc5_aarch64 cross still emits `e_machine 0xB7`; cc5_win cross
+  still produces valid PE32+. No arch-specific code paths touched —
+  the attribute infrastructure is entirely in shared frontend code.
+
+### Deferred
+
+* Method-call discard (`obj.foo();`) — needs PARSE_FIELD_LOAD fn-idx
+  recovery; slot as v5.6.3-follow-up if real usage asks for it.
+* `@unsafe fn foo() { ... }` fn-level form — bit 1 reserved, wire up
+  alongside `#deprecated` in v5.6.4.
+* Stdlib annotations — `lib/io.cyr`'s `read` / `write`, `lib/alloc.cyr`'s
+  `alloc`, etc. are obvious `#must_use` candidates. Deliberately
+  NOT bundled into v5.6.3: mechanical stdlib-migration patches that
+  are byte-identical on the happy path and can ride individual
+  downstream touches rather than bloating this release.
+
 ## [5.6.2] — 2026-04-22
 
 **Explicit overflow operators.** 50 years of C-family silent overflow

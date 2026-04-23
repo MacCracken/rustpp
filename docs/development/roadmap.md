@@ -1,14 +1,13 @@
 # Cyrius Development Roadmap
 
-> **v5.6.2.** cc5 compiler (518,984 B x86_64), x86_64 + aarch64
+> **v5.6.3.** cc5 compiler (522,920 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
-> 4), Windows 11, and macOS arm64. **v5.6.2 adds explicit overflow
-> operators** — 9 tokens (`+%` `-%` `*%` wrapping, `+|` `-|` `*|`
-> saturating, `+?` `-?` `*?` checked-panic) backed by
-> `lib/overflow.cyr`. v5.6.1 added `#else` / `#elif` / `#ifndef`
-> preprocessor; v5.6.0 closed the v5.5.40 `parse.cyr` arch-guard
-> carry-over.
+> 4), Windows 11, and macOS arm64. **v5.6.3 adds `#must_use` +
+> `@unsafe` attributes** backed by a new `fn_flags` table at
+> 0xFC000. v5.6.2 added explicit overflow operators; v5.6.1 added
+> `#else` / `#elif` / `#ifndef` preprocessor; v5.6.0 closed the
+> v5.5.40 `parse.cyr` arch-guard carry-over.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -28,8 +27,10 @@
 >   preprocessor directives (per-level state stack at 0x97F10).
 > - **v5.6.2**: ✅ shipped — explicit overflow operators
 >   (9 tokens; `lib/overflow.cyr`).
-> - **v5.6.3–v5.6.4**: remaining small language polish —
->   `#must_use` + `@unsafe` attributes, `#deprecated` attribute.
+> - **v5.6.3**: ✅ shipped — `#must_use` + `@unsafe` attributes
+>   (fn_flags table at 0xFC000).
+> - **v5.6.4**: remaining small language polish — `#deprecated`
+>   attribute.
 > - **v5.6.5**: libro layout-dependent memory corruption
 >   investigation (3-attempts-defer applies).
 > - **v5.6.6**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
@@ -249,7 +250,7 @@ confirmed during dev.
 `/?` / `/|` (checked/saturating divide) — all slot in as follow-ups
 without lexer changes.
 
-### v5.6.3 — `#must_use` + `@unsafe` attributes
+### v5.6.3 — `#must_use` + `@unsafe` attributes ✅ shipped
 
 Two compiler-enforced annotations. `#must_use` on a fn
 declaration makes unused-result a hard error at call sites —
@@ -1025,7 +1026,7 @@ enables adding new targets without touching the frontend.
 | `parse.cyr` arch-guard cleanup | **v5.6.0** ✅ | Small |
 | `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.1** ✅ | Small |
 | Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** ✅ | Small |
-| `#must_use` + `@unsafe` attributes | **v5.6.3** | Small |
+| `#must_use` + `@unsafe` attributes | **v5.6.3** ✅ | Small |
 | `#deprecated("reason")` attribute | **v5.6.4** | Small |
 | Libro layout-corruption investigation | **v5.6.5** | Investigation |
 | `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.6** | Investigation |

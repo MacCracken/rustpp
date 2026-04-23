@@ -113,6 +113,14 @@
 #                                        float-dup when an arg is f64;
 #                                        callee-side save-area prologue +
 #                                        va_arg stdlib is Phase 3-full.
+#   0xFC000  fn_flags      [32768]       4096 × 8B — per-fn attribute bits
+#                                        (v5.6.3). bit0 = #must_use (warn
+#                                        when return is dropped at
+#                                        expression-statement level); bit1
+#                                        reserved for future @unsafe-fn.
+#                                        Set by PARSE_FN_DEF consuming a
+#                                        pending flag from the preceding
+#                                        lexer token (122 = HASH_MUST_USE).
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
@@ -214,7 +222,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.2\n", 10);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.3\n", 10);
                     syscall(SYS_EXIT, 0);
                 }
             }

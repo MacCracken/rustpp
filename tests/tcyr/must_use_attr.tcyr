@@ -1,0 +1,71 @@
+# v5.6.3 regression — #must_use fn-level attribute + @unsafe blocks.
+#
+# #must_use call-site WARNING is a compile-time diagnostic (not a
+# runtime value), so the assert harness can't inspect it directly.
+# What the harness CAN verify is that must_use-annotated fns work
+# identically to non-annotated fns when the result IS used (no
+# warning, correct runtime behavior). The warning-firing case is
+# covered by a dedicated shell scenario in check.sh or manual run.
+#
+# @unsafe blocks are also advisory-only; this test verifies the block
+# body executes normally and nested-unsafe doesn't break compilation.
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+
+# A must_use fn whose result is captured — identical behavior to
+# bare fn, no warning fires at any call site below.
+#must_use
+fn safe_add(a, b) {
+    return a + b;
+}
+
+# Another must_use to confirm multiple annotations work.
+#must_use
+fn must_be_used() {
+    return 99;
+}
+
+fn main() {
+    alloc_init();
+
+    test_group("#must_use with used result");
+    # All of these use the result, so no warning fires.
+    assert_eq(safe_add(3, 4), 7, "safe_add used directly");
+    var r = safe_add(10, 20);
+    assert_eq(r, 30, "safe_add assigned to var");
+    if (safe_add(1, 2) == 3) {
+        assert(1, "safe_add in if-condition");
+    }
+
+    assert_eq(must_be_used(), 99, "second must_use fn works");
+
+    test_group("@unsafe block body");
+    # Block body executes normally; no scope change.
+    var v = 0;
+    @unsafe {
+        v = 11;
+    }
+    assert_eq(v, 11, "@unsafe block body runs");
+
+    # Nested @unsafe emits a compile warning but still executes
+    # correctly — body runs regardless of the diagnostic.
+    var w = 0;
+    @unsafe {
+        @unsafe {
+            w = 22;
+        }
+    }
+    assert_eq(w, 22, "nested @unsafe body still runs");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);

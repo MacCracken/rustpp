@@ -542,6 +542,13 @@ fn PARSE_FN_DEF(S) {
     # stale flag from a prior parse error can't leak to the next fn.
     # v4.9.1: store 5 (max register count: rbx, r12-r15) for #regalloc fns.
     if (_regalloc_pending == 1) { SFRA(S, fi, 5); _regalloc_pending = 0; }
+    # v5.6.3: transfer any pending `#must_use` onto fn_flags[fi] bit 0.
+    # Clear unconditionally (same stale-flag argument as #regalloc).
+    if (_must_use_pending == 1) {
+        var _prev = L64(S + 0xFC000 + fi * 8);
+        S64(S + 0xFC000 + fi * 8, _prev | 1);
+        _must_use_pending = 0;
+    }
     # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
     # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
     # the end of PARSE_FN_DEF.
