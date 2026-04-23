@@ -414,10 +414,11 @@ fn PARSE_FACTOR(S) {
                 elif (sc_num == 10) { sc_ok = 1; }
                 elif (sc_num == 11) { sc_ok = 1; }
                 elif (sc_num == 60) { sc_ok = 1; }
+                elif (sc_num == 228) { sc_ok = 1; }   # v5.6.6 — _clock_gettime_nsec_np via __got[6]
                 if (sc_ok == 0) {
                     syscall(SYS_WRITE, 2,
-                        "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60); runtime call will fault unless v5.5.17 adds a reroute.\n",
-                        130);
+                        "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60,228); runtime call will fault unless a reroute is added.\n",
+                        131);
                 }
             }
         }
@@ -463,6 +464,16 @@ fn PARSE_FACTOR(S) {
             if (sc_num == 0) {
                 if (argc == 4) {
                     EMACHO_READ_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # v5.6.6: syscall(228, clock_id, _) → _clock_gettime_nsec_np
+            # for CYRIUS_PROF profiling. Returns u64 ns in x0 (no
+            # timespec buffer — macOS gives ns directly).
+            if (sc_num == 228) {
+                if (argc == 3) {
+                    EMACHO_CLOCK_ARM(S);
                     _cfo = 0;
                     return 0;
                 }
@@ -528,6 +539,18 @@ fn PARSE_FACTOR(S) {
                 if (argc == 7) {
                     # syscall(9, addr, len, prot, flags, fd, offset) → VirtualAlloc.
                     EMMAP_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # v5.6.6: syscall(228, _, _) → GetTickCount64 for CYRIUS_PROF.
+            # 3-arg form chosen to match the Linux `syscall(228,
+            # CLOCK_MONOTONIC, &ts)` shape in _prof_clock_ns; the 2
+            # cyrius-side args are dropped by EGETTICKS_PE before the
+            # kernel32 call.
+            if (sc_num == 228) {
+                if (argc == 3) {
+                    EGETTICKS_PE(S);
                     _cfo = 0;
                     return 0;
                 }

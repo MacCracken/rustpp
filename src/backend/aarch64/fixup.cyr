@@ -6,11 +6,18 @@
 
 var _env_scratch[256];
 
-# v5.6.5 O1: nanosecond wall clock for CYRIUS_PROF. Linux aarch64:
-# clock_gettime(CLOCK_MONOTONIC=1, &ts) via syscall 113 (generic
-# table number, different from x86_64's 228). See x86 fixup.cyr for
-# the peer + rationale.
+# v5.6.5 O1 + v5.6.6: nanosecond wall clock for CYRIUS_PROF.
+# * Linux aarch64: clock_gettime(CLOCK_MONOTONIC=1, &ts) via syscall
+#   113 (generic table — different from x86_64's 228).
+# * macOS arm64: `syscall(228, 4, 0)` is rerouted by EMACHO_CLOCK_ARM
+#   to libSystem _clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW=4) via
+#   __got[6]. Returns u64 ns directly in x0. The Linux-shape 3-arg
+#   form (clock_id, &ts-placeholder) keeps the call-site readable.
+# * Non-Linux non-macOS targets fall through to 0.
 fn _prof_clock_ns() {
+    #ifdef CYRIUS_TARGET_MACOS
+    return syscall(228, 4, 0);
+    #endif
     var ts[16];
     #ifdef CYRIUS_TARGET_LINUX
     syscall(113, 1, &ts);

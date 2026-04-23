@@ -38,6 +38,14 @@ fn EWRITE_PE(S) {
     return 0;
 }
 
+# v5.6.6 aarch64 stub for the CYRIUS_PROF GetTickCount64 reroute in
+# parse_expr.cyr's `_TARGET_PE == 1 && sc_num == 228` branch. Same
+# rationale as EWRITE_PE above — statically dead on aarch64 but
+# must resolve at link time.
+fn EGETTICKS_PE(S) {
+    return 0;
+}
+
 # Marker that the aarch64 backend is present in this compiler binary.
 # Checked by EMITMACHO_ARM64 to refuse Mach-O ARM output when accidentally
 # invoked through the x86 backend (which would emit x86 code inside an
@@ -526,6 +534,20 @@ fn EMACHO_READ_ARM(S) {
     EPOPARG(S, 0);                 # ldr x0, [sp], #16 — fd
     EW(S, 0x910043FF);             # add sp, sp, #16 — discard sc_num
     _EMACHO_BLR_GOT(S, 2);         # __got[2] = _read
+    return 0;
+}
+
+# v5.6.6 Mach-O arm64 syscall(228, clock_id, _) →
+# libSystem._clock_gettime_nsec_np(clock_id). Only x0 matters; the
+# 2nd cyrius-side arg is a Linux-shape placeholder (it was
+# `&timespec` on Linux; macOS returns ns directly in x0 so no
+# buffer is needed). Returns u64 ns in x0.
+# Stack top-down (argc==3): [arg2][arg1=clock_id][sc_num=228].
+fn EMACHO_CLOCK_ARM(S) {
+    EW(S, 0x910043FF);             # add sp, sp, #16 — drop arg2 (placeholder)
+    EPOPARG(S, 0);                 # ldr x0, [sp], #16 — clock_id
+    EW(S, 0x910043FF);             # add sp, sp, #16 — discard sc_num
+    _EMACHO_BLR_GOT(S, 6);         # __got[6] = _clock_gettime_nsec_np
     return 0;
 }
 

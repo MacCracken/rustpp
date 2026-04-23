@@ -4,6 +4,104 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.6] — 2026-04-23
+
+**CYRIUS_PROF cross-platform completeness.** v5.6.5 shipped
+profiling only for Linux (x86_64 + aarch64); this patch adds Windows
+PE and macOS Mach-O arm64 so the instrumentation works on every
+active cyrius target. No Linux code paths touched.
+
+### Added — Windows PE `GetTickCount64` reroute
+
+- **`_pe_ensure_gettick` / `_pe_gettick_get`** in `src/backend/pe/emit.cyr`.
+  Mirrors the existing `_pe_ensure_stdio` / `_pe_ensure_readf` /
+  etc. pattern: lazy-registers `kernel32!GetTickCount64` as a
+  pending PE IAT import on first use.
+- **`EGETTICKS_PE`** in `src/backend/x86/emit.cyr` (+ matching stub
+  in `src/backend/aarch64/emit.cyr` so shared parse.cyr links on
+  both backends). Emits Win64 sequence: drop 3 cyrius-stacked
+  values (2 dummy args + sc_nr), `sub rsp, 0x28` (32 B shadow + 8 B
+  align), `call [rip+GetTickCount64]`, `add rsp, 0x28`. Result u64
+  ms in rax.
+- **Reroute in parse_expr.cyr:** `_TARGET_PE == 1 && sc_num == 228
+  && argc == 3 → EGETTICKS_PE`. Matches the Linux `syscall(228,
+  CLOCK_MONOTONIC, &ts)` call shape; the 2 cyrius-side args are
+  discarded (GetTickCount64 takes no args).
+- **_prof_clock_ns (`src/backend/x86/fixup.cyr`):** new `#ifdef
+  CYRIUS_TARGET_WIN` branch that calls `syscall(228, 0, 0)`,
+  receives u64 ms in return, scales by 1_000_000 to yield ns. Linux
+  path unchanged.
+
+### Added — macOS Mach-O `_clock_gettime_nsec_np` via `__got[6]`
+
+Grows `__DATA_CONST.__got` from 6 to 7 slots. Adds
+`_clock_gettime_nsec_np` as the 7th libSystem binding (`__got[6]`).
+Returns u64 ns directly — no timespec dance needed on macOS.
+
+- **Layout changes in `src/backend/macho/emit.cyr`:**
+  - `GOT_SIZE` 48 → 56 (7 × 8 B).
+  - `BIND_SIZE` 72 → 96 (67 + 25 B new entry, pad to 96 8-align).
+  - `SYMTAB_COUNT` 8 → 9, `SYMTAB_SIZE` 128 → 144 (9 × 16).
+  - `STRTAB_SIZE` 80 → 104 (78 + 23 B `_clock_gettime_nsec_np\0`,
+    pad to 104 8-align).
+  - `INDIRECT_SIZE` 24 → 28 (7 × 4 B).
+  - `LC_DYSYMTAB` nundefsym 6 → 7, nindirectsyms 6 → 7.
+  - Bind-opcode list: append `_macho_wbindsym(_clock_gettime_nsec_np)`
+    after `_pthread_create`.
+  - Symtab undefs: append `_macho_wsymundef(78)` (strx for the new
+    name).
+  - Strtab: append `_macho_wcstr("_clock_gettime_nsec_np")` at
+    offset 78.
+  - Indirect symtab: append `_macho_w32(8)` (`__got[6] → symtab[8]`).
+  - Heap-map comments updated to reflect the new slot count.
+- **`EMACHO_CLOCK_ARM`** in `src/backend/aarch64/emit.cyr`
+  (+ x86 stub). Uses the shared `_EMACHO_BLR_GOT(S, 6)` helper from
+  v5.5.14; pops arg2 (discarded placeholder), pops arg1 into x0
+  (clock_id), discards sc_num, then `blr __got[6]`. Result lands in
+  x0 per AAPCS64.
+- **Reroute in parse_expr.cyr:** `_TARGET_MACHO == 2 && sc_num ==
+  228 && argc == 3 → EMACHO_CLOCK_ARM`.
+- **_prof_clock_ns (`src/backend/aarch64/fixup.cyr`):** new `#ifdef
+  CYRIUS_TARGET_MACOS` branch that calls `syscall(228, 4, 0)` —
+  passing `CLOCK_MONOTONIC_RAW=4` as clock_id (same integer on
+  macOS and Linux for this clock). Returns u64 ns directly from x0;
+  no timespec assembly step.
+- **Mach-O BSD whitelist** in `parse_expr.cyr` extended to include
+  syscall 228 (was `0,1,2,3,9,10,11,60`) so the cross-compile of
+  profiling-enabled Mach-O code doesn't emit the spurious "not on
+  whitelist" warning.
+
+### Layout sanity check
+
+Old Mach-O __LINKEDIT content: 368 B (BIND 72 + EXPORTS 56 +
+FNSTART 8 + SYMTAB 128 + STRTAB 80 + INDIRECT 24). New: 436 B (96 +
+56 + 8 + 144 + 104 + 28). Both well inside the 4096-byte __LINKEDIT
+page. __got still in DATA_CONST's single page (7 × 8 = 56 B used,
+page is 4096 B). No load-command-header size changes needed.
+
+### Mechanical
+
+- Self-host byte-identical (Linux x86_64 cc5 → cc5b).
+- `sh scripts/check.sh` 19/19 green (no new gates; the Linux test
+  suite doesn't exercise PE / Mach-O).
+- cc5 size 526,888 → 528,144 B (+1,256 B / +0.24 %). Most growth in
+  the PE EGETTICKS_PE emit function + Mach-O layout constants.
+- cc5_aarch64 cross still emits `e_machine 0xB7`.
+- cc5_win cross still produces valid PE32+ (MZ magic preserved).
+- cc5_macho (via `CYRIUS_MACHO_ARM=1 build/cc5_aarch64 <
+  src/main_aarch64_macho.cyr`) builds to a 524,724 B Mach-O arm64
+  binary with correct `cffa edfe` magic. Self-host fixpoint on
+  `ssh ecb` is deferred to user verification (same workflow as
+  v5.5.17's macOS close-out).
+
+### Known
+
+- CYRIUS_PROF=1 on PE / Mach-O hasn't been runtime-verified on the
+  target hardware yet. The Linux path is unchanged and still
+  reports 402 ms median per `docs/development/benchmarks.md`.
+  Runtime verification needs `ssh cass` (Windows 11) and
+  `ssh ecb` (Apple Silicon).
+
 ## [5.6.5] — 2026-04-23
 
 **Opens v5.6.x compiler optimization arc — Phase O1: instrumentation

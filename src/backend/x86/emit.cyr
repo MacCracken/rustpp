@@ -389,6 +389,13 @@ fn EMACHO_READ_ARM(S) {
     return 0;
 }
 
+# v5.6.6 x86 stub for EMACHO_CLOCK_ARM. Statically dead on x86 (the
+# _TARGET_MACHO == 2 branch in parse_expr.cyr is arm64-only). Must
+# link to keep shared parse.cyr arch-portable.
+fn EMACHO_CLOCK_ARM(S) {
+    return 0;
+}
+
 # emit Win64 write epilogue: consume stack args pushed by the
 # generic syscall-argument loop for `syscall(1, fd, buf, len)` and
 # reroute to `GetStdHandle(fd) + WriteFile(hFile, buf, len, &n, 0)`.
@@ -536,6 +543,29 @@ fn EREAD_PE(S) {
     # Return the bytes-read count (not the BOOL success flag).
     EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
+    return 0;
+}
+
+# v5.6.6: emit Win64 GetTickCount64 call for CYRIUS_PROF
+# profiling. `syscall(228, a, b)` on PE → GetTickCount64() with the
+# 2 cyrius-side args discarded (GetTickCount64 takes no args).
+# Returns u64 ms in rax; the cyrius caller multiplies by 1_000_000
+# in _prof_clock_ns to match the ns convention.
+# Stack on entry (top→bottom): [b] [a] [sc_nr=228] — argc=3.
+# Frame: 0x28 (32 B shadow + 8 B align) at each call site.
+fn EGETTICKS_PE(S) {
+    _pe_ensure_gettick(S);
+    var gt_idx = _pe_gettick_get();
+
+    # Drop all 3 cyrius-stacked values (2 dummy args + sc_nr).
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x18); # add rsp, 0x18
+    # Shadow + align.
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xEC); EB(S, 0x28); # sub rsp, 0x28
+    EB(S, 0xFF); EB(S, 0x15);                          # call [rip+GetTickCount64]
+    _pe_iat_fixup_add(S, GCP(S), gt_idx);
+    EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x28); # add rsp, 0x28
+    # rax now holds u64 ms.
     return 0;
 }
 
