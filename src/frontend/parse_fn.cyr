@@ -294,6 +294,28 @@ fn PARSE_FNCALL(S, noff) {
     # Check for inline candidate
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
+    # v5.6.4: #deprecated call-site warning. Fires at EVERY call site
+    # (unlike #must_use which only fires on statement-level discard —
+    # deprecated fns should get the nudge no matter how their result
+    # is used). Line number is the paren-open we just consumed, which
+    # matches the call-site. Message body lives in fn_deprecated_msg
+    # as a string-literal token value (offset<<16 | length).
+    var _dep_flags = L64(S + 0xFC000 + fi * 8);
+    if (_dep_flags & 4 != 0) {
+        syscall(SYS_WRITE, 2, "warning:", 8);
+        FM_LOOKUP(S, GTLINE(S, GTI(S)));
+        syscall(SYS_WRITE, 2, ": '", 3);
+        PRSTR(S + 0x60000 + noff);
+        syscall(SYS_WRITE, 2, "' is deprecated", 15);
+        var _dep_msg = L64(S + 0x104000 + fi * 8);
+        if (_dep_msg != 0) {
+            var _dep_off = _dep_msg >> 16;
+            var _dep_len = _dep_msg & 0xFFFF;
+            syscall(SYS_WRITE, 2, ": ", 2);
+            syscall(SYS_WRITE, 2, S + 0x14A000 + _dep_off, _dep_len);
+        }
+        syscall(SYS_WRITE, 2, "\n", 1);
+    }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
         # INLINE PATH: replay function body tokens at call site
         var pc = L64(S + 0xE9A000 + fi * 8);
@@ -548,6 +570,15 @@ fn PARSE_FN_DEF(S) {
         var _prev = L64(S + 0xFC000 + fi * 8);
         S64(S + 0xFC000 + fi * 8, _prev | 1);
         _must_use_pending = 0;
+    }
+    # v5.6.4: transfer any pending `#deprecated("msg")` onto fn_flags
+    # bit 2 + fn_deprecated_msg[fi]. Same stale-flag discipline.
+    if (_deprecated_pending == 1) {
+        var _prev_d = L64(S + 0xFC000 + fi * 8);
+        S64(S + 0xFC000 + fi * 8, _prev_d | 4);
+        S64(S + 0x104000 + fi * 8, _deprecated_msg_pending);
+        _deprecated_pending = 0;
+        _deprecated_msg_pending = 0;
     }
     # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
     # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at

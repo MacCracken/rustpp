@@ -634,6 +634,28 @@ fn LEX(S) {
                     continue;
                 } } } } } } } }
             }
+            # v5.6.4: #deprecated("msg") — attribute on the next fn
+            # def that warns at every call site. Checked BEFORE
+            # #must_use so "#deprecated" doesn't trigger the lexer
+            # prefix check for "#must_use" (different first char anyway
+            # — `d` vs `m` — so ordering is only for readability).
+            # bytes: 23 64 65 70 72 65 63 61 74 65 64 = "#deprecated" (11 chars)
+            if (p + 10 < bl) {
+                if (load8(S + 0x44A000 + p + 1) == 100) {
+                if (load8(S + 0x44A000 + p + 2) == 101) {
+                if (load8(S + 0x44A000 + p + 3) == 112) {
+                if (load8(S + 0x44A000 + p + 4) == 114) {
+                if (load8(S + 0x44A000 + p + 5) == 101) {
+                if (load8(S + 0x44A000 + p + 6) == 99) {
+                if (load8(S + 0x44A000 + p + 7) == 97) {
+                if (load8(S + 0x44A000 + p + 8) == 116) {
+                if (load8(S + 0x44A000 + p + 9) == 101) {
+                if (load8(S + 0x44A000 + p + 10) == 100) {
+                    ADDTOK(S, 124, 0);   # token 124 = HASH_DEPRECATED
+                    p = p + 11;
+                    continue;
+                } } } } } } } } } }
+            }
             # v5.6.3: #must_use — attribute on the next fn def marking
             # its return as required-to-use. PARSE_STMT's expr-stmt
             # discard path warns if a must_use fn's result is dropped.

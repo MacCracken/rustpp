@@ -4,6 +4,121 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.4] — 2026-04-22
+
+**`#deprecated("reason / replacement")` fn-level attribute.** Last
+patch of the v5.6.x small-language-polish arc (v5.6.1 preprocessor,
+v5.6.2 overflow ops, v5.6.3 `#must_use` + `@unsafe`, v5.6.4
+`#deprecated`). Pays dividends at v6.0.0 when `cc5` → `cyc` renames
+hit downstream consumers — a single `#deprecated("use cyc since
+v6.0")` on the old `cc5`-named fn surfaces the migration in their
+CI without grep sweeps.
+
+### Added — `#deprecated("msg")` fn-level attribute
+
+Shape mirrors `#pe_import`: a `#`-prefixed keyword followed by a
+paren-wrapped string argument that PARSE_PROG consumes via the
+standard string-literal token. Required argument — the whole point
+is the reason/replacement pointer, and making it optional would
+just encourage drive-by `#deprecated` annotations that tell readers
+nothing.
+
+* Lex detector in `src/frontend/lex.cyr` beside `#must_use`. Token
+  124 = HASH_DEPRECATED. The 11-byte literal `#deprecated` matches
+  byte-for-byte; `(` / `)` / string argument are left for the
+  parser. Detector ordering: placed BEFORE `#must_use` in the chain
+  (different first byte, so either order works — placement is for
+  readability).
+* PARSE_PROG top-level dispatch on typ==124: consumes `(` + string
+  literal + `)`, capturing the string-literal token value (encoded
+  `(offset<<16) | length` into str_data at 0x14A000 — same shape as
+  string-literal tokens elsewhere). Sets two new globals
+  `_deprecated_pending = 1` and `_deprecated_msg_pending = <str
+  token value>`. STI-advances each consumed token; mismatched `(`
+  / string / `)` triggers the standard ERR_EXPECT error.
+* PARSE_FN_DEF transfer: if pending, sets `fn_flags[fi] & 4` (bit
+  2) and writes the message token value into the new
+  `fn_deprecated_msg` table at heap `0x104000` (4096 × 8 B). Clears
+  both pending globals unconditionally — same stale-flag discipline
+  as `#regalloc` / `#must_use`.
+
+### Added — `fn_deprecated_msg` parallel table at 0x104000
+
+32 KB (4096 fns × 8 bytes). Stores the deprecation message as a
+string-literal token value (`(offset<<16) | length`). `0` means no
+message attached — the diagnostic then reads just `warning:<src>:N:
+'fn' is deprecated` without the trailing reason. Bit 2 of `fn_flags`
+and the nonzero message are set together by PARSE_FN_DEF so the
+call-site code can trust them as a pair.
+
+Placed right after `fn_flags` at 0xFC000; leaves 86 KB (0x104000 →
+0x11A000) before the variable tables. Documented in the
+`src/main.cyr` heap map. v5.5.40 heap-map auditor picks up the new
+region without code change.
+
+### Added — call-site diagnostic in PARSE_FNCALL
+
+Unlike `#must_use` (which only fires on bare `ident(args);`
+statement discards), `#deprecated` fires at **every** call site —
+the idea being: no matter how you use the return, a deprecated fn
+is a deprecated fn. Check lives in `PARSE_FNCALL` right after
+`FINDFN` / `REGFN` resolve the call target. Output shape:
+
+```
+warning:<source>:LINE: 'fn_name' is deprecated: <msg>
+```
+
+(Message omitted when no `"msg"` was supplied — but since the
+lexer/parser pair requires the argument, this branch is currently
+unreachable via source syntax; it's there for future variants that
+might want an argumentless form.)
+
+Both `#must_use` (PARSE_STMT-level) and `#deprecated` (PARSE_FNCALL-
+level) can fire on the same call site — they're independent bits
+and independent diagnostic passes. Tested in both isolation and
+combined.
+
+### Added — `tests/tcyr/deprecated_attr.tcyr`
+
+3 runtime assertions covering:
+* deprecated fn returns correct values (compilation still succeeds
+  despite warnings),
+* second call site (confirms per-call-site semantics, not per-fn),
+* `#deprecated + #must_use` combined on the same fn — both bits
+  coexist in `fn_flags[fi]`, runtime behavior normal.
+
+Standalone dev scenarios confirmed:
+* warning fires at **every** call site (3 calls → 3 warnings),
+* non-annotated fn produces 0 warnings,
+* both diagnostics fire when combined with `#must_use`.
+
+### Mechanical
+
+* Self-host byte-identical (cc5 → cc5b).
+* `sh scripts/check.sh` 19/19 green.
+* cc5 size 522,920 → 525,344 B (+2,424 B / +0.46 %). All in the
+  lexer detector, PARSE_PROG handler, PARSE_FN_DEF transfer, and
+  the PARSE_FNCALL diagnostic — with stderr plumbing reused from
+  v5.6.3's `#must_use` infrastructure.
+* cc5_aarch64 cross still emits `e_machine 0xB7`; cc5_win cross
+  still produces valid PE32+. No arch-specific paths touched.
+
+### Closes v5.6.x small-language-polish arc
+
+Four patches land the Zig-style / Rust-style safety-net attributes
+we'd been missing:
+
+* v5.6.1 — `#else` / `#elif` / `#ifndef` preprocessor.
+* v5.6.2 — `+% / +| / +?` (and `-`, `*`) overflow operators.
+* v5.6.3 — `#must_use` / `@unsafe`.
+* v5.6.4 — `#deprecated`.
+
+Collectively +16,464 B on cc5 (508,880 → 525,344). Call-site
+diagnostics for all three fn-level attributes run through a shared
+`fn_flags` table at 0xFC000 + the string-offset side-table at
+0x104000 for deprecated's message; future attributes slot into
+remaining bits without new heap region allocation.
+
 ## [5.6.3] — 2026-04-22
 
 **`#must_use` + `@unsafe` attributes.** Two compiler-recognized

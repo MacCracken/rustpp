@@ -117,10 +117,21 @@
 #                                        (v5.6.3). bit0 = #must_use (warn
 #                                        when return is dropped at
 #                                        expression-statement level); bit1
-#                                        reserved for future @unsafe-fn.
-#                                        Set by PARSE_FN_DEF consuming a
-#                                        pending flag from the preceding
-#                                        lexer token (122 = HASH_MUST_USE).
+#                                        reserved for future @unsafe-fn;
+#                                        bit2 = #deprecated (v5.6.4 — warn
+#                                        at every call site, message in
+#                                        fn_deprecated_msg below).
+#                                        Set by PARSE_FN_DEF consuming
+#                                        pending flags from preceding lexer
+#                                        tokens (122 = HASH_MUST_USE, 124 =
+#                                        HASH_DEPRECATED).
+#   0x104000 fn_deprecated_msg [32768]   4096 × 8B — per-fn deprecation
+#                                        message token value (v5.6.4). 0 =
+#                                        no message; nonzero = (offset<<16)
+#                                        | length into str_data at 0x14A000
+#                                        (same encoding as string-literal
+#                                        token values). Parallel to
+#                                        fn_flags bit 2.
 #
 # --- Variable tables ---
 #   0x11A000 var_noffs     [65536]       8192 variable name offsets
@@ -222,7 +233,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.3\n", 10);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.4\n", 10);
                     syscall(SYS_EXIT, 0);
                 }
             }

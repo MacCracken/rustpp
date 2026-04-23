@@ -1,0 +1,55 @@
+# v5.6.4 regression — #deprecated("reason") fn-level attribute.
+#
+# #deprecated fires a compile-time warning at EVERY call site
+# (unlike #must_use which only fires on statement-level discard).
+# The warning itself is stderr at compile time; this harness verifies
+# that calling a deprecated fn still works correctly at runtime and
+# that fn_flags bit 2 doesn't collide with the #must_use bit 0
+# infrastructure shipped in v5.6.3.
+#
+# Warning-text + line-number verification lives in the standalone dev
+# scenarios. The assertions below only check the runtime path.
+
+include "lib/assert.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+
+# Plain deprecated fn: calling it warns but returns normally.
+#deprecated("replaced by compute_v2 since v5.6")
+fn compute_v1(x) {
+    return x * 2;
+}
+
+# #deprecated + #must_use combined — exercises both fn_flags bits
+# (bit 0 = must_use, bit 2 = deprecated) on the same fn.
+#deprecated("retired in v5.6")
+#must_use
+fn critical_legacy() {
+    return 99;
+}
+
+fn main() {
+    alloc_init();
+
+    test_group("#deprecated runtime behavior");
+    # The body should execute normally; assertions validate that.
+    assert_eq(compute_v1(3), 6, "deprecated fn returns correct value");
+    assert_eq(compute_v1(10), 20, "deprecated fn — second call");
+
+    test_group("#deprecated + #must_use combined");
+    # Using the result suppresses the #must_use warning; the
+    # #deprecated warning still fires at compile time (not observable
+    # here). Runtime just needs to be correct.
+    var r = critical_legacy();
+    assert_eq(r, 99, "dual-flagged fn return used correctly");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+syscall(60, exit_code);

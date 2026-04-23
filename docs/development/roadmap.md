@@ -1,13 +1,15 @@
 # Cyrius Development Roadmap
 
-> **v5.6.3.** cc5 compiler (522,920 B x86_64), x86_64 + aarch64
+> **v5.6.4.** cc5 compiler (525,344 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > Self-hosts byte-identically on Linux x86_64, Linux aarch64 (Pi
-> 4), Windows 11, and macOS arm64. **v5.6.3 adds `#must_use` +
-> `@unsafe` attributes** backed by a new `fn_flags` table at
-> 0xFC000. v5.6.2 added explicit overflow operators; v5.6.1 added
-> `#else` / `#elif` / `#ifndef` preprocessor; v5.6.0 closed the
-> v5.5.40 `parse.cyr` arch-guard carry-over.
+> 4), Windows 11, and macOS arm64. **v5.6.4 closes the
+> small-language-polish arc with `#deprecated("reason")`** —
+> call-site warning at every invocation, fn_flags bit 2 + string
+> side-table at 0x104000. v5.6.3 added `#must_use` + `@unsafe`;
+> v5.6.2 added explicit overflow operators; v5.6.1 added `#else` /
+> `#elif` / `#ifndef` preprocessor; v5.6.0 closed the v5.5.40
+> `parse.cyr` arch-guard carry-over.
 >
 > **v5.5.x (closed, 40 patches)** — longest minor in cyrius
 > history. Platform completion: Windows PE end-to-end (native
@@ -29,21 +31,21 @@
 >   (9 tokens; `lib/overflow.cyr`).
 > - **v5.6.3**: ✅ shipped — `#must_use` + `@unsafe` attributes
 >   (fn_flags table at 0xFC000).
-> - **v5.6.4**: remaining small language polish — `#deprecated`
->   attribute.
-> - **v5.6.5**: libro layout-dependent memory corruption
->   investigation (3-attempts-defer applies).
-> - **v5.6.6**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
->   re-investigation (3-attempts-defer applies).
-> - **v5.6.7–v5.6.12**: compiler-optimization arc (O1
+> - **v5.6.4**: ✅ shipped — `#deprecated("msg")` attribute
+>   (fn_flags bit 2 + string side-table at 0x104000). Closes the
+>   v5.6.x small-language-polish arc.
+> - **v5.6.5–v5.6.10**: compiler-optimization arc (O1
 >   instrumentation + FNV-1a, O2 peephole, O3 IR-driven passes, O4
->   linear-scan regalloc, O5 maximal-munch, O6 slab allocator —
->   measurement-gated, may skip).
-> - **v5.6.13**: v5.6.x closeout + downstream ecosystem sweep gate
->   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
->   agnova, takumi).
-> - **v5.6.14**: shared-object (.so / .dll / .dylib) emission
+>   linear-scan regalloc, O5 maximal-munch, O6 slab allocator).
+> - **v5.6.11**: libro layout-dependent memory corruption
+>   investigation.
+> - **v5.6.12**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+>   re-investigation.
+> - **v5.6.13**: shared-object (.so / .dll / .dylib) emission
 >   completion.
+> - **v5.6.14**: v5.6.x closeout + downstream ecosystem sweep gate
+>   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
+>   agnova, takumi). **Last patch of v5.6.x.**
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.7**: pure-cyrius TLS 1.3 arc + medium language
@@ -80,16 +82,14 @@ For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Active Bugs
 
-Each row pinned to a concrete v5.6.x slot per the
-`feedback_pin_optimizations` discipline — no "investigate" / "future
-work" phrasing without a patch number. 3-attempts-defer applies to
-investigation patches; if the root cause won't yield, ship a tighter
-repro and slip the slot.
+Each row pinned to a concrete v5.6.x slot. No "investigate" / "future
+work" phrasing without a patch number. If an investigation doesn't
+yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 
 | Bug | Impact | Pinned slot |
 |-----|--------|-------------|
-| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.5** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If the v5.6.5 attempt doesn't isolate root cause, ship a tighter repro and slip to v5.7.x. |
-| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.6** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.6 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
+| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.11** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
+| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.12** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.12 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -112,29 +112,22 @@ Active Bugs table above.
 
 ## v5.6.x — Language polish + compiler optimization + shared-object
 
-The v5.6.x minor bundles four independent-but-related arcs
-before v5.7.0 RISC-V opens:
+The v5.6.x minor bundles five arcs before v5.7.0 RISC-V opens:
 
 1. **v5.6.0 — `parse.cyr` arch-guard cleanup (✅ shipped).** Closes
    the v5.5.40-discovered Active Bug.
-2. **v5.6.1–v5.6.4 — Small language polish.** Four single-patch
-   additions that remove long-standing friction. Each is
-   isolated, low-risk, and self-contained.
-3. **v5.6.5–v5.6.6 — Active-bug investigations.** Pinned slots
-   for the two surviving Active Bugs (libro layout corruption,
-   `cc5_win.exe` HIGH_ENTROPY_VA stdin failure). 3-attempts-defer
-   applies; if a slot doesn't yield, ship a tighter repro and
-   slip.
-4. **v5.6.7–v5.6.12 — Compiler optimization arc (O1–O6).** The
+2. **v5.6.1–v5.6.4 — Small language polish (✅ shipped).** Four
+   single-patch additions that remove long-standing friction.
+3. **v5.6.5–v5.6.10 — Compiler optimization arc (O1–O6).** The
    pinned optimization phases. Lands BEFORE RISC-V so the new
    port inherits an optimized compiler.
-5. **v5.6.13–v5.6.14 — Closeout + shared-object.** Downstream
-   gate, then the long-deferred `.so` emission fix.
-
-**Pinned to concrete patch numbers** (per the
-`feedback_pin_optimizations` discipline): correctness ships
-first, then small polish, then the active-bug investigations
-on a clean baseline, then the optimization arc, then closeout.
+4. **v5.6.11–v5.6.12 — Active-bug investigations.** Libro layout
+   corruption + `cc5_win.exe` HIGH_ENTROPY_VA stdin failure. If an
+   investigation doesn't yield, STOP and ask — never defer or
+   slip unilaterally.
+5. **v5.6.13 — Shared-object (.so / .dll / .dylib) emission.**
+6. **v5.6.14 — v5.6.x closeout + downstream ecosystem sweep gate.**
+   Last patch of v5.6.x.
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
 
@@ -278,7 +271,7 @@ sample whose result is dropped triggers the expected error.
 Enables stdlib to annotate `read`/`write`/`alloc` etc. —
 catches real bugs.
 
-### v5.6.4 — `#deprecated("reason / replacement")` attribute
+### v5.6.4 — `#deprecated("reason / replacement")` attribute ✅ shipped
 
 Forces deprecation into the type system instead of
 ecosystem-wide grep sweeps. Pays dividends at v6.0.0 when we
@@ -301,64 +294,7 @@ error.
 
 ---
 
-## v5.6.x — Active-bug investigations (v5.6.5–v5.6.6)
-
-Both Active Bugs are pinned here, in their own patches, on a
-clean post-polish baseline so the diagnostic surface is stable.
-3-attempts-defer applies (CLAUDE.md): if root cause won't yield
-in three real attempts, ship a tighter repro and slip the slot
-to v5.7.x.
-
-### v5.6.5 — Libro layout-dependent memory corruption
-
-Carry-over from v5.3.x. Each `println` insertion shifts the
-crash site — classic memory-corruption signature. Localized with
-`CYRIUS_SYMS`; isolated test binary works around it. CFG +
-diagnostics from v5.0.0 IR are available for the hunt.
-
-**Investigation plan:**
-- Reduce the libro PatraStore failing test to the minimum
-  `.cyr` that reproduces (start from `CYRIUS_SYMS` snapshot,
-  delete by halves).
-- Walk the heap map for any region that grew across v5.5.x
-  without an audit (the v5.5.40 closeout's relaxed regex
-  surfaced 26 previously-unseen regions — re-verify each).
-- Compare CFG output between a small-program run (works) and a
-  cc5-shaped run (crashes) — look for an arena-pointer reuse or
-  a fixup-table indirection that goes stale.
-- If three attempts don't isolate root cause, ship the reduced
-  repro to `tests/regression-libro-corruption.{sh,cyr}` and slip
-  the fix to v5.7.x.
-
-### v5.6.6 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
-
-v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
-out to be data constants, not pointers. Simple programs run
-fine, but `cc5_win.exe`'s stdin-read path fails 5/5 under 64-bit
-ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only.
-
-**Why re-try at v5.6.6 (vs leave as known-shipping limit):** the
-PE backend has changed materially since v5.5.35:
-- v5.5.36 added struct-return + varargs syntax + `__chkstk` (any
-  of which may shift the failure surface).
-- v5.5.37 raised `fixup_tbl` cap and reshuffled heap (new offsets
-  could change the relocation pattern that failed).
-- v5.5.38 split parse.cyr / lex.cyr (new emit-call ordering may
-  reveal the corrupted site).
-
-**Investigation plan:**
-- Re-run the v5.5.35 MOVABS audit against current cc5_win.exe;
-  diff the site list.
-- Bisect the 32-bit-vs-64-bit ASLR failure on the stdin-read
-  path specifically (rather than the full CLI); v5.5.36's varargs
-  + `__chkstk` interact with stack-frame layout.
-- If three attempts don't isolate, ship a regression script
-  pinning `DYNAMIC_BASE`-only as the documented W11 build mode
-  and slip 64-bit ASLR to v5.7.x.
-
----
-
-## v5.6.x — Compiler optimization arc (v5.6.7–v5.6.12)
+## v5.6.x — Compiler optimization arc (v5.6.5–v5.6.10)
 
 Phased plan synthesized from vidya (`content/optimization_passes`,
 `content/code_generation`, `content/allocators`) and external
@@ -382,9 +318,11 @@ self-host must hold; every pass must be deterministic.
   O2–O6 are vibes.
 - O3 before O4 — linear-scan needs complete IR coverage.
 - O6 gated on O4 — slab only matters if O4 profiling shows
-  bump-alloc hot.
+  bump-alloc hot. "Measurement-gated" is a data question for the
+  user to decide after the O4 numbers land — not a unilateral
+  skip.
 
-### v5.6.7 — Phase O1: instrumentation + FNV-1a symbol table
+### v5.6.5 — Phase O1: instrumentation + FNV-1a symbol table
 
 Baseline before tuning anything. ~240 LOC.
 
@@ -400,7 +338,7 @@ Baseline before tuning anything. ~240 LOC.
 - **Gate**: baseline numbers committed to
   `docs/development/benchmarks.md`; self-hosting byte-identical.
 
-### v5.6.8 — Phase O2: peephole quick wins (x86_64 + aarch64)
+### v5.6.6 — Phase O2: peephole quick wins (x86_64 + aarch64)
 
 All deterministic, small, bang-for-buck. ~510 LOC.
 
@@ -422,7 +360,7 @@ All deterministic, small, bang-for-buck. ~510 LOC.
   `msub`, `and + lsr mask` → `ubfx`, signed variant → `sbfx`.
   ~150 LOC.
 
-### v5.6.9 — Phase O3: IR-driven passes
+### v5.6.7 — Phase O3: IR-driven passes
 
 Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
 
@@ -443,7 +381,7 @@ Builds on the existing LASE / DBE / CFG infrastructure. ~590 LOC.
 - **Fixed-point driver**: run fold → propagate → reduce → DCE
   in a loop until no-change. ~30 LOC.
 
-### v5.6.10 — Phase O4: linear-scan register allocation
+### v5.6.8 — Phase O4: linear-scan register allocation
 
 The big investment. Replaces today's peephole `#regalloc`.
 ~600–900 LOC.
@@ -454,13 +392,13 @@ The big investment. Replaces today's peephole `#regalloc`.
   assignment, parallel-move resolution at block boundaries.
 - **Determinism guard**: keep hint-based preferences but skip
   iterated coalescing — byte-identical self-host must hold.
-- **Depends on v5.6.9's completed IR coverage** (live ranges
+- **Depends on v5.6.7's completed IR coverage** (live ranges
   need every def and use to be in IR).
 - Expected output-code speedup: 2–3× over current stack-machine
   baseline on hot inner loops; 10–20 % quality gap vs.
   graph-coloring at a fraction of the code.
 
-### v5.6.11 — Phase O5: maximal-munch instruction selection
+### v5.6.9 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -469,69 +407,79 @@ The big investment. Replaces today's peephole `#regalloc`.
   database per backend. Walker traverses IR tree bottom-up,
   matching largest subtree to a single machine instruction.
 - Opens the door for target-specific tiles (RISC-V v5.7.0) without
-  touching the walker — v5.6.11 therefore SHIPS BEFORE v5.7.0 so
+  touching the walker — v5.6.9 therefore SHIPS BEFORE v5.7.0 so
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.12 — Phase O6: slab allocator for IR pools (measurement-gated)
+### v5.6.10 — Phase O6: slab allocator for IR pools (measurement-gated)
 
-~150 LOC. **Conditional release** — only ships if v5.6.10's profile
-shows bump-allocation hot during live-range construction. If the
-O4 benchmark says bump is fine, v5.6.12 is **explicitly skipped**
-and the v5.6.x closeout ships at v5.6.12 directly (see below).
+~150 LOC. **Conditional on O4 numbers** — ships iff v5.6.8's
+profile shows bump-allocation hot during live-range construction.
+After O4 lands, the benchmark numbers go to the user with a
+recommendation; user decides whether O6 ships or the slot remains
+empty. Never skip unilaterally — report measurements and ask.
 
 - `vidya/content/allocators` documents 20–30× speedup over bump
   for fixed-size churn. Applied to IR node pools during live-
   range build.
-- If skipped, record the skip decision in CHANGELOG with the
-  specific O4 bench numbers that triggered it.
-
-### v5.6.13 — v5.6.x closeout (or v5.6.12 if O6 skipped)
-
-Last patch before v5.6.14 (shared-object) and eventually
-v5.7.0 (RISC-V). CLAUDE.md "Closeout Pass" 11-step checklist:
-self-host verify, bootstrap closure, full check.sh, heap-map
-audit, dead-code audit, refactor pass, code-review pass,
-cleanup sweep, security re-scan, downstream dep-pointer check,
-CHANGELOG/roadmap/vidya sync.
-
-**Downstream gate.** This closeout is the opening signal for
-genesis repo Phase 13B (arch-neutral boot pipeline —
-`scripts/boot.cyr`, ISO Stages 1–4, `bootstrap-toolchain.sh`,
-`build-order.txt`) and the ecosystem arch-neutral sweep: must-touch
-(agnos, kybernet, argonaut, agnosys, sigil), should-touch (ark,
-nous, zugot, agnova, takumi), may-touch (phylax, shakti,
-ai-hwaccel, seema). All of them wait on v5.6.13 and must complete
-before v5.7.0 RISC-V opens. Practical consequence: the closeout
-carries extra rigor beyond the standard pass —
-
-- **Heap-map cleanup** — not just verify; actively collapse any
-  orphan allocations surfaced during the optimization arc. Leave
-  no "temporary" arenas downstream would have to work around.
-- **Refactor pass** — one targeted sweep for naming/API drift
-  introduced across v5.6.0–v5.6.12. If a public function got
-  reshaped mid-arc, this is the last chance to stabilize the name
-  before downstream repos pin to it.
-- **Audit pass** — dead code, stale comments, orphan tests,
-  unused `#include` lines. Downstream sees this as the baseline
-  they mirror in their own sweeps.
-- **Downstream dep-pointer check** — walk every downstream repo's
-  `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
-  against the v5.6.13 artifacts. Broken pins get fixed before
-  v5.7.0 opens, not after.
-- **Compiler surface freeze signal** — after v5.6.13 ships, public
-  compiler API is frozen for the duration of the downstream sweep
-  (approximately one minor cycle). v5.7.0 RISC-V can add, but not
-  reshape, existing surface.
-
-Rationale: downstream projects are batching their own arch-neutral
-work against this closeout. If v5.6.13 ships with loose ends, each
-downstream repo absorbs the cost and the sweep fragments. One
-tight closeout here is cheaper than N downstream workarounds.
+- If user decides to skip, record the decision in CHANGELOG with
+  the specific O4 bench numbers that drove it.
 
 ---
 
-### v5.6.14 — Shared-object emission completion
+## v5.6.x — Active-bug investigations (v5.6.11–v5.6.12)
+
+Both surviving Active Bugs investigate on a clean post-optimization
+baseline. If an investigation doesn't yield after real attempts,
+STOP and report findings — never slip, defer, or re-slot
+unilaterally. The user decides next step.
+
+### v5.6.11 — Libro layout-dependent memory corruption
+
+Carry-over from v5.3.x. Each `println` insertion shifts the
+crash site — classic memory-corruption signature. Localized with
+`CYRIUS_SYMS`; isolated test binary works around it. CFG +
+diagnostics from v5.0.0 IR are available for the hunt.
+
+**Investigation plan:**
+- Reduce the libro PatraStore failing test to the minimum
+  `.cyr` that reproduces (start from `CYRIUS_SYMS` snapshot,
+  delete by halves).
+- Walk the heap map for any region that grew across v5.5.x
+  without an audit (the v5.5.40 closeout's relaxed regex
+  surfaced 26 previously-unseen regions — re-verify each).
+- Compare CFG output between a small-program run (works) and a
+  cc5-shaped run (crashes) — look for an arena-pointer reuse or
+  a fixup-table indirection that goes stale.
+- If stuck after real attempts, STOP and ask.
+
+### v5.6.12 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+
+v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
+out to be data constants, not pointers. Simple programs run
+fine, but `cc5_win.exe`'s stdin-read path fails 5/5 under 64-bit
+ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only.
+
+**Why re-try at v5.6.12 (vs leave as known-shipping limit):** the
+PE backend has changed materially since v5.5.35:
+- v5.5.36 added struct-return + varargs syntax + `__chkstk` (any
+  of which may shift the failure surface).
+- v5.5.37 raised `fixup_tbl` cap and reshuffled heap (new offsets
+  could change the relocation pattern that failed).
+- v5.5.38 split parse.cyr / lex.cyr (new emit-call ordering may
+  reveal the corrupted site).
+
+**Investigation plan:**
+- Re-run the v5.5.35 MOVABS audit against current cc5_win.exe;
+  diff the site list.
+- Bisect the 32-bit-vs-64-bit ASLR failure on the stdin-read
+  path specifically (rather than the full CLI); v5.5.36's varargs
+  + `__chkstk` interact with stack-frame layout.
+- If stuck after real attempts, STOP and ask.
+
+---
+
+### v5.6.13 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -560,17 +508,60 @@ tolerantly ignored by modern glibc — we haven't tested.
   `SYSV_HASH` cleanly.
 
 **Why this slot:** not blocking any active consumer, but the
-partial state is a known audit rough edge. v5.6.13 closeout
-surfaces the floor; v5.6.14 actually lands the fix before v5.7.0
-opens RISC-V work. An alternate fit is v5.8.1 post-bare-metal,
-but bare-metal doesn't exercise `.so` emission (kernel is static
-all the way down), so slotting earlier is fine and clears the
-audit item ahead of the downstream arch-neutral sweep.
+partial state is a known audit rough edge. Lands before v5.6.14
+closeout so the audit item is cleared before the downstream
+arch-neutral sweep begins. An alternate fit is v5.8.1 post-bare-
+metal, but bare-metal doesn't exercise `.so` emission (kernel is
+static all the way down), so slotting earlier is fine.
 
 **Downstream:** no current consumer requires `.so` output. Sigil /
 mabda / yukti / kybernet all ship as static libraries or source
 bundles. Unblocks any future "cyrius stdlib available as system
 libc peer" work, which isn't on the roadmap yet.
+
+---
+
+### v5.6.14 — v5.6.x closeout (LAST patch of v5.6.x)
+
+Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
+11-step checklist: self-host verify, bootstrap closure, full
+check.sh, heap-map audit, dead-code audit, refactor pass,
+code-review pass, cleanup sweep, security re-scan, downstream
+dep-pointer check, CHANGELOG/roadmap/vidya sync.
+
+**Downstream gate.** This closeout is the opening signal for
+genesis repo Phase 13B (arch-neutral boot pipeline —
+`scripts/boot.cyr`, ISO Stages 1–4, `bootstrap-toolchain.sh`,
+`build-order.txt`) and the ecosystem arch-neutral sweep: must-touch
+(agnos, kybernet, argonaut, agnosys, sigil), should-touch (ark,
+nous, zugot, agnova, takumi), may-touch (phylax, shakti,
+ai-hwaccel, seema). All of them wait on v5.6.14 and must complete
+before v5.7.0 RISC-V opens. Practical consequence: the closeout
+carries extra rigor beyond the standard pass —
+
+- **Heap-map cleanup** — not just verify; actively collapse any
+  orphan allocations surfaced during the optimization arc. Leave
+  no "temporary" arenas downstream would have to work around.
+- **Refactor pass** — one targeted sweep for naming/API drift
+  introduced across v5.6.0–v5.6.13. If a public function got
+  reshaped mid-arc, this is the last chance to stabilize the name
+  before downstream repos pin to it.
+- **Audit pass** — dead code, stale comments, orphan tests,
+  unused `#include` lines. Downstream sees this as the baseline
+  they mirror in their own sweeps.
+- **Downstream dep-pointer check** — walk every downstream repo's
+  `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
+  against the v5.6.14 artifacts. Broken pins get fixed before
+  v5.7.0 opens, not after.
+- **Compiler surface freeze signal** — after v5.6.14 ships, public
+  compiler API is frozen for the duration of the downstream sweep
+  (approximately one minor cycle). v5.7.0 RISC-V can add, but not
+  reshape, existing surface.
+
+Rationale: downstream projects are batching their own arch-neutral
+work against this closeout. If v5.6.14 ships with loose ends, each
+downstream repo absorbs the cost and the sweep fragments. One
+tight closeout here is cheaper than N downstream workarounds.
 
 ---
 
@@ -633,14 +624,14 @@ platforms). RISC-V needs:
    entry for `cc5_riscv64`.
 
 **Prerequisites that must ship before v5.7.0 starts:**
-- **v5.6.7–v5.6.12** — Compiler optimization arc. New port should
+- **v5.6.5–v5.6.10** — Compiler optimization arc. New port should
   inherit an optimized compiler, not one still queueing baseline
-  optimization. v5.6.11 (maximal-munch) in particular matters —
+  optimization. v5.6.9 (maximal-munch) in particular matters —
   rv64 backend lands its tile table against the new walker on
   day one instead of retrofitting.
-- **v5.6.13** — downstream ecosystem sweep gate complete.
-- **v5.6.14** — shared-object emission landed (audit rough edge
+- **v5.6.13** — shared-object emission landed (audit rough edge
   closed before new port opens).
+- **v5.6.14** — downstream ecosystem sweep gate complete.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
   uses the new syntax from day one, no legacy `#ifdef
   CYRIUS_ARCH_RISCV64` sites to migrate.
@@ -659,7 +650,7 @@ kernel is the concrete consumer. Slid with the optimization minor
 insert (was v5.7.0 pre-v5.6.x pin). Details pinned closer to
 landing — rough scope: ELF no-libc output format, interrupt-handler
 emit conventions, kernel-mode syscall stubs stripped, boot pipeline
-from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.13 gate).
+from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.14 gate).
 
 ---
 
@@ -1027,9 +1018,9 @@ enables adding new targets without touching the frontend.
 | `#else` / `#elif` / `#ifndef` preprocessor | **v5.6.1** ✅ | Small |
 | Explicit overflow operators (`+%` / `+\|` / `+?`) | **v5.6.2** ✅ | Small |
 | `#must_use` + `@unsafe` attributes | **v5.6.3** ✅ | Small |
-| `#deprecated("reason")` attribute | **v5.6.4** | Small |
-| Libro layout-corruption investigation | **v5.6.5** | Investigation |
-| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.6** | Investigation |
+| `#deprecated("reason")` attribute | **v5.6.4** ✅ | Small |
+| Libro layout-corruption investigation | **v5.6.11** | Investigation |
+| `cc5_win.exe` HIGH_ENTROPY_VA re-investigation | **v5.6.12** | Investigation |
 | First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium |
 | Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium |
 | Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large |
@@ -1087,7 +1078,7 @@ enables adding new targets without touching the frontend.
 | macOS x86_64 | Mach-O | **Done** (v5.1.0) |
 | macOS aarch64 | Mach-O | **Done** — self-hosts byte-identically on Apple Silicon (v5.3.13, 475 KB); all 4 Cyrius tool binaries verified on `ssh ecb` (v5.5.17). |
 | Windows x86_64 | PE/COFF | **Done** — full native self-host + byte-identical fixpoint achieved v5.5.10. `cc5_win.exe` on Windows 11 reads stdin, compiles, emits PE byte-identical to Linux cross-build. Win64 ABI complete (v5.5.36). .reloc + 32-bit ASLR (v5.5.35). Exit42 PE = 1,536 B (vs Rust stripped 344,856 B = 225× smaller). HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
-| Compiler optimization (O1–O6) | — | Queued — **v5.6.7–v5.6.12** |
+| Compiler optimization (O1–O6) | — | Queued — **v5.6.5–v5.6.10** (NEXT) |
 | RISC-V (rv64) | ELF | Queued — **v5.7.0** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 | Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** |
