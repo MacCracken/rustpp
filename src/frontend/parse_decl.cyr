@@ -1,0 +1,835 @@
+# PARSER — declarations: PARSE_ARRAY / PARSE_FIELD_LOAD /
+# PARSE_FIELD_STORE / EMIT_STRUCT_FIELD / PARSE_STRUCT_INIT /
+# PARSE_GVAR_ARR / PARSE_GVAR_REG / EMIT_GVAR_INITS / PARSE_VAR /
+# PARSE_ASSIGN + BUILD_METHOD_NAME.
+# ================================================================
+# Split out of src/frontend/parse.cyr in v5.5.38 to keep single-file
+# LOC under ~1500. Included by parse.cyr at the same textual position
+# the original content lived; self-host byte-identical.
+
+fn PARSE_ARRAY(S, noff) {
+    STI(S, GTI(S) + 1);  # consume [
+    if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
+    var asz = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
+    STI(S, GTI(S) + 1);  # consume ]
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);  # consume ;
+    # Arrays inside functions are globals. To avoid name collisions between
+    # functions (e.g. two functions both with `var buf[N]`), always register
+    # a NEW global even if one with the same name exists. FINDVAR returns
+    # the last match, so the current function's array shadows previous ones.
+    var vcnt = GVCNT(S);
+    S64(S + 0x11A000 + vcnt * 8, noff);
+    var aligned = (asz + 7) & (0 - 8);
+    S64(S + 0x12A000 + vcnt * 8, aligned);
+    SVCNT(S, vcnt + 1);
+    return 0;
+}
+
+# Build mangled method name: StructName_method in tok_names scratch.
+# Returns noff of the combined name. Uses the region AFTER current
+# npos as scratch — writing past live identifiers so FINDFN's byte
+# compare sees a clean name. Does NOT advance npos (this is lookup-
+# only; the method fn was registered at struct-def time).
+# Pre-4.7.1 this wrote to a fixed offset 30000, which silently
+# corrupted real identifiers in any program with >30 KB of names.
+# Bote saw the downstream mis-parse as `lib/assert.cyr:3: expected
+# '=', got string` because a post-corruption token noff now pointed
+# at garbled bytes.
+fn BUILD_METHOD_NAME(S, si, mnoff) {
+    NPOS_GUARD(S, 256);
+    var scratch = GNPOS(S);
+    var wp = scratch;
+    # Copy struct name
+    var snoff = L64(S + 0x8E630 + si * 8);
+    var ri = 0;
+    var rc = load8(S + 0x60000 + snoff + ri);
+    while (rc != 0) {
+        store8(S + 0x60000 + wp, rc);
+        wp = wp + 1;
+        ri = ri + 1;
+        rc = load8(S + 0x60000 + snoff + ri);
+    }
+    # Underscore separator
+    store8(S + 0x60000 + wp, 95);
+    wp = wp + 1;
+    # Copy method name
+    ri = 0;
+    rc = load8(S + 0x60000 + mnoff + ri);
+    while (rc != 0) {
+        store8(S + 0x60000 + wp, rc);
+        wp = wp + 1;
+        ri = ri + 1;
+        rc = load8(S + 0x60000 + mnoff + ri);
+    }
+    store8(S + 0x60000 + wp, 0);
+    return scratch;
+}
+
+# Load a struct field: ident.field → emit load from var_addr + field_offset
+# Or call a method: ident.method(args) → call StructName_method(&ident, args)
+fn PARSE_FIELD_LOAD(S, noff) {
+    STI(S, GTI(S) + 1);  # consume DOT
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var fnoff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+
+    # Find the variable and its struct type (check locals first)
+    var idx = 0 - 1;
+    var sid = 0;
+    if (GINFN(S) == 1) {
+        var lli = FINDLOCAL(S, noff);
+        if (lli >= 0) {
+            var lt = GLTYPE(S, lli);
+            if (lt < 0) { sid = 0 - lt; }
+            idx = 0 - 2 - lli;
+        }
+    }
+    if (idx == 0 - 1) {
+        idx = FINDVAR(S, noff);
+        if (idx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+        }
+        sid = GVTYPE(S, idx);
+    }
+    var si = 0;
+    if (sid > 0) { si = sid - 1; }
+
+    # Method call: ident.method(args)
+    if (PEEKT(S) == 10) {
+        if (sid == 0) { ERR(S); }
+        var mname = BUILD_METHOD_NAME(S, si, fnoff);
+        # Push &var as first arg (self) — handle locals and globals
+        if (idx < 0 - 1) {
+            var mli = 0 - idx - 2;
+            EFLLOAD(S, mli);
+        } else {
+            EVADDR(S, idx);
+        }
+        EPUSHR(S);
+        # Parse remaining args
+        STI(S, GTI(S) + 1);  # consume (
+        var argc = 1;
+        if (PEEKT(S) != 11) {
+            var mgo = 1;
+            while (mgo == 1) {
+                PCMPE(S);
+                EPUSHR(S);
+                argc = argc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { mgo = 0; }
+            }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);  # consume )
+        ECALLPOPS(S, argc);
+        var mfi = FINDFN(S, mname);
+        if (mfi < 0) { mfi = REGFN(S, mname); }
+        var mfoff = L64(S + 0xE92000 + mfi * 8);
+        if (mfoff >= 0) { ECALLTO(S, mfoff); }
+        else { ECALLFIX(S, mfi); }
+        ECALLCLEAN(S, argc);
+        return 0;
+    }
+
+    if (sid == 0) { ERR(S); }
+    var fi = FINDFIELD(S, si, fnoff);
+    if (fi < 0) { ERR(S); }
+    var off = FIELDOFF(S, si, fi);
+    # Check for chained access: s.inner.field
+    var ft = GETFTYPE(S, si, fi);
+    if (ft > 0) { if (PEEKT(S) == 41) {
+        # Nested struct — chain the dot access
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var ifnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        var isi = ft - 1;
+        var ifi = FINDFIELD(S, isi, ifnoff);
+        if (ifi < 0) { ERR(S); }
+        off = off + FIELDOFF(S, isi, ifi);
+    } }
+    # Load variable address + field offset, then load value (width-correct).
+    # idx < -1 is a local-encoded index from the struct-local branch above
+    # (idx = 0 - 2 - lli, so lli = 0 - 2 - idx). v5.5.36 Phase 2: route
+    # through EFLADDR_X1 (lea rcx, [rbp - disp]) instead of the global
+    # EVADDR_X1 (movabs rcx, abs64 + fixup), which would register a bogus
+    # global fixup for the local-encoded negative idx.
+    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
+    else { EVADDR_X1(S, idx); }
+    if (off > 0) { EADDIMM_X1(S, off); }
+    var fld_sz = FIELDSZ(S, ft);
+    if (fld_sz == 1) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x01); }   # movzx rax, byte [rcx]
+    elif (fld_sz == 2) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x01); }               # movzx eax, word [rcx]
+    elif (fld_sz == 4) { EB(S, 0x8B); EB(S, 0x01); }                              # mov eax, [rcx]
+    else { ELODC(S); }
+    return 0;
+}
+
+# Store to a struct field: ident.field = expr; or ident.inner.field = expr;
+fn PARSE_FIELD_STORE(S, noff) {
+    STI(S, GTI(S) + 1);  # consume DOT
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var fnoff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Find the variable and its struct type (check locals first — mirror
+    # of PARSE_FIELD_LOAD's lookup so v5.5.36's stack-local structs route
+    # through EFLADDR_X1 instead of the global-var EVADDR_X1 + fixup).
+    var idx = 0 - 1;
+    var sid = 0;
+    if (GINFN(S) == 1) {
+        var lli = FINDLOCAL(S, noff);
+        if (lli >= 0) {
+            var lt = GLTYPE(S, lli);
+            if (lt < 0) { sid = 0 - lt; }
+            idx = 0 - 2 - lli;
+        }
+    }
+    if (idx == 0 - 1) {
+        idx = FINDVAR(S, noff);
+        if (idx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+        }
+        sid = GVTYPE(S, idx);
+    }
+    if (sid == 0) { ERR(S); }
+    var si = sid - 1;
+    var fi = FINDFIELD(S, si, fnoff);
+    if (fi < 0) { ERR(S); }
+    var off = FIELDOFF(S, si, fi);
+    # Check for chained access: s.inner.field = expr;
+    var ft = GETFTYPE(S, si, fi);
+    if (ft > 0) { if (PEEKT(S) == 41) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var ifnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        var isi = ft - 1;
+        var ifi = FINDFIELD(S, isi, ifnoff);
+        if (ifi < 0) { ERR(S); }
+        off = off + FIELDOFF(S, isi, ifi);
+    } }
+    if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+    STI(S, GTI(S) + 1);
+    PCMPE(S);
+    # Store value to struct field (width-correct). Route to local or
+    # global addr-emit based on idx encoding (same convention as
+    # PARSE_FIELD_LOAD; v5.5.36 Phase 2).
+    EPUSHR(S);
+    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
+    else { EVADDR_X1(S, idx); }
+    if (off > 0) { EADDIMM_X1(S, off); }
+    EPOPR(S);
+    var fst_sz = FIELDSZ(S, ft);
+    if (fst_sz == 1) { ESTORE8(S); }
+    elif (fst_sz == 2) { ESTORE16(S); }
+    elif (fst_sz == 4) { ESTORE32(S); }
+    else { ESTOC(S); }
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+# Parse struct init: var name = StructName { expr, expr, ... };
+# sid is 1-based struct id, noff is var name offset
+fn EMIT_STRUCT_FIELD(S, vcnt, boff) {
+    PCMPE(S);
+    EPUSHR(S);
+    # Load variable address into x1/rcx via fixup
+    EVADDR_X1(S, vcnt);
+    if (boff > 0) {
+        EADDIMM_X1(S, boff);
+    }
+    EPOPR(S);
+    ESTOC(S);
+    if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+    return 0;
+}
+
+fn PARSE_STRUCT_INIT(S, noff, sid) {
+    var si = sid - 1;
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    var sz = STRUCTSZ(S, si);
+    var vcnt = GVCNT(S);
+    S64(S + 0x11A000 + vcnt * 8, noff);
+    S64(S + 0x12A000 + vcnt * 8, sz);
+    SVTYPE(S, vcnt, sid);
+    var fc = GETFCOUNT(S, si);
+    # Detect named-field syntax: next token is IDENT (2) followed by ':' (49).
+    # Empty struct literal `{}` falls through to positional branch as a no-op.
+    var named = 0;
+    if (PEEKT(S) == 2) {
+        if (TOKTYP(S, GTI(S) + 1) == 49) { named = 1; }
+    }
+    if (named == 1) {
+        # Named init: `StructName { field: expr, field: expr }`.
+        # Each field must appear exactly once; any order. Nested struct
+        # fields are not supported in named form — use positional for those.
+        var initialized = 0;
+        while (PEEKT(S) != 14) {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var fname_off = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 49) { ERR_EXPECT(S, 49); }
+            STI(S, GTI(S) + 1);
+            var found = 0 - 1;
+            var fi = 0;
+            while (fi < fc) {
+                if (STREQTOK(S, GETFNAME(S, si, fi), fname_off) == 1) { found = fi; fi = fc; }
+                else { fi = fi + 1; }
+            }
+            if (found < 0) { ERR_MSG(S, "unknown struct field in initializer", 35); }
+            var ft = GETFTYPE(S, si, found);
+            if (ft > 0) { ERR_MSG(S, "named init not supported for nested struct fields — use positional", 66); }
+            var bit = 1 << found;
+            if ((initialized & bit) != 0) { ERR_MSG(S, "struct field initialized twice", 30); }
+            initialized = initialized | bit;
+            var boff = FIELDOFF(S, si, found);
+            EMIT_STRUCT_FIELD(S, vcnt, boff);
+        }
+        # Require every field to be set — no implicit zero defaults (yet).
+        var fi2 = 0;
+        while (fi2 < fc) {
+            if ((initialized & (1 << fi2)) == 0) { ERR_MSG(S, "missing struct field in initializer", 35); }
+            fi2 = fi2 + 1;
+        }
+    } else {
+        # Positional init — emit each scalar field in declaration order,
+        # flattening nested structs.
+        var boff = 0;
+        var fi = 0;
+        while (fi < fc) {
+            var ft = GETFTYPE(S, si, fi);
+            if (ft > 0) {
+                var ifc = GETFCOUNT(S, ft - 1);
+                var ifi = 0;
+                while (ifi < ifc) {
+                    EMIT_STRUCT_FIELD(S, vcnt, boff);
+                    boff = boff + 8;
+                    ifi = ifi + 1;
+                }
+            } else {
+                EMIT_STRUCT_FIELD(S, vcnt, boff);
+                boff = boff + 8;
+            }
+            fi = fi + 1;
+        }
+    }
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);
+    SLVAR(S, vcnt);
+    SVCNT(S, vcnt + 1);
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+fn PARSE_GVAR_ARR(S, noff) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
+    var sz = PEEKV(S) * 8;
+    if (sz < 8) { sz = 8; }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    var vc = GVCNT(S);
+    S64(S + 0x11A000 + vc * 8, noff);
+    S64(S + 0x12A000 + vc * 8, sz);
+    SLVAR(S, vc);
+    SVCNT(S, vc + 1);
+    return 0;
+}
+
+# Register a global var in declaration zone (no codegen, deferred init)
+fn PARSE_GVAR_REG(S) {
+    var sti = GTI(S);
+    STI(S, GTI(S) + 1);  # consume VAR
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Optional type annotation — check scalar types, pointer types, or struct names
+    var psc = 0;
+    var ann_sid = 0;
+    var ann_scalar = 0;
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); psc = 8; STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
+        elif (PEEKT(S) == 105) { ann_scalar = 16; STI(S, GTI(S) + 1); }
+        else {
+            if (PEEKT(S) == 2) {
+                var ann_sn = PEEKV(S);
+                var ann_tn = L64(S + 0x60000 + ann_sn);
+                if (ann_tn & 0xFFFF == 0x3869) { ann_scalar = 1; }
+                elif (ann_tn & 0xFFFFFF == 0x363169) { ann_scalar = 2; }
+                elif (ann_tn & 0xFFFFFF == 0x323369) { ann_scalar = 4; }
+                elif (ann_tn & 0xFFFFFF == 0x343669) { ann_scalar = 8; }
+                elif (ann_tn & 0xFFFFFFFF == 0x38323175) { ann_scalar = 16; }
+                else { ann_sid = FINDSTRUCT(S, ann_sn); }
+            }
+            STI(S, GTI(S) + 1); SKIP_GENERICS(S);
+        }
+    }
+    # Array: register with size, no deferred init
+    if (PEEKT(S) == 28) {
+        PARSE_GVAR_ARR(S, noff);
+        return 0;
+    }
+    # Check for struct init after =: var p = StructName { ... }
+    # Peek ahead: skip to = then check if next is IDENT matching a struct
+    var save_peek = GTI(S);
+    # We're past the type annotation, at = or the token before it
+    # Find the = sign
+    var pgo = 1;
+    while (pgo == 1) {
+        if (PEEKT(S) == 4) { pgo = 0; }
+        else { if (PEEKT(S) == 5) { pgo = 0; }
+        else { if (PEEKT(S) == 12) { pgo = 0; }
+        else { STI(S, GTI(S) + 1); } } }
+    }
+    var is_struct = 0;
+    var ssid = 0;
+    if (PEEKT(S) == 4) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 2) {
+            var sn = PEEKV(S);
+            ssid = FINDSTRUCT(S, sn);
+            if (ssid > 0) { is_struct = 1; }
+        }
+    }
+    STI(S, save_peek);  # restore
+    # Register
+    var vcnt = GVCNT(S);
+    S64(S + 0x11A000 + vcnt * 8, noff);
+    if (is_struct == 1) {
+        S64(S + 0x12A000 + vcnt * 8, STRUCTSZ(S, ssid - 1));
+        SVTYPE(S, vcnt, ssid);
+    } else {
+        if (ann_scalar > 0) {
+            if (ann_scalar < 8) {
+                S64(S + 0x12A000 + vcnt * 8, ann_scalar);
+                SVTYPE(S, vcnt, ann_scalar);
+            } else {
+                # 8 (i64) or 16 (u128) — allocate the full width.
+                # No type marker for now: u128 bytes live in the slot,
+                # scalar ops touch the low 64 bits until alpha3 lands
+                # proper arithmetic.
+                S64(S + 0x12A000 + vcnt * 8, ann_scalar);
+            }
+        } else {
+            S64(S + 0x12A000 + vcnt * 8, 8);
+            if (ann_sid > 0) { SVTYPE(S, vcnt, ann_sid); }
+            elif (psc > 0) { SVTYPE(S, vcnt, 0 - psc); }
+        }
+    }
+    SVCNT(S, vcnt + 1);
+    # Save token index for deferred init
+    var gc = L64(S + 0x9A000);
+    if (gc >= 1024) {
+        ERR_MSG(S, "too many initialized globals (max 1024)", 39);
+    }
+    S64(S + 0x98000 + gc * 8, sti);
+    S64(S + 0x9A000, gc + 1);
+    # Skip to semicolon
+    var skg = 1;
+    while (skg == 1) {
+        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); skg = 0; }
+        else { if (PEEKT(S) == 12) { skg = 0; }
+        else { STI(S, GTI(S) + 1); } }
+    }
+    return 0;
+}
+
+# Emit deferred global var inits (replays saved token positions)
+fn EMIT_GVAR_INITS(S) {
+    var gc = L64(S + 0x9A000);
+    var gi = 0;
+    while (gi < gc) {
+        var sti = L64(S + 0x98000 + gi * 8);
+        STI(S, sti);
+        STI(S, GTI(S) + 1);  # consume VAR
+        var noff = PEEKV(S);
+        STI(S, GTI(S) + 1);  # consume IDENT
+        if (PEEKT(S) == 49) { STI(S, GTI(S) + 1); if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
+        if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+        STI(S, GTI(S) + 1);  # consume =
+        # Check for struct init: StructName { ... }
+        var idx = FINDVAR(S, noff);
+        var did_struct = 0;
+        if (PEEKT(S) == 2) {
+            var sn = PEEKV(S);
+            var sid = FINDSTRUCT(S, sn);
+            if (sid > 0) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+                STI(S, GTI(S) + 1);
+                var fc = GETFCOUNT(S, sid - 1);
+                var boff = 0;
+                var fii = 0;
+                while (fii < fc) {
+                    var fft = GETFTYPE(S, sid - 1, fii);
+                    if (fft > 0) {
+                        var ifc = GETFCOUNT(S, fft - 1);
+                        var ifi = 0;
+                        while (ifi < ifc) {
+                            EMIT_STRUCT_FIELD(S, idx, boff);
+                            boff = boff + 8;
+                            ifi = ifi + 1;
+                        }
+                    } else {
+                        EMIT_STRUCT_FIELD(S, idx, boff);
+                        boff = boff + 8;
+                    }
+                    fii = fii + 1;
+                }
+                if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+                STI(S, GTI(S) + 1);
+                SLVAR(S, idx);
+                if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+                STI(S, GTI(S) + 1);
+                did_struct = 1;
+            }
+        }
+        if (did_struct == 0) {
+            PCMPE(S);
+            if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
+            if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+            STI(S, GTI(S) + 1);
+        }
+        gi = gi + 1;
+    }
+    return 0;
+}
+
+# Parse: var IDENT = expr ;
+fn PARSE_VAR(S) {
+    STI(S, GTI(S) + 1);  # consume VAR
+    # expect IDENT
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Multi-var destructure: var x, y = fn()
+    if (PEEKT(S) == 31) {
+        STI(S, GTI(S) + 1);  # consume ,
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var noff2 = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+        STI(S, GTI(S) + 1);  # consume =
+        PCMPE(S);
+        # rax = first value, rdx = second value (from ret2/return (a,b))
+        if (GINFN(S) == 1) {
+            # Register first local
+            var li1 = GFLC(S);
+            S64(S + 0x91000 + li1 * 8, noff);
+            SLDEP(S, li1, GSDEP(S));
+            SLTYPE(S, li1, 0);
+            EFLSTORE(S, li1);
+            SFLC(S, li1 + 1);
+            # mov rax, rdx (get second return value)
+            EMOVRA_RDX(S);
+            # Register second local
+            var li2 = GFLC(S);
+            S64(S + 0x91000 + li2 * 8, noff2);
+            SLDEP(S, li2, GSDEP(S));
+            SLTYPE(S, li2, 0);
+            EFLSTORE(S, li2);
+            SFLC(S, li2 + 1);
+        } else {
+            ERR_MSG(S, "multi-var destructure only supported inside functions", 52);
+        }
+        if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+        STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # Optional type annotation: var x: type = ... or var x: *type = ...
+    var pscale = 0;
+    var scalar_type = 0;
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);  # consume :
+        if (PEEKT(S) == 8) {
+            # Pointer type: *i64, *i32, *i16, *i8
+            STI(S, GTI(S) + 1);  # consume *
+            var tnoff = PEEKV(S);
+            var tname = L64(S + 0x60000 + tnoff);
+            if (tname & 0xFFFFFF == 0x343669) { pscale = 8; }
+            if (tname & 0xFFFFFF == 0x323369) { pscale = 4; }
+            if (tname & 0xFFFFFF == 0x363169) { pscale = 2; }
+            if (tname & 0xFFFF == 0x3869) { pscale = 1; }
+            if (pscale == 0) { pscale = 8; }
+            STI(S, GTI(S) + 1);
+            SKIP_GENERICS(S);
+        } elif (PEEKT(S) == 105) {
+            # u128 type
+            scalar_type = 16;
+            STI(S, GTI(S) + 1);
+        } else {
+            if (PEEKT(S) == 2) {
+                var lann = PEEKV(S);
+                # Check scalar types: i8, i16, i32, i64
+                var ltname = L64(S + 0x60000 + lann);
+                if (ltname & 0xFFFF == 0x3869) { scalar_type = 1; }
+                elif (ltname & 0xFFFFFF == 0x363169) { scalar_type = 2; }
+                elif (ltname & 0xFFFFFF == 0x323369) { scalar_type = 4; }
+                elif (ltname & 0xFFFFFF == 0x343669) { scalar_type = 8; }
+                else {
+                    var lsid = FINDSTRUCT(S, lann);
+                    if (lsid > 0) { pscale = 0 - lsid; }
+                }
+            }
+            STI(S, GTI(S) + 1);
+            SKIP_GENERICS(S);
+        }
+    }
+    # v5.5.36 Phase 2: `var p: StructName;` — stack-local struct
+    # with no initializer. `pscale < 0` means the type annotation
+    # resolved to a struct id (FINDSTRUCT returned sid, `pscale`
+    # was set to 0 - sid above). If the next token is `;`, we've
+    # hit the uninitialized-struct case: allocate stack space and
+    # register a struct-typed local.
+    #
+    # Same anonymous+named-slot trick as `stack var`: reserve
+    # ceil(STRUCTSZ/8) fn-local slots, sentinel-name all but the
+    # last, give the last slot `ltype = -sid` so PARSE_FIELD_LOAD /
+    # PARSE_FIELD_STORE's existing local-struct branch resolves
+    # field offsets correctly. FINDLOCAL skips sentinel slots via
+    # the `sn >= 0` gate, and the named slot lives at the deepest
+    # frame offset — so `&p` points at the BOTTOM of the struct,
+    # which is where field 0 lives.
+    if (pscale < 0 && PEEKT(S) == 5) {
+        if (GINFN(S) != 1) {
+            ERR_MSG(S, "uninitialized struct locals only allowed inside a function", 60);
+        }
+        var sv_sid = 0 - pscale;
+        var sv_sz = STRUCTSZ(S, sv_sid - 1);
+        if (sv_sz < 8) { sv_sz = 8; }
+        var sv_aligned = (sv_sz + 7) & (0 - 8);
+        var sv_nslots = sv_aligned / 8;
+        # Duplicate-name check
+        var sv_existing = FINDLOCAL(S, noff);
+        if (sv_existing >= 0) {
+            if (GLDEP(S, sv_existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        # Anonymous filler slots
+        var sv_j = 0;
+        while (sv_j < sv_nslots - 1) {
+            var sv_li = GFLC(S);
+            S64(S + 0x91000 + sv_li * 8, 0 - 1);
+            SLDEP(S, sv_li, GSDEP(S));
+            SLTYPE(S, sv_li, 0);
+            SFLC(S, sv_li + 1);
+            sv_j = sv_j + 1;
+        }
+        # Named slot with struct-type marker (ltype = -sid)
+        var sv_named = GFLC(S);
+        S64(S + 0x91000 + sv_named * 8, noff);
+        SLDEP(S, sv_named, GSDEP(S));
+        SLTYPE(S, sv_named, 0 - sv_sid);
+        SFLC(S, sv_named + 1);
+        STI(S, GTI(S) + 1);   # consume ';'
+        return 0;
+    }
+    # v5.5.36 Phase 2b — struct-valued assignment from a fn call:
+    #   `var got: Point = make(args);`
+    # Allocates `got` as a stack-local struct (same slot-trick as the
+    # no-init case above), then calls `make` with &got prepended as
+    # the hidden first arg. The callee's `return p;` copies bytes
+    # straight into &got, so `got` is populated when we fall through.
+    # No post-call rax-to-local store is needed; rax = &got (return
+    # convention) is discarded.
+    # Scope the branch strictly: (a) inside a fn, (b) struct type
+    # annotation present, (c) next-token `=`, (d) RHS is IDENT `(`,
+    # (e) that IDENT resolves to a fn with a declared struct return.
+    # This way the existing module-scope pattern
+    # `var a: Num = 20;` (where Num is a wrapper struct and the
+    # init expression is a plain scalar) falls through to PCMPE-
+    # as-usual instead of being rejected here.
+    var asv_try = 0;
+    if ((pscale < 0) && (PEEKT(S) == 4) && (GINFN(S) == 1)) {
+        var _look_ti = GTI(S) + 1;
+        if (TOKTYP(S, _look_ti) == 2) {
+            if (TOKTYP(S, _look_ti + 1) == 10) {
+                var _look_noff = TOKVAL(S, _look_ti);
+                var _look_fi = FINDFN(S, _look_noff);
+                if (_look_fi >= 0) {
+                    if (GFRS(S, _look_fi) > 0) { asv_try = 1; }
+                }
+            }
+        }
+    }
+    if (asv_try == 1) {
+        var asv_sid = 0 - pscale;
+        var asv_sz = STRUCTSZ(S, asv_sid - 1);
+        if (asv_sz < 8) { asv_sz = 8; }
+        var asv_aligned = (asv_sz + 7) & (0 - 8);
+        var asv_nslots = asv_aligned / 8;
+        # Duplicate-name check
+        var asv_existing = FINDLOCAL(S, noff);
+        if (asv_existing >= 0) {
+            if (GLDEP(S, asv_existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        # Reserve ceil(sz/8) fn-local slots; name the last (see Phase 2a for
+        # the anonymous-filler + named-last trick).
+        var asv_j = 0;
+        while (asv_j < asv_nslots - 1) {
+            var asv_li = GFLC(S);
+            S64(S + 0x91000 + asv_li * 8, 0 - 1);
+            SLDEP(S, asv_li, GSDEP(S));
+            SLTYPE(S, asv_li, 0);
+            SFLC(S, asv_li + 1);
+            asv_j = asv_j + 1;
+        }
+        var asv_named = GFLC(S);
+        S64(S + 0x91000 + asv_named * 8, noff);
+        SLDEP(S, asv_named, GSDEP(S));
+        SLTYPE(S, asv_named, 0 - asv_sid);
+        SFLC(S, asv_named + 1);
+        # Now `got` is allocated. Parse `= IDENT(args);`.
+        STI(S, GTI(S) + 1);                         # consume '='
+        if (PEEKT(S) != 2) {
+            ERR_MSG(S, "struct-valued assignment RHS must be a fn call", 47);
+        }
+        var asv_fnoff = PEEKV(S);
+        STI(S, GTI(S) + 1);                         # consume fn-name IDENT
+        if (PEEKT(S) != 10) {
+            ERR_MSG(S, "struct-valued assignment RHS must be a fn call", 47);
+        }
+        var asv_fi = FINDFN(S, asv_fnoff);
+        if (asv_fi < 0) { asv_fi = REGFN(S, asv_fnoff); }
+        var asv_callee_sid = GFRS(S, asv_fi);
+        if (asv_callee_sid == 0) {
+            ERR_MSG(S, "fn does not declare a struct return type", 40);
+        }
+        if (asv_callee_sid != asv_sid) {
+            ERR_MSG(S, "fn return struct-id differs from declared var type", 51);
+        }
+        STI(S, GTI(S) + 1);                         # consume '('
+        # Push &got as the hidden first arg (consumed by ECALLPOPS /
+        # EPOPARG into RDI/RCX via reverse-pop). argc includes it.
+        EFLADDR(S, asv_named);
+        EPUSHR(S);
+        var asv_argc = 1;
+        if (PEEKT(S) != 11) {
+            var asv_go = 1;
+            while (asv_go == 1) {
+                PCMPE(S);
+                EPUSHR(S);
+                asv_argc = asv_argc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { asv_go = 0; }
+            }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);                         # consume ')'
+        ECALLPOPS(S, asv_argc);
+        var asv_fn_target = L64(S + 0xE92000 + asv_fi * 8);
+        if (asv_fn_target >= 0) { ECALLTO(S, asv_fn_target); }
+        else { ECALLFIX(S, asv_fi); }
+        ECALLCLEAN(S, asv_argc);
+        if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+        STI(S, GTI(S) + 1);                         # consume ';'
+        return 0;
+    }
+    # Check for array: var buf[N];
+    if (PEEKT(S) == 28) {
+        PARSE_ARRAY(S, noff);
+        return 0;
+    }
+    # expect EQ
+    if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+    STI(S, GTI(S) + 1);
+    # Check for struct init: var p = StructName { expr, expr, ... };
+    if (PEEKT(S) == 2) {
+        var sn = PEEKV(S);
+        var sid = FINDSTRUCT(S, sn);
+        if (sid > 0) {
+            PARSE_STRUCT_INIT(S, noff, sid);
+            return 0;
+        }
+    }
+    # parse expression (scalar) — use PCMPE for comparisons and &&/||
+    PCMPE(S);
+    # Type check: warn if pointer/scalar mismatch
+    var expr_ps = GPSC(S);
+    if (pscale > 0) {
+        if (expr_ps == 0) { WARN(S, "assigning non-pointer to typed pointer", 38); }
+    }
+    # Check if inside function → local variable
+    if (GINFN(S) == 1) {
+        # Reject duplicate local var names
+        # Allow same name in different scope (shadowing)
+        var existing = FINDLOCAL(S, noff);
+        if (existing >= 0) {
+            if (GLDEP(S, existing) == GSDEP(S)) { ERRDUPVAR(S); }
+        }
+        var li = GFLC(S);
+        S64(S + 0x91000 + li * 8, noff);
+        SLDEP(S, li, GSDEP(S));
+        if (scalar_type > 0) {
+            if (scalar_type < 8) {
+                SLTYPE(S, li, scalar_type);
+                EFLSTORE_W(S, li, scalar_type);
+            } else {
+                SLTYPE(S, li, 0);
+                EFLSTORE(S, li);
+            }
+        } else {
+            SLTYPE(S, li, pscale);
+            EFLSTORE(S, li);
+        }
+        SFLC(S, li + 1);
+    } else {
+        var vcnt = GVCNT(S);
+        S64(S + 0x11A000 + vcnt * 8, noff);
+        if (scalar_type > 0) {
+            if (scalar_type < 8) {
+                S64(S + 0x12A000 + vcnt * 8, scalar_type);
+                SVTYPE(S, vcnt, scalar_type);
+                EVSTORE_W(S, vcnt, scalar_type);
+            } else {
+                # 8 (i64 explicit) or 16 (u128) — allocate the full width.
+                # Pre-4.8.0-alpha3 this hardcoded 8, truncating u128 vars
+                # declared in the PARSE_PROG path (e.g. after a top-level
+                # expression statement like `alloc_init();` that stops
+                # pass 1 — see main.cyr's pass-1 loop termination).
+                S64(S + 0x12A000 + vcnt * 8, scalar_type);
+                EVSTORE(S, vcnt);
+            }
+        } else {
+            S64(S + 0x12A000 + vcnt * 8, 8);
+            if (pscale > 0) { SVTYPE(S, vcnt, 0 - pscale); }
+            EVSTORE(S, vcnt);
+        }
+        SLVAR(S, vcnt);
+        SVCNT(S, vcnt + 1);
+    }
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+# Parse: IDENT = expr ;
+fn PARSE_ASSIGN(S) {
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+    STI(S, GTI(S) + 1);
+    PCMPE(S);
+    var idx = FINDVAR(S, noff);
+    if (idx < 0) {
+        syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+        PRSTR(S + 0x60000 + noff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+    }
+    EVSTORE(S, idx);
+    SLVAR(S, idx);
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    return 0;
+}

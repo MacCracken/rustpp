@@ -4,6 +4,109 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.5.38] — 2026-04-22
+
+**Frontend parser + lexer refactor — split by cohesion.**
+`src/frontend/parse.cyr` was 4,971 LOC and `src/frontend/lex.cyr`
+2,355 LOC — both too large to navigate comfortably as cyrius's
+frontend continued growing. v5.5.38 is a pure mechanical split
+with **zero behavior change**: every stage of the refactor was
+verified cc5-output-identical to the pre-refactor binary, not
+just self-host byte-identical.
+
+Split approach uses nested `include` directives so `main_*.cyr`
+consumers are untouched. Flattened fn-definition order matches
+the pre-refactor file line-by-line, which is how the byte-
+identical gate holds at each stage.
+
+### Changed
+
+* **`src/frontend/parse.cyr`** 4,971 → 891 LOC. Retains state
+  vars + top-level statement dispatch (`PARSE_STMT`,
+  `PARSE_SWITCH`, `PARSE_MATCH`, `_EVAL_CONST_ATOM`,
+  `PARSE_PROG`) + the six `include` lines for the extracted
+  components.
+
+* **New: `src/frontend/parse_types.cyr`** (393 LOC) — struct /
+  enum / union definitions + cross-cutting helpers
+  (`REGSTRUCT`, `FINDSTRUCT`, `ADDFIELD`, `ADDFIELDTYPED`,
+  `GETFTYPE`, `GETFNAME`, `STREQTOK`, `FIELDSZ`, `STRUCTSZ`,
+  `FIELDOFF`, `GETFCOUNT`, `ISUNION`, `FINDFIELD`,
+  `PARSE_ENUM_DEF`, `PARSE_STRUCT_DEF`, `PARSE_UNION_DEF`,
+  `STREQ`, `FINDVAR`).
+
+* **New: `src/frontend/parse_expr.cyr`** (1,388 LOC) —
+  expression parsing: `PARSE_FACTOR` (the 760-line monster),
+  `PARSE_TERM`, `PEXPR`, `PCMPE`, `PF64BIN`, `PF64CMP`,
+  `PARSE_SIMD_EXT`, `EPTR_SCALE`, `BUILD_OP_NAME`,
+  `EMIT_OP_DISPATCH`, `_SC_ARITY`, `_STR_FROM_NOFF`.
+
+* **New: `src/frontend/parse_decl.cyr`** (835 LOC) — variable
+  declarations, array parsing, field access, struct init:
+  `PARSE_ARRAY`, `BUILD_METHOD_NAME`, `PARSE_FIELD_LOAD`,
+  `PARSE_FIELD_STORE`, `EMIT_STRUCT_FIELD`, `PARSE_STRUCT_INIT`,
+  `PARSE_GVAR_ARR`, `PARSE_GVAR_REG`, `EMIT_GVAR_INITS`,
+  `PARSE_VAR`, `PARSE_ASSIGN`.
+
+* **New: `src/frontend/parse_ctrl.cyr`** (529 LOC) — control
+  flow: `ECONDOP`, `ECONDOPT`, `ECONDCMP`, `ECOND`,
+  `ECOND_AND`, `ECOND_OR`, `PATCHXP`, `PARSE_ELIF`, `PARSE_IF`,
+  `PARSE_WHILE`, `PARSE_FOR`.
+
+* **New: `src/frontend/parse_fn.cyr`** (998 LOC) — fn
+  definitions, calls, returns, impls: `REGFN`, `FINDFN`,
+  `FINDLOCAL`, `PARSE_RETURN`, `PARSE_FNCALL`, `PARSE_IMPL`,
+  `SKIP_GENERICS`, `DSE_PASS`, `IS_JUMP_TARGET`, `PARSE_FN_DEF`.
+  Consumes the state vars (`_cur_fn_regalloc`,
+  `_cur_fn_ret_stash`, `_cur_fn_ret_sid`) that stay at the top
+  of parse.cyr.
+
+* **`src/frontend/lex.cyr`** 2,355 → 865 LOC. Retains the file-
+  map utilities (`FM_BUILD`, `FM_LOOKUP`), token emission
+  (`ADDTOK`), character classifiers (`CCLASS`, `ISALNUM`),
+  stdlib initializer (`_init_cyrius_lib`), file reader
+  (`READFILE`), numeric lexing (`LEXHEX`, `LEXDEC`, `LEXNUM`),
+  keyword dispatch (`LEXKW_EXT`), identifier lexing (`LEXID`),
+  and the top-level `LEX` dispatcher, plus the `include` line
+  for the preprocessor.
+
+* **New: `src/frontend/lex_pp.cyr`** (1,505 LOC) — preprocessor
+  pipeline: `#include`, `#define`, `#ifdef`, `#ifplat`,
+  `#derive`, macro expansion (`PP_EXPAND`, `PP_MACRO_PASS`,
+  `PP_IFDEF_PASS`, `PP_REF_PASS`), the main `PP_PASS`
+  orchestrator, and `PREPROCESS` itself. Everything between
+  raw bytes arriving on stdin and the post-expansion buffer
+  that `LEX` tokenizes.
+
+### Verified
+
+* Each of the six extraction stages (A: types, B: expr, C: decl,
+  D: ctrl, E: fn, F: lex_pp) verified cc5 output identical to
+  the pre-refactor binary — not just `gen1 == gen2` self-host,
+  but `cmp /tmp/cc5_new build/cc5-from-before-stage` returns 0.
+  This makes the refactor a provable zero-delta mechanical
+  move, not a "probably fine" reshuffle.
+* `sh scripts/check.sh` 19/19 green.
+* cc5 size unchanged at 507,656 B (byte-identical through all
+  six stages).
+
+### Not changed — intentionally
+
+* No `main_*.cyr` file was touched. Nested `include` directives
+  keep the include chain entry point at `parse.cyr` / `lex.cyr`
+  as before.
+* No function was renamed, no call graph was changed. Pure
+  file-layout reshuffle.
+* `PARSE_FACTOR` (760-line recursive-descent beast) stays in
+  one piece. Splitting it would require genuine refactoring,
+  not file-layout work.
+
+### Forward plan
+
+* v5.5.39 — `src/cc/` legacy cc3 compiler retirement audit
+* v5.5.40 — real v5.5.x closeout (heap-map, vidya sync, all
+  the judgment passes)
+
 ## [5.5.37] — 2026-04-22
 
 **Fixup table cap raise 16384 → 32768 + heap reshuffle.** Unblocks

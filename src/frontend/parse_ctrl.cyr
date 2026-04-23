@@ -1,0 +1,529 @@
+# PARSER — control flow: ECONDOP/ECONDOPT/ECONDCMP/ECOND/ECOND_AND/
+# ECOND_OR / PATCHXP / PARSE_ELIF / PARSE_IF / PARSE_WHILE / PARSE_FOR.
+# ================================================================
+# Split out of src/frontend/parse.cyr in v5.5.38 to keep single-file
+# LOC under ~1500. Included by parse.cyr at the same textual position
+# the original content lived; self-host byte-identical.
+
+fn ECONDOP(S, op) {
+    if (op == 17) { return EJCC(S, 0x85); }
+    if (op == 18) { return EJCC(S, 0x84); }
+    if (op == 19) { return EJCC(S, 0x8D); }
+    if (op == 20) { return EJCC(S, 0x8E); }
+    if (op == 21) { return EJCC(S, 0x8F); }
+    if (op == 22) { return EJCC(S, 0x8C); }
+    ERR(S);
+    return 0;
+}
+
+# Emit NON-inverted jcc (for || true-branch)
+fn ECONDOPT(S, op) {
+    if (op == 17) { return EJCC(S, 0x84); }
+    if (op == 18) { return EJCC(S, 0x85); }
+    if (op == 19) { return EJCC(S, 0x8C); }
+    if (op == 20) { return EJCC(S, 0x8D); }
+    if (op == 21) { return EJCC(S, 0x8E); }
+    if (op == 22) { return EJCC(S, 0x8F); }
+    ERR(S);
+    return 0;
+}
+
+# Parse one comparison: expr OP expr — emit cmp, return op token
+fn ECONDCMP(S) {
+    PCMPE(S);
+    var op = PEEKT(S);
+    # If no comparison operator follows, treat value as boolean (cmp rax, 0)
+    if (op < 17 || op > 22) {
+        EPUSHR(S);
+        EMOVI(S, 0);
+        EMOVCA(S);
+        EPOPR(S);
+        ECMPR(S);
+        return 18;
+    }
+    EPUSHR(S);
+    STI(S, GTI(S) + 1);
+    PCMPE(S);
+    EMOVCA(S);
+    EPOPR(S);
+    ECMPR(S);
+    return op;
+}
+
+# Parse condition: expr OP expr [&& expr OP expr]* [|| expr OP expr]*
+# Returns patch offset for false branch. Extra patches stored via ADDXP.
+fn ECOND(S) {
+    SXPC(S, 0);
+    var op = ECONDCMP(S);
+    # Check for && or ||
+    if (PEEKT(S) == 53) {
+        return ECOND_AND(S, op);
+    }
+    if (PEEKT(S) == 54) {
+        return ECOND_OR(S, op);
+    }
+    return ECONDOP(S, op);
+}
+
+fn ECOND_AND(S, op) {
+    var p1 = ECONDOP(S, op);
+    ADDXP(S, p1);
+    STI(S, GTI(S) + 1);
+    var op2 = ECONDCMP(S);
+    # Chain: support a && b && c
+    if (PEEKT(S) == 53) {
+        return ECOND_AND(S, op2);
+    }
+    return ECONDOP(S, op2);
+}
+
+fn ECOND_OR(S, op) {
+    var ptrue = ECONDOPT(S, op);
+    STI(S, GTI(S) + 1);
+    var op2 = ECONDCMP(S);
+    # Chain: support a || b || c
+    if (PEEKT(S) == 54) {
+        EPATCH(S, ptrue);
+        return ECOND_OR(S, op2);
+    }
+    var pfalse = ECONDOP(S, op2);
+    EPATCH(S, ptrue);
+    return pfalse;
+}
+
+# Patch all extra condition patches (from &&) to current position
+fn PATCHXP(S) {
+    var xc = GXPC(S);
+    var xi = 0;
+    while (xi < xc) {
+        EPATCH(S, L64(S + 0x8F848 + xi * 8));
+        xi = xi + 1;
+    }
+    SXPC(S, 0);
+    return 0;
+}
+
+# Parse: if (cond) { stmts } [else { stmts }]
+# Parse elif chain as recursive: each elif is essentially else { if (...) { } ... }
+fn PARSE_ELIF(S, cond_patch) {
+    # Emit jmp-to-end for previous branch
+    var skip = EJMP0(S);
+    # Patch previous condition-false to land here (+ any && extras)
+    PATCHXP(S);
+    EPATCH(S, cond_patch);
+    # Parse new condition
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);
+    # Check for more elif/else
+    if (PEEKT(S) == 50) {
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF(S, patch);
+    } else { if (PEEKT(S) == 23) {
+        STI(S, GTI(S) + 1);
+        var skip2 = EJMP0(S);
+        PATCHXP(S);
+        EPATCH(S, patch);
+        if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+        STI(S, GTI(S) + 1);
+        PARSE_PROG(S);
+        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+        STI(S, GTI(S) + 1);
+        EPATCH(S, skip2);
+    } else {
+        PATCHXP(S);
+        EPATCH(S, patch);
+    } }
+    # Patch our skip-to-end
+    EPATCH(S, skip);
+    return 0;
+}
+
+fn PARSE_IF(S) {
+    STI(S, GTI(S) + 1);  # consume IF
+    var saved_lv = GLVAR(S);
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);  # consume (
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);  # consume )
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);  # consume {
+    SCOPE_PUSH(S);
+    PARSE_PROG(S);
+    SCOPE_POP(S);
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);  # consume }
+    if (PEEKT(S) == 50) {
+        # elif
+        STI(S, GTI(S) + 1);
+        PARSE_ELIF(S, patch);
+    } else { if (PEEKT(S) == 23) {
+        # else
+        STI(S, GTI(S) + 1);
+        var skip = EJMP0(S);
+        PATCHXP(S);
+        EPATCH(S, patch);
+        if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+        STI(S, GTI(S) + 1);
+        SCOPE_PUSH(S);
+        PARSE_PROG(S);
+        SCOPE_POP(S);
+        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+        STI(S, GTI(S) + 1);
+        EPATCH(S, skip);
+    } else {
+        PATCHXP(S);
+        EPATCH(S, patch);
+    } }
+    SLVAR(S, saved_lv);
+    return 0;
+}
+
+# Parse: while (cond) { stmts }
+fn PARSE_WHILE(S) {
+    STI(S, GTI(S) + 1);  # consume WHILE
+    var saved_lv = GLVAR(S);
+    # Save and set loop context for break/continue
+    var saved_ltop = L64(S + 0x8F838);
+    var saved_brk = L64(S + 0x8F840);
+    var loop_top = GCP(S);
+    S64(S + 0x8F838, loop_top);
+    S64(S + 0x8F840, 0);
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);
+    var patch = ECOND(S);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    SCOPE_PUSH(S);
+    PARSE_PROG(S);
+    SCOPE_POP(S);
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);
+    EJMP(S, loop_top);
+    PATCHXP(S);
+    EPATCH(S, patch);
+    # Patch all break jumps (linked list through codebuf rel32 fields)
+    var brk_patch = L64(S + 0x8F840);
+    while (brk_patch > 0) {
+        var _ba = S + 0x54A000 + brk_patch;
+        var _nb = L64(_ba) & 0xFFFFFFFF;
+        EPATCH(S, brk_patch);
+        brk_patch = _nb;
+    }
+    S64(S + 0x8F838, saved_ltop);
+    S64(S + 0x8F840, saved_brk);
+    SLVAR(S, saved_lv);
+    return 0;
+}
+
+fn PARSE_FOR(S) {
+    STI(S, GTI(S) + 1);
+    var slv = GLVAR(S);
+    SCOPE_PUSH(S);
+    # Check for "for ident in start..end { }" syntax
+    if (PEEKT(S) == 2) {
+        var fiti = GTI(S);
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 76) {
+            var finoff = TOKVAL(S, fiti);
+            STI(S, GTI(S) + 1);
+            PCMPE(S);
+            # Check: range (..) or collection?
+            var is_range = 0;
+            if (PEEKT(S) == 41) {
+                var dot_ti = GTI(S);
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) == 41) {
+                    STI(S, GTI(S) + 1);
+                    is_range = 1;
+                } else {
+                    STI(S, dot_ti);
+                }
+            }
+            if (is_range == 0) {
+                # COLLECTION for-in: for item in expr { body }
+                # rax has the collection (vec pointer)
+                # Store collection in hidden var
+                var ficol = GVCNT(S);
+                S64(S + 0x11A000 + ficol * 8, 0);
+                S64(S + 0x12A000 + ficol * 8, 8);
+                SVCNT(S, ficol + 1);
+                EVSTORE(S, ficol);
+                # Get length: call vec_len(collection)
+                EVLOAD(S, ficol);
+                EPUSHR(S);
+                ECALLPOPS(S, 1);
+                var vlfi = FINDFN(S, 0);
+                # Find vec_len — search by building name
+                NPOS_GUARD(S, 16);
+                var vlnp = GNPOS(S);
+                store8(S + 0x60000 + vlnp, 118); store8(S + 0x60000 + vlnp + 1, 101);
+                store8(S + 0x60000 + vlnp + 2, 99); store8(S + 0x60000 + vlnp + 3, 95);
+                store8(S + 0x60000 + vlnp + 4, 108); store8(S + 0x60000 + vlnp + 5, 101);
+                store8(S + 0x60000 + vlnp + 6, 110); store8(S + 0x60000 + vlnp + 7, 0);
+                SNPOS(S, vlnp + 8);
+                vlfi = FINDFN(S, vlnp);
+                if (vlfi < 0) { vlfi = REGFN(S, vlnp); }
+                var vloff = L64(S + 0xE92000 + vlfi * 8);
+                if (vloff >= 0) { ECALLTO(S, vloff); } else { ECALLFIX(S, vlfi); }
+                ECALLCLEAN(S, 1);
+                # Store length in hidden var
+                var filen = GVCNT(S);
+                S64(S + 0x11A000 + filen * 8, 0);
+                S64(S + 0x12A000 + filen * 8, 8);
+                SVCNT(S, filen + 1);
+                EVSTORE(S, filen);
+                # Index var (starts at 0)
+                var fili = GFLC(S);
+                NPOS_GUARD(S, 8);
+                var fiidx_noff = GNPOS(S);
+                store8(S + 0x60000 + fiidx_noff, 95); store8(S + 0x60000 + fiidx_noff + 1, 105);
+                store8(S + 0x60000 + fiidx_noff + 2, 0);
+                SNPOS(S, fiidx_noff + 3);
+                S64(S + 0x91000 + fili * 8, fiidx_noff);
+                SLDEP(S, fili, GSDEP(S));
+                SLTYPE(S, fili, 0);
+                EMOVI(S, 0);
+                EFLSTORE(S, fili);
+                SFLC(S, fili + 1);
+                # Item var
+                var fiitem = GFLC(S);
+                S64(S + 0x91000 + fiitem * 8, finoff);
+                SLDEP(S, fiitem, GSDEP(S));
+                SLTYPE(S, fiitem, 0);
+                EMOVI(S, 0);
+                EFLSTORE(S, fiitem);
+                SFLC(S, fiitem + 1);
+                # Loop: while (idx < len)
+                var fislt = L64(S + 0x8F838);
+                var fisbk = L64(S + 0x8F840);
+                var fiscfw = L64(S + 0x8F898);
+                var fitop = GCP(S);
+                S64(S + 0x8F838, fitop);
+                S64(S + 0x8F840, 0);
+                S64(S + 0x8F898, 1);
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                EVLOAD(S, filen);
+                EMOVCA(S);
+                EPOPR(S);
+                ECMPR(S);
+                var ficond = EJCC(S, 0x8D);
+                # item = vec_get(collection, idx)
+                EVLOAD(S, ficol);
+                EPUSHR(S);
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                ECALLPOPS(S, 2);
+                var vgfi = FINDFN(S, 0);
+                NPOS_GUARD(S, 16);
+                var vgnp = GNPOS(S);
+                store8(S + 0x60000 + vgnp, 118); store8(S + 0x60000 + vgnp + 1, 101);
+                store8(S + 0x60000 + vgnp + 2, 99); store8(S + 0x60000 + vgnp + 3, 95);
+                store8(S + 0x60000 + vgnp + 4, 103); store8(S + 0x60000 + vgnp + 5, 101);
+                store8(S + 0x60000 + vgnp + 6, 116); store8(S + 0x60000 + vgnp + 7, 0);
+                SNPOS(S, vgnp + 8);
+                vgfi = FINDFN(S, vgnp);
+                if (vgfi < 0) { vgfi = REGFN(S, vgnp); }
+                var vgoff = L64(S + 0xE92000 + vgfi * 8);
+                if (vgoff >= 0) { ECALLTO(S, vgoff); } else { ECALLFIX(S, vgfi); }
+                ECALLCLEAN(S, 2);
+                EFLSTORE(S, fiitem);
+                # Body
+                if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); } STI(S, GTI(S) + 1);
+                SCOPE_PUSH(S);
+                PARSE_PROG(S);
+                SCOPE_POP(S);
+                if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
+                # Patch continue to here (before step)
+                var ficfwn = L64(S + 0x8F898) - 1;
+                var ficfwi = 0;
+                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+                S64(S + 0x8F898, 0);
+                # Step: idx = idx + 1
+                EFLLOAD(S, fili);
+                EPUSHR(S);
+                EMOVI(S, 1);
+                EMOVCA(S);
+                EPOPR(S);
+                EADDR(S);
+                EFLSTORE(S, fili);
+                EJMP(S, fitop);
+                PATCHXP(S);
+                EPATCH(S, ficond);
+                var fibrk = L64(S + 0x8F840);
+                while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
+                S64(S + 0x8F838, fislt);
+                S64(S + 0x8F840, fisbk);
+                S64(S + 0x8F898, fiscfw);
+                SCOPE_POP(S);
+                SLVAR(S, slv);
+                return 0;
+            }
+            # RANGE for-in (.. already consumed, is_range==1)
+            # rax has start value from PEXPR above
+            var fili = GFLC(S);
+            S64(S + 0x91000 + fili * 8, finoff);
+            SLDEP(S, fili, GSDEP(S));
+            SLTYPE(S, fili, 0);
+            EFLSTORE(S, fili);
+            SFLC(S, fili + 1);
+            # End value into hidden global
+            PCMPE(S);
+            var fiend = GVCNT(S);
+            S64(S + 0x11A000 + fiend * 8, 0);
+            S64(S + 0x12A000 + fiend * 8, 8);
+            SVCNT(S, fiend + 1);
+            EVSTORE(S, fiend);
+            # Loop setup
+            var fislt = L64(S + 0x8F838);
+            var fisbk = L64(S + 0x8F840);
+            var fiscfw = L64(S + 0x8F898);
+            var fitop = GCP(S);
+            S64(S + 0x8F838, fitop);
+            S64(S + 0x8F840, 0);
+            S64(S + 0x8F898, 1);
+            # Condition: var < end
+            EFLLOAD(S, fili);
+            EPUSHR(S);
+            EVLOAD(S, fiend);
+            EMOVCA(S);
+            EPOPR(S);
+            ECMPR(S);
+            var ficond = EJCC(S, 0x8D);
+            # Body
+            if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); } STI(S, GTI(S) + 1);
+            SCOPE_PUSH(S);
+            PARSE_PROG(S);
+            SCOPE_POP(S);
+            if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
+            # Patch all continues to here (before step)
+            var ficfwn = L64(S + 0x8F898) - 1;
+            var ficfwi = 0;
+            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+            S64(S + 0x8F898, 0);
+            # Step: var = var + 1
+            EFLLOAD(S, fili);
+            EPUSHR(S);
+            EMOVI(S, 1);
+            EMOVCA(S);
+            EPOPR(S);
+            EADDR(S);
+            EFLSTORE(S, fili);
+            EJMP(S, fitop);
+            PATCHXP(S);
+            EPATCH(S, ficond);
+            var fibrk = L64(S + 0x8F840);
+            while (fibrk > 0) { var _fba = S + 0x54A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
+            S64(S + 0x8F838, fislt);
+            S64(S + 0x8F840, fisbk);
+            S64(S + 0x8F898, fiscfw);
+            SCOPE_POP(S);
+            SLVAR(S, slv);
+            return 0;
+        }
+        STI(S, fiti);
+    }
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);
+    PARSE_STMT(S);
+    var slt = L64(S + 0x8F838);
+    var sbk = L64(S + 0x8F840);
+    var scfw = L64(S + 0x8F898);
+    var ltop = GCP(S);
+    S64(S + 0x8F838, ltop);
+    S64(S + 0x8F840, 0);
+    S64(S + 0x8F898, 1);
+    var cpat = ECOND(S);
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    var sst = GTI(S);
+    var dep = 0;
+    var skg = 1;
+    while (skg == 1) {
+        var tok = PEEKT(S);
+        if (tok == 10) { dep = dep + 1; STI(S, GTI(S) + 1); }
+        else { if (tok == 11) {
+            if (dep == 0) { skg = 0; }
+            else { dep = dep - 1; STI(S, GTI(S) + 1); }
+        }
+        else { STI(S, GTI(S) + 1); } }
+    }
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);
+    # Patch continue forward jump to here (step expression)
+    var cfwn = L64(S + 0x8F898) - 1;
+    var cfwi = 0;
+    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x8F8A0 + cfwi * 8)); cfwi = cfwi + 1; }
+    S64(S + 0x8F898, 0);
+    # Emit step: replay as assignment or compound assignment
+    var sti = GTI(S);
+    STI(S, sst);
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Check for compound assignment in step (+=, -=, etc.)
+    var step_cop = 0;
+    var step_ct = PEEKT(S);
+    if (step_ct == 6 || step_ct == 7 || step_ct == 8 || step_ct == 9 || step_ct == 34) {
+        var step_next = GTI(S) + 1;
+        if (step_next < GTCNT(S)) {
+            if (TOKTYP(S, step_next) == 4) {
+                step_cop = step_ct;
+                STI(S, GTI(S) + 2);
+            }
+        }
+    }
+    if (step_cop == 0) {
+        if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+        STI(S, GTI(S) + 1);
+    }
+    if (step_cop != 0) {
+        var step_idx = FINDLOCAL(S, noff);
+        if (step_idx >= 0) { EFLLOAD(S, step_idx); }
+        else { var step_gi = FINDVAR(S, noff); if (step_gi >= 0) { EVLOAD(S, step_gi); } }
+        EPUSHR(S);
+        PCMPE(S);
+        EMOVCA(S); EPOPR(S);
+        if (step_cop == 6) { EADDR(S); }
+        elif (step_cop == 7) { ESUBR(S); }
+        elif (step_cop == 8) { EIMUL(S); }
+        elif (step_cop == 9) { ECQO(S); EIDIV(S); }
+        elif (step_cop == 34) { ECQO(S); EIDIV(S); EMOVDR(S); }
+    } else {
+        PCMPE(S);
+    }
+    var idx = 0 - 1;
+    if (GINFN(S) == 1) { idx = FINDLOCAL(S, noff); }
+    if (idx >= 0) { EFLSTORE(S, idx); }
+    else {
+        idx = FINDVAR(S, noff);
+        if (idx >= 0) { EVSTORE(S, idx); SLVAR(S, idx); }
+    }
+    STI(S, sti);
+    EJMP(S, ltop);
+    PATCHXP(S);
+    EPATCH(S, cpat);
+    var bpat = L64(S + 0x8F840);
+    while (bpat > 0) { var _bpa = S + 0x54A000 + bpat; var _bnb = L64(_bpa) & 0xFFFFFFFF; EPATCH(S, bpat); bpat = _bnb; }
+    SCOPE_POP(S);
+    S64(S + 0x8F838, slt);
+    S64(S + 0x8F840, sbk);
+    S64(S + 0x8F898, scfw);
+    SLVAR(S, slv);
+    return 0;
+}
+

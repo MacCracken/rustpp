@@ -1,0 +1,393 @@
+# PARSER — types, structs, enums, unions + shared helpers
+# ================================================================
+# Split out of src/frontend/parse.cyr in v5.5.38 to keep single-file
+# LOC under ~1500. Included by parse.cyr at the same textual position
+# the original content lived, so the flattened fn-definition order is
+# preserved (self-host byte-identical by construction). No logical
+# change from the original inline version.
+
+# ================================================================
+# STRUCT SUPPORT
+# ================================================================
+# Heap layout for structs — see src/main.cyr for the authoritative map.
+# Quick reference of the regions this file touches:
+#   0x13A000 var_types[8192]      65536 bytes — struct_id per var (0=scalar)
+#   0x8E630  struct_names[32]     256 bytes — name offset per struct
+#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct (bit 63 = union)
+#   0xD4A000 struct_ftypes        8192 bytes — 32×32 field type IDs  (stride 256)
+#   0xDCA000 struct_fnames        8192 bytes — 32×32 field name offsets (stride 256)
+#   0x8F830  struct_count         8 bytes
+#   0xD8000  enum_const_val[8192] 8192 bytes — 1024 × 8 B enum-fold table (v5.5.2)
+
+fn GSTC(S) { return L64(S + 0x8F830); }
+fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
+
+# Get/set struct_id for global variable at index vi
+fn GVTYPE(S, vi) { return L64(S + 0x13A000 + vi * 8); }
+fn SVTYPE(S, vi, v) { S64(S + 0x13A000 + vi * 8, v); return 0; }
+
+# Register a new struct, return index (1-based, 0 = not a struct)
+fn REGSTRUCT(S, noff) {
+    var sc = GSTC(S);
+    if (sc >= 64) {
+        ERR_MSG(S, "too many struct definitions (max 64)", 36);
+    }
+    S64(S + 0x8E630 + sc * 8, noff);
+    S64(S + 0x8E830 + sc * 8, 0);
+    SSTC(S, sc + 1);
+    return sc + 1;
+}
+
+# Find struct by name, return 1-based index or 0
+fn FINDSTRUCT(S, noff) {
+    var sc = GSTC(S);
+    var i = 0;
+    while (i < sc) {
+        var sn = L64(S + 0x8E630 + i * 8);
+        if (STREQ(S, sn, noff) == 1) { return i + 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Add field to struct (0-based struct index si), ftype = struct_id or 0 for scalar
+fn ADDFIELD(S, si, fnoff) {
+    var fc = L64(S + 0x8E830 + si * 8);
+    if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
+    S64(S + 0xDCA000 + si * 256 + fc * 8, fnoff);
+    S64(S + 0xD4A000 + si * 256 + fc * 8, 0);
+    S64(S + 0x8E830 + si * 8, fc + 1);
+    return 0;
+}
+
+fn ADDFIELDTYPED(S, si, fnoff, ftype) {
+    var fc = L64(S + 0x8E830 + si * 8);
+    if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
+    S64(S + 0xDCA000 + si * 256 + fc * 8, fnoff);
+    S64(S + 0xD4A000 + si * 256 + fc * 8, ftype);
+    S64(S + 0x8E830 + si * 8, fc + 1);
+    return 0;
+}
+
+fn GETFTYPE(S, si, fi) {
+    return L64(S + 0xD4A000 + si * 256 + fi * 8);
+}
+
+# Get field name offset (into tok_names at S+0x60000) for struct si, field fi.
+# Returns the same offset that was recorded by ADDFIELD, so direct equality
+# with a parsed IDENT's PEEKV works (idents are interned by the lexer).
+fn GETFNAME(S, si, fi) {
+    return L64(S + 0xDCA000 + si * 256 + fi * 8);
+}
+
+# Compare two null-terminated strings in tok_names. Returns 1 if equal.
+# Needed because named-field init uses the identifier buffer (S+0x60000)
+# where two different source occurrences of the same name share an offset
+# (dedup), but defensive equality handles the rare non-interned case too.
+fn STREQTOK(S, a_off, b_off) {
+    if (a_off == b_off) { return 1; }
+    var i = 0;
+    while (1 == 1) {
+        var ca = load8(S + 0x60000 + a_off + i);
+        var cb = load8(S + 0x60000 + b_off + i);
+        if (ca != cb) { return 0; }
+        if (ca == 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Get byte size of a single field from its type encoding
+# >0 = nested struct ID, 0 = untyped (8), <0 = sized scalar (-width)
+fn FIELDSZ(S, ft) {
+    if (ft > 0) { return STRUCTSZ(S, ft - 1); }
+    if (ft < 0) { return 0 - ft; }
+    return 8;
+}
+
+# Get total size of a struct/union in bytes
+fn STRUCTSZ(S, si) {
+    var fc = GETFCOUNT(S, si);
+    var is_u = ISUNION(S, si);
+    var sz = 0;
+    var i = 0;
+    while (i < fc) {
+        var fsz = FIELDSZ(S, GETFTYPE(S, si, i));
+        if (is_u == 1) {
+            if (fsz > sz) { sz = fsz; }
+        } else {
+            sz = sz + fsz;
+        }
+        i = i + 1;
+    }
+    return sz;
+}
+
+# Get byte offset of field fi within struct/union si
+fn FIELDOFF(S, si, fi) {
+    if (ISUNION(S, si) == 1) { return 0; }
+    var off = 0;
+    var i = 0;
+    while (i < fi) {
+        off = off + FIELDSZ(S, GETFTYPE(S, si, i));
+        i = i + 1;
+    }
+    return off;
+}
+
+# Parse: enum Name { A; B; C; } — registers variants as global constants
+# Called from BOTH pass 1 (register vars) and pass 2 (emit init code).
+# Pass 1: just register var names + sizes (no code)
+# Pass 2: emit mov rax, val; evstore for each variant
+fn PARSE_ENUM_DEF(S, emit_code) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var enoff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    var val = 0;
+    var ego = 1;
+    while (ego == 1) {
+        if (PEEKT(S) == 14) { ego = 0; }
+        else {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var vnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            # Check for constructor syntax: Variant(param)
+            var has_ctor = 0;
+            if (PEEKT(S) == 10) {
+                has_ctor = 1;
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
+                if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+                STI(S, GTI(S) + 1);
+            }
+            if (PEEKT(S) == 4) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 1) { ERR_EXPECT(S, 1); }
+                val = PEEKV(S);
+                STI(S, GTI(S) + 1);
+            }
+            if (emit_code == 2) {
+                # Pass 2 function section: emit constructor bodies only
+                if (has_ctor == 1) {
+                    NPOS_GUARD(S, 256);
+                    var cwp2 = GNPOS(S);
+                    var cnoff2 = cwp2;
+                    var cri2 = 0;
+                    var crc2 = load8(S + 0x60000 + vnoff + cri2);
+                    while (crc2 != 0) { store8(S + 0x60000 + cwp2, crc2); cwp2 = cwp2 + 1; cri2 = cri2 + 1; crc2 = load8(S + 0x60000 + vnoff + cri2); }
+                    store8(S + 0x60000 + cwp2, 0); cwp2 = cwp2 + 1;
+                    SNPOS(S, cwp2);
+                    var cfi = FINDFN(S, cnoff2);
+                    if (cfi >= 0) {
+                        S64(S + 0xE92000 + cfi * 8, GCP(S));
+                        S64(S + 0xE9A000 + cfi * 8, 1);
+                        EFNPRO(S);
+                        var ctor_frame = ESUBRSP(S);
+                        ESTOREPARM(S, 0, 0, 0);
+                        EMOVI(S, 16); EPUSHR(S);
+                        ECALLPOPS(S, 1);
+                        NPOS_GUARD(S, 8);
+                        var awnp = GNPOS(S);
+                        store8(S + 0x60000 + awnp, 97); store8(S + 0x60000 + awnp + 1, 108);
+                        store8(S + 0x60000 + awnp + 2, 108); store8(S + 0x60000 + awnp + 3, 111);
+                        store8(S + 0x60000 + awnp + 4, 99); store8(S + 0x60000 + awnp + 5, 0);
+                        SNPOS(S, awnp + 6);
+                        var afi = FINDFN(S, awnp);
+                        if (afi < 0) { afi = REGFN(S, awnp); }
+                        var afoff = L64(S + 0xE92000 + afi * 8);
+                        if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
+                        ECALLCLEAN(S, 1);
+                        EFLSTORE(S, 1);
+                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, val); EPOPC(S); ESTORE64(S);
+                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, 8); EMOVCA(S); EPOPR(S); EADDR(S);
+                        EPUSHR(S); EFLLOAD(S, 0); EPOPC(S); ESTORE64(S);
+                        EPATCHFRAME(S, ctor_frame, 32);
+                        EFLLOAD(S, 1);
+                        EFNEPI(S);
+                    }
+                }
+            }
+            elif (emit_code == 0) {
+                # Pass 1: register variant as global var
+                var vcnt = GVCNT(S);
+                S64(S + 0x11A000 + vcnt * 8, vnoff);
+                S64(S + 0x12A000 + vcnt * 8, 8);
+                # v5.5.2: record enum variant's compile-time value in the
+                # enum_const_val table at 0xD8000 (1024 entries × 8 B).
+                # Bit 63 = "is enum const" marker; low 63 bits = value.
+                # PARSE_FACTOR reads this when resolving a bare/qualified
+                # identifier and folds to EMOVI + _cfo=1 so callers like
+                # the syscall-reroute dispatch see sc_num correctly.
+                # Variants registered at idx >= 1024 fall through to the
+                # existing EVLOAD path (correct but not folded).
+                if (vcnt < 1024) {
+                    S64(S + 0xD8000 + vcnt * 8, (1 << 63) | val);
+                }
+                SVCNT(S, vcnt + 1);
+                # Register constructor function if has payload
+                if (has_ctor == 1) {
+                    NPOS_GUARD(S, 256);
+                    var cwp = GNPOS(S);
+                    var cnoff = cwp;
+                    var cri = 0;
+                    var crc = load8(S + 0x60000 + vnoff + cri);
+                    while (crc != 0) { store8(S + 0x60000 + cwp, crc); cwp = cwp + 1; cri = cri + 1; crc = load8(S + 0x60000 + vnoff + cri); }
+                    store8(S + 0x60000 + cwp, 0); cwp = cwp + 1;
+                    SNPOS(S, cwp);
+                    REGFN(S, cnoff);
+                }
+            } else {
+                # Pass 2 enum init (emit_code == 1): just set constant values
+                var idx = FINDVAR(S, vnoff);
+                if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
+            }
+            val = val + 1;
+            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        }
+    }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+# Get field count for struct (0-based index). High bit = union flag.
+fn GETFCOUNT(S, si) { return L64(S + 0x8E830 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
+fn ISUNION(S, si) { return L64(S + 0x8E830 + si * 8) >> 63; }
+
+# Find field index in struct (0-based struct index), return field index or -1
+fn FINDFIELD(S, si, fnoff) {
+    var fc = GETFCOUNT(S, si);
+    var i = 0;
+    while (i < fc) {
+        var fn_off = L64(S + 0xDCA000 + si * 256 + i * 8);
+        if (STREQ(S, fn_off, fnoff) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# Parse: struct Name<T> { field; field; ... }
+fn PARSE_STRUCT_DEF(S) {
+    STI(S, GTI(S) + 1);  # consume STRUCT
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Skip generic parameters if present: struct Foo<T, U>
+    SKIP_GENERICS(S);
+    var sid = REGSTRUCT(S, noff);
+    var si = sid - 1;
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);  # consume {
+    var go = 1;
+    while (go == 1) {
+        if (PEEKT(S) == 14) { go = 0; }
+        else {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var fnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            # Check for type annotation: field: Type
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                var tnoff = PEEKV(S);
+                # Check scalar types first
+                var ftname = L64(S + 0x60000 + tnoff);
+                var fscalar = 0;
+                if (ftname & 0xFFFF == 0x3869) { fscalar = 1; }
+                elif (ftname & 0xFFFFFF == 0x363169) { fscalar = 2; }
+                elif (ftname & 0xFFFFFF == 0x323369) { fscalar = 4; }
+                elif (ftname & 0xFFFFFF == 0x343669) { fscalar = 8; }
+                STI(S, GTI(S) + 1);
+                if (fscalar > 0) {
+                    # Store as negative width for sized scalars, 0 for i64 (default)
+                    if (fscalar < 8) { ADDFIELDTYPED(S, si, fnoff, 0 - fscalar); }
+                    else { ADDFIELD(S, si, fnoff); }
+                } else {
+                    var fsid = FINDSTRUCT(S, tnoff);
+                    ADDFIELDTYPED(S, si, fnoff, fsid);
+                }
+            } else {
+                ADDFIELD(S, si, fnoff);
+            }
+            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        }
+    }
+    STI(S, GTI(S) + 1);  # consume }
+    return 0;
+}
+
+# Parse union — same as struct but sets high bit in fcount to mark as union
+fn PARSE_UNION_DEF(S) {
+    STI(S, GTI(S) + 1);  # consume UNION
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    SKIP_GENERICS(S);
+    var sid = REGSTRUCT(S, noff);
+    var si = sid - 1;
+    # Set union flag (high bit of fcount)
+    S64(S + 0x8E830 + si * 8, 1 << 63);
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    var go = 1;
+    while (go == 1) {
+        if (PEEKT(S) == 14) { go = 0; }
+        else {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var fnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);
+                if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                var tnoff = PEEKV(S);
+                var ftname = L64(S + 0x60000 + tnoff);
+                var fscalar = 0;
+                if (ftname & 0xFFFF == 0x3869) { fscalar = 1; }
+                elif (ftname & 0xFFFFFF == 0x363169) { fscalar = 2; }
+                elif (ftname & 0xFFFFFF == 0x323369) { fscalar = 4; }
+                elif (ftname & 0xFFFFFF == 0x343669) { fscalar = 8; }
+                STI(S, GTI(S) + 1);
+                if (fscalar > 0) {
+                    if (fscalar < 8) { ADDFIELDTYPED(S, si, fnoff, 0 - fscalar); }
+                    else { ADDFIELD(S, si, fnoff); }
+                } else {
+                    var fsid = FINDSTRUCT(S, tnoff);
+                    ADDFIELDTYPED(S, si, fnoff, fsid);
+                }
+            } else {
+                ADDFIELD(S, si, fnoff);
+            }
+            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+        }
+    }
+    STI(S, GTI(S) + 1);
+    return 0;
+}
+
+fn STREQ(S, a, b) {
+    var i = 0;
+    var go = 1;
+    while (go == 1) {
+        var ca = load8(S + 0x60000 + a + i);
+        var cb = load8(S + 0x60000 + b + i);
+        if (ca != cb) { return 0; }
+        if (ca == 0) { return 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Find variable by name offset, return LAST match index or -1.
+# Last-match semantics ensure each function's `var buf[N]` shadows earlier ones.
+fn FINDVAR(S, noff) {
+    var vcnt = GVCNT(S);
+    var vi = vcnt - 1;
+    while (vi >= 0) {
+        var stored = L64(S + 0x11A000 + vi * 8);
+        if (STREQ(S, stored, noff) == 1) { return vi; }
+        vi = vi - 1;
+    }
+    return 0 - 1;
+}

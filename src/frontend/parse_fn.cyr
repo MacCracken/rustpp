@@ -1,0 +1,998 @@
+# PARSER — fn definitions, calls, returns, impls:
+# REGFN / FINDFN / FINDLOCAL / PARSE_RETURN / PARSE_FNCALL /
+# PARSE_IMPL / SKIP_GENERICS / DSE_PASS / IS_JUMP_TARGET /
+# PARSE_FN_DEF.
+# ================================================================
+# Split out of src/frontend/parse.cyr in v5.5.38. Consumes the state
+# vars _cur_fn_regalloc / _cur_fn_ret_stash / _cur_fn_ret_sid defined
+# at the top of parse.cyr. Included by parse.cyr at the same textual
+# position the original content lived; self-host byte-identical.
+
+
+# v5.5.38: control-flow fns (if/while/for + cond helpers) extracted.
+include "src/frontend/parse_ctrl.cyr"
+
+# ================================================================
+# FUNCTION TABLE + CODEGEN
+# ================================================================
+
+# Register new function, return index
+fn REGFN(S, noff) {
+    var fc = GFNC(S);
+    if (fc >= 4096) {
+        syscall(SYS_WRITE, 2, "error: function table full (", 28);
+        PRNUM(fc);
+        syscall(SYS_WRITE, 2, "/4096) — split into separate compilation units\n", 48);
+        syscall(SYS_EXIT, 1);
+    }
+    S64(S + 0xE8A000 + fc * 8, noff);
+    S64(S + 0xE92000 + fc * 8, 0 - 1);
+    S64(S + 0xE9A000 + fc * 8, 0);
+    SFNC(S, fc + 1);
+    return fc;
+}
+
+# Find function by name, return index or -1
+fn FINDFN(S, noff) {
+    var fc = GFNC(S);
+    var i = 0;
+    while (i < fc) {
+        var sn = L64(S + 0xE8A000 + i * 8);
+        if (STREQ(S, sn, noff) == 1) { return i; }
+        i = i + 1;
+    }
+    # Check use aliases: if noff matches a use_from, look up use_to
+    var uc = GUSEC(S);
+    i = 0;
+    while (i < uc) {
+        var ufrom = L64(S + 0x8FFD0 + i * 8);
+        if (STREQ(S, ufrom, noff) == 1) {
+            var uto = L64(S + 0x901D0 + i * 8);
+            return FINDFN(S, uto);
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# NOTE: Arch-specific function emit functions (EFNPRO, ESUBRSP, EFNEPI,
+# ECALLTO, ECALLFIX, EPOPARG, ECALLPOPS, ECALLCLEAN, EDISP32,
+# ESTOREREGPARM, ESTORESTACKPARM, ESTOREPARM, EFLLOAD, EFLSTORE)
+# are now in the arch-specific emit files:
+#   x86_64:  src/cc/emit.cyr
+#   aarch64: src/backend/aarch64/emit.cyr
+
+# Find fn local variable by name
+fn FINDLOCAL(S, noff) {
+    var lc = GFLC(S);
+    var i = lc - 1;
+    # Search backward so inner scope shadows outer
+    while (i >= 0) {
+        var sn = L64(S + 0x91000 + i * 8);
+        if (sn >= 0) { if (STREQ(S, sn, noff) == 1) { return i; } }
+        i = i - 1;
+    }
+    return 0 - 1;
+}
+
+# ================================================================
+# PARSER — STATEMENT DISPATCH + FUNCTION SUPPORT
+# ================================================================
+
+# Parse return expr ;  (uses PCMPE so return a == b; works)
+# Tail call optimization: return fn(args); → epilogue + jmp fn
+fn PARSE_RETURN(S) {
+    STI(S, GTI(S) + 1);
+    # Check for tail call: return IDENT(args);
+    # Pattern: next token is IDENT, followed by LPAREN
+    # Disabled inside inline replay (would emit caller's epilogue)
+    if (GINFN(S) == 1) { if (GIDEP(S) == 0) {
+        if (PEEKT(S) == 2) {
+            var ti_after = GTI(S) + 1;
+            if (ti_after < GTCNT(S)) {
+                if (TOKTYP(S, ti_after) == 10) {
+                    # Verify it's actually a tail call: find matching ) and check for ;
+                    var tc_scan = ti_after + 1;
+                    var tc_depth = 1;
+                    var tc_is_tail = 0;
+                    while (tc_scan < GTCNT(S)) {
+                        if (TOKTYP(S, tc_scan) == 10) { tc_depth = tc_depth + 1; }
+                        if (TOKTYP(S, tc_scan) == 11) { tc_depth = tc_depth - 1; if (tc_depth == 0) { break; } }
+                        tc_scan = tc_scan + 1;
+                    }
+                    if (tc_scan + 1 < GTCNT(S)) {
+                        if (TOKTYP(S, tc_scan + 1) == 5) { tc_is_tail = 1; }
+                    }
+                if (tc_is_tail == 1) {
+                    # Tail call: return fn(args); → evaluate args, epilogue, jmp fn
+                    var tcnoff = PEEKV(S);
+                    STI(S, GTI(S) + 1);
+                    # Parse args (same as PARSE_FNCALL arg handling)
+                    STI(S, GTI(S) + 1);  # consume (
+                    var tcargc = 0;
+                    if (PEEKT(S) != 11) {
+                        var tcgo = 1;
+                        while (tcgo == 1) {
+                            PCMPE(S);
+                            EPUSHR(S);
+                            tcargc = tcargc + 1;
+                            if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                            else { tcgo = 0; }
+                        }
+                    }
+                    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+                    STI(S, GTI(S) + 1);  # consume )
+                    # Pop args into registers
+                    ECALLPOPS(S, tcargc);
+                    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+                    STI(S, GTI(S) + 1);
+                    # Look up function
+                    var tcfi = FINDFN(S, tcnoff);
+                    if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
+                    if (tcargc > 6) {
+                        # >6 args: normal call (stack args clobbered by tail call epilogue)
+                        var foff2 = L64(S + 0xE92000 + tcfi * 8);
+                        if (foff2 >= 0) { ECALLTO(S, foff2); }
+                        else { ECALLFIX(S, tcfi); }
+                        ECALLCLEAN(S, tcargc);
+                        # Jump to function epilogue (same as normal return)
+                        var rp2 = EJMP0(S);
+                        var rpc2 = GRPC(S);
+                        if (rpc2 >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+                        S64(S + 0x8DA20 + rpc2 * 8, rp2);
+                        SRPC(S, rpc2 + 1);
+                    } else {
+                        # Emit epilogue + jmp (tail call, ≤6 args only)
+                        ETAILJMP(S, tcfi);
+                    }
+                    return 0;
+                } }
+            }
+        }
+    } }
+    # Check for multi-return: return (a, b) → ret2(a, b)
+    if (PEEKT(S) == 10) {
+        # Scan ahead for comma at depth 1 to distinguish (a, b) from (a + b)
+        var mr_scan = GTI(S) + 1;
+        var mr_depth = 1;
+        var mr_is_tuple = 0;
+        while (mr_scan < GTCNT(S) && mr_depth > 0) {
+            var mr_tok = TOKTYP(S, mr_scan);
+            if (mr_tok == 10) { mr_depth = mr_depth + 1; }
+            if (mr_tok == 11) { mr_depth = mr_depth - 1; }
+            if (mr_tok == 31 && mr_depth == 1) { mr_is_tuple = 1; break; }
+            mr_scan = mr_scan + 1;
+        }
+        if (mr_is_tuple == 1) {
+            # Multi-return: return (a, b) → same codegen as ret2(a, b)
+            STI(S, GTI(S) + 1);  # consume (
+            PCMPE(S);
+            EPUSHR(S);
+            if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);  # consume ,
+            PCMPE(S);
+            # rax = b, stack = a → mov rdx, rax; pop rax
+            EMOVRDXRAX(S);
+            EPOPR(S);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);  # consume )
+            if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); } STI(S, GTI(S) + 1);  # consume ;
+            var rp = EJMP0(S);
+            var rpc = GRPC(S);
+            if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+            S64(S + 0x8DA20 + rpc * 8, rp);
+            SRPC(S, rpc + 1);
+            return 0;
+        }
+    }
+    # v5.5.36 Phase 2b — struct return by value. When the current fn
+    # has `: StructName` on its signature, `return IDENT;` (where IDENT
+    # is a struct-typed local matching the fn's ret_sid) is emitted as
+    # a byte copy from &IDENT into the hidden retptr stashed at fn
+    # entry. rax is set to the retptr (standard Win64/SysV convention
+    # — caller may read rax to chain the value, though usually ignored
+    # in favor of the caller-allocated destination).
+    #
+    # Only the simple `return IDENT;` form is supported; nested
+    # expressions that produce structs (`return make_other();` etc.)
+    # land in Phase 2c once call-site rewriting exists.
+    if (_cur_fn_ret_sid > 0) {
+        if (PEEKT(S) != 2) {
+            ERR_MSG(S, "struct-return fn: return must be a bare local identifier", 57);
+        }
+        var srn_noff = PEEKV(S);
+        if (TOKTYP(S, GTI(S) + 1) != 5) {
+            ERR_MSG(S, "struct-return fn: return must be a bare local identifier", 57);
+        }
+        var srn_lli = FINDLOCAL(S, srn_noff);
+        if (srn_lli < 0) {
+            ERR_MSG(S, "struct-return: identifier is not a local", 40);
+        }
+        var srn_lt = GLTYPE(S, srn_lli);
+        if (srn_lt >= 0) {
+            ERR_MSG(S, "struct-return: identifier is not struct-typed", 45);
+        }
+        if ((0 - srn_lt) != _cur_fn_ret_sid) {
+            ERR_MSG(S, "struct-return: identifier type != fn ret_sid", 44);
+        }
+        STI(S, GTI(S) + 1);            # consume IDENT
+        STI(S, GTI(S) + 1);            # consume ';'
+        # Byte-copy size (aligned up to 8 — the retptr slot is already
+        # 8-aligned so padded copies are safe)
+        var srn_sz = STRUCTSZ(S, _cur_fn_ret_sid - 1);
+        var srn_aligned = (srn_sz + 7) & (0 - 8);
+        # Source disp: &IDENT (bottom of struct) in the fn's frame
+        var srn_src_disp = 0 - ((srn_lli + 1) * 8);
+        if (_cur_fn_regalloc > 0) { srn_src_disp = srn_src_disp - _cur_fn_regalloc * 8; }
+        if (_cur_fn_ret_stash > 0) { srn_src_disp = srn_src_disp - _cur_fn_ret_stash; }
+        # Retptr stash disp: [rbp - regalloc*8 - 8]
+        var srn_stash_disp = 0 - (_cur_fn_regalloc * 8 + 8);
+        # Under Win64, RSI and RDI are NONVOLATILE (caller preserves
+        # them across calls). `rep movsb` forces us to use both, so
+        # save and restore them around the copy. SysV has no such
+        # rule (RSI/RDI are arg registers, already volatile), but
+        # saving a few bytes is cheap and keeps the emit uniform.
+        EB(S, 0x56);                                   # push rsi
+        EB(S, 0x57);                                   # push rdi
+        # lea rsi, [rbp + src_disp]
+        EB(S, 0x48); EB(S, 0x8D); EB(S, 0xB5);
+        var srn_a1 = S + 0x54A000 + GCP(S);
+        S64(srn_a1, (L64(srn_a1) >> 32 << 32) | (srn_src_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # mov rdi, [rbp + stash_disp]   ; retptr
+        EB(S, 0x48); EB(S, 0x8B); EB(S, 0xBD);
+        var srn_a2 = S + 0x54A000 + GCP(S);
+        S64(srn_a2, (L64(srn_a2) >> 32 << 32) | (srn_stash_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # mov ecx, imm32   ; byte count (zero-extends to rcx)
+        EB(S, 0xB9);
+        EB(S, srn_aligned & 0xFF);
+        EB(S, (srn_aligned >> 8) & 0xFF);
+        EB(S, (srn_aligned >> 16) & 0xFF);
+        EB(S, (srn_aligned >> 24) & 0xFF);
+        # rep movsb
+        EB(S, 0xF3); EB(S, 0xA4);
+        EB(S, 0x5F);                                   # pop rdi
+        EB(S, 0x5E);                                   # pop rsi
+        # mov rax, [rbp + stash_disp]   ; return retptr (stash slot
+        # reloaded because rep movsb advanced the rdi copy)
+        EB(S, 0x48); EB(S, 0x8B); EB(S, 0x85);
+        var srn_a3 = S + 0x54A000 + GCP(S);
+        S64(srn_a3, (L64(srn_a3) >> 32 << 32) | (srn_stash_disp & 0xFFFFFFFF));
+        SCP(S, GCP(S) + 4);
+        # jmp to epilogue (regular return-patch path)
+        var srn_rp = EJMP0(S);
+        var srn_rpc = GRPC(S);
+        if (srn_rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+        S64(S + 0x8DA20 + srn_rpc * 8, srn_rp);
+        SRPC(S, srn_rpc + 1);
+        return 0;
+    }
+    PCMPE(S);
+    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+    STI(S, GTI(S) + 1);
+    # Emit jmp to epilogue (record as return patch)
+    var rp = EJMP0(S);
+    var rpc = GRPC(S);
+    if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+    S64(S + 0x8DA20 + rpc * 8, rp);
+    SRPC(S, rpc + 1);
+    return 0;
+}
+
+# Parse fn call args and emit call (as expression)
+fn PARSE_FNCALL(S, noff) {
+    STI(S, GTI(S) + 1);  # consume (
+    # Check for inline candidate
+    var fi = FINDFN(S, noff);
+    if (fi < 0) { fi = REGFN(S, noff); }
+    if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
+        # INLINE PATH: replay function body tokens at call site
+        var pc = L64(S + 0xE9A000 + fi * 8);
+        var saved_flc = GFLC(S);
+        # Allocate fresh frame slots for callee params
+        var p0_slot = saved_flc;
+        var p1_slot = saved_flc + 1;
+        # Evaluate args and store to param slots
+        var iargc = 0;
+        if (PEEKT(S) != 11) {
+            var iago = 1;
+            while (iago == 1) {
+                PCMPE(S);
+                if (iargc == 0) { EFLSTORE(S, p0_slot); }
+                if (iargc == 1) { EFLSTORE(S, p1_slot); }
+                iargc = iargc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { iago = 0; }
+            }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        # Set local count past the param slots
+        SFLC(S, saved_flc + pc);
+        # Register callee param names as temporary locals (packed in fn_inline)
+        var inl_packed = GFINL(S, fi);
+        var pn0 = inl_packed & 0xFFFFFFFF;
+        var pn1 = (inl_packed >> 32) & 0xFFFFFFFF;
+        if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, pn0); SLDEP(S, p0_slot, GSDEP(S)); }
+        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, pn1); SLDEP(S, p1_slot, GSDEP(S)); }
+        # Save state and replay body tokens
+        var saved_ti = GTI(S);
+        var saved_rpc = GRPC(S);
+        SIDEP(S, GIDEP(S) + 1);
+        STI(S, GFBS(S, fi));
+        PARSE_PROG(S);
+        # Patch return jumps from inlined body to here
+        var new_rpc = GRPC(S);
+        var ri = saved_rpc;
+        while (ri < new_rpc) {
+            EPATCH(S, L64(S + 0x8DA20 + ri * 8));
+            ri = ri + 1;
+        }
+        SRPC(S, saved_rpc);
+        SIDEP(S, GIDEP(S) - 1);
+        # Restore token index
+        STI(S, saved_ti);
+        # Invalidate temporary param locals
+        if (pc >= 1) { S64(S + 0x91000 + p0_slot * 8, 0 - 1); }
+        if (pc >= 2) { S64(S + 0x91000 + p1_slot * 8, 0 - 1); }
+        return 0;
+    } } }
+    # NORMAL CALL PATH
+    # Args pushed left-to-right: arg1 first (bottom), argN last (top).
+    # ECALLPOPS pops top 6 into registers: rdi=argN-5, ..., r9=argN.
+    # For >6 args, the first (argc-6) remain on stack in forward order.
+    # ESTORESTACKPARM compensates for the reversed register assignment.
+    # Auto-coerce string literals to Str for params annotated : Str.
+    var argc = 0;
+    var smask = L64(S + 0xEBA000 + fi * 8);
+    if (PEEKT(S) != 11) {
+        var argo = 1;
+        while (argo == 1) {
+            # Auto-coercion: if this param is : Str and the arg is a string literal,
+            # emit str_from(literal) instead of the raw cstr pointer.
+            if (smask & (1 << argc)) {
+                if (PEEKT(S) == 30) {
+                    # String literal in a Str-typed param slot — auto-wrap with str_from
+                    var sf_fi = FINDFN(S, _STR_FROM_NOFF(S));
+                    PCMPE(S);
+                    EPUSHR(S);
+                    ECALLPOPS(S, 1);
+                    if (sf_fi >= 0) {
+                        var sfoff = L64(S + 0xE92000 + sf_fi * 8);
+                        if (sfoff >= 0) { ECALLTO(S, sfoff); }
+                        else { ECALLFIX(S, sf_fi); }
+                    }
+                    ECALLCLEAN(S, 1);
+                    EPUSHR(S);
+                    argc = argc + 1;
+                    if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                    else { argo = 0; }
+                    continue;
+                }
+            }
+            PCMPE(S);
+            EPUSHR(S);
+            argc = argc + 1;
+            if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+            else { argo = 0; }
+        }
+    }
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);
+    ECALLPOPS(S, argc);
+    var foff = L64(S + 0xE92000 + fi * 8);
+    if (foff >= 0) {
+        ECALLTO(S, foff);
+    } else {
+        ECALLFIX(S, fi);
+    }
+    ECALLCLEAN(S, argc);
+    return 0;
+}
+
+# Parse: impl TraitName for TypeName { fn method(self) { } ... }
+# Methods get mangled to TypeName_method (trait name is documentation only for now)
+fn PARSE_IMPL(S) {
+    STI(S, GTI(S) + 1);  # consume IMPL
+    # Parse trait name (skip for now — just used for documentation)
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    STI(S, GTI(S) + 1);  # consume trait name
+    # Expect "for"
+    if (PEEKT(S) != 55) { ERR_EXPECT(S, 55); }
+    STI(S, GTI(S) + 1);  # consume FOR
+    # Parse type name
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var type_noff = PEEKV(S);
+    STI(S, GTI(S) + 1);  # consume type name
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);  # consume {
+    # Parse methods inside the impl block
+    # Temporarily set module to the type name so methods get mangled
+    var saved_mod = GMOD(S);
+    SMOD(S, type_noff);
+    var igo = 1;
+    while (igo == 1) {
+        if (PEEKT(S) == 14) { igo = 0; }
+        else {
+            if (PEEKT(S) == 73) { STI(S, GTI(S) + 1); }
+            if (PEEKT(S) == 32) { PARSE_FN_DEF(S); }
+            else { igo = 0; }
+        }
+    }
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    STI(S, GTI(S) + 1);  # consume }
+    SMOD(S, saved_mod);
+    return 0;
+}
+
+# Skip generic parameters <T, U, ...> if present
+fn SKIP_GENERICS(S) {
+    if (PEEKT(S) == 19) {
+        STI(S, GTI(S) + 1);  # consume <
+        var ggo = 1;
+        while (ggo == 1) {
+            if (PEEKT(S) == 20) { ggo = 0; }
+            else { STI(S, GTI(S) + 1); }
+        }
+        STI(S, GTI(S) + 1);  # consume >
+    }
+    return 0;
+}
+
+# Parse fn name<T>(params) { body }
+# Dead store elimination: scan codebuf for consecutive stores to the same
+# [rbp-N] offset, NOP out the first store when redundant.
+# Pattern: store [rbp-N] (7) + load_imm (2/5/10) + store [rbp-N] (7) → NOP first store.
+fn DSE_PASS(S, fn_start) {
+    var dse_cp = GCP(S);
+    var dse_i = fn_start;
+    while (dse_i + 14 < dse_cp) {
+        if (load8(S + 0x54A000 + dse_i) == 0x48) {
+            if (load8(S + 0x54A000 + dse_i + 1) == 0x89) {
+                if (load8(S + 0x54A000 + dse_i + 2) == 0x85) {
+                    var dse_off = load32(S + 0x54A000 + dse_i + 3);
+                    var dse_j = dse_i + 7;
+                    var dse_skip = 0;
+                    if (load8(S + 0x54A000 + dse_j) == 0x31) { dse_skip = 2; }
+                    elif (load8(S + 0x54A000 + dse_j) == 0xB8) { dse_skip = 5; }
+                    elif (load8(S + 0x54A000 + dse_j) == 0x48) {
+                        if (load8(S + 0x54A000 + dse_j + 1) == 0xB8) { dse_skip = 10; }
+                    }
+                    if (dse_skip > 0) {
+                        var dse_next = dse_j + dse_skip;
+                        if (dse_next + 7 <= dse_cp) {
+                            if (load8(S + 0x54A000 + dse_next) == 0x48) {
+                                if (load8(S + 0x54A000 + dse_next + 1) == 0x89) {
+                                    if (load8(S + 0x54A000 + dse_next + 2) == 0x85) {
+                                        if (load32(S + 0x54A000 + dse_next + 3) == dse_off) {
+                                            var dse_ni = dse_i;
+                                            while (dse_ni < dse_j) {
+                                                store8(S + 0x54A000 + dse_ni, 0x90);
+                                                dse_ni = dse_ni + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dse_i = dse_i + 1;
+    }
+    return 0;
+}
+
+# Check if a codebuf offset is a jump target (recorded by EPATCH)
+fn IS_JUMP_TARGET(S, off) {
+    var jtc = L64(S + 0x9E000);
+    var i = 0;
+    while (i < jtc) {
+        if (L64(S + 0x9E008 + i * 8) == off) { return 1; }
+        i += 1;
+    }
+    return 0;
+}
+
+fn PARSE_FN_DEF(S) {
+    STI(S, GTI(S) + 1);  # consume FN
+    if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+    var noff = PEEKV(S);
+    STI(S, GTI(S) + 1);
+    # Skip generic parameters if present: fn foo<T, U>(...)
+    SKIP_GENERICS(S);
+    # Mangle name if inside a module: mod_fn
+    var mmod = GMOD(S);
+    if (mmod != 0) {
+        NPOS_GUARD(S, 256);
+        var mwp = GNPOS(S);
+        var mnoff = mwp;
+        var mri = 0;
+        var mrc = load8(S + 0x60000 + mmod + mri);
+        while (mrc != 0) { store8(S + 0x60000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x60000 + mmod + mri); }
+        store8(S + 0x60000 + mwp, 95); mwp = mwp + 1;
+        mri = 0; mrc = load8(S + 0x60000 + noff + mri);
+        while (mrc != 0) { store8(S + 0x60000 + mwp, mrc); mwp = mwp + 1; mri = mri + 1; mrc = load8(S + 0x60000 + noff + mri); }
+        store8(S + 0x60000 + mwp, 0); mwp = mwp + 1;
+        SNPOS(S, mwp);
+        noff = mnoff;
+    }
+    # Register or find fn
+    var fi = FINDFN(S, noff);
+    if (fi < 0) { fi = REGFN(S, noff); }
+    # v5.5.36 Phase 2b — clear fn's struct-return slot. The `: StructName`
+    # annotation after `)` sets it later if present; otherwise this fn
+    # returns a scalar value in rax as usual.
+    SFRS(S, fi, 0);
+    # v5.5.36 Phase 3 — clear fn's variadic flag. Set to 1 in the
+    # param loop below if the user writes `fn f(a, ...)`.
+    SFVA(S, fi, 0);
+    # v4.8.4-alpha4: transfer any pending `#regalloc` directive onto
+    # this fn's metadata slot. Cleared whether consumed or not so a
+    # stale flag from a prior parse error can't leak to the next fn.
+    # v4.9.1: store 5 (max register count: rbx, r12-r15) for #regalloc fns.
+    if (_regalloc_pending == 1) { SFRA(S, fi, 5); _regalloc_pending = 0; }
+    # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
+    # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
+    # the end of PARSE_FN_DEF.
+    _cur_fn_regalloc = GFRA(S, fi);
+    # v5.5.36 Phase 2b — look ahead past the param list to see whether
+    # the fn signature carries a `: StructName` return annotation. We
+    # need the answer BEFORE param parse begins so local-disp shifts
+    # account for the retptr stash slot (reserved immediately after
+    # regalloc saves, before any regular local). Cheap one-pass scan
+    # that pops TI back to its original position; parenthesis depth
+    # tracking handles nested parens in default-value expressions
+    # (future-proof; current cyrius fn params are name-only or
+    # `name: Type`).
+    _cur_fn_ret_stash = 0;
+    var _rs_save_ti = GTI(S);
+    if (PEEKT(S) == 10) {
+        STI(S, GTI(S) + 1);
+        var _rs_depth = 1;
+        while (_rs_depth > 0 && PEEKT(S) != 12) {
+            var _rs_tk = PEEKT(S);
+            if (_rs_tk == 10) { _rs_depth = _rs_depth + 1; }
+            if (_rs_tk == 11) { _rs_depth = _rs_depth - 1; }
+            STI(S, GTI(S) + 1);
+        }
+        if (PEEKT(S) == 49) { _cur_fn_ret_stash = 8; }
+    }
+    STI(S, _rs_save_ti);
+    # Set fn offset to current CP
+    S64(S + 0xE92000 + fi * 8, GCP(S));
+    # Save compiler state
+    var saved_lv = GLVAR(S);
+    SINFN(S, 1);
+    SFLC(S, 0);
+    SRPC(S, 0);
+    S64(S + 0x8F900, 0);  # defer_count = 0
+    S64(S + 0x9E000, 0);  # jump_target_count = 0
+    # Emit prologue
+    EFNPRO(S);
+    var frame_patch = ESUBRSP(S);
+    # v4.8.4-alpha6: save rbx into its reserved slot at [rbp-8]. Must
+    # v4.9.1: save callee-saved registers into reserved slots.
+    # rbx→[rbp-8], r12→[rbp-16], r13→[rbp-24], r14→[rbp-32], r15→[rbp-40].
+    # Encodings: REX.WR=4C for r12-r15 (REX.R=1), opcode 89 (mov r/m,r),
+    # ModR/M byte encodes register + [rbp+disp8].
+    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
+    if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
+    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
+    if (_cur_fn_regalloc >= 4) { E3(S, 0x75894C); EB(S, 0xE0); }  # mov [rbp-32], r14
+    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D894C); EB(S, 0xD8); }  # mov [rbp-40], r15
+    # v5.5.36 Phase 2b — stash the hidden retptr (SysV: RDI, Win64:
+    # RCX) into the reserved slot immediately after regalloc saves.
+    # ESTOREREGPARM(S, 0, disp) emits the ABI-correct opcode.
+    if (_cur_fn_ret_stash > 0) {
+        var _rs_stash_disp = 0 - (_cur_fn_regalloc * 8 + 8);
+        ESTOREREGPARM(S, 0, _rs_stash_disp);
+    }
+    var fn_start = GCP(S);
+    # Parse params
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);
+    var pc = 0;
+    var str_mask = 0;
+    if (PEEKT(S) != 11) {
+        var pgo = 1;
+        while (pgo == 1) {
+            # v5.5.36 Phase 3 — variadic ellipsis terminator:
+            # `fn f(a, ...)`. Must appear at the tail of the param
+            # list (either as the first and only "param" for a
+            # fully-variadic fn, or after at least one named param
+            # with a preceding comma). Sets the fn-variadic flag and
+            # breaks the param loop; no local-var slot is registered
+            # for `...` itself.
+            if (PEEKT(S) == 112) {
+                STI(S, GTI(S) + 1);           # consume '...'
+                SFVA(S, fi, 1);
+                pgo = 0;
+                break;
+            }
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var pnoff = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            # Optional type annotation: fn f(x: Str, y: Vec<i64>, ...)
+            # If the type is Str, set bit pc in str_mask for auto-coercion.
+            if (PEEKT(S) == 49) {
+                STI(S, GTI(S) + 1);  # consume :
+                if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # skip * for pointer types
+                if (PEEKT(S) == 2) {
+                    var tnoff = PEEKV(S);
+                    # Check if type name is "Str" (0x00727453 = "Str\0")
+                    if (L64(S + 0x60000 + tnoff) & 0xFFFFFFFF == 0x00727453) {
+                        str_mask = str_mask | (1 << pc);
+                    }
+                }
+                STI(S, GTI(S) + 1);  # consume type
+                SKIP_GENERICS(S);    # skip <T> if present
+            }
+            var li = GFLC(S);
+            S64(S + 0x91000 + li * 8, pnoff);
+            SLDEP(S, li, 0);
+            # Only emit register params now (0-5). v5.5.36 Phase 2b:
+            # struct-returning fns reserve arg-reg 0 (RDI on SysV, RCX
+            # on Win64) for the hidden retptr, so user param 0 arrives
+            # in the SECOND arg reg — shift pidx +1 when storing.
+            var _pp_shift = 0;
+            if (_cur_fn_ret_stash > 0) { _pp_shift = 1; }
+            if (pc + _pp_shift < 6) {
+                ESTOREPARM(S, pc + _pp_shift, li, 0);
+            }
+            SFLC(S, li + 1);
+            pc = pc + 1;
+            if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+            else { pgo = 0; }
+        }
+    }
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);
+    S64(S + 0xE9A000 + fi * 8, pc);
+    # Store Str param mask — bit N set = param N is : Str
+    S64(S + 0xEBA000 + fi * 8, str_mask);
+    # v5.5.36 Phase 2b — optional `: StructName` return-type annotation:
+    # `fn make(): Point { ... return p; }`. Sets fn_ret_sid[fi] = sid;
+    # PARSE_RETURN + call-site consult it to emit the Win64 hidden-RCX /
+    # SysV-RDI retptr convention (see main.cyr heap map 0xEC000).
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);                         # consume ':'
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var rt_noff = PEEKV(S);
+        var rt_sid = FINDSTRUCT(S, rt_noff);
+        if (rt_sid <= 0) {
+            ERR_MSG(S, "fn return type must be a struct name", 37);
+        }
+        SFRS(S, fi, rt_sid);
+        _cur_fn_ret_sid = rt_sid;
+        STI(S, GTI(S) + 1);                         # consume struct name
+        SKIP_GENERICS(S);
+    }
+    # Record first param name offset for inlining (stored in fn_inline later)
+    # Emit stack param stores (7+) now that we know total pc
+    if (pc > 6) {
+        var spi = 6;
+        while (spi < pc) {
+            ESTOREPARM(S, spi, spi, pc);
+            spi = spi + 1;
+        }
+    }
+    # Parse body
+    if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+    STI(S, GTI(S) + 1);
+    # Emit jmp placeholder for defer flag init (backpatched after body)
+    var defer_init_jmp = EJMP0(S);
+    var body_cp = GCP(S);
+    # Record body start for inline replay (x86 only)
+    if (_INLINE_OK == 1) { SFBS(S, fi, GTI(S)); }
+    PARSE_PROG(S);
+    if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+    # Record body end and classify inline candidate (x86 only)
+    if (_INLINE_OK == 1) {
+        SFBE(S, fi, GTI(S));
+        var btokens = GTI(S) - GFBS(S, fi);
+        var can_inline = 1;
+        if (pc > 2) { can_inline = 0; }
+        if (btokens > 16) { can_inline = 0; }
+        if (can_inline == 1) {
+            var sci = GFBS(S, fi);
+            while (sci < GTI(S)) {
+                var st = TOKTYP(S, sci);
+                if (st == 15) { can_inline = 0; }
+                if (st == 16) { can_inline = 0; }
+                if (st == 55) { can_inline = 0; }
+                if (st == 3) { can_inline = 0; }
+                sci = sci + 1;
+            }
+        }
+        if (can_inline == 1) {
+            if (pc == 2) { SFINL(S, fi, (L64(S + 0x91008) << 32) | (L64(S + 0x91000) & 0xFFFFFFFF)); }
+            elif (pc == 1) { SFINL(S, fi, L64(S + 0x91000)); }
+            elif (pc == 0) { SFINL(S, fi, 1); }
+        } else { SFINL(S, fi, 0); }
+    }
+    STI(S, GTI(S) + 1);
+    var dc = L64(S + 0x8F900);
+    # Backpatch defer flag init: emit zeroing code, then jmp to body
+    if (dc > 0) {
+        # Emit zeroing trampoline at current CP (after body, before epilogue)
+        EPATCH(S, defer_init_jmp);  # patch initial jmp → here (zeroing code)
+        var dzi = 0;
+        while (dzi < dc) {
+            var dzflag = L64(S + 0x8F908 + dzi * 24 + 16);
+            EMOVI(S, 0);
+            EFLSTORE(S, dzflag);
+            dzi = dzi + 1;
+        }
+        EJMP(S, body_cp);  # jmp back to body start
+    } else {
+        # No defers — patch jmp to land at body_cp
+        # Temporarily set CP to body_cp so EPATCH computes the right offset
+        var saved_cp = GCP(S);
+        SCP(S, body_cp);
+        EPATCH(S, defer_init_jmp);
+        SCP(S, saved_cp);
+    }
+    var rpc = GRPC(S);
+    # Patch return jumps to land here
+    var ri = 0;
+    while (ri < rpc) {
+        EPATCH(S, L64(S + 0x8DA20 + ri * 8));
+        ri = ri + 1;
+    }
+    # Execute deferred blocks LIFO: save rax, check flag, jmp→block, restore rax
+    if (dc > 0) {
+        EPUSHR(S);  # save return value
+        var di = dc - 1;
+        while (di >= 0) {
+            var bstart = L64(S + 0x8F908 + di * 24);
+            var bend = L64(S + 0x8F908 + di * 24 + 8);
+            var dflag = L64(S + 0x8F908 + di * 24 + 16);
+            # Check flag: load flag, test rax==0, je skip
+            EFLLOAD(S, dflag);
+            ETESTAZ(S);
+            # je skip (0F 84 rel32) — skip this defer if flag==0
+            var dskip = EJCC(S, 0x84);
+            # Jump to the deferred block
+            EJMP(S, bstart);
+            # Patch the block's end-jmp to return here (current CP)
+            EPATCH(S, bend);
+            # Patch skip to land here
+            EPATCH(S, dskip);
+            di = di - 1;
+        }
+        EPOPR(S);  # restore return value
+    }
+    # v4.9.1: restore callee-saved registers (reverse order of save).
+    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
+    if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
+    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]
+    if (_cur_fn_regalloc >= 2) { E3(S, 0x658B4C); EB(S, 0xF0); }  # mov r12, [rbp-16]
+    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8B48); EB(S, 0xF8); }  # mov rbx, [rbp-8]
+    # Emit epilogue
+    EFNEPI(S);
+    DSE_PASS(S, fn_start);
+    # LASE: eliminate store+load pairs where the load is NOT a jump target
+    var lase_cp = GCP(S);
+    var lase_i = fn_start;
+    var lase_count = 0;
+    while (lase_i + 14 <= lase_cp) {
+        # Detect store (7 bytes): 48 89 85 XX XX XX XX
+        if (load8(S + 0x54A000 + lase_i) == 0x48) {
+        if (load8(S + 0x54A000 + lase_i + 1) == 0x89) {
+        if (load8(S + 0x54A000 + lase_i + 2) == 0x85) {
+            # Check for load at exactly store+7: 48 8B 85 XX XX XX XX (same offset)
+            var lj = lase_i + 7;
+            if (load8(S + 0x54A000 + lj) == 0x48) {
+            if (load8(S + 0x54A000 + lj + 1) == 0x8B) {
+            if (load8(S + 0x54A000 + lj + 2) == 0x85) {
+                if (load32(S + 0x54A000 + lase_i + 3) == load32(S + 0x54A000 + lj + 3)) {
+                    # Same offset — check if load is a jump target
+                    if (IS_JUMP_TARGET(S, lj) == 0) {
+                        # Safe to eliminate — NOP the 7-byte load
+                        var ln = lj;
+                        while (ln < lj + 7) {
+                            store8(S + 0x54A000 + ln, 0x90);
+                            ln += 1;
+                        }
+                        lase_count += 1;
+                    }
+                }
+            } } }
+        } } }
+        lase_i += 1;
+    }
+    # v4.8.4-alpha7/alpha8: #regalloc routing via post-body peephole.
+    # alpha7 did the core patch (rewrite `mov rax,[rbp-N]` /
+    # `mov [rbp-N],rax` to `mov rax,rbx` / `mov rbx,rax` + NOP pad)
+    # for a positional pick (local idx `pc`). alpha8 adds:
+    #   1. Use-count picker — actually pick the hottest non-param
+    #      slot, not just the first one.
+    #   2. Width-aware safety scan — abort routing if the picked slot
+    #      is accessed via any non-8-byte mov (movzx byte/word,
+    #      byte/word/dword store, loop-var r12 cache), since those
+    #      still hit the stack slot and would diverge from rbx.
+    # The `&local` abort (lea [rbp+hot_disp]) also stays in effect.
+    if (_cur_fn_regalloc > 0) {
+        var ra_flc = GFLC(S);
+        if (pc < ra_flc) {
+            var ra_start = fn_start;
+            var ra_end = GCP(S);
+            # -- Use-count pass (alpha8). Walk the emitted bytes and
+            # score each candidate slot by how many times it's read or
+            # written via the patchable 64-bit mov patterns. Params
+            # (idx < pc) get skipped — their prologue stores are
+            # `ESTOREREGPARM` (different ModR/M), but the subsequent
+            # reads/writes we *would* match shouldn't steal a slot
+            # from a hotter user local.
+            # Cap at 256 entries — #regalloc fns are small by
+            # intention; if any has >256 locals it skips routing.
+            if (ra_flc <= 256) {
+                var ra_counts[256];
+                var ra_ci = 0;
+                while (ra_ci < 256) { store64(&ra_counts + ra_ci * 8, 0); ra_ci = ra_ci + 1; }
+                var ra_s = ra_start;
+                while (ra_s + 7 <= ra_end) {
+                    if (load8(S + 0x54A000 + ra_s) == 0x48) {
+                    var ra_op1 = load8(S + 0x54A000 + ra_s + 1);
+                    if (ra_op1 == 0x8B || ra_op1 == 0x89) {
+                    if (load8(S + 0x54A000 + ra_s + 2) == 0x85) {
+                        # Decode disp32 → local idx. Only [rbp+neg]
+                        # slots are user locals; positive disps are
+                        # stack args above rbp and ignored.
+                        var ra_d = load32(S + 0x54A000 + ra_s + 3);
+                        # Sign-extend the 32-bit signed disp.
+                        if (ra_d >= 0x80000000) { ra_d = ra_d - 0x100000000; }
+                        if (ra_d < 0) {
+                            # disp = -(idx+1+N)*8 where N = _cur_fn_regalloc,
+                            # so idx = -ra_d/8 - 1 - N.
+                            var ra_idx = (0 - ra_d) / 8 - 1 - _cur_fn_regalloc;
+                            if (ra_idx >= pc) {
+                            if (ra_idx < ra_flc) {
+                                var ra_cur = load64(&ra_counts + ra_idx * 8);
+                                store64(&ra_counts + ra_idx * 8, ra_cur + 1);
+                            } }
+                        }
+                    } } }
+                    ra_s = ra_s + 1;
+                }
+                # v4.9.1: pick up to _cur_fn_regalloc hot locals.
+                # Register assignment table (3-byte mov encodings):
+                #   reg 0 (rbx): load=48 89 D8, store=48 89 C3
+                #   reg 1 (r12): load=4C 89 E0, store=49 89 C4
+                #   reg 2 (r13): load=4C 89 E8, store=49 89 C5
+                #   reg 3 (r14): load=4C 89 F0, store=49 89 C6
+                #   reg 4 (r15): load=4C 89 F8, store=49 89 C7
+                # "load" = mov rax, reg; "store" = mov reg, rax.
+                var ra_load_b0[5]; var ra_load_b1[5]; var ra_load_b2[5];
+                var ra_store_b0[5]; var ra_store_b1[5]; var ra_store_b2[5];
+                store8(&ra_load_b0, 0x48); store8(&ra_load_b1, 0x89); store8(&ra_load_b2, 0xD8);
+                store8(&ra_store_b0, 0x48); store8(&ra_store_b1, 0x89); store8(&ra_store_b2, 0xC3);
+                store8(&ra_load_b0+1, 0x4C); store8(&ra_load_b1+1, 0x89); store8(&ra_load_b2+1, 0xE0);
+                store8(&ra_store_b0+1, 0x49); store8(&ra_store_b1+1, 0x89); store8(&ra_store_b2+1, 0xC4);
+                store8(&ra_load_b0+2, 0x4C); store8(&ra_load_b1+2, 0x89); store8(&ra_load_b2+2, 0xE8);
+                store8(&ra_store_b0+2, 0x49); store8(&ra_store_b1+2, 0x89); store8(&ra_store_b2+2, 0xC5);
+                store8(&ra_load_b0+3, 0x4C); store8(&ra_load_b1+3, 0x89); store8(&ra_load_b2+3, 0xF0);
+                store8(&ra_store_b0+3, 0x49); store8(&ra_store_b1+3, 0x89); store8(&ra_store_b2+3, 0xC6);
+                store8(&ra_load_b0+4, 0x4C); store8(&ra_load_b1+4, 0x89); store8(&ra_load_b2+4, 0xF8);
+                store8(&ra_store_b0+4, 0x49); store8(&ra_store_b1+4, 0x89); store8(&ra_store_b2+4, 0xC7);
+                # Pick top N hot locals (greedy: pick best, zero it, repeat).
+                var ra_assigned[5];  # ra_assigned[reg] = local idx (-1 = unused)
+                var ra_num_assigned = 0;
+                var ra_ri = 0;
+                while (ra_ri < _cur_fn_regalloc) {
+                    var ra_best = 0 - 1;
+                    var ra_bestc = 1;  # threshold: >= 2 uses
+                    var ra_pi = pc;
+                    while (ra_pi < ra_flc) {
+                        var ra_cc = load64(&ra_counts + ra_pi * 8);
+                        if (ra_cc > ra_bestc) {
+                            ra_bestc = ra_cc;
+                            ra_best = ra_pi;
+                        }
+                        ra_pi = ra_pi + 1;
+                    }
+                    if (ra_best < 0) { ra_ri = _cur_fn_regalloc; }
+                    else {
+                        # Safety scan for this candidate.
+                        var cand_disp = 0 - ((ra_best + 1 + _cur_fn_regalloc) * 8);
+                        var cand_disp32 = cand_disp & 0xFFFFFFFF;
+                        var ra_safe = 1;
+                        var ra_sp = ra_start;
+                        while (ra_sp + 7 <= ra_end) {
+                            if (load8(S + 0x54A000 + ra_sp + 2) == 0x85) {
+                            if (load32(S + 0x54A000 + ra_sp + 3) == cand_disp32) {
+                                var ra_px1 = load8(S + 0x54A000 + ra_sp);
+                                var ra_px2 = load8(S + 0x54A000 + ra_sp + 1);
+                                var ra_ok = 0;
+                                if (ra_px1 == 0x48) {
+                                    if (ra_px2 == 0x8B) { ra_ok = 1; }
+                                    if (ra_px2 == 0x89) { ra_ok = 1; }
+                                }
+                                if (ra_ok == 0) { ra_safe = 0; }
+                            } }
+                            ra_sp = ra_sp + 1;
+                        }
+                        if (ra_safe == 1) {
+                            store64(&ra_assigned + ra_num_assigned * 8, ra_best);
+                            ra_num_assigned = ra_num_assigned + 1;
+                        }
+                        # Zero this slot so next iteration picks the next hottest
+                        store64(&ra_counts + ra_best * 8, 0);
+                    }
+                    ra_ri = ra_ri + 1;
+                }
+                # Patch pass: for each assigned register, rewrite its locals.
+                var ra_ai = 0;
+                while (ra_ai < ra_num_assigned) {
+                    var ra_local = load64(&ra_assigned + ra_ai * 8);
+                    var hot_disp = 0 - ((ra_local + 1 + _cur_fn_regalloc) * 8);
+                    var hot_disp32 = hot_disp & 0xFFFFFFFF;
+                    var lb0 = load8(&ra_load_b0 + ra_ai);
+                    var lb1 = load8(&ra_load_b1 + ra_ai);
+                    var lb2 = load8(&ra_load_b2 + ra_ai);
+                    var sb0 = load8(&ra_store_b0 + ra_ai);
+                    var sb1 = load8(&ra_store_b1 + ra_ai);
+                    var sb2 = load8(&ra_store_b2 + ra_ai);
+                    var ra_p = ra_start;
+                    while (ra_p + 7 <= ra_end) {
+                        if (load8(S + 0x54A000 + ra_p) == 0x48) {
+                        var op1 = load8(S + 0x54A000 + ra_p + 1);
+                        if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {
+                        if (load32(S + 0x54A000 + ra_p + 3) == hot_disp32) {
+                            if (op1 == 0x8B) {
+                                # mov rax,[rbp+disp] → mov rax,REG; 4-byte NOP
+                                store8(S + 0x54A000 + ra_p + 0, lb0);
+                                store8(S + 0x54A000 + ra_p + 1, lb1);
+                                store8(S + 0x54A000 + ra_p + 2, lb2);
+                                store8(S + 0x54A000 + ra_p + 3, 0x0F);
+                                store8(S + 0x54A000 + ra_p + 4, 0x1F);
+                                store8(S + 0x54A000 + ra_p + 5, 0x40);
+                                store8(S + 0x54A000 + ra_p + 6, 0x00);
+                            }
+                            if (op1 == 0x89) {
+                                # mov [rbp+disp],rax → mov REG,rax; 4-byte NOP
+                                store8(S + 0x54A000 + ra_p + 0, sb0);
+                                store8(S + 0x54A000 + ra_p + 1, sb1);
+                                store8(S + 0x54A000 + ra_p + 2, sb2);
+                                store8(S + 0x54A000 + ra_p + 3, 0x0F);
+                                store8(S + 0x54A000 + ra_p + 4, 0x1F);
+                                store8(S + 0x54A000 + ra_p + 5, 0x40);
+                                store8(S + 0x54A000 + ra_p + 6, 0x00);
+                            }
+                        } } }
+                        ra_p = ra_p + 1;
+                    }
+                    ra_ai = ra_ai + 1;
+                }
+            }
+        }
+    }
+    # Patch frame size
+    var flc = GFLC(S);
+    # v4.8.4-alpha6: #regalloc fns reserve an extra 8-byte slot at
+    # [rbp-8] for the saved rbx. Bumping flc by 1 pre-rounding keeps
+    # the 16-byte alignment formula valid — call-site rsp stays 16-
+    # aligned for SSE-safe callees.
+    if (_cur_fn_regalloc > 0) { flc = flc + _cur_fn_regalloc; }
+    # v5.5.36 Phase 2b — struct-returning fns reserve one extra
+    # 8-byte slot for the hidden retptr stash (between regalloc
+    # saves and regular locals).
+    if (_cur_fn_ret_stash > 0) { flc = flc + 1; }
+    var fsz = (flc * 8 + 15) & (0 - 16);
+    EPATCHFRAME(S, frame_patch, fsz);
+    # Record fn code end (v4.4.0 DCE) — this is GCP after epilogue + LASE + frame patch.
+    # Paired with fn_start at 0xC4000[fi], the [start, end) range bounds the emitted
+    # body bytes for this fn, usable by the FIXUP pass to NOP dead functions safely.
+    SFNE(S, fi, GCP(S));
+    # Restore state (DON'T restore VCNT — arrays inside functions are globals that persist)
+    SLVAR(S, saved_lv);
+    SINFN(S, 0);
+    # v4.8.4-alpha5: clear #regalloc mirror so nested/sibling fns without
+    # the directive don't inherit it.
+    _cur_fn_regalloc = 0;
+    # v5.5.36 Phase 2b — same for the ret-stash flag + sid mirror.
+    _cur_fn_ret_stash = 0;
+    _cur_fn_ret_sid = 0;
+    return 0;
+}

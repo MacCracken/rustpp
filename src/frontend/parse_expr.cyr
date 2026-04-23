@@ -1,0 +1,1388 @@
+# PARSER — expression parsing: PARSE_FACTOR / PARSE_TERM / PEXPR /
+# PCMPE + helpers (_SC_ARITY, _STR_FROM_NOFF, PF64BIN, PF64CMP,
+# PARSE_SIMD_EXT, EPTR_SCALE, BUILD_OP_NAME, EMIT_OP_DISPATCH).
+# ================================================================
+# Split out of src/frontend/parse.cyr in v5.5.38 to keep single-file
+# LOC under ~1500. Included by parse.cyr at the same textual position
+# the original content lived. No logical change from the original
+# inline version; self-host byte-identical by construction.
+
+fn _SC_ARITY(n) {
+    if (n == 0) { return 3; }    # read(fd, buf, count)
+    if (n == 1) { return 3; }    # write(fd, buf, count)
+    if (n == 2) { return 3; }    # open(path, flags, mode)
+    if (n == 3) { return 1; }    # close(fd)
+    if (n == 4) { return 2; }    # stat(path, buf)
+    if (n == 5) { return 2; }    # fstat(fd, buf)
+    if (n == 8) { return 3; }    # lseek(fd, off, whence)
+    if (n == 9) { return 6; }    # mmap(addr, len, prot, flags, fd, off)
+    if (n == 10) { return 3; }   # mprotect(addr, len, prot)
+    if (n == 11) { return 2; }   # munmap(addr, len)
+    if (n == 12) { return 1; }   # brk(addr)
+    if (n == 16) { return 3; }   # ioctl(fd, req, arg)
+    if (n == 21) { return 2; }   # access(path, mode)
+    if (n == 22) { return 1; }   # pipe(fds)
+    if (n == 32) { return 1; }   # dup(fd)
+    if (n == 33) { return 2; }   # dup2(old, new)
+    if (n == 39) { return 0; }   # getpid()
+    if (n == 56) { return 5; }   # clone(flags, stack, ptid, ctid, tls)
+    if (n == 57) { return 0; }   # fork()
+    if (n == 59) { return 3; }   # execve(path, argv, envp)
+    if (n == 60) { return 1; }   # exit(code)
+    if (n == 61) { return 4; }   # wait4(pid, status, opts, rusage)
+    if (n == 62) { return 2; }   # kill(pid, sig)
+    if (n == 63) { return 1; }   # uname(buf)
+    if (n == 72) { return 3; }   # fcntl(fd, cmd, arg)
+    if (n == 79) { return 2; }   # getcwd(buf, size)
+    if (n == 80) { return 1; }   # chdir(path)
+    if (n == 83) { return 2; }   # mkdir(path, mode)
+    if (n == 84) { return 1; }   # rmdir(path)
+    if (n == 87) { return 1; }   # unlink(path)
+    if (n == 90) { return 2; }   # chmod(path, mode)
+    if (n == 102) { return 0; }  # getuid()
+    if (n == 104) { return 0; }  # getgid()
+    if (n == 107) { return 0; }  # geteuid()
+    if (n == 108) { return 0; }  # getegid()
+    if (n == 112) { return 1; }  # setsid() — actually 0 args but Cyrius wraps
+    if (n == 113) { return 1; }  # setuid(uid)
+    if (n == 116) { return 2; }  # setgroups(size, list)
+    if (n == 165) { return 5; }  # mount(src, tgt, fs, flags, data)
+    if (n == 166) { return 2; }  # umount2(target, flags)
+    if (n == 169) { return 4; }  # reboot(magic1, magic2, cmd, arg)
+    return 0 - 1;
+}
+
+# Cache for str_from function index (auto-coercion).
+# Lazily resolved on first use — returns the tok_names offset for "str_from".
+var _str_from_cache = 0 - 1;
+fn _STR_FROM_NOFF(S) {
+    if (_str_from_cache >= 0) { return _str_from_cache; }
+    # Search tok_names for "str_from\0" = 0x006D6F72665F727473
+    var npos = GNPOS(S);
+    var i = 0;
+    while (i < npos) {
+        if (L64(S + 0x60000 + i) == 0x6D6F72665F727473) {
+            if (load8(S + 0x60000 + i + 8) == 0) {
+                _str_from_cache = i;
+                return i;
+            }
+        }
+        # Skip to next null terminator
+        while (i < npos) { if (load8(S + 0x60000 + i) == 0) { i = i + 1; break; } i = i + 1; }
+    }
+    return 0 - 1;
+}
+
+fn PARSE_FACTOR(S) {
+    var typ = PEEKT(S);
+    SPSC(S, 0);
+    SESTYPE(S, 0);
+    SESVAR(S, 0 - 1);
+    SEXW(S, 0);
+    # Unary minus: -expr
+    if (typ == 7) {
+        STI(S, GTI(S) + 1);
+        # Optimization: -NUM → emit negated constant
+        if (PEEKT(S) == 1) {
+            EMOVI(S, 0 - PEEKV(S));
+            STI(S, GTI(S) + 1);
+            return 0;
+        }
+        # General: parse factor, emit 0-rax via push/sub
+        EMOVI(S, 0);
+        EPUSHR(S);
+        PARSE_FACTOR(S);
+        EMOVCA(S);
+        EPOPR(S);
+        ESUBR(S);
+        return 0;
+    }
+    # Unary bitwise NOT: ~expr
+    if (typ == 37) {
+        STI(S, GTI(S) + 1);
+        PARSE_FACTOR(S);
+        ENOTR(S);
+        return 0;
+    }
+    if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
+    # sizeof(Type) — compile-time constant (detected as IDENT "sizeof")
+    if (typ == 2) { if (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFFFF == 0x666F657A6973) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+        STI(S, GTI(S) + 1);
+        var szval = 0;
+        if (PEEKT(S) == 105) {
+            # sizeof(u128) = 16
+            szval = 16;
+            STI(S, GTI(S) + 1);
+        } else {
+            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+            var szn = PEEKV(S);
+            STI(S, GTI(S) + 1);
+            var szname = L64(S + 0x60000 + szn);
+            if (szname & 0xFFFF == 0x3869) { szval = 1; }
+            elif (szname & 0xFFFFFF == 0x363169) { szval = 2; }
+            elif (szname & 0xFFFFFF == 0x323369) { szval = 4; }
+            elif (szname & 0xFFFFFF == 0x343669) { szval = 8; }
+            else {
+                var szsid = FINDSTRUCT(S, szn);
+                if (szsid > 0) { szval = STRUCTSZ(S, szsid - 1); }
+                else { ERR_MSG(S, "sizeof: unknown type", 20); }
+            }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        EMOVI(S, szval);
+        return 0;
+    } }
+    # mulh64(a, b) — high 64 bits of a 64×64 unsigned multiply
+    # Packed LE encoding of "mulh64" = 0x3436686C756D.
+    if (typ == 2) { if (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFFFF == 0x3436686C756D) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+        STI(S, GTI(S) + 1);
+        PCMPE(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); }
+        STI(S, GTI(S) + 1);
+        PCMPE(S); EPOPC(S); EMULH(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        _cfo = 0;
+        return 0;
+    } }
+    if (typ == 1) {
+        var val = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        _cfp = GCP(S);
+        EMOVI(S, val);
+        # Mark as foldable for small non-negative literals. Originally
+        # guarded `val > 0` because EMOVI(S, 0) emits 2 B (`xor eax, eax`)
+        # vs 5 B for val > 0, and we worried const-fold rewrites assumed
+        # a fixed slot size. Rewrites actually use `SCP(_cfp); EMOVI(_, v)`
+        # which truncates + re-emits, so the emitted size doesn't matter
+        # — any const, including 0, folds safely. Dropping the 0 exclusion
+        # unblocks `syscall(0, ...)` reroute dispatch on both Mach-O and PE
+        # (v5.5.14 — stdlib `lib/io.cyr` uses literal 0 for SYS_READ).
+        if (val >= 0) { if (val < 0x10000) { _cfv = val; _cfo = 1; } }
+        return 0;
+    }
+    if (typ == 2) {
+        # IDENT — variable load or function call
+        var noff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        # Check for function call
+        if (PEEKT(S) == 10) {
+            PARSE_FNCALL(S, noff);
+            _cfo = 0;
+            return 0;
+        }
+        # Check for enum.variant or struct.field access
+        if (PEEKT(S) == 41) {
+            # Peek: is the second ident a known global var? (enum variant)
+            var dot_ti = GTI(S);
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) == 2) {
+                var vn = PEEKV(S);
+                var vi = FINDVAR(S, vn);
+                if (vi >= 0) {
+                    # Enum.VARIANT — load the variant's global value.
+                    # v5.5.2: if this gvar was registered by PARSE_ENUM_DEF
+                    # as an enum constant (marker bit 63 set in the
+                    # 0xD8000 table), fold to EMOVI and mark _cfo=1 so
+                    # callers like the syscall sc_num dispatch can read
+                    # the compile-time value. Falls through to EVLOAD if
+                    # the idx is out of the 1024-slot cap.
+                    STI(S, GTI(S) + 1);
+                    if (vi < 1024) {
+                        var _ecvq = L64(S + 0xD8000 + vi * 8);
+                        if (_ecvq < 0) {
+                            var _evq = _ecvq & 0x7FFFFFFFFFFFFFFF;
+                            _cfp = GCP(S);
+                            EMOVI(S, _evq);
+                            if (_evq < 0x10000) { _cfv = _evq; _cfo = 1; }
+                            else { _cfo = 0; }
+                            return 0;
+                        }
+                    }
+                    EVLOAD(S, vi);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # Not an enum — rewind and do struct field load
+            STI(S, dot_ti);
+            PARSE_FIELD_LOAD(S, noff);
+            _cfo = 0;
+            return 0;
+        }
+        # Variable load — check local first if in function
+        SPSC(S, 0);
+        if (GINFN(S) == 1) {
+            var li = FINDLOCAL(S, noff);
+            if (li >= 0) {
+                var lt = GLTYPE(S, li);
+                SPSC(S, lt);
+                # Width-correct load for scalar types (1=i8, 2=i16, 4=i32)
+                if (lt > 0) { if (lt <= 8) { SEXW(S, lt); EFLLOAD_W(S, li, lt); return 0; } }
+                EFLLOAD(S, li);
+                return 0;
+            }
+        }
+        var idx = FINDVAR(S, noff);
+        if (idx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6);
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "' (missing include or enum?)\n", 29);
+            syscall(SYS_EXIT, 1);
+        }
+        var vt = GVTYPE(S, idx);
+        if (vt < 0) { SPSC(S, 0 - vt); }
+        if (vt > 0) {
+            # Disambiguate scalar types from struct IDs using var_sizes:
+            # Scalar i8/i16/i32 have var_sizes 1/2/4. Structs have var_sizes >= 8.
+            var gvsz = L64(S + 0x12A000 + idx * 8);
+            if (gvsz < 8) {
+                SEXW(S, gvsz);
+                EVLOAD_W(S, idx, gvsz);
+                return 0;
+            }
+            SESTYPE(S, vt);
+            if (gvsz > 8) { SESVAR(S, idx); }
+        }
+        # v5.5.2: bare identifier resolving to an enum constant folds to
+        # EMOVI with _cfo=1 so the syscall-reroute dispatch (and any
+        # other _cfv-driven optimization) can see the value at parse
+        # time. Enum registration writes the marker at 0xD8000; any
+        # gvar whose slot has bit 63 set is a fold candidate. Same
+        # 1024-slot cap as the qualified path.
+        if (idx < 1024) {
+            var _ecv = L64(S + 0xD8000 + idx * 8);
+            if (_ecv < 0) {
+                var _ev = _ecv & 0x7FFFFFFFFFFFFFFF;
+                _cfp = GCP(S);
+                EMOVI(S, _ev);
+                if (_ev < 0x10000) { _cfv = _ev; _cfo = 1; }
+                else { _cfo = 0; }
+                return 0;
+            }
+        }
+        EVLOAD(S, idx);
+        return 0;
+    }
+    if (typ == 10) {
+        STI(S, GTI(S) + 1);
+        PCMPE(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        _cfo = 0;
+        return 0;
+    }
+    if (typ == 27) {
+        # &var or &fn — address of variable or function
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+        var anoff = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        # Check if it's a function name first
+        var fni = FINDFN(S, anoff);
+        if (fni >= 0) {
+            # Emit function address via fixup type 3
+            var fc = GFCNT(S);
+            if (fc >= 4096) {
+                syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+                syscall(SYS_EXIT, 1);
+            }
+            # Register the function-address fixup (common to both
+            # backends — only the placeholder bytes differ).
+            var fnaddr = S + 0x150B000 + fc * 16;
+            SFCNT(S, fc + 1);
+            if (_AARCH64_BACKEND == 1) {
+                # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that
+                # FIXUP patches to the resolved function address.
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
+                EW(S, 0xD2800000);  # movz x0, #0
+                EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
+                EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
+            } elif (_IS_OBJ(S) == 1) {
+                # LEA rax, [rip+disp32]: 48 8D 05 <rel32> (PIC-safe)
+                EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
+                EDISP32(S, 0);
+            } else {
+                E2(S, 0xB848);
+                S64(fnaddr, GCP(S));
+                S64(fnaddr + 8, (3 << 56) | fni);
+                E8(S, 0);
+            }
+            return 0;
+        }
+        if (GINFN(S) == 1) {
+            var ali = FINDLOCAL(S, anoff);
+            if (ali >= 0) {
+                var adisp = 0 - ((ali + 1) * 8);
+                # v4.9.1: shift past all reserved callee-saved slots
+                if (_cur_fn_regalloc > 0) { adisp = adisp - _cur_fn_regalloc * 8; }
+                if (_cur_fn_ret_stash > 0) { adisp = adisp - _cur_fn_ret_stash; }
+                if (_AARCH64_BACKEND == 1) {
+                    # aarch64: SUB X0, X29, #|adisp|. adisp is negative.
+                    # x86 emitted `LEA rax, [rbp+disp32]` here as 7 raw
+                    # bytes (3 + 4) — that's 3 mod 4 and corrupted code
+                    # alignment downstream (every &local mis-shifted the
+                    # codebuf, accumulating SIGILLs by ELF entry time).
+                    var disp_abs = 0 - adisp;
+                    if (disp_abs <= 4095) {
+                        # SUB X0, X29, #imm12: 0xD10003A0 | (imm12 << 10)
+                        EW(S, 0xD10003A0 | ((disp_abs & 0xFFF) << 10));
+                    } else {
+                        # MOVZ X0, #lo16; (MOVK X0, #hi16, LSL 16); SUB X0, X29, X0
+                        EW(S, 0xD2800000 | ((disp_abs & 0xFFFF) << 5));
+                        if (((disp_abs >> 16) & 0xFFFF) != 0) {
+                            EW(S, 0xF2A00000 | (((disp_abs >> 16) & 0xFFFF) << 5));
+                        }
+                        EW(S, 0xCB0003A0);  # sub x0, x29, x0
+                    }
+                } else {
+                    E3(S, 0x858D48);
+                    var aaddr = S + 0x54A000 + GCP(S);
+                    S64(aaddr, (L64(aaddr) >> 32 << 32) | (adisp & 0xFFFFFFFF));
+                    SCP(S, GCP(S) + 4);
+                }
+                return 0;
+            }
+        }
+        var aidx = FINDVAR(S, anoff);
+        if (aidx < 0) {
+            syscall(SYS_WRITE, 2, "error:", 6); FM_LOOKUP(S, GTLINE(S, GTI(S))); syscall(SYS_WRITE, 2, ": undefined variable '", 22);
+            PRSTR(S + 0x60000 + anoff); syscall(SYS_WRITE, 2, "'\n", 2); syscall(SYS_EXIT, 1);
+        }
+        EVADDR(S, aidx);
+        return 0;
+    }
+    if (typ == 30) {
+        # STRING literal
+        var sval = PEEKV(S);
+        STI(S, GTI(S) + 1);
+        var soff = sval >> 16;
+        ESADDR(S, soff);
+        return 0;
+    }
+    if (typ == 24) {
+        # syscall(args...)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+        STI(S, GTI(S) + 1);
+        var argc = 0;
+        var sc_num = 0 - 1;
+        var scgo = 1;
+        while (scgo == 1) {
+            PCMPE(S);
+            if (argc == 0) { if (_cfo == 1) { sc_num = _cfv; } }
+            EPUSHR(S);
+            argc = argc + 1;
+            if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+            else { scgo = 0; }
+        }
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+        STI(S, GTI(S) + 1);
+        # Mach-O ARM target: the aarch64 ESYSXLAT chain translates the
+        # BSD SVC whitelist (read, write, open, close, mmap, mprotect,
+        # munmap, exit). Non-whitelisted syscalls fall through to svc with
+        # a Linux number, which is either nonexistent on XNU or carries
+        # different semantics — a real runtime hazard. v5.5.15 demoted
+        # this from a hard parse-time error to a warning because the old
+        # error rejected syscalls inside UNCALLED stdlib helpers (e.g.
+        # `lib/io.cyr`'s `syscall(73)` flock wrappers) and blocked
+        # cross-compiling Cyrius tool binaries whose hot paths only touch
+        # the whitelist. If the warned syscall is actually reachable at
+        # runtime, the resulting binary faults visibly on macOS — which
+        # is a strictly better failure mode than a compile-time refusal
+        # to build something that would have worked. v5.5.17 pins the
+        # follow-up that adds ESYSXLAT translations or `__got` reroutes
+        # for specific syscalls the tools actually exercise.
+        if (_TARGET_MACHO == 2) {
+            if (sc_num >= 0) {
+                var sc_ok = 0;
+                if (sc_num == 0) { sc_ok = 1; }
+                elif (sc_num == 1) { sc_ok = 1; }
+                elif (sc_num == 2) { sc_ok = 1; }
+                elif (sc_num == 3) { sc_ok = 1; }
+                elif (sc_num == 9) { sc_ok = 1; }
+                elif (sc_num == 10) { sc_ok = 1; }
+                elif (sc_num == 11) { sc_ok = 1; }
+                elif (sc_num == 60) { sc_ok = 1; }
+                if (sc_ok == 0) {
+                    syscall(SYS_WRITE, 2,
+                        "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60); runtime call will fault unless v5.5.17 adds a reroute.\n",
+                        130);
+                }
+            }
+        }
+        # PE32+ (Windows): reroute recognised Linux syscall numbers to
+        # kernel32 IAT calls so the generic `ESCPOPS` path below
+        # (which would emit the x86_64 `syscall` instruction, 0F 05,
+        # a Linux-only encoding) is bypassed. Mappings:
+        #   syscall(0, fd, buf, len)       → GetStdHandle+ReadFile   (v5.5.1)
+        #   syscall(1, fd, buf, len)       → GetStdHandle+WriteFile  (v5.4.7)
+        #   syscall(2, path, flags, mode)  → CreateFileW             (v5.5.1)
+        #   syscall(3, fd)                 → CloseHandle             (v5.5.1)
+        #   syscall(8, fd, off, whence)    → SetFilePointerEx        (v5.5.1)
+        #   syscall(9, addr, len, ...)     → VirtualAlloc            (v5.5.1)
+        #   syscall(60, code)              → ExitProcess             (v5.4.4)
+        # Other syscall numbers still fall through with a warning and
+        # produce a non-functional binary; wrap them in syscalls_windows.cyr
+        # shape helpers as they're needed.
+        # Mach-O arm64 __got reroutes — syscalls whose libSystem equivalents
+        # are bound into __DATA_CONST.__got[N] in EMITMACHO_ARM64 get short-
+        # circuited here instead of falling through to ESYSXLAT+svc (which
+        # needs BSD-number translation and has lingering edge cases). Slot
+        # indices must match the symbol order in macho/emit.cyr's symtab +
+        # bind opcodes + indirect symtab. Mirror of the PE syscall-reroute
+        # block below (v5.4.4/5.4.7/5.5.1/5.5.2 bundle).
+        #   syscall(0, fd, buf, len) → __got[2] = libSystem._read   (v5.5.14)
+        #   syscall(1, fd, buf, len) → __got[1] = libSystem._write  (v5.5.14)
+        #   syscall(60, code)        → __got[0] = libSystem._exit   (v5.5.13)
+        if (_TARGET_MACHO == 2) {
+            if (sc_num == 60) {
+                if (argc == 2) {
+                    EMACHO_EXIT_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 1) {
+                if (argc == 4) {
+                    EMACHO_WRITE_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 0) {
+                if (argc == 4) {
+                    EMACHO_READ_ARM(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+        }
+        if (_TARGET_PE == 1) {
+            if (sc_num == 60) {
+                if (argc == 2) {
+                    # Stack top-down: [exit_code] [syscall_nr=60]
+                    EPOPR(S);                    # pop rax = exit code
+                    # add rsp, 8 — discard the syscall_nr below exit_code
+                    EB(S, 0x48); EB(S, 0x83);
+                    EB(S, 0xC4); EB(S, 0x08);
+                    EEXIT(S);                    # emits Win64 ExitProcess call
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 1) {
+                if (argc == 4) {
+                    # EWRITE_PE consumes [len][buf][fd][sc_nr=1] from
+                    # the stack and emits the GetStdHandle+WriteFile
+                    # sequence. Registers GetStdHandle + WriteFile as
+                    # pending IAT imports on first use.
+                    EWRITE_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 0) {
+                if (argc == 4) {
+                    # syscall(0, fd, buf, len) → GetStdHandle + ReadFile.
+                    EREAD_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 2) {
+                if (argc == 4) {
+                    # syscall(2, path, flags, mode) → CreateFileW.
+                    EOPEN_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 3) {
+                if (argc == 2) {
+                    # syscall(3, fd) → CloseHandle.
+                    ECLOSE_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 8) {
+                if (argc == 4) {
+                    # syscall(8, fd, offset, whence) → SetFilePointerEx.
+                    ELSEEK_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            if (sc_num == 9) {
+                if (argc == 7) {
+                    # syscall(9, addr, len, prot, flags, fd, offset) → VirtualAlloc.
+                    EMMAP_PE(S);
+                    _cfo = 0;
+                    return 0;
+                }
+            }
+            # Non-mapped syscalls: emitting the generic ESCPOPS path
+            # below would produce an `0F 05` syscall that crashes on
+            # Windows. Warn now; hard-error once the full
+            # syscalls_windows.cyr stdlib lands in v5.5.x.
+            syscall(SYS_WRITE, 2,
+                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 routes n=0,1,2,3,8,9,60 today; others will crash on Windows.\n",
+                109);
+        }
+        ESCPOPS(S, argc);
+        _cfo = 0;
+        # Syscall arity check — warn if arg count doesn't match the
+        # well-known arity for common Linux x86_64 syscalls.
+        if (sc_num >= 0) {
+            var expect = _SC_ARITY(sc_num);
+            if (expect >= 0) {
+                var got = argc - 1;
+                if (got != expect) {
+                    WARN(S, "syscall arity mismatch", 22);
+                }
+            }
+        }
+        return 0;
+    }
+    if (typ == 25) {
+        # load8(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        ELOAD8(S);
+        return 0;
+    }
+    if (typ == 42) {
+        # load16(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        ELOAD16(S);
+        return 0;
+    }
+    if (typ == 43) {
+        # load32(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        ELOAD32(S);
+        return 0;
+    }
+    if (typ == 44) {
+        # load64(addr)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        ELOAD64(S);
+        return 0;
+    }
+    if (typ == 26) {
+        # store8(addr, val)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPOPC(S); ESTORE8(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 45) {
+        # store16(addr, val)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPOPC(S); ESTORE16(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 46) {
+        # store32(addr, val)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPOPC(S); ESTORE32(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 47) {
+        # store64(addr, val)
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EPOPC(S); ESTORE64(S); EXORAA(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    if (typ == 8) {
+        # *expr — dereference (load64 through address)
+        STI(S, GTI(S) + 1);
+        PARSE_FACTOR(S);
+        ELOAD64(S);
+        SPSC(S, 0);
+        return 0;
+    }
+    if (typ == 37) {
+        # ~ bitwise NOT
+        STI(S, GTI(S) + 1);
+        PARSE_FACTOR(S);
+        ENOTR(S);
+        return 0;
+    }
+    # |params| expr — closure/lambda (no captures for now)
+    if (typ == 35) {
+        STI(S, GTI(S) + 1);  # consume |
+        # Generate anonymous function name __closure_N
+        NPOS_GUARD(S, 16);
+        var clid = GFNC(S);
+        var clnoff = GNPOS(S);
+        var cwp = clnoff;
+        # Write "__cl" + digit
+        store8(S + 0x60000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 95); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 99); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 108); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 48 + (clid % 10)); cwp = cwp + 1;
+        store8(S + 0x60000 + cwp, 0); cwp = cwp + 1;
+        SNPOS(S, cwp);
+        # Register the closure function
+        var clfi = REGFN(S, clnoff);
+        # Save current state
+        var cl_saved_lv = GLVAR(S);
+        var cl_saved_infn = GINFN(S);
+        var cl_saved_flc = GFLC(S);
+        var cl_saved_rpc = GRPC(S);
+        var cl_saved_sdep = GSDEP(S);
+        # Set up closure function
+        SINFN(S, 1);
+        SFLC(S, 0);
+        SRPC(S, 0);
+        SSDEP(S, 0);
+        # Emit function prologue
+        var cl_jmp = EJMP0(S);
+        S64(S + 0xE92000 + clfi * 8, GCP(S));
+        EFNPRO(S);
+        # Parse params until |
+        var clpc = 0;
+        if (PEEKT(S) != 35) {
+            var cpgo = 1;
+            while (cpgo == 1) {
+                if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                var cpnoff = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                var cpli = GFLC(S);
+                S64(S + 0x91000 + cpli * 8, cpnoff);
+                SLDEP(S, cpli, 0);
+                if (clpc < 6) { ESTOREPARM(S, clpc, cpli, 0); }
+                SFLC(S, cpli + 1);
+                clpc = clpc + 1;
+                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                else { cpgo = 0; }
+            }
+        }
+        S64(S + 0xE9A000 + clfi * 8, clpc);
+        if (PEEKT(S) != 35) { ERR_EXPECT(S, 35); }
+        STI(S, GTI(S) + 1);  # consume closing |
+        ESUBRSP(S, GFLC(S));
+        # Parse body: { stmts } or single expression
+        if (PEEKT(S) == 13) {
+            STI(S, GTI(S) + 1);
+            PARSE_PROG(S);
+            if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+            STI(S, GTI(S) + 1);
+        } else {
+            PCMPE(S);
+        }
+        # Patch any return statements + emit epilogue
+        var clrpc = GRPC(S);
+        for (var clri = 0; clri < clrpc; clri = clri + 1) {
+            EPATCH(S, L64(S + 0x8DA20 + clri * 8));
+        }
+        EFNEPI(S);
+        EPATCH(S, cl_jmp);
+        # Restore state
+        SINFN(S, cl_saved_infn);
+        SFLC(S, cl_saved_flc);
+        SRPC(S, cl_saved_rpc);
+        SSDEP(S, cl_saved_sdep);
+        SLVAR(S, cl_saved_lv);
+        # Emit address of closure function (like &fn_name)
+        var clfc = GFCNT(S);
+        if (clfc >= 4096) {
+            syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+            syscall(SYS_EXIT, 1);
+        }
+        if (_IS_OBJ(S) == 1) {
+            EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
+            var clfaddr = S + 0x150B000 + clfc * 16;
+            S64(clfaddr, GCP(S));
+            S64(clfaddr + 8, (3 << 56) | clfi);
+            SFCNT(S, clfc + 1);
+            EDISP32(S, 0);
+        } else {
+            E2(S, 0xB848);
+            var clfaddr = S + 0x150B000 + clfc * 16;
+            S64(clfaddr, GCP(S));
+            S64(clfaddr + 8, (3 << 56) | clfi);
+            SFCNT(S, clfc + 1);
+            E8(S, 0);
+        }
+        return 0;
+    }
+    ERR(S);
+    return 0;
+}
+# f64 binary ops
+fn PF64BIN(S, tok) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+    PCMPE(S); EPUSHR(S);
+    if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+    PCMPE(S);
+    EMIT_F64_BINOP(S, tok - 62);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+    return 0;
+}
+# f64 compare ops
+fn PF64CMP(S, tok) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+    PCMPE(S); EPUSHR(S);
+    if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+    PCMPE(S);
+    EPOPC(S); EPUSHR(S);
+    # At this point x1 = a, stack = [b], x0 (/ rax on x86) = b.
+    if (_AARCH64_BACKEND == 1) {
+        # aarch64 f64 compare: move both operands into FP registers,
+        # FCMP, then CSET on the ordered condition (MI rather than LT
+        # for lt so unordered/NaN yields 0 rather than 1).
+        EW(S, 0x9E670020);  # fmov d0, x1   — d0 = a
+        EPOPR(S);           # pop b back to x0 (stack now empty)
+        EW(S, 0x9E670001);  # fmov d1, x0   — d1 = b
+        EW(S, 0x1E612000);  # fcmp d0, d1
+        if (tok == 68) { EW(S, 0x9A9F17E0); }  # cset x0, eq
+        if (tok == 69) { EW(S, 0x9A9F57E0); }  # cset x0, mi  (ordered less)
+        if (tok == 70) { EW(S, 0x9A9FD7E0); }  # cset x0, gt  (ordered greater)
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC8);
+    EMOVQ_X0_A(S); EPOPR(S);
+    EB(S, 0x48); EB(S, 0x89); EB(S, 0xC1);
+    EMOVQ_X1_C(S); EUCOMISD(S);
+    # mov eax, 0 (B8 00000000) — clear without clobbering flags
+    EB(S, 0xB8); EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
+    if (tok == 68) { EB(S, 0x0F); EB(S, 0x94); EB(S, 0xC0); }
+    if (tok == 69) { EB(S, 0x0F); EB(S, 0x92); EB(S, 0xC0); }
+    if (tok == 70) { EB(S, 0x0F); EB(S, 0x97); EB(S, 0xC0); }
+    EB(S, 0x0F); EB(S, 0xB6); EB(S, 0xC0);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+    return 0;
+}
+
+# Constant folding state (codegen-level, same EMOVI size only)
+# Handle extended SIMD builtins (tokens 93-96) in separate function
+fn PARSE_SIMD_EXT(S, ptyp) {
+    # f64v_div(dst, a, b, n)
+    if (ptyp == 93) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var vbase = GFLC(S);
+        PCMPE(S); EFLSTORE(S, vbase);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 2);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        SFLC(S, vbase + 3);
+        EMIT_F64V_LOOP(S, 3, vbase);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # f64v_sqrt(dst, src, n)
+    if (ptyp == 94) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var vbase = GFLC(S);
+        PCMPE(S); EFLSTORE(S, vbase);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        SFLC(S, vbase + 2);
+        EMIT_F64V_UNARY(S, 0, vbase);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # f64v_abs(dst, src, n)
+    if (ptyp == 95) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var vbase = GFLC(S);
+        PCMPE(S); EFLSTORE(S, vbase);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        SFLC(S, vbase + 2);
+        EMIT_F64V_UNARY(S, 1, vbase);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # f64v_fmadd(dst, a, b, c, n)
+    if (ptyp == 96) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var vbase = GFLC(S);
+        PCMPE(S); EFLSTORE(S, vbase);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 2);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 3);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        SFLC(S, vbase + 4);
+        EMIT_F64V_FMADD(S, vbase);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # ret2(a, b) — return two values in rax:rdx
+    if (ptyp == 97) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        EPUSHR(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        # rax = b, stack = a → mov rdx, rax; pop rax
+        EMOVRDXRAX(S);
+        EPOPR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        # Don't consume ; here — PARSE_STMT handles it via expression statement path
+        var rp = EJMP0(S);
+        var rpc = GRPC(S);
+        if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+        S64(S + 0x8DA20 + rpc * 8, rp);
+        SRPC(S, rpc + 1);
+        return 0;
+    }
+    # f64_atan(x) — x87: fld x, fld1, fpatan
+    if (ptyp == 99) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xF3); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # rethi() — read rdx from last function call (mov rax, rdx)
+    if (ptyp == 98) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        EMOVRA_RDX(S);
+        return 0;
+    }
+    # bitget(val, offset, width) → (val >> offset) & ((1 << width) - 1)
+    if (ptyp == 102) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        PCMPE(S); ESPILL(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        # rax = offset, stack = val. Shift val >> offset
+        EMOVCA(S); EUNSPILL(S); ESHRCL(S);
+        # Now rax = val >> offset. Need to mask with (1 << width) - 1
+        ESPILL(S);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        # rax = width. Compute mask: (1 << width) - 1
+        EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        # rax = 1 << width. Subtract 1.
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        # rax = mask. AND with shifted val.
+        EMOVCA(S); EUNSPILL(S); EANDR(S);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    }
+    # bitset(val, offset, width, new) → (val & ~(mask << offset)) | ((new & mask) << offset)
+    if (ptyp == 103) {
+        if (GINFN(S) == 0) { ERR_MSG(S, "bitset must be called inside a function", 39); }
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var bsb = GFLC(S);
+        SFLC(S, bsb + 5);
+        PCMPE(S); EFLSTORE(S, bsb);              # s0 = val
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, bsb + 1);          # s1 = offset
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, bsb + 2);          # s2 = width
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, bsb + 3);          # s3 = new_val
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        # mask = (1 << width) - 1
+        EFLLOAD(S, bsb + 2); EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        EFLSTORE(S, bsb + 4);                    # s4 = mask
+        # cleared = val & ~(mask << offset)
+        EFLLOAD(S, bsb + 4); ESPILL(S);
+        EFLLOAD(S, bsb + 1); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        ENOTR(S); ESPILL(S);
+        EFLLOAD(S, bsb); EMOVCA(S); EUNSPILL(S); EANDR(S);
+        EFLSTORE(S, bsb);                        # s0 = cleared
+        # insert = (new_val & mask) << offset
+        EFLLOAD(S, bsb + 3); ESPILL(S);
+        EFLLOAD(S, bsb + 4); EMOVCA(S); EUNSPILL(S); EANDR(S);
+        ESPILL(S);
+        EFLLOAD(S, bsb + 1); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        # result = cleared | insert
+        ESPILL(S); EFLLOAD(S, bsb); EMOVCA(S); EUNSPILL(S); EORR(S);
+        return 0;
+    }
+    # bitclr(val, offset, width) → val & ~(((1 << width) - 1) << offset)
+    if (ptyp == 104) {
+        if (GINFN(S) == 0) { ERR_MSG(S, "bitclr must be called inside a function", 39); }
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var bcb = GFLC(S);
+        SFLC(S, bcb + 3);
+        PCMPE(S); EFLSTORE(S, bcb);              # s0 = val
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, bcb + 1);          # s1 = offset
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, bcb + 2);          # s2 = width
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        # mask = (1 << width) - 1
+        EFLLOAD(S, bcb + 2); EMOVCA(S); EMOVI(S, 1); ESHLCL(S);
+        ESPILL(S); EMOVI(S, 1); EMOVCA(S); EUNSPILL(S); ESUBR(S);
+        # mask << offset
+        ESPILL(S); EFLLOAD(S, bcb + 1); EMOVCA(S); EUNSPILL(S); ESHLCL(S);
+        # ~(mask << offset) & val
+        ENOTR(S); ESPILL(S);
+        EFLLOAD(S, bcb); EMOVCA(S); EUNSPILL(S); EANDR(S);
+        return 0;
+    }
+    return 0;
+}
+
+var _cfv = 0;
+var _cfp = 0;
+var _cfo = 0;
+
+fn PARSE_TERM(S) {
+    _cfo = 0;
+    # Extended builtins — checked first
+    var ptyp = PEEKT(S);
+    if (ptyp >= 93) { if (ptyp <= 99) { return PARSE_SIMD_EXT(S, ptyp); } }
+    if (ptyp >= 100) { if (ptyp <= 104) { return PARSE_SIMD_EXT(S, ptyp); } }
+    # f64 builtins — check before PARSE_FACTOR dispatches
+    if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
+    if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp == 67) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF2I(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    if (ptyp >= 68) { if (ptyp <= 70) { PF64CMP(S, ptyp); return 0; } }
+    if (ptyp == 71) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EXORPD_X1(S); EB(S, 0xF2); EB(S, 0x0F); EB(S, 0x5C); EB(S, 0xC8); EMOVAPD_01(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_sqrt(x) — sqrtsd xmm0, xmm0
+    if (ptyp == 79) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64SQRT(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_abs(x) — clear sign bit via integer AND
+    if (ptyp == 80) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EPUSHR(S); EMOVI(S, 0x7FFFFFFFFFFFFFFF); EMOVCA(S); EPOPR(S); EANDR(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_floor(x) — roundsd xmm0, xmm0, 1 (SSE4.1)
+    if (ptyp == 81) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64FLOOR(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_ceil(x) — roundsd xmm0, xmm0, 2 (SSE4.1)
+    if (ptyp == 82) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64CEIL(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_round(x) — roundsd xmm0, xmm0, 0 (round to nearest)
+    if (ptyp == 92) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EMOVQ_X0_A(S); EF64ROUND(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_sin(x) — x87 fsin (D9 FE)
+    if (ptyp == 83) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xFE); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_cos(x) — x87 fcos (D9 FF)
+    if (ptyp == 84) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xFF); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_exp(x) — x87: fldl2e; fmulp; fld st0; frndint; fsub st1,st0; fxch; f2xm1; fld1; faddp; fscale; fstp st1
+    if (ptyp == 85) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xEA); EB(S, 0xDE); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_ln(x) — x87: fldln2; fxch; fyl2x
+    if (ptyp == 86) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xED); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_log2(x) — x87: fld1; fxch; fyl2x
+    if (ptyp == 87) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF1); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64_exp2(x) — x87: fld st0; frndint; fsub st1,st0; fxch; f2xm1; fld1; faddp; fscale; fstp st1
+    if (ptyp == 88) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # f64v_add/sub/mul(dst, a, b, n) — SSE2 packed f64 batch operations
+    if (ptyp >= 89) { if (ptyp <= 91) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+        var vbase = GFLC(S);
+        PCMPE(S); EFLSTORE(S, vbase);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 1);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S); EFLSTORE(S, vbase + 2);
+        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+        PCMPE(S);
+        SFLC(S, vbase + 3);
+        EMIT_F64V_LOOP(S, ptyp - 89, vbase);
+        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+        return 0;
+    } }
+    PARSE_FACTOR(S);
+    var go = 1;
+    while (go == 1) {
+        var typ = PEEKT(S);
+        if (typ == 8) {
+            var mulst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (mulst > 0) { EMIT_OP_DISPATCH(S, mulst, "mul", 3); }
+            else {
+                # Constant fold: NUM * NUM where both and result are small positive
+                if (_cfo == 1) {
+                    if (PEEKT(S) == 1) {
+                        var crv = PEEKV(S);
+                        if (crv == 0) { STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, 0); _cfv = 0; }
+                        elif (crv == 1) { STI(S, GTI(S) + 1); }
+                        elif (crv > 0) {
+                            var cfr = _cfv * crv;
+                            if (cfr >= 0) {
+                                STI(S, GTI(S) + 1);
+                                SCP(S, _cfp);
+                                EMOVI(S, cfr);
+                                _cfv = cfr;
+                            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                        }
+                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); }
+                } else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); EIMUL(S); _cfo = 0; }
+            }
+        }
+        else { if (typ == 9) {
+            var divst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (divst > 0) { EMIT_OP_DISPATCH(S, divst, "div", 3); }
+            else {
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var crv = PEEKV(S);
+                    if (crv > 0) { if (crv < 0x10000) {
+                        var cfr = _cfv / crv;
+                        if (cfr > 0) { if (cfr < 0x10000) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); _cfo = 0; }
+            }
+        }
+        else { if (typ == 34) {
+            STI(S, GTI(S) + 1); _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
+        }
+        else { if (typ == 38) {
+            STI(S, GTI(S) + 1);
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv << crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); _cfo = 0; }
+        }
+        else { if (typ == 39) {
+            STI(S, GTI(S) + 1);
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv >> crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); _cfo = 0; }
+        }
+        else { go = 0; }
+        } } } }
+    }
+    return 0;
+}
+
+fn EPTR_SCALE(S, ps) {
+    # rax has the offset value; multiply by pointer scale
+    # mov rcx, rax; mov rax, ps; imul rcx → rax = offset * scale
+    if (ps > 1) { EMOVCA(S); EMOVI(S, ps); EIMUL(S); }
+    return 0;
+}
+
+# Build operator function name: StructName_op in tok_names
+# op_name is a short string like "add", "sub", "mul", "div"
+fn BUILD_OP_NAME(S, stype, op_str, op_len) {
+    NPOS_GUARD(S, 256);
+    var si = stype - 1;
+    var snoff = L64(S + 0x8E630 + si * 8);
+    var owp = GNPOS(S);
+    var onoff = owp;
+    var ori = 0;
+    var orc = load8(S + 0x60000 + snoff + ori);
+    while (orc != 0) { store8(S + 0x60000 + owp, orc); owp = owp + 1; ori = ori + 1; orc = load8(S + 0x60000 + snoff + ori); }
+    store8(S + 0x60000 + owp, 95); owp = owp + 1;
+    var oci = 0;
+    while (oci < op_len) { store8(S + 0x60000 + owp + oci, load8(op_str + oci)); oci = oci + 1; }
+    owp = owp + op_len;
+    store8(S + 0x60000 + owp, 0); owp = owp + 1;
+    SNPOS(S, owp);
+    return onoff;
+}
+
+# Emit operator dispatch: push lhs, parse rhs, call StructName_op(lhs, rhs)
+fn EMIT_OP_DISPATCH(S, stype, op_str, op_len) {
+    # For struct vars, push address instead of value
+    var svar = GESVAR(S);
+    if (svar >= 0) { EVADDR(S, svar); }
+    EPUSHR(S);
+    PARSE_TERM(S);
+    # rhs: check if it also has a struct var
+    var rsvar = GESVAR(S);
+    if (rsvar >= 0) { EVADDR(S, rsvar); }
+    EPUSHR(S);
+    var opnoff = BUILD_OP_NAME(S, stype, op_str, op_len);
+    ECALLPOPS(S, 2);
+    var ofi = FINDFN(S, opnoff);
+    if (ofi < 0) { ofi = REGFN(S, opnoff); }
+    var ofoff = L64(S + 0xE92000 + ofi * 8);
+    if (ofoff >= 0) { ECALLTO(S, ofoff); }
+    else { ECALLFIX(S, ofi); }
+    ECALLCLEAN(S, 2);
+    SESTYPE(S, 0);
+    return 0;
+}
+
+fn PEXPR(S) {
+    PARSE_TERM(S);
+    var ps = GPSC(S);
+    var go = 1;
+    while (go == 1) {
+        var typ = PEEKT(S);
+        if (typ == 6) {
+            var addst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (addst > 0) { EMIT_OP_DISPATCH(S, addst, "add", 3); _cfo = 0; }
+            else {
+                # Fold only if right side is a plain literal (not followed by * / % << >>)
+                var add_can_fold = 0;
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var nt = TOKTYP(S, GTI(S) + 1);
+                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                        add_can_fold = 1;
+                    } } } } }
+                } }
+                if (add_can_fold == 1) {
+                    var crv = PEEKV(S);
+                    if (crv == 0) { STI(S, GTI(S) + 1); }
+                    elif (crv > 0) {
+                        var cfr = _cfv + crv;
+                        if (cfr >= 0) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); }
+                    }
+                    else { _cfo = 0; ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); }
+                } else { ESPILL(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EUNSPILL(S); EADDR(S); SPSC(S, ps); _cfo = 0; }
+            }
+        }
+        else { if (typ == 7) {
+            var subst = GESTYPE(S);
+            STI(S, GTI(S) + 1);
+            if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); _cfo = 0; }
+            else {
+                var sub_can_fold = 0;
+                if (_cfo == 1) { if (PEEKT(S) == 1) {
+                    var nt = TOKTYP(S, GTI(S) + 1);
+                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                        sub_can_fold = 1;
+                    } } } } }
+                } }
+                if (sub_can_fold == 1) {
+                    var crv = PEEKV(S);
+                    if (crv == 0) { STI(S, GTI(S) + 1); }
+                    elif (crv > 0) {
+                        var cfr = _cfv - crv;
+                        if (cfr >= 0) {
+                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                        } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                    }
+                    else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); _cfo = 0; }
+            }
+        }
+        else { if (typ == 27) {
+            # AMPERSAND — binary AND
+            STI(S, GTI(S) + 1);
+            var and_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    and_can_fold = 1;
+                } } } } }
+            } }
+            if (and_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv & crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); _cfo = 0; }
+        }
+        else { if (typ == 35) {
+            # PIPE — binary OR
+            STI(S, GTI(S) + 1);
+            var or_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    or_can_fold = 1;
+                } } } } }
+            } }
+            if (or_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv | crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); _cfo = 0; }
+        }
+        else { if (typ == 36) {
+            # CARET — binary XOR
+            STI(S, GTI(S) + 1);
+            var xor_can_fold = 0;
+            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                var nt = TOKTYP(S, GTI(S) + 1);
+                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                    xor_can_fold = 1;
+                } } } } }
+            } }
+            if (xor_can_fold == 1) {
+                var crv = PEEKV(S);
+                if (crv > 0) { if (crv < 0x10000) {
+                    var cfr = _cfv ^ crv;
+                    if (cfr > 0) { if (cfr < 0x10000) {
+                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); _cfo = 0; }
+        }
+        else { go = 0; }
+        } } } }
+    }
+    return 0;
+}
+
+# Parse comparison expression: expr [cmp_op expr] [&& || cmp_expr]*
+# Returns value in rax (0 or 1 for comparisons).
+# Supports && (53) and || (54) as expression-level logical operators.
+fn PCMPE(S) {
+    PEXPR(S);
+    var op = PEEKT(S);
+    if (op >= 17) {
+        if (op <= 22) {
+            STI(S, GTI(S) + 1);
+            _cfo = 0;
+            EPUSHR(S);
+            PEXPR(S);
+            EMOVCA(S);
+            EPOPR(S);
+            ESETCC(S, op);
+            _cfo = 0;
+        }
+    }
+    # Short-circuit && and || chains (fixed in 4.4.1 — docs always claimed
+    # short-circuit but the prior bitwise AND/OR impl evaluated both sides
+    # unconditionally, causing silent miscompiles on guarded null checks
+    # like `if (p != 0 && vec_len(p) > 0)` — bote feedback item 2).
+    #
+    # && codegen: eval left, cmp 0, je skip_right, eval right, cmp 0, setne al,
+    #             jmp end, skip_right: xor rax, rax, end:
+    # || codegen: eval left, cmp 0, jne skip_right, eval right, cmp 0, setne al,
+    #             jmp end, skip_right: mov rax, 1, end:
+    var lop = PEEKT(S);
+    while (lop == 53 || lop == 54) {
+        # Normalize left into boolean (0 or 1) already in rax. If a comparison
+        # op preceded, ESETCC already did this; otherwise cmp rax,0; setne al.
+        # But after the top block, rax already holds either a boolean (from
+        # ESETCC) or an integer value — we short-circuit on "rax == 0" either
+        # way, so we just need to cmp rax, 0 and branch.
+        # cmp rax, 0
+        EPUSHR(S);
+        EMOVI(S, 0);
+        EMOVCA(S);
+        EPOPR(S);
+        ECMPR(S);
+        # For && : skip right side when left is 0 (false), jumping to the
+        #          "write 0 to rax" tail. je rel32.
+        # For || : skip right side when left is NOT 0 (true), jumping to the
+        #          "write 1 to rax" tail. jne rel32.
+        var is_and = 0;
+        if (lop == 53) { is_and = 1; }
+        var p_skip = 0;
+        if (is_and == 1) { p_skip = EJCC(S, 0x84); }
+        else { p_skip = EJCC(S, 0x85); }
+        # Consume the operator token
+        STI(S, GTI(S) + 1);
+        # Evaluate the right operand (expression + optional comparison)
+        PEXPR(S);
+        var rop = PEEKT(S);
+        if (rop >= 17) {
+            if (rop <= 22) {
+                STI(S, GTI(S) + 1);
+                EPUSHR(S);
+                PEXPR(S);
+                EMOVCA(S);
+                EPOPR(S);
+                ESETCC(S, rop);
+            }
+        }
+        # Normalize right side to boolean (cmp 0; setne al; movzx)
+        EPUSHR(S);
+        EMOVI(S, 0);
+        EMOVCA(S);
+        EPOPR(S);
+        ECMPR(S);
+        ESETCC(S, 18);  # 18 is !=, emits setne + movzx
+        # jmp over the short-circuit tail
+        var p_end = EJMP0(S);
+        # skip_right lands here: write the short-circuit result
+        EPATCH(S, p_skip);
+        if (is_and == 1) {
+            # && short-circuited because left was 0 → result is 0
+            EMOVI(S, 0);
+        } else {
+            # || short-circuited because left was non-zero → result is 1
+            EMOVI(S, 1);
+        }
+        EPATCH(S, p_end);
+        lop = PEEKT(S);
+    }
+    return 0;
+}
