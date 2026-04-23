@@ -4,6 +4,98 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.0] — 2026-04-22
+
+**Opens v5.6.x — `parse.cyr` arch-guard cleanup.** v5.5.40's closeout
+pass found that `parse_fn.cyr`'s struct-return path was emitting raw
+x86 bytes without an `_AARCH64_BACKEND` guard and added the missing
+dispatch. The Active Bugs table called out that the same audit needed
+to be done across the rest of `parse_*.cyr`. This patch is that audit
+plus the four real findings.
+
+### Fixed — silent x86-emit on aarch64 (4 sites)
+
+* **`PARSE_SWITCH` jump-table path** (`src/frontend/parse.cyr` ~120).
+  The `use_table = 1` branch (case_count ≥ 4, range < 1024) emits the
+  full x86 dispatch sequence — `lea rcx, [rip+disp]`, `movsxd rax,
+  [rcx+rax*4]`, `add rax, rcx`, `jmp rax`, plus the raw 4-byte table.
+  None of it is gated by `_AARCH64_BACKEND`. Any aarch64 program with
+  a small-range, 4+-case `switch` (e.g. the 40+-variant tagged-union
+  switches in libro / kybernet) was getting x86 opcodes spliced into
+  ARM `.text`. Fix: force `use_table = 0` on aarch64 — falls through
+  to the existing linear-comparison path. Aarch64 jump-table emitter
+  is a separate follow-up.
+
+* **`PARSE_FIELD_LOAD` sub-byte struct field load**
+  (`src/frontend/parse_decl.cyr` ~165). For `fld_sz ∈ {1, 2, 4}` the
+  block emits `48 0F B6 01` (`movzx rax, byte [rcx]`), `0F B7 01`
+  (`movzx eax, word [rcx]`), and `8B 01` (`mov eax, [rcx]`)
+  unconditionally. Aarch64 needs `LDRB w0, [x1]` / `LDRH w0, [x1]` /
+  `LDR w0, [x1]`. Fix: hard-error on aarch64 with "sub-8-byte struct
+  field load is x86-only for v5.6.0; aarch64 LDRB/LDRH/LDR pending"
+  matching v5.5.40's `parse_fn.cyr` discipline (fail loud, implement
+  later when an aarch64 user actually hits it).
+
+* **Closure literal `|x| body` address emit**
+  (`src/frontend/parse_expr.cyr` ~732). Mirror site for `&fn_name`
+  (lines 297-321) is fully arch-dispatched (aarch64 MOVZ/MOVK x3,
+  PE-obj LEA rip-rel, default movabs); the closure-address site only
+  had the two x86 branches. Aarch64 closures spliced `48 8D 05` (LEA)
+  bytes into ARM code. Fix: ported the three-way dispatch from `&fn`
+  verbatim — aarch64 closures now emit MOVZ/MOVK/MOVK with
+  fixup-table entry just like named-fn addresses.
+
+* **`PARSE_TERM` x87/SSE intrinsics — silent corruption**
+  (`src/frontend/parse_expr.cyr` ~1000–1024 and PARSE_SIMD_EXT ~890).
+  The f64_neg / f64_sin / f64_cos / f64_exp / f64_ln / f64_log2 /
+  f64_exp2 / f64_atan blocks emit raw `EB(S, …)` bytes (`F2 0F 5C C8`
+  for negative-zero XOR, `D9 FE` for `fsin`, the multi-instruction
+  fyl2x sequence, etc.) intermixed with helpers like `EX87PUSH` and
+  `EMOVQ_X0_A` that are stubbed to `return 0;` on aarch64. Result was
+  the worst class of corruption: helpers silently emit nothing, raw
+  bytes still emit — splicing partial x87 sequences into ARM code
+  with no diagnostic. Fix: hard-error on aarch64 for each of the 8
+  affected `ptyp` codes (71, 83-88, 99) with intrinsic-specific
+  messages flagging that aarch64 has no native trig / exp /
+  log / fpatan and needs polyfills.
+
+### Audited — already-correct sites (no change)
+
+For the audit record (so a future pass doesn't re-flag them):
+
+* `parse_expr.cyr` 297-321 (`&fn_name`) — full three-way dispatch.
+* `parse_expr.cyr` 330-353 (`&local`) — full aarch64 dispatch (the
+  v5.4.8 fix).
+* `parse_expr.cyr` 772-795 (`PF64CMP`) — gated by `_AARCH64_BACKEND`.
+* `parse_expr.cyr` 477-478 — raw `add rsp, 8` inside `if (_TARGET_PE
+  == 1)` block; PE target is x86_64-only by definition.
+* `parse.cyr` 684 — `EB(S, PEEKV(S) & 0xFF)` inside the `asm { … }`
+  block; intentionally arch-raw, alignment padding at 705 already
+  handles aarch64.
+
+### Mechanical
+
+* Self-host byte-identical (cc5 → cc5_b → cc5_b matches cc5).
+* aarch64 cross-build still produces valid aarch64 ELF (`e_machine`
+  0xB7 verified on `echo 'syscall(60, 42);' | build/cc5_aarch64`).
+* Windows PE cross-build still produces valid PE32+.
+* `sh scripts/check.sh` 19/19 gates green (no new gates this patch —
+  the audit findings are negative-space; an aarch64 program triggering
+  one of them now hard-fails at compile, which is the regression
+  signal).
+* cc5 size 507,136 → 508,880 B (+1,744 B / +0.34 %), all in the new
+  guard branches and error messages.
+
+### Active Bugs — closeout
+
+* `parse.cyr unguarded x86 emit sites` row removed from Active Bugs
+  table (this patch closes it).
+* Remaining two bugs (libro layout-dependent corruption,
+  HIGH_ENTROPY_VA `cc5_win.exe` stdin failure) re-pinned to concrete
+  v5.6.x slots in the roadmap rather than the previous "v5.6.x
+  cleanup" / "Re-investigate" phrasing — per the
+  `feedback_pin_optimizations` discipline.
+
 ## [5.5.40] — 2026-04-22
 
 **v5.5.x closeout — 40 patches, longest minor in cyrius history.**

@@ -162,6 +162,15 @@ fn PARSE_FIELD_LOAD(S, noff) {
     else { EVADDR_X1(S, idx); }
     if (off > 0) { EADDIMM_X1(S, off); }
     var fld_sz = FIELDSZ(S, ft);
+    if (fld_sz < 8) {
+        # v5.6.0: sub-8-byte struct field load emits raw x86 movzx/mov
+        # (`48 0F B6 01` etc.). aarch64 needs LDRB/LDRH/LDR (W0) — not
+        # yet implemented. Hard-error instead of silently splicing x86
+        # bytes into aarch64 codebuf (the silent-corruption class).
+        if (_AARCH64_BACKEND == 1) {
+            ERR_MSG(S, "sub-8-byte struct field load is x86-only for v5.6.0; aarch64 LDRB/LDRH/LDR pending", 86);
+        }
+    }
     if (fld_sz == 1) { EB(S, 0x48); EB(S, 0x0F); EB(S, 0xB6); EB(S, 0x01); }   # movzx rax, byte [rcx]
     elif (fld_sz == 2) { EB(S, 0x0F); EB(S, 0xB7); EB(S, 0x01); }               # movzx eax, word [rcx]
     elif (fld_sz == 4) { EB(S, 0x8B); EB(S, 0x01); }                              # mov eax, [rcx]

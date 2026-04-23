@@ -723,22 +723,33 @@ fn PARSE_FACTOR(S) {
         SRPC(S, cl_saved_rpc);
         SSDEP(S, cl_saved_sdep);
         SLVAR(S, cl_saved_lv);
-        # Emit address of closure function (like &fn_name)
+        # Emit address of closure function (like &fn_name) — mirrors
+        # the `&fn_name` dispatch in PARSE_FACTOR (lines ~297-321).
+        # Pre-v5.6.0 only had the x86 branches; aarch64 closures spliced
+        # x86 `lea`/`movabs` bytes into ARM code.
         var clfc = GFCNT(S);
         if (clfc >= 4096) {
             syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
             syscall(SYS_EXIT, 1);
         }
-        if (_IS_OBJ(S) == 1) {
+        var clfaddr = S + 0x150B000 + clfc * 16;
+        if (_AARCH64_BACKEND == 1) {
+            # aarch64: 3 MOVZ/MOVK instructions (12 bytes) that FIXUP
+            # patches to the resolved closure address.
+            S64(clfaddr, GCP(S));
+            S64(clfaddr + 8, (3 << 56) | clfi);
+            SFCNT(S, clfc + 1);
+            EW(S, 0xD2800000);  # movz x0, #0
+            EW(S, 0xF2A00000);  # movk x0, #0, lsl 16
+            EW(S, 0xF2C00000);  # movk x0, #0, lsl 32
+        } elif (_IS_OBJ(S) == 1) {
             EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
-            var clfaddr = S + 0x150B000 + clfc * 16;
             S64(clfaddr, GCP(S));
             S64(clfaddr + 8, (3 << 56) | clfi);
             SFCNT(S, clfc + 1);
             EDISP32(S, 0);
         } else {
             E2(S, 0xB848);
-            var clfaddr = S + 0x150B000 + clfc * 16;
             S64(clfaddr, GCP(S));
             S64(clfaddr + 8, (3 << 56) | clfi);
             SFCNT(S, clfc + 1);
@@ -887,7 +898,8 @@ fn PARSE_SIMD_EXT(S, ptyp) {
         return 0;
     }
     # f64_atan(x) — x87: fld x, fld1, fpatan
-    if (ptyp == 99) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xF3); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
+    # v5.6.0: x87 fpatan is x86-only; aarch64 needs a polyfill.
+    if (ptyp == 99) { if (_AARCH64_BACKEND == 1) { ERR_MSG(S, "f64_atan is x86-only for v5.6.0; aarch64 has no native fpatan — needs polyfill", 78); } STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xD9); EB(S, 0xF3); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # rethi() — read rdx from last function call (mov rax, rdx)
     if (ptyp == 98) {
         STI(S, GTI(S) + 1);
@@ -988,6 +1000,21 @@ fn PARSE_TERM(S) {
     var ptyp = PEEKT(S);
     if (ptyp >= 93) { if (ptyp <= 99) { return PARSE_SIMD_EXT(S, ptyp); } }
     if (ptyp >= 100) { if (ptyp <= 104) { return PARSE_SIMD_EXT(S, ptyp); } }
+    # v5.6.0: f64_neg / f64_sin / f64_cos / f64_exp / f64_ln / f64_log2 /
+    # f64_exp2 emit raw x86 SSE+x87 bytes (`F2 0F 5C C8`, `D9 FE`, `D9 FF`,
+    # the multi-instruction fyl2x sequence, etc.) intermixed with
+    # aarch64-stubbed helpers (EX87PUSH/EX87POP/EMOVQ_X0_A no-op on
+    # aarch64). Without this guard the stubs emit nothing while the raw
+    # bytes splice into ARM code — silent corruption.
+    if (_AARCH64_BACKEND == 1) {
+        if (ptyp == 71) { ERR_MSG(S, "f64_neg is x86-only for v5.6.0; aarch64 FNEG d0 pending", 56); }
+        if (ptyp == 83) { ERR_MSG(S, "f64_sin is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
+        if (ptyp == 84) { ERR_MSG(S, "f64_cos is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
+        if (ptyp == 85) { ERR_MSG(S, "f64_exp is x86-only for v5.6.0; aarch64 has no native exp — needs polyfill", 74); }
+        if (ptyp == 86) { ERR_MSG(S, "f64_ln is x86-only for v5.6.0; aarch64 has no native ln — needs polyfill", 72); }
+        if (ptyp == 87) { ERR_MSG(S, "f64_log2 is x86-only for v5.6.0; aarch64 has no native log2 — needs polyfill", 76); }
+        if (ptyp == 88) { ERR_MSG(S, "f64_exp2 is x86-only for v5.6.0; aarch64 has no native exp2 — needs polyfill", 76); }
+    }
     # f64 builtins — check before PARSE_FACTOR dispatches
     if (ptyp >= 62) { if (ptyp <= 65) { PF64BIN(S, ptyp); return 0; } }
     if (ptyp == 66) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EI2F(S); EMOVQ_A_X0(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }

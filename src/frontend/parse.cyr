@@ -120,6 +120,12 @@ fn PARSE_SWITCH(S) {
             if (range < 1024) { use_table = 1; }
         }
     }
+    # v5.6.0: jump-table path emits raw x86 (`lea rip-rel`, `movsxd`,
+    # `add`, `jmp rax`, raw 4-byte table). aarch64 falls through to the
+    # linear-comparison path below until an aarch64 jump-table emitter
+    # lands. Without this gate, every aarch64 switch with >=4 cases and
+    # range <1024 corrupts the codebuf.
+    if (_AARCH64_BACKEND == 1) { use_table = 0; }
     # Allocate hidden global to hold switch value
     var swidx = GVCNT(S);
     S64(S + 0x11A000 + swidx * 8, 0);
