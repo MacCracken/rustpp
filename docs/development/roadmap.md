@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.16.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.17.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -113,28 +113,33 @@
 >   / 774 B NOP-fill at IR=3 on cc5 self-compile; both fixpoints
 >   clean. DCE attempt corrupted output even with expanded RAX
 >   user-set; deferred to v5.6.17 per "STOP and ask" rule.
-> - **v5.6.17**: Phase O3c — bitmap liveness + DCE (re-attempt
->   the v5.6.16-deferred half) + copy propagation + dead-store
->   elim + fixed-point driver. ~390 LOC. Bails cleanly if 0.
-> - **v5.6.18**: Phase O4 — linear-scan register allocation.
-> - **v5.6.19**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+> - **v5.6.17**: Phase O3b-fix — bitmap liveness + DCE (re-attempt
+>   the v5.6.16-deferred half). ~80 LOC + bisection methodology.
+>   Bug fixed: `IR_RAX_CLOBBER` (EMULH/EIDIV/ELODC) reads RCX, not
+>   writes it; v5.6.16 had it as `_ir_def_rcx_any`. 678 DCE kills
+>   / 2,010 B NOP-fill at IR=3. Copy-prop + dead-store + fixpoint
+>   driver cascaded to v5.6.18.
+> - **v5.6.18**: Phase O3c — copy propagation + dead-store elim +
+>   fixed-point driver. ~330 LOC. Bails cleanly if 0.
+> - **v5.6.19**: Phase O4 — linear-scan register allocation.
+> - **v5.6.20**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.18 regalloc is
+>   after bytescan found 0× matches there; v5.6.19 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.20**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.21**: Phase O6 — codebuf compaction (NOP harvest).
+> - **v5.6.21**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.22**: Phase O6 — codebuf compaction (NOP harvest).
 >   Sweeps accumulated NOPs from LASE/const-fold/DCE/copy-prop in
 >   one pass with jump+fixup repair. Real binary shrinkage. (Old
 >   slab-allocator scope reclaimable as a future v5.7.x slot if
->   v5.6.18 regalloc benchmarks show bump-allocation hot.)
-> - **v5.6.22**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+>   v5.6.19 regalloc benchmarks show bump-allocation hot.)
+> - **v5.6.23**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.23**: libro layout-dependent memory corruption
+> - **v5.6.24**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.24**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.25**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.25**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.26**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -142,23 +147,23 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.26**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.27**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.27**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.28**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.28**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.29**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.29**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.30**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
@@ -944,23 +949,46 @@ shipped in `src/common/ir.cyr` as `ir_dce` but commented out in
   bail on broken passes. v5.6.16 const-fold shipped clean;
   DCE waits.
 
-### v5.6.17 — Phase O3c: bitmap liveness + DCE (deferred from v5.6.16) + copy propagation + dead-store elim
+### v5.6.17 — Phase O3b-fix: bitmap liveness + DCE ✅ shipped 2026-04-23
 
-**Bundles the v5.6.16-deferred liveness/DCE half with the
-originally-planned copy-prop + dead-store elim.** ~390 LOC.
+**Ships the v5.6.16-deferred bitmap liveness + DCE half alone.**
+Originally bundled with copy-prop + dead-store elim + fixed-point
+driver (~390 LOC); split because the bug fix justifies its own
+patch and the bisection methodology is the load-bearing learning.
+Copy-prop + dead-store + fixed-point cascades to v5.6.18.
 
-- **Bitmap liveness + DCE** (~60 LOC, deferred from v5.6.16):
-  per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
-  bit 1 = RCX). Implementation already in `src/common/ir.cyr`
-  as `ir_dce` — wired but disabled in `src/main.cyr`. v5.6.16
-  attempt corrupted cc5 even after expanding `_ir_uses_rax` with
-  SYSCALL/CALL/TAIL_JMP/RET/EPILOGUE/RAW_EMIT/RAX_CLOBBER. There
-  is at least one missing-use case the v5.6.16 audit didn't
-  catch — investigation needed before re-enabling. Recon notes:
-  738 candidates marked dead at IR=3 with the v5.6.16 second-pass
-  use-set; cc5_b SIGSEGVs when used to compile main.cyr. Bisect
-  by elimination-count cap to find the first wrongly-killed node;
-  inspect IR around that node for the missing use site.
+**Bug fix (~80 LOC + bisection methodology)**:
+
+- Per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
+  bit 1 = RCX). Standard liveness algorithm: `live_in =
+  (live_out − all_defs) | all_uses`; pure RAX/RCX defs whose
+  target reg isn't in `live_out` are dead. Implementation in
+  `src/common/ir.cyr` as `ir_dce` / `ir_dce_capped`.
+- **v5.6.16's hidden bug, found via bisection**: kill cap +
+  context dump narrowed to **kill #3 = `MOV_CA` before a
+  CLBRA-protected sequence**. Root cause: `IR_RAX_CLOBBER`
+  (recorded by EMULH/EIDIV/ELODC) reads RCX as operand /
+  divisor / address, but v5.6.16 had it as a `_ir_def_rcx_any`
+  (treating it as a writer). Going backward through CLBRA
+  cleared RCX-liveness, making the upstream MOV_CA's RCX-def
+  look dead. Fix: remove `IR_RAX_CLOBBER` from
+  `_ir_def_rcx_any`; add to `_ir_uses_rcx`. Same correction
+  for `IR_ADD_IMM_X1` (rcx += imm reads rcx) and `IR_RAW_EMIT`
+  (opaque conservative reader).
+- **Result**: 678 DCE kills, **2,010 B NOP-fill** at
+  `CYRIUS_IR=3` on cc5 self-compile. Combined with v5.6.16's
+  const-fold: 132 folds + 678 DCE = 810 candidates / 2,794 B
+  total NOP-fill. Both fixpoints clean (IR=0 b==c, IR=3 b==c
+  at 498,720 B). check.sh 22/22.
+- **`CYRIUS_DCE_CAP=N`** kept as a debug knob for future
+  audits — caps DCE kills at N for bisection.
+- Real binary shrinkage still waits for v5.6.22 codebuf
+  compaction (NOP-fill preserves byte positions for safety).
+
+### v5.6.18 — Phase O3c: copy propagation + dead-store elim + fixed-point driver
+
+**Cascaded from v5.6.17 after the bisection split.** ~330 LOC.
+
 - **Copy propagation + dead-store elimination** (~300 LOC):
   forward sweep with per-vreg "current copy-of" map; backward
   sweep marking live stores.
@@ -969,9 +997,11 @@ originally-planned copy-prop + dead-store elim.** ~390 LOC.
 - **Gate**: byte-identical narrow-scope self-host under both
   `IR_ENABLED == 0` and `IR_ENABLED == 3`. Measure incremental
   savings. Bails cleanly if 0 B or if a correctness bisection
-  hits the v5.6.16 wall again — STOP and ask.
+  hits another missing-use case — STOP and ask. The v5.6.17
+  bisection methodology (`ir_dce_capped` + dump) generalizes
+  to copy-prop too.
 
-### v5.6.18 — Phase O4: linear-scan register allocation
+### v5.6.19 — Phase O4: linear-scan register allocation
 
 The big investment. Replaces today's peephole `#regalloc`.
 ~600–900 LOC.
@@ -988,7 +1018,7 @@ The big investment. Replaces today's peephole `#regalloc`.
   baseline on hot inner loops; 10–20 % quality gap vs.
   graph-coloring at a fraction of the code.
 
-### v5.6.19 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+### v5.6.20 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -1013,7 +1043,7 @@ Gate: if v5.6.18 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.20 — Phase O5: maximal-munch instruction selection
+### v5.6.21 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -1026,7 +1056,7 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.21 — Phase O6: codebuf compaction (NOP harvest)
+### v5.6.22 — Phase O6: codebuf compaction (NOP harvest)
 
 **Re-pinned 2026-04-23.** Replaced the originally-conditional
 slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
@@ -1074,7 +1104,7 @@ project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.22 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.23 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -1122,7 +1152,7 @@ baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.23 — Libro layout-dependent memory corruption
+### v5.6.24 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -1141,7 +1171,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.24 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.25 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1167,7 +1197,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.25 — Native aarch64 self-host repair (Pi)
+### v5.6.26 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1196,7 +1226,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.26 — macOS arm64 runtime regression repair (ecb)
+### v5.6.27 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1235,7 +1265,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.27 — Windows 11 runtime regression repair (cass)
+### v5.6.28 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1278,7 +1308,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.28 — Shared-object emission completion
+### v5.6.29 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1320,7 +1350,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.29 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.30 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

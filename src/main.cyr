@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.16\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.17\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -841,6 +841,8 @@ if (IR_ENABLED(S) == 1) {
     # check passes vacuously on zero-IR-node BBs).
     var ir_fold_n = 0;
     var ir_fold_bytes = 0;
+    var ir_dce_n = 0;
+    var ir_dce_bytes = 0;
     if (load8(_ir_env) == 51) {
         ir_lase_bytes = ir_apply_lase(S);
         # v5.6.16 Phase O3b (part 1/2): IR const-fold. Detects
@@ -850,6 +852,28 @@ if (IR_ENABLED(S) == 1) {
         var ir_fold_pack = ir_const_fold(S);
         ir_fold_n = (ir_fold_pack >> 32) & 0xFFFFFFFF;
         ir_fold_bytes = ir_fold_pack & 0xFFFFFFFF;
+        # v5.6.17 Phase O3b (part 2/2): bitmap liveness + DCE.
+        # Per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
+        # bit 1 = RCX). Standard liveness: live_in = (live_out - all_defs)
+        # | all_uses. Pure RAX/RCX defs whose target reg isn't live get
+        # marked IR_ELIMINATED; ir_apply_lase NOP-fills the bytes.
+        # CYRIUS_DCE_CAP=N kept as a debug knob — caps kills for
+        # bisection during future audits.
+        var _dce_cap_env = _read_env("CYRIUS_DCE_CAP");
+        var _dce_cap = 0 - 1;
+        if (_dce_cap_env != 0) {
+            _dce_cap = 0;
+            var _dci = 0;
+            while (load8(_dce_cap_env + _dci) >= 48) {
+                if (load8(_dce_cap_env + _dci) > 57) { _dci = 99999; }
+                else {
+                    _dce_cap = _dce_cap * 10 + (load8(_dce_cap_env + _dci) - 48);
+                    _dci = _dci + 1;
+                }
+            }
+        }
+        ir_dce_n = ir_dce_capped(S, _dce_cap);
+        ir_dce_bytes = ir_apply_lase(S) - ir_lase_bytes;
         # v5.6.16 Phase O3b (part 2/2): bitmap liveness + DCE. Implemented
         # in ir.cyr (`ir_dce`) but DEFERRED to v5.6.17 — corrupts cc5 even
         # after expanding _ir_uses_rax with SYSCALL/CALL/TAIL_JMP/RET/
@@ -878,6 +902,13 @@ if (IR_ENABLED(S) == 1) {
         PRNUM(ir_fold_n);
         syscall(SYS_WRITE, 2, " folds (", 8);
         PRNUM(ir_fold_bytes);
+        syscall(SYS_WRITE, 2, "B)", 2);
+    }
+    if (ir_dce_n > 0) {
+        syscall(SYS_WRITE, 2, ", ", 2);
+        PRNUM(ir_dce_n);
+        syscall(SYS_WRITE, 2, " DCE (", 6);
+        PRNUM(ir_dce_bytes);
         syscall(SYS_WRITE, 2, "B)", 2);
     }
     if (ir_dbe_bytes > 0) {

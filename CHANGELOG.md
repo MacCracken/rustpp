@@ -4,6 +4,81 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.17] — 2026-04-23
+
+**Phase O3b-fix — bitmap liveness + DCE (the v5.6.16-deferred half).**
+Originally bundled into a v5.6.17 grab-bag with copy-prop +
+dead-store + fixed-point driver (~390 LOC); split because the bug
+fix justifies its own slot and the bisection methodology is the
+load-bearing learning. Copy-prop + dead-store + fixed-point
+cascades to v5.6.18.
+
+### Bug found via bisection
+
+`CYRIUS_DCE_CAP=N` env limits how many nodes get killed; binary-
+searched for the largest cap that didn't crash cc5_b. **Cap=2 OK,
+cap=3 broke.** Added a per-kill IR dump of `(ni, op, a1, a2,
+3 prev ops, 3 next ops)`. Kill #3 was:
+
+```
+DCE kill #3 ni=1754 op=MOV_CA a1=0 a2=0 | ctx:
+  <-LOAD_IMM <-PUSH <-LOAD_L  ->POP_A ->CLBRA ->STORE_L
+```
+
+`IR_RAX_CLOBBER` (recorded by EMULH/EIDIV/ELODC) reads RCX as
+operand / divisor / address — but v5.6.16 had it in
+`_ir_def_rcx_any` (treating it as a writer). Going backward
+through CLBRA cleared RCX-liveness, making the upstream MOV_CA's
+RCX-def look dead. Same misclassification for `IR_ADD_IMM_X1`
+(rcx += imm reads rcx) and `IR_RAW_EMIT` (opaque conservative
+reader).
+
+### Fix
+
+Three lines in `src/common/ir.cyr`:
+
+- Remove `IR_RAX_CLOBBER` from `_ir_def_rcx_any` (doesn't write
+  RCX).
+- Add `IR_RAX_CLOBBER` + `IR_ADD_IMM_X1` + `IR_RAW_EMIT` to
+  `_ir_uses_rcx`.
+
+### Result
+
+- **678 DCE kills, 2,010 B NOP-fill** at `CYRIUS_IR=3` on cc5
+  self-compile.
+- Combined with v5.6.16's const-fold: 132 folds + 678 DCE = 810
+  candidates / 2,794 B total NOP-fill at IR=3.
+- Both fixpoints clean: IR=0 b==c==498,720 B; IR=3 b==c==
+  498,720 B. check.sh 22/22 PASS.
+- cc5 grew 497,696 → 498,720 B (+1,024 B) for the DCE wiring +
+  the `CYRIUS_DCE_CAP` debug knob.
+
+### Bisection methodology saved
+
+`ir_dce_capped(S, cap)` + `CYRIUS_DCE_CAP` env stays in the
+codebase as a debug knob. The same methodology (cap + per-kill
+context dump) generalizes to copy-prop and any other future
+IR-walking pass — saved as a feedback memory pattern. The full
+audit took ~10 minutes once the cap knob existed; without it
+the v5.6.16 attempts wasted hours guessing missing-use cases.
+
+### Files
+
+- `src/common/ir.cyr` — `ir_dce_capped` + `_ir_def_rcx_any` and
+  `_ir_uses_rcx` corrections.
+- `src/main.cyr` — wired DCE under `CYRIUS_IR=3`; reads
+  `CYRIUS_DCE_CAP` env.
+- VERSION 5.6.16 → 5.6.17.
+- `docs/development/roadmap.md` — v5.6.17 narrowed to DCE bug
+  fix; copy-prop+dead-store+fixpoint cascaded to v5.6.18;
+  every later slot +1 (v5.6.18 → v5.6.19 regalloc, ...,
+  v5.6.29 → v5.6.30 closeout). 31 slots through v5.6.30.
+- `tests/regression-{aarch64-native-selfhost,macho-exit,pe-exit}.sh`
+  — pin labels updated v5.6.25/26/27 → v5.6.26/27/28.
+- `scripts/check.sh` — gate labels updated to new pin numbers.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/state.md`, `docs/development/completed-phases.md`.
+
 ## [5.6.16] — 2026-04-23
 
 **Phase O3b part 1/2 — IR constant folding (DCE deferred to v5.6.17).**

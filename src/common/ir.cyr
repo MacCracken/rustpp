@@ -860,6 +860,10 @@ fn _ir_uses_rax(op) {
 }
 
 # Returns 1 if op reads RCX.
+# v5.6.17 fix: IR_RAX_CLOBBER (EMULH/EIDIV/ELODC) all read RCX (mulh
+# multiplies rax × rcx; idiv divides by rcx; elodc loads from [rcx]).
+# IR_ADD_IMM_X1 reads rcx (rcx += imm). IR_RAW_EMIT is opaque —
+# conservative: treat as RCX reader.
 fn _ir_uses_rcx(op) {
     if (op == IR_ADD)          { return 1; }
     if (op == IR_SUB)          { return 1; }
@@ -874,11 +878,16 @@ fn _ir_uses_rcx(op) {
     if (op == IR_STORE16)      { return 1; }
     if (op == IR_STORE32)      { return 1; }
     if (op == IR_STORE64)      { return 1; }
+    if (op == IR_RAX_CLOBBER)  { return 1; }
+    if (op == IR_ADD_IMM_X1)   { return 1; }
+    if (op == IR_RAW_EMIT)     { return 1; }
     return 0;
 }
 
 # Returns 1 if op writes RCX (pure or otherwise — for liveness kill).
 # Calls / syscalls / call_pops are caller-saves; they clobber RCX.
+# v5.6.17 fix: IR_RAX_CLOBBER (EMULH/EIDIV/ELODC) does NOT write RCX —
+# it only reads it. Removed from this list; added to _ir_uses_rcx.
 fn _ir_def_rcx_any(op) {
     if (op == IR_MOV_CA)       { return 1; }
     if (op == IR_POP_RCX)      { return 1; }
@@ -889,14 +898,17 @@ fn _ir_def_rcx_any(op) {
     if (op == IR_TAIL_JMP)     { return 1; }
     if (op == IR_SYSCALL)      { return 1; }
     if (op == IR_ADD_IMM_X1)   { return 1; }
-    if (op == IR_RAX_CLOBBER)  { return 1; }
+    # IR_RAX_CLOBBER intentionally NOT here — it doesn't write RCX.
     if (op == IR_RAW_EMIT)     { return 1; }
     return 0;
 }
 
 # Standard liveness DCE. live_in = (live_out - all_defs) | all_uses.
 # A pure def whose target reg isn't in live_out is dead.
-fn ir_dce(S) {
+#
+# v5.6.17 bisection: `cap` limits how many nodes get killed; pass -1 for
+# uncapped. Used to find the first wrongly-killed node by binary search.
+fn ir_dce_capped(S, cap) {
     var bcnt = IR_BCNT(S);
     var killed = 0;
     var bi = 0;
@@ -920,6 +932,9 @@ fn ir_dce(S) {
                 if ((live & 2) == 0) { dead = 1; }
             }
 
+            # Bisection cap: only kill the first `cap` candidates.
+            if (cap >= 0) { if (killed >= cap) { dead = 0; } }
+
             if (dead == 1) {
                 _ir_set_node(S, ni, _ir_pack_op(IR_ELIMINATED, 0), 0, 0);
                 killed = killed + 1;
@@ -937,6 +952,8 @@ fn ir_dce(S) {
     }
     return killed;
 }
+
+fn ir_dce(S) { return ir_dce_capped(S, 0 - 1); }
 
 # ================================================================
 # BB construction pass
