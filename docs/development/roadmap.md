@@ -121,34 +121,28 @@
 > - **v5.6.18**: Phase O3c — dead-store elimination + fixed-point
 >   driver. ~100 LOC. 15 DSE on cc5 self-compile (matches recon).
 >   Fixed-point catches cascade: const-fold rises 132 → 135 once
->   DCE+DSE remove wrapping ops. **Copy-prop split out** to v5.6.19
->   after recon found zero direct savings on cyrius's stack-machine
->   IR (LOAD-for-LOAD rewrite is byte-equal); cascade-only value.
-> - **v5.6.19**: Copy propagation (re-pinned from v5.6.18 scope).
->   ~250 LOC. Value purely cascading: rewrite `LOAD_LOCAL(y)` →
->   `LOAD_LOCAL(x)` after a copy → y becomes never-read → DSE
->   catches its STORE → DCE catches the original LOAD. Recon at
->   v5.6.18: 110 local-copy candidates. Bails if cascade adds < 5
->   new dead stores.
-> - **v5.6.20**: Phase O4 — linear-scan register allocation.
-> - **v5.6.21**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+>   DCE+DSE remove wrapping ops. **Copy-prop deferred** to long-term
+>   (no version pin) after v5.6.18 + v5.6.19 recons both bailed —
+>   see "Long-term considerations" section.
+> - **v5.6.19**: Phase O4 — linear-scan register allocation.
+> - **v5.6.20**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.20 regalloc is
+>   after bytescan found 0× matches there; v5.6.19 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.22**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.23**: Phase O6 — codebuf compaction (NOP harvest).
->   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE/copy-prop
+> - **v5.6.21**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.22**: Phase O6 — codebuf compaction (NOP harvest).
+>   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE
 >   in one pass with jump+fixup repair. Real binary shrinkage. (Old
 >   slab-allocator scope reclaimable as a future v5.7.x slot if
->   v5.6.20 regalloc benchmarks show bump-allocation hot.)
-> - **v5.6.24**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+>   v5.6.19 regalloc benchmarks show bump-allocation hot.)
+> - **v5.6.23**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.25**: libro layout-dependent memory corruption
+> - **v5.6.24**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.26**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.25**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.27**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.26**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -156,25 +150,45 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.28**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.27**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.29**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.28**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.30**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.29**: shared-object (.so / .dll / .dylib) emission
 >   completion.
 > - **v5.6.31**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
+>
+> **Long-term considerations** (no version pin yet — revisit when
+> the right preconditions land):
+> - **Copy propagation** — v5.6.18 recon: 110 raw local-copy
+>   patterns / 18 actual rewrites after invalidation / 1
+>   cascade-target dead store. Direct savings on cyrius's stack-
+>   machine IR are zero (LOAD-for-LOAD rewrite is byte-equal). May
+>   revisit when v5.6.19 regalloc lands cross-BB liveness data —
+>   copy chains can then potentially span BBs and the cascade math
+>   changes.
+> - **Extended dead-store elimination** — v5.6.19 recon: 0
+>   candidates within the safe per-BB scope (RET/EPILOGUE-
+>   terminated only). The cross-BB version that would catch "STORE
+>   never read till function exit" needs proper data-flow liveness —
+>   same v5.6.19 regalloc precondition as copy-prop.
+>
+> Both items intentionally NOT pinned to a v5.6.x or v5.7.x slot.
+> Add to a future minor only when the regalloc data structures exist
+> to make a meaningful version land cleanly.
+>
 > - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.7**: pure-cyrius TLS 1.3 arc + medium language
@@ -1047,46 +1061,7 @@ walk of cc5 IR found:
 - cc5 grew 498,720 → 501,616 B (+2,896 B) for `ir_dead_store` +
   `CYRIUS_DSE_CAP` knob + fixpoint loop.
 
-### v5.6.19 — Copy propagation (re-pinned from v5.6.18)
-
-**Pinned 2026-04-23 after v5.6.18 recon.** Direct savings on
-cyrius's stack-machine IR are zero (LOAD-for-LOAD rewrite is
-byte-equal). Value is purely cascading: rewrite all `LOAD_LOCAL(y)`
-→ `LOAD_LOCAL(x)` after a `LOAD_LOCAL(x), STORE_LOCAL(y)` copy →
-y is now never read → `STORE_LOCAL(y)` becomes dead → DSE catches
-it next fixed-point iteration → DCE may catch the original
-LOAD_LOCAL(x) → STORE_LOCAL(y) sequence as dead too.
-
-**Recon at v5.6.18**: 110 local-copy candidates on cc5 self-
-compile. Cascade upper bound: ≤ 110 new dead stores (worst case;
-realistically much less because most copies feed reads downstream).
-
-**Scope** (~250 LOC):
-
-- Per-BB forward sweep with per-local "current value source" map:
-  store `lidx_of_source_x` for each local that's a known copy of
-  another. Invalidate on any STORE to that local OR any opaque op.
-- Rewrite `LOAD_LOCAL(y)` → `LOAD_LOCAL(x)` when `y` has a known
-  copy-of-`x` mapping (in-place: write `x`'s lidx into the
-  LOAD_LOCAL bytes; both EMOVL forms are 7 bytes). Mark the IR
-  node's a1 to reflect the new lidx.
-- Run inside the fixed-point driver between DCE and DSE so the
-  cascade fires immediately.
-- `CYRIUS_COPYPROP_CAP=N` knob from day 1.
-
-**Gate**:
-- Byte-identical narrow-scope self-host under both `IR_ENABLED == 0`
-  and `IR_ENABLED == 3`.
-- Measure cascade gain: total DSE kills must increase from
-  v5.6.18's baseline. If cascade adds < 5 new dead stores, ship
-  copy-prop without bundle and STOP — the LOC vs win ratio
-  doesn't justify alone.
-- If correctness bisection hits another missing-use case, STOP
-  and ask. The v5.6.17 bisection methodology (`ir_dce_capped` +
-  context dump) generalizes — wire `CYRIUS_COPYPROP_CAP` from
-  day 1 with the same pattern.
-
-### v5.6.20 — Phase O4: linear-scan register allocation
+### v5.6.19 — Phase O4: linear-scan register allocation
 
 The big investment. Replaces today's peephole `#regalloc`.
 ~600–900 LOC.
@@ -1103,7 +1078,7 @@ The big investment. Replaces today's peephole `#regalloc`.
   baseline on hot inner loops; 10–20 % quality gap vs.
   graph-coloring at a fraction of the code.
 
-### v5.6.21 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+### v5.6.20 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -1128,7 +1103,7 @@ Gate: if v5.6.18 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.22 — Phase O5: maximal-munch instruction selection
+### v5.6.21 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -1141,7 +1116,7 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.23 — Phase O6: codebuf compaction (NOP harvest)
+### v5.6.22 — Phase O6: codebuf compaction (NOP harvest)
 
 **Re-pinned 2026-04-23.** Replaced the originally-conditional
 slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
@@ -1189,7 +1164,7 @@ project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.24 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.23 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -1237,7 +1212,7 @@ baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.25 — Libro layout-dependent memory corruption
+### v5.6.24 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -1256,7 +1231,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.26 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.25 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1282,7 +1257,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.27 — Native aarch64 self-host repair (Pi)
+### v5.6.26 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1311,7 +1286,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.28 — macOS arm64 runtime regression repair (ecb)
+### v5.6.27 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1350,7 +1325,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.29 — Windows 11 runtime regression repair (cass)
+### v5.6.28 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1393,7 +1368,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.30 — Shared-object emission completion
+### v5.6.29 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1435,7 +1410,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.31 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.30 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full
@@ -1476,6 +1451,80 @@ Rationale: downstream projects are batching their own arch-neutral
 work against this closeout. If v5.6.29 ships with loose ends, each
 downstream repo absorbs the cost and the sweep fragments. One
 tight closeout here is cheaper than N downstream workarounds.
+
+---
+
+## Long-term considerations (no version pin yet)
+
+Items deferred without a v5.6.x or v5.7.x slot. Add to a future
+minor only when the right preconditions land — typically when
+v5.6.19 regalloc + cross-BB liveness machinery exists to make a
+meaningful version land cleanly.
+
+### Copy propagation
+
+**Status**: deferred 2026-04-23 after v5.6.18 + v5.6.19 recons.
+
+**Why deferred**: cyrius's stack-machine IR has no abundant virtual
+registers to fold copies through. Every binary op shuttles values
+through fixed RAX/RCX positions — there are no `add y, z` → `add
+x, z` rewrites to perform. The classical copy-prop wins simply
+don't translate.
+
+**Recon data**:
+- v5.6.18: 110 raw `LOAD_LOCAL(x), STORE_LOCAL(y)` patterns on
+  cc5 self-compile.
+- v5.6.19: 18 actual rewrites that survive per-BB invalidation
+  through STOREs/CALLs/&local. Direct savings: 0 B (LOAD-for-LOAD
+  is byte-equal). Cascade-target dead stores newly orphaned by
+  the rewrites: **1**.
+- Pre-set gate (in v5.6.18 entry): "Bails if cascade adds < 5 new
+  dead stores." 1 < 5 → bail.
+
+**When to revisit**: after v5.6.19 linear-scan regalloc lands.
+With cross-BB liveness data and actual virtual registers, copy
+chains can span BBs and the cascade math changes — copy-prop
+might earn its keep alongside register-renaming opportunities
+the regalloc surfaces.
+
+### Extended dead-store elimination (cross-BB)
+
+**Status**: deferred 2026-04-23 after v5.6.19 recon.
+
+**Why deferred**: v5.6.18 ships the per-BB "STORE_LOCAL(x), [no
+read], STORE_LOCAL(x)" pattern (15 kills). The natural extension
+— "STORE_LOCAL(x) never read till function exit" — needs cross-BB
+liveness to be safe. Cyrius doesn't have cross-BB liveness yet.
+
+**Recon data**:
+- v5.6.19: a naive "scan to BB terminator" version finds 2,409
+  candidates — but most are spurious because they ignore that
+  JMP/JCC/JMP_BACK flow to a successor BB where the local IS
+  read.
+- Tightening to RET/EPILOGUE-terminated BBs only: **0**
+  candidates. By the time you're at a function-return BB, all
+  upstream stores have already been read into the return path.
+- Per the gate (same as copy-prop): 0 < 5 → bail.
+
+**When to revisit**: same as copy-prop — after v5.6.19 regalloc
+lands cross-BB liveness. With a proper liveness-out set per BB,
+extended-DSE can safely catch genuine "computed-but-never-used"
+locals.
+
+### Why we tried both at v5.6.19 and bailed
+
+Both passes share a common dependency: cross-BB data-flow analysis.
+v5.6.x optimization arc deliberately stayed within per-BB scope
+(LASE, const-fold, DCE, DSE) because the cross-BB version of any
+of them needs liveness machinery that v5.6.19 regalloc will build.
+Trying copy-prop or extended-DSE before regalloc means duplicating
+that machinery for one-off use — high LOC for low payoff. Better
+to wait for the natural precondition.
+
+The recon work isn't wasted: if/when revisited, the implementation
+plan already exists (`ir_copyprop_recon` and `ir_extdse_recon`
+prototypes lived in `src/common/ir.cyr` during v5.6.19 evaluation,
+and the data structures + gate criteria are documented above).
 
 ---
 
@@ -1631,6 +1680,282 @@ RISC-V port will surface other items (compiler bugs, stdlib
 gaps, tooling friction) that also need slotting; the patch
 order falls out naturally once we see the actual surfacing
 sequence. Acceptable bound: ships before v5.7.x closeout.
+
+### v5.7.x — `cyrius init` library-vs-binary awareness
+
+**Pinned 2026-04-23.** `cyrius init <name>` currently emits the
+binary shape unconditionally: `[build] entry = "src/main.cyr"`,
+`output = "<name>"`, `src/main.cyr` with top-level `main()` + `var
+exit_code = main(); syscall(60, exit_code);`. For library crates
+(the larger share of AGNOS shared crates — mabda, sigil, sankoch,
+patra, yukti, vyakarana, yantra, and many more), this is the wrong
+shape. The library pattern that's emerged organically across
+those 7+ repos is:
+
+```toml
+[build]
+entry = "programs/smoke.cyr"
+output = "build/<name>-smoke"
+
+[lib]
+modules = ["src/main.cyr", ...]   # driven by `cyrius distlib` → dist/<name>.cyr
+```
+
+Every new library scaffold currently requires hand-rewriting the
+scaffold output to this shape. yantra (2026-04-23) was the latest
+instance; the meta agent rewrote four places in `cyrius.cyml` +
+created `programs/smoke.cyr` + stripped the top-level `main()`
+from `src/main.cyr` to convert the binary scaffold into the
+library shape.
+
+**Surfacing consumers**: yantra (2026-04-23), sit (2026-04-23 —
+stayed binary, correctly), and every future library scaffold.
+
+**Scope** (~100–200 LOC in `scripts/cyrius-init.sh` or wherever
+`cyrius init` lives):
+
+- **Flag-based selection**: `cyrius init --lib <name>` emits the
+  library shape; `cyrius init --bin <name>` emits the current
+  binary shape; bare `cyrius init <name>` defaults to `--bin` for
+  backward-compat (or prompts — designer's call).
+- **Library template**: `cyrius.cyml` with `[build] entry =
+  "programs/smoke.cyr"` + `[lib] modules = ["src/main.cyr"]`.
+- **Library `src/main.cyr`**: no top-level `main()` / syscall —
+  just a header comment explaining it's a library module.
+- **`programs/smoke.cyr`**: the compile-link proof program
+  matching the mabda / sigil / sankoch convention (one-line
+  banner print + `syscall(60, 0)`).
+- **`src/test.cyr`**: currently declared in scaffold output's
+  `cyrius.cyml` but the file itself is never created. Either
+  create a stub file or drop the `test = "src/test.cyr"` line
+  from the scaffold. Minor ergonomic fix either way.
+
+**Acceptance gates:**
+
+1. `cyrius init --lib yantra_demo` in a clean directory emits a
+   project that builds clean with `cyrius build
+   programs/smoke.cyr build/yantra_demo-smoke` and produces a
+   working `dist/yantra_demo.cyr` via `cyrius distlib`.
+2. `cyrius init --bin foo` emits a project whose `cyrius build
+   src/main.cyr build/foo` works and whose output binary runs and
+   exits 0.
+3. Bare `cyrius init foo` emits something (pick a default),
+   documented in help text.
+4. The `test = "src/test.cyr"` line either references an existing
+   stub file or is omitted from the scaffold's `cyrius.cyml`.
+
+**Slot assignment**: during the v5.7.x cycle, after RISC-V
+baseline stabilizes. Low risk, self-contained.
+
+### v5.7.x — `cyrius init` / `cyrius port` first-party-documentation.md alignment
+
+**Pinned 2026-04-23.** The `first-party-documentation.md` standard
+([agnosticos/docs/development/applications/first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md))
+was formalized 2026-04-23 and specifies the baseline `docs/` tree
+every AGNOS repo should carry from day one: `docs/adr/` (with
+`README.md` + `template.md`), `docs/architecture/` (with
+`README.md`), `docs/guides/`, `docs/examples/`,
+`docs/development/roadmap.md`, `docs/development/state.md`. Plus a
+`CLAUDE.md` at the repo root following the durable-vs-volatile
+split that cyrius/CLAUDE.md established as the gold standard.
+
+`cyrius init` today emits only a bare `README.md`, `CHANGELOG.md`,
+`LICENSE`, `VERSION`, `cyrius.cyml`, `.gitignore`, `build/`,
+`docs/` (empty), `lib/`, `scripts/`, `src/`, `tests/`. None of the
+first-party-documentation.md subtrees or the CLAUDE.md template are
+scaffolded. The meta agent rewrote all of these by hand on sit
+(2026-04-23) and yantra (2026-04-23), plus pasted the ADR
+conventions + `template.md` from sit's hand-written version both
+times. `cyrius port` has the same gap — ported projects don't
+land with the standard doc shape.
+
+**Surfacing consumers**: sit, yantra (2026-04-23), and every
+future repo scaffolded or ported until the tooling catches up.
+
+**Scope** (~200–300 LOC in scaffold templates):
+
+- `docs/adr/README.md` + `docs/adr/template.md` — standard index
+  + the 5-section template (Status/Date, Context, Decision,
+  Consequences, Alternatives considered). Templates in
+  [sit/docs/adr](https://github.com/MacCracken/sit/tree/main/docs/adr)
+  and [yantra/docs/adr](https://github.com/MacCracken/yantra/tree/main/docs/adr)
+  can be lifted directly.
+- `docs/architecture/README.md` — standard header explaining
+  *"non-obvious constraints and quirks a reader cannot derive
+  from the code alone; numbered chronologically, never renumber"*.
+- `docs/guides/getting-started.md` — stub with project-name
+  placeholders.
+- `docs/development/roadmap.md` — stub with v1.0-criteria
+  section.
+- `docs/development/state.md` — stub following cyrius/docs/
+  development/state.md's shape (Version / Toolchain / Source /
+  Tests / Dependencies / Consumers / Next).
+- **`CLAUDE.md` at repo root** — fill `{project}` placeholders
+  from the example_claude.md template
+  ([agnosticos/docs/development/applications/example_claude.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/example_claude.md)).
+  Durable content only; "Current State" is a pointer block into
+  `docs/development/state.md`, not inlined state.
+- **`cyrius port` parity** — when a Rust project is ported in,
+  scaffold the same doc tree alongside the moved `rust-old/`.
+
+**Acceptance gates:**
+
+1. `cyrius init --lib foo` emits a project whose `docs/adr/`,
+   `docs/architecture/`, `docs/guides/`, `docs/examples/`,
+   `docs/development/` all exist with correct README/template
+   contents.
+2. A CLAUDE.md is emitted, containing no inlined state — the
+   "Current State" section points at `docs/development/state.md`.
+3. `cyrius port /some/rust/project` scaffolds the same tree.
+4. The existing scaffolded repos that pre-date the standard
+   (sit, yantra) match what new scaffolds now emit — cross-check
+   with a diff against their hand-written versions.
+
+**Relationship to the `cyrius init` ergonomic fixes at v5.6.22/
+v5.6.23** — those are 5 specific fixes surfaced by owl during its
+bootstrap; this is a broader alignment sweep on top of them. The
+v5.6.22/23 fixes land first; this item assumes they've landed.
+
+**Slot assignment**: during the v5.7.x cycle, after the
+library-vs-binary item ships (depends on the scaffold template
+format landed by that item).
+
+### v5.7.x — `lib/http.cyr` depth
+
+**Pinned 2026-04-23.** `lib/http.cyr` is a minimal HTTP/1.0
+client: GET-only, no custom header support, no HTTPS integration
+with `lib/tls.cyr`, no redirect following, no POST/PUT/DELETE/
+PATCH. CRLF-injection hardening on URL parsing is solid (CVE-
+2019-9741 pattern caught) — the security floor is fine. What's
+thin is the method surface.
+
+Every modern JSON-RPC API (WebDriver, Appium JSON-RPC, GitHub
+API, any REST service) needs POST with custom `Content-Type:
+application/json` headers and a request body. None of that is
+available today without hand-rolling in the consumer. yantra
+(web + mobile automation, scaffolded 2026-04-23) is the
+surfacing consumer; sit's HTTP transport layer will hit the same
+gap when it ships; ark's remote-registry support will too.
+
+**Surfacing consumers**: yantra (2026-04-23) — WebDriver + Appium
+JSON-RPC; sit (future — remote clone/push/pull); ark
+(future — remote registry support).
+
+**Scope** (~400–600 LOC in `lib/http.cyr`):
+
+- **Methods**: `http_post(url, headers, body, body_len)`,
+  `http_put(...)`, `http_delete(...)`, `http_patch(...)`,
+  `http_head(...)`. Same response-struct shape as
+  `http_get()` — reuse the parser.
+- **Custom headers**: request-side headers as a linked list or
+  flat `key:value\r\n` string. `http_add_header(req, key, value)`
+  builder helper.
+- **HTTPS**: when URL is `https://`, open a TCP socket, wrap it
+  with `tls_connect(sock, host)` (via existing `lib/tls.cyr`),
+  then read/write through `tls_read` / `tls_write` instead of
+  raw `syscall(READ/WRITE)`. Transparent to callers — `http_get`
+  / `http_post` just work on both schemes.
+- **Response headers**: parse and expose the response header
+  block (currently only status + body are parsed). New helpers:
+  `http_header(resp, key)` lookup, `http_headers(resp)` full
+  list.
+- **Redirect following**: optional, bounded (default max 5
+  hops), with an opt-out flag. 301/302/303/307/308 handling per
+  RFC 7231.
+- **Chunked transfer encoding**: most HTTP/1.1 servers default
+  to chunked for unknown-length responses. Parse the chunked
+  framing transparently.
+- **Keep-alive / connection reuse**: out of scope for first
+  pass; document as a v5.8.x+ follow-on.
+- **HTTP/1.1 upgrade**: `http.cyr` is currently HTTP/1.0; bump
+  the request line to `HTTP/1.1` with explicit
+  `Connection: close` (behavior-equivalent, standards-current).
+
+**Acceptance gates:**
+
+1. `http_post("https://api.example.com/v1/foo", headers,
+   body, body_len)` returns a response with status + parsed
+   response headers + body. `headers` carries
+   `Content-Type: application/json`, endpoint receives the body
+   correctly.
+2. WebDriver session-create round-trip works end-to-end via
+   `http.cyr` alone (no yantra-side workarounds).
+3. Appium JSON-RPC `createSession` works end-to-end.
+4. Redirect-following tcyr test with a 302 → 200 chain.
+5. Chunked-transfer tcyr test with a response server that
+   writes chunked framing.
+6. All existing `http_get` consumers still pass (no
+   regressions).
+
+**Slot assignment**: during the v5.7.x cycle. Can land
+independently of the RISC-V port, the library-vs-binary
+scaffold item, and the doc-alignment item.
+
+### v5.7.x — `lib/json.cyr` depth
+
+**Pinned 2026-04-23.** `lib/json.cyr` today supports a basic
+key-value pair parse and build with `json_parse(src)`,
+`json_get(pairs, key)`, `json_get_int(...)`, `json_build(pairs)`,
+`json_pair_new(key, value)`. What's thin: nested objects, arrays,
+JSON numbers beyond int, booleans, null, escaped string values,
+and streaming large payloads.
+
+Modern JSON-RPC responses (WebDriver, Appium, any REST API) have
+deeply nested response shapes: session objects with nested
+capability maps, element arrays with attributes, status envelopes
+wrapping error objects. `json.cyr` today needs the consumer to
+hand-parse anything beyond top-level key/value, which defeats
+the point of having the module.
+
+**Surfacing consumers**: same as `http.cyr` depth — yantra (every
+backend), sit (future remote protocols), ark (future registry
+responses), any shared crate hitting external JSON APIs.
+
+**Scope** (~400–600 LOC):
+
+- **Nested objects**: `json_get_obj(pairs, key)` returns a
+  nested pair list. Recursion depth limit (default 32) with
+  hard-error on overrun — defense against stack-smashing
+  malicious input.
+- **Arrays**: `json_get_array(pairs, key)` returns an array
+  struct; `json_array_len(arr)`, `json_array_get(arr, idx)` for
+  element access.
+- **Type coverage**: booleans (`json_get_bool`), null (separate
+  sentinel value vs "missing key"), floats/doubles
+  (`json_get_double`), negative numbers (currently `atoi`-only —
+  add signed support).
+- **String escape handling**: `\n`, `\t`, `\"`, `\\`, `\uXXXX`
+  on both parse and build paths. Today's parser silently breaks
+  on escaped quotes inside strings.
+- **Build path**: `json_build` today builds flat key-value
+  objects. Extend to nested: `json_build_obj(pairs)`,
+  `json_build_array(values)`.
+- **Streaming parse** (optional, v5.8.x-deferrable): tokenizer
+  API for walking a JSON stream without materializing the full
+  tree. Needed for large responses (CDP can emit multi-MB
+  debugger payloads).
+- **Error reporting**: currently `json_parse` returns 0 on
+  failure — no position info, no reason. Add
+  `json_parse_err(src)` variant that returns a parse-error
+  struct with line/column/reason.
+
+**Acceptance gates:**
+
+1. `json_parse` correctly handles a deeply-nested object
+   (capability map from a real WebDriver session-create
+   response).
+2. Array access works on a real Appium `findElements` response.
+3. Escape handling: `"\"hello\\nworld\""` parses as the
+   4-char string `"hel\no"` with proper quote.
+4. Build round-trip: `json_build(json_parse(src))` produces
+   byte-identical output for a canonical corpus.
+5. Recursion depth limit: 33-deep input returns a parse error,
+   not a segfault.
+6. All existing `json_parse` consumers still pass.
+
+**Slot assignment**: during the v5.7.x cycle. Can land in
+parallel with `http.cyr` depth — different file, no cross-
+dependency.
 
 ---
 

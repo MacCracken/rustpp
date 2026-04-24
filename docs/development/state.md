@@ -30,25 +30,27 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.19** — Copy propagation (re-pinned from v5.6.18 scope after recon
-  showed zero direct savings). ~250 LOC. Value purely cascading: rewrite
-  LOAD_LOCAL(y) → LOAD_LOCAL(x) after a copy → y becomes never-read → DSE
-  catches its STORE → DCE catches the original LOAD. Recon at v5.6.18:
-  110 candidates. Bails if cascade adds < 5 new dead stores.
-- **v5.6.20** — Phase O4: linear-scan register allocation (~600–900 LOC).
-- **v5.6.21** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
-  precondition v5.6.20.
-- **v5.6.22** — Phase O5: maximal-munch instruction selection (precedes
+- **v5.6.19** — Phase O4: linear-scan register allocation (~600–900 LOC).
+- **v5.6.20** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+  precondition v5.6.19.
+- **v5.6.21** — Phase O5: maximal-munch instruction selection (precedes
   RISC-V backend at v5.7.0).
-- **v5.6.23** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+- **v5.6.22** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
   repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.24–v5.6.26** — consumer-surfaced tooling: `cyrius init` scaffold,
+- **v5.6.23–v5.6.25** — consumer-surfaced tooling: `cyrius init` scaffold,
   libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.27–v5.6.29** — broad-scope platform repair: aarch64 native
+- **v5.6.26–v5.6.28** — broad-scope platform repair: aarch64 native
   self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
   dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.30** — shared-object emission.
-- **v5.6.31** — closeout.
+- **v5.6.29** — shared-object emission.
+- **v5.6.30** — closeout.
+
+**Long-term considerations (no version pin)**: copy propagation +
+cross-BB extended dead-store elimination — both recon-evaluated at
+v5.6.18/v5.6.19, both bail (zero direct savings on stack-machine IR;
+cross-BB versions need v5.6.19 regalloc liveness data first). See
+`roadmap.md §Long-term considerations` for full recon data + revisit
+criteria.
 
 ## Recent shipped (one-liner per release)
 

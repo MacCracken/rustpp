@@ -54,20 +54,26 @@ Pre-implementation walk of cc5 IR found:
 - cc5 grew 498,720 → 501,616 B (+2,896 B) for `ir_dead_store` +
   `CYRIUS_DSE_CAP` knob + fixpoint loop.
 
-### Roadmap cascade (+1 slot count, 31 → 32)
+### Roadmap cascade (no net slot change; 31 slots through v5.6.30)
 
-- v5.6.19 = copy-prop (re-pinned from v5.6.18 scope; ~250 LOC,
-  cascade-only value, bails if < 5 new dead stores from cascade)
-- v5.6.20 = linear-scan regalloc (was v5.6.19)
-- v5.6.21 = aarch64 fused ops (was v5.6.20)
-- v5.6.22 = maximal-munch (was v5.6.21)
-- v5.6.23 = codebuf compaction (was v5.6.22)
-- v5.6.24-v5.6.26 = consumer-surfaced (was 23-25)
-- v5.6.27-v5.6.29 = platform repair (was 26-28)
-- v5.6.30 = shared-object (was 29)
-- v5.6.31 = closeout (was 30)
-- Regression-stub pin labels: v5.6.26/27/28 → v5.6.27/28/29
-- check.sh gate labels updated
+Originally cascaded +1 to insert v5.6.19 = copy-prop. Then both
+copy-prop AND extended-DSE recon-failed at v5.6.19 evaluation
+(see roadmap §Long-term considerations); v5.6.19 retracted
+without ship, cascade reverted −1. Net: same numbering as
+pre-v5.6.18.
+
+- v5.6.19 = linear-scan regalloc (unchanged from pre-v5.6.18)
+- v5.6.20 = aarch64 fused ops
+- v5.6.21 = maximal-munch
+- v5.6.22 = codebuf compaction (real binary shrinkage; sweeps NOPs
+  from LASE/const-fold/DCE/DSE)
+- v5.6.23-v5.6.25 = consumer-surfaced (cyrius init, libro, cc5_win)
+- v5.6.26-v5.6.28 = platform repair (Pi native, macOS, Win11)
+- v5.6.29 = shared-object
+- v5.6.30 = closeout
+- Copy-prop + extended-DSE moved to roadmap §Long-term
+  considerations (no version pin); revisit when v5.6.19 regalloc
+  lands cross-BB liveness machinery.
 
 ### Files
 
