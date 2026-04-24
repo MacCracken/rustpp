@@ -4,6 +4,99 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.21] — 2026-04-23
+
+**Codegen bug fix — bare-truthy `if (r)` after fn-call returns
+correct branch.** Patra 1.6.0 release was blocked on this fix.
+
+### The bug
+
+A v5.6.x regression. Confirmed broken on v5.6.10, 5.6.18, 5.6.19,
+5.6.20; works on v5.5.27, 5.5.40, 5.6.5. `var r = helper(); if (r)
+{ ... }` took the FALSE branch even when `r == 1`. Workaround
+across `src/*.cyr` (rewrite all `if (r)` → `if (r != 0)`) kept
+cc5 self-host clean but downstream consumers using idiomatic
+`if (r)` got hit (`tbl_find` silently returned -1; consumer test
+12 onward cratered before workaround).
+
+### Root cause
+
+v5.6.8's `_flags_reflect_rax` tracker (Phase O2 cat 2) is a
+global flag that signals when ZF reflects the value in RAX,
+letting ECONDCMP skip emitting `test rax, rax` for bare-truthy
+conditions. Four emit sites neglected to reset the flag:
+
+- `EFLLOAD` (`mov rax, [rbp+disp]`) — loads new RAX value
+  without setting ZF
+- `ECALLFIX` / `ECALLTO` — callee may set flags arbitrarily;
+  rax = return value
+- `ESYSCALL` — same hazard
+
+ELOAD8/16/32/64 already had the reset. EMOVI's i32 path already
+had the reset. EFLLOAD was the missed twin in the codegen surface.
+
+### Sequence under the repro
+
+1. Inside `helper()`, `if (e != c)` emits CMP+JCC; `_flags_reflect_rax = 1`
+2. `helper` returns 1; `_flags_reflect_rax` global still = 1
+3. ECALLFIX (the call instruction) — **no reset** → flag still = 1
+4. `STORE_LOCAL(r)` — `mov [rbp-N], rax` (no flag change, value preserved)
+5. `EFLLOAD(r)` — `mov rax, [rbp-N]` — **no reset** → flag still = 1
+6. ECONDCMP for bare `if (r)` sees `_flags_reflect_rax = 1`, skips
+   the `test rax, rax`
+7. Branches on STALE flags from inside `helper` — wrong branch
+
+### Fix
+
+Four `_flags_reflect_rax = 0;` resets in `src/backend/x86/emit.cyr`:
+- EFLLOAD (line 1246)
+- ECALLTO (line 932)
+- ECALLFIX (line 944)
+- ESYSCALL (line 214)
+
+### Regression test (gate 4r)
+
+`tests/regression-truthy-after-fncall.sh` ships with v5.6.21
+to catch any future regression. Two shapes:
+1. `var r = helper(x); if (r)` (intermediate var)
+2. `if (helper(x))` (direct, no var)
+
+Both must take the TRUE branch when the helper returns 1. Self-
+contained — no stdlib deps, just builtins.
+
+### Verification
+
+- Repro `/tmp/cyrius_5.6_codegen_bug.cyr`: `result=99` (was -1)
+- Both fixpoints clean: IR=0 b==c==520,504 B; IR=3 b==c==520,504 B
+- check.sh **23/23 PASS** (added gate 4r)
+- cc5 grew 520,456 → 520,504 B (+48 B for the four reset lines +
+  comments)
+
+### Why the workaround in src/*.cyr stays for now
+
+The user's `if (r != 0)` rewrites across `src/*.cyr` are
+correctness-preserving and the explicit form arguably documents
+intent better. Bulk reversion is its own follow-up patch. v5.6.21
+ships the compiler fix; src/ rewrite-back is deferred to a future
+patch when there's bandwidth + intent to do it cleanly.
+
+### Patra 1.6.0 unblock
+
+Patra (just bumped 1.5.5 → 1.6.0 in v5.6.20 for `sit` blob
+support) can now fold into v5.6.21 cyrius cleanly without the
+`!= 0` workaround across its source.
+
+### Files
+
+- `src/backend/x86/emit.cyr` — 4 `_flags_reflect_rax = 0` resets
+  + explanatory comments at the bug-fix site (EFLLOAD).
+- `tests/regression-truthy-after-fncall.sh` — new gate 4r.
+- `scripts/check.sh` — wired gate 4r (22 → 23).
+- VERSION 5.6.20 → 5.6.21.
+- `CHANGELOG.md`, `docs/development/state.md`,
+  `docs/development/completed-phases.md`, `docs/development/benchmarks.md`,
+  `docs/development/roadmap.md` (mark v5.6.21 ✅ shipped).
+
 ## [5.6.20] — 2026-04-23
 
 **Phase O4b — Poletto-Sarkar linear-scan picker** (second of three

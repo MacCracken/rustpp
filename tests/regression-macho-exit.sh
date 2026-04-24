@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regression: macOS arm64 Mach-O runtime exit code.
 #
-# PINNED: v5.6.29. Ships as a skip-stub pre-fix so check.sh stays
+# PINNED: v5.6.30. Ships as a skip-stub pre-fix so check.sh stays
 # green; flips to PASS when the Mach-O runtime regression is
 # repaired.
 #
@@ -23,7 +23,7 @@
 # Skip cleanly if:
 #   - cc5_aarch64 isn't built,
 #   - ssh target `ecb` is unreachable,
-#   - CYRIUS_V5629_SHIPPED not set (pre-fix).
+#   - CYRIUS_V5630_SHIPPED not set (pre-fix).
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,8 +40,8 @@ if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$SSH_TARGET" 'echo alive' >/dev/n
     exit 0
 fi
 
-if [ -z "$CYRIUS_V5629_SHIPPED" ]; then
-    echo "  skip: pin v5.6.29 — macOS arm64 syscall(60,42) exits 1 not 42 (see docs/development/roadmap.md §v5.6.29)"
+if [ -z "$CYRIUS_V5630_SHIPPED" ]; then
+    echo "  skip: pin v5.6.30 — macOS arm64 syscall(60,42) exits 1 not 42 (see docs/development/roadmap.md §v5.6.30)"
     exit 0
 fi
 

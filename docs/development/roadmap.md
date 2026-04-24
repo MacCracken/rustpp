@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.20.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.21.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -131,28 +131,34 @@
 >   one slot infeasible.
 > - **v5.6.20**: Phase O4b — Poletto-Sarkar picker. Replaces greedy
 >   use-count picker with proper interval-based linear scan over
->   v5.6.19 intervals.
-> - **v5.6.21**: Phase O4c — time-sliced rewrite + auto-enable +
->   bisection. Multi-local-per-register packing + flip `#regalloc`
->   from per-fn opt-in to automatic.
-> - **v5.6.22**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+>   v5.6.19 intervals. Time-sliced patch pass shipped here too.
+> - **v5.6.21**: **Codegen bug fix — bare-truthy `if (r)` after
+>   fn-call (patra-blocking).** v5.6.x regression: `var r = fn();
+>   if (r) {...}` takes FALSE when r==1. Strong suspect = v5.6.8
+>   `_flags_reflect_rax` not reset after CALL/SYSCALL. Workaround
+>   `if (r != 0)` rewritten across `src/*.cyr` keeps cc5 self-host
+>   clean but downstreams hit. Patra 1.6.0 needs this fix to fold
+>   in cleanly. Repro: `/tmp/cyrius_5.6_codegen_bug.cyr`.
+> - **v5.6.22**: Phase O4c — auto-enable + bisection. Flip
+>   `#regalloc` from per-fn opt-in to automatic.
+> - **v5.6.23**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.21 regalloc is
+>   after bytescan found 0× matches there; v5.6.22 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.23**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.24**: Phase O6 — codebuf compaction (NOP harvest).
+> - **v5.6.24**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.25**: Phase O6 — codebuf compaction (NOP harvest).
 >   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE
 >   in one pass with jump+fixup repair. Real binary shrinkage. (Old
 >   slab-allocator scope reclaimable as a future v5.7.x slot if
->   v5.6.21 regalloc benchmarks show bump-allocation hot.)
-> - **v5.6.25**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+>   v5.6.22 regalloc benchmarks show bump-allocation hot.)
+> - **v5.6.26**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.26**: libro layout-dependent memory corruption
+> - **v5.6.27**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.27**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.28**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.28**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.29**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -160,23 +166,23 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.29**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.30**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.30**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.31**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.31**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.32**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.32**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.33**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 >
@@ -1123,7 +1129,7 @@ all of that. Splitting into three legitimate sub-phases:
 **No codegen change yet** — the picker still runs the existing
 greedy use-count algorithm. v5.6.20 swaps it for Poletto-Sarkar.
 
-### v5.6.20 — Phase O4b: Poletto-Sarkar linear-scan picker
+### v5.6.20 — Phase O4b: Poletto-Sarkar linear-scan picker ✅ shipped 2026-04-23
 
 **Second of three Phase O4 sub-slots.** Replaces the greedy
 "pick top-N by use-count" picker in the existing `#regalloc`
@@ -1145,9 +1151,85 @@ v5.6.19-built intervals.
 - **Gate**: byte-identical narrow-scope self-host. Measure delta
   against v5.6.19's greedy picker. Bails cleanly if 0 or
   negative delta.
-- **Still opt-in via `#regalloc`** — auto-enable lands in v5.6.21.
+- **Still opt-in via `#regalloc`** — auto-enable lands in v5.6.22
+  (bumped from v5.6.21 after the codegen-bug fix slot inserted).
 
-### v5.6.21 — Phase O4c: time-sliced rewrite + auto-enable + bisection
+### v5.6.21 — Codegen bug fix: bare-truthy after fn-call (patra-blocking) ✅ shipped 2026-04-23
+
+**Pinned + shipped 2026-04-23.** Root cause: 4 missing
+`_flags_reflect_rax = 0` resets in EFLLOAD/ECALLFIX/ECALLTO/
+ESYSCALL. Fix is 4 lines in `src/backend/x86/emit.cyr`. New
+regression gate `tests/regression-truthy-after-fncall.sh` (4r in
+check.sh, 22 → 23). Patra 1.6.0 unblocked. cc5 grew +48 B.
+
+A v5.6.x codegen regression surfaced by
+user testing: `var r = helper(); if (r) { ... }` takes the FALSE
+branch even when `r == 1`. Confirmed broken on 5.6.10 / 5.6.18 /
+5.6.19 / 5.6.20; works on 5.5.27 / 5.5.40 / 5.6.5. Bisection
+window: v5.6.6 — v5.6.10. Workaround across `src/*.cyr` (rewrite
+all `if (r)` → `if (r != 0)`) keeps cc5 self-host clean, but
+downstream consumers using idiomatic `if (r)` get hit (`tbl_find`
+silently returns -1, test 12 onward cratered).
+
+**Patra-blocking**: patra 1.6.0 (just bumped at v5.6.20 for `sit`
+blob support) needs to fold into this cyrius rev cleanly without
+the workaround. v5.6.21 ships the compiler fix so patra 1.6.0
+release can close.
+
+**Strong suspect**: v5.6.8's `_flags_reflect_rax` tracker (Phase
+O2 cat 2). The optimization tracks when ZF reflects RAX and
+skips an explicit `test rax, rax`. If the tracker isn't reset
+after CALL/SYSCALL, the bare-truthy branch reads STALE flags
+from inside the callee — branch target is essentially random per
+callee shape.
+
+**Repro file**: `/tmp/cyrius_5.6_codegen_bug.cyr`
+
+```
+fn helper(a, b, c) {
+    var e = strlen(a);
+    if (e != c) { return 0; }
+    return memeq(a, b, c);
+}
+
+fn caller(x, y, z) {
+    var r = helper(x, y, z);
+    if (r) { return 99; }     # Expected when r == 1
+    return 0 - 1;              # Taken incorrectly on 5.6.x
+}
+
+fn main() {
+    alloc_init();
+    var result = caller("hello", "hello", 5);
+    print("result=", 7); fmt_int(result); print("\n", 1);
+    return 0;
+}
+```
+
+**Investigation hooks**:
+- `_flags_reflect_rax` is set/reset in `src/backend/x86/emit.cyr`
+- Audit every emit fn that writes RAX to ensure
+  `_flags_reflect_rax = 0` reset
+- ECALLPOPS / ECALLCLEAN / the CALL emit (`0xE8` opcode) MUST
+  reset the flag
+- ESYSCALL likewise — `0F 05` clobbers flags
+- EFLLOAD (mov rax, [rbp-N]) DOES write rax but does NOT set ZF
+  from the value — `_flags_reflect_rax` should be 0 after
+
+**Equivalent shapes that ALSO break** (any of these warrant a
+regression test):
+- `if (fn_call())` directly (no intermediate var)
+- `var r = fn_call(); if (r)`
+- Workarounds that mask: `if (r != 0)`, intervening `print()`
+
+**Gate**: `/tmp/cyrius_5.6_codegen_bug.cyr` runs and prints
+`result=99`. Add `tests/regression-truthy-after-fncall.sh` to
+check.sh as gate 4r so this can't regress silently again.
+
+**Cascade**: v5.6.21 takes the slot that was Phase O4c. Phase
+O4c → v5.6.22; +1 through closeout (v5.6.32 → v5.6.33).
+
+### v5.6.22 — Phase O4c: auto-enable + bisection
 
 **Third Phase O4 sub-slot — completes linear-scan regalloc.**
 
@@ -1172,7 +1254,7 @@ v5.6.19-built intervals.
 - **Gate**: byte-identical narrow-scope self-host AND broad-scope
   (cc5_b runs on simple input, cc5_b self-hosts to cc5_c, b==c).
 
-### v5.6.22 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+### v5.6.23 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -1197,7 +1279,7 @@ Gate: if v5.6.18 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.23 — Phase O5: maximal-munch instruction selection
+### v5.6.24 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -1210,7 +1292,7 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.24 — Phase O6: codebuf compaction (NOP harvest)
+### v5.6.25 — Phase O6: codebuf compaction (NOP harvest)
 
 **Re-pinned 2026-04-23.** Replaced the originally-conditional
 slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
@@ -1258,7 +1340,7 @@ project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.25 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.26 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -1306,7 +1388,7 @@ baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.26 — Libro layout-dependent memory corruption
+### v5.6.27 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -1325,7 +1407,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.27 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.28 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1351,7 +1433,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.28 — Native aarch64 self-host repair (Pi)
+### v5.6.29 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1380,7 +1462,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.29 — macOS arm64 runtime regression repair (ecb)
+### v5.6.30 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1419,7 +1501,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.30 — Windows 11 runtime regression repair (cass)
+### v5.6.31 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1462,7 +1544,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.31 — Shared-object emission completion
+### v5.6.32 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1504,7 +1586,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.32 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.33 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

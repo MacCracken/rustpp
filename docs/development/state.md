@@ -5,13 +5,13 @@
 
 ## Version
 
-**5.6.20** (active minor: v5.6.x optimization arc)
+**5.6.21** (active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 520,456 B
+- **cc5 (x86_64)**: 520,504 B
 - **cc5_aarch64 (cross)**: 400,584 B
-- **cc5_win (cross)**: 515,848 B
+- **cc5_win (cross)**: 515,912 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
@@ -36,7 +36,7 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.21** — Phase O4c: auto-enable + bisection
+- **v5.6.22** — Phase O4c: auto-enable + bisection
   (~250 LOC + bug-hunt budget). Flip `#regalloc` from opt-in to
   automatic for every fn. Hit cc5_b SIGSEGV on simple input during
   v5.6.19 shortcut attempt — bisection methodology + cap knob ready
@@ -67,6 +67,11 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.21** — Codegen bug fix: bare-truthy `if (r)` after fn-call.
+  Root cause: v5.6.8 `_flags_reflect_rax` not reset by EFLLOAD,
+  ECALLFIX, ECALLTO, ESYSCALL. 4-line fix. Patra 1.6.0 unblocked.
+  New regression gate 4r (check.sh 22 → 23). Repro
+  `/tmp/cyrius_5.6_codegen_bug.cyr` now exits 99 (was -1).
 - **v5.6.20** — Phase O4b: Poletto-Sarkar linear-scan picker (replaces
   greedy use-count) + time-sliced rewrite. Opt-in `#regalloc` only.
   Picker proven correct on 8-local spill-pressure test (5 assigned, 3
