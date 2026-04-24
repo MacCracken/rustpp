@@ -217,9 +217,28 @@ fn FIXUP(S) {
         if (ftype == 2) {
             # Function call — patch rel32
             var target = L64(S + 0xE92000 + idx * 8);
-            var rel = target - coff - 4;
-            var pa = S + 0x54A000 + coff;
-            S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
+            # v5.6.29-1: undef-fn sentinel (-1 pre-warn, -2 post-warn). Default
+            # non-strict mode lets the binary emit anyway with a "will crash
+            # at runtime" message. But the placeholder disp32 resolves to an
+            # arbitrary low address, which in large binaries can land exactly
+            # on executable bytes that fall through into the entry trampoline
+            # and re-enter main (sandhi M2 2026-04-24: dynlib_open slot ended
+            # up at 0x400076, two bytes before entry at 0x400078 → clean
+            # infinite loop instead of a crash). Replace the 5-byte call
+            # `e8 XX XX XX XX` with `0F 0B 0F 0B 90` (ud2; ud2; nop) so the
+            # failure is a SIGILL at the call site, loud and localisable.
+            if (target < 0) {
+                var pu = S + 0x54A000 + coff - 1;
+                store8(pu + 0, 0x0F);
+                store8(pu + 1, 0x0B);
+                store8(pu + 2, 0x0F);
+                store8(pu + 3, 0x0B);
+                store8(pu + 4, 0x90);
+            } else {
+                var rel = target - coff - 4;
+                var pa = S + 0x54A000 + coff;
+                S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
+            }
         }
         else { if (ftype == 3) {
             # Function address. Shared: LEA [rip+disp32] — patch 4-byte

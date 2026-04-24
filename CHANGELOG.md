@@ -4,6 +4,81 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.29-1] — 2026-04-24
+
+**Hotfix: undef-fn call sites SIGILL instead of falling through to
+arbitrary placeholder addresses.** Sandhi M2 (filed
+`sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`)
+reported a "v5.6.29 regression" where `tls_available()` looked
+like an infinite loop through `main`. Investigation showed the
+real cause was unrelated to v5.6.29: sandhi's probes never
+included `lib/dynlib.cyr` / `lib/tls.cyr`, so `dynlib_open` was
+undefined. cyrius (non-`--strict` default) printed
+`error: undefined function 'dynlib_open' (will crash at runtime)`
+and emitted the binary anyway, leaving `e8 XX XX XX XX` with a
+placeholder disp32. By unlucky layout, the slot resolved to
+`call 0x400076` — exactly two bytes before the entry trampoline
+at `0x400078`. Bytes at `0x76`-`0x77` decode to harmless
+register-mem adds, then fall through into `jmp 0x4a720` (global
+init / `main` re-entry). Result: a clean infinite loop with no
+crash signal, indistinguishable from the real ld.so re-entry
+shape sandhi was looking for.
+
+`fdlopen_init_full` itself is unchanged — it has been complete
+since v5.5.34 (`tests/tcyr/fdlopen.tcyr` 40/40 PASS verified at
+v5.6.29-1). The stale "STATUS (v5.5.29) KNOWN-INCOMPLETE"
+comment block in `lib/fdlopen.cyr:714-746` is the artefact that
+misled sandhi's diagnosis; replaced with current "complete since
+v5.5.34" text in this slot.
+
+### Fix
+
+`src/backend/x86/fixup.cyr` ftype==2 (and `aarch64/fixup.cyr`
+ftype==2 / ftype==4): when the target slot is the undef sentinel
+(`< 0`), patch the call site to `0F 0B 0F 0B 90` (ud2; ud2; nop)
+instead of computing a rel32 from the sentinel value. Result:
+SIGILL at the call site, loud and localisable. aarch64 form
+writes `0x00000000` (UDF #0) as the 4-byte BL/B replacement.
+
+### Acceptance
+
+- `sandhi/build/dynlib-ldso-probe` now SIGILLs (exit 132) after
+  one `ENTRY` print instead of looping forever.
+- 3-step byte-identical fixpoint: cc5\_a → cc5\_b → cc5\_c
+  (cc5\_b == cc5\_c at 531,616 B; +224 B from the new branches).
+- `check.sh` 23/23 PASS.
+- `tests/tcyr/fdlopen.tcyr` 40/40 PASS (re-verifies v5.5.34
+  completion, confirms the comment-block update was correct).
+
+### Why
+
+Compile-time warnings that produce silent runtime infinite loops
+are a footgun. The sentinel-as-disp32 placeholder happened to
+work fine in small binaries (placeholder lands somewhere
+harmless) but in 376 KB binaries with the right symbol table
+layout it can land at the worst possible byte. SIGILL is
+unambiguous and the debugger / coredump points straight at the
+offending call site. Default-on `--strict` would also fix this,
+but is more disruptive to existing code that calls fns from
+optional includes; the ud2-placeholder treatment is purely
+additive — every program that previously didn't call an undef fn
+is byte-identical, every program that did now crashes loudly
+instead of looping.
+
+### Files
+
+- `src/backend/x86/fixup.cyr` ftype==2: undef-sentinel branch
+  emits 5-byte ud2 sequence at coff-1.
+- `src/backend/aarch64/fixup.cyr` ftype==2 + ftype==4: emits
+  `UDF #0` (0x00000000) for both BL and tail-call B.
+- `lib/fdlopen.cyr:708-720`: replaced 39-line stale v5.5.29
+  status block with current v5.5.34-complete text.
+- VERSION: 5.6.29 → 5.6.29-1.
+
+`src/main_cx.cyr` (cx bytecode backend) intentionally NOT
+touched — bytecode semantics differ; consumers are minimal;
+follow up if a cx user hits the same shape.
+
 ## [5.6.29] — 2026-04-24
 
 **sandhi-surfaced: lib/tls.cyr HTTPS infinite-loop fix.** Half of
