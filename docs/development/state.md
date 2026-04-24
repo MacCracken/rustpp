@@ -5,13 +5,13 @@
 
 ## Version
 
-**5.6.29-1** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
+**5.6.30** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,616 B (+224 B from v5.6.29's 531,392 — new branches in
-  x86 + aarch64 fixup for the ud2 undef-fn placeholder; was 542,928 at v5.6.26,
-  −11,312 B net from v5.6.27 codebuf compaction)
+- **cc5 (x86_64)**: 531,712 B (+96 B from v5.6.29-1's 531,616 — new `src_base`
+  param threaded through PP_PARSE_STRUCT_DEF + PP_DERIVE_* helpers; was 542,928
+  at v5.6.26, −11,216 B net from v5.6.27 codebuf compaction)
 - **cc5_aarch64 (cross)**: 411,136 B (was 419,776 at v5.6.26; −8,640 B — same
   compaction; cross-compiler is x86)
 - **cc5_win (cross)**: 526,376 B (was 537,896 at v5.6.26; −11,520 B)

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.29-1.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.30.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -228,8 +228,18 @@
 >   replaced with current v5.5.34-complete text. Fix is purely
 >   additive (byte-identical for every program that doesn't call
 >   an undef fn); failure is now loud and localisable.
-> - **v5.6.30**: libro layout-dependent memory corruption
->   investigation.
+> - **v5.6.30**: ✅ shipped — preprocessor `#derive` reads past
+>   the IFDEF-pass copy-back cap. `PP_DERIVE_*` handlers read
+>   from `S + ip` which was capped at 524288 bytes; any
+>   `#derive(accessors)` / `#derive(Serialize)` past that offset
+>   got zeros instead of the real struct definition, wrote
+>   garbage, and left a 0xff sentinel leaking through for LEX
+>   to trip on. Fixed by threading `src_base` through
+>   `PP_PARSE_STRUCT_DEF` + derive helpers so reads route from
+>   the full `tmp` buffer in IFDEF_PASS context. libro 2.0.5
+>   unblocked. Stale "libro layout-dependent memory corruption"
+>   bug-tracker entry retired in the same slot — that symptom
+>   was libro's own 2026-04-19 UAF fix (libro v1.1.0).
 > - **v5.6.31**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
 > - **v5.6.32**: native aarch64 runtime capability gap (Pi) — the
@@ -335,7 +345,8 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.28** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
 | `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **v5.6.29 ✅ shipped** — `_tls_init` now runs `dynlib_bootstrap_cpu_features()` + `_tls()` + `_stack_end(0)` before `dynlib_open("libcrypto.so.3")` / `libssl.so.3`, per `lib/dynlib.cyr:939-946`'s libc consumer requirement. Pre-fix symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
 | `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **v5.6.29-1 ✅ shipped** — misdiagnosis on sandhi side. `fdlopen_init_full` is NOT incomplete — it has been complete since v5.5.34 (tests/tcyr/fdlopen.tcyr 40/40 PASS verified). The "KNOWN-INCOMPLETE" status block at `lib/fdlopen.cyr:714-746` was stale v5.5.29 text that v5.5.34 forgot to update; replaced in this slot. Sandhi's probes were missing `include "lib/dynlib.cyr"` and the undef `dynlib_open` call compiled to a placeholder disp32 that coincidentally landed at `0x400076` (two bytes before entry trampoline) → re-entered main → looked like an infinite loop. Cyrius-side fix: undef-fn calls now patch the call site to `0F 0B 0F 0B 90` (ud2; ud2; nop) on x86, `UDF #0` on aarch64 → SIGILL instead of silent looping. Sandhi's native UDP DNS resolver workaround was never necessary; `fdlopen_getaddrinfo` works today. Filed sandhi 2026-04-24 §1-2; full resolution in their issue doc Log. |
-| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.30** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
+| ~~Layout-dependent memory corruption~~ | ~~Libro PatraStore tests~~ | **Retired at v5.6.30** — investigation discovered this was never a cyrius bug. Libro's own 2026-04-19 audit root-caused it as a use-after-free in `_patrastore_row_to_entry` (Finding 1: `str_from(patra_result_get_str(...))` wraps result-set pointers that get freed before return). Fix landed libro v1.1.0 via `_ps_copy_cstr` helper; 251 tests, 0 failures. See `libro/docs/audit/2026-04-19-audit.md`. |
+| ~~Preprocessor phantom `0xff` byte~~ | ~~Libro 2.0.5 cannot compile against any cyrius 5.4.7+~~ | **v5.6.30 ✅ shipped** — `PP_IFDEF_PASS` copies preprocessed content back to `S+0` capped at 524288 bytes (size of `input_buf`), but the derive handlers (`PP_DERIVE_SERIALIZE`, `PP_DERIVE_DESER`, `PP_DERIVE_ACCESSORS`, shared `PP_PARSE_STRUCT_DEF`) read source from `S + ip`. Any `#derive` past offset 524288 read stale/zero bytes, wrote a corrupted struct definition to the preproc output buffer, and left a hole where the 0xff heap-state sentinel leaked through — LEX tripped on it as "non-ASCII byte". Libro 2.0.5's `src/file_store.cyr:10` `#derive(accessors)` at offset ≈ 543565 was the first documented trigger. Fix: `src_base` parameter threaded through the derive helpers; PP_PASS passes `S` (source at S+0), PP_IFDEF_PASS passes `tmp` (full 1MB mmap buffer). `PP_DEFINE` / `PP_DEFINED` share the same latent read-cap bug; pinned for follow-up hardening. |
 | HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.31** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.31 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
 | Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.32** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
 | macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.33** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |

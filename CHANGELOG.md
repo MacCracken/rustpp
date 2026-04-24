@@ -4,6 +4,121 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.30] — 2026-04-24
+
+**Preprocessor `#derive` reads past the copy-back cap — "phantom
+0xff byte" class of miscompile.** Surfaced during the libro 2.0.5
+pin-bump attempt from cyrius v5.6.29-1 (which was blocked by this
+bug, as are versions 5.4.7 → 5.6.29-1 for any libro-shaped
+consumer). Originally mis-routed as "libro layout-dependent
+memory corruption" in the v5.3.x bug tracker — that earlier
+symptom was a libro-side use-after-free fixed in libro v1.1.0
+(2026-04-19 audit Finding 1). What remained was an entirely
+separate cyrius-side bug in the preprocessor.
+
+### Symptom
+
+```
+error:<N>: non-ASCII byte (0xff) -- only ASCII allowed in
+                                    source (UTF-8 ok in strings)
+```
+
+at a merged-stream line that contains no non-ASCII bytes. In
+libro's case, the reported line was `src/proof.cyr:46`
+(`if (load64(p + 16) != 1) { return 0; }`) — plain ASCII. The
+real byte position was 558843 in the 1 MB expanded preprocessor
+buffer, immediately following a 15,277-byte hole of zeros that
+started at offset 543566 (end of `src/file_store.cyr:9`, right
+before `#derive(accessors)` on line 10).
+
+### Root cause
+
+`PP_IFDEF_PASS` (the second preprocessor pass) reads the
+preprocessed source from a 1 MB mmap temp buffer, then copies
+content BACK to `S+0` capped at **524288 bytes** (0x80000 —
+the size of `input_buf`). The cap exists because `S+0` doubles
+as the raw stdin input during the first pass.
+
+Directive DETECTORS (`ISINCLUDE`, `ISDEFINE`, `ISDERIVE_*`) read
+from the `tmp` buffer and correctly see the full content.
+Directive HANDLERS (`PP_DEFINE`, `PP_DERIVE_SERIALIZE`,
+`PP_DERIVE_DESER`, `PP_DERIVE_ACCESSORS` and their shared helper
+`PP_PARSE_STRUCT_DEF`) were still reading from `S+ip` — which,
+when ip > 524288, hits stale/zero bytes outside the copy-back
+range.
+
+For any `#derive(accessors)` landing past offset 524288, the
+struct parser read zeros for the struct definition, wrote a
+corrupted mixture to the preproc output buffer, advanced `op`
+in ways that didn't match actual byte writes, and left a hole
+that the heap-state 0xff sentinel leaked through. LEX hit the
+0xff and blew up.
+
+`libro 2.0.5`'s `src/file_store.cyr:10` `#derive(accessors)`
+lived at byte offset ≈ 543565 — 19,277 bytes past the cap.
+
+### Fix
+
+Added `src_base` parameter to `PP_PARSE_STRUCT_DEF`,
+`PP_DERIVE_SERIALIZE`, `PP_DERIVE_DESER`, `PP_DERIVE_ACCESSORS`.
+The 6 call sites pass:
+- `PP_PASS` (first pass, input at `S+0`): `src_base = S`
+- `PP_IFDEF_PASS` (second pass, input at `tmp`): `src_base = tmp`
+
+Inside the helpers, all SOURCE reads switch from `load8(S + ip)`
+to `load8(src_base + ip)`. Writes to the state tables
+(`S+0x97400` op-out, `S+0x97500` field count, `S+0x97510` struct
+name, `S+0x97550` field names, `S+0x97750` types, `S+0x97950`
+offsets) stay addressed relative to `S` — those regions are
+well below the cap and always in sync.
+
+`PP_DEFINE` and `PP_DEFINED` have the same latent bug (they
+also read `S + pos` in IFDEF_PASS context). They're NOT touched
+in this slot — no observed in-the-wild failure yet. Pinned for
+a follow-up hardening pass; same src_base pattern applies.
+
+### Acceptance
+
+- libro 2.0.5 `src/main.cyr` now compiles clean against cyrius
+  v5.6.30 (remaining errors are libro-side missing includes,
+  unrelated — `str_builder_add_byte` etc. — and will surface
+  as clean SIGILLs at runtime per v5.6.29-1's ud2 fix).
+- 3-step byte-identical fixpoint: cc5_a → cc5_b → cc5_c
+  (cc5_b == cc5_c at 531,712 B; +96 B from v5.6.29-1's 531,616).
+- `check.sh` 23/23 PASS.
+- `tests/tcyr/fdlopen.tcyr` 40/40 still PASS.
+
+### Historical note
+
+The bug has existed at least since v5.4.7 (confirmed across
+5.4.7, 5.4.19, 5.4.20, 5.5.0, 5.5.30, 5.5.40, 5.6.0, 5.6.29,
+5.6.29-1 — all fail identically on libro). It never surfaced
+in cyrius self-compile because cyrius's own `src/main.cyr` has
+no `#derive` directives past the 524 KB mark (cyrius uses
+`#derive` sparingly and mostly at file tops). It's a
+downstream-consumer bug — libro, with its heavy use of
+`#derive(accessors)` across 21 modules, was the first consumer
+to push derives past the cap.
+
+### Files
+
+- `src/frontend/lex_pp.cyr` `PP_PARSE_STRUCT_DEF`,
+  `PP_DERIVE_SERIALIZE`, `PP_DERIVE_DESER`,
+  `PP_DERIVE_ACCESSORS`: added `src_base` param; reads switched.
+- `src/frontend/lex_pp.cyr` 6 call sites in `PP_PASS` (S=S) and
+  `PP_IFDEF_PASS` (S=tmp): pass through.
+- `docs/development/roadmap.md`: retired the stale "Libro
+  layout-dependent memory corruption" bug-tracker row (libro's
+  audit closed it at libro v1.1.0); replaced with this
+  preprocessor-bug row.
+- VERSION: 5.6.29-1 → 5.6.30.
+
+Further libro work (2.0.6 pin bump + native-DNS-resolver retirement
+via `fdlopen_getaddrinfo` + the still-unresolved `proof_to_json`
+bench hang) is deferred until after the platform-repair slots
+(v5.6.31 HIGH_ENTROPY_VA, v5.6.32 native aarch64 self-host,
+v5.6.33 macOS Sequoia drift, v5.6.34 Win11 24H2 PE drift).
+
 ## [5.6.29-1] — 2026-04-24
 
 **Hotfix: undef-fn call sites SIGILL instead of falling through to

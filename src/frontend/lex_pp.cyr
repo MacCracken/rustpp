@@ -380,43 +380,56 @@ fn PP_EMIT_STR(out, op, cstr) {
 # Shared struct parser for #derive handlers. Skips derive lines, parses struct
 # name + fields, copies struct to output, computes offsets, registers in derive table.
 # Results stored at S+0x97400..S+0x97950. Returns new ip.
-fn PP_PARSE_STRUCT_DEF(S, ip, bl, out, op) {
-    ip = PP_SKIPLINE(S, ip, bl);
-    while (ip < bl) { if (load8(S + ip) == 35) { ip = PP_SKIPLINE(S, ip, bl); } else { break; } }
-    while (ip < bl) { if (load8(S + ip) == 32) { ip = ip + 1; } else { break; } }
+#
+# v5.6.30: `src_base` carries the base for SOURCE reads. PP_PASS passes `S`
+# (the raw-input buffer). PP_IFDEF_PASS passes the `tmp` mmap buffer (full
+# preprocessed source up to 1 MB). Before this parameter split, both passes
+# read from `S + ip` — which for PP_IFDEF_PASS was the copy-back region capped
+# at 524288 bytes. Any #derive directive landing past that offset read stale
+# data (zeros), produced corrupted output with a 0xff sentinel leaking through
+# from the heap state, and LEX died with `non-ASCII byte (0xff)` at an
+# apparently-valid source line. Libro 2.0.5 tripped this at
+# `src/file_store.cyr:10` (offset 543565, past the 524288 cap). STATE-TABLE
+# writes (S+0x97510 struct names, S+0x97550 field names, S+0x97750 types,
+# S+0x97950 offsets, S+0x97400 op-out, S+0x97500 field count) stay addressed
+# relative to `S` — those regions are well below 0x80000 and always in sync.
+fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
+    ip = PP_SKIPLINE(src_base, ip, bl);
+    while (ip < bl) { if (load8(src_base + ip) == 35) { ip = PP_SKIPLINE(src_base, ip, bl); } else { break; } }
+    while (ip < bl) { if (load8(src_base + ip) == 32) { ip = ip + 1; } else { break; } }
     ip = ip + 7;
     var sni = 0;
     while (ip < bl) {
-        var c = load8(S + ip);
+        var c = load8(src_base + ip);
         if (c == 32 || c == 123 || c == 10) { break; }
         store8(S + 0x97510 + sni, c); sni = sni + 1; ip = ip + 1;
     }
     store8(S + 0x97510 + sni, 0);
     var struct_start = ip - 7 - sni;
-    while (struct_start > 0) { if (load8(S + struct_start - 1) == 10) { break; } struct_start = struct_start - 1; }
+    while (struct_start > 0) { if (load8(src_base + struct_start - 1) == 10) { break; } struct_start = struct_start - 1; }
     var depth = 0;
     var cp = struct_start;
     var fc = 0;
     var past_brace = 0;
     while (cp < bl) {
-        var ch = load8(S + cp);
+        var ch = load8(src_base + cp);
         store8(out + op, ch); op = op + 1;
         if (ch == 123) { depth = depth + 1; past_brace = 1; }
         if (ch == 125) { depth = depth - 1; if (depth == 0) { cp = cp + 1; break; } }
         if (past_brace == 1 && depth == 1) {
             if (ch == 123 || ch == 59) {
                 var fp = cp + 1;
-                while (fp < bl) { var xc = load8(S + fp); if (xc != 32 && xc != 10 && xc != 13 && xc != 9) { break; } store8(out + op, xc); op = op + 1; fp = fp + 1; }
-                if (load8(S + fp) != 125) {
+                while (fp < bl) { var xc = load8(src_base + fp); if (xc != 32 && xc != 10 && xc != 13 && xc != 9) { break; } store8(out + op, xc); op = op + 1; fp = fp + 1; }
+                if (load8(src_base + fp) != 125) {
                     var fni = 0;
-                    while (fp < bl) { var xc = load8(S + fp); if (xc == 59 || xc == 58 || xc == 125 || xc == 32 || xc == 10) { break; } store8(S + 0x97550 + fc * 32 + fni, xc); fni = fni + 1; fp = fp + 1; }
+                    while (fp < bl) { var xc = load8(src_base + fp); if (xc == 59 || xc == 58 || xc == 125 || xc == 32 || xc == 10) { break; } store8(S + 0x97550 + fc * 32 + fni, xc); fni = fni + 1; fp = fp + 1; }
                     store8(S + 0x97550 + fc * 32 + fni, 0);
                     store8(S + 0x97750 + fc * 32, 0);
-                    if (load8(S + fp) == 58) {
+                    if (load8(src_base + fp) == 58) {
                         fp = fp + 1;
-                        while (fp < bl && load8(S + fp) == 32) { fp = fp + 1; }
+                        while (fp < bl && load8(src_base + fp) == 32) { fp = fp + 1; }
                         var tni = 0;
-                        while (fp < bl) { var tc = load8(S + fp); if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; } store8(S + 0x97750 + fc * 32 + tni, tc); tni = tni + 1; fp = fp + 1; }
+                        while (fp < bl) { var tc = load8(src_base + fp); if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; } store8(S + 0x97750 + fc * 32 + tni, tc); tni = tni + 1; fp = fp + 1; }
                         store8(S + 0x97750 + fc * 32 + tni, 0);
                     }
                     fc = fc + 1;
@@ -426,7 +439,7 @@ fn PP_PARSE_STRUCT_DEF(S, ip, bl, out, op) {
         cp = cp + 1;
     }
     ip = cp;
-    while (ip < bl) { var ch = load8(S + ip); store8(out + op, ch); op = op + 1; ip = ip + 1; if (ch == 10) { break; } }
+    while (ip < bl) { var ch = load8(src_base + ip); store8(out + op, ch); op = op + 1; ip = ip + 1; if (ch == 10) { break; } }
     var cumul = 0;
     var fi = 0;
     while (fi < fc) {
@@ -459,8 +472,8 @@ fn PP_PARSE_STRUCT_DEF(S, ip, bl, out, op) {
 # Emit #derive(Serialize) — generates Name_to_json function after struct def
 # ip points to '#' of #derive. out+op is the output position.
 # Returns new ip (past the struct). Updates op via S+0x97400.
-fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
-    ip = PP_PARSE_STRUCT_DEF(S, ip, bl, out, op);
+fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
+    ip = PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op);
     op = load64(S + 0x97400);
     var field_count = load64(S + 0x97500);
     var cumul_off = load64(S + 0x97508);
@@ -664,14 +677,14 @@ fn PP_DERIVE_SERIALIZE(S, ip, bl, out, op) {
 #       ...
 #       return ptr;
 #   }
-fn PP_DERIVE_DESER(S, ip, bl, out, op) {
+fn PP_DERIVE_DESER(S, src_base, ip, bl, out, op) {
     # #derive(Deserialize) is a no-op — #derive(Serialize) already emits _from_json.
     # Just skip the directive line + struct definition.
-    ip = PP_SKIPLINE(S, ip, bl);
+    ip = PP_SKIPLINE(src_base, ip, bl);
     # Skip to closing } of struct
-    while (ip < bl) { if (load8(S + ip) == 125) { ip = ip + 1; break; } ip = ip + 1; }
+    while (ip < bl) { if (load8(src_base + ip) == 125) { ip = ip + 1; break; } ip = ip + 1; }
     # Skip trailing whitespace/newline
-    while (ip < bl) { var c = load8(S + ip); if (c == 10) { ip = ip + 1; break; } ip = ip + 1; }
+    while (ip < bl) { var c = load8(src_base + ip); if (c == 10) { ip = ip + 1; break; } ip = ip + 1; }
     store64(S + 0x97400, op);
     return ip;
 }
@@ -704,8 +717,8 @@ fn ISDERIVE_ACC(S, pos, bl) {
 # Same struct parsing as PP_DERIVE_SERIALIZE. Generates:
 #   fn Name_field(p) { return load64(p + OFFSET); }
 #   fn Name_set_field(p, v) { store64(p + OFFSET, v); return 0; }
-fn PP_DERIVE_ACCESSORS(S, ip, bl, out, op) {
-    ip = PP_PARSE_STRUCT_DEF(S, ip, bl, out, op);
+fn PP_DERIVE_ACCESSORS(S, src_base, ip, bl, out, op) {
+    ip = PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op);
     op = load64(S + 0x97400);
     var field_count = load64(S + 0x97500);
     # Emit getter and setter for each field
@@ -1223,17 +1236,17 @@ fn PP_PASS(S) {
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, dip, bl) == 1) {
-                ip = PP_DERIVE_SERIALIZE(S, dip, bl, out, op);
+                ip = PP_DERIVE_SERIALIZE(S, S, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(S, dip, bl) == 1) {
-                ip = PP_DERIVE_DESER(S, dip, bl, out, op);
+                ip = PP_DERIVE_DESER(S, S, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_ACC(S, dip, bl) == 1) {
-                ip = PP_DERIVE_ACCESSORS(S, dip, bl, out, op);
+                ip = PP_DERIVE_ACCESSORS(S, S, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
@@ -1525,17 +1538,17 @@ fn PP_IFDEF_PASS(S) {
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
             } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(tmp, dip, bl) == 1) {
-                ip = PP_DERIVE_SERIALIZE(S, dip, bl, out, op);
+                ip = PP_DERIVE_SERIALIZE(S, tmp, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(tmp, dip, bl) == 1) {
-                ip = PP_DERIVE_DESER(S, dip, bl, out, op);
+                ip = PP_DERIVE_DESER(S, tmp, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_ACC(tmp, dip, bl) == 1) {
-                ip = PP_DERIVE_ACCESSORS(S, dip, bl, out, op);
+                ip = PP_DERIVE_ACCESSORS(S, tmp, dip, bl, out, op);
                 op = load64(S + 0x97400);
                 bol = 1; handled = 1;
             } } }
