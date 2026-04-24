@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.28.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.29.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -208,15 +208,22 @@
 >   v5.6.20 regalloc benchmarks show bump-allocation hot.)
 > - **v5.6.28**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.29**: **sandhi-surfaced issues** (filed 2026-04-24,
->   `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`):
->   (1) `fdlopen_init_full` orchestration completion — v5.5.29
->   KNOWN-INCOMPLETE; three probe attempts didn't reach helper main;
->   sandhi M2 shipped native UDP DNS resolver as workaround
->   (`lib/fdlopen.cyr:714-739` next-steps). (2) `lib/tls.cyr` HTTPS
->   infinite-loop — `dynlib_open("libssl.so.3")` without
->   `dynlib_bootstrap_*` sequence; plain HTTP works, TLS loops
->   (symptom #3 in same file).
+> - **v5.6.29**: ✅ shipped — sandhi-surfaced `lib/tls.cyr` HTTPS
+>   infinite-loop fix (symptom #3 of the sandhi M2 design report).
+>   `_tls_init` now runs `dynlib_bootstrap_cpu_features` +
+>   `_tls` + `_stack_end` before `dynlib_open("libcrypto.so.3")` /
+>   `libssl.so.3`. Without it, IFUNC cipher selection in libcrypto
+>   + `%fs:N` accesses in libssl handshake init faulted; init
+>   returned 0 (looked-success) but `SSL_connect` entered a tight
+>   retry loop. tls.tcyr 22/22, check.sh 23/23, no compiler change.
+> - **v5.6.29-1**: focused crack at the v5.5.29 KNOWN-INCOMPLETE
+>   `fdlopen_init_full` orchestration (sandhi report §1-2).
+>   Hotfix-shaped slot so investigation can ship-or-defer cleanly
+>   without re-cascading the rest of the roadmap. Pinned next-steps
+>   live at `lib/fdlopen.cyr:714-739`: AT_PHDR walkable mapping
+>   check, AT_ENTRY behavior, file-backed PT_LOAD mmap (vs anon+
+>   copy), strace side-by-side `dlopen-helper` vs cyrius's jump
+>   sequence.
 > - **v5.6.30**: libro layout-dependent memory corruption
 >   investigation.
 > - **v5.6.31**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
@@ -322,8 +329,8 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **future v5.6.x** (no slot pinned) — v5.5.29 left this opt-in path explicitly incomplete; three probe attempts didn't reach helper main. Pinned-in-source next-steps in `lib/fdlopen.cyr:714-739`. Sandhi shipped native UDP DNS as workaround. Filed by sandhi M2 design pass 2026-04-24 (`sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md` §1-2). |
 | `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **future v5.6.x** (no slot pinned) — `_tls_init` calls `dynlib_open("libssl.so.3")` without first running `dynlib_bootstrap_cpu_features()` / `_tls()` / `_stack_end()` (per `lib/dynlib.cyr:939-946`'s libc consumer requirement). Symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
 | `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.28** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
-| `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **v5.6.29** — v5.5.29 left this opt-in path explicitly incomplete; three probe attempts didn't reach helper main. Pinned-in-source next-steps in `lib/fdlopen.cyr:714-739`. Sandhi shipped native UDP DNS as workaround. Filed by sandhi M2 design pass 2026-04-24 (`sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md` §1-2). |
-| `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **v5.6.29** (same slot) — `_tls_init` calls `dynlib_open("libssl.so.3")` without first running `dynlib_bootstrap_cpu_features()` / `_tls()` / `_stack_end()` (per `lib/dynlib.cyr:939-946`'s libc consumer requirement). Symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
+| `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **v5.6.29 ✅ shipped** — `_tls_init` now runs `dynlib_bootstrap_cpu_features()` + `_tls()` + `_stack_end(0)` before `dynlib_open("libcrypto.so.3")` / `libssl.so.3`, per `lib/dynlib.cyr:939-946`'s libc consumer requirement. Pre-fix symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
+| `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **v5.6.29-1** — hotfix-shaped slot for a focused crack at the v5.5.29 KNOWN-INCOMPLETE state. Three probe attempts already burned (SIGSEGV → exit 0 silent without reaching helper main). Pinned next-steps in `lib/fdlopen.cyr:714-739`: verify AT_PHDR walkable mapping, check AT_ENTRY behavior, file-backed PT_LOAD mmap (vs anon+copy — Cosmopolitan reference), strace side-by-side `dlopen-helper` vs cyrius's jump sequence. May not yield in one sitting; suffix lets us ship-or-defer cleanly. Sandhi shipped native UDP DNS resolver as M2-unblock workaround. Filed sandhi 2026-04-24 §1-2. |
 | Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.30** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
 | HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.31** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.31 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
 | Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.32** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |

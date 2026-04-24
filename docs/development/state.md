@@ -5,7 +5,7 @@
 
 ## Version
 
-**5.6.28** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
+**5.6.29** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
@@ -46,15 +46,16 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.29** — **sandhi-surfaced issues** (filed 2026-04-24,
-  `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`):
-  (1) `fdlopen_init_full` orchestration completion — v5.5.29
-  KNOWN-INCOMPLETE; three probe attempts didn't reach helper main;
-  sandhi M2 shipped native UDP DNS resolver as workaround
-  (`lib/fdlopen.cyr:714-739` next-steps). (2) `lib/tls.cyr` HTTPS
-  infinite-loop — `dynlib_open("libssl.so.3")` without
-  `dynlib_bootstrap_*` sequence; plain HTTP works, TLS loops
-  (symptom #3 in same file).
+- **v5.6.29-1** — focused crack at the v5.5.29 KNOWN-INCOMPLETE
+  `fdlopen_init_full` orchestration. Hotfix-shaped slot (per the
+  `-N` suffix discipline) so the investigation can ship-or-defer
+  cleanly without re-cascading the rest of the roadmap. Pinned
+  next-steps live at `lib/fdlopen.cyr:714-739`: verify AT_PHDR
+  walkable mapping, check AT_ENTRY behavior, try file-backed mmap
+  (vs anon+copy) for PT_LOAD, strace side-by-side `dlopen-helper`
+  vs cyrius's jump sequence. Sandhi M2 ships HTTPS as needs-
+  further-investigation in the meantime; their native UDP DNS
+  resolver workaround keeps M2 unblocked.
 - **v5.6.30** — libro layout-dependent memory corruption investigation.
 - **v5.6.31** — HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
   re-investigation.
@@ -76,6 +77,18 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.29** — sandhi-surfaced `lib/tls.cyr` HTTPS infinite-loop
+  fix. `_tls_init` now runs the documented libc-consumer bootstrap
+  (`dynlib_bootstrap_cpu_features` + `_tls` + `_stack_end`) before
+  `dynlib_open("libcrypto.so.3")` / `libssl.so.3`. Without it,
+  IFUNC-resolved cipher selection in libcrypto + `%fs:N` accesses
+  in libssl session setup faulted; `_tls_init` returned 0
+  (looked-success) but `SSL_connect` entered a tight retry loop —
+  the http-probe "GET ... GET ... GET ..." flood symptom in the
+  sandhi M2 design report. fdlopen half (symptom §1-2) split to
+  v5.6.29-1 hotfix-style slot; the investigation may or may not
+  yield in one sitting and the suffix lets it ship-or-defer
+  cleanly. tls.tcyr 22/22, check.sh 23/23, cc5 byte-identical.
 - **v5.6.28** — `cyrius init` scaffold gaps (owl-surfaced, 5 fixes)
   + audit-pass cleanup. (1) Write the advertised `src/test.cyr` stub
   (was ENOENT on `cyrius test`). (2) Global `cyrius.toml` →

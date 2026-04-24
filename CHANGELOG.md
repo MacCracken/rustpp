@@ -4,6 +4,104 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.29] — 2026-04-24
+
+**sandhi-surfaced: lib/tls.cyr HTTPS infinite-loop fix.** Half of
+the sandhi M2 design report (filed 2026-04-24,
+`sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`
+symptom #3). The other half (`fdlopen_init_full` orchestration
+completion, symptom §1-2) is pinned **v5.6.29-1** as a hotfix-
+shaped focused crack at the v5.5.29 KNOWN-INCOMPLETE state — it's
+multi-session investigation work that may or may not yield in
+one sitting; the suffix lets us ship-or-defer cleanly without
+re-cascading the rest of the roadmap.
+
+### Symptom
+
+`./build/http-probe https://example.com/` printed
+`GET https://example.com/` hundreds of times per second until
+killed, with no subsequent progress. Plain HTTP to the same host
+(via hostname or resolved IP) worked. Same program against an
+IP-literal plain URL exited cleanly with status. So: DNS ✓,
+plain-TCP connect ✓, response parse ✓ — only the TLS path
+misbehaved.
+
+### Root cause
+
+`lib/tls.cyr::_tls_init` called `dynlib_open("libcrypto.so.3")` /
+`dynlib_open("libssl.so.3")` directly, without first running the
+glibc-bootstrap sequence that `lib/dynlib.cyr:939-946` documents
+as required for libc consumers:
+
+```cyr
+dynlib_bootstrap_cpu_features();
+dynlib_bootstrap_tls();
+dynlib_bootstrap_stack_end(0);
+```
+
+Static cyrius binaries skip the kernel's normal auxv-driven libc
+init, so:
+- libcrypto's IFUNC-resolved AES/SHA/EVP cipher selection reads
+  `__cpu_features` → SIGSEGV inside the resolver (or, depending
+  on how the loop catches it, returns garbage and selects an
+  IFUNC fallback that runs into the next missing piece).
+- libssl's `%fs:N` TLS-slot accesses inside session-state setup
+  fault on a binary that never had TLS installed.
+- `__libc_stack_end` is read by libc internals to bound the main-
+  thread stack; without it, certain locale/IO paths walk off
+  into garbage.
+
+The `_tls_init` exit was asymmetric: it returned 0 (looked
+successful), but the first `SSL_connect` entered a tight retry
+loop somewhere in libssl handshake init.
+
+### Fix
+
+Three idempotent calls at the top of `_tls_init`, before any
+`dynlib_open`:
+
+```cyr
+dynlib_bootstrap_cpu_features();
+dynlib_bootstrap_tls();
+dynlib_bootstrap_stack_end(0);
+```
+
+Mirrors the libc-consumer call sequence already used by NSS/PAM
+quartet code paths since v5.5.23.
+
+### Verification
+
+- Existing `tests/tcyr/tls.tcyr` 22/22 PASS (the test runs the
+  graceful-degradation path on hosts without libssl; on hosts
+  with libssl it exercises symbol resolution).
+- check.sh **23/23 PASS**, cc5 byte-identical at 531,392 B
+  (no compiler change in this slot).
+- `_tls_init` is idempotent (the bootstrap fns are too), so the
+  added calls don't disrupt callers that may have run them
+  earlier.
+
+### Files
+
+- `lib/tls.cyr::_tls_init` — three bootstrap calls + 19-line
+  comment block explaining the contract (no compiler change)
+
+### Pinned next: v5.6.29-1
+
+The fdlopen half is the v5.5.29 KNOWN-INCOMPLETE
+`fdlopen_init_full` orchestration. Three v5.5.29 probe attempts
+already burned (SIGSEGV → exit 0 silent without reaching helper
+main); pinned next-steps live at `lib/fdlopen.cyr:714-739`:
+- Verify AT_PHDR points at a walkable mapping (dump loaded helper
+  memory at AT_PHDR, compare to file).
+- Check ld.so's behavior on AT_ENTRY == 0.
+- Try file-backed mmap (vs anon+copy) for PT_LOAD — Cosmopolitan
+  reference noted in source.
+- strace side-by-side `dlopen-helper` vs cyrius's jump sequence.
+
+Sandhi M2 ships HTTPS as needs-further-investigation in the
+meantime; the native UDP DNS resolver workaround (sandhi
+`src/net/resolve.cyr`) keeps M2 unblocked.
+
 ## [5.6.28] — 2026-04-24
 
 **`cyrius init` scaffold gaps + audit-pass cleanup.** Owl-surfaced
