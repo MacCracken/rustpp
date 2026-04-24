@@ -5,14 +5,16 @@
 
 ## Version
 
-**5.6.25** (in progress — active minor: v5.6.x optimization arc)
+**5.6.26** (in progress — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
 - **cc5 (x86_64)**: 542,928 B (+21,712 B vs v5.6.22 — default-on regalloc save/restore)
-- **cc5_aarch64 (cross)**: 419,776 B
+- **cc5_aarch64 (cross)**: 419,776 B (unchanged — cross-compiler is x86)
 - **cc5_win (cross)**: 537,896 B
-- **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
+- **cc5 native aarch64** (Pi 4 output): 497,008 B at v5.6.25 (was 517,376 B at v5.6.24;
+  −20,368 B / −3.94% from EPOPARG(S,0) adjacent push/pop cancel — closes the v5.6.11
+  aarch64 mirror gap)
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
 - **IR=3 NOP-fill on cc5 self-compile** (v5.6.18 baseline carries forward;
@@ -41,8 +43,6 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.25** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
-  precondition v5.6.21.
 - **v5.6.26** — Phase O5: maximal-munch instruction selection (precedes
   RISC-V backend at v5.7.x).
 - **v5.6.27** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
@@ -74,6 +74,16 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.25** — aarch64 push/pop cancel completion (scope retargeted
+  from "aarch64 fused ops" after bytescan found 0 `mul+add` / 0
+  `lsr+and` matches). v5.6.9's push/pop cancel had a latent gap:
+  `EPOPARG(S, n)` bypassed the adjacency check for every `n`, so
+  1-arg call sites (`EPUSHR; EPOPARG(S, 0)`) emitted a redundant
+  8-byte push+pop pair. Pre-fix cc5_native_arm carried **2,569**
+  such pairs. 13-LOC fix in `src/backend/aarch64/emit.cyr::EPOPARG`.
+  Native aarch64 cc5 **517,376 → 497,008 B (−20,368 B / −3.94%)** —
+  larger than v5.6.11's aarch64 combine-shuttle shrinkage. x86
+  cc5 unchanged at 542,928 B. check.sh 23/23. Pi exit42 OK.
 - **v5.6.24** — **Default-on regalloc**, two-bug fix. (1) SysV
   ECALLPOPS for n>6 args used r12-r14 as scratch. Under v5.6.20+
   regalloc the picker pinned caller's locals to those callee-saved

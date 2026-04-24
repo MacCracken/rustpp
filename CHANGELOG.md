@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.25] — 2026-04-24
+
+**aarch64 push/pop-cancel completion** — closes the v5.6.11
+aarch64 mirror gap. Scope retargeted from the originally-planned
+"aarch64 fused ops" (`madd` / `msub` / `ubfx` / `sbfx`) after a
+bytescan under default-on regalloc found 0 candidates.
+
+### Recon (bytescan-before-peephole per project rule)
+
+With v5.6.24 regalloc default-on applied across cc5_aarch64's
+output, the fused-op hypothesis was that `mul+add` and `lsr+and`
+pairs would become adjacent in hot code. Measured on native
+aarch64 cc5 + a curated set of math-heavy tcyr tests (bigint,
+u128, mulh64, keccak, sha1, base64, hashmap, vec):
+
+- MUL instructions: 49 across tests, 1 in cc5_native_arm
+- MUL → ADD adjacent pairs: **0**
+- MUL → SUB adjacent pairs: **0**
+- LSR → AND-imm adjacent pairs: **0**
+
+Cyrius's stack-machine IR keeps a `str x0, [sp, #-16]!` between
+every sub-expression's result and its consumer — so `x * y + z`
+compiles as `mul x0, x0, x1; str x0, [sp, ...]; ldr x0, ...; ldr
+x1, [sp], #16; add x0, x0, x1`. The fusion window never opens
+without a separate IR-level push-elision pass (pinned future
+slot; no shipping this release).
+
+### What the bytescan DID find: 2,569 latent push/pop pairs
+
+`f81f0fe0 f84107e0` (push x0; pop x0) adjacent pairs in native
+aarch64 cc5: **2,569**. Source: v5.6.9's push/pop-cancel shipped
+for x86 (381 pairs) AND was documented as "aarch64 mirror fires
+too" at v5.6.11 — but the aarch64 mechanism had a gap.
+
+`EPOPR` (`ldr x0, [sp], #16`) checks `GCP(S) == _last_push_cp`
+and rewinds past the push when adjacent. Good.
+
+`EPOPARG(S, n)` emits the SAME `ldr xN, [sp], #16` for N=0..7
+and is used by every fn-call site for popping arg registers.
+For N=0 the encoding IS `0xF84107E0` — identical to EPOPR — but
+`EPOPARG` never did the adjacency check. Every 1-arg call site
+(`eval arg → push x0; ECALLPOPS(1) → EPOPARG(S, 0)`) paid
+8 unnecessary bytes.
+
+### Fix
+
+`src/backend/aarch64/emit.cyr::EPOPARG` — add the same rewind
+check EPOPR uses, gated on `n == 0`:
+
+```cyr
+fn EPOPARG(S, n) {
+    if (n == 0) {
+        if (GCP(S) == _last_push_cp) {
+            SCP(S, GCP(S) - 4);
+            _last_push_cp = 0 - 1;
+            return 0;
+        }
+    }
+    EW(S, 0xF84107E0 | n);
+    return 0;
+}
+```
+
+13 LOC including comment. Only fires for N=0; for N≥1 the CP has
+already moved past `_last_push_cp` due to the preceding pops.
+
+### Verification
+
+- x86 cc5: **unchanged at 542,928 B** (3-step fixpoint at IR=0
+  and IR=3; aarch64 backend doesn't affect x86 output)
+- Native aarch64 cc5 (cross-built from v5.6.25 source):
+  **517,376 → 497,008 B (−20,368 B / −3.94%)**
+- Residual `push xN; pop xN` adjacent pairs in new cc5_native_arm:
+  **0**
+- check.sh **23/23 PASS**
+- Pi broad-scope sanity: `syscall(93, 42)` exits 42 on ssh pi
+- Regression: `tests/regression-aarch64-native-selfhost.sh`
+  continues to skip behind v5.6.31 pin (independent blocker)
+
+### Files
+
+- `src/backend/aarch64/emit.cyr::EPOPARG` — 13-LOC adjacency check
+- VERSION 5.6.25 → 5.6.26
+
 ## [5.6.24] — 2026-04-24
 
 **Default-on regalloc** + the SysV `ECALLPOPS` callee-saved

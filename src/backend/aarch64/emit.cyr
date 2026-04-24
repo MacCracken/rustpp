@@ -684,8 +684,22 @@ fn ECALLFIX(S, fnidx) {
     return 0;
 }
 
-# Pop into aarch64 arg register (x0-x7)
+# Pop into aarch64 arg register (x0-x7).
+# v5.6.25: when n == 0 and the immediately preceding instruction is
+# `push x0` (EPUSHR), the push+pop pair is a no-op — rewind past the
+# push rather than emitting the pop. Mirrors EPOPR's v5.6.9 cancel.
+# Applies to 1-arg call sites (and the trailing pop of any N-arg
+# call, but only the N=1 case has the pop's CP == _last_push_cp
+# since EPOPARG(N-1..1) push the emit cursor forward before this).
+# Pre-v5.6.25 cc5_aarch64 carried 2,569 such pairs.
 fn EPOPARG(S, n) {
+    if (n == 0) {
+        if (GCP(S) == _last_push_cp) {
+            SCP(S, GCP(S) - 4);
+            _last_push_cp = 0 - 1;
+            return 0;
+        }
+    }
     # ldr xN, [sp], #16
     EW(S, 0xF84107E0 | n);
     return 0;

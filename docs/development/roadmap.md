@@ -1,8 +1,11 @@
 # Cyrius Development Roadmap
 
-> **v5.6.25.** cc5 compiler (542,928 B x86_64, +21,712 B vs v5.6.22
-> for default-on regalloc save/restore), x86_64 + aarch64 cross +
-> Windows PE cross + macOS aarch64 cross. IR + CFG.
+> **v5.6.26.** cc5 compiler (542,928 B x86_64, unchanged from v5.6.24;
+> +21,712 B vs v5.6.22 for default-on regalloc save/restore). Native
+> aarch64 cc5 output (Pi 4) shrank 517,376 → 497,008 B at v5.6.25
+> (−20,368 B / −3.94%) from the EPOPARG push/pop-cancel completion
+> that closed the v5.6.11 aarch64 mirror gap. x86_64 + aarch64
+> cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
 > this is the load-bearing invariant and check.sh verifies it on
@@ -169,11 +172,23 @@
 >   regalloc'd. cc5 522,624 → 542,928 B (+20,304 B for save/restore).
 >   check.sh 23/23 + all 84 .tcyr PASS. v5.6.25 (sandhi-issue
 >   live-across-calls) consolidated here — same root.
-> - **v5.6.25**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
->   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.20 regalloc is
->   the precondition that lets intermediate values stay in
->   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
+> - **v5.6.25**: ✅ shipped — **aarch64 push/pop-cancel completion**
+>   (scope retargeted from "aarch64 fused ops"). Bytescan under
+>   default-on regalloc found 0 `mul+add` / 0 `lsr+and-mask`
+>   adjacent pairs — cyrius's stack-machine IR keeps a push
+>   between sub-expression results and their consumers, so the
+>   originally-hoped-for regalloc-enabled fusion windows never
+>   open without deeper IR work. But bytescan ALSO found **2,569**
+>   adjacent `push x0; pop x0` pairs in native aarch64 cc5 — a
+>   latent gap in v5.6.9's cancel mechanism. `EPOPARG(S, 0)`
+>   (which emits the same `ldr x0, [sp], #16` as EPOPR) bypassed
+>   the adjacency check, so every 1-arg call site paid 8 bytes.
+>   Fix: 13 LOC in `src/backend/aarch64/emit.cyr::EPOPARG` — mirror
+>   EPOPR's `GCP == _last_push_cp` rewind when `n == 0`. Native
+>   aarch64 cc5 **517,376 → 497,008 B (−20,368 B / −3.94%)** —
+>   bigger than v5.6.11's aarch64 combine-shuttle win. x86 cc5
+>   unchanged. Fused-ops pattern pinned to a future v5.6.x slot if
+>   a separate IR-level push-elision pass materializes.
 > - **v5.6.26**: Phase O5 — maximal-munch instruction selection.
 > - **v5.6.27**: Phase O6 — codebuf compaction (NOP harvest).
 >   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE
