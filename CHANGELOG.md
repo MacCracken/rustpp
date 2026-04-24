@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.31] — 2026-04-24
+
+**HIGH_ENTROPY_VA enabled for cc5_win.exe — 64-bit ASLR now ships.**
+The "2043 MOVABS sites audit / 264 uncovered" dead end from v5.5.35
+had nothing to do with the failure. Root cause turned out to be a
+trivial `mov rax` vs `mov eax` typo in `EREAD_PE` (and its sibling
+`EWRITE_PE`) — both ReadFile and WriteFile write only a DWORD (4
+bytes) at `lpNumberOfBytesRead`/`lpNumberOfBytesWritten`, but the
+post-call emit loaded the full 8-byte qword slot into `rax`. Under
+DYNAMIC_BASE the upper 4 bytes of that stack slot happened to be
+zero and nobody noticed. Under HIGH_ENTROPY_VA the Win11 loader
+randomises stack layout differently — the upper bytes carry
+garbage — and `n` came back as a 12-digit bogus value, tripping
+`main.cyr:341`'s "input exceeds 512KB buffer" overflow check on
+a 74-byte exit42.cyr.
+
+### Diagnosis sequence
+
+1. Cross-built cc5_win.exe with `DllCharacteristics = 0x0160`
+   (DYNAMIC_BASE | NX_COMPAT | HIGH_ENTROPY_VA). Confirmed that
+   the failure still reproduces identically to v5.5.35's report
+   (5/5 runs on Win11, 0-byte output, "input exceeds 512KB
+   buffer" on stderr).
+2. Built a minimal HIGH_ENTROPY_VA program (`syscall(1, 1,
+   "HI\n", 3); syscall(60, 7);`) to confirm 64-bit ASLR itself
+   isn't broken for trivial programs — it isn't. So the bug is
+   specific to whatever cc5_win.exe does that the trivial probe
+   doesn't.
+3. Added `syscall + PRNUM` debug writes around the stdin read
+   loop in `src/main_win.cyr`. Output was conclusive:
+   ```
+   DBG pre bl=0
+   DBG n=2826088480842 newbl=2826088480842
+   ```
+   74-byte stdin, bogus 12-digit `n`. Narrowed to the `syscall
+   (0, ...)` → `EREAD_PE` return value.
+4. Read EREAD_PE (`src/backend/x86/emit.cyr:615`). Spotted
+   `mov rax, [rsp+0x28]` at line 654 loading the bytes-read
+   count. ReadFile writes only a DWORD there; the 4-byte load
+   is correct, the 8-byte load picks up 4 bytes of stack garbage.
+
+### Fix
+
+- `src/backend/x86/emit.cyr::EREAD_PE`: `mov rax, [rsp+0x28]`
+  (`48 8B 44 24 28`, 5 bytes) → `mov eax, [rsp+0x28]` (`8B 44 24
+  28`, 4 bytes). 32-bit load on x86_64 implicitly zero-extends
+  rax, so the upper 4 bytes are guaranteed zero regardless of
+  stack state. One byte shorter.
+- `src/backend/x86/emit.cyr::EWRITE_PE`: same fix for
+  `lpNumberOfBytesWritten`. WriteFile has the identical
+  DWORD-at-pointer ABI; the bug was dormant because most PE
+  callers of `syscall(1, ...)` wrote whole buffers in one shot
+  and didn't loop — but any caller whose write returns a short
+  count (short-write recovery) would have hit the same garbage.
+- `src/backend/pe/emit.cyr:730`: flipped `_dllc = 0x0140` →
+  `0x0160` so HIGH_ENTROPY_VA ships enabled. Cyrius-emitted
+  PE binaries now request 64-bit ASLR by default.
+
+`ELSEEK_PE`, `ECLOSE_PE`, `EMMAP_PE`, `EOPEN_PE` audited — all
+use APIs that return 64-bit values (LARGE_INTEGER / BOOL from
+eax-return / LPVOID / HANDLE), so the same pattern doesn't
+apply. `ELSEEK_PE` already pre-zeros the output slot (line
+716) as belt-and-braces.
+
+### Acceptance
+
+- On Cassiopeia (Win11 24H2): `cc5_win_he.exe < exit42.cyr >
+  out42.exe` returns exit 0 and produces a valid 5128-byte PE
+  (same size as the DYNAMIC_BASE build). Bug closed.
+- The *runtime* "Application failed to run" when executing the
+  produced `out42.exe` is the **separate** v5.6.34 Windows 11
+  24H2 PE drift (exit code `0x40010080`); unchanged by this
+  slot, still pinned to v5.6.34.
+- 3-step byte-identical fixpoint: cc5_a → cc5_b → cc5_c at
+  531,680 B (−32 B from v5.6.30's 531,712; the `mov eax` form
+  saves 1 byte per site × many embedded in cross-builds ×
+  various emit paths — net −32 B on Linux cc5).
+- `check.sh` 23/23 PASS.
+- `tests/tcyr/fdlopen.tcyr` 40/40 still PASS.
+
+### Why this hid for so long
+
+The v5.5.35 MOVABS audit chased a red herring. The real bug was
+purely about post-call stack reads, nothing to do with pointer
+relocation. Every PE-target user since v5.5.1 (when EREAD_PE
+shipped) has had silently-wrong `n` values from stdin reads —
+but under DYNAMIC_BASE those values were reliably zero in the
+high bits, so the arithmetic worked out. HIGH_ENTROPY_VA was
+needed to surface it.
+
+Under DYNAMIC_BASE the high-4-byte slot lives at a stack
+location that Windows's default image loader zero-fills before
+handoff. The 64-bit ASLR path uses a different handoff sequence
+that doesn't clear that slot. Classic "works on most stacks
+because stacks are mostly zero" latent bug.
+
+### Files
+
+- `src/backend/x86/emit.cyr`:
+  - `EREAD_PE`: 5-byte 64-bit load → 4-byte 32-bit load.
+  - `EWRITE_PE`: same 5-byte → 4-byte swap.
+- `src/backend/pe/emit.cyr:730`: `_dllc = 0x0160` (+0x0020
+  HIGH_ENTROPY_VA).
+- VERSION: 5.6.30 → 5.6.31.
+
 ## [5.6.30] — 2026-04-24
 
 **Preprocessor `#derive` reads past the copy-back cap — "phantom

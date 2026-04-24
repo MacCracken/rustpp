@@ -727,7 +727,7 @@ fn EMITPE_EXEC(S) {
     # primary security win. HIGH_ENTROPY_VA pinned as a v5.5.35
     # follow-up investigation.
     var _dllc = 0;
-    if (_pe_reloc_vsize != 0) { _dllc = 0x0140; }
+    if (_pe_reloc_vsize != 0) { _dllc = 0x0160; }  # v5.6.31 probe: +HIGH_ENTROPY_VA
     o = _pe_w16(O, o, _dllc);
     o = _pe_w64(O, o, 0x100000);        # SizeOfStackReserve (1 MB)
     o = _pe_w64(O, o, 0x1000);          # SizeOfStackCommit  (4 KB)

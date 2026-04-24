@@ -571,7 +571,14 @@ fn EWRITE_PE(S) {
     # `written += syscall_result` loop sees `w=1` each iteration
     # and writes `olen*(olen+1)/2` bytes total — the 1.18 MB bloat
     # for a 1.5 KB output. Mirrors EREAD_PE's post-call fixup.
-    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
+    # v5.6.31: switched to `mov eax, [rsp+0x28]` (32-bit load,
+    # auto-zero-extends rax) for the same reason as EREAD_PE —
+    # `lpNumberOfBytesWritten` writes only a DWORD; under
+    # HIGH_ENTROPY_VA the upper 4 bytes of the qword slot carry
+    # stack garbage and the 64-bit load returned a huge bogus
+    # count, breaking every PE caller's write loop. See EREAD_PE
+    # comment for full diagnosis.
+    EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov eax, [rsp+0x28]
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
     return 0;
 }
@@ -651,7 +658,20 @@ fn EREAD_PE(S) {
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
 
     # Return the bytes-read count (not the BOOL success flag).
-    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov rax, [rsp+0x28]
+    # v5.6.31: was `mov rax, [rsp+0x28]` (64-bit load). ReadFile's
+    # `lpNumberOfBytesRead` writes only a DWORD (4 bytes) at the
+    # pointed location, so the upper 4 bytes of the qword slot are
+    # whatever was on the stack. Under DYNAMIC_BASE those bytes
+    # happened to be zero and nobody noticed. Under HIGH_ENTROPY_VA
+    # the Win11 loader randomises stack differently and the upper
+    # bytes carry garbage — cc5_win.exe's main read loop then saw
+    # `n = 0x29233B9948A` on a 74-byte stdin and tripped the
+    # "input exceeds 512KB buffer" overflow check at main.cyr:341.
+    # `mov eax, [rsp+0x28]` (4-byte opcode) implicitly zero-extends
+    # rax on x86_64, so the upper 4 bytes are guaranteed zero
+    # regardless of stack state. One byte shorter than the 64-bit
+    # form, too.
+    EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, 0x28); # mov eax, [rsp+0x28]
     EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x40); # add rsp, 0x40
     return 0;
 }
