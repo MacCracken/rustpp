@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.17\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.18\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -843,22 +843,11 @@ if (IR_ENABLED(S) == 1) {
     var ir_fold_bytes = 0;
     var ir_dce_n = 0;
     var ir_dce_bytes = 0;
+    var ir_dse_n = 0;
+    var ir_fp_iter = 0;
     if (load8(_ir_env) == 51) {
-        ir_lase_bytes = ir_apply_lase(S);
-        # v5.6.16 Phase O3b (part 1/2): IR const-fold. Detects
-        # LOAD_IMM/PUSH/LOAD_IMM/[POP_RCX | MOV_CA+POP_RAX]/OP patterns
-        # the parse-time fold missed and rewrites the codebuf in place
-        # with EMOVI(fold_val).
-        var ir_fold_pack = ir_const_fold(S);
-        ir_fold_n = (ir_fold_pack >> 32) & 0xFFFFFFFF;
-        ir_fold_bytes = ir_fold_pack & 0xFFFFFFFF;
-        # v5.6.17 Phase O3b (part 2/2): bitmap liveness + DCE.
-        # Per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
-        # bit 1 = RCX). Standard liveness: live_in = (live_out - all_defs)
-        # | all_uses. Pure RAX/RCX defs whose target reg isn't live get
-        # marked IR_ELIMINATED; ir_apply_lase NOP-fills the bytes.
-        # CYRIUS_DCE_CAP=N kept as a debug knob — caps kills for
-        # bisection during future audits.
+        # v5.6.18 cap knobs (per the v5.6.17 saved bisection methodology —
+        # every IR pass gets a CYRIUS_<PASS>_CAP knob from day 1).
         var _dce_cap_env = _read_env("CYRIUS_DCE_CAP");
         var _dce_cap = 0 - 1;
         if (_dce_cap_env != 0) {
@@ -872,14 +861,45 @@ if (IR_ENABLED(S) == 1) {
                 }
             }
         }
-        ir_dce_n = ir_dce_capped(S, _dce_cap);
-        ir_dce_bytes = ir_apply_lase(S) - ir_lase_bytes;
-        # v5.6.16 Phase O3b (part 2/2): bitmap liveness + DCE. Implemented
-        # in ir.cyr (`ir_dce`) but DEFERRED to v5.6.17 — corrupts cc5 even
-        # after expanding _ir_uses_rax with SYSCALL/CALL/TAIL_JMP/RET/
-        # EPILOGUE/RAW_EMIT/RAX_CLOBBER. There's still a missing-use case
-        # I haven't isolated. Bail per roadmap "STOP and ask" rule.
-        # ir_dce_n = ir_dce(S);
+        var _dse_cap_env = _read_env("CYRIUS_DSE_CAP");
+        var _dse_cap = 0 - 1;
+        if (_dse_cap_env != 0) {
+            _dse_cap = 0;
+            var _dsi = 0;
+            while (load8(_dse_cap_env + _dsi) >= 48) {
+                if (load8(_dse_cap_env + _dsi) > 57) { _dsi = 99999; }
+                else {
+                    _dse_cap = _dse_cap * 10 + (load8(_dse_cap_env + _dsi) - 48);
+                    _dsi = _dsi + 1;
+                }
+            }
+        }
+        # v5.6.18 Phase O3c: fixed-point driver — repeats LASE-apply →
+        # const-fold → DCE → dead-store until no new candidates fire.
+        # Cascading: dead-store removes a STORE_LOCAL whose preceding
+        # LOAD_IMM may then become eligible for fold/DCE; the loop
+        # catches those. Hard cap at 8 iterations as a safety belt.
+        var _changed = 1;
+        while (_changed == 1) {
+            _changed = 0;
+            ir_fp_iter = ir_fp_iter + 1;
+            var fp_fold_pack = ir_const_fold(S);
+            var fp_fold_n = (fp_fold_pack >> 32) & 0xFFFFFFFF;
+            if (fp_fold_n > 0) {
+                ir_fold_n = ir_fold_n + fp_fold_n;
+                ir_fold_bytes = ir_fold_bytes + (fp_fold_pack & 0xFFFFFFFF);
+                _changed = 1;
+            }
+            var fp_dce_n = ir_dce_capped(S, _dce_cap);
+            if (fp_dce_n > 0) { ir_dce_n = ir_dce_n + fp_dce_n; _changed = 1; }
+            var fp_dse_n = ir_dead_store_capped(S, _dse_cap);
+            if (fp_dse_n > 0) { ir_dse_n = ir_dse_n + fp_dse_n; _changed = 1; }
+            if (ir_fp_iter >= 8) { _changed = 0; }
+        }
+        # Apply LASE once at the end — picks up all IR_ELIMINATEDs from
+        # all passes (DCE + dead-store).
+        ir_lase_bytes = ir_apply_lase(S);
+        ir_dce_bytes = ir_lase_bytes;  # legacy field name; reflects total NOP-fill
         # DBE pinned to a later investigation slot.
         # ir_dbe_bytes = ir_dead_block_elim(S);
     }
@@ -907,9 +927,17 @@ if (IR_ENABLED(S) == 1) {
     if (ir_dce_n > 0) {
         syscall(SYS_WRITE, 2, ", ", 2);
         PRNUM(ir_dce_n);
-        syscall(SYS_WRITE, 2, " DCE (", 6);
-        PRNUM(ir_dce_bytes);
-        syscall(SYS_WRITE, 2, "B)", 2);
+        syscall(SYS_WRITE, 2, " DCE", 4);
+    }
+    if (ir_dse_n > 0) {
+        syscall(SYS_WRITE, 2, ", ", 2);
+        PRNUM(ir_dse_n);
+        syscall(SYS_WRITE, 2, " DSE", 4);
+    }
+    if (ir_fp_iter > 1) {
+        syscall(SYS_WRITE, 2, " (", 2);
+        PRNUM(ir_fp_iter);
+        syscall(SYS_WRITE, 2, " fp iters)", 10);
     }
     if (ir_dbe_bytes > 0) {
         syscall(SYS_WRITE, 2, ", ", 2);

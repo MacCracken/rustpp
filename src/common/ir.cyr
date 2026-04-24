@@ -956,6 +956,76 @@ fn ir_dce_capped(S, cap) {
 fn ir_dce(S) { return ir_dce_capped(S, 0 - 1); }
 
 # ================================================================
+# v5.6.18 — Dead-store elimination
+# ================================================================
+# Per-BB forward sweep: for each STORE_LOCAL(x), scan forward in the
+# same BB. If we find another STORE_LOCAL(x) before any LOAD of x or
+# any opaque op (CALL/SYSCALL/RAW_EMIT — could read via &local), the
+# first store is dead.
+#
+# Conservative bail set:
+#   - IR_LOAD_ADDR_L of same lidx anywhere: pointer might survive,
+#     opaque ops downstream could deref it
+#   - IR_CALL / IR_CALL_KNOWN / IR_SYSCALL / IR_RAW_EMIT / IR_TAIL_JMP:
+#     opaque w.r.t. memory; may read any local
+#   - IR_LOAD_LOCAL(same lidx): use found before re-store
+#
+# Returns kill count. CYRIUS_DSE_CAP=N caps kills for bisection.
+
+fn ir_dead_store_capped(S, cap) {
+    var bcnt = IR_BCNT(S);
+    var killed = 0;
+    var bi = 0;
+    while (bi < bcnt) {
+        var first = IR_BB_FIRST(S, bi);
+        var count = IR_BB_COUNT(S, bi);
+        var k = 0;
+        while (k < count) {
+            if (cap >= 0) { if (killed >= cap) { k = count; continue; } }
+            var ni = first + k;
+            var op = IR_NODE_OP(S, ni);
+            if (op == IR_STORE_LOCAL) {
+                var lidx = IR_NODE_A1(S, ni);
+                var dead = 0;
+                var j = k + 1;
+                while (j < count) {
+                    var nj = first + j;
+                    var oj = IR_NODE_OP(S, nj);
+                    var aj = IR_NODE_A1(S, nj);
+                    if (oj == IR_NOP) { j = j + 1; continue; }
+                    if (oj == IR_ELIMINATED) { j = j + 1; continue; }
+                    # Opaque memory-touching ops bail conservatively
+                    if (oj == IR_CALL) { j = count; }
+                    elif (oj == IR_CALL_KNOWN) { j = count; }
+                    elif (oj == IR_SYSCALL) { j = count; }
+                    elif (oj == IR_RAW_EMIT) { j = count; }
+                    elif (oj == IR_TAIL_JMP) { j = count; }
+                    elif (oj == IR_LOAD_ADDR_L && aj == lidx) { j = count; }
+                    elif (oj == IR_LOAD_LOCAL && aj == lidx) {
+                        # Use found before re-store; not dead.
+                        j = count;
+                    }
+                    elif (oj == IR_STORE_LOCAL && aj == lidx) {
+                        dead = 1;
+                        j = count;
+                    }
+                    else { j = j + 1; }
+                }
+                if (dead == 1) {
+                    _ir_set_node(S, ni, _ir_pack_op(IR_ELIMINATED, 0), 0, 0);
+                    killed = killed + 1;
+                }
+            }
+            k = k + 1;
+        }
+        bi = bi + 1;
+    }
+    return killed;
+}
+
+fn ir_dead_store(S) { return ir_dead_store_capped(S, 0 - 1); }
+
+# ================================================================
 # BB construction pass
 # ================================================================
 # Walk the recorded IR nodes and split them into basic blocks.

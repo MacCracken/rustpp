@@ -4,6 +4,88 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.18] — 2026-04-23
+
+**Phase O3c — dead-store elimination + fixed-point driver
+(copy-prop deferred to v5.6.19).** Originally bundled with copy-prop
+(~330 LOC); shipped as DSE + fixed-point driver alone (~100 LOC)
+after recon found copy-prop yields zero direct savings on cyrius's
+stack-machine IR.
+
+### Recon (the bytescan-before-peephole rule)
+
+Pre-implementation walk of cc5 IR found:
+- **15 dead-store candidates**: `STORE_LOCAL(x)` followed in same
+  BB by another `STORE_LOCAL(x)` with no intervening LOAD or
+  opaque op (CALL/SYSCALL/RAW_EMIT/&local).
+- **110 local-copy candidates**: `LOAD_LOCAL(x), STORE_LOCAL(y)`.
+  Direct savings: **0 B** — both LOAD_LOCALs are 7-byte
+  instructions; rewriting `LOAD_LOCAL(y)` → `LOAD_LOCAL(x)` is
+  byte-equal. Copy-prop's value here would be purely cascading
+  into dead-store. User-decided: skip in v5.6.18, evaluate in
+  v5.6.19 with measurement after DSE + fixpoint ship.
+
+### Dead-store (shipped, ~80 LOC)
+
+- `src/common/ir.cyr` — `ir_dead_store_capped(S, cap)`. Per-BB
+  forward sweep: for each `STORE_LOCAL(x)`, scan forward; if we
+  find another `STORE_LOCAL(x)` before any `LOAD_LOCAL(x)` or
+  opaque op (`IR_CALL/CALL_KNOWN/SYSCALL/RAW_EMIT/TAIL_JMP/LOAD_ADDR_L`),
+  the first store is dead. Mark `IR_ELIMINATED`.
+- `CYRIUS_DSE_CAP=N` env knob from day 1 per the v5.6.17
+  bisection methodology — every IR pass gets a cap knob.
+
+### Fixed-point driver (shipped, ~30 LOC)
+
+- `src/main.cyr` — under `CYRIUS_IR=3`: loop const-fold → DCE →
+  dead-store; repeat until no candidates fire. Hard cap of 8
+  iterations as a safety belt.
+- Cascading observed on cc5 self-compile: const-fold count grew
+  from 132 (v5.6.17) → **135 in 3 fixpoint iterations** as DCE +
+  DSE removed wrapping ops, exposing new fold patterns.
+
+### Result
+
+- 135 folds + 678 DCE + **15 DSE** in 3 fixpoint iterations.
+- Total NOP-fill at IR=3: **6,099 B** on cc5 self-compile (up
+  from v5.6.17's 2,794 B — adds 567 LASE applies + DSE bytes).
+- Both fixpoints clean: IR=0 b==c==501,616 B; IR=3 b==c==
+  501,616 B. check.sh 22/22 PASS.
+- cc5 grew 498,720 → 501,616 B (+2,896 B) for `ir_dead_store` +
+  `CYRIUS_DSE_CAP` knob + fixpoint loop.
+
+### Roadmap cascade (+1 slot count, 31 → 32)
+
+- v5.6.19 = copy-prop (re-pinned from v5.6.18 scope; ~250 LOC,
+  cascade-only value, bails if < 5 new dead stores from cascade)
+- v5.6.20 = linear-scan regalloc (was v5.6.19)
+- v5.6.21 = aarch64 fused ops (was v5.6.20)
+- v5.6.22 = maximal-munch (was v5.6.21)
+- v5.6.23 = codebuf compaction (was v5.6.22)
+- v5.6.24-v5.6.26 = consumer-surfaced (was 23-25)
+- v5.6.27-v5.6.29 = platform repair (was 26-28)
+- v5.6.30 = shared-object (was 29)
+- v5.6.31 = closeout (was 30)
+- Regression-stub pin labels: v5.6.26/27/28 → v5.6.27/28/29
+- check.sh gate labels updated
+
+### Files
+
+- `src/common/ir.cyr` — `ir_dead_store_capped` + `ir_dead_store`.
+- `src/main.cyr` — fixed-point driver + `CYRIUS_DSE_CAP` env
+  read; collapsed three independent post-pass `apply_lase` calls
+  into one final apply at end of fixpoint loop; updated stats
+  line to print DSE + fp-iter counts.
+- VERSION 5.6.17 → 5.6.18.
+- `docs/development/roadmap.md` — v5.6.18 narrowed to DSE +
+  fixpoint; v5.6.19 = copy-prop with cascade-only framing;
+  cascade headers v5.6.19→v5.6.20, ..., v5.6.30→v5.6.31.
+- `tests/regression-{aarch64-native-selfhost,macho-exit,pe-exit}.sh`
+  — pin labels updated.
+- `scripts/check.sh` — gate labels updated.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/state.md`, `docs/development/completed-phases.md`.
+
 ## [5.6.17] — 2026-04-23
 
 **Phase O3b-fix — bitmap liveness + DCE (the v5.6.16-deferred half).**

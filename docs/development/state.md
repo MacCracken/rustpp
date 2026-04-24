@@ -5,19 +5,19 @@
 
 ## Version
 
-**5.6.17** (active minor: v5.6.x optimization arc)
+**5.6.18** (active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 498,720 B
-- **cc5_aarch64 (cross)**: 380,688 B
-- **cc5_win (cross)**: 495,960 B
+- **cc5 (x86_64)**: 501,616 B
+- **cc5_aarch64 (cross)**: 382,336 B
+- **cc5_win (cross)**: 497,608 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
-- **IR=3 NOP-fill on cc5 self-compile** (v5.6.17): 132 folds + 678 DCE +
-  566 LASE = 1,376 candidates / **6,771 B**. Real binary shrinkage waits
-  for v5.6.22 codebuf compaction.
+- **IR=3 NOP-fill on cc5 self-compile** (v5.6.18): 135 folds + 678 DCE +
+  15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
+  iterations. Real binary shrinkage waits for v5.6.23 codebuf compaction.
 
 ## Suites
 
@@ -30,25 +30,32 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.18** — Phase O3c: copy propagation + dead-store elim + fixed-point
-  driver. ~330 LOC. Cascaded from v5.6.17 after the DCE bisection split.
-- **v5.6.19** — Phase O4: linear-scan register allocation (~600–900 LOC).
-- **v5.6.20** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
-  precondition v5.6.19.
-- **v5.6.21** — Phase O5: maximal-munch instruction selection (precedes
+- **v5.6.19** — Copy propagation (re-pinned from v5.6.18 scope after recon
+  showed zero direct savings). ~250 LOC. Value purely cascading: rewrite
+  LOAD_LOCAL(y) → LOAD_LOCAL(x) after a copy → y becomes never-read → DSE
+  catches its STORE → DCE catches the original LOAD. Recon at v5.6.18:
+  110 candidates. Bails if cascade adds < 5 new dead stores.
+- **v5.6.20** — Phase O4: linear-scan register allocation (~600–900 LOC).
+- **v5.6.21** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+  precondition v5.6.20.
+- **v5.6.22** — Phase O5: maximal-munch instruction selection (precedes
   RISC-V backend at v5.7.0).
-- **v5.6.22** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+- **v5.6.23** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
   repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.23–v5.6.25** — consumer-surfaced tooling: `cyrius init` scaffold,
+- **v5.6.24–v5.6.26** — consumer-surfaced tooling: `cyrius init` scaffold,
   libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.26–v5.6.28** — broad-scope platform repair: aarch64 native
+- **v5.6.27–v5.6.29** — broad-scope platform repair: aarch64 native
   self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
   dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.29** — shared-object emission.
-- **v5.6.30** — closeout.
+- **v5.6.30** — shared-object emission.
+- **v5.6.31** — closeout.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.18** — Phase O3c: dead-store elimination + fixed-point driver.
+  Recon-driven scope split: copy-prop deferred to v5.6.19 (zero direct
+  savings on stack-machine IR — cascade-only value). **15 DSE / 6,099 B
+  NOP-fill at IR=3 in 3 fixpoint iterations** (cascade caught 3 more folds).
 - **v5.6.17** — Phase O3b-fix: bitmap liveness + DCE (the v5.6.16-deferred
   half). Bug fixed via `CYRIUS_DCE_CAP` bisection — `IR_RAX_CLOBBER` reads
   RCX, not writes it. **678 DCE kills / 2,010 B NOP-fill** at IR=3.
