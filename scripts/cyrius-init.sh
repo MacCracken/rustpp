@@ -19,6 +19,7 @@ DRY_RUN=0
 AGENT=""
 CMTOOLS=""
 LANGUAGE="none"
+DESCRIPTION=""
 NAME=""
 for arg in "$@"; do
     case "$arg" in
@@ -29,6 +30,11 @@ for arg in "$@"; do
         --cmtools=*) CMTOOLS="${arg#--cmtools=}" ;;
         --language=*) LANGUAGE="${arg#--language=}" ;;
         --language) echo "error: --language requires a value (none|rust)"; exit 1 ;;
+        # v5.6.28: --description=<str> populates cyrius.cyml [package].description
+        # so a fresh scaffold doesn't ship with a silently-empty manifest field.
+        # When absent, defaults to "<name> — TODO" placeholder (see :PROJ_DESC).
+        --description=*) DESCRIPTION="${arg#--description=}" ;;
+        --description) echo "error: --description requires a value"; exit 1 ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) NAME="$arg" ;;
     esac
@@ -54,7 +60,7 @@ if [ -z "$NAME" ]; then
     echo "Usage: cyrius init [flags] <project-name | .>"
     echo ""
     echo "Creates a new Cyrius project with:"
-    echo "  cyrius.toml    project manifest + deps"
+    echo "  cyrius.cyml    project manifest + deps"
     echo "  src/main.cyr   entry point"
     echo "  src/test.cyr   test file"
     echo "  lib/           resolved stdlib (via cyrius deps)"
@@ -99,37 +105,45 @@ if [ "$DRY_RUN" -eq 1 ]; then
         echo "Dry run: cyrius init $NAME"
     fi
     echo ""
+    # v5.6.28: dry-run listing rebuilt to mirror the real writer set
+    # 1:1. Previous list advertised CONTRIBUTING.md / SECURITY.md /
+    # CODE_OF_CONDUCT.md / docs/development/ content that no
+    # write_if_absent call ever produces under --language=none, and
+    # used "${NAME}" (which may be a path) for the test/bench/fuzz
+    # filenames instead of the basename. Now drift-free.
+    DRY_PROJ="$(basename "$NAME")"
     echo "Would create (skip if exists in in-place mode):"
     echo "  $NAME/"
-    echo "  $NAME/src/main.cyr"
-    echo "  $NAME/src/test.cyr"
-    echo "  $NAME/cyrius.cyml"
-    echo "  $NAME/VERSION            (0.1.0)"
     echo "  $NAME/.gitignore"
-    echo "  $NAME/LICENSE            (GPL-3.0-only)"
+    echo "  $NAME/LICENSE                  (GPL-3.0-only)"
     echo "  $NAME/README.md"
     echo "  $NAME/CHANGELOG.md"
-    echo "  $NAME/CONTRIBUTING.md"
-    echo "  $NAME/SECURITY.md"
-    echo "  $NAME/CODE_OF_CONDUCT.md"
-    if [ -n "$AGENT" ]; then
-        echo "  $NAME/CLAUDE.md          (agent preset: $AGENT)"
-    fi
-    echo "  $NAME/tests/${NAME}.tcyr   (test suite)"
-    echo "  $NAME/tests/${NAME}.bcyr   (benchmarks)"
-    echo "  $NAME/tests/${NAME}.fcyr   (fuzz harness)"
-    echo "  $NAME/cyrius.cyml [package].cyrius  (pins Cyrius version)"
+    echo "  $NAME/VERSION                  (0.1.0)"
+    echo "  $NAME/cyrius.cyml              (pins Cyrius version, deps, build entry)"
+    echo "  $NAME/src/main.cyr"
+    echo "  $NAME/src/test.cyr"
+    echo "  $NAME/tests/${DRY_PROJ}.tcyr   (test suite)"
+    echo "  $NAME/tests/${DRY_PROJ}.bcyr   (benchmarks)"
+    echo "  $NAME/tests/${DRY_PROJ}.fcyr   (fuzz harness)"
     echo "  $NAME/.github/workflows/ci.yml"
     echo "  $NAME/.github/workflows/release.yml"
-    echo "  $NAME/docs/development/"
+    if [ -n "$AGENT" ]; then
+        echo "  $NAME/CLAUDE.md                (agent preset: $AGENT)"
+    fi
     echo ""
-    echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$NAME"
+    echo "Empty dirs created: src/ lib/ build/ tests/ docs/development/ .github/workflows/"
+    echo ""
+    echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$DRY_PROJ"
     exit 0
 fi
 
 if [ "$INPLACE" -eq 0 ] && [ -d "$NAME" ]; then
     echo "ERROR: directory '$NAME' already exists"
-    echo "  hint: use 'cyrius init --language=none $NAME' to scaffold in-place"
+    # v5.6.28: hint pointed at the same command that just failed
+    # (in-place mode requires NAME=`.`, not the existing-dir name).
+    # Correct form is to cd into the dir and run with `.` as the
+    # target — the actual contract.
+    echo "  hint: cd $NAME && cyrius init --language=none ."
     exit 1
 fi
 
@@ -175,8 +189,14 @@ if [ -z "$CYRIUS_VER" ]; then
     exit 1
 fi
 
-# Create structure (mkdir -p is idempotent — safe in both modes)
-mkdir -p "$NAME/src" "$NAME/lib/agnosys" "$NAME/scripts" "$NAME/build" "$NAME/docs/development" "$NAME/.github/workflows"
+# Create structure (mkdir -p is idempotent — safe in both modes).
+# v5.6.28: dropped `scripts/` (no writer ever populated it; the
+# stale next-steps `sh scripts/build.sh` hint was the only ref —
+# also fixed) and `lib/agnosys/` (the stdlib copy loop below dumps
+# *.cyr into lib/ flat; the agnosys subdir was a stale carve-out
+# from an older AGNOS-namespaced layout). `build/` stays — the
+# `cyrius build` invocation in next-steps writes into it.
+mkdir -p "$NAME/src" "$NAME/lib" "$NAME/build" "$NAME/tests" "$NAME/docs/development" "$NAME/.github/workflows"
 
 # === VERSION ===
 if [ -e "$NAME/VERSION" ]; then
@@ -223,8 +243,9 @@ Written in [Cyrius](https://github.com/MacCracken/cyrius).
 ## Build
 
 \`\`\`sh
-cyrius build src/main.cyr build/$PROJ
-cyrius test src/test.cyr
+cyrius deps                              # resolve stdlib deps
+cyrius build src/main.cyr build/$PROJ    # compile
+cyrius test                              # run [build].test + tests/*.tcyr
 \`\`\`
 
 ## License
@@ -247,11 +268,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 CHANGELOG
 
 # === cyrius.cyml ===
+# v5.6.28: PROJ_DESC defaults to "<name> — TODO" placeholder when
+# --description wasn't passed, instead of an empty string that
+# downstream tooling has to special-case.
+PROJ_DESC="${DESCRIPTION:-$PROJ — TODO}"
 write_if_absent "$NAME/cyrius.cyml" << EOF
 [package]
 name = "$PROJ"
 version = "0.1.0"
-description = ""
+description = "$PROJ_DESC"
 license = "GPL-3.0-only"
 language = "cyrius"
 cyrius = "$CYRIUS_VER"
@@ -269,7 +294,7 @@ EOF
 # === src/main.cyr ===
 write_if_absent "$NAME/src/main.cyr" << EOF
 # $PROJ — main entry point
-# Stdlib auto-included via cyrius.toml
+# Stdlib auto-included via cyrius.cyml
 
 fn main() {
     alloc_init();
@@ -281,11 +306,29 @@ var r = main();
 syscall(SYS_EXIT, r);
 EOF
 
+# === src/test.cyr ===
+# v5.6.28: previously announced in success summary + referenced by
+# cyrius.cyml [build].test + .github/workflows/ci.yml but never written —
+# fresh scaffold failed `cyrius test` with ENOENT. Stub here.
+write_if_absent "$NAME/src/test.cyr" << EOF
+# $PROJ — top-level test entry (referenced by cyrius.cyml [build].test).
+# For unit tests, prefer adding cases to tests/${PROJ}.tcyr.
+
+include "lib/syscalls.cyr"
+
+fn main() {
+    return 0;
+}
+
+var r = main();
+syscall(SYS_EXIT, r);
+EOF
+
 # === tests/test.tcyr ===
-mkdir -p "$NAME/tests"
+# (tests/ already created by the top-level mkdir block above)
 write_if_absent "$NAME/tests/${PROJ}.tcyr" << EOF
 # $PROJ test suite
-# Stdlib auto-included via cyrius.toml
+# Stdlib auto-included via cyrius.cyml
 
 fn main() {
     alloc_init();
@@ -302,7 +345,7 @@ EOF
 # === tests/bench.bcyr ===
 write_if_absent "$NAME/tests/${PROJ}.bcyr" << EOF
 # $PROJ benchmarks
-# Stdlib auto-included via cyrius.toml
+# Stdlib auto-included via cyrius.cyml
 
 fn bench_noop() { return 0; }
 
@@ -380,7 +423,12 @@ jobs:
           cyrius build src/main.cyr build/${{ github.event.repository.name }}
 
       - name: Test
-        run: cyrius test src/test.cyr
+        # v5.6.28: bare `cyrius test` picks up the [build].test entry
+        # AND auto-discovers tests/*.tcyr — avoids the previous
+        # `cyrius test src/test.cyr` form that hard-failed when the
+        # stub didn't exist (Issue 1) and also wouldn't ever exercise
+        # tests/${proj}.tcyr.
+        run: cyrius test
 CI
 
 # === Release workflow ===
@@ -459,7 +507,7 @@ cyrius test                          # run test suite
 ## Conventions
 
 - Source lives in \`src/\`, tests in \`tests/\`
-- Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
+- Dependencies declared in \`cyrius.cyml\`, resolved via \`cyrius deps\`
 - Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
@@ -528,7 +576,7 @@ cyrius test
 ## Key Facts
 
 - Source in \`src/\`, tests in \`tests/\`, stdlib in \`lib/\` (vendored, do not edit)
-- Dependencies declared in \`cyrius.toml\`
+- Dependencies declared in \`cyrius.cyml\`
 - Toolchain pinned in \`cyrius.cyml [package].cyrius\`
 
 ## Language Notes
@@ -562,7 +610,7 @@ cyrius test                          # run test suite
 ## Conventions
 
 - Source lives in \`src/\`, tests in \`tests/\`
-- Dependencies declared in \`cyrius.toml\`, resolved via \`cyrius deps\`
+- Dependencies declared in \`cyrius.cyml\`, resolved via \`cyrius deps\`
 - Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
 - \`var buf[N]\` is N **bytes**, not elements
 - No closures — use named functions + globals
@@ -647,11 +695,14 @@ echo "  src/main.cyr — entry point"
 echo "  src/test.cyr — test file"
 echo ""
 echo "Next steps:"
-if [ "$INPLACE" -eq 1 ]; then
-    echo "  cyrius deps"
-    echo "  cyrius build src/main.cyr build/$PROJ"
-else
+# v5.6.28: previously suggested `sh scripts/build.sh` and
+# `sh scripts/test.sh` for greenfield projects, but no
+# write_if_absent call ever creates those scripts. The `scripts/`
+# dir is mkdir'd empty by `mkdir -p` above. Use `cyrius` commands
+# directly — the same as the in-place branch.
+if [ "$INPLACE" -eq 0 ]; then
     echo "  cd $NAME"
-    echo "  sh scripts/build.sh"
-    echo "  sh scripts/test.sh"
 fi
+echo "  cyrius deps"
+echo "  cyrius build src/main.cyr build/$PROJ"
+echo "  cyrius test"

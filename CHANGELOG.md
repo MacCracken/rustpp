@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.28] — 2026-04-24
+
+**`cyrius init` scaffold gaps + audit-pass cleanup.** Owl-surfaced
+the original 5 issues during M1 bootstrap (filed
+`docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`);
+this slot ships those plus the related drifts found during a
+broader review of `scripts/cyrius-init.sh`.
+
+### The 5 owl-filed fixes
+
+1. **`src/test.cyr` advertised but never written**.
+   `cyrius.cyml [build].test` and `.github/workflows/ci.yml` both
+   referenced it; fresh scaffold failed `cyrius test` with ENOENT.
+   Now writes a stub `fn main() { return 0; }` adjacent to
+   `src/main.cyr`.
+2. **`cyrius.toml` → `cyrius.cyml` drift in generated docs/comments**.
+   Heredocs at lines 272, 288, 305, 462, 531, 565 of the
+   pre-fix script (covering the agent CLAUDE.md presets + the
+   `src/main.cyr` / `tests/*.cyr` headers) referenced the deprecated
+   `.toml` filename right next to the correct `.cyml` form.
+   Global-replaced. The `[trigger] when` and `detect_files` entries
+   under `--cmtools=starship` keep the `cyrius.toml` ref because
+   that's a back-compat detection pattern, not a generated filename.
+3. **`--dry-run` listed phantom files**. `CONTRIBUTING.md`,
+   `SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/development/`
+   content — all in the dry-run echo block, none actually written
+   under `--language=none`. Listing also used `${NAME}.tcyr`
+   instead of `${PROJ}.tcyr` (would break for path-form names).
+   Rebuilt the dry-run output to mirror the real writer set 1:1.
+4. **`description = ""` always empty**. Added `--description=<str>`
+   flag; when absent, defaults to `"<name> — TODO"` placeholder so
+   downstream `cyrius publish` / `cyrius distlib` doesn't have to
+   special-case empty.
+5. **"already exists" hint pointed at the same command that
+   failed**. In-place mode requires `NAME=.` (intentional contract);
+   the hint now says `cd $NAME && cyrius init --language=none .`.
+
+### Audit-pass extras (related drifts caught while reviewing)
+
+- **CI workflow hardcoded `cyrius test src/test.cyr`** — would have
+  hard-failed on Issue 1 had the test stub not landed; replaced
+  with bare `cyrius test` so it picks up `[build].test` AND
+  auto-discovers `tests/*.tcyr`.
+- **README "Build" snippet referenced `cyrius test src/test.cyr`** —
+  same drift; replaced with `cyrius deps && cyrius build && cyrius test`.
+- **Greenfield next-steps suggested `sh scripts/build.sh` /
+  `scripts/test.sh`** — neither script is ever written. The
+  `scripts/` dir was `mkdir -p`'d empty by the structure block.
+  Replaced with `cyrius deps / build / test` invocations
+  (matching the in-place branch).
+- **`mkdir -p ".../lib/agnosys"`** — dead carve-out from an old
+  AGNOS-namespaced layout. The stdlib copy loop later dumps
+  `*.cyr` flat into `lib/`; the `agnosys/` subdir was never
+  populated. Dropped.
+- **`mkdir -p ".../scripts"`** — empty, unused. Dropped.
+- **Redundant `mkdir -p "$NAME/tests"` later in the script** —
+  consolidated into the top-level structure block alongside `src/`,
+  `lib/`, `build/`, `docs/development/`, `.github/workflows/`.
+
+### Verification
+
+Smoke-tested all 5 fixes plus the audit cleanups in a fresh
+`/tmp/...` dir:
+
+- `--dry-run --agent=claude` listing matches the actual file set
+  produced by a real run (no phantoms, agent line gated on
+  `--agent`).
+- `src/test.cyr` present after init.
+- `cyrius.cyml description = "<name> — TODO"` by default,
+  `description = "A test project"` when `--description=` passed.
+- Zero `cyrius.toml` references in any generated file (CLAUDE.md,
+  src/main.cyr, cyrius.cyml).
+- Re-running into existing dir prints
+  `hint: cd $NAME && cyrius init --language=none .`
+- check.sh **23/23 PASS**, cc5 byte-identical at 531,392 B
+  (no compiler change in this slot).
+
+### Files
+
+- `scripts/cyrius-init.sh` — 5 fixes + audit cleanups (no compiler
+  change in this slot)
+- Install snapshot at `~/.cyrius/versions/5.6.27/bin/cyrius-init.sh`
+  + 5.6.28/bin/ refreshed
+
 ## [5.6.27] — 2026-04-24
 
 **Phase O6: codebuf compaction (NOP harvest with jump+fixup

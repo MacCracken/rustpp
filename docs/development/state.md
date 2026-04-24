@@ -5,7 +5,7 @@
 
 ## Version
 
-**5.6.28** (in progress — active minor: v5.6.x optimization arc)
+**5.6.28** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
@@ -46,8 +46,6 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.28** — `cyrius init` scaffold gaps (owl-surfaced, 5 fixes
-  in `cyrius-init.sh`).
 - **v5.6.29** — **sandhi-surfaced issues** (filed 2026-04-24,
   `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`):
   (1) `fdlopen_init_full` orchestration completion — v5.5.29
@@ -78,6 +76,20 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.28** — `cyrius init` scaffold gaps (owl-surfaced, 5 fixes)
+  + audit-pass cleanup. (1) Write the advertised `src/test.cyr` stub
+  (was ENOENT on `cyrius test`). (2) Global `cyrius.toml` →
+  `cyrius.cyml` in agent CLAUDE.md presets + src/main.cyr +
+  tests/* headers. (3) Dry-run output rebuilt to mirror the real
+  writer set 1:1 (was advertising CONTRIBUTING.md / SECURITY.md /
+  CODE_OF_CONDUCT.md / docs-content that no writer ever produces).
+  (4) `--description=<str>` flag with `<name> — TODO` placeholder
+  default (was always empty). (5) "already exists" hint now points
+  at `cd $NAME && cyrius init --language=none .` (was the same
+  command that failed). Audit extras: bare `cyrius test` in CI
+  workflow + README, dropped dead `lib/agnosys/` and `scripts/`
+  empty mkdirs, consolidated tests/ mkdir into the structure block.
+  No compiler change. check.sh 23/23, cc5 byte-identical.
 - **v5.6.27** — Phase O6 codebuf compaction (NOP harvest with jump+fixup
   repair). Per-fn pass after picker; sweeps the 4-byte `0F 1F 40 00`
   NOP-fills via explicit tracking at every NOP-emit + disp32-emit
