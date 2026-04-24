@@ -611,7 +611,29 @@ fn PARSE_FN_DEF(S) {
     # this fn's metadata slot. Cleared whether consumed or not so a
     # stale flag from a prior parse error can't leak to the next fn.
     # v4.9.1: store 5 (max register count: rbx, r12-r15) for #regalloc fns.
+    # v5.6.22 O4c (partial): infrastructure for auto-enable shipped
+    # but DISABLED by default. CYRIUS_REGALLOC_AUTO_CAP=N opts in:
+    #   -1 = disabled (default; back to explicit #regalloc opt-in only)
+    #    N = first N fns get auto-enabled (bisection knob)
+    # v5.6.22 attempt at default-on auto-enable surfaced a global-array
+    # alignment regression (v5.5.21 fix interacts with auto-enable's
+    # code-size growth in some shape that v5.5.21's per-array pad
+    # misses; reproduces with `var rk[240]` + SSE m128 ops in
+    # `tests/regression-inline-asm-discard.sh`). Investigation pinned
+    # to v5.6.23 with proper alignment-debug budget. The picker
+    # correctness fix (loop-back time-share — extend last_cp = ra_end)
+    # is shipped here for opt-in #regalloc fns.
+    #
+    # x86-ONLY when enabled: the `_cur_fn_regalloc >= N` save/restore
+    # emits below are RAW x86 bytes (`mov [rbp-8], rbx` etc.).
+    var _auto_enable = 0;
+    if (_AARCH64_BACKEND == 0) {
+        if (_ra_auto_cap > 0) {
+            if (_ra_auto_count < _ra_auto_cap) { _auto_enable = 1; }
+        }
+    }
     if (_regalloc_pending == 1) { SFRA(S, fi, 5); _regalloc_pending = 0; }
+    elif (_auto_enable == 1) { SFRA(S, fi, 5); _ra_auto_count = _ra_auto_count + 1; }
     # v5.6.3: transfer any pending `#must_use` onto fn_flags[fi] bit 0.
     # Clear unconditionally (same stale-flag argument as #regalloc).
     if (_must_use_pending == 1) {
@@ -1080,7 +1102,21 @@ fn PARSE_FN_DEF(S) {
                     if (iv_c > 1) {
                         store64(&iv_lidx + iv_n * 8, iv_li);
                         store64(&iv_first + iv_n * 8, load64(&ra_first + iv_li * 8));
-                        store64(&iv_last + iv_n * 8, load64(&ra_last + iv_li * 8));
+                        # v5.6.22: time-sharing breaks across backward CFG
+                        # edges (loops). When picker reuses a register for a
+                        # later interval, JMP_BACK to a position inside an
+                        # EARLIER interval re-reads the register expecting
+                        # the earlier value but finds the later one — wrong.
+                        # Bug surfaced at v5.6.22 auto-enable on
+                        # PP_ALREADY_INCLUDED (`while (i < cnt)` cnt-LOAD
+                        # rewritten to rbx; rbx later reused for `p` inside
+                        # the loop body). v5.6.20's design assumed
+                        # straight-line forward execution.
+                        # Safe fix here: extend last_cp to fn_end so expire
+                        # never fires → no time-sharing. Effectively
+                        # greedy-equivalent assignment. Proper fix
+                        # (loop-aware liveness extension) pinned future slot.
+                        store64(&iv_last + iv_n * 8, ra_end);
                         store64(&iv_assigned + iv_n * 8, 0 - 1);
                         iv_n = iv_n + 1;
                     }

@@ -66,6 +66,14 @@ var _ra_dump_enabled = 0;
 # Used to bisect any codegen bug the new picker might surface.
 var _ra_picker_cap = 0 - 1;
 
+# v5.6.22 O4c: CYRIUS_REGALLOC_AUTO_CAP=N — caps how many fns get
+# auto-regalloc enabled (per-fn counter increments inside PARSE_FN_DEF).
+# -1 = uncapped (every fn auto-enabled). 0 = no auto-enable (back to
+# explicit #regalloc opt-in only). Bisection knob for the auto-enable
+# codegen bug — find first fn where output diverges.
+var _ra_auto_cap = 0 - 1;
+var _ra_auto_count = 0;
+
 
 # v5.5.38: struct/enum/union + shared-helper fns extracted.
 include "src/frontend/parse_types.cyr"

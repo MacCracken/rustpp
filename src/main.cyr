@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.21\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.22\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -435,6 +435,21 @@ if (_ra_picker_cap_env != 0) {
         else {
             _ra_picker_cap = _ra_picker_cap * 10 + (load8(_ra_picker_cap_env + _rpci) - 48);
             _rpci = _rpci + 1;
+        }
+    }
+}
+# v5.6.22 O4c: CYRIUS_REGALLOC_AUTO_CAP=N — caps fn count for
+# auto-enable. -1 = uncapped (every fn). 0 = disabled (back to
+# explicit #regalloc opt-in only). Bisection knob.
+var _ra_auto_cap_env = _read_env("CYRIUS_REGALLOC_AUTO_CAP");
+if (_ra_auto_cap_env != 0) {
+    _ra_auto_cap = 0;
+    var _raci = 0;
+    while (load8(_ra_auto_cap_env + _raci) >= 48) {
+        if (load8(_ra_auto_cap_env + _raci) > 57) { _raci = 99999; }
+        else {
+            _ra_auto_cap = _ra_auto_cap * 10 + (load8(_ra_auto_cap_env + _raci) - 48);
+            _raci = _raci + 1;
         }
     }
 }

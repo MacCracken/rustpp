@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regression: Windows 11 PE32+ runtime exit code.
 #
-# PINNED: v5.6.31. Ships as a skip-stub pre-fix so check.sh stays
+# PINNED: v5.6.32. Ships as a skip-stub pre-fix so check.sh stays
 # green; flips to PASS when the Windows runtime regression is
 # repaired.
 #
@@ -25,7 +25,7 @@
 # Skip cleanly if:
 #   - cc5_win isn't built,
 #   - ssh target `cass` is unreachable,
-#   - CYRIUS_V5631_SHIPPED not set (pre-fix).
+#   - CYRIUS_V5632_SHIPPED not set (pre-fix).
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,8 +42,8 @@ if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$SSH_TARGET" 'echo alive' >/dev/n
     exit 0
 fi
 
-if [ -z "$CYRIUS_V5631_SHIPPED" ]; then
-    echo "  skip: pin v5.6.31 — Windows 11 24H2 PE syscall(60,42) exits 0x40010080 not 42 (see docs/development/roadmap.md §v5.6.31)"
+if [ -z "$CYRIUS_V5632_SHIPPED" ]; then
+    echo "  skip: pin v5.6.32 — Windows 11 24H2 PE syscall(60,42) exits 0x40010080 not 42 (see docs/development/roadmap.md §v5.6.32)"
     exit 0
 fi
 

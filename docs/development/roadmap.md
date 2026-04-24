@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.21.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.22.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -1229,32 +1229,94 @@ check.sh as gate 4r so this can't regress silently again.
 **Cascade**: v5.6.21 takes the slot that was Phase O4c. Phase
 O4c → v5.6.22; +1 through closeout (v5.6.32 → v5.6.33).
 
-### v5.6.22 — Phase O4c: auto-enable + bisection
+### v5.6.22 — Phase O4c (partial): picker correctness fix + auto-enable infra ✅ shipped 2026-04-24
 
-**Third Phase O4 sub-slot — completes linear-scan regalloc.**
+**Shipped two pieces, deferred default-on auto-enable to v5.6.23.**
 
-~250 LOC + bisection budget.
+**Picker correctness fix** (load-bearing for any opt-in
+`#regalloc` fn with loops, AND for v5.6.23 default-on):
 
-- **Time-sliced rewrite**: modify the existing patch pass to
-  rewrite ONLY within `[interval.first_cp, interval.last_cp]`
-  for each assigned interval. Multi-local-per-register packing —
-  the actual win of linear-scan vs greedy.
-- **Auto-enable**: flip `#regalloc` from per-fn opt-in to
-  automatic for every fn. Hit at least one codegen bug during
-  v5.6.19's auto-enable shortcut attempt (cc5_v619 itself ran
-  but cc5_b SIGSEGV'd on simple input). Bisection methodology
-  available (CYRIUS_REGALLOC_DUMP + per-fn CAP knobs).
-- **Save/restore optimization**: when picker assigns 0 regs to a
-  fn, skip the prologue/epilogue save+restore entirely (today's
-  code unconditionally saves all 5 callee-saved regs whenever
-  `_cur_fn_regalloc > 0`). Required to make auto-enable net-
-  positive for fns with no hot locals.
-- `CYRIUS_REGALLOC_AUTO_CAP=N` knob — caps how many fns get
-  auto-regalloc for bisection during the bug hunt.
-- **Gate**: byte-identical narrow-scope self-host AND broad-scope
-  (cc5_b runs on simple input, cc5_b self-hosts to cc5_c, b==c).
+v5.6.20's time-sliced register reuse silently broke loops.
+When picker reassigned an expired interval's register (e.g.,
+rbx for `cnt` in [135876, 135900], then rbx for `p` in
+[135963, 136057]), the loop's JMP_BACK to a position INSIDE
+the earlier interval's CP range read stale register state. The
+v5.6.20 design assumed straight-line forward execution; backward
+edges weren't accounted for.
 
-### v5.6.23 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+Fix: extend `interval.last_cp = ra_end` for every interval.
+Picker can no longer time-share registers (intervals never
+expire before fn end). Effectively reverts to single-register-
+per-local-for-whole-fn = greedy-equivalent. Proper time-sharing
+needs cross-BB liveness analysis (extend last_cp through
+backward edges) — pinned future slot.
+
+**Auto-enable infrastructure** (shipped, default DISABLED):
+
+- `CYRIUS_REGALLOC_AUTO_CAP=N` env knob — caps how many fns get
+  auto-regalloc enabled. -1 = disabled (default). N>0 = first N
+  fns get auto-enabled.
+- `_ra_auto_cap` / `_ra_auto_count` globals in `parse.cyr`.
+- Auto-enable gating in `parse_fn.cyr` PARSE_FN_DEF.
+- Gated on `_AARCH64_BACKEND == 0` (x86-only).
+
+**Bisection methodology saved (v5.6.17 pattern, working again)**:
+- `CYRIUS_REGALLOC_AUTO_CAP=303` clean, =304 broken → pinpointed
+  `PP_ALREADY_INCLUDED` as the culprit fn.
+- `CYRIUS_REGALLOC_PICKER_CAP=2` clean, =3 broken → pinpointed
+  the time-share REUSE as the trigger (pick #3 was the first
+  reassignment of an expired reg).
+
+**Why default-on deferred to v5.6.23**: surfaced second bug —
+v5.5.21 array-alignment regression. `tests/regression-inline-asm-discard.sh`
+SIGSEGVs with default-on. Auto-enable's per-fn code growth
+(~40 B prologue + ~40 B epilogue × ~1000 fns) shifts globals
+in a way that v5.5.21's per-array padding misses. Investigation
+needs proper alignment-debug budget — the per-array pad logic
+in `src/backend/x86/fixup.cyr` SHOULD work for any dbase mod 16
+but empirically doesn't under auto-enable. Deeper inspection
+of fixup pass + global-VA computation needed.
+
+**Verification**:
+- 3-step fixpoint clean (IR=0 b==c at 521,216 B; IR=3 same)
+- check.sh **23/23 PASS**
+- cc5 grew 520,504 → 521,216 B (+712 B for cap knob + time-share fix)
+
+### v5.6.23 — Phase O4c (re-attempt): default-on auto-enable + alignment investigation
+
+**Cascaded from v5.6.22 after the alignment regression surfaced.**
+
+The picker correctness fix landed at v5.6.22; auto-enable
+infrastructure shipped DISABLED by default. v5.6.23 re-attempts
+default-on after fixing the alignment interaction.
+
+**Investigation tasks**:
+- Reproduce: `CYRIUS_REGALLOC_AUTO_CAP=99999 sh tests/regression-inline-asm-discard.sh`
+- Inspect `src/backend/x86/fixup.cyr` prefix-sum pass: does the
+  per-array `(0 - va) & 15` pad actually fire for `var rk[240]`?
+  Print pad value during fixup with auto-enable on vs off.
+- Check global ordering: does auto-enable's code growth shift
+  `var rk` to a different position in the global var list?
+- Check `data_size` vs per-var prefix sums: any computation that
+  uses `data_size` directly (not via prefix-sum lookup) may miss
+  the per-array padding.
+- Test `dbase`-level alignment fix: aligning `dbase = entry +
+  acp` to 16 up-front (belt-and-suspenders). Was tried at v5.6.22
+  and didn't fix it alone — bug is somewhere else in the pipeline.
+
+**Once alignment fixed**:
+- Flip `_ra_auto_cap` default from -1 to 0, change gating from
+  `if (_ra_auto_cap > 0)` to `if (_ra_auto_cap < 0 || ...)` —
+  i.e., auto-enable by default unless cap explicitly set.
+- Save/restore optimization: when picker assigns 0 regs, skip
+  the prologue/epilogue save+restore entirely. Required to make
+  default-on net-positive for fns with no hot locals.
+
+**Gate**: byte-identical narrow-scope self-host AND broad-scope
+(cc5_b runs on simple input, cc5_b self-hosts to cc5_c, b==c)
+AND `tests/regression-inline-asm-discard.sh` PASS with default-on.
+
+### v5.6.24 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -1279,7 +1341,7 @@ Gate: if v5.6.18 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.24 — Phase O5: maximal-munch instruction selection
+### v5.6.25 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -1292,7 +1354,7 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.25 — Phase O6: codebuf compaction (NOP harvest)
+### v5.6.26 — Phase O6: codebuf compaction (NOP harvest)
 
 **Re-pinned 2026-04-23.** Replaced the originally-conditional
 slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
@@ -1340,7 +1402,7 @@ project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.26 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.27 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -1388,7 +1450,7 @@ baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.27 — Libro layout-dependent memory corruption
+### v5.6.28 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -1407,7 +1469,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.28 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.29 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1433,7 +1495,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.29 — Native aarch64 self-host repair (Pi)
+### v5.6.30 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1462,7 +1524,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.30 — macOS arm64 runtime regression repair (ecb)
+### v5.6.31 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1501,7 +1563,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.31 — Windows 11 runtime regression repair (cass)
+### v5.6.32 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1544,7 +1606,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.32 — Shared-object emission completion
+### v5.6.33 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1586,7 +1648,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.33 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.34 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full
@@ -1996,96 +2058,21 @@ v5.6.22/23 fixes land first; this item assumes they've landed.
 library-vs-binary item ships (depends on the scaffold template
 format landed by that item).
 
-### v5.7.x — `lib/http.cyr` depth
+### ~~v5.7.x — `lib/http.cyr` depth~~ — **RETIRED 2026-04-24, moved to sandhi**
 
-**Pinned 2026-04-23.** `lib/http.cyr` is a minimal HTTP/1.0
-client: GET-only, no custom header support, no HTTPS integration
-with `lib/tls.cyr`, no redirect following, no POST/PUT/DELETE/
-PATCH. CRLF-injection hardening on URL parsing is solid (CVE-
-2019-9741 pattern caught) — the security floor is fine. What's
-thin is the method surface.
+**Pinned 2026-04-23; retired 2026-04-24** in favor of the sandhi sibling-crate approach. The full method surface (POST/PUT/DELETE/PATCH/HEAD), custom headers, HTTPS unification, redirect following, chunked transfer, and HTTP/1.1 upgrade all land in `sandhi::http::client` — the service-boundary layer scaffolded 2026-04-24 at [MacCracken/sandhi](https://github.com/MacCracken/sandhi).
 
-Every modern JSON-RPC API (WebDriver, Appium JSON-RPC, GitHub
-API, any REST service) needs POST with custom `Content-Type:
-application/json` headers and a request body. None of that is
-available today without hand-rolling in the consumer. yantra
-(web + mobile automation, scaffolded 2026-04-23) is the
-surfacing consumer; sit's HTTP transport layer will hit the same
-gap when it ships; ark's remote-registry support will too.
+**Why the move**: stdlib stays thin (GET-only + CRLF hardening + the shared-over-TLS primitives in `net.cyr` / `tls.cyr`); the depth downstream consumers (yantra, sit-remote, ark-remote) actually need lives in sandhi and folds into stdlib alongside `lib/sandhi.cyr` before v5.6.x closeout. Precedent: sakshi / mabda / sankoch / sigil all started as sibling crates and folded the same way.
 
-**Surfacing consumers**: yantra (2026-04-23) — WebDriver + Appium
-JSON-RPC; sit (future — remote clone/push/pull); ark
-(future — remote registry support).
+**Net effect on the cyrius roadmap**: this item is removed from the v5.7.x patch slate. See `sandhi`'s [ADR 0001](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0001-sandhi-is-a-composer-not-a-reimplementer.md) for the composer-not-reimplementer thesis and the full scope moved.
 
-**Scope** (~400–600 LOC in `lib/http.cyr`):
+### v5.7.x — `lib/json.cyr` depth (stdlib baseline — RPC-grade scope moved to sandhi 2026-04-24)
 
-- **Methods**: `http_post(url, headers, body, body_len)`,
-  `http_put(...)`, `http_delete(...)`, `http_patch(...)`,
-  `http_head(...)`. Same response-struct shape as
-  `http_get()` — reuse the parser.
-- **Custom headers**: request-side headers as a linked list or
-  flat `key:value\r\n` string. `http_add_header(req, key, value)`
-  builder helper.
-- **HTTPS**: when URL is `https://`, open a TCP socket, wrap it
-  with `tls_connect(sock, host)` (via existing `lib/tls.cyr`),
-  then read/write through `tls_read` / `tls_write` instead of
-  raw `syscall(READ/WRITE)`. Transparent to callers — `http_get`
-  / `http_post` just work on both schemes.
-- **Response headers**: parse and expose the response header
-  block (currently only status + body are parsed). New helpers:
-  `http_header(resp, key)` lookup, `http_headers(resp)` full
-  list.
-- **Redirect following**: optional, bounded (default max 5
-  hops), with an opt-out flag. 301/302/303/307/308 handling per
-  RFC 7231.
-- **Chunked transfer encoding**: most HTTP/1.1 servers default
-  to chunked for unknown-length responses. Parse the chunked
-  framing transparently.
-- **Keep-alive / connection reuse**: out of scope for first
-  pass; document as a v5.8.x+ follow-on.
-- **HTTP/1.1 upgrade**: `http.cyr` is currently HTTP/1.0; bump
-  the request line to `HTTP/1.1` with explicit
-  `Connection: close` (behavior-equivalent, standards-current).
+**Pinned 2026-04-23; narrowed 2026-04-24** — RPC-grade handling (WebDriver / Appium response parsing, streaming large payloads, dialect-aware error envelopes) moved to `sandhi::rpc` along with the `lib/http.cyr depth` item. This slot retains the stdlib-baseline enrichment: deeper parsing for config / data files, safer error reporting, array support. The surfacing consumers for *baseline* json.cyr depth are cyml / toml parity, config loading, and data-file pipelines — not network RPC.
 
-**Acceptance gates:**
+`lib/json.cyr` today supports a basic key-value pair parse and build with `json_parse(src)`, `json_get(pairs, key)`, `json_get_int(...)`, `json_build(pairs)`, `json_pair_new(key, value)`. What's thin for config / data use cases: nested objects, arrays, JSON numbers beyond int, booleans, null, and escaped string values. Streaming large payloads is deferred to v5.8.x+ or owned by `sandhi::rpc` since that's the consumer shape for multi-MB response bodies.
 
-1. `http_post("https://api.example.com/v1/foo", headers,
-   body, body_len)` returns a response with status + parsed
-   response headers + body. `headers` carries
-   `Content-Type: application/json`, endpoint receives the body
-   correctly.
-2. WebDriver session-create round-trip works end-to-end via
-   `http.cyr` alone (no yantra-side workarounds).
-3. Appium JSON-RPC `createSession` works end-to-end.
-4. Redirect-following tcyr test with a 302 → 200 chain.
-5. Chunked-transfer tcyr test with a response server that
-   writes chunked framing.
-6. All existing `http_get` consumers still pass (no
-   regressions).
-
-**Slot assignment**: during the v5.7.x cycle. Can land
-independently of the RISC-V port, the library-vs-binary
-scaffold item, and the doc-alignment item.
-
-### v5.7.x — `lib/json.cyr` depth
-
-**Pinned 2026-04-23.** `lib/json.cyr` today supports a basic
-key-value pair parse and build with `json_parse(src)`,
-`json_get(pairs, key)`, `json_get_int(...)`, `json_build(pairs)`,
-`json_pair_new(key, value)`. What's thin: nested objects, arrays,
-JSON numbers beyond int, booleans, null, escaped string values,
-and streaming large payloads.
-
-Modern JSON-RPC responses (WebDriver, Appium, any REST API) have
-deeply nested response shapes: session objects with nested
-capability maps, element arrays with attributes, status envelopes
-wrapping error objects. `json.cyr` today needs the consumer to
-hand-parse anything beyond top-level key/value, which defeats
-the point of having the module.
-
-**Surfacing consumers**: same as `http.cyr` depth — yantra (every
-backend), sit (future remote protocols), ark (future registry
-responses), any shared crate hitting external JSON APIs.
+**Surfacing consumers (baseline scope)**: any crate reading / writing structured JSON config or data (not RPC responses — those go through sandhi).
 
 **Scope** (~400–600 LOC):
 
@@ -2106,21 +2093,18 @@ responses), any shared crate hitting external JSON APIs.
 - **Build path**: `json_build` today builds flat key-value
   objects. Extend to nested: `json_build_obj(pairs)`,
   `json_build_array(values)`.
-- **Streaming parse** (optional, v5.8.x-deferrable): tokenizer
-  API for walking a JSON stream without materializing the full
-  tree. Needed for large responses (CDP can emit multi-MB
-  debugger payloads).
+- **Streaming parse**: **moved to `sandhi::rpc` 2026-04-24** — multi-MB streaming responses are an RPC-consumer concern (CDP debugger payloads, WebDriver trace responses), not a stdlib-baseline concern. Remains v5.8.x-deferrable from the sandhi side.
 - **Error reporting**: currently `json_parse` returns 0 on
   failure — no position info, no reason. Add
   `json_parse_err(src)` variant that returns a parse-error
   struct with line/column/reason.
 
-**Acceptance gates:**
+**Acceptance gates** (baseline scope — config / data files):
 
-1. `json_parse` correctly handles a deeply-nested object
-   (capability map from a real WebDriver session-create
-   response).
-2. Array access works on a real Appium `findElements` response.
+1. `json_parse` correctly handles a deeply-nested object (e.g. a
+   multi-level application config file with nested sections).
+2. Array access works on a real data file (e.g. a list of device
+   records from `yukti` or a log-event array).
 3. Escape handling: `"\"hello\\nworld\""` parses as the
    4-char string `"hel\no"` with proper quote.
 4. Build round-trip: `json_build(json_parse(src))` produces
@@ -2129,9 +2113,9 @@ responses), any shared crate hitting external JSON APIs.
    not a segfault.
 6. All existing `json_parse` consumers still pass.
 
-**Slot assignment**: during the v5.7.x cycle. Can land in
-parallel with `http.cyr` depth — different file, no cross-
-dependency.
+**Out of scope for this item**: RPC dialect acceptance (WebDriver session-create, Appium findElements, MCP-over-HTTP responses) — those live in `sandhi::rpc` acceptance tests and can land in parallel.
+
+**Slot assignment**: during the v5.7.x cycle. Narrowed scope makes this land faster; can land in parallel with sandhi's independent implementation work.
 
 ---
 
@@ -2434,8 +2418,9 @@ one-liner.
   preserves current call-sites during migration.
 - **v5.12.3** — Stdlib migration pass 2 peripheral modules:
   `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
-  `lib/http_server.cyr`. These benefit most from per-request
-  arenas.
+  `lib/sandhi.cyr` (which now owns `::server` — formerly `lib/
+  http_server.cyr` pre-sandhi-fold). These benefit most from
+  per-request arenas.
 - **v5.12.4** — Retire `alloc_init()` global singleton.
   Backward compat through a default-allocator shim available as
   `lib/alloc.default()` for consumers not ready to migrate.
@@ -2549,7 +2534,7 @@ enables adding new targets without touching the frontend.
 | System | syscalls, callback, process, bench |
 | Concurrency | thread, thread_local, atomic, async, freelist |
 | Data | json, toml, cyml, csv, base64, regex, math, matrix, linalg, bigint, u128 |
-| Network | net, http, http_server, ws, tls |
+| Network | net, http, ws, tls (+ sandhi post-fold, absorbing http_server — target pre-v5.6.x-closeout) |
 | Filesystem | fs |
 | Audio | audio (ALSA PCM) |
 | Logging | log |
@@ -2611,12 +2596,18 @@ switches.
 - **CYIM** — postponed until the server base OS is wrapped
   (memory: `project_cyim_deferred.md`). No Cyrius release target;
   resumes when the server-stack arc above closes.
-- **Services repo extraction** — `lib/http_server.cyr` is
-  currently interim stdlib; planned to extract to a dedicated
-  `services` repo as a tagged dep (memory:
-  `project_services_repo_plan.md`). Target window: after v5.6.x
-  optimization arc and before v6.0.0 (the consolidation minor),
-  so the extraction rides in with other `lib/` reshuffles.
+- **sandhi repo extraction** (सन्धि — *junction, connection, joining*;
+  named 2026-04-24, formerly the "services" placeholder) —
+  `lib/http_server.cyr` is currently interim stdlib; extracting
+  to a dedicated `sandhi` repo as a tagged dep. **sandhi**
+  becomes the service-boundary layer that composes stdlib
+  primitives (`http.cyr`, `ws.cyr`, `tls.cyr`, `json.cyr`,
+  `net.cyr`) into full-featured client patterns + service
+  discovery. **Target window: before v5.6.x closeout** (pulled in
+  from post-v5.6.x per 2026-04-24 plan) so sandhi can fold into
+  stdlib alongside the sakshi / mabda / sankoch / sigil
+  precedent — rides in with other `lib/` reshuffles during the
+  v5.6.x closeout pass, not after.
 
 
 ## Future 6.0

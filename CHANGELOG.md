@@ -4,6 +4,97 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.22] — 2026-04-24
+
+**Phase O4c (partial): picker correctness fix + auto-enable
+infrastructure (DISABLED by default).** v5.6.22 attempted
+default-on auto-enable but surfaced two real bugs; shipped the
+picker correctness fix + the infra/cap-knob, deferred default-on
+to v5.6.23 with proper alignment-debug budget.
+
+### Picker correctness fix (shipped)
+
+v5.6.20's time-sliced register reuse silently broke loops. When
+an active interval expired and its register was reassigned to a
+later interval, JMP_BACK to a position INSIDE the earlier
+interval's CP range read the register expecting the earlier
+value but found the new one. Surfaced during v5.6.22 auto-enable
+bisection — `PP_ALREADY_INCLUDED`'s nested while loops had
+`cnt` assigned to rbx for [135876, 135900] (covering the
+`while (i < cnt)` condition LOAD), then time-shared rbx with `p`
+for [135963, 136057] (loop body). Loop iteration JMP_BACK
+re-read cnt at 135900 but rbx now held `p`'s value → infinite
+loop / wrong branch.
+
+**Fix**: extend `interval.last_cp = ra_end` for every interval.
+Picker can no longer time-share registers (intervals never
+expire before fn end). Effectively reverts to single-register-
+per-local-for-whole-fn = greedy-equivalent. Proper time-sharing
+needs cross-BB liveness analysis (extend last_cp through
+backward edges) — pinned future slot.
+
+### Auto-enable infrastructure (shipped, disabled by default)
+
+- `CYRIUS_REGALLOC_AUTO_CAP=N` env knob — caps how many fns get
+  auto-regalloc enabled. -1 = disabled (default). N>0 = first N
+  fns get auto-enabled. Foundation for v5.6.23 default-on.
+- `_ra_auto_cap` / `_ra_auto_count` globals in `parse.cyr`.
+- Auto-enable gating in `parse_fn.cyr` PARSE_FN_DEF (per-fn
+  counter increment).
+- Gated on `_AARCH64_BACKEND == 0` — x86-only (aarch64 has
+  different callee-saved regs and opcodes; proper aarch64
+  regalloc is its own future slot).
+
+### Why default-on deferred to v5.6.23
+
+Two bugs surfaced during default-on attempt:
+
+1. **Loop-back time-share corruption** — FIXED above (picker
+   correctness fix).
+2. **v5.5.21 array-alignment regression** — `tests/regression-inline-asm-discard.sh`
+   FAILS with default-on. Auto-enable's per-fn code growth
+   (~40 B prologue + ~40 B epilogue × ~1000 fns) shifts globals
+   in some way that v5.5.21's per-array padding misses. SSE m128
+   ops on `var rk[240]` SIGSEGV. Reproduces with
+   `CYRIUS_REGALLOC_AUTO_CAP=99999`. Investigation deferred to
+   v5.6.23 with proper alignment-debug budget — needs careful
+   inspection of fixup.cyr's prefix-sum pass and the
+   per-array-VA computation under auto-enable code-size shifts.
+
+### Bisection methodology saved (still working)
+
+The v5.6.17 saved methodology (per-pass cap env knob + bisection)
+worked perfectly here:
+- `CYRIUS_REGALLOC_AUTO_CAP=N` bisected from cap=303 (clean) to
+  cap=304 (broken). Pinpointed `PP_ALREADY_INCLUDED` as the
+  culprit fn. Its nested-loop shape made the time-share bug
+  visible at exactly that fn count (other fns' picks didn't
+  trigger time-sharing).
+- `CYRIUS_REGALLOC_PICKER_CAP=N` then bisected from 2 (clean)
+  to 3 (broken) → pinpointed the time-share REUSE as the
+  problem (pick #3 was the first reassignment of an expired reg).
+
+### Verification
+
+- 3-step fixpoint clean (IR=0 b==c at 521,216 B; IR=3 same)
+- check.sh **23/23 PASS** (all gates including v5.6.21 truthy gate 4r)
+- cc5 grew 520,504 → 521,216 B (+712 B for cap knob + time-share fix)
+- Patra 1.6.0 verified folding cleanly (cyrius.cyml pin from v5.6.20)
+
+### Files
+
+- `src/frontend/parse_fn.cyr` — picker time-share fix
+  (`store64(&iv_last + iv_n * 8, ra_end);`); auto-enable gating
+  with cap knob; x86-only guard.
+- `src/frontend/parse.cyr` — `_ra_auto_cap` + `_ra_auto_count`
+  globals.
+- `src/main.cyr` — `CYRIUS_REGALLOC_AUTO_CAP` env read.
+- VERSION 5.6.21 → 5.6.22.
+- `CHANGELOG.md`, `docs/development/state.md`,
+  `docs/development/completed-phases.md`,
+  `docs/development/benchmarks.md`,
+  `docs/development/roadmap.md` (update v5.6.22 + v5.6.23 entries).
+
 ## [5.6.21] — 2026-04-23
 
 **Codegen bug fix — bare-truthy `if (r)` after fn-call returns

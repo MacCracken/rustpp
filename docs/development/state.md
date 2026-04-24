@@ -5,13 +5,13 @@
 
 ## Version
 
-**5.6.21** (active minor: v5.6.x optimization arc)
+**5.6.22** (active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 520,504 B
-- **cc5_aarch64 (cross)**: 400,584 B
-- **cc5_win (cross)**: 515,912 B
+- **cc5 (x86_64)**: 521,216 B
+- **cc5_aarch64 (cross)**: 400,872 B
+- **cc5_win (cross)**: 516,200 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
@@ -36,12 +36,16 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.22** — Phase O4c: auto-enable + bisection
-  (~250 LOC + bug-hunt budget). Flip `#regalloc` from opt-in to
-  automatic for every fn. Hit cc5_b SIGSEGV on simple input during
-  v5.6.19 shortcut attempt — bisection methodology + cap knob ready
-  for the proper debug session here. Also: prologue/epilogue
-  save/restore optimization (skip when picker assigned 0 regs).
+- **v5.6.23** — Phase O4c (re-attempt): default-on auto-enable +
+  alignment investigation. v5.6.22 surfaced two bugs when default-on
+  was attempted: (1) loop-back time-share corruption in picker
+  (FIXED at v5.6.22 — extend interval.last_cp to ra_end so picker
+  can't time-share across loops); (2) v5.5.21 global-array
+  alignment regression — auto-enable's code-size growth shifts
+  globals in a way the per-array padding misses, breaking SSE m128
+  ops. v5.6.23 must investigate + fix the alignment interaction
+  before flipping auto-enable default-on. `CYRIUS_REGALLOC_AUTO_CAP=N`
+  env knob is already shipped and works for opt-in testing.
   (~250 LOC + bug-hunt budget). Multi-local-per-register packing + flip
   `#regalloc` from per-fn opt-in to automatic.
 - **v5.6.22** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
@@ -67,6 +71,12 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.22** — Phase O4c (partial): picker correctness fix (loop-back
+  time-share extend) + auto-enable infrastructure shipped DISABLED
+  by default. `CYRIUS_REGALLOC_AUTO_CAP=N` opts in (per-fn count cap).
+  Default-on auto-enable surfaced a v5.5.21 array-alignment regression
+  that needs deeper investigation — pinned v5.6.23 with proper
+  alignment-debug budget. Patra 1.6.0 verified folding cleanly.
 - **v5.6.21** — Codegen bug fix: bare-truthy `if (r)` after fn-call.
   Root cause: v5.6.8 `_flags_reflect_rax` not reset by EFLLOAD,
   ECALLFIX, ECALLTO, ESYSCALL. 4-line fix. Patra 1.6.0 unblocked.
