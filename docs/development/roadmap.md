@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.33.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.34.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -267,27 +267,53 @@
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.34**: Windows 11 24H2 PE platform drift (cass) — PE
->   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
->   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
->   **Our PE bytes are unchanged since v5.5.10** (byte-identical
->   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
->   loader heuristic checks that our bare PE shape doesn't meet.
->   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.35**: `SSL_connect` libssl pthread deadlock investigation
->   (sandhi M2). `tls_connect` hangs on `futex(FUTEX_WAIT_PRIVATE,
->   2, NULL)` — libssl 3's internal pthread locks wait for
->   `__libc_pthread_init`-side state that static cyrius binaries
->   never populate. Repro: `sandhi/programs/tls-raw-probe.cyr`.
->   Filed sandhi 2026-04-24.
-> - **v5.6.36**: shared-object (.so / .dll / .dylib) emission
->   completion.
-> - **v5.6.37**: v5.6.x closeout + downstream ecosystem sweep gate
->   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
->   agnova, takumi). **Last patch of v5.6.x.** Fold in `PP_DEFINE`
->   / `PP_DEFINED` `src_base` hardening (same shape as v5.6.30's
->   derive-helper fix — latent same-class bug, no observed
->   in-the-wild trigger yet).
+> - **v5.6.34 ✅ shipped** (sit symptom 1 of 2): stdlib `alloc`
+>   grow-undersize SIGSEGV. `lib/alloc.cyr` (Linux brk) +
+>   `lib/alloc_macos.cyr` (mmap) grew by a fixed `0x100000`
+>   step regardless of requested size; any `alloc(>1 MB)` near
+>   the boundary returned a pointer past the brk/mmap →
+>   SIGSEGV on first tail-write. Fix: Linux rounds to next
+>   1 MB grain; macOS loops 1 MB mmaps preserving the per-step
+>   contiguity guard. Windows separable (no grow path). New
+>   gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5
+>   unchanged (uses raw `brk`).
+> - **v5.6.35** (NEW — sit symptom 2 of 2): `sit fsck`-surfaced
+>   memory anomaly at scale. After v5.6.34's alloc fix,
+>   `sit fsck` on a 100-commit / 100-file fixture reports 53/247
+>   objects unreadable; `read_object` returns -7 on the retry
+>   `zlib_decompress`. Scales with N, first bad at ~commit 15.
+>   Three candidate layers, none pinned: (a) patra 1.6.0
+>   page-spill / WAL-flush / serialization bug, (b) sankoch
+>   2.0.1 zlib symmetry bug, (c) cyrius stdlib memory-
+>   corruption beyond the grow bug (stale pointer / double-
+>   commit in bump allocator). sit's ticket explicitly forbids
+>   fixing without triage first — see its four required triage
+>   steps (patra bytes-roundtrip, sankoch symmetry, sit write-
+>   path instrumentation, cyrius latent-corruption sweep).
+> - **v5.6.36** (was v5.6.34 → 35 → 36): Windows 11 24H2 PE
+>   platform drift (cass) — PE `syscall(60, 42)` exits
+>   0x40010080 (NTSTATUS informational / DBG_-class) on
+>   Windows 11 24H2 (build 26200) instead of 42. **Our PE
+>   bytes are unchanged since v5.5.10** (byte-identical
+>   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack /
+>   CFG / loader heuristic checks that our bare PE shape
+>   doesn't meet. cc5_win.exe itself fails with PS
+>   `ApplicationFailedException`.
+> - **v5.6.37** (was v5.6.35 → 36 → 37): `SSL_connect` libssl
+>   pthread deadlock investigation (sandhi M2). `tls_connect`
+>   hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` — libssl 3's
+>   internal pthread locks wait for `__libc_pthread_init`-side
+>   state that static cyrius binaries never populate. Repro:
+>   `sandhi/programs/tls-raw-probe.cyr`. Filed sandhi 2026-04-24.
+> - **v5.6.38** (was v5.6.36 → 37 → 38): shared-object (.so /
+>   .dll / .dylib) emission completion.
+> - **v5.6.39** (was v5.6.37 → 38 → 39): v5.6.x closeout +
+>   downstream ecosystem sweep gate (agnos, kybernet, argonaut,
+>   agnosys, sigil, ark, nous, zugot, agnova, takumi).
+>   **Last patch of v5.6.x.** Fold in `PP_DEFINE` / `PP_DEFINED`
+>   `src_base` hardening (same shape as v5.6.30's derive-helper
+>   fix — latent same-class bug, no observed in-the-wild
+>   trigger yet).
 >
 > **Long-term considerations** (no version pin yet — revisit when
 > the right preconditions land):
@@ -366,8 +392,10 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | ~~HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure~~ | ~~Windows 11 64-bit ASLR~~ | **v5.6.31 ✅ shipped** — root cause was NOT MOVABS relocation (the v5.5.35 audit was a red herring). Real cause: `EREAD_PE` and `EWRITE_PE` post-call sequences used `mov rax, [rsp+0x28]` to load the bytes-read/written count from where ReadFile/WriteFile wrote the DWORD (4 bytes). 64-bit load picked up 4 bytes of stack garbage in the upper half. Under DYNAMIC_BASE that garbage was reliably zero (Win loader pre-zeros stack); under HIGH_ENTROPY_VA the loader hands off a different stack region with non-zero garbage, so `n` came back as a 12-digit bogus number tripping `main.cyr:341`'s "input exceeds 512KB buffer" overflow check. Fix: 64-bit load → 32-bit `mov eax` (auto-zero-extends). HIGH_ENTROPY_VA now ships enabled by default in `_dllc = 0x0160`. |
 | ~~Native aarch64 self-host on Pi fails at parse time~~ | ~~`cc5_aarch64_native` can't self-host on real Pi 4~~ | **v5.6.32 ✅ shipped** — root cause: `src/main_aarch64_native.cyr` was missing `include "src/common/ir.cyr"` that `src/main_aarch64.cyr` (the x86-hosted cross-compiler) received when v5.6.12 O3a shipped the `IR_RAW_EMIT` instrumentation markers. `parse_*.cyr` references `IR_RAW_EMIT` unconditionally; the native variant errored at parse time. Earlier `_TARGET_MACHO` framing was a stale symptom shape from pre-v5.6.12 source — current source first-undefined-ref hits `IR_RAW_EMIT`. 1-line fix. Native self-host fixpoint on Pi: `cc5_b == cc5_c` byte-identical at 463,768 B. `tests/regression-aarch64-native-selfhost.sh` flipped from skip-stub to active gate; wired into `check.sh` step 4o. |
 | ~~macOS arm64 runtime regression (syscall(60) reroute)~~ | ~~Apple Silicon deploys~~ | **v5.6.33 ✅ shipped** — premise was wrong; no compiler regression existed. The `regression-macho-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`, top-level stmts are the program entry. The argv prologue's branch-over-fn-bodies landed on the `EEXIT` tail (`movz x16,#1; svc #0x80` = BSD `_exit(x0)` on macOS) with `x0 = argc = 1` still resident from the `stp x0, x1, [sp, #-16]!` prologue, hence rc=1. Top-level `syscall(60, 42);` exits 42 cleanly on current v5.6.33 against macOS 26.4.1 (ssh ecb, Darwin 25.4.0, build 25E253). Gate rewritten with three tests covering `__got[0]=_exit`, `__got[1]=_write` (stdout bytes verified), and v5.6.11 peephole + bl/fn-frame. Zero compiler code changed; cc5 byte-identical at 531,680 B. The v5.5.13 memory entry's "exit=42 verified" almost certainly used top-level syntax; the later-written fixture assumed an auto-call cyrius has never had. |
-| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.34** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
-| `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.35** — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
+| ~~Stdlib `alloc` grow-undersize SIGSEGV (sit symptom 1 of 2)~~ | ~~Any cyrius consumer allocating >1 MiB in one call~~ | **v5.6.34 ✅ shipped** — `lib/alloc.cyr` (Linux brk) + `lib/alloc_macos.cyr` (mmap) grew by a fixed `0x100000` step every time `_heap_ptr` crossed `_heap_end`, regardless of requested size. Any `alloc(size > 1 MB)` near the grow boundary returned a pointer past the brk/mmap — SIGSEGV on first tail-write. Filed by sit 2026-04-24 during S-33 triage of `sit status` SIGSEGV on 100-commit repo. Fix: Linux rounds new end up to next 1 MB grain; macOS loops 1 MB mmaps preserving the per-step contiguity guard. `lib/alloc_windows.cyr` separable — no grow path, fails cleanly. New gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5 byte-identical (uses raw `brk`, not stdlib). Issue ledger: `sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md` (filed as one issue with two symptoms; we fix #1 here, triage #2 in v5.6.35). |
+| `sit fsck` memory anomaly at scale (sit symptom 2 of 2) | sit at scale (≥ ~20 commits) untrustworthy; scales with N | **v5.6.35** — after v5.6.34's alloc fix, `sit fsck` on the same 100-commit / 100-file fixture reports 53/247 objects unreadable (~20%, scales with N, first bad at ~commit 15). `read_object` returns -7 on the retry `zlib_decompress`; `patra_result_get_bytes_len` is positive, `patra_result_read_bytes` returns 0. Three candidate layers, NONE pinned: (1) patra 1.6.0 page-spill / WAL-flush / serialization bug — consistent with N-scaling and the commit-15 page-boundary hypothesis; (2) sankoch 2.0.1 zlib symmetry bug — against: shape-sensitive bugs should show at low N; (3) cyrius stdlib memory-corruption beyond the grow bug (stale pointer / double-commit in bump allocator). sit's ticket explicitly forbids a fix attempt before triage. Required triage steps: (a) patra bytes-roundtrip standalone at row counts 10 / 50 / 100 / 500; (b) sankoch compress/decompress symmetry on sit-shaped inputs; (c) instrument sit's `write_typed_object` with in-process `zlib_compress → zlib_decompress → memcmp`; (d) only if (a)+(b) exonerate deps, sweep cyrius stdlib for latent corruption patterns. If stuck on triage, STOP and ASK. Issue ledger: same file as v5.6.34's (merged ticket). |
+| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.36** (was v5.6.34 → 35 → 36) — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
+| `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.37** (was v5.6.35 → 36 → 37) — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -456,13 +484,13 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
       (envvar read / include resolution) doesn't work on the
       aarch64 runtime path. A *feature gap in our aarch64 binary*,
       not a codegen bug.
-    - **External platform drift (v5.6.33 + v5.6.34).** The Mach-O
+    - **External platform drift (v5.6.33 + v5.6.36).** The Mach-O
       and PE binaries we emit are **identical** to what was verified
       in v5.5.13 / v5.5.10. What changed is the host OS's tolerance
-      for our output: macOS Sequoia 15+ dyld enforces LC_DYLD_INFO /
-      `__got` alignment more strictly, and Windows 11 24H2 tightened
-      CET / CFG / ASLR loader checks. *Our bytes didn't move — the
-      goalposts did.*
+      for our output. v5.6.33 determined the Mach-O "drift" was
+      actually a test-fixture bug (no compiler regression); v5.6.36
+      (formerly v5.6.34 → v5.6.35) still pending on Windows 11 24H2
+      PE drift.
     **Each slot mandates a regression-test gate** (`tests/regression-
     aarch64-native-selfhost.sh` / `regression-macho-exit.sh` /
     `regression-pe-exit.sh`) that ships as a SKIP-stub pre-fix and
@@ -471,21 +499,46 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     catch future platform-drift the same way).
     If an investigation doesn't yield, STOP and ask — never defer
     or slip unilaterally.
-10. **v5.6.35 — `SSL_connect` libssl pthread deadlock.**
-    Sandhi-surfaced. `tls_connect` hangs on
-    `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` because libssl 3's
-    internal pthread locks wait for `__libc_pthread_init` state
-    that static cyrius binaries never populate. Investigation:
-    determine whether `dynlib_bootstrap_tls` needs to extend its
-    `%fs`/TCB install to cover libssl's pthread expectations, or
-    whether a separate `dynlib_bootstrap_pthread` helper is
-    needed. Repro: `sandhi/programs/tls-raw-probe.cyr`. Pair with
-    new `tests/tcyr/tls-live.tcyr` gate.
-11. **v5.6.36 — Shared-object (.so / .dll / .dylib) emission.**
-12. **v5.6.37 — v5.6.x closeout + downstream ecosystem sweep gate.**
-    Last patch of v5.6.x. Bundle `PP_DEFINE` / `PP_DEFINED`
-    `src_base` hardening (same `PP_IFDEF_PASS` read-cap bug shape
-    as v5.6.30's derive-helper fix — latent same-class bug).
+10. **v5.6.34 ✅ shipped — stdlib `alloc` grow-undersize SIGSEGV
+    (sit symptom 1 of 2).** sit-filed 2026-04-24. Linux brk path
+    + macOS mmap path grew by fixed `0x100000` regardless of
+    requested size; any `alloc(>1MB)` near the boundary returned
+    a pointer past the brk/mmap. Fixed by rounding up to 1MB
+    grain (Linux) / looping 1MB mmaps (macOS). New
+    `tests/tcyr/alloc_grow.tcyr` gate.
+11. **v5.6.35 — `sit fsck` memory anomaly triage (sit symptom 2
+    of 2).** After v5.6.34, `sit fsck` reports 53/247 objects
+    unreadable on the same 100-commit / 100-file fixture
+    (~20%, scales with N, first bad at ~commit 15).
+    `read_object` returns -7 on the zlib retry. Three candidate
+    layers; sit's ticket explicitly forbids fixing without
+    triage first. Required triage steps: (a) patra bytes-
+    roundtrip at row-counts 10/50/100/500; (b) sankoch
+    compress/decompress symmetry on sit-shaped inputs;
+    (c) instrument sit's write path for in-process
+    zlib roundtrip; (d) if (a)+(b) exonerate deps, sweep
+    cyrius stdlib for stale-pointer / double-commit patterns
+    beyond the grow bug. If stuck on triage, STOP and ASK.
+12. **v5.6.36 — Windows 11 runtime regression repair** (was
+    v5.6.34 → v5.6.35 → v5.6.36).
+13. **v5.6.37 — `SSL_connect` libssl pthread deadlock** (was
+    v5.6.35 → v5.6.36 → v5.6.37). Sandhi-surfaced.
+    `tls_connect` hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)`
+    because libssl 3's internal pthread locks wait for
+    `__libc_pthread_init` state that static cyrius binaries
+    never populate. Investigation: determine whether
+    `dynlib_bootstrap_tls` needs to extend its `%fs`/TCB install
+    to cover libssl's pthread expectations, or whether a
+    separate `dynlib_bootstrap_pthread` helper is needed. Repro:
+    `sandhi/programs/tls-raw-probe.cyr`. Pair with new
+    `tests/tcyr/tls-live.tcyr` gate.
+14. **v5.6.38 — Shared-object (.so / .dll / .dylib) emission**
+    (was v5.6.36 → v5.6.37 → v5.6.38).
+15. **v5.6.39 — v5.6.x closeout + downstream ecosystem sweep
+    gate** (was v5.6.37 → v5.6.38 → v5.6.39). Last patch of
+    v5.6.x. Bundle `PP_DEFINE` / `PP_DEFINED` `src_base`
+    hardening (same `PP_IFDEF_PASS` read-cap bug shape as
+    v5.6.30's derive-helper fix — latent same-class bug).
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
 
@@ -1695,7 +1748,175 @@ check.sh 23/23 with Mach-O gate ACTIVE.
 **Verified on:** `ssh ecb` — macOS 26.4.1, Darwin 25.4.0,
 build 25E253, arm64.
 
-### v5.6.34 — Windows 11 runtime regression repair (cass)
+### v5.6.34 — Stdlib `alloc` grow-undersize SIGSEGV fix ✅ SHIPPED
+
+**Filed by sit 2026-04-24** (S-33 triage of `sit status`
+SIGSEGV on 100-commit / 100-file repo). Fixes **symptom 1 of 2**
+from sit's merged ticket; symptom 2 slotted as v5.6.35. See
+upstream issue:
+`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`.
+(sit initially named the file `...-alloc-grow-undersize.md`,
+then renamed in place when symptom 2 surfaced during the same
+triage session; the old filename does not resolve.)
+
+`lib/alloc.cyr` (Linux brk path) and `lib/alloc_macos.cyr`
+(mmap path) grew the heap by exactly `0x100000` whenever
+`_heap_ptr` crossed `_heap_end`, regardless of how far past
+the new pointer was. Any `alloc(size > 1 MB)` near the grow
+boundary returned a pointer past the brk/mmap — `alloc()`
+reported success and the caller's first tail-write SIGSEGV'd.
+Not an OOM; a silent grow-undersize.
+
+**Root cause (`lib/alloc.cyr` pre-fix):**
+```
+_heap_ptr = new_ptr;
+if (_heap_ptr > _heap_end) {
+    var new_end = _heap_end + 0x100000;   // ← fixed delta
+    var result = syscall(12, new_end);
+    ...
+    _heap_end = new_end;
+}
+return ptr;                                // ← past new _heap_end
+```
+
+Same shape in `lib/alloc_macos.cyr`, with the extra subtlety
+that the mmap hint contract means a single large hinted mmap
+can legitimately return a different base (preserving the
+per-step "kernel gave us a different address → fail"
+contiguity guard rules out a single-shot rounded-up mmap).
+
+**Fix (shipped):**
+- `lib/alloc.cyr` — round new end to next 1 MB grain:
+  `var new_end = (_heap_ptr + 0xFFFFF) & (0 - 0x100000);`.
+  One brk call covers any size.
+- `lib/alloc_macos.cyr` — loop 1 MB mmaps while `_heap_end <
+  _heap_ptr`, contiguity guard preserved per step.
+- `lib/alloc_windows.cyr` unchanged — no grow path; fails
+  cleanly on overflow. `alloc(>16 MiB)` on Windows still
+  fails legitimately; separable.
+
+**Regression gate:** `tests/tcyr/alloc_grow.tcyr` —
+10 assertions covering alloc(4 MB)/alloc(16 MB) with
+tail writes, 1000×alloc(64) after jumbo allocs, and a
+single alloc(128 MB) with tail write. Included in the
+.tcyr suite run by `check.sh`.
+
+**Compiler delta:** zero. cc5 byte-identical at 531,680 B
+(cc5 uses raw `syscall(SYS_BRK, …)` in `src/main.cyr`,
+not the stdlib allocator).
+
+**Verification:**
+- Minimal repro (Linux): was rc=139 (SIGSEGV), now rc=0.
+- Jumbo stress (4 MB + 16 MB + 1000×64 B + 128 MB): rc=0.
+- Mach-O arm64 cross-build on `ssh ecb` (macOS 26.4.1,
+  Darwin 25.4.0): rc=42.
+- check.sh: 23/23 PASS.
+
+**Explicitly NOT fixed in this slot:** sit's symptom 2
+(`sit fsck` reports ~20% of objects unreadable at N ≥ 20
+commits, first bad at ~commit 15). sit's ticket says "do not
+attempt a fix for symptom 2 until one of the following [triage
+steps] pins the layer" — three candidate layers (patra /
+sankoch / cyrius latent corruption). Slotted as v5.6.35.
+
+### v5.6.35 — `sit fsck` memory anomaly at scale — triage + fix (symptom 2 of sit 2026-04-24)
+
+**Filed alongside v5.6.34** in the same sit ticket
+(`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`).
+After v5.6.34's allocator fix, `sit fsck` on the same
+100-commit / 100-file fixture reports 53/247 objects
+"unreadable." Scales with N:
+
+| N (commits / files) | total objects | bad (unreadable) |
+|---|---:|---:|
+| 5   | 15  | 0  |
+| 20  | 59  | 1 (first bad at ~commit 15) |
+| 50  | 122 | 28 |
+| 100 | 247 | 53 |
+
+Observable failure mode: `read_object` returns -7, meaning the
+retry `zlib_decompress(compressed, blen, decompressed,
+16 MiB)` returns `dlen <= 0`. `patra_result_get_bytes_len`
+returns positive, `patra_result_read_bytes` returns 0; patra
+claims the row exists and was read successfully. The
+decompressor is what rejects the bytes.
+
+**Hypotheses (ranked by sit's plausibility order):**
+
+1. **patra 1.6.0 page-spill / WAL-flush / serialization bug.**
+   The `content` BYTES column comes back truncated, mis-aligned,
+   or cross-row-contaminated at higher row counts. Matches the
+   N-scaling behavior (first bad at ~commit 15 correlates with
+   patra likely crossing from page 1 to page 2 of its `objects`
+   B-tree for sit's row shape).
+2. **sankoch 2.0.1 zlib_decompress rejects bytes that
+   zlib_compress produced in the same process.** Against: a
+   shape-sensitive bug should show at low N with the same
+   content, not scale.
+3. **cyrius stdlib memory-corruption unrelated to the grow
+   bug.** Stale pointer into reused bump-heap memory, or
+   double-commit of `_heap_ptr`. Supports the "one bug, two
+   symptoms" framing. The commit-side write path showed no
+   `alloc-grow > 1 MB` events, ruling out write-time hits of
+   the known grow bug — but not ruling out a different
+   corruption mode in the same allocator.
+
+**MANDATORY: run sit's prescribed triage steps before proposing
+a fix.** sit's ticket is emphatic: "do not attempt a fix for
+symptom 2 until one of the following pins the layer."
+
+1. **Bytes roundtrip at patra layer.** Standalone cyrius
+   program: open fresh `.patra` DB, `patra_insert_row`
+   compressed buffers matching sit's tree/blob shapes, close,
+   reopen, `SELECT content`, `patra_result_read_bytes`, `memcmp`
+   vs. the original. Run at row counts 10 / 50 / 100 / 500. If
+   bytes diverge at any count → **patra** confirmed. If bytes
+   match across the board → rule out patra.
+2. **sankoch compress/decompress symmetry on sit-shaped
+   inputs.** Standalone: `zlib_compress → zlib_decompress →
+   memcmp`, across the exact compressed byte patterns sit
+   produces for the 100-commit fixture (dump them first). Any
+   single-process roundtrip that fails → **sankoch** confirmed.
+3. **Instrument sit's write path.** Inside
+   `src/object_db.cyr:write_typed_object`, right after
+   `zlib_compress` succeeds, immediately `zlib_decompress` the
+   result and compare to `full`. If the in-process roundtrip
+   passes but the cross-process `read_object` fails, the
+   corruption is between `patra_insert_row` and the next
+   `SELECT`. If the in-process roundtrip ALSO fails on a just-
+   compressed buffer, the bug is in sankoch or in cyrius's
+   memory behavior around sankoch's scratch buffers.
+4. **Only if (1)+(2) exonerate deps:** sweep cyrius stdlib for
+   stale-pointer / double-commit patterns in the bump allocator
+   beyond the grow bug. Do not start here.
+
+**If triage doesn't pin the layer after the four steps, STOP
+and ASK.** Do not slip, defer, or re-slot unilaterally. A patra
+fix lives in the patra repo (v1.6.x), a sankoch fix in sankoch
+(v2.0.x), a cyrius stdlib fix here — only the last keeps this
+slot in this repo. If it turns out to be a dep bug, this slot
+becomes a version-bump slot (pin the fixed dep version) and the
+investigation narrative ships under the dep's own CHANGELOG.
+
+**Regression gate (part of this slot's scope):**
+- If cyrius is the layer: add `tests/tcyr/*.tcyr` that exercises
+  whatever pattern the triage pinned (e.g. stale-pointer repro
+  at scale).
+- If patra/sankoch is the layer: the dep's own repo adds its
+  gate; this slot documents the pin in CHANGELOG.
+- Either way: add `tests/regression-sit-status.sh` that spins
+  up the 100-commit fixture and runs `sit status` + `sit fsck`,
+  asserting exit 0 and "checked 247 objects, 0 bad." Gate
+  skips if the sit repo isn't present at `../sit`.
+
+**Consumer status during triage:** sit ships a mitigation
+(route big allocs through `fl_alloc`; post-commit verification
+in `cmd_commit`) — the `fl_alloc` swap fixes symptom 1, the
+post-commit verification turns symptom 2 from silent crash to
+loud refused commit. sit considers itself "not trustworthy for
+real trees at scale" until this slot ships.
+
+### v5.6.36 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1738,7 +1959,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.36 — Shared-object emission completion
+### v5.6.38 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1780,7 +2001,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.37 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.39 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 (sandhi fold + lib/ cleanup) and v5.7.1 (RISC-V) open. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

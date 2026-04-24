@@ -5,13 +5,15 @@
 
 ## Version
 
-**5.6.33** (shipped — `regression-macho-exit` gate rewrite; no
-compiler code change. Active minor: v5.6.x optimization arc)
+**5.6.34** (shipped — stdlib alloc grow-undersize SIGSEGV fix;
+no compiler code change, stdlib only. Active minor: v5.6.x
+optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.31/v5.6.32 —
-  v5.6.33 rewrites a test fixture only)
+- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.34 touches only
+  `lib/alloc.cyr` / `lib/alloc_macos.cyr`; cc5 uses raw
+  `syscall(SYS_BRK, …)` in `main.cyr`, not the stdlib allocator)
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -53,23 +55,27 @@ compiler code change. Active minor: v5.6.x optimization arc)
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.29-1** — focused crack at the v5.5.29 KNOWN-INCOMPLETE
-  `fdlopen_init_full` orchestration. Hotfix-shaped slot (per the
-  `-N` suffix discipline) so the investigation can ship-or-defer
-  cleanly without re-cascading the rest of the roadmap. Pinned
-  next-steps live at `lib/fdlopen.cyr:714-739`: verify AT_PHDR
-  walkable mapping, check AT_ENTRY behavior, try file-backed mmap
-  (vs anon+copy) for PT_LOAD, strace side-by-side `dlopen-helper`
-  vs cyrius's jump sequence. Sandhi M2 ships HTTPS as needs-
-  further-investigation in the meantime; their native UDP DNS
-  resolver workaround keeps M2 unblocked.
-- **v5.6.30** — libro layout-dependent memory corruption investigation.
-- **v5.6.31** — HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
-  re-investigation.
-- **v5.6.34** — PE32+ Windows 11 24H2 exit (loader drift; bytes
-  unchanged since v5.5.10).
-- **v5.6.35** — shared-object (.so / .dll / .dylib) emission completion.
-- **v5.6.36** — v5.6.x closeout + downstream ecosystem sweep gate.
+Slots shifted +2 total across v5.6.34 / v5.6.35 to accommodate
+sit's 2026-04-24 ticket (filed as one issue with two symptoms;
+we fix symptom 1 in v5.6.34, triage symptom 2 in v5.6.35, both
+now pinned).
+
+- **v5.6.35** — `sit fsck`-surfaced memory anomaly at scale
+  (symptom 2 of sit 2026-04-24). `read_object` returns -7 on
+  the zlib_decompress retry for ~20% of objects at N ≥ 20
+  commits; first bad at ~commit 15 on the sit 100-commit
+  fixture. Three candidate layers; sit triage steps required
+  before a fix is attempted (patra bytes-roundtrip / sankoch
+  symmetry / sit write-path in-process zlib round-trip).
+- **v5.6.36** — PE32+ Windows 11 24H2 exit (loader drift;
+  bytes unchanged since v5.5.10). Was v5.6.34 → v5.6.35 at
+  my earlier write → v5.6.36 now.
+- **v5.6.37** — `SSL_connect` libssl pthread deadlock
+  investigation (sandhi M2).
+- **v5.6.38** — shared-object (.so / .dll / .dylib) emission
+  completion.
+- **v5.6.39** — v5.6.x closeout + downstream ecosystem sweep
+  gate (LAST patch of v5.6.x).
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -80,6 +86,22 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.34** — stdlib `alloc` grow-undersize SIGSEGV fixed
+  (`lib/alloc.cyr` Linux brk + `lib/alloc_macos.cyr` mmap).
+  Both paths grew by a fixed `0x100000` step every time
+  `_heap_ptr` crossed `_heap_end` — any single
+  `alloc(size > 1 MB)` near the boundary returned a pointer
+  past the new end, SIGSEGV on first tail-write. Filed by sit
+  2026-04-24 during S-33 triage of `sit status` SIGSEGV on
+  100-commit repo (16 MiB zlib retry buffer in
+  `object_db.cyr:read_object`). Verified across v5.6.25 → v5.6.33.
+  Fix: Linux rounds the new end up to the next 1 MB grain;
+  macOS loops 1 MB mmaps to preserve the per-step contiguity
+  guard. New gate `tests/tcyr/alloc_grow.tcyr` (10 assertions
+  covering 4 MB / 16 MB / 1000×64 B / 128 MB shapes). Windows
+  path separable — `lib/alloc_windows.cyr` doesn't grow, fails
+  cleanly. cc5 byte-identical at 531,680 B (uses raw `brk`,
+  not `lib/alloc.cyr`). check.sh 23/23.
 - **v5.6.33** — `tests/regression-macho-exit.sh` rewritten.
   Slot's premise was wrong: the `fn main() { syscall(60, 42); }`
   fixture never actually entered `main()` — cyrius has no

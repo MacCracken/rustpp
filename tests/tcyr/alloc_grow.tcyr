@@ -1,0 +1,54 @@
+# Test: alloc grow-undersize regression (v5.6.34)
+#
+# Pre-v5.6.34, lib/alloc.cyr grew by a fixed 0x100000 step every time
+# _heap_ptr crossed _heap_end, without checking whether 1 MB was enough
+# to cover the new pointer. Any alloc(>1 MB) near the grow boundary
+# returned a pointer past the brk — SIGSEGV on first tail-write.
+# sit v0.6.1 S-33 triage surfaced it as `sit status` SIGSEGV on a
+# 100-commit / 100-file repo (16 MiB decompression buffer retry path).
+#
+# v5.6.34 fix: grow to cover _heap_ptr, rounded up to the next 1 MB
+# boundary on the Linux brk path; loop-of-1MB mmaps on the macOS path
+# to preserve the per-step contiguity guard.
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Pre-fill to just under the 1 MB initial heap, so the next alloc
+# triggers the grow path right at the original _heap_end boundary.
+var a = alloc(0xF0000);
+assert(a != 0, "pre-fill alloc succeeds");
+
+test_group("alloc(4MB) spanning grow boundary");
+var b = alloc(4 * 1024 * 1024);
+assert(b != 0, "alloc(4MB) returns non-null");
+store8(b, 11);
+store8(b + 4 * 1024 * 1024 - 1, 42);
+assert_eq(load8(b), 11, "head byte readable");
+assert_eq(load8(b + 4 * 1024 * 1024 - 1), 42, "tail byte readable (pre-fix would SIGSEGV here)");
+
+test_group("alloc(16MB) — the actual sit case");
+var c = alloc(16 * 1024 * 1024);
+assert(c != 0, "alloc(16MB) returns non-null");
+store8(c, 13);
+store8(c + 16 * 1024 * 1024 - 1, 77);
+assert_eq(load8(c), 13, "16MB head readable");
+assert_eq(load8(c + 16 * 1024 * 1024 - 1), 77, "16MB tail readable");
+
+test_group("small allocs after jumbo allocs still work");
+var small_ok = 1;
+for (var i = 0; i < 1000; i = i + 1) {
+    var p = alloc(64);
+    if (p == 0) { small_ok = 0; }
+    else { store64(p, i); }
+}
+assert_eq(small_ok, 1, "1000 x alloc(64) after jumbo allocs all succeed");
+
+test_group("alloc(128MB) single large block");
+var big = alloc(128 * 1024 * 1024);
+assert(big != 0, "alloc(128MB) returns non-null");
+store8(big + 128 * 1024 * 1024 - 1, 99);
+assert_eq(load8(big + 128 * 1024 * 1024 - 1), 99, "128MB tail readable");
+
+var r = assert_summary();

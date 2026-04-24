@@ -4,6 +4,136 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.34] — 2026-04-24
+
+**Stdlib `alloc` grow-undersize SIGSEGV fixed (sit-filed
+symptom 1 of 2).** The Linux brk path and macOS mmap path in
+`lib/alloc.cyr` / `lib/alloc_macos.cyr` grew the heap by
+exactly `0x100000` whenever `_heap_ptr` crossed `_heap_end`,
+regardless of how far past the new pointer was. Any single
+`alloc(size > 1 MB)` landing near the grow boundary returned a
+pointer past the brk/mmap end — `alloc()` reported success, and
+the caller's first tail-write SIGSEGV'd.
+
+Filed by sit 2026-04-24 in
+`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`
+as a **single issue with two symptoms** — sit explicitly
+declined to split prospectively and asked us to treat the one-
+bug hypothesis as the null. Verified on cyrius v5.6.25 /
+v5.6.30 / v5.6.32 / v5.6.33. This slot ships the fix for
+symptom 1 (`alloc()` SIGSEGV, proven 1-MiB-grow-step bug,
+9-line cyrius repro); symptom 2 (`sit fsck` reports ~20% of
+objects unreadable at N ≥ ~20 commits, first bad at ~commit
+15, `read_object` returns -7 on zlib_decompress retry) is
+intentionally NOT bundled — sit's own ticket says
+"do not attempt a fix for symptom 2 until triage pins the
+layer" (three candidate layers: patra 1.6.0 / sankoch 2.0.1 /
+cyrius stdlib memory-corruption beyond the grow bug). Triage
+slotted as v5.6.35; remaining roadmap items shifted +1
+accordingly.
+
+`lib/alloc_windows.cyr` does not grow (fails cleanly on
+`new_ptr > _heap_end`), so Windows is separable.
+
+### Root cause
+
+`lib/alloc.cyr` (Linux):
+```
+_heap_ptr = new_ptr;
+if (_heap_ptr > _heap_end) {
+    var new_end = _heap_end + 0x100000;     // ← fixed delta
+    var result = syscall(12, new_end);
+    ...
+    _heap_end = new_end;
+}
+return ptr;                                 // ← ptr past new _heap_end
+```
+
+Same shape in `lib/alloc_macos.cyr`, with the additional
+subtlety that its single mmap at a hint can legitimately return
+a different base on larger requests — the existing "kernel gave
+us a different address → fail" contiguity guard has to be
+preserved per 1 MB step, ruling out a single-shot rounded-up
+mmap.
+
+### Fix
+
+`lib/alloc.cyr` — round the new end up to the next 1 MB boundary:
+```
+var new_end = (_heap_ptr + 0xFFFFF) & (0 - 0x100000);
+```
+One `brk` call, keeps churn low, covers any size.
+
+`lib/alloc_macos.cyr` — loop 1 MB mmaps while `_heap_end <
+_heap_ptr`, preserving the per-step contiguity guard so
+non-contiguous kernel responses still fail cleanly instead of
+silently detaching the tail.
+
+### Acceptance
+
+- Minimal cyrius repro (`alloc(0xF0000); alloc(4MB);
+  store8(b + 4MB - 1, …);`): was rc=139 (SIGSEGV), now rc=0.
+- Jumbo stress (4 MB + 16 MB + 1000×64 B + 128 MB, all with
+  tail writes): rc=0.
+- Mach-O arm64 cross-build of the same, run on `ssh ecb`
+  (macOS 26.4.1, Darwin 25.4.0, arm64): rc=42.
+- New gate `tests/tcyr/alloc_grow.tcyr`: 10/10 assertions.
+- `sh scripts/check.sh`: 23/23 PASS.
+- `cc5` 3-step self-host: byte-identical at 531,680 B
+  (cc5 uses raw `syscall(SYS_BRK, …)` in `main.cyr`, not
+  `lib/alloc.cyr`, so the stdlib change is transparent).
+
+### Files
+
+- `lib/alloc.cyr`: Linux grow step rewritten as
+  `(_heap_ptr + 0xFFFFF) & (0 - 0x100000)`.
+- `lib/alloc_macos.cyr`: single-step mmap wrapped in `while
+  (_heap_end < _heap_ptr)` loop; contiguity guard preserved.
+- `lib/alloc_windows.cyr`: unchanged (no grow path; documented
+  separately that single `alloc(>16 MiB)` still fails on
+  Windows — non-regressive, tracked as separable).
+- `tests/tcyr/alloc_grow.tcyr`: new regression gate — 4 MB
+  tail-write + 16 MB round-trip + 1000 small allocs after
+  jumbos + 128 MB single-block tail-write.
+- `docs/development/roadmap.md`: new v5.6.34 slot inserted;
+  remaining slots shifted back by 1 (old 34→35, 35→36, 36→37,
+  37→38); bug-tracker row added.
+- `docs/development/state.md`: current version bumped;
+  v5.6.34 added as Recent shipped.
+- `../vidya/content/cyrius/field_notes/compiler.toml`: field
+  note for the grow-step / tail-write class bug.
+- `VERSION`: 5.6.33 → 5.6.34.
+
+### Credit + upstream ledger
+
+Diagnosis, repro, root-cause analysis, and the 1-line fix for
+symptom 1 were all upstream from sit's S-33 triage
+(`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`).
+Consumer-side workaround (route big allocs through `fl_alloc`
+plus post-commit verification in `cmd_commit`) in sit's
+object_db.cyr / util.cyr / diff.cyr stays in place until both
+symptoms are fixed and sit bumps its `[package].cyrius` pin.
+Filename drift note: sit's issue was originally filed as
+`...-alloc-grow-undersize.md`, then reframed in place as
+`...-memory-anomalies-at-scale.md` when symptom 2 surfaced.
+The old filename does not resolve.
+
+### Scope boundary
+
+This slot fixes **symptom 1 only**. symptom 2 requires the
+triage steps sit explicitly listed:
+1. Bytes roundtrip at patra layer (standalone `.patra`
+   insert → reopen → SELECT → memcmp).
+2. sankoch compress/decompress symmetry on sit-shaped inputs.
+3. Instrument sit's write path: in-process zlib round-trip
+   immediately after each `zlib_compress` in
+   `write_typed_object`.
+
+Only AFTER one of those pins the layer should a fix be
+attempted. Triage slotted as v5.6.35 (was Windows PE → now
+v5.6.36; SSL_connect → v5.6.37; shared-object → v5.6.38;
+closeout → v5.6.39).
+
 ## [5.6.33] — 2026-04-24
 
 **`regression-macho-exit` gate fixture was buggy — no compiler
