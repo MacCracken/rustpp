@@ -5,7 +5,7 @@
 
 ## Version
 
-**5.6.22** (active minor: v5.6.x optimization arc)
+**5.6.23** (in progress — active minor: v5.6.x optimization arc)
 
 ## Compiler
 

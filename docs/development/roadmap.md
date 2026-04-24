@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.22.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.23.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -205,7 +205,8 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.0**: RISC-V rv64 port (inherits optimized compiler).
+> - **v5.7.0**: **sandhi fold + lib/ cleanup** (clean-break consolidation release — `lib/http_server.cyr` deletes, `lib/sandhi.cyr` adds, downstream consumers migrate includes). Per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md) — pinned 2026-04-24 after shifting from an "alias-window before v5.6.x closeout" model to a one-event clean-break cutover at the v5.7.0 release gate.
+> - **v5.7.1**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape). Slid from v5.7.0 on 2026-04-24 so the sandhi fold can ride v5.7.0 as its own consolidation moment.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.7**: pure-cyrius TLS 1.3 arc + medium language
 >   additions — first-class slices (`slice<T>` / `[T]`
@@ -282,7 +283,7 @@ Active Bugs table above.
 
 ## v5.6.x — Language polish + compiler optimization + shared-object
 
-The v5.6.x minor bundles six arcs before v5.7.0 RISC-V opens:
+The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and v5.7.1 (RISC-V) open:
 
 1. **v5.6.0 — `parse.cyr` arch-guard cleanup (✅ shipped).** Closes
    the v5.5.40-discovered Active Bug.
@@ -1349,8 +1350,8 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   on x86_64, aarch64 addressing modes) into a tile pattern
   database per backend. Walker traverses IR tree bottom-up,
   matching largest subtree to a single machine instruction.
-- Opens the door for target-specific tiles (RISC-V v5.7.0) without
-  touching the walker — v5.6.20 therefore SHIPS BEFORE v5.7.0 so
+- Opens the door for target-specific tiles (RISC-V v5.7.1) without
+  touching the walker — v5.6.20 therefore SHIPS BEFORE v5.7.1 so
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
@@ -1650,7 +1651,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ### v5.6.34 — v5.6.x closeout (LAST patch of v5.6.x)
 
-Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
+Last patch before v5.7.0 (sandhi fold + lib/ cleanup) and v5.7.1 (RISC-V) open. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full
 check.sh, heap-map audit, dead-code audit, refactor pass,
 code-review pass, cleanup sweep, security re-scan, downstream
@@ -1663,7 +1664,7 @@ genesis repo Phase 13B (arch-neutral boot pipeline —
 (agnos, kybernet, argonaut, agnosys, sigil), should-touch (ark,
 nous, zugot, agnova, takumi), may-touch (phylax, shakti,
 ai-hwaccel, seema). All of them wait on v5.6.20 and must complete
-before v5.7.0 RISC-V opens. Practical consequence: the closeout
+before v5.7.0 (sandhi fold) opens. Practical consequence: the closeout
 carries extra rigor beyond the standard pass —
 
 - **Heap-map cleanup** — not just verify; actively collapse any
@@ -1679,11 +1680,11 @@ carries extra rigor beyond the standard pass —
 - **Downstream dep-pointer check** — walk every downstream repo's
   `cyrius.toml` / `cyrius.cyml` and verify they resolve cleanly
   against the v5.6.29 artifacts. Broken pins get fixed before
-  v5.7.0 opens, not after.
+  v5.7.0 (sandhi fold) opens, not after.
 - **Compiler surface freeze signal** — after v5.6.29 ships, public
   compiler API is frozen for the duration of the downstream sweep
-  (approximately one minor cycle). v5.7.0 RISC-V can add, but not
-  reshape, existing surface.
+  (approximately one minor cycle). v5.7.0 fold + v5.7.1 RISC-V can
+  add, but not reshape, existing surface.
 
 Rationale: downstream projects are batching their own arch-neutral
 work against this closeout. If v5.6.29 ships with loose ends, each
@@ -1780,16 +1781,56 @@ toolchain side is unblocked.
 
 ---
 
-## v5.7.0 — RISC-V rv64
+## v5.7.0 — sandhi fold + lib/ cleanup (clean-break consolidation)
+
+**The clean-break fold.** Per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md) (2026-04-24):
+
+- Stdlib **adds** `lib/sandhi.cyr` vendored from sandhi's `dist/sandhi.cyr`
+- Stdlib **deletes** `lib/http_server.cyr` — no alias, no passthrough, no empty stub
+- Both changes land in the same release — one event, one tag
+
+v5.7.0 is the consolidation release for the v5.7.x minor; RISC-V rv64 (originally scheduled as v5.7.0) slides to [v5.7.1](#v571--risc-v-rv64) on 2026-04-24. A new architecture port doesn't ride with a lib/ reshape — separate minor-patches for separate kinds of change, and the fold has its own acceptance gates that wouldn't compose cleanly with a cross-architecture port landing simultaneously.
+
+**Scope:**
+
+- **Vendor `dist/sandhi.cyr`** from sandhi's M5-complete release (sandhi v1.0.0) into `lib/sandhi.cyr`.
+- **Delete `lib/http_server.cyr`** — its content has been canonical in `sandhi::server` since sandhi v0.2.0 (M1, 2026-04-24); stdlib's copy has been redundant-but-unchanged through the 5.6.x window, with a 5.6.YY deprecation warning (see prerequisite below) giving downstream consumers advance notice.
+- **Propagate consumer-side migration** — downstream repos (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote) land 5.7.0-compatible tags switching `include "lib/http_server.cyr"` → `include "lib/sandhi.cyr"` and dropping `[deps.sandhi]` git pins in favor of the stdlib include.
+- **Document the lib/ reshape** — CHANGELOG entry enumerates every deleted symbol from `lib/http_server.cyr` (now accessible via `sandhi::server::*`), every added symbol exposed via `lib/sandhi.cyr`, and any additional redundant lib/ objects surfaced during the 5.6.x consumer sweep that are being retired in the same release.
+- **Retire the sandhi repo to maintenance mode** — subsequent patches land via the Cyrius release cycle, not sandhi releases. The sandhi repo keeps its git history as historical reference; no new tags cut post-fold.
+
+**Prerequisites that must ship before v5.7.0:**
+
+- **sandhi M2–M5 complete** — the public surface freezes at fold, so all planned verbs must ship as part of a sandhi release and be exercised by at least one consumer before the fold lands. No speculative surface goes into stdlib.
+- **v5.6.YY deprecation-warning patch** — stdlib's `lib/http_server.cyr` emits a deprecation warning at include-time through at least one 5.6.YY release, naming `lib/sandhi.cyr` as the replacement and v5.7.0 as the cutover. Consumers hitting that warning have a release cycle's worth of notice. Slot TBD by the cyrius agent during the late-v5.6.x window.
+- **Consumer-side dual-build readiness** — every named downstream repo (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote) has a branch ready to switch includes at the 5.7.0 release gate.
+- **`cyrius distlib` produces self-contained `dist/sandhi.cyr`** — verified clean-build from the sandhi repo at its M5-final tag, with no transitive-dep surprises.
+
+**Acceptance gates:**
+
+1. `lib/sandhi.cyr` exists in stdlib, byte-identical to `dist/sandhi.cyr` at the fold commit.
+2. `lib/http_server.cyr` is absent from stdlib — `ls lib/http_server.cyr` returns no such file.
+3. No AGNOS repo has `[deps.sandhi]` pinned in `cyrius.cyml` on a 5.7.0-compatible tag.
+4. No AGNOS repo has `include "lib/http_server.cyr"` on a 5.7.0-compatible tag.
+5. sandhi repo is tagged v1.0.0 (M5-complete) and its next commit marks maintenance-mode entry.
+6. CHANGELOG entry enumerates the deleted + added symbols per the "document the lib/ reshape" scope item.
+
+**Why bundle lib/ cleanup with sandhi fold rather than run two separate releases**: consumer-side migration work is the same shape whether stdlib is reshaping 1 file or N. One release, one migration, one CHANGELOG entry naming the whole reshape — consumers audit once, not repeatedly.
+
+---
+
+## v5.7.1 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid from v5.6.0
 to v5.7.0 on 2026-04-20 (same day) so the compiler-optimization
-arc (v5.6.x) lands first — no point opening a new port against a
-compiler still queueing baseline optimizations. Rationale: a new
-architecture is structurally different from v5.5.x's items
-(which are correctness / completion / runtime work on existing
-platforms). RISC-V needs:
+arc (v5.6.x) lands first; **slid again from v5.7.0 to v5.7.1 on
+2026-04-24** so v5.7.0 can ride the sandhi fold + lib/ cleanup
+as its own consolidation moment. Rationale: a new architecture
+is structurally different from v5.5.x items (correctness /
+completion / runtime work on existing platforms) *and* different
+from v5.7.0's lib/-reshape work — separate minor-patches for
+separate kinds of change. RISC-V needs:
 
 - **New backend module** — `src/backend/riscv64/` with its own
   `emit.cyr`, `jump.cyr`, `fixup.cyr` mirroring x86/aarch64.
@@ -1824,7 +1865,7 @@ platforms). RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-**Prerequisites that must ship before v5.7.0 starts:**
+**Prerequisites that must ship before v5.7.1 starts:**
 - **v5.6.5 + v5.6.7–v5.6.21** — Compiler optimization arc. New port
   should inherit an optimized compiler, not one still queueing
   baseline optimization. v5.6.20 (maximal-munch) in particular
@@ -1833,14 +1874,18 @@ platforms). RISC-V needs:
 - **v5.6.28** — shared-object emission landed (audit rough edge
   closed before new port opens).
 - **v5.6.29** — downstream ecosystem sweep gate complete.
+- **v5.7.0** — sandhi fold + lib/ cleanup lands first. RISC-V
+  port inherits the post-fold stdlib shape so the rv64 backend
+  never has to carry legacy `lib/http_server.cyr`-era symbol
+  mappings.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch
   uses the new syntax from day one, no legacy `#ifdef
   CYRIUS_ARCH_RISCV64` sites to migrate.
 
-Deliberately NOT bundling other items into v5.7.0 — a new
+Deliberately NOT bundling other items into v5.7.1 — a new
 architecture port is plenty of work on its own, and mixing it
-with runtime correctness fixes would obscure which changes
-caused which regressions.
+with runtime correctness fixes or library reshapes would obscure
+which changes caused which regressions.
 
 ---
 
@@ -1869,7 +1914,7 @@ during onboarding — same shape every new consumer has hit since
 the `cyrius deps` resolver shipped. Confirms the fix is
 load-bearing for ecosystem ergonomics, not a nice-to-have.
 User-confirmed long-term fix; deliberately NOT pulled into v5.6.x
-(optimization arc) or v5.7.0 (RISC-V single-focus).
+(optimization arc), v5.7.0 (sandhi fold single-focus), or v5.7.1 (RISC-V single-focus).
 
 **Scope** (~200–400 LOC):
 
@@ -2062,7 +2107,7 @@ format landed by that item).
 
 **Pinned 2026-04-23; retired 2026-04-24** in favor of the sandhi sibling-crate approach. The full method surface (POST/PUT/DELETE/PATCH/HEAD), custom headers, HTTPS unification, redirect following, chunked transfer, and HTTP/1.1 upgrade all land in `sandhi::http::client` — the service-boundary layer scaffolded 2026-04-24 at [MacCracken/sandhi](https://github.com/MacCracken/sandhi).
 
-**Why the move**: stdlib stays thin (GET-only + CRLF hardening + the shared-over-TLS primitives in `net.cyr` / `tls.cyr`); the depth downstream consumers (yantra, sit-remote, ark-remote) actually need lives in sandhi and folds into stdlib alongside `lib/sandhi.cyr` before v5.6.x closeout. Precedent: sakshi / mabda / sankoch / sigil all started as sibling crates and folded the same way.
+**Why the move**: stdlib stays thin (GET-only + CRLF hardening + the shared-over-TLS primitives in `net.cyr` / `tls.cyr`); the depth downstream consumers (yantra, sit-remote, ark-remote) actually need lives in sandhi and folds into stdlib as `lib/sandhi.cyr` at **Cyrius v5.7.0** per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md) — the clean-break consolidation release. Precedent: sakshi / mabda / sankoch / sigil all started as sibling crates and folded the same way.
 
 **Net effect on the cyrius roadmap**: this item is removed from the v5.7.x patch slate. See `sandhi`'s [ADR 0001](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0001-sandhi-is-a-composer-not-a-reimplementer.md) for the composer-not-reimplementer thesis and the full scope moved.
 
@@ -2468,7 +2513,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` DLL Characteristic; HIGH_ENTROPY_VA deferred (see Active Bugs) |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.0** | RISC-V rv64 | ELF | Queued (slid from v5.6.0 so optimization minor lands first) |
+| **v5.7.1** | RISC-V rv64 | ELF | Queued (slid from v5.7.0 on 2026-04-24 so sandhi fold rides v5.7.0; slid from v5.6.0 originally so optimization minor lands first) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | **v5.9.0–5.9.5** | Pure-cyrius TLS 1.3 | — | Queued — X25519 + ChaCha20-Poly1305 + record layer + handshake; retires the `libssl.so.3` dynlib bridge |
 
@@ -2534,7 +2579,7 @@ enables adding new targets without touching the frontend.
 | System | syscalls, callback, process, bench |
 | Concurrency | thread, thread_local, atomic, async, freelist |
 | Data | json, toml, cyml, csv, base64, regex, math, matrix, linalg, bigint, u128 |
-| Network | net, http, ws, tls (+ sandhi post-fold, absorbing http_server — target pre-v5.6.x-closeout) |
+| Network | net, http, ws, tls (+ sandhi at v5.7.0 clean-break fold, absorbing http_server — see [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md)) |
 | Filesystem | fs |
 | Audio | audio (ALSA PCM) |
 | Logging | log |
@@ -2562,7 +2607,7 @@ enables adding new targets without touching the frontend.
 | macOS aarch64 | Mach-O | **✅ Narrow** (cross-build byte-identity holds; bytes unchanged since v5.5.13–v5.5.17); **❌ Broad** — cross-built `syscall(60, 42)` exits 1 instead of 42 on current Sequoia (macOS 15+). **Platform drift, not cyrius regression** — emitted Mach-O bytes are identical to what was verified exit=42 in v5.5.13. Pinned **v5.6.26**. |
 | Windows x86_64 | PE/COFF | **✅ Narrow** — byte-identical fixpoint verified v5.5.10 (md5 match on exit42 + multi-fn add; cc5_win emits PE byte-identical to Linux cross-build). **❌ Broad** — on Windows 11 24H2 (build 26200+), PE `syscall(60, 42)` exits `0x40010080` and cc5_win.exe itself hits `ApplicationFailedException`. **Platform drift, not cyrius regression** — PE bytes unchanged since v5.5.10; Win11 24H2 tightened CET/CFG/ASLR loader enforcement. Pinned **v5.6.27**. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35); HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
 | Compiler optimization (O1–O6) | — | v5.6.5 ✅ + v5.6.7–v5.6.12 ✅ + v5.6.14 ✅ + **v5.6.15–v5.6.21** (NEXT: O3a-audit + O3b + O3c + O4–O6; v5.6.13 sha1 + v5.6.15 IR-order audit interleaved) |
-| RISC-V (rv64) | ELF | Queued — **v5.7.0** |
+| RISC-V (rv64) | ELF | Queued — **v5.7.1** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 | Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** |
 
@@ -2598,16 +2643,18 @@ switches.
   resumes when the server-stack arc above closes.
 - **sandhi repo extraction** (सन्धि — *junction, connection, joining*;
   named 2026-04-24, formerly the "services" placeholder) —
-  `lib/http_server.cyr` is currently interim stdlib; extracting
-  to a dedicated `sandhi` repo as a tagged dep. **sandhi**
-  becomes the service-boundary layer that composes stdlib
-  primitives (`http.cyr`, `ws.cyr`, `tls.cyr`, `json.cyr`,
-  `net.cyr`) into full-featured client patterns + service
-  discovery. **Target window: before v5.6.x closeout** (pulled in
-  from post-v5.6.x per 2026-04-24 plan) so sandhi can fold into
-  stdlib alongside the sakshi / mabda / sankoch / sigil
-  precedent — rides in with other `lib/` reshuffles during the
-  v5.6.x closeout pass, not after.
+  `lib/http_server.cyr` extraction into `sandhi::server` landed
+  at sandhi v0.2.0 (M1, 2026-04-24). **sandhi** is the
+  service-boundary layer that composes stdlib primitives
+  (`http.cyr`, `ws.cyr`, `tls.cyr`, `json.cyr`, `net.cyr`) into
+  full-featured client patterns + service discovery.
+  **Fold target: v5.7.0 clean-break** per [sandhi ADR
+  0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md)
+  — v5.7.0 stdlib deletes `lib/http_server.cyr` and adds
+  `lib/sandhi.cyr` in one event; 5.6.YY releases carry a
+  deprecation warning naming the cutover. Revised 2026-04-24
+  from the original "before v5.6.x closeout" target after
+  reconsidering the alias-window migration model.
 
 
 ## Future 6.0

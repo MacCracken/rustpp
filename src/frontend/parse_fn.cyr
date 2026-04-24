@@ -626,13 +626,75 @@ fn PARSE_FN_DEF(S) {
     #
     # x86-ONLY when enabled: the `_cur_fn_regalloc >= N` save/restore
     # emits below are RAW x86 bytes (`mov [rbp-8], rbx` etc.).
-    var _auto_enable = 0;
-    if (_AARCH64_BACKEND == 0) {
-        if (_ra_auto_cap > 0) {
-            if (_ra_auto_count < _ra_auto_cap) { _auto_enable = 1; }
+    #
+    # v5.6.23: scan body for inline asm (token 48). Inline asm blocks
+    # hardcode stack offsets like `mov rax, [rbp-0x08]` to read params
+    # and locals. The regalloc prologue reserves [rbp-8]..[rbp-40] for
+    # callee-saved register saves (rbx, r12-r15), shifting every
+    # subsequent local-var slot by N*8 bytes. Asm reading the old
+    # offsets gets the saved RBX value instead of its expected param —
+    # SIGSEGV when the asm dereferences it. lib/fnptr.cyr,
+    # lib/thread.cyr, lib/atomic.cyr, lib/hashmap_fast.cyr, lib/u128.cyr,
+    # lib/thread_local.cyr, lib/fdlopen.cyr, lib/args_macos.cyr all
+    # carry asm blocks that depend on the standard prologue layout.
+    # Skip regalloc when body contains asm. Misframed at v5.6.22 ship as
+    # an "alignment regression" — the actual bug is layout mismatch.
+    var _has_inline_asm = 0;
+    var _ia_save_ti = GTI(S);
+    if (PEEKT(S) == 10) {
+        STI(S, GTI(S) + 1);
+        var _ia_pd = 1;
+        while (_ia_pd > 0 && PEEKT(S) != 12) {
+            if (PEEKT(S) == 10) { _ia_pd = _ia_pd + 1; }
+            elif (PEEKT(S) == 11) { _ia_pd = _ia_pd - 1; }
+            STI(S, GTI(S) + 1);
         }
     }
-    if (_regalloc_pending == 1) { SFRA(S, fi, 5); _regalloc_pending = 0; }
+    if (PEEKT(S) == 49) {
+        STI(S, GTI(S) + 1);
+        if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
+    }
+    if (PEEKT(S) == 13) {
+        STI(S, GTI(S) + 1);
+        var _ia_bd = 1;
+        while (_ia_bd > 0 && PEEKT(S) != 12) {
+            if (PEEKT(S) == 13) { _ia_bd = _ia_bd + 1; }
+            elif (PEEKT(S) == 14) { _ia_bd = _ia_bd - 1; }
+            elif (PEEKT(S) == 48) { _has_inline_asm = 1; }
+            STI(S, GTI(S) + 1);
+        }
+    }
+    STI(S, _ia_save_ti);
+
+    # v5.6.22 + v5.6.23: auto-enable default OFF. _ra_auto_cap semantics:
+    #   <= 0 → disabled (default; explicit #regalloc opt-in only)
+    #   > N  → first N eligible fns (bisection knob)
+    # "Eligible" = x86 backend + no inline asm in body.
+    # v5.6.23 fixed a misdiagnosed v5.6.22 bug (was framed as global-
+    # array alignment regression, actual root cause was inline-asm +
+    # regalloc stack-frame layout). Default-on flip surfaced a SECOND
+    # picker correctness bug — `test_str_short` regalloc-enabling
+    # corrupts a later `test_defaults` 5-arg call site (flags test
+    # bisects to the 118th auto-enabled fn). Pinned future slot.
+    var _auto_enable = 0;
+    if (_AARCH64_BACKEND == 0) {
+        if (_has_inline_asm == 0) {
+            if (_ra_auto_cap > 0) {
+                if (_ra_auto_count < _ra_auto_cap) { _auto_enable = 1; }
+            }
+        }
+    }
+    if (_regalloc_pending == 1) {
+        if (_has_inline_asm == 0) { SFRA(S, fi, 5); }
+        else {
+            syscall(SYS_WRITE, 2, "warning:", 8);
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": '", 3);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "': #regalloc skipped — fn contains inline asm (hardcoded stack offsets)\n", 72);
+        }
+        _regalloc_pending = 0;
+    }
     elif (_auto_enable == 1) { SFRA(S, fi, 5); _ra_auto_count = _ra_auto_count + 1; }
     # v5.6.3: transfer any pending `#must_use` onto fn_flags[fi] bit 0.
     # Clear unconditionally (same stale-flag argument as #regalloc).
@@ -695,7 +757,11 @@ fn PARSE_FN_DEF(S) {
     # Encodings: REX.WR=4C for r12-r15 (REX.R=1), opcode 89 (mov r/m,r),
     # ModR/M byte encodes register + [rbp+disp8].
     # v5.6.12: regalloc callee-saved spill block is raw x86 encoding.
-    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
+    # v5.6.23: capture save block CP so picker can NOP-fill the saves
+    # for regs it didn't actually assign (free runtime cycles + sets up
+    # v5.6.24 codebuf compaction to harvest the NOP fill).
+    var _ra_pro_cp = 0;
+    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); _ra_pro_cp = GCP(S); }
     if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
     if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
     if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
@@ -885,7 +951,12 @@ fn PARSE_FN_DEF(S) {
     }
     # v4.9.1: restore callee-saved registers (reverse order of save).
     # v5.6.12: regalloc callee-saved restore block is raw x86 encoding.
-    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
+    # v5.6.23: capture restore block CP for picker NOP-fill (mirrors
+    # the prologue capture above). Restores are emitted in REVERSE reg
+    # order — the picker walks `_cur_fn_regalloc - 1 - reg` to address
+    # a given reg's restore slot.
+    var _ra_epi_cp = 0;
+    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); _ra_epi_cp = GCP(S); }
     if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
     if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
     if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]

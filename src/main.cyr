@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.22\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.23\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -438,9 +438,13 @@ if (_ra_picker_cap_env != 0) {
         }
     }
 }
-# v5.6.22 O4c: CYRIUS_REGALLOC_AUTO_CAP=N — caps fn count for
-# auto-enable. -1 = uncapped (every fn). 0 = disabled (back to
-# explicit #regalloc opt-in only). Bisection knob.
+# v5.6.22 O4c: CYRIUS_REGALLOC_AUTO_CAP=N opts in to per-fn auto-
+# enable. Default disabled. v5.6.23 narrowed the gate to skip fns
+# with inline asm bodies (asm hardcodes [rbp-N] disps; regalloc's
+# callee-save block shifts those slots).
+#   <= 0 = disabled (compiled-in DEFAULT)
+#   > N  = first N eligible fns (bisection knob)
+# "Eligible" = x86 backend + no inline asm in body.
 var _ra_auto_cap_env = _read_env("CYRIUS_REGALLOC_AUTO_CAP");
 if (_ra_auto_cap_env != 0) {
     _ra_auto_cap = 0;
