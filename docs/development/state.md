@@ -1,0 +1,92 @@
+# Cyrius — Current State
+
+> Refreshed every release. CLAUDE.md is preferences/process/procedures (durable);
+> this file is **state** (volatile). Bumped via `version-bump.sh` post-hook.
+
+## Version
+
+**5.6.16** (active minor: v5.6.x optimization arc)
+
+## Compiler
+
+- **cc5 (x86_64)**: 497,696 B
+- **cc5_aarch64 (cross)**: 380,448 B
+- **cc5_win (cross)**: 495,736 B
+- **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
+- **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
+  `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
+
+## Suites
+
+- **check.sh**: 22/22 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
+- **`tests/tcyr/*.tcyr`**: 68 files
+- **`fuzz/*.fcyr`**: 5 harnesses
+- **`benches/*.bcyr`**: 14 benchmarks
+- **Stdlib**: 60 modules (54 first-party + 6 deps via `cyrius deps`:
+  sakshi, patra, sigil, yukti, mabda, sankoch)
+
+## In-flight (v5.6.x optimization arc)
+
+- **v5.6.17** — Phase O3c: bitmap liveness + DCE re-attempt (deferred from
+  v5.6.16) + copy propagation + dead-store + fixed-point driver. ~390 LOC.
+  DCE starting point: bisect by elimination-count cap to find first wrongly-
+  killed node (v5.6.16 attempts: 738 → 1,674 wrongly-killed).
+- **v5.6.18** — Phase O4: linear-scan register allocation (~600–900 LOC).
+- **v5.6.19** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+  precondition v5.6.18.
+- **v5.6.20** — Phase O5: maximal-munch instruction selection (precedes
+  RISC-V backend at v5.7.0).
+- **v5.6.21** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+  repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
+- **v5.6.22–v5.6.24** — consumer-surfaced tooling: `cyrius init` scaffold,
+  libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
+- **v5.6.25–v5.6.27** — broad-scope platform repair: aarch64 native
+  self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
+  dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
+- **v5.6.28** — shared-object emission.
+- **v5.6.29** — closeout.
+
+## Recent shipped (one-liner per release)
+
+- **v5.6.16** — Phase O3b part 1/2: IR const-fold (130 folds, 774 B NOP-fill
+  at IR=3); DCE deferred to v5.6.17 per quality-before-ops; v5.6.21
+  re-pinned to codebuf compaction (real shrinkage).
+- **v5.6.15** — IR-emit-order audit fix: 5-LOC `ESETCC` reorder; SETCC→CMP
+  IR adjacency 3,665 → 0; bytes unchanged at IR=0.
+- **v5.6.14** — Phase O3a-fix: LASE correctness (`parse_ctrl.cyr` loop_top
+  IR_NOP landing pads) + `IR_RAX_CLOBBER` for EMULH/EIDIV/ELODC.
+- **v5.6.13** — `lib/sha1.cyr` extraction (quick-win, promoted from
+  `_wss_sha1`).
+- **v5.6.12** — Phase O3a: 15 `IR_RAW_EMIT` markers in `parse_*.cyr`;
+  surfaced LASE bug (rolled back).
+
+(Older releases: see `completed-phases.md`.)
+
+## Consumers
+
+AGNOS kernel, agnostik (58 tests), agnosys (20 modules), argonaut (424
+tests), sakshi, sigil (206 tests), libro (240 tests), shravan (audio),
+cyrius-doom, bsp, mabda, kybernet (140 tests), hadara (329 tests),
+ai-hwaccel (491 tests).
+
+All AGNOS ecosystem projects depend on the compiler and stdlib.
+
+## Verification hosts
+
+- `ssh pi` — Pi 4 (Linux aarch64 native runtime)
+- `ssh ecb` — Apple Silicon MBP (Mach-O arm64 runtime)
+- `ssh cass` — Windows 11 24H2 (PE32+ runtime)
+
+## Bootstrap chain
+
+```
+bootstrap/asm (29 KB committed binary — root of trust)
+  → cyrc (12 KB compiler)
+    → bridge.cyr (bridge compiler)
+      → cc5 (modular compiler + IR, 9 modules)
+        → cc5_aarch64 (cross-compiler)
+        → cc5_win (cross-compiler)
+
+No Rust. No LLVM. No Python. Just sh + Linux x86_64.
+Build: sh bootstrap/bootstrap.sh
+```

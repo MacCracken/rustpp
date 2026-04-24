@@ -4,6 +4,81 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.16] — 2026-04-23
+
+**Phase O3b part 1/2 — IR constant folding (DCE deferred to v5.6.17).**
+Originally planned as the full ~260 LOC bundle (const-fold + bitmap
+liveness + DCE); shipped const-fold alone after DCE's correctness
+audit hit "STOP and ask". Per "quality before ops" rule.
+
+### Const-fold (shipped)
+
+- `src/common/ir.cyr` — new `ir_const_fold(S)` (forward state-
+  machine sweep), `_ir_compute_fold`, `_ir_emovi_size`,
+  `_ir_write_emovi_at`, `_ir_is_foldable_binop` helpers.
+- `src/main.cyr` — wired after `ir_apply_lase` under
+  `CYRIUS_IR=3`.
+- Pattern detected: `LOAD_IMM(a), PUSH, LOAD_IMM(b), [POP_RCX |
+  MOV_CA + POP_RAX], OP`. Two shapes — commutative (after
+  v5.6.10's shuttle elim collapsed to `POP_RCX, OP`) and non-
+  commutative (`MOV_CA, POP_RAX, OP` for SUB/SHL/SHR/etc).
+- Foldable ops: `ADD/SUB/MUL/AND/OR/XOR/SHL/SHR`. DIV/MOD
+  excluded — divide-by-zero would need a panic mid-fold.
+- For each match: compute `fold_val = a OP b`, in-place rewrite
+  codebuf — write `EMOVI(fold_val)` bytes at the LHS LOAD_IMM
+  CP, NOP-fill the remainder of the span up to `cp(OP+1)`.
+  Mark consumed IR nodes as `IR_NOP` to keep IR consistent.
+- v5.6.15 recon predicted **128 candidates** (109 SUB + 18 SHL +
+  1 AND); v5.6.16 measurement: **130 folds, 774 B NOP-fill** on
+  cc5 self-compile at `CYRIUS_IR=3`.
+- Both fixpoints clean: IR=0 b==c==497,696 B; IR=3 b==c==
+  497,696 B. check.sh 22/22 PASS.
+- cc5 grew 488,776 → 497,696 B (+8,920 B / +1.83 %) for the
+  const-fold helpers + the deferred-but-shipped `ir_dce`
+  skeleton. Real binary shrinkage waits for v5.6.21 codebuf
+  compaction (sweeps NOPs from all per-pass passes in one pass).
+
+### DCE (deferred to v5.6.17)
+
+- `src/common/ir.cyr` — `ir_dce(S)` skeleton + `_ir_def_rax_pure`,
+  `_ir_def_rcx_pure`, `_ir_def_rcx_any`, `_ir_uses_rax`,
+  `_ir_uses_rcx` helpers. **Wired but commented out in
+  `src/main.cyr`.**
+- Per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
+  bit 1 = RCX). Standard liveness: `live_in = (live_out -
+  all_defs) | all_uses`.
+- Two correctness attempts both corrupted cc5 (738 → 1,674
+  wrongly-killed nodes depending on use-set) even after expanding
+  `_ir_uses_rax` to include SYSCALL/CALL/CALL_KNOWN/TAIL_JMP/
+  RET/EPILOGUE/RAW_EMIT/RAX_CLOBBER. There is at least one
+  missing-use case the v5.6.16 audit didn't catch — bisecting
+  by elimination-count cap and inspecting IR around the first
+  wrongly-killed node is the v5.6.17 starting point.
+- Per "quality before ops" + the roadmap's "Bails cleanly...
+  STOP and ask rather than ship dead code" rule.
+
+### Roadmap reshuffle
+
+- v5.6.17 expanded: bitmap liveness + DCE (re-attempt) + the
+  originally-planned copy-prop + dead-store + fixed-point driver.
+  Total scope ~390 LOC.
+- v5.6.21 re-pinned: was conditional slab allocator (ships iff
+  v5.6.18 numbers warranted); now codebuf compaction (NOP harvest)
+  — sweeps accumulated NOPs from LASE/const-fold/DCE/copy-prop
+  in one pass with jump+fixup repair. Real binary shrinkage.
+  Old slab-allocator scope reclaimable as future v5.7.x slot.
+- No slot count change (still 30 slots, v5.6.0 → v5.6.29
+  closeout).
+
+### Lesson
+
+The IR-pass is the right long-term direction (foundation for
+v5.6.17–v5.6.21) even though it doesn't shrink cc5 directly —
+NOP-fill preserves byte positions so jumps and fixups stay valid.
+The compaction pass at v5.6.21 harvests all per-pass NOP overhead
+in one shot, with proper jump/fixup repair; that's where real
+binary shrinkage will come from.
+
 ## [5.6.15] — 2026-04-23
 
 **IR-emit-order audit fix — narrow correctness patch.** Recon for

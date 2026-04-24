@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.15\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.16\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -839,8 +839,23 @@ if (IR_ENABLED(S) == 1) {
     # DBE remains disabled — needs its own correctness audit (suspect
     # #3 from v5.6.14 roadmap: ir_dead_block_elim's `all_nop == 1`
     # check passes vacuously on zero-IR-node BBs).
+    var ir_fold_n = 0;
+    var ir_fold_bytes = 0;
     if (load8(_ir_env) == 51) {
         ir_lase_bytes = ir_apply_lase(S);
+        # v5.6.16 Phase O3b (part 1/2): IR const-fold. Detects
+        # LOAD_IMM/PUSH/LOAD_IMM/[POP_RCX | MOV_CA+POP_RAX]/OP patterns
+        # the parse-time fold missed and rewrites the codebuf in place
+        # with EMOVI(fold_val).
+        var ir_fold_pack = ir_const_fold(S);
+        ir_fold_n = (ir_fold_pack >> 32) & 0xFFFFFFFF;
+        ir_fold_bytes = ir_fold_pack & 0xFFFFFFFF;
+        # v5.6.16 Phase O3b (part 2/2): bitmap liveness + DCE. Implemented
+        # in ir.cyr (`ir_dce`) but DEFERRED to v5.6.17 — corrupts cc5 even
+        # after expanding _ir_uses_rax with SYSCALL/CALL/TAIL_JMP/RET/
+        # EPILOGUE/RAW_EMIT/RAX_CLOBBER. There's still a missing-use case
+        # I haven't isolated. Bail per roadmap "STOP and ask" rule.
+        # ir_dce_n = ir_dce(S);
         # DBE pinned to a later investigation slot.
         # ir_dbe_bytes = ir_dead_block_elim(S);
     }
@@ -857,6 +872,13 @@ if (IR_ENABLED(S) == 1) {
         syscall(SYS_WRITE, 2, " (", 2);
         PRNUM(ir_lase_bytes);
         syscall(SYS_WRITE, 2, "B applied)", 10);
+    }
+    if (ir_fold_n > 0) {
+        syscall(SYS_WRITE, 2, ", ", 2);
+        PRNUM(ir_fold_n);
+        syscall(SYS_WRITE, 2, " folds (", 8);
+        PRNUM(ir_fold_bytes);
+        syscall(SYS_WRITE, 2, "B)", 2);
     }
     if (ir_dbe_bytes > 0) {
         syscall(SYS_WRITE, 2, ", ", 2);

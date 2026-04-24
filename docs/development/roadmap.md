@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.15.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.16.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -108,11 +108,14 @@
 >   const-fold/copy-prop/liveness/DCE). ~5 LOC. Foundation for
 >   all O3+ passes. Const-fold scope from old v5.6.15 moves to
 >   v5.6.16 — it's not foundational, this is.
-> - **v5.6.16**: Phase O3b — IR constant folding + propagation
->   + bitmap liveness + DCE. ~260 LOC. Bails cleanly if byte
->   savings are 0.
-> - **v5.6.17**: Phase O3c — copy propagation + dead-store elim
->   + fixed-point driver. ~330 LOC. Bails cleanly if 0.
+> - **v5.6.16**: Phase O3b — IR constant folding (~200 LOC) +
+>   `ir_dce` skeleton (~100 LOC, bailed and re-pinned). 130 folds
+>   / 774 B NOP-fill at IR=3 on cc5 self-compile; both fixpoints
+>   clean. DCE attempt corrupted output even with expanded RAX
+>   user-set; deferred to v5.6.17 per "STOP and ask" rule.
+> - **v5.6.17**: Phase O3c — bitmap liveness + DCE (re-attempt
+>   the v5.6.16-deferred half) + copy propagation + dead-store
+>   elim + fixed-point driver. ~390 LOC. Bails cleanly if 0.
 > - **v5.6.18**: Phase O4 — linear-scan register allocation.
 > - **v5.6.19**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
@@ -120,8 +123,11 @@
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
 > - **v5.6.20**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.21**: Phase O6 — slab allocator for IR pools
->   (conditional on O4 measurements).
+> - **v5.6.21**: Phase O6 — codebuf compaction (NOP harvest).
+>   Sweeps accumulated NOPs from LASE/const-fold/DCE/copy-prop in
+>   one pass with jump+fixup repair. Real binary shrinkage. (Old
+>   slab-allocator scope reclaimable as a future v5.7.x slot if
+>   v5.6.18 regalloc benchmarks show bump-allocation hot.)
 > - **v5.6.22**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
 > - **v5.6.23**: libro layout-dependent memory corruption
@@ -882,46 +888,88 @@ fix those passes would silently compute wrong answers — the same
 class of pre-existing-unseen bug v5.6.14 fixed for LASE's BB-split
 assumption. Fix the foundation before building on it.
 
-### v5.6.16 — Phase O3b: IR constant folding + propagation, liveness + DCE
+### v5.6.16 — Phase O3b (part 1/2): IR constant folding ✅ shipped 2026-04-23
 
 **Shifted from v5.6.15** after the ordering-audit release. Now
-lands on clean IR. ~260 LOC.
+lands on clean IR. Originally planned as ~260 LOC bundling
+const-fold + bitmap liveness + DCE; **shipped const-fold alone**
+after DCE's correctness audit hit the "STOP and ask" rule. DCE
+re-pinned to v5.6.17.
 
-- **Constant folding + propagation on IR**: promote the existing
-  parse-time folding into a CFG-aware pass. Integer arithmetic,
-  boolean, comparisons on constant operands. ~200 LOC. Needs
-  a replace-in-place byte mechanism (overwrite `LOAD_IMM(a)`'s
-  encoding with `LOAD_IMM(fold_val)` where the folded value fits
-  in the same-or-smaller encoding; NOP-fill the rest of the
-  6-node pattern). v5.6.15 recon counted **128 candidates on
-  cc5 self-compile** (109 SUB + 18 SHL + 1 AND). Modest on
-  cyrius's own source — most ADD patterns are `LOAD_L + LOAD_IMM
-  + ADD` (pointer+offset, not const+const) and belong to O5
-  instruction-selection. Bigger wins expected on user / kernel /
-  GPU-kernel code paths.
-- **Bitmap-based liveness + DCE**: one u64 = liveness for 64
-  virtual registers; backward sweep; mark defs with no live uses
-  as dead. Pattern lifted from
-  `vidya/content/optimization_passes/cyrius.cyr`. ~60 LOC.
-- **Gate**: byte-identical narrow-scope self-host under both
-  `IR_ENABLED == 0` and `IR_ENABLED == 3`. Measure and record
-  incremental savings over the v5.6.12 floor. **Bails cleanly if
-  measured savings are 0 B** — STOP and ask rather than ship
-  dead code.
+**Const-fold (shipped, ~200 LOC)**:
 
-### v5.6.17 — Phase O3c: copy propagation + dead-store elim + fixed-point driver
+- Forward state-machine sweep over IR detecting
+  `LOAD_IMM(a), PUSH, LOAD_IMM(b), [POP_RCX | MOV_CA + POP_RAX], OP`
+  patterns the parse-time `_cfo` fold missed. Two shapes covered:
+  the v5.6.10-shuttle-elim commutative path (`POP_RCX, OP`) and
+  the non-commutative path (`MOV_CA, POP_RAX, OP`).
+- Foldable ops: ADD/SUB/MUL/AND/OR/XOR/SHL/SHR. DIV/MOD skipped
+  (divide-by-zero would need a panic mid-fold).
+- For each match: compute `fold_val = a OP b`, in-place rewrite
+  codebuf — write `EMOVI(fold_val)` bytes at `cp(LHS_LOAD_IMM)`,
+  NOP-fill the remainder of the span up to `cp(OP+1)`. Mark all
+  consumed IR nodes as `IR_NOP` to keep the IR consistent with the
+  rewritten bytes.
+- v5.6.15 recon predicted **128 candidates** (109 SUB + 18 SHL + 1
+  AND); v5.6.16 measurement: **130 folds, 774 B NOP-fill** on cc5
+  self-compile at `CYRIUS_IR=3`. Both fixpoints (IR=0 b==c, IR=3
+  b==c) verified at 497,696 B. check.sh 22/22.
+- Note: NOP-fill preserves byte positions (so jumps and fixups stay
+  valid) but does NOT shrink cc5 itself — the bytes remain in the
+  binary as `0x90`. Real binary shrinkage comes via v5.6.21
+  (codebuf compaction) which sweeps all per-pass NOP overhead in
+  one pass. cc5 grew +4,568 B (488,776 → 493,344 B) for the const-
+  fold helpers; final shipped at 497,696 B (also includes v5.6.16
+  ir_dce + ir_apply_lase mods even though dce wiring is commented
+  out in main.cyr).
 
-**Split out of the original single-slot O3 plan.** Last of the
-three O3 patches. ~330 LOC.
+**Bitmap liveness + DCE (deferred to v5.6.17, ~60 LOC of skeleton
+shipped in `src/common/ir.cyr` as `ir_dce` but commented out in
+`src/main.cyr`)**:
 
-- **Copy propagation + dead-store elimination**: forward sweep
-  with per-vreg "current copy-of" map; backward sweep marking
-  live stores. ~300 LOC.
-- **Fixed-point driver**: run fold → propagate → reduce → DCE
-  in a loop until no-change. ~30 LOC.
+- Per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
+  bit 1 = RCX). Standard liveness algorithm: `live_in =
+  (live_out − all_defs) | all_uses`; pure RAX/RCX defs whose
+  target reg isn't in `live_out` are dead.
+- Two correctness attempts in v5.6.16 both corrupted cc5 even
+  after expanding `_ir_uses_rax` to include SYSCALL / CALL /
+  CALL_KNOWN / TAIL_JMP / RET / EPILOGUE / RAW_EMIT /
+  RAX_CLOBBER. There is at least one missing-use case the audit
+  didn't catch — bisecting by elimination-count cap and
+  inspecting IR around the first wrongly-killed node is the
+  v5.6.17 starting point. Killed-count without correctness:
+  738 (with the second-pass use-set) → 1,674 (with the original
+  bare set).
+- Per "quality before ops" rule: ship what works correctly,
+  bail on broken passes. v5.6.16 const-fold shipped clean;
+  DCE waits.
+
+### v5.6.17 — Phase O3c: bitmap liveness + DCE (deferred from v5.6.16) + copy propagation + dead-store elim
+
+**Bundles the v5.6.16-deferred liveness/DCE half with the
+originally-planned copy-prop + dead-store elim.** ~390 LOC.
+
+- **Bitmap liveness + DCE** (~60 LOC, deferred from v5.6.16):
+  per-BB backward sweep with u64 liveness bitmap (bit 0 = RAX,
+  bit 1 = RCX). Implementation already in `src/common/ir.cyr`
+  as `ir_dce` — wired but disabled in `src/main.cyr`. v5.6.16
+  attempt corrupted cc5 even after expanding `_ir_uses_rax` with
+  SYSCALL/CALL/TAIL_JMP/RET/EPILOGUE/RAW_EMIT/RAX_CLOBBER. There
+  is at least one missing-use case the v5.6.16 audit didn't
+  catch — investigation needed before re-enabling. Recon notes:
+  738 candidates marked dead at IR=3 with the v5.6.16 second-pass
+  use-set; cc5_b SIGSEGVs when used to compile main.cyr. Bisect
+  by elimination-count cap to find the first wrongly-killed node;
+  inspect IR around that node for the missing use site.
+- **Copy propagation + dead-store elimination** (~300 LOC):
+  forward sweep with per-vreg "current copy-of" map; backward
+  sweep marking live stores.
+- **Fixed-point driver** (~30 LOC): run fold → propagate →
+  reduce → DCE in a loop until no-change.
 - **Gate**: byte-identical narrow-scope self-host under both
   `IR_ENABLED == 0` and `IR_ENABLED == 3`. Measure incremental
-  savings. Bails cleanly if 0 B.
+  savings. Bails cleanly if 0 B or if a correctness bisection
+  hits the v5.6.16 wall again — STOP and ask.
 
 ### v5.6.18 — Phase O4: linear-scan register allocation
 
@@ -978,19 +1026,44 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.21 — Phase O6: slab allocator for IR pools (measurement-gated)
+### v5.6.21 — Phase O6: codebuf compaction (NOP harvest)
 
-~150 LOC. **Conditional on O4 numbers** — ships iff v5.6.9's
-profile shows bump-allocation hot during live-range construction.
-After O4 lands, the benchmark numbers go to the user with a
-recommendation; user decides whether O6 ships or the slot remains
-empty. Never skip unilaterally — report measurements and ask.
+**Re-pinned 2026-04-23.** Replaced the originally-conditional
+slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
+passes all NOP-fill bytes in the codebuf rather than rewinding
+CP — the byte positions are preserved so jumps and fixups stay
+valid. The "saved" bytes are still in the binary as `0x90` NOPs.
+Compaction harvests ALL accumulated NOPs in one pass.
 
-- `vidya/content/allocators` documents 20–30× speedup over bump
-  for fixed-size churn. Applied to IR node pools during live-
-  range build.
-- If user decides to skip, record the decision in CHANGELOG with
-  the specific O4 bench numbers that drove it.
+~150 LOC.
+
+- Walk codebuf for runs of ≥4 NOP bytes (`0x90`).
+- For each run: rewind CP past the run, shift subsequent code
+  down, fix up:
+  - Forward-jump offsets (relative `jXX`/`callXX` with target
+    past the deleted range).
+  - Fixup table CPs (the post-codegen FIXUP pass uses node CPs
+    that need adjustment).
+  - IR_NODE_CP records (so any later pass sees consistent CPs).
+  - Function start offsets in the fn table (if compaction crosses
+    a fn boundary).
+- **Gate**: byte-identical narrow-scope self-host under both
+  `IR_ENABLED == 0` and `IR_ENABLED == 3`. With const-fold +
+  LASE shipped at ~774 + ~3,977 B NOP-fill on cc5 self-compile,
+  compaction should harvest the bulk; expected shrinkage is the
+  difference between current cc5 size and (current cc5 size −
+  total NOP-fill across all passes). DCE adds another ~2k B once
+  v5.6.17 fixes it.
+- **Safety**: do NOT compact across BB boundaries that have
+  incoming JMP_BACK edges (loop tops) until edge fixups are
+  proven; start with intra-BB compaction only and expand once
+  the simpler form is verified across all platforms.
+
+The originally-pinned slab allocator (~150 LOC for IR-pool churn)
+is reclaimable if v5.6.18 regalloc benchmarks show bump-allocation
+hot — pin it as a future v5.7.x slot if so. Codebuf compaction is
+the higher-leverage win because it sweeps ALL the per-pass NOP
+overhead in one shot rather than just one allocator hot path.
 
 ---
 
@@ -1366,6 +1439,83 @@ Deliberately NOT bundling other items into v5.7.0 — a new
 architecture port is plenty of work on its own, and mixing it
 with runtime correctness fixes would obscure which changes
 caused which regressions.
+
+---
+
+## v5.7.x — patch slate (post-RISC-V)
+
+Pinned items for the v5.7.x cycle, slot numbers assigned **during
+the port** as RISC-V porting work surfaces additional items that
+also need to land. Single-issue patches in the v5.4.x / v5.5.x
+style — one focused fix per release, no grab-bags. The pinned
+items below are guaranteed to ship before v5.7.x closeout; the
+specific patch number depends on what else surfaces.
+
+### v5.7.x — `cyrius deps` transitive resolution
+
+**Pinned 2026-04-23.** `cyrius deps` currently resolves only
+**direct** dependencies from `cyrius.cyml`'s `[deps]` table — if
+the user's manifest pins `mabda`, mabda's own `cyrius.cyml`
+depends on `sigil` and `sakshi`, those transitive deps don't get
+fetched. Today the workaround is to add every transitive dep to
+the consumer's manifest by hand, which means downstream consumers
+duplicate the dep tree of every dep they pull in. Brittle, and a
+real onboarding pain for new ecosystem repos.
+
+**Surfacing consumer**: `sit` (2026-04-23) hit this directly
+during onboarding — same shape every new consumer has hit since
+the `cyrius deps` resolver shipped. Confirms the fix is
+load-bearing for ecosystem ergonomics, not a nice-to-have.
+User-confirmed long-term fix; deliberately NOT pulled into v5.6.x
+(optimization arc) or v5.7.0 (RISC-V single-focus).
+
+**Scope** (~200–400 LOC):
+
+- **Recursive walker** in `cyrius deps`: after resolving a direct
+  dep, parse that dep's own `cyrius.cyml` and queue its `[deps]`
+  for resolution. BFS, not DFS, so the user's direct deps win
+  version conflicts over transitive ones (lockfile-style).
+- **Cycle detection**: maintain a visited-set keyed by repo URL
+  (or `name@version`); skip re-resolving any dep already in the
+  graph. Hard-error on a true cycle (A→B→A).
+- **Version-conflict resolution**: when transitive deps disagree
+  on a sub-dep version, the policy is **"closest wins"** (the
+  version pinned closest to the root, like npm/cargo's default).
+  If two deps at the same depth disagree, hard-error and ask the
+  user to pin a resolution explicitly in their own manifest.
+- **Lockfile** (`cyrius.lock` or `.cyrius/lock.cyml`): records
+  the resolved graph (every dep, every version, every transitive
+  edge). `cyrius deps` consults it on subsequent runs for
+  reproducibility; `cyrius deps --update` recomputes.
+- **Auto-include extension**: `cyrius build`'s auto-prepend
+  pass already iterates direct deps' `lib/`; extend it to also
+  iterate transitive deps in topological order so transitive
+  symbols resolve correctly.
+- **Diamond dep detection**: when A depends on B and C, and both
+  B and C depend on D at the same version, dedupe to a single D
+  install (don't double-include).
+
+**Acceptance gates:**
+
+1. New tcyr regression `tests/tcyr/deps_transitive.tcyr` —
+   construct a 3-level dep chain (A→B→C), run `cyrius deps` in
+   A, verify all three populate under `lib/`.
+2. Cycle detection: A→B→A produces a clear error message naming
+   the cycle, not silent infinite recursion.
+3. Version-conflict policy: closest-wins documented + tested.
+4. Lockfile reproducibility: `cyrius deps` after lockfile commit
+   produces an identical `lib/` tree on a fresh checkout.
+5. All existing downstream repos (mabda, sigil, sakshi, yukti,
+   kybernet, hadara, libro, argonaut, agnostik, agnosys, sit)
+   build green after switching to transitive resolution — no
+   manifest in the ecosystem should still be hand-listing
+   transitives.
+
+**Slot assignment**: deferred to during the v5.7.x cycle. The
+RISC-V port will surface other items (compiler bugs, stdlib
+gaps, tooling friction) that also need slotting; the patch
+order falls out naturally once we see the actual surfacing
+sequence. Acceptable bound: ships before v5.7.x closeout.
 
 ---
 
