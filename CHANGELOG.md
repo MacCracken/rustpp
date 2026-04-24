@@ -4,6 +4,93 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.20] — 2026-04-23
+
+**Phase O4b — Poletto-Sarkar linear-scan picker** (second of three
+Phase O4 sub-slots). Replaces the v4.8.4 greedy use-count picker
+in the existing `#regalloc` peephole with proper Poletto-Sarkar
+linear scan over the v5.6.19 intervals.
+
+### Algorithm (Poletto & Sarkar 1999)
+
+1. Build interval list for locals with use-count ≥ 2
+2. Sort by `first_cp` ascending (tie-break: lidx ascending — for
+   determinism)
+3. Walk forward; maintain active set (per-reg interval idx)
+4. For each interval:
+   - **Expire**: any active reg whose interval.last < cur.first
+     becomes free
+   - **Assign**: if a free register exists, safety-scan + assign
+     (lowest free reg index — deterministic)
+   - **Spill**: if all regs in use, find active interval with
+     FURTHEST last_cp (tie-break: lowest reg index); if its last
+     > cur.last, evict it and give the reg to cur; else cur
+     itself spills
+5. **Time-sliced patch pass**: for each assigned interval, rewrite
+   disp32 matches ONLY within `[first, last]` (inclusive of
+   last's 7-byte instruction). Non-overlapping intervals can
+   share a register cleanly.
+
+### Time-sliced sharing safety
+
+cyrius requires `var x = expr;` for every user local — every
+interval starts with a STORE. The register holds the right value
+from the start of each interval; no LOAD-from-stack needed at
+interval start. Safety scan still full-fn: if a local has any
+non-mov access (e.g., `&local`), it's barred from regalloc
+entirely.
+
+### Verification
+
+- Test program (8 hot locals → 5 reg slots → forces spill):
+  ```
+  ra: fi=0 fn_start=36 fn_end=377 flc=10 pc=2
+  ra:   lidx=2 count=3 first=74 last=259 span=185
+  ...
+  ra:   lidx=9 count=2 first=252 last=339 span=87
+  ```
+  Picker assigns 5 of 8, spills 3 latest-last_cp candidates;
+  ret=204 matches hand-computed expected value (s1+s2+...+s8 =
+  3+6+5+7+21+18+24+120 = 204).
+- Both fixpoints clean: IR=0 b==c==520,456 B; IR=3 b==c==
+  520,456 B. check.sh 22/22 PASS.
+- cc5 grew 508,880 → 520,456 B (+11,576 B) for the picker
+  algorithm + sort + active-set + bisection knob.
+
+### Observable effect on cc5 self-build
+
+**None.** The cyrius source has zero `#regalloc` directives —
+the picker fires only on opt-in fns. v5.6.20 ships the
+infrastructure proven correct on test programs; v5.6.21
+auto-enables for every fn and that's where the actual win
+materializes.
+
+### Bisection knob
+
+`CYRIUS_REGALLOC_PICKER_CAP=N` env caps total picker assignments
+per fn. -1 = uncapped (default). 0 = no assignments (fall back
+to all-stack). For any future v5.6.21 codegen-bug bisection.
+
+### Patra dep bump
+
+- `cyrius.cyml`: `[deps.patra]` tag 1.5.5 → 1.6.0. Adds blob
+  support for `sit` consumer (the same one that surfaced the
+  transitive-deps gap pinned at v5.7.x). cc5 build unchanged
+  (cyrius itself doesn't use patra).
+
+### Files
+
+- `src/frontend/parse_fn.cyr` — replaces ~50 LOC of greedy
+  use-count picker with ~165 LOC of Poletto-Sarkar (intervals
+  + insertion sort + linear scan + spill heuristic + time-sliced
+  patch pass).
+- `src/frontend/parse.cyr` — `_ra_picker_cap` global declaration.
+- `src/main.cyr` — `CYRIUS_REGALLOC_PICKER_CAP` env read.
+- `cyrius.cyml` — patra 1.5.5 → 1.6.0.
+- VERSION 5.6.19 → 5.6.20.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/state.md`, `docs/development/completed-phases.md`.
+
 ## [5.6.19] — 2026-04-23
 
 **Phase O4a — per-fn live-interval infrastructure** (first of three

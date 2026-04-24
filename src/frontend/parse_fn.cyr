@@ -1041,66 +1041,202 @@ fn PARSE_FN_DEF(S) {
                 store8(&ra_store_b0+3, 0x49); store8(&ra_store_b1+3, 0x89); store8(&ra_store_b2+3, 0xC6);
                 store8(&ra_load_b0+4, 0x4C); store8(&ra_load_b1+4, 0x89); store8(&ra_load_b2+4, 0xF8);
                 store8(&ra_store_b0+4, 0x49); store8(&ra_store_b1+4, 0x89); store8(&ra_store_b2+4, 0xC7);
-                # Pick top N hot locals (greedy: pick best, zero it, repeat).
-                var ra_assigned[5];  # ra_assigned[reg] = local idx (-1 = unused)
-                var ra_num_assigned = 0;
-                var ra_ri = 0;
-                while (ra_ri < _cur_fn_regalloc) {
-                    var ra_best = 0 - 1;
-                    var ra_bestc = 1;  # threshold: >= 2 uses
-                    var ra_pi = pc;
-                    while (ra_pi < ra_flc) {
-                        var ra_cc = load64(&ra_counts + ra_pi * 8);
-                        if (ra_cc > ra_bestc) {
-                            ra_bestc = ra_cc;
-                            ra_best = ra_pi;
-                        }
-                        ra_pi = ra_pi + 1;
+                # v5.6.20 Phase O4b: Poletto-Sarkar linear-scan picker.
+                # Replaces the greedy use-count picker. Operates over the
+                # v5.6.19 intervals (ra_first / ra_last / ra_counts).
+                #
+                # Algorithm (Poletto & Sarkar 1999):
+                #   1. Build interval list for locals with count >= 2
+                #   2. Sort by first_cp ascending (tie-break: lidx ascending)
+                #   3. Walk forward; maintain active set (per-reg interval idx)
+                #   4. For each interval:
+                #      a. Expire any active reg whose interval.last < cur.first
+                #      b. If a free reg: safety_scan + assign
+                #      c. Else (all regs in use): find spill candidate with
+                #         FURTHEST last_cp; if its last > cur.last, evict it
+                #         and take its register; else cur itself spills
+                #   5. Patch pass: for each assigned interval, rewrite ONLY
+                #      within [first, last] — time-sliced sharing.
+                #
+                # Time-sliced sharing safety (no spill/reload code yet):
+                # cyrius requires `var x = expr;` for every user local —
+                # every interval starts with a STORE. The register holds the
+                # right value from the start of each interval; no LOAD-from-
+                # stack needed at interval start. Safety scan still full-fn:
+                # if a local has non-mov access (e.g., &local), it's barred
+                # from regalloc entirely.
+                #
+                # CYRIUS_REGALLOC_PICKER_CAP=N caps total assignments for
+                # bisection (per v5.6.17 saved methodology). Read elsewhere.
+                var iv_lidx[2048];     # 256 i64 slots
+                var iv_first[2048];
+                var iv_last[2048];
+                var iv_assigned[2048]; # which reg this interval got (-1 = spilled)
+                var iv_n = 0;
+
+                var iv_li = pc;
+                while (iv_li < ra_flc) {
+                    var iv_c = load64(&ra_counts + iv_li * 8);
+                    if (iv_c > 1) {
+                        store64(&iv_lidx + iv_n * 8, iv_li);
+                        store64(&iv_first + iv_n * 8, load64(&ra_first + iv_li * 8));
+                        store64(&iv_last + iv_n * 8, load64(&ra_last + iv_li * 8));
+                        store64(&iv_assigned + iv_n * 8, 0 - 1);
+                        iv_n = iv_n + 1;
                     }
-                    if (ra_best < 0) { ra_ri = _cur_fn_regalloc; }
-                    else {
-                        # Safety scan for this candidate.
-                        var cand_disp = 0 - ((ra_best + 1 + _cur_fn_regalloc) * 8);
-                        var cand_disp32 = cand_disp & 0xFFFFFFFF;
-                        var ra_safe = 1;
-                        var ra_sp = ra_start;
-                        while (ra_sp + 7 <= ra_end) {
-                            if (load8(S + 0x54A000 + ra_sp + 2) == 0x85) {
-                            if (load32(S + 0x54A000 + ra_sp + 3) == cand_disp32) {
-                                var ra_px1 = load8(S + 0x54A000 + ra_sp);
-                                var ra_px2 = load8(S + 0x54A000 + ra_sp + 1);
-                                var ra_ok = 0;
-                                if (ra_px1 == 0x48) {
-                                    if (ra_px2 == 0x8B) { ra_ok = 1; }
-                                    if (ra_px2 == 0x89) { ra_ok = 1; }
-                                }
-                                if (ra_ok == 0) { ra_safe = 0; }
-                            } }
-                            ra_sp = ra_sp + 1;
-                        }
-                        if (ra_safe == 1) {
-                            store64(&ra_assigned + ra_num_assigned * 8, ra_best);
-                            ra_num_assigned = ra_num_assigned + 1;
-                        }
-                        # Zero this slot so next iteration picks the next hottest
-                        store64(&ra_counts + ra_best * 8, 0);
-                    }
-                    ra_ri = ra_ri + 1;
+                    iv_li = iv_li + 1;
                 }
-                # Patch pass: for each assigned register, rewrite its locals.
+
+                # Sort intervals by first_cp ascending (tie-break: lidx asc).
+                # Insertion sort — iv_n is small (≤ 256).
+                var sort_s = 1;
+                while (sort_s < iv_n) {
+                    var key_lidx = load64(&iv_lidx + sort_s * 8);
+                    var key_first = load64(&iv_first + sort_s * 8);
+                    var key_last = load64(&iv_last + sort_s * 8);
+                    var sort_j = sort_s - 1;
+                    var sort_done = 0;
+                    while (sort_j >= 0 && sort_done == 0) {
+                        var prev_first = load64(&iv_first + sort_j * 8);
+                        var prev_lidx = load64(&iv_lidx + sort_j * 8);
+                        var should_shift = 0;
+                        if (prev_first > key_first) { should_shift = 1; }
+                        elif (prev_first == key_first) {
+                            if (prev_lidx > key_lidx) { should_shift = 1; }
+                        }
+                        if (should_shift == 1) {
+                            store64(&iv_lidx + (sort_j + 1) * 8, prev_lidx);
+                            store64(&iv_first + (sort_j + 1) * 8, prev_first);
+                            store64(&iv_last + (sort_j + 1) * 8, load64(&iv_last + sort_j * 8));
+                            sort_j = sort_j - 1;
+                        } else { sort_done = 1; }
+                    }
+                    store64(&iv_lidx + (sort_j + 1) * 8, key_lidx);
+                    store64(&iv_first + (sort_j + 1) * 8, key_first);
+                    store64(&iv_last + (sort_j + 1) * 8, key_last);
+                    sort_s = sort_s + 1;
+                }
+
+                # Linear scan. active_iv[r] = interval index in reg r (-1 = free).
+                var active_iv[40];   # 5 i64 slots
+                var as_init = 0;
+                while (as_init < 5) {
+                    store64(&active_iv + as_init * 8, 0 - 1);
+                    as_init = as_init + 1;
+                }
+                # Picker assignment cap: bisection knob from day 1.
+                var pick_cap = _cur_fn_regalloc;
+                if (_ra_picker_cap >= 0) {
+                    if (_ra_picker_cap < pick_cap) { pick_cap = _ra_picker_cap; }
+                }
+                var picked = 0;
+
+                var pi = 0;
+                while (pi < iv_n) {
+                    var cur_first = load64(&iv_first + pi * 8);
+                    var cur_last = load64(&iv_last + pi * 8);
+                    var cur_lidx = load64(&iv_lidx + pi * 8);
+                    # Expire active intervals whose last < cur_first
+                    var er = 0;
+                    while (er < _cur_fn_regalloc) {
+                        var aiv_e = load64(&active_iv + er * 8);
+                        if (aiv_e != (0 - 1)) {
+                            var aiv_e_last = load64(&iv_last + aiv_e * 8);
+                            if (aiv_e_last < cur_first) {
+                                store64(&active_iv + er * 8, 0 - 1);
+                            }
+                        }
+                        er = er + 1;
+                    }
+                    # Find a free register (lowest index — deterministic)
+                    var free_r = 0 - 1;
+                    var fr = 0;
+                    while (fr < _cur_fn_regalloc && free_r < 0) {
+                        if (load64(&active_iv + fr * 8) == (0 - 1)) { free_r = fr; }
+                        fr = fr + 1;
+                    }
+                    # Bisection cap
+                    var cap_block = 0;
+                    if (picked >= pick_cap) { cap_block = 1; }
+                    # Safety scan for cur_lidx (full-fn — any non-mov access bars regalloc)
+                    var ps_safe = 1;
+                    if (cap_block == 0) {
+                        var ps_disp = 0 - ((cur_lidx + 1 + _cur_fn_regalloc) * 8);
+                        var ps_disp32 = ps_disp & 0xFFFFFFFF;
+                        var ps_sp = ra_start;
+                        while (ps_sp + 7 <= ra_end) {
+                            if (load8(S + 0x54A000 + ps_sp + 2) == 0x85) {
+                            if (load32(S + 0x54A000 + ps_sp + 3) == ps_disp32) {
+                                var ps_px1 = load8(S + 0x54A000 + ps_sp);
+                                var ps_px2 = load8(S + 0x54A000 + ps_sp + 1);
+                                var ps_ok = 0;
+                                if (ps_px1 == 0x48) {
+                                    if (ps_px2 == 0x8B) { ps_ok = 1; }
+                                    if (ps_px2 == 0x89) { ps_ok = 1; }
+                                }
+                                if (ps_ok == 0) { ps_safe = 0; }
+                            } }
+                            ps_sp = ps_sp + 1;
+                        }
+                    }
+                    if (cap_block == 0 && ps_safe == 1) {
+                        if (free_r != (0 - 1)) {
+                            store64(&active_iv + free_r * 8, pi);
+                            store64(&iv_assigned + pi * 8, free_r);
+                            picked = picked + 1;
+                        } else {
+                            # Spill heuristic: pick active reg whose interval
+                            # has FURTHEST last_cp. Tie-break: lowest reg.
+                            var spill_r = 0;
+                            var spill_last = load64(&iv_last + load64(&active_iv) * 8);
+                            var sr = 1;
+                            while (sr < _cur_fn_regalloc) {
+                                var siv = load64(&active_iv + sr * 8);
+                                var siv_last = load64(&iv_last + siv * 8);
+                                if (siv_last > spill_last) {
+                                    spill_r = sr;
+                                    spill_last = siv_last;
+                                }
+                                sr = sr + 1;
+                            }
+                            if (spill_last > cur_last) {
+                                # Evict the active one, give the reg to cur.
+                                var prev_pi = load64(&active_iv + spill_r * 8);
+                                store64(&iv_assigned + prev_pi * 8, 0 - 1);
+                                store64(&active_iv + spill_r * 8, pi);
+                                store64(&iv_assigned + pi * 8, spill_r);
+                                # picked count stays — net zero (one in, one out).
+                            }
+                            # else: cur spills, iv_assigned[pi] stays -1.
+                        }
+                    }
+                    pi = pi + 1;
+                }
+                # Patch pass: time-sliced rewrite. For each interval with
+                # assigned reg, rewrite disp32 matches ONLY within [first, last]
+                # (inclusive of last's 7-byte instruction).
                 var ra_ai = 0;
-                while (ra_ai < ra_num_assigned) {
-                    var ra_local = load64(&ra_assigned + ra_ai * 8);
+                while (ra_ai < iv_n) {
+                    var ai_reg = load64(&iv_assigned + ra_ai * 8);
+                    if (ai_reg < 0) { ra_ai = ra_ai + 1; continue; }
+                    var ra_local = load64(&iv_lidx + ra_ai * 8);
+                    var ai_first = load64(&iv_first + ra_ai * 8);
+                    var ai_last = load64(&iv_last + ra_ai * 8);
                     var hot_disp = 0 - ((ra_local + 1 + _cur_fn_regalloc) * 8);
                     var hot_disp32 = hot_disp & 0xFFFFFFFF;
-                    var lb0 = load8(&ra_load_b0 + ra_ai);
-                    var lb1 = load8(&ra_load_b1 + ra_ai);
-                    var lb2 = load8(&ra_load_b2 + ra_ai);
-                    var sb0 = load8(&ra_store_b0 + ra_ai);
-                    var sb1 = load8(&ra_store_b1 + ra_ai);
-                    var sb2 = load8(&ra_store_b2 + ra_ai);
-                    var ra_p = ra_start;
-                    while (ra_p + 7 <= ra_end) {
+                    var lb0 = load8(&ra_load_b0 + ai_reg);
+                    var lb1 = load8(&ra_load_b1 + ai_reg);
+                    var lb2 = load8(&ra_load_b2 + ai_reg);
+                    var sb0 = load8(&ra_store_b0 + ai_reg);
+                    var sb1 = load8(&ra_store_b1 + ai_reg);
+                    var sb2 = load8(&ra_store_b2 + ai_reg);
+                    # Walk codebuf within interval bounds. Upper bound is
+                    # ai_last (start of last instruction) + 6 (so the 7-byte
+                    # mov fits within ra_end for the load8/load32 reads).
+                    var ra_p = ai_first;
+                    var ra_p_max = ai_last + 7;
+                    if (ra_p_max > ra_end) { ra_p_max = ra_end; }
+                    while (ra_p + 7 <= ra_p_max) {
                         if (load8(S + 0x54A000 + ra_p) == 0x48) {
                         var op1 = load8(S + 0x54A000 + ra_p + 1);
                         if (load8(S + 0x54A000 + ra_p + 2) == 0x85) {

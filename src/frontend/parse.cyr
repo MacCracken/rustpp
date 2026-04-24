@@ -59,6 +59,13 @@ var _cur_fn_ret_sid = 0;
 # match expectations before wiring the algorithm.
 var _ra_dump_enabled = 0;
 
+# v5.6.20 O4b: CYRIUS_REGALLOC_PICKER_CAP=N — caps total picker
+# assignments per fn for bisection (per v5.6.17 saved methodology).
+# -1 = uncapped (default; algorithm assigns up to _cur_fn_regalloc).
+# 0 = disabled (no picker assignments — falls back to all-stack).
+# Used to bisect any codegen bug the new picker might surface.
+var _ra_picker_cap = 0 - 1;
+
 
 # v5.5.38: struct/enum/union + shared-helper fns extracted.
 include "src/frontend/parse_types.cyr"

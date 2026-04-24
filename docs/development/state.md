@@ -5,13 +5,13 @@
 
 ## Version
 
-**5.6.19** (active minor: v5.6.x optimization arc)
+**5.6.20** (active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 508,880 B
-- **cc5_aarch64 (cross)**: 389,432 B
-- **cc5_win (cross)**: 504,696 B
+- **cc5 (x86_64)**: 520,456 B
+- **cc5_aarch64 (cross)**: 400,584 B
+- **cc5_win (cross)**: 515,848 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
@@ -19,9 +19,11 @@
   v5.6.19 adds infrastructure only, no codegen change): 135 folds + 678 DCE +
   15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
   iterations. Real binary shrinkage waits for v5.6.24 codebuf compaction.
-- **Regalloc** (v5.6.19): per-fn live-interval tables built for every
-  `#regalloc`-flagged fn. `CYRIUS_REGALLOC_DUMP=1` prints intervals.
-  Picker still greedy use-count; v5.6.20 swaps to Poletto-Sarkar.
+- **Regalloc** (v5.6.20): per-fn live-interval tables (v5.6.19) +
+  Poletto-Sarkar picker with time-sliced rewrite. Opt-in via
+  `#regalloc`. `CYRIUS_REGALLOC_DUMP=1` prints intervals;
+  `CYRIUS_REGALLOC_PICKER_CAP=N` caps assignments for bisection.
+  v5.6.21 will auto-enable for every fn.
 
 ## Suites
 
@@ -34,10 +36,12 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.20** — Phase O4b: Poletto-Sarkar linear-scan picker (~200 LOC).
-  Replaces the existing greedy use-count picker with proper interval-based
-  linear scan over v5.6.19 intervals.
-- **v5.6.21** — Phase O4c: time-sliced rewrite + auto-enable + bisection
+- **v5.6.21** — Phase O4c: auto-enable + bisection
+  (~250 LOC + bug-hunt budget). Flip `#regalloc` from opt-in to
+  automatic for every fn. Hit cc5_b SIGSEGV on simple input during
+  v5.6.19 shortcut attempt — bisection methodology + cap knob ready
+  for the proper debug session here. Also: prologue/epilogue
+  save/restore optimization (skip when picker assigned 0 regs).
   (~250 LOC + bug-hunt budget). Multi-local-per-register packing + flip
   `#regalloc` from per-fn opt-in to automatic.
 - **v5.6.22** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
@@ -63,6 +67,12 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.20** — Phase O4b: Poletto-Sarkar linear-scan picker (replaces
+  greedy use-count) + time-sliced rewrite. Opt-in `#regalloc` only.
+  Picker proven correct on 8-local spill-pressure test (5 assigned, 3
+  spilled). cc5 self-build observable change = none (no `#regalloc`
+  in cyrius source); v5.6.21 auto-enable surfaces the win. Patra dep
+  bumped 1.5.5 → 1.6.0 (blob support for `sit` consumer).
 - **v5.6.19** — Phase O4a: per-fn live-interval infrastructure. Foundation
   for v5.6.20 Poletto-Sarkar picker. Pre-existing `ra_counts[256]` sizing
   bug fixed (256 bytes → 256 i64 slots). `CYRIUS_REGALLOC_DUMP=1` env knob

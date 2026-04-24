@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.19\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.20\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -422,6 +422,21 @@ if (_prof_on == 1) { _prof_t0 = _prof_clock_ns(); }
 var _ra_dump_env = _read_env("CYRIUS_REGALLOC_DUMP");
 if (_ra_dump_env != 0) {
     if (load8(_ra_dump_env) == 49) { _ra_dump_enabled = 1; }
+}
+# v5.6.20 O4b: CYRIUS_REGALLOC_PICKER_CAP=N — bisection knob for
+# the new Poletto-Sarkar picker. Caps total assignments per fn.
+# -1 = uncapped; 0 = no assignments (fall back to all-stack).
+var _ra_picker_cap_env = _read_env("CYRIUS_REGALLOC_PICKER_CAP");
+if (_ra_picker_cap_env != 0) {
+    _ra_picker_cap = 0;
+    var _rpci = 0;
+    while (load8(_ra_picker_cap_env + _rpci) >= 48) {
+        if (load8(_ra_picker_cap_env + _rpci) > 57) { _rpci = 99999; }
+        else {
+            _ra_picker_cap = _ra_picker_cap * 10 + (load8(_ra_picker_cap_env + _rpci) - 48);
+            _rpci = _rpci + 1;
+        }
+    }
 }
 
 # Preprocess includes
