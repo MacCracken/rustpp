@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.32.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.33.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -365,7 +365,7 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | ~~Preprocessor phantom `0xff` byte~~ | ~~Libro 2.0.5 cannot compile against any cyrius 5.4.7+~~ | **v5.6.30 ✅ shipped** — `PP_IFDEF_PASS` copies preprocessed content back to `S+0` capped at 524288 bytes (size of `input_buf`), but the derive handlers (`PP_DERIVE_SERIALIZE`, `PP_DERIVE_DESER`, `PP_DERIVE_ACCESSORS`, shared `PP_PARSE_STRUCT_DEF`) read source from `S + ip`. Any `#derive` past offset 524288 read stale/zero bytes, wrote a corrupted struct definition to the preproc output buffer, and left a hole where the 0xff heap-state sentinel leaked through — LEX tripped on it as "non-ASCII byte". Libro 2.0.5's `src/file_store.cyr:10` `#derive(accessors)` at offset ≈ 543565 was the first documented trigger. Fix: `src_base` parameter threaded through the derive helpers; PP_PASS passes `S` (source at S+0), PP_IFDEF_PASS passes `tmp` (full 1MB mmap buffer). `PP_DEFINE` / `PP_DEFINED` share the same latent read-cap bug; pinned for follow-up hardening. |
 | ~~HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure~~ | ~~Windows 11 64-bit ASLR~~ | **v5.6.31 ✅ shipped** — root cause was NOT MOVABS relocation (the v5.5.35 audit was a red herring). Real cause: `EREAD_PE` and `EWRITE_PE` post-call sequences used `mov rax, [rsp+0x28]` to load the bytes-read/written count from where ReadFile/WriteFile wrote the DWORD (4 bytes). 64-bit load picked up 4 bytes of stack garbage in the upper half. Under DYNAMIC_BASE that garbage was reliably zero (Win loader pre-zeros stack); under HIGH_ENTROPY_VA the loader hands off a different stack region with non-zero garbage, so `n` came back as a 12-digit bogus number tripping `main.cyr:341`'s "input exceeds 512KB buffer" overflow check. Fix: 64-bit load → 32-bit `mov eax` (auto-zero-extends). HIGH_ENTROPY_VA now ships enabled by default in `_dllc = 0x0160`. |
 | ~~Native aarch64 self-host on Pi fails at parse time~~ | ~~`cc5_aarch64_native` can't self-host on real Pi 4~~ | **v5.6.32 ✅ shipped** — root cause: `src/main_aarch64_native.cyr` was missing `include "src/common/ir.cyr"` that `src/main_aarch64.cyr` (the x86-hosted cross-compiler) received when v5.6.12 O3a shipped the `IR_RAW_EMIT` instrumentation markers. `parse_*.cyr` references `IR_RAW_EMIT` unconditionally; the native variant errored at parse time. Earlier `_TARGET_MACHO` framing was a stale symptom shape from pre-v5.6.12 source — current source first-undefined-ref hits `IR_RAW_EMIT`. 1-line fix. Native self-host fixpoint on Pi: `cc5_b == cc5_c` byte-identical at 463,768 B. `tests/regression-aarch64-native-selfhost.sh` flipped from skip-stub to active gate; wired into `check.sh` step 4o. |
-| macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.33** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
+| ~~macOS arm64 runtime regression (syscall(60) reroute)~~ | ~~Apple Silicon deploys~~ | **v5.6.33 ✅ shipped** — premise was wrong; no compiler regression existed. The `regression-macho-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`, top-level stmts are the program entry. The argv prologue's branch-over-fn-bodies landed on the `EEXIT` tail (`movz x16,#1; svc #0x80` = BSD `_exit(x0)` on macOS) with `x0 = argc = 1` still resident from the `stp x0, x1, [sp, #-16]!` prologue, hence rc=1. Top-level `syscall(60, 42);` exits 42 cleanly on current v5.6.33 against macOS 26.4.1 (ssh ecb, Darwin 25.4.0, build 25E253). Gate rewritten with three tests covering `__got[0]=_exit`, `__got[1]=_write` (stdout bytes verified), and v5.6.11 peephole + bl/fn-frame. Zero compiler code changed; cc5 byte-identical at 531,680 B. The v5.5.13 memory entry's "exit=42 verified" almost certainly used top-level syntax; the later-written fixture assumed an auto-call cyrius has never had. |
 | Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.34** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
 | `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.35** — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
 
@@ -1654,44 +1654,46 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.33 — macOS arm64 runtime regression repair (ecb)
+### v5.6.33 — macOS arm64 Mach-O runtime gate fixture repair ✅ SHIPPED
 
-Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
-Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
-verified exit=42 after first `__got[0]` reroute; regressed
-somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical
-to v5.6.10 for minimal syscall-only code, so NOT a v5.6.11
-regression.
+**Premise of this slot was wrong. No compiler regression
+existed.** The `regression-macho-exit.sh` fixture used
+`fn main() { syscall(60, 42); return 0; }` as its probe, which
+in cyrius is a function definition that is **never called** —
+cyrius has no auto-invoked `main`; top-level statements are the
+program entry (see `main_aarch64.cyr:347` → `EPATCH(jmp_patch)`
+lands at enum-inits → gvar-inits → `PARSE_PROG` → `EEXIT`).
+With no top-level code in the fixture, the argv prologue's
+branch-over-fn-bodies (patched by `EJMP0`/`EPATCH`) landed on
+the `EEXIT` tail (`movz x16, #1; svc #0x80` = BSD `_exit(x0)`
+on macOS) while `x0 = argc = 1` was still resident from the
+`stp x0, x1, [sp, #-16]!` prologue at `main_aarch64.cyr:190`,
+hence rc=1 every time on any post-v5.5.17 compiler.
 
-**Suspects (in order):**
-- `__got[0]` reroute's adrp/ldr/br emission changed between
-  v5.5.14 (first reroute) and v5.5.17 (argv prologue added);
-  argv prologue's `stp x0,x1,[sp,#-16]!` might have shifted LC_MAIN
-  entry alignment.
-- `LC_DYLD_INFO_ONLY` bind opcode list grew 1 → 7 across v5.5.14–
-  v5.6.6 (each reroute added a symbol). A malformed or mis-sized
-  bind entry could fail silently on recent macOS dyld.
-- macOS 26.4.1 (sequoia+) dyld may enforce a stricter Mach-O
-  shape than v5.5.13 was tested against.
+The roadmap's three suspects (`__got[0]` adrp/ldr/br drift,
+LC_DYLD_INFO_ONLY bind list shape, Sequoia dyld strictness)
+were all wrong. `otool -tv` on the failing binary shows the
+`fn main` body correctly emitting `adrp x16, 4; ldr x16,
+[x16]; br x16` through `__got[0] = _exit` — it just never
+runs.
 
-**Investigation plan:**
-1. Bisect Mach-O output bytes: build the same `syscall(60,42)`
-   source with each v5.5.14 → v5.6.10 cross-compiler, diff the
-   outputs, find the first version that produces the broken binary.
-2. If bisection finds a clear offender, repair and re-verify.
-3. If no single offender (gradual rot), revisit the Mach-O
-   emitter structure as a whole (`src/backend/macho/emit.cyr` +
-   aarch64 backend's `EMITMACHO_ARM64`).
+**Fix (shipped):**
+- `tests/regression-macho-exit.sh` completely rewritten with
+  three top-level-syntax tests:
+  1. `__got[0]=_exit`: `syscall(60, 42);` at top level. rc=42.
+  2. `__got[0]+__got[1]`: `syscall(1, 1, "hello\n", 6);
+     syscall(60, 42);`. Verifies both rc=42 AND stdout bytes.
+  3. v5.6.11 peephole + bl/fn-frame: `fn add3(a,b,c){…}
+     syscall(60, add3(10,20,12));`. rc=42.
+- `CYRIUS_V5633_SHIPPED` pre-fix guard dropped.
+- Gate now actively exercises the Mach-O runtime instead of
+  skipping pre-fix.
 
-**Mandatory gate (regression test — part of this slot's scope):**
-- Add `tests/regression-macho-exit.sh`:
-  1. Skip cleanly if `ecb` unreachable OR `cc5_aarch64` not built.
-  2. `CYRIUS_MACHO_ARM=1 cc5_aarch64 < macos_bare.cyr > macos_bare`.
-  3. `scp` to ecb, `codesign -s -`, run.
-  4. Assert exit code == 42. Also verify a multi-fn arithmetic
-     test (exercises v5.6.11 peephole on Mach-O output).
-- Wire into `scripts/check.sh`.
-- Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
+**Compiler delta:** zero. `cc5` byte-identical at 531,680 B.
+check.sh 23/23 with Mach-O gate ACTIVE.
+
+**Verified on:** `ssh ecb` — macOS 26.4.1, Darwin 25.4.0,
+build 25E253, arm64.
 
 ### v5.6.34 — Windows 11 runtime regression repair (cass)
 

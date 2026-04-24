@@ -4,6 +4,108 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.33] — 2026-04-24
+
+**`regression-macho-exit` gate fixture was buggy — no compiler
+regression existed.** The slot was pinned on a `ssh ecb` run of
+`fn main() { syscall(60, 42); return 0; }` exiting 1 not 42,
+attributed to "`__got[0]` adrp/ldr/br drift" / "LC_DYLD_INFO_ONLY
+bind list shape" / "Sequoia dyld strictness." None of those are
+the cause. Cyrius has no auto-invoked `main()` — top-level
+statements are the program entry — so the fixture's `fn main()`
+body was dead code. The argv prologue's branch-over-fn-bodies
+(patched by `EPATCH(jmp_patch)` at `main_aarch64.cyr:347`) landed
+on the `EEXIT` tail (`movz x16,#1; svc #0x80` on macOS = BSD
+`_exit(x0)`) with `x0 = argc = 1` still resident from the
+`stp x0, x1, [sp, #-16]!` at `main_aarch64.cyr:190`. Hence rc=1,
+every time, on any compiler version that emitted a Mach-O with
+the argv prologue.
+
+### Diagnosis
+
+1. Cross-built the fixture at v5.6.33 current source with
+   `build/cc5_aarch64`, ran on `ssh ecb`: `rc=1` reproduced.
+2. `otool -tv` disassembled the `__text` section:
+   - `0x4000`: `stp x0, x1, [sp, #-16]!` + `mov x28, sp` (argv
+     prologue, v5.5.17).
+   - `0x4008`: `b 0x404c` — patched EJMP0 landing on the tail.
+   - `0x400c-0x4048`: `fn main`'s body, with working `__got[0]`
+     reroute emitting `adrp x16, 4; ldr x16, [x16]; br x16`.
+     Never entered.
+   - `0x404c`: `movz x16,#1; svc #0x80` — the actual exit with
+     argc-leaked x0.
+3. Rewrote the fixture as top-level `syscall(60, 42);`
+   (no `fn main` wrapper). rc=42 on ecb under macOS 26.4.1,
+   build 25E253, Darwin 25.4.0 arm64.
+4. `__got[1]=_write` round-trip verified: top-level
+   `syscall(1, 1, "hello\n", 6); syscall(60, 42);` prints `hello`
+   and exits 42.
+5. Peephole coverage (v5.6.11 aarch64 combine-shuttle): top-level
+   `fn add3(a,b,c){return a+b+c;} syscall(60, add3(10,20,12));`
+   — rc=42.
+
+### Fix
+
+`tests/regression-macho-exit.sh` rewritten to exercise the
+Mach-O runtime meaningfully:
+- **Test 1** (`__got[0]` = `_exit`): top-level `syscall(60, 42)`.
+- **Test 2** (`__got[0]` + `__got[1]` = `_exit` + `_write`):
+  top-level write `hello\n` to stdout, then exit 42. Verifies
+  both the exit code AND the stdout bytes.
+- **Test 3** (v5.6.11 peephole on Mach-O + bl/ret + fn frame):
+  top-level `syscall(60, add3(…))` with user fn.
+
+`CYRIUS_V5633_SHIPPED` guard dropped — gate runs whenever
+`build/cc5_aarch64` exists and `ssh ecb` is reachable.
+
+### Why this shipped as a v5.6.33 fix and not a doc-only note
+
+The roadmap's v5.6.33 framing (with suspects, bisection plan,
+and cascade impact) was itself a durable artefact that would
+have bitten the next agent. Shipping as a real slot with a
+fixed gate + a CHANGELOG entry gets the premise disproven in
+the ledger and clears the cascade.
+
+### Acceptance
+
+- `tests/regression-macho-exit.sh`: 3/3 PASS on ecb
+  (macOS 26.4.1, Darwin 25.4.0, arm64).
+- `sh scripts/check.sh`: 23/23 PASS (Mach-O gate now actively
+  exercises runtime instead of skipping).
+- `cc5` 3-step self-host: `cc5_a == cc5_b` byte-identical at
+  531,680 B. No compiler code changed.
+- Linux aarch64 cross-check (`ssh pi`): same three top-level
+  sources exit 42 with `build/cc5_aarch64` (Linux ELF path).
+
+### Files
+
+- `tests/regression-macho-exit.sh`: complete rewrite — three
+  top-level-syntax tests covering `__got[0]`, `__got[1]`, and
+  the v5.6.11 peephole; dropped the `CYRIUS_V5633_SHIPPED`
+  pre-fix guard.
+- `docs/development/roadmap.md`: v5.6.33 section rewritten from
+  "regression repair plan" to "premise disproven / gate
+  rewritten." Cascade unchanged (no slot added or removed).
+- `docs/development/state.md`: current version bumped; v5.6.32
+  moved to Recent shipped; v5.6.33 added as Recent shipped;
+  in-flight list advanced.
+- `VERSION`: 5.6.32 → 5.6.33.
+
+### What did NOT change
+
+- `src/main_aarch64.cyr`, `src/backend/macho/emit.cyr`,
+  `src/backend/aarch64/emit.cyr` — no code change. The
+  `__got[0]` adrp/ldr/br trio, the `LC_DYLD_INFO_ONLY` bind
+  opcode list, and the argv prologue were all fine.
+
+### Lesson
+
+A fixture that claims a regression must first be proven to
+exercise the thing it claims to test. The v5.5.13 memory
+entry ("exit=42 verified") almost certainly used top-level
+syntax; the later-written `fn main()` fixture assumed an
+auto-call that cyrius has never had.
+
 ## [5.6.32] — 2026-04-24
 
 **Native aarch64 self-host on Pi 4 repaired.** 1-line include

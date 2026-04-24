@@ -5,12 +5,13 @@
 
 ## Version
 
-**5.6.32** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
+**5.6.33** (shipped — `regression-macho-exit` gate rewrite; no
+compiler code change. Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.31 — this slot only touches
-  `src/main_aarch64_native.cyr`)
+- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.31/v5.6.32 —
+  v5.6.33 rewrites a test fixture only)
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -65,10 +66,6 @@
 - **v5.6.30** — libro layout-dependent memory corruption investigation.
 - **v5.6.31** — HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
   re-investigation.
-- **v5.6.32** — native aarch64 self-host (`_TARGET_MACHO` undef on
-  Pi 4 — feature gap in aarch64 runtime path).
-- **v5.6.33** — macOS arm64 Mach-O exit (Sequoia 15+ dyld drift;
-  bytes unchanged since v5.5.13).
 - **v5.6.34** — PE32+ Windows 11 24H2 exit (loader drift; bytes
   unchanged since v5.5.10).
 - **v5.6.35** — shared-object (.so / .dll / .dylib) emission completion.
@@ -83,6 +80,32 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.33** — `tests/regression-macho-exit.sh` rewritten.
+  Slot's premise was wrong: the `fn main() { syscall(60, 42); }`
+  fixture never actually entered `main()` — cyrius has no
+  auto-invoked `main`; top-level stmts are the entry point. The
+  argv prologue's branch-over-fn-bodies landed on the `EEXIT`
+  tail with `x0 = argc = 1` still resident, hence rc=1 on ecb.
+  Top-level `syscall(60, 42);` exits 42 cleanly under macOS
+  26.4.1 on unchanged v5.6.33 cross-compiler. Gate expanded to
+  three tests: `__got[0]=_exit` + `__got[1]=_write` (bytes
+  verified) + v5.6.11 peephole round-trip. `CYRIUS_V5633_SHIPPED`
+  guard dropped; gate runs whenever `build/cc5_aarch64` exists
+  and `ssh ecb` is reachable. No compiler code changed. cc5
+  byte-identical at 531,680 B. check.sh 23/23.
+- **v5.6.32** — native aarch64 self-host on Pi 4 repaired.
+  `src/main_aarch64_native.cyr` was missing
+  `include "src/common/ir.cyr"` that `main_aarch64.cyr` received
+  when v5.6.12 O3a shipped the `IR_RAW_EMIT` instrumentation
+  markers (shared `parse_*.cyr` references the opcode enum
+  unconditionally). 1-line fix. Native-on-Pi fixpoint now
+  byte-identical: cc5_b == cc5_c at 463,768 B.
+  `regression-aarch64-native-selfhost.sh` flipped from a
+  wrong-shape skip-stub (md5-against-cross-build) to the correct
+  2-step native fixpoint and wired into `check.sh`. The earlier
+  roadmap framing cited `_TARGET_MACHO` undef — stale symptom
+  shape from a pre-v5.6.12 source tree; same root cause class
+  (include missing from the native variant), same 1-line fix.
 - **v5.6.29** — sandhi-surfaced `lib/tls.cyr` HTTPS infinite-loop
   fix. `_tls_init` now runs the documented libc-consumer bootstrap
   (`dynlib_bootstrap_cpu_features` + `_tls` + `_stack_end`) before
