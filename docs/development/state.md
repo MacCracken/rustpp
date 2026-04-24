@@ -5,29 +5,30 @@
 
 ## Version
 
-**5.6.24** (in progress — active minor: v5.6.x optimization arc)
+**5.6.25** (in progress — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 522,624 B
-- **cc5_aarch64 (cross)**: 400,872 B
-- **cc5_win (cross)**: 516,200 B
+- **cc5 (x86_64)**: 542,928 B (+21,712 B vs v5.6.22 — default-on regalloc save/restore)
+- **cc5_aarch64 (cross)**: 419,776 B
+- **cc5_win (cross)**: 537,896 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
 - **IR=3 NOP-fill on cc5 self-compile** (v5.6.18 baseline carries forward;
   v5.6.19 adds infrastructure only, no codegen change): 135 folds + 678 DCE +
   15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
-  iterations. Real binary shrinkage waits for v5.6.28 codebuf compaction.
-- **Regalloc** (v5.6.20): per-fn live-interval tables (v5.6.19) +
-  Poletto-Sarkar picker with time-sliced rewrite. Opt-in via
-  `#regalloc` OR `CYRIUS_REGALLOC_AUTO_CAP=N`. v5.6.23 narrowed
-  the auto-enable gate to skip fns containing inline asm (asm
-  hardcodes `[rbp-N]` disps that the regalloc save block shifts).
-  Default-on flip surfaced a second picker correctness bug
-  (cross-fn corruption from `test_str_short` to `test_defaults`)
-  pinned v5.6.24. `CYRIUS_REGALLOC_DUMP=1` prints intervals;
-  `CYRIUS_REGALLOC_PICKER_CAP=N` caps assignments for bisection.
+  iterations. Real binary shrinkage waits for v5.6.27 codebuf compaction.
+- **Regalloc** (v5.6.20–v5.6.24): per-fn live-interval tables (v5.6.19) +
+  Poletto-Sarkar picker (v5.6.20) + asm-skip lookahead (v5.6.23) +
+  fixed SysV stack-arg shuttle (v5.6.24). **Default-on as of v5.6.24**
+  (`CYRIUS_REGALLOC_AUTO_CAP=0` to disable; previously opt-in via
+  `#regalloc` only). Picker pins up to 5 locals to rbx/r12-r15.
+  v5.6.24 fixed the SysV ECALLPOPS r12-r14 clobber that surfaced as
+  the "live-across-calls" bug (sandhi-reported / flags-test
+  test_str_short→test_defaults bisection). `CYRIUS_REGALLOC_DUMP=1`
+  prints intervals; `CYRIUS_REGALLOC_PICKER_CAP=N` caps assignments
+  for bisection.
 
 ## Suites
 
@@ -40,33 +41,29 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.24** — picker correctness bug investigation. Default-on
-  flip at v5.6.23 surfaced cross-fn corruption: regalloc-enabling
-  `test_str_short` (5 vars, 2 calls) breaks the next-fn
-  `test_defaults` 5-arg `flags_add_int` call (default_val 7 → 0).
-  Bisection at AUTO_CAP=117/118 confirms the boundary. Independent
-  of asm-skip and NOP-fill (both cleared during v5.6.23). Different
-  shape from v5.6.22 loop-back time-share. Fix needed before
-  default-on can flip.
-- **v5.6.25** — live-across-calls regalloc investigation.
-  Consumer report (patra workaround): every loop counter / pointer
-  crossing a patra call needs explicit boxing. Hypothesis: cyrius
-  is regalloc-ing locals live across calls without proper save/
-  restore around the spill. May be the same root as v5.6.24 or
-  distinct — sequenced after for clean attribution.
-- **v5.6.26** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+- **v5.6.25** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
   precondition v5.6.21.
-- **v5.6.27** — Phase O5: maximal-munch instruction selection (precedes
+- **v5.6.26** — Phase O5: maximal-munch instruction selection (precedes
   RISC-V backend at v5.7.x).
-- **v5.6.28** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+- **v5.6.27** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
   repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.29–v5.6.31** — consumer-surfaced tooling: `cyrius init` scaffold,
+- **v5.6.28–v5.6.30** — consumer-surfaced tooling: `cyrius init` scaffold,
   libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.32–v5.6.34** — broad-scope platform repair: aarch64 native
+- **v5.6.31–v5.6.33** — broad-scope platform repair: aarch64 native
   self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
   dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.35** — shared-object emission.
-- **v5.6.36** — closeout.
+- **v5.6.34** — shared-object emission.
+- **v5.6.35** — closeout.
+
+**Pinned (sandhi 2026-04-24, no slot yet)**:
+- `fdlopen_init_full` orchestration completion — v5.5.29 KNOWN-INCOMPLETE.
+  Three probe attempts didn't reach helper main. Sandhi M2 worked around
+  with native UDP DNS resolver. See `lib/fdlopen.cyr:714-739` for pinned
+  next-steps.
+- `lib/tls.cyr` HTTPS infinite-loop on M2 — `dynlib_open("libssl.so.3")`
+  without `dynlib_bootstrap_*` sequence. Plain HTTP works; only TLS path
+  loops. See `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`
+  symptom #3.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -77,14 +74,28 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.24** — **Default-on regalloc**, two-bug fix. (1) SysV
+  ECALLPOPS for n>6 args used r12-r14 as scratch. Under v5.6.20+
+  regalloc the picker pinned caller's locals to those callee-saved
+  regs → silent corruption (sandhi-reported "live-across-calls"
+  boxing workaround / flags-test test_str_short→test_defaults
+  bisection at AUTO_CAP=118). Rewrote shuttle to use only r10
+  (caller-saved) via direct `[rsp+offset]` addressing. (2) Flipped
+  `_ra_auto_cap` default from -1 (disabled) to "uncapped" — every
+  eligible fn gets auto-regalloc'd unless it has inline asm.
+  cc5 522,624 → 542,928 B (+20,304 B for save/restore overhead;
+  perf gain visible only in downstream consumers). check.sh 23/23,
+  all 84 .tcyr PASS, both fixpoints clean. v5.6.25 sandhi
+  pre-existing fdlopen + TLS bugs pinned for future investigation.
+  Cascade -1 (v5.6.25 picker-bug consolidated into v5.6.24);
+  closeout v5.6.36 → v5.6.35.
 - **v5.6.23** — Misdiagnosis correction: the v5.6.22 "alignment
   regression" was actually inline-asm + regalloc stack-frame layout
   collision. Asm hardcodes `[rbp-N]` disps; regalloc's callee-save
   block shifts every local slot by `_cur_fn_regalloc * 8`. Fix:
   body-scan lookahead in `parse_fn.cyr` for token 48 (`asm`); auto-
   enable silently skips, opt-in `#regalloc` warns and skips. Default-
-  on flip surfaced a SECOND picker bug (`test_str_short` regalloc
-  corrupts `test_defaults`'s 5-arg call) — pinned v5.6.24.
+  on flip surfaced a SECOND picker bug — fixed at v5.6.24.
   Cascade +2: closeout v5.6.34 → v5.6.36.
 - **v5.6.22** — Phase O4c (partial): picker correctness fix (loop-back
   time-share extend) + auto-enable infrastructure shipped DISABLED

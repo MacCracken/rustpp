@@ -1081,24 +1081,59 @@ fn ECALLPOPS(S, n) {
         while (i >= 0) { EPOPARG(S, i); i = i - 1; }
         return 0;
     }
-    # >6 args: stack = [a1..aN], aN on top. Need a1-a6 in registers, a7+ on stack.
-    # 1. Pop (n-6) extras from top into r11-r14
-    # 2. Pop 6 register args (now a1-a6 are on top in correct order)
-    # 3. Push extras back onto stack for callee
+    # >6 args (SysV): stack = [a1..aN], aN on top. Need a1..a6 in
+    # registers rdi/rsi/rdx/rcx/r8/r9; a7..aN on stack with a7 at top.
+    #
+    # v5.6.24 fix: the earlier shuttle used r12/r13/r14 as scratch to
+    # hold popped extras across the 6 reg-arg pops. r12-r14 are
+    # CALLEE-SAVED in SysV; under v5.6.20+ regalloc the picker may
+    # pin caller's locals to them, so silent clobber = silent
+    # corruption. Surfaced by sandhi M2's `sandhi_http_response_parse`
+    # (headers local zeroed by downstream call) and flags.tcyr's
+    # `test_defaults` (default_val 7 → 0 when preceding
+    # `test_str_short` is auto-regalloc'd) — both match the 8+ arg
+    # call signature (flags_add_str takes 5 regs + extras in
+    # `_argv(3, ..., 0, 0, 0, 0, 0, 0)`; response_parse called an
+    # 8-arg helper).
+    #
+    # New shuttle: use only r10 (caller-saved) as scratch via direct
+    # [rsp+offset] addressing. No pops; all reads via MOV; end with
+    # `add rsp, 48` to drop the 6 reg-arg slots. Extras shifted from
+    # [rsp+0..(nextra-1)*8] to [rsp+48..48+(nextra-1)*8] (reversed so
+    # a7 lands at new [rsp+0]). Old/new positions don't overlap for
+    # any nextra in [1, 5].
     var nextra = n - 6;
-    # Step 1: pop extras into caller-saved regs (r11-r14, supports up to 4 extras)
-    EB(S, 0x58); E3(S, 0xC38949);                                     # pop rax; mov r11, rax
-    if (nextra >= 2) { EB(S, 0x58); E3(S, 0xC48949); }               # pop rax; mov r12, rax
-    if (nextra >= 3) { EB(S, 0x58); E3(S, 0xC58949); }               # pop rax; mov r13, rax
-    if (nextra >= 4) { EB(S, 0x58); E3(S, 0xC68949); }               # pop rax; mov r14, rax
-    # Step 2: pop 6 register args
-    var i = 5;
-    while (i >= 0) { EPOPARG(S, i); i = i - 1; }
-    # Step 3: push extras back (reverse order so callee sees a7 at [rbp+16])
-    if (nextra >= 4) { E2(S, 0x5641); }                               # push r14
-    if (nextra >= 3) { E2(S, 0x5541); }                               # push r13
-    if (nextra >= 2) { E2(S, 0x5441); }                               # push r12
-    E2(S, 0x5341);                                                     # push r11
+    # Step 1: load 6 reg args from stack (a_k at [rsp+(n-k)*8]).
+    # rdi = a1 at [rsp+(n-1)*8]
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x7C); EB(S, 0x24); EB(S, (n - 1) * 8);
+    # rsi = a2 at [rsp+(n-2)*8]
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x74); EB(S, 0x24); EB(S, (n - 2) * 8);
+    # rdx = a3 at [rsp+(n-3)*8]
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x54); EB(S, 0x24); EB(S, (n - 3) * 8);
+    # rcx = a4 at [rsp+(n-4)*8]
+    EB(S, 0x48); EB(S, 0x8B); EB(S, 0x4C); EB(S, 0x24); EB(S, (n - 4) * 8);
+    # r8  = a5 at [rsp+(n-5)*8]
+    EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, (n - 5) * 8);
+    # r9  = a6 at [rsp+(n-6)*8]
+    EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x4C); EB(S, 0x24); EB(S, (n - 6) * 8);
+    # Step 2: shift extras UP by 48 B (the 6 reg-arg slots) via r10.
+    # cyrius's convention: [rbp+16] = a_n (last-pushed, topmost),
+    # [rbp+16+(nextra-1)*8] = a_7 (first extra, deepest). This matches
+    # the original push order (a_n at [rsp+0]), so NO reversal — just
+    # shift. For each i in [0, nextra): copy old [rsp+i*8] into new
+    # [rsp+(6+i)*8]. After `add rsp, 48` the data lands at
+    # [rsp+i*8], preserving order. Old (0..32) and new (48..80)
+    # positions never overlap (nextra ≤ 5).
+    var si = 0;
+    while (si < nextra) {
+        # mov r10, [rsp + si*8]
+        EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x54); EB(S, 0x24); EB(S, si * 8);
+        # mov [rsp + (6 + si) * 8], r10
+        EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, (6 + si) * 8);
+        si = si + 1;
+    }
+    # Step 3: drop the 6 reg-arg slots from the stack top.
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x30);  # add rsp, 48
     return 0;
 }
 

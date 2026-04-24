@@ -4,6 +4,100 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.24] — 2026-04-24
+
+**Default-on regalloc** + the SysV `ECALLPOPS` callee-saved
+clobber fix that surfaced as the v5.6.23-pinned picker bug AND
+the sandhi-reported "live-across-calls" boxing workaround. Both
+symptoms had the same root cause; v5.6.25 (live-across-calls
+investigation) consolidated into v5.6.24.
+
+### Root cause: ECALLPOPS for n>6 args clobbered r12-r14 (SysV)
+
+For 8+ argument calls, `src/backend/x86/emit.cyr::ECALLPOPS`'s
+shuttle popped extras (a_7..a_n) into r11/r12/r13/r14, then
+popped the 6 reg args, then re-pushed extras for the call's
+stack-arg slots. **r12-r14 are CALLEE-SAVED in SysV.** Pre-
+regalloc this was harmless because cyrius didn't emit r12-r14 in
+non-regalloc code. Under v5.6.20+ regalloc the picker pinned
+caller's locals to those exact registers — calls then silently
+overwrote the locals.
+
+Surfaced as:
+- **flags.tcyr `test_defaults` FAIL** at AUTO_CAP=118 = the 118th
+  auto-enabled fn = `test_str_short`. Its `_argv(3, "prog", "-o",
+  "/tmp/out.s", 0, 0, 0, 0, 0)` 9-arg call (nextra=3) clobbered
+  r12 holding fs in the next-fn `test_defaults`'s frame.
+- **sandhi M2 `sandhi_http_response_parse` corruption**: `var
+  headers` silently zeroed by an unrelated downstream call.
+  Workaround was `var hdr_backup = headers;` to shift local
+  layout away from the picker's choice. Filed at
+  `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`
+  symptom #2.
+
+### Fix
+
+`src/backend/x86/emit.cyr::ECALLPOPS` SysV n>6 path rewritten to
+use only **r10 (caller-saved)** as scratch via direct
+`[rsp+offset]` MOV addressing — no pops. New scheme:
+
+1. Load 6 reg args directly: `mov rdi, [rsp+(n-1)*8]`, ...,
+   `mov r9, [rsp+(n-6)*8]`.
+2. Shift extras from `[rsp+0..(nextra-1)*8]` to
+   `[rsp+48..48+(nextra-1)*8]` via r10 (single scratch). Order
+   preserved (cyrius convention: a_n at `[rbp+16]`, a_7 at the
+   deepest stack-arg position).
+3. `add rsp, 48` to drop the 6 reg-arg slots.
+
+Old (0..(nextra-1)*8) and new (48..48+(nextra-1)*8) source/dest
+positions never overlap for any nextra in [1, 5] (max 11 args
+total). r10 + r11 + rax remain available; the picker never pins
+any of them.
+
+### Default-on flip
+
+Same edit pass also flipped `_ra_auto_cap` default from -1
+(disabled, opt-in via `#regalloc` only) to "uncapped" — every
+eligible fn (x86 backend + no inline asm body) now gets
+auto-regalloc'd. `CYRIUS_REGALLOC_AUTO_CAP=0` env var disables.
+
+### Verification
+
+- 3-step fixpoint clean (`cc5_a → cc5_b → cc5_c; b == c`) at both
+  `IR_ENABLED=0` and `IR_ENABLED=3`
+- `check.sh` **23/23 PASS**, all **84 .tcyr PASS**
+  (incl. the previously-failing `flags.tcyr`)
+- `regression-inline-asm-discard.sh` PASS (default + AUTO_CAP=0
+  + AUTO_CAP=99999)
+- cc5 522,624 → **542,928 B** (+20,304 B). The growth is the
+  per-fn save/restore overhead (rbx + r12-r15) at every fn
+  receiving auto-regalloc. Real perf gain visible mainly in
+  downstream consumers; cc5 itself is already heavily inlined and
+  picker-locked locals don't dominate hot paths.
+- cc5_aarch64 cross: 400,872 → 419,776 B
+- cc5_win cross: 516,200 → 537,896 B
+
+### Sandhi-pinned future bugs (no slot yet)
+
+Filed during sandhi M2 design pass 2026-04-24 at the same
+date-case file:
+- **`fdlopen_init_full` orchestration completion** (v5.5.29
+  KNOWN-INCOMPLETE; sandhi shipped native UDP DNS resolver as
+  workaround). See `lib/fdlopen.cyr:714-739` next-steps.
+- **`lib/tls.cyr` HTTPS infinite-loop** — missing
+  `dynlib_bootstrap_*` sequence before
+  `dynlib_open("libssl.so.3")`. Plain HTTP works; only TLS path
+  loops.
+
+### Files
+
+- `src/backend/x86/emit.cyr` — rewrote SysV `ECALLPOPS` n>6 path
+- `src/frontend/parse_fn.cyr` — flipped auto-enable default ON
+- `src/main.cyr` — comment updated for new gate semantics
+- Regression stub pin labels cascade -1: v5.6.32/33/34 →
+  v5.6.31/32/33; `scripts/check.sh` labels updated
+- Roadmap cascade -1: closeout v5.6.36 → v5.6.35
+
 ## [5.6.23] — 2026-04-24
 
 **Misdiagnosis correction: the v5.6.22 "alignment regression"

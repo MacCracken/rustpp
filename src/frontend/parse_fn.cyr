@@ -666,20 +666,22 @@ fn PARSE_FN_DEF(S) {
     }
     STI(S, _ia_save_ti);
 
-    # v5.6.22 + v5.6.23: auto-enable default OFF. _ra_auto_cap semantics:
-    #   <= 0 → disabled (default; explicit #regalloc opt-in only)
+    # v5.6.24 default-on: _ra_auto_cap semantics:
+    #   < 0  → uncapped (every eligible fn) — DEFAULT
+    #   == 0 → disabled (explicit #regalloc opt-in only)
     #   > N  → first N eligible fns (bisection knob)
     # "Eligible" = x86 backend + no inline asm in body.
-    # v5.6.23 fixed a misdiagnosed v5.6.22 bug (was framed as global-
-    # array alignment regression, actual root cause was inline-asm +
-    # regalloc stack-frame layout). Default-on flip surfaced a SECOND
-    # picker correctness bug — `test_str_short` regalloc-enabling
-    # corrupts a later `test_defaults` 5-arg call site (flags test
-    # bisects to the 118th auto-enabled fn). Pinned future slot.
+    # v5.6.23 fixed misdiagnosed asm/regalloc layout collision.
+    # v5.6.24 fixed the picker bug surfaced by the default-on attempt:
+    # SysV ECALLPOPS used r12-r14 as scratch for 8+ arg calls; under
+    # regalloc the picker pinned caller's locals to those callee-saved
+    # regs, so calls silently corrupted the locals. Rewrote ECALLPOPS
+    # to use only r10 + direct [rsp+offset] addressing.
     var _auto_enable = 0;
     if (_AARCH64_BACKEND == 0) {
         if (_has_inline_asm == 0) {
-            if (_ra_auto_cap > 0) {
+            if (_ra_auto_cap < 0) { _auto_enable = 1; }
+            elif (_ra_auto_cap > 0) {
                 if (_ra_auto_count < _ra_auto_cap) { _auto_enable = 1; }
             }
         }

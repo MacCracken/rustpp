@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.24\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.25\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -438,11 +438,14 @@ if (_ra_picker_cap_env != 0) {
         }
     }
 }
-# v5.6.22 O4c: CYRIUS_REGALLOC_AUTO_CAP=N opts in to per-fn auto-
-# enable. Default disabled. v5.6.23 narrowed the gate to skip fns
-# with inline asm bodies (asm hardcodes [rbp-N] disps; regalloc's
-# callee-save block shifts those slots).
-#   <= 0 = disabled (compiled-in DEFAULT)
+# v5.6.24 default-on: CYRIUS_REGALLOC_AUTO_CAP=N overrides the
+# auto-enable cap. v5.6.22 shipped infra DISABLED. v5.6.23 narrowed
+# the gate to skip inline-asm fns (layout-collision fix). v5.6.24
+# fixed the picker bug surfaced by default-on (SysV ECALLPOPS for
+# 8+ arg calls clobbered r12-r14 = picker's pinned-local regs) and
+# flipped the default to ON.
+#   < 0  = uncapped (every eligible fn) — compiled-in DEFAULT
+#   == 0 = disabled (back to explicit #regalloc opt-in only)
 #   > N  = first N eligible fns (bisection knob)
 # "Eligible" = x86 backend + no inline asm in body.
 var _ra_auto_cap_env = _read_env("CYRIUS_REGALLOC_AUTO_CAP");
