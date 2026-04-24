@@ -937,6 +937,12 @@ fn ECALLTO(S, target) {
     var addr = S + 0x54A000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
+    # v5.6.27: record disp32 source CP for codebuf-compaction repair.
+    var _jsc = L64(S + 0xA0000);
+    if (_jsc < 1024) {
+        S64(S + 0xA0008 + _jsc * 8, cp);
+        S64(S + 0xA0000, _jsc + 1);
+    }
     # v5.6.21: callee may set flags arbitrarily; rax = return value.
     _flags_reflect_rax = 0;
     return 0;

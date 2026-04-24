@@ -217,29 +217,29 @@ if [ "$fl_result" -ne 0 ]; then cat /tmp/audit_fl_$$; fi
 rm -f /tmp/audit_fl_$$
 echo ""
 
-# ── 4o. native aarch64 self-host on Pi (pin v5.6.31) ──
+# ── 4o. native aarch64 self-host on Pi (pin v5.6.32) ──
 echo "── aarch64 native self-host ──"
 sh "$ROOT/tests/regression-aarch64-native-selfhost.sh" > /tmp/audit_ns_$$ 2>&1
 ns_result=$?
-check "native cc5 self-hosts byte-identical on Pi (pin v5.6.31)" "$ns_result"
+check "native cc5 self-hosts byte-identical on Pi (pin v5.6.32)" "$ns_result"
 if [ "$ns_result" -ne 0 ]; then cat /tmp/audit_ns_$$; fi
 rm -f /tmp/audit_ns_$$
 echo ""
 
-# ── 4p. macOS arm64 runtime exit code (pin v5.6.32) ──
+# ── 4p. macOS arm64 runtime exit code (pin v5.6.33) ──
 echo "── Mach-O arm64 runtime ──"
 sh "$ROOT/tests/regression-macho-exit.sh" > /tmp/audit_mo_$$ 2>&1
 mo_result=$?
-check "Mach-O arm64 syscall(60,42) → exit 42 on ecb (pin v5.6.32)" "$mo_result"
+check "Mach-O arm64 syscall(60,42) → exit 42 on ecb (pin v5.6.33)" "$mo_result"
 if [ "$mo_result" -ne 0 ]; then cat /tmp/audit_mo_$$; fi
 rm -f /tmp/audit_mo_$$
 echo ""
 
-# ── 4q. Windows 11 PE runtime exit code (pin v5.6.33) ──
+# ── 4q. Windows 11 PE runtime exit code (pin v5.6.34) ──
 echo "── PE32+ Windows runtime ──"
 sh "$ROOT/tests/regression-pe-exit.sh" > /tmp/audit_pe_$$ 2>&1
 pe_result=$?
-check "PE syscall(60,42) → exit 42 on cass (pin v5.6.33)" "$pe_result"
+check "PE syscall(60,42) → exit 42 on cass (pin v5.6.34)" "$pe_result"
 if [ "$pe_result" -ne 0 ]; then cat /tmp/audit_pe_$$; fi
 rm -f /tmp/audit_pe_$$
 echo ""

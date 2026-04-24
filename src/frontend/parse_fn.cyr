@@ -750,6 +750,9 @@ fn PARSE_FN_DEF(S) {
     SRPC(S, 0);
     S64(S + 0x8F900, 0);  # defer_count = 0
     S64(S + 0x9E000, 0);  # jump_target_count = 0
+    S64(S + 0xA0000, 0);  # v5.6.27: jump_src_cnt = 0 (per-fn compaction)
+    S64(S + 0xA2008, 0);  # v5.6.27: nop_run_cnt = 0
+    S64(S + 0xA6010, GFCNT(S));  # v5.6.27: fn_start_fcnt baseline
     # Emit prologue
     EFNPRO(S);
     var frame_patch = ESUBRSP(S);
@@ -1350,6 +1353,13 @@ fn PARSE_FN_DEF(S) {
                                 store8(S + 0x54A000 + ra_p + 4, 0x1F);
                                 store8(S + 0x54A000 + ra_p + 5, 0x40);
                                 store8(S + 0x54A000 + ra_p + 6, 0x00);
+                                # v5.6.27: record NOP run at ra_p+3, len 4
+                                var _nrc_l = L64(S + 0xA2008);
+                                if (_nrc_l < 1024) {
+                                    S64(S + 0xA2010 + _nrc_l * 16, ra_p + 3);
+                                    S64(S + 0xA2010 + _nrc_l * 16 + 8, 4);
+                                    S64(S + 0xA2008, _nrc_l + 1);
+                                }
                             }
                             if (op1 == 0x89) {
                                 # mov [rbp+disp],rax → mov REG,rax; 4-byte NOP
@@ -1360,6 +1370,13 @@ fn PARSE_FN_DEF(S) {
                                 store8(S + 0x54A000 + ra_p + 4, 0x1F);
                                 store8(S + 0x54A000 + ra_p + 5, 0x40);
                                 store8(S + 0x54A000 + ra_p + 6, 0x00);
+                                # v5.6.27: record NOP run at ra_p+3, len 4
+                                var _nrc_s = L64(S + 0xA2008);
+                                if (_nrc_s < 1024) {
+                                    S64(S + 0xA2010 + _nrc_s * 16, ra_p + 3);
+                                    S64(S + 0xA2010 + _nrc_s * 16 + 8, 4);
+                                    S64(S + 0xA2008, _nrc_s + 1);
+                                }
                             }
                         } } }
                         ra_p = ra_p + 1;
@@ -1368,6 +1385,144 @@ fn PARSE_FN_DEF(S) {
                 }
             }
         }
+    }
+    # v5.6.27: codebuf compaction (NOP harvest with jump+fixup repair).
+    # Per-fn pass after picker. Walks the per-fn nop_run_tbl (populated
+    # by picker patches above), updates every disp32 in the per-fn
+    # jump_src_tbl (EJCC/EJMP/EJMP0/ECALLTO recorded their CPs at
+    # emit time), shifts every fixup-table CP added during this fn,
+    # shifts every jump-target table entry, then compacts bytes
+    # in-place by skipping NOP runs.
+    #
+    # Gates: x86 only; non-shared/non-object kmode (rip-rel disp32
+    # untracked); no overflow on jump_src_tbl or nop_run_tbl;
+    # IR_ENABLED == 0 (DSE/LASE NOPs at IR=3 not tracked).
+    if (_AARCH64_BACKEND == 0) {
+    var _kmode = L64(S + 0x8FCA0);
+    if (_kmode <= 1) {
+        if (IR_ENABLED(S) == 0) {
+            var _nrn = L64(S + 0xA2008);
+            var _jsn = L64(S + 0xA0000);
+            if (_nrn > 0 && _nrn < 1024 && _jsn < 1024) {
+                # Stage 1: update intra-fn jump disp32s.
+                # For each tracked source CP: decode disp32, compute
+                # target, recompute new disp using shift_at(src) and
+                # shift_at(tgt). shift_at(p) = sum of nop lens where
+                # nop_cp < p (linear scan; runs are emit-order which
+                # may not be CP-sorted, so check all).
+                var _ji = 0;
+                while (_ji < _jsn) {
+                    var _src_cp = L64(S + 0xA0008 + _ji * 8);
+                    var _da = S + 0x54A000 + _src_cp;
+                    var _disp = load8(_da) | (load8(_da + 1) << 8) | (load8(_da + 2) << 16) | (load8(_da + 3) << 24);
+                    if (_disp >= 0x80000000) { _disp = _disp - 0x100000000; }
+                    var _tgt_cp = _src_cp + 4 + _disp;
+                    var _ssh = 0;
+                    var _tsh = 0;
+                    var _ni = 0;
+                    while (_ni < _nrn) {
+                        var _ncp = L64(S + 0xA2010 + _ni * 16);
+                        var _nlen = L64(S + 0xA2010 + _ni * 16 + 8);
+                        if (_ncp < _src_cp) { _ssh = _ssh + _nlen; }
+                        if (_ncp < _tgt_cp) { _tsh = _tsh + _nlen; }
+                        _ni = _ni + 1;
+                    }
+                    var _nd = _disp - _tsh + _ssh;
+                    store8(_da + 0, _nd & 0xFF);
+                    store8(_da + 1, (_nd >> 8) & 0xFF);
+                    store8(_da + 2, (_nd >> 16) & 0xFF);
+                    store8(_da + 3, (_nd >> 24) & 0xFF);
+                    _ji = _ji + 1;
+                }
+                # Stage 2: shift fixup-table CPs added during this fn.
+                # FIXUP later patches via these CPs — they must reflect
+                # post-compaction positions.
+                var _fc0 = L64(S + 0xA6010);
+                var _fcn = GFCNT(S);
+                var _fi = _fc0;
+                while (_fi < _fcn) {
+                    var _fa = S + 0x150B000 + _fi * 16;
+                    var _fcp = L64(_fa);
+                    var _fsh = 0;
+                    var _ni2 = 0;
+                    while (_ni2 < _nrn) {
+                        var _ncp2 = L64(S + 0xA2010 + _ni2 * 16);
+                        if (_ncp2 < _fcp) { _fsh = _fsh + L64(S + 0xA2010 + _ni2 * 16 + 8); }
+                        _ni2 = _ni2 + 1;
+                    }
+                    S64(_fa, _fcp - _fsh);
+                    _fi = _fi + 1;
+                }
+                # Stage 3: shift jump-target table entries (used by LASE
+                # / BB analysis at IR>0; harmless to update at IR=0).
+                var _jtc = L64(S + 0x9E000);
+                if (_jtc > 1024) { _jtc = 1024; }
+                var _jti = 0;
+                while (_jti < _jtc) {
+                    var _jta = S + 0x9E008 + _jti * 8;
+                    var _jcp = L64(_jta);
+                    var _jsh = 0;
+                    var _ni3 = 0;
+                    while (_ni3 < _nrn) {
+                        var _ncp3 = L64(S + 0xA2010 + _ni3 * 16);
+                        if (_ncp3 < _jcp) { _jsh = _jsh + L64(S + 0xA2010 + _ni3 * 16 + 8); }
+                        _ni3 = _ni3 + 1;
+                    }
+                    S64(_jta, _jcp - _jsh);
+                    _jti = _jti + 1;
+                }
+                # Stage 4: compact bytes. Sort NOP runs by CP first
+                # (insertion sort; nrn ≤ 1024). Picker emit order isn't
+                # strictly CP-monotone (multiple intervals patched in
+                # interval order, not emit order).
+                var _si = 1;
+                while (_si < _nrn) {
+                    var _kcp = L64(S + 0xA2010 + _si * 16);
+                    var _klen = L64(S + 0xA2010 + _si * 16 + 8);
+                    var _sj = _si - 1;
+                    var _sd = 0;
+                    while (_sj >= 0 && _sd == 0) {
+                        var _pcp = L64(S + 0xA2010 + _sj * 16);
+                        if (_pcp > _kcp) {
+                            S64(S + 0xA2010 + (_sj + 1) * 16, _pcp);
+                            S64(S + 0xA2010 + (_sj + 1) * 16 + 8, L64(S + 0xA2010 + _sj * 16 + 8));
+                            _sj = _sj - 1;
+                        } else { _sd = 1; }
+                    }
+                    S64(S + 0xA2010 + (_sj + 1) * 16, _kcp);
+                    S64(S + 0xA2010 + (_sj + 1) * 16 + 8, _klen);
+                    _si = _si + 1;
+                }
+                # Now compact: walk fn_start..GCP, skip NOP-run bytes,
+                # copy non-NOP bytes back to write-pointer.
+                var _end = GCP(S);
+                var _wp = fn_start;
+                var _rp = fn_start;
+                var _ri = 0;
+                while (_rp < _end) {
+                    var _skip = 0;
+                    if (_ri < _nrn) {
+                        var _nrcp = L64(S + 0xA2010 + _ri * 16);
+                        if (_rp == _nrcp) {
+                            _rp = _rp + L64(S + 0xA2010 + _ri * 16 + 8);
+                            _ri = _ri + 1;
+                            _skip = 1;
+                        }
+                    }
+                    if (_skip == 0) {
+                        store8(S + 0x54A000 + _wp, load8(S + 0x54A000 + _rp));
+                        _wp = _wp + 1;
+                        _rp = _rp + 1;
+                    }
+                }
+                SCP(S, _wp);
+                # Invalidate emit-tracker globals — their CPs are stale.
+                _last_push_cp = 0 - 1;
+                _last_emovca_cp = 0 - 1;
+                _last_movca_popr_cp = 0 - 1;
+            }
+        }
+    }
     }
     # Patch frame size
     var flc = GFLC(S);

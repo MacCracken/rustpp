@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.27] — 2026-04-24
+
+**Phase O6: codebuf compaction (NOP harvest with jump+fixup
+repair).** Per-fn pass that runs after the regalloc picker; sweeps
+the picker's 4-byte NOP-fills out of the binary by tracking NOP
+positions explicitly at emit time and repairing every disp32 +
+fixup-table CP + jump-target CP affected by the byte shift.
+
+### What it sweeps
+
+The v5.6.20 picker rewrites `mov rax, [rbp+disp32]` (7 B) into
+`mov rax, REG; NOP4` (3 B + 4 B = 7 B) — length-preserving so
+existing jump disps remain valid. Default-on regalloc (v5.6.24)
+made this fire for every eligible fn × every pinned local: cc5
+carried **4,076 instances** of `0F 1F 40 00` = 16,304 B of NOP
+overhead at 542,928 B baseline.
+
+### Why byte-scan doesn't work (the v5.6.26 lesson)
+
+The naive approach — scan codebuf for `0F 1F 40 00` byte
+sequences — false-positives on data bytes that happen to contain
+that pattern as part of `movabs imm64`, disp32 fields, or other
+multi-byte instructions. v5.6.26's exploration broke 43 of 84
+.tcyr tests this way before bailing.
+
+### Fix: explicit tracking at every emit site
+
+Two new per-fn tables in the heap:
+- `0xA0000 jump_src_tbl [1024 × 8B]` — disp32 source CPs.
+  Populated by `EJCC` / `EJMP` / `EJMP0` / `ECALLTO` (every emit
+  path that writes a rel32). Reset at fn start.
+- `0xA2010 nop_run_tbl [1024 × 16B]` — `(cp, len)` per NOP run.
+  Populated by the picker's load/store rewrites in
+  `parse_fn.cyr`. Reset at fn start.
+- `0xA6010 fn_start_fcnt [8B]` — fixup-table baseline at fn start.
+
+Compaction (in `parse_fn.cyr` after the picker, before frame
+patch):
+1. **Sort NOP runs by CP** (insertion sort; picker emits in
+   interval order, not CP order).
+2. **Update intra-fn jump disp32s**: for each tracked source,
+   decode disp, compute target, recompute as
+   `new_disp = old_disp - shift_at(target) + shift_at(source)`,
+   write back.
+3. **Shift fixup-table CPs** added during this fn — the FIXUP
+   pass later patches via these CPs and must see post-compaction
+   positions.
+4. **Shift jump-target table entries** (used by LASE / BB
+   analysis at IR>0; harmless to update at IR=0).
+5. **Compact bytes**: walk the fn body, skip NOP-run bytes,
+   copy non-NOPs to the write pointer. Update GCP.
+
+### Gates
+
+Compaction only runs when:
+- `_AARCH64_BACKEND == 0` (the picker is x86-only).
+- `kmode <= 1` (kernel/user). Skipped for shared (kmode=2) and
+  object (kmode=3) builds because rip-rel disp32 sites aren't
+  tracked.
+- `IR_ENABLED == 0` — the v5.6.16/17/18 IR-pass NOP-fills aren't
+  tracked. IR=3 mode keeps all NOPs; IR=3 NOP harvest pinned
+  for a future slot.
+- No table overflow (jump_src or nop_run >= 1024).
+
+### Verification
+
+- 3-step fixpoint clean (`cc5_a → cc5_b → cc5_c; b == c`) at
+  IR=0 (531,392 B) AND IR=3 (547,760 B; IR=3 keeps NOPs)
+- check.sh **23/23 PASS**, all 84 .tcyr PASS
+- cc5 542,928 → **531,392 B (−11,536 B / −2.13%)** net
+  shrinkage (compaction saves ~16 KB picker NOPs minus ~5 KB
+  cost of the new tracking tables + compaction code itself)
+- cc5_aarch64 cross 419,776 → **411,136 B (−8,640 B)** —
+  cross-compiler is x86, so it benefits too
+- cc5_win cross 537,896 → **526,376 B (−11,520 B)** — same
+- Native aarch64 cc5 497,008 → 503,328 B (+6,320 B) —
+  the x86-only compaction code is dead-emitted on aarch64
+  builds (gated runtime-only). Strip to `#ifdef CYRIUS_ARCH_X86`
+  pinned as future cleanup.
+
+### Files
+
+- `src/main.cyr` — heap map: 3 new regions at 0xA0000-0xA6018
+- `src/frontend/parse_fn.cyr` — fn-start resets, picker NOP
+  tracking hooks, compaction pass (~110 LOC)
+- `src/backend/x86/jump.cyr` — jump-source tracking in
+  EJCC/EJMP/EJMP0
+- `src/backend/x86/emit.cyr` — jump-source tracking in ECALLTO
+- VERSION 5.6.27 → 5.6.28
+
+## [5.6.26] — 2026-04-24
+
+**Peephole refinement + v5.6.25 doc completion.** EPOPARG
+`n == 0` adjacency-cancel block landed cleanly (the v5.6.25
+13-LOC fix that closed the v5.6.11 aarch64 mirror gap). Phase O5
+maximal-munch dropped from the optimization arc — recon found 0
+fused-op candidates (cyrius's stack-machine IR keeps a push
+between sub-expression results and consumers); push-imm rewrite
+has rax-side-effect + forward-jump-target issues. Pinned
+long-term, no slot — needs an IR-level push-elision pass first.
+
 ## [5.6.25] — 2026-04-24
 
 **aarch64 push/pop-cancel completion** — closes the v5.6.11

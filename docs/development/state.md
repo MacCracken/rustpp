@@ -5,22 +5,25 @@
 
 ## Version
 
-**5.6.26** (in progress — active minor: v5.6.x optimization arc)
+**5.6.28** (in progress — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 542,928 B (+21,712 B vs v5.6.22 — default-on regalloc save/restore)
-- **cc5_aarch64 (cross)**: 419,776 B (unchanged — cross-compiler is x86)
-- **cc5_win (cross)**: 537,896 B
-- **cc5 native aarch64** (Pi 4 output): 497,008 B at v5.6.25 (was 517,376 B at v5.6.24;
-  −20,368 B / −3.94% from EPOPARG(S,0) adjacent push/pop cancel — closes the v5.6.11
-  aarch64 mirror gap)
+- **cc5 (x86_64)**: 531,392 B (was 542,928 at v5.6.26; −11,536 B / −2.13% from
+  v5.6.27 codebuf compaction — picker NOP harvest with jump+fixup repair)
+- **cc5_aarch64 (cross)**: 411,136 B (was 419,776 at v5.6.26; −8,640 B — same
+  compaction; cross-compiler is x86)
+- **cc5_win (cross)**: 526,376 B (was 537,896 at v5.6.26; −11,520 B)
+- **cc5 native aarch64** (Pi 4 output): 503,328 B at v5.6.27 (+6,320 B vs
+  v5.6.25's 497,008; the x86-only compaction code is dead-emitted on aarch64
+  builds — `#ifdef CYRIUS_ARCH_X86` strip pinned as future cleanup)
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
 - **IR=3 NOP-fill on cc5 self-compile** (v5.6.18 baseline carries forward;
   v5.6.19 adds infrastructure only, no codegen change): 135 folds + 678 DCE +
-  15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
-  iterations. Real binary shrinkage waits for v5.6.27 codebuf compaction.
+  15 DSE + 567 LASE = 1,395 candidates / **6,099 B**. v5.6.27 compaction
+  sweeps picker NOPs at IR=0 only; IR=3 NOP harvest (DSE/LASE/const-fold)
+  pinned for a future slot — needs same-shape tracking added to those passes.
 - **Regalloc** (v5.6.20–v5.6.24): per-fn live-interval tables (v5.6.19) +
   Poletto-Sarkar picker (v5.6.20) + asm-skip lookahead (v5.6.23) +
   fixed SysV stack-arg shuttle (v5.6.24). **Default-on as of v5.6.24**
@@ -43,27 +46,28 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.26** — Phase O5: maximal-munch instruction selection (precedes
-  RISC-V backend at v5.7.x).
-- **v5.6.27** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
-  repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.28–v5.6.30** — consumer-surfaced tooling: `cyrius init` scaffold,
-  libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.31–v5.6.33** — broad-scope platform repair: aarch64 native
-  self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
-  dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.34** — shared-object emission.
-- **v5.6.35** — closeout.
-
-**Pinned (sandhi 2026-04-24, no slot yet)**:
-- `fdlopen_init_full` orchestration completion — v5.5.29 KNOWN-INCOMPLETE.
-  Three probe attempts didn't reach helper main. Sandhi M2 worked around
-  with native UDP DNS resolver. See `lib/fdlopen.cyr:714-739` for pinned
-  next-steps.
-- `lib/tls.cyr` HTTPS infinite-loop on M2 — `dynlib_open("libssl.so.3")`
-  without `dynlib_bootstrap_*` sequence. Plain HTTP works; only TLS path
-  loops. See `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`
-  symptom #3.
+- **v5.6.28** — `cyrius init` scaffold gaps (owl-surfaced, 5 fixes
+  in `cyrius-init.sh`).
+- **v5.6.29** — **sandhi-surfaced issues** (filed 2026-04-24,
+  `sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md`):
+  (1) `fdlopen_init_full` orchestration completion — v5.5.29
+  KNOWN-INCOMPLETE; three probe attempts didn't reach helper main;
+  sandhi M2 shipped native UDP DNS resolver as workaround
+  (`lib/fdlopen.cyr:714-739` next-steps). (2) `lib/tls.cyr` HTTPS
+  infinite-loop — `dynlib_open("libssl.so.3")` without
+  `dynlib_bootstrap_*` sequence; plain HTTP works, TLS loops
+  (symptom #3 in same file).
+- **v5.6.30** — libro layout-dependent memory corruption investigation.
+- **v5.6.31** — HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+  re-investigation.
+- **v5.6.32** — native aarch64 self-host (`_TARGET_MACHO` undef on
+  Pi 4 — feature gap in aarch64 runtime path).
+- **v5.6.33** — macOS arm64 Mach-O exit (Sequoia 15+ dyld drift;
+  bytes unchanged since v5.5.13).
+- **v5.6.34** — PE32+ Windows 11 24H2 exit (loader drift; bytes
+  unchanged since v5.5.10).
+- **v5.6.35** — shared-object (.so / .dll / .dylib) emission completion.
+- **v5.6.36** — v5.6.x closeout + downstream ecosystem sweep gate.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -74,6 +78,27 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.27** — Phase O6 codebuf compaction (NOP harvest with jump+fixup
+  repair). Per-fn pass after picker; sweeps the 4-byte `0F 1F 40 00`
+  NOP-fills via explicit tracking at every NOP-emit + disp32-emit
+  site (no byte-scan — that false-positives on data bytes). New heap
+  regions at 0xA0000 (jump-source) + 0xA2010 (NOP runs) + 0xA6010
+  (fn-start fixup baseline). Hooks in EJCC/EJMP/EJMP0/ECALLTO + the
+  picker's load/store rewrites. Compaction sorts NOPs by CP, walks
+  the jump-source table to recompute disp32s, shifts fixup-table CPs
+  + jump-target CPs, then compacts bytes. Gates: x86 only, kmode≤1,
+  IR=0, no table overflow. **cc5 542,928 → 531,392 B (−11,536 B /
+  −2.13%)**, cross-compilers see similar gains. check.sh 23/23, both
+  fixpoints clean. IR=3 NOP harvest (DSE/LASE/const-fold passes)
+  pinned for a future slot.
+- **v5.6.26** — peephole refinement + v5.6.25 doc/CHANGELOG completion
+  (the EPOPARG `n == 0` adjacency-cancel block landed cleanly, plus
+  full CHANGELOG/roadmap/state.md entry for v5.6.25's 13-LOC fix).
+  Phase O5 maximal-munch slot dropped from the optimization arc:
+  recon found 0 fused-op candidates (cyrius's stack-machine IR keeps
+  a push between sub-expression results and consumers); push-imm
+  rewrite has rax-side-effect + forward-jump-target issues. Pinned
+  long-term, no slot — needs an IR-level push-elision pass first.
 - **v5.6.25** — aarch64 push/pop cancel completion (scope retargeted
   from "aarch64 fused ops" after bytescan found 0 `mul+add` / 0
   `lsr+and` matches). v5.6.9's push/pop cancel had a latent gap:
