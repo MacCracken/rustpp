@@ -4,6 +4,103 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.23] — 2026-04-24
+
+**Misdiagnosis correction: the v5.6.22 "alignment regression"
+was actually inline-asm + regalloc stack-frame layout collision.**
+Ships the real fix; a second picker correctness bug surfaced by
+the default-on flip attempt is pinned v5.6.24.
+
+### Root cause (not alignment)
+
+v5.6.22 shipped the picker loop-back time-share fix and cap-knob
+infrastructure but flagged a "v5.5.21 array-alignment regression"
+under default-on. v5.6.23 investigation traced the actual cause:
+
+- The regalloc prologue saves rbx/r12-r15 to `[rbp-8]..[rbp-40]`.
+  Every local-var disp is then computed as
+  `-(idx + 1 + _cur_fn_regalloc) * 8`, which shifts all locals
+  (including spilled params) 40 bytes further from rbp.
+- Inline asm blocks hardcode disps like `mov rdi, [rbp-0x08]` to
+  read the first param (cyrius standard prologue layout).
+- Under auto-enable, `[rbp-0x08]` now holds the saved RBX value —
+  the asm dereferences that as a pointer and SIGSEGVs.
+
+Probe: the regression test's `var rk[240]` is reported
+16-aligned (`rk_va=0x400690, mod16=0`) at the call site; the
+crash occurs inside `_big_asm_fn` reading `[rbp-0x08]`. Not
+alignment.
+
+### Fix
+
+`src/frontend/parse_fn.cyr` — body-scan lookahead before the
+auto-enable / opt-in `#regalloc` decision:
+
+- Walk tokens from current TI past `(...)` past optional
+  `: StructName` into the `{` body, scanning brace-depth until
+  the matching `}`. Any token 48 (`asm` keyword) sets
+  `_has_inline_asm = 1`.
+- `_auto_enable` gate: `_ra_auto_cap > 0` AND x86 backend AND
+  `_has_inline_asm == 0`.
+- Explicit `#regalloc` on an asm fn: emit a warning
+  (`'<fn>': #regalloc skipped — fn contains inline asm
+  (hardcoded stack offsets)`) and clear the pending flag without
+  applying. User can't silently break their own asm.
+
+stdlib callers protected: `lib/fnptr.cyr`, `lib/thread.cyr`,
+`lib/atomic.cyr`, `lib/hashmap_fast.cyr`, `lib/u128.cyr`,
+`lib/thread_local.cyr`, `lib/fdlopen.cyr`, `lib/args_macos.cyr`
+all carry asm blocks that depend on the standard prologue layout.
+
+### Default-on attempt surfaced a SECOND picker bug (pinned v5.6.24)
+
+Flipping `_ra_auto_cap` default from -1 to "uncapped" (so every
+eligible fn gets regalloc) passed the 3-step fixpoint but broke
+`tests/tcyr/flags.tcyr` gate. Bisection:
+
+- `CYRIUS_REGALLOC_AUTO_CAP=117` → flags 33/33 PASS
+- `CYRIUS_REGALLOC_AUTO_CAP=118` → flags 32/33 (fails `int default 7`)
+
+Position 118 = `test_str_short` (5 vars, 2 calls). Regalloc-
+enabling it corrupts state read by the NEXT fn `test_defaults`
+at its 5-arg `flags_add_int(fs, 0, "count", 7, "")` — default_val
+`7` comes back as `0`. Independent of asm-skip (present) and
+NOP-fill (attempted and reverted within v5.6.23). Different shape
+from v5.6.22 loop-back time-share.
+
+Pinned v5.6.24 as a picker-correctness investigation. Bisection
+methodology (per the v5.6.17 saved playbook) available via
+`CYRIUS_REGALLOC_AUTO_CAP=N`.
+
+### Consumer-surfaced live-across-calls (pinned v5.6.25)
+
+Patra workaround report 2026-04-24: "every loop counter and
+pointer that crosses a patra call needs explicit boxing. The
+real fix is in cyrius codegen: probably stop register-allocating
+locals that are live across calls, or save/restore them correctly
+around the spill." Pinned v5.6.25, sequenced after v5.6.24 for
+clean attribution — may consolidate if the root is the same.
+
+### Verification
+
+- 3-step fixpoint clean (`cc5_a → cc5_b → cc5_c; b == c`) at
+  `IR_ENABLED=0` AND `IR_ENABLED=3`
+- `check.sh` **23/23 PASS**
+- `regression-inline-asm-discard.sh` PASS both with auto-enable
+  DISABLED (default) and `CYRIUS_REGALLOC_AUTO_CAP=99999`
+- cc5 521,216 → **522,624 B** (+1,408 B for the body-scan
+  lookahead; bytes generated for user programs unchanged)
+
+### Files
+
+- `src/frontend/parse_fn.cyr` — body-scan lookahead + asm-skip
+  gate + warn-on-skip for explicit `#regalloc`
+- `src/main.cyr` — comment updated on `CYRIUS_REGALLOC_AUTO_CAP`
+  semantics
+- Regression stub pin labels cascade +2: v5.6.30/31/32 →
+  v5.6.32/33/34; `scripts/check.sh` labels updated
+- Roadmap cascade +2: closeout v5.6.34 → v5.6.36
+
 ## [5.6.22] — 2026-04-24
 
 **Phase O4c (partial): picker correctness fix + auto-enable

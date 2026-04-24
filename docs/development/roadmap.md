@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.23.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.24.** cc5 compiler (522,624 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -8,10 +8,10 @@
 > every commit. **Broad-scope self-host** (target binary runs +
 > reproduces itself on native hardware) currently holds on Linux
 > x86_64 + Linux aarch64 cross-built-runs-on-Pi; it is broken on
-> Linux aarch64 native-self-host-on-Pi (pinned **v5.6.25**),
-> macOS arm64 Mach-O (pinned **v5.6.26** — platform drift, bytes
+> Linux aarch64 native-self-host-on-Pi (pinned **v5.6.32**),
+> macOS arm64 Mach-O (pinned **v5.6.33** — platform drift, bytes
 > unchanged since v5.5.13), and Windows 11 24H2 PE
-> (pinned **v5.6.27** — platform drift, bytes unchanged since
+> (pinned **v5.6.34** — platform drift, bytes unchanged since
 > v5.5.10). See `docs/architecture/cyrius.md` §"Self-hosting: two
 > scopes of byte-identity" for the full definition. **v5.6.8 is the biggest
 > single-patch optimizer win of v5.6.x so far**: Phase O2 category
@@ -139,26 +139,58 @@
 >   `if (r != 0)` rewritten across `src/*.cyr` keeps cc5 self-host
 >   clean but downstreams hit. Patra 1.6.0 needs this fix to fold
 >   in cleanly. Repro: `/tmp/cyrius_5.6_codegen_bug.cyr`.
-> - **v5.6.22**: Phase O4c — auto-enable + bisection. Flip
->   `#regalloc` from per-fn opt-in to automatic.
-> - **v5.6.23**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+> - **v5.6.22**: ✅ shipped — Phase O4c (partial). Picker
+>   correctness fix (loop-back time-share extend) + auto-enable
+>   infrastructure DISABLED by default. Default-on attempt
+>   surfaced what looked like a v5.5.21 array-alignment regression
+>   (mis-framed; v5.6.23 traced the actual root cause).
+> - **v5.6.23**: ✅ shipped — Misdiagnosis correction. The v5.6.22
+>   "alignment regression" was actually inline-asm + regalloc
+>   stack-frame layout collision: asm hardcodes `[rbp-N]` disps;
+>   regalloc's callee-save block (rbx + r12-r15) shifts every
+>   local-var slot by `_cur_fn_regalloc * 8`, so `mov rdi,
+>   [rbp-0x08]` reads the saved RBX value instead of param 1.
+>   `parse_fn.cyr` body-scan lookahead for token 48 (`asm`); auto-
+>   enable silently skips, opt-in `#regalloc` warns and skips.
+>   `regression-inline-asm-discard.sh` PASS under `AUTO_CAP=99999`.
+>   Default-on flip surfaced a SECOND picker bug — pinned v5.6.24.
+>   cc5 521,216 → 522,624 B (+1,408 B for body-scan).
+> - **v5.6.24**: Picker correctness — cross-fn corruption
+>   investigation. v5.6.23 default-on flip bisects to AUTO_CAP=118
+>   = `test_str_short`: regalloc-enabling that fn (5 vars, 2 calls)
+>   breaks the next-fn `test_defaults`'s 5-arg
+>   `flags_add_int(fs, 0, "count", 7, "")` call (default_val 7
+>   comes back as 0). Independent of asm-skip and NOP-fill.
+>   Different shape from v5.6.22 loop-back time-share. Bisection
+>   methodology + per-action context dump per the v5.6.17 saved
+>   playbook. Fix is the precondition for default-on flip.
+> - **v5.6.25**: Live-across-calls regalloc investigation.
+>   Consumer report (patra-side workaround surfaced 2026-04-24):
+>   "every loop counter and pointer that crosses a patra call
+>   needs explicit boxing. The real fix is in cyrius codegen:
+>   probably stop register-allocating locals that are live across
+>   calls, or save/restore them correctly around the spill." May
+>   be the same root as v5.6.24 or distinct — sequenced after
+>   for clean attribution. If consolidates with v5.6.24 in
+>   investigation, the slot frees for next-priority work.
+> - **v5.6.26**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
 >   after bytescan found 0× matches there; v5.6.22 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.24**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.25**: Phase O6 — codebuf compaction (NOP harvest).
+> - **v5.6.27**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.28**: Phase O6 — codebuf compaction (NOP harvest).
 >   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE
 >   in one pass with jump+fixup repair. Real binary shrinkage. (Old
 >   slab-allocator scope reclaimable as a future v5.7.x slot if
 >   v5.6.22 regalloc benchmarks show bump-allocation hot.)
-> - **v5.6.26**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+> - **v5.6.29**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.27**: libro layout-dependent memory corruption
+> - **v5.6.30**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.28**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.31**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.29**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.32**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -166,23 +198,23 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.30**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.33**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.31**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.34**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.32**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.35**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.33**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.36**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 >
@@ -229,10 +261,10 @@
 > (cross-build byte-identity; `regression.tcyr` 102/102 on real
 > Pi; per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from
 > v5.3.16). Broad-scope native self-host on Pi was last verified
-> at v5.3.15 and is currently broken (pinned v5.6.25). Apple
+> at v5.3.15 and is currently broken (pinned v5.6.32). Apple
 > Silicon Mach-O broad-scope self-host was last verified at
 > v5.3.13–v5.5.17 (per-minor exit=42 checks in v5.5.13–v5.5.17)
-> and regressed on macOS Sequoia 15+ (pinned v5.6.26) — the
+> and regressed on macOS Sequoia 15+ (pinned v5.6.33) — the
 > emitted Mach-O bytes are unchanged since verification.
 >
 > Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure verified.
@@ -256,11 +288,14 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | `lib/sha1.cyr` missing (owl) | stdlib layout | **v5.6.13** — promote `_wss_sha1` from private in `lib/ws_server.cyr` to first-class `lib/sha1.cyr` module so consumers (owl, sit, majra) don't vendor-copy. Pulled forward from v5.6.21 as a quick-win release between v5.6.12 and the v5.6.14 LASE audit. See `docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`. |
 | `ir_lase` / `ir_apply_lase` correctness bug | LASE/DBE unsafe to enable | **v5.6.14** — surfaced during v5.6.12 when flipping LASE+DBE enabled produced a cc5 binary that parse-errored on trivial input. 811 candidates / 5,692 B "savings" are actually 5,692 B of corruption. Three suspects: (a) `_ir_clobbers_rax` coverage gap, (b) `ir_apply_lase`'s next-node-CP heuristic overreach, (c) `ir_dead_block_elim`'s `all_nop==1` check passing vacuously on zero-IR-node BBs. See §v5.6.14. |
 | `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.22** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
-| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.23** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
-| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.24** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.24 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
-| Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.25** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
-| macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.26** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
-| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.27** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
+| Picker correctness — cross-fn regalloc corruption | default-on `#regalloc` unsafe | **v5.6.24** — v5.6.23 default-on flip bisects to AUTO_CAP=118 = `test_str_short`: regalloc-enabling that fn corrupts the next-fn `test_defaults`'s 5-arg `flags_add_int(fs, 0, "count", 7, "")` call (default_val 7 → 0). Independent of asm-skip (shipped v5.6.23) and NOP-fill (attempted + reverted at v5.6.23). Different shape from v5.6.22 loop-back time-share. Bisection methodology from v5.6.17 playbook. Fix is the precondition for flipping `CYRIUS_REGALLOC_AUTO_CAP` default. |
+| Live-across-calls regalloc (patra-surfaced) | consumer codegen workarounds | **v5.6.25** — consumer report 2026-04-24: "every loop counter and pointer that crosses a patra call needs explicit boxing. The real fix is in cyrius codegen: probably stop register-allocating locals that are live across calls, or save/restore them correctly around the spill." Possibly the same root as v5.6.24 (regalloc + call interaction); sequenced after for clean attribution. If consolidates, slot frees. |
+| `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.29** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
+| Layout-dependent memory corruption | Libro PatraStore tests | **v5.6.30** — investigation patch. Localized with `CYRIUS_SYMS`. Classic memory-corruption signature — each `println` shifts the crash site. Workaround: isolated test binary. CFG available for diagnosis (5.0.0 IR). Note: ark cyml_parse crash (SA-002) was NOT this bug (wrong fn signature, fixed). If stuck after attempts, STOP and ask — never slip unilaterally. |
+| HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure | Windows 11 64-bit ASLR | **v5.6.31** — re-investigation patch. v5.5.35 audited all 2043 MOVABS sites; 264 uncovered turned out to be data constants, not pointers. Simple programs work but `cc5_win.exe` stdin-read fails 5/5 under 64-bit ASLR. Currently shipping with 32-bit ASLR (DYNAMIC_BASE) only. v5.6.31 re-tries because the PE backend changed since (struct-return + varargs + `__chkstk` from v5.5.36 + cap raises from v5.5.37 + parser refactor from v5.5.38) — any of those may have shifted the failure surface. |
+| Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.32** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
+| macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.33** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
+| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.34** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -318,44 +353,57 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
    quick-win release (stdlib addition, zero compiler change) —
    momentum between the LASE-bug discovery and the harder
    correctness audit.
-6. **v5.6.22 — Consumer-surfaced tooling fix.** `cyrius init`
-   scaffold gaps (owl-surfaced). `lib/sha1.cyr` was the second
-   item in this group until pulled forward to v5.6.13.
-7. **v5.6.23–v5.6.24 — Pre-existing active-bug investigations.**
-   Libro layout corruption + `cc5_win.exe` HIGH_ENTROPY_VA stdin
-   failure.
-8. **v5.6.25–v5.6.27 — Broad-scope platform-runtime repairs.**
-   Three broad-scope failures surfaced during v5.6.11 verification.
-   Important framing: **the narrow-scope byte-identity invariant
-   (`cc5_a → cc5_b; cc5_a == cc5_b`) holds on every target** — v5.6.11
-   output is byte-identical to v5.6.10 for each of these failure
-   shapes. What's broken is the *broad-scope* claim that a cyrius-
-   emitted binary can (a) run its own source through itself on
-   native hardware, or (b) survive current-gen OS loader
-   enforcement. Two distinct root-cause categories:
-   - **Native-runtime capability gap (v5.6.25).** The native
-     aarch64 cc5 binary fails to parse its own source on a Pi
-     because something the x86 cross-compiler does at startup
-     (envvar read / include resolution) doesn't work on the
-     aarch64 runtime path. A *feature gap in our aarch64 binary*,
-     not a codegen bug.
-   - **External platform drift (v5.6.26 + v5.6.27).** The Mach-O
-     and PE binaries we emit are **identical** to what was verified
-     in v5.5.13 / v5.5.10. What changed is the host OS's tolerance
-     for our output: macOS Sequoia 15+ dyld enforces LC_DYLD_INFO /
-     `__got` alignment more strictly, and Windows 11 24H2 tightened
-     CET / CFG / ASLR loader checks. *Our bytes didn't move — the
-     goalposts did.*
-   **Each slot mandates a regression-test gate** (`tests/regression-
-   aarch64-native-selfhost.sh` / `regression-macho-exit.sh` /
-   `regression-pe-exit.sh`) that ships as a SKIP-stub pre-fix and
-   flips to PASS as part of the slot's closeout. Wired into
-   `scripts/check.sh` to prevent silent re-regression (and to
-   catch future platform-drift the same way).
-   If an investigation doesn't yield, STOP and ask — never defer
-   or slip unilaterally.
-9. **v5.6.28 — Shared-object (.so / .dll / .dylib) emission.**
-10. **v5.6.29 — v5.6.x closeout + downstream ecosystem sweep gate.**
+6. **v5.6.22–v5.6.23 — Regalloc auto-enable safety.** v5.6.22
+   shipped picker correctness fix (loop-back time-share extend) +
+   auto-enable infrastructure DISABLED by default. v5.6.23 fixed
+   a misdiagnosed v5.6.22 bug (inline-asm + regalloc stack-frame
+   layout collision, not the alignment bug it was first framed as).
+   Default-on flip still pending v5.6.24 picker-correctness fix.
+7. **v5.6.24–v5.6.25 — Picker correctness + live-across-calls.**
+   v5.6.23 default-on flip surfaced two picker bugs needing
+   separate investigation: (a) cross-fn state corruption
+   (`test_str_short` regalloc breaks `test_defaults`); (b)
+   consumer-surfaced live-across-call boxing workaround in patra.
+   Fix is the precondition for flipping `#regalloc` default-on.
+8. **v5.6.26–v5.6.28 — Remaining optimization arc.** aarch64
+   fused ops (re-pinned post-regalloc), maximal-munch instruction
+   selection, codebuf compaction (NOP harvest). Real binary
+   shrinkage lands at v5.6.28.
+9. **v5.6.29–v5.6.31 — Consumer-surfaced tooling fixes.**
+   `cyrius init` scaffold gaps (owl), libro layout corruption,
+   `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
+10. **v5.6.32–v5.6.34 — Broad-scope platform-runtime repairs.**
+    Three broad-scope failures surfaced during v5.6.11 verification.
+    Important framing: **the narrow-scope byte-identity invariant
+    (`cc5_a → cc5_b; cc5_a == cc5_b`) holds on every target** — v5.6.11
+    output is byte-identical to v5.6.10 for each of these failure
+    shapes. What's broken is the *broad-scope* claim that a cyrius-
+    emitted binary can (a) run its own source through itself on
+    native hardware, or (b) survive current-gen OS loader
+    enforcement. Two distinct root-cause categories:
+    - **Native-runtime capability gap (v5.6.32).** The native
+      aarch64 cc5 binary fails to parse its own source on a Pi
+      because something the x86 cross-compiler does at startup
+      (envvar read / include resolution) doesn't work on the
+      aarch64 runtime path. A *feature gap in our aarch64 binary*,
+      not a codegen bug.
+    - **External platform drift (v5.6.33 + v5.6.34).** The Mach-O
+      and PE binaries we emit are **identical** to what was verified
+      in v5.5.13 / v5.5.10. What changed is the host OS's tolerance
+      for our output: macOS Sequoia 15+ dyld enforces LC_DYLD_INFO /
+      `__got` alignment more strictly, and Windows 11 24H2 tightened
+      CET / CFG / ASLR loader checks. *Our bytes didn't move — the
+      goalposts did.*
+    **Each slot mandates a regression-test gate** (`tests/regression-
+    aarch64-native-selfhost.sh` / `regression-macho-exit.sh` /
+    `regression-pe-exit.sh`) that ships as a SKIP-stub pre-fix and
+    flips to PASS as part of the slot's closeout. Wired into
+    `scripts/check.sh` to prevent silent re-regression (and to
+    catch future platform-drift the same way).
+    If an investigation doesn't yield, STOP and ask — never defer
+    or slip unilaterally.
+11. **v5.6.35 — Shared-object (.so / .dll / .dylib) emission.**
+12. **v5.6.36 — v5.6.x closeout + downstream ecosystem sweep gate.**
     Last patch of v5.6.x.
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped

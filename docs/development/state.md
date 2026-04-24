@@ -5,11 +5,11 @@
 
 ## Version
 
-**5.6.23** (in progress — active minor: v5.6.x optimization arc)
+**5.6.24** (in progress — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 521,216 B
+- **cc5 (x86_64)**: 522,624 B
 - **cc5_aarch64 (cross)**: 400,872 B
 - **cc5_win (cross)**: 516,200 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
@@ -18,12 +18,16 @@
 - **IR=3 NOP-fill on cc5 self-compile** (v5.6.18 baseline carries forward;
   v5.6.19 adds infrastructure only, no codegen change): 135 folds + 678 DCE +
   15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
-  iterations. Real binary shrinkage waits for v5.6.24 codebuf compaction.
+  iterations. Real binary shrinkage waits for v5.6.28 codebuf compaction.
 - **Regalloc** (v5.6.20): per-fn live-interval tables (v5.6.19) +
   Poletto-Sarkar picker with time-sliced rewrite. Opt-in via
-  `#regalloc`. `CYRIUS_REGALLOC_DUMP=1` prints intervals;
+  `#regalloc` OR `CYRIUS_REGALLOC_AUTO_CAP=N`. v5.6.23 narrowed
+  the auto-enable gate to skip fns containing inline asm (asm
+  hardcodes `[rbp-N]` disps that the regalloc save block shifts).
+  Default-on flip surfaced a second picker correctness bug
+  (cross-fn corruption from `test_str_short` to `test_defaults`)
+  pinned v5.6.24. `CYRIUS_REGALLOC_DUMP=1` prints intervals;
   `CYRIUS_REGALLOC_PICKER_CAP=N` caps assignments for bisection.
-  v5.6.21 will auto-enable for every fn.
 
 ## Suites
 
@@ -36,31 +40,33 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.23** — Phase O4c (re-attempt): default-on auto-enable +
-  alignment investigation. v5.6.22 surfaced two bugs when default-on
-  was attempted: (1) loop-back time-share corruption in picker
-  (FIXED at v5.6.22 — extend interval.last_cp to ra_end so picker
-  can't time-share across loops); (2) v5.5.21 global-array
-  alignment regression — auto-enable's code-size growth shifts
-  globals in a way the per-array padding misses, breaking SSE m128
-  ops. v5.6.23 must investigate + fix the alignment interaction
-  before flipping auto-enable default-on. `CYRIUS_REGALLOC_AUTO_CAP=N`
-  env knob is already shipped and works for opt-in testing.
-  (~250 LOC + bug-hunt budget). Multi-local-per-register packing + flip
-  `#regalloc` from per-fn opt-in to automatic.
-- **v5.6.22** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+- **v5.6.24** — picker correctness bug investigation. Default-on
+  flip at v5.6.23 surfaced cross-fn corruption: regalloc-enabling
+  `test_str_short` (5 vars, 2 calls) breaks the next-fn
+  `test_defaults` 5-arg `flags_add_int` call (default_val 7 → 0).
+  Bisection at AUTO_CAP=117/118 confirms the boundary. Independent
+  of asm-skip and NOP-fill (both cleared during v5.6.23). Different
+  shape from v5.6.22 loop-back time-share. Fix needed before
+  default-on can flip.
+- **v5.6.25** — live-across-calls regalloc investigation.
+  Consumer report (patra workaround): every loop counter / pointer
+  crossing a patra call needs explicit boxing. Hypothesis: cyrius
+  is regalloc-ing locals live across calls without proper save/
+  restore around the spill. May be the same root as v5.6.24 or
+  distinct — sequenced after for clean attribution.
+- **v5.6.26** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
   precondition v5.6.21.
-- **v5.6.23** — Phase O5: maximal-munch instruction selection (precedes
-  RISC-V backend at v5.7.0).
-- **v5.6.24** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+- **v5.6.27** — Phase O5: maximal-munch instruction selection (precedes
+  RISC-V backend at v5.7.x).
+- **v5.6.28** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
   repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.25–v5.6.27** — consumer-surfaced tooling: `cyrius init` scaffold,
+- **v5.6.29–v5.6.31** — consumer-surfaced tooling: `cyrius init` scaffold,
   libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.28–v5.6.30** — broad-scope platform repair: aarch64 native
+- **v5.6.32–v5.6.34** — broad-scope platform repair: aarch64 native
   self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
   dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.31** — shared-object emission.
-- **v5.6.32** — closeout.
+- **v5.6.35** — shared-object emission.
+- **v5.6.36** — closeout.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -71,12 +77,21 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.23** — Misdiagnosis correction: the v5.6.22 "alignment
+  regression" was actually inline-asm + regalloc stack-frame layout
+  collision. Asm hardcodes `[rbp-N]` disps; regalloc's callee-save
+  block shifts every local slot by `_cur_fn_regalloc * 8`. Fix:
+  body-scan lookahead in `parse_fn.cyr` for token 48 (`asm`); auto-
+  enable silently skips, opt-in `#regalloc` warns and skips. Default-
+  on flip surfaced a SECOND picker bug (`test_str_short` regalloc
+  corrupts `test_defaults`'s 5-arg call) — pinned v5.6.24.
+  Cascade +2: closeout v5.6.34 → v5.6.36.
 - **v5.6.22** — Phase O4c (partial): picker correctness fix (loop-back
   time-share extend) + auto-enable infrastructure shipped DISABLED
   by default. `CYRIUS_REGALLOC_AUTO_CAP=N` opts in (per-fn count cap).
-  Default-on auto-enable surfaced a v5.5.21 array-alignment regression
-  that needs deeper investigation — pinned v5.6.23 with proper
-  alignment-debug budget. Patra 1.6.0 verified folding cleanly.
+  Default-on auto-enable surfaced what was framed as a v5.5.21
+  array-alignment regression — v5.6.23 traced it to inline-asm
+  layout, not alignment. Patra 1.6.0 verified folding cleanly.
 - **v5.6.21** — Codegen bug fix: bare-truthy `if (r)` after fn-call.
   Root cause: v5.6.8 `_flags_reflect_rax` not reset by EFLLOAD,
   ECALLFIX, ECALLTO, ESYSCALL. 4-line fix. Patra 1.6.0 unblocked.

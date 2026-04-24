@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regression: native aarch64 cc5 self-host on Pi 4.
 #
-# PINNED: v5.6.30. Ships as a skip-stub pre-fix so check.sh stays
+# PINNED: v5.6.32. Ships as a skip-stub pre-fix so check.sh stays
 # green; flips to PASS when the `_TARGET_MACHO` parse-time undef
 # is repaired.
 #
@@ -27,7 +27,7 @@
 # Skip cleanly if:
 #   - cc5_aarch64 isn't built (CI tier mismatch),
 #   - ssh target `pi` is unreachable,
-#   - CYRIUS_V5630_SHIPPED is set (explicit opt-out during v5.6.30 dev).
+#   - CYRIUS_V5632_SHIPPED is set (explicit opt-out during v5.6.32 dev).
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,11 +44,11 @@ if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$SSH_TARGET" 'echo alive' >/dev/n
     exit 0
 fi
 
-# Until v5.6.30 ships the fix, this is a known-broken case. Keep
+# Until v5.6.32 ships the fix, this is a known-broken case. Keep
 # the stub skipping so CI stays actionable; flip this guard when
 # the fix lands.
-if [ -z "$CYRIUS_V5630_SHIPPED" ]; then
-    echo "  skip: pin v5.6.30 — native aarch64 self-host '_TARGET_MACHO' undef (see docs/development/roadmap.md §v5.6.30)"
+if [ -z "$CYRIUS_V5632_SHIPPED" ]; then
+    echo "  skip: pin v5.6.32 — native aarch64 self-host '_TARGET_MACHO' undef (see docs/development/roadmap.md §v5.6.32)"
     exit 0
 fi
 
