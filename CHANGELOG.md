@@ -4,6 +4,94 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.32] — 2026-04-24
+
+**Native aarch64 self-host on Pi 4 repaired.** 1-line include
+add to `src/main_aarch64_native.cyr` closes a silent-since-v5.6.12
+regression where the native variant never got the same
+`include "src/common/ir.cyr"` that the x86-hosted cross-compiler
+(`src/main_aarch64.cyr`) received when O3a IR instrumentation
+shipped.
+
+### Root cause
+
+`parse_*.cyr` (shared between all backends) references
+`IR_RAW_EMIT` unconditionally as of v5.6.12. The opcode enum
+lives in `src/common/ir.cyr`. v5.6.12 added
+`include "src/common/ir.cyr"` to `main_aarch64.cyr` (the
+x86-hosted cross-compiler) but overlooked `main_aarch64_native.cyr`
+(the aarch64-hosted native variant). Any attempt to build a
+native-self-host binary after v5.6.12 failed at parse time with
+`undefined variable 'IR_RAW_EMIT'`.
+
+The earlier roadmap framing of this slot cited
+`undefined variable '_TARGET_MACHO'` — that was a stale symptom
+shape from a pre-v5.6.12 source tree where a different symbol
+was the first-undefined-ref hit. Current source first hits
+`IR_RAW_EMIT`. Same root cause class (include missing from the
+native variant); same 1-line fix.
+
+### Fix
+
+Added `include "src/common/ir.cyr"` to
+`src/main_aarch64_native.cyr` at the same position it appears in
+`src/main_aarch64.cyr` (between `aarch64/jump.cyr` and
+`frontend/lex.cyr`).
+
+### Acceptance
+
+Full native self-host fixpoint on the Pi 4:
+1. Cross-build: `build/cc5 < src/main_aarch64.cyr > cc5_cross`
+   (x86 host, aarch64 backend).
+2. Native cross-build: `cc5_cross < src/main_aarch64_native.cyr >
+   cc5_native` (aarch64 binary, 470,520 B).
+3. Ship `cc5_native` + `src/` + `lib/` to Pi.
+4. On Pi: `cat src/main_aarch64_native.cyr | ./cc5_native > cc5_b`
+   → 463,768 B.
+5. On Pi: `cat src/main_aarch64_native.cyr | ./cc5_b > cc5_c`.
+6. **`cc5_b == cc5_c` byte-identical at 463,768 B.** ✅
+
+`tests/regression-aarch64-native-selfhost.sh` flipped from
+skip-stub to active gate; wired into `check.sh` as step 4o;
+PASS on `ssh pi`. Runs the full 6-step pipeline.
+
+### What changed vs the prior test stub
+
+The skip-stub pre-v5.6.32 encoded the wrong pipeline: it compared
+the cross-built `cc5_aarch64` binary (x86 host, aarch64 backend)
+against the Pi-produced binary via md5, which should never match
+(different host architectures → different syscall numbers and ABI
+glue). The v5.6.32 gate rewrites it to the correct 2-step native
+fixpoint (cc5_b == cc5_c on the Pi, both compiled from
+`main_aarch64_native.cyr`).
+
+### Acceptance (other gates)
+
+- `check.sh` 23/23 PASS (native aarch64 self-host now ACTIVE
+  not skipped).
+- `tests/tcyr/fdlopen.tcyr` 40/40 PASS.
+- x86 cc5 3-step byte-identical fixpoint unchanged at 531,680 B
+  (this slot doesn't touch x86 codegen).
+
+### Files
+
+- `src/main_aarch64_native.cyr`: added `include "src/common/ir.cyr"`.
+- `tests/regression-aarch64-native-selfhost.sh`: flipped from
+  skip-stub to active gate; rewrote pipeline to compile
+  `main_aarch64_native.cyr` (not `main_aarch64.cyr`) and check
+  cc5_b == cc5_c on the Pi.
+- VERSION: 5.6.31 → 5.6.32.
+
+### Why this hid for so long
+
+Nobody ran the native self-host between v5.6.12 and this slot.
+The cross-compiler (`main_aarch64.cyr` / `build/cc5_aarch64`) was
+always built and exercised by `check.sh`, and it's the cross-
+compiler that emits PE / Mach-O / aarch64 binaries for consumer
+use. The native-on-Pi variant was the only path that actually
+exercises `main_aarch64_native.cyr` — and until v5.6.32 that
+path hadn't been on CI. Now it is.
+
 ## [5.6.31] — 2026-04-24
 
 **HIGH_ENTROPY_VA enabled for cc5_win.exe — 64-bit ASLR now ships.**

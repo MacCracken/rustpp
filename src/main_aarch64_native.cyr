@@ -66,6 +66,13 @@ enum Sys { SYS_READ = 63; SYS_WRITE = 64; SYS_OPEN = 56; SYS_CLOSE = 57; SYS_BRK
 include "src/common/util.cyr"
 include "src/backend/aarch64/emit.cyr"
 include "src/backend/aarch64/jump.cyr"
+# v5.6.32: parse_*.cyr references `IR_RAW_EMIT` unconditionally
+# since the v5.6.12 O3a instrumentation markers landed, so aarch64
+# native needs the IR opcode enum available too. main_aarch64.cyr
+# (cross-compiler) already includes this at the same spot; the
+# native variant was overlooked when ir.cyr was added — hence the
+# pre-v5.6.32 self-host parse failure on the Pi.
+include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/parse.cyr"
 include "src/backend/aarch64/fixup.cyr"

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.31.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.32.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -251,14 +251,15 @@
 >   with garbage in those bytes and `n` came back as a 12-digit
 >   bogus value. Fix: 64-bit load → 32-bit `mov eax` (auto
 >   zero-extends rax). Default-on HIGH_ENTROPY_VA shipped.
-> - **v5.6.32**: native aarch64 runtime capability gap (Pi) — the
->   native aarch64 cc5 fails to parse its own source with
->   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
->   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
->   broad-scope "aarch64 binary self-hosts on Pi" is broken.
->   Likely a feature gap in the aarch64 runtime path (envvar
->   reading / include resolution) that the x86 cross-compiler
->   doesn't hit. Caught during v5.6.11 verification.
+> - **v5.6.32**: ✅ shipped — native aarch64 self-host on Pi
+>   repaired. Root cause: `main_aarch64_native.cyr` was missing
+>   `include "src/common/ir.cyr"` that the x86-hosted cross-
+>   compiler (`main_aarch64.cyr`) received when v5.6.12 O3a IR
+>   instrumentation shipped. 1-line include add closed the gap.
+>   Native self-host fixpoint on Pi: `cc5_b == cc5_c` byte-
+>   identical at 463,768 B. `tests/regression-aarch64-native-
+>   selfhost.sh` flipped from skip-stub to active gate; wired
+>   into `check.sh` as step 4o; PASS.
 > - **v5.6.33**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
@@ -273,11 +274,20 @@
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.35**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.35**: `SSL_connect` libssl pthread deadlock investigation
+>   (sandhi M2). `tls_connect` hangs on `futex(FUTEX_WAIT_PRIVATE,
+>   2, NULL)` — libssl 3's internal pthread locks wait for
+>   `__libc_pthread_init`-side state that static cyrius binaries
+>   never populate. Repro: `sandhi/programs/tls-raw-probe.cyr`.
+>   Filed sandhi 2026-04-24.
+> - **v5.6.36**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.36**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.37**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
->   agnova, takumi). **Last patch of v5.6.x.**
+>   agnova, takumi). **Last patch of v5.6.x.** Fold in `PP_DEFINE`
+>   / `PP_DEFINED` `src_base` hardening (same shape as v5.6.30's
+>   derive-helper fix — latent same-class bug, no observed
+>   in-the-wild trigger yet).
 >
 > **Long-term considerations** (no version pin yet — revisit when
 > the right preconditions land):
@@ -348,18 +358,16 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 |-----|--------|-------------|
 | `lib/sha1.cyr` missing (owl) | stdlib layout | **v5.6.13** — promote `_wss_sha1` from private in `lib/ws_server.cyr` to first-class `lib/sha1.cyr` module so consumers (owl, sit, majra) don't vendor-copy. Pulled forward from v5.6.21 as a quick-win release between v5.6.12 and the v5.6.14 LASE audit. See `docs/development/issues/owl-lib-sha1-extraction-2026-04-22.md`. |
 | `ir_lase` / `ir_apply_lase` correctness bug | LASE/DBE unsafe to enable | **v5.6.14** — surfaced during v5.6.12 when flipping LASE+DBE enabled produced a cc5 binary that parse-errored on trivial input. 811 candidates / 5,692 B "savings" are actually 5,692 B of corruption. Three suspects: (a) `_ir_clobbers_rax` coverage gap, (b) `ir_apply_lase`'s next-node-CP heuristic overreach, (c) `ir_dead_block_elim`'s `all_nop==1` check passing vacuously on zero-IR-node BBs. See §v5.6.14. |
-| `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.22** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
-| `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **future v5.6.x** (no slot pinned) — v5.5.29 left this opt-in path explicitly incomplete; three probe attempts didn't reach helper main. Pinned-in-source next-steps in `lib/fdlopen.cyr:714-739`. Sandhi shipped native UDP DNS as workaround. Filed by sandhi M2 design pass 2026-04-24 (`sandhi/docs/issues/2026-04-24-fdlopen-getaddrinfo-blocked.md` §1-2). |
-| `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **future v5.6.x** (no slot pinned) — `_tls_init` calls `dynlib_open("libssl.so.3")` without first running `dynlib_bootstrap_cpu_features()` / `_tls()` / `_stack_end()` (per `lib/dynlib.cyr:939-946`'s libc consumer requirement). Symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
 | `cyrius init` scaffold gaps (owl) | `cyrius init` consumer UX | **v5.6.28** — ergonomic fixes (5 issues) surfaced during owl bootstrap. See `docs/development/issues/owl-init-scaffold-gaps-2026-04-22.md`. |
 | `lib/tls.cyr` HTTPS infinite-loop on real domains | sandhi M2 ships HTTPS as needs-investigation | **v5.6.29 ✅ shipped** — `_tls_init` now runs `dynlib_bootstrap_cpu_features()` + `_tls()` + `_stack_end(0)` before `dynlib_open("libcrypto.so.3")` / `libssl.so.3`, per `lib/dynlib.cyr:939-946`'s libc consumer requirement. Pre-fix symptom: `http-probe https://example.com/` prints "GET https://example.com/" hundreds of times per second until killed. Plain HTTP works. Filed sandhi 2026-04-24 §3. |
 | `fdlopen_init_full` orchestration KNOWN-INCOMPLETE | sandhi M2 forced to write native UDP DNS resolver | **v5.6.29-1 ✅ shipped** — misdiagnosis on sandhi side. `fdlopen_init_full` is NOT incomplete — it has been complete since v5.5.34 (tests/tcyr/fdlopen.tcyr 40/40 PASS verified). The "KNOWN-INCOMPLETE" status block at `lib/fdlopen.cyr:714-746` was stale v5.5.29 text that v5.5.34 forgot to update; replaced in this slot. Sandhi's probes were missing `include "lib/dynlib.cyr"` and the undef `dynlib_open` call compiled to a placeholder disp32 that coincidentally landed at `0x400076` (two bytes before entry trampoline) → re-entered main → looked like an infinite loop. Cyrius-side fix: undef-fn calls now patch the call site to `0F 0B 0F 0B 90` (ud2; ud2; nop) on x86, `UDF #0` on aarch64 → SIGILL instead of silent looping. Sandhi's native UDP DNS resolver workaround was never necessary; `fdlopen_getaddrinfo` works today. Filed sandhi 2026-04-24 §1-2; full resolution in their issue doc Log. |
 | ~~Layout-dependent memory corruption~~ | ~~Libro PatraStore tests~~ | **Retired at v5.6.30** — investigation discovered this was never a cyrius bug. Libro's own 2026-04-19 audit root-caused it as a use-after-free in `_patrastore_row_to_entry` (Finding 1: `str_from(patra_result_get_str(...))` wraps result-set pointers that get freed before return). Fix landed libro v1.1.0 via `_ps_copy_cstr` helper; 251 tests, 0 failures. See `libro/docs/audit/2026-04-19-audit.md`. |
 | ~~Preprocessor phantom `0xff` byte~~ | ~~Libro 2.0.5 cannot compile against any cyrius 5.4.7+~~ | **v5.6.30 ✅ shipped** — `PP_IFDEF_PASS` copies preprocessed content back to `S+0` capped at 524288 bytes (size of `input_buf`), but the derive handlers (`PP_DERIVE_SERIALIZE`, `PP_DERIVE_DESER`, `PP_DERIVE_ACCESSORS`, shared `PP_PARSE_STRUCT_DEF`) read source from `S + ip`. Any `#derive` past offset 524288 read stale/zero bytes, wrote a corrupted struct definition to the preproc output buffer, and left a hole where the 0xff heap-state sentinel leaked through — LEX tripped on it as "non-ASCII byte". Libro 2.0.5's `src/file_store.cyr:10` `#derive(accessors)` at offset ≈ 543565 was the first documented trigger. Fix: `src_base` parameter threaded through the derive helpers; PP_PASS passes `S` (source at S+0), PP_IFDEF_PASS passes `tmp` (full 1MB mmap buffer). `PP_DEFINE` / `PP_DEFINED` share the same latent read-cap bug; pinned for follow-up hardening. |
 | ~~HIGH_ENTROPY_VA deterministic `cc5_win.exe` stdin failure~~ | ~~Windows 11 64-bit ASLR~~ | **v5.6.31 ✅ shipped** — root cause was NOT MOVABS relocation (the v5.5.35 audit was a red herring). Real cause: `EREAD_PE` and `EWRITE_PE` post-call sequences used `mov rax, [rsp+0x28]` to load the bytes-read/written count from where ReadFile/WriteFile wrote the DWORD (4 bytes). 64-bit load picked up 4 bytes of stack garbage in the upper half. Under DYNAMIC_BASE that garbage was reliably zero (Win loader pre-zeros stack); under HIGH_ENTROPY_VA the loader hands off a different stack region with non-zero garbage, so `n` came back as a 12-digit bogus number tripping `main.cyr:341`'s "input exceeds 512KB buffer" overflow check. Fix: 64-bit load → 32-bit `mov eax` (auto-zero-extends). HIGH_ENTROPY_VA now ships enabled by default in `_dllc = 0x0160`. |
-| Native aarch64 self-host on Pi fails at parse time | `cc5_aarch64_native` can't self-host on real Pi 4 | **v5.6.32** — fix the `error:292: undefined variable '_TARGET_MACHO'` when the native aarch64 cc5 (built by cross-compiler, running on Pi) parses its own `src/main_aarch64.cyr`. `_TARGET_MACHO` IS declared in `src/backend/aarch64/emit.cyr:37` and included before main_aarch64.cyr's reference, so this is likely a scope / forward-ref difference between the cross-compiler's include handling and the native binary's. Pre-existing (v5.6.10 native cc5 hits the exact same error; surfaced during v5.6.11 aarch64-runtime verification). The CLAUDE.md "native aarch64 self-hosts byte-identical on Pi" claim does NOT currently hold — add `tests/regression-aarch64-native-selfhost.sh` gate to catch it. |
+| ~~Native aarch64 self-host on Pi fails at parse time~~ | ~~`cc5_aarch64_native` can't self-host on real Pi 4~~ | **v5.6.32 ✅ shipped** — root cause: `src/main_aarch64_native.cyr` was missing `include "src/common/ir.cyr"` that `src/main_aarch64.cyr` (the x86-hosted cross-compiler) received when v5.6.12 O3a shipped the `IR_RAW_EMIT` instrumentation markers. `parse_*.cyr` references `IR_RAW_EMIT` unconditionally; the native variant errored at parse time. Earlier `_TARGET_MACHO` framing was a stale symptom shape from pre-v5.6.12 source — current source first-undefined-ref hits `IR_RAW_EMIT`. 1-line fix. Native self-host fixpoint on Pi: `cc5_b == cc5_c` byte-identical at 463,768 B. `tests/regression-aarch64-native-selfhost.sh` flipped from skip-stub to active gate; wired into `check.sh` step 4o. |
 | macOS arm64 runtime regression (syscall(60) reroute) | Apple Silicon deploys | **v5.6.33** — cross-built `syscall(60, 42)` Mach-O binary exits 1 on ssh ecb instead of 42. v5.5.13 memory entry explicitly verified exit=42; regressed somewhere in v5.5.14–v5.6.10. v5.6.11 output is byte-identical to v5.6.10 for this shape, so NOT a v5.6.11 regression — investigation starts by bisecting v5.5.14 → v5.6.10 Mach-O output changes. `__got[0]` (`_exit`) reroute is the suspect. Add `tests/regression-macho-exit.sh` gate. |
 | Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.34** — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
+| `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.35** — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -463,9 +471,21 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     catch future platform-drift the same way).
     If an investigation doesn't yield, STOP and ask — never defer
     or slip unilaterally.
-10. **v5.6.35 — Shared-object (.so / .dll / .dylib) emission.**
-11. **v5.6.36 — v5.6.x closeout + downstream ecosystem sweep gate.**
-    Last patch of v5.6.x.
+10. **v5.6.35 — `SSL_connect` libssl pthread deadlock.**
+    Sandhi-surfaced. `tls_connect` hangs on
+    `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` because libssl 3's
+    internal pthread locks wait for `__libc_pthread_init` state
+    that static cyrius binaries never populate. Investigation:
+    determine whether `dynlib_bootstrap_tls` needs to extend its
+    `%fs`/TCB install to cover libssl's pthread expectations, or
+    whether a separate `dynlib_bootstrap_pthread` helper is
+    needed. Repro: `sandhi/programs/tls-raw-probe.cyr`. Pair with
+    new `tests/tcyr/tls-live.tcyr` gate.
+11. **v5.6.36 — Shared-object (.so / .dll / .dylib) emission.**
+12. **v5.6.37 — v5.6.x closeout + downstream ecosystem sweep gate.**
+    Last patch of v5.6.x. Bundle `PP_DEFINE` / `PP_DEFINED`
+    `src_base` hardening (same `PP_IFDEF_PASS` read-cap bug shape
+    as v5.6.30's derive-helper fix — latent same-class bug).
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
 
@@ -1579,7 +1599,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.29 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.31 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure ✅ shipped
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1605,7 +1625,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.30 — Native aarch64 self-host repair (Pi)
+### v5.6.32 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1634,7 +1654,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.31 — macOS arm64 runtime regression repair (ecb)
+### v5.6.33 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1673,7 +1693,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.32 — Windows 11 runtime regression repair (cass)
+### v5.6.34 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1716,7 +1736,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.33 — Shared-object emission completion
+### v5.6.36 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1758,7 +1778,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.34 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.37 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 (sandhi fold + lib/ cleanup) and v5.7.1 (RISC-V) open. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

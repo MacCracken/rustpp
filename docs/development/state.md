@@ -5,16 +5,18 @@
 
 ## Version
 
-**5.6.31** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
+**5.6.32** (work in this slot complete; awaiting tag — active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (−32 B from v5.6.30's 531,712 — `mov eax` is 1 byte
-  shorter than `mov rax` for stack-slot DWORD loads in EREAD_PE / EWRITE_PE; was
-  542,928 at v5.6.26, −11,248 B net from v5.6.27 codebuf compaction)
-- **cc5_win (cross)**: 606,720 B (was 526,376 at v5.6.26+v5.6.27 — v5.6.31
-  re-enables HIGH_ENTROPY_VA and fixes the EREAD_PE/EWRITE_PE DWORD-in-qword
-  bug that blocked 64-bit ASLR since v5.5.1)
+- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.31 — this slot only touches
+  `src/main_aarch64_native.cyr`)
+- **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
+  the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
+- **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
+  the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
+  had been orphaned since v5.6.12 O3a shipped the IR instrumentation
+  references to `IR_RAW_EMIT`)
 - **cc5_aarch64 (cross)**: 411,136 B (was 419,776 at v5.6.26; −8,640 B — same
   compaction; cross-compiler is x86)
 - **cc5_win (cross)**: 526,376 B (was 537,896 at v5.6.26; −11,520 B)
