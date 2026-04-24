@@ -76,7 +76,19 @@ while (1 == 1) {
 
 # Logical (short-circuit, chainable)
 &&  ||
+
+# Explicit overflow operators (v5.6.2)
++%  -%  *%      # wrapping (alias for bare + - * — 2's complement wrap)
++|  -|  *|      # saturating (clamp to i64 min/max via lib/overflow.cyr)
++?  -?  *?      # checked (panic with exit code 57 on overflow)
 ```
+
+Wrapping ops (`+%` etc.) document intent at the call site that a wrap is
+expected — bytes are identical to the bare operator. Saturating and
+checked variants compile to calls into `lib/overflow.cyr` helpers
+(`_sat_add_i64`, `_chk_add_i64`, etc.). Checked-panic uses `syscall(60, 57)`;
+exit code 57 is reserved to distinguish overflow panics from POSIX signal
+exits and assert-summary returns.
 
 ## Memory
 
@@ -207,6 +219,70 @@ var angle = f64_atan(x);         # Arctangent (f64)
 include "lib/string.cyr"
 # Textual inclusion — file contents replace the include line
 ```
+
+## Preprocessor
+
+```
+# Conditional compilation (v5.6.1)
+#ifdef CYRIUS_TARGET_LINUX
+    var fd = file_open("/proc/self/exe", 0);
+#elif CYRIUS_TARGET_WIN
+    var fd = win_get_image_handle();
+#else
+    # macOS / other platforms fall here
+#endif
+
+#ifndef CYRIUS_BAREMETAL
+    println("running on hosted platform");
+#endif
+```
+
+The full set: `#ifdef`, `#ifndef`, `#else`, `#elif`, `#endif`. State is
+tracked per nesting level — `#elif` after a taken `#ifdef` is correctly
+suppressed, and nested blocks skip cleanly inside a parent's skip path.
+
+`#ifplat <plat>` (v5.4.19) is a tighter spelling for arch / OS dispatch:
+
+```
+#ifplat aarch64
+    asm { dmb ish }
+#endif
+```
+
+Recognized plat tokens: `x86_64`, `aarch64`, `riscv64` (v5.7.0), `linux`,
+`macos`, `windows`, `baremetal`.
+
+## Attributes
+
+Function-level attributes flag intent at declaration; the compiler
+warns at call sites or compile time.
+
+```
+# v5.6.3 — discarding the return value at statement level is a bug
+#must_use
+fn checked_op(x): i64 { return x * 2; }
+
+fn main() {
+    checked_op(21);     # warning: result of #must_use fn discarded
+    var r = checked_op(21);   # OK
+}
+
+# v5.6.3 — block marker for ABI-crossing / unchecked memory ops
+@unsafe {
+    store64(some_raw_ptr, 0);
+    var x = load64(some_other_raw_ptr);
+}
+# Nested @unsafe blocks emit a stylistic warning but compile.
+
+# v5.6.4 — fn-level deprecation; warns at every call site
+#deprecated("use sha256_init() — sha1 is collision-broken")
+fn sha1_init() { ... }
+```
+
+`#must_use` warns only when the result is dropped at expression-statement
+level (`fn();`); assignment, `return fn();`, and arg-passing use sites are
+unaffected. `#deprecated("reason")` requires a string argument and warns
+at every call site (unlike `#must_use`'s discard-only).
 
 ## Project Structure
 
@@ -490,7 +566,12 @@ See `programs/` for 46 examples:
 bootstrap/asm (29KB seed)
   → cyrc (12KB compiler)
     → bridge.cyr (bridge compiler)
-      → cc3 (modular, 8 modules, 250KB)
-        → cc3_aarch64 (cross-compiler)
-        → agnos.cyr (AGNOS kernel)
+      → cc5 (modular compiler + IR, 9 modules)
+        → cc5_aarch64 (Linux + macOS Mach-O cross-compiler)
+        → cc5_win    (Windows PE32+ cross-compiler)
+        → agnos.cyr  (AGNOS kernel)
 ```
+
+Current cc5 size, IR pipeline state, and cross-compiler stats live in
+[`docs/development/state.md`](development/state.md). Per-release narrative
+is in [`docs/development/completed-phases.md`](development/completed-phases.md).

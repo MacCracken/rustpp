@@ -4,7 +4,7 @@
 > languages and platforms. Referenced by external articles and the
 > agnosticos project. Updated as new compiler versions ship.
 >
-> **Last measured**: 2026-04-21, at Cyrius v5.5.40.
+> **Last measured**: 2026-04-23, at Cyrius v5.6.17.
 > **Methodology**: `int main() { return 42; }` (or language equivalent — all
 > sources are ≤ 4 lines), no external dependencies, default invocation
 > unless a size-oriented flag is documented. Sizes are raw `wc -c` bytes
@@ -14,7 +14,7 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5 5.5.40 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
+| **Cyrius** | cc5 5.6.17 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -OReleaseSmall` | 4,840 | 32× |
 | Zig | 0.15.2 `-OReleaseSmall` Windows PE | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 30× |
 | C (GCC) | gcc 15.2.1 `-O2 -s` | `gcc -O2 -s` | 14,248 | 94× |
@@ -32,8 +32,8 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5_win 5.5.40 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
-| **Cyrius** | cc5 5.5.40 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
+| **Cyrius** | cc5_win 5.6.17 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
+| **Cyrius** | cc5 5.6.17 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 3× |
 | Go | go 1.26.2 `-s -w` | `GOOS=windows GOARCH=amd64 go build -ldflags="-s -w"` | 1,492,992 | 972× |
 | Go | go 1.26.2 default | `GOOS=windows GOARCH=amd64 go build` | 2,265,600 | 1,475× |

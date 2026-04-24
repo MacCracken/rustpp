@@ -69,15 +69,15 @@ not control:
    ran exit=42 cleanly on macOS Sonoma may exit=1 on Sequoia not
    because our bytes changed but because dyld's posture did.
 
-**Status per platform (as of v5.6.15):**
+**Status per platform (as of v5.6.17):**
 
 | Target | Narrow scope | Broad scope | Notes |
 |--------|--------------|-------------|-------|
-| Linux x86_64 | ✅ | ✅ | Daily-driver host. Byte-identical 3-step fixpoint, self-host compile ~347 ms. |
+| Linux x86_64 | ✅ | ✅ | Daily-driver host. Byte-identical 3-step fixpoint at both `IR_ENABLED == 0` and `IR_ENABLED == 3`, self-host compile ~347 ms. |
 | Linux aarch64 (cross) | ✅ | ✅ (cross-built binary runs on Pi) | `tests/regression-aarch64-syscalls.sh` gates the runtime path. |
-| Linux aarch64 (native self-host on Pi) | ✅ | ❌ | Pinned **v5.6.25**. Native binary fails to parse its own source with `_TARGET_MACHO` undef — a capability gap in our aarch64 runtime, not a codegen / byte-identity issue. |
-| macOS arm64 Mach-O | ✅ | ❌ | Pinned **v5.6.26**. Bytes unchanged since v5.5.13; Sequoia dyld tightened `LC_DYLD_INFO` / `__got` enforcement. Platform drift, not cyrius regression. |
-| Windows 11 PE32+ | ✅ | ❌ | Pinned **v5.6.27**. Bytes unchanged since v5.5.10; Win11 24H2 (build 26200) tightened CET/CFG/ASLR loader checks. Platform drift. |
+| Linux aarch64 (native self-host on Pi) | ✅ | ❌ | Pinned **v5.6.26**. Native binary fails to parse its own source with `_TARGET_MACHO` undef — a capability gap in our aarch64 runtime, not a codegen / byte-identity issue. |
+| macOS arm64 Mach-O | ✅ | ❌ | Pinned **v5.6.27**. Bytes unchanged since v5.5.13; Sequoia dyld tightened `LC_DYLD_INFO` / `__got` enforcement. Platform drift, not cyrius regression. |
+| Windows 11 PE32+ | ✅ | ❌ | Pinned **v5.6.28**. Bytes unchanged since v5.5.10; Win11 24H2 (build 26200) tightened CET/CFG/ASLR loader checks. Platform drift. |
 
 ### Why the distinction matters
 
@@ -94,7 +94,7 @@ conflated:
   way, the fix is scoped work — a repair slot in the current
   minor — not a release blocker on codegen.
 
-Every slot in the v5.6.25–v5.6.27 repair cluster explicitly tags
+Every slot in the v5.6.26–v5.6.28 repair cluster explicitly tags
 which scope it's fixing. `tests/regression-aarch64-native-selfhost.sh`
 / `regression-macho-exit.sh` / `regression-pe-exit.sh` are **broad-
 scope gates** that ship as skip-stubs pre-fix (so check.sh stays
@@ -137,51 +137,14 @@ Assembly (the cornerstone)
 
 ## Current State
 
-**v4.8.5** — cc3 is the active modular compiler (~373KB, modules split across `frontend/`, `backend/x86/`, `backend/aarch64/`, `backend/cx/`, `common/`). 51 .tcyr test suites (396 assertions), 11 benchmarks, 5 fuzz harnesses. 41 stdlib modules + 5 deps. Self-hosting byte-identical on x86_64 + aarch64. `cyrius build` auto-resolves deps + auto-includes from cyrius.toml. 10+ downstream projects shipping: kybernet, argonaut, nein, sigil, libro, daimon, hoosh, agnoshi, bote, kavach, abaco.
+> Volatile state lives in [`docs/development/state.md`](../development/state.md) —
+> current version, compiler sizes, in-flight slots, recent shipped releases,
+> consumers, verification hosts. Refreshed every release. Historical narrative
+> in [`docs/development/completed-phases.md`](../development/completed-phases.md).
 
-Recent feature cadence:
-- **v4.8.5** — math stdlib pack (u128 hardware fast-path ~12× on Miller-Rabin; `u64_mulmod` / `u64_powmod`; inverse trig with correct `atan2` quadrants; inverse hyperbolic; f64 constants; ASCII case helpers). CRLF injection hardening in `lib/http.cyr` (CVE-2019-9741 pattern). TLS interface scaffold in `lib/tls.cyr` — live libssl bridge pending dynlib hardening (4.8.8).
-- **v4.8.4** — `#regalloc` per-fn opt-in hot-local routing through rbx (post-emit peephole with use-count picker + width-aware safety abort). Retagged post-GA to fold in a `PP_IFDEF_PASS` 256 KB scan-blindness fix that bote 2.5.0 surfaced.
-- **v4.8.3** — capacity meter (`CYRIUS_STATS=1`, default 85% warnings, `cyrius capacity` subcommand). Catches "close to wall" before a real refactor trips it.
-- **v4.8.0–4.8.2** — u128 stdlib, base64url, switch jump-table tuning.
-
-Capacity at self-compile: `fn=324/4096 ident=8146/131072 var=100/8192 fixup=1621/16384 code=345368/1048576` — plenty of headroom on every axis. **Recommended minimum: ≥ 4.8.4** (the preprocessor fix is load-bearing for any consumer whose transitive include graph expands past 512 KB).
-
-Earlier carry-forward features: short-circuit `&&`/`||`, named-field struct init, `CYRIUS_SYMS` for crash localization, `CYRIUS_DCE` for opt-in dead-code NOP-fill (41% gzip reduction on libro release artifact).
-
-```
-sh bootstrap/bootstrap.sh
-
-Produces:
-  build/cyrc  — compiler (12KB, compiles .cyr high-level language)
-  build/asm      — assembler (29KB, assembles .cyr x86_64 assembly)
-
-Requires: Linux x86_64 + /bin/sh. Nothing else.
-```
-
-The current language (compiled by cc3) supports:
-- Variables, arrays, functions (unlimited params, 256 locals)
-- if/else/elif, while, break/continue, for, for-in, switch (with block bodies), match
-- Arithmetic: + - * / %. Bitwise: & | ^ ~ << >>
-- syscall(), load8/16/32/64(), store8/16/32/64(), &var
-- Structs (64 max, 32 fields), enums (`Enum.VARIANT`), unions, bitfields
-- Multi-width types: i8, i16, i32, i64, sizeof()
-- Expression-position comparisons: `var r = (a == b)` anywhere
-- Native multi-return: `return (a, b)` + `var x, y = fn()` destructuring
-- Defer on all exit paths (per-defer runtime flags, unreached defers skipped)
-- `#derive(Serialize)` for JSON, `#derive(accessors)` for field getters/setters
-- `#assert` compile-time checks, `#ref "file.toml"`, `#ifdef`/`#endif`
-- Str/cstr auto-coercion (`: Str` parameter annotations)
-- Compile-time string interning (pointer-identity comparison)
-- Inline assembly (`asm { }`), inline small functions (token replay)
-- 20+ f64 builtins (SSE2/SSE4.1/x87), SIMD vector ops
-- Syscall arity warnings, `#skip-lint` directive
-- `cyrius deps` — auto-resolve from cyrius.toml, namespaced: `lib/{depname}_{basename}`
-- Auto-include: `cyrius build` prepends dep includes before compilation
-- 41 stdlib modules + 5 deps, 57+ programs
-- x86-64 length decoder (`decode.cyr`) — DCE validator, foundation for CFG
-- Limits: 1MB codebuf, 262K tokens, 16384 fixups, 512KB input, 256KB str_data
-- Heap: 14.8MB (brk 0xECA000), aarch64 synced to x86
+This file (architecture) is the **durable how / why** — design decisions
+that change rarely. Per-release facts (sizes, dates, recent ships) belong
+in `state.md` so this file doesn't rot.
 
 ## Phases
 
@@ -231,8 +194,7 @@ All 9 items complete:
 - Typed pointers, nested structs, global initializers, for loops
 - Bitfield access (PTE/GDT/IDT), linker control, ISR save/restore pattern
 
-### Phase 7 — Kernel (x86_64)
-- Compile the Linux kernel with Cyrius — the proof that the language handles real kernel code
+### Phase 7 — AGNOS kernel (x86_64)
 - Boot the AGNOS kernel — hello from Cyrius
 - Multiboot2, serial console, GDT/IDT, page tables, timer/keyboard interrupts
 - Physical + virtual memory managers, process/task abstraction
@@ -244,20 +206,30 @@ All 9 items complete:
 - Compiler refactor (apply lessons from kernel development)
 - Performance pass, test suite expansion
 
-### Phase 9 — Multi-Architecture (aarch64)
-- Factor codegen into backend interface (shared lexer/parser, per-arch emission)
-- aarch64 assembler + codegen + bootstrap
-- aarch64 kernel port, cross-compilation
+### Phase 9 (Done) — Multi-Architecture (aarch64)
+- Factor codegen into backend interface (shared lexer/parser, per-arch
+  emission) — `src/backend/x86/`, `src/backend/aarch64/` (v5.3.x)
+- aarch64 cross-compiler + native self-host byte-identical on real Pi (v5.3.15+)
+- 102/102 `regression.tcyr` PASS on aarch64 (v5.3.18)
+- Apple Silicon Mach-O target self-hosts byte-identical on M-series (v5.3.13+)
+- Win64 PE32+ cross-compile + native self-host (v5.5.0–v5.5.10)
+- Per-arch `#ifplat` directive (v5.4.19) for multi-arch codepath dispatch
 
-### Phase 10 — Prove at Scale
+### Phase 10 — Prove at Scale (in progress)
 - Migrate Ark package manager to Cyrius
-- AGNOS userland tools
-- Benchmark suite vs C/Rust, language ergonomics pass
-- Documentation + tutorials
+- AGNOS userland tools (cyrfmt/cyrlint/cyrdoc/cyrc all self-hosting)
+- Benchmark suite vs C/Rust (`docs/development/benchmarks.md`)
+- Compiler optimization arc (v5.6.x): O1 FNV-1a, O2 peephole (5/5
+  shipped), O3 IR passes (LASE + const-fold + DCE shipped, copy-prop
+  + dead-store + fixpoint pinned v5.6.18, regalloc v5.6.19, codebuf
+  compaction v5.6.22)
+- Documentation + tutorials (`docs/cyrius-guide.md` ongoing)
 
 ### Phase 11 — Full Sovereignty
-- AGNOS builds entirely with Cyrius on both architectures
-- Full cross-bootstrap (x86_64 ↔ aarch64)
+- AGNOS builds entirely with Cyrius on x86_64 + aarch64 + RISC-V (v5.7.0)
+- Full cross-bootstrap (x86_64 ↔ aarch64 ↔ rv64)
+- Bare-metal target (v5.8.0)
+- Pure-cyrius TLS 1.3 stack (v5.9.x — retires libssl.so.3 dynlib bridge)
 - No external toolchain in any path — the entire stack is owned
 
 ## What Stays from Rust (Eventually)
