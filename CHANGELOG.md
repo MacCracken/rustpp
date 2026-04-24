@@ -4,6 +4,103 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.19] — 2026-04-23
+
+**Phase O4a — per-fn live-interval infrastructure** (first of three
+Phase O4 sub-slots). Originally pinned as full Poletto-Sarkar
+linear-scan in one slot; structural reality (no vreg layer, no
+cross-BB liveness, every emit fn hardcoded RAX/RCX) made the
+~600-900 LOC roadmap entry infeasible as a single ship. Split into
+three legitimate phases with concrete deliverables each.
+
+### Shipped (~80 LOC + dump)
+
+- `src/frontend/parse_fn.cyr` — extended the existing v4.8.4
+  `#regalloc` peephole's codebuf scan to also build per-local
+  `ra_first[2048]` + `ra_last[2048]` interval tables alongside the
+  existing `ra_counts[2048]` use-count table. All three arrays
+  now properly sized (256 i64 slots = 2048 bytes).
+- **Pre-existing latent bug fixed**: v4.8.4's `ra_counts[256]`
+  was declared 256 BYTES but the init+scan loops wrote 256 i64
+  slots = 2048 bytes. The overflow landed in adjacent global
+  memory; the existing peephole tolerated it because the picker
+  reads use-counts that default to 0 for high-idx slots. Interval
+  tracking can't tolerate stale/random per-slot values, so all
+  three arrays sized correctly now.
+- `CYRIUS_REGALLOC_DUMP=1` env knob in `src/main.cyr` — prints
+  per-fn header (`fi`, `fn_start`, `fn_end`, `flc`, `pc`) plus
+  one line per local with refs (`lidx`, `count`, `first_cp`,
+  `last_cp`, `span`). Foundation for v5.6.20 picker — verifies
+  intervals match expectations before wiring the algorithm.
+- `_ra_dump_enabled` global in `src/frontend/parse.cyr` — env
+  read once at compile start, consulted per-fn (no per-fn syscall).
+
+### Verification
+
+- Test `#regalloc` fn (sum + i loop counter):
+  ```
+  ra: fi=0 fn_start=36 fn_end=193 flc=3 pc=1
+  ra:   lidx=1 count=4 first=50 last=159 span=109
+  ra:   lidx=2 count=5 first=59 last=147 span=88
+  ```
+  Both intervals within `[fn_start, fn_end)`. Spans reasonable.
+- Both fixpoints clean: IR=0 b==c==508,880 B; IR=3 b==c==
+  508,880 B. check.sh 22/22 PASS.
+- cc5 grew 501,616 → 508,880 B (+7,264 B) for the two new arrays
+  + the dump path + properly-sized ra_counts.
+
+### No codegen change yet
+
+The picker still runs the existing greedy use-count algorithm.
+Intervals are computed but not yet consumed for assignment.
+v5.6.20 swaps the picker for Poletto-Sarkar.
+
+### Earlier-session work (not shipped)
+
+Two failed approaches preceded this scope:
+1. **Auto-enable shortcut**: 1-line change to flip `#regalloc`
+   from opt-in to automatic for every fn. cc5_v619 itself ran
+   correctly but cc5_b (compiled by it from main.cyr) SIGSEGV'd
+   on trivial input — a complexity-dependent miscompile in some
+   large-fn path. Reverted; user explicitly rejected the bandaid
+   approach in favor of legitimate phase work.
+2. **Threshold tweak**: bump >=2 uses → >=4 uses. Made the
+   picker more conservative but didn't fix the underlying bug.
+   Reverted.
+
+Both will land properly at v5.6.21 (Phase O4c) after v5.6.20's
+picker provides the interval-aware foundation.
+
+### Roadmap cascade (+2 slot count, 30 → 32)
+
+Originally v5.6.19 = full Poletto-Sarkar in one slot. Split into:
+- v5.6.19 = O4a (live-interval infra) — shipped this release
+- v5.6.20 = O4b (Poletto-Sarkar picker; replaces greedy)
+- v5.6.21 = O4c (time-sliced rewrite + auto-enable + bisection)
+- v5.6.22 = aarch64 fused ops (was v5.6.20)
+- v5.6.23 = maximal-munch (was v5.6.21)
+- v5.6.24 = codebuf compaction (was v5.6.22)
+- v5.6.25-v5.6.27 = consumer-surfaced (was 23-25)
+- v5.6.28-v5.6.30 = platform repair (was 26-28)
+- v5.6.31 = shared-object (was 29)
+- v5.6.32 = closeout (was 30)
+- Regression-stub pin labels: v5.6.26/27/28 → v5.6.28/29/30
+- check.sh gate labels updated
+
+### Files
+
+- `src/frontend/parse_fn.cyr` — interval tracking + dump output.
+- `src/frontend/parse.cyr` — `_ra_dump_enabled` global.
+- `src/main.cyr` — `CYRIUS_REGALLOC_DUMP` env read at startup.
+- VERSION 5.6.18 → 5.6.19.
+- `docs/development/roadmap.md` — Phase O4 split into 3 sub-slots,
+  cascade headers, new long-term framing.
+- `tests/regression-{aarch64-native-selfhost,macho-exit,pe-exit}.sh`
+  — pin labels updated.
+- `scripts/check.sh` — gate labels updated.
+- `CHANGELOG.md`, `docs/development/benchmarks.md`,
+  `docs/development/state.md`, `docs/development/completed-phases.md`.
+
 ## [5.6.18] — 2026-04-23
 
 **Phase O3c — dead-store elimination + fixed-point driver

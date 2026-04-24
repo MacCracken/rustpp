@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.18.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
+> **v5.6.19.** cc5 compiler (487,040 B x86_64), x86_64 + aarch64
 > cross + Windows PE cross + macOS aarch64 cross. IR + CFG.
 > **Narrow-scope byte-identity** (the 3-step fixpoint
 > `cc5_a → cc5_b → cc5_c; b == c`) holds on every target —
@@ -124,25 +124,35 @@
 >   DCE+DSE remove wrapping ops. **Copy-prop deferred** to long-term
 >   (no version pin) after v5.6.18 + v5.6.19 recons both bailed —
 >   see "Long-term considerations" section.
-> - **v5.6.19**: Phase O4 — linear-scan register allocation.
-> - **v5.6.20**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
+> - **v5.6.19**: Phase O4a — per-fn live-interval infrastructure.
+>   Foundation for linear-scan; ships data tracking + dump knob,
+>   no codegen change. Originally pinned as full Poletto-Sarkar in
+>   one slot; split into 3 phases after structural reality made
+>   one slot infeasible.
+> - **v5.6.20**: Phase O4b — Poletto-Sarkar picker. Replaces greedy
+>   use-count picker with proper interval-based linear scan over
+>   v5.6.19 intervals.
+> - **v5.6.21**: Phase O4c — time-sliced rewrite + auto-enable +
+>   bisection. Multi-local-per-register packing + flip `#regalloc`
+>   from per-fn opt-in to automatic.
+> - **v5.6.22**: aarch64 fused ops (`madd` / `msub` / `ubfx` /
 >   `sbfx`) — post-emit codebuf peephole. Re-pinned from v5.6.11
->   after bytescan found 0× matches there; v5.6.19 regalloc is
+>   after bytescan found 0× matches there; v5.6.21 regalloc is
 >   the precondition that lets intermediate values stay in
 >   registers so `mul+add` / `lsr+and-mask` pairs become adjacent.
-> - **v5.6.21**: Phase O5 — maximal-munch instruction selection.
-> - **v5.6.22**: Phase O6 — codebuf compaction (NOP harvest).
+> - **v5.6.23**: Phase O5 — maximal-munch instruction selection.
+> - **v5.6.24**: Phase O6 — codebuf compaction (NOP harvest).
 >   Sweeps accumulated NOPs from LASE/const-fold/DCE/DSE
 >   in one pass with jump+fixup repair. Real binary shrinkage. (Old
 >   slab-allocator scope reclaimable as a future v5.7.x slot if
->   v5.6.19 regalloc benchmarks show bump-allocation hot.)
-> - **v5.6.23**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
+>   v5.6.21 regalloc benchmarks show bump-allocation hot.)
+> - **v5.6.25**: `cyrius init` scaffold gaps (owl-surfaced — 5 fixes
 >   in `cyrius-init.sh`).
-> - **v5.6.24**: libro layout-dependent memory corruption
+> - **v5.6.26**: libro layout-dependent memory corruption
 >   investigation.
-> - **v5.6.25**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
+> - **v5.6.27**: HIGH_ENTROPY_VA `cc5_win.exe` stdin-read failure
 >   re-investigation.
-> - **v5.6.26**: native aarch64 runtime capability gap (Pi) — the
+> - **v5.6.28**: native aarch64 runtime capability gap (Pi) — the
 >   native aarch64 cc5 fails to parse its own source with
 >   `error:292: undefined variable '_TARGET_MACHO'`. Narrow-scope
 >   byte-identity (`cc5_a → cc5_b` on x86) is unaffected;
@@ -150,23 +160,23 @@
 >   Likely a feature gap in the aarch64 runtime path (envvar
 >   reading / include resolution) that the x86 cross-compiler
 >   doesn't hit. Caught during v5.6.11 verification.
-> - **v5.6.27**: macOS arm64 Mach-O platform drift (ecb) —
+> - **v5.6.29**: macOS arm64 Mach-O platform drift (ecb) —
 >   cross-built `syscall(60, 42)` exits 1 instead of 42. **Our
 >   Mach-O bytes are unchanged since v5.5.13** (byte-identical
 >   v5.6.10 ↔ v5.6.11 for this shape); what regressed is macOS
 >   dyld's tolerance for the LC_DYLD_INFO bind opcodes / `__got`
 >   alignment we emit. Sequoia 15+ enforces stricter than Sonoma
 >   14.x that v5.5.13 was tested on.
-> - **v5.6.28**: Windows 11 24H2 PE platform drift (cass) — PE
+> - **v5.6.30**: Windows 11 24H2 PE platform drift (cass) — PE
 >   `syscall(60, 42)` exits 0x40010080 (NTSTATUS informational /
 >   DBG_-class) on Windows 11 24H2 (build 26200) instead of 42.
 >   **Our PE bytes are unchanged since v5.5.10** (byte-identical
 >   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack / CFG /
 >   loader heuristic checks that our bare PE shape doesn't meet.
 >   cc5_win.exe itself fails with PS `ApplicationFailedException`.
-> - **v5.6.29**: shared-object (.so / .dll / .dylib) emission
+> - **v5.6.31**: shared-object (.so / .dll / .dylib) emission
 >   completion.
-> - **v5.6.31**: v5.6.x closeout + downstream ecosystem sweep gate
+> - **v5.6.32**: v5.6.x closeout + downstream ecosystem sweep gate
 >   (agnos, kybernet, argonaut, agnosys, sigil, ark, nous, zugot,
 >   agnova, takumi). **Last patch of v5.6.x.**
 >
@@ -1061,24 +1071,108 @@ walk of cc5 IR found:
 - cc5 grew 498,720 → 501,616 B (+2,896 B) for `ir_dead_store` +
   `CYRIUS_DSE_CAP` knob + fixpoint loop.
 
-### v5.6.19 — Phase O4: linear-scan register allocation
+### v5.6.19 — Phase O4a: per-fn live-interval infrastructure ✅ shipped 2026-04-23
 
-The big investment. Replaces today's peephole `#regalloc`.
-~600–900 LOC.
+**First of three Phase O4 sub-slots.** Originally pinned as
+"Phase O4: full Poletto-Sarkar linear-scan register allocation
+(~600-900 LOC)" — split after the structural reality emerged:
+cyrius IR is position-encoded (RAX/RCX hardcoded into every emit
+fn), no vreg layer, no cross-BB liveness. Real linear-scan needs
+all of that. Splitting into three legitimate sub-phases:
 
-- Sort live intervals by start point; greedy assignment with
+- **v5.6.19** = O4a: live-interval data infrastructure (this slot)
+- **v5.6.20** = O4b: Poletto-Sarkar picker
+- **v5.6.21** = O4c: time-sliced rewrite + auto-enable + bisection
+
+**Shipped (~80 LOC + dump)**:
+
+- `src/frontend/parse_fn.cyr` — extended the existing v4.8.4
+  `#regalloc` peephole's codebuf scan to also build per-local
+  `ra_first[256]` + `ra_last[256]` interval tables alongside the
+  existing `ra_counts[256]` use-count table.
+- Three arrays sized **2048 bytes (256 i64 slots)** — uncovered
+  a pre-existing latent sizing bug in `ra_counts[256]` (declared
+  256 BYTES but written 256 i64s — wrote past end into adjacent
+  global memory, tolerated because use-count picker defaults to 0
+  for high-idx reads, so wrong values rarely affected outcomes).
+  Interval tracking can't tolerate stale/random values per slot,
+  so all three arrays are properly sized now.
+- `CYRIUS_REGALLOC_DUMP=1` env knob in `src/main.cyr` — prints
+  per-fn header (`fi`, `fn_start`, `fn_end`, `flc`, `pc`) plus
+  one line per local with refs (`lidx`, `count`, `first_cp`,
+  `last_cp`, `span`). Foundation for v5.6.20 picker — verifies
+  intervals match expectations before wiring the algorithm.
+- `_ra_dump_enabled` global in `src/frontend/parse.cyr` — read
+  once at compile start, consulted per-fn (no per-fn env-syscall).
+
+**Verification**:
+
+- Test program (`#regalloc fn` with sum + i loop counter):
+  ```
+  ra: fi=0 fn_start=36 fn_end=193 flc=3 pc=1
+  ra:   lidx=1 count=4 first=50 last=159 span=109
+  ra:   lidx=2 count=5 first=59 last=147 span=88
+  ```
+  Both intervals within `[fn_start, fn_end)`. Spans reasonable
+  (sum 109 B over fn body, i 88 B over loop body).
+- Both fixpoints clean (IR=0 b==c, IR=3 b==c at 508,880 B).
+- check.sh 22/22 PASS.
+- cc5 grew 501,616 → 508,880 B (+7,264 B) for the two new
+  arrays + the dump path + properly-sized ra_counts.
+
+**No codegen change yet** — the picker still runs the existing
+greedy use-count algorithm. v5.6.20 swaps it for Poletto-Sarkar.
+
+### v5.6.20 — Phase O4b: Poletto-Sarkar linear-scan picker
+
+**Second of three Phase O4 sub-slots.** Replaces the greedy
+"pick top-N by use-count" picker in the existing `#regalloc`
+peephole with proper Poletto-Sarkar linear scan over the
+v5.6.19-built intervals.
+
+~200 LOC.
+
+- Sort intervals by `first_cp` (deterministic tie-break by lidx).
+- Walk forward; maintain active set (intervals currently holding
+  a register).
+- For each interval: expire active intervals whose `last_cp <
+  current.first_cp`; assign a free register if any; else apply
   spill heuristic = furthest next use (Poletto & Sarkar).
-  Covers: live-range build, active-set management, spill slot
-  assignment, parallel-move resolution at block boundaries.
-- **Determinism guard**: keep hint-based preferences but skip
-  iterated coalescing — byte-identical self-host must hold.
-- **Depends on v5.6.8's completed IR coverage** (live ranges
-  need every def and use to be in IR).
-- Expected output-code speedup: 2–3× over current stack-machine
-  baseline on hot inner loops; 10–20 % quality gap vs.
-  graph-coloring at a fraction of the code.
+- **Determinism guard**: tie-break active-set ordering by lidx;
+  keep hint-based preferences but skip iterated coalescing.
+- `CYRIUS_REGALLOC_PICKER_CAP=N` knob — caps assignments for
+  bisection per the v5.6.17 saved methodology.
+- **Gate**: byte-identical narrow-scope self-host. Measure delta
+  against v5.6.19's greedy picker. Bails cleanly if 0 or
+  negative delta.
+- **Still opt-in via `#regalloc`** — auto-enable lands in v5.6.21.
 
-### v5.6.20 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
+### v5.6.21 — Phase O4c: time-sliced rewrite + auto-enable + bisection
+
+**Third Phase O4 sub-slot — completes linear-scan regalloc.**
+
+~250 LOC + bisection budget.
+
+- **Time-sliced rewrite**: modify the existing patch pass to
+  rewrite ONLY within `[interval.first_cp, interval.last_cp]`
+  for each assigned interval. Multi-local-per-register packing —
+  the actual win of linear-scan vs greedy.
+- **Auto-enable**: flip `#regalloc` from per-fn opt-in to
+  automatic for every fn. Hit at least one codegen bug during
+  v5.6.19's auto-enable shortcut attempt (cc5_v619 itself ran
+  but cc5_b SIGSEGV'd on simple input). Bisection methodology
+  available (CYRIUS_REGALLOC_DUMP + per-fn CAP knobs).
+- **Save/restore optimization**: when picker assigns 0 regs to a
+  fn, skip the prologue/epilogue save+restore entirely (today's
+  code unconditionally saves all 5 callee-saved regs whenever
+  `_cur_fn_regalloc > 0`). Required to make auto-enable net-
+  positive for fns with no hot locals.
+- `CYRIUS_REGALLOC_AUTO_CAP=N` knob — caps how many fns get
+  auto-regalloc for bisection during the bug hunt.
+- **Gate**: byte-identical narrow-scope self-host AND broad-scope
+  (cc5_b runs on simple input, cc5_b self-hosts to cc5_c, b==c).
+
+### v5.6.22 — aarch64 fused ops (`madd` / `msub` / `ubfx` / `sbfx`)
 
 **Re-pinned from v5.6.11** after bytescan found 0× matches there.
 Post-emit codebuf peephole scanning for 2-instruction sequences
@@ -1103,7 +1197,7 @@ Gate: if v5.6.18 ships and a bytescan on the new aarch64 cc5
 still shows 0× matches, STOP and report — do not re-slip
 unilaterally (same rule that caught v5.6.10 and v5.6.11).
 
-### v5.6.21 — Phase O5: maximal-munch instruction selection
+### v5.6.23 — Phase O5: maximal-munch instruction selection
 
 ~300–500 LOC.
 
@@ -1116,7 +1210,7 @@ unilaterally (same rule that caught v5.6.10 and v5.6.11).
   the rv64 backend can land its tile table on day one instead of
   retrofitting.
 
-### v5.6.22 — Phase O6: codebuf compaction (NOP harvest)
+### v5.6.24 — Phase O6: codebuf compaction (NOP harvest)
 
 **Re-pinned 2026-04-23.** Replaced the originally-conditional
 slab-allocator slot. v5.6.16's const-fold + LASE + future DCE
@@ -1164,7 +1258,7 @@ project — `cat`/`bat`-style file viewer for AGNOS). Both are
 low-severity ergonomic / layout work with no compiler code paths
 touched. Details in `docs/development/issues/owl-*.md`.
 
-### v5.6.23 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
+### v5.6.25 — `cyrius init` scaffold gaps (5 fixes in `cyrius-init.sh`)
 
 Fresh `cyrius init --language=none .` scaffold fails `cyrius test`
 out of the box and ships with string drift in generated docs.
@@ -1212,7 +1306,7 @@ baseline. If an investigation doesn't yield after real attempts,
 STOP and report findings — never slip, defer, or re-slot
 unilaterally. The user decides next step.
 
-### v5.6.24 — Libro layout-dependent memory corruption
+### v5.6.26 — Libro layout-dependent memory corruption
 
 Carry-over from v5.3.x. Each `println` insertion shifts the
 crash site — classic memory-corruption signature. Localized with
@@ -1231,7 +1325,7 @@ diagnostics from v5.0.0 IR are available for the hunt.
   a fixup-table indirection that goes stale.
 - If stuck after real attempts, STOP and ask.
 
-### v5.6.25 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
+### v5.6.27 — `cc5_win.exe` HIGH_ENTROPY_VA stdin failure
 
 v5.5.35 audited all 2043 MOVABS sites; the 264 uncovered turned
 out to be data constants, not pointers. Simple programs run
@@ -1257,7 +1351,7 @@ PE backend has changed materially since v5.5.35:
 
 ---
 
-### v5.6.26 — Native aarch64 self-host repair (Pi)
+### v5.6.28 — Native aarch64 self-host repair (Pi)
 
 Fix `error:292: undefined variable '_TARGET_MACHO'` when the native
 aarch64 cc5 (built by cross-compiler, running on Pi) parses its
@@ -1286,7 +1380,7 @@ self-hosts byte-identical on Pi" claim does NOT currently hold.
   message so CI doesn't go red; the skip flips to PASS as part
   of this slot.
 
-### v5.6.27 — macOS arm64 runtime regression repair (ecb)
+### v5.6.29 — macOS arm64 runtime regression repair (ecb)
 
 Cross-built Mach-O `syscall(60, 42)` binary exits **1** on Apple
 Silicon (ssh ecb) instead of 42. v5.5.13 memory entry explicitly
@@ -1325,7 +1419,7 @@ regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.26" message until the fix lands.
 
-### v5.6.28 — Windows 11 runtime regression repair (cass)
+### v5.6.30 — Windows 11 runtime regression repair (cass)
 
 Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
 (NTSTATUS informational / DBG_-class, decimal 1073745920) on
@@ -1368,7 +1462,7 @@ v5.6.11 regression.
 - Wire into `scripts/check.sh`.
 - Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
 
-### v5.6.29 — Shared-object emission completion
+### v5.6.31 — Shared-object emission completion
 
 Finish the `.so` path that has existed in partial form since v2.x
 (`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
@@ -1410,7 +1504,7 @@ libc peer" work, which isn't on the roadmap yet.
 
 ---
 
-### v5.6.30 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.32 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 RISC-V opens. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

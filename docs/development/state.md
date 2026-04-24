@@ -5,19 +5,23 @@
 
 ## Version
 
-**5.6.18** (active minor: v5.6.x optimization arc)
+**5.6.19** (active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 501,616 B
-- **cc5_aarch64 (cross)**: 382,336 B
-- **cc5_win (cross)**: 497,608 B
+- **cc5 (x86_64)**: 508,880 B
+- **cc5_aarch64 (cross)**: 389,432 B
+- **cc5_win (cross)**: 504,696 B
 - **cc5 native aarch64** (Pi 4 self-host): ~453,688 B at v5.6.11
 - **Self-host fixpoint**: 3-step (cc5_a → cc5_b → cc5_c, b == c) clean at both
   `IR_ENABLED == 0` and `IR_ENABLED == 3` (since v5.6.16).
-- **IR=3 NOP-fill on cc5 self-compile** (v5.6.18): 135 folds + 678 DCE +
+- **IR=3 NOP-fill on cc5 self-compile** (v5.6.18 baseline carries forward;
+  v5.6.19 adds infrastructure only, no codegen change): 135 folds + 678 DCE +
   15 DSE + 567 LASE = 1,395 candidates / **6,099 B** in 3 fixed-point
-  iterations. Real binary shrinkage waits for v5.6.23 codebuf compaction.
+  iterations. Real binary shrinkage waits for v5.6.24 codebuf compaction.
+- **Regalloc** (v5.6.19): per-fn live-interval tables built for every
+  `#regalloc`-flagged fn. `CYRIUS_REGALLOC_DUMP=1` prints intervals.
+  Picker still greedy use-count; v5.6.20 swaps to Poletto-Sarkar.
 
 ## Suites
 
@@ -30,30 +34,39 @@
 
 ## In-flight (v5.6.x optimization arc)
 
-- **v5.6.19** — Phase O4: linear-scan register allocation (~600–900 LOC).
-- **v5.6.20** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
-  precondition v5.6.19.
-- **v5.6.21** — Phase O5: maximal-munch instruction selection (precedes
+- **v5.6.20** — Phase O4b: Poletto-Sarkar linear-scan picker (~200 LOC).
+  Replaces the existing greedy use-count picker with proper interval-based
+  linear scan over v5.6.19 intervals.
+- **v5.6.21** — Phase O4c: time-sliced rewrite + auto-enable + bisection
+  (~250 LOC + bug-hunt budget). Multi-local-per-register packing + flip
+  `#regalloc` from per-fn opt-in to automatic.
+- **v5.6.22** — aarch64 fused ops (`madd`/`msub`/`ubfx`/`sbfx`),
+  precondition v5.6.21.
+- **v5.6.23** — Phase O5: maximal-munch instruction selection (precedes
   RISC-V backend at v5.7.0).
-- **v5.6.22** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
+- **v5.6.24** — Phase O6: codebuf compaction (NOP harvest with jump+fixup
   repair). Real binary shrinkage; sweeps all per-pass NOP overhead.
-- **v5.6.23–v5.6.25** — consumer-surfaced tooling: `cyrius init` scaffold,
+- **v5.6.25–v5.6.27** — consumer-surfaced tooling: `cyrius init` scaffold,
   libro layout corruption, `cc5_win.exe` HIGH_ENTROPY_VA stdin failure.
-- **v5.6.26–v5.6.28** — broad-scope platform repair: aarch64 native
+- **v5.6.28–v5.6.30** — broad-scope platform repair: aarch64 native
   self-host (`_TARGET_MACHO` undef), macOS arm64 Mach-O exit (Sequoia
   dyld drift), PE32+ Windows exit (Win11 24H2 loader drift).
-- **v5.6.29** — shared-object emission.
-- **v5.6.30** — closeout.
+- **v5.6.31** — shared-object emission.
+- **v5.6.32** — closeout.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
-v5.6.18/v5.6.19, both bail (zero direct savings on stack-machine IR;
-cross-BB versions need v5.6.19 regalloc liveness data first). See
+v5.6.18/v5.6.19-attempt, both bail (zero direct savings on stack-machine
+IR; cross-BB versions need v5.6.21 regalloc liveness data first). See
 `roadmap.md §Long-term considerations` for full recon data + revisit
 criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.19** — Phase O4a: per-fn live-interval infrastructure. Foundation
+  for v5.6.20 Poletto-Sarkar picker. Pre-existing `ra_counts[256]` sizing
+  bug fixed (256 bytes → 256 i64 slots). `CYRIUS_REGALLOC_DUMP=1` env knob
+  for inspection. No codegen change yet.
 - **v5.6.18** — Phase O3c: dead-store elimination + fixed-point driver.
   Recon-driven scope split: copy-prop deferred to v5.6.19 (zero direct
   savings on stack-machine IR — cascade-only value). **15 DSE / 6,099 B

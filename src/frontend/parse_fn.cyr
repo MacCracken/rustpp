@@ -918,19 +918,42 @@ fn PARSE_FN_DEF(S) {
         if (pc < ra_flc) {
             var ra_start = fn_start;
             var ra_end = GCP(S);
-            # -- Use-count pass (alpha8). Walk the emitted bytes and
-            # score each candidate slot by how many times it's read or
-            # written via the patchable 64-bit mov patterns. Params
-            # (idx < pc) get skipped — their prologue stores are
+            # -- Use-count + live-interval pass (alpha8 + v5.6.19 O4a).
+            # Walk the emitted bytes and for each user-local slot:
+            #   ra_counts[idx]  → number of patchable 64-bit mov refs
+            #   ra_first[idx]   → CP of first ref (-1 if none)
+            #   ra_last[idx]    → CP of last ref (-1 if none)
+            # The intervals (ra_first, ra_last) are the foundation for
+            # v5.6.20's Poletto-Sarkar linear-scan picker. Built for
+            # every regalloc-flagged fn here; v5.6.21 auto-enables for
+            # every fn so intervals are computed everywhere.
+            #
+            # Params (idx < pc) get skipped — their prologue stores are
             # `ESTOREREGPARM` (different ModR/M), but the subsequent
             # reads/writes we *would* match shouldn't steal a slot
             # from a hotter user local.
+            #
             # Cap at 256 entries — #regalloc fns are small by
             # intention; if any has >256 locals it skips routing.
             if (ra_flc <= 256) {
-                var ra_counts[256];
+                # v5.6.19 O4a: arrays sized 2048 bytes = 256 i64 slots.
+                # The pre-existing `ra_counts[256]` is only 256 BYTES (32
+                # i64 slots) but the init+scan loops write 256 slots —
+                # the overflow lands in adjacent global memory and the
+                # existing peephole tolerated it because pick uses
+                # use-count which falls through to 0 for high-idx slots.
+                # Interval tracking can't tolerate that — first/last
+                # values must be reliable per slot. Sized correctly here.
+                var ra_counts[2048];
+                var ra_first[2048];
+                var ra_last[2048];
                 var ra_ci = 0;
-                while (ra_ci < 256) { store64(&ra_counts + ra_ci * 8, 0); ra_ci = ra_ci + 1; }
+                while (ra_ci < 256) {
+                    store64(&ra_counts + ra_ci * 8, 0);
+                    store64(&ra_first + ra_ci * 8, 0 - 1);
+                    store64(&ra_last + ra_ci * 8, 0 - 1);
+                    ra_ci = ra_ci + 1;
+                }
                 var ra_s = ra_start;
                 while (ra_s + 7 <= ra_end) {
                     if (load8(S + 0x54A000 + ra_s) == 0x48) {
@@ -951,10 +974,52 @@ fn PARSE_FN_DEF(S) {
                             if (ra_idx < ra_flc) {
                                 var ra_cur = load64(&ra_counts + ra_idx * 8);
                                 store64(&ra_counts + ra_idx * 8, ra_cur + 1);
+                                # v5.6.19 O4a: track first/last CP for this local.
+                                if (load64(&ra_first + ra_idx * 8) == (0 - 1)) {
+                                    store64(&ra_first + ra_idx * 8, ra_s);
+                                }
+                                store64(&ra_last + ra_idx * 8, ra_s);
                             } }
                         }
                     } } }
                     ra_s = ra_s + 1;
+                }
+                # v5.6.19 O4a: dump per-fn intervals when CYRIUS_REGALLOC_DUMP=1.
+                # Output format (one fn-header + one line per local with refs):
+                #   ra: fi=<fi> fn_start=<cp> fn_end=<cp> flc=<n>
+                #   ra:   lidx=<lidx> count=<n> first=<cp> last=<cp> span=<bytes>
+                if (_ra_dump_enabled == 1) {
+                    syscall(SYS_WRITE, 2, "ra: fi=", 7);
+                    PRNUM(fi);
+                    syscall(SYS_WRITE, 2, " fn_start=", 10);
+                    PRNUM(ra_start);
+                    syscall(SYS_WRITE, 2, " fn_end=", 8);
+                    PRNUM(ra_end);
+                    syscall(SYS_WRITE, 2, " flc=", 5);
+                    PRNUM(ra_flc);
+                    syscall(SYS_WRITE, 2, " pc=", 4);
+                    PRNUM(pc);
+                    syscall(SYS_WRITE, 2, "\n", 1);
+                    var _rad_li = pc;
+                    while (_rad_li < ra_flc) {
+                        var _rad_c = load64(&ra_counts + _rad_li * 8);
+                        if (_rad_c > 0) {
+                            var _rad_f = load64(&ra_first + _rad_li * 8);
+                            var _rad_l = load64(&ra_last + _rad_li * 8);
+                            syscall(SYS_WRITE, 2, "ra:   lidx=", 11);
+                            PRNUM(_rad_li);
+                            syscall(SYS_WRITE, 2, " count=", 7);
+                            PRNUM(_rad_c);
+                            syscall(SYS_WRITE, 2, " first=", 7);
+                            PRNUM(_rad_f);
+                            syscall(SYS_WRITE, 2, " last=", 6);
+                            PRNUM(_rad_l);
+                            syscall(SYS_WRITE, 2, " span=", 6);
+                            PRNUM(_rad_l - _rad_f);
+                            syscall(SYS_WRITE, 2, "\n", 1);
+                        }
+                        _rad_li = _rad_li + 1;
+                    }
                 }
                 # v4.9.1: pick up to _cur_fn_regalloc hot locals.
                 # Register assignment table (3-byte mov encodings):

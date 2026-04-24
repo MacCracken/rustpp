@@ -243,7 +243,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.18\n", 11);
+                    syscall(SYS_WRITE, 1, "cc5 5.6.19\n", 11);
                     syscall(SYS_EXIT, 0);
                 }
             }
@@ -413,6 +413,16 @@ if (_prof_on_env != 0) {
 }
 var _prof_t0 = 0;
 if (_prof_on == 1) { _prof_t0 = _prof_clock_ns(); }
+
+# v5.6.19 O4a: regalloc interval-table inspection knob.
+# CYRIUS_REGALLOC_DUMP=1 prints per-fn (lidx, count, first_cp, last_cp)
+# for every fn that runs the regalloc peephole. Foundation for v5.6.20
+# Poletto-Sarkar — verify intervals match expectations before wiring
+# the algorithm.
+var _ra_dump_env = _read_env("CYRIUS_REGALLOC_DUMP");
+if (_ra_dump_env != 0) {
+    if (load8(_ra_dump_env) == 49) { _ra_dump_enabled = 1; }
+}
 
 # Preprocess includes
 PREPROCESS(S);

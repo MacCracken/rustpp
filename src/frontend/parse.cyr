@@ -52,6 +52,13 @@ var _cur_fn_ret_stash = 0;
 # scalar return. Set/reset in parallel with _cur_fn_ret_stash.
 var _cur_fn_ret_sid = 0;
 
+# v5.6.19 O4a: 1 if CYRIUS_REGALLOC_DUMP=1 was set at compile start.
+# Read once early in main.cyr; consulted by PARSE_FN_DEF to print
+# per-fn live-interval table for inspection. Foundation for v5.6.20
+# Poletto-Sarkar linear-scan picker — letting us verify intervals
+# match expectations before wiring the algorithm.
+var _ra_dump_enabled = 0;
+
 
 # v5.5.38: struct/enum/union + shared-helper fns extracted.
 include "src/frontend/parse_types.cyr"
