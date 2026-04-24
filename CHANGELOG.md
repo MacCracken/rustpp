@@ -4,6 +4,64 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.15] — 2026-04-23
+
+**IR-emit-order audit fix — narrow correctness patch.** Recon for
+the originally-planned const-fold + liveness + DCE work surfaced a
+pre-existing IR-order vs byte-order inversion in `ESETCC`. Scope
+narrowed to ship the audit fix alone; const-fold + liveness + DCE
+cascades to v5.6.16.
+
+### Bug
+
+`src/backend/x86/emit.cyr` `ESETCC(S, op)` recorded
+`_IR_REC1(S, IR_SETCC, op)` **before** calling `ECMPR(S)` (which
+internally records `IR_CMP`). Concrete IR stream said `SETCC → CMP`;
+emitted byte stream is `cmp → setcc`. Any IR-driven pass walking
+adjacent ops (peephole match, liveness analysis, dead-code) would
+see the wrong order and either miss real fusions or misclassify
+live-ranges.
+
+The bug is silent at IR_ENABLED=0 (the IR isn't consumed) and was
+masked at IR_ENABLED=1 because `ir_apply_lase` only matches
+LOAD-after-STORE, not CMP/SETCC patterns. The audit found it before
+any pass that depended on the order shipped.
+
+### Fix
+
+5-line change in `ESETCC`: move `_IR_REC1(S, IR_SETCC, op)` to
+**after** `ECMPR(S)`. Now IR stream and byte stream agree:
+`CMP → SETCC` in both.
+
+### Verification
+
+- IR-stream adjacency before fix: `SETCC → CMP` 3,665, `CMP → SETCC` 0
+- IR-stream adjacency after fix:  `SETCC → CMP` 0, `CMP → SETCC` 3,665
+- cc5 byte-identical at IR_ENABLED=0 (488,776 B unchanged) — output
+  bytes are unaffected by IR-stream ordering when IR is off.
+- 3-step fixpoint b == c == 488,776 B.
+- check.sh 22/22 PASS.
+
+### Lesson
+
+The IR stream is a parallel record of what got emitted. When a
+helper records its IR opcode and **then** calls a sub-helper that
+also records IR, the recorded order can invert the emit order. Audit
+rule: every emit fn that calls another emit fn must record AFTER the
+sub-call, not before. Saved as memory.
+
+### Files changed
+
+- `src/backend/x86/emit.cyr` — `ESETCC` IR_REC1 moved after ECMPR.
+- `VERSION` 5.6.14 → 5.6.15.
+- `docs/development/roadmap.md` — v5.6.15 retargeted to IR-order
+  fix; old v5.6.15 (const-fold+liveness+DCE) cascaded to v5.6.16;
+  everything +1 through v5.6.29 closeout (was v5.6.28).
+- Regression-stub pin labels updated (aarch64 native v5.6.24→25,
+  Mach-O exit v5.6.25→26, PE exit v5.6.26→27).
+- `CHANGELOG.md`, `docs/development/benchmarks.md`, `CLAUDE.md`,
+  `docs/architecture/cyrius.md`, `docs/development/completed-phases.md`.
+
 ## [5.6.14] — 2026-04-23
 
 **Phase O3a-fix — LASE correctness fix.** The LASE pass (surfaced as

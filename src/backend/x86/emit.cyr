@@ -836,8 +836,15 @@ fn EOPEN_PE(S) {
 # emit setCC: cmp rax,rcx; setCC al; movzx rax,al → rax = 0 or 1
 # op: 17=EQ, 18=NEQ, 19=LT, 20=GT, 21=LTE, 22=GTE
 fn ESETCC(S, op) {
-    if (_IR_REC1(S, IR_SETCC, op) == 1) { return 0; }
+    # v5.6.15: IR order must match byte order. Previously IR_SETCC
+    # was recorded BEFORE ECMPR, so the IR stream read SETCC→CMP
+    # while the actual bytes emitted cmp→setcc. Any IR-walking pass
+    # (LASE, const-fold, liveness, DCE) saw CMP's flags as "defined
+    # after SETCC consumed them" which is false — CMP defines flags
+    # that SETCC reads. Record IR_CMP first (via ECMPR), then
+    # IR_SETCC, so the IR stream matches the byte-emit stream.
     ECMPR(S);
+    if (_IR_REC1(S, IR_SETCC, op) == 1) { return 0; }
     # setCC al (0F xx C0)
     EB(S, 0x0F);
     if (op == 17) { EB(S, 0x94); }
