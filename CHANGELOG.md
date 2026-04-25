@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.35] — 2026-04-24
+
+**sit symptom 2 of 2 closed — sankoch dep bump 2.0.1 → 2.0.3.**
+The companion fix to v5.6.34's `lib/alloc.cyr` repair. Triage
+2026-04-24 against sit's 100-commit fixture pinned the layer to
+**sankoch 2.0.1's `zlib_compress` producing non-decompressible
+DEFLATE for sit-tree-shaped inputs** — deterministic encoder
+bug, reachable from a 30-line standalone cyrius program with no
+patra and no cyrius involvement. Cyrius v5.6.35 is a dep-pin
+bump only; **zero compiler change**.
+
+### What landed in cyrius this slot
+
+- `cyrius.cyml` `[deps.sankoch] tag` bumped from 2.0.1 to 2.0.3.
+- `lib/sankoch.cyr` (symlink) now points at sankoch 2.0.3's
+  bundled dist.
+- `tests/regression-sit-status.sh` — new active regression gate.
+  Spins up a 100-commit / 100-file sit fixture, runs `sit fsck`,
+  asserts `0 bad`. Skips cleanly if sit isn't checked out at
+  `../sit`. Wired into `scripts/check.sh` as gate 4q'.
+- `docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.{bin,cyr}`
+  — 751-byte minimal cyrius-side ledger of the original bug.
+  Kept committed even after the fix lands; the input still
+  verifies cleanly under 2.0.3 and serves as a pinned regression
+  case if a sankoch refactor were to reintroduce it.
+
+### What did NOT change
+
+- `cc5` byte-identical at 531,680 B.
+- `lib/alloc.cyr` / `lib/alloc_macos.cyr` — no further work
+  beyond v5.6.34's grow fix.
+- No other `cyrius.cyml` deps moved this slot.
+
+### Triage history (cross-session record)
+
+The sit ticket
+(`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`)
+was filed 2026-04-24 as one issue with two symptoms. cyrius
+ran the triage steps sit prescribed:
+
+1. **Standalone patra bytes-roundtrip** — 1600+ rows across
+   single-process and cross-process patterns + 100 rounds of
+   close/reopen + 300 cross-process inserts with sit-shape:
+   **0 corrupt**. patra exonerated.
+2. **Standalone sankoch symmetry on synthetic inputs** —
+   1600 roundtrips across 16 sizes × 2 fill kinds × 50 iters:
+   **0 corrupt**. (The bug is content-shape-specific, not
+   shape-agnostic.)
+3. **Sit instrumented with in-process `zlib_decompress(compressed)`
+   immediately after `zlib_compress` returns** — 50/300 fails
+   in the same lock window. Bug confirmed upstream of patra,
+   inside sankoch's encoder.
+4. **Replay every dumped `.full` input through standalone
+   sankoch in a fresh process** — 50/300 fail standalone with
+   identical output bytes to what sit produced. Encoder is
+   deterministic on input.
+
+Three sankoch tags resolved it:
+- 2.0.1: original (53/300 bad on the fixture).
+- 2.0.2: partial fix (51 of 53 fixed; 2 inputs at ~1.5 KB and
+  ~2 KB still failed with a distinct "zero-run mid-stream"
+  shape).
+- **2.0.3: complete fix (0/300 bad).**
+
+Sankoch-side issue ledger:
+- `sankoch/docs/development/issues/archived/2026-04-24-zlib-compress-non-roundtrip-on-tree-shaped-input.md`
+  — original bug, fixed in 2.0.2.
+- `sankoch/docs/development/issues/2026-04-24-zlib-compress-2.0.2-partial-fix-2-remaining-inputs.md`
+  — follow-up tracking the 2 remaining inputs, fixed in 2.0.3.
+  Move to archived/ at sankoch's discretion.
+
+### Acceptance
+
+- `tests/regression-sit-status.sh`: PASS — `sit fsck` reports
+  `checked 300 objects, 0 bad`.
+- `sh scripts/check.sh`: 24/24 PASS (gate now active, no longer
+  skip-stub).
+- `cc5` 3-step self-host: byte-identical at 531,680 B.
+- Standalone replay of all 300 sit-fixture `.full` inputs
+  through sankoch 2.0.3: 300/300 round-trip clean.
+- `cat docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.cyr | build/cc5 | chmod +x`
+  with the 751-byte input: PASS.
+
+### Slot cascade
+
+**Unchanged from v5.6.34's push.** v5.6.36 / v5.6.37 / v5.6.38 /
+v5.6.39 stay where they were. v5.6.35 closed in this slot;
+sankoch's three-tag iteration (2.0.1 → 2.0.2 → 2.0.3) bundled
+into the single cyrius slot.
+
+### Files
+
+- `cyrius.cyml`: sankoch tag 2.0.1 → 2.0.3.
+- `lib/sankoch.cyr`: symlink target updated.
+- `tests/regression-sit-status.sh`: dropped `CYRIUS_V5635_SHIPPED`
+  env-var guard; comment header updated to reflect shipped
+  state.
+- `scripts/check.sh`: gate 4q' wired earlier in v5.6.35
+  (in-flight); label now reflects shipped pin.
+- `docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.{bin,cyr}`:
+  pre-existing (added during triage).
+- `VERSION`: 5.6.34 → 5.6.35.
+- `~/.cyrius/versions/5.6.35/`: install snapshot refreshed
+  with sankoch 2.0.3.
+
 ## [5.6.34] — 2026-04-24
 
 **Stdlib `alloc` grow-undersize SIGSEGV fixed (sit-filed

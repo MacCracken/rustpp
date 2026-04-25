@@ -5,15 +5,15 @@
 
 ## Version
 
-**5.6.34** (shipped — stdlib alloc grow-undersize SIGSEGV fix;
-no compiler code change, stdlib only. Active minor: v5.6.x
-optimization arc)
+**5.6.35** (shipped — sit symptom 2 of 2 closed; sankoch dep
+bump 2.0.1 → 2.0.3. Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.34 touches only
-  `lib/alloc.cyr` / `lib/alloc_macos.cyr`; cc5 uses raw
-  `syscall(SYS_BRK, …)` in `main.cyr`, not the stdlib allocator)
+- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.34 —
+  v5.6.35 is a `cyrius.cyml` sankoch dep-pin bump only; zero
+  compiler code change. cc5 doesn't link sankoch, but downstream
+  consumers via `lib/sankoch.cyr` symlink pick up 2.0.3)
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -56,20 +56,12 @@ optimization arc)
 ## In-flight (v5.6.x optimization arc)
 
 Slots shifted +2 total across v5.6.34 / v5.6.35 to accommodate
-sit's 2026-04-24 ticket (filed as one issue with two symptoms;
-we fix symptom 1 in v5.6.34, triage symptom 2 in v5.6.35, both
-now pinned).
+sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
+symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
+Both shipped 2026-04-24.
 
-- **v5.6.35** — `sit fsck`-surfaced memory anomaly at scale
-  (symptom 2 of sit 2026-04-24). `read_object` returns -7 on
-  the zlib_decompress retry for ~20% of objects at N ≥ 20
-  commits; first bad at ~commit 15 on the sit 100-commit
-  fixture. Three candidate layers; sit triage steps required
-  before a fix is attempted (patra bytes-roundtrip / sankoch
-  symmetry / sit write-path in-process zlib round-trip).
 - **v5.6.36** — PE32+ Windows 11 24H2 exit (loader drift;
-  bytes unchanged since v5.5.10). Was v5.6.34 → v5.6.35 at
-  my earlier write → v5.6.36 now.
+  bytes unchanged since v5.5.10).
 - **v5.6.37** — `SSL_connect` libssl pthread deadlock
   investigation (sandhi M2).
 - **v5.6.38** — shared-object (.so / .dll / .dylib) emission
@@ -86,6 +78,20 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.35** — sit symptom 2 of 2 closed via sankoch dep bump
+  2.0.1 → 2.0.3. Triage on the same 100-commit fixture pinned
+  the layer to sankoch's `zlib_compress` producing
+  non-decompressible DEFLATE on sit-tree-shaped inputs
+  (1600+ patra roundtrips clean, 1600+ sankoch synthetic
+  roundtrips clean, in-process zlib_decompress fails 50/300
+  in same lock window — bug upstream of patra, deterministic
+  on input). sankoch 2.0.2 fixed 51/53; 2.0.3 fixed remaining
+  2 (~1.5 KB and ~2 KB inputs with a distinct mid-stream
+  zero-run). Cyrius v5.6.35 = `cyrius.cyml` `[deps.sankoch]`
+  pin 2.0.1 → 2.0.3 + new `tests/regression-sit-status.sh`
+  active gate. Zero compiler change; cc5 byte-identical at
+  531,680 B. check.sh 24/24. End-to-end sit `fsck` reports
+  `checked 300 objects, 0 bad`.
 - **v5.6.34** — stdlib `alloc` grow-undersize SIGSEGV fixed
   (`lib/alloc.cyr` Linux brk + `lib/alloc_macos.cyr` mmap).
   Both paths grew by a fixed `0x100000` step every time

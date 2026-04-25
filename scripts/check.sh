@@ -235,13 +235,22 @@ if [ "$mo_result" -ne 0 ]; then cat /tmp/audit_mo_$$; fi
 rm -f /tmp/audit_mo_$$
 echo ""
 
-# ── 4q. Windows 11 PE runtime exit code (pin v5.6.34) ──
+# ── 4q. Windows 11 PE runtime exit code (pin v5.6.36) ──
 echo "── PE32+ Windows runtime ──"
 sh "$ROOT/tests/regression-pe-exit.sh" > /tmp/audit_pe_$$ 2>&1
 pe_result=$?
-check "PE syscall(60,42) → exit 42 on cass (pin v5.6.34)" "$pe_result"
+check "PE syscall(60,42) → exit 42 on cass (pin v5.6.36)" "$pe_result"
 if [ "$pe_result" -ne 0 ]; then cat /tmp/audit_pe_$$; fi
 rm -f /tmp/audit_pe_$$
+echo ""
+
+# ── 4q'. sit 100-commit fixture: status + fsck (pin v5.6.35) ──
+echo "── sit 100-commit fixture ──"
+sh "$ROOT/tests/regression-sit-status.sh" > /tmp/audit_ss_$$ 2>&1
+ss_result=$?
+check "sit fsck on 100-commit fixture reports 0 bad (pin v5.6.35; sankoch deflate)" "$ss_result"
+if [ "$ss_result" -ne 0 ]; then cat /tmp/audit_ss_$$; fi
+rm -f /tmp/audit_ss_$$
 echo ""
 
 # ── 4r. Bare-truthy after fn-call (v5.6.21 codegen-bug fix) ──

@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.34.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.35.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -277,19 +277,15 @@
 >   contiguity guard. Windows separable (no grow path). New
 >   gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5
 >   unchanged (uses raw `brk`).
-> - **v5.6.35** (NEW — sit symptom 2 of 2): `sit fsck`-surfaced
->   memory anomaly at scale. After v5.6.34's alloc fix,
->   `sit fsck` on a 100-commit / 100-file fixture reports 53/247
->   objects unreadable; `read_object` returns -7 on the retry
->   `zlib_decompress`. Scales with N, first bad at ~commit 15.
->   Three candidate layers, none pinned: (a) patra 1.6.0
->   page-spill / WAL-flush / serialization bug, (b) sankoch
->   2.0.1 zlib symmetry bug, (c) cyrius stdlib memory-
->   corruption beyond the grow bug (stale pointer / double-
->   commit in bump allocator). sit's ticket explicitly forbids
->   fixing without triage first — see its four required triage
->   steps (patra bytes-roundtrip, sankoch symmetry, sit write-
->   path instrumentation, cyrius latent-corruption sweep).
+> - **v5.6.35 ✅ shipped** (sit symptom 2 of 2): `sit fsck`
+>   memory anomaly at scale closed via sankoch dep bump
+>   2.0.1 → 2.0.3. Triage 2026-04-24 eliminated patra, cyrius
+>   alloc, and sit-side aliasing; pinned the bug to sankoch's
+>   deflate encoder on sit-tree-shaped inputs. sankoch shipped
+>   2.0.2 (51/53 fixed) then 2.0.3 (0/53 remaining). Cyrius
+>   side: `cyrius.cyml` `[deps.sankoch]` pin bump + new active
+>   `tests/regression-sit-status.sh` gate. Zero compiler
+>   change; cc5 byte-identical at 531,680 B.
 > - **v5.6.36** (was v5.6.34 → 35 → 36): Windows 11 24H2 PE
 >   platform drift (cass) — PE `syscall(60, 42)` exits
 >   0x40010080 (NTSTATUS informational / DBG_-class) on
@@ -393,7 +389,7 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | ~~Native aarch64 self-host on Pi fails at parse time~~ | ~~`cc5_aarch64_native` can't self-host on real Pi 4~~ | **v5.6.32 ✅ shipped** — root cause: `src/main_aarch64_native.cyr` was missing `include "src/common/ir.cyr"` that `src/main_aarch64.cyr` (the x86-hosted cross-compiler) received when v5.6.12 O3a shipped the `IR_RAW_EMIT` instrumentation markers. `parse_*.cyr` references `IR_RAW_EMIT` unconditionally; the native variant errored at parse time. Earlier `_TARGET_MACHO` framing was a stale symptom shape from pre-v5.6.12 source — current source first-undefined-ref hits `IR_RAW_EMIT`. 1-line fix. Native self-host fixpoint on Pi: `cc5_b == cc5_c` byte-identical at 463,768 B. `tests/regression-aarch64-native-selfhost.sh` flipped from skip-stub to active gate; wired into `check.sh` step 4o. |
 | ~~macOS arm64 runtime regression (syscall(60) reroute)~~ | ~~Apple Silicon deploys~~ | **v5.6.33 ✅ shipped** — premise was wrong; no compiler regression existed. The `regression-macho-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`, top-level stmts are the program entry. The argv prologue's branch-over-fn-bodies landed on the `EEXIT` tail (`movz x16,#1; svc #0x80` = BSD `_exit(x0)` on macOS) with `x0 = argc = 1` still resident from the `stp x0, x1, [sp, #-16]!` prologue, hence rc=1. Top-level `syscall(60, 42);` exits 42 cleanly on current v5.6.33 against macOS 26.4.1 (ssh ecb, Darwin 25.4.0, build 25E253). Gate rewritten with three tests covering `__got[0]=_exit`, `__got[1]=_write` (stdout bytes verified), and v5.6.11 peephole + bl/fn-frame. Zero compiler code changed; cc5 byte-identical at 531,680 B. The v5.5.13 memory entry's "exit=42 verified" almost certainly used top-level syntax; the later-written fixture assumed an auto-call cyrius has never had. |
 | ~~Stdlib `alloc` grow-undersize SIGSEGV (sit symptom 1 of 2)~~ | ~~Any cyrius consumer allocating >1 MiB in one call~~ | **v5.6.34 ✅ shipped** — `lib/alloc.cyr` (Linux brk) + `lib/alloc_macos.cyr` (mmap) grew by a fixed `0x100000` step every time `_heap_ptr` crossed `_heap_end`, regardless of requested size. Any `alloc(size > 1 MB)` near the grow boundary returned a pointer past the brk/mmap — SIGSEGV on first tail-write. Filed by sit 2026-04-24 during S-33 triage of `sit status` SIGSEGV on 100-commit repo. Fix: Linux rounds new end up to next 1 MB grain; macOS loops 1 MB mmaps preserving the per-step contiguity guard. `lib/alloc_windows.cyr` separable — no grow path, fails cleanly. New gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5 byte-identical (uses raw `brk`, not stdlib). Issue ledger: `sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md` (filed as one issue with two symptoms; we fix #1 here, triage #2 in v5.6.35). |
-| `sit fsck` memory anomaly at scale (sit symptom 2 of 2) | sit at scale (≥ ~20 commits) untrustworthy; scales with N | **v5.6.35** — after v5.6.34's alloc fix, `sit fsck` on the same 100-commit / 100-file fixture reports 53/247 objects unreadable (~20%, scales with N, first bad at ~commit 15). `read_object` returns -7 on the retry `zlib_decompress`; `patra_result_get_bytes_len` is positive, `patra_result_read_bytes` returns 0. Three candidate layers, NONE pinned: (1) patra 1.6.0 page-spill / WAL-flush / serialization bug — consistent with N-scaling and the commit-15 page-boundary hypothesis; (2) sankoch 2.0.1 zlib symmetry bug — against: shape-sensitive bugs should show at low N; (3) cyrius stdlib memory-corruption beyond the grow bug (stale pointer / double-commit in bump allocator). sit's ticket explicitly forbids a fix attempt before triage. Required triage steps: (a) patra bytes-roundtrip standalone at row counts 10 / 50 / 100 / 500; (b) sankoch compress/decompress symmetry on sit-shaped inputs; (c) instrument sit's `write_typed_object` with in-process `zlib_compress → zlib_decompress → memcmp`; (d) only if (a)+(b) exonerate deps, sweep cyrius stdlib for latent corruption patterns. If stuck on triage, STOP and ASK. Issue ledger: same file as v5.6.34's (merged ticket). |
+| ~~`sit fsck` memory anomaly at scale (sit symptom 2 of 2)~~ | ~~sit at scale~~ | **v5.6.35 ✅ shipped.** Triage 2026-04-24 pinned the layer to **sankoch's `zlib_compress` producing non-decompressible DEFLATE for sit-tree-shaped inputs** (deterministic on input; reproduces from a 30-line standalone cyrius program). Eliminated: patra (1600+ standalone roundtrips clean), cyrius alloc (compressed buffer not mutated during `patra_insert_row`, pre/post checksums match for all 300 inserts), sit-side aliasing (in-process `zlib_decompress(compressed)` immediately after `zlib_compress` fails 50/300 in same lock window). 3 sankoch tags resolved it: 2.0.1 (53/300 bad) → 2.0.2 (51/53 fixed; 2 left at ~1.5 KB / ~2 KB with mid-stream zero-run shape) → 2.0.3 (0/300 bad). Cyrius v5.6.35 = `cyrius.cyml` sankoch pin 2.0.1 → 2.0.3 + active `tests/regression-sit-status.sh` gate. Zero compiler change; cc5 byte-identical at 531,680 B. End-to-end `sit fsck` on a freshly-built 100-commit fixture reports `checked 300 objects, 0 bad`. Cyrius repro at `cyrius/docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.{bin,cyr}` (kept committed; 751-byte case still verifies under 2.0.3). |
 | Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.36** (was v5.6.34 → 35 → 36) — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
 | `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.37** (was v5.6.35 → 36 → 37) — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
 
@@ -506,19 +502,13 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     a pointer past the brk/mmap. Fixed by rounding up to 1MB
     grain (Linux) / looping 1MB mmaps (macOS). New
     `tests/tcyr/alloc_grow.tcyr` gate.
-11. **v5.6.35 — `sit fsck` memory anomaly triage (sit symptom 2
-    of 2).** After v5.6.34, `sit fsck` reports 53/247 objects
-    unreadable on the same 100-commit / 100-file fixture
-    (~20%, scales with N, first bad at ~commit 15).
-    `read_object` returns -7 on the zlib retry. Three candidate
-    layers; sit's ticket explicitly forbids fixing without
-    triage first. Required triage steps: (a) patra bytes-
-    roundtrip at row-counts 10/50/100/500; (b) sankoch
-    compress/decompress symmetry on sit-shaped inputs;
-    (c) instrument sit's write path for in-process
-    zlib roundtrip; (d) if (a)+(b) exonerate deps, sweep
-    cyrius stdlib for stale-pointer / double-commit patterns
-    beyond the grow bug. If stuck on triage, STOP and ASK.
+11. **v5.6.35 ✅ shipped — `sit fsck` memory anomaly triage +
+    sankoch dep bump (sit symptom 2 of 2).** Triage 2026-04-24
+    pinned the layer to sankoch's `zlib_compress`. 3 sankoch
+    tags resolved it: 2.0.1 → 2.0.2 (51/53) → 2.0.3 (0/53).
+    Cyrius v5.6.35 = `cyrius.cyml` sankoch pin 2.0.1 → 2.0.3 +
+    active `tests/regression-sit-status.sh` gate. Zero
+    compiler change.
 12. **v5.6.36 — Windows 11 runtime regression repair** (was
     v5.6.34 → v5.6.35 → v5.6.36).
 13. **v5.6.37 — `SSL_connect` libssl pthread deadlock** (was
@@ -1819,102 +1809,77 @@ attempt a fix for symptom 2 until one of the following [triage
 steps] pins the layer" — three candidate layers (patra /
 sankoch / cyrius latent corruption). Slotted as v5.6.35.
 
-### v5.6.35 — `sit fsck` memory anomaly at scale — triage + fix (symptom 2 of sit 2026-04-24)
+### v5.6.35 — `sit fsck` memory anomaly at scale — sankoch dep bump 2.0.1 → 2.0.3 (symptom 2 of sit 2026-04-24) ✅ SHIPPED
 
-**Filed alongside v5.6.34** in the same sit ticket
-(`sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md`).
-After v5.6.34's allocator fix, `sit fsck` on the same
-100-commit / 100-file fixture reports 53/247 objects
-"unreadable." Scales with N:
+**Triage outcome (2026-04-24):**
 
-| N (commits / files) | total objects | bad (unreadable) |
-|---|---:|---:|
-| 5   | 15  | 0  |
-| 20  | 59  | 1 (first bad at ~commit 15) |
-| 50  | 122 | 28 |
-| 100 | 247 | 53 |
+Layer **pinned to sankoch 2.0.1's `zlib_compress`** producing
+DEFLATE bytes that fail `zlib_decompress` on a 30-line
+standalone cyrius program. No patra, no sit, no cyrius
+allocator pressure required to reproduce. Encoder is
+deterministic — same input bytes → same broken output bytes
+across processes.
 
-Observable failure mode: `read_object` returns -7, meaning the
-retry `zlib_decompress(compressed, blen, decompressed,
-16 MiB)` returns `dlen <= 0`. `patra_result_get_bytes_len`
-returns positive, `patra_result_read_bytes` returns 0; patra
-claims the row exists and was read successfully. The
-decompressor is what rejects the bytes.
+**Eliminated layers:**
 
-**Hypotheses (ranked by sit's plausibility order):**
+| Layer | Test | Result |
+|---|---|---|
+| patra 1.6.0 | 10/50/100/500-row standalone roundtrip + 100-round close/reopen + 300-row cross-process with sit-shape | 0 corrupt across 1600+ rows |
+| sankoch 2.0.1 (synthetic inputs) | 16 sizes × 2 fill kinds × 50 iters synthetic data | 0 corrupt across 1600 roundtrips (the bug is *content-shape-specific*) |
+| cyrius alloc grow-undersize | v5.6.34 already shipped + repro fails identically with v5.6.34 fix in place | exonerated |
+| cyrius in-call buffer mutation | pre/post checksums of `compressed` buffer around `patra_insert_row` for all 300 sit inserts | 0 mutations |
+| sit-side buffer aliasing | sit instrumented to in-process `zlib_decompress` immediately after `zlib_compress` returns | 50/300 fail in same lock window — bug is upstream of patra |
 
-1. **patra 1.6.0 page-spill / WAL-flush / serialization bug.**
-   The `content` BYTES column comes back truncated, mis-aligned,
-   or cross-row-contaminated at higher row counts. Matches the
-   N-scaling behavior (first bad at ~commit 15 correlates with
-   patra likely crossing from page 1 to page 2 of its `objects`
-   B-tree for sit's row shape).
-2. **sankoch 2.0.1 zlib_decompress rejects bytes that
-   zlib_compress produced in the same process.** Against: a
-   shape-sensitive bug should show at low N with the same
-   content, not scale.
-3. **cyrius stdlib memory-corruption unrelated to the grow
-   bug.** Stale pointer into reused bump-heap memory, or
-   double-commit of `_heap_ptr`. Supports the "one bug, two
-   symptoms" framing. The commit-side write path showed no
-   `alloc-grow > 1 MB` events, ruling out write-time hits of
-   the known grow bug — but not ruling out a different
-   corruption mode in the same allocator.
+**Pinned: sankoch 2.0.1 deflate encoder.** 50/300 of sit's
+tree-object byte patterns produce non-decompressible output.
+All 50 are tree objects in the 751-4700-byte size range, mix
+of `100644 file_<i>.txt\0` ASCII + 32-byte binary hash
+entries. Smallest failing input: **751 bytes**.
 
-**MANDATORY: run sit's prescribed triage steps before proposing
-a fix.** sit's ticket is emphatic: "do not attempt a fix for
-symptom 2 until one of the following pins the layer."
+**Repros and references:**
 
-1. **Bytes roundtrip at patra layer.** Standalone cyrius
-   program: open fresh `.patra` DB, `patra_insert_row`
-   compressed buffers matching sit's tree/blob shapes, close,
-   reopen, `SELECT content`, `patra_result_read_bytes`, `memcmp`
-   vs. the original. Run at row counts 10 / 50 / 100 / 500. If
-   bytes diverge at any count → **patra** confirmed. If bytes
-   match across the board → rule out patra.
-2. **sankoch compress/decompress symmetry on sit-shaped
-   inputs.** Standalone: `zlib_compress → zlib_decompress →
-   memcmp`, across the exact compressed byte patterns sit
-   produces for the 100-commit fixture (dump them first). Any
-   single-process roundtrip that fails → **sankoch** confirmed.
-3. **Instrument sit's write path.** Inside
-   `src/object_db.cyr:write_typed_object`, right after
-   `zlib_compress` succeeds, immediately `zlib_decompress` the
-   result and compare to `full`. If the in-process roundtrip
-   passes but the cross-process `read_object` fails, the
-   corruption is between `patra_insert_row` and the next
-   `SELECT`. If the in-process roundtrip ALSO fails on a just-
-   compressed buffer, the bug is in sankoch or in cyrius's
-   memory behavior around sankoch's scratch buffers.
-4. **Only if (1)+(2) exonerate deps:** sweep cyrius stdlib for
-   stale-pointer / double-commit patterns in the bump allocator
-   beyond the grow bug. Do not start here.
-
-**If triage doesn't pin the layer after the four steps, STOP
-and ASK.** Do not slip, defer, or re-slot unilaterally. A patra
-fix lives in the patra repo (v1.6.x), a sankoch fix in sankoch
-(v2.0.x), a cyrius stdlib fix here — only the last keeps this
-slot in this repo. If it turns out to be a dep bug, this slot
-becomes a version-bump slot (pin the fixed dep version) and the
-investigation narrative ships under the dep's own CHANGELOG.
+- `cyrius/docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.bin` — 751-byte input (deterministic; saved from the sit triage fixture).
+- `cyrius/docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.cyr` — ~50-line standalone program. Run as `cat repro.cyr | build/cc5 > /tmp/repro && chmod +x /tmp/repro && /tmp/repro <repro.bin`. Exits 1 with `FAIL: dlen != input_len`.
+- `sankoch/docs/development/issues/2026-04-24-zlib-compress-non-roundtrip-on-tree-shaped-input.md` — full sankoch issue with investigation suggestions (bisect by size; force fixed-Huffman block; diff against zlib reference output).
 
 **Regression gate (part of this slot's scope):**
-- If cyrius is the layer: add `tests/tcyr/*.tcyr` that exercises
-  whatever pattern the triage pinned (e.g. stale-pointer repro
-  at scale).
-- If patra/sankoch is the layer: the dep's own repo adds its
-  gate; this slot documents the pin in CHANGELOG.
-- Either way: add `tests/regression-sit-status.sh` that spins
-  up the 100-commit fixture and runs `sit status` + `sit fsck`,
-  asserting exit 0 and "checked 247 objects, 0 bad." Gate
-  skips if the sit repo isn't present at `../sit`.
 
-**Consumer status during triage:** sit ships a mitigation
-(route big allocs through `fl_alloc`; post-commit verification
-in `cmd_commit`) — the `fl_alloc` swap fixes symptom 1, the
-post-commit verification turns symptom 2 from silent crash to
-loud refused commit. sit considers itself "not trustworthy for
-real trees at scale" until this slot ships.
+- `tests/regression-sit-status.sh` shipped as a skip-stub.
+  Skips with "pin v5.6.35" pre-fix; flips to active when
+  `CYRIUS_V5635_SHIPPED=1`. Spins up a 100-commit fixture
+  with sit, runs `sit fsck`, asserts 0 bad and `sit status`
+  exits 0. Skips cleanly if `../sit` isn't checked out.
+  Wired into `scripts/check.sh` (gate 4q'). check.sh 24/24.
+
+**Resolution: 3 sankoch tags, 1 cyrius slot.**
+
+- sankoch 2.0.2: fixed 51 of 53 originally-failing inputs.
+  Released after the parent issue was filed; partial fix
+  (2 inputs at ~1.5 KB / ~2 KB still produced a distinct
+  "zero-run mid-stream" failure shape).
+- sankoch 2.0.3: fixed the remaining 2 inputs. End-to-end
+  verified: standalone replay of all 300 sit-fixture inputs
+  through 2.0.3 = 0 corrupt; sit `fsck` on a freshly-built
+  100-commit fixture against cyrius v5.6.35 + sankoch 2.0.3
+  reports `checked 300 objects, 0 bad`.
+- cyrius v5.6.35 (this slot, shipped 2026-04-24): bumped
+  `cyrius.cyml` `[deps.sankoch]` `tag = "2.0.1"` → `"2.0.3"`
+  (skipping 2.0.2 entirely since it shipped while the slot
+  was in-flight). `lib/sankoch.cyr` symlink updated. Gate
+  `tests/regression-sit-status.sh` ships active (no env-var
+  guard). Install snapshot at `~/.cyrius/versions/5.6.35/`
+  refreshed with sankoch 2.0.3.
+
+**No compiler code changed.** cc5 byte-identical at 531,680 B
+(cc5 doesn't link sankoch; only downstream consumers via
+`lib/sankoch.cyr` pick up the dep). check.sh 24/24 PASS.
+
+**Consumer status:** sit can revert its fl_alloc swap (made
+redundant by v5.6.34's grow fix) and its post-commit
+`read_object` verify (made redundant by v5.6.35's sankoch
+bump) once it bumps `cyrius.cyml` `cyrius` to 5.6.35 and
+`[deps.sankoch]` to 2.0.3. Both mitigations are no-ops on
+the corrected stack but remain safe to keep.
 
 ### v5.6.36 — Windows 11 runtime regression repair (cass)
 
