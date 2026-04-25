@@ -98,10 +98,20 @@ var g_err = _dynlib_resolve_global("ERR_get_error");
 assert(g_err != 0, "libcrypto ERR_get_error via global");
 
 # ── tls_available ──
+# tls_available() uses fdlopen to bootstrap a real glibc (v5.6.37);
+# it returns 1 only when both libssl is present AND the fdlopen
+# helper at ~/.cyrius/dlopen-helper exists (built by install.sh).
+# CI hosts without `cyrius install` don't have the helper; in that
+# case tls_available correctly returns 0 and we assert that shape.
 test_group("tls interface");
 
+var helper_ok = fdlopen_helper_available();
 var avail = tls_available();
-assert_eq(avail, 1, "tls_available");
+if (helper_ok == 1) {
+    assert_eq(avail, 1, "tls_available (helper present)");
+} else {
+    assert_eq(avail, 0, "tls_available returns 0 when fdlopen helper missing");
+}
 
 # ── negative: unknown symbol ──
 test_group("negative cases");
