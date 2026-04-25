@@ -13,8 +13,42 @@ fi
 NEW="$1"
 OLD=$(cat VERSION | tr -d '[:space:]')
 
+# Regenerate src/version_str.cyr unconditionally — including same-version
+# invocations. This file is the single source of truth for the cc5/cc5_win/
+# cc5_aarch64 `--version` strings; if it drifts vs `VERSION`, `cc5
+# --version` reports stale data. Same-version `version-bump.sh "$(cat
+# VERSION)"` is the documented "regenerate without bumping" path.
+if [ -f src/main.cyr ]; then
+    LEN_CC5=$((${#NEW} + 5))           # "cc5 " + version + "\n"
+    LEN_CC5_WIN=$((${#NEW} + 9))       # "cc5_win " + version + "\n"
+    LEN_CC5_AARCH64=$((${#NEW} + 13))  # "cc5_aarch64 " + version + "\n"
+    cat > src/version_str.cyr <<EOF
+# src/version_str.cyr — AUTO-GENERATED from \`VERSION\` by
+# \`scripts/version-bump.sh\`. Do NOT edit by hand; the next bump
+# will overwrite. To regenerate without bumping, run:
+#
+#   sh scripts/version-bump.sh "\$(cat VERSION)"
+#
+# Why this file exists: pre-v5.6.39, each \`main_*.cyr\` had its own
+# hardcoded \`"cc5 X.Y.Z\\n"\` literal + a hardcoded byte length.
+# \`version-bump.sh\`'s sed regex didn't handle \`-N\` hotfix suffixes
+# (e.g. \`5.6.29-1\`), so once a hotfix shipped, every subsequent bump
+# silently skipped the literal — \`cc5 --version\` got stuck at
+# \`5.6.29-1\` for 9 releases. Centralising the strings here means
+# version-bump.sh writes ONE file every time and the sources just
+# reference these vars. No regex hunting; no drift.
+
+var _VERSION_STR_CC5         = "cc5 $NEW\n";
+var _VERSION_LEN_CC5         = $LEN_CC5;
+var _VERSION_STR_CC5_WIN     = "cc5_win $NEW\n";
+var _VERSION_LEN_CC5_WIN     = $LEN_CC5_WIN;
+var _VERSION_STR_CC5_AARCH64 = "cc5_aarch64 $NEW\n";
+var _VERSION_LEN_CC5_AARCH64 = $LEN_CC5_AARCH64;
+EOF
+fi
+
 if [ "$NEW" = "$OLD" ]; then
-    echo "Already at $OLD"
+    echo "Already at $OLD (regenerated src/version_str.cyr)"
     exit 0
 fi
 
@@ -26,22 +60,6 @@ sed -i "s/VERSION=\"$OLD\"/VERSION=\"$NEW\"/" scripts/install.sh 2>/dev/null || 
 
 # 3. CLAUDE.md
 sed -i "s/- \*\*Version\*\*: $OLD/- **Version**: $NEW/" CLAUDE.md 2>/dev/null || true
-
-# 3b. cc5 --version string in src/main.cyr
-# Permissive regex — matches any "cc5 X.Y.Z\n" so the version string can't
-# drift silently if a previous bump missed this file (as happened between
-# 3.4.10 and 3.4.15). Also re-computes the syscall write length since the
-# string is a constant literal and the length argument is hard-coded.
-if [ -f src/main.cyr ]; then
-    if grep -Eq '"cc5 [0-9]+\.[0-9]+\.[0-9]+\\n"' src/main.cyr; then
-        sed -i -E "s|\"cc5 [0-9]+\.[0-9]+\.[0-9]+\\\\n\"|\"cc5 $NEW\\\\n\"|" src/main.cyr
-        # "cc5 X.Y.Z\n" is len(X.Y.Z) + 5 bytes (cc5 + space + \n)
-        NEW_LEN=$((${#NEW} + 5))
-        sed -i -E "s|(\"cc5 $NEW\\\\n\", )[0-9]+\)|\1$NEW_LEN)|" src/main.cyr
-    else
-        echo "  warning: no cc5 version string found in src/main.cyr" >&2
-    fi
-fi
 
 # 4. CHANGELOG.md — add unreleased section if not present
 if ! grep -q "## \[$NEW\]" CHANGELOG.md 2>/dev/null; then

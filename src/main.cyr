@@ -214,6 +214,12 @@
 # x86_64 syscall number constants (used by shared cc/ modules)
 enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 12; SYS_EXIT = 60; }
 
+# v5.6.39: version string + length sourced from auto-generated
+# src/version_str.cyr (regenerated from VERSION on every bump).
+# Replaces a hardcoded "cc5 X.Y.Z\n" literal that drifted because
+# version-bump.sh's regex couldn't match `-N` hotfix suffixes.
+include "src/version_str.cyr"
+
 # ================================================================
 # MODULES
 # ================================================================
@@ -254,7 +260,7 @@ if (_vn > 0) {
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 118 && load8(&_vbuf + _vi + 3) == 101) {
-                    syscall(SYS_WRITE, 1, "cc5 5.6.29-1\n", 13);
+                    syscall(SYS_WRITE, 1, _VERSION_STR_CC5, _VERSION_LEN_CC5);
                     syscall(SYS_EXIT, 0);
                 }
             }

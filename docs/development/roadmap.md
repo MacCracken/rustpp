@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.38.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.39.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -320,13 +320,25 @@
 >   hash comparison; `nbucket=1` makes the hash genuinely
 >   unused). cc5 −320 B. `regression-shared.sh` (already
 >   shipping) continues PASS.
-> - **v5.6.39** (was v5.6.37 → 38 → 39): v5.6.x closeout +
->   downstream ecosystem sweep gate (agnos, kybernet, argonaut,
->   agnosys, sigil, ark, nous, zugot, agnova, takumi).
->   **Last patch of v5.6.x.** Fold in `PP_DEFINE` / `PP_DEFINED`
->   `src_base` hardening (same shape as v5.6.30's derive-helper
->   fix — latent same-class bug, no observed in-the-wild
->   trigger yet).
+> - **v5.6.39 ✅ shipped**: `cc5 --version` drift repair +
+>   hardcoded-literal removal. Caught via Starship prompt
+>   observation — cyrius repo bumped to v5.6.38 but
+>   `cc5 --version` still said `5.6.29-1` (drifted across
+>   9 releases). Root cause: `version-bump.sh`'s sed regex
+>   `[0-9]+\.[0-9]+\.[0-9]+\\n` didn't match the `-N` hotfix
+>   suffix; once 5.6.29-1 baked the literal in `src/main.cyr`,
+>   every subsequent bump silently failed. Fixed by removing
+>   the hardcoded-literal class entirely: new auto-generated
+>   `src/version_str.cyr` is the single source of truth;
+>   `main.cyr` + `main_win.cyr` include it and reference the
+>   vars. cc5 rebuilt; `cc5 --version` reports current.
+> - **v5.6.40** (was v5.6.39): v5.6.x closeout + downstream
+>   ecosystem sweep gate (agnos, kybernet, argonaut, agnosys,
+>   sigil, ark, nous, zugot, agnova, takumi). **Last patch
+>   of v5.6.x.** Fold in `PP_DEFINE` / `PP_DEFINED`
+>   `src_base` hardening (same shape as v5.6.30's derive-
+>   helper fix — latent same-class bug, no observed
+>   in-the-wild trigger yet).
 >
 > **Long-term considerations** (no version pin yet — revisit when
 > the right preconditions land):
@@ -548,11 +560,18 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     DT_INIT and PASSes. Slot deliverable: dead `SYSV_HASH`
     removed (nbucket=1 + glibc chain-walk = strcmp, never
     hash). cc5 −320 B. `.gnu.hash` deferred (no consumer).
-15. **v5.6.39 — v5.6.x closeout + downstream ecosystem sweep
-    gate** (was v5.6.37 → v5.6.38 → v5.6.39). Last patch of
-    v5.6.x. Bundle `PP_DEFINE` / `PP_DEFINED` `src_base`
-    hardening (same `PP_IFDEF_PASS` read-cap bug shape as
-    v5.6.30's derive-helper fix — latent same-class bug).
+15. **v5.6.39 ✅ shipped — `cc5 --version` drift repair +
+    hardcoded-literal removal.** Starship-observation-caught
+    drift: regex shape `[0-9]+\.[0-9]+\.[0-9]+\\n` in
+    version-bump.sh didn't match `5.6.29-1\n`, silent failure
+    for 9 releases. Refactored to auto-generated
+    `src/version_str.cyr`. cc5 rebuilt; +224 B for include +
+    var refs.
+16. **v5.6.40 — v5.6.x closeout + downstream ecosystem sweep
+    gate** (was v5.6.39). Last patch of v5.6.x. Bundle
+    `PP_DEFINE` / `PP_DEFINED` `src_base` hardening (same
+    `PP_IFDEF_PASS` read-cap bug shape as v5.6.30's
+    derive-helper fix — latent same-class bug).
 
 ### v5.6.0 — `parse.cyr` arch-guard cleanup ✅ shipped
 
@@ -2109,7 +2128,94 @@ as system libc peer" use case.
 
 ---
 
-### v5.6.39 — v5.6.x closeout (LAST patch of v5.6.x)
+### v5.6.39 — `cc5 --version` drift repair + hardcoded-literal removal ✅ SHIPPED
+
+**User caught the drift via Starship prompt observation.**
+Cyrius repo bumped to v5.6.38 but `cc5 --version` still
+reported `5.6.29-1` — 9 releases of silent drift.
+
+**Root cause:** `scripts/version-bump.sh` had a sed step
+gated by a grep regex:
+
+```sh
+if grep -Eq '"cc5 [0-9]+\.[0-9]+\.[0-9]+\\n"' src/main.cyr; then
+    sed -i ...
+else
+    echo "  warning: no cc5 version string found in src/main.cyr" >&2
+fi
+```
+
+The regex `[0-9]+\.[0-9]+\.[0-9]+\\n` matches `X.Y.Z\n` but
+**not** `X.Y.Z-N\n`. When v5.6.29-1 (the hotfix-suffixed
+release) shipped, the literal in `src/main.cyr` became
+`"cc5 5.6.29-1\n"`. The grep test failed, the sed was
+skipped, the warning was emitted to stderr (silently logged),
+and the bump completed successfully despite the literal
+being unchanged. Every release from v5.6.30 through v5.6.38
+shipped with `cc5 --version` reporting `5.6.29-1`.
+
+`src/main_win.cyr` had the same bug shape but with worse
+drift — it had `"cc5_win 5.5.0\n"`, frozen since v5.5.0
+because `version-bump.sh` only ever swept `main.cyr`,
+**never** `main_win.cyr`.
+
+**Fix — remove the hardcoded-literal class entirely:**
+
+Patching the regex to accept `-N` would have re-introduced
+the same bug class for any future suffix shape (e.g. `-rc1`,
+`-pre`). The right move was to eliminate hardcoded literals
+in source.
+
+- New file **`src/version_str.cyr`** (auto-generated). Holds
+  `_VERSION_STR_CC5`, `_VERSION_STR_CC5_WIN`,
+  `_VERSION_STR_CC5_AARCH64` plus their byte lengths.
+  Single source of truth. Generated via heredoc from
+  `version-bump.sh`; no regex, no per-file hunting.
+- **`src/main.cyr`**: dropped the hardcoded literal;
+  added `include "src/version_str.cyr"` alongside the other
+  module includes; the syscall now references the var:
+  `syscall(SYS_WRITE, 1, _VERSION_STR_CC5, _VERSION_LEN_CC5);`
+- **`src/main_win.cyr`**: same shape. Now uses
+  `_VERSION_STR_CC5_WIN` — and benefits from the central
+  generator (was previously never updated by
+  version-bump.sh at all).
+- **`scripts/version-bump.sh`**: removed the broken regex-
+  gated sed (old step 3b). New unconditional `cat > src/version_str.cyr`
+  heredoc runs BEFORE the same-version early-exit, so
+  `sh scripts/version-bump.sh "$(cat VERSION)"` regenerates
+  the file without bumping (the file's own header documents
+  this path; now it actually works).
+
+**Re-bootstrap & install reconcile:**
+
+The fix needed cc5 itself rebuilt (binary baked the version
+string at compile time). Rebuilt fresh:
+
+- `cc5`: 531,360 → **531,584 B** (+224 B for the include +
+  var refs replacing the inline literal).
+- `cc5_win_cross`, `cc5_aarch64`: rebuilt cross-compilers.
+- 3-step self-host: byte-identical at 531,584 B.
+
+Pre-fix, install state was inconsistent:
+`~/.cyrius/{bin,lib}` symlinked at v5.6.35 while
+`~/.cyrius/current` said 5.6.38. Repointed:
+`~/.cyrius/{bin,lib,current} → 5.6.39`.
+
+**Acceptance:**
+- `cc5 --version` → `cc5 5.6.39` ✓ (was stuck at `5.6.29-1`).
+- `cyrius --version` → `cyrius 5.6.39` ✓.
+- Same-version regenerate verified by canary edit + restore.
+- `sh scripts/check.sh`: 25/25 PASS.
+- 3-step self-host: byte-identical at 531,584 B.
+
+**Convention note:** discovered through observation, not
+release-blocker — regular slot, not `-N` hotfix suffix.
+Hotfix suffix is reserved for emergency project-level fixes
+(broken release, dep-version emergency); observational drift
+discoveries get the next regular slot. Closeout cascaded
+v5.6.39 → v5.6.40.
+
+### v5.6.40 — v5.6.x closeout (LAST patch of v5.6.x)
 
 Last patch before v5.7.0 (sandhi fold + lib/ cleanup) and v5.7.1 (RISC-V) open. CLAUDE.md "Closeout Pass"
 11-step checklist: self-host verify, bootstrap closure, full

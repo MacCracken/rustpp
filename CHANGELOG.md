@@ -4,6 +4,154 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.39] — 2026-04-24
+
+**`cc5 --version` was stuck at `5.6.29-1` for 9 releases.** User
+caught it via Starship prompt observation: cyrius repo showed
+`v5.6.38` everywhere except `cc5 --version`, which still
+reported `5.6.29-1` despite multiple successful bumps. Fixed
+the silent drift + refactored to remove the hardcoded literal
+class entirely.
+
+### Root cause
+
+`scripts/version-bump.sh` had a sed step that matched the
+hardcoded `"cc5 X.Y.Z\n"` literal inside `src/main.cyr` and
+rewrote it on each bump. The grep regex used to gate the sed:
+
+```sh
+if grep -Eq '"cc5 [0-9]+\.[0-9]+\.[0-9]+\\n"' src/main.cyr; then
+```
+
+When v5.6.29-1 (the hotfix-suffixed release per the `-N`
+convention) shipped, the literal in `src/main.cyr` became
+`"cc5 5.6.29-1\n"`. The regex `[0-9]+\.[0-9]+\.[0-9]+\\n`
+doesn't accept the `-N` suffix, so the grep returned empty, the
+sed was skipped, and a `warning: no cc5 version string found in
+src/main.cyr` was emitted to stderr — silently logged, never
+escalated. Every bump from v5.6.30 through v5.6.38 left the
+literal at `5.6.29-1`. Reproducibility:
+
+```sh
+$ for v in 5.6.29-1 5.6.30 5.6.31 ... 5.6.38; do
+>   ~/.cyrius/versions/$v/bin/cc5 --version
+> done
+cc5 5.6.29-1
+cc5 5.6.29-1
+cc5 5.6.29-1
+... (9 releases)
+cc5 5.6.29-1
+```
+
+`src/main_win.cyr` had the same bug with worse drift —
+`"cc5_win 5.5.0\n"`, frozen since v5.5.0 because version-bump.sh
+**only ever swept main.cyr**, never main_win.cyr.
+
+### Fix — remove the hardcoded-literal class entirely
+
+Rather than just patching the regex (which would re-introduce
+the same bug class for any future suffix shape), refactored the
+version source-of-truth to a generated file:
+
+- New file **`src/version_str.cyr`** (auto-generated). Holds
+  `_VERSION_STR_CC5`, `_VERSION_STR_CC5_WIN`,
+  `_VERSION_STR_CC5_AARCH64` plus their byte lengths.
+  `version-bump.sh` writes this file on every invocation
+  (including same-version regenerate-only) via heredoc,
+  no regex.
+- **`src/main.cyr`**: removed the `"cc5 5.6.29-1\n"` literal;
+  added `include "src/version_str.cyr"` at the top alongside
+  the other module includes; replaced the syscall with
+  `syscall(SYS_WRITE, 1, _VERSION_STR_CC5, _VERSION_LEN_CC5)`.
+- **`src/main_win.cyr`**: same shape. Now uses
+  `_VERSION_STR_CC5_WIN`.
+- **`scripts/version-bump.sh`**: removed the broken regex-gated
+  sed (steps 3b in the old layout). The new version_str.cyr
+  generator runs BEFORE the same-version early-exit, so
+  `sh scripts/version-bump.sh "$(cat VERSION)"` regenerates
+  the file without bumping (documented "regenerate without
+  bumping" path actually works now).
+
+### Re-bootstrap
+
+The fix needed cc5 itself rebuilt — the binary's `--version`
+string was baked at compile time. Built fresh from current
+source:
+
+- `cc5`: 531,360 B → **531,584 B** (+224 B for the include
+  + var refs replacing inline literal). Reports
+  `cc5 5.6.39`.
+- `cc5_win_cross`: rebuilt; reports `cc5_win 5.6.39` when
+  run on Windows.
+- `cc5_aarch64`: rebuilt; on-target `--version` not exposed
+  but binary contains the v5.6.39 var.
+- 3-step self-host: byte-identical at 531,584 B
+  (cc5_a == cc5_b == cc5_committed).
+
+### Install snapshot reconciled
+
+Pre-fix, `~/.cyrius/{bin,lib}` symlinks pointed at
+`~/.cyrius/versions/5.6.35/`, but `~/.cyrius/current` said
+`5.6.38`. Inconsistent. Repoint:
+
+- `~/.cyrius/bin → ~/.cyrius/versions/5.6.39/bin`
+- `~/.cyrius/lib → ~/.cyrius/versions/5.6.39/lib`
+- `~/.cyrius/current → 5.6.39`
+
+### Acceptance
+
+- `cc5 --version` → **`cc5 5.6.39`** ✓
+- `cyrius --version` → `cyrius 5.6.39` ✓
+- `sh scripts/version-bump.sh "$(cat VERSION)"` regenerates
+  `src/version_str.cyr` (verified by canary edit + restore) ✓
+- 3-step self-host: byte-identical at 531,584 B ✓
+- `sh scripts/check.sh`: 25/25 PASS ✓
+- Starship prompt: now reads current version cleanly via the
+  `[custom.cyrius]` block.
+
+### Closeout cascade
+
+`v5.6.39` was previously the closeout slot. It moves to
+`v5.6.40` (LAST patch of v5.6.x). Roadmap, state.md,
+bug-tracker, and slot list all updated. The closeout's
+deliverable list is unchanged — same 11-step CLAUDE.md
+ritual + the PP_DEFINE/PP_DEFINED `src_base` hardening
+fold-in noted at v5.6.30.
+
+### Convention note
+
+Per the user's `-N suffix is hotfix only — emergency
+pipeline/dep fixes` policy: this fix was discovered through
+observation (Starship showed wrong version), not as an
+emergency release blocker. Regular slot is the correct shape;
+hotfix suffix is reserved for "project shipped broken,
+emergency release the fix" cases.
+
+### Files
+
+- `src/version_str.cyr`: NEW auto-generated. Sole source of
+  truth for the cc5/cc5_win/cc5_aarch64 `--version` strings.
+- `src/main.cyr`: include the new file; reference vars in
+  --version handler. Removed hardcoded literal.
+- `src/main_win.cyr`: same.
+- `scripts/version-bump.sh`: removed broken regex-sed step;
+  added unconditional heredoc generator at the top (runs even
+  on same-version invocation for regenerate-only).
+- `build/cc5`, `build/cc5_aarch64`, `build/cc5_win_cross`:
+  rebuilt from v5.6.39 source.
+- `~/.cyrius/versions/5.6.39/`: install snapshot refreshed.
+- `~/.cyrius/{bin,lib,current}`: repointed to 5.6.39.
+- `VERSION`: 5.6.38 → 5.6.39.
+
+### What did NOT change
+
+- Compiler semantics. The only emit-side effect is the
+  `--version` string output; everything else byte-identical
+  (modulo the +224 B for the include refactor, which is the
+  expected size delta).
+- `lib/`, `tests/tcyr/`, `programs/`: untouched.
+- Slot order: only the closeout cascaded by 1.
+
 ## [5.6.38] — 2026-04-24
 
 **Shared-object emission slot — premise check + dead-code

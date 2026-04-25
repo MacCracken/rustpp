@@ -5,16 +5,18 @@
 
 ## Version
 
-**5.6.38** (shipped — shared-object emission premise check
-+ dead `SYSV_HASH` removal. .so path was already complete in
-v5.5.x; this slot drops 14 lines of unreachable code.
-Active minor: v5.6.x optimization arc)
+**5.6.39** (shipped — `cc5 --version` was stuck at 5.6.29-1
+for 9 releases due to a regex shape that didn't match the `-N`
+hotfix suffix. Fixed by removing the hardcoded literal class
+entirely — version string now sourced from auto-generated
+`src/version_str.cyr`. Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,360 B** (was 531,680 B; −320 B from
-  removing dead SYSV_HASH function shipped in the binary).
-  Unreachable-fn count: 25 → 24.
+- **cc5 (x86_64)**: **531,584 B** (was 531,360 B; +224 B for
+  the `include "src/version_str.cyr"` + var-reference refactor
+  replacing the inline literal). cc5 now correctly reports
+  `cc5 5.6.39`.
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -61,8 +63,9 @@ sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
 symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
 Both shipped 2026-04-24.
 
-- **v5.6.39** — v5.6.x closeout + downstream ecosystem sweep
-  gate (LAST patch of v5.6.x).
+- **v5.6.40** — v5.6.x closeout + downstream ecosystem sweep
+  gate (LAST patch of v5.6.x). Was v5.6.39 — cascaded +1 to
+  accommodate v5.6.39's version-string drift fix.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -73,6 +76,24 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.39** — `cc5 --version` drift repair + hardcoded-
+  literal removal. Caught via Starship prompt observation:
+  cyrius repo bumped to v5.6.38, but `cc5 --version` still
+  said `5.6.29-1`. Root cause: `version-bump.sh`'s regex
+  `[0-9]+\.[0-9]+\.[0-9]+\\n` didn't accept the `-N` hotfix
+  suffix; once `5.6.29-1\n` baked in, the sed gate's grep
+  failed silently for 9 consecutive releases (5.6.30→5.6.38).
+  Fixed by **removing the hardcoded-literal class entirely**:
+  new auto-generated `src/version_str.cyr` holds the version
+  vars; `main.cyr` and `main_win.cyr` `include` it and
+  reference the vars in the syscall. version-bump.sh writes
+  the file via heredoc — no regex hunting, no per-file
+  sweeping, no `-N` suffix vulnerability. Same-version
+  invocation also regenerates (documented "regenerate without
+  bumping" path now works). cc5 rebuilt: 531,360 → 531,584 B
+  (+224 B for include + var refs); 3-step self-host
+  byte-identical; `cc5 --version` correctly reports v5.6.39.
+  Closeout cascaded v5.6.39 → v5.6.40.
 - **v5.6.38** — shared-object emission slot ran the
   verify-premise check first (per v5.6.33/v5.6.36 lessons).
   Result: `.so` emission has been complete and shipping since

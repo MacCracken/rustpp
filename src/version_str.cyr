@@ -1,0 +1,21 @@
+# src/version_str.cyr — AUTO-GENERATED from `VERSION` by
+# `scripts/version-bump.sh`. Do NOT edit by hand; the next bump
+# will overwrite. To regenerate without bumping, run:
+#
+#   sh scripts/version-bump.sh "$(cat VERSION)"
+#
+# Why this file exists: pre-v5.6.39, each `main_*.cyr` had its own
+# hardcoded `"cc5 X.Y.Z\n"` literal + a hardcoded byte length.
+# `version-bump.sh`'s sed regex didn't handle `-N` hotfix suffixes
+# (e.g. `5.6.29-1`), so once a hotfix shipped, every subsequent bump
+# silently skipped the literal — `cc5 --version` got stuck at
+# `5.6.29-1` for 9 releases. Centralising the strings here means
+# version-bump.sh writes ONE file every time and the sources just
+# reference these vars. No regex hunting; no drift.
+
+var _VERSION_STR_CC5         = "cc5 5.6.39\n";
+var _VERSION_LEN_CC5         = 11;
+var _VERSION_STR_CC5_WIN     = "cc5_win 5.6.39\n";
+var _VERSION_LEN_CC5_WIN     = 15;
+var _VERSION_STR_CC5_AARCH64 = "cc5_aarch64 5.6.39\n";
+var _VERSION_LEN_CC5_AARCH64 = 19;
