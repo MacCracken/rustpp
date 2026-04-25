@@ -150,22 +150,23 @@ fn ISIF(S, pos, bl) {
 # Evaluate #if condition: NAME OP VALUE
 # Supports: ==, !=, <, >, <=, >=
 # Returns 1 (true) or 0 (false)
-fn PP_EVAL_IF(S, pos) {
+# v5.6.42: src_base for source reads (see PP_HASH above).
+fn PP_EVAL_IF(S, src_base, pos) {
     # Skip whitespace
-    while (load8(S + pos) == 32) { pos = pos + 1; }
+    while (load8(src_base + pos) == 32) { pos = pos + 1; }
     # Get name value
-    var lhs = PP_GETVAL(S, pos);
+    var lhs = PP_GETVAL(S, src_base, pos);
     # Skip name
-    while (load8(S + pos) != 32) {
-        if (load8(S + pos) == 10) { return lhs != 0; }
-        if (load8(S + pos) == 0) { return lhs != 0; }
+    while (load8(src_base + pos) != 32) {
+        if (load8(src_base + pos) == 10) { return lhs != 0; }
+        if (load8(src_base + pos) == 0) { return lhs != 0; }
         pos = pos + 1;
     }
     # Skip whitespace
-    while (load8(S + pos) == 32) { pos = pos + 1; }
+    while (load8(src_base + pos) == 32) { pos = pos + 1; }
     # Read operator
-    var op1 = load8(S + pos);
-    var op2 = load8(S + pos + 1);
+    var op1 = load8(src_base + pos);
+    var op2 = load8(src_base + pos + 1);
     var op = 0;
     if (op1 == 61) { if (op2 == 61) { op = 1; pos = pos + 2; } }
     if (op1 == 33) { if (op2 == 61) { op = 2; pos = pos + 2; } }
@@ -173,15 +174,15 @@ fn PP_EVAL_IF(S, pos) {
     if (op1 == 60) { if (op2 == 61) { op = 6; pos = pos + 2; } elif (op2 != 61) { op = 4; pos = pos + 1; } }
     if (op == 0) { return lhs != 0; }
     # Skip whitespace
-    while (load8(S + pos) == 32) { pos = pos + 1; }
+    while (load8(src_base + pos) == 32) { pos = pos + 1; }
     # Parse RHS integer
     var rhs = 0;
-    var rc = load8(S + pos);
+    var rc = load8(src_base + pos);
     while (rc >= 48) {
         if (rc > 57) { break; }
         rhs = rhs * 10 + rc - 48;
         pos = pos + 1;
-        rc = load8(S + pos);
+        rc = load8(src_base + pos);
     }
     # Evaluate
     if (op == 1) { return lhs == rhs; }
@@ -891,17 +892,24 @@ fn PP_EXPAND(S, mi, ip, bl, out, op) {
     return ip;
 }
 
-fn PP_HASH(S, pos) {
+# v5.6.42: src_base carries the SOURCE buffer base. PP_PASS path passes
+# `S` (raw input at S+0). PP_IFDEF_PASS path passes the `tmp` mmap
+# buffer that holds the full uncapped expanded source — needed because
+# PP_IFDEF_PASS's S+0 copy-back is bounded to 524288 B and reads past
+# that boundary would land in stale heap bytes. Same shape as the
+# v5.6.30 PP_DERIVE_* fix; this closes the rest of the family
+# (PP_DEFINE / PP_DEFINED / PP_GETVAL / PP_EVAL_IF / PP_HASH).
+fn PP_HASH(src_base, pos) {
     var h = 0;
     var pi = 0;
-    var pc = load8(S + pos + pi);
+    var pc = load8(src_base + pos + pi);
     while (pc != 10) {
         if (pc == 13) { return h; }
         if (pc == 0) { return h; }
         if (pc == 32) { return h; }
         h = h * 31 + pc;
         pi = pi + 1;
-        pc = load8(S + pos + pi);
+        pc = load8(src_base + pos + pi);
     }
     return h;
 }
@@ -938,27 +946,29 @@ fn PP_PREDEFINE(S, name) {
     return 0;
 }
 
-fn PP_DEFINE(S, pos) {
-    var h = PP_HASH(S, pos);
+# v5.6.42: src_base separated from S — see PP_HASH above. Source reads
+# come from src_base+pos; flag-table writes stay at S+0x90800/0x90880.
+fn PP_DEFINE(S, src_base, pos) {
+    var h = PP_HASH(src_base, pos);
     store64(S + 0x90800 + _pp_flag_count * 8, h);
     # Check for value: #define NAME VALUE (skip name, find space, parse int)
     var vi = 0;
-    var vc = load8(S + pos + vi);
+    var vc = load8(src_base + pos + vi);
     while (vc != 32) {
         if (vc == 10) { break; }
         if (vc == 0) { break; }
         vi = vi + 1;
-        vc = load8(S + pos + vi);
+        vc = load8(src_base + pos + vi);
     }
     var defval = 0;
     if (vc == 32) {
         vi = vi + 1;
-        var dvc = load8(S + pos + vi);
+        var dvc = load8(src_base + pos + vi);
         while (dvc >= 48) {
             if (dvc > 57) { break; }
             defval = defval * 10 + dvc - 48;
             vi = vi + 1;
-            dvc = load8(S + pos + vi);
+            dvc = load8(src_base + pos + vi);
         }
     }
     store64(S + 0x90880 + _pp_flag_count * 8, defval);
@@ -967,8 +977,8 @@ fn PP_DEFINE(S, pos) {
 }
 
 # Look up value of a #define'd name (returns 0 if not found)
-fn PP_GETVAL(S, pos) {
-    var h = PP_HASH(S, pos);
+fn PP_GETVAL(S, src_base, pos) {
+    var h = PP_HASH(src_base, pos);
     var di = 0;
     while (di < _pp_flag_count) {
         if (load64(S + 0x90800 + di * 8) == h) {
@@ -979,8 +989,8 @@ fn PP_GETVAL(S, pos) {
     return 0;
 }
 
-fn PP_DEFINED(S, pos) {
-    var h = PP_HASH(S, pos);
+fn PP_DEFINED(S, src_base, pos) {
+    var h = PP_HASH(src_base, pos);
     var di = 0;
     while (di < _pp_flag_count) {
         if (load64(S + 0x90800 + di * 8) == h) { return 1; }
@@ -1117,7 +1127,7 @@ fn PP_PASS(S) {
                         }
                         ip = PP_SKIPLINE(S, ip, bl);
                     } else {
-                        PP_DEFINE(S, dip + 8);
+                        PP_DEFINE(S, S, dip + 8);
                         ip = PP_SKIPLINE(S, ip, bl);
                     }
                 } else {
@@ -1139,7 +1149,7 @@ fn PP_PASS(S) {
             if (handled == 0) { if (ISIFDEF(S, dip, bl) == 1) {
                 var _s = 3;  # default: OUTER_SKIP
                 if (skip_depth == 0) {
-                    if (PP_DEFINED(S, dip + 7) == 1) { _s = 0; }
+                    if (PP_DEFINED(S, S, dip + 7) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1150,7 +1160,7 @@ fn PP_PASS(S) {
             if (handled == 0) { if (ISIFNDEF(S, dip, bl) == 1) {
                 var _s = 3;
                 if (skip_depth == 0) {
-                    if (PP_DEFINED(S, dip + 8) == 0) { _s = 0; }
+                    if (PP_DEFINED(S, S, dip + 8) == 0) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1176,7 +1186,7 @@ fn PP_PASS(S) {
             if (handled == 0) { if (ISIF(S, dip, bl) == 1) {
                 var _s = 3;
                 if (skip_depth == 0) {
-                    if (PP_EVAL_IF(S, dip + 4) == 1) { _s = 0; }
+                    if (PP_EVAL_IF(S, S, dip + 4) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1208,7 +1218,7 @@ fn PP_PASS(S) {
                     var _s = load8(S + 0x97F10 + pp_depth - 1);
                     if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
                     elif (_s == 1) {
-                        if (PP_EVAL_IF(S, dip + 6) == 1) {
+                        if (PP_EVAL_IF(S, S, dip + 6) == 1) {
                             store8(S + 0x97F10 + pp_depth - 1, 0);
                             skip_depth = skip_depth - 1;
                         }
@@ -1472,13 +1482,13 @@ fn PP_IFDEF_PASS(S) {
         var dip = PP_SKIP_WS(tmp, ip, bl);
         if (bol == 1) {
             if (ISDEFINE(tmp, dip, bl) == 1) {
-                if (skip_depth == 0) { PP_DEFINE(S, dip + 8); }
+                if (skip_depth == 0) { PP_DEFINE(S, tmp, dip + 8); }
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
             }
             if (handled == 0) { if (ISIFDEF(tmp, dip, bl) == 1) {
                 var _s = 3;
                 if (skip_depth == 0) {
-                    if (PP_DEFINED(S, dip + 7) == 1) { _s = 0; }
+                    if (PP_DEFINED(S, tmp, dip + 7) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1489,7 +1499,7 @@ fn PP_IFDEF_PASS(S) {
             if (handled == 0) { if (ISIFNDEF(tmp, dip, bl) == 1) {
                 var _s = 3;
                 if (skip_depth == 0) {
-                    if (PP_DEFINED(S, dip + 8) == 0) { _s = 0; }
+                    if (PP_DEFINED(S, tmp, dip + 8) == 0) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1500,7 +1510,7 @@ fn PP_IFDEF_PASS(S) {
             if (handled == 0) { if (ISIF(tmp, dip, bl) == 1) {
                 var _s = 3;
                 if (skip_depth == 0) {
-                    if (PP_EVAL_IF(S, dip + 4) == 1) { _s = 0; }
+                    if (PP_EVAL_IF(S, tmp, dip + 4) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
                 store8(S + 0x97F10 + pp_depth, _s);
@@ -1521,7 +1531,7 @@ fn PP_IFDEF_PASS(S) {
                     var _s = load8(S + 0x97F10 + pp_depth - 1);
                     if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
                     elif (_s == 1) {
-                        if (PP_EVAL_IF(S, dip + 6) == 1) {
+                        if (PP_EVAL_IF(S, tmp, dip + 6) == 1) {
                             store8(S + 0x97F10 + pp_depth - 1, 0);
                             skip_depth = skip_depth - 1;
                         }

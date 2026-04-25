@@ -5,23 +5,23 @@
 
 ## Version
 
-**5.6.41** (shipped — SysV 16-byte stack alignment fix for
-odd-stack-arg callers. ECALLPOPS's `add rsp, 48` left rsp
-8-aligned at CALL when nextra was odd (N=7, 9, 11), violating
-SysV ABI; downstream libssl/libc callees that used SSE on
-stack-saved values SIGSEGV'd at their prologues. Fix: shift
-step-2 writes down by 8 + use `add rsp, 40` for odd nextra,
-keeping a_n at the same offset from rbp's POV but landing
-rsp 16-aligned at CALL. ECALLCLEAN releases the 8-byte
-alignment padding. Active minor: v5.6.x optimization arc)
+**5.6.42** (shipped — compiler-side closeout, second of three
+v5.6.x closeout slots. PP_HASH/PP_DEFINE/PP_DEFINED/PP_GETVAL/
+PP_EVAL_IF threaded `src_base` parameter, closing the latent
+v5.6.30 same-class bug (PP_IFDEF_PASS reads past 524288 B copy-back
+boundary land in stale heap; v5.6.30 fixed PP_DERIVE_*, this
+fixes the rest). New gate `regression-macho-cross-build.sh`
+trips if main_aarch64_macho.cyr's ir.cyr include drifts again.
+Cleanup sweep: heap-map brk comments updated to 0x168B000 /
+22.5 MB. Active minor: v5.6.x — final patch v5.6.43)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,776 B** (was 531,584 at v5.6.40;
-  +192 B for the `nextra & 1` branch + the shifted-write/
-  shifted-drop pair in ECALLPOPS, plus the symmetric ECALLCLEAN
-  release). `cc5 --version` reports `cc5 5.6.41`.
-- **cc5_win (cross)**: 526,760 B (was 526,552 at v5.6.40; +208 B from the alignment branch hitting Win-host call sites too)
+- **cc5 (x86_64)**: **531,888 B** (was 531,776 at v5.6.41;
+  +112 B for the additional `src_base` parameter in 5 PP
+  helpers + 10 callsite updates). `cc5 --version` reports
+  `cc5 5.6.42`.
+- **cc5_win (cross)**: 526,856 B (was 526,760 at v5.6.41; +96 B same)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
   had been orphaned since v5.6.12 O3a shipped the IR instrumentation
@@ -84,6 +84,22 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.42** — compiler-side closeout (CLAUDE.md "Closeout Pass"
+  steps 1-8) + bundled PP_DEFINE/PP_DEFINED/PP_GETVAL/PP_EVAL_IF/
+  PP_HASH `src_base` hardening (latent v5.6.30 same-class bug
+  closed for the rest of the helper family). Mechanical: cc5
+  3-step fixpoint clean at 531,888 B (+112 B); bootstrap closure
+  clean; check.sh **26/26 PASS** (new gates: `preprocessor_past_cap.tcyr`
+  + `regression-macho-cross-build.sh`). Judgment: heap-map clean,
+  24-fn dead floor preserved (each is a real scaffold per its own
+  inline docstring — multi-target Mach-O, ESHRIMM/ELVR* unfinished
+  optimizations, IR scaffolds for deferred O3 work), refactor pass
+  found cross-backend duplication intentional (alternates per build),
+  code-review surfaced the PP_DEFINE bug fixed in this slot, cleanup
+  sweep updated stale brk heap-map comments to 0x168B000 / 22.5 MB
+  across main_aarch64*.cyr + main_win.cyr. v5.6.43 = closeout finish
+  (compliance + downstream dep-pointer check + sigil 2.9.3 fold-in
+  + final doc sync). LAST patch of v5.6.x.
 - **v5.6.41** — SysV 16-byte stack alignment fix for odd-stack-arg
   callers (sandhi-blocking, M2 HTTPS-live unblock). Sandhi-filed
   2026-04-25: any cyrius fn with 7/9/11 formal params calling

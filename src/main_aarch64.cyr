@@ -53,7 +53,8 @@
 #   0xECA000 struct_fnames [16384]
 #   0xF4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
 #   0xFCA000 (fn tables end here — IR region not used by aarch64 compiler)
-#   0x160B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
+#   0x168B000 brk                         22.5MB total heap (v5.6.40 doubled preprocess_out;
+#                                        synced with main.cyr)
 
 
 # ================================================================

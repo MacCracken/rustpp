@@ -64,7 +64,8 @@
 #   0xECA000 struct_fnames [16384]
 #   0xF4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
 #   0xFCA000 (fn tables end here — IR region not used by aarch64 compiler)
-#   0x160B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
+#   0x168B000 brk                         22.5MB total heap (v5.6.40 doubled preprocess_out;
+#                                        synced with main.cyr)
 
 
 # ================================================================
@@ -98,8 +99,8 @@ include "src/backend/aarch64/fixup.cyr"
 # gets translated to BSD 197 (_mmap) by ESYSXLAT at emit time; the flag
 # value 0x1002 (MAP_PRIVATE | MAP_ANON on macOS) is baked in as an
 # immediate, so it reaches the kernel unchanged at runtime.
-# Size 0x168B000 (~21.5 MB) matches main.cyr's brk expansion (v5.5.37
-# bumped the heap by 512 KB for the relocated fixup table — cap 32768).
+# Size 0x168B000 (~22.5 MB) matches main.cyr's brk (v5.6.40 doubled
+# preprocess_out from 1MB→2MB; brk grew by 1MB to keep regions aligned).
 var S = syscall(9, 0, 0x168B000, 3, 0x1002, 0 - 1, 0);
 if (S < 0x100000) {
     syscall(SYS_WRITE, 2, "cc5_macho: mmap heap init failed\n", 33);

@@ -1,0 +1,126 @@
+# preprocessor_past_cap.tcyr — regression test for v5.6.30 bug class:
+# PP_IFDEF_PASS copies tmp → S+0 capped at 524288 B; helpers (PP_DEFINE,
+# PP_DEFINED, PP_GETVAL, PP_EVAL_IF, PP_HASH) read source via S+pos.
+# Any `#define`/`#ifdef`/`#ifndef`/`#if` directive past offset 524288
+# read stale heap bytes → wrong hash → directive misprocessed.
+#
+# v5.6.30 fixed PP_DERIVE_* (struct-deriving helpers) by threading
+# src_base. v5.6.42 closes the rest: PP_DEFINE/DEFINED/GETVAL/EVAL_IF/HASH.
+#
+# Strategy: include enough stdlib to push the preprocessed source past
+# the 524288 B cap. Then place `#define`/`#ifdef`/`#ifndef`/`#if`
+# directives (the affected helpers) AFTER the 524288 boundary. If the
+# bug exists, the directives misprocess silently — defines aren't
+# registered, ifdef blocks emit when they shouldn't (or vice versa),
+# and the asserts run with wrong values.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/syscalls.cyr"
+include "lib/io.cyr"
+include "lib/fs.cyr"
+include "lib/process.cyr"
+include "lib/hashmap.cyr"
+include "lib/tagged.cyr"
+include "lib/args.cyr"
+include "lib/assert.cyr"
+include "lib/json.cyr"
+include "lib/fnptr.cyr"
+include "lib/freelist.cyr"
+include "lib/sakshi.cyr"
+include "lib/bigint.cyr"
+include "lib/chrono.cyr"
+include "lib/base64.cyr"
+include "lib/csv.cyr"
+include "lib/regex.cyr"
+include "lib/math.cyr"
+include "lib/matrix.cyr"
+include "lib/net.cyr"
+include "lib/http.cyr"
+include "lib/bench.cyr"
+include "lib/bounds.cyr"
+include "lib/callback.cyr"
+include "lib/thread.cyr"
+include "lib/async.cyr"
+include "lib/toml.cyr"
+include "lib/trait.cyr"
+include "lib/log.cyr"
+include "lib/cffi.cyr"
+include "lib/mmap.cyr"
+include "lib/dynlib.cyr"
+include "lib/ws.cyr"
+include "lib/audio.cyr"
+include "lib/vidya.cyr"
+include "lib/yukti.cyr"
+include "lib/sigil.cyr"
+include "lib/patra.cyr"
+include "lib/mabda.cyr"
+
+# At this point preprocessed source is well past 524288 B.
+# Each directive below exercises one PP_* helper that reads source via S+pos.
+
+# 1. PP_DEFINE — register a name with a value.
+#define POST_CAP_DEFINE_VALUE 42
+
+# 2. PP_DEFINED — query a name registered before the cap.
+#    `assert_eq` is part of lib/assert.cyr (registered when included
+#    above, well within 524288). Re-querying it past the cap exercises
+#    the read path on a name that should resolve.
+#ifdef CYRIUS_ARCH_X86
+var _post_cap_arch_x86 = 1;
+#endif
+#ifdef CYRIUS_ARCH_AARCH64
+var _post_cap_arch_aarch64 = 1;
+#endif
+
+# 3. PP_DEFINED (negative path) — query a name NOT registered.
+#    If past-cap reads return stale hash bytes that happen to match
+#    a previously-defined name, this would silently emit the wrong
+#    branch. The fix makes the lookup deterministic.
+#ifndef CYRIUS_NONEXISTENT_FLAG_PAST_CAP
+var _post_cap_ifndef_path = 1;
+#endif
+
+# 4. PP_EVAL_IF (PP_GETVAL) — `#if NAME == VALUE` form.
+#define POST_CAP_NUMERIC 7
+#if POST_CAP_NUMERIC == 7
+var _post_cap_eval_if_eq = 1;
+#endif
+#if POST_CAP_NUMERIC > 5
+var _post_cap_eval_if_gt = 1;
+#endif
+
+fn main() {
+    alloc_init();
+    test_group("preprocessor helpers past 524288 B cap (v5.6.42)");
+
+    # PP_DEFINE: post-cap define registered with correct value.
+    # Without the fix, PP_DEFINE reads garbage past the cap, hashes
+    # something other than "POST_CAP_DEFINE_VALUE", and a later
+    # #ifdef on this name would not match. The block below verifies
+    # the round-trip implicitly via #if (which needs both DEFINE
+    # and GETVAL working).
+    assert_eq(_post_cap_eval_if_eq, 1, "PP_EVAL_IF == past cap (DEFINE+GETVAL+EVAL_IF chain)");
+    assert_eq(_post_cap_eval_if_gt, 1, "PP_EVAL_IF > past cap");
+
+    # PP_DEFINED on a pre-cap-registered builtin (CYRIUS_ARCH_*) past
+    # the cap. Exactly one of the two arch flags is set at any build.
+    var arch_count = 0;
+    #ifdef CYRIUS_ARCH_X86
+    arch_count = arch_count + _post_cap_arch_x86;
+    #endif
+    #ifdef CYRIUS_ARCH_AARCH64
+    arch_count = arch_count + _post_cap_arch_aarch64;
+    #endif
+    assert_eq(arch_count, 1, "PP_DEFINED past cap finds pre-cap-registered arch flag");
+
+    # PP_DEFINED negative: a name we never #defined.
+    assert_eq(_post_cap_ifndef_path, 1, "PP_DEFINED past cap correctly NOT-finds missing flag");
+
+    return assert_summary();
+}
+var r = main();
+syscall(60, r);

@@ -136,6 +136,15 @@ if [ "$aa_result" -ne 0 ]; then cat /tmp/audit_aa_$$; fi
 rm -f /tmp/audit_aa_$$
 echo ""
 
+# ── 4e2. Mach-O aarch64 cross-build smoke (5.6.40) ──
+echo "── Mach-O aarch64 cross-build ──"
+sh "$ROOT/tests/regression-macho-cross-build.sh" > /tmp/audit_mc_$$ 2>&1
+mc_result=$?
+check "main_aarch64_macho.cyr compiles to ELF" "$mc_result"
+if [ "$mc_result" -ne 0 ]; then cat /tmp/audit_mc_$$; fi
+rm -f /tmp/audit_mc_$$
+echo ""
+
 # ── 4f. inline-asm discard-result gate (5.5.19) ──
 echo "── Inline-asm discard-result ──"
 sh "$ROOT/tests/regression-inline-asm-discard.sh" > /tmp/audit_ia_$$ 2>&1

@@ -4,6 +4,120 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.42] — 2026-04-25
+
+**Compiler-side closeout (steps 1-8 of CLAUDE.md "Closeout Pass")
++ PP_DEFINE/PP_DEFINED/PP_GETVAL/PP_EVAL_IF/PP_HASH `src_base`
+hardening (latent v5.6.30 same-class bug closed).** Second of three
+v5.6.x closeout slots. v5.6.41 was the sandhi-blocking 7-arg-frame
+fix; v5.6.43 finishes with compliance + downstream + sigil 2.9.3 +
+docs.
+
+### Mechanical (steps 1-3)
+
+- Self-host fixpoint: `cc5_a → cc5_b → cc5_c → cc5_d` byte-identical
+  at 531,888 B (+112 B from v5.6.41 for the additional `src_base`
+  parameter passing in 5 PP helpers + 10 callsites).
+- Bootstrap closure: seed → cyrc → asm → cyrc byte-identical.
+- `sh scripts/check.sh`: **26/26 PASS** (gate count grew by 2:
+  new `tests/tcyr/preprocessor_past_cap.tcyr` and new
+  `tests/regression-macho-cross-build.sh`; was 24/24 at v5.6.40,
+  25/25 at v5.6.41).
+
+### Judgment (steps 4-8)
+
+- **Heap-map audit**: every live `S+offset` in main.cyr's stack
+  matches the documented map; only `bridge.cyr` references
+  undocumented offsets, expected (it has its own independent
+  bootstrap heap).
+- **Dead-code audit**: 24 unreachable fns / 11,752 bytes baseline
+  preserved. Each is a real scaffold (multi-target Mach-O fns
+  alive when building `main_aarch64_macho.cyr`; ESHRIMM /
+  ELVR* family pinned for unfinished x86 strength-reduction +
+  loop-var caching; ir_dce / ir_dead_store / IR_BB_* /
+  IR_EDGE_FROM scaffolded for the deferred O3 work). No removals
+  this slot — function-level docstrings explain each one inline.
+- **Refactor pass**: cross-backend duplication of `_flags_reflect_rax`,
+  `_TARGET_PE`, `_TARGET_MACHO` etc. is intentional (alternates per
+  build, shared parse.cyr resolves to whichever is included). No
+  consolidations needed.
+- **Code-review pass**: walked v5.6.39+ diffs end-to-end. Found one
+  bug class to fix (PP_DEFINE/DEFINED — see below) and the stale
+  brk heap-map comments fixed in cleanup sweep.
+- **Cleanup sweep**: stale `0x160B000 brk / 21.0MB` heap-map comments
+  in main_aarch64*.cyr / main_win.cyr (they were tracking the old
+  pre-v5.6.40 brk address; sed-shifted to wrong literal during the
+  v5.6.40 reshuffle). Updated to current `0x168B000 / 22.5MB`.
+  main_aarch64_macho.cyr's mmap-size comment had `~21.5 MB` — fixed
+  to `~22.5 MB`.
+
+### Bundled fix: PP_DEFINE/PP_DEFINED `src_base` hardening
+
+`PP_HASH(S, pos)` and the family that calls it (`PP_DEFINE`,
+`PP_DEFINED`, `PP_GETVAL`, `PP_EVAL_IF`) read source bytes via
+`load8(S + pos + i)`. Same shape as the v5.6.30 PP_DERIVE_* bug:
+when called from `PP_IFDEF_PASS`, the source lives in a `tmp` mmap
+buffer of full uncapped size, but `PP_IFDEF_PASS` copies tmp →
+S+0 capped at 524288 B for back-compat with helpers that read via
+`S+pos`. Helpers reading past offset 524288 land in stale heap
+bytes (no longer the source). v5.6.30 closed this for `#derive`
+helpers; this slot closes the rest.
+
+#### Fix shape
+
+Threaded `src_base` parameter through:
+- `PP_HASH(src_base, pos)` — was `PP_HASH(S, pos)`. S not actually
+  needed (PP_HASH only reads source; first arg renamed `src_base`).
+- `PP_DEFINE(S, src_base, pos)` — was `PP_DEFINE(S, pos)`. S kept
+  for the flag-table writes at `S+0x90800`/`0x90880`.
+- `PP_DEFINED(S, src_base, pos)` — was `PP_DEFINED(S, pos)`.
+- `PP_GETVAL(S, src_base, pos)` — was `PP_GETVAL(S, pos)`.
+- `PP_EVAL_IF(S, src_base, pos)` — was `PP_EVAL_IF(S, pos)`.
+
+10 callsites updated:
+- 5 in `PP_PASS` — pass `S` as src_base (raw input is at S+0).
+- 5 in `PP_IFDEF_PASS` — pass `tmp` as src_base (full uncapped buffer).
+
+#### Acceptance
+
+- `tests/tcyr/preprocessor_past_cap.tcyr` (new): exercises the
+  PP_DEFINE/DEFINED/EVAL_IF/GETVAL helpers with directives at
+  source offsets > 524288 B (heavy stdlib include set pushes
+  expansion to ~1.08 MB; 4 PP* directives land at offsets ~1.08 MB).
+  4 assertions covering DEFINE+GETVAL+EVAL_IF chain, DEFINED
+  positive (pre-cap-registered), DEFINED negative, and EVAL_IF
+  comparison ops. The bug was latent in our existing test setup
+  (top-level directives are caught by PP_PASS before PP_IFDEF_PASS
+  sees them) — the regression test verifies the working path; the
+  fix is defensive against the PP_IFDEF_PASS-only path that v5.6.30
+  proved exists for the sibling PP_DERIVE_* helpers.
+
+### New test gate: Mach-O aarch64 cross-build smoke
+
+`tests/regression-macho-cross-build.sh` (new): verifies
+`main_aarch64_macho.cyr` compiles cleanly to an ELF. v5.6.40 fixed
+the missing `include "src/common/ir.cyr"` that had silently broken
+this file since v5.6.12 O3a; this gate trips if the include drifts
+again. Wired into `check.sh` as gate 4e2.
+
+### Files
+
+- `src/frontend/lex_pp.cyr`: 5 fn signature updates + 10 callsite updates
+  (5 in PP_PASS, 5 in PP_IFDEF_PASS).
+- `src/main_aarch64.cyr`, `src/main_aarch64_native.cyr`,
+  `src/main_aarch64_macho.cyr`, `src/main_win.cyr`: heap-map brk
+  comments updated to current 0x168B000 / 22.5 MB.
+- `tests/tcyr/preprocessor_past_cap.tcyr` (new): 4-assertion past-cap
+  PP-helper exercise.
+- `tests/regression-macho-cross-build.sh` (new): smoke gate.
+- `scripts/check.sh`: new gate 4e2 (Mach-O aarch64 cross-build).
+- `VERSION`: 5.6.41 → 5.6.42.
+
+### Cascade
+
+v5.6.43 = closeout finish (compliance + downstream + sigil 2.9.3 +
+docs). LAST patch of v5.6.x.
+
 ## [5.6.41] — 2026-04-25
 
 **SysV 16-byte stack alignment for odd-stack-arg call sites — sandhi-blocking
