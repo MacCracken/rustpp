@@ -1,0 +1,247 @@
+# v5.7.1 P1.2 — TS lexer regression for simple tokens.
+#
+# Includes the orphan src/frontend/ts/lex.cyr (not yet wired into
+# main.cyr; that's P1.6) and exercises TS_LEX directly against
+# small in-memory TS source strings.
+#
+# Coverage:
+#   - identifiers + keyword recognition (subset of ~40 keywords)
+#   - integer literals (decimal, 0x/0o/0b, with _ separators)
+#   - string literals ("..." and '...')
+#   - single-char operators
+#   - whitespace + line tracking
+#   - error path: unknown byte, unterminated string
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+
+alloc_init();
+
+# Allocate ts_base — TS_HEAP_SIZE bytes, plus a guard page so any
+# off-by-one access fails noisy. alloc returns zero-filled memory.
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+fn test_lex(src) {
+    var src_len = strlen(src);
+    return TS_LEX(ts_base, src, src_len);
+}
+
+fn assert_tok(idx, expected_typ, name) {
+    var actual = TS_PEEKT(ts_base, idx);
+    assert_eq(actual, expected_typ, name);
+    return 0;
+}
+
+# ─── identifiers + keywords ──────────────────────────────────────
+test_group("identifiers + keywords");
+
+var n = test_lex("var x = 42");
+assert_eq(n, 5, "var x = 42 → 4 toks + EOF");
+assert_tok(0, TS_TOK_KW_VAR, "tok[0] = var");
+assert_tok(1, TS_TOK_IDENT,  "tok[1] = ident x");
+assert_tok(2, TS_TOK_EQ,     "tok[2] = =");
+assert_tok(3, TS_TOK_INT,    "tok[3] = int 42");
+assert_tok(4, TS_TOK_EOF,    "tok[4] = EOF");
+
+n = test_lex("let y = true");
+assert_eq(n, 5, "let y = true");
+assert_tok(0, TS_TOK_KW_LET,  "tok[0] = let");
+assert_tok(2, TS_TOK_EQ,      "tok[2] = =");
+assert_tok(3, TS_TOK_KW_TRUE, "tok[3] = true");
+
+n = test_lex("class Foo extends Bar implements Baz");
+assert_eq(n, 7, "class Foo extends Bar implements Baz");
+assert_tok(0, TS_TOK_KW_CLASS,      "class");
+assert_tok(1, TS_TOK_IDENT,         "Foo");
+assert_tok(2, TS_TOK_KW_EXTENDS,    "extends");
+assert_tok(3, TS_TOK_IDENT,         "Bar");
+assert_tok(4, TS_TOK_KW_IMPLEMENTS, "implements");
+assert_tok(5, TS_TOK_IDENT,         "Baz");
+
+n = test_lex("interface Point readonly x");
+assert_eq(n, 5, "interface Point readonly x");
+assert_tok(0, TS_TOK_KW_INTERFACE, "interface");
+assert_tok(1, TS_TOK_IDENT,        "Point");
+assert_tok(2, TS_TOK_KW_READONLY,  "readonly");
+assert_tok(3, TS_TOK_IDENT,        "x");
+
+n = test_lex("public private protected static");
+assert_eq(n, 5, "public private protected static");
+assert_tok(0, TS_TOK_KW_PUBLIC,    "public");
+assert_tok(1, TS_TOK_KW_PRIVATE,   "private");
+assert_tok(2, TS_TOK_KW_PROTECTED, "protected");
+assert_tok(3, TS_TOK_KW_STATIC,    "static");
+
+n = test_lex("async await yield");
+assert_eq(n, 4, "async await yield");
+assert_tok(0, TS_TOK_KW_ASYNC, "async");
+assert_tok(1, TS_TOK_KW_AWAIT, "await");
+assert_tok(2, TS_TOK_KW_YIELD, "yield");
+
+n = test_lex("if else for while do return break continue");
+assert_eq(n, 9, "control-flow keywords");
+assert_tok(0, TS_TOK_KW_IF,       "if");
+assert_tok(1, TS_TOK_KW_ELSE,     "else");
+assert_tok(2, TS_TOK_KW_FOR,      "for");
+assert_tok(3, TS_TOK_KW_WHILE,    "while");
+assert_tok(4, TS_TOK_KW_DO,       "do");
+assert_tok(5, TS_TOK_KW_RETURN,   "return");
+assert_tok(6, TS_TOK_KW_BREAK,    "break");
+assert_tok(7, TS_TOK_KW_CONTINUE, "continue");
+
+# Keyword-shaped identifiers (e.g., "vardo" should be IDENT, not KW_VAR)
+n = test_lex("vardo classy interfacey");
+assert_eq(n, 4, "keyword-prefix idents");
+assert_tok(0, TS_TOK_IDENT, "vardo (not var)");
+assert_tok(1, TS_TOK_IDENT, "classy (not class)");
+assert_tok(2, TS_TOK_IDENT, "interfacey (not interface)");
+
+# Identifier with $ and _
+n = test_lex("$foo _bar __baz $_$");
+assert_eq(n, 5, "$/_ identifiers");
+assert_tok(0, TS_TOK_IDENT, "$foo");
+assert_tok(1, TS_TOK_IDENT, "_bar");
+assert_tok(2, TS_TOK_IDENT, "__baz");
+assert_tok(3, TS_TOK_IDENT, "$_$");
+
+# ─── integer literals ────────────────────────────────────────────
+test_group("integer literals");
+
+n = test_lex("0 1 42 12345");
+assert_eq(n, 5, "decimal literals");
+assert_tok(0, TS_TOK_INT, "0");
+assert_tok(1, TS_TOK_INT, "1");
+assert_tok(2, TS_TOK_INT, "42");
+assert_tok(3, TS_TOK_INT, "12345");
+
+n = test_lex("0x2A 0X7F 0xff 0xDEADBEEF");
+assert_eq(n, 5, "hex literals");
+assert_tok(0, TS_TOK_INT, "0x2A");
+assert_tok(1, TS_TOK_INT, "0X7F");
+assert_tok(2, TS_TOK_INT, "0xff");
+assert_tok(3, TS_TOK_INT, "0xDEADBEEF");
+
+n = test_lex("0b101010 0B11110000");
+assert_eq(n, 3, "binary literals");
+assert_tok(0, TS_TOK_INT, "0b101010");
+assert_tok(1, TS_TOK_INT, "0B11110000");
+
+n = test_lex("0o52 0O777");
+assert_eq(n, 3, "octal literals");
+assert_tok(0, TS_TOK_INT, "0o52");
+assert_tok(1, TS_TOK_INT, "0O777");
+
+n = test_lex("1_000_000 0xDEAD_BEEF 0b1010_1010");
+assert_eq(n, 4, "numeric separators");
+assert_tok(0, TS_TOK_INT, "1_000_000");
+assert_tok(1, TS_TOK_INT, "0xDEAD_BEEF");
+assert_tok(2, TS_TOK_INT, "0b1010_1010");
+
+# ─── string literals ─────────────────────────────────────────────
+test_group("string literals");
+
+n = test_lex("\"hello\" 'world'");
+assert_eq(n, 3, "double + single quote");
+assert_tok(0, TS_TOK_STRING, "\"hello\"");
+assert_tok(1, TS_TOK_STRING, "'world'");
+
+n = test_lex("\"with\\nescape\" \"with\\\\backslash\"");
+assert_eq(n, 3, "escape sequences");
+assert_tok(0, TS_TOK_STRING, "\"with\\nescape\"");
+assert_tok(1, TS_TOK_STRING, "\"with\\\\backslash\"");
+
+n = test_lex("\"\"");
+assert_eq(n, 2, "empty string");
+assert_tok(0, TS_TOK_STRING, "\"\"");
+
+# ─── single-char operators ───────────────────────────────────────
+test_group("single-char operators");
+
+n = test_lex("( ) { } [ ] ; , . : ?");
+assert_eq(n, 12, "structural punctuation");
+assert_tok(0,  TS_TOK_LPAREN,   "(");
+assert_tok(1,  TS_TOK_RPAREN,   ")");
+assert_tok(2,  TS_TOK_LBRACE,   "{");
+assert_tok(3,  TS_TOK_RBRACE,   "}");
+assert_tok(4,  TS_TOK_LBRACKET, "[");
+assert_tok(5,  TS_TOK_RBRACKET, "]");
+assert_tok(6,  TS_TOK_SEMI,     ";");
+assert_tok(7,  TS_TOK_COMMA,    ",");
+assert_tok(8,  TS_TOK_DOT,      ".");
+assert_tok(9,  TS_TOK_COLON,    ":");
+assert_tok(10, TS_TOK_QUESTION, "?");
+
+n = test_lex("+ - * / % = < > ! & | ^ ~");
+assert_eq(n, 14, "arithmetic + bitwise");
+assert_tok(0,  TS_TOK_PLUS,    "+");
+assert_tok(1,  TS_TOK_MINUS,   "-");
+assert_tok(2,  TS_TOK_STAR,    "*");
+assert_tok(3,  TS_TOK_SLASH,   "/");
+assert_tok(4,  TS_TOK_PERCENT, "%");
+assert_tok(5,  TS_TOK_EQ,      "=");
+assert_tok(6,  TS_TOK_LT,      "<");
+assert_tok(7,  TS_TOK_GT,      ">");
+assert_tok(8,  TS_TOK_BANG,    "!");
+assert_tok(9,  TS_TOK_AMP,     "&");
+assert_tok(10, TS_TOK_PIPE,    "|");
+assert_tok(11, TS_TOK_CARET,   "^");
+assert_tok(12, TS_TOK_TILDE,   "~");
+
+n = test_lex("@ # `");
+assert_eq(n, 4, "@/#/`");
+assert_tok(0, TS_TOK_AT,       "@");
+assert_tok(1, TS_TOK_HASH,     "#");
+assert_tok(2, TS_TOK_BACKTICK, "`");
+
+# ─── line tracking ───────────────────────────────────────────────
+test_group("line tracking");
+
+n = test_lex("a\nb\nc");
+assert_eq(n, 4, "3 idents over 3 lines");
+assert_eq(TS_PEEKLINE(ts_base, 0), 1, "tok[0] line=1");
+assert_eq(TS_PEEKLINE(ts_base, 1), 2, "tok[1] line=2");
+assert_eq(TS_PEEKLINE(ts_base, 2), 3, "tok[2] line=3");
+
+# CRLF
+n = test_lex("a\r\nb\r\nc");
+assert_eq(n, 4, "CRLF over 3 lines");
+assert_eq(TS_PEEKLINE(ts_base, 0), 1, "CRLF tok[0] line=1");
+assert_eq(TS_PEEKLINE(ts_base, 1), 2, "CRLF tok[1] line=2");
+
+# ─── mixed real-shape input ──────────────────────────────────────
+test_group("mixed input");
+
+n = test_lex("function add(a, b) { return a + b; }");
+assert_eq(n, 15, "function decl (13 toks + ; + } + EOF)");
+assert_tok(0,  TS_TOK_KW_FUNCTION, "function");
+assert_tok(1,  TS_TOK_IDENT,       "add");
+assert_tok(2,  TS_TOK_LPAREN,      "(");
+assert_tok(3,  TS_TOK_IDENT,       "a");
+assert_tok(4,  TS_TOK_COMMA,       ",");
+assert_tok(5,  TS_TOK_IDENT,       "b");
+assert_tok(6,  TS_TOK_RPAREN,      ")");
+assert_tok(7,  TS_TOK_LBRACE,      "{");
+assert_tok(8,  TS_TOK_KW_RETURN,   "return");
+assert_tok(9,  TS_TOK_IDENT,       "a");
+assert_tok(10, TS_TOK_PLUS,        "+");
+assert_tok(11, TS_TOK_IDENT,       "b");
+
+# ─── error paths ─────────────────────────────────────────────────
+test_group("error paths");
+
+# Unterminated string returns -1
+n = test_lex("\"hello");
+assert_eq(n, 0 - 1, "unterminated string returns -1");
+assert_eq(TS_GETERR(ts_base), 5, "err code 5 = unterminated string");
+
+# Newline inside single-line string returns -1
+n = test_lex("\"hello\nworld\"");
+assert_eq(n, 0 - 1, "raw newline in string returns -1");
+assert_eq(TS_GETERR(ts_base), 4, "err code 4 = raw newline");
+
+return assert_summary();

@@ -2,194 +2,159 @@
 # src/frontend/ts/lex.cyr — TypeScript lexer (cyrius-ts P1)
 # ================================================================
 #
-# v5.7.1 P1.1 SCAFFOLD — token enum + heap region map only.
-# No lexer body yet. P1.2 onward fills in the actual tokenization.
+# v5.7.1 P1.2 — simple tokens (identifiers, integers, strings,
+# single-char operators, all keywords). Multi-char ops, template
+# literals, comments, regex disambiguation defer to P1.3-P1.6.
 #
 # Architecture (per docs/development/roadmap.md § v5.7.1):
 #
 #   - Separate heap regions from the .cyr lexer (cleaner, doesn't
-#     couple the two surfaces). TS regions start at 0x178B000
-#     (current cc5 brk) and grow upward; cc5 brk extends when this
-#     module wires into the build.
+#     couple the two surfaces).
 #   - Internal dispatch in cc5: `cbt/build.cyr::compile()` detects
-#     `.ts` extension and passes a flag to cc5; cc5 routes to
-#     TS_LEX vs the existing LEX based on the flag. Mirrors the
-#     existing platform-dispatch pattern.
-#   - Same backend chain: TS frontend lowers to the existing IR
-#     (`src/common/ir.cyr`); x86/aarch64/PE/Mach-O backends emit
-#     unchanged.
+#     `.ts` extension and passes a flag; cc5 routes to TS_LEX vs
+#     the existing LEX based on the flag. Mirrors platform dispatch.
+#   - Same backend chain: TS frontend lowers to the existing IR;
+#     all backends emit unchanged.
+#   - **TS-heap-relative offsets** (P1.2 redesign): all TS_*_OFF
+#     constants are relative to a `ts_base` pointer, not absolute
+#     heap addresses. P1.6 wire-in passes `ts_base = S + 0x178B000`
+#     (current cc5 brk); test drivers pass `ts_base = alloc(...)`.
+#     Decouples TS frontend from main.cyr's heap layout — TS region
+#     can move without touching the lexer code.
 #
-# This file is intentionally NOT included by `src/main.cyr` in
-# P1.1 — that wiring lands in P1.6 once the lexer is functional.
-# Keeping it orphan means cc5 self-host stays byte-identical
-# through the early P1 commits.
-#
-# Subset scope (per roadmap § v5.7.1 IN-SCOPE table):
-#
-#   IN  : ECMAScript ES2022 + TS structural type system
-#         + utility types + class OOP + ES modules + template
-#         literals + Map/Set/JSON/RegExp/Date.
-#   OUT : async/await/Promise (defer to v5.7.2), JSX/TSX (defer
-#         to v5.7.2 scope decision), browser APIs (never).
-#   NEVER: conditional/mapped types, infer, satisfies, enum,
-#         namespace, decorators, generators, BigInt,
-#         WeakMap/WeakSet/Symbol, tagged templates.
-#
-# The lexer recognizes async/await as TS_TOK_KW_ASYNC /
-# TS_TOK_KW_AWAIT so v5.7.2 doesn't have to touch lex when async
-# support lands — only parser/typecheck/lower change at that point.
-# JSX-related angle-bracket syntax errors at lex time in v5.7.1
-# (deferred); v5.7.2 makes the JSX scope decision.
+# This file is intentionally NOT included by `src/main.cyr` until
+# P1.6 wires it in. Tests/standalone exercise it via include in
+# `tests/tcyr/ts_lex_*.tcyr`.
 
 # ================================================================
-# Heap region map — TS frontend
+# Heap region map — TS frontend (relative to ts_base)
 # ================================================================
 #
-# Reserved range: 0x178B000 .. 0x1B8B000 (4 MB initial, grows).
-# Sizes below are P1.1 reservations; refined in P1.2 once real
-# lexer pressure is measured against SY's largest TS file.
+# Total TS region: 0x880000 (8.5 MB). All offsets are relative to
+# the ts_base pointer passed to TS_LEX. P1.6 wire-in places ts_base
+# at S + 0x178B000 in main.cyr; tests pass an alloc'd buffer.
 #
-# Offset      Region              Size       Purpose
-# ---------------------------------------------------------------
-# 0x178B000   ts_tok_types        [0x80000]  256K i32 token types
-# 0x180B000   ts_tok_values       [0x100000] 256K i64 token values
-#                                            (offset/length packed,
-#                                             literal pool index, etc.)
-# 0x190B000   ts_tok_lines        [0x80000]  256K i32 source lines
-# 0x198B000   ts_names            [0x80000]  identifier intern table
-# 0x1A0B000   ts_str_pool         [0x80000]  string-literal pool
-#                                            (decoded UTF-8 bytes)
-# 0x1A8B000   ts_name_idx         [0x40000]  hash bucket index for
-#                                            identifier interning
-# 0x1ACB000   ts_template_stack   [0x10000]  multi-state lexer stack
-#                                            for template-literal
-#                                            ${...} interpolation
-#                                            (max nesting: 16K)
-# 0x1ADB000   ts_lex_state        [0x1000]   small scratch — current
-#                                            position, line, last
-#                                            token-class (for
-#                                            regex-vs-divide
-#                                            disambiguation)
-# 0x1ADC000   _reserved           — TS frontend grows from here
-#
-# brk after wire-in (P1.6): 0x1B8B000 (27.5 MB total heap; +4 MB
-# from current 23.5 MB).
+# Offset       Region              Size       Stride  Purpose
+# -----------------------------------------------------------------
+# 0x000000     ts_tok_types        [0x200000] 8 B     256K i64 token types (matches cc5 ADDTOK pattern)
+# 0x200000     ts_tok_values       [0x200000] 8 B     256K i64 token values (offset/length/literal-idx)
+# 0x400000     ts_tok_lines        [0x200000] 8 B     256K i64 source lines
+# 0x600000     ts_names            [0x100000] —       1 MB identifier intern table (P1.x)
+# 0x700000     ts_str_pool         [0x100000] —       1 MB string-literal pool (decoded UTF-8)
+# 0x800000     ts_name_idx         [0x040000] —       256 KB hash bucket index (P1.x)
+# 0x840000     ts_template_stack   [0x010000] —       64 KB template-${} nesting stack (P1.4)
+# 0x850000     ts_lex_state        [0x001000] —       4 KB scratch (pos, line, counts)
+# 0x851000     —                                       reserved for growth
 
-var TS_HEAP_BASE          = 0x178B000;
-var TS_TOK_TYPES_OFF      = 0x178B000;   # 0x80000 = 524288 B
-var TS_TOK_VALUES_OFF     = 0x180B000;   # 0x100000 = 1 MB
-var TS_TOK_LINES_OFF      = 0x190B000;   # 0x80000 = 524288 B
-var TS_NAMES_OFF          = 0x198B000;   # 0x80000 = 524288 B
-var TS_STR_POOL_OFF       = 0x1A0B000;   # 0x80000 = 524288 B
-var TS_NAME_IDX_OFF       = 0x1A8B000;   # 0x40000 = 262144 B
-var TS_TEMPLATE_STACK_OFF = 0x1ACB000;   # 0x10000 = 65536 B
-var TS_LEX_STATE_OFF      = 0x1ADB000;   # 0x1000 = 4096 B
-var TS_HEAP_TOP           = 0x1B8B000;   # extends current 0x178B000 brk by 4 MB
+var TS_TOK_TYPES_OFF      = 0x000000;
+var TS_TOK_VALUES_OFF     = 0x200000;
+var TS_TOK_LINES_OFF      = 0x400000;
+var TS_NAMES_OFF          = 0x600000;
+var TS_STR_POOL_OFF       = 0x700000;
+var TS_NAME_IDX_OFF       = 0x800000;
+var TS_TEMPLATE_STACK_OFF = 0x840000;
+var TS_LEX_STATE_OFF      = 0x850000;
+var TS_HEAP_SIZE          = 0x880000;   # 8.5 MB total TS heap
 
-# Capacity constants (refined in P1.2 against real SY pressure).
-var TS_TOK_CAP            = 262144;      # 256K tokens — SY largest TS file
-                                         # has ~30K tokens, 8x headroom
-var TS_NAME_BUF_CAP       = 524288;      # 512K bytes for interned identifiers
-var TS_STR_POOL_CAP       = 524288;      # 512K bytes for decoded string literals
-var TS_NAME_IDX_BUCKETS   = 65536;       # 64K buckets, FNV-1a hash
+# Capacity constants
+var TS_TOK_CAP            = 262144;     # 256K tokens
+
+# Lexer state slots within ts_lex_state region
+var TS_LS_POS             = 0;
+var TS_LS_LINE            = 8;
+var TS_LS_TOK_COUNT       = 16;
+var TS_LS_LAST_TOK_CLASS  = 24;        # 0=expr-context (regex allowed), 1=primary-context (P1.6)
+var TS_LS_TEMPLATE_DEPTH  = 32;        # P1.4
+var TS_LS_NAME_BUF_USED   = 40;        # P1.x interning
+var TS_LS_STR_POOL_USED   = 48;
+var TS_LS_ERR_CODE        = 56;        # 0=ok, non-zero=lex error code (P1.2 sets to 1 on bad byte)
 
 # ================================================================
 # Token type enum — TypeScript
 # ================================================================
-#
-# Sequential numbering. Groups: 0=structural, 1-9=literals,
-# 10-99=operators, 100-199=ECMAScript keywords, 200-249=TS-specific
-# keywords, 250+=reserved/contextual.
-#
-# `as`, `from`, `of`, `get`, `set`, `keyof`, `typeof`, `infer`,
-# `satisfies`, `static`, `readonly`, `abstract`, `async`, `await`,
-# `async`, `declare` are technically *contextual* keywords in TS
-# (legal as identifiers in some positions). Lexer treats them
-# uniformly as keyword tokens; parser handles the contextual
-# disambiguation. This matches TypeScript's own implementation.
 
 # Structural
 var TS_TOK_EOF              = 0;
-var TS_TOK_NEWLINE          = 1;    # significant for ASI (automatic semicolon insertion)
+var TS_TOK_NEWLINE          = 1;
 
 # Literals
 var TS_TOK_IDENT            = 2;
-var TS_TOK_INT              = 3;    # 42, 0x2A, 0o52, 0b101010, 1_000_000
-var TS_TOK_FLOAT            = 4;    # 3.14, 1e10, .5, 1.5e-3
-var TS_TOK_STRING           = 5;    # "..." or '...'
-var TS_TOK_TEMPLATE_NOSUB   = 6;    # `...` with no ${...}
-var TS_TOK_TEMPLATE_HEAD    = 7;    # `... ${
-var TS_TOK_TEMPLATE_MID     = 8;    # } ... ${
-var TS_TOK_TEMPLATE_TAIL    = 9;    # } ...`
-var TS_TOK_REGEX            = 10;   # /foo/g — context-sensitive lex
+var TS_TOK_INT              = 3;
+var TS_TOK_FLOAT            = 4;
+var TS_TOK_STRING           = 5;
+var TS_TOK_TEMPLATE_NOSUB   = 6;
+var TS_TOK_TEMPLATE_HEAD    = 7;
+var TS_TOK_TEMPLATE_MID     = 8;
+var TS_TOK_TEMPLATE_TAIL    = 9;
+var TS_TOK_REGEX            = 10;
 
-# Single-char operators / punctuation (11-49)
-var TS_TOK_LPAREN           = 11;   # (
-var TS_TOK_RPAREN           = 12;   # )
-var TS_TOK_LBRACE           = 13;   # {
-var TS_TOK_RBRACE           = 14;   # }
-var TS_TOK_LBRACKET         = 15;   # [
-var TS_TOK_RBRACKET         = 16;   # ]
-var TS_TOK_SEMI             = 17;   # ;
-var TS_TOK_COMMA            = 18;   # ,
-var TS_TOK_DOT              = 19;   # .
-var TS_TOK_COLON            = 20;   # :
-var TS_TOK_QUESTION         = 21;   # ?
-var TS_TOK_PLUS             = 22;   # +
-var TS_TOK_MINUS            = 23;   # -
-var TS_TOK_STAR             = 24;   # *
-var TS_TOK_SLASH            = 25;   # /
-var TS_TOK_PERCENT          = 26;   # %
-var TS_TOK_EQ               = 27;   # =
-var TS_TOK_LT               = 28;   # <
-var TS_TOK_GT               = 29;   # >
-var TS_TOK_BANG             = 30;   # !
-var TS_TOK_AMP              = 31;   # &
-var TS_TOK_PIPE             = 32;   # |
-var TS_TOK_CARET            = 33;   # ^
-var TS_TOK_TILDE            = 34;   # ~
-var TS_TOK_AT               = 35;   # @ (decorator — lexed but rejected in v5.7.1)
-var TS_TOK_HASH             = 36;   # # (private field — lexed but rejected in v5.7.1)
-var TS_TOK_BACKTICK         = 37;   # ` (handled by template-literal lexer; here for completeness)
+# Single-char operators / punctuation
+var TS_TOK_LPAREN           = 11;
+var TS_TOK_RPAREN           = 12;
+var TS_TOK_LBRACE           = 13;
+var TS_TOK_RBRACE           = 14;
+var TS_TOK_LBRACKET         = 15;
+var TS_TOK_RBRACKET         = 16;
+var TS_TOK_SEMI             = 17;
+var TS_TOK_COMMA            = 18;
+var TS_TOK_DOT              = 19;
+var TS_TOK_COLON            = 20;
+var TS_TOK_QUESTION         = 21;
+var TS_TOK_PLUS             = 22;
+var TS_TOK_MINUS            = 23;
+var TS_TOK_STAR             = 24;
+var TS_TOK_SLASH            = 25;
+var TS_TOK_PERCENT          = 26;
+var TS_TOK_EQ               = 27;
+var TS_TOK_LT               = 28;
+var TS_TOK_GT               = 29;
+var TS_TOK_BANG             = 30;
+var TS_TOK_AMP              = 31;
+var TS_TOK_PIPE             = 32;
+var TS_TOK_CARET            = 33;
+var TS_TOK_TILDE            = 34;
+var TS_TOK_AT               = 35;
+var TS_TOK_HASH             = 36;
+var TS_TOK_BACKTICK         = 37;
 
-# Multi-char operators (50-99)
-var TS_TOK_EQ_EQ            = 50;   # ==
-var TS_TOK_EQ_EQ_EQ         = 51;   # ===
-var TS_TOK_BANG_EQ          = 52;   # !=
-var TS_TOK_BANG_EQ_EQ       = 53;   # !==
-var TS_TOK_LT_EQ            = 54;   # <=
-var TS_TOK_GT_EQ            = 55;   # >=
-var TS_TOK_LT_LT            = 56;   # <<
-var TS_TOK_GT_GT            = 57;   # >>
-var TS_TOK_GT_GT_GT         = 58;   # >>> (unsigned right shift)
-var TS_TOK_AMP_AMP          = 59;   # &&
-var TS_TOK_PIPE_PIPE        = 60;   # ||
-var TS_TOK_QQ               = 61;   # ?? (nullish coalescing)
-var TS_TOK_Q_DOT            = 62;   # ?. (optional chaining)
-var TS_TOK_STAR_STAR        = 63;   # **
-var TS_TOK_ARROW            = 64;   # =>
-var TS_TOK_ELLIPSIS         = 65;   # ... (spread/rest)
-var TS_TOK_PLUS_PLUS        = 66;   # ++
-var TS_TOK_MINUS_MINUS      = 67;   # --
+# Multi-char operators (P1.3)
+var TS_TOK_EQ_EQ            = 50;
+var TS_TOK_EQ_EQ_EQ         = 51;
+var TS_TOK_BANG_EQ          = 52;
+var TS_TOK_BANG_EQ_EQ       = 53;
+var TS_TOK_LT_EQ            = 54;
+var TS_TOK_GT_EQ            = 55;
+var TS_TOK_LT_LT            = 56;
+var TS_TOK_GT_GT            = 57;
+var TS_TOK_GT_GT_GT         = 58;
+var TS_TOK_AMP_AMP          = 59;
+var TS_TOK_PIPE_PIPE        = 60;
+var TS_TOK_QQ               = 61;
+var TS_TOK_Q_DOT            = 62;
+var TS_TOK_STAR_STAR        = 63;
+var TS_TOK_ARROW            = 64;
+var TS_TOK_ELLIPSIS         = 65;
+var TS_TOK_PLUS_PLUS        = 66;
+var TS_TOK_MINUS_MINUS      = 67;
 
-# Compound assignment (70-89)
-var TS_TOK_PLUS_EQ          = 70;   # +=
-var TS_TOK_MINUS_EQ         = 71;   # -=
-var TS_TOK_STAR_EQ          = 72;   # *=
-var TS_TOK_SLASH_EQ         = 73;   # /=
-var TS_TOK_PERCENT_EQ       = 74;   # %=
-var TS_TOK_STAR_STAR_EQ     = 75;   # **=
-var TS_TOK_AMP_EQ           = 76;   # &=
-var TS_TOK_PIPE_EQ          = 77;   # |=
-var TS_TOK_CARET_EQ         = 78;   # ^=
-var TS_TOK_LT_LT_EQ         = 79;   # <<=
-var TS_TOK_GT_GT_EQ         = 80;   # >>=
-var TS_TOK_GT_GT_GT_EQ      = 81;   # >>>=
-var TS_TOK_AMP_AMP_EQ       = 82;   # &&=
-var TS_TOK_PIPE_PIPE_EQ     = 83;   # ||=
-var TS_TOK_QQ_EQ            = 84;   # ??=
+# Compound assignment (P1.3)
+var TS_TOK_PLUS_EQ          = 70;
+var TS_TOK_MINUS_EQ         = 71;
+var TS_TOK_STAR_EQ          = 72;
+var TS_TOK_SLASH_EQ         = 73;
+var TS_TOK_PERCENT_EQ       = 74;
+var TS_TOK_STAR_STAR_EQ     = 75;
+var TS_TOK_AMP_EQ           = 76;
+var TS_TOK_PIPE_EQ          = 77;
+var TS_TOK_CARET_EQ         = 78;
+var TS_TOK_LT_LT_EQ         = 79;
+var TS_TOK_GT_GT_EQ         = 80;
+var TS_TOK_GT_GT_GT_EQ      = 81;
+var TS_TOK_AMP_AMP_EQ       = 82;
+var TS_TOK_PIPE_PIPE_EQ     = 83;
+var TS_TOK_QQ_EQ            = 84;
 
-# ECMAScript keywords (100-199)
+# ECMAScript keywords
 var TS_TOK_KW_VAR           = 100;
 var TS_TOK_KW_LET           = 101;
 var TS_TOK_KW_CONST         = 102;
@@ -214,7 +179,7 @@ var TS_TOK_KW_DELETE        = 120;
 var TS_TOK_KW_TYPEOF        = 121;
 var TS_TOK_KW_INSTANCEOF    = 122;
 var TS_TOK_KW_IN            = 123;
-var TS_TOK_KW_OF            = 124;     # contextual (for...of)
+var TS_TOK_KW_OF            = 124;
 var TS_TOK_KW_VOID          = 125;
 var TS_TOK_KW_NULL          = 126;
 var TS_TOK_KW_UNDEFINED     = 127;
@@ -226,69 +191,500 @@ var TS_TOK_KW_CLASS         = 132;
 var TS_TOK_KW_EXTENDS       = 133;
 var TS_TOK_KW_IMPORT        = 134;
 var TS_TOK_KW_EXPORT        = 135;
-var TS_TOK_KW_FROM          = 136;     # contextual (import ... from)
-var TS_TOK_KW_AS            = 137;     # contextual (as type assertion)
-var TS_TOK_KW_ASYNC         = 138;     # recognized in lex; parser rejects in v5.7.1
-var TS_TOK_KW_AWAIT         = 139;     # recognized in lex; parser rejects in v5.7.1
-var TS_TOK_KW_YIELD         = 140;     # NEVER-supported (generators); parser rejects
+var TS_TOK_KW_FROM          = 136;
+var TS_TOK_KW_AS            = 137;
+var TS_TOK_KW_ASYNC         = 138;
+var TS_TOK_KW_AWAIT         = 139;
+var TS_TOK_KW_YIELD         = 140;
 
-# TypeScript-specific keywords (200-249)
+# TypeScript-specific keywords
 var TS_TOK_KW_INTERFACE     = 200;
-var TS_TOK_KW_TYPE          = 201;     # contextual (type alias decl + type-only import)
+var TS_TOK_KW_TYPE          = 201;
 var TS_TOK_KW_KEYOF         = 202;
 var TS_TOK_KW_READONLY      = 203;
 var TS_TOK_KW_PRIVATE       = 204;
 var TS_TOK_KW_PROTECTED     = 205;
 var TS_TOK_KW_PUBLIC        = 206;
 var TS_TOK_KW_STATIC        = 207;
-var TS_TOK_KW_ABSTRACT      = 208;     # NOT-SUPPORTED (zero SY usage); parser rejects
+var TS_TOK_KW_ABSTRACT      = 208;
 var TS_TOK_KW_IMPLEMENTS    = 209;
-var TS_TOK_KW_DECLARE       = 210;     # ambient decl (lex only; semantics TBD)
-var TS_TOK_KW_NAMESPACE     = 211;     # NEVER-supported; parser rejects
-var TS_TOK_KW_ENUM          = 212;     # NEVER-supported; parser rejects
-var TS_TOK_KW_SATISFIES     = 213;     # NEVER-supported; parser rejects
-var TS_TOK_KW_INFER         = 214;     # NEVER-supported (cond types); parser rejects
-var TS_TOK_KW_GET           = 215;     # contextual (accessor)
-var TS_TOK_KW_SET           = 216;     # contextual (accessor)
-var TS_TOK_KW_OVERRIDE      = 217;     # TS 4.3+; parser rejects unless surfaces
-var TS_TOK_KW_CONSTRUCTOR   = 218;     # contextual
+var TS_TOK_KW_DECLARE       = 210;
+var TS_TOK_KW_NAMESPACE     = 211;
+var TS_TOK_KW_ENUM          = 212;
+var TS_TOK_KW_SATISFIES     = 213;
+var TS_TOK_KW_INFER         = 214;
+var TS_TOK_KW_GET           = 215;
+var TS_TOK_KW_SET           = 216;
+var TS_TOK_KW_OVERRIDE      = 217;
+var TS_TOK_KW_CONSTRUCTOR   = 218;
 
-# Reserved future use (250+)
-var TS_TOK_KW_DEBUGGER      = 250;     # ES — lex but reject
-var TS_TOK_KW_WITH          = 251;     # ES — lex but reject (legacy, error in strict)
+# Reserved future use
+var TS_TOK_KW_DEBUGGER      = 250;
+var TS_TOK_KW_WITH          = 251;
 var TS_TOK_KW_PACKAGE       = 252;
-var TS_TOK_KW_PROTECTED_RES = 253;     # reserved alias
 
 # ================================================================
-# Lexer state — slot offsets within ts_lex_state region
+# Helper fns — heap accessors (all relative to ts_base)
 # ================================================================
-# Mirrors the .cyr lexer's state pattern (PEEKT/PEEKV/GTI from
-# src/frontend/lex.cyr). All offsets are within S + TS_LEX_STATE_OFF.
 
-var TS_LS_POS               = 0;       # i64 — current byte offset in source
-var TS_LS_LINE              = 8;       # i64 — current line number (1-based)
-var TS_LS_TOK_COUNT         = 16;      # i64 — number of tokens emitted
-var TS_LS_LAST_TOK_CLASS    = 24;      # i64 — for regex/divide disambiguation
-                                       # 0=expr-context (regex allowed)
-                                       # 1=primary-context (divide expected)
-var TS_LS_TEMPLATE_DEPTH    = 32;      # i64 — current template-literal nesting
-                                       # 0=outside template, N=inside ${} at depth N
-var TS_LS_NAME_BUF_USED     = 40;      # i64 — bytes used in TS_NAMES region
-var TS_LS_STR_POOL_USED     = 48;      # i64 — bytes used in TS_STR_POOL region
+fn TS_GPOS(ts_base) {
+    return load64(ts_base + TS_LEX_STATE_OFF + TS_LS_POS);
+}
 
-# ================================================================
-# Forward declaration — TS_LEX entry point (P1.2 implementation)
-# ================================================================
-# Stub returns 0; will be fleshed out in P1.2. Signature mirrors
-# the existing LEX(S) — single arg = base heap pointer S.
-# Returns: token count on success, -1 on error.
-
-fn TS_LEX(S) {
-    # P1.1 SCAFFOLD: stub returns 0. P1.2 will implement actual
-    # tokenization (simple tokens + identifiers + integers +
-    # string literals + single-char operators + keywords).
-    # P1.3 multi-char operators. P1.4 template literals.
-    # P1.5 comments. P1.6 regex disambiguation. P1.7 acceptance
-    # gate (lex SY's largest TS file without panic).
+fn TS_SPOS(ts_base, p) {
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_POS, p);
     return 0;
 }
+
+fn TS_GLINE(ts_base) {
+    return load64(ts_base + TS_LEX_STATE_OFF + TS_LS_LINE);
+}
+
+fn TS_INCLINE(ts_base) {
+    var l = load64(ts_base + TS_LEX_STATE_OFF + TS_LS_LINE);
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_LINE, l + 1);
+    return 0;
+}
+
+fn TS_GTCNT(ts_base) {
+    return load64(ts_base + TS_LEX_STATE_OFF + TS_LS_TOK_COUNT);
+}
+
+fn TS_STCNT(ts_base, n) {
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_TOK_COUNT, n);
+    return 0;
+}
+
+fn TS_SETERR(ts_base, code) {
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_ERR_CODE, code);
+    return 0;
+}
+
+fn TS_GETERR(ts_base) {
+    return load64(ts_base + TS_LEX_STATE_OFF + TS_LS_ERR_CODE);
+}
+
+# Append a token to the parallel arrays. Returns 0 on success,
+# -1 on cap exceeded (sets err code 2).
+fn TS_ADDTOK(ts_base, typ, val) {
+    var tc = TS_GTCNT(ts_base);
+    if (tc >= TS_TOK_CAP) {
+        TS_SETERR(ts_base, 2);
+        return 0 - 1;
+    }
+    store64(ts_base + TS_TOK_TYPES_OFF  + tc * 8, typ);
+    store64(ts_base + TS_TOK_VALUES_OFF + tc * 8, val);
+    store64(ts_base + TS_TOK_LINES_OFF  + tc * 8, TS_GLINE(ts_base));
+    TS_STCNT(ts_base, tc + 1);
+    return 0;
+}
+
+# Read accessors (used by tests + parser later).
+fn TS_PEEKT(ts_base, idx) {
+    return load64(ts_base + TS_TOK_TYPES_OFF + idx * 8);
+}
+
+fn TS_PEEKV(ts_base, idx) {
+    return load64(ts_base + TS_TOK_VALUES_OFF + idx * 8);
+}
+
+fn TS_PEEKLINE(ts_base, idx) {
+    return load64(ts_base + TS_TOK_LINES_OFF + idx * 8);
+}
+
+# ================================================================
+# Char class helpers
+# ================================================================
+
+# True for [a-zA-Z_$]
+fn TS_ISIDSTART(c) {
+    if (c >= 97) { if (c <= 122) { return 1; } }    # a-z
+    if (c >= 65) { if (c <= 90)  { return 1; } }    # A-Z
+    if (c == 95) { return 1; }                       # _
+    if (c == 36) { return 1; }                       # $
+    return 0;
+}
+
+# True for [a-zA-Z_$0-9]
+fn TS_ISIDPART(c) {
+    if (TS_ISIDSTART(c) == 1) { return 1; }
+    if (c >= 48) { if (c <= 57) { return 1; } }     # 0-9
+    return 0;
+}
+
+fn TS_ISDIGIT(c) {
+    if (c >= 48) { if (c <= 57) { return 1; } }
+    return 0;
+}
+
+fn TS_ISHEXDIGIT(c) {
+    if (TS_ISDIGIT(c) == 1) { return 1; }
+    if (c >= 97) { if (c <= 102) { return 1; } }    # a-f
+    if (c >= 65) { if (c <= 70)  { return 1; } }    # A-F
+    return 0;
+}
+
+fn TS_ISBINDIGIT(c) {
+    if (c == 48) { return 1; }                       # 0
+    if (c == 49) { return 1; }                       # 1
+    return 0;
+}
+
+fn TS_ISOCTDIGIT(c) {
+    if (c >= 48) { if (c <= 55) { return 1; } }     # 0-7
+    return 0;
+}
+
+# ================================================================
+# Keyword recognition
+# ================================================================
+# Length-bucketed dispatch, then byte comparison via memeq. ~40
+# keywords; linear within each bucket. Returns TS_TOK_KW_* on match,
+# TS_TOK_IDENT on miss.
+
+fn TS_KW_LOOKUP(src, off, len) {
+    var name = src + off;
+    if (len == 2) {
+        if (memeq(name, "if", 2) == 1) { return TS_TOK_KW_IF; }
+        if (memeq(name, "do", 2) == 1) { return TS_TOK_KW_DO; }
+        if (memeq(name, "in", 2) == 1) { return TS_TOK_KW_IN; }
+        if (memeq(name, "of", 2) == 1) { return TS_TOK_KW_OF; }
+        if (memeq(name, "as", 2) == 1) { return TS_TOK_KW_AS; }
+    }
+    if (len == 3) {
+        if (memeq(name, "var", 3) == 1) { return TS_TOK_KW_VAR; }
+        if (memeq(name, "let", 3) == 1) { return TS_TOK_KW_LET; }
+        if (memeq(name, "for", 3) == 1) { return TS_TOK_KW_FOR; }
+        if (memeq(name, "new", 3) == 1) { return TS_TOK_KW_NEW; }
+        if (memeq(name, "try", 3) == 1) { return TS_TOK_KW_TRY; }
+        if (memeq(name, "set", 3) == 1) { return TS_TOK_KW_SET; }
+        if (memeq(name, "get", 3) == 1) { return TS_TOK_KW_GET; }
+    }
+    if (len == 4) {
+        if (memeq(name, "void", 4) == 1) { return TS_TOK_KW_VOID; }
+        if (memeq(name, "null", 4) == 1) { return TS_TOK_KW_NULL; }
+        if (memeq(name, "true", 4) == 1) { return TS_TOK_KW_TRUE; }
+        if (memeq(name, "this", 4) == 1) { return TS_TOK_KW_THIS; }
+        if (memeq(name, "case", 4) == 1) { return TS_TOK_KW_CASE; }
+        if (memeq(name, "type", 4) == 1) { return TS_TOK_KW_TYPE; }
+        if (memeq(name, "enum", 4) == 1) { return TS_TOK_KW_ENUM; }
+        if (memeq(name, "from", 4) == 1) { return TS_TOK_KW_FROM; }
+        if (memeq(name, "else", 4) == 1) { return TS_TOK_KW_ELSE; }
+    }
+    if (len == 5) {
+        if (memeq(name, "const", 5) == 1) { return TS_TOK_KW_CONST; }
+        if (memeq(name, "while", 5) == 1) { return TS_TOK_KW_WHILE; }
+        if (memeq(name, "break", 5) == 1) { return TS_TOK_KW_BREAK; }
+        if (memeq(name, "throw", 5) == 1) { return TS_TOK_KW_THROW; }
+        if (memeq(name, "catch", 5) == 1) { return TS_TOK_KW_CATCH; }
+        if (memeq(name, "false", 5) == 1) { return TS_TOK_KW_FALSE; }
+        if (memeq(name, "super", 5) == 1) { return TS_TOK_KW_SUPER; }
+        if (memeq(name, "class", 5) == 1) { return TS_TOK_KW_CLASS; }
+        if (memeq(name, "yield", 5) == 1) { return TS_TOK_KW_YIELD; }
+        if (memeq(name, "async", 5) == 1) { return TS_TOK_KW_ASYNC; }
+        if (memeq(name, "await", 5) == 1) { return TS_TOK_KW_AWAIT; }
+        if (memeq(name, "infer", 5) == 1) { return TS_TOK_KW_INFER; }
+        if (memeq(name, "keyof", 5) == 1) { return TS_TOK_KW_KEYOF; }
+    }
+    if (len == 6) {
+        if (memeq(name, "return", 6) == 1) { return TS_TOK_KW_RETURN; }
+        if (memeq(name, "switch", 6) == 1) { return TS_TOK_KW_SWITCH; }
+        if (memeq(name, "delete", 6) == 1) { return TS_TOK_KW_DELETE; }
+        if (memeq(name, "typeof", 6) == 1) { return TS_TOK_KW_TYPEOF; }
+        if (memeq(name, "import", 6) == 1) { return TS_TOK_KW_IMPORT; }
+        if (memeq(name, "export", 6) == 1) { return TS_TOK_KW_EXPORT; }
+        if (memeq(name, "static", 6) == 1) { return TS_TOK_KW_STATIC; }
+        if (memeq(name, "public", 6) == 1) { return TS_TOK_KW_PUBLIC; }
+    }
+    if (len == 7) {
+        if (memeq(name, "default", 7) == 1) { return TS_TOK_KW_DEFAULT; }
+        if (memeq(name, "finally", 7) == 1) { return TS_TOK_KW_FINALLY; }
+        if (memeq(name, "extends", 7) == 1) { return TS_TOK_KW_EXTENDS; }
+        if (memeq(name, "private", 7) == 1) { return TS_TOK_KW_PRIVATE; }
+        if (memeq(name, "package", 7) == 1) { return TS_TOK_KW_PACKAGE; }
+                                              # 'declare' falls into len 7
+        if (memeq(name, "declare", 7) == 1) { return TS_TOK_KW_DECLARE; }
+    }
+    if (len == 8) {
+        if (memeq(name, "function", 8) == 1) { return TS_TOK_KW_FUNCTION; }
+        if (memeq(name, "continue", 8) == 1) { return TS_TOK_KW_CONTINUE; }
+        if (memeq(name, "readonly", 8) == 1) { return TS_TOK_KW_READONLY; }
+        if (memeq(name, "abstract", 8) == 1) { return TS_TOK_KW_ABSTRACT; }
+        if (memeq(name, "debugger", 8) == 1) { return TS_TOK_KW_DEBUGGER; }
+                                                # 'override' is len 8
+        if (memeq(name, "override", 8) == 1) { return TS_TOK_KW_OVERRIDE; }
+    }
+    if (len == 9) {
+        if (memeq(name, "interface", 9) == 1) { return TS_TOK_KW_INTERFACE; }
+        if (memeq(name, "namespace", 9) == 1) { return TS_TOK_KW_NAMESPACE; }
+        if (memeq(name, "protected", 9) == 1) { return TS_TOK_KW_PROTECTED; }
+        if (memeq(name, "satisfies", 9) == 1) { return TS_TOK_KW_SATISFIES; }
+        if (memeq(name, "undefined", 9) == 1) { return TS_TOK_KW_UNDEFINED; }
+    }
+    if (len == 10) {
+        if (memeq(name, "instanceof", 10) == 1) { return TS_TOK_KW_INSTANCEOF; }
+        if (memeq(name, "implements", 10) == 1) { return TS_TOK_KW_IMPLEMENTS; }
+    }
+    if (len == 11) {
+        if (memeq(name, "constructor", 11) == 1) { return TS_TOK_KW_CONSTRUCTOR; }
+    }
+    return TS_TOK_IDENT;
+}
+
+# ================================================================
+# Lex helpers — token-shape-specific
+# ================================================================
+
+# Scan forward to end of identifier. Returns position past last
+# ID-part char. Caller has verified load8(src+start) is ID-start.
+fn TS_SCAN_IDENT(src, src_len, start) {
+    var p = start;
+    while (p < src_len) {
+        if (TS_ISIDPART(load8(src + p)) == 0) { return p; }
+        p = p + 1;
+    }
+    return p;
+}
+
+# Emit identifier or keyword token. Value packs (offset << 24) | length —
+# 24-bit offset supports up to 16 MB source files; 8-bit length caps
+# identifiers at 255 chars. Keywords carry no payload (val = 0).
+fn TS_EMIT_IDENT_FINISH(ts_base, src, start, end) {
+    var name_len = end - start;
+    var tok = TS_KW_LOOKUP(src, start, name_len);
+    var val = (start * 16777216) + name_len;
+    if (tok != TS_TOK_IDENT) { val = 0; }
+    TS_ADDTOK(ts_base, tok, val);
+    return end;
+}
+
+# Scan a decimal integer (possibly with _ separators). Returns
+# end position after the digits. Caller has already verified
+# load8(src + start) is a digit.
+fn TS_SCAN_DEC(src, src_len, start) {
+    var p = start;
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (TS_ISDIGIT(c) == 1) { p = p + 1; }
+        elif (c == 95) { p = p + 1; }   # _ separator
+        else { return p; }
+    }
+    return p;
+}
+
+fn TS_SCAN_HEX(src, src_len, start) {
+    var p = start;
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (TS_ISHEXDIGIT(c) == 1) { p = p + 1; }
+        elif (c == 95) { p = p + 1; }
+        else { return p; }
+    }
+    return p;
+}
+
+fn TS_SCAN_BIN(src, src_len, start) {
+    var p = start;
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (TS_ISBINDIGIT(c) == 1) { p = p + 1; }
+        elif (c == 95) { p = p + 1; }
+        else { return p; }
+    }
+    return p;
+}
+
+fn TS_SCAN_OCT(src, src_len, start) {
+    var p = start;
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (TS_ISOCTDIGIT(c) == 1) { p = p + 1; }
+        elif (c == 95) { p = p + 1; }
+        else { return p; }
+    }
+    return p;
+}
+
+# Emit an integer literal token. Stores (offset << 24) | length.
+# Numeric value parsing deferred to typecheck/lower phase
+# (P3/P4); P1.2 just records the source span.
+# Returns: end position after the literal, or -1 on lex error.
+fn TS_EMIT_INT(ts_base, src, src_len, start) {
+    var p = start;
+    var c0 = load8(src + p);
+    var end = p;
+    if (c0 == 48) {
+        # 0, or prefixed (0x, 0o, 0b), or just decimal starting with 0
+        if (p + 1 < src_len) {
+            var c1 = load8(src + p + 1);
+            if (c1 == 120) { end = TS_SCAN_HEX(src, src_len, p + 2); }       # 0x
+            elif (c1 == 88) { end = TS_SCAN_HEX(src, src_len, p + 2); }      # 0X
+            elif (c1 == 111) { end = TS_SCAN_OCT(src, src_len, p + 2); }     # 0o
+            elif (c1 == 79) { end = TS_SCAN_OCT(src, src_len, p + 2); }      # 0O
+            elif (c1 == 98) { end = TS_SCAN_BIN(src, src_len, p + 2); }      # 0b
+            elif (c1 == 66) { end = TS_SCAN_BIN(src, src_len, p + 2); }      # 0B
+            else { end = TS_SCAN_DEC(src, src_len, p); }                      # 0nnn (decimal)
+        } else {
+            end = p + 1;
+        }
+    } else {
+        end = TS_SCAN_DEC(src, src_len, p);
+    }
+    var lit_len = end - start;
+    var val = (start * 16777216) + lit_len;
+    TS_ADDTOK(ts_base, TS_TOK_INT, val);
+    return end;
+}
+
+# Emit a string literal token. Quote is " (34) or ' (39). Stores
+# (offset << 24) | length where the span EXCLUDES the surrounding
+# quotes but INCLUDES escape sequences (escape decoding happens at
+# typecheck/lower time; P1.2 just records span). Returns end position
+# after the closing quote, or -1 on unterminated.
+fn TS_EMIT_STRING(ts_base, src, src_len, start, quote) {
+    var p = start + 1;
+    var content_start = p;
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (c == 92) {                  # backslash — skip next byte (escape)
+            if (p + 1 >= src_len) {
+                TS_SETERR(ts_base, 3);
+                return 0 - 1;
+            }
+            p = p + 2;
+        }
+        elif (c == quote) {
+            var content_len = p - content_start;
+            var val = (content_start * 16777216) + content_len;
+            TS_ADDTOK(ts_base, TS_TOK_STRING, val);
+            return p + 1;
+        }
+        elif (c == 10) {                # raw newline — TS forbids in single-line strings
+            TS_SETERR(ts_base, 4);
+            return 0 - 1;
+        }
+        else {
+            p = p + 1;
+        }
+    }
+    TS_SETERR(ts_base, 5);              # unterminated string
+    return 0 - 1;
+}
+
+# ================================================================
+# TS_LEX — main lexer entry
+# ================================================================
+# Tokenizes `src[0..src_len]` into the parallel arrays at ts_base.
+# Returns: token count on success (including TS_TOK_EOF terminator),
+#          -1 on lex error (call TS_GETERR(ts_base) for code).
+#
+# Caller must ensure ts_base points to a TS_HEAP_SIZE-byte region.
+# Lexer state is initialized at entry.
+#
+# P1.2 scope:
+#   - Whitespace + line tracking (newlines tracked but no
+#     TS_TOK_NEWLINE emit — ASI lives in parser per TC39)
+#   - Identifiers + keywords (~40 keywords, length-bucketed lookup)
+#   - Integer literals (decimal, 0x, 0o, 0b, with _ separators)
+#   - String literals ("..." and '...', escape-aware span)
+#   - Single-char operators (LPAREN through HASH, BACKTICK)
+#
+# Out of scope (P1.3+):
+#   - Multi-char operators (==, ===, !=, !==, <=, >=, <<, >>, >>>,
+#     &&, ||, ??, ?., **, =>, ..., ++, --, +=, -=, etc.)
+#   - Template literals (backtick with ${} interpolation)
+#   - Comments (// line, /* */ block)
+#   - Regex literals (context-sensitive)
+#   - Float literals (3.14, 1e10)
+
+fn TS_LEX(ts_base, src, src_len) {
+    # Initialize lexer state
+    TS_SPOS(ts_base, 0);
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_LINE, 1);
+    TS_STCNT(ts_base, 0);
+    TS_SETERR(ts_base, 0);
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_LAST_TOK_CLASS, 0);
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH, 0);
+
+    var p = 0;
+    while (p < src_len) {
+        var c = load8(src + p);
+
+        # ─── Whitespace ───────────────────────────────────────────
+        if (c == 32) { p = p + 1; }              # space
+        elif (c == 9) { p = p + 1; }             # tab
+        elif (c == 13) { p = p + 1; }            # CR — skip (handle as part of CRLF)
+        elif (c == 10) {                          # LF — track line
+            TS_INCLINE(ts_base);
+            p = p + 1;
+        }
+
+        # ─── Identifier / keyword ─────────────────────────────────
+        elif (TS_ISIDSTART(c) == 1) {
+            var id_start = p;
+            var id_end = TS_SCAN_IDENT(src, src_len, p + 1);
+            TS_EMIT_IDENT_FINISH(ts_base, src, id_start, id_end);
+            p = id_end;
+        }
+
+        # ─── Integer literal ──────────────────────────────────────
+        elif (TS_ISDIGIT(c) == 1) {
+            var int_end = TS_EMIT_INT(ts_base, src, src_len, p);
+            if (int_end < 0) { return 0 - 1; }
+            p = int_end;
+        }
+
+        # ─── String literal (double-quote) ────────────────────────
+        elif (c == 34) {
+            var dq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 34);
+            if (dq_end < 0) { return 0 - 1; }
+            p = dq_end;
+        }
+        # ─── String literal (single-quote) ────────────────────────
+        elif (c == 39) {
+            var sq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 39);
+            if (sq_end < 0) { return 0 - 1; }
+            p = sq_end;
+        }
+
+        # ─── Single-char operators / punctuation ──────────────────
+        elif (c == 40) { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
+        elif (c == 41) { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
+        elif (c == 123) { TS_ADDTOK(ts_base, TS_TOK_LBRACE,  0); p = p + 1; }
+        elif (c == 125) { TS_ADDTOK(ts_base, TS_TOK_RBRACE,  0); p = p + 1; }
+        elif (c == 91) { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
+        elif (c == 93) { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
+        elif (c == 59) { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
+        elif (c == 44) { TS_ADDTOK(ts_base, TS_TOK_COMMA,    0); p = p + 1; }
+        elif (c == 46) { TS_ADDTOK(ts_base, TS_TOK_DOT,      0); p = p + 1; }
+        elif (c == 58) { TS_ADDTOK(ts_base, TS_TOK_COLON,    0); p = p + 1; }
+        elif (c == 63) { TS_ADDTOK(ts_base, TS_TOK_QUESTION, 0); p = p + 1; }
+        elif (c == 43) { TS_ADDTOK(ts_base, TS_TOK_PLUS,     0); p = p + 1; }
+        elif (c == 45) { TS_ADDTOK(ts_base, TS_TOK_MINUS,    0); p = p + 1; }
+        elif (c == 42) { TS_ADDTOK(ts_base, TS_TOK_STAR,     0); p = p + 1; }
+        elif (c == 47) { TS_ADDTOK(ts_base, TS_TOK_SLASH,    0); p = p + 1; }
+        elif (c == 37) { TS_ADDTOK(ts_base, TS_TOK_PERCENT,  0); p = p + 1; }
+        elif (c == 61) { TS_ADDTOK(ts_base, TS_TOK_EQ,       0); p = p + 1; }
+        elif (c == 60) { TS_ADDTOK(ts_base, TS_TOK_LT,       0); p = p + 1; }
+        elif (c == 62) { TS_ADDTOK(ts_base, TS_TOK_GT,       0); p = p + 1; }
+        elif (c == 33) { TS_ADDTOK(ts_base, TS_TOK_BANG,     0); p = p + 1; }
+        elif (c == 38) { TS_ADDTOK(ts_base, TS_TOK_AMP,      0); p = p + 1; }
+        elif (c == 124) { TS_ADDTOK(ts_base, TS_TOK_PIPE,    0); p = p + 1; }
+        elif (c == 94) { TS_ADDTOK(ts_base, TS_TOK_CARET,    0); p = p + 1; }
+        elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,   0); p = p + 1; }
+        elif (c == 64) { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
+        elif (c == 35) { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
+        elif (c == 96) { TS_ADDTOK(ts_base, TS_TOK_BACKTICK, 0); p = p + 1; }
+
+        # ─── Unknown byte ─────────────────────────────────────────
+        else {
+            TS_SETERR(ts_base, 1);
+            return 0 - 1;
+        }
+    }
+
+    # Emit EOF terminator
+    TS_ADDTOK(ts_base, TS_TOK_EOF, 0);
+    return TS_GTCNT(ts_base);
+}
+
