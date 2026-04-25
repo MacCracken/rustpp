@@ -253,6 +253,15 @@ if [ "$ss_result" -ne 0 ]; then cat /tmp/audit_ss_$$; fi
 rm -f /tmp/audit_ss_$$
 echo ""
 
+# ── 4q''. TLS live handshake to 1.1.1.1:443 (pin v5.6.37) ──
+echo "── TLS live ──"
+sh "$ROOT/tests/regression-tls-live.sh" > /tmp/audit_tl_$$ 2>&1
+tl_result=$?
+check "libssl via fdlopen: full TLS round-trip on 1.1.1.1:443 (pin v5.6.37)" "$tl_result"
+if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
+rm -f /tmp/audit_tl_$$
+echo ""
+
 # ── 4r. Bare-truthy after fn-call (v5.6.21 codegen-bug fix) ──
 echo "── Bare-truthy after fn-call ──"
 sh "$ROOT/tests/regression-truthy-after-fncall.sh" > /tmp/audit_tf_$$ 2>&1

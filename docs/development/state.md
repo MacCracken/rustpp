@@ -5,15 +5,15 @@
 
 ## Version
 
-**5.6.36** (shipped — `regression-pe-exit` gate fixture
-repair; same v5.6.33 misdiagnosis pattern on the PE side. No
-Win11 24H2 platform regression existed. Zero compiler change.
+**5.6.37** (shipped — `SSL_connect` deadlock fix via
+fdlopen-based libssl loading; full HTTPS handshake works now.
 Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.36 rewrites
-  a regression-test fixture only)
+- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.37 is a
+  `lib/tls.cyr` rewrite; cc5 doesn't include tls.cyr so no
+  compiler byte change)
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -60,8 +60,6 @@ sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
 symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
 Both shipped 2026-04-24.
 
-- **v5.6.37** — `SSL_connect` libssl pthread deadlock
-  investigation (sandhi M2).
 - **v5.6.38** — shared-object (.so / .dll / .dylib) emission
   completion.
 - **v5.6.39** — v5.6.x closeout + downstream ecosystem sweep
@@ -76,6 +74,26 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.37** — `SSL_connect` deadlock fixed by routing libssl
+  through `fdlopen`. Sandhi M2's HTTPS probe hung forever on
+  `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` at TCB+0x118 after TCP
+  connect succeeded — libssl's `OPENSSL_init_ssl` uses a
+  pthread recursive mutex inside the TCB, and cyrius's
+  `dynlib_bootstrap_tls` stub zeroed that TCB so the mutex's
+  `__kind` field reads 0 (= non-recursive). Same-thread
+  re-entry deadlocked (CAS 0→1, CAS 1→2, futex(WAIT, 2)).
+  Fix: `lib/tls.cyr::_tls_init` now calls `fdlopen_init_full`
+  which invokes `ld-linux.so` to run a shim through real
+  `__libc_start_main` + `__libc_pthread_init`; subsequent
+  `dlopen("libssl.so.3")` loads against a fully-initialised
+  glibc TCB and all pthread primitives work correctly.
+  Verified end-to-end: `https://1.1.1.1/` handshake + HTTP
+  GET + response read round-trips cleanly ("HTTP/1.1 301
+  Moved Permanently"). New gate
+  `tests/regression-tls-live.sh` wired into check.sh (4q''),
+  skips if `~/.cyrius/dlopen-helper` missing or network
+  unreachable. Zero compiler change; cc5 byte-identical at
+  531,680 B.
 - **v5.6.36** — `tests/regression-pe-exit.sh` rewritten. Same
   exact misdiagnosis pattern as v5.6.33's Mach-O slot — the
   PE gate's `fn main() { syscall(60, 42); return 0; }` fixture

@@ -1,5 +1,6 @@
-# Test: TLS bridge via dynlib → libssl.so.3
-# Skips gracefully if libssl/libcrypto not installed.
+# Test: TLS bridge via fdlopen → libssl.so.3 (v5.6.37+)
+# Skips gracefully if libssl/libcrypto not installed OR if the
+# fdlopen helper (~/.cyrius/dlopen-helper) is missing.
 include "lib/string.cyr"
 include "lib/fmt.cyr"
 include "lib/alloc.cyr"
@@ -8,6 +9,9 @@ include "lib/syscalls.cyr"
 include "lib/mmap.cyr"
 include "lib/fnptr.cyr"
 include "lib/dynlib.cyr"
+# v5.6.37: tls.cyr routes libssl through fdlopen; callers must
+# include fdlopen.cyr before tls.cyr.
+include "lib/fdlopen.cyr"
 include "lib/tls.cyr"
 
 alloc_init();

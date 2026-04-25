@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.36.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.37.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -298,12 +298,20 @@
 >   byte-identical exit behavior). Gate rewritten with
 >   correct top-level syntax (3 tests: ExitProcess, WriteFile,
 >   peephole). Zero compiler change.
-> - **v5.6.37** (was v5.6.35 → 36 → 37): `SSL_connect` libssl
->   pthread deadlock investigation (sandhi M2). `tls_connect`
->   hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` — libssl 3's
->   internal pthread locks wait for `__libc_pthread_init`-side
->   state that static cyrius binaries never populate. Repro:
->   `sandhi/programs/tls-raw-probe.cyr`. Filed sandhi 2026-04-24.
+> - **v5.6.37 ✅ shipped**: `SSL_connect` libssl pthread deadlock
+>   closed. `dynlib_bootstrap_tls`'s zeroed TCB left libssl's
+>   mutex `__kind` = 0 (non-recursive); OPENSSL_init_ssl's
+>   same-thread re-entry deadlocked on a futex at TCB+0x118.
+>   Fix: `lib/tls.cyr::_tls_init` routes libssl through
+>   `fdlopen_init_full` which invokes ld.so to run a shim
+>   through real `__libc_start_main` + `__libc_pthread_init`;
+>   subsequent `dlopen("libssl.so.3")` loads against a
+>   fully-initialised glibc. End-to-end verified: TLS
+>   handshake + HTTP round-trip to `https://1.1.1.1/`
+>   returns `HTTP/1.1 301 Moved Permanently`. Zero compiler
+>   change. **BREAKING:** consumers now need
+>   `include "lib/fdlopen.cyr"` before `include "lib/tls.cyr"`
+>   (1-line migration).
 > - **v5.6.38** (was v5.6.36 → 37 → 38): shared-object (.so /
 >   .dll / .dylib) emission completion.
 > - **v5.6.39** (was v5.6.37 → 38 → 39): v5.6.x closeout +
@@ -394,7 +402,7 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | ~~Stdlib `alloc` grow-undersize SIGSEGV (sit symptom 1 of 2)~~ | ~~Any cyrius consumer allocating >1 MiB in one call~~ | **v5.6.34 ✅ shipped** — `lib/alloc.cyr` (Linux brk) + `lib/alloc_macos.cyr` (mmap) grew by a fixed `0x100000` step every time `_heap_ptr` crossed `_heap_end`, regardless of requested size. Any `alloc(size > 1 MB)` near the grow boundary returned a pointer past the brk/mmap — SIGSEGV on first tail-write. Filed by sit 2026-04-24 during S-33 triage of `sit status` SIGSEGV on 100-commit repo. Fix: Linux rounds new end up to next 1 MB grain; macOS loops 1 MB mmaps preserving the per-step contiguity guard. `lib/alloc_windows.cyr` separable — no grow path, fails cleanly. New gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5 byte-identical (uses raw `brk`, not stdlib). Issue ledger: `sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md` (filed as one issue with two symptoms; we fix #1 here, triage #2 in v5.6.35). |
 | ~~`sit fsck` memory anomaly at scale (sit symptom 2 of 2)~~ | ~~sit at scale~~ | **v5.6.35 ✅ shipped.** Triage 2026-04-24 pinned the layer to **sankoch's `zlib_compress` producing non-decompressible DEFLATE for sit-tree-shaped inputs** (deterministic on input; reproduces from a 30-line standalone cyrius program). Eliminated: patra (1600+ standalone roundtrips clean), cyrius alloc (compressed buffer not mutated during `patra_insert_row`, pre/post checksums match for all 300 inserts), sit-side aliasing (in-process `zlib_decompress(compressed)` immediately after `zlib_compress` fails 50/300 in same lock window). 3 sankoch tags resolved it: 2.0.1 (53/300 bad) → 2.0.2 (51/53 fixed; 2 left at ~1.5 KB / ~2 KB with mid-stream zero-run shape) → 2.0.3 (0/300 bad). Cyrius v5.6.35 = `cyrius.cyml` sankoch pin 2.0.1 → 2.0.3 + active `tests/regression-sit-status.sh` gate. Zero compiler change; cc5 byte-identical at 531,680 B. End-to-end `sit fsck` on a freshly-built 100-commit fixture reports `checked 300 objects, 0 bad`. Cyrius repro at `cyrius/docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.{bin,cyr}` (kept committed; 751-byte case still verifies under 2.0.3). |
 | ~~Windows 11 runtime regression (PE exit code)~~ | ~~Windows 11 24H2+ deploys~~ | **v5.6.36 ✅ shipped** — premise was wrong; same exact misdiagnosis as v5.6.33 on the PE side. The `regression-pe-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`. Dead-code body, entry prologue branched to `EEXIT_PE` which calls `kernel32!ExitProcess(arg)` with whatever was in the arg-slot register on Win11 24H2 (= `0x40010080`, NTSTATUS-shape value). PowerShell reported `ApplicationFailedException` due to the 0x4 high-nibble (STATUS_SEVERITY_INFORMATIONAL). Verified by patching `DllCharacteristics` 0x0000 → 0x0160 and observing byte-identical exit behavior; PE shape is fine on Win11 24H2. Gate rewritten with three top-level-syntax tests (kernel32 ExitProcess + WriteFile + v5.6.10 peephole on PE codegen); `CYRIUS_V5634_SHIPPED` guard dropped; `CC_PE` retargeted from `build/cc5_win` (PE binary unrunnable on Linux) to `build/cc5_win_cross` (Linux ELF emitting PE; auto-builds from `cc5 < src/main_win.cyr`); CR-strip added for cmd.exe CRLF output. Zero compiler change; cc5 byte-identical at 531,680 B. End-to-end on cass (Win11 24H2 build 26200): all three tests exit 42. |
-| `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.37** (was v5.6.35 → 36 → 37) — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
+| ~~`SSL_connect` deadlocks on libssl pthread futex~~ | ~~sandhi M2 HTTPS + M5 enforcement stubbed~~ | **v5.6.37 ✅ shipped** — root cause: `dynlib_bootstrap_tls` zeroed TCB left libssl's recursive-mutex `__kind` field = 0 (non-recursive); `OPENSSL_init_ssl`'s same-thread re-entry deadlocked on futex at TCB+0x118 (CAS 0→1, CAS 1→2, futex(WAIT, 2) — no wakeup ever arrives in a single-threaded process). Fix: `lib/tls.cyr::_tls_init` routes through `fdlopen_init_full` which runs ld-linux.so's full glibc init sequence (incl. `__libc_pthread_init`), then uses real `dlopen`/`dlsym` to load libssl. Subsequent `SSL_CTX_new` / `SSL_connect` complete normally. Verified end-to-end: handshake + HTTP round-trip to 1.1.1.1:443 → `HTTP/1.1 301 Moved Permanently`. New gate `tests/regression-tls-live.sh` wired into `check.sh` (4q''). cc5 byte-identical at 531,680 B. **BREAKING for tls.cyr consumers:** must add `include "lib/fdlopen.cyr"` before `include "lib/tls.cyr"` (preprocessor 1 MB expanded-output cap prevents auto-include). Issue: `sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md` (moveable to `archive/` by sandhi once they bump their pin). |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
 truth) and the high-level phase summaries in
@@ -518,17 +526,16 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     repair.** Same exact misdiagnosis pattern as v5.6.33 on the
     PE side. Gate rewritten with top-level syntax; PE shape fine
     on Win11 24H2; zero compiler change.
-13. **v5.6.37 — `SSL_connect` libssl pthread deadlock** (was
-    v5.6.35 → v5.6.36 → v5.6.37). Sandhi-surfaced.
-    `tls_connect` hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)`
-    because libssl 3's internal pthread locks wait for
-    `__libc_pthread_init` state that static cyrius binaries
-    never populate. Investigation: determine whether
-    `dynlib_bootstrap_tls` needs to extend its `%fs`/TCB install
-    to cover libssl's pthread expectations, or whether a
-    separate `dynlib_bootstrap_pthread` helper is needed. Repro:
-    `sandhi/programs/tls-raw-probe.cyr`. Pair with new
-    `tests/tcyr/tls-live.tcyr` gate.
+13. **v5.6.37 ✅ shipped — `SSL_connect` libssl pthread deadlock
+    fixed via fdlopen.** Root cause was
+    `dynlib_bootstrap_tls`'s zeroed TCB leaving libssl's
+    recursive-mutex `__kind` field at 0 (non-recursive).
+    `lib/tls.cyr::_tls_init` rewritten to route through
+    `fdlopen_init_full` which runs ld.so's real
+    `__libc_pthread_init`; libssl then loads against a
+    proper glibc TCB and `SSL_CTX_new`/`SSL_connect` complete.
+    `tests/regression-tls-live.sh` added. **BREAKING:**
+    tls.cyr consumers must now include fdlopen.cyr first.
 14. **v5.6.38 — Shared-object (.so / .dll / .dylib) emission**
     (was v5.6.36 → v5.6.37 → v5.6.38).
 15. **v5.6.39 — v5.6.x closeout + downstream ecosystem sweep
@@ -1950,6 +1957,94 @@ check.sh 24/24 with PE gate ACTIVE.
 
 **Verified on:** `ssh cass` — Microsoft Windows 10.0.26200.8246
 (Win11 24H2, build 26200), x86_64.
+
+### v5.6.37 — `SSL_connect` libssl pthread deadlock ✅ SHIPPED
+
+Sandhi M2 HTTPS filed the deadlock at
+`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`.
+`tls_connect` hung forever on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)`
+at TCB+0x118 immediately after TCP `connect(1.1.1.1:443)`
+succeeded. `wchan: futex_do_wait`, no further syscalls.
+
+**Diagnosis:**
+
+1. Reproduced standalone with `sandhi/programs/tls-raw-probe.cyr`
+   — stdlib-only, IP-literal target, no DNS. Hang is
+   deterministic.
+2. Matched futex address (`0x??cc118`) against `/proc/<pid>/maps`:
+   falls inside cyrius's bump heap, offset `0x118` from heap
+   base = inside `dynlib_bootstrap_tls`'s 4096-byte TCB.
+3. Traced via intermediate probes:
+   - `OPENSSL_init_crypto(0, 0)` → works.
+   - `TLS_client_method()` → works.
+   - `SSL_CTX_new(method)` → **hangs** (internally triggers
+     `OPENSSL_init_ssl`).
+   - Direct `OPENSSL_init_ssl(0, 0)` → hangs.
+4. Confirmed `pthread_atfork(0, 0, 0)` bootstrap attempt
+   returns 0 success but doesn't fix the deadlock — so the
+   missing state isn't covered by `pthread_atfork`.
+5. Pre-writing sentinel at TCB+0x118 didn't break the futex —
+   libssl overwrites it before futex'ing.
+
+**Root cause:** libssl 3's `OPENSSL_init_ssl` uses a recursive
+mutex whose backing storage lives in the glibc TCB. cyrius's
+`dynlib_bootstrap_tls` allocates a 4096-byte zeroed buffer and
+sets `%fs` to it — the minimum viable install for `%fs:N`
+reads — but the mutex's `__kind` field reads 0 =
+`PTHREAD_MUTEX_TIMED_NP` (non-recursive). libssl's init path
+re-enters the same mutex (recursive usage expected), triggers
+the standard contended-mutex pattern, and deadlocks on itself:
+
+```
+thread: CAS(mutex, 0 → 1)           # acquire
+thread: CAS(mutex, 0 → 1) fails     # already 1
+thread: CAS(mutex, 1 → 2)           # set contended
+thread: futex(mutex, WAIT, 2, NULL) # wait for wakeup
+                                    # (none coming, single-threaded)
+```
+
+**Fix (shipped):** `lib/tls.cyr::_tls_init` rewritten to
+bootstrap via `fdlopen_init_full` instead of
+`dynlib_bootstrap_tls`. `fdlopen_init_full` invokes
+`~/.cyrius/dlopen-helper` via the real `ld-linux-x86-64.so.2`,
+which runs `_dl_start` + `__libc_start_main` + the full
+`__libc_pthread_init` sequence during the helper's startup.
+By the time control returns to cyrius, the process has a
+fully-initialised glibc TCB (DTV, stack_guard, pthread_kind,
+`__libc_multiple_threads`, etc.). Subsequent `dlopen("libssl.so.3")`
+loads libssl against that real TCB, and all pthread
+primitives work as expected.
+
+Code change: ~50 lines in `_tls_init`. New 256-byte
+`_tls_fdl_state` global buffer. Symbol resolution switches
+from `_dynlib_resolve_global("X")` to
+`fncall2(fn_dlsym, libssl_handle, "X")` for each libssl symbol.
+
+**Breaking dependency change:** `lib/tls.cyr` now references
+`fdlopen_*` functions. Consumers MUST add
+`include "lib/fdlopen.cyr"` before `include "lib/tls.cyr"`.
+tls.cyr does NOT auto-include fdlopen because the cyrius
+preprocessor's 1 MB expanded-output cap is already tight
+for heavy consumers (`tests/tcyr/large_input.tcyr` ran at
+98% of cap). Auto-include would push it over. Migration is
+a 1-line edit per consumer file.
+
+**Regression gate:** `tests/regression-tls-live.sh` added
+(wired into check.sh as gate 4q''). Builds a cyrius probe,
+does TLS handshake to 1.1.1.1:443, sends minimal HTTP GET,
+reads response, asserts `HTTP/1.1 ` prefix. Skips if
+`~/.cyrius/dlopen-helper` missing or 1.1.1.1:443 unreachable.
+
+**Compiler delta:** zero. cc5 byte-identical at 531,680 B
+(cc5 doesn't include `lib/tls.cyr`). check.sh 25/25 PASS.
+
+**Verified on:** this host (Arch x86_64, kernel 6.18.22,
+glibc 2.43, openssl 3.x at /usr/lib/libssl.so.3). TLS
+handshake + HTTP round-trip to 1.1.1.1:443 completes cleanly.
+Downstream: sandhi M2 HTTPS unblocked once sandhi bumps its
+cyrius pin to 5.6.37 AND adds the fdlopen include to its
+probe. sandhi M5 TLS-policy enforcement unblocked by the
+same bump.
 
 ### v5.6.38 — Shared-object emission completion
 

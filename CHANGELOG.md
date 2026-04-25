@@ -4,6 +4,161 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.37] — 2026-04-24
+
+**`SSL_connect` deadlock fixed — libssl now loads via fdlopen.**
+Sandhi M2's HTTPS path was blocked on `tls_connect` hanging
+forever at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` after the TCP
+connect completed. Verified end-to-end fix: full TLS handshake
++ HTTP round-trip to `https://1.1.1.1/` now returns 301 Moved
+Permanently cleanly. Zero compiler change; `lib/tls.cyr`
+rewrite only.
+
+### Root cause
+
+`lib/tls.cyr` loaded `libssl.so.3` via `dynlib_open` on top of
+cyrius's `dynlib_bootstrap_tls` minimal stub. That stub
+allocates a 4096-byte zeroed buffer from the bump heap and
+sets `%fs` to point at it — enough for IFUNC resolvers and
+trivial `%fs:N` reads, but **not** enough for libssl's
+internal pthread state.
+
+When libssl's first `SSL_CTX_new` triggered `OPENSSL_init_ssl`,
+it called a `pthread_once` / recursive mutex whose state lives
+in the TCB. In cyrius's zeroed stub TCB the mutex's `__kind`
+field reads 0 (= `PTHREAD_MUTEX_TIMED_NP`, non-recursive).
+libssl's init path re-enters the same mutex (recursive usage
+that requires `PTHREAD_MUTEX_RECURSIVE_NP`) → same thread
+deadlocks on itself:
+
+```
+thread: CAS(mutex, 0 → 1)          # acquired
+thread: CAS(mutex, 0 → 1) fails    # already 1
+thread: CAS(mutex, 1 → 2)          # mark contended
+thread: futex(mutex, WAIT, 2, NULL) # wait for wakeup
+```
+
+Nothing wakes it because there are no other threads. Futex
+address matched cyrius's heap (TCB+0x118) — confirmed by
+`/proc/$PID/maps` + `wchan: futex_do_wait`.
+
+### Fix
+
+`lib/tls.cyr::_tls_init` rewritten to bootstrap via `fdlopen`'s
+ld.so-hosted real glibc and resolve libssl symbols through
+real `dlopen` / `dlsym`:
+
+```
+if (fdlopen_helper_available() == 0) { return 0; }
+var rc = fdlopen_init_full(&_tls_fdl_state);  // runs ld.so
+if (rc != 0) { return 0; }
+var fn_dlopen = fdlopen_dlopen(&_tls_fdl_state);
+var fn_dlsym  = fdlopen_dlsym(&_tls_fdl_state);
+// RTLD_NOW|RTLD_GLOBAL = 0x102
+var h = fncall2(fn_dlopen, "libssl.so.3", 0x102);
+_fn_SSL_CTX_new = fncall2(fn_dlsym, h, "SSL_CTX_new");
+// ... etc for all libssl symbols
+```
+
+`fdlopen_init_full` invokes the `~/.cyrius/dlopen-helper`
+shim through the real `ld-linux-x86-64.so.2`, which runs
+`_dl_start` + `__libc_start_main` + `__libc_pthread_init`
+during the helper's startup. By the time control returns to
+cyrius, the process has a fully-initialised glibc TCB (DTV,
+stack_guard, pthread_kind, `__libc_multiple_threads` — the
+whole set). Subsequent `dlopen("libssl.so.3")` loads libssl
+against that real TCB, and `SSL_CTX_new` / `SSL_connect`
+complete normally.
+
+### Dependency change — **BREAKING for consumers of lib/tls.cyr**
+
+Consumers of `lib/tls.cyr` MUST now explicitly add
+`include "lib/fdlopen.cyr"` BEFORE `include "lib/tls.cyr"`.
+Pre-v5.6.37 code that only included tls.cyr will fail to
+compile (undefined `fdlopen_helper_available` etc.) OR, if
+permissive mode is on, crash at runtime with SIGILL on the
+first `tls_available()` call.
+
+**Why not auto-include fdlopen:** cyrius's preprocessor
+expands `#include` inline into a 1 MB buffer
+(`PP_IFDEF_PASS` cap). Some heavy stdlib consumers (e.g.
+`tests/tcyr/large_input.tcyr`) already run at ~98% of cap;
+an auto-include would push them over. Explicit include keeps
+the requirement visible and the expanded size controllable
+by callers that don't need TLS.
+
+Existing consumers affected:
+- sandhi's `programs/tls-raw-probe.cyr` — needs the
+  fdlopen include line added in the same commit that
+  bumps the cyrius pin to 5.6.37.
+- Any other downstream that did `include "lib/tls.cyr"`
+  without `lib/fdlopen.cyr`.
+
+Migration: one-line add of `include "lib/fdlopen.cyr"`
+before the tls.cyr line.
+
+### Acceptance
+
+- `tls-raw-probe` (sandhi-style stdlib-only probe on 1.1.1.1:443):
+  was `futex(WAIT, 2, NULL)` indefinite hang, now round-trips:
+  `tls_connect → tls_write(HTTP GET) → tls_read(1369 bytes
+  including "HTTP/1.1 301 Moved Permanently") → tls_close`.
+- New gate `tests/regression-tls-live.sh` — spins up a cyrius
+  probe that does the full handshake + minimal HTTP GET,
+  asserts a `HTTP/1.1 ` prefix in the response. Skips if
+  `~/.cyrius/dlopen-helper` isn't built or 1.1.1.1:443 is
+  unreachable. Wired into `scripts/check.sh` as gate 4q''.
+- `tests/tcyr/tls.tcyr` (existing 22-assertion init + symbol
+  resolution suite): 22/22 PASS — the init path via fdlopen
+  produces the same `tls_available()==1` signal.
+- `cc5` 3-step self-host: byte-identical at 531,680 B. cc5
+  does not include `lib/tls.cyr`; no compiler byte change.
+- `sh scripts/check.sh`: 25/25 PASS (existing 24 gates + new
+  tls-live gate).
+
+### Ordering consequence (documented in lib/fdlopen.cyr)
+
+`fdlopen_init_full` installs ld.so-owned %fs. A prior
+`dynlib_bootstrap_tls()` call's %fs gets clobbered. Any code
+that reads `%fs:N` from cyrius-bootstrapped TLS before
+`_tls_init` and again after will see a different TCB. In
+practice cyrius user code reads rbp-relative locals (not %fs)
+so this doesn't affect anything, but callers that mix
+dynlib-TLS path with TLS at runtime should init TLS last.
+
+### Files
+
+- `lib/tls.cyr`: rewritten `_tls_init` — fdlopen bootstrap,
+  real-glibc dlopen/dlsym, 256-byte `_tls_fdl_state` global.
+  Auto-includes `lib/fdlopen.cyr`.
+- `tests/regression-tls-live.sh`: new gate. Skip-cleanly if
+  dlopen-helper missing or network unreachable.
+- `scripts/check.sh`: new gate 4q'' wired.
+- `VERSION`: 5.6.36 → 5.6.37.
+- `~/.cyrius/versions/5.6.37/lib/tls.cyr`: install snapshot
+  refreshed.
+
+### What did NOT change
+
+- Compiler: zero bytes. cc5 byte-identical.
+- `lib/dynlib.cyr`: left alone. `dynlib_bootstrap_tls` is
+  still used for non-libssl consumers (e.g. libresolv via
+  direct dynlib_open) where the minimal stub is sufficient.
+- `lib/fdlopen.cyr`: unchanged. The `fdlopen_init_full` API
+  already exposed everything `_tls_init` needed.
+
+### Downstream
+
+- **sandhi M2 HTTPS** — unblocked. sandhi bumps its
+  `cyrius.cyml [package].cyrius = "5.6.37"` pin to take the
+  fix. Live `https://example.com/` round-trip now works.
+- **sandhi M5 TLS-policy enforcement** — unblocked (same pin
+  bump covers it).
+- **All other consumers** — no effect. lib/tls.cyr's external
+  API (`tls_available`, `tls_connect`, `tls_write`,
+  `tls_read`, `tls_close`) is unchanged; only the internal
+  init path moved.
+
 ## [5.6.36] — 2026-04-24
 
 **`regression-pe-exit` gate fixture was buggy — no Win11 24H2
