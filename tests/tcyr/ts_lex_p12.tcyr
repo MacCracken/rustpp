@@ -244,4 +244,5 @@ n = test_lex("\"hello\nworld\"");
 assert_eq(n, 0 - 1, "raw newline in string returns -1");
 assert_eq(TS_GETERR(ts_base), 4, "err code 4 = raw newline");
 
-return assert_summary();
+var exit_code = assert_summary();
+syscall(60, exit_code);
