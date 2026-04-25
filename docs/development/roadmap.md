@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.37.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.38.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -312,8 +312,14 @@
 >   change. **BREAKING:** consumers now need
 >   `include "lib/fdlopen.cyr"` before `include "lib/tls.cyr"`
 >   (1-line migration).
-> - **v5.6.38** (was v5.6.36 → 37 → 38): shared-object (.so /
->   .dll / .dylib) emission completion.
+> - **v5.6.38 ✅ shipped**: shared-object emission slot —
+>   verify-premise check (per v5.6.33/v5.6.36 lessons) showed
+>   `.so` emission already complete since v5.5.x. Slot
+>   deliverable: dead `SYSV_HASH` removed (the chain-lookup
+>   uses pure strcmp per SysV spec + glibc dl-lookup.c, not
+>   hash comparison; `nbucket=1` makes the hash genuinely
+>   unused). cc5 −320 B. `regression-shared.sh` (already
+>   shipping) continues PASS.
 > - **v5.6.39** (was v5.6.37 → 38 → 39): v5.6.x closeout +
 >   downstream ecosystem sweep gate (agnos, kybernet, argonaut,
 >   agnosys, sigil, ark, nous, zugot, agnova, takumi).
@@ -536,8 +542,12 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     proper glibc TCB and `SSL_CTX_new`/`SSL_connect` complete.
     `tests/regression-tls-live.sh` added. **BREAKING:**
     tls.cyr consumers must now include fdlopen.cyr first.
-14. **v5.6.38 — Shared-object (.so / .dll / .dylib) emission**
-    (was v5.6.36 → v5.6.37 → v5.6.38).
+14. **v5.6.38 ✅ shipped — Shared-object emission slot.** Premise
+    check showed `.so` path is already complete in v5.5.x;
+    `regression-shared.sh` covers fns + strings + globals +
+    DT_INIT and PASSes. Slot deliverable: dead `SYSV_HASH`
+    removed (nbucket=1 + glibc chain-walk = strcmp, never
+    hash). cc5 −320 B. `.gnu.hash` deferred (no consumer).
 15. **v5.6.39 — v5.6.x closeout + downstream ecosystem sweep
     gate** (was v5.6.37 → v5.6.38 → v5.6.39). Last patch of
     v5.6.x. Bundle `PP_DEFINE` / `PP_DEFINED` `src_base`
@@ -2046,45 +2056,56 @@ cyrius pin to 5.6.37 AND adds the fdlopen include to its
 probe. sandhi M5 TLS-policy enforcement unblocked by the
 same bump.
 
-### v5.6.38 — Shared-object emission completion
+### v5.6.38 — Shared-object emission slot ✅ SHIPPED
 
-Finish the `.so` path that has existed in partial form since v2.x
-(`src/backend/x86/fixup.cyr` has `SYSV_HASH` + `EMITELF_SHARED`,
-triggered on `kernel_mode == 2`). The hash-table emission isn't
-wired up correctly — `EMITELF_SHARED` skips calling `SYSV_HASH`
-when populating the `.hash` section chain. Surface was surfaced
-during the v5.5.40 closeout dead-code audit: `SYSV_HASH` appears
-as unreachable across every entry point, but the comment at its
-definition explicitly says "Kept even though nbucket=1 makes the
-hash irrelevant for bucket selection — chain lookup needs hash
-comparison to pick the right entry." Either hash lookup against
-this cyrius-emitted `.so` fails at load time, or the field is
-tolerantly ignored by modern glibc — we haven't tested.
+Verify-premise check first (per v5.6.33/v5.6.36 lessons).
+The roadmap claimed `.so` emission was "partial" with
+`SYSV_HASH` skipped. Verification:
 
-**Scope:**
+1. Built a 9-line cyrius `shared;` library with `fn answer`
+   + `fn add`. cc5 emits a 656-byte ELF DYN.
+2. `dlopen` from a C host succeeds. `dlsym(h, "answer")`
+   resolves; `answer()` returns 42. `dlsym(h, "add")`
+   resolves; `add(2, 3)` returns 5.
+3. Multi-fn library with mutable global + DT_INIT: state
+   initializes correctly on dlopen, persists across calls,
+   `reset()` works.
+4. `tests/regression-shared.sh` (already wired into
+   check.sh as gate 4a since v5.5.x) covers fn calls +
+   string literal refs + mutable globals + DT_INIT.
+   Continues to PASS.
 
-* Audit `EMITELF_SHARED`'s `.hash` / `.dynsym` / `.dynamic`
-  emission against `ld-linux.so.2`'s expectations; wire `SYSV_HASH`
-  where currently skipped.
-* Add a regression test that builds a trivial `.so` via `kmode=2`
-  (shared object mode), `dlopen`s it from a C host, resolves one
-  symbol, compares the returned value. The test requires runtime
-  `libc.so` interop so it's gated behind `HOST_HAS_LD_LINUX`.
-* Confirm the `.gnu.hash` alternative isn't more appropriate
-  today (modern linkers prefer it). If so, migrate and drop
-  `SYSV_HASH` cleanly.
+The `.so` path has been **complete and shipping since
+v5.5.x**. The roadmap's "SYSV_HASH is dead, chain-lookup
+needs hash comparison" framing was incorrect.
 
-**Why this slot:** not blocking any active consumer, but the
-partial state is a known audit rough edge. Lands before v5.6.29
-closeout so the audit item is cleared before the downstream
-arch-neutral sweep begins. An alternate fit is v5.8.1 post-bare-
-metal, but bare-metal doesn't exercise `.so` emission (kernel is
-static all the way down), so slotting earlier is fine.
+**Per the SysV ELF spec + glibc `elf/dl-lookup.c::do_lookup_x`:**
+the dynamic loader picks the first chain index with
+`bucket[hash mod nbucket]`, then walks the chain doing pure
+`strcmp(symtab[i].name, lookup_name)`. Hash values are
+**never compared per-chain entry**. With cyrius's
+`nbucket=1` choice (every lookup starts at bucket 0), the
+hash function would only be called on the LOOKUP name —
+which the loader does itself, externally — never on the
+stored symbols. `SYSV_HASH` was unreachable, and rightly so.
 
-**Downstream:** no current consumer requires `.so` output. Sigil /
-mabda / yukti / kybernet all ship as static libraries or source
-bundles. Unblocks any future "cyrius stdlib available as system
-libc peer" work, which isn't on the roadmap yet.
+**Slot deliverable (shipped):**
+- Removed dead `SYSV_HASH` function (14 LOC) from
+  `src/backend/x86/fixup.cyr`.
+- Rewrote the misleading comment to document the SysV-spec
+  lookup flow + the nbucket=1 choice.
+- Added a pointer to `.gnu.hash` as a long-term
+  consideration (deferred — no consumer needs faster
+  lookup; cyrius's `.so` consumers are nonexistent today).
+- cc5: 531,680 B → 531,360 B (−320 B). 3-step self-host
+  byte-identical.
+- check.sh 25/25 PASS.
+
+**Downstream:** no current consumer requires `.so` output.
+Sigil / mabda / yukti / kybernet all ship as static
+libraries or source bundles. The fact that `.so` emission
+works is verified for any future "cyrius stdlib available
+as system libc peer" use case.
 
 ---
 
@@ -2138,6 +2159,34 @@ Items deferred without a v5.6.x or v5.7.x slot. Add to a future
 minor only when the right preconditions land — typically when
 v5.6.19 regalloc + cross-BB liveness machinery exists to make a
 meaningful version land cleanly.
+
+### `.gnu.hash` for shared-object emission
+
+**Status**: deferred 2026-04-24 at v5.6.38 (during the slot's
+verify-premise check). `.so` emission works correctly today
+with the SysV `.hash` table (nbucket=1; chain walk does pure
+strcmp per glibc `dl-lookup.c`). `.gnu.hash` is an optimization
+that uses a Bloom filter pre-check to skip strcmp on misses;
+modern linkers prefer it.
+
+**Why deferred**: cyrius has zero current `.so` consumers
+(sigil / mabda / yukti / kybernet all ship as static libraries
+or source bundles). The optimization is purely speculative for
+hypothetical future use. `.hash` works fine for the
+small-symbol-count libraries cyrius emits today.
+
+**Revisit when**: any cyrius consumer pins on `.so` output
+and reports a measurable lookup-time cost from the linear
+chain walk. At that point, `.gnu.hash` migration is a slot
+that drops the SysV `.hash` table entirely (modern loaders
+require only `.gnu.hash` if it's present).
+
+**Reference for the future implementer**: glibc
+`elf/dl-lookup.c::do_lookup_x` is the consumer side; the
+Bloom filter format is documented in
+`https://flapenguin.me/elf-dt-gnu-hash` (tutorial) +
+`elf/dl-hash.h` in glibc (the hash function itself —
+single-precedent definition for the format).
 
 ### Copy propagation
 

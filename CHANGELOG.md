@@ -4,6 +4,114 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.38] — 2026-04-24
+
+**Shared-object emission slot — premise check + dead-code
+removal.** Per the v5.6.33 / v5.6.36 verify-premise discipline:
+the slot was framed as "finish the .so path that has existed
+in partial form since v2.x"; verification showed the path is
+**already complete and shipping**. Both `tests/regression-shared.sh`
+(in check.sh as gate 4a since v5.5.x) and a fresh probe
+verify `.so` files emitted by cyrius `shared;` programs work
+end-to-end through the standard `dlopen` → `dlsym` → call
+flow. The slot's actual deliverable is dead-code cleanup.
+
+### What was actually broken (per the slot description)
+
+Roadmap claimed "Hash-table emission isn't wired up correctly —
+EMITELF_SHARED skips calling SYSV_HASH when populating the
+.hash section chain. Either hash lookup against this
+cyrius-emitted .so fails at load time, or the field is
+tolerantly ignored by modern glibc — we haven't tested."
+
+### What we found
+
+Verification with a 9-line cyrius shared library +
+9-line C dlopen harness showed:
+- `dlopen("/tmp/libtest.so", RTLD_NOW)` → success.
+- `dlsym(h, "answer")` → valid pointer; `answer()` returns 42.
+- `dlsym(h, "add")` → valid pointer; `add(2, 3)` returns 5.
+- Multi-fn export: `nm -D` shows all exported symbols.
+- A second test with a mutable global var verified DT_INIT
+  runs (gvar `var counter = 100;` initializes correctly on
+  dlopen) and state persists across calls.
+- `tests/regression-shared.sh` (already wired into check.sh
+  since v5.5.x) covers all four PIC surfaces: fn calls,
+  string literal refs, mutable globals, DT_INIT. Continues
+  to PASS.
+
+### Why SYSV_HASH was actually dead code (not "partially
+wired")
+
+The misleading comment at SYSV_HASH's definition claimed
+"chain lookup needs hash comparison to pick the right entry."
+That's wrong. Per the SysV ELF spec + glibc
+`elf/dl-lookup.c::do_lookup_x`, the dynamic loader uses
+`bucket[hash mod nbucket]` to pick the FIRST chain index,
+then walks the chain doing pure
+`strcmp(symtab[i].name, lookup_name)`. Hash values are
+never compared per-chain entry. With cyrius's `nbucket=1`
+choice (every lookup starts at bucket 0), the hash function
+would only be called on the LOOKUP name (which the loader
+does itself, externally), never on the stored symbols.
+SYSV_HASH was unreachable, and rightly so — wiring it in
+would have been pointless work.
+
+### Fix
+
+`src/backend/x86/fixup.cyr`: removed the dead `SYSV_HASH`
+function (14 lines) and rewrote the misleading comment. The
+new comment documents the SysV-spec lookup flow + the
+nbucket=1 choice + a pointer to `.gnu.hash` (deferred — no
+consumer needs faster lookup yet).
+
+### Compiler delta
+
+- cc5: **531,680 B → 531,360 B (-320 B)**. SYSV_HASH was
+  shipped in cc5's binary (DCE off by default); removing
+  the source removes the dead bytes from cc5.
+- Unreachable-fn count: 25 → 24. Dead-bytes: 12,066 → 11,752
+  (-314 B).
+- 3-step self-host: `cc5_a == cc5_b == cc5_committed` at
+  531,360 B byte-identical.
+
+### Acceptance
+
+- `tests/regression-shared.sh`: PASS (already-existing
+  comprehensive gate covering fn calls + strings + globals +
+  DT_INIT).
+- `sh scripts/check.sh`: 25/25 PASS.
+- Fresh probe: cyrius `.so` + C dlopen harness round-trip
+  verified for: trivial fn, multi-fn, mutable global state,
+  DT_INIT-initialized counter.
+- 3-step self-host: byte-identical at 531,360 B.
+
+### What this slot is NOT
+
+- **Not a `.gnu.hash` migration.** Modern linkers do prefer
+  `.gnu.hash` over `.hash` for fast lookup (Bloom filter
+  pre-check), but cyrius's `.so` consumers are nonexistent
+  today (sigil / mabda / yukti / kybernet ship as static
+  libraries or source bundles). Adding `.gnu.hash` is
+  speculative work for a hypothetical future consumer.
+  Pinned as a long-term consideration in the roadmap; not
+  blocking anything.
+
+- **Not a behavior change.** No semantic difference in
+  emitted `.so` files between v5.6.37 and v5.6.38. The
+  bytes that v5.5.x cyrius emitted, v5.6.x cyrius emits,
+  and v5.6.38 cyrius emits are byte-identical for the same
+  input (modulo the v5.6.x optimizations to `.text` /
+  `.data` from earlier slots).
+
+### Files
+
+- `src/backend/x86/fixup.cyr`: removed `SYSV_HASH` fn (14
+  lines + 4-line comment). Rewrote comment block to
+  document the nbucket=1 + SysV spec + `.gnu.hash` deferred
+  rationale.
+- `VERSION`: 5.6.37 → 5.6.38.
+
 ## [5.6.37] — 2026-04-24
 
 **`SSL_connect` deadlock fixed — libssl now loads via fdlopen.**

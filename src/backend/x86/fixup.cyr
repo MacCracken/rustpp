@@ -783,24 +783,17 @@ fn EMITELF_USER(S, etype) {
 # All internal refs are already PC-relative (LEA [rip+disp32] /
 # CALL rel32) so code works at any load bias.
 #
-# SysV hash function (string → 32-bit hash). Kept even though nbucket=1
-# makes the hash irrelevant for bucket selection — chain lookup needs
-# hash comparison to pick the right entry.
-fn SYSV_HASH(name_ptr) {
-    var h = 0;
-    var g = 0;
-    var i = 0;
-    while (1) {
-        var c = load8(name_ptr + i);
-        if (c == 0) { return h; }
-        h = (h << 4) + c;
-        g = h & 0xF0000000;
-        if (g != 0) { h = h ^ (g >> 24); }
-        h = h & 0x0FFFFFFF;
-        i = i + 1;
-    }
-    return h;
-}
+# v5.6.38: removed the dead `SYSV_HASH` function and its misleading
+# comment claiming "chain lookup needs hash comparison". Per the
+# SysV ELF spec + glibc `dl-lookup.c::do_lookup_x`, the dynamic
+# loader uses `bucket[hash mod nbucket]` to pick the FIRST chain
+# index, then walks the chain doing pure `strcmp(symtab[i].name,
+# lookup_name)`. The hash value is never compared per-chain entry.
+# With cyrius's `nbucket=1` choice (every lookup starts at bucket 0),
+# the hash function would only be called on the lookup name, never
+# on stored symbols — and the loader does that itself, externally.
+# `.gnu.hash` (a Bloom-filter optimization) deferred until any
+# consumer needs faster lookup; not on the v5.6.x roadmap.
 
 fn EMITELF_SHARED(S) {
     var cp = GCP(S);

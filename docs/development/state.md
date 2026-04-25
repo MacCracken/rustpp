@@ -5,15 +5,16 @@
 
 ## Version
 
-**5.6.37** (shipped — `SSL_connect` deadlock fix via
-fdlopen-based libssl loading; full HTTPS handshake works now.
+**5.6.38** (shipped — shared-object emission premise check
++ dead `SYSV_HASH` removal. .so path was already complete in
+v5.5.x; this slot drops 14 lines of unreachable code.
 Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.37 is a
-  `lib/tls.cyr` rewrite; cc5 doesn't include tls.cyr so no
-  compiler byte change)
+- **cc5 (x86_64)**: **531,360 B** (was 531,680 B; −320 B from
+  removing dead SYSV_HASH function shipped in the binary).
+  Unreachable-fn count: 25 → 24.
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -60,8 +61,6 @@ sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
 symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
 Both shipped 2026-04-24.
 
-- **v5.6.38** — shared-object (.so / .dll / .dylib) emission
-  completion.
 - **v5.6.39** — v5.6.x closeout + downstream ecosystem sweep
   gate (LAST patch of v5.6.x).
 
@@ -74,6 +73,22 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.38** — shared-object emission slot ran the
+  verify-premise check first (per v5.6.33/v5.6.36 lessons).
+  Result: `.so` emission has been complete and shipping since
+  v5.5.x. `tests/regression-shared.sh` (in check.sh as gate
+  4a) covers all four PIC surfaces (fn calls + string literal
+  refs + mutable globals + DT_INIT) and continues to PASS.
+  The roadmap's "SYSV_HASH is unreachable, hash chain not
+  wired" framing was misleading — the SysV ELF spec + glibc
+  `dl-lookup.c` show chain walks do pure strcmp, never hash
+  comparison, so `nbucket=1` makes the hash function
+  genuinely irrelevant. Slot deliverable: removed dead
+  `SYSV_HASH` (14 LOC) + the misleading comment + added a
+  pointer to `.gnu.hash` as a long-term consideration (no
+  consumer needs it). cc5 −320 B (531,680 → 531,360);
+  unreachable-fn count 25 → 24. 3-step self-host
+  byte-identical. check.sh 25/25.
 - **v5.6.37** — `SSL_connect` deadlock fixed by routing libssl
   through `fdlopen`. Sandhi M2's HTTPS probe hung forever on
   `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` at TCB+0x118 after TCP
