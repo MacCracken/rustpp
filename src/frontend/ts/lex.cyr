@@ -572,7 +572,283 @@ fn TS_EMIT_STRING(ts_base, src, src_len, start, quote) {
 }
 
 # ================================================================
-# TS_LEX — main lexer entry
+# Multi-char operator dispatch (P1.3)
+# ================================================================
+# One helper per starting char that has multi-char extensions.
+# Each takes (ts_base, src, src_len, p), emits the longest-match
+# token, returns the new position.
+#
+# Helpers are organized by starting char ASCII code:
+#   33 !  37 %  38 &  42 *  43 +  45 -  46 .  47 /
+#   60 <  61 =  62 >  63 ?  94 ^  124 |
+# Single-char-only ops (LPAREN, RBRACE, SEMI, etc.) stay inline.
+#
+# Lookahead is bounds-checked via TS_PEEK_CHAR — returns 0 when
+# offset is past src_len, so a missing follow-up byte naturally
+# falls through to the single-char emit.
+
+# Read byte at p+offset; return 0 if out of bounds.
+fn TS_PEEK_CHAR(src, src_len, p, offset) {
+    var idx = p + offset;
+    if (idx >= src_len) { return 0; }
+    return load8(src + idx);
+}
+
+# = -> ==, ===, =>
+fn TS_LEX_OP_EQ(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_EQ_EQ_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_EQ_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 62) {
+        TS_ADDTOK(ts_base, TS_TOK_ARROW, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_EQ, 0);
+    return p + 1;
+}
+
+# ! -> !=, !==
+fn TS_LEX_OP_BANG(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_BANG_EQ_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_BANG_EQ, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_BANG, 0);
+    return p + 1;
+}
+
+# < -> <=, <<, <<=
+fn TS_LEX_OP_LT(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_LT_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 60) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_LT_LT_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_LT_LT, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_LT, 0);
+    return p + 1;
+}
+
+# > -> >=, >>, >>=, >>>, >>>=
+fn TS_LEX_OP_GT(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_GT_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 62) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 62) {
+            var c3 = TS_PEEK_CHAR(src, src_len, p, 3);
+            if (c3 == 61) {
+                TS_ADDTOK(ts_base, TS_TOK_GT_GT_GT_EQ, 0);
+                return p + 4;
+            }
+            TS_ADDTOK(ts_base, TS_TOK_GT_GT_GT, 0);
+            return p + 3;
+        }
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_GT_GT_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_GT_GT, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_GT, 0);
+    return p + 1;
+}
+
+# + -> +=, ++
+fn TS_LEX_OP_PLUS(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_PLUS_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 43) {
+        TS_ADDTOK(ts_base, TS_TOK_PLUS_PLUS, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_PLUS, 0);
+    return p + 1;
+}
+
+# - -> -=, --
+fn TS_LEX_OP_MINUS(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_MINUS_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 45) {
+        TS_ADDTOK(ts_base, TS_TOK_MINUS_MINUS, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_MINUS, 0);
+    return p + 1;
+}
+
+# * -> *=, **, **=
+fn TS_LEX_OP_STAR(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_STAR_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 42) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_STAR_STAR_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_STAR_STAR, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_STAR, 0);
+    return p + 1;
+}
+
+# / -> /=
+# (Comments // and /* and regex / are P1.5/P1.6; this helper handles
+#  only the bare division operator and its compound assignment.)
+fn TS_LEX_OP_SLASH(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_SLASH_EQ, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_SLASH, 0);
+    return p + 1;
+}
+
+# % -> %=
+fn TS_LEX_OP_PERCENT(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_PERCENT_EQ, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_PERCENT, 0);
+    return p + 1;
+}
+
+# & -> &=, &&, &&=
+fn TS_LEX_OP_AMP(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_AMP_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 38) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_AMP_AMP_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_AMP_AMP, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_AMP, 0);
+    return p + 1;
+}
+
+# | -> |=, ||, ||=
+fn TS_LEX_OP_PIPE(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_PIPE_EQ, 0);
+        return p + 2;
+    }
+    if (c1 == 124) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_PIPE_PIPE_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_PIPE_PIPE, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_PIPE, 0);
+    return p + 1;
+}
+
+# ^ -> ^=
+fn TS_LEX_OP_CARET(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 61) {
+        TS_ADDTOK(ts_base, TS_TOK_CARET_EQ, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_CARET, 0);
+    return p + 1;
+}
+
+# ? -> ??, ??=, ?.
+# Note: ?. is optional chaining, but the JS spec disallows ?.<digit>
+# (e.g., a?.5 must parse as a ? .5 : ... for ASI). For P1.3 simplicity
+# we always emit ?. when we see the bytes; parser-side handling of
+# the digit-ambiguity is a P2 concern.
+fn TS_LEX_OP_QUESTION(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 63) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 61) {
+            TS_ADDTOK(ts_base, TS_TOK_QQ_EQ, 0);
+            return p + 3;
+        }
+        TS_ADDTOK(ts_base, TS_TOK_QQ, 0);
+        return p + 2;
+    }
+    if (c1 == 46) {
+        TS_ADDTOK(ts_base, TS_TOK_Q_DOT, 0);
+        return p + 2;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_QUESTION, 0);
+    return p + 1;
+}
+
+# . -> ...
+# (Numeric .5 / 1.5 / 1e3 are P1.x float literals; . is the only
+#  base case here. ... is rest/spread.)
+fn TS_LEX_OP_DOT(ts_base, src, src_len, p) {
+    var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 46) {
+        var c2 = TS_PEEK_CHAR(src, src_len, p, 2);
+        if (c2 == 46) {
+            TS_ADDTOK(ts_base, TS_TOK_ELLIPSIS, 0);
+            return p + 3;
+        }
+        # .. without third dot is a lex error in TS (no .. operator)
+        TS_SETERR(ts_base, 6);
+        return 0 - 1;
+    }
+    TS_ADDTOK(ts_base, TS_TOK_DOT, 0);
+    return p + 1;
+}
+
+# ================================================================
+# TS_LEX -- main lexer entry
 # ================================================================
 # Tokenizes `src[0..src_len]` into the parallel arrays at ts_base.
 # Returns: token count on success (including TS_TOK_EOF terminator),
@@ -647,34 +923,38 @@ fn TS_LEX(ts_base, src, src_len) {
             p = sq_end;
         }
 
-        # ─── Single-char operators / punctuation ──────────────────
-        elif (c == 40) { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
-        elif (c == 41) { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
-        elif (c == 123) { TS_ADDTOK(ts_base, TS_TOK_LBRACE,  0); p = p + 1; }
-        elif (c == 125) { TS_ADDTOK(ts_base, TS_TOK_RBRACE,  0); p = p + 1; }
-        elif (c == 91) { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
-        elif (c == 93) { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
-        elif (c == 59) { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
-        elif (c == 44) { TS_ADDTOK(ts_base, TS_TOK_COMMA,    0); p = p + 1; }
-        elif (c == 46) { TS_ADDTOK(ts_base, TS_TOK_DOT,      0); p = p + 1; }
-        elif (c == 58) { TS_ADDTOK(ts_base, TS_TOK_COLON,    0); p = p + 1; }
-        elif (c == 63) { TS_ADDTOK(ts_base, TS_TOK_QUESTION, 0); p = p + 1; }
-        elif (c == 43) { TS_ADDTOK(ts_base, TS_TOK_PLUS,     0); p = p + 1; }
-        elif (c == 45) { TS_ADDTOK(ts_base, TS_TOK_MINUS,    0); p = p + 1; }
-        elif (c == 42) { TS_ADDTOK(ts_base, TS_TOK_STAR,     0); p = p + 1; }
-        elif (c == 47) { TS_ADDTOK(ts_base, TS_TOK_SLASH,    0); p = p + 1; }
-        elif (c == 37) { TS_ADDTOK(ts_base, TS_TOK_PERCENT,  0); p = p + 1; }
-        elif (c == 61) { TS_ADDTOK(ts_base, TS_TOK_EQ,       0); p = p + 1; }
-        elif (c == 60) { TS_ADDTOK(ts_base, TS_TOK_LT,       0); p = p + 1; }
-        elif (c == 62) { TS_ADDTOK(ts_base, TS_TOK_GT,       0); p = p + 1; }
-        elif (c == 33) { TS_ADDTOK(ts_base, TS_TOK_BANG,     0); p = p + 1; }
-        elif (c == 38) { TS_ADDTOK(ts_base, TS_TOK_AMP,      0); p = p + 1; }
-        elif (c == 124) { TS_ADDTOK(ts_base, TS_TOK_PIPE,    0); p = p + 1; }
-        elif (c == 94) { TS_ADDTOK(ts_base, TS_TOK_CARET,    0); p = p + 1; }
-        elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,   0); p = p + 1; }
-        elif (c == 64) { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
-        elif (c == 35) { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
-        elif (c == 96) { TS_ADDTOK(ts_base, TS_TOK_BACKTICK, 0); p = p + 1; }
+        # ─── Operators / punctuation (single + multi-char) ───────
+        # Single-char-only structural punctuation stays inline.
+        # Multi-char-extensible ops dispatch to TS_LEX_OP_* helpers
+        # (P1.3) which emit the longest-match token and return new p.
+        elif (c == 40)  { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
+        elif (c == 41)  { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
+        elif (c == 123) { TS_ADDTOK(ts_base, TS_TOK_LBRACE,   0); p = p + 1; }
+        elif (c == 125) { TS_ADDTOK(ts_base, TS_TOK_RBRACE,   0); p = p + 1; }
+        elif (c == 91)  { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
+        elif (c == 93)  { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
+        elif (c == 59)  { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
+        elif (c == 44)  { TS_ADDTOK(ts_base, TS_TOK_COMMA,    0); p = p + 1; }
+        elif (c == 58)  { TS_ADDTOK(ts_base, TS_TOK_COLON,    0); p = p + 1; }
+        elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,    0); p = p + 1; }
+        elif (c == 64)  { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
+        elif (c == 35)  { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
+        elif (c == 96)  { TS_ADDTOK(ts_base, TS_TOK_BACKTICK, 0); p = p + 1; }
+        # Multi-char-extensible: dispatch through helpers
+        elif (c == 33)  { var bp = TS_LEX_OP_BANG    (ts_base, src, src_len, p); if (bp < 0) { return 0 - 1; } p = bp; }
+        elif (c == 37)  { var pp = TS_LEX_OP_PERCENT (ts_base, src, src_len, p); if (pp < 0) { return 0 - 1; } p = pp; }
+        elif (c == 38)  { var ap = TS_LEX_OP_AMP     (ts_base, src, src_len, p); if (ap < 0) { return 0 - 1; } p = ap; }
+        elif (c == 42)  { var sp = TS_LEX_OP_STAR    (ts_base, src, src_len, p); if (sp < 0) { return 0 - 1; } p = sp; }
+        elif (c == 43)  { var lp = TS_LEX_OP_PLUS    (ts_base, src, src_len, p); if (lp < 0) { return 0 - 1; } p = lp; }
+        elif (c == 45)  { var mp = TS_LEX_OP_MINUS   (ts_base, src, src_len, p); if (mp < 0) { return 0 - 1; } p = mp; }
+        elif (c == 46)  { var dp = TS_LEX_OP_DOT     (ts_base, src, src_len, p); if (dp < 0) { return 0 - 1; } p = dp; }
+        elif (c == 47)  { var fp = TS_LEX_OP_SLASH   (ts_base, src, src_len, p); if (fp < 0) { return 0 - 1; } p = fp; }
+        elif (c == 60)  { var tp = TS_LEX_OP_LT      (ts_base, src, src_len, p); if (tp < 0) { return 0 - 1; } p = tp; }
+        elif (c == 61)  { var ep = TS_LEX_OP_EQ      (ts_base, src, src_len, p); if (ep < 0) { return 0 - 1; } p = ep; }
+        elif (c == 62)  { var gp = TS_LEX_OP_GT      (ts_base, src, src_len, p); if (gp < 0) { return 0 - 1; } p = gp; }
+        elif (c == 63)  { var qp = TS_LEX_OP_QUESTION(ts_base, src, src_len, p); if (qp < 0) { return 0 - 1; } p = qp; }
+        elif (c == 94)  { var rp = TS_LEX_OP_CARET   (ts_base, src, src_len, p); if (rp < 0) { return 0 - 1; } p = rp; }
+        elif (c == 124) { var ip = TS_LEX_OP_PIPE    (ts_base, src, src_len, p); if (ip < 0) { return 0 - 1; } p = ip; }
 
         # ─── Unknown byte ─────────────────────────────────────────
         else {
