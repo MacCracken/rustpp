@@ -4,6 +4,18 @@
 # Requires: alloc.cyr, string.cyr, fmt.cyr, str.cyr, net.cyr, tagged.cyr, syscalls.cyr
 #
 # Shipped in v4.5.0.
+#
+# DEPRECATED at v5.6.44 — REMOVED at v5.7.0.
+# Replaced by lib/sandhi.cyr (sandhi::server). The full HTTP server
+# surface plus client + JSON-RPC + service discovery + TLS policy is
+# canonical in sandhi as of sandhi v0.2.0 (M1, 2026-04-24); this lib's
+# copy has been redundant-but-unchanged through the v5.6.x window.
+# At v5.7.0 the sandhi clean-break fold lands and this file deletes —
+# no alias, no passthrough. Per sandhi ADR 0002.
+# Migration: replace `include "lib/http_server.cyr"` with
+# `include "lib/sandhi.cyr"`; symbols are accessible via sandhi::server::*.
+# Every public fn below carries `#deprecated(...)` so consumers see the
+# warning at every call site through the v5.6.x notice cycle.
 
 # ================================================================
 # Status codes
@@ -69,6 +81,7 @@ fn _hsv_next_nl(buf, start, end) {
 # ================================================================
 
 # Method from the request line — "GET", "POST", etc. Returns "" on malformed.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_get_method(buf, blen) {
     var sp = _hsv_find(buf, blen, " ", 1);
     if (sp < 0) { return ""; }
@@ -79,6 +92,7 @@ fn http_get_method(buf, blen) {
 }
 
 # Path-and-query from the request line — "/foo?bar=baz". Returns "" on malformed.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_get_path(buf, blen) {
     var sp1 = _hsv_find(buf, blen, " ", 1);
     if (sp1 < 0) { return ""; }
@@ -91,6 +105,7 @@ fn http_get_path(buf, blen) {
 }
 
 # Offset of the body start (after \r\n\r\n) — 0 - 1 if no headers terminator.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_body_offset(buf, blen) {
     var off = _hsv_find(buf, blen, "\r\n\r\n", 4);
     if (off < 0) { return 0 - 1; }
@@ -99,6 +114,7 @@ fn http_body_offset(buf, blen) {
 
 # Case-insensitive header lookup. Returns the value cstr (trimmed of leading
 # SP and trailing CR), or 0 if the header is absent.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_find_header(buf, blen, name) {
     var nlen = strlen(name);
     var headers_end = _hsv_find(buf, blen, "\r\n\r\n", 4);
@@ -127,6 +143,7 @@ fn http_find_header(buf, blen, name) {
 }
 
 # Content-Length value — 0 if header absent or malformed.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_content_length(buf, blen) {
     var v = http_find_header(buf, blen, "Content-Length");
     if (v == 0) { return 0; }
@@ -145,6 +162,7 @@ fn http_content_length(buf, blen) {
 # ================================================================
 
 # "/foo?bar=baz" → "/foo". Returns the input unchanged if there's no '?'.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_path_only(path) {
     if (path == 0) { return path; }
     var i = 0;
@@ -161,6 +179,7 @@ fn http_path_only(path) {
 }
 
 # Percent-decode (%20 → ' ', + → ' '). Returns alloc'd cstr.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_url_decode(s) {
     if (s == 0) { return ""; }
     var slen = strlen(s);
@@ -197,6 +216,7 @@ fn http_url_decode(s) {
 
 # Query parameter value, percent-decoded. 0 if not found.
 # Example: http_get_param("/a?foo=1&bar=hello%20world", "bar") → "hello world"
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_get_param(path, name) {
     if (path == 0) { return 0; }
     var plen = strlen(path);
@@ -229,6 +249,7 @@ fn http_get_param(path, name) {
 
 # Nth segment of a path. Indices 0-based. http_path_segment("/a/b/c", 0) → "a".
 # Strips a leading "/" before counting. Returns 0 if n is out of range.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_path_segment(path, n) {
     if (path == 0) { return 0; }
     var path_only = http_path_only(path);
@@ -262,6 +283,7 @@ fn http_path_segment(path, n) {
 
 # Minimal status response with Content-Length: 0.
 # e.g. http_send_status(cfd, HTTP_NOT_FOUND, "Not Found");
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_status(cfd, code, msg) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "HTTP/1.1 ");
@@ -276,6 +298,7 @@ fn http_send_status(cfd, code, msg) {
 
 # Full response. extra_headers is a cstr (each line CRLF-terminated) or 0.
 # e.g. http_send_response(cfd, 200, "OK", "application/json", body, len, 0);
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_response(cfd, code, msg, content_type, body, body_len, extra_headers) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "HTTP/1.1 ");
@@ -296,6 +319,7 @@ fn http_send_response(cfd, code, msg, content_type, body, body_len, extra_header
 }
 
 # 204 No Content with optional extra headers (CRLF-terminated cstr or 0).
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_204(cfd, extra_headers) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "HTTP/1.1 204 No Content\r\n");
@@ -320,6 +344,7 @@ fn http_send_204(cfd, extra_headers) {
 # Transfer-Encoding: chunked. Follow with repeated http_send_chunk calls
 # and finish with http_send_chunked_end. extra_headers is a cstr of
 # CRLF-terminated header lines or 0.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_chunked_start(cfd, code, content_type, extra_headers) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "HTTP/1.1 ");
@@ -337,6 +362,7 @@ fn http_send_chunked_start(cfd, code, content_type, extra_headers) {
 # Send one chunk of a chunked-transfer response. Emits the chunk-length
 # as lowercase hex followed by CRLF, then `len` bytes of `data`, then
 # another CRLF. Use between http_send_chunked_start and http_send_chunked_end.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_chunk(cfd, data, len) {
     var hexbuf[32];
     var hi = 0;
@@ -369,6 +395,7 @@ fn http_send_chunk(cfd, data, len) {
 
 # Terminate a chunked-transfer response. Sends the zero-length chunk
 # that tells the client the body is complete ("0\r\n\r\n").
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_send_chunked_end(cfd) {
     sock_send(cfd, "0\r\n\r\n", 5);
     return 0;
@@ -385,6 +412,7 @@ fn http_send_chunked_end(cfd) {
 #   - max bytes have been read.
 # Returns the total bytes read (or 0 - 1 on socket error). Always
 # null-terminates buf at the returned length.
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_recv_request(cfd, buf, max) {
     var have = 0;
     var need_body = 0 - 1;
@@ -432,6 +460,7 @@ var HSV_REQ_BUF_SIZE = 65536;
 #   fn handler(ctx, cfd, req_buf, req_len) → 0
 #
 # Returns 1 on bind/listen failure; never returns on success (loops forever).
+#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")
 fn http_server_run(addr, port, handler_fp, ctx) {
     if (_hsv_req_buf == 0) { _hsv_req_buf = alloc(HSV_REQ_BUF_SIZE); }
 

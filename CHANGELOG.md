@@ -4,6 +4,70 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.44] — 2026-04-25
+
+**v5.7.0 prep — `lib/http_server.cyr` deprecation notice cycle.**
+Per roadmap line 718 (v5.7.0 prerequisite): stdlib's
+`lib/http_server.cyr` must emit a deprecation warning through at
+least one v5.6.x release before the v5.7.0 sandhi fold deletes
+the file. Slot landed here (v5.6.x is closed otherwise; sandhi
+needs M5 → v1.0.0 work before the fold lands, so the notice cycle
+runs in parallel).
+
+### Deprecated
+
+- **`lib/http_server.cyr` — all 17 public fns** marked
+  `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")`
+  via the v5.6.4 fn-attribute mechanism. Marked symbols:
+  `http_get_method`, `http_get_path`, `http_body_offset`,
+  `http_find_header`, `http_content_length`, `http_path_only`,
+  `http_url_decode`, `http_get_param`, `http_path_segment`,
+  `http_send_status`, `http_send_response`, `http_send_204`,
+  `http_send_chunked_start`, `http_send_chunk`,
+  `http_send_chunked_end`, `http_recv_request`, `http_server_run`.
+  Internal `_hsv_*` helpers unmarked (consumers don't call them).
+- File header gained a deprecation block naming the replacement
+  (`lib/sandhi.cyr` / `sandhi::server::*`), the cutover release
+  (v5.7.0), and the migration shape (replace `include` line).
+- Per-call-site warning fires at every consumer call site
+  (parse_fn.cyr:352). This is *stronger* notice than a one-shot
+  include-time print — consumers see the warning everywhere they
+  use the API, not just at the top of the build.
+
+### Design choice — reuse `#deprecated`, no new infra
+
+The roadmap text says "include-time warning" but what it really
+asks for is "consumers get notice through at least one release
+cycle." Per-call-site `#deprecated` (shipped v5.6.4) delivers
+that more directly with zero compiler change → zero self-host
+risk. Building a new `#warning` directive would be infra for
+one-off use, against "Compiler grows to fit language, never
+the other way around."
+
+### Verification
+
+- Self-host 3-step fixpoint: cc5_a → cc5_b → cc5_c byte-identical
+  at **531,888 B** (unchanged from v5.6.43; cc5 doesn't include
+  `lib/http_server.cyr`).
+- `tests/tcyr/http_server.tcyr`: **31 passed, 0 failed** (exit 0);
+  31 deprecation warnings fire on stderr at compile (test body +
+  transitive calls inside `http_recv_request` which itself
+  recursively calls `http_body_offset` / `http_content_length`).
+- `check.sh`: **26/26 PASS** (compile-time stderr is `2>/dev/null`'d
+  by the gate runner so warnings don't break gates).
+- Pre-existing "syscall arity mismatch" warnings on lex.cyr unchanged.
+
+### v5.7.0 fold-readiness
+
+After this patch ships, the v5.7.0 acceptance-gate prereqs are:
+
+- ✅ Deprecation-warning patch shipped (this entry)
+- ⏳ sandhi M5 → v1.0.0 tag cut (currently sandhi v0.9.4)
+- ⏳ Downstream consumer-side dual-build branches ready
+  (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote)
+- ⏳ `cyrius distlib` produces self-contained `dist/sandhi.cyr` at
+  M5-final tag
+
 ## [5.6.43] — 2026-04-25
 
 **LAST patch of v5.6.x. Closeout finish (CLAUDE.md "Closeout Pass"

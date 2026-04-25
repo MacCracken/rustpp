@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.43.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.44.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -715,7 +715,7 @@ v5.7.0 is the consolidation release for the v5.7.x minor. **cyrius-ts** (TypeScr
 **Prerequisites that must ship before v5.7.0:**
 
 - **sandhi M2–M5 complete** — the public surface freezes at fold, so all planned verbs must ship as part of a sandhi release and be exercised by at least one consumer before the fold lands. No speculative surface goes into stdlib.
-- **v5.6.YY deprecation-warning patch** — stdlib's `lib/http_server.cyr` emits a deprecation warning at include-time through at least one 5.6.YY release, naming `lib/sandhi.cyr` as the replacement and v5.7.0 as the cutover. Consumers hitting that warning have a release cycle's worth of notice. Slot TBD by the cyrius agent during the late-v5.6.x window.
+- **v5.6.YY deprecation-warning patch** — ✅ SHIPPED at v5.6.44 (2026-04-25). All 17 public fns in `lib/http_server.cyr` marked `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")` via the v5.6.4 fn-attribute mechanism + file-header deprecation block. Per-call-site warning is *stronger* notice than the originally-specified include-time print — consumers see the warning at every API use, not just at the top of the build. Notice cycle runs through every release between v5.6.44 and v5.7.0.
 - **Consumer-side dual-build readiness** — every named downstream repo (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote) has a branch ready to switch includes at the 5.7.0 release gate.
 - **`cyrius distlib` produces self-contained `dist/sandhi.cyr`** — verified clean-build from the sandhi repo at its M5-final tag, with no transitive-dep surprises.
 

@@ -5,7 +5,20 @@
 
 ## Version
 
-**5.6.43** (shipped — LAST patch of v5.6.x. Closeout finish
+**5.6.44** (shipped — v5.7.0 prep patch. `lib/http_server.cyr`
+deprecation-notice cycle: all 17 public fns marked
+`#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")`
+via the v5.6.4 fn-attribute mechanism + file-header deprecation
+block. Per-call-site warning fires at every consumer call site
+(stronger notice than one-shot include-time print). Satisfies
+roadmap line 718 prerequisite. Zero compiler change → cc5
+byte-identical at 531,888 B; check.sh 26/26 PASS;
+http_server.tcyr 31/31 with 31 deprecation warnings fired.
+v5.7.0 fold blocks on sandhi M5 → v1.0.0 tag + downstream
+consumer-side dual-build branches + `cyrius distlib`
+verification.)
+
+**5.6.43** (shipped — LAST polish patch of v5.6.x. Closeout finish
 (CLAUDE.md "Closeout Pass" steps 9-11) + sigil 2.9.0 → 2.9.3 +
 sankoch 2.0.3 → 2.1.0 dep bumps + output_buf 1MB → 2MB heap
 reshuffle (16-region shift
@@ -14,15 +27,16 @@ main_*.cyr files (stale fixup_tbl docs corrected; 0xA0000
 documented as v5.6.27 codebuf-compaction tables not fixup_tbl)
 + vidya per-minor refresh (language/dependencies/ecosystem).
 Sigil 2.9.3 brings AES-NI + SHA-NI compress (~80x SHA-NI
-throughput win on hosts with hw support). v5.6.x closes;
-v5.7.0 sandhi-fold is next.)
+throughput win on hosts with hw support).)
 
 ## Compiler
 
 - **cc5 (x86_64)**: **531,888 B** (unchanged from v5.6.42 —
   heap shifts are address constants emitted as 32-bit
-  immediates; byte counts preserved). `cc5 --version` reports
-  `cc5 5.6.43`.
+  immediates; byte counts preserved; v5.6.44 deprecation
+  attributes on `lib/http_server.cyr` don't affect cc5 because
+  cc5 doesn't include that lib). `cc5 --version` reports
+  `cc5 5.6.44`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -60,22 +74,21 @@ v5.7.0 sandhi-fold is next.)
 - **Stdlib**: 60 modules (54 first-party + 6 deps via `cyrius deps`:
   sakshi, patra, sigil, yukti, mabda, sankoch)
 
-## In-flight (v5.6.x optimization arc — closeout split into 3 slots)
+## In-flight
 
-- **v5.6.42** — compiler-side closeout (mechanical + judgment +
-  PP_DEFINE/PP_DEFINED `src_base` hardening). CLAUDE.md "Closeout
-  Pass" steps 1-8: self-host verify, bootstrap closure, full
-  check.sh, heap-map audit, dead-code audit, refactor pass,
-  code-review pass, cleanup sweep. Bundle in PP_DEFINE/PP_DEFINED
-  fix (latent same-class bug as v5.6.30 PP_DERIVE_*; especially
-  relevant after v5.6.40 doubled the preprocessor cap).
-- **v5.6.43** — closeout finish (compliance + downstream + docs +
-  sigil 2.9.3 fold-in). Steps 9-11 of the closeout pass + sigil
-  2.9.3 dep bump if available by then. LAST patch of v5.6.x.
+**v5.7.0 (sandhi fold) — blocked on sandhi M5 → v1.0.0 tag.**
+Per CHANGELOG v5.6.44 fold-readiness checklist:
 
-(was: v5.6.41 was originally compiler-side closeout; sandhi's
-2026-04-25 7-arg frame regression filing took that slot, cascading
-the closeout work +1.)
+- ✅ Deprecation-warning patch shipped (v5.6.44)
+- ⏳ sandhi M5 → v1.0.0 tag cut (currently sandhi v0.9.4)
+- ⏳ Downstream consumer-side dual-build branches ready
+  (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote)
+- ⏳ `cyrius distlib` produces self-contained `dist/sandhi.cyr` at
+  M5-final tag
+
+While sandhi closes out, the v5.6.44 deprecation warning runs
+the consumer notice cycle. No further v5.6.x patches planned
+unless a regression surfaces.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -86,6 +99,22 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.44** — `lib/http_server.cyr` deprecation-notice cycle
+  for v5.7.0 prep. All 17 public fns marked
+  `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")`
+  via the v5.6.4 fn-attribute mechanism + file-header deprecation
+  block. Per-call-site warning fires at every consumer call site
+  (parse_fn.cyr:352) — stronger notice than one-shot include-time
+  print. Satisfies roadmap line 718 prereq for the v5.7.0 sandhi
+  fold (which deletes the file). Design choice: reuse existing
+  `#deprecated` infra rather than build a new `#warning`
+  directive — zero compiler change → zero self-host risk; matches
+  "compiler grows to fit language, never the other way around."
+  cc5 byte-identical at 531,888 B (cc5 doesn't include the lib).
+  http_server.tcyr 31/31 (31 deprecation warnings fire at compile;
+  test exits 0). check.sh 26/26 PASS. Notice cycle now runs in
+  parallel with sandhi's M5 → v1.0.0 work; v5.7.0 fold lands
+  when sandhi tags v1.0.0 + downstream branches ready.
 - **v5.6.43** — closeout finish + sigil 2.9.0 → 2.9.3 + sankoch
   2.0.3 → 2.1.0 + output_buf 1MB → 2MB heap reshuffle. CLAUDE.md "Closeout Pass" steps 9-11
   ran clean: security re-scan (no new sys_system / unchecked
