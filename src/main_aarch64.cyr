@@ -43,17 +43,17 @@
 #   0x12A000 var_sizes     [65536]
 #   0x13A000 var_types     [65536]
 #   0x14A000 str_data      [262144]      256KB string literal bytes
-#   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
-#   0x54A000 codebuf       [1048576]     1MB generated machine code
-#   0x64A000 output_buf    [1048576]     1MB ELF output
-#   0x74A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0x94A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xB4A000 tok_lines     [2097152]     262144 entries × 8 bytes
-#   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields
-#   0xDCA000 struct_fnames [16384]
-#   0xE4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
-#   0xECA000 (fn tables end here — IR region not used by aarch64 compiler)
-#   0x150B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
+#   0x44A000 preprocess_out[2097152]     2MB expanded source buffer
+#   0x64A000 codebuf       [1048576]     1MB generated machine code
+#   0x74A000 output_buf    [1048576]     1MB ELF output
+#   0x84A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0xA4A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xC4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   0xE4A000 struct_ftypes [16384]       64 structs × 32 fields
+#   0xECA000 struct_fnames [16384]
+#   0xF4A000 fixup_tbl     [131072]      16384 fixup entries × 8 bytes
+#   0xFCA000 (fn tables end here — IR region not used by aarch64 compiler)
+#   0x160B000 brk                         21.0MB total heap (synced with main.cyr v5.0)
 
 
 # ================================================================
@@ -83,7 +83,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x158B000);
+syscall(SYS_BRK, S + 0x168B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -375,7 +375,7 @@ var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x64A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x74A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

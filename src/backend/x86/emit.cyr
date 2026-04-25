@@ -1,5 +1,5 @@
 # ================================================================
-# CODE EMISSION (writes to codebuf at S+0x54A000+CP (1MB since v3.5.1))
+# CODE EMISSION (writes to codebuf at S+0x64A000+CP (1MB since v3.5.1))
 # ================================================================
 
 # Mirror of the aarch64 backend's marker. Lets arch-neutral code
@@ -71,7 +71,7 @@ fn EB(S, b) {
         syscall(SYS_WRITE, 2, "/1048576 bytes) — program too large for single compilation\n", 58);
         syscall(SYS_EXIT, 1);
     }
-    store8(S + 0x54A000 + cp, b & 0xFF);
+    store8(S + 0x64A000 + cp, b & 0xFF);
     SCP(S, cp + 1);
     return 0;
 }
@@ -252,7 +252,7 @@ fn RECFIX(S, idx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0x150B000 + fc * 16;
+    var addr = S + 0x160B000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -412,7 +412,7 @@ fn ESADDR(S, soff) {
     if (_IS_OBJ(S) == 1) {
         # LEA rax, [rip+disp32]: 48 8D 05 <rel32>
         EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
-        var faddr = S + 0x150B000 + fc * 16;
+        var faddr = S + 0x160B000 + fc * 16;
         S64(faddr, GCP(S));
         S64(faddr + 8, (1 << 56) | soff);
         SFCNT(S, fc + 1);
@@ -420,7 +420,7 @@ fn ESADDR(S, soff) {
         return 0;
     }
     E2(S, 0xB848);
-    var faddr = S + 0x150B000 + fc * 16;
+    var faddr = S + 0x160B000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -954,7 +954,7 @@ fn ECALLTO(S, target) {
     EB(S, 0xE8);
     var cp = GCP(S);
     var rel = target - cp - 4;
-    var addr = S + 0x54A000 + cp;
+    var addr = S + 0x64A000 + cp;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     # v5.6.27: record disp32 source CP for codebuf-compaction repair.
@@ -979,7 +979,7 @@ fn ECALLFIX(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x150B000 + fc * 16;
+    var faddr = S + 0x160B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -1213,7 +1213,7 @@ fn ETAILJMP(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x150B000 + fc * 16;
+    var faddr = S + 0x160B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -1222,7 +1222,7 @@ fn ETAILJMP(S, fnidx) {
 
 # Helper: emit disp32 at current CP
 fn EDISP32(S, disp) {
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1315,7 +1315,7 @@ fn EFLLOAD(S, idx) {
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
     if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0x858B48);
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     # v5.6.21 codegen-bug fix: mov rax, [rbp+disp] writes rax but does
@@ -1349,7 +1349,7 @@ fn EFLADDR_X1(S, lli) {
     if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     # lea rcx, [rbp + disp32]: 48 8D 8D <rel32>
     E3(S, 0x8D8D48);
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1365,7 +1365,7 @@ fn EFLADDR(S, lli) {
     if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     # lea rax, [rbp + disp32]: 48 8D 85 <rel32>
     E3(S, 0x858D48);
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1383,7 +1383,7 @@ fn EADDIMM_X1(S, val) {
 # Patch frame size: write imm32 at the sub rsp placeholder
 fn EPATCHFRAME(S, patch, size) {
     var _ire = IR_ENABLED(S); if (_ire >= 1) { ir_emit(S, IR_PATCH_FRAME, 0, patch, size); }
-    var pa = S + 0x54A000 + patch;
+    var pa = S + 0x64A000 + patch;
     S64(pa, (L64(pa) >> 32 << 32) | (size & 0xFFFFFFFF));
     return 0;
 }
@@ -1396,7 +1396,7 @@ fn EFLSTORE(S, idx) {
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
     if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0x858948);
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1422,7 +1422,7 @@ fn ELVRINIT(S, idx) {
     if (_cur_fn_regalloc > 0) { disp = disp - _cur_fn_regalloc * 8; }
     if (_cur_fn_ret_stash > 0) { disp = disp - _cur_fn_ret_stash; }
     E3(S, 0xA58B4C);   # mov r12, [rbp+disp32]
-    var addr = S + 0x54A000 + GCP(S);
+    var addr = S + 0x64A000 + GCP(S);
     S64(addr, (L64(addr) >> 32 << 32) | (disp & 0xFFFFFFFF));
     SCP(S, GCP(S) + 4);
     return 0;
@@ -1434,7 +1434,7 @@ fn ELVRINIT(S, idx) {
 # ================================================================
 
 fn TOKTYP(S, i) { return L64(S + 0x74A000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0x94A000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0xA4A000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 

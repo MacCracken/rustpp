@@ -96,7 +96,7 @@ fn ADDTOK(S, typ, val) {
         syscall(SYS_EXIT, 1);
     }
     S64(S + 0x74A000 + tc * 8, typ);
-    S64(S + 0x94A000 + tc * 8, val);
+    S64(S + 0xA4A000 + tc * 8, val);
     STLINE(S, tc, GCLINE(S));
     STCNT(S, tc + 1);
     return 0;

@@ -113,6 +113,21 @@ if (helper_ok == 1) {
     assert_eq(avail, 0, "tls_available returns 0 when fdlopen helper missing");
 }
 
+# ── tls_dlsym + tls_connect_with_ctx_hook (v5.6.40) ──
+# Sandhi-pinned ALPN/mTLS hook surface. Available iff tls_available
+# returned 1 (helper is present and libssl loaded).
+test_group("tls_dlsym + ctx hook surface (v5.6.40)");
+if (helper_ok == 1) {
+    var fn_alpn_set = tls_dlsym("SSL_CTX_set_alpn_protos");
+    assert(fn_alpn_set != 0, "tls_dlsym resolves SSL_CTX_set_alpn_protos");
+    var fn_alpn_get = tls_dlsym("SSL_get0_alpn_selected");
+    assert(fn_alpn_get != 0, "tls_dlsym resolves SSL_get0_alpn_selected");
+    var fn_unknown = tls_dlsym("SSL_does_not_exist_zzz");
+    assert_eq(fn_unknown, 0, "tls_dlsym returns 0 on unknown symbol");
+} else {
+    assert_eq(tls_dlsym("SSL_CTX_set_alpn_protos"), 0, "tls_dlsym returns 0 when fdlopen helper missing");
+}
+
 # ── negative: unknown symbol ──
 test_group("negative cases");
 

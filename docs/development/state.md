@@ -5,27 +5,28 @@
 
 ## Version
 
-**5.6.39** (shipped — `cc5 --version` was stuck at 5.6.29-1
-for 9 releases due to a regex shape that didn't match the `-N`
-hotfix suffix. Fixed by removing the hardcoded literal class
-entirely — version string now sourced from auto-generated
-`src/version_str.cyr`. Active minor: v5.6.x optimization arc)
+**5.6.40** (shipped — `lib/tls.cyr` ALPN/mTLS/custom-verify
+hook surface + bundled `cyrius.cyml` patra 1.6.0 → 1.8.3 dep
+bump + preprocessor expanded-source cap raised 1 MB → 2 MB
+with 12-region heap reshuffle. Sandhi's stdlib-tls-alpn-hook
+blocker closed via Option A: `tls_connect_with_ctx_hook` +
+`tls_dlsym`. End-to-end ALPN verified — Cloudflare picks h2
+cleanly. Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,584 B** (was 531,360 B; +224 B for
-  the `include "src/version_str.cyr"` + var-reference refactor
-  replacing the inline literal). cc5 now correctly reports
-  `cc5 5.6.39`.
-- **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
-  the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
+- **cc5 (x86_64)**: **531,584 B** (unchanged size — v5.6.40
+  reshuffles 12 heap regions but keeps codebuf at 1 MB so
+  cc5's emitted code length is identical; only the immediate
+  constants in S+offset accesses changed). `cc5 --version`
+  reports `cc5 5.6.40`.
+- **cc5_win (cross)**: 526,552 B (was 526,376 at v5.6.39; +176 B from heap-shift constants)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
   had been orphaned since v5.6.12 O3a shipped the IR instrumentation
   references to `IR_RAW_EMIT`)
-- **cc5_aarch64 (cross)**: 411,136 B (was 419,776 at v5.6.26; −8,640 B — same
-  compaction; cross-compiler is x86)
-- **cc5_win (cross)**: 526,376 B (was 537,896 at v5.6.26; −11,520 B)
+- **cc5_aarch64 (cross)**: 411,520 B (was 411,136 at v5.6.39; +384 B from heap-shift constants)
+- **cc5_win (cross)**: 526,552 B (was 526,376 at v5.6.39)
 - **cc5 native aarch64** (Pi 4 output): 503,328 B at v5.6.27 (+6,320 B vs
   v5.6.25's 497,008; the x86-only compaction code is dead-emitted on aarch64
   builds — `#ifdef CYRIUS_ARCH_X86` strip pinned as future cleanup)
@@ -63,9 +64,10 @@ sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
 symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
 Both shipped 2026-04-24.
 
-- **v5.6.40** — v5.6.x closeout + downstream ecosystem sweep
-  gate (LAST patch of v5.6.x). Was v5.6.39 — cascaded +1 to
-  accommodate v5.6.39's version-string drift fix.
+- **v5.6.41** — v5.6.x closeout + downstream ecosystem sweep
+  gate (LAST patch of v5.6.x). Cascaded v5.6.39 → v5.6.40 →
+  v5.6.41 (v5.6.39 took version-string drift fix; v5.6.40
+  took sandhi's stdlib-tls-alpn-hook).
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -76,6 +78,46 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.40** — `lib/tls.cyr` ALPN/mTLS/custom-verify hook
+  surface (sandhi-pinned) **+ bundled patra 1.6.0 → 1.8.3
+  dep bump + 1 MB → 2 MB preprocessor expanded-source cap
+  raise (12-region heap reshuffle, brk 21.5 MB → 22.5 MB)**.
+  ALPN: sandhi 0.8.1 had wire-format encoding ready since
+  2026-04-24 but couldn't fire `SSL_CTX_set_alpn_protos`
+  because stdlib `tls_connect` built its `SSL_CTX` privately
+  with no customisation point. New `tls_dlsym(name)` +
+  `tls_connect_with_ctx_hook(sock, host, hook_fp, hook_ctx)`;
+  `tls_connect` collapses to a 1-line wrapper. End-to-end
+  verified at Cloudflare 1.1.1.1:443 → server picks h2.
+  Patra: 1.7.0 INSERT OR IGNORE + 1.7.1 STR-keyed B+ tree
+  indexes + 1.8.2 page-slab allocator + word-at-a-time
+  `_memeq256` + prepared statements (`patra_prepare` /
+  `patra_exec_prepared` / `patra_query_prepared` /
+  `patra_finalize`) + 1.8.3 fmt/lint/doc cleanup. Cap raise:
+  `large_input.tcyr` + `large_source.tcyr` crossed the 1 MB
+  cap by ~280 B once patra 1.8.3 (~14 KB larger than 1.6.0)
+  joined the include set; both tests' actual goal is
+  >256 KB, so they were already 768 KB above their stated
+  bar. Right answer: grow the cap, not trim the language.
+  Reshuffle hit `preprocess_out → 2 MB` and shifted every
+  region forward 1 MB across `src/main*.cyr`, every
+  `parse_*.cyr`, `lex.cyr`, `lex_pp.cyr`, `ir.cyr`, every
+  `backend/*/{emit,fixup,jump}.cyr`. Subtle bugs surfaced:
+  (1) 9 `var O = S + 0x64A000` EMITELF sites were OLD
+  output_buf base, not new codebuf — moved to 0x74A000;
+  (2) `var pfx = S + 0x64A000 + 131072` scratch in
+  `backend/x86/fixup.cyr` was OLD output_buf tail — moved
+  to 0x74A000; (3) `0x150B000` ambiguous between OLD
+  fixup_tbl (16-byte stride) and NEW ir_cp (4-byte stride)
+  — disambiguated via stride; (4) `0x13CA000` ambiguous
+  between OLD ir_state and NEW ir_blocks — ir_state shifted
+  to 0x14CA000 with offset family `+8/+10/+18/+20`;
+  (5) `0xECA000` ambiguous between OLD ir_nodes and NEW
+  struct_fnames — ir.cyr shifted to 0xFCA000.
+  3-step fixpoint clean (`b == c == d` byte-identical at
+  531,584 B). check.sh **25/25 PASS** (was 24/25 with
+  large_input/large_source failing the 1 MB cap; now well
+  under 2 MB). Closeout cascaded v5.6.40 → v5.6.41.
 - **v5.6.39** — `cc5 --version` drift repair + hardcoded-
   literal removal. Caught via Starship prompt observation:
   cyrius repo bumped to v5.6.38, but `cc5 --version` still

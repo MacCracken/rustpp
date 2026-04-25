@@ -1290,7 +1290,7 @@ fn PP_PASS(S) {
                         }
                         store8(out + op, 34); op = op + 1;
                         store8(out + op, 10); op = op + 1;
-                        var nr = READFILE(fname, out + op, 1048576 - op);
+                        var nr = READFILE(fname, out + op, 2097152 - op);
                         op = op + nr;
                         had_include = 1;
                     }
@@ -1329,9 +1329,9 @@ fn PP_PASS(S) {
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
     }
-    # Check preprocess output size. Buffer is 1MB at 0x44A000.
-    if (op > 1048576) {
-        syscall(SYS_WRITE, 2, "error: expanded source exceeds 1MB (", 36);
+    # Check preprocess output size. Buffer is 2MB at 0x44A000 (v5.6.40).
+    if (op > 2097152) {
+        syscall(SYS_WRITE, 2, "error: expanded source exceeds 2MB (", 36);
         PRNUM(op);
         syscall(SYS_WRITE, 2, " bytes)\n", 8);
         syscall(SYS_EXIT, 1);
@@ -1414,9 +1414,9 @@ fn PP_IFDEF_PASS(S) {
     # macOS flags if the kernel rejects them (EINVAL on macOS — BSD raw
     # SVC returns -errno now that ESYSCALL emits `csneg x0, x0, x0, cc`).
     var prot = 3;     # PROT_READ | PROT_WRITE
-    var tmp = syscall(9, 0, 1048576, prot, 34, 0 - 1, 0);
+    var tmp = syscall(9, 0, 2097152, prot, 34, 0 - 1, 0);
     if (tmp < 0) {
-        tmp = syscall(9, 0, 1048576, prot, 0x1002, 0 - 1, 0);
+        tmp = syscall(9, 0, 2097152, prot, 0x1002, 0 - 1, 0);
     }
     # v4.8.4-alpha3: fixpoint loop so nested includes in files expanded
     # during this pass (e.g. registry.cyr → hashmap.cyr → fnptr.cyr)
@@ -1591,7 +1591,7 @@ fn PP_IFDEF_PASS(S) {
                         }
                         store8(out + op, 34); op = op + 1;
                         store8(out + op, 10); op = op + 1;
-                        var nr = READFILE(fname, out + op, 1048576 - op);
+                        var nr = READFILE(fname, out + op, 2097152 - op);
                         op = op + nr;
                         had_new_include = 1;
                     }
@@ -1607,13 +1607,17 @@ fn PP_IFDEF_PASS(S) {
     }
         # v4.8.4 post-GA fix (reported by bote 2.5.0 in
         # docs/bugs/cyrius-4.8.4-ci-binary-skew.md): size guard on the
-        # fixpoint output. The 1 MB buffer at S+0x44A000 was silently
-        # overrun on ~990 KB compile units, corrupting downstream
-        # passes and surfacing as `lib/assert.cyr:3: expected '=',
-        # got string` (the "preprocessor didn't expand a nested
-        # include" pattern).
-        if (op > 1048576) {
-            syscall(SYS_WRITE, 2, "error: expanded source exceeds 1MB (", 36);
+        # fixpoint output. The buffer at S+0x44A000 (1 MB pre-v5.6.40,
+        # 2 MB after) was silently overrun on ~990 KB compile units
+        # without this check, corrupting downstream passes and
+        # surfacing as `lib/assert.cyr:3: expected '=', got string`
+        # (the "preprocessor didn't expand a nested include" pattern).
+        # v5.6.40 doubled the buffer because patra 1.8.3 + the full
+        # stdlib include set crossed the 1 MB ceiling on
+        # `tests/tcyr/large_input.tcyr` by ~280 bytes; the test was
+        # already at 768 KB above its >256 KB stated goal.
+        if (op > 2097152) {
+            syscall(SYS_WRITE, 2, "error: expanded source exceeds 2MB (", 36);
             PRNUM(op);
             syscall(SYS_WRITE, 2, " bytes) in PP_IFDEF_PASS iter=", 30);
             PRNUM(iter);
@@ -1625,7 +1629,7 @@ fn PP_IFDEF_PASS(S) {
     }
     # No copy-back. Output stays at S+0x44A000. LEX reads from there.
     # Free the temp buffer.
-    syscall(11, tmp, 1048576);
+    syscall(11, tmp, 2097152);
     return 0;
 }
 

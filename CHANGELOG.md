@@ -4,6 +4,247 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.40] — 2026-04-24
+
+**`lib/tls.cyr` ALPN / mTLS / custom-verify hook surface — sandhi-blocking issue closed.**
+Sandhi 0.8.1 had ALPN ProtocolNameList wire-format encoding +
+auto-selection logic ready since 2026-04-24 but couldn't actually
+fire `SSL_CTX_set_alpn_protos` because stdlib `tls_connect`
+built its `SSL_CTX` privately and didn't expose a hook between
+context creation and handshake. This slot adds Option A from
+sandhi's filing.
+
+### What landed
+
+- **`tls_dlsym(name)`** — resolves a libssl/libcrypto symbol via
+  the fdlopen-managed libssl handle that `_tls_init` already
+  opened. Lets consumers reach any libssl symbol the stdlib
+  doesn't pre-resolve (`SSL_CTX_set_alpn_protos`,
+  `SSL_get0_alpn_selected`, `SSL_CTX_use_certificate`,
+  `SSL_CTX_use_PrivateKey`, `RAND_*`, etc.) without
+  re-implementing the v5.6.37 fdlopen bootstrap.
+- **`tls_connect_with_ctx_hook(sock, host, hook_fp, hook_ctx)`** —
+  the SSL_CTX customisation point. Hook fires AFTER
+  `SSL_CTX_new` + the stdlib's standard verify-path defaults,
+  BEFORE `SSL_new` / `SSL_connect`. Hook signature is
+  `hook_fp(hook_ctx, ssl_ctx) -> int` — non-zero return
+  aborts the connection (frees ssl_ctx, returns 0 from
+  `tls_connect_with_ctx_hook`). Pass `hook_fp = 0` to skip
+  the hook entirely.
+- **`tls_connect(sock, host)`** — refactored to a 1-line wrapper
+  `return tls_connect_with_ctx_hook(sock, host, 0, 0);`. Same
+  external behavior as v5.6.37–v5.6.39; existing consumers
+  unaffected.
+- **`_tls_libssl_handle`** — new global storing the libssl
+  dlopen handle, populated in `_tls_init`. Makes `tls_dlsym`
+  cheap (no re-dlopen).
+
+### Acceptance
+
+ALPN end-to-end probe against `https://1.1.1.1/`:
+
+```
+$ /tmp/alpn_probe
+tls_dlsym(SSL_get0_alpn_selected) OK
+calling tls_connect_with_ctx_hook...
+  hook: setting ALPN h2,http/1.1...
+tls_connect_with_ctx_hook OK
+  selected ALPN bytes (n>0): 'h2'
+```
+
+Cloudflare picked `h2` — full ALPN advertise + select round-trip
+verified.
+
+- `tests/tcyr/tls.tcyr`: now 25 assertions (was 22) covering
+  `tls_dlsym(SSL_CTX_set_alpn_protos)`,
+  `tls_dlsym(SSL_get0_alpn_selected)`, and
+  `tls_dlsym(unknown_symbol)` returning 0. Helper-absent
+  branch asserts the no-fdlopen-helper shape (1 assertion =
+  23 total).
+- `tests/regression-tls-live.sh`: PASS (existing tls_connect
+  path unchanged via the wrapper).
+- `sh scripts/check.sh`: 25/25 PASS.
+- `cc5` 3-step self-host: byte-identical at 531,584 B (cc5
+  doesn't include `lib/tls.cyr`; `--version` reflects v5.6.40
+  via the v5.6.39 generated `src/version_str.cyr`).
+
+### Sandhi consumer side (their action, not this slot's)
+
+Sandhi has the wire-format encoder + auto-selection
+infrastructure already shipping. Their integration:
+
+```cyr
+fn alpn_advertise_hook(advertise_ptr, ssl_ctx) {
+    var fn_set = tls_dlsym("SSL_CTX_set_alpn_protos");
+    if (fn_set == 0) { return 1; }
+    var len = sandhi_alpn_encode_protos(load64(advertise_ptr));
+    fncall3(fn_set, ssl_ctx, advertise_ptr + 8, len);
+    return 0;
+}
+# ...
+var tls = tls_connect_with_ctx_hook(sock, host, &alpn_advertise_hook, ...);
+# After handshake, read selected:
+var fn_get = tls_dlsym("SSL_get0_alpn_selected");
+fncall3(fn_get, sandhi_conn_ssl(conn), &out_ptr, &out_len);
+```
+
+Sandhi's `sandhi_http_request_auto` consults the selected
+protocol; once the toolchain pin moves to v5.6.40 and the
+hook is wired, h2 will auto-fire on real HTTPS traffic.
+
+### Issue ledger
+
+- `sandhi/docs/issues/2026-04-24-stdlib-tls-alpn-hook.md` —
+  cleared by this slot. Sandhi can move to `archive/` once
+  they bump their toolchain pin and wire the hook.
+- Companion `2026-04-24-libssl-pthread-deadlock.md` was
+  closed by v5.6.37; together with this slot, sandhi's M2
+  HTTPS path is fully unblocked.
+
+### Files
+
+- `lib/tls.cyr`: new `tls_dlsym`, new `tls_connect_with_ctx_hook`,
+  `tls_connect` reduced to a wrapper, new `_tls_libssl_handle`
+  global, doc updates.
+- `tests/tcyr/tls.tcyr`: 3 assertions for the new surface.
+- `VERSION`: 5.6.39 → 5.6.40.
+- `~/.cyrius/versions/5.6.40/`: install snapshot refreshed
+  (cc5 / cc5_aarch64 / cc5_win_cross all rebuilt; `cc5
+  --version` correctly reports 5.6.40).
+
+---
+
+**Bundled with v5.6.40 (this release):**
+
+### `cyrius.cyml` patra dep bump 1.6.0 → 1.8.3
+
+Patra grew through three minor releases since v5.6.20's 1.6.0 pin:
+
+- **1.7.0** — `INSERT OR IGNORE INTO ...` syntax. Sit's
+  content-addressed-dedup pattern (`SELECT exists?` + conditional
+  `INSERT`) collapses to a single `INSERT OR IGNORE` (parse + B-tree
+  probe + early return on hit). 22 new tests; 2 new benchmarks
+  showing the workaround → primitive perf cliff.
+- **1.7.1** — STR-keyed B+ tree indexes (the prereq called out in
+  1.7.0's caveat). djb2-64 hash + verify-on-hit for `hash STR` /
+  `path STR` columns; range ops (`<`, `>`) fall through to scan
+  since hashed keys don't preserve ordering.
+- **1.8.0–1.8.2** — perf bundle: 4 KB page-slab allocator
+  (`pg_alloc` / `pg_free`) replaces ~45 `fl_alloc(PAGE_SIZE)`
+  hot sites; word-at-a-time `_memeq256` for INSERT OR IGNORE STR
+  verify; **prepared statements** (`patra_prepare` /
+  `patra_exec_prepared` / `patra_query_prepared` /
+  `patra_finalize`) — tokenize + parse once, dispatch many.
+- **1.8.3** — release-prep pass: `cyrius fmt` / `cyrius lint`
+  clean across all 11 source files, doc-summary fixups for
+  `cyrius doc`, regenerated `dist/patra.cyr` bundle.
+
+### Preprocessor expanded-source cap raised 1 MB → 2 MB
+
+`tests/tcyr/large_input.tcyr` + `tests/tcyr/large_source.tcyr`
+crossed the 1 MB cap by ~280 bytes once patra 1.8.3 (~14 KB
+larger than 1.6.0) joined the include set. Both tests'
+stated mission is "push raw stdin past 256 KB" — they were
+already 768 KB above their actual goal, so the cap was the
+bottleneck, not the test fixture content.
+
+The right fix is to grow the cap, not trim the language.
+`preprocess_out` at `S+0x44A000` doubled from 1 MB to 2 MB;
+every region from there forward shifted +1 MB. Touched 12
+heap regions across `src/main.cyr`, `src/main_aarch64.cyr`,
+`src/main_aarch64_native.cyr`, `src/main_aarch64_macho.cyr`,
+`src/main_win.cyr`, every `parse_*.cyr`, `lex.cyr`, `lex_pp.cyr`,
+`ir.cyr`, and every `backend/*/emit.cyr` + `fixup.cyr` /
+`jump.cyr`. Total heap `brk` extends 21.5 MB → 22.5 MB.
+
+#### New heap map (regions that moved):
+
+```
+0x44A000 preprocess_out [2097152]   — 2 MB (was 1 MB)
+0x64A000 codebuf        [1048576]   — was 0x54A000
+0x74A000 output_buf     [1048576]   — was 0x64A000
+0x84A000 tok_types      [2097152]   — was 0x74A000
+0xA4A000 tok_values     [2097152]   — was 0x94A000
+0xC4A000 tok_lines      [2097152]   — was 0xB4A000
+0xE4A000 struct_ftypes  [16384]     — was 0xD4A000
+0xECA000 struct_fnames  [16384]     — was 0xDCA000
+0xF4A000 (legacy fixup gap)         — was 0xE4A000
+0xF8A000 fn_names band   (256 KB)   — was 0xE8A000
+0xFCA000 ir_nodes       [4194304]   — was 0xECA000
+0x13CA000 ir_blocks     [1048576]   — was 0x12CA000
+0x14CA000 ir_state      [4096]      — was 0x13CA000
+0x14CB000 ir_edges      [262144]    — was 0x13CB000
+0x150B000 ir_cp         [1048576]   — was 0x140B000
+0x160B000 fixup_tbl     [524288]    — was 0x150B000
+0x168B000 brk           (22.5 MB)   — was 0x158B000 (21.5 MB)
+```
+
+#### Subtle bugs surfaced during the shift:
+
+- **`var O = S + 0x64A000` in EMITELF**: 9 sites across
+  `backend/x86/fixup.cyr`, `backend/aarch64/fixup.cyr`,
+  `backend/macho/emit.cyr`, `backend/pe/emit.cyr` — these
+  set the OUTPUT_BUF base (was 0x64A000 in old layout, now
+  0x74A000). Easy to miss because the SAME literal `0x64A000`
+  is the NEW codebuf base. Disambiguated by the surrounding
+  `var O = S + 0x...;` syntactic shape vs the read-loop
+  `load8(S + 0x64A000 + i)` shape.
+- **`var pfx = S + 0x64A000 + 131072` in
+  `backend/x86/fixup.cyr:113`**: scratch area for the prefix-sum
+  table during EMITELF. Comment was "output_buf tail, safe — ELF
+  not written yet" — a "tail" reference that points past the end of
+  the buffer. Was fine when 0x64A000 = output_buf, broke when
+  0x64A000 became codebuf. Repointed to 0x74A000.
+- **0x150B000 disambiguation**: was OLD fixup_tbl (16-byte stride),
+  is NEW ir_cp (4-byte stride). Same address, different layouts.
+  Sites with `+ fi * 16` style addressing got shifted to 0x160B000
+  (new fixup_tbl); sites with `+ ni * 4` stayed at 0x150B000 (new
+  ir_cp). Disambiguated via the multiplier in the access pattern.
+- **0x13CA000 ambiguity**: was OLD ir_state, became NEW
+  ir_blocks. ir_state shifted to 0x14CA000 (covers 0x14CA000 +
+  +8/+10/+18/+20 offsets too — 5 init lines per main file).
+  ir_blocks accesses with `+ bi * 32` stayed correct at
+  0x13CA000.
+- **0xECA000 ambiguity**: was OLD ir_nodes, became NEW
+  struct_fnames. ir.cyr shifted to 0xFCA000; parse_types.cyr's
+  struct_fnames accesses (`+ si * 256`) stayed at 0xECA000.
+
+These ambiguities are why the heap reshuffle is a closeout-class
+exercise — the substitution chain has overlap points that look
+identical to a regex but mean different things in different
+files. Each got resolved by pattern-matching the addressing
+shape (stride + multiplier) rather than the literal constant.
+
+### Bundled fix: `main_aarch64_macho.cyr` missing `ir.cyr`
+
+Surfaced during the cross-build verification of the heap reshuffle
+(while building all release artifacts to confirm none broke). The
+Mach-O aarch64 cross-compiler (`cc5_aarch64_macho_cross`) was
+missing `include "src/common/ir.cyr"` — the same gap v5.6.32 fixed
+for `main_aarch64_native.cyr`. Pre-existing since v5.6.12 O3a
+shipped the `IR_RAW_EMIT` instrumentation markers in `parse_*.cyr`.
+Not a v5.6.40 regression but caught and bundled rather than left
+to drift. Adds the include with a comment cross-referencing
+v5.6.32. `cc5_aarch64_macho_cross` now builds cleanly at 410,944 B
+(parallel shape to `cc5_aarch64` at 411,520 B). Not a release
+artifact (only `cc5_aarch64` is in `cyrius.cyml [release]
+cross_bins`), but the file's reason for existing is to be a
+buildable Mach-O cross-emitter, and now it is.
+
+### Acceptance (bundle)
+
+- 3-step self-host fixpoint: `cc5_b == cc5_c == cc5_d` byte-identical at 531,584 B.
+- `sh scripts/check.sh`: **25/25 PASS** (was 24/25 before — `large_input.tcyr` + `large_source.tcyr` were failing the
+  1 MB preprocessor cap; now well under the 2 MB cap).
+- Cross-builds: `cc5_aarch64` (411,520 B) + `cc5_win_cross`
+  (526,552 B) + `cc5_aarch64_macho_cross` (410,944 B) all
+  rebuild cleanly.
+
+### Cascade
+
+Closeout slot moves v5.6.40 → **v5.6.41**. Roadmap, state.md,
+bug-tracker, slot list updated.
+
 ## [5.6.39] — 2026-04-24
 
 **`cc5 --version` was stuck at `5.6.29-1` for 9 releases.** User

@@ -57,17 +57,17 @@ fn GRPC(S) { return L64(S + 0x8DC20); }
 fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
 # Inline metadata accessors (GFBE getter removed — unused;
 # SFBE is the only direction the inliner needs.)
-fn GFBS(S, fi) { return L64(S + 0xEA2000 + fi * 8); }
-fn SFBS(S, fi, v) { S64(S + 0xEA2000 + fi * 8, v); return 0; }
-fn SFBE(S, fi, v) { S64(S + 0xEAA000 + fi * 8, v); return 0; }
-fn GFINL(S, fi) { return L64(S + 0xEB2000 + fi * 8); }
-fn SFINL(S, fi, v) { S64(S + 0xEB2000 + fi * 8, v); return 0; }
+fn GFBS(S, fi) { return L64(S + 0xFA2000 + fi * 8); }
+fn SFBS(S, fi, v) { S64(S + 0xFA2000 + fi * 8, v); return 0; }
+fn SFBE(S, fi, v) { S64(S + 0xFAA000 + fi * 8, v); return 0; }
+fn GFINL(S, fi) { return L64(S + 0xFB2000 + fi * 8); }
+fn SFINL(S, fi, v) { S64(S + 0xFB2000 + fi * 8, v); return 0; }
 # Fn code-end offset (v4.4.0 DCE). Set at end of PARSE_FN_DEF to the GCP
 # where the fn body finishes. Paired with fn code starts at 0xC4000.
 # 0 means "not recorded" (fn was registered but never defined, or emitted
 # via a path that bypasses the recording site).
-fn GFNE(S, fi) { return L64(S + 0xEC2000 + fi * 8); }
-fn SFNE(S, fi, v) { S64(S + 0xEC2000 + fi * 8, v); return 0; }
+fn GFNE(S, fi) { return L64(S + 0xFC2000 + fi * 8); }
+fn SFNE(S, fi, v) { S64(S + 0xFC2000 + fi * 8, v); return 0; }
 
 # v5.5.36 Phase 2b — per-fn struct return ID. 0 = scalar return,
 # sid = returns StructName. Set by PARSE_FN when signature has
@@ -109,8 +109,8 @@ fn ADDXP(S, p) {
 # Line tracking
 fn GCLINE(S) { return L64(S + 0x8FCB8); }
 fn SCLINE(S, v) { S64(S + 0x8FCB8, v); return 0; }
-fn GTLINE(S, ti) { return L64(S + 0xB4A000 + ti * 8); }
-fn STLINE(S, ti, v) { S64(S + 0xB4A000 + ti * 8, v); return 0; }
+fn GTLINE(S, ti) { return L64(S + 0xC4A000 + ti * 8); }
+fn STLINE(S, ti, v) { S64(S + 0xC4A000 + ti * 8, v); return 0; }
 
 # Block scoping
 fn GSDEP(S) { return L64(S + 0x8FCC0); }

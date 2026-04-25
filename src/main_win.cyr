@@ -71,17 +71,17 @@
 #
 # --- Function tables (relocated v4.7.1 — caps raised 2048 → 4096) ---
 #   0xA0000  fixup_tbl     [131072]      8192 fixup entries × 16 bytes
-#   0xE8A000 fn_names      [32768]       4096 function name offsets
-#   0xE92000 fn_offsets    [32768]       4096 function code offsets
-#   0xE9A000 fn_params     [32768]       4096 function param counts
-#   0xEA2000 fn_body_start [32768]       4096 inline body start
-#   0xEAA000 fn_body_end   [32768]       4096 inline body end
-#   0xEB2000 fn_inline     [32768]       4096 inline flags
-#   0xEBA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
-#   0xEC2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
-# Tables relocated past the runtime fixup_tbl (at 0xE4A000 × 16 B ×
-# 16384 = ends at 0xE8A000). Fits exactly in the 256 KB between that
-# end and brk's top at 0xECA000.
+#   0xF8A000 fn_names      [32768]       4096 function name offsets
+#   0xF92000 fn_offsets    [32768]       4096 function code offsets
+#   0xF9A000 fn_params     [32768]       4096 function param counts
+#   0xFA2000 fn_body_start [32768]       4096 inline body start
+#   0xFAA000 fn_body_end   [32768]       4096 inline body end
+#   0xFB2000 fn_inline     [32768]       4096 inline flags
+#   0xFBA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
+#   0xFC2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
+# Tables relocated past the runtime fixup_tbl (at 0xF4A000 × 16 B ×
+# 16384 = ends at 0xF8A000). Fits exactly in the 256 KB between that
+# end and brk's top at 0xFCA000.
 #
 # --- Reclaimable / scratch ---
 #   0xC0000  include_fnames[32768]       256 include-once filenames × 128 B (v4.8.4-alpha2)
@@ -101,29 +101,29 @@
 #   0x14A000 str_data      [262144]      256KB string literal bytes (v3.6.9, was 32KB at 0x40000)
 #
 # --- Large buffers ---
-#   0x44A000 preprocess_out[1048576]     1MB expanded source buffer
-#   0x54A000 codebuf       [1048576]     1MB generated machine code (v3.5.2)
-#   0x64A000 output_buf    [1048576]     1MB ELF output (v3.5.2)
+#   0x44A000 preprocess_out[2097152]     2MB expanded source buffer
+#   0x64A000 codebuf       [1048576]     1MB generated machine code (v3.5.2)
+#   0x74A000 output_buf    [1048576]     1MB ELF output (v3.5.2)
 #
 # --- Relocated token arrays (v3.6.2) ---
-#   0x74A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0x94A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xB4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   0x84A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0xA4A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xC4A000 tok_lines     [2097152]     262144 entries × 8 bytes
 #
 # --- Relocated struct field tables (v3.6.6) ---
-#   0xD4A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
-#   0xDCA000 struct_fnames [16384]       64 structs × 32 fields × 8 bytes
+#   0xE4A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
+#   0xECA000 struct_fnames [16384]       64 structs × 32 fields × 8 bytes
 #
-#   0xE4A000 (fixup table: 16384 entries × 16 bytes ends at 0xE8A000)
+#   0xF4A000 (fixup table: 16384 entries × 16 bytes ends at 0xF8A000)
 #
 # --- cc5 IR region (v5.0.0) ---
-#   0xECA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
-#   0x12CA000 ir_blocks    [1048576]     32768 basic blocks × 32 bytes
-#   0x13CA000 ir_state     [4096]        IR builder state (counters, current BB)
-#   0x13CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
-#   0x140B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
+#   0xFCA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
+#   0x13CA000 ir_blocks    [1048576]     32768 basic blocks × 32 bytes
+#   0x14CA000 ir_state     [4096]        IR builder state (counters, current BB)
+#   0x14CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
+#   0x150B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
-#   0x150B000 brk                         21.0MB total heap
+#   0x160B000 brk                         21.0MB total heap
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -246,11 +246,11 @@ S64(S + 0x8DA08, 0);
 S64(S + 0x8DA10, 0);
 S64(S + 0x8DC20, 0);
 # IR state (cc5)
-S64(S + 0x13CA000, 0);    # ir_node_count
-S64(S + 0x13CA008, 0);    # ir_block_count
-S64(S + 0x13CA010, 0);    # ir_cur_block (current BB index, -1 = none)
-S64(S + 0x13CA018, 0);    # ir_edge_count
-S64(S + 0x13CA020, 0);    # ir_enabled (0=off, 1=on)
+S64(S + 0x14CA000, 0);    # ir_node_count
+S64(S + 0x14CA008, 0);    # ir_block_count
+S64(S + 0x14CA010, 0);    # ir_cur_block (current BB index, -1 = none)
+S64(S + 0x14CA018, 0);    # ir_edge_count
+S64(S + 0x14CA020, 0);    # ir_enabled (0=off, 1=on)
 # Struct state
 S64(S + 0x8F830, 0);
 # Condition patch state
@@ -631,7 +631,7 @@ while (topgo == 1) {
             # callee-saved-reg state to. Leaving the flag armed would
             # leak it to whichever fn lands next.
             if (_regalloc_pending == 1) { _regalloc_pending = 0; }
-            S64(S + 0xE92000 + stub_fi * 8, GCP(S));
+            S64(S + 0xF92000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -694,9 +694,9 @@ STI(S, gvar_save_ti);
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0xE92000 + wfi * 8) < 0) {
+    if (L64(S + 0xF92000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0xE8A000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0xF8A000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;
@@ -824,7 +824,7 @@ var olen = L64(S + 0x903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x64A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x74A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;

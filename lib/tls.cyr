@@ -52,6 +52,13 @@ var _tls_ok = 0;
 # fdlopen_init_full on success.
 var _tls_fdl_state[256];
 
+# v5.6.40: libssl dlopen handle saved post-_tls_init so consumers
+# can resolve additional libssl/libcrypto symbols via tls_dlsym
+# (e.g. SSL_CTX_set_alpn_protos for ALPN negotiation, custom
+# verify cb, mTLS cert load). Set by _tls_init when dlopen
+# succeeds; 0 means tls_dlsym returns 0.
+var _tls_libssl_handle = 0;
+
 # Function pointers resolved from libssl/libcrypto
 var _fn_TLS_client_method = 0;
 var _fn_SSL_CTX_new = 0;
@@ -102,6 +109,7 @@ fn _tls_init() {
     if (hc == 0) { return 0; }
     var h = fncall2(fn_dlopen, "libssl.so.3", 0x102);
     if (h  == 0) { return 0; }
+    _tls_libssl_handle = h;
 
     # Resolve symbols via real glibc dlsym, handle-scoped to libssl.
     # SSL_* + TLS_* live in libssl; libcrypto's symbols are also
@@ -141,9 +149,44 @@ fn tls_available() {
     return _tls_ok;
 }
 
-# Wrap an already-connected TCP socket in a TLS session.
-# SNI set from host. System CAs used for peer verification.
-fn tls_connect(sock, host) {
+# v5.6.40: resolve a libssl/libcrypto symbol by name via the
+# fdlopen-managed libssl handle. Lets consumers (e.g. sandhi's
+# `tls_policy/alpn.cyr`) call SSL_CTX_set_alpn_protos /
+# SSL_get0_alpn_selected / any other libssl symbol the stdlib
+# doesn't pre-resolve, without re-implementing the fdlopen
+# bootstrap. Returns 0 if _tls_init hasn't run successfully OR
+# the symbol isn't in libssl/libcrypto (RTLD_GLOBAL means
+# libcrypto symbols ARE visible via the libssl handle's search
+# under v5.6.37's loader setup).
+fn tls_dlsym(name) {
+    _tls_init();
+    if (_tls_ok == 0) { return 0; }
+    if (_tls_libssl_handle == 0) { return 0; }
+    var fn_dlsym = fdlopen_dlsym(&_tls_fdl_state);
+    if (fn_dlsym == 0) { return 0; }
+    return fncall2(fn_dlsym, _tls_libssl_handle, name);
+}
+
+# v5.6.40: wrap an already-connected TCP socket in a TLS session
+# with a caller-supplied SSL_CTX hook. The hook fires AFTER
+# SSL_CTX_new + the standard verify-path defaults, BEFORE SSL_new
+# / SSL_connect. Consumers use this to call any SSL_CTX_set_*
+# customisation: ALPN advertise (`SSL_CTX_set_alpn_protos`),
+# custom verify callback, mTLS cert/key load, alternative trust
+# store, OPENSSL_INIT options, etc.
+#
+# Hook signature: `hook_fp(hook_ctx, ssl_ctx) -> int` — non-zero
+# return aborts the connection (frees ssl_ctx and returns 0
+# from tls_connect_with_ctx_hook). hook_ctx is opaque consumer
+# state pointer; pass 0 if unused. Pass `hook_fp = 0` to skip
+# the hook entirely (matches the pre-v5.6.40 `tls_connect`
+# behavior; that function is now a 1-line wrapper).
+#
+# Filed by sandhi 2026-04-24 in
+# `sandhi/docs/issues/2026-04-24-stdlib-tls-alpn-hook.md`,
+# Option A (function-pointer hook — least invasive, most
+# flexible).
+fn tls_connect_with_ctx_hook(sock, host, hook_fp, hook_ctx) {
     _tls_init();
     if (_tls_ok == 0) { return 0; }
 
@@ -161,6 +204,18 @@ fn tls_connect(sock, host) {
     # Enable peer certificate verification
     if (_fn_SSL_CTX_set_verify != 0) {
         fncall3(_fn_SSL_CTX_set_verify, ssl_ctx, SSL_VERIFY_PEER, 0);
+    }
+
+    # v5.6.40 hook point — runs on the bare SSL_CTX with stdlib
+    # defaults already applied. Consumer can override defaults
+    # (re-call SSL_CTX_set_verify with different flags) or layer
+    # additional config (ALPN, mTLS, custom trust store).
+    if (hook_fp != 0) {
+        var hook_rc = fncall2(hook_fp, hook_ctx, ssl_ctx);
+        if (hook_rc != 0) {
+            fncall1(_fn_SSL_CTX_free, ssl_ctx);
+            return 0;
+        }
     }
 
     var ssl = fncall1(_fn_SSL_new, ssl_ctx);
@@ -189,6 +244,15 @@ fn tls_connect(sock, host) {
     store64(ctx + 8, ssl);
     store64(ctx + 16, sock);
     return ctx;
+}
+
+# Wrap an already-connected TCP socket in a TLS session.
+# SNI set from host. System CAs used for peer verification.
+# v5.6.40: thin wrapper around tls_connect_with_ctx_hook with a
+# null hook (no SSL_CTX customisation). Existing consumers see
+# byte-identical behavior; this signature is preserved.
+fn tls_connect(sock, host) {
+    return tls_connect_with_ctx_hook(sock, host, 0, 0);
 }
 
 # Write through TLS session
