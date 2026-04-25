@@ -128,7 +128,7 @@ fn PARSE_FIELD_LOAD(S, noff) {
         ECALLPOPS(S, argc);
         var mfi = FINDFN(S, mname);
         if (mfi < 0) { mfi = REGFN(S, mname); }
-        var mfoff = L64(S + 0xF92000 + mfi * 8);
+        var mfoff = L64(S + 0x1092000 + mfi * 8);
         if (mfoff >= 0) { ECALLTO(S, mfoff); }
         else { ECALLFIX(S, mfi); }
         ECALLCLEAN(S, argc);
@@ -740,7 +740,7 @@ fn PARSE_VAR(S) {
         if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
         STI(S, GTI(S) + 1);                         # consume ')'
         ECALLPOPS(S, asv_argc);
-        var asv_fn_target = L64(S + 0xF92000 + asv_fi * 8);
+        var asv_fn_target = L64(S + 0x1092000 + asv_fi * 8);
         if (asv_fn_target >= 0) { ECALLTO(S, asv_fn_target); }
         else { ECALLFIX(S, asv_fi); }
         ECALLCLEAN(S, asv_argc);

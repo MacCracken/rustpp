@@ -140,15 +140,15 @@ fn FIXUP(S) {
     var fcnt_pre = GFCNT(S);
     var ufi = 0;
     while (ufi < fcnt_pre) {
-        var ufaddr = S + 0x160B000 + ufi * 16;
+        var ufaddr = S + 0x170B000 + ufi * 16;
         var uraw = L64(ufaddr + 8);
         var uftype = uraw >> 56;
         var uidx = uraw & 0x00FFFFFFFFFFFFFF;
         # Type 2 = function call, type 3 = absolute function address
         if (uftype == 2 || uftype == 3) {
-            var utarget = L64(S + 0xF92000 + uidx * 8);
+            var utarget = L64(S + 0x1092000 + uidx * 8);
             if (utarget == 0 - 1) {
-                var ufnoff = L64(S + 0xF8A000 + uidx * 8);
+                var ufnoff = L64(S + 0x108A000 + uidx * 8);
                 syscall(SYS_WRITE, 2, "error: undefined function '", 27);
                 var unptr = S + 0x60000 + ufnoff;
                 var unlen = 0;
@@ -156,7 +156,7 @@ fn FIXUP(S) {
                 syscall(SYS_WRITE, 2, unptr, unlen);
                 syscall(SYS_WRITE, 2, "' (will crash at runtime)\n", 26);
                 # Mark as reported to avoid duplicates
-                S64(S + 0xF92000 + uidx * 8, 0 - 2);
+                S64(S + 0x1092000 + uidx * 8, 0 - 2);
                 undef_count = undef_count + 1;
             }
         }
@@ -179,7 +179,7 @@ fn FIXUP(S) {
         if (symfd >= 0) {
             var sfi = 0;
             while (sfi < sym_fnc) {
-                var foff = L64(S + 0xF92000 + sfi * 8);
+                var foff = L64(S + 0x1092000 + sfi * 8);
                 if (foff >= 0) {
                     var vabuf[20];
                     var va = entry + foff;
@@ -193,7 +193,7 @@ fn FIXUP(S) {
                     }
                     syscall(1, symfd, &vabuf, 16);
                     syscall(1, symfd, " ", 1);
-                    var nptr = S + 0x60000 + L64(S + 0xF8A000 + sfi * 8);
+                    var nptr = S + 0x60000 + L64(S + 0x108A000 + sfi * 8);
                     var nlen = 0;
                     while (load8(nptr + nlen) != 0) { nlen = nlen + 1; }
                     syscall(1, symfd, nptr, nlen);
@@ -209,14 +209,14 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0x160B000 + fi * 16;
+        var faddr = S + 0x170B000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call — patch rel32
-            var target = L64(S + 0xF92000 + idx * 8);
+            var target = L64(S + 0x1092000 + idx * 8);
             # v5.6.29-1: undef-fn sentinel (-1 pre-warn, -2 post-warn). Default
             # non-strict mode lets the binary emit anyway with a "will crash
             # at runtime" message. But the placeholder disp32 resolves to an
@@ -250,9 +250,9 @@ fn FIXUP(S) {
             # PE branch a dozen lines below. Without this the
             # address-of-fn operator (`&fn`) emits an ELF-style VA
             # that Windows rejects with error 216 at load time.
-            var tgt3 = entry + L64(S + 0xF92000 + idx * 8);
+            var tgt3 = entry + L64(S + 0x1092000 + idx * 8);
             if (_TARGET_PE == 1) {
-                tgt3 = 0x140000000 + _pe_text_rva + L64(S + 0xF92000 + idx * 8);
+                tgt3 = 0x140000000 + _pe_text_rva + L64(S + 0x1092000 + idx * 8);
             }
             if (kmode == 2) {
                 var rel3 = tgt3 - (entry + coff + 4);
@@ -318,7 +318,7 @@ fn FIXUP(S) {
     # Building blocks already in place:
     #   0xC4000: fn_start   [fnc]  start offset of each defined fn
     #   0xE0000: fn_end     [fnc]  end offset (GFNE) — recorded by PARSE_FN_DEF
-    #   0xE4A000: fixup_tbl [fcnt] (coff, type|idx) — all calls + addr-of refs
+    #   0xF4A000: fixup_tbl [fcnt] (coff, type|idx) — all calls + addr-of refs
     #
     # Algorithm:
     # 1. For each fixup (type 2 call, type 3 addr-of), classify the source:
@@ -381,7 +381,7 @@ fn FIXUP(S) {
     # Type-3 address-of fixups are still roots.
     var t3i = 0;
     while (t3i < fcnt_pre) {
-        var t3a = S + 0x160B000 + t3i * 16;
+        var t3a = S + 0x170B000 + t3i * 16;
         var t3r = L64(t3a + 8);
         if ((t3r >> 56) == 3) {
             var t3idx = t3r & 0x00FFFFFFFFFFFFFF;
@@ -412,7 +412,7 @@ fn FIXUP(S) {
                     var fnhit = 0 - 1;
                     var fi3 = 0;
                     while (fi3 < fnc) {
-                        if (L64(S + 0xF92000 + fi3 * 8) == tgt) { fnhit = fi3; fi3 = fnc; }
+                        if (L64(S + 0x1092000 + fi3 * 8) == tgt) { fnhit = fi3; fi3 = fnc; }
                         else { fi3 = fi3 + 1; }
                     }
                     if (fnhit >= 0) {
@@ -420,7 +420,7 @@ fn FIXUP(S) {
                         var host = 0 - 1;
                         var fj = 0;
                         while (fj < fnc) {
-                            var fs = L64(S + 0xF92000 + fj * 8);
+                            var fs = L64(S + 0x1092000 + fj * 8);
                             if (fs >= 0) {
                                 var fe = GFNE(S, fj);
                                 if (fe > fs && scn >= fs && scn < fe) {
@@ -449,7 +449,7 @@ fn FIXUP(S) {
         while (pfi < fnc) {
             var phl = load8(&live + (pfi >> 3)) & (1 << (pfi & 7));
             if (phl != 0) {
-                var pfs = L64(S + 0xF92000 + pfi * 8);
+                var pfs = L64(S + 0x1092000 + pfi * 8);
                 var pfe = GFNE(S, pfi);
                 if (pfs >= 0 && pfe > pfs) {
                     var pscn = pfs;
@@ -464,7 +464,7 @@ fn FIXUP(S) {
                                     var phit = 0 - 1;
                                     var pi4 = 0;
                                     while (pi4 < fnc) {
-                                        if (L64(S + 0xF92000 + pi4 * 8) == ptgt) { phit = pi4; pi4 = fnc; }
+                                        if (L64(S + 0x1092000 + pi4 * 8) == ptgt) { phit = pi4; pi4 = fnc; }
                                         else { pi4 = pi4 + 1; }
                                     }
                                     if (phit >= 0) {
@@ -489,7 +489,7 @@ fn FIXUP(S) {
     var dce_bytes = 0;
     var dwi = 0;
     while (dwi < fnc) {
-        var dfoff = L64(S + 0xF92000 + dwi * 8);
+        var dfoff = L64(S + 0x1092000 + dwi * 8);
         if (dfoff >= 0) {
             var is_live = load8(&live + (dwi >> 3)) & (1 << (dwi & 7));
             if (is_live == 0) {
@@ -576,12 +576,12 @@ fn FIXUP(S) {
         # Print individual dead function names
         var dni = 0;
         while (dni < fnc) {
-            var dnoff = L64(S + 0xF92000 + dni * 8);
+            var dnoff = L64(S + 0x1092000 + dni * 8);
             if (dnoff >= 0) {
                 var dn_live = load8(&live + (dni >> 3)) & (1 << (dni & 7));
                 if (dn_live == 0) {
                     syscall(SYS_WRITE, 2, "  dead: ", 8);
-                    PRSTR(S + 0x60000 + L64(S + 0xF8A000 + dni * 8));
+                    PRSTR(S + 0x60000 + L64(S + 0x108A000 + dni * 8));
                     syscall(SYS_WRITE, 2, "\n", 1);
                 }
             }
@@ -667,10 +667,10 @@ fn EMITELF_USER(S, etype) {
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
-    if (filesz > 1048576) {
+    if (filesz > 2097152) {
         syscall(SYS_WRITE, 2, "error: output too large (", 25);
         PRNUM(filesz);
-        syscall(SYS_WRITE, 2, "/1048576 bytes)\n  code: ", 23);
+        syscall(SYS_WRITE, 2, "/2097152 bytes)\n  code: ", 23);
         PRNUM(cp);
         syscall(SYS_WRITE, 2, " data: ", 7);
         PRNUM(totvar);
@@ -819,8 +819,8 @@ fn EMITELF_SHARED(S) {
     var nsyms = 0;
     var fi = 0;
     while (fi < fnc) {
-        var fo = L64(S + 0xF92000 + fi * 8);
-        var noff = L64(S + 0xF8A000 + fi * 8);
+        var fo = L64(S + 0x1092000 + fi * 8);
+        var noff = L64(S + 0x108A000 + fi * 8);
         var np = S + 0x60000 + noff;
         if (fo >= 0 && load8(np) != 95) {
             # Defined, not underscore-prefixed.
@@ -853,7 +853,7 @@ fn EMITELF_SHARED(S) {
     var filesz = dynamic_off + dynamic_size;
     filesz = (filesz + 7) & (0 - 8);
     var memsz = filesz + 4096;
-    if (filesz > 1048576) {
+    if (filesz > 2097152) {
         syscall(SYS_WRITE, 2, "error: .so output too large\n", 28);
         syscall(SYS_EXIT, 1);
     }
@@ -920,8 +920,8 @@ fn EMITELF_SHARED(S) {
     var str_cursor = 1;                # running offset within .dynstr
     fi = 0;
     while (fi < fnc) {
-        var fo2 = L64(S + 0xF92000 + fi * 8);
-        var noff2 = L64(S + 0xF8A000 + fi * 8);
+        var fo2 = L64(S + 0x1092000 + fi * 8);
+        var noff2 = L64(S + 0x108A000 + fi * 8);
         var np2 = S + 0x60000 + noff2;
         if (fo2 >= 0 && load8(np2) != 95) {
             # st_name = str_cursor (offset into .dynstr)
@@ -1071,7 +1071,7 @@ fn EMITELF_OBJ(S) {
     var fi = 0;
     while (fi < fnc) {
         S64(fn_strtab_off + fi * 8, sp);
-        var noff = L64(S + 0xF8A000 + fi * 8);
+        var noff = L64(S + 0x108A000 + fi * 8);
         var np = S + 0x60000 + noff;
         si = 0;
         while (load8(np + si) != 0) { store8(strtab + sp, load8(np + si)); sp = sp + 1; si = si + 1; }
@@ -1125,7 +1125,7 @@ fn EMITELF_OBJ(S) {
         # them as if they were in .text at offset 0 made the linker see
         # false duplicate-strong definitions when two objects referenced
         # the same extern. Fixed in 4.6.0 alpha2.
-        var foff = L64(S + 0xF92000 + fi * 8);
+        var foff = L64(S + 0x1092000 + fi * 8);
         if (foff < 0) {
             store8(symp + 6, 0); store8(symp + 7, 0);   # st_shndx = SHN_UNDEF
             S64(symp + 8, 0);                           # st_value = 0
@@ -1184,7 +1184,7 @@ fn EMITELF_OBJ(S) {
 
     fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0x160B000 + fi * 16;
+        var faddr = S + 0x170B000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
@@ -1254,7 +1254,7 @@ fn EMITELF_OBJ(S) {
     var num_shdrs = 7;  # null + .text + .data + .rodata + .symtab + .strtab + .rela.text
     var total_size = shdr_off + num_shdrs * 64;
 
-    if (total_size > 1048576) {
+    if (total_size > 2097152) {
         syscall(SYS_WRITE, 2, "error: .o output too large\n", 27);
         syscall(SYS_EXIT, 1);
     }

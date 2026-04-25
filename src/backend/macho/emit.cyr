@@ -91,10 +91,10 @@ fn EMITMACHO_EXEC(S) {
     var seg_vmsz = (seg_filesz + PAGE - 1) & (0 - PAGE);
 
     # Size check
-    if (content_sz > 1048576) {
+    if (content_sz > 2097152) {
         syscall(SYS_WRITE, 2, "error: Mach-O output too large (", 32);
         PRNUM(content_sz);
-        syscall(SYS_WRITE, 2, "/1048576)\n", 10);
+        syscall(SYS_WRITE, 2, "/2097152)\n", 10);
         syscall(SYS_EXIT, 1);
     }
 

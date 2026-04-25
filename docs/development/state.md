@@ -5,23 +5,25 @@
 
 ## Version
 
-**5.6.42** (shipped — compiler-side closeout, second of three
-v5.6.x closeout slots. PP_HASH/PP_DEFINE/PP_DEFINED/PP_GETVAL/
-PP_EVAL_IF threaded `src_base` parameter, closing the latent
-v5.6.30 same-class bug (PP_IFDEF_PASS reads past 524288 B copy-back
-boundary land in stale heap; v5.6.30 fixed PP_DERIVE_*, this
-fixes the rest). New gate `regression-macho-cross-build.sh`
-trips if main_aarch64_macho.cyr's ir.cyr include drifts again.
-Cleanup sweep: heap-map brk comments updated to 0x168B000 /
-22.5 MB. Active minor: v5.6.x — final patch v5.6.43)
+**5.6.43** (shipped — LAST patch of v5.6.x. Closeout finish
+(CLAUDE.md "Closeout Pass" steps 9-11) + sigil 2.9.0 → 2.9.3 +
+sankoch 2.0.3 → 2.1.0 dep bumps + output_buf 1MB → 2MB heap
+reshuffle (16-region shift
++1MB; brk 22.5MB → 23.5MB) + heap-map fix-through across the 4
+main_*.cyr files (stale fixup_tbl docs corrected; 0xA0000
+documented as v5.6.27 codebuf-compaction tables not fixup_tbl)
++ vidya per-minor refresh (language/dependencies/ecosystem).
+Sigil 2.9.3 brings AES-NI + SHA-NI compress (~80x SHA-NI
+throughput win on hosts with hw support). v5.6.x closes;
+v5.7.0 sandhi-fold is next.)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,888 B** (was 531,776 at v5.6.41;
-  +112 B for the additional `src_base` parameter in 5 PP
-  helpers + 10 callsite updates). `cc5 --version` reports
-  `cc5 5.6.42`.
-- **cc5_win (cross)**: 526,856 B (was 526,760 at v5.6.41; +96 B same)
+- **cc5 (x86_64)**: **531,888 B** (unchanged from v5.6.42 —
+  heap shifts are address constants emitted as 32-bit
+  immediates; byte counts preserved). `cc5 --version` reports
+  `cc5 5.6.43`.
+- **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
   had been orphaned since v5.6.12 O3a shipped the IR instrumentation
@@ -84,6 +86,38 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.43** — closeout finish + sigil 2.9.0 → 2.9.3 + sankoch
+  2.0.3 → 2.1.0 + output_buf 1MB → 2MB heap reshuffle. CLAUDE.md "Closeout Pass" steps 9-11
+  ran clean: security re-scan (no new sys_system / unchecked
+  READFILE / new execve paths; full audit due v5.7.x — last v5.0.1),
+  downstream pin matrix snapshotted across 16 ecosystem repos
+  (older-minor pins enumerated as v5.7.0 sandhi-fold worklist),
+  vidya refreshed (language.toml / dependencies.toml /
+  ecosystem.toml — version refs, patra 1.6.0 → 1.8.3 details,
+  sigil 2.9.0 → 2.9.3 details, ALPN hook surface mention).
+  Sigil 2.9.3 = AES-NI dispatch + SHA-NI compress (drop-in
+  software-SHA-256 replacement, ~80x throughput win on x86_64
+  SHA-NI hosts; surfaced by sit v0.6.4 perf review). Bump
+  required adding `lib/fdlopen.cyr` / `lib/ct.cyr` /
+  `lib/sha1.cyr` / `lib/keccak.cyr` includes to the 3
+  "include-everything" test fixtures (transitive deps from
+  sigil's new symbols). Resulting compiled-fixture size crossed
+  the 1MB output_buf cap → reshuffle: output_buf 1MB → 2MB,
+  16 regions shifted +1MB (tok_types/values/lines, struct
+  ftypes/fnames, fn_names band, ir_nodes/blocks/state/edges/cp,
+  fixup_tbl), brk 22.5MB → 23.5MB. Cap-check sites at 4
+  EMITELF/macho overflow points updated 1048576 → 2097152.
+  Heap-map fix-through caught stale `0xA0000 fixup_tbl` docs in
+  4 main_*.cyr files (region was repurposed at v5.6.27 to
+  jump_src_tbl for codebuf compaction; docs were 16 patches
+  stale). cc5 byte-identical at 531,888 B (heap shifts are
+  immediates, no byte-count change). check.sh **26/26 PASS**
+  with the previously-failing 3 fixtures (large_input,
+  large_source, preprocessor_past_cap) now compiling to
+  ~1.08MB ELF and running cleanly. **v5.6.x closes here**;
+  v5.7.0 (sandhi fold + lib/ cleanup) is next. Pinned for
+  v5.7.x: `cyrius deps` transitive resolution, full security
+  audit, downstream pin sweep before fold opens.
 - **v5.6.42** — compiler-side closeout (CLAUDE.md "Closeout Pass"
   steps 1-8) + bundled PP_DEFINE/PP_DEFINED/PP_GETVAL/PP_EVAL_IF/
   PP_HASH `src_base` hardening (latent v5.6.30 same-class bug

@@ -4,6 +4,218 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.43] — 2026-04-25
+
+**LAST patch of v5.6.x. Closeout finish (CLAUDE.md "Closeout Pass"
+steps 9-11) + sigil 2.9.0 → 2.9.3 dep bump + sankoch 2.0.3 → 2.1.0
+dep bump + output_buf 1MB → 2MB heap reshuffle + heap-map
+fix-through across the 4 main_*.cyr files + vidya per-minor refresh.**
+
+### Step 9 — Security re-scan
+
+Quick grep for new vulnerable patterns since v5.5.x:
+- No new `sys_system` / `system()` callers ✓
+- READFILE callers (3 in lex_pp.cyr, 1 in bridge.cyr): all bound
+  by `2097152 - op` arithmetic (or equivalent) ✓
+- `store8` near codebuf boundary already bounded by the cap-check
+  at the top of EB ✓
+- No new `execve` paths ✓
+
+Note: full security audit was last at v5.0.1. v5.0.1 → v5.6.43
+spans 6 minors — full audit is **due** for v5.7.x or v6.0.0
+closeout. This re-scan was the quick-form per CLAUDE.md
+"Compliance / external" section.
+
+### Step 10 — Downstream dep-pointer matrix
+
+Snapshot of every ecosystem repo's `cyrius.cyml [package].cyrius`
+pin at the time of this closeout (16 repos checked):
+
+| Repo | Pin | Status |
+|------|-----|--------|
+| sandhi | 5.6.41 | Recent (1 patch behind) |
+| sigil | 5.6.42 | Current (this slot's release-1) |
+| patra | 5.6.39 | 4 patches behind |
+| sakshi | 5.5.11 | OLDER MINOR |
+| yukti | 5.5.11 | OLDER MINOR |
+| mabda | 5.6.13 | 30 patches behind |
+| sankoch | 5.6.42 | Current (sankoch bump in process per user) |
+| sit | 5.6.40 | 3 patches behind |
+| ark | 5.1.10 | OLDER MINOR (5 minors behind) |
+| nous | 5.1.7 | OLDER MINOR |
+| phylax | 5.1.12 | OLDER MINOR |
+| shakti | 5.4.17 | OLDER MINOR |
+| takumi | 5.5.23 | OLDER MINOR |
+| majra | 5.4.17 | OLDER MINOR |
+| libro | 5.4.7 | OLDER MINOR |
+
+Action: per-repo bump to v5.6.43 is the consumer's responsibility;
+this closeout slot ships the artifact. Older-minor repos
+(sakshi/yukti/sit-companions) are the v5.7.0 sandhi-fold's
+worklist; they need to bump before the fold opens or they ship
+broken against a fold that assumes the v5.6.40 ALPN hook surface.
+
+### Step 11 — Vidya per-minor refresh
+
+Updated to reflect v5.6.26 → v5.6.43:
+- `vidya/content/cyrius/language.toml`: overview entry
+  (compiler-size, version, gate count, .tcyr file count, brk
+  address, heap-map total). Added `lib/tls.cyr` ALPN/mTLS hook
+  surface (v5.6.40), patra 1.8.3 dep notes.
+- `vidya/content/cyrius/dependencies.toml`: patra 1.6.0 → 1.8.3
+  (INSERT OR IGNORE / STR-keyed indexes / page-slab / prepared
+  statements); sigil 2.9.0 → 2.9.3 (AES-NI + SHA-NI dispatch +
+  compress).
+- `vidya/content/cyrius/ecosystem.toml`: sigil 2.9.3 details +
+  patra 1.8.3 details + cyrius v5.6.43 reference.
+- `vidya/content/cyrius/field_notes/compiler.toml`: kept (v5.6.39
+  + v5.6.40 entries already there from prior closeouts;
+  v5.6.41/42/43 don't surface new gotchas).
+
+### Sankoch 2.0.3 → 2.1.0 dep bump
+
+DEFLATE compress perf — three stacked wins on the throughput
+investigation surfaced by sit v0.6.4: pre-reversed dynamic
+Huffman codes, 8-byte word-compare match extension, and
+ring-buffer (absolute-position) match-finder. Plus a doc
+staleness sweep aligning all live docs to current
+source/test/fuzz/distlib counts. **No public API change**;
+wire-format byte-for-byte identical to 2.0.3 across the full
+bench matrix. Bumped cleanly: no new stdlib-include
+dependencies surfaced; check.sh stayed 26/26.
+
+### Sigil 2.9.0 → 2.9.3 dep bump
+
+Sigil 2.9.0 → 2.9.3 brings:
+- 2.9.1: AES-NI runtime dispatch live (after cyrius v5.5.21's
+  16-byte array-global alignment fix shipped).
+- 2.9.2: SHA-NI CPUID probe + dispatch entry point staged.
+- 2.9.3: SHA-NI compress landed — drop-in replacement for the
+  software SHA-256 path. ~80x throughput win on x86_64 SHA-NI
+  hosts. Surfaced by sit v0.6.4's perf review.
+
+Sigil 2.9.3's `dist/sigil.cyr` references new symbols
+(`fdlopen_helper_available`, `fdlopen_init_full`,
+`fdlopen_dlopen`, `fdlopen_dlsym`, `ct_select`, `_keccak_absorb`,
+`_keccak_f1600`, `shake256`) that aren't all in cyrius's "core"
+stdlib — they live in `lib/fdlopen.cyr`, `lib/ct.cyr`,
+`lib/sha1.cyr`, `lib/keccak.cyr`. Cyrius's "include everything"
+test fixtures (`large_input.tcyr`, `large_source.tcyr`,
+`preprocessor_past_cap.tcyr`) gained these 4 new includes.
+
+### output_buf 1 MB → 2 MB heap reshuffle
+
+After adding the sigil-required stdlib includes, the test
+fixtures' compiled ELF crossed the existing 1 MB output_buf
+cap (cc5's emit hit `error: output too large (1077664/1048576
+bytes)`). Same shape as v5.6.40's preprocess_out problem — the
+right fix is to grow the cap, not trim the language. Per
+`feedback_grow_compiler_to_fit_language`: the compiler grows
+to fit the language, never the other way around.
+
+#### New heap map (regions that moved)
+
+```
+0x44A000 preprocess_out [2097152]   — UNCHANGED (v5.6.40)
+0x64A000 codebuf        [1048576]   — UNCHANGED
+0x74A000 output_buf     [2097152]   — 2 MB (was 1 MB)
+0x94A000 tok_types      [2097152]   — was 0x84A000
+0xB4A000 tok_values     [2097152]   — was 0xA4A000
+0xD4A000 tok_lines      [2097152]   — was 0xC4A000
+0xF4A000 struct_ftypes  [16384]     — was 0xE4A000
+0xFCA000 struct_fnames  [16384]     — was 0xECA000
+0x104A000 (legacy fixup gap)        — was 0xF4A000
+0x108A000 fn_names band  (256 KB)   — was 0xF8A000
+0x10CA000 ir_nodes      [4194304]   — was 0xFCA000
+0x14CA000 ir_blocks     [1048576]   — was 0x13CA000
+0x15CA000 ir_state      [4096]      — was 0x14CA000
+0x15CB000 ir_edges      [262144]    — was 0x14CB000
+0x160B000 ir_cp         [1048576]   — was 0x150B000
+0x170B000 fixup_tbl     [524288]    — was 0x160B000
+0x178B000 brk           (23.5 MB)   — was 0x168B000 (22.5 MB)
+```
+
+21 substitutions applied top-down to avoid sed collisions
+(same disambiguation discipline as v5.6.40). Cap-check sites
+in `backend/x86/fixup.cyr` (3 sites: EMITELF_USER, EMITELF_SHARED,
+EMITELF_OBJ) and `backend/macho/emit.cyr` (1 site) updated
+1048576 → 2097152.
+
+### Heap-map fix-through (judgment-pass step 4 redo from v5.6.42)
+
+v5.6.42's heap-map audit was cursory; v5.6.43 actually fixes
+the dirt:
+- 4 main_*.cyr files (`main_aarch64.cyr`,
+  `main_aarch64_native.cyr`, `main_aarch64_macho.cyr`,
+  `main_win.cyr`) documented `0xA0000 fixup_tbl [131072]`.
+  v5.6.27 repurposed `0xA0000` for `jump_src_tbl` (codebuf
+  compaction) — the heap-map docs were 16 patches stale.
+  Updated to `0xA0000 jump_src + nop_run + fn_start_fcnt
+  (v5.6.27)`.
+- Same files documented `0xF4A000 fixup_tbl [131072] / 16384
+  fixup entries × 8 bytes`. v5.5.37 retired the old fixup_tbl
+  slot to 0x150B000 (later 0x170B000 after v5.6.43); the
+  16384-entry × 8B sizing was the v5.5.36 layout. Updated to
+  match main.cyr: `0xF4A000 (legacy fixup-table slot — retired
+  v5.5.37; 256 KB gap)`. (Then v5.6.43 reshuffle moved this to
+  `0x104A000`.)
+- main_win.cyr line 82 had `at 0xF4A000 × 16 B ×` — stale
+  fixup_tbl reference. Updated to current `0x170B000`.
+
+### Acceptance
+
+- 3-step self-host fixpoint (`cc5_a → cc5_b → cc5_c → cc5_d`)
+  byte-identical at **531,888 B** (no change from v5.6.42 —
+  heap shifts are address constants emitted as 32-bit
+  immediates; byte counts preserved).
+- `sh scripts/check.sh`: **26/26 PASS** with sigil 2.9.3 +
+  output_buf cap raised. The 3 fixtures that overflowed
+  (`large_input.tcyr` 1,083,040 B, `large_source.tcyr`
+  1,083,472 B, `preprocessor_past_cap.tcyr` 1,076,816 B)
+  all run cleanly under the new 2 MB cap.
+- Cross-builds: cc5_aarch64 411,616 B, cc5_win_cross
+  526,856 B, cc5_aarch64_macho_cross 411,040 B — all rebuild.
+
+### Files
+
+- `cyrius.cyml`: sigil tag 2.9.0 → 2.9.3, sankoch tag 2.0.3 → 2.1.0.
+- `src/main.cyr`, `src/main_aarch64.cyr`,
+  `src/main_aarch64_native.cyr`, `src/main_aarch64_macho.cyr`,
+  `src/main_win.cyr`: heap-map docs updated (output_buf size,
+  brk total, region addresses); brk syscall args
+  0x168B000 → 0x178B000; ir_state init offsets 0x14CA0xx →
+  0x15CA0xx.
+- `src/frontend/parse_*.cyr`, `src/frontend/lex.cyr`,
+  `src/frontend/lex_pp.cyr`, `src/common/ir.cyr`: all heap
+  offsets shifted +1 MB for regions ≥ 0x84A000.
+- `src/backend/x86/{emit,fixup,jump}.cyr`,
+  `src/backend/aarch64/{emit,fixup,jump}.cyr`,
+  `src/backend/macho/emit.cyr`, `src/backend/pe/emit.cyr`:
+  same offset shifts + 4 cap checks (1048576 → 2097152).
+- `tests/tcyr/large_input.tcyr`, `tests/tcyr/large_source.tcyr`,
+  `tests/tcyr/preprocessor_past_cap.tcyr`: added
+  `lib/fdlopen.cyr`, `lib/ct.cyr`, `lib/sha1.cyr`,
+  `lib/keccak.cyr` includes (sigil 2.9.3 transitive deps).
+- `vidya/content/cyrius/{language,dependencies,ecosystem}.toml`:
+  per-minor refresh.
+- `VERSION`: 5.6.42 → 5.6.43.
+
+### Closes v5.6.x
+
+v5.6.x ran from v5.6.0 (parse.cyr arch-guard, 2026-04-13) to
+v5.6.43 (this closeout, 2026-04-25). 44 patches over 12 days.
+v5.7.0 (sandhi fold + lib/ cleanup) is the next gate.
+
+Pinned-but-not-yet-landed for v5.7.x:
+- `cyrius deps` transitive resolution (sit-surfaced 2026-04-23,
+  sakshi-surfaced).
+- Full security audit (last v5.0.1; due per CLAUDE.md
+  "every 2-3 minors").
+- Downstream pin sweep — older-minor repos (sakshi 5.5.11,
+  yukti 5.5.11, ark 5.1.10, nous 5.1.7, phylax 5.1.12,
+  shakti 5.4.17, takumi 5.5.23, majra 5.4.17, libro 5.4.7)
+  must bump to v5.6.43 before sandhi fold opens.
+
 ## [5.6.42] — 2026-04-25
 
 **Compiler-side closeout (steps 1-8 of CLAUDE.md "Closeout Pass")
