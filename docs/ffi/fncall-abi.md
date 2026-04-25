@@ -120,11 +120,50 @@ aarch64, that would be a v6.0.0-class ABI break (symmetric to the
 
 ---
 
+## SysV 16-byte stack alignment for odd-stack-arg callers (v5.6.41)
+
+A separate calling-convention nuance, not specific to `fncallN`
+but relevant to anyone reading this file: SysV requires
+`%rsp + 8` to be 16-aligned at function entry. For cyrius
+functions whose own param list takes more than 6 args, the 7th+
+arg goes on the stack — and for **odd** stack-arg counts (7, 9,
+11 params), the caller-side push sequence leaves rsp 8-aligned
+at the CALL site, which violates the ABI.
+
+Pre-v5.6.41, `ECALLPOPS`'s SysV path emitted `add rsp, 48` to
+drop the 6 reg-arg slots regardless of N's parity. For odd
+nextra (N - 6), this left rsp at `R - nextra*8` = 8-aligned
+(mod 16), and the violation propagated through every CALL
+inside the body until something downstream used SSE on a
+stack-saved value (most libssl / libc prologs) and SIGSEGV'd
+at its first instruction.
+
+**Fix shipped v5.6.41**: for odd nextra, ECALLPOPS shifts the
+step-2 writes from `[rsp + (6+i)*8]` to `[rsp + (5+i)*8]` and
+uses `add rsp, 40` instead of `add rsp, 48`. This drops one
+fewer reg-arg slot, leaves the stack args at the same
+`[rbp+16]`-relative offsets in the callee, and lands rsp
+16-aligned at the CALL site. `ECALLCLEAN` releases the
+corresponding 8 bytes of alignment padding.
+
+Acceptance: `tests/tcyr/sysv_odd_stack_args.tcyr` (5
+assertions covering callers with 7/8/9/10/11 params hitting an
+SSE-using leaf) was added as the regression gate.
+Sandhi-filed: `sandhi/docs/issues/2026-04-25-cyrius-7arg-frame-tls-connect-segfault.md`.
+
+The Win64 path was already correct — it had the symmetric
+alignment branch via `if ((framesize & 15) != 0) framesize+=8`
+in `ECALLPOPS`.
+
+---
+
 ## See also
 
 - `struct-packing.md` — canonical C-shim pattern with worked examples.
 - `lib/fnptr.cyr` — header comment summarises this table.
 - `tests/tcyr/fncall_ceiling.tcyr` — correctness regression for
   all `fncall0..fncall8` on both arches.
+- `tests/tcyr/sysv_odd_stack_args.tcyr` — v5.6.41 SysV
+  alignment regression gate.
 - mabda's `docs/issues/2026-04-19-fncall6-wgpu-crash-resolution.md`
   — concrete case study of the struct-by-value failure mode.

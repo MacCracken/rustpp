@@ -1,6 +1,10 @@
 # Cyrius Compiler Benchmarks
 
-Baseline measurements for the v5.6.x optimization arc (v5.6.5–v5.6.11).
+Baseline measurements for the v5.6.x optimization arc (v5.6.5–v5.6.27).
+v5.6.x closed at v5.6.43 (2026-04-25). Numbers below cover the
+optimization arc; post-arc patches (v5.6.28–v5.6.43) tracked
+correctness fixes, dep bumps, and heap-map reshuffles rather
+than codegen perf, so they don't change the perf table.
 Numbers gathered with `CYRIUS_PROF=1` in-compiler timing (monotonic
 clock via `clock_gettime(CLOCK_MONOTONIC)` — syscall 228 on Linux
 x86_64, 113 on Linux aarch64) and cross-checked with shell `time`.
