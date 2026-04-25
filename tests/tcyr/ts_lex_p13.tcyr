@@ -1,0 +1,285 @@
+# v5.7.2 P1.3 — TS lexer regression for multi-char operators.
+#
+# Includes the orphan src/frontend/ts/lex.cyr (not yet wired into
+# main.cyr; that's P1.6) and exercises the multi-char dispatch via
+# the new TS_LEX_OP_* helpers.
+#
+# Coverage:
+#   - 2-char ops: ==, !=, <=, >=, <<, >>, &&, ||, ??, ?., **,
+#     =>, ++, --, +=, -=, *=, /=, %=, &=, |=, ^=
+#   - 3-char ops: ===, !==, <<=, >>=, >>>, **=, &&=, ||=, ??=, ...
+#   - 4-char ops: >>>=
+#   - longest-match correctness (=== not == + =, >>>= not >>= + =, etc.)
+#   - error path: .. without third dot
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+fn test_lex(src) {
+    return TS_LEX(ts_base, src, strlen(src));
+}
+
+fn assert_tok(idx, expected_typ, name) {
+    assert_eq(TS_PEEKT(ts_base, idx), expected_typ, name);
+    return 0;
+}
+
+# ─── 2-char equality + comparison ────────────────────────────────
+test_group("2-char equality/comparison");
+
+var n = test_lex("== != <= >=");
+assert_eq(n, 5, "== != <= >= (4 toks + EOF)");
+assert_tok(0, TS_TOK_EQ_EQ,    "==");
+assert_tok(1, TS_TOK_BANG_EQ,  "!=");
+assert_tok(2, TS_TOK_LT_EQ,    "<=");
+assert_tok(3, TS_TOK_GT_EQ,    ">=");
+assert_tok(4, TS_TOK_EOF,      "EOF");
+
+# ─── 3-char strict equality ──────────────────────────────────────
+test_group("3-char strict equality");
+
+n = test_lex("=== !==");
+assert_eq(n, 3, "=== !== (2 toks + EOF)");
+assert_tok(0, TS_TOK_EQ_EQ_EQ,   "===");
+assert_tok(1, TS_TOK_BANG_EQ_EQ, "!==");
+
+# Longest-match — === must not be == + =
+n = test_lex("===");
+assert_eq(n, 2, "=== alone is one token");
+assert_tok(0, TS_TOK_EQ_EQ_EQ, "=== as single tok");
+
+# Longest-match — !== must not be != + =
+n = test_lex("!==");
+assert_eq(n, 2, "!== alone is one token");
+assert_tok(0, TS_TOK_BANG_EQ_EQ, "!== as single tok");
+
+# == followed by ident (not =) should still parse correctly
+n = test_lex("a == b");
+assert_eq(n, 4, "a == b");
+assert_tok(0, TS_TOK_IDENT,  "a");
+assert_tok(1, TS_TOK_EQ_EQ,  "==");
+assert_tok(2, TS_TOK_IDENT,  "b");
+
+# = followed by something else stays single =
+n = test_lex("a = b");
+assert_eq(n, 4, "a = b");
+assert_tok(0, TS_TOK_IDENT, "a");
+assert_tok(1, TS_TOK_EQ,    "=");
+assert_tok(2, TS_TOK_IDENT, "b");
+
+# ─── shift operators ─────────────────────────────────────────────
+test_group("shift operators");
+
+n = test_lex("<< >>");
+assert_eq(n, 3, "<< >>");
+assert_tok(0, TS_TOK_LT_LT, "<<");
+assert_tok(1, TS_TOK_GT_GT, ">>");
+
+n = test_lex(">>> <<= >>=");
+assert_eq(n, 4, ">>> <<= >>=");
+assert_tok(0, TS_TOK_GT_GT_GT, ">>>");
+assert_tok(1, TS_TOK_LT_LT_EQ, "<<=");
+assert_tok(2, TS_TOK_GT_GT_EQ, ">>=");
+
+n = test_lex(">>>=");
+assert_eq(n, 2, ">>>=");
+assert_tok(0, TS_TOK_GT_GT_GT_EQ, ">>>= as single tok");
+
+# Longest-match: >>> must not be >> + >
+n = test_lex(">>>");
+assert_eq(n, 2, ">>> single tok");
+assert_tok(0, TS_TOK_GT_GT_GT, ">>>");
+
+# Longest-match: >>>= must not be >>> + = or >>= + =
+n = test_lex(">>>=");
+assert_eq(n, 2, ">>>= single tok");
+assert_tok(0, TS_TOK_GT_GT_GT_EQ, ">>>=");
+
+# Border case: >> followed by space then = should be >> then =
+n = test_lex(">> =");
+assert_eq(n, 3, ">> =");
+assert_tok(0, TS_TOK_GT_GT, ">>");
+assert_tok(1, TS_TOK_EQ,    "=");
+
+# ─── logical and nullish ─────────────────────────────────────────
+test_group("logical/nullish");
+
+n = test_lex("&& || ??");
+assert_eq(n, 4, "&& || ??");
+assert_tok(0, TS_TOK_AMP_AMP,   "&&");
+assert_tok(1, TS_TOK_PIPE_PIPE, "||");
+assert_tok(2, TS_TOK_QQ,        "??");
+
+n = test_lex("&&= ||= ??=");
+assert_eq(n, 4, "&&= ||= ??=");
+assert_tok(0, TS_TOK_AMP_AMP_EQ,   "&&=");
+assert_tok(1, TS_TOK_PIPE_PIPE_EQ, "||=");
+assert_tok(2, TS_TOK_QQ_EQ,        "??=");
+
+# Longest-match: &&= must not be && + =
+n = test_lex("&&=");
+assert_tok(0, TS_TOK_AMP_AMP_EQ, "&&= single tok");
+
+n = test_lex("||=");
+assert_tok(0, TS_TOK_PIPE_PIPE_EQ, "||= single tok");
+
+n = test_lex("??=");
+assert_tok(0, TS_TOK_QQ_EQ, "??= single tok");
+
+# ─── optional chaining ───────────────────────────────────────────
+test_group("optional chaining");
+
+n = test_lex("a?.b");
+assert_eq(n, 4, "a?.b");
+assert_tok(0, TS_TOK_IDENT, "a");
+assert_tok(1, TS_TOK_Q_DOT, "?.");
+assert_tok(2, TS_TOK_IDENT, "b");
+
+# ? alone (ternary) should stay TS_TOK_QUESTION
+n = test_lex("a ? b : c");
+assert_eq(n, 6, "a ? b : c");
+assert_tok(0, TS_TOK_IDENT,    "a");
+assert_tok(1, TS_TOK_QUESTION, "?");
+assert_tok(2, TS_TOK_IDENT,    "b");
+assert_tok(3, TS_TOK_COLON,    ":");
+assert_tok(4, TS_TOK_IDENT,    "c");
+
+# ─── arrow + spread + power ──────────────────────────────────────
+test_group("arrow/spread/power");
+
+n = test_lex("=> ... **");
+assert_eq(n, 4, "=> ... **");
+assert_tok(0, TS_TOK_ARROW,     "=>");
+assert_tok(1, TS_TOK_ELLIPSIS,  "...");
+assert_tok(2, TS_TOK_STAR_STAR, "**");
+
+n = test_lex("**=");
+assert_eq(n, 2, "**=");
+assert_tok(0, TS_TOK_STAR_STAR_EQ, "**=");
+
+# Longest-match: ** must not be * + *
+n = test_lex("**");
+assert_tok(0, TS_TOK_STAR_STAR, "** single tok");
+
+# Longest-match: =>  must not be = + >
+n = test_lex("=>");
+assert_eq(n, 2, "=>");
+assert_tok(0, TS_TOK_ARROW, "=> single tok");
+
+# ─── increment / decrement ───────────────────────────────────────
+test_group("inc/dec");
+
+n = test_lex("++ --");
+assert_eq(n, 3, "++ --");
+assert_tok(0, TS_TOK_PLUS_PLUS,   "++");
+assert_tok(1, TS_TOK_MINUS_MINUS, "--");
+
+# Longest-match: ++ not + +
+n = test_lex("++");
+assert_tok(0, TS_TOK_PLUS_PLUS, "++ single tok");
+
+# Border: + + (with space) IS two pluses
+n = test_lex("+ +");
+assert_eq(n, 3, "+ +");
+assert_tok(0, TS_TOK_PLUS, "+ first");
+assert_tok(1, TS_TOK_PLUS, "+ second");
+
+# ─── compound assignment ─────────────────────────────────────────
+test_group("compound assignment");
+
+n = test_lex("+= -= *= /= %=");
+assert_eq(n, 6, "5 arithmetic compound assignments");
+assert_tok(0, TS_TOK_PLUS_EQ,    "+=");
+assert_tok(1, TS_TOK_MINUS_EQ,   "-=");
+assert_tok(2, TS_TOK_STAR_EQ,    "*=");
+assert_tok(3, TS_TOK_SLASH_EQ,   "/=");
+assert_tok(4, TS_TOK_PERCENT_EQ, "%=");
+
+n = test_lex("&= |= ^=");
+assert_eq(n, 4, "3 bitwise compound assignments");
+assert_tok(0, TS_TOK_AMP_EQ,   "&=");
+assert_tok(1, TS_TOK_PIPE_EQ,  "|=");
+assert_tok(2, TS_TOK_CARET_EQ, "^=");
+
+# ─── ellipsis (…) — exactly three dots, two-dot is error ──────────
+test_group("ellipsis edge cases");
+
+n = test_lex("...");
+assert_tok(0, TS_TOK_ELLIPSIS, "... single tok");
+
+# .. should error (TS has no .. operator)
+n = test_lex("..");
+assert_eq(n, 0 - 1, ".. errors");
+assert_eq(TS_GETERR(ts_base), 6, "err code 6 = bad ..");
+
+# Single . is fine (member access)
+n = test_lex("a.b");
+assert_eq(n, 4, "a.b");
+assert_tok(0, TS_TOK_IDENT, "a");
+assert_tok(1, TS_TOK_DOT,   ".");
+assert_tok(2, TS_TOK_IDENT, "b");
+
+# ─── realistic mixed expressions ─────────────────────────────────
+test_group("realistic expressions");
+
+# foo === bar && baz >= 0
+n = test_lex("foo === bar && baz >= 0");
+assert_eq(n, 8, "foo === bar && baz >= 0");
+assert_tok(0, TS_TOK_IDENT,      "foo");
+assert_tok(1, TS_TOK_EQ_EQ_EQ,   "===");
+assert_tok(2, TS_TOK_IDENT,      "bar");
+assert_tok(3, TS_TOK_AMP_AMP,    "&&");
+assert_tok(4, TS_TOK_IDENT,      "baz");
+assert_tok(5, TS_TOK_GT_EQ,      ">=");
+assert_tok(6, TS_TOK_INT,        "0");
+
+# x?.y ?? z
+n = test_lex("x?.y ?? z");
+assert_eq(n, 6, "x?.y ?? z");
+assert_tok(0, TS_TOK_IDENT, "x");
+assert_tok(1, TS_TOK_Q_DOT, "?.");
+assert_tok(2, TS_TOK_IDENT, "y");
+assert_tok(3, TS_TOK_QQ,    "??");
+assert_tok(4, TS_TOK_IDENT, "z");
+
+# arrow function with rest param + spread
+n = test_lex("(...args) => fn(...args)");
+assert_eq(n, 11, "(...args) => fn(...args) (10 toks + EOF)");
+assert_tok(0,  TS_TOK_LPAREN,   "(");
+assert_tok(1,  TS_TOK_ELLIPSIS, "...");
+assert_tok(2,  TS_TOK_IDENT,    "args");
+assert_tok(3,  TS_TOK_RPAREN,   ")");
+assert_tok(4,  TS_TOK_ARROW,    "=>");
+assert_tok(5,  TS_TOK_IDENT,    "fn");
+assert_tok(6,  TS_TOK_LPAREN,   "(");
+assert_tok(7,  TS_TOK_ELLIPSIS, "...");
+assert_tok(8,  TS_TOK_IDENT,    "args");
+assert_tok(9,  TS_TOK_RPAREN,   ")");
+
+# i++ in a for loop
+n = test_lex("for (var i = 0; i < n; i++)");
+assert_eq(n, 15, "for (var i = 0; i < n; i++) (14 toks + EOF)");
+assert_tok(0,  TS_TOK_KW_FOR,    "for");
+assert_tok(1,  TS_TOK_LPAREN,    "(");
+assert_tok(2,  TS_TOK_KW_VAR,    "var");
+assert_tok(3,  TS_TOK_IDENT,     "i");
+assert_tok(4,  TS_TOK_EQ,        "=");
+assert_tok(5,  TS_TOK_INT,       "0");
+assert_tok(6,  TS_TOK_SEMI,      ";");
+assert_tok(7,  TS_TOK_IDENT,     "i");
+assert_tok(8,  TS_TOK_LT,        "<");
+assert_tok(9,  TS_TOK_IDENT,     "n");
+assert_tok(10, TS_TOK_SEMI,      ";");
+assert_tok(11, TS_TOK_IDENT,     "i");
+assert_tok(12, TS_TOK_PLUS_PLUS, "++");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);
