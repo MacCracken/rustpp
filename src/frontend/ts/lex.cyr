@@ -1,0 +1,294 @@
+# ================================================================
+# src/frontend/ts/lex.cyr — TypeScript lexer (cyrius-ts P1)
+# ================================================================
+#
+# v5.7.1 P1.1 SCAFFOLD — token enum + heap region map only.
+# No lexer body yet. P1.2 onward fills in the actual tokenization.
+#
+# Architecture (per docs/development/roadmap.md § v5.7.1):
+#
+#   - Separate heap regions from the .cyr lexer (cleaner, doesn't
+#     couple the two surfaces). TS regions start at 0x178B000
+#     (current cc5 brk) and grow upward; cc5 brk extends when this
+#     module wires into the build.
+#   - Internal dispatch in cc5: `cbt/build.cyr::compile()` detects
+#     `.ts` extension and passes a flag to cc5; cc5 routes to
+#     TS_LEX vs the existing LEX based on the flag. Mirrors the
+#     existing platform-dispatch pattern.
+#   - Same backend chain: TS frontend lowers to the existing IR
+#     (`src/common/ir.cyr`); x86/aarch64/PE/Mach-O backends emit
+#     unchanged.
+#
+# This file is intentionally NOT included by `src/main.cyr` in
+# P1.1 — that wiring lands in P1.6 once the lexer is functional.
+# Keeping it orphan means cc5 self-host stays byte-identical
+# through the early P1 commits.
+#
+# Subset scope (per roadmap § v5.7.1 IN-SCOPE table):
+#
+#   IN  : ECMAScript ES2022 + TS structural type system
+#         + utility types + class OOP + ES modules + template
+#         literals + Map/Set/JSON/RegExp/Date.
+#   OUT : async/await/Promise (defer to v5.7.2), JSX/TSX (defer
+#         to v5.7.2 scope decision), browser APIs (never).
+#   NEVER: conditional/mapped types, infer, satisfies, enum,
+#         namespace, decorators, generators, BigInt,
+#         WeakMap/WeakSet/Symbol, tagged templates.
+#
+# The lexer recognizes async/await as TS_TOK_KW_ASYNC /
+# TS_TOK_KW_AWAIT so v5.7.2 doesn't have to touch lex when async
+# support lands — only parser/typecheck/lower change at that point.
+# JSX-related angle-bracket syntax errors at lex time in v5.7.1
+# (deferred); v5.7.2 makes the JSX scope decision.
+
+# ================================================================
+# Heap region map — TS frontend
+# ================================================================
+#
+# Reserved range: 0x178B000 .. 0x1B8B000 (4 MB initial, grows).
+# Sizes below are P1.1 reservations; refined in P1.2 once real
+# lexer pressure is measured against SY's largest TS file.
+#
+# Offset      Region              Size       Purpose
+# ---------------------------------------------------------------
+# 0x178B000   ts_tok_types        [0x80000]  256K i32 token types
+# 0x180B000   ts_tok_values       [0x100000] 256K i64 token values
+#                                            (offset/length packed,
+#                                             literal pool index, etc.)
+# 0x190B000   ts_tok_lines        [0x80000]  256K i32 source lines
+# 0x198B000   ts_names            [0x80000]  identifier intern table
+# 0x1A0B000   ts_str_pool         [0x80000]  string-literal pool
+#                                            (decoded UTF-8 bytes)
+# 0x1A8B000   ts_name_idx         [0x40000]  hash bucket index for
+#                                            identifier interning
+# 0x1ACB000   ts_template_stack   [0x10000]  multi-state lexer stack
+#                                            for template-literal
+#                                            ${...} interpolation
+#                                            (max nesting: 16K)
+# 0x1ADB000   ts_lex_state        [0x1000]   small scratch — current
+#                                            position, line, last
+#                                            token-class (for
+#                                            regex-vs-divide
+#                                            disambiguation)
+# 0x1ADC000   _reserved           — TS frontend grows from here
+#
+# brk after wire-in (P1.6): 0x1B8B000 (27.5 MB total heap; +4 MB
+# from current 23.5 MB).
+
+var TS_HEAP_BASE          = 0x178B000;
+var TS_TOK_TYPES_OFF      = 0x178B000;   # 0x80000 = 524288 B
+var TS_TOK_VALUES_OFF     = 0x180B000;   # 0x100000 = 1 MB
+var TS_TOK_LINES_OFF      = 0x190B000;   # 0x80000 = 524288 B
+var TS_NAMES_OFF          = 0x198B000;   # 0x80000 = 524288 B
+var TS_STR_POOL_OFF       = 0x1A0B000;   # 0x80000 = 524288 B
+var TS_NAME_IDX_OFF       = 0x1A8B000;   # 0x40000 = 262144 B
+var TS_TEMPLATE_STACK_OFF = 0x1ACB000;   # 0x10000 = 65536 B
+var TS_LEX_STATE_OFF      = 0x1ADB000;   # 0x1000 = 4096 B
+var TS_HEAP_TOP           = 0x1B8B000;   # extends current 0x178B000 brk by 4 MB
+
+# Capacity constants (refined in P1.2 against real SY pressure).
+var TS_TOK_CAP            = 262144;      # 256K tokens — SY largest TS file
+                                         # has ~30K tokens, 8x headroom
+var TS_NAME_BUF_CAP       = 524288;      # 512K bytes for interned identifiers
+var TS_STR_POOL_CAP       = 524288;      # 512K bytes for decoded string literals
+var TS_NAME_IDX_BUCKETS   = 65536;       # 64K buckets, FNV-1a hash
+
+# ================================================================
+# Token type enum — TypeScript
+# ================================================================
+#
+# Sequential numbering. Groups: 0=structural, 1-9=literals,
+# 10-99=operators, 100-199=ECMAScript keywords, 200-249=TS-specific
+# keywords, 250+=reserved/contextual.
+#
+# `as`, `from`, `of`, `get`, `set`, `keyof`, `typeof`, `infer`,
+# `satisfies`, `static`, `readonly`, `abstract`, `async`, `await`,
+# `async`, `declare` are technically *contextual* keywords in TS
+# (legal as identifiers in some positions). Lexer treats them
+# uniformly as keyword tokens; parser handles the contextual
+# disambiguation. This matches TypeScript's own implementation.
+
+# Structural
+var TS_TOK_EOF              = 0;
+var TS_TOK_NEWLINE          = 1;    # significant for ASI (automatic semicolon insertion)
+
+# Literals
+var TS_TOK_IDENT            = 2;
+var TS_TOK_INT              = 3;    # 42, 0x2A, 0o52, 0b101010, 1_000_000
+var TS_TOK_FLOAT            = 4;    # 3.14, 1e10, .5, 1.5e-3
+var TS_TOK_STRING           = 5;    # "..." or '...'
+var TS_TOK_TEMPLATE_NOSUB   = 6;    # `...` with no ${...}
+var TS_TOK_TEMPLATE_HEAD    = 7;    # `... ${
+var TS_TOK_TEMPLATE_MID     = 8;    # } ... ${
+var TS_TOK_TEMPLATE_TAIL    = 9;    # } ...`
+var TS_TOK_REGEX            = 10;   # /foo/g — context-sensitive lex
+
+# Single-char operators / punctuation (11-49)
+var TS_TOK_LPAREN           = 11;   # (
+var TS_TOK_RPAREN           = 12;   # )
+var TS_TOK_LBRACE           = 13;   # {
+var TS_TOK_RBRACE           = 14;   # }
+var TS_TOK_LBRACKET         = 15;   # [
+var TS_TOK_RBRACKET         = 16;   # ]
+var TS_TOK_SEMI             = 17;   # ;
+var TS_TOK_COMMA            = 18;   # ,
+var TS_TOK_DOT              = 19;   # .
+var TS_TOK_COLON            = 20;   # :
+var TS_TOK_QUESTION         = 21;   # ?
+var TS_TOK_PLUS             = 22;   # +
+var TS_TOK_MINUS            = 23;   # -
+var TS_TOK_STAR             = 24;   # *
+var TS_TOK_SLASH            = 25;   # /
+var TS_TOK_PERCENT          = 26;   # %
+var TS_TOK_EQ               = 27;   # =
+var TS_TOK_LT               = 28;   # <
+var TS_TOK_GT               = 29;   # >
+var TS_TOK_BANG             = 30;   # !
+var TS_TOK_AMP              = 31;   # &
+var TS_TOK_PIPE             = 32;   # |
+var TS_TOK_CARET            = 33;   # ^
+var TS_TOK_TILDE            = 34;   # ~
+var TS_TOK_AT               = 35;   # @ (decorator — lexed but rejected in v5.7.1)
+var TS_TOK_HASH             = 36;   # # (private field — lexed but rejected in v5.7.1)
+var TS_TOK_BACKTICK         = 37;   # ` (handled by template-literal lexer; here for completeness)
+
+# Multi-char operators (50-99)
+var TS_TOK_EQ_EQ            = 50;   # ==
+var TS_TOK_EQ_EQ_EQ         = 51;   # ===
+var TS_TOK_BANG_EQ          = 52;   # !=
+var TS_TOK_BANG_EQ_EQ       = 53;   # !==
+var TS_TOK_LT_EQ            = 54;   # <=
+var TS_TOK_GT_EQ            = 55;   # >=
+var TS_TOK_LT_LT            = 56;   # <<
+var TS_TOK_GT_GT            = 57;   # >>
+var TS_TOK_GT_GT_GT         = 58;   # >>> (unsigned right shift)
+var TS_TOK_AMP_AMP          = 59;   # &&
+var TS_TOK_PIPE_PIPE        = 60;   # ||
+var TS_TOK_QQ               = 61;   # ?? (nullish coalescing)
+var TS_TOK_Q_DOT            = 62;   # ?. (optional chaining)
+var TS_TOK_STAR_STAR        = 63;   # **
+var TS_TOK_ARROW            = 64;   # =>
+var TS_TOK_ELLIPSIS         = 65;   # ... (spread/rest)
+var TS_TOK_PLUS_PLUS        = 66;   # ++
+var TS_TOK_MINUS_MINUS      = 67;   # --
+
+# Compound assignment (70-89)
+var TS_TOK_PLUS_EQ          = 70;   # +=
+var TS_TOK_MINUS_EQ         = 71;   # -=
+var TS_TOK_STAR_EQ          = 72;   # *=
+var TS_TOK_SLASH_EQ         = 73;   # /=
+var TS_TOK_PERCENT_EQ       = 74;   # %=
+var TS_TOK_STAR_STAR_EQ     = 75;   # **=
+var TS_TOK_AMP_EQ           = 76;   # &=
+var TS_TOK_PIPE_EQ          = 77;   # |=
+var TS_TOK_CARET_EQ         = 78;   # ^=
+var TS_TOK_LT_LT_EQ         = 79;   # <<=
+var TS_TOK_GT_GT_EQ         = 80;   # >>=
+var TS_TOK_GT_GT_GT_EQ      = 81;   # >>>=
+var TS_TOK_AMP_AMP_EQ       = 82;   # &&=
+var TS_TOK_PIPE_PIPE_EQ     = 83;   # ||=
+var TS_TOK_QQ_EQ            = 84;   # ??=
+
+# ECMAScript keywords (100-199)
+var TS_TOK_KW_VAR           = 100;
+var TS_TOK_KW_LET           = 101;
+var TS_TOK_KW_CONST         = 102;
+var TS_TOK_KW_FUNCTION      = 103;
+var TS_TOK_KW_RETURN        = 104;
+var TS_TOK_KW_IF            = 105;
+var TS_TOK_KW_ELSE          = 106;
+var TS_TOK_KW_FOR           = 107;
+var TS_TOK_KW_WHILE         = 108;
+var TS_TOK_KW_DO            = 109;
+var TS_TOK_KW_BREAK         = 110;
+var TS_TOK_KW_CONTINUE      = 111;
+var TS_TOK_KW_SWITCH        = 112;
+var TS_TOK_KW_CASE          = 113;
+var TS_TOK_KW_DEFAULT       = 114;
+var TS_TOK_KW_THROW         = 115;
+var TS_TOK_KW_TRY           = 116;
+var TS_TOK_KW_CATCH         = 117;
+var TS_TOK_KW_FINALLY       = 118;
+var TS_TOK_KW_NEW           = 119;
+var TS_TOK_KW_DELETE        = 120;
+var TS_TOK_KW_TYPEOF        = 121;
+var TS_TOK_KW_INSTANCEOF    = 122;
+var TS_TOK_KW_IN            = 123;
+var TS_TOK_KW_OF            = 124;     # contextual (for...of)
+var TS_TOK_KW_VOID          = 125;
+var TS_TOK_KW_NULL          = 126;
+var TS_TOK_KW_UNDEFINED     = 127;
+var TS_TOK_KW_TRUE          = 128;
+var TS_TOK_KW_FALSE         = 129;
+var TS_TOK_KW_THIS          = 130;
+var TS_TOK_KW_SUPER         = 131;
+var TS_TOK_KW_CLASS         = 132;
+var TS_TOK_KW_EXTENDS       = 133;
+var TS_TOK_KW_IMPORT        = 134;
+var TS_TOK_KW_EXPORT        = 135;
+var TS_TOK_KW_FROM          = 136;     # contextual (import ... from)
+var TS_TOK_KW_AS            = 137;     # contextual (as type assertion)
+var TS_TOK_KW_ASYNC         = 138;     # recognized in lex; parser rejects in v5.7.1
+var TS_TOK_KW_AWAIT         = 139;     # recognized in lex; parser rejects in v5.7.1
+var TS_TOK_KW_YIELD         = 140;     # NEVER-supported (generators); parser rejects
+
+# TypeScript-specific keywords (200-249)
+var TS_TOK_KW_INTERFACE     = 200;
+var TS_TOK_KW_TYPE          = 201;     # contextual (type alias decl + type-only import)
+var TS_TOK_KW_KEYOF         = 202;
+var TS_TOK_KW_READONLY      = 203;
+var TS_TOK_KW_PRIVATE       = 204;
+var TS_TOK_KW_PROTECTED     = 205;
+var TS_TOK_KW_PUBLIC        = 206;
+var TS_TOK_KW_STATIC        = 207;
+var TS_TOK_KW_ABSTRACT      = 208;     # NOT-SUPPORTED (zero SY usage); parser rejects
+var TS_TOK_KW_IMPLEMENTS    = 209;
+var TS_TOK_KW_DECLARE       = 210;     # ambient decl (lex only; semantics TBD)
+var TS_TOK_KW_NAMESPACE     = 211;     # NEVER-supported; parser rejects
+var TS_TOK_KW_ENUM          = 212;     # NEVER-supported; parser rejects
+var TS_TOK_KW_SATISFIES     = 213;     # NEVER-supported; parser rejects
+var TS_TOK_KW_INFER         = 214;     # NEVER-supported (cond types); parser rejects
+var TS_TOK_KW_GET           = 215;     # contextual (accessor)
+var TS_TOK_KW_SET           = 216;     # contextual (accessor)
+var TS_TOK_KW_OVERRIDE      = 217;     # TS 4.3+; parser rejects unless surfaces
+var TS_TOK_KW_CONSTRUCTOR   = 218;     # contextual
+
+# Reserved future use (250+)
+var TS_TOK_KW_DEBUGGER      = 250;     # ES — lex but reject
+var TS_TOK_KW_WITH          = 251;     # ES — lex but reject (legacy, error in strict)
+var TS_TOK_KW_PACKAGE       = 252;
+var TS_TOK_KW_PROTECTED_RES = 253;     # reserved alias
+
+# ================================================================
+# Lexer state — slot offsets within ts_lex_state region
+# ================================================================
+# Mirrors the .cyr lexer's state pattern (PEEKT/PEEKV/GTI from
+# src/frontend/lex.cyr). All offsets are within S + TS_LEX_STATE_OFF.
+
+var TS_LS_POS               = 0;       # i64 — current byte offset in source
+var TS_LS_LINE              = 8;       # i64 — current line number (1-based)
+var TS_LS_TOK_COUNT         = 16;      # i64 — number of tokens emitted
+var TS_LS_LAST_TOK_CLASS    = 24;      # i64 — for regex/divide disambiguation
+                                       # 0=expr-context (regex allowed)
+                                       # 1=primary-context (divide expected)
+var TS_LS_TEMPLATE_DEPTH    = 32;      # i64 — current template-literal nesting
+                                       # 0=outside template, N=inside ${} at depth N
+var TS_LS_NAME_BUF_USED     = 40;      # i64 — bytes used in TS_NAMES region
+var TS_LS_STR_POOL_USED     = 48;      # i64 — bytes used in TS_STR_POOL region
+
+# ================================================================
+# Forward declaration — TS_LEX entry point (P1.2 implementation)
+# ================================================================
+# Stub returns 0; will be fleshed out in P1.2. Signature mirrors
+# the existing LEX(S) — single arg = base heap pointer S.
+# Returns: token count on success, -1 on error.
+
+fn TS_LEX(S) {
+    # P1.1 SCAFFOLD: stub returns 0. P1.2 will implement actual
+    # tokenization (simple tokens + identifiers + integers +
+    # string literals + single-char operators + keywords).
+    # P1.3 multi-char operators. P1.4 template literals.
+    # P1.5 comments. P1.6 regex disambiguation. P1.7 acceptance
+    # gate (lex SY's largest TS file without panic).
+    return 0;
+}
