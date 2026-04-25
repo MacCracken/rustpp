@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.40.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.41.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the

@@ -4,6 +4,87 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.41] — 2026-04-25
+
+**SysV 16-byte stack alignment for odd-stack-arg call sites — sandhi-blocking
+codegen regression fixed.** Filed by sandhi 2026-04-25
+(`sandhi/docs/issues/2026-04-25-cyrius-7arg-frame-tls-connect-segfault.md`):
+any cyrius function with 7, 9, or 11 formal params calling `tls_connect`
+(or any libssl/libc fn that uses SSE in its prologue) SIGSEGV'd at the
+resolved external symbol's first instruction. Reproducible at v5.6.39
+and v5.6.40.
+
+### Root cause
+
+`ECALLPOPS`'s SysV path (src/backend/x86/emit.cyr:1131) emitted
+`add rsp, 48` after pushing N args, regardless of N's parity. For
+N>6 with odd `nextra = N - 6` (i.e. N=7, 9, 11), this leaves
+`rsp` at `R - nextra*8` = 8-aligned (mod 16) at the CALL site,
+violating the SysV ABI requirement that `rsp+8` is 16-aligned at
+function entry. Any downstream callee whose prologue uses SSE on
+stack-saved values (most libc/libssl fns) faulted at its first
+instruction.
+
+The Win64 path at line 1067-1068 already aligned correctly via
+`if ((framesize & 15) != 0) framesize += 8;`. SysV missed the
+equivalent. Pre-regalloc the bug was masked because cyrius callees
+don't use SSE in their prologues — only when chains crossed into
+extern libssl/libc symbols did the misalignment surface.
+
+### Fix shape
+
+For odd `nextra`, ECALLPOPS now:
+- Shifts step-2 writes from `[rsp + (6+i)*8]` down to `[rsp + (5+i)*8]`
+  (one slot deeper, overwriting the already-loaded `a2` reg-arg slot
+  rather than the `a1` slot — both are harmless since regs are
+  loaded in step 1).
+- Drops 5 reg-arg slots (`add rsp, 40`) instead of 6 (`add rsp, 48`),
+  leaving 8 bytes of alignment padding above the extras.
+
+`ECALLCLEAN` adds the corresponding 8 extra bytes back to restore the
+caller's original `rsp`. Even-`nextra` paths (N=8, 10) are unchanged.
+
+### Acceptance
+
+- New regression test: `tests/tcyr/sysv_odd_stack_args.tcyr` —
+  5 assertions exercising callers with 7, 8, 9, 10, 11 params
+  invoking an SSE-using leaf callee. Wired into the standard
+  `.tcyr` suite.
+- `tests/tcyr/fncall_ceiling.tcyr` — was failing 5/14 in an
+  earlier (incorrect) attempt at this fix; now 14/14 with the
+  layout-preserving form shipped.
+- Sandhi's `_min_repro_7arg_tls.cyr`: 6-arg + 7-arg paths both
+  return valid TLS contexts. End-to-end `tls_connect` from a 7-arg
+  frame works.
+- 3-step self-host fixpoint (`cc5_a → cc5_b → cc5_c → cc5_d`) clean
+  at 531,776 B (+192 B from v5.6.40 for the alignment-aware
+  ECALLPOPS branch).
+- `sh scripts/check.sh`: **25/25 PASS** (new gate added).
+- All cross-compilers rebuild: `cc5_aarch64` 411,520 B,
+  `cc5_win_cross` 526,760 B, `cc5_aarch64_macho_cross` 410,944 B.
+
+### Files
+
+- `src/backend/x86/emit.cyr`: `ECALLPOPS` SysV path + `ECALLCLEAN`
+  SysV path get a `nextra & 1` branch.
+- `tests/tcyr/sysv_odd_stack_args.tcyr` (new): 5-assertion
+  regression gate.
+- `VERSION`: 5.6.40 → 5.6.41.
+
+### Cascade
+
+Closeout work continues to cascade: v5.6.41 is now this slot;
+compiler-side closeout (mechanical + judgment + PP_DEFINE/PP_DEFINED
+hardening) becomes **v5.6.42**; finishing closeout (compliance +
+downstream + sigil 2.9.3 dep bump + docs) becomes **v5.6.43**.
+
+### Sandhi consumer side
+
+Sandhi can now ship live HTTPS through `sandhi_http_get`. Pin
+sandhi's `cyrius.cyml [package].cyrius` to `5.6.41` and the
+`sandhi_conn_open_fully_timed`'s 7-param signature works without
+the struct-pack workaround proposed in the filing.
+
 ## [5.6.40] — 2026-04-24
 
 **`lib/tls.cyr` ALPN / mTLS / custom-verify hook surface — sandhi-blocking issue closed.**

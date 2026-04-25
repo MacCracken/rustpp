@@ -5,22 +5,23 @@
 
 ## Version
 
-**5.6.40** (shipped — `lib/tls.cyr` ALPN/mTLS/custom-verify
-hook surface + bundled `cyrius.cyml` patra 1.6.0 → 1.8.3 dep
-bump + preprocessor expanded-source cap raised 1 MB → 2 MB
-with 12-region heap reshuffle. Sandhi's stdlib-tls-alpn-hook
-blocker closed via Option A: `tls_connect_with_ctx_hook` +
-`tls_dlsym`. End-to-end ALPN verified — Cloudflare picks h2
-cleanly. Active minor: v5.6.x optimization arc)
+**5.6.41** (shipped — SysV 16-byte stack alignment fix for
+odd-stack-arg callers. ECALLPOPS's `add rsp, 48` left rsp
+8-aligned at CALL when nextra was odd (N=7, 9, 11), violating
+SysV ABI; downstream libssl/libc callees that used SSE on
+stack-saved values SIGSEGV'd at their prologues. Fix: shift
+step-2 writes down by 8 + use `add rsp, 40` for odd nextra,
+keeping a_n at the same offset from rbp's POV but landing
+rsp 16-aligned at CALL. ECALLCLEAN releases the 8-byte
+alignment padding. Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,584 B** (unchanged size — v5.6.40
-  reshuffles 12 heap regions but keeps codebuf at 1 MB so
-  cc5's emitted code length is identical; only the immediate
-  constants in S+offset accesses changed). `cc5 --version`
-  reports `cc5 5.6.40`.
-- **cc5_win (cross)**: 526,552 B (was 526,376 at v5.6.39; +176 B from heap-shift constants)
+- **cc5 (x86_64)**: **531,776 B** (was 531,584 at v5.6.40;
+  +192 B for the `nextra & 1` branch + the shifted-write/
+  shifted-drop pair in ECALLPOPS, plus the symmetric ECALLCLEAN
+  release). `cc5 --version` reports `cc5 5.6.41`.
+- **cc5_win (cross)**: 526,760 B (was 526,552 at v5.6.40; +208 B from the alignment branch hitting Win-host call sites too)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
   had been orphaned since v5.6.12 O3a shipped the IR instrumentation
@@ -57,17 +58,22 @@ cleanly. Active minor: v5.6.x optimization arc)
 - **Stdlib**: 60 modules (54 first-party + 6 deps via `cyrius deps`:
   sakshi, patra, sigil, yukti, mabda, sankoch)
 
-## In-flight (v5.6.x optimization arc)
+## In-flight (v5.6.x optimization arc — closeout split into 3 slots)
 
-Slots shifted +2 total across v5.6.34 / v5.6.35 to accommodate
-sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
-symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
-Both shipped 2026-04-24.
+- **v5.6.42** — compiler-side closeout (mechanical + judgment +
+  PP_DEFINE/PP_DEFINED `src_base` hardening). CLAUDE.md "Closeout
+  Pass" steps 1-8: self-host verify, bootstrap closure, full
+  check.sh, heap-map audit, dead-code audit, refactor pass,
+  code-review pass, cleanup sweep. Bundle in PP_DEFINE/PP_DEFINED
+  fix (latent same-class bug as v5.6.30 PP_DERIVE_*; especially
+  relevant after v5.6.40 doubled the preprocessor cap).
+- **v5.6.43** — closeout finish (compliance + downstream + docs +
+  sigil 2.9.3 fold-in). Steps 9-11 of the closeout pass + sigil
+  2.9.3 dep bump if available by then. LAST patch of v5.6.x.
 
-- **v5.6.41** — v5.6.x closeout + downstream ecosystem sweep
-  gate (LAST patch of v5.6.x). Cascaded v5.6.39 → v5.6.40 →
-  v5.6.41 (v5.6.39 took version-string drift fix; v5.6.40
-  took sandhi's stdlib-tls-alpn-hook).
+(was: v5.6.41 was originally compiler-side closeout; sandhi's
+2026-04-25 7-arg frame regression filing took that slot, cascading
+the closeout work +1.)
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -78,6 +84,24 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.41** — SysV 16-byte stack alignment fix for odd-stack-arg
+  callers (sandhi-blocking, M2 HTTPS-live unblock). Sandhi-filed
+  2026-04-25: any cyrius fn with 7/9/11 formal params calling
+  `tls_connect` (or any libssl/libc fn with SSE in its prologue)
+  SIGSEGV'd at the resolved external symbol's first instruction.
+  Root cause: `ECALLPOPS`'s SysV path emitted `add rsp, 48`
+  unconditionally; for odd `nextra = N - 6` this left rsp 8-aligned
+  at the CALL site, violating SysV's `rsp+8 16-aligned at entry`
+  rule. Win64 path already aligned (line 1067). Fix: shift step-2
+  writes down 8 bytes (write to `[rsp+(5+i)*8]` not `[rsp+(6+i)*8]`)
+  and `add rsp, 40` not `add rsp, 48` for odd nextra; even nextra
+  unchanged. `ECALLCLEAN` adds 8 extra back to release the alignment
+  padding. New regression gate `tests/tcyr/sysv_odd_stack_args.tcyr`
+  (5 assertions, callers 7/8/9/10/11 → SSE-using leaf). cc5
+  531,584 → 531,776 B (+192 B). check.sh **25/25 PASS**. 3-step
+  fixpoint clean. Sandhi's `_min_repro_7arg_tls.cyr` now returns
+  valid TLS contexts for both 6-arg and 7-arg paths. Closeout
+  cascaded: v5.6.42 = compiler-side closeout, v5.6.43 = finish.
 - **v5.6.40** — `lib/tls.cyr` ALPN/mTLS/custom-verify hook
   surface (sandhi-pinned) **+ bundled patra 1.6.0 → 1.8.3
   dep bump + 1 MB → 2 MB preprocessor expanded-source cap

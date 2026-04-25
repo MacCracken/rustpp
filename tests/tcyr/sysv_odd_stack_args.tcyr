@@ -1,0 +1,80 @@
+# Test: SysV 16-byte stack alignment for fns with odd # of stack args
+#
+# Filed by sandhi 2026-04-25 (cyrius-7arg-frame-tls-connect-segfault.md):
+# any cyrius fn with 7/9/11 formal params calling tls_connect SIGSEGVed at
+# the resolved libssl symbol's first instruction. Root cause: ECALLPOPS's
+# SysV path emitted `add rsp, 48` after pushing N args; for odd `nextra =
+# n - 6`, this leaves rsp 8-aligned at the CALL instruction, violating the
+# SysV ABI requirement that rsp+8 is 16-aligned at function entry. Any
+# downstream callee using SSE on stack-saved values (most libc/libssl fns)
+# crashed at its prologue.
+#
+# Fix (v5.6.41): for odd nextra, ECALLPOPS shifts step-2 writes to
+# [rsp+40+i*8] (one slot deeper) and `add rsp, 40` (drops one less
+# reg-arg slot), leaving rsp 16-aligned. ECALLCLEAN releases the extra 8
+# bytes too. Even nextra is unchanged. cyrius's cc5 self-host doesn't
+# exercise the SSE-prologue chain (cc5 callees don't use SSE), so this
+# test verifies the alignment-sensitive path explicitly.
+
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# A leaf callee that takes one arg and uses an SSE memop (movdqu) on a
+# stack array. movdqu doesn't fault on misaligned addresses (unlike
+# movdqa), but it's a load-bearing proxy for "callee touches xmm
+# registers across its frame" — under regalloc + odd-stack caller, the
+# misaligned rsp would push xmm save sites onto the wrong byte boundary.
+fn sse_callee(x) {
+    var buf[16];
+    store64(&buf, x);
+    store64(&buf + 8, x + 1);
+    return load64(&buf) + load64(&buf + 8);
+}
+
+# 7-arg caller — tripped the original sandhi bug. nextra = 1.
+fn caller7(a, b, c, d, e, f, g) {
+    return sse_callee(a + g);
+}
+
+# 9-arg caller — nextra = 3 (also odd, also previously misaligned).
+fn caller9(a, b, c, d, e, f, g, h, i) {
+    return sse_callee(a + i);
+}
+
+# 11-arg caller — nextra = 5 (max nextra; also previously misaligned).
+fn caller11(a, b, c, d, e, f, g, h, i, j, k) {
+    return sse_callee(a + k);
+}
+
+# 8-arg caller — nextra = 2 (even; was always aligned, regression check).
+fn caller8(a, b, c, d, e, f, g, h) {
+    return sse_callee(a + h);
+}
+
+# 10-arg caller — nextra = 4 (even; regression check).
+fn caller10(a, b, c, d, e, f, g, h, i, j) {
+    return sse_callee(a + j);
+}
+
+test_group("SysV 16-byte alignment for odd stack-arg counts");
+
+# 7-arg (nextra=1, odd): a + g + (a+g+1) = 1 + 7 + 9 = 17.
+assert_eq(caller7(1, 2, 3, 4, 5, 6, 7), 17, "caller7 (nextra=1, odd)");
+
+# 9-arg (nextra=3, odd): a + i + (a+i+1) = 1 + 9 + 11 = 21.
+assert_eq(caller9(1, 2, 3, 4, 5, 6, 7, 8, 9), 21, "caller9 (nextra=3, odd)");
+
+# 11-arg (nextra=5, odd): a + k + (a+k+1) = 1 + 11 + 13 = 25.
+assert_eq(caller11(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), 25, "caller11 (nextra=5, odd)");
+
+# 8-arg (nextra=2, even): a + h + (a+h+1) = 1 + 8 + 10 = 19.
+assert_eq(caller8(1, 2, 3, 4, 5, 6, 7, 8), 19, "caller8 (nextra=2, even — regression check)");
+
+# 10-arg (nextra=4, even): a + j + (a+j+1) = 1 + 10 + 12 = 23.
+assert_eq(caller10(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), 23, "caller10 (nextra=4, even — regression check)");
+
+assert_summary();

@@ -1129,6 +1129,28 @@ fn ECALLPOPS(S, n) {
     # a7 lands at new [rsp+0]). Old/new positions don't overlap for
     # any nextra in [1, 5].
     var nextra = n - 6;
+    # v5.6.41: SysV ABI requires rsp 16-aligned BEFORE every CALL (so the
+    # callee sees rsp+8 16-aligned at entry). Caller's body rsp is 16-aligned
+    # (prolog enforces it). N pushes leave rsp at R - 8N. For nextra-odd
+    # (n=7,9,11), R-8N is 8-aligned, so the pre-fix `add rsp, 48` left rsp
+    # at R-8N+48 = R - (nextra*8 - 0) = R - nextra*8 = 8-aligned for odd
+    # nextra. Without alignment, the next call's resolved-symbol prologue
+    # (any libssl/libc fn that uses SSE on stack-saved values) SIGSEGVs at
+    # its first instruction. Win64 path already aligns via line ~1068.
+    # Sandhi-filed: 2026-04-25-cyrius-7arg-frame-tls-connect-segfault.md.
+    #
+    # Fix shape: for odd nextra, shift step-2 writes DOWN by 8 (write to
+    # [rsp+40+i*8] instead of [rsp+48+i*8]) and use `add rsp, 40` instead
+    # of 48. This drops one less slot, so the extras land 8 bytes deeper
+    # in the new frame (= same place from rbp's POV after CALL+push rbp+
+    # mov rbp,rsp), and rsp ends up at R - nextra*8 - 8 (16-aligned).
+    # Even nextra (n=8,10): no change — already 16-aligned.
+    var write_base = 6 * 8;        # = 48: original step-2 write base
+    var sp_drop = 0x30;            # = 48: original step-3 drop
+    if ((nextra & 1) == 1) {
+        write_base = write_base - 8;   # = 40: step-2 writes one slot deeper
+        sp_drop = 0x28;                # = 40: step-3 drops one less slot
+    }
     # Step 1: load 6 reg args from stack (a_k at [rsp+(n-k)*8]).
     # rdi = a1 at [rsp+(n-1)*8]
     EB(S, 0x48); EB(S, 0x8B); EB(S, 0x7C); EB(S, 0x24); EB(S, (n - 1) * 8);
@@ -1142,24 +1164,21 @@ fn ECALLPOPS(S, n) {
     EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x44); EB(S, 0x24); EB(S, (n - 5) * 8);
     # r9  = a6 at [rsp+(n-6)*8]
     EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x4C); EB(S, 0x24); EB(S, (n - 6) * 8);
-    # Step 2: shift extras UP by 48 B (the 6 reg-arg slots) via r10.
-    # cyrius's convention: [rbp+16] = a_n (last-pushed, topmost),
-    # [rbp+16+(nextra-1)*8] = a_7 (first extra, deepest). This matches
-    # the original push order (a_n at [rsp+0]), so NO reversal — just
-    # shift. For each i in [0, nextra): copy old [rsp+i*8] into new
-    # [rsp+(6+i)*8]. After `add rsp, 48` the data lands at
-    # [rsp+i*8], preserving order. Old (0..32) and new (48..80)
-    # positions never overlap (nextra ≤ 5).
+    # Step 2: shift extras (a_n is at [rsp+0], deepest extra a_7 at [rsp+(nextra-1)*8]).
+    # Even nextra → write to [rsp+(6+i)*8] = [rsp+48..]; drops 6 reg-arg slots → 16-aligned.
+    # Odd nextra → write to [rsp+(5+i)*8] = [rsp+40..]; drops 5 reg-arg slots → also 16-aligned.
+    # For odd nextra the write target overlaps with [rsp+40] which held a2 — but a2 was
+    # already loaded into rsi in Step 1, so the overwrite is harmless.
     var si = 0;
     while (si < nextra) {
         # mov r10, [rsp + si*8]
         EB(S, 0x4C); EB(S, 0x8B); EB(S, 0x54); EB(S, 0x24); EB(S, si * 8);
-        # mov [rsp + (6 + si) * 8], r10
-        EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, (6 + si) * 8);
+        # mov [rsp + write_base + si*8], r10
+        EB(S, 0x4C); EB(S, 0x89); EB(S, 0x54); EB(S, 0x24); EB(S, write_base + si * 8);
         si = si + 1;
     }
-    # Step 3: drop the 6 reg-arg slots from the stack top.
-    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, 0x30);  # add rsp, 48
+    # Step 3: drop 6 reg-arg slots (even nextra) or 5 (odd nextra → 16-aligned at CALL).
+    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC4); EB(S, sp_drop);
     return 0;
 }
 
@@ -1182,6 +1201,11 @@ fn ECALLCLEAN(S, n) {
     }
     if (n > 6) {
         var extra = (n - 6) * 8;
+        # v5.6.41: ECALLPOPS drops 5 (not 6) reg-arg slots when nextra is
+        # odd, leaving 8 extra bytes on the stack for 16-alignment. Release
+        # those here too. See ECALLPOPS line ~1131 for the symmetric write.
+        var nextra = n - 6;
+        if ((nextra & 1) == 1) { extra = extra + 8; }
         E3(S, 0xC48148);
         EB(S, extra & 0xFF);
         EB(S, extra >> 8 & 0xFF);
