@@ -4,6 +4,119 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.6.36] — 2026-04-24
+
+**`regression-pe-exit` gate fixture was buggy — no Win11 24H2
+loader regression existed.** Same exact misdiagnosis as v5.6.33's
+Mach-O slot. The PE gate used
+`fn main() { syscall(60, 42); return 0; }` as its probe. Cyrius
+has no auto-invoked `main()`; top-level statements are the
+program entry. The `fn main()` body was dead code, the entry
+prologue branched over it to the `EEXIT_PE` tail (which calls
+`kernel32!ExitProcess(arg)`), and on Win11 24H2 the arg-slot
+register happened to hold `0x40010080` (= 1073745920 decimal,
+NTSTATUS-shape value left over from runtime state). PowerShell
+reported `ApplicationFailedException` because the exit code's
+high nibble (0x4 = STATUS_SEVERITY_INFORMATIONAL) is treated as
+informational rather than a normal user exit code. **None of
+this was a Win11 24H2 issue.**
+
+The PE shape is fine on Win11 24H2 — the loader does NOT require
+NX_COMPAT or DYNAMIC_BASE. Verified by patching the cyrius-
+emitted PE's `DllCharacteristics` field from `0x0000` →
+`0x0160` (DYNAMIC_BASE | NX_COMPAT | HIGH_ENTROPY_VA) and
+observing byte-identical exit behavior — both forms exit 42
+when the source uses correct top-level syntax.
+
+### Diagnosis
+
+1. Built the broken-fixture PE and the corrected-fixture PE
+   from current cyrius v5.6.36 source via the Linux→PE cross
+   (`build/cc5 < src/main_win.cyr` → ELF cross emitter; the
+   ELF cross then compiles user `.cyr` to PE).
+2. Ran both on `ssh cass` (Win11 24H2 build 26200):
+   - `fn main() { syscall(60, 42); return 0; }` → exit
+     **1073745920 = 0x40010080** (the roadmap's reported
+     "regression").
+   - `syscall(60, 42);` (top-level) → exit **42**.
+3. Patched DllCharacteristics 0x0000 → 0x0160 in the PE header
+   directly; tested both: still exits 42 with the corrected
+   source, still exits 0x40010080 with the broken source. PE
+   header flags are NOT the issue.
+4. Multi-fn arithmetic test (top-level, exercising v5.6.10
+   x86 combine-shuttle peephole on PE-emitted code paths):
+   `fn add3(a,b,c){...} syscall(60, add3(10,20,12));` → exit
+   **42**.
+
+### Fix
+
+`tests/regression-pe-exit.sh` rewritten:
+- Three top-level-syntax tests: bare `syscall(60, 42)` (proves
+  PE entry + `kernel32!ExitProcess` IAT reroute), top-level
+  write+exit (proves `kernel32!WriteFile` IAT + multi-arg
+  setup + post-IAT exit reroute), top-level user-fn arithmetic
+  (proves v5.6.10 peephole on PE codegen).
+- `CYRIUS_V5634_SHIPPED` pre-fix guard dropped (was stale —
+  pin label cycled through 5.6.34 → 5.6.35 → 5.6.36 across
+  prior cascades; never had a real fix to gate on).
+- `CC_PE` pointer changed from `build/cc5_win` (the SELF-HOSTED
+  Windows-native cyrius, a PE binary that can't run on Linux)
+  to `build/cc5_win_cross` (the Linux-host ELF that emits PE).
+  Auto-builds from `cc5 < src/main_win.cyr` if missing.
+- Stripped CR from ssh-on-Windows output before comparison
+  (cmd.exe on Windows uses CRLF; the prior shape had `42\r`
+  not equal to `42`).
+
+### Acceptance
+
+- `tests/regression-pe-exit.sh`: 3/3 PASS on cass
+  (Win11 24H2, build 26200, Microsoft Windows
+  10.0.26200.8246).
+- `sh scripts/check.sh`: 24/24 PASS (PE gate now actively
+  exercises the runtime instead of skipping pre-fix).
+- `cc5` 3-step self-host: byte-identical at 531,680 B.
+  **Zero compiler change.**
+
+### Files
+
+- `tests/regression-pe-exit.sh`: complete rewrite — three
+  top-level-syntax tests + Linux-host ELF cross-compiler
+  resolution + CR-strip on output.
+- `build/cc5_win_cross`: new on-disk artifact (Linux ELF,
+  built from `src/main_win.cyr`). Gitignored under existing
+  `build/` rules.
+- `docs/development/roadmap.md`: v5.6.36 section + bug-tracker
+  row updated with shipped status.
+- `docs/development/state.md`: current version bump; v5.6.36
+  added as Recent shipped.
+- `VERSION`: 5.6.35 → 5.6.36.
+
+### What did NOT change
+
+- `src/backend/pe/emit.cyr`, `src/backend/x86/fixup.cyr`, etc.:
+  no PE codegen changes. The DllCharacteristics conditional at
+  `src/backend/pe/emit.cyr:730` (`_dllc = 0x0160` only when
+  `.reloc` shipped) is correct and not load-bearing for Win11
+  24H2 acceptance.
+- `cc5_win.exe` (self-hosted Windows-native compiler): not
+  rebuilt this slot. Future v5.6.x slot can refresh if needed.
+
+### Lesson (cross-reference v5.6.33)
+
+Two consecutive "platform drift" pins on cyrius's roadmap
+(v5.6.33 Mach-O, v5.6.36 PE) were both test-fixture bugs with
+identical shape — `fn main()` wrapper assumed C-style implicit
+main-call that cyrius does not have. The fix in both cases was
+gate-rewrite-not-compiler-change. Per the v5.6.33 feedback memory
+("verify slot premise before scoping"): when triaging "platform
+drift since vX.Y.Z" reports, FIRST verify the fixture
+exercises what it claims to test. The 1-minute `otool -tv`
+check (Mach-O) or PE-header / cmd.exe diff (PE) catches both
+classes in seconds. The original verifications during v5.5.10
+(PE) and v5.5.13 (Mach-O) almost certainly used top-level
+syntax; the later-written gate fixtures assumed an auto-call
+cyrius has never had.
+
 ## [5.6.35] — 2026-04-24
 
 **sit symptom 2 of 2 closed — sankoch dep bump 2.0.1 → 2.0.3.**

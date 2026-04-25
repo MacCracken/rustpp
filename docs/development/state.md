@@ -5,15 +5,15 @@
 
 ## Version
 
-**5.6.35** (shipped — sit symptom 2 of 2 closed; sankoch dep
-bump 2.0.1 → 2.0.3. Active minor: v5.6.x optimization arc)
+**5.6.36** (shipped — `regression-pe-exit` gate fixture
+repair; same v5.6.33 misdiagnosis pattern on the PE side. No
+Win11 24H2 platform regression existed. Zero compiler change.
+Active minor: v5.6.x optimization arc)
 
 ## Compiler
 
-- **cc5 (x86_64)**: 531,680 B (unchanged from v5.6.34 —
-  v5.6.35 is a `cyrius.cyml` sankoch dep-pin bump only; zero
-  compiler code change. cc5 doesn't link sankoch, but downstream
-  consumers via `lib/sankoch.cyr` symlink pick up 2.0.3)
+- **cc5 (x86_64)**: 531,680 B (unchanged — v5.6.36 rewrites
+  a regression-test fixture only)
 - **cc5_win (cross)**: 606,720 B (v5.6.31 re-enables HIGH_ENTROPY_VA and fixes
   the EREAD_PE/EWRITE_PE DWORD-in-qword bug)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
@@ -60,8 +60,6 @@ sit's 2026-04-24 ticket (one issue, two symptoms; v5.6.34 fixed
 symptom 1, v5.6.35 closed symptom 2 via sankoch 2.0.3 dep bump).
 Both shipped 2026-04-24.
 
-- **v5.6.36** — PE32+ Windows 11 24H2 exit (loader drift;
-  bytes unchanged since v5.5.10).
 - **v5.6.37** — `SSL_connect` libssl pthread deadlock
   investigation (sandhi M2).
 - **v5.6.38** — shared-object (.so / .dll / .dylib) emission
@@ -78,6 +76,30 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.6.36** — `tests/regression-pe-exit.sh` rewritten. Same
+  exact misdiagnosis pattern as v5.6.33's Mach-O slot — the
+  PE gate's `fn main() { syscall(60, 42); return 0; }` fixture
+  never entered `main()` (cyrius has no auto-call); entry
+  prologue branched over the dead body to `EEXIT_PE` which
+  called `kernel32!ExitProcess(arg)` with whatever was in the
+  arg-slot register on Win11 24H2 (= `0x40010080`, the roadmap's
+  reported "regression"). PowerShell reported
+  `ApplicationFailedException` because the high nibble is an
+  NTSTATUS-shape informational code. **None of this was a
+  Win11 24H2 issue.** Verified by patching the PE's
+  `DllCharacteristics` from `0x0000` → `0x0160` and observing
+  byte-identical exit behavior; both forms exit 42 with correct
+  top-level syntax. Gate rewritten: top-level
+  `syscall(60, 42)` (proves IAT + ExitProcess) + write+exit
+  (kernel32!WriteFile reroute) + user-fn arithmetic (v5.6.10
+  peephole on PE codegen). `CYRIUS_V5634_SHIPPED` guard
+  dropped; `CC_PE` retargeted from `build/cc5_win` (PE binary
+  that can't run on Linux) to `build/cc5_win_cross` (Linux ELF
+  emitting PE; auto-builds from `cc5 < src/main_win.cyr`).
+  CR-strip added for cmd.exe CRLF output. Zero compiler change;
+  cc5 byte-identical at 531,680 B. check.sh 24/24 with PE gate
+  ACTIVE. End-to-end on cass (Win11 24H2 build 26200,
+  Microsoft Windows 10.0.26200.8246): all three tests exit 42.
 - **v5.6.35** — sit symptom 2 of 2 closed via sankoch dep bump
   2.0.1 → 2.0.3. Triage on the same 100-commit fixture pinned
   the layer to sankoch's `zlib_compress` producing

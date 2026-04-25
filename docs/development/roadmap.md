@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.35.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.6.36.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -286,15 +286,18 @@
 >   side: `cyrius.cyml` `[deps.sankoch]` pin bump + new active
 >   `tests/regression-sit-status.sh` gate. Zero compiler
 >   change; cc5 byte-identical at 531,680 B.
-> - **v5.6.36** (was v5.6.34 → 35 → 36): Windows 11 24H2 PE
->   platform drift (cass) — PE `syscall(60, 42)` exits
->   0x40010080 (NTSTATUS informational / DBG_-class) on
->   Windows 11 24H2 (build 26200) instead of 42. **Our PE
->   bytes are unchanged since v5.5.10** (byte-identical
->   v5.6.10 ↔ v5.6.11); 24H2 tightened CET shadow-stack /
->   CFG / loader heuristic checks that our bare PE shape
->   doesn't meet. cc5_win.exe itself fails with PS
->   `ApplicationFailedException`.
+> - **v5.6.36 ✅ shipped**: `regression-pe-exit` gate fixture
+>   repair — same exact misdiagnosis pattern as v5.6.33 on
+>   the PE side. The `fn main() { syscall(60, 42); }` fixture
+>   never entered `main()` (cyrius has no auto-call); entry
+>   prologue branched over the dead body to `EEXIT_PE` →
+>   `kernel32!ExitProcess(arg)` with whatever was in the
+>   arg-slot register (= `0x40010080` on Win11 24H2).
+>   PE shape is fine on Win11 24H2 (verified by patching
+>   DllCharacteristics 0x0000 → 0x0160 and seeing
+>   byte-identical exit behavior). Gate rewritten with
+>   correct top-level syntax (3 tests: ExitProcess, WriteFile,
+>   peephole). Zero compiler change.
 > - **v5.6.37** (was v5.6.35 → 36 → 37): `SSL_connect` libssl
 >   pthread deadlock investigation (sandhi M2). `tls_connect`
 >   hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` — libssl 3's
@@ -390,7 +393,7 @@ yield, STOP and ask — never slip, defer, or re-slot unilaterally.
 | ~~macOS arm64 runtime regression (syscall(60) reroute)~~ | ~~Apple Silicon deploys~~ | **v5.6.33 ✅ shipped** — premise was wrong; no compiler regression existed. The `regression-macho-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`, top-level stmts are the program entry. The argv prologue's branch-over-fn-bodies landed on the `EEXIT` tail (`movz x16,#1; svc #0x80` = BSD `_exit(x0)` on macOS) with `x0 = argc = 1` still resident from the `stp x0, x1, [sp, #-16]!` prologue, hence rc=1. Top-level `syscall(60, 42);` exits 42 cleanly on current v5.6.33 against macOS 26.4.1 (ssh ecb, Darwin 25.4.0, build 25E253). Gate rewritten with three tests covering `__got[0]=_exit`, `__got[1]=_write` (stdout bytes verified), and v5.6.11 peephole + bl/fn-frame. Zero compiler code changed; cc5 byte-identical at 531,680 B. The v5.5.13 memory entry's "exit=42 verified" almost certainly used top-level syntax; the later-written fixture assumed an auto-call cyrius has never had. |
 | ~~Stdlib `alloc` grow-undersize SIGSEGV (sit symptom 1 of 2)~~ | ~~Any cyrius consumer allocating >1 MiB in one call~~ | **v5.6.34 ✅ shipped** — `lib/alloc.cyr` (Linux brk) + `lib/alloc_macos.cyr` (mmap) grew by a fixed `0x100000` step every time `_heap_ptr` crossed `_heap_end`, regardless of requested size. Any `alloc(size > 1 MB)` near the grow boundary returned a pointer past the brk/mmap — SIGSEGV on first tail-write. Filed by sit 2026-04-24 during S-33 triage of `sit status` SIGSEGV on 100-commit repo. Fix: Linux rounds new end up to next 1 MB grain; macOS loops 1 MB mmaps preserving the per-step contiguity guard. `lib/alloc_windows.cyr` separable — no grow path, fails cleanly. New gate `tests/tcyr/alloc_grow.tcyr` (10 assertions). cc5 byte-identical (uses raw `brk`, not stdlib). Issue ledger: `sit/docs/development/issues/2026-04-24-cyrius-stdlib-memory-anomalies-at-scale.md` (filed as one issue with two symptoms; we fix #1 here, triage #2 in v5.6.35). |
 | ~~`sit fsck` memory anomaly at scale (sit symptom 2 of 2)~~ | ~~sit at scale~~ | **v5.6.35 ✅ shipped.** Triage 2026-04-24 pinned the layer to **sankoch's `zlib_compress` producing non-decompressible DEFLATE for sit-tree-shaped inputs** (deterministic on input; reproduces from a 30-line standalone cyrius program). Eliminated: patra (1600+ standalone roundtrips clean), cyrius alloc (compressed buffer not mutated during `patra_insert_row`, pre/post checksums match for all 300 inserts), sit-side aliasing (in-process `zlib_decompress(compressed)` immediately after `zlib_compress` fails 50/300 in same lock window). 3 sankoch tags resolved it: 2.0.1 (53/300 bad) → 2.0.2 (51/53 fixed; 2 left at ~1.5 KB / ~2 KB with mid-stream zero-run shape) → 2.0.3 (0/300 bad). Cyrius v5.6.35 = `cyrius.cyml` sankoch pin 2.0.1 → 2.0.3 + active `tests/regression-sit-status.sh` gate. Zero compiler change; cc5 byte-identical at 531,680 B. End-to-end `sit fsck` on a freshly-built 100-commit fixture reports `checked 300 objects, 0 bad`. Cyrius repro at `cyrius/docs/development/issues/repros/sankoch-2.0.1-deflate-non-roundtrip.{bin,cyr}` (kept committed; 751-byte case still verifies under 2.0.3). |
-| Windows 11 runtime regression (PE exit code) | Windows 11 24H2+ deploys | **v5.6.36** (was v5.6.34 → 35 → 36) — cross-built `syscall(60, 42)` PE binary exits 0x40010080 on ssh cass (Windows 11 24H2, build 10.0.26200) instead of 42. PowerShell reports `ApplicationFailedException` on cc5_win.exe itself. v5.6.11 output byte-identical to v5.6.10 so NOT a v5.6.11 regression. Likely 24H2 loader behavior change since v5.5.10 verification. Test on multiple Windows 11 builds to identify the loader threshold. Add `tests/regression-pe-exit.sh` gate. |
+| ~~Windows 11 runtime regression (PE exit code)~~ | ~~Windows 11 24H2+ deploys~~ | **v5.6.36 ✅ shipped** — premise was wrong; same exact misdiagnosis as v5.6.33 on the PE side. The `regression-pe-exit.sh` fixture used `fn main() { syscall(60, 42); return 0; }` — but cyrius has no auto-invoked `main()`. Dead-code body, entry prologue branched to `EEXIT_PE` which calls `kernel32!ExitProcess(arg)` with whatever was in the arg-slot register on Win11 24H2 (= `0x40010080`, NTSTATUS-shape value). PowerShell reported `ApplicationFailedException` due to the 0x4 high-nibble (STATUS_SEVERITY_INFORMATIONAL). Verified by patching `DllCharacteristics` 0x0000 → 0x0160 and observing byte-identical exit behavior; PE shape is fine on Win11 24H2. Gate rewritten with three top-level-syntax tests (kernel32 ExitProcess + WriteFile + v5.6.10 peephole on PE codegen); `CYRIUS_V5634_SHIPPED` guard dropped; `CC_PE` retargeted from `build/cc5_win` (PE binary unrunnable on Linux) to `build/cc5_win_cross` (Linux ELF emitting PE; auto-builds from `cc5 < src/main_win.cyr`); CR-strip added for cmd.exe CRLF output. Zero compiler change; cc5 byte-identical at 531,680 B. End-to-end on cass (Win11 24H2 build 26200): all three tests exit 42. |
 | `SSL_connect` deadlocks on libssl pthread futex | sandhi M2 HTTPS + M5 enforcement stubbed | **v5.6.37** (was v5.6.35 → 36 → 37) — `tls_connect` hangs forever inside `SSL_connect` at `futex(FUTEX_WAIT_PRIVATE, 2, NULL)` with no subsequent syscalls — pthread-mutex waiting for a wake-up that never comes. libssl 3's internal `CRYPTO_THREAD_lock_new` / atomic paths resolve to pthread primitives on glibc; static cyrius binaries bypass `__libc_start_main` so `__libc_pthread_init` never runs. `dynlib_bootstrap_tls`'s `%fs`/TCB install may not be sufficient for libssl's full pthread usage. Repro: `sandhi/programs/tls-raw-probe.cyr` (stdlib-only, IP-literal `1.1.1.1:443`, no DNS). Filed sandhi 2026-04-24 (`sandhi/docs/issues/2026-04-24-libssl-pthread-deadlock.md`). Sandhi explicitly not proposing fixes this round (0-for-1 on prior proposals). Investigation pairs naturally with adding `tests/tcyr/tls-live.tcyr` gate — existing tls.tcyr only covers init + symbol resolution. |
 
 For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
@@ -480,13 +483,15 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
       (envvar read / include resolution) doesn't work on the
       aarch64 runtime path. A *feature gap in our aarch64 binary*,
       not a codegen bug.
-    - **External platform drift (v5.6.33 + v5.6.36).** The Mach-O
-      and PE binaries we emit are **identical** to what was verified
-      in v5.5.13 / v5.5.10. What changed is the host OS's tolerance
-      for our output. v5.6.33 determined the Mach-O "drift" was
-      actually a test-fixture bug (no compiler regression); v5.6.36
-      (formerly v5.6.34 → v5.6.35) still pending on Windows 11 24H2
-      PE drift.
+    - **Both platform-drift framings disproven (v5.6.33 + v5.6.36).**
+      Both the Mach-O and PE "regression" reports turned out to be
+      the **same test-fixture bug** — `fn main() { syscall(60, 42); }`
+      assumed C-style implicit main-call that cyrius has never had.
+      Gate rewritten in both cases with correct top-level syntax;
+      neither needed a compiler change. The original v5.5.10 (PE)
+      and v5.5.13 (Mach-O) verifications almost certainly used
+      top-level syntax; the later-written gate fixtures assumed an
+      auto-call that doesn't exist.
     **Each slot mandates a regression-test gate** (`tests/regression-
     aarch64-native-selfhost.sh` / `regression-macho-exit.sh` /
     `regression-pe-exit.sh`) that ships as a SKIP-stub pre-fix and
@@ -509,8 +514,10 @@ The v5.6.x minor bundles six arcs before v5.7.0 (sandhi fold + lib/ cleanup) and
     Cyrius v5.6.35 = `cyrius.cyml` sankoch pin 2.0.1 → 2.0.3 +
     active `tests/regression-sit-status.sh` gate. Zero
     compiler change.
-12. **v5.6.36 — Windows 11 runtime regression repair** (was
-    v5.6.34 → v5.6.35 → v5.6.36).
+12. **v5.6.36 ✅ shipped — `regression-pe-exit` gate fixture
+    repair.** Same exact misdiagnosis pattern as v5.6.33 on the
+    PE side. Gate rewritten with top-level syntax; PE shape fine
+    on Win11 24H2; zero compiler change.
 13. **v5.6.37 — `SSL_connect` libssl pthread deadlock** (was
     v5.6.35 → v5.6.36 → v5.6.37). Sandhi-surfaced.
     `tls_connect` hangs on `futex(FUTEX_WAIT_PRIVATE, 2, NULL)`
@@ -1881,48 +1888,68 @@ bump) once it bumps `cyrius.cyml` `cyrius` to 5.6.35 and
 `[deps.sankoch]` to 2.0.3. Both mitigations are no-ops on
 the corrected stack but remain safe to keep.
 
-### v5.6.36 — Windows 11 runtime regression repair (cass)
+### v5.6.36 — `regression-pe-exit` gate fixture repair ✅ SHIPPED
 
-Cross-built PE `syscall(60, 42)` binary exits **0x40010080**
-(NTSTATUS informational / DBG_-class, decimal 1073745920) on
-Windows 11 24H2 (build 10.0.26200) instead of 42. PowerShell
-reports `ApplicationFailedException` when invoking cc5_win.exe
-directly. v5.6.11 output is byte-identical to v5.6.10 so NOT a
-v5.6.11 regression.
+**Premise of this slot was wrong.** Same exact misdiagnosis as
+v5.6.33's Mach-O slot, on the PE side. The `regression-pe-exit.sh`
+fixture used `fn main() { syscall(60, 42); return 0; }` — but
+cyrius has no auto-invoked `main()`. The `fn main()` body was
+dead code; the entry prologue branched over it to `EEXIT_PE`,
+which on PE calls `kernel32!ExitProcess(arg)` with whatever
+happened to be in the arg-slot register. On Win11 24H2 that
+register held `0x40010080` (the roadmap's "regression"). The
+high nibble (0x4 = STATUS_SEVERITY_INFORMATIONAL) is what made
+PowerShell report `ApplicationFailedException` rather than a
+plain non-zero exit code.
 
-**Suspects (in order):**
-- Windows 11 24H2 (released mid-2024) tightened loader checks.
-  The v5.5.10 exit42 verification was on an older Win11 build
-  (nejad@hp, build unclear); current cass is 26200. 24H2 added
-  stricter DEP/CFG/CET enforcement and may reject the bare PE
-  shape cyrius emits.
-- ASLR bucket: v5.5.35 DYNAMIC_BASE-only (32-bit ASLR). Whatever
-  preferred-base cyrius picks may now be in a reserved range.
-- 0x40010080 is an NTSTATUS informational code (high nibble 0x4 =
-  STATUS_SEVERITY_INFORMATIONAL). Specific code is NOT a widely-
-  documented one; may be a CET (Control Flow Enforcement)
-  shadow-stack violation signalled via informational status.
+**Diagnosis (standalone-fresh-process, no compiler change):**
 
-**Investigation plan:**
-1. Test on an older Windows 11 build (pre-24H2) to confirm the
-   regression is version-specific.
-2. Capture the failing PE's execution with ProcMon / WinDbg on
-   cass to identify the exact failure mode (CET violation, DEP
-   block, loader reject).
-3. If CET: disable shadow-stack in the PE header (`IMAGE_DLLCHARACTERISTICS_EX_CET_COMPAT` stays off; may need explicit opt-out).
-4. If loader reject: compare the failing PE's headers against a
-   known-working Rust-compiled hello-world on the same Win11 build,
-   diff field by field.
+1. Built broken-fixture PE and corrected-fixture PE from the
+   same v5.6.36 source via the Linux→PE cross
+   (`build/cc5 < src/main_win.cyr` produces an ELF cross
+   compiler; that cross compiles user `.cyr` to PE).
+2. On `ssh cass` (Win11 24H2, build 26200):
+   - `fn main() { syscall(60, 42); return 0; }` → exit
+     **1073745920 = 0x40010080**.
+   - `syscall(60, 42);` (top-level) → exit **42**.
+3. Patched `DllCharacteristics` 0x0000 → 0x0160 in the PE
+   header directly: still exits 42 with corrected source,
+   still exits 0x40010080 with broken source. **PE header
+   flags are NOT the issue.**
+4. Multi-fn arithmetic top-level peephole test
+   (`fn add3(a,b,c){...} syscall(60, add3(10,20,12));`) →
+   exit 42.
 
-**Mandatory gate (regression test — part of this slot's scope):**
-- Add `tests/regression-pe-exit.sh`:
-  1. Skip cleanly if `cass` unreachable OR `cc5_win` not built.
-  2. `cc5_win < win_bare.cyr > win_bare.exe`.
-  3. `scp` to cass, run via `cmd /c runtest.bat`.
-  4. Assert `%ERRORLEVEL%` == 42. Also verify arithmetic test
-     exercising v5.6.10 x86 combine-shuttle peephole.
-- Wire into `scripts/check.sh`.
-- Stub ships SKIPping with "pin v5.6.27" message until the fix lands.
+**The PE shape is fine on Win11 24H2.** Loader does NOT require
+NX_COMPAT or DYNAMIC_BASE. `_dllc = 0x0000` for minimal PEs
+without `.reloc` (`src/backend/pe/emit.cyr:730`) is acceptable
+to the 24H2 loader.
+
+**Fix (shipped):**
+- `tests/regression-pe-exit.sh` rewritten with three top-level-
+  syntax tests:
+  1. Bare `syscall(60, 42)` (proves PE entry +
+     `kernel32!ExitProcess` IAT reroute).
+  2. Top-level write + exit (`kernel32!WriteFile` reroute +
+     post-IAT exit).
+  3. User-fn arithmetic (v5.6.10 peephole on PE codegen +
+     call/ret pair).
+- `CYRIUS_V5634_SHIPPED` env-var guard dropped (was stale —
+  pin label cycled through 5.6.34 → 5.6.35 → 5.6.36 across
+  prior cascades; never had a real fix to gate on).
+- `CC_PE` retargeted from `build/cc5_win` (the SELF-HOSTED
+  Windows-native cyrius compiler, a PE32+ binary that doesn't
+  run on Linux) to `build/cc5_win_cross` (the Linux ELF that
+  emits PE). Auto-builds from `cc5 < src/main_win.cyr` if
+  missing.
+- CR-stripped ssh-on-Windows output before comparison
+  (cmd.exe uses CRLF; `42\r` doesn't match `42`).
+
+**Compiler delta:** zero. cc5 byte-identical at 531,680 B.
+check.sh 24/24 with PE gate ACTIVE.
+
+**Verified on:** `ssh cass` — Microsoft Windows 10.0.26200.8246
+(Win11 24H2, build 26200), x86_64.
 
 ### v5.6.38 — Shared-object emission completion
 
