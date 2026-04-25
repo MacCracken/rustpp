@@ -379,9 +379,9 @@ fn _pe_pending_imp_add(S, name) {
 # where IAT_RVA = _pe_idata_rva + _pe_iat_sub_off + imp_idx * 8.
 fn _pe_iat_fixup_add(S, coff, imp_idx) {
     var fc = GFCNT(S);
-    if (fc >= 32768) {
+    if (fc >= 262144) {
         syscall(SYS_WRITE, 2,
-            "error: fixup table full (32768)\n", 32);
+            "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x170B000 + fc * 16;

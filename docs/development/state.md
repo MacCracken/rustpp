@@ -5,6 +5,20 @@
 
 ## Version
 
+**5.7.1** (shipped — **fixup-table cap bump 32,768 → 262,144**.
+sit-blocking ecosystem unblock per sit's proposal. All 8 named
+sandhi consumers (vidya/yantra/hoosh/ifran/daimon/mela/ark/sit)
+now able to actually pin sandhi in `[deps].stdlib` without
+overflowing the fixup table. Wedged into v5.7.1 via git rewind +
+fixup-cap commit + cherry-pick of cyrius-ts P1.1+P1.2 work back
+on top (preserved on `wip/cyrius-ts-p1` branch during the dance).
+16 cap-check sites updated across 5 backend files; brk extended
++3.5 MB across 4 main entry files; capacity-meter output and
+heap-layout comments updated. cc5 self-host fixpoint clean at
+531,880 B (8 B smaller than v5.7.0; cc5 itself never approaches
+32K fixups so cap bump doesn't change its behavior). check.sh
+26/26 PASS.)
+
 **5.7.0** (shipped — **THE SANDHI FOLD**. Clean-break consolidation
 per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md).
 `lib/sandhi.cyr` adds (vendored byte-identical from `sandhi/dist/sandhi.cyr`
@@ -62,14 +76,12 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,888 B** (unchanged from v5.6.42 —
-  heap shifts are address constants emitted as 32-bit
-  immediates; byte counts preserved; v5.6.44 deprecation
-  attributes on `lib/http_server.cyr`, v5.6.45 grammar
-  refresh in `editors/vscode/`, and v5.7.0 sandhi fold —
-  `lib/sandhi.cyr` add + `lib/http_server.cyr` delete — don't
-  affect cc5 because the compiler doesn't include any of those
-  libs). `cc5 --version` reports `cc5 5.7.0`.
+- **cc5 (x86_64)**: **531,880 B** (8 B smaller than v5.7.0 —
+  small byte-shift from v5.7.1's 32K → 262K constant change
+  creating slightly different optimization opportunities; cc5
+  itself never approaches 32K fixups so the cap bump doesn't
+  change its semantic behavior). `cc5 --version` reports
+  `cc5 5.7.1`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -110,6 +122,14 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
+**v5.7.2 (cyrius-ts foundational) — about to resume after fixup-cap
+wedge.** v5.7.1 just shipped (fixup-table cap bump 32K → 262K, sit
+unblock). cyrius-ts P1.1 + P1.2 work preserved on
+`wip/cyrius-ts-p1` branch during the wedge; cherry-picks back as
+the first commits of v5.7.2 with one-line heap-base update
+(`S + 0x178B000` → `S + 0x1B0B000`) to land on the post-v5.7.1
+brk. Then resume P1.3 (multi-char operators).
+
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the
 deleted/added symbol delta + downstream audit). Open work
@@ -148,6 +168,24 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.7.1** — **FIXUP-TABLE CAP BUMP** 32,768 → 262,144 (8×).
+  sit-blocking ecosystem unblock per [sit's proposal](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md);
+  unblocks all 8 named sandhi consumers (vidya/yantra/hoosh/ifran/
+  daimon/mela/ark/sit) from `[deps].stdlib "sandhi"` overflow.
+  Wedged into v5.7.1 via git rewind to v5.7.0 + fixup-cap commit +
+  cherry-pick of cyrius-ts P1.1+P1.2 work (preserved on
+  `wip/cyrius-ts-p1`). 16 cap-check sites updated across 5 backend
+  files (proposal originally listed 5 sites; x86 backend was missing
+  + aarch64 had a variant string format we caught). Brk extended
+  +3.5 MB across 4 main entry files. main.cyr capacity-meter
+  output + heap-layout comments updated; pre-existing off-by-2x
+  percentage math bug at line 1073 (stale `/ 16384` divisor)
+  fixed in passing. cx backend's cap bumped uniformly but its
+  smaller heap layout left untouched (cx never approaches 32K
+  fixups). cc5 self-host fixpoint clean at 531,880 B (8 B
+  smaller than v5.7.0 from the constant-change byte-shift; cc5
+  itself unchanged semantically). check.sh 26/26 PASS. Resumes
+  cyrius-ts work as v5.7.2.
 - **v5.7.0** — **THE SANDHI FOLD**. Clean-break consolidation per
   sandhi ADR 0002: `lib/sandhi.cyr` adds (vendored byte-identical
   from `sandhi/dist/sandhi.cyr` at v1.0.0 tag — 376,037 B / 9,649

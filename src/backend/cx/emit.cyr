@@ -191,8 +191,8 @@ fn ECALLFIX(S, fnidx) {
     var poff = GCP(S);
     CX_EMIT(S, 96, 0, 0, 0);  # call +0 (placeholder)
     var fc = GFCNT(S);
-    if (fc >= 32768) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+    if (fc >= 262144) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x150B000 + fc * 16;
@@ -283,8 +283,8 @@ fn EPATCH(S, off) {
 # Variable load/store via fixup
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    if (fc >= 32768) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+    if (fc >= 262144) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
     var addr = S + 0x150B000 + fc * 16;
@@ -372,8 +372,8 @@ fn EFLSTORE_W(S, idx, width) { EFLSTORE(S, idx); return 0; }
 fn ESADDR(S, soff) {
     CX_MOVI(S, 0, 0);  # placeholder
     var fc = GFCNT(S);
-    if (fc >= 32768) {
-        syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+    if (fc >= 262144) {
+        syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x150B000 + fc * 16;

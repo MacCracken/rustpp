@@ -191,14 +191,15 @@
 #   0x160B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
 # --- Fixup table — NEW slot (v5.5.37) ---
-#   0x170B000 fixup_tbl    [524288]      32768 entries × 16 bytes
-#                                        (cap raised 16384 → 32768;
-#                                        sigil 3.0 parallel batch
-#                                        unblock). Old slot at
-#                                        0x104A000 now free — 256 KB
-#                                        scratch zone for future use.
+#   0x170B000 fixup_tbl    [4194304]     262144 entries × 16 bytes
+#                                        (cap raised 32768 → 262144 in
+#                                        v5.7.1; sandhi-fold consumer
+#                                        unblock per sit proposal —
+#                                        sandhi alone burns ~2,350
+#                                        fixups, real consumers add
+#                                        thousands more).
 #
-#   0x178B000 brk                         23.5MB total heap (+1 MB
+#   0x1B0B000 brk                         27 MB total heap (+1 MB
 #                                        from 21.5MB in v5.5.36;
 #                                        v5.6.40 doubled preprocess_out
 #                                        and shifted everything after
@@ -289,7 +290,7 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x178B000);
+syscall(SYS_BRK, S + 0x1B0B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -1038,7 +1039,7 @@ if (_stats_env != 0) {
         syscall(SYS_WRITE, 2, "  var_table:   ", 15); PRNUM(GVCNT(S));
         syscall(SYS_WRITE, 2, " / 8192\n",        8);
         syscall(SYS_WRITE, 2, "  fixup_table: ", 15); PRNUM(GFCNT(S));
-        syscall(SYS_WRITE, 2, " / 32768\n",       9);
+        syscall(SYS_WRITE, 2, " / 262144\n",      10);
         syscall(SYS_WRITE, 2, "  string_data: ", 15); PRNUM(GSPOS(S));
         syscall(SYS_WRITE, 2, " / 262144\n",     10);
         syscall(SYS_WRITE, 2, "  code_size:   ", 15); PRNUM(GCP(S));
@@ -1068,11 +1069,11 @@ if (_stats_env == 0) {
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GVCNT(S));
         syscall(SYS_WRITE, 2, "/8192) — too many globals + locals\n", 35);
     }
-    if (GFCNT(S) * 100 / 32768 >= 85) {
+    if (GFCNT(S) * 100 / 262144 >= 85) {
         syscall(SYS_WRITE, 2, "warning: fixup_table at ", 24);
-        PRNUM(GFCNT(S) * 100 / 16384);
+        PRNUM(GFCNT(S) * 100 / 262144);
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GFCNT(S));
-        syscall(SYS_WRITE, 2, "/16384) — too many cross-fn refs\n", 33);
+        syscall(SYS_WRITE, 2, "/262144) — too many cross-fn refs\n", 34);
     }
     if (GSPOS(S) * 100 / 262144 >= 85) {
         syscall(SYS_WRITE, 2, "warning: string_data at ", 24);

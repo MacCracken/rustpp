@@ -291,7 +291,7 @@ fn PARSE_FACTOR(S) {
             # Emit function address via fixup type 3
             var fc = GFCNT(S);
             if (fc >= 4096) {
-                syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+                syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
                 syscall(SYS_EXIT, 1);
             }
             # Register the function-address fixup (common to both
@@ -759,7 +759,7 @@ fn PARSE_FACTOR(S) {
         # x86 `lea`/`movabs` bytes into ARM code.
         var clfc = GFCNT(S);
         if (clfc >= 4096) {
-            syscall(SYS_WRITE, 2, "error: fixup table full (32768)\n", 32);
+            syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
             syscall(SYS_EXIT, 1);
         }
         var clfaddr = S + 0x170B000 + clfc * 16;

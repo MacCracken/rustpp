@@ -4,6 +4,97 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.1] — 2026-04-25
+
+**FIXUP-TABLE CAP BUMP — sit-blocking ecosystem unblock.**
+Per [sit's proposal](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md):
+the hardcoded 32,768-entry fixup table fills up when consumers
+add `"sandhi"` to `[deps].stdlib`, before DCE can strip unreached
+symbols. Compiler emits `error: fixup table full (32768)` and
+exits rc 1.
+
+**Affected consumers (all 8 named in 5.7.0)**: vidya (active
+migration), yantra, hoosh, ifran, daimon, mela, ark, sit.
+Sandhi alone burns ~2,350 fixups (469 fns × ~5/fn); any real
+consumer's call graph adds thousands more. Unblocked here so
+downstream sweep can complete.
+
+**Wedge into v5.7.1** ahead of cyrius-ts foundational work
+(cascaded to v5.7.2). Workflow: cyrius-ts P1.1+P1.2 work was
+git-rewound to v5.7.0 and preserved on `wip/cyrius-ts-p1`
+branch; fixup-cap shipped as v5.7.1; cyrius-ts work cherry-picks
+back as the first commits of v5.7.2.
+
+### Changed
+
+- **Cap bumped 32,768 → 262,144** (8× headroom). New table size:
+  262,144 × 16 B = **4 MiB** (was 512 KiB).
+- **Cap-check sites updated across 5 files** (16 sites — more than
+  sit's proposal listed; x86 backend was missing from the proposal's
+  grep):
+  - `src/frontend/parse_expr.cyr` (2 error message sites)
+  - `src/backend/x86/emit.cyr` (4 cap+msg sites)
+  - `src/backend/aarch64/emit.cyr` (5 cap + 5 msg sites including
+    the variant `PRNUM(fc)` + `"/32768)\n"` message at line 329)
+  - `src/backend/cx/emit.cyr` (3 cap+msg sites)
+  - `src/backend/pe/emit.cyr` (1 cap+msg site)
+- **Error messages**: `(32768)` → `(262144)`; aarch64 variant
+  `/32768)` → `/262144)`. String length immediates updated.
+- **Brk extension shifted +3.5 MB** in 4 main entry files
+  (`S + 0x178B000` → `S + 0x1B0B000`): main.cyr, main_aarch64.cyr,
+  main_aarch64_native.cyr, main_aarch64_macho.cyr (mmap size).
+- **Heap-layout comments** updated across all 5 main_*.cyr files:
+  fixup_tbl `[524288] 32768 entries` → `[4194304] 262144 entries`;
+  brk total heap `23.5MB` → `27 MB`.
+- **`src/main.cyr` capacity-meter output** updated (lines 1041, 1071,
+  1073, 1074). Pre-existing off-by-2x percentage math bug at
+  line 1073 (stale `/ 16384` divisor from a previous cap-bump
+  generation) corrected in passing.
+- **`src/main_win.cyr` line 82 layout comment** referenced an even
+  older `16384` cap — updated to current `262144 = 4 MiB` math.
+
+### Notably NOT changed
+
+- **`src/main_cx.cyr` brk** (cyrius-x bytecode emitter) stays at
+  `S + 0x54A000`. cx has its own smaller heap and never hits the
+  32K fixup cap in practice. The cx backend's cap-check is bumped
+  uniformly so the runtime check matches other backends, but cx's
+  fixup_tbl region size is unchanged. If a future cyrius-x consumer
+  approaches 32K fixups, cx's heap layout needs a separate bump.
+- **No new constant introduced**. sit's proposal suggested adding
+  `CYR_FIXUP_TBL_MAX = 262144` to `src/common/util.cyr`. Deferred —
+  inlined the literal to keep the v5.7.1 diff minimal (matches the
+  existing pattern of how 32768 was inlined). Refactor to a constant
+  later if patterns demand it.
+
+### Verification
+
+- **Self-host 3-step fixpoint**: `cc5_a → cc5_b → cc5_c`,
+  `cc5_b == cc5_c` byte-identical at **531,880 B** (8 B smaller
+  than v5.7.0 — small byte-shift from the 32K → 262K constant
+  change creating slightly different optimization opportunities;
+  cc5 itself has nowhere near 32K fixups so behavior unchanged).
+- **`cc5 --version`**: `cc5 5.7.1`.
+- **`check.sh`**: **26/26 PASS**.
+- **Sit unblock**: pending sit's own v0.7.2 build per the proposal's
+  validation steps — the cyrius side is now in place.
+
+### Reverse-jumps audit (per sit proposal §Risk)
+
+Grep for narrower-than-i32 stores into the fixup-index field —
+none found. cyrius is i64-by-default; fixup indices stored as i64.
+
+### Heap collision with v5.7.2 cyrius-ts (resolved by cherry-pick order)
+
+cyrius-ts P1 work originally committed at v5.7.0 placed
+`TS_HEAP_BASE` at old cc5 brk `0x178B000`. Under wedge-and-
+cherry-pick workflow, fixup-cap shipped as v5.7.1 first (extending
+brk to `0x1B0B000`), then cyrius-ts P1 commits cherry-pick as the
+first commits of v5.7.2. The cherry-picked code's heap-base
+references need a one-line update (`S + 0x178B000` → `S + 0x1B0B000`)
+— handled in the v5.7.2 doc-flip pass alongside v5.7.1 → v5.7.2
+phase-marker updates.
+
 ## [5.7.0] — 2026-04-25
 
 **THE SANDHI FOLD.** Per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md): clean-break consolidation. `lib/sandhi.cyr` adds (vendored from `sandhi/dist/sandhi.cyr` at the v1.0.0 tag, byte-identical), `lib/http_server.cyr` deletes (no alias, no passthrough, no empty stub). One event, one tag.

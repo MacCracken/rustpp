@@ -79,8 +79,8 @@
 #   0x10B2000 fn_inline     [32768]       4096 inline flags
 #   0x10BA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
 #   0x10C2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
-# Tables relocated past the runtime fixup_tbl (at 0x170B000 × 16 B ×
-# 16384 = ends at 0x108A000). Fits exactly in the 256 KB between that
+# Tables relocated past the runtime fixup_tbl (at 0x170B000 × 16 B × 262144 = 4 MiB,
+# old comment about 16384 obsolete (v5.7.1 bumped to 262144) Fits exactly in the 256 KB between that
 # end and brk's top at 0x10CA000.
 #
 # --- Reclaimable / scratch ---
@@ -123,7 +123,7 @@
 #   0x15CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
 #   0x160B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
-#   0x178B000 brk                         23.5MB total heap (v5.6.40)
+#   0x1B0B000 brk                         27 MB total heap (v5.6.40)
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
