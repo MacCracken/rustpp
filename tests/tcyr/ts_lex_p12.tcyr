@@ -1,4 +1,4 @@
-# v5.7.1 P1.2 — TS lexer regression for simple tokens.
+# v5.7.2 P1.2 — TS lexer regression for simple tokens.
 #
 # Includes the orphan src/frontend/ts/lex.cyr (not yet wired into
 # main.cyr; that's P1.6) and exercises TS_LEX directly against

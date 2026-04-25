@@ -2,11 +2,11 @@
 # src/frontend/ts/lex.cyr — TypeScript lexer (cyrius-ts P1)
 # ================================================================
 #
-# v5.7.1 P1.2 — simple tokens (identifiers, integers, strings,
+# v5.7.2 P1.2 — simple tokens (identifiers, integers, strings,
 # single-char operators, all keywords). Multi-char ops, template
 # literals, comments, regex disambiguation defer to P1.3-P1.6.
 #
-# Architecture (per docs/development/roadmap.md § v5.7.1):
+# Architecture (per docs/development/roadmap.md § v5.7.2):
 #
 #   - Separate heap regions from the .cyr lexer (cleaner, doesn't
 #     couple the two surfaces).
@@ -17,7 +17,7 @@
 #     all backends emit unchanged.
 #   - **TS-heap-relative offsets** (P1.2 redesign): all TS_*_OFF
 #     constants are relative to a `ts_base` pointer, not absolute
-#     heap addresses. P1.6 wire-in passes `ts_base = S + 0x178B000`
+#     heap addresses. P1.6 wire-in passes `ts_base = S + 0x1B0B000`
 #     (current cc5 brk); test drivers pass `ts_base = alloc(...)`.
 #     Decouples TS frontend from main.cyr's heap layout — TS region
 #     can move without touching the lexer code.
@@ -32,7 +32,7 @@
 #
 # Total TS region: 0x880000 (8.5 MB). All offsets are relative to
 # the ts_base pointer passed to TS_LEX. P1.6 wire-in places ts_base
-# at S + 0x178B000 in main.cyr; tests pass an alloc'd buffer.
+# at S + 0x1B0B000 in main.cyr; tests pass an alloc'd buffer.
 #
 # Offset       Region              Size       Stride  Purpose
 # -----------------------------------------------------------------

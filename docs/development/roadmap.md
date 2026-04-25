@@ -369,9 +369,7 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.0**: ✅ SHIPPED 2026-04-25 (cyrius side). **sandhi fold + lib/ cleanup** — `lib/http_server.cyr` deletes, `lib/sandhi.cyr` adds, per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md). Gates 1, 2, 3, 5, 6 ✅; gate 4 (downstream sweep) is separate user-organized work.
-> - **v5.7.1**: ✅ SHIPPED 2026-04-25. **fixup-table cap bump 32K → 262K** (8×). sit-blocking ecosystem unblock per [sit's proposal](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md); unblocks all 8 named sandhi consumers from `[deps].stdlib "sandhi"` overflow. Wedged ahead of cyrius-ts foundational work via git-rewind + fixup-cap commit + cherry-pick of preserved cyrius-ts P1 work.
-> - **v5.7.2**: **cyrius-ts foundational** — TypeScript frontend (sync, non-TSX subset) for SY-port-clean. Resumes the cyrius-ts P1 work cherry-picked back from `wip/cyrius-ts-p1` after the v5.7.1 fixup-cap wedge. Scope is data-driven from a 2026-04-25 SY TS inventory (2,053 sync TS files / 94,324 LOC); async + JSX explicitly defer to v5.7.3.
+> - **v5.7.2**: **cyrius-ts foundational** — TypeScript frontend (sync, non-TSX subset) for SY-port-clean. P1 work cherry-picked from `wip/cyrius-ts-p1` (committed at v5.7.0, preserved during the v5.7.1 fixup-cap wedge). Scope data-driven from a 2026-04-25 SY TS inventory (2,053 sync TS files / 94,324 LOC); async + JSX explicitly defer to v5.7.3. (v5.7.0 sandhi fold + v5.7.1 fixup-cap bump shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
 > - **v5.7.3**: **cyrius-ts completion** — async runtime (`async`/`await`/`Promise` for the 73% of SY TS files using them) + JSX scope decision (likely "explicitly NOT supported"; SY's 435 TSX files stay in SY's web-frontend track). Pinned 2026-04-25.
 > - **v5.7.4**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + cyrius-ts foundational + completion). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
@@ -696,59 +694,6 @@ toolchain side is unblocked.
 
 ---
 
-## v5.7.0 — sandhi fold + lib/ cleanup ✅ SHIPPED 2026-04-25 (cyrius side)
-
-**Cyrius-side gates 1, 2, 5, 6 ✅. Gates 3 + 4 (downstream sweep) are separate user-organized work — see "Downstream worklist" in [CHANGELOG.md § 5.7.0](../../CHANGELOG.md#570--2026-04-25).**
-
-**The clean-break fold.** Per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md) (2026-04-24):
-
-- Stdlib **adds** `lib/sandhi.cyr` vendored from sandhi's `dist/sandhi.cyr`
-- Stdlib **deletes** `lib/http_server.cyr` — no alias, no passthrough, no empty stub
-- Both changes land in the same release — one event, one tag
-
-v5.7.0 is the consolidation release for the v5.7.x minor. The cyrius-ts foundational frontend ended up at v5.7.2 after the v5.7.1 fixup-table cap bump (sit-blocking) wedged in 2026-04-25. **cyrius-ts completion** (async + JSX) takes v5.7.3; **RISC-V rv64** (originally scheduled as v5.7.0) slides further to v5.7.4. Each minor-patch covers a single focus — sandhi fold, ecosystem unblock, foundational frontend, frontend completion, new architecture — separate kinds of change kept apart for clean bisection + clean release notes.
-
-**Scope:**
-
-- **Vendor `dist/sandhi.cyr`** from sandhi's M5-complete release (sandhi v1.0.0) into `lib/sandhi.cyr`.
-- **Delete `lib/http_server.cyr`** — its content has been canonical in `sandhi::server` since sandhi v0.2.0 (M1, 2026-04-24); stdlib's copy has been redundant-but-unchanged through the 5.6.x window, with a 5.6.YY deprecation warning (see prerequisite below) giving downstream consumers advance notice.
-- **Propagate consumer-side migration** — original list named yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote; **post-fold audit (2026-04-25) found `sit-remote` and `ark-remote` don't exist** (real names are `sit` and `ark`), and the actual `include "lib/http_server.cyr"` consumer is **only `vidya`** (in `src/main.cyr`). yantra and sit have orphan pre-fold file copies (no callers; cleanup-only). Other repos have no v5.7.0 work.
-- **Document the lib/ reshape** — CHANGELOG entry enumerates every deleted symbol from `lib/http_server.cyr` (now accessible via `sandhi::server::*`), every added symbol exposed via `lib/sandhi.cyr`, and any additional redundant lib/ objects surfaced during the 5.6.x consumer sweep that are being retired in the same release.
-- **Retire the sandhi repo to maintenance mode** — subsequent patches land via the Cyrius release cycle, not sandhi releases. The sandhi repo keeps its git history as historical reference; no new tags cut post-fold.
-
-**Prerequisites that must ship before v5.7.0:**
-
-- **sandhi M2–M5 complete** — the public surface freezes at fold, so all planned verbs must ship as part of a sandhi release and be exercised by at least one consumer before the fold lands. No speculative surface goes into stdlib.
-- **v5.6.YY deprecation-warning patch** — ✅ SHIPPED at v5.6.44 (2026-04-25). All 17 public fns in `lib/http_server.cyr` marked `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")` via the v5.6.4 fn-attribute mechanism + file-header deprecation block. Per-call-site warning is *stronger* notice than the originally-specified include-time print — consumers see the warning at every API use, not just at the top of the build. Notice cycle runs through every release between v5.6.44 and v5.7.0.
-- **Consumer-side dual-build readiness** — original prereq named 8 repos; ✅ **substantially overstated**: post-fold audit found only `vidya` actually `include`s `lib/http_server.cyr`, and zero of the 8 had `[deps.sandhi]` pinned. Real prereq surface was 1 consumer migration + 2 orphan-file cleanups, not 8 dual-build branches.
-- **`cyrius distlib` produces self-contained `dist/sandhi.cyr`** — verified clean-build from the sandhi repo at its M5-final tag, with no transitive-dep surprises.
-
-**Acceptance gates:**
-
-1. ✅ `lib/sandhi.cyr` exists in stdlib, byte-identical to `dist/sandhi.cyr` at the fold commit (`cmp` clean, 376,037 B / 9,649 lines, vendored at sandhi commit `6e32096`).
-2. ✅ `lib/http_server.cyr` is absent from stdlib — `git rm`'d at v5.7.0.
-3. ✅ No AGNOS repo has `[deps.sandhi]` pinned in `cyrius.cyml` on a 5.7.0-compatible tag — **gate already satisfied at fold time** (audit across all 8 listed consumers found zero `[deps.sandhi]` pins; no per-repo work needed).
-4. ⏳ No AGNOS repo has `include "lib/http_server.cyr"` on a 5.7.0-compatible tag — **only `vidya` actually consumes the lib** (in `src/main.cyr`); user-organized migration. yantra and sit have orphan pre-fold file copies (no consumers; cleanup-only). Original 8-repo roadmap list contained two stale names: `sit-remote` and `ark-remote` don't exist (real names: `sit`, `ark`).
-5. ✅ sandhi repo tagged v1.0.0 (M5-complete) at commit `6e32096`; HEAD on tag; entering maintenance mode (no new tags post-fold).
-6. ✅ CHANGELOG entry enumerates 17-symbol removal table + sandhi 469-fn surface summary + actual downstream worklist at [CHANGELOG.md § 5.7.0](../../CHANGELOG.md#570--2026-04-25).
-
-**Why bundle lib/ cleanup with sandhi fold rather than run two separate releases**: consumer-side migration work is the same shape whether stdlib is reshaping 1 file or N. One release, one migration, one CHANGELOG entry naming the whole reshape — consumers audit once, not repeatedly.
-
----
-
-## v5.7.1 — fixup-table cap bump ✅ SHIPPED 2026-04-25
-
-**Sit-blocking ecosystem unblock.** Per [sit's proposal](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md): cyrius's hardcoded 32,768-entry fixup table fills up when consumers add `"sandhi"` to `[deps].stdlib`, before DCE can strip unreached symbols. Compiler emitted `error: fixup table full (32768)` and exited rc 1.
-
-Affected consumers (all 8 named in v5.7.0 CHANGELOG): vidya, yantra, hoosh, ifran, daimon, mela, ark, sit. Sandhi alone burns ~2,350 fixups (469 fns × ~5/fn).
-
-**Wedge workflow** (per user direction 2026-04-25): cyrius-ts P1 work was rewound to v5.7.0 + preserved on `wip/cyrius-ts-p1` branch; fixup-cap shipped as v5.7.1; cyrius-ts cherry-picks back as the first commits of v5.7.2. Pattern: high-priority single-issue patches can preempt single-focus minors via this rewind+cherry-pick dance when ecosystem unblocking is at stake.
-
-**Shipped**: cap 32,768 → 262,144 (8×); 16 cap-check sites updated across 5 backend files; brk +3.5 MB in 4 main entry files; capacity-meter output + heap-layout comments updated; pre-existing off-by-2x percentage math bug (line 1073 stale `/ 16384` divisor) fixed in passing. Full enumeration in [CHANGELOG.md § 5.7.1](../../CHANGELOG.md#571--2026-04-25).
-
-**Verification**: cc5 self-host fixpoint clean at 531,880 B (8 B smaller than v5.7.0 from constant-change byte-shift; cc5 itself unchanged semantically). check.sh 26/26 PASS. Sit's v0.7.2 build verification pending — cyrius side of the unblock is in place.
-
----
 
 ## v5.7.2 — cyrius-ts foundational
 
