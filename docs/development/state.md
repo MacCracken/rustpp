@@ -5,6 +5,37 @@
 
 ## Version
 
+**5.7.0** (shipped — **THE SANDHI FOLD**. Clean-break consolidation
+per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md).
+`lib/sandhi.cyr` adds (vendored byte-identical from `sandhi/dist/sandhi.cyr`
+at the v1.0.0 tag, 376,037 B / 9,649 lines, 469 fns); `lib/http_server.cyr`
+deletes (no alias, no passthrough); `tests/tcyr/http_server.tcyr` deletes
+with it. All 17 deprecated `http_*` public fns have 1:1 `sandhi_server_*`
+replacements (audit-confirmed pre-fold, full table in CHANGELOG).
+`scripts/lib/audit-walk.sh` extended to skip `cyrius distlib`-generated
+files in fmt+lint walks (marker-based, complements existing symlink-based
+skip for `cyrius deps`-managed deps; dep files skipped 6 → 7).
+Acceptance gates 1, 2, 5, 6 ✅ on cyrius side; gates 3 + 4 (downstream
+sweep across yantra/hoosh/ifran/daimon/mela/vidya/sit-remote/ark-remote)
+are separate work, organized by user. Sandhi repo enters maintenance
+mode — subsequent surface patches land via Cyrius release cycle.
+Zero compiler change → cc5 byte-identical at 531,888 B; check.sh
+26/26 PASS.)
+
+**5.6.45** (shipped — VS Code TextMate grammar refresh.
+Extended `editors/vscode/syntaxes/cyrius.tmLanguage.json` to
+cover the v5.6.x syntax wave: 4 new keywords (`secret`, `match`,
+`in`, `shared`) + 10 new directives (`#deprecated`, `#pe_import`,
+`#must_use`, `#regalloc`, `#endplat`, `#include`, `#ifplat`,
+`#elif`, `#else`, `#ifndef`). All grep-confirmed as live cyrius
+syntax before adding. Directives ordered longest-prefix-first
+to avoid Oniguruma alternation false-matches. JSON valid. Pairs
+with v5.6.44: now the `#deprecated("use lib/sandhi.cyr instead")`
+attributes on `lib/http_server.cyr` render as preprocessor
+directives in VS Code, making the deprecation banner unmissable.
+Zero compiler change → cc5 byte-identical at 531,888 B; check.sh
+26/26 PASS.)
+
 **5.6.44** (shipped — v5.7.0 prep patch. `lib/http_server.cyr`
 deprecation-notice cycle: all 17 public fns marked
 `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")`
@@ -34,9 +65,11 @@ throughput win on hosts with hw support).)
 - **cc5 (x86_64)**: **531,888 B** (unchanged from v5.6.42 —
   heap shifts are address constants emitted as 32-bit
   immediates; byte counts preserved; v5.6.44 deprecation
-  attributes on `lib/http_server.cyr` don't affect cc5 because
-  cc5 doesn't include that lib). `cc5 --version` reports
-  `cc5 5.6.44`.
+  attributes on `lib/http_server.cyr`, v5.6.45 grammar
+  refresh in `editors/vscode/`, and v5.7.0 sandhi fold —
+  `lib/sandhi.cyr` add + `lib/http_server.cyr` delete — don't
+  affect cc5 because the compiler doesn't include any of those
+  libs). `cc5 --version` reports `cc5 5.7.0`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -67,28 +100,44 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 22/22 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
-- **`tests/tcyr/*.tcyr`**: 68 files
+- **check.sh**: 26/26 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
+- **`tests/tcyr/*.tcyr`**: 67 files (was 68; `http_server.tcyr` deleted with the v5.7.0 fold)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
-- **Stdlib**: 60 modules (54 first-party + 6 deps via `cyrius deps`:
-  sakshi, patra, sigil, yukti, mabda, sankoch)
+- **Stdlib**: 60 modules (53 first-party + 7 vendored/deps: 6 via `cyrius deps`
+  symlinks — sakshi, patra, sigil, yukti, mabda, sankoch — plus
+  `lib/sandhi.cyr` vendored from `cyrius distlib` at sandhi v1.0.0)
 
 ## In-flight
 
-**v5.7.0 (sandhi fold) — blocked on sandhi M5 → v1.0.0 tag.**
-Per CHANGELOG v5.6.44 fold-readiness checklist:
+**v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
+acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the
+deleted/added symbol delta + downstream audit). Open work
+(separate, user-organized):
 
-- ✅ Deprecation-warning patch shipped (v5.6.44)
-- ⏳ sandhi M5 → v1.0.0 tag cut (currently sandhi v0.9.4)
-- ⏳ Downstream consumer-side dual-build branches ready
-  (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote)
-- ⏳ `cyrius distlib` produces self-contained `dist/sandhi.cyr` at
-  M5-final tag
+- ⏳ Downstream consumer sweep — gate 4 of v5.7.0. Audit found
+  the real footprint is much smaller than the original 8-repo
+  roadmap list implied: `sit-remote` and `ark-remote` don't
+  exist (real names are `sit` and `ark`); none of the 8 had
+  `[deps.sandhi]` pinned (gate 3 already satisfied); only
+  **vidya** actually `include`s `lib/http_server.cyr`
+  (in `src/main.cyr`). yantra and sit also have orphan
+  pre-fold copies of `lib/http_server.cyr` (regular files, not
+  `cyrius deps` symlinks — likely manual copies from early
+  sandhi M0 era) that need deletion for cleanliness.
+  hoosh / ifran / daimon / mela / ark have no v5.7.0 work.
+- ⏳ Vyakarana grammar refresh for sandhi syntax (469 fns now in
+  stdlib; vyakarana likely doesn't index them yet — coordinate
+  with owl colorizer work).
+- ⏳ Vidya per-minor refresh (language.toml / dependencies.toml /
+  ecosystem.toml updates for the v5.7.0 stdlib reshape; deferred
+  until downstream sweep also lands so vidya reflects post-sweep
+  ecosystem state).
 
-While sandhi closes out, the v5.6.44 deprecation warning runs
-the consumer notice cycle. No further v5.6.x patches planned
-unless a regression surfaces.
+Sandhi repo enters maintenance mode per ADR 0002 — subsequent
+surface patches land via Cyrius release cycle, not sandhi releases.
+Sandhi git history retained as historical reference; no new tags
+cut post-fold.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
@@ -99,6 +148,45 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.7.0** — **THE SANDHI FOLD**. Clean-break consolidation per
+  sandhi ADR 0002: `lib/sandhi.cyr` adds (vendored byte-identical
+  from `sandhi/dist/sandhi.cyr` at v1.0.0 tag — 376,037 B / 9,649
+  lines / 469 fns covering M0–M5: HTTP client + server + HTTP/2 +
+  streaming + JSON-RPC + service discovery + TLS policy);
+  `lib/http_server.cyr` deletes (no alias, no passthrough); 17
+  deprecated `http_*` fns confirmed 1:1-mapped to `sandhi_server_*`
+  pre-fold. `tests/tcyr/http_server.tcyr` deletes with the lib
+  (suite 68 → 67 files). `scripts/lib/audit-walk.sh` extended to
+  skip `cyrius distlib`-generated files (marker-based, complements
+  symlink-based skip for `cyrius deps` deps; dep skip count 6 → 7).
+  Acceptance gates 1, 2, 5, 6 ✅; gates 3 + 4 (downstream sweep
+  across yantra/hoosh/ifran/daimon/mela/vidya/sit-remote/ark-remote)
+  are separate user-organized work. Sandhi repo enters maintenance
+  mode. Zero compiler change → cc5 byte-identical at 531,888 B
+  (cc5 doesn't include either lib); cc5 --version → 5.7.0;
+  check.sh 26/26 PASS.
+- **v5.6.45** — VS Code TextMate grammar refresh
+  (`editors/vscode/syntaxes/cyrius.tmLanguage.json`). Extended
+  to cover the v5.6.x syntax wave: 4 new keywords (`secret`,
+  `match`, `in`, `shared`) + 10 new directives (`#deprecated`,
+  `#pe_import`, `#must_use`, `#regalloc`, `#endplat`, `#include`,
+  `#ifplat`, `#elif`, `#else`, `#ifndef`). All grep-confirmed
+  as live cyrius syntax. Directive pattern ordered
+  longest-prefix-first to avoid Oniguruma alternation
+  false-matches; trailing `\b`. Pairs with v5.6.44: the
+  `#deprecated("use lib/sandhi.cyr instead")` attributes on
+  `lib/http_server.cyr` now render as preprocessor directives in
+  VS Code (and through Claude Code's IDE integration via
+  `mcp__ide__getDiagnostics`), making the v5.7.0 cutover
+  signal unmissable. Out-of-scope (deliberately not bundled):
+  CLI fence-tag convention (no Claude Code plugin/config surface
+  for custom-language grammar registration — researched via
+  claude-code-guide; working through OWL routing instead via
+  `~/.claude/settings.json` permission rule); vyakarana grammar
+  resync (separate repo, separate audit); CYIM (cyrius-aware
+  editor binary, pinned for after owl + sit stable). cc5
+  byte-identical at 531,888 B (grammar-only edit). check.sh
+  26/26 PASS.
 - **v5.6.44** — `lib/http_server.cyr` deprecation-notice cycle
   for v5.7.0 prep. All 17 public fns marked
   `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")`

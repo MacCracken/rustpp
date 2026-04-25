@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.6.44.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.7.0.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -694,7 +694,9 @@ toolchain side is unblocked.
 
 ---
 
-## v5.7.0 — sandhi fold + lib/ cleanup (clean-break consolidation)
+## v5.7.0 — sandhi fold + lib/ cleanup ✅ SHIPPED 2026-04-25 (cyrius side)
+
+**Cyrius-side gates 1, 2, 5, 6 ✅. Gates 3 + 4 (downstream sweep) are separate user-organized work — see "Downstream worklist" in [CHANGELOG.md § 5.7.0](../../CHANGELOG.md#570--2026-04-25).**
 
 **The clean-break fold.** Per [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md) (2026-04-24):
 
@@ -708,7 +710,7 @@ v5.7.0 is the consolidation release for the v5.7.x minor. **cyrius-ts** (TypeScr
 
 - **Vendor `dist/sandhi.cyr`** from sandhi's M5-complete release (sandhi v1.0.0) into `lib/sandhi.cyr`.
 - **Delete `lib/http_server.cyr`** — its content has been canonical in `sandhi::server` since sandhi v0.2.0 (M1, 2026-04-24); stdlib's copy has been redundant-but-unchanged through the 5.6.x window, with a 5.6.YY deprecation warning (see prerequisite below) giving downstream consumers advance notice.
-- **Propagate consumer-side migration** — downstream repos (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote) land 5.7.0-compatible tags switching `include "lib/http_server.cyr"` → `include "lib/sandhi.cyr"` and dropping `[deps.sandhi]` git pins in favor of the stdlib include.
+- **Propagate consumer-side migration** — original list named yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote; **post-fold audit (2026-04-25) found `sit-remote` and `ark-remote` don't exist** (real names are `sit` and `ark`), and the actual `include "lib/http_server.cyr"` consumer is **only `vidya`** (in `src/main.cyr`). yantra and sit have orphan pre-fold file copies (no callers; cleanup-only). Other repos have no v5.7.0 work.
 - **Document the lib/ reshape** — CHANGELOG entry enumerates every deleted symbol from `lib/http_server.cyr` (now accessible via `sandhi::server::*`), every added symbol exposed via `lib/sandhi.cyr`, and any additional redundant lib/ objects surfaced during the 5.6.x consumer sweep that are being retired in the same release.
 - **Retire the sandhi repo to maintenance mode** — subsequent patches land via the Cyrius release cycle, not sandhi releases. The sandhi repo keeps its git history as historical reference; no new tags cut post-fold.
 
@@ -716,17 +718,17 @@ v5.7.0 is the consolidation release for the v5.7.x minor. **cyrius-ts** (TypeScr
 
 - **sandhi M2–M5 complete** — the public surface freezes at fold, so all planned verbs must ship as part of a sandhi release and be exercised by at least one consumer before the fold lands. No speculative surface goes into stdlib.
 - **v5.6.YY deprecation-warning patch** — ✅ SHIPPED at v5.6.44 (2026-04-25). All 17 public fns in `lib/http_server.cyr` marked `#deprecated("use lib/sandhi.cyr instead -- removed at v5.7.0")` via the v5.6.4 fn-attribute mechanism + file-header deprecation block. Per-call-site warning is *stronger* notice than the originally-specified include-time print — consumers see the warning at every API use, not just at the top of the build. Notice cycle runs through every release between v5.6.44 and v5.7.0.
-- **Consumer-side dual-build readiness** — every named downstream repo (yantra, hoosh, ifran, daimon, mela, vidya, sit-remote, ark-remote) has a branch ready to switch includes at the 5.7.0 release gate.
+- **Consumer-side dual-build readiness** — original prereq named 8 repos; ✅ **substantially overstated**: post-fold audit found only `vidya` actually `include`s `lib/http_server.cyr`, and zero of the 8 had `[deps.sandhi]` pinned. Real prereq surface was 1 consumer migration + 2 orphan-file cleanups, not 8 dual-build branches.
 - **`cyrius distlib` produces self-contained `dist/sandhi.cyr`** — verified clean-build from the sandhi repo at its M5-final tag, with no transitive-dep surprises.
 
 **Acceptance gates:**
 
-1. `lib/sandhi.cyr` exists in stdlib, byte-identical to `dist/sandhi.cyr` at the fold commit.
-2. `lib/http_server.cyr` is absent from stdlib — `ls lib/http_server.cyr` returns no such file.
-3. No AGNOS repo has `[deps.sandhi]` pinned in `cyrius.cyml` on a 5.7.0-compatible tag.
-4. No AGNOS repo has `include "lib/http_server.cyr"` on a 5.7.0-compatible tag.
-5. sandhi repo is tagged v1.0.0 (M5-complete) and its next commit marks maintenance-mode entry.
-6. CHANGELOG entry enumerates the deleted + added symbols per the "document the lib/ reshape" scope item.
+1. ✅ `lib/sandhi.cyr` exists in stdlib, byte-identical to `dist/sandhi.cyr` at the fold commit (`cmp` clean, 376,037 B / 9,649 lines, vendored at sandhi commit `6e32096`).
+2. ✅ `lib/http_server.cyr` is absent from stdlib — `git rm`'d at v5.7.0.
+3. ✅ No AGNOS repo has `[deps.sandhi]` pinned in `cyrius.cyml` on a 5.7.0-compatible tag — **gate already satisfied at fold time** (audit across all 8 listed consumers found zero `[deps.sandhi]` pins; no per-repo work needed).
+4. ⏳ No AGNOS repo has `include "lib/http_server.cyr"` on a 5.7.0-compatible tag — **only `vidya` actually consumes the lib** (in `src/main.cyr`); user-organized migration. yantra and sit have orphan pre-fold file copies (no consumers; cleanup-only). Original 8-repo roadmap list contained two stale names: `sit-remote` and `ark-remote` don't exist (real names: `sit`, `ark`).
+5. ✅ sandhi repo tagged v1.0.0 (M5-complete) at commit `6e32096`; HEAD on tag; entering maintenance mode (no new tags post-fold).
+6. ✅ CHANGELOG entry enumerates 17-symbol removal table + sandhi 469-fn surface summary + actual downstream worklist at [CHANGELOG.md § 5.7.0](../../CHANGELOG.md#570--2026-04-25).
 
 **Why bundle lib/ cleanup with sandhi fold rather than run two separate releases**: consumer-side migration work is the same shape whether stdlib is reshaping 1 file or N. One release, one migration, one CHANGELOG entry naming the whole reshape — consumers audit once, not repeatedly.
 
