@@ -882,6 +882,59 @@ style — one focused fix per release, no grab-bags. The pinned
 items below are guaranteed to ship before v5.7.x closeout; the
 specific patch number depends on what else surfaces.
 
+### v5.7.4 OR v5.7.5 — fixup-table cap bump 262K → 1M (4×, second bump)
+
+**Pinned 2026-04-25.** The v5.7.1 bump (32K → 262K, 8×) was
+**not enough** — at least one downstream consumer is still hitting
+the 262K ceiling at compile time. User direction: slot another
+4× bump to **1,048,576** (1M entries) for v5.7.4 OR v5.7.5,
+landing **after cyrius-ts completes** (v5.7.2 + v5.7.3) so the
+TS frontend's eventual fixup-pressure is captured in the same
+audit pass.
+
+**Why slot ambiguity (v5.7.4 vs v5.7.5)**: depends on whether
+this wedges into v5.7.4 ahead of RISC-V (pushing rv64 to v5.7.5,
+matching the v5.7.1 wedge precedent) or ships as v5.7.5 after
+RISC-V at v5.7.4. Decision when v5.7.3 closes — at that point
+we'll know how urgent the cap pressure is, whether other
+consumers have hit it, and whether RISC-V port work is ready
+to start.
+
+**Scope** (mirrors v5.7.1 patch shape, just with bigger numbers):
+
+- Cap bumped 262,144 → 1,048,576 (4×). New table size:
+  1,048,576 × 16 B = **16 MiB** (was 4 MiB at v5.7.1, was
+  512 KiB pre-v5.7.1).
+- Same 16 cap-check sites updated across 5 backend files
+  (parse_expr, x86, aarch64, cx, pe). Same string-length
+  immediates (`"...(262144)..."`, 33 → `"...(1048576)..."`, 34).
+- aarch64 variant `"/262144)\n"` → `"/1048576)\n"`.
+- Brk extends another +12 MB (4 → 16 MiB table). Estimated new
+  brk: 27 MB → 39 MB. Heap-relative offsets in
+  `src/frontend/ts/lex.cyr` shift accordingly (single-line
+  update if cyrius-ts is wired in by then; orphan otherwise).
+- All 4 `main_*.cyr` brk extensions update from `S + 0x1B0B000`
+  → new computed value (~`S + 0x270B000`).
+
+**Acceptance gates:**
+
+1. Cap message reads `(1048576)`.
+2. cc5 self-host fixpoint clean (cc5 itself nowhere near 1M
+   fixups; bump is invisible to cc5's own behavior).
+3. The downstream consumer that hit the 262K ceiling builds
+   clean post-bump (which consumer + what manifest shape — TBD,
+   user to identify).
+4. CHANGELOG enumerates the cap change, the relocation delta,
+   and which consumer was unblocked.
+
+**Long-term consideration**: this is the THIRD time we've bumped
+the cap (16K → 32K pre-v5.6.x, 32K → 262K at v5.7.1, 262K → 1M
+here). At some point the static-cap pattern stops scaling. The
+proposal section in [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table)
+considered (and deferred) a dynamic vec-shaped table. If we hit
+a 4th bump, the dynamic-table conversion becomes the right move.
+Pin that as a v5.8.x or v5.9.x consideration if needed.
+
 ### v5.7.x — `cyrius deps` transitive resolution
 
 **Pinned 2026-04-23.** `cyrius deps` currently resolves only
