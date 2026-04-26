@@ -1086,11 +1086,12 @@ fn TS_PARSE_ARROW_PARAMS(ts_base) {
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
                 TS_PARSE_CONSUME(ts_base);
             }
-            # Optional `: T` — skip the type expression loosely
-            # (P2.4 will properly parse). For now: skip until , or ) or = at depth 0.
+            # Optional `: T` — record full type AST in payload[1].
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
                 TS_PARSE_CONSUME(ts_base);
-                TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+                var pt_node = TS_PARSE_TYPE(ts_base);
+                if (pt_node < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, p, 1, pt_node);
             }
             # Optional `= default`
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
@@ -1110,36 +1111,449 @@ fn TS_PARSE_ARROW_PARAMS(ts_base) {
     return off;
 }
 
-# Loosely skip a type expression (P2.4 will properly parse). Walks
-# forward at top-level depth, stopping at one of: , ) ] } = => ;
-# Tracks <>/(/[/{ depth.
-fn TS_PARSE_SKIP_TYPE_LOOSE(ts_base) {
-    var depth = 0;
-    var go = 1;
-    while (go == 1) {
-        var t = TS_PARSE_PEEK(ts_base);
-        if (t == TS_TOK_EOF) { go = 0; }
-        elif (depth == 0) {
-            if (t == TS_TOK_COMMA || t == TS_TOK_RPAREN || t == TS_TOK_RBRACKET
-                || t == TS_TOK_RBRACE || t == TS_TOK_EQ || t == TS_TOK_ARROW
-                || t == TS_TOK_SEMI || t == TS_TOK_LBRACE) {
-                go = 0;
+# ================================================================
+# Type expression parser (P2.4)
+# ================================================================
+# Replaces v5.7.2 P2.3's loose type-skipper. Builds a real AST for
+# type expressions covering:
+#   - primitives (void) + literal types ('foo', 42, true, null, ...)
+#   - type refs with type-args (Foo, Foo<T>, A.B.C)
+#   - object types ({ x: T; y?: U }), index signatures ([k: K]: V)
+#   - tuple types ([T, U?, ...V])
+#   - array postfix (T[], T[][])
+#   - function types ((a: T, b: T) => U) — paren-vs-fn lookahead
+#   - union (|) and intersection (&) operators
+#   - keyof T, typeof x.y
+#   - parenthesized types
+#
+# Mapped types ({ [K in keyof T]: U }) and conditional types
+# (T extends U ? V : W) are deferred to v5.7.3 — they're not blocking
+# SY parse acceptance.
+
+# Lookahead: in TYPE context, scan past LPAREN to its matching RPAREN
+# and check whether the following token is `=>`. If so, this LPAREN
+# starts a function-type parameter list.
+fn TS_TYPE_LOOKAHEAD_IS_FN(ts_base) {
+    var start = load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX);
+    var i = start + 1;
+    var depth = 1;
+    var max_scan = start + 4096;
+    var done = 0;
+    while (done == 0) {
+        if (i >= max_scan) { return 0; }
+        var t = TS_PEEKT(ts_base, i);
+        if (t == TS_TOK_EOF) { return 0; }
+        if (t == TS_TOK_LPAREN) { depth = depth + 1; }
+        elif (t == TS_TOK_RPAREN) {
+            depth = depth - 1;
+            if (depth == 0) { done = 1; }
+        }
+        i = i + 1;
+    }
+    if (TS_PEEKT(ts_base, i) == TS_TOK_ARROW) { return 1; }
+    return 0;
+}
+
+# In type-argument context, the lexer cannot tell apart `>>` (right
+# shift) from two adjacent `>` characters closing nested generics like
+# `Promise<Array<T>>`. This helper unifies the close: it accepts GT
+# directly, but for GT_GT / GT_GT_GT / GT_EQ / GT_GT_EQ / GT_GT_GT_EQ
+# it rewrites the current token entry in place to "consume" one `>`
+# worth and leave the remainder for the next call.
+fn TS_PARSE_EXPECT_TYPE_GT(ts_base) {
+    var idx = load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX);
+    var t = TS_PEEKT(ts_base, idx);
+    if (t == TS_TOK_GT) {
+        TS_PARSE_CONSUME(ts_base);
+        return 0;
+    }
+    var off = ts_base + TS_TOK_TYPES_OFF + idx * 8;
+    if (t == TS_TOK_GT_GT) {
+        store64(off, TS_TOK_GT);
+        return 0;
+    }
+    if (t == TS_TOK_GT_GT_GT) {
+        store64(off, TS_TOK_GT_GT);
+        return 0;
+    }
+    if (t == TS_TOK_GT_EQ) {
+        store64(off, TS_TOK_EQ);
+        return 0;
+    }
+    if (t == TS_TOK_GT_GT_EQ) {
+        store64(off, TS_TOK_GT_EQ);
+        return 0;
+    }
+    if (t == TS_TOK_GT_GT_GT_EQ) {
+        store64(off, TS_TOK_GT_GT_EQ);
+        return 0;
+    }
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 3);
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX, idx);
+    return 0 - 1;
+}
+
+# Reference: A | A.B | A.B.C  with optional <T, U> type args.
+fn TS_PARSE_TYPE_REF(ts_base) {
+    var name_v = TS_PARSE_TOK_VAL(ts_base);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+    while (TS_PARSE_PEEK(ts_base) == TS_TOK_DOT) {
+        TS_PARSE_CONSUME(ts_base);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+    }
+    var ref = TS_AST_PUSH(ts_base, TS_AST_TYPE_REF, name_v);
+    if (ref < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, ref, 0, name_v);
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_LT) {
+        TS_PARSE_CONSUME(ts_base);
+        var args_off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+        if (args_off < 0) { return 0 - 1; }
+        var ai = 0;
+        var first = 1;
+        var done_args = 0;
+        while (done_args == 0) {
+            var pt = TS_PARSE_PEEK(ts_base);
+            if (pt == TS_TOK_GT || pt == TS_TOK_GT_GT || pt == TS_TOK_GT_GT_GT
+                || pt == TS_TOK_GT_EQ || pt == TS_TOK_GT_GT_EQ
+                || pt == TS_TOK_GT_GT_GT_EQ) {
+                done_args = 1;
             } else {
-                if (t == TS_TOK_LPAREN || t == TS_TOK_LBRACKET || t == TS_TOK_LT) {
-                    depth = depth + 1;
+                if (first == 0) {
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
                 }
-                TS_PARSE_CONSUME(ts_base);
+                first = 0;
+                var arg = TS_PARSE_TYPE(ts_base);
+                if (arg < 0) { return 0 - 1; }
+                TS_AST_CHILDREN_SET(ts_base, args_off + ai, arg);
+                ai = ai + 1;
             }
-        } else {
-            if (t == TS_TOK_LPAREN || t == TS_TOK_LBRACKET || t == TS_TOK_LT) {
-                depth = depth + 1;
-            } elif (t == TS_TOK_RPAREN || t == TS_TOK_RBRACKET || t == TS_TOK_GT) {
-                depth = depth - 1;
-            }
+        }
+        TS_AST_CHILDREN_SET(ts_base, args_off + ai, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, ai + 1);
+        TS_AST_SET_PAYLOAD(ts_base, ref, 1, args_off);
+        if (TS_PARSE_EXPECT_TYPE_GT(ts_base) < 0) { return 0 - 1; }
+    }
+    return ref;
+}
+
+# Object type: { name: T; [k: K]: V; readonly q: W }
+fn TS_PARSE_TYPE_OBJECT(ts_base) {
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACE) < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_TYPE_OBJECT, 0);
+    if (n < 0) { return 0 - 1; }
+    var members_off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (members_off < 0) { return 0 - 1; }
+    var mi = 0;
+    while (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_READONLY) {
             TS_PARSE_CONSUME(ts_base);
         }
+        var member = 0 - 1;
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LBRACKET) {
+            # Index signature: [name: K]: V
+            TS_PARSE_CONSUME(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+            var k_t = TS_PARSE_TYPE(ts_base);
+            if (k_t < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+            var v_t = TS_PARSE_TYPE(ts_base);
+            if (v_t < 0) { return 0 - 1; }
+            member = TS_AST_PUSH(ts_base, TS_AST_TYPE_INDEX_SIG, 0);
+            if (member < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, member, 0, k_t);
+            TS_AST_SET_PAYLOAD(ts_base, member, 1, v_t);
+        } else {
+            # Property: name [?] : T
+            var name_v = TS_PARSE_TOK_VAL(ts_base);
+            var pt = TS_PARSE_PEEK(ts_base);
+            var ok = 0;
+            if (pt == TS_TOK_IDENT) { ok = 1; }
+            elif (pt == TS_TOK_STRING) { ok = 1; }
+            elif (pt == TS_TOK_INT) { ok = 1; }
+            elif (pt == TS_TOK_KW_FROM) { ok = 1; }
+            elif (pt == TS_TOK_KW_AS) { ok = 1; }
+            elif (pt == TS_TOK_KW_OF) { ok = 1; }
+            elif (pt == TS_TOK_KW_GET) { ok = 1; }
+            elif (pt == TS_TOK_KW_SET) { ok = 1; }
+            elif (pt == TS_TOK_KW_TYPE) { ok = 1; }
+            if (ok == 0) {
+                store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 7);
+                store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                        load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+                return 0 - 1;
+            }
+            TS_PARSE_CONSUME(ts_base);
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+                TS_PARSE_CONSUME(ts_base);
+            }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+            var pv_t = TS_PARSE_TYPE(ts_base);
+            if (pv_t < 0) { return 0 - 1; }
+            member = TS_AST_PUSH(ts_base, TS_AST_PROPERTY_ASSIGN, name_v);
+            if (member < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, member, 0, name_v);
+            TS_AST_SET_PAYLOAD(ts_base, member, 1, pv_t);
+        }
+        TS_AST_CHILDREN_SET(ts_base, members_off + mi, member);
+        mi = mi + 1;
+        var sep = TS_PARSE_PEEK(ts_base);
+        if (sep == TS_TOK_COMMA) { TS_PARSE_CONSUME(ts_base); }
+        elif (sep == TS_TOK_SEMI) { TS_PARSE_CONSUME(ts_base); }
     }
-    return 0;
+    TS_AST_CHILDREN_SET(ts_base, members_off + mi, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, mi + 1);
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, members_off);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+    return n;
+}
+
+# Tuple type: [T, U, V?, ...W[]]
+fn TS_PARSE_TYPE_TUPLE(ts_base) {
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACKET) < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_TYPE_TUPLE, 0);
+    if (n < 0) { return 0 - 1; }
+    var elems_off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (elems_off < 0) { return 0 - 1; }
+    var ei = 0;
+    var first = 1;
+    while (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACKET) {
+        if (first == 0) {
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_RBRACKET) { ei = ei; }
+        }
+        first = 0;
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_RBRACKET) {
+            # trailing comma
+            ei = ei;
+        } else {
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
+                TS_PARSE_CONSUME(ts_base);
+            }
+            var el = TS_PARSE_TYPE(ts_base);
+            if (el < 0) { return 0 - 1; }
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+                TS_PARSE_CONSUME(ts_base);
+                var opt = TS_AST_PUSH(ts_base, TS_AST_TYPE_OPTIONAL, 0);
+                if (opt < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, opt, 0, el);
+                el = opt;
+            }
+            TS_AST_CHILDREN_SET(ts_base, elems_off + ei, el);
+            ei = ei + 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, elems_off + ei, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, ei + 1);
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, elems_off);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+    return n;
+}
+
+# Function type: (a: T, b: T) => U  or  () => U
+# Caller has confirmed peek == LPAREN and TS_TYPE_LOOKAHEAD_IS_FN == 1.
+fn TS_PARSE_TYPE_FN(ts_base) {
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var params_off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (params_off < 0) { return 0 - 1; }
+    var pi = 0;
+    var first = 1;
+    while (TS_PARSE_PEEK(ts_base) != TS_TOK_RPAREN) {
+        if (first == 0) {
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
+        }
+        first = 0;
+        var is_rest = 0;
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
+            TS_PARSE_CONSUME(ts_base);
+            is_rest = 1;
+        }
+        var name_v = TS_PARSE_TOK_VAL(ts_base);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+            TS_PARSE_CONSUME(ts_base);
+        }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+        var t_node = TS_PARSE_TYPE(ts_base);
+        if (t_node < 0) { return 0 - 1; }
+        var p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
+        if (p < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, p, 0, name_v);
+        TS_AST_SET_PAYLOAD(ts_base, p, 1, t_node);
+        TS_AST_SET_PAYLOAD(ts_base, p, 3, is_rest);
+        TS_AST_CHILDREN_SET(ts_base, params_off + pi, p);
+        pi = pi + 1;
+    }
+    TS_AST_CHILDREN_SET(ts_base, params_off + pi, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, pi + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_ARROW) < 0) { return 0 - 1; }
+    var ret_t = TS_PARSE_TYPE(ts_base);
+    if (ret_t < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_TYPE_FN, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, params_off);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, ret_t);
+    return n;
+}
+
+fn TS_PARSE_TYPE_PRIMARY(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    var v = TS_PARSE_TOK_VAL(ts_base);
+    if (t == TS_TOK_KW_VOID) {
+        TS_PARSE_CONSUME(ts_base);
+        var nv = TS_AST_PUSH(ts_base, TS_AST_TYPE_PRIMITIVE, v);
+        if (nv < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, nv, 0, v);
+        return nv;
+    }
+    if (t == TS_TOK_STRING || t == TS_TOK_INT || t == TS_TOK_FLOAT
+        || t == TS_TOK_KW_TRUE || t == TS_TOK_KW_FALSE
+        || t == TS_TOK_KW_NULL || t == TS_TOK_KW_UNDEFINED) {
+        TS_PARSE_CONSUME(ts_base);
+        var nl = TS_AST_PUSH(ts_base, TS_AST_TYPE_LITERAL, v);
+        if (nl < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, nl, 0, v);
+        return nl;
+    }
+    if (t == TS_TOK_KW_KEYOF) {
+        TS_PARSE_CONSUME(ts_base);
+        var inner_k = TS_PARSE_TYPE_PRIMARY(ts_base);
+        if (inner_k < 0) { return 0 - 1; }
+        var nk = TS_AST_PUSH(ts_base, TS_AST_TYPE_KEYOF, 0);
+        if (nk < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, nk, 0, inner_k);
+        return nk;
+    }
+    if (t == TS_TOK_KW_TYPEOF) {
+        TS_PARSE_CONSUME(ts_base);
+        var name_v = TS_PARSE_TOK_VAL(ts_base);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+        while (TS_PARSE_PEEK(ts_base) == TS_TOK_DOT) {
+            TS_PARSE_CONSUME(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+        }
+        var nt = TS_AST_PUSH(ts_base, TS_AST_TYPE_TYPEOF, name_v);
+        if (nt < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, nt, 0, name_v);
+        return nt;
+    }
+    if (t == TS_TOK_KW_READONLY) {
+        TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_TYPE_PRIMARY(ts_base);
+    }
+    if (t == TS_TOK_LBRACE) {
+        return TS_PARSE_TYPE_OBJECT(ts_base);
+    }
+    if (t == TS_TOK_LBRACKET) {
+        return TS_PARSE_TYPE_TUPLE(ts_base);
+    }
+    if (t == TS_TOK_LPAREN) {
+        if (TS_TYPE_LOOKAHEAD_IS_FN(ts_base) == 1) {
+            return TS_PARSE_TYPE_FN(ts_base);
+        }
+        TS_PARSE_CONSUME(ts_base);
+        var inner_p = TS_PARSE_TYPE(ts_base);
+        if (inner_p < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        var np = TS_AST_PUSH(ts_base, TS_AST_TYPE_PAREN, 0);
+        if (np < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, np, 0, inner_p);
+        return np;
+    }
+    if (t == TS_TOK_IDENT
+        || t == TS_TOK_KW_FROM || t == TS_TOK_KW_AS
+        || t == TS_TOK_KW_OF   || t == TS_TOK_KW_GET
+        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE) {
+        return TS_PARSE_TYPE_REF(ts_base);
+    }
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 9);
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+            load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+    return 0 - 1;
+}
+
+# Postfix: T[]  (array)  or  T[K]  (indexed access — folded into ARRAY
+# with payload[1] = K for now; full mapped/conditional types are P2.x+).
+fn TS_PARSE_TYPE_POSTFIX(ts_base) {
+    var inner = TS_PARSE_TYPE_PRIMARY(ts_base);
+    if (inner < 0) { return 0 - 1; }
+    while (TS_PARSE_PEEK(ts_base) == TS_TOK_LBRACKET) {
+        TS_PARSE_CONSUME(ts_base);
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_RBRACKET) {
+            TS_PARSE_CONSUME(ts_base);
+            var arr = TS_AST_PUSH(ts_base, TS_AST_TYPE_ARRAY, 0);
+            if (arr < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, arr, 0, inner);
+            inner = arr;
+        } else {
+            var k = TS_PARSE_TYPE(ts_base);
+            if (k < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+            var ix = TS_AST_PUSH(ts_base, TS_AST_TYPE_ARRAY, 0);
+            if (ix < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, ix, 0, inner);
+            TS_AST_SET_PAYLOAD(ts_base, ix, 1, k);
+            inner = ix;
+        }
+    }
+    return inner;
+}
+
+fn TS_PARSE_TYPE_INTERSECTION(ts_base) {
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_AMP) { TS_PARSE_CONSUME(ts_base); }
+    var lhs = TS_PARSE_TYPE_POSTFIX(ts_base);
+    if (lhs < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_AMP) { return lhs; }
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    TS_AST_CHILDREN_SET(ts_base, off + i, lhs);
+    i = i + 1;
+    while (TS_PARSE_PEEK(ts_base) == TS_TOK_AMP) {
+        TS_PARSE_CONSUME(ts_base);
+        var rhs = TS_PARSE_TYPE_POSTFIX(ts_base);
+        if (rhs < 0) { return 0 - 1; }
+        TS_AST_CHILDREN_SET(ts_base, off + i, rhs);
+        i = i + 1;
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    var n = TS_AST_PUSH(ts_base, TS_AST_TYPE_INTERSECTION, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, off);
+    return n;
+}
+
+fn TS_PARSE_TYPE_UNION(ts_base) {
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_PIPE) { TS_PARSE_CONSUME(ts_base); }
+    var lhs = TS_PARSE_TYPE_INTERSECTION(ts_base);
+    if (lhs < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_PIPE) { return lhs; }
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    TS_AST_CHILDREN_SET(ts_base, off + i, lhs);
+    i = i + 1;
+    while (TS_PARSE_PEEK(ts_base) == TS_TOK_PIPE) {
+        TS_PARSE_CONSUME(ts_base);
+        var rhs = TS_PARSE_TYPE_INTERSECTION(ts_base);
+        if (rhs < 0) { return 0 - 1; }
+        TS_AST_CHILDREN_SET(ts_base, off + i, rhs);
+        i = i + 1;
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    var n = TS_AST_PUSH(ts_base, TS_AST_TYPE_UNION, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, off);
+    return n;
+}
+
+# Top-level type entry — accepts unions/intersections/postfix/primary.
+fn TS_PARSE_TYPE(ts_base) {
+    return TS_PARSE_TYPE_UNION(ts_base);
 }
 
 # Parse arrow body: expression OR block.
@@ -1156,12 +1570,15 @@ fn TS_PARSE_ARROW_PAREN(ts_base) {
     if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
     var params_off = TS_PARSE_ARROW_PARAMS(ts_base);
     if (params_off < 0) { return 0 - 1; }
-    # Optional return type
-    var ret_type_marker = 0;
+    # Optional return type — payload[2] holds the AST node index of
+    # the parsed type, or 0 when absent. (TS_PARSE always allocates
+    # ROOT at index 0, so a real type node always has index >= 1
+    # in production parses.)
+    var ret_type_node = 0;
     if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
         TS_PARSE_CONSUME(ts_base);
-        TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
-        ret_type_marker = 1;
+        ret_type_node = TS_PARSE_TYPE(ts_base);
+        if (ret_type_node < 0) { return 0 - 1; }
     }
     if (TS_PARSE_EXPECT(ts_base, TS_TOK_ARROW) < 0) { return 0 - 1; }
     var body = TS_PARSE_ARROW_BODY(ts_base);
@@ -1170,7 +1587,7 @@ fn TS_PARSE_ARROW_PAREN(ts_base) {
     if (arrow < 0) { return 0 - 1; }
     TS_AST_SET_PAYLOAD(ts_base, arrow, 0, params_off);
     TS_AST_SET_PAYLOAD(ts_base, arrow, 1, body);
-    TS_AST_SET_PAYLOAD(ts_base, arrow, 2, ret_type_marker);
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 2, ret_type_node);
     return arrow;
 }
 
@@ -1307,7 +1724,9 @@ fn TS_PARSE_VAR_BINDING(ts_base) {
     TS_AST_SET_PAYLOAD(ts_base, n, 0, pat);
     if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
         TS_PARSE_CONSUME(ts_base);
-        TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+        var vb_t = TS_PARSE_TYPE(ts_base);
+        if (vb_t < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, vb_t);
     }
     if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
         TS_PARSE_CONSUME(ts_base);
@@ -1557,7 +1976,9 @@ fn TS_PARSE_TRY(ts_base) {
             TS_AST_SET_PAYLOAD(ts_base, catch_clause, 0, pname);
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
                 TS_PARSE_CONSUME(ts_base);
-                TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+                var ct_t = TS_PARSE_TYPE(ts_base);
+                if (ct_t < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, catch_clause, 2, ct_t);
             }
             if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
         }

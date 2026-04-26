@@ -204,12 +204,13 @@ assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(a, b) => a+b -> EXPR_ARR
 n = parse_expr("(a: number, b: number) => a + b");
 assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(a: T, b: T) => ... -> EXPR_ARROW");
 
-# Paren arrow with return type
+# Paren arrow with return type — P2.4 changed payload[2] from a 0/1
+# marker to the actual return-type AST node index.
 n = parse_expr("(x: number): number => x * 2");
 assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(x: T): T => ... -> EXPR_ARROW");
-# Return-type marker stored at payload[2]
-var ret_marker = TS_AST_PAYLOAD(ts_base, n, 2);
-assert_eq(ret_marker, 1, "arrow with return type sets marker");
+var ret_node = TS_AST_PAYLOAD(ts_base, n, 2);
+assert(ret_node > 0, "arrow with return type stores node idx (P2.4)");
+assert_eq(TS_AST_KIND(ts_base, ret_node), TS_AST_TYPE_REF, "return type -> TYPE_REF");
 
 # Arrow with block body
 n = parse_expr("(x) => { return x + 1; }");
