@@ -280,6 +280,15 @@ if [ "$tsl_result" -ne 0 ]; then cat /tmp/audit_tsl_$$; fi
 rm -f /tmp/audit_tsl_$$
 echo ""
 
+# ── 4q''''. TS parser SY acceptance gate (v5.7.2 P2.7) ──
+echo "── TS parser (SY acceptance) ──"
+sh "$ROOT/tests/regression-ts-parse.sh" > /tmp/audit_tsp_$$ 2>&1
+tsp_result=$?
+check "cc5 --parse-ts vs SY corpus ≥80%% baseline (v5.7.2 P2.7)" "$tsp_result"
+if [ "$tsp_result" -ne 0 ]; then cat /tmp/audit_tsp_$$; fi
+rm -f /tmp/audit_tsp_$$
+echo ""
+
 # ── 4r. Bare-truthy after fn-call (v5.6.21 codegen-bug fix) ──
 echo "── Bare-truthy after fn-call ──"
 sh "$ROOT/tests/regression-truthy-after-fncall.sh" > /tmp/audit_tf_$$ 2>&1

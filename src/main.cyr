@@ -422,6 +422,35 @@ if (_ts_lex_only_mode == 1) {
 }
 
 # ─── TS parse-only mode (P2.1 wire-in) ────────────────────────────
+
+# Emit a non-negative i64 as decimal to stderr (fd 2).
+fn _emit_decimal(n) {
+    if (n < 0) {
+        syscall(SYS_WRITE, 2, "-", 1);
+        n = 0 - n;
+    }
+    if (n == 0) {
+        syscall(SYS_WRITE, 2, "0", 1);
+        return 0;
+    }
+    var buf[24];
+    var i = 0;
+    while (n > 0) {
+        store8(&buf + i, 48 + n % 10);
+        n = n / 10;
+        i = i + 1;
+    }
+    # Reverse in place + emit
+    var rev[24];
+    var j = 0;
+    while (j < i) {
+        store8(&rev + j, load8(&buf + (i - 1 - j)));
+        j = j + 1;
+    }
+    syscall(SYS_WRITE, 2, &rev, i);
+    return 0;
+}
+
 if (_ts_parse_only_mode == 1) {
     var _tp_lex_n = TS_LEX(S + 0x1B0B000, S, bl);
     if (_tp_lex_n < 0) {
@@ -431,18 +460,24 @@ if (_ts_parse_only_mode == 1) {
     var _tp_parse_n = TS_PARSE(S + 0x1B0B000);
     if (_tp_parse_n < 0) {
         var _tp_err = TS_PARSE_GETERR(S + 0x1B0B000);
-        syscall(SYS_WRITE, 2, "ts parse error: code ", 21);
-        var _pb[3];
-        if (_tp_err >= 10) {
-            store8(&_pb, 48 + _tp_err / 10);
-            store8(&_pb + 1, 48 + _tp_err % 10);
-            store8(&_pb + 2, 10);
-            syscall(SYS_WRITE, 2, &_pb, 3);
-        } else {
-            store8(&_pb, 48 + _tp_err);
-            store8(&_pb + 1, 10);
-            syscall(SYS_WRITE, 2, &_pb, 2);
-        }
+        var _tp_etok = TS_PARSE_GETERR_TOK(S + 0x1B0B000);
+        # current parser TOK_IDX — most accurate since not all err
+        # sites set ERR_TOK_IDX. Emit both for triage.
+        var _tp_cur = load64(S + 0x1B0B000 + 0xD80000 + 8);   # TS_PS_TOK_IDX = 8
+        var _tp_line = load64(S + 0x1B0B000 + 0x100000 + _tp_cur * 8);
+        var _tp_type = load64(S + 0x1B0B000 + 0x000000 + _tp_cur * 8);
+        syscall(SYS_WRITE, 2, "ts parse error: code=", 21);
+        _emit_decimal(_tp_err);
+        syscall(SYS_WRITE, 2, " line=", 6);
+        _emit_decimal(_tp_line);
+        syscall(SYS_WRITE, 2, " tok=", 5);
+        _emit_decimal(_tp_type);
+        syscall(SYS_WRITE, 2, " cur_idx=", 9);
+        _emit_decimal(_tp_cur);
+        syscall(SYS_WRITE, 2, " err_idx=", 9);
+        _emit_decimal(_tp_etok);
+        syscall(SYS_WRITE, 2, "
+", 1);
         syscall(SYS_EXIT, 1);
     }
     syscall(SYS_EXIT, 0);
