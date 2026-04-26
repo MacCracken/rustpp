@@ -1,0 +1,161 @@
+# v5.7.2 P1.5 — TS lexer regression for comments.
+#
+# Coverage:
+#   - // line comments (skipped, not tokenized)
+#   - /* */ block comments (skipped, line counter tracked through
+#     embedded newlines)
+#   - comments mixed with code
+#   - error: unterminated /* (code 10)
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+fn test_lex(src) {
+    return TS_LEX(ts_base, src, strlen(src));
+}
+
+fn assert_tok(idx, expected_typ, name) {
+    assert_eq(TS_PEEKT(ts_base, idx), expected_typ, name);
+    return 0;
+}
+
+# ─── line comments ───────────────────────────────────────────────
+test_group("// line comments");
+
+# Pure comment — nothing but EOF
+var n = test_lex("// just a comment");
+assert_eq(n, 1, "pure // comment -> EOF only");
+assert_tok(0, TS_TOK_EOF, "EOF");
+
+# Comment after code on same line
+n = test_lex("var x = 42; // assignment");
+# var, x, =, 42, ;, EOF = 6
+assert_eq(n, 6, "code then // comment");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+assert_tok(1, TS_TOK_IDENT,  "x");
+assert_tok(2, TS_TOK_EQ,     "=");
+assert_tok(3, TS_TOK_INT,    "42");
+assert_tok(4, TS_TOK_SEMI,   ";");
+assert_tok(5, TS_TOK_EOF,    "EOF");
+
+# Comment then code on next line
+n = test_lex("// header\nvar x");
+# var, x, EOF = 3
+assert_eq(n, 3, "// then newline then code");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+assert_tok(1, TS_TOK_IDENT,  "x (line 2)");
+# Line tracking: tok[0] should be on line 2
+assert_eq(TS_PEEKLINE(ts_base, 0), 2, "var on line 2");
+
+# Multiple line comments
+n = test_lex("// a\n// b\n// c\nx");
+# x, EOF
+assert_eq(n, 2, "3 // comments + x");
+assert_tok(0, TS_TOK_IDENT, "x");
+assert_eq(TS_PEEKLINE(ts_base, 0), 4, "x on line 4");
+
+# // at end of source (no trailing newline)
+n = test_lex("var x // trailing");
+# var, x, EOF
+assert_eq(n, 3, "// at EOF without trailing newline");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+assert_tok(1, TS_TOK_IDENT,  "x");
+
+# ─── block comments ──────────────────────────────────────────────
+test_group("/* */ block comments");
+
+n = test_lex("/* simple */");
+assert_eq(n, 1, "pure /* */ -> EOF only");
+
+n = test_lex("var/*inline*/x");
+# var, x, EOF
+assert_eq(n, 3, "/* */ between tokens");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+assert_tok(1, TS_TOK_IDENT,  "x");
+
+# Multi-line block comment (line counter must tick)
+n = test_lex("/* line 1\nline 2\nline 3 */ var x");
+# var, x, EOF
+assert_eq(n, 3, "multi-line /* */");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+# var should be on line 3 (after 2 embedded LFs in the comment)
+assert_eq(TS_PEEKLINE(ts_base, 0), 3, "var on line 3 after multi-line /* */");
+
+# Block comment with * inside (not closing)
+n = test_lex("/* one * two ** three */ x");
+assert_eq(n, 2, "* inside block comment doesn't close");
+assert_tok(0, TS_TOK_IDENT, "x");
+
+# Block comment with / inside
+n = test_lex("/* a/b/c */ x");
+assert_eq(n, 2, "/ inside block comment OK");
+assert_tok(0, TS_TOK_IDENT, "x");
+
+# JSDoc-style /** ... */ — treated identically to /* */
+n = test_lex("/** docstring */ var x");
+assert_eq(n, 3, "JSDoc /** */ treated as block comment");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+
+# Empty block comment /**/
+n = test_lex("/**/x");
+assert_eq(n, 2, "/**/ empty block");
+assert_tok(0, TS_TOK_IDENT, "x");
+
+# ─── mixed comments + division (regex is P1.6) ───────────────────
+test_group("comments vs division");
+
+# Bare / is still SLASH (not comment, not regex)
+n = test_lex("a / b");
+assert_eq(n, 4, "a / b -> SLASH");
+assert_tok(0, TS_TOK_IDENT, "a");
+assert_tok(1, TS_TOK_SLASH, "/");
+assert_tok(2, TS_TOK_IDENT, "b");
+
+# /= is still SLASH_EQ (not /* )
+n = test_lex("a /= b");
+assert_eq(n, 4, "a /= b -> SLASH_EQ");
+assert_tok(0, TS_TOK_IDENT,    "a");
+assert_tok(1, TS_TOK_SLASH_EQ, "/=");
+assert_tok(2, TS_TOK_IDENT,    "b");
+
+# // immediately after /= still becomes a comment? Actually no:
+# /= consumes both bytes, then // would start fresh comment
+n = test_lex("a /= b // tail");
+assert_eq(n, 4, "code then comment");
+assert_tok(0, TS_TOK_IDENT,    "a");
+assert_tok(1, TS_TOK_SLASH_EQ, "/=");
+assert_tok(2, TS_TOK_IDENT,    "b");
+
+# ─── error paths ─────────────────────────────────────────────────
+test_group("error paths");
+
+# Unterminated /* (ends mid-comment)
+n = test_lex("/* never closes");
+assert_eq(n, 0 - 1, "unterminated /* -> -1");
+assert_eq(TS_GETERR(ts_base), 10, "err code 10 = unterminated block comment");
+
+# /* with newline then EOF
+n = test_lex("/* line 1\nline 2");
+assert_eq(n, 0 - 1, "unterminated /* with newlines");
+assert_eq(TS_GETERR(ts_base), 10, "err 10");
+
+# /* immediately followed by EOF (no body)
+n = test_lex("/*");
+assert_eq(n, 0 - 1, "/* alone unterminated");
+
+# /*/ — / inside comment, then EOF
+n = test_lex("/*/");
+assert_eq(n, 0 - 1, "/*/ unterminated (the / is comment content)");
+
+# But /**/ closes correctly (already tested above)
+
+var exit_code = assert_summary();
+syscall(60, exit_code);

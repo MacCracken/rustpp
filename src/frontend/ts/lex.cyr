@@ -854,11 +854,61 @@ fn TS_LEX_OP_STAR(ts_base, src, src_len, p) {
     return p + 1;
 }
 
-# / -> /=
-# (Comments // and /* and regex / are P1.5/P1.6; this helper handles
-#  only the bare division operator and its compound assignment.)
+# Line comment // ... \n
+# Caller has already advanced past the //; p points at the first
+# byte after. Scan until LF (newline left in stream — main loop
+# whitespace branch handles the line-counter tick) or EOF.
+# Comments are NOT tokenized — they are whitespace-equivalent.
+fn TS_LEX_LINE_COMMENT(ts_base, src, src_len, p) {
+    while (p < src_len) {
+        if (load8(src + p) == 10) { return p; }
+        p = p + 1;
+    }
+    return p;
+}
+
+# Block comment /* ... */
+# Caller has advanced past the /*; p points at the first byte after.
+# Scan until closing */ (track line counter for embedded LFs).
+# Returns position past the closing */ on success, -1 on unterminated.
+# Block comments do NOT nest (matches JS/TS spec).
+fn TS_LEX_BLOCK_COMMENT(ts_base, src, src_len, p) {
+    var done = 0;
+    while (done == 0) {
+        if (p >= src_len) {
+            TS_SETERR(ts_base, 10);
+            return 0 - 1;
+        }
+        var c = load8(src + p);
+        if (c == 10) {
+            TS_INCLINE(ts_base);
+            p = p + 1;
+        } elif (c == 42) {
+            if (p + 1 < src_len) {
+                if (load8(src + p + 1) == 47) {
+                    return p + 2;
+                }
+            }
+            p = p + 1;
+        } else {
+            p = p + 1;
+        }
+    }
+    return p;
+}
+
+# / -> //, /*, /=, or bare /
+# // and /* dispatch to comment scanners (skipped, no token emit).
+# Regex literals are P1.6 (context-sensitive lex needed to disambiguate
+# /regex/ from division — depends on previous token class).
 fn TS_LEX_OP_SLASH(ts_base, src, src_len, p) {
     var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
+    if (c1 == 47) {
+        return TS_LEX_LINE_COMMENT(ts_base, src, src_len, p + 2);
+    }
+    if (c1 == 42) {
+        return TS_LEX_BLOCK_COMMENT(ts_base, src, src_len, p + 2);
+    }
     if (c1 == 61) {
         TS_ADDTOK(ts_base, TS_TOK_SLASH_EQ, 0);
         return p + 2;
