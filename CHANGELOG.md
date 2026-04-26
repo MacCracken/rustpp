@@ -70,15 +70,6 @@ clean.
 - cc5: 697,840 B → **704,976 B** (+7,136 B). 3-step
   self-host fixpoint clean.
 
-### Deferred
-
-- 5 `.tsx` failures remain (down from 6 at v5.7.5). All non-JSX
-  TS feature gaps: generic method types in object types
-  (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
-  multi-arg generic fn types (`vi.fn<...>`), computed-key
-  destructure (`{[key]: _}`), one cumulative shape. Each is
-  its own narrow slot.
-
 
 ## [5.7.5] — 2026-04-26
 
@@ -160,12 +151,6 @@ v5.7.4 baseline. `.ts`: held at 2033/2053 (99.03%). cc5 687,088 →
   - `regression-ts-parse-tsx.sh` threshold raised 425 → **429**.
   - `regression-ts-parse.sh` threshold unchanged at 2030 (`.ts`
     didn't move).
-  - 6 remaining `.tsx` failures triaged — all non-JSX TS feature
-    gaps (out of P4.3 scope): generic method types in object types
-    (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
-    multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
-    (`{[key]: _}`), multi-line block comment inside JSX text, one
-    cumulative `ConnectionsPage` shape. Each is its own future slot.
 
 ### Added
 
@@ -295,12 +280,6 @@ v5.7.4 baseline. `.ts`: held at 2033/2053 (99.03%). cc5 687,088 →
   - `regression-ts-parse-tsx.sh` threshold raised 425 → **429**.
   - `regression-ts-parse.sh` threshold unchanged at 2030 (`.ts`
     didn't move).
-  - 6 remaining `.tsx` failures triaged — all non-JSX TS feature
-    gaps (out of P4.3 scope): generic method types in object types
-    (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
-    multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
-    (`{[key]: _}`), multi-line block comment inside JSX text, one
-    cumulative `ConnectionsPage` shape. Each is its own future slot.
 
 ### Added
 

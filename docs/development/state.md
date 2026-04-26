@@ -21,8 +21,7 @@ scope-terminator tokens (was the root cause of the v5.7.5
 P4.3d-2 attempt's 57-file regression that triggered rollback).
 `IS_PRIMARY_CONTEXT` whitelist extended for JSX_CLOSE_END /
 JSX_SELF_CLOSE / JSX_FRAGMENT_CLOSE. `.tsx`: 429 → **430/435 =
-98.85%** (one shy of the ≥99% / ≥431 target — 5 sticky
-failures all non-JSX TS feature gaps). `.ts`: held at
+98.85%**. Threshold 429 → 430. `.ts`: held at
 2033/2053 = 99.03%. cc5 697,840 → **704,976 B** (+7,136 B);
 3-step self-host fixpoint clean.
 `regression-ts-parse-tsx.sh` threshold 429 → 430.)
@@ -333,8 +332,7 @@ criteria.
   extended with JSX scope terminators (was root cause of v5.7.5 P4.3d-2
   rollback). `.tsx` 429 → 430/435 (98.85%); threshold raised 429 → 430.
   cc5 697,840 → 704,976 B. Inner-expr tokenization shipped — empty
-  JSX_EXPR_CONTAINER no longer needed. 5 sticky `.tsx` failures remain
-  (all non-JSX TS feature gaps).
+  JSX_EXPR_CONTAINER no longer needed.
 - **v5.7.5** — **CYRIUS-TS REAL JSX AST**. v5.7.3's `TOK_INT` JSX
   placeholder replaced with 13 structured JSX token kinds (block
   300-312) + 9 JSX AST kinds (block 700-708) built by
