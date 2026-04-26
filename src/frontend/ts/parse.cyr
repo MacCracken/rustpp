@@ -190,6 +190,17 @@ var TS_AST_TEMPLATE_QUASI       = 600;      # the literal-text chunks of a templ
 var TS_AST_PROPERTY_ASSIGN      = 601;      # k: v in object literals
 var TS_AST_SHORTHAND_PROP       = 602;      # { x } shorthand
 
+# JSX (700-799) — v5.7.5 P4.3b. AST nodes built by TS_PARSE_JSX_ELEMENT
+# from the structured JSX tokens emitted by TS_LEX_JSX (lex.cyr 300-312).
+var TS_AST_JSX_ELEMENT          = 700;      # payload[0] = name span (0 if member/namespaced — full text in span field), [1] = attrs children-off, [2] = body children-off, [3] = self_close flag
+var TS_AST_JSX_FRAGMENT         = 701;      # payload[0] = body children-off
+var TS_AST_JSX_OPENING          = 702;      # reserved (P4.3b emits flat ELEMENT; keep slot)
+var TS_AST_JSX_CLOSING          = 703;      # reserved
+var TS_AST_JSX_ATTRIBUTE        = 704;      # payload[0] = name span, [1] = value-kind (0=none, 1=string, 2=expr), [2] = value-span-or-expr-idx
+var TS_AST_JSX_SPREAD_ATTR      = 705;      # payload[0] = expr idx (or 0 in P4.3b, body byte-balanced)
+var TS_AST_JSX_EXPR_CONTAINER   = 706;      # payload[0] = expr idx (or 0 in P4.3b, body byte-balanced)
+var TS_AST_JSX_TEXT             = 707;      # payload[0] = text span
+var TS_AST_JSX_NAME             = 708;      # reserved
 # ================================================================
 # AST node helpers
 # ================================================================
@@ -761,7 +772,167 @@ fn TS_PARSE_TEMPLATE(ts_base) {
     return node;
 }
 
-# Primary: literal, identifier, paren, array, object, template, regex,
+# ================================================================
+# JSX parser (P4.3b — v5.7.5). Consumes structured tokens emitted by
+# TS_LEX_JSX (lex.cyr). Produces JSX_ELEMENT / JSX_FRAGMENT /
+# JSX_ATTRIBUTE / JSX_SPREAD_ATTR / JSX_EXPR_CONTAINER / JSX_TEXT
+# AST nodes wired into the v5.7.2 children-array sentinel pattern.
+#
+# In P4.3b expr containers are empty (lex byte-balances `{...}` body
+# without emitting inner tokens, so the parser sees JSX_EXPR_OPEN
+# immediately followed by JSX_EXPR_CLOSE). Tokenizing the expression
+# body is the P4.3c integration — needs the template-stack mode-marker
+# extension so TS_LEX's main loop can resume normal expression
+# tokenization between JSX_EXPR_OPEN and JSX_EXPR_CLOSE.
+#
+# Invoked from TS_PARSE_PRIMARY when the current token is
+# JSX_OPEN_START or JSX_FRAGMENT_OPEN. Returns AST node idx, or -1.
+
+fn TS_PARSE_JSX_CHILD(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t == TS_TOK_JSX_TEXT) {
+        var v = TS_PARSE_TOK_VAL(ts_base);
+        TS_PARSE_CONSUME(ts_base);
+        return TS_AST_PUSH(ts_base, TS_AST_JSX_TEXT, v);
+    }
+    if (t == TS_TOK_JSX_EXPR_OPEN) {
+        TS_PARSE_CONSUME(ts_base);
+        # P4.3b: lex byte-balanced the body — expect immediate close.
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
+        return TS_AST_PUSH(ts_base, TS_AST_JSX_EXPR_CONTAINER, 0);
+    }
+    if (t == TS_TOK_JSX_OPEN_START) { return TS_PARSE_JSX_ELEMENT(ts_base); }
+    if (t == TS_TOK_JSX_FRAGMENT_OPEN) { return TS_PARSE_JSX_ELEMENT(ts_base); }
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 11);
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+            load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+    return 0 - 1;
+}
+
+# Parse children until JSX_CLOSE_START or JSX_FRAGMENT_CLOSE.
+# Returns children-region offset where list starts (sentinel-terminated).
+fn TS_PARSE_JSX_CHILDREN(ts_base) {
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    var done = 0;
+    while (done == 0) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_JSX_CLOSE_START) { done = 1; }
+        elif (t == TS_TOK_JSX_FRAGMENT_CLOSE) { done = 1; }
+        elif (t == TS_TOK_EOF) {
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 12);
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                    load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+            return 0 - 1;
+        } else {
+            var c = TS_PARSE_JSX_CHILD(ts_base);
+            if (c < 0) { return 0 - 1; }
+            TS_AST_CHILDREN_SET(ts_base, off + i, c);
+            i = i + 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    return off;
+}
+
+# Parse attributes between JSX_TAG_NAME and JSX_OPEN_END/JSX_SELF_CLOSE.
+# Accepts JSX_ATTR_NAME (with optional =value) and JSX_EXPR_OPEN (spread).
+fn TS_PARSE_JSX_ATTRS(ts_base) {
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 8);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    var done = 0;
+    while (done == 0) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_JSX_OPEN_END) { done = 1; }
+        elif (t == TS_TOK_JSX_SELF_CLOSE) { done = 1; }
+        elif (t == TS_TOK_JSX_ATTR_NAME) {
+            var name_v = TS_PARSE_TOK_VAL(ts_base);
+            TS_PARSE_CONSUME(ts_base);
+            var attr = TS_AST_PUSH(ts_base, TS_AST_JSX_ATTRIBUTE, name_v);
+            if (attr < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, attr, 0, name_v);
+            var t2 = TS_PARSE_PEEK(ts_base);
+            if (t2 == TS_TOK_JSX_ATTR_VALUE_STRING) {
+                var sv = TS_PARSE_TOK_VAL(ts_base);
+                TS_PARSE_CONSUME(ts_base);
+                TS_AST_SET_PAYLOAD(ts_base, attr, 1, 1);
+                TS_AST_SET_PAYLOAD(ts_base, attr, 2, sv);
+            } elif (t2 == TS_TOK_JSX_EXPR_OPEN) {
+                TS_PARSE_CONSUME(ts_base);
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, attr, 1, 2);
+                TS_AST_SET_PAYLOAD(ts_base, attr, 2, 0);
+            } else {
+                TS_AST_SET_PAYLOAD(ts_base, attr, 1, 0);
+            }
+            TS_AST_CHILDREN_SET(ts_base, off + i, attr);
+            i = i + 1;
+        } elif (t == TS_TOK_JSX_EXPR_OPEN) {
+            TS_PARSE_CONSUME(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
+            var sp = TS_AST_PUSH(ts_base, TS_AST_JSX_SPREAD_ATTR, 0);
+            if (sp < 0) { return 0 - 1; }
+            TS_AST_CHILDREN_SET(ts_base, off + i, sp);
+            i = i + 1;
+        } else {
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 13);
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                    load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+            return 0 - 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    return off;
+}
+
+# Parse one JSX element or fragment. Caller has not consumed the
+# JSX_OPEN_START / JSX_FRAGMENT_OPEN. Returns AST node idx.
+fn TS_PARSE_JSX_ELEMENT(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t == TS_TOK_JSX_FRAGMENT_OPEN) {
+        TS_PARSE_CONSUME(ts_base);
+        var node_f = TS_AST_PUSH(ts_base, TS_AST_JSX_FRAGMENT, 0);
+        if (node_f < 0) { return 0 - 1; }
+        var ch_off = TS_PARSE_JSX_CHILDREN(ts_base);
+        if (ch_off < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_FRAGMENT_CLOSE) < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, node_f, 0, ch_off);
+        return node_f;
+    }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_OPEN_START) < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_JSX_TAG_NAME) {
+        store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 14);
+        store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+        return 0 - 1;
+    }
+    var name_v = TS_PARSE_TOK_VAL(ts_base);
+    TS_PARSE_CONSUME(ts_base);
+    var node = TS_AST_PUSH(ts_base, TS_AST_JSX_ELEMENT, name_v);
+    if (node < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, name_v);
+    var attrs_off = TS_PARSE_JSX_ATTRS(ts_base);
+    if (attrs_off < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 1, attrs_off);
+    var t2 = TS_PARSE_PEEK(ts_base);
+    if (t2 == TS_TOK_JSX_SELF_CLOSE) {
+        TS_PARSE_CONSUME(ts_base);
+        TS_AST_SET_PAYLOAD(ts_base, node, 3, 1);
+        return node;
+    }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_OPEN_END) < 0) { return 0 - 1; }
+    var body_off = TS_PARSE_JSX_CHILDREN(ts_base);
+    if (body_off < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 2, body_off);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_CLOSE_START) < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_TAG_NAME) < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_CLOSE_END) < 0) { return 0 - 1; }
+    return node;
+}# Primary: literal, identifier, paren, array, object, template, regex,
 # this/super, true/false/null/undefined.
 # (Arrow functions deferred — need lookahead to disambiguate from
 #  parenthesized expressions; punted to P2.3 with the rest of the
@@ -769,6 +940,11 @@ fn TS_PARSE_TEMPLATE(ts_base) {
 fn TS_PARSE_PRIMARY(ts_base) {
     var t = TS_PARSE_PEEK(ts_base);
     var v = TS_PARSE_TOK_VAL(ts_base);
+
+    # JSX (P4.3b — v5.7.5). Dispatched at PRIMARY since JSX is an
+    # expression-position construct.
+    if (t == TS_TOK_JSX_OPEN_START)    { return TS_PARSE_JSX_ELEMENT(ts_base); }
+    if (t == TS_TOK_JSX_FRAGMENT_OPEN) { return TS_PARSE_JSX_ELEMENT(ts_base); }
 
     if (t == TS_TOK_INT) {
         var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_INT, v);
