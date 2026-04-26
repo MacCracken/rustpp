@@ -373,7 +373,10 @@
 > - **v5.7.6**: ✅ shipped 2026-04-26 — JSX inner-expr tokenization (P4.3d). Mode-stack-driven lex (modes 4/5/8). `.tsx` 429 → 430/435 (98.85%). 5 sticky failures remain (non-JSX TS feature gaps). See CHANGELOG.
 > - **v5.7.6-old**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
 > - **v5.7.7**: ✅ shipped 2026-04-26 — fixup-cap 1MB+ bundle (lint UFCS exemption + atomic-output `cyrius build` + fixup-table 262K → 1M). Wedged in after cyrius-ts polish surfaced 3 tooling issues. cc5 704,976 → 709,544 B (+4,568 B). 2-step bootstrap fixpoint clean. See CHANGELOG.
-> - **v5.7.8**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
+> - **v5.7.8**: `cyrius check` repair (cc5 exit-code propagation + drop dep auto-prepend for `check` + output formatting) + `cyrius deps` ergonomics (P1-P5 from cyrius-bb `tooling-pain-points.md`: silent dangling symlinks, `--help` runs resolver, `deps` not in top-level help, cold/warm count off-by-one, lockfile flag default) + syscall-arity warning fix (`lib/syscalls_x86_64_linux.cyr:358` — `_SC_ARITY(112)` 1→0; `lex.cyr:227+240` cross-arch sentinel false-positive). Pinned 2026-04-26 — surfaced same-day during cyrius-bb wiring.
+> - **v5.7.9**: `input_buf` 512KB → 1MB heap-map reshuffle (pattern matches v5.6.40's preprocess_out 1MB → 2MB; tok_names overlay-rebuild contract still holds at the wider cap). Pinned 2026-04-26.
+> - **v5.7.10**: silent fn-name collision investigation (was bundled at v5.7.8 alongside RISC-V; cascaded out as v5.7.8 took the cyrius-check/deps/arity bundle).
+> - **v5.7.11**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization + 1MB input_buf + collision-resolution rule). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr/cyrius-check-and-deps/input-buf/collision-investigation took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -790,10 +793,252 @@ attempt:**
 - All P1 lex + P2-P5 parse + check.sh stay green
 - cc5 self-host fixpoint clean
 
-**Following slot:** v5.7.8 — RISC-V rv64 (was v5.7.7; slipped
-2026-04-26 when the fixup-cap + tool-issue bundle took v5.7.7).
+**Following slot:** v5.7.8 — `cyrius check` repair + `cyrius deps`
+ergonomics + syscall-arity warning fix (was RISC-V; slipped
+2026-04-26 when cyrius-bb wiring surfaced multiple silent
+failures + UX gaps in tooling on the same day).
 
-## v5.7.8 — silent fn-name collision investigation (pinned for v5.7.8 alongside RISC-V or as its own slot)
+## v5.7.8 — `cyrius check` repair + `cyrius deps` ergonomics + syscall-arity warning fix
+
+**Pinned 2026-04-26.** cyrius-bb (`docs/development/tooling-pain-
+points.md`) surfaced five `cyrius deps` ergonomic issues during
+its first end-to-end wiring; same-day investigation of `cyrius
+check` revealed three independent silent-failure layers; the
+build's recurring `warning:lib/syscalls_x86_64_linux.cyr:358:
+syscall arity mismatch` was traced to a one-character bug in
+the `_SC_ARITY` table. None of these individually warrant a
+slot; together they're a single coherent "silent failures and
+bad UX surfaced this week" patch.
+
+### Bundle scope
+
+#### 1. cc5 exit-code propagation
+
+Repro: `echo 'undefined()' | build/cc5 > /dev/null 2>&1; echo
+$?` → `0`. cc5 prints `error:` to stderr but exits 0. Every
+downstream caller relying on the exit code (`cyrius check`,
+`cyrius build` after rename, every gate in `scripts/check.sh`
+that pipes through cc5 expecting non-zero on failure) silently
+treats failed compiles as successes.
+
+Fix: route the `error:` emit path through a `_HAD_ERROR` flag,
+exit 1 on flag-set at end-of-compile. ~10 LOC in `src/main.cyr`
++ `src/frontend/parse.cyr`. Foundational — every subsequent
+gate fix in this slot depends on it.
+
+#### 2. `cyrius check` plumbing
+
+Three independent bugs in `cmd_check` (`cbt/commands.cyr:223`):
+
+- **Auto-prepend trap.** `cyrius check programs/hello.cyr`
+  falls back to `actual = src/main.cyr` (since hello.cyr has no
+  includes), but then `compile()` injects manifest deps
+  (patra, sigil, …) AT THE TOP, before main.cyr's own
+  `include "lib/syscalls_x86_64_linux.cyr"`. patra references
+  `SYS_LSEEK` at parse time → fails with
+  `error:lib/patra.cyr:101: undefined variable 'SYS_LSEEK'`.
+  Fix: `cyrius check` passes a `skip_deps=1` flag to
+  `compile()`. Syntax-checking a file shouldn't drag the dep
+  graph into the parse.
+- **"is a module" message fires when source IS the entry.**
+  `cyrius check src/main.cyr` prints `check via src/main.cyr
+  (src/main.cyr is a module)` — confusing tautology. Fix:
+  only emit the redirect line when `actual != source`.
+- **Output formatting.** Missing newline before `error:
+  src/main.cyr` line on the failure path (cc5's stderr output
+  doesn't end with `\n` for some error shapes; the wrapper
+  doesn't compensate). Fix: emit `\n` before the wrapper's own
+  `error: <source>` line if cc5 stderr didn't.
+
+#### 3. `cyrius deps` ergonomics (P1–P5)
+
+From `cyrius-bb/docs/development/tooling-pain-points.md`:
+
+- **P1 — silent dangling symlink.** `cbt/deps.cyr:467-469`
+  builds `src` from `dep_path/mod_path`, has a fallback at
+  ~470, but if neither path exists, blindly creates a
+  symlink to the bad path and increments `copied`. ~8 LOC
+  fix: after the fallback block, `if (file_exists(src) == 0)
+  { _err_ctx + errors+1 + skip }`. A successful "N deps
+  resolved" line should never coexist with a dangling
+  `lib/<dep>.cyr` symlink.
+- **P2 — `cyrius deps --help` runs the resolver.**
+  `cbt/cyrius.cyr:304-308` only handles `--verify`/`--lock`;
+  every other arg falls through to `cmd_deps()`. Add a
+  `--help` branch that prints subcommand-specific usage:
+  flags (`--verify`, `--lock`, `--update`/`cyrius update`),
+  cache location (`~/.cyrius/deps/`), how to force re-clone,
+  how to clear stale entries. Same shape as `cargo build
+  --help`.
+- **P3 — `deps` not listed in `cyrius help`.**
+  `cmd_help` in `cbt/commands.cyr` lacks a Deps section. Add
+  one (or fold under Project alongside `init`).
+  Discoverability matters more than where it lives.
+- **P4 — first-resolve count off-by-one.** Cold run reports
+  `5 deps resolved` for 4 declared `[deps]` blocks; warm run
+  reports `4`. `copied` increments per-symlink in
+  `cmd_deps`; off-by-one likely from Phase 1 stdlib batch
+  counting as one extra unit on cold but skipped on warm.
+  Audit + fix: count distinct deps, not operations.
+- **P5 — lockfile flag opt-in + undocumented.** `--lock`
+  exists (`cbt/cyrius.cyr:306` → `cmd_deps_lock`) but is
+  off-by-default; `cyrius.lock` not generated by bare
+  `cyrius deps`. `--lock` not documented in `cyrius help`,
+  not in `cyrius deps --help` (since that runs the resolver
+  per P2), not in any usage error. **PROPOSED**: flip
+  default-on (write `cyrius.lock` after every successful
+  resolve), add `--no-lock` opt-out for the rare suppress
+  case, document the `--lock`/`--no-lock`/`--update`/`cyrius
+  update` family in `cyrius help` and the new `cyrius deps
+  --help`. Confirm at slot start before flipping the
+  default — existing projects without a checked-in lockfile
+  will get one written on next `cyrius deps`.
+
+#### 4. Syscall-arity warning sweep (partial)
+
+Three classes of `warning: ... syscall arity mismatch` in
+v5.7.7's cc5 self-build, plus the `lib/syscalls_x86_64_linux.cyr:358`
+warning that fires on every `cyrius build` of any downstream
+that includes patra/syscalls. All trace to the `_SC_ARITY`
+table at `src/frontend/parse_expr.cyr:10`.
+
+- **`lib/syscalls_x86_64_linux.cyr:358` — true bug.** Line 358
+  is `return syscall(SYS_SETSID);` — SYS_SETSID = 112. Table
+  has `if (n == 112) { return 1; }` with the comment "actually
+  0 args but Cyrius wraps" — comment admits it's wrong. Linux
+  `setsid()` takes 0 args; the wrapper passes 0 user args;
+  expected should be `0`. **One-character fix:** `1` → `0`.
+- **`src/frontend/lex.cyr:227 + 240` — false positives.** The
+  `else` branch `syscall(SYS_OPEN, 0 - 100, path, 0, 0)` is a
+  cross-arch sentinel pattern (sentinel `-100` signals
+  aarch64 openat translation downstream); on x86_64 builds
+  `SYS_OPEN` constant-folds to 2, the expected arity is 3,
+  the call has 4 user args, mismatch fires. The dead
+  branch is correct cross-arch code. Fix: in the arity check
+  at `parse_expr.cyr:578`, skip the warning when arg-1 is a
+  recognized cross-arch sentinel (`-100` for openat). Or
+  guard the arity check inside `if (CONST == VAL) {} else
+  {}` blocks where `CONST` is a known stdlib enum. Conservative
+  approach: special-case the `-100` sentinel value.
+- **`<source>:7` — auto-prepend site.** Investigate which
+  prepended module's line 7 emits an arity-mismatched
+  syscall. Likely `version_str.cyr` or similar generated
+  prelude. If genuine, fix; if false-positive, suppress per
+  same rule as lex.cyr.
+
+The remaining warning-sweep items (36 unreachable-fn floor
+audit, `scripts/check.sh:305-306` bash syntax warning, `cbt/`
++ `programs/` + `bootstrap/` shell-warn pass) stay in the
+existing `### v5.7.x — warning sweep` slot — v5.7.8 only
+covers the syscall-arity items.
+
+### Acceptance gates
+
+1. `echo 'undefined()' | build/cc5 > /dev/null 2>&1; echo $?`
+   → 1.
+2. `cyrius check programs/hello.cyr` parses standalone
+   (no dep auto-prepend), exits non-zero on parse error,
+   exits 0 on clean parse.
+3. `cyrius check src/main.cyr` does NOT print "is a module"
+   (since source IS the entry).
+4. `cyrius deps --help` prints subcommand help, does NOT
+   resolve deps. `cyrius help` lists `deps`. P1 fixture
+   (declare a `[deps.X]` with a `modules` path that doesn't
+   exist at the pinned tag) produces a clear error and
+   leaves no symlink. Cold/warm `cyrius deps` print
+   identical N. `cyrius.lock` written by default.
+5. cc5 self-build emits zero `warning: ... syscall arity
+   mismatch` lines. `cyrius build` of any patra-using
+   downstream emits zero arity warnings.
+6. New regression `tests/regression-cyrius-check.sh`
+   covering: error → exit non-zero; clean → exit 0; no
+   dep auto-prepend; standalone-file shape.
+7. New regression `tests/regression-cyrius-deps-p1.sh`
+   covering: dangling-modules-path produces error + zero
+   `lib/` symlinks for the bad dep.
+8. cc5 self-host fixpoint clean (cc5's own behavior unchanged
+   except for the exit-code propagation; bytes change due
+   to the `_HAD_ERROR` flag wiring + arity-table edit).
+9. check.sh stays at 29/29 PASS post-bundle.
+
+### Bonus pin (drop in if scope allows)
+
+`cyrius build --no-deps` flag (carried over from v5.7.7's
+"slotted into v5.7.7 IF time allows; otherwise v5.7.8" pin
+at line 1014). Fix to `cyrius check` partially closes the
+gap (skips deps for check) but `cyrius build src/main.cyr
+build/cc5_v578` still over-prepends and trips the 262K
+token cap; the `--no-deps` flag closes it. Trivial — wire
+one bool flag from CLI parse → `compile()`. Land in v5.7.8
+if there's headroom; otherwise carry forward.
+
+### Slot relationship
+
+Standalone slot. `input_buf` 512KB → 1MB (v5.7.9), silent
+fn-name collision (v5.7.10), and RISC-V (v5.7.11) all
+follow.
+
+## v5.7.9 — input_buf 512KB → 1MB heap-map reshuffle
+
+**Pinned 2026-04-26.** Sources at the upper end of the cyrius
+ecosystem (mabda's bundled dist, agnostik's derive-codegen
+expansion, sit's full-tree state files) are pushing the
+524288-byte stdin cap. v5.6.40 raised `preprocess_out` 1MB
+→ 2MB on the same pattern; this slot does the same for the
+raw input buffer.
+
+### Scope
+
+`input_buf` lives at heap offset `0x00000` in `src/main.cyr`'s
+heap map (line 20: `#   0x00000  input_buf     [524288]
+512KB raw stdin input`). The cap appears in three places in
+`src/main.cyr`:
+
+- The heap-map comment at line 20.
+- The read loop at line 380: `var n = syscall(SYS_READ, 0,
+  S + bl, 524288 - bl);`
+- The over-cap guard at line 384: `if (bl >= 524288) {`.
+
+All three become `1048576` (0x100000).
+
+### Heap-overlap consideration
+
+`tok_names` at `0x60000` is nested INSIDE `input_buf` today
+(comment at line 21-23 documents the overlap is tolerated
+because LEX rebuilds tok_names from scratch after
+preprocessing — the input bytes are no longer needed at the
+point tok_names writes start). With input_buf widened to
+0x100000, tok_names at 0x60000 is still inside that range —
+overlap pattern unchanged, contract still holds.
+
+**Verify**: any code that touches both buffers in the same
+LEX pass needs auditing. Most likely: LEX's tok_names build
+loop writes monotonically forward starting at 0x60000; as
+long as it doesn't read input_buf bytes past the position it
+has already written tok_names to, the overlap is benign. The
+v5.6.40 preprocess_out reshuffle established the
+disambiguation discipline (5 ambiguity points caught) — apply
+the same audit here.
+
+### Acceptance gates
+
+1. `tests/tcyr/large_input.tcyr` (or new `tests/tcyr/
+   input_1mb.tcyr`) covers an 800KB+ source — passes post-
+   bump, fails pre-bump (the 524288 cap rejected it).
+2. cc5 self-host fixpoint clean (cc5's own source is well
+   under 1MB; bump is invisible to cc5 itself).
+3. Downstream consumers that hit the 524288 cap (agnostik
+   derive expansion, mabda dist, sit state) build green
+   without manual splitting.
+4. CHANGELOG enumerates the cap change, the disambiguation
+   audit findings, and any consumer unblock impact.
+
+### Slot relationship
+
+Standalone slot. v5.7.10 (silent fn-name collision) and
+v5.7.11 (RISC-V) follow.
+
+## v5.7.10 — silent fn-name collision investigation
 
 **Pinned 2026-04-26.** Real cyrius-language correctness issue
 surfaced during the v5.7.7 closeout: when two stdlib modules
@@ -827,7 +1072,7 @@ post-fold), the chance of a name overlap grows quadratically.
 Today's `json.cyr` + `patra.cyr` collision is the visible one;
 audit will likely surface more.
 
-**Investigation scope (v5.7.8):**
+**Investigation scope (v5.7.10):**
 
 1. **Audit current stdlib** for duplicate fn-name definitions
    across modules. Smallest hammer: `grep -h '^fn ' lib/*.cyr |
@@ -864,13 +1109,14 @@ audit will likely surface more.
    covering: same-arity duplicate, different-arity duplicate,
    transitive collision via includes.
 
-**Slot relationship to RISC-V (also at v5.7.8):** RISC-V is a
-multi-week port, this is a short investigation. They CAN ship
-together if RISC-V doesn't take the entire v5.7.8 window;
-otherwise this slips to v5.7.9 or wedges in via the next free
-patch. User decision when v5.7.7 closes.
+**Slot relationship to RISC-V (now v5.7.11):** RISC-V is a
+multi-week port, this is a short investigation. Cascaded out
+of the v5.7.8-bundled position 2026-04-26 when the cyrius
+check / deps / arity bundle took v5.7.8 and `input_buf` 512KB
+→ 1MB took v5.7.9. v5.7.10 stands alone now; RISC-V follows
+at v5.7.11.
 
-## v5.7.8 — RISC-V rv64
+## v5.7.11 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:
@@ -884,13 +1130,20 @@ v5.7.3 → v5.7.4 (2026-04-25, fixup-cap bump took v5.7.1 sit-blocking
 slot, cyrius-ts cascaded down by one);
 v5.7.7 → v5.7.8 (2026-04-26, fixup-cap 1MB+ + lint UFCS + atomic-output
 bundle took v5.7.7 — cyrius-ts polish surfaced 3 tooling issues
-in one pass that all needed to ship together). Rationale: a new
-architecture is structurally different from v5.5.x items
-(correctness / completion / runtime work on existing platforms),
-different from v5.7.0's lib/-reshape work, different from
-v5.7.1's ecosystem unblock, and different from v5.7.2/v5.7.3/v5.7.4/v5.7.5's
-frontend work — separate minor-patches for separate kinds of
-change. RISC-V needs:
+in one pass that all needed to ship together);
+v5.7.8 → v5.7.11 (2026-04-26, three slots inserted before RISC-V
+when cyrius-bb wiring surfaced multiple silent failures + UX
+gaps in tooling on the same day: v5.7.8 = `cyrius check` repair
++ `cyrius deps` P1-P5 + syscall-arity warning fix; v5.7.9 =
+`input_buf` 512KB → 1MB heap-map reshuffle; v5.7.10 = silent
+fn-name collision investigation that was previously bundled at
+v5.7.8 alongside RISC-V). Rationale: a new architecture is
+structurally different from v5.5.x items (correctness /
+completion / runtime work on existing platforms), different
+from v5.7.0's lib/-reshape work, different from v5.7.1's
+ecosystem unblock, and different from
+v5.7.2/v5.7.3/v5.7.4/v5.7.5's frontend work — separate
+minor-patches for separate kinds of change. RISC-V needs:
 
 - **New backend module** — `src/backend/riscv64/` with its own
   `emit.cyr`, `jump.cyr`, `fixup.cyr` mirroring x86/aarch64.
@@ -925,30 +1178,46 @@ change. RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-**Prerequisites that must ship before v5.7.6 starts:**
+**Prerequisites that must ship before v5.7.11 starts:**
 - **v5.6.5 + v5.6.7–v5.6.21** — Compiler optimization arc.
 - **v5.6.28** — shared-object emission landed.
 - **v5.6.29** — downstream ecosystem sweep gate.
 - **v5.7.0** — ✅ sandhi fold (post-fold stdlib shape).
-- **v5.7.1** — ✅ fixup-table cap bump. RISC-V port inherits the bumped
-  262K cap and relocated brk so rv64 backend development happens
-  against the new fixup-table size from day one.
-- **v5.7.2** — cyrius-ts foundational. RISC-V inherits compiler that
-  emits from both `.cyr` and `.ts` source for sync subset.
-- **v5.7.3** — cyrius-ts completion + JSX (lex skip).
-- **v5.7.4** — final cyrius-ts cleanup (.ts ≥99%, async tracking).
-- **v5.7.5** — real JSX AST (consumes the last .tsx edges).
-  RISC-V inherits a frontend-complete compiler so rv64 backend
-  doesn't have to re-test frontend-specific code paths separately.
-- **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch uses
-  the new syntax from day one.
+- **v5.7.1** — ✅ fixup-table cap bump (32K → 262K). RISC-V port
+  inherits the bumped cap and relocated brk so rv64 backend
+  development happens against the new fixup-table size from
+  day one.
+- **v5.7.2** — ✅ cyrius-ts foundational. RISC-V inherits a
+  compiler that emits from both `.cyr` and `.ts` source for the
+  sync subset.
+- **v5.7.3** — ✅ cyrius-ts completion + JSX (lex skip).
+- **v5.7.4** — ✅ final cyrius-ts cleanup (`.ts` ≥99%, async
+  tracking).
+- **v5.7.5** — ✅ real JSX AST (consumes the last `.tsx` edges).
+  RISC-V inherits a frontend-complete compiler so the rv64
+  backend doesn't have to re-test frontend-specific code paths
+  separately.
+- **v5.7.6** — ✅ JSX inner-expr tokenization.
+- **v5.7.7** — ✅ fixup-cap 1MB + atomic-output `cyrius build`
+  + lint UFCS exemption.
+- **v5.7.8** — `cyrius check` repair + `cyrius deps` P1-P5 +
+  syscall-arity warning fix. RISC-V port inherits a clean
+  toolchain UX (no silent-failure traps) before backend work
+  begins, so rv64-specific failures surface loudly.
+- **v5.7.9** — `input_buf` 512KB → 1MB. RISC-V's larger
+  cross-arch sources fit without manual splitting.
+- **v5.7.10** — silent fn-name collision rule. RISC-V's
+  syscalls peer (`lib/syscalls_riscv64_linux.cyr`) lands
+  against a stdlib whose collision policy is fixed.
+- **v5.4.19 `#ifplat`** directive is live → RISC-V dispatch
+  uses the new syntax from day one.
 
-Deliberately NOT bundling other items into v5.7.6 — a new
+Deliberately NOT bundling other items into v5.7.11 — a new
 architecture port is plenty of work on its own.
 
 ---
 
-## v5.7.x — patch slate (post-RISC-V)
+## v5.7.x — patch slate (interleaved with RISC-V)
 
 Pinned items for the v5.7.x cycle, slot numbers assigned **during
 the port** as RISC-V porting work surfaces additional items that
@@ -956,6 +1225,12 @@ also need to land. Single-issue patches in the v5.4.x / v5.5.x
 style — one focused fix per release, no grab-bags. The pinned
 items below are guaranteed to ship before v5.7.x closeout; the
 specific patch number depends on what else surfaces.
+
+Items that already have firm slot numbers (v5.7.8 = check + deps
++ arity bundle, v5.7.9 = input_buf 1MB, v5.7.10 = fn-name
+collision investigation, v5.7.11 = RISC-V) live in the dedicated
+sections above; this section holds the rest of the v5.7.x work
+that hasn't been pulled into a specific patch slot yet.
 
 ### v5.7.7 — fixup-cap 1MB+ + tool-issue bundle
 
@@ -1010,8 +1285,11 @@ v5.7.8.
    `/tmp/cyrius_rebuild.sh` does the cat-pipe form directly.
    Fix scope: add `--no-deps` flag to `cmd_build` that skips
    the dep-include prepend. Trivial — wire one bool flag from
-   CLI parse → `compile()`. Slotted into v5.7.7 IF time allows;
-   otherwise v5.7.8.
+   CLI parse → `compile()`. Slotted into v5.7.7 IF time
+   allowed (it didn't); carried forward as a v5.7.8 bonus
+   pin (drop in if scope allows alongside the cyrius check /
+   deps / arity bundle), since v5.7.8 already touches the
+   `compile()` dep-prepend path for `cyrius check`.
 
 **Acceptance gates:**
 
@@ -1346,11 +1624,18 @@ is fine to leave).
 
 ### v5.7.x — `cyrius deps` transitive resolution
 
-**Pinned 2026-04-23.** `cyrius deps` currently resolves only
-**direct** dependencies from `cyrius.cyml`'s `[deps]` table — if
-the user's manifest pins `mabda`, mabda's own `cyrius.cyml`
-depends on `sigil` and `sakshi`, those transitive deps don't get
-fetched. Today the workaround is to add every transitive dep to
+**Pinned 2026-04-23.** Distinct from v5.7.8's `cyrius deps`
+P1-P5 ergonomic fixes — that slot covers silent-failure /
+discoverability / count / lockfile-default issues; this slot
+covers transitive resolution (the resolver itself walking the
+dep graph). Both ship in v5.7.x; transitive resolution stays
+its own slot because the design surface is wider (recursive
+walker, cycle detection, conflict policy).
+
+`cyrius deps` currently resolves only **direct** dependencies
+from `cyrius.cyml`'s `[deps]` table — if the user's manifest
+pins `mabda`, mabda's own `cyrius.cyml` depends on `sigil` and
+`sakshi`, those transitive deps don't get fetched. Today the workaround is to add every transitive dep to
 the consumer's manifest by hand, which means downstream consumers
 duplicate the dep tree of every dep they pull in. Brittle, and a
 real onboarding pain for new ecosystem repos.
@@ -1961,7 +2246,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` DLL Characteristic; HIGH_ENTROPY_VA deferred (see Active Bugs) |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.4** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4: optimization arc → sandhi fold → fixup-cap bump (sit-blocking, 2026-04-25) → cyrius-ts foundational → cyrius-ts completion → RISC-V |
+| **v5.7.11** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4 → v5.7.5 → v5.7.6 → v5.7.7 → v5.7.8 → v5.7.9 → v5.7.10 → v5.7.11: optimization arc → sandhi fold → fixup-cap bump → cyrius-ts foundational → cyrius-ts completion → cyrius-ts polish → real JSX AST → JSX inner-expr → fixup-cap 1M + tooling → cyrius check + deps + arity → input_buf 1MB → fn-name collision → RISC-V |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 
@@ -2055,7 +2340,7 @@ enables adding new targets without touching the frontend.
 | macOS aarch64 | Mach-O | **✅ Narrow** (cross-build byte-identity holds; bytes unchanged since v5.5.13–v5.5.17); **❌ Broad** — cross-built `syscall(60, 42)` exits 1 instead of 42 on current Sequoia (macOS 15+). **Platform drift, not cyrius regression** — emitted Mach-O bytes are identical to what was verified exit=42 in v5.5.13. Pinned **v5.6.26**. |
 | Windows x86_64 | PE/COFF | **✅ Narrow** — byte-identical fixpoint verified v5.5.10 (md5 match on exit42 + multi-fn add; cc5_win emits PE byte-identical to Linux cross-build). **❌ Broad** — on Windows 11 24H2 (build 26200+), PE `syscall(60, 42)` exits `0x40010080` and cc5_win.exe itself hits `ApplicationFailedException`. **Platform drift, not cyrius regression** — PE bytes unchanged since v5.5.10; Win11 24H2 tightened CET/CFG/ASLR loader enforcement. Pinned **v5.6.27**. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35); HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
 | Compiler optimization (O1–O6) | — | v5.6.5 ✅ + v5.6.7–v5.6.12 ✅ + v5.6.14 ✅ + **v5.6.15–v5.6.21** (NEXT: O3a-audit + O3b + O3c + O4–O6; v5.6.13 sha1 + v5.6.15 IR-order audit interleaved) |
-| RISC-V (rv64) | ELF | Queued — **v5.7.1** |
+| RISC-V (rv64) | ELF | Queued — **v5.7.11** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 | Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** |
 
