@@ -151,6 +151,36 @@ fn lint_file(buf, total) {
                     if (fn_first == 0) { skip_case = 1; }
                     # Type_method: uppercase first + underscore second
                     if (fn_first >= 65) { if (fn_first <= 90) { if (fn_second == 95) { skip_case = 1; } } }
+                    # Pascal_snake (UFCS-style "free fn on a type"):
+                    # leading uppercase + at least one `_` whose
+                    # immediate next char is lowercase a-z. Accepts
+                    # `ResourceLimits_to_json`, `Foo_method_v2`,
+                    # `T_method`. Rejects `Foo_BadCase` — the camel
+                    # detector below still catches the suffix.
+                    # Filed by agnostik 2026-04-26 — 28/28 false-
+                    # positive rate against this convention.
+                    if (fn_first >= 65) {
+                        if (fn_first <= 90) {
+                            if (skip_case == 0) {
+                                var pi = ni;
+                                var saw_us = 0;
+                                var us_idx = 0;
+                                while (pi < eol) {
+                                    var pc = load8(buf + pi);
+                                    if (pc == 40) { break; }
+                                    if (pc == 60) { break; }
+                                    if (pc == 95) { saw_us = 1; us_idx = pi; break; }
+                                    pi += 1;
+                                }
+                                if (saw_us == 1) {
+                                    var after = load8(buf + us_idx + 1);
+                                    if (after >= 97) {
+                                        if (after <= 122) { skip_case = 1; }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (skip_case == 0) {
                         # Detect camelCase: lowercase followed by uppercase
                         var is_camel = 0;

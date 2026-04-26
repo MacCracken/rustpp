@@ -290,8 +290,8 @@ fn PARSE_FACTOR(S) {
         if (fni >= 0) {
             # Emit function address via fixup type 3
             var fc = GFCNT(S);
-            if (fc >= 4096) {
-                syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
+            if (fc >= 1048576) {
+                syscall(SYS_WRITE, 2, "error: fixup table full (1048576)\n", 34);
                 syscall(SYS_EXIT, 1);
             }
             # Register the function-address fixup (common to both
@@ -758,8 +758,8 @@ fn PARSE_FACTOR(S) {
         # Pre-v5.6.0 only had the x86 branches; aarch64 closures spliced
         # x86 `lea`/`movabs` bytes into ARM code.
         var clfc = GFCNT(S);
-        if (clfc >= 4096) {
-            syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
+        if (clfc >= 1048576) {
+            syscall(SYS_WRITE, 2, "error: fixup table full (1048576)\n", 34);
             syscall(SYS_EXIT, 1);
         }
         var clfaddr = S + 0x170B000 + clfc * 16;

@@ -52,7 +52,7 @@
 #   0xFCA000 struct_fnames [16384]
 #   0x104A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
 #   0x10CA000 (fn tables end here — IR region not used by aarch64 compiler)
-#   0x1B0B000 brk                         27 MB total heap (v5.6.40 doubled preprocess_out;
+#   0x270B000 brk                         39 MB total heap (v5.7.7 fixup-cap +12 MB;
 #                                        synced with main.cyr)
 
 
@@ -85,7 +85,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x1B0B000);
+syscall(SYS_BRK, S + 0x270B000);
 
 # Zero state
 S64(S + 0x8C100, 0);

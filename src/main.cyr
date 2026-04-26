@@ -191,19 +191,20 @@
 #   0x160B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
 # --- Fixup table — NEW slot (v5.5.37) ---
-#   0x170B000 fixup_tbl    [4194304]     262144 entries × 16 bytes
+#   0x170B000 fixup_tbl    [16777216]    1048576 entries × 16 bytes
 #                                        (cap raised 32768 → 262144 in
-#                                        v5.7.1; sandhi-fold consumer
-#                                        unblock per sit proposal —
-#                                        sandhi alone burns ~2,350
-#                                        fixups, real consumers add
-#                                        thousands more).
+#                                        v5.7.1, then 262144 → 1048576
+#                                        in v5.7.7 — sandhi consumers
+#                                        plus agnostik-class derive-
+#                                        codegen burn fixups faster
+#                                        than the 262K ceiling allows).
 #
-#   0x1B0B000 brk                         27 MB total heap (+1 MB
-#                                        from 21.5MB in v5.5.36;
-#                                        v5.6.40 doubled preprocess_out
-#                                        and shifted everything after
-#                                        forward 1 MB)
+#   0x270B000 brk-fixup-end               39 MB at end of fixup_tbl
+#                                        (was 0x1B0B000, +12 MB for
+#                                        v5.7.7 fixup-cap 4× bump)
+#   0x348C000 brk-with-ts-frontend        ~52.5 MB — TS frontend heap
+#                                        adds 0xD81000 (~13.5 MB) past
+#                                        fixup_tbl-end
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -317,7 +318,7 @@ var S = syscall(SYS_BRK, 0);
 # + 0xD81000 size, per src/frontend/ts/{lex,parse}.cyr design after
 # v5.7.2 P2.1). TS region is only TOUCHED in --lex-ts / --parse-ts
 # modes; the +13.5 MB brk extension is paid unconditionally.
-syscall(SYS_BRK, S + 0x288C000);
+syscall(SYS_BRK, S + 0x348C000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -401,9 +402,9 @@ SBL(S, bl);
 # detect a .ts source and verify it lexes cleanly via cc5 directly,
 # without forcing every consumer to go through a separate test driver.
 if (_ts_lex_only_mode == 1) {
-    var _ts_n = TS_LEX(S + 0x1B0B000, S, bl);
+    var _ts_n = TS_LEX(S + 0x270B000, S, bl);
     if (_ts_n < 0) {
-        var _ts_err = TS_GETERR(S + 0x1B0B000);
+        var _ts_err = TS_GETERR(S + 0x270B000);
         syscall(SYS_WRITE, 2, "ts lex error: code ", 19);
         var _eb[3];
         if (_ts_err >= 10) {
@@ -452,20 +453,20 @@ fn _emit_decimal(n) {
 }
 
 if (_ts_parse_only_mode == 1) {
-    var _tp_lex_n = TS_LEX(S + 0x1B0B000, S, bl);
+    var _tp_lex_n = TS_LEX(S + 0x270B000, S, bl);
     if (_tp_lex_n < 0) {
         syscall(SYS_WRITE, 2, "ts lex error before parse\n", 26);
         syscall(SYS_EXIT, 1);
     }
-    var _tp_parse_n = TS_PARSE(S + 0x1B0B000);
+    var _tp_parse_n = TS_PARSE(S + 0x270B000);
     if (_tp_parse_n < 0) {
-        var _tp_err = TS_PARSE_GETERR(S + 0x1B0B000);
-        var _tp_etok = TS_PARSE_GETERR_TOK(S + 0x1B0B000);
+        var _tp_err = TS_PARSE_GETERR(S + 0x270B000);
+        var _tp_etok = TS_PARSE_GETERR_TOK(S + 0x270B000);
         # current parser TOK_IDX — most accurate since not all err
         # sites set ERR_TOK_IDX. Emit both for triage.
-        var _tp_cur = load64(S + 0x1B0B000 + 0xD80000 + 8);   # TS_PS_TOK_IDX = 8
-        var _tp_line = load64(S + 0x1B0B000 + 0x100000 + _tp_cur * 8);
-        var _tp_type = load64(S + 0x1B0B000 + 0x000000 + _tp_cur * 8);
+        var _tp_cur = load64(S + 0x270B000 + 0xD80000 + 8);   # TS_PS_TOK_IDX = 8
+        var _tp_line = load64(S + 0x270B000 + 0x100000 + _tp_cur * 8);
+        var _tp_type = load64(S + 0x270B000 + 0x000000 + _tp_cur * 8);
         syscall(SYS_WRITE, 2, "ts parse error: code=", 21);
         _emit_decimal(_tp_err);
         syscall(SYS_WRITE, 2, " line=", 6);

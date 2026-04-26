@@ -373,7 +373,8 @@
 > - **v5.7.5**: ✅ shipped 2026-04-26 — real JSX AST (13 structured JSX token kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY). Inner-expr tokenization deferred to v5.7.6 — empty `JSX_EXPR_CONTAINER` in this iteration. `.tsx` 428 → 429/435 (98.6%); `.ts` held at 2033/2053. Mode-stack-driven prototype reverted at end-of-cycle for clean cut. See CHANGELOG.
 > - **v5.7.6**: ✅ shipped 2026-04-26 — JSX inner-expr tokenization (P4.3d). Mode-stack-driven lex (modes 4/5/8). `.tsx` 429 → 430/435 (98.85%). 5 sticky failures remain (non-JSX TS feature gaps). See CHANGELOG.
 > - **v5.7.6-old**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
-> - **v5.7.7**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
+> - **v5.7.7**: fixup-cap 1MB+ bundle (lint UFCS exemption + atomic-output `cyrius build` + fixup-table 262K → 1M). Wedged in on 2026-04-26 after the cyrius-ts polish work surfaced 3 tooling issues that needed to ship together.
+> - **v5.7.8**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -790,9 +791,87 @@ attempt:**
 - All P1 lex + P2-P5 parse + check.sh stay green
 - cc5 self-host fixpoint clean
 
-**Following slot:** v5.7.7 — RISC-V rv64.
+**Following slot:** v5.7.8 — RISC-V rv64 (was v5.7.7; slipped
+2026-04-26 when the fixup-cap + tool-issue bundle took v5.7.7).
 
-## v5.7.7 — RISC-V rv64
+## v5.7.8 — silent fn-name collision investigation (pinned for v5.7.8 alongside RISC-V or as its own slot)
+
+**Pinned 2026-04-26.** Real cyrius-language correctness issue
+surfaced during the v5.7.7 closeout: when two stdlib modules
+define a function with the same name but different arities, the
+compiler silently accepts the second definition and the first
+is overwritten. There is **no** arity-mismatch warning, no
+duplicate-definition warning, and no error. Last definition
+wins by include order — which means the bug is order-dependent
+and triggers based on whichever consumer happens to include
+which library last.
+
+**Reproduction (verified 2026-04-26 against cc5 5.7.6):**
+
+- `lib/json.cyr:125` defines `fn json_build(pairs)` (arity 1).
+- `lib/patra.cyr:2931` defines `fn json_build(buf, max, keys,
+  vals, types, n)` (arity 6).
+- A consumer that includes both (`include "lib/json.cyr";
+  include "lib/patra.cyr"`) gets ONLY the patra/6-arg variant
+  visible. A 1-arg call to `json_build(pairs)` either fails
+  with a parse error (if the parser checks arg count against
+  the resolved definition) or silently miscompiles with the
+  6-arg signature reading 5 stack slots of garbage.
+- Reverse the include order and the json/1-arg variant wins;
+  patra's 6-arg callers silently miscompile in the same way.
+- Compiler emits no diagnostic. `cyrius build` reports `OK` on
+  the build that has the collision.
+
+**Why this matters:** stdlib modules are included transitively
+via `cyrius.cyml [deps]`. As the stdlib grows (40+ modules
+post-fold), the chance of a name overlap grows quadratically.
+Today's `json.cyr` + `patra.cyr` collision is the visible one;
+audit will likely surface more.
+
+**Investigation scope (v5.7.8):**
+
+1. **Audit current stdlib** for duplicate fn-name definitions
+   across modules. Smallest hammer: `grep -h '^fn ' lib/*.cyr |
+   sort | uniq -c | sort -rn | awk '$1 > 1'`.
+2. **Decide the resolution rule** — three options, in increasing
+   ergonomic cost:
+   a. **Hard error** on duplicate fn-name across translation
+      units. Forces the user to rename one. Most strict, breaks
+      any existing code that happens to collide.
+   b. **Warn + last-wins** (today's silent behavior, made
+      visible). Lower friction; preserves existing behavior;
+      surfaces the issue.
+   c. **Arity-aware overload resolution** — multiple defs OK
+      if arities differ; resolve by call-site arg count.
+      Highest ergonomic, but a real semantic addition.
+3. **`json_build` collision** specifically: rename one. Likely
+   `lib/patra.cyr::json_build/6` → `patra_json_build/6`
+   (namespace-prefix, mirroring `patra_*` convention used
+   elsewhere in patra), since `lib/json.cyr::json_build/1` is
+   the more general utility. Or reverse — user judgment.
+4. **Fix-or-warn** in cc5 itself: at minimum add the warning
+   that's missing today. The full overload-resolution path is
+   a separate language addition.
+
+**Acceptance gates:**
+
+1. Stdlib audit committed under `docs/audit/2026-04-26-stdlib-fn-collisions.md`.
+2. cc5 emits a warning (or error, per the chosen resolution
+   rule) when two `fn` definitions share a name within a
+   compilation unit.
+3. The `json_build` collision specifically resolved via rename
+   (or overload resolution if that path is chosen).
+4. New regression test under `tests/tcyr/fn_name_collision.tcyr`
+   covering: same-arity duplicate, different-arity duplicate,
+   transitive collision via includes.
+
+**Slot relationship to RISC-V (also at v5.7.8):** RISC-V is a
+multi-week port, this is a short investigation. They CAN ship
+together if RISC-V doesn't take the entire v5.7.8 window;
+otherwise this slips to v5.7.9 or wedges in via the next free
+patch. User decision when v5.7.7 closes.
+
+## v5.7.8 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:
@@ -803,7 +882,10 @@ v5.7.2 → v5.7.3 (2026-04-25, cyrius-ts completion takes v5.7.2);
 v5.7.3 → v5.7.4 (2026-04-25, JSX slot for v5.7.3 cascaded final cleanup);
 v5.7.4 → v5.7.5 (2026-04-25, real JSX AST cascaded out of v5.7.4 once heuristic-skip limits became clear);
 v5.7.3 → v5.7.4 (2026-04-25, fixup-cap bump took v5.7.1 sit-blocking
-slot, cyrius-ts cascaded down by one). Rationale: a new
+slot, cyrius-ts cascaded down by one);
+v5.7.7 → v5.7.8 (2026-04-26, fixup-cap 1MB+ + lint UFCS + atomic-output
+bundle took v5.7.7 — cyrius-ts polish surfaced 3 tooling issues
+in one pass that all needed to ship together). Rationale: a new
 architecture is structurally different from v5.5.x items
 (correctness / completion / runtime work on existing platforms),
 different from v5.7.0's lib/-reshape work, different from
@@ -876,58 +958,156 @@ style — one focused fix per release, no grab-bags. The pinned
 items below are guaranteed to ship before v5.7.x closeout; the
 specific patch number depends on what else surfaces.
 
-### v5.7.4 OR v5.7.5 — fixup-table cap bump 262K → 1M (4×, second bump)
+### v5.7.7 — fixup-cap 1MB+ + tool-issue bundle
 
-**Pinned 2026-04-25.** The v5.7.1 bump (32K → 262K, 8×) was
-**not enough** — at least one downstream consumer is still hitting
-the 262K ceiling at compile time. User direction: slot another
-4× bump to **1,048,576** (1M entries) for v5.7.4 OR v5.7.5,
-landing **after cyrius-ts completes** (v5.7.2 + v5.7.3) so the
-TS frontend's eventual fixup-pressure is captured in the same
-audit pass.
+**Pinned 2026-04-26** (re-pinned from earlier "v5.7.4 OR v5.7.5"
+slot, now that v5.7.6 has shipped). v5.7.7 wedges in the
+fixup-cap bump alongside three tooling fixes that surfaced
+during v5.7.6 closeout work; RISC-V rv64 (was v5.7.7) slips to
+v5.7.8.
 
-**Why slot ambiguity (v5.7.4 vs v5.7.5)**: depends on whether
-this wedges into v5.7.4 ahead of RISC-V (pushing rv64 to v5.7.5,
-matching the v5.7.1 wedge precedent) or ships as v5.7.5 after
-RISC-V at v5.7.4. Decision when v5.7.3 closes — at that point
-we'll know how urgent the cap pressure is, whether other
-consumers have hit it, and whether RISC-V port work is ready
-to start.
+**Bundle scope:**
 
-**Scope** (mirrors v5.7.1 patch shape, just with bigger numbers):
-
-- Cap bumped 262,144 → 1,048,576 (4×). New table size:
-  1,048,576 × 16 B = **16 MiB** (was 4 MiB at v5.7.1, was
-  512 KiB pre-v5.7.1).
-- Same 16 cap-check sites updated across 5 backend files
-  (parse_expr, x86, aarch64, cx, pe). Same string-length
-  immediates (`"...(262144)..."`, 33 → `"...(1048576)..."`, 34).
-- aarch64 variant `"/262144)\n"` → `"/1048576)\n"`.
-- Brk extends another +12 MB (4 → 16 MiB table). Estimated new
-  brk: 27 MB → 39 MB. Heap-relative offsets in
-  `src/frontend/ts/lex.cyr` shift accordingly (single-line
-  update if cyrius-ts is wired in by then; orphan otherwise).
-- All 4 `main_*.cyr` brk extensions update from `S + 0x1B0B000`
-  → new computed value (~`S + 0x270B000`).
+1. **Fixup-table cap bump 262K → 1M (4×)** — the planned v5.7.4-
+   OR-v5.7.5 entry, now landing here. The v5.7.1 bump (32K →
+   262K) wasn't enough; sandhi consumers + agnostik-class
+   derive-codegen burn fixups faster than 262K allows.
+   - Cap bumped 262,144 → 1,048,576. Table size 4 MiB → 16 MiB.
+   - 5 cap-check sites updated (parse_expr.cyr × 2,
+     backend/cx/emit.cyr × 3) — the v5.7.1 entry's "16 sites
+     across 5 files" framing was overcounted; today's actual
+     sites are these 5. parse_expr's stale `>= 4096` check
+     (lying error message said 262144) corrected to 1048576.
+   - Brk extends +12 MB. Heap-relative offsets in
+     `src/frontend/ts/lex.cyr` shift `S + 0x1B0B000` →
+     `S + 0x270B000`. Total brk in `main.cyr` (with TS frontend):
+     `S + 0x288C000` → `S + 0x348C000` (~52.5 MB).
+2. **`cyrius lint` UFCS Pascal-prefix exemption** — agnostik-
+   filed 2026-04-26 ([`docs/development/issues/cyrius-lint-ufcs-pascal-prefix-snake-case-2026-04-26.md`](../../../agnostik/docs/development/issues/cyrius-lint-ufcs-pascal-prefix-snake-case-2026-04-26.md);
+   stays local per agnostik's instruction). 28/28 false-positive
+   rate against the `<PascalStruct>_<snake_verb>` convention
+   (`ResourceLimits_to_json`, etc.). Fix: extend the existing
+   `Type_method` carve-out in `programs/cyrlint.cyr`'s snake_case
+   check to accept `<PascalIdent>_<lowercase_snake>` patterns.
+   The camel detector below the carve-out still catches
+   `Foo_BadCase`, so genuine errors don't slip through. Closes
+   all 28 agnostik warnings; genuine `badCamelCase` still flags.
+3. **`cyrius build` atomic-output** — v5.7.6 cyrius build opened
+   the output file with `O_TRUNC` BEFORE the compile ran, so
+   any non-zero exit (e.g., the auto-prepend TS_TOK_CAP overflow
+   on cyrius self-build) left an empty file on disk —
+   destroying the previously-working binary. Fix: write to
+   `<output>.tmp.<pid>`; on success rename → `output`
+   (POSIX-atomic, same FS); on failure unlink the partial tmp
+   and leave `output` untouched. Verified end-to-end: failed
+   compile of bad source against an existing binary now
+   preserves the binary byte-identical.
+4. **`cyrius build --no-deps` for compiler self-build** —
+   pinned, NOT yet implemented in this slot. Today
+   `cyrius build src/main.cyr build/cc5` auto-prepends the 6
+   stdlib deps from cyrius.cyml, which exceeds the 262K JS
+   token cap (`error: token limit exceeded (262144)`) and (pre
+   atomic-output fix) destroyed build/cc5. Workaround:
+   `/tmp/cyrius_rebuild.sh` does the cat-pipe form directly.
+   Fix scope: add `--no-deps` flag to `cmd_build` that skips
+   the dep-include prepend. Trivial — wire one bool flag from
+   CLI parse → `compile()`. Slotted into v5.7.7 IF time allows;
+   otherwise v5.7.8.
 
 **Acceptance gates:**
 
 1. Cap message reads `(1048576)`.
 2. cc5 self-host fixpoint clean (cc5 itself nowhere near 1M
-   fixups; bump is invisible to cc5's own behavior).
-3. The downstream consumer that hit the 262K ceiling builds
-   clean post-bump (which consumer + what manifest shape — TBD,
-   user to identify).
-4. CHANGELOG enumerates the cap change, the relocation delta,
-   and which consumer was unblocked.
+   fixups; bump is invisible to cc5's own behavior). ✓
+3. SY corpus parse acceptance still 100% on both .ts (2053/
+   2053) and .tsx (435/435) post-bump. ✓
+4. agnostik 1.0.0 lint warnings 28 → 0 across the 6 named
+   files. ✓
+5. `cyrius build` failure preserves any pre-existing output
+   binary (atomic-output regression test). ✓
+6. CHANGELOG enumerates the cap change, the relocation delta,
+   the lint carve-out, the atomic-output fix, and any consumer
+   unblock impact.
 
 **Long-term consideration**: this is the THIRD time we've bumped
-the cap (16K → 32K pre-v5.6.x, 32K → 262K at v5.7.1, 262K → 1M
-here). At some point the static-cap pattern stops scaling. The
-proposal section in [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table)
+the fixup cap (16K → 32K pre-v5.6.x, 32K → 262K at v5.7.1, 262K
+→ 1M here). At some point the static-cap pattern stops scaling.
+The proposal section in [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table)
 considered (and deferred) a dynamic vec-shaped table. If we hit
 a 4th bump, the dynamic-table conversion becomes the right move.
 Pin that as a v5.8.x or v5.9.x consideration if needed.
+
+### v5.7.x — advanced TS features beyond SY corpus (anti-slip slot)
+
+**Pinned 2026-04-26.** SY corpus parse acceptance hit 100% on
+both `.ts` (2053/2053) and `.tsx` (435/435) at v5.7.6 via 10
+narrow polish slots (definite-assignment, instantiation
+expressions, modifier-vs-name disambig, generic fn types in
+type position, template literal types, array destructure
+defaults, labeled tuples, labeled statements, computed-key
+destructure, arrow-w-object-return-type). The corpus is closed,
+but TypeScript as a language has more depth that no SY file
+exercises. Without an explicit slot, this work slips into the
+void as "later" forever — the agent who shipped 100% on SY
+won't see what to do next, and downstream consumers porting
+non-SY-shaped TS bring back paper-cuts one by one.
+
+This entry is the explicit pin so the work doesn't disappear.
+Each line item is its own narrow patch slot when it surfaces:
+
+- **Mapped types — full grammar**:
+  `{ [+-]?readonly? [K in keyof T] (as T)? [+-]??: U }`. The
+  `as`-clause for key remapping (TS 4.1+), `+/-readonly` and
+  `+/-?` modifiers (the bare `readonly`/`?` already work; add
+  the `+/-` prefixes), and `in <UnionType>` form for arbitrary
+  iterators (not just `keyof`). Spec:
+  <https://www.typescriptlang.org/docs/handbook/2/mapped-types.html>.
+- **`asserts` predicate signatures**:
+  `function assert(x: T): asserts x;` and
+  `function assertIsString(x: unknown): asserts x is string;`.
+  Return-type position only, after the `:` of a function /
+  method signature. Not allowed on arrow function expression
+  types. Spec: TS 3.7 release notes.
+- **Decorators**: `@foo class X {}`, `@foo prop: T`,
+  `@foo method() {}`, `@foo() class X {}` (decorator factory
+  call form). TS 5.0 stage-3 standard decorators preferred over
+  the `experimentalDecorators` form. Affects parse — emit a
+  decorator AST node attached to the following declaration.
+- **`as const`** assertion expressions. Postfix `expr as const`
+  is parsed today as a regular `as` cast against an undeclared
+  `const` ident — works by accident. Make it explicit: a
+  `KW_CONST` token after `as` is a literal-narrowing assertion,
+  not a type ref.
+- **Variadic tuple types**: `[...A, ...B]`, `[T, ...U]`,
+  `[...U, T]`. The single `...rest: T[]` already works in
+  labeled tuples; the multi-spread / leading-spread / mixed
+  forms don't.
+- **Const type parameters (TS 5.0)**:
+  `function f<const T>(x: T)`. `const` modifier in front of a
+  type parameter — narrows inferred literal types. New
+  contextual keyword position.
+- **`satisfies`** operator. v5.7.4 added KW_SATISFIES as a
+  contextual keyword usable as an ident name; verify the
+  postfix `expr satisfies Type` operator form parses too.
+  Already a TS-corpus feature flag.
+- **`never` and `unknown` as primitives** in type position.
+  Audit whether these are accepted alongside `void`/`null`/
+  `undefined` in `TS_PARSE_TYPE_PRIMARY`.
+- **Conditional types — exhaustive corpus**:
+  `T extends U ? X : Y` already parses; verify nested
+  conditional + `infer T` + distributive patterns
+  (`T extends any ? f<T> : never`) all hold up.
+
+**How items get triggered:** when a downstream consumer files a
+parse failure on a non-SY TS shape, the matching item from this
+list moves out and gets its own narrow slot (matching the
+v5.7.6 cyrius-ts polish pattern: smallest repro → grammar
+ref → fix → corpus regression → bump threshold).
+
+**No fixed deadline.** This is a "don't lose track" pin, not a
+schedule pin. The 8-item list above is illustrative — TS is an
+active language and more features will land. Update this slot
+when they do.
 
 ### v5.7.x — `cyrius fuzz` stdlib auto-prepend parity
 

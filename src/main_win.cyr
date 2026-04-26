@@ -123,7 +123,7 @@
 #   0x15CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
 #   0x160B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
-#   0x1B0B000 brk                         27 MB total heap (v5.6.40)
+#   0x270B000 brk                         39 MB total heap (v5.7.7 fixup-cap +12 MB)
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
