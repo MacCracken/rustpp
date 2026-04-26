@@ -692,13 +692,21 @@ fn TS_PARSE_PRIMARY(ts_base) {
         || t == TS_TOK_KW_FROM || t == TS_TOK_KW_AS
         || t == TS_TOK_KW_OF   || t == TS_TOK_KW_GET
         || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE) {
+        # Bare-ident arrow:  x => body
+        if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_ARROW) {
+            return TS_PARSE_ARROW_SINGLE_IDENT(ts_base);
+        }
         var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_IDENT, v);
         TS_AST_SET_PAYLOAD(ts_base, n, 0, v);
         TS_PARSE_CONSUME(ts_base);
         return n;
     }
-    # Parenthesized expression
+    # Parenthesized expression OR paren-arrow function.
+    # Disambiguate by scanning past the matching RPAREN.
     if (t == TS_TOK_LPAREN) {
+        if (TS_LOOKAHEAD_IS_ARROW(ts_base) == 1) {
+            return TS_PARSE_ARROW_PAREN(ts_base);
+        }
         TS_PARSE_CONSUME(ts_base);
         var inner = TS_PARSE_EXPR(ts_base);
         if (inner < 0) { return 0 - 1; }
@@ -965,6 +973,713 @@ fn TS_PARSE_EXPR(ts_base) {
 }
 
 # ================================================================
+# Arrow function lookahead + parsing (P2.3)
+# ================================================================
+#
+# Disambiguation: at LPAREN, walk forward through balanced parens to
+# the matching RPAREN. If next token is `=>`, or `:` followed
+# eventually by `=>` (return type annotation), it's an arrow function.
+# Otherwise it's a parenthesized expression. Doesn't advance the
+# real tok_idx — peeks via TS_PEEKT(ts_base, i).
+#
+# For the `:` case, scan for `=>` while remaining at top-level (don't
+# get fooled by `?:` ternary inside type expressions). Stop at `;`,
+# `{`, EOF — those mean we're past the arrow boundary already.
+
+fn TS_LOOKAHEAD_IS_ARROW(ts_base) {
+    var start = load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX);
+    var i = start + 1;                       # past the LPAREN
+    var depth = 1;
+    var done = 0;
+    var max_scan = start + 4096;             # bound the scan
+    while (done == 0) {
+        if (i >= max_scan) { return 0; }
+        var t = TS_PEEKT(ts_base, i);
+        if (t == TS_TOK_EOF)         { return 0; }
+        if (t == TS_TOK_LPAREN)      { depth = depth + 1; }
+        elif (t == TS_TOK_RPAREN) {
+            depth = depth - 1;
+            if (depth == 0) { done = 1; }
+        }
+        i = i + 1;
+    }
+    # i is now past the matching RPAREN
+    var after = TS_PEEKT(ts_base, i);
+    if (after == TS_TOK_ARROW) { return 1; }
+    if (after == TS_TOK_COLON) {
+        # Return-type annotation: scan for =>
+        var j = i + 1;
+        var depth2 = 0;
+        while (j < max_scan) {
+            var jt = TS_PEEKT(ts_base, j);
+            if (jt == TS_TOK_EOF)     { return 0; }
+            if (jt == TS_TOK_LPAREN || jt == TS_TOK_LBRACKET || jt == TS_TOK_LT) {
+                depth2 = depth2 + 1;
+            } elif (jt == TS_TOK_RPAREN || jt == TS_TOK_RBRACKET || jt == TS_TOK_GT) {
+                depth2 = depth2 - 1;
+                if (depth2 < 0) { return 0; }
+            } elif (depth2 == 0) {
+                if (jt == TS_TOK_ARROW)        { return 1; }
+                if (jt == TS_TOK_LBRACE)       { return 0; }
+                if (jt == TS_TOK_SEMI)         { return 0; }
+                if (jt == TS_TOK_COMMA)        { return 0; }
+            }
+            j = j + 1;
+        }
+    }
+    return 0;
+}
+
+# Bare-ident arrow: `x => body`. Caller has confirmed PEEK is IDENT
+# and PEEK_AHEAD(1) is ARROW.
+fn TS_PARSE_ARROW_SINGLE_IDENT(ts_base) {
+    var name_v = TS_PARSE_TOK_VAL(ts_base);
+    TS_PARSE_CONSUME(ts_base);              # ident
+    TS_PARSE_CONSUME(ts_base);              # =>
+
+    var arrow = TS_AST_PUSH(ts_base, TS_AST_EXPR_ARROW, 0);
+    if (arrow < 0) { return 0 - 1; }
+
+    # Single param: build a one-element children list
+    var p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
+    if (p < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, p, 0, name_v);
+
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 2);
+    if (off < 0) { return 0 - 1; }
+    TS_AST_CHILDREN_SET(ts_base, off, p);
+    TS_AST_CHILDREN_SET(ts_base, off + 1, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, 2);
+
+    var body = TS_PARSE_ARROW_BODY(ts_base);
+    if (body < 0) { return 0 - 1; }
+
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 0, off);
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 1, body);
+    return arrow;
+}
+
+# Parse arrow params: `(x, y: T, z = init, ...rest)`. Caller has
+# already consumed the LPAREN. Type annotations and defaults are
+# parsed loosely — captured in the param node's payloads but not
+# semantically validated. Returns children-array offset, or -1.
+fn TS_PARSE_ARROW_PARAMS(ts_base) {
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_RPAREN) {
+        var done = 0;
+        while (done == 0) {
+            var t = TS_PARSE_PEEK(ts_base);
+            var is_rest = 0;
+            if (t == TS_TOK_ELLIPSIS) {
+                is_rest = 1;
+                TS_PARSE_CONSUME(ts_base);
+            }
+            var name_v = TS_PARSE_TOK_VAL(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+            var p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
+            if (p < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, p, 0, name_v);
+            TS_AST_SET_PAYLOAD(ts_base, p, 3, is_rest);   # marker
+            # Optional `?:`
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+                TS_PARSE_CONSUME(ts_base);
+            }
+            # Optional `: T` — skip the type expression loosely
+            # (P2.4 will properly parse). For now: skip until , or ) or = at depth 0.
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+                TS_PARSE_CONSUME(ts_base);
+                TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+            }
+            # Optional `= default`
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
+                TS_PARSE_CONSUME(ts_base);
+                var defv = TS_PARSE_ASSIGN(ts_base);
+                if (defv < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, p, 2, defv);
+            }
+            TS_AST_CHILDREN_SET(ts_base, off + i, p);
+            i = i + 1;
+            if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    return off;
+}
+
+# Loosely skip a type expression (P2.4 will properly parse). Walks
+# forward at top-level depth, stopping at one of: , ) ] } = => ;
+# Tracks <>/(/[/{ depth.
+fn TS_PARSE_SKIP_TYPE_LOOSE(ts_base) {
+    var depth = 0;
+    var go = 1;
+    while (go == 1) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_EOF) { go = 0; }
+        elif (depth == 0) {
+            if (t == TS_TOK_COMMA || t == TS_TOK_RPAREN || t == TS_TOK_RBRACKET
+                || t == TS_TOK_RBRACE || t == TS_TOK_EQ || t == TS_TOK_ARROW
+                || t == TS_TOK_SEMI || t == TS_TOK_LBRACE) {
+                go = 0;
+            } else {
+                if (t == TS_TOK_LPAREN || t == TS_TOK_LBRACKET || t == TS_TOK_LT) {
+                    depth = depth + 1;
+                }
+                TS_PARSE_CONSUME(ts_base);
+            }
+        } else {
+            if (t == TS_TOK_LPAREN || t == TS_TOK_LBRACKET || t == TS_TOK_LT) {
+                depth = depth + 1;
+            } elif (t == TS_TOK_RPAREN || t == TS_TOK_RBRACKET || t == TS_TOK_GT) {
+                depth = depth - 1;
+            }
+            TS_PARSE_CONSUME(ts_base);
+        }
+    }
+    return 0;
+}
+
+# Parse arrow body: expression OR block.
+fn TS_PARSE_ARROW_BODY(ts_base) {
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_LBRACE) {
+        return TS_PARSE_BLOCK(ts_base);
+    }
+    return TS_PARSE_ASSIGN(ts_base);
+}
+
+# Paren arrow: `(params) => body` or `(params): T => body`. Caller
+# has confirmed via lookahead. Consumes the LPAREN here.
+fn TS_PARSE_ARROW_PAREN(ts_base) {
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var params_off = TS_PARSE_ARROW_PARAMS(ts_base);
+    if (params_off < 0) { return 0 - 1; }
+    # Optional return type
+    var ret_type_marker = 0;
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+        TS_PARSE_CONSUME(ts_base);
+        TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+        ret_type_marker = 1;
+    }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_ARROW) < 0) { return 0 - 1; }
+    var body = TS_PARSE_ARROW_BODY(ts_base);
+    if (body < 0) { return 0 - 1; }
+    var arrow = TS_AST_PUSH(ts_base, TS_AST_EXPR_ARROW, 0);
+    if (arrow < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 0, params_off);
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 1, body);
+    TS_AST_SET_PAYLOAD(ts_base, arrow, 2, ret_type_marker);
+    return arrow;
+}
+
+# ================================================================
+# Statement parser (P2.3)
+# ================================================================
+
+# Block: `{ stmt; stmt; }`. Caller has NOT yet consumed the LBRACE.
+fn TS_PARSE_BLOCK(ts_base) {
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACE) < 0) { return 0 - 1; }
+    var span = 0;
+    var node = TS_AST_PUSH(ts_base, TS_AST_STMT_BLOCK, span);
+    if (node < 0) { return 0 - 1; }
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 32);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    var go = 1;
+    while (go == 1) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_RBRACE || t == TS_TOK_EOF) { go = 0; }
+        else {
+            var s = TS_PARSE_STMT(ts_base);
+            if (s < 0) { return 0 - 1; }
+            TS_AST_CHILDREN_SET(ts_base, off + i, s);
+            i = i + 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, off);
+    return node;
+}
+
+# Optional `;` consumer with loose ASI (allow `}` or EOF as terminator).
+fn TS_PARSE_OPT_SEMI(ts_base) {
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_SEMI) {
+        TS_PARSE_CONSUME(ts_base);
+    }
+    return 0;
+}
+
+# Single binding pattern: ident, {a, b}, [x, y], or with ...rest.
+# Returns a PATTERN_* AST node index.
+fn TS_PARSE_BINDING_PATTERN(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t == TS_TOK_LBRACE) {
+        TS_PARSE_CONSUME(ts_base);
+        var n = TS_AST_PUSH(ts_base, TS_AST_PATTERN_OBJECT, 0);
+        if (n < 0) { return 0 - 1; }
+        var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+        if (off < 0) { return 0 - 1; }
+        var i = 0;
+        if (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+            var done = 0;
+            while (done == 0) {
+                var pt = TS_PARSE_PEEK(ts_base);
+                if (pt == TS_TOK_ELLIPSIS) {
+                    TS_PARSE_CONSUME(ts_base);
+                    var rname = TS_PARSE_TOK_VAL(ts_base);
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+                    var rest = TS_AST_PUSH(ts_base, TS_AST_PATTERN_REST, rname);
+                    if (rest < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, rest, 0, rname);
+                    TS_AST_CHILDREN_SET(ts_base, off + i, rest);
+                } else {
+                    var name_v = TS_PARSE_TOK_VAL(ts_base);
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+                    var pn = TS_AST_PUSH(ts_base, TS_AST_PATTERN_IDENT, name_v);
+                    if (pn < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, pn, 0, name_v);
+                    TS_AST_CHILDREN_SET(ts_base, off + i, pn);
+                }
+                i = i + 1;
+                if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+            }
+        }
+        TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, off);
+        return n;
+    }
+    if (t == TS_TOK_LBRACKET) {
+        TS_PARSE_CONSUME(ts_base);
+        var n2 = TS_AST_PUSH(ts_base, TS_AST_PATTERN_ARRAY, 0);
+        if (n2 < 0) { return 0 - 1; }
+        var off2 = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+        if (off2 < 0) { return 0 - 1; }
+        var i2 = 0;
+        if (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACKET) {
+            var done2 = 0;
+            while (done2 == 0) {
+                var pt2 = TS_PARSE_PEEK(ts_base);
+                if (pt2 == TS_TOK_ELLIPSIS) {
+                    TS_PARSE_CONSUME(ts_base);
+                    var rname2 = TS_PARSE_TOK_VAL(ts_base);
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+                    var rest2 = TS_AST_PUSH(ts_base, TS_AST_PATTERN_REST, rname2);
+                    if (rest2 < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, rest2, 0, rname2);
+                    TS_AST_CHILDREN_SET(ts_base, off2 + i2, rest2);
+                } else {
+                    # Allow nested patterns
+                    var inner = TS_PARSE_BINDING_PATTERN(ts_base);
+                    if (inner < 0) { return 0 - 1; }
+                    TS_AST_CHILDREN_SET(ts_base, off2 + i2, inner);
+                }
+                i2 = i2 + 1;
+                if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done2 = 1; }
+            }
+        }
+        TS_AST_CHILDREN_SET(ts_base, off2 + i2, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, i2 + 1);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n2, 0, off2);
+        return n2;
+    }
+    # Plain ident
+    var iv = TS_PARSE_TOK_VAL(ts_base);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+    var pi = TS_AST_PUSH(ts_base, TS_AST_PATTERN_IDENT, iv);
+    if (pi < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, pi, 0, iv);
+    return pi;
+}
+
+# Single binding: pattern [: type] [= init]
+fn TS_PARSE_VAR_BINDING(ts_base) {
+    var pat = TS_PARSE_BINDING_PATTERN(ts_base);
+    if (pat < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_DECL_VAR_BINDING, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, pat);
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+        TS_PARSE_CONSUME(ts_base);
+        TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+    }
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
+        TS_PARSE_CONSUME(ts_base);
+        var init = TS_PARSE_ASSIGN(ts_base);
+        if (init < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 2, init);
+    }
+    return n;
+}
+
+# var/let/const x = init, y = init, z;
+fn TS_PARSE_VAR_DECL(ts_base) {
+    var kind_tok = TS_PARSE_PEEK(ts_base);
+    TS_PARSE_CONSUME(ts_base);                  # consume var/let/const
+    var node = TS_AST_PUSH(ts_base, TS_AST_STMT_VAR_DECL, 0);
+    if (node < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, kind_tok);
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 8);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    var done = 0;
+    while (done == 0) {
+        var b = TS_PARSE_VAR_BINDING(ts_base);
+        if (b < 0) { return 0 - 1; }
+        TS_AST_CHILDREN_SET(ts_base, off + i, b);
+        i = i + 1;
+        if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    TS_AST_SET_PAYLOAD(ts_base, node, 1, off);
+    TS_PARSE_OPT_SEMI(ts_base);
+    return node;
+}
+
+# if (cond) stmt [else stmt]
+fn TS_PARSE_IF(ts_base) {
+    TS_PARSE_CONSUME(ts_base);                  # if
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var cond = TS_PARSE_EXPR(ts_base);
+    if (cond < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    var then_s = TS_PARSE_STMT(ts_base);
+    if (then_s < 0) { return 0 - 1; }
+    var else_s = 0 - 1;
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_ELSE) {
+        TS_PARSE_CONSUME(ts_base);
+        else_s = TS_PARSE_STMT(ts_base);
+        if (else_s < 0) { return 0 - 1; }
+    }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_IF, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, cond);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, then_s);
+    TS_AST_SET_PAYLOAD(ts_base, n, 2, else_s);
+    return n;
+}
+
+# for (init; cond; update) body
+# for (decl of expr) body
+# for (decl in expr) body
+fn TS_PARSE_FOR(ts_base) {
+    TS_PARSE_CONSUME(ts_base);                  # for
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+
+    # Detect for-of / for-in vs C-style. The init slot can be a
+    # decl OR an expression. Detect by peek + first-token-after-decl.
+    # Strategy: parse the init clause; then peek for `of` / `in` /
+    # `;` to disambiguate.
+    var init = 0 - 1;
+    var t0 = TS_PARSE_PEEK(ts_base);
+    if (t0 == TS_TOK_KW_VAR || t0 == TS_TOK_KW_LET || t0 == TS_TOK_KW_CONST) {
+        # Parse a single binding (no comma chain in for-init)
+        var kind = t0;
+        TS_PARSE_CONSUME(ts_base);
+        var b = TS_PARSE_VAR_BINDING(ts_base);
+        if (b < 0) { return 0 - 1; }
+        # Wrap in a VAR_DECL with single binding for AST consistency
+        var vd = TS_AST_PUSH(ts_base, TS_AST_STMT_VAR_DECL, 0);
+        if (vd < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, vd, 0, kind);
+        var off = TS_AST_CHILDREN_RESERVE(ts_base, 2);
+        TS_AST_CHILDREN_SET(ts_base, off, b);
+        TS_AST_CHILDREN_SET(ts_base, off + 1, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, 2);
+        TS_AST_SET_PAYLOAD(ts_base, vd, 1, off);
+        init = vd;
+    } elif (t0 != TS_TOK_SEMI) {
+        init = TS_PARSE_EXPR(ts_base);
+        if (init < 0) { return 0 - 1; }
+    }
+
+    # Now peek: of / in / ;
+    var pk = TS_PARSE_PEEK(ts_base);
+    if (pk == TS_TOK_KW_OF) {
+        TS_PARSE_CONSUME(ts_base);
+        var iter = TS_PARSE_EXPR(ts_base);
+        if (iter < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        var body = TS_PARSE_STMT(ts_base);
+        if (body < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_STMT_FOR_OF, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, init);
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, iter);
+        TS_AST_SET_PAYLOAD(ts_base, n, 2, body);
+        return n;
+    }
+    if (pk == TS_TOK_KW_IN) {
+        TS_PARSE_CONSUME(ts_base);
+        var iter2 = TS_PARSE_EXPR(ts_base);
+        if (iter2 < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        var body2 = TS_PARSE_STMT(ts_base);
+        if (body2 < 0) { return 0 - 1; }
+        var n2 = TS_AST_PUSH(ts_base, TS_AST_STMT_FOR_IN, 0);
+        if (n2 < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n2, 0, init);
+        TS_AST_SET_PAYLOAD(ts_base, n2, 1, iter2);
+        TS_AST_SET_PAYLOAD(ts_base, n2, 2, body2);
+        return n2;
+    }
+    # C-style for
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_SEMI) < 0) { return 0 - 1; }
+    var cond = 0 - 1;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_SEMI) {
+        cond = TS_PARSE_EXPR(ts_base);
+        if (cond < 0) { return 0 - 1; }
+    }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_SEMI) < 0) { return 0 - 1; }
+    var update = 0 - 1;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_RPAREN) {
+        update = TS_PARSE_EXPR(ts_base);
+        if (update < 0) { return 0 - 1; }
+    }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    var body3 = TS_PARSE_STMT(ts_base);
+    if (body3 < 0) { return 0 - 1; }
+    var n3 = TS_AST_PUSH(ts_base, TS_AST_STMT_FOR, 0);
+    if (n3 < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n3, 0, init);
+    TS_AST_SET_PAYLOAD(ts_base, n3, 1, cond);
+    TS_AST_SET_PAYLOAD(ts_base, n3, 2, update);
+    TS_AST_SET_PAYLOAD(ts_base, n3, 3, body3);
+    return n3;
+}
+
+# while (cond) body
+fn TS_PARSE_WHILE(ts_base) {
+    TS_PARSE_CONSUME(ts_base);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var cond = TS_PARSE_EXPR(ts_base);
+    if (cond < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    var body = TS_PARSE_STMT(ts_base);
+    if (body < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_WHILE, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, cond);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, body);
+    return n;
+}
+
+# do body while (cond);
+fn TS_PARSE_DO_WHILE(ts_base) {
+    TS_PARSE_CONSUME(ts_base);                  # do
+    var body = TS_PARSE_STMT(ts_base);
+    if (body < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_KW_WHILE) < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var cond = TS_PARSE_EXPR(ts_base);
+    if (cond < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    TS_PARSE_OPT_SEMI(ts_base);
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_DO_WHILE, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, body);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, cond);
+    return n;
+}
+
+fn TS_PARSE_RETURN(ts_base) {
+    TS_PARSE_CONSUME(ts_base);
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_RETURN, 0);
+    if (n < 0) { return 0 - 1; }
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t != TS_TOK_SEMI && t != TS_TOK_RBRACE && t != TS_TOK_EOF) {
+        var e = TS_PARSE_EXPR(ts_base);
+        if (e < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, e);
+    } else {
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, 0 - 1);
+    }
+    TS_PARSE_OPT_SEMI(ts_base);
+    return n;
+}
+
+fn TS_PARSE_THROW(ts_base) {
+    TS_PARSE_CONSUME(ts_base);
+    var e = TS_PARSE_EXPR(ts_base);
+    if (e < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_THROW, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, e);
+    TS_PARSE_OPT_SEMI(ts_base);
+    return n;
+}
+
+fn TS_PARSE_BREAK(ts_base) {
+    TS_PARSE_CONSUME(ts_base);
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_BREAK, 0);
+    if (n < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_IDENT) {
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, TS_PARSE_TOK_VAL(ts_base));
+        TS_PARSE_CONSUME(ts_base);
+    }
+    TS_PARSE_OPT_SEMI(ts_base);
+    return n;
+}
+
+fn TS_PARSE_CONTINUE(ts_base) {
+    TS_PARSE_CONSUME(ts_base);
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_CONTINUE, 0);
+    if (n < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_IDENT) {
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, TS_PARSE_TOK_VAL(ts_base));
+        TS_PARSE_CONSUME(ts_base);
+    }
+    TS_PARSE_OPT_SEMI(ts_base);
+    return n;
+}
+
+fn TS_PARSE_TRY(ts_base) {
+    TS_PARSE_CONSUME(ts_base);                  # try
+    var try_body = TS_PARSE_BLOCK(ts_base);
+    if (try_body < 0) { return 0 - 1; }
+    var catch_clause = 0 - 1;
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_CATCH) {
+        TS_PARSE_CONSUME(ts_base);
+        catch_clause = TS_AST_PUSH(ts_base, TS_AST_STMT_CATCH_CLAUSE, 0);
+        if (catch_clause < 0) { return 0 - 1; }
+        # Optional `(name)` or `(name: T)`
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LPAREN) {
+            TS_PARSE_CONSUME(ts_base);
+            var pname = TS_PARSE_TOK_VAL(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, catch_clause, 0, pname);
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+                TS_PARSE_CONSUME(ts_base);
+                TS_PARSE_SKIP_TYPE_LOOSE(ts_base);
+            }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        }
+        var cbody = TS_PARSE_BLOCK(ts_base);
+        if (cbody < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, catch_clause, 1, cbody);
+    }
+    var finally_body = 0 - 1;
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_FINALLY) {
+        TS_PARSE_CONSUME(ts_base);
+        finally_body = TS_PARSE_BLOCK(ts_base);
+        if (finally_body < 0) { return 0 - 1; }
+    }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_TRY, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, try_body);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, catch_clause);
+    TS_AST_SET_PAYLOAD(ts_base, n, 2, finally_body);
+    return n;
+}
+
+fn TS_PARSE_SWITCH(ts_base) {
+    TS_PARSE_CONSUME(ts_base);                  # switch
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+    var disc = TS_PARSE_EXPR(ts_base);
+    if (disc < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACE) < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_SWITCH, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, disc);
+    var coff = TS_AST_CHILDREN_RESERVE(ts_base, 32);
+    if (coff < 0) { return 0 - 1; }
+    var ci = 0;
+    var go = 1;
+    while (go == 1) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_RBRACE || t == TS_TOK_EOF) { go = 0; }
+        elif (t == TS_TOK_KW_CASE || t == TS_TOK_KW_DEFAULT) {
+            var case_node = TS_AST_PUSH(ts_base, TS_AST_STMT_SWITCH_CASE, 0);
+            if (case_node < 0) { return 0 - 1; }
+            if (t == TS_TOK_KW_CASE) {
+                TS_PARSE_CONSUME(ts_base);
+                var ce = TS_PARSE_EXPR(ts_base);
+                if (ce < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, case_node, 0, ce);
+            } else {
+                TS_PARSE_CONSUME(ts_base);
+                TS_AST_SET_PAYLOAD(ts_base, case_node, 0, 0 - 1);
+            }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+            # Body: stmts until next case/default/}
+            var soff = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+            if (soff < 0) { return 0 - 1; }
+            var si = 0;
+            var sgo = 1;
+            while (sgo == 1) {
+                var st = TS_PARSE_PEEK(ts_base);
+                if (st == TS_TOK_KW_CASE || st == TS_TOK_KW_DEFAULT
+                    || st == TS_TOK_RBRACE || st == TS_TOK_EOF) {
+                    sgo = 0;
+                } else {
+                    var s = TS_PARSE_STMT(ts_base);
+                    if (s < 0) { return 0 - 1; }
+                    TS_AST_CHILDREN_SET(ts_base, soff + si, s);
+                    si = si + 1;
+                }
+            }
+            TS_AST_CHILDREN_SET(ts_base, soff + si, 0 - 1);
+            TS_AST_CHILDREN_COMMIT(ts_base, si + 1);
+            TS_AST_SET_PAYLOAD(ts_base, case_node, 1, soff);
+            TS_AST_CHILDREN_SET(ts_base, coff + ci, case_node);
+            ci = ci + 1;
+        } else {
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 7);
+            return 0 - 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, coff + ci, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, ci + 1);
+    TS_AST_SET_PAYLOAD(ts_base, n, 1, coff);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+    return n;
+}
+
+# expression statement: `expr;`
+fn TS_PARSE_EXPR_STMT(ts_base) {
+    var e = TS_PARSE_EXPR(ts_base);
+    if (e < 0) { return 0 - 1; }
+    var n = TS_AST_PUSH(ts_base, TS_AST_STMT_EXPR, 0);
+    if (n < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, n, 0, e);
+    TS_PARSE_OPT_SEMI(ts_base);
+    return n;
+}
+
+# Statement dispatcher.
+fn TS_PARSE_STMT(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t == TS_TOK_LBRACE)        { return TS_PARSE_BLOCK(ts_base); }
+    if (t == TS_TOK_KW_VAR)        { return TS_PARSE_VAR_DECL(ts_base); }
+    if (t == TS_TOK_KW_LET)        { return TS_PARSE_VAR_DECL(ts_base); }
+    if (t == TS_TOK_KW_CONST)      { return TS_PARSE_VAR_DECL(ts_base); }
+    if (t == TS_TOK_KW_IF)         { return TS_PARSE_IF(ts_base); }
+    if (t == TS_TOK_KW_FOR)        { return TS_PARSE_FOR(ts_base); }
+    if (t == TS_TOK_KW_WHILE)      { return TS_PARSE_WHILE(ts_base); }
+    if (t == TS_TOK_KW_DO)         { return TS_PARSE_DO_WHILE(ts_base); }
+    if (t == TS_TOK_KW_RETURN)     { return TS_PARSE_RETURN(ts_base); }
+    if (t == TS_TOK_KW_THROW)      { return TS_PARSE_THROW(ts_base); }
+    if (t == TS_TOK_KW_BREAK)      { return TS_PARSE_BREAK(ts_base); }
+    if (t == TS_TOK_KW_CONTINUE)   { return TS_PARSE_CONTINUE(ts_base); }
+    if (t == TS_TOK_KW_TRY)        { return TS_PARSE_TRY(ts_base); }
+    if (t == TS_TOK_KW_SWITCH)     { return TS_PARSE_SWITCH(ts_base); }
+    if (t == TS_TOK_SEMI) {
+        # Empty statement
+        TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_STMT(ts_base);
+    }
+    return TS_PARSE_EXPR_STMT(ts_base);
+}
+
+# ================================================================
 # TS_PARSE — main parser entry (P2.1 STUB)
 # ================================================================
 # Caller has already invoked TS_LEX to populate the token tables.
@@ -985,15 +1700,32 @@ fn TS_PARSE(ts_base) {
     if (root < 0) { return 0 - 1; }
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ROOT_NODE, root);
 
-    # P2.2: parse one top-level expression and attach as ROOT.payload[0].
-    # Statement-level parsing (multiple top-level statements + decls
-    # + module surface) is P2.3+. For now, --parse-ts probes accept
-    # exactly one expression as input (good enough for the SY sweep
-    # in P2.7 which we wire incrementally as later phases land).
-    if (TS_PARSE_PEEK(ts_base) != TS_TOK_EOF) {
-        var e = TS_PARSE_EXPR(ts_base);
-        if (e < 0) { return 0 - 1; }
-        TS_AST_SET_PAYLOAD(ts_base, root, 0, e);
+    # P2.3: parse a sequence of top-level statements.
+    # ROOT.payload[0] = children-array offset (head)
+    # ROOT.payload[1] = statement count
+    # Sentinel -1 closes the children list.
+    var head = 0 - 1;
+    var count = 0;
+    var first = 1;
+    while (TS_PARSE_PEEK(ts_base) != TS_TOK_EOF) {
+        var s = TS_PARSE_STMT(ts_base);
+        if (s < 0) { return 0 - 1; }
+        var slot = TS_AST_CHILDREN_RESERVE(ts_base, 1);
+        if (slot < 0) { return 0 - 1; }
+        TS_AST_CHILDREN_SET(ts_base, slot, s);
+        TS_AST_CHILDREN_COMMIT(ts_base, 1);
+        if (first == 1) { head = slot; first = 0; }
+        count = count + 1;
     }
+    # Append sentinel
+    var sent = TS_AST_CHILDREN_RESERVE(ts_base, 1);
+    if (sent >= 0) {
+        TS_AST_CHILDREN_SET(ts_base, sent, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, 1);
+    }
+    if (count > 0) {
+        TS_AST_SET_PAYLOAD(ts_base, root, 0, head);
+    }
+    TS_AST_SET_PAYLOAD(ts_base, root, 1, count);
     return TS_AST_NODE_COUNT(ts_base);
 }

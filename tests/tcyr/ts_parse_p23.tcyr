@@ -1,0 +1,258 @@
+# v5.7.2 P2.3 — TS parser statements + arrow + destructuring.
+#
+# Verifies the statement-level parser shipped in P2.3:
+#   - var/let/const declarations + comma-list + destructuring patterns
+#   - if / else
+#   - for (3 variants: C-style, for-of, for-in)
+#   - while / do-while
+#   - return / throw / break / continue
+#   - try / catch / finally
+#   - switch / case / default
+#   - blocks
+#   - arrow functions (bare-ident, paren, paren-with-type, with body block)
+#
+# Top-level TS_PARSE now walks a sequence of statements and attaches
+# them via a children-array referenced from ROOT.payload[0]. Each
+# top-level expression input (e.g., `42;`) becomes a STMT_EXPR whose
+# payload[0] is the wrapped expression node.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+# Lex `src` then run TS_PARSE. Returns the index of the FIRST top-level
+# statement (peeled out of ROOT.payload[0] / children-array).
+fn parse_first_stmt(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    var nn = TS_PARSE(ts_base);
+    if (nn < 0) { return 0 - 1; }
+    var head = TS_AST_PAYLOAD(ts_base, 0, 0);
+    return TS_AST_CHILDREN_GET(ts_base, head);
+}
+
+# Returns the count of top-level statements parsed by the most recent
+# parse_first_stmt call.
+fn top_count() {
+    return TS_AST_PAYLOAD(ts_base, 0, 1);
+}
+
+# Lex + parse as expression (bypasses statement dispatch). Used to test
+# arrow functions in expression context.
+fn parse_expr(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    TS_PARSE_INIT(ts_base);
+    return TS_PARSE_EXPR(ts_base);
+}
+
+# ─── var / let / const ───────────────────────────────────────────
+test_group("var/let/const declarations");
+
+var s = parse_first_stmt("var x = 1;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "var x = 1 -> VAR_DECL");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on var");
+
+s = parse_first_stmt("let y;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "let y -> VAR_DECL");
+
+s = parse_first_stmt("const z = 42;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "const z = 42 -> VAR_DECL");
+
+# Comma-list of bindings: `let a = 1, b = 2, c;`
+s = parse_first_stmt("let a = 1, b = 2, c;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "comma-list of bindings parses");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on comma-list");
+
+# Object destructuring: `const { a, b } = obj;`
+s = parse_first_stmt("const { a, b } = obj;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "object destructure parses");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on object destructure");
+
+# Array destructuring: `const [x, y] = arr;`
+s = parse_first_stmt("const [x, y] = arr;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "array destructure parses");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on array destructure");
+
+# Rest in destructure: `const [first, ...rest] = arr;`
+s = parse_first_stmt("const [first, ...rest] = arr;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "array rest pattern parses");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on rest in array");
+
+# Type annotation: `let n: number = 42;`
+s = parse_first_stmt("let n: number = 42;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "typed binding parses");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on typed binding");
+
+# ─── if / else ───────────────────────────────────────────────────
+test_group("if / else");
+
+s = parse_first_stmt("if (x > 0) y = 1;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_IF, "if -> STMT_IF");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on if");
+
+s = parse_first_stmt("if (x) { a; } else { b; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_IF, "if/else -> STMT_IF");
+# The else branch should be a non-zero payload[2]
+var else_node = TS_AST_PAYLOAD(ts_base, s, 2);
+assert(else_node != 0, "if/else has else branch");
+
+# ─── for (3 variants) ────────────────────────────────────────────
+test_group("for variants");
+
+# C-style
+s = parse_first_stmt("for (let i = 0; i < 10; i = i + 1) sum = sum + i;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_FOR, "C-style for -> STMT_FOR");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on C-for");
+
+# for-of
+s = parse_first_stmt("for (const x of arr) y = x;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_FOR_OF, "for-of -> STMT_FOR_OF");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on for-of");
+
+# for-in
+s = parse_first_stmt("for (const k in obj) y = k;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_FOR_IN, "for-in -> STMT_FOR_IN");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on for-in");
+
+# ─── while / do-while ────────────────────────────────────────────
+test_group("while / do-while");
+
+s = parse_first_stmt("while (x > 0) x = x - 1;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_WHILE, "while -> STMT_WHILE");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on while");
+
+s = parse_first_stmt("do { x = x + 1; } while (x < 10);");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_DO_WHILE, "do-while -> STMT_DO_WHILE");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on do-while");
+
+# ─── return / throw / break / continue ────────────────────────────
+test_group("return / throw / break / continue");
+
+s = parse_first_stmt("return 42;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_RETURN, "return -> STMT_RETURN");
+
+s = parse_first_stmt("return;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_RETURN, "bare return parses");
+
+s = parse_first_stmt("throw err;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_THROW, "throw -> STMT_THROW");
+
+s = parse_first_stmt("break;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_BREAK, "break -> STMT_BREAK");
+
+s = parse_first_stmt("continue;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_CONTINUE, "continue -> STMT_CONTINUE");
+
+# ─── try / catch / finally ───────────────────────────────────────
+test_group("try / catch / finally");
+
+s = parse_first_stmt("try { a; } catch (e) { b; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_TRY, "try-catch -> STMT_TRY");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on try-catch");
+
+s = parse_first_stmt("try { a; } finally { c; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_TRY, "try-finally -> STMT_TRY");
+
+s = parse_first_stmt("try { a; } catch (e) { b; } finally { c; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_TRY, "try-catch-finally -> STMT_TRY");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on full try");
+
+# ─── switch ──────────────────────────────────────────────────────
+test_group("switch");
+
+s = parse_first_stmt("switch (x) { case 1: a; case 2: b; default: c; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_SWITCH, "switch -> STMT_SWITCH");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on switch");
+
+# ─── blocks ──────────────────────────────────────────────────────
+test_group("blocks");
+
+s = parse_first_stmt("{ a; b; c; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_BLOCK, "{ ... } at stmt context -> STMT_BLOCK");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on block");
+
+# Empty block
+s = parse_first_stmt("{}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_BLOCK, "{} -> STMT_BLOCK");
+
+# ─── arrow functions ─────────────────────────────────────────────
+test_group("arrow functions");
+
+# Bare-ident arrow
+var n = parse_expr("x => x + 1");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "x => x+1 -> EXPR_ARROW");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err on bare-ident arrow");
+
+# Paren arrow with no params
+n = parse_expr("() => 42");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "() => 42 -> EXPR_ARROW");
+
+# Paren arrow with multiple params
+n = parse_expr("(a, b) => a + b");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(a, b) => a+b -> EXPR_ARROW");
+
+# Paren arrow with type annotations
+n = parse_expr("(a: number, b: number) => a + b");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(a: T, b: T) => ... -> EXPR_ARROW");
+
+# Paren arrow with return type
+n = parse_expr("(x: number): number => x * 2");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "(x: T): T => ... -> EXPR_ARROW");
+# Return-type marker stored at payload[2]
+var ret_marker = TS_AST_PAYLOAD(ts_base, n, 2);
+assert_eq(ret_marker, 1, "arrow with return type sets marker");
+
+# Arrow with block body
+n = parse_expr("(x) => { return x + 1; }");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "arrow with block body parses");
+
+# Arrow with default param
+n = parse_expr("(x = 0) => x");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "arrow with default param parses");
+
+# Arrow with rest param
+n = parse_expr("(...args) => args");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "arrow with rest param parses");
+
+# Arrow vs paren-expr disambiguation: `(1 + 2)` is NOT an arrow
+n = parse_expr("(1 + 2)");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_PAREN, "(1+2) -> PAREN, not ARROW");
+
+# ─── multi-statement programs ────────────────────────────────────
+test_group("multi-stmt programs");
+
+s = parse_first_stmt("var x = 1; var y = 2; var z = 3;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_VAR_DECL, "first of three stmts");
+assert_eq(top_count(), 3, "three top-level statements counted");
+
+s = parse_first_stmt("if (x) y; else z; while (a) b;");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_STMT_IF, "first stmt is IF");
+assert_eq(top_count(), 2, "two top-level stmts");
+
+# Empty input -> 0 statements, ROOT only
+var nt = TS_LEX(ts_base, "", 0);
+assert(nt >= 0, "lex empty OK");
+var nn = TS_PARSE(ts_base);
+assert(nn >= 1, "TS_PARSE on empty -> at least ROOT");
+assert_eq(top_count(), 0, "empty input -> 0 stmts");
+
+# ─── error path ──────────────────────────────────────────────────
+test_group("statement parse errors");
+
+# Invalid statement (lonely operator) should set err
+nt = TS_LEX(ts_base, "+", 1);
+assert(nt > 0, "lex single + OK");
+nn = TS_PARSE(ts_base);
+assert(TS_PARSE_GETERR(ts_base) != 0, "lonely + sets parse err");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);

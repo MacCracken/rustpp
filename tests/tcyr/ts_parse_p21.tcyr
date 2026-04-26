@@ -120,21 +120,25 @@ assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err after successful EXPECT");
 assert_eq(TS_PARSE_EXPECT(ts_base, TS_TOK_KW_LET), 0 - 1, "EXPECT KW_LET (mismatch) -> -1");
 assert_eq(TS_PARSE_GETERR(ts_base), 3, "err code 3 = unexpected token");
 
-# ─── TS_PARSE end-to-end (P2.2 behavior; was P2.1 stub) ──────────
+# ─── TS_PARSE end-to-end (P2.3 behavior; was P2.1 stub / P2.2 expr) ──
 test_group("TS_PARSE end-to-end");
 
-# Re-lex (parser state was dirtied by prior tests). Use a real
-# expression now that P2.2 has populated TS_PARSE_EXPR.
+# Re-lex (parser state was dirtied by prior tests). With P2.3, a bare
+# expression input parses as one top-level expression statement.
+#   ROOT.payload[0]      -> children-array offset (head)
+#   children[head]       -> first STMT_EXPR
+#   STMT_EXPR.payload[0] -> the actual expression
 n_toks = TS_LEX(ts_base, "99", 2);
 assert(n_toks > 0, "lex OK for parse test");
 
 var n_nodes = TS_PARSE(ts_base);
-# Expect at least 2 nodes: ROOT (idx 0) + EXPR_INT (the 99) — possibly
-# more depending on internal allocations.
-assert(n_nodes >= 2, "TS_PARSE allocates ROOT + at least one expr");
+assert(n_nodes >= 3, "TS_PARSE allocates ROOT + STMT_EXPR + EXPR_INT");
 assert_eq(TS_AST_KIND(ts_base, 0), TS_AST_ROOT, "node[0] = ROOT");
-var top_expr = TS_AST_PAYLOAD(ts_base, 0, 0);
-assert_eq(TS_AST_KIND(ts_base, top_expr), TS_AST_EXPR_INT, "ROOT.payload[0] -> EXPR_INT");
+var head = TS_AST_PAYLOAD(ts_base, 0, 0);
+var stmt = TS_AST_CHILDREN_GET(ts_base, head);
+assert_eq(TS_AST_KIND(ts_base, stmt), TS_AST_STMT_EXPR, "first child = STMT_EXPR");
+var top_expr = TS_AST_PAYLOAD(ts_base, stmt, 0);
+assert_eq(TS_AST_KIND(ts_base, top_expr), TS_AST_EXPR_INT, "STMT_EXPR.payload[0] -> EXPR_INT");
 assert_eq(TS_PARSE_GETERR(ts_base), 0, "no parse err");
 
 var exit_code = assert_summary();
