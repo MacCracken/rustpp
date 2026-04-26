@@ -853,6 +853,81 @@ considered (and deferred) a dynamic vec-shaped table. If we hit
 a 4th bump, the dynamic-table conversion becomes the right move.
 Pin that as a v5.8.x or v5.9.x consideration if needed.
 
+### v5.7.x — `cyrius fuzz` stdlib auto-prepend parity
+
+**Pinned 2026-04-25** (cyim-agent surfaced). `cyrius fuzz` builds
+each `fuzz/*.fcyr` harness via raw `compile(path, tmpbin)` —
+nothing prepends the stdlib deps the way `cyrius bench` /
+`cyrius test` do for `*.bcyr` / `*.tcyr` harnesses (which inherit
+the project's stdlib via the `cyrius.cyml` deps phase). Result:
+authors of fuzz harnesses must hand-add `include "lib/io.cyr"`,
+`include "lib/alloc.cyr"`, etc. for any stdlib symbol the included
+`src/*` files reference, even though the project manifest already
+declares those deps.
+
+**Fix scope:** `cbt/commands.cyr::cmd_fuzz` should walk the same
+manifest-deps codepath that `cmd_test` / `cmd_bench` walk before
+calling `compile()`. One refactor: extract the prepend logic into
+a shared helper (`_run_with_stdlib(path)` or similar) and call it
+from all three command bodies.
+
+**Acceptance:** delete the redundant `include "lib/*.cyr"` lines
+from each `fuzz/*.fcyr` harness; `cyrius fuzz` still passes all
+5 current harnesses (freelist, hashmap, str_coerce, string, vec).
+
+**Bundle candidate:** ship alongside the `.scyr` / `.smcyr`
+slot below — both are "test-runner shape" cleanups in the same
+file.
+
+### v5.7.x — `.scyr` (soak) + `.smcyr` (smoke) file types
+
+**Pinned 2026-04-25.** Today, soak and smoke testing are scattered:
+`cyrius soak` is a built-in fixed routine (N self-host iterations,
+hardcoded in `cbt/commands.cyr::cmd_soak`); smoke is implicit in
+`scripts/check.sh` via shell scripts that orchestrate cyrius
+binaries — and at least one (`tests/regression-capacity.sh`) drops
+to **Python 3** to synthesize a 3,500-fn stress source. The Python
+dependency leaks into the test surface despite cyrius's
+"sovereign toolchain, no external runtime" stance.
+
+**Fix scope:** mirror the `*.tcyr` / `*.bcyr` / `*.fcyr` discovery
+shape:
+
+- **`*.scyr`** (soak harnesses): user-authored long-running
+  loops + invariants. `cyrius soak` discovers `tests/scyr/*.scyr`
+  and `soak/*.scyr` in addition to the built-in self-host loop;
+  per-harness iteration count via `--iterations=N` flag (already
+  parsed for the built-in case).
+- **`*.smcyr`** (smoke harnesses): user-authored quick-validation
+  programs (a smoke test is "did this start at all"). New
+  `cyrius smoke` subcommand discovers `tests/smcyr/*.smcyr` and
+  `smoke/*.smcyr`; runs each, exits non-zero on first failure.
+
+Both inherit the same stdlib auto-prepend that `cyrius test` /
+`cyrius bench` use (and `cyrius fuzz` will, post the slot above).
+
+**Migration:** rewrite `tests/regression-capacity.sh`'s
+synthetic-source generation as a `.scyr` (cyrius emits
+`var f1 = 0; var f2 = 0; ...` via a loop, then includes the
+result). One Python invocation gone; the larger goal is no
+Python in the `check.sh` chain at all (`cyrius-port.sh`
+references python only as a future port-source language, which
+is fine to leave).
+
+**Acceptance:**
+- `cyrius soak` discovers + runs `tests/scyr/*.scyr` (creates
+  the dir if absent; skips silently when empty)
+- `cyrius smoke` is a new subcommand with the same shape
+- `tests/regression-capacity.sh` rewritten to invoke
+  `cyrius soak --filter=capacity` (or similar) instead of
+  shelling to `python3`
+- `grep -rn 'python3' scripts/ tests/` returns zero hits
+
+**Bundle decision:** likely lands as a single patch with the
+`cyrius fuzz` parity slot above — both touch the same
+`cmd_test` / `cmd_bench` / `cmd_fuzz` family in
+`cbt/commands.cyr`.
+
 ### v5.7.x — `cyrius deps` transitive resolution
 
 **Pinned 2026-04-23.** `cyrius deps` currently resolves only
