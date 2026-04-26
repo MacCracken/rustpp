@@ -4,6 +4,92 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.7] — 2026-04-26
+
+**FIXUP-CAP 1M + TOOL-ISSUE BUNDLE — fixup table 262K → 1M, lint
+UFCS Pascal-prefix exemption, `cyrius build` atomic-output.**
+
+Three tooling/cap fixes that surfaced during v5.7.6 closeout,
+landed together. RISC-V rv64 (was the v5.7.7 slot) slips to
+v5.7.8.
+
+### Changed (compiler — fixup table)
+
+- **Cap bumped 262,144 → 1,048,576 (4×).** Table size 4 MiB →
+  16 MiB. Third bump in this lineage (16K pre-v5.6.x → 32K →
+  262K at v5.7.1 → 1M here). sandhi consumers + agnostik-class
+  derive-codegen burn fixups faster than 262K allows.
+- 5 cap-check sites updated (the v5.7.1 entry's "16 sites
+  across 5 files" framing was overcounted; today's actual
+  sites are these 5):
+  - `src/backend/cx/emit.cyr` × 3 (`ECALLFIX`, `RECFIX`,
+    `ESADDR`).
+  - `src/frontend/parse_expr.cyr` × 2 (function-address fixup
+    + closure fixup) — both had a stale `>= 4096` guard whose
+    error message lied about `262144`; corrected to 1048576
+    and the message now matches.
+- **Heap reshuffle.** Brk grows +12 MB (27 MB → 39 MB without
+  TS frontend; ~52.5 MB with TS frontend on x86_64).
+  `fixup_tbl` runs from `0x170B000` to `0x270B000` (was end at
+  `0x1B0B000`). `src/main.cyr` TS-region base shifts
+  `S + 0x1B0B000` → `S + 0x270B000`. Heap maps in all five
+  `main_*.cyr` updated.
+
+### Changed (cyrius lint — UFCS Pascal-prefix exemption)
+
+- `programs/cyrlint.cyr`'s snake_case carve-out extended to
+  accept `<PascalIdent>_<lowercase_snake>` patterns. Filed by
+  agnostik 2026-04-26 (28/28 false-positive rate against the
+  `<Type>_<verb>` UFCS-style convention —
+  `ResourceLimits_to_json`, `Foo_method_v2`, `T_method`). The
+  camel detector below the carve-out still catches
+  `Foo_BadCase`, so genuine errors don't slip through.
+  agnostik 1.0.0: 28 → 0 lint warnings across the 6 named
+  files.
+
+### Fixed (cyrius build — atomic-output)
+
+- `cbt/build.cyr`'s `compile()` opened `output` with `O_TRUNC`
+  BEFORE the compile ran, so any non-zero exit (e.g., the
+  auto-prepend `TS_TOK_CAP` overflow on cyrius self-build)
+  left an empty file on disk — destroying the
+  previously-working binary. Fix: write to
+  `<output>.tmp.<pid>`; on success rename → `output`
+  (POSIX-atomic, same FS); on failure unlink the partial tmp
+  and leave `output` untouched. Verified: failed compile of
+  bad source against an existing binary now preserves the
+  binary byte-identical.
+
+### Deferred to v5.7.8
+
+- `cyrius build --no-deps` for compiler self-build. Today
+  `cyrius build src/main.cyr build/cc5` auto-prepends the 6
+  stdlib deps from `cyrius.cyml`, which exceeds the 262K JS
+  token cap. The atomic-output fix (above) closes the
+  destructive symptom; the underlying ergonomic — being able
+  to skip dep-prepend at the CLI for self-build — slips to
+  v5.7.8.
+
+### Compiler
+
+- cc5: 704,976 B → **709,544 B** (+4,568 B). 2-step bootstrap
+  fixpoint clean (heap-layout change required two-step per
+  CLAUDE.md rule):
+  - Step 1: `build/cc5` (5.7.6) compiles `src/main.cyr` →
+    `cc5_b` (5.7.7, 709,544 B).
+  - Step 2: `cc5_b` compiles `src/main.cyr` → `cc5_c`
+    (709,544 B).
+  - `cmp cc5_b cc5_c` byte-identical.
+
+### Long-term consideration
+
+This is the third bump (16K → 32K → 262K → 1M). The static-cap
+pattern is approaching its useful limit. If a fourth bump
+surfaces, the dynamic vec-shaped table from sit's original
+writeup becomes the right move. Pinned as a v5.8.x / v5.9.x
+consideration.
+
+
 ## [5.7.6] — 2026-04-26
 
 **CYRIUS-TS JSX INNER-EXPR TOKENIZATION (P4.3d) — empty

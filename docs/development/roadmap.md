@@ -1,9 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v5.7.6.** cc5 compiler (704,976 B x86_64; +7,136 B from v5.7.5's 697,840
-> — JSX inner-expr tokenization via mode-stack dispatch (modes 4/5/8),
-> parser real-expr consumption inside containers/attrs/spreads, fixed
-> LOOKAHEAD_IS_ARROW JSX terminators). Native aarch64 cc5
+> **v5.7.7.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
+> 704,976 — fixup-table cap 262K → 1M, brk +12 MB, lint UFCS Pascal-
+> prefix exemption, `cyrius build` atomic-output via tmp+rename). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
 > x86-only compaction code is dead-emitted on aarch64 builds — strip
 > via `#ifdef CYRIUS_ARCH_X86` pinned as future cleanup). x86_64 +
@@ -373,7 +372,7 @@
 > - **v5.7.5**: ✅ shipped 2026-04-26 — real JSX AST (13 structured JSX token kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY). Inner-expr tokenization deferred to v5.7.6 — empty `JSX_EXPR_CONTAINER` in this iteration. `.tsx` 428 → 429/435 (98.6%); `.ts` held at 2033/2053. Mode-stack-driven prototype reverted at end-of-cycle for clean cut. See CHANGELOG.
 > - **v5.7.6**: ✅ shipped 2026-04-26 — JSX inner-expr tokenization (P4.3d). Mode-stack-driven lex (modes 4/5/8). `.tsx` 429 → 430/435 (98.85%). 5 sticky failures remain (non-JSX TS feature gaps). See CHANGELOG.
 > - **v5.7.6-old**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
-> - **v5.7.7**: fixup-cap 1MB+ bundle (lint UFCS exemption + atomic-output `cyrius build` + fixup-table 262K → 1M). Wedged in on 2026-04-26 after the cyrius-ts polish work surfaced 3 tooling issues that needed to ship together.
+> - **v5.7.7**: ✅ shipped 2026-04-26 — fixup-cap 1MB+ bundle (lint UFCS exemption + atomic-output `cyrius build` + fixup-table 262K → 1M). Wedged in after cyrius-ts polish surfaced 3 tooling issues. cc5 704,976 → 709,544 B (+4,568 B). 2-step bootstrap fixpoint clean. See CHANGELOG.
 > - **v5.7.8**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
@@ -1108,6 +1107,79 @@ ref → fix → corpus regression → bump threshold).
 schedule pin. The 8-item list above is illustrative — TS is an
 active language and more features will land. Update this slot
 when they do.
+
+### v5.7.x — warning sweep (compiler emits + scripts/check.sh + tooling)
+
+**Pinned 2026-04-26** (surfaced during v5.7.7 closeout). cc5
+self-build emits three classes of warnings that have accumulated
+without dedicated cleanup; `scripts/check.sh` itself emits a
+shell-syntax warning at line 305-306 mid-run that's been tolerated
+because the gate it guards still PASSes. None individually warrant
+a slot; together they're a single targeted sweep.
+
+**Findings on cc5 self-build (5.7.7):**
+
+1. `warning:src/frontend/lex.cyr:227: syscall arity mismatch`
+2. `warning:src/frontend/lex.cyr:240: syscall arity mismatch`
+3. `warning:<source>:7: syscall arity mismatch` (the auto-prepend
+   `version_str.cyr`-or-similar inclusion site, surfacing whenever
+   cc5 builds itself).
+4. `note: 36 unreachable fns (22571 bytes — set CYRIUS_DCE=1 to
+   eliminate)` — the dead-code floor includes the
+   `dead: ir_dce` / `dead: ir_dead_store` / `dead: ir_dead_block_elim`
+   trio (the optimizer scaffolding shipped at v5.6.16-O3b but never
+   wired live at default), plus
+   `dead: TS_LEX_JSX_BALANCE_BRACES` / `dead: _TS_LEX_JSX_WALK`
+   from v5.7.5's pre-mode-stack JSX prototype, plus three
+   `_macho_w*` helpers + `EMITMACHO_ARM64`. The floor needs an
+   audit pass: keep the IR-pass scaffolding (paid-for foundation),
+   delete the genuinely-dead JSX/macho remainders.
+
+**Findings in `scripts/check.sh`:**
+
+5. Line 305-306 emits `command substitution: line 306: syntax
+   error: unexpected end of file from \`if' command on line 305`
+   immediately before the "Bare-truthy after fn-call" gate runs.
+   The gate still PASSes — the warning is from a malformed
+   `$( ... )` block in the test's setup that bash silently recovers
+   from. Belongs in the same sweep so the audit reads clean.
+
+**Findings across tooling:**
+
+6. Pass over `cbt/`, `programs/`, `bootstrap/` for shell-script
+   warnings (any `sh -n`-clean check first; then a `shellcheck`-
+   style read where available without bringing in a foreign tool).
+7. Pass over `cyrius lint` / `cyrius vet` / `cyrius fmt` warnings
+   on the stdlib + `programs/`. The current 7 dep-files-skipped
+   note from check.sh is informational; check that the skips are
+   still wanted and not swallowing real findings.
+
+**Fix scope:**
+
+- Investigate and resolve each `syscall arity mismatch` —
+  3 sites in lex.cyr + 1 source-time site. Either fix the
+  arity (most likely root cause: a syscall fn declared with
+  N args being called with N+1 / N-1 in those specific lines)
+  or document the deliberate variadic-style call pattern with
+  a `# noqa`-style suppression if one exists.
+- Audit the 36-dead-fn floor; remove genuine corpses, leave
+  paid-for scaffolding with a one-line comment pointing at the
+  slot that earned it.
+- Repair `scripts/check.sh` line 305-306 syntax.
+- Sweep one tier outward (`cbt/`, `programs/`, `bootstrap/`).
+
+**Acceptance gates:**
+
+1. `cc5 < src/main.cyr > /tmp/cc5_b 2>/tmp/err; wc -l /tmp/err`
+   — emits ZERO `warning:` lines.
+2. `note: N unreachable fns` floor reduced to a documented
+   minimum (target ≤ 20 from current 36).
+3. `sh scripts/check.sh 2>&1 | grep -c "syntax error"` returns 0.
+4. Full check.sh still 29/29 PASS post-sweep.
+
+**Slot relationship:** standalone slot. Don't bundle with
+feature work — warning sweeps tend to spread without a dedicated
+boundary.
 
 ### v5.7.x — `cyrius fuzz` stdlib auto-prepend parity
 
