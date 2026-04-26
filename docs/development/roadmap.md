@@ -955,6 +955,94 @@ from each `fuzz/*.fcyr` harness; `cyrius fuzz` still passes all
 slot below — both are "test-runner shape" cleanups in the same
 file.
 
+### v5.7.x — string-literal escape sequences (`\x##`, `\u####`, full set)
+
+**Pinned 2026-04-26** (cyim-surfaced; cyim v1.1.x uses
+`"\x1b[?1049h"` and family for ANSI/VT escape sequences in
+`lib/tty.cyr`-equivalent code, with hardcoded byte-length
+arguments to `syscall(write)` that assume the lex decodes
+`\x1b` → byte `0x1b`). Cyrius's lex today appears to **strip
+the leading `\` but emit the next character verbatim**, so
+`"\x1b[?1049h"` becomes the 10-byte string `x1b[?1049h`; the
+syscall's hardcoded length (`8`) then truncates to `x1b[?104`,
+which the terminal renders as literal text instead of executing
+the alt-screen-enter command. cyim is currently **unusable
+interactively** because of this — agent-drive (`--write` /
+`--replace[-all]` / `--grep`) works (no escape sequences in
+that path), but the TTY editor surface is a stream of literal
+`\x1b[…` characters on screen.
+
+This is a **language-side bug** per the "compiler grows to fit
+the language, never the other way around" rule
+(`feedback_grow_compiler_to_fit_language.md`). The right fix
+is to grow the lex's escape-sequence set; the wrong fix is to
+rewrite cyim's `tty.cyr` to build escape sequences via
+`store8(&buf, 0x1b)` byte-at-a-time (which is what
+`tty.cyr:196` already does as a workaround pattern, but
+shouldn't have to).
+
+**Audit first** — the v1.1.0 cyim surface assumes `\x##` works
+silently; we don't actually know what cyrius lex *does* support
+today vs what the user-facing reference doc claims. Likely
+already supported: `\n`, `\t`, `\r`, `\\`, `\"`, `\0`. Likely
+missing: `\x##`, `\u####`, `\u{…}`, possibly `\a` `\b` `\f`
+`\v`. The audit determines exact scope.
+
+**Fix scope** (size depends on audit; conservative estimate):
+
+- `src/frontend/lex.cyr` (and the TS variant
+  `src/frontend/ts/lex.cyr` if independently authored) string-
+  literal scanner: extend the `\` branch to recognize:
+  - `\x` followed by exactly two hex digits (case-insensitive
+    `[0-9a-fA-F]{2}`) → emit one byte (the parsed value).
+    Reject `\xZ` / `\x1` / `\x1Q` etc. with a lex error
+    pointing at the bad nibble.
+  - `\u` followed by exactly four hex digits → emit the UTF-8
+    encoding of the codepoint (1-4 bytes). Codepoints in the
+    surrogate range `D800-DFFF` are a lex error.
+  - `\u{…}` form for codepoints > U+FFFF (1-6 hex digits inside
+    the braces; `\u{0}` valid; max `\u{10FFFF}`).
+  - Audit-time addition: `\a` (0x07), `\b` (0x08), `\f` (0x0C),
+    `\v` (0x0B) if missing.
+- Update the cyrius user-facing docs (`docs/cyrius-guide.md`
+  string-literals section) with the full table.
+- Update `vidya/content/cyrius/language.toml` per CLAUDE.md
+  closeout-pass step 11 (vidya falls out of sync silently).
+
+**Acceptance gates:**
+
+1. New `tests/tcyr/string_escapes.tcyr` covers each new escape
+   form, including reject-cases (`\x` followed by non-hex,
+   `\u` followed by < 4 hex digits, surrogate codepoints).
+2. cc5 self-host fixpoint clean (cc5's own source has zero
+   `\x##` today; the bump is invisible to cc5 itself).
+3. cyim v1.1.1 (or whichever version is current when the bump
+   ships) toolchain-pin bumped in `cyrius.cyml`; cyim rebuilt;
+   the alt-screen / cursor / clear sequences in `src/tty.cyr`
+   reach the terminal as actual ESC `[…` byte sequences;
+   interactive `cyim <file>` round-trips without literal-text
+   garbage.
+4. CHANGELOG enumerates the new escape forms + the cyim
+   unblock; `feedback_grow_compiler_to_fit_language.md` cited
+   in the slot's project-memory entry as the framing
+   precedent.
+
+**Out of scope for this slot:** raw-string literals
+(`r"…"` / `r#"…"#`); template/format strings beyond what
+the lex already does; locale-dependent `\N{…}` Unicode names.
+Each of those is its own slot if they're ever wanted.
+
+**Pre-fix cyim workaround** (so cyim can ship interactively
+*before* this lands, if needed): rewrite the six functions in
+`cyim/src/tty.cyr:163-168` to build their escape sequences
+into a heap buffer via repeated `store8` (mirroring the
+existing pattern at `tty.cyr:196`), then `syscall(write)` the
+buffer. ~30 LOC; ugly, but unblocks the editor surface. cyim
+slot if the cyrius bump slips: `tty_alt_enter` /
+`tty_alt_leave` / `tty_clear` / `tty_cursor_hide` /
+`tty_cursor_show` / `tty_cursor_home` rewritten as
+byte-builders.
+
 ### v5.7.x — `.scyr` (soak) + `.smcyr` (smoke) file types
 
 **Pinned 2026-04-25.** Today, soak and smoke testing are scattered:

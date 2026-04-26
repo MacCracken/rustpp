@@ -18,7 +18,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="$ROOT/build/cc5"
 SY="/home/macro/Repos/secureyeoman"
-THRESHOLD=2030
+THRESHOLD=2053
 
 if [ ! -x "$CC" ]; then
     echo "skip: $CC not present"

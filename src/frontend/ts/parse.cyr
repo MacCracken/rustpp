@@ -1596,14 +1596,15 @@ fn TS_LOOKAHEAD_IS_ARROW(ts_base) {
         while (j < max_scan) {
             var jt = TS_PEEKT(ts_base, j);
             if (jt == TS_TOK_EOF)     { return 0; }
-            if (jt == TS_TOK_LPAREN || jt == TS_TOK_LBRACKET || jt == TS_TOK_LT) {
+            if (jt == TS_TOK_LPAREN || jt == TS_TOK_LBRACKET
+                || jt == TS_TOK_LT || jt == TS_TOK_LBRACE) {
                 depth2 = depth2 + 1;
-            } elif (jt == TS_TOK_RPAREN || jt == TS_TOK_RBRACKET || jt == TS_TOK_GT) {
+            } elif (jt == TS_TOK_RPAREN || jt == TS_TOK_RBRACKET
+                    || jt == TS_TOK_GT || jt == TS_TOK_RBRACE) {
                 depth2 = depth2 - 1;
                 if (depth2 < 0) { return 0; }
             } elif (depth2 == 0) {
                 if (jt == TS_TOK_ARROW)        { return 1; }
-                if (jt == TS_TOK_LBRACE)       { return 0; }
                 if (jt == TS_TOK_SEMI)         { return 0; }
                 if (jt == TS_TOK_COMMA)        { return 0; }
                 # JSX tokens that close out an expression context — if
@@ -1983,6 +1984,29 @@ fn TS_PARSE_TYPE_TUPLE(ts_base) {
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
                 TS_PARSE_CONSUME(ts_base);
             }
+            # Labeled tuple element (TS 4.0+): `[name: T]`,
+            # `[name?: T]`, `[...rest: T[]]`. Sniff
+            # IDENT + (COLON | QUESTION + COLON) and consume the
+            # label silently — labels are IDE/typechecker info,
+            # invisible to parse-acceptance semantics.
+            var lt_t = TS_PARSE_PEEK(ts_base);
+            if (TS_IS_NAME_TOK(lt_t) == 1) {
+                var lt_a1 = TS_PARSE_PEEK_AHEAD(ts_base, 1);
+                var lt_consume = 0;
+                if (lt_a1 == TS_TOK_COLON) { lt_consume = 1; }
+                if (lt_a1 == TS_TOK_QUESTION) {
+                    if (TS_PARSE_PEEK_AHEAD(ts_base, 2) == TS_TOK_COLON) {
+                        lt_consume = 1;
+                    }
+                }
+                if (lt_consume == 1) {
+                    TS_PARSE_CONSUME(ts_base);   # label name
+                    if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+                        TS_PARSE_CONSUME(ts_base);   # `?`
+                    }
+                    TS_PARSE_CONSUME(ts_base);   # `:`
+                }
+            }
             var el = TS_PARSE_TYPE(ts_base);
             if (el < 0) { return 0 - 1; }
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
@@ -2073,6 +2097,44 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
         if (nl < 0) { return 0 - 1; }
         TS_AST_SET_PAYLOAD(ts_base, nl, 0, v);
         return nl;
+    }
+    # Template literal types (TS 4.1+): `static`, `prefix:${string}`,
+    # `${A}-${B}`. Lexed as TOK_TEMPLATE_NOSUB (no interps) or as a
+    # HEAD / MID* / TAIL chain (with type expressions inside `${...}`).
+    # Parse-side accepts the chain; AST collapses to a single
+    # TYPE_LITERAL node — full structured AST is the typechecker
+    # boundary (a future slot if it ever matters).
+    if (t == TS_TOK_TEMPLATE_NOSUB) {
+        TS_PARSE_CONSUME(ts_base);
+        var ntn = TS_AST_PUSH(ts_base, TS_AST_TYPE_LITERAL, v);
+        if (ntn < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, ntn, 0, v);
+        return ntn;
+    }
+    if (t == TS_TOK_TEMPLATE_HEAD) {
+        var ntpl = TS_AST_PUSH(ts_base, TS_AST_TYPE_LITERAL, v);
+        if (ntpl < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, ntpl, 0, v);
+        TS_PARSE_CONSUME(ts_base);
+        var tpl_done = 0;
+        while (tpl_done == 0) {
+            var tpl_inner = TS_PARSE_TYPE(ts_base);
+            if (tpl_inner < 0) { return 0 - 1; }
+            var tpl_t = TS_PARSE_PEEK(ts_base);
+            if (tpl_t == TS_TOK_TEMPLATE_TAIL) {
+                TS_PARSE_CONSUME(ts_base);
+                tpl_done = 1;
+            } else {
+                if (tpl_t != TS_TOK_TEMPLATE_MID) {
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 9);
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                            load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+                    return 0 - 1;
+                }
+                TS_PARSE_CONSUME(ts_base);
+            }
+        }
+        return ntpl;
     }
     # `infer T` — used inside conditional types (the extends-? branch).
     # We accept it broadly here; the typechecker enforces context.
@@ -2169,6 +2231,39 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
         var nt = TS_AST_PUSH(ts_base, TS_AST_TYPE_TYPEOF, name_v);
         if (nt < 0) { return 0 - 1; }
         TS_AST_SET_PAYLOAD(ts_base, nt, 0, name_v);
+        # TS 4.7+ Instantiation Expressions in type position:
+        # `typeof X<TypeArgs>` and `typeof X.Y<A, B>`. Parse the
+        # optional type-args clause exactly like TS_PARSE_TYPE_REF.
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LT) {
+            TS_PARSE_CONSUME(ts_base);
+            var to_args = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+            if (to_args < 0) { return 0 - 1; }
+            var to_ai = 0;
+            var to_first = 1;
+            var to_done = 0;
+            while (to_done == 0) {
+                var to_pt = TS_PARSE_PEEK(ts_base);
+                if (to_pt == TS_TOK_GT || to_pt == TS_TOK_GT_GT
+                    || to_pt == TS_TOK_GT_GT_GT
+                    || to_pt == TS_TOK_GT_EQ || to_pt == TS_TOK_GT_GT_EQ
+                    || to_pt == TS_TOK_GT_GT_GT_EQ) {
+                    to_done = 1;
+                } else {
+                    if (to_first == 0) {
+                        if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
+                    }
+                    to_first = 0;
+                    var to_arg = TS_PARSE_TYPE(ts_base);
+                    if (to_arg < 0) { return 0 - 1; }
+                    TS_AST_CHILDREN_SET(ts_base, to_args + to_ai, to_arg);
+                    to_ai = to_ai + 1;
+                }
+            }
+            TS_AST_CHILDREN_SET(ts_base, to_args + to_ai, 0 - 1);
+            TS_AST_CHILDREN_COMMIT(ts_base, to_ai + 1);
+            TS_AST_SET_PAYLOAD(ts_base, nt, 1, to_args);
+            if (TS_PARSE_EXPECT_TYPE_GT(ts_base) < 0) { return 0 - 1; }
+        }
         return nt;
     }
     if (t == TS_TOK_KW_READONLY) {
@@ -2179,6 +2274,17 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
     # consuming `new` (TYPE_FN handles the LPAREN onwards).
     if (t == TS_TOK_KW_NEW) {
         TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_TYPE_FN(ts_base);
+    }
+    # Generic function/method type: `<T, U>(params) => Ret`. Used as a
+    # type-position member (`{ post: <T>(...): T }`) and as a top-level
+    # type. Parse type params (idempotent — TS_PARSE_TYPE_PARAMS no-ops
+    # when no `<` follows) then dispatch to TYPE_FN, which expects the
+    # `(` at the next token. Type-param info is consumed for syntax
+    # acceptance only; the typechecker re-parses from the source span.
+    if (t == TS_TOK_LT) {
+        var tfp = TS_PARSE_TYPE_PARAMS(ts_base);
+        if (tfp < 0) { return 0 - 1; }
         return TS_PARSE_TYPE_FN(ts_base);
     }
     if (t == TS_TOK_LBRACE) {
@@ -2434,6 +2540,40 @@ fn TS_PARSE_BINDING_PATTERN(ts_base) {
                     if (rest < 0) { return 0 - 1; }
                     TS_AST_SET_PAYLOAD(ts_base, rest, 0, rname);
                     TS_AST_CHILDREN_SET(ts_base, off + i, rest);
+                } elif (pt == TS_TOK_LBRACKET) {
+                    # Computed property name: { [expr]: target }. The
+                    # binding target after the COLON is required (no
+                    # shorthand here — the computed key has no name to
+                    # bind by default).
+                    TS_PARSE_CONSUME(ts_base);
+                    var ck = TS_PARSE_EXPR(ts_base);
+                    if (ck < 0) { return 0 - 1; }
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+                    var ck_pat = TS_PARSE_BINDING_PATTERN(ts_base);
+                    if (ck_pat < 0) { return 0 - 1; }
+                    if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
+                        TS_PARSE_CONSUME(ts_base);
+                        var ck_def = TS_PARSE_ASSIGN(ts_base);
+                        if (ck_def < 0) { return 0 - 1; }
+                        TS_AST_SET_PAYLOAD(ts_base, ck_pat, 2, ck_def);
+                    }
+                    TS_AST_CHILDREN_SET(ts_base, off + i, ck_pat);
+                } elif (pt == TS_TOK_STRING || pt == TS_TOK_INT) {
+                    # String/numeric-keyed property in destructure:
+                    # `{ "literal": x }` / `{ 1: x }`. Binding target
+                    # required after the COLON.
+                    TS_PARSE_CONSUME(ts_base);
+                    if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+                    var sk_pat = TS_PARSE_BINDING_PATTERN(ts_base);
+                    if (sk_pat < 0) { return 0 - 1; }
+                    if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
+                        TS_PARSE_CONSUME(ts_base);
+                        var sk_def = TS_PARSE_ASSIGN(ts_base);
+                        if (sk_def < 0) { return 0 - 1; }
+                        TS_AST_SET_PAYLOAD(ts_base, sk_pat, 2, sk_def);
+                    }
+                    TS_AST_CHILDREN_SET(ts_base, off + i, sk_pat);
                 } else {
                     var name_v = TS_PARSE_TOK_VAL(ts_base);
                     var nt = TS_PARSE_PEEK(ts_base);
@@ -2516,6 +2656,16 @@ fn TS_PARSE_BINDING_PATTERN(ts_base) {
                     # Allow nested patterns
                     var inner = TS_PARSE_BINDING_PATTERN(ts_base);
                     if (inner < 0) { return 0 - 1; }
+                    # Element-level default: [a = 0, b = 1]. The
+                    # outer `= ...` (param-level / decl-level) is
+                    # consumed one frame up, so this only fires at
+                    # element granularity.
+                    if (TS_PARSE_PEEK(ts_base) == TS_TOK_EQ) {
+                        TS_PARSE_CONSUME(ts_base);
+                        var apdv = TS_PARSE_ASSIGN(ts_base);
+                        if (apdv < 0) { return 0 - 1; }
+                        TS_AST_SET_PAYLOAD(ts_base, inner, 2, apdv);
+                    }
                     TS_AST_CHILDREN_SET(ts_base, off2 + i2, inner);
                     i2 = i2 + 1;
                     if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done2 = 1; }
@@ -2550,6 +2700,14 @@ fn TS_PARSE_VAR_BINDING(ts_base) {
     var n = TS_AST_PUSH(ts_base, TS_AST_DECL_VAR_BINDING, 0);
     if (n < 0) { return 0 - 1; }
     TS_AST_SET_PAYLOAD(ts_base, n, 0, pat);
+    # TS 2.7+ definite-assignment assertion: `let x!: T;`. Consumed
+    # silently — no AST distinction; the type-checker (not us) enforces
+    # "must have a type annotation" (TS1264). Class properties + class
+    # member parse paths handle `!` already; this closes the var/let/
+    # const declarator gap.
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_BANG) {
+        TS_PARSE_CONSUME(ts_base);
+    }
     if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
         TS_PARSE_CONSUME(ts_base);
         var vb_t = TS_PARSE_TYPE(ts_base);
@@ -3217,16 +3375,44 @@ fn TS_PARSE_SKIP_MODIFIERS(ts_base) {
     var done = 0;
     while (done == 0) {
         var t = TS_PARSE_PEEK(ts_base);
-        if (t == TS_TOK_KW_PUBLIC) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_PRIVATE) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_PROTECTED) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_STATIC) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_READONLY) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_ABSTRACT) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_ASYNC) { TS_PARSE_CONSUME(ts_base); store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1); }
-        elif (t == TS_TOK_KW_OVERRIDE) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_DECLARE) { TS_PARSE_CONSUME(ts_base); }
-        else { done = 1; }
+        var is_mod = 0;
+        if (t == TS_TOK_KW_PUBLIC)    { is_mod = 1; }
+        if (t == TS_TOK_KW_PRIVATE)   { is_mod = 1; }
+        if (t == TS_TOK_KW_PROTECTED) { is_mod = 1; }
+        if (t == TS_TOK_KW_STATIC)    { is_mod = 1; }
+        if (t == TS_TOK_KW_READONLY)  { is_mod = 1; }
+        if (t == TS_TOK_KW_ABSTRACT)  { is_mod = 1; }
+        if (t == TS_TOK_KW_ASYNC)     { is_mod = 1; }
+        if (t == TS_TOK_KW_OVERRIDE)  { is_mod = 1; }
+        if (t == TS_TOK_KW_DECLARE)   { is_mod = 1; }
+        if (is_mod == 0) {
+            done = 1;
+        } else {
+            # Modifier-or-name disambiguation: a modifier is consumed
+            # only when followed by something that begins a name or
+            # pattern (another modifier / IDENT / contextual kw / `[` /
+            # `{` / `*` / `...` / string- or numeric-keyed prop). If
+            # the next token is not name-eligible, the current keyword
+            # IS the actual name (e.g. `function f(override?: T)` —
+            # `override` is the param name, not a modifier of one).
+            var next = TS_PARSE_PEEK_AHEAD(ts_base, 1);
+            var next_ok = 0;
+            if (TS_IS_NAME_TOK(next) == 1) { next_ok = 1; }
+            if (next == TS_TOK_LBRACE)    { next_ok = 1; }
+            if (next == TS_TOK_LBRACKET)  { next_ok = 1; }
+            if (next == TS_TOK_STAR)      { next_ok = 1; }
+            if (next == TS_TOK_ELLIPSIS)  { next_ok = 1; }
+            if (next == TS_TOK_STRING)    { next_ok = 1; }
+            if (next == TS_TOK_INT)       { next_ok = 1; }
+            if (next_ok == 0) {
+                done = 1;
+            } else {
+                TS_PARSE_CONSUME(ts_base);
+                if (t == TS_TOK_KW_ASYNC) {
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
+                }
+            }
+        }
     }
     return 0;
 }
@@ -4122,6 +4308,18 @@ fn TS_PARSE_STMT(ts_base) {
         # Empty statement
         TS_PARSE_CONSUME(ts_base);
         return TS_PARSE_STMT(ts_base);
+    }
+    # Labeled statement: `label: stmt`. The colon at statement position
+    # is unambiguous here — the only stmt that starts `IDENT :` IS a
+    # label (object literals at stmt position would parse as BLOCK
+    # because they start with `{`). break/continue with label already
+    # accept an optional IDENT after the keyword.
+    if (TS_IS_NAME_TOK(t) == 1) {
+        if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_COLON) {
+            TS_PARSE_CONSUME(ts_base);   # label name
+            TS_PARSE_CONSUME(ts_base);   # `:`
+            return TS_PARSE_STMT(ts_base);
+        }
     }
     return TS_PARSE_EXPR_STMT(ts_base);
 }
