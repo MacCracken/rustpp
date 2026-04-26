@@ -192,11 +192,11 @@ assert_tok(10, TS_TOK_PIPE,    "|");
 assert_tok(11, TS_TOK_CARET,   "^");
 assert_tok(12, TS_TOK_TILDE,   "~");
 
-n = test_lex("@ # `");
-assert_eq(n, 4, "@/#/`");
+n = test_lex("@ # ``");
+assert_eq(n, 4, "@/#/empty-template");
 assert_tok(0, TS_TOK_AT,       "@");
 assert_tok(1, TS_TOK_HASH,     "#");
-assert_tok(2, TS_TOK_BACKTICK, "`");
+assert_tok(2, TS_TOK_TEMPLATE_NOSUB, "`` -> NOSUB (P1.4 backtick semantics)");
 
 # ─── line tracking ───────────────────────────────────────────────
 test_group("line tracking");

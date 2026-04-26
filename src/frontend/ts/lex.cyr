@@ -572,6 +572,131 @@ fn TS_EMIT_STRING(ts_base, src, src_len, start, quote) {
 }
 
 # ================================================================
+# Template-literal state stack (P1.4)
+# ================================================================
+# JS/TS template literals interpolate `${...}` blocks of normal
+# expressions inside backtick-delimited strings. Lexing requires a
+# state stack because templates can nest:
+#
+#   `outer ${ `inner ${x}` } done`
+#
+# Stack slot encoding (i64 each):
+#   0 = template body, no `${` seen yet (next emit is HEAD/NOSUB)
+#   1 = template body, after a previous `${`/`}` pair (next emit
+#       is MID/TAIL)
+#   2 = interpolation expression (inside `${...}`, lex normally
+#       until matching `}` pops back to parent template slot)
+#
+# Stack pointer lives in TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH.
+# Stack region: TS_TEMPLATE_STACK_OFF, 8 KB / 8 B = 1024 max
+# template-nesting depth (more than realistic).
+
+fn TS_TEMPLATE_DEPTH(ts_base) {
+    return load64(ts_base + TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH);
+}
+
+# Returns the value at the top of the template stack, or -1 if empty.
+fn TS_TEMPLATE_TOP(ts_base) {
+    var d = TS_TEMPLATE_DEPTH(ts_base);
+    if (d <= 0) { return 0 - 1; }
+    return load64(ts_base + TS_TEMPLATE_STACK_OFF + (d - 1) * 8);
+}
+
+# Push a new slot onto the template stack with the given initial value.
+fn TS_TEMPLATE_PUSH(ts_base, val) {
+    var d = TS_TEMPLATE_DEPTH(ts_base);
+    store64(ts_base + TS_TEMPLATE_STACK_OFF + d * 8, val);
+    store64(ts_base + TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH, d + 1);
+    return 0;
+}
+
+# Pop the top slot off the template stack.
+fn TS_TEMPLATE_POP(ts_base) {
+    var d = TS_TEMPLATE_DEPTH(ts_base);
+    if (d > 0) {
+        store64(ts_base + TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH, d - 1);
+    }
+    return 0;
+}
+
+# Mutate the top stack slot's value (used to flip 0 -> 1 when the
+# first `${` is encountered, so subsequent template chunks emit MID
+# instead of HEAD).
+fn TS_TEMPLATE_SET_TOP(ts_base, val) {
+    var d = TS_TEMPLATE_DEPTH(ts_base);
+    if (d <= 0) { return 0; }
+    store64(ts_base + TS_TEMPLATE_STACK_OFF + (d - 1) * 8, val);
+    return 0;
+}
+
+# Scan a template body chunk. Caller has already consumed the
+# opening `, OR is resuming after a `}` that closed an interpolation.
+# Top-of-stack value distinguishes first chunk (0) from subsequent (1).
+#
+# Emits exactly one of:
+#   TS_TOK_TEMPLATE_NOSUB  — full template, no `${` ever seen (top=0,
+#                            scan ended at closing `)
+#   TS_TOK_TEMPLATE_HEAD   — first chunk, ended at `${` (top=0)
+#   TS_TOK_TEMPLATE_MID    — middle chunk, ended at `${` (top=1)
+#   TS_TOK_TEMPLATE_TAIL   — last chunk, ended at closing ` (top=1)
+#
+# Returns: new p position (past the `${` or `), or -1 on unterminated.
+# Value field encodes (content_start << 24) | content_len for the
+# raw chunk bytes (excluding backticks and `${`). Escape decoding
+# defers to typecheck/lower (same convention as TS_EMIT_STRING).
+fn TS_LEX_TEMPLATE_BODY(ts_base, src, src_len, p) {
+    var content_start = p;
+    var top = TS_TEMPLATE_TOP(ts_base);
+    var done = 0;
+    while (done == 0) {
+        if (p >= src_len) {
+            TS_SETERR(ts_base, 8);              # unterminated template
+            return 0 - 1;
+        }
+        var c = load8(src + p);
+        if (c == 92) {                          # \ escape — skip 2 bytes
+            if (p + 1 >= src_len) {
+                TS_SETERR(ts_base, 7);          # truncated escape
+                return 0 - 1;
+            }
+            p = p + 2;
+        } elif (c == 36) {                      # $ — check for ${
+            if (p + 1 < src_len) {
+                if (load8(src + p + 1) == 123) {
+                    var hd_len = p - content_start;
+                    var hd_val = (content_start * 16777216) + hd_len;
+                    if (top == 0) {
+                        TS_ADDTOK(ts_base, TS_TOK_TEMPLATE_HEAD, hd_val);
+                    } else {
+                        TS_ADDTOK(ts_base, TS_TOK_TEMPLATE_MID, hd_val);
+                    }
+                    TS_TEMPLATE_SET_TOP(ts_base, 1);
+                    TS_TEMPLATE_PUSH(ts_base, 2);
+                    return p + 2;               # past ${
+                }
+            }
+            p = p + 1;
+        } elif (c == 96) {                      # ` — close template
+            var tl_len = p - content_start;
+            var tl_val = (content_start * 16777216) + tl_len;
+            if (top == 0) {
+                TS_ADDTOK(ts_base, TS_TOK_TEMPLATE_NOSUB, tl_val);
+            } else {
+                TS_ADDTOK(ts_base, TS_TOK_TEMPLATE_TAIL, tl_val);
+            }
+            TS_TEMPLATE_POP(ts_base);
+            return p + 1;                       # past `
+        } elif (c == 10) {                      # newline — track for line counter
+            TS_INCLINE(ts_base);
+            p = p + 1;
+        } else {
+            p = p + 1;
+        }
+    }
+    return p;
+}
+
+# ================================================================
 # Multi-char operator dispatch (P1.3)
 # ================================================================
 # One helper per starting char that has multi-char extensions.
@@ -884,6 +1009,19 @@ fn TS_LEX(ts_base, src, src_len) {
 
     var p = 0;
     while (p < src_len) {
+        # ─── Template body mode (P1.4) ─────────────────────────────
+        # If the template stack has a 0/1 (template-body) slot at
+        # top, the next chunk to lex is template content (between
+        # backticks or after a `}`-closed interpolation), not
+        # normal expression tokens. Dispatch to TS_LEX_TEMPLATE_BODY
+        # which scans for `${` (-> emit HEAD/MID, push interp slot)
+        # or `\`` (-> emit NOSUB/TAIL, pop template slot).
+        var t_top_at_loop = TS_TEMPLATE_TOP(ts_base);
+        if (t_top_at_loop == 0 || t_top_at_loop == 1) {
+            var t_new_p = TS_LEX_TEMPLATE_BODY(ts_base, src, src_len, p);
+            if (t_new_p < 0) { return 0 - 1; }
+            p = t_new_p;
+        } else {
         var c = load8(src + p);
 
         # ─── Whitespace ───────────────────────────────────────────
@@ -930,7 +1068,19 @@ fn TS_LEX(ts_base, src, src_len) {
         elif (c == 40)  { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
         elif (c == 41)  { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
         elif (c == 123) { TS_ADDTOK(ts_base, TS_TOK_LBRACE,   0); p = p + 1; }
-        elif (c == 125) { TS_ADDTOK(ts_base, TS_TOK_RBRACE,   0); p = p + 1; }
+        # Right brace — usually a normal RBRACE, BUT if we're inside
+        # a template interpolation (top of template stack == 2), this
+        # `}` closes the interp; pop and let the next loop iteration's
+        # template-body dispatch resume scanning.
+        elif (c == 125) {
+            if (TS_TEMPLATE_TOP(ts_base) == 2) {
+                TS_TEMPLATE_POP(ts_base);
+                p = p + 1;
+            } else {
+                TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
+                p = p + 1;
+            }
+        }
         elif (c == 91)  { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
         elif (c == 93)  { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
         elif (c == 59)  { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
@@ -939,7 +1089,10 @@ fn TS_LEX(ts_base, src, src_len) {
         elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,    0); p = p + 1; }
         elif (c == 64)  { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
         elif (c == 35)  { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
-        elif (c == 96)  { TS_ADDTOK(ts_base, TS_TOK_BACKTICK, 0); p = p + 1; }
+        # Backtick — start a new template body. Push 0 onto template
+        # stack; next loop iteration's TS_LEX_TEMPLATE_BODY dispatch
+        # scans the body and emits NOSUB/HEAD as appropriate.
+        elif (c == 96)  { TS_TEMPLATE_PUSH(ts_base, 0); p = p + 1; }
         # Multi-char-extensible: dispatch through helpers
         elif (c == 33)  { var bp = TS_LEX_OP_BANG    (ts_base, src, src_len, p); if (bp < 0) { return 0 - 1; } p = bp; }
         elif (c == 37)  { var pp = TS_LEX_OP_PERCENT (ts_base, src, src_len, p); if (pp < 0) { return 0 - 1; } p = pp; }
@@ -961,6 +1114,15 @@ fn TS_LEX(ts_base, src, src_len) {
             TS_SETERR(ts_base, 1);
             return 0 - 1;
         }
+        }   # close template-mode-else
+    }
+
+    # If we exit the loop with a non-empty template stack, the source
+    # ended mid-template (either inside a backtick chunk OR inside an
+    # interpolation expression). Report as lex error.
+    if (TS_TEMPLATE_DEPTH(ts_base) > 0) {
+        TS_SETERR(ts_base, 9);              # unterminated template
+        return 0 - 1;
     }
 
     # Emit EOF terminator
