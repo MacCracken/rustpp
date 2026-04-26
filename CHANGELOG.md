@@ -4,6 +4,102 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.9] — 2026-04-26
+
+**SILENT FN-NAME COLLISION INVESTIGATION.** cc5 now warns
+when two `fn` definitions share a name within a compilation
+unit; the first surfaced ecosystem collision (`json_build`)
+is resolved at the source via patra rename. Lifted from
+v5.7.10 → v5.7.9 on 2026-04-26 because the v5.7.10 input_buf
+reshuffle audit showed it is a ~1586-edit heap shuffle that
+deserves its own slot. v5.7.10 (input_buf 1MB, hisab-blocking)
+follows.
+
+### Added (cc5 — duplicate-fn warning)
+
+- **`warning: <file>:<line>: duplicate fn '<name>' (last
+  definition wins)`** at `src/frontend/parse_fn.cyr:601`. Fires
+  when fn-name registration finds an existing slot whose body
+  offset is already non-`-1` — i.e., this is a re-definition
+  of an already-defined fn. Forward declarations (call site
+  registers a slot with offset `-1` before the body lands)
+  leave the offset at `-1`, so they do NOT trigger the warn.
+  Pre-v5.7.9 this case was completely silent: last-include
+  wins, the build appears to succeed, calls to the losing
+  arity miscompile.
+
+### Resolved (stdlib audit + first concrete collision)
+
+- **`docs/audit/2026-04-26-stdlib-fn-collisions.md`** committed.
+  66 names appear with count > 1 in `lib/*.cyr` post-`cyrius
+  deps`; **only `json_build` is genuine cross-module** (rest
+  are arch-conditional, only one variant active per build via
+  `#ifdef`). Resolution rule: option (b) warn + last-wins;
+  arity-aware overload resolution is a separate language
+  addition.
+- **`json_build` collision resolved at source.** patra
+  renamed `fn json_build(buf, max, keys, vals, types, n)` →
+  `fn patra_json_build(...)` in v1.9.0; matches the `patra_*`
+  namespace prefix used elsewhere in patra. cyrius
+  `cyrius.cyml` `[deps.patra]` tag bumped 1.8.3 → 1.9.0.
+  `lib/json.cyr::json_build/1` (the general pairs-vec utility)
+  is now the unambiguous winner.
+
+### Fixed (cc5 — internal collision surfaced by the warning)
+
+- **`src/backend/x86/emit.cyr`: `fn EADDIMM_X1`** had two
+  definitions: an imm8-form (4-byte encoding `48 83 C1 NN`)
+  at line ~177 and an imm32-form (7-byte `48 81 C1 NN NN NN
+  NN`) further down the file. The imm32-form had been winning
+  silently for an unknown number of versions; cc5 self-builds
+  clean because imm32 handles all the small-immediate values
+  the 5 call sites pass (just emits 3 extra bytes per call).
+  Removed the dead imm8-form. Zero behavior change at the call
+  sites; cc5 size unchanged at 709,776 B in the final build.
+
+### Added (regression test)
+
+- `tests/regression-fn-collision.sh` covers three cases:
+  same-arity duplicate (warn fires), different-arity duplicate
+  (warn fires), forward-decl + later body (warn does NOT
+  fire — false-positive guard for legitimate mutual
+  recursion). Wired into `scripts/check.sh` as gate **4s**;
+  check.sh **30/30 PASS**.
+
+### Compiler size
+
+- cc5 v5.7.8 (709,688 B) → v5.7.9 (709,776 B) — **+88 B** net
+  (warn emit code +312 B; dead `EADDIMM_X1` imm8-form removal
+  −224 B).
+
+### Acceptance gates verified
+
+- 3-step fixpoint: `cc5_a == cc5_b` byte-identical at 709,776 B. ✅
+- `scripts/check.sh`: 30/30 PASS. ✅
+- cc5 self-build emits zero `warning: ...` lines. ✅
+- New regression: 3/3 cases pass; warn fires only on
+  re-definitions, not forward decls. ✅
+- `lib/patra.cyr` symlink resolves to
+  `~/.cyrius/deps/patra/1.9.0/dist/patra.cyr`; the renamed
+  `patra_json_build` is in the dist. ✅
+
+### Patra side (cross-repo, minor bump)
+
+- `~/Repos/patra/VERSION`: 1.8.3 → 1.9.0 (BREAKING — fn rename).
+- `~/Repos/patra/CHANGELOG.md`: 1.9.0 entry covering the
+  rename + migration note for downstream consumers.
+- `~/Repos/patra/src/jsonl.cyr`: `fn json_build` → `fn
+  patra_json_build`; doc comments updated.
+- `~/Repos/patra/tests/tcyr/patra.tcyr`: test caller updated.
+- `~/Repos/patra/dist/patra.cyr`: regenerated via `cyrius
+  distlib` (4785 lines, v1.9.0).
+
+The patra repo edits are uncommitted — git ops are the user's
+call. The cyrius dep pin will not pick up the new patra until
+it is committed, tagged `1.9.0`, and the `~/.cyrius/deps/patra/1.9.0/`
+mirror updated. Local verification used a hand-mirrored
+`~/.cyrius/deps/patra/1.9.0/` to test the integration.
+
 ## [5.7.8] — 2026-04-26
 
 **`cyrius check` REPAIR + `cyrius deps` ERGONOMICS + SYSCALL ARITY

@@ -597,9 +597,30 @@ fn PARSE_FN_DEF(S) {
         SNPOS(S, mwp);
         noff = mnoff;
     }
-    # Register or find fn
+    # Register or find fn.
+    # v5.7.9: detect duplicate fn definitions across translation
+    # units. If FINDFN returns an existing slot AND that slot already
+    # has a non-(-1) body offset, this is a re-definition that
+    # silently overwrites the previous body. Pre-v5.7.9, the
+    # overwrite was completely silent — `lib/json.cyr fn json_build/1`
+    # vs `lib/patra.cyr fn json_build/6` was the surfaced case
+    # (last-include wins; the build appeared to succeed; calls to
+    # the losing arity miscompiled). Forward declarations (slot
+    # registered with offset=-1 by an earlier call site that landed
+    # before the definition) leave the offset at -1, so the call
+    # below does not fire on them — only on actual re-definitions.
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
+    else {
+        var _dup_off = L64(S + 0x1092000 + fi * 8);
+        if (_dup_off >= 0) {
+            syscall(SYS_WRITE, 2, "warning:", 8);
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": duplicate fn '", 16);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "' (last definition wins)\n", 25);
+        }
+    }
     # v5.5.36 Phase 2b — clear fn's struct-return slot. The `: StructName`
     # annotation after `)` sets it later if present; otherwise this fn
     # returns a scalar value in rax as usual.

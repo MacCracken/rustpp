@@ -5,6 +5,35 @@
 
 ## Version
 
+**5.7.9** (shipped 2026-04-26 — **SILENT FN-NAME COLLISION
+INVESTIGATION**. cc5 709,688 → **709,776 B** (+88 B net —
+warning emit code +312 B; dead `EADDIMM_X1` imm8-form removal
+−224 B). Lifted from v5.7.10 → v5.7.9 same day when the
+v5.7.10 input_buf reshuffle audit showed it deserves its own
+slot. **Audit:** `docs/audit/2026-04-26-stdlib-fn-collisions.md`
+— 66 names appear duplicated across `lib/*.cyr`, **only
+`json_build` is genuine cross-module** (rest are arch-
+conditional, one variant per build via `#ifdef`). **Resolution
+rule:** option (b) warn + last-wins (arity-aware overload
+resolution is a separate language addition, no slot pinned).
+**cc5 change:** `parse_fn.cyr:601` checks `FINDFN` result; if
+slot already has non-`-1` body offset, emit `warning:
+<file>:<line>: duplicate fn '<name>' (last definition wins)`.
+Forward decls (offset stays `-1` until body lands) do NOT
+trigger. **Internal collision surfaced + fixed:** dead
+imm8-form `EADDIMM_X1` deleted from `src/backend/x86/emit.cyr`
+(imm32-form had been winning silently for unknown number of
+versions; bytes unchanged at call sites because imm32 handles
+all small values). **First ecosystem collision resolved at
+source:** patra v1.8.3 → **v1.9.0** rename `fn json_build/6` →
+`fn patra_json_build/6`; `cyrius.cyml` `[deps.patra]` pin
+bumped 1.8.3 → 1.9.0. **Regression:** new
+`tests/regression-fn-collision.sh` (3 cases: same-arity dup,
+diff-arity dup, forward-decl no-false-positive) wired as
+check.sh gate 4s; check.sh **30/30 PASS**. RISC-V rv64
+remains at v5.7.11; v5.7.10 = `input_buf` 512KB → 1MB heap
+reshuffle (load-bearing — hisab at 96% of cap) follows.)
+
 **5.7.8** (shipped 2026-04-26 — **`cyrius check` REPAIR +
 `cyrius deps` ERGONOMICS + SYSCALL ARITY WARNING FIX**. cc5
 709,544 → **709,688 B** (+144 B). Bundle of silent-failure /

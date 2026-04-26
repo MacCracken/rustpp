@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.8.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
+> **v5.7.9.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
 > 704,976 — fixup-table cap 262K → 1M, brk +12 MB, lint UFCS Pascal-
 > prefix exemption, `cyrius build` atomic-output via tmp+rename). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -373,10 +373,10 @@
 > - **v5.7.6**: ✅ shipped 2026-04-26 — JSX inner-expr tokenization (P4.3d). Mode-stack-driven lex (modes 4/5/8). `.tsx` 429 → 430/435 (98.85%). 5 sticky failures remain (non-JSX TS feature gaps). See CHANGELOG.
 > - **v5.7.6-old**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
 > - **v5.7.7**: ✅ shipped 2026-04-26 — fixup-cap 1MB+ bundle (lint UFCS exemption + atomic-output `cyrius build` + fixup-table 262K → 1M). Wedged in after cyrius-ts polish surfaced 3 tooling issues. cc5 704,976 → 709,544 B (+4,568 B). 2-step bootstrap fixpoint clean. See CHANGELOG.
-> - **v5.7.8**: `cyrius check` repair (cc5 exit-code propagation + drop dep auto-prepend for `check` + output formatting) + `cyrius deps` ergonomics (P1-P5 from cyrius-bb `tooling-pain-points.md`: silent dangling symlinks, `--help` runs resolver, `deps` not in top-level help, cold/warm count off-by-one, lockfile flag default) + syscall-arity warning fix (`lib/syscalls_x86_64_linux.cyr:358` — `_SC_ARITY(112)` 1→0; `lex.cyr:227+240` cross-arch sentinel false-positive). Pinned 2026-04-26 — surfaced same-day during cyrius-bb wiring.
-> - **v5.7.9**: `input_buf` 512KB → 1MB heap-map reshuffle (pattern matches v5.6.40's preprocess_out 1MB → 2MB; tok_names overlay-rebuild contract still holds at the wider cap). Pinned 2026-04-26.
-> - **v5.7.10**: silent fn-name collision investigation (was bundled at v5.7.8 alongside RISC-V; cascaded out as v5.7.8 took the cyrius-check/deps/arity bundle).
-> - **v5.7.11**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization + 1MB input_buf + collision-resolution rule). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr/cyrius-check-and-deps/input-buf/collision-investigation took priority slots in turn.
+> - **v5.7.8**: ✅ shipped 2026-04-26 — `cyrius check` repair (cc5 exit-code propagation + drop dep auto-prepend for `check` + output formatting) + `cyrius deps` ergonomics (P1-P5 from cyrius-bb `tooling-pain-points.md`) + syscall-arity warning fix (`lib/syscalls_x86_64_linux.cyr:358` — `_SC_ARITY(112)` 1→0; `lex.cyr:227+240` cross-arch sentinel false-positive). cc5 709,544 → 709,688 B. 3-step fixpoint clean; check.sh 29/29.
+> - **v5.7.9**: silent fn-name collision investigation (lifted from v5.7.10 on 2026-04-26 — smaller, contained slot lands first; the v5.7.10 input_buf reshuffle is a ~1586-edit heap shuffle that deserves its own slot).
+> - **v5.7.10**: `input_buf` 512KB → 1MB heap-map reshuffle (pattern matches v5.6.40's preprocess_out 1MB → 2MB). **Load-bearing for the ecosystem, not speculative**: hisab `dist/hisab.cyr` is 505,237 B = 96% of the 524288 B cap and actively censoring upstream to stay under; every consumer of hisab inherits the full 505 KB via cyrius's `[deps]` auto-prepend, leaving only 19,051 B of budget for the consumer's own source. Sandhi/sit/yantra-class folds compound the pressure — hisab is the canary, not the only blocker. Slot lifted to v5.7.10 (was v5.7.9) on 2026-04-26 because the reshuffle scope (~214 distinct heap-region addresses, ~1586 occurrences, all in the 0x80000..0xFFFFF range) is bigger than v5.7.9's collision-investigation work and deserves its own slot rather than rushing under the v5.7.9 banner.
+> - **v5.7.11**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization + collision-resolution rule + 1MB input_buf). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr/cyrius-check-and-deps/collision-investigation/input-buf took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -974,71 +974,10 @@ if there's headroom; otherwise carry forward.
 
 ### Slot relationship
 
-Standalone slot. `input_buf` 512KB → 1MB (v5.7.9), silent
-fn-name collision (v5.7.10), and RISC-V (v5.7.11) all
-follow.
+Standalone slot. v5.7.9 (silent fn-name collision), v5.7.10
+(`input_buf` 512KB → 1MB), and v5.7.11 (RISC-V) follow.
 
-## v5.7.9 — input_buf 512KB → 1MB heap-map reshuffle
-
-**Pinned 2026-04-26.** Sources at the upper end of the cyrius
-ecosystem (mabda's bundled dist, agnostik's derive-codegen
-expansion, sit's full-tree state files) are pushing the
-524288-byte stdin cap. v5.6.40 raised `preprocess_out` 1MB
-→ 2MB on the same pattern; this slot does the same for the
-raw input buffer.
-
-### Scope
-
-`input_buf` lives at heap offset `0x00000` in `src/main.cyr`'s
-heap map (line 20: `#   0x00000  input_buf     [524288]
-512KB raw stdin input`). The cap appears in three places in
-`src/main.cyr`:
-
-- The heap-map comment at line 20.
-- The read loop at line 380: `var n = syscall(SYS_READ, 0,
-  S + bl, 524288 - bl);`
-- The over-cap guard at line 384: `if (bl >= 524288) {`.
-
-All three become `1048576` (0x100000).
-
-### Heap-overlap consideration
-
-`tok_names` at `0x60000` is nested INSIDE `input_buf` today
-(comment at line 21-23 documents the overlap is tolerated
-because LEX rebuilds tok_names from scratch after
-preprocessing — the input bytes are no longer needed at the
-point tok_names writes start). With input_buf widened to
-0x100000, tok_names at 0x60000 is still inside that range —
-overlap pattern unchanged, contract still holds.
-
-**Verify**: any code that touches both buffers in the same
-LEX pass needs auditing. Most likely: LEX's tok_names build
-loop writes monotonically forward starting at 0x60000; as
-long as it doesn't read input_buf bytes past the position it
-has already written tok_names to, the overlap is benign. The
-v5.6.40 preprocess_out reshuffle established the
-disambiguation discipline (5 ambiguity points caught) — apply
-the same audit here.
-
-### Acceptance gates
-
-1. `tests/tcyr/large_input.tcyr` (or new `tests/tcyr/
-   input_1mb.tcyr`) covers an 800KB+ source — passes post-
-   bump, fails pre-bump (the 524288 cap rejected it).
-2. cc5 self-host fixpoint clean (cc5's own source is well
-   under 1MB; bump is invisible to cc5 itself).
-3. Downstream consumers that hit the 524288 cap (agnostik
-   derive expansion, mabda dist, sit state) build green
-   without manual splitting.
-4. CHANGELOG enumerates the cap change, the disambiguation
-   audit findings, and any consumer unblock impact.
-
-### Slot relationship
-
-Standalone slot. v5.7.10 (silent fn-name collision) and
-v5.7.11 (RISC-V) follow.
-
-## v5.7.10 — silent fn-name collision investigation
+## v5.7.9 — silent fn-name collision investigation
 
 **Pinned 2026-04-26.** Real cyrius-language correctness issue
 surfaced during the v5.7.7 closeout: when two stdlib modules
@@ -1072,7 +1011,7 @@ post-fold), the chance of a name overlap grows quadratically.
 Today's `json.cyr` + `patra.cyr` collision is the visible one;
 audit will likely surface more.
 
-**Investigation scope (v5.7.10):**
+**Investigation scope (v5.7.9):**
 
 1. **Audit current stdlib** for duplicate fn-name definitions
    across modules. Smallest hammer: `grep -h '^fn ' lib/*.cyr |
@@ -1109,12 +1048,116 @@ audit will likely surface more.
    covering: same-arity duplicate, different-arity duplicate,
    transitive collision via includes.
 
-**Slot relationship to RISC-V (now v5.7.11):** RISC-V is a
-multi-week port, this is a short investigation. Cascaded out
-of the v5.7.8-bundled position 2026-04-26 when the cyrius
-check / deps / arity bundle took v5.7.8 and `input_buf` 512KB
-→ 1MB took v5.7.9. v5.7.10 stands alone now; RISC-V follows
-at v5.7.11.
+**Slot relationship:** standalone slot. Cascaded out of the
+v5.7.8-bundled position 2026-04-26 when the cyrius check /
+deps / arity bundle took v5.7.8; lifted from v5.7.10 → v5.7.9
+on 2026-04-26 when the v5.7.10 input_buf reshuffle audit
+showed it deserved its own slot. v5.7.10 (input_buf 1MB) and
+v5.7.11 (RISC-V) follow.
+
+## v5.7.10 — input_buf 512KB → 1MB heap-map reshuffle
+
+**Pinned 2026-04-26; lifted from v5.7.9 → v5.7.10 on
+2026-04-26** when the v5.7.9 audit (see [task #17] / agent
+report) showed the reshuffle scope is bigger than the original
+roadmap entry suggested — ~214 distinct heap-region addresses
+in the 0x80000..0xFFFFF range, ~1586 occurrences across the
+src/ tree. Same shape as v5.6.40's preprocess_out 1MB → 2MB
+reshuffle; not a 3-line cap bump.
+
+### Why this matters (load-bearing for the ecosystem)
+
+Hisab's `dist/hisab.cyr` is **505,237 bytes = 96 % of the
+524,288 byte cap** as of 2026-04-26 and actively censoring
+upstream to stay under. cyrius auto-prepends every
+`[deps.NAME]` module above the consumer's source, so any
+project pulling hisab gets only **19,051 bytes** of budget for
+its own source before the read-cap fires. Sandhi/sit/yantra-
+class folds compound the pressure — hisab is the canary, not
+the only blocker. Forward-looking deps (mabda's bundled dist,
+agnostik's derive-codegen expansion, sit's full-tree state
+files) hit the same ceiling.
+
+### Scope (audit completed during v5.7.9 wedge)
+
+`input_buf` lives at heap offset `0x00000` in `src/main.cyr`'s
+heap map. **The cap value itself appears at 18 sites across
+6 main_*.cyr files** (3 per file: heap-map comment, read-loop
+length, over-cap guard):
+
+- `src/main.cyr` × 3
+- `src/main_aarch64.cyr` × 3
+- `src/main_aarch64_native.cyr` × 3
+- `src/main_aarch64_macho.cyr` × 3
+- `src/main_win.cyr` × 3
+- `src/main_cx.cyr` × 2 (no heap-map comment)
+- `src/frontend/lex_pp.cyr` × 1 (PP IFDEF-pass copy-back cap;
+  must move with input_buf size)
+
+All become `1048576` (0x100000).
+
+### Heap reshuffle (the actual work)
+
+Today: `input_buf` 0..0x80000 (524288 B); compiler state
+starts at 0x8C100 (struct tables, fn state, locals, macros,
+IFDEF stack, gvar tables, file_map, include_fnames at 0xC0000,
+codebuf compaction tables at 0xA0000). With `input_buf` widened
+to 0x100000, every state region in 0x80000..0xFFFFF collides
+and must shift +0x80000:
+
+- `0x8C100 → 0x10C100` (compiler scalars)
+- `0x8DA00 → 0x10DA00` (fn state)
+- `0x8E630 → 0x10E630` (struct tables)
+- `0x90500 → 0x110500` (include_fname / locals / macros)
+- `0x97F10 → 0x117F10` (IFDEF state stack — v5.6.1)
+- `0x98000 → 0x118000` (gvar tables)
+- `0x9A000 → 0x11A000` (file_map)
+- `0x9D000 → 0x11D000` (file_map_str)
+- `0xA0000 → 0x120000` (codebuf compaction — v5.6.27)
+- `0xC0000 → 0x140000` (include_fnames)
+- (every other distinct address in the range)
+
+Brk grows ~+0x80000 (~512 KB) to absorb the shifted regions.
+Regions at 0x100000+ (fn tables, fixup_tbl, IR area, codebuf,
+output_buf, etc.) DO NOT shift — already past the new
+input_buf boundary.
+
+Disambiguation discipline (per v5.6.40's reshuffle):
+- Every shifted region must not collide with any region above
+  the shift boundary (at 0x100000+).
+- Adjacent regions must not overlap after shift (the same
+  +0x80000 delta preserves relative offsets, so internal
+  layout is unchanged).
+- 3-step fixpoint catches deterministic mis-shifts; non-x86
+  paths (aarch64-native, mach-o, PE, cx) need explicit testing.
+
+### tok_names overlay-rebuild contract
+
+`tok_names` at `0x60000..0x80000` is nested INSIDE
+`input_buf` today (rebuilt-by-LEX after preprocessing — the
+input bytes are no longer needed at the point tok_names
+writes start). With `input_buf` widened to 0x100000,
+tok_names at 0x60000 is still inside that range — overlap
+pattern unchanged, contract still holds. The rebuild contract
+is verified by 3-step fixpoint (cc5_a == cc5_b byte-identical
+after self-compile).
+
+### Acceptance gates
+
+1. `tests/tcyr/large_input.tcyr` (or new `tests/tcyr/
+   input_1mb.tcyr`) covers an 800KB+ source — passes post-
+   bump, fails pre-bump (the 524288 cap rejected it).
+2. cc5 self-host fixpoint clean (cc5's own source is well
+   under 1MB; bump is invisible to cc5 itself).
+3. Downstream consumers that hit the 524288 cap (agnostik
+   derive expansion, mabda dist, sit state) build green
+   without manual splitting.
+4. CHANGELOG enumerates the cap change, the disambiguation
+   audit findings, and any consumer unblock impact.
+
+### Slot relationship
+
+Standalone slot. v5.7.11 (RISC-V) follows.
 
 ## v5.7.11 — RISC-V rv64
 
@@ -1135,9 +1178,13 @@ v5.7.8 → v5.7.11 (2026-04-26, three slots inserted before RISC-V
 when cyrius-bb wiring surfaced multiple silent failures + UX
 gaps in tooling on the same day: v5.7.8 = `cyrius check` repair
 + `cyrius deps` P1-P5 + syscall-arity warning fix; v5.7.9 =
-`input_buf` 512KB → 1MB heap-map reshuffle; v5.7.10 = silent
-fn-name collision investigation that was previously bundled at
-v5.7.8 alongside RISC-V). Rationale: a new architecture is
+silent fn-name collision investigation (was bundled at v5.7.8
+alongside RISC-V; lifted from v5.7.10 → v5.7.9 on 2026-04-26 once
+v5.7.10's audit showed the input_buf reshuffle deserves its own
+slot); v5.7.10 = `input_buf` 512KB → 1MB heap-map reshuffle
+(load-bearing for the ecosystem — hisab `dist/hisab.cyr` at
+505,237 B = 96% of cap, every consumer inherits the prepended
+bytes via `cyrius deps` auto-prepend)). Rationale: a new architecture is
 structurally different from v5.5.x items (correctness /
 completion / runtime work on existing platforms), different
 from v5.7.0's lib/-reshape work, different from v5.7.1's
@@ -1204,11 +1251,12 @@ minor-patches for separate kinds of change. RISC-V needs:
   syscall-arity warning fix. RISC-V port inherits a clean
   toolchain UX (no silent-failure traps) before backend work
   begins, so rv64-specific failures surface loudly.
-- **v5.7.9** — `input_buf` 512KB → 1MB. RISC-V's larger
-  cross-arch sources fit without manual splitting.
-- **v5.7.10** — silent fn-name collision rule. RISC-V's
+- **v5.7.9** — silent fn-name collision rule. RISC-V's
   syscalls peer (`lib/syscalls_riscv64_linux.cyr`) lands
   against a stdlib whose collision policy is fixed.
+- **v5.7.10** — `input_buf` 512KB → 1MB. RISC-V's larger
+  cross-arch sources fit without manual splitting; ecosystem
+  hisab-class deps no longer eat the consumer's source budget.
 - **v5.4.19 `#ifplat`** directive is live → RISC-V dispatch
   uses the new syntax from day one.
 
@@ -1227,8 +1275,8 @@ items below are guaranteed to ship before v5.7.x closeout; the
 specific patch number depends on what else surfaces.
 
 Items that already have firm slot numbers (v5.7.8 = check + deps
-+ arity bundle, v5.7.9 = input_buf 1MB, v5.7.10 = fn-name
-collision investigation, v5.7.11 = RISC-V) live in the dedicated
++ arity bundle, v5.7.9 = fn-name collision investigation,
+v5.7.10 = input_buf 1MB, v5.7.11 = RISC-V) live in the dedicated
 sections above; this section holds the rest of the v5.7.x work
 that hasn't been pulled into a specific patch slot yet.
 
@@ -2246,7 +2294,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` DLL Characteristic; HIGH_ENTROPY_VA deferred (see Active Bugs) |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.11** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4 → v5.7.5 → v5.7.6 → v5.7.7 → v5.7.8 → v5.7.9 → v5.7.10 → v5.7.11: optimization arc → sandhi fold → fixup-cap bump → cyrius-ts foundational → cyrius-ts completion → cyrius-ts polish → real JSX AST → JSX inner-expr → fixup-cap 1M + tooling → cyrius check + deps + arity → input_buf 1MB → fn-name collision → RISC-V |
+| **v5.7.11** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4 → v5.7.5 → v5.7.6 → v5.7.7 → v5.7.8 → v5.7.9 → v5.7.10 → v5.7.11: optimization arc → sandhi fold → fixup-cap bump → cyrius-ts foundational → cyrius-ts completion → cyrius-ts polish → real JSX AST → JSX inner-expr → fixup-cap 1M + tooling → cyrius check + deps + arity → fn-name collision → input_buf 1MB → RISC-V |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 

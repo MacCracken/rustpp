@@ -307,6 +307,15 @@ if [ "$tf_result" -ne 0 ]; then cat /tmp/audit_tf_$$; fi
 rm -f /tmp/audit_tf_$$
 echo ""
 
+# ── 4s. fn-name collision warning (v5.7.9) ──
+echo "── fn-name collision warning ──"
+sh "$ROOT/tests/regression-fn-collision.sh" > /tmp/audit_fc_$$ 2>&1
+fc_result=$?
+check "duplicate fn warns; forward-decl no false-positive (v5.7.9)" "$fc_result"
+if [ "$fc_result" -ne 0 ]; then cat /tmp/audit_fc_$$; fi
+rm -f /tmp/audit_fc_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

@@ -170,15 +170,13 @@ fn EUNSPILL(S) {
     return 0;
 }
 fn EMOVCA(S) { if (_IR_REC0(S, IR_MOV_CA) == 1) { return 0; } E3(S, 0xC18948); _last_emovca_cp = GCP(S); return 0; }
-# EADDIMM_X1: add rcx, imm8 — the "pointer scratch reg" increment.
-# Named to match the aarch64 backend's EADDIMM_X1 (both advance the
-# store-pointer register after ESTORE64). Used by `secret var` zeroise.
-# imm must fit in a signed 8-bit field.
-fn EADDIMM_X1(S, imm) {
-    if (IR_ENABLED(S) == 2) { return 0; }
-    EB(S, 0x48); EB(S, 0x83); EB(S, 0xC1); EB(S, imm & 0xFF);
-    return 0;
-}
+# v5.7.9: deleted the imm8-form `EADDIMM_X1(S, imm)` that lived
+# here. It was a silent name collision with the imm32-form at
+# line ~1390; the imm32-form (later definition) was winning at
+# every call site since whenever it landed, and cc5 self-builds
+# clean because imm32 handles all the small-immediate values
+# the call sites use (just 3 extra bytes per call). The collision
+# was surfaced by v5.7.9's duplicate-fn warning (parse_fn.cyr).
 # v5.6.10: commutative-combine peephole. If current CP matches the
 # GCP recorded when EPOPR/EUNSPILL finished *immediately after*
 # EMOVCA, rewind 4 bytes (past `48 89 C1 58`) and drop in `59`
