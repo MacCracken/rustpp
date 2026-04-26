@@ -924,24 +924,50 @@ fn TS_LEX_BLOCK_COMMENT(ts_base, src, src_len, p) {
 fn TS_IS_PRIMARY_CONTEXT(ts_base) {
     var tc = TS_GTCNT(ts_base);
     if (tc <= 0) { return 0; }
-    var last = TS_PEEKT(ts_base, tc - 1);
-    if (last == TS_TOK_IDENT)            { return 1; }
-    if (last == TS_TOK_INT)              { return 1; }
-    if (last == TS_TOK_FLOAT)            { return 1; }
-    if (last == TS_TOK_STRING)           { return 1; }
-    if (last == TS_TOK_RPAREN)           { return 1; }
-    if (last == TS_TOK_RBRACKET)         { return 1; }
-    if (last == TS_TOK_RBRACE)           { return 1; }
-    if (last == TS_TOK_PLUS_PLUS)        { return 1; }
-    if (last == TS_TOK_MINUS_MINUS)      { return 1; }
-    if (last == TS_TOK_TEMPLATE_NOSUB)   { return 1; }
-    if (last == TS_TOK_TEMPLATE_TAIL)    { return 1; }
-    if (last == TS_TOK_KW_THIS)          { return 1; }
-    if (last == TS_TOK_KW_SUPER)         { return 1; }
-    if (last == TS_TOK_KW_TRUE)          { return 1; }
-    if (last == TS_TOK_KW_FALSE)         { return 1; }
-    if (last == TS_TOK_KW_NULL)          { return 1; }
-    if (last == TS_TOK_KW_UNDEFINED)     { return 1; }
+    var i = tc - 1;
+    # Walk back through BANG tokens. TS's postfix non-null assertion
+    # (`x!`) is lexed as IDENT, BANG; the BANG is transparent to
+    # context — it inherits the primary/expr classification from the
+    # underlying token. Without this walk-back, `arr[0]! / 2` would
+    # see last=BANG, default to expr, lex `/ 2` as a regex, and
+    # crash with err 11.
+    while (i >= 0) {
+        var typ = TS_PEEKT(ts_base, i);
+        if (typ == TS_TOK_BANG) { i = i - 1; }
+        else {
+            if (typ == TS_TOK_IDENT)            { return 1; }
+            if (typ == TS_TOK_INT)              { return 1; }
+            if (typ == TS_TOK_FLOAT)            { return 1; }
+            if (typ == TS_TOK_STRING)           { return 1; }
+            if (typ == TS_TOK_RPAREN)           { return 1; }
+            if (typ == TS_TOK_RBRACKET)         { return 1; }
+            if (typ == TS_TOK_RBRACE)           { return 1; }
+            if (typ == TS_TOK_PLUS_PLUS)        { return 1; }
+            if (typ == TS_TOK_MINUS_MINUS)      { return 1; }
+            if (typ == TS_TOK_TEMPLATE_NOSUB)   { return 1; }
+            if (typ == TS_TOK_TEMPLATE_TAIL)    { return 1; }
+            if (typ == TS_TOK_KW_THIS)          { return 1; }
+            if (typ == TS_TOK_KW_SUPER)         { return 1; }
+            if (typ == TS_TOK_KW_TRUE)          { return 1; }
+            if (typ == TS_TOK_KW_FALSE)         { return 1; }
+            if (typ == TS_TOK_KW_NULL)          { return 1; }
+            if (typ == TS_TOK_KW_UNDEFINED)     { return 1; }
+            # Contextual keywords that can appear as property names
+            # (obj.from, obj.as, obj.of, obj.get, obj.set, obj.type).
+            # When used in property position, they act like idents
+            # for context purposes — next `/` is division, not regex.
+            # When used as actual keywords (e.g., `import x from "..."`),
+            # the next token is never `/` in valid TS, so this whitelist
+            # is safe.
+            if (typ == TS_TOK_KW_FROM)          { return 1; }
+            if (typ == TS_TOK_KW_AS)            { return 1; }
+            if (typ == TS_TOK_KW_OF)            { return 1; }
+            if (typ == TS_TOK_KW_GET)           { return 1; }
+            if (typ == TS_TOK_KW_SET)           { return 1; }
+            if (typ == TS_TOK_KW_TYPE)          { return 1; }
+            return 0;
+        }
+    }
     return 0;
 }
 
@@ -1175,6 +1201,30 @@ fn TS_LEX(ts_base, src, src_len) {
     store64(ts_base + TS_LEX_STATE_OFF + TS_LS_TEMPLATE_DEPTH, 0);
 
     var p = 0;
+
+    # Shebang line: if the very first 2 bytes are #!, treat the entire
+    # first line as a comment (skip to LF). Per JS spec, this is only
+    # legal at offset 0. Common in CLI scripts: #!/usr/bin/env tsx
+    # Without this, the # emits HASH, ! emits BANG (an operator), then
+    # /usr in expression context tries to lex as a regex and crashes.
+    if (src_len >= 2) {
+        if (load8(src) == 35) {
+            if (load8(src + 1) == 33) {
+                var sb_done = 0;
+                while (sb_done == 0) {
+                    if (p >= src_len) { sb_done = 1; }
+                    elif (load8(src + p) == 10) {
+                        TS_INCLINE(ts_base);
+                        p = p + 1;
+                        sb_done = 1;
+                    } else {
+                        p = p + 1;
+                    }
+                }
+            }
+        }
+    }
+
     while (p < src_len) {
         # ─── Template body mode (P1.4) ─────────────────────────────
         # If the template stack has a 0/1 (template-body) slot at

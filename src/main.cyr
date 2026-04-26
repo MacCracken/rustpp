@@ -394,11 +394,18 @@ if (_ts_lex_only_mode == 1) {
     if (_ts_n < 0) {
         var _ts_err = TS_GETERR(S + 0x1B0B000);
         syscall(SYS_WRITE, 2, "ts lex error: code ", 19);
-        # Inline integer print for the err code (1-9 single digit)
-        var _eb[2];
-        store8(&_eb, 48 + _ts_err);
-        store8(&_eb + 1, 10);
-        syscall(SYS_WRITE, 2, &_eb, 2);
+        # Inline 2-digit error code printer (codes 1-99 supported).
+        var _eb[3];
+        if (_ts_err >= 10) {
+            store8(&_eb, 48 + _ts_err / 10);
+            store8(&_eb + 1, 48 + _ts_err % 10);
+            store8(&_eb + 2, 10);
+            syscall(SYS_WRITE, 2, &_eb, 3);
+        } else {
+            store8(&_eb, 48 + _ts_err);
+            store8(&_eb + 1, 10);
+            syscall(SYS_WRITE, 2, &_eb, 2);
+        }
         syscall(SYS_EXIT, 1);
     }
     syscall(SYS_EXIT, 0);

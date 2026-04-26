@@ -271,6 +271,15 @@ if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
 rm -f /tmp/audit_tl_$$
 echo ""
 
+# ── 4q'''. TS lexer integration via cc5 --lex-ts (v5.7.2 P1.7) ──
+echo "── TS lexer (cyrius-ts) ──"
+sh "$ROOT/tests/regression-ts-lex.sh" > /tmp/audit_tsl_$$ 2>&1
+tsl_result=$?
+check "cc5 --lex-ts on synthetic TS sample (v5.7.2 P1.7 acceptance)" "$tsl_result"
+if [ "$tsl_result" -ne 0 ]; then cat /tmp/audit_tsl_$$; fi
+rm -f /tmp/audit_tsl_$$
+echo ""
+
 # ── 4r. Bare-truthy after fn-call (v5.6.21 codegen-bug fix) ──
 echo "── Bare-truthy after fn-call ──"
 sh "$ROOT/tests/regression-truthy-after-fncall.sh" > /tmp/audit_tf_$$ 2>&1
