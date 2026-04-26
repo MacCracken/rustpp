@@ -5,6 +5,27 @@
 
 ## Version
 
+**5.7.6** (shipped — **CYRIUS-TS JSX INNER-EXPR TOKENIZATION
+(P4.3d)**. Closes v5.7.5's empty `JSX_EXPR_CONTAINER` deferral.
+Lex now tokenizes `{...}` JSX expression bodies via mode-stack
+dispatch (modes 4=JSX_TAG, 5=JSX_TEXT, 8=JSX_EXPR on the
+existing template stack); main TS_LEX loop dispatches to per-
+mode helpers `TS_LEX_JSX_TAG` / `TS_LEX_JSX_TEXT`. Parser
+consumes real expressions inside `JSX_EXPR_CONTAINER` /
+`JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR`. v5.7.3 post-`>` `(`
+generic-arrow disambig REMOVED — the pre-flight `BYTE_SKIP`
+check correctly rejects generic arrows while accepting
+paren-prefixed JSX text (`<span>(optional)</span>`).
+`TS_LOOKAHEAD_IS_ARROW` COLON-branch extended with JSX
+scope-terminator tokens (was the root cause of the v5.7.5
+P4.3d-2 attempt's 57-file regression that triggered rollback).
+`IS_PRIMARY_CONTEXT` whitelist extended for JSX_CLOSE_END /
+JSX_SELF_CLOSE / JSX_FRAGMENT_CLOSE. `.tsx`: 429 → **430/435 =
+98.85%** (one shy of the ≥99% / ≥431 target — 5 sticky
+failures all non-JSX TS feature gaps). `.ts`: held at
+2033/2053 = 99.03%. cc5 697,840 → **704,976 B** (+7,136 B);
+3-step self-host fixpoint clean.
+`regression-ts-parse-tsx.sh` threshold 429 → 430.)
 **5.7.5** (shipped — **CYRIUS-TS REAL JSX AST**. Closes the v5.7.0–
 v5.7.5 cyrius-ts arc by replacing v5.7.3's `TOK_INT` placeholder
 with structured JSX tokens + AST nodes. Lex emits 13 JSX token
@@ -185,7 +206,7 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **697,840 B** (+10,752 B from v5.7.4's 687,088;
+- **cc5 (x86_64)**: **704,976 B** (+7,136 B from v5.7.5's 697,840;
   +166,256 B vs v5.6.45's 531,584 — v5.7.5 added the structured
   JSX lex tokens, JSX AST nodes + parser, BYTE_SKIP for nested-JSX
   brace-balance, comment-aware tag whitespace skip; deleted 256 LOC
@@ -230,7 +251,14 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.6 (JSX inner-expr tokenization, P4.3d resume).** v5.7.5 shipped
+**v5.7.7 (RISC-V rv64 port).** v5.7.6 closed the JSX inner-expr
+tokenization (P4.3d). RISC-V port is next — inherits optimized
+compiler + post-fold stdlib + bumped fixup table + complete cyrius-ts
+frontend with structured JSX AST and inner-expr tokenization. Slid
+across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/
+JSX-inner-expr took priority slots in turn.
+
+**v5.7.6 (JSX inner-expr tokenization, P4.3d resume) — ✅ shipped 2026-04-26.** v5.7.5 shipped
 the real JSX AST but with empty `JSX_EXPR_CONTAINER` nodes — lex
 byte-balances `{...}` expression bodies, parser sees nothing inside.
 v5.7.6 wires the mode-stack-driven design prototyped + reverted
@@ -294,6 +322,19 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.7.6** — **CYRIUS-TS JSX INNER-EXPR TOKENIZATION (P4.3d)**.
+  Closes v5.7.5's empty `JSX_EXPR_CONTAINER` deferral. Mode-stack-
+  driven lex (modes 4=TAG, 5=TEXT, 8=EXPR on existing template stack)
+  dispatched from main TS_LEX loop; `TS_LEX_JSX_TAG`/`TS_LEX_JSX_TEXT`
+  helpers; parser consumes real exprs inside `JSX_EXPR_CONTAINER` /
+  `JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR`. v5.7.3 generic-arrow disambig
+  REMOVED (false-positived on `<span>(optional)</span>`); pre-flight
+  `BYTE_SKIP` handles both cases. `TS_LOOKAHEAD_IS_ARROW` COLON-branch
+  extended with JSX scope terminators (was root cause of v5.7.5 P4.3d-2
+  rollback). `.tsx` 429 → 430/435 (98.85%); threshold raised 429 → 430.
+  cc5 697,840 → 704,976 B. Inner-expr tokenization shipped — empty
+  JSX_EXPR_CONTAINER no longer needed. 5 sticky `.tsx` failures remain
+  (all non-JSX TS feature gaps).
 - **v5.7.5** — **CYRIUS-TS REAL JSX AST**. v5.7.3's `TOK_INT` JSX
   placeholder replaced with 13 structured JSX token kinds (block
   300-312) + 9 JSX AST kinds (block 700-708) built by

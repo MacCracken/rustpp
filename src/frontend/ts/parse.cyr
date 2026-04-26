@@ -797,9 +797,17 @@ fn TS_PARSE_JSX_CHILD(ts_base) {
     }
     if (t == TS_TOK_JSX_EXPR_OPEN) {
         TS_PARSE_CONSUME(ts_base);
-        # P4.3b: lex byte-balanced the body — expect immediate close.
+        var node = TS_AST_PUSH(ts_base, TS_AST_JSX_EXPR_CONTAINER, 0);
+        if (node < 0) { return 0 - 1; }
+        # Empty {} is valid JSX (renders nothing). Otherwise parse the
+        # inner expression. v5.7.6 P4.3d: lex now tokenizes the body.
+        if (TS_PARSE_PEEK(ts_base) != TS_TOK_JSX_EXPR_CLOSE) {
+            var expr = TS_PARSE_EXPR(ts_base);
+            if (expr < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, node, 0, expr);
+        }
         if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
-        return TS_AST_PUSH(ts_base, TS_AST_JSX_EXPR_CONTAINER, 0);
+        return node;
     }
     if (t == TS_TOK_JSX_OPEN_START) { return TS_PARSE_JSX_ELEMENT(ts_base); }
     if (t == TS_TOK_JSX_FRAGMENT_OPEN) { return TS_PARSE_JSX_ELEMENT(ts_base); }
@@ -862,9 +870,15 @@ fn TS_PARSE_JSX_ATTRS(ts_base) {
                 TS_AST_SET_PAYLOAD(ts_base, attr, 2, sv);
             } elif (t2 == TS_TOK_JSX_EXPR_OPEN) {
                 TS_PARSE_CONSUME(ts_base);
-                if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
                 TS_AST_SET_PAYLOAD(ts_base, attr, 1, 2);
-                TS_AST_SET_PAYLOAD(ts_base, attr, 2, 0);
+                if (TS_PARSE_PEEK(ts_base) != TS_TOK_JSX_EXPR_CLOSE) {
+                    var av_expr = TS_PARSE_EXPR(ts_base);
+                    if (av_expr < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, attr, 2, av_expr);
+                } else {
+                    TS_AST_SET_PAYLOAD(ts_base, attr, 2, 0);
+                }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
             } else {
                 TS_AST_SET_PAYLOAD(ts_base, attr, 1, 0);
             }
@@ -872,9 +886,19 @@ fn TS_PARSE_JSX_ATTRS(ts_base) {
             i = i + 1;
         } elif (t == TS_TOK_JSX_EXPR_OPEN) {
             TS_PARSE_CONSUME(ts_base);
-            if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
             var sp = TS_AST_PUSH(ts_base, TS_AST_JSX_SPREAD_ATTR, 0);
             if (sp < 0) { return 0 - 1; }
+            # Spread attrs are written `{...x}`. Consume ELLIPSIS then
+            # the spread'd expr (TS_PARSE_EXPR doesn't accept bare `...`).
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
+                TS_PARSE_CONSUME(ts_base);
+            }
+            if (TS_PARSE_PEEK(ts_base) != TS_TOK_JSX_EXPR_CLOSE) {
+                var sp_expr = TS_PARSE_EXPR(ts_base);
+                if (sp_expr < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, sp, 0, sp_expr);
+            }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_JSX_EXPR_CLOSE) < 0) { return 0 - 1; }
             TS_AST_CHILDREN_SET(ts_base, off + i, sp);
             i = i + 1;
         } else {
@@ -1582,6 +1606,13 @@ fn TS_LOOKAHEAD_IS_ARROW(ts_base) {
                 if (jt == TS_TOK_LBRACE)       { return 0; }
                 if (jt == TS_TOK_SEMI)         { return 0; }
                 if (jt == TS_TOK_COMMA)        { return 0; }
+                # JSX tokens that close out an expression context — if
+                # we hit one without finding ARROW, this isn't an arrow.
+                if (jt == TS_TOK_JSX_EXPR_CLOSE)      { return 0; }
+                if (jt == TS_TOK_JSX_CLOSE_END)       { return 0; }
+                if (jt == TS_TOK_JSX_FRAGMENT_CLOSE)  { return 0; }
+                if (jt == TS_TOK_JSX_SELF_CLOSE)      { return 0; }
+                if (jt == TS_TOK_JSX_OPEN_END)        { return 0; }
             }
             j = j + 1;
         }

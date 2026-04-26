@@ -4,6 +4,82 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.6] — 2026-04-26
+
+**CYRIUS-TS JSX INNER-EXPR TOKENIZATION (P4.3d) — empty
+JSX_EXPR_CONTAINER replaced with real expression nodes.**
+
+Closes the v5.7.5 deferral. Lex now tokenizes the body of `{...}`
+JSX expressions via mode-stack-driven dispatch (modes 4=JSX_TAG,
+5=JSX_TEXT, 8=JSX_EXPR on the existing template stack); parser
+consumes real expressions inside `JSX_EXPR_CONTAINER` /
+`JSX_ATTRIBUTE` (expr-kind value) / `JSX_SPREAD_ATTR`. `.tsx`
+parse acceptance: 429 → **430/435 = 98.85%** (one shy of the
+≥99% / ≥431 target). `.ts`: held at 2033/2053 = 99.03%. cc5
+697,840 → **704,976 B** (+7,136 B). 3-step self-host fixpoint
+clean.
+
+### Changed (lex)
+
+- New `TS_LEX_JSX_TAG` (mode 4) + `TS_LEX_JSX_TEXT` (mode 5)
+  helpers dispatched from TS_LEX's main-loop top, alongside the
+  existing template-body dispatch (top == 0/1).
+- `TS_LEX_JSX` entry rewritten — emits the FIRST JSX token
+  (`JSX_OPEN_START` + `JSX_TAG_NAME` or `JSX_FRAGMENT_OPEN`),
+  pushes mode 4 or 5, returns. Subsequent JSX structure driven
+  by main loop dispatching to the per-mode helpers. Pre-flight
+  `BYTE_SKIP` balance check before any emission (mode-driven
+  dispatch can't easily roll back leaked tokens across multiple
+  mode pushes).
+- Generic-arrow disambig REMOVED. The v5.7.3 post-`>` `(`
+  heuristic false-positived on JSX text starting with `(`
+  (e.g., `<span>(optional)</span>`). The new pre-flight
+  `BYTE_SKIP` correctly rejects generic arrows (no matching
+  `</T>` close) while accepting paren-prefixed JSX text.
+- `{`/`}` operator handlers extended for mode 8: `{` inside
+  mode 8 pushes a brace marker (3, reused from template-interp
+  nesting); `}` at mode-8 top pops mode 8 + emits
+  `JSX_EXPR_CLOSE`.
+- `IS_PRIMARY_CONTEXT` whitelist extended: `JSX_CLOSE_END`,
+  `JSX_SELF_CLOSE`, `JSX_FRAGMENT_CLOSE` → primary (a closed
+  JSX expression IS a value, so a following `/` should be
+  division not regex).
+
+### Changed (parse)
+
+- `TS_PARSE_JSX_CHILD`'s `JSX_EXPR_OPEN` consumer now calls
+  `TS_PARSE_EXPR` to consume the inner expression (was: assert
+  immediate `JSX_EXPR_CLOSE`). `JSX_ATTRIBUTE` value-kind=2
+  consumer same. `JSX_SPREAD_ATTR` consumes `ELLIPSIS` then
+  `TS_PARSE_EXPR` (TS_PARSE_EXPR doesn't accept bare `...`).
+- `TS_LOOKAHEAD_IS_ARROW`'s COLON-branch extended to treat JSX
+  closing tokens as scope terminators (`JSX_EXPR_CLOSE`,
+  `JSX_CLOSE_END`, `JSX_FRAGMENT_CLOSE`, `JSX_SELF_CLOSE`,
+  `JSX_OPEN_END`). Without this, the COLON-branch scanned far
+  past the JSX expression and false-positived on unrelated
+  arrow functions later in the file (root cause of the v5.7.5
+  P4.3d-2 attempt's 57-file regression that triggered the
+  rollback to v5.7.5 final).
+
+### Threshold
+
+- `tests/regression-ts-parse-tsx.sh`: 429 → **430**.
+
+### Compiler
+
+- cc5: 697,840 B → **704,976 B** (+7,136 B). 3-step
+  self-host fixpoint clean.
+
+### Deferred
+
+- 5 `.tsx` failures remain (down from 6 at v5.7.5). All non-JSX
+  TS feature gaps: generic method types in object types
+  (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
+  multi-arg generic fn types (`vi.fn<...>`), computed-key
+  destructure (`{[key]: _}`), one cumulative shape. Each is
+  its own narrow slot.
+
+
 ## [5.7.5] — 2026-04-26
 
 **CYRIUS-TS REAL JSX AST — structured tokens + AST nodes replace the

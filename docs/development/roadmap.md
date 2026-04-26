@@ -1,9 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v5.7.5.** cc5 compiler (697,840 B x86_64; +10,752 B from v5.7.4's
-> 687,088 — JSX lex/parse infrastructure: 13 structured JSX token
-> kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY,
-> minus the deleted v5.7.3 SKIP placeholder, 256 LOC). Native aarch64 cc5
+> **v5.7.6.** cc5 compiler (704,976 B x86_64; +7,136 B from v5.7.5's 697,840
+> — JSX inner-expr tokenization via mode-stack dispatch (modes 4/5/8),
+> parser real-expr consumption inside containers/attrs/spreads, fixed
+> LOOKAHEAD_IS_ARROW JSX terminators). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
 > x86-only compaction code is dead-emitted on aarch64 builds — strip
 > via `#ifdef CYRIUS_ARCH_X86` pinned as future cleanup). x86_64 +
@@ -371,7 +371,8 @@
 > to make a meaningful version land cleanly.
 >
 > - **v5.7.5**: ✅ shipped 2026-04-26 — real JSX AST (13 structured JSX token kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY). Inner-expr tokenization deferred to v5.7.6 — empty `JSX_EXPR_CONTAINER` in this iteration. `.tsx` 428 → 429/435 (98.6%); `.ts` held at 2033/2053. Mode-stack-driven prototype reverted at end-of-cycle for clean cut. See CHANGELOG.
-> - **v5.7.6**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
+> - **v5.7.6**: ✅ shipped 2026-04-26 — JSX inner-expr tokenization (P4.3d). Mode-stack-driven lex (modes 4/5/8). `.tsx` 429 → 430/435 (98.85%). 5 sticky failures remain (non-JSX TS feature gaps). See CHANGELOG.
+> - **v5.7.6-old**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
 > - **v5.7.7**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
