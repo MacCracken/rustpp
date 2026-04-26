@@ -4,6 +4,173 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.8] — 2026-04-26
+
+**`cyrius check` REPAIR + `cyrius deps` ERGONOMICS + SYSCALL ARITY
+WARNING FIX.** Bundle of silent-failure / UX fixes surfaced
+during cyrius-bb wiring on 2026-04-26. RISC-V rv64 (was v5.7.8)
+slips to v5.7.11; v5.7.9 = `input_buf` 512 KB → 1 MB; v5.7.10 =
+silent fn-name collision investigation.
+
+### Fixed (cyrius check — three silent-failure layers)
+
+- **`/dev/null.tmp.<pid>` open failure was the real cause.**
+  `cmd_check` passed `output = "/dev/null"` to `compile()`; the
+  atomic-output path then tried to `sys_open("/dev/null.tmp.<pid>",
+  O_CREAT)` which fails because `/dev/` is read-only — the fork's
+  `if (ofd < 0) { sys_exit(1); }` ran with no error message and
+  cc5 never executed at all. cmd_check now uses a PID-suffixed
+  `/tmp/cyrius_check_<pid>` path that is actually writable; cc5
+  runs normally and the wrapper sees the real exit code.
+- **Default-on `--skip-deps` for check.** `cyrius check FILE`
+  used to auto-prepend the manifest's `[deps]` entries before
+  parsing FILE, which produced a multi-hour debug trap when
+  patra was prepended above main.cyr's own
+  `include "lib/syscalls_x86_64_linux.cyr"` and patra's
+  `SYS_LSEEK` reference failed at parse time (with the error
+  blamed on patra rather than the resolver). Default behavior
+  is now: parse FILE standalone (`_skip_deps = 1`). Pass
+  `--with-deps` to keep the legacy auto-prepend behavior for
+  files that depend on stdlib modules pulled in by the manifest.
+- **"is a module" tautology removed.** `cyrius check
+  src/main.cyr` used to print `check via src/main.cyr
+  (src/main.cyr is a module)` because the entry-redirect
+  message fired even when `actual` was already the source.
+  Now only emitted when `actual != source`.
+- **Off-by-one in lex.cyr token-cap message.** `lex.cyr:95`
+  emitted `"error: token limit exceeded (262144)\n"` (37 bytes)
+  but passed `36` as the length to `syscall(SYS_WRITE)`,
+  swallowing the trailing `\n`. Concatenated visually into the
+  next line as `(262144)error: src/main.cyr`. Fixed.
+
+### Added (cyrius check — `--with-deps` opt-in flag)
+
+- New `cyrius check [--with-deps] [--help] <source.cyr>` shape.
+  `--help` prints usage without resolving deps. `--with-deps`
+  preserves the pre-v5.7.8 auto-prepend + entry-redirect
+  module-mode behavior for explicit opt-in.
+
+### Added (cyrius build — `--no-deps`)
+
+- New `cyrius build [--aarch64] [--no-deps] [-D NAME]... <src>
+  <out>` shape. Closes the v5.7.7 carry-forward pin: cyrius
+  self-build via `cyrius build src/main.cyr build/cc5` used to
+  exceed the 262K JS token cap because the 6 manifest deps
+  auto-prepended. With `--no-deps` the prepend is skipped and
+  cc5 self-build via cyrius's own CLI works (709,688 B output;
+  3-step fixpoint clean).
+
+### Fixed (cc5 — syscall arity warning false-positives)
+
+- **`_SC_ARITY(112)` SYS_SETSID arity 1 → 0.** The table comment
+  literally said *"actually 0 args but Cyrius wraps"* — Linux
+  `setsid()` takes 0 args, the wrapper passes 0 user args; the
+  expected arity should match. One-character fix in
+  `src/frontend/parse_expr.cyr:46`. Closes the
+  `warning:lib/syscalls_x86_64_linux.cyr:358: syscall arity
+  mismatch` that fired on every `cyrius build` of any
+  downstream that included syscalls.
+- **Cross-arch openat sentinel false-positive.** The
+  `_SC_ARITY` warning fires when `syscall(SYS_OPEN, 0 - 100,
+  path, 0, 0)` is parsed (5 args vs open's 3) — but that's the
+  arch-conditional sentinel pattern (`AT_FDCWD = -100` →
+  routes to openat downstream) deliberately kept in
+  arch-conditional wrappers in `lib/syscalls_*_linux.cyr` and
+  `src/frontend/lex.cyr`/`src/main.cyr` for cross-arch source
+  compatibility. The dead branch on the running arch is not a
+  bug; the warning was. Suppressed via a structural check
+  (`sc_num == 2 && got == 4`) — open() is never legitimately
+  called with 4 user args, so the match is unambiguous.
+  Closes the `lex.cyr:227` + `lex.cyr:240` + `<source>:7`
+  warnings that fired on every cc5 self-build.
+
+### Added (cc5 — `_had_error` exit-code-propagation infrastructure)
+
+- New global `_had_error` in `src/main.cyr`; final exit becomes
+  `syscall(SYS_EXIT, _had_error)`. **No behavior change in this
+  release** — no error path currently writes to `_had_error`
+  (the v5.7.8 attempt to flag undefined-fn-with-call-site was
+  reverted because tests rely on the historical "warn, don't
+  abort, partial includes are common in test files" semantics).
+  Infrastructure is in place for future error paths that want
+  strict exit-code semantics.
+
+### Fixed (cyrius deps — P1: silent dangling symlinks)
+
+- `cbt/deps.cyr` now `stat`s each `[deps.NAME] modules` entry
+  inside the cloned tree before symlinking. Pre-v5.7.8, a
+  manifest pinning a `modules = ["dist/this_path_does_not_
+  exist.cyr"]` produced a dangling `lib/<name>.cyr` symlink and
+  reported `5 deps resolved, exit 0`; the build error surfaced
+  later as a missing-include without blaming the resolver
+  (multi-hour debug trap). Now: `error: [deps.<name>] modules
+  entry "<path>" not found at tag in <clone-dir>` + `errors+1`
+  + skip the entry. Surfaced by cyrius-bb wiring 2026-04-26.
+
+### Added (cyrius deps — P2: `--help`, P3: top-level help)
+
+- **P2**: `cyrius deps --help` (and `-h`) now prints
+  subcommand help (flags, default behavior, cache location,
+  related commands) instead of running the resolver.
+- **P3**: `cyrius help` lists `deps` and `update` under the
+  Project section. Discoverability matters more than where it
+  lives.
+
+### Fixed (cyrius deps — P4: cold/warm count off-by-one)
+
+- `N deps resolved` summary now counts distinct `[deps.NAME]`
+  blocks that successfully resolved at least one module, not
+  per-module copy/symlink operations. Pre-v5.7.8, a multi-
+  module dep counted N on cold cache and 1 on warm; a single-
+  module dep counted 1 in both cases — drifting the total by
+  one or more between cold and warm. Stdlib (`stdlib = [...]`)
+  modules no longer count toward the resolved-deps total
+  (they're not deps in the `[deps.NAME]` sense).
+
+### Changed (cyrius deps — P5: lockfile default-on)
+
+- **`cyrius deps` now writes `cyrius.lock` by default** after
+  every successful resolve. Pre-v5.7.8, lockfile generation
+  was opt-in via `cyrius deps --lock` and undocumented in
+  `cyrius help` / `cyrius deps --help` (since `--help` ran the
+  resolver per P2) / any usage error. Found only by `strings
+  $(which cyrius) | grep lock`. Lockfile is the only thing
+  making "pinned deps" reproducible across machines; making it
+  opt-in defeated the purpose for new projects whose authors
+  did not know the flag existed.
+- **`--no-lock` opt-out** for the rare suppress-write case.
+- **Migration**: existing projects without a checked-in
+  `cyrius.lock` will get one written on the next `cyrius
+  deps`. Add to git if you want lockfile-based reproducibility,
+  or run with `--no-lock` to suppress.
+
+### Compiler size
+
+- cc5 v5.7.7 (709,544 B) → v5.7.8 (709,688 B) — **+144 B**
+  (parse-side arg2 capture removed; `_had_error` infrastructure
+  added; arity table comment shrunk; lex.cyr length-37 fix is
+  invisible).
+
+### Acceptance gates verified
+
+- 3-step fixpoint: `cc5_a == cc5_b` byte-identical at 709,688
+  B. ✅
+- `scripts/check.sh`: 29/29 PASS. ✅
+- cc5 self-build emits zero `warning: ... syscall arity
+  mismatch` lines. ✅
+- `cyrius check src/main.cyr` exits 0 with no auto-prepend; ✅
+  `cyrius check programs/calc.cyr` exits 0 with no auto-prepend; ✅
+  `cyrius check --help` exits 0 without resolving deps. ✅
+- `cyrius deps --help` prints help, does not resolve. ✅
+- Cold/warm `cyrius deps` print identical N. ✅
+- `cyrius.lock` written by default; `--no-lock` suppresses. ✅
+- `cyrius build --no-deps src/main.cyr <out>` produces a
+  working 709,688 B cc5 (the carry-forward pin from v5.7.7
+  closes here). ✅
+- New regression: P1 fixture (manifest with bogus
+  `modules` path) produces `error: [deps.X] modules entry
+  "..." not found` + exit 1 + zero `lib/` symlinks. ✅
+
 ## [5.7.7] — 2026-04-26
 
 **FIXUP-CAP 1M + TOOL-ISSUE BUNDLE — fixup table 262K → 1M, lint

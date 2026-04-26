@@ -25,10 +25,14 @@ fn compile(source, output) {
         sys_write(STDERR_FD, output, strlen(output));
         sys_write(STDERR_FD, "\n", 1);
     }
-    # Build temp file if we have dep includes or defines to prepend
+    # Build temp file if we have dep includes or defines to prepend.
+    # v5.7.8: _skip_deps suppresses the manifest auto-prepend; defines
+    # and build-modules still apply.
     var actual_source = source;
     var need_tmp = 0;
-    if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
+    if (_skip_deps == 0) {
+        if (_dep_includes != 0) { if (vec_len(_dep_includes) > 0) { need_tmp = 1; } }
+    }
     if (_defines != 0) { if (vec_len(_defines) > 0) { need_tmp = 1; } }
     if (_build_modules != 0) { if (vec_len(_build_modules) > 0) { need_tmp = 1; } }
     if (need_tmp == 1) {
@@ -42,15 +46,17 @@ fn compile(source, output) {
         sys_unlink(tmp);
         var tfd = sys_open(tmp, O_WRONLY | O_CREAT | O_EXCL, 0x180);
         if (tfd >= 0) {
-            # Prepend dep includes
-            if (_dep_includes != 0) {
-                var ii = 0;
-                while (ii < vec_len(_dep_includes)) {
-                    var inc = vec_get(_dep_includes, ii);
-                    sys_write(tfd, "include \"", 9);
-                    sys_write(tfd, inc, strlen(inc));
-                    sys_write(tfd, "\"\n", 2);
-                    ii = ii + 1;
+            # Prepend dep includes (v5.7.8: skipped under _skip_deps)
+            if (_skip_deps == 0) {
+                if (_dep_includes != 0) {
+                    var ii = 0;
+                    while (ii < vec_len(_dep_includes)) {
+                        var inc = vec_get(_dep_includes, ii);
+                        sys_write(tfd, "include \"", 9);
+                        sys_write(tfd, inc, strlen(inc));
+                        sys_write(tfd, "\"\n", 2);
+                        ii = ii + 1;
+                    }
                 }
             }
             # Prepend defines

@@ -92,7 +92,7 @@ fn FM_LOOKUP(S, expanded_line) {
 fn ADDTOK(S, typ, val) {
     var tc = GTCNT(S);
     if (tc >= 262144) {
-        syscall(SYS_WRITE, 2, "error: token limit exceeded (262144)\n", 36);
+        syscall(SYS_WRITE, 2, "error: token limit exceeded (262144)\n", 37);
         syscall(SYS_EXIT, 1);
     }
     S64(S + 0x74A000 + tc * 8, typ);

@@ -227,13 +227,16 @@ fn cmd_deps() {
                         var cr = _dep_copy_file(src, dst_full);
                         if (cr == 0 || cr == 2) {
                             vec_push(_dep_includes, dst_full);
+                            # v5.7.8 P4: stdlib modules are not "deps" in
+                            # the [deps.NAME] sense — do not count them
+                            # against the "N deps resolved" summary
+                            # (that count drifted cold/warm pre-v5.7.8).
                             if (cr == 0) {
                                 if (_verbose == 1) {
                                     sys_write(STDERR_FD, "  stdlib: ", 10);
                                     sys_write(STDERR_FD, mod_name, strlen(mod_name));
                                     sys_write(STDERR_FD, "\n", 1);
                                 }
-                                copied = copied + 1;
                             }
                         } elif (cr == 1) { errors = errors + 1; }
                         mi = mi + 1;
@@ -409,7 +412,13 @@ fn cmd_deps() {
                 }
                 dep_path = clone_dir;
             }
-            # Copy modules from dep_path
+            # Copy modules from dep_path. v5.7.8 P4: track per-dep
+            # success so the summary counts distinct deps, not
+            # individual modules. Pre-v5.7.8, `copied++` per module
+            # produced a count that drifted between cold and warm
+            # cache (off-by-one when a multi-module dep was processed
+            # vs a single-module dep on warm cache).
+            var dep_had_success = 0;
             if (dep_path != 0 && dep_modules != 0) {
                 var mi = 0;
                 while (mi < vec_len(dep_modules)) {
@@ -436,6 +445,26 @@ fn cmd_deps() {
                             var alt = str_data(str_builder_build(sb_fb));
                             if (file_exists(alt) == 1) { src = alt; }
                         }
+                    }
+                    # v5.7.8 P1: if src STILL does not exist after the
+                    # subdir/flat fallback, the manifest declared a
+                    # `modules` path that does not exist at the pinned
+                    # tag. Pre-v5.7.8, the resolver blindly created a
+                    # dangling symlink and reported success; the build
+                    # error surfaced later as "missing include" without
+                    # blaming the resolver. Multi-hour debug trap.
+                    # Fix: report loudly, count as error, skip this entry.
+                    if (file_exists(src) == 0) {
+                        sys_write(STDERR_FD, "error: [deps.", 13);
+                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                        sys_write(STDERR_FD, "] modules entry \"", 17);
+                        sys_write(STDERR_FD, mod_path, strlen(mod_path));
+                        sys_write(STDERR_FD, "\" not found at tag in ", 22);
+                        sys_write(STDERR_FD, dep_path, strlen(dep_path));
+                        sys_write(STDERR_FD, "\n", 1);
+                        errors = errors + 1;
+                        mi = mi + 1;
+                        continue;
                     }
                     # Destination: lib/{basename} if it starts with depname,
                     # else lib/{depname}_{basename} to avoid collisions.
@@ -479,6 +508,10 @@ fn cmd_deps() {
                     }
                     if (cr2 == 0 || cr2 == 2) {
                         vec_push(_dep_includes, dst);
+                        # cr2 == 0: actual symlink/copy created.
+                        # cr2 == 2: target already correct (warm cache).
+                        # Either way, this dep produced a usable module.
+                        dep_had_success = 1;
                         if (cr2 == 0) {
                             if (_verbose == 1) {
                                 sys_write(STDERR_FD, "  ", 2);
@@ -487,7 +520,6 @@ fn cmd_deps() {
                                 sys_write(STDERR_FD, base, strlen(base));
                                 sys_write(STDERR_FD, "\n", 1);
                             }
-                            copied = copied + 1;
                         }
                         # No alias needed — basename-starts-with-depname check
                         # above already places the file at lib/{basename}.
@@ -495,6 +527,7 @@ fn cmd_deps() {
                     mi = mi + 1;
                 }
             }
+            if (dep_had_success == 1) { copied = copied + 1; }
         } else {
             si = si + 1;
         }
@@ -513,6 +546,19 @@ fn cmd_deps() {
             sys_write(STDOUT_FD, " errors", 7);
         }
         sys_write(STDOUT_FD, "\n", 1);
+    }
+    # v5.7.8 P5: write cyrius.lock by default after every successful
+    # resolve (was opt-in via `cyrius deps --lock` pre-v5.7.8). The
+    # lockfile is the only thing making "pinned deps" reproducible
+    # across machines — making it opt-in defeats the purpose for new
+    # projects whose authors do not know the flag exists. Suppressed
+    # by --no-lock.
+    if (errors == 0) {
+        if (_no_lock == 0) {
+            if (copied > 0) {
+                cmd_deps_lock();
+            }
+        }
     }
     return errors;
 }

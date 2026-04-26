@@ -256,6 +256,12 @@ include "src/backend/x86/fixup.cyr"
 # whether undefined-function warnings should hard-fail the compile
 # (vs the default: warn and continue into a known-to-crash binary).
 var _strict_mode = 0;
+# v5.7.8: errors that print "error:" but want to keep going (so the
+# binary is still produced for downstream debug) set this flag; the
+# final exit returns it as the process exit code. Without this,
+# `cyrius check` and every gate-script that pipes through cc5 silently
+# treats failed compiles as successes.
+var _had_error = 0;
 var _ts_lex_only_mode = 0;       # P1.6b: --lex-ts CLI flag
 var _ts_parse_only_mode = 0;     # P2.1: --parse-ts CLI flag
 var _vbuf[256];
@@ -1232,4 +1238,4 @@ if (_prof_on == 1) {
     PRNUM(_prof_ms);
     syscall(SYS_WRITE, 2, " ms\n", 4);
 }
-syscall(SYS_EXIT, 0);
+syscall(SYS_EXIT, _had_error);

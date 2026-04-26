@@ -5,6 +5,45 @@
 
 ## Version
 
+**5.7.8** (shipped 2026-04-26 — **`cyrius check` REPAIR +
+`cyrius deps` ERGONOMICS + SYSCALL ARITY WARNING FIX**. cc5
+709,544 → **709,688 B** (+144 B). Bundle of silent-failure /
+UX fixes surfaced during cyrius-bb wiring:
+**(1)** `cyrius check`: `/dev/null.tmp.<pid>` open-fail bug
+fixed by switching to PID-suffixed `/tmp` path; default-on
+`--skip-deps` (parse standalone, not against manifest deps);
+new `--with-deps` opt-in for legacy auto-prepend; "is a
+module" tautology removed; `lex.cyr:95` token-cap message
+length off-by-one (37 written as 36) fixed.
+**(2)** Syscall arity: `_SC_ARITY(112)` SYS_SETSID 1 → 0
+(closes `lib/syscalls_x86_64_linux.cyr:358` warning);
+structural skip for `sc_num=2 && got=4` cross-arch openat
+sentinel pattern (closes `lex.cyr:227+240+<source>:7`
+warnings). cc5 self-build emits ZERO arity warnings.
+**(3)** `cyrius deps` P1-P5: P1 silent dangling symlinks
+now hard-error (`error: [deps.X] modules entry "..." not
+found at tag in ...`); P2 `--help` branches added; P3
+`deps`/`update` listed in top-level `cyrius help`; P4
+`copied` counts distinct deps (one per `[deps.NAME]` block
+that succeeded), not per-module operations — cold/warm
+match; P5 `cyrius.lock` written by default after every
+successful resolve, `--no-lock` opt-out; lockfile flag
+family documented.
+**(4)** `cyrius build --no-deps` flag added (closes the
+v5.7.7 carry-forward pin). `_had_error` exit-code
+infrastructure added but no error path writes to it yet
+(deliberate: undefined-fn-with-call-site reverted because
+tests rely on the historical "warn, don't abort, partial
+includes are common in test files" semantics).
+3-step fixpoint clean. check.sh 29/29.
+RISC-V rv64 (was v5.7.8) cascaded → v5.7.11; v5.7.9 =
+`input_buf` 512 KB → 1 MB; v5.7.10 = silent fn-name collision
+investigation.)
+
+**5.7.7** (shipped — fixup-cap 1MB+ + tool-issue bundle.
+cc5 704,976 → **709,544 B**. Fixup table 262K → 1M; lint
+UFCS Pascal-prefix exemption; `cyrius build` atomic-output.)
+
 **5.7.6** (shipped — **CYRIUS-TS JSX INNER-EXPR TOKENIZATION
 (P4.3d)**. Closes v5.7.5's empty `JSX_EXPR_CONTAINER` deferral.
 Lex now tokenizes `{...}` JSX expression bodies via mode-stack

@@ -43,7 +43,7 @@ fn _SC_ARITY(n) {
     if (n == 104) { return 0; }  # getgid()
     if (n == 107) { return 0; }  # geteuid()
     if (n == 108) { return 0; }  # getegid()
-    if (n == 112) { return 1; }  # setsid() — actually 0 args but Cyrius wraps
+    if (n == 112) { return 0; }  # setsid() takes 0 args
     if (n == 113) { return 1; }  # setuid(uid)
     if (n == 116) { return 2; }  # setgroups(size, list)
     if (n == 165) { return 5; }  # mount(src, tgt, fs, flags, data)
@@ -579,7 +579,21 @@ fn PARSE_FACTOR(S) {
             if (expect >= 0) {
                 var got = argc - 1;
                 if (got != expect) {
-                    WARN(S, "syscall arity mismatch", 22);
+                    # Skip the warning when this is the cross-arch
+                    # openat shape: syscall(SYS_OPEN=2, AT_FDCWD, path,
+                    # flags, mode) — 4 user args instead of open()'s 3.
+                    # Source: arch-conditional wrappers in
+                    # lib/syscalls_*_linux.cyr and src/frontend/lex.cyr
+                    # keep both open()/openat() shapes for cross-arch
+                    # source compatibility; the dead branch on the
+                    # running arch is not a bug. Open() is never called
+                    # legitimately with 4 user args, so the structural
+                    # match is unambiguous.
+                    var skip_warn = 0;
+                    if (sc_num == 2) { if (got == 4) { skip_warn = 1; } }
+                    if (skip_warn == 0) {
+                        WARN(S, "syscall arity mismatch", 22);
+                    }
                 }
             }
         }

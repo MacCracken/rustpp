@@ -38,16 +38,18 @@ fn usage() {
     println("Usage: cyrius <command> [options]");
     println("");
     println("Build:");
-    println("  build [--aarch64] <src> <out>   compile a program");
+    println("  build [--aarch64] [--no-deps] <src> <out>   compile a program");
     println("  run [--aarch64] <source.cyr>    compile + run");
     println("  test [--aarch64] <test.cyr>     compile + run, check exit 0");
     println("  bench <bench.cyr>               compile + run benchmarks");
-    println("  check <source.cyr>              syntax check");
+    println("  check [--with-deps] <src.cyr>  syntax check (default: standalone)");
     println("  self                            self-hosting check (cc5==cc5)");
     println("  clean                           remove build/ contents");
     println("");
     println("Project:");
     println("  init <name>                     scaffold a new project");
+    println("  deps [--no-lock|--verify]       resolve [deps.NAME] from cyrius.cyml into lib/");
+    println("  update                          re-resolve all deps to latest tags");
     println("  package                         create .ark distributable");
     println("  port <rust-project>             scaffold from Rust project");
     println("");
@@ -151,11 +153,15 @@ fn main() {
                 ai = ai + 1;
                 if (argc() > ai) { vec_push(defs, argv(ai)); ai = ai + 1; }
             }
+            elif (streq(argv(ai), "--no-deps") == 1) {
+                _skip_deps = 1;
+                ai = ai + 1;
+            }
             else { break; }
         }
         if (vec_len(defs) > 0) { _defines = defs; }
         if (argc() < ai + 2) {
-            println("Usage: cyrius build [--aarch64] [-v] [-q] [-D NAME]... <source> <output>");
+            println("Usage: cyrius build [--aarch64] [-v] [-q] [--no-deps] [-D NAME]... <source> <output>");
             return 1;
         }
         return cmd_build(argv(ai), argv(ai + 1));
@@ -248,11 +254,33 @@ fn main() {
     }
 
     if (streq(cmd, "check") == 1) {
-        if (argc() < 3) {
-            println("Usage: cyrius check <source.cyr>");
+        if (argc() < cmd_idx + 2) {
+            println("Usage: cyrius check [--with-deps] <source.cyr>");
             return 1;
         }
-        return cmd_check(argv(2));
+        # Walk the args after `check` looking for --with-deps + source.
+        # Default skip_deps unless --with-deps given. Source is the
+        # first non-flag arg after `check`.
+        var ck_with_deps = 0;
+        var ck_src = 0;
+        var ck_i = cmd_idx + 1;
+        while (ck_i < argc()) {
+            if (streq(argv(ck_i), "--with-deps") == 1) { ck_with_deps = 1; }
+            elif (streq(argv(ck_i), "--help") == 1) {
+                println("Usage: cyrius check [--with-deps] <source.cyr>");
+                println("");
+                println("  Default: parse <source> standalone (no manifest dep auto-prepend).");
+                println("  --with-deps   prepend manifest [deps] entries (legacy behavior).");
+                return 0;
+            }
+            else { if (ck_src == 0) { ck_src = argv(ck_i); } }
+            ck_i = ck_i + 1;
+        }
+        if (ck_src == 0) {
+            println("Usage: cyrius check [--with-deps] <source.cyr>");
+            return 1;
+        }
+        return cmd_check(ck_src, ck_with_deps);
     }
 
     if (streq(cmd, "self") == 1) {
@@ -304,6 +332,28 @@ fn main() {
         if (argc() > cmd_idx + 1) {
             if (streq(argv(cmd_idx + 1), "--verify") == 1) { return cmd_deps_verify(); }
             if (streq(argv(cmd_idx + 1), "--lock") == 1) { return cmd_deps_lock(); }
+            if (streq(argv(cmd_idx + 1), "--no-lock") == 1) { _no_lock = 1; }
+            elif (streq(argv(cmd_idx + 1), "--help") == 1 || streq(argv(cmd_idx + 1), "-h") == 1) {
+                println("Usage: cyrius deps [--verify | --lock | --no-lock | --help]");
+                println("");
+                println("Resolve [deps.NAME] entries from cyrius.cyml into lib/.");
+                println("Each dep is git-cloned into ~/.cyrius/deps/<name>/<tag>/");
+                println("(or $CYRIUS_HOME/deps/...) and symlinked into lib/.");
+                println("");
+                println("Default behavior:");
+                println("  - Resolves all [deps] entries.");
+                println("  - Writes cyrius.lock with sha256 of every resolved file.");
+                println("    (v5.7.8: lockfile is on by default; pre-v5.7.8 was opt-in.)");
+                println("");
+                println("Flags:");
+                println("  --verify    verify cyrius.lock matches the working lib/.");
+                println("  --lock      explicit lockfile write (default-on; redundant).");
+                println("  --no-lock   suppress cyrius.lock write for this run.");
+                println("  --help, -h  print this message.");
+                println("");
+                println("Related: cyrius update    re-resolve to latest tags.");
+                return 0;
+            }
         }
         return cmd_deps();
     }
