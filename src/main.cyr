@@ -239,6 +239,7 @@ include "src/backend/x86/jump.cyr"
 include "src/backend/x86/decode.cyr"
 include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
+include "src/frontend/ts/lex.cyr"
 include "src/frontend/parse.cyr"
 include "src/backend/macho/emit.cyr"
 include "src/backend/pe/emit.cyr"
@@ -253,6 +254,7 @@ include "src/backend/x86/fixup.cyr"
 # whether undefined-function warnings should hard-fail the compile
 # (vs the default: warn and continue into a known-to-crash binary).
 var _strict_mode = 0;
+var _ts_lex_only_mode = 0;       # P1.6b: --lex-ts CLI flag
 var _vbuf[256];
 var _vfd = 0;
 if (SYS_OPEN == 2) { _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0); }
@@ -282,6 +284,16 @@ if (_vn > 0) {
                 }
             }
         }
+        # "--le" (--lex-ts) — TS lex-only mode (P1.6b wire-in).
+        # cc5 reads stdin, runs TS_LEX, exits 0 (clean lex) or 1 (error).
+        # No parser/typecheck/lower yet — those are P2-P5.
+        if (_vi + 4 <= _vn) {
+            if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
+                if (load8(&_vbuf + _vi + 2) == 108 && load8(&_vbuf + _vi + 3) == 101) {
+                    _ts_lex_only_mode = 1;
+                }
+            }
+        }
         # Skip to next arg (past next \0)
         while (_vi < _vn && load8(&_vbuf + _vi) != 0) { _vi = _vi + 1; }
         _vi = _vi + 1;
@@ -290,7 +302,11 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x1B0B000);
+# brk now extends past the TS frontend heap region (0x1B0B000 base
+# + 0x880000 size, per src/frontend/ts/lex.cyr P1 design). TS region
+# is only TOUCHED in --lex-ts mode (P1.6b wire-in); the +8.5 MB
+# brk extension is paid unconditionally.
+syscall(SYS_BRK, S + 0x238B000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -366,6 +382,27 @@ while (done == 0) {
     }
 }
 SBL(S, bl);
+
+# ─── TS lex-only mode (P1.6b wire-in) ─────────────────────────────
+# When --lex-ts is set, run TS_LEX on the source bytes and exit with
+# 0 (clean lex) or 1 (lex error). No parser/typecheck/lower yet —
+# those are v5.7.2 P2-P5. This mode lets cbt/build.cyr's compile()
+# detect a .ts source and verify it lexes cleanly via cc5 directly,
+# without forcing every consumer to go through a separate test driver.
+if (_ts_lex_only_mode == 1) {
+    var _ts_n = TS_LEX(S + 0x1B0B000, S, bl);
+    if (_ts_n < 0) {
+        var _ts_err = TS_GETERR(S + 0x1B0B000);
+        syscall(SYS_WRITE, 2, "ts lex error: code ", 19);
+        # Inline integer print for the err code (1-9 single digit)
+        var _eb[2];
+        store8(&_eb, 48 + _ts_err);
+        store8(&_eb + 1, 10);
+        syscall(SYS_WRITE, 2, &_eb, 2);
+        syscall(SYS_EXIT, 1);
+    }
+    syscall(SYS_EXIT, 0);
+}
 
 # Init stdlib fallback path from HOME env
 _init_cyrius_lib();

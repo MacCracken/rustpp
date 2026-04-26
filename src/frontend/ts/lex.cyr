@@ -335,6 +335,17 @@ fn TS_ISOCTDIGIT(c) {
     return 0;
 }
 
+# Local memeq (cc5 has no stdlib memeq; we don't want to drag
+# in lib/string.cyr just for this). Returns 1 if first n bytes match.
+fn _ts_memeq(a, b, n) {
+    var i = 0;
+    while (i < n) {
+        if (load8(a + i) != load8(b + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
 # ================================================================
 # Keyword recognition
 # ================================================================
@@ -345,88 +356,88 @@ fn TS_ISOCTDIGIT(c) {
 fn TS_KW_LOOKUP(src, off, len) {
     var name = src + off;
     if (len == 2) {
-        if (memeq(name, "if", 2) == 1) { return TS_TOK_KW_IF; }
-        if (memeq(name, "do", 2) == 1) { return TS_TOK_KW_DO; }
-        if (memeq(name, "in", 2) == 1) { return TS_TOK_KW_IN; }
-        if (memeq(name, "of", 2) == 1) { return TS_TOK_KW_OF; }
-        if (memeq(name, "as", 2) == 1) { return TS_TOK_KW_AS; }
+        if (_ts_memeq(name, "if", 2) == 1) { return TS_TOK_KW_IF; }
+        if (_ts_memeq(name, "do", 2) == 1) { return TS_TOK_KW_DO; }
+        if (_ts_memeq(name, "in", 2) == 1) { return TS_TOK_KW_IN; }
+        if (_ts_memeq(name, "of", 2) == 1) { return TS_TOK_KW_OF; }
+        if (_ts_memeq(name, "as", 2) == 1) { return TS_TOK_KW_AS; }
     }
     if (len == 3) {
-        if (memeq(name, "var", 3) == 1) { return TS_TOK_KW_VAR; }
-        if (memeq(name, "let", 3) == 1) { return TS_TOK_KW_LET; }
-        if (memeq(name, "for", 3) == 1) { return TS_TOK_KW_FOR; }
-        if (memeq(name, "new", 3) == 1) { return TS_TOK_KW_NEW; }
-        if (memeq(name, "try", 3) == 1) { return TS_TOK_KW_TRY; }
-        if (memeq(name, "set", 3) == 1) { return TS_TOK_KW_SET; }
-        if (memeq(name, "get", 3) == 1) { return TS_TOK_KW_GET; }
+        if (_ts_memeq(name, "var", 3) == 1) { return TS_TOK_KW_VAR; }
+        if (_ts_memeq(name, "let", 3) == 1) { return TS_TOK_KW_LET; }
+        if (_ts_memeq(name, "for", 3) == 1) { return TS_TOK_KW_FOR; }
+        if (_ts_memeq(name, "new", 3) == 1) { return TS_TOK_KW_NEW; }
+        if (_ts_memeq(name, "try", 3) == 1) { return TS_TOK_KW_TRY; }
+        if (_ts_memeq(name, "set", 3) == 1) { return TS_TOK_KW_SET; }
+        if (_ts_memeq(name, "get", 3) == 1) { return TS_TOK_KW_GET; }
     }
     if (len == 4) {
-        if (memeq(name, "void", 4) == 1) { return TS_TOK_KW_VOID; }
-        if (memeq(name, "null", 4) == 1) { return TS_TOK_KW_NULL; }
-        if (memeq(name, "true", 4) == 1) { return TS_TOK_KW_TRUE; }
-        if (memeq(name, "this", 4) == 1) { return TS_TOK_KW_THIS; }
-        if (memeq(name, "case", 4) == 1) { return TS_TOK_KW_CASE; }
-        if (memeq(name, "type", 4) == 1) { return TS_TOK_KW_TYPE; }
-        if (memeq(name, "enum", 4) == 1) { return TS_TOK_KW_ENUM; }
-        if (memeq(name, "from", 4) == 1) { return TS_TOK_KW_FROM; }
-        if (memeq(name, "else", 4) == 1) { return TS_TOK_KW_ELSE; }
+        if (_ts_memeq(name, "void", 4) == 1) { return TS_TOK_KW_VOID; }
+        if (_ts_memeq(name, "null", 4) == 1) { return TS_TOK_KW_NULL; }
+        if (_ts_memeq(name, "true", 4) == 1) { return TS_TOK_KW_TRUE; }
+        if (_ts_memeq(name, "this", 4) == 1) { return TS_TOK_KW_THIS; }
+        if (_ts_memeq(name, "case", 4) == 1) { return TS_TOK_KW_CASE; }
+        if (_ts_memeq(name, "type", 4) == 1) { return TS_TOK_KW_TYPE; }
+        if (_ts_memeq(name, "enum", 4) == 1) { return TS_TOK_KW_ENUM; }
+        if (_ts_memeq(name, "from", 4) == 1) { return TS_TOK_KW_FROM; }
+        if (_ts_memeq(name, "else", 4) == 1) { return TS_TOK_KW_ELSE; }
     }
     if (len == 5) {
-        if (memeq(name, "const", 5) == 1) { return TS_TOK_KW_CONST; }
-        if (memeq(name, "while", 5) == 1) { return TS_TOK_KW_WHILE; }
-        if (memeq(name, "break", 5) == 1) { return TS_TOK_KW_BREAK; }
-        if (memeq(name, "throw", 5) == 1) { return TS_TOK_KW_THROW; }
-        if (memeq(name, "catch", 5) == 1) { return TS_TOK_KW_CATCH; }
-        if (memeq(name, "false", 5) == 1) { return TS_TOK_KW_FALSE; }
-        if (memeq(name, "super", 5) == 1) { return TS_TOK_KW_SUPER; }
-        if (memeq(name, "class", 5) == 1) { return TS_TOK_KW_CLASS; }
-        if (memeq(name, "yield", 5) == 1) { return TS_TOK_KW_YIELD; }
-        if (memeq(name, "async", 5) == 1) { return TS_TOK_KW_ASYNC; }
-        if (memeq(name, "await", 5) == 1) { return TS_TOK_KW_AWAIT; }
-        if (memeq(name, "infer", 5) == 1) { return TS_TOK_KW_INFER; }
-        if (memeq(name, "keyof", 5) == 1) { return TS_TOK_KW_KEYOF; }
+        if (_ts_memeq(name, "const", 5) == 1) { return TS_TOK_KW_CONST; }
+        if (_ts_memeq(name, "while", 5) == 1) { return TS_TOK_KW_WHILE; }
+        if (_ts_memeq(name, "break", 5) == 1) { return TS_TOK_KW_BREAK; }
+        if (_ts_memeq(name, "throw", 5) == 1) { return TS_TOK_KW_THROW; }
+        if (_ts_memeq(name, "catch", 5) == 1) { return TS_TOK_KW_CATCH; }
+        if (_ts_memeq(name, "false", 5) == 1) { return TS_TOK_KW_FALSE; }
+        if (_ts_memeq(name, "super", 5) == 1) { return TS_TOK_KW_SUPER; }
+        if (_ts_memeq(name, "class", 5) == 1) { return TS_TOK_KW_CLASS; }
+        if (_ts_memeq(name, "yield", 5) == 1) { return TS_TOK_KW_YIELD; }
+        if (_ts_memeq(name, "async", 5) == 1) { return TS_TOK_KW_ASYNC; }
+        if (_ts_memeq(name, "await", 5) == 1) { return TS_TOK_KW_AWAIT; }
+        if (_ts_memeq(name, "infer", 5) == 1) { return TS_TOK_KW_INFER; }
+        if (_ts_memeq(name, "keyof", 5) == 1) { return TS_TOK_KW_KEYOF; }
     }
     if (len == 6) {
-        if (memeq(name, "return", 6) == 1) { return TS_TOK_KW_RETURN; }
-        if (memeq(name, "switch", 6) == 1) { return TS_TOK_KW_SWITCH; }
-        if (memeq(name, "delete", 6) == 1) { return TS_TOK_KW_DELETE; }
-        if (memeq(name, "typeof", 6) == 1) { return TS_TOK_KW_TYPEOF; }
-        if (memeq(name, "import", 6) == 1) { return TS_TOK_KW_IMPORT; }
-        if (memeq(name, "export", 6) == 1) { return TS_TOK_KW_EXPORT; }
-        if (memeq(name, "static", 6) == 1) { return TS_TOK_KW_STATIC; }
-        if (memeq(name, "public", 6) == 1) { return TS_TOK_KW_PUBLIC; }
+        if (_ts_memeq(name, "return", 6) == 1) { return TS_TOK_KW_RETURN; }
+        if (_ts_memeq(name, "switch", 6) == 1) { return TS_TOK_KW_SWITCH; }
+        if (_ts_memeq(name, "delete", 6) == 1) { return TS_TOK_KW_DELETE; }
+        if (_ts_memeq(name, "typeof", 6) == 1) { return TS_TOK_KW_TYPEOF; }
+        if (_ts_memeq(name, "import", 6) == 1) { return TS_TOK_KW_IMPORT; }
+        if (_ts_memeq(name, "export", 6) == 1) { return TS_TOK_KW_EXPORT; }
+        if (_ts_memeq(name, "static", 6) == 1) { return TS_TOK_KW_STATIC; }
+        if (_ts_memeq(name, "public", 6) == 1) { return TS_TOK_KW_PUBLIC; }
     }
     if (len == 7) {
-        if (memeq(name, "default", 7) == 1) { return TS_TOK_KW_DEFAULT; }
-        if (memeq(name, "finally", 7) == 1) { return TS_TOK_KW_FINALLY; }
-        if (memeq(name, "extends", 7) == 1) { return TS_TOK_KW_EXTENDS; }
-        if (memeq(name, "private", 7) == 1) { return TS_TOK_KW_PRIVATE; }
-        if (memeq(name, "package", 7) == 1) { return TS_TOK_KW_PACKAGE; }
+        if (_ts_memeq(name, "default", 7) == 1) { return TS_TOK_KW_DEFAULT; }
+        if (_ts_memeq(name, "finally", 7) == 1) { return TS_TOK_KW_FINALLY; }
+        if (_ts_memeq(name, "extends", 7) == 1) { return TS_TOK_KW_EXTENDS; }
+        if (_ts_memeq(name, "private", 7) == 1) { return TS_TOK_KW_PRIVATE; }
+        if (_ts_memeq(name, "package", 7) == 1) { return TS_TOK_KW_PACKAGE; }
                                               # 'declare' falls into len 7
-        if (memeq(name, "declare", 7) == 1) { return TS_TOK_KW_DECLARE; }
+        if (_ts_memeq(name, "declare", 7) == 1) { return TS_TOK_KW_DECLARE; }
     }
     if (len == 8) {
-        if (memeq(name, "function", 8) == 1) { return TS_TOK_KW_FUNCTION; }
-        if (memeq(name, "continue", 8) == 1) { return TS_TOK_KW_CONTINUE; }
-        if (memeq(name, "readonly", 8) == 1) { return TS_TOK_KW_READONLY; }
-        if (memeq(name, "abstract", 8) == 1) { return TS_TOK_KW_ABSTRACT; }
-        if (memeq(name, "debugger", 8) == 1) { return TS_TOK_KW_DEBUGGER; }
+        if (_ts_memeq(name, "function", 8) == 1) { return TS_TOK_KW_FUNCTION; }
+        if (_ts_memeq(name, "continue", 8) == 1) { return TS_TOK_KW_CONTINUE; }
+        if (_ts_memeq(name, "readonly", 8) == 1) { return TS_TOK_KW_READONLY; }
+        if (_ts_memeq(name, "abstract", 8) == 1) { return TS_TOK_KW_ABSTRACT; }
+        if (_ts_memeq(name, "debugger", 8) == 1) { return TS_TOK_KW_DEBUGGER; }
                                                 # 'override' is len 8
-        if (memeq(name, "override", 8) == 1) { return TS_TOK_KW_OVERRIDE; }
+        if (_ts_memeq(name, "override", 8) == 1) { return TS_TOK_KW_OVERRIDE; }
     }
     if (len == 9) {
-        if (memeq(name, "interface", 9) == 1) { return TS_TOK_KW_INTERFACE; }
-        if (memeq(name, "namespace", 9) == 1) { return TS_TOK_KW_NAMESPACE; }
-        if (memeq(name, "protected", 9) == 1) { return TS_TOK_KW_PROTECTED; }
-        if (memeq(name, "satisfies", 9) == 1) { return TS_TOK_KW_SATISFIES; }
-        if (memeq(name, "undefined", 9) == 1) { return TS_TOK_KW_UNDEFINED; }
+        if (_ts_memeq(name, "interface", 9) == 1) { return TS_TOK_KW_INTERFACE; }
+        if (_ts_memeq(name, "namespace", 9) == 1) { return TS_TOK_KW_NAMESPACE; }
+        if (_ts_memeq(name, "protected", 9) == 1) { return TS_TOK_KW_PROTECTED; }
+        if (_ts_memeq(name, "satisfies", 9) == 1) { return TS_TOK_KW_SATISFIES; }
+        if (_ts_memeq(name, "undefined", 9) == 1) { return TS_TOK_KW_UNDEFINED; }
     }
     if (len == 10) {
-        if (memeq(name, "instanceof", 10) == 1) { return TS_TOK_KW_INSTANCEOF; }
-        if (memeq(name, "implements", 10) == 1) { return TS_TOK_KW_IMPLEMENTS; }
+        if (_ts_memeq(name, "instanceof", 10) == 1) { return TS_TOK_KW_INSTANCEOF; }
+        if (_ts_memeq(name, "implements", 10) == 1) { return TS_TOK_KW_IMPLEMENTS; }
     }
     if (len == 11) {
-        if (memeq(name, "constructor", 11) == 1) { return TS_TOK_KW_CONSTRUCTOR; }
+        if (_ts_memeq(name, "constructor", 11) == 1) { return TS_TOK_KW_CONSTRUCTOR; }
     }
     return TS_TOK_IDENT;
 }
