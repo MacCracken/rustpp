@@ -1,0 +1,136 @@
+# v5.7.2 P2.1 — TS parser scaffold regression.
+#
+# Exercises the AST infrastructure (heap helpers, node push/get,
+# children arrays, parser state) without doing actual parsing —
+# real TS_PARSE body is P2.2+. This test verifies:
+#   - TS_AST_PUSH allocates nodes with correct kind + span + zero payloads
+#   - TS_AST_KIND/SPAN/PAYLOAD read back correctly
+#   - TS_AST_SET_PAYLOAD writes correctly
+#   - Sequential allocation produces sequential indices (0, 1, 2, ...)
+#   - Children-array helpers reserve + commit + read back
+#   - Token-stream helpers (TS_PARSE_PEEK / CONSUME / MATCH / EXPECT) work
+#   - TS_PARSE_INIT zeros the parser state
+#   - TS_PARSE stub allocates a ROOT node and returns 1
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+# ─── AST node push + read ────────────────────────────────────────
+test_group("AST node push + read");
+
+# Init state (zero counts)
+TS_PARSE_INIT(ts_base);
+assert_eq(TS_AST_NODE_COUNT(ts_base), 0, "node count starts 0");
+
+# Push three nodes; expect indices 0, 1, 2
+var n0 = TS_AST_PUSH(ts_base, TS_AST_EXPR_INT,    100);     # span=100
+var n1 = TS_AST_PUSH(ts_base, TS_AST_EXPR_IDENT,  200);
+var n2 = TS_AST_PUSH(ts_base, TS_AST_EXPR_BINARY, 300);
+assert_eq(n0, 0, "first push -> 0");
+assert_eq(n1, 1, "second push -> 1");
+assert_eq(n2, 2, "third push -> 2");
+assert_eq(TS_AST_NODE_COUNT(ts_base), 3, "count = 3");
+
+# Read back kinds + spans
+assert_eq(TS_AST_KIND(ts_base, 0), TS_AST_EXPR_INT,    "n0 kind = INT");
+assert_eq(TS_AST_KIND(ts_base, 1), TS_AST_EXPR_IDENT,  "n1 kind = IDENT");
+assert_eq(TS_AST_KIND(ts_base, 2), TS_AST_EXPR_BINARY, "n2 kind = BINARY");
+assert_eq(TS_AST_SPAN(ts_base, 0), 100, "n0 span = 100");
+assert_eq(TS_AST_SPAN(ts_base, 1), 200, "n1 span = 200");
+assert_eq(TS_AST_SPAN(ts_base, 2), 300, "n2 span = 300");
+
+# Default payloads are zero
+assert_eq(TS_AST_PAYLOAD(ts_base, 0, 0), 0, "n0.p0 = 0 (default)");
+assert_eq(TS_AST_PAYLOAD(ts_base, 0, 3), 0, "n0.p3 = 0 (default)");
+
+# Set payloads on the binary node: op=PLUS, lhs=n0, rhs=n1
+TS_AST_SET_PAYLOAD(ts_base, 2, 0, TS_TOK_PLUS);
+TS_AST_SET_PAYLOAD(ts_base, 2, 1, n0);
+TS_AST_SET_PAYLOAD(ts_base, 2, 2, n1);
+assert_eq(TS_AST_PAYLOAD(ts_base, 2, 0), TS_TOK_PLUS, "binary.op = PLUS");
+assert_eq(TS_AST_PAYLOAD(ts_base, 2, 1), n0,          "binary.lhs = n0");
+assert_eq(TS_AST_PAYLOAD(ts_base, 2, 2), n1,          "binary.rhs = n1");
+# p3 untouched
+assert_eq(TS_AST_PAYLOAD(ts_base, 2, 3), 0, "binary.p3 still 0");
+
+# Verify n0 and n1 weren't disturbed by writes to n2
+assert_eq(TS_AST_KIND(ts_base, 0), TS_AST_EXPR_INT, "n0 kind preserved");
+assert_eq(TS_AST_KIND(ts_base, 1), TS_AST_EXPR_IDENT, "n1 kind preserved");
+
+# ─── Children-array helpers ──────────────────────────────────────
+test_group("AST children array");
+
+TS_PARSE_INIT(ts_base);
+
+# Reserve a 3-child slot, write [0, 1, 2, -1], commit
+var off = TS_AST_CHILDREN_RESERVE(ts_base, 3);
+assert_eq(off, 0, "first reserve at offset 0");
+TS_AST_CHILDREN_SET(ts_base, off + 0, 10);
+TS_AST_CHILDREN_SET(ts_base, off + 1, 20);
+TS_AST_CHILDREN_SET(ts_base, off + 2, 30);
+TS_AST_CHILDREN_SET(ts_base, off + 3, 0 - 1);
+TS_AST_CHILDREN_COMMIT(ts_base, 4);   # 3 children + sentinel
+
+assert_eq(TS_AST_CHILDREN_GET(ts_base, 0), 10, "child[0] = 10");
+assert_eq(TS_AST_CHILDREN_GET(ts_base, 1), 20, "child[1] = 20");
+assert_eq(TS_AST_CHILDREN_GET(ts_base, 2), 30, "child[2] = 30");
+assert_eq(TS_AST_CHILDREN_GET(ts_base, 3), 0 - 1, "child[3] = -1 (sentinel)");
+
+# Reserve another after committing the first
+var off2 = TS_AST_CHILDREN_RESERVE(ts_base, 2);
+assert_eq(off2, 4, "second reserve at offset 4 (after first 4 entries)");
+
+# ─── Token-stream helpers ────────────────────────────────────────
+test_group("token-stream helpers");
+
+# Lex a simple input first so the parser has tokens to walk
+var src = "var x";
+var n_toks = TS_LEX(ts_base, src, strlen(src));
+assert(n_toks > 0, "lex produced tokens");
+
+TS_PARSE_INIT(ts_base);
+
+# At idx 0: KW_VAR
+assert_eq(TS_PARSE_PEEK(ts_base), TS_TOK_KW_VAR, "PEEK[0] = KW_VAR");
+assert_eq(TS_PARSE_PEEK_AHEAD(ts_base, 1), TS_TOK_IDENT, "PEEK_AHEAD[1] = IDENT");
+
+# MATCH succeeds + advances
+assert_eq(TS_PARSE_MATCH(ts_base, TS_TOK_KW_VAR), 1, "MATCH KW_VAR -> 1, advances");
+assert_eq(TS_PARSE_PEEK(ts_base), TS_TOK_IDENT, "now PEEK = IDENT");
+
+# MATCH on wrong type doesn't advance
+assert_eq(TS_PARSE_MATCH(ts_base, TS_TOK_KW_LET), 0, "MATCH KW_LET -> 0 (no match)");
+assert_eq(TS_PARSE_PEEK(ts_base), TS_TOK_IDENT, "still PEEK = IDENT");
+
+# EXPECT succeeds + advances
+assert_eq(TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT), 0, "EXPECT IDENT -> 0 (ok)");
+assert_eq(TS_PARSE_PEEK(ts_base), TS_TOK_EOF, "consumed past IDENT, now EOF");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no err after successful EXPECT");
+
+# EXPECT failure sets err code 3
+assert_eq(TS_PARSE_EXPECT(ts_base, TS_TOK_KW_LET), 0 - 1, "EXPECT KW_LET (mismatch) -> -1");
+assert_eq(TS_PARSE_GETERR(ts_base), 3, "err code 3 = unexpected token");
+
+# ─── TS_PARSE stub end-to-end ────────────────────────────────────
+test_group("TS_PARSE stub");
+
+# Re-lex (parser state was dirtied by prior tests)
+n_toks = TS_LEX(ts_base, "let y = 99", 10);
+assert(n_toks > 0, "lex OK for parse-stub test");
+
+var n_nodes = TS_PARSE(ts_base);
+assert_eq(n_nodes, 1, "TS_PARSE stub allocates 1 ROOT node");
+assert_eq(TS_AST_KIND(ts_base, 0), TS_AST_ROOT, "node[0] = ROOT");
+assert_eq(TS_PARSE_GETERR(ts_base), 0, "no parse err in stub");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);

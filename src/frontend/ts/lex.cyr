@@ -54,7 +54,10 @@ var TS_STR_POOL_OFF       = 0x700000;
 var TS_NAME_IDX_OFF       = 0x800000;
 var TS_TEMPLATE_STACK_OFF = 0x840000;
 var TS_LEX_STATE_OFF      = 0x850000;
-var TS_HEAP_SIZE          = 0x880000;   # 8.5 MB total TS heap
+# TS_HEAP_SIZE bumped at v5.7.2 P2.1 to 0xD81000 (~13.5 MB) to cover
+# the AST regions (ts_ast_nodes 4 MB + ts_ast_children 1 MB +
+# ts_parse_state 4 KB), declared in src/frontend/ts/parse.cyr.
+var TS_HEAP_SIZE          = 0xD81000;
 
 # Capacity constants
 var TS_TOK_CAP            = 262144;     # 256K tokens

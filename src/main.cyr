@@ -240,6 +240,7 @@ include "src/backend/x86/decode.cyr"
 include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
 include "src/frontend/parse.cyr"
 include "src/backend/macho/emit.cyr"
 include "src/backend/pe/emit.cyr"
@@ -255,6 +256,7 @@ include "src/backend/x86/fixup.cyr"
 # (vs the default: warn and continue into a known-to-crash binary).
 var _strict_mode = 0;
 var _ts_lex_only_mode = 0;       # P1.6b: --lex-ts CLI flag
+var _ts_parse_only_mode = 0;     # P2.1: --parse-ts CLI flag
 var _vbuf[256];
 var _vfd = 0;
 if (SYS_OPEN == 2) { _vfd = syscall(SYS_OPEN, "/proc/self/cmdline", 0, 0); }
@@ -286,11 +288,20 @@ if (_vn > 0) {
         }
         # "--le" (--lex-ts) — TS lex-only mode (P1.6b wire-in).
         # cc5 reads stdin, runs TS_LEX, exits 0 (clean lex) or 1 (error).
-        # No parser/typecheck/lower yet — those are P2-P5.
         if (_vi + 4 <= _vn) {
             if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
                 if (load8(&_vbuf + _vi + 2) == 108 && load8(&_vbuf + _vi + 3) == 101) {
                     _ts_lex_only_mode = 1;
+                }
+            }
+        }
+        # "--pa" (--parse-ts) — TS parse-only mode (P2.1 wire-in).
+        # cc5 reads stdin, runs TS_LEX then TS_PARSE, exits 0 (both
+        # clean) or 1 (lex/parse error). No typecheck/lower yet — P3-P5.
+        if (_vi + 4 <= _vn) {
+            if (load8(&_vbuf + _vi) == 45 && load8(&_vbuf + _vi + 1) == 45) {
+                if (load8(&_vbuf + _vi + 2) == 112 && load8(&_vbuf + _vi + 3) == 97) {
+                    _ts_parse_only_mode = 1;
                 }
             }
         }
@@ -302,11 +313,11 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-# brk now extends past the TS frontend heap region (0x1B0B000 base
-# + 0x880000 size, per src/frontend/ts/lex.cyr P1 design). TS region
-# is only TOUCHED in --lex-ts mode (P1.6b wire-in); the +8.5 MB
-# brk extension is paid unconditionally.
-syscall(SYS_BRK, S + 0x238B000);
+# brk extends past the TS frontend heap region (0x1B0B000 base
+# + 0xD81000 size, per src/frontend/ts/{lex,parse}.cyr design after
+# v5.7.2 P2.1). TS region is only TOUCHED in --lex-ts / --parse-ts
+# modes; the +13.5 MB brk extension is paid unconditionally.
+syscall(SYS_BRK, S + 0x288C000);
 
 # Zero state
 S64(S + 0x8C100, 0);
@@ -394,7 +405,6 @@ if (_ts_lex_only_mode == 1) {
     if (_ts_n < 0) {
         var _ts_err = TS_GETERR(S + 0x1B0B000);
         syscall(SYS_WRITE, 2, "ts lex error: code ", 19);
-        # Inline 2-digit error code printer (codes 1-99 supported).
         var _eb[3];
         if (_ts_err >= 10) {
             store8(&_eb, 48 + _ts_err / 10);
@@ -405,6 +415,33 @@ if (_ts_lex_only_mode == 1) {
             store8(&_eb, 48 + _ts_err);
             store8(&_eb + 1, 10);
             syscall(SYS_WRITE, 2, &_eb, 2);
+        }
+        syscall(SYS_EXIT, 1);
+    }
+    syscall(SYS_EXIT, 0);
+}
+
+# ─── TS parse-only mode (P2.1 wire-in) ────────────────────────────
+if (_ts_parse_only_mode == 1) {
+    var _tp_lex_n = TS_LEX(S + 0x1B0B000, S, bl);
+    if (_tp_lex_n < 0) {
+        syscall(SYS_WRITE, 2, "ts lex error before parse\n", 26);
+        syscall(SYS_EXIT, 1);
+    }
+    var _tp_parse_n = TS_PARSE(S + 0x1B0B000);
+    if (_tp_parse_n < 0) {
+        var _tp_err = TS_PARSE_GETERR(S + 0x1B0B000);
+        syscall(SYS_WRITE, 2, "ts parse error: code ", 21);
+        var _pb[3];
+        if (_tp_err >= 10) {
+            store8(&_pb, 48 + _tp_err / 10);
+            store8(&_pb + 1, 48 + _tp_err % 10);
+            store8(&_pb + 2, 10);
+            syscall(SYS_WRITE, 2, &_pb, 3);
+        } else {
+            store8(&_pb, 48 + _tp_err);
+            store8(&_pb + 1, 10);
+            syscall(SYS_WRITE, 2, &_pb, 2);
         }
         syscall(SYS_EXIT, 1);
     }
