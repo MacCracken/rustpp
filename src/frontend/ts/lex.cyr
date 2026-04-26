@@ -897,10 +897,113 @@ fn TS_LEX_BLOCK_COMMENT(ts_base, src, src_len, p) {
     return p;
 }
 
-# / -> //, /*, /=, or bare /
-# // and /* dispatch to comment scanners (skipped, no token emit).
-# Regex literals are P1.6 (context-sensitive lex needed to disambiguate
-# /regex/ from division — depends on previous token class).
+# Returns 1 if the last emitted token leaves us in "primary context"
+# where a following / means division. Returns 0 if we are in
+# "expression context" where / starts a regex literal.
+#
+# Primary context = after a value-producing token: identifier,
+# numeric/string literal, closing paren/bracket/brace, postfix ++/--,
+# and a few keywords that resolve to values (this/super/true/false/
+# null/undefined). Also after a closed template (NOSUB, TAIL) — those
+# are values.
+#
+# Expression context (regex allowed) = everything else: start of file,
+# after operators, after most keywords (return, throw, typeof, etc.),
+# after open-paren/bracket/brace, after comma/semicolon, etc.
+fn TS_IS_PRIMARY_CONTEXT(ts_base) {
+    var tc = TS_GTCNT(ts_base);
+    if (tc <= 0) { return 0; }
+    var last = TS_PEEKT(ts_base, tc - 1);
+    if (last == TS_TOK_IDENT)            { return 1; }
+    if (last == TS_TOK_INT)              { return 1; }
+    if (last == TS_TOK_FLOAT)            { return 1; }
+    if (last == TS_TOK_STRING)           { return 1; }
+    if (last == TS_TOK_RPAREN)           { return 1; }
+    if (last == TS_TOK_RBRACKET)         { return 1; }
+    if (last == TS_TOK_RBRACE)           { return 1; }
+    if (last == TS_TOK_PLUS_PLUS)        { return 1; }
+    if (last == TS_TOK_MINUS_MINUS)      { return 1; }
+    if (last == TS_TOK_TEMPLATE_NOSUB)   { return 1; }
+    if (last == TS_TOK_TEMPLATE_TAIL)    { return 1; }
+    if (last == TS_TOK_KW_THIS)          { return 1; }
+    if (last == TS_TOK_KW_SUPER)         { return 1; }
+    if (last == TS_TOK_KW_TRUE)          { return 1; }
+    if (last == TS_TOK_KW_FALSE)         { return 1; }
+    if (last == TS_TOK_KW_NULL)          { return 1; }
+    if (last == TS_TOK_KW_UNDEFINED)     { return 1; }
+    return 0;
+}
+
+# Scan trailing regex flags [a-zA-Z]*. Returns position past last flag.
+fn TS_SCAN_REGEX_FLAGS(src, src_len, p) {
+    while (p < src_len) {
+        var c = load8(src + p);
+        if (c >= 97) { if (c <= 122) { p = p + 1; } else { return p; } }
+        elif (c >= 65) { if (c <= 90) { p = p + 1; } else { return p; } }
+        else { return p; }
+    }
+    return p;
+}
+
+# Scan a regex literal: /pattern/flags
+# Caller has verified that current p points at the opening / and that
+# we are in expression context. Handles:
+#   \<any>  : escape sequence (any next byte, including /)
+#   [...]    : character class (/ inside is literal, not closing)
+#   raw \n  : error (regex literals can't span lines outside [])
+#   closing /: end of pattern; scan trailing flags
+# Returns p past last flag, or -1 on unterminated.
+# Value field: (start << 24) | total_length (incl. flags).
+fn TS_LEX_REGEX(ts_base, src, src_len, p) {
+    var start = p;
+    p = p + 1;                              # past opening /
+    var in_class = 0;
+    var done = 0;
+    while (done == 0) {
+        if (p >= src_len) {
+            TS_SETERR(ts_base, 11);          # unterminated regex
+            return 0 - 1;
+        }
+        var c = load8(src + p);
+        if (c == 92) {                       # \
+            if (p + 1 >= src_len) {
+                TS_SETERR(ts_base, 11);
+                return 0 - 1;
+            }
+            p = p + 2;
+        } elif (c == 91) {                   # [
+            in_class = 1;
+            p = p + 1;
+        } elif (c == 93) {                   # ]
+            if (in_class == 1) { in_class = 0; }
+            p = p + 1;
+        } elif (c == 47) {                   # /
+            if (in_class == 0) {
+                p = p + 1;                   # past closing /
+                p = TS_SCAN_REGEX_FLAGS(src, src_len, p);
+                done = 1;
+            } else {
+                p = p + 1;
+            }
+        } elif (c == 10) {                   # raw newline
+            if (in_class == 0) {
+                TS_SETERR(ts_base, 11);
+                return 0 - 1;
+            }
+            p = p + 1;
+        } else {
+            p = p + 1;
+        }
+    }
+    var len = p - start;
+    var val = (start * 16777216) + len;
+    TS_ADDTOK(ts_base, TS_TOK_REGEX, val);
+    return p;
+}
+
+# / -> //, /*, /=, regex, or bare /
+# Comment dispatch first (// and /*); then context-sensitive regex
+# vs division. /= only fires in primary context (after a value).
 fn TS_LEX_OP_SLASH(ts_base, src, src_len, p) {
     var c1 = TS_PEEK_CHAR(src, src_len, p, 1);
     if (c1 == 47) {
@@ -908,6 +1011,9 @@ fn TS_LEX_OP_SLASH(ts_base, src, src_len, p) {
     }
     if (c1 == 42) {
         return TS_LEX_BLOCK_COMMENT(ts_base, src, src_len, p + 2);
+    }
+    if (TS_IS_PRIMARY_CONTEXT(ts_base) == 0) {
+        return TS_LEX_REGEX(ts_base, src, src_len, p);
     }
     if (c1 == 61) {
         TS_ADDTOK(ts_base, TS_TOK_SLASH_EQ, 0);

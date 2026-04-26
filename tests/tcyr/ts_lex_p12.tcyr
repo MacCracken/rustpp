@@ -176,21 +176,30 @@ assert_tok(8,  TS_TOK_DOT,      ".");
 assert_tok(9,  TS_TOK_COLON,    ":");
 assert_tok(10, TS_TOK_QUESTION, "?");
 
-n = test_lex("+ - * / % = < > ! & | ^ ~");
-assert_eq(n, 14, "arithmetic + bitwise");
+# P1.6a regex disambiguation note: `/` and `/=` are context-sensitive.
+# In expression context (start-of-input, after operators), `/` starts
+# a regex literal. So sequences of bare operators with `/` mid-stream
+# would lex differently. We test the non-/ ops in one batch and /
+# separately with an ident prefix to force primary context.
+n = test_lex("+ - * % = < > ! & | ^ ~");
+assert_eq(n, 13, "arithmetic + bitwise (no slash)");
 assert_tok(0,  TS_TOK_PLUS,    "+");
 assert_tok(1,  TS_TOK_MINUS,   "-");
 assert_tok(2,  TS_TOK_STAR,    "*");
-assert_tok(3,  TS_TOK_SLASH,   "/");
-assert_tok(4,  TS_TOK_PERCENT, "%");
-assert_tok(5,  TS_TOK_EQ,      "=");
-assert_tok(6,  TS_TOK_LT,      "<");
-assert_tok(7,  TS_TOK_GT,      ">");
-assert_tok(8,  TS_TOK_BANG,    "!");
-assert_tok(9,  TS_TOK_AMP,     "&");
-assert_tok(10, TS_TOK_PIPE,    "|");
-assert_tok(11, TS_TOK_CARET,   "^");
-assert_tok(12, TS_TOK_TILDE,   "~");
+assert_tok(3,  TS_TOK_PERCENT, "%");
+assert_tok(4,  TS_TOK_EQ,      "=");
+assert_tok(5,  TS_TOK_LT,      "<");
+assert_tok(6,  TS_TOK_GT,      ">");
+assert_tok(7,  TS_TOK_BANG,    "!");
+assert_tok(8,  TS_TOK_AMP,     "&");
+assert_tok(9,  TS_TOK_PIPE,    "|");
+assert_tok(10, TS_TOK_CARET,   "^");
+assert_tok(11, TS_TOK_TILDE,   "~");
+
+# / in primary context (after ident) -> bare SLASH
+n = test_lex("a / b");
+assert_eq(n, 4, "a / b -> SLASH");
+assert_tok(1, TS_TOK_SLASH, "/ in primary context");
 
 n = test_lex("@ # ``");
 assert_eq(n, 4, "@/#/empty-template");

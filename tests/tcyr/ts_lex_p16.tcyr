@@ -1,0 +1,207 @@
+# v5.7.2 P1.6a — TS lexer regex literal disambiguation.
+#
+# Coverage:
+#   - regex in expression context (after =, return, !, comma, (, etc.)
+#   - division in primary context (after ident, number, ), ], etc.)
+#   - regex with escapes (\/), char classes ([/]), flags (g, i, m, etc.)
+#   - error: unterminated regex
+#   - error: raw newline inside regex (outside char class)
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+fn test_lex(src) {
+    return TS_LEX(ts_base, src, strlen(src));
+}
+
+fn assert_tok(idx, expected_typ, name) {
+    assert_eq(TS_PEEKT(ts_base, idx), expected_typ, name);
+    return 0;
+}
+
+# ─── regex in expression context ─────────────────────────────────
+test_group("regex in expression context");
+
+# After = (assignment)
+var n = test_lex("let x = /foo/");
+# let, x, =, REGEX, EOF = 5
+assert_eq(n, 5, "let x = /foo/ -> 4 toks + EOF");
+assert_tok(0, TS_TOK_KW_LET,  "let");
+assert_tok(1, TS_TOK_IDENT,   "x");
+assert_tok(2, TS_TOK_EQ,      "=");
+assert_tok(3, TS_TOK_REGEX,   "/foo/");
+
+# After return
+n = test_lex("return /pattern/g");
+assert_eq(n, 3, "return /pattern/g");
+assert_tok(0, TS_TOK_KW_RETURN, "return");
+assert_tok(1, TS_TOK_REGEX,     "/pattern/g");
+
+# At start of file (expr context)
+n = test_lex("/^abc$/");
+assert_eq(n, 2, "/^abc$/ at start of file");
+assert_tok(0, TS_TOK_REGEX, "/^abc$/");
+
+# After comma (in args)
+n = test_lex("fn(a, /sep/)");
+assert_eq(n, 7, "fn(a, /sep/)");
+assert_tok(0, TS_TOK_IDENT,  "fn");
+assert_tok(1, TS_TOK_LPAREN, "(");
+assert_tok(2, TS_TOK_IDENT,  "a");
+assert_tok(3, TS_TOK_COMMA,  ",");
+assert_tok(4, TS_TOK_REGEX,  "/sep/");
+assert_tok(5, TS_TOK_RPAREN, ")");
+
+# After ! (logical not)
+n = test_lex("!/match/");
+assert_eq(n, 3, "!/match/");
+assert_tok(0, TS_TOK_BANG,  "!");
+assert_tok(1, TS_TOK_REGEX, "/match/");
+
+# ─── division in primary context ─────────────────────────────────
+test_group("division in primary context");
+
+# After ident
+n = test_lex("a / b");
+assert_eq(n, 4, "a / b -> SLASH, not REGEX");
+assert_tok(0, TS_TOK_IDENT, "a");
+assert_tok(1, TS_TOK_SLASH, "/");
+assert_tok(2, TS_TOK_IDENT, "b");
+
+# After number
+n = test_lex("42 / 2");
+assert_eq(n, 4, "42 / 2 -> SLASH");
+assert_tok(0, TS_TOK_INT,   "42");
+assert_tok(1, TS_TOK_SLASH, "/");
+assert_tok(2, TS_TOK_INT,   "2");
+
+# After ) — common pattern: (expr) / divisor
+n = test_lex("(a + b) / c");
+# (, a, +, b, ), /, c, EOF = 8
+assert_eq(n, 8, "(a + b) / c");
+assert_tok(0, TS_TOK_LPAREN, "(");
+assert_tok(1, TS_TOK_IDENT,  "a");
+assert_tok(2, TS_TOK_PLUS,   "+");
+assert_tok(3, TS_TOK_IDENT,  "b");
+assert_tok(4, TS_TOK_RPAREN, ")");
+assert_tok(5, TS_TOK_SLASH,  "/");
+assert_tok(6, TS_TOK_IDENT,  "c");
+
+# After ] — array indexing then divide
+n = test_lex("arr[0] / 2");
+assert_eq(n, 7, "arr[0] / 2");
+assert_tok(0, TS_TOK_IDENT,    "arr");
+assert_tok(1, TS_TOK_LBRACKET, "[");
+assert_tok(2, TS_TOK_INT,      "0");
+assert_tok(3, TS_TOK_RBRACKET, "]");
+assert_tok(4, TS_TOK_SLASH,    "/");
+assert_tok(5, TS_TOK_INT,      "2");
+
+# /= still works in primary context
+n = test_lex("a /= 2");
+assert_eq(n, 4, "a /= 2");
+assert_tok(0, TS_TOK_IDENT,    "a");
+assert_tok(1, TS_TOK_SLASH_EQ, "/=");
+assert_tok(2, TS_TOK_INT,      "2");
+
+# ─── regex flags ─────────────────────────────────────────────────
+test_group("regex flags");
+
+n = test_lex("/abc/g");
+assert_eq(n, 2, "/abc/g (single flag)");
+assert_tok(0, TS_TOK_REGEX, "/abc/g");
+
+n = test_lex("/abc/gi");
+assert_eq(n, 2, "/abc/gi");
+
+n = test_lex("/abc/gimsuyd");
+assert_eq(n, 2, "/abc/gimsuyd (all valid flags)");
+
+n = test_lex("/abc/");
+assert_eq(n, 2, "/abc/ (no flags)");
+
+# Flag scan stops at non-letter
+n = test_lex("/abc/g + 1");
+# REGEX, PLUS, INT, EOF = 4
+assert_eq(n, 4, "regex with flag then op");
+assert_tok(0, TS_TOK_REGEX, "/abc/g");
+assert_tok(1, TS_TOK_PLUS,  "+");
+assert_tok(2, TS_TOK_INT,   "1");
+
+# ─── regex with escapes + char classes ───────────────────────────
+test_group("regex escapes + char classes");
+
+# \/ (escaped slash) inside regex doesn't close
+n = test_lex("/a\\/b/");
+assert_eq(n, 2, "regex with escaped /");
+assert_tok(0, TS_TOK_REGEX, "/a\\/b/");
+
+# [/] (slash inside char class) doesn't close
+n = test_lex("/[/]/");
+assert_eq(n, 2, "regex with / inside [...] doesn't close");
+assert_tok(0, TS_TOK_REGEX, "/[/]/");
+
+# Char class with multiple chars
+n = test_lex("/[a-z0-9]+/");
+assert_eq(n, 2, "regex with char class range");
+assert_tok(0, TS_TOK_REGEX, "/[a-z0-9]+/");
+
+# Common email-shape regex
+n = test_lex("var re = /^[a-z]+@[a-z]+\\.[a-z]+$/i");
+# var, re, =, REGEX, EOF = 5
+assert_eq(n, 5, "var re = /email/i");
+assert_tok(0, TS_TOK_KW_VAR, "var");
+assert_tok(1, TS_TOK_IDENT,  "re");
+assert_tok(2, TS_TOK_EQ,     "=");
+assert_tok(3, TS_TOK_REGEX,  "email regex");
+
+# ─── after primary keywords (this/super/true/false/null/undefined) ─
+test_group("primary keywords -> division");
+
+n = test_lex("this / 2");
+assert_eq(n, 4, "this / 2 -> SLASH");
+assert_tok(0, TS_TOK_KW_THIS, "this");
+assert_tok(1, TS_TOK_SLASH,   "/");
+
+n = test_lex("true / false");
+assert_eq(n, 4, "true / false -> SLASH (silly but lex-correct)");
+assert_tok(1, TS_TOK_SLASH, "/");
+
+n = test_lex("null / x");
+assert_eq(n, 4, "null / x -> SLASH");
+assert_tok(1, TS_TOK_SLASH, "/");
+
+# ─── error paths ─────────────────────────────────────────────────
+test_group("error paths");
+
+# Unterminated regex
+n = test_lex("let x = /foo");
+assert_eq(n, 0 - 1, "unterminated regex");
+assert_eq(TS_GETERR(ts_base), 11, "err code 11 = unterminated regex");
+
+# Raw newline inside regex (outside char class)
+n = test_lex("let x = /foo\nbar/");
+assert_eq(n, 0 - 1, "raw newline in regex outside [...]");
+assert_eq(TS_GETERR(ts_base), 11, "err 11 (newline in regex)");
+
+# Truncated escape inside regex
+n = test_lex("let x = /foo\\");
+assert_eq(n, 0 - 1, "truncated escape in regex");
+assert_eq(TS_GETERR(ts_base), 11, "err 11 (truncated escape)");
+
+# But newline INSIDE [...] is technically invalid in JS spec but
+# we allow it in P1.6a (parser/regex-engine concern, not lexer).
+n = test_lex("/[a\nb]/");
+# Just verify it doesn't error at the lex level
+assert(n > 0, "newline inside [...] doesn't crash lex");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);
