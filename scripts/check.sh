@@ -284,9 +284,18 @@ echo ""
 echo "── TS parser (SY acceptance) ──"
 sh "$ROOT/tests/regression-ts-parse.sh" > /tmp/audit_tsp_$$ 2>&1
 tsp_result=$?
-check "cc5 --parse-ts vs SY corpus ≥80%% baseline (v5.7.2 P2.7)" "$tsp_result"
+check "cc5 --parse-ts vs SY .ts corpus ≥98%% baseline (v5.7.3 P3.1)" "$tsp_result"
 if [ "$tsp_result" -ne 0 ]; then cat /tmp/audit_tsp_$$; fi
 rm -f /tmp/audit_tsp_$$
+echo ""
+
+# ── 4q'''''. TS parser .tsx (JSX) acceptance gate (v5.7.3 P3.3) ──
+echo "── TS parser .tsx (JSX) ──"
+sh "$ROOT/tests/regression-ts-parse-tsx.sh" > /tmp/audit_tsx_$$ 2>&1
+tsx_result=$?
+check "cc5 --parse-ts vs SY .tsx corpus ≥98%% baseline (v5.7.3 P3.3)" "$tsx_result"
+if [ "$tsx_result" -ne 0 ]; then cat /tmp/audit_tsx_$$; fi
+rm -f /tmp/audit_tsx_$$
 echo ""
 
 # ── 4r. Bare-truthy after fn-call (v5.6.21 codegen-bug fix) ──

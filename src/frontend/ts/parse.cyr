@@ -538,6 +538,29 @@ fn TS_PARSE_OBJECT_LITERAL(ts_base) {
     if (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
         var done = 0;
         while (done == 0) {
+            # Eat optional `async` / `get` / `set` modifier on object methods.
+            # Only consume when followed by a name + ( or < (method shape).
+            var pre_t = TS_PARSE_PEEK(ts_base);
+            if (pre_t == TS_TOK_KW_ASYNC || pre_t == TS_TOK_KW_GET || pre_t == TS_TOK_KW_SET) {
+                var ahead1 = TS_PARSE_PEEK_AHEAD(ts_base, 1);
+                var ahead2 = TS_PARSE_PEEK_AHEAD(ts_base, 2);
+                if (TS_IS_NAME_TOK(ahead1) == 1 || ahead1 == TS_TOK_STRING || ahead1 == TS_TOK_INT) {
+                    if (ahead2 == TS_TOK_LPAREN || ahead2 == TS_TOK_LT) {
+                        TS_PARSE_CONSUME(ts_base);
+                    }
+                }
+                # `async *name()` — generator method after async modifier
+                if (ahead1 == TS_TOK_STAR) {
+                    TS_PARSE_CONSUME(ts_base);
+                    TS_PARSE_CONSUME(ts_base);   # *
+                }
+            }
+            # Bare `*name()` — generator without async
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_STAR) {
+                if (TS_IS_NAME_TOK(TS_PARSE_PEEK_AHEAD(ts_base, 1)) == 1) {
+                    TS_PARSE_CONSUME(ts_base);
+                }
+            }
             var t = TS_PARSE_PEEK(ts_base);
             if (t == TS_TOK_ELLIPSIS) {
                 TS_PARSE_CONSUME(ts_base);
@@ -547,6 +570,20 @@ fn TS_PARSE_OBJECT_LITERAL(ts_base) {
                 if (sp < 0) { return 0 - 1; }
                 TS_AST_SET_PAYLOAD(ts_base, sp, 0, inner);
                 TS_AST_CHILDREN_SET(ts_base, off + i, sp);
+            } elif (t == TS_TOK_LBRACKET) {
+                # Computed property name: { [expr]: value }
+                TS_PARSE_CONSUME(ts_base);
+                var ckey = TS_PARSE_ASSIGN(ts_base);
+                if (ckey < 0) { return 0 - 1; }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+                var cval = TS_PARSE_ASSIGN(ts_base);
+                if (cval < 0) { return 0 - 1; }
+                var cpa = TS_AST_PUSH(ts_base, TS_AST_PROPERTY_ASSIGN, 0);
+                if (cpa < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, cpa, 0, ckey);
+                TS_AST_SET_PAYLOAD(ts_base, cpa, 1, cval);
+                TS_AST_CHILDREN_SET(ts_base, off + i, cpa);
             } else {
                 # Property: key [: value]
                 var key_span = TS_PARSE_TOK_VAL(ts_base);
@@ -847,6 +884,18 @@ fn TS_PARSE_PRIMARY(ts_base) {
             return TS_AST_PUSH(ts_base, TS_AST_EXPR_IDENT, 0);
         }
     }
+    # Generic arrow expression: `<T extends U>(args) => body`
+    if (t == TS_TOK_LT) {
+        var gtp = TS_PARSE_TYPE_PARAMS(ts_base);
+        if (gtp < 0) { return 0 - 1; }
+        # Now expect `(` and parse a paren-arrow.
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LPAREN) {
+            return TS_PARSE_ARROW_PAREN(ts_base);
+        }
+        # If not LPAREN, something's off — error.
+        store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 6);
+        return 0 - 1;
+    }
     # Parenthesized expression OR paren-arrow function.
     # Disambiguate by scanning past the matching RPAREN.
     if (t == TS_TOK_LPAREN) {
@@ -1036,18 +1085,23 @@ fn TS_PARSE_CALL_MEMBER(ts_base) {
             # binary parser to handle as comparison.
             if (TS_LOOKAHEAD_IS_TYPE_ARG_CALL(ts_base) == 1) {
                 TS_PARSE_CONSUME(ts_base);   # <
-                # Skip type-args until matching > (split-aware)
+                # Skip type-args until matching > (split-aware). Each
+                # iteration handles ONE > worth — EXPECT_TYPE_GT
+                # rewrites GT_GT/GT_GT_GT in place to leave the
+                # remainder for the next iteration.
                 var depth = 1;
                 while (depth > 0) {
                     var lt = TS_PARSE_PEEK(ts_base);
-                    if (lt == TS_TOK_LT) { depth = depth + 1; }
-                    elif (lt == TS_TOK_GT) { depth = depth - 1; }
-                    elif (lt == TS_TOK_GT_GT) { depth = depth - 2; }
-                    elif (lt == TS_TOK_GT_GT_GT) { depth = depth - 3; }
-                    if (depth > 0) { TS_PARSE_CONSUME(ts_base); }
-                    else {
-                        # Consume one >-worth using EXPECT_TYPE_GT
+                    if (lt == TS_TOK_LT) {
+                        depth = depth + 1;
+                        TS_PARSE_CONSUME(ts_base);
+                    } elif (lt == TS_TOK_GT || lt == TS_TOK_GT_GT
+                            || lt == TS_TOK_GT_GT_GT || lt == TS_TOK_GT_EQ
+                            || lt == TS_TOK_GT_GT_EQ || lt == TS_TOK_GT_GT_GT_EQ) {
+                        depth = depth - 1;
                         if (TS_PARSE_EXPECT_TYPE_GT(ts_base) < 0) { return 0 - 1; }
+                    } else {
+                        TS_PARSE_CONSUME(ts_base);
                     }
                 }
                 if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
@@ -1135,6 +1189,33 @@ fn TS_PARSE_UNARY(ts_base) {
     if (t == TS_TOK_KW_VOID)     { is_unary = 1; }
     if (t == TS_TOK_KW_DELETE)   { is_unary = 1; }
     if (t == TS_TOK_KW_AWAIT)    { is_unary = 1; }
+    # yield (and yield*) — operand optional. Special-case: if next token
+    # closes an expression (`;`, `,`, `)`, `]`, `}`), yield without operand.
+    if (t == TS_TOK_KW_YIELD) {
+        TS_PARSE_CONSUME(ts_base);
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_STAR) {
+            TS_PARSE_CONSUME(ts_base);
+        }
+        var nx = TS_PARSE_PEEK(ts_base);
+        var bare = 0;
+        if (nx == TS_TOK_SEMI || nx == TS_TOK_COMMA || nx == TS_TOK_RPAREN
+            || nx == TS_TOK_RBRACKET || nx == TS_TOK_RBRACE
+            || nx == TS_TOK_EOF) {
+            bare = 1;
+        }
+        if (bare == 1) {
+            var ny = TS_AST_PUSH(ts_base, TS_AST_EXPR_UNARY, 0);
+            if (ny < 0) { return 0 - 1; }
+            return ny;
+        }
+        var yo = TS_PARSE_ASSIGN(ts_base);
+        if (yo < 0) { return 0 - 1; }
+        var yn = TS_AST_PUSH(ts_base, TS_AST_EXPR_UNARY, 0);
+        if (yn < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, yn, 0, t);
+        TS_AST_SET_PAYLOAD(ts_base, yn, 1, yo);
+        return yn;
+    }
     if (is_unary == 1) {
         TS_PARSE_CONSUME(ts_base);
         var operand = TS_PARSE_UNARY(ts_base);
@@ -1334,12 +1415,31 @@ fn TS_PARSE_ARROW_PARAMS(ts_base) {
                 is_rest = 1;
                 TS_PARSE_CONSUME(ts_base);
             }
-            var name_v = TS_PARSE_TOK_VAL(ts_base);
-            if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
-            var p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
-            if (p < 0) { return 0 - 1; }
-            TS_AST_SET_PAYLOAD(ts_base, p, 0, name_v);
-            TS_AST_SET_PAYLOAD(ts_base, p, 3, is_rest);   # marker
+            # Destructuring param: `({a,b}) => ...` or `([x,y]) => ...`
+            var pname_t = TS_PARSE_PEEK(ts_base);
+            var p = 0 - 1;
+            if (pname_t == TS_TOK_LBRACE || pname_t == TS_TOK_LBRACKET) {
+                var dpat = TS_PARSE_BINDING_PATTERN(ts_base);
+                if (dpat < 0) { return 0 - 1; }
+                p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, 0);
+                if (p < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, p, 0, dpat);
+                TS_AST_SET_PAYLOAD(ts_base, p, 3, is_rest);
+            } else {
+                var name_v = TS_PARSE_TOK_VAL(ts_base);
+                var pname2 = TS_PARSE_PEEK(ts_base);
+                if (TS_IS_NAME_TOK(pname2) == 0) {
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 3);
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+                            load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+                    return 0 - 1;
+                }
+                TS_PARSE_CONSUME(ts_base);
+                p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
+                if (p < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, p, 0, name_v);
+                TS_AST_SET_PAYLOAD(ts_base, p, 3, is_rest);
+            }
             # Optional `?:`
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
                 TS_PARSE_CONSUME(ts_base);
@@ -1363,9 +1463,6 @@ fn TS_PARSE_ARROW_PARAMS(ts_base) {
             if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) {
                 done = 1;
             } else {
-                # Trailing comma tolerance: if the next token is the
-                # immediate list terminator, end the loop instead of
-                # trying to parse another item.
                 var _trail = TS_PARSE_PEEK(ts_base);
                 if (_trail == TS_TOK_RPAREN || _trail == TS_TOK_RBRACE
                     || _trail == TS_TOK_RBRACKET
@@ -1550,20 +1647,10 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
             TS_AST_SET_PAYLOAD(ts_base, member, 0, k_t);
             TS_AST_SET_PAYLOAD(ts_base, member, 1, v_t);
         } else {
-            # Property: name [?] : T
+            # Property: name [?] : T  OR method sig: name [?] (...) : T
             var name_v = TS_PARSE_TOK_VAL(ts_base);
             var pt = TS_PARSE_PEEK(ts_base);
-            var ok = 0;
-            if (pt == TS_TOK_IDENT) { ok = 1; }
-            elif (pt == TS_TOK_STRING) { ok = 1; }
-            elif (pt == TS_TOK_INT) { ok = 1; }
-            elif (pt == TS_TOK_KW_FROM) { ok = 1; }
-            elif (pt == TS_TOK_KW_AS) { ok = 1; }
-            elif (pt == TS_TOK_KW_OF) { ok = 1; }
-            elif (pt == TS_TOK_KW_GET) { ok = 1; }
-            elif (pt == TS_TOK_KW_SET) { ok = 1; }
-            elif (pt == TS_TOK_KW_TYPE) { ok = 1; }
-            if (ok == 0) {
+            if (TS_IS_NAME_TOK(pt) == 0 && pt != TS_TOK_STRING && pt != TS_TOK_INT) {
                 store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 7);
                 store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
                         load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
@@ -1573,6 +1660,26 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
                 TS_PARSE_CONSUME(ts_base);
             }
+            # Method signature in object type: name(args): T
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_LPAREN || TS_PARSE_PEEK(ts_base) == TS_TOK_LT) {
+                var omtp = TS_PARSE_TYPE_PARAMS(ts_base);
+                if (omtp < 0) { return 0 - 1; }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+                var omp = TS_PARSE_ARROW_PARAMS(ts_base);
+                if (omp < 0) { return 0 - 1; }
+                var omr = 0;
+                if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+                    TS_PARSE_CONSUME(ts_base);
+                    omr = TS_PARSE_TYPE(ts_base);
+                    if (omr < 0) { return 0 - 1; }
+                }
+                member = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, name_v);
+                if (member < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, member, 0, name_v);
+                TS_AST_SET_PAYLOAD(ts_base, member, 1, omp);
+                TS_AST_SET_PAYLOAD(ts_base, member, 2, omr);
+                # Skip the colon-property branch below — set member already
+            } else {
             if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
             var pv_t = TS_PARSE_TYPE(ts_base);
             if (pv_t < 0) { return 0 - 1; }
@@ -1580,6 +1687,7 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
             if (member < 0) { return 0 - 1; }
             TS_AST_SET_PAYLOAD(ts_base, member, 0, name_v);
             TS_AST_SET_PAYLOAD(ts_base, member, 1, pv_t);
+            }
         }
         TS_AST_CHILDREN_SET(ts_base, members_off + mi, member);
         mi = mi + 1;
@@ -1655,7 +1763,12 @@ fn TS_PARSE_TYPE_FN(ts_base) {
             is_rest = 1;
         }
         var name_v = TS_PARSE_TOK_VAL(ts_base);
-        if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+        var fpn_t = TS_PARSE_PEEK(ts_base);
+        if (TS_IS_NAME_TOK(fpn_t) == 0) {
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 3);
+            return 0 - 1;
+        }
+        TS_PARSE_CONSUME(ts_base);
         if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
             TS_PARSE_CONSUME(ts_base);
         }
@@ -1711,6 +1824,45 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
         if (ni < 0) { return 0 - 1; }
         return ni;
     }
+    # `import("./mod").T` — type-position dynamic import
+    if (t == TS_TOK_KW_IMPORT) {
+        TS_PARSE_CONSUME(ts_base);
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_STRING) < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        # Optional `.Name` qualifier chain
+        while (TS_PARSE_PEEK(ts_base) == TS_TOK_DOT) {
+            TS_PARSE_CONSUME(ts_base);
+            var pst = TS_PARSE_PEEK(ts_base);
+            if (TS_IS_NAME_TOK(pst) == 0) { return 0 - 1; }
+            TS_PARSE_CONSUME(ts_base);
+        }
+        # Optional type-args
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LT) {
+            TS_PARSE_CONSUME(ts_base);
+            var iargs_off = TS_AST_CHILDREN_RESERVE(ts_base, 8);
+            var iai = 0;
+            var idone = 0;
+            while (idone == 0) {
+                var ipt = TS_PARSE_PEEK(ts_base);
+                if (ipt == TS_TOK_GT || ipt == TS_TOK_GT_GT || ipt == TS_TOK_GT_GT_GT) {
+                    idone = 1;
+                } else {
+                    if (iai > 0) {
+                        if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
+                    }
+                    var iarg = TS_PARSE_TYPE(ts_base);
+                    if (iarg < 0) { return 0 - 1; }
+                    iai = iai + 1;
+                }
+            }
+            TS_AST_CHILDREN_COMMIT(ts_base, iai + 1);
+            if (TS_PARSE_EXPECT_TYPE_GT(ts_base) < 0) { return 0 - 1; }
+        }
+        var imt = TS_AST_PUSH(ts_base, TS_AST_TYPE_REF, 0);
+        if (imt < 0) { return 0 - 1; }
+        return imt;
+    }
     if (t == TS_TOK_KW_KEYOF) {
         TS_PARSE_CONSUME(ts_base);
         var inner_k = TS_PARSE_TYPE_PRIMARY(ts_base);
@@ -1746,6 +1898,12 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
     if (t == TS_TOK_KW_READONLY) {
         TS_PARSE_CONSUME(ts_base);
         return TS_PARSE_TYPE_PRIMARY(ts_base);
+    }
+    # Constructor type: `new (params) => T` — call into TYPE_FN after
+    # consuming `new` (TYPE_FN handles the LPAREN onwards).
+    if (t == TS_TOK_KW_NEW) {
+        TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_TYPE_FN(ts_base);
     }
     if (t == TS_TOK_LBRACE) {
         return TS_PARSE_TYPE_OBJECT(ts_base);
@@ -2060,7 +2218,14 @@ fn TS_PARSE_BINDING_PATTERN(ts_base) {
             var done2 = 0;
             while (done2 == 0) {
                 var pt2 = TS_PARSE_PEEK(ts_base);
-                if (pt2 == TS_TOK_ELLIPSIS) {
+                if (pt2 == TS_TOK_COMMA) {
+                    # Hole: `[, x]` — leave slot empty, just consume the
+                    # comma and continue.
+                    TS_PARSE_CONSUME(ts_base);
+                    i2 = i2 + 1;
+                } elif (pt2 == TS_TOK_RBRACKET) {
+                    done2 = 1;
+                } elif (pt2 == TS_TOK_ELLIPSIS) {
                     TS_PARSE_CONSUME(ts_base);
                     var rname2 = TS_PARSE_TOK_VAL(ts_base);
                     if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
@@ -2068,14 +2233,16 @@ fn TS_PARSE_BINDING_PATTERN(ts_base) {
                     if (rest2 < 0) { return 0 - 1; }
                     TS_AST_SET_PAYLOAD(ts_base, rest2, 0, rname2);
                     TS_AST_CHILDREN_SET(ts_base, off2 + i2, rest2);
+                    i2 = i2 + 1;
+                    if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done2 = 1; }
                 } else {
                     # Allow nested patterns
                     var inner = TS_PARSE_BINDING_PATTERN(ts_base);
                     if (inner < 0) { return 0 - 1; }
                     TS_AST_CHILDREN_SET(ts_base, off2 + i2, inner);
+                    i2 = i2 + 1;
+                    if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done2 = 1; }
                 }
-                i2 = i2 + 1;
-                if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done2 = 1; }
             }
         }
         TS_AST_CHILDREN_SET(ts_base, off2 + i2, 0 - 1);
@@ -2084,9 +2251,15 @@ fn TS_PARSE_BINDING_PATTERN(ts_base) {
         TS_AST_SET_PAYLOAD(ts_base, n2, 0, off2);
         return n2;
     }
-    # Plain ident
+    # Plain ident — accept any name-like token (incl. contextual kws
+    # like `from`, `as`, `of`, `type` used as variable names).
     var iv = TS_PARSE_TOK_VAL(ts_base);
-    if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+    var bnt = TS_PARSE_PEEK(ts_base);
+    if (TS_IS_NAME_TOK(bnt) == 0) {
+        store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 3);
+        return 0 - 1;
+    }
+    TS_PARSE_CONSUME(ts_base);
     var pi = TS_AST_PUSH(ts_base, TS_AST_PATTERN_IDENT, iv);
     if (pi < 0) { return 0 - 1; }
     TS_AST_SET_PAYLOAD(ts_base, pi, 0, iv);
@@ -2181,6 +2354,10 @@ fn TS_PARSE_IF(ts_base) {
 # for (decl in expr) body
 fn TS_PARSE_FOR(ts_base) {
     TS_PARSE_CONSUME(ts_base);                  # for
+    # Optional `await` modifier: `for await (...)` (async iteration).
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_AWAIT) {
+        TS_PARSE_CONSUME(ts_base);
+    }
     if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
 
     # Detect for-of / for-in vs C-style. The init slot can be a
@@ -2539,6 +2716,10 @@ fn TS_PARSE_HERITAGE_LIST(ts_base) {
 # `async` then `function`). For function expression caller passes
 # stmt_required=0 (name optional); for declaration stmt_required=1.
 fn TS_PARSE_DECL_FUNCTION(ts_base, name_required) {
+    # Generator marker: `function*` / `function* name(...)`
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_STAR) {
+        TS_PARSE_CONSUME(ts_base);
+    }
     var name_v = 0;
     var pk = TS_PARSE_PEEK(ts_base);
     if (pk == TS_TOK_IDENT) {
@@ -2561,8 +2742,15 @@ fn TS_PARSE_DECL_FUNCTION(ts_base, name_required) {
         ret_t = TS_PARSE_TYPE(ts_base);
         if (ret_t < 0) { return 0 - 1; }
     }
-    var body = TS_PARSE_BLOCK(ts_base);
-    if (body < 0) { return 0 - 1; }
+    # Body is optional — function overload signatures end with `;`,
+    # ambient `declare function f(): T;` likewise has no body.
+    var body = 0;
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_SEMI) {
+        TS_PARSE_CONSUME(ts_base);
+    } else {
+        body = TS_PARSE_BLOCK(ts_base);
+        if (body < 0) { return 0 - 1; }
+    }
     var n = TS_AST_PUSH(ts_base, TS_AST_DECL_FUNCTION, name_v);
     if (n < 0) { return 0 - 1; }
     TS_AST_SET_PAYLOAD(ts_base, n, 0, name_v);
@@ -2757,6 +2945,8 @@ fn TS_PARSE_SKIP_MODIFIERS(ts_base) {
         elif (t == TS_TOK_KW_READONLY) { TS_PARSE_CONSUME(ts_base); }
         elif (t == TS_TOK_KW_ABSTRACT) { TS_PARSE_CONSUME(ts_base); }
         elif (t == TS_TOK_KW_ASYNC) { TS_PARSE_CONSUME(ts_base); }
+        elif (t == TS_TOK_KW_OVERRIDE) { TS_PARSE_CONSUME(ts_base); }
+        elif (t == TS_TOK_KW_DECLARE) { TS_PARSE_CONSUME(ts_base); }
         else { done = 1; }
     }
     return 0;
@@ -2765,6 +2955,11 @@ fn TS_PARSE_SKIP_MODIFIERS(ts_base) {
 # Single class member.
 fn TS_PARSE_CLASS_MEMBER(ts_base) {
     TS_PARSE_SKIP_MODIFIERS(ts_base);
+    # Generator method marker: `*name()` (with optional async modifier
+    # already eaten by SKIP_MODIFIERS).
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_STAR) {
+        TS_PARSE_CONSUME(ts_base);
+    }
     var t = TS_PARSE_PEEK(ts_base);
     # Constructor: `constructor(params) { body }`
     if (t == TS_TOK_KW_CONSTRUCTOR) {
@@ -3158,6 +3353,24 @@ fn TS_PARSE_IMPORT(ts_base) {
 
     var src_v = TS_PARSE_TOK_VAL(ts_base);
     if (TS_PARSE_EXPECT(ts_base, TS_TOK_STRING) < 0) { return 0 - 1; }
+    # Optional import attributes: `with { type: 'json' }` (modern) or
+    # `assert { type: 'json' }` (legacy). Skip the brace block.
+    var iat = TS_PARSE_PEEK(ts_base);
+    var ia_match = 0;
+    if (iat == TS_TOK_KW_WITH) { ia_match = 1; }
+    elif (iat == TS_TOK_IDENT) {
+        # `assert` is an IDENT — accept conservatively when followed by `{`
+        if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_LBRACE) { ia_match = 1; }
+    }
+    if (ia_match == 1) {
+        TS_PARSE_CONSUME(ts_base);   # with / assert
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACE) < 0) { return 0 - 1; }
+        # Skip key:value entries until }
+        while (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+            TS_PARSE_CONSUME(ts_base);
+        }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+    }
     TS_PARSE_OPT_SEMI(ts_base);
 
     TS_AST_CHILDREN_SET(ts_base, specs_off + si, 0 - 1);
@@ -3481,11 +3694,36 @@ fn TS_PARSE_DECL_DECLARE(ts_base) {
         }
         return TS_PARSE_VAR_DECL(ts_base);
     }
-    # `declare module "x" { ... }` — `module` is an IDENT in our lexer
-    # (no KW token). Accept it as a namespace alias.
+    # `declare module "x" { ... }` and `declare global { ... }` —
+    # both `module` and `global` are IDENTs in our lexer (no KW
+    # tokens). Pass through to NAMESPACE which consumes the name
+    # itself (handles both IDENT and STRING name forms).
     if (t == TS_TOK_IDENT) {
-        TS_PARSE_CONSUME(ts_base);
-        return TS_PARSE_DECL_NAMESPACE(ts_base);
+        TS_PARSE_CONSUME(ts_base);   # eat the `module`/`global` keyword
+        # If next is STRING, it's `declare module "x"` form — re-pass
+        # since NAMESPACE expects to see the name AFTER the keyword;
+        # but for `global { ... }` we already ate `global` and the
+        # next token IS the body brace. Accept either path: parse the
+        # body inline so we don't double-consume.
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_STRING) {
+            TS_PARSE_CONSUME(ts_base);
+        }
+        # Now expect either `;` or `{ ... }`
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_SEMI) {
+            TS_PARSE_CONSUME(ts_base);
+            return TS_AST_PUSH(ts_base, TS_AST_DECL_INTERFACE, 0);
+        }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_LBRACE) < 0) { return 0 - 1; }
+        while (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_SEMI) {
+                TS_PARSE_CONSUME(ts_base);
+            } else {
+                var ds = TS_PARSE_STMT(ts_base);
+                if (ds < 0) { return 0 - 1; }
+            }
+        }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+        return TS_AST_PUSH(ts_base, TS_AST_DECL_INTERFACE, 0);
     }
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 13);
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,

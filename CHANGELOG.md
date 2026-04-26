@@ -4,6 +4,113 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.3] — 2026-04-25
+
+**CYRIUS-TS COMPLETION — JSX support + .ts edge-case sweep + async refinement.**
+
+Continues the v5.7.2 cyrius-ts arc. The 80% SY .ts baseline jumps
+to 98.4% via 16 iterative fix batches against the parse-acceptance
+diag harness; a new JSX-aware lex skip lifts SY .tsx parse
+acceptance from 0.5% (2/435) to 98.2% (427/435). check.sh active
+gates: 28 → 29 (new `regression-ts-parse-tsx.sh`).
+
+### Phase summary
+
+- **P3.1 — .ts edge-case triage (16 batches, 196 → 2020 PASS)**
+
+  Same diag-driven methodology as v5.7.2 P2.7. Each batch chosen by
+  most-common (error code, top failing token) pair from the failure
+  TSV, smallest-failing-file bisect, fix in parse.cyr, sweep, repeat.
+
+  Key additions:
+  - Async object-method modifier `{ async name() {...} }`
+  - Nested-generic call `f<R<T,U>>()` — consume one `>` at a time via
+    `EXPECT_TYPE_GT` (was decrementing depth by 2 in one step,
+    leaving stale `>` after balanced close)
+  - Param name acceptance broadened: any name-token (incl. contextual
+    kws like `type`, `from`) accepted as parameter name in
+    `ARROW_PARAMS` and `TYPE_FN`
+  - `import("./mod").T` type imports in TYPE position
+  - `for await (const x of ...)` async-iteration loops
+  - Generator marker `*`: `function*`, `*name()` (class + object),
+    `async *name()` combinations
+  - `yield` / `yield*` in UNARY (operand optional, with bare-yield
+    detection at expression closers)
+  - `BINDING_PATTERN` plain-ident broadened (contextual kws as
+    variable names: `const from = ...`)
+  - Computed property names `{ [expr]: value }` in object literals
+  - Array destructuring with holes: `const [, x] = arr;`
+  - `TS_EMIT_INT` extended with fractional + exponent scanning →
+    `1e-7`, `1.5e10`, `0.5`, `3e+4` now lex as `TOK_FLOAT`
+    (previously `1e-7` lexed as `INT(1) IDENT(e) MINUS INT(7)`)
+  - `TS_PARSE_TYPE_OBJECT` method signatures: `{ method(args): T }`
+  - Function-overload signatures (no body, ends with `;`)
+  - `declare global { ... }` and `declare module "x" { ... }`
+  - `new () => T` constructor types in TYPE position
+  - `value is T` predicate tolerance in return-type position
+  - `override` and `declare` modifiers in `SKIP_MODIFIERS`
+  - Import attributes / assertions: `import x from 'm' with { type: 'json' }`
+
+- **P3.2 — async/await flow refinement** — landed inline during P3.1
+  (`for await`, `async *iter()`, async object-method shorthand).
+
+- **P3.3 — JSX-aware lex (`TS_LEX_JSX_SKIP`)** — when `<` appears in
+  expression context (via `TS_IS_PRIMARY_CONTEXT` token-walk-back) and
+  the next char is `/`, `>`, or an identifier-start, scan forward as
+  raw bytes through balanced JSX:
+
+  - Open tags `<Tag attr=val ...>` track depth + scan attrs (handles
+    `"..."` / `'...'` strings + `{...}` expressions in attr values)
+  - Self-close `<Tag />` doesn't change depth
+  - Close tags `</Tag>` decrement depth
+  - Fragments `<>` ... `</>`
+  - Inside JSX expressions `{...}`: balanced brace skip with
+    template-literal awareness (handles nested `${...}` properly) +
+    string-literal scanning + recursive nested-JSX
+  - Generic-arrow disambiguation: scan to matching `>` first; if
+    next char is `(`, this is `<T>(...)` generic arrow expression,
+    not JSX — bail and let the parser handle it.
+
+  Emits one `TOK_INT` placeholder spanning the whole JSX region;
+  parser sees it as a normal expression literal. A real JSX AST
+  is deferred (consumer needs only that .tsx files parse without
+  error).
+
+- **P3.4 — JSX parse** — generic-arrow handler added in `PRIMARY`
+  (`<T extends U>(args) => body`); JSX itself is consumed at the
+  lex level so no parser-side JSX nodes needed.
+
+- **P3.5 — SY acceptance gates** — `regression-ts-parse-tsx.sh`
+  added (PASS ≥ 420; current 427/435). Existing
+  `regression-ts-parse.sh` threshold bumped 1600 → 2000 (current
+  2020/2053).
+
+### Added
+
+- **`tests/regression-ts-parse-tsx.sh`** — sweeps SY .tsx corpus.
+  Skips cleanly if SY not present.
+- **`scripts/check.sh`** — gate count 28 → 29.
+- **`src/frontend/ts/lex.cyr::TS_LEX_JSX_SKIP`** + nested-recursion
+  variant `TS_LEX_JSX_SKIP_INNER` (~150 LOC).
+- **`src/frontend/ts/lex.cyr::TS_EMIT_INT`** — fractional + exponent
+  extension to emit `TOK_FLOAT` for `1e-7`/etc.
+
+### Changed
+
+- `tests/regression-ts-parse.sh` threshold 1600 → 2000.
+- Compiler binary: 666,208 B (v5.7.2) → 683,808 B (v5.7.3,
+  +17,600 B for the JSX lex skip + parse additions). cc5 self-hosts
+  byte-identical.
+
+### Deferred to v5.7.4
+
+- Final cleanup of the remaining ~8 .tsx + ~33 .ts edge cases
+  (template-literal types, deep mapped types, exotic destructure
+  patterns, the few JSX shapes that the heuristic skip mis-classifies)
+- Real JSX AST nodes (currently collapsed to `TOK_INT` placeholder)
+- Full async-ness recorded in AST payloads (currently consumed but
+  not tracked)
+
 ## [5.7.2] — 2026-04-25
 
 **CYRIUS-TS FOUNDATIONAL — TypeScript frontend, full lex + parse + 80% SY corpus acceptance.**

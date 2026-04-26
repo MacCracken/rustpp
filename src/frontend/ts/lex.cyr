@@ -544,9 +544,42 @@ fn TS_EMIT_INT(ts_base, src, src_len, start) {
     } else {
         end = TS_SCAN_DEC(src, src_len, p);
     }
+    # Extend with fractional + exponent for FLOAT detection.
+    # Only valid for decimal integers (skip 0x/0o/0b).
+    var is_float = 0;
+    if (c0 != 48 || (p + 1 >= src_len) || (load8(src + p + 1) != 120 && load8(src + p + 1) != 88
+        && load8(src + p + 1) != 111 && load8(src + p + 1) != 79
+        && load8(src + p + 1) != 98 && load8(src + p + 1) != 66)) {
+        # Fractional part: `.\d+`
+        if (end < src_len && load8(src + end) == 46) {
+            if (end + 1 < src_len && TS_ISDIGIT(load8(src + end + 1)) == 1) {
+                is_float = 1;
+                end = TS_SCAN_DEC(src, src_len, end + 1);
+            }
+        }
+        # Exponent part: `e[+-]?\d+` or `E[+-]?\d+`
+        if (end < src_len) {
+            var ec = load8(src + end);
+            if (ec == 101 || ec == 69) {
+                var ep = end + 1;
+                if (ep < src_len) {
+                    var es = load8(src + ep);
+                    if (es == 43 || es == 45) { ep = ep + 1; }
+                    if (ep < src_len && TS_ISDIGIT(load8(src + ep)) == 1) {
+                        is_float = 1;
+                        end = TS_SCAN_DEC(src, src_len, ep);
+                    }
+                }
+            }
+        }
+    }
     var lit_len = end - start;
     var val = (start * 16777216) + lit_len;
-    TS_ADDTOK(ts_base, TS_TOK_INT, val);
+    if (is_float == 1) {
+        TS_ADDTOK(ts_base, TS_TOK_FLOAT, val);
+    } else {
+        TS_ADDTOK(ts_base, TS_TOK_INT, val);
+    }
     return end;
 }
 
@@ -1194,6 +1227,263 @@ fn TS_LEX_OP_DOT(ts_base, src, src_len, p) {
 #   - Regex literals (context-sensitive)
 #   - Float literals (3.14, 1e10)
 
+# JSX skip without emitting a token — used for nested JSX inside
+# JSX expressions. Returns end byte offset past balanced JSX.
+fn TS_LEX_JSX_SKIP_INNER(ts_base, src, src_len, start) {
+    if (start + 1 >= src_len) { return start; }
+    var n = load8(src + start + 1);
+    var ok = 0;
+    if (n == 47) { ok = 1; }
+    elif (n == 62) { ok = 1; }
+    elif (TS_ISIDSTART(n) == 1) { ok = 1; }
+    if (ok == 0) { return start; }
+    var p = start;
+    var depth = 0;
+    var done_jsx = 0;
+    while (done_jsx == 0) {
+        if (p >= src_len) { return start; }
+        var c = load8(src + p);
+        if (c == 60) {
+            if (p + 1 >= src_len) { return start; }
+            var c1 = load8(src + p + 1);
+            if (c1 == 47) {
+                while (p < src_len && load8(src + p) != 62) { p = p + 1; }
+                if (p >= src_len) { return start; }
+                p = p + 1;
+                depth = depth - 1;
+                if (depth == 0) { done_jsx = 1; }
+            } elif (c1 == 62) {
+                depth = depth + 1;
+                p = p + 2;
+            } elif (TS_ISIDSTART(c1) == 1) {
+                p = p + 1;
+                var inner_done = 0;
+                while (inner_done == 0) {
+                    if (p >= src_len) { return start; }
+                    var ic = load8(src + p);
+                    if (ic == 62) { depth = depth + 1; p = p + 1; inner_done = 1; }
+                    elif (ic == 47) {
+                        if (p + 1 < src_len && load8(src + p + 1) == 62) {
+                            p = p + 2;
+                            inner_done = 1;
+                            if (depth == 0) { done_jsx = 1; }
+                        } else { p = p + 1; }
+                    } elif (ic == 34) {
+                        p = p + 1;
+                        while (p < src_len && load8(src + p) != 34) { p = p + 1; }
+                        if (p < src_len) { p = p + 1; }
+                    } elif (ic == 39) {
+                        p = p + 1;
+                        while (p < src_len && load8(src + p) != 39) { p = p + 1; }
+                        if (p < src_len) { p = p + 1; }
+                    } elif (ic == 123) {
+                        var bd = 1;
+                        p = p + 1;
+                        while (p < src_len && bd > 0) {
+                            var ac = load8(src + p);
+                            if (ac == 123) { bd = bd + 1; }
+                            elif (ac == 125) { bd = bd - 1; }
+                            p = p + 1;
+                        }
+                    } else {
+                        p = p + 1;
+                    }
+                }
+            } else {
+                return start;
+            }
+        } elif (c == 123) {
+            var bd2 = 1;
+            p = p + 1;
+            while (p < src_len && bd2 > 0) {
+                var bc2 = load8(src + p);
+                if (bc2 == 123) { bd2 = bd2 + 1; }
+                elif (bc2 == 125) { bd2 = bd2 - 1; }
+                p = p + 1;
+            }
+        } else {
+            p = p + 1;
+        }
+    }
+    return p;
+}
+
+# JSX skip — when at expression context and `<` is followed by an
+# identifier-start char or `/` (close-tag) or `>` (fragment), scan
+# forward as raw bytes until balanced JSX close. Emits one INT token
+# (as a placeholder) so the parser sees a valid expression-position
+# token. This is parse-acceptance support for v5.7.3 — a real JSX
+# AST is deferred to a later cycle. Returns the byte offset past the
+# end of the JSX expression, or `start` (no advance) if not JSX-ish.
+fn TS_LEX_JSX_SKIP(ts_base, src, src_len, start) {
+    if (start + 1 >= src_len) { return start; }
+    var n = load8(src + start + 1);
+    var ok = 0;
+    if (n == 47) { ok = 1; }                 # '/'
+    elif (n == 62) { ok = 1; }               # '>' (fragment)
+    elif (TS_ISIDSTART(n) == 1) { ok = 1; }
+    if (ok == 0) { return start; }
+    # Heuristic disambiguation: scan for the matching `>` at depth 0
+    # ignoring nested `<>` pairs. If the char immediately after is `(`,
+    # this is a generic arrow `<T extends U>(args) => body`, not JSX.
+    # Also bail if we encounter `extends` after the leading IDENT.
+    var ck = start + 1;
+    var ck_depth = 0;
+    var ck_done = 0;
+    var ck_max = start + 256;
+    while (ck_done == 0) {
+        if (ck >= src_len || ck >= ck_max) { ck_done = 1; }
+        else {
+            var cc = load8(src + ck);
+            if (cc == 60) { ck_depth = ck_depth + 1; ck = ck + 1; }
+            elif (cc == 62) {
+                if (ck_depth == 0) {
+                    # Found matching `>` at depth 0
+                    if (ck + 1 < src_len) {
+                        var after = load8(src + ck + 1);
+                        if (after == 40) { return start; }   # `(` — generic arrow
+                    }
+                    ck_done = 1;
+                } else { ck_depth = ck_depth - 1; ck = ck + 1; }
+            }
+            elif (cc == 47) {
+                # Self-closing `/>` or close-tag `</...>`
+                ck_done = 1;
+            }
+            elif (cc == 34) {       # "
+                ck = ck + 1;
+                while (ck < src_len && load8(src + ck) != 34) { ck = ck + 1; }
+                if (ck < src_len) { ck = ck + 1; }
+            }
+            elif (cc == 39) {       # '
+                ck = ck + 1;
+                while (ck < src_len && load8(src + ck) != 39) { ck = ck + 1; }
+                if (ck < src_len) { ck = ck + 1; }
+            }
+            else { ck = ck + 1; }
+        }
+    }
+    var p = start;
+    var depth = 0;
+    var done_jsx = 0;
+    while (done_jsx == 0) {
+        if (p >= src_len) { return start; }   # bail: not balanced — not JSX
+        var c = load8(src + p);
+        if (c == 60) {                        # '<'
+            if (p + 1 >= src_len) { return start; }
+            var c1 = load8(src + p + 1);
+            if (c1 == 47) {                    # </
+                # Scan to '>'
+                while (p < src_len && load8(src + p) != 62) { p = p + 1; }
+                if (p >= src_len) { return start; }
+                p = p + 1;                     # past '>'
+                depth = depth - 1;
+                if (depth == 0) { done_jsx = 1; }
+            } elif (c1 == 62) {                # <>
+                depth = depth + 1;
+                p = p + 2;
+            } elif (TS_ISIDSTART(c1) == 1) {
+                # Open tag: scan attrs until '>' or '/>'
+                p = p + 1;
+                var inner_done = 0;
+                while (inner_done == 0) {
+                    if (p >= src_len) { return start; }
+                    var ic = load8(src + p);
+                    if (ic == 62) {            # '>'
+                        depth = depth + 1;
+                        p = p + 1;
+                        inner_done = 1;
+                    } elif (ic == 47) {
+                        if (p + 1 < src_len && load8(src + p + 1) == 62) {
+                            p = p + 2;          # '/>'
+                            inner_done = 1;
+                            if (depth == 0) { done_jsx = 1; }
+                        } else { p = p + 1; }
+                    } elif (ic == 34) {        # "
+                        p = p + 1;
+                        while (p < src_len && load8(src + p) != 34) { p = p + 1; }
+                        if (p < src_len) { p = p + 1; }
+                    } elif (ic == 39) {        # '
+                        p = p + 1;
+                        while (p < src_len && load8(src + p) != 39) { p = p + 1; }
+                        if (p < src_len) { p = p + 1; }
+                    } elif (ic == 123) {       # { — balanced expr in attr value
+                        var bd_a = 1;
+                        p = p + 1;
+                        while (p < src_len && bd_a > 0) {
+                            var ac = load8(src + p);
+                            if (ac == 123) { bd_a = bd_a + 1; }
+                            elif (ac == 125) { bd_a = bd_a - 1; }
+                            p = p + 1;
+                        }
+                    } else {
+                        p = p + 1;
+                    }
+                }
+            } else {
+                # `<` followed by something non-JSX — bail (not JSX after all)
+                return start;
+            }
+        } elif (c == 123) {                   # JSX expression: { ... }
+            var bd = 1;
+            p = p + 1;
+            while (p < src_len && bd > 0) {
+                var bc = load8(src + p);
+                if (bc == 123) { bd = bd + 1; p = p + 1; }
+                elif (bc == 125) { bd = bd - 1; p = p + 1; }
+                elif (bc == 34) {                  # "string"
+                    p = p + 1;
+                    while (p < src_len && load8(src + p) != 34) {
+                        if (load8(src + p) == 92) { p = p + 1; }   # \
+                        if (p < src_len) { p = p + 1; }
+                    }
+                    if (p < src_len) { p = p + 1; }
+                } elif (bc == 39) {                # 'string'
+                    p = p + 1;
+                    while (p < src_len && load8(src + p) != 39) {
+                        if (load8(src + p) == 92) { p = p + 1; }
+                        if (p < src_len) { p = p + 1; }
+                    }
+                    if (p < src_len) { p = p + 1; }
+                } elif (bc == 96) {                # `template`
+                    p = p + 1;
+                    while (p < src_len && load8(src + p) != 96) {
+                        if (load8(src + p) == 92) {
+                            p = p + 2;
+                        } elif (load8(src + p) == 36 && p + 1 < src_len && load8(src + p + 1) == 123) {
+                            # ${ — balanced inner expression
+                            var tbd = 1;
+                            p = p + 2;
+                            while (p < src_len && tbd > 0) {
+                                var tc = load8(src + p);
+                                if (tc == 123) { tbd = tbd + 1; }
+                                elif (tc == 125) { tbd = tbd - 1; }
+                                p = p + 1;
+                            }
+                        } else {
+                            p = p + 1;
+                        }
+                    }
+                    if (p < src_len) { p = p + 1; }
+                } elif (bc == 60) {                # nested JSX inside expr
+                    var nested_end = TS_LEX_JSX_SKIP_INNER(ts_base, src, src_len, p);
+                    if (nested_end > p) { p = nested_end; }
+                    else { p = p + 1; }
+                } else {
+                    p = p + 1;
+                }
+            }
+        } else {
+            p = p + 1;
+        }
+    }
+    # Emit one placeholder token spanning the whole JSX region.
+    var jsx_len = p - start;
+    var jsx_val = (start * 16777216) + jsx_len;
+    TS_ADDTOK(ts_base, TS_TOK_INT, jsx_val);
+    return p;
+}
+
 fn TS_LEX(ts_base, src, src_len) {
     # Initialize lexer state
     TS_SPOS(ts_base, 0);
@@ -1322,7 +1612,27 @@ fn TS_LEX(ts_base, src, src_len) {
         elif (c == 45)  { var mp = TS_LEX_OP_MINUS   (ts_base, src, src_len, p); if (mp < 0) { return 0 - 1; } p = mp; }
         elif (c == 46)  { var dp = TS_LEX_OP_DOT     (ts_base, src, src_len, p); if (dp < 0) { return 0 - 1; } p = dp; }
         elif (c == 47)  { var fp = TS_LEX_OP_SLASH   (ts_base, src, src_len, p); if (fp < 0) { return 0 - 1; } p = fp; }
-        elif (c == 60)  { var tp = TS_LEX_OP_LT      (ts_base, src, src_len, p); if (tp < 0) { return 0 - 1; } p = tp; }
+        elif (c == 60)  {
+            # JSX detection — only when in expression (regex-allowed)
+            # context. Otherwise fall through to the normal LT op
+            # dispatch (binary <, <=, <<, etc.).
+            var tried_jsx = 0;
+            # JSX is valid only in expression context — use the
+            # token-walk-back IS_PRIMARY check (LAST_TOK_CLASS is a
+            # cached field that doesn't update per-token).
+            if (TS_IS_PRIMARY_CONTEXT(ts_base) == 0) {
+                var jsx_end = TS_LEX_JSX_SKIP(ts_base, src, src_len, p);
+                if (jsx_end > p) {
+                    p = jsx_end;
+                    tried_jsx = 1;
+                }
+            }
+            if (tried_jsx == 0) {
+                var tp = TS_LEX_OP_LT(ts_base, src, src_len, p);
+                if (tp < 0) { return 0 - 1; }
+                p = tp;
+            }
+        }
         elif (c == 61)  { var ep = TS_LEX_OP_EQ      (ts_base, src, src_len, p); if (ep < 0) { return 0 - 1; } p = ep; }
         elif (c == 62)  { var gp = TS_LEX_OP_GT      (ts_base, src, src_len, p); if (gp < 0) { return 0 - 1; } p = gp; }
         elif (c == 63)  { var qp = TS_LEX_OP_QUESTION(ts_base, src, src_len, p); if (qp < 0) { return 0 - 1; } p = qp; }

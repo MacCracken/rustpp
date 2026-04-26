@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.2.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.7.3.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -369,8 +369,8 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.3**: **cyrius-ts completion** — JSX support (.tsx files), async/await flow refinement, and triage of the remaining ~411 SY .ts edge cases (mapped types, `asserts` predicates, complex destructure patterns). v5.7.2 ships at 1642/2053 (80%) baseline acceptance — v5.7.3 targets ≥95%. Pinned 2026-04-25. (v5.7.0 sandhi fold + v5.7.1 fixup-cap bump + v5.7.2 cyrius-ts foundational shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
-> - **v5.7.4**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + cyrius-ts foundational + completion). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap took priority slots in turn.
+> - **v5.7.4**: **final cyrius-ts cleanup** — close the last ~33 .ts + ~8 .tsx edge cases (template-literal types, deep mapped types, complex destructure patterns, exotic JSX shapes the heuristic skip mis-classifies); replace the JSX `TOK_INT` placeholder with proper AST nodes; record async-ness in AST payloads. Target ≥99% .ts and ≥99% .tsx acceptance. Pinned 2026-04-25. (v5.7.0 sandhi fold + v5.7.1 fixup-cap + v5.7.2 cyrius-ts foundational + v5.7.3 cyrius-ts completion + JSX shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
+> - **v5.7.5**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap/JSX took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -694,33 +694,34 @@ toolchain side is unblocked.
 ---
 
 
-## v5.7.3 — cyrius-ts completion (async runtime + JSX scope decision)
+## v5.7.4 — Final cyrius-ts cleanup
 
-**Pinned 2026-04-25** when v5.7.2 explicitly deferred async + JSX. v5.7.2 ships cyrius-ts with TS parity for the sync, non-TSX subset (~27% of SY's TS files). v5.7.3 closes the gap so SY's full TS portion compiles.
+**Pinned 2026-04-25** (cascaded from "RISC-V" — that slot slid to v5.7.5 once cyrius-ts ate v5.7.2/v5.7.3 and JSX took the back half of v5.7.3). Final cleanup pass on the cyrius-ts frontend before RISC-V picks up the next slot.
+
+**v5.7.3 baseline:**
+- 2020/2053 (98.4%) SY .ts parse acceptance
+- 427/435 (98.2%) SY .tsx parse acceptance
+
+**v5.7.4 target:** ≥99% on both, plus structural cleanups so the AST is consumable beyond parse-acceptance.
 
 **Scope:**
 
-- **Async runtime** — minimal cyrius-side machinery for `async`/`await` + `Promise` (1472–1514 SY files, ~73%). Choices to make during scoping: futex/event-loop-based vs CPS-transform-at-compile-time. Inventory data favors a runtime over CPS.
-- **`Promise.{all/race/allSettled/any}`** + `new Promise((resolve, reject) => ...)` constructors (217 SY files / ~11%). Pairs with async runtime.
-- **JSX / TSX scope decision** — 435 .tsx files in SY. Most likely outcome: explicit "NOT supported," documented as such. SY's TSX stays in SY's web-frontend track. Decision made before P1 of v5.7.3 starts.
-- **Async-aware Node API shim** — `fs.promises.*`, callback-style `fs.readFile`, etc. Bridges the v5.7.2 sync shim with the new async runtime.
+- Final ~33 .ts edge cases. Top tokens in the `/tmp/sy_parse_failures.tsv` from v5.7.3 closeout: `tok=11` (LPAREN), `tok=2` (IDENT), `tok=9` (TEMPLATE_TAIL — template-literal types), `tok=13` (LBRACE — exotic obj-type shapes), `tok=28` (LT — type-position assertions), `tok=21` (QUESTION — `?` mixed contexts).
+- Final ~8 .tsx edge cases — JSX shapes the heuristic skip mis-classifies. Inspect `/tmp/sy_tsx_failures.tsv`. Most likely culprits: TS-generic call inside JSX attr, JSX containing arrow with type-args, JSX text with `{`/`<` in unusual positions.
+- **Real JSX AST nodes** — replace the v5.7.3 `TOK_INT` placeholder with proper `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` / `JSX_EXPR_CONTAINER` / `JSX_TEXT` nodes. Lex side stays mostly the same (the JSX skip becomes a JSX-aware tokenizer that emits structured tokens); parse side gains a JSX-element parser invoked from `PRIMARY` when peek is `JSX_OPEN_START`.
+- **Full async tracking in AST payloads** — currently `async function` and `async () => {}` are accepted but not flagged. Add a payload bit on `DECL_FUNCTION` / `EXPR_ARROW` / `DECL_METHOD`. Cheap.
+- **Async-arrow with paren-arg type ambiguity** — `async <T>(x) => ...` currently goes through the bare-`async`-IDENT-arrow path which may mis-handle the type-arg list. Audit + fix.
 
-**Acceptance gates:**
+**Methodology:** same diag harness from v5.7.2 P2.7 / v5.7.3 P3.1 — run sweep, group by (code, top tokens), smallest-failing-file bisect per (code, tok), fix in `parse.cyr` / `lex.cyr`, sweep, repeat.
 
-1. SY's full TS portion (sync + async, non-TSX) compiles via cyrius-ts.
-2. SY's TS-side test suite (full, including async tests) passes against cyrius-built binaries.
-3. CHANGELOG documents the JSX scope decision — whether NOT supported or scoped in.
-4. Async-runtime overhead measured on a representative SY benchmark.
+**Acceptance:**
+- `tests/regression-ts-parse.sh` threshold bumped 2000 → 2030 (≥99%)
+- `tests/regression-ts-parse-tsx.sh` threshold bumped 420 → 430 (≥99%)
+- All P1+P2+P3 unit tests still green
+- cc5 self-host fixpoint clean
+- check.sh stays at 29 active gates (no new gates needed; existing ones tighten)
 
-**Prerequisites that must ship before v5.7.3 starts:**
-
-- **v5.7.2** — cyrius-ts foundational lands first; v5.7.3 inherits the frontend/lex/parse/typecheck infrastructure.
-- **Async runtime architecture decision** — futex-event-loop vs CPS-transform; pick before any code lands.
-- **JSX scope decision** — supported (with subset) or not supported (with rationale). Default: not supported.
-
----
-
-## v5.7.4 — RISC-V rv64
+## v5.7.5 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:
@@ -728,12 +729,13 @@ v5.6.0 → v5.7.0 (2026-04-20, optimization arc lands first);
 v5.7.0 → v5.7.1 (2026-04-24, sandhi fold takes v5.7.0);
 v5.7.1 → v5.7.2 (2026-04-24, cyrius-ts takes v5.7.1);
 v5.7.2 → v5.7.3 (2026-04-25, cyrius-ts completion takes v5.7.2);
+v5.7.3 → v5.7.4 (2026-04-25, JSX slot for v5.7.3 cascaded final cleanup);
 v5.7.3 → v5.7.4 (2026-04-25, fixup-cap bump took v5.7.1 sit-blocking
 slot, cyrius-ts cascaded down by one). Rationale: a new
 architecture is structurally different from v5.5.x items
 (correctness / completion / runtime work on existing platforms),
 different from v5.7.0's lib/-reshape work, different from
-v5.7.1's ecosystem unblock, and different from v5.7.2/v5.7.3's
+v5.7.1's ecosystem unblock, and different from v5.7.2/v5.7.3/v5.7.4's
 frontend work — separate minor-patches for separate kinds of
 change. RISC-V needs:
 
@@ -770,7 +772,7 @@ change. RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-**Prerequisites that must ship before v5.7.4 starts:**
+**Prerequisites that must ship before v5.7.5 starts:**
 - **v5.6.5 + v5.6.7–v5.6.21** — Compiler optimization arc.
 - **v5.6.28** — shared-object emission landed.
 - **v5.6.29** — downstream ecosystem sweep gate.
@@ -780,13 +782,14 @@ change. RISC-V needs:
   against the new fixup-table size from day one.
 - **v5.7.2** — cyrius-ts foundational. RISC-V inherits compiler that
   emits from both `.cyr` and `.ts` source for sync subset.
-- **v5.7.3** — cyrius-ts completion (async + JSX scope decision).
+- **v5.7.3** — cyrius-ts completion + JSX (lex skip).
+- **v5.7.4** — final cyrius-ts cleanup (real JSX AST + edge cases).
   RISC-V inherits a frontend-complete compiler so rv64 backend
   doesn't have to re-test frontend-specific code paths separately.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch uses
   the new syntax from day one.
 
-Deliberately NOT bundling other items into v5.7.4 — a new
+Deliberately NOT bundling other items into v5.7.5 — a new
 architecture port is plenty of work on its own.
 
 ---

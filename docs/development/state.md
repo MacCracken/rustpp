@@ -5,6 +5,32 @@
 
 ## Version
 
+**5.7.3** (shipped — **CYRIUS-TS COMPLETION + JSX**. Continues the
+v5.7.2 cyrius-ts arc: 80% → **98.4%** SY .ts parse acceptance via
+16 iterative fix batches against the diag harness, plus a new
+JSX-aware lex skip that lifts SY .tsx parse acceptance from 0.5%
+(2/435) to **98.2%** (427/435). check.sh active gates 28 → 29
+(new `regression-ts-parse-tsx.sh`). P3.1: async object-method
+modifier, nested-generic call consume, broadened param-name
+acceptance, `import("./mod").T` types, `for await` loops,
+generator `*` markers (function/method/object), `yield`/`yield*`
+in UNARY, broadened binding-pattern names, computed property
+names, array destructure holes, FLOAT lex (frac + exponent —
+`1e-7` no longer lexes as 4 tokens), TYPE_OBJECT method sigs,
+function-overload bodies optional, `declare global { ... }`,
+`new () => T` constructor types, `value is T` predicates,
+`override`/`declare` modifiers, import attributes
+`with { type: 'json' }`. P3.3: `TS_LEX_JSX_SKIP` byte-level scanner
+recognizes `<IDENT`/`<>` in expression context (via
+`TS_IS_PRIMARY_CONTEXT` walk-back), walks balanced JSX tags +
+fragments + `{...}` exprs (with template-literal awareness) +
+nested JSX, emits one `TOK_INT` placeholder per JSX expression.
+Generic-arrow disambiguation (`<T extends U>(args) => body`)
+recognized as not-JSX via post-`>` `(` lookahead. cc5 683,808 B
+(+17,600 from v5.7.2); self-host byte-identical. Remaining
+~8 .tsx + ~33 .ts edge cases slated for v5.7.4 (final cyrius-ts
+cleanup).)
+
 **5.7.2** (shipped — **CYRIUS-TS FOUNDATIONAL**. TypeScript
 frontend for the Cyrius compiler shipped as 7 phases (P1.1–P1.7
 lex + P2.1–P2.7 parse). 462 lex assertions + 367 parse assertions
@@ -99,11 +125,12 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **666,208 B** (+34,624 B from v5.7.1's 531,584,
-  +134,624 B vs v5.6.45's 531,584 — entirely from the v5.7.2
-  cyrius-ts frontend: ~1,500 LOC TS lexer + ~3,400 LOC TS parser
-  shipped together as the new `--lex-ts` / `--parse-ts` modes).
-  `cc5 --version` reports `cc5 5.7.2`.
+- **cc5 (x86_64)**: **683,808 B** (+17,600 B from v5.7.2's 666,208,
+  +152,224 B vs v5.6.45's 531,584 — v5.7.2 added ~1,500 LOC TS lexer
+  + ~3,400 LOC TS parser; v5.7.3 added the JSX lex skip
+  (~150 LOC) + 16 fix batches across lex/parse extending coverage
+  from 80% to 98.4% .ts and 0.5% to 98.2% .tsx).
+  `cc5 --version` reports `cc5 5.7.3`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -144,19 +171,25 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.3 (cyrius-ts completion) — pinned, scope finalizable from
-v5.7.2 SY-acceptance gap.** v5.7.2 ships at 1642/2053 (80%) baseline
-parse acceptance against the SY corpus; v5.7.3 targets ≥ 95% by
-triaging the remaining ~411 .ts edge cases plus adding JSX (.tsx)
-and async/await flow refinement. Diagnostic harness from P2.7
-(`--parse-ts` emits `code=N line=L tok=T cur_idx=X err_idx=Y`)
-already in place; v5.7.3 is iterative same-shape work on the same
-methodology. Known scope:
+**v5.7.4 (final cyrius-ts cleanup) — pinned, scope finalizable from
+v5.7.3 acceptance gap.** v5.7.3 ships at 2020/2053 (98.4%) .ts and
+427/435 (98.2%) .tsx acceptance; v5.7.4 targets the remaining 41
+edge cases + replaces the JSX lex placeholder with real AST nodes.
+The diag harness pattern from P2.7/P3.1 carries directly. Known
+scope:
 
-- JSX support (.tsx files) — context-sensitive lex + tag/attr parser
-- Async/await flow refinement (currently consumed-and-skipped)
-- Mapped types `{ [K in keyof T]: U }`, `asserts` predicates,
-  complex destructure patterns, and other type-position tail cases
+- Final ~33 .ts edge cases (template-literal types, deep mapped
+  types `{ [K in keyof T]: U }`, complex destructure patterns,
+  exotic type-position constructs)
+- Final ~8 .tsx edge cases (JSX shapes the heuristic lex skip
+  mis-classifies)
+- Real JSX AST: replace the `TOK_INT` placeholder with proper
+  `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_TEXT`
+  nodes (parse-time work, lex stays mostly the same)
+- Full async-ness recorded in AST payloads (currently consumed
+  but not tracked)
+- Target: ≥ 99% .ts and ≥ 99% .tsx acceptance. Following slot is
+  RISC-V (slid back from v5.7.4).
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the
