@@ -4,6 +4,276 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.5] — 2026-04-26
+
+**CYRIUS-TS REAL JSX AST — structured tokens + AST nodes replace the
+v5.7.3 TOK_INT placeholder.**
+
+Closes the v5.7.0–v5.7.5 cyrius-ts arc by giving downstream consumers
+a real, walkable JSX AST. The v5.7.3 lex byte-skip emitted one opaque
+`TOK_INT` per JSX expression — fine for parse-acceptance, useless for
+typecheck or lower. v5.7.5 lands 13 structured JSX token kinds at the
+lex layer + 9 JSX AST kinds in the parser, with `TS_PARSE_JSX_ELEMENT`
+invoked from `PRIMARY` building proper `JSX_ELEMENT` / `JSX_FRAGMENT` /
+`JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` / `JSX_EXPR_CONTAINER` / `JSX_TEXT`
+nodes. `.tsx` parse acceptance: 428 → **429/435 (98.6%)** — beats the
+v5.7.4 baseline. `.ts`: held at 2033/2053 (99.03%). cc5 687,088 →
+**697,840 B** (+10,752 B); 3-step self-host fixpoint clean.
+
+### Phase summary
+
+- **P4.3a — lex: structured JSX tokens (parallel)**:
+  - 13 token kinds in block 300-312: `JSX_OPEN_START`, `JSX_TAG_NAME`,
+    `JSX_ATTR_NAME`, `JSX_ATTR_VALUE_STRING`, `JSX_OPEN_END`,
+    `JSX_CLOSE_START`, `JSX_CLOSE_END`, `JSX_SELF_CLOSE`, `JSX_TEXT`,
+    `JSX_EXPR_OPEN`, `JSX_EXPR_CLOSE`, `JSX_FRAGMENT_OPEN`,
+    `JSX_FRAGMENT_CLOSE`.
+  - New `TS_LEX_JSX` self-contained walker (parallel to existing
+    `TS_LEX_JSX_SKIP` — not yet wired). Emits structured stream;
+    handles open/close/fragment/self-close/attrs (string + expr +
+    bare boolean + spread)/JSX text/nested elements.
+  - Helpers: `TS_PACK_SPAN(off, len)`, `TS_LEX_JSX_SCAN_NAME`
+    (admits `.` member, `:` namespaced, `-` HTML attrs),
+    `TS_LEX_JSX_BALANCE_BRACES` (string + template-literal aware),
+    `TS_LEX_JSX_SKIP_WS` (skips ws + `//` + `/* */` comments inside
+    JSX tags — the v5.7.3 limit that broke files with eslint-disable
+    pragmas inside open tags).
+  - New `tests/tcyr/ts_lex_p43.tcyr` — 49 assertions across 12 groups
+    exercising `TS_LEX_JSX` directly (open/close, self-close, fragment,
+    attr string, attr expr, spread, bare boolean, expr child, nested,
+    member tag name, JSX-in-expr-in-JSX, generic-arrow disambig).
+  - cc5 +10,496 B (parallel; not on cc5 hot path).
+
+- **P4.3b — parse: JSX AST + dispatch flip**:
+  - 9 AST kinds in block 700-708: `JSX_ELEMENT` (payload: name span,
+    attrs children-off, body children-off, self_close flag),
+    `JSX_FRAGMENT`, `JSX_OPENING`/`JSX_CLOSING` (reserved),
+    `JSX_ATTRIBUTE` (payload: name span, value-kind 0/1/2, value-span),
+    `JSX_SPREAD_ATTR`, `JSX_EXPR_CONTAINER`, `JSX_TEXT`, `JSX_NAME`
+    (reserved).
+  - `TS_PARSE_JSX_ELEMENT` / `TS_PARSE_JSX_CHILDREN` /
+    `TS_PARSE_JSX_CHILD` / `TS_PARSE_JSX_ATTRS` invoked from `PRIMARY`
+    when current tok is `JSX_OPEN_START` or `JSX_FRAGMENT_OPEN`.
+    Children attached via the v5.7.2 children-array sentinel pattern.
+  - **Lex dispatch flipped**: `TS_LEX` now calls `TS_LEX_JSX`
+    (structured) instead of `TS_LEX_JSX_SKIP` (placeholder).
+  - `TS_LEX_JSX_SKIP` and `TS_LEX_JSX_SKIP_INNER` deleted (256 LOC).
+  - `_TS_LEX_JSX_WALK` factored from `TS_LEX_JSX` (returns -1 on
+    bail); `TS_LEX_JSX` wraps it with tok-count snapshot/restore so
+    a faux-JSX bail (e.g., `<typeof X>` lex-mid-walk) rolls back any
+    leaked emissions before falling through to LT.
+  - `TS_LEX_JSX_BYTE_SKIP` — byte-walks nested JSX inside `{...}`
+    expr bodies WITHOUT emitting tokens (parallel to the v5.7.3
+    `SKIP_INNER` shape; needed because a JSX text containing `'`
+    would otherwise be eaten by `BALANCE_BRACES`'s string-delim
+    handler). Bails on stray `}` to catch generic-type
+    `Foo<HTMLParagraphElement>` mis-firing as JSX.
+  - Empty `JSX_EXPR_CONTAINER` in this iteration — lex byte-balances
+    `{...}` body without emitting inner tokens. Inner-expr
+    tokenization deferred to v5.7.6 (mode-stack-driven design
+    prototyped in v5.7.5 P4.3d but reverted; integration with
+    main-loop dispatch needs deeper investigation).
+  - cc5 +256 B beyond P4.3a baseline.
+
+- **P4.3c — verify**:
+  - New `tests/tcyr/ts_parse_p43.tcyr` (184 lines, 11 test groups):
+    self-close, open/close, fragment, string attr, expr attr, bare
+    attr, spread attr, expr child, text child, nested element,
+    generic-arrow disambig (asserts no JSX node emitted — falls
+    through to arrow path).
+  - `regression-ts-parse-tsx.sh` threshold raised 425 → **429**.
+  - `regression-ts-parse.sh` threshold unchanged at 2030 (`.ts`
+    didn't move).
+  - 6 remaining `.tsx` failures triaged — all non-JSX TS feature
+    gaps (out of P4.3 scope): generic method types in object types
+    (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
+    multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
+    (`{[key]: _}`), multi-line block comment inside JSX text, one
+    cumulative `ConnectionsPage` shape. Each is its own future slot.
+
+### Added
+
+- **`src/frontend/ts/lex.cyr`**: 13 JSX token-kind constants
+  (`TS_TOK_JSX_*` 300-312); `TS_PACK_SPAN`, `TS_LEX_JSX_SCAN_NAME`,
+  `TS_LEX_JSX_BALANCE_BRACES`, `TS_LEX_JSX_BYTE_SKIP`,
+  `TS_LEX_JSX_SKIP_WS` (with `//` + `/* */` skip),
+  `_TS_LEX_JSX_WALK`, `TS_LEX_JSX` (wrapper).
+- **`src/frontend/ts/parse.cyr`**: 9 JSX AST-kind constants
+  (`TS_AST_JSX_*` 700-708); `TS_PARSE_JSX_ELEMENT`,
+  `TS_PARSE_JSX_CHILDREN`, `TS_PARSE_JSX_CHILD`, `TS_PARSE_JSX_ATTRS`;
+  `PRIMARY` dispatch on `JSX_OPEN_START` / `JSX_FRAGMENT_OPEN`.
+- **`tests/tcyr/ts_lex_p43.tcyr`** — 49 lex assertions (12 groups).
+- **`tests/tcyr/ts_parse_p43.tcyr`** — parser AST shape assertions
+  (11 groups).
+
+### Changed
+
+- `src/frontend/ts/lex.cyr` `<` dispatch in `TS_LEX`: now calls
+  structured `TS_LEX_JSX`. Faux-JSX bails roll back via tok-count
+  snapshot.
+- `tests/regression-ts-parse-tsx.sh`: threshold 425 → 429.
+- Compiler binary: 687,088 B (v5.7.4) → **697,840 B** (v5.7.5,
+  +10,752 B for the JSX lex/parse infrastructure). cc5 self-hosts
+  byte-identical.
+
+### Removed
+
+- `TS_LEX_JSX_SKIP` and `TS_LEX_JSX_SKIP_INNER` — the v5.7.3
+  byte-balance JSX skip that emitted a single opaque
+  `TS_TOK_INT` placeholder. Replaced by structured tokens.
+
+### Deferred to v5.7.6
+
+- **JSX inner-expr tokenization (P4.3d resume)**. v5.7.5 ships with
+  empty `JSX_EXPR_CONTAINER` nodes — the lex byte-balances `{...}`
+  expression bodies without emitting inner tokens, so the parser
+  sees nothing inside the container. The mode-stack-driven design
+  was prototyped during v5.7.5 work (`TS_LEX_JSX_TAG` /
+  `TS_LEX_JSX_TEXT` helpers, modes 4/5/8 on the existing template
+  stack, main-loop dispatch, parser real-expr consumption) and
+  reverted at the end — clean cut for v5.7.5 release. The d-1
+  helpers were known-good; the bug surfaced when wiring d-2
+  dispatch (mode-stack popping leaves an inconsistent state on
+  some specific JSX shape that single-line bisect on the failing
+  files couldn't isolate). v5.7.6 picks this up with full
+  investigation budget and the helpers go back in.
+- 6 sticky `.tsx` failures listed above — each its own narrow slot,
+  none JSX-related.
+## [5.7.5] — 2026-04-26
+
+**CYRIUS-TS REAL JSX AST — structured tokens + AST nodes replace the
+v5.7.3 TOK_INT placeholder.**
+
+Closes the v5.7.0–v5.7.5 cyrius-ts arc by giving downstream consumers
+a real, walkable JSX AST. The v5.7.3 lex byte-skip emitted one opaque
+`TOK_INT` per JSX expression — fine for parse-acceptance, useless for
+typecheck or lower. v5.7.5 lands 13 structured JSX token kinds at the
+lex layer + 9 JSX AST kinds in the parser, with `TS_PARSE_JSX_ELEMENT`
+invoked from `PRIMARY` building proper `JSX_ELEMENT` / `JSX_FRAGMENT` /
+`JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` / `JSX_EXPR_CONTAINER` / `JSX_TEXT`
+nodes. `.tsx` parse acceptance: 428 → **429/435 (98.6%)** — beats the
+v5.7.4 baseline. `.ts`: held at 2033/2053 (99.03%). cc5 687,088 →
+**697,840 B** (+10,752 B); 3-step self-host fixpoint clean.
+
+### Phase summary
+
+- **P4.3a — lex: structured JSX tokens (parallel)**:
+  - 13 token kinds in block 300-312: `JSX_OPEN_START`, `JSX_TAG_NAME`,
+    `JSX_ATTR_NAME`, `JSX_ATTR_VALUE_STRING`, `JSX_OPEN_END`,
+    `JSX_CLOSE_START`, `JSX_CLOSE_END`, `JSX_SELF_CLOSE`, `JSX_TEXT`,
+    `JSX_EXPR_OPEN`, `JSX_EXPR_CLOSE`, `JSX_FRAGMENT_OPEN`,
+    `JSX_FRAGMENT_CLOSE`.
+  - New `TS_LEX_JSX` self-contained walker (parallel to existing
+    `TS_LEX_JSX_SKIP` — not yet wired). Emits structured stream;
+    handles open/close/fragment/self-close/attrs (string + expr +
+    bare boolean + spread)/JSX text/nested elements.
+  - Helpers: `TS_PACK_SPAN(off, len)`, `TS_LEX_JSX_SCAN_NAME`
+    (admits `.` member, `:` namespaced, `-` HTML attrs),
+    `TS_LEX_JSX_BALANCE_BRACES` (string + template-literal aware),
+    `TS_LEX_JSX_SKIP_WS` (skips ws + `//` + `/* */` comments inside
+    JSX tags — the v5.7.3 limit that broke files with eslint-disable
+    pragmas inside open tags).
+  - New `tests/tcyr/ts_lex_p43.tcyr` — 49 assertions across 12 groups
+    exercising `TS_LEX_JSX` directly (open/close, self-close, fragment,
+    attr string, attr expr, spread, bare boolean, expr child, nested,
+    member tag name, JSX-in-expr-in-JSX, generic-arrow disambig).
+  - cc5 +10,496 B (parallel; not on cc5 hot path).
+
+- **P4.3b — parse: JSX AST + dispatch flip**:
+  - 9 AST kinds in block 700-708: `JSX_ELEMENT` (payload: name span,
+    attrs children-off, body children-off, self_close flag),
+    `JSX_FRAGMENT`, `JSX_OPENING`/`JSX_CLOSING` (reserved),
+    `JSX_ATTRIBUTE` (payload: name span, value-kind 0/1/2, value-span),
+    `JSX_SPREAD_ATTR`, `JSX_EXPR_CONTAINER`, `JSX_TEXT`, `JSX_NAME`
+    (reserved).
+  - `TS_PARSE_JSX_ELEMENT` / `TS_PARSE_JSX_CHILDREN` /
+    `TS_PARSE_JSX_CHILD` / `TS_PARSE_JSX_ATTRS` invoked from `PRIMARY`
+    when current tok is `JSX_OPEN_START` or `JSX_FRAGMENT_OPEN`.
+    Children attached via the v5.7.2 children-array sentinel pattern.
+  - **Lex dispatch flipped**: `TS_LEX` now calls `TS_LEX_JSX`
+    (structured) instead of `TS_LEX_JSX_SKIP` (placeholder).
+  - `TS_LEX_JSX_SKIP` and `TS_LEX_JSX_SKIP_INNER` deleted (256 LOC).
+  - `_TS_LEX_JSX_WALK` factored from `TS_LEX_JSX` (returns -1 on
+    bail); `TS_LEX_JSX` wraps it with tok-count snapshot/restore so
+    a faux-JSX bail (e.g., `<typeof X>` lex-mid-walk) rolls back any
+    leaked emissions before falling through to LT.
+  - `TS_LEX_JSX_BYTE_SKIP` — byte-walks nested JSX inside `{...}`
+    expr bodies WITHOUT emitting tokens (parallel to the v5.7.3
+    `SKIP_INNER` shape; needed because a JSX text containing `'`
+    would otherwise be eaten by `BALANCE_BRACES`'s string-delim
+    handler). Bails on stray `}` to catch generic-type
+    `Foo<HTMLParagraphElement>` mis-firing as JSX.
+  - Empty `JSX_EXPR_CONTAINER` in this iteration — lex byte-balances
+    `{...}` body without emitting inner tokens. Inner-expr
+    tokenization deferred to v5.7.6 (mode-stack-driven design
+    prototyped in v5.7.5 P4.3d but reverted; integration with
+    main-loop dispatch needs deeper investigation).
+  - cc5 +256 B beyond P4.3a baseline.
+
+- **P4.3c — verify**:
+  - New `tests/tcyr/ts_parse_p43.tcyr` (184 lines, 11 test groups):
+    self-close, open/close, fragment, string attr, expr attr, bare
+    attr, spread attr, expr child, text child, nested element,
+    generic-arrow disambig (asserts no JSX node emitted — falls
+    through to arrow path).
+  - `regression-ts-parse-tsx.sh` threshold raised 425 → **429**.
+  - `regression-ts-parse.sh` threshold unchanged at 2030 (`.ts`
+    didn't move).
+  - 6 remaining `.tsx` failures triaged — all non-JSX TS feature
+    gaps (out of P4.3 scope): generic method types in object types
+    (`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
+    multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
+    (`{[key]: _}`), multi-line block comment inside JSX text, one
+    cumulative `ConnectionsPage` shape. Each is its own future slot.
+
+### Added
+
+- **`src/frontend/ts/lex.cyr`**: 13 JSX token-kind constants
+  (`TS_TOK_JSX_*` 300-312); `TS_PACK_SPAN`, `TS_LEX_JSX_SCAN_NAME`,
+  `TS_LEX_JSX_BALANCE_BRACES`, `TS_LEX_JSX_BYTE_SKIP`,
+  `TS_LEX_JSX_SKIP_WS` (with `//` + `/* */` skip),
+  `_TS_LEX_JSX_WALK`, `TS_LEX_JSX` (wrapper).
+- **`src/frontend/ts/parse.cyr`**: 9 JSX AST-kind constants
+  (`TS_AST_JSX_*` 700-708); `TS_PARSE_JSX_ELEMENT`,
+  `TS_PARSE_JSX_CHILDREN`, `TS_PARSE_JSX_CHILD`, `TS_PARSE_JSX_ATTRS`;
+  `PRIMARY` dispatch on `JSX_OPEN_START` / `JSX_FRAGMENT_OPEN`.
+- **`tests/tcyr/ts_lex_p43.tcyr`** — 49 lex assertions (12 groups).
+- **`tests/tcyr/ts_parse_p43.tcyr`** — parser AST shape assertions
+  (11 groups).
+
+### Changed
+
+- `src/frontend/ts/lex.cyr` `<` dispatch in `TS_LEX`: now calls
+  structured `TS_LEX_JSX`. Faux-JSX bails roll back via tok-count
+  snapshot.
+- `tests/regression-ts-parse-tsx.sh`: threshold 425 → 429.
+- Compiler binary: 687,088 B (v5.7.4) → **697,840 B** (v5.7.5,
+  +10,752 B for the JSX lex/parse infrastructure). cc5 self-hosts
+  byte-identical.
+
+### Removed
+
+- `TS_LEX_JSX_SKIP` and `TS_LEX_JSX_SKIP_INNER` — the v5.7.3
+  byte-balance JSX skip that emitted a single opaque
+  `TS_TOK_INT` placeholder. Replaced by structured tokens.
+
+### Deferred to v5.7.6
+
+- **JSX inner-expr tokenization (P4.3d resume)**. v5.7.5 ships with
+  empty `JSX_EXPR_CONTAINER` nodes — the lex byte-balances `{...}`
+  expression bodies without emitting inner tokens, so the parser
+  sees nothing inside the container. The mode-stack-driven design
+  was prototyped during v5.7.5 work (`TS_LEX_JSX_TAG` /
+  `TS_LEX_JSX_TEXT` helpers, modes 4/5/8 on the existing template
+  stack, main-loop dispatch, parser real-expr consumption) and
+  reverted at the end — clean cut for v5.7.5 release. The d-1
+  helpers were known-good; the bug surfaced when wiring d-2
+  dispatch (mode-stack popping leaves an inconsistent state on
+  some specific JSX shape that single-line bisect on the failing
+  files couldn't isolate). v5.7.6 picks this up with full
+  investigation budget and the helpers go back in.
+- 6 sticky `.tsx` failures listed above — each its own narrow slot,
+  none JSX-related.
 ## [5.7.4] — 2026-04-25
 
 **CYRIUS-TS CLEANUP PASS — .ts ≥99%, async tracking in AST, lex

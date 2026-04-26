@@ -1,8 +1,9 @@
 # Cyrius Development Roadmap
 
-> **v5.7.5.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
-> via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
-> regalloc save/restore minus compaction savings). Native aarch64 cc5
+> **v5.7.5.** cc5 compiler (697,840 B x86_64; +10,752 B from v5.7.4's
+> 687,088 — JSX lex/parse infrastructure: 13 structured JSX token
+> kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY,
+> minus the deleted v5.7.3 SKIP placeholder, 256 LOC). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
 > x86-only compaction code is dead-emitted on aarch64 builds — strip
 > via `#ifdef CYRIUS_ARCH_X86` pinned as future cleanup). x86_64 +
@@ -369,8 +370,9 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.5**: **real JSX AST** — replace v5.7.3's `TOK_INT` placeholder with structured `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_TEXT` AST nodes. Lex side gets a proper JSX tokenizer (~10 new token kinds + a JSX-text/JSX-expr lex-mode stack); parse side gains `TS_PARSE_JSX_ELEMENT` invoked from `PRIMARY`. Side effect: closes the remaining ~7 .tsx edges via proper depth tracking. Pinned 2026-04-25. (v5.7.0–v5.7.4 shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
-> - **v5.7.6**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST took priority slots in turn.
+> - **v5.7.5**: ✅ shipped 2026-04-26 — real JSX AST (13 structured JSX token kinds + 9 JSX AST kinds + `TS_PARSE_JSX_ELEMENT` from PRIMARY). Inner-expr tokenization deferred to v5.7.6 — empty `JSX_EXPR_CONTAINER` in this iteration. `.tsx` 428 → 429/435 (98.6%); `.ts` held at 2033/2053. Mode-stack-driven prototype reverted at end-of-cycle for clean cut. See CHANGELOG.
+> - **v5.7.6**: **JSX inner-expr tokenization (P4.3d resume)** — pick up the mode-stack-driven design from v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) / mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX loop dispatches to per-mode helpers; matching `}` of mode 8 emits `JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers `TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2 dispatch (specific JSX shape leaves mode stack inconsistent; couldn't isolate via single-line bisect). v5.7.6 picks this up with full investigation budget. After landing: parser real-expr consumption inside containers + spread attrs. Pinned 2026-04-26.
+> - **v5.7.7**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -694,41 +696,102 @@ toolchain side is unblocked.
 ---
 
 
-## v5.7.5 — Real JSX AST (replace TOK_INT placeholder)
+## v5.7.5 — Real JSX AST ✅ shipped 2026-04-26
 
-**Pinned 2026-04-25** (cascaded from v5.7.4's "final cleanup" once it became clear the remaining ~7 .tsx edge cases are heuristic-skip limits, not parse-shape gaps). v5.7.4 closed .ts (≥99%) and async tracking; v5.7.5 closes the JSX AST gap.
+Replaced v5.7.3's `TOK_INT` placeholder with 13 structured JSX token
+kinds (block 300-312) + 9 JSX AST kinds (block 700-708) built by
+`TS_PARSE_JSX_ELEMENT` invoked from `PRIMARY`. `TS_LEX_JSX_SKIP` and
+`TS_LEX_JSX_SKIP_INNER` deleted (256 LOC). New `TS_LEX_JSX_BYTE_SKIP`
+catches generic types like `Foo<HTMLParagraphElement>` mis-firing as
+JSX (bails on stray `}`). `TS_LEX_JSX_SKIP_WS` extended to skip `//`
++ `/* */` comments inside JSX tags (eslint-disable pragmas). cc5
+687,088 → 697,840 B (+10,752 B). 3-step fixpoint clean.
 
-**v5.7.4 baseline:**
-- 2033/2053 (99.03%) SY .ts parse acceptance
-- 428/435 (98.39%) SY .tsx parse acceptance
+**Acceptance results:**
+- `.tsx`: 428 → **429/435 = 98.6%**; threshold raised 425 → 429
+- `.ts`: held at 2033/2053 = 99.03%
+- New `tests/tcyr/ts_lex_p43.tcyr` (49 assertions, 12 groups)
+- New `tests/tcyr/ts_parse_p43.tcyr` (11 groups)
+- check.sh 29/29
 
-**Why now:** the v5.7.3 JSX-aware lex skip emits one opaque `TOK_INT` placeholder per JSX expression. Works for parse acceptance (the parser sees what it thinks is an integer literal) but defeats any downstream consumer that wants to actually use the JSX (typecheck, lower, JSX → cyrius-native render). The 7 sticky .tsx edges all share a root cause: byte-scan depth tracking can't disambiguate certain shapes that proper tokenization would handle naturally.
+**Inner-expr tokenization deferred to v5.7.6.** v5.7.5 ships with
+empty `JSX_EXPR_CONTAINER` nodes — lex byte-balances `{...}`
+expression bodies without emitting inner tokens. The mode-stack-
+driven design was prototyped during v5.7.5 P4.3d work
+(`TS_LEX_JSX_TAG` / `TS_LEX_JSX_TEXT` helpers + modes 4/5/8 on the
+existing template stack + main-loop dispatch + parser real-expr
+consumption) and reverted at end of cycle for clean cut.
+
+**Following slot:** v5.7.6 — JSX inner-expr tokenization (P4.3d resume).
+
+## v5.7.6 — JSX inner-expr tokenization (P4.3d resume)
+
+**Pinned 2026-04-26.** v5.7.5 shipped the real JSX AST but with empty
+`JSX_EXPR_CONTAINER` nodes. v5.7.6 wires the mode-stack-driven design
+prototyped + reverted during v5.7.5.
 
 **Scope:**
 
-- **Lex side (additions to `src/frontend/ts/lex.cyr`):**
-  - Replace `TS_LEX_JSX_SKIP` with a proper JSX tokenizer.
-  - New tokens: `JSX_OPEN_START` (`<` followed by tag name), `JSX_TAG_NAME`, `JSX_ATTR_NAME`, `JSX_ATTR_VALUE_STRING`, `JSX_OPEN_END` (`>` ending an opener), `JSX_CLOSE_START` (`</`), `JSX_CLOSE_END` (`>` ending a closer), `JSX_SELF_CLOSE` (`/>`), `JSX_TEXT` (text between tags), `JSX_EXPR_OPEN` (`{`), `JSX_EXPR_CLOSE` (`}`).
-  - Lex-mode stack: JSX-tag, JSX-text, JSX-expr (which dispatches back to regular JS lex inside `{...}`). Pushed/popped on transitions.
-  - Generic-arrow disambiguation: keep the v5.7.3 lookahead (`<X>(` → not JSX) but cleaner now that we tokenize properly.
+- **Lex-mode stack extension.** Reuse the existing template stack
+  (slot values 0-3 are template-related). Add:
+  - 4 = JSX_TAG_MODE (inside `<TAG ...>` or `</TAG>`, expecting attrs)
+  - 5 = JSX_TEXT_MODE (between tags, expecting children)
+  - 8 = JSX_EXPR_MODE (inside `{...}` of JSX expr — main TS_LEX
+    loop tokenizes normally; matching `}` pops 8 + emits
+    `JSX_EXPR_CLOSE`)
 
-- **Parse side (additions to `src/frontend/ts/parse.cyr`):**
-  - New AST kinds: `TS_AST_JSX_ELEMENT`, `TS_AST_JSX_FRAGMENT`, `TS_AST_JSX_OPEN_TAG`, `TS_AST_JSX_CLOSE_TAG`, `TS_AST_JSX_ATTRIBUTE`, `TS_AST_JSX_SPREAD_ATTR`, `TS_AST_JSX_EXPR_CONTAINER`, `TS_AST_JSX_TEXT`.
-  - New fn `TS_PARSE_JSX_ELEMENT` invoked from `TS_PARSE_PRIMARY` when peek is `JSX_OPEN_START` or `JSX_OPEN_END`-with-empty-name (fragment).
-  - Children attached via the existing children-array (sentinel pattern from v5.7.2 P2.5).
+- **TS_LEX main-loop dispatch.** Extend the existing template-body
+  dispatch (top == 0/1) to also dispatch on top == 4 → `TS_LEX_JSX_TAG`
+  and top == 5 → `TS_LEX_JSX_TEXT`. The `{`/`}` handlers extended
+  for top == 8.
 
-**Methodology:** same diag harness from v5.7.2 P2.7 / v5.7.3 P3.1 — sweep, group failures, smallest-failing-file bisect, fix.
+- **TS_LEX_JSX entry rewrite.** Push mode 4 (or 5 for fragment) and
+  return — no more self-contained walk. Subsequent JSX structure
+  driven by main loop.
+
+- **Parser real-expr consumption.** `TS_PARSE_JSX_CHILD`'s
+  `JSX_EXPR_CONTAINER` consumer parses the actual expression
+  (was: empty assert close). `JSX_ATTRIBUTE` value-kind=2 (expr)
+  consumer same. `JSX_SPREAD_ATTR` consumes `ELLIPSIS` + expr.
+
+- **IS_PRIMARY_CONTEXT whitelist.** Add `JSX_CLOSE_END`,
+  `JSX_SELF_CLOSE`, `JSX_FRAGMENT_CLOSE` (post-JSX is value-context).
+
+- **Cleanup.** Delete `_TS_LEX_JSX_WALK` (the v5.7.5 self-contained
+  walker) + `TS_LEX_JSX_BYTE_SKIP` + `TS_LEX_JSX_BALANCE_BRACES`
+  (no longer needed once main loop drives JSX).
+
+**Methodology / known investigation pointers from v5.7.5 P4.3d
+attempt:**
+- d-1 helpers (`TS_LEX_JSX_TAG`, `TS_LEX_JSX_TEXT`) compiled clean
+  in parallel without breaking regressions — these go straight back
+  in.
+- d-2 dispatch wiring caused `.tsx` regression from 429 → 372 (57
+  lost) with `code=3 tok=301` (JSX_TAG_NAME at unexpected parse
+  position). Single-line bisect on failing files (McpManager,
+  ConnectionManager, WebScraperConfigPage) couldn't isolate the
+  trigger — likely a cumulative mode-stack-popping bug on a
+  specific JSX shape interaction. Targeted minimal repros all
+  passed. Full investigation budget required.
+- d-2 also restored `.ts` at 2033/2053 once a pre-flight
+  `BYTE_SKIP` check landed (without it, `<Foo>x` cast-style
+  caused JSX false-positive on `.ts` files).
+- Pre-flight balance check before mode push is load-bearing —
+  mode-driven dispatch can't easily roll back leaked tokens
+  across multiple mode pushes.
 
 **Acceptance:**
-- `tests/regression-ts-parse-tsx.sh` threshold bumped 425 → 432 (≥99%)
-- `tests/regression-ts-parse.sh` stays at 2030 (no .ts regression)
-- New `tests/tcyr/ts_parse_p51.tcyr` covering the JSX AST shape (element name, attribute list, child list, text vs element vs expression-container distinction)
-- All P1 lex (467) + P2/P3/P4 parse + check.sh stay green
+- `tests/regression-ts-parse-tsx.sh` threshold ≥430 (≥99%)
+- `tests/regression-ts-parse.sh` stays at 2030
+- `tests/tcyr/ts_parse_p43.tcyr` extended: assert
+  `JSX_EXPR_CONTAINER`'s payload[0] points at a real expression
+  node (not 0).
+- All P1 lex + P2-P5 parse + check.sh stay green
 - cc5 self-host fixpoint clean
 
-**Following slot:** RISC-V (slid again — v5.7.6 if no other priority blockers surface).
+**Following slot:** v5.7.7 — RISC-V rv64.
 
-## v5.7.6 — RISC-V rv64
+## v5.7.7 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:

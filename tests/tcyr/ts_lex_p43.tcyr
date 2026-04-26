@@ -166,20 +166,19 @@ assert_tok(2, TS_TOK_JSX_SELF_CLOSE, "2: />");
 test_group("JSX inside expr inside JSX");
 end = lex_jsx("<Foo>{c?<Bar />:null}</Foo>");
 assert_eq(end, 27, "JSX-in-expr-in-JSX end pos");
-# The outer walk emits OPEN_START/TAG_NAME/OPEN_END for <Foo>,
-# then EXPR_OPEN, then BALANCE_BRACES recurses into TS_LEX_JSX for
-# the inner <Bar /> (emits OPEN_START/TAG_NAME/SELF_CLOSE),
-# then EXPR_CLOSE, then CLOSE_START/TAG_NAME/CLOSE_END for </Foo>.
-# Total: 3 + 1 + 3 + 1 + 3 = 11 toks
-assert_count(11, "JSX-in-expr-in-JSX tok count");
+# In P4.3b, BALANCE_BRACES byte-skips the {...} body (NOT recursing
+# into TS_LEX_JSX for nested JSX). So inner <Bar /> emits no tokens.
+# Total: 3 (outer open) + 1 (EXPR_OPEN) + 1 (EXPR_CLOSE) + 3 (outer close) = 8 toks.
+# (Inner-expr tokenization deferred to v5.7.6 P4.3d.)
+assert_count(8, "JSX-in-expr-in-JSX tok count");
 assert_tok(0, TS_TOK_JSX_OPEN_START,  "outer open <");
+assert_tok(1, TS_TOK_JSX_TAG_NAME,    "outer Foo");
 assert_tok(2, TS_TOK_JSX_OPEN_END,    "outer open >");
 assert_tok(3, TS_TOK_JSX_EXPR_OPEN,   "expr {");
-assert_tok(4, TS_TOK_JSX_OPEN_START,  "inner <Bar");
-assert_tok(6, TS_TOK_JSX_SELF_CLOSE,  "inner />");
-assert_tok(7, TS_TOK_JSX_EXPR_CLOSE,  "expr }");
-assert_tok(8, TS_TOK_JSX_CLOSE_START, "outer </");
-assert_tok(10, TS_TOK_JSX_CLOSE_END,  "outer >");
+assert_tok(4, TS_TOK_JSX_EXPR_CLOSE,  "expr }");
+assert_tok(5, TS_TOK_JSX_CLOSE_START, "outer </");
+assert_tok(6, TS_TOK_JSX_TAG_NAME,    "outer Foo (close)");
+assert_tok(7, TS_TOK_JSX_CLOSE_END,   "outer >");
 
 # ─── generic-arrow disambig ─────────────────────────────────────
 test_group("generic-arrow disambig");
@@ -190,4 +189,5 @@ assert_eq(end, 0, "<T>(x) => bails (generic arrow)");
 assert_count(0, "no tokens emitted on bail");
 
 # ─── final pass ─────────────────────────────────────────────────
-syscall(60, 0);
+var exit_code = assert_summary();
+syscall(60, exit_code);

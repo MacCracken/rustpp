@@ -5,7 +5,49 @@
 
 ## Version
 
+**5.7.5** (shipped — **CYRIUS-TS REAL JSX AST**. Closes the v5.7.0–
+v5.7.5 cyrius-ts arc by replacing v5.7.3's `TOK_INT` placeholder
+with structured JSX tokens + AST nodes. Lex emits 13 JSX token
+kinds in block 300-312 (`OPEN_START`/`TAG_NAME`/`ATTR_NAME`/
+`ATTR_VALUE_STRING`/`OPEN_END`/`CLOSE_START`/`CLOSE_END`/
+`SELF_CLOSE`/`TEXT`/`EXPR_OPEN`/`EXPR_CLOSE`/`FRAGMENT_OPEN`/
+`FRAGMENT_CLOSE`); parser builds 9 JSX AST kinds in block 700-708
+(`JSX_ELEMENT`/`JSX_FRAGMENT`/`JSX_OPENING`/`JSX_CLOSING`/
+`JSX_ATTRIBUTE`/`JSX_SPREAD_ATTR`/`JSX_EXPR_CONTAINER`/`JSX_TEXT`/
+`JSX_NAME`) via `TS_PARSE_JSX_ELEMENT` invoked from `PRIMARY`.
+`TS_LEX_JSX_SKIP` and `TS_LEX_JSX_SKIP_INNER` deleted (256 LOC).
+New `TS_LEX_JSX_BYTE_SKIP` (catches generic types like
+`Foo<HTMLParagraphElement>` mis-firing as JSX via stray-`}` bail);
+`TS_LEX_JSX_SKIP_WS` extended to skip `//` + `/* */` comments
+inside JSX tags. `.tsx` parse acceptance 428 → **429/435 = 98.6%**;
+`.ts` held at 2033/2053 = 99.03%. cc5 687,088 B → **697,840 B**
+(+10,752 B); 3-step self-host fixpoint clean. New tcyrs:
+`ts_lex_p43.tcyr` (49 assertions, 12 groups) + `ts_parse_p43.tcyr`
+(11 groups). `regression-ts-parse-tsx.sh` threshold 425 → 429.
+check.sh 29/29. Inner-expr tokenization deferred to v5.7.6 — empty
+`JSX_EXPR_CONTAINER` in this iteration; mode-stack-driven prototype
+reverted at end of v5.7.5 work for clean cut. 6 sticky `.tsx`
+failures remain (non-JSX TS feature gaps: generic method types,
+`!:`, multi-arg generics, computed-key destructure, multi-line
+JSX block comment, one cumulative shape) — each its own slot.)
+
 **5.7.4** (shipped — **CYRIUS-TS CLEANUP PASS**. .ts parse acceptance
+crossed 99% (2020 → **2033/2053 = 99.03%**). .tsx held at
+**428/435 = 98.4%** (the 7 sticky JSX edges cascade to v5.7.5's real
+JSX AST work). Async modifier now recorded as bit 48 of SPAN on
+DECL_FUNCTION / EXPR_ARROW / DECL_METHOD nodes via the new
+`TS_AST_CONSUME_ASYNC` / `TS_AST_IS_ASYNC` helpers + the
+`TS_PS_PENDING_ASYNC` parser-state slot — wired into 9 AST_PUSH sites
++ 8 async-consume sites. P4.1: `typeof import("...")` composite type,
+template-interp brace tracking fix (object literals inside `${...}`
+now balance correctly; P1.4 test updated 7-tok → 8-tok), broader
+PRIMARY ident-equivalent list (KW_OVERRIDE/DECLARE/NAMESPACE/READONLY
+/INFER/SATISFIES/PUBLIC/PRIVATE/PROTECTED/STATIC/ABSTRACT/IMPLEMENTS
+accepted as variable names). P4.5: `async <T>(x) => ...` generic
+arrow now parses. New `tests/tcyr/ts_parse_p44.tcyr` (25 assertions).
+Thresholds: `regression-ts-parse.sh` 2000 → 2030;
+`regression-ts-parse-tsx.sh` 420 → 425. cc5 687,088 B (+3,280 from
+v5.7.3); self-host byte-identical. check.sh 29/29.). .ts parse acceptance
 crossed 99% (2020 → **2033/2053 = 99.03%**). .tsx held at
 **428/435 = 98.4%** (the 7 sticky JSX edges cascade to v5.7.5's real
 JSX AST work). Async modifier now recorded as bit 48 of SPAN on
@@ -143,10 +185,11 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **687,088 B** (+3,280 B from v5.7.3's 683,808;
-  +155,504 B vs v5.6.45's 531,584 — v5.7.4 added the async-flag
-  wiring + lex template-interp brace tracking + a few PRIMARY edge
-  fixes).  `cc5 --version` reports `cc5 5.7.4`.
+- **cc5 (x86_64)**: **697,840 B** (+10,752 B from v5.7.4's 687,088;
+  +166,256 B vs v5.6.45's 531,584 — v5.7.5 added the structured
+  JSX lex tokens, JSX AST nodes + parser, BYTE_SKIP for nested-JSX
+  brace-balance, comment-aware tag whitespace skip; deleted 256 LOC
+  of v5.7.3 SKIP placeholder).  `cc5 --version` reports `cc5 5.7.5`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -177,8 +220,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 26/26 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
-- **`tests/tcyr/*.tcyr`**: 67 files (was 68; `http_server.tcyr` deleted with the v5.7.0 fold)
+- **check.sh**: 29/29 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
+- **`tests/tcyr/*.tcyr`**: 69 files (v5.7.5 added `ts_lex_p43.tcyr` + `ts_parse_p43.tcyr`; v5.7.0 fold deleted `http_server.tcyr`)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
 - **Stdlib**: 60 modules (53 first-party + 7 vendored/deps: 6 via `cyrius deps`
@@ -187,25 +230,31 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.5 (real JSX AST + remaining .tsx edges) — pinned, scope
-narrowed by v5.7.4's wins.** v5.7.4 closed .ts (≥99%) and async
-tracking; .tsx held at 98.4% because the heuristic byte-scan can't
-disambiguate the deepest JSX shapes. v5.7.5 replaces the lex
-`TOK_INT` placeholder with structured JSX tokens + a JSX-element
-parser invoked from PRIMARY. Known scope:
+**v5.7.6 (JSX inner-expr tokenization, P4.3d resume).** v5.7.5 shipped
+the real JSX AST but with empty `JSX_EXPR_CONTAINER` nodes — lex
+byte-balances `{...}` expression bodies, parser sees nothing inside.
+v5.7.6 wires the mode-stack-driven design prototyped + reverted
+during v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) /
+mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX
+loop dispatches to per-mode helpers; matching `}` of mode 8 emits
+`JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers
+`TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during
+v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2
+dispatch (some specific JSX shape leaves the mode stack inconsistent;
+single-line bisect on the failing files couldn't isolate the
+trigger). v5.7.6 picks this up with full investigation budget.
+After landing: parser real-expr consumption inside
+`JSX_EXPR_CONTAINER` / `JSX_ATTRIBUTE` (expr-kind value) /
+`JSX_SPREAD_ATTR` — sketch already exists from P4.3d-2 attempt.
 
-- Lex side: emit `JSX_OPEN_START` / `JSX_TAG_NAME` / `JSX_ATTR_NAME`
-  / `JSX_ATTR_VALUE_STRING` / `JSX_OPEN_END` / `JSX_CLOSE_START` /
-  `JSX_CLOSE_END` / `JSX_SELF_CLOSE` / `JSX_TEXT` / `JSX_EXPR_OPEN`
-  / `JSX_EXPR_CLOSE` instead of one opaque INT.
-- Parse side: `TS_PARSE_JSX_ELEMENT` builds proper `JSX_ELEMENT` /
-  `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` /
-  `JSX_EXPR_CONTAINER` / `JSX_TEXT` AST nodes.
-- Side effect: should fix the remaining ~7 .tsx edges (proper
-  depth tracking instead of byte heuristics).
-- Target: ≥ 99% .tsx (≥430/435) + structured JSX AST consumable
-  by downstream typecheck. Following slot remains RISC-V (slid
-  again — cyrius-ts has eaten v5.7.2 through v5.7.5).
+**v5.7.x sticky `.tsx` edge gaps (6 files, each its own narrow
+slot).** None are JSX issues; all are non-JSX TS feature gaps:
+generic method types in object types
+(`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
+multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
+(`{[key]: _}`), multi-line block comment inside JSX text, one
+cumulative `ConnectionsPage` shape. Push past these to hit ≥99%
+`.tsx` (≥430/435).
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the
@@ -245,6 +294,29 @@ criteria.
 
 ## Recent shipped (one-liner per release)
 
+- **v5.7.5** — **CYRIUS-TS REAL JSX AST**. v5.7.3's `TOK_INT` JSX
+  placeholder replaced with 13 structured JSX token kinds (block
+  300-312) + 9 JSX AST kinds (block 700-708) built by
+  `TS_PARSE_JSX_ELEMENT` from PRIMARY. `TS_LEX_JSX_SKIP` +
+  `TS_LEX_JSX_SKIP_INNER` deleted (256 LOC). New `BYTE_SKIP`
+  bails on stray `}` to catch generic types
+  (`Foo<HTMLParagraphElement>`) mis-firing as JSX. JSX tag
+  whitespace skip extended to handle `//` + `/* */` comments
+  between attrs (eslint-disable pragmas). `.tsx` 428 → 429/435
+  (98.6%); `.ts` held at 2033/2053 (99.03%); threshold raised
+  425 → 429. New tcyrs: ts_lex_p43 (49 assertions, 12 groups) +
+  ts_parse_p43 (11 groups). cc5 687,088 → 697,840 B (+10,752 B).
+  3-step fixpoint clean. Inner-expr tokenization deferred to
+  v5.7.6 — empty `JSX_EXPR_CONTAINER` in this iteration; the
+  mode-stack-driven prototype reverted at end of v5.7.5 work for
+  clean cut. 6 sticky `.tsx` failures triaged as non-JSX TS
+  feature gaps.
+- **v5.7.4** — **CYRIUS-TS CLEANUP PASS**. `.ts` 99.03%, async
+  modifier tracked as bit 48 of SPAN on DECL_FUNCTION/EXPR_ARROW/
+  DECL_METHOD. P4.1 `typeof import()` types + template-interp
+  brace fix + broader PRIMARY ident-equivalent list; P4.5
+  `async <T>(x) =>` generic arrow. `tests/tcyr/ts_parse_p44.tcyr`
+  added. Thresholds 2000→2030 / 420→425. cc5 +3,280 B.
 - **v5.7.1** — **FIXUP-TABLE CAP BUMP** 32,768 → 262,144 (8×).
   sit-blocking ecosystem unblock per [sit's proposal](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md);
   unblocks all 8 named sandhi consumers (vidya/yantra/hoosh/ifran/
