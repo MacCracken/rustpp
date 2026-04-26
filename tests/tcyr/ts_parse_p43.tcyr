@@ -1,0 +1,184 @@
+# v5.7.5 P4.3c — TS parser real JSX AST.
+#
+# Exercises TS_PARSE_JSX_ELEMENT end-to-end (lex → parse), asserts the
+# resulting AST shape: JSX_ELEMENT / JSX_FRAGMENT / JSX_ATTRIBUTE /
+# JSX_SPREAD_ATTR / JSX_EXPR_CONTAINER / JSX_TEXT nodes are emitted
+# with the expected payload structure.
+#
+# Coverage:
+#   - self-close: <Foo /> → ELEMENT(self_close=1)
+#   - open/close: <Foo>...</Foo> → ELEMENT(self_close=0, body)
+#   - fragment: <>...</> → FRAGMENT
+#   - string attr: <Foo a="b" /> → ATTRIBUTE(value-kind=1)
+#   - expr attr: <Foo a={1} /> → ATTRIBUTE(value-kind=2)
+#   - bare attr: <Foo bar /> → ATTRIBUTE(value-kind=0)
+#   - spread attr: <Foo {...x} /> → SPREAD_ATTR
+#   - expr child: <Foo>{x}</Foo> → ELEMENT with EXPR_CONTAINER child
+#   - text child: <Foo>txt</Foo> → ELEMENT with JSX_TEXT child
+#   - nested: <a><b /></a> → ELEMENT with nested ELEMENT child
+#   - generic-arrow disambig: <T>(x) => x → not JSX (parses as arrow)
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+# Lex+parse a snippet (wrapped as `const x = <jsx>`), returns root node idx.
+fn parse_jsx(src) {
+    var n = TS_LEX(ts_base, src, strlen(src));
+    if (n < 0) { return 0 - 1; }
+    return TS_PARSE(ts_base);
+}
+
+# After parse, find the first JSX_ELEMENT or JSX_FRAGMENT in the AST.
+# AST is laid out in TS_AST_NODES_OFF; root is at index 0 by convention,
+# but we just scan all nodes to find the first JSX one.
+fn find_first_jsx(ts_base) {
+    var i = 0;
+    var count = load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_NODE_COUNT);
+    while (i < count) {
+        var k = load64(ts_base + TS_AST_NODES_OFF + i * TS_AST_NODE_SIZE);
+        if (k == TS_AST_JSX_ELEMENT) { return i; }
+        if (k == TS_AST_JSX_FRAGMENT) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# Read AST node kind.
+fn node_kind(ts_base, idx) {
+    return load64(ts_base + TS_AST_NODES_OFF + idx * TS_AST_NODE_SIZE);
+}
+
+# Read AST node payload[slot].
+fn node_payload(ts_base, idx, slot) {
+    return load64(ts_base + TS_AST_NODES_OFF + idx * TS_AST_NODE_SIZE + 16 + slot * 8);
+}
+
+# Walk a children-list (sentinel-terminated by -1), count entries.
+fn count_children(ts_base, off) {
+    if (off == 0) { return 0; }
+    var i = 0;
+    while (1 == 1) {
+        var v = load64(ts_base + TS_AST_CHILDREN_OFF + (off + i) * 8);
+        if (v == 0 - 1) { return i; }
+        i = i + 1;
+        if (i > 1000) { return 0 - 1; }
+    }
+    return i;
+}
+
+# Get i-th child idx from list at off.
+fn nth_child(ts_base, off, i) {
+    return load64(ts_base + TS_AST_CHILDREN_OFF + (off + i) * 8);
+}
+
+# ─── self-close ─────────────────────────────────────────────────
+test_group("self-close");
+var rc = parse_jsx("const x = <Foo />;");
+assert_eq(rc >= 0, 1, "parse <Foo />");
+var jsx = find_first_jsx(ts_base);
+assert_eq(node_kind(ts_base, jsx), TS_AST_JSX_ELEMENT, "kind = JSX_ELEMENT");
+assert_eq(node_payload(ts_base, jsx, 3), 1, "self_close = 1");
+assert_eq(count_children(ts_base, node_payload(ts_base, jsx, 1)), 0, "0 attrs");
+assert_eq(node_payload(ts_base, jsx, 2), 0, "no body children");
+
+# ─── open/close ─────────────────────────────────────────────────
+test_group("open/close");
+rc = parse_jsx("const x = <Foo>x</Foo>;");
+assert_eq(rc >= 0, 1, "parse <Foo>x</Foo>");
+jsx = find_first_jsx(ts_base);
+assert_eq(node_kind(ts_base, jsx), TS_AST_JSX_ELEMENT, "kind");
+assert_eq(node_payload(ts_base, jsx, 3), 0, "self_close = 0");
+var body_off = node_payload(ts_base, jsx, 2);
+assert_eq(count_children(ts_base, body_off), 1, "1 body child");
+var first_child = nth_child(ts_base, body_off, 0);
+assert_eq(node_kind(ts_base, first_child), TS_AST_JSX_TEXT, "child = JSX_TEXT");
+
+# ─── fragment ───────────────────────────────────────────────────
+test_group("fragment");
+rc = parse_jsx("const x = <>x</>;");
+assert_eq(rc >= 0, 1, "parse <>x</>");
+jsx = find_first_jsx(ts_base);
+assert_eq(node_kind(ts_base, jsx), TS_AST_JSX_FRAGMENT, "kind = JSX_FRAGMENT");
+body_off = node_payload(ts_base, jsx, 0);
+assert_eq(count_children(ts_base, body_off), 1, "1 frag child");
+first_child = nth_child(ts_base, body_off, 0);
+assert_eq(node_kind(ts_base, first_child), TS_AST_JSX_TEXT, "frag child = TEXT");
+
+# ─── string attr ────────────────────────────────────────────────
+test_group("string attr");
+rc = parse_jsx("const x = <Foo a=\"b\" />;");
+assert_eq(rc >= 0, 1, "parse <Foo a=\"b\" />");
+jsx = find_first_jsx(ts_base);
+var attrs_off = node_payload(ts_base, jsx, 1);
+assert_eq(count_children(ts_base, attrs_off), 1, "1 attr");
+var attr = nth_child(ts_base, attrs_off, 0);
+assert_eq(node_kind(ts_base, attr), TS_AST_JSX_ATTRIBUTE, "attr = ATTRIBUTE");
+assert_eq(node_payload(ts_base, attr, 1), 1, "value-kind = 1 (string)");
+
+# ─── expr attr ──────────────────────────────────────────────────
+test_group("expr attr");
+rc = parse_jsx("const x = <Foo a={1} />;");
+assert_eq(rc >= 0, 1, "parse <Foo a={1} />");
+jsx = find_first_jsx(ts_base);
+attrs_off = node_payload(ts_base, jsx, 1);
+attr = nth_child(ts_base, attrs_off, 0);
+assert_eq(node_payload(ts_base, attr, 1), 2, "value-kind = 2 (expr)");
+
+# ─── bare attr ──────────────────────────────────────────────────
+test_group("bare attr");
+rc = parse_jsx("const x = <Foo bar />;");
+assert_eq(rc >= 0, 1, "parse <Foo bar />");
+jsx = find_first_jsx(ts_base);
+attrs_off = node_payload(ts_base, jsx, 1);
+attr = nth_child(ts_base, attrs_off, 0);
+assert_eq(node_payload(ts_base, attr, 1), 0, "value-kind = 0 (none)");
+
+# ─── spread attr ────────────────────────────────────────────────
+test_group("spread attr");
+rc = parse_jsx("const x = <Foo {...y} />;");
+assert_eq(rc >= 0, 1, "parse <Foo {...y} />");
+jsx = find_first_jsx(ts_base);
+attrs_off = node_payload(ts_base, jsx, 1);
+attr = nth_child(ts_base, attrs_off, 0);
+assert_eq(node_kind(ts_base, attr), TS_AST_JSX_SPREAD_ATTR, "attr = SPREAD_ATTR");
+
+# ─── expr child ─────────────────────────────────────────────────
+test_group("expr child");
+rc = parse_jsx("const x = <Foo>{y}</Foo>;");
+assert_eq(rc >= 0, 1, "parse <Foo>{y}</Foo>");
+jsx = find_first_jsx(ts_base);
+body_off = node_payload(ts_base, jsx, 2);
+first_child = nth_child(ts_base, body_off, 0);
+assert_eq(node_kind(ts_base, first_child), TS_AST_JSX_EXPR_CONTAINER, "child = EXPR_CONTAINER");
+
+# ─── nested ─────────────────────────────────────────────────────
+test_group("nested");
+rc = parse_jsx("const x = <a><b /></a>;");
+assert_eq(rc >= 0, 1, "parse <a><b /></a>");
+jsx = find_first_jsx(ts_base);
+body_off = node_payload(ts_base, jsx, 2);
+first_child = nth_child(ts_base, body_off, 0);
+assert_eq(node_kind(ts_base, first_child), TS_AST_JSX_ELEMENT, "nested = ELEMENT");
+assert_eq(node_payload(ts_base, first_child, 3), 1, "nested.self_close = 1");
+
+# ─── generic-arrow disambig ─────────────────────────────────────
+test_group("generic-arrow disambig");
+# `<T>(x) => x` — looks like JSX open/text/close at byte level, but
+# the post-`>` `(` heuristic in TS_LEX_JSX bails so the lex emits
+# LT, IDENT, GT, LPAREN, etc. The parser reads it as a generic arrow.
+rc = parse_jsx("const x = <T>(y: T) => y;");
+assert_eq(rc >= 0, 1, "parse <T>(y) => y as generic arrow");
+# The first JSX node should NOT exist — find_first_jsx returns -1.
+jsx = find_first_jsx(ts_base);
+assert_eq(jsx, 0 - 1, "no JSX nodes — bailed to generic arrow");
+
+syscall(60, 0);
