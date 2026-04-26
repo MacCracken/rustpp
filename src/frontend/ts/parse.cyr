@@ -343,6 +343,628 @@ fn TS_PARSE_INIT(ts_base) {
 }
 
 # ================================================================
+# Expression parser (P2.2)
+# ================================================================
+#
+# Pratt-style precedence climbing. Levels (low -> high):
+#
+#   level   ops                                          assoc
+#   1       , (sequence)                                 left  — TS's comma; not parsed here
+#   2       =, +=, -=, *=, /=, %=, **=, <<=, >>=, >>>=, right
+#           &=, |=, ^=, &&=, ||=, ??=                    right
+#   3       ? :                                          right
+#   4       || ??                                        left
+#   5       &&                                           left
+#   6       |                                            left
+#   7       ^                                            left
+#   8       &                                            left
+#   9       == != === !==                                left
+#   10      < > <= >= in instanceof                      left
+#   11      << >> >>>                                    left
+#   12      + -                                          left
+#   13      * / %                                        left
+#   14      ** (right-assoc, handled via min_prec=14)    right
+#   15      unary prefix (!, ~, +, -, ++, --, typeof,    right (RTL)
+#           void, delete, await)
+#   16      postfix (++, --, !)                          left (chain)
+#   17      member/index/call/new (LTR chain)            left
+#   18      primary (literal, ident, paren, array,
+#           object, template)
+#
+# Each TS_PARSE_* fn returns AST node index on success, -1 on error.
+
+# Returns 1 if op is an assignment (any of =, +=, -=, ...).
+fn TS_IS_ASSIGN_OP(op) {
+    if (op == TS_TOK_EQ)            { return 1; }
+    if (op == TS_TOK_PLUS_EQ)       { return 1; }
+    if (op == TS_TOK_MINUS_EQ)      { return 1; }
+    if (op == TS_TOK_STAR_EQ)       { return 1; }
+    if (op == TS_TOK_SLASH_EQ)      { return 1; }
+    if (op == TS_TOK_PERCENT_EQ)    { return 1; }
+    if (op == TS_TOK_STAR_STAR_EQ)  { return 1; }
+    if (op == TS_TOK_LT_LT_EQ)      { return 1; }
+    if (op == TS_TOK_GT_GT_EQ)      { return 1; }
+    if (op == TS_TOK_GT_GT_GT_EQ)   { return 1; }
+    if (op == TS_TOK_AMP_EQ)        { return 1; }
+    if (op == TS_TOK_PIPE_EQ)       { return 1; }
+    if (op == TS_TOK_CARET_EQ)      { return 1; }
+    if (op == TS_TOK_AMP_AMP_EQ)    { return 1; }
+    if (op == TS_TOK_PIPE_PIPE_EQ)  { return 1; }
+    if (op == TS_TOK_QQ_EQ)         { return 1; }
+    return 0;
+}
+
+# Returns binary precedence (1-14) or 0 if op is not binary.
+# Used by TS_PARSE_BINARY for precedence climbing.
+fn TS_BINARY_PREC(op) {
+    if (op == TS_TOK_PIPE_PIPE)     { return 4; }
+    if (op == TS_TOK_QQ)            { return 4; }
+    if (op == TS_TOK_AMP_AMP)       { return 5; }
+    if (op == TS_TOK_PIPE)          { return 6; }
+    if (op == TS_TOK_CARET)         { return 7; }
+    if (op == TS_TOK_AMP)           { return 8; }
+    if (op == TS_TOK_EQ_EQ)         { return 9; }
+    if (op == TS_TOK_BANG_EQ)       { return 9; }
+    if (op == TS_TOK_EQ_EQ_EQ)      { return 9; }
+    if (op == TS_TOK_BANG_EQ_EQ)    { return 9; }
+    if (op == TS_TOK_LT)            { return 10; }
+    if (op == TS_TOK_GT)            { return 10; }
+    if (op == TS_TOK_LT_EQ)         { return 10; }
+    if (op == TS_TOK_GT_EQ)         { return 10; }
+    if (op == TS_TOK_KW_IN)         { return 10; }
+    if (op == TS_TOK_KW_INSTANCEOF) { return 10; }
+    if (op == TS_TOK_LT_LT)         { return 11; }
+    if (op == TS_TOK_GT_GT)         { return 11; }
+    if (op == TS_TOK_GT_GT_GT)      { return 11; }
+    if (op == TS_TOK_PLUS)          { return 12; }
+    if (op == TS_TOK_MINUS)         { return 12; }
+    if (op == TS_TOK_STAR)          { return 13; }
+    if (op == TS_TOK_SLASH)         { return 13; }
+    if (op == TS_TOK_PERCENT)       { return 13; }
+    if (op == TS_TOK_STAR_STAR)     { return 14; }
+    return 0;
+}
+
+# Mutual recursion: TS_PARSE_PRIMARY <-> TS_PARSE_EXPR (parens) and
+# TS_PARSE_ARGS -> TS_PARSE_EXPR. cyrius's 2-pass parser handles
+# forward references automatically (PASS_1 registers all fn names),
+# so we don't need C-style prototypes.
+
+# Parse comma-separated argument list inside `(...)`. Caller has
+# already consumed the opening `(`. Stores child indices into
+# ts_ast_children, terminated by -1; returns the children-offset
+# (i64-index, not bytes). Caller sets that as a payload of the call/new node.
+# Returns -1 on error.
+fn TS_PARSE_ARGS(ts_base) {
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);  # initial guess; can grow
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_RPAREN) {
+        var done = 0;
+        while (done == 0) {
+            # Spread arg ...x
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
+                TS_PARSE_CONSUME(ts_base);
+                var inner = TS_PARSE_EXPR(ts_base);
+                if (inner < 0) { return 0 - 1; }
+                var sp = TS_AST_PUSH(ts_base, TS_AST_EXPR_SPREAD, 0);
+                if (sp < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, sp, 0, inner);
+                TS_AST_CHILDREN_SET(ts_base, off + i, sp);
+            } else {
+                var e = TS_PARSE_EXPR(ts_base);
+                if (e < 0) { return 0 - 1; }
+                TS_AST_CHILDREN_SET(ts_base, off + i, e);
+            }
+            i = i + 1;
+            if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);   # sentinel
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+    return off;
+}
+
+# Parse array literal: [e1, e2, ...e3]. Caller has consumed [.
+# Returns the array node index.
+fn TS_PARSE_ARRAY_LITERAL(ts_base) {
+    var span = TS_PARSE_TOK_VAL(ts_base);
+    var node = TS_AST_PUSH(ts_base, TS_AST_EXPR_ARRAY, span);
+    if (node < 0) { return 0 - 1; }
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACKET) {
+        var done = 0;
+        while (done == 0) {
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
+                TS_PARSE_CONSUME(ts_base);
+                var inner = TS_PARSE_EXPR(ts_base);
+                if (inner < 0) { return 0 - 1; }
+                var sp = TS_AST_PUSH(ts_base, TS_AST_EXPR_SPREAD, 0);
+                if (sp < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, sp, 0, inner);
+                TS_AST_CHILDREN_SET(ts_base, off + i, sp);
+            } else {
+                var e = TS_PARSE_EXPR(ts_base);
+                if (e < 0) { return 0 - 1; }
+                TS_AST_CHILDREN_SET(ts_base, off + i, e);
+            }
+            i = i + 1;
+            if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, off);
+    return node;
+}
+
+# Parse object literal: {k: v, k2: v2, k3, ...spread}. Caller has consumed {.
+# Each property is a PROPERTY_ASSIGN node (k:v) or SHORTHAND_PROP (k) or SPREAD.
+fn TS_PARSE_OBJECT_LITERAL(ts_base) {
+    var span = TS_PARSE_TOK_VAL(ts_base);
+    var node = TS_AST_PUSH(ts_base, TS_AST_EXPR_OBJECT, span);
+    if (node < 0) { return 0 - 1; }
+    var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
+    if (off < 0) { return 0 - 1; }
+    var i = 0;
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+        var done = 0;
+        while (done == 0) {
+            var t = TS_PARSE_PEEK(ts_base);
+            if (t == TS_TOK_ELLIPSIS) {
+                TS_PARSE_CONSUME(ts_base);
+                var inner = TS_PARSE_EXPR(ts_base);
+                if (inner < 0) { return 0 - 1; }
+                var sp = TS_AST_PUSH(ts_base, TS_AST_EXPR_SPREAD, 0);
+                if (sp < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, sp, 0, inner);
+                TS_AST_CHILDREN_SET(ts_base, off + i, sp);
+            } else {
+                # Property: key [: value]
+                var key_span = TS_PARSE_TOK_VAL(ts_base);
+                # Accept IDENT, STRING, INT as property names.
+                # (Computed [expr]: deferred for v5.7.x.)
+                if (t != TS_TOK_IDENT && t != TS_TOK_STRING && t != TS_TOK_INT) {
+                    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 4);
+                    return 0 - 1;
+                }
+                TS_PARSE_CONSUME(ts_base);
+                if (TS_PARSE_PEEK(ts_base) == TS_TOK_COLON) {
+                    TS_PARSE_CONSUME(ts_base);
+                    var v = TS_PARSE_EXPR(ts_base);
+                    if (v < 0) { return 0 - 1; }
+                    var pa = TS_AST_PUSH(ts_base, TS_AST_PROPERTY_ASSIGN, key_span);
+                    if (pa < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, pa, 0, key_span);
+                    TS_AST_SET_PAYLOAD(ts_base, pa, 1, v);
+                    TS_AST_CHILDREN_SET(ts_base, off + i, pa);
+                } else {
+                    # Shorthand: { x } sugar for { x: x }
+                    var sh = TS_AST_PUSH(ts_base, TS_AST_SHORTHAND_PROP, key_span);
+                    if (sh < 0) { return 0 - 1; }
+                    TS_AST_SET_PAYLOAD(ts_base, sh, 0, key_span);
+                    TS_AST_CHILDREN_SET(ts_base, off + i, sh);
+                }
+            }
+            i = i + 1;
+            if (TS_PARSE_MATCH(ts_base, TS_TOK_COMMA) == 0) { done = 1; }
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, off + i, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, i + 1);
+    if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACE) < 0) { return 0 - 1; }
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, off);
+    return node;
+}
+
+# Parse a template literal. Caller has just observed TEMPLATE_NOSUB
+# (single chunk) or TEMPLATE_HEAD (start of an interpolated chain).
+# For NOSUB: consume + emit single TEMPLATE node.
+# For HEAD: emit TEMPLATE node with quasi list + expr list interleaved.
+fn TS_PARSE_TEMPLATE(ts_base) {
+    var span = TS_PARSE_TOK_VAL(ts_base);
+    var node = TS_AST_PUSH(ts_base, TS_AST_EXPR_TEMPLATE, span);
+    if (node < 0) { return 0 - 1; }
+
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_TEMPLATE_NOSUB) {
+        # Single chunk; just attach the quasi span.
+        var q_off = TS_AST_CHILDREN_RESERVE(ts_base, 2);
+        if (q_off < 0) { return 0 - 1; }
+        var q = TS_AST_PUSH(ts_base, TS_AST_TEMPLATE_QUASI, span);
+        TS_AST_CHILDREN_SET(ts_base, q_off, q);
+        TS_AST_CHILDREN_SET(ts_base, q_off + 1, 0 - 1);
+        TS_AST_CHILDREN_COMMIT(ts_base, 2);
+        TS_AST_SET_PAYLOAD(ts_base, node, 0, q_off);
+        TS_PARSE_CONSUME(ts_base);
+        return node;
+    }
+
+    # Interpolated path: HEAD expr (MID expr)* TAIL
+    var q_off = TS_AST_CHILDREN_RESERVE(ts_base, 32);
+    if (q_off < 0) { return 0 - 1; }
+    var e_off = TS_AST_CHILDREN_RESERVE(ts_base, 32);
+    if (e_off < 0) { return 0 - 1; }
+    var qi = 0;
+    var ei = 0;
+
+    # HEAD
+    var head_span = TS_PARSE_TOK_VAL(ts_base);
+    var head_q = TS_AST_PUSH(ts_base, TS_AST_TEMPLATE_QUASI, head_span);
+    TS_AST_CHILDREN_SET(ts_base, q_off + qi, head_q);
+    qi = qi + 1;
+    TS_PARSE_CONSUME(ts_base);
+
+    var done = 0;
+    while (done == 0) {
+        # Expression inside ${}
+        var e = TS_PARSE_EXPR(ts_base);
+        if (e < 0) { return 0 - 1; }
+        TS_AST_CHILDREN_SET(ts_base, e_off + ei, e);
+        ei = ei + 1;
+        # Followed by MID (more interps) or TAIL (end)
+        var t = TS_PARSE_PEEK(ts_base);
+        var part_span = TS_PARSE_TOK_VAL(ts_base);
+        var part_q = TS_AST_PUSH(ts_base, TS_AST_TEMPLATE_QUASI, part_span);
+        TS_AST_CHILDREN_SET(ts_base, q_off + qi, part_q);
+        qi = qi + 1;
+        TS_PARSE_CONSUME(ts_base);
+        if (t == TS_TOK_TEMPLATE_TAIL) { done = 1; }
+        elif (t != TS_TOK_TEMPLATE_MID) {
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 5);
+            return 0 - 1;
+        }
+    }
+    TS_AST_CHILDREN_SET(ts_base, q_off + qi, 0 - 1);
+    TS_AST_CHILDREN_SET(ts_base, e_off + ei, 0 - 1);
+    TS_AST_CHILDREN_COMMIT(ts_base, qi + 1 + ei + 1);
+    TS_AST_SET_PAYLOAD(ts_base, node, 0, q_off);
+    TS_AST_SET_PAYLOAD(ts_base, node, 1, e_off);
+    return node;
+}
+
+# Primary: literal, identifier, paren, array, object, template, regex,
+# this/super, true/false/null/undefined.
+# (Arrow functions deferred — need lookahead to disambiguate from
+#  parenthesized expressions; punted to P2.3 with the rest of the
+#  statements/decls work.)
+fn TS_PARSE_PRIMARY(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    var v = TS_PARSE_TOK_VAL(ts_base);
+
+    if (t == TS_TOK_INT) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_INT, v);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_FLOAT) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_FLOAT, v);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_STRING) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_STRING, v);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_REGEX) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_REGEX, v);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_TRUE) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_TRUE, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_FALSE) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_FALSE, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_NULL) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_NULL, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_UNDEFINED) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_UNDEFINED, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_THIS) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_THIS, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    if (t == TS_TOK_KW_SUPER) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_SUPER, 0);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    # Identifier (real ident OR contextual keyword used as ident).
+    # We accept the same set that TS_IS_PRIMARY_CONTEXT accepts as
+    # property-name-eligible.
+    if (t == TS_TOK_IDENT
+        || t == TS_TOK_KW_FROM || t == TS_TOK_KW_AS
+        || t == TS_TOK_KW_OF   || t == TS_TOK_KW_GET
+        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE) {
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_IDENT, v);
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, v);
+        TS_PARSE_CONSUME(ts_base);
+        return n;
+    }
+    # Parenthesized expression
+    if (t == TS_TOK_LPAREN) {
+        TS_PARSE_CONSUME(ts_base);
+        var inner = TS_PARSE_EXPR(ts_base);
+        if (inner < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_PAREN, 0);
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, inner);
+        return n;
+    }
+    # Array literal
+    if (t == TS_TOK_LBRACKET) {
+        TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_ARRAY_LITERAL(ts_base);
+    }
+    # Object literal
+    if (t == TS_TOK_LBRACE) {
+        TS_PARSE_CONSUME(ts_base);
+        return TS_PARSE_OBJECT_LITERAL(ts_base);
+    }
+    # Template literal
+    if (t == TS_TOK_TEMPLATE_NOSUB || t == TS_TOK_TEMPLATE_HEAD) {
+        return TS_PARSE_TEMPLATE(ts_base);
+    }
+    # Unexpected
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 6);
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
+            load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_TOK_IDX));
+    return 0 - 1;
+}
+
+# new Target(args) — supports `new new Foo()` chain via recursion.
+# Per spec, `new X` (no args) is also valid.
+fn TS_PARSE_NEW(ts_base) {
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_NEW) {
+        TS_PARSE_CONSUME(ts_base);
+        var ctor = TS_PARSE_NEW(ts_base);
+        if (ctor < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_NEW, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, ctor);
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_LPAREN) {
+            TS_PARSE_CONSUME(ts_base);
+            var args = TS_PARSE_ARGS(ts_base);
+            if (args < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, n, 1, args);
+        } else {
+            TS_AST_SET_PAYLOAD(ts_base, n, 1, 0 - 1);   # no args
+        }
+        return n;
+    }
+    return TS_PARSE_PRIMARY(ts_base);
+}
+
+# Member / index / call chain (left-associative). After parsing the
+# leftmost primary/new, repeatedly extend with .foo, ?.foo, [idx],
+# (args), ?.( args ), ?.[ idx ].
+fn TS_PARSE_CALL_MEMBER(ts_base) {
+    var expr = TS_PARSE_NEW(ts_base);
+    if (expr < 0) { return 0 - 1; }
+    var go = 1;
+    while (go == 1) {
+        var t = TS_PARSE_PEEK(ts_base);
+        if (t == TS_TOK_DOT) {
+            TS_PARSE_CONSUME(ts_base);
+            var name_t = TS_PARSE_PEEK(ts_base);
+            # Member name accepts ident + most keywords (TS allows
+            # `obj.return`, etc. as property access).
+            var name_v = TS_PARSE_TOK_VAL(ts_base);
+            TS_PARSE_CONSUME(ts_base);
+            var dn = TS_AST_PUSH(ts_base, TS_AST_EXPR_MEMBER, 0);
+            if (dn < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, dn, 0, expr);
+            TS_AST_SET_PAYLOAD(ts_base, dn, 1, name_v);
+            expr = dn;
+        } elif (t == TS_TOK_Q_DOT) {
+            TS_PARSE_CONSUME(ts_base);
+            var nt = TS_PARSE_PEEK(ts_base);
+            if (nt == TS_TOK_LPAREN) {
+                # Optional call: a?.()
+                TS_PARSE_CONSUME(ts_base);
+                var args = TS_PARSE_ARGS(ts_base);
+                if (args < 0) { return 0 - 1; }
+                var oc = TS_AST_PUSH(ts_base, TS_AST_EXPR_OPTIONAL_CALL, 0);
+                if (oc < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, oc, 0, expr);
+                TS_AST_SET_PAYLOAD(ts_base, oc, 1, args);
+                expr = oc;
+            } elif (nt == TS_TOK_LBRACKET) {
+                # Optional index: a?.[idx]
+                TS_PARSE_CONSUME(ts_base);
+                var idx = TS_PARSE_EXPR(ts_base);
+                if (idx < 0) { return 0 - 1; }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+                var oi = TS_AST_PUSH(ts_base, TS_AST_EXPR_OPTIONAL_MEMBER, 0);
+                if (oi < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, oi, 0, expr);
+                TS_AST_SET_PAYLOAD(ts_base, oi, 1, idx);
+                TS_AST_SET_PAYLOAD(ts_base, oi, 2, 1);   # marker: index-shape
+                expr = oi;
+            } else {
+                # Optional member: a?.b
+                var name_v2 = TS_PARSE_TOK_VAL(ts_base);
+                TS_PARSE_CONSUME(ts_base);
+                var om = TS_AST_PUSH(ts_base, TS_AST_EXPR_OPTIONAL_MEMBER, 0);
+                if (om < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, om, 0, expr);
+                TS_AST_SET_PAYLOAD(ts_base, om, 1, name_v2);
+                expr = om;
+            }
+        } elif (t == TS_TOK_LBRACKET) {
+            TS_PARSE_CONSUME(ts_base);
+            var idx2 = TS_PARSE_EXPR(ts_base);
+            if (idx2 < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+            var ix = TS_AST_PUSH(ts_base, TS_AST_EXPR_INDEX, 0);
+            if (ix < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, ix, 0, expr);
+            TS_AST_SET_PAYLOAD(ts_base, ix, 1, idx2);
+            expr = ix;
+        } elif (t == TS_TOK_LPAREN) {
+            TS_PARSE_CONSUME(ts_base);
+            var args2 = TS_PARSE_ARGS(ts_base);
+            if (args2 < 0) { return 0 - 1; }
+            var c = TS_AST_PUSH(ts_base, TS_AST_EXPR_CALL, 0);
+            if (c < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, c, 0, expr);
+            TS_AST_SET_PAYLOAD(ts_base, c, 1, args2);
+            expr = c;
+        } elif (t == TS_TOK_BANG) {
+            # TS postfix non-null assertion (`x!`). Belongs in the
+            # call/member chain because subsequent `.foo` / `[idx]` /
+            # `(args)` can follow: `arr[0]!.foo!.bar()` is legal TS.
+            TS_PARSE_CONSUME(ts_base);
+            var nn = TS_AST_PUSH(ts_base, TS_AST_EXPR_NON_NULL, 0);
+            if (nn < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, nn, 0, expr);
+            expr = nn;
+        } else {
+            go = 0;
+        }
+    }
+    return expr;
+}
+
+# Postfix update: ++, --. Non-null `!` is handled inside CALL_MEMBER
+# above so it can interleave with .foo / [idx] / (args). ++/-- are
+# pure postfix and don't chain with member access.
+fn TS_PARSE_POSTFIX(ts_base) {
+    var expr = TS_PARSE_CALL_MEMBER(ts_base);
+    if (expr < 0) { return 0 - 1; }
+    var t = TS_PARSE_PEEK(ts_base);
+    if (t == TS_TOK_PLUS_PLUS || t == TS_TOK_MINUS_MINUS) {
+        TS_PARSE_CONSUME(ts_base);
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_POSTFIX, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, t);
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, expr);
+        return n;
+    }
+    return expr;
+}
+
+# Unary prefix: !, ~, +, -, ++, --, typeof, void, delete, await.
+# Right-assoc (recurses into TS_PARSE_UNARY).
+fn TS_PARSE_UNARY(ts_base) {
+    var t = TS_PARSE_PEEK(ts_base);
+    var is_unary = 0;
+    if (t == TS_TOK_BANG)        { is_unary = 1; }
+    if (t == TS_TOK_TILDE)       { is_unary = 1; }
+    if (t == TS_TOK_PLUS)        { is_unary = 1; }
+    if (t == TS_TOK_MINUS)       { is_unary = 1; }
+    if (t == TS_TOK_PLUS_PLUS)   { is_unary = 1; }
+    if (t == TS_TOK_MINUS_MINUS) { is_unary = 1; }
+    if (t == TS_TOK_KW_TYPEOF)   { is_unary = 1; }
+    if (t == TS_TOK_KW_VOID)     { is_unary = 1; }
+    if (t == TS_TOK_KW_DELETE)   { is_unary = 1; }
+    if (t == TS_TOK_KW_AWAIT)    { is_unary = 1; }
+    if (is_unary == 1) {
+        TS_PARSE_CONSUME(ts_base);
+        var operand = TS_PARSE_UNARY(ts_base);
+        if (operand < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_UNARY, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, t);
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, operand);
+        return n;
+    }
+    return TS_PARSE_POSTFIX(ts_base);
+}
+
+# Binary precedence climbing. min_prec gates which binary ops we
+# consume at this level. Left-assoc default; ** is right-assoc and
+# uses min_prec=14 to recurse at the same level.
+fn TS_PARSE_BINARY(ts_base, min_prec) {
+    var lhs = TS_PARSE_UNARY(ts_base);
+    if (lhs < 0) { return 0 - 1; }
+    var go = 1;
+    while (go == 1) {
+        var op = TS_PARSE_PEEK(ts_base);
+        var prec = TS_BINARY_PREC(op);
+        if (prec < min_prec || prec == 0) {
+            go = 0;
+        } else {
+            TS_PARSE_CONSUME(ts_base);
+            var next_min = prec + 1;
+            if (op == TS_TOK_STAR_STAR) { next_min = prec; }   # right-assoc
+            var rhs = TS_PARSE_BINARY(ts_base, next_min);
+            if (rhs < 0) { return 0 - 1; }
+            var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_BINARY, 0);
+            if (n < 0) { return 0 - 1; }
+            TS_AST_SET_PAYLOAD(ts_base, n, 0, op);
+            TS_AST_SET_PAYLOAD(ts_base, n, 1, lhs);
+            TS_AST_SET_PAYLOAD(ts_base, n, 2, rhs);
+            lhs = n;
+        }
+    }
+    return lhs;
+}
+
+# Ternary: cond ? then : else (right-assoc).
+fn TS_PARSE_TERNARY(ts_base) {
+    var cond = TS_PARSE_BINARY(ts_base, 4);
+    if (cond < 0) { return 0 - 1; }
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+        TS_PARSE_CONSUME(ts_base);
+        var then_e = TS_PARSE_ASSIGN(ts_base);
+        if (then_e < 0) { return 0 - 1; }
+        if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+        var else_e = TS_PARSE_ASSIGN(ts_base);
+        if (else_e < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_TERNARY, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, cond);
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, then_e);
+        TS_AST_SET_PAYLOAD(ts_base, n, 2, else_e);
+        return n;
+    }
+    return cond;
+}
+
+# Assignment: =, +=, etc. Right-associative.
+fn TS_PARSE_ASSIGN(ts_base) {
+    var lhs = TS_PARSE_TERNARY(ts_base);
+    if (lhs < 0) { return 0 - 1; }
+    var op = TS_PARSE_PEEK(ts_base);
+    if (TS_IS_ASSIGN_OP(op) == 1) {
+        TS_PARSE_CONSUME(ts_base);
+        var rhs = TS_PARSE_ASSIGN(ts_base);
+        if (rhs < 0) { return 0 - 1; }
+        var n = TS_AST_PUSH(ts_base, TS_AST_EXPR_ASSIGN, 0);
+        if (n < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, n, 0, op);
+        TS_AST_SET_PAYLOAD(ts_base, n, 1, lhs);
+        TS_AST_SET_PAYLOAD(ts_base, n, 2, rhs);
+        return n;
+    }
+    return lhs;
+}
+
+# Top-level expression entry. P2.2 = assignment expr; comma operator
+# (sequence) is deferred since SY rarely uses it and it complicates
+# argument-list parsing.
+fn TS_PARSE_EXPR(ts_base) {
+    return TS_PARSE_ASSIGN(ts_base);
+}
+
+# ================================================================
 # TS_PARSE — main parser entry (P2.1 STUB)
 # ================================================================
 # Caller has already invoked TS_LEX to populate the token tables.
@@ -359,9 +981,19 @@ fn TS_PARSE_INIT(ts_base) {
 
 fn TS_PARSE(ts_base) {
     TS_PARSE_INIT(ts_base);
-    var src_span = 0;                       # P2.x will compute from first/last tok span
-    var root = TS_AST_PUSH(ts_base, TS_AST_ROOT, src_span);
+    var root = TS_AST_PUSH(ts_base, TS_AST_ROOT, 0);
     if (root < 0) { return 0 - 1; }
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ROOT_NODE, root);
+
+    # P2.2: parse one top-level expression and attach as ROOT.payload[0].
+    # Statement-level parsing (multiple top-level statements + decls
+    # + module surface) is P2.3+. For now, --parse-ts probes accept
+    # exactly one expression as input (good enough for the SY sweep
+    # in P2.7 which we wire incrementally as later phases land).
+    if (TS_PARSE_PEEK(ts_base) != TS_TOK_EOF) {
+        var e = TS_PARSE_EXPR(ts_base);
+        if (e < 0) { return 0 - 1; }
+        TS_AST_SET_PAYLOAD(ts_base, root, 0, e);
+    }
     return TS_AST_NODE_COUNT(ts_base);
 }
