@@ -17,15 +17,15 @@
 #   0x70000  str_pos    [8]
 #   0x70008  data_size  [8]
 #   0x6A000  output_buf [131072]      ELF output buffer
-#   0x8A000  fixup_tbl  [8192]        512 fixup entries (16 bytes each)
-#   0x8C000  fixup_cnt  [8]
-#   0x8C008  last_var   [8]
-#   0x90000  preprocess [65536]       Preprocessor scratch
-#   0xA2000  tok_types  [262144]      32768 token type slots
-#   0xE2000  tok_values [262144]      32768 token value slots
+#   0x18A000  fixup_tbl  [8192]        512 fixup entries (16 bytes each)
+#   0x18C000  fixup_cnt  [8]
+#   0x18C008  last_var   [8]
+#   0x190000  preprocess [65536]       Preprocessor scratch
+#   0x1A2000  tok_types  [262144]      32768 token type slots
+#   0x1E2000  tok_values [262144]      32768 token value slots
 #   0x122000 brk
 #
-# State vars (S + 0x8C100):
+# State vars (S + 0x18C100):
 #   +0  BL       input length
 #   +8  CP       code position (r13 equivalent)
 #   +16 VCNT     variable count (r14 equivalent)
@@ -39,19 +39,19 @@
 #   13=LBRACE 14=RBRACE 15=IF 16=WHILE 17=EQEQ 18=NEQ
 #   19=LT 20=GT 21=LTE 22=GTE 23=ELSE 31=COMMA 32=FN 33=RETURN
 #
-# Function state (S + 0x8C200):
-#   fn_names[1024]     S+0x8C200  128*8
-#   fn_offsets[1024]   S+0x8CA00  128*8
-#   fn_params[1024]    S+0x8D200  128*8
-#   fn_count           S+0x8DA00
-#   in_function        S+0x8DA08
-#   fn_local_count     S+0x8DA10
-#   saved_vcnt         S+0x8DA18
-#   ret_patches[512]   S+0x8DA20  64*8
-#   ret_patch_count    S+0x8DC20
-#   main_jmp_patch     S+0x8DC28
-#   fn_local_names[512] S+0x8DC30  64*8
-#   scratch            S+0x8DE30
+# Function state (S + 0x18C200):
+#   fn_names[1024]     S+0x18C200  128*8
+#   fn_offsets[1024]   S+0x18CA00  128*8
+#   fn_params[1024]    S+0x18D200  128*8
+#   fn_count           S+0x18DA00
+#   in_function        S+0x18DA08
+#   fn_local_count     S+0x18DA10
+#   saved_vcnt         S+0x18DA18
+#   ret_patches[512]   S+0x18DA20  64*8
+#   ret_patch_count    S+0x18DC20
+#   main_jmp_patch     S+0x18DC28
+#   fn_local_names[512] S+0x18DC30  64*8
+#   scratch            S+0x18DE30
 
 # ================================================================
 # 64-BIT MEMORY HELPERS
@@ -85,40 +85,40 @@ fn L64(a) {
 # STATE ACCESSORS
 # ================================================================
 
-fn GBL(S) { return L64(S + 0x8C100); }
-fn SBL(S, v) { S64(S + 0x8C100, v); return 0; }
-fn GCP(S) { return L64(S + 0x8C108); }
-fn SCP(S, v) { S64(S + 0x8C108, v); return 0; }
-fn GVCNT(S) { return L64(S + 0x8C110); }
-fn SVCNT(S, v) { S64(S + 0x8C110, v); return 0; }
-fn GTCNT(S) { return L64(S + 0x8C118); }
-fn STCNT(S, v) { S64(S + 0x8C118, v); return 0; }
-fn GTI(S) { return L64(S + 0x8C120); }
-fn STI(S, v) { S64(S + 0x8C120, v); return 0; }
-fn GNPOS(S) { return L64(S + 0x8C128); }
-fn SNPOS(S, v) { S64(S + 0x8C128, v); return 0; }
+fn GBL(S) { return L64(S + 0x18C100); }
+fn SBL(S, v) { S64(S + 0x18C100, v); return 0; }
+fn GCP(S) { return L64(S + 0x18C108); }
+fn SCP(S, v) { S64(S + 0x18C108, v); return 0; }
+fn GVCNT(S) { return L64(S + 0x18C110); }
+fn SVCNT(S, v) { S64(S + 0x18C110, v); return 0; }
+fn GTCNT(S) { return L64(S + 0x18C118); }
+fn STCNT(S, v) { S64(S + 0x18C118, v); return 0; }
+fn GTI(S) { return L64(S + 0x18C120); }
+fn STI(S, v) { S64(S + 0x18C120, v); return 0; }
+fn GNPOS(S) { return L64(S + 0x18C128); }
+fn SNPOS(S, v) { S64(S + 0x18C128, v); return 0; }
 
 # Fixup count
-fn GFCNT(S) { return L64(S + 0x8C000); }
-fn SFCNT(S, v) { S64(S + 0x8C000, v); return 0; }
+fn GFCNT(S) { return L64(S + 0x18C000); }
+fn SFCNT(S, v) { S64(S + 0x18C000, v); return 0; }
 # Last var index
-fn GLVAR(S) { return L64(S + 0x8C008); }
-fn SLVAR(S, v) { S64(S + 0x8C008, v); return 0; }
+fn GLVAR(S) { return L64(S + 0x18C008); }
+fn SLVAR(S, v) { S64(S + 0x18C008, v); return 0; }
 # String pos
 fn GSPOS(S) { return L64(S + 0x70000); }
 fn SSPOS(S, v) { S64(S + 0x70000, v); return 0; }
 
 # Function state accessors
-fn GFNC(S) { return L64(S + 0x8DA00); }
-fn SFNC(S, v) { S64(S + 0x8DA00, v); return 0; }
-fn GINFN(S) { return L64(S + 0x8DA08); }
-fn SINFN(S, v) { S64(S + 0x8DA08, v); return 0; }
-fn GFLC(S) { return L64(S + 0x8DA10); }
-fn SFLC(S, v) { S64(S + 0x8DA10, v); return 0; }
-fn GSVC(S) { return L64(S + 0x8DA18); }
-fn SSVC(S, v) { S64(S + 0x8DA18, v); return 0; }
-fn GRPC(S) { return L64(S + 0x8DC20); }
-fn SRPC(S, v) { S64(S + 0x8DC20, v); return 0; }
+fn GFNC(S) { return L64(S + 0x18DA00); }
+fn SFNC(S, v) { S64(S + 0x18DA00, v); return 0; }
+fn GINFN(S) { return L64(S + 0x18DA08); }
+fn SINFN(S, v) { S64(S + 0x18DA08, v); return 0; }
+fn GFLC(S) { return L64(S + 0x18DA10); }
+fn SFLC(S, v) { S64(S + 0x18DA10, v); return 0; }
+fn GSVC(S) { return L64(S + 0x18DA18); }
+fn SSVC(S, v) { S64(S + 0x18DA18, v); return 0; }
+fn GRPC(S) { return L64(S + 0x18DC20); }
+fn SRPC(S, v) { S64(S + 0x18DC20, v); return 0; }
 
 fn ERR(S) {
     
@@ -216,7 +216,7 @@ fn EPOPR9(S) { E2(S, 0x5941); return 0; }
 # Record fixup: (codebuf_offset=CP, var_index) in fixup table
 fn RECFIX(S, idx) {
     var fc = GFCNT(S);
-    var addr = S + 0x8A000 + fc * 16;
+    var addr = S + 0x18A000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -253,7 +253,7 @@ fn EVADDR(S, idx) {
 fn ESADDR(S, soff) {
     E2(S, 0xB848);
     var fc = GFCNT(S);
-    var faddr = S + 0x8A000 + fc * 16;
+    var faddr = S + 0x18A000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -286,8 +286,8 @@ fn EEXIT(S) {
 # TOKEN ACCESS
 # ================================================================
 
-fn TOKTYP(S, i) { return L64(S + 0xA2000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0xE2000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x1A2000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0x1E2000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
@@ -340,8 +340,8 @@ fn EPATCH(S, off) {
 # Store a token
 fn ADDTOK(S, typ, val) {
     var tc = GTCNT(S);
-    S64(S + 0xA2000 + tc * 8, typ);
-    S64(S + 0xE2000 + tc * 8, val);
+    S64(S + 0x1A2000 + tc * 8, typ);
+    S64(S + 0x1E2000 + tc * 8, val);
     STCNT(S, tc + 1);
     return 0;
 }
@@ -404,12 +404,12 @@ fn ISINCLUDE(S, pos, bl) {
 }
 
 # Preprocess: expand include directives in-place.
-# Uses S+0 as input, S+0x90000 as temp (64KB scratch for file reads).
+# Uses S+0 as input, S+0x190000 as temp (64KB scratch for file reads).
 # Builds expanded source into a new buffer, then copies back.
 fn PREPROCESS(S) {
     var bl = GBL(S);
-    # Use 0x90000 as expanded output buffer (reuse part of brk heap)
-    var out = S + 0x91000;
+    # Use 0x190000 as expanded output buffer (reuse part of brk heap)
+    var out = S + 0x191000;
     var op = 0;
     var ip = 0;
     while (ip < bl) {
@@ -421,7 +421,7 @@ fn PREPROCESS(S) {
             if (load8(S + ip) == 34) {
                 ip = ip + 1;
                 # Extract filename into temp null-terminated
-                var fname = S + 0x90000;
+                var fname = S + 0x190000;
                 var fi = 0;
                 var fgo = 1;
                 while (fgo == 1) {
@@ -742,24 +742,24 @@ fn LEX(S) {
 # STRUCT SUPPORT
 # ================================================================
 # Heap layout for structs (in scratch area):
-#   0x8DE30  var_types[256]       2048 bytes — struct_id per global var (0=scalar)
-#   0x8E630  struct_names[32]     256 bytes — name offset per struct
-#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct
-#   0x8E830  struct_fnames[512]   4096 bytes — field name offsets (32 structs * 16 fields)
-#   0x8F830  struct_count         8 bytes
+#   0x18DE30  var_types[256]       2048 bytes — struct_id per global var (0=scalar)
+#   0x18E630  struct_names[32]     256 bytes — name offset per struct
+#   0x18E730  struct_fcounts[32]   256 bytes — field count per struct
+#   0x18E830  struct_fnames[512]   4096 bytes — field name offsets (32 structs * 16 fields)
+#   0x18F830  struct_count         8 bytes
 
-fn GSTC(S) { return L64(S + 0x8F830); }
-fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
+fn GSTC(S) { return L64(S + 0x18F830); }
+fn SSTC(S, v) { S64(S + 0x18F830, v); return 0; }
 
 # Get/set struct_id for global variable at index vi
-fn GVTYPE(S, vi) { return L64(S + 0x8DE30 + vi * 8); }
-fn SVTYPE(S, vi, v) { S64(S + 0x8DE30 + vi * 8, v); return 0; }
+fn GVTYPE(S, vi) { return L64(S + 0x18DE30 + vi * 8); }
+fn SVTYPE(S, vi, v) { S64(S + 0x18DE30 + vi * 8, v); return 0; }
 
 # Register a new struct, return index (1-based, 0 = not a struct)
 fn REGSTRUCT(S, noff) {
     var sc = GSTC(S);
-    S64(S + 0x8E630 + sc * 8, noff);
-    S64(S + 0x8E830 + sc * 8, 0);
+    S64(S + 0x18E630 + sc * 8, noff);
+    S64(S + 0x18E830 + sc * 8, 0);
     SSTC(S, sc + 1);
     return sc + 1;
 }
@@ -769,7 +769,7 @@ fn FINDSTRUCT(S, noff) {
     var sc = GSTC(S);
     var i = 0;
     while (i < sc) {
-        var sn = L64(S + 0x8E630 + i * 8);
+        var sn = L64(S + 0x18E630 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i + 1; }
         i = i + 1;
     }
@@ -778,21 +778,21 @@ fn FINDSTRUCT(S, noff) {
 
 # Add field to struct (0-based struct index si)
 fn ADDFIELD(S, si, fnoff) {
-    var fc = L64(S + 0x8E830 + si * 8);
-    S64(S + 0x8E830 + si * 128 + fc * 8, fnoff);
-    S64(S + 0x8E830 + si * 8, fc + 1);
+    var fc = L64(S + 0x18E830 + si * 8);
+    S64(S + 0x18E830 + si * 128 + fc * 8, fnoff);
+    S64(S + 0x18E830 + si * 8, fc + 1);
     return 0;
 }
 
 # Get field count for struct (0-based index)
-fn GETFCOUNT(S, si) { return L64(S + 0x8E830 + si * 8); }
+fn GETFCOUNT(S, si) { return L64(S + 0x18E830 + si * 8); }
 
 # Find field index in struct (0-based struct index), return field index or -1
 fn FINDFIELD(S, si, fnoff) {
     var fc = GETFCOUNT(S, si);
     var i = 0;
     while (i < fc) {
-        var fn_off = L64(S + 0x8E830 + si * 128 + i * 8);
+        var fn_off = L64(S + 0x18E830 + si * 128 + i * 8);
         if (STREQ(S, fn_off, fnoff) == 1) { return i; }
         i = i + 1;
     }
@@ -1254,7 +1254,7 @@ fn PARSE_VAR(S) {
     # Check if inside function → local variable
     if (GINFN(S) == 1) {
         var li = GFLC(S);
-        S64(S + 0x8DC30 + li * 8, noff);
+        S64(S + 0x18DC30 + li * 8, noff);
         EFLSTORE(S, li);
         SFLC(S, li + 1);
     } else {
@@ -1404,9 +1404,9 @@ fn PARSE_WHILE(S) {
 # Register new function, return index
 fn REGFN(S, noff) {
     var fc = GFNC(S);
-    S64(S + 0x8C200 + fc * 8, noff);
-    S64(S + 0x8CA00 + fc * 8, 0 - 1);
-    S64(S + 0x8D200 + fc * 8, 0);
+    S64(S + 0x18C200 + fc * 8, noff);
+    S64(S + 0x18CA00 + fc * 8, 0 - 1);
+    S64(S + 0x18D200 + fc * 8, 0);
     SFNC(S, fc + 1);
     return fc;
 }
@@ -1416,7 +1416,7 @@ fn FINDFN(S, noff) {
     var fc = GFNC(S);
     var i = 0;
     while (i < fc) {
-        var sn = L64(S + 0x8C200 + i * 8);
+        var sn = L64(S + 0x18C200 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
@@ -1462,7 +1462,7 @@ fn ECALLFIX(S, fnidx) {
     EB(S, 0); EB(S, 0); EB(S, 0); EB(S, 0);
     # Record fixup: type=2 in high bits | fn_index
     var fc = GFCNT(S);
-    var faddr = S + 0x8A000 + fc * 16;
+    var faddr = S + 0x18A000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -1574,7 +1574,7 @@ fn FINDLOCAL(S, noff) {
     var lc = GFLC(S);
     var i = 0;
     while (i < lc) {
-        var sn = L64(S + 0x8DC30 + i * 8);
+        var sn = L64(S + 0x18DC30 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i; }
         i = i + 1;
     }
@@ -1594,7 +1594,7 @@ fn PARSE_RETURN(S) {
     # Emit jmp to epilogue (record as return patch)
     var rp = EJMP0(S);
     var rpc = GRPC(S);
-    S64(S + 0x8DA20 + rpc * 8, rp);
+    S64(S + 0x18DA20 + rpc * 8, rp);
     SRPC(S, rpc + 1);
     return 0;
 }
@@ -1621,7 +1621,7 @@ fn PARSE_FNCALL(S, noff) {
     if (fi < 0) {
         fi = REGFN(S, noff);
     }
-    var foff = L64(S + 0x8CA00 + fi * 8);
+    var foff = L64(S + 0x18CA00 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -1641,7 +1641,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     # Set fn offset to current CP
-    S64(S + 0x8CA00 + fi * 8, GCP(S));
+    S64(S + 0x18CA00 + fi * 8, GCP(S));
     # Save compiler state
     SSVC(S, GVCNT(S));
     var saved_lv = GLVAR(S);
@@ -1662,7 +1662,7 @@ fn PARSE_FN_DEF(S) {
             var pnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
             var li = GFLC(S);
-            S64(S + 0x8DC30 + li * 8, pnoff);
+            S64(S + 0x18DC30 + li * 8, pnoff);
             # Only emit register params now (0-5)
             if (pc < 6) {
                 ESTOREPARM(S, pc, li, 0);
@@ -1675,7 +1675,7 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR(S); }
     STI(S, GTI(S) + 1);
-    S64(S + 0x8D200 + fi * 8, pc);
+    S64(S + 0x18D200 + fi * 8, pc);
     # Emit stack param stores (7+) now that we know total pc
     if (pc > 6) {
         var spi = 6;
@@ -1694,7 +1694,7 @@ fn PARSE_FN_DEF(S) {
     var rpc = GRPC(S);
     var ri = 0;
     while (ri < rpc) {
-        EPATCH(S, L64(S + 0x8DA20 + ri * 8));
+        EPATCH(S, L64(S + 0x18DA20 + ri * 8));
         ri = ri + 1;
     }
     # Emit epilogue
@@ -1831,14 +1831,14 @@ fn FIXUP(S) {
     var fcnt = GFCNT(S);
     var fi = 0;
     while (fi < fcnt) {
-        var faddr = S + 0x8A000 + fi * 16;
+        var faddr = S + 0x18A000 + fi * 16;
         var coff = L64(faddr);
         var raw = L64(faddr + 8);
         var ftype = raw >> 56;
         var idx = raw & 0x00FFFFFFFFFFFFFF;
         if (ftype == 2) {
             # Function call — patch rel32
-            var target = L64(S + 0x8CA00 + idx * 8);
+            var target = L64(S + 0x18CA00 + idx * 8);
             var rel = target - coff - 4;
             var pa = S + 0x20000 + coff;
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
@@ -1936,22 +1936,22 @@ var S = syscall(12, 0);
 syscall(12, S + 0x122000);
 
 # Zero state
-S64(S + 0x8C100, 0);
-S64(S + 0x8C108, 0);
-S64(S + 0x8C110, 0);
-S64(S + 0x8C118, 0);
-S64(S + 0x8C120, 0);
-S64(S + 0x8C128, 0);
-S64(S + 0x8C000, 0);
-S64(S + 0x8C008, 0 - 1);
+S64(S + 0x18C100, 0);
+S64(S + 0x18C108, 0);
+S64(S + 0x18C110, 0);
+S64(S + 0x18C118, 0);
+S64(S + 0x18C120, 0);
+S64(S + 0x18C128, 0);
+S64(S + 0x18C000, 0);
+S64(S + 0x18C008, 0 - 1);
 S64(S + 0x70000, 0);
 # Function state
-S64(S + 0x8DA00, 0);
-S64(S + 0x8DA08, 0);
-S64(S + 0x8DA10, 0);
-S64(S + 0x8DC20, 0);
+S64(S + 0x18DA00, 0);
+S64(S + 0x18DA08, 0);
+S64(S + 0x18DA10, 0);
+S64(S + 0x18DC20, 0);
 # Struct state
-S64(S + 0x8F830, 0);
+S64(S + 0x18F830, 0);
 
 # Read input
 var bl = 0;

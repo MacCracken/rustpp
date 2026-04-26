@@ -316,6 +316,15 @@ if [ "$fc_result" -ne 0 ]; then cat /tmp/audit_fc_$$; fi
 rm -f /tmp/audit_fc_$$
 echo ""
 
+# ── 4t. input_buf 1 MB cap (v5.7.10) ──
+echo "── input_buf 1 MB cap ──"
+sh "$ROOT/tests/regression-input-1mb.sh" > /tmp/audit_i1m_$$ 2>&1
+i1m_result=$?
+check "cc5 accepts >512 KB source (heap reshuffle, v5.7.10)" "$i1m_result"
+if [ "$i1m_result" -ne 0 ]; then cat /tmp/audit_i1m_$$; fi
+rm -f /tmp/audit_i1m_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

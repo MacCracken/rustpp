@@ -4,14 +4,14 @@
 # v4.8.4-alpha4: pending-flag for `#regalloc` → next `fn` definition.
 # Token 109 sets this; PARSE_FN_DEF (and the DCE-stub path in main.cyr)
 # consume it when they resolve `fi`, storing the flag into fn_regalloc
-# at 0xC8000. Codegen attachment (callee-saved spill/restore driven by
+# at 0x1C8000. Codegen attachment (callee-saved spill/restore driven by
 # hot-local counting) lands in subsequent alphas — alpha4 only wires
 # the metadata so the attribute survives into fn-level state.
 var _regalloc_pending = 0;
 
 # v5.6.3: pending-flag for `#must_use` → next `fn` definition. Lexer
 # token 122 sets this; PARSE_FN_DEF consumes it when resolving `fi`,
-# storing bit 0 into fn_flags at 0xFC000. Call-site discard detection
+# storing bit 0 into fn_flags at 0x1FC000. Call-site discard detection
 # lives at PARSE_STMT's expression-statement path: it tracks the
 # outermost call's fi in `_stmt_topcall_fi` and warns if that fn's
 # must_use bit is set when the statement terminates without the
@@ -564,7 +564,7 @@ fn PARSE_STMT(S) {
         # Flag local (initialized to 0 in prologue; set to 1 when this
         # declaration is reached at runtime).
         var sflag = GFLC(S);
-        S64(S + 0x91000 + sflag * 8, 0);
+        S64(S + 0x191000 + sflag * 8, 0);
         SLDEP(S, sflag, GSDEP(S));
         SLTYPE(S, sflag, 0);
         SFLC(S, sflag + 1);
@@ -584,15 +584,15 @@ fn PARSE_STMT(S) {
             sqi = sqi + 1;
         }
         var ssend = EJMP0(S);
-        var sdci = L64(S + 0x8F900);
+        var sdci = L64(S + 0x18F900);
         if (sdci >= 8) {
             syscall(SYS_WRITE, 2, "error: too many defer/secret blocks (max 8)\n", 44);
             syscall(SYS_EXIT, 1);
         }
-        S64(S + 0x8F908 + sdci * 24, ssbody);
-        S64(S + 0x8F908 + sdci * 24 + 8, ssend);
-        S64(S + 0x8F908 + sdci * 24 + 16, sflag);
-        S64(S + 0x8F900, sdci + 1);
+        S64(S + 0x18F908 + sdci * 24, ssbody);
+        S64(S + 0x18F908 + sdci * 24 + 8, ssend);
+        S64(S + 0x18F908 + sdci * 24 + 16, sflag);
+        S64(S + 0x18F900, sdci + 1);
         EPATCH(S, sjmp);
         return 0;
     }
@@ -649,7 +649,7 @@ fn PARSE_STMT(S) {
         var stk_j = 0;
         while (stk_j < stk_nslots - 1) {
             var stk_li = GFLC(S);
-            S64(S + 0x91000 + stk_li * 8, 0 - 1);
+            S64(S + 0x191000 + stk_li * 8, 0 - 1);
             SLDEP(S, stk_li, GSDEP(S));
             SLTYPE(S, stk_li, 0);
             SFLC(S, stk_li + 1);
@@ -658,7 +658,7 @@ fn PARSE_STMT(S) {
         # Named slot at the deepest frame offset — this is where
         # `&buf` and `buf` resolve via FINDLOCAL.
         var stk_named = GFLC(S);
-        S64(S + 0x91000 + stk_named * 8, stk_noff);
+        S64(S + 0x191000 + stk_named * 8, stk_noff);
         SLDEP(S, stk_named, GSDEP(S));
         SLTYPE(S, stk_named, 0);
         SFLC(S, stk_named + 1);
@@ -685,12 +685,12 @@ fn PARSE_STMT(S) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        var prev_brk = L64(S + 0x8F840);
+        var prev_brk = L64(S + 0x18F840);
         var brk_off = EJMP0(S);
         # Store prev break offset in this jmp's rel32 field (chain link)
         var brk_addr = S + 0x64A000 + brk_off;
         S64(brk_addr, (L64(brk_addr) >> 32 << 32) | (prev_brk & 0xFFFFFFFF));
-        S64(S + 0x8F840, brk_off);
+        S64(S + 0x18F840, brk_off);
         return 0;
     }
     # defer { body } — execute body at function return (LIFO)
@@ -701,7 +701,7 @@ fn PARSE_STMT(S) {
         if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
         # Allocate hidden local for defer flag (initialized to 0 in prologue)
         var dflag = GFLC(S);
-        S64(S + 0x91000 + dflag * 8, 0);
+        S64(S + 0x191000 + dflag * 8, 0);
         SLDEP(S, dflag, GSDEP(S));
         SLTYPE(S, dflag, 0);
         SFLC(S, dflag + 1);
@@ -720,15 +720,15 @@ fn PARSE_STMT(S) {
         # Emit jmp placeholder (patched to next defer block or epilogue)
         var dend = EJMP0(S);
         # Store {block_start, end_jmp, flag_local} triple (24 bytes per entry)
-        var dci = L64(S + 0x8F900);
+        var dci = L64(S + 0x18F900);
         if (dci >= 8) {
             syscall(SYS_WRITE, 2, "error: too many defer blocks (max 8)\n", 36);
             syscall(SYS_EXIT, 1);
         }
-        S64(S + 0x8F908 + dci * 24, dstart);
-        S64(S + 0x8F908 + dci * 24 + 8, dend);
-        S64(S + 0x8F908 + dci * 24 + 16, dflag);
-        S64(S + 0x8F900, dci + 1);
+        S64(S + 0x18F908 + dci * 24, dstart);
+        S64(S + 0x18F908 + dci * 24 + 8, dend);
+        S64(S + 0x18F908 + dci * 24 + 16, dflag);
+        S64(S + 0x18F900, dci + 1);
         # Patch jmp-over to land here (after the deferred block)
         EPATCH(S, djmp);
         return 0;
@@ -738,18 +738,18 @@ fn PARSE_STMT(S) {
         STI(S, GTI(S) + 1);
         if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
         STI(S, GTI(S) + 1);
-        var cfw = L64(S + 0x8F898);
+        var cfw = L64(S + 0x18F898);
         if (cfw > 0) {
             # For-loop: forward patch to step (array of patches)
             var ci = cfw - 1;
             if (ci >= 8) {
                 ERR_MSG(S, "too many continue statements in loop (max 8)", 44);
             }
-            S64(S + 0x8F8A0 + ci * 8, EJMP0(S));
-            S64(S + 0x8F898, cfw + 1);
+            S64(S + 0x18F8A0 + ci * 8, EJMP0(S));
+            S64(S + 0x18F898, cfw + 1);
         } else {
             # While/for-in: direct jump to loop top
-            EJMP(S, L64(S + 0x8F838));
+            EJMP(S, L64(S + 0x18F838));
         }
         return 0;
     }
@@ -828,7 +828,7 @@ fn PARSE_STMT(S) {
             # line number matches the call site, not the trailing ';'.
             var _mu_fi = FINDFN(S, noff);
             if (_mu_fi >= 0) {
-                var _mu_flags = L64(S + 0xFC000 + _mu_fi * 8);
+                var _mu_flags = L64(S + 0x1FC000 + _mu_fi * 8);
                 if (_mu_flags & 1 != 0) {
                     syscall(SYS_WRITE, 2, "warning:", 8);
                     FM_LOOKUP(S, GTLINE(S, GTI(S)));

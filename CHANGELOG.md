@@ -4,6 +4,118 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.10] — 2026-04-26
+
+**`input_buf` 512 KB → 1 MB HEAP-MAP RESHUFFLE.** Load-bearing
+unblock for the ecosystem: hisab `dist/hisab.cyr` was at 505,237 B
+(96 % of the old cap), with hisab actively censoring upstream to
+stay under. Every consumer of hisab via `cyrius deps` auto-prepend
+inherited the full 505 KB before its own source could land —
+leaving 19,051 B of budget. Sandhi/sit/yantra-class folds were
+compounding the pressure. v5.7.10 doubles the cap.
+
+### Changed (heap layout — cap bump + region reshuffle)
+
+- **`input_buf`**: 524 288 B → **1 048 576 B** (512 KB → 1 MB).
+  3 sites per main entry × 6 main entries (`main.cyr`,
+  `main_aarch64.cyr`, `main_aarch64_native.cyr`,
+  `main_aarch64_macho.cyr`, `main_win.cyr`, `main_cx.cyr`):
+  the heap-map comment, the `syscall(SYS_READ)` cap, and the
+  over-cap guard. Plus the PP IFDEF copy-back cap in
+  `src/frontend/lex_pp.cyr` (which must move with `input_buf`
+  size by construction — see the comment block at line ~1454).
+- **Heap region shift +0x100000.** 95 distinct heap-region
+  addresses originally in 0x80000..0xFFFFF (compiler scalars,
+  struct tables, fn state, locals, macros, IFDEF state stack,
+  gvar tables, file_map, codebuf compaction, include_fnames)
+  shifted up by 0x100000 to land in 0x180000..0x1FFFFF. The
+  shift target is +0x100000 (1 MB), not the +0x80000 the cap
+  bump alone would suggest, because the existing 6-digit
+  squatters at 0x104000-0x14A000 (fn_deprecated_msg / FNV-1a
+  hash / vname_offsets / brk arg / vsize / vtype / output_buf)
+  had to stay put — landing the shifted regions there would
+  collide. +0x100000 lifts cleanly into the empty
+  0x180000..0x1FFFFF range. Confirmed via `comm -12` on
+  pre-shift existing addresses vs predicted post-shift —
+  zero collisions in either the 6-digit or 7-digit existing
+  layout.
+- **Bare-hex comment refs shifted.** 96 bare `0x[89A-F]NNNN`
+  occurrences in heap-map comments (across all 6 main_*.cyr
+  files plus `parse_types.cyr`, `aarch64/fixup.cyr`, etc.)
+  updated in the same sweep. Doc stays in sync with code.
+- **4 boundary-comment over-shifts hand-corrected.** The bare-
+  hex sweep over-shifted 4 comments where `0x80000` was the
+  *input_buf END* (now 0x100000), not a region address: 
+  `lex.cyr:415` (tok_names range `0x60000–0x80000` —
+  reverted to 0x80000), `util.cyr:45` (same), `lex_pp.cyr:396`
+  ("regions well below input_buf end" → 0x100000), and
+  `lex_pp.cyr:1454` ("input_buf ends at" → 0x100000).
+- **brk unchanged.** 0x348C000 (52.5 MB) on x86_64 already
+  accommodates the shifted regions. The existing brk targeted
+  the v5.7.7 fixup-cap-1M layout; the +0x100000 shift packs
+  into already-allocated heap. No `syscall(SYS_BRK, ...)` size
+  change.
+
+### Updated (error message + length)
+
+- `"error: input exceeds 512KB buffer (raise input_buf in
+  src/main.cyr)\n"` (68 B) → `"error: input exceeds 1MB buffer
+  (raise input_buf in src/main.cyr)\n"` (66 B). The
+  `syscall(SYS_WRITE)` length operand updated to 66 across all
+  6 main_*.cyr sites.
+
+### Added (regression)
+
+- `tests/regression-input-1mb.sh` generates a ~639 KB
+  comment-padded source (above the old 524 288 cap, below the
+  new 1 048 576 cap), pipes it to cc5, verifies build + run
+  succeed. Pre-v5.7.10 cc5 would have errored
+  `input exceeds 512KB buffer`. Wired into `scripts/check.sh`
+  as gate **4t**; check.sh **31/31 PASS**. Identifier-padding
+  hits the tok_names cap (128 KB) long before input_buf —
+  comment lines exercise the input cap without consuming
+  tok_names, which is what we actually want to test.
+
+### Compiler size
+
+- cc5 unchanged at **709,776 B** — the shift moves immediate
+  values in MOV/LEA/etc. instructions but the byte-length of
+  each shifted address is the same (4-byte hex literal in,
+  4-byte hex literal out). Heap-only change; instruction
+  encoding unchanged.
+
+### Acceptance gates verified
+
+- 3-step fixpoint: `cc5_a == cc5_b` byte-identical at 709,776
+  B. ✅
+- `scripts/check.sh`: **31/31 PASS** (gate 4t added). ✅
+- 5/5 main_*.cyr cross-arch builds pass: x86 ELF (709,776 B),
+  aarch64 ELF (412,096 B), aarch64-native (391,224 B),
+  aarch64-mach-o (411,520 B), Win64 PE (527,104 B). ✅
+- main_cx.cyr (cyrius-x bytecode entry) was **already broken
+  pre-shift** on `IR_RAW_EMIT` undefined — same shape as
+  v5.6.32's main_aarch64_native.cyr missing-include bug
+  (`include "src/common/ir.cyr"` not pulled in). Out of v5.7.10
+  scope. Gate to fix it gets its own slot (parallel to v5.6.32
+  pattern).
+- New regression `tests/regression-input-1mb.sh` PASS; pre-bump
+  cc5 would have failed it. ✅
+
+### Long-term consideration: cap-bump trajectory
+
+This is the **third major cap bump** in the v5.x line.
+Trajectory: input_buf 256 KB → 512 KB (v3.6.7) → **1 MB
+(v5.7.10)**; preprocess_out 1 MB → 2 MB (v5.6.40); fixup 16 K →
+32 K → 262 K → 1 M (3 bumps already, dynamic-table conversion
+pinned as the v5.8.x or v5.9.x consideration if a 4th bump
+hits). Each AGNOS-class fold (sandhi/sit/yantra/hisab/mabda)
+consumes another margin of headroom; consumers downstream of
+folded deps inherit the prepended bytes via `cyrius deps`
+auto-prepend and have proportionally less budget for their own
+source. Treat cap-bumps as recurring forward-pressure work
+across every minor — see
+`feedback_cap_bumps_recurring.md`.
+
 ## [5.7.9] — 2026-04-26
 
 **SILENT FN-NAME COLLISION INVESTIGATION.** cc5 now warns

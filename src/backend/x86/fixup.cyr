@@ -77,7 +77,7 @@ fn FIXUP(S) {
     cp = (cp + 7) & (0 - 8);
     SCP(S, cp);
     # In object mode, skip fixup resolution — relocations go into .rela.text
-    if (L64(S + 0x8FCA0) == 3) {
+    if (L64(S + 0x18FCA0) == 3) {
         # Still compute totvar for .data section size
         var vcnt = GVCNT(S);
         var totvar = 0;
@@ -86,11 +86,11 @@ fn FIXUP(S) {
             totvar = totvar + L64(S + 0x12A000 + vi * 8);
             vi = vi + 1;
         }
-        S64(S + 0x8FCD0, totvar);
+        S64(S + 0x18FCD0, totvar);
         return 0;
     }
     var acp = cp;
-    var kmode = L64(S + 0x8FCA0);
+    var kmode = L64(S + 0x18FCA0);
     var entry = 0x400078;
     if (kmode == 1) { entry = 0x100060; }
     # Shared objects: p_vaddr=0, code starts right after 3 PHs (hdr=232).
@@ -316,8 +316,8 @@ fn FIXUP(S) {
     # Dead-code elimination — mark-and-sweep reachability from entry.
     #
     # Building blocks already in place:
-    #   0xC4000: fn_start   [fnc]  start offset of each defined fn
-    #   0xE0000: fn_end     [fnc]  end offset (GFNE) — recorded by PARSE_FN_DEF
+    #   0x1C4000: fn_start   [fnc]  start offset of each defined fn
+    #   0x1E0000: fn_end     [fnc]  end offset (GFNE) — recorded by PARSE_FN_DEF
     #   0xF4A000: fixup_tbl [fcnt] (coff, type|idx) — all calls + addr-of refs
     #
     # Algorithm:
@@ -589,7 +589,7 @@ fn FIXUP(S) {
         }
     }
     # Store data_size
-    S64(S + 0x8FCD0, totvar);
+    S64(S + 0x18FCD0, totvar);
     return 0;
 }
 
@@ -600,7 +600,7 @@ fn FIXUP(S) {
 # Kernel ELF: 32-bit ELF for multiboot2 boot, base 0x100000
 fn EMITELF_KERNEL(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var mb_sz = 12;
     # ELF32 header = 52, PH32 = 32, total = 84, + multiboot 12 = 96
@@ -656,14 +656,14 @@ fn EMITELF_KERNEL(S) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x14A000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x903F8, op);
+    S64(S + 0x1903F8, op);
     return 0;
 }
 
 # Emit x86_64 ELF binary. etype: 2=ET_EXEC (default), 3=ET_DYN (shared)
 fn EMITELF_USER(S, etype) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
@@ -764,7 +764,7 @@ fn EMITELF_USER(S, etype) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x14A000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x903F8, op);
+    S64(S + 0x1903F8, op);
     return 0;
 }
 
@@ -797,13 +797,13 @@ fn EMITELF_USER(S, etype) {
 
 fn EMITELF_SHARED(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var fnc = GFNC(S);
     # _cyrius_init's code offset (stored at init_offset slot pre-FIXUP).
     # DT_INIT points the dynamic loader at this fn so it runs on dlopen
     # and executes every `var x = EXPR;` top-level initializer.
-    var init_cp_off = L64(S + 0x903F8);
+    var init_cp_off = L64(S + 0x1903F8);
 
     var O = S + 0x74A000;
 
@@ -997,7 +997,7 @@ fn EMITELF_SHARED(S) {
     S64(dp + 80, 11);               S64(dp +  88, 24);             # DT_SYMENT
     # DT_NULL terminator at dp+96 already zeroed.
 
-    S64(S + 0x903F8, filesz);
+    S64(S + 0x1903F8, filesz);
     return 0;
 }
 
@@ -1015,7 +1015,7 @@ fn EMITELF_SHARED(S) {
 
 fn EMITELF_OBJ(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var fcnt = GFCNT(S);
     var fnc = GFNC(S);
@@ -1171,7 +1171,7 @@ fn EMITELF_OBJ(S) {
     # functions, so sh_info=4 (set below) is correct.
     store8(init_symp + 4, 0x12);  # STT_FUNC | STB_GLOBAL
     store8(init_symp + 6, 1); store8(init_symp + 7, 0);  # st_shndx = .text
-    S64(init_symp + 8, L64(S + 0x903F8));  # st_value = init offset
+    S64(init_symp + 8, L64(S + 0x1903F8));  # st_value = init offset
 
     var first_global = 4;  # first non-local symbol index
 
@@ -1399,7 +1399,7 @@ fn EMITELF_OBJ(S) {
     S64(O + op, 8); op = op + 8;
     S64(O + op, 24); op = op + 8;
 
-    S64(S + 0x903F8, op);
+    S64(S + 0x1903F8, op);
     return 0;
 }
 
@@ -1423,9 +1423,9 @@ fn EMITELF(S) {
         EMITPE_EXEC(S);
         return 0;
     }
-    if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
-    if (L64(S + 0x8FCA0) == 2) { EMITELF_SHARED(S); return 0; }
-    if (L64(S + 0x8FCA0) == 3) { EMITELF_OBJ(S); return 0; }
+    if (L64(S + 0x18FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
+    if (L64(S + 0x18FCA0) == 2) { EMITELF_SHARED(S); return 0; }
+    if (L64(S + 0x18FCA0) == 3) { EMITELF_OBJ(S); return 0; }
     EMITELF_USER(S, 2);
     return 0;
 }

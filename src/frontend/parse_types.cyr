@@ -12,15 +12,15 @@
 # Heap layout for structs — see src/main.cyr for the authoritative map.
 # Quick reference of the regions this file touches:
 #   0x13A000 var_types[8192]      65536 bytes — struct_id per var (0=scalar)
-#   0x8E630  struct_names[32]     256 bytes — name offset per struct
-#   0x8E730  struct_fcounts[32]   256 bytes — field count per struct (bit 63 = union)
+#   0x18E630  struct_names[32]     256 bytes — name offset per struct
+#   0x18E730  struct_fcounts[32]   256 bytes — field count per struct (bit 63 = union)
 #   0xF4A000 struct_ftypes        8192 bytes — 32×32 field type IDs  (stride 256)
 #   0xFCA000 struct_fnames        8192 bytes — 32×32 field name offsets (stride 256)
-#   0x8F830  struct_count         8 bytes
-#   0xD8000  enum_const_val[8192] 8192 bytes — 1024 × 8 B enum-fold table (v5.5.2)
+#   0x18F830  struct_count         8 bytes
+#   0x1D8000  enum_const_val[8192] 8192 bytes — 1024 × 8 B enum-fold table (v5.5.2)
 
-fn GSTC(S) { return L64(S + 0x8F830); }
-fn SSTC(S, v) { S64(S + 0x8F830, v); return 0; }
+fn GSTC(S) { return L64(S + 0x18F830); }
+fn SSTC(S, v) { S64(S + 0x18F830, v); return 0; }
 
 # Get/set struct_id for global variable at index vi
 fn GVTYPE(S, vi) { return L64(S + 0x13A000 + vi * 8); }
@@ -32,8 +32,8 @@ fn REGSTRUCT(S, noff) {
     if (sc >= 64) {
         ERR_MSG(S, "too many struct definitions (max 64)", 36);
     }
-    S64(S + 0x8E630 + sc * 8, noff);
-    S64(S + 0x8E830 + sc * 8, 0);
+    S64(S + 0x18E630 + sc * 8, noff);
+    S64(S + 0x18E830 + sc * 8, 0);
     SSTC(S, sc + 1);
     return sc + 1;
 }
@@ -43,7 +43,7 @@ fn FINDSTRUCT(S, noff) {
     var sc = GSTC(S);
     var i = 0;
     while (i < sc) {
-        var sn = L64(S + 0x8E630 + i * 8);
+        var sn = L64(S + 0x18E630 + i * 8);
         if (STREQ(S, sn, noff) == 1) { return i + 1; }
         i = i + 1;
     }
@@ -52,20 +52,20 @@ fn FINDSTRUCT(S, noff) {
 
 # Add field to struct (0-based struct index si), ftype = struct_id or 0 for scalar
 fn ADDFIELD(S, si, fnoff) {
-    var fc = L64(S + 0x8E830 + si * 8);
+    var fc = L64(S + 0x18E830 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
     S64(S + 0xFCA000 + si * 256 + fc * 8, fnoff);
     S64(S + 0xF4A000 + si * 256 + fc * 8, 0);
-    S64(S + 0x8E830 + si * 8, fc + 1);
+    S64(S + 0x18E830 + si * 8, fc + 1);
     return 0;
 }
 
 fn ADDFIELDTYPED(S, si, fnoff, ftype) {
-    var fc = L64(S + 0x8E830 + si * 8);
+    var fc = L64(S + 0x18E830 + si * 8);
     if (fc >= 32) { ERR_MSG(S, "too many struct fields (max 32)", 31); }
     S64(S + 0xFCA000 + si * 256 + fc * 8, fnoff);
     S64(S + 0xF4A000 + si * 256 + fc * 8, ftype);
-    S64(S + 0x8E830 + si * 8, fc + 1);
+    S64(S + 0x18E830 + si * 8, fc + 1);
     return 0;
 }
 
@@ -216,7 +216,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 S64(S + 0x11A000 + vcnt * 8, vnoff);
                 S64(S + 0x12A000 + vcnt * 8, 8);
                 # v5.5.2: record enum variant's compile-time value in the
-                # enum_const_val table at 0xD8000 (1024 entries × 8 B).
+                # enum_const_val table at 0x1D8000 (1024 entries × 8 B).
                 # Bit 63 = "is enum const" marker; low 63 bits = value.
                 # PARSE_FACTOR reads this when resolving a bare/qualified
                 # identifier and folds to EMOVI + _cfo=1 so callers like
@@ -224,7 +224,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 # Variants registered at idx >= 1024 fall through to the
                 # existing EVLOAD path (correct but not folded).
                 if (vcnt < 1024) {
-                    S64(S + 0xD8000 + vcnt * 8, (1 << 63) | val);
+                    S64(S + 0x1D8000 + vcnt * 8, (1 << 63) | val);
                 }
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
@@ -253,8 +253,8 @@ fn PARSE_ENUM_DEF(S, emit_code) {
 }
 
 # Get field count for struct (0-based index). High bit = union flag.
-fn GETFCOUNT(S, si) { return L64(S + 0x8E830 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
-fn ISUNION(S, si) { return L64(S + 0x8E830 + si * 8) >> 63; }
+fn GETFCOUNT(S, si) { return L64(S + 0x18E830 + si * 8) & 0x7FFFFFFFFFFFFFFF; }
+fn ISUNION(S, si) { return L64(S + 0x18E830 + si * 8) >> 63; }
 
 # Find field index in struct (0-based struct index), return field index or -1
 fn FINDFIELD(S, si, fnoff) {
@@ -328,7 +328,7 @@ fn PARSE_UNION_DEF(S) {
     var sid = REGSTRUCT(S, noff);
     var si = sid - 1;
     # Set union flag (high bit of fcount)
-    S64(S + 0x8E830 + si * 8, 1 << 63);
+    S64(S + 0x18E830 + si * 8, 1 << 63);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
     var go = 1;

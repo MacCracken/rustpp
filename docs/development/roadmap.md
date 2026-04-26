@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.9.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
+> **v5.7.10.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
 > 704,976 — fixup-table cap 262K → 1M, brk +12 MB, lint UFCS Pascal-
 > prefix exemption, `cyrius build` atomic-output via tmp+rename). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the

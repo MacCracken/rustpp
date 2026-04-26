@@ -830,7 +830,7 @@ fn EFLSTORE(S, idx) {
 }
 
 # Object mode check (shared with x86)
-fn _IS_OBJ(S) { return L64(S + 0x8FCA0) == 3; }
+fn _IS_OBJ(S) { return L64(S + 0x18FCA0) == 3; }
 
 # Width-aware local load: ldurb/ldurh/ldur w0/ldur x0 from [x29, #-offset]
 fn EFLLOAD_W(S, idx, width) {

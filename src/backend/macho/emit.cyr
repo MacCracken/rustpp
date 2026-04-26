@@ -77,7 +77,7 @@ fn _macho_wbindsym(O, off, s) {
 
 fn EMITMACHO_EXEC(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
 
     var PAGE = 4096;
@@ -208,7 +208,7 @@ fn EMITMACHO_EXEC(S) {
     # Pad to page boundary for clean file
     while (o % PAGE != 0) { store8(O + o, 0); o = o + 1; }
 
-    S64(S + 0x903F8, o);
+    S64(S + 0x1903F8, o);
     return 0;
 }
 
@@ -261,7 +261,7 @@ fn _macho_wstr_pad(O, off, s, width) {
 
 fn EMITMACHO_ARM64(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
 
     var PAGE = 16384;
@@ -775,7 +775,7 @@ fn EMITMACHO_ARM64(S) {
     # Pad to FILE_END if not already there
     while (o < FILE_END) { store8(O + o, 0); o = o + 1; }
 
-    S64(S + 0x903F8, o);
+    S64(S + 0x1903F8, o);
     return 0;
 }
 

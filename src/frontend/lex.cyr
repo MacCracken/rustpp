@@ -3,9 +3,9 @@
 # ================================================================
 
 # File map: tracks #@file markers for file:line error messages.
-# S+0x9A100: entry count (8 bytes)
-# S+0x9A108: entries[128], each 24 bytes: (start_line, line_count, fname_offset)
-# S+0x9D000: filename strings (4KB scratch)
+# S+0x19A100: entry count (8 bytes)
+# S+0x19A108: entries[128], each 24 bytes: (start_line, line_count, fname_offset)
+# S+0x19D000: filename strings (4KB scratch)
 
 var _fm_count = 0;
 var _fm_str_pos = 0;
@@ -26,15 +26,15 @@ fn FM_BUILD(S) {
                 while (fend < bl && load8(buf + fend) != 34) { fend = fend + 1; }
                 var flen = fend - fstart;
                 if (_fm_count < 128 && flen > 0) {
-                    store64(S + 0x9A108 + _fm_count * 24, line + 1);
-                    store64(S + 0x9A108 + _fm_count * 24 + 8, 0);
-                    store64(S + 0x9A108 + _fm_count * 24 + 16, _fm_str_pos);
+                    store64(S + 0x19A108 + _fm_count * 24, line + 1);
+                    store64(S + 0x19A108 + _fm_count * 24 + 8, 0);
+                    store64(S + 0x19A108 + _fm_count * 24 + 16, _fm_str_pos);
                     var fi = 0;
                     while (fi < flen) {
-                        store8(S + 0x9D000 + _fm_str_pos + fi, load8(buf + fstart + fi));
+                        store8(S + 0x19D000 + _fm_str_pos + fi, load8(buf + fstart + fi));
                         fi = fi + 1;
                     }
-                    store8(S + 0x9D000 + _fm_str_pos + flen, 0);
+                    store8(S + 0x19D000 + _fm_str_pos + flen, 0);
                     _fm_str_pos = _fm_str_pos + flen + 1;
                     _fm_count = _fm_count + 1;
                 }
@@ -46,34 +46,34 @@ fn FM_BUILD(S) {
     # Second: compute line counts from start_line gaps
     var i = 0;
     while (i < _fm_count) {
-        var start = load64(S + 0x9A108 + i * 24);
+        var start = load64(S + 0x19A108 + i * 24);
         var next_start = 0;
         if (i + 1 < _fm_count) {
-            next_start = load64(S + 0x9A108 + (i + 1) * 24);
-            store64(S + 0x9A108 + i * 24 + 8, next_start - start - 1);
+            next_start = load64(S + 0x19A108 + (i + 1) * 24);
+            store64(S + 0x19A108 + i * 24 + 8, next_start - start - 1);
         } else {
             # Last file: count remaining lines to EOF
-            store64(S + 0x9A108 + i * 24 + 8, line - start);
+            store64(S + 0x19A108 + i * 24 + 8, line - start);
         }
         i = i + 1;
     }
-    store64(S + 0x9A100, _fm_count);
+    store64(S + 0x19A100, _fm_count);
     return 0;
 }
 
 # Look up file:line for an expanded line number. Prints to stderr.
 # Returns 1 if found, 0 if fallback to raw line number.
 fn FM_LOOKUP(S, expanded_line) {
-    var cnt = load64(S + 0x9A100);
+    var cnt = load64(S + 0x19A100);
     if (cnt == 0) { PRNUM(expanded_line); return 0; }
     # Find which file contains this line
     var i = 0;
     while (i < cnt) {
-        var start = load64(S + 0x9A108 + i * 24);
-        var lines = load64(S + 0x9A108 + i * 24 + 8);
+        var start = load64(S + 0x19A108 + i * 24);
+        var lines = load64(S + 0x19A108 + i * 24 + 8);
         if (expanded_line >= start && expanded_line < start + lines) {
-            var foff = load64(S + 0x9A108 + i * 24 + 16);
-            var fptr = S + 0x9D000 + foff;
+            var foff = load64(S + 0x19A108 + i * 24 + 16);
+            var fptr = S + 0x19D000 + foff;
             var flen = 0;
             while (load8(fptr + flen) != 0) { flen = flen + 1; }
             syscall(SYS_WRITE, 2, fptr, flen);
@@ -411,7 +411,7 @@ fn NPOS_GUARD(S, need) {
 # Lex an identifier starting at p, return new p. Stores token.
 # Threshold 130800 leaves 272 bytes of slack for the inner write loop.
 # Buffer raised from 64 KB to 128 KB in v4.6.2 (`str_pos` + `data_size`
-# moved from 0x70000/0x70008 to 0x8FCC8/0x8FCD0 so tok_names can grow
+# moved from 0x70000/0x70008 to 0x18FCC8/0x18FCD0 so tok_names can grow
 # into 0x60000–0x80000).
 fn LEXID(S, p, npos) {
     if (npos >= 130800) {

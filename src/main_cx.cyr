@@ -17,60 +17,60 @@ var S = syscall(SYS_BRK, 0);
 syscall(SYS_BRK, S + 0x54A000);
 
 # Zero state
-S64(S + 0x8C100, 0);
-S64(S + 0x8C108, 0);
-S64(S + 0x8C110, 0);
-S64(S + 0x8C118, 0);
-S64(S + 0x8C120, 0);
-S64(S + 0x8C128, 0);
-S64(S + 0x8FCA8, 0);
-S64(S + 0x8FCB0, 0 - 1);
-S64(S + 0x8FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
+S64(S + 0x18C100, 0);
+S64(S + 0x18C108, 0);
+S64(S + 0x18C110, 0);
+S64(S + 0x18C118, 0);
+S64(S + 0x18C120, 0);
+S64(S + 0x18C128, 0);
+S64(S + 0x18FCA8, 0);
+S64(S + 0x18FCB0, 0 - 1);
+S64(S + 0x18FCC8, 0);       # str_pos (moved from 0x70000 in 4.6.2)
 # Function state
-S64(S + 0x8DA00, 0);
-S64(S + 0x8DA08, 0);
-S64(S + 0x8DA10, 0);
-S64(S + 0x8DC20, 0);
+S64(S + 0x18DA00, 0);
+S64(S + 0x18DA08, 0);
+S64(S + 0x18DA10, 0);
+S64(S + 0x18DC20, 0);
 # Struct state
-S64(S + 0x8F830, 0);
+S64(S + 0x18F830, 0);
 # Condition patch state
-S64(S + 0x8F888, 0);
+S64(S + 0x18F888, 0);
 # Global var init state
-S64(S + 0x9A000, 0);
-S64(S + 0x97000, 0);
-S64(S + 0x97F00, 0);
+S64(S + 0x19A000, 0);
+S64(S + 0x197000, 0);
+S64(S + 0x197F00, 0);
 
 # Kernel mode
-S64(S + 0x8FCA0, 0);
+S64(S + 0x18FCA0, 0);
 # Lexer line tracking
-S64(S + 0x8FCB8, 1);
+S64(S + 0x18FCB8, 1);
 # Block scoping
-S64(S + 0x8FCC0, 0);
+S64(S + 0x18FCC0, 0);
 # Expression type tracking
-S64(S + 0x903D8, 0);
+S64(S + 0x1903D8, 0);
 # Inline depth
-S64(S + 0x903E8, 0);
+S64(S + 0x1903E8, 0);
 # Expression width
-S64(S + 0x903F0, 0);
-# Continue forward patch (for-loop) — relocated from 0x8F850 to avoid &&/|| overlap
-S64(S + 0x8F898, 0);
+S64(S + 0x1903F0, 0);
+# Continue forward patch (for-loop) — relocated from 0x18F850 to avoid &&/|| overlap
+S64(S + 0x18F898, 0);
 # Module system
-S64(S + 0x8FEC8, 0);
-S64(S + 0x903D0, 0);
+S64(S + 0x18FEC8, 0);
+S64(S + 0x1903D0, 0);
 
 # Read input (256KB, v3.4.19 — see src/main.cyr for rationale)
 var bl = 0;
 var done = 0;
 while (done == 0) {
-    var n = syscall(SYS_READ, 0, S + bl, 524288 - bl);
+    var n = syscall(SYS_READ, 0, S + bl, 1048576 - bl);
     if (n <= 0) { done = 1; }
     else {
         bl = bl + n;
-        if (bl >= 524288) {
+        if (bl >= 1048576) {
             var probe[1];
             var pn = syscall(SYS_READ, 0, &probe, 1);
             if (pn > 0) {
-                syscall(SYS_WRITE, 2, "error: input exceeds 512KB buffer (raise input_buf in src/main.cyr)\n", 68);
+                syscall(SYS_WRITE, 2, "error: input exceeds 1MB buffer (raise input_buf in src/main.cyr)\n", 66);
                 syscall(SYS_EXIT, 1);
             }
             done = 1;
@@ -118,7 +118,7 @@ while (scan == 1) {
                     # Build mangled name: mod_fn
                     # Each alias gets 64 bytes in scratch area (30000 + uc*64)
                     var uc = GUSEC(S);
-                    S64(S + 0x8FFD0 + uc * 8, ufn);
+                    S64(S + 0x18FFD0 + uc * 8, ufn);
                     # Append mangled name to tok_names (after lexing, NPOS is stable)
                     var apos = GNPOS(S);
                     var ri = 0;
@@ -130,7 +130,7 @@ while (scan == 1) {
                     store8(S + 0x60000 + apos, 0); apos = apos + 1;
                     var alias_noff = GNPOS(S);
                     SNPOS(S, apos);
-                    S64(S + 0x901D0 + uc * 8, alias_noff);
+                    S64(S + 0x1901D0 + uc * 8, alias_noff);
                     SUSEC(S, uc + 1);
                 }
             }
@@ -159,12 +159,12 @@ while (scan == 1) {
     }
     else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
     else { if (PEEKT(S) == 56) {
-        S64(S + 0x8FCA0, 1);
+        S64(S + 0x18FCA0, 1);
         STI(S, GTI(S) + 1);
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     }
     else { if (PEEKT(S) == 78) {
-        S64(S + 0x8FCA0, 2);
+        S64(S + 0x18FCA0, 2);
         STI(S, GTI(S) + 1);
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     }
@@ -194,9 +194,9 @@ while (scan == 1) {
 SMOD(S, 0);
 
 # DCE pre-scan: build referenced-name bitmap in one pass over tokens.
-# Uses output_buf (S+0xDA000, 8KB) as scratch — safe because EMITELF runs later.
+# Uses output_buf (S+0x1DA000, 8KB) as scratch — safe because EMITELF runs later.
 # Bitmap: bit N set means tok_names offset N is referenced as non-FN identifier.
-var dce_bm = S + 0xDA000;
+var dce_bm = S + 0x1DA000;
 var dce_zi = 0;
 while (dce_zi < 8192) { store8(dce_bm + dce_zi, 0); dce_zi = dce_zi + 1; }
 var dce_ti = 0;
@@ -370,7 +370,7 @@ var dbase = cp;
 var fcnt = GFCNT(S);
 var fi = 0;
 while (fi < fcnt) {
-    var faddr = S + 0xA0000 + fi * 16;
+    var faddr = S + 0x1A0000 + fi * 16;
     var coff = L64(faddr);
     var raw = L64(faddr + 8);
     var ftype = raw >> 56;

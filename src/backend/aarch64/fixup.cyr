@@ -80,7 +80,7 @@ fn FIXUP(S) {
     cp = (cp + 3) & (0 - 4);
     SCP(S, cp);
     var acp = cp;
-    var kmode = L64(S + 0x8FCA0);
+    var kmode = L64(S + 0x18FCA0);
     var entry = 0x400078;
     var preamble = 0;
     if (kmode == 1) { entry = 0x40000078; preamble = 16; }
@@ -228,7 +228,7 @@ fn FIXUP(S) {
         } } } } }
         fi = fi + 1;
     }
-    S64(S + 0x8FCD0, totvar);
+    S64(S + 0x18FCD0, totvar);
     return 0;
 }
 
@@ -313,9 +313,9 @@ fn FIXUP_MOV(S, coff, addr) {
 
 fn EMITELF(S) {
     if (_TARGET_MACHO == 2) { EMITMACHO_ARM64(S); return 0; }
-    if (L64(S + 0x8FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
+    if (L64(S + 0x18FCA0) == 1) { EMITELF_KERNEL(S); return 0; }
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var filesz = 120 + cp + totvar + spos;
     filesz = (filesz + 7) & (0 - 8);
@@ -356,7 +356,7 @@ fn EMITELF(S) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x14A000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x903F8, op);
+    S64(S + 0x1903F8, op);
     return 0;
 }
 
@@ -365,7 +365,7 @@ fn EMITELF(S) {
 # No multiboot (ARM uses device tree). Entry at base + 0x78 (after ELF + PH headers).
 fn EMITELF_KERNEL(S) {
     var cp = GCP(S);
-    var totvar = L64(S + 0x8FCD0);
+    var totvar = L64(S + 0x18FCD0);
     var spos = GSPOS(S);
     var preamble_sz = 16;
     var filesz = 120 + preamble_sz + cp + totvar + spos;
@@ -426,6 +426,6 @@ fn EMITELF_KERNEL(S) {
     i = 0;
     while (i < spos) { store8(O + op, load8(S + 0x14A000 + i)); op = op + 1; i = i + 1; }
     while (op % 8 != 0) { store8(O + op, 0); op = op + 1; }
-    S64(S + 0x903F8, op);
+    S64(S + 0x1903F8, op);
     return 0;
 }

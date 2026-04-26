@@ -264,7 +264,7 @@ fn RECFIX(S, idx) {
 # baked with a fixed VA can't survive either. Use
 # `lea rax, [rip+disp32]` instead.
 fn _IS_OBJ(S) {
-    var km = L64(S + 0x8FCA0);
+    var km = L64(S + 0x18FCA0);
     if (km == 3 || km == 2) { return 1; }
     return 0;
 }
@@ -956,10 +956,10 @@ fn ECALLTO(S, target) {
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     # v5.6.27: record disp32 source CP for codebuf-compaction repair.
-    var _jsc = L64(S + 0xA0000);
+    var _jsc = L64(S + 0x1A0000);
     if (_jsc < 1024) {
-        S64(S + 0xA0008 + _jsc * 8, cp);
-        S64(S + 0xA0000, _jsc + 1);
+        S64(S + 0x1A0008 + _jsc * 8, cp);
+        S64(S + 0x1A0000, _jsc + 1);
     }
     # v5.6.21: callee may set flags arbitrarily; rax = return value.
     _flags_reflect_rax = 0;

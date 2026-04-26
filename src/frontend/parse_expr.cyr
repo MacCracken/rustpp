@@ -188,13 +188,13 @@ fn PARSE_FACTOR(S) {
                     # Enum.VARIANT — load the variant's global value.
                     # v5.5.2: if this gvar was registered by PARSE_ENUM_DEF
                     # as an enum constant (marker bit 63 set in the
-                    # 0xD8000 table), fold to EMOVI and mark _cfo=1 so
+                    # 0x1D8000 table), fold to EMOVI and mark _cfo=1 so
                     # callers like the syscall sc_num dispatch can read
                     # the compile-time value. Falls through to EVLOAD if
                     # the idx is out of the 1024-slot cap.
                     STI(S, GTI(S) + 1);
                     if (vi < 1024) {
-                        var _ecvq = L64(S + 0xD8000 + vi * 8);
+                        var _ecvq = L64(S + 0x1D8000 + vi * 8);
                         if (_ecvq < 0) {
                             var _evq = _ecvq & 0x7FFFFFFFFFFFFFFF;
                             _cfp = GCP(S);
@@ -254,11 +254,11 @@ fn PARSE_FACTOR(S) {
         # v5.5.2: bare identifier resolving to an enum constant folds to
         # EMOVI with _cfo=1 so the syscall-reroute dispatch (and any
         # other _cfv-driven optimization) can see the value at parse
-        # time. Enum registration writes the marker at 0xD8000; any
+        # time. Enum registration writes the marker at 0x1D8000; any
         # gvar whose slot has bit 63 set is a fold candidate. Same
         # 1024-slot cap as the qualified path.
         if (idx < 1024) {
-            var _ecv = L64(S + 0xD8000 + idx * 8);
+            var _ecv = L64(S + 0x1D8000 + idx * 8);
             if (_ecv < 0) {
                 var _ev = _ecv & 0x7FFFFFFFFFFFFFFF;
                 _cfp = GCP(S);
@@ -732,7 +732,7 @@ fn PARSE_FACTOR(S) {
                 var cpnoff = PEEKV(S);
                 STI(S, GTI(S) + 1);
                 var cpli = GFLC(S);
-                S64(S + 0x91000 + cpli * 8, cpnoff);
+                S64(S + 0x191000 + cpli * 8, cpnoff);
                 SLDEP(S, cpli, 0);
                 if (clpc < 6) { ESTOREPARM(S, clpc, cpli, 0); }
                 SFLC(S, cpli + 1);
@@ -757,7 +757,7 @@ fn PARSE_FACTOR(S) {
         # Patch any return statements + emit epilogue
         var clrpc = GRPC(S);
         for (var clri = 0; clri < clrpc; clri = clri + 1) {
-            EPATCH(S, L64(S + 0x8DA20 + clri * 8));
+            EPATCH(S, L64(S + 0x18DA20 + clri * 8));
         }
         EFNEPI(S);
         EPATCH(S, cl_jmp);
@@ -941,7 +941,7 @@ fn PARSE_SIMD_EXT(S, ptyp) {
         var rp = EJMP0(S);
         var rpc = GRPC(S);
         if (rpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
-        S64(S + 0x8DA20 + rpc * 8, rp);
+        S64(S + 0x18DA20 + rpc * 8, rp);
         SRPC(S, rpc + 1);
         return 0;
     }
@@ -1278,7 +1278,7 @@ fn EPTR_SCALE(S, ps) {
 fn BUILD_OP_NAME(S, stype, op_str, op_len) {
     NPOS_GUARD(S, 256);
     var si = stype - 1;
-    var snoff = L64(S + 0x8E630 + si * 8);
+    var snoff = L64(S + 0x18E630 + si * 8);
     var owp = GNPOS(S);
     var onoff = owp;
     var ori = 0;

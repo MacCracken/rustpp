@@ -15,10 +15,10 @@ fn EJCC(S, cc) {
     var _ire = IR_ENABLED(S);
     if (_ire >= 1) { ir_emit(S, IR_JCC, cc, 0, patch); }
     # v5.6.27: record disp32 source CP for codebuf-compaction repair.
-    var _jsc = L64(S + 0xA0000);
+    var _jsc = L64(S + 0x1A0000);
     if (_jsc < 1024) {
-        S64(S + 0xA0008 + _jsc * 8, patch);
-        S64(S + 0xA0000, _jsc + 1);
+        S64(S + 0x1A0008 + _jsc * 8, patch);
+        S64(S + 0x1A0000, _jsc + 1);
     }
     return patch;
 }
@@ -36,19 +36,19 @@ fn EJMP(S, target) {
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     SCP(S, cp + 4);
     # v5.6.27: record disp32 source CP for codebuf-compaction repair.
-    var _jsc = L64(S + 0xA0000);
+    var _jsc = L64(S + 0x1A0000);
     if (_jsc < 1024) {
-        S64(S + 0xA0008 + _jsc * 8, cp);
-        S64(S + 0xA0000, _jsc + 1);
+        S64(S + 0x1A0008 + _jsc * 8, cp);
+        S64(S + 0x1A0000, _jsc + 1);
     }
     # Record jump target (CVE-09: warn on overflow)
-    var jtc = L64(S + 0x9E000);
+    var jtc = L64(S + 0x19E000);
     if (jtc < 1024) {
-        S64(S + 0x9E008 + jtc * 8, target);
-        S64(S + 0x9E000, jtc + 1);
+        S64(S + 0x19E008 + jtc * 8, target);
+        S64(S + 0x19E000, jtc + 1);
     } elif (jtc == 1024) {
         syscall(SYS_WRITE, 2, "warning: jump target table full (1024) — LASE disabled for this function\n", 73);
-        S64(S + 0x9E000, jtc + 1);
+        S64(S + 0x19E000, jtc + 1);
     }
     return 0;
 }
@@ -63,10 +63,10 @@ fn EJMP0(S) {
     var _ire = IR_ENABLED(S);
     if (_ire >= 1) { ir_emit(S, IR_JMP, 0, 0, patch); }
     # v5.6.27: record disp32 source CP for codebuf-compaction repair.
-    var _jsc = L64(S + 0xA0000);
+    var _jsc = L64(S + 0x1A0000);
     if (_jsc < 1024) {
-        S64(S + 0xA0008 + _jsc * 8, patch);
-        S64(S + 0xA0000, _jsc + 1);
+        S64(S + 0x1A0008 + _jsc * 8, patch);
+        S64(S + 0x1A0000, _jsc + 1);
     }
     return patch;
 }
@@ -83,10 +83,10 @@ fn EPATCH(S, off) {
     var addr = S + 0x64A000 + off;
     S64(addr, (L64(addr) >> 32 << 32) | (rel & 0xFFFFFFFF));
     # Record jump target
-    var jtc = L64(S + 0x9E000);
+    var jtc = L64(S + 0x19E000);
     if (jtc < 1024) {
-        S64(S + 0x9E008 + jtc * 8, cp);
-        S64(S + 0x9E000, jtc + 1);
+        S64(S + 0x19E008 + jtc * 8, cp);
+        S64(S + 0x19E000, jtc + 1);
     }
     # Overflow already warned by EJMP — no duplicate warning needed
     return 0;

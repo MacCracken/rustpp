@@ -37,7 +37,7 @@ fn ISINCLUDE(S, pos, bl) {
 }
 
 # Preprocess: expand include directives in-place.
-# Uses S+0 as input, S+0x44A000 as expanded output (512KB), copies back to S+0.
+# Uses S+0 as input, S+0x44A000 as expanded output (1MB), copies back to S+0.
 # Check if buffer at pos starts with a directive (returns length or 0)
 fn ISDEFINE(S, pos, bl) {
     # Leading whitespace tolerated (see PP_SKIP_WS). Note that the
@@ -239,18 +239,18 @@ fn ISENDPLAT(S, pos, bl) {
 }
 
 # Include-once: track included filenames to skip duplicates.
-# v4.8.4-alpha2: relocated to 0xC0000 (formerly fn-tables, freed in
+# v4.8.4-alpha2: relocated to 0x1C0000 (formerly fn-tables, freed in
 # 4.7.1 — 144 KB available). Capacity raised 64 → 256 entries.
 # Bote-class projects (16 stdlib + 9 libro + 6 majra + 15 source +
 # transitive autos) easily exceed 64; cyrius itself at ~30, kybernet
 # >40 already pushed against the wall.
-# S+0x97F00: include count (8 bytes — kept at original location)
-# S+0xC0000: included filenames[256] (256 * 128 bytes = 32 KB)
+# S+0x197F00: include count (8 bytes — kept at original location)
+# S+0x1C0000: included filenames[256] (256 * 128 bytes = 32 KB)
 fn PP_ALREADY_INCLUDED(S, fname) {
-    var cnt = L64(S + 0x97F00);
+    var cnt = L64(S + 0x197F00);
     var i = 0;
     while (i < cnt) {
-        var p = S + 0xC0000 + i * 128;
+        var p = S + 0x1C0000 + i * 128;
         var c = 0;
         var eq = 1;
         while (eq == 1) {
@@ -267,12 +267,12 @@ fn PP_ALREADY_INCLUDED(S, fname) {
 }
 
 fn PP_MARK_INCLUDED(S, fname) {
-    var cnt = L64(S + 0x97F00);
+    var cnt = L64(S + 0x197F00);
     if (cnt >= 256) {
         syscall(SYS_WRITE, 2, "error: include-once table full (256 files) — split compilation unit\n", 67);
         syscall(SYS_EXIT, 1);
     }
-    var p = S + 0xC0000 + cnt * 128;
+    var p = S + 0x1C0000 + cnt * 128;
     var c = 0;
     while (load8(fname + c) != 0) {
         store8(p + c, load8(fname + c));
@@ -280,7 +280,7 @@ fn PP_MARK_INCLUDED(S, fname) {
         if (c >= 127) { break; }
     }
     store8(p + c, 0);
-    S64(S + 0x97F00, cnt + 1);
+    S64(S + 0x197F00, cnt + 1);
     return 0;
 }
 
@@ -335,17 +335,17 @@ fn ISDERIVE_DE(S, pos, bl) {
 }
 
 # Derive state: struct sizes for nested struct offset calculation
-# S+0x97000: derive struct count (8 bytes)
-# S+0x97008: derive struct sizes[32] (256 bytes)
-# S+0x97108: derive struct names[32*32] (1024 bytes)
+# S+0x197000: derive struct count (8 bytes)
+# S+0x197008: derive struct sizes[32] (256 bytes)
+# S+0x197108: derive struct names[32*32] (1024 bytes)
 # Shared parse results from PP_PARSE_STRUCT_DEF:
-# S+0x97400: output position (op)
-# S+0x97500: field_count
-# S+0x97508: cumul_off (total struct byte size)
-# S+0x97510: sname[64]
-# S+0x97550: field_names[16][32] (512 bytes)
-# S+0x97750: field_types[16][32] (512 bytes)
-# S+0x97950: field_offsets[16][8] (128 bytes)
+# S+0x197400: output position (op)
+# S+0x197500: field_count
+# S+0x197508: cumul_off (total struct byte size)
+# S+0x197510: sname[64]
+# S+0x197550: field_names[16][32] (512 bytes)
+# S+0x197750: field_types[16][32] (512 bytes)
+# S+0x197950: field_offsets[16][8] (128 bytes)
 var _pp_derive_count = 0;
 
 # Helper: write decimal integer to output buffer, return bytes written
@@ -380,20 +380,20 @@ fn PP_EMIT_STR(out, op, cstr) {
 
 # Shared struct parser for #derive handlers. Skips derive lines, parses struct
 # name + fields, copies struct to output, computes offsets, registers in derive table.
-# Results stored at S+0x97400..S+0x97950. Returns new ip.
+# Results stored at S+0x197400..S+0x197950. Returns new ip.
 #
 # v5.6.30: `src_base` carries the base for SOURCE reads. PP_PASS passes `S`
 # (the raw-input buffer). PP_IFDEF_PASS passes the `tmp` mmap buffer (full
 # preprocessed source up to 1 MB). Before this parameter split, both passes
 # read from `S + ip` — which for PP_IFDEF_PASS was the copy-back region capped
-# at 524288 bytes. Any #derive directive landing past that offset read stale
+# at 1048576 bytes. Any #derive directive landing past that offset read stale
 # data (zeros), produced corrupted output with a 0xff sentinel leaking through
 # from the heap state, and LEX died with `non-ASCII byte (0xff)` at an
 # apparently-valid source line. Libro 2.0.5 tripped this at
-# `src/file_store.cyr:10` (offset 543565, past the 524288 cap). STATE-TABLE
-# writes (S+0x97510 struct names, S+0x97550 field names, S+0x97750 types,
-# S+0x97950 offsets, S+0x97400 op-out, S+0x97500 field count) stay addressed
-# relative to `S` — those regions are well below 0x80000 and always in sync.
+# `src/file_store.cyr:10` (offset 543565, past the 1048576 cap). STATE-TABLE
+# writes (S+0x197510 struct names, S+0x197550 field names, S+0x197750 types,
+# S+0x197950 offsets, S+0x197400 op-out, S+0x197500 field count) stay addressed
+# relative to `S` — those regions are well below 0x100000 and always in sync.
 fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
     ip = PP_SKIPLINE(src_base, ip, bl);
     while (ip < bl) { if (load8(src_base + ip) == 35) { ip = PP_SKIPLINE(src_base, ip, bl); } else { break; } }
@@ -403,9 +403,9 @@ fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
     while (ip < bl) {
         var c = load8(src_base + ip);
         if (c == 32 || c == 123 || c == 10) { break; }
-        store8(S + 0x97510 + sni, c); sni = sni + 1; ip = ip + 1;
+        store8(S + 0x197510 + sni, c); sni = sni + 1; ip = ip + 1;
     }
-    store8(S + 0x97510 + sni, 0);
+    store8(S + 0x197510 + sni, 0);
     var struct_start = ip - 7 - sni;
     while (struct_start > 0) { if (load8(src_base + struct_start - 1) == 10) { break; } struct_start = struct_start - 1; }
     var depth = 0;
@@ -423,15 +423,15 @@ fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
                 while (fp < bl) { var xc = load8(src_base + fp); if (xc != 32 && xc != 10 && xc != 13 && xc != 9) { break; } store8(out + op, xc); op = op + 1; fp = fp + 1; }
                 if (load8(src_base + fp) != 125) {
                     var fni = 0;
-                    while (fp < bl) { var xc = load8(src_base + fp); if (xc == 59 || xc == 58 || xc == 125 || xc == 32 || xc == 10) { break; } store8(S + 0x97550 + fc * 32 + fni, xc); fni = fni + 1; fp = fp + 1; }
-                    store8(S + 0x97550 + fc * 32 + fni, 0);
-                    store8(S + 0x97750 + fc * 32, 0);
+                    while (fp < bl) { var xc = load8(src_base + fp); if (xc == 59 || xc == 58 || xc == 125 || xc == 32 || xc == 10) { break; } store8(S + 0x197550 + fc * 32 + fni, xc); fni = fni + 1; fp = fp + 1; }
+                    store8(S + 0x197550 + fc * 32 + fni, 0);
+                    store8(S + 0x197750 + fc * 32, 0);
                     if (load8(src_base + fp) == 58) {
                         fp = fp + 1;
                         while (fp < bl && load8(src_base + fp) == 32) { fp = fp + 1; }
                         var tni = 0;
-                        while (fp < bl) { var tc = load8(src_base + fp); if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; } store8(S + 0x97750 + fc * 32 + tni, tc); tni = tni + 1; fp = fp + 1; }
-                        store8(S + 0x97750 + fc * 32 + tni, 0);
+                        while (fp < bl) { var tc = load8(src_base + fp); if (tc == 59 || tc == 125 || tc == 32 || tc == 10) { break; } store8(S + 0x197750 + fc * 32 + tni, tc); tni = tni + 1; fp = fp + 1; }
+                        store8(S + 0x197750 + fc * 32 + tni, 0);
                     }
                     fc = fc + 1;
                 }
@@ -444,14 +444,14 @@ fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
     var cumul = 0;
     var fi = 0;
     while (fi < fc) {
-        store64(S + 0x97950 + fi * 8, cumul);
-        if (load8(S + 0x97750 + fi * 32) != 0) {
+        store64(S + 0x197950 + fi * 8, cumul);
+        if (load8(S + 0x197750 + fi * 32) != 0) {
             var fsz = 8;
             var di = 0;
             while (di < _pp_derive_count) {
                 var eq = 1; var ci = 0;
-                while (eq == 1) { var a = load8(S + 0x97750 + fi * 32 + ci); var b = load8(S + 0x97108 + di * 32 + ci); if (a != b) { eq = 0; } if (a == 0) { break; } ci = ci + 1; }
-                if (eq == 1) { fsz = load64(S + 0x97008 + di * 8); }
+                while (eq == 1) { var a = load8(S + 0x197750 + fi * 32 + ci); var b = load8(S + 0x197108 + di * 32 + ci); if (a != b) { eq = 0; } if (a == 0) { break; } ci = ci + 1; }
+                if (eq == 1) { fsz = load64(S + 0x197008 + di * 8); }
                 di = di + 1;
             }
             cumul = cumul + fsz;
@@ -460,29 +460,29 @@ fn PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op) {
     }
     var dsi = _pp_derive_count;
     var ri = 0;
-    while (load8(S + 0x97510 + ri) != 0) { store8(S + 0x97108 + dsi * 32 + ri, load8(S + 0x97510 + ri)); ri = ri + 1; }
-    store8(S + 0x97108 + dsi * 32 + ri, 0);
-    store64(S + 0x97008 + dsi * 8, cumul);
+    while (load8(S + 0x197510 + ri) != 0) { store8(S + 0x197108 + dsi * 32 + ri, load8(S + 0x197510 + ri)); ri = ri + 1; }
+    store8(S + 0x197108 + dsi * 32 + ri, 0);
+    store64(S + 0x197008 + dsi * 8, cumul);
     _pp_derive_count = _pp_derive_count + 1;
-    store64(S + 0x97400, op);
-    store64(S + 0x97500, fc);
-    store64(S + 0x97508, cumul);
+    store64(S + 0x197400, op);
+    store64(S + 0x197500, fc);
+    store64(S + 0x197508, cumul);
     return ip;
 }
 
 # Emit #derive(Serialize) — generates Name_to_json function after struct def
 # ip points to '#' of #derive. out+op is the output position.
-# Returns new ip (past the struct). Updates op via S+0x97400.
+# Returns new ip (past the struct). Updates op via S+0x197400.
 fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
     ip = PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op);
-    op = load64(S + 0x97400);
-    var field_count = load64(S + 0x97500);
-    var cumul_off = load64(S + 0x97508);
-    # Aliases: sname=S+0x97510, names=S+0x97550, types=S+0x97750, offsets=S+0x97950
+    op = load64(S + 0x197400);
+    var field_count = load64(S + 0x197500);
+    var cumul_off = load64(S + 0x197508);
+    # Aliases: sname=S+0x197510, names=S+0x197550, types=S+0x197750, offsets=S+0x197950
     # === Emit Name_to_json_sb (2-arg composable form) ===
     # fn Name_to_json_sb(ptr, sb) { ... writes to caller's sb ... }
     op = op + PP_EMIT_STR(out, op, "fn ");
-    op = op + PP_EMIT_STR(out, op, S + 0x97510);
+    op = op + PP_EMIT_STR(out, op, S + 0x197510);
     op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr, sb) {\n");
     # For each field
     var fi = 0;
@@ -496,18 +496,18 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
         # Escaped field name: \"fieldname\":
         store8(out + op, 92); op = op + 1;
         store8(out + op, 34); op = op + 1;
-        op = op + PP_EMIT_STR(out, op, S + 0x97550 + fi * 32);
+        op = op + PP_EMIT_STR(out, op, S + 0x197550 + fi * 32);
         store8(out + op, 92); op = op + 1;
         store8(out + op, 34); op = op + 1;
         store8(out + op, 58); op = op + 1;
         op = op + PP_EMIT_STR(out, op, "\");\n");
-        if (load8(S + 0x97750 + fi * 32) != 0) {
+        if (load8(S + 0x197750 + fi * 32) != 0) {
             # Check if type is Str — emit as quoted JSON string
             var is_str = 0;
-            if (load8(S + 0x97750 + fi * 32) == 83) {
-                if (load8(S + 0x97750 + fi * 32 + 1) == 116) {
-                    if (load8(S + 0x97750 + fi * 32 + 2) == 114) {
-                        if (load8(S + 0x97750 + fi * 32 + 3) == 0) {
+            if (load8(S + 0x197750 + fi * 32) == 83) {
+                if (load8(S + 0x197750 + fi * 32 + 1) == 116) {
+                    if (load8(S + 0x197750 + fi * 32 + 2) == 114) {
+                        if (load8(S + 0x197750 + fi * 32 + 3) == 0) {
                             is_str = 1;
                         }
                     }
@@ -517,20 +517,20 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
                 # Str field: emit as "value"
                 op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
                 op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, str_data(load64(ptr + ");
-                op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+                op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
                 op = op + PP_EMIT_STR(out, op, ")));\n");
                 op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"\\\"\""); op = op + PP_EMIT_STR(out, op, ");\n");
             } else {
                 # Nested struct: use composable 2-arg form
-                op = op + PP_EMIT_STR(out, op, S + 0x97750 + fi * 32);
+                op = op + PP_EMIT_STR(out, op, S + 0x197750 + fi * 32);
                 op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr + ");
-                op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+                op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
                 op = op + PP_EMIT_STR(out, op, ", sb);\n");
             }
         } else {
             # Scalar field: emit as bare integer (valid JSON number)
             op = op + PP_EMIT_STR(out, op, "str_builder_add_int(sb, load64(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+            op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
             op = op + PP_EMIT_STR(out, op, "));\n");
         }
         fi = fi + 1;
@@ -539,35 +539,35 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
     op = op + PP_EMIT_STR(out, op, "str_builder_add_cstr(sb, \"}\");\nreturn 0;\n}\n");
     # === Emit Name_to_json (1-arg wrapper) ===
     op = op + PP_EMIT_STR(out, op, "fn ");
-    op = op + PP_EMIT_STR(out, op, S + 0x97510);
+    op = op + PP_EMIT_STR(out, op, S + 0x197510);
     op = op + PP_EMIT_STR(out, op, "_to_json(ptr) {\nvar sb = str_builder_new();\n");
-    op = op + PP_EMIT_STR(out, op, S + 0x97510);
+    op = op + PP_EMIT_STR(out, op, S + 0x197510);
     op = op + PP_EMIT_STR(out, op, "_to_json_sb(ptr, sb);\nreturn str_builder_build(sb);\n}\n");
     # === Also emit Name_from_json (Deserialize) ===
     op = op + PP_EMIT_STR(out, op, "fn ");
-    op = op + PP_EMIT_STR(out, op, S + 0x97510);
+    op = op + PP_EMIT_STR(out, op, S + 0x197510);
     op = op + PP_EMIT_STR(out, op, "_from_json(pairs) {\nvar ptr = alloc(");
     op = op + PP_EMIT_INT(out, op, cumul_off);
     op = op + PP_EMIT_STR(out, op, ");\nvar v = 0;\n");
     fi = 0;
     while (fi < field_count) {
         op = op + PP_EMIT_STR(out, op, "v = json_get(pairs, str_from(\"");
-        op = op + PP_EMIT_STR(out, op, S + 0x97550 + fi * 32);
+        op = op + PP_EMIT_STR(out, op, S + 0x197550 + fi * 32);
         op = op + PP_EMIT_STR(out, op, "\"));\n");
-        if (load8(S + 0x97750 + fi * 32) != 0) {
+        if (load8(S + 0x197750 + fi * 32) != 0) {
             # Typed field: Str fields stored directly, nested structs recursively
             var fj_str = 0;
-            if (load8(S + 0x97750 + fi * 32) == 83) { if (load8(S + 0x97750 + fi * 32 + 1) == 116) { if (load8(S + 0x97750 + fi * 32 + 2) == 114) { if (load8(S + 0x97750 + fi * 32 + 3) == 0) { fj_str = 1; } } } }
+            if (load8(S + 0x197750 + fi * 32) == 83) { if (load8(S + 0x197750 + fi * 32 + 1) == 116) { if (load8(S + 0x197750 + fi * 32 + 2) == 114) { if (load8(S + 0x197750 + fi * 32 + 3) == 0) { fj_str = 1; } } } }
             if (fj_str == 1) {
                 op = op + PP_EMIT_STR(out, op, "if (v != 0) { store64(ptr + ");
-                op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+                op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
                 op = op + PP_EMIT_STR(out, op, ", str_from(v)); }\n");
             }
             if (fj_str == 0) {
                 op = op + PP_EMIT_STR(out, op, "if (v != 0) {\nvar np = ");
-                op = op + PP_EMIT_STR(out, op, S + 0x97750 + fi * 32);
+                op = op + PP_EMIT_STR(out, op, S + 0x197750 + fi * 32);
                 op = op + PP_EMIT_STR(out, op, "_from_json(json_parse(v));\nmemcpy(ptr + ");
-                op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+                op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
                 op = op + PP_EMIT_STR(out, op, ", np, ");
                 var tsz = 8;
                 var di = 0;
@@ -575,13 +575,13 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
                     var eq = 1;
                     var ci = 0;
                     while (eq == 1) {
-                        var a = load8(S + 0x97750 + fi * 32 + ci);
-                        var b = load8(S + 0x97108 + di * 32 + ci);
+                        var a = load8(S + 0x197750 + fi * 32 + ci);
+                        var b = load8(S + 0x197108 + di * 32 + ci);
                         if (a != b) { eq = 0; }
                         if (a == 0) { break; }
                         ci = ci + 1;
                     }
-                    if (eq == 1) { tsz = load64(S + 0x97008 + di * 8); }
+                    if (eq == 1) { tsz = load64(S + 0x197008 + di * 8); }
                     di = di + 1;
                 }
                 op = op + PP_EMIT_INT(out, op, tsz);
@@ -589,7 +589,7 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
             }
         } else {
             op = op + PP_EMIT_STR(out, op, "if (v != 0) { store64(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+            op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
             op = op + PP_EMIT_STR(out, op, ", str_to_int(v)); }\n");
         }
         fi = fi + 1;
@@ -598,7 +598,7 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
     # === Emit Name_from_json_str (single-pass O(n) deserializer) ===
     # Scans raw JSON string once, matching field names inline.
     op = op + PP_EMIT_STR(out, op, "fn ");
-    op = op + PP_EMIT_STR(out, op, S + 0x97510);
+    op = op + PP_EMIT_STR(out, op, S + 0x197510);
     op = op + PP_EMIT_STR(out, op, "_from_json_str(json) {\nvar ptr = alloc(");
     op = op + PP_EMIT_INT(out, op, cumul_off);
     op = op + PP_EMIT_STR(out, op, ");\nmemset(ptr, 0, ");
@@ -620,7 +620,7 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
     # Match each field
     fi = 0;
     while (fi < field_count) {
-        var fn_ptr = S + 0x97550 + fi * 32;
+        var fn_ptr = S + 0x197550 + fi * 32;
         var fn_len = 0;
         while (load8(fn_ptr + fn_len) != 0) { fn_len = fn_len + 1; }
         if (fi == 0) { op = op + PP_EMIT_STR(out, op, "if"); }
@@ -633,16 +633,16 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
         op = op + PP_EMIT_INT(out, op, fn_len);
         op = op + PP_EMIT_STR(out, op, ") == 1) {\n");
         # Parse value based on type
-        if (load8(S + 0x97750 + fi * 32) != 0) {
+        if (load8(S + 0x197750 + fi * 32) != 0) {
             # Check if Str type
             var fjs = 0;
-            if (load8(S + 0x97750 + fi * 32) == 83) { if (load8(S + 0x97750 + fi * 32 + 1) == 116) { if (load8(S + 0x97750 + fi * 32 + 2) == 114) { if (load8(S + 0x97750 + fi * 32 + 3) == 0) { fjs = 1; } } } }
+            if (load8(S + 0x197750 + fi * 32) == 83) { if (load8(S + 0x197750 + fi * 32 + 1) == 116) { if (load8(S + 0x197750 + fi * 32 + 2) == 114) { if (load8(S + 0x197750 + fi * 32 + 3) == 0) { fjs = 1; } } } }
             if (fjs == 1) {
                 # String value: read until closing quote
                 op = op + PP_EMIT_STR(out, op, "if (load8(json + _p) == 34) { _p = _p + 1; _vs = _p;\n");
                 op = op + PP_EMIT_STR(out, op, "while (load8(json + _p) != 34) { _p = _p + 1; }\n");
                 op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
-                op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+                op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
                 op = op + PP_EMIT_STR(out, op, ", str_new(json + _vs, _p - _vs));\n_p = _p + 1; }\n");
             } else {
                 # Nested struct: skip value (fall through to json_get path)
@@ -655,7 +655,7 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
             op = op + PP_EMIT_STR(out, op, "_iv = 0;\nwhile (load8(json + _p) >= 48 && load8(json + _p) <= 57) { _iv = _iv * 10 + load8(json + _p) - 48; _p = _p + 1; }\n");
             op = op + PP_EMIT_STR(out, op, "if (_neg == 1) { _iv = 0 - _iv; }\n");
             op = op + PP_EMIT_STR(out, op, "store64(ptr + ");
-            op = op + PP_EMIT_INT(out, op, load64(S + 0x97950 + fi * 8));
+            op = op + PP_EMIT_INT(out, op, load64(S + 0x197950 + fi * 8));
             op = op + PP_EMIT_STR(out, op, ", _iv);\n");
         }
         op = op + PP_EMIT_STR(out, op, "}\n");
@@ -665,7 +665,7 @@ fn PP_DERIVE_SERIALIZE(S, src_base, ip, bl, out, op) {
     op = op + PP_EMIT_STR(out, op, "else { while (load8(json + _p) != 44 && load8(json + _p) != 125 && load8(json + _p) != 0) { _p = _p + 1; } }\n");
     op = op + PP_EMIT_STR(out, op, "} else { _p = _p + 1; }\n}\nreturn ptr;\n}\n");
     # Store output position for caller
-    store64(S + 0x97400, op);
+    store64(S + 0x197400, op);
     return ip;
 }
 
@@ -686,7 +686,7 @@ fn PP_DERIVE_DESER(S, src_base, ip, bl, out, op) {
     while (ip < bl) { if (load8(src_base + ip) == 125) { ip = ip + 1; break; } ip = ip + 1; }
     # Skip trailing whitespace/newline
     while (ip < bl) { var c = load8(src_base + ip); if (c == 10) { ip = ip + 1; break; } ip = ip + 1; }
-    store64(S + 0x97400, op);
+    store64(S + 0x197400, op);
     return ip;
 }
 
@@ -720,40 +720,40 @@ fn ISDERIVE_ACC(S, pos, bl) {
 #   fn Name_set_field(p, v) { store64(p + OFFSET, v); return 0; }
 fn PP_DERIVE_ACCESSORS(S, src_base, ip, bl, out, op) {
     ip = PP_PARSE_STRUCT_DEF(S, src_base, ip, bl, out, op);
-    op = load64(S + 0x97400);
-    var field_count = load64(S + 0x97500);
+    op = load64(S + 0x197400);
+    var field_count = load64(S + 0x197500);
     # Emit getter and setter for each field
     var fi = 0;
     while (fi < field_count) {
-        var off = load64(S + 0x97950 + fi * 8);
+        var off = load64(S + 0x197950 + fi * 8);
         op = op + PP_EMIT_STR(out, op, "fn ");
-        op = op + PP_EMIT_STR(out, op, S + 0x97510);
+        op = op + PP_EMIT_STR(out, op, S + 0x197510);
         store8(out + op, 95); op = op + 1;
-        op = op + PP_EMIT_STR(out, op, S + 0x97550 + fi * 32);
+        op = op + PP_EMIT_STR(out, op, S + 0x197550 + fi * 32);
         op = op + PP_EMIT_STR(out, op, "(p) { return load64(p + ");
         op = op + PP_EMIT_INT(out, op, off);
         op = op + PP_EMIT_STR(out, op, "); }\n");
         op = op + PP_EMIT_STR(out, op, "fn ");
-        op = op + PP_EMIT_STR(out, op, S + 0x97510);
+        op = op + PP_EMIT_STR(out, op, S + 0x197510);
         op = op + PP_EMIT_STR(out, op, "_set_");
-        op = op + PP_EMIT_STR(out, op, S + 0x97550 + fi * 32);
+        op = op + PP_EMIT_STR(out, op, S + 0x197550 + fi * 32);
         op = op + PP_EMIT_STR(out, op, "(p, v) { store64(p + ");
         op = op + PP_EMIT_INT(out, op, off);
         op = op + PP_EMIT_STR(out, op, ", v); return 0; }\n");
         fi = fi + 1;
     }
-    store64(S + 0x97400, op);
+    store64(S + 0x197400, op);
     return ip;
 }
 
-# Feature flag table: up to 32 flags, stored as name hashes at S+0x90800
+# Feature flag table: up to 32 flags, stored as name hashes at S+0x190800
 var _pp_flag_count = 0;
 
 # Macro table: up to 16 macros with args
-# S+0x92000: 16 name hashes (128 bytes)
-# S+0x92080: 16 definition text offsets (128 bytes) — points into S+0x93000
-# S+0x92100: 16 definition text lengths (128 bytes)
-# S+0x93000: definition text storage (16KB)
+# S+0x192000: 16 name hashes (128 bytes)
+# S+0x192080: 16 definition text offsets (128 bytes) — points into S+0x193000
+# S+0x192100: 16 definition text lengths (128 bytes)
+# S+0x193000: definition text storage (16KB)
 var _pp_macro_count = 0;
 var _pp_macro_text_pos = 0;
 
@@ -779,7 +779,7 @@ fn PP_FIND_MACRO(S, ip) {
     var h = PP_HASH_ID(S, ip);
     var mi = 0;
     while (mi < _pp_macro_count) {
-        if (load64(S + 0x92000 + mi * 8) == h) { return mi; }
+        if (load64(S + 0x192000 + mi * 8) == h) { return mi; }
         mi = mi + 1;
     }
     return 0 - 1;
@@ -789,7 +789,7 @@ fn PP_FIND_MACRO(S, ip) {
 # Reads args from input at ip, substitutes into body, writes to out+op
 # Returns new ip position (after the closing paren)
 fn PP_EXPAND(S, mi, ip, bl, out, op) {
-    var def = S + 0x93000 + load64(S + 0x92080 + mi * 8);
+    var def = S + 0x193000 + load64(S + 0x192080 + mi * 8);
     # Skip name in definition to find (
     var dp = 0;
     while (load8(def + dp) != 40) { dp = dp + 1; }
@@ -888,14 +888,14 @@ fn PP_EXPAND(S, mi, ip, bl, out, op) {
     }
     store8(out + op, 10); op = op + 1;
     # Return new ip via storing op in a known location
-    store64(S + 0x90700, op);
+    store64(S + 0x190700, op);
     return ip;
 }
 
 # v5.6.42: src_base carries the SOURCE buffer base. PP_PASS path passes
 # `S` (raw input at S+0). PP_IFDEF_PASS path passes the `tmp` mmap
 # buffer that holds the full uncapped expanded source — needed because
-# PP_IFDEF_PASS's S+0 copy-back is bounded to 524288 B and reads past
+# PP_IFDEF_PASS's S+0 copy-back is bounded to 1048576 B and reads past
 # that boundary would land in stale heap bytes. Same shape as the
 # v5.6.30 PP_DERIVE_* fix; this closes the rest of the family
 # (PP_DEFINE / PP_DEFINED / PP_GETVAL / PP_EVAL_IF / PP_HASH).
@@ -940,17 +940,17 @@ fn PP_HASH_CSTR(name) {
 # architecture-specific asm blocks without per-arch lib files.
 fn PP_PREDEFINE(S, name) {
     var h = PP_HASH_CSTR(name);
-    store64(S + 0x90800 + _pp_flag_count * 8, h);
-    store64(S + 0x90880 + _pp_flag_count * 8, 0);
+    store64(S + 0x190800 + _pp_flag_count * 8, h);
+    store64(S + 0x190880 + _pp_flag_count * 8, 0);
     _pp_flag_count = _pp_flag_count + 1;
     return 0;
 }
 
 # v5.6.42: src_base separated from S — see PP_HASH above. Source reads
-# come from src_base+pos; flag-table writes stay at S+0x90800/0x90880.
+# come from src_base+pos; flag-table writes stay at S+0x190800/0x190880.
 fn PP_DEFINE(S, src_base, pos) {
     var h = PP_HASH(src_base, pos);
-    store64(S + 0x90800 + _pp_flag_count * 8, h);
+    store64(S + 0x190800 + _pp_flag_count * 8, h);
     # Check for value: #define NAME VALUE (skip name, find space, parse int)
     var vi = 0;
     var vc = load8(src_base + pos + vi);
@@ -971,7 +971,7 @@ fn PP_DEFINE(S, src_base, pos) {
             dvc = load8(src_base + pos + vi);
         }
     }
-    store64(S + 0x90880 + _pp_flag_count * 8, defval);
+    store64(S + 0x190880 + _pp_flag_count * 8, defval);
     _pp_flag_count = _pp_flag_count + 1;
     return 0;
 }
@@ -981,8 +981,8 @@ fn PP_GETVAL(S, src_base, pos) {
     var h = PP_HASH(src_base, pos);
     var di = 0;
     while (di < _pp_flag_count) {
-        if (load64(S + 0x90800 + di * 8) == h) {
-            return load64(S + 0x90880 + di * 8);
+        if (load64(S + 0x190800 + di * 8) == h) {
+            return load64(S + 0x190880 + di * 8);
         }
         di = di + 1;
     }
@@ -993,7 +993,7 @@ fn PP_DEFINED(S, src_base, pos) {
     var h = PP_HASH(src_base, pos);
     var di = 0;
     while (di < _pp_flag_count) {
-        if (load64(S + 0x90800 + di * 8) == h) { return 1; }
+        if (load64(S + 0x190800 + di * 8) == h) { return 1; }
         di = di + 1;
     }
     return 0;
@@ -1030,7 +1030,7 @@ fn PP_IFPLAT_MATCH(S, pos) {
     if (target_hash == 0) { return 0; }
     var di = 0;
     while (di < _pp_flag_count) {
-        if (load64(S + 0x90800 + di * 8) == target_hash) { return 1; }
+        if (load64(S + 0x190800 + di * 8) == target_hash) { return 1; }
         di = di + 1;
     }
     return 0;
@@ -1053,7 +1053,7 @@ fn PP_PASS(S) {
     var bol = 1;
     var skip_depth = 0;
     # v5.6.1: pp_depth tracks the index into the per-level state stack
-    # at S+0x97F10 (64-byte cap, one byte per nesting level). Shared
+    # at S+0x197F10 (64-byte cap, one byte per nesting level). Shared
     # with skip_depth: skip_depth == number of stack entries with
     # state != 0. See the directive handler comments below for the
     # state machine.
@@ -1109,9 +1109,9 @@ fn PP_PASS(S) {
                         var msi = _pp_macro_count;
                         if (msi < 16) {
                             var mip = dip + 8;
-                            store64(S + 0x92000 + msi * 8, PP_HASH_ID(S, mip));
-                            store64(S + 0x92080 + msi * 8, _pp_macro_text_pos);
-                            var mdst = S + 0x93000 + _pp_macro_text_pos;
+                            store64(S + 0x192000 + msi * 8, PP_HASH_ID(S, mip));
+                            store64(S + 0x192080 + msi * 8, _pp_macro_text_pos);
+                            var mdst = S + 0x193000 + _pp_macro_text_pos;
                             var mlen = 0;
                             var mcp = mip;
                             while (mcp < bl) {
@@ -1121,7 +1121,7 @@ fn PP_PASS(S) {
                                 mcp = mcp + 1;
                             }
                             store8(mdst + mlen, 0);
-                            store64(S + 0x92100 + msi * 8, mlen);
+                            store64(S + 0x192100 + msi * 8, mlen);
                             _pp_macro_text_pos = _pp_macro_text_pos + mlen + 1;
                             _pp_macro_count = _pp_macro_count + 1;
                         }
@@ -1136,7 +1136,7 @@ fn PP_PASS(S) {
                 bol = 1; handled = 1;
             }
             # #ifdef / #ifndef / #ifplat / #if (v5.6.1 state-stack
-            # rewrite). Per-level state lives at S+0x97F10[pp_depth],
+            # rewrite). Per-level state lives at S+0x197F10[pp_depth],
             # one byte per level, cap 64 levels. Encoding:
             #   0 = EMITTING    — branch emits; outer emits
             #   1 = SEARCHING   — branch skips, no true match yet; outer emits
@@ -1152,7 +1152,7 @@ fn PP_PASS(S) {
                     if (PP_DEFINED(S, S, dip + 7) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
@@ -1163,7 +1163,7 @@ fn PP_PASS(S) {
                     if (PP_DEFINED(S, S, dip + 8) == 0) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
@@ -1178,7 +1178,7 @@ fn PP_PASS(S) {
                     if (PP_IFPLAT_MATCH(S, dip + 8) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
@@ -1189,7 +1189,7 @@ fn PP_PASS(S) {
                     if (PP_EVAL_IF(S, S, dip + 4) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
@@ -1204,9 +1204,9 @@ fn PP_PASS(S) {
             # ISENDIF behavior when skip_depth underflows.
             if (handled == 0) { if (ISELSE(S, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
-                    if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
-                    elif (_s == 1) { store8(S + 0x97F10 + pp_depth - 1, 0); skip_depth = skip_depth - 1; }
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
+                    if (_s == 0) { store8(S + 0x197F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
+                    elif (_s == 1) { store8(S + 0x197F10 + pp_depth - 1, 0); skip_depth = skip_depth - 1; }
                 }
                 ip = PP_SKIPLINE(S, ip, bl); bol = 1; handled = 1;
             } }
@@ -1215,11 +1215,11 @@ fn PP_PASS(S) {
             # if false, stay 1 (keep searching for a later #elif/#else).
             if (handled == 0) { if (ISELIF(S, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
-                    if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
+                    if (_s == 0) { store8(S + 0x197F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
                     elif (_s == 1) {
                         if (PP_EVAL_IF(S, S, dip + 6) == 1) {
-                            store8(S + 0x97F10 + pp_depth - 1, 0);
+                            store8(S + 0x197F10 + pp_depth - 1, 0);
                             skip_depth = skip_depth - 1;
                         }
                     }
@@ -1228,7 +1228,7 @@ fn PP_PASS(S) {
             } }
             if (handled == 0) { if (ISENDIF(S, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
                     if (_s != 0) { skip_depth = skip_depth - 1; }
                     pp_depth = pp_depth - 1;
                 }
@@ -1239,7 +1239,7 @@ fn PP_PASS(S) {
             # match "#end" prefix but we only want ISENDPLAT catching it.
             if (handled == 0) { if (ISENDPLAT(S, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
                     if (_s != 0) { skip_depth = skip_depth - 1; }
                     pp_depth = pp_depth - 1;
                 }
@@ -1247,24 +1247,24 @@ fn PP_PASS(S) {
             } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(S, dip, bl) == 1) {
                 ip = PP_DERIVE_SERIALIZE(S, S, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(S, dip, bl) == 1) {
                 ip = PP_DERIVE_DESER(S, S, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_ACC(S, dip, bl) == 1) {
                 ip = PP_DERIVE_ACCESSORS(S, S, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(S, ip, bl) == 1) {
                 ip = ip + 8;
                 if (load8(S + ip) == 34) {
                     ip = ip + 1;
-                    var fname = S + 0x90400;
+                    var fname = S + 0x190400;
                     var fi = 0;
                     var fgo = 1;
                     while (fgo == 1) {
@@ -1380,7 +1380,7 @@ fn PP_MACRO_PASS(S) {
                 }
                 if (mp < bl) { if (load8(S + mp) == 40) {
                     ip = PP_EXPAND(S, mmi, ip, bl, out, op);
-                    op = load64(S + 0x90700);
+                    op = load64(S + 0x190700);
                     expanded = 1;
                 } }
             }
@@ -1402,7 +1402,7 @@ fn PP_MACRO_PASS(S) {
 # v3.6.5: reads source from the preprocess buffer (S+0x44A000) directly via
 # `src` pointer. Only the first 256KB is copied to S+0 for helper functions
 # (ISDEFINE, PP_DEFINE, PP_SKIPLINE, etc.) which read via S+pos and also
-# access heap state at S+0x90800. Directives only appear in the first few KB
+# access heap state at S+0x190800. Directives only appear in the first few KB
 # of source (stdlib headers), so the 256KB copy always covers them.
 #
 # Output writes go to S+0x44A000 (in-place: op <= ip always, safe because
@@ -1411,7 +1411,7 @@ fn PP_MACRO_PASS(S) {
 # without macros.
 #
 # This eliminates the Bug #35 family of copy-back overflows that corrupted
-# compiler state (BL/CP at 0x8C100+) for programs >256KB of expanded source.
+# compiler state (BL/CP at 0x18C100+) for programs >256KB of expanded source.
 fn PP_IFDEF_PASS(S) {
     # Allocate a temp buffer via mmap to hold the source. This avoids copying
     # to S+0 (which overflows into heap state for programs >256KB — Bug #35).
@@ -1450,17 +1450,17 @@ fn PP_IFDEF_PASS(S) {
     # Redirect S-based reads to the temp buffer by copying back to S+0
     # for helpers (PP_DEFINE, PP_DEFINED, PP_EVAL_IF, PP_DERIVE_*,
     # PP_SKIPLINE) that take `S` as a base pointer and touch other
-    # regions of S too (e.g. `S+0x90800` for the #ifdef flag table).
-    # The safe upper bound is 524288 — input_buf ends at 0x80000 and
-    # compiler state starts at 0x8C100. v4.8.4 capped at 262144 which
+    # regions of S too (e.g. `S+0x190800` for the #ifdef flag table).
+    # The safe upper bound is 1048576 — input_buf ends at 0x100000 and
+    # compiler state starts at 0x18C100. v4.8.4 capped at 262144 which
     # made ISINCLUDE / ISDEFINE / etc. blind to directives past the
-    # 256 KB mark whenever `bl > 524288` (bote 2.5.0 tripped exactly
+    # 256 KB mark whenever `bl > 1048576` (bote 2.5.0 tripped exactly
     # this on ~525 KB preprocessed source — `lib/assert.cyr:3`
     # directive at offset ~525000 slipped through unexpanded).
     # Directive DETECTION (IS*) now reads from `tmp` directly so it
     # sees the full buffer regardless of where directives land.
     var cap = bl;
-    if (cap > 524288) { cap = 524288; }
+    if (cap > 1048576) { cap = 1048576; }
     ci = 0;
     while (ci < cap) { store8(S + ci, load8(tmp + ci)); ci = ci + 1; }
     var out = S + 0x44A000;
@@ -1491,7 +1491,7 @@ fn PP_IFDEF_PASS(S) {
                     if (PP_DEFINED(S, tmp, dip + 7) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
@@ -1502,7 +1502,7 @@ fn PP_IFDEF_PASS(S) {
                     if (PP_DEFINED(S, tmp, dip + 8) == 0) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
@@ -1513,26 +1513,26 @@ fn PP_IFDEF_PASS(S) {
                     if (PP_EVAL_IF(S, tmp, dip + 4) == 1) { _s = 0; }
                     else { _s = 1; }
                 }
-                store8(S + 0x97F10 + pp_depth, _s);
+                store8(S + 0x197F10 + pp_depth, _s);
                 pp_depth = pp_depth + 1;
                 if (_s != 0) { skip_depth = skip_depth + 1; }
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
             } }
             if (handled == 0) { if (ISELSE(tmp, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
-                    if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
-                    elif (_s == 1) { store8(S + 0x97F10 + pp_depth - 1, 0); skip_depth = skip_depth - 1; }
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
+                    if (_s == 0) { store8(S + 0x197F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
+                    elif (_s == 1) { store8(S + 0x197F10 + pp_depth - 1, 0); skip_depth = skip_depth - 1; }
                 }
                 ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
             } }
             if (handled == 0) { if (ISELIF(tmp, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
-                    if (_s == 0) { store8(S + 0x97F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
+                    if (_s == 0) { store8(S + 0x197F10 + pp_depth - 1, 2); skip_depth = skip_depth + 1; }
                     elif (_s == 1) {
                         if (PP_EVAL_IF(S, tmp, dip + 6) == 1) {
-                            store8(S + 0x97F10 + pp_depth - 1, 0);
+                            store8(S + 0x197F10 + pp_depth - 1, 0);
                             skip_depth = skip_depth - 1;
                         }
                     }
@@ -1541,7 +1541,7 @@ fn PP_IFDEF_PASS(S) {
             } }
             if (handled == 0) { if (ISENDIF(tmp, dip, bl) == 1) {
                 if (pp_depth > 0) {
-                    var _s = load8(S + 0x97F10 + pp_depth - 1);
+                    var _s = load8(S + 0x197F10 + pp_depth - 1);
                     if (_s != 0) { skip_depth = skip_depth - 1; }
                     pp_depth = pp_depth - 1;
                 }
@@ -1549,24 +1549,24 @@ fn PP_IFDEF_PASS(S) {
             } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE(tmp, dip, bl) == 1) {
                 ip = PP_DERIVE_SERIALIZE(S, tmp, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_DE(tmp, dip, bl) == 1) {
                 ip = PP_DERIVE_DESER(S, tmp, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISDERIVE_ACC(tmp, dip, bl) == 1) {
                 ip = PP_DERIVE_ACCESSORS(S, tmp, dip, bl, out, op);
-                op = load64(S + 0x97400);
+                op = load64(S + 0x197400);
                 bol = 1; handled = 1;
             } } }
             if (handled == 0) { if (skip_depth == 0) { if (ISINCLUDE(tmp, ip, bl) == 1) {
                 ip = ip + 8;
                 if (load8(tmp + ip) == 34) {
                     ip = ip + 1;
-                    var fname = S + 0x90400;
+                    var fname = S + 0x190400;
                     var fi = 0;
                     var fgo = 1;
                     while (fgo == 1) {
@@ -1658,7 +1658,7 @@ fn PP_REF_PASS(S) {
                 ip = ip + 5;
                 if (load8(S + ip) == 34) {
                     ip = ip + 1;
-                    var rfn = S + 0x90400;
+                    var rfn = S + 0x190400;
                     var rfi = 0;
                     while (ip < bl) {
                         var rc = load8(S + ip);
@@ -1667,19 +1667,19 @@ fn PP_REF_PASS(S) {
                     }
                     store8(rfn + rfi, 0);
                     while (ip < bl) { if (load8(S + ip) == 10) { ip = ip + 1; break; } ip = ip + 1; }
-                    var rnr = READFILE(rfn, S + 0x91800, 16384);
+                    var rnr = READFILE(rfn, S + 0x191800, 16384);
                     # Inline: emit var declarations for each key-value line
                     var ri = 0;
                     while (ri < rnr) {
-                        var rch = load8(S + 0x91800 + ri);
+                        var rch = load8(S + 0x191800 + ri);
                         if (rch <= 32) { ri = ri + 1; }
-                        elif (rch == 35) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
-                        elif (rch == 91) { while (ri < rnr) { if (load8(S + 0x91800 + ri) == 10) { break; } ri = ri + 1; } }
+                        elif (rch == 35) { while (ri < rnr) { if (load8(S + 0x191800 + ri) == 10) { break; } ri = ri + 1; } }
+                        elif (rch == 91) { while (ri < rnr) { if (load8(S + 0x191800 + ri) == 10) { break; } ri = ri + 1; } }
                         elif (rch >= 65) {
                             store8(out + op, 118); store8(out + op + 1, 97);
                             store8(out + op + 2, 114); store8(out + op + 3, 32); op = op + 4;
                             while (ri < rnr) {
-                                rch = load8(S + 0x91800 + ri);
+                                rch = load8(S + 0x191800 + ri);
                                 if (rch == 10) { ri = ri + 1; break; }
                                 store8(out + op, rch); op = op + 1; ri = ri + 1;
                             }

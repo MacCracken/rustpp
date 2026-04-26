@@ -5,6 +5,39 @@
 
 ## Version
 
+**5.7.10** (shipped 2026-04-26 — **`input_buf` 512 KB → 1 MB
+HEAP-MAP RESHUFFLE** — load-bearing unblock; hisab was at 96 %
+of cap and censoring upstream, every consumer of hisab via
+`cyrius deps` auto-prepend inherited 505 KB before its own
+source could land. cc5 unchanged at **709,776 B** (heap-only
+change; instruction encoding bytes unaffected). Cap value
+(524288 → 1048576) bumped at 3 sites/file × 6 main_*.cyr files
++ 1 PP IFDEF copy-back site in `lex_pp.cyr`. **Heap shift +
+0x100000** on 95 distinct region addresses originally in
+0x80000..0xFFFFF — they land in 0x180000..0x1FFFFF, clearing
+the existing 6-digit squatters at 0x104000-0x14A000 (which had
+to stay put). +0x100000 not +0x80000 because the +0x80000
+naive shift would collide with 3 existing addresses
+(0x10C000 / 0x11A000 / 0x122000); +0x100000 lifts cleanly into
+the empty 0x180000..0x1FFFFF range. Bare-hex comment refs
+shifted in the same sweep (96 occurrences); 4 boundary
+comments over-shifted by the sweep (where 0x80000 was the
+input_buf END, not a region address) hand-corrected back to
+0x100000 (new input_buf end) or 0x80000 (tok_names overlay
+end). **brk unchanged** at 0x348C000 (52.5 MB) — the +0x100000
+shift packs into already-allocated heap; no `SYS_BRK` size
+change. Error message `"input exceeds 512KB buffer..."` (68 B)
+→ `"input exceeds 1MB buffer..."` (66 B); write length operand
+updated. New regression `tests/regression-input-1mb.sh` (gate
+4t in check.sh) compiles a 639 KB comment-padded source
+through cc5; pre-v5.7.10 would have errored. **check.sh
+31/31 PASS**, 3-step fixpoint clean, 5/5 main_*.cyr cross-arch
+builds pass (x86 ELF, aarch64 ELF, aarch64-native,
+aarch64-mach-o, Win64 PE). main_cx.cyr cyrius-x entry is
+*pre-existingly broken* on `IR_RAW_EMIT undefined` (same shape
+as v5.6.32 native-aarch64 missing-include); out of v5.7.10
+scope, deserves its own slot. v5.7.11 RISC-V is now next.)
+
 **5.7.9** (shipped 2026-04-26 — **SILENT FN-NAME COLLISION
 INVESTIGATION**. cc5 709,688 → **709,776 B** (+88 B net —
 warning emit code +312 B; dead `EADDIMM_X1` imm8-form removal

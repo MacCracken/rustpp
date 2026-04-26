@@ -43,7 +43,7 @@ fn BUILD_METHOD_NAME(S, si, mnoff) {
     var scratch = GNPOS(S);
     var wp = scratch;
     # Copy struct name
-    var snoff = L64(S + 0x8E630 + si * 8);
+    var snoff = L64(S + 0x18E630 + si * 8);
     var ri = 0;
     var rc = load8(S + 0x60000 + snoff + ri);
     while (rc != 0) {
@@ -442,12 +442,12 @@ fn PARSE_GVAR_REG(S) {
     }
     SVCNT(S, vcnt + 1);
     # Save token index for deferred init
-    var gc = L64(S + 0x9A000);
+    var gc = L64(S + 0x19A000);
     if (gc >= 1024) {
         ERR_MSG(S, "too many initialized globals (max 1024)", 39);
     }
-    S64(S + 0x98000 + gc * 8, sti);
-    S64(S + 0x9A000, gc + 1);
+    S64(S + 0x198000 + gc * 8, sti);
+    S64(S + 0x19A000, gc + 1);
     # Skip to semicolon
     var skg = 1;
     while (skg == 1) {
@@ -460,10 +460,10 @@ fn PARSE_GVAR_REG(S) {
 
 # Emit deferred global var inits (replays saved token positions)
 fn EMIT_GVAR_INITS(S) {
-    var gc = L64(S + 0x9A000);
+    var gc = L64(S + 0x19A000);
     var gi = 0;
     while (gi < gc) {
-        var sti = L64(S + 0x98000 + gi * 8);
+        var sti = L64(S + 0x198000 + gi * 8);
         STI(S, sti);
         STI(S, GTI(S) + 1);  # consume VAR
         var noff = PEEKV(S);
@@ -539,7 +539,7 @@ fn PARSE_VAR(S) {
         if (GINFN(S) == 1) {
             # Register first local
             var li1 = GFLC(S);
-            S64(S + 0x91000 + li1 * 8, noff);
+            S64(S + 0x191000 + li1 * 8, noff);
             SLDEP(S, li1, GSDEP(S));
             SLTYPE(S, li1, 0);
             EFLSTORE(S, li1);
@@ -548,7 +548,7 @@ fn PARSE_VAR(S) {
             EMOVRA_RDX(S);
             # Register second local
             var li2 = GFLC(S);
-            S64(S + 0x91000 + li2 * 8, noff2);
+            S64(S + 0x191000 + li2 * 8, noff2);
             SLDEP(S, li2, GSDEP(S));
             SLTYPE(S, li2, 0);
             EFLSTORE(S, li2);
@@ -632,7 +632,7 @@ fn PARSE_VAR(S) {
         var sv_j = 0;
         while (sv_j < sv_nslots - 1) {
             var sv_li = GFLC(S);
-            S64(S + 0x91000 + sv_li * 8, 0 - 1);
+            S64(S + 0x191000 + sv_li * 8, 0 - 1);
             SLDEP(S, sv_li, GSDEP(S));
             SLTYPE(S, sv_li, 0);
             SFLC(S, sv_li + 1);
@@ -640,7 +640,7 @@ fn PARSE_VAR(S) {
         }
         # Named slot with struct-type marker (ltype = -sid)
         var sv_named = GFLC(S);
-        S64(S + 0x91000 + sv_named * 8, noff);
+        S64(S + 0x191000 + sv_named * 8, noff);
         SLDEP(S, sv_named, GSDEP(S));
         SLTYPE(S, sv_named, 0 - sv_sid);
         SFLC(S, sv_named + 1);
@@ -691,14 +691,14 @@ fn PARSE_VAR(S) {
         var asv_j = 0;
         while (asv_j < asv_nslots - 1) {
             var asv_li = GFLC(S);
-            S64(S + 0x91000 + asv_li * 8, 0 - 1);
+            S64(S + 0x191000 + asv_li * 8, 0 - 1);
             SLDEP(S, asv_li, GSDEP(S));
             SLTYPE(S, asv_li, 0);
             SFLC(S, asv_li + 1);
             asv_j = asv_j + 1;
         }
         var asv_named = GFLC(S);
-        S64(S + 0x91000 + asv_named * 8, noff);
+        S64(S + 0x191000 + asv_named * 8, noff);
         SLDEP(S, asv_named, GSDEP(S));
         SLTYPE(S, asv_named, 0 - asv_sid);
         SFLC(S, asv_named + 1);
@@ -781,7 +781,7 @@ fn PARSE_VAR(S) {
             if (GLDEP(S, existing) == GSDEP(S)) { ERRDUPVAR(S); }
         }
         var li = GFLC(S);
-        S64(S + 0x91000 + li * 8, noff);
+        S64(S + 0x191000 + li * 8, noff);
         SLDEP(S, li, GSDEP(S));
         if (scalar_type > 0) {
             if (scalar_type < 8) {

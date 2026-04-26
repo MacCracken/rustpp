@@ -103,7 +103,7 @@ fn PATCHXP(S) {
     var xc = GXPC(S);
     var xi = 0;
     while (xi < xc) {
-        EPATCH(S, L64(S + 0x8F848 + xi * 8));
+        EPATCH(S, L64(S + 0x18F848 + xi * 8));
         xi = xi + 1;
     }
     SXPC(S, 0);
@@ -199,11 +199,11 @@ fn PARSE_WHILE(S) {
     STI(S, GTI(S) + 1);  # consume WHILE
     var saved_lv = GLVAR(S);
     # Save and set loop context for break/continue
-    var saved_ltop = L64(S + 0x8F838);
-    var saved_brk = L64(S + 0x8F840);
+    var saved_ltop = L64(S + 0x18F838);
+    var saved_brk = L64(S + 0x18F840);
     var loop_top = GCP(S);
-    S64(S + 0x8F838, loop_top);
-    S64(S + 0x8F840, 0);
+    S64(S + 0x18F838, loop_top);
+    S64(S + 0x18F840, 0);
     # v5.6.14: record IR_NOP landing pad so BB construction splits
     # the enclosing block at loop_top. Without this, JMP_BACK targets
     # land mid-BB and LASE eliminates LOAD_LOCALs whose corresponding
@@ -227,15 +227,15 @@ fn PARSE_WHILE(S) {
     PATCHXP(S);
     EPATCH(S, patch);
     # Patch all break jumps (linked list through codebuf rel32 fields)
-    var brk_patch = L64(S + 0x8F840);
+    var brk_patch = L64(S + 0x18F840);
     while (brk_patch > 0) {
         var _ba = S + 0x64A000 + brk_patch;
         var _nb = L64(_ba) & 0xFFFFFFFF;
         EPATCH(S, brk_patch);
         brk_patch = _nb;
     }
-    S64(S + 0x8F838, saved_ltop);
-    S64(S + 0x8F840, saved_brk);
+    S64(S + 0x18F838, saved_ltop);
+    S64(S + 0x18F840, saved_brk);
     SLVAR(S, saved_lv);
     return 0;
 }
@@ -304,7 +304,7 @@ fn PARSE_FOR(S) {
                 store8(S + 0x60000 + fiidx_noff, 95); store8(S + 0x60000 + fiidx_noff + 1, 105);
                 store8(S + 0x60000 + fiidx_noff + 2, 0);
                 SNPOS(S, fiidx_noff + 3);
-                S64(S + 0x91000 + fili * 8, fiidx_noff);
+                S64(S + 0x191000 + fili * 8, fiidx_noff);
                 SLDEP(S, fili, GSDEP(S));
                 SLTYPE(S, fili, 0);
                 EMOVI(S, 0);
@@ -312,20 +312,20 @@ fn PARSE_FOR(S) {
                 SFLC(S, fili + 1);
                 # Item var
                 var fiitem = GFLC(S);
-                S64(S + 0x91000 + fiitem * 8, finoff);
+                S64(S + 0x191000 + fiitem * 8, finoff);
                 SLDEP(S, fiitem, GSDEP(S));
                 SLTYPE(S, fiitem, 0);
                 EMOVI(S, 0);
                 EFLSTORE(S, fiitem);
                 SFLC(S, fiitem + 1);
                 # Loop: while (idx < len)
-                var fislt = L64(S + 0x8F838);
-                var fisbk = L64(S + 0x8F840);
-                var fiscfw = L64(S + 0x8F898);
+                var fislt = L64(S + 0x18F838);
+                var fisbk = L64(S + 0x18F840);
+                var fiscfw = L64(S + 0x18F898);
                 var fitop = GCP(S);
-                S64(S + 0x8F838, fitop);
-                S64(S + 0x8F840, 0);
-                S64(S + 0x8F898, 1);
+                S64(S + 0x18F838, fitop);
+                S64(S + 0x18F840, 0);
+                S64(S + 0x18F898, 1);
                 # v5.6.14: IR_NOP landing pad at for-in loop top.
                 var _ire_fi1 = IR_ENABLED(S);
                 if (_ire_fi1 >= 1) { ir_emit(S, IR_NOP, 0, fitop, 0); }
@@ -363,10 +363,10 @@ fn PARSE_FOR(S) {
                 SCOPE_POP(S);
                 if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
                 # Patch continue to here (before step)
-                var ficfwn = L64(S + 0x8F898) - 1;
+                var ficfwn = L64(S + 0x18F898) - 1;
                 var ficfwi = 0;
-                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
-                S64(S + 0x8F898, 0);
+                while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x18F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+                S64(S + 0x18F898, 0);
                 # Step: idx = idx + 1
                 EFLLOAD(S, fili);
                 EPUSHR(S);
@@ -378,11 +378,11 @@ fn PARSE_FOR(S) {
                 EJMP(S, fitop);
                 PATCHXP(S);
                 EPATCH(S, ficond);
-                var fibrk = L64(S + 0x8F840);
+                var fibrk = L64(S + 0x18F840);
                 while (fibrk > 0) { var _fba = S + 0x64A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
-                S64(S + 0x8F838, fislt);
-                S64(S + 0x8F840, fisbk);
-                S64(S + 0x8F898, fiscfw);
+                S64(S + 0x18F838, fislt);
+                S64(S + 0x18F840, fisbk);
+                S64(S + 0x18F898, fiscfw);
                 SCOPE_POP(S);
                 SLVAR(S, slv);
                 return 0;
@@ -390,7 +390,7 @@ fn PARSE_FOR(S) {
             # RANGE for-in (.. already consumed, is_range==1)
             # rax has start value from PEXPR above
             var fili = GFLC(S);
-            S64(S + 0x91000 + fili * 8, finoff);
+            S64(S + 0x191000 + fili * 8, finoff);
             SLDEP(S, fili, GSDEP(S));
             SLTYPE(S, fili, 0);
             EFLSTORE(S, fili);
@@ -403,13 +403,13 @@ fn PARSE_FOR(S) {
             SVCNT(S, fiend + 1);
             EVSTORE(S, fiend);
             # Loop setup
-            var fislt = L64(S + 0x8F838);
-            var fisbk = L64(S + 0x8F840);
-            var fiscfw = L64(S + 0x8F898);
+            var fislt = L64(S + 0x18F838);
+            var fisbk = L64(S + 0x18F840);
+            var fiscfw = L64(S + 0x18F898);
             var fitop = GCP(S);
-            S64(S + 0x8F838, fitop);
-            S64(S + 0x8F840, 0);
-            S64(S + 0x8F898, 1);
+            S64(S + 0x18F838, fitop);
+            S64(S + 0x18F840, 0);
+            S64(S + 0x18F898, 1);
             # v5.6.14: IR_NOP landing pad at range-for loop top.
             var _ire_fi2 = IR_ENABLED(S);
             if (_ire_fi2 >= 1) { ir_emit(S, IR_NOP, 0, fitop, 0); }
@@ -428,10 +428,10 @@ fn PARSE_FOR(S) {
             SCOPE_POP(S);
             if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); } STI(S, GTI(S) + 1);
             # Patch all continues to here (before step)
-            var ficfwn = L64(S + 0x8F898) - 1;
+            var ficfwn = L64(S + 0x18F898) - 1;
             var ficfwi = 0;
-            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x8F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
-            S64(S + 0x8F898, 0);
+            while (ficfwi < ficfwn) { EPATCH(S, L64(S + 0x18F8A0 + ficfwi * 8)); ficfwi = ficfwi + 1; }
+            S64(S + 0x18F898, 0);
             # Step: var = var + 1
             EFLLOAD(S, fili);
             EPUSHR(S);
@@ -443,11 +443,11 @@ fn PARSE_FOR(S) {
             EJMP(S, fitop);
             PATCHXP(S);
             EPATCH(S, ficond);
-            var fibrk = L64(S + 0x8F840);
+            var fibrk = L64(S + 0x18F840);
             while (fibrk > 0) { var _fba = S + 0x64A000 + fibrk; var _fnb = L64(_fba) & 0xFFFFFFFF; EPATCH(S, fibrk); fibrk = _fnb; }
-            S64(S + 0x8F838, fislt);
-            S64(S + 0x8F840, fisbk);
-            S64(S + 0x8F898, fiscfw);
+            S64(S + 0x18F838, fislt);
+            S64(S + 0x18F840, fisbk);
+            S64(S + 0x18F898, fiscfw);
             SCOPE_POP(S);
             SLVAR(S, slv);
             return 0;
@@ -457,13 +457,13 @@ fn PARSE_FOR(S) {
     if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
     STI(S, GTI(S) + 1);
     PARSE_STMT(S);
-    var slt = L64(S + 0x8F838);
-    var sbk = L64(S + 0x8F840);
-    var scfw = L64(S + 0x8F898);
+    var slt = L64(S + 0x18F838);
+    var sbk = L64(S + 0x18F840);
+    var scfw = L64(S + 0x18F898);
     var ltop = GCP(S);
-    S64(S + 0x8F838, ltop);
-    S64(S + 0x8F840, 0);
-    S64(S + 0x8F898, 1);
+    S64(S + 0x18F838, ltop);
+    S64(S + 0x18F840, 0);
+    S64(S + 0x18F898, 1);
     # v5.6.14: IR_NOP landing pad at classic-for loop top.
     var _ire_for = IR_ENABLED(S);
     if (_ire_for >= 1) { ir_emit(S, IR_NOP, 0, ltop, 0); }
@@ -489,10 +489,10 @@ fn PARSE_FOR(S) {
     if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
     STI(S, GTI(S) + 1);
     # Patch continue forward jump to here (step expression)
-    var cfwn = L64(S + 0x8F898) - 1;
+    var cfwn = L64(S + 0x18F898) - 1;
     var cfwi = 0;
-    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x8F8A0 + cfwi * 8)); cfwi = cfwi + 1; }
-    S64(S + 0x8F898, 0);
+    while (cfwi < cfwn) { EPATCH(S, L64(S + 0x18F8A0 + cfwi * 8)); cfwi = cfwi + 1; }
+    S64(S + 0x18F898, 0);
     # Emit step: replay as assignment or compound assignment
     var sti = GTI(S);
     STI(S, sst);
@@ -540,12 +540,12 @@ fn PARSE_FOR(S) {
     EJMP(S, ltop);
     PATCHXP(S);
     EPATCH(S, cpat);
-    var bpat = L64(S + 0x8F840);
+    var bpat = L64(S + 0x18F840);
     while (bpat > 0) { var _bpa = S + 0x64A000 + bpat; var _bnb = L64(_bpa) & 0xFFFFFFFF; EPATCH(S, bpat); bpat = _bnb; }
     SCOPE_POP(S);
-    S64(S + 0x8F838, slt);
-    S64(S + 0x8F840, sbk);
-    S64(S + 0x8F898, scfw);
+    S64(S + 0x18F838, slt);
+    S64(S + 0x18F840, sbk);
+    S64(S + 0x18F898, scfw);
     SLVAR(S, slv);
     return 0;
 }
