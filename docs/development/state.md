@@ -5,6 +5,24 @@
 
 ## Version
 
+**5.7.4** (shipped — **CYRIUS-TS CLEANUP PASS**. .ts parse acceptance
+crossed 99% (2020 → **2033/2053 = 99.03%**). .tsx held at
+**428/435 = 98.4%** (the 7 sticky JSX edges cascade to v5.7.5's real
+JSX AST work). Async modifier now recorded as bit 48 of SPAN on
+DECL_FUNCTION / EXPR_ARROW / DECL_METHOD nodes via the new
+`TS_AST_CONSUME_ASYNC` / `TS_AST_IS_ASYNC` helpers + the
+`TS_PS_PENDING_ASYNC` parser-state slot — wired into 9 AST_PUSH sites
++ 8 async-consume sites. P4.1: `typeof import("...")` composite type,
+template-interp brace tracking fix (object literals inside `${...}`
+now balance correctly; P1.4 test updated 7-tok → 8-tok), broader
+PRIMARY ident-equivalent list (KW_OVERRIDE/DECLARE/NAMESPACE/READONLY
+/INFER/SATISFIES/PUBLIC/PRIVATE/PROTECTED/STATIC/ABSTRACT/IMPLEMENTS
+accepted as variable names). P4.5: `async <T>(x) => ...` generic
+arrow now parses. New `tests/tcyr/ts_parse_p44.tcyr` (25 assertions).
+Thresholds: `regression-ts-parse.sh` 2000 → 2030;
+`regression-ts-parse-tsx.sh` 420 → 425. cc5 687,088 B (+3,280 from
+v5.7.3); self-host byte-identical. check.sh 29/29.)
+
 **5.7.3** (shipped — **CYRIUS-TS COMPLETION + JSX**. Continues the
 v5.7.2 cyrius-ts arc: 80% → **98.4%** SY .ts parse acceptance via
 16 iterative fix batches against the diag harness, plus a new
@@ -125,12 +143,10 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **683,808 B** (+17,600 B from v5.7.2's 666,208,
-  +152,224 B vs v5.6.45's 531,584 — v5.7.2 added ~1,500 LOC TS lexer
-  + ~3,400 LOC TS parser; v5.7.3 added the JSX lex skip
-  (~150 LOC) + 16 fix batches across lex/parse extending coverage
-  from 80% to 98.4% .ts and 0.5% to 98.2% .tsx).
-  `cc5 --version` reports `cc5 5.7.3`.
+- **cc5 (x86_64)**: **687,088 B** (+3,280 B from v5.7.3's 683,808;
+  +155,504 B vs v5.6.45's 531,584 — v5.7.4 added the async-flag
+  wiring + lex template-interp brace tracking + a few PRIMARY edge
+  fixes).  `cc5 --version` reports `cc5 5.7.4`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -171,25 +187,25 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.4 (final cyrius-ts cleanup) — pinned, scope finalizable from
-v5.7.3 acceptance gap.** v5.7.3 ships at 2020/2053 (98.4%) .ts and
-427/435 (98.2%) .tsx acceptance; v5.7.4 targets the remaining 41
-edge cases + replaces the JSX lex placeholder with real AST nodes.
-The diag harness pattern from P2.7/P3.1 carries directly. Known
-scope:
+**v5.7.5 (real JSX AST + remaining .tsx edges) — pinned, scope
+narrowed by v5.7.4's wins.** v5.7.4 closed .ts (≥99%) and async
+tracking; .tsx held at 98.4% because the heuristic byte-scan can't
+disambiguate the deepest JSX shapes. v5.7.5 replaces the lex
+`TOK_INT` placeholder with structured JSX tokens + a JSX-element
+parser invoked from PRIMARY. Known scope:
 
-- Final ~33 .ts edge cases (template-literal types, deep mapped
-  types `{ [K in keyof T]: U }`, complex destructure patterns,
-  exotic type-position constructs)
-- Final ~8 .tsx edge cases (JSX shapes the heuristic lex skip
-  mis-classifies)
-- Real JSX AST: replace the `TOK_INT` placeholder with proper
-  `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_TEXT`
-  nodes (parse-time work, lex stays mostly the same)
-- Full async-ness recorded in AST payloads (currently consumed
-  but not tracked)
-- Target: ≥ 99% .ts and ≥ 99% .tsx acceptance. Following slot is
-  RISC-V (slid back from v5.7.4).
+- Lex side: emit `JSX_OPEN_START` / `JSX_TAG_NAME` / `JSX_ATTR_NAME`
+  / `JSX_ATTR_VALUE_STRING` / `JSX_OPEN_END` / `JSX_CLOSE_START` /
+  `JSX_CLOSE_END` / `JSX_SELF_CLOSE` / `JSX_TEXT` / `JSX_EXPR_OPEN`
+  / `JSX_EXPR_CLOSE` instead of one opaque INT.
+- Parse side: `TS_PARSE_JSX_ELEMENT` builds proper `JSX_ELEMENT` /
+  `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` /
+  `JSX_EXPR_CONTAINER` / `JSX_TEXT` AST nodes.
+- Side effect: should fix the remaining ~7 .tsx edges (proper
+  depth tracking instead of byte heuristics).
+- Target: ≥ 99% .tsx (≥430/435) + structured JSX AST consumable
+  by downstream typecheck. Following slot remains RISC-V (slid
+  again — cyrius-ts has eaten v5.7.2 through v5.7.5).
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the

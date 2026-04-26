@@ -4,6 +4,86 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.4] — 2026-04-25
+
+**CYRIUS-TS CLEANUP PASS — .ts ≥99%, async tracking in AST, lex
+brace-balance fix.**
+
+Cleanup increment on the v5.7.3 cyrius-ts arc. .ts parse acceptance
+crossed 99%; async modifier is now recorded as bit 48 of SPAN on
+DECL_FUNCTION / EXPR_ARROW / DECL_METHOD nodes (consumable by the
+typechecker without re-parsing); the lex `{...}` template-interpolation
+brace tracking now correctly balances object literals. The remaining
+~7 .tsx edges + the real JSX AST work cascade to v5.7.5 — the JSX
+heuristic skip is brittle for those shapes and the proper fix is the
+structured-token approach pinned in v5.7.5's roadmap entry.
+
+### Phase summary
+
+- **P4.1 — .ts edge-case triage** (.ts 2020 → 2033, 98.4% → 99.03%):
+  - `typeof import("...")` composite type form
+  - Template-interp brace tracking: when a `{...}` opens INSIDE a
+    template expression (`${...}`), my old lex incorrectly popped
+    the interp at the first `}`, leaving the outer `}` as TAIL
+    content. New code pushes a stack marker (3) on `{` inside interp
+    so the inner `}` balances and the outer `}` correctly closes the
+    interp. P1.4 test driver updated for the new (correct) behavior.
+  - PRIMARY ident-equivalent list broadened: KW_OVERRIDE, KW_DECLARE,
+    KW_NAMESPACE, KW_READONLY, KW_INFER, KW_SATISFIES, KW_PUBLIC,
+    KW_PRIVATE, KW_PROTECTED, KW_STATIC, KW_ABSTRACT, KW_IMPLEMENTS
+    now accepted as variable names in expression position.
+- **P4.2 — .tsx edge-case triage** (.tsx 427 → 428, 98.16% → 98.39%):
+  Marginal gain from the broader PRIMARY list. The remaining 7 .tsx
+  edges are deep-nested-JSX shapes the heuristic byte-scan cannot
+  cleanly disambiguate; pinned for the v5.7.5 real-JSX-AST work.
+- **P4.4 — Async tracking in AST**:
+  - New parser-state slot `TS_PS_PENDING_ASYNC` (offset 48). Caller
+    sets to 1 immediately before invoking a decl/arrow/method parser
+    that should produce an async-flagged node.
+  - New helpers `TS_AST_CONSUME_ASYNC(idx)` (reads + clears the flag,
+    ORs bit 48 into the node's SPAN field) and `TS_AST_IS_ASYNC(idx)`
+    (returns 0/1 by inspecting bit 48). The SPAN format
+    `(start_off << 24) | length` uses 48 bits in worst case so bit 48
+    is free.
+  - Wired into 9 AST_PUSH sites (object-method, ARROW_PAREN,
+    INTERFACE_MEMBER method, ARROW_SINGLE_IDENT, DECL_FUNCTION,
+    CLASS_MEMBER method-with-body, get/set accessor,
+    CLASS_MEMBER method, DECL_DECLARE function) and 8 async-consume
+    sites (PRIMARY async branches × 4, SKIP_MODIFIERS, OBJECT_LITERAL
+    modifier eat, STMT dispatcher async-function × 2).
+- **P4.5 — `async <T>(x) => ...` generic arrow**: PRIMARY's async
+  branch now handles `<` lookahead (parses type-params then dispatches
+  to ARROW_PAREN) in addition to the existing function/LPAREN/IDENT
+  paths.
+
+### Added
+
+- **`src/frontend/ts/parse.cyr::TS_AST_CONSUME_ASYNC`**,
+  **`TS_AST_IS_ASYNC`**, **`TS_PS_PENDING_ASYNC`** state slot.
+- **`tests/tcyr/ts_parse_p44.tcyr`** — 25 assertions covering async
+  on fn decl/expr, paren-arrow, bare-ident-arrow, generic-arrow,
+  class methods, object-method shorthand.
+- Threshold bumps:
+  - `tests/regression-ts-parse.sh`: 2000 → 2030 (current 2033)
+  - `tests/regression-ts-parse-tsx.sh`: 420 → 425 (current 428)
+
+### Changed
+
+- `src/frontend/ts/lex.cyr` `{` / `}` dispatch: brace-marker push
+  inside template interpolation. Existing P1.4 test driver updated
+  from 7-token expectation to 8-token (proper-balance behavior).
+- Compiler binary: 683,808 B (v5.7.3) → 687,088 B (v5.7.4, +3,280 B
+  for the async-flag wiring + lex template-interp fix). cc5
+  self-hosts byte-identical.
+
+### Deferred to v5.7.5
+
+- Real JSX AST (replace `TOK_INT` placeholder with structured
+  `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_TEXT`
+  nodes). ~300+ LOC; deserves its own focused slot for risk
+  isolation. Likely fixes the remaining 7 .tsx edges as a side
+  effect (proper depth tracking instead of byte heuristics).
+
 ## [5.7.3] — 2026-04-25
 
 **CYRIUS-TS COMPLETION — JSX support + .ts edge-case sweep + async refinement.**

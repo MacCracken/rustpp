@@ -1,0 +1,110 @@
+# v5.7.4 P4.4 — async-ness recorded in AST payloads.
+#
+# Verifies the TS_AST_CONSUME_ASYNC + TS_AST_IS_ASYNC mechanism added
+# in v5.7.4. The async modifier is consumed at the relevant call sites
+# (PRIMARY's async branches, STMT dispatcher's async-function branch,
+# SKIP_MODIFIERS for class methods, OBJECT_LITERAL's modifier eat) and
+# stored as bit 48 of the SPAN field on the resulting DECL_FUNCTION /
+# EXPR_ARROW / DECL_METHOD node.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+# Parse `src` as one top-level statement; return first stmt index.
+fn parse_first_stmt(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    var nn = TS_PARSE(ts_base);
+    if (nn < 0) { return 0 - 1; }
+    var head = TS_AST_PAYLOAD(ts_base, 0, 0);
+    return TS_AST_CHILDREN_GET(ts_base, head);
+}
+
+# Parse `src` as expression (placeholder reserves node 0).
+fn parse_expr(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    TS_PARSE_INIT(ts_base);
+    TS_AST_PUSH(ts_base, TS_AST_NONE, 0);
+    return TS_PARSE_EXPR(ts_base);
+}
+
+# ─── async function declarations ─────────────────────────────────
+test_group("async function decl");
+
+var s = parse_first_stmt("async function fetchIt() { return 1; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_FUNCTION, "async fn -> DECL_FUNCTION");
+assert_eq(TS_AST_IS_ASYNC(ts_base, s), 1, "async flag set");
+
+s = parse_first_stmt("function plain() { return 2; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_FUNCTION, "plain fn -> DECL_FUNCTION");
+assert_eq(TS_AST_IS_ASYNC(ts_base, s), 0, "no async flag on plain fn");
+
+# ─── async arrow expressions ─────────────────────────────────────
+test_group("async arrow expr");
+
+var n = parse_expr("async () => 1");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "async () => 1 parses");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 1, "async paren-arrow flag set");
+
+n = parse_expr("(x) => x");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "plain arrow parses");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 0, "no async flag on plain arrow");
+
+n = parse_expr("async x => x");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "async bare-ident arrow");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 1, "async bare-arrow flag set");
+
+n = parse_expr("async <T>(x: T): T => x");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_EXPR_ARROW, "async generic arrow");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 1, "async generic-arrow flag set");
+
+# ─── async function expressions ──────────────────────────────────
+test_group("async function expr");
+
+n = parse_expr("async function() { return 1; }");
+assert_eq(TS_AST_KIND(ts_base, n), TS_AST_DECL_FUNCTION, "async fn-expr");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 1, "async fn-expr flag set");
+
+n = parse_expr("function() { return 1; }");
+assert_eq(TS_AST_IS_ASYNC(ts_base, n), 0, "plain fn-expr no flag");
+
+# ─── async class methods ─────────────────────────────────────────
+test_group("async class methods");
+
+s = parse_first_stmt("class C { async run() { return 1; } plain() { return 2; } }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "class parses");
+var members = TS_AST_PAYLOAD(ts_base, s, 1);
+var m0 = TS_AST_CHILDREN_GET(ts_base, members);
+var m1 = TS_AST_CHILDREN_GET(ts_base, members + 1);
+assert_eq(TS_AST_KIND(ts_base, m0), TS_AST_DECL_METHOD, "first member is method");
+assert_eq(TS_AST_IS_ASYNC(ts_base, m0), 1, "async method flag set");
+assert_eq(TS_AST_KIND(ts_base, m1), TS_AST_DECL_METHOD, "second member is method");
+assert_eq(TS_AST_IS_ASYNC(ts_base, m1), 0, "plain method no flag");
+
+# ─── async object methods (shorthand) ────────────────────────────
+test_group("async object methods");
+
+n = parse_expr("({ async run() { return 1; }, plain() { return 2; } })");
+# The expression is wrapped in PAREN; unwrap to OBJECT.
+var inner = TS_AST_PAYLOAD(ts_base, n, 0);
+assert_eq(TS_AST_KIND(ts_base, inner), TS_AST_EXPR_OBJECT, "object literal");
+var props = TS_AST_PAYLOAD(ts_base, inner, 0);
+var p0 = TS_AST_CHILDREN_GET(ts_base, props);
+var p1 = TS_AST_CHILDREN_GET(ts_base, props + 1);
+assert_eq(TS_AST_KIND(ts_base, p0), TS_AST_DECL_METHOD, "first prop = method");
+assert_eq(TS_AST_IS_ASYNC(ts_base, p0), 1, "async object-method flag set");
+assert_eq(TS_AST_KIND(ts_base, p1), TS_AST_DECL_METHOD, "second prop = method");
+assert_eq(TS_AST_IS_ASYNC(ts_base, p1), 0, "plain object-method no flag");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);

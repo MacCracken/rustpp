@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.3.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.7.4.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -369,8 +369,8 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.4**: **final cyrius-ts cleanup** — close the last ~33 .ts + ~8 .tsx edge cases (template-literal types, deep mapped types, complex destructure patterns, exotic JSX shapes the heuristic skip mis-classifies); replace the JSX `TOK_INT` placeholder with proper AST nodes; record async-ness in AST payloads. Target ≥99% .ts and ≥99% .tsx acceptance. Pinned 2026-04-25. (v5.7.0 sandhi fold + v5.7.1 fixup-cap + v5.7.2 cyrius-ts foundational + v5.7.3 cyrius-ts completion + JSX shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
-> - **v5.7.5**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap/JSX took priority slots in turn.
+> - **v5.7.5**: **real JSX AST** — replace v5.7.3's `TOK_INT` placeholder with structured `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_TEXT` AST nodes. Lex side gets a proper JSX tokenizer (~10 new token kinds + a JSX-text/JSX-expr lex-mode stack); parse side gains `TS_PARSE_JSX_ELEMENT` invoked from `PRIMARY`. Side effect: closes the remaining ~7 .tsx edges via proper depth tracking. Pinned 2026-04-25. (v5.7.0–v5.7.4 shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
+> - **v5.7.6**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -694,34 +694,41 @@ toolchain side is unblocked.
 ---
 
 
-## v5.7.4 — Final cyrius-ts cleanup
+## v5.7.5 — Real JSX AST (replace TOK_INT placeholder)
 
-**Pinned 2026-04-25** (cascaded from "RISC-V" — that slot slid to v5.7.5 once cyrius-ts ate v5.7.2/v5.7.3 and JSX took the back half of v5.7.3). Final cleanup pass on the cyrius-ts frontend before RISC-V picks up the next slot.
+**Pinned 2026-04-25** (cascaded from v5.7.4's "final cleanup" once it became clear the remaining ~7 .tsx edge cases are heuristic-skip limits, not parse-shape gaps). v5.7.4 closed .ts (≥99%) and async tracking; v5.7.5 closes the JSX AST gap.
 
-**v5.7.3 baseline:**
-- 2020/2053 (98.4%) SY .ts parse acceptance
-- 427/435 (98.2%) SY .tsx parse acceptance
+**v5.7.4 baseline:**
+- 2033/2053 (99.03%) SY .ts parse acceptance
+- 428/435 (98.39%) SY .tsx parse acceptance
 
-**v5.7.4 target:** ≥99% on both, plus structural cleanups so the AST is consumable beyond parse-acceptance.
+**Why now:** the v5.7.3 JSX-aware lex skip emits one opaque `TOK_INT` placeholder per JSX expression. Works for parse acceptance (the parser sees what it thinks is an integer literal) but defeats any downstream consumer that wants to actually use the JSX (typecheck, lower, JSX → cyrius-native render). The 7 sticky .tsx edges all share a root cause: byte-scan depth tracking can't disambiguate certain shapes that proper tokenization would handle naturally.
 
 **Scope:**
 
-- Final ~33 .ts edge cases. Top tokens in the `/tmp/sy_parse_failures.tsv` from v5.7.3 closeout: `tok=11` (LPAREN), `tok=2` (IDENT), `tok=9` (TEMPLATE_TAIL — template-literal types), `tok=13` (LBRACE — exotic obj-type shapes), `tok=28` (LT — type-position assertions), `tok=21` (QUESTION — `?` mixed contexts).
-- Final ~8 .tsx edge cases — JSX shapes the heuristic skip mis-classifies. Inspect `/tmp/sy_tsx_failures.tsv`. Most likely culprits: TS-generic call inside JSX attr, JSX containing arrow with type-args, JSX text with `{`/`<` in unusual positions.
-- **Real JSX AST nodes** — replace the v5.7.3 `TOK_INT` placeholder with proper `JSX_ELEMENT` / `JSX_FRAGMENT` / `JSX_ATTRIBUTE` / `JSX_SPREAD_ATTR` / `JSX_EXPR_CONTAINER` / `JSX_TEXT` nodes. Lex side stays mostly the same (the JSX skip becomes a JSX-aware tokenizer that emits structured tokens); parse side gains a JSX-element parser invoked from `PRIMARY` when peek is `JSX_OPEN_START`.
-- **Full async tracking in AST payloads** — currently `async function` and `async () => {}` are accepted but not flagged. Add a payload bit on `DECL_FUNCTION` / `EXPR_ARROW` / `DECL_METHOD`. Cheap.
-- **Async-arrow with paren-arg type ambiguity** — `async <T>(x) => ...` currently goes through the bare-`async`-IDENT-arrow path which may mis-handle the type-arg list. Audit + fix.
+- **Lex side (additions to `src/frontend/ts/lex.cyr`):**
+  - Replace `TS_LEX_JSX_SKIP` with a proper JSX tokenizer.
+  - New tokens: `JSX_OPEN_START` (`<` followed by tag name), `JSX_TAG_NAME`, `JSX_ATTR_NAME`, `JSX_ATTR_VALUE_STRING`, `JSX_OPEN_END` (`>` ending an opener), `JSX_CLOSE_START` (`</`), `JSX_CLOSE_END` (`>` ending a closer), `JSX_SELF_CLOSE` (`/>`), `JSX_TEXT` (text between tags), `JSX_EXPR_OPEN` (`{`), `JSX_EXPR_CLOSE` (`}`).
+  - Lex-mode stack: JSX-tag, JSX-text, JSX-expr (which dispatches back to regular JS lex inside `{...}`). Pushed/popped on transitions.
+  - Generic-arrow disambiguation: keep the v5.7.3 lookahead (`<X>(` → not JSX) but cleaner now that we tokenize properly.
 
-**Methodology:** same diag harness from v5.7.2 P2.7 / v5.7.3 P3.1 — run sweep, group by (code, top tokens), smallest-failing-file bisect per (code, tok), fix in `parse.cyr` / `lex.cyr`, sweep, repeat.
+- **Parse side (additions to `src/frontend/ts/parse.cyr`):**
+  - New AST kinds: `TS_AST_JSX_ELEMENT`, `TS_AST_JSX_FRAGMENT`, `TS_AST_JSX_OPEN_TAG`, `TS_AST_JSX_CLOSE_TAG`, `TS_AST_JSX_ATTRIBUTE`, `TS_AST_JSX_SPREAD_ATTR`, `TS_AST_JSX_EXPR_CONTAINER`, `TS_AST_JSX_TEXT`.
+  - New fn `TS_PARSE_JSX_ELEMENT` invoked from `TS_PARSE_PRIMARY` when peek is `JSX_OPEN_START` or `JSX_OPEN_END`-with-empty-name (fragment).
+  - Children attached via the existing children-array (sentinel pattern from v5.7.2 P2.5).
+
+**Methodology:** same diag harness from v5.7.2 P2.7 / v5.7.3 P3.1 — sweep, group failures, smallest-failing-file bisect, fix.
 
 **Acceptance:**
-- `tests/regression-ts-parse.sh` threshold bumped 2000 → 2030 (≥99%)
-- `tests/regression-ts-parse-tsx.sh` threshold bumped 420 → 430 (≥99%)
-- All P1+P2+P3 unit tests still green
+- `tests/regression-ts-parse-tsx.sh` threshold bumped 425 → 432 (≥99%)
+- `tests/regression-ts-parse.sh` stays at 2030 (no .ts regression)
+- New `tests/tcyr/ts_parse_p51.tcyr` covering the JSX AST shape (element name, attribute list, child list, text vs element vs expression-container distinction)
+- All P1 lex (467) + P2/P3/P4 parse + check.sh stay green
 - cc5 self-host fixpoint clean
-- check.sh stays at 29 active gates (no new gates needed; existing ones tighten)
 
-## v5.7.5 — RISC-V rv64
+**Following slot:** RISC-V (slid again — v5.7.6 if no other priority blockers surface).
+
+## v5.7.6 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:
@@ -730,12 +737,13 @@ v5.7.0 → v5.7.1 (2026-04-24, sandhi fold takes v5.7.0);
 v5.7.1 → v5.7.2 (2026-04-24, cyrius-ts takes v5.7.1);
 v5.7.2 → v5.7.3 (2026-04-25, cyrius-ts completion takes v5.7.2);
 v5.7.3 → v5.7.4 (2026-04-25, JSX slot for v5.7.3 cascaded final cleanup);
+v5.7.4 → v5.7.5 (2026-04-25, real JSX AST cascaded out of v5.7.4 once heuristic-skip limits became clear);
 v5.7.3 → v5.7.4 (2026-04-25, fixup-cap bump took v5.7.1 sit-blocking
 slot, cyrius-ts cascaded down by one). Rationale: a new
 architecture is structurally different from v5.5.x items
 (correctness / completion / runtime work on existing platforms),
 different from v5.7.0's lib/-reshape work, different from
-v5.7.1's ecosystem unblock, and different from v5.7.2/v5.7.3/v5.7.4's
+v5.7.1's ecosystem unblock, and different from v5.7.2/v5.7.3/v5.7.4/v5.7.5's
 frontend work — separate minor-patches for separate kinds of
 change. RISC-V needs:
 
@@ -772,7 +780,7 @@ change. RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-**Prerequisites that must ship before v5.7.5 starts:**
+**Prerequisites that must ship before v5.7.6 starts:**
 - **v5.6.5 + v5.6.7–v5.6.21** — Compiler optimization arc.
 - **v5.6.28** — shared-object emission landed.
 - **v5.6.29** — downstream ecosystem sweep gate.
@@ -783,13 +791,14 @@ change. RISC-V needs:
 - **v5.7.2** — cyrius-ts foundational. RISC-V inherits compiler that
   emits from both `.cyr` and `.ts` source for sync subset.
 - **v5.7.3** — cyrius-ts completion + JSX (lex skip).
-- **v5.7.4** — final cyrius-ts cleanup (real JSX AST + edge cases).
+- **v5.7.4** — final cyrius-ts cleanup (.ts ≥99%, async tracking).
+- **v5.7.5** — real JSX AST (consumes the last .tsx edges).
   RISC-V inherits a frontend-complete compiler so rv64 backend
   doesn't have to re-test frontend-specific code paths separately.
 - **v5.4.19 `#ifplat`** direction is live → RISC-V dispatch uses
   the new syntax from day one.
 
-Deliberately NOT bundling other items into v5.7.5 — a new
+Deliberately NOT bundling other items into v5.7.6 — a new
 architecture port is plenty of work on its own.
 
 ---

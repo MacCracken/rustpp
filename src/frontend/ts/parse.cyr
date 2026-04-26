@@ -71,6 +71,7 @@ var TS_PS_CHILDREN_USED   = 16;             # i64 entries used in children regio
 var TS_PS_ERR_CODE        = 24;             # 0 = ok, non-zero = parse error code
 var TS_PS_ERR_TOK_IDX     = 32;             # token index where error occurred
 var TS_PS_ROOT_NODE       = 40;             # index of ROOT node (always 0 by convention)
+var TS_PS_PENDING_ASYNC   = 48;             # caller sets to 1 before AST_PUSH for an async fn/arrow/method; consumed (cleared) inside
 
 # ================================================================
 # AST kind enum
@@ -233,6 +234,30 @@ fn TS_AST_SET_PAYLOAD(ts_base, idx, slot, val) {
 
 fn TS_AST_NODE_COUNT(ts_base) {
     return load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_NODE_COUNT);
+}
+
+# v5.7.4 P4.4: async-flag tracking on DECL_FUNCTION / EXPR_ARROW /
+# DECL_METHOD nodes. Bit 48 of SPAN is reserved as the async flag —
+# the span format `(start_off << 24) | length` uses the bottom 48 bits
+# in worst case (24-bit start + 24-bit length), so bit 48 is free.
+# `TS_PS_PENDING_ASYNC` is set by callers right before the AST_PUSH
+# for an async fn/arrow/method; the helper below reads + clears it
+# and ORs the bit into the SPAN.
+fn TS_AST_CONSUME_ASYNC(ts_base, idx) {
+    var flag = load64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC);
+    if (flag == 0) { return 0; }
+    store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 0);
+    var span_addr = ts_base + TS_AST_NODES_OFF + idx * TS_AST_NODE_SIZE + 8;
+    var cur_span = load64(span_addr);
+    store64(span_addr, cur_span | 0x1000000000000);   # bit 48
+    return 0;
+}
+
+# Read the async flag back. Returns 1 if async, 0 otherwise.
+fn TS_AST_IS_ASYNC(ts_base, idx) {
+    var span = TS_AST_SPAN(ts_base, idx);
+    if (span >= 0 && (span & 0x1000000000000) != 0) { return 1; }
+    return 0;
 }
 
 # Allocate a children-list. Returns the offset (i64 entries) into
@@ -546,6 +571,7 @@ fn TS_PARSE_OBJECT_LITERAL(ts_base) {
                 var ahead2 = TS_PARSE_PEEK_AHEAD(ts_base, 2);
                 if (TS_IS_NAME_TOK(ahead1) == 1 || ahead1 == TS_TOK_STRING || ahead1 == TS_TOK_INT) {
                     if (ahead2 == TS_TOK_LPAREN || ahead2 == TS_TOK_LT) {
+                        if (pre_t == TS_TOK_KW_ASYNC) { store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1); }
                         TS_PARSE_CONSUME(ts_base);
                     }
                 }
@@ -632,6 +658,7 @@ fn TS_PARSE_OBJECT_LITERAL(ts_base) {
                     if (mb_o < 0) { return 0 - 1; }
                     var mn_o = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, key_span);
                     if (mn_o < 0) { return 0 - 1; }
+                    TS_AST_CONSUME_ASYNC(ts_base, mn_o);
                     TS_AST_SET_PAYLOAD(ts_base, mn_o, 0, key_span);
                     TS_AST_SET_PAYLOAD(ts_base, mn_o, 1, mp_o);
                     TS_AST_SET_PAYLOAD(ts_base, mn_o, 2, mr_o);
@@ -799,7 +826,13 @@ fn TS_PARSE_PRIMARY(ts_base) {
     if (t == TS_TOK_IDENT
         || t == TS_TOK_KW_FROM || t == TS_TOK_KW_AS
         || t == TS_TOK_KW_OF   || t == TS_TOK_KW_GET
-        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE) {
+        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE
+        || t == TS_TOK_KW_OVERRIDE || t == TS_TOK_KW_DECLARE
+        || t == TS_TOK_KW_NAMESPACE || t == TS_TOK_KW_READONLY
+        || t == TS_TOK_KW_INFER || t == TS_TOK_KW_SATISFIES
+        || t == TS_TOK_KW_PUBLIC || t == TS_TOK_KW_PRIVATE
+        || t == TS_TOK_KW_PROTECTED || t == TS_TOK_KW_STATIC
+        || t == TS_TOK_KW_ABSTRACT || t == TS_TOK_KW_IMPLEMENTS) {
         # Bare-ident arrow:  x => body
         if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_ARROW) {
             return TS_PARSE_ARROW_SINGLE_IDENT(ts_base);
@@ -829,16 +862,33 @@ fn TS_PARSE_PRIMARY(ts_base) {
         if (ahead == TS_TOK_KW_FUNCTION) {
             TS_PARSE_CONSUME(ts_base);   # async
             TS_PARSE_CONSUME(ts_base);   # function
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
             return TS_PARSE_DECL_FUNCTION(ts_base, 0);
         }
         if (ahead == TS_TOK_LPAREN) {
             TS_PARSE_CONSUME(ts_base);   # async
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
             return TS_PARSE_ARROW_PAREN(ts_base);
+        }
+        if (ahead == TS_TOK_LT) {
+            # async <T>(x) => body — generic arrow with async modifier.
+            # Consume `async`, then drop into the generic-arrow handler
+            # which expects to see the `<` and then type-params.
+            TS_PARSE_CONSUME(ts_base);   # async
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
+            var atp = TS_PARSE_TYPE_PARAMS(ts_base);
+            if (atp < 0) { return 0 - 1; }
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_LPAREN) {
+                return TS_PARSE_ARROW_PAREN(ts_base);
+            }
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 6);
+            return 0 - 1;
         }
         if (ahead == TS_TOK_IDENT) {
             # async x => ...
             if (TS_PARSE_PEEK_AHEAD(ts_base, 2) == TS_TOK_ARROW) {
                 TS_PARSE_CONSUME(ts_base);   # async
+                store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
                 return TS_PARSE_ARROW_SINGLE_IDENT(ts_base);
             }
         }
@@ -1372,6 +1422,7 @@ fn TS_PARSE_ARROW_SINGLE_IDENT(ts_base) {
 
     var arrow = TS_AST_PUSH(ts_base, TS_AST_EXPR_ARROW, 0);
     if (arrow < 0) { return 0 - 1; }
+    TS_AST_CONSUME_ASYNC(ts_base, arrow);
 
     # Single param: build a one-element children list
     var p = TS_AST_PUSH(ts_base, TS_AST_DECL_PARAM, name_v);
@@ -1675,6 +1726,7 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
                 }
                 member = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, name_v);
                 if (member < 0) { return 0 - 1; }
+                TS_AST_CONSUME_ASYNC(ts_base, member);
                 TS_AST_SET_PAYLOAD(ts_base, member, 0, name_v);
                 TS_AST_SET_PAYLOAD(ts_base, member, 1, omp);
                 TS_AST_SET_PAYLOAD(ts_base, member, 2, omr);
@@ -1876,6 +1928,23 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
         TS_PARSE_CONSUME(ts_base);
         var name_v = TS_PARSE_TOK_VAL(ts_base);
         var ht_t = TS_PARSE_PEEK(ts_base);
+        # `typeof import("path")` — TS-specific composite type form
+        if (ht_t == TS_TOK_KW_IMPORT) {
+            TS_PARSE_CONSUME(ts_base);
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_LPAREN) < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_STRING) < 0) { return 0 - 1; }
+            if (TS_PARSE_EXPECT(ts_base, TS_TOK_RPAREN) < 0) { return 0 - 1; }
+            # Optional `.Name` qualifier chain after import("...")
+            while (TS_PARSE_PEEK(ts_base) == TS_TOK_DOT) {
+                TS_PARSE_CONSUME(ts_base);
+                var ti_t = TS_PARSE_PEEK(ts_base);
+                if (TS_IS_NAME_TOK(ti_t) == 0) { return 0 - 1; }
+                TS_PARSE_CONSUME(ts_base);
+            }
+            var nti = TS_AST_PUSH(ts_base, TS_AST_TYPE_TYPEOF, 0);
+            if (nti < 0) { return 0 - 1; }
+            return nti;
+        }
         if (TS_IS_NAME_TOK(ht_t) == 0) {
             store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 3);
             return 0 - 1;
@@ -2089,6 +2158,7 @@ fn TS_PARSE_ARROW_PAREN(ts_base) {
     if (body < 0) { return 0 - 1; }
     var arrow = TS_AST_PUSH(ts_base, TS_AST_EXPR_ARROW, 0);
     if (arrow < 0) { return 0 - 1; }
+    TS_AST_CONSUME_ASYNC(ts_base, arrow);
     TS_AST_SET_PAYLOAD(ts_base, arrow, 0, params_off);
     TS_AST_SET_PAYLOAD(ts_base, arrow, 1, body);
     TS_AST_SET_PAYLOAD(ts_base, arrow, 2, ret_type_node);
@@ -2753,6 +2823,7 @@ fn TS_PARSE_DECL_FUNCTION(ts_base, name_required) {
     }
     var n = TS_AST_PUSH(ts_base, TS_AST_DECL_FUNCTION, name_v);
     if (n < 0) { return 0 - 1; }
+    TS_AST_CONSUME_ASYNC(ts_base, n);
     TS_AST_SET_PAYLOAD(ts_base, n, 0, name_v);
     TS_AST_SET_PAYLOAD(ts_base, n, 1, params_off);
     TS_AST_SET_PAYLOAD(ts_base, n, 2, ret_t);
@@ -2875,6 +2946,7 @@ fn TS_PARSE_INTERFACE_MEMBER(ts_base) {
         TS_PARSE_OPT_SEMI(ts_base);
         var mn = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, name_v);
         if (mn < 0) { return 0 - 1; }
+        TS_AST_CONSUME_ASYNC(ts_base, mn);
         TS_AST_SET_PAYLOAD(ts_base, mn, 0, name_v);
         TS_AST_SET_PAYLOAD(ts_base, mn, 1, mp);
         TS_AST_SET_PAYLOAD(ts_base, mn, 2, mr);
@@ -2944,7 +3016,7 @@ fn TS_PARSE_SKIP_MODIFIERS(ts_base) {
         elif (t == TS_TOK_KW_STATIC) { TS_PARSE_CONSUME(ts_base); }
         elif (t == TS_TOK_KW_READONLY) { TS_PARSE_CONSUME(ts_base); }
         elif (t == TS_TOK_KW_ABSTRACT) { TS_PARSE_CONSUME(ts_base); }
-        elif (t == TS_TOK_KW_ASYNC) { TS_PARSE_CONSUME(ts_base); }
+        elif (t == TS_TOK_KW_ASYNC) { TS_PARSE_CONSUME(ts_base); store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1); }
         elif (t == TS_TOK_KW_OVERRIDE) { TS_PARSE_CONSUME(ts_base); }
         elif (t == TS_TOK_KW_DECLARE) { TS_PARSE_CONSUME(ts_base); }
         else { done = 1; }
@@ -3000,6 +3072,7 @@ fn TS_PARSE_CLASS_MEMBER(ts_base) {
             if (ab < 0) { return 0 - 1; }
             var an = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, aname);
             if (an < 0) { return 0 - 1; }
+            TS_AST_CONSUME_ASYNC(ts_base, an);
             TS_AST_SET_PAYLOAD(ts_base, an, 0, aname);
             TS_AST_SET_PAYLOAD(ts_base, an, 1, ap);
             TS_AST_SET_PAYLOAD(ts_base, an, 2, ar);
@@ -3055,6 +3128,7 @@ fn TS_PARSE_CLASS_MEMBER(ts_base) {
         }
         var mn = TS_AST_PUSH(ts_base, TS_AST_DECL_METHOD, name_v);
         if (mn < 0) { return 0 - 1; }
+        TS_AST_CONSUME_ASYNC(ts_base, mn);
         TS_AST_SET_PAYLOAD(ts_base, mn, 0, name_v);
         TS_AST_SET_PAYLOAD(ts_base, mn, 1, mp);
         TS_AST_SET_PAYLOAD(ts_base, mn, 2, mr);
@@ -3501,6 +3575,7 @@ fn TS_PARSE_EXPORT(ts_base) {
         if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_KW_FUNCTION) {
             TS_PARSE_CONSUME(ts_base);
             TS_PARSE_CONSUME(ts_base);
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
             decl = TS_PARSE_DECL_FUNCTION(ts_base, 1);
         } else {
             store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 11);
@@ -3654,6 +3729,7 @@ fn TS_PARSE_DECL_DECLARE(ts_base) {
         TS_PARSE_OPT_SEMI(ts_base);
         var dn = TS_AST_PUSH(ts_base, TS_AST_DECL_FUNCTION, name_v);
         if (dn < 0) { return 0 - 1; }
+        TS_AST_CONSUME_ASYNC(ts_base, dn);
         TS_AST_SET_PAYLOAD(ts_base, dn, 0, name_v);
         TS_AST_SET_PAYLOAD(ts_base, dn, 1, pp);
         return dn;
@@ -3787,6 +3863,7 @@ fn TS_PARSE_STMT(ts_base) {
         if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_KW_FUNCTION) {
             TS_PARSE_CONSUME(ts_base);   # async
             TS_PARSE_CONSUME(ts_base);   # function
+            store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_PENDING_ASYNC, 1);
             return TS_PARSE_DECL_FUNCTION(ts_base, 1);
         }
     }

@@ -152,46 +152,25 @@ assert_eq(TS_PEEKLINE(ts_base, 1), 3, "EOF on line 3");
 # ─── interp with ${} containing braces ───────────────────────────
 test_group("interp with brace expression");
 
-# `${{key: val}}` — object literal inside interp. The first { is the
-# object-literal open, matched by the LAST } before backtick. Lexer
-# must NOT treat the first } as closing the interp.
-# Wait — actually it would. Let me think:
-# - `: HEAD start
-# - HEAD content "" -> emit TEMPLATE_HEAD, push interp
-# - { -> RBRACE? no wait, LBRACE (123)
-# - Inside interp: {key: val}
-#   - LBRACE, IDENT key, COLON, IDENT val, RBRACE
-#   - But the RBRACE here pops the interp (top of stack is 2)
-#   - So we get: HEAD, LBRACE, IDENT, COLON, IDENT, then RBRACE pops
-#     → resume template scanning which sees the OUTER } as start of
-#     more template... wait no, the outer } is the } AFTER the inner
-#     } in the source. Let me re-read.
+# `${{key: val}}` — object literal inside interp.
+# Per v5.7.4 fix: the lexer now properly balances `{` opened inside an
+# interpolation expression. The inner `{...}` is the object-literal,
+# the OUTER `}` closes the interpolation. Token stream:
+#   HEAD, {, key, :, val, }, TAIL = 7 tokens + EOF = 8 total.
 #
-# Actually `${{key:val}}` expanded: ` $ { { key : val } } `
-# Walking:
-#  - ` -> push template (slot=0), enter template body
-#  - body sees ${ -> emit HEAD, push interp (slot=2), advance past ${
-#  - inside interp: { -> LBRACE
-#  - inside interp: key -> IDENT
-#  - inside interp: : -> COLON
-#  - inside interp: val -> IDENT
-#  - inside interp: } -> top==2, pop interp; resume template body
-#  - template body sees }... but } is not in the template body's
-#    handle list (it just passes through as content!)
-#  - template body keeps scanning, sees ` -> emit TAIL, pop template
-#
-# So the result: HEAD, LBRACE, IDENT, COLON, IDENT, TAIL, EOF = 7 toks.
-# The OUTER `}` becomes part of the TAIL's content span. Correct
-# per JS semantics.
+# Pre-v5.7.4 (buggy): the first `}` was incorrectly popping the interp
+# and the outer `}` was absorbed into TAIL content (7 total). The new
+# behavior matches JS semantics correctly.
 
 n = test_lex("`${{key:val}}`");
-assert_eq(n, 7, "object literal in interp (outer } is template content)");
+assert_eq(n, 8, "object literal in interp — properly balanced (v5.7.4)");
 assert_tok(0, TS_TOK_TEMPLATE_HEAD, "HEAD");
 assert_tok(1, TS_TOK_LBRACE,        "{");
 assert_tok(2, TS_TOK_IDENT,         "key");
 assert_tok(3, TS_TOK_COLON,         ":");
 assert_tok(4, TS_TOK_IDENT,         "val");
-assert_tok(5, TS_TOK_TEMPLATE_TAIL, "TAIL — the outer } is in TAIL content");
+assert_tok(5, TS_TOK_RBRACE,        "} closes object literal");
+assert_tok(6, TS_TOK_TEMPLATE_TAIL, "TAIL after the closing interp }");
 
 # ─── error paths ─────────────────────────────────────────────────
 test_group("error paths");

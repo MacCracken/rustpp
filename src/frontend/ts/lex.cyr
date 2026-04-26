@@ -1577,14 +1577,32 @@ fn TS_LEX(ts_base, src, src_len) {
         # (P1.3) which emit the longest-match token and return new p.
         elif (c == 40)  { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
         elif (c == 41)  { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
-        elif (c == 123) { TS_ADDTOK(ts_base, TS_TOK_LBRACE,   0); p = p + 1; }
-        # Right brace — usually a normal RBRACE, BUT if we're inside
-        # a template interpolation (top of template stack == 2), this
-        # `}` closes the interp; pop and let the next loop iteration's
-        # template-body dispatch resume scanning.
-        elif (c == 125) {
+        elif (c == 123) {
+            # `{` — emit LBRACE token. If we're currently inside a
+            # template interpolation (top == 2), also push a brace
+            # marker (3) so the closing `}` balances correctly without
+            # closing the interpolation prematurely (e.g., object
+            # literals like `${f({a, b})}`).
+            TS_ADDTOK(ts_base, TS_TOK_LBRACE, 0);
             if (TS_TEMPLATE_TOP(ts_base) == 2) {
+                TS_TEMPLATE_PUSH(ts_base, 3);
+            } elif (TS_TEMPLATE_TOP(ts_base) == 3) {
+                TS_TEMPLATE_PUSH(ts_base, 3);
+            }
+            p = p + 1;
+        }
+        # Right brace — usually a normal RBRACE, BUT if we're inside
+        # a template interpolation (top == 2), this `}` closes the
+        # interp. If top == 3 (nested brace inside interp), pop the
+        # marker + emit RBRACE.
+        elif (c == 125) {
+            var rbtop = TS_TEMPLATE_TOP(ts_base);
+            if (rbtop == 2) {
                 TS_TEMPLATE_POP(ts_base);
+                p = p + 1;
+            } elif (rbtop == 3) {
+                TS_TEMPLATE_POP(ts_base);
+                TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
                 p = p + 1;
             } else {
                 TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
