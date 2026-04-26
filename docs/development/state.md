@@ -5,6 +5,29 @@
 
 ## Version
 
+**5.7.2** (shipped — **CYRIUS-TS FOUNDATIONAL**. TypeScript
+frontend for the Cyrius compiler shipped as 7 phases (P1.1–P1.7
+lex + P2.1–P2.7 parse). 462 lex assertions + 367 parse assertions
+all green; 100% SY .ts lex acceptance; 1642/2053 (80%) SY .ts
+parse acceptance via new `regression-ts-parse.sh` gate (≥ 1600
+threshold). Iterative triage on the SY corpus delivered 196 → 1642
+PASS through ~15 fix batches: trailing commas, broadened
+keyword-as-name acceptance, async/import.meta/dynamic-import,
+`as`/`satisfies` postfix, generic-call lookahead with
+depth-aware nested paren/brace/bracket disambiguation, top-level
+enum/namespace/declare decls, conditional types, `infer T`,
+`value is T` predicates, abstract methods, computed member names,
+object method shorthand, constructor parameter properties,
+destructure rename + default. Children-array sentinel pattern
+(children[0] = -1) lets payload-stored "0" unambiguously mean
+"no list". Heap-relative offsets via `ts_base` decouple TS
+frontend from main.cyr's heap layout. Diagnostic `--parse-ts`
+emits `code=N line=L tok=T cur_idx=X err_idx=Y`. cc5 666,208 B
+(+34,624 from v5.7.1); self-host byte-identical. check.sh 27 → 28
+active gates. Remaining ~411 SY edge cases (mapped types,
+`asserts` predicates, JSX in .tsx, complex destructure) slated
+for v5.7.3.)
+
 **5.7.1** (shipped — **fixup-table cap bump 32,768 → 262,144**.
 sit-blocking ecosystem unblock per sit's proposal. All 8 named
 sandhi consumers (vidya/yantra/hoosh/ifran/daimon/mela/ark/sit)
@@ -76,12 +99,11 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **531,880 B** (8 B smaller than v5.7.0 —
-  small byte-shift from v5.7.1's 32K → 262K constant change
-  creating slightly different optimization opportunities; cc5
-  itself never approaches 32K fixups so the cap bump doesn't
-  change its semantic behavior). `cc5 --version` reports
-  `cc5 5.7.1`.
+- **cc5 (x86_64)**: **666,208 B** (+34,624 B from v5.7.1's 531,584,
+  +134,624 B vs v5.6.45's 531,584 — entirely from the v5.7.2
+  cyrius-ts frontend: ~1,500 LOC TS lexer + ~3,400 LOC TS parser
+  shipped together as the new `--lex-ts` / `--parse-ts` modes).
+  `cc5 --version` reports `cc5 5.7.2`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -122,13 +144,19 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.2 (cyrius-ts foundational) — about to resume after fixup-cap
-wedge.** v5.7.1 just shipped (fixup-table cap bump 32K → 262K, sit
-unblock). cyrius-ts P1.1 + P1.2 work preserved on
-`wip/cyrius-ts-p1` branch during the wedge; cherry-picks back as
-the first commits of v5.7.2 with one-line heap-base update
-(`S + 0x178B000` → `S + 0x1B0B000`) to land on the post-v5.7.1
-brk. Then resume P1.3 (multi-char operators).
+**v5.7.3 (cyrius-ts completion) — pinned, scope finalizable from
+v5.7.2 SY-acceptance gap.** v5.7.2 ships at 1642/2053 (80%) baseline
+parse acceptance against the SY corpus; v5.7.3 targets ≥ 95% by
+triaging the remaining ~411 .ts edge cases plus adding JSX (.tsx)
+and async/await flow refinement. Diagnostic harness from P2.7
+(`--parse-ts` emits `code=N line=L tok=T cur_idx=X err_idx=Y`)
+already in place; v5.7.3 is iterative same-shape work on the same
+methodology. Known scope:
+
+- JSX support (.tsx files) — context-sensitive lex + tag/attr parser
+- Async/await flow refinement (currently consumed-and-skipped)
+- Mapped types `{ [K in keyof T]: U }`, `asserts` predicates,
+  complex destructure patterns, and other type-position tail cases
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the

@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.2] — 2026-04-25
+
+**CYRIUS-TS FOUNDATIONAL — TypeScript frontend, full lex + parse + 80% SY corpus acceptance.**
+
+The first phase of TypeScript frontend support: a full TS lexer
+(84 token types, multi-state template scanner, regex/division
+disambiguation) plus a full TS parser (uniform 48-byte AST nodes,
+Pratt-style precedence climbing, the entire ES2022 + TypeScript-
+specific surface). Verified by 1642/2053 (80%) passing on the
+SecureYeoman corpus parse-acceptance sweep — remaining failures
+are TS-position edge cases slated for v5.7.3 alongside JSX
+(.tsx) and async refinement.
+
+Heap-relative offsets via `ts_base` parameter decouple the TS
+frontend from main.cyr's heap layout, so the v5.7.1 fixup-cap
+brk shift required only a single wire-in line update.
+
+### Phase summary
+
+- **P1.1–P1.7 (lex)** — 84 token types, contextual keywords
+  (from/as/of/get/set/type), shebang `#!/usr/bin/env tsx` skip,
+  comment scanners (//, /* */, /** */), 30+ multi-char operators
+  (===, !==, &&, ||, ??, ?., **, =>, ..., ++, --, all compound
+  assigns), regex literals with flags + char classes + escapes,
+  regex/division disambiguation incl. postfix-`!` walk-back,
+  template literals with multi-state ${} interpolation + nested.
+  462 unit assertions across 5 test drivers; 100% SY lex acceptance.
+
+- **P2.1–P2.6 (parser core)** — AST infrastructure (87K-node cap,
+  131K-entry children-array cap), expression parser (14 binary
+  precedence levels, ternary, assignment, all member/call/optional/
+  postfix forms), statement parser (var/let/const + destructuring
+  with rename + defaults, if/else, for-three-variants, while,
+  do-while, return, throw, break/continue, try/catch/finally,
+  switch, blocks, arrow functions with full-shape-disambiguation
+  lookahead), type expressions (primitives/literals/refs with
+  type-args, arrays, tuples, union/intersection, fn types, object
+  types with index sigs, keyof/typeof, parens, conditional types
+  `T extends U ? V : W`), declarations (function/class/interface/
+  type-alias + members + modifiers), modules (all 7 import forms
+  incl. type-only + all 8 export forms incl. star/default/re-export).
+  367 unit assertions across 6 test drivers.
+
+- **P2.7 (SY acceptance gate)** — first end-to-end sweep against
+  the SecureYeoman corpus (2053 .ts files, .tsx deferred). Iterative
+  triage + patch on dominant failure patterns:
+  - Trailing commas in args/array/object/params/var-decl/binding
+  - Object literal property keys broadened (any keyword as a name)
+  - PRIMARY: async-prefixed (function/() => ../x => ..), dynamic
+    `import("...")`, `import.meta`, `new.target`
+  - CALL_MEMBER: `as Type` / `satisfies T` postfix, `f<T,U>(args)`
+    generic call (with depth-aware nested paren/brace/bracket
+    lookahead disambiguation)
+  - Top-level decls: function/class/interface/type/abstract class/
+    async function/enum/const enum/namespace/declare prefix
+  - Type-position: any-keyword-as-name in qualified refs, `infer T`,
+    `value is T` predicates, conditional types
+  - Class members: reserved-word method names (`delete()` etc),
+    computed `[expr]` names, abstract methods (body-less)
+  - Object method shorthand `{ name(args) {...} }` incl. generic
+  - Constructor parameter properties (`constructor(public x: T)`)
+  - Destructuring with rename + default: `{ name: alias = expr }`
+
+  Children-array sentinel pattern (children[0] = -1) lets payload-
+  stored "0" mean "no list" without colliding with a real list at
+  offset 0. Same idea as the node-0 placeholder in test helpers.
+
+### Added
+
+- **`src/frontend/ts/lex.cyr`** — full TS lexer (~1500 LOC).
+  Heap regions for token-types/values/lines arrays + template
+  state stack + lex state. Multi-context (regex vs division)
+  via primary-context tracking with BANG walk-back.
+- **`src/frontend/ts/parse.cyr`** — full TS parser (~3400 LOC).
+  Uniform 48-byte AST nodes, variable-arity children-array,
+  parser state in dedicated heap region.
+- **`tests/tcyr/ts_lex_p1{2,3,4,5,6}.tcyr`** — 462 lex assertions.
+- **`tests/tcyr/ts_parse_p2{1,2,3,4,5,6}.tcyr`** — 367 parse
+  assertions across the parser-core phases.
+- **`tests/regression-ts-lex.sh`** — synthetic TS sample exercising
+  every P1.1–P1.6 lex feature; gate active in `check.sh`.
+- **`tests/regression-ts-parse.sh`** — sweeps SY corpus, asserts
+  PASS ≥ 1600 (current 1642). Skips cleanly if SY not present.
+  Gate active in `check.sh`.
+- **`scripts/check.sh`** — gate count 27 → 28.
+- **`src/main.cyr`** — `--lex-ts` (P1.6b) + `--parse-ts` (P2.1)
+  CLI flags; diagnostic printer for parse errors emitting
+  `code=N line=L tok=T cur_idx=X err_idx=Y`.
+
+### Changed
+
+- TS heap base = `S + 0x1B0B000` (rides on top of v5.7.1's brk
+  extension; +13.5 MB unconditional cost regardless of
+  --lex-ts/--parse-ts mode use). TS heap size 0xD81000 (~13.5 MB).
+- Compiler binary: 624,008 B (P2.4) → 666,208 B (P2.7), +42 KB
+  for the full TS parser. cc5 self-hosts byte-identical at every
+  phase boundary.
+
+### Deferred to v5.7.3
+
+- JSX support (.tsx files) — context-sensitive lex + tag/attr parser
+- Async/await flow refinement (currently consumed-and-skipped)
+- Remaining ~411 SY edge cases (mapped types, `asserts`
+  predicates, complex destructure patterns)
+
 ## [5.7.1] — 2026-04-25
 
 **FIXUP-TABLE CAP BUMP — sit-blocking ecosystem unblock.**

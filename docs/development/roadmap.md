@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.1.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
+> **v5.7.2.** cc5 compiler (531,392 B x86_64, −11,536 B from v5.6.26
 > via codebuf compaction; net +10,176 B vs v5.6.22 baseline = default-on
 > regalloc save/restore minus compaction savings). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -369,8 +369,7 @@
 > Add to a future minor only when the regalloc data structures exist
 > to make a meaningful version land cleanly.
 >
-> - **v5.7.2**: **cyrius-ts foundational** — TypeScript frontend (sync, non-TSX subset) for SY-port-clean. P1 work cherry-picked from `wip/cyrius-ts-p1` (committed at v5.7.0, preserved during the v5.7.1 fixup-cap wedge). Scope data-driven from a 2026-04-25 SY TS inventory (2,053 sync TS files / 94,324 LOC); async + JSX explicitly defer to v5.7.3. (v5.7.0 sandhi fold + v5.7.1 fixup-cap bump shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
-> - **v5.7.3**: **cyrius-ts completion** — async runtime (`async`/`await`/`Promise` for the 73% of SY TS files using them) + JSX scope decision (likely "explicitly NOT supported"; SY's 435 TSX files stay in SY's web-frontend track). Pinned 2026-04-25.
+> - **v5.7.3**: **cyrius-ts completion** — JSX support (.tsx files), async/await flow refinement, and triage of the remaining ~411 SY .ts edge cases (mapped types, `asserts` predicates, complex destructure patterns). v5.7.2 ships at 1642/2053 (80%) baseline acceptance — v5.7.3 targets ≥95%. Pinned 2026-04-25. (v5.7.0 sandhi fold + v5.7.1 fixup-cap bump + v5.7.2 cyrius-ts foundational shipped 2026-04-25 — see [completed-phases.md](completed-phases.md) and [CHANGELOG.md](../../CHANGELOG.md).)
 > - **v5.7.4**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + cyrius-ts foundational + completion). Slid across 2026-04-24/25 as sandhi fold/cyrius-ts/fixup-cap took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
@@ -694,87 +693,6 @@ toolchain side is unblocked.
 
 ---
 
-
-## v5.7.2 — cyrius-ts foundational
-
-**Pinned 2026-04-25** (cascaded from original v5.7.1 slot when fixup-cap wedged). TypeScript frontend for the Cyrius compiler. Parses `.ts` files and emits through the existing native backend chain (x86_64, aarch64, Apple Silicon, Windows PE32+).
-
-Resumes the cyrius-ts P1 work cherry-picked from `wip/cyrius-ts-p1` after the v5.7.1 fixup-cap wedge. Cherry-picked content needs a one-line heap-base update (`S + 0x178B000` → `S + 0x1B0B000`) to land on the post-v5.7.1 brk.
-
-**NOT Bun-shaped.** A TS runtime in Cyrius would let TS *run* on AGNOS but wouldn't *port* — TS source stays TS, interpreted by the runtime, never becoming a sovereign Cyrius-native artifact. cyrius-ts as a frontend means TS source becomes valid Cyrius-compiler input and emits native binaries.
-
-**Rationale (load-bearing).** SecureYeoman (SY) ports by recompilation rather than rewriting. With cyrius-ts as a frontend, SY's **TS portion** becomes valid input to the Cyrius compiler. *Port via the compiler.*
-
-**SY scope clarification (2026-04-25):** SY is mixed-language. Its **TS portion** is what cyrius-ts gobbles up — that's the v5.7.2 acceptance gate. Its **Rust portion** still requires separate porting work (manual transliteration or a future cyrius-rs frontend), tracked outside this slot.
-
-**Scope (data-driven from SY TS inventory, 2026-04-25):**
-
-Surveyed 2,053 sync TS files / 94,324 LOC across SecureYeoman. Async + JSX explicitly defer to v5.7.3.
-
-**IN SCOPE — v5.7.2 must achieve parity for:**
-
-| Category | Features (>20% file usage) |
-|---|---|
-| Type system | `interface`, `type` aliases, generics `<T extends>`, utility types (Partial/Pick/Omit/Record/ReturnType/Parameters), `as`, `as const`, `typeof` (type pos), `keyof`, `readonly`, optional `?:` |
-| Class / OOP | `class`, `extends`, `implements`, access modifiers, constructor parameter properties, `static`, `get`/`set` |
-| Functions | arrow fns, default/rest/optional params, destructuring, optional chaining `?.`, nullish coalescing `??` |
-| Modules | ES modules (`import`/`export`/`default`/`*`), dynamic `import()` (sync resolution at compile time only) |
-| Iteration | `for...of` (structural iterator protocol) |
-| Modern syntax | template literals (100% of files), numeric separators, logical assignment (desugar) |
-| Builtins | `Map<>`, `Set<>`, Array methods, `Object.{keys/values/entries}`, `JSON.{parse/stringify}`, `RegExp` (49% of files), `Date` |
-| Node API shim (`lib/ts/`) | `fs.{readFileSync/writeFileSync/existsSync}`, `path.{join/resolve/basename}`, `process.{argv/env/exit}` |
-
-**OUT OF SCOPE for v5.7.2 — explicit defer to v5.7.3:**
-
-- `async` / `await` (1472–1514 files / ~73%) — needs microtask queue + Promise machinery + event loop. Substantial design surface, owns its release.
-- `Promise.{all/race/allSettled/any}` constructors (217 files / ~11%) — pairs with async runtime.
-- JSX / TSX (435 .tsx files) — DOM/component model. v5.7.3 makes the scope decision.
-- Browser APIs (49 files / 2%) — never (web-frontend territory).
-
-**NOT SUPPORTED — never (zero usage in SY):** conditional types, mapped types, `infer`, `satisfies`, `enum`, `namespace`, decorators, generators, BigInt literals, `WeakMap`/`WeakSet`/`Symbol`, tagged templates, `abstract`, CommonJS `require()`.
-
-**Architecture decisions:**
-
-- **Frontend module placement**: `src/frontend/ts/{lex,parse,typecheck,lower}.cyr` — peer to `src/frontend/{lex,parse,parse_*}.cyr`. Shares the rest of the compiler unchanged.
-- **Heap layout**: separate from .cyr lexer (TS-heap-relative offsets via `ts_base` parameter). P1.6 wire-in: `ts_base = S + 0x1B0B000` (post-v5.7.1 brk).
-- **Internal cc5 dispatch**: `cbt/build.cyr::compile()` detects `.ts` extension, passes flag; cc5 routes to `TS_LEX` vs existing `LEX`. Mirrors platform-dispatch pattern.
-- **Type system**: structural, monomorphizing. Each generic instantiation produces a distinct compiled function (no type erasure).
-
-**Implementation phases (commit-per-phase pins):**
-
-| Phase | Deliverable | Status |
-|---|---|---|
-| **P1.1** | TS lexer scaffold + token enum + heap region map | ✅ done at v5.7.0; cherry-picked into v5.7.2 from `wip/cyrius-ts-p1` |
-| **P1.2** | Simple tokens (idents/keywords/ints/strings/single-char ops); 131-assertion test | ✅ done at v5.7.0; cherry-picked into v5.7.2 |
-| **P1.3** | Multi-char operators (`===`, `!==`, `<=`, `>>>`, `=>`, `??`, `?.`, `**=`, etc.) | ⏳ pending |
-| **P1.4** | Template literals — backtick strings with `${...}` interpolation | ⏳ pending |
-| **P1.5** | Comments (`//` line + `/* */` block) | ⏳ pending |
-| **P1.6** | Regex literal disambiguation (context-sensitive) + wire-in to cc5 main | ⏳ pending |
-| **P1.7** | Acceptance: lex SY's largest TS file without panic | ⏳ pending |
-| **P2** | TS parser (statements + expressions + type expressions + class/interface/generic decls) | ⏳ pending |
-| **P3** | Type checker (structural, generic monomorphization queue, utility-type compile-time resolution) | ⏳ pending |
-| **P4** | TS → IR lowering | ⏳ pending |
-| **P5** | Stdlib bridge + Node-API shim (`lib/ts/{builtins,fs,path,process}.cyr`) | ⏳ pending |
-| **P6** | SY-side compile gate | ⏳ pending |
-| **P7** | Release | ⏳ pending |
-
-**Acceptance gates:**
-
-1. `cyrius build foo.ts foo` emits a valid native binary on at least one supported target.
-2. SY's sync, non-TSX TS portion compiles via cyrius-ts; SY's TS-side test suite passes against cyrius-built binaries (with SY's async + TSX files explicitly excluded — those are v5.7.3 territory).
-3. Every IN-SCOPE feature above has a `.tcyr` test exercising it.
-4. The TS frontend reuses the existing native backend chain — no new per-target backend code in v5.7.2.
-5. CHANGELOG enumerates IN-SCOPE / OUT-OF-SCOPE / NOT-SUPPORTED + SY compile numbers.
-
-**Prerequisites that must ship before v5.7.2 starts:**
-
-- **v5.7.0** — sandhi fold lands first. cyrius-ts inherits post-fold stdlib shape.
-- **v5.7.1** — fixup-cap bump lands first. cyrius-ts P1 work cherry-picks onto post-v5.7.1 brk; new ts/lex.cyr `TS_HEAP_BASE` references update from `0x178B000` → `0x1B0B000`.
-- **TS subset scope decision** — ✅ DONE 2026-04-25. Data-driven from SY inventory; full IN-SCOPE / OUT / NEVER breakdown above.
-
-**Conditional split-out** — start in-tree. Watch for the depth/complexity inflection where stdlib items accumulate enough that it warrants its own repo (the sandhi precedent). If/when it gets there, clean-break with an ADR like sandhi 0002.
-
----
 
 ## v5.7.3 — cyrius-ts completion (async runtime + JSX scope decision)
 
