@@ -38,64 +38,66 @@
 > polish + cyim-unblocking + bug/UX patch slate + RISC-V port +
 > closeout. Shipped to v5.7.12; one-liners in
 > [completed-phases.md § v5.7.0–v5.7.13](completed-phases.md#v570v5713--sandhi-fold--cyrius-ts-frontend--tooling-polish).
-> RISC-V slid to v5.7.23-v5.7.26 to clear the bug/UX patch slate
+> RISC-V slid to v5.7.24-v5.7.28 to clear the bug/UX patch slate
 > first (2026-04-27 user direction: "correctness over new features
 > always"). **Hard upper bound: v5.7.28 = v5.7.x closeout.**
 >
-> **What's next (v5.7.14–v5.12.x):**
+> **What's next (v5.7.15–v5.12.x):**
 >
-> v5.7.13 string-literal escape sequences (`\x##`, `\u####`,
-> `\u{…}`, `\a` `\b` `\f` `\v` `\'`) shipped 2026-04-27 as one
-> patch (no split). cc5 +5,000 B; check.sh 34/34 (was 33/33;
-> +gate 4w). cyim alt-screen sequences now decode to actual
-> ESC `[…` bytes — interactive cyim unblocked. Downstream slots
-> below keep their numbering (no cascade).
+> v5.7.14 `cyrius deps` transitive resolution shipped 2026-04-27.
+> First of three patches splitting the v5.7.14-as-bundle plan
+> from 2026-04-23 (transitive deps + lib-vs-bin + doc-tree).
+> Per user direction at v5.7.13 ship — split, **+2 cascade**
+> through closeout. cc5 unchanged at 715,312 B (cbt-only edit);
+> check.sh 35/35 (was 34/34; +gate 4x). 4-case coverage:
+> 3-level chain, diamond, cycle, relative-path. v5.7.15 = init
+> lib-vs-bin; v5.7.16 = doc-tree alignment.
 >
-> - **v5.7.14**: bundle — full project-setup workflow:
->   `cyrius deps` transitive resolution (sit-blocking onboarding)
->   + `cyrius init` library-vs-binary awareness (`--lib` / `--bin`
->   flags) + `cyrius init` / `cyrius port` first-party-
->   documentation alignment (ADR / architecture / guides / examples
->   doc-tree scaffold + CLAUDE.md template). All three flow
->   together: `cyrius init --lib foo` → resolve transitive deps →
->   emit shape-aware doc-tree.
-> - **v5.7.15**: basic regex primitives (`lib/regex.cyr`) — Thompson
->   NFA, ~300-500 LOC. Unblocks cyim `--find` and downstream
->   ad-hoc state-machine churn.
-> - **v5.7.16**: `lib/json.cyr` depth (stdlib baseline) — nested
->   objects, arrays, booleans, null, floats, escape handling,
->   error reporting. RPC-grade scope is owned by sandhi.
-> - **v5.7.17**: `cyrius fuzz` stdlib auto-prepend parity. Small
->   refactor; `cmd_fuzz` walks the same manifest-deps codepath as
->   `cmd_test` / `cmd_bench`.
-> - **v5.7.18**: cx codegen literal-arg propagation — fixes
->   `syscall(60, 42)` emitting `movi r0, 0` instead of the literal.
->   Pre-existing bug surfaced during v5.7.12 path-B testing.
-> - **v5.7.19-v5.7.21**: advanced TS features beyond SY corpus
->   (**hard cap 3 slots**; overflow → v5.8.x). Surfaces per
->   downstream consumer: mapped types full grammar, `asserts`
->   predicates, decorators, `as const`, variadic tuple types,
->   const type parameters, `satisfies` postfix, conditional
->   type corpus, `never`/`unknown` audit.
-> - **v5.7.22-v5.7.26**: RISC-V rv64 (3-5 sub-patches). Likely
->   breakdown: backend module + cross-entry; syscall peer + QEMU
->   exit-42 probe; `regression.tcyr` 102/102 via QEMU; native
->   self-host on rv64 hardware; tarball + `[release]` table wire-
->   in. Bundles compress 3 sub-patches; granular ships 5.
-> - **v5.7.25/26/27**: `.scyr` (soak) + `.smcyr` (smoke) file types —
->   replaces Python 3 dependency in `tests/regression-capacity.sh`.
->   Lands the patch immediately after RISC-V wraps. Slot floats:
->   v5.7.25 if RISC-V = 3 sub-patches, v5.7.26 if 4, v5.7.27 if 5.
-> - **v5.7.26/27/28**: v5.7.x closeout (CLAUDE.md "Closeout Pass"
->   11-step). Lands the patch after soak/smoke. **Hard upper bound
->   v5.7.28**; anything past this forces v5.8.x boundary. Add +1 to
->   each downstream slot if v5.7.13 splits into two patches.
+> - **v5.7.15**: `cyrius init --lib`/`--bin` flags + library
+>   template. Today `cyrius init <name>` emits the binary shape
+>   unconditionally; library scaffolds (mabda/sigil/sankoch/
+>   patra/yukti/yantra shape) require hand-rewriting four
+>   places + creating `programs/smoke.cyr`. ~100-200 LOC of
+>   shell + templates.
+> - **v5.7.16**: `cyrius init`/`cyrius port` first-party-
+>   documentation doc-tree alignment. Scaffolds `docs/adr/`,
+>   `docs/architecture/`, `docs/guides/`, `docs/examples/`,
+>   `docs/development/{roadmap,state}.md`, plus CLAUDE.md
+>   template. ~200-300 LOC.
+> - **v5.7.17**: basic regex primitives (`lib/regex.cyr`) —
+>   Thompson NFA, ~300-500 LOC. Unblocks cyim `--find` and
+>   downstream ad-hoc state-machine churn.
+> - **v5.7.18**: `lib/json.cyr` depth (stdlib baseline) —
+>   nested objects, arrays, booleans, null, floats, escape
+>   handling, error reporting. RPC-grade scope is owned by
+>   sandhi.
+> - **v5.7.19**: `cyrius fuzz` stdlib auto-prepend parity.
+>   Small refactor; `cmd_fuzz` walks the same manifest-deps
+>   codepath as `cmd_test` / `cmd_bench`.
+> - **v5.7.20**: cx codegen literal-arg propagation — fixes
+>   `syscall(60, 42)` emitting `movi r0, 0` instead of the
+>   literal. Pre-existing bug surfaced during v5.7.12
+>   path-B testing.
+> - **v5.7.21-v5.7.23**: advanced TS features beyond SY corpus
+>   (**hard cap 3 slots**; overflow → v5.8.x).
+> - **v5.7.24-v5.7.28**: RISC-V rv64 (3-5 sub-patches).
+>   **Buffer pressure**: with the v5.7.14 split's +2 cascade,
+>   v5.7.28 hard cap can ONLY be met if RISC-V lands at the
+>   3-sub-patch low end (the 4-5 range overflows). Resolution
+>   point is when RISC-V starts; bundle decisions get re-asked
+>   then.
+> - **v5.7.27/28/29**: `.scyr` (soak) + `.smcyr` (smoke) file
+>   types — floats per RISC-V actual.
+> - **v5.7.28/29/30**: v5.7.x closeout. Per
+>   `feedback_v57x_slot_bounds_2026_04_27.md` v5.7.28 is the
+>   hard upper; v5.7.29-30 violate and require user STOP-and-
+>   ask before continuing. Resolution comes at RISC-V time.
 >
-> **Side-task across v5.7.13–v5.7.18 closeouts**: warning sweep
+> **Side-task across v5.7.13–v5.7.20 closeouts**: warning sweep
 > (3 syscall-arity warnings + 36 unreachable-fn floor + check.sh
 > shell-syntax warning + cbt/programs/bootstrap shellcheck pass).
 > Cleared opportunistically each closeout, no dedicated slot.
-> Goal: zero `warning:` lines from cc5 self-build by v5.7.22+.
+> Goal: zero `warning:` lines from cc5 self-build by v5.7.24+.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -262,7 +264,7 @@ backend implements natively.
 
 **Trigger conditions** (any one):
 
-1. **RISC-V (v5.7.22-v5.7.26) lands and adds 4th backend**, making
+1. **RISC-V (v5.7.24-v5.7.28) lands and adds 4th backend**, making
    path B's `_TARGET_CX == 0 && _TARGET_RISCV == 0` chains
    unwieldy at every site.
 2. **2+ new direct-emit sites slip past the static-analysis
@@ -362,13 +364,13 @@ toolchain side is unblocked.
 
 
 
-## v5.7.22-v5.7.26 — RISC-V rv64 (3-5 sub-patches; bounded series)
+## v5.7.24-v5.7.28 — RISC-V rv64 (3-5 sub-patches; bounded series; v5.7.28 hard cap requires RISC-V to land at 3 sub-patches)
 
-First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.22-v5.7.26
+First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.24-v5.7.28
 as the optimization arc, sandhi fold, fixup-cap bumps,
 cyrius-ts frontend, JSX work, tooling polish, fn-collision
 rule, input_buf reshuffle, cx-build/correctness, and the
-v5.7.13–v5.7.21 cyim-unblocking + bug/UX patch slate took
+v5.7.13–v5.7.23 cyim-unblocking + bug/UX patch slate took
 priority. Inherits a frontend-complete compiler against a
 clean toolchain UX with the full v5.7.0–v5.7.21 prerequisite
 chain shipped.
@@ -408,7 +410,7 @@ RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-Deliberately NOT bundling other items into v5.7.22-v5.7.26 — a new
+Deliberately NOT bundling other items into v5.7.24-v5.7.28 — a new
 architecture port is plenty of work on its own.
 
 ---
@@ -430,7 +432,7 @@ to the dynamic vec-shaped table from
 [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table).
 Pin as a v5.8.x or v5.9.x consideration if needed.
 
-### v5.7.19-v5.7.21 — advanced TS features beyond SY corpus (hard cap 3 slots; overflow → v5.8.x)
+### v5.7.21-v5.7.23 — advanced TS features beyond SY corpus (hard cap 3 slots; overflow → v5.8.x)
 
 **Pinned 2026-04-26.** SY corpus parse acceptance hit 100% on
 both `.ts` (2053/2053) and `.tsx` (435/435) at v5.7.6 via 10
@@ -505,12 +507,12 @@ when they do.
 ### v5.7.x — warning sweep (side-task, no dedicated slot)
 
 **Pinned 2026-04-26; reframed 2026-04-27 as a side-task spread
-across v5.7.13–v5.7.18 closeouts** (per user direction:
+across v5.7.13–v5.7.20 closeouts** (per user direction:
 "warning sweep if we can do as well go through the next few
 releases as a side-task"). Don't dedicate a patch slot — clear
 warnings opportunistically as each upcoming patch's closeout
 runs. Goal is zero `warning:` lines from cc5 self-build by the
-time v5.7.22 RISC-V opens.
+time v5.7.24 RISC-V opens.
 
 **Findings on cc5 self-build (5.7.7):**
 
@@ -576,7 +578,7 @@ time v5.7.22 RISC-V opens.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
-### v5.7.18 — cx codegen literal-arg propagation
+### v5.7.20 — cx codegen literal-arg propagation
 
 **Pinned 2026-04-27** (surfaced during v5.7.12 path-B testing).
 cc5_cx's codegen for `syscall(N, V)` and similar literal-arg
@@ -622,7 +624,7 @@ global it depends on is the suspect.
 debug pass). Slot is now v5.7.18 (was unscheduled "when RISC-V wraps") or earlier if a
 cx consumer surfaces.
 
-### v5.7.15 — basic regex primitives in the stdlib
+### v5.7.17 — basic regex primitives in the stdlib
 
 **Pinned 2026-04-27** (user request, alongside the cyim
 `--grep` → `--find` design from cyrius-bb's tooling pain
@@ -712,7 +714,7 @@ of importing a foreign regex engine.
 its own focused patch in the v5.7.x cycle. Pre-RISC-V is fine
 if it surfaces a need; otherwise post-RISC-V.
 
-### v5.7.17 — `cyrius fuzz` stdlib auto-prepend parity
+### v5.7.19 — `cyrius fuzz` stdlib auto-prepend parity
 
 **Pinned 2026-04-25** (cyim-agent surfaced). `cyrius fuzz` builds
 each `fuzz/*.fcyr` harness via raw `compile(path, tmpbin)` —
@@ -734,12 +736,12 @@ from all three command bodies.
 from each `fuzz/*.fcyr` harness; `cyrius fuzz` still passes all
 5 current harnesses (freelist, hashmap, str_coerce, string, vec).
 
-### v5.7.27 — `.scyr` (soak) + `.smcyr` (smoke) file types (post-RISC-V; floats up if RISC-V finishes in 3-4 sub-patches)
+### v5.7.29 — `.scyr` (soak) + `.smcyr` (smoke) file types (post-RISC-V; floats up if RISC-V finishes in 3-4 sub-patches)
 
 **Pinned 2026-04-25; slot framing updated 2026-04-27** — lands
 right after RISC-V wraps. Worst-case slot is v5.7.27 (assumes
-RISC-V uses all 5 sub-patches v5.7.22-v5.7.26); floats up to
-v5.7.25 or v5.7.26 if RISC-V finishes in 3 or 4 sub-patches
+RISC-V uses all 5 sub-patches v5.7.24-v5.7.28); floats up to
+v5.7.27 or v5.7.28 if RISC-V finishes in 3 or 4 sub-patches
 respectively. Per user direction: "we can keep soak and smoke
 to before closeout of 5.7.x". Today, soak and smoke testing
 are scattered:
@@ -789,80 +791,8 @@ is fine to leave).
 `cmd_test` / `cmd_bench` / `cmd_fuzz` family in
 `cbt/commands.cyr`.
 
-### v5.7.14 — `cyrius deps` transitive resolution (bundled with cyrius init lib-vs-bin + init/port doc-tree alignment)
 
-**Pinned 2026-04-23.** Distinct from v5.7.8's `cyrius deps`
-P1-P5 ergonomic fixes — that slot covers silent-failure /
-discoverability / count / lockfile-default issues; this slot
-covers transitive resolution (the resolver itself walking the
-dep graph). Both ship in v5.7.x; transitive resolution stays
-its own slot because the design surface is wider (recursive
-walker, cycle detection, conflict policy).
-
-`cyrius deps` currently resolves only **direct** dependencies
-from `cyrius.cyml`'s `[deps]` table — if the user's manifest
-pins `mabda`, mabda's own `cyrius.cyml` depends on `sigil` and
-`sakshi`, those transitive deps don't get fetched. Today the workaround is to add every transitive dep to
-the consumer's manifest by hand, which means downstream consumers
-duplicate the dep tree of every dep they pull in. Brittle, and a
-real onboarding pain for new ecosystem repos.
-
-**Surfacing consumer**: `sit` (2026-04-23) hit this directly
-during onboarding — same shape every new consumer has hit since
-the `cyrius deps` resolver shipped. Confirms the fix is
-load-bearing for ecosystem ergonomics, not a nice-to-have.
-User-confirmed long-term fix; deliberately NOT pulled into v5.6.x
-(optimization arc), v5.7.0 (sandhi fold single-focus), or v5.7.1 (RISC-V single-focus).
-
-**Scope** (~200–400 LOC):
-
-- **Recursive walker** in `cyrius deps`: after resolving a direct
-  dep, parse that dep's own `cyrius.cyml` and queue its `[deps]`
-  for resolution. BFS, not DFS, so the user's direct deps win
-  version conflicts over transitive ones (lockfile-style).
-- **Cycle detection**: maintain a visited-set keyed by repo URL
-  (or `name@version`); skip re-resolving any dep already in the
-  graph. Hard-error on a true cycle (A→B→A).
-- **Version-conflict resolution**: when transitive deps disagree
-  on a sub-dep version, the policy is **"closest wins"** (the
-  version pinned closest to the root, like npm/cargo's default).
-  If two deps at the same depth disagree, hard-error and ask the
-  user to pin a resolution explicitly in their own manifest.
-- **Lockfile** (`cyrius.lock` or `.cyrius/lock.cyml`): records
-  the resolved graph (every dep, every version, every transitive
-  edge). `cyrius deps` consults it on subsequent runs for
-  reproducibility; `cyrius deps --update` recomputes.
-- **Auto-include extension**: `cyrius build`'s auto-prepend
-  pass already iterates direct deps' `lib/`; extend it to also
-  iterate transitive deps in topological order so transitive
-  symbols resolve correctly.
-- **Diamond dep detection**: when A depends on B and C, and both
-  B and C depend on D at the same version, dedupe to a single D
-  install (don't double-include).
-
-**Acceptance gates:**
-
-1. New tcyr regression `tests/tcyr/deps_transitive.tcyr` —
-   construct a 3-level dep chain (A→B→C), run `cyrius deps` in
-   A, verify all three populate under `lib/`.
-2. Cycle detection: A→B→A produces a clear error message naming
-   the cycle, not silent infinite recursion.
-3. Version-conflict policy: closest-wins documented + tested.
-4. Lockfile reproducibility: `cyrius deps` after lockfile commit
-   produces an identical `lib/` tree on a fresh checkout.
-5. All existing downstream repos (mabda, sigil, sakshi, yukti,
-   kybernet, hadara, libro, argonaut, agnostik, agnosys, sit)
-   build green after switching to transitive resolution — no
-   manifest in the ecosystem should still be hand-listing
-   transitives.
-
-**Slot assignment**: deferred to during the v5.7.x cycle. The
-RISC-V port will surface other items (compiler bugs, stdlib
-gaps, tooling friction) that also need slotting; the patch
-order falls out naturally once we see the actual surfacing
-sequence. Acceptable bound: ships before v5.7.x closeout.
-
-### v5.7.14 — `cyrius init` library-vs-binary awareness (bundled with cyrius deps transitive + doc-tree alignment)
+### v5.7.15 — `cyrius init` library-vs-binary awareness (split-from-bundle; transitive deps shipped v5.7.14)
 
 **Pinned 2026-04-23.** `cyrius init <name>` currently emits the
 binary shape unconditionally: `[build] entry = "src/main.cyr"`,
@@ -928,7 +858,7 @@ stayed binary, correctly), and every future library scaffold.
 **Slot assignment**: during the v5.7.x cycle, after RISC-V
 baseline stabilizes. Low risk, self-contained.
 
-### v5.7.14 — `cyrius init` / `cyrius port` first-party-documentation alignment (bundled with cyrius deps transitive + lib-vs-bin)
+### v5.7.16 — `cyrius init` / `cyrius port` first-party-documentation alignment (split-from-bundle; transitive deps shipped v5.7.14, lib-vs-bin v5.7.15)
 
 **Pinned 2026-04-23.** The `first-party-documentation.md` standard
 ([agnosticos/docs/development/applications/first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md))
@@ -1009,7 +939,7 @@ format landed by that item).
 
 **Net effect on the cyrius roadmap**: this item is removed from the v5.7.x patch slate. See `sandhi`'s [ADR 0001](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0001-sandhi-is-a-composer-not-a-reimplementer.md) for the composer-not-reimplementer thesis and the full scope moved.
 
-### v5.7.16 — `lib/json.cyr` depth (stdlib baseline)
+### v5.7.18 — `lib/json.cyr` depth (stdlib baseline)
 
 **Pinned 2026-04-23; narrowed 2026-04-24** — RPC-grade handling (WebDriver / Appium response parsing, streaming large payloads, dialect-aware error envelopes) moved to `sandhi::rpc` along with the `lib/http.cyr depth` item. This slot retains the stdlib-baseline enrichment: deeper parsing for config / data files, safer error reporting, array support. The surfacing consumers for *baseline* json.cyr depth are cyml / toml parity, config loading, and data-file pipelines — not network RPC.
 
@@ -1413,7 +1343,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` + HIGH_ENTROPY_VA enabled v5.6.31 |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.22-v5.7.26** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.21 patch slate; v5.7.x closeout at v5.7.26-v5.7.28) |
+| **v5.7.24-v5.7.28** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.23 patch slate; v5.7.x closeout at v5.7.28-v5.7.30 (buffer pressure)) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 
@@ -1493,7 +1423,7 @@ enables adding new targets without touching the frontend.
 | macOS aarch64 | Mach-O | **✅ Narrow + Broad** — gate fixture repaired v5.6.33 (no compiler regression existed; bytes unchanged since v5.5.13). |
 | Windows x86_64 | PE/COFF | **✅ Narrow + Broad** — gate fixture repaired v5.6.36; HIGH_ENTROPY_VA enabled v5.6.31. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35). |
 | Compiler optimization (O1–O6) | — | **✅ Closed** (v5.6.5 + v5.6.7–v5.6.27). |
-| RISC-V (rv64) | ELF | Queued — **v5.7.22-v5.7.26** |
+| RISC-V (rv64) | ELF | Queued — **v5.7.24-v5.7.28** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 
 ---

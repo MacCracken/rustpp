@@ -5,6 +5,27 @@
 
 ## Version
 
+**5.7.14** (shipped 2026-04-27 — **`cyrius deps` TRANSITIVE
+RESOLUTION** — `cbt/deps.cyr` grew a BFS recursive walker that
+processes each resolved dep's own `cyrius.cyml`. `_dep_visited`
+(closest-wins de-dup) + `_dep_queue` (resolved manifest dirs to
+walk) + `_process_named_deps(buf, n, manifest_dir)` extracted
+from cmd_deps's Phase 2 body. Phase 3 drains the queue. Cycles
+break naturally (re-encountered names hit visited). Diamonds
+collapse to single-symlink. Relative `path = "..."` resolves
+against the transitive manifest's directory, not the consumer's
+cwd. cc5 unchanged at **715,312 B** (cbt-only edit; compiler
+untouched). build/cyrius now **152,320 B**. New gate
+`tests/regression-deps-transitive.sh` (gate 4x): 4 cases —
+3-level chain, diamond, cycle, relative-path. **check.sh 35/35
+PASS** (was 34/34; +gate 4x). First of three patches splitting
+the v5.7.14-as-bundle plan from 2026-04-23: v5.7.15 = init
+lib-vs-bin, v5.7.16 = doc-tree alignment. Per user direction
++2 cascade through closeout; v5.7.28 hard cap now requires
+RISC-V to land at the 3-sub-patch low end. Three known
+limitations deferred (stdlib transitive expansion, self-package
+detection, version-conflict warnings).)
+
 **5.7.13** (shipped 2026-04-27 — **STRING-LITERAL ESCAPE
 SEQUENCES** — `\x##`, `\u####`, `\u{...}`, plus the previously-
 missing C-family escapes `\a` `\b` `\f` `\v` `\'`. cyim-

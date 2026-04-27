@@ -4,6 +4,96 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.14] — 2026-04-27
+
+**`cyrius deps` TRANSITIVE RESOLUTION (BFS, closest-wins, cycle-safe).**
+First of three patches splitting the v5.7.14-as-bundle planned at
+2026-04-23 (transitive deps + `cyrius init --lib`/`--bin` +
+init/port doc-tree alignment). Per user direction at v5.7.13
+ship — split, +2 cascade through closeout v5.7.30. v5.7.15 = init
+lib-vs-bin; v5.7.16 = doc-tree alignment.
+
+### Background
+
+`cyrius deps` resolved only **direct** dependencies from the
+consumer's `cyrius.cyml`. If `mabda` declared `[deps.sigil]` and
+sigil's own manifest declared `[deps.sakshi]`, sakshi was NOT
+fetched — the consumer had to re-list every transitive in their
+own manifest. Brittle, real onboarding pain (sit hit it
+2026-04-23, every new consumer hits it).
+
+### Added (`cbt/deps.cyr`)
+
+- **`_dep_visited`** (vec\<cstr\> of resolved dep names) — closest-
+  wins de-dup. First encounter at minimum BFS depth wins; later
+  re-encounters at deeper depth or in transitive sub-graphs are
+  silently skipped.
+- **`_dep_queue`** (vec\<cstr\> of absolute manifest dirs) — BFS
+  worklist of resolved deps whose own `cyrius.cyml` still needs
+  walking.
+- **`_dep_name_visited(name)`** — linear scan over `_dep_visited`.
+- **`_dep_join_path(manifest_dir, rel)`** — joins a manifest-
+  relative `path = "..."` to its manifest's directory. Returns
+  the absolute string unchanged.
+- **`_process_named_deps(buf, n, manifest_dir)`** — extracted the
+  per-section processing of `[deps.X]` from `cmd_deps`'s Phase 2
+  body (~280 LOC). Skips already-visited names; resolves relative
+  `path` against `manifest_dir`; pushes name+dir on success.
+  Returns errors count.
+
+### Changed (`cbt/deps.cyr`)
+
+- **`cmd_deps` Phase 2** now calls `_process_named_deps` for the
+  consumer manifest, then drives a Phase 3 BFS drain of
+  `_dep_queue`: for each resolved dir, read its `cyrius.cyml`,
+  call the helper, repeat until queue empty.
+- **`copied`** now reports total distinct deps resolved (direct
+  + transitive) via `vec_len(_dep_visited)`. Pre-v5.7.14 this
+  counted only direct deps.
+- Existing v5.7.8 ergonomic fixes (silent-failure detection,
+  count tracking, default lockfile, `--no-lock` opt-out) all
+  still apply — Phase 3 reuses the same per-section logic.
+
+### Acceptance gates
+
+- **`tests/regression-deps-transitive.sh` (gate 4x)** — 4 cases:
+  3-level chain (A→B→C resolves all three);
+  diamond (A→B→D, A→C→D — D appears once);
+  cycle (A→B→A — terminates with exit 0, no infinite loop);
+  relative-path resolution (transitive `path = "../X"` resolves
+  against transitive manifest's dir, not consumer's cwd).
+- cc5 self-host: byte-identical at **715,312 B** (only
+  `cbt/deps.cyr` touched — compiler unchanged).
+- `build/cyrius` rebuild: 152,320 B; smoke test on real consumer
+  manifests (mabda / sigil / hisab) green.
+- check.sh **35/35 PASS** (was 34/34; +gate 4x).
+
+### Known limitations (deferred)
+
+- **Stdlib transitive expansion** — Phase 3 only walks `[deps.X]`
+  sections. If a transitive dep's manifest declares `stdlib =
+  ["dynlib"]` modules the consumer doesn't, those are NOT pulled.
+  Workaround: declare needed stdlib in consumer's manifest.
+  Out-of-scope follow-up patch.
+- **Self-package detection** — when a transitive dep names the
+  consumer back (e.g. cycle case), the consumer's own dist file
+  gets symlinked into its own `lib/`. Cycle terminates correctly
+  (visited check fires on next iteration), but the self-symlink
+  is cosmetic noise. Fix: pre-populate `_dep_visited` with the
+  consumer's `[package].name`. Out-of-scope follow-up patch.
+- **Version-conflict warnings** — when the same name appears at
+  different `tag` values across the BFS frontier, we silently
+  apply closest-wins without warning the user. Out-of-scope
+  follow-up patch.
+
+### Out of scope for v5.7.14
+
+`cyrius init --lib`/`--bin` library template (slot **v5.7.15**)
+and `cyrius init`/`cyrius port` first-party-documentation
+doc-tree scaffold (slot **v5.7.16**). Both pinned and queued.
+
+---
+
 ## [5.7.13] — 2026-04-27
 
 **STRING-LITERAL ESCAPE SEQUENCES (`\x##`, `\u####`, `\u{...}`,

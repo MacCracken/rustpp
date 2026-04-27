@@ -132,6 +132,310 @@ fn _parse_toml_str_array(buf, len, pos) {
     return result;
 }
 
+# v5.7.14: returns 1 if `name` is already in _dep_visited, else 0.
+fn _dep_name_visited(name) {
+    if (_dep_visited == 0) { return 0; }
+    var i = 0;
+    var nl = strlen(name);
+    while (i < vec_len(_dep_visited)) {
+        var v = vec_get(_dep_visited, i);
+        if (strlen(v) == nl) {
+            if (memeq(v, name, nl) == 1) { return 1; }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# v5.7.14: join a manifest-relative `path = "..."` to the manifest's
+# directory. Returns `rel` unchanged if absolute.
+fn _dep_join_path(manifest_dir, rel) {
+    if (load8(rel) == 47) { return rel; }
+    var ml = strlen(manifest_dir);
+    var rl = strlen(rel);
+    var out = alloc(ml + 1 + rl + 1);
+    memcpy(out, manifest_dir, ml);
+    store8(out + ml, 47);
+    memcpy(out + ml + 1, rel, rl);
+    store8(out + ml + 1 + rl, 0);
+    return out;
+}
+
+# v5.7.14: process [deps.X] sections in `buf` (manifest content of
+# length `n`). `manifest_dir` is the absolute directory containing
+# the manifest; relative `path = "..."` entries resolve against it.
+# Successfully-resolved deps' names go into _dep_visited (closest-
+# wins de-dup), and their resolved dirs go into _dep_queue for the
+# transitive walk in cmd_deps. Returns errors count for this manifest.
+fn _process_named_deps(buf, n, manifest_dir) {
+    var errors = 0;
+    var si = 0;
+    while (si < n) {
+        if (memeq(buf + si, "[deps.", 6) == 1) {
+            var name_start = si + 6;
+            var name_end = name_start;
+            while (name_end < n && load8(buf + name_end) != 93) { name_end = name_end + 1; }
+            var dep_name_len = name_end - name_start;
+            var dep_name = alloc(dep_name_len + 1);
+            memcpy(dep_name, buf + name_start, dep_name_len);
+            store8(dep_name + dep_name_len, 0);
+            si = name_end + 1;
+            # v5.7.14: closest-wins skip. Walk si past this section without
+            # re-resolving.
+            if (_dep_name_visited(dep_name) == 1) {
+                while (si < n) {
+                    if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) { break; }
+                    while (si < n && load8(buf + si) != 10) { si = si + 1; }
+                    if (si < n) { si = si + 1; }
+                }
+                continue;
+            }
+            var dep_path = 0;
+            var dep_git = 0;
+            var dep_tag = 0;
+            var dep_modules = 0;
+            while (si < n) {
+                if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) {
+                    if (memeq(buf + si, "[deps.", 6) != 1 && memeq(buf + si, "[build", 6) != 1 && memeq(buf + si, "[package", 8) != 1) {
+                    }
+                    if (load8(buf + si + 1) != 91) {
+                        if (memeq(buf + si, "[deps.", 6) == 1) { break; }
+                        if (memeq(buf + si, "[deps]", 6) == 1) { break; }
+                        if (load8(buf + si + 1) != 100) { break; }
+                    }
+                }
+                if (memeq(buf + si, "path", 4) == 1 && load8(buf + si + 4) != 0 && (load8(buf + si + 4) == 32 || load8(buf + si + 4) == 61)) {
+                    var pi = si + 4;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    pi = pi + 1;
+                    var ps = pi;
+                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
+                    var plen = pi - ps;
+                    dep_path = alloc(plen + 1);
+                    memcpy(dep_path, buf + ps, plen);
+                    store8(dep_path + plen, 0);
+                    # v5.7.14: resolve relative `path = "..."` against
+                    # the manifest's directory, not the consumer's cwd.
+                    dep_path = _dep_join_path(manifest_dir, dep_path);
+                }
+                if (memeq(buf + si, "git", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var gi = si + 3;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    gi = gi + 1;
+                    var gs = gi;
+                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
+                    var glen = gi - gs;
+                    dep_git = alloc(glen + 1);
+                    memcpy(dep_git, buf + gs, glen);
+                    store8(dep_git + glen, 0);
+                }
+                if (memeq(buf + si, "tag", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
+                    var ti = si + 3;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    ti = ti + 1;
+                    var ts = ti;
+                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
+                    var tlen = ti - ts;
+                    dep_tag = alloc(tlen + 1);
+                    memcpy(dep_tag, buf + ts, tlen);
+                    store8(dep_tag + tlen, 0);
+                }
+                if (memeq(buf + si, "modules", 7) == 1) {
+                    dep_modules = _parse_toml_str_array(buf, n, si);
+                }
+                while (si < n && load8(buf + si) != 10) { si = si + 1; }
+                si = si + 1;
+            }
+            var need_clone = 0;
+            if (dep_git != 0 && dep_modules != 0) {
+                if (dep_path == 0) {
+                    need_clone = 1;
+                } elif (is_dir(str_from(dep_path)) == 0) {
+                    need_clone = 1;
+                }
+            }
+            if (need_clone == 1) {
+                var clone_sb = str_builder_new();
+                if (_home != 0) {
+                    str_builder_add_cstr(clone_sb, _home);
+                    str_builder_add_cstr(clone_sb, "/deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    str_builder_add_cstr(clone_sb, "/");
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    } else {
+                        str_builder_add_cstr(clone_sb, "main");
+                    }
+                } else {
+                    str_builder_add_cstr(clone_sb, "/tmp/cyrius_deps/");
+                    str_builder_add_cstr(clone_sb, dep_name);
+                    if (dep_tag != 0) {
+                        str_builder_add_cstr(clone_sb, "_");
+                        str_builder_add_cstr(clone_sb, dep_tag);
+                    }
+                }
+                var clone_dir = str_data(str_builder_build(clone_sb));
+                if (_home != 0) {
+                    var pdir_sb = str_builder_new();
+                    str_builder_add_cstr(pdir_sb, _home);
+                    str_builder_add_cstr(pdir_sb, "/deps");
+                    sys_mkdir(str_data(str_builder_build(pdir_sb)), 0x1ED);
+                    var pdir2_sb = str_builder_new();
+                    str_builder_add_cstr(pdir2_sb, _home);
+                    str_builder_add_cstr(pdir2_sb, "/deps/");
+                    str_builder_add_cstr(pdir2_sb, dep_name);
+                    sys_mkdir(str_data(str_builder_build(pdir2_sb)), 0x1ED);
+                } else {
+                    sys_mkdir("/tmp/cyrius_deps", 0x1ED);
+                }
+                if (is_dir(str_from(clone_dir)) == 0) {
+                    var git_ok = 1;
+                    var gi2 = 0;
+                    while (load8(dep_git + gi2) != 0) {
+                        var gc = load8(dep_git + gi2);
+                        if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
+                            git_ok = 0;
+                        }
+                        gi2 += 1;
+                    }
+                    if (dep_tag != 0) {
+                        var ti2 = 0;
+                        while (load8(dep_tag + ti2) != 0) {
+                            var tc2 = load8(dep_tag + ti2);
+                            if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
+                                git_ok = 0;
+                            }
+                            ti2 += 1;
+                        }
+                    }
+                    if (git_ok == 0) {
+                        sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
+                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                        sys_write(STDERR_FD, "\n", 1);
+                        errors += 1;
+                    }
+                    if (git_ok == 1) {
+                        var cmd_sb = str_builder_new();
+                        str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
+                        if (dep_tag != 0) {
+                            str_builder_add_cstr(cmd_sb, "-b ");
+                            str_builder_add_cstr(cmd_sb, dep_tag);
+                            str_builder_add_cstr(cmd_sb, " ");
+                        }
+                        str_builder_add_cstr(cmd_sb, dep_git);
+                        str_builder_add_cstr(cmd_sb, " ");
+                        str_builder_add_cstr(cmd_sb, clone_dir);
+                        var cmd = str_data(str_builder_build(cmd_sb));
+                        if (_verbose == 1) {
+                            sys_write(STDERR_FD, "  git: ", 7);
+                            sys_write(STDERR_FD, cmd, strlen(cmd));
+                            sys_write(STDERR_FD, "\n", 1);
+                        }
+                        sys_system(cmd);
+                    }
+                }
+                dep_path = clone_dir;
+            }
+            var dep_had_success = 0;
+            if (dep_path != 0 && dep_modules != 0) {
+                var mi = 0;
+                while (mi < vec_len(dep_modules)) {
+                    var mod_path = vec_get(dep_modules, mi);
+                    var sb = str_builder_new();
+                    str_builder_add_cstr(sb, dep_path);
+                    str_builder_add_cstr(sb, "/");
+                    str_builder_add_cstr(sb, mod_path);
+                    var src = str_data(str_builder_build(sb));
+                    if (file_exists(src) == 0) {
+                        var fb = mod_path;
+                        var fbi = 0;
+                        while (load8(mod_path + fbi) != 0) {
+                            if (load8(mod_path + fbi) == 47) { fb = mod_path + fbi + 1; }
+                            fbi = fbi + 1;
+                        }
+                        if (fb != mod_path) {
+                            var sb_fb = str_builder_new();
+                            str_builder_add_cstr(sb_fb, dep_path);
+                            str_builder_add_cstr(sb_fb, "/lib/");
+                            str_builder_add_cstr(sb_fb, fb);
+                            var alt = str_data(str_builder_build(sb_fb));
+                            if (file_exists(alt) == 1) { src = alt; }
+                        }
+                    }
+                    if (file_exists(src) == 0) {
+                        sys_write(STDERR_FD, "error: [deps.", 13);
+                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                        sys_write(STDERR_FD, "] modules entry \"", 17);
+                        sys_write(STDERR_FD, mod_path, strlen(mod_path));
+                        sys_write(STDERR_FD, "\" not found at tag in ", 22);
+                        sys_write(STDERR_FD, dep_path, strlen(dep_path));
+                        sys_write(STDERR_FD, "\n", 1);
+                        errors = errors + 1;
+                        mi = mi + 1;
+                        continue;
+                    }
+                    var base = mod_path;
+                    var bi = 0;
+                    while (load8(mod_path + bi) != 0) {
+                        if (load8(mod_path + bi) == 47) { base = mod_path + bi + 1; }
+                        bi = bi + 1;
+                    }
+                    var sb3 = str_builder_new();
+                    str_builder_add_cstr(sb3, "lib/");
+                    var _dnl = strlen(dep_name);
+                    var _bsd = 1;
+                    var _ck = 0;
+                    while (_ck < _dnl) {
+                        if (load8(base + _ck) != load8(dep_name + _ck)) { _bsd = 0; break; }
+                        _ck = _ck + 1;
+                    }
+                    if (_bsd == 1) {
+                        str_builder_add_cstr(sb3, base);
+                    } else {
+                        str_builder_add_cstr(sb3, dep_name);
+                        str_builder_add_cstr(sb3, "_");
+                        str_builder_add_cstr(sb3, base);
+                    }
+                    var dst = str_data(str_builder_build(sb3));
+                    var sym_src = _abs_path(src);
+                    var cr2 = 2;
+                    sys_unlink(dst);
+                    var srv = syscall(88, sym_src, dst);
+                    if (srv < 0) {
+                        cr2 = _dep_copy_file(src, dst);
+                    } else {
+                        cr2 = 0;
+                    }
+                    if (cr2 == 0 || cr2 == 2) {
+                        vec_push(_dep_includes, dst);
+                        dep_had_success = 1;
+                        if (cr2 == 0) {
+                            if (_verbose == 1) {
+                                sys_write(STDERR_FD, "  ", 2);
+                                sys_write(STDERR_FD, dep_name, strlen(dep_name));
+                                sys_write(STDERR_FD, ": ", 2);
+                                sys_write(STDERR_FD, base, strlen(base));
+                                sys_write(STDERR_FD, "\n", 1);
+                            }
+                        }
+                    } elif (cr2 == 1) { errors = errors + 1; }
+                    mi = mi + 1;
+                }
+            }
+            # v5.7.14: on success, mark visited + queue for transitive walk.
+            if (dep_had_success == 1) {
+                vec_push(_dep_visited, dep_name);
+                if (dep_path != 0) {
+                    vec_push(_dep_queue, _abs_path(dep_path));
+                }
+            }
+        } else {
+            si = si + 1;
+        }
+    }
+    return errors;
+}
+
 fn cmd_deps() {
     if (_dry_run == 1) {
         println("dry-run: would resolve deps from cyrius.cyml into lib/");
@@ -163,6 +467,10 @@ fn cmd_deps() {
     var copied = 0;
     var errors = 0;
     _dep_includes = vec_new();
+    # v5.7.14: per-cmd_deps state. visited names = closest-wins de-dup.
+    # queue = abs dirs of resolved deps whose own cyrius.cyml needs walking.
+    _dep_visited = vec_new();
+    _dep_queue = vec_new();
 
     # === Phase 1: stdlib deps ===
     # Find: stdlib = ["string", "fmt", ...]
@@ -248,290 +556,55 @@ fn cmd_deps() {
         si = si + 1;
     }
 
-    # === Phase 2: named deps ===
-    # Find: [deps.NAME] sections with path = "..." and modules = [...]
-    si = 0;
-    while (si < n) {
-        if (memeq(buf + si, "[deps.", 6) == 1) {
-            # Extract dep name
-            var name_start = si + 6;
-            var name_end = name_start;
-            while (name_end < n && load8(buf + name_end) != 93) { name_end = name_end + 1; }
-            var dep_name_len = name_end - name_start;
-            var dep_name = alloc(dep_name_len + 1);
-            memcpy(dep_name, buf + name_start, dep_name_len);
-            store8(dep_name + dep_name_len, 0);
-            si = name_end + 1;
-            # Find path/git/tag/modules in this section
-            var dep_path = 0;
-            var dep_git = 0;
-            var dep_tag = 0;
-            var dep_modules = 0;
-            while (si < n) {
-                # Stop at next section header
-                if (load8(buf + si) == 91 && load8(buf + si + 1) != 91) {
-                    if (memeq(buf + si, "[deps.", 6) != 1 && memeq(buf + si, "[build", 6) != 1 && memeq(buf + si, "[package", 8) != 1) {
-                    }
-                    if (load8(buf + si + 1) != 91) {
-                        if (memeq(buf + si, "[deps.", 6) == 1) { break; }
-                        if (memeq(buf + si, "[deps]", 6) == 1) { break; }
-                        if (load8(buf + si + 1) != 100) { break; }
-                    }
-                }
-                if (memeq(buf + si, "path", 4) == 1 && load8(buf + si + 4) != 0 && (load8(buf + si + 4) == 32 || load8(buf + si + 4) == 61)) {
-                    var pi = si + 4;
-                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
-                    pi = pi + 1;
-                    var ps = pi;
-                    while (pi < n && load8(buf + pi) != 34) { pi = pi + 1; }
-                    var plen = pi - ps;
-                    dep_path = alloc(plen + 1);
-                    memcpy(dep_path, buf + ps, plen);
-                    store8(dep_path + plen, 0);
-                }
-                if (memeq(buf + si, "git", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
-                    var gi = si + 3;
-                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
-                    gi = gi + 1;
-                    var gs = gi;
-                    while (gi < n && load8(buf + gi) != 34) { gi = gi + 1; }
-                    var glen = gi - gs;
-                    dep_git = alloc(glen + 1);
-                    memcpy(dep_git, buf + gs, glen);
-                    store8(dep_git + glen, 0);
-                }
-                if (memeq(buf + si, "tag", 3) == 1 && (load8(buf + si + 3) == 32 || load8(buf + si + 3) == 61)) {
-                    var ti = si + 3;
-                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
-                    ti = ti + 1;
-                    var ts = ti;
-                    while (ti < n && load8(buf + ti) != 34) { ti = ti + 1; }
-                    var tlen = ti - ts;
-                    dep_tag = alloc(tlen + 1);
-                    memcpy(dep_tag, buf + ts, tlen);
-                    store8(dep_tag + tlen, 0);
-                }
-                if (memeq(buf + si, "modules", 7) == 1) {
-                    dep_modules = _parse_toml_str_array(buf, n, si);
-                }
-                while (si < n && load8(buf + si) != 10) { si = si + 1; }
-                si = si + 1;
-            }
-            # Resolve dep_path: prefer explicit path, else git-clone to a
-            # tag-versioned cache so a cyrius.toml tag bump triggers a fresh
-            # clone automatically (no stale cache at the un-versioned path).
-            # Cache layout: $CYRIUS_HOME/deps/{name}/{tag}/ (or /tmp/cyrius_deps/{name}_{tag}).
-            var need_clone = 0;
-            if (dep_git != 0 && dep_modules != 0) {
-                if (dep_path == 0) {
-                    need_clone = 1;
-                } elif (is_dir(str_from(dep_path)) == 0) {
-                    need_clone = 1;
-                }
-            }
-            if (need_clone == 1) {
-                var clone_sb = str_builder_new();
-                if (_home != 0) {
-                    str_builder_add_cstr(clone_sb, _home);
-                    str_builder_add_cstr(clone_sb, "/deps/");
-                    str_builder_add_cstr(clone_sb, dep_name);
-                    str_builder_add_cstr(clone_sb, "/");
-                    if (dep_tag != 0) {
-                        str_builder_add_cstr(clone_sb, dep_tag);
-                    } else {
-                        str_builder_add_cstr(clone_sb, "main");
-                    }
-                } else {
-                    str_builder_add_cstr(clone_sb, "/tmp/cyrius_deps/");
-                    str_builder_add_cstr(clone_sb, dep_name);
-                    if (dep_tag != 0) {
-                        str_builder_add_cstr(clone_sb, "_");
-                        str_builder_add_cstr(clone_sb, dep_tag);
-                    }
-                }
-                var clone_dir = str_data(str_builder_build(clone_sb));
-                if (_home != 0) {
-                    var pdir_sb = str_builder_new();
-                    str_builder_add_cstr(pdir_sb, _home);
-                    str_builder_add_cstr(pdir_sb, "/deps");
-                    sys_mkdir(str_data(str_builder_build(pdir_sb)), 0x1ED);
-                    var pdir2_sb = str_builder_new();
-                    str_builder_add_cstr(pdir2_sb, _home);
-                    str_builder_add_cstr(pdir2_sb, "/deps/");
-                    str_builder_add_cstr(pdir2_sb, dep_name);
-                    sys_mkdir(str_data(str_builder_build(pdir2_sb)), 0x1ED);
-                } else {
-                    sys_mkdir("/tmp/cyrius_deps", 0x1ED);
-                }
-                if (is_dir(str_from(clone_dir)) == 0) {
-                    # CVE-01: validate git URL — reject shell metacharacters
-                    var git_ok = 1;
-                    var gi2 = 0;
-                    while (load8(dep_git + gi2) != 0) {
-                        var gc = load8(dep_git + gi2);
-                        if (gc == 59 || gc == 124 || gc == 96 || gc == 36 || gc == 38 || gc == 40 || gc == 41) {
-                            git_ok = 0;
-                        }
-                        gi2 += 1;
-                    }
-                    if (dep_tag != 0) {
-                        var ti2 = 0;
-                        while (load8(dep_tag + ti2) != 0) {
-                            var tc2 = load8(dep_tag + ti2);
-                            if (tc2 == 59 || tc2 == 124 || tc2 == 96 || tc2 == 36 || tc2 == 38) {
-                                git_ok = 0;
-                            }
-                            ti2 += 1;
-                        }
-                    }
-                    if (git_ok == 0) {
-                        sys_write(STDERR_FD, "error: unsafe characters in git URL or tag — skipping ", 54);
-                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
-                        sys_write(STDERR_FD, "\n", 1);
-                        errors += 1;
-                    }
-                    if (git_ok == 1) {
-                        var cmd_sb = str_builder_new();
-                        str_builder_add_cstr(cmd_sb, "git clone --depth 1 -q ");
-                        if (dep_tag != 0) {
-                            str_builder_add_cstr(cmd_sb, "-b ");
-                            str_builder_add_cstr(cmd_sb, dep_tag);
-                            str_builder_add_cstr(cmd_sb, " ");
-                        }
-                        str_builder_add_cstr(cmd_sb, dep_git);
-                        str_builder_add_cstr(cmd_sb, " ");
-                        str_builder_add_cstr(cmd_sb, clone_dir);
-                        var cmd = str_data(str_builder_build(cmd_sb));
-                        if (_verbose == 1) {
-                            sys_write(STDERR_FD, "  git: ", 7);
-                            sys_write(STDERR_FD, cmd, strlen(cmd));
-                            sys_write(STDERR_FD, "\n", 1);
-                        }
-                        sys_system(cmd);
-                    }
-                }
-                dep_path = clone_dir;
-            }
-            # Copy modules from dep_path. v5.7.8 P4: track per-dep
-            # success so the summary counts distinct deps, not
-            # individual modules. Pre-v5.7.8, `copied++` per module
-            # produced a count that drifted between cold and warm
-            # cache (off-by-one when a multi-module dep was processed
-            # vs a single-module dep on warm cache).
-            var dep_had_success = 0;
-            if (dep_path != 0 && dep_modules != 0) {
-                var mi = 0;
-                while (mi < vec_len(dep_modules)) {
-                    var mod_path = vec_get(dep_modules, mi);
-                    # Source: dep_path/mod_path
-                    var sb = str_builder_new();
-                    str_builder_add_cstr(sb, dep_path);
-                    str_builder_add_cstr(sb, "/");
-                    str_builder_add_cstr(sb, mod_path);
-                    var src = str_data(str_builder_build(sb));
-                    # Fallback: if path has subdirs and doesn't exist, try flat
-                    if (file_exists(src) == 0) {
-                        var fb = mod_path;
-                        var fbi = 0;
-                        while (load8(mod_path + fbi) != 0) {
-                            if (load8(mod_path + fbi) == 47) { fb = mod_path + fbi + 1; }
-                            fbi = fbi + 1;
-                        }
-                        if (fb != mod_path) {
-                            var sb_fb = str_builder_new();
-                            str_builder_add_cstr(sb_fb, dep_path);
-                            str_builder_add_cstr(sb_fb, "/lib/");
-                            str_builder_add_cstr(sb_fb, fb);
-                            var alt = str_data(str_builder_build(sb_fb));
-                            if (file_exists(alt) == 1) { src = alt; }
-                        }
-                    }
-                    # v5.7.8 P1: if src STILL does not exist after the
-                    # subdir/flat fallback, the manifest declared a
-                    # `modules` path that does not exist at the pinned
-                    # tag. Pre-v5.7.8, the resolver blindly created a
-                    # dangling symlink and reported success; the build
-                    # error surfaced later as "missing include" without
-                    # blaming the resolver. Multi-hour debug trap.
-                    # Fix: report loudly, count as error, skip this entry.
-                    if (file_exists(src) == 0) {
-                        sys_write(STDERR_FD, "error: [deps.", 13);
-                        sys_write(STDERR_FD, dep_name, strlen(dep_name));
-                        sys_write(STDERR_FD, "] modules entry \"", 17);
-                        sys_write(STDERR_FD, mod_path, strlen(mod_path));
-                        sys_write(STDERR_FD, "\" not found at tag in ", 22);
-                        sys_write(STDERR_FD, dep_path, strlen(dep_path));
-                        sys_write(STDERR_FD, "\n", 1);
-                        errors = errors + 1;
-                        mi = mi + 1;
-                        continue;
-                    }
-                    # Destination: lib/{basename} if it starts with depname,
-                    # else lib/{depname}_{basename} to avoid collisions.
-                    var base = mod_path;
-                    var bi = 0;
-                    while (load8(mod_path + bi) != 0) {
-                        if (load8(mod_path + bi) == 47) { base = mod_path + bi + 1; }
-                        bi = bi + 1;
-                    }
-                    var sb3 = str_builder_new();
-                    str_builder_add_cstr(sb3, "lib/");
-                    var _dnl = strlen(dep_name);
-                    var _bsd = 1;
-                    var _ck = 0;
-                    while (_ck < _dnl) {
-                        if (load8(base + _ck) != load8(dep_name + _ck)) { _bsd = 0; break; }
-                        _ck = _ck + 1;
-                    }
-                    if (_bsd == 1) {
-                        str_builder_add_cstr(sb3, base);
-                    } else {
-                        str_builder_add_cstr(sb3, dep_name);
-                        str_builder_add_cstr(sb3, "_");
-                        str_builder_add_cstr(sb3, base);
-                    }
-                    var dst = str_data(str_builder_build(sb3));
-                    # Symlink dep into lib/ — audit walkers skip symlinks,
-                    # treating them as upstream-owned and not subject to local
-                    # format/lint. Falls back to copy if symlink() fails.
-                    # Symlink target MUST be absolute: a relative target like
-                    # `../sigil/dist/sigil.cyr` resolves relative to the link's
-                    # parent (lib/), giving the wrong path. Fixed in 4.4.1.
-                    var sym_src = _abs_path(src);
-                    var cr2 = 2;
-                    sys_unlink(dst);
-                    var srv = syscall(88, sym_src, dst);
-                    if (srv < 0) {
-                        cr2 = _dep_copy_file(src, dst);
-                    } else {
-                        cr2 = 0;
-                    }
-                    if (cr2 == 0 || cr2 == 2) {
-                        vec_push(_dep_includes, dst);
-                        # cr2 == 0: actual symlink/copy created.
-                        # cr2 == 2: target already correct (warm cache).
-                        # Either way, this dep produced a usable module.
-                        dep_had_success = 1;
-                        if (cr2 == 0) {
-                            if (_verbose == 1) {
-                                sys_write(STDERR_FD, "  ", 2);
-                                sys_write(STDERR_FD, dep_name, strlen(dep_name));
-                                sys_write(STDERR_FD, ": ", 2);
-                                sys_write(STDERR_FD, base, strlen(base));
-                                sys_write(STDERR_FD, "\n", 1);
-                            }
-                        }
-                        # No alias needed — basename-starts-with-depname check
-                        # above already places the file at lib/{basename}.
-                    } elif (cr2 == 1) { errors = errors + 1; }
-                    mi = mi + 1;
-                }
-            }
-            if (dep_had_success == 1) { copied = copied + 1; }
-        } else {
-            si = si + 1;
+    # === Phase 2: named deps (consumer's manifest) ===
+    # v5.7.14: extracted to _process_named_deps. Consumer's manifest_dir
+    # is abs(cwd). After this returns, _dep_queue holds the resolved
+    # dirs of every direct dep — Phase 3 drains them.
+    var _consumer_dir = _abs_path(".");
+    errors = errors + _process_named_deps(buf, n, _consumer_dir);
+
+    # === Phase 3: transitive deps (BFS drain of _dep_queue) ===
+    # v5.7.14. For each resolved dep dir, read its cyrius.cyml and
+    # process its [deps.X] sections. New deps push more dirs into
+    # _dep_queue; closest-wins skip prevents re-resolution. Cycles
+    # terminate naturally because re-encountered names are skipped.
+    var _qi = 0;
+    while (_qi < vec_len(_dep_queue)) {
+        var _trans_dir = vec_get(_dep_queue, _qi);
+        _qi = _qi + 1;
+        var _tm_sb = str_builder_new();
+        str_builder_add_cstr(_tm_sb, _trans_dir);
+        str_builder_add_cstr(_tm_sb, "/cyrius.cyml");
+        var _tm = str_data(str_builder_build(_tm_sb));
+        if (file_exists(_tm) == 0) {
+            var _tm_sb2 = str_builder_new();
+            str_builder_add_cstr(_tm_sb2, _trans_dir);
+            str_builder_add_cstr(_tm_sb2, "/cyrius.toml");
+            _tm = str_data(str_builder_build(_tm_sb2));
         }
+        if (file_exists(_tm) == 0) { continue; }
+        var _tbuf = alloc(32768);
+        var _tn = file_read_all(_tm, _tbuf, 32767);
+        if (_tn <= 0) { continue; }
+        # Strip CYML body (everything after `\n---`); only header is TOML.
+        var _thdr = _tn;
+        var _ts = 0;
+        while (_ts + 3 < _tn) {
+            if (load8(_tbuf + _ts) == 10 && load8(_tbuf + _ts + 1) == 45 && load8(_tbuf + _ts + 2) == 45 && load8(_tbuf + _ts + 3) == 45) {
+                _thdr = _ts;
+                _ts = _tn;
+            }
+            _ts = _ts + 1;
+        }
+        _tn = _thdr;
+        store8(_tbuf + _tn, 0);
+        errors = errors + _process_named_deps(_tbuf, _tn, _trans_dir);
     }
+
+    # v5.7.14: `copied` is the count of distinct deps resolved (direct +
+    # transitive). _dep_visited grows once per resolved dep across both
+    # phases.
+    copied = vec_len(_dep_visited);
 
     # Summary (only print if something was copied or errored)
     if (copied > 0 || errors > 0) {

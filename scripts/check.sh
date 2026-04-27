@@ -352,6 +352,15 @@ if [ "$se_result" -ne 0 ]; then cat /tmp/audit_se_$$; fi
 rm -f /tmp/audit_se_$$
 echo ""
 
+# ── 4x. Transitive cyrius deps resolution (v5.7.14) ──
+echo "── cyrius deps transitive ──"
+sh "$ROOT/tests/regression-deps-transitive.sh" > /tmp/audit_dt_$$ 2>&1
+dt_result=$?
+check "cyrius deps walks [deps.X] transitively (3-level + diamond + cycle + rel-path; v5.7.14)" "$dt_result"
+if [ "$dt_result" -ne 0 ]; then cat /tmp/audit_dt_$$; fi
+rm -f /tmp/audit_dt_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
