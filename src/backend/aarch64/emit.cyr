@@ -47,6 +47,10 @@ var _TARGET_MACHO = 0;
 # the two backends. The `if (_TARGET_PE == 1)` branches in parse.cyr
 # are statically dead on aarch64 targets — Windows PE is x86_64 only.
 var _TARGET_PE = 0;
+# v5.7.12: cx (cyrius-x bytecode) backend marker. =0 on aarch64
+# emit (this file); =1 only on backend/cx/emit.cyr. See path B
+# notes in docs/audit/2026-04-27-cx-direct-emit-inventory.md.
+var _TARGET_CX = 0;
 
 # No-op shim for the PE pending-imports helper, same reasoning:
 # `parse.cyr` calls `_pe_pending_imp_add` from the `#pe_import`

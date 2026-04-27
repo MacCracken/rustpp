@@ -449,6 +449,13 @@ var _TARGET_MACHO = 0;
 # emitter (fncall*, &fn, direct-EB) and at final emit dispatch
 # which routes to EMITPE_EXEC in src/backend/pe/emit.cyr.
 var _TARGET_PE = 0;
+# v5.7.12: cx (cyrius-x bytecode) backend marker. parse_*.cyr
+# uses this to gate direct x86-byte emits in shared codepaths
+# that would otherwise pollute the CYX bytecode stream. Always
+# 0 on x86 emit (this file); =1 only when backend/cx/emit.cyr
+# is the active include. See path B in
+# docs/audit/2026-04-27-cx-direct-emit-inventory.md.
+var _TARGET_CX = 0;
 
 # emit exit epilogue: mov rdi, rax; mov rax, <exit_nr>; syscall
 fn EEXIT(S) {

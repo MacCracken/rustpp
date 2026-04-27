@@ -334,6 +334,15 @@ if [ "$cx_result" -ne 0 ]; then cat /tmp/audit_cx_$$; fi
 rm -f /tmp/audit_cx_$$
 echo ""
 
+# ── 4v. cyrius-x bytecode is x86-noise-free (v5.7.12 — path B) ──
+echo "── cyrius-x bytecode cleanliness ──"
+sh "$ROOT/tests/regression-cx-roundtrip.sh" > /tmp/audit_cxr_$$ 2>&1
+cxr_result=$?
+check "cc5_cx output: well-formed CYX, no x86 noise; cxvm consumes (v5.7.12 path B)" "$cxr_result"
+if [ "$cxr_result" -ne 0 ]; then cat /tmp/audit_cxr_$$; fi
+rm -f /tmp/audit_cxr_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

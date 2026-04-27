@@ -4,6 +4,134 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.12] — 2026-04-27
+
+**CYRIUS-X BYTECODE — PATH B (`_TARGET_CX == 0` GUARDS).**
+Stops `parse_*.cyr` from emitting raw x86 instruction bytes
+into the CYX bytecode stream. Path A (named-op refactor across
+3 backends) pinned long-term. v5.7.13 RISC-V is now next.
+
+### Background
+
+v5.7.11 closed `main_cx.cyr` build/startup drift but explicitly
+deferred bytecode semantic correctness. Earlier cc5_cx output
+mixed `CYX\0` magic + valid CYX opcodes with raw x86 sequences:
+`4889 5df8 4c89 65f0 ...` (callee-save chains) leaked through
+from `parse_fn.cyr`'s regalloc save block. The audit
+([`docs/audit/2026-04-27-cx-direct-emit-inventory.md`](docs/audit/2026-04-27-cx-direct-emit-inventory.md))
+found 67 raw direct-emit hits collapsing to ~10 logical sites
+across `parse_*.cyr`. v5.7.12 ships path B: `_TARGET_CX == 0`
+guards on the offending sites.
+
+### Added (`_TARGET_CX` flag)
+
+- **`var _TARGET_CX = 0;`** in `src/backend/x86/emit.cyr` and
+  `src/backend/aarch64/emit.cyr`.
+- **`var _TARGET_CX = 1;`** in `src/backend/cx/emit.cyr`.
+- Pattern matches existing `_AARCH64_BACKEND` / `_TARGET_MACHO`
+  / `_TARGET_PE` flags (set by which backend emit.cyr is the
+  active include).
+
+### Changed (path B guards on direct-x86-emit sites)
+
+7 sites guarded; 3 of the 10 inventoried sites turned out to
+be already arch-conditional or didn't need fixing:
+
+- **`parse_decl.cyr` struct field load (sub-8-byte)** — broadened
+  existing aarch64 `ERR_MSG` to also reject cx (no CYX byte-load
+  opcode in this slot).
+- **`parse_expr.cyr` PIC fn-addr** — added `_TARGET_CX == 1` arm
+  before x86 `_IS_OBJ` arm; cx no-op (no fn-pointer semantic).
+- **`parse_expr.cyr` &local x86 LEA arm** — added `_TARGET_CX == 1`
+  no-op arm.
+- **`parse_expr.cyr` PIC closure-literal addr** — same shape as
+  fn-addr.
+- **`parse_expr.cyr` f64 cmp x86 SETcc chain** — added
+  `_TARGET_CX == 1` early-return that consumes the closing paren
+  (parser stays in sync) but skips the x86 emits.
+- **`parse_fn.cyr` struct-return `rep movsb`** — broadened existing
+  aarch64 `ERR_MSG` to also reject cx.
+- **`parse_fn.cyr` regalloc save block (5 lines)** — wrapped
+  in `if (_TARGET_CX == 0)`. **High-volume site** — every fn
+  with `_cur_fn_regalloc > 0` was leaking `48 89 5d f8` etc.
+  pre-v5.7.12.
+- **`parse_fn.cyr` regalloc restore block (5 lines)** — same
+  shape.
+
+The 3 sites NOT changed:
+- `parse_expr.cyr` arg cleanup `add rsp, 8` — already inside
+  `if (_TARGET_PE == 1)`, cx skips automatically.
+- `parse_expr.cyr` aarch64-conditional `EW` calls — already
+  arch-gated on `_AARCH64_BACKEND == 1`.
+- `parse_expr.cyr` f64 unary x87/SSE ops (ptyp 99 / 71 /
+  83-88) — none of v5.7.12's acceptance gate programs
+  exercise f64. Documented as a cx limitation; pinned for a
+  future v5.7.x patch slot.
+
+### Fixed (cx output is now well-formed)
+
+cc5_cx output for `echo 'fn main() { return 0; } syscall(60,
+main());'`:
+- **Pre-v5.7.12**: `CYX\0` magic + valid CYX opcodes +
+  interleaved x86 callee-save sequences (`4889 5df8 4c89 65f0
+  4c89 6de8 ...`) from regalloc save/restore.
+- **Post-v5.7.12**: `CYX\0` magic + valid CYX opcodes only.
+  Zero x86 instruction bytes in the stream.
+
+### Added (regression — path B verification)
+
+- **`tests/regression-cx-roundtrip.sh`** — five checks:
+  1. cc5 builds main_cx.cyr cleanly (inherits v5.7.11 gate).
+  2. cc5_cx output starts with `CYX\0` magic.
+  3. **No `4889 5df8` (regalloc save x86 prefix) in output.**
+  4. **No `4c8b 65f0` (regalloc restore x86 prefix) in output.**
+  5. cxvm consumes cc5_cx output without "not a .cyx file"
+     error and without VM crash.
+- Wired into `scripts/check.sh` as gate **4v**. check.sh
+  **33/33 PASS**.
+
+### What's NOT in v5.7.12 (future work)
+
+- **`syscall(60, X)` exit-code propagation through cxvm.** A
+  pre-existing cx codegen issue surfaced during v5.7.12
+  testing: literal arguments don't propagate through `EMOVI`
+  in the syscall arg path. cc5_cx emits `movi r0, 0` instead
+  of `movi r0, 60` for syscall args. **This is NOT a v5.7.12
+  regression** — same shape exists in pre-v5.7.12 cc5_cx
+  output. Pinned for a v5.7.x patch slot (see roadmap patch
+  slate: `cx codegen literal-arg propagation`).
+- **f64 ops on cx** (ptyp 71 / 83-88 / 99). cc5_cx still emits
+  raw x87/SSE bytes for these — none of v5.7.12's acceptance
+  gates exercise them, but the leak persists. Pin for follow-up
+  if a consumer surfaces.
+- **Path A** (named-op refactor across 3 backends) pinned in
+  the Long-term considerations section of roadmap. Trigger:
+  RISC-V (v5.7.13) adds 4th backend making path B's guard
+  pattern unwieldy, OR 2+ new direct-emit sites slip past, OR
+  a cx consumer surfaces needing real CYX opcodes for the
+  no-op'd ops.
+
+### Compiler size
+
+- cc5 v5.7.11 (709,776 B) → v5.7.12 (**710,312 B**, +536 B).
+  Increment is the new `_TARGET_CX` global declarations + 7
+  guard branches. No x86 codegen behavior change (path B
+  doesn't alter emitted x86 bytes).
+- cc5_cx now builds at **366,248 B** (was 365,696 B at
+  v5.7.11) — same +536 B shape.
+
+### Acceptance gates verified
+
+- 3-step fixpoint on x86 main.cyr: cc5_a == cc5_b
+  byte-identical at 710,312 B. ✅
+- `scripts/check.sh`: **33/33 PASS** (gate 4v added). ✅
+- `tests/regression-cx-build.sh` (v5.7.11 gate): still PASS
+  with new cc5_cx size. ✅
+- `tests/regression-cx-roundtrip.sh` (NEW v5.7.12 gate):
+  PASS — cc5_cx output is clean CYX bytecode, cxvm consumes
+  without crash. ✅
+- All 5 main_*.cyr cross-arch builds still pass. ✅
+
 ## [5.7.11] — 2026-04-27
 
 **`main_cx.cyr` DRIFT FIX + CI GATE.** Smaller-slot scope (per

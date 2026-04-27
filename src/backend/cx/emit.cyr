@@ -20,6 +20,11 @@
 var _AARCH64_BACKEND = 0;
 var _TARGET_MACHO = 0;
 var _TARGET_PE = 0;
+# v5.7.12: this is the cyrius-x bytecode backend. =1 here so
+# parse_*.cyr can gate direct x86-byte emits via
+# `if (_TARGET_CX == 0)` (path B from
+# docs/audit/2026-04-27-cx-direct-emit-inventory.md).
+var _TARGET_CX = 1;
 # v5.6.8 flag-reuse tracker — defined in x86 + aarch64 emit; mirror
 # here so parse_ctrl.cyr / parse_expr.cyr resolve the symbol on cx
 # builds. Always 0 on cx — bytecode has no flag-reuse semantic.

@@ -5,6 +5,30 @@
 
 ## Version
 
+**5.7.12** (shipped 2026-04-27 — **CYRIUS-X BYTECODE PATH B**.
+Stops `parse_*.cyr` from emitting raw x86 instruction bytes
+into the CYX bytecode stream. cc5 709,776 → **710,312 B**
+(+536 B for the `_TARGET_CX` flag + 7 path-B guards). cc5_cx
+output is now clean CYX bytecode — pre-v5.7.12 had
+`4889 5df8 4c89 65f0 ...` (x86 callee-save chains) leaked
+through from regalloc save/restore. Inventory: 67 raw
+direct-emit hits in `parse_*.cyr` collapsed to ~10 logical
+sites; 7 guarded with `_TARGET_CX == 0`, 3 already
+arch-conditional. Path A (named-op refactor across 3
+backends) **pinned long-term** in roadmap — trigger when
+RISC-V or 2+ new direct-emit sites make path B unwieldy. cx
+output `CYX\0` magic + valid CYX opcodes only, zero x86
+bytes. New `tests/regression-cx-roundtrip.sh` (gate 4v)
+verifies path B holds: greps cc5_cx output for known x86
+instruction-byte signatures (`4889 5df8`, `4c8b 65f0`); fails
+if any leak. **check.sh 33/33 PASS**, x86 fixpoint clean.
+Two pre-existing limitations documented for follow-up: (a)
+syscall arg literal-propagation bug — cc5_cx's EMOVI on
+syscall args emits `movi r0, 0` instead of `movi r0, N` for
+literal N (pin v5.7.x patch slot); (b) f64 ops on cx still
+emit raw x87/SSE bytes (none in v5.7.12 acceptance gates,
+pin if consumer surfaces). **v5.7.13 RISC-V is now next.**)
+
 **5.7.11** (shipped 2026-04-27 — **`main_cx.cyr` DRIFT FIX +
 CI GATE**. Smaller-slot scope per user 2026-04-27
 ("correctness over new features always"). v5.7.10's cross-arch

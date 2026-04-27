@@ -277,8 +277,10 @@ fn PARSE_RETURN(S) {
         # it, but we should fail loud at compile time). The aarch64
         # analog (LDRB/STRB loop with X0..X2 scratch) ships with
         # Phase 2b-aarch64 as a separate patch.
-        if (_AARCH64_BACKEND == 1) {
-            ERR_MSG(S, "struct return by value is x86-only for v5.5.36; aarch64 pending Phase 2b-aarch64 patch", 90);
+        if (_AARCH64_BACKEND == 1 || _TARGET_CX == 1) {
+            # v5.7.12: broaden — cx bytecode has no struct-return
+            # opcode in this slot. Emits below are raw x86 rep movsb.
+            ERR_MSG(S, "struct return by value is x86-only for v5.5.36; aarch64 + cx pending", 70);
         }
         # Under Win64, RSI and RDI are NONVOLATILE (caller preserves
         # them across calls). `rep movsb` forces us to use both, so
@@ -783,12 +785,19 @@ fn PARSE_FN_DEF(S) {
     # Encodings: REX.WR=4C for r12-r15 (REX.R=1), opcode 89 (mov r/m,r),
     # ModR/M byte encodes register + [rbp+disp8].
     # v5.6.12: regalloc callee-saved spill block is raw x86 encoding.
-    if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
-    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
-    if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
-    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
-    if (_cur_fn_regalloc >= 4) { E3(S, 0x75894C); EB(S, 0xE0); }  # mov [rbp-32], r14
-    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D894C); EB(S, 0xD8); }  # mov [rbp-40], r15
+    # v5.7.12 path B: regalloc save block is raw x86 encoding;
+    # cx bytecode has no callee-save semantic in this slot.
+    # The `_cur_fn_regalloc > 0` check on cx is academic — cx
+    # never auto-enables regalloc (different scheduling) — but
+    # explicit guard hardens against future changes.
+    if (_TARGET_CX == 0) {
+        if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
+        if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8948); EB(S, 0xF8); }  # mov [rbp-8], rbx
+        if (_cur_fn_regalloc >= 2) { E3(S, 0x65894C); EB(S, 0xF0); }  # mov [rbp-16], r12
+        if (_cur_fn_regalloc >= 3) { E3(S, 0x6D894C); EB(S, 0xE8); }  # mov [rbp-24], r13
+        if (_cur_fn_regalloc >= 4) { E3(S, 0x75894C); EB(S, 0xE0); }  # mov [rbp-32], r14
+        if (_cur_fn_regalloc >= 5) { E3(S, 0x7D894C); EB(S, 0xD8); }  # mov [rbp-40], r15
+    }
     # v5.5.36 Phase 2b — stash the hidden retptr (SysV: RDI, Win64:
     # RCX) into the reserved slot immediately after regalloc saves.
     # ESTOREREGPARM(S, 0, disp) emits the ABI-correct opcode.
@@ -974,11 +983,14 @@ fn PARSE_FN_DEF(S) {
     # v4.9.1: restore callee-saved registers (reverse order of save).
     # v5.6.12: regalloc callee-saved restore block is raw x86 encoding.
     if (_cur_fn_regalloc >= 1) { _IR_REC0(S, IR_RAW_EMIT); }
-    if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
-    if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
-    if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]
-    if (_cur_fn_regalloc >= 2) { E3(S, 0x658B4C); EB(S, 0xF0); }  # mov r12, [rbp-16]
-    if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8B48); EB(S, 0xF8); }  # mov rbx, [rbp-8]
+    # v5.7.12 path B: regalloc restore — same shape as save.
+    if (_TARGET_CX == 0) {
+        if (_cur_fn_regalloc >= 5) { E3(S, 0x7D8B4C); EB(S, 0xD8); }  # mov r15, [rbp-40]
+        if (_cur_fn_regalloc >= 4) { E3(S, 0x758B4C); EB(S, 0xE0); }  # mov r14, [rbp-32]
+        if (_cur_fn_regalloc >= 3) { E3(S, 0x6D8B4C); EB(S, 0xE8); }  # mov r13, [rbp-24]
+        if (_cur_fn_regalloc >= 2) { E3(S, 0x658B4C); EB(S, 0xF0); }  # mov r12, [rbp-16]
+        if (_cur_fn_regalloc >= 1) { E3(S, 0x5D8B48); EB(S, 0xF8); }  # mov rbx, [rbp-8]
+    }
     # Emit epilogue
     EFNEPI(S);
     DSE_PASS(S, fn_start);

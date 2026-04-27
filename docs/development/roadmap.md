@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.11.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
+> **v5.7.12.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
 > 704,976 — fixup-table cap 262K → 1M, brk +12 MB, lint UFCS Pascal-
 > prefix exemption, `cyrius build` atomic-output via tmp+rename). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -645,6 +645,79 @@ With cross-BB liveness data and actual virtual registers, copy
 chains can span BBs and the cascade math changes — copy-prop
 might earn its keep alongside register-renaming opportunities
 the regalloc surfaces.
+
+### Parser-to-emit named-op refactor (path A from v5.7.12 inventory)
+
+**Status**: pinned long-term 2026-04-27 after v5.7.12 took
+path B (`_TARGET_CX == 0` guards on ~10 sites). The path A
+refactor is the right long-term architecture; v5.7.12 ships
+the tactical fix without committing to it.
+
+**The problem path A solves**: `parse_*.cyr` directly emits
+x86 instruction bytes via `EB(S, 0xNN)` / `E2(S, 0xNNNN)` /
+`E3(S, 0xNNNNNN)` calls in shared codepaths. Each backend
+(x86, aarch64, cx, future-RISC-V) has to either map those
+literal bytes to its own emit (cx already does, but x86 hex
+literals aren't CYX opcodes) or guard the site
+arch-conditionally. Path B chose the latter; path A would
+replace every direct emit with a named abstract op that each
+backend implements natively.
+
+**Scope estimate** (per the v5.7.12 inventory at
+[`docs/audit/2026-04-27-cx-direct-emit-inventory.md`](../audit/2026-04-27-cx-direct-emit-inventory.md)):
+- ~10 distinct logical sites at v5.7.11. Each is a 3-12 byte
+  x86 sequence that needs a single named op in each backend.
+- Roughly: 10 new abstract ops × 3 backends (= 4 with RISC-V)
+  = 30-40 fn definitions, plus rewriting the 10 parse_*.cyr
+  call sites to use the named ops.
+- Multi-session real engineering. Not a wedge.
+
+**Trigger conditions** (any one):
+
+1. **RISC-V (v5.7.13) lands and adds 4th backend**, making
+   path B's `_TARGET_CX == 0 && _TARGET_RISCV == 0` chains
+   unwieldy at every site.
+2. **2+ new direct-emit sites slip past the static-analysis
+   gate** (TBD if a regex-scanner check.sh gate gets added in
+   the v5.7.x cycle). If parse_*.cyr drift recurs, path A
+   becomes the durable fix.
+3. **A bytecode VM consumer surfaces** that needs the cx
+   backend to handle ops path B currently no-ops (f64,
+   struct return, regalloc). Adding those one at a time to
+   cx would expose the same architectural mismatch path A
+   solves once.
+
+**Per-backend impact** when path A lands:
+- x86 emit: every existing direct-byte sequence in
+  `parse_*.cyr` becomes a 1-line wrapper in `backend/x86/emit.cyr`
+  (mostly already wrapped — EMOVCA, EADDR, ESUBR, etc.).
+  Direct-emit sites in parse_*.cyr replaced with named ops.
+  Byte-identity must hold (the new named op emits the same
+  bytes the old direct call did).
+- aarch64 emit: implements the same named ops with aarch64
+  encodings. Many already exist; the new ones map to
+  patterns currently handled by `if (_AARCH64_BACKEND == 1)`
+  branches (which path B leaves in place).
+- cx emit: implements the named ops as CYX bytecode opcodes —
+  THIS is where the real semantic work happens. Half the
+  v5.7.12 path-B sites are currently no-ops on cx;
+  path A forces a real CYX opcode for each (which means
+  cxvm interpreter changes too, in lockstep).
+- RISC-V emit: starts with the named-op interface from day
+  one. Cleanest backend addition path.
+
+**Why deferred**: v5.7.12 needs to STOP THE BLEEDING (cx
+output is x86 noise + valid CYX interleaved) on a tractable
+budget. Path B does that in ~50 LOC. Committing to path A's
+30-40 fn definitions + cxvm coordination + byte-identity
+across 3 backends is a different scope category. Defer until
+a trigger fires.
+
+**Reference**: full inventory + per-site classification at
+`docs/audit/2026-04-27-cx-direct-emit-inventory.md`. When a
+trigger fires, the audit doc is the starting point — every
+class B/C/D site listed there becomes a named-op design
+decision in path A.
 
 ### Extended dead-store elimination (cross-BB)
 
@@ -1664,6 +1737,142 @@ a slot; together they're a single targeted sweep.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.x — cx codegen literal-arg propagation
+
+**Pinned 2026-04-27** (surfaced during v5.7.12 path-B testing).
+cc5_cx's codegen for `syscall(N, V)` and similar literal-arg
+patterns doesn't propagate the literal value through `EMOVI`.
+Bytecode for `syscall(60, 42)` shows `movi r0, 0` (val=0)
+instead of `movi r0, 60` and `movi r0, 42`. The 60 *does*
+appear later as `movi r1, 60` (the syscall-number register
+load), but the second arg (42) doesn't appear at all.
+
+**Repro** (against cc5_cx v5.7.12):
+```sh
+echo 'syscall(60, 42);' | cc5_cx | xxd | head -4
+# 00000000: 4359 5800 0000 0000 5001 0000 0100 0000  CYX.....P.......
+# 00000010: 8000 0000 0100 0000 8000 0000 8102 0000  ................
+# 00000020: 8101 0000 7000 0000 0202 0000 0101 3c00  ....p.........<.
+# 00000030: 7000 0000                                p...
+# Note: literal 42 is NOWHERE in the bytecode.
+```
+
+**Pre-existing**: same bytecode shape with v5.7.11 cc5_cx —
+this is NOT a v5.7.12 regression. Path B made the bytecode
+clean of x86 noise; this slot fixes the literal-propagation
+gap independently.
+
+**Root-cause investigation needed**:
+- Is `parse_expr.cyr`'s syscall arg parse path calling
+  `EMOVI(S, val)` correctly?
+- Is `CX_MOVI(S, 0, val)` getting val=0 instead of the actual
+  literal?
+- Or is some prior call clobbering `_cfv` between PCMPE and
+  EMOVI?
+
+The same parse path produces correct bytecode on x86 (cc5
+self-compile works); cx-specific behavior in EMOVI or a state
+global it depends on is the suspect.
+
+**Acceptance gate**:
+- `echo 'syscall(60, 42);' | cc5_cx | cxvm` → exit 42.
+- New `tests/regression-cx-syscall-exit.sh` (or extension of
+  `regression-cx-roundtrip.sh`).
+
+**Slot scope**: small focused investigation (likely 1-2 hour
+debug pass). Slot when v5.7.13 RISC-V wraps or earlier if a
+cx consumer surfaces.
+
+### v5.7.x — basic regex primitives in the stdlib
+
+**Pinned 2026-04-27** (user request, alongside the cyim
+`--grep` → `--find` design from cyrius-bb's tooling pain
+points). Cyrius stdlib lacks regex support; consumers fall
+back to literal-substring matching (`memeq`, `strstr`-style
+loops) or bring their own ad-hoc state machines. cyim's
+`--grep` was designed assuming regex semantics it didn't
+have — exactly the kind of gap a stdlib primitive would
+prevent.
+
+**Scope (basic)**: a small focused module —
+`lib/regex.cyr` — that ships a usable subset, not full PCRE.
+Target the 80% case for downstream tools (cyim, cyrius lint,
+agent-side log scanning, etc.).
+
+**Proposed primitive set** (confirm at slot start):
+- **Anchors**: `^` (start), `$` (end).
+- **Single chars**: literal chars, `.` (any non-newline), `\d`
+  (digit), `\D` (non-digit), `\s` (whitespace), `\S`
+  (non-whitespace), `\w` (word char), `\W` (non-word).
+- **Char classes**: `[abc]`, `[^abc]`, `[a-z]`, `[a-zA-Z0-9_]`.
+  No POSIX `[[:digit:]]` named classes in basic — `\d` covers it.
+- **Quantifiers**: `*` (0+), `+` (1+), `?` (0 or 1). NO `{n}` /
+  `{n,m}` in basic — pin those for an extended-regex follow-up
+  if needed.
+- **Alternation**: `a|b`. Lowest precedence within a group.
+- **Grouping**: `(...)` for grouping. NO capture groups in
+  basic — extended pin if a consumer needs match extraction.
+- **Escape**: `\` for literal metacharacters.
+
+**Out of scope for basic** (extended-regex follow-up):
+- Backreferences (`\1`, `\2`).
+- Lookahead / lookbehind (`(?=...)`, `(?<=...)`).
+- Named captures (`(?<name>...)`).
+- POSIX character classes (`[[:digit:]]`, etc.).
+- `{n,m}` exact-count quantifiers.
+- Unicode property classes (`\p{L}` etc.).
+- Multi-line flag, case-insensitive flag — pin for a `\flags`
+  / fn-arg-flags follow-up.
+
+**API shape** (proposed, confirm at slot start):
+```cyr
+# Compile a regex pattern at runtime. Returns a regex handle
+# (heap-allocated state machine) or 0 on parse error.
+fn regex_compile(pattern: Str) : i64;
+
+# Free a regex handle.
+fn regex_free(re: i64) : i64;
+
+# Test if pattern matches anywhere in subject.
+fn regex_test(re: i64, subject: Str) : i64;
+
+# Find first match; returns byte offset or -1.
+fn regex_find(re: i64, subject: Str) : i64;
+
+# Extract first match into a buffer; returns match length or
+# -1. Buffer should be at least subject_len bytes.
+fn regex_match(re: i64, subject: Str, out_buf: Ptr) : i64;
+```
+
+**Implementation approach**: Thompson NFA construction +
+backtracking interpreter. Small, well-understood, no
+dependency on Cyrius features that aren't shipping.
+Reference: Russ Cox's "Regular Expression Matching Can Be
+Simple And Fast" (https://swtch.com/~rsc/regexp/regexp1.html).
+~300-500 LOC implementation.
+
+**Acceptance gates**:
+- `tests/tcyr/regex_basic.tcyr` covers each primitive: anchors,
+  char classes, quantifiers (`*` `+` `?`), alternation, escape,
+  grouping (non-capturing).
+- `tests/tcyr/regex_edge.tcyr` covers edge cases: empty pattern,
+  empty subject, pattern with only metacharacters, alternation
+  with empty branch, quantifiers on grouped subexpressions.
+- `lib/regex.cyr` lints clean; documented in
+  `docs/cyrius-guide.md` stdlib section.
+- Compiler self-host fixpoint clean (regex.cyr is opt-in via
+  `include`; cc5 itself doesn't use it).
+
+**Consumer unblock**: cyim ships `--find <pattern>` (regex)
++ `--regex=<flavor>` (selector) per the cyrius-bb tooling
+pain-point doc design — once `lib/regex.cyr` lands, cyim's
+`--find` becomes a thin wrapper around the stdlib API instead
+of importing a foreign regex engine.
+
+**Slot scope**: medium (300-500 LOC + tests + doc). Lands as
+its own focused patch in the v5.7.x cycle. Pre-RISC-V is fine
+if it surfaces a need; otherwise post-RISC-V.
 
 ### v5.7.x — `cyrius fuzz` stdlib auto-prepend parity
 
