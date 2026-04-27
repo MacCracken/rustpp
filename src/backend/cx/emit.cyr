@@ -11,6 +11,31 @@
 #
 # Each instruction is 4 bytes: [opcode][ra][rb][rc] (little-endian in output)
 
+# v5.7.11: stubs matching backend/x86/emit.cyr — parse.cyr / parse_expr.cyr
+# / parse_decl.cyr / parse_fn.cyr reference these in shared codepaths
+# (`if (_AARCH64_BACKEND == 1)`, `if (_TARGET_MACHO == ...)`, etc.).
+# cx backend is x86-shaped, never aarch64/mach-o/PE — all 0.
+# Drifted out of sync over multiple v5.6.x/v5.7.x minors because no
+# CI gate builds main_cx.cyr; v5.7.11 fixes the drift + adds the gate.
+var _AARCH64_BACKEND = 0;
+var _TARGET_MACHO = 0;
+var _TARGET_PE = 0;
+# v5.6.8 flag-reuse tracker — defined in x86 + aarch64 emit; mirror
+# here so parse_ctrl.cyr / parse_expr.cyr resolve the symbol on cx
+# builds. Always 0 on cx — bytecode has no flag-reuse semantic.
+var _flags_reflect_rax = 0;
+# v5.6.9 push/pop-cancel + v5.6.10 combine-shuttle peephole trackers.
+# x86 + aarch64 emit use these for peephole rewinds; cx emits 4-byte
+# bytecode instructions, has no equivalent peephole, so trackers are
+# always "no last push/movca recorded" (= -1).
+var _last_push_cp = 0 - 1;
+var _last_emovca_cp = 0 - 1;
+var _last_movca_popr_cp = 0 - 1;
+# x86 inline-fn / loop-var-reg toggles. cx does not inline or
+# loop-var-cache; both 0.
+var _INLINE_OK = 0;
+var _LOOPVAR_OK = 0;
+
 var _cx_spill_idx = 16;
 
 # Emit byte to codebuf (same as x86/emit.cyr but for bytecode)
@@ -436,8 +461,14 @@ fn EMIT_FLOAT_LIT(S, v) { EMOVI(S, v); return 0; }
 fn EMIT_F64_BINOP(S, op) { return 0; }
 fn EI2F(S) { return 0; }
 fn EF2I(S) { return 0; }
-fn PF64BIN(S, op) { return 0; }
-fn PF64CMP(S, op) { return 0; }
+# v5.7.11: PF64BIN / PF64CMP now defined in parse_expr.cyr (the
+# shared frontend, since v5.6.x). The cx stubs that lived here
+# collided with the parse_expr versions and lost (last-include
+# wins). v5.7.9's duplicate-fn warning surfaced this; deleted
+# the dead stubs. parse_expr's versions delegate the actual
+# emits to EMIT_F64_BINOP / EUCOMISD / etc., which cx still stubs
+# to 0 below — so f64 ops on cx remain no-op-but-parse-clean,
+# same as before (just without the silent collision).
 fn EMOVQ_X0_A(S) { return 0; }
 fn EMOVQ_X1_C(S) { return 0; }
 fn EMOVQ_A_X0(S) { return 0; }

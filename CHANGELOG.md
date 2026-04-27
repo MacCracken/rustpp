@@ -4,6 +4,118 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.11] — 2026-04-27
+
+**`main_cx.cyr` DRIFT FIX + CI GATE.** Smaller-slot scope (per
+user 2026-04-27 — *correctness over new features always*).
+v5.7.11 closes the parse-time / build-time / no-SIGSEGV-at-
+startup bar; bytecode semantic correctness cascaded to v5.7.12.
+RISC-V slipped from v5.7.11 → v5.7.13.
+
+### Background
+
+The cyrius-x bytecode entry (`src/main_cx.cyr`) accumulated
+silent drift across v5.6.x and v5.7.x because no CI gate ever
+built it. Each addition to the shared frontend (IR
+instrumentation, arch-conditional branches, target switches,
+peephole trackers) silently broke cx without anyone noticing.
+v5.7.10's cross-arch verify surfaced the visible tip
+(`error: undefined variable 'IR_RAW_EMIT'`); investigation
+showed 4 missing pieces, 2 dead colliding stubs, and an
+undersized brk extension.
+
+### Fixed (4 missing pieces — drift across multiple minors)
+
+- **`include "src/common/ir.cyr"`** added to `src/main_cx.cyr`.
+  Was added to `main.cyr` at v5.6.12 (O3a IR instrumentation)
+  but never propagated. `parse_expr.cyr` references
+  `IR_RAW_EMIT` from this module. Same shape as v5.6.32's
+  `main_aarch64_native.cyr` fix.
+- **`var _AARCH64_BACKEND = 0;`** added to
+  `src/backend/cx/emit.cyr`. Defined in x86 + aarch64 emit but
+  never in cx; `parse.cyr` / `parse_decl.cyr` / `parse_fn.cyr` /
+  `parse_expr.cyr` all reference it.
+- **`var _TARGET_MACHO = 0;` + `var _TARGET_PE = 0;`** added.
+  Defined in x86 + aarch64 emit but never in cx;
+  `parse_expr.cyr` line 412 references.
+- **`var _flags_reflect_rax = 0;`** + 4 peephole-tracker
+  globals (`_last_push_cp`, `_last_emovca_cp`,
+  `_last_movca_popr_cp`, `_INLINE_OK`, `_LOOPVAR_OK`) added.
+  v5.6.8 / v5.6.9 / v5.6.10 trackers from x86 emit;
+  `parse_ctrl.cyr` / `parse_expr.cyr` reference. cx is x86-
+  shaped (no aarch64) and doesn't peephole-track, so all 0 /
+  -1 stubs.
+
+### Removed (2 dead colliding stubs — surfaced by v5.7.9 warn)
+
+- **`fn PF64BIN(S, op) { return 0; }` + `fn PF64CMP(S, op) {
+  return 0; }`** in `src/backend/cx/emit.cyr` lines 449-450.
+  parse_expr.cyr defines authoritative versions of both;
+  cyrius's last-include-wins meant the parse_expr versions
+  always won, the cx stubs were dead. v5.7.9's duplicate-fn
+  warning surfaced the collision; v5.7.11 deletes the dead
+  stubs.
+
+### Fixed (brk extension — undersized for years)
+
+- **`syscall(SYS_BRK, S + 0x54A000)` (5.5 MB) → `S + 0x270B000`
+  (39 MB)** in `src/main_cx.cyr`. The old extension never
+  reached `tok_types` at `S + 0x74A000` (7.5 MB). cc5_cx
+  SIGSEGV'd at LEX the moment a non-empty input landed any
+  token. Bumped to match `main_aarch64.cyr` (cx skips the TS
+  frontend, so doesn't need main.cyr's +13.5 MB).
+
+### Added (CI gate — the durable fix)
+
+- **`tests/regression-cx-build.sh`** runs three checks:
+  1. `cc5 < src/main_cx.cyr` exits 0; output > 100 KB.
+  2. `echo '' | cc5_cx` exits < 128 (no signal).
+  3. `echo 'syscall(60, 0);' | cc5_cx` exits < 128.
+- Wired into `scripts/check.sh` as gate **4u**.
+- The gate is the durable v5.7.11 deliverable. Drift
+  accumulated because no CI ever built cx; this gate closes
+  that hole permanently. Any future addition to the shared
+  frontend that breaks cx fails check.sh immediately.
+
+### What's explicitly NOT fixed (cascaded to v5.7.12)
+
+cc5_cx output today: valid `CYX\0` magic header + valid CYX
+opcodes interleaved with raw x86 instruction bytes (parser
+emits raw x86 via `E3(S, 0xC18948)`-style calls in shared
+codepaths; cx interpreter sees x86 noise interleaved with
+valid CYX opcodes). cxvm rejects most of it.
+
+Fixing requires parser-to-emit interface re-architecture —
+inventory every direct `EB` / `E2` / `E3` / `E4` call in
+`parse_*.cyr` shared code (probably hundreds), replace with
+abstract operations routed through the active backend. That's
+multi-session real engineering, NOT a wedge. Pinned as v5.7.12.
+RISC-V cascaded v5.7.12 → v5.7.13.
+
+User principle (saved as `feedback_correctness_over_features.md`):
+*correctness over new features always*. Cascading the new
+feature is correct; cascading the correctness fix would not be.
+
+### Compiler size
+
+- cc5 unchanged at **709,776 B** (no x86 codepath changed —
+  edits were entirely in cx-only sources + main_cx.cyr top-
+  level + a CI gate).
+- cc5_cx now builds at **365,696 B** (was: failed to build).
+
+### Acceptance gates verified
+
+- 3-step fixpoint on x86 main.cyr: cc5_a == cc5_b
+  byte-identical at 709,776 B. ✅
+- `scripts/check.sh`: **32/32 PASS** (gate 4u added). ✅
+- `tests/regression-cx-build.sh`: PASS (build 365,696 B,
+  empty + trivial input both exit 0). ✅
+- `cc5_cx` output starts with `CYX\0` magic. ✅
+- All 5 main_*.cyr cross-arch builds still pass: x86 ELF
+  (709,776 B), aarch64 ELF (412,096 B), aarch64-native
+  (391,224 B), aarch64-mach-o (411,520 B), Win64 PE
+  (527,104 B). ✅
+
 ## [5.7.10] — 2026-04-26
 
 **`input_buf` 512 KB → 1 MB HEAP-MAP RESHUFFLE.** Load-bearing

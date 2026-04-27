@@ -1,6 +1,6 @@
 # Cyrius Development Roadmap
 
-> **v5.7.10.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
+> **v5.7.11.** cc5 compiler (709,544 B x86_64; +4,568 B from v5.7.6's
 > 704,976 — fixup-table cap 262K → 1M, brk +12 MB, lint UFCS Pascal-
 > prefix exemption, `cyrius build` atomic-output via tmp+rename). Native aarch64 cc5
 > output (Pi 4) is 503,328 B at v5.6.27 (was 497,008 at v5.6.25; the
@@ -376,7 +376,9 @@
 > - **v5.7.8**: ✅ shipped 2026-04-26 — `cyrius check` repair (cc5 exit-code propagation + drop dep auto-prepend for `check` + output formatting) + `cyrius deps` ergonomics (P1-P5 from cyrius-bb `tooling-pain-points.md`) + syscall-arity warning fix (`lib/syscalls_x86_64_linux.cyr:358` — `_SC_ARITY(112)` 1→0; `lex.cyr:227+240` cross-arch sentinel false-positive). cc5 709,544 → 709,688 B. 3-step fixpoint clean; check.sh 29/29.
 > - **v5.7.9**: silent fn-name collision investigation (lifted from v5.7.10 on 2026-04-26 — smaller, contained slot lands first; the v5.7.10 input_buf reshuffle is a ~1586-edit heap shuffle that deserves its own slot).
 > - **v5.7.10**: `input_buf` 512KB → 1MB heap-map reshuffle (pattern matches v5.6.40's preprocess_out 1MB → 2MB). **Load-bearing for the ecosystem, not speculative**: hisab `dist/hisab.cyr` is 505,237 B = 96% of the 524288 B cap and actively censoring upstream to stay under; every consumer of hisab inherits the full 505 KB via cyrius's `[deps]` auto-prepend, leaving only 19,051 B of budget for the consumer's own source. Sandhi/sit/yantra-class folds compound the pressure — hisab is the canary, not the only blocker. Slot lifted to v5.7.10 (was v5.7.9) on 2026-04-26 because the reshuffle scope (~214 distinct heap-region addresses, ~1586 occurrences, all in the 0x80000..0xFFFFF range) is bigger than v5.7.9's collision-investigation work and deserves its own slot rather than rushing under the v5.7.9 banner.
-> - **v5.7.11**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend with inner-expr tokenization + collision-resolution rule + 1MB input_buf). Slid across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr/cyrius-check-and-deps/collision-investigation/input-buf took priority slots in turn.
+> - **v5.7.11**: `main_cx.cyr` (cyrius-x bytecode entry) drift fix — parse-time + build-time + no-SIGSEGV-at-startup; plus `tests/regression-cx-build.sh` CI gate (the durable part — drift accumulated across v5.6.x + v5.7.x reshuffle because no gate built it). 4 missing pieces added (ir.cyr include, _AARCH64_BACKEND/_TARGET_MACHO/_TARGET_PE/_flags_reflect_rax + 4 peephole-tracker globals), 2 dead PF64BIN/PF64CMP cx-stubs deleted (surfaced by v5.7.9's duplicate-fn warning), brk bumped 5.5 MB → 39 MB. Bytecode semantic correctness cascaded to v5.7.12 (correctness over new features per user 2026-04-27).
+> - **v5.7.12**: cyrius-x bytecode semantic correctness — parser-to-emit interface re-architecture so cc5_cx output round-trips cleanly through cxvm. parse_*.cyr currently emits raw x86 bytes via `E3(S, 0xC18948)`-style calls in shared codepaths; cx interpreter sees x86 noise interleaved with valid CYX opcodes. Fix: replace direct emits with abstract operations routed through the active backend, or guard with `_TARGET_CX == 0` per site. Real engineering, multi-session. Cascaded from v5.7.12 RISC-V slot 2026-04-27 — correctness work claims the slot, new features queue.
+> - **v5.7.13**: RISC-V rv64 port (inherits optimized compiler + post-fold stdlib shape + bumped fixup table + complete cyrius-ts frontend + collision-resolution rule + 1MB input_buf + cx-build-clean + cx-correct). Slid across 2026-04-24/27 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/JSX-inner-expr/cyrius-check-and-deps/collision-investigation/input-buf/cx-drift/cx-correctness took priority slots in turn.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -975,7 +977,8 @@ if there's headroom; otherwise carry forward.
 ### Slot relationship
 
 Standalone slot. v5.7.9 (silent fn-name collision), v5.7.10
-(`input_buf` 512KB → 1MB), and v5.7.11 (RISC-V) follow.
+(`input_buf` 512KB → 1MB), v5.7.11 (cx-drift fix), v5.7.12
+(cx-correctness), and v5.7.13 (RISC-V) follow.
 
 ## v5.7.9 — silent fn-name collision investigation
 
@@ -1053,7 +1056,7 @@ v5.7.8-bundled position 2026-04-26 when the cyrius check /
 deps / arity bundle took v5.7.8; lifted from v5.7.10 → v5.7.9
 on 2026-04-26 when the v5.7.10 input_buf reshuffle audit
 showed it deserved its own slot. v5.7.10 (input_buf 1MB) and
-v5.7.11 (RISC-V) follow.
+v5.7.11 (cx-drift fix), v5.7.12 (cx correctness), and v5.7.13 (RISC-V) follow.
 
 ## v5.7.10 — input_buf 512KB → 1MB heap-map reshuffle
 
@@ -1157,9 +1160,157 @@ after self-compile).
 
 ### Slot relationship
 
-Standalone slot. v5.7.11 (RISC-V) follows.
+Standalone slot. v5.7.11 (cx-drift fix) and v5.7.12 (cx
+correctness) follow; v5.7.13 (RISC-V) after that.
 
-## v5.7.11 — RISC-V rv64
+## v5.7.11 — main_cx.cyr drift fix + CI gate
+
+**Pinned 2026-04-27** as a wedge before RISC-V. Surfaced during
+v5.7.10's cross-arch verify: `main_cx.cyr` (the cyrius-x
+bytecode entry) failed to build with
+`error: undefined variable 'IR_RAW_EMIT'`. Investigation showed
+the failure was the visible tip of accumulated drift across
+multiple minors — no CI gate ever built `main_cx.cyr`, so each
+addition to the shared frontend that x86/aarch64 picked up
+silently broke cx.
+
+### Smaller-slot scope (per user 2026-04-27)
+
+Three bars, all met:
+
+1. **Parse-time clean** — `cc5 < src/main_cx.cyr` succeeds.
+2. **Build-time clean** — output is a valid 365,696 B ELF
+   (`cc5_cx`).
+3. **No-SIGSEGV-at-startup** — `echo '' | cc5_cx` and
+   `echo 'syscall(60, 0);' | cc5_cx` both exit 0.
+
+Bytecode SEMANTIC correctness is **explicitly out of scope** —
+cascaded to v5.7.12 (parse_*.cyr emits raw x86 bytes via
+`E3(S, 0xC18948)`-style calls in shared codepaths; cx
+interpreter sees those interleaved with valid CYX opcodes).
+
+### Drift surfaced + fixed
+
+- **Missing include**: `src/main_cx.cyr` lacked
+  `include "src/common/ir.cyr"` (added to main.cyr at v5.6.12
+  for O3a IR instrumentation; never propagated). Same shape as
+  v5.6.32's `main_aarch64_native.cyr` fix.
+- **Missing globals in `src/backend/cx/emit.cyr`**:
+  - `_AARCH64_BACKEND = 0` (parse.cyr / parse_decl.cyr /
+    parse_fn.cyr / parse_expr.cyr all reference)
+  - `_TARGET_MACHO = 0` (parse_expr.cyr line 412)
+  - `_TARGET_PE = 0` (same)
+  - `_flags_reflect_rax = 0` (v5.6.8 flag-reuse tracker;
+    parse_ctrl.cyr / parse_expr.cyr reference)
+  - `_last_push_cp` / `_last_emovca_cp` /
+    `_last_movca_popr_cp` (v5.6.9 + v5.6.10 peephole
+    trackers; parse_ctrl.cyr references)
+  - `_INLINE_OK` / `_LOOPVAR_OK` (x86 inline-fn / loop-var-reg
+    toggles)
+- **Dead colliding stubs deleted**: `PF64BIN` and `PF64CMP` in
+  `src/backend/cx/emit.cyr` lines 449-450 were stubs `return 0`
+  that collided with parse_expr.cyr's authoritative versions.
+  Last-include-wins meant the parse_expr versions always won
+  silently. v5.7.9's duplicate-fn warning surfaced this.
+- **brk extension undersized**: `syscall(SYS_BRK, S +
+  0x54A000)` (5.5 MB) never reached the tok_types region at
+  `S + 0x74A000` (7.5 MB). cc5_cx SIGSEGV'd at LEX the moment a
+  non-empty input landed any token. Bumped to `S + 0x270B000`
+  (39 MB, matching `main_aarch64.cyr` — cx skips the TS
+  frontend, so doesn't need main.cyr's +13.5 MB).
+
+### CI gate (the durable fix)
+
+`tests/regression-cx-build.sh` runs three checks:
+1. `cc5 < src/main_cx.cyr` exits 0; output > 100 KB.
+2. `echo '' | cc5_cx` exits < 128 (no signal).
+3. `echo 'syscall(60, 0);' | cc5_cx` exits < 128.
+
+Wired into `scripts/check.sh` as gate **4u**. check.sh **32/32
+PASS**.
+
+The reason cx accumulated 4+ silent drift breakages over 6+
+minor releases is that no gate ever built it. This gate closes
+that hole — any future addition to the shared frontend that
+breaks cx fails check.sh immediately.
+
+### Acceptance gates verified
+
+- 3-step fixpoint on x86 main.cyr: cc5_a == cc5_b byte-identical
+  at 709,776 B (no regression on x86 path). ✅
+- check.sh **32/32 PASS** (gate 4u added). ✅
+- cc5_cx builds at 365,696 B. ✅
+- cc5_cx exits 0 on empty input. ✅
+- cc5_cx exits 0 on `syscall(60, 0);` input. ✅
+- Bytecode output starts with `CYX\0` magic header. ✅
+
+### What's next: v5.7.12 (cx correctness)
+
+cc5_cx output today: valid CYX magic + some valid opcodes
+interleaved with raw x86 instruction bytes
+(`mov [rbp-8], rbx` etc. from parse_fn.cyr's prologue emit).
+cxvm rejects most of it. Fixing requires parser-to-emit
+interface re-architecture — see v5.7.12 section.
+
+## v5.7.12 — cyrius-x bytecode semantic correctness
+
+**Pinned 2026-04-27.** v5.7.11 fixed the build/startup drift
+but explicitly stopped short of bytecode semantic correctness.
+This slot fixes it. Cascaded from v5.7.12 RISC-V slot per user
+"correctness over new features always".
+
+### Problem
+
+`parse_*.cyr` (the shared frontend) emits raw x86 instruction
+bytes directly via `E3(S, 0xC18948)`-style calls in many code
+paths that are NOT guarded by `if (_AARCH64_BACKEND == 1)` or
+similar. On x86 builds: those calls produce x86 machine code →
+correct. On aarch64 builds: aarch64 backend overrides `E3` to
+do something arch-appropriate. On cx builds: the calls land in
+cx's `EB` / `E2` / `E3` (which write the literal bytes into the
+CYX bytecode stream) — producing x86 instruction bytes inside
+what should be `[opcode:8][a:8][b:8][c:8]` 4-byte CYX
+instructions. The interpreter sees noise.
+
+### Approach (to be confirmed at slot start)
+
+Two paths, both viable:
+
+**Path A — replace direct x86 emits with abstract operations.**
+Inventory every `E3(S, 0xNNNNNN)` etc. in `parse_*.cyr` shared
+code; replace each with a named op (e.g.,
+`E3(S, 0xC18948)` → `EMOVCA(S)`). Each backend defines the
+abstract op natively. Cleaner long-term; matches the design
+intent of having a backend abstraction. Probably hundreds of
+sites.
+
+**Path B — gate every direct-x86 emit with `_TARGET_CX == 0`.**
+Less invasive structurally; preserves x86 emits in shared
+code. Fragile: every future direct-x86 addition needs the
+guard.
+
+Path A is the right architectural answer; path B is a tactical
+shortcut. Decision at slot start.
+
+### Acceptance gates
+
+1. `tests/regression-cx-build.sh` (v5.7.11 gate) still
+   passes — no regression on the smaller-slot bar.
+2. New `tests/regression-cx-roundtrip.sh`:
+   - Compile `echo 'syscall(60, 42);' | cc5_cx > x.cyx`.
+   - Run `cat x.cyx | cxvm` — exit code 42.
+   - Repeat for half a dozen small programs (arithmetic,
+     fn call + return, conditional, while loop).
+3. cxvm accepts cc5_cx output without "not a .cyx file"
+   errors.
+4. x86 fixpoint clean — re-architecture must not regress
+   x86 emits.
+
+### Slot relationship
+
+v5.7.13 (RISC-V) follows.
+
+## v5.7.13 — RISC-V rv64
 
 First-class RISC-V 64-bit target. Elevated from the v5.5.x
 pillar list to its own minor on 2026-04-20, then slid:
@@ -1174,17 +1325,23 @@ slot, cyrius-ts cascaded down by one);
 v5.7.7 → v5.7.8 (2026-04-26, fixup-cap 1MB+ + lint UFCS + atomic-output
 bundle took v5.7.7 — cyrius-ts polish surfaced 3 tooling issues
 in one pass that all needed to ship together);
-v5.7.8 → v5.7.11 (2026-04-26, three slots inserted before RISC-V
-when cyrius-bb wiring surfaced multiple silent failures + UX
-gaps in tooling on the same day: v5.7.8 = `cyrius check` repair
-+ `cyrius deps` P1-P5 + syscall-arity warning fix; v5.7.9 =
-silent fn-name collision investigation (was bundled at v5.7.8
-alongside RISC-V; lifted from v5.7.10 → v5.7.9 on 2026-04-26 once
-v5.7.10's audit showed the input_buf reshuffle deserves its own
+v5.7.8 → v5.7.13 (2026-04-26/27, five slots inserted before
+RISC-V: v5.7.8 = `cyrius check` repair + `cyrius deps` P1-P5
++ syscall-arity warning fix; v5.7.9 = silent fn-name collision
+investigation (was bundled at v5.7.8 alongside RISC-V; lifted
+from v5.7.10 → v5.7.9 on 2026-04-26 once v5.7.10's audit
+showed the input_buf reshuffle deserves its own
 slot); v5.7.10 = `input_buf` 512KB → 1MB heap-map reshuffle
 (load-bearing for the ecosystem — hisab `dist/hisab.cyr` at
 505,237 B = 96% of cap, every consumer inherits the prepended
-bytes via `cyrius deps` auto-prepend)). Rationale: a new architecture is
+bytes via `cyrius deps` auto-prepend);
+v5.7.11 = `main_cx.cyr` drift fix + CI gate (smaller-slot:
+parse-time + build-time + no-SIGSEGV-at-startup; the durable
+part is the gate — drift accumulated because no CI ever built
+cx); v5.7.12 = cyrius-x bytecode semantic correctness
+(parser-to-emit re-architecture; cascaded from v5.7.12 RISC-V
+slot 2026-04-27 per user "correctness over new features
+always"). Rationale: a new architecture is
 structurally different from v5.5.x items (correctness /
 completion / runtime work on existing platforms), different
 from v5.7.0's lib/-reshape work, different from v5.7.1's
@@ -1225,7 +1382,7 @@ minor-patches for separate kinds of change. RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-**Prerequisites that must ship before v5.7.11 starts:**
+**Prerequisites that must ship before v5.7.13 starts:**
 - **v5.6.5 + v5.6.7–v5.6.21** — Compiler optimization arc.
 - **v5.6.28** — shared-object emission landed.
 - **v5.6.29** — downstream ecosystem sweep gate.
@@ -1260,7 +1417,7 @@ minor-patches for separate kinds of change. RISC-V needs:
 - **v5.4.19 `#ifplat`** directive is live → RISC-V dispatch
   uses the new syntax from day one.
 
-Deliberately NOT bundling other items into v5.7.11 — a new
+Deliberately NOT bundling other items into v5.7.13 — a new
 architecture port is plenty of work on its own.
 
 ---
@@ -1276,7 +1433,8 @@ specific patch number depends on what else surfaces.
 
 Items that already have firm slot numbers (v5.7.8 = check + deps
 + arity bundle, v5.7.9 = fn-name collision investigation,
-v5.7.10 = input_buf 1MB, v5.7.11 = RISC-V) live in the dedicated
+v5.7.10 = input_buf 1MB, v5.7.11 = cx-drift fix, v5.7.12 = cx
+semantic correctness, v5.7.13 = RISC-V) live in the dedicated
 sections above; this section holds the rest of the v5.7.x work
 that hasn't been pulled into a specific patch slot yet.
 
@@ -2294,7 +2452,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` DLL Characteristic; HIGH_ENTROPY_VA deferred (see Active Bugs) |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.11** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4 → v5.7.5 → v5.7.6 → v5.7.7 → v5.7.8 → v5.7.9 → v5.7.10 → v5.7.11: optimization arc → sandhi fold → fixup-cap bump → cyrius-ts foundational → cyrius-ts completion → cyrius-ts polish → real JSX AST → JSX inner-expr → fixup-cap 1M + tooling → cyrius check + deps + arity → fn-name collision → input_buf 1MB → RISC-V |
+| **v5.7.13** | RISC-V rv64 | ELF | Queued — slid v5.6.0 → v5.7.0 → v5.7.1 → v5.7.2 → v5.7.3 → v5.7.4 → v5.7.5 → v5.7.6 → v5.7.7 → v5.7.8 → v5.7.9 → v5.7.10 → v5.7.11 → v5.7.12 → v5.7.13: optimization arc → sandhi fold → fixup-cap bump → cyrius-ts foundational → cyrius-ts completion → cyrius-ts polish → real JSX AST → JSX inner-expr → fixup-cap 1M + tooling → cyrius check + deps + arity → fn-name collision → input_buf 1MB → cx-drift fix → cx semantic correctness → RISC-V |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 
@@ -2388,7 +2546,7 @@ enables adding new targets without touching the frontend.
 | macOS aarch64 | Mach-O | **✅ Narrow** (cross-build byte-identity holds; bytes unchanged since v5.5.13–v5.5.17); **❌ Broad** — cross-built `syscall(60, 42)` exits 1 instead of 42 on current Sequoia (macOS 15+). **Platform drift, not cyrius regression** — emitted Mach-O bytes are identical to what was verified exit=42 in v5.5.13. Pinned **v5.6.26**. |
 | Windows x86_64 | PE/COFF | **✅ Narrow** — byte-identical fixpoint verified v5.5.10 (md5 match on exit42 + multi-fn add; cc5_win emits PE byte-identical to Linux cross-build). **❌ Broad** — on Windows 11 24H2 (build 26200+), PE `syscall(60, 42)` exits `0x40010080` and cc5_win.exe itself hits `ApplicationFailedException`. **Platform drift, not cyrius regression** — PE bytes unchanged since v5.5.10; Win11 24H2 tightened CET/CFG/ASLR loader enforcement. Pinned **v5.6.27**. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35); HIGH_ENTROPY_VA (64-bit ASLR) deferred — see Active Bugs. |
 | Compiler optimization (O1–O6) | — | v5.6.5 ✅ + v5.6.7–v5.6.12 ✅ + v5.6.14 ✅ + **v5.6.15–v5.6.21** (NEXT: O3a-audit + O3b + O3c + O4–O6; v5.6.13 sha1 + v5.6.15 IR-order audit interleaved) |
-| RISC-V (rv64) | ELF | Queued — **v5.7.11** |
+| RISC-V (rv64) | ELF | Queued — **v5.7.13** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 | Pure-cyrius TLS 1.3 | — | Queued — **v5.9.0–5.9.5** |
 

@@ -325,6 +325,15 @@ if [ "$i1m_result" -ne 0 ]; then cat /tmp/audit_i1m_$$; fi
 rm -f /tmp/audit_i1m_$$
 echo ""
 
+# ── 4u. main_cx.cyr build + startup (v5.7.11 — drift gate) ──
+echo "── cyrius-x bytecode entry ──"
+sh "$ROOT/tests/regression-cx-build.sh" > /tmp/audit_cx_$$ 2>&1
+cx_result=$?
+check "cc5 builds main_cx.cyr; cc5_cx starts clean (v5.7.11; bytecode correctness pinned v5.7.12)" "$cx_result"
+if [ "$cx_result" -ne 0 ]; then cat /tmp/audit_cx_$$; fi
+rm -f /tmp/audit_cx_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

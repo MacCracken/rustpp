@@ -5,6 +5,35 @@
 
 ## Version
 
+**5.7.11** (shipped 2026-04-27 — **`main_cx.cyr` DRIFT FIX +
+CI GATE**. Smaller-slot scope per user 2026-04-27
+("correctness over new features always"). v5.7.10's cross-arch
+verify surfaced `error: undefined variable 'IR_RAW_EMIT'` on
+the cyrius-x bytecode entry. Investigation showed accumulated
+silent drift: 4 missing pieces, 2 dead colliding stubs, an
+undersized brk. **No CI gate ever built cx**, so each frontend
+addition silently broke it. Fixes: `include "src/common/ir.cyr"`
+added (was added to main.cyr at v5.6.12, never propagated);
+`var _AARCH64_BACKEND = 0` + `_TARGET_MACHO = 0` +
+`_TARGET_PE = 0` + `_flags_reflect_rax = 0` + 4 peephole-
+tracker globals (`_last_push_cp`, `_last_emovca_cp`,
+`_last_movca_popr_cp`, `_INLINE_OK`, `_LOOPVAR_OK`) added to
+`backend/cx/emit.cyr`; 2 dead `PF64BIN`/`PF64CMP` cx stubs
+deleted (v5.7.9 duplicate-fn warning surfaced — collided with
+parse_expr.cyr authoritative versions); brk bumped 5.5 MB →
+39 MB to reach tok_types at `S+0x74A000`. **CI gate (the
+durable fix):** `tests/regression-cx-build.sh` (gate 4u in
+check.sh) runs 3 checks: cc5 builds main_cx.cyr cleanly, cc5_cx
+exits clean on empty input, cc5_cx exits clean on trivial
+input. cc5 unchanged at 709,776 B (cx-only edits); cc5_cx now
+builds at 365,696 B. **check.sh 32/32 PASS**, x86 fixpoint
+clean. **Bytecode SEMANTIC correctness explicitly cascaded to
+v5.7.12** — parse_*.cyr emits raw x86 via `E3(S, 0xC18948)`-
+style calls in shared codepaths; cx interpreter sees x86 noise
+interleaved with valid CYX opcodes. Multi-session
+parser-to-emit re-architecture work, not a wedge. RISC-V
+cascaded v5.7.12 → v5.7.13.)
+
 **5.7.10** (shipped 2026-04-26 — **`input_buf` 512 KB → 1 MB
 HEAP-MAP RESHUFFLE** — load-bearing unblock; hisab was at 96 %
 of cap and censoring upstream, every consumer of hisab via

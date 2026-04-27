@@ -6,6 +6,10 @@ enum Sys { SYS_READ = 0; SYS_WRITE = 1; SYS_OPEN = 2; SYS_CLOSE = 3; SYS_BRK = 1
 
 include "src/common/util.cyr"
 include "src/backend/cx/emit.cyr"
+# v5.7.11: ir.cyr added at v5.6.12 (O3a IR instrumentation) but
+# never to main_cx.cyr; parse_expr.cyr references IR_RAW_EMIT.
+# Same shape as v5.6.32's main_aarch64_native.cyr fix.
+include "src/common/ir.cyr"
 include "src/frontend/lex.cyr"
 include "src/frontend/parse.cyr"
 
@@ -14,7 +18,12 @@ include "src/frontend/parse.cyr"
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-syscall(SYS_BRK, S + 0x54A000);
+# v5.7.11: brk was 0x54A000 (5.5 MB) which never reached the
+# tok_types region at S+0x74A000 — main_cx.cyr SIGSEGVd at LEX
+# the moment a non-empty input landed any token. Match main_aarch64.cyrs
+# 0x270B000 (39 MB) — cx skips the TS frontend, so does not need
+# the +13.5 MB main.cyr adds for it.
+syscall(SYS_BRK, S + 0x270B000);
 
 # Zero state
 S64(S + 0x18C100, 0);
