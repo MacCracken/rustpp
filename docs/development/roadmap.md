@@ -42,23 +42,18 @@
 > first (2026-04-27 user direction: "correctness over new features
 > always"). **Hard upper bound: v5.7.28 = v5.7.x closeout.**
 >
-> **What's next (v5.7.15–v5.12.x):**
+> **What's next (v5.7.16–v5.12.x):**
 >
-> v5.7.14 `cyrius deps` transitive resolution shipped 2026-04-27.
-> First of three patches splitting the v5.7.14-as-bundle plan
-> from 2026-04-23 (transitive deps + lib-vs-bin + doc-tree).
-> Per user direction at v5.7.13 ship — split, **+2 cascade**
-> through closeout. cc5 unchanged at 715,312 B (cbt-only edit);
-> check.sh 35/35 (was 34/34; +gate 4x). 4-case coverage:
-> 3-level chain, diamond, cycle, relative-path. v5.7.15 = init
-> lib-vs-bin; v5.7.16 = doc-tree alignment.
+> v5.7.14 `cyrius deps` transitive resolution shipped
+> 2026-04-27. v5.7.15 `cyrius init --lib`/`--bin` library
+> template shipped 2026-04-27. Second of three patches
+> splitting the v5.7.14-as-bundle plan from 2026-04-23. cc5
+> unchanged at 715,312 B (scripts-only edit); check.sh 36/36
+> (was 35/35; +gate 4y). 4-case coverage: --lib builds smoke
+> clean, --bin keeps binary shape, bare defaults to --bin,
+> --lib CI workflow targets programs/smoke.cyr. v5.7.16 =
+> doc-tree alignment (last of trio).
 >
-> - **v5.7.15**: `cyrius init --lib`/`--bin` flags + library
->   template. Today `cyrius init <name>` emits the binary shape
->   unconditionally; library scaffolds (mabda/sigil/sankoch/
->   patra/yukti/yantra shape) require hand-rewriting four
->   places + creating `programs/smoke.cyr`. ~100-200 LOC of
->   shell + templates.
 > - **v5.7.16**: `cyrius init`/`cyrius port` first-party-
 >   documentation doc-tree alignment. Scaffolds `docs/adr/`,
 >   `docs/architecture/`, `docs/guides/`, `docs/examples/`,
@@ -792,73 +787,9 @@ is fine to leave).
 `cbt/commands.cyr`.
 
 
-### v5.7.15 — `cyrius init` library-vs-binary awareness (split-from-bundle; transitive deps shipped v5.7.14)
 
-**Pinned 2026-04-23.** `cyrius init <name>` currently emits the
-binary shape unconditionally: `[build] entry = "src/main.cyr"`,
-`output = "<name>"`, `src/main.cyr` with top-level `main()` + `var
-exit_code = main(); syscall(60, exit_code);`. For library crates
-(the larger share of AGNOS shared crates — mabda, sigil, sankoch,
-patra, yukti, vyakarana, yantra, and many more), this is the wrong
-shape. The library pattern that's emerged organically across
-those 7+ repos is:
 
-```toml
-[build]
-entry = "programs/smoke.cyr"
-output = "build/<name>-smoke"
-
-[lib]
-modules = ["src/main.cyr", ...]   # driven by `cyrius distlib` → dist/<name>.cyr
-```
-
-Every new library scaffold currently requires hand-rewriting the
-scaffold output to this shape. yantra (2026-04-23) was the latest
-instance; the meta agent rewrote four places in `cyrius.cyml` +
-created `programs/smoke.cyr` + stripped the top-level `main()`
-from `src/main.cyr` to convert the binary scaffold into the
-library shape.
-
-**Surfacing consumers**: yantra (2026-04-23), sit (2026-04-23 —
-stayed binary, correctly), and every future library scaffold.
-
-**Scope** (~100–200 LOC in `scripts/cyrius-init.sh` or wherever
-`cyrius init` lives):
-
-- **Flag-based selection**: `cyrius init --lib <name>` emits the
-  library shape; `cyrius init --bin <name>` emits the current
-  binary shape; bare `cyrius init <name>` defaults to `--bin` for
-  backward-compat (or prompts — designer's call).
-- **Library template**: `cyrius.cyml` with `[build] entry =
-  "programs/smoke.cyr"` + `[lib] modules = ["src/main.cyr"]`.
-- **Library `src/main.cyr`**: no top-level `main()` / syscall —
-  just a header comment explaining it's a library module.
-- **`programs/smoke.cyr`**: the compile-link proof program
-  matching the mabda / sigil / sankoch convention (one-line
-  banner print + `syscall(60, 0)`).
-- **`src/test.cyr`**: currently declared in scaffold output's
-  `cyrius.cyml` but the file itself is never created. Either
-  create a stub file or drop the `test = "src/test.cyr"` line
-  from the scaffold. Minor ergonomic fix either way.
-
-**Acceptance gates:**
-
-1. `cyrius init --lib yantra_demo` in a clean directory emits a
-   project that builds clean with `cyrius build
-   programs/smoke.cyr build/yantra_demo-smoke` and produces a
-   working `dist/yantra_demo.cyr` via `cyrius distlib`.
-2. `cyrius init --bin foo` emits a project whose `cyrius build
-   src/main.cyr build/foo` works and whose output binary runs and
-   exits 0.
-3. Bare `cyrius init foo` emits something (pick a default),
-   documented in help text.
-4. The `test = "src/test.cyr"` line either references an existing
-   stub file or is omitted from the scaffold's `cyrius.cyml`.
-
-**Slot assignment**: during the v5.7.x cycle, after RISC-V
-baseline stabilizes. Low risk, self-contained.
-
-### v5.7.16 — `cyrius init` / `cyrius port` first-party-documentation alignment (split-from-bundle; transitive deps shipped v5.7.14, lib-vs-bin v5.7.15)
+### v5.7.16 — `cyrius init` / `cyrius port` first-party-documentation alignment (last of bundle; transitive deps shipped v5.7.14, lib-vs-bin v5.7.15)
 
 **Pinned 2026-04-23.** The `first-party-documentation.md` standard
 ([agnosticos/docs/development/applications/first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md))

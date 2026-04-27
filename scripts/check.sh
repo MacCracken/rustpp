@@ -361,6 +361,15 @@ if [ "$dt_result" -ne 0 ]; then cat /tmp/audit_dt_$$; fi
 rm -f /tmp/audit_dt_$$
 echo ""
 
+# ── 4y. cyrius init --lib/--bin scaffold (v5.7.15) ──
+echo "── cyrius init --lib/--bin ──"
+sh "$ROOT/tests/regression-init-lib-bin.sh" > /tmp/audit_ilb_$$ 2>&1
+ilb_result=$?
+check "cyrius init --lib emits programs/smoke.cyr + [lib]; --bin/bare keep binary shape (v5.7.15)" "$ilb_result"
+if [ "$ilb_result" -ne 0 ]; then cat /tmp/audit_ilb_$$; fi
+rm -f /tmp/audit_ilb_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

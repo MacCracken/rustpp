@@ -20,6 +20,10 @@ AGENT=""
 CMTOOLS=""
 LANGUAGE="none"
 DESCRIPTION=""
+# v5.7.15: --lib emits library-shape scaffold (entry = programs/smoke.cyr,
+# [lib] modules, src/main.cyr is a header-only module). --bin emits the
+# binary scaffold (existing behavior). Default = bin for backward-compat.
+SHAPE="bin"
 NAME=""
 for arg in "$@"; do
     case "$arg" in
@@ -35,6 +39,8 @@ for arg in "$@"; do
         # When absent, defaults to "<name> — TODO" placeholder (see :PROJ_DESC).
         --description=*) DESCRIPTION="${arg#--description=}" ;;
         --description) echo "error: --description requires a value"; exit 1 ;;
+        --lib) SHAPE="lib" ;;
+        --bin) SHAPE="bin" ;;
         -*) echo "Unknown flag: $arg"; exit 1 ;;
         *) NAME="$arg" ;;
     esac
@@ -68,6 +74,9 @@ if [ -z "$NAME" ]; then
     echo "  docs, CI, version files"
     echo ""
     echo "Options:"
+    echo "  --lib              emit library-shape scaffold (entry=programs/smoke.cyr,"
+    echo "                     [lib] modules=[src/main.cyr], src/main.cyr header-only)"
+    echo "  --bin              emit binary-shape scaffold (default; existing behavior)"
     echo "  --language=<x>     source-language posture (none|rust); default none"
     echo "                     none — greenfield (in-place safe; skips existing files)"
     echo "                     rust — declines; use 'cyrius port <path>'"
@@ -120,8 +129,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "  $NAME/CHANGELOG.md"
     echo "  $NAME/VERSION                  (0.1.0)"
     echo "  $NAME/cyrius.cyml              (pins Cyrius version, deps, build entry)"
-    echo "  $NAME/src/main.cyr"
-    echo "  $NAME/src/test.cyr"
+    if [ "$SHAPE" = "lib" ]; then
+        echo "  $NAME/src/main.cyr           (library module — header only)"
+        echo "  $NAME/programs/smoke.cyr     (compile-link smoke)"
+    else
+        echo "  $NAME/src/main.cyr"
+        echo "  $NAME/src/test.cyr"
+    fi
     echo "  $NAME/tests/${DRY_PROJ}.tcyr   (test suite)"
     echo "  $NAME/tests/${DRY_PROJ}.bcyr   (benchmarks)"
     echo "  $NAME/tests/${DRY_PROJ}.fcyr   (fuzz harness)"
@@ -133,7 +147,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo ""
     echo "Empty dirs created: src/ lib/ build/ tests/ docs/development/ .github/workflows/"
     echo ""
-    echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$DRY_PROJ"
+    if [ "$SHAPE" = "lib" ]; then
+        echo "After init, run: cd $NAME && cyrius deps && cyrius build programs/smoke.cyr build/$DRY_PROJ-smoke"
+    else
+        echo "After init, run: cd $NAME && cyrius deps && cyrius build src/main.cyr build/$DRY_PROJ"
+    fi
     exit 0
 fi
 
@@ -235,7 +253,29 @@ See https://www.gnu.org/licenses/gpl-3.0.html for full text.
 LICENSE
 
 # === README.md ===
-write_if_absent "$NAME/README.md" << EOF
+# v5.7.15: README's build snippet matches scaffold shape.
+if [ "$SHAPE" = "lib" ]; then
+    write_if_absent "$NAME/README.md" << EOF
+# $PROJ
+
+Library written in [Cyrius](https://github.com/MacCracken/cyrius).
+Re-exported as \`dist/$PROJ.cyr\` via \`cyrius distlib\`.
+
+## Build
+
+\`\`\`sh
+cyrius deps                                              # resolve stdlib deps
+cyrius build programs/smoke.cyr build/$PROJ-smoke         # compile-link smoke
+cyrius distlib                                           # produce dist/$PROJ.cyr
+cyrius test                                              # run tests/*.tcyr
+\`\`\`
+
+## License
+
+GPL-3.0-only
+EOF
+else
+    write_if_absent "$NAME/README.md" << EOF
 # $PROJ
 
 Written in [Cyrius](https://github.com/MacCracken/cyrius).
@@ -252,6 +292,7 @@ cyrius test                              # run [build].test + tests/*.tcyr
 
 GPL-3.0-only
 EOF
+fi
 
 # === CHANGELOG.md ===
 write_if_absent "$NAME/CHANGELOG.md" << 'CHANGELOG'
@@ -272,7 +313,32 @@ CHANGELOG
 # --description wasn't passed, instead of an empty string that
 # downstream tooling has to special-case.
 PROJ_DESC="${DESCRIPTION:-$PROJ — TODO}"
-write_if_absent "$NAME/cyrius.cyml" << EOF
+# v5.7.15: cyrius.cyml [build]/[lib] shape branches on $SHAPE.
+# bin: entry=src/main.cyr + test=src/test.cyr + output=<name>
+# lib: entry=programs/smoke.cyr + output=build/<name>-smoke + [lib] modules=[src/main.cyr]
+if [ "$SHAPE" = "lib" ]; then
+    write_if_absent "$NAME/cyrius.cyml" << EOF
+[package]
+name = "$PROJ"
+version = "0.1.0"
+description = "$PROJ_DESC"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "$CYRIUS_VER"
+
+[build]
+entry = "programs/smoke.cyr"
+output = "build/$PROJ-smoke"
+
+[lib]
+modules = ["src/main.cyr"]
+
+[deps]
+stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert"]
+---
+EOF
+else
+    write_if_absent "$NAME/cyrius.cyml" << EOF
 [package]
 name = "$PROJ"
 version = "0.1.0"
@@ -290,9 +356,21 @@ output = "$PROJ"
 stdlib = ["string", "fmt", "alloc", "io", "vec", "str", "syscalls", "assert"]
 ---
 EOF
+fi
 
 # === src/main.cyr ===
-write_if_absent "$NAME/src/main.cyr" << EOF
+# v5.7.15: lib shape emits a header-only main.cyr — no top-level
+# main()/syscall, since src/main.cyr will be `include`d into
+# programs/smoke.cyr (and into dist/<name>.cyr via cyrius distlib).
+# bin shape emits the existing greenfield entry.
+if [ "$SHAPE" = "lib" ]; then
+    write_if_absent "$NAME/src/main.cyr" << EOF
+# $PROJ — library module. Re-exported via dist/$PROJ.cyr (cyrius distlib).
+# Add domain modules below or in sibling files; programs/smoke.cyr proves
+# the include chain compiles end-to-end.
+EOF
+else
+    write_if_absent "$NAME/src/main.cyr" << EOF
 # $PROJ — main entry point
 # Stdlib auto-included via cyrius.cyml
 
@@ -305,12 +383,38 @@ fn main() {
 var r = main();
 syscall(SYS_EXIT, r);
 EOF
+fi
 
-# === src/test.cyr ===
-# v5.6.28: previously announced in success summary + referenced by
-# cyrius.cyml [build].test + .github/workflows/ci.yml but never written —
-# fresh scaffold failed `cyrius test` with ENOENT. Stub here.
-write_if_absent "$NAME/src/test.cyr" << EOF
+# === src/test.cyr / programs/smoke.cyr ===
+# v5.7.15: bin shape gets src/test.cyr (referenced by [build].test).
+# lib shape gets programs/smoke.cyr instead — the compile-link proof
+# program matching the mabda / sigil / sankoch convention.
+if [ "$SHAPE" = "lib" ]; then
+    mkdir -p "$NAME/programs"
+    write_if_absent "$NAME/programs/smoke.cyr" << EOF
+# $PROJ smoke test — proves the library compiles end-to-end and the
+# stdlib include chain resolves. CI builds this to confirm no
+# regression in the dist bundle.
+#
+# Build: cyrius build programs/smoke.cyr build/$PROJ-smoke
+# Run:   ./build/$PROJ-smoke   (exit 0 on success)
+
+include "src/main.cyr"
+
+fn main() {
+    alloc_init();
+    println("$PROJ smoke ok");
+    return 0;
+}
+
+var r = main();
+syscall(SYS_EXIT, r);
+EOF
+else
+    # v5.6.28: src/test.cyr — referenced by cyrius.cyml [build].test +
+    # .github/workflows/ci.yml. Pre-v5.6.28 was announced but never
+    # written — fresh scaffold failed `cyrius test` with ENOENT.
+    write_if_absent "$NAME/src/test.cyr" << EOF
 # $PROJ — top-level test entry (referenced by cyrius.cyml [build].test).
 # For unit tests, prefer adding cases to tests/${PROJ}.tcyr.
 
@@ -323,6 +427,7 @@ fn main() {
 var r = main();
 syscall(SYS_EXIT, r);
 EOF
+fi
 
 # === tests/test.tcyr ===
 # (tests/ already created by the top-level mkdir block above)
@@ -486,6 +591,17 @@ jobs:
           generate_release_notes: true
           files: build/*
 RELEASE
+
+# v5.7.15: lib-shape projects build programs/smoke.cyr (not src/main.cyr).
+# Post-process the CI/release workflows the heredocs hardcoded for binary
+# shape. Portable sh form: tempfile + mv, no sed -i.
+if [ "$SHAPE" = "lib" ]; then
+    for wf in "$NAME/.github/workflows/ci.yml" "$NAME/.github/workflows/release.yml"; do
+        if [ -f "$wf" ]; then
+            sed "s|cyrius build src/main.cyr build/\${{ github.event.repository.name }}|cyrius build programs/smoke.cyr build/\${{ github.event.repository.name }}-smoke|" "$wf" > "$wf.tmp" && mv "$wf.tmp" "$wf"
+        fi
+    done
+fi
 
 # === CLAUDE.md (agent file, opt-in) ===
 if [ -n "$AGENT" ]; then
@@ -691,8 +807,13 @@ else
     echo "Created $NAME/"
 fi
 echo "  $LIB_COUNT stdlib modules vendored"
-echo "  src/main.cyr — entry point"
-echo "  src/test.cyr — test file"
+if [ "$SHAPE" = "lib" ]; then
+    echo "  src/main.cyr — library module (header)"
+    echo "  programs/smoke.cyr — compile-link smoke"
+else
+    echo "  src/main.cyr — entry point"
+    echo "  src/test.cyr — test file"
+fi
 echo ""
 echo "Next steps:"
 # v5.6.28: previously suggested `sh scripts/build.sh` and
@@ -704,5 +825,10 @@ if [ "$INPLACE" -eq 0 ]; then
     echo "  cd $NAME"
 fi
 echo "  cyrius deps"
-echo "  cyrius build src/main.cyr build/$PROJ"
+if [ "$SHAPE" = "lib" ]; then
+    echo "  cyrius build programs/smoke.cyr build/$PROJ-smoke"
+    echo "  cyrius distlib    # produce dist/$PROJ.cyr"
+else
+    echo "  cyrius build src/main.cyr build/$PROJ"
+fi
 echo "  cyrius test"

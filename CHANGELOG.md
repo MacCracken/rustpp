@@ -4,6 +4,76 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.15] — 2026-04-27
+
+**`cyrius init --lib`/`--bin` LIBRARY SCAFFOLD.** Second of three
+patches splitting the v5.7.14-as-bundle plan from 2026-04-23
+(transitive deps shipped v5.7.14; doc-tree alignment v5.7.16).
+
+### Background
+
+Pre-v5.7.15 `cyrius init <name>` emitted the binary shape
+unconditionally — `[build] entry = "src/main.cyr"`, `output =
+"<name>"`, `src/main.cyr` with top-level `main()` + syscall(60).
+Library crates (mabda, sigil, sankoch, patra, yukti, vyakarana,
+yantra — most AGNOS shared crates) instead want
+`entry = "programs/smoke.cyr"` + `[lib] modules` + a
+header-only `src/main.cyr`. Every new library scaffold required
+hand-rewriting four places in `cyrius.cyml` + creating
+`programs/smoke.cyr` + stripping the top-level `main()`. yantra
+(2026-04-23) was the latest instance.
+
+### Added (`scripts/cyrius-init.sh`)
+
+- **`--lib`** flag — emits library-shape scaffold:
+  - `cyrius.cyml`: `[build] entry = "programs/smoke.cyr"
+    output = "build/<name>-smoke"` + `[lib] modules =
+    ["src/main.cyr"]`. No `test = "src/test.cyr"` line (lib
+    shape uses `tests/<name>.tcyr` discovery only).
+  - `src/main.cyr`: a header comment only — no top-level
+    `main()`/syscall, since `src/main.cyr` is `include`d into
+    `programs/smoke.cyr` (and into `dist/<name>.cyr` via
+    `cyrius distlib`).
+  - `programs/smoke.cyr`: the compile-link proof program
+    matching the mabda/sigil/sankoch convention — banner +
+    `syscall(60, 0)`. `include "src/main.cyr"`.
+  - No `src/test.cyr` (would orphan since no `[build].test`
+    references it).
+- **`--bin`** flag — emits the binary scaffold (existing
+  behavior; explicit form). Default = `--bin` for backward-
+  compat.
+- README.md / dry-run listing / final next-steps / CI workflow
+  / release workflow are all shape-aware: lib shape's CI
+  builds `programs/smoke.cyr build/<name>-smoke`, bin shape's
+  CI builds `src/main.cyr build/<name>` (existing).
+
+### Acceptance gates
+
+- **`tests/regression-init-lib-bin.sh` (gate 4y)** — 4 cases:
+  `--lib mylib` builds smoke.cyr clean and runs to exit 0;
+  `--bin foo` keeps binary shape and builds clean; bare
+  `cyrius init bareproj` defaults to `--bin`; `--lib`'s
+  `ci.yml` workflow targets `programs/smoke.cyr` not
+  `src/main.cyr`.
+- cc5 self-host: byte-identical at **715,312 B**
+  (`scripts/cyrius-init.sh`-only edit; compiler unchanged).
+- check.sh **36/36 PASS** (was 35/35; +gate 4y).
+
+### Out of scope for v5.7.15
+
+`cyrius init`/`cyrius port` first-party-documentation doc-tree
+scaffold — `docs/adr/`, `docs/architecture/`, `docs/guides/`,
+`docs/examples/`, `docs/development/{roadmap,state}.md`,
+CLAUDE.md template. Slot **v5.7.16** (next).
+
+The agent CLAUDE.md heredocs in `cyrius-init.sh` (only emitted
+when `--agent` is passed) still hardcode `cyrius build
+src/main.cyr build/<name>` build hints — they're shape-blind
+and will be folded into the v5.7.16 doc-tree alignment work
+since they're documentation surface, not build-flow surface.
+
+---
+
 ## [5.7.14] — 2026-04-27
 
 **`cyrius deps` TRANSITIVE RESOLUTION (BFS, closest-wins, cycle-safe).**

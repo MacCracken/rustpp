@@ -5,6 +5,27 @@
 
 ## Version
 
+**5.7.15** (shipped 2026-04-27 — **`cyrius init --lib`/`--bin`
+LIBRARY SCAFFOLD**. `scripts/cyrius-init.sh` grew a `SHAPE`
+variable + `--lib`/`--bin` flag parsing. Lib shape emits
+`[build] entry = "programs/smoke.cyr" output =
+"build/<name>-smoke"` + `[lib] modules = ["src/main.cyr"]`,
+header-only `src/main.cyr`, and a `programs/smoke.cyr`
+proof program (mabda/sigil/sankoch convention). Bin shape
+keeps the existing binary scaffold. Bare `cyrius init <name>`
+defaults to `--bin` for backward-compat. README, CI/release
+workflows, dry-run listing, and final next-steps all
+shape-aware. cc5 unchanged at **715,312 B** (scripts-only
+edit; compiler untouched). New gate
+`tests/regression-init-lib-bin.sh` (gate 4y): 4 cases —
+`--lib` smoke build clean, `--bin` keeps binary, bare =
+`--bin`, lib CI targets programs/smoke.cyr. **check.sh 36/36
+PASS** (was 35/35; +gate 4y). Second of three patches
+splitting the v5.7.14-as-bundle plan from 2026-04-23.
+v5.7.16 = doc-tree alignment (last of trio). Agent CLAUDE.md
+heredocs in cyrius-init.sh still hardcode binary build hint —
+will be folded into v5.7.16 doc-tree work.)
+
 **5.7.14** (shipped 2026-04-27 — **`cyrius deps` TRANSITIVE
 RESOLUTION** — `cbt/deps.cyr` grew a BFS recursive walker that
 processes each resolved dep's own `cyrius.cyml`. `_dep_visited`
