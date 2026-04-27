@@ -5,6 +5,36 @@
 
 ## Version
 
+**5.7.17** (shipped 2026-04-27 — **STRUCT CAP 64 → 256 +
+DUMP-ON-OVERFLOW DIAGNOSTIC**. kybernet 2026-04-27 surfaced
+the cc3-era 64-struct ceiling: pulling 3 dep dist bundles
+(libro 29 + agnosys 10 + agnostik 9 + argonaut 27) into one
+TU exceeded the cap, and the diagnostic blamed the first
+user-code struct line even though that file defined exactly
+1 struct. v5.7.17 raises the cap to 256 (kybernet's
+recommendation), relocates `struct_fcounts` 0x18E830 →
+0x18EE30 to make room for the expanded `struct_names` region,
+grows `struct_ftypes` and `struct_fnames` from 16 KB to 64 KB
+each (in place; ~496 KB free heap above each), and adds a
+`DUMP_STRUCTS(S)` helper that prints every registered struct
+name to stderr before the cap-overflow ERR_MSG fires —
+mirroring the `note: N unreachable fns` pattern. cc5 byte-
+identical at **715,920 B** (was 715,312 B; +608 B for
+DUMP_STRUCTS + the new error message). New gate
+`tests/regression-struct-cap.sh` (gate 4aa): 80-struct
+compile clean (would fail at #65 pre-v5.7.17); 200-struct
+compile clean (kybernet-class workload); 257-struct overflow
+dumps the full `#0..#255` registered name list followed by
+the `max 256` error line. **check.sh 38/38 PASS** (was 37/37;
++gate 4aa). **v5.7.x backstop bumped v5.7.28 → v5.7.33** at
+this ship — 5-slot extension absorbs the +1 cascade and
+restores RISC-V's full 3-5 sub-patch range without forcing
+the low end. Out-of-scope per kybernet directions 2 and 3:
+struct-level DCE and module-level visibility (bigger
+redesigns; revisit if 256 starts feeling tight). Per-file
+struct attribution also out-of-scope (current name-only
+attribution is enough; revisit if users still struggle).)
+
 **5.7.16** (shipped 2026-04-27 — **`cyrius init` / `cyrius port`
 FIRST-PARTY-DOCUMENTATION DOC-TREE**. Closes the v5.7.14-as-
 bundle 3-patch split: v5.7.14 transitive deps + v5.7.15 lib-vs-

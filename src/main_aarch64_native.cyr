@@ -16,8 +16,8 @@
 #   0x60000  tok_names     [131072]      128KB packed identifier strings (v4.6.2)
 #   0x18FCC8  str_pos       [8]           string write position (moved in v4.6.2)
 #   0x18FCD0  data_size     [8]           total variable data bytes (moved in v4.6.2)
-#   0x18E630  struct_names  [256]         struct name offsets (64 cap)
-#   0x18E830  struct_fcounts[512]         struct field counts
+#   0x18E630  struct_names  [2048]        256 struct name offsets (cap 256, v5.7.17)
+#   0x18EE30  struct_fcounts[2048]        256 struct field counts (relocated v5.7.17)
 #   0x18F830  struct_count  [8]
 #   0x18C100  BL,CP,VCNT,TCNT,TI,NPOS    compiler state
 #   0x18DA00  fn_count, in_fn, local_cnt

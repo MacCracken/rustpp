@@ -379,6 +379,15 @@ if [ "$dt2_result" -ne 0 ]; then cat /tmp/audit_dt2_$$; fi
 rm -f /tmp/audit_dt2_$$
 echo ""
 
+# ── 4aa. struct cap 64 → 256 + dump-on-overflow diagnostic (v5.7.17) ──
+echo "── struct cap raise + diag ──"
+sh "$ROOT/tests/regression-struct-cap.sh" > /tmp/audit_sc_$$ 2>&1
+sc_result=$?
+check "200-struct compile clean; 257-struct overflow dumps registered names (v5.7.17; kybernet)" "$sc_result"
+if [ "$sc_result" -ne 0 ]; then cat /tmp/audit_sc_$$; fi
+rm -f /tmp/audit_sc_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

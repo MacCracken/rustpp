@@ -25,8 +25,8 @@
 #   0x60000  tok_names     [131072]      128KB packed identifier strings (nested in input_buf — rebuilt by LEX, v4.6.2 was 64KB)
 #
 # --- Struct tables (v3.6.6: expanded to 64 structs) ---
-#   0x18E630  struct_names  [256]         32 struct name offsets (cap raised to 64 but table not yet expanded)
-#   0x18E830  struct_fcounts[512]         32 struct field counts (bit 63 = union) (same — 64-struct cap uses sparse indexing)
+#   0x18E630  struct_names  [2048]        256 struct name offsets (cap 256, v5.7.17)
+#   0x18EE30  struct_fcounts[2048]        256 struct field counts (bit 63 = union; relocated 0x18E830→0x18EE30 v5.7.17)
 #   0x18F830  struct_count  [8]
 #
 # --- Compiler state (scalars) ---
@@ -178,8 +178,8 @@
 #   0xD4A000 tok_lines     [2097152]     262144 entries × 8 bytes
 #
 # --- Relocated struct field tables (v3.6.6) ---
-#   0xF4A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
-#   0xFCA000 struct_fnames [16384]       64 structs × 32 fields × 8 bytes
+#   0xF4A000 struct_ftypes [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
+#   0xFCA000 struct_fnames [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
 #
 #   0x104A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
 #

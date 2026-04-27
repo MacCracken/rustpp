@@ -4,6 +4,124 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.17] — 2026-04-27
+
+**STRUCT CAP 64 → 256 + DUMP-ON-OVERFLOW DIAGNOSTIC.** kybernet
+2026-04-27 hit the 64-struct ceiling pulling 3 dep dist bundles
+into one TU (libro 29 + agnosys 10 + agnostik 9 + argonaut 27 +
+its own ≈ 75+ structs). The pre-v5.7.17 cap was a `cc3`-era
+number; transitive resolution (v5.7.14) makes multi-dep TUs
+the norm. Same "compiler grows to fit the language" rule as
+v5.6.40 (`preprocess_out 1MB→2MB`), v5.7.10 (`input_buf 512KB→
+1MB`), v5.7.7 (`fixup 262K→1M`) — bumping rather than trimming
+deps. **New backstop**: v5.7.x closeout target moves from
+v5.7.28 to **v5.7.33** (5-slot extension authorized at
+v5.7.17 ship). Regex slides v5.7.17 → v5.7.18; everything
+downstream cascades +1.
+
+### Background
+
+`REGSTRUCT` in `src/frontend/parse_types.cyr` aborted on the
+65th struct with `error:LINE: too many struct definitions
+(max 64)`, where `LINE` was the FIRST USER-CODE struct emitted
+*after* the dep dists pre-filled the table. The cap was real
+but the line attribution was misleading — kybernet read the
+error as a bug in `reaper.cyr:8` even though `reaper.cyr`
+defined exactly 1 struct. The cumulative overflow happened
+upstream in the auto-prepended dep bundles. The fix is two-
+part: raise the cap, and tell the user WHICH structs filled
+the table when they overflow.
+
+### Changed (`src/frontend/parse_types.cyr`)
+
+- **Cap 64 → 256** in `REGSTRUCT`. Defers the problem until
+  ~3.5× the multi-dep average (75 structs). 256 was kybernet's
+  recommended size and matches the precedent of every prior
+  cap-bump in this line.
+- **`struct_fcounts` relocated** `0x18E830 → 0x18EE30`. The
+  expanded `struct_names` region (cap 256 × 8 bytes = 2048
+  bytes, was 512 bytes) needs the room. Both expanded regions
+  fit in the existing 0x18E630..0x18F830 slack (3.5 KB free
+  before; +3 KB consumed; 512-byte gap before `struct_count`
+  at 0x18F830).
+- **`struct_ftypes` and `struct_fnames`** grow in place
+  (16 KB → 64 KB each). ~496 KB of free heap was already
+  reserved above each region, so no relocation.
+- **New `DUMP_STRUCTS(S)` helper** prints every registered
+  struct name with its index to stderr. Pattern matches
+  cc5's existing `note: N unreachable fns` output.
+  Called from `REGSTRUCT` before `ERR_MSG` exits, so users
+  who hit the cap see exactly which structs filled the
+  table. Reads:
+
+  ```
+  note: 256 structs registered (deps usually fill most via auto-prepend); names follow:
+    #0 patra_repo
+    #1 patra_node
+    #2 libro_idx
+    ...
+    #255 reaper_inner
+  error:<source>:N: too many struct definitions (max 256)
+  ```
+
+  A user reading this can immediately see which dep
+  contributed which structs without bisecting the build.
+
+### Heap-map docs updated
+
+- `src/main.cyr`, `src/main_aarch64.cyr`,
+  `src/main_aarch64_macho.cyr`, `src/main_aarch64_native.cyr`,
+  `src/main_win.cyr` — heap-map header comments updated for
+  new sizes (`struct_names [2048]`, `struct_fcounts [2048]`,
+  `struct_ftypes [65536]`, `struct_fnames [65536]`) and
+  relocated `struct_fcounts` address.
+
+### Acceptance gates
+
+- **`tests/regression-struct-cap.sh` (gate 4aa)** — 3 cases:
+  80-struct compile clean (would have failed at #65 pre-
+  v5.7.17); 200-struct compile clean (kybernet-class
+  workload); 257-struct overflow dumps the full registered-
+  name list with `#0..#255` index/name pairs followed by the
+  cap-overflow error line (max 256).
+- cc5 self-host two-step: byte-identical at **715,920 B**
+  (was 715,312 B; +608 B for `DUMP_STRUCTS` + the new error
+  message).
+- check.sh **38/38 PASS** (was 37/37; +gate 4aa).
+
+### Out of scope (deferred)
+
+- **Struct-level DCE** (kybernet direction 2). Stripping
+  unreferenced struct definitions from auto-prepended dist
+  bundles. Bigger redesign — needs a use-tracking pass over
+  the IR + a DCE-style sweep of the struct table. Not
+  pinned; revisit if 256 starts feeling tight.
+- **Module-level visibility** (kybernet direction 3).
+  Allowing `[lib] modules = [...]` to elide unused leaf
+  modules at the dep boundary. Bigger redesign — needs a
+  per-module symbol table + dead-module detection. Not
+  pinned.
+- **Per-file struct attribution**. The current dump shows
+  struct names but not which file each came from. Adding
+  `#@file` attribution would need per-struct file-source
+  tracking (~100 LOC). Deferred unless the name-only
+  attribution still leaves users guessing in practice.
+
+### v5.7.x slot bounds — backstop bumped
+
+User authorized v5.7.x closeout cap **v5.7.28 → v5.7.33** at
+v5.7.17 ship (2026-04-27). 5-slot extension absorbs the
++1 cascade from this slot AND restores RISC-V breathing
+room (was: 3-sub-patch-only to fit cap; now: full 3-5
+range fits with margin). New schedule: v5.7.18 regex,
+v5.7.19 json, v5.7.20 fuzz parity, v5.7.21 cx literal-arg,
+v5.7.22-v5.7.24 advanced TS (hard cap 3), v5.7.25-v5.7.29
+RISC-V (3-5 sub-patches), v5.7.28-v5.7.30 soak/smoke
+(floats), v5.7.30-v5.7.32 closeout (floats), **v5.7.33
+absolute backstop**.
+
+---
+
 ## [5.7.16] — 2026-04-27
 
 **`cyrius init` / `cyrius port` FIRST-PARTY-DOCUMENTATION
