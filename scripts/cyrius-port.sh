@@ -103,7 +103,11 @@ echo "  Moved Rust to rust-old/"
 echo "${RUST_LOC:-0}" > rust-old/LINES_OF_RUST.txt
 
 # Create structure
-mkdir -p src tests build docs/development .github/workflows
+# v5.7.16: doc-tree per first-party-documentation.md standard. Same
+# layout cyrius-init.sh emits — adr/architecture/guides/examples/development.
+mkdir -p src tests build \
+         docs/adr docs/architecture docs/guides docs/examples docs/development \
+         .github/workflows
 
 # Detect current toolchain version (cascade: env → cc5 binary → install snapshot)
 # NEVER hardcode a fallback here — stale fallbacks silently seed ancient versions
@@ -160,6 +164,257 @@ output = "$NAME"
 stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "assert"]
 TOML
 echo "  Created cyrius.cyml"
+
+# === v5.7.16: doc-tree per first-party-documentation.md ===
+# Mirror of the cyrius-init.sh emission (adr README + template,
+# architecture README, guides/getting-started, examples/.gitkeep,
+# development/state + roadmap, root CLAUDE.md).
+cat > docs/adr/README.md << ADREO
+# Architecture Decision Records
+
+Decisions about $NAME — what we chose, the context, and the consequences we accept. Use these when a future reader would reasonably ask *"why did we do it this way?"*
+
+## Conventions
+
+- **Filename**: \`NNNN-kebab-case-title.md\`, zero-padded to four digits. Never renumber.
+- **One decision per ADR.** If a decision supersedes a prior one, add a new ADR and set the old one's status to \`Superseded by NNNN\`.
+- **Status lifecycle**: \`Proposed\` → \`Accepted\` → (optionally) \`Superseded\` or \`Deprecated\`.
+- Use [\`template.md\`](template.md) as the starting point.
+
+## ADR vs. architecture note vs. guide
+
+| Kind | Lives in | Answers |
+|---|---|---|
+| ADR | \`docs/adr/\` | *Why did we choose X over Y?* |
+| Architecture note | \`docs/architecture/\` | *What non-obvious constraint is true about the code?* |
+| Guide | \`docs/guides/\` | *How do I do X?* |
+
+## Index
+
+_No ADRs yet. Add the first as \`0001-kebab-case-title.md\`._
+ADREO
+
+cat > docs/adr/template.md << 'ADRTPL'
+# NNNN — Title in sentence case
+
+**Status**: Proposed | Accepted | Superseded by NNNN | Deprecated
+**Date**: YYYY-MM-DD
+
+## Context
+
+What's the situation that forces a decision? What constraints are in play? What makes this a real choice rather than a default? Keep it factual — the reader wasn't in the room.
+
+## Decision
+
+The one-sentence version of what we're doing, then any elaboration. Be specific about scope — what's in, what's out.
+
+## Consequences
+
+Both directions:
+
+- **Positive** — what this buys us.
+- **Negative** — what we give up, what gets harder, what we now own that we didn't before.
+- **Neutral** — follow-on work this creates that isn't clearly a win or loss.
+
+## Alternatives considered
+
+The paths we didn't take, and why each lost. Even a brief note is better than silence — "considered and rejected X because Y" is a valuable signal to a future reader asking the same question.
+ADRTPL
+
+cat > docs/architecture/README.md << 'ARCHRD'
+# Architecture notes
+
+Non-obvious constraints, quirks, and invariants that a reader cannot derive from the code alone. Numbered chronologically — never renumber.
+
+Not decisions (those live in [`../adr/`](../adr/)) and not guides (those live in [`../guides/`](../guides/)). An item here describes *how the world is*, not *what we chose* or *how to do something*.
+
+## Items
+
+_Empty. Add a numbered entry (`001-kebab-case-title.md`) the first time the code has a non-obvious invariant a reader can't derive. Do not write entries for decisions — those are ADRs._
+ARCHRD
+
+cat > docs/guides/getting-started.md << GSEOF
+# Getting started with $NAME
+
+## Build
+
+\`\`\`sh
+cyrius deps                              # resolve dependencies
+cyrius build src/main.cyr build/$NAME    # compile
+cyrius test                              # run tests/*.tcyr
+\`\`\`
+
+## Layout
+
+- \`src/main.cyr\` — entry point. Top-level \`var r = main(); syscall(SYS_EXIT, r);\`.
+- \`tests/\` — test suite (\`.tcyr\` files, auto-discovered by \`cyrius test\`).
+- \`rust-old/\` — original Rust source preserved for parity checks. Do not modify; it's the reference oracle.
+
+## Adding a feature
+
+1. Edit \`src/main.cyr\` (or add a new module and \`include\` it).
+2. Cross-check parity against \`rust-old/\`.
+3. Add a test case to \`tests/$NAME.tcyr\`.
+4. Run \`cyrius test\`.
+5. Bump \`VERSION\` and add a CHANGELOG entry before tagging.
+
+See [\`../adr/template.md\`](../adr/template.md) when a non-trivial design choice deserves an ADR.
+GSEOF
+
+# docs/examples/ — empty placeholder so the dir survives git.
+: > docs/examples/.gitkeep
+
+cat > docs/development/state.md << STEOF
+# $NAME — Current State
+
+> Refreshed every release. CLAUDE.md is preferences/process/procedures
+> (durable); this file is **state** (volatile).
+
+## Version
+
+**0.1.0** — ported from Rust ($(date +%Y-%m-%d)) via \`cyrius port\`. ${RUST_LOC:-0} lines of Rust preserved at \`rust-old/\` for parity reference.
+
+## Toolchain
+
+- **Cyrius pin**: \`$CYRIUS_VER\` (in \`cyrius.cyml [package].cyrius\`)
+
+## Source
+
+- Rust reference: ${RUST_LOC:-0} lines at \`rust-old/\` (frozen, do not edit).
+- Cyrius port: scaffold only — \`src/main.cyr\` stub.
+
+## Tests
+
+_Replace with parity test status once tests land._
+
+## Dependencies
+
+Direct (declared in \`cyrius.cyml\`):
+
+- stdlib — string, fmt, alloc, vec, str, syscalls, io, args, assert
+
+## Consumers
+
+_None yet._
+
+## Next
+
+See [\`roadmap.md\`](roadmap.md). The first milestone is typically Rust→Cyrius surface parity for the ${RUST_LOC:-0}-line subset.
+STEOF
+
+cat > docs/development/roadmap.md << RMEOF
+# $NAME — Roadmap
+
+> Milestone plan through v1.0. State lives in [\`state.md\`](state.md);
+> this file is the sequencing — what ships, in what order, against
+> what dependency gates.
+
+## v1.0 criteria
+
+_Define before tagging v0.1.0:_
+
+- [ ] Rust → Cyrius surface parity verified (function-level diff against \`rust-old/\`)
+- [ ] Test coverage adequate for the surface area
+- [ ] Benchmarks captured in \`docs/benchmarks.md\`
+- [ ] At least one downstream consumer green
+- [ ] CHANGELOG complete from v0.1.0 onward
+- [ ] Security audit pass (\`docs/audit/YYYY-MM-DD-audit.md\`)
+
+## Milestones
+
+### M0 — Port scaffold (v0.1.0) — ✅ shipped $(date +%Y-%m-%d)
+
+- \`cyrius port\` scaffold landed
+- Rust source moved to \`rust-old/\`
+- Doc-tree per [first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
+
+### M1 — Surface parity (v0.2.0)
+
+_Pick a parseable Rust subset and verify the Cyrius port matches it function-for-function. Specify the dep gates and the acceptance criteria._
+
+### M2 — _Title_ (v0.3.0)
+
+_…_
+
+## Out of scope (for v1.0)
+
+_Capture what's deliberately NOT in scope for v1.0._
+RMEOF
+
+# Default CLAUDE.md (v5.7.16 first-party-doc standard).
+cat > CLAUDE.md << CLEOF
+# $NAME — Claude Code Instructions
+
+> **Core rule**: this file is **preferences, process, and procedures** —
+> durable rules that change rarely. Volatile state (current version,
+> module line counts, port progress, test counts, consumers) lives in
+> [\`docs/development/state.md\`](docs/development/state.md).
+> Do not inline state here.
+
+## Project Identity
+
+**$NAME** — Cyrius port of a Rust project (${RUST_LOC:-0} lines preserved at \`rust-old/\`).
+
+- **Type**: Port (Rust → Cyrius)
+- **License**: GPL-3.0-only
+- **Language**: Cyrius (toolchain pinned in \`cyrius.cyml [package].cyrius\`)
+- **Version**: \`VERSION\` at the project root is the source of truth — do not inline the number here
+- **Standards**: [First-Party Standards](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-standards.md) · [First-Party Documentation](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
+
+## Goal
+
+_TODO: one-or-two-sentence mission statement. What does $NAME OWN in the stack? Durable — doesn't change per release._
+
+## Current State
+
+> Volatile state lives in [\`docs/development/state.md\`](docs/development/state.md) —
+> port progress, surface parity, in-flight work. Refreshed every release.
+
+This file (\`CLAUDE.md\`) is durable rules.
+
+## Scaffolding
+
+Project was scaffolded with \`cyrius port\`. Original Rust at \`rust-old/\` is the reference oracle — do not modify it; cross-check the port against it.
+
+## Quick Start
+
+\`\`\`sh
+cyrius deps                              # resolve dependencies
+cyrius build src/main.cyr build/$NAME    # compile
+cyrius test                              # run tests/*.tcyr
+\`\`\`
+
+## Key Principles
+
+- **Cross-check against \`rust-old/\`** — the port's correctness bar is "matches what Rust did". Diverge only with an ADR.
+- **Correctness over cleverness** — if the Cyrius behavior diverges silently from Rust, the bugs win
+- Test after every change, not after the feature is "done"
+- ONE change at a time — never bundle unrelated changes
+- Build with \`cyrius build\`, not raw \`cat file | cc5\` — the manifest auto-resolves deps
+- Source files only need project includes — stdlib auto-resolves from \`cyrius.cyml\`
+- \`var buf[N]\` = N **bytes**, not N entries
+
+## Rules (Hard Constraints)
+
+- **Do not commit or push** — the user handles all git operations
+- **Never use \`gh\` CLI** — use \`curl\` to the GitHub API if needed
+- Do not modify \`rust-old/\` — it's the parity oracle
+- Do not skip tests before claiming changes work
+- Do not modify \`lib/\` files (vendored stdlib / dep symlinks)
+- Do not hardcode toolchain versions in CI YAML — \`cyrius = "X.Y.Z"\` in \`cyrius.cyml\` is the source of truth
+
+## Documentation
+
+- [\`docs/adr/\`](docs/adr/) — Architecture Decision Records (*why X over Y?*)
+- [\`docs/architecture/\`](docs/architecture/) — Non-obvious constraints
+- [\`docs/guides/\`](docs/guides/) — Task-oriented how-tos
+- [\`docs/examples/\`](docs/examples/) — Runnable examples
+- [\`docs/development/state.md\`](docs/development/state.md) — Live state
+- [\`docs/development/roadmap.md\`](docs/development/roadmap.md) — Milestones through v1.0
+
+CLEOF
+
+echo "  Created docs/ tree (adr/architecture/guides/examples/development) + CLAUDE.md"
 
 # Generate .gitignore — mirrors cyrius-init.sh plus /rust-old/target/ so a
 # local `cargo build` in rust-old/ (for parity checks against the port) does

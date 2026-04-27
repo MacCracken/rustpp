@@ -214,7 +214,13 @@ fi
 # *.cyr into lib/ flat; the agnosys subdir was a stale carve-out
 # from an older AGNOS-namespaced layout). `build/` stays — the
 # `cyrius build` invocation in next-steps writes into it.
-mkdir -p "$NAME/src" "$NAME/lib" "$NAME/build" "$NAME/tests" "$NAME/docs/development" "$NAME/.github/workflows"
+# v5.7.16: doc-tree per first-party-documentation.md standard.
+# adr/ + architecture/ + guides/ + examples/ + development/ are the
+# baseline every AGNOS first-party repo carries from day one.
+mkdir -p "$NAME/src" "$NAME/lib" "$NAME/build" "$NAME/tests" \
+         "$NAME/docs/adr" "$NAME/docs/architecture" "$NAME/docs/guides" \
+         "$NAME/docs/examples" "$NAME/docs/development" \
+         "$NAME/.github/workflows"
 
 # === VERSION ===
 if [ -e "$NAME/VERSION" ]; then
@@ -603,144 +609,325 @@ if [ "$SHAPE" = "lib" ]; then
     done
 fi
 
-# === CLAUDE.md (agent file, opt-in) ===
+# === docs/adr/README.md (v5.7.16) ===
+write_if_absent "$NAME/docs/adr/README.md" << EOF
+# Architecture Decision Records
+
+Decisions about $PROJ — what we chose, the context, and the consequences we accept. Use these when a future reader would reasonably ask *"why did we do it this way?"*
+
+## Conventions
+
+- **Filename**: \`NNNN-kebab-case-title.md\`, zero-padded to four digits. Never renumber.
+- **One decision per ADR.** If a decision supersedes a prior one, add a new ADR and set the old one's status to \`Superseded by NNNN\`.
+- **Status lifecycle**: \`Proposed\` → \`Accepted\` → (optionally) \`Superseded\` or \`Deprecated\`.
+- Use [\`template.md\`](template.md) as the starting point.
+
+## ADR vs. architecture note vs. guide
+
+| Kind | Lives in | Answers |
+|---|---|---|
+| ADR | \`docs/adr/\` | *Why did we choose X over Y?* |
+| Architecture note | \`docs/architecture/\` | *What non-obvious constraint is true about the code?* |
+| Guide | \`docs/guides/\` | *How do I do X?* |
+
+## Index
+
+_No ADRs yet. Add the first as \`0001-kebab-case-title.md\`._
+EOF
+
+# === docs/adr/template.md (v5.7.16) ===
+write_if_absent "$NAME/docs/adr/template.md" << 'ADREOF'
+# NNNN — Title in sentence case
+
+**Status**: Proposed | Accepted | Superseded by NNNN | Deprecated
+**Date**: YYYY-MM-DD
+
+## Context
+
+What's the situation that forces a decision? What constraints are in play? What makes this a real choice rather than a default? Keep it factual — the reader wasn't in the room.
+
+## Decision
+
+The one-sentence version of what we're doing, then any elaboration. Be specific about scope — what's in, what's out.
+
+## Consequences
+
+Both directions:
+
+- **Positive** — what this buys us.
+- **Negative** — what we give up, what gets harder, what we now own that we didn't before.
+- **Neutral** — follow-on work this creates that isn't clearly a win or loss.
+
+## Alternatives considered
+
+The paths we didn't take, and why each lost. Even a brief note is better than silence — "considered and rejected X because Y" is a valuable signal to a future reader asking the same question.
+ADREOF
+
+# === docs/architecture/README.md (v5.7.16) ===
+write_if_absent "$NAME/docs/architecture/README.md" << 'ARCHEOF'
+# Architecture notes
+
+Non-obvious constraints, quirks, and invariants that a reader cannot derive from the code alone. Numbered chronologically — never renumber.
+
+Not decisions (those live in [`../adr/`](../adr/)) and not guides (those live in [`../guides/`](../guides/)). An item here describes *how the world is*, not *what we chose* or *how to do something*.
+
+## Items
+
+_Empty. Add a numbered entry (`001-kebab-case-title.md`) the first time the code has a non-obvious invariant a reader can't derive. Do not write entries for decisions — those are ADRs._
+ARCHEOF
+
+# === docs/guides/getting-started.md (v5.7.16) ===
+if [ "$SHAPE" = "lib" ]; then
+    write_if_absent "$NAME/docs/guides/getting-started.md" << EOF
+# Getting started with $PROJ
+
+## Build
+
+\`\`\`sh
+cyrius deps                                            # resolve sibling deps
+cyrius build programs/smoke.cyr build/$PROJ-smoke       # compile-link smoke
+cyrius distlib                                         # produce dist/$PROJ.cyr
+cyrius test                                            # run tests/*.tcyr
+\`\`\`
+
+## Layout
+
+- \`src/main.cyr\` — library module (header). Add domain modules in sibling \`src/\` files; \`programs/smoke.cyr\` proves the include chain compiles.
+- \`programs/smoke.cyr\` — minimal end-to-end smoke. CI builds this on every push.
+- \`tests/$PROJ.tcyr\` — test cases. Use \`assert_eq\` / \`assert\` and exit with \`assert_summary()\`.
+- \`dist/$PROJ.cyr\` — single-file bundle produced by \`cyrius distlib\`. Consumers \`include\` this from their own \`cyrius.cyml [deps.$PROJ] modules = ["dist/$PROJ.cyr"]\`.
+
+## Adding a feature
+
+1. Edit \`src/main.cyr\` (or add a new module and \`include\` it).
+2. Add a test case to \`tests/$PROJ.tcyr\`.
+3. Run \`cyrius test\`.
+4. \`cyrius distlib\` to regenerate the bundle.
+5. Bump \`VERSION\` and add a CHANGELOG entry before tagging.
+
+See [\`../adr/template.md\`](../adr/template.md) when a non-trivial design choice deserves an ADR.
+EOF
+else
+    write_if_absent "$NAME/docs/guides/getting-started.md" << EOF
+# Getting started with $PROJ
+
+## Build
+
+\`\`\`sh
+cyrius deps                              # resolve dependencies
+cyrius build src/main.cyr build/$PROJ    # compile
+cyrius test                              # run [build].test + tests/*.tcyr
+\`\`\`
+
+## Layout
+
+- \`src/main.cyr\` — entry point. Top-level \`var r = main(); syscall(SYS_EXIT, r);\`.
+- \`src/test.cyr\` — top-level test entry referenced by \`cyrius.cyml [build].test\`. Add unit cases here or in \`tests/$PROJ.tcyr\`.
+- \`tests/$PROJ.tcyr\` — primary test suite (\`cyrius test\` auto-discovers).
+- \`tests/$PROJ.bcyr\` — benchmarks (\`cyrius bench\`).
+- \`tests/$PROJ.fcyr\` — fuzz harness (\`cyrius fuzz\`).
+
+## Adding a feature
+
+1. Edit \`src/main.cyr\` (or add a new module and \`include\` it).
+2. Add a test case to \`tests/$PROJ.tcyr\`.
+3. Run \`cyrius test\`.
+4. Bump \`VERSION\` and add a CHANGELOG entry before tagging.
+
+See [\`../adr/template.md\`](../adr/template.md) when a non-trivial design choice deserves an ADR.
+EOF
+fi
+
+# === docs/examples/.gitkeep (v5.7.16) ===
+write_if_absent "$NAME/docs/examples/.gitkeep" << 'EXEOF'
+EXEOF
+
+# === docs/development/state.md (v5.7.16) ===
+write_if_absent "$NAME/docs/development/state.md" << EOF
+# $PROJ — Current State
+
+> Refreshed every release. CLAUDE.md is preferences/process/procedures
+> (durable); this file is **state** (volatile).
+
+## Version
+
+**0.1.0** — scaffolded $(date +%Y-%m-%d) via \`cyrius init\`. No releases yet.
+
+## Toolchain
+
+- **Cyrius pin**: \`$CYRIUS_VER\` (in \`cyrius.cyml [package].cyrius\`)
+
+## Source
+
+Initial scaffold only.
+
+## Tests
+
+- \`tests/$PROJ.tcyr\` — primary suite (smoke + math; passes on \`cyrius test\`)
+- \`tests/$PROJ.bcyr\` — benchmark stub (no-op)
+- \`tests/$PROJ.fcyr\` — fuzz stub
+
+## Dependencies
+
+Direct (declared in \`cyrius.cyml\`):
+
+- stdlib — string, fmt, alloc, io, vec, str, syscalls, assert
+
+## Consumers
+
+_None yet._
+
+## Next
+
+See [\`roadmap.md\`](roadmap.md).
+EOF
+
+# === docs/development/roadmap.md (v5.7.16) ===
+write_if_absent "$NAME/docs/development/roadmap.md" << EOF
+# $PROJ — Roadmap
+
+> Milestone plan through v1.0. State lives in [\`state.md\`](state.md);
+> this file is the sequencing — what ships, in what order, against
+> what dependency gates.
+
+## v1.0 criteria
+
+_Define before tagging v0.1.0:_
+
+- [ ] Public API frozen — every exported symbol documented and tested
+- [ ] Test coverage adequate for the surface area
+- [ ] Benchmarks captured in \`docs/benchmarks.md\`
+- [ ] At least one downstream consumer green
+- [ ] CHANGELOG complete from v0.1.0 onward
+- [ ] Security audit pass (\`docs/audit/YYYY-MM-DD-audit.md\`)
+
+## Milestones
+
+### M0 — Scaffold (v0.1.0) — ✅ shipped $(date +%Y-%m-%d)
+
+- \`cyrius init\` scaffold landed
+- Doc-tree per [first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
+- ADRs / architecture notes / guides / examples folders ready
+
+### M1 — _Title_ (v0.2.0)
+
+_Replace this with the first real milestone. Specify the user-visible change, the dep gates, and the acceptance criteria._
+
+### M2 — _Title_ (v0.3.0)
+
+_…_
+
+## Out of scope (for v1.0)
+
+_Capture what's deliberately NOT in scope for v1.0. The list keeps future contributors from adding to v1.0 by accident._
+
+- _e.g. Windows support, GUI front-end, etc._
+EOF
+
+# === CLAUDE.md (v5.7.16: default-on, first-party-doc aligned) ===
+# v5.7.16: CLAUDE.md is now scaffolded by default per the
+# first-party-documentation.md "Required Root Files" list. The
+# legacy --agent flag is accepted as a no-op (warns) for
+# back-compat with v5.7.15-and-earlier callers; the emitted
+# template doesn't vary per preset anymore — durable preferences
+# only, with a pointer to docs/development/state.md for volatile
+# state.
 if [ -n "$AGENT" ]; then
     case "$AGENT" in
-        generic)
-            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
-# $PROJ
-
-Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
-
-## Build
-
-\`\`\`sh
-cyrius deps                          # resolve dependencies
-cyrius build src/main.cyr build/$PROJ  # compile
-cyrius test                          # run test suite
-\`\`\`
-
-## Conventions
-
-- Source lives in \`src/\`, tests in \`tests/\`
-- Dependencies declared in \`cyrius.cyml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
-- \`var buf[N]\` is N **bytes**, not elements
-- No closures — use named functions + globals
-- \`&&\`/\`||\` short-circuit; mixed requires explicit parens
-
-## Do Not
-
-- Do not commit or push without user approval
-- Do not modify \`lib/\` files (vendored stdlib)
-- Do not skip \`cyrius deps\` before builds
-AGENT_EOF
-            ;;
-        agnos)
-            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
-# $PROJ — AGNOS Ecosystem
-
-Part of the [AGNOS](https://github.com/MacCracken) ecosystem.
-Written in [Cyrius](https://github.com/MacCracken/cyrius).
-
-## Build
-
-\`\`\`sh
-cyrius deps                          # resolve dependencies
-cyrius build src/main.cyr build/$PROJ  # compile
-cyrius test                          # run test suite
-\`\`\`
-
-## AGNOS Conventions
-
-- All AGNOS projects use GPL-3.0-only
-- Pin toolchain version in \`cyrius.cyml [package].cyrius\` to latest stable
-- Use \`assert_summary()\` exit pattern in tests
-- Stdlib modules are vendored in \`lib/\`; do not modify
-- Prefix public functions with project name to avoid collisions
-- \`var buf[N]\` is N **bytes**, not elements
-- No closures — use named functions + globals
-
-## Testing
-
-- \`.tcyr\` files are test suites (run via \`cyrius test\`)
-- \`.bcyr\` files are benchmarks (run via \`cyrius bench\`)
-- \`.fcyr\` files are fuzz harnesses (run via \`cyrius fuzz\`)
-- Always exit with \`syscall(60, assert_summary())\`
-
-## Do Not
-
-- Do not commit or push without user approval
-- Do not modify \`lib/\` files (vendored stdlib)
-- Do not skip \`cyrius deps\` before builds
-- Do not add features without tests
-AGENT_EOF
-            ;;
-        claude)
-            write_if_absent "$NAME/CLAUDE.md" << AGENT_EOF
-# $PROJ
-
-Written in [Cyrius](https://github.com/MacCracken/cyrius).
-
-## Build
-
-\`\`\`sh
-cyrius deps && cyrius build src/main.cyr build/$PROJ
-cyrius test
-\`\`\`
-
-## Key Facts
-
-- Source in \`src/\`, tests in \`tests/\`, stdlib in \`lib/\` (vendored, do not edit)
-- Dependencies declared in \`cyrius.cyml\`
-- Toolchain pinned in \`cyrius.cyml [package].cyrius\`
-
-## Language Notes
-
-- \`var buf[N]\` is N bytes, not elements
-- \`&&\`/\`||\` short-circuit; mixed requires parens: \`a && (b || c)\`
-- No closures — use named functions
-- Test exit pattern: \`syscall(60, assert_summary())\`
-
-## Do Not
-
-- Do not commit or push without user approval
-- Do not modify files in \`lib/\`
-AGENT_EOF
-            ;;
-        *)
-            echo "  note: unknown preset '$AGENT', using generic"
-            write_if_absent "$NAME/CLAUDE.md" << AGENT_FALLBACK_EOF
-# $PROJ
-
-Written in [Cyrius](https://github.com/MacCracken/cyrius). Built with \`cyrius build\`.
-
-## Build
-
-\`\`\`sh
-cyrius deps                          # resolve dependencies
-cyrius build src/main.cyr build/$PROJ  # compile
-cyrius test                          # run test suite
-\`\`\`
-
-## Conventions
-
-- Source lives in \`src/\`, tests in \`tests/\`
-- Dependencies declared in \`cyrius.cyml\`, resolved via \`cyrius deps\`
-- Toolchain version pinned in \`cyrius.cyml [package].cyrius\`
-- \`var buf[N]\` is N **bytes**, not elements
-- No closures — use named functions + globals
-- \`&&\`/\`||\` short-circuit; mixed requires explicit parens
-
-## Do Not
-
-- Do not commit or push without user approval
-- Do not modify \`lib/\` files (vendored stdlib)
-- Do not skip \`cyrius deps\` before builds
-AGENT_FALLBACK_EOF
-            ;;
+        generic|agnos|claude) ;;
+        *) echo "  note: --agent=$AGENT — preset is deprecated; the v5.7.16 default CLAUDE.md template applies regardless" ;;
     esac
 fi
+if [ "$SHAPE" = "lib" ]; then
+    BUILD_HINT="cyrius build programs/smoke.cyr build/$PROJ-smoke"
+    PROJ_TYPE="Library"
+else
+    BUILD_HINT="cyrius build src/main.cyr build/$PROJ"
+    PROJ_TYPE="Binary"
+fi
+write_if_absent "$NAME/CLAUDE.md" << EOF
+# $PROJ — Claude Code Instructions
+
+> **Core rule**: this file is **preferences, process, and procedures** —
+> durable rules that change rarely. Volatile state (current version,
+> module line counts, supported backends, test counts, dep-gap status,
+> consumers) lives in [\`docs/development/state.md\`](docs/development/state.md).
+> Do not inline state here.
+
+## Project Identity
+
+**$PROJ** — $PROJ_DESC
+
+- **Type**: $PROJ_TYPE
+- **License**: GPL-3.0-only
+- **Language**: Cyrius (toolchain pinned in \`cyrius.cyml [package].cyrius\`)
+- **Version**: \`VERSION\` at the project root is the source of truth — do not inline the number here
+- **Standards**: [First-Party Standards](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-standards.md) · [First-Party Documentation](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
+
+## Goal
+
+_TODO: one-or-two-sentence mission statement. What does $PROJ OWN in the stack? Durable — doesn't change per release._
+
+## Current State
+
+> Volatile state lives in [\`docs/development/state.md\`](docs/development/state.md) —
+> current version, surface area, in-flight work, consumers, dep gaps.
+> Refreshed every release.
+
+This file (\`CLAUDE.md\`) is durable rules.
+
+## Scaffolding
+
+Project was scaffolded with \`cyrius init\` (greenfield) or \`cyrius port\` (Rust → Cyrius migration). **Do not manually create project structure** — use the tools. If a tool is missing something, fix the tool.
+
+## Quick Start
+
+\`\`\`sh
+cyrius deps                          # resolve sibling deps
+$BUILD_HINT
+cyrius test                          # run [build].test + tests/*.tcyr
+\`\`\`
+
+## Key Principles
+
+- **Correctness over cleverness** — if it's wrong, the bugs own you
+- Test after every change, not after the feature is "done"
+- ONE change at a time — never bundle unrelated changes
+- Research before implementation — check vidya / existing patterns
+- Build with \`cyrius build\`, not raw \`cat file | cc5\` — the manifest auto-resolves deps and prepends includes
+- Source files only need project includes — stdlib / external deps auto-resolve from \`cyrius.cyml\`
+- Every buffer declaration is a contract: \`var buf[N]\` = N **bytes**, not N entries
+- \`&&\` / \`||\` short-circuit; mixed expressions require explicit parens
+
+## Rules (Hard Constraints)
+
+- **Do not commit or push** — the user handles all git operations
+- **Never use \`gh\` CLI** — use \`curl\` to the GitHub API if needed
+- Do not skip tests before claiming changes work
+- Do not use \`sys_system()\` with unsanitized input — command injection
+- Do not trust external data (file / network / args) without validation
+- Do not modify \`lib/\` files (vendored stdlib / dep symlinks)
+- Do not hardcode toolchain versions in CI YAML — \`cyrius = "X.Y.Z"\` in \`cyrius.cyml\` is the source of truth
+
+## Documentation
+
+- [\`docs/adr/\`](docs/adr/) — Architecture Decision Records (*why X over Y?*)
+- [\`docs/architecture/\`](docs/architecture/) — Non-obvious constraints (*what's true about the code?*)
+- [\`docs/guides/\`](docs/guides/) — Task-oriented how-tos
+- [\`docs/examples/\`](docs/examples/) — Runnable examples
+- [\`docs/development/state.md\`](docs/development/state.md) — Live state snapshot
+- [\`docs/development/roadmap.md\`](docs/development/roadmap.md) — Milestones through v1.0
+
+## Process
+
+1. **Work phase** — features, roadmap items, bug fixes
+2. **Build check** — \`cyrius build\`
+3. **Test + benchmark additions** for new code
+4. **Internal review** — performance, memory, correctness, edge cases
+5. **Documentation** — update CHANGELOG, \`docs/development/state.md\`, any ADR the change earned
+6. **Version sync** — \`VERSION\`, \`cyrius.cyml\`, CHANGELOG header
+
+EOF
 
 # === CLI tool integrations ===
 if [ -n "$CMTOOLS" ]; then

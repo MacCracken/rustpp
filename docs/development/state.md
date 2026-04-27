@@ -5,6 +5,28 @@
 
 ## Version
 
+**5.7.16** (shipped 2026-04-27 — **`cyrius init` / `cyrius port`
+FIRST-PARTY-DOCUMENTATION DOC-TREE**. Closes the v5.7.14-as-
+bundle 3-patch split: v5.7.14 transitive deps + v5.7.15 lib-vs-
+bin + v5.7.16 doc-tree all shipped 2026-04-27. Both `cyrius
+init` and `cyrius port` now scaffold the standard `docs/adr/`
+(README + template), `docs/architecture/` (README),
+`docs/guides/` (getting-started, shape-aware), `docs/examples/`
+(.gitkeep), `docs/development/` (state + roadmap stubs), plus
+a default root CLAUDE.md following durable-vs-volatile split
+(no inlined state — Current State block points at
+docs/development/state.md). Legacy `--agent` flag is now a
+deprecated no-op; the v5.7.16 default template subsumes the
+three legacy presets (generic/agnos/claude). cc5 unchanged at
+**715,312 B** (scripts-only edits — both `cyrius-init.sh` and
+`cyrius-port.sh`; compiler untouched). New gate
+`tests/regression-init-doctree.sh` (gate 4z): 5 cases —
+`--lib` emits 8 doc-tree files; `--bin` emits same;
+bare defaults to `--bin` and emits same; `cyrius port`
+mirrors; durable-vs-volatile invariant checked
+(state.md carries the toolchain pin AND CLAUDE.md must NOT).
+**check.sh 37/37 PASS** (was 36/36; +gate 4z).)
+
 **5.7.15** (shipped 2026-04-27 — **`cyrius init --lib`/`--bin`
 LIBRARY SCAFFOLD**. `scripts/cyrius-init.sh` grew a `SHAPE`
 variable + `--lib`/`--bin` flag parsing. Lib shape emits

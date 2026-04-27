@@ -42,23 +42,20 @@
 > first (2026-04-27 user direction: "correctness over new features
 > always"). **Hard upper bound: v5.7.28 = v5.7.x closeout.**
 >
-> **What's next (v5.7.16–v5.12.x):**
+> **What's next (v5.7.17–v5.12.x):**
 >
-> v5.7.14 `cyrius deps` transitive resolution shipped
-> 2026-04-27. v5.7.15 `cyrius init --lib`/`--bin` library
-> template shipped 2026-04-27. Second of three patches
-> splitting the v5.7.14-as-bundle plan from 2026-04-23. cc5
-> unchanged at 715,312 B (scripts-only edit); check.sh 36/36
-> (was 35/35; +gate 4y). 4-case coverage: --lib builds smoke
-> clean, --bin keeps binary shape, bare defaults to --bin,
-> --lib CI workflow targets programs/smoke.cyr. v5.7.16 =
-> doc-tree alignment (last of trio).
+> The v5.7.14-as-bundle 3-patch split is **closed**:
+> v5.7.14 cyrius deps transitive (BFS walker) +
+> v5.7.15 cyrius init --lib/--bin (library scaffold) +
+> v5.7.16 cyrius init/port doc-tree (first-party-documentation
+> alignment). All three shipped 2026-04-27. cc5 unchanged at
+> 715,312 B across all three (scripts/cbt-only edits);
+> check.sh 33/33 → 37/37 (+gates 4w/4x/4y/4z + escape gates
+> from v5.7.13). +2 cascade through closeout per user
+> authorization at v5.7.13 ship; v5.7.28 hard cap pressure
+> remains contingent on RISC-V landing at the 3-sub-patch
+> low end.
 >
-> - **v5.7.16**: `cyrius init`/`cyrius port` first-party-
->   documentation doc-tree alignment. Scaffolds `docs/adr/`,
->   `docs/architecture/`, `docs/guides/`, `docs/examples/`,
->   `docs/development/{roadmap,state}.md`, plus CLAUDE.md
->   template. ~200-300 LOC.
 > - **v5.7.17**: basic regex primitives (`lib/regex.cyr`) —
 >   Thompson NFA, ~300-500 LOC. Unblocks cyim `--find` and
 >   downstream ad-hoc state-machine churn.
@@ -789,78 +786,7 @@ is fine to leave).
 
 
 
-### v5.7.16 — `cyrius init` / `cyrius port` first-party-documentation alignment (last of bundle; transitive deps shipped v5.7.14, lib-vs-bin v5.7.15)
 
-**Pinned 2026-04-23.** The `first-party-documentation.md` standard
-([agnosticos/docs/development/applications/first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md))
-was formalized 2026-04-23 and specifies the baseline `docs/` tree
-every AGNOS repo should carry from day one: `docs/adr/` (with
-`README.md` + `template.md`), `docs/architecture/` (with
-`README.md`), `docs/guides/`, `docs/examples/`,
-`docs/development/roadmap.md`, `docs/development/state.md`. Plus a
-`CLAUDE.md` at the repo root following the durable-vs-volatile
-split that cyrius/CLAUDE.md established as the gold standard.
-
-`cyrius init` today emits only a bare `README.md`, `CHANGELOG.md`,
-`LICENSE`, `VERSION`, `cyrius.cyml`, `.gitignore`, `build/`,
-`docs/` (empty), `lib/`, `scripts/`, `src/`, `tests/`. None of the
-first-party-documentation.md subtrees or the CLAUDE.md template are
-scaffolded. The meta agent rewrote all of these by hand on sit
-(2026-04-23) and yantra (2026-04-23), plus pasted the ADR
-conventions + `template.md` from sit's hand-written version both
-times. `cyrius port` has the same gap — ported projects don't
-land with the standard doc shape.
-
-**Surfacing consumers**: sit, yantra (2026-04-23), and every
-future repo scaffolded or ported until the tooling catches up.
-
-**Scope** (~200–300 LOC in scaffold templates):
-
-- `docs/adr/README.md` + `docs/adr/template.md` — standard index
-  + the 5-section template (Status/Date, Context, Decision,
-  Consequences, Alternatives considered). Templates in
-  [sit/docs/adr](https://github.com/MacCracken/sit/tree/main/docs/adr)
-  and [yantra/docs/adr](https://github.com/MacCracken/yantra/tree/main/docs/adr)
-  can be lifted directly.
-- `docs/architecture/README.md` — standard header explaining
-  *"non-obvious constraints and quirks a reader cannot derive
-  from the code alone; numbered chronologically, never renumber"*.
-- `docs/guides/getting-started.md` — stub with project-name
-  placeholders.
-- `docs/development/roadmap.md` — stub with v1.0-criteria
-  section.
-- `docs/development/state.md` — stub following cyrius/docs/
-  development/state.md's shape (Version / Toolchain / Source /
-  Tests / Dependencies / Consumers / Next).
-- **`CLAUDE.md` at repo root** — fill `{project}` placeholders
-  from the example_claude.md template
-  ([agnosticos/docs/development/applications/example_claude.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/example_claude.md)).
-  Durable content only; "Current State" is a pointer block into
-  `docs/development/state.md`, not inlined state.
-- **`cyrius port` parity** — when a Rust project is ported in,
-  scaffold the same doc tree alongside the moved `rust-old/`.
-
-**Acceptance gates:**
-
-1. `cyrius init --lib foo` emits a project whose `docs/adr/`,
-   `docs/architecture/`, `docs/guides/`, `docs/examples/`,
-   `docs/development/` all exist with correct README/template
-   contents.
-2. A CLAUDE.md is emitted, containing no inlined state — the
-   "Current State" section points at `docs/development/state.md`.
-3. `cyrius port /some/rust/project` scaffolds the same tree.
-4. The existing scaffolded repos that pre-date the standard
-   (sit, yantra) match what new scaffolds now emit — cross-check
-   with a diff against their hand-written versions.
-
-**Relationship to the `cyrius init` ergonomic fixes at v5.6.22/
-v5.6.23** — those are 5 specific fixes surfaced by owl during its
-bootstrap; this is a broader alignment sweep on top of them. The
-v5.6.22/23 fixes land first; this item assumes they've landed.
-
-**Slot assignment**: during the v5.7.x cycle, after the
-library-vs-binary item ships (depends on the scaffold template
-format landed by that item).
 
 ### ~~v5.7.x — `lib/http.cyr` depth~~ — **RETIRED 2026-04-24, moved to sandhi**
 

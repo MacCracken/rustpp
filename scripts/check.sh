@@ -370,6 +370,15 @@ if [ "$ilb_result" -ne 0 ]; then cat /tmp/audit_ilb_$$; fi
 rm -f /tmp/audit_ilb_$$
 echo ""
 
+# ── 4z. cyrius init / port doc-tree per first-party-documentation.md (v5.7.16) ──
+echo "── cyrius init/port doc-tree ──"
+sh "$ROOT/tests/regression-init-doctree.sh" > /tmp/audit_dt2_$$ 2>&1
+dt2_result=$?
+check "cyrius init/port emit adr/architecture/guides/examples/development + CLAUDE.md (v5.7.16)" "$dt2_result"
+if [ "$dt2_result" -ne 0 ]; then cat /tmp/audit_dt2_$$; fi
+rm -f /tmp/audit_dt2_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

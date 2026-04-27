@@ -4,6 +4,95 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.16] — 2026-04-27
+
+**`cyrius init` / `cyrius port` FIRST-PARTY-DOCUMENTATION
+DOC-TREE.** Last of three patches splitting the v5.7.14-as-bundle
+plan from 2026-04-23 (transitive deps shipped v5.7.14;
+`--lib`/`--bin` v5.7.15; doc-tree v5.7.16). Closes the bundle.
+
+### Background
+
+Per [first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md)
+every AGNOS first-party repo carries the same baseline `docs/`
+tree from day one — `adr/` + `architecture/` + `guides/` +
+`examples/` + `development/` — plus a root `CLAUDE.md`
+following the durable-vs-volatile split (cyrius/CLAUDE.md is
+the gold standard reference). Pre-v5.7.16 `cyrius init` /
+`cyrius port` shipped only an empty `docs/development/`. The
+meta agent rewrote all doc-tree files by hand on sit
+(2026-04-23) and yantra (2026-04-23). cyrius v5.7.16 closes
+that gap.
+
+### Added (`scripts/cyrius-init.sh`)
+
+- `mkdir -p` extended for `docs/adr`, `docs/architecture`,
+  `docs/guides`, `docs/examples`, `docs/development`.
+- `docs/adr/README.md` — ADR index + conventions (filename
+  convention, status lifecycle, ADR-vs-architecture-vs-guide
+  table). Lifted from yantra's hand-written version.
+- `docs/adr/template.md` — 5-section ADR template
+  (Status/Date, Context, Decision, Consequences,
+  Alternatives considered).
+- `docs/architecture/README.md` — non-obvious-constraints
+  index pointing back at `../adr/` for decisions.
+- `docs/guides/getting-started.md` — shape-aware. Lib variant
+  documents `cyrius distlib` flow + dist bundle consumer
+  pattern. Bin variant documents the entry-point flow.
+- `docs/examples/.gitkeep` — placeholder so the dir survives
+  `git add .`.
+- `docs/development/state.md` — Version / Toolchain / Source /
+  Tests / Dependencies / Consumers / Next sections. Pre-filled
+  with `0.1.0`, the toolchain pin, the scaffold date, and
+  pointers to the test/bench/fuzz files.
+- `docs/development/roadmap.md` — v1.0-criteria checklist + M0
+  marked shipped + M1/M2 placeholders + Out-of-scope section.
+- **`CLAUDE.md` at repo root (default-on)** — adapted from
+  agnosticos `example_claude.md` template. Durable rules only:
+  Project Identity / Goal / Current State (pointer to
+  `docs/development/state.md`, no inlined state) / Scaffolding /
+  Quick Start (shape-aware build hint) / Key Principles /
+  Rules / Documentation index / Process. The legacy
+  `--agent` flag is now a no-op (warns) — the v5.7.16 default
+  template subsumes the three legacy presets (generic / agnos /
+  claude).
+
+### Changed (`scripts/cyrius-port.sh`)
+
+- Same doc-tree mirrored. `cyrius port` was emitting only an
+  empty `docs/development/`; now ships the full tree alongside
+  the moved `rust-old/`.
+- Port-flavored CLAUDE.md mentions `rust-old/` as the parity
+  oracle.
+- Port roadmap M0 marked shipped; M1 placeholder reads
+  "Surface parity (Rust → Cyrius function-level diff)".
+
+### Acceptance gates
+
+- **`tests/regression-init-doctree.sh` (gate 4z)** — 5 cases:
+  `--lib mylib` emits 8 doc-tree files (adr/README +
+  template + arch/README + guides/getting-started +
+  examples/.gitkeep + development/{state,roadmap} + CLAUDE.md);
+  `--bin foo` emits the same set; bare `cyrius init bareproj`
+  also emits the same set; `cyrius port` mirrors;
+  state.md carries the toolchain pin AND CLAUDE.md does NOT
+  inline it (durable-vs-volatile invariant).
+- cc5 self-host: byte-identical at **715,312 B** (scripts-only
+  edits; compiler unchanged).
+- check.sh **37/37 PASS** (was 36/36; +gate 4z).
+
+### v5.7.14-as-bundle 3-patch split — closed
+
+The 2026-04-23 bundle plan shipped over three patches:
+v5.7.14 transitive deps (cbt walker), v5.7.15 lib-vs-bin
+(`--lib`/`--bin` flags + library template), v5.7.16
+doc-tree (this patch). +2 cascade through closeout per user
+authorization at v5.7.13 ship; v5.7.28 hard cap pressure
+remains contingent on RISC-V landing at the 3-sub-patch low
+end.
+
+---
+
 ## [5.7.15] — 2026-04-27
 
 **`cyrius init --lib`/`--bin` LIBRARY SCAFFOLD.** Second of three
