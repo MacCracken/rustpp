@@ -27,7 +27,10 @@ syscall arg literal-propagation bug — cc5_cx's EMOVI on
 syscall args emits `movi r0, 0` instead of `movi r0, N` for
 literal N (pin v5.7.x patch slot); (b) f64 ops on cx still
 emit raw x87/SSE bytes (none in v5.7.12 acceptance gates,
-pin if consumer surfaces). **v5.7.13 RISC-V is now next.**)
+pin if consumer surfaces). **v5.7.13 (string-literal escape
+sequences `\x##` / `\u####` — cyim-unblocking) is now next;
+RISC-V slid to v5.7.22-v5.7.26 to clear the bug/UX patch slate
+first.**)
 
 **5.7.11** (shipped 2026-04-27 — **`main_cx.cyr` DRIFT FIX +
 CI GATE**. Smaller-slot scope per user 2026-04-27
@@ -404,74 +407,81 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.7 (RISC-V rv64 port).** v5.7.6 closed the JSX inner-expr
-tokenization (P4.3d). RISC-V port is next — inherits optimized
-compiler + post-fold stdlib + bumped fixup table + complete cyrius-ts
-frontend with structured JSX AST and inner-expr tokenization. Slid
-across 2026-04-24/26 as sandhi fold/cyrius-ts/fixup-cap/JSX/JSX-AST/
-JSX-inner-expr took priority slots in turn.
+**v5.7.13 (string-literal escape sequences `\x##` / `\u####` /
+full set) — cyim-unblocking.** v5.7.12 closed the cyrius-x
+bytecode path-B work; user direction 2026-04-27 was to slide
+RISC-V down and clear the bug/UX patch slate first. v5.7.13
+grows the lex's escape-sequence set so cyim's TTY editor surface
+stops emitting literal `\x1b[…` characters. Per the "compiler
+grows to fit the language, never the other way around" rule
+(`feedback_grow_compiler_to_fit_language.md`).
 
-**v5.7.6 (JSX inner-expr tokenization, P4.3d resume) — ✅ shipped 2026-04-26.** v5.7.5 shipped
-the real JSX AST but with empty `JSX_EXPR_CONTAINER` nodes — lex
-byte-balances `{...}` expression bodies, parser sees nothing inside.
-v5.7.6 wires the mode-stack-driven design prototyped + reverted
-during v5.7.5: lex pushes mode 4 (JSX_TAG) / mode 5 (JSX_TEXT) /
-mode 8 (JSX_EXPR) onto the existing template stack; main TS_LEX
-loop dispatches to per-mode helpers; matching `}` of mode 8 emits
-`JSX_EXPR_CLOSE` and pops back to outer JSX mode. Helpers
-`TS_LEX_JSX_TAG` + `TS_LEX_JSX_TEXT` were drafted clean during
-v5.7.5 P4.3d-1; the regression bug surfaced when wiring d-2
-dispatch (some specific JSX shape leaves the mode stack inconsistent;
-single-line bisect on the failing files couldn't isolate the
-trigger). v5.7.6 picks this up with full investigation budget.
-After landing: parser real-expr consumption inside
-`JSX_EXPR_CONTAINER` / `JSX_ATTRIBUTE` (expr-kind value) /
-`JSX_SPREAD_ATTR` — sketch already exists from P4.3d-2 attempt.
+**v5.7.x slot map (firm as of 2026-04-27, hard upper bound v5.7.28):**
 
-**v5.7.x sticky `.tsx` edge gaps (6 files, each its own narrow
-slot).** None are JSX issues; all are non-JSX TS feature gaps:
-generic method types in object types
-(`<K extends keyof S>(k: K) =>`), `!:` definite-assignment,
-multi-arg generic fn types (`vi.fn<...>`), computed-key destructure
-(`{[key]: _}`), multi-line block comment inside JSX text, one
-cumulative `ConnectionsPage` shape. Push past these to hit ≥99%
-`.tsx` (≥430/435).
+- **v5.7.13** — string-literal escape sequences (cyim-unblocking).
+  **Budgeted 1-2 patches** (audit-first may split into v5.7.13
+  `\x##` + audit, v5.7.14 `\u####`/`\u{…}` UTF-8). If splits,
+  everything below cascades +1.
+- **v5.7.14** — bundle: full project-setup workflow.
+  `cyrius deps` transitive resolution (sit-blocking) + `cyrius
+  init` library-vs-binary awareness (`--lib` / `--bin`) + `cyrius
+  init` / `cyrius port` first-party-documentation alignment
+  (ADR / architecture / guides / examples doc-tree + CLAUDE.md
+  template). All three flow together: `cyrius init --lib foo` →
+  resolve transitive deps → emit shape-aware doc-tree.
+- **v5.7.15** — basic regex primitives (`lib/regex.cyr`,
+  Thompson NFA, ~300-500 LOC). Unblocks cyim `--find`.
+- **v5.7.16** — `lib/json.cyr` depth (stdlib baseline — nested
+  objects, arrays, booleans, null, floats, escape handling,
+  error reporting). RPC-grade scope owned by sandhi.
+- **v5.7.17** — `cyrius fuzz` stdlib auto-prepend parity (solo;
+  small refactor walking the same manifest-deps codepath as
+  `cmd_test` / `cmd_bench`).
+- **v5.7.18** — cx codegen literal-arg propagation
+  (`syscall(60, 42)` emits `movi r0, 0` instead of literal).
+- **v5.7.19-v5.7.21** — advanced TS features beyond SY corpus
+  (**hard cap 3 slots**; overflow → v5.8.x).
+- **v5.7.22-v5.7.26** — RISC-V rv64 (3-5 sub-patches).
+- **v5.7.25/26/27** — `.scyr` + `.smcyr` file types (lands
+  patch immediately after RISC-V wraps; floats with RISC-V
+  actual sub-patch count).
+- **v5.7.26/27/28** — v5.7.x closeout (CLAUDE.md 11-step).
+  **Hard upper bound v5.7.28.**
+
+**Side-task across v5.7.13–v5.7.18 closeouts**: warning sweep
+(3 syscall-arity + 36 unreachable-fn floor + check.sh shell-syntax
+warning + cbt/programs/bootstrap shellcheck pass). Cleared
+opportunistically each closeout, no dedicated patch slot. Goal:
+zero `warning:` lines from cc5 self-build by v5.7.22 (RISC-V
+opens).
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
 acceptance gates 1, 2, 3, 5, 6 closed (CHANGELOG enumerates the
 deleted/added symbol delta + downstream audit). Open work
 (separate, user-organized):
 
-- ⏳ Downstream consumer sweep — gate 4 of v5.7.0. Audit found
-  the real footprint is much smaller than the original 8-repo
-  roadmap list implied: `sit-remote` and `ark-remote` don't
-  exist (real names are `sit` and `ark`); none of the 8 had
-  `[deps.sandhi]` pinned (gate 3 already satisfied); only
-  **vidya** actually `include`s `lib/http_server.cyr`
-  (in `src/main.cyr`). yantra and sit also have orphan
-  pre-fold copies of `lib/http_server.cyr` (regular files, not
-  `cyrius deps` symlinks — likely manual copies from early
-  sandhi M0 era) that need deletion for cleanliness.
-  hoosh / ifran / daimon / mela / ark have no v5.7.0 work.
+- ⏳ Downstream consumer sweep — gate 4 of v5.7.0. Only **vidya**
+  actually `include`s `lib/http_server.cyr` (in `src/main.cyr`).
+  yantra and sit have orphan pre-fold copies of
+  `lib/http_server.cyr` (regular files, not `cyrius deps`
+  symlinks — likely manual copies from early sandhi M0 era) that
+  need deletion for cleanliness. hoosh / ifran / daimon / mela /
+  ark have no v5.7.0 work.
 - ⏳ Vyakarana grammar refresh for sandhi syntax (469 fns now in
-  stdlib; vyakarana likely doesn't index them yet — coordinate
-  with owl colorizer work).
+  stdlib).
 - ⏳ Vidya per-minor refresh (language.toml / dependencies.toml /
-  ecosystem.toml updates for the v5.7.0 stdlib reshape; deferred
-  until downstream sweep also lands so vidya reflects post-sweep
-  ecosystem state).
+  ecosystem.toml updates for the v5.7.0 stdlib reshape).
 
-Sandhi repo enters maintenance mode per ADR 0002 — subsequent
-surface patches land via Cyrius release cycle, not sandhi releases.
-Sandhi git history retained as historical reference; no new tags
-cut post-fold.
+Sandhi repo enters maintenance mode per ADR 0002.
 
 **Long-term considerations (no version pin)**: copy propagation +
 cross-BB extended dead-store elimination — both recon-evaluated at
-v5.6.18/v5.6.19-attempt, both bail (zero direct savings on stack-machine
-IR; cross-BB versions need v5.6.21 regalloc liveness data first). See
-`roadmap.md §Long-term considerations` for full recon data + revisit
-criteria.
+v5.6.18/v5.6.19-attempt, both bail (zero direct savings on stack-
+machine IR; cross-BB versions need regalloc liveness data first).
+Path A parser-to-emit named-op refactor pinned long-term post-
+v5.7.12; trigger is RISC-V (4th backend) or 2+ new direct-emit
+sites slipping past the gate. See `roadmap.md §Long-term
+considerations` for full recon data + revisit criteria.
 
 ## Recent shipped (one-liner per release)
 

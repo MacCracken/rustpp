@@ -35,27 +35,66 @@
 > retirement.
 >
 > **v5.7.x (active)** — Sandhi fold + cyrius-ts frontend + tooling
-> polish. Shipped to v5.7.12; one-liners in
+> polish + cyim-unblocking + bug/UX patch slate + RISC-V port +
+> closeout. Shipped to v5.7.12; one-liners in
 > [completed-phases.md § v5.7.0–v5.7.12](completed-phases.md#v570v5712--sandhi-fold--cyrius-ts-frontend--tooling-polish).
-> v5.7.13 (RISC-V rv64) is the next slot. The remaining v5.7.x
-> patch slate (advanced TS edges, warning sweep, regex stdlib,
-> string-literal escapes, `.scyr`/`.smcyr`, transitive deps,
-> `cyrius init` lib-vs-binary, doc-tree alignment, `lib/json.cyr`
-> depth, cx codegen literal-arg propagation) is interleaved with
-> RISC-V — see *v5.7.x patch slate* below.
+> RISC-V slid to v5.7.23-v5.7.26 to clear the bug/UX patch slate
+> first (2026-04-27 user direction: "correctness over new features
+> always"). **Hard upper bound: v5.7.28 = v5.7.x closeout.**
 >
 > **What's next (v5.7.13–v5.12.x):**
-> - **v5.7.13**: RISC-V rv64 port (inherits optimized compiler +
->   post-fold stdlib + 1M fixup table + 1MB input_buf + complete
->   cyrius-ts frontend + cx-build-clean + cx-path-B).
-> - **v5.7.x patch slate** (interleaved with RISC-V): advanced TS
->   features beyond SY corpus, compiler warning sweep, cx codegen
->   literal-arg propagation, basic regex primitives, `cyrius fuzz`
->   stdlib auto-prepend parity, string-literal escape sequences,
->   `.scyr`/`.smcyr` file types, `cyrius deps` transitive
->   resolution, `cyrius init` library-vs-binary awareness,
->   `cyrius init`/`port` first-party-documentation alignment,
->   `lib/json.cyr` depth (stdlib baseline).
+> - **v5.7.13**: string-literal escape sequences (`\x##`, `\u####`,
+>   full set) — cyim-unblocking. **Budgeted 1-2 patches**: audit-
+>   first may split into v5.7.13 (audit + `\x##` + `\a/\b/\f/\v`
+>   if missing) and v5.7.14 (`\u####` + `\u{…}` UTF-8 codepoint
+>   encode + surrogate-range rejection). Slot numbers below assume
+>   v5.7.13 ships as one patch; if it splits, everything cascades
+>   +1 (closeout target → v5.7.28).
+> - **v5.7.14**: bundle — full project-setup workflow:
+>   `cyrius deps` transitive resolution (sit-blocking onboarding)
+>   + `cyrius init` library-vs-binary awareness (`--lib` / `--bin`
+>   flags) + `cyrius init` / `cyrius port` first-party-
+>   documentation alignment (ADR / architecture / guides / examples
+>   doc-tree scaffold + CLAUDE.md template). All three flow
+>   together: `cyrius init --lib foo` → resolve transitive deps →
+>   emit shape-aware doc-tree.
+> - **v5.7.15**: basic regex primitives (`lib/regex.cyr`) — Thompson
+>   NFA, ~300-500 LOC. Unblocks cyim `--find` and downstream
+>   ad-hoc state-machine churn.
+> - **v5.7.16**: `lib/json.cyr` depth (stdlib baseline) — nested
+>   objects, arrays, booleans, null, floats, escape handling,
+>   error reporting. RPC-grade scope is owned by sandhi.
+> - **v5.7.17**: `cyrius fuzz` stdlib auto-prepend parity. Small
+>   refactor; `cmd_fuzz` walks the same manifest-deps codepath as
+>   `cmd_test` / `cmd_bench`.
+> - **v5.7.18**: cx codegen literal-arg propagation — fixes
+>   `syscall(60, 42)` emitting `movi r0, 0` instead of the literal.
+>   Pre-existing bug surfaced during v5.7.12 path-B testing.
+> - **v5.7.19-v5.7.21**: advanced TS features beyond SY corpus
+>   (**hard cap 3 slots**; overflow → v5.8.x). Surfaces per
+>   downstream consumer: mapped types full grammar, `asserts`
+>   predicates, decorators, `as const`, variadic tuple types,
+>   const type parameters, `satisfies` postfix, conditional
+>   type corpus, `never`/`unknown` audit.
+> - **v5.7.22-v5.7.26**: RISC-V rv64 (3-5 sub-patches). Likely
+>   breakdown: backend module + cross-entry; syscall peer + QEMU
+>   exit-42 probe; `regression.tcyr` 102/102 via QEMU; native
+>   self-host on rv64 hardware; tarball + `[release]` table wire-
+>   in. Bundles compress 3 sub-patches; granular ships 5.
+> - **v5.7.25/26/27**: `.scyr` (soak) + `.smcyr` (smoke) file types —
+>   replaces Python 3 dependency in `tests/regression-capacity.sh`.
+>   Lands the patch immediately after RISC-V wraps. Slot floats:
+>   v5.7.25 if RISC-V = 3 sub-patches, v5.7.26 if 4, v5.7.27 if 5.
+> - **v5.7.26/27/28**: v5.7.x closeout (CLAUDE.md "Closeout Pass"
+>   11-step). Lands the patch after soak/smoke. **Hard upper bound
+>   v5.7.28**; anything past this forces v5.8.x boundary. Add +1 to
+>   each downstream slot if v5.7.13 splits into two patches.
+>
+> **Side-task across v5.7.13–v5.7.18 closeouts**: warning sweep
+> (3 syscall-arity warnings + 36 unreachable-fn floor + check.sh
+> shell-syntax warning + cbt/programs/bootstrap shellcheck pass).
+> Cleared opportunistically each closeout, no dedicated slot.
+> Goal: zero `warning:` lines from cc5 self-build by v5.7.22+.
 > - **v5.8.0**: bare-metal / AGNOS kernel target.
 > - **v5.9.0–v5.9.x**: medium language additions — first-class
 >   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
@@ -222,7 +261,7 @@ backend implements natively.
 
 **Trigger conditions** (any one):
 
-1. **RISC-V (v5.7.13) lands and adds 4th backend**, making
+1. **RISC-V (v5.7.22-v5.7.26) lands and adds 4th backend**, making
    path B's `_TARGET_CX == 0 && _TARGET_RISCV == 0` chains
    unwieldy at every site.
 2. **2+ new direct-emit sites slip past the static-analysis
@@ -320,15 +359,105 @@ The remaining sigil-side prerequisite for the pure-cyrius TLS 1.3
 arc (v5.9.0+) is X25519. That's a sigil-internal addition; the
 toolchain side is unblocked.
 
-## v5.7.13 — RISC-V rv64
+## v5.7.13 — string-literal escape sequences (`\x##`, `\u####`, full set)
 
-First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.13
+**Pinned 2026-04-26; promoted to v5.7.13 2026-04-27** — cyim-
+unblocking. RISC-V slid to v5.7.22-v5.7.26 to clear the bug/UX patch
+slate first.
+
+cyim v1.1.x uses `"\x1b[?1049h"` and family for ANSI/VT escape
+sequences in `lib/tty.cyr`-equivalent code, with hardcoded
+byte-length arguments to `syscall(write)` that assume the lex
+decodes `\x1b` → byte `0x1b`. Cyrius's lex today appears to
+**strip the leading `\` but emit the next character verbatim**,
+so `"\x1b[?1049h"` becomes the 10-byte string `x1b[?1049h`;
+the syscall's hardcoded length (`8`) then truncates to
+`x1b[?104`, which the terminal renders as literal text instead
+of executing the alt-screen-enter command. cyim is currently
+**unusable interactively** because of this — agent-drive
+(`--write` / `--replace[-all]` / `--grep`) works (no escape
+sequences in that path), but the TTY editor surface is a
+stream of literal `\x1b[…` characters on screen.
+
+This is a **language-side bug** per the "compiler grows to fit
+the language, never the other way around" rule
+(`feedback_grow_compiler_to_fit_language.md`). The right fix
+is to grow the lex's escape-sequence set; the wrong fix is to
+rewrite cyim's `tty.cyr` to build escape sequences via
+`store8(&buf, 0x1b)` byte-at-a-time (which is what
+`tty.cyr:196` already does as a workaround pattern, but
+shouldn't have to).
+
+**Audit first** — the v1.1.0 cyim surface assumes `\x##` works
+silently; we don't actually know what cyrius lex *does* support
+today vs what the user-facing reference doc claims. Likely
+already supported: `\n`, `\t`, `\r`, `\\`, `\"`, `\0`. Likely
+missing: `\x##`, `\u####`, `\u{…}`, possibly `\a` `\b` `\f`
+`\v`. The audit determines exact scope.
+
+**Fix scope** (size depends on audit; conservative estimate):
+
+- `src/frontend/lex.cyr` (and the TS variant
+  `src/frontend/ts/lex.cyr` if independently authored) string-
+  literal scanner: extend the `\` branch to recognize:
+  - `\x` followed by exactly two hex digits (case-insensitive
+    `[0-9a-fA-F]{2}`) → emit one byte (the parsed value).
+    Reject `\xZ` / `\x1` / `\x1Q` etc. with a lex error
+    pointing at the bad nibble.
+  - `\u` followed by exactly four hex digits → emit the UTF-8
+    encoding of the codepoint (1-4 bytes). Codepoints in the
+    surrogate range `D800-DFFF` are a lex error.
+  - `\u{…}` form for codepoints > U+FFFF (1-6 hex digits inside
+    the braces; `\u{0}` valid; max `\u{10FFFF}`).
+  - Audit-time addition: `\a` (0x07), `\b` (0x08), `\f` (0x0C),
+    `\v` (0x0B) if missing.
+- Update the cyrius user-facing docs (`docs/cyrius-guide.md`
+  string-literals section) with the full table.
+- Update `vidya/content/cyrius/language.toml` per CLAUDE.md
+  closeout-pass step 11 (vidya falls out of sync silently).
+
+**Acceptance gates:**
+
+1. New `tests/tcyr/string_escapes.tcyr` covers each new escape
+   form, including reject-cases (`\x` followed by non-hex,
+   `\u` followed by < 4 hex digits, surrogate codepoints).
+2. cc5 self-host fixpoint clean (cc5's own source has zero
+   `\x##` today; the bump is invisible to cc5 itself).
+3. cyim v1.1.1 (or whichever version is current when the bump
+   ships) toolchain-pin bumped in `cyrius.cyml`; cyim rebuilt;
+   the alt-screen / cursor / clear sequences in `src/tty.cyr`
+   reach the terminal as actual ESC `[…` byte sequences;
+   interactive `cyim <file>` round-trips without literal-text
+   garbage.
+4. CHANGELOG enumerates the new escape forms + the cyim
+   unblock; `feedback_grow_compiler_to_fit_language.md` cited
+   in the slot's project-memory entry as the framing
+   precedent.
+
+**Out of scope for this slot:** raw-string literals
+(`r"…"` / `r#"…"#`); template/format strings beyond what
+the lex already does; locale-dependent `\N{…}` Unicode names.
+Each of those is its own slot if they're ever wanted.
+
+**Pre-fix cyim workaround** (so cyim can ship interactively
+*before* this lands, if needed): rewrite the six functions in
+`cyim/src/tty.cyr:163-168` to build their escape sequences
+into a heap buffer via repeated `store8` (mirroring the
+existing pattern at `tty.cyr:196`), then `syscall(write)` the
+buffer. ~30 LOC; ugly, but unblocks the editor surface.
+
+---
+
+## v5.7.22-v5.7.26 — RISC-V rv64 (3-5 sub-patches; bounded series)
+
+First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.22-v5.7.26
 as the optimization arc, sandhi fold, fixup-cap bumps,
 cyrius-ts frontend, JSX work, tooling polish, fn-collision
-rule, input_buf reshuffle, and cx-build/correctness slots
-took priority. Inherits a frontend-complete compiler against
-a clean toolchain UX with all v5.7.0–v5.7.12 prerequisites
-shipped.
+rule, input_buf reshuffle, cx-build/correctness, and the
+v5.7.13–v5.7.21 cyim-unblocking + bug/UX patch slate took
+priority. Inherits a frontend-complete compiler against a
+clean toolchain UX with the full v5.7.0–v5.7.21 prerequisite
+chain shipped.
 
 RISC-V needs:
 
@@ -365,7 +494,7 @@ RISC-V needs:
 7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
    entry for `cc5_riscv64`.
 
-Deliberately NOT bundling other items into v5.7.13 — a new
+Deliberately NOT bundling other items into v5.7.22-v5.7.26 — a new
 architecture port is plenty of work on its own.
 
 ---
@@ -387,7 +516,7 @@ to the dynamic vec-shaped table from
 [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table).
 Pin as a v5.8.x or v5.9.x consideration if needed.
 
-### v5.7.x — advanced TS features beyond SY corpus (anti-slip slot)
+### v5.7.19-v5.7.21 — advanced TS features beyond SY corpus (hard cap 3 slots; overflow → v5.8.x)
 
 **Pinned 2026-04-26.** SY corpus parse acceptance hit 100% on
 both `.ts` (2053/2053) and `.tsx` (435/435) at v5.7.6 via 10
@@ -459,14 +588,15 @@ schedule pin. The 8-item list above is illustrative — TS is an
 active language and more features will land. Update this slot
 when they do.
 
-### v5.7.x — warning sweep (compiler emits + scripts/check.sh + tooling)
+### v5.7.x — warning sweep (side-task, no dedicated slot)
 
-**Pinned 2026-04-26** (surfaced during v5.7.7 closeout). cc5
-self-build emits three classes of warnings that have accumulated
-without dedicated cleanup; `scripts/check.sh` itself emits a
-shell-syntax warning at line 305-306 mid-run that's been tolerated
-because the gate it guards still PASSes. None individually warrant
-a slot; together they're a single targeted sweep.
+**Pinned 2026-04-26; reframed 2026-04-27 as a side-task spread
+across v5.7.13–v5.7.18 closeouts** (per user direction:
+"warning sweep if we can do as well go through the next few
+releases as a side-task"). Don't dedicate a patch slot — clear
+warnings opportunistically as each upcoming patch's closeout
+runs. Goal is zero `warning:` lines from cc5 self-build by the
+time v5.7.22 RISC-V opens.
 
 **Findings on cc5 self-build (5.7.7):**
 
@@ -532,7 +662,7 @@ a slot; together they're a single targeted sweep.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
-### v5.7.x — cx codegen literal-arg propagation
+### v5.7.18 — cx codegen literal-arg propagation
 
 **Pinned 2026-04-27** (surfaced during v5.7.12 path-B testing).
 cc5_cx's codegen for `syscall(N, V)` and similar literal-arg
@@ -575,10 +705,10 @@ global it depends on is the suspect.
   `regression-cx-roundtrip.sh`).
 
 **Slot scope**: small focused investigation (likely 1-2 hour
-debug pass). Slot when v5.7.13 RISC-V wraps or earlier if a
+debug pass). Slot is now v5.7.18 (was unscheduled "when RISC-V wraps") or earlier if a
 cx consumer surfaces.
 
-### v5.7.x — basic regex primitives in the stdlib
+### v5.7.15 — basic regex primitives in the stdlib
 
 **Pinned 2026-04-27** (user request, alongside the cyim
 `--grep` → `--find` design from cyrius-bb's tooling pain
@@ -668,7 +798,7 @@ of importing a foreign regex engine.
 its own focused patch in the v5.7.x cycle. Pre-RISC-V is fine
 if it surfaces a need; otherwise post-RISC-V.
 
-### v5.7.x — `cyrius fuzz` stdlib auto-prepend parity
+### v5.7.17 — `cyrius fuzz` stdlib auto-prepend parity
 
 **Pinned 2026-04-25** (cyim-agent surfaced). `cyrius fuzz` builds
 each `fuzz/*.fcyr` harness via raw `compile(path, tmpbin)` —
@@ -690,101 +820,15 @@ from all three command bodies.
 from each `fuzz/*.fcyr` harness; `cyrius fuzz` still passes all
 5 current harnesses (freelist, hashmap, str_coerce, string, vec).
 
-**Bundle candidate:** ship alongside the `.scyr` / `.smcyr`
-slot below — both are "test-runner shape" cleanups in the same
-file.
+### v5.7.27 — `.scyr` (soak) + `.smcyr` (smoke) file types (post-RISC-V; floats up if RISC-V finishes in 3-4 sub-patches)
 
-### v5.7.x — string-literal escape sequences (`\x##`, `\u####`, full set)
-
-**Pinned 2026-04-26** (cyim-surfaced; cyim v1.1.x uses
-`"\x1b[?1049h"` and family for ANSI/VT escape sequences in
-`lib/tty.cyr`-equivalent code, with hardcoded byte-length
-arguments to `syscall(write)` that assume the lex decodes
-`\x1b` → byte `0x1b`). Cyrius's lex today appears to **strip
-the leading `\` but emit the next character verbatim**, so
-`"\x1b[?1049h"` becomes the 10-byte string `x1b[?1049h`; the
-syscall's hardcoded length (`8`) then truncates to `x1b[?104`,
-which the terminal renders as literal text instead of executing
-the alt-screen-enter command. cyim is currently **unusable
-interactively** because of this — agent-drive (`--write` /
-`--replace[-all]` / `--grep`) works (no escape sequences in
-that path), but the TTY editor surface is a stream of literal
-`\x1b[…` characters on screen.
-
-This is a **language-side bug** per the "compiler grows to fit
-the language, never the other way around" rule
-(`feedback_grow_compiler_to_fit_language.md`). The right fix
-is to grow the lex's escape-sequence set; the wrong fix is to
-rewrite cyim's `tty.cyr` to build escape sequences via
-`store8(&buf, 0x1b)` byte-at-a-time (which is what
-`tty.cyr:196` already does as a workaround pattern, but
-shouldn't have to).
-
-**Audit first** — the v1.1.0 cyim surface assumes `\x##` works
-silently; we don't actually know what cyrius lex *does* support
-today vs what the user-facing reference doc claims. Likely
-already supported: `\n`, `\t`, `\r`, `\\`, `\"`, `\0`. Likely
-missing: `\x##`, `\u####`, `\u{…}`, possibly `\a` `\b` `\f`
-`\v`. The audit determines exact scope.
-
-**Fix scope** (size depends on audit; conservative estimate):
-
-- `src/frontend/lex.cyr` (and the TS variant
-  `src/frontend/ts/lex.cyr` if independently authored) string-
-  literal scanner: extend the `\` branch to recognize:
-  - `\x` followed by exactly two hex digits (case-insensitive
-    `[0-9a-fA-F]{2}`) → emit one byte (the parsed value).
-    Reject `\xZ` / `\x1` / `\x1Q` etc. with a lex error
-    pointing at the bad nibble.
-  - `\u` followed by exactly four hex digits → emit the UTF-8
-    encoding of the codepoint (1-4 bytes). Codepoints in the
-    surrogate range `D800-DFFF` are a lex error.
-  - `\u{…}` form for codepoints > U+FFFF (1-6 hex digits inside
-    the braces; `\u{0}` valid; max `\u{10FFFF}`).
-  - Audit-time addition: `\a` (0x07), `\b` (0x08), `\f` (0x0C),
-    `\v` (0x0B) if missing.
-- Update the cyrius user-facing docs (`docs/cyrius-guide.md`
-  string-literals section) with the full table.
-- Update `vidya/content/cyrius/language.toml` per CLAUDE.md
-  closeout-pass step 11 (vidya falls out of sync silently).
-
-**Acceptance gates:**
-
-1. New `tests/tcyr/string_escapes.tcyr` covers each new escape
-   form, including reject-cases (`\x` followed by non-hex,
-   `\u` followed by < 4 hex digits, surrogate codepoints).
-2. cc5 self-host fixpoint clean (cc5's own source has zero
-   `\x##` today; the bump is invisible to cc5 itself).
-3. cyim v1.1.1 (or whichever version is current when the bump
-   ships) toolchain-pin bumped in `cyrius.cyml`; cyim rebuilt;
-   the alt-screen / cursor / clear sequences in `src/tty.cyr`
-   reach the terminal as actual ESC `[…` byte sequences;
-   interactive `cyim <file>` round-trips without literal-text
-   garbage.
-4. CHANGELOG enumerates the new escape forms + the cyim
-   unblock; `feedback_grow_compiler_to_fit_language.md` cited
-   in the slot's project-memory entry as the framing
-   precedent.
-
-**Out of scope for this slot:** raw-string literals
-(`r"…"` / `r#"…"#`); template/format strings beyond what
-the lex already does; locale-dependent `\N{…}` Unicode names.
-Each of those is its own slot if they're ever wanted.
-
-**Pre-fix cyim workaround** (so cyim can ship interactively
-*before* this lands, if needed): rewrite the six functions in
-`cyim/src/tty.cyr:163-168` to build their escape sequences
-into a heap buffer via repeated `store8` (mirroring the
-existing pattern at `tty.cyr:196`), then `syscall(write)` the
-buffer. ~30 LOC; ugly, but unblocks the editor surface. cyim
-slot if the cyrius bump slips: `tty_alt_enter` /
-`tty_alt_leave` / `tty_clear` / `tty_cursor_hide` /
-`tty_cursor_show` / `tty_cursor_home` rewritten as
-byte-builders.
-
-### v5.7.x — `.scyr` (soak) + `.smcyr` (smoke) file types
-
-**Pinned 2026-04-25.** Today, soak and smoke testing are scattered:
+**Pinned 2026-04-25; slot framing updated 2026-04-27** — lands
+right after RISC-V wraps. Worst-case slot is v5.7.27 (assumes
+RISC-V uses all 5 sub-patches v5.7.22-v5.7.26); floats up to
+v5.7.25 or v5.7.26 if RISC-V finishes in 3 or 4 sub-patches
+respectively. Per user direction: "we can keep soak and smoke
+to before closeout of 5.7.x". Today, soak and smoke testing
+are scattered:
 `cyrius soak` is a built-in fixed routine (N self-host iterations,
 hardcoded in `cbt/commands.cyr::cmd_soak`); smoke is implicit in
 `scripts/check.sh` via shell scripts that orchestrate cyrius
@@ -831,7 +875,7 @@ is fine to leave).
 `cmd_test` / `cmd_bench` / `cmd_fuzz` family in
 `cbt/commands.cyr`.
 
-### v5.7.x — `cyrius deps` transitive resolution
+### v5.7.14 — `cyrius deps` transitive resolution (bundled with cyrius init lib-vs-bin + init/port doc-tree alignment)
 
 **Pinned 2026-04-23.** Distinct from v5.7.8's `cyrius deps`
 P1-P5 ergonomic fixes — that slot covers silent-failure /
@@ -904,7 +948,7 @@ gaps, tooling friction) that also need slotting; the patch
 order falls out naturally once we see the actual surfacing
 sequence. Acceptable bound: ships before v5.7.x closeout.
 
-### v5.7.x — `cyrius init` library-vs-binary awareness
+### v5.7.14 — `cyrius init` library-vs-binary awareness (bundled with cyrius deps transitive + doc-tree alignment)
 
 **Pinned 2026-04-23.** `cyrius init <name>` currently emits the
 binary shape unconditionally: `[build] entry = "src/main.cyr"`,
@@ -970,7 +1014,7 @@ stayed binary, correctly), and every future library scaffold.
 **Slot assignment**: during the v5.7.x cycle, after RISC-V
 baseline stabilizes. Low risk, self-contained.
 
-### v5.7.x — `cyrius init` / `cyrius port` first-party-documentation.md alignment
+### v5.7.14 — `cyrius init` / `cyrius port` first-party-documentation alignment (bundled with cyrius deps transitive + lib-vs-bin)
 
 **Pinned 2026-04-23.** The `first-party-documentation.md` standard
 ([agnosticos/docs/development/applications/first-party-documentation.md](https://github.com/MacCracken/agnosticos/blob/main/docs/development/applications/first-party-documentation.md))
@@ -1051,7 +1095,7 @@ format landed by that item).
 
 **Net effect on the cyrius roadmap**: this item is removed from the v5.7.x patch slate. See `sandhi`'s [ADR 0001](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0001-sandhi-is-a-composer-not-a-reimplementer.md) for the composer-not-reimplementer thesis and the full scope moved.
 
-### v5.7.x — `lib/json.cyr` depth (stdlib baseline — RPC-grade scope moved to sandhi 2026-04-24)
+### v5.7.16 — `lib/json.cyr` depth (stdlib baseline)
 
 **Pinned 2026-04-23; narrowed 2026-04-24** — RPC-grade handling (WebDriver / Appium response parsing, streaming large payloads, dialect-aware error envelopes) moved to `sandhi::rpc` along with the `lib/http.cyr depth` item. This slot retains the stdlib-baseline enrichment: deeper parsing for config / data files, safer error reporting, array support. The surfacing consumers for *baseline* json.cyr depth are cyml / toml parity, config loading, and data-file pipelines — not network RPC.
 
@@ -1455,7 +1499,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` + HIGH_ENTROPY_VA enabled v5.6.31 |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.13** | RISC-V rv64 | ELF | Queued |
+| **v5.7.22-v5.7.26** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.21 patch slate; v5.7.x closeout at v5.7.26-v5.7.28) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 
@@ -1535,7 +1579,7 @@ enables adding new targets without touching the frontend.
 | macOS aarch64 | Mach-O | **✅ Narrow + Broad** — gate fixture repaired v5.6.33 (no compiler regression existed; bytes unchanged since v5.5.13). |
 | Windows x86_64 | PE/COFF | **✅ Narrow + Broad** — gate fixture repaired v5.6.36; HIGH_ENTROPY_VA enabled v5.6.31. Win64 ABI complete (v5.5.36); .reloc + 32-bit ASLR (v5.5.35). |
 | Compiler optimization (O1–O6) | — | **✅ Closed** (v5.6.5 + v5.6.7–v5.6.27). |
-| RISC-V (rv64) | ELF | Queued — **v5.7.13** |
+| RISC-V (rv64) | ELF | Queued — **v5.7.22-v5.7.26** |
 | Bare-metal | ELF (no-libc) | Queued — **v5.8.0** |
 
 ---
