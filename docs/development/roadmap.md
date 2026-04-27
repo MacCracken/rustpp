@@ -37,19 +37,20 @@
 > **v5.7.x (active)** — Sandhi fold + cyrius-ts frontend + tooling
 > polish + cyim-unblocking + bug/UX patch slate + RISC-V port +
 > closeout. Shipped to v5.7.12; one-liners in
-> [completed-phases.md § v5.7.0–v5.7.12](completed-phases.md#v570v5712--sandhi-fold--cyrius-ts-frontend--tooling-polish).
+> [completed-phases.md § v5.7.0–v5.7.13](completed-phases.md#v570v5713--sandhi-fold--cyrius-ts-frontend--tooling-polish).
 > RISC-V slid to v5.7.23-v5.7.26 to clear the bug/UX patch slate
 > first (2026-04-27 user direction: "correctness over new features
 > always"). **Hard upper bound: v5.7.28 = v5.7.x closeout.**
 >
-> **What's next (v5.7.13–v5.12.x):**
-> - **v5.7.13**: string-literal escape sequences (`\x##`, `\u####`,
->   full set) — cyim-unblocking. **Budgeted 1-2 patches**: audit-
->   first may split into v5.7.13 (audit + `\x##` + `\a/\b/\f/\v`
->   if missing) and v5.7.14 (`\u####` + `\u{…}` UTF-8 codepoint
->   encode + surrogate-range rejection). Slot numbers below assume
->   v5.7.13 ships as one patch; if it splits, everything cascades
->   +1 (closeout target → v5.7.28).
+> **What's next (v5.7.14–v5.12.x):**
+>
+> v5.7.13 string-literal escape sequences (`\x##`, `\u####`,
+> `\u{…}`, `\a` `\b` `\f` `\v` `\'`) shipped 2026-04-27 as one
+> patch (no split). cc5 +5,000 B; check.sh 34/34 (was 33/33;
+> +gate 4w). cyim alt-screen sequences now decode to actual
+> ESC `[…` bytes — interactive cyim unblocked. Downstream slots
+> below keep their numbering (no cascade).
+>
 > - **v5.7.14**: bundle — full project-setup workflow:
 >   `cyrius deps` transitive resolution (sit-blocking onboarding)
 >   + `cyrius init` library-vs-binary awareness (`--lib` / `--bin`
@@ -359,94 +360,7 @@ The remaining sigil-side prerequisite for the pure-cyrius TLS 1.3
 arc (v5.9.0+) is X25519. That's a sigil-internal addition; the
 toolchain side is unblocked.
 
-## v5.7.13 — string-literal escape sequences (`\x##`, `\u####`, full set)
 
-**Pinned 2026-04-26; promoted to v5.7.13 2026-04-27** — cyim-
-unblocking. RISC-V slid to v5.7.22-v5.7.26 to clear the bug/UX patch
-slate first.
-
-cyim v1.1.x uses `"\x1b[?1049h"` and family for ANSI/VT escape
-sequences in `lib/tty.cyr`-equivalent code, with hardcoded
-byte-length arguments to `syscall(write)` that assume the lex
-decodes `\x1b` → byte `0x1b`. Cyrius's lex today appears to
-**strip the leading `\` but emit the next character verbatim**,
-so `"\x1b[?1049h"` becomes the 10-byte string `x1b[?1049h`;
-the syscall's hardcoded length (`8`) then truncates to
-`x1b[?104`, which the terminal renders as literal text instead
-of executing the alt-screen-enter command. cyim is currently
-**unusable interactively** because of this — agent-drive
-(`--write` / `--replace[-all]` / `--grep`) works (no escape
-sequences in that path), but the TTY editor surface is a
-stream of literal `\x1b[…` characters on screen.
-
-This is a **language-side bug** per the "compiler grows to fit
-the language, never the other way around" rule
-(`feedback_grow_compiler_to_fit_language.md`). The right fix
-is to grow the lex's escape-sequence set; the wrong fix is to
-rewrite cyim's `tty.cyr` to build escape sequences via
-`store8(&buf, 0x1b)` byte-at-a-time (which is what
-`tty.cyr:196` already does as a workaround pattern, but
-shouldn't have to).
-
-**Audit first** — the v1.1.0 cyim surface assumes `\x##` works
-silently; we don't actually know what cyrius lex *does* support
-today vs what the user-facing reference doc claims. Likely
-already supported: `\n`, `\t`, `\r`, `\\`, `\"`, `\0`. Likely
-missing: `\x##`, `\u####`, `\u{…}`, possibly `\a` `\b` `\f`
-`\v`. The audit determines exact scope.
-
-**Fix scope** (size depends on audit; conservative estimate):
-
-- `src/frontend/lex.cyr` (and the TS variant
-  `src/frontend/ts/lex.cyr` if independently authored) string-
-  literal scanner: extend the `\` branch to recognize:
-  - `\x` followed by exactly two hex digits (case-insensitive
-    `[0-9a-fA-F]{2}`) → emit one byte (the parsed value).
-    Reject `\xZ` / `\x1` / `\x1Q` etc. with a lex error
-    pointing at the bad nibble.
-  - `\u` followed by exactly four hex digits → emit the UTF-8
-    encoding of the codepoint (1-4 bytes). Codepoints in the
-    surrogate range `D800-DFFF` are a lex error.
-  - `\u{…}` form for codepoints > U+FFFF (1-6 hex digits inside
-    the braces; `\u{0}` valid; max `\u{10FFFF}`).
-  - Audit-time addition: `\a` (0x07), `\b` (0x08), `\f` (0x0C),
-    `\v` (0x0B) if missing.
-- Update the cyrius user-facing docs (`docs/cyrius-guide.md`
-  string-literals section) with the full table.
-- Update `vidya/content/cyrius/language.toml` per CLAUDE.md
-  closeout-pass step 11 (vidya falls out of sync silently).
-
-**Acceptance gates:**
-
-1. New `tests/tcyr/string_escapes.tcyr` covers each new escape
-   form, including reject-cases (`\x` followed by non-hex,
-   `\u` followed by < 4 hex digits, surrogate codepoints).
-2. cc5 self-host fixpoint clean (cc5's own source has zero
-   `\x##` today; the bump is invisible to cc5 itself).
-3. cyim v1.1.1 (or whichever version is current when the bump
-   ships) toolchain-pin bumped in `cyrius.cyml`; cyim rebuilt;
-   the alt-screen / cursor / clear sequences in `src/tty.cyr`
-   reach the terminal as actual ESC `[…` byte sequences;
-   interactive `cyim <file>` round-trips without literal-text
-   garbage.
-4. CHANGELOG enumerates the new escape forms + the cyim
-   unblock; `feedback_grow_compiler_to_fit_language.md` cited
-   in the slot's project-memory entry as the framing
-   precedent.
-
-**Out of scope for this slot:** raw-string literals
-(`r"…"` / `r#"…"#`); template/format strings beyond what
-the lex already does; locale-dependent `\N{…}` Unicode names.
-Each of those is its own slot if they're ever wanted.
-
-**Pre-fix cyim workaround** (so cyim can ship interactively
-*before* this lands, if needed): rewrite the six functions in
-`cyim/src/tty.cyr:163-168` to build their escape sequences
-into a heap buffer via repeated `store8` (mirroring the
-existing pattern at `tty.cyr:196`), then `syscall(write)` the
-buffer. ~30 LOC; ugly, but unblocks the editor surface.
-
----
 
 ## v5.7.22-v5.7.26 — RISC-V rv64 (3-5 sub-patches; bounded series)
 

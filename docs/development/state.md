@@ -5,6 +5,31 @@
 
 ## Version
 
+**5.7.13** (shipped 2026-04-27 — **STRING-LITERAL ESCAPE
+SEQUENCES** — `\x##`, `\u####`, `\u{...}`, plus the previously-
+missing C-family escapes `\a` `\b` `\f` `\v` `\'`. cyim-
+unblocking: `"\x1b[?1049h"` and family now decode to actual
+escape bytes; pre-v5.7.13 lex stripped the `\` and emitted the
+next byte verbatim, so cyim's interactive surface rendered
+literal `x1b[?1049h` text and was unusable. cc5 710,312 →
+**715,312 B** (+5,000 B for the new decoders + helpers + error
+messages). New `_LEX_HEX_VAL` (ASCII hex digit -> [0..15] / -1)
+and `_LEX_EMIT_UTF8` (codepoint -> 1-4 byte UTF-8) helpers in
+`src/frontend/lex.cyr`. Surrogate codepoints (D800-DFFF) and
+codepoints > U+10FFFF are lex errors; bad-hex / wrong-arity /
+empty `\u{}` / 7+ digit `\u{}` / missing close-brace all
+produce explicit lex errors with `error:LINE: ...` shape.
+TS lex left untouched (records source spans without decoding).
+Acceptance: `tests/tcyr/string_escapes.tcyr` (77 byte-level
+assertions covering all classic + new forms across UTF-8
+boundaries U+007F / U+0080 / U+07FF / U+0800 / U+FFFF /
+U+10000 / U+10FFFF + the canonical cyim alt-screen sequence)
+and `tests/regression-string-escapes.sh` (gate 4w; 11 reject
+cases). cc5 self-host byte-identical fixpoint at 715,312 B.
+**check.sh 34/34 PASS** (was 33/33; +gate 4w). RISC-V remains
+slid to v5.7.22-v5.7.26; closeout target unchanged at
+v5.7.28.)
+
 **5.7.12** (shipped 2026-04-27 — **CYRIUS-X BYTECODE PATH B**.
 Stops `parse_*.cyr` from emitting raw x86 instruction bytes
 into the CYX bytecode stream. cc5 709,776 → **710,312 B**

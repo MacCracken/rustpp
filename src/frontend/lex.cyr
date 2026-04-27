@@ -121,6 +121,49 @@ fn ISALNUM(c) {
     return 0;
 }
 
+# v5.7.13: ASCII hex digit -> value [0..15], or -1 if not a hex digit.
+# Used by string-literal `\x##` and `\u####` / `\u{...}` decoders.
+fn _LEX_HEX_VAL(c) {
+    if (c >= 48) { if (c <= 57) { return c - 48; } }
+    if (c >= 97) { if (c <= 102) { return c - 87; } }
+    if (c >= 65) { if (c <= 70) { return c - 55; } }
+    return 0 - 1;
+}
+
+# v5.7.13: emit codepoint cp as UTF-8 into str_data at S+0x14A000+spos.
+# Returns the new spos. Callers must reject surrogates (D800-DFFF)
+# and codepoints > U+10FFFF before calling.
+fn _LEX_EMIT_UTF8(S, spos, cp) {
+    var dst = S + 0x14A000;
+    var need = 1;
+    if (cp >= 128) { need = 2; }
+    if (cp >= 2048) { need = 3; }
+    if (cp >= 65536) { need = 4; }
+    if (spos + need > 262144) {
+        syscall(SYS_WRITE, 2, "error: string data overflow (256KB limit)\n", 42);
+        syscall(SYS_EXIT, 1);
+    }
+    if (cp < 128) {
+        store8(dst + spos, cp);
+    }
+    elif (cp < 2048) {
+        store8(dst + spos, 192 | (cp >> 6));
+        store8(dst + spos + 1, 128 | (cp & 63));
+    }
+    elif (cp < 65536) {
+        store8(dst + spos, 224 | (cp >> 12));
+        store8(dst + spos + 1, 128 | ((cp >> 6) & 63));
+        store8(dst + spos + 2, 128 | (cp & 63));
+    }
+    else {
+        store8(dst + spos, 240 | (cp >> 18));
+        store8(dst + spos + 1, 128 | ((cp >> 12) & 63));
+        store8(dst + spos + 2, 128 | ((cp >> 6) & 63));
+        store8(dst + spos + 3, 128 | (cp & 63));
+    }
+    return spos + need;
+}
+
 # ================================================================
 # INCLUDE / FILE I/O / PREPROCESSOR
 # ================================================================
@@ -888,23 +931,121 @@ fn LEX(S) {
                             p = p + 1;
                             var ec = load8(S + 0x44A000 + p);
                             p = p + 1;
-                            if (ec == 110) { store8(S + 0x14A000 + spos, 10); }
-                            else { if (ec == 114) { store8(S + 0x14A000 + spos, 13); }
-                            else {
-                                if (ec == 116) { store8(S + 0x14A000 + spos, 9); }
-                                else {
-                                    if (ec == 48) { store8(S + 0x14A000 + spos, 0); }
-                                    else {
-                                        if (ec == 92) { store8(S + 0x14A000 + spos, 92); }
+                            if (ec == 110)      { store8(S + 0x14A000 + spos, 10); spos = spos + 1; }
+                            elif (ec == 114)    { store8(S + 0x14A000 + spos, 13); spos = spos + 1; }
+                            elif (ec == 116)    { store8(S + 0x14A000 + spos,  9); spos = spos + 1; }
+                            elif (ec == 48)     { store8(S + 0x14A000 + spos,  0); spos = spos + 1; }
+                            elif (ec == 92)     { store8(S + 0x14A000 + spos, 92); spos = spos + 1; }
+                            elif (ec == 34)     { store8(S + 0x14A000 + spos, 34); spos = spos + 1; }
+                            elif (ec == 39)     { store8(S + 0x14A000 + spos, 39); spos = spos + 1; }
+                            elif (ec == 97)     { store8(S + 0x14A000 + spos,  7); spos = spos + 1; }
+                            elif (ec == 98)     { store8(S + 0x14A000 + spos,  8); spos = spos + 1; }
+                            elif (ec == 102)    { store8(S + 0x14A000 + spos, 12); spos = spos + 1; }
+                            elif (ec == 118)    { store8(S + 0x14A000 + spos, 11); spos = spos + 1; }
+                            elif (ec == 120) {
+                                # v5.7.13: \x## - exactly two hex digits.
+                                if (p + 1 >= bl) {
+                                    syscall(SYS_WRITE, 2, "error:", 6);
+                                    PRNUM(GCLINE(S));
+                                    syscall(SYS_WRITE, 2, ": \\x escape needs two hex digits\n", 33);
+                                    syscall(SYS_EXIT, 1);
+                                }
+                                var h1 = _LEX_HEX_VAL(load8(S + 0x44A000 + p));
+                                var h2 = _LEX_HEX_VAL(load8(S + 0x44A000 + p + 1));
+                                if (h1 < 0) {
+                                    syscall(SYS_WRITE, 2, "error:", 6);
+                                    PRNUM(GCLINE(S));
+                                    syscall(SYS_WRITE, 2, ": \\x escape: bad hex digit\n", 27);
+                                    syscall(SYS_EXIT, 1);
+                                }
+                                if (h2 < 0) {
+                                    syscall(SYS_WRITE, 2, "error:", 6);
+                                    PRNUM(GCLINE(S));
+                                    syscall(SYS_WRITE, 2, ": \\x escape: bad hex digit\n", 27);
+                                    syscall(SYS_EXIT, 1);
+                                }
+                                store8(S + 0x14A000 + spos, (h1 << 4) | h2);
+                                spos = spos + 1;
+                                p = p + 2;
+                            }
+                            elif (ec == 117) {
+                                # v5.7.13: \u#### (four hex) or \u{...} (1..6 hex).
+                                var cp = 0;
+                                if (p < bl && load8(S + 0x44A000 + p) == 123) {
+                                    p = p + 1;
+                                    var ndig = 0;
+                                    var udone = 0;
+                                    while (udone == 0) {
+                                        if (p >= bl) {
+                                            syscall(SYS_WRITE, 2, "error:", 6);
+                                            PRNUM(GCLINE(S));
+                                            syscall(SYS_WRITE, 2, ": \\u{...} escape: missing closing brace\n", 40);
+                                            syscall(SYS_EXIT, 1);
+                                        }
+                                        var bc = load8(S + 0x44A000 + p);
+                                        if (bc == 125) { udone = 1; }
                                         else {
-                                            if (ec == 34) { store8(S + 0x14A000 + spos, 34); }
-                                            else { store8(S + 0x14A000 + spos, ec); }
+                                            var hv = _LEX_HEX_VAL(bc);
+                                            if (hv < 0) {
+                                                syscall(SYS_WRITE, 2, "error:", 6);
+                                                PRNUM(GCLINE(S));
+                                                syscall(SYS_WRITE, 2, ": \\u{...} escape: bad hex digit\n", 32);
+                                                syscall(SYS_EXIT, 1);
+                                            }
+                                            if (ndig >= 6) {
+                                                syscall(SYS_WRITE, 2, "error:", 6);
+                                                PRNUM(GCLINE(S));
+                                                syscall(SYS_WRITE, 2, ": \\u{...} escape: > 6 hex digits\n", 33);
+                                                syscall(SYS_EXIT, 1);
+                                            }
+                                            cp = (cp << 4) | hv;
+                                            ndig = ndig + 1;
+                                            p = p + 1;
                                         }
                                     }
+                                    if (ndig == 0) {
+                                        syscall(SYS_WRITE, 2, "error:", 6);
+                                        PRNUM(GCLINE(S));
+                                        syscall(SYS_WRITE, 2, ": \\u{...} escape: no hex digits\n", 32);
+                                        syscall(SYS_EXIT, 1);
+                                    }
+                                    p = p + 1;
+                                } else {
+                                    if (p + 3 >= bl) {
+                                        syscall(SYS_WRITE, 2, "error:", 6);
+                                        PRNUM(GCLINE(S));
+                                        syscall(SYS_WRITE, 2, ": \\u escape needs four hex digits\n", 34);
+                                        syscall(SYS_EXIT, 1);
+                                    }
+                                    var di = 0;
+                                    while (di < 4) {
+                                        var hv = _LEX_HEX_VAL(load8(S + 0x44A000 + p + di));
+                                        if (hv < 0) {
+                                            syscall(SYS_WRITE, 2, "error:", 6);
+                                            PRNUM(GCLINE(S));
+                                            syscall(SYS_WRITE, 2, ": \\u escape: bad hex digit\n", 27);
+                                            syscall(SYS_EXIT, 1);
+                                        }
+                                        cp = (cp << 4) | hv;
+                                        di = di + 1;
+                                    }
+                                    p = p + 4;
                                 }
+                                if (cp > 1114111) {
+                                    syscall(SYS_WRITE, 2, "error:", 6);
+                                    PRNUM(GCLINE(S));
+                                    syscall(SYS_WRITE, 2, ": \\u escape: codepoint > U+10FFFF\n", 34);
+                                    syscall(SYS_EXIT, 1);
+                                }
+                                if (cp >= 55296 && cp <= 57343) {
+                                    syscall(SYS_WRITE, 2, "error:", 6);
+                                    PRNUM(GCLINE(S));
+                                    syscall(SYS_WRITE, 2, ": \\u escape: surrogate codepoint not allowed\n", 45);
+                                    syscall(SYS_EXIT, 1);
+                                }
+                                spos = _LEX_EMIT_UTF8(S, spos, cp);
                             }
-                            }
-                            spos = spos + 1;
+                            else { store8(S + 0x14A000 + spos, ec); spos = spos + 1; }
                         } else {
                             store8(S + 0x14A000 + spos, sc);
                             spos = spos + 1;

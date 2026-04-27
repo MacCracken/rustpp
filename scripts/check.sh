@@ -343,6 +343,15 @@ if [ "$cxr_result" -ne 0 ]; then cat /tmp/audit_cxr_$$; fi
 rm -f /tmp/audit_cxr_$$
 echo ""
 
+# ── 4w. String-literal escape reject cases (v5.7.13) ──
+echo "── String-escape rejects ──"
+sh "$ROOT/tests/regression-string-escapes.sh" > /tmp/audit_se_$$ 2>&1
+se_result=$?
+check "lex rejects malformed \\x## / \\u#### / \\u{...} + surrogates (v5.7.13)" "$se_result"
+if [ "$se_result" -ne 0 ]; then cat /tmp/audit_se_$$; fi
+rm -f /tmp/audit_se_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

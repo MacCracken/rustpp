@@ -1,0 +1,150 @@
+# string_escapes.tcyr — v5.7.13: lex string-literal escape sequences.
+# Acceptance gate for `\x##`, `\u####`, `\u{...}` plus the
+# previously-missing C-family escapes `\a` `\b` `\f` `\v` `\'`.
+#
+# `\u####` and `\u{...}` are encoded as UTF-8; surrogate codepoints
+# (D800-DFFF) and codepoints > U+10FFFF are rejected at lex time —
+# those reject paths live in tests/regression-string-escapes.sh
+# (lex errors abort cc5; tcyr can only test successful compiles).
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ── Pre-existing escapes (regression: must still work) ──
+test_group("classic escapes");
+var sn = "\n";
+assert_eq(load8(sn), 10, "n = 0x0A");
+var sr = "\r";
+assert_eq(load8(sr), 13, "r = 0x0D");
+var st = "\t";
+assert_eq(load8(st), 9, "t = 0x09");
+var s0 = "a\0b";
+assert_eq(load8(s0), 97, "0: byte 0 = a");
+assert_eq(load8(s0 + 1), 0, "0: byte 1 = NUL");
+assert_eq(load8(s0 + 2), 98, "0: byte 2 = b");
+var sbk = "\\";
+assert_eq(load8(sbk), 92, "backslash = 0x5C");
+var sq = "\"";
+assert_eq(load8(sq), 34, "dquote = 0x22");
+
+# ── New v5.7.13: C-family escapes ──
+test_group("C-family escapes");
+var sa = "\a";
+assert_eq(load8(sa), 7, "a = 0x07");
+var sb = "\b";
+assert_eq(load8(sb), 8, "b = 0x08");
+var sf = "\f";
+assert_eq(load8(sf), 12, "f = 0x0C");
+var sv = "\v";
+assert_eq(load8(sv), 11, "v = 0x0B");
+var sap = "\'";
+assert_eq(load8(sap), 39, "single-quote = 0x27");
+
+# ── New v5.7.13: \x## hex byte escapes ──
+test_group("hex-byte escape");
+var x00 = "\x00";
+assert_eq(load8(x00), 0, "x00 = 0");
+var xff = "\xff";
+assert_eq(load8(xff), 255, "xff = 255");
+var xab = "\xab";
+assert_eq(load8(xab), 0xab, "xab (lower)");
+var xup = "\xAB";
+assert_eq(load8(xup), 0xab, "xAB (upper)");
+var xmix = "\x4A";
+assert_eq(load8(xmix), 0x4A, "x4A (mixed)");
+var alt = "\x1b[?1049h";
+assert_eq(load8(alt + 0), 0x1b, "alt[0] = ESC");
+assert_eq(load8(alt + 1), 0x5b, "alt[1] = lbracket");
+assert_eq(load8(alt + 2), 0x3f, "alt[2] = qmark");
+assert_eq(load8(alt + 3), 0x31, "alt[3] = 1");
+assert_eq(load8(alt + 4), 0x30, "alt[4] = 0");
+assert_eq(load8(alt + 5), 0x34, "alt[5] = 4");
+assert_eq(load8(alt + 6), 0x39, "alt[6] = 9");
+assert_eq(load8(alt + 7), 0x68, "alt[7] = h");
+assert_eq(load8(alt + 8), 0, "alt[8] = NUL");
+
+# ── New v5.7.13: \u#### (4-hex) — ASCII range ──
+test_group("uHHHH single-byte UTF-8");
+var u41 = "A";
+assert_eq(load8(u41), 0x41, "u0041 = A");
+assert_eq(load8(u41 + 1), 0, "u0041 NUL");
+var u7f = "";
+assert_eq(load8(u7f), 0x7f, "u007f = 0x7F (1-byte max)");
+
+# ── New v5.7.13: \u#### — 2-byte UTF-8 (U+0080..U+07FF) ──
+test_group("uHHHH two-byte UTF-8");
+var u80 = "";
+assert_eq(load8(u80 + 0), 0xc2, "u0080 b0 (2-byte min)");
+assert_eq(load8(u80 + 1), 0x80, "u0080 b1");
+var ue9 = "é";
+assert_eq(load8(ue9 + 0), 0xc3, "u00e9 b0");
+assert_eq(load8(ue9 + 1), 0xa9, "u00e9 b1");
+var u7ff = "߿";
+assert_eq(load8(u7ff + 0), 0xdf, "u07ff b0 (2-byte max)");
+assert_eq(load8(u7ff + 1), 0xbf, "u07ff b1");
+
+# ── New v5.7.13: \u#### — 3-byte UTF-8 (U+0800..U+FFFF, no surrogates) ──
+test_group("uHHHH three-byte UTF-8");
+var u800 = "ࠀ";
+assert_eq(load8(u800 + 0), 0xe0, "u0800 b0 (3-byte min)");
+assert_eq(load8(u800 + 1), 0xa0, "u0800 b1");
+assert_eq(load8(u800 + 2), 0x80, "u0800 b2");
+var ueur = "€";
+assert_eq(load8(ueur + 0), 0xe2, "u20ac b0");
+assert_eq(load8(ueur + 1), 0x82, "u20ac b1");
+assert_eq(load8(ueur + 2), 0xac, "u20ac b2");
+var uffff = "￿";
+assert_eq(load8(uffff + 0), 0xef, "uffff b0 (3-byte max)");
+assert_eq(load8(uffff + 1), 0xbf, "uffff b1");
+assert_eq(load8(uffff + 2), 0xbf, "uffff b2");
+
+# ── New v5.7.13: \u{...} — variable-width hex, up to 6 digits ──
+test_group("braced uHHHH");
+var ub_a = "\u{41}";
+assert_eq(load8(ub_a), 0x41, "u{41} = A (1 hex)");
+var ub_zero = "\u{0}";
+assert_eq(load8(ub_zero), 0, "u{0} = NUL (1 hex, zero)");
+var ub_e9 = "\u{e9}";
+assert_eq(load8(ub_e9 + 0), 0xc3, "u{e9} b0");
+assert_eq(load8(ub_e9 + 1), 0xa9, "u{e9} b1");
+var ub_grin = "\u{1F600}";
+assert_eq(load8(ub_grin + 0), 0xf0, "u{1F600} b0 (4-byte)");
+assert_eq(load8(ub_grin + 1), 0x9f, "u{1F600} b1");
+assert_eq(load8(ub_grin + 2), 0x98, "u{1F600} b2");
+assert_eq(load8(ub_grin + 3), 0x80, "u{1F600} b3");
+var ub_max = "\u{10FFFF}";
+assert_eq(load8(ub_max + 0), 0xf4, "u{10FFFF} b0 (Unicode max)");
+assert_eq(load8(ub_max + 1), 0x8f, "u{10FFFF} b1");
+assert_eq(load8(ub_max + 2), 0xbf, "u{10FFFF} b2");
+assert_eq(load8(ub_max + 3), 0xbf, "u{10FFFF} b3");
+var ub_10000 = "\u{10000}";
+assert_eq(load8(ub_10000 + 0), 0xf0, "u{10000} b0 (4-byte min)");
+assert_eq(load8(ub_10000 + 1), 0x90, "u{10000} b1");
+assert_eq(load8(ub_10000 + 2), 0x80, "u{10000} b2");
+assert_eq(load8(ub_10000 + 3), 0x80, "u{10000} b3");
+
+# ── Mixed escapes in one literal ──
+test_group("mixed escapes");
+var mix = "tab\tnl\nesc\x1b!end";
+assert_eq(load8(mix + 0), 0x74, "mix t");
+assert_eq(load8(mix + 1), 0x61, "mix a");
+assert_eq(load8(mix + 2), 0x62, "mix b");
+assert_eq(load8(mix + 3), 0x09, "mix tab");
+assert_eq(load8(mix + 4), 0x6e, "mix n");
+assert_eq(load8(mix + 5), 0x6c, "mix l");
+assert_eq(load8(mix + 6), 0x0a, "mix nl");
+assert_eq(load8(mix + 7), 0x65, "mix e");
+assert_eq(load8(mix + 8), 0x73, "mix s");
+assert_eq(load8(mix + 9), 0x63, "mix c");
+assert_eq(load8(mix + 10), 0x1b, "mix x1b");
+assert_eq(load8(mix + 11), 0x21, "mix bang");
+assert_eq(load8(mix + 12), 0x65, "mix e");
+assert_eq(load8(mix + 13), 0x6e, "mix n");
+assert_eq(load8(mix + 14), 0x64, "mix d");
+assert_eq(load8(mix + 15), 0, "mix NUL");
+
+var r = assert_summary();

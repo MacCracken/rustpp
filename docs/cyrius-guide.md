@@ -143,8 +143,46 @@ var w = r.br.x - r.tl.x;   # 10
 
 ```
 syscall(1, 1, "hello\n", 6);   # Write to stdout
-# Escape sequences: \n \r \t \0 \\ \"
 # Strings are null-terminated in the data section
+```
+
+### Escape sequences
+
+| Escape         | Byte(s)        | Notes                                |
+|----------------|----------------|--------------------------------------|
+| `\n`           | `0x0A`         | newline (LF)                         |
+| `\r`           | `0x0D`         | carriage return                      |
+| `\t`           | `0x09`         | tab                                  |
+| `\0`           | `0x00`         | NUL byte                             |
+| `\\`           | `0x5C`         | literal backslash                    |
+| `\"`           | `0x22`         | literal double-quote                 |
+| `\'`           | `0x27`         | literal single-quote                 |
+| `\a`           | `0x07`         | alert (BEL)         (v5.7.13)        |
+| `\b`           | `0x08`         | backspace           (v5.7.13)        |
+| `\f`           | `0x0C`         | form feed           (v5.7.13)        |
+| `\v`           | `0x0B`         | vertical tab        (v5.7.13)        |
+| `\x##`         | one byte       | exactly 2 hex digits, e.g. `\x1b`    |
+| `\u####`       | 1-3 UTF-8 b    | exactly 4 hex digits (BMP)           |
+| `\u{...}`      | 1-4 UTF-8 b    | 1..6 hex digits, up to `\u{10FFFF}`  |
+
+`\u` codepoints in the surrogate range `D800..DFFF` and any
+`\u{...}` codepoint > `U+10FFFF` are lex errors. Malformed
+hex digits, missing closing `}`, empty `\u{}`, and 7+ digit
+`\u{...}` are lex errors. UTF-8 bytes in source are passed
+through verbatim inside string literals — escapes are
+optional, not required.
+
+```
+# ANSI alt-screen-enter — the canonical example.
+syscall(1, 1, "\x1b[?1049h", 8);
+
+# Smiley face emoji (U+1F600) as 4 UTF-8 bytes.
+var s = "\u{1F600}";
+
+# Three forms of "é" (U+00E9), all equivalent at the byte level.
+var a = "é";          # literal UTF-8 in source: C3 A9
+var b = "\u00e9";     # 4-hex form:               C3 A9
+var c = "\u{e9}";     # braced form:              C3 A9
 ```
 
 ## Syscalls

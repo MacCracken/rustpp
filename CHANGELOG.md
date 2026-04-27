@@ -4,6 +4,76 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.13] — 2026-04-27
+
+**STRING-LITERAL ESCAPE SEQUENCES (`\x##`, `\u####`, `\u{...}`,
+`\a` `\b` `\f` `\v` `\'`).** Grows the lex's escape-sequence
+set so `cyim`'s ANSI/VT terminal sequences (e.g. `"\x1b[?1049h"`
+for alt-screen-enter) decode to actual escape bytes instead of
+literal `x1b[?1049h` text. cyim was unusable interactively
+because of this; this slot is the cyim-unblocking promised in
+the v5.7.12 closeout note. Compiler grows to fit the language,
+not the other way around (`feedback_grow_compiler_to_fit_language.md`).
+
+### Audit
+
+Pre-v5.7.13 lex (`src/frontend/lex.cyr` string-literal scanner)
+recognized `\n`, `\r`, `\t`, `\0`, `\\`, `\"`. Every other
+`\X` form silently stripped the leading `\` and emitted the
+next byte verbatim — matching the user-facing roadmap
+diagnosis exactly. `tests/tcyr/string_escapes.tcyr` covers the
+classic forms as a regression alongside the new ones.
+
+### Added (`src/frontend/lex.cyr`)
+
+- **`\a` (0x07), `\b` (0x08), `\f` (0x0C), `\v` (0x0B), `\'`
+  (0x27)** — C-family escapes that were silently passing
+  through. `\'` was already a no-op via the passthrough fall-
+  through but is now explicit.
+- **`\x##`** — exactly two hex digits (case-insensitive); emits
+  one byte. Rejects `\xZZ` / `\x1Z` / `\x` at EOF with a lex
+  error pointing at the bad nibble.
+- **`\u####`** — exactly four hex digits; emits the UTF-8
+  encoding (1-3 bytes, since `####` is 16-bit). Surrogates
+  `D800-DFFF` are a lex error.
+- **`\u{...}`** — 1..6 hex digits between braces; emits the
+  UTF-8 encoding (1-4 bytes). Codepoints > U+10FFFF and
+  surrogates are lex errors. Empty `\u{}`, missing closing
+  brace, and 7+ digit forms are also rejected.
+- **`_LEX_HEX_VAL(c)`** — ASCII hex-digit -> [0..15] / -1
+  helper.
+- **`_LEX_EMIT_UTF8(S, spos, cp)`** — codepoint -> UTF-8
+  encoder, handles 1-4 byte forms with explicit
+  `spos + need > 262144` overflow guard for the multi-byte
+  cases (the str_data 256 KB cap check at the loop head only
+  guards 1-byte writes).
+
+### Acceptance gates
+
+- **`tests/tcyr/string_escapes.tcyr`** — 77 byte-level assertions
+  covering all classic + new escape forms across
+  single/multi-byte UTF-8 boundaries (U+007F, U+0080, U+07FF,
+  U+0800, U+FFFF, U+10000, U+10FFFF) plus mixed escapes in one
+  literal. Includes the canonical `"\x1b[?1049h"` cyim
+  alt-screen sequence.
+- **`tests/regression-string-escapes.sh` (gate 4w)** — 11 reject
+  cases (compile must fail, expected error substring must
+  appear): `\x` with bad nibbles, `\u` with bad hex, `\u`
+  surrogates, `\u{}` empty/bad-hex/too-many-digits/above-max,
+  `\u{}` surrogates.
+- cc5 self-host fixpoint: byte-identical
+  (cc5 710,312 -> 715,312 B = +5,000 B for the new decoders +
+  helpers + error messages).
+- check.sh **34/34 PASS** (was 33/33; +1 for gate 4w).
+
+### Out of scope
+
+Raw-string literals (`r"..."`), template/format strings,
+`\N{...}` Unicode-name lookups. Each is its own slot if ever
+wanted (per the v5.7.13 roadmap entry).
+
+---
+
 ## [5.7.12] — 2026-04-27
 
 **CYRIUS-X BYTECODE — PATH B (`_TARGET_CX == 0` GUARDS).**
