@@ -444,6 +444,15 @@ if [ "$csl_result" -ne 0 ]; then cat /tmp/audit_csl_$$; fi
 rm -f /tmp/audit_csl_$$
 echo ""
 
+# ── 4ah. TS asserts predicate signatures (v5.7.24) ──
+echo "── TS asserts predicate signatures ──"
+sh "$ROOT/tests/regression-ts-asserts.sh" > /tmp/audit_tsa_$$ 2>&1
+tsa_result=$?
+check "cc5 --parse-ts accepts asserts predicate signatures + this-type (v5.7.24)" "$tsa_result"
+if [ "$tsa_result" -ne 0 ]; then cat /tmp/audit_tsa_$$; fi
+rm -f /tmp/audit_tsa_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

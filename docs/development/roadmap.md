@@ -50,29 +50,46 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.24–v5.12.x):**
+> **What's next (v5.7.25–v5.12.x):**
 >
-> v5.7.23 cx codegen literal-arg propagation shipped
-> 2026-04-27. Single-character typo in
-> `src/backend/cx/emit.cyr`'s `TOKVAL` helper — read tokens
-> from `S + 0x94A000 + i*8` (a zero-initialized gap region)
-> instead of the canonical `S + 0xB4A000 + i*8` write site
-> in `src/frontend/lex.cyr:99`. PEEKV always returned 0 in
-> cc5_cx, so `syscall(60, 42)` emitted `movi r0, 0` for both
-> args. Fixed: 0x94A000 → 0xB4A000. cc5 byte-identical at
-> 716,080 B (cx-backend-only edit; main x86 cc5 unchanged);
-> new gate 4ag (cx syscall literal propagation, 7 sub-checks
-> incl. cxvm round-trip with literals 0/7/42/99/200).
-> check.sh 44/44. Closes the issue pinned in v5.7.12's
-> regression-cx-roundtrip.sh "What this gate does NOT
-> check" note.
+> v5.7.24 TS `asserts` predicate signatures shipped 2026-04-28.
+> First of three "advanced TS features beyond SY corpus" patches
+> (smallest first per direction; mapped types `as`-clause at
+> v5.7.25, decorators at v5.7.26). Pre-v5.7.24 `TS_PARSE_TYPE`
+> had a comment-only stub for `asserts <id> [is <T>]` —
+> implementation only handled the `<lhs> is <T>` suffix and
+> misparsed any input starting with `asserts`. v5.7.24 adds
+> `TS_TOK_KW_ASSERTS = 219` (ident-eligible like `satisfies`),
+> a real prefix consumer in `TS_PARSE_TYPE` guarded by
+> `peek_ahead is name-like`, and a `KW_THIS` branch in
+> `TS_PARSE_TYPE_PRIMARY` for the polymorphic `this`-type
+> (incidental coverage: `interface Builder { build(): this }`,
+> `class P { is(): this is P {...} }`, `class B { chain(): this
+> {...} }`). cc5 byte-identical at 716,728 B (was 716,080 B;
+> +648 B); new gate 4ah (regression-ts-asserts.sh, 6 shape
+> categories); new tcyr ts_parse_p52 (15 byte-level assertions
+> in 6 groups). SY corpus parse acceptance unchanged at 2053/
+> 2053 .ts + 435/435 .tsx. **check.sh 45/45 PASS**. Out of
+> v5.7.24 scope (same behavior as `satisfies` today, future
+> patches if surfaced): `function asserts() {}` and
+> `class asserts {}` — pre-existing limitation that contextual
+> keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.24-v5.7.26**: advanced TS features beyond SY corpus
->   (**hard cap 3 slots**; overflow → v5.8.x).
-> - **v5.7.26-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
+> - **v5.7.25**: TS mapped types `as`-clause (key remapping)
+>   + `+/-readonly` / `+/-?` modifier prefixes
+>   (`{ [K in keyof T as U]: V }`). Medium scope; second of
+>   three TS-depth slots.
+> - **v5.7.26**: TS decorators (TS 5.0 stage-3 standard
+>   decorators; `@foo class X {}`, `@foo prop: T`,
+>   `@foo method() {}`, `@foo() class X {}` factory form).
+>   Biggest of the three; AST node attached to following
+>   declaration.
+> - **v5.7.27-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
->   The 4-5 sub-patch path now fits with margin.
+>   Runway absorbed if v5.7.25/26 expand per user direction
+>   "runway for the TS work to add a release or two without
+>   force-cramming the rest into the few releases scheduled".
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
 >   depth follow-ups — pretty-printing, streaming parser,
 >   JSON Pointer (RFC 6901). Pinned 2026-04-27; promoted to
@@ -577,6 +594,69 @@ time v5.7.26 RISC-V opens.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.24 ✅ TS `asserts` predicate signatures — SHIPPED
+
+**Shipped 2026-04-28.** First of three "advanced TS features
+beyond SY corpus" patches per the v5.7.24-v5.7.26 slot block
+(smallest first per user direction; mapped types `as`-clause
+at v5.7.25, decorators at v5.7.26). Pre-v5.7.24 the parser had
+a comment-only stub at `TS_PARSE_TYPE` that *intended* to
+tolerate `asserts <id> [is <T>]` in return-type position; the
+implementation only handled the `<lhs> is <T>` suffix and
+misparsed any input starting with `asserts` (consumed `asserts`
+as the type-ref, then `<id> is <T>` ate the subject, leaving
+the actual T unconsumed and the function body parse failing on
+`string {}`).
+
+**Implementation:**
+
+1. `TS_TOK_KW_ASSERTS = 219` — contextual keyword in
+   `src/frontend/ts/lex.cyr` len-7 block alongside `declare`.
+   Ident-eligible everywhere (added to expr-PRIMARY OR-chain
+   alongside `KW_SATISFIES`/`KW_INFER`, and to TYPE_PRIMARY
+   type-ref OR-chain alongside `KW_FROM`/`KW_AS`/`KW_TYPE`),
+   so `var asserts = 1`, `let x: asserts`, `type T = asserts`,
+   `obj.asserts`, `{ asserts: 42 }` stay green.
+2. Real prefix consumer in `TS_PARSE_TYPE` — when
+   `peek == KW_ASSERTS && ahead is name-like (IDENT / KW /
+   KW_THIS)`, consume `asserts` and let the existing
+   `<lhs> is <T>` predicate suffix logic handle the rest.
+   The `peek_ahead` guard avoids consuming bare `asserts`
+   type-refs (`let x: asserts;`) and generic-arg uses
+   (`asserts<T>` — peek_ahead is `<`, not name-like).
+3. Polymorphic `this`-type branch in
+   `TS_PARSE_TYPE_PRIMARY` emitting `TYPE_REF` — needed for
+   `asserts this is C` method predicates and class-builder
+   return-type `this` patterns. Incidental coverage:
+   `interface Builder { build(): this }`,
+   `class B { chain(): this {...} }`,
+   `class P { is(): this is P {...} }`.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **716,728 B** (was
+  716,080 B; +648 B for the new branches and token).
+- `regression-ts-parse.sh` — 2053/2053 SY corpus `.ts` (no
+  regression).
+- `regression-ts-parse-tsx.sh` — 435/435 SY corpus `.tsx` (no
+  regression).
+- `regression-ts-lex.sh` — PASS (no lex regression from new
+  contextual keyword).
+- New gate `regression-ts-asserts.sh` (4ah, 6 shape
+  categories): typed `asserts <id> is <T>`, bare `asserts <id>`,
+  method `asserts this is <T>`, polymorphic `this`-type,
+  `asserts` ident-eligibility, pre-v5.7.24 regression `<id>
+  is <T>` predicate.
+- New tcyr `tests/tcyr/ts_parse_p52.tcyr` — 15 byte-level
+  assertions in 6 groups, mirroring the gate.
+- **check.sh 45/45 PASS** (was 44/44; +gate 4ah).
+
+**Out of scope** (same behavior as `satisfies` today; future
+patches if surfaced): `function asserts() {}` and `class
+asserts {}` — pre-existing parser limitation that contextual
+keywords aren't accepted as fn/class declaration names;
+`function satisfies() {}` rejects identically.
 
 ### v5.7.23 ✅ cx codegen literal-arg propagation — SHIPPED
 

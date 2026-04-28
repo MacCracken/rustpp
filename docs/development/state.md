@@ -5,6 +5,54 @@
 
 ## Version
 
+**5.7.24** (shipped 2026-04-28 — **CYRIUS-TS — `asserts`
+PREDICATE SIGNATURES (TS 3.7+)**. First of three v5.7.x
+patches working through TS features beyond the SY corpus
+(smallest first per direction; mapped types `as`-clause v5.7.25,
+decorators v5.7.26). Pre-v5.7.24 the parser had a comment-only
+stub at `TS_PARSE_TYPE` that *intended* to tolerate `asserts
+<id> [is <T>]` in return-type position; the implementation only
+handled the `<lhs> is <T>` suffix and misparsed any input
+starting with `asserts` (consumed `asserts` as the type-ref,
+then `<id> is <T>` ate the subject, leaving the actual T
+unconsumed). v5.7.24 adds (1) `TS_TOK_KW_ASSERTS = 219`
+contextual keyword in `src/frontend/ts/lex.cyr` len-7 block
+alongside `declare`; (2) real prefix consumer in
+`TS_PARSE_TYPE` — when `peek == KW_ASSERTS && ahead is
+name-like (IDENT / KW / KW_THIS)`, consume `asserts` and let
+the existing `<lhs> is <T>` predicate suffix logic handle the
+rest; (3) polymorphic `this`-type branch in
+`TS_PARSE_TYPE_PRIMARY` emitting `TYPE_REF` — needed for
+`asserts this is C` method predicates and class-builder
+return-type `this` patterns (incidental coverage:
+`interface Builder { build(): this }`,
+`class B { chain(): this {...} }`,
+`class P { is(): this is P {...} }`); (4) `KW_ASSERTS` added to
+expr-PRIMARY ident-eligible OR-chain (alongside `KW_SATISFIES` /
+`KW_INFER`) and `TYPE_PRIMARY` type-ref OR-chain (alongside
+`KW_FROM` / `KW_AS` / `KW_TYPE`) so `var asserts = 1;`,
+`let x: asserts;`, `type T = asserts;`, `obj.asserts`,
+`{ asserts: 42 }` all stay green — same pattern as `satisfies`
+shipped in v5.7.4. cc5 self-host two-step byte-identical at
+**716,728 B** (was 716,080 B at v5.7.23; +648 B for the new
+branches and token). New gate
+`tests/regression-ts-asserts.sh` (4ah, 6 shape categories):
+typed predicate `asserts <id> is <T>` (incl. unions and
+generic params), bare `asserts <id>`, method `asserts this is
+<T>`, polymorphic `this`-type, `asserts` ident-eligibility
+(var / type-ref / type alias / property / member access),
+pre-v5.7.24 regression `<id> is <T>` predicate. New tcyr
+`tests/tcyr/ts_parse_p52.tcyr` — **15 byte-level assertions**
+in 6 groups, mirroring the gate. SY corpus regressions
+unchanged: `regression-ts-parse.sh` 2053/2053, `regression-
+ts-parse-tsx.sh` 435/435, `regression-ts-lex.sh` PASS.
+**check.sh 45/45 PASS** (was 44/44; +gate 4ah). Out of
+v5.7.24 scope (same behavior as `satisfies` today, future
+patches if surfaced): `function asserts() {}` and
+`class asserts {}` — pre-existing parser limitation that
+contextual keywords aren't accepted as fn/class declaration
+names; `function satisfies() {}` rejects identically.)
+
 **5.7.23** (shipped 2026-04-27 — **CX CODEGEN — LITERAL ARG
 PROPAGATION**. Single-character typo fix in
 `src/backend/cx/emit.cyr:443` — `TOKVAL` helper read tokens
@@ -709,7 +757,7 @@ stops emitting literal `\x1b[…` characters. Per the "compiler
 grows to fit the language, never the other way around" rule
 (`feedback_grow_compiler_to_fit_language.md`).
 
-**v5.7.x slot map (firm as of 2026-04-27, hard upper bound v5.7.34):**
+**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.34):**
 
 Shipped:
 - **v5.7.13** ✅ string-literal escapes (cyim-unblocking)
@@ -723,11 +771,18 @@ Shipped:
 - **v5.7.21** ✅ `cyrius fuzz` manifest-deps auto-prepend parity
 - **v5.7.22** ✅ hygiene pass — cyrfmt comment-brace + install-shim re-link + cyriusly rm-rf
 - **v5.7.23** ✅ cx codegen literal-arg propagation (TOKVAL offset typo)
+- **v5.7.24** ✅ TS `asserts` predicate signatures (KW_ASSERTS + prefix consumer + this-type)
 
 Queue:
-- **v5.7.24-v5.7.26** — advanced TS features beyond SY corpus
-  (**hard cap 3 slots**; overflow → v5.8.x).
-- **v5.7.27-v5.7.31** — RISC-V rv64 (3-5 sub-patches).
+- **v5.7.25** — TS mapped types `as`-clause + `+/-readonly` /
+  `+/-?` modifiers (medium scope; second of three TS-depth
+  slots, smallest-to-highest order).
+- **v5.7.26** — TS decorators (TS 5.0 stage-3 standard
+  decorators; biggest of the three; AST node attached to
+  following declaration).
+- **v5.7.27-v5.7.30** — RISC-V rv64 (3-5 sub-patches; runway
+  absorbed if v5.7.25/26 expand per user direction "runway for
+  the TS work to add a release or two").
 - **v5.7.x patch slate (consumer-surfaced)**: lib/json.cyr depth
   follow-ups — pretty-print / streaming / JSON Pointer. Pinned
   2026-04-27; promoted to numbered slots when claimed.
@@ -738,7 +793,7 @@ Queue:
   warning sweep.
 - **v5.7.34** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
 
-**Side-task across v5.7.13–v5.7.23 closeouts**: warning sweep
+**Side-task across v5.7.13–v5.7.24 closeouts**: warning sweep
 (3 syscall-arity + 36 unreachable-fn floor + check.sh shell-syntax
 warning + cbt/programs/bootstrap shellcheck pass). Cleared
 opportunistically each closeout, no dedicated patch slot. Goal:

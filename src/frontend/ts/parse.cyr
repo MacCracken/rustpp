@@ -1032,7 +1032,8 @@ fn TS_PARSE_PRIMARY(ts_base) {
         || t == TS_TOK_KW_INFER || t == TS_TOK_KW_SATISFIES
         || t == TS_TOK_KW_PUBLIC || t == TS_TOK_KW_PRIVATE
         || t == TS_TOK_KW_PROTECTED || t == TS_TOK_KW_STATIC
-        || t == TS_TOK_KW_ABSTRACT || t == TS_TOK_KW_IMPLEMENTS) {
+        || t == TS_TOK_KW_ABSTRACT || t == TS_TOK_KW_IMPLEMENTS
+        || t == TS_TOK_KW_ASSERTS) {
         # Bare-ident arrow:  x => body
         if (TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_ARROW) {
             return TS_PARSE_ARROW_SINGLE_IDENT(ts_base);
@@ -2309,8 +2310,17 @@ fn TS_PARSE_TYPE_PRIMARY(ts_base) {
     if (t == TS_TOK_IDENT
         || t == TS_TOK_KW_FROM || t == TS_TOK_KW_AS
         || t == TS_TOK_KW_OF   || t == TS_TOK_KW_GET
-        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE) {
+        || t == TS_TOK_KW_SET  || t == TS_TOK_KW_TYPE
+        || t == TS_TOK_KW_ASSERTS) {
         return TS_PARSE_TYPE_REF(ts_base);
+    }
+    # v5.7.24: polymorphic `this`-type — needed for `asserts this is C`
+    # method predicates and class-builder return-type `this` patterns.
+    if (t == TS_TOK_KW_THIS) {
+        TS_PARSE_CONSUME(ts_base);
+        var nthis = TS_AST_PUSH(ts_base, TS_AST_TYPE_REF, 0);
+        if (nthis < 0) { return 0 - 1; }
+        return nthis;
     }
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_CODE, 9);
     store64(ts_base + TS_PARSE_STATE_OFF + TS_PS_ERR_TOK_IDX,
@@ -2400,8 +2410,19 @@ fn TS_PARSE_TYPE_UNION(ts_base) {
 # Also tolerates type predicates: `value is T` and `asserts value is T`
 # (return-type position only — we don't validate context, just consume).
 fn TS_PARSE_TYPE(ts_base) {
-    # Tolerate `asserts` prefix — `asserts cond is T` / `asserts cond`
-    # (any IDENT or KW followed by `is` IDENT or end of return type).
+    # v5.7.24: `asserts` predicate prefix — `asserts cond is T` /
+    # `asserts cond`. Real consume here (was a comment-only stub
+    # pre-v5.7.24 that mishandled `asserts <id> is <T>`). Followed by
+    # the `<lhs> is T` suffix logic below to handle the predicate.
+    # The prefix only fires when the next token is name-like (IDENT /
+    # KW / `this`); this guards bare `asserts` type-refs and nested
+    # generic-arg uses of `asserts<T>` from being miscategorized.
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_ASSERTS) {
+        var ah1 = TS_PARSE_PEEK_AHEAD(ts_base, 1);
+        if (TS_IS_NAME_TOK(ah1) == 1 || ah1 == TS_TOK_KW_THIS) {
+            TS_PARSE_CONSUME(ts_base);
+        }
+    }
     var lhs = TS_PARSE_TYPE_UNION(ts_base);
     if (lhs < 0) { return 0 - 1; }
     # Type predicate: `<lhs> is T` where lhs was an IDENT-looking type-ref

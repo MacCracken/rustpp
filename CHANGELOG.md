@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.24] — 2026-04-28
+
+**CYRIUS-TS — `asserts` PREDICATE SIGNATURES (TS 3.7+)** — first
+of three v5.7.x patches working through TS features beyond the
+SY corpus (smallest first per direction; mapped types `as`-clause
+v5.7.25, decorators v5.7.26). Pre-v5.7.24 the parser had a
+comment-only stub at `TS_PARSE_TYPE` that *intended* to tolerate
+`asserts <ident> [is <T>]` in return-type position but the
+implementation only handled the `<lhs> is <T>` suffix and
+misparsed any input starting with `asserts`:
+
+```
+function f(x): asserts x is string {}
+              ^^^^^^^                     # consumed as type-ref
+                       ^                  # consumed as predicate subject
+                         ^^               # consumed as predicate type
+                            ^^^^^^        # unconsumed; body parse fails
+```
+
+### Added
+
+- **`TS_TOK_KW_ASSERTS = 219`** — contextual keyword in
+  `src/frontend/ts/lex.cyr`, len-7 block alongside `declare`.
+  `asserts` is ident-eligible everywhere except as a return-type
+  predicate prefix (consumers like `var asserts = 1;`,
+  `let x: asserts;`, `type T = asserts;`, `obj.asserts`,
+  `{ asserts: 42 }` stay green — same pattern as `satisfies`
+  shipped in v5.7.4).
+- **Real prefix consumer in `TS_PARSE_TYPE`** — when
+  `peek == KW_ASSERTS && ahead is name-like (IDENT / KW / KW_THIS)`,
+  consume `asserts` and let the existing `<lhs> is <T>` predicate
+  suffix logic handle the rest. The `peek_ahead` guard avoids
+  consuming bare `asserts` type-refs (`let x: asserts;`) and
+  generic-arg uses (`asserts<T>` — peek_ahead is `<`, not name-like).
+- **Polymorphic `this`-type branch in `TS_PARSE_TYPE_PRIMARY`** —
+  `KW_THIS` now emits `TYPE_REF`, needed for
+  `asserts this is C` method predicates and class-builder
+  return-type `this` patterns. Incidental coverage: `interface
+  Builder { build(): this }`, `class B { chain(): this {...} }`,
+  `class P { is(): this is P {...} }` — all parse cleanly now.
+- **`KW_ASSERTS` in expr-PRIMARY ident-eligible OR-chain** —
+  `src/frontend/ts/parse.cyr:~1031`, alongside `KW_SATISFIES` /
+  `KW_INFER` / etc.
+- **`KW_ASSERTS` in `TS_PARSE_TYPE_PRIMARY` type-ref OR-chain** —
+  `src/frontend/ts/parse.cyr:~2316`, alongside `KW_FROM` / `KW_AS`
+  / `KW_OF` / `KW_GET` / `KW_SET` / `KW_TYPE`. Bare `let x: asserts;`
+  and `type T = asserts;` still parse as type-ref.
+- **`tests/tcyr/ts_parse_p52.tcyr`** — 15 byte-level assertions
+  in 6 groups: `asserts <id> is <T>` typed (3 cases), `asserts <id>`
+  bare (2), `asserts this is <T>` method (2), polymorphic
+  `this`-type (3), `asserts` ident-eligibility (3), pre-v5.7.24
+  regression forms (2).
+- **`tests/regression-ts-asserts.sh`** — check.sh gate 4ah
+  (44 → 45). Six shape categories piped through `cc5 --parse-ts`
+  with stderr capture; PASS only when every shape parses clean.
+- **check.sh entry** at line 447 mirroring the cx-syscall-literal
+  pattern (gate 4ag).
+
+### Changed
+
+- `src/frontend/ts/lex.cyr` — `+1` token (KW_ASSERTS = 219) +
+  `+1` len-7 contextual lookup.
+- `src/frontend/ts/parse.cyr` — `+1` line in expr-PRIMARY
+  ident-eligible OR-chain, `+1` line in TYPE_PRIMARY type-ref
+  OR-chain, `+5` lines KW_THIS branch in TYPE_PRIMARY, `+6` lines
+  prefix consumer in TS_PARSE_TYPE.
+
+### Verification
+
+- `sh scripts/check.sh` — **45/45 PASS** (was 44/44; +gate 4ah).
+- `tests/regression-ts-parse.sh` — **2053/2053** SY corpus `.ts`
+  parse acceptance unchanged.
+- `tests/regression-ts-parse-tsx.sh` — **435/435** SY corpus `.tsx`
+  parse acceptance unchanged.
+- `tests/regression-ts-lex.sh` — **PASS** (no lex regression
+  from the new `asserts` keyword recognition).
+- `cyrius test tests/tcyr/ts_parse_p52.tcyr` — **15/15 PASS**.
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c` byte-
+  identical at **716,728 B** (was 716,080 B at v5.7.23; +648 B
+  for the new branches and token).
+
+### What this does NOT cover
+
+Pre-existing parser limitations not in v5.7.24 scope (same
+behavior as `satisfies` ident-eligibility today):
+
+- `function asserts() {}` — same as `function satisfies() {}`,
+  both reject the contextual keyword as a fn declaration name.
+  Future patch if a consumer surfaces.
+- `class asserts {}` — same as `class satisfies {}`.
+
+These were verified against pre-v5.7.24 cc5; they're not new.
+The v5.7.24 scope was the predicate-signature hole specifically.
+
+### v5.7.x slot map (post-v5.7.24)
+
+- v5.7.24 ✅ asserts predicate signatures (this slot)
+- v5.7.25 — mapped types `as`-clause + `+/-readonly` / `+/-?`
+  modifiers (medium scope)
+- v5.7.26 — TS decorators (biggest of the three)
+- v5.7.27-v5.7.30 — RISC-V rv64 (3-5 sub-patches; runway absorbed
+  if v5.7.25/26 expand)
+- v5.7.31-v5.7.33 — `.scyr` / `.smcyr` + open slots
+- **v5.7.34** — TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.23] — 2026-04-27
 
 **CX CODEGEN — LITERAL ARG PROPAGATION** — single-byte typo fix

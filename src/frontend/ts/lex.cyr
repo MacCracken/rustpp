@@ -220,6 +220,7 @@ var TS_TOK_KW_GET           = 215;
 var TS_TOK_KW_SET           = 216;
 var TS_TOK_KW_OVERRIDE      = 217;
 var TS_TOK_KW_CONSTRUCTOR   = 218;
+var TS_TOK_KW_ASSERTS       = 219;     # v5.7.24: contextual kw — return-type predicate prefix `function f(x): asserts x is T {}`. Ident-eligible everywhere else.
 
 # Reserved future use
 var TS_TOK_KW_DEBUGGER      = 250;
@@ -436,6 +437,7 @@ fn TS_KW_LOOKUP(src, off, len) {
         if (_ts_memeq(name, "package", 7) == 1) { return TS_TOK_KW_PACKAGE; }
                                               # 'declare' falls into len 7
         if (_ts_memeq(name, "declare", 7) == 1) { return TS_TOK_KW_DECLARE; }
+        if (_ts_memeq(name, "asserts", 7) == 1) { return TS_TOK_KW_ASSERTS; }
     }
     if (len == 8) {
         if (_ts_memeq(name, "function", 8) == 1) { return TS_TOK_KW_FUNCTION; }
