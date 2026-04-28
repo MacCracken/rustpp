@@ -4,6 +4,108 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.19] — 2026-04-27
+
+**KERNEL-MODE EMIT ORDER FIX** — under `kernel;` (kmode == 1),
+top-level asm (the multiboot 32→64 long-mode boot shim) is now
+emitted BEFORE 64-bit gvar-init code. Restores the cc3-era
+ordering invariant that every agnos kernel release relied on,
+silently dropped at v5.0.0 (cc4→cc5 IR overhaul).
+
+### Background
+
+agnos team filed
+[2026-04-27-cc5-kernel-boot-shim-regression.md](https://github.com/MacCracken/agnos/blob/main/docs/development/proposals/2026-04-27-cc5-kernel-boot-shim-regression.md):
+agnos 1.23.0 (on cyrius 5.7.12) compiled clean + passed all
+in-tree tests but **did not boot** — QEMU sat at the BIOS
+reset vector, CPU triple-faulted on the very first instruction
+the multiboot loader handed control to.
+
+Root cause: cc5 emitted `mov rcx, addr_imm64; mov [rcx], rax`
+gvar-init sequences (REX.W; 64-bit) BEFORE the top-level
+`asm { ... }` block containing the 32→64 long-mode shim.
+Multiboot1 hands control in 32-bit protected mode — the 64-bit
+gvar inits #GP'd before the shim could enable long mode →
+triple fault → BIOS reset.
+
+cc3 emitted top-level asm at the entry point ahead of any
+gvar inits; that ordering invariant was load-bearing for every
+agnos release since the kernel was first written. The agnos
+proposal recommended Path A1 (a guarded swap in cc5) over
+Path B (pin agnos to a stale cyrius) or Path C (refactor every
+kernel `var x = INIT;` site).
+
+### Changed (`src/main.cyr`)
+
+Path A1 from the proposal: in the post-fn-pass emit pipeline
+(around line 982), wrap `EMIT_GVAR_INITS(S)` and `PARSE_PROG(S)`
+in a kmode-conditional. Under `kmode == 1`:
+
+```cyrius
+if (_init_km == 1) {
+    # Kernel mode: PARSE_PROG FIRST so top-level asm runs in
+    # 32-bit protected mode (where multiboot dropped us) and
+    # transitions to long mode before any 64-bit gvar inits.
+    STI(S, gvar_save_ti);
+    PARSE_PROG(S);
+} else {
+    # Executable / object / shared modes: gvar inits before main parse.
+    EMIT_GVAR_INITS(S);
+    STI(S, gvar_save_ti);
+}
+# ... warnings loop (runs once, in the middle) ...
+if (_init_km == 1) {
+    EMIT_GVAR_INITS(S);
+} else {
+    PARSE_PROG(S);
+}
+```
+
+The undefined-fn warning loop sits between the two branches so
+non-kmode order stays exactly `EMIT_GVAR_INITS → STI → warnings
+→ PARSE_PROG` (preserves cc5 self-host byte-identity for the
+non-kmode path).
+
+### Acceptance gate
+
+- **`tests/regression-kmode-emit-order.sh` (gate 4ab)** —
+  compiles a minimal `kernel;` source with a 4-byte top-level
+  asm marker (`f4 f4 f4 f4` — 4× HLT) and a single gvar init
+  (`var marker_var = 0xDEADBEEF;`); asserts the `f4 f4 f4 f4`
+  marker's file offset is LESS than the first `48 b9` (REX.W
+  mov rcx, imm64) gvar-init signature.
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (was 715,920 B; +160 B for the kmode branch). Non-kmode
+  path unchanged.
+- check.sh **39/39 PASS** (was 38/38; +gate 4ab).
+
+### Reclaimed v5.7.20
+
+Reviewing the agnos proposal in
+`agnos/docs/development/proposals/` confirmed the kmode swap
+IS the agnos team's request — it was the same item, not a
+separate one. v5.7.20 placeholder reclaimed; cascade rolled
+back -1. Net cascade since v5.7.18 ship is +1 (just kmode).
+v5.7.33 backstop holds with full margin.
+
+### Downstream (agnos-side, not part of this slot)
+
+- agnos 1.24.0 bumps `cyrius.cyml` toolchain pin to v5.7.19.
+- agnos removes `continue-on-error: true` from the QEMU Boot
+  Test job in `.github/workflows/ci.yml` (the flag let 1.23.0
+  ship broken; once kmode boots, the assert lights up).
+- agnos boot output asserted (`grep -q "AGNOS kernel v"`).
+
+### Out of scope (deferred)
+
+Path A2 from the proposal — skip `EMIT_GVAR_INITS` entirely
+under kmode and emit constants into `.data` directly. Cleaner
+long-term (matches the conventional kernel "data preloaded
+by loader" model) but is a bigger change. A1 ships in one
+slot; A2 can be a future patch if a kmode consumer earns it.
+
+---
+
 ## [5.7.18] — 2026-04-27
 
 **FULL REGEX ENGINE — Thompson NFA + Pike's matcher**

@@ -978,9 +978,25 @@ while (escan == 1) {
     else { if (PEEKT(S) == 12) { escan = 0; }
     else { STI(S, GTI(S) + 1); } }
 }
-# Emit deferred global var initializations
-EMIT_GVAR_INITS(S);
-STI(S, gvar_save_ti);
+# v5.7.19: kmode == 1 needs top-level asm (the multiboot 32→64
+# long-mode boot shim) to run BEFORE any 64-bit gvar-init code.
+# Multiboot1 hands control in 32-bit protected mode; gvar inits
+# emit `mov rcx, imm64` (REX.W) + `mov [rcx], rax` sequences that
+# #GP under 32-bit. cc3 emitted top-level asm at the entry; that
+# ordering invariant was load-bearing for every agnos release and
+# silently dropped at v5.0.0 (cc4→cc5 IR overhaul). Path A1 from
+# agnos/docs/development/proposals/2026-04-27-cc5-kernel-boot-shim-regression.md
+# restores it for kmode only — non-kmode paths unchanged so cc5
+# self-host stays byte-identical.
+if (_init_km == 1) {
+    # Kernel mode: PARSE_PROG FIRST (top-level asm runs before gvar inits).
+    STI(S, gvar_save_ti);
+    PARSE_PROG(S);
+} else {
+    # Executable / object / shared modes: gvar inits before main parse.
+    EMIT_GVAR_INITS(S);
+    STI(S, gvar_save_ti);
+}
 
 # Warn about undefined functions (registered but never defined — offset still -1)
 var wfi = 0;
@@ -994,8 +1010,12 @@ while (wfi < wfc) {
     wfi = wfi + 1;
 }
 
-# Parse main code (top-level statements)
-PARSE_PROG(S);
+if (_init_km == 1) {
+    EMIT_GVAR_INITS(S);
+} else {
+    # Parse main code (top-level statements)
+    PARSE_PROG(S);
+}
 
 # Exit epilogue
 var lv = GLVAR(S);

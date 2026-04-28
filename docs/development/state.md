@@ -5,6 +5,42 @@
 
 ## Version
 
+**5.7.19** (shipped 2026-04-27 — **KERNEL-MODE EMIT ORDER FIX**.
+Under `kernel;` (kmode == 1), top-level asm (the multiboot
+32→64 long-mode boot shim) now emits BEFORE 64-bit gvar-init
+code in `src/main.cyr`. Restores the cc3-era ordering
+invariant — every agnos kernel release relied on it;
+silently dropped at cyrius v5.0.0 (cc4→cc5 IR overhaul).
+Path A1 from the [agnos boot-shim regression proposal](https://github.com/MacCracken/agnos/blob/main/docs/development/proposals/2026-04-27-cc5-kernel-boot-shim-regression.md):
+agnos 1.23.0 (on cyrius 5.7.12) compiled clean + passed all
+in-tree tests but did not boot — multiboot1 hands control in
+32-bit protected mode, but cc5 emitted `mov rcx, imm64; mov
+[rcx], rax` (REX.W; 64-bit) gvar inits BEFORE the boot shim,
+so the CPU triple-faulted on the very first instruction.
+Implementation: kmode-conditional split of `EMIT_GVAR_INITS`
+and `PARSE_PROG` calls in `src/main.cyr` ~line 982. Non-kmode
+path unchanged (executable / object / shared modes still
+emit gvar inits before main parse). The undefined-fn warning
+loop sits between the two branches, so non-kmode order stays
+exactly `EMIT_GVAR_INITS → STI → warnings → PARSE_PROG`.
+cc5 self-host two-step byte-identical at **716,080 B** (was
+715,920 B; +160 B for the kmode branch). New gate
+`tests/regression-kmode-emit-order.sh` (gate 4ab): compiles
+a minimal kernel; source with a 4-byte top-level asm marker
+(4× HLT) and a single gvar init; asserts the `f4 f4 f4 f4`
+marker file offset is LESS than the first `48 b9` (REX.W mov
+rcx, imm64) gvar-init signature. **check.sh 39/39 PASS** (was
+38/38; +gate 4ab). Reviewing the proposal at v5.7.18 ship
+confirmed kmode IS the agnos team's request — v5.7.20
+placeholder reclaimed; net cascade since v5.7.18 is +0.
+Out of scope: Path A2 (skip `EMIT_GVAR_INITS` entirely under
+kmode and emit constants into `.data`) — cleaner long-term
+but bigger change; future patch if a kmode consumer earns it.
+Downstream: agnos 1.24.0 bumps `cyrius.cyml` toolchain pin
+to v5.7.19, removes `continue-on-error: true` from the QEMU
+Boot Test job, asserts boot output via `grep -q "AGNOS
+kernel v"`.)
+
 **5.7.18** (shipped 2026-04-27 — **FULL REGEX ENGINE** —
 Thompson NFA + Pike's matcher in `lib/regex.cyr`. Linear-time
 matching, no backtracking. Supports literals + escapes + `.`
@@ -30,9 +66,10 @@ unchanged at **715,920 B** (lib-only addition; compiler
 untouched). **check.sh 38/38 PASS** (tcyr 108 → 109; gate
 count unchanged). Out of scope (deferred): backreferences,
 lookaround, Unicode property classes, multiline flag.
-v5.7.19 = kernel-mode emit-order fix (agnos team request);
-v5.7.20 = additional agnos request; +2 cascade absorbed
-by v5.7.33 backstop.)
+v5.7.19 = kernel-mode emit-order fix
+(THE agnos team request — proposal confirmed kmode swap is
+the entire ask; reclaimed v5.7.20 placeholder). +1 cascade
+absorbed by v5.7.33 backstop.)
 
 **5.7.17** (shipped 2026-04-27 — **STRUCT CAP 64 → 256 +
 DUMP-ON-OVERFLOW DIAGNOSTIC**. kybernet 2026-04-27 surfaced

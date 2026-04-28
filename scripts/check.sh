@@ -388,6 +388,15 @@ if [ "$sc_result" -ne 0 ]; then cat /tmp/audit_sc_$$; fi
 rm -f /tmp/audit_sc_$$
 echo ""
 
+# ── 4ab. Kernel-mode emit order — top-level asm before gvar inits (v5.7.19) ──
+echo "── kmode emit order ──"
+sh "$ROOT/tests/regression-kmode-emit-order.sh" > /tmp/audit_km_$$ 2>&1
+km_result=$?
+check "kmode==1: top-level asm emitted before 64-bit gvar inits (v5.7.19; agnos boot)" "$km_result"
+if [ "$km_result" -ne 0 ]; then cat /tmp/audit_km_$$; fi
+rm -f /tmp/audit_km_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
