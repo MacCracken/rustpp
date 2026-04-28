@@ -5,6 +5,48 @@
 
 ## Version
 
+**5.7.30** (shipped 2026-04-28 — **AARCH64 f64 BASIC-OP
+IMPLEMENTATION**. Closes a silent miscompile that affected
+every aarch64 build using f64 ops. Pre-v5.7.30 every basic
+f64 op on aarch64 was a stub (`return 0;` in
+`src/backend/aarch64/emit.cyr`) — `f64_add(1.0, 2.0)` returned
+2.0 (the second arg, because the parser left it in x0 and
+EMIT_F64_BINOP emitted nothing), with stack leak from the
+unpopped first arg. Probably broken since v5.4.x when aarch64
+cross-build first shipped. Surfaced via phylax's f64_exp
+hard-reject; original v5.7.30 ask was "f64_exp polyfill" but
+premise verification (per `feedback_verify_slot_premise_first.md`)
+turned up that the f64_exp hard-reject was masking
+f64_add/sub/mul/div/sqrt/floor/ceil/round/neg + int↔f64 ALL
+silently broken on aarch64. Per user direction "you can split
+into the two logical pieces": v5.7.30 = basic-op
+implementation, v5.7.31 = f64_exp/f64_ln polyfills using these
+ops. **Fixed**: 7 stub fns replaced with single-instruction
+emits (encodings verified via aarch64-linux-gnu-as) —
+EMIT_F64_BINOP (FADD/FSUB/FMUL/FDIV depending on fop), EF64SQRT
+(FSQRT), EF64FLOOR (FRINTM), EF64CEIL (FRINTP), EF64ROUND
+(FRINTN — round-to-nearest, ties-to-even, IEEE 754 default),
+EI2F (SCVTF), EF2I (FCVTZS). Plus `f64_neg` parser ERR_MSG
+replaced with FNEG d0,d0 emit (parse_expr.cyr:1104). Each
+op: 3 instructions (fmov-d-x bit-cast, op, fmov-x-d extract;
+12 bytes total per op). x86-named EMOVQ_*/EUCOMISD/EXORPD_X1/
+EMOVAPD_01/EX87PUSH/EX87POP stubs preserved — they're
+parser-shared codepath helpers the aarch64 path doesn't need
+(fmov ops inlined directly into EMIT_F64_BINOP). cc5
+self-host two-step byte-identical at **719,280 B** (was
+719,000 at v5.7.29; +280 B for emit code). New gate
+`tests/regression-aarch64-f64.sh` (4al): cross-builds 11-case
+f64 op smoke test, scp's to `$SSH_TARGET` (default `pi`),
+runs on real Pi 4 hardware, asserts bit-exact expected
+results against IEEE 754 reference values (each assertion
+exits with unique code 1-11 on failure; success = 99).
+**check.sh 49/49 PASS** (was 48/48; +gate 4al). Gate
+verified: ALL 11 ops bit-exact on Pi 4. Phylax STILL
+blocked at v5.7.30 (f64_exp/f64_ln still hard-reject;
+v5.7.31 closes that with polyfills using these basic ops).
+Out of scope: f64_sin/cos/log2/exp2 (not phylax-blocking;
+future slot).)
+
 **5.7.29** (shipped 2026-04-28 — **CX GATE `set -e` REPAIR +
 check.sh HYGIENE**. Closes the v5.7.27 fallout chain. v5.7.28
 fixed the COMPILER regression (cc5_cx restored); v5.7.29 fixes
@@ -1012,14 +1054,12 @@ Shipped:
 - **v5.7.27** ✅ codebuf cap 1 MB → 3 MB + 19-region heap reshuffle (261 offset refs shifted across 21 files; cx backend untouched — turned out to be wrong, see v5.7.28)
 - **v5.7.28** ✅ cx backend TOKTYP/TOKVAL offset re-sync + structural parity gate (closes the v5.7.27 ship regression where cc5_cx silently broke)
 - **v5.7.29** ✅ cx gate `set -e` repair + check.sh hygiene (closes the v5.7.27 fallout chain — check.sh now runs through to 48/48 PASS)
+- **v5.7.30** ✅ aarch64 f64 basic-op implementation (FADD/FSUB/FMUL/FDIV/FSQRT/FNEG/FRINT*/FCVTZS/SCVTF — closes silent miscompile that probably dated to v5.4.x)
 
 Queue:
-- **v5.7.30** — aarch64 `f64_exp` polyfill. **phylax-blocking**;
-  user-pinned 2026-04-28 at v5.7.29 ship. Local aarch64
-  cross-build fails for any project using `f64_exp` (phylax uses
-  it in entropy/chi-squared paths). CI passes only because
-  cc5_aarch64 isn't bundled — green CI doesn't mean a working
-  aarch64 release. Cyrius-side polyfill needed.
+- **v5.7.31** — aarch64 f64_exp / f64_ln polyfills via
+  lib/math.cyr (the originally-named v5.7.30 ask; closes
+  phylax-block now that v5.7.30's basic ops work).
 - **TS test organization rework** — pinned but deliberately
   separate from cap raise (per user direction: tcyr stays as
   in-process API exercise; shell gates remain smoke surface).
@@ -1027,9 +1067,12 @@ Queue:
   pre-compiled frontend object linkage so each tcyr doesn't
   pull the whole TS frontend, ~5500 LOC of compiler in
   every test binary).
-- **v5.7.31-v5.7.33** — RISC-V rv64 (3-5 sub-patches; +3 slid
-  from original v5.7.28 to absorb cx-offset (v5.7.28) +
-  cx-gate-repair (v5.7.29) + aarch64 f64_exp polyfill (v5.7.30)).
+- **v5.7.32** — mabda global-init-order forward-ref lint
+  warning. **Promoted before RISC-V** at user direction
+  2026-04-28 ship: "rather be 'bug' free before RISCV work."
+- **v5.7.33-v5.7.35** — RISC-V rv64 (tightened from 3-5 to
+  3 sub-patches to fit closeout).
+- **v5.7.36** — open slot (warning sweep + wildcard).
 - **v5.7.x patch slate (consumer-surfaced)**: lib/json.cyr depth
   follow-ups — pretty-print / streaming / JSON Pointer. Pinned
   2026-04-27; promoted to numbered slots when claimed.

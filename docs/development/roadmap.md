@@ -50,7 +50,24 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.30–v5.12.x):**
+> **What's next (v5.7.31–v5.12.x):**
+>
+> v5.7.30 aarch64 f64 basic-op implementation shipped 2026-04-28.
+> Closes a silent miscompile that affected every aarch64 build
+> using f64 ops — pre-v5.7.30 EMIT_F64_BINOP and 6 sibling f64
+> emits were stubs (`return 0;`); `f64_add(1.0, 2.0)` returned
+> 2.0 with a stack leak. Probably broken since v5.4.x. Surfaced
+> via phylax's f64_exp hard-reject; original "f64_exp polyfill"
+> ask split into v5.7.30 (basic ops) + v5.7.31 (polyfills).
+> 7 stubs replaced with single-instruction emits (FADD/FSUB/
+> FMUL/FDIV/FSQRT/FNEG/FRINT*/FCVTZS/SCVTF; encodings verified
+> via aarch64-linux-gnu-as). `f64_neg` parse-time ERR_MSG
+> replaced with FNEG d0,d0. cc5 byte-identical at 719,280 B
+> (+280 B). New gate 4al (regression-aarch64-f64.sh) cross-
+> builds 11-case smoke test, runs on real Pi 4, asserts
+> bit-exact results against IEEE 754 reference. **check.sh
+> 49/49 PASS.** Phylax still blocked (f64_exp/ln hard-reject);
+> v5.7.31 closes that with polyfills.
 >
 > v5.7.29 cx gate `set -e` repair + check.sh hygiene shipped
 > 2026-04-28. Closes the v5.7.27 fallout chain. Three
@@ -189,18 +206,19 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.30**: aarch64 `f64_exp` polyfill. **phylax-blocking**;
->   user-pinned 2026-04-28 at v5.7.29 ship. Local aarch64
->   cross-build fails for any project using `f64_exp` (phylax
->   uses it in entropy/chi-squared paths). CI passes only
->   because cc5_aarch64 isn't bundled. Cyrius-side polyfill
->   needed for a real aarch64 release.
-> - **v5.7.31-v5.7.33**: RISC-V rv64 (3-5 sub-patches; +3 slid
->   from original v5.7.28 to absorb cx-offset (v5.7.28) +
->   cx-gate-repair (v5.7.29) + aarch64 f64_exp polyfill
->   (v5.7.30)).
->   **Buffer pressure resolved** — the v5.7.34 backstop bump
->   restores the full 3-5 range without forcing the low end.
+> - **v5.7.31**: aarch64 f64_exp + f64_ln polyfills via
+>   lib/math.cyr (the originally-named v5.7.30 ask; split off
+>   when v5.7.30 premise verification surfaced the broader
+>   basic-op miscompile). Closes phylax-block now that v5.7.30's
+>   basic ops work.
+> - **v5.7.32**: mabda global-init-order forward-ref lint.
+>   Promoted before RISC-V at user direction 2026-04-28: "rather
+>   be 'bug' free before RISCV work."
+> - **v5.7.33-v5.7.35**: RISC-V rv64 (tightened from 3-5 to
+>   3 sub-patches; bumped from v5.7.31 to fit v5.7.30 split +
+>   mabda lint slot).
+>   **Buffer pressure resolved** — the v5.7.37 backstop
+>   accommodates the additional surfacing.
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
 >   depth follow-ups — pretty-printing, streaming parser,
 >   JSON Pointer (RFC 6901). Pinned 2026-04-27; promoted to
@@ -492,16 +510,58 @@ toolchain side is unblocked.
 
 
 
-## v5.7.26-v5.7.30 — RISC-V rv64 (3-5 sub-patches; bounded series; new v5.7.34 backstop restores full 3-5 range without forcing the low end)
+## v5.7.32 — mabda global-init-order forward-ref lint (queued)
 
-First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.26-v5.7.30
+**Pinned 2026-04-28** at v5.7.30 ship; **promoted before
+RISC-V** at user direction "rather be 'bug' free before
+RISCV work." Mabda team filed the issue at
+`mabda/docs/development/issues/2026-04-28-cyrius-global-init-
+order.md`; mirrored to `docs/development/issues/2026-04-28-
+global-init-order-forward-ref.md`.
+
+**Bug shape:** cyrius initializes top-level `var X = expr;`
+in source declaration order. Forward references to symbols
+declared LATER silently evaluate to 0. No warning, no error.
+Mabda hit this on hardware-iter work and lost ~30 minutes
+chasing a "wedged GPU" hypothesis before a CPU regression
+test pinned the actual cause (a `_NATIVE_PERM_FULL` constant
+defined before its `AMDGPU_VM_PAGE_*` dependencies).
+
+**Recommended fix (option 1 of mabda's filing):** `cyrius
+lint` warning. Walk the file; build first-pass name → line
+map of `var` / `fn` / `enum` / `struct` defs; second pass
+checks each `var X = expr` against it; emit warning for
+forward refs with file:line + offending symbol + def line.
+~50-100 lines in `programs/cyrlint.cyr`; no compiler change.
+Per `feedback_grow_compiler_to_fit_language.md`, the language
+behavior (declaration-order init) stays; the lint surfaces
+the foot-gun.
+
+**Acceptance:** the mabda repro from the filing emits the
+exact warning shape proposed in option 1. CI gate runs
+`cyrius lint` on stdlib + a known-bad fixture, asserts the
+fixture warns, asserts stdlib doesn't.
+
+## v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches; tightened from 3-5)
+
+First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.33-v5.7.35
 as the optimization arc, sandhi fold, fixup-cap bumps,
 cyrius-ts frontend, JSX work, tooling polish, fn-collision
-rule, input_buf reshuffle, cx-build/correctness, and the
-v5.7.13–v5.7.23 cyim-unblocking + bug/UX patch slate took
-priority. Inherits a frontend-complete compiler against a
-clean toolchain UX with the full v5.7.0–v5.7.21 prerequisite
-chain shipped.
+rule, input_buf reshuffle, cx-build/correctness, the
+v5.7.13–v5.7.23 cyim-unblocking + bug/UX patch slate, the
+v5.7.27 ship-damage chain (cap-raise + cx re-sync + gate
+hygiene), the v5.7.30 aarch64 f64 implementation +
+v5.7.31 polyfills, and v5.7.32 mabda global-init-order lint
+took priority. Inherits a frontend-complete compiler against
+a clean toolchain UX with the full v5.7.0–v5.7.32 prerequisite
+chain shipped — and a "bug-free before feature-parity" floor
+per user direction at v5.7.30 ship.
+
+**Tightened to 3 sub-patches** (was 3-5) to fit closeout —
+the v5.7.27 ship-damage chain consumed 3 unplanned slots
+(v5.7.27/.28/.29), the v5.7.30 split consumed 2 (v5.7.30/.31),
+and v5.7.32 consumed 1. v5.7.37 backstop accommodates the
+extension but the RISC-V budget tightens.
 
 RISC-V needs:
 
@@ -705,6 +765,83 @@ time v5.7.26 RISC-V opens.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.30 ✅ aarch64 f64 basic-op implementation — SHIPPED
+
+**Shipped 2026-04-28.** Closes a silent miscompile that
+affected every aarch64 build using f64 ops. Pre-v5.7.30
+`EMIT_F64_BINOP` and 6 sibling f64 emits in
+`src/backend/aarch64/emit.cyr` were stubs (`return 0;`).
+`f64_add(1.0, 2.0)` returned 2.0 (the second arg, since the
+parser left it in x0 and EMIT_F64_BINOP emitted nothing),
+with stack leak from the unpopped first arg. Probably broken
+since v5.4.x when aarch64 cross-build first shipped.
+
+Surfaced via phylax's f64_exp aarch64 cross-build failure
+(user-pinned at v5.7.29 ship). The original v5.7.30 ask was
+"f64_exp polyfill"; **premise verification** (per
+`feedback_verify_slot_premise_first.md`) found the f64_exp
+hard-reject was masking a much bigger problem — **every
+basic f64 op was broken**. Per user direction at v5.7.30
+start ("you can split into the two logical pieces"):
+v5.7.30 = basic-op implementation; v5.7.31 = polyfills using
+the working basic ops.
+
+**Implementation:**
+
+7 stub fns in `src/backend/aarch64/emit.cyr` replaced with
+single-instruction emits. Encodings verified via
+`aarch64-linux-gnu-as`:
+
+- `EMIT_F64_BINOP` — fmov d1,x0 + EPOPR + fmov d0,x0 +
+  fadd/fsub/fmul/fdiv d0,d0,d1 + fmov x0,d0
+- `EF64SQRT` — FSQRT (0x1E61C000)
+- `EF64FLOOR` — FRINTM (0x1E654000)
+- `EF64CEIL` — FRINTP (0x1E64C000)
+- `EF64ROUND` — FRINTN (0x1E644000) — round-to-nearest,
+  ties-to-even (IEEE 754 default; matches x86 SSE4.1
+  roundsd mode 0)
+- `EI2F` — SCVTF (signed int → double)
+- `EF2I` — FCVTZS (double → signed int, round-to-zero)
+
+Plus `f64_neg` parser path (`parse_expr.cyr:1104`) ERR_MSG
+replaced with FNEG d0,d0 (0x1E614000) emit. The x86-named
+EMOVQ_*/EUCOMISD/EXORPD_X1/EMOVAPD_01/EX87PUSH/EX87POP stubs
+are kept (still `return 0;`) — they're parser-shared
+codepath helpers the aarch64 path doesn't need (fmov ops
+inlined directly into EMIT_F64_BINOP).
+
+**Verification:**
+
+- 3-step self-host fixpoint — cc5 byte-identical at
+  **719,280 B** (was 719,000; +280 B for emit code).
+- New gate `regression-aarch64-f64.sh` (4al): cross-builds
+  11-case f64 op smoke test, scp's to `$SSH_TARGET`
+  (default `pi`), runs on real Pi 4 hardware, asserts
+  bit-exact expected results against IEEE 754 reference.
+  Each assertion exits with unique code (1-11) on failure;
+  success = 99. Skips cleanly if cross-compiler isn't built
+  or Pi unreachable.
+- All 11 cases verified bit-exact on Pi 4: `f64_add(2.0,
+  3.0)=5.0`, `f64_sub(3.0, 2.0)=1.0`, `f64_mul(2.0, 3.0)=
+  6.0`, `f64_div(3.0, 2.0)=1.5`, `f64_neg(2.0)=-2.0`,
+  `f64_sqrt(4.0)=2.0`, `f64_floor(2.5)=2.0`, `f64_ceil(2.5)=
+  3.0`, `f64_round(2.5)=2.0` (ties-to-even), `f64_to(f64_
+  from(42))=42`, `f64_to(f64_from(-7))=-7`.
+- Disassembly confirmed: aarch64 binaries now contain real
+  `fadd d0,d0,d1` / `fmul` / etc. instructions where pre-
+  v5.7.30 emitted nothing.
+- **check.sh 49/49 PASS** (was 48/48; +gate 4al).
+
+**What this does NOT cover:**
+
+- `f64_exp` / `f64_ln` — still hard-reject at parse time on
+  aarch64. Polyfills land at v5.7.31 using these basic ops.
+  Phylax's chi-squared (`f64_exp`) and entropy (`f64_ln`)
+  paths remain blocked at v5.7.30; both unblocked at v5.7.31.
+- `f64_sin` / `f64_cos` / `f64_log2` / `f64_exp2` — also
+  hard-reject. Same shape as exp/ln; not phylax-blocking;
+  future polyfill slot.
 
 ### v5.7.29 ✅ cx gate `set -e` repair + check.sh hygiene — SHIPPED
 
@@ -969,26 +1106,35 @@ by v5.7.27.
   bundling the gate fix would scope-creep beyond the
   cap-raise slot.
 
-### v5.7.30 — aarch64 `f64_exp` polyfill (queued)
+### v5.7.31 — aarch64 f64_exp + f64_ln polyfills (queued)
 
-**Pinned 2026-04-28** at v5.7.29 ship. **phylax-blocking**:
-local aarch64 cross-build fails for any project using
-`f64_exp` (phylax uses it in entropy/chi-squared paths). CI
-passes only because cc5_aarch64 isn't bundled — green CI
-doesn't mean a working aarch64 release.
+**Pinned 2026-04-28** at v5.7.30 ship. The originally-named
+v5.7.30 ask, split off when premise verification surfaced the
+broader basic-op miscompile (now closed by v5.7.30). With
+v5.7.30's basic ops working, the polyfills are pure-cyrius
+implementations in `lib/math.cyr` using FADD/FSUB/FMUL/FDIV/
+FRINTN/FCVTZS.
 
-**Scope:** cyrius-side polyfill so aarch64 codegen produces a
-working `f64_exp` (vs. the current x87-`fexp`-style fallback
-that doesn't translate). Likely a software polynomial
-approximation in `lib/math.cyr` gated on aarch64, or an
-aarch64 emit path that uses a stdlib helper.
+**Polyfill design (sketch):**
+- `f64_exp(x)`:
+  - Range-reduce: x = n * ln(2) + r where n = round(x / ln(2))
+  - exp(x) = 2^n * exp(r), |r| ≤ ln(2)/2
+  - exp(r) ≈ Padé / Remez polynomial (~6 terms, Horner form)
+  - 2^n via integer exponent bit-packing: `((n + 1023) << 52)`
+- `f64_ln(x)`: range-reduce via mantissa/exponent split, then
+  ln(1+m) Taylor / Remez polynomial.
+
+**Dispatch:** parser `parse_expr.cyr:1107-1108` aarch64
+ERR_MSG paths for ptyp 85/86 replaced with fncall to
+`_f64_exp_polyfill` / `_f64_ln_polyfill` (using FINDFN-by-
+literal helper).
 
 **Acceptance:**
-- aarch64 cross-build of any phylax-shape consumer (calls
-  `f64_exp`) compiles cleanly and runs correctly on Pi
-  hardware.
-- CI gate covers the cross-build + run, so future aarch64
-  drift gets caught before ship.
+- phylax cross-build runs correctly on Pi 4 — chi-squared
+  p-values and entropy values match x86 reference within
+  reasonable ulp tolerance.
+- CI gate covers cross-build + run + bit-exact comparison
+  to known reference values for both ops.
 
 ### v5.7.26 ✅ TS 5.0 stage-3 decorators — SHIPPED
 

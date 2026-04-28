@@ -504,6 +504,15 @@ if [ "$to_result" -ne 0 ]; then cat /tmp/audit_to_$$; fi
 rm -f /tmp/audit_to_$$
 echo ""
 
+# ── 4al. aarch64 f64 basic-op correctness (v5.7.30) ──
+echo "── aarch64 f64 basic ops ──"
+sh "$ROOT/tests/regression-aarch64-f64.sh" > /tmp/audit_af64_$$ 2>&1
+af64_result=$?
+check "aarch64 f64 add/sub/mul/div/sqrt/neg/floor/ceil/round + int↔f64 bit-exact on Pi (v5.7.30)" "$af64_result"
+if [ "$af64_result" -ne 0 ]; then cat /tmp/audit_af64_$$; fi
+rm -f /tmp/audit_af64_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

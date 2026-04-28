@@ -4,6 +4,154 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.30] — 2026-04-28
+
+**AARCH64 f64 BASIC-OP IMPLEMENTATION** — closes a silent
+miscompile that affected every aarch64 build using f64 ops.
+Pre-v5.7.30 every basic f64 op on aarch64 was a stub
+(`return 0;` in `src/backend/aarch64/emit.cyr`) — `f64_add(1.0,
+2.0)` returned 2.0 (the second arg, because the parser left
+it in x0 and EMIT_F64_BINOP emitted nothing), with a stack
+leak from the unpopped first arg. Probably broken since
+v5.4.x when aarch64 cross-build first shipped.
+
+Surfaced via phylax's f64_exp aarch64 cross-build failure.
+The original v5.7.30 ask was "f64_exp polyfill"; premise
+verification (per `feedback_verify_slot_premise_first.md`)
+turned up a much bigger problem — the f64_exp hard-reject
+was masking f64_add/sub/mul/div/sqrt/floor/ceil/round/neg +
+int↔f64 conversions ALL being silently broken on aarch64.
+Per user direction "you can split into the two logical
+pieces": v5.7.30 ships the basic-op implementation;
+v5.7.31 ships the f64_exp/f64_ln polyfills using v5.7.30's
+working ops.
+
+### What was broken
+
+`src/backend/aarch64/emit.cyr:993` (and 8 sibling stubs):
+
+```cyr
+fn EMIT_F64_BINOP(S, fop) { return 0; }
+fn EF64SQRT(S) { return 0; }
+fn EF64FLOOR(S) { return 0; }
+fn EF64CEIL(S) { return 0; }
+fn EF64ROUND(S) { return 0; }
+fn EI2F(S) { return 0; }
+fn EF2I(S) { return 0; }
+```
+
+Plus `parse_expr.cyr:1104` had `f64_neg` as a hard-reject
+ERR_MSG with the comment "aarch64 FNEG d0 pending". So:
+
+| Op | Pre-v5.7.30 behavior | Post-v5.7.30 |
+|---|---|---|
+| `f64_add(a, b)` | returned `b`; stack leak of `a` | correct sum |
+| `f64_sub(a, b)` | returned `b`; stack leak | correct |
+| `f64_mul(a, b)` | returned `b`; stack leak | correct |
+| `f64_div(a, b)` | returned `b`; stack leak | correct |
+| `f64_neg(x)` | hard-rejected at parse time | correct |
+| `f64_sqrt(x)` | returned `x` unchanged | correct |
+| `f64_floor(x)` | returned `x` unchanged | correct |
+| `f64_ceil(x)` | returned `x` unchanged | correct |
+| `f64_round(x)` | returned `x` unchanged | correct |
+| `f64_from(int)` | returned 0 (silent) | correct conversion |
+| `f64_to(f64)` | returned 0 (silent) | correct conversion |
+
+### Fixed
+
+Single-instruction emits for each op, matching v5.7.30
+encodings verified via `aarch64-linux-gnu-as`:
+
+- **`EMIT_F64_BINOP`** — fmov d1,x0 + EPOPR + fmov d0,x0 +
+  fadd/fsub/fmul/fdiv d0,d0,d1 + fmov x0,d0
+  (encodings 0x9E670001 / 0x9E670000 / 0x1E612800 / 0x1E613800
+  / 0x1E610800 / 0x1E611800 / 0x9E660000)
+- **`EF64SQRT`** — fmov d0,x0 + fsqrt d0,d0 + fmov x0,d0
+  (encoding 0x1E61C000)
+- **`EF64FLOOR`** — frintm d0,d0 (0x1E654000)
+- **`EF64CEIL`** — frintp d0,d0 (0x1E64C000)
+- **`EF64ROUND`** — frintn d0,d0 (0x1E644000) — round-to-
+  nearest, ties-to-even (banker's rounding; matches IEEE 754
+  default and x86 SSE4.1 roundsd mode 0)
+- **`EI2F`** — scvtf d0,x0 + fmov x0,d0 (0x9E620000 + 0x9E660000)
+- **`EF2I`** — fmov d0,x0 + fcvtzs x0,d0 (0x9E670000 + 0x9E780000)
+- **`f64_neg` parser path** — `parse_expr.cyr:1104` ERR_MSG
+  replaced with consume-args + fmov d0,x0 + fneg d0,d0 (0x1E614000)
+  + fmov x0,d0.
+
+The x86-named `EMOVQ_X0_A` / `EMOVQ_A_X0` / `EMOVQ_X1_C` /
+`EUCOMISD` / `EXORPD_X1` / `EMOVAPD_01` / `EX87PUSH` /
+`EX87POP` stubs are kept (still `return 0;`) — they're
+parser-shared codepath helpers that the aarch64 path
+doesn't need (fmov-d-x and fmov-x-d are inlined directly
+into `EMIT_F64_BINOP` / `EMIT_F64_CMP` etc.). Stubs preserve
+parser API.
+
+### Added
+
+- **`tests/regression-aarch64-f64.sh`** — check.sh gate 4al
+  (48 → 49). Cross-builds a comprehensive f64 op smoke test
+  for aarch64, scp's to `$SSH_TARGET` (default `pi`), runs
+  on real Pi hardware, asserts bit-exact expected results
+  for 11 distinct cases. Each assertion exits with a unique
+  code (1-11) on failure; success exits 99. Skips cleanly
+  if the cross-compiler isn't built or Pi is unreachable.
+
+### Verification
+
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c`
+  byte-identical at **719,280 B** (was 719,000 at v5.7.29;
+  +280 B for the new emit code).
+- `regression-aarch64-f64.sh` — PASS on real Pi 4 hardware,
+  all 11 f64 ops bit-exact (checked against IEEE 754
+  reference values: 2.0+3.0=5.0, 3.0-2.0=1.0, 2.0*3.0=6.0,
+  3.0/2.0=1.5, neg(2.0)=-2.0, sqrt(4.0)=2.0, floor(2.5)=2.0,
+  ceil(2.5)=3.0, round(2.5)=2.0 [ties-to-even], int↔f64
+  round-trip with both positive and negative).
+- `sh scripts/check.sh` — **49/49 PASS** (was 48/48;
+  +gate 4al).
+- TS gates / SY corpus / heap-map / token-offset parity
+  all unchanged.
+- Disassembly verified: post-v5.7.30 aarch64 binaries
+  contain real `fadd d0,d0,d1` / `fmul` / etc. instructions
+  where pre-v5.7.30 emitted nothing.
+
+### What this does NOT cover
+
+- **`f64_exp` / `f64_ln`** — still hard-reject at parse
+  time on aarch64. Polyfills land at v5.7.31 using the
+  basic ops shipped here. Phylax's chi-squared path
+  (which uses `f64_exp`) remains blocked at v5.7.30; the
+  entropy path (`f64_ln`) too. Both unblocked at v5.7.31.
+- **`f64_sin` / `f64_cos` / `f64_log2` / `f64_exp2`** —
+  also hard-reject at parse time. Same shape as exp/ln;
+  not phylax-blocking; future polyfill slot.
+
+### Slot map (post-v5.7.30)
+
+- v5.7.30 ✅ aarch64 f64 basic-op implementation (this slot)
+- v5.7.31 — aarch64 f64_exp / f64_ln polyfills via lib/math.cyr
+  (closes phylax-block)
+- v5.7.32 — mabda global-init-order forward-ref lint warning
+  (promoted before RISC-V at user direction "bug-free before
+  feature-parity")
+- v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches; tightened
+  from 3-5 to fit closeout)
+- v5.7.36 — open slot
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
+### Files
+
+- `src/backend/aarch64/emit.cyr` — 7 stub fns replaced with
+  real emits; ~50 lines of new emit code with inline encoding
+  comments
+- `src/frontend/parse_expr.cyr` — `f64_neg` ERR_MSG replaced
+  with FNEG d0,d0 emit path
+- `tests/regression-aarch64-f64.sh` — new gate (~110 lines)
+- `scripts/check.sh` — 8 lines wiring gate 4al
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.30 bump
+- Install snapshot at `~/.cyrius/versions/5.7.30/`
+
 ## [5.7.29] — 2026-04-28
 
 **CX GATE `set -e` REPAIR + check.sh HYGIENE** — closes the

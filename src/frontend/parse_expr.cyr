@@ -1101,7 +1101,22 @@ fn PARSE_TERM(S) {
     # aarch64). Without this guard the stubs emit nothing while the raw
     # bytes splice into ARM code — silent corruption.
     if (_AARCH64_BACKEND == 1) {
-        if (ptyp == 71) { ERR_MSG(S, "f64_neg is x86-only for v5.6.0; aarch64 FNEG d0 pending", 56); }
+        # v5.7.30: aarch64 f64_neg native (FNEG d0, d0). Replaces the
+        # pre-v5.7.30 ERR_MSG. Single fp instruction; consume args
+        # then emit fmov-d-x / fneg-d / fmov-x-d sequence (3 words).
+        if (ptyp == 71) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S);
+            _IR_REC0(S, IR_RAW_EMIT);
+            EW(S, 0x9E670000);   # fmov d0, x0
+            EW(S, 0x1E614000);   # fneg d0, d0
+            EW(S, 0x9E660000);   # fmov x0, d0
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            return 0;
+        }
         if (ptyp == 83) { ERR_MSG(S, "f64_sin is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
         if (ptyp == 84) { ERR_MSG(S, "f64_cos is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
         if (ptyp == 85) { ERR_MSG(S, "f64_exp is x86-only for v5.6.0; aarch64 has no native exp — needs polyfill", 74); }
