@@ -19,10 +19,10 @@
 #   var count   = flags_get_int(fs, f_n);
 #   var i = 0;
 #   while (i < flags_positional_count(fs)) {
-    #       var path = flags_positional(fs, i);
-    #       ...
-    #       i = i + 1;
-    #   }
+#       var path = flags_positional(fs, i);
+#       ...
+#       i = i + 1;
+#   }
 #
 # Supported syntax:
 #   --name             bool flag → 1

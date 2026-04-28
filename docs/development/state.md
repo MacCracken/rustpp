@@ -5,6 +5,33 @@
 
 ## Version
 
+**5.7.22** (shipped 2026-04-27 — **HYGIENE PASS** — three
+bundled tooling fixes. (1) `programs/cyrfmt.cyr` no longer
+tracks `{`/`}` inside `#` comments or `"..."` string literals
+— closes agnos
+[2026-04-27-cyrius-fmt-tracks-braces-in-comments](https://github.com/MacCracken/agnos/blob/main/docs/development/issue/2026-04-27-cyrius-fmt-tracks-braces-in-comments.md)
+issue. (2) `scripts/install.sh --refresh-only` now re-links
+`~/.cyrius/bin` → `versions/$VERSION/bin` after refreshing
+the snapshot — closes the H3 local-dev footgun where
+`version-bump.sh` left the PATH-resolved cyrius binary
+pointing at a stale version. (3) `scripts/cyriusly`'s
+`link_version` uses `rm -rf` instead of `rm -f` so a
+stale-directory state at `~/.cyrius/bin` (from older
+copy-based installs) gets cleaned out. Bonus: seven stdlib
+files (`bench.cyr`, `cyml.cyr`, `dynlib.cyr`, `flags.cyr`,
+`hashmap.cyr`, `json.cyr`, `net.cyr`) were re-formatted with
+the fixed cyrfmt — semantically a no-op (cyrius lex strips
+leading whitespace) but the source matches the formatter
+output again. cc5 self-host two-step byte-identical at
+**716,080 B** (programs/scripts edits only; compiler
+unchanged). New gates: `tests/regression-cyrfmt-comment-braces.sh`
+(gate 4ae, 4 cases — agnos repro + string-literal-with-
+braces + ordinary code + mixed) and
+`tests/regression-install-shim-symlink.sh` (gate 4af —
+isolated CYRIUS_HOME, fake old-version snapshot, runs
+--refresh-only, asserts symlink re-pointed). **check.sh
+43/43 PASS** (was 41/41; +2 gates).)
+
 **5.7.21** (shipped 2026-04-27 — **`cyrius fuzz` MANIFEST-DEPS
 AUTO-PREPEND PARITY**. One-line cmd-gate fix in
 `cbt/cyrius.cyr`: added `streq(cmd, "fuzz") == 1` to the

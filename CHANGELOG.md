@@ -4,6 +4,96 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.22] — 2026-04-27
+
+**HYGIENE PASS** — three tooling fixes bundled as one slot:
+(1) `cyrfmt` no longer tracks `{`/`}` inside `#` comments or
+`"..."` strings; (2) `install.sh --refresh-only` re-links
+`~/.cyrius/bin` to the active version; (3) `cyriusly use` and
+`install` clean directory state with `rm -rf` instead of
+`rm -f`. Closes the agnos
+[2026-04-27-cyrius-fmt-tracks-braces-in-comments](https://github.com/MacCracken/agnos/blob/main/docs/development/issue/2026-04-27-cyrius-fmt-tracks-braces-in-comments.md)
+issue and the `feedback_v57x_slot_bounds_2026_04_27.md` H3
+local-dev footgun.
+
+### Changed (`programs/cyrfmt.cyr`)
+
+`format_file`'s brace counter previously incremented/decremented
+on every `{` / `}` byte in a line — including those inside `#`
+comments and `"..."` string literals. Doc lines that quoted
+inline asm (`# asm { mov cr3, rax; }`) made the next line of the
+SAME comment block get re-indented one level relative to the
+rest of the prose. agnos kernel CI tripped on this in 1.26.0.
+
+The fix walks a small per-line state machine: stop counting on
+`#` (rest of line is a comment); track `in_string` between `"`
+delimiters and skip `\X` escapes inside strings. Net change in
+the brace tally: drop everything that's not actual code-level
+brace.
+
+`build/cyrfmt` self-format remains stable. Seven existing stdlib
+files (`bench.cyr`, `cyml.cyr`, `dynlib.cyr`, `flags.cyr`,
+`hashmap.cyr`, `json.cyr`, `net.cyr`) had over-indentation that
+was satisfying the buggy old formatter — re-formatted with the
+new cyrfmt; semantically a no-op (cyrius lex strips leading
+whitespace).
+
+### Changed (`scripts/install.sh`)
+
+`--refresh-only` (the version-bump.sh post-hook) refreshed
+`~/.cyrius/versions/$VERSION/` but never re-pointed
+`~/.cyrius/bin` at it. After `version-bump.sh 5.7.X`, local
+devs found `cyrius --version` reporting a stale binary
+even though `~/.cyrius/current` and the snapshot were
+correct. CI didn't see this because each CI job does a fresh
+full install (not refresh-only). Local-dev footgun only.
+
+Fix mirrors the full-install path: `rm -rf
+~/.cyrius/{bin,lib} && ln -sf versions/$VERSION/{bin,lib}
+~/.cyrius/{bin,lib}` after the snapshot copy completes.
+
+### Changed (`scripts/cyriusly`)
+
+`link_version()` used `rm -f` to remove the existing
+`~/.cyrius/bin` and `~/.cyrius/lib` before re-linking. `rm -f`
+silently ignores directories — if a previous (pre-symlink-era)
+install left a real directory at `~/.cyrius/bin`, the new
+`ln -sf` created a symlink INSIDE the directory rather than
+replacing it. Switched to `rm -rf` (matches install.sh's
+behavior) so a stale-directory state gets cleaned out.
+
+### Acceptance gates
+
+- **`tests/regression-cyrfmt-comment-braces.sh` (gate 4ae)** —
+  4 cases: agnos repro (comment quotes inline asm with literal
+  braces) idempotent; string-literal-with-braces idempotent;
+  ordinary indentation still correct; comment + string + code
+  mixed all idempotent.
+- **`tests/regression-install-shim-symlink.sh` (gate 4af)** —
+  isolated CYRIUS_HOME under TMPDIR (never touches the real
+  ~/.cyrius). Builds a fake "old version" snapshot, points
+  ~/.cyrius/bin at it, runs `install.sh --refresh-only`,
+  asserts ~/.cyrius/bin re-points at the current repo
+  VERSION's snapshot.
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (programs/scripts edits only; compiler unchanged).
+- check.sh **43/43 PASS** (was 41/41; +2 gates).
+
+### Pinned for follow-up
+
+Pre-existing dangling-symlink fragility surfaced during this
+work: `lib/sakshi.cyr` (and other dep symlinks) point at
+absolute paths under the deps cache (e.g.
+`~/.cyrius/deps/sakshi/2.0.0/dist/sakshi.cyr`). If the cache
+gets cleaned (e.g. by `rm -rf /tmp/cy578_home`) those symlinks
+dangle silently until the next build fails with a confusing
+"undefined variable" error. Fix path: `cyrius deps` should
+detect dangling symlinks at run start and re-resolve them, or
+`check.sh` should add a "no dangling symlinks under lib/" gate.
+Not slotted yet — minor papercut, not blocking.
+
+---
+
 ## [5.7.21] — 2026-04-27
 
 **`cyrius fuzz` MANIFEST-DEPS AUTO-PREPEND PARITY** with

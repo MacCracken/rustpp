@@ -84,13 +84,33 @@ fn format_file(buf, total) {
         if (content_len == 0) {
             emit("\n", 1);
         } else {
-            # Count all braces on this line
+            # Count all braces on this line — but skip any inside `#`
+            # comments and `"..."` string literals so doc lines that
+            # quote inline asm (`# asm { mov cr3, rax; }`) and string
+            # literals containing braces don't fool the indenter.
+            # v5.7.22 fix; closes
+            # agnos/docs/development/issue/2026-04-27-cyrius-fmt-tracks-braces-in-comments.md.
             var opens = 0;
             var closes = 0;
             var bi = start;
+            var in_string = 0;
             while (bi < end) {
-                if (load8(buf + bi) == 123) { opens += 1; }
-                if (load8(buf + bi) == 125) { closes += 1; }
+                var bc = load8(buf + bi);
+                if (in_string == 1) {
+                    if (bc == 92) {
+                        # Backslash escape: skip next byte (covers \" \\).
+                        bi += 1;
+                    }
+                    elif (bc == 34) {
+                        in_string = 0;
+                    }
+                }
+                else {
+                    if (bc == 35) { break; }            # `#` — comment to end of line
+                    if (bc == 34) { in_string = 1; }     # opening `"` of a string literal
+                    elif (bc == 123) { opens += 1; }
+                    elif (bc == 125) { closes += 1; }
+                }
                 bi += 1;
             }
 

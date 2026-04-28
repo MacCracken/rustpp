@@ -125,19 +125,19 @@ fn json_get_int(pairs, key) {
 fn json_build(pairs) {
     var sb = str_builder_new();
     str_builder_add_cstr(sb, "{");
-        var len = vec_len(pairs);
-        var bi = 0;
-        while (bi < len) {
-            if (bi > 0) { str_builder_add_cstr(sb, ", "); }
-            var p = vec_get(pairs, bi);
-            str_builder_add_cstr(sb, "\"");
-            str_builder_add(sb, json_key(p));
-            str_builder_add_cstr(sb, "\": \"");
-            str_builder_add(sb, json_value(p));
-            str_builder_add_cstr(sb, "\"");
-            bi = bi + 1;
-        }
-        str_builder_add_cstr(sb, "}");
+    var len = vec_len(pairs);
+    var bi = 0;
+    while (bi < len) {
+        if (bi > 0) { str_builder_add_cstr(sb, ", "); }
+        var p = vec_get(pairs, bi);
+        str_builder_add_cstr(sb, "\"");
+        str_builder_add(sb, json_key(p));
+        str_builder_add_cstr(sb, "\": \"");
+        str_builder_add(sb, json_value(p));
+        str_builder_add_cstr(sb, "\"");
+        bi = bi + 1;
+    }
+    str_builder_add_cstr(sb, "}");
     return str_builder_build(sb);
 }
 
@@ -717,31 +717,31 @@ fn _jp_parse_array() {
 
 fn _jp_parse_object() {
     if (load8(_jp_buf + _jp_pos) != 123) { _jp_set_err("expected '{'"); return 0; }
+    _jp_pos = _jp_pos + 1;
+    var obj = json_v_obj_new();
+    _jp_skip_ws();
+    if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 125) {
         _jp_pos = _jp_pos + 1;
-        var obj = json_v_obj_new();
+        return obj;
+    }
+    while (1 == 1) {
         _jp_skip_ws();
-        if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 125) {
-            _jp_pos = _jp_pos + 1;
-            return obj;
-        }
-        while (1 == 1) {
-            _jp_skip_ws();
-            var k = _jp_parse_string();
-            if (k == 0) { return 0; }
-            _jp_skip_ws();
-            if (_jp_pos >= _jp_len) { _jp_set_err("unterminated object"); return 0; }
-            if (load8(_jp_buf + _jp_pos) != 58) { _jp_set_err("expected ':' after key"); return 0; }
-            _jp_pos = _jp_pos + 1;
-            _jp_skip_ws();
-            var val = _jp_parse_value();
-            if (val == 0) { return 0; }
-            json_v_obj_set(obj, k, val);
-            _jp_skip_ws();
-            if (_jp_pos >= _jp_len) { _jp_set_err("unterminated object"); return 0; }
-            var c = load8(_jp_buf + _jp_pos);
-            if (c == 44) { _jp_pos = _jp_pos + 1; }
-            elif (c == 125) { _jp_pos = _jp_pos + 1; return obj; }
-            else { _jp_set_err("expected ',' or '}'"); return 0; }
+        var k = _jp_parse_string();
+        if (k == 0) { return 0; }
+        _jp_skip_ws();
+        if (_jp_pos >= _jp_len) { _jp_set_err("unterminated object"); return 0; }
+        if (load8(_jp_buf + _jp_pos) != 58) { _jp_set_err("expected ':' after key"); return 0; }
+        _jp_pos = _jp_pos + 1;
+        _jp_skip_ws();
+        var val = _jp_parse_value();
+        if (val == 0) { return 0; }
+        json_v_obj_set(obj, k, val);
+        _jp_skip_ws();
+        if (_jp_pos >= _jp_len) { _jp_set_err("unterminated object"); return 0; }
+        var c = load8(_jp_buf + _jp_pos);
+        if (c == 44) { _jp_pos = _jp_pos + 1; }
+        elif (c == 125) { _jp_pos = _jp_pos + 1; return obj; }
+        else { _jp_set_err("expected ',' or '}'"); return 0; }
     }
     return 0;
 }
@@ -845,18 +845,18 @@ fn _jb_walk(sb, v) {
     }
     elif    (t == JTAG_OBJ)   {
         str_builder_add_cstr(sb, "{");
-            var pairs = load64(v + 8);
-            var pn = vec_len(pairs);
-            var pi = 0;
-            while (pi < pn) {
-                if (pi > 0) { str_builder_add_cstr(sb, ","); }
-                var p = vec_get(pairs, pi);
-                _jb_append_string(sb, load64(p));
-                str_builder_add_cstr(sb, ":");
-                _jb_walk(sb, load64(p + 8));
-                pi = pi + 1;
-            }
-            str_builder_add_cstr(sb, "}");
+        var pairs = load64(v + 8);
+        var pn = vec_len(pairs);
+        var pi = 0;
+        while (pi < pn) {
+            if (pi > 0) { str_builder_add_cstr(sb, ","); }
+            var p = vec_get(pairs, pi);
+            _jb_append_string(sb, load64(p));
+            str_builder_add_cstr(sb, ":");
+            _jb_walk(sb, load64(p + 8));
+            pi = pi + 1;
+        }
+        str_builder_add_cstr(sb, "}");
     }
     else {
         str_builder_add_cstr(sb, "null");

@@ -50,20 +50,21 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.22–v5.12.x):**
+> **What's next (v5.7.23–v5.12.x):**
 >
-> v5.7.21 `cyrius fuzz` manifest-deps auto-prepend parity
-> shipped 2026-04-27. One-line fix in `cbt/cyrius.cyr` —
-> added `fuzz` to the cmd-gate that triggers `_auto_deps`
-> before dispatch (it had `build/run/test/bench/check` but
-> not `fuzz`, so fuzz harnesses had to hand-include every
-> stdlib module they used). cmd_fuzz already called
-> `compile()` (which reads `_dep_includes`); the gate just
-> wasn't populating it. cc5 unchanged at 716,080 B (cbt-only
-> edit); new gate 4ad covers manifest-with-stdlib + no-manifest
-> paths. check.sh 41/41 (was 40/40; +gate 4ad).
+> v5.7.22 hygiene pass shipped 2026-04-27. Three bundled
+> tooling fixes: cyrfmt no longer tracks `{`/`}` in `#`
+> comments or `"..."` strings (closes agnos brace-tracking
+> issue); install.sh `--refresh-only` re-links ~/.cyrius/bin
+> to the active version (closes the H3 local-dev footgun);
+> cyriusly's `rm -f bin lib` → `rm -rf` so stale-directory
+> state gets cleaned. Seven existing stdlib files were
+> re-formatted with the new cyrfmt (semantically a no-op —
+> over-indent removed). cc5 unchanged at 716,080 B (programs/
+> scripts edits); new gates 4ae (comment-brace skip, 4 cases)
+> and 4af (refresh-only shim re-link). check.sh 43/43.
 >
-> - **v5.7.22**: cx codegen literal-arg propagation — fixes
+> - **v5.7.23**: cx codegen literal-arg propagation — fixes
 >   `syscall(60, 42)` emitting `movi r0, 0` instead of the
 >   literal. Pre-existing bug surfaced during v5.7.12
 >   path-B testing.
@@ -578,7 +579,7 @@ time v5.7.26 RISC-V opens.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
-### v5.7.22 — cx codegen literal-arg propagation
+### v5.7.23 — cx codegen literal-arg propagation
 
 **Pinned 2026-04-27** (surfaced during v5.7.12 path-B testing).
 cc5_cx's codegen for `syscall(N, V)` and similar literal-arg

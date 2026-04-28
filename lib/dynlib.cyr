@@ -965,8 +965,8 @@ fn dynlib_bootstrap_cpu_features() {
 #   3  — newlocale returned null (allocation failed inside libc)
 #
 # LC_ALL_MASK = 0x1FBF on x86_64 glibc (LC_{CTYPE,NUMERIC,TIME,
-    # COLLATE,MONETARY,MESSAGES,PAPER,NAME,ADDRESS,TELEPHONE,
-    # MEASUREMENT,IDENTIFICATION} = bits 0-12 with LC_ALL excluded).
+# COLLATE,MONETARY,MESSAGES,PAPER,NAME,ADDRESS,TELEPHONE,
+# MEASUREMENT,IDENTIFICATION} = bits 0-12 with LC_ALL excluded).
 fn dynlib_bootstrap_locale(hc) {
     if (hc == 0) { return 1; }
     var fp_newlocale = dynlib_sym(hc, "newlocale");

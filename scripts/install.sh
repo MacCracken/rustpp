@@ -128,6 +128,19 @@ if [ "$REFRESH_ONLY" -eq 1 ]; then
     echo "$VERSION" > "$CYRIUS_HOME/current"
     echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"
 
+    # v5.7.22: re-link ~/.cyrius/bin → versions/$VERSION/bin so the
+    # PATH-resolved cyrius/cc5/cyrfmt/cyrlint binaries match the
+    # version we just refreshed. Pre-v5.7.22, --refresh-only updated
+    # the snapshot but left the bin/ symlink pointing at whatever
+    # version was previously active. Local devs running version-bump.sh
+    # back-to-back saw `cyrius --version` reporting a stale binary
+    # while ~/.cyrius/current already advanced (footgun, not breakage).
+    # Use rm -rf (not rm -f) so a stale-directory state from an older
+    # install also gets cleaned out.
+    rm -rf "$CYRIUS_HOME/bin" "$CYRIUS_HOME/lib"
+    ln -sf "$CYRIUS_HOME/versions/$VERSION/bin" "$CYRIUS_HOME/bin"
+    ln -sf "$CYRIUS_HOME/versions/$VERSION/lib" "$CYRIUS_HOME/lib"
+
     info "refreshed $_refreshed bins/scripts + $_lib_count stdlib files"
     exit 0
 fi

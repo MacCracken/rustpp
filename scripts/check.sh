@@ -417,6 +417,24 @@ if [ "$fz_result" -ne 0 ]; then cat /tmp/audit_fz_$$; fi
 rm -f /tmp/audit_fz_$$
 echo ""
 
+# ── 4ae. cyrfmt skips braces in `#` comments + `"..."` strings (v5.7.22) ──
+echo "── cyrfmt comment/string brace skip ──"
+sh "$ROOT/tests/regression-cyrfmt-comment-braces.sh" > /tmp/audit_cf_$$ 2>&1
+cf_result=$?
+check "cyrfmt skips {/} inside # comments + string literals (v5.7.22; agnos issue)" "$cf_result"
+if [ "$cf_result" -ne 0 ]; then cat /tmp/audit_cf_$$; fi
+rm -f /tmp/audit_cf_$$
+echo ""
+
+# ── 4af. install.sh --refresh-only re-links ~/.cyrius/bin (v5.7.22) ──
+echo "── install --refresh-only shim ──"
+sh "$ROOT/tests/regression-install-shim-symlink.sh" > /tmp/audit_is_$$ 2>&1
+is_result=$?
+check "install.sh --refresh-only re-links ~/.cyrius/bin to current version (v5.7.22; H3)" "$is_result"
+if [ "$is_result" -ne 0 ]; then cat /tmp/audit_is_$$; fi
+rm -f /tmp/audit_is_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
