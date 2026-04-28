@@ -5,6 +5,40 @@
 
 ## Version
 
+**5.7.20** (shipped 2026-04-27 — **`lib/json.cyr` DEPTH**.
+Stdlib baseline JSON engine; RPC-grade scope still owned by
+sandhi (`lib/sandhi.cyr`). New `json_v_*` API (~700 LOC of
+engine) alongside the existing flat key-value API at the top
+of `lib/json.cyr`. Tagged 24-byte heap value with 7 tags
+(NULL / BOOL / INT / FLOAT / STR / ARR / OBJ). Recursive-
+descent parser handles all 6 value types, arbitrary nesting,
+full JSON string escape decoding (`\"` `\\` `\/` `\b` `\f`
+`\n` `\r` `\t` `\uXXXX` including surrogate-pair handling
+for 4-byte UTF-8), numbers (INT if no `.` `e` `E`; else
+FLOAT via custom f64 parser using cyrius's f64 builtins).
+Error reporting via `json_last_error` / `json_last_error_pos`.
+Compact serializer `json_v_build` re-escapes strings per
+JSON spec. Backward compat preserved: `json_parse`,
+`json_get`, `json_get_int`, `json_pair_new`, `json_key`,
+`json_value`, `json_build`, `json_parse_file` untouched —
+existing kybernet (boot-config), argonaut (test_serde),
+libro (canonical-json-hash) callers stay green. New gate
+`tests/tcyr/json_engine.tcyr`: **71 byte-level assertions**
+in 11 groups including primitives, escapes (with surrogate
+pair `😀`), arrays, objects (order preserved + missing-key
+returns 0), 3-level nesting, floats (decimal + scientific),
+build round-trip, error positions, type coercion, flat-API
+regression. cc5 self-host two-step byte-identical at
+**716,080 B** (lib-only addition). **check.sh 39/39 PASS**
+(tcyr 109 → 110; gate count unchanged because tcyr files are
+auto-discovered). Two cleanups during build: decorative
+box-drawing unicode (`# ── X ──`) tripped `cyrius lint` 120-
+byte threshold (U+2500 is 3 bytes UTF-8) — switched to ASCII
+separators (`# === X ===`); long `if (...&& load8 == X &&
+load8 == Y...)` keyword-parse chains for true/false/null
+shortened with `memeq`. Out of scope (deferred): pretty-
+printing, streaming parser, JSON Pointer.)
+
 **5.7.19** (shipped 2026-04-27 — **KERNEL-MODE EMIT ORDER FIX**.
 Under `kernel;` (kmode == 1), top-level asm (the multiboot
 32→64 long-mode boot shim) now emits BEFORE 64-bit gvar-init
@@ -69,7 +103,7 @@ lookaround, Unicode property classes, multiline flag.
 v5.7.19 = kernel-mode emit-order fix
 (THE agnos team request — proposal confirmed kmode swap is
 the entire ask; reclaimed v5.7.20 placeholder). +1 cascade
-absorbed by v5.7.33 backstop.)
+absorbed by v5.7.34 backstop (was v5.7.33; bumped at v5.7.20 ship to queue lib/json.cyr follow-ups — pretty-print, streaming, JSON Pointer — pinned in the v5.7.x patch slate).)
 
 **5.7.17** (shipped 2026-04-27 — **STRUCT CAP 64 → 256 +
 DUMP-ON-OVERFLOW DIAGNOSTIC**. kybernet 2026-04-27 surfaced

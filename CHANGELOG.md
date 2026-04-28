@@ -4,6 +4,105 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.20] — 2026-04-27
+
+**`lib/json.cyr` DEPTH — TAGGED-VALUE TREE.** Stdlib baseline JSON
+engine. RPC-grade scope (custom serializers, binary extensions)
+remains owned by sandhi (`lib/sandhi.cyr`).
+
+### Added (`lib/json.cyr`, ~700 LOC of engine)
+
+New `json_v_*` API alongside the existing flat key-value API
+(both ship in the same file).
+
+- **Tagged 24-byte heap value**: tag(u64) + payload(u64) +
+  reserved(u64). Seven tags: NULL / BOOL / INT / FLOAT / STR /
+  ARR / OBJ.
+- **Constructors**: `json_v_null`, `json_v_bool_new`,
+  `json_v_int_new`, `json_v_float_new`, `json_v_str_new`,
+  `json_v_arr_new`, `json_v_obj_new`, `json_v_arr_push`,
+  `json_v_obj_set`.
+- **Tag predicates**: `json_v_is_null` / `is_bool` / `is_int` /
+  `is_float` / `is_str` / `is_arr` / `is_obj`. Plus
+  `json_v_tag(v)` for the raw tag.
+- **Value accessors with INT/FLOAT coercion**: `json_v_int(v)`
+  (works on both INT and FLOAT — coerces via `f64_to`),
+  `json_v_float(v)` (works on both — coerces via `f64_from`),
+  `json_v_bool(v)`, `json_v_str(v)`.
+- **Container accessors**: `json_v_arr_len(v)` / `arr_get(v, i)`,
+  `json_v_obj_len(v)` / `obj_key(v, i)` / `obj_val(v, i)` /
+  `obj_get(v, key)`.
+- **Recursive-descent parser**: `json_v_parse(src)` /
+  `json_v_parse_str(buf, len)`. Handles all 6 value tags,
+  arbitrary nesting, full JSON string escape decoding (`\"`
+  `\\` `\/` `\b` `\f` `\n` `\r` `\t` `\uXXXX` — including
+  surrogate-pair handling for `😀` -> 4-byte UTF-8).
+  Numbers parsed as INT if no `.` `e` `E`; else FLOAT
+  (custom f64 parser handles signed mantissa + fraction +
+  signed exponent, all using cyrius's f64 builtins).
+- **Error reporting**: `json_last_error()` (cstr) +
+  `json_last_error_pos()` (input offset). Set on parse
+  failure. `json_v_parse*` returns 0 on error.
+- **Serializer**: `json_v_build(v)` -> Str. Walks the tree;
+  re-escapes strings per JSON spec (control chars below
+  0x20 emitted as `\u00XX`); compact (no whitespace).
+
+### Backward compatibility
+
+The pre-existing flat API at the top of `lib/json.cyr` —
+`json_parse`, `json_get`, `json_get_int`, `json_pair_new`,
+`json_key`, `json_value`, `json_build`, `json_parse_file` —
+is untouched. The "flat API regression" group in the new
+gate confirms it still works. Existing kybernet (boot-config
+parsing), argonaut (test_serde round-trip), libro
+(canonical-json-hash) callers stay green.
+
+### Acceptance gate
+
+- **`tests/tcyr/json_engine.tcyr`** — **71 byte-level
+  assertions** in 11 groups: primitives (null/bool/int),
+  string escapes (`\"` `\\` `\n` `A` `é` `€`
+  4-byte surrogate pair `😀`), arrays (empty +
+  3-elem + mixed-type), objects (empty + 1-pair + 3-pair +
+  order preservation + missing-key), nesting (3 levels deep
+  + array-of-objects), floats (decimal + negative + scientific),
+  build round-trip, build escape re-encoding, errors
+  (unterminated obj/arr/string + trailing junk + err pos),
+  type coercion (INT/FLOAT cross-access), flat-API regression.
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (lib-only addition; compiler unchanged).
+- check.sh **39/39 PASS** (tcyr 109 → 110; gate count
+  unchanged because `json_engine.tcyr` is auto-discovered
+  by the test-suite walker).
+
+### Bug caught + fixed during build-out
+
+- **Format/lint pass surfaces decorative box-drawing
+  unicode** (`# ── Constructors ──...`) — the U+2500 chars
+  are 3 bytes each in UTF-8 and the lint's 120-byte
+  threshold catches them. Fixed by switching to ASCII
+  separators (`# === Constructors ===`). Pattern for future
+  large lib additions: keep section-header decorations
+  ASCII to stay clean against `cyrius lint`.
+- Long `if (...&& load8 == X && load8 == Y && ...)` keyword
+  parses (true/false/null detection) replaced with `memeq`
+  for cleaner shorter lines. Same observable behavior;
+  better readability.
+
+### Out of scope for v5.7.20 (deferred)
+
+- **Pretty-printing** (`json_v_build_pretty(v, indent)`).
+  Compact only for now; pretty-print is a future patch
+  if a consumer needs it.
+- **Streaming parser**. The current parser allocates the
+  full tree in memory. For very large JSON (multi-MB),
+  a streaming parser would emit events. Not pinned;
+  sandhi can add this if RPC needs grow.
+- **JSON Pointer** (`/users/0/name`) lookup. Easy to add
+  on top of the tree once a consumer wants it.
+
+---
+
 ## [5.7.19] — 2026-04-27
 
 **KERNEL-MODE EMIT ORDER FIX** — under `kernel;` (kmode == 1),
@@ -86,7 +185,7 @@ Reviewing the agnos proposal in
 IS the agnos team's request — it was the same item, not a
 separate one. v5.7.20 placeholder reclaimed; cascade rolled
 back -1. Net cascade since v5.7.18 ship is +1 (just kmode).
-v5.7.33 backstop holds with full margin.
+v5.7.34 backstop holds with full margin (bumped from v5.7.33 at this ship to queue the JSON follow-ups: pretty-print, streaming parser, JSON Pointer).
 
 ### Downstream (agnos-side, not part of this slot)
 

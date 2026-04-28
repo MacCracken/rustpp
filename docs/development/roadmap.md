@@ -40,51 +40,58 @@
 > [completed-phases.md § v5.7.0–v5.7.13](completed-phases.md#v570v5713--sandhi-fold--cyrius-ts-frontend--tooling-polish).
 > RISC-V slid to v5.7.26-v5.7.30 to clear the bug/UX patch slate
 > first (2026-04-27 user direction: "correctness over new features
-> always"). **Hard upper bound: v5.7.33 = v5.7.x closeout** (bumped
+> always"). **Hard upper bound: v5.7.34 = v5.7.x closeout** (bumped
 > from v5.7.28 at v5.7.17 ship — kybernet's struct-cap surfacing
 > claimed a slot, +1 cascade, plus a 5-slot extension authorized
 > to absorb future emerging items and restore RISC-V breathing
-> room).
+> room. Bumped again from v5.7.33 → v5.7.34 at v5.7.20 ship to
+> queue the lib/json.cyr follow-up items — pretty-printing,
+> streaming parser, JSON Pointer — without forcing them into the
+> backstop slot itself).
 >
 
-> **What's next (v5.7.20–v5.12.x):**
+> **What's next (v5.7.21–v5.12.x):**
 >
-> v5.7.19 kernel-mode emit-order fix shipped 2026-04-27.
-> Path A1 from the [agnos boot-shim regression proposal](https://github.com/MacCracken/agnos/blob/main/docs/development/proposals/2026-04-27-cc5-kernel-boot-shim-regression.md)
-> — under `kmode == 1`, top-level asm (the multiboot 32→64
-> long-mode boot shim) now emits BEFORE 64-bit gvar-init
-> code. Restores the cc3-era ordering invariant silently
-> dropped at v5.0.0 (cc4→cc5 IR overhaul). agnos 1.24.0
-> bumps the pin. cc5 715,920 → 716,080 B (+160 B for the
-> kmode branch); non-kmode path byte-identical. New gate 4ab
-> verifies asm bytes precede `48 b9` gvar-init signature.
-> check.sh 39/39 (was 38/38). Reviewing the proposal at
-> v5.7.18 ship confirmed the kmode swap IS the agnos team's
-> entire request — placeholder v5.7.20 reclaimed; cascade
-> rolled back to net +0 since regex.
+> v5.7.20 lib/json.cyr depth shipped 2026-04-27. Tagged-value
+> tree engine (~700 LOC): 7 tags (NULL/BOOL/INT/FLOAT/STR/
+> ARR/OBJ), recursive-descent parser, full JSON string escape
+> decoding (incl. \uXXXX surrogate pairs), error reporting,
+> serializer. Stdlib baseline; sandhi keeps RPC-grade scope.
+> Backward compat with kybernet/argonaut/libro flat-API
+> callers preserved. cc5 unchanged at 716,080 B (lib-only
+> addition); 71-assertion gate passes. check.sh 39/39
+> (tcyr 109 → 110; gate count unchanged).
 >
-> - **v5.7.20**: `lib/json.cyr` depth (stdlib baseline) —
->   nested objects, arrays, booleans, null, floats, escape
->   handling, error reporting. RPC-grade scope owned by
->   sandhi.
 > - **v5.7.21**: `cyrius fuzz` stdlib auto-prepend parity.
 > - **v5.7.22**: cx codegen literal-arg propagation — fixes
 >   `syscall(60, 42)` emitting `movi r0, 0` instead of the
 >   literal. Pre-existing bug surfaced during v5.7.12
 >   path-B testing.
-> - **v5.7.22-v5.7.24**: advanced TS features beyond SY corpus
+> - **v5.7.23-v5.7.25**: advanced TS features beyond SY corpus
 >   (**hard cap 3 slots**; overflow → v5.8.x).
 > - **v5.7.26-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
->   **Buffer pressure resolved** — the v5.7.33 backstop bump
+>   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
 >   The 4-5 sub-patch path now fits with margin.
+> - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
+>   depth follow-ups — pretty-printing, streaming parser,
+>   JSON Pointer (RFC 6901). Pinned 2026-04-27; promoted to
+>   numbered slots when claimed. Roadmap detail in the
+>   patch-slate section below.
 > - **v5.7.29/30/31**: `.scyr` (soak) + `.smcyr` (smoke) file
 >   types — floats per RISC-V actual.
-> - **v5.7.30/31/32**: v5.7.x closeout (CLAUDE.md "Closeout
->   Pass" 11-step). Lands after soak/smoke.
-> - **v5.7.33**: absolute backstop. Per
->   `feedback_v57x_slot_bounds_2026_04_27.md` (updated at
->   v5.7.17 ship) anything past this forces v5.8.x boundary.
+> - **v5.7.31-v5.7.33**: open slots (no fixed assignment).
+>   Reserved for JSON-engine follow-ups (pretty-print /
+>   streaming / JSON Pointer) IF claimed, plus any wildcard
+>   correctness items (cap-bumps, downstream surfacing) and
+>   the warning-sweep side-task. Float per RISC-V actual sub-
+>   patch count + soak/smoke landing.
+> - **v5.7.34**: **TRUE CLOSEOUT** — the CLAUDE.md 11-step
+>   "Closeout Pass" lands here as a single patch (mechanical
+>   checks + judgment passes + doc sync per
+>   `CLAUDE.md:62-95`). Hard upper bound; anything past
+>   forces the v5.8.x boundary per
+>   `feedback_v57x_slot_bounds_2026_04_27.md`.
 >
 > **Side-task across v5.7.13–v5.7.20 closeouts**: warning sweep
 > (3 syscall-arity warnings + 36 unreachable-fn floor + check.sh
@@ -357,7 +364,7 @@ toolchain side is unblocked.
 
 
 
-## v5.7.26-v5.7.30 — RISC-V rv64 (3-5 sub-patches; bounded series; new v5.7.33 backstop restores full 3-5 range without forcing the low end)
+## v5.7.26-v5.7.30 — RISC-V rv64 (3-5 sub-patches; bounded series; new v5.7.34 backstop restores full 3-5 range without forcing the low end)
 
 First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.26-v5.7.30
 as the optimization arc, sandhi fold, fixup-cap bumps,
@@ -696,6 +703,42 @@ is fine to leave).
 `cmd_test` / `cmd_bench` / `cmd_fuzz` family in
 `cbt/commands.cyr`.
 
+### v5.7.x — `lib/json.cyr` depth follow-ups (pinned; consumer-surfaced)
+
+**Pinned 2026-04-27** at v5.7.20 ship — the tagged-value tree
+engine landed without these three items because no consumer
+in the AGNOS ecosystem has surfaced a need yet. Pin here so the
+items don't get lost; promote to a numbered slot when a
+consumer asks for them.
+
+- **Pretty-printing** — `json_v_build_pretty(v, indent)`. The
+  current `json_v_build` is compact (no whitespace). Pretty-
+  printing emits 2/4-space (or tab) indentation and newlines
+  between object/array members. ~50-100 LOC. Triggered when a
+  consumer wants human-readable JSON output (config-file
+  writers, debug-log dumps).
+
+- **Streaming parser** — current parser allocates the full tree
+  in memory. For multi-MB JSON inputs, a streaming parser would
+  emit events (`on_object_start`, `on_key`, `on_value`,
+  `on_array_end`, etc.) instead of building the tree.
+  ~200-300 LOC for the event API + driver. Sandhi may absorb
+  this if RPC needs grow before a stdlib consumer surfaces.
+
+- **JSON Pointer** (RFC 6901) — `json_v_pointer(v, "/users/0/name")`
+  walks the tree by slash-separated path. ~50 LOC on top of
+  the existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
+  Easy add when a consumer wants xpath-style lookup.
+
+**Acceptance gate** (when claimed): each item is its own focused
+patch with a tcyr suite covering the new shape — pretty-print
+round-trip, streaming events on a multi-doc fixture, JSON Pointer
+on the existing nested-fixture from `tests/tcyr/json_engine.tcyr`.
+
+**Slot assignment**: each takes one slot. With v5.7.34 backstop
+and current queue (RISC-V at low end → ~v5.7.28 closeout), there's
+room for ≤4 follow-up items before re-bounding. If two of these
+get consumer-surfaced, claim slots; if all three, re-ask.
 
 
 
@@ -711,52 +754,7 @@ is fine to leave).
 
 
 
-### v5.7.20 — `lib/json.cyr` depth (stdlib baseline)
 
-**Pinned 2026-04-23; narrowed 2026-04-24** — RPC-grade handling (WebDriver / Appium response parsing, streaming large payloads, dialect-aware error envelopes) moved to `sandhi::rpc` along with the `lib/http.cyr depth` item. This slot retains the stdlib-baseline enrichment: deeper parsing for config / data files, safer error reporting, array support. The surfacing consumers for *baseline* json.cyr depth are cyml / toml parity, config loading, and data-file pipelines — not network RPC.
-
-`lib/json.cyr` today supports a basic key-value pair parse and build with `json_parse(src)`, `json_get(pairs, key)`, `json_get_int(...)`, `json_build(pairs)`, `json_pair_new(key, value)`. What's thin for config / data use cases: nested objects, arrays, JSON numbers beyond int, booleans, null, and escaped string values. Streaming large payloads is deferred to v5.8.x+ or owned by `sandhi::rpc` since that's the consumer shape for multi-MB response bodies.
-
-**Surfacing consumers (baseline scope)**: any crate reading / writing structured JSON config or data (not RPC responses — those go through sandhi).
-
-**Scope** (~400–600 LOC):
-
-- **Nested objects**: `json_get_obj(pairs, key)` returns a
-  nested pair list. Recursion depth limit (default 32) with
-  hard-error on overrun — defense against stack-smashing
-  malicious input.
-- **Arrays**: `json_get_array(pairs, key)` returns an array
-  struct; `json_array_len(arr)`, `json_array_get(arr, idx)` for
-  element access.
-- **Type coverage**: booleans (`json_get_bool`), null (separate
-  sentinel value vs "missing key"), floats/doubles
-  (`json_get_double`), negative numbers (currently `atoi`-only —
-  add signed support).
-- **String escape handling**: `\n`, `\t`, `\"`, `\\`, `\uXXXX`
-  on both parse and build paths. Today's parser silently breaks
-  on escaped quotes inside strings.
-- **Build path**: `json_build` today builds flat key-value
-  objects. Extend to nested: `json_build_obj(pairs)`,
-  `json_build_array(values)`.
-- **Streaming parse**: **moved to `sandhi::rpc` 2026-04-24** — multi-MB streaming responses are an RPC-consumer concern (CDP debugger payloads, WebDriver trace responses), not a stdlib-baseline concern. Remains v5.8.x-deferrable from the sandhi side.
-- **Error reporting**: currently `json_parse` returns 0 on
-  failure — no position info, no reason. Add
-  `json_parse_err(src)` variant that returns a parse-error
-  struct with line/column/reason.
-
-**Acceptance gates** (baseline scope — config / data files):
-
-1. `json_parse` correctly handles a deeply-nested object (e.g. a
-   multi-level application config file with nested sections).
-2. Array access works on a real data file (e.g. a list of device
-   records from `yukti` or a log-event array).
-3. Escape handling: `"\"hello\\nworld\""` parses as the
-   4-char string `"hel\no"` with proper quote.
-4. Build round-trip: `json_build(json_parse(src))` produces
-   byte-identical output for a canonical corpus.
-5. Recursion depth limit: 33-deep input returns a parse error,
-   not a segfault.
-6. All existing `json_parse` consumers still pass.
 
 **Out of scope for this item**: RPC dialect acceptance (WebDriver session-create, Appium findElements, MCP-over-HTTP responses) — those live in `sandhi::rpc` acceptance tests and can land in parallel.
 
@@ -1115,7 +1113,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` + HIGH_ENTROPY_VA enabled v5.6.31 |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.26-v5.7.30** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.24 patch slate; v5.7.x closeout at v5.7.30-v5.7.32 (v5.7.33 hard backstop)) |
+| **v5.7.26-v5.7.30** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.24 patch slate; v5.7.x closeout at v5.7.31-v5.7.33 (v5.7.34 hard backstop)) |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 
