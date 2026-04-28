@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.23] — 2026-04-27
+
+**CX CODEGEN — LITERAL ARG PROPAGATION** — single-byte typo fix
+in `src/backend/cx/emit.cyr`'s `TOKVAL` helper. Closes the
+literal-argument-propagation issue pinned in v5.7.12's
+`regression-cx-roundtrip.sh` "What this gate does NOT check"
+note.
+
+### Fixed (`src/backend/cx/emit.cyr`)
+
+The cx backend's `TOKVAL` helper read tokens from
+`S + 0x94A000 + i*8` instead of `S + 0xB4A000 + i*8` (the actual
+write site in `src/frontend/lex.cyr:99`). The 0x94A000 region
+is a zero-initialized gap between `tok_types` (0x74A000) and
+`tok_values` (0xB4A000), so `PEEKV` always returned 0 in
+cc5_cx. Pre-v5.7.23 bytecode for `syscall(60, 42);` was:
+
+```
+01 00 00 00     MOVI r0, 0   ← should be 60
+80 00 00 00     PUSHR r0
+01 00 00 00     MOVI r0, 0   ← should be 42
+80 00 00 00     PUSHR r0
+```
+
+…plus a spurious `warning: syscall arity mismatch` on stderr
+(because `sc_num` got read as 0 = SYS_READ arity 3, not 60 =
+SYS_EXIT arity 1).
+
+Post-fix bytecode for the same program:
+
+```
+01 00 3c 00     MOVI r0, 60
+80 00 00 00     PUSHR r0
+01 00 2a 00     MOVI r0, 42
+80 00 00 00     PUSHR r0
+```
+
+…and `cxvm < cyx` exits with code 42, matching the user-supplied
+literal. No spurious arity warning.
+
+### Why this didn't surface earlier
+
+Single-character typo from the v5.7.12 path-B work (when
+`src/backend/cx/emit.cyr` forked `TOKTYP`/`TOKVAL`/`PEEKV` from
+the x86 emit module). v5.7.12's `regression-cx-roundtrip.sh`
+explicitly documented "Exit-code propagation through
+`syscall(60, X)`" as out of scope, slotted as a future cx
+codegen audit. v5.7.23 is that audit.
+
+The fix is one character: `0x94A000` → `0xB4A000`.
+
+### Acceptance gate
+
+**`tests/regression-cx-syscall-literal.sh` (gate 4ag)** —
+4 sub-checks:
+- bytecode for `syscall(60, 42);` contains `MOVI r0, 60`
+  (`01 00 3c 00`) and `MOVI r0, 42` (`01 00 2a 00`);
+- no spurious "syscall arity mismatch" warning on stderr;
+- `cxvm < cyx` exits with code 42;
+- multiple distinct literal values (0, 7, 99, 200) round-trip
+  through cc5_cx → cxvm independently — catches a hypothetical
+  regression where TOKVAL reads a constant.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (cx-backend-only edit; main x86 cc5 unchanged).
+- check.sh **44/44 PASS** (was 43/43; +gate 4ag).
+
+### Pattern: forked-helper drift
+
+When a backend module forks shared frontend helpers (lex
+storage offsets, IR globals, cap constants), every offset
+literal is a candidate for typo. The v5.7.12 path-B fork
+copied `TOKTYP`/`TOKVAL` correctly for `TOKTYP` (0x74A000) but
+fat-fingered `TOKVAL` (0x94A000 instead of 0xB4A000). Audit
+pattern: `grep -rn "0x[0-9A-F]\{6\}A000" src/backend/` and
+diff each region's reads/writes against the canonical write
+sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
+A quick numerical-cross-check at fork time would have caught
+this.
+
+---
+
 ## [5.7.22] — 2026-04-27
 
 **HYGIENE PASS** — three tooling fixes bundled as one slot:

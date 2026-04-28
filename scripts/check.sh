@@ -435,6 +435,15 @@ if [ "$is_result" -ne 0 ]; then cat /tmp/audit_is_$$; fi
 rm -f /tmp/audit_is_$$
 echo ""
 
+# ── 4ag. cx codegen literal-arg propagation (v5.7.23) ──
+echo "── cx syscall literal propagation ──"
+sh "$ROOT/tests/regression-cx-syscall-literal.sh" > /tmp/audit_csl_$$ 2>&1
+csl_result=$?
+check "cc5_cx propagates literal syscall args; cxvm exits with user code (v5.7.23)" "$csl_result"
+if [ "$csl_result" -ne 0 ]; then cat /tmp/audit_csl_$$; fi
+rm -f /tmp/audit_csl_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

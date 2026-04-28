@@ -50,25 +50,24 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.23–v5.12.x):**
+> **What's next (v5.7.24–v5.12.x):**
 >
-> v5.7.22 hygiene pass shipped 2026-04-27. Three bundled
-> tooling fixes: cyrfmt no longer tracks `{`/`}` in `#`
-> comments or `"..."` strings (closes agnos brace-tracking
-> issue); install.sh `--refresh-only` re-links ~/.cyrius/bin
-> to the active version (closes the H3 local-dev footgun);
-> cyriusly's `rm -f bin lib` → `rm -rf` so stale-directory
-> state gets cleaned. Seven existing stdlib files were
-> re-formatted with the new cyrfmt (semantically a no-op —
-> over-indent removed). cc5 unchanged at 716,080 B (programs/
-> scripts edits); new gates 4ae (comment-brace skip, 4 cases)
-> and 4af (refresh-only shim re-link). check.sh 43/43.
+> v5.7.23 cx codegen literal-arg propagation shipped
+> 2026-04-27. Single-character typo in
+> `src/backend/cx/emit.cyr`'s `TOKVAL` helper — read tokens
+> from `S + 0x94A000 + i*8` (a zero-initialized gap region)
+> instead of the canonical `S + 0xB4A000 + i*8` write site
+> in `src/frontend/lex.cyr:99`. PEEKV always returned 0 in
+> cc5_cx, so `syscall(60, 42)` emitted `movi r0, 0` for both
+> args. Fixed: 0x94A000 → 0xB4A000. cc5 byte-identical at
+> 716,080 B (cx-backend-only edit; main x86 cc5 unchanged);
+> new gate 4ag (cx syscall literal propagation, 7 sub-checks
+> incl. cxvm round-trip with literals 0/7/42/99/200).
+> check.sh 44/44. Closes the issue pinned in v5.7.12's
+> regression-cx-roundtrip.sh "What this gate does NOT
+> check" note.
 >
-> - **v5.7.23**: cx codegen literal-arg propagation — fixes
->   `syscall(60, 42)` emitting `movi r0, 0` instead of the
->   literal. Pre-existing bug surfaced during v5.7.12
->   path-B testing.
-> - **v5.7.23-v5.7.25**: advanced TS features beyond SY corpus
+> - **v5.7.24-v5.7.26**: advanced TS features beyond SY corpus
 >   (**hard cap 3 slots**; overflow → v5.8.x).
 > - **v5.7.26-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
@@ -433,7 +432,7 @@ to the dynamic vec-shaped table from
 [sit's original writeup](https://github.com/MacCracken/sit/blob/main/docs/development/proposals/cyrius-fixup-table-cap-bump.md#alternative-considered-dynamic-fixup-table).
 Pin as a v5.8.x or v5.9.x consideration if needed.
 
-### v5.7.23-v5.7.25 — advanced TS features beyond SY corpus (hard cap 3 slots; overflow → v5.8.x)
+### v5.7.24-v5.7.26 — advanced TS features beyond SY corpus (hard cap 3 slots; overflow → v5.8.x)
 
 **Pinned 2026-04-26.** SY corpus parse acceptance hit 100% on
 both `.ts` (2053/2053) and `.tsx` (435/435) at v5.7.6 via 10
@@ -579,51 +578,49 @@ time v5.7.26 RISC-V opens.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
-### v5.7.23 — cx codegen literal-arg propagation
+### v5.7.23 ✅ cx codegen literal-arg propagation — SHIPPED
 
-**Pinned 2026-04-27** (surfaced during v5.7.12 path-B testing).
-cc5_cx's codegen for `syscall(N, V)` and similar literal-arg
-patterns doesn't propagate the literal value through `EMOVI`.
-Bytecode for `syscall(60, 42)` shows `movi r0, 0` (val=0)
-instead of `movi r0, 60` and `movi r0, 42`. The 60 *does*
-appear later as `movi r1, 60` (the syscall-number register
-load), but the second arg (42) doesn't appear at all.
+**Shipped 2026-04-27.** Single-character typo in
+`src/backend/cx/emit.cyr`'s `TOKVAL` helper: read tokens from
+`S + 0x94A000 + i*8` (zero-initialized gap region between
+tok_types and tok_values) instead of the canonical
+`S + 0xB4A000 + i*8` write site in `src/frontend/lex.cyr:99`.
+PEEKV always returned 0 in cc5_cx, so any literal arg
+collapsed to 0 in the emit path. The 60 in the implicit-exit
+syscall propagated correctly because main_cx's epilogue
+hard-codes the syscall number as a synthesized token (not a
+user-supplied literal).
 
-**Repro** (against cc5_cx v5.7.12):
-```sh
+**Repro** (pre-fix):
+```
 echo 'syscall(60, 42);' | cc5_cx | xxd | head -4
-# 00000000: 4359 5800 0000 0000 5001 0000 0100 0000  CYX.....P.......
-# 00000010: 8000 0000 0100 0000 8000 0000 8102 0000  ................
-# 00000020: 8101 0000 7000 0000 0202 0000 0101 3c00  ....p.........<.
-# 00000030: 7000 0000                                p...
-# Note: literal 42 is NOWHERE in the bytecode.
+# 01 00 00 00     MOVI r0, 0   ← should be 60
+# 80 00 00 00     PUSHR r0
+# 01 00 00 00     MOVI r0, 0   ← should be 42
+# 80 00 00 00     PUSHR r0
 ```
 
-**Pre-existing**: same bytecode shape with v5.7.11 cc5_cx —
-this is NOT a v5.7.12 regression. Path B made the bytecode
-clean of x86 noise; this slot fixes the literal-propagation
-gap independently.
+**Fix:** one character — `0x94A000` → `0xB4A000` in
+`src/backend/cx/emit.cyr:443`.
 
-**Root-cause investigation needed**:
-- Is `parse_expr.cyr`'s syscall arg parse path calling
-  `EMOVI(S, val)` correctly?
-- Is `CX_MOVI(S, 0, val)` getting val=0 instead of the actual
-  literal?
-- Or is some prior call clobbering `_cfv` between PCMPE and
-  EMOVI?
+**Verification:**
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (cx-only edit; main x86 cc5 unchanged).
+- New gate `tests/regression-cx-syscall-literal.sh` (4ag): 7
+  sub-checks — bytecode contains MOVI r0, 60 + MOVI r0, 42;
+  no spurious arity warning; cxvm exits 42; multiple distinct
+  literals (0/7/99/200) round-trip independently.
+- check.sh **44/44 PASS** (was 43/43; +gate 4ag).
+- Closes the literal-propagation issue pinned in v5.7.12's
+  `regression-cx-roundtrip.sh` "What this gate does NOT
+  check" note.
 
-The same parse path produces correct bytecode on x86 (cc5
-self-compile works); cx-specific behavior in EMOVI or a state
-global it depends on is the suspect.
-
-**Acceptance gate**:
-- `echo 'syscall(60, 42);' | cc5_cx | cxvm` → exit 42.
-- New `tests/regression-cx-syscall-exit.sh` (or extension of
-  `regression-cx-roundtrip.sh`).
-
-**Slot scope**: small focused investigation (likely 1-2 hour
-debug pass). Slot is now v5.7.18 (was unscheduled "when RISC-V wraps") or earlier if a
-cx consumer surfaces.
+**Pattern caught:** when a backend module forks shared
+frontend helpers (lex storage offsets, IR globals, cap
+constants), every offset literal is a candidate for typo.
+Audit pattern: `grep -rn "0x[0-9A-F]\{6\}A000" src/backend/`
+and diff each region's reads/writes against the canonical
+write sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
 
 
 

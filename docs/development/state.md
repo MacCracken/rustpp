@@ -5,6 +5,34 @@
 
 ## Version
 
+**5.7.23** (shipped 2026-04-27 — **CX CODEGEN — LITERAL ARG
+PROPAGATION**. Single-character typo fix in
+`src/backend/cx/emit.cyr:443` — `TOKVAL` helper read tokens
+from `S + 0x94A000 + i*8` (a zero-initialized gap region
+between `tok_types` and `tok_values`) instead of the canonical
+`S + 0xB4A000 + i*8` write site in `src/frontend/lex.cyr:99`.
+PEEKV always returned 0 in cc5_cx, so any user-supplied literal
+arg in `syscall(N, V)` (and any other typ==1 NUM token) emitted
+`MOVI r0, 0` regardless of the source value. The implicit-exit
+syscall's `60` propagated correctly because main_cx synthesizes
+that token via a hard-coded path, not via lex. Fix: 0x94A000 →
+0xB4A000. Closes the issue pinned in v5.7.12's
+`regression-cx-roundtrip.sh` "What this gate does NOT check"
+note. cc5 self-host two-step byte-identical at **716,080 B**
+(cx-backend-only edit; main x86 cc5 unchanged). New gate
+`tests/regression-cx-syscall-literal.sh` (4ag, 7 sub-checks):
+bytecode for `syscall(60, 42);` contains `MOVI r0, 60`
+(`01 00 3c 00`) and `MOVI r0, 42` (`01 00 2a 00`); no spurious
+"syscall arity mismatch" on stderr; cxvm round-trip exits 42;
+literals 0/7/99/200 each exit with their own code (catches
+hypothetical TOKVAL-reads-a-constant regression). **check.sh
+44/44 PASS** (was 43/43; +gate 4ag). Pattern caught:
+forked-helper drift — when a backend module forks shared
+frontend helpers, every offset literal is a typo candidate.
+Audit pattern: `grep -rn "0x[0-9A-F]\{6\}A000" src/backend/`
+and diff each region's reads/writes against canonical write
+sites in `src/frontend/lex.cyr`.)
+
 **5.7.22** (shipped 2026-04-27 — **HYGIENE PASS** — three
 bundled tooling fixes. (1) `programs/cyrfmt.cyr` no longer
 tracks `{`/`}` inside `#` comments or `"..."` string literals
@@ -681,43 +709,40 @@ stops emitting literal `\x1b[…` characters. Per the "compiler
 grows to fit the language, never the other way around" rule
 (`feedback_grow_compiler_to_fit_language.md`).
 
-**v5.7.x slot map (firm as of 2026-04-27, hard upper bound v5.7.28):**
+**v5.7.x slot map (firm as of 2026-04-27, hard upper bound v5.7.34):**
 
-- **v5.7.13** — string-literal escape sequences (cyim-unblocking).
-  **Budgeted 1-2 patches** (audit-first may split into v5.7.13
-  `\x##` + audit, v5.7.14 `\u####`/`\u{…}` UTF-8). If splits,
-  everything below cascades +1.
-- **v5.7.14** — bundle: full project-setup workflow.
-  `cyrius deps` transitive resolution (sit-blocking) + `cyrius
-  init` library-vs-binary awareness (`--lib` / `--bin`) + `cyrius
-  init` / `cyrius port` first-party-documentation alignment
-  (ADR / architecture / guides / examples doc-tree + CLAUDE.md
-  template). All three flow together: `cyrius init --lib foo` →
-  resolve transitive deps → emit shape-aware doc-tree.
-- **v5.7.15** — basic regex primitives (`lib/regex.cyr`,
-  Thompson NFA, ~300-500 LOC). Unblocks cyim `--find`.
-- **v5.7.16** — `lib/json.cyr` depth (stdlib baseline — nested
-  objects, arrays, booleans, null, floats, escape handling,
-  error reporting). RPC-grade scope owned by sandhi.
-- **v5.7.17** — `cyrius fuzz` stdlib auto-prepend parity (solo;
-  small refactor walking the same manifest-deps codepath as
-  `cmd_test` / `cmd_bench`).
-- **v5.7.18** — cx codegen literal-arg propagation
-  (`syscall(60, 42)` emits `movi r0, 0` instead of literal).
-- **v5.7.19-v5.7.21** — advanced TS features beyond SY corpus
+Shipped:
+- **v5.7.13** ✅ string-literal escapes (cyim-unblocking)
+- **v5.7.14** ✅ `cyrius deps` transitive resolution (BFS walker)
+- **v5.7.15** ✅ `cyrius init --lib`/`--bin` library scaffold
+- **v5.7.16** ✅ `cyrius init`/`cyrius port` first-party-doc tree
+- **v5.7.17** ✅ struct cap 64→256 + dump-on-overflow (kybernet)
+- **v5.7.18** ✅ regex engine (Thompson NFA + Pike matcher)
+- **v5.7.19** ✅ kernel-mode emit-order fix (agnos boot-shim)
+- **v5.7.20** ✅ `lib/json.cyr` depth — tagged-value tree
+- **v5.7.21** ✅ `cyrius fuzz` manifest-deps auto-prepend parity
+- **v5.7.22** ✅ hygiene pass — cyrfmt comment-brace + install-shim re-link + cyriusly rm-rf
+- **v5.7.23** ✅ cx codegen literal-arg propagation (TOKVAL offset typo)
+
+Queue:
+- **v5.7.24-v5.7.26** — advanced TS features beyond SY corpus
   (**hard cap 3 slots**; overflow → v5.8.x).
-- **v5.7.22-v5.7.26** — RISC-V rv64 (3-5 sub-patches).
-- **v5.7.25/26/27** — `.scyr` + `.smcyr` file types (lands
-  patch immediately after RISC-V wraps; floats with RISC-V
-  actual sub-patch count).
-- **v5.7.26/27/28** — v5.7.x closeout (CLAUDE.md 11-step).
-  **Hard upper bound v5.7.28.**
+- **v5.7.27-v5.7.31** — RISC-V rv64 (3-5 sub-patches).
+- **v5.7.x patch slate (consumer-surfaced)**: lib/json.cyr depth
+  follow-ups — pretty-print / streaming / JSON Pointer. Pinned
+  2026-04-27; promoted to numbered slots when claimed.
+- **v5.7.30/31/32** — `.scyr` (soak) + `.smcyr` (smoke) file
+  types — floats per RISC-V actual sub-patch count.
+- **v5.7.32-v5.7.33** — open slots (no fixed assignment); reserved
+  for JSON-engine follow-ups + wildcard correctness items +
+  warning sweep.
+- **v5.7.34** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
 
-**Side-task across v5.7.13–v5.7.18 closeouts**: warning sweep
+**Side-task across v5.7.13–v5.7.23 closeouts**: warning sweep
 (3 syscall-arity + 36 unreachable-fn floor + check.sh shell-syntax
 warning + cbt/programs/bootstrap shellcheck pass). Cleared
 opportunistically each closeout, no dedicated patch slot. Goal:
-zero `warning:` lines from cc5 self-build by v5.7.22 (RISC-V
+zero `warning:` lines from cc5 self-build by v5.7.27 (RISC-V
 opens).
 
 **v5.7.0 (sandhi fold) — cyrius side ✅ shipped.** Cyrius-side
