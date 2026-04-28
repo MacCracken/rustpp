@@ -4,6 +4,103 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.25] — 2026-04-28
+
+**CYRIUS-TS — MAPPED TYPES + `as`-CLAUSE + `+/-` MODIFIERS
+(TS 2.1 / 2.8 / 4.5)** — second of the v5.7.24-v5.7.26 TS-depth
+patches (smallest → highest order: asserts predicate sigs at
+v5.7.24, mapped types here, decorators at v5.7.26).
+
+Pre-v5.7.25 the parser handled `[k: K]: V` index signatures
+inside object types but treated the entire mapped-type
+construct (`[K in T]: V`) as a syntax error — `KW_IN` was
+unexpected after the bracket-key IDENT consume. The SY corpus
+didn't surface this gap (no SY `.ts` file uses mapped types in
+real code), so parse-acceptance ran 100% without coverage.
+
+### Added
+
+- **`TS_AST_TYPE_MAPPED = 314`** — new AST kind for mapped
+  types. Payload: `[0]` = key iter type, `[1]` = remap type
+  (0 if no `as`-clause), `[2]` = value type. Modifier flags
+  consumed but not yet recorded (parse-acceptance only;
+  typechecker layer is later phases).
+- **Mapped-type fork in `TS_PARSE_TYPE_OBJECT`** — when
+  `peek == LBRACKET && peek_ahead(1) is name-like &&
+  peek_ahead(2) == KW_IN`, dispatch to the mapped-type branch.
+  Otherwise fall through to the existing `[k: T]: V`
+  index-signature path. Detection is unambiguous: index sigs
+  have `peek_ahead(2) == COLON`; mapped types have
+  `peek_ahead(2) == KW_IN`.
+- **Mapped-type body parse** — `[K in <iter>]` followed by
+  optional `as <remap>`, optional `?` / `+?` / `-?` modifier,
+  `:`, and value type. The `as` keyword (already
+  `KW_AS = 137`) is reused; no new lex tokens.
+- **`+/-readonly` modifier prefix** — extended modifier consume
+  block at the start of each TYPE_OBJECT member to accept
+  `(+/-)readonly` alongside the bare `readonly` already shipped.
+  Detection: `peek == PLUS|MINUS && peek_ahead(1) == KW_READONLY`.
+  TS 2.8+ explicit add/remove form for compile-time invariance.
+- **`tests/tcyr/ts_parse_p53.tcyr`** — 17 byte-level assertions
+  in 6 groups: bare mapped types (3 cases incl.
+  `[K in 'a' | 'b']` union iter), `as`-clause key remapping
+  (3 cases incl. conditional `T[K] extends U ? K : never` and
+  template literal `\`_${string & K}\``), `readonly` modifiers
+  (3 cases — bare / `+readonly` / `-readonly`), `?` modifiers
+  (3 cases — bare / `+?` / `-?`), combined (2 cases: full
+  `-readonly + as + -?` and `+readonly + as + +?`), pre-v5.7.25
+  regression forms (3 cases — index sigs and readonly
+  properties).
+- **`tests/regression-ts-mapped.sh`** — check.sh gate 4ai
+  (45 → 46). Seven shape categories piped through
+  `cc5 --parse-ts` with stderr capture; PASS only when every
+  shape parses clean.
+- **check.sh entry** at line 456 mirroring the `regression-ts-
+  asserts.sh` v5.7.24 pattern (gate 4ah).
+
+### Changed
+
+- `src/frontend/ts/parse.cyr` — `+1` AST kind enum slot
+  (TYPE_MAPPED = 314), `+11` lines extended modifier-consume
+  block in TYPE_OBJECT (covers `+/-readonly`), `+38` lines
+  mapped-type fork in TYPE_OBJECT bracket dispatch (parses
+  full `[K in T as U]+?: V` form).
+
+### Verification
+
+- `sh scripts/check.sh` — **46/46 PASS** (was 45/45; +gate 4ai).
+- `tests/regression-ts-parse.sh` — **2053/2053** SY corpus `.ts`
+  parse acceptance unchanged.
+- `tests/regression-ts-parse-tsx.sh` — **435/435** SY corpus `.tsx`
+  parse acceptance unchanged.
+- `tests/regression-ts-asserts.sh` — PASS (v5.7.24 gate still
+  green).
+- `cyrius test tests/tcyr/ts_parse_p53.tcyr` — **17/17 PASS**.
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c` byte-
+  identical at **718,200 B** (was 716,728 B at v5.7.24;
+  +1,472 B for the AST kind, the mapped-type fork in
+  TYPE_OBJECT, and the `+/-readonly` modifier extension).
+
+### Side-task progress (warning sweep, v5.7.13–v5.7.27 cleanup)
+
+- `cyrius test` on `tests/tcyr/ts_parse_p53.tcyr` reports
+  `code buffer at 94% (988456/1048576 bytes)`. The TS parser
+  test compiles include the entire TS frontend; the test heap
+  approached the 1 MB code buffer cap. Tracked as a future
+  cap-raise pin (likely with v5.7.26 decorators landing —
+  decorator AST broadens the file further) or as a heap-map
+  reshuffle slot in the v5.7.x backstop range. Not blocking
+  v5.7.25 — gate runs clean.
+
+### Slot map (post-v5.7.25)
+
+- v5.7.24 ✅ asserts predicate signatures
+- v5.7.25 ✅ mapped types + as-clause + +/- modifiers (this slot)
+- v5.7.26 — TS decorators (biggest of the three)
+- v5.7.27-v5.7.30 — RISC-V rv64 (3-5 sub-patches)
+- v5.7.31-v5.7.33 — `.scyr` / `.smcyr` + open slots
+- **v5.7.34** — TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.24] — 2026-04-28
 
 **CYRIUS-TS — `asserts` PREDICATE SIGNATURES (TS 3.7+)** — first

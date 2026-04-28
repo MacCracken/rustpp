@@ -50,7 +50,25 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.25–v5.12.x):**
+> **What's next (v5.7.26–v5.12.x):**
+>
+> v5.7.25 TS mapped types + `as`-clause + `+/-` modifiers shipped
+> 2026-04-28. Second of the v5.7.24-v5.7.26 TS-depth patches
+> (smallest → highest order). Pre-v5.7.25 `[K in T]: V` mapped
+> types were a syntax error inside object types — index sigs
+> `[k: K]: V` worked but the SY corpus didn't surface the gap
+> (no SY .ts file uses mapped types in real code). v5.7.25
+> adds `TS_AST_TYPE_MAPPED = 314`, dispatch in TYPE_OBJECT by
+> `peek_ahead(2) == KW_IN`, full `[K in <iter>] [as <remap>]
+> [+/-]?: <V>` body parse, and `+/-readonly` modifier prefix
+> alongside the bare `readonly` already shipped. cc5 byte-
+> identical at 718,200 B (+1,472 B); new gate 4ai (regression-
+> ts-mapped.sh, 7 shape categories); new tcyr ts_parse_p53
+> (17 byte-level assertions). **check.sh 46/46 PASS**. Side-
+> task pin (cap-raise candidate): TS test compiles approach
+> the 1 MB code-buf cap (94% on `ts_parse_p53.tcyr`) — bundle
+> with v5.7.26 decorators or queue a heap-map reshuffle in
+> v5.7.31-v5.7.33. Not blocking.
 >
 > v5.7.24 TS `asserts` predicate signatures shipped 2026-04-28.
 > First of three "advanced TS features beyond SY corpus" patches
@@ -75,15 +93,13 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.25**: TS mapped types `as`-clause (key remapping)
->   + `+/-readonly` / `+/-?` modifier prefixes
->   (`{ [K in keyof T as U]: V }`). Medium scope; second of
->   three TS-depth slots.
 > - **v5.7.26**: TS decorators (TS 5.0 stage-3 standard
 >   decorators; `@foo class X {}`, `@foo prop: T`,
 >   `@foo method() {}`, `@foo() class X {}` factory form).
 >   Biggest of the three; AST node attached to following
->   declaration.
+>   declaration. Possible bundle: code-buf cap raise (TS
+>   test compiles surfaced 94% of 1 MB cap at v5.7.25; the
+>   decorator AST broadens further).
 > - **v5.7.27-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
@@ -594,6 +610,66 @@ time v5.7.26 RISC-V opens.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.25 ✅ TS mapped types + `as`-clause + `+/-` modifiers — SHIPPED
+
+**Shipped 2026-04-28.** Second of the v5.7.24-v5.7.26 TS-depth
+patches (smallest → highest order; asserts predicate sigs at
+v5.7.24, mapped types here, decorators at v5.7.26). Pre-v5.7.25
+the parser handled `[k: K]: V` index signatures inside object
+types but treated the entire mapped-type construct
+(`[K in T]: V`) as a syntax error — `KW_IN` was unexpected
+after the bracket-key IDENT consume. The SY corpus didn't
+surface this gap (no SY `.ts` file uses mapped types in real
+code), so parse-acceptance ran 100% without coverage.
+
+**Implementation:**
+
+1. `TS_AST_TYPE_MAPPED = 314` — new AST kind. Payload:
+   `[0]` = key iter type, `[1]` = remap type (0 if no `as`-
+   clause), `[2]` = value type.
+2. **Mapped-type fork in `TS_PARSE_TYPE_OBJECT`** — when
+   `peek == LBRACKET && peek_ahead(1) is name-like &&
+   peek_ahead(2) == KW_IN`, dispatch to the mapped-type branch.
+   Otherwise fall through to the existing `[k: T]: V`
+   index-signature path. Detection is unambiguous: index sigs
+   have `peek_ahead(2) == COLON`; mapped types have `KW_IN`.
+3. **Mapped-type body parse** — `[K in <iter>]` followed by
+   optional `as <remap>` (TS 4.5+ key remapping; reuses
+   existing `KW_AS = 137`), optional `?` / `+?` / `-?`, `:`,
+   value type.
+4. **`+/-readonly` modifier prefix** — extended modifier
+   consume block at TYPE_OBJECT member start. Detection:
+   `peek == PLUS|MINUS && peek_ahead(1) == KW_READONLY`.
+   TS 2.8+ explicit add/remove form.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **718,200 B** (was
+  716,728 B; +1,472 B for the AST kind, the mapped-type fork,
+  and the `+/-readonly` modifier extension).
+- `regression-ts-parse.sh` — 2053/2053 SY corpus `.ts` (no
+  regression).
+- `regression-ts-parse-tsx.sh` — 435/435 SY corpus `.tsx` (no
+  regression).
+- `regression-ts-asserts.sh` — PASS (v5.7.24 gate still green).
+- New gate `regression-ts-mapped.sh` (4ai, 7 shape categories):
+  bare mapped, `as`-clause remap (template literal +
+  conditional), readonly/`+readonly`/`-readonly`, bare `?` /
+  `+?` / `-?`, full combined, pre-v5.7.25 index-sig regression,
+  readonly property regression.
+- New tcyr `tests/tcyr/ts_parse_p53.tcyr` — 17 byte-level
+  assertions in 6 groups, mirroring the gate.
+- **check.sh 46/46 PASS** (was 45/45; +gate 4ai).
+
+**Side-task pin (cap-raise candidate):** `cyrius test` on
+`ts_parse_p53.tcyr` reports `code buffer at 94%
+(988456/1048576 bytes)`. The TS frontend test compiles
+include the entire TS frontend; the test heap approached the
+1 MB code buffer cap. Tracked as a future cap-raise pin —
+likely with v5.7.26 decorators landing (decorator AST broadens
+the parser further), or as a heap-map reshuffle slot in the
+v5.7.31-v5.7.33 range. Not blocking v5.7.25.
 
 ### v5.7.24 ✅ TS `asserts` predicate signatures — SHIPPED
 

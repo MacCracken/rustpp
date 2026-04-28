@@ -5,6 +5,48 @@
 
 ## Version
 
+**5.7.25** (shipped 2026-04-28 — **CYRIUS-TS — MAPPED TYPES +
+`as`-CLAUSE + `+/-` MODIFIERS (TS 2.1 / 2.8 / 4.5)**. Second of
+the v5.7.24-v5.7.26 TS-depth patches (smallest → highest:
+asserts predicate sigs at v5.7.24, mapped types here, decorators
+at v5.7.26). Pre-v5.7.25 the parser handled `[k: K]: V` index
+signatures inside object types but treated the entire mapped-
+type construct (`[K in T]: V`) as a syntax error — `KW_IN` was
+unexpected after the bracket-key IDENT consume. The SY corpus
+didn't surface this gap (no SY .ts file uses mapped types in
+real code), so parse acceptance ran 100% without coverage.
+v5.7.25 adds: (1) `TS_AST_TYPE_MAPPED = 314` AST kind (payload
+`[0]` iter type, `[1]` remap type or 0, `[2]` value type);
+(2) mapped-type fork in `TS_PARSE_TYPE_OBJECT` dispatched by
+`peek == LBRACKET && peek_ahead(1) is name-like &&
+peek_ahead(2) == KW_IN` — index sigs (`peek_ahead(2) == COLON`)
+fall through unchanged; (3) full body parse `[K in <iter>]`
+plus optional `as <remap>` (TS 4.5+ key remapping; reuses
+existing `KW_AS = 137` keyword), optional `?` / `+?` / `-?`
+modifier, `:`, value type; (4) `+/-readonly` modifier prefix
+in the member-start consume block (TS 2.8+ explicit add/remove)
+alongside the bare `readonly` already shipped — detection:
+`peek == PLUS|MINUS && peek_ahead(1) == KW_READONLY`. cc5
+self-host two-step byte-identical at **718,200 B** (was
+716,728 B at v5.7.24; +1,472 B for the AST slot + TYPE_OBJECT
+fork + `+/-readonly` modifier extension). New gate
+`tests/regression-ts-mapped.sh` (4ai, 7 shape categories):
+bare mapped, `as`-clause remap (incl. template literal +
+conditional types), `readonly`/`+readonly`/`-readonly`, bare
+`?` / `+?` / `-?`, combined (full `-readonly + as + -?`),
+pre-v5.7.25 index-sig regression, readonly property
+regression. New tcyr `tests/tcyr/ts_parse_p53.tcyr` —
+**17 byte-level assertions** in 6 groups, mirroring the gate.
+SY corpus regressions unchanged: `regression-ts-parse.sh`
+2053/2053, `regression-ts-parse-tsx.sh` 435/435,
+`regression-ts-asserts.sh` PASS. **check.sh 46/46 PASS** (was
+45/45; +gate 4ai). **Side-task pin (cap-raise candidate)**:
+`cyrius test` on `ts_parse_p53.tcyr` reports `code buffer at
+94% (988456/1048576 bytes)` — TS frontend test compiles
+approach the 1 MB code-buf cap; queue a heap-map reshuffle
+slot in v5.7.31-v5.7.33 range or bundle with v5.7.26
+decorators (which broaden the parser further). Not blocking.)
+
 **5.7.24** (shipped 2026-04-28 — **CYRIUS-TS — `asserts`
 PREDICATE SIGNATURES (TS 3.7+)**. First of three v5.7.x
 patches working through TS features beyond the SY corpus
@@ -772,14 +814,14 @@ Shipped:
 - **v5.7.22** ✅ hygiene pass — cyrfmt comment-brace + install-shim re-link + cyriusly rm-rf
 - **v5.7.23** ✅ cx codegen literal-arg propagation (TOKVAL offset typo)
 - **v5.7.24** ✅ TS `asserts` predicate signatures (KW_ASSERTS + prefix consumer + this-type)
+- **v5.7.25** ✅ TS mapped types + `as`-clause + `+/-readonly` / `+/-?` modifiers (TYPE_MAPPED AST kind + TYPE_OBJECT fork)
 
 Queue:
-- **v5.7.25** — TS mapped types `as`-clause + `+/-readonly` /
-  `+/-?` modifiers (medium scope; second of three TS-depth
-  slots, smallest-to-highest order).
 - **v5.7.26** — TS decorators (TS 5.0 stage-3 standard
   decorators; biggest of the three; AST node attached to
-  following declaration).
+  following declaration). Possible bundling candidate: code-buf
+  cap raise — surfaced at v5.7.25 (TS test compiles at 94% of
+  1 MB cap) — decorators broaden the parser further.
 - **v5.7.27-v5.7.30** — RISC-V rv64 (3-5 sub-patches; runway
   absorbed if v5.7.25/26 expand per user direction "runway for
   the TS work to add a release or two").

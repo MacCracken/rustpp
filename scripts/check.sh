@@ -453,6 +453,15 @@ if [ "$tsa_result" -ne 0 ]; then cat /tmp/audit_tsa_$$; fi
 rm -f /tmp/audit_tsa_$$
 echo ""
 
+# ── 4ai. TS mapped types + modifiers (v5.7.25) ──
+echo "── TS mapped types + modifiers ──"
+sh "$ROOT/tests/regression-ts-mapped.sh" > /tmp/audit_tsm_$$ 2>&1
+tsm_result=$?
+check "cc5 --parse-ts accepts mapped types + as-clause + +/- modifiers (v5.7.25)" "$tsm_result"
+if [ "$tsm_result" -ne 0 ]; then cat /tmp/audit_tsm_$$; fi
+rm -f /tmp/audit_tsm_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

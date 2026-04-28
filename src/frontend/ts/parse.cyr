@@ -167,6 +167,7 @@ var TS_AST_TYPE_TYPEOF          = 310;      # typeof x (in type pos)
 var TS_AST_TYPE_LITERAL         = 311;      # 'foo' as a type
 var TS_AST_TYPE_PAREN           = 312;
 var TS_AST_TYPE_OPTIONAL        = 313;      # T? (type with ? marker; rare in TS, mainly tuple elements)
+var TS_AST_TYPE_MAPPED          = 314;      # v5.7.25: { [K in T] [as U] [+/-?]: V } — mapped type (TS 4.1+)
 
 # Module statements (400-499)
 var TS_AST_IMPORT               = 400;      # payload[0] = specifiers list, [1] = source string span
@@ -1887,11 +1888,59 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
     if (members_off < 0) { return 0 - 1; }
     var mi = 0;
     while (TS_PARSE_PEEK(ts_base) != TS_TOK_RBRACE) {
+        # v5.7.25: modifier prefix — bare `readonly` (existing) /
+        # `+readonly` / `-readonly` for mapped types. The `+/-readonly`
+        # forms are TS 2.8+ explicit add/remove modifiers; bare
+        # `readonly` is the implicit-add form. All three eat the
+        # token(s) and continue (typechecker enforces semantics).
         if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_READONLY) {
             TS_PARSE_CONSUME(ts_base);
+        } elif ((TS_PARSE_PEEK(ts_base) == TS_TOK_PLUS
+                 || TS_PARSE_PEEK(ts_base) == TS_TOK_MINUS)
+                && TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_KW_READONLY) {
+            TS_PARSE_CONSUME(ts_base);   # `+` / `-`
+            TS_PARSE_CONSUME(ts_base);   # `readonly`
         }
         var member = 0 - 1;
         if (TS_PARSE_PEEK(ts_base) == TS_TOK_LBRACKET) {
+            # v5.7.25: mapped-type vs index-signature dispatch.
+            # `[K in T] [as U] [+/-]?: V` (mapped type, TS 4.1+) is
+            # detected by peek_ahead(2) == KW_IN; otherwise fall
+            # through to the `[name: K]: V` index-signature path.
+            var br_a1 = TS_PARSE_PEEK_AHEAD(ts_base, 1);
+            var br_a2 = TS_PARSE_PEEK_AHEAD(ts_base, 2);
+            if (TS_IS_NAME_TOK(br_a1) == 1 && br_a2 == TS_TOK_KW_IN) {
+                # Mapped type
+                TS_PARSE_CONSUME(ts_base);   # `[`
+                TS_PARSE_CONSUME(ts_base);   # key ident
+                TS_PARSE_CONSUME(ts_base);   # `in`
+                var mp_iter = TS_PARSE_TYPE(ts_base);
+                if (mp_iter < 0) { return 0 - 1; }
+                var mp_remap = 0;
+                if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_AS) {
+                    TS_PARSE_CONSUME(ts_base);   # `as`
+                    mp_remap = TS_PARSE_TYPE(ts_base);
+                    if (mp_remap < 0) { return 0 - 1; }
+                }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_RBRACKET) < 0) { return 0 - 1; }
+                # Optional `?` / `+?` / `-?` between `]` and `:`.
+                if ((TS_PARSE_PEEK(ts_base) == TS_TOK_PLUS
+                     || TS_PARSE_PEEK(ts_base) == TS_TOK_MINUS)
+                    && TS_PARSE_PEEK_AHEAD(ts_base, 1) == TS_TOK_QUESTION) {
+                    TS_PARSE_CONSUME(ts_base);   # `+` / `-`
+                    TS_PARSE_CONSUME(ts_base);   # `?`
+                } elif (TS_PARSE_PEEK(ts_base) == TS_TOK_QUESTION) {
+                    TS_PARSE_CONSUME(ts_base);
+                }
+                if (TS_PARSE_EXPECT(ts_base, TS_TOK_COLON) < 0) { return 0 - 1; }
+                var mp_val = TS_PARSE_TYPE(ts_base);
+                if (mp_val < 0) { return 0 - 1; }
+                member = TS_AST_PUSH(ts_base, TS_AST_TYPE_MAPPED, 0);
+                if (member < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, member, 0, mp_iter);
+                TS_AST_SET_PAYLOAD(ts_base, member, 1, mp_remap);
+                TS_AST_SET_PAYLOAD(ts_base, member, 2, mp_val);
+            } else {
             # Index signature: [name: K]: V
             TS_PARSE_CONSUME(ts_base);
             if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
@@ -1906,6 +1955,7 @@ fn TS_PARSE_TYPE_OBJECT(ts_base) {
             if (member < 0) { return 0 - 1; }
             TS_AST_SET_PAYLOAD(ts_base, member, 0, k_t);
             TS_AST_SET_PAYLOAD(ts_base, member, 1, v_t);
+            }
         } else {
             # Property: name [?] : T  OR method sig: name [?] (...) : T
             var name_v = TS_PARSE_TOK_VAL(ts_base);
