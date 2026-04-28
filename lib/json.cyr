@@ -196,11 +196,13 @@ var JV_SIZE = 24;
 var _json_err_msg = 0;
 var _json_err_pos = 0;
 
+# Return the last parse error message (cstr) — set on json_v_parse* failure.
 fn json_last_error() {
     if (_json_err_msg == 0) { return ""; }
     return _json_err_msg;
 }
 
+# Return the last parse error byte offset — set on json_v_parse* failure.
 fn json_last_error_pos() { return _json_err_pos; }
 
 # === Constructors ===
@@ -213,8 +215,10 @@ fn _jv_alloc(tag) {
     return v;
 }
 
+# Create a new JTAG_NULL value.
 fn json_v_null() { return _jv_alloc(JTAG_NULL); }
 
+# Create a new JTAG_BOOL value (b is 0 or 1).
 fn json_v_bool_new(b) {
     var v = _jv_alloc(JTAG_BOOL);
     if (b == 0) { store64(v + 8, 0); }
@@ -222,12 +226,14 @@ fn json_v_bool_new(b) {
     return v;
 }
 
+# Create a new JTAG_INT value (n is i64).
 fn json_v_int_new(n) {
     var v = _jv_alloc(JTAG_INT);
     store64(v + 8, n);
     return v;
 }
 
+# Create a new JTAG_FLOAT value (f is f64 bit pattern).
 fn json_v_float_new(f) {
     # Caller passes f64 bit pattern (f64_from_int / arithmetic result).
     var v = _jv_alloc(JTAG_FLOAT);
@@ -235,18 +241,21 @@ fn json_v_float_new(f) {
     return v;
 }
 
+# Create a new JTAG_STR value (s is a Str ptr).
 fn json_v_str_new(s) {
     var v = _jv_alloc(JTAG_STR);
     store64(v + 8, s);
     return v;
 }
 
+# Create an empty JTAG_ARR value. Append elements via json_v_arr_push.
 fn json_v_arr_new() {
     var v = _jv_alloc(JTAG_ARR);
     store64(v + 8, vec_new());
     return v;
 }
 
+# Create an empty JTAG_OBJ value. Append entries via json_v_obj_set.
 fn json_v_obj_new() {
     var v = _jv_alloc(JTAG_OBJ);
     store64(v + 8, vec_new());
@@ -261,6 +270,7 @@ fn _jv_pair_new(key, val) {
     return p;
 }
 
+# Append a value to an array. No-op if arr is not JTAG_ARR.
 fn json_v_arr_push(arr, val) {
     if (arr == 0) { return 0; }
     if (load64(arr) != JTAG_ARR) { return 0; }
@@ -268,6 +278,7 @@ fn json_v_arr_push(arr, val) {
     return 0;
 }
 
+# Append a key/value pair to an object. No-op if obj is not JTAG_OBJ.
 fn json_v_obj_set(obj, key, val) {
     if (obj == 0) { return 0; }
     if (load64(obj) != JTAG_OBJ) { return 0; }
@@ -277,27 +288,37 @@ fn json_v_obj_set(obj, key, val) {
 
 # === Tag predicates ===
 
+# Return the value tag (JTAG_NULL/BOOL/INT/FLOAT/STR/ARR/OBJ), or -1 if v is 0.
 fn json_v_tag(v) {
     if (v == 0) { return 0 - 1; }
     return load64(v);
 }
 
+# Tag predicates — return 1 if v has the given tag, else 0. All return 0 on null v.
 fn json_v_is_null(v)  { if (v == 0) { return 0; } if (load64(v) == JTAG_NULL)  { return 1; } return 0; }
+# True if v is a JTAG_BOOL value.
 fn json_v_is_bool(v)  { if (v == 0) { return 0; } if (load64(v) == JTAG_BOOL)  { return 1; } return 0; }
+# True if v is a JTAG_INT value.
 fn json_v_is_int(v)   { if (v == 0) { return 0; } if (load64(v) == JTAG_INT)   { return 1; } return 0; }
+# True if v is a JTAG_FLOAT value.
 fn json_v_is_float(v) { if (v == 0) { return 0; } if (load64(v) == JTAG_FLOAT) { return 1; } return 0; }
+# True if v is a JTAG_STR value.
 fn json_v_is_str(v)   { if (v == 0) { return 0; } if (load64(v) == JTAG_STR)   { return 1; } return 0; }
+# True if v is a JTAG_ARR value.
 fn json_v_is_arr(v)   { if (v == 0) { return 0; } if (load64(v) == JTAG_ARR)   { return 1; } return 0; }
+# True if v is a JTAG_OBJ value.
 fn json_v_is_obj(v)   { if (v == 0) { return 0; } if (load64(v) == JTAG_OBJ)   { return 1; } return 0; }
 
 # === Value accessors (INT/FLOAT coercion) ===
 
+# Return v as i64 (0 or 1) if v is JTAG_BOOL, else 0.
 fn json_v_bool(v) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_BOOL) { return 0; }
     return load64(v + 8);
 }
 
+# Return v as i64 — coerces JTAG_FLOAT via f64_to. Returns 0 on other tags.
 fn json_v_int(v) {
     if (v == 0) { return 0; }
     var t = load64(v);
@@ -306,6 +327,7 @@ fn json_v_int(v) {
     return 0;
 }
 
+# Return v as f64 bit pattern — coerces JTAG_INT via f64_from. Returns f64_from(0) on other tags.
 fn json_v_float(v) {
     if (v == 0) { return 0; }
     var t = load64(v);
@@ -314,6 +336,7 @@ fn json_v_float(v) {
     return f64_from(0);
 }
 
+# Return v as Str ptr if v is JTAG_STR, else 0.
 fn json_v_str(v) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_STR) { return 0; }
@@ -322,12 +345,14 @@ fn json_v_str(v) {
 
 # === Container accessors ===
 
+# Return array length, or 0 if v is not JTAG_ARR.
 fn json_v_arr_len(v) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_ARR) { return 0; }
     return vec_len(load64(v + 8));
 }
 
+# Return array element at index i (json_v* or 0 if out of range / wrong tag).
 fn json_v_arr_get(v, i) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_ARR) { return 0; }
@@ -337,12 +362,14 @@ fn json_v_arr_get(v, i) {
     return vec_get(arr, i);
 }
 
+# Return object pair count, or 0 if v is not JTAG_OBJ.
 fn json_v_obj_len(v) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_OBJ) { return 0; }
     return vec_len(load64(v + 8));
 }
 
+# Return the n-th object key (Str ptr or 0 if out of range / wrong tag).
 fn json_v_obj_key(v, i) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_OBJ) { return 0; }
@@ -352,6 +379,7 @@ fn json_v_obj_key(v, i) {
     return load64(vec_get(pairs, i));
 }
 
+# Return the n-th object value (json_v* or 0 if out of range / wrong tag).
 fn json_v_obj_val(v, i) {
     if (v == 0) { return 0; }
     if (load64(v) != JTAG_OBJ) { return 0; }

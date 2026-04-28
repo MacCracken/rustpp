@@ -397,6 +397,17 @@ if [ "$km_result" -ne 0 ]; then cat /tmp/audit_km_$$; fi
 rm -f /tmp/audit_km_$$
 echo ""
 
+# ── 4ac. Stdlib doc coverage — every public fn in lib/*.cyr documented ──
+# Mirrors the CI doc job. Pinned 2026-04-27 after v5.7.20 ship surfaced
+# 28 undocumented json fns that the local audit had no gate for.
+echo "── stdlib doc coverage ──"
+sh "$ROOT/tests/regression-stdlib-doc-coverage.sh" > /tmp/audit_dc_$$ 2>&1
+dc_result=$?
+check "every public fn in lib/*.cyr has a leading doc comment (cyrdoc --check; pinned post-v5.7.20)" "$dc_result"
+if [ "$dc_result" -ne 0 ]; then cat /tmp/audit_dc_$$; fi
+rm -f /tmp/audit_dc_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
