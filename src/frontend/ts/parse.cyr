@@ -168,6 +168,7 @@ var TS_AST_TYPE_LITERAL         = 311;      # 'foo' as a type
 var TS_AST_TYPE_PAREN           = 312;
 var TS_AST_TYPE_OPTIONAL        = 313;      # T? (type with ? marker; rare in TS, mainly tuple elements)
 var TS_AST_TYPE_MAPPED          = 314;      # v5.7.25: { [K in T] [as U] [+/-?]: V } — mapped type (TS 4.1+)
+var TS_AST_DECORATOR            = 315;      # v5.7.26: @foo / @foo() / @foo.bar / @foo<T>(args) — TS 5.0 stage-3 decorators (parse-acceptance only; AST attachment is a future polish slot)
 
 # Module statements (400-499)
 var TS_AST_IMPORT               = 400;      # payload[0] = specifiers list, [1] = source string span
@@ -1657,6 +1658,22 @@ fn TS_PARSE_ARROW_SINGLE_IDENT(ts_base) {
 # already consumed the LPAREN. Type annotations and defaults are
 # parsed loosely — captured in the param node's payloads but not
 # semantically validated. Returns children-array offset, or -1.
+# v5.7.26: TS 5.0 stage-3 decorators. Parse-acceptance only —
+# consumes `@<member-call-chain>` repeatedly, discards the
+# parsed expression(s). AST attachment is a future polish slot
+# (typechecker is later phases). Decorator expression is a
+# full call/member chain (incl. `@foo`, `@foo()`,
+# `@foo.bar.baz<T>(args)`, `@(<expr>)`); TS_PARSE_CALL_MEMBER
+# already covers the entire shape via NEW → PRIMARY.
+fn TS_PARSE_DECORATOR_LIST(ts_base) {
+    while (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+        TS_PARSE_CONSUME(ts_base);   # `@`
+        var e = TS_PARSE_CALL_MEMBER(ts_base);
+        if (e < 0) { return 0 - 1; }
+    }
+    return 0;
+}
+
 fn TS_PARSE_ARROW_PARAMS(ts_base) {
     var off = TS_AST_CHILDREN_RESERVE(ts_base, 16);
     if (off < 0) { return 0 - 1; }
@@ -1664,6 +1681,13 @@ fn TS_PARSE_ARROW_PARAMS(ts_base) {
     if (TS_PARSE_PEEK(ts_base) != TS_TOK_RPAREN) {
         var done = 0;
         while (done == 0) {
+            # v5.7.26: per-parameter decorators —
+            # `class X { method(@foo x: T, @bar y: U) {} }`.
+            # Consumed before SKIP_MODIFIERS; `@` precedes the
+            # public/readonly/etc. parameter-property modifiers.
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+                if (TS_PARSE_DECORATOR_LIST(ts_base) < 0) { return 0 - 1; }
+            }
             # Class constructor parameter properties allow modifier
             # keywords here (`public x: T`, `readonly y: U`). Eat
             # them for syntax acceptance — they're harmless in other
@@ -3490,6 +3514,13 @@ fn TS_PARSE_SKIP_MODIFIERS(ts_base) {
 
 # Single class member.
 fn TS_PARSE_CLASS_MEMBER(ts_base) {
+    # v5.7.26: per-member decorators inside a class body —
+    # `class X { @foo method() {} @bar prop: T = 1; }`. Consume
+    # before the modifier sweep; `@` precedes any
+    # public/private/static/etc. tokens in TS grammar.
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+        if (TS_PARSE_DECORATOR_LIST(ts_base) < 0) { return 0 - 1; }
+    }
     TS_PARSE_SKIP_MODIFIERS(ts_base);
     # Generator method marker: `*name()` (with optional async modifier
     # already eaten by SKIP_MODIFIERS).
@@ -3927,6 +3958,12 @@ fn TS_PARSE_IMPORT(ts_base) {
 # `export ...`. Caller has consumed `export`.
 fn TS_PARSE_EXPORT(ts_base) {
     var type_only = 0;
+    # v5.7.26: `export @foo class X {}` — decorators between
+    # `export` and the class declaration. The `export default
+    # @foo class X {}` form is handled in the default branch below.
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+        if (TS_PARSE_DECORATOR_LIST(ts_base) < 0) { return 0 - 1; }
+    }
     # Detect `export type ...` (must NOT be `export type T = ...` — that
     # is a type-alias decl that happens to be exported, handled below
     # by falling into the decl branch.)
@@ -3935,6 +3972,11 @@ fn TS_PARSE_EXPORT(ts_base) {
     # `export default ...`
     if (first == TS_TOK_KW_DEFAULT) {
         TS_PARSE_CONSUME(ts_base);
+        # v5.7.26: `export default @foo class X {}` — decorators
+        # between `default` and the class declaration.
+        if (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+            if (TS_PARSE_DECORATOR_LIST(ts_base) < 0) { return 0 - 1; }
+        }
         var what = 0;
         var nx = TS_PARSE_PEEK(ts_base);
         if (nx == TS_TOK_KW_FUNCTION) {
@@ -4284,6 +4326,13 @@ fn TS_PARSE_EXPR_STMT(ts_base) {
 
 # Statement dispatcher.
 fn TS_PARSE_STMT(ts_base) {
+    # v5.7.26: decorators precede class declarations
+    # (`@foo class X {}`, `@dec1 @dec2.fac() abstract class Y {}`).
+    # Consume the decorator chain up front; subsequent dispatch
+    # picks up the class / abstract class / async-modifier token.
+    if (TS_PARSE_PEEK(ts_base) == TS_TOK_AT) {
+        if (TS_PARSE_DECORATOR_LIST(ts_base) < 0) { return 0 - 1; }
+    }
     var t = TS_PARSE_PEEK(ts_base);
     if (t == TS_TOK_LBRACE)        { return TS_PARSE_BLOCK(ts_base); }
     if (t == TS_TOK_KW_VAR)        { return TS_PARSE_VAR_DECL(ts_base); }

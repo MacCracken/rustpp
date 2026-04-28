@@ -4,6 +4,135 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.26] — 2026-04-28
+
+**CYRIUS-TS — TS 5.0 STAGE-3 DECORATORS** — third and final
+of the v5.7.24-v5.7.26 TS-depth patches (smallest → highest
+order: asserts predicate sigs at v5.7.24, mapped types at
+v5.7.25, decorators here). Closes the "advanced TS features
+beyond SY corpus" pin (`docs/development/roadmap.md
+§v5.7.24-v5.7.26`).
+
+Pre-v5.7.26 the `@` token (`TS_TOK_AT = 35`) was unhandled at
+every valid decorator position — class statements, class
+members, function parameters — and parses rejected with
+`code=6 tok=35` (unexpected statement-leading token) or
+`code=3 tok=35` (unexpected token at expected position). The
+SY corpus didn't surface this gap (no SY `.ts` file uses
+decorators), so parse-acceptance ran 100% without coverage.
+
+### Added
+
+- **`TS_AST_DECORATOR = 315`** — new AST kind allocated for
+  decorator nodes. Parse-acceptance v5.7.26 scope consumes
+  decorators without recording them; AST attachment to the
+  following declaration is a future polish slot landing with
+  the typechecker phase. Same pattern as v5.7.24 asserts and
+  v5.7.25 mapped types — keep parse moving, defer typecheck-
+  oriented detail.
+- **`TS_PARSE_DECORATOR_LIST` helper** — placed before
+  `TS_PARSE_ARROW_PARAMS` so all callers see it. Loops while
+  `peek == TS_TOK_AT`, consumes `@`, then dispatches to
+  `TS_PARSE_CALL_MEMBER` for the expression. The existing
+  call-member parser already covers the full TS 5.0 grammar:
+  `@foo`, `@foo()`, `@foo.bar`, `@foo.bar.baz<T>(args)`,
+  `@(<expr>)`, `@foo({obj})`. No new lex tokens; no new
+  expression parser primitives.
+- **Wire-in at four sites:**
+  1. `TS_PARSE_STMT` (top) — `@foo class X {}`,
+     `@foo @bar abstract class Y {}`. Decorator chain consumed,
+     existing dispatch picks up class/abstract from peek.
+  2. `TS_PARSE_CLASS_MEMBER` (top, before `SKIP_MODIFIERS`) —
+     `class X { @foo method() {} @bar prop: T = 1 }`. Decorators
+     precede public/private/static/etc.
+  3. `TS_PARSE_ARROW_PARAMS` (per-iteration, before
+     `SKIP_MODIFIERS`) — `class X { method(@foo x: T,
+     @bar.dec() y: U) {} }`. Each parameter independently
+     accepts a decorator chain; constructor-property modifiers
+     (`public`/`readonly`) follow the decorators.
+  4. `TS_PARSE_EXPORT` (top) and `TS_PARSE_EXPORT` default
+     branch — `export @foo class X {}` and `export default
+     @foo class {}`.
+- **`tests/tcyr/ts_parse_p54.tcyr`** — 20 byte-level assertions
+  in 5 groups: class-decl decorators (7 cases — bare `@foo`,
+  factory `@foo()`, multi-decorator chain, qualified `@foo.bar`,
+  factory with object/array args, generic `@foo<T>()`,
+  `@foo abstract class`), class-member decorators (5 cases —
+  method, property, factory + modifier, multi async-method,
+  `@foo get` accessor), parameter decorators (3 cases — single,
+  multi-param mixed, decorator + ctor-prop modifier),
+  `export`/`export default` decorators (2 cases), pre-v5.7.26
+  regression forms (3 cases — plain class, plain
+  `export default`, ctor-prop modifiers without decorators).
+- **`tests/regression-ts-decorators.sh`** — check.sh gate 4aj
+  (46 → 47). Five shape categories piped through
+  `cc5 --parse-ts` with stderr capture; PASS only when every
+  shape parses clean.
+- **check.sh entry** at line 465 mirroring the
+  `regression-ts-mapped.sh` v5.7.25 pattern (gate 4ai).
+
+### Changed
+
+- `src/frontend/ts/parse.cyr` — `+1` AST kind enum slot
+  (DECORATOR = 315), `+9` lines for `TS_PARSE_DECORATOR_LIST`,
+  `+5` lines wire-in at TS_PARSE_STMT, `+5` lines at
+  TS_PARSE_CLASS_MEMBER, `+5` lines at TS_PARSE_ARROW_PARAMS
+  per-iter (inside the existing `while (done == 0)` loop),
+  `+8` lines at TS_PARSE_EXPORT (top + default branch).
+
+### Verification
+
+- `sh scripts/check.sh` — **47/47 PASS** (was 46/46; +gate 4aj).
+- `tests/regression-ts-parse.sh` — **2053/2053** SY corpus `.ts`
+  parse acceptance unchanged.
+- `tests/regression-ts-parse-tsx.sh` — **435/435** SY corpus `.tsx`
+  parse acceptance unchanged.
+- `tests/regression-ts-asserts.sh` — PASS (v5.7.24 gate still
+  green).
+- `tests/regression-ts-mapped.sh` — PASS (v5.7.25 gate still
+  green).
+- `cyrius test tests/tcyr/ts_parse_p54.tcyr` — **20/20 PASS**.
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c` byte-
+  identical at **719,000 B** (was 718,200 B at v5.7.25;
+  +800 B for the decorator helper + four wire-in sites + the
+  AST kind).
+
+### Side-task progress (warning sweep + cap-pressure)
+
+- `cyrius test ts_parse_p54.tcyr` reports `code buffer at 94%
+  (989528/1048576 bytes)` — basically unchanged from
+  v5.7.25's 988456 B (+1072 B for the decorator helper and
+  enum slot). The TS frontend test compiles approach the 1 MB
+  code buffer cap; user direction
+  ("might need code-buf to 3MB in the next release... but
+  also begs the question on test organization") pins this as
+  v5.7.27 work — bundle the cap raise + test-organization
+  rework. Not blocking v5.7.26 — gate runs clean.
+
+### Slot map (post-v5.7.26 — v5.7.24-v5.7.26 advanced-TS
+trio is now COMPLETE)
+
+- v5.7.24 ✅ asserts predicate signatures
+- v5.7.25 ✅ mapped types + as-clause + +/- modifiers
+- v5.7.26 ✅ TS decorators (this slot — closes the 3-slot block)
+- v5.7.27 — code-buf cap raise (1 MB → 3 MB) + TS test
+  organization (user-pinned 2026-04-28)
+- v5.7.28-v5.7.31 — RISC-V rv64 (3-5 sub-patches)
+- v5.7.32-v5.7.33 — `.scyr` / `.smcyr` + open slots
+- **v5.7.34** — TRUE CLOSEOUT BACKSTOP
+
+### What this does NOT cover
+
+- **Decorator AST attachment** — decorators are consumed and
+  discarded; not yet linked to the declaration AST node they
+  precede. Future polish slot when the typechecker phase opens.
+  Parse-acceptance is the v5.7.26 contract.
+- **Stage-2 experimentalDecorators** — TS 5.0 stage-3 standard
+  decorators are accepted; the older `@dec(target, key, desc)`
+  shape is identical at the parse level (same `@<expr>` grammar)
+  so no separate handling needed. The semantic distinction is
+  typechecker territory.
+
 ## [5.7.25] — 2026-04-28
 
 **CYRIUS-TS — MAPPED TYPES + `as`-CLAUSE + `+/-` MODIFIERS

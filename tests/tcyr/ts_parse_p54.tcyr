@@ -1,0 +1,117 @@
+# v5.7.26 — TS 5.0 stage-3 decorators (parse-acceptance only).
+#
+# Pre-v5.7.26 the `@` token (TS_TOK_AT = 35) was unhandled at every
+# valid decorator position — class statements, class members,
+# function parameters — and parses rejected with
+# `code=6 tok=35` (unexpected statement-leading token) or
+# `code=3 tok=35` (unexpected token at expected position).
+#
+# v5.7.26 adds:
+#   - TS_AST_DECORATOR = 315  AST kind (allocated; not yet attached
+#     to the following declaration — that's a future polish slot).
+#   - TS_PARSE_DECORATOR_LIST helper — consumes `@<call-member>`
+#     repeatedly. The expression after `@` is parsed via the
+#     existing TS_PARSE_CALL_MEMBER (covers `@foo`, `@foo()`,
+#     `@foo.bar`, `@foo.bar.baz<T>(args)`, `@(<expr>)`).
+#   - Wire-in at four sites: TS_PARSE_STMT (top), TS_PARSE_EXPORT
+#     (top + default branch), TS_PARSE_CLASS_MEMBER (top),
+#     TS_PARSE_ARROW_PARAMS (per-param iteration).
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+include "src/frontend/ts/lex.cyr"
+include "src/frontend/ts/parse.cyr"
+
+alloc_init();
+var ts_base = alloc(TS_HEAP_SIZE + 4096);
+
+fn parse_first_stmt(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    var nn = TS_PARSE(ts_base);
+    if (nn < 0) { return 0 - 1; }
+    var head = TS_AST_PAYLOAD(ts_base, 0, 0);
+    return TS_AST_CHILDREN_GET(ts_base, head);
+}
+
+# ─── decorators on class declarations ──────────────────────────
+test_group("decorators on class declarations");
+
+var s = parse_first_stmt("@foo class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo class X {}");
+
+s = parse_first_stmt("@foo() class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo() class X {}");
+
+s = parse_first_stmt("@foo @bar @baz class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo @bar @baz class X {}");
+
+s = parse_first_stmt("@foo.bar class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo.bar class X {}");
+
+s = parse_first_stmt("@foo.bar.baz({ a: 1, b: [1, 2] }) class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo.bar.baz(obj) class X {}");
+
+s = parse_first_stmt("@foo<T>() class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo<T>() class X {}");
+
+s = parse_first_stmt("@foo abstract class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo abstract class X {}");
+
+# ─── decorators on class members ───────────────────────────────
+test_group("decorators on class members");
+
+s = parse_first_stmt("class X { @foo method() {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo method()");
+
+s = parse_first_stmt("class X { @foo prop: number = 1; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo prop");
+
+s = parse_first_stmt("class X { @foo() public bar: string; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo() public bar (factory + modifier)");
+
+s = parse_first_stmt("class X { @foo @bar.factory() async qux(): Promise<void> {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "multi-decorator async method");
+
+s = parse_first_stmt("class X { @foo get name(): string { return ''; } }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "@foo get accessor");
+
+# ─── decorators on parameters ──────────────────────────────────
+test_group("decorators on parameters");
+
+s = parse_first_stmt("class X { method(@foo x: number) {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "method(@foo x)");
+
+s = parse_first_stmt("class X { ctor(@foo x: number, @bar.dec() y: string) {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "method(@foo x, @bar.dec() y)");
+
+s = parse_first_stmt("class X { method(@foo public p: T, q: U) {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "decorator + ctor-prop modifier");
+
+# ─── decorators after export / export default ─────────────────
+test_group("decorators after export keyword");
+
+s = parse_first_stmt("export @foo class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_EXPORT, "export @foo class X");
+
+s = parse_first_stmt("export default @foo class {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_EXPORT_DEFAULT, "export default @foo class");
+
+# ─── regressions: pre-v5.7.26 forms ─────────────────────────────
+test_group("regressions — class without decorators still works");
+
+s = parse_first_stmt("class X { method() {} prop: T = 1; }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "plain class");
+
+s = parse_first_stmt("export default class X {}");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_EXPORT_DEFAULT, "export default class");
+
+s = parse_first_stmt("class X { ctor(public x: number, readonly y: T) {} }");
+assert_eq(TS_AST_KIND(ts_base, s), TS_AST_DECL_CLASS, "ctor params with modifiers");
+
+var exit_code = assert_summary();
+syscall(60, exit_code);

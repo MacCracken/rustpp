@@ -50,7 +50,34 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.26–v5.12.x):**
+> **What's next (v5.7.27–v5.12.x):**
+>
+> v5.7.26 TS 5.0 stage-3 decorators shipped 2026-04-28. **Closes
+> the v5.7.24-v5.7.26 advanced-TS trio** (smallest → highest
+> order: asserts predicate sigs, mapped types, decorators).
+> Pre-v5.7.26 the `@` token was unhandled at every valid
+> decorator position — class statements, class members, function
+> parameters; `code=6 tok=35` rejection. SY corpus didn't
+> surface the gap. v5.7.26 adds `TS_AST_DECORATOR = 315` AST
+> kind, `TS_PARSE_DECORATOR_LIST` helper consuming
+> `@<call-member>` chains via existing `TS_PARSE_CALL_MEMBER`
+> (full TS 5.0 grammar — bare, factory, qualified, generic,
+> parenthesized, with object/array args), and four wire-in
+> sites: `TS_PARSE_STMT` (top), `TS_PARSE_CLASS_MEMBER` (top),
+> `TS_PARSE_ARROW_PARAMS` (per-iter), `TS_PARSE_EXPORT` (top +
+> default). cc5 byte-identical at 719,000 B (+800 B); new gate
+> 4aj (regression-ts-decorators.sh, 5 shape categories); new
+> tcyr ts_parse_p54 (20 byte-level assertions). **check.sh
+> 47/47 PASS**. Decorator AST attachment to following decl
+> deferred to typechecker phase (parse-acceptance only this
+> slot, same pattern as v5.7.24/25).
+>
+> Side-task pin (cap-raise + test organization, user-direction
+> 2026-04-28): TS frontend test compiles approached the 1 MB
+> code-buf cap across v5.7.25 + v5.7.26 (94%). User pinned
+> v5.7.27: "might need code-buf to 3MB in the next release...
+> but also begs the question on test organization." Bundle the
+> 1 MB → 3 MB cap raise with TS test-organization rework.
 >
 > v5.7.25 TS mapped types + `as`-clause + `+/-` modifiers shipped
 > 2026-04-28. Second of the v5.7.24-v5.7.26 TS-depth patches
@@ -93,19 +120,16 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.26**: TS decorators (TS 5.0 stage-3 standard
->   decorators; `@foo class X {}`, `@foo prop: T`,
->   `@foo method() {}`, `@foo() class X {}` factory form).
->   Biggest of the three; AST node attached to following
->   declaration. Possible bundle: code-buf cap raise (TS
->   test compiles surfaced 94% of 1 MB cap at v5.7.25; the
->   decorator AST broadens further).
-> - **v5.7.27-v5.7.30**: RISC-V rv64 (3-5 sub-patches).
+> - **v5.7.27**: code-buf cap raise (1 MB → 3 MB) + TS test
+>   organization rework. User-pinned at v5.7.26 ship; bundles
+>   the cap pressure (94% across v5.7.25-v5.7.26) with the
+>   underlying coupling question — every TS frontend test
+>   pulls the entire frontend, which inflates code-buf use
+>   uniformly.
+> - **v5.7.28-v5.7.31**: RISC-V rv64 (3-5 sub-patches; +1 slid
+>   from v5.7.27 to absorb the cap-raise + test-org slot).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
->   Runway absorbed if v5.7.25/26 expand per user direction
->   "runway for the TS work to add a release or two without
->   force-cramming the rest into the few releases scheduled".
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
 >   depth follow-ups — pretty-printing, streaming parser,
 >   JSON Pointer (RFC 6901). Pinned 2026-04-27; promoted to
@@ -610,6 +634,95 @@ time v5.7.26 RISC-V opens.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.26 ✅ TS 5.0 stage-3 decorators — SHIPPED
+
+**Shipped 2026-04-28.** Third and final of the v5.7.24-v5.7.26
+TS-depth patches (smallest → highest order). **Closes the
+"advanced TS features beyond SY corpus" pin** — asserts
+predicate sigs (v5.7.24), mapped types + `as`-clause + `+/-`
+modifiers (v5.7.25), decorators (this slot).
+
+Pre-v5.7.26 the `@` token (`TS_TOK_AT = 35`) was unhandled at
+every valid decorator position — class statements, class
+members, function parameters — and parses rejected with
+`code=6 tok=35` (unexpected statement-leading token) or
+`code=3 tok=35` (unexpected token at expected position). The
+SY corpus didn't surface this gap (no SY `.ts` file uses
+decorators), so parse-acceptance ran 100% without coverage.
+
+**Implementation:**
+
+1. `TS_AST_DECORATOR = 315` — new AST kind allocated for
+   future decorator-attachment work. Parse-acceptance v5.7.26
+   scope consumes decorators without recording them; AST
+   linkage to following declaration is a future polish slot
+   for the typechecker phase. Same pattern as v5.7.24 asserts
+   and v5.7.25 mapped types.
+2. `TS_PARSE_DECORATOR_LIST` helper — placed before
+   `TS_PARSE_ARROW_PARAMS` so all callers see it. Loops while
+   `peek == TS_TOK_AT`, consumes `@`, then dispatches to
+   `TS_PARSE_CALL_MEMBER` for the expression. The existing
+   call-member parser already covers the full TS 5.0 grammar:
+   `@foo`, `@foo()`, `@foo.bar`, `@foo.bar.baz<T>(args)`,
+   `@(<expr>)`, `@foo({obj})`. **No new lex tokens; no new
+   expression parser primitives.**
+3. **Wire-in at four sites:**
+   - `TS_PARSE_STMT` (top) — `@foo class X {}`,
+     `@foo @bar abstract class Y {}`. Decorator chain
+     consumed, existing dispatch picks up class/abstract.
+   - `TS_PARSE_CLASS_MEMBER` (top, before `SKIP_MODIFIERS`) —
+     `class X { @foo method() {} @bar prop: T = 1 }`.
+     Decorators precede public/private/static/etc.
+   - `TS_PARSE_ARROW_PARAMS` (per-iteration, before
+     `SKIP_MODIFIERS`) — `class X { method(@foo x: T,
+     @bar.dec() y: U) {} }`. Each parameter independently
+     accepts a decorator chain; ctor-property modifiers
+     (`public`/`readonly`) follow the decorators.
+   - `TS_PARSE_EXPORT` (top) and default branch —
+     `export @foo class X {}` and `export default @foo class {}`.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **719,000 B** (was
+  718,200 B at v5.7.25; +800 B for the helper, four wire-in
+  sites, and the AST kind).
+- `regression-ts-parse.sh` — 2053/2053 SY corpus `.ts` (no
+  regression).
+- `regression-ts-parse-tsx.sh` — 435/435 SY corpus `.tsx` (no
+  regression).
+- `regression-ts-asserts.sh` — PASS (v5.7.24 gate still green).
+- `regression-ts-mapped.sh` — PASS (v5.7.25 gate still green).
+- New gate `regression-ts-decorators.sh` (4aj, 5 shape
+  categories): class decl decorators (incl. multi-chain,
+  qualified, factory + obj/array args, generic `@foo<T>()`,
+  abstract class), class member decorators (incl. method,
+  property, factory + modifier, multi async-method, get/set
+  accessors), parameter decorators (incl. multi-param mixed,
+  decorator + ctor-prop modifier), export/export-default
+  decorators, pre-v5.7.26 regression forms.
+- New tcyr `tests/tcyr/ts_parse_p54.tcyr` — 20 byte-level
+  assertions in 5 groups, mirroring the gate.
+- **check.sh 47/47 PASS** (was 46/46; +gate 4aj).
+
+**Side-task pin (cap-raise + test organization, user-direction
+2026-04-28):** `cyrius test ts_parse_p54.tcyr` reports
+`code buffer at 94% (989528/1048576 bytes)` — basically
+unchanged from v5.7.25's 988456 B (+1,072 B for decorator
+helper + enum slot). User pinned v5.7.27: "might need code-buf
+to 3MB in the next release... but also begs the question on
+test organization." Bundle the 1 MB → 3 MB cap raise with TS
+test-organization rework. Not blocking v5.7.26.
+
+**What this does NOT cover:**
+
+- **Decorator AST attachment** — decorators are consumed and
+  discarded; not yet linked to the declaration AST node they
+  precede. Future polish slot when the typechecker phase opens.
+- **Stage-2 experimentalDecorators** — TS 5.0 stage-3 standard
+  decorators are accepted; the older `@dec(target, key, desc)`
+  shape is identical at the parse level (same `@<expr>`
+  grammar). Semantic distinction is typechecker territory.
 
 ### v5.7.25 ✅ TS mapped types + `as`-clause + `+/-` modifiers — SHIPPED
 

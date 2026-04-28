@@ -462,6 +462,15 @@ if [ "$tsm_result" -ne 0 ]; then cat /tmp/audit_tsm_$$; fi
 rm -f /tmp/audit_tsm_$$
 echo ""
 
+# ── 4aj. TS 5.0 stage-3 decorators (v5.7.26) ──
+echo "── TS decorators ──"
+sh "$ROOT/tests/regression-ts-decorators.sh" > /tmp/audit_tsd_$$ 2>&1
+tsd_result=$?
+check "cc5 --parse-ts accepts TS 5.0 stage-3 decorators (v5.7.26)" "$tsd_result"
+if [ "$tsd_result" -ne 0 ]; then cat /tmp/audit_tsd_$$; fi
+rm -f /tmp/audit_tsd_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
