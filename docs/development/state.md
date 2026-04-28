@@ -5,6 +5,25 @@
 
 ## Version
 
+**5.7.21** (shipped 2026-04-27 — **`cyrius fuzz` MANIFEST-DEPS
+AUTO-PREPEND PARITY**. One-line cmd-gate fix in
+`cbt/cyrius.cyr`: added `streq(cmd, "fuzz") == 1` to the
+`_auto_deps` whitelist that previously contained only
+`build / run / test / bench / check`. Pre-v5.7.21 fuzz
+harnesses had to hand-include every stdlib module they
+used (sibling `.tcyr` / `.bcyr` got auto-prepend from day
+one). cmd_fuzz was already calling `compile()` which reads
+`_dep_includes`; the gate just wasn't populating it for the
+fuzz path. cc5 self-host two-step byte-identical at
+**716,080 B** (cbt-only edit; compiler unchanged). New gate
+`tests/regression-fuzz-deps-prepend.sh` (gate 4ad): 2 cases
+— manifest-with-stdlib (`fuzz/X.fcyr` references `strlen`,
+auto-prepend resolves) and no-manifest (self-contained
+`.fcyr` still runs cleanly). **check.sh 41/41 PASS** (was
+40/40; +gate 4ad). Side-task progress: warning sweep —
+manifest-listed stdlib fns referenced from fuzz harnesses
+no longer trigger `undefined function` warnings.)
+
 **5.7.20** (shipped 2026-04-27 — **`lib/json.cyr` DEPTH**.
 Stdlib baseline JSON engine; RPC-grade scope still owned by
 sandhi (`lib/sandhi.cyr`). New `json_v_*` API (~700 LOC of

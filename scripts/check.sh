@@ -408,6 +408,15 @@ if [ "$dc_result" -ne 0 ]; then cat /tmp/audit_dc_$$; fi
 rm -f /tmp/audit_dc_$$
 echo ""
 
+# ── 4ad. cyrius fuzz auto-prepend parity (v5.7.21) ──
+echo "── cyrius fuzz auto-prepend ──"
+sh "$ROOT/tests/regression-fuzz-deps-prepend.sh" > /tmp/audit_fz_$$ 2>&1
+fz_result=$?
+check "cyrius fuzz manifest-deps auto-prepend parity with test/bench (v5.7.21)" "$fz_result"
+if [ "$fz_result" -ne 0 ]; then cat /tmp/audit_fz_$$; fi
+rm -f /tmp/audit_fz_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

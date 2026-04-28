@@ -112,8 +112,14 @@ fn main() {
     if (cmd_idx >= argc()) { usage(); return 0; }
     var cmd = argv(cmd_idx);
 
-    # Auto-resolve deps before build/run/test/bench/check
-    if (streq(cmd, "build") == 1 || streq(cmd, "run") == 1 || streq(cmd, "test") == 1 || streq(cmd, "bench") == 1 || streq(cmd, "check") == 1) {
+    # Auto-resolve deps before build/run/test/bench/fuzz/check.
+    # v5.7.21: `fuzz` joins the gate. cmd_fuzz already calls compile()
+    # which reads _dep_includes for auto-prepend, but pre-v5.7.21 the
+    # gate skipped fuzz so _auto_deps never populated _dep_includes;
+    # downstream fuzz harnesses had to declare every stdlib include
+    # by hand or fail with `undefined function`. cmd_test / cmd_bench
+    # had this from day one — gate now has parity.
+    if (streq(cmd, "build") == 1 || streq(cmd, "run") == 1 || streq(cmd, "test") == 1 || streq(cmd, "bench") == 1 || streq(cmd, "fuzz") == 1 || streq(cmd, "check") == 1) {
         var dr = _auto_deps();
         if (dr > 0) { return dr; }
     }

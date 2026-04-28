@@ -4,6 +4,60 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.21] — 2026-04-27
+
+**`cyrius fuzz` MANIFEST-DEPS AUTO-PREPEND PARITY** with
+`cyrius test` / `cyrius bench` / `cyrius build` / `cyrius run`
+/ `cyrius check`. One-line cmd-gate fix in `cbt/cyrius.cyr`.
+Closes a long-standing asymmetry where fuzz harnesses had to
+hand-include every stdlib module they used while sibling test
+files got the manifest auto-prepend for free.
+
+### Background
+
+`cbt/cyrius.cyr:117` runs `_auto_deps()` before dispatching
+to the per-command handler — it parses `cyrius.cyml`'s
+`[deps]` block and populates `_dep_includes` so `compile()`
+can prepend `include "lib/X.cyr"` lines to the temp source.
+The gate listed `build / run / test / bench / check` but
+NOT `fuzz`. cmd_fuzz already calls `compile()` (which reads
+`_dep_includes`), so the bug surfaced only on consumers
+whose `.fcyr` harnesses referenced any stdlib symbol —
+those failed at compile with `undefined function 'X'`
+even when `cyrius.cyml [deps] stdlib = [...]` declared the
+need.
+
+### Changed (`cbt/cyrius.cyr`)
+
+Added `streq(cmd, "fuzz") == 1` to the auto-deps cmd-gate.
+~1-line change with a comment block explaining the parity
+intent and the pre-v5.7.21 surfacing pattern.
+
+### Acceptance gate
+
+- **`tests/regression-fuzz-deps-prepend.sh` (gate 4ad)** —
+  2 cases:
+  - `cyrius.cyml` declares `stdlib = ["string", "syscalls"]`
+    + `fuzz/uses_stdlib.fcyr` references `strlen` → fuzz
+    runs, harness exits 0, summary shows `1 passed, 0
+    failed`.
+  - No manifest at all + self-contained `.fcyr` (only uses
+    `syscall` builtin) → fuzz still runs cleanly (no-manifest
+    path doesn't regress).
+- cc5 self-host two-step byte-identical at **716,080 B**
+  (cbt-only edit; compiler unchanged).
+- check.sh **41/41 PASS** (was 40/40; +gate 4ad).
+
+### Side-task progress
+
+Warning sweep across v5.7.x cycle (per the
+`feedback_v57x_slot_bounds_2026_04_27.md` side-task list):
+the `cyrius fuzz` flow on cleanly-declared manifests
+no longer emits `undefined function 'X'` warnings for
+manifest-listed stdlib fns.
+
+---
+
 ## [5.7.20] — 2026-04-27
 
 **`lib/json.cyr` DEPTH — TAGGED-VALUE TREE.** Stdlib baseline JSON

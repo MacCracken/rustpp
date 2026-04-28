@@ -50,19 +50,19 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.21–v5.12.x):**
+> **What's next (v5.7.22–v5.12.x):**
 >
-> v5.7.20 lib/json.cyr depth shipped 2026-04-27. Tagged-value
-> tree engine (~700 LOC): 7 tags (NULL/BOOL/INT/FLOAT/STR/
-> ARR/OBJ), recursive-descent parser, full JSON string escape
-> decoding (incl. \uXXXX surrogate pairs), error reporting,
-> serializer. Stdlib baseline; sandhi keeps RPC-grade scope.
-> Backward compat with kybernet/argonaut/libro flat-API
-> callers preserved. cc5 unchanged at 716,080 B (lib-only
-> addition); 71-assertion gate passes. check.sh 39/39
-> (tcyr 109 → 110; gate count unchanged).
+> v5.7.21 `cyrius fuzz` manifest-deps auto-prepend parity
+> shipped 2026-04-27. One-line fix in `cbt/cyrius.cyr` —
+> added `fuzz` to the cmd-gate that triggers `_auto_deps`
+> before dispatch (it had `build/run/test/bench/check` but
+> not `fuzz`, so fuzz harnesses had to hand-include every
+> stdlib module they used). cmd_fuzz already called
+> `compile()` (which reads `_dep_includes`); the gate just
+> wasn't populating it. cc5 unchanged at 716,080 B (cbt-only
+> edit); new gate 4ad covers manifest-with-stdlib + no-manifest
+> paths. check.sh 41/41 (was 40/40; +gate 4ad).
 >
-> - **v5.7.21**: `cyrius fuzz` stdlib auto-prepend parity.
 > - **v5.7.22**: cx codegen literal-arg propagation — fixes
 >   `syscall(60, 42)` emitting `movi r0, 0` instead of the
 >   literal. Pre-existing bug surfaced during v5.7.12
@@ -626,27 +626,7 @@ cx consumer surfaces.
 
 
 
-### v5.7.21 — `cyrius fuzz` stdlib auto-prepend parity
 
-**Pinned 2026-04-25** (cyim-agent surfaced). `cyrius fuzz` builds
-each `fuzz/*.fcyr` harness via raw `compile(path, tmpbin)` —
-nothing prepends the stdlib deps the way `cyrius bench` /
-`cyrius test` do for `*.bcyr` / `*.tcyr` harnesses (which inherit
-the project's stdlib via the `cyrius.cyml` deps phase). Result:
-authors of fuzz harnesses must hand-add `include "lib/io.cyr"`,
-`include "lib/alloc.cyr"`, etc. for any stdlib symbol the included
-`src/*` files reference, even though the project manifest already
-declares those deps.
-
-**Fix scope:** `cbt/commands.cyr::cmd_fuzz` should walk the same
-manifest-deps codepath that `cmd_test` / `cmd_bench` walk before
-calling `compile()`. One refactor: extract the prepend logic into
-a shared helper (`_run_with_stdlib(path)` or similar) and call it
-from all three command bodies.
-
-**Acceptance:** delete the redundant `include "lib/*.cyr"` lines
-from each `fuzz/*.fcyr` harness; `cyrius fuzz` still passes all
-5 current harnesses (freelist, hashmap, str_coerce, string, vec).
 
 ### v5.7.31 — `.scyr` (soak) + `.smcyr` (smoke) file types (post-RISC-V; floats up if RISC-V finishes in 3-4 sub-patches)
 
