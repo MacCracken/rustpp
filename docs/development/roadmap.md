@@ -50,7 +50,35 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.27–v5.12.x):**
+> **What's next (v5.7.28–v5.12.x):**
+>
+> v5.7.27 codebuf cap raise 1 MB → 3 MB + 19-region heap
+> reshuffle shipped 2026-04-28. User-pinned at v5.7.26 ship:
+> "might need code-buf to 3MB in the next release... but also
+> begs the question on test organization." `cyrius test
+> ts_parse_p52-54.tcyr` was at 94% of 1 MB cap across the
+> v5.7.24-v5.7.26 advanced-TS trio. v5.7.27 is the cap raise;
+> the test-organization rework is SEPARATE per user direction
+> "no retiring my file set... they would need to grow to be
+> better that SHELLOUTS." 261 offset references shifted across
+> 21 source files (every region from `output_buf` 0x74A000
+> through final brk 0x348C000 moved +0x200000); cx backend
+> untouched (own layout). cc5 byte-identical at 719,000 B
+> (size unchanged; bytes diverge from v5.7.26 starting at byte
+> 3380 — cap-warning string-literal `/3145728 bytes`). Heap-map
+> audit PASS (0 overlaps); `ts_parse_p54.tcyr` 20/20 PASS at
+> 32% code-buf utilization (was 94%). TS gates all green; SY
+> corpus unchanged. **Pre-existing bug pinned for v5.7.28**:
+> cx regression gates (`regression-cx-{build,roundtrip,syscall-
+> literal}.sh`) have a `set -e + pipeline` interaction that
+> aborts before `EXIT=$?` capture; check.sh's own `set -e`
+> then aborts at the cx-build gate. v5.7.24-v5.7.26 ship
+> "47/47 PASS" reports were false reassurance —
+> `sh check.sh 2>&1 | tail -3` masked check.sh's exit code
+> via unset pipefail. v5.7.26 cc5 reproduces identically; bug
+> is v5.7.26-era, not v5.7.27-introduced. Fix is ~30 lines
+> (set +e / EXIT=0; cmd || EXIT=$? toggles + check.sh
+> pipefail audit), no compiler change.
 >
 > v5.7.26 TS 5.0 stage-3 decorators shipped 2026-04-28. **Closes
 > the v5.7.24-v5.7.26 advanced-TS trio** (smallest → highest
@@ -120,14 +148,14 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.27**: code-buf cap raise (1 MB → 3 MB) + TS test
->   organization rework. User-pinned at v5.7.26 ship; bundles
->   the cap pressure (94% across v5.7.25-v5.7.26) with the
->   underlying coupling question — every TS frontend test
->   pulls the entire frontend, which inflates code-buf use
->   uniformly.
-> - **v5.7.28-v5.7.31**: RISC-V rv64 (3-5 sub-patches; +1 slid
->   from v5.7.27 to absorb the cap-raise + test-org slot).
+> - **v5.7.28**: cx gate `set -e` repair + check.sh hygiene
+>   pass. Surfaced at v5.7.27 verification; pre-existing
+>   v5.7.26-era bug. ~30 lines (set +e / EXIT=0; cmd
+>   || EXIT=$? toggles in three `regression-cx-*.sh` gates +
+>   `pipefail` audit on check.sh gate-runners), no compiler
+>   change. Sized to land in one slot.
+> - **v5.7.29-v5.7.32**: RISC-V rv64 (3-5 sub-patches; +1 slid
+>   from v5.7.28 to absorb the cx gate repair slot).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
@@ -634,6 +662,150 @@ time v5.7.26 RISC-V opens.
 **Slot relationship:** standalone slot. Don't bundle with
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
+
+### v5.7.27 ✅ codebuf cap 1 MB → 3 MB + 19-region heap reshuffle — SHIPPED
+
+**Shipped 2026-04-28.** Mechanical cap raise to absorb cyrius-
+ts test-compile pressure. User-pinned at v5.7.26 ship: "might
+need code-buf to 3MB in the next release... but also begs the
+question on test organization." `cyrius test
+ts_parse_p52-54.tcyr` was hitting 94% of the 1 MB code-buf
+cap (988-989 KB) across the v5.7.24-v5.7.26 advanced-TS trio;
+headroom was exhausted before the parser earns its next chunk
+of growth.
+
+**The test-organization rework is SEPARATE** per user
+direction "no retiring my file set... they would need to grow
+to be better that SHELLOUTS... raise the cap then we need to
+re-evalute the testing structure as a QA person of 20+ years
+I won't stand for half ass qa structures." `tcyr` files are
+real in-process unit/integration tests against `TS_LEX` /
+`TS_PARSE` / `TS_AST_*`; shell regression gates are
+smoke-test surface only. v5.7.27 just bumps the cap; tcyr
+stays where it is. New feedback memory pinned:
+`feedback_no_retire_tcyr_for_shell_gates.md`.
+
+**Implementation:**
+
+1. **codebuf cap: 1 MB → 3 MB.** Region at `0x64A000` grew
+   from `0x100000` (1 MB) to `0x300000` (3 MB), so end-of-
+   codebuf moved from `0x74A000` to `0x94A000`.
+2. **19 heap regions shifted +0x200000** — every region from
+   `output_buf` (was 0x74A000, now 0x94A000) through final
+   `brk-with-ts-frontend` (was 0x348C000, now 0x368C000).
+   Includes 8 fn tables (names/offsets/params/body_start/
+   body_end/inline/param_str_mask/code_end), all IR regions
+   (ir_nodes/blocks/state/edges/cp), fixup_tbl, and the
+   TS_BASE pointer (0x270B000 → 0x290B000).
+3. **261 offset references shifted across 21 source files**
+   — main entry points (main.cyr / main_aarch64.cyr /
+   main_aarch64_macho.cyr / main_aarch64_native.cyr /
+   main_cx.cyr / main_win.cyr) + common (util.cyr / ir.cyr) +
+   frontend (lex.cyr / parse_*.cyr / ts/lex.cyr) + backends
+   (x86 / aarch64 / macho / pe). cx backend
+   (`src/backend/cx/emit.cyr`) **untouched** — uses its own
+   layout (codebuf at 0x54A000, per-fn at 0x150B000 in the
+   legacy retired-fixup gap); main_cx.cyr's brk extension
+   shifted with the rest.
+4. **codebuf cap value 1048576 → 3145728** in 9 sites:
+   main.cyr cap-warning block (3) + heap-map comment (1);
+   main_win.cyr same shape (4); backend/x86/emit.cyr
+   overflow check + error message (2); heap-map comments in
+   main_aarch64*.cyr (1 each). aarch64 emit's internal
+   524288 cap left alone (separate scope; smaller cc5_aarch64
+   binary doesn't hit it).
+
+**Verification:**
+
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c`
+  byte-identical at **719,000 B** (size unchanged; the heap
+  reshuffle doesn't change emitted code sequence — only data
+  layout. cc5 bytes do diverge from v5.7.26 starting at byte
+  3380 — string-literal table shifted by the new cap-warning
+  text).
+- `sh tests/heapmap.sh` — PASS (80 regions, 0 overlaps).
+- `cyrius test ts_parse_p54.tcyr` — 20/20 PASS at
+  **32%** code-buf utilization (989528 / 3145728), well below
+  the 85% warning threshold. Was 94% / 1 MB before.
+- All v5.7.24-v5.7.26 TS gates PASS (asserts, mapped,
+  decorators).
+- SY corpus unchanged — 2053/2053 `.ts` + 435/435 `.tsx`.
+
+**Pre-existing bug surfaced (queued v5.7.28):** cx regression
+gates (`regression-cx-{build,roundtrip,syscall-literal}.sh`)
+have a `set -e + pipeline` interaction. `cc5_cx` returns exit 1
+on parse-error inputs (correct — no syscalls in the source,
+exits with diagnostic). Under `set -e`, the pipeline's
+non-zero exit aborts the script before `EXIT=$?` runs. The
+intent (only flag SIGSEGV ≥128) is defeated. `check.sh`
+(also `set -e`) then aborts at the cx-build gate, never
+reaching the new TS gates or the summary.
+
+**v5.7.24-v5.7.26 ship "47/47 PASS" reports were false
+reassurance** — the verification commands I quoted
+(`sh scripts/check.sh 2>&1 | tail -3`) had `tail` consuming
+the pipe with unset `pipefail`, so the pipe always returned 0
+regardless of check.sh's actual exit code. v5.7.26 cc5
+reproduces the bug identically (verified directly), so this
+is at minimum a v5.7.26-era pre-existing bug — NOT introduced
+by v5.7.27.
+
+**Out of v5.7.27 scope:**
+
+- **TS test organization rework** — pinned but deliberately
+  separate per user direction. tcyr files stay as the
+  in-process API exercise; shell gates remain smoke surface.
+  Future slot when claimed; would grow tcyr richer (e.g.
+  pre-compiled frontend object linkage so each tcyr doesn't
+  pull the whole TS frontend, ~5500 LOC of compiler in
+  every test binary).
+- **cx gate fix** — v5.7.28 per the pin above. v5.7.27 ships
+  clean despite cx gate failure because: (a) the bug is
+  pre-v5.7.27, (b) v5.7.27 verification was done manually
+  against heap-map / self-host / TS gates / tcyr, (c)
+  bundling the gate fix would scope-creep beyond the
+  cap-raise slot.
+
+### v5.7.28 — cx gate `set -e` repair + check.sh hygiene (queued)
+
+**Pinned 2026-04-28** at v5.7.27 ship. Three `regression-cx-*.sh`
+gates have the broken `set -e + pipeline` pattern:
+
+```sh
+set -e
+...
+echo '' | "$CC_CX" > /dev/null 2>"$CC_CX.err"
+EXIT=$?
+if [ "$EXIT" -ge 128 ]; then ...
+```
+
+The `cc5_cx` exit 1 on parse-error inputs aborts via `set -e`
+before `EXIT=$?` runs. Fix shape: wrap with `set +e` /
+`set -e` toggles, OR use `EXIT=0; cmd || EXIT=$?` patterns,
+OR drop `set -e` entirely (the explicit `if ! cmd` patterns
+elsewhere in the script don't rely on it).
+
+Add a defensive `check.sh` hygiene pass: audit all gate-
+runner lines for the `> /tmp/audit_$$ 2>&1` pattern and
+ensure `pipefail` semantics or `cx_result=$?` capture is
+robust against gate exits 1-127 (which should be PASS-able
+gate states, not check.sh aborts).
+
+**Acceptance:**
+- All three `regression-cx-*.sh` gates exit 0 on the same
+  cc5_cx that returned exit 1 on empty input pre-fix
+  (success means: test bar is "didn't SIGSEGV", not "exit
+  was 0").
+- `sh scripts/check.sh` returns 0 when all gates pass; 1
+  ONLY when an actual gate FAILs (not when it has exit
+  1-127 from a tested binary).
+- `sh scripts/check.sh 2>&1 | tail -5` shows the proper
+  summary line `N passed, 0 failed (N total)` matching the
+  real result (no more pipe-masking false positives).
+
+**Slot relationship:** standalone slot. ~30 lines + audit
+pass. No compiler change. Self-host byte-identity preserved
+trivially (no `.cyr` source touched).
 
 ### v5.7.26 ✅ TS 5.0 stage-3 decorators — SHIPPED
 

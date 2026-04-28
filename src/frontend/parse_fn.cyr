@@ -58,9 +58,9 @@ fn REGFN(S, noff) {
         syscall(SYS_WRITE, 2, "/4096) — split into separate compilation units\n", 48);
         syscall(SYS_EXIT, 1);
     }
-    S64(S + 0x108A000 + fc * 8, noff);
-    S64(S + 0x1092000 + fc * 8, 0 - 1);
-    S64(S + 0x109A000 + fc * 8, 0);
+    S64(S + 0x128A000 + fc * 8, noff);
+    S64(S + 0x1292000 + fc * 8, 0 - 1);
+    S64(S + 0x129A000 + fc * 8, 0);
     SFNC(S, fc + 1);
     _REGFN_HASH(S, noff, fc);
     return fc;
@@ -80,7 +80,7 @@ fn FINDFN(S, noff) {
         if (stored == 0) { probes = 8192; }
         else {
             var fi = stored - 1;
-            var sn = L64(S + 0x108A000 + fi * 8);
+            var sn = L64(S + 0x128A000 + fi * 8);
             if (STREQ(S, sn, noff) == 1) { return fi; }
             slot = (slot + 1) & 8191;
             probes = probes + 1;
@@ -176,7 +176,7 @@ fn PARSE_RETURN(S) {
                     if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
                     if (tcargc > 6) {
                         # >6 args: normal call (stack args clobbered by tail call epilogue)
-                        var foff2 = L64(S + 0x1092000 + tcfi * 8);
+                        var foff2 = L64(S + 0x1292000 + tcfi * 8);
                         if (foff2 >= 0) { ECALLTO(S, foff2); }
                         else { ECALLFIX(S, tcfi); }
                         ECALLCLEAN(S, tcargc);
@@ -368,7 +368,7 @@ fn PARSE_FNCALL(S, noff) {
     }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
         # INLINE PATH: replay function body tokens at call site
-        var pc = L64(S + 0x109A000 + fi * 8);
+        var pc = L64(S + 0x129A000 + fi * 8);
         var saved_flc = GFLC(S);
         # Allocate fresh frame slots for callee params
         var p0_slot = saved_flc;
@@ -425,7 +425,7 @@ fn PARSE_FNCALL(S, noff) {
     # ESTORESTACKPARM compensates for the reversed register assignment.
     # Auto-coerce string literals to Str for params annotated : Str.
     var argc = 0;
-    var smask = L64(S + 0x10BA000 + fi * 8);
+    var smask = L64(S + 0x12BA000 + fi * 8);
     if (PEEKT(S) != 11) {
         var argo = 1;
         while (argo == 1) {
@@ -439,7 +439,7 @@ fn PARSE_FNCALL(S, noff) {
                     EPUSHR(S);
                     ECALLPOPS(S, 1);
                     if (sf_fi >= 0) {
-                        var sfoff = L64(S + 0x1092000 + sf_fi * 8);
+                        var sfoff = L64(S + 0x1292000 + sf_fi * 8);
                         if (sfoff >= 0) { ECALLTO(S, sfoff); }
                         else { ECALLFIX(S, sf_fi); }
                     }
@@ -461,7 +461,7 @@ fn PARSE_FNCALL(S, noff) {
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
     ECALLPOPS(S, argc);
-    var foff = L64(S + 0x1092000 + fi * 8);
+    var foff = L64(S + 0x1292000 + fi * 8);
     if (foff >= 0) {
         ECALLTO(S, foff);
     } else {
@@ -614,7 +614,7 @@ fn PARSE_FN_DEF(S) {
     var fi = FINDFN(S, noff);
     if (fi < 0) { fi = REGFN(S, noff); }
     else {
-        var _dup_off = L64(S + 0x1092000 + fi * 8);
+        var _dup_off = L64(S + 0x1292000 + fi * 8);
         if (_dup_off >= 0) {
             syscall(SYS_WRITE, 2, "warning:", 8);
             FM_LOOKUP(S, GTLINE(S, GTI(S)));
@@ -765,7 +765,7 @@ fn PARSE_FN_DEF(S) {
     }
     STI(S, _rs_save_ti);
     # Set fn offset to current CP
-    S64(S + 0x1092000 + fi * 8, GCP(S));
+    S64(S + 0x1292000 + fi * 8, GCP(S));
     # Save compiler state
     var saved_lv = GLVAR(S);
     SINFN(S, 1);
@@ -865,9 +865,9 @@ fn PARSE_FN_DEF(S) {
     }
     if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
     STI(S, GTI(S) + 1);
-    S64(S + 0x109A000 + fi * 8, pc);
+    S64(S + 0x129A000 + fi * 8, pc);
     # Store Str param mask — bit N set = param N is : Str
-    S64(S + 0x10BA000 + fi * 8, str_mask);
+    S64(S + 0x12BA000 + fi * 8, str_mask);
     # v5.5.36 Phase 2b — optional `: StructName` return-type annotation:
     # `fn make(): Point { ... return p; }`. Sets fn_ret_sid[fi] = sid;
     # PARSE_RETURN + call-site consult it to emit the Win64 hidden-RCX /
@@ -1474,7 +1474,7 @@ fn PARSE_FN_DEF(S) {
                 var _fcn = GFCNT(S);
                 var _fi = _fc0;
                 while (_fi < _fcn) {
-                    var _fa = S + 0x170B000 + _fi * 16;
+                    var _fa = S + 0x190B000 + _fi * 16;
                     var _fcp = L64(_fa);
                     var _fsh = 0;
                     var _ni2 = 0;

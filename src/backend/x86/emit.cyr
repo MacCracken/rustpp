@@ -65,10 +65,10 @@ fn EW(S, w) { return 0; }
 
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 1048576) {
+    if (cp >= 3145728) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
         PRNUM(cp);
-        syscall(SYS_WRITE, 2, "/1048576 bytes) — program too large for single compilation\n", 58);
+        syscall(SYS_WRITE, 2, "/3145728 bytes) — program too large for single compilation\n", 58);
         syscall(SYS_EXIT, 1);
     }
     store8(S + 0x64A000 + cp, b & 0xFF);
@@ -250,7 +250,7 @@ fn RECFIX(S, idx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
-    var addr = S + 0x170B000 + fc * 16;
+    var addr = S + 0x190B000 + fc * 16;
     S64(addr, GCP(S));
     S64(addr + 8, idx);
     SFCNT(S, fc + 1);
@@ -410,7 +410,7 @@ fn ESADDR(S, soff) {
     if (_IS_OBJ(S) == 1) {
         # LEA rax, [rip+disp32]: 48 8D 05 <rel32>
         EB(S, 0x48); EB(S, 0x8D); EB(S, 0x05);
-        var faddr = S + 0x170B000 + fc * 16;
+        var faddr = S + 0x190B000 + fc * 16;
         S64(faddr, GCP(S));
         S64(faddr + 8, (1 << 56) | soff);
         SFCNT(S, fc + 1);
@@ -418,7 +418,7 @@ fn ESADDR(S, soff) {
         return 0;
     }
     E2(S, 0xB848);
-    var faddr = S + 0x170B000 + fc * 16;
+    var faddr = S + 0x190B000 + fc * 16;
     S64(faddr, GCP(S));
     S64(faddr + 8, (1 << 56) | soff);
     SFCNT(S, fc + 1);
@@ -984,7 +984,7 @@ fn ECALLFIX(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x170B000 + fc * 16;
+    var faddr = S + 0x190B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -1242,7 +1242,7 @@ fn ETAILJMP(S, fnidx) {
         syscall(SYS_WRITE, 2, "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
-    var faddr = S + 0x170B000 + fc * 16;
+    var faddr = S + 0x190B000 + fc * 16;
     S64(faddr, poff);
     S64(faddr + 8, (2 << 56) | fnidx);
     SFCNT(S, fc + 1);
@@ -1462,8 +1462,8 @@ fn ELVRINIT(S, idx) {
 # TOKEN ACCESS
 # ================================================================
 
-fn TOKTYP(S, i) { return L64(S + 0x74A000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0xB4A000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x94A000 + i * 8); }
+fn TOKVAL(S, i) { return L64(S + 0xD4A000 + i * 8); }
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 

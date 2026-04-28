@@ -14,7 +14,7 @@
 # 0 warnings). The auditor's regex was fixed in v5.5.40 — previously
 # it required 2+ spaces after the hex offset and silently dropped
 # every region past 0x1FC000 (including the IR region, output buffers,
-# token arrays, and the v5.5.37 relocated fixup_tbl at 0x170B000).
+# token arrays, and the v5.5.37 relocated fixup_tbl at 0x190B000).
 #
 # --- Low heap: I/O + identifiers ---
 #   0x00000  input_buf     [1048576]      1MB raw stdin input (v3.6.7, was 256KB)
@@ -74,16 +74,16 @@
 #   0x192200  local_types                 local variable type tracking
 #
 # --- Function tables (relocated v4.7.1 — caps raised 2048 → 4096) ---
-#   0x108A000 fn_names      [32768]       4096 function name offsets
-#   0x1092000 fn_offsets    [32768]       4096 function code offsets
-#   0x109A000 fn_params     [32768]       4096 function param counts
-#   0x10A2000 fn_body_start [32768]       4096 inline body start
-#   0x10AA000 fn_body_end   [32768]       4096 inline body end
-#   0x10B2000 fn_inline     [32768]       4096 inline flags
-#   0x10BA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
-#   0x10C2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
+#   0x128A000 fn_names      [32768]       4096 function name offsets
+#   0x1292000 fn_offsets    [32768]       4096 function code offsets
+#   0x129A000 fn_params     [32768]       4096 function param counts
+#   0x12A2000 fn_body_start [32768]       4096 inline body start
+#   0x12AA000 fn_body_end   [32768]       4096 inline body end
+#   0x12B2000 fn_inline     [32768]       4096 inline flags
+#   0x12BA000 fn_param_str_mask [32768]   4096 Str-param bitmasks (v3.6.0)
+#   0x12C2000 fn_code_end   [32768]       4096 fn code END offsets (v4.4.0)
 # Function tables live back-to-back in the 256 KB band ending at
-# 0xFCA000 (the IR region's start). Sized for 4096 fns × 8 bytes per
+# 0x11CA000 (the IR region's start). Sized for 4096 fns × 8 bytes per
 # field × 8 fields.
 #
 # --- Reclaimable / scratch ---
@@ -169,29 +169,29 @@
 #                                        stdlib include set crossed
 #                                        the 1 MB ceiling on
 #                                        large_input.tcyr by ~280 B)
-#   0x64A000 codebuf       [1048576]     1MB generated machine code (v3.5.2)
-#   0x74A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43) (v3.5.2)
+#   0x64A000 codebuf       [3145728]     3MB generated machine code (v5.7.27 — was 1MB pre-v5.7.27; bumped to absorb cyrius-ts test-compile pressure (94% on ts_parse_p52-54 across v5.7.24-v5.7.26)) (v3.5.2)
+#   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43) (v3.5.2)
 #
 # --- Relocated token arrays (v3.6.2) ---
-#   0x94A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0xB4A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xD4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   0xB4A000 tok_types     [2097152]     262144 entries × 8 bytes
+#   0xD4A000 tok_values    [2097152]     262144 entries × 8 bytes
+#   0xF4A000 tok_lines     [2097152]     262144 entries × 8 bytes
 #
 # --- Relocated struct field tables (v3.6.6) ---
-#   0xF4A000 struct_ftypes [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
-#   0xFCA000 struct_fnames [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
+#   0x114A000 struct_ftypes [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
+#   0x11CA000 struct_fnames [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
 #
-#   0x104A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
+#   0x124A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
 #
 # --- cc5 IR region (v5.0.0) ---
-#   0x10CA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
-#   0x14CA000 ir_blocks    [1048576]     32768 basic blocks × 32 bytes
-#   0x15CA000 ir_state     [4096]        IR builder state (counters, current BB)
-#   0x15CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
-#   0x160B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
+#   0x12CA000 ir_nodes      [4194304]     262144 IR nodes × 16 bytes
+#   0x16CA000 ir_blocks    [1048576]     32768 basic blocks × 32 bytes
+#   0x17CA000 ir_state     [4096]        IR builder state (counters, current BB)
+#   0x17CB000 ir_edges     [262144]      32768 CFG edges × 8 bytes
+#   0x180B000 ir_cp        [1048576]     262144 node CP offsets × 4 bytes
 #
 # --- Fixup table — NEW slot (v5.5.37) ---
-#   0x170B000 fixup_tbl    [16777216]    1048576 entries × 16 bytes
+#   0x190B000 fixup_tbl    [16777216]    1048576 entries × 16 bytes
 #                                        (cap raised 32768 → 262144 in
 #                                        v5.7.1, then 262144 → 1048576
 #                                        in v5.7.7 — sandhi consumers
@@ -199,10 +199,10 @@
 #                                        codegen burn fixups faster
 #                                        than the 262K ceiling allows).
 #
-#   0x270B000 brk-fixup-end               39 MB at end of fixup_tbl
-#                                        (was 0x1B0B000, +12 MB for
+#   0x290B000 brk-fixup-end               39 MB at end of fixup_tbl
+#                                        (was 0x1D0B000, +12 MB for
 #                                        v5.7.7 fixup-cap 4× bump)
-#   0x348C000 brk-with-ts-frontend        ~52.5 MB — TS frontend heap
+#   0x368C000 brk-with-ts-frontend        ~52.5 MB — TS frontend heap
 #                                        adds 0xD81000 (~13.5 MB) past
 #                                        fixup_tbl-end
 #
@@ -320,11 +320,11 @@ if (_vn > 0) {
 
 # Allocate heap
 var S = syscall(SYS_BRK, 0);
-# brk extends past the TS frontend heap region (0x1B0B000 base
+# brk extends past the TS frontend heap region (0x1D0B000 base
 # + 0xD81000 size, per src/frontend/ts/{lex,parse}.cyr design after
 # v5.7.2 P2.1). TS region is only TOUCHED in --lex-ts / --parse-ts
 # modes; the +13.5 MB brk extension is paid unconditionally.
-syscall(SYS_BRK, S + 0x348C000);
+syscall(SYS_BRK, S + 0x368C000);
 
 # Zero state
 S64(S + 0x18C100, 0);
@@ -342,11 +342,11 @@ S64(S + 0x18DA08, 0);
 S64(S + 0x18DA10, 0);
 S64(S + 0x18DC20, 0);
 # IR state (cc5)
-S64(S + 0x15CA000, 0);    # ir_node_count
-S64(S + 0x14CA008, 0);    # ir_block_count
-S64(S + 0x14CA010, 0);    # ir_cur_block (current BB index, -1 = none)
-S64(S + 0x14CA018, 0);    # ir_edge_count
-S64(S + 0x14CA020, 0);    # ir_enabled (0=off, 1=on)
+S64(S + 0x17CA000, 0);    # ir_node_count
+S64(S + 0x16CA008, 0);    # ir_block_count
+S64(S + 0x16CA010, 0);    # ir_cur_block (current BB index, -1 = none)
+S64(S + 0x16CA018, 0);    # ir_edge_count
+S64(S + 0x16CA020, 0);    # ir_enabled (0=off, 1=on)
 # Struct state
 S64(S + 0x18F830, 0);
 # Condition patch state
@@ -408,9 +408,9 @@ SBL(S, bl);
 # detect a .ts source and verify it lexes cleanly via cc5 directly,
 # without forcing every consumer to go through a separate test driver.
 if (_ts_lex_only_mode == 1) {
-    var _ts_n = TS_LEX(S + 0x270B000, S, bl);
+    var _ts_n = TS_LEX(S + 0x290B000, S, bl);
     if (_ts_n < 0) {
-        var _ts_err = TS_GETERR(S + 0x270B000);
+        var _ts_err = TS_GETERR(S + 0x290B000);
         syscall(SYS_WRITE, 2, "ts lex error: code ", 19);
         var _eb[3];
         if (_ts_err >= 10) {
@@ -459,20 +459,20 @@ fn _emit_decimal(n) {
 }
 
 if (_ts_parse_only_mode == 1) {
-    var _tp_lex_n = TS_LEX(S + 0x270B000, S, bl);
+    var _tp_lex_n = TS_LEX(S + 0x290B000, S, bl);
     if (_tp_lex_n < 0) {
         syscall(SYS_WRITE, 2, "ts lex error before parse\n", 26);
         syscall(SYS_EXIT, 1);
     }
-    var _tp_parse_n = TS_PARSE(S + 0x270B000);
+    var _tp_parse_n = TS_PARSE(S + 0x290B000);
     if (_tp_parse_n < 0) {
-        var _tp_err = TS_PARSE_GETERR(S + 0x270B000);
-        var _tp_etok = TS_PARSE_GETERR_TOK(S + 0x270B000);
+        var _tp_err = TS_PARSE_GETERR(S + 0x290B000);
+        var _tp_etok = TS_PARSE_GETERR_TOK(S + 0x290B000);
         # current parser TOK_IDX — most accurate since not all err
         # sites set ERR_TOK_IDX. Emit both for triage.
-        var _tp_cur = load64(S + 0x270B000 + 0xD80000 + 8);   # TS_PS_TOK_IDX = 8
-        var _tp_line = load64(S + 0x270B000 + 0x100000 + _tp_cur * 8);
-        var _tp_type = load64(S + 0x270B000 + 0x000000 + _tp_cur * 8);
+        var _tp_cur = load64(S + 0x290B000 + 0xD80000 + 8);   # TS_PS_TOK_IDX = 8
+        var _tp_line = load64(S + 0x290B000 + 0x100000 + _tp_cur * 8);
+        var _tp_type = load64(S + 0x290B000 + 0x000000 + _tp_cur * 8);
         syscall(SYS_WRITE, 2, "ts parse error: code=", 21);
         _emit_decimal(_tp_err);
         syscall(SYS_WRITE, 2, " line=", 6);
@@ -923,7 +923,7 @@ while (topgo == 1) {
             # callee-saved-reg state to. Leaving the flag armed would
             # leak it to whichever fn lands next.
             if (_regalloc_pending == 1) { _regalloc_pending = 0; }
-            S64(S + 0x1092000 + stub_fi * 8, GCP(S));
+            S64(S + 0x1292000 + stub_fi * 8, GCP(S));
             # Emit stub: xor eax, eax; ret (3 bytes)
             EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
             # Skip function body tokens
@@ -1002,9 +1002,9 @@ if (_init_km == 1) {
 var wfi = 0;
 var wfc = GFNC(S);
 while (wfi < wfc) {
-    if (L64(S + 0x1092000 + wfi * 8) < 0) {
+    if (L64(S + 0x1292000 + wfi * 8) < 0) {
         syscall(SYS_WRITE, 2, "warning: undefined function '", 29);
-        PRSTR(S + 0x60000 + L64(S + 0x108A000 + wfi * 8));
+        PRSTR(S + 0x60000 + L64(S + 0x128A000 + wfi * 8));
         syscall(SYS_WRITE, 2, "'\n", 2);
     }
     wfi = wfi + 1;
@@ -1224,11 +1224,11 @@ if (_stats_env == 0) {
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GSPOS(S));
         syscall(SYS_WRITE, 2, "/262144 bytes)\n", 15);
     }
-    if (GCP(S) * 100 / 1048576 >= 85) {
+    if (GCP(S) * 100 / 3145728 >= 85) {
         syscall(SYS_WRITE, 2, "warning: code buffer at ", 24);
-        PRNUM(GCP(S) * 100 / 1048576);
+        PRNUM(GCP(S) * 100 / 3145728);
         syscall(SYS_WRITE, 2, "% (", 3); PRNUM(GCP(S));
-        syscall(SYS_WRITE, 2, "/1048576 bytes)\n", 16);
+        syscall(SYS_WRITE, 2, "/3145728 bytes)\n", 16);
     }
 }
 EMITELF(S);
@@ -1237,7 +1237,7 @@ var olen = L64(S + 0x1903F8);
 var written = 0;
 var wgo = 1;
 while (wgo == 1) {
-    var w = syscall(SYS_WRITE, 1, S + 0x74A000 + written, olen - written);
+    var w = syscall(SYS_WRITE, 1, S + 0x94A000 + written, olen - written);
     if (w <= 0) { wgo = 0; }
     else {
         written = written + w;
