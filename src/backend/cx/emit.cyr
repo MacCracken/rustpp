@@ -439,8 +439,8 @@ fn ETAILJMP(S, fnidx) {
 }
 
 # Token access (same as x86 — shared with frontend)
-fn TOKTYP(S, i) { return L64(S + 0x74A000 + i * 8); }
-fn TOKVAL(S, i) { return L64(S + 0xB4A000 + i * 8); }
+fn TOKTYP(S, i) { return L64(S + 0x94A000 + i * 8); }   # v5.7.28: shifted from 0x74A000 to track v5.7.27 heap reshuffle (lex.cyr now writes tok_types at 0x94A000)
+fn TOKVAL(S, i) { return L64(S + 0xD4A000 + i * 8); }   # v5.7.28: shifted from 0xB4A000 to track v5.7.27 heap reshuffle (lex.cyr now writes tok_values at 0xD4A000)
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 

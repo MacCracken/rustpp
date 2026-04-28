@@ -471,6 +471,15 @@ if [ "$tsd_result" -ne 0 ]; then cat /tmp/audit_tsd_$$; fi
 rm -f /tmp/audit_tsd_$$
 echo ""
 
+# ── 4ak. Cross-backend token-offset parity (v5.7.28) ──
+echo "── Token-offset parity ──"
+sh "$ROOT/tests/regression-cx-token-offsets.sh" > /tmp/audit_to_$$ 2>&1
+to_result=$?
+check "lex token writes match every backend's TOKTYP / TOKVAL reads (v5.7.28)" "$to_result"
+if [ "$to_result" -ne 0 ]; then cat /tmp/audit_to_$$; fi
+rm -f /tmp/audit_to_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

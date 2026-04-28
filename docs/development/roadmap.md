@@ -50,7 +50,32 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.28–v5.12.x):**
+> **What's next (v5.7.29–v5.12.x):**
+>
+> v5.7.28 cx backend token-offset fix shipped 2026-04-28.
+> v5.7.27's heap reshuffle deliberately skipped
+> `src/backend/cx/emit.cyr` (cx has its own codebuf at
+> 0x54A000 + per-fn at 0x150B000), but the skip OVER-applied:
+> cx backend's `TOKTYP` / `TOKVAL` definitions read the SAME
+> shared frontend tokens at the SAME offsets the main backends
+> use. Post-v5.7.27 cx read tok_types from inside the new
+> codebuf region and tok_values from where tok_types now lives
+> — cc5_cx returned exit 1 on every input (`error:2:
+> unexpected unknown`). Bug stayed masked at v5.7.27 ship by
+> the queued v5.7.29 cx-gate `set -e + pipeline` issue and the
+> `tail -3` pipe-mask in the verification idiom. Fix: 2 lines
+> in cx/emit.cyr. New structural gate
+> `regression-cx-token-offsets.sh` greps each backend's
+> token-read offsets and asserts they match the shared lex
+> writes — catches drift at the source level in 0.1s with no
+> compiler build. cc5 byte-identical at 719,000 B; cxvm
+> round-trips literals 0/7/42/99/200 cleanly. **Third instance
+> in v5.7.x of forked-helper offset drift** (v5.7.23 typo,
+> v5.7.27 skip, v5.7.28 re-sync); the new gate directly
+> implements the audit pattern from
+> `feedback_audit_forked_helper_offsets.md`. check.sh still
+> v5.7.27-broken at the cx-build gate; v5.7.29 fixes the
+> gate-infra so check.sh can complete.
 >
 > v5.7.27 codebuf cap raise 1 MB → 3 MB + 19-region heap
 > reshuffle shipped 2026-04-28. User-pinned at v5.7.26 ship:
@@ -148,14 +173,16 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.28**: cx gate `set -e` repair + check.sh hygiene
->   pass. Surfaced at v5.7.27 verification; pre-existing
->   v5.7.26-era bug. ~30 lines (set +e / EXIT=0; cmd
->   || EXIT=$? toggles in three `regression-cx-*.sh` gates +
->   `pipefail` audit on check.sh gate-runners), no compiler
->   change. Sized to land in one slot.
-> - **v5.7.29-v5.7.32**: RISC-V rv64 (3-5 sub-patches; +1 slid
->   from v5.7.28 to absorb the cx gate repair slot).
+> - **v5.7.29**: cx gate `set -e` repair + check.sh hygiene
+>   pass. Pre-existing v5.7.26-era bug. ~30 lines (set +e /
+>   EXIT=0; cmd || EXIT=$? toggles in three
+>   `regression-cx-*.sh` gates + `pipefail` audit on check.sh
+>   gate-runners), no compiler change. Sized to land in one
+>   slot. With v5.7.28's compiler fix in place, completes the
+>   v5.7.27 fallout closure.
+> - **v5.7.30-v5.7.33**: RISC-V rv64 (3-5 sub-patches; +2 slid
+>   from original v5.7.28 to absorb the cx-offset (v5.7.28) +
+>   cx-gate-repair (v5.7.29) split).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
@@ -663,6 +690,86 @@ time v5.7.26 RISC-V opens.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
+### v5.7.28 ✅ cx backend token-offset fix + structural parity gate — SHIPPED
+
+**Shipped 2026-04-28.** Compiler-side closure of the v5.7.27
+ship regression. v5.7.27's heap reshuffle deliberately skipped
+`src/backend/cx/emit.cyr` (cx has its own codebuf at 0x54A000
++ per-fn at 0x150B000, both unchanged). The skip OVER-applied:
+cx backend's `TOKTYP` / `TOKVAL` definitions read the SAME
+shared frontend tokens at the SAME offsets the main backends
+use. Post-v5.7.27 cx read tok_types from inside the new
+codebuf region (garbage) and tok_values from where tok_types
+now lives — **cc5_cx returned exit 1 with `error:2: unexpected
+unknown` on every input**.
+
+The bug stayed masked at v5.7.27 ship by:
+
+1. The queued v5.7.29 cx-gate `set -e + pipeline` issue —
+   gates abort before reporting failure.
+2. The `sh check.sh 2>&1 | tail -3` verification idiom —
+   pipe-mask via unset `pipefail` hid check.sh's actual
+   exit code.
+
+cc5_cx is byte-identical when built with v5.7.26 cc5 vs
+v5.7.27 cc5 (both 371,848 B), and BOTH fail today on all
+inputs. Direct-tested: at v5.7.26 ship cc5_cx worked; at
+v5.7.27 ship silently broken; at v5.7.28 ship restored.
+
+**Implementation:**
+
+1. `src/backend/cx/emit.cyr:442` — `TOKTYP` 0x74A000 → 0x94A000
+2. `src/backend/cx/emit.cyr:443` — `TOKVAL` 0xB4A000 → 0xD4A000
+3. **New structural CI gate**:
+   `tests/regression-cx-token-offsets.sh` — greps each
+   backend's `TOKTYP` / `TOKVAL` definitions and the shared
+   lex's write sites, extracts the hex offsets, asserts they
+   all agree. Catches drift at the source level in 0.1s with
+   no compiler build. Validated by deliberately reverting cx
+   TOKTYP back to 0x74A000 (gate FAILs with explicit "drift"
+   message) then restoring (gate PASSes).
+4. `scripts/check.sh` gate 4ak (47 → 48) wires the new
+   parity gate after the TS decorator gate.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **719,000 B**
+  (size unchanged — cx backend constant change doesn't affect
+  cc5 output bytes).
+- cc5_cx behavior restored: `echo 'syscall(60, V);' |
+  cc5_cx | cxvm` exits with V across V ∈ {0, 7, 42, 99, 200}.
+- Token-offset parity gate PASS on current source.
+- TS gates / SY corpus / heap-map audit / self-host fixpoint
+  all unchanged.
+
+**Pattern (third instance in v5.7.x):**
+
+This is the **third instance** of "forked-helper offset
+literal drift" in v5.7.x:
+
+- v5.7.23 — cx codegen TOKVAL typo (0x94A000 zero-init gap
+  vs 0xB4A000 canonical write site). Memory pinned:
+  `feedback_audit_forked_helper_offsets.md` ("when forking
+  shared frontend helpers into a new backend, diff every
+  magic number against canonical write sites BEFORE
+  shipping").
+- v5.7.27 — heap reshuffle skipped cx backend, dropping cx
+  out of sync.
+- v5.7.28 — cx re-synced + structural gate added so the
+  next instance gets caught **before** ship.
+
+The new gate (`regression-cx-token-offsets.sh`) directly
+implements the audit pattern from the v5.7.23 memory.
+check.sh now does the diff automatically.
+
+**check.sh still v5.7.27-broken** at the cx-build gate due
+to the `set -e + pipeline` issue; v5.7.29 fixes the
+gate-infra so check.sh can complete and the new 4ak gate
+actually reaches its check. **v5.7.28 ships the COMPILER
+fix; v5.7.29 ships the GATE-INFRA fix** — logically distinct
+per user direction at v5.7.28 start ("you can split into
+the two logical pieces").
+
 ### v5.7.27 ✅ codebuf cap 1 MB → 3 MB + 19-region heap reshuffle — SHIPPED
 
 **Shipped 2026-04-28.** Mechanical cap raise to absorb cyrius-
@@ -766,9 +873,14 @@ by v5.7.27.
   bundling the gate fix would scope-creep beyond the
   cap-raise slot.
 
-### v5.7.28 — cx gate `set -e` repair + check.sh hygiene (queued)
+### v5.7.29 — cx gate `set -e` repair + check.sh hygiene (queued)
 
-**Pinned 2026-04-28** at v5.7.27 ship. Three `regression-cx-*.sh`
+**Pinned 2026-04-28** at v5.7.27 ship; renumbered v5.7.28 →
+v5.7.29 when v5.7.28 was claimed by the cx-offset compiler
+fix (per user direction "you can split into the two logical
+pieces"). With v5.7.28's compiler fix in place, this slot
+completes the v5.7.27 fallout closure — cc5_cx works again
+(v5.7.28), and check.sh can correctly report it (v5.7.29). Three `regression-cx-*.sh`
 gates have the broken `set -e + pipeline` pattern:
 
 ```sh
