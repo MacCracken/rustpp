@@ -65,8 +65,17 @@ chmod +x "$CC_CX"
 # Step 2: cc5_cx must not SIGSEGV on empty input. Pre-v5.7.11
 # crashed at S+0x74A000 the moment LEX was called because brk
 # was 5.5 MB and tok_types lives at 7.5 MB into the heap.
+#
+# v5.7.29: `set +e` / `set -e` wrapper. cc5_cx may return any
+# exit code 0-127 (e.g. 1 on parse-error input — that's a
+# normal diagnostic, not a script error). Pre-v5.7.29 the
+# script's outer `set -e` aborted the gate before `EXIT=$?`
+# could capture, defeating the "only flag SIGSEGV ≥128" logic
+# this entire step is designed around.
+set +e
 echo '' | "$CC_CX" > /dev/null 2>"$CC_CX.err"
 EXIT=$?
+set -e
 # SIGSEGV under sh shows up as 139 (128 + 11). Anything ≥ 128
 # means the child died on a signal — a regression from where
 # v5.7.11 closed.
@@ -77,8 +86,10 @@ if [ "$EXIT" -ge 128 ]; then
 fi
 
 # Step 3: trivial non-empty input — same bar, extra coverage.
+set +e
 echo 'syscall(60, 0);' | "$CC_CX" > /dev/null 2>"$CC_CX.err"
 EXIT=$?
+set -e
 if [ "$EXIT" -ge 128 ]; then
     echo "  FAIL: cc5_cx died on signal $((EXIT - 128)) on trivial input"
     head -10 "$CC_CX.err"

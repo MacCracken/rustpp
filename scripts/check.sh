@@ -1,7 +1,31 @@
 #!/bin/sh
 # Full project audit: self-host, test suite, heap audit, format, lint
 # Usage: cyrius audit  (or: sh scripts/check.sh)
-set -e
+#
+# v5.7.29: `set -e` removed deliberately. The script uses explicit
+# `_result=$?` capture + `check "..." "$_result"` reporting after
+# every gate; `set -e` was actively counterproductive — when any
+# gate returned non-zero (legitimate or otherwise), the outer
+# `set -e` aborted check.sh BEFORE `_result=$?` could capture, so
+# the `check` call never ran and the gate appeared in the log
+# without a PASS/FAIL line. The result was that a gate-script
+# exit 1 silently aborted the entire audit at the FIRST failing
+# gate, hiding every gate after it (~25 of 47+ at v5.7.27 ship —
+# the cx-build gate's `set -e + pipeline` issue triggered the
+# abort, and check.sh's own `set -e` propagated it). The
+# verification idiom `sh scripts/check.sh 2>&1 | tail -3` then
+# returned exit 0 from `tail`, masking the abort with a fake
+# "summary" line copied from a previous successful run. Removing
+# `set -e` here lets all gates run to completion regardless of
+# any single gate's exit; the explicit `check` reporting handles
+# pass/fail counting; the final `exit $fail` returns non-zero
+# only when ≥1 gate genuinely FAILed.
+#
+# Keep individual gate scripts using their own `set -e` for
+# unexpected init failures — they protect the gate's setup
+# (mkdir / cd / find), not the test pipelines themselves
+# (which use `set +e` / `set -e` toggles around the binary
+# under test).
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="$ROOT/build/cc5"

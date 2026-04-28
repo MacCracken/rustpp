@@ -55,7 +55,14 @@ fail=0
 
 # Test 1: trivial program — empty input through cc5_cx must produce
 # at least the magic header.
+#
+# v5.7.29: `set +e` / `set -e` wrapper. cc5_cx may return any exit
+# 0-127 (e.g. 1 on parse-error). Pre-v5.7.29 the script's outer
+# `set -e` aborted on cc5_cx exit 1 before the test below could run,
+# so the magic-header check never fired.
+set +e
 echo '' | "$CC_CX" > "$OUT" 2>"$OUT.err"
+set -e
 SIZE=$(wc -c < "$OUT")
 if [ "$SIZE" -lt 8 ]; then
     echo "  FAIL: cc5_cx output for empty input is $SIZE B (expected ≥ 8 for magic header)"
@@ -78,7 +85,9 @@ fi
 # contained x86 callee-save sequences (`48 89 5d f8` = mov [rbp-8],
 # rbx) leaked through from parse_fn.cyr's regalloc save block. Path B
 # guards added v5.7.12; this test confirms they hold.
+set +e
 echo 'fn main() { return 0; } syscall(60, main());' | "$CC_CX" > "$OUT" 2>"$OUT.err"
+set -e
 # Look for the x86 callee-save signature `48 89 5d f8` in the output.
 # Use xxd + grep — portable.
 if xxd "$OUT" 2>/dev/null | grep -q "4889 5df8"; then
@@ -94,8 +103,16 @@ fi
 
 # Test 4: cxvm consumes cc5_cx output without rejecting it as
 # "not a .cyx file".
-"$CXVM" < "$OUT" 2>"$OUT.err" > /dev/null || true
+#
+# v5.7.29: replaced `cmd || true; EXIT=$?` (which always set
+# EXIT=0 because $? after `|| true` reflects `true`'s exit, not
+# the original command's) with `set +e` / `set -e` wrapper.
+# Pre-v5.7.29 the SIGSEGV-detection branch (EXIT ≥ 128) was
+# unreachable.
+set +e
+"$CXVM" < "$OUT" 2>"$OUT.err" > /dev/null
 EXIT=$?
+set -e
 if [ "$EXIT" -ge 128 ]; then
     echo "  FAIL: cxvm died on signal $((EXIT - 128)) running cc5_cx output"
     cat "$OUT.err" | head -5

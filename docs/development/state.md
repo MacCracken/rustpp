@@ -5,6 +5,45 @@
 
 ## Version
 
+**5.7.29** (shipped 2026-04-28 — **CX GATE `set -e` REPAIR +
+check.sh HYGIENE**. Closes the v5.7.27 fallout chain. v5.7.28
+fixed the COMPILER regression (cc5_cx restored); v5.7.29 fixes
+the GATE-INFRASTRUCTURE so check.sh can correctly report it.
+~50 lines, zero compiler change. **What was broken**: three
+`regression-cx-{build,roundtrip,syscall-literal}.sh` gates had
+`set -e + pipeline` interaction — cc5_cx returns exit 1 on
+parse-error inputs (correct; emits diagnostic + exits non-zero)
+but `set -e` aborted the gate before `EXIT=$?` capture, making
+the "only flag SIGSEGV ≥128" gate logic unreachable. check.sh
+itself had `set -e` at line 4 — when any gate returned
+non-zero, the script aborted before `_result=$?` captured, so
+the entire audit died at the first failing gate (~25 of 47+).
+The verification idiom `sh check.sh 2>&1 | tail -3` returned 0
+from `tail` (unset pipefail), masking the abort behind a "47/47
+PASS"-shape line that was actually partial-output's last 3
+lines. Every "47/47 PASS" report I logged across v5.7.24-v5.7.27
+ship was false reassurance. **Fixed**: (1) three cx gates wrap
+cc5_cx invocations in `set +e` / `set -e` toggles (matching the
+existing pattern around cxvm calls). Plus repaired latent bug
+in roundtrip Test 4: `cmd || true; EXIT=$?` was clobbering
+EXIT to 0 (`$?` after `|| true` reflects `true`'s exit), making
+SIGSEGV-detection unreachable. Replaced with proper capture
+pattern. (2) check.sh `set -e` removed at line 4 with block
+comment explaining why. The script uses explicit
+`_result=$?` + `check "..." "$_result"` reporting throughout;
+`set -e` was never load-bearing, just counterproductive. (3)
+~25 lines of explanatory comments encode the v5.7.27-era ship
+damage so future contributors don't re-add `set -e`.
+**Verification**: `sh scripts/check.sh` rc=0, **48/48 PASS**
+(was aborting at gate ~25/47 silently); with `pipefail` set,
+still rc=0 — verification idiom no longer pipe-masked.
+v5.7.28's parity gate (4ak) now reachable; pre-v5.7.29 the
+cx-build gate failure aborted check.sh before 4ak ran. cc5
+self-host two-step byte-identical at **719,000 B** (no
+compiler change). All TS gates PASS, SY corpus unchanged. The
+trio (v5.7.27 cap raise + v5.7.28 cx re-sync + v5.7.29 gate
+hygiene) closes the v5.7.27 ship-damage chain entirely.)
+
 **5.7.28** (shipped 2026-04-28 — **CX BACKEND TOKEN-OFFSET FIX
 (v5.7.27 SHIP REGRESSION) + STRUCTURAL PARITY GATE**.
 Mechanical 2-line shift in `src/backend/cx/emit.cyr` to track
@@ -972,15 +1011,15 @@ Shipped:
 - **v5.7.26** ✅ TS 5.0 stage-3 decorators (TS_AST_DECORATOR + DECORATOR_LIST helper + 4 wire-in sites — closes the v5.7.24-v5.7.26 advanced-TS trio)
 - **v5.7.27** ✅ codebuf cap 1 MB → 3 MB + 19-region heap reshuffle (261 offset refs shifted across 21 files; cx backend untouched — turned out to be wrong, see v5.7.28)
 - **v5.7.28** ✅ cx backend TOKTYP/TOKVAL offset re-sync + structural parity gate (closes the v5.7.27 ship regression where cc5_cx silently broke)
+- **v5.7.29** ✅ cx gate `set -e` repair + check.sh hygiene (closes the v5.7.27 fallout chain — check.sh now runs through to 48/48 PASS)
 
 Queue:
-- **v5.7.29** — cx gate `set -e` repair + check.sh hygiene
-  pass. Pre-existing v5.7.26-era bug. Three `regression-cx-*.sh`
-  gates have `set -e + pipeline` interactions that abort scripts
-  before `EXIT=$?` capture, then check.sh's own `set -e` aborts
-  at the cx-build gate. ~30 lines + an audit pass for `pipefail`
-  hygiene on all gate-runner lines. With v5.7.28's compiler fix
-  in place, this slot completes the v5.7.27 fallout closure.
+- **v5.7.30** — aarch64 `f64_exp` polyfill. **phylax-blocking**;
+  user-pinned 2026-04-28 at v5.7.29 ship. Local aarch64
+  cross-build fails for any project using `f64_exp` (phylax uses
+  it in entropy/chi-squared paths). CI passes only because
+  cc5_aarch64 isn't bundled — green CI doesn't mean a working
+  aarch64 release. Cyrius-side polyfill needed.
 - **TS test organization rework** — pinned but deliberately
   separate from cap raise (per user direction: tcyr stays as
   in-process API exercise; shell gates remain smoke surface).
@@ -988,9 +1027,9 @@ Queue:
   pre-compiled frontend object linkage so each tcyr doesn't
   pull the whole TS frontend, ~5500 LOC of compiler in
   every test binary).
-- **v5.7.30-v5.7.33** — RISC-V rv64 (3-5 sub-patches; +2 slid
-  from original v5.7.28 to absorb the cx-offset (v5.7.28) +
-  cx-gate-repair (v5.7.29) split).
+- **v5.7.31-v5.7.33** — RISC-V rv64 (3-5 sub-patches; +3 slid
+  from original v5.7.28 to absorb cx-offset (v5.7.28) +
+  cx-gate-repair (v5.7.29) + aarch64 f64_exp polyfill (v5.7.30)).
 - **v5.7.x patch slate (consumer-surfaced)**: lib/json.cyr depth
   follow-ups — pretty-print / streaming / JSON Pointer. Pinned
   2026-04-27; promoted to numbered slots when claimed.

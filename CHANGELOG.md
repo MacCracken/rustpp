@@ -4,6 +4,148 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.29] — 2026-04-28
+
+**CX GATE `set -e` REPAIR + check.sh HYGIENE** — closes the
+v5.7.27 fallout. v5.7.28 fixed the COMPILER regression
+(cc5_cx restored); v5.7.29 fixes the GATE-INFRASTRUCTURE so
+check.sh can correctly report it. ~50 lines, zero compiler
+change.
+
+### What was broken
+
+Three `regression-cx-{build,roundtrip,syscall-literal}.sh`
+gates had a `set -e + pipeline` interaction. cc5_cx returns
+exit 1 on parse-error inputs (correct: emits a diagnostic and
+exits non-zero). The gates' intent: only flag SIGSEGV ≥128 as
+a failure. But under `set -e`, ANY non-zero pipeline exit
+aborts the script BEFORE `EXIT=$?` can capture, so the
+"only ≥128" logic was unreachable. Pre-existing v5.7.26-era
+bug.
+
+`check.sh` itself had `set -e` at line 4. Its gate-runner
+pattern is:
+
+```sh
+sh "$ROOT/tests/regression-cx-build.sh" > /tmp/audit_cx_$$ 2>&1
+cx_result=$?
+check "..." "$cx_result"
+```
+
+Under `set -e`, when the gate returns non-zero, check.sh
+aborts BEFORE `cx_result=$?` runs. The whole audit died at
+the first non-zero gate, hiding every gate after it (~25 of
+47+ at v5.7.27 ship). The verification idiom
+`sh scripts/check.sh 2>&1 | tail -3` then returned 0 from
+`tail`'s exit (with unset `pipefail`), masking the abort
+behind a "summary" line that was actually the last 3
+non-summary lines of partial output.
+
+**Net effect across v5.7.24-v5.7.27 ship:** every "47/47
+PASS"-shape report I logged was false reassurance. check.sh
+was aborting at the cx-build gate, the masked exit code was
+1, and `tail -3` showed `── cyrius-x bytecode entry ──` plus
+two preceding lines that LOOKED like a passing summary
+because the actual summary line never printed. Real failure
+state was "audit aborted at gate ~25/47, last 22 gates
+unverified."
+
+### Fixed
+
+**Three cx gate `set -e` toggles:**
+
+- `tests/regression-cx-build.sh` — `set +e` / `set -e`
+  wrapper around `cc5_cx` invocations in Step 2 (empty input)
+  and Step 3 (trivial input). Captures any exit 0-127 cleanly;
+  ≥128 still flagged as SIGSEGV-class regression.
+- `tests/regression-cx-roundtrip.sh` — same wrapper around
+  Test 1 (empty input cc5_cx) and Test 3 (fn-main cc5_cx).
+  Plus repaired a latent bug in Test 4: `cmd || true; EXIT=$?`
+  was clobbering EXIT to 0 (since `$?` after `|| true`
+  reflects `true`'s exit, not the original command's), making
+  the SIGSEGV-detection branch unreachable. Replaced with
+  proper `set +e` / `set -e` capture pattern.
+- `tests/regression-cx-syscall-literal.sh` — `set +e` /
+  `set -e` wrapper around the Test 1 cc5_cx invocation +
+  consolidated the for-loop wrapper (was wrapping cxvm
+  separately; now wraps both cc5_cx and cxvm together).
+
+**`scripts/check.sh` `set -e` removed.** The script uses
+explicit `_result=$?` capture + `check "..." "$_result"`
+reporting after every gate, with `if [ "$_result" -ne 0 ];
+then cat /tmp/audit_$$; fi` for failed-gate output. None of
+those depend on `set -e` — it was never load-bearing, just
+counterproductive. Individual gate scripts keep their own
+`set -e` (with the new `set +e` toggles around test-pipelines)
+to protect their internal init logic (mkdir / cd / find
+calls).
+
+### Added
+
+- ~25 lines of explanatory comments in the affected gate
+  scripts and check.sh header documenting WHY `set -e` was
+  toggled / removed (so future contributors don't naively
+  re-add it). Memory of the v5.7.27-era ship damage is
+  encoded in the comments themselves.
+
+### Verification
+
+- `sh scripts/check.sh` — completes cleanly: rc=0, 48/48
+  PASS (was aborting at gate ~25/47 silently before this
+  patch).
+- `sh scripts/check.sh 2>&1 | tail -3` shows a real
+  summary line — `48 passed, 0 failed (48 total)` —
+  matching the actual exit code (0). The verification idiom
+  is no longer pipe-masked.
+- `set -o pipefail; sh scripts/check.sh 2>&1 | tail -3` —
+  rc=0. With pipefail set, the pipe surfaces the upstream
+  exit; this confirms check.sh truly returns 0, not just
+  via tail-mask.
+- 3-step self-host fixpoint — `cc5_a → cc5_b == cc5_c`
+  byte-identical at **719,000 B** (size unchanged; no
+  compiler change).
+- All three v5.7.24-v5.7.26 TS gates PASS (asserts /
+  mapped / decorators).
+- v5.7.28's parity gate (4ak) PASS — now reachable via
+  check.sh; pre-v5.7.29 the cx-build gate failure aborted
+  check.sh before 4ak could run.
+- SY corpus 2053/2053 .ts + 435/435 .tsx unchanged.
+
+### Files
+
+- `tests/regression-cx-build.sh` — 2× `set +e` / `set -e`
+  wrappers + comments
+- `tests/regression-cx-roundtrip.sh` — 3× `set +e` / `set -e`
+  wrappers + the `|| true` clobber repair + comments
+- `tests/regression-cx-syscall-literal.sh` — wrapper
+  consolidation + Test 1 wrapper + comments
+- `scripts/check.sh` — `set -e` removed at line 4 with
+  block comment explaining why
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.29 bump
+- Install snapshot at `~/.cyrius/versions/5.7.29/`
+
+### Pattern
+
+Per `feedback_dont_assume_unmaintained.md`: "fix-build-iterate,
+then add a CI gate so it doesn't silently rot." v5.7.28 was
+the fix; v5.7.28's parity gate (4ak) was the new CI gate;
+v5.7.29 makes check.sh able to actually run that gate. The
+trio (cap raise + cx re-sync + gate hygiene) closes the
+v5.7.27 ship-damage chain entirely.
+
+### Slot map (post-v5.7.29)
+
+- v5.7.27 ✅ codebuf 1 MB → 3 MB + 19-region reshuffle (silently
+  regressed cc5_cx — closed by v5.7.28)
+- v5.7.28 ✅ cx backend offset re-sync + structural parity gate
+- v5.7.29 ✅ cx gate `set -e` repair + check.sh hygiene
+  (this slot — closes the v5.7.27 fallout chain)
+- v5.7.30 — aarch64 `f64_exp` polyfill (phylax-blocking;
+  user-pinned 2026-04-28 at v5.7.29 ship)
+- v5.7.31-v5.7.33 — RISC-V rv64 (3-5 sub-patches; +1 slid
+  from v5.7.30 to absorb the polyfill slot)
+- **v5.7.34** — TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.28] — 2026-04-28
 
 **CX BACKEND TOKEN-OFFSET FIX (v5.7.27 SHIP REGRESSION)** —

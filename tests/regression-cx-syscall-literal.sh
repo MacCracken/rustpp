@@ -52,7 +52,15 @@ chmod +x "$CXVM"
 fail=0
 
 # Test 1: literal 60 + 42 reach the bytecode.
+#
+# v5.7.29: `set +e` / `set -e` wrapper. cc5_cx may return any
+# exit 0-127 (e.g. 1 if a future input regresses to a parse
+# error); the outer `set -e` would otherwise abort the gate
+# before the bytecode-content checks below could run, masking
+# any real regression as a "gate aborted" exit-1.
+set +e
 echo 'syscall(60, 42);' | "$CC_CX" > "$OUT" 2>"$ERR"
+set -e
 
 # Look for `01 00 3c 00` (MOVI r0, 60).
 if ! xxd "$OUT" | grep -q "0100 3c00"; then
@@ -93,8 +101,8 @@ fi
 # round-trip independently. Catches a hypothetical regression
 # where TOKVAL reads a constant (e.g. always 0).
 for V in 0 7 99 200; do
-    echo "syscall(60, $V);" | "$CC_CX" > "$OUT" 2>/dev/null
     set +e
+    echo "syscall(60, $V);" | "$CC_CX" > "$OUT" 2>/dev/null
     "$CXVM" < "$OUT" > /dev/null 2>/dev/null
     EXIT=$?
     set -e

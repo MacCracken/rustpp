@@ -50,7 +50,23 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.29–v5.12.x):**
+> **What's next (v5.7.30–v5.12.x):**
+>
+> v5.7.29 cx gate `set -e` repair + check.sh hygiene shipped
+> 2026-04-28. Closes the v5.7.27 fallout chain. Three
+> `regression-cx-*.sh` gates wrap cc5_cx invocations in
+> `set +e` / `set -e` toggles (matching existing cxvm
+> wrappers). check.sh `set -e` removed at line 4 — was
+> aborting the audit at the first non-zero gate, hiding ~22 of
+> 47+ gates at v5.7.27 ship. Plus repaired a latent
+> `cmd || true; EXIT=$?` clobber bug in roundtrip Test 4.
+> Verification idiom `sh check.sh 2>&1 | tail -3` no longer
+> pipe-masked: rc=0 with pipefail set. cc5 byte-identical at
+> 719,000 B; **48/48 PASS**. **Every "47/47 PASS" report I
+> logged at v5.7.24-v5.7.27 ship was false reassurance** —
+> documented inline in the closeout entries. The trio
+> (v5.7.27 cap raise + v5.7.28 cx re-sync + v5.7.29 gate
+> hygiene) closes the v5.7.27 ship-damage chain entirely.
 >
 > v5.7.28 cx backend token-offset fix shipped 2026-04-28.
 > v5.7.27's heap reshuffle deliberately skipped
@@ -173,16 +189,16 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.29**: cx gate `set -e` repair + check.sh hygiene
->   pass. Pre-existing v5.7.26-era bug. ~30 lines (set +e /
->   EXIT=0; cmd || EXIT=$? toggles in three
->   `regression-cx-*.sh` gates + `pipefail` audit on check.sh
->   gate-runners), no compiler change. Sized to land in one
->   slot. With v5.7.28's compiler fix in place, completes the
->   v5.7.27 fallout closure.
-> - **v5.7.30-v5.7.33**: RISC-V rv64 (3-5 sub-patches; +2 slid
->   from original v5.7.28 to absorb the cx-offset (v5.7.28) +
->   cx-gate-repair (v5.7.29) split).
+> - **v5.7.30**: aarch64 `f64_exp` polyfill. **phylax-blocking**;
+>   user-pinned 2026-04-28 at v5.7.29 ship. Local aarch64
+>   cross-build fails for any project using `f64_exp` (phylax
+>   uses it in entropy/chi-squared paths). CI passes only
+>   because cc5_aarch64 isn't bundled. Cyrius-side polyfill
+>   needed for a real aarch64 release.
+> - **v5.7.31-v5.7.33**: RISC-V rv64 (3-5 sub-patches; +3 slid
+>   from original v5.7.28 to absorb cx-offset (v5.7.28) +
+>   cx-gate-repair (v5.7.29) + aarch64 f64_exp polyfill
+>   (v5.7.30)).
 >   **Buffer pressure resolved** — the v5.7.34 backstop bump
 >   restores the full 3-5 range without forcing the low end.
 > - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
@@ -690,6 +706,86 @@ time v5.7.26 RISC-V opens.
 feature work — warning sweeps tend to spread without a dedicated
 boundary.
 
+### v5.7.29 ✅ cx gate `set -e` repair + check.sh hygiene — SHIPPED
+
+**Shipped 2026-04-28.** Closes the v5.7.27 fallout chain.
+v5.7.28 fixed the COMPILER regression (cc5_cx restored);
+v5.7.29 fixes the GATE-INFRASTRUCTURE so check.sh can
+correctly report it. ~50 lines, zero compiler change.
+
+**What was broken:**
+
+Three `regression-cx-{build,roundtrip,syscall-literal}.sh`
+gates had `set -e + pipeline` interaction. cc5_cx returns
+exit 1 on parse-error inputs (correct: emits diagnostic +
+exits non-zero). Gates' intent: only flag SIGSEGV ≥128. But
+under `set -e`, ANY non-zero pipeline exit aborts before
+`EXIT=$?` can capture, so the "≥128 only" logic was
+unreachable.
+
+`check.sh` itself had `set -e` at line 4. Its gate-runner
+pattern `sh "$ROOT/tests/regression-X.sh" ...; result=$?` is
+fine in concept, but `set -e` aborted before `result=$?` ran
+if the gate returned non-zero. **Audit died at the first
+failing gate, hiding ~22 of 47+ at v5.7.27 ship.**
+
+The verification idiom `sh scripts/check.sh 2>&1 | tail -3`
+returned 0 from `tail` (unset pipefail), masking the abort
+behind a "summary" line that was actually the last 3
+non-summary lines of partial output. **Every "47/47 PASS"
+report logged across v5.7.24-v5.7.27 ship was false
+reassurance** — check.sh aborted at gate ~25, the masked
+exit was 1, and `tail -3` showed `── cyrius-x bytecode
+entry ──` + 2 preceding lines that LOOKED summary-shaped.
+
+**Fixed:**
+
+1. **Three cx gates wrap cc5_cx invocations in `set +e` /
+   `set -e` toggles** (matching existing pattern around
+   cxvm calls). Captures exit 0-127 cleanly; ≥128 still
+   flagged.
+2. **Repaired latent bug in roundtrip Test 4**:
+   `cmd || true; EXIT=$?` was clobbering EXIT to 0 (since
+   `$?` after `|| true` reflects `true`'s exit, not the
+   original command's), making SIGSEGV-detection
+   unreachable. Replaced with proper `set +e` / `set -e`
+   capture pattern.
+3. **`scripts/check.sh` `set -e` removed at line 4** with
+   block comment explaining why. The script uses explicit
+   `_result=$?` capture + `check "..." "$_result"` reporting
+   throughout; `set -e` was never load-bearing, just
+   counterproductive. Individual gate scripts keep their own
+   `set -e` (with new `set +e` toggles around test pipelines)
+   to protect their internal init logic.
+
+**Verification:**
+
+- `sh scripts/check.sh` — rc=0, **48/48 PASS** (was aborting
+  at gate ~25/47 silently).
+- `set -o pipefail; sh scripts/check.sh 2>&1 | tail -3` —
+  rc=0 with pipefail. Verification idiom no longer pipe-
+  masked.
+- v5.7.28's parity gate (4ak) now reachable; pre-v5.7.29 the
+  cx-build gate failure aborted check.sh before 4ak ran.
+- 3-step self-host fixpoint — cc5 byte-identical at
+  **719,000 B** (no compiler change).
+- All TS gates PASS, SY corpus 2053/2053 .ts + 435/435 .tsx
+  unchanged.
+
+**Pattern:**
+
+Per `feedback_dont_assume_unmaintained.md`: "fix-build-iterate,
+then add a CI gate so it doesn't silently rot." v5.7.28 was
+the fix; v5.7.28's parity gate (4ak) was the new CI gate;
+v5.7.29 makes check.sh able to actually run that gate. The
+trio (v5.7.27 cap raise + v5.7.28 cx re-sync + v5.7.29 gate
+hygiene) closes the v5.7.27 ship-damage chain entirely.
+
+The ~25 lines of inline `set +e` rationale in the gate
+scripts and the block comment in check.sh's prologue encode
+the v5.7.27-era ship damage so future contributors don't
+naively re-add `set -e`.
+
 ### v5.7.28 ✅ cx backend token-offset fix + structural parity gate — SHIPPED
 
 **Shipped 2026-04-28.** Compiler-side closure of the v5.7.27
@@ -873,51 +969,26 @@ by v5.7.27.
   bundling the gate fix would scope-creep beyond the
   cap-raise slot.
 
-### v5.7.29 — cx gate `set -e` repair + check.sh hygiene (queued)
+### v5.7.30 — aarch64 `f64_exp` polyfill (queued)
 
-**Pinned 2026-04-28** at v5.7.27 ship; renumbered v5.7.28 →
-v5.7.29 when v5.7.28 was claimed by the cx-offset compiler
-fix (per user direction "you can split into the two logical
-pieces"). With v5.7.28's compiler fix in place, this slot
-completes the v5.7.27 fallout closure — cc5_cx works again
-(v5.7.28), and check.sh can correctly report it (v5.7.29). Three `regression-cx-*.sh`
-gates have the broken `set -e + pipeline` pattern:
+**Pinned 2026-04-28** at v5.7.29 ship. **phylax-blocking**:
+local aarch64 cross-build fails for any project using
+`f64_exp` (phylax uses it in entropy/chi-squared paths). CI
+passes only because cc5_aarch64 isn't bundled — green CI
+doesn't mean a working aarch64 release.
 
-```sh
-set -e
-...
-echo '' | "$CC_CX" > /dev/null 2>"$CC_CX.err"
-EXIT=$?
-if [ "$EXIT" -ge 128 ]; then ...
-```
-
-The `cc5_cx` exit 1 on parse-error inputs aborts via `set -e`
-before `EXIT=$?` runs. Fix shape: wrap with `set +e` /
-`set -e` toggles, OR use `EXIT=0; cmd || EXIT=$?` patterns,
-OR drop `set -e` entirely (the explicit `if ! cmd` patterns
-elsewhere in the script don't rely on it).
-
-Add a defensive `check.sh` hygiene pass: audit all gate-
-runner lines for the `> /tmp/audit_$$ 2>&1` pattern and
-ensure `pipefail` semantics or `cx_result=$?` capture is
-robust against gate exits 1-127 (which should be PASS-able
-gate states, not check.sh aborts).
+**Scope:** cyrius-side polyfill so aarch64 codegen produces a
+working `f64_exp` (vs. the current x87-`fexp`-style fallback
+that doesn't translate). Likely a software polynomial
+approximation in `lib/math.cyr` gated on aarch64, or an
+aarch64 emit path that uses a stdlib helper.
 
 **Acceptance:**
-- All three `regression-cx-*.sh` gates exit 0 on the same
-  cc5_cx that returned exit 1 on empty input pre-fix
-  (success means: test bar is "didn't SIGSEGV", not "exit
-  was 0").
-- `sh scripts/check.sh` returns 0 when all gates pass; 1
-  ONLY when an actual gate FAILs (not when it has exit
-  1-127 from a tested binary).
-- `sh scripts/check.sh 2>&1 | tail -5` shows the proper
-  summary line `N passed, 0 failed (N total)` matching the
-  real result (no more pipe-masking false positives).
-
-**Slot relationship:** standalone slot. ~30 lines + audit
-pass. No compiler change. Self-host byte-identity preserved
-trivially (no `.cyr` source touched).
+- aarch64 cross-build of any phylax-shape consumer (calls
+  `f64_exp`) compiles cleanly and runs correctly on Pi
+  hardware.
+- CI gate covers the cross-build + run, so future aarch64
+  drift gets caught before ship.
 
 ### v5.7.26 ✅ TS 5.0 stage-3 decorators — SHIPPED
 
