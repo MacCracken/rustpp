@@ -4,6 +4,160 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.32] — 2026-04-28
+
+**CYRLINT GLOBAL-INIT-ORDER FORWARD-REF WARNING (mabda-
+surfaced)** — closes the silent miscompile class that cost
+mabda 30+ minutes on hardware-iter misdiagnosis. Promoted
+before RISC-V at user direction "rather be 'bug' free before
+RISCV work." Cyrlint-only patch; zero compiler change; cc5
+self-host byte-identical.
+
+### What was broken
+
+Cyrius initializes top-level `var X = expr;` declarations in
+source declaration order. If `expr` references a constant
+declared LATER in the same file, the reference resolves to
+`0` (default zero-init) at the time X is evaluated. No
+warning, no error — `X` ends up holding the wrong value, and
+downstream consumers silently see the wrong value.
+
+Mabda v3 Step 4f.ii (BO page perms tightening) hit this:
+
+```cyrius
+# Near top of src/backend_native.cyr (line 117):
+var _NATIVE_PERM_FULL = AMDGPU_VM_PAGE_READABLE
+                      | AMDGPU_VM_PAGE_WRITEABLE
+                      | AMDGPU_VM_PAGE_EXECUTABLE;
+
+# ...AMDGPU_VM_PAGE_* defined at line 391+:
+var AMDGPU_VM_PAGE_READABLE   = 0x4;
+var AMDGPU_VM_PAGE_WRITEABLE  = 0x8;
+var AMDGPU_VM_PAGE_EXECUTABLE = 0x10;
+```
+
+Result: `_NATIVE_PERM_FULL` evaluated to `0` at load time.
+Every BO mapped with `perms = 0`. Every dispatch TDR'd at
+the AMDGPU 10-second timeout with "post-dispatch marker
+stale" / "output unchanged." Looked like a wedged GPU; took
+30+ minutes to disprove the hypothesis before a CPU
+regression test (`assert_eq(_NATIVE_PERM_FULL, R|W|X)`)
+returned `got 0, expected 14` and pinned the actual cause.
+
+Hardware iteration cost matters — every TDR puts the AMDGPU
+firmware closer to a permanent wedge.
+
+### Fixed
+
+`programs/cyrlint.cyr` adds a new rule
+`lint_globals_init_order` that walks the file twice:
+
+1. **Pass 1**: collects every TOP-LEVEL `var IDENT = ...;`
+   and records `(name, line)` in parallel arrays (cap 256
+   vars × 32-byte names — sized for stdlib + typical
+   consumer code).
+2. **Pass 2**: walks every `var X = expr;`, scans `expr`
+   tokens; for each IDENT reference, looks up in the
+   pass-1 table. If the IDENT was declared at a line LATER
+   than X, emits a warning:
+
+   ```
+   warn line 117: global var init refs 'AMDGPU_VM_PAGE_READABLE'
+                  declared at line 391 (silent zero at init)
+   ```
+
+Scope deliberately narrow: only `var → var` references.
+fns / enums / structs are forward-ref-safe (fn addresses
+fixed at emit time; enum values compile-time constants;
+structs are types not values), so they don't need tracking.
+The rule mirrors mabda's option (1) in the filing.
+
+### Added
+
+- **`lint_globals_init_order(buf, total)`** + helpers
+  (`_is_id_start`, `_is_id_cont`, `_find_eol`,
+  `_find_var_decl_ident`, `_scan_id_end`, `_eq_substr`)
+  in `programs/cyrlint.cyr`. ~150 lines total. Wired
+  into `main()` after the existing `lint_file` call.
+- **`tests/regression-lint-global-init-order.sh`** —
+  check.sh gate 4an (50 → 51). Three test cases:
+  1. Known-bad fixture from mabda's filing (3 forward
+     refs) → expects ≥3 warnings.
+  2. `lib/math.cyr` → expects 0 warnings (false-positive
+     check; stdlib is forward-ref clean).
+  3. `lib/string.cyr` → expects 0 warnings (false-positive
+     check).
+  Wraps cyrlint invocations with `set +e`/`set -e` toggle
+  since cyrlint returns warning count as exit code.
+
+### Verification
+
+- 3-step self-host fixpoint — cc5 byte-identical at
+  **720,640 B** (no change from v5.7.31; cyrius compiler
+  not touched in this slot).
+- `regression-lint-global-init-order.sh` — PASS:
+  ```
+  PASS: cyrlint flags forward-ref var inits (3 on fixture;
+        0 false-positives on stdlib) (v5.7.32)
+  ```
+- Manual test: cyrlint on the mabda repro shape correctly
+  flags `COMPUTED = FLAG_A | FLAG_B | FLAG_C` with three
+  warnings (FLAG_A line 5, FLAG_B line 6, FLAG_C line 7,
+  all later than COMPUTED at line 1).
+- Manual test: cyrlint on `lib/math.cyr` (which has 14
+  top-level `F64_*` constants used in `fn` bodies + many
+  intra-decl refs like `F64_LN2`) → 0 forward-ref warnings.
+- `sh scripts/check.sh` — **51/51 PASS** (was 50/50;
+  +gate 4an).
+- TS gates / SY corpus / aarch64 f64 / cx token-offset /
+  heap-map all unchanged.
+
+### Per `feedback_grow_compiler_to_fit_language.md`
+
+The language behavior (declaration-order init) stays — no
+change there. The lint surfaces the foot-gun without forcing
+a compile-time error that would break ~existing stdlib
+shapes that intentionally rely on declaration order. Same
+shape as v5.7.18 regex engine, v5.7.20 JSON engine: stdlib
+grows to fit consumer needs without language change.
+
+### Limitations / out of scope
+
+- **Identifiers inside string literals / comments**: the
+  scanner skips `#` line comments but doesn't suppress
+  IDENTs inside string literals. Currently no false-
+  positive cases observed (string literals rarely contain
+  symbol names matching declared globals), but a literal-
+  aware scanner is a future polish.
+- **Non-`var` global decls**: enum values, struct types,
+  fn names — not tracked. forward-ref-safe.
+- **Scope**: only top-level decls. Fn-local `var`
+  declarations are line-scoped and aren't subject to the
+  init-order issue.
+- **Block-form `var`**: `var X[N];` (uninitialized) is
+  skipped — nothing to check.
+
+### Slot map (post-v5.7.32)
+
+- v5.7.30 ✅ aarch64 f64 basic-op implementation
+- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills
+- v5.7.32 ✅ cyrlint global-init-order forward-ref warning
+  (this slot — closes mabda surfacing)
+- v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches)
+- v5.7.36 — open slot (warning sweep + wildcard)
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
+### Files
+
+- `programs/cyrlint.cyr` — `+150` lines for new rule +
+  helpers; wire-in at `main()` between `lint_file` and the
+  warning summary.
+- `tests/regression-lint-global-init-order.sh` — new gate
+  (~85 lines).
+- `scripts/check.sh` — 8 lines wiring gate 4an.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.32 bump.
+- Install snapshot at `~/.cyrius/versions/5.7.32/`.
+
 ## [5.7.31] — 2026-04-28
 
 **AARCH64 f64_exp / f64_ln POLYFILLS — phylax UNBLOCK** —

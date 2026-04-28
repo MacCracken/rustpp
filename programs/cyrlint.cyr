@@ -255,6 +255,228 @@ fn lint_file(buf, total) {
     return 0;
 }
 
+# === Rule: top-level var X = expr referencing var Y declared later ===
+#
+# v5.7.32 (mabda surfacing): cyrius initializes top-level
+# `var X = expr;` declarations in source declaration order. If
+# `expr` references a constant declared LATER in the same file,
+# the reference resolves to 0 (default zero-init) at the time X
+# is evaluated. No warning, no error.
+#
+# Mabda v3 Step 4f.ii hit this on hardware-iter work and burned
+# 30+ minutes on a "wedged GPU" misdiagnosis before a CPU
+# regression test pinned the actual cause. Filed at
+# `docs/development/issues/2026-04-28-global-init-order-forward-
+# ref.md`.
+#
+# Rule: walk the file twice. Pass 1 collects every TOP-LEVEL
+# `var IDENT = ...;` and records (name, line) in parallel arrays.
+# Pass 2 walks every `var X = expr;` initializer, scans the expr
+# for identifier tokens, and warns if an IDENT was declared at a
+# line LATER than X (silent zero at init time).
+#
+# Scope deliberately narrow: only `var → var` references. fns,
+# enums, and structs are forward-ref-safe (fn addresses fixed at
+# emit time; enum values are compile-time constants; structs are
+# types, not values), so they don't need tracking.
+#
+# Capacity: 256 top-level vars × 32-byte names. Sized for stdlib
+# (lib/math.cyr alone has ~25 top-level constants); typical
+# consumer code is well under.
+fn _is_id_start(c) {
+    if (c >= 65) { if (c <= 90) { return 1; } }    # A-Z
+    if (c >= 97) { if (c <= 122) { return 1; } }   # a-z
+    if (c == 95) { return 1; }                      # _
+    return 0;
+}
+fn _is_id_cont(c) {
+    if (_is_id_start(c) == 1) { return 1; }
+    if (c >= 48) { if (c <= 57) { return 1; } }    # 0-9
+    return 0;
+}
+
+# Helper: at buf[pos..eol), find a top-level `var IDENT` decl.
+# Returns the offset of IDENT's first byte, or -1 if not a var-
+# decl line. Caller already checked this line is at brace_depth==0.
+fn _find_var_decl_ident(buf, pos, eol) {
+    # Skip leading whitespace
+    var p = pos;
+    while (p < eol) {
+        var c = load8(buf + p);
+        if (c != 32) { if (c != 9) { break; } }
+        p = p + 1;
+    }
+    # Match `var ` (4 chars)
+    if (p + 4 > eol) { return 0 - 1; }
+    if (memeq(buf + p, "var ", 4) == 0) { return 0 - 1; }
+    p = p + 4;
+    # Skip more whitespace
+    while (p < eol) {
+        var c2 = load8(buf + p);
+        if (c2 != 32) { if (c2 != 9) { break; } }
+        p = p + 1;
+    }
+    if (p >= eol) { return 0 - 1; }
+    if (_is_id_start(load8(buf + p)) == 0) { return 0 - 1; }
+    return p;
+}
+
+# Walk buf, find IDENT length starting at off (caller guaranteed
+# is_id_start). Returns end position (one past last id char).
+fn _scan_id_end(buf, off, total) {
+    var p = off + 1;
+    while (p < total) {
+        if (_is_id_cont(load8(buf + p)) == 0) { return p; }
+        p = p + 1;
+    }
+    return p;
+}
+
+# Compare buf[off, off+len) to buf[other_off, other_off+other_len).
+fn _eq_substr(buf, off1, len1, off2, len2) {
+    if (len1 != len2) { return 0; }
+    var i = 0;
+    while (i < len1) {
+        if (load8(buf + off1 + i) != load8(buf + off2 + i)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn _find_eol(buf, start, total) {
+    var p = start;
+    while (p < total) {
+        if (load8(buf + p) == 10) { return p; }
+        p = p + 1;
+    }
+    return total;
+}
+
+fn lint_globals_init_order(buf, total) {
+    # Parallel arrays: name_off[i], name_len[i], name_line[i]. Cap 256.
+    var name_off  = alloc(2048);   # 256 × 8B
+    var name_len  = alloc(2048);
+    var name_line = alloc(2048);
+    var nvars = 0;
+
+    # Pass 1: collect top-level `var IDENT = ...;` decls.
+    var pos = 0;
+    var lineno = 1;
+    var depth = 0;
+    while (pos < total) {
+        var eol = _find_eol(buf, pos, total);
+        if (depth == 0) {
+            var decl = _find_var_decl_ident(buf, pos, eol);
+            if (decl >= 0) {
+                if (nvars < 256) {
+                    var id_end = _scan_id_end(buf, decl, total);
+                    store64(name_off  + nvars * 8, decl);
+                    store64(name_len  + nvars * 8, id_end - decl);
+                    store64(name_line + nvars * 8, lineno);
+                    nvars = nvars + 1;
+                }
+            }
+        }
+        var bp = pos;
+        while (bp < eol) {
+            var bc = load8(buf + bp);
+            if (bc == 123) { depth = depth + 1; }    # `{`
+            if (bc == 125) { depth = depth - 1; }    # `}`
+            bp = bp + 1;
+        }
+        pos = eol + 1;
+        lineno = lineno + 1;
+    }
+
+    # Pass 2: re-walk. For each top-level `var X = expr;`, scan
+    # expr tokens; warn on any IDENT whose def_line > current.
+    pos = 0;
+    lineno = 1;
+    depth = 0;
+    while (pos < total) {
+        var eol = _find_eol(buf, pos, total);
+        if (depth == 0) {
+            var decl = _find_var_decl_ident(buf, pos, eol);
+            if (decl >= 0) {
+                var id_end = _scan_id_end(buf, decl, total);
+                # Find `=` after IDENT (uninit decl skipped).
+                var eq = id_end;
+                var found_eq = 0;
+                while (eq < eol) {
+                    if (load8(buf + eq) == 61) {
+                        found_eq = 1;
+                        eq = eol;
+                    } else {
+                        eq = eq + 1;
+                    }
+                }
+                if (found_eq == 1) {
+                    # Recompute eq position (the loop overshot to eol).
+                    eq = id_end;
+                    while (eq < eol) {
+                        if (load8(buf + eq) == 61) { eq = eol + 1; }
+                        else { eq = eq + 1; }
+                    }
+                    var scan = (eol - eol) + (id_end + 0);
+                    # eq now at eol+1 if found. The actual `=` was
+                    # somewhere in [id_end, eol). Find its real pos.
+                    var real_eq = id_end;
+                    while (real_eq < eol) {
+                        if (load8(buf + real_eq) == 61) { break; }
+                        real_eq = real_eq + 1;
+                    }
+                    scan = real_eq + 1;
+                    while (scan < eol) {
+                        var c = load8(buf + scan);
+                        if (c == 35) { scan = eol; }              # # comment
+                        elif (_is_id_start(c) == 1) {
+                            var id_e = _scan_id_end(buf, scan, total);
+                            var idlen = id_e - scan;
+                            var i = 0;
+                            while (i < nvars) {
+                                var v_off  = load64(name_off  + i * 8);
+                                var v_len  = load64(name_len  + i * 8);
+                                var v_line = load64(name_line + i * 8);
+                                if (_eq_substr(buf, v_off, v_len, scan, idlen) == 1) {
+                                    if (v_line > lineno) {
+                                        syscall(1, 2, "  warn line ", 12);
+                                        var nb[24];
+                                        var nl = fmt_int_buf(lineno, &nb);
+                                        syscall(1, 2, &nb, nl);
+                                        syscall(1, 2, ": global var init refs '", 24);
+                                        syscall(1, 2, buf + v_off, v_len);
+                                        syscall(1, 2, "' declared at line ", 19);
+                                        var nb2[24];
+                                        var nl2 = fmt_int_buf(v_line, &nb2);
+                                        syscall(1, 2, &nb2, nl2);
+                                        syscall(1, 2, " (silent zero at init)\n", 23);
+                                        _warnings += 1;
+                                        i = nvars;   # break — single warn per ref
+                                    }
+                                }
+                                i = i + 1;
+                            }
+                            scan = id_e;
+                        } else {
+                            scan = scan + 1;
+                        }
+                    }
+                }
+            }
+        }
+        var bp = pos;
+        while (bp < eol) {
+            var bc = load8(buf + bp);
+            if (bc == 123) { depth = depth + 1; }
+            if (bc == 125) { depth = depth - 1; }
+            bp = bp + 1;
+        }
+        pos = eol + 1;
+        lineno = lineno + 1;
+    }
+    return 0;
+}
+
 fn main() {
     alloc_init();
     args_init();
@@ -277,6 +499,7 @@ fn main() {
     }
 
     lint_file(buf, n);
+    lint_globals_init_order(buf, n);
 
     var nb[24];
     var nl = fmt_int_buf(_warnings, &nb);

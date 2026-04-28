@@ -522,6 +522,15 @@ if [ "$apf_result" -ne 0 ]; then cat /tmp/audit_apf_$$; fi
 rm -f /tmp/audit_apf_$$
 echo ""
 
+# ── 4an. cyrlint global-init-order forward-ref warning (v5.7.32) ──
+echo "── cyrlint global-init-order ──"
+sh "$ROOT/tests/regression-lint-global-init-order.sh" > /tmp/audit_lio_$$ 2>&1
+lio_result=$?
+check "cyrlint flags forward-ref var inits (v5.7.32; mabda-surfaced)" "$lio_result"
+if [ "$lio_result" -ne 0 ]; then cat /tmp/audit_lio_$$; fi
+rm -f /tmp/audit_lio_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

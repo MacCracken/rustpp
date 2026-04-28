@@ -50,7 +50,24 @@
 > backstop slot itself).
 >
 
-> **What's next (v5.7.32–v5.12.x):**
+> **What's next (v5.7.33–v5.12.x):**
+>
+> v5.7.32 cyrlint global-init-order forward-ref warning shipped
+> 2026-04-28. Closes silent miscompile class that cost mabda
+> 30+ minutes on hardware-iter misdiagnosis. Promoted before
+> RISC-V at user direction "rather be 'bug' free before RISCV
+> work." Cyrlint-only patch; zero compiler change; cc5
+> byte-identical at 720,640 B. New rule
+> `lint_globals_init_order` walks file twice — Pass 1 collects
+> top-level `var IDENT = ...;` decls; Pass 2 scans each
+> initializer's expr for IDENT refs and warns if def_line >
+> current_line. Mirrors mabda's option (1) in the filing. New
+> gate 4an (regression-lint-global-init-order.sh): 3 cases —
+> known-bad fixture (3 forward refs → ≥3 warnings), lib/math.cyr
+> (0 false-positives), lib/string.cyr (0 false-positives).
+> **check.sh 51/51 PASS.** Per `feedback_grow_compiler_to_fit_
+> language.md`: language behavior unchanged; lint surfaces the
+> foot-gun without forcing breaking change.
 >
 > v5.7.31 aarch64 f64_exp / f64_ln polyfills shipped 2026-04-28.
 > Closes the phylax-block. Originally-named v5.7.30 ask; split
@@ -224,9 +241,6 @@
 > `class asserts {}` — pre-existing limitation that contextual
 > keywords aren't accepted as fn/class declaration names.
 >
-> - **v5.7.32**: mabda global-init-order forward-ref lint.
->   Promoted before RISC-V at user direction 2026-04-28: "rather
->   be 'bug' free before RISCV work."
 > - **v5.7.33-v5.7.35**: RISC-V rv64 (tightened from 3-5 to
 >   3 sub-patches; bumped from v5.7.31 to fit v5.7.30 split +
 >   mabda lint slot).
@@ -523,37 +537,77 @@ toolchain side is unblocked.
 
 
 
-## v5.7.32 — mabda global-init-order forward-ref lint (queued)
+## v5.7.32 ✅ cyrlint global-init-order forward-ref warning — SHIPPED
 
-**Pinned 2026-04-28** at v5.7.30 ship; **promoted before
-RISC-V** at user direction "rather be 'bug' free before
-RISCV work." Mabda team filed the issue at
+**Shipped 2026-04-28.** Mabda team filed the issue at
 `mabda/docs/development/issues/2026-04-28-cyrius-global-init-
 order.md`; mirrored to `docs/development/issues/2026-04-28-
-global-init-order-forward-ref.md`.
+global-init-order-forward-ref.md`. Promoted before RISC-V at
+user direction "rather be 'bug' free before RISCV work."
 
-**Bug shape:** cyrius initializes top-level `var X = expr;`
+**Bug class:** cyrius initializes top-level `var X = expr;`
 in source declaration order. Forward references to symbols
-declared LATER silently evaluate to 0. No warning, no error.
-Mabda hit this on hardware-iter work and lost ~30 minutes
-chasing a "wedged GPU" hypothesis before a CPU regression
-test pinned the actual cause (a `_NATIVE_PERM_FULL` constant
-defined before its `AMDGPU_VM_PAGE_*` dependencies).
+declared LATER silently evaluate to 0. Mabda hit this on
+hardware-iter work and lost ~30 minutes chasing a "wedged
+GPU" hypothesis before a CPU regression test pinned the
+actual cause (a `_NATIVE_PERM_FULL = AMDGPU_VM_PAGE_R |
+_W | _X` at line 117, with the AMDGPU_VM_PAGE_* constants
+at line 391+).
 
-**Recommended fix (option 1 of mabda's filing):** `cyrius
-lint` warning. Walk the file; build first-pass name → line
-map of `var` / `fn` / `enum` / `struct` defs; second pass
-checks each `var X = expr` against it; emit warning for
-forward refs with file:line + offending symbol + def line.
-~50-100 lines in `programs/cyrlint.cyr`; no compiler change.
-Per `feedback_grow_compiler_to_fit_language.md`, the language
-behavior (declaration-order init) stays; the lint surfaces
-the foot-gun.
+**Implementation (mabda's option 1):**
 
-**Acceptance:** the mabda repro from the filing emits the
-exact warning shape proposed in option 1. CI gate runs
-`cyrius lint` on stdlib + a known-bad fixture, asserts the
-fixture warns, asserts stdlib doesn't.
+`programs/cyrlint.cyr` adds `lint_globals_init_order(buf,
+total)` that walks the file twice:
+1. **Pass 1** — collects every TOP-LEVEL `var IDENT = ...;`
+   and records `(name, line)` in parallel arrays. Cap 256
+   vars × 32-byte names (sized for stdlib + typical
+   consumer code).
+2. **Pass 2** — walks every `var X = expr;`, scans expr
+   tokens; for each IDENT, looks up in the table; if
+   def_line > current_line, emits a warning:
+   ```
+   warn line N: global var init refs 'NAME' declared at line M
+                (silent zero at init)
+   ```
+
+Helpers added: `_is_id_start`, `_is_id_cont`, `_find_eol`,
+`_find_var_decl_ident`, `_scan_id_end`, `_eq_substr`. Wired
+into `main()` after the existing `lint_file` call.
+
+Scope deliberately narrow: only `var → var` references.
+fns / enums / structs are forward-ref-safe (fn addresses
+fixed at emit time; enum values compile-time constants;
+structs are types not values).
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change in this slot — cyrlint-only patch).
+- New gate `regression-lint-global-init-order.sh` (4an):
+  3 cases — known-bad fixture (3 forward refs → ≥3
+  warnings), `lib/math.cyr` (0 false-positives),
+  `lib/string.cyr` (0 false-positives). All PASS.
+- `sh scripts/check.sh` — **51/51 PASS** (was 50/50;
+  +gate 4an).
+
+**Per `feedback_grow_compiler_to_fit_language.md`:**
+
+Language behavior (declaration-order init) stays unchanged.
+The lint surfaces the foot-gun without forcing a compile-
+time error that would break ~existing stdlib shapes that
+rely on declaration order. Same shape as v5.7.18 regex
+engine, v5.7.20 JSON engine: stdlib grows to fit consumer
+needs without language change.
+
+**Limitations / future polish:**
+
+- IDENTs inside string literals not yet suppressed (no
+  observed false positives, but a literal-aware scanner is
+  a future polish slot).
+- Only `var` decls tracked; non-`var` global decls
+  (enum / struct / fn) are forward-ref-safe.
+- Block-form `var X[N];` (uninit) skipped — nothing to
+  check.
 
 ## v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches; tightened from 3-5)
 

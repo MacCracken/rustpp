@@ -5,6 +5,45 @@
 
 ## Version
 
+**5.7.32** (shipped 2026-04-28 — **CYRLINT GLOBAL-INIT-ORDER
+FORWARD-REF WARNING (mabda-surfaced)**. Closes silent
+miscompile class that cost mabda 30+ minutes hardware-iter
+misdiagnosis. **Promoted before RISC-V** at user direction
+"rather be 'bug' free before RISCV work." Cyrlint-only patch;
+zero compiler change; cc5 byte-identical at 720,640 B.
+**What was broken**: cyrius initializes top-level
+`var X = expr;` in source declaration order; if `expr`
+references a constant declared LATER, the ref resolves to 0
+(default zero-init) at the time X is evaluated. No warning,
+no error. Mabda hit this in `_NATIVE_PERM_FULL =
+AMDGPU_VM_PAGE_READABLE | _WRITEABLE | _EXECUTABLE` at line
+117 with the AMDGPU_VM_PAGE_* constants at line 391+; result:
+all BOs mapped with `perms=0`; every dispatch TDR'd at the
+AMDGPU 10-second timeout looking like a wedged GPU.
+**Fixed**: new rule `lint_globals_init_order` in
+`programs/cyrlint.cyr` walks file twice. Pass 1 collects
+every TOP-LEVEL `var IDENT = ...;` and records (name, line)
+in parallel arrays (cap 256). Pass 2 walks every var
+initializer, scans expr tokens for IDENT references, emits
+warning if def_line > current_line. Mirrors mabda's option
+(1) in the filing. Helpers added: `_is_id_start`,
+`_is_id_cont`, `_find_eol`, `_find_var_decl_ident`,
+`_scan_id_end`, `_eq_substr`. Scope deliberately narrow:
+only var→var references (fns/enums/structs are forward-
+ref-safe). Per `feedback_grow_compiler_to_fit_language.md`:
+language behavior stays unchanged; lint surfaces the
+foot-gun without breaking existing stdlib shapes that rely
+on declaration order. **Verification**: new gate
+`tests/regression-lint-global-init-order.sh` (4an): 3 test
+cases — known-bad fixture (3 forward refs → ≥3 warnings),
+lib/math.cyr (0 false-positives), lib/string.cyr (0
+false-positives). All PASS. cc5 self-host two-step
+byte-identical at **720,640 B** (no compiler change).
+**check.sh 51/51 PASS** (was 50/50; +gate 4an). Out of
+scope (future polish): IDENTs inside string literals (no
+suppression yet — no observed false positives but
+literal-aware scanner is a future polish).)
+
 **5.7.31** (shipped 2026-04-28 — **AARCH64 f64_exp / f64_ln
 POLYFILLS — phylax UNBLOCK**. Originally-named v5.7.30 ask;
 split off when v5.7.30 premise verification surfaced the
@@ -1103,6 +1142,7 @@ Shipped:
 - **v5.7.29** ✅ cx gate `set -e` repair + check.sh hygiene (closes the v5.7.27 fallout chain — check.sh now runs through to 48/48 PASS)
 - **v5.7.30** ✅ aarch64 f64 basic-op implementation (FADD/FSUB/FMUL/FDIV/FSQRT/FNEG/FRINT*/FCVTZS/SCVTF — closes silent miscompile that probably dated to v5.4.x)
 - **v5.7.31** ✅ aarch64 f64_exp / f64_ln polyfills (closes phylax-block — chi-squared + entropy paths now correct on aarch64)
+- **v5.7.32** ✅ cyrlint global-init-order forward-ref warning (closes mabda surfacing — the silent miscompile class)
 
 Queue:
 - **TS test organization rework** — pinned but deliberately
