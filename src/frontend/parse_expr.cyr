@@ -1119,8 +1119,46 @@ fn PARSE_TERM(S) {
         }
         if (ptyp == 83) { ERR_MSG(S, "f64_sin is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
         if (ptyp == 84) { ERR_MSG(S, "f64_cos is x86-only for v5.6.0; aarch64 has no native trig — needs polyfill", 75); }
-        if (ptyp == 85) { ERR_MSG(S, "f64_exp is x86-only for v5.6.0; aarch64 has no native exp — needs polyfill", 74); }
-        if (ptyp == 86) { ERR_MSG(S, "f64_ln is x86-only for v5.6.0; aarch64 has no native ln — needs polyfill", 72); }
+        # v5.7.31: f64_exp / f64_ln on aarch64 — dispatch to stdlib
+        # polyfills (`_f64_exp_polyfill` / `_f64_ln_polyfill` defined
+        # in lib/math.cyr using v5.7.30 basic ops). The keyword still
+        # tokenizes as ptyp 85/86; the parser just emits a fncall
+        # instead of x87 byte sequences. Polyfill must be in the fn
+        # table — typically via `cyrius build`'s auto-include of
+        # lib/math.cyr; standalone cc5 invocations need explicit
+        # `include "lib/math.cyr"`.
+        if (ptyp == 85) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            var pf85 = _FINDFN_CSTR(S, "_f64_exp_polyfill", 17);
+            if (pf85 < 0) {
+                ERR_MSG(S, "f64_exp on aarch64 requires include \"lib/math.cyr\" (provides _f64_exp_polyfill)", 78);
+            }
+            EPUSHR(S);
+            ECALLPOPS(S, 1);
+            ECALLFIX(S, pf85);
+            return 0;
+        }
+        if (ptyp == 86) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            var pf86 = _FINDFN_CSTR(S, "_f64_ln_polyfill", 16);
+            if (pf86 < 0) {
+                ERR_MSG(S, "f64_ln on aarch64 requires include \"lib/math.cyr\" (provides _f64_ln_polyfill)", 76);
+            }
+            EPUSHR(S);
+            ECALLPOPS(S, 1);
+            ECALLFIX(S, pf86);
+            return 0;
+        }
         if (ptyp == 87) { ERR_MSG(S, "f64_log2 is x86-only for v5.6.0; aarch64 has no native log2 — needs polyfill", 76); }
         if (ptyp == 88) { ERR_MSG(S, "f64_exp2 is x86-only for v5.6.0; aarch64 has no native exp2 — needs polyfill", 76); }
     }

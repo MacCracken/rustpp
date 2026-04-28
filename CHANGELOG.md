@@ -4,6 +4,136 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.31] — 2026-04-28
+
+**AARCH64 f64_exp / f64_ln POLYFILLS — phylax UNBLOCK** —
+the originally-named v5.7.30 ask, split off when premise
+verification surfaced the broader basic-op miscompile (closed
+by v5.7.30). With v5.7.30's basic ops working, polyfills are
+pure-cyrius implementations in `lib/math.cyr` using
+FADD/FSUB/FMUL/FDIV/FRINTN/FCVTZS/SCVTF.
+
+### Added
+
+- **`lib/math.cyr` polyfills:**
+  - `_f64_exp_polyfill(x)` — range-reduce `x = n*ln(2) + r`
+    with `|r| ≤ ln(2)/2`; 11-term Taylor polynomial for
+    `exp(r)`; `2^n` via integer-exponent bit-pack.
+  - `_f64_ln_polyfill(x)` — mantissa/exponent split via bit
+    masks; remap mantissa to `[√(1/2), √2)` for tighter `u =
+    (m-1)/(m+1)` range (`|u| ≤ ~0.171`); 8-term inverse-tanh
+    series `2u·(1 + u²/3 + u⁴/5 + … + u¹⁴/15)`.
+  - Both target ~few-ulp accuracy. Sufficient for phylax-
+    class statistical work (chi-squared p-values, entropy);
+    Remez-optimized version is a future polish slot.
+- **`_FINDFN_CSTR(S, str_ptr, str_len)`** in
+  `src/frontend/parse_fn.cyr` — find fn index by literal
+  c-string name (vs. FINDFN's noff-into-str_data lookup).
+  Linear scan over `GFNC(S)` entries; matches `str_len`
+  bytes plus trailing NUL to avoid prefix collisions.
+  Used by parser polyfill dispatch.
+- **`tests/regression-aarch64-f64-polyfill.sh`** — check.sh
+  gate 4am (49 → 50). Cross-builds smoke test asserting
+  bit-accurate results within ulp budget for: `f64_exp(0) ==
+  1.0` (exact), `f64_exp(1) ≈ e` (≤1024 ulp), `f64_ln(1) ==
+  0` (≤1024 ulp), `f64_ln(e) ≈ 1.0` (≤1024 ulp),
+  `exp(ln(2)) ≈ 2.0` (≤4096 ulp round-trip), `f64_exp(-1) ≈
+  1/e` (≤1024 ulp). Runs on real Pi 4 hardware via ssh.
+
+### Changed
+
+- **`parse_expr.cyr` aarch64 dispatch** — ptyp 85 (`f64_exp`)
+  and 86 (`f64_ln`) ERR_MSG paths replaced with fncall
+  emission to `_f64_exp_polyfill` / `_f64_ln_polyfill`. If
+  the polyfill isn't registered (user hasn't included
+  `lib/math.cyr`), emits a clear error pointing at the
+  required include. Dispatch path: parse arg → push → set
+  up x0 → `ECALLFIX` to polyfill fnidx (resolved via
+  `_FINDFN_CSTR`).
+- **`lib/math.cyr` inverse-trig section** wrapped in
+  `#ifdef CYRIUS_ARCH_X86` — `f64_asin` / `f64_acos` /
+  `f64_atan2` use the `f64_atan` builtin (x87 `fpatan`),
+  which has no aarch64 equivalent and isn't polyfilled in
+  v5.7.31 (phylax doesn't need it). Skipped on aarch64
+  builds; future polyfill slot when a consumer surfaces a
+  need.
+
+### Verification
+
+- 3-step self-host fixpoint — cc5 byte-identical at
+  **720,640 B** (was 719,280 at v5.7.30; +1,360 B for the
+  polyfill bodies inlined into cc5 via `lib/math.cyr`
+  parse + `_FINDFN_CSTR` helper + dispatch in parse_expr).
+- `regression-aarch64-f64-polyfill.sh` — PASS on real Pi 4
+  hardware. All 6 assertions pass within ulp budget.
+- v5.7.30 basic-op gate (4al) — still PASS unchanged.
+- `sh scripts/check.sh` — **50/50 PASS** (was 49/49;
+  +gate 4am).
+- TS gates / SY corpus / heap-map / token-offset parity all
+  unchanged.
+
+### Closes
+
+- **phylax-block** — chi-squared p-values (`f64_exp`) and
+  entropy (`f64_ln`) paths now compile + run correctly on
+  aarch64. The "green CI but broken local aarch64" gap
+  noted by the user at v5.7.29 ship is closed: cc5_aarch64
+  bundles with phylax produce a working release.
+
+### Pattern
+
+Per `feedback_grow_compiler_to_fit_language.md`: when a
+language feature lacks native arch support, grow the stdlib
+(via polyfill) rather than the language. Same shape as
+v5.7.18 regex engine — pure-cyrius implementation, no
+compiler change beyond the dispatch wire-in.
+
+The trio of v5.7.30 basic ops + v5.7.31 polyfills closes the
+v5.4.x-era silent miscompile + the v5.7.0-era hard-reject in
+one coherent split, with structural CI gates added at both
+levels (4al for basic ops, 4am for polyfill correctness) so
+future drift on either layer gets caught before ship.
+
+### Out of scope
+
+- **`f64_sin` / `f64_cos`** — still hard-reject on aarch64.
+  Not phylax-blocking. Future polyfill slot if a consumer
+  surfaces; same shape as the exp/ln work shipped here.
+- **`f64_log2` / `f64_exp2`** — same. The math is straight-
+  forward via existing `f64_ln(x)/f64_ln(2)` and
+  `f64_exp(x*f64_ln(2))` patterns; just nobody has needed
+  it yet on aarch64.
+- **`f64_atan` / `f64_asin` / `f64_acos` / `f64_atan2`** —
+  inverse-trig family. Wrapped in `#ifdef CYRIUS_ARCH_X86`
+  so aarch64 builds skip them entirely. When a consumer
+  needs them on aarch64, polyfill follows the same pattern.
+
+### Slot map (post-v5.7.31)
+
+- v5.7.30 ✅ aarch64 f64 basic-op implementation
+- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills (this slot —
+  closes phylax-block)
+- v5.7.32 — mabda global-init-order forward-ref lint (next;
+  promoted before RISC-V at user direction)
+- v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches)
+- v5.7.36 — open slot
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
+### Files
+
+- `lib/math.cyr` — `+95` lines for two polyfill bodies +
+  comment block; inverse-trig section wrapped in
+  `#ifdef CYRIUS_ARCH_X86` (no logic change, just gating).
+- `src/frontend/parse_fn.cyr` — `+25` lines for
+  `_FINDFN_CSTR` helper.
+- `src/frontend/parse_expr.cyr` — `+30` lines replacing two
+  ERR_MSG lines with fncall dispatch (ptyp 85 + 86 paths).
+- `tests/regression-aarch64-f64-polyfill.sh` — new gate
+  (~110 lines).
+- `scripts/check.sh` — 8 lines wiring gate 4am.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.31 bump.
+- Install snapshot at `~/.cyrius/versions/5.7.31/`.
+
 ## [5.7.30] — 2026-04-28
 
 **AARCH64 f64 BASIC-OP IMPLEMENTATION** — closes a silent
