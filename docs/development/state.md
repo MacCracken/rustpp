@@ -5,6 +5,35 @@
 
 ## Version
 
+**5.7.18** (shipped 2026-04-27 — **FULL REGEX ENGINE** —
+Thompson NFA + Pike's matcher in `lib/regex.cyr`. Linear-time
+matching, no backtracking. Supports literals + escapes + `.`
++ anchors `^` `$` + character classes (`[abc]` `[^abc]`
+`[a-z]`) + predefined classes (`\d \D \w \W \s \S`) +
+quantifiers (`* + ? {n} {n,} {n,m}` greedy AND lazy) +
+alternation `|` + grouping `(...)` capturing + `(?:...)`
+non-capturing + word boundaries `\b \B`. API: `regex_compile`,
+`regex_match` (anchored), `regex_search` (find-first),
+`regex_search_at`, `regex_group_start`, `regex_group_end`.
+~830 LOC engine on top of the existing glob/find_all/
+str_replace helpers (backward-compat preserved; existing
+`tests/tcyr/regex.tcyr` still green). New gate
+`tests/tcyr/regex_engine.tcyr` — **89 byte-level assertions**
+in 13 groups: literals, anchors, classes, predefined,
+quantifiers (greedy + lazy + brace), alternation (incl.
+3-way), grouping, captures, boundaries, common patterns.
+Two engine bugs caught + fixed: gen-counter timing
+(bumped after step instead of before, blocked first-step
+loop adds), and half-open shift target bound (3-way alt's
+JMP-to-end-of-fragment missed by `[lo, hi)` bound). cc5
+unchanged at **715,920 B** (lib-only addition; compiler
+untouched). **check.sh 38/38 PASS** (tcyr 108 → 109; gate
+count unchanged). Out of scope (deferred): backreferences,
+lookaround, Unicode property classes, multiline flag.
+v5.7.19 = kernel-mode emit-order fix (agnos team request);
+v5.7.20 = additional agnos request; +2 cascade absorbed
+by v5.7.33 backstop.)
+
 **5.7.17** (shipped 2026-04-27 — **STRUCT CAP 64 → 256 +
 DUMP-ON-OVERFLOW DIAGNOSTIC**. kybernet 2026-04-27 surfaced
 the cc3-era 64-struct ceiling: pulling 3 dep dist bundles

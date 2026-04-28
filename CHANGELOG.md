@@ -4,6 +4,114 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.18] — 2026-04-27
+
+**FULL REGEX ENGINE — Thompson NFA + Pike's matcher**
+(`lib/regex.cyr`). Linear-time matching, no backtracking, no
+catastrophic-blowup pathologies. Closes the long-standing
+"glob-only / not full regex" stub at the top of `lib/regex.cyr`.
+
+### Added (`lib/regex.cyr`, ~830 LOC of engine)
+
+- **Compiled NFA** — single heap alloc holding header (216 B)
+  + 4096-instruction table (16 B per instr) + 64 class
+  bitmaps (32 B each, 256-bit). One alloc per
+  `regex_compile()`, opaque pointer to consumer.
+- **Pattern syntax**:
+  - Literals + escapes (`\\` `\.` `\n` `\r` `\t` `\0`
+    `\a` `\b` `\f` `\v` `\X` for any other byte).
+  - `.` any-char.
+  - Anchors `^` and `$` (line-start / line-end).
+  - Character classes `[abc]`, `[^abc]`, `[a-z]` —
+    plus predefined `\d \D \w \W \s \S` (also legal
+    inside `[...]`).
+  - Quantifiers `*` `+` `?` `{n}` `{n,}` `{n,m}` —
+    each with greedy default and lazy variant via
+    trailing `?` (`*?` `+?` `??` `{n,m}?`).
+  - Alternation `|` (n-way; recursive shift handles
+    3+ alternatives).
+  - Grouping `(...)` capturing (max 9 user groups +
+    group 0 implicit) and `(?:...)` non-capturing.
+  - Word boundaries `\b` `\B`.
+- **Pike's matcher** (linear-time guarantee; no
+  backtracking) — two thread lists deduped per pc per
+  generation, capture-saves carried per thread. Lazy-
+  init on first call; ~1.4 MB matcher state allocated
+  once.
+- **Public API**:
+  - `regex_compile(pat)` -> opaque NFA ptr (or `0` on
+    syntax error).
+  - `regex_match(nfa, s)` -> `1` if anchored at offset 0,
+    else `0`. Capture state stored on the NFA after a
+    successful match.
+  - `regex_search(nfa, s)` -> first match start offset,
+    or `-1`.
+  - `regex_search_at(nfa, s, len, from)` -> first match
+    starting at `>= from`, or `-1`.
+  - `regex_group_start(nfa, n)` / `regex_group_end(nfa, n)`
+    -> capture-group `n` start/end offset (group 0 is
+    the whole match; user groups 1..9). `-1` if absent.
+
+### Backward compatibility
+
+The pre-existing helpers at the top of `lib/regex.cyr`
+(`glob_match`, `str_glob`, `find_all`, `str_replace`,
+`str_replace_all`) are untouched. The "glob_match
+(regression)" group in the new gate confirms they still
+work. Existing `tests/tcyr/regex.tcyr` passes unchanged.
+
+### Acceptance gate
+
+- **`tests/tcyr/regex_engine.tcyr`** — **89 assertions** in 13
+  groups: literals, anchors, char classes (literal +
+  ranges + negation + alnum-style), predefined classes
+  (`\d \D \w \W \s \S`), greedy quantifiers, lazy
+  quantifiers, brace quantifiers (`{n}` `{n,}` `{n,m}`),
+  alternation (incl. 3-way), grouping (capturing +
+  non-capturing), captures (offset extraction), word
+  boundaries, and common patterns (signed integer, hex,
+  IPv4-shaped). All pass.
+- cc5 self-host two-step byte-identical at **715,920 B**
+  (lib-only addition; compiler unchanged).
+- check.sh **38/38 PASS** (was 38/38; tcyr count
+  108 → 109; gate count unchanged because the new
+  regex_engine.tcyr is auto-discovered by the test-suite
+  walker).
+
+### Bugs caught + fixed during build-out
+
+- **Generation counter timing** — initially bumped after
+  each step, blocking step-0 loop adds because the
+  init's gen=1 marks collided with the first step's nxt
+  adds. Fix: bump gen at the START of each step
+  (`if (sc >= 64)` → `else { ... }` style elsewhere
+  doesn't apply here; this was a pure ordering
+  question). Caught by `([a-z]+)` / `abc` returning
+  match end at offset 1 instead of 3.
+- **Half-open shift target bound** — `_re_shift_targets_one`
+  used `[lo, hi)` for branch-target bumps, missing
+  targets that pointed to exactly `hi` (the position
+  past the original fragment, where forward JMPs
+  pointed). Fix: include `hi` in the bump range. Caught
+  by 3-way alternation `cat|dog|fish` failing the first
+  alt because the JMP after `cat` landed inside `dog`
+  after the second-`|` shift.
+
+### Out of scope (deferred to future patches)
+
+- **Backreferences** (`\1` `\2` ...) — non-regular;
+  needs backtracking; breaks the linear-time guarantee.
+  Pin separately if requested.
+- **Lookaround** (`(?=...)` `(?!...)` `(?<=...)`
+  `(?<!...)`) — also non-regular; same reason.
+- **Unicode property classes** (`\p{L}` etc.) — needs
+  Unicode tables; \u and \x byte escapes (v5.7.13)
+  cover UTF-8 byte literals.
+- **Multiline mode flag** (`(?m)`) — easy add when
+  consumer needs it.
+
+---
+
 ## [5.7.17] — 2026-04-27
 
 **STRUCT CAP 64 → 256 + DUMP-ON-OVERFLOW DIAGNOSTIC.** kybernet
