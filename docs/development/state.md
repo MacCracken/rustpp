@@ -1240,7 +1240,7 @@ stops emitting literal `\x1b[…` characters. Per the "compiler
 grows to fit the language, never the other way around" rule
 (`feedback_grow_compiler_to_fit_language.md`).
 
-**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.37):**
+**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.44):**
 
 Shipped:
 - **v5.7.13** ✅ string-literal escapes (cyim-unblocking)
@@ -1267,19 +1267,94 @@ Shipped:
 - **v5.7.34** ✅ aarch64 codebuf cap raise 524288→3145728 (closes the v5.7.27 ship omission — phylax-surfaced; trivial constant bump in `src/backend/aarch64/emit.cyr` `EB()`; bundled dup-fn investigation moved to agnosys side where phylax-agent has the repro context)
 - **v5.7.35** ✅ stdlib syscall surface gaps (getdents64 + getrandom + landlock × 2 arches; agnosys drm/luks/security-surfaced; new lib/random.cyr + lib/security.cyr; +11 api-surface entries)
 
-Queue:
-- **v5.7.36** — open slot reserved for emergent items.
-  RISC-V was originally pinned here but **moved to v5.7.x at
-  v5.7.32 ship** per user direction (pairs naturally with the
-  v5.8.0 bare-metal scope — both are "no libc / new ABI" arch-
-  port work). Candidates if surfaced:
-  - lib/json.cyr depth (pretty-print / streaming / JSON Pointer)
-  - `.scyr` (soak) + `.smcyr` (smoke) file types
-  - TS test organization rework (per-tcyr frontend coupling)
-  - warning-sweep side-task floor
-  - any consumer-surfaced wildcard correctness items
-- **v5.7.37** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
+Queue (firm assignments as of 2026-04-28; user-authorized at
+v5.7.35 ship — **backstop bumped v5.7.38 → v5.7.40 → v5.7.44**
+to give the JSON depth series and TS suite full per-item slots
+rather than bundling them):
+
+- **v5.7.36** — **TS test organization rework** (pinned
+  2026-04-28 at v5.7.27 ship). Would grow tcyr richer — e.g.
+  pre-compiled frontend object linkage so each tcyr doesn't
+  pull the whole TS frontend (~5500 LOC of compiler in every
+  test binary). **First slot of the user-locked sequence**
+  because the TS test surface needs to settle before the v5.7.41-
+  v5.7.43 advanced TS suite lands — feature work and test-org
+  rework would otherwise stomp on each other.
+
+- **v5.7.37** — **bundled trio**:
+  1. **`.scyr` (soak) + `.smcyr` (smoke) file types** —
+     mirrors `*.tcyr` / `*.bcyr` / `*.fcyr` discovery shape;
+     rewrites `tests/regression-capacity.sh` away from Python 3
+     (current external-runtime leak in the test surface).
+     User-pinned 2026-04-25: "we can keep soak and smoke to
+     before closeout of 5.7.x".
+  2. **LSP semantic-tokens polish** — queued in Toolchain
+     Quality. Cross-file symbol resolution + go-to-def. Basic
+     color-coding shipped pre-v5.7.x.
+  3. **cyrlint forward-ref scanner — string-literal awareness**
+     — v5.7.32 rule doesn't suppress IDENTs inside string
+     literals (no observed false positives, but the literal-
+     aware scanner is the future polish).
+
+  Bundled because all three are independent toolchain-quality
+  polish items that don't touch the compiler core; together
+  they're one focused slot rather than three trivial ones.
+
+- **v5.7.38–v5.7.40** — **`lib/json.cyr` depth work series**
+  (pinned 2026-04-27 at v5.7.20 ship). One sub-item per slot so
+  each gets its own focused patch + tcyr suite + closeout
+  hygiene:
+  - **v5.7.38** — Pretty-printing: `json_v_build_pretty(v, indent)`,
+    ~50-100 LOC. Triggered when a consumer wants human-readable
+    JSON output (config-file writers, debug-log dumps).
+  - **v5.7.39** — Streaming parser: event API + driver
+    (`on_object_start` / `on_key` / `on_value` / `on_array_end`
+    /etc.), ~200-300 LOC. For multi-MB JSON inputs that don't fit
+    the tagged-tree memory model. Sandhi may absorb if RPC needs
+    surface first.
+  - **v5.7.40** — JSON Pointer (RFC 6901):
+    `json_v_pointer(v, "/users/0/name")`, ~50 LOC on top of the
+    existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
+
+  Acceptance per slot: tcyr suite covering the new shape —
+  pretty-print round-trip, streaming events on a multi-doc
+  fixture, JSON Pointer on the existing nested-fixture from
+  `tests/tcyr/json_engine.tcyr`.
+
+- **v5.7.41–v5.7.43** — **Advanced TS feature suite** (#8 from
+  the pin list at `roadmap.md §v5.7.x — patch slate`). Three
+  slots; specific items chosen at slot-claim time from the
+  pinned list (variadic tuples, const type params, satisfies
+  postfix verify, never/unknown audit, conditional-type
+  exhaustive corpus, `as const` explicit). Surfaces post-
+  v5.7.36 test-org rework so the new test scaffolding catches
+  each as it lands. v5.7.36 is the load-bearing prerequisite —
+  if test-org slips, this triple slides too.
+
+  Selection rule per slot: highest-friction item from the pin
+  list at the time the slot opens. If a downstream consumer
+  files a non-SY parse failure on a TS shape, that shape moves
+  to the front of the queue.
+
+- **v5.7.44** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
   Hard upper bound; anything past forces v5.8.x.
+
+**Side-task throughout v5.7.36-v5.7.44**: warning-sweep
+continuing — goal still "zero `warning:` lines from cc5
+self-build". Cleared opportunistically each closeout, no
+dedicated slot.
+
+**Floating items** that may displace the v5.7.36-v5.7.43 plan
+if surfaced before backstop:
+- **Duplicate-fn warning investigation** — parked at v5.7.34
+  ship; phylax-agent has the agnosys-side repro context. If
+  reproduced and a fix is required, claims a slot and
+  cascades the downstream items by +1 each (TS suite would
+  pinch first since it's the tail).
+- **Wildcard correctness items** (consumer-surfaced) per
+  `feedback_correctness_over_features.md` — preempt feature
+  parity. If one surfaces, the v5.7.36-v5.7.43 plan slips by
+  one slot; v5.7.44 backstop would re-bound at that point.
 
 Moved out of v5.7.x:
 - **RISC-V rv64** → v5.8.x (paired with bare-metal AGNOS kernel).

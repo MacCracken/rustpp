@@ -1136,7 +1136,8 @@ write sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
 
 **Pinned 2026-04-25; slot framing updated 2026-04-28** — RISC-V
 moved to v5.8.x at v5.7.32 ship, so this slot floats freely
-across the v5.7.36 open range. Per user direction:
+into v5.7.37 (bundled with LSP polish + cyrlint string-literal
+awareness — see state.md Queue). Per user direction:
 "we can keep soak and smoke to before closeout of 5.7.x".
 Today, soak and smoke testing
 are scattered:
@@ -1218,10 +1219,16 @@ patch with a tcyr suite covering the new shape — pretty-print
 round-trip, streaming events on a multi-doc fixture, JSON Pointer
 on the existing nested-fixture from `tests/tcyr/json_engine.tcyr`.
 
-**Slot assignment**: each takes one slot. With v5.7.37 backstop
-and v5.7.34-v5.7.35 shipped, there's room for ≤1 follow-up item
-before re-bounding (v5.7.36 open). If consumer-surfaced, claim
-the slot; if more than one wants in, re-ask.
+**Slot assignment** (firm as of 2026-04-28 at v5.7.35 ship —
+backstop bumped to v5.7.44 to fit the per-item series):
+JSON depth follow-ups now own **v5.7.38, v5.7.39, v5.7.40**
+(pretty-print, streaming, JSON Pointer respectively — one slot
+each so each gets its own focused patch + tcyr suite + closeout
+hygiene). v5.7.41-v5.7.43 are the advanced TS suite (#8 in the
+pin list); v5.7.44 is the true closeout backstop. See
+`docs/development/state.md` Queue section for the full
+sequence including v5.7.36 (TS test-org rework, prerequisite
+for v5.7.41-43) and v5.7.37 (bundled toolchain-polish trio).
 
 
 
