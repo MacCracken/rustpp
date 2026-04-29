@@ -377,6 +377,17 @@ fn cmd_lint(file) {
     return run_tool(cyrlint, file, 0, 0);
 }
 
+# v5.7.33: snapshot-based public API surface diff. Pattern from
+# agnosys/scripts/check-api-surface.sh; cyrius-native impl in
+# programs/api_surface.cyr ($_tools_dir/cyrius_api_surface).
+fn cmd_api_surface(update_flag) {
+    var tool = make_path(_tools_dir, "cyrius_api_surface");
+    if (update_flag != 0) {
+        return run_tool(tool, "--update", 0, 0);
+    }
+    return run_tool(tool, 0, 0, 0);
+}
+
 fn cmd_doc(arg1, arg2) {
     var cyrdoc = make_path(_tools_dir, "cyrdoc");
     return run_tool(cyrdoc, arg1, arg2, 0);

@@ -1,0 +1,459 @@
+# api_surface — snapshot-based public API diff for cyrius projects.
+#
+# Pinned 2026-04-28 at v5.7.32 ship; pattern adapted from
+# agnosys/scripts/check-api-surface.sh. Shipped pure-cyrius
+# rather than as a bash script per the sovereign-toolchain
+# stance ("no external runtime").
+#
+# Usage (via cbt frontend):
+#   cyrius api-surface             # diff vs committed snapshot; rc=1 on breakage
+#   cyrius api-surface --update    # regenerate snapshot
+#
+# Direct usage:
+#   cyrius_api_surface [--update] [--snapshot=PATH]
+#
+# What counts as "public": any `fn NAME(args)` not prefixed with
+# `_`. Conventions:
+#   - `_*` underscore prefix = private by convention; excluded
+#   - struct types, enums, top-level vars: NOT tracked here
+#     (separate concern; could be added later if a consumer
+#     surfacing demands it).
+#
+# Entry format: `module::name/arity` per line, sorted ascending.
+# Module = basename of the source file without `.cyr`.
+#
+# Default scan: src/*.cyr + lib/*.cyr (whichever exist).
+# Default snapshot path: docs/api-surface.snapshot.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/fs.cyr"
+include "lib/syscalls.cyr"
+include "lib/args.cyr"
+
+var DEFAULT_SNAPSHOT = "docs/api-surface.snapshot";
+var SNAPSHOT_BUF = 0;
+var ENTRIES_BUF = 0;
+var ENTRIES_OFFS = 0;
+var ENTRIES_LENS = 0;
+var ENTRIES_COUNT = 0;
+var ENTRIES_BUF_USED = 0;
+
+fn _reset_entries() {
+    ENTRIES_COUNT = 0;
+    ENTRIES_BUF_USED = 0;
+    return 0;
+}
+
+# Append "module::name/arity" to ENTRIES_BUF; record offset+len.
+fn _push_entry(module_off, module_len, name_off, name_len, arity) {
+    var off = ENTRIES_BUF_USED;
+    var i = 0;
+    while (i < module_len) {
+        store8(ENTRIES_BUF + off + i, load8(module_off + i));
+        i = i + 1;
+    }
+    var p = off + module_len;
+    store8(ENTRIES_BUF + p, 58); store8(ENTRIES_BUF + p + 1, 58);
+    p = p + 2;
+    var j = 0;
+    while (j < name_len) {
+        store8(ENTRIES_BUF + p + j, load8(name_off + j));
+        j = j + 1;
+    }
+    p = p + name_len;
+    store8(ENTRIES_BUF + p, 47);     # '/'
+    p = p + 1;
+    var ar_buf[24];
+    var ar_len = fmt_int_buf(arity, &ar_buf);
+    var k = 0;
+    while (k < ar_len) {
+        store8(ENTRIES_BUF + p + k, load8(&ar_buf + k));
+        k = k + 1;
+    }
+    p = p + ar_len;
+    var total_len = p - off;
+    store64(ENTRIES_OFFS + ENTRIES_COUNT * 8, off);
+    store64(ENTRIES_LENS + ENTRIES_COUNT * 8, total_len);
+    ENTRIES_COUNT = ENTRIES_COUNT + 1;
+    ENTRIES_BUF_USED = p;
+    return 0;
+}
+
+fn _cmp_entry(i, j) {
+    var ai = load64(ENTRIES_OFFS + i * 8);
+    var al = load64(ENTRIES_LENS + i * 8);
+    var bi = load64(ENTRIES_OFFS + j * 8);
+    var bl = load64(ENTRIES_LENS + j * 8);
+    var min = al;
+    if (bl < min) { min = bl; }
+    var k = 0;
+    while (k < min) {
+        var ac = load8(ENTRIES_BUF + ai + k);
+        var bc = load8(ENTRIES_BUF + bi + k);
+        if (ac < bc) { return 0 - 1; }
+        if (ac > bc) { return 1; }
+        k = k + 1;
+    }
+    if (al < bl) { return 0 - 1; }
+    if (al > bl) { return 1; }
+    return 0;
+}
+
+fn _sort_entries() {
+    var i = 1;
+    while (i < ENTRIES_COUNT) {
+        var j = i;
+        while (j > 0) {
+            if (_cmp_entry(j - 1, j) <= 0) { j = 0; }
+            else {
+                var off_a = load64(ENTRIES_OFFS + (j - 1) * 8);
+                var len_a = load64(ENTRIES_LENS + (j - 1) * 8);
+                var off_b = load64(ENTRIES_OFFS + j * 8);
+                var len_b = load64(ENTRIES_LENS + j * 8);
+                store64(ENTRIES_OFFS + (j - 1) * 8, off_b);
+                store64(ENTRIES_LENS + (j - 1) * 8, len_b);
+                store64(ENTRIES_OFFS + j * 8, off_a);
+                store64(ENTRIES_LENS + j * 8, len_a);
+                j = j - 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _is_idstart(c) {
+    if (c >= 65) { if (c <= 90) { return 1; } }
+    if (c >= 97) { if (c <= 122) { return 1; } }
+    if (c == 95) { return 1; }
+    return 0;
+}
+fn _is_idcont(c) {
+    if (_is_idstart(c) == 1) { return 1; }
+    if (c >= 48) { if (c <= 57) { return 1; } }
+    return 0;
+}
+
+fn _scan_id(buf, pos, total) {
+    var p = pos + 1;
+    while (p < total) {
+        if (_is_idcont(load8(buf + p)) == 0) { return p; }
+        p = p + 1;
+    }
+    return p;
+}
+
+fn _scan_file(filebuf, filelen, module_off, module_len) {
+    var pos = 0;
+    var depth = 0;
+    while (pos < filelen) {
+        var line_start = pos;
+        var eol = pos;
+        while (eol < filelen) {
+            if (load8(filebuf + eol) == 10) { break; }
+            eol = eol + 1;
+        }
+        var p = line_start;
+        while (p < eol) {
+            var c = load8(filebuf + p);
+            if (c != 32) { if (c != 9) { break; } }
+            p = p + 1;
+        }
+        if (depth == 0) {
+            if (p + 3 <= eol) {
+                if (memeq(filebuf + p, "fn ", 3) == 1) {
+                    var np = p + 3;
+                    while (np < eol) {
+                        var c2 = load8(filebuf + np);
+                        if (c2 != 32) { if (c2 != 9) { break; } }
+                        np = np + 1;
+                    }
+                    if (np < eol) {
+                        if (_is_idstart(load8(filebuf + np)) == 1) {
+                            if (load8(filebuf + np) != 95) {
+                                var name_end = _scan_id(filebuf, np, filelen);
+                                var paren = name_end;
+                                while (paren < eol) {
+                                    if (load8(filebuf + paren) == 40) { break; }
+                                    paren = paren + 1;
+                                }
+                                if (paren < eol) {
+                                    var rparen = paren + 1;
+                                    while (rparen < eol) {
+                                        if (load8(filebuf + rparen) == 41) { break; }
+                                        rparen = rparen + 1;
+                                    }
+                                    if (rparen < eol) {
+                                        var arity = 0;
+                                        var has_arg = 0;
+                                        var ai = paren + 1;
+                                        while (ai < rparen) {
+                                            var c3 = load8(filebuf + ai);
+                                            if (c3 != 32) { if (c3 != 9) { has_arg = 1; ai = rparen; } }
+                                            ai = ai + 1;
+                                        }
+                                        if (has_arg == 1) {
+                                            arity = 1;
+                                            var ci = paren + 1;
+                                            while (ci < rparen) {
+                                                if (load8(filebuf + ci) == 44) { arity = arity + 1; }
+                                                ci = ci + 1;
+                                            }
+                                        }
+                                        _push_entry(module_off, module_len,
+                                                    filebuf + np, name_end - np, arity);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        var bp = line_start;
+        while (bp < eol) {
+            var bc = load8(filebuf + bp);
+            if (bc == 123) { depth = depth + 1; }
+            if (bc == 125) { depth = depth - 1; }
+            bp = bp + 1;
+        }
+        pos = eol + 1;
+    }
+    return 0;
+}
+
+fn _module_name(filename, len) {
+    if (len > 4) {
+        if (load8(filename + len - 4) == 46) {
+            if (load8(filename + len - 3) == 99) {
+                if (load8(filename + len - 2) == 121) {
+                    if (load8(filename + len - 1) == 114) {
+                        return len - 4;
+                    }
+                }
+            }
+        }
+    }
+    return len;
+}
+
+fn _scan_dir(dir_cstr) {
+    var dir_str = str_from(dir_cstr);
+    var names = dir_list(dir_str);
+    if (names == 0) { return 0; }
+    var n = vec_len(names);
+    var dir_len = strlen(dir_cstr);
+    var i = 0;
+    while (i < n) {
+        var fname_str = vec_get(names, i);
+        var fname = str_data(fname_str);
+        var fname_len = str_len(fname_str);
+        if (fname_len > 4) {
+            if (load8(fname + fname_len - 4) == 46) {
+                if (load8(fname + fname_len - 3) == 99) {
+                    if (load8(fname + fname_len - 2) == 121) {
+                        if (load8(fname + fname_len - 1) == 114) {
+                            var path_buf = alloc(1024);
+                            var pi = 0;
+                            while (pi < dir_len) { store8(path_buf + pi, load8(dir_cstr + pi)); pi = pi + 1; }
+                            store8(path_buf + dir_len, 47);
+                            var qi = 0;
+                            while (qi < fname_len) { store8(path_buf + dir_len + 1 + qi, load8(fname + qi)); qi = qi + 1; }
+                            store8(path_buf + dir_len + 1 + fname_len, 0);
+                            var filebuf = alloc(262144);
+                            var nbytes = file_read_all(path_buf, filebuf, 262144);
+                            if (nbytes > 0) {
+                                var module_len = _module_name(fname, fname_len);
+                                _scan_file(filebuf, nbytes, fname, module_len);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _print_entries(fd) {
+    var i = 0;
+    while (i < ENTRIES_COUNT) {
+        var off = load64(ENTRIES_OFFS + i * 8);
+        var len = load64(ENTRIES_LENS + i * 8);
+        syscall(SYS_WRITE, fd, ENTRIES_BUF + off, len);
+        syscall(SYS_WRITE, fd, "\n", 1);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _read_snapshot(path) {
+    return file_read_all(path, SNAPSHOT_BUF, 262144);
+}
+
+fn _diff_against_snapshot(snapshot_bytes) {
+    var s_pos = 0;
+    var e_idx = 0;
+    var removed_count = 0;
+    var added_count = 0;
+    while (1 == 1) {
+        if (s_pos >= snapshot_bytes) { if (e_idx >= ENTRIES_COUNT) { break; } }
+        if (s_pos < snapshot_bytes) {
+            var s_eol = s_pos;
+            while (s_eol < snapshot_bytes) {
+                if (load8(SNAPSHOT_BUF + s_eol) == 10) { break; }
+                s_eol = s_eol + 1;
+            }
+            var s_len = s_eol - s_pos;
+            if (e_idx < ENTRIES_COUNT) {
+                var e_off = load64(ENTRIES_OFFS + e_idx * 8);
+                var e_len = load64(ENTRIES_LENS + e_idx * 8);
+                var cmp = 0;
+                var min = s_len;
+                if (e_len < min) { min = e_len; }
+                var k = 0;
+                while (k < min) {
+                    var sc = load8(SNAPSHOT_BUF + s_pos + k);
+                    var ec = load8(ENTRIES_BUF + e_off + k);
+                    if (sc < ec) { cmp = 0 - 1; k = min; }
+                    elif (sc > ec) { cmp = 1; k = min; }
+                    else { k = k + 1; }
+                }
+                if (cmp == 0) {
+                    if (s_len < e_len) { cmp = 0 - 1; }
+                    elif (s_len > e_len) { cmp = 1; }
+                }
+                if (cmp == 0) {
+                    s_pos = s_eol + 1;
+                    e_idx = e_idx + 1;
+                } elif (cmp < 0) {
+                    if (removed_count == 0) {
+                        syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 66);
+                    }
+                    syscall(SYS_WRITE, 2, "  - ", 4);
+                    syscall(SYS_WRITE, 2, SNAPSHOT_BUF + s_pos, s_len);
+                    syscall(SYS_WRITE, 2, "\n", 1);
+                    removed_count = removed_count + 1;
+                    s_pos = s_eol + 1;
+                } else {
+                    added_count = added_count + 1;
+                    e_idx = e_idx + 1;
+                }
+            } else {
+                if (removed_count == 0) {
+                    syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 66);
+                }
+                syscall(SYS_WRITE, 2, "  - ", 4);
+                syscall(SYS_WRITE, 2, SNAPSHOT_BUF + s_pos, s_len);
+                syscall(SYS_WRITE, 2, "\n", 1);
+                removed_count = removed_count + 1;
+                s_pos = s_eol + 1;
+            }
+        } else {
+            added_count = added_count + 1;
+            e_idx = e_idx + 1;
+        }
+    }
+    if (removed_count > 0) {
+        syscall(SYS_WRITE, 2, "(", 1);
+        var nb[24];
+        var nl = fmt_int_buf(removed_count, &nb);
+        syscall(SYS_WRITE, 2, &nb, nl);
+        syscall(SYS_WRITE, 2, " removed; ", 10);
+        var nb2[24];
+        var nl2 = fmt_int_buf(added_count, &nb2);
+        syscall(SYS_WRITE, 2, &nb2, nl2);
+        syscall(SYS_WRITE, 2, " added; rerun with --update if intentional API bump)\n", 53);
+        return 1;
+    }
+    if (added_count > 0) {
+        syscall(SYS_WRITE, 1, "ok: ", 4);
+        var nb3[24];
+        var nl3 = fmt_int_buf(ENTRIES_COUNT, &nb3);
+        syscall(SYS_WRITE, 1, &nb3, nl3);
+        syscall(SYS_WRITE, 1, " public fns, ", 13);
+        var nb4[24];
+        var nl4 = fmt_int_buf(added_count, &nb4);
+        syscall(SYS_WRITE, 1, &nb4, nl4);
+        syscall(SYS_WRITE, 1, " added since snapshot (non-breaking)\n", 37);
+    } else {
+        syscall(SYS_WRITE, 1, "ok: ", 4);
+        var nb5[24];
+        var nl5 = fmt_int_buf(ENTRIES_COUNT, &nb5);
+        syscall(SYS_WRITE, 1, &nb5, nl5);
+        syscall(SYS_WRITE, 1, " public fns, surface matches snapshot exactly\n", 46);
+    }
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    args_init();
+
+    SNAPSHOT_BUF = alloc(262144);
+    ENTRIES_BUF = alloc(524288);
+    ENTRIES_OFFS = alloc(65536);
+    ENTRIES_LENS = alloc(65536);
+
+    var update_mode = 0;
+    var snapshot_path = DEFAULT_SNAPSHOT;
+    var i = 1;
+    while (i < argc()) {
+        var a = argv(i);
+        if (streq(a, "--update") == 1) { update_mode = 1; }
+        elif (streq(a, "--help") == 1) {
+            println("Usage: cyrius_api_surface [--update] [--snapshot=PATH]");
+            return 0;
+        }
+        elif (strlen(a) > 11) {
+            if (memeq(a, "--snapshot=", 11) == 1) {
+                snapshot_path = a + 11;
+            }
+        }
+        i = i + 1;
+    }
+
+    _reset_entries();
+    _scan_dir("src");
+    _scan_dir("lib");
+
+    _sort_entries();
+
+    if (update_mode == 1) {
+        var fd = file_open(snapshot_path, 0x241, 0x180);
+        if (fd < 0) {
+            syscall(SYS_WRITE, 2, "error: cannot open snapshot for writing: ", 41);
+            syscall(SYS_WRITE, 2, snapshot_path, strlen(snapshot_path));
+            syscall(SYS_WRITE, 2, "\n", 1);
+            return 1;
+        }
+        _print_entries(fd);
+        file_close(fd);
+        syscall(SYS_WRITE, 1, "snapshot updated: ", 18);
+        var nb[24];
+        var nl = fmt_int_buf(ENTRIES_COUNT, &nb);
+        syscall(SYS_WRITE, 1, &nb, nl);
+        syscall(SYS_WRITE, 1, " public fns written to ", 23);
+        syscall(SYS_WRITE, 1, snapshot_path, strlen(snapshot_path));
+        syscall(SYS_WRITE, 1, "\n", 1);
+        return 0;
+    }
+
+    var snap_bytes = _read_snapshot(snapshot_path);
+    if (snap_bytes <= 0) {
+        syscall(SYS_WRITE, 2, "snapshot missing: ", 18);
+        syscall(SYS_WRITE, 2, snapshot_path, strlen(snapshot_path));
+        syscall(SYS_WRITE, 2, "\n  regenerate with: cyrius api-surface --update\n", 48);
+        return 1;
+    }
+    return _diff_against_snapshot(snap_bytes);
+}
+
+var r = main();
+syscall(SYS_EXIT, r);

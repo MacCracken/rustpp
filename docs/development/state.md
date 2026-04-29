@@ -5,6 +5,43 @@
 
 ## Version
 
+**5.7.33** (shipped 2026-04-28 — **`cyrius api-surface` —
+SNAPSHOT-BASED PUBLIC API DIFF**. New toolchain-quality slot
+from the `v5.x — Toolchain Quality` section. Pattern adapted
+from `agnosys/scripts/check-api-surface.sh`; cyrius-native
+pure-cyrius implementation per the sovereign-toolchain stance.
+Catches breaking removals / signature changes before ship;
+allows additions (non-breaking). **Why now**: without an
+API-surface gate, downstream consumers (mabda / sandhi / sit
+/ phylax) can break silently when stdlib renames or removes
+a public fn. Agnosys ships a bash-based check; cyrius needed
+its own. **Coverage**: top-level `fn NAME(args)` defs in
+`src/` + `lib/`, underscore-prefixed names excluded by
+convention. Out of scope: top-level vars (covered by
+v5.7.32 cyrlint init-order rule), enum/struct types
+(future slot if surfaced), local fns (not API surface).
+**Implementation**: `programs/api_surface.cyr` (~450 lines)
+walks both dirs, extracts public fns + arity, formats as
+`module::name/arity`, insertion-sorts byte-wise (deterministic
+regardless of host locale — agnosys hard-learned lesson),
+diffs against `docs/api-surface.snapshot`. Two modes:
+`cyrius api-surface` (diff vs snapshot, rc=1 on breakage)
+and `cyrius api-surface --update` (regenerate snapshot).
+Wired into cbt at `cbt/commands.cyr` (`cmd_api_surface`) +
+`cbt/cyrius.cyr` (dispatch between `deny` and `audit`). Tool
+binary added to `cyrius.cyml [release].bins` so install
+snapshot ships it. Initial snapshot of cyrius's public API:
+**2552 entries** spanning the full stdlib + bundled deps.
+cc5 self-host two-step byte-identical at **720,640 B** (no
+compiler change — cbt + new program only). New gate
+`tests/regression-api-surface.sh` (4ao): three cases —
+committed snapshot matches current (no drift), synthetic
+extra `_TEST_REMOVED` entry → BREAKING rc=1, deleted entry →
+non-breaking addition rc=0. **check.sh 52/52 PASS** (was
+51/51; +gate 4ao). LSP semantic-tokens polish (other
+toolchain-quality item) not bundled — separate slot when
+claimed.)
+
 **5.7.32** (shipped 2026-04-28 — **CYRLINT GLOBAL-INIT-ORDER
 FORWARD-REF WARNING (mabda-surfaced)**. Closes silent
 miscompile class that cost mabda 30+ minutes hardware-iter
@@ -1143,30 +1180,24 @@ Shipped:
 - **v5.7.30** ✅ aarch64 f64 basic-op implementation (FADD/FSUB/FMUL/FDIV/FSQRT/FNEG/FRINT*/FCVTZS/SCVTF — closes silent miscompile that probably dated to v5.4.x)
 - **v5.7.31** ✅ aarch64 f64_exp / f64_ln polyfills (closes phylax-block — chi-squared + entropy paths now correct on aarch64)
 - **v5.7.32** ✅ cyrlint global-init-order forward-ref warning (closes mabda surfacing — the silent miscompile class)
+- **v5.7.33** ✅ cyrius api-surface tooling (snapshot-based public API diff; cyrius-native pure-cyrius impl; 2552-entry initial snapshot)
 
 Queue:
-- **TS test organization rework** — pinned but deliberately
-  separate from cap raise (per user direction: tcyr stays as
-  in-process API exercise; shell gates remain smoke surface).
-  Future slot when claimed; would grow tcyr richer (e.g.
-  pre-compiled frontend object linkage so each tcyr doesn't
-  pull the whole TS frontend, ~5500 LOC of compiler in
-  every test binary).
-- **v5.7.32** — mabda global-init-order forward-ref lint
-  warning. **Promoted before RISC-V** at user direction
-  2026-04-28 ship: "rather be 'bug' free before RISCV work."
-- **v5.7.33-v5.7.35** — RISC-V rv64 (tightened from 3-5 to
-  3 sub-patches to fit closeout).
-- **v5.7.36** — open slot (warning sweep + wildcard).
-- **v5.7.x patch slate (consumer-surfaced)**: lib/json.cyr depth
-  follow-ups — pretty-print / streaming / JSON Pointer. Pinned
-  2026-04-27; promoted to numbered slots when claimed.
-- **v5.7.31/32/33** — `.scyr` (soak) + `.smcyr` (smoke) file
-  types — floats per RISC-V actual sub-patch count.
-- **v5.7.32-v5.7.33** — open slots (no fixed assignment); reserved
-  for JSON-engine follow-ups + wildcard correctness items +
-  warning sweep.
-- **v5.7.34** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
+- **v5.7.34–v5.7.36** — open slots reserved for emergent items.
+  RISC-V was originally pinned here but **moved to v5.7.x at
+  v5.7.32 ship** per user direction (pairs naturally with the
+  v5.8.0 bare-metal scope — both are "no libc / new ABI" arch-
+  port work). Candidates if surfaced:
+  - lib/json.cyr depth (pretty-print / streaming / JSON Pointer)
+  - `.scyr` (soak) + `.smcyr` (smoke) file types
+  - TS test organization rework (per-tcyr frontend coupling)
+  - warning-sweep side-task floor
+  - any consumer-surfaced wildcard correctness items
+- **v5.7.37** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
+  Hard upper bound; anything past forces v5.8.x.
+
+Moved out of v5.7.x:
+- **RISC-V rv64** → v5.8.x (paired with bare-metal AGNOS kernel).
 
 **Side-task across v5.7.13–v5.7.26 closeouts**: warning sweep
 (3 syscall-arity + 36 unreachable-fn floor + check.sh shell-syntax

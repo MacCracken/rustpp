@@ -1,344 +1,8 @@
 # Cyrius Development Roadmap
 
-> **v5.7.12** (shipped 2026-04-27). cc5 710,312 B x86_64. Native aarch64
-> cc5 503,328 B (Pi 4). x86_64 + aarch64 cross + Windows PE cross +
-> macOS aarch64 cross + cyrius-x bytecode. IR + CFG. Volatile state
-> (current cc5 size, in-flight slots, recent shipped releases,
-> bootstrap chain) lives in
-> [`docs/development/state.md`](state.md); historical narrative for
-> shipped work lives in [completed-phases.md](completed-phases.md);
-> [CHANGELOG.md](../../CHANGELOG.md) is the source of truth.
->
-> **Narrow-scope byte-identity** (3-step fixpoint
-> `cc5_a → cc5_b → cc5_c; b == c`) holds on every target — load-
-> bearing invariant, check.sh verifies on every commit. **Broad-
-> scope self-host** (target binary runs + reproduces itself on
-> native hw) holds on Linux x86_64 + Linux aarch64 cross-built-
-> runs-on-Pi. Broken on Linux aarch64 native-self-host-on-Pi
-> (pinned v5.6.32, ✅ shipped), macOS arm64 Mach-O (pinned
-> v5.6.33 — platform drift, bytes unchanged since v5.5.13, ✅
-> shipped), Windows 11 24H2 PE (pinned v5.6.34 — platform drift,
-> bytes unchanged since v5.5.10, ✅ shipped). See
-> `docs/architecture/cyrius.md` §"Self-hosting: two scopes of
-> byte-identity" for the full definition.
->
-> **v5.6.x (closed, 46 patches)** — Polish + Optimization Arc + Bug
-> Fixes. Phase O1–O6 optimizer (cc5 526 KB → 487 KB, self-host time
-> 405 → 355 ms), default-on regalloc, NOP-harvest compaction,
-> sandhi-blocking codegen + ABI fixes, cross-platform tooling
-> drift repairs. Per-patch summaries in
-> [completed-phases.md § v5.6.0–v5.6.45](completed-phases.md#v560v5645--polish--optimization-arc--bug-fixes-closed).
->
-> **v5.5.x (closed, 40 patches)** — longest minor in cyrius history.
-> Platform completion (Windows PE end-to-end, Apple Silicon, aarch64
-> Linux shakedown), NSS/PAM, fdlopen, parser/lexer refactor, cc3
-> retirement.
->
-> **v5.7.x (active)** — Sandhi fold + cyrius-ts frontend + tooling
-> polish + cyim-unblocking + bug/UX patch slate + RISC-V port +
-> closeout. Shipped to v5.7.12; one-liners in
-> [completed-phases.md § v5.7.0–v5.7.13](completed-phases.md#v570v5713--sandhi-fold--cyrius-ts-frontend--tooling-polish).
-> RISC-V slid to v5.7.26-v5.7.30 to clear the bug/UX patch slate
-> first (2026-04-27 user direction: "correctness over new features
-> always"). **Hard upper bound: v5.7.34 = v5.7.x closeout** (bumped
-> from v5.7.28 at v5.7.17 ship — kybernet's struct-cap surfacing
-> claimed a slot, +1 cascade, plus a 5-slot extension authorized
-> to absorb future emerging items and restore RISC-V breathing
-> room. Bumped again from v5.7.33 → v5.7.34 at v5.7.20 ship to
-> queue the lib/json.cyr follow-up items — pretty-printing,
-> streaming parser, JSON Pointer — without forcing them into the
-> backstop slot itself).
->
-
-> **What's next (v5.7.33–v5.12.x):**
->
-> v5.7.32 cyrlint global-init-order forward-ref warning shipped
-> 2026-04-28. Closes silent miscompile class that cost mabda
-> 30+ minutes on hardware-iter misdiagnosis. Promoted before
-> RISC-V at user direction "rather be 'bug' free before RISCV
-> work." Cyrlint-only patch; zero compiler change; cc5
-> byte-identical at 720,640 B. New rule
-> `lint_globals_init_order` walks file twice — Pass 1 collects
-> top-level `var IDENT = ...;` decls; Pass 2 scans each
-> initializer's expr for IDENT refs and warns if def_line >
-> current_line. Mirrors mabda's option (1) in the filing. New
-> gate 4an (regression-lint-global-init-order.sh): 3 cases —
-> known-bad fixture (3 forward refs → ≥3 warnings), lib/math.cyr
-> (0 false-positives), lib/string.cyr (0 false-positives).
-> **check.sh 51/51 PASS.** Per `feedback_grow_compiler_to_fit_
-> language.md`: language behavior unchanged; lint surfaces the
-> foot-gun without forcing breaking change.
->
-> v5.7.31 aarch64 f64_exp / f64_ln polyfills shipped 2026-04-28.
-> Closes the phylax-block. Originally-named v5.7.30 ask; split
-> when v5.7.30 premise verification surfaced the broader basic-
-> op miscompile. Now with v5.7.30's ops working, polyfills are
-> pure-cyrius implementations in lib/math.cyr. _f64_exp_polyfill:
-> 11-term Taylor with x = n*ln(2) + r range reduction + 2^n
-> bit-pack. _f64_ln_polyfill: mantissa/exponent split + 8-term
-> inverse-tanh series. Helper `_FINDFN_CSTR(str_ptr, str_len)`
-> added for fn-by-c-string lookup. Parser dispatches f64_exp/ln
-> to fncall emission via ECALLFIX. Inverse-trig section
-> (f64_asin/acos/atan2) wrapped in #ifdef CYRIUS_ARCH_X86
-> (uses f64_atan, no aarch64 native, future polyfill slot).
-> cc5 byte-identical at 720,640 B (+1,360 B); new gate 4am
-> (regression-aarch64-f64-polyfill.sh) — 6 assertions on Pi 4
-> (exp(0)=1 exact, exp(1)≈e, ln(1)=0, ln(e)≈1, exp(ln(2))≈2,
-> exp(-1)≈1/e — all within ulp budget). **check.sh 50/50 PASS.**
-> phylax chi-squared + entropy now correct on aarch64.
->
-> v5.7.30 aarch64 f64 basic-op implementation shipped 2026-04-28.
-> Closes a silent miscompile that affected every aarch64 build
-> using f64 ops — pre-v5.7.30 EMIT_F64_BINOP and 6 sibling f64
-> emits were stubs (`return 0;`); `f64_add(1.0, 2.0)` returned
-> 2.0 with a stack leak. Probably broken since v5.4.x. Surfaced
-> via phylax's f64_exp hard-reject; original "f64_exp polyfill"
-> ask split into v5.7.30 (basic ops) + v5.7.31 (polyfills).
-> 7 stubs replaced with single-instruction emits (FADD/FSUB/
-> FMUL/FDIV/FSQRT/FNEG/FRINT*/FCVTZS/SCVTF; encodings verified
-> via aarch64-linux-gnu-as). `f64_neg` parse-time ERR_MSG
-> replaced with FNEG d0,d0. cc5 byte-identical at 719,280 B
-> (+280 B). New gate 4al (regression-aarch64-f64.sh) cross-
-> builds 11-case smoke test, runs on real Pi 4, asserts
-> bit-exact results against IEEE 754 reference. **check.sh
-> 49/49 PASS.** Phylax still blocked (f64_exp/ln hard-reject);
-> v5.7.31 closes that with polyfills.
->
-> v5.7.29 cx gate `set -e` repair + check.sh hygiene shipped
-> 2026-04-28. Closes the v5.7.27 fallout chain. Three
-> `regression-cx-*.sh` gates wrap cc5_cx invocations in
-> `set +e` / `set -e` toggles (matching existing cxvm
-> wrappers). check.sh `set -e` removed at line 4 — was
-> aborting the audit at the first non-zero gate, hiding ~22 of
-> 47+ gates at v5.7.27 ship. Plus repaired a latent
-> `cmd || true; EXIT=$?` clobber bug in roundtrip Test 4.
-> Verification idiom `sh check.sh 2>&1 | tail -3` no longer
-> pipe-masked: rc=0 with pipefail set. cc5 byte-identical at
-> 719,000 B; **48/48 PASS**. **Every "47/47 PASS" report I
-> logged at v5.7.24-v5.7.27 ship was false reassurance** —
-> documented inline in the closeout entries. The trio
-> (v5.7.27 cap raise + v5.7.28 cx re-sync + v5.7.29 gate
-> hygiene) closes the v5.7.27 ship-damage chain entirely.
->
-> v5.7.28 cx backend token-offset fix shipped 2026-04-28.
-> v5.7.27's heap reshuffle deliberately skipped
-> `src/backend/cx/emit.cyr` (cx has its own codebuf at
-> 0x54A000 + per-fn at 0x150B000), but the skip OVER-applied:
-> cx backend's `TOKTYP` / `TOKVAL` definitions read the SAME
-> shared frontend tokens at the SAME offsets the main backends
-> use. Post-v5.7.27 cx read tok_types from inside the new
-> codebuf region and tok_values from where tok_types now lives
-> — cc5_cx returned exit 1 on every input (`error:2:
-> unexpected unknown`). Bug stayed masked at v5.7.27 ship by
-> the queued v5.7.29 cx-gate `set -e + pipeline` issue and the
-> `tail -3` pipe-mask in the verification idiom. Fix: 2 lines
-> in cx/emit.cyr. New structural gate
-> `regression-cx-token-offsets.sh` greps each backend's
-> token-read offsets and asserts they match the shared lex
-> writes — catches drift at the source level in 0.1s with no
-> compiler build. cc5 byte-identical at 719,000 B; cxvm
-> round-trips literals 0/7/42/99/200 cleanly. **Third instance
-> in v5.7.x of forked-helper offset drift** (v5.7.23 typo,
-> v5.7.27 skip, v5.7.28 re-sync); the new gate directly
-> implements the audit pattern from
-> `feedback_audit_forked_helper_offsets.md`. check.sh still
-> v5.7.27-broken at the cx-build gate; v5.7.29 fixes the
-> gate-infra so check.sh can complete.
->
-> v5.7.27 codebuf cap raise 1 MB → 3 MB + 19-region heap
-> reshuffle shipped 2026-04-28. User-pinned at v5.7.26 ship:
-> "might need code-buf to 3MB in the next release... but also
-> begs the question on test organization." `cyrius test
-> ts_parse_p52-54.tcyr` was at 94% of 1 MB cap across the
-> v5.7.24-v5.7.26 advanced-TS trio. v5.7.27 is the cap raise;
-> the test-organization rework is SEPARATE per user direction
-> "no retiring my file set... they would need to grow to be
-> better that SHELLOUTS." 261 offset references shifted across
-> 21 source files (every region from `output_buf` 0x74A000
-> through final brk 0x348C000 moved +0x200000); cx backend
-> untouched (own layout). cc5 byte-identical at 719,000 B
-> (size unchanged; bytes diverge from v5.7.26 starting at byte
-> 3380 — cap-warning string-literal `/3145728 bytes`). Heap-map
-> audit PASS (0 overlaps); `ts_parse_p54.tcyr` 20/20 PASS at
-> 32% code-buf utilization (was 94%). TS gates all green; SY
-> corpus unchanged. **Pre-existing bug pinned for v5.7.28**:
-> cx regression gates (`regression-cx-{build,roundtrip,syscall-
-> literal}.sh`) have a `set -e + pipeline` interaction that
-> aborts before `EXIT=$?` capture; check.sh's own `set -e`
-> then aborts at the cx-build gate. v5.7.24-v5.7.26 ship
-> "47/47 PASS" reports were false reassurance —
-> `sh check.sh 2>&1 | tail -3` masked check.sh's exit code
-> via unset pipefail. v5.7.26 cc5 reproduces identically; bug
-> is v5.7.26-era, not v5.7.27-introduced. Fix is ~30 lines
-> (set +e / EXIT=0; cmd || EXIT=$? toggles + check.sh
-> pipefail audit), no compiler change.
->
-> v5.7.26 TS 5.0 stage-3 decorators shipped 2026-04-28. **Closes
-> the v5.7.24-v5.7.26 advanced-TS trio** (smallest → highest
-> order: asserts predicate sigs, mapped types, decorators).
-> Pre-v5.7.26 the `@` token was unhandled at every valid
-> decorator position — class statements, class members, function
-> parameters; `code=6 tok=35` rejection. SY corpus didn't
-> surface the gap. v5.7.26 adds `TS_AST_DECORATOR = 315` AST
-> kind, `TS_PARSE_DECORATOR_LIST` helper consuming
-> `@<call-member>` chains via existing `TS_PARSE_CALL_MEMBER`
-> (full TS 5.0 grammar — bare, factory, qualified, generic,
-> parenthesized, with object/array args), and four wire-in
-> sites: `TS_PARSE_STMT` (top), `TS_PARSE_CLASS_MEMBER` (top),
-> `TS_PARSE_ARROW_PARAMS` (per-iter), `TS_PARSE_EXPORT` (top +
-> default). cc5 byte-identical at 719,000 B (+800 B); new gate
-> 4aj (regression-ts-decorators.sh, 5 shape categories); new
-> tcyr ts_parse_p54 (20 byte-level assertions). **check.sh
-> 47/47 PASS**. Decorator AST attachment to following decl
-> deferred to typechecker phase (parse-acceptance only this
-> slot, same pattern as v5.7.24/25).
->
-> Side-task pin (cap-raise + test organization, user-direction
-> 2026-04-28): TS frontend test compiles approached the 1 MB
-> code-buf cap across v5.7.25 + v5.7.26 (94%). User pinned
-> v5.7.27: "might need code-buf to 3MB in the next release...
-> but also begs the question on test organization." Bundle the
-> 1 MB → 3 MB cap raise with TS test-organization rework.
->
-> v5.7.25 TS mapped types + `as`-clause + `+/-` modifiers shipped
-> 2026-04-28. Second of the v5.7.24-v5.7.26 TS-depth patches
-> (smallest → highest order). Pre-v5.7.25 `[K in T]: V` mapped
-> types were a syntax error inside object types — index sigs
-> `[k: K]: V` worked but the SY corpus didn't surface the gap
-> (no SY .ts file uses mapped types in real code). v5.7.25
-> adds `TS_AST_TYPE_MAPPED = 314`, dispatch in TYPE_OBJECT by
-> `peek_ahead(2) == KW_IN`, full `[K in <iter>] [as <remap>]
-> [+/-]?: <V>` body parse, and `+/-readonly` modifier prefix
-> alongside the bare `readonly` already shipped. cc5 byte-
-> identical at 718,200 B (+1,472 B); new gate 4ai (regression-
-> ts-mapped.sh, 7 shape categories); new tcyr ts_parse_p53
-> (17 byte-level assertions). **check.sh 46/46 PASS**. Side-
-> task pin (cap-raise candidate): TS test compiles approach
-> the 1 MB code-buf cap (94% on `ts_parse_p53.tcyr`) — bundle
-> with v5.7.26 decorators or queue a heap-map reshuffle in
-> v5.7.31-v5.7.33. Not blocking.
->
-> v5.7.24 TS `asserts` predicate signatures shipped 2026-04-28.
-> First of three "advanced TS features beyond SY corpus" patches
-> (smallest first per direction; mapped types `as`-clause at
-> v5.7.25, decorators at v5.7.26). Pre-v5.7.24 `TS_PARSE_TYPE`
-> had a comment-only stub for `asserts <id> [is <T>]` —
-> implementation only handled the `<lhs> is <T>` suffix and
-> misparsed any input starting with `asserts`. v5.7.24 adds
-> `TS_TOK_KW_ASSERTS = 219` (ident-eligible like `satisfies`),
-> a real prefix consumer in `TS_PARSE_TYPE` guarded by
-> `peek_ahead is name-like`, and a `KW_THIS` branch in
-> `TS_PARSE_TYPE_PRIMARY` for the polymorphic `this`-type
-> (incidental coverage: `interface Builder { build(): this }`,
-> `class P { is(): this is P {...} }`, `class B { chain(): this
-> {...} }`). cc5 byte-identical at 716,728 B (was 716,080 B;
-> +648 B); new gate 4ah (regression-ts-asserts.sh, 6 shape
-> categories); new tcyr ts_parse_p52 (15 byte-level assertions
-> in 6 groups). SY corpus parse acceptance unchanged at 2053/
-> 2053 .ts + 435/435 .tsx. **check.sh 45/45 PASS**. Out of
-> v5.7.24 scope (same behavior as `satisfies` today, future
-> patches if surfaced): `function asserts() {}` and
-> `class asserts {}` — pre-existing limitation that contextual
-> keywords aren't accepted as fn/class declaration names.
->
-> - **v5.7.33-v5.7.35**: RISC-V rv64 (tightened from 3-5 to
->   3 sub-patches; bumped from v5.7.31 to fit v5.7.30 split +
->   mabda lint slot).
->   **Buffer pressure resolved** — the v5.7.37 backstop
->   accommodates the additional surfacing.
-> - **v5.7.x patch slate (consumer-surfaced)**: `lib/json.cyr`
->   depth follow-ups — pretty-printing, streaming parser,
->   JSON Pointer (RFC 6901). Pinned 2026-04-27; promoted to
->   numbered slots when claimed. Roadmap detail in the
->   patch-slate section below.
-> - **v5.7.29/30/31**: `.scyr` (soak) + `.smcyr` (smoke) file
->   types — floats per RISC-V actual.
-> - **v5.7.31-v5.7.33**: open slots (no fixed assignment).
->   Reserved for JSON-engine follow-ups (pretty-print /
->   streaming / JSON Pointer) IF claimed, plus any wildcard
->   correctness items (cap-bumps, downstream surfacing) and
->   the warning-sweep side-task. Float per RISC-V actual sub-
->   patch count + soak/smoke landing.
-> - **v5.7.34**: **TRUE CLOSEOUT** — the CLAUDE.md 11-step
->   "Closeout Pass" lands here as a single patch (mechanical
->   checks + judgment passes + doc sync per
->   `CLAUDE.md:62-95`). Hard upper bound; anything past
->   forces the v5.8.x boundary per
->   `feedback_v57x_slot_bounds_2026_04_27.md`.
->
-> **Side-task across v5.7.13–v5.7.20 closeouts**: warning sweep
-> (3 syscall-arity warnings + 36 unreachable-fn floor + check.sh
-> shell-syntax warning + cbt/programs/bootstrap shellcheck pass).
-> Cleared opportunistically each closeout, no dedicated slot.
-> Goal: zero `warning:` lines from cc5 self-build by v5.7.26+.
-> - **v5.8.0**: bare-metal / AGNOS kernel target.
-> - **v5.9.0–v5.9.x**: medium language additions — first-class
->   slices (`slice<T>` / `[T]` generalizing `Str`) and per-fn effect
->   annotations (`#pure`, `#io`, `#alloc`).
->
->   **Removed from this roadmap (2026-04-24)**: pure-Cyrius TLS 1.3
->   arc (X25519 + ChaCha20-Poly1305 + record layer + handshake,
->   `libssl.so.3` dynlib bridge retirement). Per the sandhi
->   scope-absorption decision — TLS work belongs outside Cyrius's
->   compiler/stdlib roadmap; `lib/tls.cyr` continues to use the
->   `libssl.so.3` bridge indefinitely from stdlib's perspective.
->   Canonical home for the pure-Cyrius TLS implementation work to
->   be confirmed in the next Cyrius-agent cleanup pass and pointed
->   at from here.
-> - **v5.10.x**: tagged unions (algebraic data types) + exhaustive
->   pattern match — own minor. Biggest single-ergonomics language
->   addition of the v5.x line.
-> - **v5.11.x**: `Result<T,E>` + `?` propagation operator — own
->   minor, depends on v5.10 ADTs. Replaces -1/0/errno convention
->   across stdlib.
-> - **v5.12.x**: allocators-as-parameter convention (Zig-style) —
->   own minor. Every allocating fn takes `Allocator`; failing-
->   allocator harness falls out; retires `alloc_init()` global
->   singleton.
-> - **v5.13.x**: **polymorphic codegen** — security hardening (code
->   diversification / anti-ROP defense; post-v1.0 work per
->   `docs/development/threat-model.md`). **Pre-v6.0** per the
->   original plan: last v5.x feature minor before the `cc5 → cyc`
->   rename, so the rename doesn't have to also re-baseline a
->   hardening minor. Detailed scope/acceptance gates live in
->   `docs/development/threat-model.md`.
->
-> aarch64 port remains fully online at the narrow-scope level
-> (cross-build byte-identity; `regression.tcyr` 102/102 on real
-> Pi; per-arch asm via `#ifdef CYRIUS_ARCH_{X86,AARCH64}` from
-> v5.3.16). Native aarch64 self-host on Pi: ✅ repaired at
-> v5.6.32. Apple Silicon Mach-O broad-scope: ✅ gate-fixture
-> repaired at v5.6.33 (no compiler regression existed).
-> Windows 11 24H2 PE broad-scope: ✅ gate-fixture repaired at
-> v5.6.36.
->
-> Bootstrap: seed (29KB) → cyrc (12KB) → bridge → cc5. Closure
-> verified. **78+ test suites**, 14 benchmarks, 5 fuzz harnesses.
-> **65 stdlib modules** (includes 6 deps).
-
 For completed work, see [completed-phases.md](completed-phases.md).
 For detailed changes, see [CHANGELOG.md](../../CHANGELOG.md).
 
----
-
-## Active Bugs
-
-No active bugs at present.
-
-When a new bug surfaces: add a row pinned to a concrete v5.7.x
-slot here. No "investigate" / "future work" phrasing without a
-patch number. If an investigation doesn't yield, STOP and ask —
-never slip, defer, or re-slot unilaterally.
-
-| Bug | Impact | Pinned slot |
-|-----|--------|-------------|
-| _(empty)_ | | |
-
-For shipped work see [CHANGELOG.md](../../CHANGELOG.md) (source of
-truth) and the high-level phase summaries in
-[completed-phases.md](completed-phases.md).
-
----
 
 ## v5.3.x / v5.4.x / v5.5.x / v5.6.x — shipped
 
@@ -609,68 +273,7 @@ needs without language change.
 - Block-form `var X[N];` (uninit) skipped — nothing to
   check.
 
-## v5.7.33-v5.7.35 — RISC-V rv64 (3 sub-patches; tightened from 3-5)
-
-First-class RISC-V 64-bit target. Slid across v5.6.0 → v5.7.33-v5.7.35
-as the optimization arc, sandhi fold, fixup-cap bumps,
-cyrius-ts frontend, JSX work, tooling polish, fn-collision
-rule, input_buf reshuffle, cx-build/correctness, the
-v5.7.13–v5.7.23 cyim-unblocking + bug/UX patch slate, the
-v5.7.27 ship-damage chain (cap-raise + cx re-sync + gate
-hygiene), the v5.7.30 aarch64 f64 implementation +
-v5.7.31 polyfills, and v5.7.32 mabda global-init-order lint
-took priority. Inherits a frontend-complete compiler against
-a clean toolchain UX with the full v5.7.0–v5.7.32 prerequisite
-chain shipped — and a "bug-free before feature-parity" floor
-per user direction at v5.7.30 ship.
-
-**Tightened to 3 sub-patches** (was 3-5) to fit closeout —
-the v5.7.27 ship-damage chain consumed 3 unplanned slots
-(v5.7.27/.28/.29), the v5.7.30 split consumed 2 (v5.7.30/.31),
-and v5.7.32 consumed 1. v5.7.37 backstop accommodates the
-extension but the RISC-V budget tightens.
-
-RISC-V needs:
-
-- **New backend module** — `src/backend/riscv64/` with its own
-  `emit.cyr`, `jump.cyr`, `fixup.cyr` mirroring x86/aarch64.
-- **New stdlib syscall peer** — `lib/syscalls_riscv64_linux.cyr`
-  with the Linux rv64 generic-table numbers (different from
-  aarch64's even though both use the generic table — numbers
-  match aarch64 for most syscalls but rv64 drops `renameat`,
-  `link`, `unlink` which means the at-family wrappers need
-  review). Selector in `lib/syscalls.cyr` gains an `#ifplat
-  riscv64` arm (the v5.4.19 directive extends naturally here).
-- **New cross-entry** — `src/main_riscv64.cyr` mirroring
-  `main_aarch64.cyr`'s arch-include swap.
-- **New test runner** — QEMU or real hardware (HiFive Unmatched
-  or equivalent) for self-host verification.
-- **New CI matrix** — `linux/riscv64` runners via qemu-user-
-  static, analogous to the aarch64 cross-test flow.
-- **ABI** — RISC-V Linux ELF psABI (different register names:
-  `a0–a7` for args, `sp` for stack, no frame pointer by default
-  but we'll use `s0` for parity with aarch64's `x29`).
-
-**Acceptance gates:**
-1. Cross-compiler (`build/cc5_riscv64`) emits valid rv64 ELF
-   that `file(1)` identifies correctly.
-2. A single-syscall "exit 42" probe runs under `qemu-riscv64-
-   static` and exits 42.
-3. Hello-world probe via `sys_write` + `sys_exit` runs under
-   QEMU.
-4. `regression.tcyr` 102/102 via QEMU cross-test.
-5. Native self-host byte-identical on real rv64 hardware (not
-   QEMU — hardware-gated like the aarch64 ssh-pi check).
-6. Tarball includes `cc5_riscv64` alongside `cc5_aarch64`.
-7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
-   entry for `cc5_riscv64`.
-
-Deliberately NOT bundling other items into v5.7.26-v5.7.30 — a new
-architecture port is plenty of work on its own.
-
----
-
-## v5.7.x — patch slate (interleaved with RISC-V)
+## v5.7.x — patch slate
 
 Pinned items for the v5.7.x cycle, slot numbers assigned **during
 the port** as RISC-V porting work surfaces additional items that
@@ -1529,14 +1132,13 @@ write sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
 
 
 
-### v5.7.31 — `.scyr` (soak) + `.smcyr` (smoke) file types (post-RISC-V; floats up if RISC-V finishes in 3-4 sub-patches)
+### v5.7.x — `.scyr` (soak) + `.smcyr` (smoke) file types (queued; consumer-pulled)
 
-**Pinned 2026-04-25; slot framing updated 2026-04-27** — lands
-right after RISC-V wraps. Worst-case slot is v5.7.27 (assumes
-RISC-V uses all 5 sub-patches v5.7.26-v5.7.30); floats up to
-v5.7.29 or v5.7.30 if RISC-V finishes in 3 or 4 sub-patches
-respectively. Per user direction: "we can keep soak and smoke
-to before closeout of 5.7.x". Today, soak and smoke testing
+**Pinned 2026-04-25; slot framing updated 2026-04-28** — RISC-V
+moved to v5.8.x at v5.7.32 ship, so this slot floats freely
+across the v5.7.33-v5.7.36 open range. Per user direction:
+"we can keep soak and smoke to before closeout of 5.7.x".
+Today, soak and smoke testing
 are scattered:
 `cyrius soak` is a built-in fixed routine (N self-host iterations,
 hardcoded in `cbt/commands.cyr::cmd_soak`); smoke is implicit in
@@ -1643,7 +1245,12 @@ get consumer-surfaced, claim slots; if all three, re-ask.
 
 ---
 
-## v5.8.0 — Bare-metal / AGNOS kernel target
+## v5.8.x — Bare-metal arc (AGNOS kernel + RISC-V rv64)
+
+Two arch-port-style efforts grouped into one minor since both
+land at the "no libc, direct hardware/different ABI" layer:
+
+### v5.8.0 — Bare-metal / AGNOS kernel target
 
 Bare-metal output (no libc, no syscalls, direct hardware). AGNOS
 kernel is the concrete consumer. Slid with the optimization minor
@@ -1651,6 +1258,68 @@ insert (was v5.7.0 pre-v5.6.x pin). Details pinned closer to
 landing — rough scope: ELF no-libc output format, interrupt-handler
 emit conventions, kernel-mode syscall stubs stripped, boot pipeline
 from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.29 gate).
+
+### v5.8.x — RISC-V rv64 (3-5 sub-patches)
+
+First-class RISC-V 64-bit target. **Moved to v5.8.x at v5.7.32
+ship** (was v5.7.33-v5.7.35) — pairs naturally with the
+bare-metal scope since both deal with new ABI / non-libc
+runtime considerations and both are arch-port-shaped efforts.
+v5.7.x stays at frontend / stdlib / linter polish; v5.8.x
+becomes the "new arch + bare-metal" arc.
+
+Inherits a frontend-complete compiler against a clean
+toolchain UX with the full v5.7.0–v5.7.32 prerequisite chain
+shipped, including the v5.7.30 + v5.7.31 aarch64 f64 pair
+that gives RISC-V a working f64-on-non-x87 reference (likely
+reuse the polyfill shape — RISC-V has hardware f64 in the F/D
+extensions but the polynomial reuses cleanly).
+
+**RISC-V needs:**
+
+- **New backend module** — `src/backend/riscv64/` with its
+  own `emit.cyr`, `jump.cyr`, `fixup.cyr` mirroring
+  x86/aarch64.
+- **New stdlib syscall peer** — `lib/syscalls_riscv64_linux.cyr`
+  with the Linux rv64 generic-table numbers (different from
+  aarch64's even though both use the generic table — numbers
+  match aarch64 for most syscalls but rv64 drops `renameat`,
+  `link`, `unlink` which means the at-family wrappers need
+  review). Selector in `lib/syscalls.cyr` gains an `#ifplat
+  riscv64` arm (the v5.4.19 directive extends naturally
+  here).
+- **New cross-entry** — `src/main_riscv64.cyr` mirroring
+  `main_aarch64.cyr`'s arch-include swap.
+- **New test runner** — QEMU or real hardware (HiFive
+  Unmatched or equivalent) for self-host verification.
+- **New CI matrix** — `linux/riscv64` runners via
+  qemu-user-static, analogous to the aarch64 cross-test
+  flow.
+- **ABI** — RISC-V Linux ELF psABI (different register
+  names: `a0–a7` for args, `sp` for stack, no frame pointer
+  by default but we'll use `s0` for parity with aarch64's
+  `x29`).
+
+**Acceptance gates:**
+
+1. Cross-compiler (`build/cc5_riscv64`) emits valid rv64
+   ELF that `file(1)` identifies correctly.
+2. A single-syscall "exit 42" probe runs under
+   `qemu-riscv64-static` and exits 42.
+3. Hello-world probe via `sys_write` + `sys_exit` runs
+   under QEMU.
+4. `regression.tcyr` 102/102 via QEMU cross-test.
+5. Native self-host byte-identical on real rv64 hardware
+   (not QEMU — hardware-gated like the aarch64 ssh-pi
+   check).
+6. Tarball includes `cc5_riscv64` alongside `cc5_aarch64`.
+7. `[release]` table in `cyrius.cyml` gets a `cross_bins`
+   entry for `cc5_riscv64`.
+
+Deliberately NOT bundling other items into the v5.8.x
+RISC-V arc — a new architecture port is plenty of work on
+its own. Bare-metal (v5.8.0) lands first; RISC-V picks up
+the rest of the v5.8.x range.
 
 ---
 
@@ -2002,38 +1671,39 @@ enables adding new targets without touching the frontend.
 
 ## v5.x — Toolchain Quality
 
-| Feature | Effort | Description |
-|---------|--------|-------------|
-| `cyrius api-surface` | Medium | Snapshot-based API surface diffing. Scans `fn` declarations, tracks `mod::name/arity`, diffs against committed snapshot. Catches breaking removals/renames, allows additions. Pattern from agnosys `scripts/check-api-surface.sh`. |
-| `cyrius api-surface --update` | Low | Regenerate snapshot after intentional API bump. |
-| CI template with api-surface gate | Low | Standard downstream CI step: `cyrius api-surface` fails on breakage. |
-| LSP semantic-tokens polish | Medium | Basic color-coding shipped. Extend to cross-file symbol resolution + go-to-def. |
+| Feature | Effort | Status / Description |
+|---------|--------|----------------------|
+| `cyrius api-surface` | Medium | **✅ Shipped v5.7.33.** Snapshot-based public API diff. Scans `fn` declarations, tracks `mod::name/arity`, diffs against committed snapshot. Catches breaking removals/renames, allows additions. Pure-cyrius impl in `programs/api_surface.cyr`; pattern from agnosys `scripts/check-api-surface.sh`. |
+| `cyrius api-surface --update` | Low | **✅ Shipped v5.7.33.** Regenerate snapshot after intentional API bump. |
+| CI template with api-surface gate | Low | **✅ Shipped v5.7.33** (gate 4ao in cyrius's own check.sh; downstream consumers add their own copy). |
+| LSP semantic-tokens polish | Medium | **Queued.** Basic color-coding shipped. Extend to cross-file symbol resolution + go-to-def. Future v5.7.x slot when claimed; not bundled with v5.7.33. |
+| cyrlint forward-ref scanner — string-literal awareness | Low-Medium | **Queued.** v5.7.32 cyrlint global-init-order rule doesn't suppress IDENTs inside string literals (no observed false positives, but a literal-aware scanner is a future polish). |
 
 ---
 
 ## v5.x — Language Refinements
 
-**Pinned arc:**
+**Pinned arc** (re-eval'd 2026-04-28 at v5.7.33 ship — arc holds; ordering reflects "smaller language adds first, big own-minor features as their slot opens"):
 
-| Feature | Pinned | Effort |
-|---------|--------|--------|
-| First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium |
-| Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium |
-| Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large |
-| `Result<T,E>` + `?` propagation (own minor) | **v5.11.x** | Large |
-| Allocators-as-parameter (own minor) | **v5.12.x** | Large |
+| Feature | Pinned | Effort | Notes |
+|---------|--------|--------|-------|
+| First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.9.0** | Medium | Lands first because TLS / sandhi / sigil all want bounds-aware buffer types; `slice<u8>` collapses the (ptr, len) pair pattern that's repeated across stdlib. |
+| Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.9.1** | Medium | Catches accidental allocation in "pure" crypto paths; sigil + sankoch want this. Three decorators, no row types — simpler than OCaml/Koka. |
+| Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large | Biggest single ergonomics win of the v5.x line. Replaces tagged.cyr + manual dispatch across the stdlib. |
+| `Result<T,E>` + `?` propagation (own minor) | **v5.11.x** | Large | Depends on v5.10 ADTs. Replaces -1/0/errno convention across stdlib + ecosystem. |
+| Allocators-as-parameter (own minor) | **v5.12.x** | Large | Per-call-site allocator selection. Last big language addition before v6.0.0 toolchain renames. |
 
-**Still unpinned / lower priority:**
+**Still unpinned / lower priority** (re-eval'd 2026-04-28):
 
-| Feature | Effort | Votes |
-|---------|--------|-------|
-| cc5 per-block scoping | Medium | — |
-| Incremental compilation | High | — |
-| Generics / traits | High | 1 (kavach) |
-| Closures capturing variables | High | gotcha #8 |
-| Hardware 128-bit div-mod | Medium | — |
-| Phase 3-full varargs (va_arg for structs-by-value + nested) | Medium | Phase 3-min shipped v5.5.36 |
-| Phase 2b-aarch64 struct copy (LDRB/STRB loop) | Medium | x86 shipped v5.5.36 |
+| Feature | Effort | Surfacing / votes | Disposition |
+|---------|--------|-------------------|-------------|
+| Phase 2b-aarch64 struct copy (LDRB/STRB loop) | Medium | x86 shipped v5.5.36; aarch64 path pending | **Pin candidate** — likely v5.7.x patch slate or v5.8.x aarch64-polish slot. Surfaces whenever a consumer cross-builds struct-by-value calls for aarch64. Phylax / mabda may hit. |
+| Closures capturing variables | High | gotcha #8 — consumers feel the absence | **Watching.** Promote to pinned slot when a consumer concretely blocks on it (vs. lambda-pattern workaround). v5.10.x ADTs make captured-state encoding cleaner. |
+| Generics / traits | High | 1 vote (kavach) | **Watching.** Wait for kavach to actively reach for it; speculative implementation pre-need is risk. |
+| Hardware 128-bit div-mod | Medium | — | **Stays unpinned.** abaco / sigil currently work around via u128 shifts; not blocking. |
+| Phase 3-full varargs (va_arg for structs-by-value + nested) | Medium | Phase 3-min shipped v5.5.36 | **Stays unpinned.** Niche — most consumers use array-of-args pattern instead. |
+| cc5 per-block scoping | Medium | — | **Stays unpinned.** Function-scope works for current consumer base; promote when a real refactor surfaces the pain. |
+| Incremental compilation | High | — | **Stays unpinned.** Whole-program self-host is fast (<400 ms); incremental adds complexity for cyrius-style projects without proportional payoff. Reconsider when cc5 self-host time crosses ~2 sec. |
 
 ---
 

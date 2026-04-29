@@ -4,6 +4,148 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.33] — 2026-04-28
+
+**`cyrius api-surface` — snapshot-based public API diff** —
+new toolchain-quality slot from the `v5.x — Toolchain Quality`
+section. Pattern adapted from `agnosys/scripts/check-api-
+surface.sh`; cyrius-native pure-cyrius implementation per the
+sovereign-toolchain stance ("no external runtime"). Catches
+breaking removals/renames before ship; allows additions
+(non-breaking).
+
+### Why
+
+Without an API-surface gate, downstream consumers (mabda,
+sandhi, sit, …) can break silently when stdlib renames or
+removes a public fn. agnosys ships a bash-based check; cyrius
+needed its own. Ship now (v5.7.33) so every minor closeout
+can run the diff before tagging — the 191 false-removals my
+locale-misordered snapshot flagged during dev are exactly the
+kind of drift this catches.
+
+### Added
+
+- **`programs/api_surface.cyr`** (~450 lines) — pure-cyrius
+  implementation. Walks `src/*.cyr` + `lib/*.cyr`, extracts
+  every top-level `fn NAME(args)` not prefixed with `_`,
+  computes arity by counting commas in args, formats as
+  `module::name/arity` (module = filename basename without
+  `.cyr`), insertion-sorts entries lexicographically (byte-
+  wise), diffs against `docs/api-surface.snapshot`. Snapshot
+  format mirrors agnosys's: one entry per line, sorted.
+- **`cmd_api_surface(update_flag)`** in `cbt/commands.cyr` —
+  invokes the standalone tool via `run_tool`. Same shape as
+  `cmd_lint` / `cmd_fmt`.
+- **`api-surface` dispatch** in `cbt/cyrius.cyr` — between
+  `deny` and `audit`. Two forms:
+  - `cyrius api-surface` — diff vs committed snapshot
+    (rc=1 on breakage).
+  - `cyrius api-surface --update` — regenerate snapshot.
+- **`docs/api-surface.snapshot`** — initial snapshot of
+  cyrius's public API: 2552 entries spanning the full stdlib
+  + ecosystem dep set bundled at v5.7.33 ship.
+- **`cyrius_api_surface`** added to `cyrius.cyml [release].bins`
+  — the install snapshot now ships the tool alongside cc5 /
+  cyrius / cyrlint / cyrfmt / cyrdoc.
+- **`tests/regression-api-surface.sh`** — check.sh gate 4ao
+  (51 → 52). Three cases: (1) committed snapshot matches
+  current repo (no drift); (2) synthetic snapshot with extra
+  `_TEST_REMOVED::synthetic_fn/0` entry → tool reports
+  BREAKING with rc=1; (3) snapshot with one entry deleted →
+  tool reports non-breaking addition with rc=0.
+
+### Coverage
+
+What `cyrius api-surface` tracks (public API surface):
+
+- Top-level `fn NAME(args)` definitions in `src/` + `lib/`
+- Arity (count of comma-separated args; 0 for empty)
+- Underscore-prefixed names (`_internal`) excluded by
+  convention
+
+What it does NOT track (intentional scope):
+
+- Top-level `var NAME = ...` (constants — separate concern;
+  v5.7.32 cyrlint global-init-order rule covers init-order
+  hazards on these)
+- `enum` / `struct` definitions (types, not values; future
+  slot if a consumer surfaces a need)
+- Local fn declarations (block-scoped; not API surface)
+- Comment-style API contracts
+
+### Verification
+
+- 3-step self-host fixpoint — cc5 byte-identical at
+  **720,640 B** (no compiler change in this slot — cbt + new
+  program only).
+- `cyrius api-surface` on cyrius repo: matches committed
+  snapshot exactly (2552 public fns).
+- `regression-api-surface.sh` PASS — synthetic add + remove
+  scenarios both detected correctly.
+- `sh scripts/check.sh` — **52/52 PASS** (was 51/51;
+  +gate 4ao).
+
+### Pattern: byte-wise sort
+
+The diff algorithm uses byte-wise lexicographic comparison.
+Per agnosys's hard-learned lesson: locale-collation sort
+(default in many systems) can flag renamed-adjacent entries
+(e.g. `secureboot_enroll_key` vs.
+`secureboot_enrolled_key_new`) as both removed and added when
+the snapshot was sorted under a different locale. The cyrius
+implementation does its own insertion sort over byte values
+— deterministic regardless of host locale. Tests verified
+with `LC_ALL=C sort` for snapshot regeneration.
+
+### CI template (downstream pattern)
+
+The recommended downstream consumer adds to their own
+`scripts/check.sh` (or equivalent):
+
+```sh
+echo "── api-surface ──"
+cyrius api-surface > /tmp/audit_api 2>&1
+api_result=$?
+check "public API matches snapshot" "$api_result"
+if [ "$api_result" -ne 0 ]; then cat /tmp/audit_api; fi
+```
+
+When a breaking change is intentional, the consumer runs
+`cyrius api-surface --update` to regenerate the snapshot,
+commits it, and the next CI run goes green. Same UX as
+agnosys's bash version.
+
+### LSP semantic-tokens polish
+
+NOT in v5.7.33 scope. The `v5.x — Toolchain Quality` section
+also lists "LSP semantic-tokens polish — extend to cross-file
+symbol resolution + go-to-def" (medium). Separate slot when
+claimed; not bundled here since the api-surface tool ships
+without LSP changes. Consumer-pulled item for a future v5.7.x
+or v5.8.x slot.
+
+### Files
+
+- `programs/api_surface.cyr` — new (~450 lines).
+- `cbt/commands.cyr` — `+11` lines for `cmd_api_surface`.
+- `cbt/cyrius.cyr` — `+9` lines for dispatch.
+- `cyrius.cyml` — `+1` token in `[release].bins`.
+- `docs/api-surface.snapshot` — new (2552 entries).
+- `tests/regression-api-surface.sh` — new gate (~85 lines).
+- `scripts/check.sh` — 8 lines wiring gate 4ao.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.33 bump.
+- Install snapshot at `~/.cyrius/versions/5.7.33/`.
+
+### Slot map (post-v5.7.33)
+
+- v5.7.30 ✅ aarch64 f64 basic ops
+- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills
+- v5.7.32 ✅ cyrlint global-init-order forward-ref warning
+- v5.7.33 ✅ cyrius api-surface tooling (this slot)
+- v5.7.34-v5.7.36 — open slots for emergent items
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.32] — 2026-04-28
 
 **CYRLINT GLOBAL-INIT-ORDER FORWARD-REF WARNING (mabda-

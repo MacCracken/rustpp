@@ -461,6 +461,15 @@ fn main() {
         return cmd_deny(argv(2));
     }
 
+    # v5.7.33: api-surface — snapshot-based public API diff.
+    if (streq(cmd, "api-surface") == 1) {
+        var update_flag = 0;
+        if (argc() >= 3) {
+            if (streq(argv(2), "--update") == 1) { update_flag = 1; }
+        }
+        return cmd_api_surface(update_flag);
+    }
+
     if (streq(cmd, "audit") == 1) {
         return cmd_audit();
     }

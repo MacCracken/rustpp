@@ -531,6 +531,15 @@ if [ "$lio_result" -ne 0 ]; then cat /tmp/audit_lio_$$; fi
 rm -f /tmp/audit_lio_$$
 echo ""
 
+# ── 4ao. cyrius api-surface diff (v5.7.33) ──
+echo "── cyrius api-surface ──"
+sh "$ROOT/tests/regression-api-surface.sh" > /tmp/audit_api_$$ 2>&1
+api_result=$?
+check "cyrius api-surface diff: snapshot match + add/remove detection (v5.7.33)" "$api_result"
+if [ "$api_result" -ne 0 ]; then cat /tmp/audit_api_$$; fi
+rm -f /tmp/audit_api_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
