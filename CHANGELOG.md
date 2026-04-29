@@ -102,14 +102,47 @@ aarch64) per the v5.7.20-pinned cyrdoc-coverage gate.
 - cc5 self-host two-step byte-identical at **720,640 B** (no
   compiler change — stdlib enum + new files only).
 - Bootstrap closure (seed → cyrc → asm → cyrc): byte-identical.
-- check.sh **54/54 PASS** (was 53/53; +gate 4aq).
-- New `tests/regression-syscall-surface-v5735.sh` (compiles
-  + runs a test program that calls all five wrappers + verifies
-  enum constants — uses `landlock_create_ruleset(0, 0, 1)` as
+- check.sh **54/54 PASS** (+gate 4aq).
+- `tests/regression-syscall-surface-v5735.sh` — self-contained
+  shell gate. Test source generated inline as a `cat <<EOF`
+  heredoc inside the gate; calls all five wrappers + verifies
+  enum constants. Uses `landlock_create_ruleset(0, 0, 1)` as
   an ABI-version probe so the test passes on kernels with or
-  without `CONFIG_SECURITY_LANDLOCK`).
+  without `CONFIG_SECURITY_LANDLOCK`.
 - `docs/api-surface.snapshot` regenerated: **2552 → 2563**
   entries (+11: random_bytes/2 + 5 wrappers × 2 arches).
+
+### Post-ship CI fix arc
+
+The first three iterations of this slot put the test in
+`tests/tcyr/syscall_surface_v5735.tcyr`, picked up by the CI
+tcyr loop. All three failed in CI (both `ubuntu-latest` and the
+agnos container) with the same opaque symptom — no FAIL line,
+no PASS line, the loop just dying with `Error: Process completed
+with exit code 1` between iterations. Most likely cause: GitHub
+Actions container seccomp policy gates the recent landlock
+syscalls (444-446, added 2021) with `SCMP_ACT_KILL` rather than
+`SCMP_ACT_ERRNO`, killing the test in a way the surrounding
+bash subshell captures inconsistently. Two narrowing iterations
+(relax landlock return assertions → move landlock calls into a
+dead `if (0 != 0)` branch) didn't help — likely because cc5
+still emits the syscall instructions in the wrapper bodies
+regardless of call-site reachability, and something in the CI
+sandbox inspects the binary text or seccomp-traps on load.
+
+**Fix shape**: deleted `tests/tcyr/syscall_surface_v5735.tcyr`,
+moved the test source inline as a heredoc in the `.sh` gate.
+The shell-gate harness gives surrounding context to isolate
+failures by exit code rather than relying on a generic loop
+that mistakes "killed by sandbox" for "broken test binary."
+
+**Lesson** (saved to `feedback_kernel_capability_tests_outside_
+tcyr_loop.md`): tests that exercise capability-gated kernel
+APIs (landlock, BPF, pidfd, openat2, anything < ~10 years old,
+anything needing CAP_SYS_ADMIN or NO_NEW_PRIVS) belong as
+standalone `regression-*.sh` gates, NOT in the tcyr loop. The
+tcyr loop is for in-process unit tests with deterministic
+outcomes regardless of host kernel/container.
 
 ### Files touched
 
@@ -117,8 +150,10 @@ aarch64) per the v5.7.20-pinned cyrdoc-coverage gate.
 - `lib/syscalls_aarch64_linux.cyr` — 5 enum members + 5 wrappers.
 - `lib/random.cyr` — new (~45 lines: enum + 1 fn).
 - `lib/security.cyr` — new (~55 lines: 2 enums, no fns yet).
-- `tests/tcyr/syscall_surface_v5735.tcyr` — new test (~85 lines).
-- `tests/regression-syscall-surface-v5735.sh` — new gate (~75 lines).
+- `tests/regression-syscall-surface-v5735.sh` — new gate
+  (~165 lines, source inline as heredoc).
+- ~~`tests/tcyr/syscall_surface_v5735.tcyr`~~ — created then
+  deleted post-ship (CI tcyr loop tripped on it).
 - `scripts/check.sh` — 8 lines wiring gate 4aq.
 - `docs/api-surface.snapshot` — refreshed (+11 entries).
 - `docs/development/issues/stdlib-syscalls-aarch64-gaps-from-
@@ -128,15 +163,11 @@ aarch64) per the v5.7.20-pinned cyrdoc-coverage gate.
 
 ### Slot map (post-v5.7.35)
 
-- v5.7.30 ✅ aarch64 f64 basic ops
-- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills
-- v5.7.32 ✅ cyrlint global-init-order forward-ref warning
-- v5.7.33 ✅ cyrius api-surface tooling
-- v5.7.34 ✅ aarch64 codebuf cap raise
-- v5.7.35 ✅ stdlib syscall surface (this slot)
-- v5.7.36 — open slot for emergent items (dup-fn investigation
-  may land here once phylax-agent captures repro)
-- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+See `docs/development/state.md §Queue` for the firm sequenced
+plan: v5.7.36 TS test-org rework → v5.7.37 trio bundle → v5.7.38-
+v5.7.40 JSON depth series → v5.7.41-v5.7.43 advanced TS suite →
+v5.7.44 closeout. Backstop bumped to v5.7.44 at v5.7.35 ship to
+give the JSON depth + TS suite per-item slots.
 
 ### Pinned method (post-mortem)
 

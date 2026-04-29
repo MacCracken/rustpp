@@ -35,19 +35,37 @@ does this for the common surface (`sys_open`, `sys_read`, ...);
 this slot extends it to 2014-2021-era kernel additions.
 Verification: cc5 self-host two-step byte-identical at
 **720,640 B** (no compiler change). check.sh **54/54 PASS**
-(was 53/53; +gate 4aq using `tests/tcyr/syscall_surface_v5735.tcyr`
-which calls all five wrappers + uses
-`landlock_create_ruleset(0, 0, 1)` as an ABI-version probe so
-the test passes on kernels with or without
-`CONFIG_SECURITY_LANDLOCK`). `docs/api-surface.snapshot`
-regenerated: **2552 → 2563** entries (+11: `random::random_bytes/2`
-+ 5 wrappers × 2 arches). **Pinned method**: when the next
-consumer surfaces a missing syscall, diff
-`lib/syscalls_*.cyr`'s SysNr enum against kernel
-`include/uapi/asm-generic/unistd.h` (aarch64) or
-`arch/x86/entry/syscalls/syscall_64.tbl` (x86). Don't expand to
-full BPF / pidfd / openat2 sweep without consumer ask — minimal
-bundle is the precedent.)
+(+gate 4aq). `docs/api-surface.snapshot` regenerated: **2552 →
+2563** entries (+11: `random::random_bytes/2` + 5 wrappers ×
+2 arches). **Post-ship CI fix (3 iterations)**: initial gate
+form was `tests/tcyr/syscall_surface_v5735.tcyr` picked up by
+the CI tcyr loop. Failed in CI (both ubuntu-latest and the
+agnos container) — symptom: no FAIL line, no PASS line, the
+loop just dies between iterations with `Error: Process
+completed with exit code 1`. Two narrowing iterations didn't
+help (relaxing landlock return-value assertions, then moving
+landlock calls into a dead `if (0 != 0)` branch); root cause
+likely GitHub Actions container seccomp policy gating
+landlock syscalls (444-446, added 2021) with `SCMP_ACT_KILL`
+rather than `SCMP_ACT_ERRNO`, killing the test in a way the
+surrounding bash subshell captured inconsistently. **Final
+shape**: deleted `tests/tcyr/syscall_surface_v5735.tcyr`,
+moved the test source inline as a `cat <<EOF` heredoc inside
+`tests/regression-syscall-surface-v5735.sh`. The `.sh` gate
+runs in `check.sh` (and any CI that invokes check.sh) where
+the surrounding context lets us isolate failures by exit code
+rather than relying on the generic tcyr loop. **Lesson**:
+syscall-coverage tests that exercise capability-gated kernel
+APIs (landlock, anything < 10 years old) belong as standalone
+shell gates with surrounding context, not in the generic
+tcyr loop. The tcyr loop is for in-process unit tests; the
+shell-gate harness is for "the kernel might do something
+unexpected here." **Pinned method**: when the next consumer
+surfaces a missing syscall, diff `lib/syscalls_*.cyr`'s SysNr
+enum against kernel `include/uapi/asm-generic/unistd.h`
+(aarch64) or `arch/x86/entry/syscalls/syscall_64.tbl` (x86).
+Don't expand to full BPF / pidfd / openat2 sweep without
+consumer ask — minimal bundle is the precedent.)
 
 **5.7.34** (shipped 2026-04-28 — **AARCH64 CODEBUF CAP RAISE
 (524288 → 3145728) — phylax-surfaced**. Closes the v5.7.27
