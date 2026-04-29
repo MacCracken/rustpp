@@ -88,12 +88,19 @@ fn EGETTICKS_PE(S) {
 var _AARCH64_BACKEND = 1;
 
 # Emit one byte to codebuf
+# v5.7.34: cap raised 524288 → 3145728 to match the v5.7.27
+# codebuf grow on x86 (`src/backend/x86/emit.cyr:68`). v5.7.27
+# missed the aarch64 EB, so cc5_aarch64 was still rejecting
+# programs > 512 KB even though the heap region grew to 3 MB.
+# Phylax-surfaced when a downstream cross-build with phylax-
+# shape program tripped `error: codebuf overflow (.../524288)`
+# on aarch64 while the same source built fine on x86.
 fn EB(S, b) {
     var cp = GCP(S);
-    if (cp >= 524288) {
+    if (cp >= 3145728) {
         syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
         PRNUM(cp);
-        syscall(SYS_WRITE, 2, "/524288 bytes)\n", 15);
+        syscall(SYS_WRITE, 2, "/3145728 bytes) — program too large for single compilation\n", 60);
         syscall(SYS_EXIT, 1);
     }
     store8(S + 0x64A000 + cp, b & 0xFF);

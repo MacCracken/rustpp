@@ -540,6 +540,15 @@ if [ "$api_result" -ne 0 ]; then cat /tmp/audit_api_$$; fi
 rm -f /tmp/audit_api_$$
 echo ""
 
+# ── 4ap. aarch64 codebuf cap (v5.7.34) ──
+echo "── aarch64 codebuf cap ──"
+sh "$ROOT/tests/regression-aarch64-codebuf-cap.sh" > /tmp/audit_a64cap_$$ 2>&1
+a64cap_result=$?
+check "aarch64 EB codebuf cap matches v5.7.27 region size (3 MB; v5.7.34)" "$a64cap_result"
+if [ "$a64cap_result" -ne 0 ]; then cat /tmp/audit_a64cap_$$; fi
+rm -f /tmp/audit_a64cap_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

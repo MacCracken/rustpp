@@ -1136,7 +1136,7 @@ write sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
 
 **Pinned 2026-04-25; slot framing updated 2026-04-28** — RISC-V
 moved to v5.8.x at v5.7.32 ship, so this slot floats freely
-across the v5.7.33-v5.7.36 open range. Per user direction:
+across the v5.7.35-v5.7.36 open range. Per user direction:
 "we can keep soak and smoke to before closeout of 5.7.x".
 Today, soak and smoke testing
 are scattered:
@@ -1218,10 +1218,10 @@ patch with a tcyr suite covering the new shape — pretty-print
 round-trip, streaming events on a multi-doc fixture, JSON Pointer
 on the existing nested-fixture from `tests/tcyr/json_engine.tcyr`.
 
-**Slot assignment**: each takes one slot. With v5.7.34 backstop
-and current queue (RISC-V at low end → ~v5.7.28 closeout), there's
-room for ≤4 follow-up items before re-bounding. If two of these
-get consumer-surfaced, claim slots; if all three, re-ask.
+**Slot assignment**: each takes one slot. With v5.7.37 backstop
+and v5.7.34 shipped, there's room for ≤2 follow-up items before
+re-bounding (v5.7.35-v5.7.36 open). If consumer-surfaced, claim
+a slot; if all three want in, re-ask.
 
 
 
@@ -1663,7 +1663,7 @@ enables adding new targets without touching the frontend.
 | **v5.5.34** | fdlopen foreign-dlopen completion | ELF | **Done** — 40/40 round-trip `dlopen("libc.so.6")+dlsym("getpid")` |
 | **v5.5.35** | Windows PE .reloc + 32-bit ASLR | PE/COFF | **Done** — `DYNAMIC_BASE` + HIGH_ENTROPY_VA enabled v5.6.31 |
 | **v5.5.36** | Windows Win64 ABI completion | PE/COFF | **Done** — struct-return via hidden RCX retptr + __chkstk via R11 + variadic float dup |
-| **v5.7.26-v5.7.30** | RISC-V rv64 | ELF | Queued (3-5 sub-patches; pending v5.7.13–v5.7.24 patch slate; v5.7.x closeout at v5.7.31-v5.7.33 (v5.7.34 hard backstop)) |
+| **v5.8.x** | RISC-V rv64 | ELF | **Moved from v5.7.x at v5.7.32 ship** — pairs naturally with the v5.8.0 bare-metal AGNOS scope (both "no libc / new ABI" arch-port work). |
 | **v5.8.0** | Bare-metal | ELF (no-libc) | Queued — AGNOS kernel target |
 | ~~**v5.9.0–5.9.5**~~ | ~~Pure-cyrius TLS 1.3~~ | — | **Removed from roadmap 2026-04-24** — pure-Cyrius TLS work outside Cyrius's compiler/stdlib scope per sandhi scope-absorption decision; `lib/tls.cyr` continues using `libssl.so.3` bridge from stdlib's perspective; canonical home for pure-Cyrius TLS implementation TBD. See v5.9.x slot bullet in *What's next* for details. |
 

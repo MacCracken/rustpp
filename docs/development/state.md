@@ -5,6 +5,45 @@
 
 ## Version
 
+**5.7.34** (shipped 2026-04-28 — **AARCH64 CODEBUF CAP RAISE
+(524288 → 3145728) — phylax-surfaced**. Closes the v5.7.27
+ship omission. v5.7.27 grew the codebuf heap region 1 MB → 3 MB
+on x86 (`src/backend/x86/emit.cyr:68`) and reshuffled 19
+downstream regions to make room, but the matching cap on the
+aarch64 backend's `EB()` emit-byte function in
+`src/backend/aarch64/emit.cyr:99` was not bumped. Result: any
+program that exceeded ~512 KB of emitted machine code on the
+aarch64 cross-compiler aborted with `error: codebuf overflow
+(.../524288)` while the same source built fine on x86. Phylax
+surfaced this when a downstream cross-build of a phylax-shape
+program tripped the old cap; the heap region itself had room
+(3 MB allocated since v5.7.27), only the function-local cap
+check still rejected. **Fix**: trivial constant bump 524288 →
+3145728 in `EB()`, plus the matching `/3145728 bytes — program
+too large for single compilation` error message (mirroring the
+x86 wording so the message is identical from the user's POV).
+Comment block flags this as the v5.7.27 follow-up so the next
+"grow the codebuf" cycle audits BOTH backend EBs. **Pinned
+method** for next codebuf-region grow:
+`grep -rn "^\s*if (cp >= [0-9]" src/backend/` enumerates every
+EB-class cap in one place before shipping the resize. cc5
+self-host two-step byte-identical at **720,640 B** (no compiler
+change for x86; aarch64 EB lives in a file `src/main.cyr` does
+NOT include — only `src/main_aarch64.cyr` does). **check.sh
+53/53 PASS** (was 52/52; +gate 4ap source-checks the cap
+constant — fast, no binary build, catches accidental revert
+either direction). **Bundled second issue NOT closed**: phylax-
+agent surfaced duplicate-fn warnings (`aes_ni_available`,
+`_aes_ni_cpuid_probe`, `aes256_encrypt_block_ni`) when building
+sigil under cyrius's aarch64 include pipeline. Could not
+reproduce locally with phylax/sigil at current pins; cyrius's
+include-once table (`PP_ALREADY_INCLUDED` at S+0x1C0000) and
+the v5.7.14 closest-wins BFS dedup both look correct on
+inspection. Investigation moves to the agnosys side where the
+phylax-agent can capture the actual include sequence triggering
+the warning. May land at v5.7.35 or v5.7.36 if reproduced
+before backstop.)
+
 **5.7.33** (shipped 2026-04-28 — **`cyrius api-surface` —
 SNAPSHOT-BASED PUBLIC API DIFF**. New toolchain-quality slot
 from the `v5.x — Toolchain Quality` section. Pattern adapted
@@ -1157,7 +1196,7 @@ stops emitting literal `\x1b[…` characters. Per the "compiler
 grows to fit the language, never the other way around" rule
 (`feedback_grow_compiler_to_fit_language.md`).
 
-**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.34):**
+**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.37):**
 
 Shipped:
 - **v5.7.13** ✅ string-literal escapes (cyim-unblocking)
@@ -1181,9 +1220,10 @@ Shipped:
 - **v5.7.31** ✅ aarch64 f64_exp / f64_ln polyfills (closes phylax-block — chi-squared + entropy paths now correct on aarch64)
 - **v5.7.32** ✅ cyrlint global-init-order forward-ref warning (closes mabda surfacing — the silent miscompile class)
 - **v5.7.33** ✅ cyrius api-surface tooling (snapshot-based public API diff; cyrius-native pure-cyrius impl; 2552-entry initial snapshot)
+- **v5.7.34** ✅ aarch64 codebuf cap raise 524288→3145728 (closes the v5.7.27 ship omission — phylax-surfaced; trivial constant bump in `src/backend/aarch64/emit.cyr` `EB()`; bundled dup-fn investigation moved to agnosys side where phylax-agent has the repro context)
 
 Queue:
-- **v5.7.34–v5.7.36** — open slots reserved for emergent items.
+- **v5.7.35–v5.7.36** — open slots reserved for emergent items.
   RISC-V was originally pinned here but **moved to v5.7.x at
   v5.7.32 ship** per user direction (pairs naturally with the
   v5.8.0 bare-metal scope — both are "no libc / new ABI" arch-

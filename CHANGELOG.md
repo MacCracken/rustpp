@@ -4,6 +4,98 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.34] — 2026-04-28
+
+**AARCH64 CODEBUF CAP RAISE (524288 → 3145728) — phylax-
+surfaced** — closes the v5.7.27 ship omission. v5.7.27 grew
+the codebuf heap region 1 MB → 3 MB on x86 (`src/backend/x86/
+emit.cyr:68`) and reshuffled 19 downstream regions to make
+room, but the matching cap on the aarch64 backend's `EB()`
+emit-byte function in `src/backend/aarch64/emit.cyr:99` was
+not bumped. Result: any program that exceeded ~512 KB of
+emitted machine code on the aarch64 cross-compiler aborted
+with `error: codebuf overflow (.../524288)` while the same
+source built fine on x86. Phylax surfaced this when a
+downstream cross-build of a phylax-shape program tripped the
+old cap; the heap region itself had room (3 MB allocated since
+v5.7.27), only the function-local cap check still rejected.
+
+The fix is the trivial constant bump:
+
+```
+fn EB(S, b) {
+    var cp = GCP(S);
+-   if (cp >= 524288) {
++   if (cp >= 3145728) {
+        syscall(SYS_WRITE, 2, "error: codebuf overflow (", 25);
+        PRNUM(cp);
+-       syscall(SYS_WRITE, 2, "/524288 bytes)\n", 15);
++       syscall(SYS_WRITE, 2, "/3145728 bytes) — program too large for single compilation\n", 60);
+        syscall(SYS_EXIT, 1);
+    }
+    store8(S + 0x64A000 + cp, b & 0xFF);
+    SCP(S, cp + 1);
+    return 0;
+}
+```
+
+The error message matches the corresponding x86 message; the
+preceding comment block flags this as the v5.7.27 follow-up so
+the next "grow the codebuf" cycle audits BOTH backend EBs.
+
+This is the kind of asymmetric-cap drift the v5.6.39 hardcoded-
+literal cleanup was supposed to prevent, but caps live inside
+emit functions (not version strings), so the cleanup didn't
+sweep them. Pinned method for next codebuf-region grow:
+`grep -rn "^\s*if (cp >= [0-9]" src/backend/` to enumerate
+every EB-class cap in one place before shipping the resize.
+
+The investigation surfaced a second issue — duplicate-fn
+warnings (`aes_ni_available`, `_aes_ni_cpuid_probe`,
+`aes256_encrypt_block_ni`) when phylax-agent built against
+sigil — that could not be reproduced locally with phylax/sigil
+checked out at their current pins. Cyrius's include-once table
+(`PP_ALREADY_INCLUDED`/`PP_MARK_INCLUDED` at S+0x1C0000) and
+the v5.7.14 closest-wins BFS dedup both look correct on
+inspection. Since the path to repro requires the agnosys
+context the phylax-agent is building under, this slot ships
+with the codebuf-cap fix only; the dup-fn investigation moves
+to the agnosys side where the agent can capture the actual
+include sequence triggering the warning.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change for x86; aarch64 EB cap lives in
+  `src/backend/aarch64/emit.cyr` which `src/main.cyr` does NOT
+  include — only `src/main_aarch64.cyr` does).
+- Bootstrap closure (seed → cyrc → asm → cyrc): byte-identical.
+- check.sh: **53/53 PASS** (was 52/52; gate 4ap added).
+- New gate `tests/regression-aarch64-codebuf-cap.sh` source-
+  checks the cap constant — fast, no binary build required.
+  Catches accidental revert of the 3145728 → 524288 in either
+  direction.
+
+### Files touched
+
+- `src/backend/aarch64/emit.cyr` — `EB()` cap 524288→3145728
+  + matching error-message rewrite + comment block.
+- `tests/regression-aarch64-codebuf-cap.sh` — new gate (~38 lines).
+- `scripts/check.sh` — 8 lines wiring gate 4ap.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.34 bump.
+- Install snapshot at `~/.cyrius/versions/5.7.34/`.
+
+### Slot map (post-v5.7.34)
+
+- v5.7.30 ✅ aarch64 f64 basic ops
+- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills
+- v5.7.32 ✅ cyrlint global-init-order forward-ref warning
+- v5.7.33 ✅ cyrius api-surface tooling
+- v5.7.34 ✅ aarch64 codebuf cap raise (this slot)
+- v5.7.35-v5.7.36 — open slots for emergent items (dup-fn
+  investigation may land here once phylax-agent captures repro)
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.33] — 2026-04-28
 
 **`cyrius api-surface` — snapshot-based public API diff** —
