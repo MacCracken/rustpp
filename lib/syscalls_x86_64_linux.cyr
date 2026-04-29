@@ -72,6 +72,12 @@ enum SysNr {
     SYS_GETTID = 186;
     SYS_SET_TID_ADDRESS = 218;
     SYS_EXIT_GROUP = 231;
+    # v5.7.35 (agnosys-surfaced — drm/luks/security)
+    SYS_GETDENTS64 = 217;
+    SYS_GETRANDOM = 318;
+    SYS_LANDLOCK_CREATE_RULESET = 444;
+    SYS_LANDLOCK_ADD_RULE = 445;
+    SYS_LANDLOCK_RESTRICT_SELF = 446;
 }
 
 # ================================================================
@@ -534,3 +540,46 @@ fn sys_inotify_init() { return syscall(294, 0); }
 fn sys_inotify_add_watch(fd, path, mask) { return syscall(254, fd, path, mask); }
 # Remove an inotify watch
 fn sys_inotify_rm_watch(fd, wd) { return syscall(255, fd, wd); }
+
+# v5.7.35 — agnosys-surfaced (drm/luks/security)
+
+# Read directory entries. `buf` receives a sequence of
+# `struct linux_dirent64` records: u64 d_ino; s64 d_off;
+# u16 d_reclen; u8 d_type; char d_name[];
+# Returns bytes written into buf, 0 at end-of-dir, -errno on error.
+# Used by drm device-node enumeration; high-level fs::list_dir
+# wraps this for the typical case.
+fn sys_getdents64(fd, buf, count) {
+    return syscall(SYS_GETDENTS64, fd, buf, count);
+}
+
+# Fill `buf` with `len` bytes from the kernel CSPRNG. `flags`
+# is GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE (see
+# lib/random.cyr for constants). Returns bytes filled or -errno.
+# Used by luks key/nonce generation; lib/random.cyr provides
+# the convenience `random_bytes(buf, len)` wrapper.
+fn sys_getrandom(buf, len, flags) {
+    return syscall(SYS_GETRANDOM, buf, len, flags);
+}
+
+# Landlock — kernel-enforced unprivileged sandbox (Linux 5.13+).
+# `attr_ptr` points at `struct landlock_ruleset_attr`; see
+# lib/security.cyr for the struct layout + access-FS flag
+# constants. Returns ruleset fd or -errno.
+fn sys_landlock_create_ruleset(attr_ptr, size, flags) {
+    return syscall(SYS_LANDLOCK_CREATE_RULESET, attr_ptr, size, flags);
+}
+
+# Add a rule to a ruleset created by sys_landlock_create_ruleset.
+# `rule_type` is LANDLOCK_RULE_PATH_BENEATH (1) or
+# LANDLOCK_RULE_NET_PORT (2). Returns 0 or -errno.
+fn sys_landlock_add_rule(ruleset_fd, rule_type, rule_attr, flags) {
+    return syscall(SYS_LANDLOCK_ADD_RULE, ruleset_fd, rule_type, rule_attr, flags);
+}
+
+# Apply a ruleset to the calling thread (and children, via
+# clone(2) inheritance). Once called, restrictions cannot be
+# relaxed by the same thread. Returns 0 or -errno.
+fn sys_landlock_restrict_self(ruleset_fd, flags) {
+    return syscall(SYS_LANDLOCK_RESTRICT_SELF, ruleset_fd, flags);
+}

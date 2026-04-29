@@ -5,6 +5,50 @@
 
 ## Version
 
+**5.7.35** (shipped 2026-04-28 — **STDLIB SYSCALL SURFACE GAPS
+— agnosys-surfaced (drm/luks/security)**. Closes three coherent
+stdlib additions that share the same shape: Linux syscalls
+valid on both x86_64 and aarch64 but not exposed by
+`lib/syscalls_*.cyr`. Filed by agnosys aarch64 portability work
+as `docs/development/issues/stdlib-syscalls-aarch64-gaps-from-
+agnosys.md`. Stdlib-only patch; zero compiler change. **What
+landed**: (1) Five SysNr enum members in BOTH arch peers —
+`SYS_GETDENTS64` (217 x86 / 61 arm), `SYS_GETRANDOM` (318 / 278),
+`SYS_LANDLOCK_CREATE_RULESET` / `_ADD_RULE` / `_RESTRICT_SELF`
+(444/445/446, same on both arches). (2) Five portable wrappers
+in BOTH peers (`sys_getdents64` / `sys_getrandom` /
+`sys_landlock_create_ruleset` / `_add_rule` / `_restrict_self`)
+— trivial `syscall(SYS_X, args...)` shape; doc-comment per fn
+to satisfy v5.7.20 cyrdoc-coverage gate. (3) New
+`lib/random.cyr` with `GrndFlag` enum + `random_bytes(buf, len)`
+loop wrapper that handles short reads (getrandom returns short
+for >256 bytes). (4) New `lib/security.cyr` with
+`LandlockAccessFs` (13 flag constants — EXECUTE / WRITE_FILE /
+READ_FILE / READ_DIR / REMOVE_* / MAKE_*) + `LandlockRuleType`
+(PATH_BENEATH). Deliberately constants-only, no struct —
+`landlock_ruleset_attr` drifts upstream (`handled_access_net`
+6.7, `scoped` 6.10), consumers should declare their own. **The
+"stdlib is the platform abstraction" principle preserved**:
+consumers should not need to know which arch they're running on
+to make a syscall that exists on both. cyrius stdlib already
+does this for the common surface (`sys_open`, `sys_read`, ...);
+this slot extends it to 2014-2021-era kernel additions.
+Verification: cc5 self-host two-step byte-identical at
+**720,640 B** (no compiler change). check.sh **54/54 PASS**
+(was 53/53; +gate 4aq using `tests/tcyr/syscall_surface_v5735.tcyr`
+which calls all five wrappers + uses
+`landlock_create_ruleset(0, 0, 1)` as an ABI-version probe so
+the test passes on kernels with or without
+`CONFIG_SECURITY_LANDLOCK`). `docs/api-surface.snapshot`
+regenerated: **2552 → 2563** entries (+11: `random::random_bytes/2`
++ 5 wrappers × 2 arches). **Pinned method**: when the next
+consumer surfaces a missing syscall, diff
+`lib/syscalls_*.cyr`'s SysNr enum against kernel
+`include/uapi/asm-generic/unistd.h` (aarch64) or
+`arch/x86/entry/syscalls/syscall_64.tbl` (x86). Don't expand to
+full BPF / pidfd / openat2 sweep without consumer ask — minimal
+bundle is the precedent.)
+
 **5.7.34** (shipped 2026-04-28 — **AARCH64 CODEBUF CAP RAISE
 (524288 → 3145728) — phylax-surfaced**. Closes the v5.7.27
 ship omission. v5.7.27 grew the codebuf heap region 1 MB → 3 MB
@@ -1221,9 +1265,10 @@ Shipped:
 - **v5.7.32** ✅ cyrlint global-init-order forward-ref warning (closes mabda surfacing — the silent miscompile class)
 - **v5.7.33** ✅ cyrius api-surface tooling (snapshot-based public API diff; cyrius-native pure-cyrius impl; 2552-entry initial snapshot)
 - **v5.7.34** ✅ aarch64 codebuf cap raise 524288→3145728 (closes the v5.7.27 ship omission — phylax-surfaced; trivial constant bump in `src/backend/aarch64/emit.cyr` `EB()`; bundled dup-fn investigation moved to agnosys side where phylax-agent has the repro context)
+- **v5.7.35** ✅ stdlib syscall surface gaps (getdents64 + getrandom + landlock × 2 arches; agnosys drm/luks/security-surfaced; new lib/random.cyr + lib/security.cyr; +11 api-surface entries)
 
 Queue:
-- **v5.7.35–v5.7.36** — open slots reserved for emergent items.
+- **v5.7.36** — open slot reserved for emergent items.
   RISC-V was originally pinned here but **moved to v5.7.x at
   v5.7.32 ship** per user direction (pairs naturally with the
   v5.8.0 bare-metal scope — both are "no libc / new ABI" arch-

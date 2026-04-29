@@ -1136,7 +1136,7 @@ write sites in `src/frontend/lex.cyr` + `src/frontend/parse_*.cyr`.
 
 **Pinned 2026-04-25; slot framing updated 2026-04-28** — RISC-V
 moved to v5.8.x at v5.7.32 ship, so this slot floats freely
-across the v5.7.35-v5.7.36 open range. Per user direction:
+across the v5.7.36 open range. Per user direction:
 "we can keep soak and smoke to before closeout of 5.7.x".
 Today, soak and smoke testing
 are scattered:
@@ -1219,9 +1219,9 @@ round-trip, streaming events on a multi-doc fixture, JSON Pointer
 on the existing nested-fixture from `tests/tcyr/json_engine.tcyr`.
 
 **Slot assignment**: each takes one slot. With v5.7.37 backstop
-and v5.7.34 shipped, there's room for ≤2 follow-up items before
-re-bounding (v5.7.35-v5.7.36 open). If consumer-surfaced, claim
-a slot; if all three want in, re-ask.
+and v5.7.34-v5.7.35 shipped, there's room for ≤1 follow-up item
+before re-bounding (v5.7.36 open). If consumer-surfaced, claim
+the slot; if more than one wants in, re-ask.
 
 
 

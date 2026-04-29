@@ -549,6 +549,15 @@ if [ "$a64cap_result" -ne 0 ]; then cat /tmp/audit_a64cap_$$; fi
 rm -f /tmp/audit_a64cap_$$
 echo ""
 
+# ── 4aq. stdlib syscall surface — getrandom + getdents64 + landlock (v5.7.35) ──
+echo "── stdlib syscall surface (v5.7.35) ──"
+sh "$ROOT/tests/regression-syscall-surface-v5735.sh" > /tmp/audit_sysv5735_$$ 2>&1
+sysv5735_result=$?
+check "stdlib syscall surface — getrandom + getdents64 + landlock + random_bytes (v5.7.35)" "$sysv5735_result"
+if [ "$sysv5735_result" -ne 0 ]; then cat /tmp/audit_sysv5735_$$; fi
+rm -f /tmp/audit_sysv5735_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

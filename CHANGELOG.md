@@ -4,6 +4,159 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.35] — 2026-04-28
+
+**STDLIB SYSCALL SURFACE GAPS — agnosys-surfaced
+(drm/luks/security)** — closes three coherent stdlib additions
+that share the same shape: Linux syscalls valid on both x86_64
+and aarch64 but not exposed by `lib/syscalls_*.cyr`. Filed by
+the agnosys aarch64 portability work as
+`docs/development/issues/stdlib-syscalls-aarch64-gaps-from-
+agnosys.md`. Stdlib-only patch; zero compiler change; cc5
+byte-identical at 720,640 B.
+
+**The "stdlib is the platform abstraction" principle**
+preserved by this slot:
+
+> Consumers should not need to know which arch they're running
+> on to make a syscall that exists on both arches.
+
+Cyrius stdlib already does this for the common surface
+(`sys_open`, `sys_read`, `sys_close`, `sys_mmap`, ...). The gap
+this slot closes was that the surface stopped expanding around
+2020-era kernel additions — `getrandom` (3.17, 2014!), `landlock`
+(5.13, 2021). When agnosys hit the gap, it had to redefine the
+constants locally arch-conditional. That redefinition is the
+violation: stdlib-as-platform means there should be exactly one
+authoritative source of `SYS_GETRANDOM`'s number, and it should
+be in `lib/syscalls.cyr`.
+
+### What landed
+
+**1. Three syscall numbers in both arch enums**:
+
+```
+# lib/syscalls_x86_64_linux.cyr
+SYS_GETDENTS64 = 217;
+SYS_GETRANDOM = 318;
+SYS_LANDLOCK_CREATE_RULESET = 444;
+SYS_LANDLOCK_ADD_RULE = 445;
+SYS_LANDLOCK_RESTRICT_SELF = 446;
+
+# lib/syscalls_aarch64_linux.cyr
+SYS_GETDENTS64 = 61;
+SYS_GETRANDOM = 278;
+SYS_LANDLOCK_CREATE_RULESET = 444;
+SYS_LANDLOCK_ADD_RULE = 445;
+SYS_LANDLOCK_RESTRICT_SELF = 446;
+```
+
+`getdents64` and `getrandom` diverge between arches (different
+syscall tables); landlock numbers are stable since the unified
+syscall table for new additions.
+
+**2. Five portable wrapper functions** added to BOTH arch peers:
+
+```
+fn sys_getdents64(fd, buf, count)
+fn sys_getrandom(buf, len, flags)
+fn sys_landlock_create_ruleset(attr_ptr, size, flags)
+fn sys_landlock_add_rule(ruleset_fd, rule_type, rule_attr, flags)
+fn sys_landlock_restrict_self(ruleset_fd, flags)
+```
+
+Each is the trivial `syscall(SYS_X, args...)` wrapper — same
+shape as every other `sys_*` wrapper in those files. Doc
+comments on every fn (mirrors x86 with cross-references on
+aarch64) per the v5.7.20-pinned cyrdoc-coverage gate.
+
+**3. Two new stdlib files**:
+
+- **`lib/random.cyr`** — `GrndFlag` enum (GRND_NONBLOCK /
+  GRND_RANDOM / GRND_INSECURE) + `random_bytes(buf, len)`
+  loop wrapper that handles short reads (getrandom can return
+  short for requests > 256 bytes). Used by anyone needing
+  a libc-free path to kernel entropy: agnosys/luks (now), sigil
+  bare-metal (future), pure-Cyrius TLS (future).
+
+- **`lib/security.cyr`** — `LandlockAccessFs` enum (13 flag
+  constants for the 5.13 surface — EXECUTE / WRITE_FILE /
+  READ_FILE / READ_DIR / REMOVE_DIR / REMOVE_FILE / MAKE_CHAR /
+  MAKE_DIR / MAKE_REG / MAKE_SOCK / MAKE_FIFO / MAKE_BLOCK /
+  MAKE_SYM) + `LandlockRuleType` enum (PATH_BENEATH).
+
+  Deliberately ships **constants only**, no struct definition.
+  `landlock_ruleset_attr` is a kernel struct that drifts
+  upstream (handled_access_net added 6.7, scoped added 6.10) —
+  consumers wanting it should declare their own struct, the
+  same way they would for any other kernel UAPI struct.
+
+  `lib/random.cyr` was the right place for a wrapper; landlock
+  needs three syscalls in sequence with caller-provided
+  policy, so wrapping it would constrain the surface without
+  saving much. Future polish: a `landlock::sandbox_builder`
+  if a second consumer surfaces.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change — stdlib enum + new files only).
+- Bootstrap closure (seed → cyrc → asm → cyrc): byte-identical.
+- check.sh **54/54 PASS** (was 53/53; +gate 4aq).
+- New `tests/regression-syscall-surface-v5735.sh` (compiles
+  + runs a test program that calls all five wrappers + verifies
+  enum constants — uses `landlock_create_ruleset(0, 0, 1)` as
+  an ABI-version probe so the test passes on kernels with or
+  without `CONFIG_SECURITY_LANDLOCK`).
+- `docs/api-surface.snapshot` regenerated: **2552 → 2563**
+  entries (+11: random_bytes/2 + 5 wrappers × 2 arches).
+
+### Files touched
+
+- `lib/syscalls_x86_64_linux.cyr` — 5 enum members + 5 wrappers.
+- `lib/syscalls_aarch64_linux.cyr` — 5 enum members + 5 wrappers.
+- `lib/random.cyr` — new (~45 lines: enum + 1 fn).
+- `lib/security.cyr` — new (~55 lines: 2 enums, no fns yet).
+- `tests/tcyr/syscall_surface_v5735.tcyr` — new test (~85 lines).
+- `tests/regression-syscall-surface-v5735.sh` — new gate (~75 lines).
+- `scripts/check.sh` — 8 lines wiring gate 4aq.
+- `docs/api-surface.snapshot` — refreshed (+11 entries).
+- `docs/development/issues/stdlib-syscalls-aarch64-gaps-from-
+  agnosys.md` — moves to `archived/` post-ship.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.35 bump.
+- Install snapshot at `~/.cyrius/versions/5.7.35/`.
+
+### Slot map (post-v5.7.35)
+
+- v5.7.30 ✅ aarch64 f64 basic ops
+- v5.7.31 ✅ aarch64 f64_exp / f64_ln polyfills
+- v5.7.32 ✅ cyrlint global-init-order forward-ref warning
+- v5.7.33 ✅ cyrius api-surface tooling
+- v5.7.34 ✅ aarch64 codebuf cap raise
+- v5.7.35 ✅ stdlib syscall surface (this slot)
+- v5.7.36 — open slot for emergent items (dup-fn investigation
+  may land here once phylax-agent captures repro)
+- **v5.7.37** — TRUE CLOSEOUT BACKSTOP
+
+### Pinned method (post-mortem)
+
+When the next consumer surfaces a missing syscall, audit the
+gap with:
+
+```sh
+# Compare cyrius's aarch64 enum against the kernel canonical
+grep -E '^#define __NR_' \
+  /usr/src/linux/arch/arm64/include/uapi/asm/unistd.h \
+  | awk '{print $2, $3}' \
+  | sort > /tmp/kernel-syscalls.txt
+# vs lib/syscalls_aarch64_linux.cyr's SysNr enum
+```
+
+Don't expand scope to a full BPF / pidfd / openat2 sweep
+without a consumer ask — those are each their own feature.
+The minimal-bundle precedent (this slot: getdents64 + getrandom
++ landlock) is what to repeat.
+
 ## [5.7.34] — 2026-04-28
 
 **AARCH64 CODEBUF CAP RAISE (524288 → 3145728) — phylax-

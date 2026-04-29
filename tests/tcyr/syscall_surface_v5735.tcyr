@@ -1,0 +1,88 @@
+# syscall_surface_v5735.tcyr — regression coverage for v5.7.35
+# stdlib syscall surface gaps (agnosys-surfaced).
+#
+# Covers:
+#   1. sys_getrandom (lib/syscalls.cyr) — fill 32 bytes, assert
+#      not-all-zero. Exit 1 on size mismatch, 2 on all-zero.
+#   2. random_bytes (lib/random.cyr) — same surface via the
+#      convenience wrapper. Exit 11 on size mismatch, 12 on all-zero.
+#   3. sys_landlock_create_ruleset (lib/syscalls.cyr) — version
+#      probe (attr=0 size=0 flags=1). Accept positive ABI version,
+#      -ENOSYS (-38), or -EOPNOTSUPP (-95) — all prove the syscall
+#      is wired up. Exit 3 on unexpected return.
+#   4. sys_open + sys_getdents64 (lib/syscalls.cyr) — open / and
+#      read at least one dirent record. Exit 4 on open fail, 5 on
+#      empty read, 6 on bad d_reclen.
+#   5. lib/security.cyr enum constants resolve. Exit 7 if any
+#      constant has the wrong value.
+#
+# Stack buffers throughout (no alloc() needed) so the test stays
+# self-contained — it predates the v5.7.35 stdlib growth.
+#
+# All tests passing → exit 0.
+
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/random.cyr"
+include "lib/security.cyr"
+
+# === Test 1: sys_getrandom direct ===
+var buf1[32];
+var n1 = sys_getrandom(&buf1, 32, 0);
+if (n1 != 32) { syscall(60, 1); }
+var any1 = 0;
+var i1 = 0;
+while (i1 < 32) {
+    if (load8(&buf1 + i1) != 0) { any1 = 1; }
+    i1 = i1 + 1;
+}
+if (any1 != 1) { syscall(60, 2); }
+
+# === Test 2: random_bytes wrapper ===
+var buf2[64];
+var i2 = 0;
+while (i2 < 64) { store8(&buf2 + i2, 0); i2 = i2 + 1; }
+var n2 = random_bytes(&buf2, 64);
+if (n2 != 64) { syscall(60, 11); }
+var any2 = 0;
+i2 = 0;
+while (i2 < 64) {
+    if (load8(&buf2 + i2) != 0) { any2 = 1; }
+    i2 = i2 + 1;
+}
+if (any2 != 1) { syscall(60, 12); }
+
+# === Test 3: sys_landlock_create_ruleset version probe ===
+var v = sys_landlock_create_ruleset(0, 0, 1);
+var ok3 = 0;
+if (v >= 1) { ok3 = 1; }
+if (v == 0 - 38) { ok3 = 1; }
+if (v == 0 - 95) { ok3 = 1; }
+if (ok3 != 1) { syscall(60, 3); }
+
+# === Test 4: sys_open + sys_getdents64 ===
+var fd = sys_open("/", 0, 0);
+if (fd < 0) { syscall(60, 4); }
+var dbuf[4096];
+var dn = sys_getdents64(fd, &dbuf, 4096);
+sys_close(fd);
+if (dn <= 0) { syscall(60, 5); }
+# d_reclen is u16 at offset 16 of struct linux_dirent64.
+var reclen = load8(&dbuf + 16);
+reclen = reclen + load8(&dbuf + 17) * 256;
+if (reclen <= 0) { syscall(60, 6); }
+if (reclen > dn) { syscall(60, 6); }
+
+# === Test 5: lib/security.cyr + lib/random.cyr enum constants ===
+if (LANDLOCK_ACCESS_FS_EXECUTE != 1) { syscall(60, 7); }
+if (LANDLOCK_ACCESS_FS_WRITE_FILE != 2) { syscall(60, 7); }
+if (LANDLOCK_ACCESS_FS_READ_FILE != 4) { syscall(60, 7); }
+if (LANDLOCK_ACCESS_FS_READ_DIR != 8) { syscall(60, 7); }
+if (LANDLOCK_ACCESS_FS_MAKE_SYM != 4096) { syscall(60, 7); }
+if (LANDLOCK_RULE_PATH_BENEATH != 1) { syscall(60, 7); }
+if (GRND_NONBLOCK != 1) { syscall(60, 7); }
+if (GRND_RANDOM != 2) { syscall(60, 7); }
+if (GRND_INSECURE != 4) { syscall(60, 7); }
+
+# All passed
+syscall(60, 0);
