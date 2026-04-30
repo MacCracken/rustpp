@@ -1783,9 +1783,9 @@ is fine to leave).
 
 ### Testing framework split — `lib/test.cyr` + yantra-stays-narrow (pinned 2026-04-30; consumer-surfaced)
 
-**Decided 2026-04-30** during v5.7.41 CI cycle. The "should yantra
-become the full testing framework?" question got asked and
-answered: **no**. The split is layered — primitives in stdlib,
+**Decided 2026-04-30** during v5.7.41 CI / pre-v5.7.43 planning
+window. The "should yantra become the full testing framework?"
+question got asked and answered: **no**. The split is layered — primitives in stdlib,
 framework-shaped composer in stdlib (when claimed), UI/integration
 in yantra (when claimed). Pin here so the design decision sticks
 and so future "let yantra absorb everything" pitches get rejected
@@ -1889,16 +1889,13 @@ patch with a tcyr suite covering the new shape — pretty-print
 round-trip, streaming events on a multi-doc fixture, JSON Pointer
 on the existing nested-fixture from `tests/tcyr/json_engine.tcyr`.
 
-**Slot assignment** (firm as of 2026-04-28 at v5.7.35 ship —
-backstop bumped to v5.7.44 to fit the per-item series):
-JSON depth follow-ups now own **v5.7.38, v5.7.39, v5.7.40**
-(pretty-print, streaming, JSON Pointer respectively — one slot
-each so each gets its own focused patch + tcyr suite + closeout
-hygiene). v5.7.41-v5.7.43 are the advanced TS suite (#8 in the
-pin list); v5.7.44 is the true closeout backstop. See
-`docs/development/state.md` Queue section for the full
-sequence including v5.7.36 (TS test-org rework, prerequisite
-for v5.7.41-43) and v5.7.37 (bundled toolchain-polish trio).
+**Slot assignment** (~~firm as of 2026-04-28 at v5.7.35 ship~~ —
+**SUPERSEDED 2026-04-30**): JSON depth follow-ups shipped at
+v5.7.40 (pretty-print), v5.7.41 (streaming), v5.7.42 (JSON
+Pointer). Subsequent slot map cascaded multiple times — see
+`docs/development/state.md` Queue section for current state
+(advanced TS suite at v5.7.44-46, refactor pass v5.7.47, true
+closeout backstop v5.7.48 as of v5.7.43 ship).
 
 
 

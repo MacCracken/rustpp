@@ -1570,11 +1570,12 @@ Shipped:
 - **v5.7.42** ✅ `lib/json.cyr` JSON Pointer (RFC 6901) (`json_v_pointer(v, ptr)` + `_cstr` variant + `_jp_obj_lookup` length-explicit key match + `_jp_parse_idx` strict §4 index parser + `_jp_token_unescape` single-pass `~1`→`/` / `~0`→`~`. Plus hygiene fix: `lib/json.cyr` now `include`s `lib/fnptr.cyr` to close the v5.7.41 incomplete-dep regression; tcyr 36 assertions in 7 groups + regression-json-pointer.sh gate 4aw 8-case exact-byte fixture; all four JSON tcyrs run clean post-fix (190 total assertions across the JSON surface). Zero compiler change; cc5 unchanged at 720,640 B; check.sh 60/60 PASS. **Closes the v5.7.20-pinned JSON depth triple.**)
 - **v5.7.43** ✅ `lib/test.cyr` v1 — table-driven testing (new stdlib module; `test_each(cases_vec, fp)` via `fncall1` dispatch; transitively `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one include and get the unit-test stack — same one-include pattern as v5.7.42's `lib/json.cyr`→`lib/fnptr.cyr` fix; demo migration of json_pointer.tcyr §5 corpus 8 homogeneous assertions → single test_each call, behavior preserved 36→36 PASS; tcyr 12 assertions + regression-test-lib.sh gate 4ax end-to-end trace; first slot of the 2026-04-30 testing-framework split decision; option-E test-harness pin retired unclaimed; backstop bumped v5.7.47→v5.7.48 to absorb v5.7.43 + v5.7.47 split. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 61/61 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.42 ship —
+Queue (firm assignments as of 2026-04-30 at v5.7.43 ship —
 **backstop bumped v5.7.47 → v5.7.48** to absorb the
 v5.7.43 = `lib/test.cyr` v1 + v5.7.47 = refactor pass split
 decided 2026-04-30 after v5.7.42 ship; option E test-harness
-retired unclaimed):
+retired unclaimed; advanced TS suite cascaded +1 from
+v5.7.43-45 → v5.7.44-46):
 
 - **v5.7.44–v5.7.46** — **Advanced TS feature suite**
   (formerly v5.7.43-v5.7.45; +1 cascade at v5.7.43 ship to
