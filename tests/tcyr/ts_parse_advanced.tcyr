@@ -141,6 +141,28 @@ fn _ts_parse_p54_parse_first_stmt(src) {
     return TS_AST_CHILDREN_GET(ts_base, head);
 }
 
+# ── helpers from ts_parse_p55 (v5.7.44 variadic tuple AST) ──
+fn _ts_parse_p55_parse(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    return TS_PARSE(ts_base);
+}
+# Walk node table forward, return idx of FIRST TS_AST_TYPE_TUPLE, or -1.
+fn _ts_parse_p55_find_tuple(ts_base) {
+    var i = 0;
+    var count = TS_AST_NODE_COUNT(ts_base);
+    while (i < count) {
+        if (TS_AST_KIND(ts_base, i) == TS_AST_TYPE_TUPLE) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+# Read the n-th child idx of a tuple's elements list (terminated by -1).
+fn _ts_parse_p55_tuple_child(ts_base, tuple_idx, n) {
+    var elems_off = TS_AST_PAYLOAD(ts_base, tuple_idx, 0);
+    return TS_AST_CHILDREN_GET(ts_base, elems_off + n);
+}
+
 # ── ts_parse_p43 ───────────────────────────────────────────
 fn ts_parse_test_ts_parse_p43() {
     
@@ -764,6 +786,94 @@ fn ts_parse_test_ts_parse_p54() {
     return 0;
 }
 
+# ── ts_parse_p55 (v5.7.44 variadic tuple AST) ─────────────
+fn ts_parse_test_ts_parse_p55() {
+    # ─── single rest: [...A] ───────────────────────────────────────
+    test_group("variadic: single rest [...A]");
+    var rc = _ts_parse_p55_parse("type T = [...A];");
+    assert(rc >= 0, "[...A] parses");
+    var tup = _ts_parse_p55_find_tuple(ts_base);
+    assert(tup >= 0, "TS_AST_TYPE_TUPLE present");
+    var c0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    assert_eq(TS_AST_KIND(ts_base, c0), TS_AST_TYPE_REST, "elem[0] = TS_AST_TYPE_REST");
+    var inner = TS_AST_PAYLOAD(ts_base, c0, 0);
+    assert_eq(TS_AST_KIND(ts_base, inner), TS_AST_TYPE_REF, "inner = TS_AST_TYPE_REF");
+
+    # ─── trailing spread: [T, ...U] ────────────────────────────────
+    test_group("variadic: trailing spread [T, ...U]");
+    rc = _ts_parse_p55_parse("type T = [A, ...B];");
+    assert(rc >= 0, "[A, ...B] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    var t0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    var t1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    assert_eq(TS_AST_KIND(ts_base, t0), TS_AST_TYPE_REF, "elem[0] = REF (non-spread)");
+    assert_eq(TS_AST_KIND(ts_base, t1), TS_AST_TYPE_REST, "elem[1] = REST");
+
+    # ─── leading spread: [...U, T] ─────────────────────────────────
+    test_group("variadic: leading spread [...U, T]");
+    rc = _ts_parse_p55_parse("type T = [...A, B];");
+    assert(rc >= 0, "[...A, B] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    t0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    t1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    assert_eq(TS_AST_KIND(ts_base, t0), TS_AST_TYPE_REST, "elem[0] = REST");
+    assert_eq(TS_AST_KIND(ts_base, t1), TS_AST_TYPE_REF, "elem[1] = REF (non-spread)");
+
+    # ─── multi-spread: [...A, ...B] ────────────────────────────────
+    test_group("variadic: multi-spread [...A, ...B]");
+    rc = _ts_parse_p55_parse("type T = [...A, ...B];");
+    assert(rc >= 0, "[...A, ...B] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    t0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    t1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    assert_eq(TS_AST_KIND(ts_base, t0), TS_AST_TYPE_REST, "elem[0] = REST");
+    assert_eq(TS_AST_KIND(ts_base, t1), TS_AST_TYPE_REST, "elem[1] = REST");
+
+    # ─── mixed: [T, ...A, ...B, U] ─────────────────────────────────
+    test_group("variadic: mixed [T, ...A, ...B, U]");
+    rc = _ts_parse_p55_parse("type T = [P, ...A, ...B, Q];");
+    assert(rc >= 0, "[P, ...A, ...B, Q] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    var m0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    var m1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    var m2 = _ts_parse_p55_tuple_child(ts_base, tup, 2);
+    var m3 = _ts_parse_p55_tuple_child(ts_base, tup, 3);
+    assert_eq(TS_AST_KIND(ts_base, m0), TS_AST_TYPE_REF,  "elem[0] = REF");
+    assert_eq(TS_AST_KIND(ts_base, m1), TS_AST_TYPE_REST, "elem[1] = REST");
+    assert_eq(TS_AST_KIND(ts_base, m2), TS_AST_TYPE_REST, "elem[2] = REST");
+    assert_eq(TS_AST_KIND(ts_base, m3), TS_AST_TYPE_REF,  "elem[3] = REF");
+
+    # ─── labeled spread: [first: string, ...rest: number[]] ───────
+    test_group("variadic: labeled spread");
+    rc = _ts_parse_p55_parse("type T = [first: string, ...rest: number[]];");
+    assert(rc >= 0, "labeled spread parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    var lk1 = TS_AST_KIND(ts_base, _ts_parse_p55_tuple_child(ts_base, tup, 1));
+    assert_eq(lk1, TS_AST_TYPE_REST, "labeled spread elem[1] = REST");
+
+    # ─── optional + spread: [T?, ...U] ─────────────────────────────
+    test_group("variadic: optional + spread [T?, ...U]");
+    rc = _ts_parse_p55_parse("type T = [A?, ...B];");
+    assert(rc >= 0, "[A?, ...B] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    var o0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    var o1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    assert_eq(TS_AST_KIND(ts_base, o0), TS_AST_TYPE_OPTIONAL, "elem[0] = OPTIONAL");
+    assert_eq(TS_AST_KIND(ts_base, o1), TS_AST_TYPE_REST,     "elem[1] = REST");
+
+    # ─── regression: plain tuple still works (no false REST) ─────
+    test_group("regression: plain tuple [A, B] no false REST");
+    rc = _ts_parse_p55_parse("type T = [A, B];");
+    assert(rc >= 0, "[A, B] parses");
+    tup = _ts_parse_p55_find_tuple(ts_base);
+    var p0 = _ts_parse_p55_tuple_child(ts_base, tup, 0);
+    var p1 = _ts_parse_p55_tuple_child(ts_base, tup, 1);
+    assert_eq(TS_AST_KIND(ts_base, p0), TS_AST_TYPE_REF, "elem[0] = REF (no false REST)");
+    assert_eq(TS_AST_KIND(ts_base, p1), TS_AST_TYPE_REF, "elem[1] = REF (no false REST)");
+
+    return 0;
+}
+
 ts_parse_test_ts_parse_p43();
 ts_parse_test_ts_parse_p46();
 ts_parse_test_ts_parse_p48();
@@ -773,6 +883,7 @@ ts_parse_test_ts_parse_p51();
 ts_parse_test_ts_parse_p52();
 ts_parse_test_ts_parse_p53();
 ts_parse_test_ts_parse_p54();
+ts_parse_test_ts_parse_p55();
 
 var exit_code = assert_summary();
 syscall(60, exit_code);

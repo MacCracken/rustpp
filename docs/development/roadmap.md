@@ -201,6 +201,91 @@ toolchain side is unblocked.
 
 
 
+## v5.7.44 ✅ TS variadic tuple types — AST representation (`TS_AST_TYPE_REST`) — SHIPPED
+
+**Shipped 2026-04-30.** First slot of the v5.7.44-46 advanced
+TS feature suite (formerly v5.7.43-45 pre-cascade). Picked from
+the pin list at `§v5.7.x — patch slate` per the selection rule
+"highest-friction at slot-claim time."
+
+**Honest premise check at slot entry:** the pin claimed
+"the multi-spread / leading-spread / mixed forms don't" work,
+but empirical test of all 7 variadic shapes (single rest,
+trailing, leading, multi-spread, mixed, labeled-spread,
+optional+spread) returned `rc=0` against current cc5 with no
+diagnostics. Pin was stale at the parse-acceptance layer.
+**Real gap was AST representation**: pre-v5.7.44
+`TS_PARSE_TYPE_TUPLE` consumed `...` silently and emitted the
+inner element type without any spread-marker AST node, so
+downstream consumers (typechecker, tooling, codemod) lost the
+spread-vs-non-spread distinction. Scope shrank from "magnum"
+to "medium" — called out honestly to the user before
+proceeding.
+
+cc5 grew 720,640 → **720,864 B** (+224 B). Two-step self-host
+clean.
+
+**What landed:**
+
+1. **`TS_AST_TYPE_REST = 316`** — new AST kind (next free after
+   `TS_AST_DECORATOR = 315` shipped at v5.7.26). Wraps any
+   tuple element preceded by `...`. `payload[0]` = inner type
+   node index.
+2. **`TS_PARSE_TYPE_TUPLE` rewrap logic** — `is_rest` flag
+   tracks whether the current element was prefixed with
+   `TS_TOK_ELLIPSIS`. After the inner element type parses
+   (and any post-fix `?` optional wrapping), if `is_rest == 1`
+   the parser emits a `TS_AST_TYPE_REST` node with `payload[0]`
+   = inner element idx, and stores REST as the tuple child.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at 720,864 B.
+- `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p55` —
+  18 new assertions in 8 groups (single rest, trailing,
+  leading, multi-spread, mixed, labeled, optional+spread,
+  plain-tuple no-false-REST regression). AST shape
+  introspected via `TS_AST_KIND`/`TS_AST_PAYLOAD` accessors.
+- All 4 TS group runners clean post-fix (1143 total TS
+  assertions across cyrius-ts surface).
+- `tests/regression-ts-variadic-tuples.sh` (gate 4ay) — 7
+  parse-acceptance groups exercising real-world generic util
+  shapes (`Push<T,U>`, `Cons<H,T>`, `Concat<A,B>`, etc.).
+- `sh scripts/check.sh` — 62/62 PASS (was 61/61; +gate 4ay).
+
+**Pin list status (after v5.7.44):**
+
+Original 8-item pin (§v5.7.x — patch slate):
+- ✅ Mapped types (v5.7.25)
+- ✅ asserts predicate signatures (v5.7.24)
+- ✅ Decorators TS 5.0 stage-3 (v5.7.26)
+- ✅ **Variadic tuple types — AST (v5.7.44)**
+- ⏳ `as const` assertion expressions
+- ⏳ Const type parameters (TS 5.0)
+- ⏳ `satisfies` postfix verify
+- ⏳ `never`/`unknown` audit
+- ⏳ Conditional types — exhaustive corpus
+
+Remaining 5 items distribute across v5.7.45-46. Per the
+v5.7.44 ship's premise-check pattern, each remaining pick
+should empirically verify the gap before scoping — some
+may already work at parse-acceptance like variadic tuples did.
+
+**Out of scope (future polish):**
+
+- **Typechecker emission on REST spread** — v5.7.44 stops at
+  AST representation. A future typechecker would compute
+  flattened tuple types during constraint solving (e.g.,
+  `Concat<[1,2], [3,4]>` → `[1,2,3,4]`). v5.7.44 just
+  preserves the spread distinction for that future work.
+- **Spread-position validation** — TS rejects multiple
+  *unbounded* spreads in the same tuple
+  (`[...string[], ...number[]]`); we accept it at parse-
+  acceptance per "parse loosely, type strictly" precedent
+  across the cyrius-ts P-series.
+
+
+
 ## v5.7.43 ✅ `lib/test.cyr` v1 — table-driven testing — SHIPPED
 
 **Shipped 2026-04-30.** First slot of the testing-framework
@@ -925,10 +1010,14 @@ Each line item is its own narrow patch slot when it surfaces:
   `const` ident — works by accident. Make it explicit: a
   `KW_CONST` token after `as` is a literal-narrowing assertion,
   not a type ref.
-- **Variadic tuple types**: `[...A, ...B]`, `[T, ...U]`,
-  `[...U, T]`. The single `...rest: T[]` already works in
-  labeled tuples; the multi-spread / leading-spread / mixed
-  forms don't.
+- **Variadic tuple types** ✅ — AST representation shipped
+  at v5.7.44 (`TS_AST_TYPE_REST = 316` AST kind +
+  `TS_PARSE_TYPE_TUPLE` `is_rest` wrap logic). Premise-check
+  at slot entry surfaced that all 7 forms (single rest,
+  trailing, leading, multi-spread, mixed, labeled, optional+
+  spread) already parsed `rc=0` pre-v5.7.44 — the real gap
+  was AST loss of spread distinction. See `## v5.7.44 ✅ TS
+  variadic tuple types` above for details.
 - **Const type parameters (TS 5.0)**:
   `function f<const T>(x: T)`. `const` modifier in front of a
   type parameter — narrows inferred literal types. New

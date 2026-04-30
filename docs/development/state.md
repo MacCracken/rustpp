@@ -5,7 +5,42 @@
 
 ## Version
 
-**5.7.46** (shipped 2026-04-30 — **`lib/test.cyr` v1 — TABLE-
+**5.7.44** (shipped 2026-04-30 — **TS VARIADIC TUPLE TYPES —
+AST representation (`TS_AST_TYPE_REST`)**. First slot of the
+v5.7.44-46 advanced TS feature suite. Picked from the pin list
+at `roadmap.md §v5.7.x — patch slate` per the selection rule
+"highest-friction at slot-claim time." **Honest premise check
+at slot entry**: pin claimed multi-spread / leading-spread /
+mixed forms "don't" work; empirical test of all 7 variadic
+shapes returned rc=0 — the pin was stale at the parse-
+acceptance layer. **Real gap was AST representation**: pre-
+v5.7.44 `TS_PARSE_TYPE_TUPLE` consumed `...` silently. Scope
+shrank from "magnum" to "medium" — called out honestly before
+proceeding. **What landed**: (1) `TS_AST_TYPE_REST = 316` AST
+kind (next free after `TS_AST_DECORATOR = 315`); payload[0] =
+inner element type. (2) `TS_PARSE_TYPE_TUPLE` `is_rest` flag
+tracks `...` presence; wraps element in REST after type +
+optional wrapping. **Verification**: cc5 self-host two-step
+byte-identical at **720,864 B** (was 720,640 at v5.7.43; +224
+B); `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p55`
+**18 new assertions** in 8 groups (single rest, trailing,
+leading, multi-spread, mixed, labeled, optional+spread, plain-
+tuple no-false-REST regression); 4 TS group runners clean
+(core 257 + decls 157 + advanced 159 + lex 570 = **1143 total
+TS assertions**); `tests/regression-ts-variadic-tuples.sh` gate
+4ay 7 real-world-shape groups; check.sh **62/62 PASS** (was
+61; +gate 4ay). **Pin list status** (8-item v5.7.x advanced-TS
+pin): mapped / asserts / decorators ✅ (v5.7.25/24/26),
+variadic tuples ✅ (v5.7.44); 5 remaining (`as const`, const
+type params, `satisfies` postfix verify, `never`/`unknown`
+audit, conditional types exhaustive corpus) distribute across
+v5.7.45-46. **Out of scope (future polish)**: typechecker
+emission on REST spread (future typechecker phase);
+spread-position validation (`[...A, ...B]` typechecker
+rejection — parser accepts per "parse loosely, type strictly"
+precedent).)
+
+**5.7.43** (shipped 2026-04-30 — **`lib/test.cyr` v1 — TABLE-
 DRIVEN TESTING (`test_each`)**. First slot of the testing-
 framework split decided 2026-04-30 after v5.7.42 ship. Surfaced
 by in-tree pain: v5.7.40-v5.7.42 tcyr files had 3+ parallel-
@@ -1470,11 +1505,13 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **704,976 B** (+7,136 B from v5.7.5's 697,840;
-  +166,256 B vs v5.6.45's 531,584 — v5.7.5 added the structured
-  JSX lex tokens, JSX AST nodes + parser, BYTE_SKIP for nested-JSX
-  brace-balance, comment-aware tag whitespace skip; deleted 256 LOC
-  of v5.7.3 SKIP placeholder).  `cc5 --version` reports `cc5 5.7.5`.
+- **cc5 (x86_64)**: **720,864 B** at v5.7.44 (+224 B from v5.7.43's
+  720,640 — TS_AST_TYPE_REST AST kind + tuple-element wrap logic).
+  Aggregate growth across v5.7.x: v5.7.5 697,840 (JSX) → v5.7.20
+  ~712 KB (JSON tagged tree) → v5.7.27 ~720 KB (codebuf 1MB→3MB
+  reshuffle) → v5.7.41 720,640 (JSON streaming parser, lib-only
+  no cc5 change actually) → v5.7.44 720,864. `cc5 --version`
+  reports `cc5 5.7.44`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -1505,8 +1542,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 61/61 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.43 added gate 4ax `regression-test-lib.sh` covering `test_each` ordering + transitive include chain end-to-end)
-- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.43 added `tests/tcyr/test_lib.tcyr` — 12 assertions in 4 groups covering the new `test_each` surface)
+- **check.sh**: 62/62 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.44 added gate 4ay `regression-ts-variadic-tuples.sh` covering 7 real-world variadic-tuple shapes — `Push<T,U>`, `Cons<H,T>`, `Concat<A,B>`, leading-spread, multi-spread, labeled, optional+spread, plain-tuple regression)
+- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.44 grew `ts_parse_advanced.tcyr` with `ts_parse_p55` group — 18 new assertions for variadic tuple AST verification on top of the 141 pre-v5.7.44 assertions; advanced.tcyr now 159; total TS coverage across 4 group runners = 1143 assertions)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1519,18 +1556,18 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.44 (advanced TS feature suite — first of three).** v5.7.43
-shipped lib/test.cyr v1 ahead-of-queue (consumer pressure trigger
-met from in-tree pain in v5.7.40-42 tcyrs); advanced TS suite
-cascaded +1 to v5.7.44-46 (was v5.7.43-45). The three slots
-deliver the advanced-TS items pinned at `roadmap.md
-§v5.7.x — patch slate` against the v5.7.37 grouped runners. Per the slot
-map's selection rule: **highest-friction item from the pin list
-at slot-claim time** — variadic tuples, const type params,
-satisfies postfix verify, never/unknown audit, conditional-type
-exhaustive corpus, `as const` explicit. If a downstream consumer
-files a non-SY parse failure on a TS shape before slot claim,
-that shape jumps to the front of the queue.
+**v5.7.45 (advanced TS feature suite — second of three).**
+v5.7.44 shipped variadic tuple AST representation
+(`TS_AST_TYPE_REST` AST kind + parser wrap). v5.7.45 picks the
+next-highest-friction item from the 5 remaining advanced-TS pin
+items: `as const` explicit, const type params (TS 5.0),
+`satisfies` postfix verify, `never`/`unknown` primitive audit,
+conditional types exhaustive corpus. Per the v5.7.44 ship's
+honest premise check, the next pick should also empirically
+verify the gap before scoping (some pins may already work at
+parse-acceptance like variadic tuples did). If a downstream
+consumer files a non-SY parse failure on a TS shape before
+slot claim, that shape jumps to the front of the queue.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
@@ -1569,17 +1606,20 @@ Shipped:
 - **v5.7.41** ✅ `lib/json.cyr` streaming parser (11 event constants `JS_EV_OBJECT_START`..`JS_EV_ERROR` + 96B handler struct + `json_stream_handler_new` / `json_stream_on` / `json_stream_parse` / `json_stream_parse_str` public API; driver reuses tree parser's lex state and `_jp_*` helpers unchanged so streaming surface stays at ~210 LOC; callbacks fire via `fncall1`/`fncall2`/`fncall3` from `lib/fnptr.cyr`; tcyr 65 assertions in 9 groups + regression-json-stream.sh gate 4av exact-byte trace verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 59/59 PASS.)
 - **v5.7.42** ✅ `lib/json.cyr` JSON Pointer (RFC 6901) (`json_v_pointer(v, ptr)` + `_cstr` variant + `_jp_obj_lookup` length-explicit key match + `_jp_parse_idx` strict §4 index parser + `_jp_token_unescape` single-pass `~1`→`/` / `~0`→`~`. Plus hygiene fix: `lib/json.cyr` now `include`s `lib/fnptr.cyr` to close the v5.7.41 incomplete-dep regression; tcyr 36 assertions in 7 groups + regression-json-pointer.sh gate 4aw 8-case exact-byte fixture; all four JSON tcyrs run clean post-fix (190 total assertions across the JSON surface). Zero compiler change; cc5 unchanged at 720,640 B; check.sh 60/60 PASS. **Closes the v5.7.20-pinned JSON depth triple.**)
 - **v5.7.43** ✅ `lib/test.cyr` v1 — table-driven testing (new stdlib module; `test_each(cases_vec, fp)` via `fncall1` dispatch; transitively `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one include and get the unit-test stack — same one-include pattern as v5.7.42's `lib/json.cyr`→`lib/fnptr.cyr` fix; demo migration of json_pointer.tcyr §5 corpus 8 homogeneous assertions → single test_each call, behavior preserved 36→36 PASS; tcyr 12 assertions + regression-test-lib.sh gate 4ax end-to-end trace; first slot of the 2026-04-30 testing-framework split decision; option-E test-harness pin retired unclaimed; backstop bumped v5.7.47→v5.7.48 to absorb v5.7.43 + v5.7.47 split. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 61/61 PASS.)
+- **v5.7.44** ✅ TS variadic tuple types — AST representation (new `TS_AST_TYPE_REST = 316` AST kind wraps tuple elements preceded by `...`; `TS_PARSE_TYPE_TUPLE` `is_rest` flag tracks `...` and emits REST wrapper after element type + optional wrapping; honest premise check at slot entry caught stale pin claim — all 7 variadic forms already parsed rc=0; real gap was AST loss of spread distinction; first slot of the v5.7.44-46 advanced-TS suite, `ts_parse_p55` group adds 18 assertions in 8 sub-groups; cc5 720,640 → 720,864 B (+224 B); 4 TS group runners clean (1143 total TS assertions); regression-ts-variadic-tuples.sh gate 4ay 7 real-world-shape groups; check.sh 62/62 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.43 ship —
-**backstop bumped v5.7.47 → v5.7.48** to absorb the
-v5.7.43 = `lib/test.cyr` v1 + v5.7.47 = refactor pass split
-decided 2026-04-30 after v5.7.42 ship; option E test-harness
-retired unclaimed; advanced TS suite cascaded +1 from
-v5.7.43-45 → v5.7.44-46):
+Queue (firm assignments as of 2026-04-30 at v5.7.44 ship —
+**backstop bumped v5.7.47 → v5.7.48** at v5.7.43 ship to
+absorb the v5.7.43 = `lib/test.cyr` v1 + v5.7.47 = refactor
+pass split decided 2026-04-30 after v5.7.42 ship; option E
+test-harness retired unclaimed; advanced TS suite cascaded +1
+from v5.7.43-45 → v5.7.44-46; v5.7.44 ✅ shipped variadic
+tuple AST):
 
-- **v5.7.44–v5.7.46** — **Advanced TS feature suite**
+- **v5.7.45–v5.7.46** — **Advanced TS feature suite (slots 2–3)**
   (formerly v5.7.43-v5.7.45; +1 cascade at v5.7.43 ship to
   absorb lib/test.cyr v1 ahead-of-queue claim;
+  v5.7.44 ✅ shipped variadic tuple AST representation;
   #8 from the pin list at `roadmap.md §v5.7.x — patch slate`). Three slots; specific
   items chosen at slot-claim time from the pinned list
   (variadic tuples, const type params, satisfies postfix

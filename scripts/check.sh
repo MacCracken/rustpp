@@ -629,6 +629,15 @@ if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
 rm -f /tmp/audit_tl_$$
 echo ""
 
+# ── 4ay. variadic tuple types AST representation (v5.7.44) ──
+echo "── variadic tuples ──"
+sh "$ROOT/tests/regression-ts-variadic-tuples.sh" > /tmp/audit_vt_$$ 2>&1
+vt_result=$?
+check "TS variadic tuples — parse acceptance for spread element forms (v5.7.44)" "$vt_result"
+if [ "$vt_result" -ne 0 ]; then cat /tmp/audit_vt_$$; fi
+rm -f /tmp/audit_vt_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

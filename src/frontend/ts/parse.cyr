@@ -169,6 +169,7 @@ var TS_AST_TYPE_PAREN           = 312;
 var TS_AST_TYPE_OPTIONAL        = 313;      # T? (type with ? marker; rare in TS, mainly tuple elements)
 var TS_AST_TYPE_MAPPED          = 314;      # v5.7.25: { [K in T] [as U] [+/-?]: V } — mapped type (TS 4.1+)
 var TS_AST_DECORATOR            = 315;      # v5.7.26: @foo / @foo() / @foo.bar / @foo<T>(args) — TS 5.0 stage-3 decorators (parse-acceptance only; AST attachment is a future polish slot)
+var TS_AST_TYPE_REST            = 316;      # v5.7.44: `...T` in tuple-element position; payload[0] = element type. Wraps any tuple element preceded by `...` so AST preserves the spread distinction (parse already accepted all variadic forms — single rest, multi-spread, leading, trailing, mixed; this kind makes the spread semantically visible to downstream consumers).
 
 # Module statements (400-499)
 var TS_AST_IMPORT               = 400;      # payload[0] = specifiers list, [1] = source string span
@@ -2056,8 +2057,14 @@ fn TS_PARSE_TYPE_TUPLE(ts_base) {
             # trailing comma
             ei = ei;
         } else {
+            # v5.7.44: track spread on this element so the resulting
+            # type AST can be wrapped in TS_AST_TYPE_REST after the
+            # element type parses. Pre-v5.7.44 the `...` was consumed
+            # silently, losing the spread distinction in the AST.
+            var is_rest = 0;
             if (TS_PARSE_PEEK(ts_base) == TS_TOK_ELLIPSIS) {
                 TS_PARSE_CONSUME(ts_base);
+                is_rest = 1;
             }
             # Labeled tuple element (TS 4.0+): `[name: T]`,
             # `[name?: T]`, `[...rest: T[]]`. Sniff
@@ -2090,6 +2097,12 @@ fn TS_PARSE_TYPE_TUPLE(ts_base) {
                 if (opt < 0) { return 0 - 1; }
                 TS_AST_SET_PAYLOAD(ts_base, opt, 0, el);
                 el = opt;
+            }
+            if (is_rest == 1) {
+                var rest = TS_AST_PUSH(ts_base, TS_AST_TYPE_REST, 0);
+                if (rest < 0) { return 0 - 1; }
+                TS_AST_SET_PAYLOAD(ts_base, rest, 0, el);
+                el = rest;
             }
             TS_AST_CHILDREN_SET(ts_base, elems_off + ei, el);
             ei = ei + 1;

@@ -4,6 +4,103 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.44] — 2026-04-30
+
+**TS VARIADIC TUPLE TYPES — AST representation
+(`TS_AST_TYPE_REST`).** First slot of the v5.7.44-46 advanced
+TS feature suite (formerly v5.7.43-45 pre-cascade). Picked from
+the pin list at `roadmap.md §v5.7.x — patch slate` per the
+selection rule "highest-friction at slot-claim time."
+
+**Honest premise check at slot entry**: the pin claimed
+"the multi-spread / leading-spread / mixed forms don't" work,
+but empirical test of all 7 variadic shapes (single rest,
+trailing, leading, multi-spread, mixed, labeled-spread,
+optional+spread) returned `rc=0` against current cc5 with no
+diagnostics. Pin's claim was stale at the parse-acceptance
+layer. **Real gap was AST representation**: pre-v5.7.44
+`TS_PARSE_TYPE_TUPLE` consumed `...` silently and emitted the
+inner element type without any spread-marker AST node, so
+downstream consumers (typechecker, tooling, codemod) lost the
+spread-vs-non-spread distinction. Scope shrank from "magnum"
+feature implementation to "medium" AST-marker work, called out
+honestly to the user before proceeding.
+
+cc5 grew 720,640 → **720,864 B** (+224 bytes for the new AST
+kind constant + parser-side `is_rest` flag + REST wrapper push).
+Two-step self-host clean.
+
+### Added
+
+**`TS_AST_TYPE_REST = 316`** — new AST kind (next free after
+`TS_AST_DECORATOR = 315` shipped at v5.7.26). Wraps any tuple
+element preceded by `...`. `payload[0]` = the inner element
+type node index.
+
+**`TS_PARSE_TYPE_TUPLE` rewrap logic** — `is_rest` flag tracks
+whether the current element was prefixed with `TS_TOK_ELLIPSIS`.
+After the inner element type parses (and any post-fix `?`
+optional wrapping happens), if `is_rest == 1`, the parser
+emits a `TS_AST_TYPE_REST` node with `payload[0]` = the inner
+element index, and stores the REST node as the tuple child.
+Pre-v5.7.44 the `...` was consumed but not preserved.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,864 B** (was
+  720,640 B at v5.7.43; +224 B for the additions).
+- `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p55` —
+  **18 new assertions** in 8 groups: single rest `[...A]`,
+  trailing `[A, ...B]`, leading `[...A, B]`, multi-spread
+  `[...A, ...B]`, mixed `[P, ...A, ...B, Q]`, labeled spread
+  `[first: string, ...rest: number[]]`, optional+spread
+  `[A?, ...B]`, and a regression group verifying plain
+  `[A, B]` does NOT emit false REST wrappers. AST shape
+  introspected via `TS_AST_KIND`/`TS_AST_PAYLOAD` accessors:
+  every spread element resolves to `TS_AST_TYPE_REST`, every
+  non-spread to `TS_AST_TYPE_REF`/`_OPTIONAL`/etc. as expected.
+- All 4 TS group runners clean post-fix: `ts_parse_core`
+  257 + `ts_parse_decls` 157 + `ts_parse_advanced` 159 (was
+  141 pre-v5.7.44; +18) + `ts_lex_combined` 570 = **1143
+  total TS assertions** across the cyrius-ts surface.
+- `tests/regression-ts-variadic-tuples.sh` (gate 4ay) — 7
+  parse-acceptance groups exercising real-world generic util
+  shapes (`Push<T,U>`, `Cons<H,T>`, `Concat<A,B>`, etc.).
+- `sh scripts/check.sh` — **62/62 PASS** (was 61/61; +gate 4ay).
+
+### Pin list status (after v5.7.44)
+
+Original 8-item pin (roadmap.md §v5.7.x — patch slate):
+1. ✅ Mapped types (v5.7.25)
+2. ✅ asserts predicate signatures (v5.7.24)
+3. ✅ Decorators TS 5.0 stage-3 (v5.7.26)
+4. ⏳ `as const` assertion expressions
+5. ✅ **Variadic tuple types — AST representation (v5.7.44)**
+6. ⏳ Const type parameters (TS 5.0)
+7. ⏳ `satisfies` postfix verify
+8. ⏳ `never` / `unknown` audit
+9. ⏳ Conditional types — exhaustive corpus
+
+Remaining 5 items distribute across v5.7.45-46 (advanced TS
+suite slots 2 and 3) per the selection rule. v5.7.47 = refactor
+pass; v5.7.48 = true closeout backstop.
+
+### Out of scope (future polish)
+
+- **Typechecker emission attaching to spread elements** —
+  v5.7.44 stops at AST representation. A future typechecker
+  consuming `TS_AST_TYPE_REST` would need to compute the
+  flattened tuple type during constraint solving (e.g.,
+  `Concat<[1,2], [3,4]>` → `[1, 2, 3, 4]`). v5.7.44 just
+  preserves the spread distinction so a future typechecker
+  has something to consume.
+- **Spread-position validation** — TS rejects multiple
+  *unbounded* spreads in the same tuple (`[...string[],
+  ...number[]]` is a typechecker error), but our
+  parse-acceptance accepts it. Typechecker concern, not
+  parser. Aligned with "parse loosely, type strictly" across
+  the cyrius-ts P-series.
+
 ## [5.7.43] — 2026-04-30
 
 **`lib/test.cyr` v1 — TABLE-DRIVEN TESTING (`test_each`)**.
