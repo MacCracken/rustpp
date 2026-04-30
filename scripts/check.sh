@@ -593,6 +593,15 @@ if [ "$lsp_result" -ne 0 ]; then cat /tmp/audit_lsp_$$; fi
 rm -f /tmp/audit_lsp_$$
 echo ""
 
+# ── 4au. lib/json.cyr pretty-printer (v5.7.40) ──
+echo "── json pretty ──"
+sh "$ROOT/tests/regression-json-pretty.sh" > /tmp/audit_jp_$$ 2>&1
+jp_result=$?
+check "json_v_build_pretty(v, indent) end-to-end canonical shape (v5.7.40)" "$jp_result"
+if [ "$jp_result" -ne 0 ]; then cat /tmp/audit_jp_$$; fi
+rm -f /tmp/audit_jp_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

@@ -5,6 +5,32 @@
 
 ## Version
 
+**5.7.40** (shipped 2026-04-30 — **`lib/json.cyr` PRETTY-PRINTING**.
+First slot of the v5.7.20-pinned JSON depth follow-up series. Adds
+`json_v_build_pretty(v, indent)` on top of the existing tagged-
+value tree. **What landed**: (1) `json_v_build_pretty(v, indent)`
+public entry — `indent` is spaces-per-level; `indent <= 0` short-
+circuits to compact `json_v_build(v)`; (2) `_jb_walk_pretty` walker
+mirroring the existing `_jb_walk` shape with `": "` key separator
+and parent-level indent before close brackets; (3) `_jb_emit_indent`
+helper (LF + N spaces); (4) Empty `{}` and `[]` short-circuit to
+bracket-pair with no internal whitespace, matching
+`JSON.stringify(v, null, n)`. **Verification**: zero compiler
+change (lib/json.cyr is not in cc5's include chain; src/main.cyr
+only pulls src/); cc5 self-host two-step byte-identical at
+**720,640 B**; `tests/tcyr/json_pretty.tcyr` **18 assertions** in
+10 groups (indent fallback, scalars unchanged, empty containers
+compact, array indent=2, object indent=2, nested mix, empty arr
+inside obj, indent=4 step, two parse→pretty→parse→compact round-
+trips on 51-char and 25-char fixtures, embedded `\n` re-escape
+through pretty path) all PASS; `tests/regression-json-pretty.sh`
+gate 4au — end-to-end fixture against canonical 8-line shape,
+negative-case verified by deliberately reverting `": "` to `":"`;
+check.sh **58/58 PASS** (was 57; +gate 4au). **Slot cascade**:
+backstop unchanged at v5.7.47. **Out of scope (future polish)**:
+configurable separator string (consumer-ask), sort-keys flag for
+stable diffs (consumer-ask).)
+
 **5.7.39** (shipped 2026-04-30 — **LSP CROSS-FILE GO-TO-
 DEFINITION + DOCUMENT OUTLINE**. Extends `programs/
 cyrius-lsp.cyr` from diagnostics-only to a navigation-capable
@@ -1385,8 +1411,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 55/55 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.36 added gate 4ar `regression-distlib-large-module.sh` and removed silent-skips on fmt/lint via PATH fallback so they count as real gates)
-- **`tests/tcyr/*.tcyr`**: 93 files (v5.7.37 collapsed 24 ts_*.tcyr → 4 group runners — `ts_lex_combined`, `ts_parse_core`, `ts_parse_decls`, `ts_parse_advanced`; net -20 files for the same 1117 assertions)
+- **check.sh**: 58/58 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.40 added gate 4au `regression-json-pretty.sh` covering pretty-printer end-to-end against canonical 8-line shape with negative-case verification)
+- **`tests/tcyr/*.tcyr`**: 94 files (v5.7.40 added `tests/tcyr/json_pretty.tcyr` — 18 assertions in 10 groups covering the new pretty-print surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1398,16 +1424,18 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.13 (string-literal escape sequences `\x##` / `\u####` /
-full set) — cyim-unblocking.** v5.7.12 closed the cyrius-x
-bytecode path-B work; user direction 2026-04-27 was to slide
-RISC-V down and clear the bug/UX patch slate first. v5.7.13
-grows the lex's escape-sequence set so cyim's TTY editor surface
-stops emitting literal `\x1b[…` characters. Per the "compiler
-grows to fit the language, never the other way around" rule
-(`feedback_grow_compiler_to_fit_language.md`).
+**v5.7.41 (JSON streaming parser) — second of the v5.7.20-pinned
+JSON depth follow-up triple.** v5.7.40 closed the pretty-print
+slot. v5.7.41 grows the existing tagged-tree engine with an
+event-driven streaming parser: `on_object_start` / `on_key` /
+`on_value` / `on_object_end` / `on_array_start` / `on_array_end`
+callbacks plus a driver fn. Target ~200-300 LOC. For multi-MB
+JSON inputs that don't fit the tagged-tree memory model (debug
+dumps, log streams). Sandhi may absorb if RPC parsing needs
+surface first; if so, this slot frees and v5.7.42 (JSON Pointer)
+moves up.
 
-**v5.7.x slot map (firm as of 2026-04-28, hard upper bound v5.7.44):**
+**v5.7.x slot map (firm as of 2026-04-30, hard upper bound v5.7.47):**
 
 Shipped:
 - **v5.7.13** ✅ string-literal escapes (cyim-unblocking)
@@ -1437,17 +1465,14 @@ Shipped:
 - **v5.7.37** ✅ TS test-org rework — group-level consolidation (24 ts_*.tcyr → 4 topic-grouped runners; frontend included once per group instead of per file; assertion-count parity 1117=1117; TS suite compile time 4774ms → 926ms = 5.15× speedup; user-pushback rejected the initial megafile proposal in favour of group-level isolation; option E test-harness pinned long-term in §v5.x — Toolchain Quality. Zero compiler change.)
 - **v5.7.38** ✅ `.scyr` (soak) + `.smcyr` (smoke) file types (cyrius smoke + cyrius soak walkers mirror the .tcyr/.bcyr/.fcyr discovery shape; tests/regression-capacity.sh Python3 dependency removed via shell-loop migration; example harnesses tests/smcyr/compile_minimal.smcyr + tests/scyr/alloc_pressure.scyr; _skip_deps save/restore guards cmd_soak's built-in self-host loop from auto-prepend size blowout; LSP polish split from this slot to v5.7.39. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 56/56 PASS.)
 - **v5.7.39** ✅ LSP cross-file go-to-def + documentSymbol (programs/cyrius-lsp.cyr extended from diagnostics-only to navigation-capable; ~430 LOC of indexer + 2 new method handlers; cyrius-lsp 22 KB → 65,456 B; promoted to [release].bins so fresh installs ship it; semanticTokens deferred to long-term pin. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 57/57 PASS.)
+- **v5.7.40** ✅ `lib/json.cyr` pretty-printer (`json_v_build_pretty(v, indent)` + `_jb_walk_pretty` + `_jb_emit_indent`; indent<=0 falls back to compact `json_v_build`; empty `{}`/`[]` short-circuit to bracket-pair with no internal whitespace per `JSON.stringify(v, null, n)` convention; `": "` key separator; tcyr 18 assertions in 10 groups + regression-json-pretty.sh gate 4au with negative-case verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 58/58 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.39 ship —
-backstop unchanged at v5.7.47; v5.7.39 landed inside the
-v5.7.46 floating allocation without further cascade):
+Queue (firm assignments as of 2026-04-30 at v5.7.40 ship —
+backstop unchanged at v5.7.47):
 
-- **v5.7.40–v5.7.42** — **`lib/json.cyr` depth work series**
-  (formerly v5.7.39-v5.7.41; pinned 2026-04-27 at v5.7.20
-  ship). One sub-item per slot:
-  - **v5.7.40** — Pretty-printing: `json_v_build_pretty(v, indent)`,
-    ~50-100 LOC. Triggered when a consumer wants human-readable
-    JSON output (config-file writers, debug-log dumps).
+- **v5.7.41–v5.7.42** — **`lib/json.cyr` depth work series**
+  (continuation; pinned 2026-04-27 at v5.7.20 ship). One sub-item
+  per slot:
   - **v5.7.41** — Streaming parser: event API + driver
     (`on_object_start` / `on_key` / `on_value` / `on_array_end`
     /etc.), ~200-300 LOC. For multi-MB JSON inputs that don't fit

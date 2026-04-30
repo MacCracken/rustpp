@@ -201,6 +201,58 @@ toolchain side is unblocked.
 
 
 
+## v5.7.40 ✅ `lib/json.cyr` pretty-printer — SHIPPED
+
+**Shipped 2026-04-30.** First slot of the v5.7.20-pinned JSON
+depth follow-up series. Adds `json_v_build_pretty(v, indent)`
+on top of the existing tagged-value tree. Triggered by the
+"compiler grows to fit the language" stance + `JSON.stringify`-
+shape API parity (config-file writers, debug-log dumps).
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **`json_v_build_pretty(v, indent)`** — public entry. `indent`
+   is the spaces-per-level integer; `indent <= 0` short-
+   circuits to compact `json_v_build(v)`.
+2. **`_jb_walk_pretty(sb, v, indent, level)`** — walker
+   mirroring the existing `_jb_walk` shape. Differences:
+   members on own lines at `indent * (level + 1)` spaces;
+   `": "` (colon-space) key separator; empty `{}`/`[]` short-
+   circuit to bracket-pair with no internal whitespace per
+   `JSON.stringify(v, null, n)` convention.
+3. **`_jb_emit_indent(sb, indent, level)`** — emits LF
+   (byte 10) + N spaces (byte 32). Single helper used by both
+   array and object member emission.
+
+**Verification:**
+- cc5 self-host two-step byte-identical at 720,640 B.
+- `tests/tcyr/json_pretty.tcyr` — 18 assertions in 10 groups
+  (indent fallback `0` / `-4`, scalars unchanged, empty
+  containers compact, indent=2 array/object, nested mix,
+  empty arr inside obj, indent=4 step, parse→pretty→parse
+  round-trip on 51-char + 25-char fixtures, embedded `\n`
+  re-escape preservation through pretty path) all PASS.
+- `tests/regression-json-pretty.sh` (gate 4au) — end-to-end
+  fixture against canonical 8-line shape; negative-case
+  verified by deliberately reverting `": "` to `":"` and
+  confirming gate FAILs with meaningful diff.
+- `sh scripts/check.sh` — 58/58 PASS (was 57/57; +gate 4au).
+
+**Out of scope (future polish, behind consumer ask):**
+- Configurable separator string (arbitrary indent string,
+  `", "` after array members) — `JSON.stringify` permits but
+  spaces-per-level is the 95% case.
+- Sort-keys flag for stable diffs of object output.
+
+**Slot cascade:** backstop unchanged at v5.7.47. Queue advances
+to v5.7.41 (streaming parser) → v5.7.42 (JSON Pointer) →
+v5.7.43-45 (advanced TS) → v5.7.46 (floating) → v5.7.47
+(true closeout backstop).
+
+
+
 ## v5.7.39 ✅ LSP cross-file go-to-definition + documentSymbol — SHIPPED
 
 **Shipped 2026-04-30.** Extends `programs/cyrius-lsp.cyr` from
@@ -1527,12 +1579,8 @@ in the AGNOS ecosystem has surfaced a need yet. Pin here so the
 items don't get lost; promote to a numbered slot when a
 consumer asks for them.
 
-- **Pretty-printing** — `json_v_build_pretty(v, indent)`. The
-  current `json_v_build` is compact (no whitespace). Pretty-
-  printing emits 2/4-space (or tab) indentation and newlines
-  between object/array members. ~50-100 LOC. Triggered when a
-  consumer wants human-readable JSON output (config-file
-  writers, debug-log dumps).
+- **Pretty-printing** ✅ — shipped at v5.7.40. See
+  `## v5.7.40 ✅ lib/json.cyr pretty-printer` above for details.
 
 - **Streaming parser** — current parser allocates the full tree
   in memory. For multi-MB JSON inputs, a streaming parser would

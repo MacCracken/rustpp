@@ -4,6 +4,77 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.40] — 2026-04-30
+
+**`lib/json.cyr` PRETTY-PRINTING** — first slot of the v5.7.20-pinned
+JSON depth follow-up series. Adds `json_v_build_pretty(v, indent)`
+for human-readable output (config-file writers, debug-log dumps)
+on top of the existing tagged-value tree from v5.7.20.
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+### Added
+
+**`json_v_build_pretty(v, indent)`** — public entry. `indent` is the
+spaces-per-level integer; `indent <= 0` short-circuits to the
+existing compact `json_v_build(v)` for callers that want a single
+serializer surface that can be runtime-toggled.
+
+**`_jb_walk_pretty(sb, v, indent, level)`** — walker mirroring the
+existing `_jb_walk` shape with three differences:
+
+1. Object/array members emit on their own line at
+   `indent * (level + 1)` spaces, separated by `,` only (no
+   trailing comma; newline + parent-level indent before the close
+   bracket).
+2. Object key/value separator is `": "` (colon-space) per the
+   conventional pretty-print form. Compact path stays `":"`.
+3. Empty `{}` and `[]` short-circuit to the bracket pair with no
+   internal whitespace — matches `JSON.stringify(v, null, n)`
+   behaviour.
+
+**`_jb_emit_indent(sb, indent, level)`** — emits LF (byte 10) + N
+spaces (byte 32). Single helper used by both array and object
+member emission.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change — `lib/json.cyr` is not in the cc5 include
+  chain; `src/main.cyr` only pulls `src/`).
+- `tests/tcyr/json_pretty.tcyr` — **18 assertions** in 10 groups:
+  indent fallback (`0`, `-4` → compact), scalars unchanged, empty
+  containers compact, simple array indent=2, simple object
+  indent=2, nested mix, empty arr inside obj, indent=4 step,
+  parse→pretty→parse→compact round-trip on a 51-char nested
+  fixture and a 25-char deep-nest fixture, embedded `\n` re-escape
+  preservation through the pretty path. All PASS.
+- `tests/regression-json-pretty.sh` (gate 4au) — end-to-end
+  fixture: `{"name":"alice","tags":[1,2],"empty":[]}` →
+  `json_v_build_pretty(v, 2)` → exact-byte cmp against the
+  canonical 8-line shape. Negative-case verified by deliberately
+  reverting `": "` to `":"` in the pretty walker and confirming
+  the gate FAILs with a meaningful diff.
+- `sh scripts/check.sh` — **58/58 PASS** (was 57/57; +gate 4au).
+
+### Slot map
+
+- v5.7.40 ✅ pretty-printer (this slot)
+- v5.7.41 — streaming parser (event API + driver, ~200-300 LOC)
+- v5.7.42 — JSON Pointer (RFC 6901, ~50 LOC)
+- v5.7.43-45 — advanced TS feature suite
+- v5.7.46 — floating slot (option-E test harness)
+- v5.7.47 — TRUE CLOSEOUT BACKSTOP
+
+### Out of scope (future polish)
+
+- Configurable separator string (`", "` after array members,
+  arbitrary indent string instead of N-spaces) — `JSON.stringify`
+  permits but no consumer has surfaced a need; spaces-per-level is
+  the 95% case.
+- Sort-keys flag for stable diffs of object output. Pin behind a
+  consumer ask.
+
 ## [5.7.39] — 2026-04-30
 
 **LSP CROSS-FILE GO-TO-DEFINITION + DOCUMENT OUTLINE** —
