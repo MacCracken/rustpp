@@ -1,7 +1,7 @@
 #!/bin/sh
-# Regression: lib/test.cyr v1 (test_each helper) — v5.7.46.
+# Regression: lib/test.cyr v1 (test_each helper) — v5.7.43.
 #
-# Pinned to v5.7.46. Pairs with tests/tcyr/test_lib.tcyr (12
+# Pinned to v5.7.43. Pairs with tests/tcyr/test_lib.tcyr (12
 # unit-level assertions). This gate is the end-to-end check:
 # compile a fixture using test_each over a known-shape vec of
 # cases, print a per-case marker, exact-byte cmp the trace.

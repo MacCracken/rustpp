@@ -201,7 +201,7 @@ toolchain side is unblocked.
 
 
 
-## v5.7.46 ✅ `lib/test.cyr` v1 — table-driven testing — SHIPPED
+## v5.7.43 ✅ `lib/test.cyr` v1 — table-driven testing — SHIPPED
 
 **Shipped 2026-04-30.** First slot of the testing-framework
 split decided 2026-04-30 after v5.7.42 ship (see
@@ -213,7 +213,7 @@ group runners have multiple parallel blocks. The pattern earned
 its own composer.
 
 **Slot map cascade:** backstop bumped v5.7.47 → v5.7.48 to
-absorb the v5.7.46 + v5.7.47 split. Option-E test-harness pin
+absorb the v5.7.43 + v5.7.47 split. Option-E test-harness pin
 (formerly v5.7.46 floating, pinned at v5.7.37 ship) retired
 unclaimed — 5 patches without a TS test pattern surfacing that
 didn't fit existing shapes.
@@ -258,9 +258,11 @@ Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
   `after_each`. Most cyrius tcyrs use `alloc_init()` once at
   top and don't need richer fixtures yet.
 
-**Slot cascade post-v5.7.46:**
-- v5.7.43-45 — advanced TS feature suite (queued)
-- v5.7.46 ✅ this slot
+**Slot cascade post-v5.7.43:**
+- v5.7.43 ✅ this slot
+- v5.7.44-46 — advanced TS feature suite (queued; was
+  v5.7.43-45 pre-cascade; +1 to absorb this slot's claim
+  ahead-of-queue)
 - v5.7.47 — refactor pass — testing + codebase (next; bounded
   scope per discipline pinned in §`v5.7.x` queue: tcyrs with
   3+ parallel-shape assertions, consolidate `_TARGET_X`
@@ -339,7 +341,7 @@ Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
 
 **Slot cascade:** backstop unchanged at v5.7.47. JSON depth
 triple complete; v5.7.20-era pin retired. Queue advances to
-v5.7.43-45 (advanced TS feature suite) → v5.7.46 (floating slot)
+v5.7.43-45 (advanced TS feature suite) → v5.7.43 (floating slot)
 → v5.7.47 (true closeout backstop).
 
 
@@ -1799,10 +1801,10 @@ with reference to this section.
    each, one-liner pin per addition.
 
 2. **`lib/test.cyr`** — framework-shaped composer that sits
-   *above* `lib/assert.cyr`. **v1 SHIPPED at v5.7.46** with
+   *above* `lib/assert.cyr`. **v1 SHIPPED at v5.7.43** with
    `test_each(cases_vec, fp)` only; transitively includes
    `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one
-   `include` and get the full stack. See `## v5.7.46 ✅
+   `include` and get the full stack. See `## v5.7.43 ✅
    lib/test.cyr v1 — table-driven testing` above.
    - Deferred to v2 (pin behind further consumer pressure):
      - `test_property(gen, prop, n)` — quickcheck-style on
@@ -1836,12 +1838,26 @@ consumers' total include line count stays at 1.
 **Action items:**
 - [x] ~~When the first consumer surfaces `test_each` pressure,
       claim a v5.7.x or v5.8.x slot for `lib/test.cyr` v1.~~
-      Shipped v5.7.46 — surfaced by in-tree pain in v5.7.40-42
+      Shipped v5.7.43 — surfaced by in-tree pain in v5.7.40-42
       tcyrs.
-- [ ] When yantra clones to local, audit its scaffolded README /
-      CLAUDE.md for kitchen-sink drift. Push back at scaffold
-      stage — easier to constrain pre-cut than after v0.1.0
-      precedent locks it in.
+- [x] ~~When yantra clones to local, audit its scaffolded README
+      / CLAUDE.md for kitchen-sink drift.~~ Audited
+      2026-04-30 after v5.7.43 ship. **No drift** — yantra's
+      ADR 0001 ("yantra is a library, not a framework", dated
+      2026-04-23) predates our 2026-04-30 split decision by a
+      week. README + CLAUDE.md + ADR triple-anchor the narrow-
+      lib stance. Modules scoped tight: `src/web.cyr`,
+      `src/mobile.cyr`, `src/protocol/{cdp,webdriver,appium}.cyr`
+      — no overlap with `lib/assert.cyr` or `lib/test.cyr`.
+      Build pattern matches mabda/sigil/sankoch (smoke-program
+      `[build].entry`, lib bundled to `dist/yantra.cyr` via
+      `cyrius distlib`).
+- [ ] **Pre-v0.1.0 cut**: yantra's manifest pins
+      `cyrius = "5.6.17"` — stale by ~30 patches. Should bump
+      to whatever cyrius is at when yantra cuts v0.1.0 (likely
+      5.7.46+) to pick up sandhi-fold (5.7.0), JSON depth
+      surface (5.7.20/40/41/42), and `lib/test.cyr` (5.7.46)
+      for the smoke program. Owner: yantra side, not cyrius.
 - [ ] When the first consumer surfaces UI/TTY pressure, stand
       up yantra v0.1.0 (sibling distlib, not stdlib fold yet).
 - [ ] When a consumer surfaces property-test or fixture pressure,

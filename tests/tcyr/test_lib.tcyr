@@ -1,4 +1,4 @@
-# test_lib.tcyr — v5.7.46 acceptance gate for lib/test.cyr.
+# test_lib.tcyr — v5.7.43 acceptance gate for lib/test.cyr.
 #
 # Scope: test_each iterates correctly, fires fn per case in order,
 # handles empty cases vec, plays nicely with assert.cyr accounting

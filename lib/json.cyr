@@ -1255,7 +1255,7 @@ fn json_stream_parse_str(src, h) {
 # it returns 0.
 
 # Look up (buf, len) as a key in OBJ value `v`. Length-explicit so
-# tokens with interior NUL bytes (theoretical via  ) still match.
+# tokens with interior NUL bytes (theoretical via `\u0000`) still match.
 fn _jp_obj_lookup(v, buf, len) {
     if (load64(v) != JTAG_OBJ) { return 0; }
     var pairs = load64(v + 8);

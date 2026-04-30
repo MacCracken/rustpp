@@ -3,7 +3,7 @@
 # Transitively pulls in lib/assert.cyr + lib/fnptr.cyr so consumers
 # write one include and get the unit-test stack: primitives + dispatch.
 #
-# Pinned 2026-04-30 (v5.7.46). The decision to keep this stdlib-side
+# Pinned 2026-04-30 (v5.7.43). The decision to keep this stdlib-side
 # (vs bundling into yantra) lives in
 # `docs/development/roadmap.md §Testing framework split — lib/test.cyr +
 # yantra-stays-narrow`. v1 is intentionally minimal:

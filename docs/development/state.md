@@ -21,7 +21,7 @@ inputs are silently no-ops; returns 0; failures account via
 §5 block's 8 homogeneous (path → int) assertions converted to
 a single `test_each` call (3 outliers stay inline — different
 shapes); behavior preserved 36 → 36 PASS. **Slot cascade**:
-backstop bumped v5.7.47 → v5.7.48 to absorb the v5.7.46
+backstop bumped v5.7.47 → v5.7.48 to absorb the v5.7.43
 + v5.7.47 split. Option-E test-harness pin (formerly v5.7.46
 floating) retired unclaimed. **Verification**: zero compiler
 change (lib-only); cc5 self-host two-step byte-identical at
@@ -1505,8 +1505,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 61/61 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.46 added gate 4ax `regression-test-lib.sh` covering `test_each` ordering + transitive include chain end-to-end)
-- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.46 added `tests/tcyr/test_lib.tcyr` — 12 assertions in 4 groups covering the new `test_each` surface)
+- **check.sh**: 61/61 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.43 added gate 4ax `regression-test-lib.sh` covering `test_each` ordering + transitive include chain end-to-end)
+- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.43 added `tests/tcyr/test_lib.tcyr` — 12 assertions in 4 groups covering the new `test_each` surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1515,15 +1515,15 @@ throughput win on hosts with hw support).)
 - **Stdlib**: 61 modules (54 first-party + 7 vendored/deps: 6 via `cyrius deps`
   symlinks — sakshi, patra, sigil, yukti, mabda, sankoch — plus
   `lib/sandhi.cyr` vendored from `cyrius distlib` at sandhi v1.0.0;
-  v5.7.46 added `lib/test.cyr` table-driven testing helper)
+  v5.7.43 added `lib/test.cyr` table-driven testing helper)
 
 ## In-flight
 
-**v5.7.43 (advanced TS feature suite — first of three).** v5.7.46
-shipped lib/test.cyr v1 ahead-of-queue (consumer pressure
-trigger met from in-tree pain in v5.7.40-42 tcyrs). Queue
-returns to v5.7.43-45 advanced TS feature suite. The three
-slots deliver the advanced-TS items pinned at `roadmap.md
+**v5.7.44 (advanced TS feature suite — first of three).** v5.7.43
+shipped lib/test.cyr v1 ahead-of-queue (consumer pressure trigger
+met from in-tree pain in v5.7.40-42 tcyrs); advanced TS suite
+cascaded +1 to v5.7.44-46 (was v5.7.43-45). The three slots
+deliver the advanced-TS items pinned at `roadmap.md
 §v5.7.x — patch slate` against the v5.7.37 grouped runners. Per the slot
 map's selection rule: **highest-friction item from the pin list
 at slot-claim time** — variadic tuples, const type params,
@@ -1533,7 +1533,7 @@ files a non-SY parse failure on a TS shape before slot claim,
 that shape jumps to the front of the queue.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
-v5.7.48 — backstop bumped +1 to absorb the v5.7.46 = lib/test.cyr
+v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
 v1 + v5.7.47 = refactor pass split decided 2026-04-30 after
 v5.7.42 ship):**
 
@@ -1568,17 +1568,18 @@ Shipped:
 - **v5.7.40** ✅ `lib/json.cyr` pretty-printer (`json_v_build_pretty(v, indent)` + `_jb_walk_pretty` + `_jb_emit_indent`; indent<=0 falls back to compact `json_v_build`; empty `{}`/`[]` short-circuit to bracket-pair with no internal whitespace per `JSON.stringify(v, null, n)` convention; `": "` key separator; tcyr 18 assertions in 10 groups + regression-json-pretty.sh gate 4au with negative-case verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 58/58 PASS.)
 - **v5.7.41** ✅ `lib/json.cyr` streaming parser (11 event constants `JS_EV_OBJECT_START`..`JS_EV_ERROR` + 96B handler struct + `json_stream_handler_new` / `json_stream_on` / `json_stream_parse` / `json_stream_parse_str` public API; driver reuses tree parser's lex state and `_jp_*` helpers unchanged so streaming surface stays at ~210 LOC; callbacks fire via `fncall1`/`fncall2`/`fncall3` from `lib/fnptr.cyr`; tcyr 65 assertions in 9 groups + regression-json-stream.sh gate 4av exact-byte trace verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 59/59 PASS.)
 - **v5.7.42** ✅ `lib/json.cyr` JSON Pointer (RFC 6901) (`json_v_pointer(v, ptr)` + `_cstr` variant + `_jp_obj_lookup` length-explicit key match + `_jp_parse_idx` strict §4 index parser + `_jp_token_unescape` single-pass `~1`→`/` / `~0`→`~`. Plus hygiene fix: `lib/json.cyr` now `include`s `lib/fnptr.cyr` to close the v5.7.41 incomplete-dep regression; tcyr 36 assertions in 7 groups + regression-json-pointer.sh gate 4aw 8-case exact-byte fixture; all four JSON tcyrs run clean post-fix (190 total assertions across the JSON surface). Zero compiler change; cc5 unchanged at 720,640 B; check.sh 60/60 PASS. **Closes the v5.7.20-pinned JSON depth triple.**)
-- **v5.7.46** ✅ `lib/test.cyr` v1 — table-driven testing (new stdlib module; `test_each(cases_vec, fp)` via `fncall1` dispatch; transitively `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one include and get the unit-test stack — same one-include pattern as v5.7.42's `lib/json.cyr`→`lib/fnptr.cyr` fix; demo migration of json_pointer.tcyr §5 corpus 8 homogeneous assertions → single test_each call, behavior preserved 36→36 PASS; tcyr 12 assertions + regression-test-lib.sh gate 4ax end-to-end trace; first slot of the 2026-04-30 testing-framework split decision; option-E test-harness pin retired unclaimed; backstop bumped v5.7.47→v5.7.48 to absorb v5.7.46 + v5.7.47 split. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 61/61 PASS.)
+- **v5.7.43** ✅ `lib/test.cyr` v1 — table-driven testing (new stdlib module; `test_each(cases_vec, fp)` via `fncall1` dispatch; transitively `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one include and get the unit-test stack — same one-include pattern as v5.7.42's `lib/json.cyr`→`lib/fnptr.cyr` fix; demo migration of json_pointer.tcyr §5 corpus 8 homogeneous assertions → single test_each call, behavior preserved 36→36 PASS; tcyr 12 assertions + regression-test-lib.sh gate 4ax end-to-end trace; first slot of the 2026-04-30 testing-framework split decision; option-E test-harness pin retired unclaimed; backstop bumped v5.7.47→v5.7.48 to absorb v5.7.43 + v5.7.47 split. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 61/61 PASS.)
 
 Queue (firm assignments as of 2026-04-30 at v5.7.42 ship —
 **backstop bumped v5.7.47 → v5.7.48** to absorb the
-v5.7.46 = `lib/test.cyr` v1 + v5.7.47 = refactor pass split
+v5.7.43 = `lib/test.cyr` v1 + v5.7.47 = refactor pass split
 decided 2026-04-30 after v5.7.42 ship; option E test-harness
 retired unclaimed):
 
-- **v5.7.43–v5.7.45** — **Advanced TS feature suite**
-  (formerly v5.7.42-v5.7.44; #8 from the pin list at
-  `roadmap.md §v5.7.x — patch slate`). Three slots; specific
+- **v5.7.44–v5.7.46** — **Advanced TS feature suite**
+  (formerly v5.7.43-v5.7.45; +1 cascade at v5.7.43 ship to
+  absorb lib/test.cyr v1 ahead-of-queue claim;
+  #8 from the pin list at `roadmap.md §v5.7.x — patch slate`). Three slots; specific
   items chosen at slot-claim time from the pinned list
   (variadic tuples, const type params, satisfies postfix
   verify, never/unknown audit, conditional-type exhaustive

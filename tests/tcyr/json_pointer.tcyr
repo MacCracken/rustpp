@@ -108,7 +108,7 @@ assert_eq(json_v_pointer(rfc, str_from("/foo")), arr, "/foo = arr");
 assert(streq(str_data(json_v_str(json_v_pointer(rfc, str_from("/foo/0")))), "bar") == 1, "/foo/0 = bar");
 
 # Homogeneous (path → int) cases — table-driven via test_each.
-# Demonstrates the v5.7.46 lib/test.cyr API on a real corpus that
+# Demonstrates the v5.7.43 lib/test.cyr API on a real corpus that
 # already had 8 parallel-shape assertions.
 var rfc_cases = vec_new();
 vec_push(rfc_cases, _ptr_case(str_from("/"),     0, "\"/\" = empty-string key = 0"));
