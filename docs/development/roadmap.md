@@ -201,6 +201,91 @@ toolchain side is unblocked.
 
 
 
+## v5.7.37 ✅ TS test-org rework — group-level consolidation — SHIPPED
+
+**Shipped 2026-04-30.** Closes the load-bearing prerequisite
+for the v5.7.42-v5.7.44 advanced-TS suite. 24 individual
+`tests/tcyr/ts_*.tcyr` files collapsed into 4 topic-grouped
+runners that include the TS frontend (~6,615 LOC of
+lex.cyr + parse.cyr) ONCE per group instead of once per
+file.
+
+**The slot's premise check** (per CLAUDE.md "research before
+implementation"): the original roadmap framing was
+"pre-compiled frontend object linkage." Verified
+out-of-scope — cyrius today is whole-program; no `.o`
+emission + linker exists (the `.gnu.hash` long-term entry
+above confirms `.so` work isn't even fully wired). Slot
+re-scoped to "consolidate the test surface using existing
+language facilities."
+
+**The user pushback that mattered**: agent first proposed a
+single megafile runner (~17× speedup). User pushed back —
+"do you GENUINELY think that one test runner is the
+optimum?" — which surfaced the real trade-off: a megafile
+trades the speedup for blast-radius-of-the-whole-suite on
+any single segfault, zero scaling headroom, and aesthetics
+at odds with cyrius's "small focused programs" taste.
+Group-level consolidation gets ~5× of the speedup with
+isolation per topic. Pattern recorded as feedback memory:
+when an agent's proposal makes them say "trust the
+accumulator" or hand-wave past an obvious downside, that's
+a tell — push back instead of approving.
+
+**Group split:**
+
+- `ts_lex_combined.tcyr` (was 6 files: p12, p13, p14, p15,
+  p16, p43) — 570 assertions
+- `ts_parse_core.tcyr` (was 4 files: p21, p22, p23, p24) —
+  AST scaffolding + expr/stmt/type — 257 assertions
+- `ts_parse_decls.tcyr` (was 5 files: p25, p26, p44, p45,
+  p47) — declarations / modules / async / `!:` /
+  modifiers — 157 assertions
+- `ts_parse_advanced.tcyr` (was 9 files: p43, p46, p48,
+  p49, p50, p51, p52, p53, p54) — JSX, instantiation
+  expressions, generic fn types, template literal types,
+  array destructure, SY polish, asserts, mapped types,
+  decorators — 133 assertions
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **720,640 B**
+  (no compiler change).
+- Assertion-count parity: 1117 = 1117 (verified by running
+  each original pre-deletion and summing).
+- TS suite compile time: **4774ms → 926ms = 5.15×
+  speedup** (timed against 24 originals before deletion).
+- check.sh **55/55 PASS** (no gate count change; underneath
+  93 tcyr files instead of 113).
+
+**Files:**
+
+- Deleted: 24 in `tests/tcyr/ts_{lex,parse}_p*.tcyr`.
+- Added: 4 in `tests/tcyr/ts_{lex_combined,parse_core,parse_decls,parse_advanced}.tcyr`.
+
+**Slot cascade** (user-authorized at this ship, +1 from
+v5.7.36's cascade — backstop bumped v5.7.45 → v5.7.46 to
+absorb option E test-harness pin):
+
+- v5.7.37 = this slot
+- v5.7.38 ← v5.7.37 prev = bundled duo (LSP polish +
+  `.scyr`/`.smcyr`)
+- v5.7.39-v5.7.41 ← v5.7.38-v5.7.40 prev = JSON depth series
+- v5.7.42-v5.7.44 ← v5.7.41-v5.7.43 prev = advanced TS suite
+- v5.7.45 ← floating slot for option E test-harness when
+  pulled (long-term pinned in §v5.x — Toolchain Quality)
+- v5.7.46 ← v5.7.45 prev = TRUE CLOSEOUT BACKSTOP
+
+**Long-term pin (option E):** TS test harness program. A
+single `programs/ts_test_runner.cyr` that consumes both
+internal-symbol fn dispatch (replacing the current tcyr
+runners) and TS fixture files (replacing the SY-corpus
+regression gates) — one tool, two modes. Pinned in §v5.x —
+Toolchain Quality. Claims a slot (likely v5.7.45) when a
+downstream consumer surfaces a test pattern that doesn't fit
+either the current tcyr shape or `cc5 --parse-ts` corpus
+mode. Until then, group-level consolidation is sufficient.
+
 ## v5.7.36 ✅ fresh-install hardening + distlib cap raise — SHIPPED
 
 **Shipped 2026-04-30.** Bundled five tooling-quality items
@@ -1784,6 +1869,7 @@ enables adding new targets without touching the frontend.
 | CI template with api-surface gate | Low | **✅ Shipped v5.7.33** (gate 4ao in cyrius's own check.sh; downstream consumers add their own copy). |
 | LSP semantic-tokens polish | Medium | **Queued.** Basic color-coding shipped. Extend to cross-file symbol resolution + go-to-def. Future v5.7.x slot when claimed; not bundled with v5.7.33. |
 | cyrlint forward-ref scanner — string-literal awareness | Low-Medium | **✅ Shipped v5.7.36.** Pulled forward from the v5.7.37 trio. Pass-2 scan loop in `lint_globals_init_order` skips IDENTs inside `"..."` and `'...'` literals (with `\\` / `\"` / `\'` escapes); regression test 4 in `tests/regression-lint-global-init-order.sh` covers the shape. |
+| TS test harness program (option E from v5.7.37) | Medium | **Pinned long-term 2026-04-30 at v5.7.37 ship.** A single `programs/ts_test_runner.cyr` consuming both internal-symbol fn dispatch (replacing the current `tests/tcyr/ts_{lex_combined,parse_core,parse_decls,parse_advanced}.tcyr` runners) and TS fixture files (replacing the SY-corpus regression gates `regression-ts-{lex,parse,parse-tsx,asserts,decorators,mapped}.sh`). One tool, two modes. v5.7.37 group-level consolidation is sufficient until a downstream consumer surfaces a test pattern that doesn't fit either current shape; at that point claims a v5.7.x slot (likely v5.7.45 floating slot in the queue). Out of scope: replacing `cc5 --parse-ts`-style flags themselves — the harness CALLS them, doesn't replace them. |
 
 ---
 

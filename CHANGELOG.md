@@ -4,6 +4,143 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.37] — 2026-04-30
+
+**TS TEST-ORG REWORK — group-level consolidation** — collapses
+the 24 individual `tests/tcyr/ts_*.tcyr` files into 4
+topic-grouped runners that include the TS frontend
+(`src/frontend/ts/lex.cyr` + `parse.cyr`, ~6,615 LOC) once per
+group instead of once per file. Closes the load-bearing
+prerequisite for the v5.7.42-v5.7.44 advanced-TS suite (per
+the cascade established at v5.7.36 ship): the test scaffolding
+needed to settle before more TS feature tests land.
+
+Initially proposed as a single megafile runner; user pushed
+back ("do you GENUINELY think that one test runner is the
+optimum?") which surfaced the real trade-off. A megafile
+trades 6× speedup for blast-radius-of-the-whole-suite on any
+single segfault and zero scaling headroom for new tests.
+Group-level consolidation gets ~5× of the speedup with
+isolation per topic and clear dump locations for new tests.
+
+Zero compiler change. cc5 byte-identical at 720,640 B.
+
+### Changed
+
+**Group split** — 24 → 4 binaries, frontend included once per
+group:
+
+- **`tests/tcyr/ts_lex_combined.tcyr`** (was: `ts_lex_p12`,
+  `_p13`, `_p14`, `_p15`, `_p16`, `_p43`) — lexer-only tests.
+  Includes `src/frontend/ts/lex.cyr` once. 570 assertions.
+- **`tests/tcyr/ts_parse_core.tcyr`** (was: `ts_parse_p21`,
+  `_p22`, `_p23`, `_p24`) — AST scaffolding + expression /
+  statement / type-expression parsers (the foundational
+  parse layer). 257 assertions.
+- **`tests/tcyr/ts_parse_decls.tcyr`** (was: `ts_parse_p25`,
+  `_p26`, `_p44`, `_p45`, `_p47`) — declaration forms,
+  ES module surface, async/await, definite-assignment `!:`,
+  contextual modifier keywords. 157 assertions.
+- **`tests/tcyr/ts_parse_advanced.tcyr`** (was: `ts_parse_p43`,
+  `_p46`, `_p48`-`_p54`) — JSX, instantiation expressions,
+  generic fn types, template literal types, array destructure
+  defaults, SY corpus 100% polish, `asserts`, mapped types,
+  decorators. 133 assertions.
+
+**Total**: 1117 assertions across 4 binaries (vs 1117 across
+24 binaries pre-v5.7.37 — coverage byte-for-byte preserved,
+verified by counting `<n> passed` totals against originals
+before deletion).
+
+### Implementation
+
+Each original test body was wrapped as a fn
+(`ts_lex_test_<name>` / `ts_parse_test_<name>`); top-level
+helper functions extracted into the combined file at
+top-level with source-prefixed names (`_<basename>_<orig>`)
+to avoid collisions across files (e.g. five files all
+defined `parse_first_stmt` identically — became
+`_p44_parse_first_stmt`, `_p49_parse_first_stmt`, etc., and
+their call sites in each test body got the matching
+prefix). Build script at `/tmp/build_combined.sh` was a
+one-shot harness; the result is the four .tcyr files
+checked in.
+
+Shared `alloc_init();` + `var ts_base = alloc(TS_HEAP_SIZE +
+4096);` lives at top-level of each combined file before any
+fn definitions (cyrius requires globals to be parsed before
+fn bodies that reference them — same forward-ref rule
+v5.7.32 cyrlint catches for top-level `var X = expr_using_Y`
+shapes). Each test fn calls `TS_PARSE_INIT(ts_base)` at
+entry to reset state between siblings.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change — pure test reorganization).
+- Bootstrap closure: byte-identical (`src/` untouched).
+- Per-group run: each combined binary executes all member
+  test bodies sequentially; `lib/assert.cyr` accumulator
+  reports per-binary pass/fail.
+- **Assertion-count parity**: 1117 = 1117 (originals total
+  vs combined total) — confirmed by running each original
+  pre-deletion and summing reported `<n> passed`.
+- TS suite compile time **4774ms → 926ms = 5.15× speedup**
+  (timed: 24 originals vs 4 combined, building each from
+  source with `cat $f | build/cc5 > /tmp/t`).
+- Per-binary size: 4 × ~200KB = ~800KB (vs originals ~3.6MB
+  total).
+- check.sh **55/55 PASS** (no count change — the test-suite
+  gate counts as 1 regardless of file count; underneath, 93
+  tcyr files instead of 113).
+
+### Why grouped, not megafile
+
+Considered and rejected:
+
+- **One runner** — ~17× faster but a hard segfault in any
+  test loses all 1117 assertions; bad isolation; doesn't
+  scale as v5.7.42-v5.7.44 add 5-10 more tests. The 5-10
+  saved seconds doesn't compensate for the brittleness.
+
+Considered and pinned long-term:
+
+- **Test harness program** (option E) — `programs/
+  ts_test_runner.cyr` consuming both internal-symbol fn
+  dispatch and TS fixture files. Replaces both unit-tcyrs
+  and SY-corpus regression gates with one tool. Pinned as
+  `v5.7.x — TS test harness program (long-term)` in
+  `roadmap.md §v5.x — Toolchain Quality`; claims a slot
+  when a downstream consumer surfaces a test pattern that
+  doesn't fit either the current tcyr shape or `cc5
+  --parse-ts` corpus mode.
+
+### Files touched
+
+- **Deleted**: 24 files in `tests/tcyr/ts_lex_p*.tcyr` /
+  `ts_parse_p*.tcyr` (recoverable from git history).
+- **Added**: 4 files — `tests/tcyr/ts_lex_combined.tcyr`,
+  `ts_parse_core.tcyr`, `ts_parse_decls.tcyr`,
+  `ts_parse_advanced.tcyr`.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.37
+  bump (via `scripts/version-bump.sh`).
+- Install snapshot at `~/.cyrius/versions/5.7.37/`.
+
+### Slot cascade (continuing the v5.7.36 cascade +1)
+
+User-authorized at v5.7.37 ship: backstop bumped v5.7.45 →
+**v5.7.46** to make room for the additional pinned items
+(option E test-harness, plus floor for items still surfacing).
+Relative order preserved:
+
+- v5.7.37 = this slot
+- v5.7.38 ← v5.7.37 prev = bundled duo (LSP polish + `.scyr`/
+  `.smcyr`)
+- v5.7.39-v5.7.41 ← v5.7.38-v5.7.40 prev = JSON depth series
+- v5.7.42-v5.7.44 ← v5.7.41-v5.7.43 prev = advanced TS suite
+- v5.7.45 ← floating slot for option E test-harness if pulled
+- v5.7.46 ← v5.7.45 prev = TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.36] — 2026-04-30
 
 **FRESH-INSTALL HARDENING + DISTLIB CAP RAISE** — bundled

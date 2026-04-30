@@ -5,6 +5,35 @@
 
 ## Version
 
+**5.7.37** (shipped 2026-04-30 — **TS TEST-ORG REWORK —
+GROUP-LEVEL CONSOLIDATION**. Closes the load-bearing
+prerequisite for the v5.7.42-v5.7.44 advanced-TS suite by
+collapsing 24 individual `tests/tcyr/ts_*.tcyr` files into 4
+topic-grouped runners (`ts_lex_combined`, `ts_parse_core`,
+`ts_parse_decls`, `ts_parse_advanced`). Each runner includes
+the TS frontend (~6,615 LOC of `lex.cyr` + `parse.cyr`)
+ONCE per group instead of once per file. Initial agent
+proposal was a single megafile runner; user pushback ("do you
+GENUINELY think that one test runner is the optimum?")
+surfaced the real trade-off — megafile trades 6× speedup for
+blast-radius-of-the-whole-suite on any segfault and zero
+scaling headroom. Group-level consolidation gets ~5× of the
+speedup with isolation per topic. **Verification**:
+`tests/regression-ts-*.sh` SY-corpus gates unchanged; cc5
+self-host two-step byte-identical at **720,640 B** (no
+compiler change); assertion-count parity 1117 = 1117 (verified
+pre-deletion); TS suite compile time **4774ms → 926ms =
+5.15× speedup**; check.sh **55/55 PASS**. **Long-term pin
+(option E)**: TS test harness program — a single
+`programs/ts_test_runner.cyr` consuming both internal-symbol
+fn dispatch and TS fixture files. Claims a v5.7.x slot when
+a downstream consumer surfaces a test pattern that doesn't
+fit either current shape; until then group-level
+consolidation is sufficient. **Slot cascade** (continuing the
+v5.7.36 +1 cascade; user-authorized at this ship): backstop
+bumped v5.7.45 → v5.7.46 to absorb option E pin. v5.7.45 is
+floating slot for option E if pulled.)
+
 **5.7.36** (shipped 2026-04-30 — **FRESH-INSTALL HARDENING +
 DISTLIB CAP RAISE**. Bundled five tooling-quality items
 surfaced by re-setting up the toolchain on a fresh Arch
@@ -1289,7 +1318,7 @@ throughput win on hosts with hw support).)
 ## Suites
 
 - **check.sh**: 55/55 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.36 added gate 4ar `regression-distlib-large-module.sh` and removed silent-skips on fmt/lint via PATH fallback so they count as real gates)
-- **`tests/tcyr/*.tcyr`**: 69 files (v5.7.5 added `ts_lex_p43.tcyr` + `ts_parse_p43.tcyr`; v5.7.0 fold deleted `http_server.tcyr`)
+- **`tests/tcyr/*.tcyr`**: 93 files (v5.7.37 collapsed 24 ts_*.tcyr → 4 group runners — `ts_lex_combined`, `ts_parse_core`, `ts_parse_decls`, `ts_parse_advanced`; net -20 files for the same 1117 assertions)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
 - **Stdlib**: 60 modules (53 first-party + 7 vendored/deps: 6 via `cyrius deps`
@@ -1334,22 +1363,13 @@ Shipped:
 - **v5.7.34** ✅ aarch64 codebuf cap raise 524288→3145728 (closes the v5.7.27 ship omission — phylax-surfaced; trivial constant bump in `src/backend/aarch64/emit.cyr` `EB()`; bundled dup-fn investigation moved to agnosys side where phylax-agent has the repro context)
 - **v5.7.35** ✅ stdlib syscall surface gaps (getdents64 + getrandom + landlock × 2 arches; agnosys drm/luks/security-surfaced; new lib/random.cyr + lib/security.cyr; +11 api-surface entries)
 - **v5.7.36** ✅ fresh-install hardening + distlib cap raise (5-item bundle: check.sh:329 syntax-noise fix + check.sh PATH fallback for fmt/lint with loud-FAIL on missing binaries + cyrius distlib per-module cap 64KB→256KB mabda-surfaced + cyrlint string-literal awareness pulled forward from the v5.7.37 trio + new `cyriusly setup` verb for fresh-checkout install. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 55/55 PASS.)
+- **v5.7.37** ✅ TS test-org rework — group-level consolidation (24 ts_*.tcyr → 4 topic-grouped runners; frontend included once per group instead of per file; assertion-count parity 1117=1117; TS suite compile time 4774ms → 926ms = 5.15× speedup; user-pushback rejected the initial megafile proposal in favour of group-level isolation; option E test-harness pinned long-term in §v5.x — Toolchain Quality. Zero compiler change.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.36 ship —
-**cascade +1 from the v5.7.35 plan** because v5.7.36 was
-re-purposed for fresh-install hardening at user direction
-"want to fix tests before adding additional testing verbs."
-Relative order preserved; backstop bumped v5.7.44 → v5.7.45):
-
-- **v5.7.37** — **TS test organization rework** (formerly
-  v5.7.36; pinned 2026-04-28 at v5.7.27 ship). Would grow
-  tcyr richer — e.g. pre-compiled frontend object linkage so
-  each tcyr doesn't pull the whole TS frontend (~5500 LOC of
-  compiler in every test binary). **First slot of the user-
-  locked sequence** because the TS test surface needs to
-  settle before the v5.7.42-v5.7.44 advanced TS suite lands —
-  feature work and test-org rework would otherwise stomp on
-  each other.
+Queue (firm assignments as of 2026-04-30 at v5.7.37 ship —
+**cascade +1 again from the v5.7.36 plan** because the
+v5.7.37 ship pinned option E test-harness as a floating
+slot, requiring backstop +1 absorption. Relative order
+preserved; backstop bumped v5.7.45 → v5.7.46):
 
 - **v5.7.38** — **bundled trio (now duo)** (formerly v5.7.37
   trio; the cyrlint string-literal awareness item moved
@@ -1394,28 +1414,40 @@ Relative order preserved; backstop bumped v5.7.44 → v5.7.45):
   items chosen at slot-claim time from the pinned list
   (variadic tuples, const type params, satisfies postfix
   verify, never/unknown audit, conditional-type exhaustive
-  corpus, `as const` explicit). Surfaces post-v5.7.37 test-
-  org rework so the new test scaffolding catches each as it
-  lands. v5.7.37 is the load-bearing prerequisite — if test-
-  org slips, this triple slides too.
+  corpus, `as const` explicit). New tests land in the
+  v5.7.37 grouped runners (`ts_parse_advanced.tcyr` is the
+  natural target for most; create a new group file if a
+  feature warrants its own topic). v5.7.37 settled the test
+  organisation; this triple delivers the feature work
+  against it.
 
   Selection rule per slot: highest-friction item from the pin
   list at the time the slot opens. If a downstream consumer
   files a non-SY parse failure on a TS shape, that shape moves
   to the front of the queue.
 
-- **v5.7.45** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.44;
+- **v5.7.45** — **floating slot for option E test-harness**
+  (pinned at v5.7.37 ship in §v5.x — Toolchain Quality). A
+  single `programs/ts_test_runner.cyr` consuming both
+  internal-symbol fn dispatch and TS fixture files. Claims
+  this slot when a downstream consumer surfaces a test
+  pattern that doesn't fit either the v5.7.37 group runners
+  or the existing `cc5 --parse-ts` corpus gates. If
+  unclaimed by closeout, slot absorbs into general
+  hygiene / merges into v5.7.46.
+
+- **v5.7.46** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.45;
   CLAUDE.md 11-step). Hard upper bound; anything past forces
   v5.8.x.
 
-**Side-task throughout v5.7.37-v5.7.45**: warning-sweep
+**Side-task throughout v5.7.38-v5.7.46**: warning-sweep
 continuing — goal still "zero `warning:` lines from cc5
 self-build". Item #5 (check.sh:329 syntax noise) closed at
 v5.7.36; remaining items are the 3 syscall-arity warnings in
 lex.cyr + the 36 unreachable-fn floor. Cleared opportunistically
 each closeout, no dedicated slot.
 
-**Floating items** that may displace the v5.7.37-v5.7.44 plan
+**Floating items** that may displace the v5.7.38-v5.7.46 plan
 if surfaced before backstop:
 - **Duplicate-fn warning investigation** — parked at v5.7.34
   ship; phylax-agent has the agnosys-side repro context. If
@@ -1424,8 +1456,8 @@ if surfaced before backstop:
   pinch first since it's the tail).
 - **Wildcard correctness items** (consumer-surfaced) per
   `feedback_correctness_over_features.md` — preempt feature
-  parity. If one surfaces, the v5.7.37-v5.7.44 plan slips by
-  one slot; v5.7.45 backstop would re-bound at that point.
+  parity. If one surfaces, the v5.7.38-v5.7.45 plan slips by
+  one slot; v5.7.46 backstop would re-bound at that point.
 
 Moved out of v5.7.x:
 - **RISC-V rv64** → v5.8.x (paired with bare-metal AGNOS kernel).
