@@ -4,6 +4,108 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.41] — 2026-04-30
+
+**`lib/json.cyr` STREAMING PARSER** — second slot of the v5.7.20-pinned
+JSON depth follow-up series. Adds an event-driven push parser for
+multi-MB JSON inputs that don't fit the tagged-tree memory model.
+Closes the design surfaced at v5.7.20 ship: tree builder for the
+small-to-medium case, streaming parser for log streams / debug
+dumps / RPC payloads where allocating the full tree is the wrong
+trade-off.
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+### Added
+
+**11 event constants** — `JS_EV_OBJECT_START` (0), `_OBJECT_END`
+(1), `_ARRAY_START` (2), `_ARRAY_END` (3), `_KEY` (4), `_STRING`
+(5), `_INT` (6), `_FLOAT` (7), `_BOOL` (8), `_NULL` (9), `_ERROR`
+(10) plus `JS_EV_COUNT` (11) for sentinel-checked range validation.
+
+**Handler struct** — 96-byte heap allocation with one `ctx` slot
+followed by 11 fn-pointer slots. `ctx` is the user pointer passed
+as the first argument to every callback (lets handlers thread
+state without globals). Each fn-pointer slot defaults to 0 (no-op)
+so consumers register only the events they care about.
+
+**Public API:**
+
+- `json_stream_handler_new(ctx)` → handler ptr. Allocates + zeros
+  the struct, stores ctx at offset 0.
+- `json_stream_on(h, event_id, fp)` → 0 on success, -1 on bad
+  `event_id` (negative or `>= JS_EV_COUNT`). Pass fp=0 to clear
+  a slot.
+- `json_stream_parse(buf, len, h)` → 0 on success, -1 on parse
+  error. Mirrors `json_v_parse_str` but emits events instead of
+  building the tree. Sets `_json_err_msg` / `_json_err_pos` on
+  failure (also fires `JS_EV_ERROR` if registered).
+- `json_stream_parse_str(src, h)` → convenience wrapper for Str.
+
+**Callback signatures** (all return 0 normally; non-zero return
+is currently ignored — abort-on-callback is reserved for a future
+slot if a consumer surfaces a need):
+
+| Event | fncall arity | Args |
+| --- | --- | --- |
+| object_start, object_end, array_start, array_end, null | `fncall1` | `(ctx)` |
+| key, string | `fncall2` | `(ctx, str)` |
+| int | `fncall2` | `(ctx, n_i64)` |
+| float | `fncall2` | `(ctx, fbits)` |
+| bool | `fncall2` | `(ctx, 0_or_1)` |
+| error | `fncall3` | `(ctx, msg_cstr, pos)` |
+
+### Reuses
+
+The streaming driver shares lex state with the tree parser
+(`_jp_buf` / `_jp_len` / `_jp_pos` + `_json_err_msg` /
+`_json_err_pos`) and reuses `_jp_skip_ws`, `_jp_parse_string`,
+`_jp_atoi`, `_jp_atof`, `_jp_set_err` unchanged. This kept the
+streaming surface to ~210 LOC instead of the ~400 a fully
+duplicated lex would have cost.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change — lib-only).
+- `tests/tcyr/json_stream.tcyr` — **65 assertions** in 9 groups:
+  handler allocation + slot wiring (including invalid event_id
+  rejection), 6 scalar input shapes, empty containers, flat
+  object with 4 mixed-type values, nested fixture with exact-byte
+  event-order trace `{k[ii]k{ks}}`, array of 3 objects, 4 error
+  paths (unterminated obj, trailing comma, garbage, trailing
+  content), selective callbacks (unset slots are silent no-op),
+  convenience entries. All PASS.
+- `tests/regression-json-stream.sh` (gate 4av) — end-to-end
+  fixture: `{"name":"alice","id":42,"flags":[true,null],"meta":{"k":"v"}}`
+  → exact-byte trace `{kskik[bn]k{ks}}` (16 events: 2× obj_start,
+  2× obj_end, 1× arr_start, 1× arr_end, 4× key, 2× string, 1× int,
+  1× bool, 1× null) + `OK` rc=0.
+- `sh scripts/check.sh` — **59/59 PASS** (was 58/58; +gate 4av).
+
+### Slot map
+
+- v5.7.40 ✅ pretty-printer
+- v5.7.41 ✅ streaming parser (this slot)
+- v5.7.42 — JSON Pointer (RFC 6901, ~50 LOC)
+- v5.7.43-45 — advanced TS feature suite
+- v5.7.46 — floating slot (option-E test harness)
+- v5.7.47 — TRUE CLOSEOUT BACKSTOP
+
+### Out of scope (future polish, behind consumer ask)
+
+- **Abort-on-callback** — non-zero callback return currently
+  ignored. The driver could honour it as an early-exit signal
+  (e.g., for filtering / quota enforcement). Adds ~5 LOC of
+  rc-checking; defer until a consumer asks.
+- **Streaming-from-fd** — current entry takes a buf+len. A driver
+  that reads from a file descriptor in chunks needs partial-token
+  buffering across reads. Probably belongs in sandhi (RPC layer)
+  rather than stdlib.
+- **`on_value` super-event** — combined string/int/float/bool/null
+  callback for consumers that don't care about value type. Adds
+  one slot + dispatch; trivial to layer when asked.
+
 ## [5.7.40] — 2026-04-30
 
 **`lib/json.cyr` PRETTY-PRINTING** — first slot of the v5.7.20-pinned

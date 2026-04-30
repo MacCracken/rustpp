@@ -602,6 +602,15 @@ if [ "$jp_result" -ne 0 ]; then cat /tmp/audit_jp_$$; fi
 rm -f /tmp/audit_jp_$$
 echo ""
 
+# ── 4av. lib/json.cyr streaming parser (v5.7.41) ──
+echo "── json stream ──"
+sh "$ROOT/tests/regression-json-stream.sh" > /tmp/audit_js_$$ 2>&1
+js_result=$?
+check "json_stream_parse(buf, len, h) event order canonical sequence (v5.7.41)" "$js_result"
+if [ "$js_result" -ne 0 ]; then cat /tmp/audit_js_$$; fi
+rm -f /tmp/audit_js_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

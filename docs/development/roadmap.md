@@ -201,6 +201,71 @@ toolchain side is unblocked.
 
 
 
+## v5.7.41 ✅ `lib/json.cyr` streaming parser — SHIPPED
+
+**Shipped 2026-04-30.** Second slot of the v5.7.20-pinned JSON
+depth follow-up series. Adds an event-driven push parser for
+multi-MB JSON inputs that don't fit the tagged-tree memory
+model (log streams, debug dumps, RPC payloads where allocating
+the full tree is the wrong trade-off).
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **11 event constants** — `JS_EV_OBJECT_START` (0) through
+   `JS_EV_ERROR` (10) plus `JS_EV_COUNT` (11) for sentinel-
+   checked range validation in `json_stream_on`.
+2. **Handler struct** (96 bytes) — `ctx` slot followed by 11
+   fn-pointer slots. Each defaults to 0 = no-op so consumers
+   register only the events they care about.
+3. **Public API** — `json_stream_handler_new(ctx)`,
+   `json_stream_on(h, event_id, fp)` (-1 on bad event_id),
+   `json_stream_parse(buf, len, h)` (0/-1),
+   `json_stream_parse_str(src, h)`.
+4. **Driver shares lex state** with the tree parser
+   (`_jp_buf` / `_jp_len` / `_jp_pos` + `_json_err_msg` /
+   `_json_err_pos`) and reuses `_jp_skip_ws`, `_jp_parse_string`,
+   `_jp_atoi`, `_jp_atof`, `_jp_set_err` unchanged. This kept the
+   streaming surface to ~210 LOC instead of the ~400 a fully
+   duplicated lex would have cost.
+5. **Callbacks fire** via `fncall1` / `fncall2` / `fncall3` from
+   `lib/fnptr.cyr`. Arities: object/array start/end + null →
+   `fncall1(ctx)`; key/string/int/float/bool → `fncall2(ctx, v)`;
+   error → `fncall3(ctx, msg, pos)`.
+
+**Verification:**
+- cc5 self-host two-step byte-identical at 720,640 B.
+- `tests/tcyr/json_stream.tcyr` — 65 assertions in 9 groups
+  (handler alloc + slot wiring incl. invalid event_id rejection;
+  6 scalar shapes; empty containers; flat object 4 mixed types;
+  nested with exact-byte event-order trace `{k[ii]k{ks}}`; array
+  of 3 objects; 4 error paths; selective-callback no-op;
+  convenience entries) all PASS.
+- `tests/regression-json-stream.sh` (gate 4av) — end-to-end
+  fixture `{"name":"alice","id":42,"flags":[true,null],"meta":{"k":"v"}}`
+  → exact-byte trace `{kskik[bn]k{ks}}` (16 events: 2× obj_start,
+  2× obj_end, 1× arr_start, 1× arr_end, 4× key, 2× string, 1× int,
+  1× bool, 1× null) + `OK` rc=0.
+- `sh scripts/check.sh` — 59/59 PASS (was 58/58; +gate 4av).
+
+**Out of scope (future polish, behind consumer ask):**
+- **Abort-on-callback** — non-zero callback return currently
+  ignored. Could honour as early-exit signal (filtering, quota
+  enforcement). ~5 LOC.
+- **Streaming-from-fd** — current entry takes buf+len. Reading
+  from an fd in chunks needs partial-token buffering across reads.
+  Probably belongs in sandhi RPC layer.
+- **`on_value` super-event** — combined string/int/float/bool/null
+  for consumers that don't care about value type. Trivial to
+  layer when asked.
+
+**Slot cascade:** backstop unchanged at v5.7.47. Queue advances
+to v5.7.42 (JSON Pointer, RFC 6901) → v5.7.43-45 (advanced TS) →
+v5.7.46 (floating) → v5.7.47 (true closeout backstop).
+
+
+
 ## v5.7.40 ✅ `lib/json.cyr` pretty-printer — SHIPPED
 
 **Shipped 2026-04-30.** First slot of the v5.7.20-pinned JSON
@@ -1582,12 +1647,8 @@ consumer asks for them.
 - **Pretty-printing** ✅ — shipped at v5.7.40. See
   `## v5.7.40 ✅ lib/json.cyr pretty-printer` above for details.
 
-- **Streaming parser** — current parser allocates the full tree
-  in memory. For multi-MB JSON inputs, a streaming parser would
-  emit events (`on_object_start`, `on_key`, `on_value`,
-  `on_array_end`, etc.) instead of building the tree.
-  ~200-300 LOC for the event API + driver. Sandhi may absorb
-  this if RPC needs grow before a stdlib consumer surfaces.
+- **Streaming parser** ✅ — shipped at v5.7.41. See
+  `## v5.7.41 ✅ lib/json.cyr streaming parser` above for details.
 
 - **JSON Pointer** (RFC 6901) — `json_v_pointer(v, "/users/0/name")`
   walks the tree by slash-separated path. ~50 LOC on top of
@@ -1632,19 +1693,70 @@ for v5.7.41-43) and v5.7.37 (bundled toolchain-polish trio).
 
 ---
 
-## v5.8.x — Bare-metal arc (AGNOS kernel + RISC-V rv64)
+## v5.8.x — Bare-metal arc (AGNOS kernel + RISC-V rv64) + Vani fold-in
 
 Two arch-port-style efforts grouped into one minor since both
-land at the "no libc, direct hardware/different ABI" layer:
+land at the "no libc, direct hardware/different ABI" layer,
+plus the audio-distlib fold paired into 5.8.0.
 
-### v5.8.0 — Bare-metal / AGNOS kernel target
+### v5.8.0 — Bare-metal / AGNOS kernel target + Vani audio distlib fold-in
 
-Bare-metal output (no libc, no syscalls, direct hardware). AGNOS
-kernel is the concrete consumer. Slid with the optimization minor
-insert (was v5.7.0 pre-v5.6.x pin). Details pinned closer to
-landing — rough scope: ELF no-libc output format, interrupt-handler
-emit conventions, kernel-mode syscall stubs stripped, boot pipeline
-from `scripts/boot.cyr` landed in genesis Phase 13B (v5.6.29 gate).
+**Bare-metal target.** Bare-metal output (no libc, no syscalls,
+direct hardware). AGNOS kernel is the concrete consumer. Slid
+with the optimization minor insert (was v5.7.0 pre-v5.6.x pin).
+Details pinned closer to landing — rough scope: ELF no-libc output
+format, interrupt-handler emit conventions, kernel-mode syscall
+stubs stripped, boot pipeline from `scripts/boot.cyr` landed in
+genesis Phase 13B (v5.6.29 gate).
+
+**Vani audio distlib fold-in (paired into 5.8.0).** Pinned
+2026-04-30. `vani` (Sanskrit वाणी, Saraswati's name — "voice /
+speech") is the audio-domain sibling distlib mirroring the
+mabda/sankoch/sigil/yukti pattern. The fold-in doc lives at
+[`vani/docs/development/cyrius-stdlib-fold-in.md`](https://github.com/MacCracken/vani/blob/main/docs/development/cyrius-stdlib-fold-in.md);
+the vani-side migration is already done (lib/audio.cyr → vani/
+src/alsa.cyr, two-byte stack-array bug fix carried in the lift,
+"audio" dropped from `[deps].stdlib` in vani's manifest).
+
+**Cyrius-side work** (this slot):
+
+1. Add `[deps.vani]` block to `cyrius/cyrius.cyml` (placed
+   alphabetically between `[deps.sigil]` and `[deps.yukti]` or
+   wherever the existing distlib ordering lands), pinned to
+   whatever vani tag ships at 5.8.0 cut time:
+   ```
+   [deps.vani]
+   git = "https://github.com/MacCracken/vani.git"
+   tag = "<vani-tag-at-cut>"
+   modules = ["dist/vani.cyr"]
+   ```
+2. Delete `cyrius/lib/audio.cyr` (236 LOC). `dist/vani.cyr`
+   provides the same `audio_*` symbol set bundled inline plus
+   the higher-level `vani_*` API (typed errors, ring buffer,
+   XRUN recovery, mixer, yukti adapter).
+3. CHANGELOG entry: "audio.cyr retired — ALSA PCM now lives in
+   vani; consumers replace `include "lib/audio.cyr"` with
+   `include "lib/vani.cyr"`."
+4. Pre-flight grep `grep -rn 'lib/audio.cyr' /home/macro/Repos`
+   to confirm no in-tree consumer still imports the old path
+   (per vani's fold-in doc, no AGNOS in-tree consumer does as
+   of vani v0.1.0 cut).
+5. Refresh stdlib-reference and ecosystem.cyml entries — vani
+   joins the canonical sibling-distlib roster alongside mabda /
+   sankoch / sigil / yukti / sandhi.
+
+**API stability**: `audio_*` surface is byte-for-byte stable —
+existing call sites keep working under the new include path. New
+`vani_*` surface (typed errors, ring buffer, XRUN recovery,
+mixer) becomes available without further work.
+
+**Why pair with v5.8.0**: distlib folds match minor-version cuts
+in the precedent (sandhi → 5.7.0; mabda was its own original
+fold). Folding mid-5.7.x would surprise downstream consumers
+expecting `lib/audio.cyr` to keep working through the 5.7.x
+patch slate. Doing it at 5.8.0 puts the include-path migration
+on the same minor-bump notice that the bare-metal target
+already requires consumers to read.
 
 ### v5.8.x — RISC-V rv64 (3-5 sub-patches)
 

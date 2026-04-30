@@ -957,3 +957,274 @@ fn json_v_build_pretty(v, indent) {
     _jb_walk_pretty(sb, v, indent, 0);
     return str_builder_build(sb);
 }
+
+# ======================================================================
+# STREAMING PARSER (v5.7.41) — event-driven, no tree allocation
+# ======================================================================
+#
+# For multi-MB JSON inputs that don't fit the tagged-tree memory model.
+# Caller allocates a handler struct, fills in the callbacks they care
+# about (others stay 0 = no-op), and the driver fires events as it walks.
+#
+# Handler layout (96 bytes):
+#   +0   ctx              user pointer (1st arg to every callback)
+#   +8   on_object_start  fnptr or 0  fncall1(ctx)
+#   +16  on_object_end    fnptr or 0  fncall1(ctx)
+#   +24  on_array_start   fnptr or 0  fncall1(ctx)
+#   +32  on_array_end     fnptr or 0  fncall1(ctx)
+#   +40  on_key           fnptr or 0  fncall2(ctx, key_str)
+#   +48  on_string        fnptr or 0  fncall2(ctx, value_str)
+#   +56  on_int           fnptr or 0  fncall2(ctx, value_i64)
+#   +64  on_float         fnptr or 0  fncall2(ctx, value_f64_bits)
+#   +72  on_bool          fnptr or 0  fncall2(ctx, value_0_or_1)
+#   +80  on_null          fnptr or 0  fncall1(ctx)
+#   +88  on_error         fnptr or 0  fncall3(ctx, msg_cstr, pos)
+#
+# Lex state shared with the tree parser (_jp_buf / _jp_len / _jp_pos +
+# _json_err_msg / _json_err_pos), so existing helpers _jp_skip_ws,
+# _jp_parse_string, _jp_atoi, _jp_atof, _jp_set_err are reused as-is.
+# This keeps the streaming surface ~210 LOC instead of ~400.
+
+var JS_EV_OBJECT_START = 0;
+var JS_EV_OBJECT_END   = 1;
+var JS_EV_ARRAY_START  = 2;
+var JS_EV_ARRAY_END    = 3;
+var JS_EV_KEY          = 4;
+var JS_EV_STRING       = 5;
+var JS_EV_INT          = 6;
+var JS_EV_FLOAT        = 7;
+var JS_EV_BOOL         = 8;
+var JS_EV_NULL         = 9;
+var JS_EV_ERROR        = 10;
+var JS_EV_COUNT        = 11;
+
+var _JS_HANDLER_SIZE = 96;
+
+# Allocate a handler with all callback slots 0 (no-op). `ctx` is the
+# user pointer threaded through every callback as its first argument.
+fn json_stream_handler_new(ctx) {
+    var h = alloc(_JS_HANDLER_SIZE);
+    var i = 0;
+    while (i < _JS_HANDLER_SIZE) { store64(h + i, 0); i = i + 8; }
+    store64(h, ctx);
+    return h;
+}
+
+# Bind callback `fp` to event `event_id`. Returns 0 on success, -1 on
+# bad event_id. Pass fp=0 to clear an event.
+fn json_stream_on(h, event_id, fp) {
+    if (event_id < 0 || event_id >= JS_EV_COUNT) { return 0 - 1; }
+    store64(h + 8 + event_id * 8, fp);
+    return 0;
+}
+
+fn _js_ctx(h) { return load64(h); }
+fn _js_cb(h, event_id) { return load64(h + 8 + event_id * 8); }
+
+# Set last-error globals + fire on_error if registered.
+fn _js_emit_error(h, msg) {
+    _json_err_msg = msg;
+    _json_err_pos = _jp_pos;
+    var fp = _js_cb(h, JS_EV_ERROR);
+    if (fp != 0) { fncall3(fp, _js_ctx(h), msg, _jp_pos); }
+    return 0;
+}
+
+# Relay a _jp_set_err-set error through to on_error (for paths that
+# call _jp_parse_string and get a 0 back — error globals are already
+# populated, just need to forward).
+fn _js_relay_err(h) {
+    var fp = _js_cb(h, JS_EV_ERROR);
+    if (fp != 0) { fncall3(fp, _js_ctx(h), _json_err_msg, _json_err_pos); }
+    return 0;
+}
+
+# Number parser — mirrors _jp_parse_number's lex but emits via
+# callback instead of allocating json_v*. Returns 0 on success, -1 on
+# error.
+fn _js_parse_number(h) {
+    var start = _jp_pos;
+    var is_float = 0;
+    if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 45) { _jp_pos = _jp_pos + 1; }
+    while (_jp_pos < _jp_len) {
+        var c = load8(_jp_buf + _jp_pos);
+        if (c >= 48 && c <= 57) { _jp_pos = _jp_pos + 1; }
+        else { break; }
+    }
+    if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 46) {
+        is_float = 1;
+        _jp_pos = _jp_pos + 1;
+        while (_jp_pos < _jp_len) {
+            var c2 = load8(_jp_buf + _jp_pos);
+            if (c2 >= 48 && c2 <= 57) { _jp_pos = _jp_pos + 1; }
+            else { break; }
+        }
+    }
+    if (_jp_pos < _jp_len) {
+        var ec = load8(_jp_buf + _jp_pos);
+        if (ec == 101 || ec == 69) {
+            is_float = 1;
+            _jp_pos = _jp_pos + 1;
+            if (_jp_pos < _jp_len) {
+                var sg = load8(_jp_buf + _jp_pos);
+                if (sg == 43 || sg == 45) { _jp_pos = _jp_pos + 1; }
+            }
+            while (_jp_pos < _jp_len) {
+                var c3 = load8(_jp_buf + _jp_pos);
+                if (c3 >= 48 && c3 <= 57) { _jp_pos = _jp_pos + 1; }
+                else { break; }
+            }
+        }
+    }
+    if (_jp_pos == start) { _js_emit_error(h, "expected number"); return 0 - 1; }
+    if (is_float == 1) {
+        var fbits = _jp_atof(_jp_buf + start, _jp_pos - start);
+        var fp_f = _js_cb(h, JS_EV_FLOAT);
+        if (fp_f != 0) { fncall2(fp_f, _js_ctx(h), fbits); }
+    } else {
+        var iv = _jp_atoi(_jp_buf + start, _jp_pos - start);
+        var fp_i = _js_cb(h, JS_EV_INT);
+        if (fp_i != 0) { fncall2(fp_i, _js_ctx(h), iv); }
+    }
+    return 0;
+}
+
+fn _js_parse_array(h) {
+    if (load8(_jp_buf + _jp_pos) != 91) { _js_emit_error(h, "expected '['"); return 0 - 1; }
+    _jp_pos = _jp_pos + 1;
+    var fp_s = _js_cb(h, JS_EV_ARRAY_START);
+    if (fp_s != 0) { fncall1(fp_s, _js_ctx(h)); }
+    _jp_skip_ws();
+    if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 93) {
+        _jp_pos = _jp_pos + 1;
+        var fp_e = _js_cb(h, JS_EV_ARRAY_END);
+        if (fp_e != 0) { fncall1(fp_e, _js_ctx(h)); }
+        return 0;
+    }
+    while (1 == 1) {
+        if (_js_parse_value(h) != 0) { return 0 - 1; }
+        _jp_skip_ws();
+        if (_jp_pos >= _jp_len) { _js_emit_error(h, "unterminated array"); return 0 - 1; }
+        var c = load8(_jp_buf + _jp_pos);
+        if (c == 44) { _jp_pos = _jp_pos + 1; _jp_skip_ws(); }
+        elif (c == 93) {
+            _jp_pos = _jp_pos + 1;
+            var fp_e2 = _js_cb(h, JS_EV_ARRAY_END);
+            if (fp_e2 != 0) { fncall1(fp_e2, _js_ctx(h)); }
+            return 0;
+        } else { _js_emit_error(h, "expected ',' or ']'"); return 0 - 1; }
+    }
+    return 0;
+}
+
+fn _js_parse_object(h) {
+    if (load8(_jp_buf + _jp_pos) != 123) { _js_emit_error(h, "expected '{'"); return 0 - 1; }
+    _jp_pos = _jp_pos + 1;
+    var fp_s = _js_cb(h, JS_EV_OBJECT_START);
+    if (fp_s != 0) { fncall1(fp_s, _js_ctx(h)); }
+    _jp_skip_ws();
+    if (_jp_pos < _jp_len && load8(_jp_buf + _jp_pos) == 125) {
+        _jp_pos = _jp_pos + 1;
+        var fp_e = _js_cb(h, JS_EV_OBJECT_END);
+        if (fp_e != 0) { fncall1(fp_e, _js_ctx(h)); }
+        return 0;
+    }
+    while (1 == 1) {
+        _jp_skip_ws();
+        var k = _jp_parse_string();
+        if (k == 0) { _js_relay_err(h); return 0 - 1; }
+        var fp_k = _js_cb(h, JS_EV_KEY);
+        if (fp_k != 0) { fncall2(fp_k, _js_ctx(h), k); }
+        _jp_skip_ws();
+        if (_jp_pos >= _jp_len) { _js_emit_error(h, "unterminated object"); return 0 - 1; }
+        if (load8(_jp_buf + _jp_pos) != 58) { _js_emit_error(h, "expected ':' after key"); return 0 - 1; }
+        _jp_pos = _jp_pos + 1;
+        if (_js_parse_value(h) != 0) { return 0 - 1; }
+        _jp_skip_ws();
+        if (_jp_pos >= _jp_len) { _js_emit_error(h, "unterminated object"); return 0 - 1; }
+        var c = load8(_jp_buf + _jp_pos);
+        if (c == 44) { _jp_pos = _jp_pos + 1; }
+        elif (c == 125) {
+            _jp_pos = _jp_pos + 1;
+            var fp_e2 = _js_cb(h, JS_EV_OBJECT_END);
+            if (fp_e2 != 0) { fncall1(fp_e2, _js_ctx(h)); }
+            return 0;
+        } else { _js_emit_error(h, "expected ',' or '}'"); return 0 - 1; }
+    }
+    return 0;
+}
+
+fn _js_parse_value(h) {
+    _jp_skip_ws();
+    if (_jp_pos >= _jp_len) { _js_emit_error(h, "unexpected EOF"); return 0 - 1; }
+    var c = load8(_jp_buf + _jp_pos);
+    if (c == 123) { return _js_parse_object(h); }
+    if (c == 91)  { return _js_parse_array(h); }
+    if (c == 34)  {
+        var s = _jp_parse_string();
+        if (s == 0) { _js_relay_err(h); return 0 - 1; }
+        var fp_s = _js_cb(h, JS_EV_STRING);
+        if (fp_s != 0) { fncall2(fp_s, _js_ctx(h), s); }
+        return 0;
+    }
+    if (c == 116) {
+        if (_jp_pos + 3 < _jp_len && memeq(_jp_buf + _jp_pos + 1, "rue", 3) == 1) {
+            _jp_pos = _jp_pos + 4;
+            var fp_b = _js_cb(h, JS_EV_BOOL);
+            if (fp_b != 0) { fncall2(fp_b, _js_ctx(h), 1); }
+            return 0;
+        }
+        _js_emit_error(h, "expected 'true'");
+        return 0 - 1;
+    }
+    if (c == 102) {
+        if (_jp_pos + 4 < _jp_len && memeq(_jp_buf + _jp_pos + 1, "alse", 4) == 1) {
+            _jp_pos = _jp_pos + 5;
+            var fp_b = _js_cb(h, JS_EV_BOOL);
+            if (fp_b != 0) { fncall2(fp_b, _js_ctx(h), 0); }
+            return 0;
+        }
+        _js_emit_error(h, "expected 'false'");
+        return 0 - 1;
+    }
+    if (c == 110) {
+        if (_jp_pos + 3 < _jp_len && memeq(_jp_buf + _jp_pos + 1, "ull", 3) == 1) {
+            _jp_pos = _jp_pos + 4;
+            var fp_n = _js_cb(h, JS_EV_NULL);
+            if (fp_n != 0) { fncall1(fp_n, _js_ctx(h)); }
+            return 0;
+        }
+        _js_emit_error(h, "expected 'null'");
+        return 0 - 1;
+    }
+    if (c == 45 || (c >= 48 && c <= 57)) {
+        return _js_parse_number(h);
+    }
+    _js_emit_error(h, "unexpected character");
+    return 0 - 1;
+}
+
+# Public stream-parse entry — explicit cstr+len+handler. Returns 0 on
+# success, -1 on error. After error, callers can read json_last_error()
+# and json_last_error_pos(); the JS_EV_ERROR callback (if registered)
+# already fired.
+fn json_stream_parse(buf, len, h) {
+    _jp_buf = buf;
+    _jp_len = len;
+    _jp_pos = 0;
+    _json_err_msg = 0;
+    _json_err_pos = 0;
+    if (_js_parse_value(h) != 0) { return 0 - 1; }
+    _jp_skip_ws();
+    if (_jp_pos != _jp_len) {
+        _js_emit_error(h, "trailing content after JSON value");
+        return 0 - 1;
+    }
+    return 0;
+}
+
+# Convenience: stream-parse from a Str.
+fn json_stream_parse_str(src, h) {
+    if (src == 0) { _json_err_msg = "null source"; _json_err_pos = 0; return 0 - 1; }
+    return json_stream_parse(str_data(src), str_len(src), h);
+}

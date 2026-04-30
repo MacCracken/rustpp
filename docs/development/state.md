@@ -5,6 +5,35 @@
 
 ## Version
 
+**5.7.41** (shipped 2026-04-30 — **`lib/json.cyr` STREAMING PARSER**.
+Second slot of the v5.7.20-pinned JSON depth follow-up series.
+Adds an event-driven push parser for multi-MB JSON inputs that
+don't fit the tagged-tree memory model. **What landed**: (1) 11
+event constants `JS_EV_OBJECT_START`..`JS_EV_ERROR` + `JS_EV_COUNT`
+sentinel; (2) 96-byte handler struct (ctx + 11 fnptr slots); (3)
+`json_stream_handler_new(ctx)` / `json_stream_on(h, event_id, fp)`
+/ `json_stream_parse(buf, len, h)` / `json_stream_parse_str(src,
+h)` public API; (4) Driver shares lex state with the tree parser
+(`_jp_buf` / `_jp_len` / `_jp_pos` + `_json_err_msg` /
+`_json_err_pos`) and reuses `_jp_skip_ws` / `_jp_parse_string` /
+`_jp_atoi` / `_jp_atof` unchanged — kept the streaming surface to
+~210 LOC instead of ~400. Callbacks fire via `fncall1` / `fncall2`
+/ `fncall3` from `lib/fnptr.cyr`. **Verification**: zero compiler
+change (lib-only); cc5 self-host two-step byte-identical at
+**720,640 B**; `tests/tcyr/json_stream.tcyr` **65 assertions** in
+9 groups (handler alloc + slot wiring incl. invalid event_id
+rejection, 6 scalar shapes, empty containers, flat object 4 mixed
+types, nested exact-byte event-order trace `{k[ii]k{ks}}`, array
+of 3 objects, 4 error paths, selective-callback no-op, convenience
+entries) all PASS; `tests/regression-json-stream.sh` gate 4av —
+end-to-end fixture trace `{kskik[bn]k{ks}}` (16 events) + `OK`
+rc=0; check.sh **59/59 PASS** (was 58; +gate 4av). **Slot
+cascade**: backstop unchanged at v5.7.47. **Out of scope (future
+polish)**: abort-on-callback (non-zero return as early-exit
+signal) — pending consumer ask; streaming-from-fd with partial-
+token buffering — likely belongs in sandhi RPC layer; combined
+`on_value` super-event — trivial to layer when asked.)
+
 **5.7.40** (shipped 2026-04-30 — **`lib/json.cyr` PRETTY-PRINTING**.
 First slot of the v5.7.20-pinned JSON depth follow-up series. Adds
 `json_v_build_pretty(v, indent)` on top of the existing tagged-
@@ -1411,8 +1440,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 58/58 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.40 added gate 4au `regression-json-pretty.sh` covering pretty-printer end-to-end against canonical 8-line shape with negative-case verification)
-- **`tests/tcyr/*.tcyr`**: 94 files (v5.7.40 added `tests/tcyr/json_pretty.tcyr` — 18 assertions in 10 groups covering the new pretty-print surface)
+- **check.sh**: 59/59 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.41 added gate 4av `regression-json-stream.sh` covering streaming parser end-to-end against canonical 16-event trace)
+- **`tests/tcyr/*.tcyr`**: 95 files (v5.7.41 added `tests/tcyr/json_stream.tcyr` — 65 assertions in 9 groups covering the streaming parser surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1424,16 +1453,14 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.41 (JSON streaming parser) — second of the v5.7.20-pinned
-JSON depth follow-up triple.** v5.7.40 closed the pretty-print
-slot. v5.7.41 grows the existing tagged-tree engine with an
-event-driven streaming parser: `on_object_start` / `on_key` /
-`on_value` / `on_object_end` / `on_array_start` / `on_array_end`
-callbacks plus a driver fn. Target ~200-300 LOC. For multi-MB
-JSON inputs that don't fit the tagged-tree memory model (debug
-dumps, log streams). Sandhi may absorb if RPC parsing needs
-surface first; if so, this slot frees and v5.7.42 (JSON Pointer)
-moves up.
+**v5.7.42 (JSON Pointer, RFC 6901) — third and final of the
+v5.7.20-pinned JSON depth follow-up triple.** v5.7.40 closed
+pretty-print; v5.7.41 closed streaming. v5.7.42 adds
+`json_v_pointer(v, "/users/0/name")` — slash-separated path
+walker on top of the existing tagged-tree. ~50 LOC. Handles RFC
+6901 escapes (`~0` → `~`, `~1` → `/`). Acceptance: tcyr suite
+covering the existing nested-fixture from `json_engine.tcyr` plus
+the escape edge cases.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound v5.7.47):**
 
@@ -1466,26 +1493,18 @@ Shipped:
 - **v5.7.38** ✅ `.scyr` (soak) + `.smcyr` (smoke) file types (cyrius smoke + cyrius soak walkers mirror the .tcyr/.bcyr/.fcyr discovery shape; tests/regression-capacity.sh Python3 dependency removed via shell-loop migration; example harnesses tests/smcyr/compile_minimal.smcyr + tests/scyr/alloc_pressure.scyr; _skip_deps save/restore guards cmd_soak's built-in self-host loop from auto-prepend size blowout; LSP polish split from this slot to v5.7.39. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 56/56 PASS.)
 - **v5.7.39** ✅ LSP cross-file go-to-def + documentSymbol (programs/cyrius-lsp.cyr extended from diagnostics-only to navigation-capable; ~430 LOC of indexer + 2 new method handlers; cyrius-lsp 22 KB → 65,456 B; promoted to [release].bins so fresh installs ship it; semanticTokens deferred to long-term pin. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 57/57 PASS.)
 - **v5.7.40** ✅ `lib/json.cyr` pretty-printer (`json_v_build_pretty(v, indent)` + `_jb_walk_pretty` + `_jb_emit_indent`; indent<=0 falls back to compact `json_v_build`; empty `{}`/`[]` short-circuit to bracket-pair with no internal whitespace per `JSON.stringify(v, null, n)` convention; `": "` key separator; tcyr 18 assertions in 10 groups + regression-json-pretty.sh gate 4au with negative-case verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 58/58 PASS.)
+- **v5.7.41** ✅ `lib/json.cyr` streaming parser (11 event constants `JS_EV_OBJECT_START`..`JS_EV_ERROR` + 96B handler struct + `json_stream_handler_new` / `json_stream_on` / `json_stream_parse` / `json_stream_parse_str` public API; driver reuses tree parser's lex state and `_jp_*` helpers unchanged so streaming surface stays at ~210 LOC; callbacks fire via `fncall1`/`fncall2`/`fncall3` from `lib/fnptr.cyr`; tcyr 65 assertions in 9 groups + regression-json-stream.sh gate 4av exact-byte trace verification. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 59/59 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.40 ship —
+Queue (firm assignments as of 2026-04-30 at v5.7.41 ship —
 backstop unchanged at v5.7.47):
 
-- **v5.7.41–v5.7.42** — **`lib/json.cyr` depth work series**
-  (continuation; pinned 2026-04-27 at v5.7.20 ship). One sub-item
-  per slot:
-  - **v5.7.41** — Streaming parser: event API + driver
-    (`on_object_start` / `on_key` / `on_value` / `on_array_end`
-    /etc.), ~200-300 LOC. For multi-MB JSON inputs that don't fit
-    the tagged-tree memory model. Sandhi may absorb if RPC needs
-    surface first.
-  - **v5.7.42** — JSON Pointer (RFC 6901):
-    `json_v_pointer(v, "/users/0/name")`, ~50 LOC on top of the
-    existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
-
-  Acceptance per slot: tcyr suite covering the new shape —
-  pretty-print round-trip, streaming events on a multi-doc
-  fixture, JSON Pointer on the existing nested-fixture from
-  `tests/tcyr/json_engine.tcyr`.
+- **v5.7.42** — **`lib/json.cyr` depth work series — final
+  slot** (continuation; pinned 2026-04-27 at v5.7.20 ship).
+  JSON Pointer (RFC 6901): `json_v_pointer(v, "/users/0/name")`,
+  ~50 LOC on top of the existing tree. Handles escapes (`~0` →
+  `~`, `~1` → `/`). Acceptance: tcyr suite covering the existing
+  nested-fixture from `tests/tcyr/json_engine.tcyr` plus the
+  escape edge cases.
 
 - **v5.7.43–v5.7.45** — **Advanced TS feature suite**
   (formerly v5.7.42-v5.7.44; #8 from the pin list at
