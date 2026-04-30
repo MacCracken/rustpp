@@ -155,7 +155,16 @@ programs/            59 programs (tools, tests, demos, algorithms)
 tests/               Test suites (tcyr/*.tcyr, heapmap.sh)
 benches/             Benchmarks (*.bcyr)
 fuzz/                Fuzz harnesses (*.fcyr)
-build/               Generated binaries (gitignored except cc5)
+build/               Generated binaries (gitignored except current-major
+                     compiler + prior-major seed binary — currently cc5
+                     and cc3. Sequence: cc3 drops at v6.0.0/cyc cut, cc5
+                     becomes the prior-major seed during v6.x as the LAST
+                     legacy binary; cc5 drops at the v6.x → v7.x bump and
+                     from v7.x onward ONLY cyc is tracked — `cyc` is the
+                     final binary name (per `Version lives in VERSION +
+                     --version, never in binary names` above), so no
+                     more prior-seed slot is needed because there are no
+                     more name changes for fresh checkouts to bridge.)
 docs/                Architecture, roadmap, benchmarks, language guide
 ```
 
