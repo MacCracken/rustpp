@@ -21,12 +21,14 @@
 | Repos using tokio (async) | 48 |
 | Repos using serde | 90+ |
 
-Compiler is on **v5.6.43** (closeout of the v5.6.x optimization arc; v5.7.0
-sandhi-fold is next). Apple Silicon Mach-O self-hosting + shared-library
-emission (`.so` / dynlib) shipped in v5.3.x; foreign-dlopen (real glibc
-init via `lib/fdlopen.cyr` for libssl etc.) shipped at v5.5.34;
-ALPN/mTLS hook surface in `lib/tls.cyr` shipped at v5.6.40 — bridge
-strategies below are all available today rather than "v1.1+ future work".
+Compiler is on **v5.7.39** (deep into the v5.7.x cycle). Apple Silicon
+Mach-O self-hosting + shared-library emission (`.so` / dynlib) shipped
+in v5.3.x; foreign-dlopen (real glibc init via `lib/fdlopen.cyr` for
+libssl etc.) shipped at v5.5.34; ALPN/mTLS hook surface in
+`lib/tls.cyr` shipped at v5.6.40; sandhi (HTTP/2 + RPC + service
+discovery) folded into stdlib at v5.7.0; cross-file LSP go-to-def
+shipped at v5.7.39 — bridge strategies below are all available today
+rather than "v1.1+ future work".
 
 ### Size Distribution
 

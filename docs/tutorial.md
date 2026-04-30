@@ -205,4 +205,4 @@ syscall(60, exit_code);
 - [Language Guide](cyrius-guide.md) — complete reference
 - [Standard Library](stdlib-reference.md) — every function documented
 - [Benchmarks](benchmarks.md) — binary sizes, compile times
-- [Examples](../programs/) — 52 working programs
+- [Examples](../programs/) — 68 working programs

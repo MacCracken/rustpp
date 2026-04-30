@@ -4,7 +4,7 @@
 
 A self-hosting compiler toolchain that bootstraps from a 29KB binary with zero external dependencies. No Rust, no LLVM, no Python, no libc. Writes the [AGNOS](https://github.com/MacCracken/agnos) kernel, its own package manager, and its own build tool.
 
-~710KB compiler. Self-hosting on x86_64 + aarch64 (cross + native), Windows PE cross, macOS aarch64 cross, cyrius-x bytecode. 65 stdlib modules + 6 deps. 78+ test suites, 5 fuzz harnesses, 14 benchmarks.
+~720KB compiler. Self-hosting on x86_64 + aarch64 (cross + native), Windows PE cross, macOS aarch64 cross, cyrius-x bytecode. 67 stdlib modules + 7 deps. 93 test suites + 1 soak + 1 smoke harness, 5 fuzz harnesses, 15 benchmarks.
 
 ## Install
 
@@ -91,12 +91,12 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **~710KB** x86_64, **~412KB** aarch64 cross |
+| Compiler | **~720KB** x86_64, **~412KB** aarch64 cross |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 107 .tcyr suites, 5 .fcyr fuzz, 15 .bcyr bench |
+| Tests | 93 .tcyr (TS suite consolidated 24→4 at v5.7.37), 5 .fcyr fuzz, 15 .bcyr bench, 1 .scyr soak, 1 .smcyr smoke |
 | Architectures | x86_64 + aarch64 (cross + native), Windows PE cross, macOS aarch64 cross, cyrius-x bytecode |
-| Caps | ident buffer 128KB, fn table 4096, fixup table 1M (v5.7.7), input_buf 1MB (v5.7.10) |
+| Caps | ident buffer 128KB, fn table 4096, fixup table 1M (v5.7.7), input_buf 1MB (v5.7.10), distlib per-module 256KB (v5.7.36), aarch64 codebuf 3MB (v5.7.34) |
 
 ## Build Tool (cyrius)
 
@@ -104,8 +104,9 @@ syscall(60, r);
 Build:     build [-v] [--aarch64] [-D NAME], run, test, bench, check, self, clean
 Deps:      deps — resolve [deps] from cyrius.cyml into lib/ (auto-runs on build)
 Project:   init, package, publish, install, update, port
-Quality:   audit, fmt, lint, doc, vet, deny
-Testing:   coverage, doctest
+Quality:   audit, fmt, lint, doc, vet, deny, distlib, capacity
+Testing:   coverage, doctest, soak [N], smoke
+LSP:       lsp — build/install cyrius-lsp (also auto-installed via cyriusly setup)
 Info:      version, which, help
 ```
 
@@ -121,9 +122,9 @@ modules = ["dist/agnostik.cyr"]
 Named deps are namespaced: `lib/{depname}_{basename}` (e.g. `lib/agnostik_types.cyr`).
 Includes are auto-prepended — source files only need project-specific includes.
 
-## Standard Library (65 modules + 6 deps)
+## Standard Library (67 modules + 7 deps)
 
-`sandhi` (HTTP/2 + JSON-RPC + service discovery + TLS policy, ~9,650 lines / 469 fns) was folded into stdlib at v5.7.0 from a sibling crate — `lib/http_server.cyr` retired in the same release. Same precedent as sakshi / mabda / sankoch (started as sibling crates, folded once stable). The 6th `sankoch` dep is unrelated to the fold.
+`sandhi` (HTTP/2 + JSON-RPC + service discovery + TLS policy, ~9,650 lines / 469 fns) was folded into stdlib at v5.7.0 from a sibling crate — `lib/http_server.cyr` retired in the same release. Same precedent as sakshi / mabda / sankoch (started as sibling crates, folded once stable). v5.7.35 added `lib/random.cyr` (getrandom + GrndFlag enum + random_bytes loop) and `lib/security.cyr` (LandlockAccessFs + LandlockRuleType enums) as new first-party modules, agnosys-surfaced.
 
 | Category | Modules |
 |----------|---------|
@@ -132,7 +133,8 @@ Includes are auto-prepended — source files only need project-specific includes
 | System | syscalls, callback, process, bench |
 | Concurrency | thread (clone+mmap, mutex, MPSC), thread_local, atomic, async, freelist |
 | Data | json, toml, cyml, csv, base64, regex, math, matrix, linalg, bigint, u128 |
-| Crypto | sha1, keccak, ct (constant-time primitives), overflow |
+| Crypto | sha1, keccak, ct (constant-time primitives), overflow, **random** (kernel entropy via getrandom) |
+| Sandboxing | **security** (Landlock policy enums; v5.7.35) |
 | Network | net, http, ws, tls, **sandhi** (HTTP/2 + RPC + service discovery; folded v5.7.0) |
 | Filesystem | fs |
 | Audio | audio (ALSA PCM) |
@@ -181,7 +183,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> cyrc (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc5 (modular compiler + IR, ~710KB)
+      -> cc5 (modular compiler + IR, ~720KB)
         -> cc5_aarch64, cc5_win_cross, cc5_macho_cross, cc5_cx (cross-compilers)
 ```
 

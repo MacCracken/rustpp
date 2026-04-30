@@ -6,7 +6,7 @@
 A self-hosting systems language that bootstraps from a 29KB binary. No Rust, no LLVM, no Python. Designed to write the AGNOS operating system kernel.
 
 ### What can I build with it?
-CLI tools, system utilities, kernels, init systems, package managers. Anything that runs on Linux x86_64 or aarch64. See `programs/` for 52 examples.
+CLI tools, system utilities, kernels, init systems, package managers. Anything that runs on Linux x86_64 or aarch64. See `programs/` for 68 examples.
 
 ### How is everything i64?
 Every value is a 64-bit integer. Strings are pointers (which are integers). Structs are contiguous memory (accessed via integer offsets). This simplifies the compiler enormously while still being practical for systems code.
@@ -15,7 +15,7 @@ Every value is a 64-bit integer. Strings are pointers (which are integers). Stru
 Type annotations (`var x: i64 = 42`) are documentation. Generics (`fn foo<T>()`) are parsed but not enforced. The compiler warns on pointer/scalar mismatches at assignment. Full type checking is on the roadmap.
 
 ### Is it fast?
-The compiler self-compiles in 11ms. Programs are 10-233x smaller than GNU equivalents. `wc` is 20x faster than GNU on large files. See [benchmarks](benchmarks.md).
+The compiler self-compiles in ~280ms (cc5 → cc5b two-step fixpoint, ~720KB output). Programs are 10-233x smaller than GNU equivalents. `wc` is 20x faster than GNU on large files. See [benchmarks](benchmarks.md).
 
 ---
 
@@ -31,11 +31,11 @@ The compiler hit unexpected syntax. Common causes:
 ### "error: duplicate var at token N"
 Two `var` declarations with the same name in the same function. Cyrius has no block scoping — all vars in a function share one scope. Rename the duplicate.
 
-### "error: fixup table full (1024)"
-Too many variable references in one compilation. Your program + includes exceed 1024 fixup entries. Solutions:
+### "error: fixup table full"
+Too many variable / function references in one compilation. The cap has been raised three times across v5.x (16K → 32K → 262K at v5.7.1 → 1M at v5.7.7). If you hit the 1M cap, the source genuinely needs splitting — or file an issue and we'll consider the fourth bump (which would convert to a dynamic vec; see roadmap §"fixup table dynamic conversion").
+- Run `cyrius capacity --check src/main.cyr` to see how close you are to each cap
 - Split into smaller files compiled separately
 - Reduce the number of includes
-- Contact us if you need a larger limit
 
 ### Program exits with wrong code
 Exit codes are truncated to 0-255 (Linux limitation). Use `print_num()` or `fmt_int()` to display values larger than 255.
@@ -66,8 +66,8 @@ String literals are null-terminated, but if you're building strings manually, ma
 2. For loop step must be simple assignment (`i = i + 1`)
 3. Exit codes truncated to 0-255
 4. Max ~64 global vars with initializers (use enums for constants)
-5. Max 1024 fixup entries per compilation
-6. Max 256 functions per compilation
+5. Max 1M fixup entries per compilation (v5.7.7; was 1024 pre-v5.x — `cyrius capacity --check` to monitor)
+6. Max 4096 functions per compilation (was 256 pre-v5.x; raised to 4096 in alpha series)
 7. No negative literals — use `(0 - N)` instead of `-N`
 8. `default`, `match`, `in` are keywords — don't use as variable names
 9. Block closures (`|x| { ... }`) only work inside functions, not at global scope

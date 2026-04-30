@@ -333,9 +333,13 @@ myproject/
     lib.cyr            library entry (for libs)
     *.cyr              source modules
   tests/
-    tcyr/              test suites — cyrius test scans here
+    tcyr/              unit test suites — cyrius test scans here
       core.tcyr
       parse.tcyr
+    scyr/              soak harnesses (v5.7.38) — cyrius soak runs after the built-in self-host loop
+      alloc_pressure.scyr
+    smcyr/             smoke harnesses (v5.7.38) — cyrius smoke (fail-fast quick-validation)
+      compile_minimal.smcyr
   benches/             benchmarks — cyrius bench scans here
     bench_alloc.bcyr
   fuzz/                fuzz harnesses — cyrius fuzz scans here
@@ -346,10 +350,12 @@ myproject/
   build/               compiled binaries (gitignored)
 ```
 
-**Important**: test/bench/fuzz files MUST be in the correct subdirectories.
+**Important**: test/bench/fuzz/soak/smoke files MUST be in the correct subdirectories.
 - `.tcyr` files → `tests/tcyr/` (NOT `tests/` root)
 - `.bcyr` files → `benches/` (NOT `tests/bcyr/`)
 - `.fcyr` files → `fuzz/`
+- `.scyr` files → `tests/scyr/` or `soak/`
+- `.smcyr` files → `tests/smcyr/` or `smoke/`
 
 Files in the wrong location will be silently ignored by the toolchain.
 
@@ -361,6 +367,13 @@ cyrius build src/main.cyr build/myapp   # resolves deps + compiles
 cyrius deps                              # manually resolve deps
 cyrius build -v src/main.cyr build/myapp # verbose (shows compiler, binary size)
 cyrius test tests/test.tcyr             # resolve deps + compile + run
+cyrius bench                             # discover + run benches/*.bcyr
+cyrius fuzz                              # discover + run fuzz/*.fcyr harnesses
+cyrius soak [N]                          # N-iter built-in self-host + tests/scyr/*.scyr (v5.7.38)
+cyrius smoke                             # tests/smcyr/*.smcyr fail-fast (v5.7.38)
+cyrius distlib                           # bundle src/ modules into dist/{name}.cyr
+cyrius capacity [--check] <src>          # report compiler capacity / CI gate
+cyrius lsp                               # build + install cyrius-lsp into ~/.cyrius/bin/
 ```
 
 ```toml
@@ -384,8 +397,16 @@ cyrlint myfile.cyr                       # lint a file
 cyrius lint                              # lint all stdlib
 ```
 
-Rules: trailing whitespace, tabs, line length >120 chars, camelCase fn names, unclosed braces.
-`#skip-lint` on a line exempts it from all rules. Brace tracking skips strings and comments.
+Rules: trailing whitespace, tabs, line length >120 chars, camelCase
+fn names, unclosed braces, **global-init forward-ref** (v5.7.32 —
+warns when a top-level `var X = expr;` references a var declared
+LATER in source order; cyrius initializes globals in declaration
+order so the forward ref silently evaluates to 0 at runtime).
+`#skip-lint` on a line exempts it from all rules. Brace tracking
+skips strings and comments. Identifier scanning is also string-
+literal-aware as of v5.7.36 — `var MSG = "FLAG_LATER not yet
+defined"; var FLAG_LATER = 1;` does NOT trigger the forward-ref
+rule because `FLAG_LATER` is inside a `"..."` literal.
 
 ## Ref Directive
 
@@ -591,7 +612,7 @@ qemu-system-x86_64 -kernel build/agnos -serial stdio -display none
 
 ## Example Programs
 
-See `programs/` for 46 examples:
+See `programs/` for 68 examples:
 - **CLI tools**: cat, echo, head, wc, grep, hexdump, tail, tr, uniq, sort, basename, cols, count, toupper, rot13, rev, nl, seq, tee, yes, true, false
 - **Algorithms**: fizzbuzz, primes, sieve, collatz, ackermann, gcd, brainfuck, life, xor
 - **Data structures**: struct_list (linked list), alloctest (heap), strtype (fat strings)

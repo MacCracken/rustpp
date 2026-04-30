@@ -380,3 +380,57 @@ Return constants:
 | `PAM_AUTH_EXEC_FAILED` | `-5` | Helper present but couldn't run |
 
 An inline cyrius SHA-512-crypt implementation (for root consumers that want to skip the subprocess fork) was considered for v5.5.27 but deferred — Drepper's algorithm is ~120 LoC of error-prone interleaved hashing, and `unix_chkpwd` is ~1 ms and covers every crypt type the system supports automatically. Can land as a future patch if a zero-fork consumer needs it.
+
+### random.cyr (v5.7.35)
+
+Kernel-entropy source via `getrandom(2)`. Linux 3.17+, available on
+both x86_64 (syscall 318) and aarch64 (syscall 278). agnosys-surfaced
+when its drm/luks/security work needed a libc-free entropy path.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `random_bytes` | `random_bytes(buf, len) → bytes_written` | Fill `buf` with `len` bytes; loops on short reads (getrandom returns short for >256-byte requests) |
+
+Plus the `GrndFlag` enum:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `GRND_NONBLOCK` | `0x0001` | Non-blocking; `EAGAIN` if pool not yet initialized |
+| `GRND_RANDOM` | `0x0002` | Use `/dev/random` pool (vs the default `/dev/urandom` semantics) |
+| `GRND_INSECURE` | `0x0004` | Allow uninitialized pool — only for non-cryptographic uses (Linux 5.6+) |
+
+### security.cyr (v5.7.35)
+
+Landlock policy constants. Stdlib exposes constants only — the
+`landlock_ruleset_attr` struct drifts upstream (handled_access_net
+added 6.7, scoped added 6.10), so consumers declare their own
+struct shape and call `sys_landlock_create_ruleset` /
+`sys_landlock_add_rule` / `sys_landlock_restrict_self` directly
+from `lib/syscalls.cyr`.
+
+`LandlockAccessFs` (13 flags from the 5.13 surface):
+
+| Flag | Bit | Use |
+|------|-----|-----|
+| `LANDLOCK_ACCESS_FS_EXECUTE` | `1<<0` | Execute file |
+| `LANDLOCK_ACCESS_FS_WRITE_FILE` | `1<<1` | Open for write |
+| `LANDLOCK_ACCESS_FS_READ_FILE` | `1<<2` | Open for read |
+| `LANDLOCK_ACCESS_FS_READ_DIR` | `1<<3` | Open dir |
+| `LANDLOCK_ACCESS_FS_REMOVE_DIR` | `1<<4` | rmdir |
+| `LANDLOCK_ACCESS_FS_REMOVE_FILE` | `1<<5` | unlink |
+| `LANDLOCK_ACCESS_FS_MAKE_*` | `1<<6` … `1<<12` | mknod char/dir/reg/sock/fifo/block/sym |
+
+`LandlockRuleType.PATH_BENEATH = 1` for path-tree rules (the
+sole rule type in 5.13).
+
+---
+
+> **Coverage note**: this reference documents the most-used core
+> surface — see `lib/*.cyr` for the full ~67 first-party modules
+> (concurrency: thread, thread_local, atomic, async, freelist; data:
+> base64, math, matrix, linalg, bigint, u128, csv, toml, cyml; crypto:
+> sha1, keccak, ct, overflow; network: net, http, ws, tls, sandhi;
+> systems: mmap, dynlib, fdlopen, cffi, audio, log, chrono; vidya).
+> Doc additions tracked as their consumers stabilize — the source files
+> themselves are the canonical signature reference (`cyrdoc <file.cyr>`
+> emits markdown from the doc-comment header on every public fn).
