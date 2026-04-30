@@ -429,6 +429,35 @@ fn lint_globals_init_order(buf, total) {
                     while (scan < eol) {
                         var c = load8(buf + scan);
                         if (c == 35) { scan = eol; }              # # comment
+                        elif (c == 34) {
+                            # v5.7.36: skip string literal. Identifiers
+                            # nested in "..." strings would otherwise
+                            # match against the global var-name table
+                            # and trigger spurious forward-ref warnings
+                            # (e.g. an init expression that builds an
+                            # error message naming a forward-declared
+                            # var). Honour `\"` and `\\` escapes; bail
+                            # at eol if unterminated.
+                            scan = scan + 1;
+                            while (scan < eol) {
+                                var sc = load8(buf + scan);
+                                if (sc == 92) { scan = scan + 2; }
+                                elif (sc == 34) { scan = scan + 1; break; }
+                                else { scan = scan + 1; }
+                            }
+                        }
+                        elif (c == 39) {
+                            # Same shape for char literals: '\n', 'a',
+                            # '\\', etc. Cyrius char literals are
+                            # single-line; eol bound is sufficient.
+                            scan = scan + 1;
+                            while (scan < eol) {
+                                var sc = load8(buf + scan);
+                                if (sc == 92) { scan = scan + 2; }
+                                elif (sc == 39) { scan = scan + 1; break; }
+                                else { scan = scan + 1; }
+                            }
+                        }
                         elif (_is_id_start(c) == 1) {
                             var id_e = _scan_id_end(buf, scan, total);
                             var idlen = id_e - scan;

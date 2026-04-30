@@ -891,8 +891,14 @@ fn cmd_distlib(profile) {
         # required stdlib before this bundle — cyrius's deps phase
         # handles the include order, now with stdlib-before-deps
         # (v5.5.26 flip in cbt/build.cyr).
-        var fbuf = alloc(65536);
-        var flen = file_read_all(mod_path, fbuf, 65535);
+        # v5.7.36: per-module read buffer raised 64KB → 256KB. mabda
+        # surfaced the wall when its dist generation truncated at the
+        # 65535-byte read cap (single-module sources outgrew 64KB after
+        # hardware-iter accretion). 256KB is the next breathing room
+        # without committing to a dynamic vec — revisit if a module
+        # ever crosses 192KB.
+        var fbuf = alloc(262144);
+        var flen = file_read_all(mod_path, fbuf, 262143);
         if (flen <= 0) { mi = mi + 1; continue; }
         store8(fbuf + flen, 0);
 

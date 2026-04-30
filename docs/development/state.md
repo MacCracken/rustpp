@@ -5,6 +5,55 @@
 
 ## Version
 
+**5.7.36** (shipped 2026-04-30 — **FRESH-INSTALL HARDENING +
+DISTLIB CAP RAISE**. Bundled five tooling-quality items
+surfaced by re-setting up the toolchain on a fresh Arch
+install plus a mabda-surfaced distlib truncation, authorized
+mid-execution by user direction "want to fix tests before
+adding additional testing verbs." **What shipped**: (1)
+`scripts/check.sh:329` syntax-error noise — backticks around
+`if (r)` triggered command substitution every audit run;
+switched to single quotes (closes warning-sweep finding #5).
+(2) `scripts/check.sh` PATH fallback for `cyrfmt`/`cyrlint`
++ loud-FAIL when neither in `build/` nor on PATH — pre-
+v5.7.36 a fresh checkout reported "skip: cyrfmt/cyrlint not
+built" and counted nothing toward pass/fail, producing a
+green "52/52 PASS" report on un-exercised gates. (3)
+`cyrius distlib` per-module cap 64KB → 256KB
+(`cbt/commands.cyr:894-895`) — mabda surfaced silent
+truncation when modules grew past `alloc(65536)` /
+`file_read_all(..., 65535)`. (4) `cyrlint` string-literal
+awareness in `lint_globals_init_order` Pass-2 (pulled
+forward from the v5.7.37 trio) — Pass-2 scan loop now skips
+IDENTs inside `"..."` and `'...'` literals with `\\` / `\"`
+/ `\'` escapes. (5) `cyriusly setup` verb — installs from
+the current repo checkout (validates VERSION + cyrius.cyml
++ scripts/install.sh, bootstraps `build/cc5` if missing,
+builds tools listed in `cyrius.cyml [release]`, delegates
+to `install.sh --refresh-only`). End-to-end first-time
+setup: `git clone && sh scripts/cyriusly setup`. Zero
+compiler change; cc5 byte-identical at **720,640 B**.
+check.sh **55/55 PASS** (was 52/52 going in; +2 from fmt/
+lint gates now actually running via PATH fallback; +1 from
+new gate 4ar `regression-distlib-large-module.sh`). New
+test fixtures: `tests/regression-distlib-large-module.sh`
+(synthesises a ~78KB module + sentinel, asserts bundle
+contains the sentinel) and Test 4 in `regression-lint-
+global-init-order.sh` (string-literal fixture with
+forward-declared var named inside a `"..."`). Slot cascade
+(user-authorized; relative order preserved): v5.7.37 ←
+v5.7.36 was = TS test-org rework; v5.7.38 ← v5.7.37 was =
+trio reduced to LSP polish + `.scyr`/`.smcyr` (string-lit
+moved forward); v5.7.39-v5.7.41 ← v5.7.38-v5.7.40 were =
+JSON depth series; v5.7.42-v5.7.44 ← v5.7.41-v5.7.43 were
+= advanced TS suite; v5.7.45 ← v5.7.44 was = TRUE CLOSEOUT
+BACKSTOP. Pinned method update: fresh-install rehearsal
+once per minor (last: never; first: v5.7.36) — silent-skip
+and per-module truncation modes are invisible to a developer
+running from an active repo. Same audit-honesty failure
+shape as v5.7.29's `set -e` / `tail` masking; same fix
+shape (loud-FAIL when the test would otherwise skip).)
+
 **5.7.35** (shipped 2026-04-28 — **STDLIB SYSCALL SURFACE GAPS
 — agnosys-surfaced (drm/luks/security)**. Closes three coherent
 stdlib additions that share the same shape: Linux syscalls
@@ -1239,7 +1288,7 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 29/29 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs)
+- **check.sh**: 55/55 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.36 added gate 4ar `regression-distlib-large-module.sh` and removed silent-skips on fmt/lint via PATH fallback so they count as real gates)
 - **`tests/tcyr/*.tcyr`**: 69 files (v5.7.5 added `ts_lex_p43.tcyr` + `ts_parse_p43.tcyr`; v5.7.0 fold deleted `http_server.tcyr`)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
@@ -1284,22 +1333,27 @@ Shipped:
 - **v5.7.33** ✅ cyrius api-surface tooling (snapshot-based public API diff; cyrius-native pure-cyrius impl; 2552-entry initial snapshot)
 - **v5.7.34** ✅ aarch64 codebuf cap raise 524288→3145728 (closes the v5.7.27 ship omission — phylax-surfaced; trivial constant bump in `src/backend/aarch64/emit.cyr` `EB()`; bundled dup-fn investigation moved to agnosys side where phylax-agent has the repro context)
 - **v5.7.35** ✅ stdlib syscall surface gaps (getdents64 + getrandom + landlock × 2 arches; agnosys drm/luks/security-surfaced; new lib/random.cyr + lib/security.cyr; +11 api-surface entries)
+- **v5.7.36** ✅ fresh-install hardening + distlib cap raise (5-item bundle: check.sh:329 syntax-noise fix + check.sh PATH fallback for fmt/lint with loud-FAIL on missing binaries + cyrius distlib per-module cap 64KB→256KB mabda-surfaced + cyrlint string-literal awareness pulled forward from the v5.7.37 trio + new `cyriusly setup` verb for fresh-checkout install. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 55/55 PASS.)
 
-Queue (firm assignments as of 2026-04-28; user-authorized at
-v5.7.35 ship — **backstop bumped v5.7.38 → v5.7.40 → v5.7.44**
-to give the JSON depth series and TS suite full per-item slots
-rather than bundling them):
+Queue (firm assignments as of 2026-04-30 at v5.7.36 ship —
+**cascade +1 from the v5.7.35 plan** because v5.7.36 was
+re-purposed for fresh-install hardening at user direction
+"want to fix tests before adding additional testing verbs."
+Relative order preserved; backstop bumped v5.7.44 → v5.7.45):
 
-- **v5.7.36** — **TS test organization rework** (pinned
-  2026-04-28 at v5.7.27 ship). Would grow tcyr richer — e.g.
-  pre-compiled frontend object linkage so each tcyr doesn't
-  pull the whole TS frontend (~5500 LOC of compiler in every
-  test binary). **First slot of the user-locked sequence**
-  because the TS test surface needs to settle before the v5.7.41-
-  v5.7.43 advanced TS suite lands — feature work and test-org
-  rework would otherwise stomp on each other.
+- **v5.7.37** — **TS test organization rework** (formerly
+  v5.7.36; pinned 2026-04-28 at v5.7.27 ship). Would grow
+  tcyr richer — e.g. pre-compiled frontend object linkage so
+  each tcyr doesn't pull the whole TS frontend (~5500 LOC of
+  compiler in every test binary). **First slot of the user-
+  locked sequence** because the TS test surface needs to
+  settle before the v5.7.42-v5.7.44 advanced TS suite lands —
+  feature work and test-org rework would otherwise stomp on
+  each other.
 
-- **v5.7.37** — **bundled trio**:
+- **v5.7.38** — **bundled trio (now duo)** (formerly v5.7.37
+  trio; the cyrlint string-literal awareness item moved
+  forward to v5.7.36):
   1. **`.scyr` (soak) + `.smcyr` (smoke) file types** —
      mirrors `*.tcyr` / `*.bcyr` / `*.fcyr` discovery shape;
      rewrites `tests/regression-capacity.sh` away from Python 3
@@ -1309,28 +1363,23 @@ rather than bundling them):
   2. **LSP semantic-tokens polish** — queued in Toolchain
      Quality. Cross-file symbol resolution + go-to-def. Basic
      color-coding shipped pre-v5.7.x.
-  3. **cyrlint forward-ref scanner — string-literal awareness**
-     — v5.7.32 rule doesn't suppress IDENTs inside string
-     literals (no observed false positives, but the literal-
-     aware scanner is the future polish).
 
-  Bundled because all three are independent toolchain-quality
+  Still bundled because both are independent toolchain-quality
   polish items that don't touch the compiler core; together
-  they're one focused slot rather than three trivial ones.
+  they're one focused slot rather than two trivial ones.
 
-- **v5.7.38–v5.7.40** — **`lib/json.cyr` depth work series**
-  (pinned 2026-04-27 at v5.7.20 ship). One sub-item per slot so
-  each gets its own focused patch + tcyr suite + closeout
-  hygiene:
-  - **v5.7.38** — Pretty-printing: `json_v_build_pretty(v, indent)`,
+- **v5.7.39–v5.7.41** — **`lib/json.cyr` depth work series**
+  (formerly v5.7.38-v5.7.40; pinned 2026-04-27 at v5.7.20
+  ship). One sub-item per slot:
+  - **v5.7.39** — Pretty-printing: `json_v_build_pretty(v, indent)`,
     ~50-100 LOC. Triggered when a consumer wants human-readable
     JSON output (config-file writers, debug-log dumps).
-  - **v5.7.39** — Streaming parser: event API + driver
+  - **v5.7.40** — Streaming parser: event API + driver
     (`on_object_start` / `on_key` / `on_value` / `on_array_end`
     /etc.), ~200-300 LOC. For multi-MB JSON inputs that don't fit
     the tagged-tree memory model. Sandhi may absorb if RPC needs
     surface first.
-  - **v5.7.40** — JSON Pointer (RFC 6901):
+  - **v5.7.41** — JSON Pointer (RFC 6901):
     `json_v_pointer(v, "/users/0/name")`, ~50 LOC on top of the
     existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
 
@@ -1339,30 +1388,34 @@ rather than bundling them):
   fixture, JSON Pointer on the existing nested-fixture from
   `tests/tcyr/json_engine.tcyr`.
 
-- **v5.7.41–v5.7.43** — **Advanced TS feature suite** (#8 from
-  the pin list at `roadmap.md §v5.7.x — patch slate`). Three
-  slots; specific items chosen at slot-claim time from the
-  pinned list (variadic tuples, const type params, satisfies
-  postfix verify, never/unknown audit, conditional-type
-  exhaustive corpus, `as const` explicit). Surfaces post-
-  v5.7.36 test-org rework so the new test scaffolding catches
-  each as it lands. v5.7.36 is the load-bearing prerequisite —
-  if test-org slips, this triple slides too.
+- **v5.7.42–v5.7.44** — **Advanced TS feature suite**
+  (formerly v5.7.41-v5.7.43; #8 from the pin list at
+  `roadmap.md §v5.7.x — patch slate`). Three slots; specific
+  items chosen at slot-claim time from the pinned list
+  (variadic tuples, const type params, satisfies postfix
+  verify, never/unknown audit, conditional-type exhaustive
+  corpus, `as const` explicit). Surfaces post-v5.7.37 test-
+  org rework so the new test scaffolding catches each as it
+  lands. v5.7.37 is the load-bearing prerequisite — if test-
+  org slips, this triple slides too.
 
   Selection rule per slot: highest-friction item from the pin
   list at the time the slot opens. If a downstream consumer
   files a non-SY parse failure on a TS shape, that shape moves
   to the front of the queue.
 
-- **v5.7.44** — **TRUE CLOSEOUT BACKSTOP** (CLAUDE.md 11-step).
-  Hard upper bound; anything past forces v5.8.x.
+- **v5.7.45** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.44;
+  CLAUDE.md 11-step). Hard upper bound; anything past forces
+  v5.8.x.
 
-**Side-task throughout v5.7.36-v5.7.44**: warning-sweep
+**Side-task throughout v5.7.37-v5.7.45**: warning-sweep
 continuing — goal still "zero `warning:` lines from cc5
-self-build". Cleared opportunistically each closeout, no
-dedicated slot.
+self-build". Item #5 (check.sh:329 syntax noise) closed at
+v5.7.36; remaining items are the 3 syscall-arity warnings in
+lex.cyr + the 36 unreachable-fn floor. Cleared opportunistically
+each closeout, no dedicated slot.
 
-**Floating items** that may displace the v5.7.36-v5.7.43 plan
+**Floating items** that may displace the v5.7.37-v5.7.44 plan
 if surfaced before backstop:
 - **Duplicate-fn warning investigation** — parked at v5.7.34
   ship; phylax-agent has the agnosys-side repro context. If
@@ -1371,8 +1424,8 @@ if surfaced before backstop:
   pinch first since it's the tail).
 - **Wildcard correctness items** (consumer-surfaced) per
   `feedback_correctness_over_features.md` — preempt feature
-  parity. If one surfaces, the v5.7.36-v5.7.43 plan slips by
-  one slot; v5.7.44 backstop would re-bound at that point.
+  parity. If one surfaces, the v5.7.37-v5.7.44 plan slips by
+  one slot; v5.7.45 backstop would re-bound at that point.
 
 Moved out of v5.7.x:
 - **RISC-V rv64** → v5.8.x (paired with bare-metal AGNOS kernel).

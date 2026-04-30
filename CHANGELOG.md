@@ -4,6 +4,205 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.36] — 2026-04-30
+
+**FRESH-INSTALL HARDENING + DISTLIB CAP RAISE** — bundled
+five tooling-quality items surfaced when re-setting up the
+toolchain on a fresh Arch install. The audit ran "52/52 PASS"
+on a checkout where `build/cyrfmt` and `build/cyrlint` had
+never been built — the gates skipped silently, and the green
+report was false reassurance. Plus mabda hit a hard wall in
+`cyrius distlib` truncating modules over 64 KB. v5.7.36
+fixes the audit honesty problem AND the cap, in one slot,
+because the user direction was "fix tests before adding
+additional testing verbs."
+
+Zero compiler change. cc5 byte-identical at 720,640 B —
+all five items live in the dispatcher (`cbt/`), the lint
+program, the audit script, and the version manager.
+
+### Fixed
+
+**1. `scripts/check.sh:329` shell-syntax noise**
+
+The "Bare-truthy after fn-call" gate description used
+backticks around `if (r)` for code formatting. Bash treated
+the backticks as command substitution, attempted to evaluate
+`if (r)` as a shell command, hit "unexpected end of file from
+\`if'" and printed a stderr line every audit run. Gate still
+PASSed (substitution returned empty, the rest of the message
+read OK), but the noise made `grep -c "syntax error"` reports
+non-zero. Fixed by switching the inner formatting to single
+quotes. This was warning-sweep finding #5 from the v5.7.x
+slate; the line number had drifted from 305-306 (recorded) to
+329-330 (actual) as gates accreted.
+
+**2. `scripts/check.sh` silent-skip → loud-FAIL on missing
+fmt/lint binaries**
+
+Pre-v5.7.36, `CYRFMT="$ROOT/build/cyrfmt"` (and same for
+cyrlint) was the only resolution path. A fresh checkout has
+only `build/cc3` and `build/cc5` committed; the audit emitted
+"skip: cyrfmt not built" / "skip: cyrlint not built" and
+counted nothing toward pass/fail. The user re-setting up the
+environment ran `sh scripts/check.sh` against a freshly-
+installed toolchain at `~/.cyrius/bin/cyrfmt` / `cyrlint` and
+got a green "52/52 PASS" report that hadn't actually formatted
+or linted anything.
+
+Two changes:
+
+- **PATH fallback**: `CYRFMT` and `CYRLINT` now prefer
+  `$ROOT/build/<tool>` (matches what the audit just self-
+  built) and fall back to `command -v <tool>` if the in-repo
+  build is missing. Fresh checkout against an installed
+  toolchain runs fmt/lint against the installed binary
+  instead of skipping.
+
+- **Loud FAIL when neither resolves**: the previous "skip:
+  not built" branches now call `check "format/lint (stdlib)"
+  "1"`, registering a FAIL with a message pointing at
+  `cyriusly setup` or the manual `cat programs/cyrfmt.cyr |
+  build/cc5 > build/cyrfmt && chmod +x build/cyrfmt` build
+  step. No path produces an honest-looking green run with
+  un-exercised gates.
+
+### Changed
+
+**3. `cyrius distlib` per-module read buffer 64 KB → 256 KB**
+
+`cmd_distlib` in `cbt/commands.cyr:894-895` allocated a 65536-
+byte buffer per source module and read up to 65535 bytes via
+`file_read_all`. Modules that grew past 64 KB were silently
+truncated — no error, no warning, the bundle file just
+ended early. Mabda surfaced this generating its dist after
+hardware-iter accretion pushed at least one module past the
+cap.
+
+Bumped to 262144 (256 KB) — three quarters of breathing room
+on top of mabda's current need. Static cap pattern stays;
+dynamic vec conversion only earns its keep if a fourth bump
+ever surfaces (per the same pattern documented for the fixup
+table at v5.7.7 → v5.7.7).
+
+New regression gate `tests/regression-distlib-large-
+module.sh` (4ar) synthesises a ~78 KB module with a sentinel
+on the last line, runs `cyrius distlib`, asserts the bundle
+contains the sentinel. Pre-v5.7.36 this fails (sentinel
+truncated); post-v5.7.36 this passes (full bundle written).
+
+**4. `cyrlint` global-init-order forward-ref scanner —
+string-literal awareness**
+
+The v5.7.32 `lint_globals_init_order` rule (mabda-surfaced)
+walks each top-level `var X = expr;` initializer scanning
+identifier tokens against the var-name table. v5.7.32's
+limitations note flagged that IDENTs inside string literals
+weren't suppressed; no false positives observed at ship, but
+the literal-aware scanner was queued as a future polish.
+
+Pulled forward from the v5.7.37 trio. The Pass-2 inner scan
+loop in `programs/cyrlint.cyr` now handles `c == 34` (`"`)
+and `c == 39` (`'`) by chasing past the matching close quote,
+honouring `\"` / `\'` / `\\` escapes. Counter-check confirms
+the gate is real: pre-v5.7.36 cyrlint emitted a false
+positive on `var MSG = "FLAG_LATER ..."; var FLAG_LATER = 1;`;
+post-v5.7.36 emits zero warnings on the same shape.
+
+`tests/regression-lint-global-init-order.sh` extended with
+Test 4 covering the string-literal fixture; existing Tests 1-3
+(forward-ref fixture, lib/math.cyr, lib/string.cyr) still
+PASS unchanged.
+
+### Added
+
+**5. `cyriusly setup` — install from current repo checkout**
+
+Closed the fresh-checkout UX gap. Pre-v5.7.36, the only
+`cyriusly`-native install verb was `cyriusly install <ver>`,
+which curls `install.sh` from `main` and re-clones via
+tarball or `git clone --depth 1`. None of the existing verbs
+reused an already-checked-out tree, so a developer with a
+local clone had to remember `sh scripts/install.sh` and
+bypass `cyriusly` entirely.
+
+`cyriusly setup` requires being run from a Cyrius repo
+checkout (presence of `VERSION`, `cyrius.cyml`, and
+`scripts/install.sh`). It bootstraps the seed if `build/cc5`
+is missing, builds the release tools listed in `cyrius.cyml
+[release].bins` / `[release].cross_bins` from the local
+`build/cc5`, and delegates to `install.sh --refresh-only`.
+End-to-end first-time setup on the v5.7.36 box: `git clone`
++ `sh scripts/cyriusly setup` populates `~/.cyrius/versions/
+$VERSION/` and re-links `~/.cyrius/bin/`.
+
+The verb appears in `cyriusly help` output between `install`
+and `uninstall`. The new builds re-use `install.sh`'s
+`_parse_release_array` shape (inlined as `_setup_parse_
+release_array` so the verb has no source dependency on
+install.sh helpers).
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change — dispatcher / lint / audit / version
+  manager only).
+- Bootstrap closure: byte-identical (no `src/` change).
+- check.sh **55/55 PASS** (was 52/52 going in; +2 because
+  fmt/lint gates now actually run via PATH fallback rather
+  than silently skipping; +1 for the new distlib cap gate
+  4ar; the syntax-noise fix and string-literal awareness
+  ride existing gates).
+- `tests/regression-distlib-large-module.sh` — new (60 lines).
+- `tests/regression-lint-global-init-order.sh` — extended
+  with Test 4 (string-literal fixture).
+
+### Files touched
+
+- `cbt/commands.cyr` — distlib per-module cap 65536 → 262144
+  + matching `file_read_all` arg.
+- `programs/cyrlint.cyr` — Pass-2 scan loop adds `"` / `'`
+  literal-skip branches in `lint_globals_init_order`.
+- `scripts/check.sh` — line 329 backticks → single quotes;
+  `CYRFMT` / `CYRLINT` PATH fallback; silent-skip → loud-FAIL
+  branches; gate 4ar wired in.
+- `scripts/cyriusly` — new `setup` action + help/example
+  text.
+- `tests/regression-distlib-large-module.sh` — new gate.
+- `tests/regression-lint-global-init-order.sh` — extended
+  with string-literal fixture (Test 4).
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.36
+  bump (via `scripts/version-bump.sh`).
+- Install snapshot at `~/.cyrius/versions/5.7.36/`.
+
+### Slot cascade
+
+User-authorized cascade — relative order preserved:
+
+- v5.7.36 = fresh-install hardening (this slot)
+- v5.7.37 ← v5.7.36 was = TS test organization rework
+- v5.7.38 ← v5.7.37 was = bundled trio (now: LSP polish +
+  `.scyr`/`.smcyr` only; cyrlint string-lit awareness moved
+  forward into v5.7.36)
+- v5.7.39-v5.7.41 ← v5.7.38-v5.7.40 were = JSON depth
+  series (pretty-print, streaming, JSON Pointer)
+- v5.7.42-v5.7.44 ← v5.7.41-v5.7.43 were = advanced TS
+  feature suite
+- v5.7.45 ← v5.7.44 was = TRUE CLOSEOUT BACKSTOP
+
+### Lessons
+
+The fresh-install scenario surfaced two failure modes invisible
+under normal "developer running from active repo" conditions:
+silent-skip gates, and a per-module truncation cap that
+required someone's source to grow into the boundary. Both are
+the same shape as the v5.7.29 `set -e` / `tail` issue — the
+audit reporting framework was lying with a green summary
+because the failure mode wasn't "test fails" but "test never
+runs / runs against truncated input." Pinned method update:
+fresh-install rehearsal once per minor (last: never; first:
+v5.7.36) catches this class before it ships.
+
 ## [5.7.35] — 2026-04-28
 
 **STDLIB SYSCALL SURFACE GAPS — agnosys-surfaced

@@ -97,8 +97,38 @@ if [ "$str_warns" -ne 0 ]; then
     fail=$((fail + 1))
 fi
 
+# Test 4 (v5.7.36): string-literal awareness. A var init expression
+# whose RHS contains an IDENT-shaped substring inside a "..."
+# string literal must NOT trigger a forward-ref warning, even if
+# that bareword is also a forward-declared var. Pre-v5.7.36 the
+# scanner walked every byte and matched IDENTs by name regardless
+# of quote-context.
+SRC2="$TMPDIR/cyrius_init_order_strlit_$$.cyr"
+trap 'rm -f "$SRC" "$SRC2"' EXIT
+cat > "$SRC2" <<'EOF'
+var MSG = "FLAG_LATER not yet defined here";
+var CHR = 'X';
+
+fn dummy() { return 0; }
+
+var FLAG_LATER = 0x1;
+
+fn main() { return 0; }
+var r = main();
+syscall(60, r);
+EOF
+set +e
+out=$("$LINT" "$SRC2" 2>&1)
+strlit_warns=$(echo "$out" | grep -c "global var init refs")
+set -e
+if [ "$strlit_warns" -ne 0 ]; then
+    echo "  FAIL: string-literal fixture produced $strlit_warns false-positive forward-ref warnings (v5.7.36 string-lit awareness)"
+    echo "$out" | grep "global var init refs"
+    fail=$((fail + 1))
+fi
+
 if [ "$fail" -eq 0 ]; then
-    echo "  PASS: cyrlint flags forward-ref var inits ($warn_count on fixture; 0 false-positives on stdlib) (v5.7.32)"
+    echo "  PASS: cyrlint flags forward-ref var inits ($warn_count on fixture; 0 false-positives on stdlib + string-literal scope; v5.7.32 + v5.7.36)"
     exit 0
 fi
 exit 1

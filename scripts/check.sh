@@ -29,8 +29,16 @@
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC="$ROOT/build/cc5"
+# Prefer in-repo build (matches what the audit just self-built). Fall
+# back to the PATH-resolved binary (typically ~/.cyrius/bin/) so a fresh
+# checkout against an installed toolchain runs fmt/lint instead of
+# silently skipping. Pre-v5.7.36, missing build/cyrfmt + build/cyrlint
+# emitted "skip: not built" and a green audit reported 52/52 PASS without
+# actually formatting or linting anything — false reassurance.
 CYRFMT="$ROOT/build/cyrfmt"
+[ -x "$CYRFMT" ] || CYRFMT="$(command -v cyrfmt 2>/dev/null)"
 CYRLINT="$ROOT/build/cyrlint"
+[ -x "$CYRLINT" ] || CYRLINT="$(command -v cyrlint 2>/dev/null)"
 
 # Shared fmt/lint walkers (skip symlinked deps, identical semantics with the
 # `cyrius audit` dispatcher's generic path).
@@ -326,7 +334,7 @@ echo ""
 echo "── Bare-truthy after fn-call ──"
 sh "$ROOT/tests/regression-truthy-after-fncall.sh" > /tmp/audit_tf_$$ 2>&1
 tf_result=$?
-check "bare-truthy `if (r)` after fn-call branches correctly (v5.6.21 fix)" "$tf_result"
+check "bare-truthy 'if (r)' after fn-call branches correctly (v5.6.21 fix)" "$tf_result"
 if [ "$tf_result" -ne 0 ]; then cat /tmp/audit_tf_$$; fi
 rm -f /tmp/audit_tf_$$
 echo ""
@@ -558,6 +566,15 @@ if [ "$sysv5735_result" -ne 0 ]; then cat /tmp/audit_sysv5735_$$; fi
 rm -f /tmp/audit_sysv5735_$$
 echo ""
 
+# ── 4ar. cyrius distlib per-module cap raise 64KB → 256KB (v5.7.36) ──
+echo "── distlib >64KB module ──"
+sh "$ROOT/tests/regression-distlib-large-module.sh" > /tmp/audit_dlm_$$ 2>&1
+dlm_result=$?
+check "cyrius distlib bundles >64KB modules without truncation (mabda-surfaced; v5.7.36)" "$dlm_result"
+if [ "$dlm_result" -ne 0 ]; then cat /tmp/audit_dlm_$$; fi
+rm -f /tmp/audit_dlm_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
@@ -568,10 +585,17 @@ if [ -x "$CYRFMT" ]; then
             printf "    (%d dep files skipped)\n" "$AW_FMT_SKIPPED"
         fi
     else
-        echo "  skip: scripts/lib/audit-walk.sh not found"
+        echo "  scripts/lib/audit-walk.sh not found"
+        check "format (stdlib)" "1"
     fi
 else
-    echo "  skip: cyrfmt not built"
+    # v5.7.36: failing loudly instead of silent-skipping so a fresh
+    # checkout without build/cyrfmt and no installed toolchain can't
+    # pass the audit. Build it (`cat programs/cyrfmt.cyr | build/cc5
+    # > build/cyrfmt && chmod +x build/cyrfmt`) or install via
+    # `cyriusly setup` to wire the PATH fallback.
+    echo "  cyrfmt not found in build/ or on PATH — install via 'cyriusly setup' or build via build/cc5"
+    check "format (stdlib)" "1"
 fi
 echo ""
 
@@ -590,10 +614,12 @@ if [ -x "$CYRLINT" ]; then
             printf "    (%d dep files skipped)\n" "$AW_LINT_SKIPPED"
         fi
     else
-        echo "  skip: scripts/lib/audit-walk.sh not found"
+        echo "  scripts/lib/audit-walk.sh not found"
+        check "lint (stdlib)" "1"
     fi
 else
-    echo "  skip: cyrlint not built"
+    echo "  cyrlint not found in build/ or on PATH — install via 'cyriusly setup' or build via build/cc5"
+    check "lint (stdlib)" "1"
 fi
 echo ""
 

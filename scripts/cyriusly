@@ -52,6 +52,95 @@ case "${1:-help}" in
         CYRIUS_VERSION="$2" curl -sSf "https://raw.githubusercontent.com/MacCracken/cyrius/main/scripts/install.sh" | sh
         ;;
 
+    setup)
+        # v5.7.36: install Cyrius from the current repo checkout. Closes
+        # the fresh-checkout UX gap — pre-v5.7.36 the only `cyriusly`-
+        # native install path was `cyriusly install <ver>`, which curls
+        # install.sh from main and re-clones the repo via tarball or
+        # `git clone --depth 1`. None of the existing verbs reused an
+        # already-checked-out tree, so a fresh box that had cloned the
+        # repo (e.g. for development) had to remember `sh scripts/
+        # install.sh` and bypass `cyriusly` entirely.
+        #
+        # `cyriusly setup` requires being run from a Cyrius repo
+        # checkout (VERSION + cyrius.cyml + scripts/install.sh). It
+        # bootstraps the seed if `build/cc5` is missing, builds the
+        # release tools listed in `cyrius.cyml [release]` from the
+        # local `build/cc5`, and then delegates to `install.sh
+        # --refresh-only` to populate `~/.cyrius/versions/$VERSION/`
+        # and re-link `~/.cyrius/bin`.
+        if [ ! -f "VERSION" ] || [ ! -f "cyrius.cyml" ] || [ ! -f "scripts/install.sh" ]; then
+            echo "error: cyriusly setup must run from a Cyrius repo checkout"
+            echo "       (expected VERSION, cyrius.cyml, and scripts/install.sh in cwd)"
+            exit 1
+        fi
+
+        VERSION="$(tr -d '[:space:]' < VERSION)"
+        echo "Setting up Cyrius $VERSION from $(pwd)..."
+
+        # Bootstrap the seed if cc5 isn't present.
+        if [ ! -x "build/cc5" ]; then
+            echo "  build/cc5 not found — running bootstrap/bootstrap.sh..."
+            sh bootstrap/bootstrap.sh || { echo "error: bootstrap failed"; exit 1; }
+            chmod +x build/cc5 2>/dev/null || true
+            if [ ! -x "build/cc5" ]; then
+                echo "error: bootstrap did not produce build/cc5"
+                exit 1
+            fi
+        fi
+
+        # Parse [release].bins, [release].cross_bins from cyrius.cyml.
+        # Same shape install.sh uses for the source-bootstrap fallback,
+        # inlined here so this verb doesn't depend on install.sh helpers
+        # (which only get sourced when install.sh is invoked).
+        _setup_parse_release_array() {
+            awk -v k="$1" '
+                /^\[release\]/ { in_r = 1; next }
+                in_r && /^\[/ { exit }
+                in_r && $1 == k {
+                    sub(/^[^=]+= \[/, ""); sub(/\].*$/, "")
+                    gsub(/[",]/, " "); gsub(/ +/, " ")
+                    sub(/^ +/, ""); sub(/ +$/, ""); print; exit
+                }' cyrius.cyml
+        }
+        _BINS=$(_setup_parse_release_array bins)
+        _CROSS_BINS=$(_setup_parse_release_array cross_bins)
+
+        # Build any missing release tools from build/cc5. cc5 itself
+        # already exists; cyrius lives in cbt/, all others in programs/.
+        echo "  building release tools..."
+        _built=0
+        for tool in $_BINS; do
+            [ "$tool" = "cc5" ] && continue
+            [ -x "build/$tool" ] && continue
+            if [ "$tool" = "cyrius" ] && [ -f "cbt/cyrius.cyr" ]; then
+                cat "cbt/cyrius.cyr" | ./build/cc5 > "build/$tool" && \
+                    chmod +x "build/$tool" && _built=$((_built + 1))
+            elif [ -f "programs/${tool}.cyr" ]; then
+                cat "programs/${tool}.cyr" | ./build/cc5 > "build/$tool" && \
+                    chmod +x "build/$tool" && _built=$((_built + 1))
+            fi
+        done
+        for tool in $_CROSS_BINS; do
+            [ -x "build/$tool" ] && continue
+            if [ "$tool" = "cc5_aarch64" ] && [ -f "src/main_aarch64.cyr" ]; then
+                cat "src/main_aarch64.cyr" | ./build/cc5 > "build/$tool" && \
+                    chmod +x "build/$tool" && _built=$((_built + 1))
+            fi
+        done
+        echo "  built $_built tool(s)"
+
+        # Delegate to install.sh --refresh-only. It copies build/* +
+        # lib/*.cyr + scripts named in [release].scripts into
+        # ~/.cyrius/versions/$VERSION/ and re-links ~/.cyrius/bin.
+        echo "  refreshing install snapshot..."
+        sh scripts/install.sh --refresh-only || { echo "error: install.sh --refresh-only failed"; exit 1; }
+        echo ""
+        echo "Done. Cyrius $VERSION installed from local checkout."
+        echo "  ~/.cyrius/bin/ now points at versions/$VERSION/bin/"
+        echo "  ensure ~/.cyrius/bin is on PATH (install.sh adds it to .zshrc / .bashrc on first install)"
+        ;;
+
     uninstall)
         [ -z "$2" ] && echo "Usage: cyriusly uninstall <version>" && exit 1
         cur=$(current)
@@ -204,6 +293,7 @@ function prompt_cyrius() {
         echo "    list                List installed versions"
         echo "    use <version>       Switch to a version"
         echo "    install <version>   Download and install a version"
+        echo "    setup               Install from current repo checkout (no download)"
         echo "    uninstall <version> Remove a version"
         echo "    update              Check for new versions"
         echo "    which               Show path to active compiler"
@@ -213,6 +303,7 @@ function prompt_cyrius() {
         echo ""
         echo "EXAMPLES:"
         echo "    cyriusly install <version>   # e.g. the latest release tag"
+        echo "    cyriusly setup               # install from cwd (must be a repo checkout)"
         echo "    cyriusly use <version>       # switch the active toolchain"
         echo "    cyriusly cmdtools install starship"
         echo "    cyriusly cmdtools list"

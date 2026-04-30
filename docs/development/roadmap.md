@@ -201,6 +201,105 @@ toolchain side is unblocked.
 
 
 
+## v5.7.36 ✅ fresh-install hardening + distlib cap raise — SHIPPED
+
+**Shipped 2026-04-30.** Bundled five tooling-quality items
+surfaced by re-setting up the toolchain on a fresh Arch
+install plus a mabda-surfaced distlib truncation. Authorized
+mid-execution by the user with explicit cascade direction:
+"want to fix tests before adding additional testing verbs."
+
+Zero compiler change. cc5 byte-identical at 720,640 B.
+
+**Items shipped:**
+
+1. **`scripts/check.sh:329` syntax-error noise** — backticks
+   around `if (r)` triggered command substitution on every
+   audit run (`syntax error: unexpected end of file from
+   \`if'`). Switched the inner formatting to single quotes.
+   Closes warning-sweep finding #5 from the v5.7.x slate;
+   line number drifted from 305-306 (when logged) to 329-330
+   (when fixed) as gates accreted.
+
+2. **`scripts/check.sh` PATH fallback for fmt/lint + loud-FAIL
+   on missing binaries** — pre-v5.7.36 a fresh checkout (only
+   `build/cc3` + `build/cc5` committed) reported "skip:
+   cyrfmt/cyrlint not built" and the audit counted a green
+   "52/52 PASS" without exercising fmt/lint. `CYRFMT` and
+   `CYRLINT` now prefer `$ROOT/build/<tool>` and fall back to
+   `command -v <tool>`; if neither resolves, the audit emits
+   `check ... "1"` (FAIL) with a message pointing at
+   `cyriusly setup`. No path produces an honest-looking
+   green run with un-exercised gates.
+
+3. **`cyrius distlib` per-module cap 64 KB → 256 KB
+   (mabda-surfaced)** — `cmd_distlib` in `cbt/commands.cyr:
+   894-895` allocated 65536 and read up to 65535; modules
+   over 64 KB truncated silently mid-bundle. Bumped to
+   262144 for breathing room. Static-cap pattern preserved;
+   dynamic vec only earns its keep on a fourth bump (per
+   the v5.7.7 fixup-table precedent).
+
+4. **`cyrlint` string-literal awareness** (pulled forward
+   from v5.7.37 trio) — Pass-2 scan loop in
+   `lint_globals_init_order` now skips IDENTs inside
+   `"..."` strings and `'...'` chars (with `\\` / `\"` /
+   `\'` escapes). Counter-check: pre-v5.7.36 emits a false
+   positive on `var MSG = "FLAG_LATER ..."; var FLAG_LATER
+   = 1;`; post-v5.7.36 emits zero warnings on the same shape.
+
+5. **`cyriusly setup` — install from current repo
+   checkout** — closes the fresh-checkout UX gap. Pre-
+   v5.7.36 `cyriusly install <ver>` was the only native verb
+   and re-cloned via tarball or `git clone`, ignoring
+   any local checkout. The new verb requires VERSION +
+   cyrius.cyml + scripts/install.sh in cwd, bootstraps the
+   seed if `build/cc5` is missing, builds the release tools
+   listed in `[release].bins` / `[release].cross_bins`, and
+   delegates to `install.sh --refresh-only`. End-to-end
+   first-time setup is now `git clone && sh scripts/cyriusly
+   setup`.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at 720,640 B (no
+  compiler change).
+- Bootstrap closure (seed → cyrc → asm → cyrc): byte-
+  identical (`src/` untouched).
+- check.sh **55/55 PASS** (was 52/52 going in; +2 from fmt/
+  lint gates now running via PATH fallback rather than
+  silent-skipping; +1 from new gate 4ar `regression-distlib-
+  large-module.sh`).
+- `tests/regression-lint-global-init-order.sh` extended with
+  Test 4 (string-literal fixture).
+
+**Files touched:**
+
+- `cbt/commands.cyr` — distlib cap raise
+- `programs/cyrlint.cyr` — Pass-2 string/char literal skip
+- `scripts/check.sh` — syntax fix + PATH fallback +
+  loud-FAIL + gate 4ar wiring
+- `scripts/cyriusly` — new `setup` action + help text
+- `tests/regression-distlib-large-module.sh` — new
+- `tests/regression-lint-global-init-order.sh` — Test 4
+
+**Slot cascade** (user-authorized; relative order preserved):
+
+- v5.7.36 = this slot
+- v5.7.37 ← v5.7.36 was = TS test organization rework
+- v5.7.38 ← v5.7.37 was = trio (LSP polish + `.scyr`/
+  `.smcyr`; cyrlint string-lit moved forward)
+- v5.7.39-v5.7.41 ← v5.7.38-v5.7.40 were = JSON depth
+- v5.7.42-v5.7.44 ← v5.7.41-v5.7.43 were = advanced TS
+- v5.7.45 ← v5.7.44 was = TRUE CLOSEOUT BACKSTOP
+
+**Pinned method update:** fresh-install rehearsal once per
+minor (last: never; first: v5.7.36) — the silent-skip and
+truncation failure modes are invisible to a developer
+running from an active repo. The same audit-reporting
+honesty issue as v5.7.29's `set -e` / `tail` masking; same
+fix shape (loud-FAIL when the test would otherwise skip).
+
 ## v5.7.32 ✅ cyrlint global-init-order forward-ref warning — SHIPPED
 
 **Shipped 2026-04-28.** Mabda team filed the issue at
@@ -1684,7 +1783,7 @@ enables adding new targets without touching the frontend.
 | `cyrius api-surface --update` | Low | **✅ Shipped v5.7.33.** Regenerate snapshot after intentional API bump. |
 | CI template with api-surface gate | Low | **✅ Shipped v5.7.33** (gate 4ao in cyrius's own check.sh; downstream consumers add their own copy). |
 | LSP semantic-tokens polish | Medium | **Queued.** Basic color-coding shipped. Extend to cross-file symbol resolution + go-to-def. Future v5.7.x slot when claimed; not bundled with v5.7.33. |
-| cyrlint forward-ref scanner — string-literal awareness | Low-Medium | **Queued.** v5.7.32 cyrlint global-init-order rule doesn't suppress IDENTs inside string literals (no observed false positives, but a literal-aware scanner is a future polish). |
+| cyrlint forward-ref scanner — string-literal awareness | Low-Medium | **✅ Shipped v5.7.36.** Pulled forward from the v5.7.37 trio. Pass-2 scan loop in `lint_globals_init_order` skips IDENTs inside `"..."` and `'...'` literals (with `\\` / `\"` / `\'` escapes); regression test 4 in `tests/regression-lint-global-init-order.sh` covers the shape. |
 
 ---
 
