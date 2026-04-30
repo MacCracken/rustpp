@@ -1,0 +1,28 @@
+# compile_minimal.smcyr — smoke test: cc5 compiles + runs a trivial program.
+#
+# A smoke test answers "did this start at all?" The minimum signal:
+# `build/cc5` exists, accepts source on stdin, emits a runnable ELF
+# whose main returns the literal value the source declared. If this
+# fails, every other tcyr / bcyr / fcyr file would also fail; surface
+# the issue first and bail.
+#
+# Pinned at v5.7.38 along with the `*.smcyr` discovery shape.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Embedded smoke fixture — return 17 from a fresh program.
+fn smoke_minimal() {
+    var x = 17;
+    return x;
+}
+
+assert_eq(smoke_minimal(), 17, "smoke: minimal fn returns literal");
+
+var ec = assert_summary();
+syscall(60, ec);

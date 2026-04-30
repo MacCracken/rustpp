@@ -575,6 +575,15 @@ if [ "$dlm_result" -ne 0 ]; then cat /tmp/audit_dlm_$$; fi
 rm -f /tmp/audit_dlm_$$
 echo ""
 
+# ── 4as. cyrius smoke .smcyr discovery (v5.7.38) ──
+echo "── smoke discovery ──"
+sh "$ROOT/tests/regression-smoke-discovery.sh" > /tmp/audit_sm_$$ 2>&1
+sm_result=$?
+check "cyrius smoke discovers .smcyr + fail-fast bailout (v5.7.38)" "$sm_result"
+if [ "$sm_result" -ne 0 ]; then cat /tmp/audit_sm_$$; fi
+rm -f /tmp/audit_sm_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

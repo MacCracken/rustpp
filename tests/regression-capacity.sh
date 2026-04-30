@@ -5,18 +5,15 @@
 # entry-point error path. Also exercises the latent fnc > 2048 bugs
 # that alpha4 fixed (DCE bitmap + EMITELF_OBJ scratch).
 #
-# Skipped on systems without python3 (used to synthesize a 3500-fn
-# stress source). Skipped if `cyrius` script isn't found.
+# v5.7.38: Python3 dependency removed. The 3500-fn stress source is
+# now synthesised via a POSIX shell loop — same content, no external
+# runtime. Skipped only if `cyrius` script isn't found.
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CYRIUS="$ROOT/scripts/cyrius"
 
 if [ ! -x "$CYRIUS" ]; then echo "  skip: $CYRIUS not executable"; exit 0; fi
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  skip: python3 not found (needed for synthetic stress source)"
-    exit 0
-fi
 
 # The `cyrius` wrapper resolves cc5 via (1) $HOME/.cyrius/bin/cc5 if
 # present, else (2) ./build/cc5 relative to CWD. Test 7 deliberately
@@ -65,12 +62,19 @@ if ! grep -q "ok (all caps under 85%)" "$TMP/out2"; then
 fi
 
 # ---- Test 3: synthetic 3500-fn source — --check exits 1 ----
+# v5.7.38: shell loop replaces the prior `python3 -c "..."` synthesis.
+# Output is byte-identical to the Python version: `object;` + 3500
+# lines of `fn fN() { return N; }`. POSIX-portable; no python3
+# runtime dependency on the test surface.
 BIG="$TMP/big.cyr"
-python3 -c "
-print('object;')
-for i in range(3500):
-    print(f'fn f{i}() {{ return {i}; }}')
-" > "$BIG"
+{
+    echo "object;"
+    i=0
+    while [ "$i" -lt 3500 ]; do
+        printf 'fn f%d() { return %d; }\n' "$i" "$i"
+        i=$((i + 1))
+    done
+} > "$BIG"
 set +e
 "$CYRIUS" capacity --check "$BIG" > "$TMP/out3" 2>"$TMP/err3"
 rc=$?

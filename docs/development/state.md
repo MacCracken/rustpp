@@ -5,6 +5,40 @@
 
 ## Version
 
+**5.7.38** (shipped 2026-04-30 — **`.scyr` (soak) + `.smcyr`
+(smoke) FILE TYPES**. Two new test-discovery shapes mirroring
+the existing `*.tcyr` / `*.bcyr` / `*.fcyr` walkers. Closes
+the `cyrius soak` / `cyrius smoke` gap (only soak shape was
+the hardcoded self-host loop; no smoke verb existed) and kills
+the last Python3 dependency in the test surface
+(`tests/regression-capacity.sh`'s 3500-fn synthesis →
+POSIX shell loop). Originally bundled with LSP polish as the
+v5.7.38 duo; honest sizing at slot entry flagged LSP as
+substantially larger, user authorized splitting (LSP moved to
+v5.7.39 own slot, backstop bumped v5.7.46 → v5.7.47). **What
+landed**: (1) `cyrius smoke` subcommand — fail-fast walker
+over `tests/smcyr/*.smcyr` + `smoke/*.smcyr`; (2) `cyrius
+soak` extended to walk `tests/scyr/*.scyr` + `soak/*.scyr`
+after the built-in self-host loop, with `_skip_deps`
+save/restore guarding the built-in loop from manifest-dep
+auto-prepend that would blow the 2MB expanded-source cap;
+(3) Both verbs added to the auto-deps gate for harness-side
+parity with `.tcyr`/`.bcyr`/`.fcyr`; (4)
+`tests/regression-capacity.sh` Python3→shell-loop migration
+(byte-identical output); (5) Example harnesses
+`tests/smcyr/compile_minimal.smcyr` (minimal "fn returns
+literal" smoke) + `tests/scyr/alloc_pressure.scyr` (10,000×
+`alloc(4KB)` + sentinel readback, 40 MB total). **Verification**:
+cc5 self-host two-step byte-identical at **720,640 B** (no
+compiler change); check.sh **56/56 PASS** (was 55; +gate 4as
+`regression-smoke-discovery.sh`); `cyrius soak 1` end-to-end
+clean (self-host iter PASS + alloc_pressure.scyr PASS).
+**Small pinned method**: `_skip_deps` save/restore is the
+right pattern for any `cmd_*` that calls `compile()` against
+sources near the 2MB cap; don't add commands to the
+auto-deps gate without checking whether their `compile()`
+calls would inflate.)
+
 **5.7.37** (shipped 2026-04-30 — **TS TEST-ORG REWORK —
 GROUP-LEVEL CONSOLIDATION**. Closes the load-bearing
 prerequisite for the v5.7.42-v5.7.44 advanced-TS suite by
@@ -1319,6 +1353,8 @@ throughput win on hosts with hw support).)
 
 - **check.sh**: 55/55 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.36 added gate 4ar `regression-distlib-large-module.sh` and removed silent-skips on fmt/lint via PATH fallback so they count as real gates)
 - **`tests/tcyr/*.tcyr`**: 93 files (v5.7.37 collapsed 24 ts_*.tcyr → 4 group runners — `ts_lex_combined`, `ts_parse_core`, `ts_parse_decls`, `ts_parse_advanced`; net -20 files for the same 1117 assertions)
+- **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
+- **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
 - **Stdlib**: 60 modules (53 first-party + 7 vendored/deps: 6 via `cyrius deps`
@@ -1364,42 +1400,40 @@ Shipped:
 - **v5.7.35** ✅ stdlib syscall surface gaps (getdents64 + getrandom + landlock × 2 arches; agnosys drm/luks/security-surfaced; new lib/random.cyr + lib/security.cyr; +11 api-surface entries)
 - **v5.7.36** ✅ fresh-install hardening + distlib cap raise (5-item bundle: check.sh:329 syntax-noise fix + check.sh PATH fallback for fmt/lint with loud-FAIL on missing binaries + cyrius distlib per-module cap 64KB→256KB mabda-surfaced + cyrlint string-literal awareness pulled forward from the v5.7.37 trio + new `cyriusly setup` verb for fresh-checkout install. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 55/55 PASS.)
 - **v5.7.37** ✅ TS test-org rework — group-level consolidation (24 ts_*.tcyr → 4 topic-grouped runners; frontend included once per group instead of per file; assertion-count parity 1117=1117; TS suite compile time 4774ms → 926ms = 5.15× speedup; user-pushback rejected the initial megafile proposal in favour of group-level isolation; option E test-harness pinned long-term in §v5.x — Toolchain Quality. Zero compiler change.)
+- **v5.7.38** ✅ `.scyr` (soak) + `.smcyr` (smoke) file types (cyrius smoke + cyrius soak walkers mirror the .tcyr/.bcyr/.fcyr discovery shape; tests/regression-capacity.sh Python3 dependency removed via shell-loop migration; example harnesses tests/smcyr/compile_minimal.smcyr + tests/scyr/alloc_pressure.scyr; _skip_deps save/restore guards cmd_soak's built-in self-host loop from auto-prepend size blowout; LSP polish split from this slot to v5.7.39. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 56/56 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.37 ship —
-**cascade +1 again from the v5.7.36 plan** because the
-v5.7.37 ship pinned option E test-harness as a floating
-slot, requiring backstop +1 absorption. Relative order
-preserved; backstop bumped v5.7.45 → v5.7.46):
+Queue (firm assignments as of 2026-04-30 at v5.7.38 ship —
+**cascade +1 again from the v5.7.37 plan** because the v5.7.38
+duo got split (LSP polish promoted to its own slot at user
+direction; honest sizing showed LSP work ≫ discovery work).
+Relative order preserved; backstop bumped v5.7.46 → v5.7.47):
 
-- **v5.7.38** — **bundled trio (now duo)** (formerly v5.7.37
-  trio; the cyrlint string-literal awareness item moved
-  forward to v5.7.36):
-  1. **`.scyr` (soak) + `.smcyr` (smoke) file types** —
-     mirrors `*.tcyr` / `*.bcyr` / `*.fcyr` discovery shape;
-     rewrites `tests/regression-capacity.sh` away from Python 3
-     (current external-runtime leak in the test surface).
-     User-pinned 2026-04-25: "we can keep soak and smoke to
-     before closeout of 5.7.x".
-  2. **LSP semantic-tokens polish** — queued in Toolchain
-     Quality. Cross-file symbol resolution + go-to-def. Basic
-     color-coding shipped pre-v5.7.x.
+- **v5.7.39** — **LSP semantic-tokens polish** (split from
+  the v5.7.38 duo at v5.7.38 entry). `programs/cyrius-lsp.cyr`
+  is 556 LOC today, handles diagnostics + didOpen/didSave/
+  didChange only. This slot adds: cross-file symbol resolution
+  (walks include chains, builds a `name → declaration-position`
+  map), `textDocument/definition` request handler, possibly
+  `textDocument/semanticTokens/full` for richer highlighting.
+  ~300-400 LOC + indexing infrastructure. Out of scope: `.so`
+  emission for incremental compilation backing. Acceptance:
+  manual VSCode test (open a multi-file project, ctrl-click an
+  identifier, jump to its decl) + a regression gate that
+  smoke-tests the JSON-RPC round-trip for `textDocument/
+  definition`.
 
-  Still bundled because both are independent toolchain-quality
-  polish items that don't touch the compiler core; together
-  they're one focused slot rather than two trivial ones.
-
-- **v5.7.39–v5.7.41** — **`lib/json.cyr` depth work series**
-  (formerly v5.7.38-v5.7.40; pinned 2026-04-27 at v5.7.20
+- **v5.7.40–v5.7.42** — **`lib/json.cyr` depth work series**
+  (formerly v5.7.39-v5.7.41; pinned 2026-04-27 at v5.7.20
   ship). One sub-item per slot:
-  - **v5.7.39** — Pretty-printing: `json_v_build_pretty(v, indent)`,
+  - **v5.7.40** — Pretty-printing: `json_v_build_pretty(v, indent)`,
     ~50-100 LOC. Triggered when a consumer wants human-readable
     JSON output (config-file writers, debug-log dumps).
-  - **v5.7.40** — Streaming parser: event API + driver
+  - **v5.7.41** — Streaming parser: event API + driver
     (`on_object_start` / `on_key` / `on_value` / `on_array_end`
     /etc.), ~200-300 LOC. For multi-MB JSON inputs that don't fit
     the tagged-tree memory model. Sandhi may absorb if RPC needs
     surface first.
-  - **v5.7.41** — JSON Pointer (RFC 6901):
+  - **v5.7.42** — JSON Pointer (RFC 6901):
     `json_v_pointer(v, "/users/0/name")`, ~50 LOC on top of the
     existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
 
@@ -1408,8 +1442,8 @@ preserved; backstop bumped v5.7.45 → v5.7.46):
   fixture, JSON Pointer on the existing nested-fixture from
   `tests/tcyr/json_engine.tcyr`.
 
-- **v5.7.42–v5.7.44** — **Advanced TS feature suite**
-  (formerly v5.7.41-v5.7.43; #8 from the pin list at
+- **v5.7.43–v5.7.45** — **Advanced TS feature suite**
+  (formerly v5.7.42-v5.7.44; #8 from the pin list at
   `roadmap.md §v5.7.x — patch slate`). Three slots; specific
   items chosen at slot-claim time from the pinned list
   (variadic tuples, const type params, satisfies postfix
@@ -1426,28 +1460,28 @@ preserved; backstop bumped v5.7.45 → v5.7.46):
   files a non-SY parse failure on a TS shape, that shape moves
   to the front of the queue.
 
-- **v5.7.45** — **floating slot for option E test-harness**
-  (pinned at v5.7.37 ship in §v5.x — Toolchain Quality). A
-  single `programs/ts_test_runner.cyr` consuming both
-  internal-symbol fn dispatch and TS fixture files. Claims
-  this slot when a downstream consumer surfaces a test
-  pattern that doesn't fit either the v5.7.37 group runners
-  or the existing `cc5 --parse-ts` corpus gates. If
-  unclaimed by closeout, slot absorbs into general
-  hygiene / merges into v5.7.46.
+- **v5.7.46** — **floating slot for option E test-harness**
+  (formerly v5.7.45; pinned at v5.7.37 ship in §v5.x —
+  Toolchain Quality). A single `programs/ts_test_runner.cyr`
+  consuming both internal-symbol fn dispatch and TS fixture
+  files. Claims this slot when a downstream consumer surfaces
+  a test pattern that doesn't fit either the v5.7.37 group
+  runners or the existing `cc5 --parse-ts` corpus gates. If
+  unclaimed by closeout, slot absorbs into general hygiene /
+  merges into v5.7.47.
 
-- **v5.7.46** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.45;
+- **v5.7.47** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.46;
   CLAUDE.md 11-step). Hard upper bound; anything past forces
   v5.8.x.
 
-**Side-task throughout v5.7.38-v5.7.46**: warning-sweep
+**Side-task throughout v5.7.39-v5.7.47**: warning-sweep
 continuing — goal still "zero `warning:` lines from cc5
 self-build". Item #5 (check.sh:329 syntax noise) closed at
 v5.7.36; remaining items are the 3 syscall-arity warnings in
 lex.cyr + the 36 unreachable-fn floor. Cleared opportunistically
 each closeout, no dedicated slot.
 
-**Floating items** that may displace the v5.7.38-v5.7.46 plan
+**Floating items** that may displace the v5.7.39-v5.7.47 plan
 if surfaced before backstop:
 - **Duplicate-fn warning investigation** — parked at v5.7.34
   ship; phylax-agent has the agnosys-side repro context. If
@@ -1457,7 +1491,7 @@ if surfaced before backstop:
 - **Wildcard correctness items** (consumer-surfaced) per
   `feedback_correctness_over_features.md` — preempt feature
   parity. If one surfaces, the v5.7.38-v5.7.45 plan slips by
-  one slot; v5.7.46 backstop would re-bound at that point.
+  one slot; v5.7.47 backstop would re-bound at that point.
 
 Moved out of v5.7.x:
 - **RISC-V rv64** → v5.8.x (paired with bare-metal AGNOS kernel).

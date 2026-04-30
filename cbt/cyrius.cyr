@@ -65,6 +65,8 @@ fn usage() {
     println("Testing:");
     println("  coverage                        report test coverage");
     println("  doctest <file.cyr>              run doc examples");
+    println("  soak [N]                        N-iter self-host loop + tests/scyr/*.scyr harnesses");
+    println("  smoke                           run tests/smcyr/*.smcyr quick-validation programs");
     println("");
     println("Interactive:");
     println("  repl                            expression evaluator");
@@ -119,7 +121,11 @@ fn main() {
     # downstream fuzz harnesses had to declare every stdlib include
     # by hand or fail with `undefined function`. cmd_test / cmd_bench
     # had this from day one — gate now has parity.
-    if (streq(cmd, "build") == 1 || streq(cmd, "run") == 1 || streq(cmd, "test") == 1 || streq(cmd, "bench") == 1 || streq(cmd, "fuzz") == 1 || streq(cmd, "check") == 1) {
+    # v5.7.38: `soak` and `smoke` join the gate — same parity reasoning
+    # as v5.7.21's fuzz fix. cmd_soak now walks `tests/scyr/*.scyr`
+    # harnesses and cmd_smoke walks `tests/smcyr/*.smcyr` files; both
+    # rely on compile() reading _dep_includes for stdlib auto-prepend.
+    if (streq(cmd, "build") == 1 || streq(cmd, "run") == 1 || streq(cmd, "test") == 1 || streq(cmd, "bench") == 1 || streq(cmd, "fuzz") == 1 || streq(cmd, "soak") == 1 || streq(cmd, "smoke") == 1 || streq(cmd, "check") == 1) {
         var dr = _auto_deps();
         if (dr > 0) { return dr; }
     }
@@ -319,6 +325,10 @@ fn main() {
         var soak_n = 100;
         if (argc() > cmd_idx + 1) { soak_n = atoi(argv(cmd_idx + 1)); }
         return cmd_soak(soak_n);
+    }
+
+    if (streq(cmd, "smoke") == 1) {
+        return cmd_smoke();
     }
 
     if (streq(cmd, "pulsar") == 1) { return cmd_pulsar(); }

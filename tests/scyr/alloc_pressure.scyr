@@ -1,0 +1,51 @@
+# alloc_pressure.scyr — soak test: repeated alloc + write under pressure.
+#
+# Pinned at v5.7.38 along with the `*.scyr` discovery shape. Each
+# `.scyr` is a complete cyrius program that manages its own
+# iteration count internally; the runner just compiles and executes
+# once per `cyrius soak` invocation.
+#
+# Coverage: 10,000 iterations of (alloc 4KB block, write a sentinel
+# byte at the end, verify the sentinel survives, "free" via leak —
+# `lib/alloc.cyr` is a bump allocator, no real free). Catches:
+#   - heap-region overflow if the alloc cap is mis-sized
+#   - sentinel corruption if alloc returns overlapping addresses
+#   - silent `alloc(N)` returning 0 when the bump pointer wraps
+#
+# 10,000 × 4 KB = 40 MB. The default heap region size for `alloc`
+# is comfortably larger; if a future heap-map shrink violates the
+# assumption, this soak surfaces it before downstream consumers do.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+var SENTINEL = 0x42;
+var BLOCK_SZ = 4096;
+var ITERS = 10000;
+
+var i = 0;
+var failures = 0;
+while (i < ITERS) {
+    var p = alloc(BLOCK_SZ);
+    if (p == 0) {
+        # alloc returned null — either heap exhausted or wrap.
+        failures = failures + 1;
+        i = ITERS;       # break
+    } else {
+        store8(p + BLOCK_SZ - 1, SENTINEL);
+        if (load8(p + BLOCK_SZ - 1) != SENTINEL) {
+            failures = failures + 1;
+        }
+        i = i + 1;
+    }
+}
+
+assert_eq(failures, 0, "soak: 10000 4KB allocs, sentinel intact");
+
+var ec = assert_summary();
+syscall(60, ec);

@@ -201,6 +201,83 @@ toolchain side is unblocked.
 
 
 
+## v5.7.38 ✅ `.scyr` (soak) + `.smcyr` (smoke) file types — SHIPPED
+
+**Shipped 2026-04-30.** Two new test-discovery shapes mirroring
+`*.tcyr` / `*.bcyr` / `*.fcyr`. Closes the `cyrius soak` /
+`cyrius smoke` gap and kills the only Python3 dependency in
+the test surface.
+
+Originally bundled with LSP polish as the v5.7.37 trio (later
+v5.7.38 duo at v5.7.36 ship after string-lit awareness moved
+forward). Honest sizing at v5.7.38 entry flagged LSP as
+substantially larger; user authorized splitting (LSP polish
+moved to v5.7.39 own slot).
+
+Zero compiler change. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **`cyrius smoke`** — new subcommand discovering
+   `tests/smcyr/*.smcyr` + `smoke/*.smcyr`. Fail-fast: bails
+   on the first FAIL rather than continuing. Auto-deps gate
+   wired so harnesses get manifest auto-prepend.
+
+2. **`cyrius soak` extension** — built-in self-host loop
+   unchanged. After it completes, walks `tests/scyr/*.scyr`
+   + `soak/*.scyr` and runs each user-authored harness once.
+   `_skip_deps` save/restore guards the built-in loop from
+   blowing the 2MB expanded-source cap when manifest deps
+   would be prepended to src/main.cyr (six dep bundles +
+   7,400 LOC compiler = explode); .scyr harnesses do get
+   auto-prepend.
+
+3. **`tests/regression-capacity.sh`** — Python3 inline
+   synthesis (`python3 -c "..."`) replaced with shell loop.
+   Output byte-identical; `python3 not found → skip` branch
+   removed. `grep -rn 'python3' scripts/ tests/` returns
+   zero invocations.
+
+4. **Example harnesses** —
+   - `tests/smcyr/compile_minimal.smcyr` — minimal smoke
+     (fn returning literal value); ensures `cyrius smoke`
+     finds something on fresh checkout.
+   - `tests/scyr/alloc_pressure.scyr` — 10,000 × `alloc(4KB)`
+     + sentinel-byte readback (40 MB total). Surfaces
+     bump-allocator wrap / cap-too-small regressions.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at **720,640 B**
+  (no compiler change).
+- check.sh **56/56 PASS** (was 55; +gate 4as
+  `regression-smoke-discovery.sh` covering discovery, empty-
+  dir, and fail-fast bail).
+- `cyrius soak 1` end-to-end: self-host iter PASS + `.scyr`
+  walker discovers and runs `alloc_pressure.scyr` → 1
+  passed, 0 failed.
+
+**Pinned method (small):** `_skip_deps` save/restore is the
+right pattern for any `cmd_*` that calls `compile()` against
+sources with size constraints (e.g. the compiler itself).
+Don't put commands in the auto-deps gate without checking
+whether their `compile()` calls would inflate large sources
+past caps.
+
+**Slot cascade** (continuing the +1 cascade; user-authorized
+at v5.7.37 ship — split the duo, push backstop to v5.7.46;
+this ship pushes one further to v5.7.47 to absorb the LSP
+split):
+
+- v5.7.38 = this slot
+- v5.7.39 = LSP semantic-tokens polish (split from former
+  v5.7.38 duo)
+- v5.7.40-v5.7.42 ← v5.7.39-v5.7.41 prev = JSON depth series
+- v5.7.43-v5.7.45 ← v5.7.42-v5.7.44 prev = advanced TS suite
+- v5.7.46 ← v5.7.45 prev = floating slot for option E test-
+  harness when pulled
+- v5.7.47 ← v5.7.46 prev = TRUE CLOSEOUT BACKSTOP
+
 ## v5.7.37 ✅ TS test-org rework — group-level consolidation — SHIPPED
 
 **Shipped 2026-04-30.** Closes the load-bearing prerequisite
