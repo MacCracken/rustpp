@@ -813,7 +813,28 @@ fn _jb_append_string(sb, s) {
     return 0;
 }
 
-fn _jb_walk(sb, v) {
+# Emit '\n' followed by (indent * level) spaces. Pretty-mode helper.
+fn _jb_emit_indent(sb, indent, level) {
+    str_builder_add_byte(sb, 10);
+    var total = indent * level;
+    var i = 0;
+    while (i < total) {
+        str_builder_add_byte(sb, 32);
+        i = i + 1;
+    }
+    return 0;
+}
+
+# v5.7.47 refactor: unified compact + pretty walker. Pre-v5.7.47
+# this was two near-identical fns (_jb_walk + _jb_walk_pretty)
+# differing only in newline emission and key separator. The
+# `indent` param drives the mode: 0 = compact (no newlines, ":"
+# separator), >0 = pretty (newlines, ": " separator). The
+# empty-container check (`if n > 0`) handles both modes correctly:
+# compact with n=0 emits "[]"/"{}" naturally because the loop
+# doesn't run; pretty needs the same guard to avoid emitting a
+# trailing newline+indent before the closing bracket.
+fn _jb_walk(sb, v, indent, level) {
     if (v == 0) { str_builder_add_cstr(sb, "null"); return 0; }
     var t = load64(v);
     if      (t == JTAG_NULL)  { str_builder_add_cstr(sb, "null"); }
@@ -838,11 +859,15 @@ fn _jb_walk(sb, v) {
         str_builder_add_cstr(sb, "[");
         var arr = load64(v + 8);
         var n = vec_len(arr);
-        var i = 0;
-        while (i < n) {
-            if (i > 0) { str_builder_add_cstr(sb, ","); }
-            _jb_walk(sb, vec_get(arr, i));
-            i = i + 1;
+        if (n > 0) {
+            var i = 0;
+            while (i < n) {
+                if (i > 0) { str_builder_add_cstr(sb, ","); }
+                if (indent > 0) { _jb_emit_indent(sb, indent, level + 1); }
+                _jb_walk(sb, vec_get(arr, i), indent, level + 1);
+                i = i + 1;
+            }
+            if (indent > 0) { _jb_emit_indent(sb, indent, level); }
         }
         str_builder_add_cstr(sb, "]");
     }
@@ -850,14 +875,19 @@ fn _jb_walk(sb, v) {
         str_builder_add_cstr(sb, "{");
         var pairs = load64(v + 8);
         var pn = vec_len(pairs);
-        var pi = 0;
-        while (pi < pn) {
-            if (pi > 0) { str_builder_add_cstr(sb, ","); }
-            var p = vec_get(pairs, pi);
-            _jb_append_string(sb, load64(p));
-            str_builder_add_cstr(sb, ":");
-            _jb_walk(sb, load64(p + 8));
-            pi = pi + 1;
+        if (pn > 0) {
+            var pi = 0;
+            while (pi < pn) {
+                if (pi > 0) { str_builder_add_cstr(sb, ","); }
+                if (indent > 0) { _jb_emit_indent(sb, indent, level + 1); }
+                var p = vec_get(pairs, pi);
+                _jb_append_string(sb, load64(p));
+                if (indent > 0) { str_builder_add_cstr(sb, ": "); }
+                else            { str_builder_add_cstr(sb, ":");  }
+                _jb_walk(sb, load64(p + 8), indent, level + 1);
+                pi = pi + 1;
+            }
+            if (indent > 0) { _jb_emit_indent(sb, indent, level); }
         }
         str_builder_add_cstr(sb, "}");
     }
@@ -870,86 +900,8 @@ fn _jb_walk(sb, v) {
 # json_v_build — serialize a tagged value tree to a Str (compact).
 fn json_v_build(v) {
     var sb = str_builder_new();
-    _jb_walk(sb, v);
+    _jb_walk(sb, v, 0, 0);
     return str_builder_build(sb);
-}
-
-# Emit '\n' followed by (indent * level) spaces.
-fn _jb_emit_indent(sb, indent, level) {
-    str_builder_add_byte(sb, 10);
-    var total = indent * level;
-    var i = 0;
-    while (i < total) {
-        str_builder_add_byte(sb, 32);
-        i = i + 1;
-    }
-    return 0;
-}
-
-fn _jb_walk_pretty(sb, v, indent, level) {
-    if (v == 0) { str_builder_add_cstr(sb, "null"); return 0; }
-    var t = load64(v);
-    if      (t == JTAG_NULL)  { str_builder_add_cstr(sb, "null"); }
-    elif    (t == JTAG_BOOL)  {
-        if (load64(v + 8) == 0) { str_builder_add_cstr(sb, "false"); }
-        else                    { str_builder_add_cstr(sb, "true");  }
-    }
-    elif    (t == JTAG_INT)   {
-        var nb[24];
-        var nl = fmt_int_buf(load64(v + 8), &nb);
-        store8(&nb + nl, 0);
-        str_builder_add_cstr(sb, &nb);
-    }
-    elif    (t == JTAG_FLOAT) {
-        var fb[64];
-        var fl = fmt_float_buf(load64(v + 8), &fb, 6);
-        store8(&fb + fl, 0);
-        str_builder_add_cstr(sb, &fb);
-    }
-    elif    (t == JTAG_STR)   { _jb_append_string(sb, load64(v + 8)); }
-    elif    (t == JTAG_ARR)   {
-        var arr = load64(v + 8);
-        var n = vec_len(arr);
-        if (n == 0) {
-            str_builder_add_cstr(sb, "[]");
-        } else {
-            str_builder_add_cstr(sb, "[");
-            var i = 0;
-            while (i < n) {
-                if (i > 0) { str_builder_add_cstr(sb, ","); }
-                _jb_emit_indent(sb, indent, level + 1);
-                _jb_walk_pretty(sb, vec_get(arr, i), indent, level + 1);
-                i = i + 1;
-            }
-            _jb_emit_indent(sb, indent, level);
-            str_builder_add_cstr(sb, "]");
-        }
-    }
-    elif    (t == JTAG_OBJ)   {
-        var pairs = load64(v + 8);
-        var pn = vec_len(pairs);
-        if (pn == 0) {
-            str_builder_add_cstr(sb, "{}");
-        } else {
-            str_builder_add_cstr(sb, "{");
-            var pi = 0;
-            while (pi < pn) {
-                if (pi > 0) { str_builder_add_cstr(sb, ","); }
-                _jb_emit_indent(sb, indent, level + 1);
-                var p = vec_get(pairs, pi);
-                _jb_append_string(sb, load64(p));
-                str_builder_add_cstr(sb, ": ");
-                _jb_walk_pretty(sb, load64(p + 8), indent, level + 1);
-                pi = pi + 1;
-            }
-            _jb_emit_indent(sb, indent, level);
-            str_builder_add_cstr(sb, "}");
-        }
-    }
-    else {
-        str_builder_add_cstr(sb, "null");
-    }
-    return 0;
 }
 
 # json_v_build_pretty — serialize a tagged value tree with newlines + indent.
@@ -957,7 +909,7 @@ fn _jb_walk_pretty(sb, v, indent, level) {
 fn json_v_build_pretty(v, indent) {
     if (indent <= 0) { return json_v_build(v); }
     var sb = str_builder_new();
-    _jb_walk_pretty(sb, v, indent, 0);
+    _jb_walk(sb, v, indent, 0);
     return str_builder_build(sb);
 }
 

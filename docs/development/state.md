@@ -5,6 +5,42 @@
 
 ## Version
 
+**5.7.47** (shipped 2026-04-30 — **REFACTOR PASS — testing +
+codebase**. Standalone slot per CLAUDE.md closeout-pass §6
+("Refactor pass") carved out for audit-trail clarity rather
+than bundling into v5.7.48 closeout. **Hard cap respected**:
+cc5 stays byte-identical at **720,928 B** (unchanged from
+v5.7.45). **Discovery (3-pronged)**: tcyr migration (1 win:
+ts_parse_p56), arch-branch consolidation (nothing earned),
+heap region audit (nothing earned). **Refactored**: (1)
+`ts_parse_p56` (v5.7.45 const type params) — 13 parallel-
+shape parse-rc cases collapsed from ~70 lines of inline
+assertions to a single `test_each` call over (source, label)
+pairs. tcyr now includes `lib/test.cyr` (transitively pulls
+assert + fnptr — same one-include pattern as v5.7.42's
+`lib/json.cyr` → `lib/fnptr.cyr` fix). (2) `lib/json.cyr`
+`_jb_walk` + `_jb_walk_pretty` consolidation — two near-
+identical ~50-line walkers (compact + pretty) merged into a
+single `_jb_walk(sb, v, indent, level)` with `indent` param
+driving the mode. `indent=0` = compact, `indent>0` = pretty.
+`if (n > 0)` guard handles both modes for empty
+containers correctly. **Skipped (deliberate)**:
+`json_stream` scalar-inputs (heterogeneous post-conditions),
+`ts_parse_p55` / `p57` (heterogeneous shapes). Per the v5.7.43
+json_pointer §5 migration discipline — only homogeneous shapes
+migrate; heterogeneous stay inline. **Verification**: cc5
+unchanged at 720,928 B; all 4 JSON tcyrs PASS post-
+consolidation (190 assertions); all 3 JSON regression gates
+exact-byte cmp PASS; 4 TS group runners PASS post-p56-
+migration (1181 assertions, same total — structure
+consolidated); SY corpus 2053/2053 + 435/435 unchanged;
+check.sh **64/64 PASS** (no new gate — refactor introduces
+no new functionality). **LOC delta**: -106 net lines (lib/
+json.cyr -54, tcyr -52) preserving 100% of assertion coverage.
+**Slot cascade**: v5.7.48 (TRUE CLOSEOUT BACKSTOP) ahead. User-
+authorized headroom v5.7.49-50 unused; planned finish at
+v5.7.48 holds.)
+
 **5.7.46** (shipped 2026-04-30 — **v5.7.x ADVANCED-TS PIN
 AUDIT — 4 stale-pin items closed**. Third and final slot of
 the v5.7.44-46 advanced TS feature suite. Reframed during
@@ -1587,15 +1623,17 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **720,928 B** at v5.7.46 (unchanged from
-  v5.7.45 — v5.7.46 was zero compiler change, audit-pass only).
-  Aggregate growth across v5.7.x: v5.7.5 697,840 (JSX) → v5.7.20
-  ~712 KB (JSON tagged tree) → v5.7.27 ~720 KB (codebuf 1MB→3MB
-  reshuffle) → v5.7.41 720,640 (JSON streaming parser, lib-only
-  no cc5 change actually) → v5.7.44 720,864 (variadic tuples
-  AST) → v5.7.45 720,928 (const type params) → v5.7.46 720,928
-  (audit-pass, zero compiler change). `cc5 --version` reports
-  `cc5 5.7.46`.
+- **cc5 (x86_64)**: **720,928 B** at v5.7.47 (unchanged from
+  v5.7.45 — v5.7.46 audit-pass + v5.7.47 refactor pass were
+  both zero compiler change). Aggregate growth across v5.7.x:
+  v5.7.5 697,840 (JSX) → v5.7.20 ~712 KB (JSON tagged tree) →
+  v5.7.27 ~720 KB (codebuf 1MB→3MB reshuffle) → v5.7.41 720,640
+  (JSON streaming parser, lib-only no cc5 change actually) →
+  v5.7.44 720,864 (variadic tuples AST) → v5.7.45 720,928
+  (const type params) → v5.7.46 720,928 (audit-pass, zero
+  compiler change) → v5.7.47 720,928 (refactor pass, zero
+  compiler change — lib/json.cyr + tcyr changes invisible to
+  cc5 build). `cc5 --version` reports `cc5 5.7.47`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -1626,8 +1664,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.46 added gate 4ba `regression-ts-advanced-pin-audit.sh` — single combined gate locking the 4 stale-pin items with 4 numbered sub-sections embedding real-world TS-lib shapes from zod/react/redux/TS-5.0 patterns)
-- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.46 grew `ts_parse_advanced.tcyr` with `ts_parse_p57` audit group — 25 new assertions in 7 sub-groups; advanced.tcyr now 197 (was 172 at v5.7.45, 159 at v5.7.44, 141 pre-v5.7.44); total TS coverage across 4 group runners = 1181 assertions)
+- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor pass introduces no new functionality, just consolidations within existing gate coverage)
+- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.47 collapsed `ts_parse_p56` 13 parallel-shape assertions to `test_each` call — assertion count preserved at 197 in advanced.tcyr; total TS coverage = 1181 assertions; net -52 lines in advanced.tcyr from the migration)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1640,22 +1678,19 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.47 (refactor pass — testing + codebase).** v5.7.46
-closed the v5.7.x advanced-TS pin entirely (8/8 items shipped
-across v5.7.24/25/26 + v5.7.44/45/46). v5.7.47 is the
-standalone refactor pass per CLAUDE.md closeout-pass §6
-carved out as its own slot for audit-trail clarity. **Bounded
-scope**: tcyrs with 3+ parallel-shape assertion runs migrate
-to `test_each` (`json_pointer §5 corpus` already done at
-v5.7.43; remaining candidates: `json_stream` scalars 6 cases,
-TS group runners' parallel blocks where homogeneous shape).
-Consolidate any `_TARGET_X` branches the v5.7.x cycle added
-that now collapse cleanly. Audit any new heap regions for
-stale offsets. **Hard cap**: cc5 stays byte-identical at
-720,928 B. If a refactor would change cc5 bytes, it defers
-to v5.8.0 first patch per CLAUDE.md closeout-pass §6 rule.
-**Discipline**: scope to "items the v5.7.x cycle's additions
-earned," not "all refactor opportunities ever."
+**v5.7.48 (TRUE CLOSEOUT BACKSTOP — CLAUDE.md 11-step).**
+v5.7.47 closed the refactor pass (2 consolidations: ts_parse_p56
+→ test_each, lib/json.cyr walker unification). v5.7.48 runs the
+full closeout protocol per CLAUDE.md §"Closeout Pass":
+mechanical (self-host verify, bootstrap closure, full check.sh)
+→ judgment-call (heap map audit, dead code audit, refactor pass
+already done, code review pass, cleanup sweep) → compliance
+(security re-scan, downstream check) → docs (CHANGELOG / roadmap
+/ vidya sync — vidya needs explicit refresh per minor; falls out
+of sync silently). Hard cap: cc5 stays byte-identical OR a
+single-byte VERSION-bump change for the v5.8.0 cut. Anything
+beyond closeout-shape work forces v5.8.x. **Authorized headroom
+v5.7.49-50 unused** — planned finish at v5.7.48 holds.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
@@ -1697,32 +1732,17 @@ Shipped:
 - **v5.7.44** ✅ TS variadic tuple types — AST representation (new `TS_AST_TYPE_REST = 316` AST kind wraps tuple elements preceded by `...`; `TS_PARSE_TYPE_TUPLE` `is_rest` flag tracks `...` and emits REST wrapper after element type + optional wrapping; honest premise check at slot entry caught stale pin claim — all 7 variadic forms already parsed rc=0; real gap was AST loss of spread distinction; first slot of the v5.7.44-46 advanced-TS suite, `ts_parse_p55` group adds 18 assertions in 8 sub-groups; cc5 720,640 → 720,864 B (+224 B); 4 TS group runners clean (1143 total TS assertions); regression-ts-variadic-tuples.sh gate 4ay 7 real-world-shape groups; check.sh 62/62 PASS.)
 - **v5.7.45** ✅ TS 5.0 const type parameters `<const T>` — parse acceptance (~5 LOC `TS_TOK_KW_CONST` consume in `TS_PARSE_TYPE_PARAMS` before IDENT expect; per "parse loosely, type strictly" — no AST emission since existing parser doesn't push `TS_AST_DECL_TYPE_PARAM` for any param yet; premise-check at slot entry surfaced 4 of 5 remaining pin items already parse rc=0 — only `<const T>` had real gap with `code=3 tok=102`; honest scope-shrink medium→small called out to user; cc5 720,864 → 720,928 B (+64 B); `ts_parse_p56` group 13 new assertions in 12 sub-groups (function/class/iface/alias/method/arrow + extends + default + mixed + multiple + complex combo + plain regression); 4 TS group runners clean (1156 total TS assertions); regression-ts-const-type-params.sh gate 4az 6 real-world groups; check.sh 63/63 PASS.)
 - **v5.7.46** ✅ v5.7.x advanced-TS pin audit — 4 stale-pin items closed (zero compiler change; cc5 unchanged at 720,928 B; reframed to audit-pass after v5.7.45 bisection found 4/5 remaining pin items already parse rc=0; tcyr `ts_parse_p57` group adds 25 new assertions in 7 sub-groups covering `as const` 4-shape, `satisfies` postfix 7-shape incl. TS 5.0 `as const satisfies` idiom, `never`/`unknown` 9-shape, conditional types 14-shape across basic/nested/infer/distributive incl. `Unwrap`/`ElementOf`/`ArgsOf`/`ReturnT`/`Head`/`Tail`/`Filter` standard utils; single combined regression-ts-advanced-pin-audit.sh gate 4ba with 4 sub-sections embedding zod/react/redux/TS-5.0 patterns; 4 TS group runners clean (1181 total TS assertions); SY corpus unchanged 2053+435; check.sh 64/64 PASS. **v5.7.x advanced-TS pin RETIRED — all 8 items ✅**.)
+- **v5.7.47** ✅ refactor pass — testing + codebase (zero compiler change; cc5 unchanged at 720,928 B; 2 consolidations: (1) `ts_parse_p56` 13 parallel-shape parse-rc cases → `test_each` over (source, label) pairs; tcyr now includes `lib/test.cyr` for transitive assert + fnptr access; (2) `lib/json.cyr` `_jb_walk` + `_jb_walk_pretty` merged into unified `_jb_walk(sb, v, indent, level)` walker with `indent` param driving compact (=0) / pretty (>0) mode; behavior preserved end-to-end across all 4 JSON tcyrs (190 assertions) + 3 regression gates exact-byte cmp + 4 TS group runners (1181 assertions); skipped: `json_stream` scalars + `ts_parse_p55`/`p57` (heterogeneous shapes per v5.7.43 discipline); LOC delta -106 lines net while preserving 100% assertion coverage; check.sh 64/64 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.46 ship —
+Queue (firm assignments as of 2026-04-30 at v5.7.47 ship —
 **backstop bumped v5.7.47 → v5.7.48** at v5.7.43 ship; advanced
 TS suite cascaded +1 from v5.7.43-45 → v5.7.44-46;
 v5.7.44 ✅ variadic tuple AST; v5.7.45 ✅ const type params;
 v5.7.46 ✅ advanced-TS pin audit (8/8 pin items closed, pin
-RETIRED). **User-authorized headroom v5.7.49-50 unused** —
-audit-pass surfaced no additional gaps; planned finish at
-v5.7.48 holds):
-
-- **v5.7.47** — **Refactor pass — testing + codebase**
-  (decided 2026-04-30; standalone slot rather than bundling
-  into closeout). Migrates tcyrs with 3+ parallel-assertion
-  runs to `test_each` (json_pointer §5 corpus, json_stream
-  scalars, TS group runners' parallel blocks). Consolidates
-  any `_TARGET_X` branches the v5.7.x cycle added.
-  Audits any new heap regions for stale offsets. **Hard
-  cap**: cc5 stays byte-identical at whatever size it is at
-  v5.7.46 ship (currently 720,928 B at v5.7.45). If a refactor
-  would change cc5 bytes, it defers to v5.8.0 first patch per
-  CLAUDE.md's closeout-pass §6 rule.
-
-  **Discipline**: scope to "items the v5.7.x cycle's additions
-  earned," not "all refactor opportunities ever." This is the
-  bounded version of CLAUDE.md closeout-pass §6 (Refactor pass)
-  pulled into its own slot for audit-trail clarity.
+RETIRED); v5.7.47 ✅ refactor pass — testing + codebase
+(2 consolidations, -106 LOC, cc5 byte-identical). **User-
+authorized headroom v5.7.49-50 unused** — refactor surfaced no
+additional gaps; planned finish at v5.7.48 holds):
 
 - **v5.7.48** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.47;
   CLAUDE.md 11-step). Hard upper bound; anything past forces

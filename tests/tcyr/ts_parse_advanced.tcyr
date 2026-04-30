@@ -12,7 +12,10 @@ include "lib/string.cyr"
 include "lib/fmt.cyr"
 include "lib/alloc.cyr"
 include "lib/syscalls.cyr"
+include "lib/vec.cyr"
+include "lib/fnptr.cyr"
 include "lib/assert.cyr"
+include "lib/test.cyr"   # v5.7.47: pulls assert.cyr + fnptr.cyr; provides test_each
 
 include "src/frontend/ts/lex.cyr"
 include "src/frontend/ts/parse.cyr"
@@ -149,10 +152,27 @@ fn _ts_parse_p55_parse(src) {
 }
 
 # ── helpers from ts_parse_p56 (v5.7.45 const type params) ──
+# v5.7.47 refactor: migrated 14 parallel-shape parse-rc cases to
+# `test_each` via lib/test.cyr. _ts_parse_p56_check is the per-case
+# fn dispatched by test_each; case shape is alloc(16) with payload
+# +0=source-cstr, +8=label-cstr.
 fn _ts_parse_p56_parse(src) {
     var nt = TS_LEX(ts_base, src, strlen(src));
     if (nt < 0) { return 0 - 1; }
     return TS_PARSE(ts_base);
+}
+fn _ts_parse_p56_case(src, label) {
+    var c = alloc(16);
+    store64(c,     src);
+    store64(c + 8, label);
+    return c;
+}
+fn _ts_parse_p56_check(c) {
+    var src   = load64(c);
+    var label = load64(c + 8);
+    var rc    = _ts_parse_p56_parse(src);
+    assert(rc >= 0, label);
+    return 0;
 }
 
 # ── helpers from ts_parse_p57 (v5.7.46 audit-pass: 4 stale-pin items) ──
@@ -889,70 +909,29 @@ fn ts_parse_test_ts_parse_p55() {
 }
 
 # ── ts_parse_p56 (v5.7.45 const type params — TS 5.0) ─────
+# v5.7.47 refactor: 14 parallel-shape parse-rc cases collapsed
+# from ~70 lines of inline assertions to a single test_each call
+# over (source, label) pairs. Each case is identical shape:
+# parse → assert rc>=0. test_group fires per-case for granular
+# failure attribution.
 fn ts_parse_test_ts_parse_p56() {
-    # ─── plain `<const T>` on function decl ───────────────────────
-    test_group("const type param: function <const T>");
-    var rc = _ts_parse_p56_parse("function id<const T>(x: T): T { return x; }");
-    assert(rc >= 0, "function <const T>");
-
-    # ─── `<const T extends C>` constrained ────────────────────────
-    test_group("const type param: with extends constraint");
-    rc = _ts_parse_p56_parse("function pick<const K extends string>(key: K) { return key; }");
-    assert(rc >= 0, "function <const K extends string>");
-
-    # ─── `<const T = D>` defaulted ────────────────────────────────
-    test_group("const type param: with default");
-    rc = _ts_parse_p56_parse("function f<const T = \"x\">(x: T): T { return x; }");
-    assert(rc >= 0, "function <const T = default>");
-
-    # ─── mixed `<T, const U, V>` ──────────────────────────────────
-    test_group("const type param: mixed const + non-const");
-    rc = _ts_parse_p56_parse("function mix<T, const U, V>(a: T, b: U, c: V) {}");
-    assert(rc >= 0, "function <T, const U, V>");
-
-    # ─── on class decl ────────────────────────────────────────────
-    test_group("const type param: class <const T>");
-    rc = _ts_parse_p56_parse("class Box<const T> { constructor(public v: T) {} }");
-    assert(rc >= 0, "class Box<const T>");
-
-    # ─── on type alias ────────────────────────────────────────────
-    test_group("const type param: type alias <const T>");
-    rc = _ts_parse_p56_parse("type Wrap<const T> = T;");
-    assert(rc >= 0, "type Wrap<const T>");
-
-    # ─── on arrow fn ──────────────────────────────────────────────
-    test_group("const type param: arrow <const T>");
-    rc = _ts_parse_p56_parse("const f = <const T>(x: T): T => x;");
-    assert(rc >= 0, "arrow <const T>");
-
-    # ─── on class method ──────────────────────────────────────────
-    test_group("const type param: class method <const T>");
-    rc = _ts_parse_p56_parse("class C { method<const T>(x: T): T { return x; } }");
-    assert(rc >= 0, "class method <const T>");
-
-    # ─── on interface method ──────────────────────────────────────
-    test_group("const type param: interface method <const T>");
-    rc = _ts_parse_p56_parse("interface I { method<const T>(x: T): T; }");
-    assert(rc >= 0, "interface method <const T>");
-
-    # ─── multiple const params ────────────────────────────────────
-    test_group("const type param: multiple const params");
-    rc = _ts_parse_p56_parse("function f<const A, const B>(a: A, b: B) {}");
-    assert(rc >= 0, "function <const A, const B>");
-
-    # ─── complex combo: const + extends + default ─────────────────
-    test_group("const type param: const + extends + default");
-    rc = _ts_parse_p56_parse("function f<const T extends string = \"x\">(x: T): T { return x; }");
-    assert(rc >= 0, "<const T extends string = default>");
-
-    # ─── regression: plain `<T>` still works ──────────────────────
-    test_group("regression: plain <T> still works");
-    rc = _ts_parse_p56_parse("function id<T>(x: T): T { return x; }");
-    assert(rc >= 0, "plain <T>");
-
-    rc = _ts_parse_p56_parse("function f<T extends U, V = W>(x: T) {}");
-    assert(rc >= 0, "plain <T extends U, V = W>");
-
+    test_group("const type params (v5.7.45 — table-driven via test_each)");
+    var cases = vec_new();
+    vec_push(cases, _ts_parse_p56_case("function id<const T>(x: T): T { return x; }",                                "function <const T>"));
+    vec_push(cases, _ts_parse_p56_case("function pick<const K extends string>(key: K) { return key; }",              "function <const K extends string>"));
+    vec_push(cases, _ts_parse_p56_case("function f<const T = \"x\">(x: T): T { return x; }",                         "function <const T = default>"));
+    vec_push(cases, _ts_parse_p56_case("function mix<T, const U, V>(a: T, b: U, c: V) {}",                           "function <T, const U, V>"));
+    vec_push(cases, _ts_parse_p56_case("class Box<const T> { constructor(public v: T) {} }",                         "class Box<const T>"));
+    vec_push(cases, _ts_parse_p56_case("type Wrap<const T> = T;",                                                    "type Wrap<const T>"));
+    vec_push(cases, _ts_parse_p56_case("const f = <const T>(x: T): T => x;",                                         "arrow <const T>"));
+    vec_push(cases, _ts_parse_p56_case("class C { method<const T>(x: T): T { return x; } }",                         "class method <const T>"));
+    vec_push(cases, _ts_parse_p56_case("interface I { method<const T>(x: T): T; }",                                  "interface method <const T>"));
+    vec_push(cases, _ts_parse_p56_case("function f<const A, const B>(a: A, b: B) {}",                                "function <const A, const B>"));
+    vec_push(cases, _ts_parse_p56_case("function f<const T extends string = \"x\">(x: T): T { return x; }",          "<const T extends string = default>"));
+    # Regressions: plain (no `const` modifier) still works.
+    vec_push(cases, _ts_parse_p56_case("function id<T>(x: T): T { return x; }",                                      "regression: plain <T>"));
+    vec_push(cases, _ts_parse_p56_case("function f<T extends U, V = W>(x: T) {}",                                    "regression: plain <T extends U, V = W>"));
+    test_each(cases, &_ts_parse_p56_check);
     return 0;
 }
 

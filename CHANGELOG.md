@@ -4,6 +4,134 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.47] — 2026-04-30
+
+**REFACTOR PASS — testing + codebase**. Standalone slot per
+CLAUDE.md closeout-pass §6 ("Refactor pass") carved out for
+audit-trail clarity rather than bundling into v5.7.48 closeout.
+Bounded scope: items the v5.7.x cycle's additions earned, not
+all refactor opportunities ever.
+
+**Hard cap — respected**: cc5 stays byte-identical at
+**720,928 B** (unchanged from v5.7.45). lib/json.cyr + tcyr
+changes are invisible to the cc5 build.
+
+### Discovery (3-pronged)
+
+Per CLAUDE.md closeout-pass §6 — looked for parallel codepaths,
+arch-branch consolidations, and stale heap regions earned by
+v5.7.x additions:
+
+1. **tcyr migration candidates** (3+ parallel-shape blocks): 1
+   clear win surfaced — `ts_parse_p56` (v5.7.45 const type
+   params) had 13 cases of identical shape `parse_one(SRC);
+   assert(rc >= 0, LABEL)`. Skipped: `ts_parse_p55` (v5.7.44)
+   and `p57` (v5.7.46) — heterogeneous AST-introspection /
+   per-group different post-conditions, migration would obscure
+   structure. Skipped: `json_stream` scalar-inputs section —
+   pin called it out but each block has different value-checks
+   (last_int / last_bool / streq), heterogeneous per the
+   v5.7.43 json_pointer migration discipline (only the 8
+   homogeneous (path → int) cases migrated; 3 outliers stayed
+   inline).
+2. **Arch-branch consolidation**: nothing surfaced. v5.7.x
+   added f64 ops (v5.7.30/31), syscall-surface gaps (v5.7.35),
+   codebuf cap raise (v5.7.27/34) — all clean additions in
+   their respective backend / syscall files, no parallel-
+   branch consolidation candidates earned.
+3. **Heap region audit**: nothing surfaced. v5.7.20 / v5.7.40
+   / v5.7.41 / v5.7.42 used `alloc()` not fixed regions; v5.7.27
+   reshuffle was already audited at ship; v5.7.44 added
+   `TS_AST_TYPE_REST` AST kind under existing `TS_AST_NODES_OFF`
+   (no new region). Heapmap.sh PASS.
+
+### Refactored
+
+**1. `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p56`
+→ `test_each`**. ~70 lines of inline parse-rc assertions
+collapsed to a single `test_each` call over 13 `(source,
+label)` pairs. Each case is a 16-byte `alloc` with payload
++0=source-cstr, +8=label-cstr; `_ts_parse_p56_check` is the
+per-case fn dispatched by `test_each`. Behavior preserved
+(13 → 13 assertions, identical PASS/FAIL semantics). The
+tcyr now `include`s `lib/test.cyr` (transitively pulls
+`lib/assert.cyr` + `lib/fnptr.cyr`) — same one-include
+pattern v5.7.42 introduced for `lib/json.cyr`.
+
+**2. `lib/json.cyr` `_jb_walk` + `_jb_walk_pretty`
+consolidation**. Pre-v5.7.47 these were two near-identical
+~50-line walkers differing only in:
+- newline emission (compact: none; pretty: `_jb_emit_indent`
+  before each member + before close bracket)
+- key separator (compact: `:`; pretty: `: `)
+- empty-container handling (compact: natural via `i < n`
+  loop; pretty: explicit `if (n == 0) { sb_add("[]") }
+  else { ... }` to avoid trailing newline+indent before close)
+
+Unified into a single `_jb_walk(sb, v, indent, level)` with the
+`indent` param driving the mode: `0` = compact (no newlines,
+`":"`, no special case needed), `>0` = pretty (newlines via
+`_jb_emit_indent`, `": "`, `if (n > 0)` guard handles both
+modes correctly — compact + n=0 emits `[]`/`{}` naturally
+because the loop doesn't run; pretty + n=0 same path skips
+the trailing emit_indent before close bracket). `json_v_build`
+calls with `indent=0`; `json_v_build_pretty` calls with the
+caller's `indent`. Behavior preserved end-to-end across all
+four JSON tcyrs (190 assertions) and all three JSON regression
+gates (exact-byte cmp output for compact + pretty + stream +
+pointer fixtures).
+
+### Verification
+
+- cc5 unchanged at **720,928 B** (zero compiler change). Two-
+  step self-host clean.
+- All 4 JSON tcyrs PASS post-consolidation: `json_engine` 71 +
+  `json_pretty` 18 + `json_stream` 65 + `json_pointer` 36 =
+  **190 total JSON assertions**.
+- All 3 JSON regression gates PASS exact-byte cmp:
+  `regression-json-pretty.sh` (canonical 8-line shape),
+  `regression-json-stream.sh` (16-event canonical trace),
+  `regression-json-pointer.sh` (8-case canonical fixture).
+- All 4 TS group runners PASS post-p56-migration: `ts_parse_core`
+  257 + `ts_parse_decls` 157 + `ts_parse_advanced` 197 (same
+  total assertions; structure consolidated) + `ts_lex_combined`
+  570 = **1181 total TS assertions**.
+- SY corpus regressions unchanged: 2053/2053 `.ts`, 435/435
+  `.tsx`.
+- `sh scripts/check.sh` — **64/64 PASS** (no new gate; refactor
+  pass introduces no new functionality, just consolidations).
+
+### LOC delta
+
+- `lib/json.cyr`: -54 net lines (consolidated walker; one fn
+  body + helpers replaces two near-identical ones).
+- `tests/tcyr/ts_parse_advanced.tcyr`: -52 net lines (p56 body
+  collapsed to test_each call, +helpers).
+- Net repo: -106 lines while preserving 100% of assertion
+  coverage.
+
+### Slot cascade post-v5.7.47
+
+- v5.7.47 ✅ this slot — refactor pass complete
+- v5.7.48 — TRUE CLOSEOUT BACKSTOP (next; CLAUDE.md 11-step)
+
+User-authorized headroom v5.7.49-50 unused. Planned finish at
+v5.7.48 holds.
+
+### Out of scope (deliberate)
+
+- **`json_stream` scalar-inputs `test_each` migration** —
+  heterogeneous per-case value checks; migration would inflate
+  the case struct with conditional logic, obscuring readability.
+  Same discipline as v5.7.43 json_pointer §5 migration (only
+  homogeneous shapes migrated).
+- **`ts_parse_p55` / `p57` migration** — both have AST
+  introspection or per-group different post-conditions; not
+  homogeneous-shape candidates.
+- **TS parser type-param AST emission** — pinned at v5.7.45
+  ship; refactor scope is "items v5.7.x earned," not new
+  feature work. Pin behind future typechecker consumer.
+
 ## [5.7.46] — 2026-04-30
 
 **v5.7.x ADVANCED-TS PIN AUDIT — 4 stale-pin items closed**.

@@ -201,6 +201,101 @@ toolchain side is unblocked.
 
 
 
+## v5.7.47 ✅ refactor pass — testing + codebase — SHIPPED
+
+**Shipped 2026-04-30.** Standalone slot per CLAUDE.md
+closeout-pass §6 ("Refactor pass") carved out for audit-trail
+clarity rather than bundling into v5.7.48 closeout. Bounded
+scope: items the v5.7.x cycle's additions earned, not all
+refactor opportunities ever.
+
+**Hard cap respected**: cc5 stays byte-identical at
+**720,928 B** (unchanged from v5.7.45). lib/json.cyr + tcyr
+changes are invisible to the cc5 build chain.
+
+**Discovery (3-pronged)**: tcyr migration candidates
+(1 win surfaced — `ts_parse_p56`), arch-branch consolidations
+(nothing earned), heap region audit (nothing earned —
+v5.7.20/40/41/42 used `alloc()`, v5.7.27 reshuffle pre-audited
+at ship, v5.7.44 added `TS_AST_TYPE_REST` under existing
+`TS_AST_NODES_OFF`).
+
+**Refactored:**
+
+1. **`tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p56`
+   → `test_each`**. ~70 lines of inline parse-rc assertions
+   collapsed to a single `test_each` call over 13 `(source,
+   label)` pairs. Each case is a 16-byte alloc (+0=src cstr,
+   +8=label cstr); `_ts_parse_p56_check` is the per-case fn.
+   Behavior preserved (13 → 13 assertions). The tcyr now
+   `include`s `lib/test.cyr` (transitively pulls
+   `lib/assert.cyr` + `lib/fnptr.cyr`) — same one-include
+   pattern v5.7.42 introduced for `lib/json.cyr`.
+
+2. **`lib/json.cyr` `_jb_walk` + `_jb_walk_pretty`
+   consolidation**. Pre-v5.7.47 these were two near-identical
+   ~50-line walkers differing only in newline emission, key
+   separator, and empty-container handling. Unified into
+   single `_jb_walk(sb, v, indent, level)` with the `indent`
+   param driving the mode (0 = compact, >0 = pretty). The
+   `if (n > 0)` guard handles both modes correctly: compact
+   + n=0 emits `[]`/`{}` naturally because the loop doesn't
+   run; pretty + n=0 same path skips the trailing
+   `_jb_emit_indent` before close bracket. `json_v_build`
+   calls with `indent=0`; `json_v_build_pretty` calls with
+   the caller's `indent`. Behavior preserved end-to-end.
+
+**Verification:**
+
+- cc5 unchanged at 720,928 B. Two-step self-host clean.
+- All 4 JSON tcyrs PASS post-consolidation: `json_engine` 71
+  + `json_pretty` 18 + `json_stream` 65 + `json_pointer` 36 =
+  **190 total JSON assertions**.
+- All 3 JSON regression gates exact-byte cmp PASS:
+  `regression-json-pretty.sh` (canonical 8-line shape),
+  `regression-json-stream.sh` (16-event canonical trace),
+  `regression-json-pointer.sh` (8-case canonical fixture).
+- All 4 TS group runners PASS post-p56-migration: `ts_parse_core`
+  257 + `ts_parse_decls` 157 + `ts_parse_advanced` 197 (same
+  total assertions; structure consolidated) + `ts_lex_combined`
+  570 = **1181 total TS assertions**.
+- SY corpus regressions unchanged: 2053/2053 `.ts`, 435/435
+  `.tsx`.
+- `sh scripts/check.sh` — 64/64 PASS (no new gate; refactor
+  pass introduces no new functionality, just consolidations
+  within existing gate coverage).
+
+**LOC delta:** -106 net lines (lib/json.cyr -54, advanced.tcyr
+-52) preserving 100% of assertion coverage.
+
+**Skipped (deliberate, with discipline):**
+
+- **`json_stream` scalar-inputs `test_each` migration** —
+  heterogeneous per-case value checks (last_int / last_bool /
+  streq); migration would inflate the case struct with
+  conditional logic, obscuring readability. Same discipline
+  as v5.7.43 json_pointer §5 migration (only homogeneous
+  shapes migrate; heterogeneous stay inline).
+- **`ts_parse_p55` / `p57` migration** — both have AST
+  introspection (p55) or per-group different post-conditions
+  (p57); not homogeneous-shape candidates.
+
+**Slot cascade post-v5.7.47:**
+
+- v5.7.47 ✅ this slot
+- v5.7.48 — TRUE CLOSEOUT BACKSTOP (next; CLAUDE.md 11-step)
+
+User-authorized headroom v5.7.49-50 unused. Planned finish at
+v5.7.48 holds.
+
+**Out of scope (future polish):**
+
+- **TS parser type-param AST emission** — pinned at v5.7.45
+  ship; not refactor-pass scope. Pin behind future typechecker
+  consumer.
+
+
+
 ## v5.7.46 ✅ v5.7.x advanced-TS pin audit — 4 stale-pin items closed — SHIPPED
 
 **Shipped 2026-04-30.** Third and final slot of the v5.7.44-46
