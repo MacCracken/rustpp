@@ -638,6 +638,15 @@ if [ "$vt_result" -ne 0 ]; then cat /tmp/audit_vt_$$; fi
 rm -f /tmp/audit_vt_$$
 echo ""
 
+# ── 4az. const type parameters (TS 5.0) (v5.7.45) ──
+echo "── const type params ──"
+sh "$ROOT/tests/regression-ts-const-type-params.sh" > /tmp/audit_ctp_$$ 2>&1
+ctp_result=$?
+check "TS const type params <const T> — parse acceptance (v5.7.45)" "$ctp_result"
+if [ "$ctp_result" -ne 0 ]; then cat /tmp/audit_ctp_$$; fi
+rm -f /tmp/audit_ctp_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

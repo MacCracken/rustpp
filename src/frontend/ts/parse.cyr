@@ -3205,6 +3205,19 @@ fn TS_PARSE_TYPE_PARAMS(ts_base) {
             if (n > 0) {
                 if (TS_PARSE_EXPECT(ts_base, TS_TOK_COMMA) < 0) { return 0 - 1; }
             }
+            # v5.7.45: optional `const` modifier (TS 5.0). `<const T>`
+            # narrows inferred literal types in the typechecker; at
+            # parse-acceptance level we just consume the keyword so
+            # the IDENT expect below sees the param name. Per
+            # "parse loosely, type strictly" — typechecker enforces
+            # const-only-on-type-param-position, parser is permissive.
+            # No AST emission: TS_PARSE_TYPE_PARAMS doesn't push
+            # TS_AST_DECL_TYPE_PARAM nodes for any param yet (just
+            # counts), so adding emission only for `const` ones would
+            # be inconsistent — pin AST work for a future slot.
+            if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_CONST) {
+                TS_PARSE_CONSUME(ts_base);
+            }
             # Param name
             if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
             # Optional `extends ConstraintType`

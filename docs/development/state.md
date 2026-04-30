@@ -5,6 +5,51 @@
 
 ## Version
 
+**5.7.45** (shipped 2026-04-30 — **TS 5.0 CONST TYPE PARAMETERS
+— `<const T>` parse acceptance**. Second slot of the v5.7.44-46
+advanced TS feature suite. Picked from pin list per "highest-
+friction at slot-claim time" + v5.7.44 premise-check pattern:
+empirically test each remaining pin item before scoping.
+**Premise-check findings**: of the 5 remaining advanced-TS pin
+items, **4 already parsed rc=0** against current cc5 (`as
+const`, `satisfies` postfix, `never`/`unknown` primitives,
+conditional types in basic / nested / `infer` / distributive
+forms); only `<const T>` had a real gap, failing with `code=3
+tok=102` (TS_TOK_KW_CONST) at the type-parameter position.
+The 4 already-passing items move to v5.7.46 audit-pass.
+**Honest scope-shrink call**: third premise-check in a row
+showing pinned items work — v5.7.44 was magnum→medium, v5.7.45
+is medium→small. Called out to user; user authorized small fix
++ headroom up to v5.7.50 if more work surfaces. **What landed**:
+~5 LOC in `TS_PARSE_TYPE_PARAMS` consuming optional
+`TS_TOK_KW_CONST` before the IDENT expect. Per "parse loosely,
+type strictly" — typechecker enforces const-only-in-type-param-
+position, parser stays permissive. **Not added** (deliberate):
+no AST emission for type params. Existing parser counts type
+params but doesn't push `TS_AST_DECL_TYPE_PARAM` nodes; adding
+emission only for `const`-modified params would be inconsistent.
+AST emission pinned for a future slot if a typechecker consumer
+surfaces. **Verification**: cc5 self-host two-step byte-
+identical at **720,928 B** (was 720,864 at v5.7.44; +64 B);
+`tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p56` **13
+new assertions** in 12 groups (plain on function/class/iface/
+alias/method/arrow, with extends constraint, with default,
+mixed `<T, const U, V>`, multiple const params, complex combo,
+plain regression); 4 TS group runners clean (core 257 + decls
+157 + advanced 172 + lex 570 = **1156 total TS assertions**);
+`tests/regression-ts-const-type-params.sh` gate 4az 6 real-
+world groups; check.sh **63/63 PASS** (was 62; +gate 4az).
+**Pin list status** (8-item v5.7.x advanced-TS pin): **5 of 8
+shipped** (mapped + asserts + decorators + variadic tuples +
+const type params); 4 remaining all parse rc=0 today (`as
+const`, `satisfies` postfix, `never`/`unknown` audit,
+conditional types corpus) — v5.7.46 = audit-pass marking them
+✅ with empirical proof. **Backstop**: user authorized headroom
+to v5.7.50 if needed; planned finish stays at v5.7.48.
+**Out of scope**: type-param AST emission (pin behind future
+typechecker consumer); const-position enforcement (typechecker
+concern).)
+
 **5.7.44** (shipped 2026-04-30 — **TS VARIADIC TUPLE TYPES —
 AST representation (`TS_AST_TYPE_REST`)**. First slot of the
 v5.7.44-46 advanced TS feature suite. Picked from the pin list
@@ -1505,13 +1550,14 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **720,864 B** at v5.7.44 (+224 B from v5.7.43's
-  720,640 — TS_AST_TYPE_REST AST kind + tuple-element wrap logic).
+- **cc5 (x86_64)**: **720,928 B** at v5.7.45 (+64 B from v5.7.44's
+  720,864 — `TS_TOK_KW_CONST` consume in `TS_PARSE_TYPE_PARAMS`).
   Aggregate growth across v5.7.x: v5.7.5 697,840 (JSX) → v5.7.20
   ~712 KB (JSON tagged tree) → v5.7.27 ~720 KB (codebuf 1MB→3MB
   reshuffle) → v5.7.41 720,640 (JSON streaming parser, lib-only
-  no cc5 change actually) → v5.7.44 720,864. `cc5 --version`
-  reports `cc5 5.7.44`.
+  no cc5 change actually) → v5.7.44 720,864 (variadic tuples
+  AST) → v5.7.45 720,928 (const type params). `cc5 --version`
+  reports `cc5 5.7.45`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -1542,8 +1588,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 62/62 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.44 added gate 4ay `regression-ts-variadic-tuples.sh` covering 7 real-world variadic-tuple shapes — `Push<T,U>`, `Cons<H,T>`, `Concat<A,B>`, leading-spread, multi-spread, labeled, optional+spread, plain-tuple regression)
-- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.44 grew `ts_parse_advanced.tcyr` with `ts_parse_p55` group — 18 new assertions for variadic tuple AST verification on top of the 141 pre-v5.7.44 assertions; advanced.tcyr now 159; total TS coverage across 4 group runners = 1143 assertions)
+- **check.sh**: 63/63 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; v5.7.45 added gate 4az `regression-ts-const-type-params.sh` covering 6 real-world `<const T>` shapes — function/class/iface/alias/method/arrow, with extends constraint, with default, mixed const+non-const, plain regression)
+- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.45 grew `ts_parse_advanced.tcyr` with `ts_parse_p56` group — 13 new assertions for const type params; advanced.tcyr now 172 (was 159 at v5.7.44, 141 pre-v5.7.44); total TS coverage across 4 group runners = 1156 assertions)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1556,18 +1602,20 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.45 (advanced TS feature suite — second of three).**
-v5.7.44 shipped variadic tuple AST representation
-(`TS_AST_TYPE_REST` AST kind + parser wrap). v5.7.45 picks the
-next-highest-friction item from the 5 remaining advanced-TS pin
-items: `as const` explicit, const type params (TS 5.0),
-`satisfies` postfix verify, `never`/`unknown` primitive audit,
-conditional types exhaustive corpus. Per the v5.7.44 ship's
-honest premise check, the next pick should also empirically
-verify the gap before scoping (some pins may already work at
-parse-acceptance like variadic tuples did). If a downstream
-consumer files a non-SY parse failure on a TS shape before
-slot claim, that shape jumps to the front of the queue.
+**v5.7.46 (advanced TS feature suite — audit-pass slot).**
+v5.7.44 shipped variadic tuple AST; v5.7.45 shipped const type
+params. v5.7.45's premise-check bisection found that the 4
+remaining pin items (`as const`, `satisfies` postfix,
+`never`/`unknown` primitives, conditional types in basic /
+nested / `infer` / distributive forms) **all empirically parse
+rc=0** today. v5.7.46 reframes from "feature implementation"
+to "audit-pass": formally verify each shape against the real-
+world TS corpus, add regression gates pinning the empirical
+findings, and mark the 4 items ✅ in the pin list with proof.
+Likely the LAST advanced-TS slot of the v5.7.x cycle — frees
+v5.7.47 (refactor pass) and v5.7.48 (true closeout backstop)
+as planned. **Headroom**: user authorized v5.7.49-50 if
+additional work surfaces; planned finish stays at v5.7.48.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
@@ -1607,34 +1655,33 @@ Shipped:
 - **v5.7.42** ✅ `lib/json.cyr` JSON Pointer (RFC 6901) (`json_v_pointer(v, ptr)` + `_cstr` variant + `_jp_obj_lookup` length-explicit key match + `_jp_parse_idx` strict §4 index parser + `_jp_token_unescape` single-pass `~1`→`/` / `~0`→`~`. Plus hygiene fix: `lib/json.cyr` now `include`s `lib/fnptr.cyr` to close the v5.7.41 incomplete-dep regression; tcyr 36 assertions in 7 groups + regression-json-pointer.sh gate 4aw 8-case exact-byte fixture; all four JSON tcyrs run clean post-fix (190 total assertions across the JSON surface). Zero compiler change; cc5 unchanged at 720,640 B; check.sh 60/60 PASS. **Closes the v5.7.20-pinned JSON depth triple.**)
 - **v5.7.43** ✅ `lib/test.cyr` v1 — table-driven testing (new stdlib module; `test_each(cases_vec, fp)` via `fncall1` dispatch; transitively `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one include and get the unit-test stack — same one-include pattern as v5.7.42's `lib/json.cyr`→`lib/fnptr.cyr` fix; demo migration of json_pointer.tcyr §5 corpus 8 homogeneous assertions → single test_each call, behavior preserved 36→36 PASS; tcyr 12 assertions + regression-test-lib.sh gate 4ax end-to-end trace; first slot of the 2026-04-30 testing-framework split decision; option-E test-harness pin retired unclaimed; backstop bumped v5.7.47→v5.7.48 to absorb v5.7.43 + v5.7.47 split. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 61/61 PASS.)
 - **v5.7.44** ✅ TS variadic tuple types — AST representation (new `TS_AST_TYPE_REST = 316` AST kind wraps tuple elements preceded by `...`; `TS_PARSE_TYPE_TUPLE` `is_rest` flag tracks `...` and emits REST wrapper after element type + optional wrapping; honest premise check at slot entry caught stale pin claim — all 7 variadic forms already parsed rc=0; real gap was AST loss of spread distinction; first slot of the v5.7.44-46 advanced-TS suite, `ts_parse_p55` group adds 18 assertions in 8 sub-groups; cc5 720,640 → 720,864 B (+224 B); 4 TS group runners clean (1143 total TS assertions); regression-ts-variadic-tuples.sh gate 4ay 7 real-world-shape groups; check.sh 62/62 PASS.)
+- **v5.7.45** ✅ TS 5.0 const type parameters `<const T>` — parse acceptance (~5 LOC `TS_TOK_KW_CONST` consume in `TS_PARSE_TYPE_PARAMS` before IDENT expect; per "parse loosely, type strictly" — no AST emission since existing parser doesn't push `TS_AST_DECL_TYPE_PARAM` for any param yet; premise-check at slot entry surfaced 4 of 5 remaining pin items already parse rc=0 — only `<const T>` had real gap with `code=3 tok=102`; honest scope-shrink medium→small called out to user; cc5 720,864 → 720,928 B (+64 B); `ts_parse_p56` group 13 new assertions in 12 sub-groups (function/class/iface/alias/method/arrow + extends + default + mixed + multiple + complex combo + plain regression); 4 TS group runners clean (1156 total TS assertions); regression-ts-const-type-params.sh gate 4az 6 real-world groups; check.sh 63/63 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.44 ship —
+Queue (firm assignments as of 2026-04-30 at v5.7.45 ship —
 **backstop bumped v5.7.47 → v5.7.48** at v5.7.43 ship to
 absorb the v5.7.43 = `lib/test.cyr` v1 + v5.7.47 = refactor
-pass split decided 2026-04-30 after v5.7.42 ship; option E
-test-harness retired unclaimed; advanced TS suite cascaded +1
-from v5.7.43-45 → v5.7.44-46; v5.7.44 ✅ shipped variadic
-tuple AST):
+pass split; advanced TS suite cascaded +1 from v5.7.43-45 →
+v5.7.44-46; v5.7.44 ✅ shipped variadic tuple AST;
+v5.7.45 ✅ shipped const type params; v5.7.46 reframes from
+"feature implementation" to "audit-pass" since 4 remaining pin
+items all empirically parse rc=0. **User-authorized
+headroom** to v5.7.50 if additional work surfaces; planned
+finish stays at v5.7.48):
 
-- **v5.7.45–v5.7.46** — **Advanced TS feature suite (slots 2–3)**
-  (formerly v5.7.43-v5.7.45; +1 cascade at v5.7.43 ship to
-  absorb lib/test.cyr v1 ahead-of-queue claim;
-  v5.7.44 ✅ shipped variadic tuple AST representation;
-  #8 from the pin list at `roadmap.md §v5.7.x — patch slate`). Three slots; specific
-  items chosen at slot-claim time from the pinned list
-  (variadic tuples, const type params, satisfies postfix
-  verify, never/unknown audit, conditional-type exhaustive
-  corpus, `as const` explicit). New tests land in the
-  v5.7.37 grouped runners (`ts_parse_advanced.tcyr` is the
-  natural target for most; create a new group file if a
-  feature warrants its own topic). v5.7.37 settled the test
-  organisation; this triple delivers the feature work
-  against it.
-
-  Selection rule per slot: highest-friction item from the pin
-  list at the time the slot opens. If a downstream consumer
-  files a non-SY parse failure on a TS shape, that shape moves
-  to the front of the queue.
+- **v5.7.46** — **Advanced TS feature suite (slot 3 of 3) —
+  audit-pass on the 4 stale-pin items**
+  (formerly v5.7.43-v5.7.45 trio reduced to single audit slot;
+  v5.7.44 + v5.7.45 already shipped). The 4 items —
+  `as const` assertion expressions, `satisfies` postfix
+  operator verify, `never`/`unknown` primitive audit, and
+  conditional types exhaustive corpus (basic / nested /
+  `infer T` / distributive) — all empirically parsed `rc=0`
+  during the v5.7.45 premise-check bisection. Slot scope:
+  formal regression gates locking each shape against the SY
+  corpus + small fixture suites, mark each pin item ✅ with
+  empirical proof, retire the v5.7.x advanced-TS pin entirely.
+  Likely zero compiler change (the 4 items already work);
+  scope is gates + tcyr fixtures + doc updates.
 
 - **v5.7.47** — **Refactor pass — testing + codebase**
   (decided 2026-04-30; standalone slot rather than bundling
@@ -1643,7 +1690,8 @@ tuple AST):
   scalars, TS group runners' parallel blocks). Consolidates
   any `_TARGET_X` branches the v5.7.x cycle added.
   Audits any new heap regions for stale offsets. **Hard
-  cap**: cc5 stays byte-identical at 720,640 B. If a refactor
+  cap**: cc5 stays byte-identical at whatever size it is at
+  v5.7.46 ship (currently 720,928 B at v5.7.45). If a refactor
   would change cc5 bytes, it defers to v5.8.0 first patch per
   CLAUDE.md's closeout-pass §6 rule.
 

@@ -147,6 +147,13 @@ fn _ts_parse_p55_parse(src) {
     if (nt < 0) { return 0 - 1; }
     return TS_PARSE(ts_base);
 }
+
+# ── helpers from ts_parse_p56 (v5.7.45 const type params) ──
+fn _ts_parse_p56_parse(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    return TS_PARSE(ts_base);
+}
 # Walk node table forward, return idx of FIRST TS_AST_TYPE_TUPLE, or -1.
 fn _ts_parse_p55_find_tuple(ts_base) {
     var i = 0;
@@ -874,6 +881,74 @@ fn ts_parse_test_ts_parse_p55() {
     return 0;
 }
 
+# ── ts_parse_p56 (v5.7.45 const type params — TS 5.0) ─────
+fn ts_parse_test_ts_parse_p56() {
+    # ─── plain `<const T>` on function decl ───────────────────────
+    test_group("const type param: function <const T>");
+    var rc = _ts_parse_p56_parse("function id<const T>(x: T): T { return x; }");
+    assert(rc >= 0, "function <const T>");
+
+    # ─── `<const T extends C>` constrained ────────────────────────
+    test_group("const type param: with extends constraint");
+    rc = _ts_parse_p56_parse("function pick<const K extends string>(key: K) { return key; }");
+    assert(rc >= 0, "function <const K extends string>");
+
+    # ─── `<const T = D>` defaulted ────────────────────────────────
+    test_group("const type param: with default");
+    rc = _ts_parse_p56_parse("function f<const T = \"x\">(x: T): T { return x; }");
+    assert(rc >= 0, "function <const T = default>");
+
+    # ─── mixed `<T, const U, V>` ──────────────────────────────────
+    test_group("const type param: mixed const + non-const");
+    rc = _ts_parse_p56_parse("function mix<T, const U, V>(a: T, b: U, c: V) {}");
+    assert(rc >= 0, "function <T, const U, V>");
+
+    # ─── on class decl ────────────────────────────────────────────
+    test_group("const type param: class <const T>");
+    rc = _ts_parse_p56_parse("class Box<const T> { constructor(public v: T) {} }");
+    assert(rc >= 0, "class Box<const T>");
+
+    # ─── on type alias ────────────────────────────────────────────
+    test_group("const type param: type alias <const T>");
+    rc = _ts_parse_p56_parse("type Wrap<const T> = T;");
+    assert(rc >= 0, "type Wrap<const T>");
+
+    # ─── on arrow fn ──────────────────────────────────────────────
+    test_group("const type param: arrow <const T>");
+    rc = _ts_parse_p56_parse("const f = <const T>(x: T): T => x;");
+    assert(rc >= 0, "arrow <const T>");
+
+    # ─── on class method ──────────────────────────────────────────
+    test_group("const type param: class method <const T>");
+    rc = _ts_parse_p56_parse("class C { method<const T>(x: T): T { return x; } }");
+    assert(rc >= 0, "class method <const T>");
+
+    # ─── on interface method ──────────────────────────────────────
+    test_group("const type param: interface method <const T>");
+    rc = _ts_parse_p56_parse("interface I { method<const T>(x: T): T; }");
+    assert(rc >= 0, "interface method <const T>");
+
+    # ─── multiple const params ────────────────────────────────────
+    test_group("const type param: multiple const params");
+    rc = _ts_parse_p56_parse("function f<const A, const B>(a: A, b: B) {}");
+    assert(rc >= 0, "function <const A, const B>");
+
+    # ─── complex combo: const + extends + default ─────────────────
+    test_group("const type param: const + extends + default");
+    rc = _ts_parse_p56_parse("function f<const T extends string = \"x\">(x: T): T { return x; }");
+    assert(rc >= 0, "<const T extends string = default>");
+
+    # ─── regression: plain `<T>` still works ──────────────────────
+    test_group("regression: plain <T> still works");
+    rc = _ts_parse_p56_parse("function id<T>(x: T): T { return x; }");
+    assert(rc >= 0, "plain <T>");
+
+    rc = _ts_parse_p56_parse("function f<T extends U, V = W>(x: T) {}");
+    assert(rc >= 0, "plain <T extends U, V = W>");
+
+    return 0;
+}
+
 ts_parse_test_ts_parse_p43();
 ts_parse_test_ts_parse_p46();
 ts_parse_test_ts_parse_p48();
@@ -884,6 +959,7 @@ ts_parse_test_ts_parse_p52();
 ts_parse_test_ts_parse_p53();
 ts_parse_test_ts_parse_p54();
 ts_parse_test_ts_parse_p55();
+ts_parse_test_ts_parse_p56();
 
 var exit_code = assert_summary();
 syscall(60, exit_code);

@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.45] — 2026-04-30
+
+**TS 5.0 CONST TYPE PARAMETERS — `<const T>` parse acceptance**.
+Second slot of the v5.7.44-46 advanced TS feature suite. Picked
+from the pin list per "highest-friction at slot-claim time" + the
+v5.7.44 premise-check pattern: empirically test each remaining
+pin item before scoping.
+
+**Premise-check findings**: of the 5 remaining advanced-TS pin
+items, 4 already parsed `rc=0` against current cc5 (`as const`,
+`satisfies` postfix, `never`/`unknown` primitives, conditional
+types in basic / nested / `infer` / distributive forms). **Only
+`<const T>` had a real parse-acceptance gap**, failing with
+`code=3 tok=102` (TS_TOK_KW_CONST) at the type-parameter position.
+The other 4 stale-pin items move to v5.7.46 audit-pass to mark
+them ✅ in the pin list with empirical proof.
+
+**Honest scope-shrink call**: this is the third premise-check in
+a row showing pinned items work — v5.7.44 was magnum→medium,
+v5.7.45 is medium→small. Called out to the user; user authorized
+the small fix + headroom up to v5.7.50 if more work surfaces.
+
+cc5 grew 720,864 → **720,928 B** (+64 B for the optional
+`TS_TOK_KW_CONST` consume in `TS_PARSE_TYPE_PARAMS`).
+Two-step self-host clean.
+
+### Added
+
+**`TS_PARSE_TYPE_PARAMS` `const` modifier consume** — ~5 LOC
+between the comma-required check and the IDENT expect:
+
+```cyrius
+if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_CONST) {
+    TS_PARSE_CONSUME(ts_base);
+}
+# Param name
+if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+```
+
+Per "parse loosely, type strictly" precedent across the cyrius-ts
+P-series — typechecker will enforce const-only-in-type-param-
+position, parser stays permissive.
+
+### Not Added (deliberate)
+
+**No AST emission for type params**. The existing
+`TS_PARSE_TYPE_PARAMS` does NOT push `TS_AST_DECL_TYPE_PARAM`
+nodes for any param (just counts them and returns the count).
+Adding emission only for `const`-modified params would be
+inconsistent. AST emission for type params is pinned for a
+future slot if/when a downstream consumer surfaces a need (a
+typechecker would need it). v5.7.45 stays at parse-acceptance.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,928 B** (was
+  720,864 B at v5.7.44; +64 B for the const-consume).
+- `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p56` —
+  **13 new assertions** in 12 groups: plain `<const T>` on
+  function decl, with extends constraint, with default,
+  mixed `<T, const U, V>`, on class decl, on type alias, on
+  arrow fn, on class method, on interface method, multiple
+  const params, complex combo `<const T extends string = "x">`,
+  plus regressions verifying plain `<T>` still works.
+- All 4 TS group runners clean post-fix: `ts_parse_core` 257 +
+  `ts_parse_decls` 157 + `ts_parse_advanced` 172 (was 159
+  pre-v5.7.45; +13) + `ts_lex_combined` 570 = **1156 total
+  TS assertions**.
+- `tests/regression-ts-const-type-params.sh` (gate 4az) — 6
+  parse-acceptance groups: plain, extends, default, mixed,
+  class/iface/alias/method/arrow, plain regression.
+- `sh scripts/check.sh` — **63/63 PASS** (was 62/62; +gate 4az).
+
+### Pin list status (after v5.7.45)
+
+Original 8-item pin (§v5.7.x — patch slate):
+- ✅ Mapped types (v5.7.25)
+- ✅ asserts predicate signatures (v5.7.24)
+- ✅ Decorators TS 5.0 stage-3 (v5.7.26)
+- ✅ Variadic tuple types — AST representation (v5.7.44)
+- ✅ **Const type parameters TS 5.0 (v5.7.45)**
+- ⏳ `as const` assertion expressions [parses today]
+- ⏳ `satisfies` postfix verify [parses today]
+- ⏳ `never`/`unknown` audit [parses today]
+- ⏳ Conditional types — exhaustive corpus [parses today]
+
+**v5.7.46 framing**: 4 remaining items all empirically pass at
+parse-acceptance per v5.7.45's bisection. Slot becomes an audit-
+pass to formally verify each shape against the real-world TS
+corpus and pin them ✅ with regression coverage. Likely the
+last advanced-TS slot — frees v5.7.47 (refactor pass) and
+v5.7.48 (closeout backstop) as planned. **Headroom**: user
+authorized v5.7.49-50 if additional work surfaces.
+
+### Out of scope (future polish)
+
+- **Type-param AST emission** — `TS_PARSE_TYPE_PARAMS` returns a
+  count, not a children-list of `TS_AST_DECL_TYPE_PARAM` nodes.
+  When a typechecker phase lands, this becomes load-bearing.
+  Pin behind that consumer.
+- **Const enforcement** — TS only allows `const` modifier on
+  type params (not regular params, not return types). v5.7.45
+  parser accepts it broadly per "parse loosely, type strictly";
+  typechecker concern.
+
 ## [5.7.44] — 2026-04-30
 
 **TS VARIADIC TUPLE TYPES — AST representation

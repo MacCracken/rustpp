@@ -201,6 +201,98 @@ toolchain side is unblocked.
 
 
 
+## v5.7.45 ✅ TS 5.0 const type parameters — `<const T>` parse acceptance — SHIPPED
+
+**Shipped 2026-04-30.** Second slot of the v5.7.44-46 advanced
+TS feature suite. Picked from the pin list per "highest-friction
+at slot-claim time" + the v5.7.44 premise-check pattern.
+
+**Premise-check findings**: of the 5 remaining advanced-TS pin
+items, **4 already parsed `rc=0`** against current cc5 (`as
+const`, `satisfies` postfix, `never`/`unknown` primitives,
+conditional types in basic / nested / `infer` / distributive
+forms). Only `<const T>` had a real parse-acceptance gap,
+failing with `code=3 tok=102` (TS_TOK_KW_CONST) at the type-
+parameter position. The 4 already-passing items move to v5.7.46
+audit-pass.
+
+**Honest scope-shrink call**: third premise-check in a row
+showing pinned items work — v5.7.44 was magnum→medium, v5.7.45
+is medium→small. Called out to the user; user authorized small
+fix + headroom up to v5.7.50 if more work surfaces.
+
+cc5 grew 720,864 → **720,928 B** (+64 B). Two-step self-host
+clean.
+
+**What landed:**
+
+~5 LOC in `TS_PARSE_TYPE_PARAMS` between the comma-required
+check and the IDENT expect:
+
+```cyrius
+if (TS_PARSE_PEEK(ts_base) == TS_TOK_KW_CONST) {
+    TS_PARSE_CONSUME(ts_base);
+}
+# Param name
+if (TS_PARSE_EXPECT(ts_base, TS_TOK_IDENT) < 0) { return 0 - 1; }
+```
+
+Per "parse loosely, type strictly" precedent — typechecker will
+enforce const-only-on-type-param-position; parser stays
+permissive.
+
+**Not added (deliberate):**
+
+No AST emission for type params. Existing `TS_PARSE_TYPE_PARAMS`
+returns a count, doesn't push `TS_AST_DECL_TYPE_PARAM` nodes for
+any param (kind 209 is allocated but unused). Adding emission
+only for `const`-modified params would be inconsistent. AST
+emission for type params is pinned for a future slot when a
+typechecker consumer surfaces the need.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at 720,928 B.
+- `tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p56` —
+  13 new assertions in 12 groups (function/class/iface/alias/
+  method/arrow + extends + default + mixed + multiple + complex
+  combo + plain regression).
+- All 4 TS group runners clean post-fix (1156 total TS
+  assertions across cyrius-ts surface).
+- `tests/regression-ts-const-type-params.sh` (gate 4az) — 6
+  parse-acceptance groups covering all real-world shapes.
+- `sh scripts/check.sh` — 63/63 PASS (was 62/62; +gate 4az).
+
+**Pin list status (after v5.7.45):**
+
+Original 8-item pin (§v5.7.x — patch slate):
+- ✅ Mapped types (v5.7.25)
+- ✅ asserts predicate signatures (v5.7.24)
+- ✅ Decorators TS 5.0 stage-3 (v5.7.26)
+- ✅ Variadic tuple types — AST (v5.7.44)
+- ✅ **Const type parameters TS 5.0 (v5.7.45)**
+- ⏳ `as const` assertion expressions [parses today]
+- ⏳ `satisfies` postfix verify [parses today]
+- ⏳ `never`/`unknown` audit [parses today]
+- ⏳ Conditional types — exhaustive corpus [parses today]
+
+**v5.7.46 reframe**: 4 remaining items all empirically parse at
+acceptance. v5.7.46 becomes audit-pass — formal regression gates,
+mark items ✅ with empirical proof, retire the v5.7.x advanced-TS
+pin entirely. Likely zero compiler change.
+
+**Out of scope (future polish):**
+
+- **Type-param AST emission** — `TS_PARSE_TYPE_PARAMS` returns a
+  count, not a children-list of `TS_AST_DECL_TYPE_PARAM` nodes.
+  Pin behind a future typechecker-phase consumer.
+- **Const-position enforcement** — TS only allows `const`
+  modifier on type params (not regular params, not return
+  types). v5.7.45 parser accepts it broadly per "parse loosely,
+  type strictly"; typechecker concern.
+
+
+
 ## v5.7.44 ✅ TS variadic tuple types — AST representation (`TS_AST_TYPE_REST`) — SHIPPED
 
 **Shipped 2026-04-30.** First slot of the v5.7.44-46 advanced
@@ -1018,10 +1110,15 @@ Each line item is its own narrow patch slot when it surfaces:
   spread) already parsed `rc=0` pre-v5.7.44 — the real gap
   was AST loss of spread distinction. See `## v5.7.44 ✅ TS
   variadic tuple types` above for details.
-- **Const type parameters (TS 5.0)**:
-  `function f<const T>(x: T)`. `const` modifier in front of a
-  type parameter — narrows inferred literal types. New
-  contextual keyword position.
+- **Const type parameters (TS 5.0)** ✅ — parse acceptance
+  shipped at v5.7.45 (~5 LOC in `TS_PARSE_TYPE_PARAMS`
+  consuming optional `TS_TOK_KW_CONST` before IDENT expect).
+  Premise-check at slot entry surfaced this was the ONLY
+  remaining item in the 5-item pin with a real parse-acceptance
+  gap; the other 4 (`as const`, `satisfies` postfix,
+  `never`/`unknown`, conditional types corpus) all already
+  parsed `rc=0`. See `## v5.7.45 ✅ TS 5.0 const type
+  parameters` above for details.
 - **`satisfies`** operator. v5.7.4 added KW_SATISFIES as a
   contextual keyword usable as an ident name; verify the
   postfix `expr satisfies Type` operator form parses too.
