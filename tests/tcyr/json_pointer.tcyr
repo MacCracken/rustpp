@@ -15,9 +15,30 @@ include "lib/fmt.cyr"
 include "lib/io.cyr"
 include "lib/math.cyr"
 include "lib/json.cyr"
-include "lib/assert.cyr"
+include "lib/test.cyr"   # transitively pulls in assert.cyr + fnptr.cyr
 
 alloc_init();
+
+# Forward-declared module-scope state + helpers for the test_each
+# block at the bottom of the §5 group. Declared here so the fns can
+# capture `rfc` via module scope (cyrius has no closures).
+var rfc = 0;
+
+fn _ptr_case(path, want, label) {
+    var c = alloc(24);
+    store64(c,      path);
+    store64(c + 8,  want);
+    store64(c + 16, label);
+    return c;
+}
+
+fn _check_ptr_int(c) {
+    var path  = load64(c);
+    var want  = load64(c + 8);
+    var label = load64(c + 16);
+    assert_eq(json_v_int(json_v_pointer(rfc, path)), want, label);
+    return 0;
+}
 
 # ── Empty pointer = whole document ───────────────────────────────────
 test_group("empty pointer = root");
@@ -67,7 +88,7 @@ test_group("RFC 6901 §5 examples");
 #   " ": 7,
 #   "m~n": 8
 # }
-var rfc = json_v_obj_new();
+rfc = json_v_obj_new();
 var arr = json_v_arr_new();
 json_v_arr_push(arr, json_v_str_new(str_from("bar")));
 json_v_arr_push(arr, json_v_str_new(str_from("baz")));
@@ -81,18 +102,24 @@ json_v_obj_set(rfc, str_from("k\"l"), json_v_int_new(6));
 json_v_obj_set(rfc, str_from(" "),   json_v_int_new(7));
 json_v_obj_set(rfc, str_from("m~n"), json_v_int_new(8));
 
+# Outliers — different shapes, kept inline:
 assert_eq(json_v_pointer(rfc, str_from("")), rfc, "\"\" = whole doc");
-# /foo should equal the arr we pushed
 assert_eq(json_v_pointer(rfc, str_from("/foo")), arr, "/foo = arr");
 assert(streq(str_data(json_v_str(json_v_pointer(rfc, str_from("/foo/0")))), "bar") == 1, "/foo/0 = bar");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/"))), 0, "\"/\" = empty-string key = 0");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/a~1b"))), 1, "/a~1b = a/b key = 1");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/c%d"))), 2, "/c%d = 2");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/e^f"))), 3, "/e^f = 3");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/g|h"))), 4, "/g|h = 4");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/k\"l"))), 6, "/k\"l = 6");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/ "))), 7, "/ (space) = 7");
-assert_eq(json_v_int(json_v_pointer(rfc, str_from("/m~0n"))), 8, "/m~0n = m~n key = 8");
+
+# Homogeneous (path → int) cases — table-driven via test_each.
+# Demonstrates the v5.7.46 lib/test.cyr API on a real corpus that
+# already had 8 parallel-shape assertions.
+var rfc_cases = vec_new();
+vec_push(rfc_cases, _ptr_case(str_from("/"),     0, "\"/\" = empty-string key = 0"));
+vec_push(rfc_cases, _ptr_case(str_from("/a~1b"), 1, "/a~1b = a/b key = 1"));
+vec_push(rfc_cases, _ptr_case(str_from("/c%d"),  2, "/c%d = 2"));
+vec_push(rfc_cases, _ptr_case(str_from("/e^f"),  3, "/e^f = 3"));
+vec_push(rfc_cases, _ptr_case(str_from("/g|h"),  4, "/g|h = 4"));
+vec_push(rfc_cases, _ptr_case(str_from("/k\"l"), 6, "/k\"l = 6"));
+vec_push(rfc_cases, _ptr_case(str_from("/ "),    7, "/ (space) = 7"));
+vec_push(rfc_cases, _ptr_case(str_from("/m~0n"), 8, "/m~0n = m~n key = 8"));
+test_each(rfc_cases, &_check_ptr_int);
 
 # ── Error paths ─────────────────────────────────────────────────────
 test_group("error paths");

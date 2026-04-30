@@ -201,6 +201,74 @@ toolchain side is unblocked.
 
 
 
+## v5.7.46 ✅ `lib/test.cyr` v1 — table-driven testing — SHIPPED
+
+**Shipped 2026-04-30.** First slot of the testing-framework
+split decided 2026-04-30 after v5.7.42 ship (see
+`§Testing framework split — lib/test.cyr + yantra-stays-narrow`
+above). Surfaced by in-tree pain in v5.7.40-42 tcyr files —
+json_pointer's RFC 6901 §5 corpus had 8 parallel-shape (path →
+int) assertions, json_stream's scalar-inputs section had 6, TS
+group runners have multiple parallel blocks. The pattern earned
+its own composer.
+
+**Slot map cascade:** backstop bumped v5.7.47 → v5.7.48 to
+absorb the v5.7.46 + v5.7.47 split. Option-E test-harness pin
+(formerly v5.7.46 floating, pinned at v5.7.37 ship) retired
+unclaimed — 5 patches without a TS test pattern surfacing that
+didn't fit existing shapes.
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **`lib/test.cyr`** — new stdlib module. Transitively
+   `include`s `lib/assert.cyr` + `lib/fnptr.cyr` so consumers
+   write one `include` and get the unit-test stack: primitives
+   (assert) + dispatch (fncall1). Same one-include pattern as
+   v5.7.42's `lib/json.cyr` → `lib/fnptr.cyr` fix.
+2. **`test_each(cases_vec, fp)`** — table-driven dispatch.
+   Applies `fp` to every element via `fncall1`. Each case is a
+   user-defined struct (typically `alloc(N)` with inputs and
+   expected outputs at fixed offsets). Returns 0; failures
+   account through `lib/assert.cyr` globals. Null `cases_vec`
+   or `fp` is silently a no-op.
+3. **Demo migration** — `tests/tcyr/json_pointer.tcyr` §5
+   block's 8 homogeneous (path → int) assertions converted to
+   a single `test_each` call. 3 outliers (whole-doc, arr-ptr
+   compare, string extraction) stay inline — different shapes.
+   Behavior preserved 36 → 36 PASS.
+
+**Verification:**
+- cc5 self-host two-step byte-identical at 720,640 B.
+- `tests/tcyr/test_lib.tcyr` — 12 assertions in 4 groups
+  (test_each ordering with exact-byte trace `01234`, empty cases
+  vec no-op, null inputs are safe, single-element vec works).
+- `tests/regression-test-lib.sh` (gate 4ax) — end-to-end fixture
+  runs `test_each` over a 5-element vec + an empty vec, exact-
+  byte cmp output `0.1.2.3.4.\nend\n`.
+- `sh scripts/check.sh` — 61/61 PASS (was 60/60; +gate 4ax).
+
+**Deferred (v2, behind further consumer pressure):**
+- `test_property(gen_fn, prop_fn, n)` — quickcheck-style on top
+  of `lib/random.cyr` (shipped v5.7.35). Genuinely different
+  shape (would inflate v1's surface without payoff for the
+  in-tree pain that justified this slot).
+- Fixture register/teardown helpers — `before_each` /
+  `after_each`. Most cyrius tcyrs use `alloc_init()` once at
+  top and don't need richer fixtures yet.
+
+**Slot cascade post-v5.7.46:**
+- v5.7.43-45 — advanced TS feature suite (queued)
+- v5.7.46 ✅ this slot
+- v5.7.47 — refactor pass — testing + codebase (next; bounded
+  scope per discipline pinned in §`v5.7.x` queue: tcyrs with
+  3+ parallel-shape assertions, consolidate `_TARGET_X`
+  branches, audit new heap regions; cc5 stays byte-identical)
+- v5.7.48 — TRUE CLOSEOUT BACKSTOP
+
+
+
 ## v5.7.42 ✅ `lib/json.cyr` JSON Pointer (RFC 6901) — SHIPPED
 
 **Shipped 2026-04-30.** Third and final slot of the v5.7.20-pinned
@@ -1710,6 +1778,77 @@ is fine to leave).
 `cyrius fuzz` parity slot above — both touch the same
 `cmd_test` / `cmd_bench` / `cmd_fuzz` family in
 `cbt/commands.cyr`.
+
+### Testing framework split — `lib/test.cyr` + yantra-stays-narrow (pinned 2026-04-30; consumer-surfaced)
+
+**Decided 2026-04-30** during v5.7.41 CI cycle. The "should yantra
+become the full testing framework?" question got asked and
+answered: **no**. The split is layered — primitives in stdlib,
+framework-shaped composer in stdlib (when claimed), UI/integration
+in yantra (when claimed). Pin here so the design decision sticks
+and so future "let yantra absorb everything" pitches get rejected
+with reference to this section.
+
+**The split:**
+
+1. **`lib/assert.cyr` — already shipped.** Universal primitives
+   (`assert`, `_eq` / `_neq` / `_gt`/`_lt`/`_gte`/`_lte` /
+   `_nonnull` / `_streq`, `test_group`, `assert_summary`). Grow
+   with tiny helpers (`assert_buf_eq`, `assert_in_range`,
+   `assert_str_contains`) only when a consumer asks. ~5-10 LOC
+   each, one-liner pin per addition.
+
+2. **`lib/test.cyr`** — framework-shaped composer that sits
+   *above* `lib/assert.cyr`. **v1 SHIPPED at v5.7.46** with
+   `test_each(cases_vec, fp)` only; transitively includes
+   `lib/assert.cyr` + `lib/fnptr.cyr` so consumers write one
+   `include` and get the full stack. See `## v5.7.46 ✅
+   lib/test.cyr v1 — table-driven testing` above.
+   - Deferred to v2 (pin behind further consumer pressure):
+     - `test_property(gen, prop, n)` — quickcheck-style on
+       top of `lib/random.cyr` (shipped v5.7.35). Would also
+       need `lib/random.cyr` added to the transitive-include
+       chain.
+     - Fixture register/teardown helpers.
+
+3. **Yantra — sibling distlib, scaffolded but not local at
+   decision time. Stays narrow on UI/integration ONLY.** TTY/pty
+   harness, snapshot/golden-file diff rendering, optional
+   browser-driver glue, HTTP-API integration testing. Folds into
+   stdlib only if mabda/sandhi-precedent consumer pressure
+   surfaces; otherwise stays a sibling distlib indefinitely.
+   - **Trigger for v0.1.0 cut**: consumer files UI/TTY/pty test
+     pressure (kybernet TUI, cyim editor, cyrius-lsp interaction
+     harness, etc.).
+
+**Why not bundle into yantra:** every test file in the ecosystem
+that wants `test_each` would `include "lib/yantra.cyr"` and pull
+TTY/pty/browser-driver weight transitively. Even a 10-line tcyr
+that doesn't use any of that. Worse than the modest
+discoverability cost of two doc surfaces.
+
+**Honest downside accepted:** discoverability spreads across
+`lib/assert.cyr` + future `lib/test.cyr` + yantra. New consumer
+reads up to three doc surfaces. Mitigation is the transitive-
+include pattern — `lib/test.cyr` will pull the others, so most
+consumers' total include line count stays at 1.
+
+**Action items:**
+- [x] ~~When the first consumer surfaces `test_each` pressure,
+      claim a v5.7.x or v5.8.x slot for `lib/test.cyr` v1.~~
+      Shipped v5.7.46 — surfaced by in-tree pain in v5.7.40-42
+      tcyrs.
+- [ ] When yantra clones to local, audit its scaffolded README /
+      CLAUDE.md for kitchen-sink drift. Push back at scaffold
+      stage — easier to constrain pre-cut than after v0.1.0
+      precedent locks it in.
+- [ ] When the first consumer surfaces UI/TTY pressure, stand
+      up yantra v0.1.0 (sibling distlib, not stdlib fold yet).
+- [ ] When a consumer surfaces property-test or fixture pressure,
+      claim a slot for `lib/test.cyr` v2 (`test_property` +
+      `lib/random.cyr` integration; or fixture helpers).
+
+
 
 ### v5.7.x — `lib/json.cyr` depth follow-ups (pinned; consumer-surfaced)
 

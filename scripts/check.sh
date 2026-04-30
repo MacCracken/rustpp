@@ -620,6 +620,15 @@ if [ "$jpr_result" -ne 0 ]; then cat /tmp/audit_jpr_$$; fi
 rm -f /tmp/audit_jpr_$$
 echo ""
 
+# ── 4ax. lib/test.cyr v1 — table-driven test_each (v5.7.46) ──
+echo "── test_each ──"
+sh "$ROOT/tests/regression-test-lib.sh" > /tmp/audit_tl_$$ 2>&1
+tl_result=$?
+check "test_each(cases_vec, fp) iteration order + transitive include chain (v5.7.46)" "$tl_result"
+if [ "$tl_result" -ne 0 ]; then cat /tmp/audit_tl_$$; fi
+rm -f /tmp/audit_tl_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
