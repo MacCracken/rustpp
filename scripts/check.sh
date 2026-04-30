@@ -611,6 +611,15 @@ if [ "$js_result" -ne 0 ]; then cat /tmp/audit_js_$$; fi
 rm -f /tmp/audit_js_$$
 echo ""
 
+# ── 4aw. lib/json.cyr JSON Pointer RFC 6901 (v5.7.42) ──
+echo "── json pointer ──"
+sh "$ROOT/tests/regression-json-pointer.sh" > /tmp/audit_jpr_$$ 2>&1
+jpr_result=$?
+check "json_v_pointer(v, ptr) RFC 6901 paths + ~0/~1 escapes + OOB/miss (v5.7.42)" "$jpr_result"
+if [ "$jpr_result" -ne 0 ]; then cat /tmp/audit_jpr_$$; fi
+rm -f /tmp/audit_jpr_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

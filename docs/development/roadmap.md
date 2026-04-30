@@ -201,6 +201,81 @@ toolchain side is unblocked.
 
 
 
+## v5.7.42 ✅ `lib/json.cyr` JSON Pointer (RFC 6901) — SHIPPED
+
+**Shipped 2026-04-30.** Third and final slot of the v5.7.20-pinned
+JSON depth follow-up series. Closes the triple: pretty-print
+(5.7.40) + streaming (5.7.41) + pointer-walk (this slot) on top
+of the existing tagged tree.
+
+Plus a v5.7.41-introduced-noise hygiene fix: `lib/json.cyr` now
+explicitly `include`s `lib/fnptr.cyr` so consumers don't need to
+also remember to include it themselves. The streaming code shipped
+at v5.7.41 references `fncall1/2/3` from fnptr.cyr — without the
+include, every consumer of lib/json.cyr (even ones using only the
+tree/build/pointer surface) tripped three "undefined function"
+warnings at compile. Self-contained dep declaration matches the
+existing pattern in 17 other stdlib files.
+
+Zero compiler change; lib-only. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **`json_v_pointer(v, ptr)`** — public Str-input entry. Empty
+   pointer returns root; non-empty must start with `/`. Returns
+   the referenced value or 0 (not found / invalid pointer /
+   can't descend into scalar).
+2. **`json_v_pointer_cstr(v, ptr, plen)`** — explicit cstr+len
+   entry; used internally by `json_v_pointer`, exposed for
+   buffer-and-length callers.
+3. **`_jp_obj_lookup(v, buf, len)`** — internal helper. Length-
+   explicit key match (handles interior-NUL keys correctly).
+4. **`_jp_parse_idx(buf, len)`** — strict RFC 6901 §4 index
+   parser. Rejects leading zeros (`01`), the `-` next-element
+   token, non-digits, and empty input.
+5. **`_jp_token_unescape(src, src_len)`** — single-pass left-to-
+   right `~1`→`/`, `~0`→`~`, with any other `~X` rejected.
+   Equivalent to the spec's two-pass "~1 then ~0" order because
+   only `~0` and `~1` are valid escapes — there's no chained-
+   rewrite case to worry about.
+
+**Hygiene:**
+- **`lib/json.cyr`** now `include`s `lib/fnptr.cyr` at top.
+  Closes the v5.7.41 incomplete-dep regression.
+
+**Verification:**
+- cc5 self-host two-step byte-identical at 720,640 B.
+- `tests/tcyr/json_pointer.tcyr` — 36 assertions in 7 groups
+  (empty pointer = root, obj key lookup with miss = 0, array
+  index with OOB / leading-zero / `-` / non-numeric all
+  rejected, deep nested mixed obj/arr/obj, RFC 6901 §5 corpus
+  incl. `/a~1b` `/m~0n` `/` `/k\"l` `/ `, error paths,
+  trailing-slash empty-token descent) all PASS.
+- `tests/regression-json-pointer.sh` (gate 4aw) — end-to-end
+  fixture: programmatically constructed doc + 8 pointer
+  evaluations including 2 successful int extracts, 1 OOB, 2
+  escape resolutions, 1 missing key, 1 descend-into-scalar
+  attempt, 1 string extract. Exact-byte cmp.
+- All four JSON tcyrs run clean post-fnptr include (engine 71 +
+  pretty 18 + stream 65 + pointer 36 = **190 assertions** across
+  the JSON surface).
+- `sh scripts/check.sh` — 60/60 PASS (was 59/59; +gate 4aw).
+
+**Out of scope (future polish, behind consumer ask):**
+- **JSON Pointer mutation** — `json_v_pointer_set(v, ptr, value)`
+  walk-and-replace. Implicit ownership questions (clone vs
+  consume vs mutate-in-place) need a real consumer to anchor.
+- **Relative JSON Pointer** — draft-bhutton-relative-json-pointer
+  with `0/foo`, `2/bar` for parent-relative traversal. Mostly
+  schema-engine-relevant; pin behind schema-engine work.
+
+**Slot cascade:** backstop unchanged at v5.7.47. JSON depth
+triple complete; v5.7.20-era pin retired. Queue advances to
+v5.7.43-45 (advanced TS feature suite) → v5.7.46 (floating slot)
+→ v5.7.47 (true closeout backstop).
+
+
+
 ## v5.7.41 ✅ `lib/json.cyr` streaming parser — SHIPPED
 
 **Shipped 2026-04-30.** Second slot of the v5.7.20-pinned JSON
@@ -1650,10 +1725,9 @@ consumer asks for them.
 - **Streaming parser** ✅ — shipped at v5.7.41. See
   `## v5.7.41 ✅ lib/json.cyr streaming parser` above for details.
 
-- **JSON Pointer** (RFC 6901) — `json_v_pointer(v, "/users/0/name")`
-  walks the tree by slash-separated path. ~50 LOC on top of
-  the existing tree. Handles escapes (`~0` → `~`, `~1` → `/`).
-  Easy add when a consumer wants xpath-style lookup.
+- **JSON Pointer** ✅ — shipped at v5.7.42. See
+  `## v5.7.42 ✅ lib/json.cyr JSON Pointer (RFC 6901)` above for
+  details. **JSON depth triple now complete.**
 
 **Acceptance gate** (when claimed): each item is its own focused
 patch with a tcyr suite covering the new shape — pretty-print
