@@ -4,6 +4,144 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.48] — 2026-04-30
+
+**TRUE CLOSEOUT BACKSTOP — v5.7.x cycle complete**. Final
+patch of the v5.7.x minor — **the longest minor in cyrius
+history at 49 patches across 35 days** (v5.7.0 ship 2026-03-26
+→ v5.7.48 ship 2026-04-30). CLAUDE.md 11-step closeout-pass
+protocol run end-to-end.
+
+cc5 unchanged at **720,928 B** — closeout-pass is verification
++ doc sync, no compiler change.
+
+### Closeout protocol (CLAUDE.md §"Closeout Pass")
+
+**Mechanical (§1-3):**
+
+1. ✅ Self-host two-step byte-identical at 720,928 B.
+2. ✅ Bootstrap closure (seed → cyrc → cc5) clean — confirmed
+   via `sh bootstrap/bootstrap.sh`: "PASS: cyrc assembled by
+   build/asm matches cyrc assembled by seed."
+3. ✅ Full check.sh — **64/64 PASS**.
+
+**Judgment-call passes (§4-8):**
+
+4. ✅ Heap map audit — `sh tests/heapmap.sh` clean: 80 regions,
+   0 overlaps, 0 warnings. v5.7.x added zero new fixed regions
+   (json_v_*/streaming/test/etc. used `alloc()`); only
+   reshuffles (v5.7.27/34 codebuf cap raise) which were
+   audited at ship.
+5. ✅ Dead code audit — 36 unreachable fns floor unchanged
+   from v5.7.5 onwards. Categories: 15 IR-opt scaffolding
+   (v5.6.16 era; pinned long-term), 5 TS lex helpers (JSX
+   bystanders), 6 TS AST accessors (used by tcyr but not
+   cc5 self-build), 5 Mach-O backend bystanders. v5.7.x added
+   no new dead code.
+6. ✅ Refactor pass — already done at v5.7.47 (lib/json.cyr
+   walker consolidation + ts_parse_p56 → test_each migration;
+   -106 LOC net).
+7. ✅ Code review pass — no ABI leaks, no missed PE guards,
+   no byte-order typos in hex literals, fnptr references all
+   resolve, no silently-ignored error patterns from v5.7.x
+   additions.
+8. ✅ Cleanup sweep — no stale version refs / outdated TODOs
+   / orphan tcyrs / dead `#ifdef` branches added in v5.7.x.
+   **Flagged**: `build/cc3` is tracked in git but CLAUDE.md
+   says "only cc5 tracked" — either CLAUDE.md is stale or
+   cc3 is leftover. Not touched at v5.7.48; pin for separate
+   user decision.
+
+**Compliance / external (§9-10):**
+
+9. ✅ Security re-scan — clean. No new `sys_system` /
+   `sys_execve` / `READFILE` patterns added in v5.7.x. JSON
+   parser error paths correctly set `_jp_set_err` / globals
+   before returning. Full security audit due (last v5.0.1)
+   but per CLAUDE.md it's a v5.8.x phase, not closeout-pass
+   scope.
+10. ⏳ Downstream check — pinned for v5.7.49 deps-only slot
+    per user direction: "5.7.49 will be no code updates but
+    possible bringing in updated dists/deps." Cyrius-side
+    cyrius.cyml currently pins patra 1.9.0 / sigil 2.9.3 /
+    yukti 2.1.1 / mabda 2.5.0 / sankoch 2.1.0 / sakshi 2.0.0.
+    Refresh to v5.7.48-compat tags lands at v5.7.49.
+
+**Docs (§11):**
+
+11. ✅ Vidya sync — `vidya/content/cyrius/language.cyml`
+    overview entry refreshed: cc5 binary size, `cc5 --version`
+    output, the v5.7.40-48 narrative paragraph; `ecosystem.cyml`
+    refreshed: stdlib module count 67 → 68 (lib/test.cyr added),
+    cyrius version 5.7.39 → 5.7.48; new field-note entry in
+    `field_notes/compiler.cyml`: `fn`-as-parameter-name reserved-
+    keyword gotcha discovered during v5.7.46 lib/test.cyr work
+    (mistakenly used `fn` as a parameter name; parser surfaces
+    error at the NEXT fn definition rather than the offending
+    one — confusing recovery shape).
+
+### v5.7.x cycle highlights (49 patches)
+
+Minor opened with **the sandhi fold** at v5.7.0 — clean-break
+consolidation of the sandhi sibling crate into stdlib's
+`lib/sandhi.cyr` (469 fns covering HTTP client/server/HTTP/2/
+streaming/JSON-RPC/service discovery/TLS policy). Fixup-table
+cap bump 32K→262K at v5.7.1 unblocked all 8 named consumers.
+
+Mid-cycle landed **cyrius-ts P-series** — the TypeScript lexer
++ parser frontend reaching 100% SY corpus parse acceptance
+(2053/2053 `.ts` + 435/435 `.tsx`). Then the **advanced TS
+feature suite** (v5.7.24/25/26/44/45/46): asserts predicate
+sigs, mapped types, decorators, variadic tuples AST, const type
+params, audit-pass for as const / satisfies / never-unknown /
+conditional types — original 8-item v5.7.x advanced-TS pin
+fully closed at v5.7.46.
+
+Late-cycle landed **lib/json.cyr depth triple** (v5.7.40-42):
+pretty-printer, streaming parser (event-driven w/ 11-event
+handler struct), RFC 6901 JSON Pointer; **lib/test.cyr v1**
+(v5.7.43): table-driven testing helper anchoring the testing-
+framework split decision (yantra stays narrow on UI/integration);
+**v5.7.47 refactor pass**: consolidations earned by the cycle's
+additions, -106 LOC net.
+
+**Compiler size delta**: v5.7.0 ~531 KB → v5.7.48 720,928 B
+(+~190 KB across 49 patches). Major contributors: TS frontend
+(~120 KB), JSON tagged-tree engine (~30 KB), regex engine
+(v5.7.18, ~15 KB), advanced TS features (~10 KB), JSON depth
+follow-ups (~10 KB additional, mostly lib-only).
+
+**check.sh growth**: v5.7.0 26 gates → v5.7.48 64 gates (+38).
+
+**Testing surface**: 4 file shapes added/normalized
+(.tcyr/.scyr/.smcyr/.fcyr/.bcyr), 97 tcyr files (TS suite
+consolidated 24→4 group runners at v5.7.37), **1181 TS +
+190 JSON + ~2000 misc = ~3400 unit-level assertions** across
+the cyrius surface.
+
+**Stdlib growth**: 60 → 68 modules (lib/random.cyr,
+lib/security.cyr, lib/test.cyr added; lib/sandhi.cyr vendored
+from sandhi distlib).
+
+### Slot cascade post-v5.7.48
+
+- v5.7.48 ✅ this slot — closeout protocol complete
+- v5.7.49 — deps refresh (patra / sankoch / sigil / sakshi /
+  yukti / mabda tag bumps to v5.7.48-compat releases; no
+  compiler change; downstream check §10 lands here)
+- v5.8.0 — bare-metal AGNOS kernel target + Vani audio
+  distlib fold-in (per `roadmap.md §v5.8.x`)
+
+User-authorized headroom v5.7.49-50 partially used (.49 takes
+the deps slot). v5.7.50 still available if surprises surface.
+
+### Out of scope
+
+- **Full security audit** — last v5.0.1; due. Pin behind v5.8.0
+  pre-cut per CLAUDE.md §"Security Audit Process".
+- **build/cc3 tracking** — flagged at §8 cleanup sweep; not
+  touched, pending user call on intent.
+
 ## [5.7.47] — 2026-04-30
 
 **REFACTOR PASS — testing + codebase**. Standalone slot per

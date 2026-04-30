@@ -5,6 +5,44 @@
 
 ## Version
 
+**5.7.48** (shipped 2026-04-30 — **TRUE CLOSEOUT BACKSTOP —
+v5.7.x cycle complete**. Final patch of the v5.7.x minor —
+**the longest minor in cyrius history at 49 patches across 35
+days** (v5.7.0 ship 2026-03-26 → v5.7.48 ship 2026-04-30).
+CLAUDE.md 11-step closeout-pass protocol run end-to-end. cc5
+unchanged at **720,928 B** — closeout is verification + doc
+sync, no compiler change. **Mechanical (§1-3) all PASS**:
+self-host two-step byte-identical, bootstrap closure clean
+(seed → cyrc → cc5), check.sh 64/64. **Judgment passes
+(§4-8) all clean**: heap map 80 regions/0 overlaps; dead-code
+floor stable at 36 (no v5.7.x additions); refactor pass already
+done at v5.7.47 (-106 LOC); code review found no ABI leaks /
+byte-order typos / silent errors; cleanup sweep clean (one
+flag: `build/cc3` tracked but CLAUDE.md says only cc5 tracked
+— pinned for separate user call). **Compliance (§9-10)**:
+security re-scan clean, no new dangerous patterns; downstream
+check pinned for v5.7.49 deps-only slot. **Docs (§11)**:
+vidya `language.cyml` overview entry + `ecosystem.cyml`
+refreshed to v5.7.48; new `field_notes/compiler.cyml` entry
+for the v5.7.46 `fn`-as-param-name reserved-keyword gotcha.
+**Cycle highlights**: sandhi fold at v5.7.0 (clean-break
+consolidation, 469 fns into stdlib); cyrius-ts P-series
+reaching 100% SY corpus (2053 + 435); advanced TS feature
+suite (asserts/mapped/decorators/variadic-tuples/const-type-
+params/audit-pass — 8/8 advanced-TS pin RETIRED at v5.7.46);
+lib/json.cyr depth triple (pretty/streaming/JSON Pointer);
+lib/test.cyr v1 (testing-framework split anchor); v5.7.47
+refactor pass. **Compiler size delta**: 531 KB → **720,928 B**
+(+~190 KB across 49 patches). **check.sh growth**: 26 → **64
+gates** (+38). **Testing**: 97 tcyr files, **~3400 total
+assertions** across TS + JSON + misc. **Stdlib**: 60 → **68
+modules**. **Slot cascade**: v5.7.49 (deps refresh — no
+compiler change; downstream §10 lands there) → v5.8.0
+(bare-metal AGNOS kernel + Vani audio fold-in).
+**Out of scope**: full security audit (due, pin v5.8.0
+pre-cut); `build/cc3` tracking decision (flagged, pending
+user call).)
+
 **5.7.47** (shipped 2026-04-30 — **REFACTOR PASS — testing +
 codebase**. Standalone slot per CLAUDE.md closeout-pass §6
 ("Refactor pass") carved out for audit-trail clarity rather
@@ -1623,17 +1661,17 @@ throughput win on hosts with hw support).)
 
 ## Compiler
 
-- **cc5 (x86_64)**: **720,928 B** at v5.7.47 (unchanged from
-  v5.7.45 — v5.7.46 audit-pass + v5.7.47 refactor pass were
-  both zero compiler change). Aggregate growth across v5.7.x:
-  v5.7.5 697,840 (JSX) → v5.7.20 ~712 KB (JSON tagged tree) →
-  v5.7.27 ~720 KB (codebuf 1MB→3MB reshuffle) → v5.7.41 720,640
-  (JSON streaming parser, lib-only no cc5 change actually) →
-  v5.7.44 720,864 (variadic tuples AST) → v5.7.45 720,928
-  (const type params) → v5.7.46 720,928 (audit-pass, zero
-  compiler change) → v5.7.47 720,928 (refactor pass, zero
-  compiler change — lib/json.cyr + tcyr changes invisible to
-  cc5 build). `cc5 --version` reports `cc5 5.7.47`.
+- **cc5 (x86_64)**: **720,928 B** at v5.7.48 (unchanged from
+  v5.7.45 — v5.7.46 audit-pass + v5.7.47 refactor pass +
+  v5.7.48 closeout were all zero compiler change). Aggregate
+  growth across v5.7.x: v5.7.0 ~531 KB → v5.7.5 697,840 (JSX)
+  → v5.7.20 ~712 KB (JSON tagged tree) → v5.7.27 ~720 KB
+  (codebuf 1MB→3MB reshuffle) → v5.7.41 720,640 (JSON streaming
+  parser, lib-only) → v5.7.44 720,864 (variadic tuples AST) →
+  v5.7.45 720,928 (const type params) → v5.7.46/47/48 720,928
+  (audit + refactor + closeout, all zero compiler change).
+  Total: +~190 KB across 49 patches. `cc5 --version` reports
+  `cc5 5.7.48`.
 - **cc5_win (cross)**: 526,856 B (unchanged from v5.6.42 — same reason)
 - **cc5_aarch64 native (Pi)**: 463,768 B (was: did not build — v5.6.32 added
   the missing `include "src/common/ir.cyr"` to `main_aarch64_native.cyr` that
@@ -1664,8 +1702,8 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor pass introduces no new functionality, just consolidations within existing gate coverage)
-- **`tests/tcyr/*.tcyr`**: 97 files (v5.7.47 collapsed `ts_parse_p56` 13 parallel-shape assertions to `test_each` call — assertion count preserved at 197 in advanced.tcyr; total TS coverage = 1181 assertions; net -52 lines in advanced.tcyr from the migration)
+- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 49 patches)
+- **`tests/tcyr/*.tcyr`**: 97 files (advanced.tcyr 197 assertions post-p56 migration to test_each; total TS coverage 1181 assertions across 4 group runners; ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -1678,19 +1716,24 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.48 (TRUE CLOSEOUT BACKSTOP — CLAUDE.md 11-step).**
-v5.7.47 closed the refactor pass (2 consolidations: ts_parse_p56
-→ test_each, lib/json.cyr walker unification). v5.7.48 runs the
-full closeout protocol per CLAUDE.md §"Closeout Pass":
-mechanical (self-host verify, bootstrap closure, full check.sh)
-→ judgment-call (heap map audit, dead code audit, refactor pass
-already done, code review pass, cleanup sweep) → compliance
-(security re-scan, downstream check) → docs (CHANGELOG / roadmap
-/ vidya sync — vidya needs explicit refresh per minor; falls out
-of sync silently). Hard cap: cc5 stays byte-identical OR a
-single-byte VERSION-bump change for the v5.8.0 cut. Anything
-beyond closeout-shape work forces v5.8.x. **Authorized headroom
-v5.7.49-50 unused** — planned finish at v5.7.48 holds.
+**v5.7.49 (deps refresh — no compiler change).** v5.7.48
+closed the v5.7.x minor's CLAUDE.md 11-step closeout protocol
+(longest minor in cyrius history at 49 patches across 35 days).
+v5.7.49 lands the downstream-check §10 work that was deferred
+from closeout per user direction: "5.7.49 will be no code
+updates but possible bringing in updated dists/deps - patra,
+yukti, probably a good point to get all the deps updated to
+5.7.48 if not updating for other work before touch 5.8.0."
+**Bounded scope**: bump `cyrius/cyrius.cyml` `[deps.*]` tags to
+whatever release each dep is at (patra 1.9.0+, sankoch 2.1.0+,
+sigil 2.9.3+, sakshi 2.0.0+, yukti 2.1.1+, mabda 2.5.0+);
+re-resolve via `cyrius deps`; re-bundle stdlib distfiles via
+`cyrius distlib` if any dep cut a new release; check
+ecosystem `cyrius.cyml` `cyrius` fields point to v5.7.48 or
+later. **Hard cap**: cc5 stays byte-identical at 720,928 B
+(zero compiler change — refresh is data-only). Anything beyond
+deps-refresh work forces v5.8.0. **Headroom v5.7.50 still
+available** if any refresh surfaces a follow-up bug.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
@@ -1733,20 +1776,31 @@ Shipped:
 - **v5.7.45** ✅ TS 5.0 const type parameters `<const T>` — parse acceptance (~5 LOC `TS_TOK_KW_CONST` consume in `TS_PARSE_TYPE_PARAMS` before IDENT expect; per "parse loosely, type strictly" — no AST emission since existing parser doesn't push `TS_AST_DECL_TYPE_PARAM` for any param yet; premise-check at slot entry surfaced 4 of 5 remaining pin items already parse rc=0 — only `<const T>` had real gap with `code=3 tok=102`; honest scope-shrink medium→small called out to user; cc5 720,864 → 720,928 B (+64 B); `ts_parse_p56` group 13 new assertions in 12 sub-groups (function/class/iface/alias/method/arrow + extends + default + mixed + multiple + complex combo + plain regression); 4 TS group runners clean (1156 total TS assertions); regression-ts-const-type-params.sh gate 4az 6 real-world groups; check.sh 63/63 PASS.)
 - **v5.7.46** ✅ v5.7.x advanced-TS pin audit — 4 stale-pin items closed (zero compiler change; cc5 unchanged at 720,928 B; reframed to audit-pass after v5.7.45 bisection found 4/5 remaining pin items already parse rc=0; tcyr `ts_parse_p57` group adds 25 new assertions in 7 sub-groups covering `as const` 4-shape, `satisfies` postfix 7-shape incl. TS 5.0 `as const satisfies` idiom, `never`/`unknown` 9-shape, conditional types 14-shape across basic/nested/infer/distributive incl. `Unwrap`/`ElementOf`/`ArgsOf`/`ReturnT`/`Head`/`Tail`/`Filter` standard utils; single combined regression-ts-advanced-pin-audit.sh gate 4ba with 4 sub-sections embedding zod/react/redux/TS-5.0 patterns; 4 TS group runners clean (1181 total TS assertions); SY corpus unchanged 2053+435; check.sh 64/64 PASS. **v5.7.x advanced-TS pin RETIRED — all 8 items ✅**.)
 - **v5.7.47** ✅ refactor pass — testing + codebase (zero compiler change; cc5 unchanged at 720,928 B; 2 consolidations: (1) `ts_parse_p56` 13 parallel-shape parse-rc cases → `test_each` over (source, label) pairs; tcyr now includes `lib/test.cyr` for transitive assert + fnptr access; (2) `lib/json.cyr` `_jb_walk` + `_jb_walk_pretty` merged into unified `_jb_walk(sb, v, indent, level)` walker with `indent` param driving compact (=0) / pretty (>0) mode; behavior preserved end-to-end across all 4 JSON tcyrs (190 assertions) + 3 regression gates exact-byte cmp + 4 TS group runners (1181 assertions); skipped: `json_stream` scalars + `ts_parse_p55`/`p57` (heterogeneous shapes per v5.7.43 discipline); LOC delta -106 lines net while preserving 100% assertion coverage; check.sh 64/64 PASS.)
+- **v5.7.48** ✅ TRUE CLOSEOUT BACKSTOP — v5.7.x cycle complete (longest minor in cyrius history; 49 patches across 35 days, v5.7.0 ship 2026-03-26 → v5.7.48 ship 2026-04-30). CLAUDE.md 11-step closeout-pass protocol run end-to-end: §1-3 mechanical (self-host two-step + bootstrap closure + check.sh 64/64 all PASS); §4-8 judgment passes (heap map 80 regions/0 overlaps, dead-code floor stable at 36, refactor pass already done at v5.7.47, code review clean, cleanup sweep clean — flagged build/cc3 tracking-vs-CLAUDE.md inconsistency for separate user call); §9-10 compliance (security re-scan clean — full audit due but v5.8.x phase; downstream check pinned for v5.7.49); §11 docs sync — vidya `language.cyml` overview + `ecosystem.cyml` refreshed to v5.7.48, new `field_notes/compiler.cyml` entry for the v5.7.46 `fn`-as-param-name reserved-keyword gotcha. cc5 unchanged at 720,928 B. **v5.7.x cycle stats**: compiler 531 KB → 720,928 B (+~190 KB across 49 patches); check.sh 26 → 64 gates; testing surface ~3400 total assertions (1181 TS + 190 JSON + ~2000 misc); stdlib 60 → 68 modules; cyrius-ts hit 100% SY corpus (2053+435); 8/8 advanced-TS pin RETIRED.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.47 ship —
-**backstop bumped v5.7.47 → v5.7.48** at v5.7.43 ship; advanced
-TS suite cascaded +1 from v5.7.43-45 → v5.7.44-46;
-v5.7.44 ✅ variadic tuple AST; v5.7.45 ✅ const type params;
-v5.7.46 ✅ advanced-TS pin audit (8/8 pin items closed, pin
-RETIRED); v5.7.47 ✅ refactor pass — testing + codebase
-(2 consolidations, -106 LOC, cc5 byte-identical). **User-
-authorized headroom v5.7.49-50 unused** — refactor surfaced no
-additional gaps; planned finish at v5.7.48 holds):
+Queue (firm assignments as of 2026-04-30 at v5.7.48 ship —
+v5.7.x **CYCLE COMPLETE** at 49 patches; longest minor in
+cyrius history. v5.7.44 ✅ variadic tuple AST; v5.7.45 ✅ const
+type params; v5.7.46 ✅ advanced-TS pin audit (8/8 RETIRED);
+v5.7.47 ✅ refactor pass; v5.7.48 ✅ TRUE CLOSEOUT BACKSTOP —
+11-step protocol clean. **User-authorized headroom v5.7.49-50
+partially used** for the deps refresh):
 
-- **v5.7.48** — **TRUE CLOSEOUT BACKSTOP** (formerly v5.7.47;
-  CLAUDE.md 11-step). Hard upper bound; anything past forces
-  v5.8.x.
+- **v5.7.49** — **deps refresh** (per user direction at v5.7.48
+  ship: "no code updates but possible bringing in updated dists/
+  deps"). Bump `cyrius/cyrius.cyml` `[deps.*]` tags; re-resolve
+  via `cyrius deps`; re-bundle stdlib distfiles via `cyrius
+  distlib` if any dep cut a new release; downstream check (§10)
+  — confirm ecosystem `cyrius.cyml` `cyrius` fields point to
+  v5.7.48+. Hard cap: cc5 stays byte-identical at 720,928 B.
+
+- **v5.7.50** — **headroom (unclaimed)** — only used if the
+  v5.7.49 deps refresh surfaces a follow-up bug or a downstream
+  consumer files a parse failure. Otherwise unused; v5.7.49
+  becomes the final v5.7.x patch and v5.8.0 cuts next.
+
+- **v5.8.0** — bare-metal AGNOS kernel target + Vani audio
+  distlib fold-in (per `roadmap.md §v5.8.x`).
 
 **Side-task throughout v5.7.39-v5.7.48**: warning-sweep
 continuing — goal still "zero `warning:` lines from cc5

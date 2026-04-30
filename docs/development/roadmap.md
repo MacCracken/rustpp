@@ -201,6 +201,115 @@ toolchain side is unblocked.
 
 
 
+## v5.7.48 ✅ TRUE CLOSEOUT BACKSTOP — v5.7.x cycle complete — SHIPPED
+
+**Shipped 2026-04-30.** Final patch of the v5.7.x minor —
+**the longest minor in cyrius history at 49 patches across 35
+days** (v5.7.0 ship 2026-03-26 → v5.7.48 ship 2026-04-30).
+CLAUDE.md 11-step closeout-pass protocol run end-to-end.
+
+cc5 unchanged at **720,928 B** — closeout is verification +
+doc sync, no compiler change.
+
+**Mechanical (§1-3) all PASS:**
+
+1. Self-host two-step byte-identical at 720,928 B.
+2. Bootstrap closure (seed → cyrc → cc5) via
+   `sh bootstrap/bootstrap.sh`: PASS.
+3. Full check.sh — 64/64 PASS.
+
+**Judgment-call passes (§4-8) all clean:**
+
+4. Heap map: 80 regions, 0 overlaps, 0 warnings. v5.7.x added
+   zero new fixed regions; only reshuffles (v5.7.27/34) which
+   were audited at ship.
+5. Dead code: 36-fn floor stable from v5.7.5 onwards. v5.7.x
+   added no new dead code.
+6. Refactor pass already done at v5.7.47 (-106 LOC).
+7. Code review: no ABI leaks, byte-order typos, missed PE
+   guards, silent-error patterns from v5.7.x additions.
+8. Cleanup sweep: no stale version refs / outdated TODOs /
+   orphan tcyrs / dead `#ifdef` branches. **One flag**:
+   `build/cc3` is tracked in git but CLAUDE.md says only cc5
+   tracked — pinned for separate user call (untracking has
+   bootstrap implications).
+
+**Compliance / external (§9-10):**
+
+9. Security re-scan clean. Full audit due (last v5.0.1) but
+   per CLAUDE.md it's a v5.8.x phase, not closeout-pass scope.
+10. Downstream check pinned for v5.7.49 deps-only slot per
+    user direction at v5.7.48 ship.
+
+**Docs (§11):**
+
+- `vidya/content/cyrius/language.cyml` overview entry: cc5
+  binary size, `cc5 --version` output, v5.7.40-48 narrative
+  paragraph all refreshed.
+- `vidya/content/cyrius/ecosystem.cyml`: stdlib module count
+  67 → 68 (lib/test.cyr added at v5.7.43); cyrius version
+  5.7.39 → 5.7.48.
+- `vidya/content/cyrius/field_notes/compiler.cyml`: new entry
+  for v5.7.46 `fn`-as-param-name reserved-keyword gotcha
+  (parser surfaces error at NEXT fn definition rather than
+  the offending one — confusing recovery shape).
+- CHANGELOG / state.md / roadmap.md: this entry.
+
+### v5.7.x cycle highlights (49 patches)
+
+**Minor opened with the sandhi fold (v5.7.0)** — clean-break
+consolidation of the sandhi sibling crate into stdlib's
+`lib/sandhi.cyr` (469 fns: HTTP client/server/HTTP/2/streaming/
+JSON-RPC/service discovery/TLS policy). Fixup-table cap bump
+32K → 262K at v5.7.1 unblocked all 8 named sandhi consumers.
+
+**Mid-cycle landed cyrius-ts P-series**: TypeScript lexer +
+parser frontend reaching 100% SY corpus parse acceptance
+(2053/2053 `.ts` + 435/435 `.tsx`). Then the **advanced TS
+feature suite** (v5.7.24/25/26 + v5.7.44/45/46): asserts
+predicate sigs, mapped types, decorators, variadic tuples AST,
+const type params, audit-pass for `as const` / `satisfies` /
+`never`-`unknown` / conditional types — original 8-item
+v5.7.x advanced-TS pin fully closed at v5.7.46.
+
+**Late-cycle landed lib/json.cyr depth triple (v5.7.40-42)**:
+pretty-printer (`json_v_build_pretty(v, indent)`), streaming
+parser (event-driven w/ 11-event handler struct), RFC 6901
+JSON Pointer (`json_v_pointer(v, ptr)`); **lib/test.cyr v1
+(v5.7.43)**: table-driven testing helper anchoring the
+testing-framework split decision (yantra stays narrow on
+UI/integration); **v5.7.47 refactor pass**: consolidations
+earned by the cycle's additions, -106 LOC net while preserving
+100% of assertion coverage.
+
+### v5.7.x cycle stats
+
+- **Compiler size**: ~531 KB → 720,928 B (+~190 KB across 49
+  patches). Major contributors: TS frontend (~120 KB), JSON
+  tagged-tree engine (~30 KB), regex engine (v5.7.18 ~15 KB),
+  advanced TS features (~10 KB).
+- **check.sh growth**: 26 gates → 64 gates (+38).
+- **Testing surface**: 97 tcyr files; ~3400 total assertions
+  across the cyrius surface (1181 TS + 190 JSON + ~2000
+  misc); 4 file shapes added/normalized
+  (`.tcyr`/`.scyr`/`.smcyr`/`.fcyr`/`.bcyr`) per v5.7.38.
+- **Stdlib**: 60 → 68 modules (lib/random.cyr, lib/security.cyr,
+  lib/test.cyr added; lib/sandhi.cyr vendored from sandhi
+  distlib).
+
+### Slot cascade post-v5.7.48
+
+- v5.7.48 ✅ this slot — closeout protocol complete
+- v5.7.49 — deps refresh (per user direction; cyrius.cyml
+  `[deps.*]` tag bumps + ecosystem `cyrius.cyml`
+  `cyrius`-field check; no compiler change)
+- v5.7.50 — headroom (unclaimed; only used if v5.7.49 surfaces
+  a follow-up)
+- v5.8.0 — bare-metal AGNOS kernel target + Vani audio
+  distlib fold-in
+
+
+
 ## v5.7.47 ✅ refactor pass — testing + codebase — SHIPPED
 
 **Shipped 2026-04-30.** Standalone slot per CLAUDE.md
