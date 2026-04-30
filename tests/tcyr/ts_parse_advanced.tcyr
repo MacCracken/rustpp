@@ -154,6 +154,13 @@ fn _ts_parse_p56_parse(src) {
     if (nt < 0) { return 0 - 1; }
     return TS_PARSE(ts_base);
 }
+
+# ── helpers from ts_parse_p57 (v5.7.46 audit-pass: 4 stale-pin items) ──
+fn _ts_parse_p57_parse(src) {
+    var nt = TS_LEX(ts_base, src, strlen(src));
+    if (nt < 0) { return 0 - 1; }
+    return TS_PARSE(ts_base);
+}
 # Walk node table forward, return idx of FIRST TS_AST_TYPE_TUPLE, or -1.
 fn _ts_parse_p55_find_tuple(ts_base) {
     var i = 0;
@@ -949,6 +956,87 @@ fn ts_parse_test_ts_parse_p56() {
     return 0;
 }
 
+# ── ts_parse_p57 (v5.7.46 audit-pass — 4 stale-pin items) ─
+# Premise-check at v5.7.45 entry empirically established that
+# the 4 items below all parse rc=0 against current cc5. This
+# group locks the finding via assertions so future regressions
+# in any of the shapes are caught at tcyr level. v5.7.46 adds
+# zero compiler change; just gates + this group.
+fn ts_parse_test_ts_parse_p57() {
+    # ─── `as const` assertion expressions ──────────────────────────
+    test_group("as const: scalar / object / array / nested");
+    var rc = _ts_parse_p57_parse("const c1 = \"foo\" as const;");
+    assert(rc >= 0, "scalar 'foo' as const");
+    rc = _ts_parse_p57_parse("const c2 = { kind: \"user\", id: 42 } as const;");
+    assert(rc >= 0, "obj { ... } as const");
+    rc = _ts_parse_p57_parse("const c3 = [1, 2, 3] as const;");
+    assert(rc >= 0, "arr [1,2,3] as const");
+    rc = _ts_parse_p57_parse("const c4 = { tag: \"a\", items: [1, 2] as const } as const;");
+    assert(rc >= 0, "nested obj+arr as const");
+
+    # ─── `satisfies` postfix operator ──────────────────────────────
+    test_group("satisfies: literal / call-expr / arrow-call");
+    rc = _ts_parse_p57_parse("const palette = { red: \"#f00\" } satisfies Record<string, string>;");
+    assert(rc >= 0, "obj satisfies Record");
+    rc = _ts_parse_p57_parse("type Cfg = { name: string }; const c = { name: \"x\" } satisfies Cfg;");
+    assert(rc >= 0, "literal satisfies type-alias");
+    rc = _ts_parse_p57_parse("const v = (() => 42)() satisfies number;");
+    assert(rc >= 0, "call-expr satisfies primitive");
+    rc = _ts_parse_p57_parse("const arr = [1, \"two\", true] satisfies [number, string, boolean];");
+    assert(rc >= 0, "tuple-literal satisfies tuple-type");
+
+    # ─── `never` / `unknown` primitives in type position ───────────
+    test_group("never / unknown: type alias / fn return / array / union");
+    rc = _ts_parse_p57_parse("type T1 = never;");
+    assert(rc >= 0, "type T = never");
+    rc = _ts_parse_p57_parse("type T2 = unknown;");
+    assert(rc >= 0, "type T = unknown");
+    rc = _ts_parse_p57_parse("function fail(): never { throw 0; }");
+    assert(rc >= 0, "fn returns never");
+    rc = _ts_parse_p57_parse("function val(): unknown { return 1; }");
+    assert(rc >= 0, "fn returns unknown");
+    rc = _ts_parse_p57_parse("type T3 = never[]; type T4 = unknown[];");
+    assert(rc >= 0, "never[] / unknown[]");
+    rc = _ts_parse_p57_parse("type T5 = string | never; type T6 = string | unknown;");
+    assert(rc >= 0, "never / unknown in union");
+    rc = _ts_parse_p57_parse("type T7 = { a: never; b: unknown };");
+    assert(rc >= 0, "never / unknown in object type");
+
+    # ─── conditional types: basic ──────────────────────────────────
+    test_group("conditional types: basic ternary");
+    rc = _ts_parse_p57_parse("type IsString<T> = T extends string ? true : false;");
+    assert(rc >= 0, "basic T extends X ? Y : Z");
+    rc = _ts_parse_p57_parse("type R1 = IsString<\"foo\">; type R2 = IsString<42>;");
+    assert(rc >= 0, "instantiate conditional");
+
+    # ─── conditional types: nested ─────────────────────────────────
+    test_group("conditional types: nested");
+    rc = _ts_parse_p57_parse("type Triage<T> = T extends string ? \"s\" : T extends number ? \"n\" : \"o\";");
+    assert(rc >= 0, "right-nested chain");
+    rc = _ts_parse_p57_parse("type Deep<T> = T extends Array<infer U> ? U extends string ? \"sa\" : \"oa\" : \"none\";");
+    assert(rc >= 0, "infer + nested ternary");
+
+    # ─── conditional types: `infer T` ──────────────────────────────
+    test_group("conditional types: infer T");
+    rc = _ts_parse_p57_parse("type Unwrap<T> = T extends Promise<infer U> ? U : T;");
+    assert(rc >= 0, "Unwrap via infer U");
+    rc = _ts_parse_p57_parse("type ArgsOf<F> = F extends (...args: infer A) => any ? A : never;");
+    assert(rc >= 0, "ArgsOf via infer A in rest position");
+    rc = _ts_parse_p57_parse("type ReturnT<F> = F extends (...args: any[]) => infer R ? R : never;");
+    assert(rc >= 0, "ReturnT via infer R in return position");
+
+    # ─── conditional types: distributive ───────────────────────────
+    test_group("conditional types: distributive");
+    rc = _ts_parse_p57_parse("type ToArr<T> = T extends any ? T[] : never;");
+    assert(rc >= 0, "ToArr distributes");
+    rc = _ts_parse_p57_parse("type Filter<T, U> = T extends U ? T : never;");
+    assert(rc >= 0, "Filter via T extends U distributes");
+    rc = _ts_parse_p57_parse("type Box<T> = [T] extends [string] ? \"yes\" : \"no\";");
+    assert(rc >= 0, "[T] extends [string] non-distributive form");
+
+    return 0;
+}
+
 ts_parse_test_ts_parse_p43();
 ts_parse_test_ts_parse_p46();
 ts_parse_test_ts_parse_p48();
@@ -960,6 +1048,7 @@ ts_parse_test_ts_parse_p53();
 ts_parse_test_ts_parse_p54();
 ts_parse_test_ts_parse_p55();
 ts_parse_test_ts_parse_p56();
+ts_parse_test_ts_parse_p57();
 
 var exit_code = assert_summary();
 syscall(60, exit_code);

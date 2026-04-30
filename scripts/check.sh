@@ -647,6 +647,15 @@ if [ "$ctp_result" -ne 0 ]; then cat /tmp/audit_ctp_$$; fi
 rm -f /tmp/audit_ctp_$$
 echo ""
 
+# ── 4ba. v5.7.x advanced-TS pin audit (v5.7.46) ──
+echo "── advanced-TS pin audit ──"
+sh "$ROOT/tests/regression-ts-advanced-pin-audit.sh" > /tmp/audit_pin_$$ 2>&1
+pin_result=$?
+check "TS advanced-pin audit — as const + satisfies + never/unknown + conditional types (v5.7.46)" "$pin_result"
+if [ "$pin_result" -ne 0 ]; then cat /tmp/audit_pin_$$; fi
+rm -f /tmp/audit_pin_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then

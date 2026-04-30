@@ -201,6 +201,97 @@ toolchain side is unblocked.
 
 
 
+## v5.7.46 ✅ v5.7.x advanced-TS pin audit — 4 stale-pin items closed — SHIPPED
+
+**Shipped 2026-04-30.** Third and final slot of the v5.7.44-46
+advanced TS feature suite. Reframed during v5.7.45 ship from
+"feature implementation" to "audit-pass" after empirical
+bisection found 4 of the 5 remaining pin items already parsed
+`rc=0` against current cc5. v5.7.46 locks the empirical
+findings via formal regression gates + tcyr fixtures, marks
+each pin item ✅ with empirical proof, and **retires the v5.7.x
+advanced-TS pin entirely**.
+
+**Zero compiler change.** cc5 unchanged at 720,928 B. Audit-
+pass shape: gates + tcyr fixtures + doc updates only.
+
+**What landed:**
+
+1. **`tests/tcyr/ts_parse_advanced.tcyr` group `ts_parse_p57`**
+   — 25 new assertions in 7 sub-groups:
+   - `as const` (4 sub-shapes): scalar / object / array / nested
+   - `satisfies` postfix (7 sub-shapes): literal/Record,
+     literal/type-alias, call-expr/primitive, tuple/tuple,
+     `as const satisfies` (TS 5.0 idiom for routes/config),
+     object satisfies with optional fields
+   - `never`/`unknown` primitives (9 sub-shapes): type aliases,
+     fn return positions, var declarations, object members,
+     union/intersection, conditional-with-never idiom, generic
+     constraints
+   - Conditional types (14 sub-shapes across basic / nested /
+     `infer T` / distributive): standard utility shapes
+     `Unwrap`/`ElementOf`/`ArgsOf`/`ReturnT`/`Head`/`Tail`/
+     `Filter` plus `[T] extends [U]` non-distributive form
+2. **`tests/regression-ts-advanced-pin-audit.sh`** (gate 4ba) —
+   single combined gate with 4 numbered sub-sections embedding
+   real-world TS-lib shapes (zod-shape Record validation,
+   react-shape typed event handlers, redux-shape action
+   creators, TS 5.0 routes-table idiom).
+
+**Verification:**
+
+- cc5 unchanged at 720,928 B (zero compiler change). Two-step
+  self-host clean.
+- 4 TS group runners clean post-fix: `ts_parse_core` 257 +
+  `ts_parse_decls` 157 + `ts_parse_advanced` 197 (+25 from
+  172) + `ts_lex_combined` 570 = **1181 total TS assertions**.
+- SY corpus regressions unchanged: `regression-ts-parse.sh`
+  2053/2053 `.ts`, `regression-ts-parse-tsx.sh` 435/435 `.tsx`.
+- `sh scripts/check.sh` — 64/64 PASS (was 63/63; +gate 4ba).
+
+**Pin list status — RETIRED:**
+
+The original 8-item v5.7.x advanced-TS pin (§v5.7.x — patch
+slate) is **fully closed**:
+
+- ✅ Mapped types (v5.7.25)
+- ✅ asserts predicate signatures (v5.7.24)
+- ✅ Decorators TS 5.0 stage-3 (v5.7.26)
+- ✅ Variadic tuple types — AST representation (v5.7.44)
+- ✅ Const type parameters TS 5.0 (v5.7.45)
+- ✅ `as const` assertion expressions (v5.7.46 audit)
+- ✅ `satisfies` postfix verify (v5.7.46 audit)
+- ✅ `never`/`unknown` audit (v5.7.46 audit)
+- ✅ Conditional types — exhaustive corpus (v5.7.46 audit)
+
+Pin section in §v5.7.x — patch slate is replaced with a
+**SUPERSEDED** marker pointing at the v5.7.44-46 ship
+narratives.
+
+**Slot cascade post-v5.7.46:**
+
+- v5.7.46 ✅ this slot
+- v5.7.47 — refactor pass (next; CLAUDE.md closeout-pass §6
+  carved out for audit-trail clarity)
+- v5.7.48 — TRUE CLOSEOUT BACKSTOP
+
+User-authorized headroom v5.7.49-50 unused — audit-pass
+surfaced no additional gaps. Planned finish at v5.7.48 holds.
+
+**Out of scope (future polish):**
+
+- **Typed AST for conditional types** — `TS_AST_TYPE_CONDITIONAL`
+  + `TS_AST_TYPE_INFER` AST kinds preserving check / extends /
+  true / false / infer-name structure. Pin behind a future
+  typechecker consumer.
+- **`as const` AST tagging** — currently parsed as a regular
+  `as` cast against an ident named `const`. A flag bit on the
+  AS node would let downstream tools (codemod, formatter)
+  recognize literal narrowing. Pin behind a tooling consumer
+  surfacing the need.
+
+
+
 ## v5.7.45 ✅ TS 5.0 const type parameters — `<const T>` parse acceptance — SHIPPED
 
 **Shipped 2026-04-30.** Second slot of the v5.7.44-46 advanced
@@ -1097,11 +1188,13 @@ Each line item is its own narrow patch slot when it surfaces:
   call form). TS 5.0 stage-3 standard decorators preferred over
   the `experimentalDecorators` form. Affects parse — emit a
   decorator AST node attached to the following declaration.
-- **`as const`** assertion expressions. Postfix `expr as const`
-  is parsed today as a regular `as` cast against an undeclared
-  `const` ident — works by accident. Make it explicit: a
-  `KW_CONST` token after `as` is a literal-narrowing assertion,
-  not a type ref.
+- **`as const`** assertion expressions ✅ — audit-pass at
+  v5.7.46. Empirically parses `rc=0` for scalar / object /
+  array / nested combinations; locked via tcyr `ts_parse_p57`
+  + regression-ts-advanced-pin-audit.sh gate 4ba. See
+  `## v5.7.46 ✅ v5.7.x advanced-TS pin audit` above. AST
+  tagging (distinguishing `as const` from regular `as` casts)
+  pinned for a future tooling consumer.
 - **Variadic tuple types** ✅ — AST representation shipped
   at v5.7.44 (`TS_AST_TYPE_REST = 316` AST kind +
   `TS_PARSE_TYPE_TUPLE` `is_rest` wrap logic). Premise-check
@@ -1119,21 +1212,32 @@ Each line item is its own narrow patch slot when it surfaces:
   `never`/`unknown`, conditional types corpus) all already
   parsed `rc=0`. See `## v5.7.45 ✅ TS 5.0 const type
   parameters` above for details.
-- **`satisfies`** operator. v5.7.4 added KW_SATISFIES as a
-  contextual keyword usable as an ident name; verify the
-  postfix `expr satisfies Type` operator form parses too.
-  Already a TS-corpus feature flag.
-- **`never` and `unknown` as primitives** in type position.
-  Audit whether these are accepted alongside `void`/`null`/
-  `undefined` in `TS_PARSE_TYPE_PRIMARY`.
-- **Conditional types — exhaustive corpus**:
-  `T extends U ? X : Y` already parses; verify nested
-  conditional + `infer T` + distributive patterns
-  (`T extends any ? f<T> : never`) all hold up.
+- **`satisfies`** postfix operator ✅ — audit-pass at v5.7.46.
+  Empirically parses `rc=0` for literal/Record, literal/type-
+  alias, call-expr/primitive, tuple/tuple, `as const satisfies`
+  TS 5.0 idiom, optional-field forms; locked via gate 4ba.
+- **`never` and `unknown` as primitives in type position** ✅ —
+  audit-pass at v5.7.46. Empirically parses `rc=0` for type
+  aliases / fn returns / vars / object members / union /
+  intersection / conditional-with-never idiom / generic
+  constraints; locked via gate 4ba.
+- **Conditional types — exhaustive corpus** ✅ — audit-pass at
+  v5.7.46. Empirically parses `rc=0` for basic / nested /
+  `infer T` / distributive forms incl. standard utilities
+  `Unwrap`/`ElementOf`/`ArgsOf`/`ReturnT`/`Head`/`Tail`/
+  `Filter` and `[T] extends [U]` non-distributive form; locked
+  via gate 4ba.
 
-**How items get triggered:** when a downstream consumer files a
-parse failure on a non-SY TS shape, the matching item from this
-list moves out and gets its own narrow slot (matching the
+**Pin RETIRED at v5.7.46.** The 8-item v5.7.x advanced-TS pin
+is fully closed. See `## v5.7.46 ✅ v5.7.x advanced-TS pin
+audit` above for the audit-pass narrative. Future TS feature
+gaps surface as their own pinned items per the v5.x — Toolchain
+Quality conventions.
+
+**How items got triggered (historical, kept for reference):**
+when a downstream consumer files a parse failure on a non-SY
+TS shape, the matching item from this list moves out and gets
+its own narrow slot (matching the
 v5.7.6 cyrius-ts polish pattern: smallest repro → grammar
 ref → fix → corpus regression → bump threshold).
 
