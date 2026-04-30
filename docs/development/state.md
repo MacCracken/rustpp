@@ -5,6 +5,40 @@
 
 ## Version
 
+**5.7.39** (shipped 2026-04-30 — **LSP CROSS-FILE GO-TO-
+DEFINITION + DOCUMENT OUTLINE**. Extends `programs/
+cyrius-lsp.cyr` from diagnostics-only to a navigation-capable
+language server. Slot title was "LSP semantic-tokens polish";
+honest sizing at slot entry split the framing — go-to-def is
+the headline consumer-visible feature, semanticTokens is
+internal polish that earns its own slot when a consumer asks.
+**What landed**: (1) Symbol indexer with parallel-array table
+(cap 4096), recursive include walker (project-relative then
+file-relative fallback), idempotent via 256-entry indexed-path
+set; (2) `textDocument/definition` handler — looks up IDENT
+under cursor, returns Location across file boundaries; (3)
+`textDocument/documentSymbol` flat `SymbolInformation[]` form
+mapping cyrius kinds (fn/var/enum/struct/enum-member) to LSP
+SymbolKind (12/13/10/23/22); (4) Capabilities advertise
+`definitionProvider:true` + `documentSymbolProvider:true`; (5)
+`cyrius-lsp` promoted from install-on-demand to default
+release binary (`cyrius.cyml [release].bins`); VSCode
+extension's `~/.cyrius/bin/cyrius-lsp` candidate now resolves
+on a fresh install. **Verification**: cc5 self-host two-step
+byte-identical at **720,640 B** (no compiler change);
+cyrius-lsp: 22 KB → 65,456 B (+43 KB for ~430 LOC of
+indexer + handlers + capability changes); check.sh **57/57
+PASS** (was 56; +gate 4at `regression-lsp-definition.sh`
+covering 5 sub-tests including cross-file
+includer→included resolution); install snapshot 14 → 15
+bins/scripts (cyrius-lsp joined). **Pinned long-term**: LSP
+`textDocument/semanticTokens/full` (~150 LOC; deferred from
+this slot's "polish" framing) + LSP `textDocument/references`
+(~80 LOC; easy add on top of v5.7.39's symbol-table
+infrastructure when a consumer asks). **Slot cascade**:
+backstop unchanged at v5.7.47 — this slot landed inside the
+v5.7.46 floating allocation.)
+
 **5.7.38** (shipped 2026-04-30 — **`.scyr` (soak) + `.smcyr`
 (smoke) FILE TYPES**. Two new test-discovery shapes mirroring
 the existing `*.tcyr` / `*.bcyr` / `*.fcyr` walkers. Closes
@@ -1355,6 +1389,7 @@ throughput win on hosts with hw support).)
 - **`tests/tcyr/*.tcyr`**: 93 files (v5.7.37 collapsed 24 ts_*.tcyr → 4 group runners — `ts_lex_combined`, `ts_parse_core`, `ts_parse_decls`, `ts_parse_advanced`; net -20 files for the same 1117 assertions)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
+- **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
 - **Stdlib**: 60 modules (53 first-party + 7 vendored/deps: 6 via `cyrius deps`
@@ -1401,26 +1436,11 @@ Shipped:
 - **v5.7.36** ✅ fresh-install hardening + distlib cap raise (5-item bundle: check.sh:329 syntax-noise fix + check.sh PATH fallback for fmt/lint with loud-FAIL on missing binaries + cyrius distlib per-module cap 64KB→256KB mabda-surfaced + cyrlint string-literal awareness pulled forward from the v5.7.37 trio + new `cyriusly setup` verb for fresh-checkout install. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 55/55 PASS.)
 - **v5.7.37** ✅ TS test-org rework — group-level consolidation (24 ts_*.tcyr → 4 topic-grouped runners; frontend included once per group instead of per file; assertion-count parity 1117=1117; TS suite compile time 4774ms → 926ms = 5.15× speedup; user-pushback rejected the initial megafile proposal in favour of group-level isolation; option E test-harness pinned long-term in §v5.x — Toolchain Quality. Zero compiler change.)
 - **v5.7.38** ✅ `.scyr` (soak) + `.smcyr` (smoke) file types (cyrius smoke + cyrius soak walkers mirror the .tcyr/.bcyr/.fcyr discovery shape; tests/regression-capacity.sh Python3 dependency removed via shell-loop migration; example harnesses tests/smcyr/compile_minimal.smcyr + tests/scyr/alloc_pressure.scyr; _skip_deps save/restore guards cmd_soak's built-in self-host loop from auto-prepend size blowout; LSP polish split from this slot to v5.7.39. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 56/56 PASS.)
+- **v5.7.39** ✅ LSP cross-file go-to-def + documentSymbol (programs/cyrius-lsp.cyr extended from diagnostics-only to navigation-capable; ~430 LOC of indexer + 2 new method handlers; cyrius-lsp 22 KB → 65,456 B; promoted to [release].bins so fresh installs ship it; semanticTokens deferred to long-term pin. Zero compiler change; cc5 unchanged at 720,640 B; check.sh 57/57 PASS.)
 
-Queue (firm assignments as of 2026-04-30 at v5.7.38 ship —
-**cascade +1 again from the v5.7.37 plan** because the v5.7.38
-duo got split (LSP polish promoted to its own slot at user
-direction; honest sizing showed LSP work ≫ discovery work).
-Relative order preserved; backstop bumped v5.7.46 → v5.7.47):
-
-- **v5.7.39** — **LSP semantic-tokens polish** (split from
-  the v5.7.38 duo at v5.7.38 entry). `programs/cyrius-lsp.cyr`
-  is 556 LOC today, handles diagnostics + didOpen/didSave/
-  didChange only. This slot adds: cross-file symbol resolution
-  (walks include chains, builds a `name → declaration-position`
-  map), `textDocument/definition` request handler, possibly
-  `textDocument/semanticTokens/full` for richer highlighting.
-  ~300-400 LOC + indexing infrastructure. Out of scope: `.so`
-  emission for incremental compilation backing. Acceptance:
-  manual VSCode test (open a multi-file project, ctrl-click an
-  identifier, jump to its decl) + a regression gate that
-  smoke-tests the JSON-RPC round-trip for `textDocument/
-  definition`.
+Queue (firm assignments as of 2026-04-30 at v5.7.39 ship —
+backstop unchanged at v5.7.47; v5.7.39 landed inside the
+v5.7.46 floating allocation without further cascade):
 
 - **v5.7.40–v5.7.42** — **`lib/json.cyr` depth work series**
   (formerly v5.7.39-v5.7.41; pinned 2026-04-27 at v5.7.20

@@ -4,6 +4,182 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.39] — 2026-04-30
+
+**LSP CROSS-FILE GO-TO-DEFINITION + DOCUMENT OUTLINE** —
+extends `programs/cyrius-lsp.cyr` from diagnostics-only to a
+real navigation-capable language server. Adds a symbol
+indexer that walks include chains, two new LSP method
+handlers (`textDocument/definition`, `textDocument/
+documentSymbol`), and promotes cyrius-lsp from
+install-on-demand-via-`cyrius lsp` to a default release
+binary.
+
+Slot title in the queue was "LSP semantic-tokens polish."
+Honest sizing at slot entry split the framing: cross-file
+resolution + go-to-def is the headline value (the
+consumer-visible jump-to-definition feature); semanticTokens
+is internal polish that earns its own slot when a consumer
+asks. Shipped the headline; deferred semanticTokens.
+
+Zero compiler change. cc5 byte-identical at 720,640 B.
+
+### Added
+
+**1. Symbol indexer** (parallel-array table, capped at 4096
+entries). Each `lsp_index_file(path)` call:
+
+- reads the file (1 MB cap, sufficient for cyrius's largest
+  source at ~180 KB)
+- scans line-by-line for top-level `fn NAME(`, `var NAME =`,
+  `enum NAME { ... }`, `struct NAME { ... }` decls
+- enum bodies are walked too — each enumerator becomes its
+  own kind=5 entry
+- recursively walks `include "..."` directives (project-
+  relative first, then file-relative fallback)
+- tracks already-indexed paths via a linear-scanned set
+  (cap 256) so cyclic / repeated includes are no-ops
+
+The indexer is invoked on every `textDocument/didOpen` /
+`didSave` / `didChange` for `.cyr` files. Idempotent across
+the LSP session lifetime.
+
+**2. `textDocument/definition`** — request handler. Resolves
+the IDENT under the cursor by:
+
+1. Re-reading the file content from disk (not cached across
+   messages — LSP messages are interactive frequency, file
+   I/O is fine)
+2. Walking to `(line, character)` and scanning back/forward
+   for IDENT bounds
+3. Looking up the IDENT name in the symbol table (linear
+   scan; future polish: hash if `_sym_count` crosses a few
+   thousand)
+4. Building a `Location { uri, range }` response (or `null`
+   if no match)
+
+Cross-file works: `includer.cyr` calling `lib_helper()`
+from `included.cyr` resolves to `included.cyr`'s line/col,
+verified by the regression test.
+
+**3. `textDocument/documentSymbol`** — flat
+`SymbolInformation[]` form (well-supported across editor
+clients, matches the flat index's shape). Filters the
+symbol table by file URI; maps cyrius kinds (fn/var/enum/
+struct/enum-member) to LSP `SymbolKind` (Function=12,
+Variable=13, Enum=10, Struct=23, EnumMember=22).
+
+**4. Capabilities advertise** — `initialize` response now
+includes `"definitionProvider":true` and
+`"documentSymbolProvider":true`.
+
+**5. Promoted `cyrius-lsp` to release binary** — added to
+`cyrius.cyml [release].bins`. Pre-v5.7.39 path was
+`cyrius lsp` subcommand on demand; now `cyriusly setup` /
+`install.sh` build it as part of every install. The
+`cyrius lsp` subcommand still works for explicit rebuilds.
+Net effect: VSCode extension's `~/.cyrius/bin/cyrius-lsp`
+candidate path now resolves out of the box on a fresh
+install.
+
+### Verification
+
+- cc5 self-host two-step byte-identical at **720,640 B** (no
+  compiler change).
+- cyrius-lsp build: **65,456 B** (was 22 KB pre-v5.7.39 —
+  +43 KB for the indexer, two new method handlers, and
+  capability changes).
+- check.sh **57/57 PASS** (was 56; +gate 4at
+  `regression-lsp-definition.sh`). Tests:
+  1. initialize advertises `definitionProvider:true`
+  2. initialize advertises `documentSymbolProvider:true`
+  3. definition on a same-file IDENT returns the correct
+     URI + position
+  4. documentSymbol returns the IDENT name + LSP kind 12
+     (Function)
+  5. **Cross-file**: includer.cyr→included.cyr definition
+     resolves across the include boundary
+- Install snapshot grew 14 → 15 bins/scripts (cyrius-lsp
+  joined).
+
+### Implementation notes
+
+**Forward-ref + cyrlint clean.** All new globals (parallel
+arrays + backing buffers) are declared at top-level BEFORE
+the fn definitions that reference them — same pattern v5.7.32
+cyrlint enforces. The buffers are allocated in
+`lsp_index_init()` called from `main()` post `alloc_init()`;
+fn bodies see the global var slots are already in scope at
+parse time.
+
+**LSP UTF-16 caveat.** LSP's `position.character` is
+specified in UTF-16 code units, not bytes. Cyrius source is
+ASCII-only by convention (lex.cyr enforces this), so byte
+offsets and UTF-16 code units coincide. Future polish for
+non-ASCII identifiers / string literals: a UTF-16 walker.
+Not blocking — flagged in the slot's "out of scope" pin.
+
+**Position approximation.** definition's response `range.end`
+column is computed by re-walking the symbol table to find
+the matching `(path, line, col)` row and reading
+`_sym_name_len`. Cleaner than re-tokenising the source; the
+walk is O(N) but N is bounded by the table cap and most
+files have few symbols at any given (line, col).
+
+### Files touched
+
+- `programs/cyrius-lsp.cyr` — added ~430 LOC: symbol-table
+  globals, indexer (`lsp_index_file`, `_lsp_id_*`
+  predicates, `_lsp_intern`, `_lsp_already_indexed`,
+  `_lsp_mark_indexed`, `_lsp_add_symbol`, `_lsp_find_eol`,
+  `lsp_lookup_symbol`, `lsp_ident_at_position`,
+  `lsp_read_file`, `lsp_index_init`); two new method
+  handlers (`handle_definition`, `handle_document_symbol`);
+  initialize capability flags; main() init wiring; dispatch
+  cases in the JSON-RPC loop.
+- `cyrius.cyml` — `cyrius-lsp` added to `[release].bins`.
+- `tests/regression-lsp-definition.sh` — new gate (5 tests,
+  including cross-file resolution).
+- `scripts/check.sh` — gate 4at wiring.
+- `VERSION`, `CLAUDE.md`, `src/version_str.cyr` — v5.7.39
+  bump (via `scripts/version-bump.sh`).
+- Install snapshot at `~/.cyrius/versions/5.7.39/` (now
+  includes `cyrius-lsp`).
+
+### Out of scope for this slot
+
+- **`textDocument/semanticTokens/full`** — slot title's
+  "polish" line. Adding the mini-lexer + delta-encoding
+  ~150 LOC pushes the slot past the focused-single-feature
+  threshold. Pinned long-term; claims a slot when a real
+  consumer surfaces a token-coloring request that the
+  editor's textmate grammar can't satisfy.
+- **References / `textDocument/references`** — needs an
+  inverted index (name → all use-sites). Easy add on top of
+  the existing infrastructure. ~80 LOC. Future slot.
+- **Hover / `textDocument/hover`** — needs a doc-comment
+  parser + symbol-kind formatting. Future slot.
+- **UTF-16 column accounting** — cyrius is ASCII-only
+  today; bytes and UTF-16 code units coincide. Add when
+  non-ASCII content surfaces.
+- **Project-root indexing** — currently we only index the
+  file passed to didOpen and its transitive includes. A
+  project-aware walker (find cyrius.cyml, walk
+  `[build].src` / `[lib].modules`) would catch symbols
+  defined in sibling files not transitively included from
+  the current file. Future slot.
+
+### Slot cascade — backstop unchanged
+
+This slot landed inside the v5.7.46 floating slot allocation
+without needing to push backstop further. Queue stays:
+
+- v5.7.40-v5.7.42 = JSON depth series
+- v5.7.43-v5.7.45 = advanced TS suite
+- v5.7.46 = floating slot (option E test-harness, or other
+  emergent items)
+- v5.7.47 = TRUE CLOSEOUT BACKSTOP
+
 ## [5.7.38] — 2026-04-30
 
 **`.scyr` (soak) + `.smcyr` (smoke) FILE TYPES** — adds two new

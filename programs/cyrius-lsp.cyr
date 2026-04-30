@@ -182,6 +182,386 @@ fn uri_to_path(uri) {
 # Global: path to cc5 binary
 var _cc5_path = 0;
 
+# ================================================================
+# SYMBOL INDEX (v5.7.39)
+# ================================================================
+# Parallel-array symbol table for cross-file go-to-definition and
+# document-outline support. Indexed lazily — every textDocument/
+# didOpen / didChange / didSave triggers `lsp_index_file(path)`,
+# which scans the file for top-level fn/var/enum/struct decls and
+# recursively walks `include "..."` directives. A path is indexed
+# at most once per LSP session (tracked via `_lsp_indexed_paths`)
+# to keep cost bounded.
+#
+# Sizing: 4096 symbols × ~80B/row ≈ 320 KB. Backing-buf caps at 256
+# KB for names and 32 KB for paths; if either exceeds, indexing
+# silently truncates rather than aborting (LSP soft-degrade > hard
+# fail). Future polish: dynamic vec if a real consumer hits the cap.
+
+var _LSP_SYMTAB_CAP = 4096;
+var _LSP_NAMES_BUF_CAP = 262144;
+var _LSP_PATHS_BUF_CAP = 32768;
+var _LSP_INDEXED_CAP = 256;
+
+# Per-symbol parallel arrays (fixed cap; allocated in main()):
+#   _sym_name_off   — offset into _sym_names_buf (start of name)
+#   _sym_name_len   — length of the name in bytes
+#   _sym_path_off   — offset into _sym_paths_buf (start of cstring file path)
+#   _sym_line       — 0-based line where the decl starts
+#   _sym_col        — 0-based column where the IDENT starts
+#   _sym_kind       — 1=fn, 2=var, 3=enum, 4=struct, 5=enum-member
+var _sym_name_off = 0;
+var _sym_name_len = 0;
+var _sym_path_off = 0;
+var _sym_line = 0;
+var _sym_col = 0;
+var _sym_kind = 0;
+var _sym_count = 0;
+
+# Backing buffers
+var _sym_names_buf = 0;
+var _sym_names_used = 0;
+var _sym_paths_buf = 0;
+var _sym_paths_used = 0;
+
+# Per-path indexed-set: cstring offsets into _lsp_indexed_buf (poor-man's
+# string-set; linear scan).
+var _lsp_indexed_off = 0;
+var _lsp_indexed_count = 0;
+var _lsp_indexed_buf = 0;
+var _lsp_indexed_used = 0;
+
+# Alloc the symbol-table backing buffers once at startup.
+fn lsp_index_init() {
+    _sym_name_off = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_name_len = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_path_off = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_line     = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_col      = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_kind     = alloc(_LSP_SYMTAB_CAP * 8);
+    _sym_count    = 0;
+    _sym_names_buf = alloc(_LSP_NAMES_BUF_CAP);
+    _sym_names_used = 0;
+    _sym_paths_buf = alloc(_LSP_PATHS_BUF_CAP);
+    _sym_paths_used = 0;
+    _lsp_indexed_off = alloc(_LSP_INDEXED_CAP * 8);
+    _lsp_indexed_count = 0;
+    _lsp_indexed_buf = alloc(_LSP_PATHS_BUF_CAP);
+    _lsp_indexed_used = 0;
+    return 0;
+}
+
+# Identifier-class predicates (parallel to programs/cyrlint.cyr's
+# v5.7.32 _is_id_start / _is_id_cont — kept inline here so cyrius-lsp
+# stays a self-contained program).
+fn _lsp_id_start(c) {
+    if (c >= 65 && c <= 90)  { return 1; }   # A-Z
+    if (c >= 97 && c <= 122) { return 1; }   # a-z
+    if (c == 95)             { return 1; }   # _
+    return 0;
+}
+fn _lsp_id_cont(c) {
+    if (_lsp_id_start(c) == 1) { return 1; }
+    if (c >= 48 && c <= 57)    { return 1; } # 0-9
+    return 0;
+}
+
+# Scan forward over [off..total) while bytes are id-cont; return the
+# offset just past the IDENT.
+fn _lsp_scan_id_end(buf, off, total) {
+    var p = off;
+    while (p < total) {
+        if (_lsp_id_cont(load8(buf + p)) == 0) { return p; }
+        p = p + 1;
+    }
+    return total;
+}
+
+# Stash a cstring into a backing buffer; return the offset (or -1 if
+# the buffer would overflow). Inserts a trailing NUL.
+fn _lsp_intern(buf_addr, used_addr, cap, src, len) {
+    var used = load64(used_addr);
+    if (used + len + 1 >= cap) { return 0 - 1; }
+    var off = used;
+    var buf = load64(buf_addr);
+    var i = 0;
+    while (i < len) {
+        store8(buf + off + i, load8(src + i));
+        i = i + 1;
+    }
+    store8(buf + off + len, 0);
+    store64(used_addr, used + len + 1);
+    return off;
+}
+
+# Has this absolute path already been indexed? Linear scan over the
+# indexed set (cap 256, bounded growth so O(n) is fine).
+fn _lsp_already_indexed(path) {
+    var plen = strlen(path);
+    var i = 0;
+    while (i < _lsp_indexed_count) {
+        var off = load64(_lsp_indexed_off + i * 8);
+        var entry = _lsp_indexed_buf + off;
+        if (memeq(entry, path, plen + 1) == 1) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Record `path` as indexed. Returns 0 if added, -1 if cap full.
+fn _lsp_mark_indexed(path) {
+    if (_lsp_indexed_count >= _LSP_INDEXED_CAP) { return 0 - 1; }
+    var plen = strlen(path);
+    var off = _lsp_intern(&_lsp_indexed_buf, &_lsp_indexed_used, _LSP_PATHS_BUF_CAP, path, plen);
+    if (off < 0) { return 0 - 1; }
+    store64(_lsp_indexed_off + _lsp_indexed_count * 8, off);
+    _lsp_indexed_count = _lsp_indexed_count + 1;
+    return 0;
+}
+
+# Append a symbol to the table. `name_src` + `name_len` describe the
+# IDENT bytes; `path` is the absolute cstring path; line/col are
+# 0-based; kind ∈ {1,2,3,4,5}. Returns 0 on success, -1 on cap full.
+fn _lsp_add_symbol(name_src, name_len, path, line, col, kind) {
+    if (_sym_count >= _LSP_SYMTAB_CAP) { return 0 - 1; }
+    var no = _lsp_intern(&_sym_names_buf, &_sym_names_used, _LSP_NAMES_BUF_CAP, name_src, name_len);
+    if (no < 0) { return 0 - 1; }
+    var po = _lsp_intern(&_sym_paths_buf, &_sym_paths_used, _LSP_PATHS_BUF_CAP, path, strlen(path));
+    if (po < 0) { return 0 - 1; }
+    var i = _sym_count;
+    store64(_sym_name_off + i * 8, no);
+    store64(_sym_name_len + i * 8, name_len);
+    store64(_sym_path_off + i * 8, po);
+    store64(_sym_line     + i * 8, line);
+    store64(_sym_col      + i * 8, col);
+    store64(_sym_kind     + i * 8, kind);
+    _sym_count = _sym_count + 1;
+    return 0;
+}
+
+# Find next end-of-line offset starting at `start`; returns offset of
+# the '\n' (or `total` if not found).
+fn _lsp_find_eol(buf, start, total) {
+    var p = start;
+    while (p < total) {
+        if (load8(buf + p) == 10) { return p; }
+        p = p + 1;
+    }
+    return total;
+}
+
+# Index a single file: scan for top-level fn/var/enum/struct decls and
+# recursively walk `include "..."` directives. Path is the absolute
+# cstring file path. Idempotent — second call on the same path is a
+# no-op via _lsp_already_indexed. Returns 0 on success.
+fn lsp_index_file(path) {
+    if (_lsp_already_indexed(path) == 1) { return 0; }
+    if (_lsp_mark_indexed(path) < 0) { return 0; }    # cap full → soft-fail
+
+    # Read the file into a fresh buf. 1 MB cap is enough for cyrius's
+    # largest source (src/frontend/ts/parse.cyr at 4506 LOC ≈ 180 KB).
+    var fd = sys_open(path, 0, 0);
+    if (fd < 0) { return 0; }
+    var buf = alloc(1048576);
+    var total = 0;
+    var n = 1;
+    while (n > 0 && total < 1048575) {
+        n = syscall(0, fd, buf + total, 1048575 - total);
+        if (n > 0) { total = total + n; }
+    }
+    sys_close(fd);
+    store8(buf + total, 0);
+
+    # Compute the directory of `path` for include-relative resolution.
+    var path_len = strlen(path);
+    var slash = 0 - 1;
+    var pi = 0;
+    while (pi < path_len) {
+        if (load8(path + pi) == 47) { slash = pi; }
+        pi = pi + 1;
+    }
+    var path_dir = 0;
+    var path_dir_len = 0;
+    if (slash >= 0) {
+        path_dir_len = slash + 1;       # include trailing slash
+        path_dir = alloc(path_dir_len + 1);
+        var di = 0;
+        while (di < path_dir_len) {
+            store8(path_dir + di, load8(path + di));
+            di = di + 1;
+        }
+        store8(path_dir + path_dir_len, 0);
+    }
+
+    var line = 0;
+    var pos = 0;
+    while (pos < total) {
+        var eol = _lsp_find_eol(buf, pos, total);
+
+        # `include "path/to/file.cyr"` — recurse.
+        # Match at start-of-line (no leading whitespace; cyrius style).
+        if (eol - pos > 9 && memeq(buf + pos, "include \"", 9) == 1) {
+            var qs = pos + 9;
+            var qe = qs;
+            while (qe < eol && load8(buf + qe) != 34) { qe = qe + 1; }
+            if (qe < eol && qe > qs) {
+                var inc_len = qe - qs;
+                # Try project-relative first (typical cyrius style:
+                # `include "lib/string.cyr"` resolves from CWD).
+                var inc_proj = alloc(inc_len + 1);
+                var ii = 0;
+                while (ii < inc_len) {
+                    store8(inc_proj + ii, load8(buf + qs + ii));
+                    ii = ii + 1;
+                }
+                store8(inc_proj + inc_len, 0);
+                if (file_exists(inc_proj) == 1) {
+                    lsp_index_file(inc_proj);
+                } elif (path_dir != 0) {
+                    # Fall back to relative-to-current-file dir.
+                    var inc_rel = alloc(path_dir_len + inc_len + 1);
+                    var ji = 0;
+                    while (ji < path_dir_len) {
+                        store8(inc_rel + ji, load8(path_dir + ji));
+                        ji = ji + 1;
+                    }
+                    var ki = 0;
+                    while (ki < inc_len) {
+                        store8(inc_rel + path_dir_len + ki, load8(buf + qs + ki));
+                        ki = ki + 1;
+                    }
+                    store8(inc_rel + path_dir_len + inc_len, 0);
+                    if (file_exists(inc_rel) == 1) {
+                        lsp_index_file(inc_rel);
+                    }
+                }
+            }
+        }
+        # `fn NAME(`
+        elif (eol - pos > 4 && memeq(buf + pos, "fn ", 3) == 1) {
+            var ns = pos + 3;
+            if (ns < eol && _lsp_id_start(load8(buf + ns)) == 1) {
+                var ne = _lsp_scan_id_end(buf, ns, eol);
+                if (ne < eol && load8(buf + ne) == 40) {       # '('
+                    _lsp_add_symbol(buf + ns, ne - ns, path, line, ns - pos, 1);
+                }
+            }
+        }
+        # `var NAME` (top-level only — pos == 0 at line start, no
+        # leading whitespace; cyrius indents fn-body vars).
+        elif (eol - pos > 5 && memeq(buf + pos, "var ", 4) == 1) {
+            var vs = pos + 4;
+            if (vs < eol && _lsp_id_start(load8(buf + vs)) == 1) {
+                var ve = _lsp_scan_id_end(buf, vs, eol);
+                _lsp_add_symbol(buf + vs, ve - vs, path, line, vs - pos, 2);
+            }
+        }
+        # `enum NAME { K1, K2, ... }` — record both NAME (kind=3) and
+        # each enumerator (kind=5, scan inside the braces).
+        elif (eol - pos > 6 && memeq(buf + pos, "enum ", 5) == 1) {
+            var es = pos + 5;
+            if (es < eol && _lsp_id_start(load8(buf + es)) == 1) {
+                var ee = _lsp_scan_id_end(buf, es, eol);
+                _lsp_add_symbol(buf + es, ee - es, path, line, es - pos, 3);
+                # Walk to first '{' (may be on this line or later) then
+                # collect comma-separated enumerator IDENTs until '}'.
+                var bp = ee;
+                # search this line first
+                while (bp < eol && load8(buf + bp) != 123) { bp = bp + 1; }
+                if (bp < eol) {
+                    bp = bp + 1;
+                    var stop = 0;
+                    while (stop == 0 && bp < total) {
+                        var c = load8(buf + bp);
+                        if (c == 125) { stop = 1; }     # '}'
+                        elif (_lsp_id_start(c) == 1) {
+                            var ks = bp;
+                            var ke = _lsp_scan_id_end(buf, ks, total);
+                            _lsp_add_symbol(buf + ks, ke - ks, path, line, ks - pos, 5);
+                            bp = ke;
+                        } else { bp = bp + 1; }
+                    }
+                }
+            }
+        }
+        # `struct NAME { ... }`
+        elif (eol - pos > 8 && memeq(buf + pos, "struct ", 7) == 1) {
+            var ss = pos + 7;
+            if (ss < eol && _lsp_id_start(load8(buf + ss)) == 1) {
+                var se = _lsp_scan_id_end(buf, ss, eol);
+                _lsp_add_symbol(buf + ss, se - ss, path, line, ss - pos, 4);
+            }
+        }
+
+        pos = eol + 1;
+        line = line + 1;
+    }
+    return 0;
+}
+
+# Look up a symbol name in the table; return the index of the first
+# match (-1 if not found). Linear scan; future polish: hash if
+# _sym_count grows past a few thousand and benchmarks ask.
+fn lsp_lookup_symbol(name, name_len) {
+    var i = 0;
+    while (i < _sym_count) {
+        var nlen = load64(_sym_name_len + i * 8);
+        if (nlen == name_len) {
+            var noff = load64(_sym_name_off + i * 8);
+            if (memeq(_sym_names_buf + noff, name, name_len) == 1) {
+                return i;
+            }
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# Map an LSP position (0-based line + character) on the given file
+# content to the IDENT under the cursor. Returns (start_offset_in_buf,
+# end_offset_in_buf) packed: start in low 32 bits, end in high 32. -1
+# if no IDENT under the cursor.
+fn lsp_ident_at_position(buf, total, target_line, target_char) {
+    var line = 0;
+    var pos = 0;
+    while (line < target_line && pos < total) {
+        if (load8(buf + pos) == 10) { line = line + 1; }
+        pos = pos + 1;
+    }
+    # `pos` is now at start of `target_line`. Advance `target_char`
+    # bytes (LSP's offsets are UTF-16 code units in spec, but we treat
+    # them as bytes — accurate for ASCII-only cyrius source).
+    var p = pos + target_char;
+    if (p >= total) { return 0 - 1; }
+    # Walk backward to find IDENT start.
+    var s = p;
+    while (s > pos && _lsp_id_cont(load8(buf + s - 1)) == 1) { s = s - 1; }
+    if (s > 0 && _lsp_id_start(load8(buf + s)) == 0) { return 0 - 1; }
+    if (s == p && _lsp_id_start(load8(buf + s)) == 0) { return 0 - 1; }
+    var e = _lsp_scan_id_end(buf, s, total);
+    if (e == s) { return 0 - 1; }
+    return s | (e << 32);
+}
+
+# Read a file into a freshly-allocated buf; return (buf, total) packed
+# with buf in low 56, total in high 8 bits — wait, total may exceed 8
+# bits. Actually return buf and write total to *total_out.
+fn lsp_read_file(path, total_out) {
+    var fd = sys_open(path, 0, 0);
+    if (fd < 0) { store64(total_out, 0); return 0; }
+    var buf = alloc(1048576);
+    var total = 0;
+    var n = 1;
+    while (n > 0 && total < 1048575) {
+        n = syscall(0, fd, buf + total, 1048575 - total);
+        if (n > 0) { total = total + n; }
+    }
+    sys_close(fd);
+    store8(buf + total, 0);
+    store64(total_out, total);
+    return buf;
+}
+
 # Find cc5 binary — check common locations
 fn find_cc5() {
     # Try ./build/cc5
@@ -459,7 +839,14 @@ fn handle_initialize(body) {
     str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"id\":");
     str_builder_add_int(sb, id);
     str_builder_add_cstr(sb, ",\"result\":{\"capabilities\":{");
-    str_builder_add_cstr(sb, "\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":true}");
+    str_builder_add_cstr(sb, "\"textDocumentSync\":{\"openClose\":true,\"change\":1,\"save\":true},");
+    # v5.7.39: advertise definitionProvider + documentSymbolProvider.
+    # `textDocument/semanticTokens/full` deferred to a future slot —
+    # the slot framing of "polish" landed cross-file resolution +
+    # go-to-def first; semantic tokens earn their own slot when
+    # consumer pull surfaces.
+    str_builder_add_cstr(sb, "\"definitionProvider\":true,");
+    str_builder_add_cstr(sb, "\"documentSymbolProvider\":true");
     str_builder_add_cstr(sb, "}}}");
     send_response(str_data(str_builder_build(sb)));
     log_msg("initialized");
@@ -489,6 +876,11 @@ fn handle_did_open_or_save(body) {
     if (plen < 4) { return 0; }
     if (memeq(path + plen - 4, ".cyr", 4) != 1) { return 0; }
 
+    # v5.7.39: index this file (and transitive includes) into the
+    # symbol table for go-to-def + outline. Idempotent — second
+    # didOpen on the same file is a no-op via _lsp_already_indexed.
+    lsp_index_file(path);
+
     var stderr_out = compile_and_capture(path);
     if (stderr_out == 0) {
         # Compilation failed to launch — clear diagnostics
@@ -500,12 +892,201 @@ fn handle_did_open_or_save(body) {
     return 0;
 }
 
+# v5.7.39: textDocument/definition.
+# Request:  { ..., params: { textDocument: { uri: "..." }, position: { line: N, character: M } } }
+# Response: { ..., result: Location | Location[] | null }
+# We re-read the file content from disk (we don't cache document
+# state across messages), find the IDENT at the cursor, and look it
+# up in the symbol table.
+fn handle_definition(body) {
+    var id = json_get_id(body);
+    var uri = json_get_str(body, "\"uri\":");
+
+    # Parse line + character from "position":{...}.
+    # Reuse the substring approach used elsewhere; keep simple.
+    var line_pos = json_find(body, "\"line\":");
+    if (line_pos < 0) { line_pos = json_find(body, "\"line\": "); }
+    var line_val = 0;
+    if (line_pos >= 0) {
+        var p = line_pos;
+        while (load8(body + p) == 32) { p = p + 1; }
+        while (load8(body + p) >= 48 && load8(body + p) <= 57) {
+            line_val = line_val * 10 + load8(body + p) - 48;
+            p = p + 1;
+        }
+    }
+    var ch_pos = json_find(body, "\"character\":");
+    if (ch_pos < 0) { ch_pos = json_find(body, "\"character\": "); }
+    var ch_val = 0;
+    if (ch_pos >= 0) {
+        var p = ch_pos;
+        while (load8(body + p) == 32) { p = p + 1; }
+        while (load8(body + p) >= 48 && load8(body + p) <= 57) {
+            ch_val = ch_val * 10 + load8(body + p) - 48;
+            p = p + 1;
+        }
+    }
+
+    # Re-read the file. Symbol table doesn't store source text;
+    # re-read is O(file size) per request which is fine for human-
+    # interactive editor traffic.
+    var path = 0;
+    if (uri != 0) { path = uri_to_path(uri); }
+
+    var found = 0;
+    var resp_line = 0;
+    var resp_col = 0;
+    var resp_path = 0;
+    if (path != 0) {
+        var total_out[1];
+        var buf = lsp_read_file(path, &total_out);
+        var total = load64(&total_out);
+        if (buf != 0 && total > 0) {
+            var packed = lsp_ident_at_position(buf, total, line_val, ch_val);
+            if (packed >= 0) {
+                var s = packed & 0xFFFFFFFF;
+                var e = (packed >> 32) & 0xFFFFFFFF;
+                var name_len = e - s;
+                # Look up in the symbol table.
+                var idx = lsp_lookup_symbol(buf + s, name_len);
+                if (idx >= 0) {
+                    found = 1;
+                    resp_line = load64(_sym_line + idx * 8);
+                    resp_col  = load64(_sym_col  + idx * 8);
+                    var po = load64(_sym_path_off + idx * 8);
+                    resp_path = _sym_paths_buf + po;
+                }
+            }
+        }
+    }
+
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"id\":");
+    str_builder_add_int(sb, id);
+    if (found == 1) {
+        # Build a single-Location response. Range is the full IDENT;
+        # we don't track end-col separately, so emit start+name_len.
+        # Reading name_len back from the table is cheaper than
+        # recomputing.
+        str_builder_add_cstr(sb, ",\"result\":{\"uri\":\"file://");
+        str_builder_add_cstr(sb, resp_path);
+        str_builder_add_cstr(sb, "\",\"range\":{\"start\":{\"line\":");
+        str_builder_add_int(sb, resp_line);
+        str_builder_add_cstr(sb, ",\"character\":");
+        str_builder_add_int(sb, resp_col);
+        str_builder_add_cstr(sb, "},\"end\":{\"line\":");
+        str_builder_add_int(sb, resp_line);
+        str_builder_add_cstr(sb, ",\"character\":");
+        # Approximate end: start col + name length (we have to recompute).
+        var idx2 = 0;
+        var end_col = resp_col + 1;
+        while (idx2 < _sym_count) {
+            var po2 = load64(_sym_path_off + idx2 * 8);
+            if (memeq(_sym_paths_buf + po2, resp_path, strlen(resp_path) + 1) == 1) {
+                if (load64(_sym_line + idx2 * 8) == resp_line) {
+                    if (load64(_sym_col + idx2 * 8) == resp_col) {
+                        end_col = resp_col + load64(_sym_name_len + idx2 * 8);
+                        idx2 = _sym_count;
+                    }
+                }
+            }
+            idx2 = idx2 + 1;
+        }
+        str_builder_add_int(sb, end_col);
+        str_builder_add_cstr(sb, "}}}}");
+    } else {
+        str_builder_add_cstr(sb, ",\"result\":null}");
+    }
+    send_response(str_data(str_builder_build(sb)));
+    return 0;
+}
+
+# Map cyrius symbol kind to LSP SymbolKind enum.
+#   1=fn → SymbolKind.Function (12)
+#   2=var → SymbolKind.Variable (13)
+#   3=enum → SymbolKind.Enum (10)
+#   4=struct → SymbolKind.Struct (23)
+#   5=enum-member → SymbolKind.EnumMember (22)
+fn _lsp_kind_to_lsp(k) {
+    if (k == 1) { return 12; }
+    if (k == 2) { return 13; }
+    if (k == 3) { return 10; }
+    if (k == 4) { return 23; }
+    if (k == 5) { return 22; }
+    return 13;
+}
+
+# v5.7.39: textDocument/documentSymbol.
+# Returns SymbolInformation[] for the requested file (flat list, not
+# the hierarchical DocumentSymbol[] form — the flat form is well-
+# supported across editor clients and matches our flat index).
+fn handle_document_symbol(body) {
+    var id = json_get_id(body);
+    var uri = json_get_str(body, "\"uri\":");
+    var path = 0;
+    if (uri != 0) { path = uri_to_path(uri); }
+
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "{\"jsonrpc\":\"2.0\",\"id\":");
+    str_builder_add_int(sb, id);
+    str_builder_add_cstr(sb, ",\"result\":[");
+
+    var first = 1;
+    if (path != 0) {
+        var path_len = strlen(path);
+        var i = 0;
+        while (i < _sym_count) {
+            var po = load64(_sym_path_off + i * 8);
+            if (memeq(_sym_paths_buf + po, path, path_len + 1) == 1) {
+                if (first == 0) { str_builder_add_cstr(sb, ","); }
+                first = 0;
+                var sym_line = load64(_sym_line + i * 8);
+                var sym_col = load64(_sym_col + i * 8);
+                var sym_kind = load64(_sym_kind + i * 8);
+                var sym_no = load64(_sym_name_off + i * 8);
+                var sym_nl = load64(_sym_name_len + i * 8);
+                str_builder_add_cstr(sb, "{\"name\":\"");
+                # Add the IDENT name (no escaping needed — IDENTs are
+                # ASCII alphanumerics + underscore).
+                var name_buf = alloc(sym_nl + 1);
+                var ni = 0;
+                while (ni < sym_nl) {
+                    store8(name_buf + ni, load8(_sym_names_buf + sym_no + ni));
+                    ni = ni + 1;
+                }
+                store8(name_buf + sym_nl, 0);
+                str_builder_add_cstr(sb, name_buf);
+                str_builder_add_cstr(sb, "\",\"kind\":");
+                str_builder_add_int(sb, _lsp_kind_to_lsp(sym_kind));
+                str_builder_add_cstr(sb, ",\"location\":{\"uri\":\"file://");
+                str_builder_add_cstr(sb, path);
+                str_builder_add_cstr(sb, "\",\"range\":{\"start\":{\"line\":");
+                str_builder_add_int(sb, sym_line);
+                str_builder_add_cstr(sb, ",\"character\":");
+                str_builder_add_int(sb, sym_col);
+                str_builder_add_cstr(sb, "},\"end\":{\"line\":");
+                str_builder_add_int(sb, sym_line);
+                str_builder_add_cstr(sb, ",\"character\":");
+                str_builder_add_int(sb, sym_col + sym_nl);
+                str_builder_add_cstr(sb, "}}}}");
+            }
+            i = i + 1;
+        }
+    }
+    str_builder_add_cstr(sb, "]}");
+    send_response(str_data(str_builder_build(sb)));
+    return 0;
+}
+
 # ================================================================
 # MAIN LOOP
 # ================================================================
 
 fn main() {
     alloc_init();
+
+    # v5.7.39: allocate symbol-table backing buffers up front.
+    lsp_index_init();
 
     # Find cc5
     _cc5_path = find_cc5();
@@ -546,6 +1127,13 @@ fn main() {
         }
         elif (json_find(body, "\"textDocument/didChange\"") >= 0) {
             handle_did_open_or_save(body);
+        }
+        # v5.7.39: cross-file go-to-def + outline.
+        elif (json_find(body, "\"textDocument/definition\"") >= 0) {
+            handle_definition(body);
+        }
+        elif (json_find(body, "\"textDocument/documentSymbol\"") >= 0) {
+            handle_document_symbol(body);
         }
     }
 

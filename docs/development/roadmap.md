@@ -201,6 +201,77 @@ toolchain side is unblocked.
 
 
 
+## v5.7.39 ✅ LSP cross-file go-to-definition + documentSymbol — SHIPPED
+
+**Shipped 2026-04-30.** Extends `programs/cyrius-lsp.cyr` from
+diagnostics-only to a navigation-capable language server.
+Originally pinned as "LSP semantic-tokens polish"; honest
+sizing at slot entry split the framing — go-to-def is the
+headline consumer-visible feature, semanticTokens is internal
+polish that earns its own slot when a real consumer asks.
+This slot ships the headline; semanticTokens deferred.
+
+Zero compiler change. cc5 byte-identical at 720,640 B.
+
+**What landed:**
+
+1. **Symbol indexer** in cyrius-lsp — parallel-array table
+   (cap 4096 entries × name/path/line/col/kind), backed by
+   256 KB names buf + 32 KB paths buf. Walks `fn`/`var`/
+   `enum`/`struct` decls; recursively follows `include
+   "..."` directives (project-relative first, file-
+   relative fallback); idempotent via a 256-entry indexed-
+   path set.
+
+2. **`textDocument/definition`** — looks up the IDENT
+   under the cursor (re-reads the file to walk the
+   position), returns `Location` (or `null`). Cross-file
+   verified by the regression test
+   (`includer.cyr`→`included.cyr` resolution).
+
+3. **`textDocument/documentSymbol`** — flat
+   `SymbolInformation[]` form filtered by URI; cyrius
+   kinds map to LSP `SymbolKind` (Function=12, Variable=13,
+   Enum=10, Struct=23, EnumMember=22).
+
+4. **`cyrius-lsp` promoted to release binary** — added to
+   `cyrius.cyml [release].bins`. Pre-v5.7.39 was install-
+   on-demand via `cyrius lsp` subcommand; now `cyriusly
+   setup` / `install.sh` build it as part of every install.
+   Net effect: VSCode extension's `~/.cyrius/bin/cyrius-lsp`
+   candidate path resolves out of the box on a fresh
+   install.
+
+**Verification:**
+
+- cc5 self-host two-step byte-identical at 720,640 B (no
+  compiler change).
+- cyrius-lsp: 22 KB → 65,456 B (+43 KB for ~430 LOC of
+  indexer + 2 new method handlers + capability changes).
+- check.sh **57/57 PASS** (was 56; +gate 4at
+  `regression-lsp-definition.sh` covering 5 sub-tests
+  including cross-file resolution).
+- Install snapshot 14 → 15 bins/scripts (cyrius-lsp
+  joined).
+
+**Out of scope (deferred):**
+
+- `textDocument/semanticTokens/full` — pinned long-term in
+  §v5.x — Toolchain Quality.
+- `textDocument/references` — needs inverted index;
+  future slot.
+- `textDocument/hover` — needs doc-comment parser; future.
+- UTF-16 column accounting (cyrius is ASCII-only today;
+  bytes ≡ UTF-16 code units).
+- Project-root indexing (walk cyrius.cyml's [build].src /
+  [lib].modules to catch sibling files not transitively
+  included).
+
+**Slot cascade:** backstop unchanged. The slot landed
+inside the v5.7.46 floating allocation. Queue holds at
+v5.7.40-v5.7.42 JSON depth, v5.7.43-v5.7.45 advanced TS,
+v5.7.46 floating, v5.7.47 closeout backstop.
+
 ## v5.7.38 ✅ `.scyr` (soak) + `.smcyr` (smoke) file types — SHIPPED
 
 **Shipped 2026-04-30.** Two new test-discovery shapes mirroring
@@ -1944,7 +2015,9 @@ enables adding new targets without touching the frontend.
 | `cyrius api-surface` | Medium | **✅ Shipped v5.7.33.** Snapshot-based public API diff. Scans `fn` declarations, tracks `mod::name/arity`, diffs against committed snapshot. Catches breaking removals/renames, allows additions. Pure-cyrius impl in `programs/api_surface.cyr`; pattern from agnosys `scripts/check-api-surface.sh`. |
 | `cyrius api-surface --update` | Low | **✅ Shipped v5.7.33.** Regenerate snapshot after intentional API bump. |
 | CI template with api-surface gate | Low | **✅ Shipped v5.7.33** (gate 4ao in cyrius's own check.sh; downstream consumers add their own copy). |
-| LSP semantic-tokens polish | Medium | **Queued.** Basic color-coding shipped. Extend to cross-file symbol resolution + go-to-def. Future v5.7.x slot when claimed; not bundled with v5.7.33. |
+| LSP cross-file resolution + go-to-def | Medium | **✅ Shipped v5.7.39.** Symbol indexer (parallel-array table cap 4096), recursive include walker, `textDocument/definition`, `textDocument/documentSymbol`. cyrius-lsp promoted to release binary. Cross-file resolution verified by `tests/regression-lsp-definition.sh` (5 sub-tests including includer→included resolution). |
+| LSP `textDocument/semanticTokens/full` | Medium | **Pinned long-term 2026-04-30 at v5.7.39 ship.** Deferred from v5.7.39's "polish" framing — go-to-def landed as the headline; semanticTokens earns its own slot when a real consumer surfaces a token-coloring request the editor's textmate grammar can't satisfy. Adds a mini-lexer + delta-encoded token array per the LSP 3.16 spec. ~150 LOC. |
+| LSP `textDocument/references` | Low-Medium | **Pinned long-term 2026-04-30 at v5.7.39 ship.** Easy add on top of v5.7.39's symbol-table infrastructure — needs an inverted index (name → use-sites). ~80 LOC. Claims a slot when a downstream consumer asks. |
 | cyrlint forward-ref scanner — string-literal awareness | Low-Medium | **✅ Shipped v5.7.36.** Pulled forward from the v5.7.37 trio. Pass-2 scan loop in `lint_globals_init_order` skips IDENTs inside `"..."` and `'...'` literals (with `\\` / `\"` / `\'` escapes); regression test 4 in `tests/regression-lint-global-init-order.sh` covers the shape. |
 | TS test harness program (option E from v5.7.37) | Medium | **Pinned long-term 2026-04-30 at v5.7.37 ship.** A single `programs/ts_test_runner.cyr` consuming both internal-symbol fn dispatch (replacing the current `tests/tcyr/ts_{lex_combined,parse_core,parse_decls,parse_advanced}.tcyr` runners) and TS fixture files (replacing the SY-corpus regression gates `regression-ts-{lex,parse,parse-tsx,asserts,decorators,mapped}.sh`). One tool, two modes. v5.7.37 group-level consolidation is sufficient until a downstream consumer surfaces a test pattern that doesn't fit either current shape; at that point claims a v5.7.x slot (likely v5.7.45 floating slot in the queue). Out of scope: replacing `cc5 --parse-ts`-style flags themselves — the harness CALLS them, doesn't replace them. |
 

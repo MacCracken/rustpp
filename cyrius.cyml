@@ -17,7 +17,7 @@ output = "build/cc5"
 # hardcoded lists was never updated. Now: add a binary here, every
 # consumer picks it up automatically.
 [release]
-bins = ["cc5", "cyrius", "cyrfmt", "cyrlint", "cyrdoc", "cyrc", "ark", "cyrld", "cyrius_api_surface"]
+bins = ["cc5", "cyrius", "cyrfmt", "cyrlint", "cyrdoc", "cyrc", "ark", "cyrld", "cyrius_api_surface", "cyrius-lsp"]
 cross_bins = ["cc5_aarch64"]
 scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cyrius-watch.sh"]
 

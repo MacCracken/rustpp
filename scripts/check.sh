@@ -584,6 +584,15 @@ if [ "$sm_result" -ne 0 ]; then cat /tmp/audit_sm_$$; fi
 rm -f /tmp/audit_sm_$$
 echo ""
 
+# ── 4at. cyrius-lsp go-to-def + documentSymbol (v5.7.39) ──
+echo "── lsp definition ──"
+sh "$ROOT/tests/regression-lsp-definition.sh" > /tmp/audit_lsp_$$ 2>&1
+lsp_result=$?
+check "cyrius-lsp definitionProvider + documentSymbol + cross-file indexing (v5.7.39)" "$lsp_result"
+if [ "$lsp_result" -ne 0 ]; then cat /tmp/audit_lsp_$$; fi
+rm -f /tmp/audit_lsp_$$
+echo ""
+
 # ── 5. Format Check ──
 echo "── Format ──"
 if [ -x "$CYRFMT" ]; then
