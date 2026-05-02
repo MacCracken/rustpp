@@ -4,6 +4,118 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.8] — 2026-05-02
+
+**v5.8.x slot 8 — phylax #4 NI-class duplicate-fn investigation
+(STALE PIN, closed by upstream churn)**. Last slot of Phase 1.
+Premise-check at slot entry surfaced that the issue **doesn't
+reproduce** at v5.8.7 + sigil 3.0.0; closed by sigil's own 3.0.0
+release (specifically the `[lib].modules` section header fix
+that landed in sigil 2.9.5 and merged into 3.0.0). Cyrius's pin
+to sigil 3.0.0 at v5.7.49 deps refresh transitively closed the
+phylax-reported residue.
+
+cc5 unchanged at **721,384 B** — no compiler change; doc-only
+patch closing an investigation pin per the v5.7.46 advanced-TS
+audit-pass shape.
+
+### Empirical verification
+
+Three reproduction paths attempted against current pins
+(sigil 3.0.0, cyrius 5.8.7), all clean:
+
+```sh
+# (1) sigil's library entry, aarch64 cross
+cd /home/macro/Repos/sigil
+cyrius build --aarch64 src/lib.cyr /tmp/sigil_arm
+# → "compile src/lib.cyr -> /tmp/sigil_arm [aarch64] OK"
+# → 0 duplicate-fn warnings
+
+# (2) sigil's CI canonical entry (programs/smoke.cyr)
+cyrius build --aarch64 programs/smoke.cyr /tmp/sigil_smoke_arm
+# → OK; 0 duplicate-fn warnings
+
+# (3) sigil's own tcyr suite (cyrius test against tests/tcyr/*.tcyr)
+cyrius test tests/tcyr/sigil.tcyr
+# → 96 passed, 0 failed
+```
+
+Pre-fix (sigil 2.9.5-era) report from
+`phylax/docs/development/issues/2026-04-30-cyrius-stdlib-issues.md`
+§4: `aes_ni_available`, `_aes_ni_cpuid_probe`,
+`aes256_encrypt_block_ni` duplicate-fn warnings on aarch64
+cross-build of sigil. With sigil 3.0.0's `[lib].modules`
+section-header fix in place, those dupes don't reproduce.
+
+### Root cause (per sigil's CHANGELOG)
+
+Sigil's `cyrius.cyml` pre-3.0 had `modules = [...]` directly
+under `[build]` (whose preceding line was `defines = [...]`),
+so TOML scoped it as `[build].modules`. Cyrius's auto-deps gate
+treats `[build]` modules as auto-prepend modules — duplicating
+every `src/lib.cyr` `include` directive's content. That
+produced **374 duplicate-fn warnings** on x86_64; the NI-class
+3 reported by phylax were a subset visible on aarch64 cross-
+build at the same time. The byte-identical fix was a one-line
+`[lib]` section header before `modules = [...]`.
+
+Sigil shipped that fix in 2.9.5 (folded into 3.0.0 via the
+2026-05-01 merge). Cyrius's pin moved 2.9.3 → 3.0.0 at v5.7.49
+deps refresh — at that point phylax #4 implicitly closed.
+
+### Why no cyrius-side regression gate
+
+Considered adding a regression script that cross-builds sigil's
+`programs/smoke.cyr` for aarch64 and asserts 0 duplicate-fn
+warnings. Decided against:
+
+- Requires sigil to be present at a known local path (cross-
+  repo dependency awkward for general check.sh).
+- The dupe class is sigil-manifest-shape-specific; if sigil
+  regresses its `[lib]` section, sigil's OWN CI will catch it
+  before any consumer hits the issue.
+- Cyrius's existing lint sweep (audit_lint_walk in
+  scripts/lib/audit-walk.sh) catches duplicate-fn warnings on
+  cyrius's own stdlib — the layer closest to where regressions
+  would surface here.
+
+A future polish slot could add cross-repo regression gates if
+the manifest-misconfiguration class recurs. Held until a real
+recurrence justifies the cross-repo coupling.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,384 B (no
+   compiler change).
+2. ✅ `sh scripts/check.sh` — 64 / 64 PASS (no new gates;
+   v5.8.8 is a doc-only closeout patch).
+3. ✅ Three reproduction paths above: all clean.
+
+### Phase 1 complete
+
+v5.8.1–v5.8.8 all shipped:
+- v5.8.1 lint/fmt cap raise + cyrius-prompt-info redundancy fix
+- v5.8.2 cc5_aarch64 packaging + cyrc_check orphan
+- v5.8.3 ts/parse.cyr fmt sweep
+- v5.8.4 f64_log2 aarch64 polyfill (parser dispatch)
+- v5.8.5 f64_log2 SSH-gate hardware verification
+- v5.8.6 sys_stat/sys_fstat x86_64 wrapper backfill (phylax #2)
+- v5.8.7 _SC_ARITY cross-arch gate (phylax #3 + sakshi)
+- v5.8.8 phylax #4 stale-pin closeout
+
+**Phylax #1, #2, #3, #4 all closed.** Sakshi cross-arch noise
+closed. Mabda Class A1 (lint/fmt cap) closed. Phase 2 (language
+vocabulary, slots 9-26) opens at v5.8.9.
+
+### Coda
+
+This slot reaffirms the project memory's "premise-check at slot
+entry" pattern: pinned items can go stale between pin-time and
+slot-execution-time. v5.7.x had 4-of-5 stale items in the
+advanced-TS audit (v5.7.46); v5.8.x had 1-of-30 here. The
+discipline of re-verifying the assumption before committing
+scope has paid off twice now in successive minors.
+
 ## [5.8.7] — 2026-05-02
 
 **v5.8.x slot 7 — `_SC_ARITY` cross-arch false-positive gate

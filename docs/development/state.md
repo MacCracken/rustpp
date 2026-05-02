@@ -5,6 +5,27 @@
 
 ## Version
 
+**5.8.8** (shipped 2026-05-02 — **v5.8.x SLOT 8 — phylax #4
+NI-class duplicate-fn investigation: STALE PIN, closed by
+upstream churn**. Last slot of Phase 1. Premise-check at slot
+entry surfaced that the issue doesn't reproduce at v5.8.7 +
+sigil 3.0.0 — closed by sigil's own 3.0.0 release (specifically
+the `[lib].modules` section-header fix that landed in sigil 2.9.5
+and merged into 3.0.0). Cyrius's pin to sigil 3.0.0 at v5.7.49
+deps refresh transitively closed phylax-reported residue.
+Verified clean across three reproduction paths (sigil src/lib.cyr
+aarch64 cross, programs/smoke.cyr aarch64 cross, sigil tcyr suite
+96/96). Doc-only patch — cc5 unchanged at **721,384 B**, check.sh
+64/64. No new regression gate (cross-repo coupling not justified
+for sigil-manifest-shape-specific issue; sigil's own CI catches
+manifest regressions). Future polish slot could add cross-repo
+gates if recurrence justifies. **Phase 1 complete (v5.8.1-v5.8.8);
+Phylax #1/#2/#3/#4 all closed; sakshi cross-arch noise closed;
+mabda Class A1 closed.** Pattern reaffirmed: project memory's
+"premise-check at slot entry" — v5.7.x had 4-of-5 stale advanced-
+TS items; v5.8.x had 1-of-31 here. Phase 2 (language vocabulary,
+slots 9-26) opens at v5.8.9.)
+
 **5.8.7** (shipped 2026-05-02 — **v5.8.x SLOT 7 — `_SC_ARITY`
 cross-arch false-positive gate (phylax #3 + sakshi)**. Closes 11
 spurious `syscall arity mismatch` warnings on `cyrius build
@@ -1943,7 +1964,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.8+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
+**v5.8.9+ (Phase 2 — language vocabulary; v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -1966,7 +1987,7 @@ Phase 1 — Quick-win unblockers (slots 1-8):
 - **v5.8.5** ✅ aarch64 SSH-gate extension for f64_log2 — hardware verification
 - **v5.8.6** ✅ `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
 - **v5.8.7** ✅ `_SC_ARITY` cross-arch gate (phylax #3 + sakshi)
-- **v5.8.8** — NI-class duplicate-fn investigation (phylax #4)
+- **v5.8.8** ✅ phylax #4 NI-class investigation (stale pin; closed by sigil 3.0.0)
 
 Phase 2 — Language vocabulary (slots 9-26):
 - **v5.8.9** — First-class slices (`slice<T>` / `[T]`)

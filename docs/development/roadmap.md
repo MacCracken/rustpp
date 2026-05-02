@@ -482,17 +482,18 @@ absorbs them within the headroom budget.
   to restore aarch64-side arity warnings — held until a consumer
   surfaces an aarch64 arity bug.
 
-- **v5.8.8** — NI-class duplicate-fn aarch64 cross-build
-  investigation (phylax #4). `aes_ni_available`,
-  `_aes_ni_cpuid_probe`, `aes256_encrypt_block_ni` duplicate-fn
-  warnings on aarch64 cross-build of sigil 2.9.5+. Sigil's
-  `[lib]` TOML section fix (added in 2.9.5) closed x86 dupes;
-  aarch64 still shows NI-class warnings. **Investigation
-  task** — possibly stdlib auto-prepend interaction with
-  sigil's `src/lib.cyr` chain on aarch64. Scope determined
-  during slot.
+- **v5.8.8** ✅ phylax #4 NI-class investigation — STALE PIN,
+  closed by sigil 3.0.0 upstream churn. Shipped 2026-05-02.
+  Premise-check at slot entry surfaced the dupes don't reproduce
+  at v5.8.7 + sigil 3.0.0; sigil's own `[lib].modules` section-
+  header fix in 2.9.5 → 3.0.0 closed both x86 and aarch64 dupe
+  classes; cyrius's pin to 3.0.0 at v5.7.49 deps refresh
+  transitively closed phylax-reported residue. Verified clean
+  across 3 reproduction paths (sigil src/lib.cyr aarch64 cross,
+  programs/smoke.cyr aarch64 cross, sigil tcyr 96/96). Doc-only
+  patch matching v5.7.46 audit-pass shape.
 
-#### Phase 2 — Language vocabulary stabilization (slots 8-25)
+#### Phase 2 — Language vocabulary stabilization (slots 9-26)
 
 The 5-feature compression: ship slices + effect annotations
 + tagged unions + `Result<T,E>` + `?` + allocators in one
