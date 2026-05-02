@@ -220,6 +220,43 @@ fn PARSE_FACTOR(S) {
         if (GINFN(S) == 1) {
             var li = FINDLOCAL(S, noff);
             if (li >= 0) {
+                # v5.8.15 §7: slice subscript `s[i]` for slice-typed
+                # locals. GSLICE_W returns the element byte-width
+                # captured at PARSE_VAR time (v5.8.14 §6); 0 means
+                # not a slice. If `[` follows the ident AND this is
+                # a slice local, lower to `_slice_idx_get_W(&local, i)`
+                # — bounds-checked sized load via the helper that
+                # matches the element width.
+                var sw = GSLICE_W(S, li);
+                if (sw > 0) { if (PEEKT(S) == 28) {
+                    STI(S, GTI(S) + 1);  # consume [
+                    # Push &local as first arg (helper takes slice address)
+                    EFLADDR(S, li);
+                    EPUSHR(S);
+                    # Parse index expression — leaves idx in rax
+                    PCMPE(S);
+                    EPUSHR(S);
+                    # Look up and call the width-specific helper.
+                    # Helpers live in lib/slice.cyr; consumer must
+                    # `include "lib/slice.cyr"` (or pull via deps).
+                    var idx_fn = 0 - 1;
+                    if (sw == 1)  { idx_fn = _FINDFN_CSTR(S, "_slice_idx_get_1",  16); }
+                    if (sw == 2)  { idx_fn = _FINDFN_CSTR(S, "_slice_idx_get_2",  16); }
+                    if (sw == 4)  { idx_fn = _FINDFN_CSTR(S, "_slice_idx_get_4",  16); }
+                    if (sw == 8)  { idx_fn = _FINDFN_CSTR(S, "_slice_idx_get_8",  16); }
+                    if (sw == 16) { idx_fn = _FINDFN_CSTR(S, "_slice_idx_get_16", 17); }
+                    if (idx_fn < 0) {
+                        ERR_MSG(S, "slice subscript requires include \"lib/slice.cyr\" (provides _slice_idx_get_W helpers)", 92);
+                    }
+                    ECALLPOPS(S, 2);
+                    ECALLFIX(S, idx_fn);
+                    # Result in rax. Set expression-width tracking so
+                    # narrowing assignment warnings work for u8/u16/u32.
+                    SEXW(S, sw);
+                    if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
+                    STI(S, GTI(S) + 1);  # consume ]
+                    return 0;
+                } }
                 var lt = GLTYPE(S, li);
                 SPSC(S, lt);
                 # Width-correct load for scalar types (1=i8, 2=i16, 4=i32)

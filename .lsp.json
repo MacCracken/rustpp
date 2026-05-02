@@ -1,0 +1,14 @@
+{
+  "cyrius": {
+    "command": "cyrius-lsp",
+    "args": [],
+    "extensionToLanguage": {
+      ".cyr": "cyrius",
+      ".tcyr": "cyrius",
+      ".bcyr": "cyrius",
+      ".fcyr": "cyrius",
+      ".scyr": "cyrius",
+      ".smcyr": "cyrius"
+    }
+  }
+}

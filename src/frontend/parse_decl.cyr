@@ -875,7 +875,25 @@ fn PARSE_VAR(S) {
         # v5.8.14 §6: record slice element width (0 if not a slice).
         # §7's bounds-aware indexing reads this to pick load*/store* width.
         SSLICE_W(S, li, slice_elt_w);
-        SFLC(S, li + 1);
+        # v5.8.15 §7: 16-byte locals (slice, u128) need TWO 8-byte
+        # slots to avoid collision with the next local. Pre-fix, two
+        # adjacent fn-local slices/u128s shared the same 8-byte slot,
+        # silently corrupting either's high half on init/store. Bump
+        # SFLC by 2 for scalar_type=16, AND clear the high-slot's
+        # name/depth so FINDLOCAL doesn't trip over stale per-fn
+        # state (the high slot is "owned" by the slice but has no
+        # user-visible name — leaving stale name bytes there would
+        # surface as a spurious "duplicate variable" later in the
+        # same fn).
+        if (scalar_type == 16) {
+            S64(S + 0x191000 + (li + 1) * 8, 0);  # clear high slot's name
+            SLDEP(S, li + 1, 0);                  # clear high slot's depth
+            SLTYPE(S, li + 1, 0);                 # clear high slot's type
+            SSLICE_W(S, li + 1, 0);               # clear high slot's slice-w
+            SFLC(S, li + 2);
+        } else {
+            SFLC(S, li + 1);
+        }
     } else {
         var vcnt = GVCNT(S);
         S64(S + 0x11A000 + vcnt * 8, noff);

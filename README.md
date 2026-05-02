@@ -187,6 +187,15 @@ bootstrap/asm (29KB committed binary -- root of trust)
         -> cc5_aarch64, cc5_win_cross, cc5_macho_cross, cc5_cx (cross-compilers)
 ```
 
+## Editor Integration
+
+`cyrius-lsp` ships in-tree (`cyrius lsp` to build/install) and the repo
+root carries a [`.lsp.json`](.lsp.json) manifest so editors that read the
+convention (Claude Code, generic `extensionToLanguage` consumers)
+auto-attach to all `.cyr`-family files (`.cyr`, `.tcyr`, `.bcyr`,
+`.fcyr`, `.scyr`, `.smcyr`). See [docs/editor-integration.md](docs/editor-integration.md)
+for usage, capabilities, and per-editor notes.
+
 ## Migration
 
 `cyrius port` scaffolds Cyrius projects from Rust repos. See the [roadmap](docs/development/roadmap.md) for the full ecosystem state and [migration strategy](docs/development/migration-strategy.md) for the porting playbook.

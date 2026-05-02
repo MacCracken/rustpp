@@ -6,6 +6,22 @@
 #   offset 0: ptr (i64) — pointer to first element
 #   offset 8: len (i64) — element count
 #
+# v5.8.15 §7: bounds-aware indexing — `s[i]` on a slice-typed
+# local lowers to `_slice_idx_get_W(&s, i)` where W is the
+# element byte-width tracked at PARSE_VAR time (v5.8.14 §6's
+# GSLICE_W). Each helper reads s.len, traps on out-of-range
+# (idx < 0 OR idx >= len), then loads the element via the
+# correct sized load. Bounds checks are default-on for safety;
+# the slice_unchecked_get_W variants opt out for perf hot
+# paths (consumer's responsibility to guarantee in-range).
+#
+# Element-width selection happens at parse time — each `s[i]`
+# call site emits a call to the helper matching s's element
+# width (1/2/4/8/16). On bounds violation, helpers print
+# `slice bounds violation\n` to stderr and exit 134.
+
+include "lib/syscalls.cyr"
+#
 # All helpers take a slice POINTER (`&s`), mirroring the u128 /
 # struct-by-pointer convention that pervades cyrius's stdlib.
 # Field access via dot syntax (`s.ptr` / `s.len`) is NOT yet
@@ -159,4 +175,94 @@ fn vec_as_slice(dst, v) {
     store64(dst, load64(v));
     store64(dst + 8, load64(v + 8));
     return 0;
+}
+
+# v5.8.15 §7: bounds-aware indexing helpers.
+#
+# Each `_slice_idx_get_W` helper takes (s_addr, idx), validates
+# idx is in [0, s.len), and returns the element via the W-byte
+# load. PARSE_FACTOR's slice-subscript path emits a call to the
+# helper matching the slice's tracked element width (GSLICE_W
+# from v5.8.14 §6). On out-of-range, prints to stderr and
+# exits 134.
+#
+# `slice_unchecked_get_W` variants skip the bounds check —
+# consumer must guarantee 0 <= idx < s.len. Faster but unsafe.
+
+fn _slice_bounds_trap() {
+    sys_write(2, "slice bounds violation\n", 23);
+    sys_exit(134);
+    return 0;
+}
+
+# Width-1: u8 / i8 elements. Returns zero-extended byte value.
+fn _slice_idx_get_1(s_addr, idx) {
+    var len = load64(s_addr + 8);
+    if (idx < 0) { _slice_bounds_trap(); }
+    if (idx >= len) { _slice_bounds_trap(); }
+    return load8(load64(s_addr) + idx);
+}
+
+# Width-2: u16 / i16 elements.
+fn _slice_idx_get_2(s_addr, idx) {
+    var len = load64(s_addr + 8);
+    if (idx < 0) { _slice_bounds_trap(); }
+    if (idx >= len) { _slice_bounds_trap(); }
+    return load16(load64(s_addr) + idx * 2);
+}
+
+# Width-4: u32 / i32 elements.
+fn _slice_idx_get_4(s_addr, idx) {
+    var len = load64(s_addr + 8);
+    if (idx < 0) { _slice_bounds_trap(); }
+    if (idx >= len) { _slice_bounds_trap(); }
+    return load32(load64(s_addr) + idx * 4);
+}
+
+# Width-8: i64 / u64 / pointer elements.
+fn _slice_idx_get_8(s_addr, idx) {
+    var len = load64(s_addr + 8);
+    if (idx < 0) { _slice_bounds_trap(); }
+    if (idx >= len) { _slice_bounds_trap(); }
+    return load64(load64(s_addr) + idx * 8);
+}
+
+# Width-16: u128 / struct-16 elements. Returns POINTER to the
+# 16-byte slot (consumer uses load64 / u128_* ops to read it).
+# u128 can't be returned by-value through cyrius's i64-only ABI.
+fn _slice_idx_get_16(s_addr, idx) {
+    var len = load64(s_addr + 8);
+    if (idx < 0) { _slice_bounds_trap(); }
+    if (idx >= len) { _slice_bounds_trap(); }
+    return load64(s_addr) + idx * 16;
+}
+
+# Unchecked variants — same shape, no bounds check. Caller's
+# responsibility to guarantee 0 <= idx < s.len. Useful inside
+# already-checked loops or perf hot paths where the bounds check
+# dominates.
+
+# Width-1 unchecked: u8 / i8 element load. No bounds verification.
+fn slice_unchecked_get_1(s_addr, idx) {
+    return load8(load64(s_addr) + idx);
+}
+
+# Width-2 unchecked: u16 / i16 element load. No bounds verification.
+fn slice_unchecked_get_2(s_addr, idx) {
+    return load16(load64(s_addr) + idx * 2);
+}
+
+# Width-4 unchecked: u32 / i32 element load. No bounds verification.
+fn slice_unchecked_get_4(s_addr, idx) {
+    return load32(load64(s_addr) + idx * 4);
+}
+
+# Width-8 unchecked: i64 / u64 / pointer element load. No bounds verification.
+fn slice_unchecked_get_8(s_addr, idx) {
+    return load64(load64(s_addr) + idx * 8);
+}
+
+# Width-16 unchecked: returns pointer to u128 / struct-16 slot. No bounds verification.
+fn slice_unchecked_get_16(s_addr, idx) {
+    return load64(s_addr) + idx * 16;
 }

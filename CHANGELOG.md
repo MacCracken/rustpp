@@ -4,6 +4,150 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.15] — 2026-05-02
+
+**v5.8.x slot 15 — slices §7: bounds-aware indexing `s[i]` +
+fix to a long-latent fn-local 16-byte slot-collision bug**.
+Second slot of the slices true-completion sub-arc
+(v5.8.14-v5.8.19). Surfaces the §6 element-width data into a
+real syntactic deliverable: `s[i]` on a slice-typed fn-local
+lowers to `_slice_idx_get_W(&s, i)` via the width-specific
+helper from `lib/slice.cyr`.
+
+cc5 grew **724,432 B → 725,704 B (+1,272 B)** for the
+PARSE_FACTOR slice-subscript branch, the 10 new helpers in
+lib/slice.cyr, and the slot-allocation fix in PARSE_VAR's
+local-emission path.
+
+### What §7 ships
+
+**Subscript syntax for slice-typed fn-locals:**
+
+`src/frontend/parse_expr.cyr` — PARSE_FACTOR's local-ident
+branch now checks `GSLICE_W(S, li)` (the per-local element
+width recorded in §6). When the width is non-zero AND the
+next token is `[`, lowers `s[i]` to a call:
+
+```
+EFLADDR(S, li); EPUSHR(S);   # &s
+PCMPE(S);       EPUSHR(S);   # idx
+ECALLPOPS(S, 2); ECALLFIX(S, _slice_idx_get_W);
+SEXW(S, sw);                 # narrow-assignment width tracking
+```
+
+The width-specific helper is selected at parse time via
+`_FINDFN_CSTR` lookup of `_slice_idx_get_{1,2,4,8,16}` —
+missing helper triggers a clear "include lib/slice.cyr" error
+rather than a fixup-table failure.
+
+**10 new helpers in `lib/slice.cyr`:**
+
+- `_slice_bounds_trap()` — shared trap path: writes
+  `slice bounds violation\n` to stderr (FD 2), exits 134.
+- `_slice_idx_get_{1,2,4,8,16}(s_addr, idx)` — bounds-checked
+  sized loads. Validate `idx >= 0 && idx < s.len`, then read
+  the element via `load{8,16,32,64}` of the correct width.
+  Width-16 returns a POINTER to the u128 slot (cyrius's i64-only
+  ABI can't return u128 by value).
+- `slice_unchecked_get_{1,2,4,8,16}(s_addr, idx)` — same shape,
+  no bounds check. Caller's responsibility to guarantee
+  in-range. For perf hot paths (already-checked outer loops).
+
+### Pre-existing 16-byte fn-local slot-collision bug (fixed)
+
+While verifying §7 end-to-end, two adjacent `var s: [u8] = 0;`
+fn-locals turned out to overlap on the same 8-byte stack slot —
+each slice claimed slots `[li, li+1]` (16 bytes via EFLSTORE's
+implicit dual-slot reach), but PARSE_VAR only bumped the local
+counter by **+1**, so the next local landed on slot `li+1`
+(the slice's `len` half). Same bug for `u128` fn-locals.
+
+The bug had been silent since v5.5 because no tcyr exercised
+adjacent fn-local 16-byte vars — slices_codegen.tcyr (v5.8.10)
+tested only **top-level** slice vars (which use the `var_sizes`
+table and DO get the full 16 bytes), and existing u128 sites
+in the compiler self-source happen to use only one u128 fn-local
+per fn at a time.
+
+**Fix in `src/frontend/parse_decl.cyr`:**
+
+```
+if (scalar_type == 16) {
+    S64(S + 0x191000 + (li + 1) * 8, 0);  # clear high slot's name
+    SLDEP(S, li + 1, 0);                  # clear high slot's depth
+    SLTYPE(S, li + 1, 0);                 # clear high slot's type
+    SSLICE_W(S, li + 1, 0);               # clear high slot's slice-w
+    SFLC(S, li + 2);                      # bump by 2, not 1
+} else {
+    SFLC(S, li + 1);
+}
+```
+
+The high-slot clear is required: stale per-fn name bytes left
+behind there by an earlier local (or by previous fn's slot reuse)
+caused FINDLOCAL to surface a spurious "duplicate variable"
+error when subsequent code declared a same-named local.
+
+### §7 SCOPE NOTE — fn-local slices only
+
+Subscript syntax `s[i]` lowers via PARSE_FACTOR's **local-ident**
+branch (the `if (li >= 0)` path inside `if (GINFN(S) == 1)`).
+Top-level (non-fn) slice vars currently still need the helper-fn
+API directly (`_slice_idx_get_W(&s, i)` /
+`slice_unchecked_get_W(&s, i)`).
+
+Var-side subscript-syntax support would need a parallel-array
+slice-width tracker for vars (mirroring §6's local-side
+`GSLICE_W` at a free heap region — `0x12A000`'s `var_sizes`
+extent already runs to 64 KB, so it'd be a new region rather
+than packing). Reserved as a follow-up slot if a downstream
+consumer lands code that wants top-level subscript ergonomics —
+in practice ~99% of real subscripting happens inside fns.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **725,704 B** (+1,272 B).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 5 prior slices regressions intact:
+   - slices_parse 9/9
+   - slices_codegen 26/26
+   - slices_str_interop 15/15
+   - slices_vec_interop 12/12
+   - slices_typing 24/24
+4. ✅ New `tests/tcyr/slices_indexing.tcyr` — **21 assertions**
+   across 8 test groups (widths 1/2/4/8/16, both `[T]` /
+   `slice<T>` ident forms, arithmetic composition, variable
+   index loop, u128 pointer-return shape). 21/21 PASS.
+5. ✅ Out-of-range bounds-trap behavior verified via standalone
+   smoke probes: in-range subscripts exit cleanly; OOB and
+   negative indices print `slice bounds violation\n` to stderr
+   and exit 134.
+6. ✅ u128 fn-local collision fix verified independently —
+   pre-fix `var a: u128; var b: u128;` corrupted `a`'s low half
+   when `b` was written; post-fix the two are independent.
+
+### Slices true-completion sub-arc — progress
+
+- ✅ **§6 (v5.8.14)**: TYPE_SLICE element-type tracking
+- ✅ **§7 (v5.8.15, this slot)**: Bounds-aware indexing `s[i]`
+  (fn-local scope; var-side deferred to follow-up if a consumer
+  asks)
+- **§8 (v5.8.16)**: Dot-syntax field access `s.ptr` / `s.len`
+- **§9 (v5.8.17)**: Str API migration
+- **§10 (v5.8.18)**: 454-site stdlib migration
+- **§11 (v5.8.19)**: TRUE sub-arc closeout
+
+### Editor integration (folded into this slot)
+
+- New `.lsp.json` at repo root — Claude Code-style manifest
+  pointing `cyrius-lsp` at all `.cyr`-family extensions
+  (`.cyr`, `.tcyr`, `.bcyr`, `.fcyr`, `.scyr`, `.smcyr`).
+- New `docs/editor-integration.md` — usage doc covering
+  `cyrius-lsp` capabilities, the `.lsp.json` shape, per-editor
+  notes (Claude Code / Helix / VS Code), highlighting state
+  (TextMate grammar still on roadmap), troubleshooting.
+- README.md "Editor Integration" section linking the doc.
+
 ## [5.8.14] — 2026-05-02
 
 **v5.8.x slot 14 — slices §6: TYPE_SLICE element-type tracking

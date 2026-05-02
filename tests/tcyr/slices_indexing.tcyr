@@ -1,0 +1,147 @@
+# slices_indexing.tcyr — v5.8.15 §7 — bounds-aware indexing s[i].
+#
+# §7 ships the `s[i]` postfix subscript operator on slice-typed
+# locals. Lowering: `s[i]` → `_slice_idx_get_W(&s, i)` where W is
+# the element byte-width tracked at PARSE_VAR time (v5.8.14 §6's
+# GSLICE_W). Each helper validates idx is in [0, s.len) and
+# returns the element via the correct sized load (load8/16/32/64).
+# Bounds violation exits 134 with `slice bounds violation\n`
+# on stderr.
+#
+# This file regression-floors §7's contract:
+#   (1) In-range subscripts work for widths 1, 2, 4, 8, 16
+#   (2) Element-width selection is correct (u8 reads 1 byte,
+#       i32 reads 4 bytes, etc.) — not just first-byte-of-load64
+#   (3) Subscripts compose with arithmetic (s[i] + s[j])
+#   (4) Both [T] and slice<T> declaration forms produce identical
+#       indexing behavior
+#
+# Out-of-range bounds-trap behavior (exit 134) is verified by
+# the standalone smoke probes in CHANGELOG §7 — tcyr can't
+# directly test exit-code semantics on a sub-process, but the
+# trap path is exercised in lib/slice.cyr's _slice_idx_get_W
+# helpers.
+#
+# §7 SCOPE NOTE: the `s[i]` syntax lowers via the local-ident
+# branch in PARSE_FACTOR — slice-typed FUNCTION LOCALS only.
+# Top-level (non-fn) slice vars currently need to use the
+# `slice_unchecked_get_W(&s, i)` / `_slice_idx_get_W(&s, i)`
+# helpers directly. Var-side subscript-syntax support is a
+# follow-up slot (would need a parallel-array slice-width
+# tracker for vars matching the §6 local-side GSLICE_W). All
+# tests below run inside a fn so the local-ident path is
+# exercised.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+fn run_indexing_tests() {
+    # ---- Width 1 (u8/i8) ----
+
+    test_group("§7 width-1 subscript (u8 element)");
+    var d1[5];
+    store8(&d1, 65); store8(&d1 + 1, 66); store8(&d1 + 2, 67);
+    store8(&d1 + 3, 68); store8(&d1 + 4, 69);
+    var s1: [u8] = 0;
+    slice_set(&s1, &d1, 5);
+    assert_eq(s1[0], 65, "s1[0] = 'A' (65)");
+    assert_eq(s1[2], 67, "s1[2] = 'C' (67)");
+    assert_eq(s1[4], 69, "s1[4] = 'E' (69)");
+
+    # ---- Width 2 (u16/i16) ----
+
+    test_group("§7 width-2 subscript (u16 element)");
+    var d2[3];
+    store16(&d2, 1000); store16(&d2 + 2, 2000); store16(&d2 + 4, 3000);
+    var s2: [u16] = 0;
+    slice_set(&s2, &d2, 3);
+    assert_eq(s2[0], 1000, "s2[0] = 1000");
+    assert_eq(s2[1], 2000, "s2[1] = 2000");
+    assert_eq(s2[2], 3000, "s2[2] = 3000");
+
+    # Verify width-2 doesn't read 8 bytes (would corrupt result).
+    # 1000 in u16 = 0x03E8; load8 of same address = 0xE8 (LE) = 232.
+    # load16 of same address = 1000.
+    assert_eq(s2[0], 1000, "width-2 read produces u16 not garbage");
+
+    # ---- Width 4 (u32/i32) ----
+
+    test_group("§7 width-4 subscript (u32 element)");
+    var d4[3];
+    store32(&d4, 100000); store32(&d4 + 4, 200000); store32(&d4 + 8, 300000);
+    var s4: [u32] = 0;
+    slice_set(&s4, &d4, 3);
+    assert_eq(s4[0], 100000, "s4[0] = 100000");
+    assert_eq(s4[1], 200000, "s4[1] = 200000");
+    assert_eq(s4[2], 300000, "s4[2] = 300000");
+
+    # ---- Width 8 (i64/u64/ptr) ----
+
+    test_group("§7 width-8 subscript (i64 element)");
+    var d8[3];
+    store64(&d8, 11111111111);
+    store64(&d8 + 8, 22222222222);
+    store64(&d8 + 16, 33333333333);
+    var s8: [i64] = 0;
+    slice_set(&s8, &d8, 3);
+    assert_eq(s8[0], 11111111111, "s8[0] = 11111111111");
+    assert_eq(s8[1], 22222222222, "s8[1] = 22222222222");
+    assert_eq(s8[2], 33333333333, "s8[2] = 33333333333");
+
+    test_group("§7 slice<T> ident form == [T] bracket form");
+    var s8b: slice<i64> = 0;
+    slice_set(&s8b, &d8, 3);
+    assert_eq(s8b[0], 11111111111, "slice<i64>[0] same as [i64][0]");
+    assert_eq(s8b[2], 33333333333, "slice<i64>[2] same as [i64][2]");
+
+    # ---- Composition: subscripts in expressions ----
+
+    test_group("§7 subscripts compose with arithmetic");
+    assert_eq(s1[0] + s1[1], 131, "s1[0] + s1[1] = 65+66 = 131");
+    assert_eq(s8[1] - s8[0], 11111111111, "s8[1] - s8[0] = 11111111111");
+
+    # ---- Variable index ----
+
+    test_group("§7 variable index");
+    var i = 0;
+    var sum = 0;
+    while (i < 5) {
+        sum = sum + s1[i];
+        i = i + 1;
+    }
+    assert_eq(sum, 65 + 66 + 67 + 68 + 69, "sum of s1 via variable index");
+
+    # ---- Width-16 (u128 — returns POINTER to slot) ----
+
+    test_group("§7 width-16 subscript (u128 element — returns pointer)");
+    var d16[6];   # 6 i64 slots = 3 u128 elements (16 bytes each)
+    store64(&d16, 0xAAAAAAAAAAAAAAAA); store64(&d16 + 8, 0xBBBBBBBBBBBBBBBB);
+    store64(&d16 + 16, 0xCCCCCCCCCCCCCCCC); store64(&d16 + 24, 0xDDDDDDDDDDDDDDDD);
+    var s16: [u128] = 0;
+    slice_set(&s16, &d16, 2);
+    # s16[0] returns pointer to first u128 slot — load64 to read lo half
+    var p0 = s16[0];
+    assert_eq(load64(p0), 0xAAAAAAAAAAAAAAAA, "s16[0] points at slot 0; lo half");
+    assert_eq(load64(p0 + 8), 0xBBBBBBBBBBBBBBBB, "s16[0] hi half");
+    var p1 = s16[1];
+    assert_eq(load64(p1), 0xCCCCCCCCCCCCCCCC, "s16[1] points at slot 1; lo half");
+
+    return 0;
+}
+
+run_indexing_tests();
+
+# ---- vec also works (vec's first 16 bytes ARE a slice) ----
+# Pre-§7 you'd write vec_get(v, i); post-§7 the slice subscript
+# would also work IF v were declared as slice<i64>. Vec values
+# passed through slice helpers (per v5.8.12 §4) work — but vec
+# directly indexed via [i] needs the var to be slice-typed.
+# This is a §7 limitation not a bug; vec_get stays the canonical
+# vec accessor.
+
+var r = assert_summary();

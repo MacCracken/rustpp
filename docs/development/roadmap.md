@@ -598,12 +598,23 @@ This sub-arc absorbs that deferred work as proper slots.
   field tracking (1=u8, 2=u16, 4=u32, 8=i64/ptr, 16=u128) so
   downstream lowering knows the right load*/store* width.
   Foundation for sized indexing in §7.
-- **v5.8.15** §7 — Bounds-aware indexing `s[i]`. Lowering
-  uses element width from §6: `s[i]` → `load*(s.ptr + i*sz)`
-  with optional bounds-check guard against `s.len`. Constant
-  index → compile-time guard; variable index → runtime guard
-  (consumer-disablable via `#unchecked` or compile-time flag if
-  perf matters; default-on for safety).
+- ✅ **v5.8.15** §7 — Bounds-aware indexing `s[i]` (shipped
+  2026-05-02). Lowering uses element width from §6: `s[i]` →
+  `_slice_idx_get_W(&s, i)` via the width-specific helper from
+  `lib/slice.cyr`. Bounds violation: stderr `slice bounds
+  violation\n` + exit 134. **§7 SCOPE NOTE**: subscript syntax
+  works on fn-local slices (where ~99% of real subscripting
+  happens); top-level vars still need the helper-fn API
+  directly — var-side subscript-syntax support reserved as
+  follow-up if a downstream consumer asks. Slot also fixed a
+  **pre-existing slot-collision bug**: adjacent fn-local
+  16-byte vars (slices, u128) shared a stack slot because
+  PARSE_VAR only bumped local count by +1; now bumps by +2 for
+  scalar_type=16 with high-slot name/depth/type/slice-w
+  cleared. Bug had been silent since v5.5 because no tcyr
+  exercised adjacent fn-local 16-byte vars. Editor integration
+  folded in: new `.lsp.json` + `docs/editor-integration.md` +
+  README section.
 - **v5.8.16** §8 — Dot-syntax field access `s.ptr` / `s.len`.
   Extends PARSE_FIELD_LOAD / PARSE_FIELD_STORE to recognize
   slice-typed locals (currently those paths assume struct id

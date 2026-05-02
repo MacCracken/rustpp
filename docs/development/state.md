@@ -5,6 +5,47 @@
 
 ## Version
 
+**5.8.15** (shipped 2026-05-02 — **v5.8.x SLOT 15 — slices §7:
+bounds-aware indexing `s[i]` + fix to a long-latent fn-local
+16-byte slot-collision bug**. Second slot of the slices true-
+completion sub-arc. Surfaces §6's element-width data into a real
+syntactic deliverable: `s[i]` on a slice-typed fn-local lowers
+to `_slice_idx_get_W(&s, i)` via the width-specific helper.
+PARSE_FACTOR's local-ident branch reads `GSLICE_W(S, li)`; if
+non-zero AND next token is `[`, emits `EFLADDR/EPUSHR/PCMPE/
+EPUSHR/ECALLPOPS/ECALLFIX` — the helper (`_slice_idx_get_{1,2,
+4,8,16}` looked up via `_FINDFN_CSTR`) bounds-checks then loads
+via the right-width `load{8,16,32,64}`. Width-16 returns a
+POINTER to the u128 slot (cyrius's i64-only ABI). 10 new helpers
+in `lib/slice.cyr`: `_slice_bounds_trap` + 5 bounds-checked
+`_slice_idx_get_W` + 5 unchecked `slice_unchecked_get_W` for
+perf hot paths. **Pre-existing slot-collision bug fixed**: two
+adjacent fn-local 16-byte vars (slices, u128) shared a stack
+slot because PARSE_VAR only bumped local count by +1; fix bumps
+by +2 for `scalar_type==16` AND clears the high slot's name/
+depth/type/slice-w to prevent stale state surfacing as
+spurious "duplicate variable" errors. Bug had been silent since
+v5.5 because no tcyr exercised adjacent fn-local 16-byte vars
+(slices_codegen tested only top-level vars, which use
+`var_sizes` and DO get full 16 bytes). **§7 SCOPE NOTE**:
+subscript syntax works on fn-local slices; top-level vars
+still need helper-fn API directly — var-side support reserved
+as follow-up if a consumer asks (in practice ~99% of subscripts
+happen inside fns). Editor integration folded in: new
+`.lsp.json` at repo root pointing `cyrius-lsp` at all
+`.cyr`-family extensions, new `docs/editor-integration.md`,
+README.md "Editor Integration" section. cc5 grew **724,432 →
+725,704 B (+1,272 B)**. Verification: self-host two-step
+byte-identical, check.sh 64/64, all 5 prior slices regressions
+intact (9+26+15+12+24 = 86/86), new
+`tests/tcyr/slices_indexing.tcyr` 21/21 PASS across 8 test
+groups (widths 1/2/4/8/16, both `[T]` / `slice<T>` ident forms,
+arithmetic composition, variable index loop, u128 pointer-
+return shape), OOB/negative bounds-trap behavior verified via
+smoke probes (exit 134 + stderr msg), u128 collision fix
+verified independently. §8 next: dot-syntax field access
+`s.ptr` / `s.len`.)
+
 **5.8.14** (shipped 2026-05-02 — **v5.8.x SLOT 14 — slices §6:
 TYPE_SLICE element-type tracking infrastructure**. First slot of
 the **slices true-completion sub-arc** (v5.8.14-v5.8.19) absorbing
