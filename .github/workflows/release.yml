@@ -97,8 +97,16 @@ jobs:
           for bin in $BINS; do
             [ -f "build/$bin" ] && cp "build/$bin" "$STAGE/bin/"
           done
-          # Include cross-compiler separately (not in bin/ — it's a dev tool)
-          [ -f "build/cc5_aarch64" ] && cp "build/cc5_aarch64" "$STAGE/"
+          # v5.8.2: cc5_aarch64 ships under bin/ alongside cc5. Pre-v5.8.2
+          # placed it at $STAGE/ top-level "as a dev tool" — but downstream
+          # consumers (sakshi/yukti/patra/mabda CI) install via `cp bin/*`
+          # to ~/.cyrius/bin/, silently dropping the top-level binary and
+          # then failing aarch64 cross-builds with `compiler not found:
+          # ~/.cyrius/bin/cc5_aarch64`. Local install.sh has always placed
+          # cross_bins in bin/ (scripts/install.sh:100); release tarball
+          # now matches. Canonical upstream report:
+          # yukti/docs/development/issues/2026-04-30-cyrius-cc5-aarch64-packaging.md.
+          [ -f "build/cc5_aarch64" ] && cp "build/cc5_aarch64" "$STAGE/bin/"
           cp bootstrap/asm "$STAGE/bin/"
           for script in $SCRIPTS; do
             [ -f "scripts/$script" ] && cp "scripts/$script" "$STAGE/bin/"

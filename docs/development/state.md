@@ -5,6 +5,24 @@
 
 ## Version
 
+**5.8.2** (shipped 2026-05-01 — **v5.8.x SLOT 2 — `cc5_aarch64`
+release-tarball placement fix + `build/cyrc_check` orphan delete**.
+Paired build-tree hygiene; release.yml + working-tree changes
+only, zero compiler impact. Pre-v5.8.2: `release.yml:101`
+staged `build/cc5_aarch64` to `$STAGE/` (tarball top-level) while
+local `install.sh:100` always placed it under `bin/` — release
+tarball was the outlier, breaking every downstream consumer
+(sakshi/yukti/patra/mabda) that copies `bin/*` to
+`~/.cyrius/bin/` (cc5_aarch64 silently dropped → aarch64 cross-
+build fails with `compiler not found`). Fix: one-line `$STAGE/`
+→ `$STAGE/bin/` in release.yml, plus inline-comment correction
+of the prior "dev tool" rationale. Plus `rm build/cyrc_check`
+(12,344-byte orphan with zero refs, surfaced in 2026-05-01 P(-1)
+audit §4). cc5 unchanged at **720,928 B**. Verification: self-host
+two-step byte-identical, check.sh 64/64, bench 15/15. Downstream
+consumers can drop their workaround lines once pinned to v5.8.2+;
+cyrius's side is unblocked.)
+
 **5.8.1** (shipped 2026-05-01 — **v5.8.x SLOT 1 — `cyrlint` /
 `cyrfmt` 128 KiB buffer cap raise + `cyrius-prompt-info`
 redundancy fix**. First patch of the v5.8.x 30-slot cycle.
