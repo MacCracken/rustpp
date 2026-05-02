@@ -127,3 +127,36 @@ fn slice_from_cstr(dst, cstr) {
 fn slice_from_buf(dst, buf, len) {
     return slice_set(dst, buf, len);
 }
+
+# v5.8.12 §4: vec ↔ slice<T> structural-prefix equivalence.
+#
+# `vec` (lib/vec.cyr) is a heap-allocated 24-byte handle:
+#   offset 0:  data (ptr to backing array)
+#   offset 8:  len  (element count)
+#   offset 16: cap  (allocated capacity)
+#
+# The FIRST 16 BYTES of a vec are byte-identical to this file's
+# slice convention — `data` at offset 0, `len` at offset 8. So a
+# vec value can be passed directly to slice_ptr / slice_len /
+# slice_is_empty / slice_is_null (all of which read offsets 0
+# and 8 only and don't touch offset 16+).
+#
+# slice_eq on a vec works too (compares both ptr and len fields)
+# but ignores cap differences — two vecs with the same data
+# pointer and length compare equal even with different capacities.
+# Usually what you want when comparing "current contents".
+#
+# `vec_as_slice(dst, v)` writes vec's slice-prefix into a stack
+# slot — useful when you want to expose a vec's current view as
+# a slice without exposing the cap field (or when you want a
+# stable snapshot before a future vec_push grows the backing).
+
+# Copy vec's slice-prefix (data, len) into a 16-byte stack slot.
+# Result: dst points at the SAME backing array as v; mutations
+# through `vec_push(v, ...)` may invalidate dst's ptr if the
+# backing reallocs. Treat as a snapshot of v's current view.
+fn vec_as_slice(dst, v) {
+    store64(dst, load64(v));
+    store64(dst + 8, load64(v + 8));
+    return 0;
+}

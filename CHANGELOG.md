@@ -4,6 +4,104 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.12] — 2026-05-02
+
+**v5.8.x slot 12 — slices §4: vec ↔ slice<T> structural-prefix
+equivalence + scope-shrink doc**. Fourth of the 5-patch slices
+sub-arc. Honest scope-shrink during slot — original description
+was "vec/hashmap slice getters; read(buf, len) / memcpy(dst,
+src, n) call sites migrate". Reality check at slot entry:
+
+1. **vec fits naturally** — first 16 bytes are `(data, len)`,
+   byte-identical to a slice<T> prefix. Documented + helper
+   added.
+2. **hashmap doesn't fit** — header is 32 bytes
+   `(entries_ptr, capacity, count, key_type)`, NOT a contiguous-
+   element shape. No slice abstraction; hashmap iteration stays
+   via the existing `map_iter` callback API. Skipped.
+3. **read/memcpy/memeq migration is multi-slot scope** — 53
+   sys_read sites + 332 memcpy + 69 memeq = **454 call sites**.
+   Migrating those is opt-in once the slice helpers exist; out
+   of v5.8.12 scope.
+
+cc5 unchanged at **721,936 B** — stdlib-only patch (lib/slice.cyr
+gains 1 helper + a doc-block; lib/vec.cyr gains a doc-block
+header note).
+
+### What §4 actually shipped
+
+**Documented vec's structural-prefix equivalence** in both
+`lib/vec.cyr` and `lib/slice.cyr` headers. vec is a 24-byte
+heap struct: `data` at offset 0, `len` at offset 8, `cap` at
+offset 16. The first 16 bytes are byte-identical to slice's
+(ptr, len) layout. Consequence:
+
+- A vec value passes DIRECTLY to `slice_ptr` / `slice_len` /
+  `slice_is_empty` / `slice_is_null` / `slice_eq` (all read
+  offsets 0 and 8 only; they don't touch offset 16+).
+- The cap field at offset 16 stays vec-only and invisible to
+  slice helpers. Comparing vecs via `slice_eq` is "current
+  contents" comparison (ignores cap differences).
+
+**Added `vec_as_slice(dst, v)` to `lib/slice.cyr`** — copies
+vec's slice-prefix into a 16-byte stack slot. Useful for
+snapshotting vec's current view before a possible vec_push
+reallocation. Documented as a snapshot semantics: `dst`'s ptr
+may be invalidated if the backing reallocs.
+
+### Why hashmap is excluded
+
+Hashmap's 32-byte header is `(entries_ptr, capacity, count,
+key_type)`. The element store is a slot array (24 bytes per
+slot for cstr/Str variants, 16 bytes for u64 variant) accessed
+via key-hash, not contiguous element indexing. There's no
+natural "(ptr, len) view" because hashmap entries aren't
+densely packed (open addressing with empty/tombstone slots).
+Hashmap iteration stays via the existing `map_iter(m, fn_ptr)`
+callback API — that's the right abstraction for hash tables.
+
+### Why migration is deferred
+
+Cyrius's stdlib has 454 call sites that COULD migrate to slice-
+typed args (53 sys_read, 332 memcpy, 69 memeq). Migrating those
+in one slot would balloon scope — easily 5-10x v5.8.12's actual
+delivery. Plus, migration is opt-in: existing call sites work
+fine with raw (ptr, len) pairs; switching to slice-typed args
+is a stylistic upgrade, not a correctness fix. Consumers can
+adopt slice-typed APIs incrementally as new code is written or
+existing code is touched for unrelated reasons.
+
+A future polish slot (or a downstream-driven follow-up) could
+migrate the highest-leverage call sites — likely
+`sys_read` → `sys_read_slice` and `memcpy` → `slice_copy_bytes`.
+Held until a consumer surfaces measurable pain.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,936 B (no
+   compiler change).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS.
+4. ✅ New `tests/tcyr/slices_vec_interop.tcyr` — **12
+   assertions** across 4 test groups: slice helpers work on vec
+   values (slice_ptr/len match vec's data/count); slice_is_empty
+   / is_null behave correctly; vec_as_slice copies slice-prefix
+   into stack slot; §4 contract — vec_as_slice is a snapshot,
+   may be invalidated by vec_push reallocation.
+5. ✅ §1 + §2 + §3 regressions intact (slices_parse 9/9,
+   slices_codegen 26/26, slices_str_interop 15/15).
+
+### Sub-arc progress
+
+- ✅ §1 (v5.8.9): type-position parse-acceptance
+- ✅ §2 (v5.8.10): 16-byte alloc + helper API (9 fns)
+- ✅ §3 (v5.8.11): Str ↔ slice<u8> equivalence + 2 builders
+- ✅ §4 (v5.8.12, this slot): vec ↔ slice<T> prefix equivalence
+  + 1 helper; hashmap excluded (no fit), migration deferred
+  (out of slot scope)
+- **§5 (v5.8.13)**: closeout — acceptance gates, downstream
+  dep-pointer audit, self-host clean
+
 ## [5.8.11] — 2026-05-02
 
 **v5.8.x slot 11 — slices §3: Str ↔ slice<u8> structural

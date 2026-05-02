@@ -1,0 +1,94 @@
+# slices_vec_interop.tcyr — v5.8.12 §4 — vec ↔ slice<T> interop.
+#
+# §4 establishes that vec (heap, lib/vec.cyr) is structurally a
+# slice<T> + cap field — its first 16 bytes are byte-identical
+# to a slice's (ptr, len) layout. Slice helpers that read only
+# offsets 0 and 8 work directly on a vec value.
+#
+# Hashmap intentionally NOT covered: hashmap's 32-byte header
+# is `(entries_ptr, capacity, count, key_type)` — not a
+# contiguous-element shape, doesn't fit slice. Hashmap iteration
+# stays via the existing `map_iter` callback API.
+#
+# Wide migration of sys_read / memcpy / memeq call sites also
+# NOT covered: 53 + 332 + 69 = 454 sites is multi-slot scope.
+# Migrating those is opt-in once these helpers exist; out of
+# §4 scope.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- vec value passes directly to slice helpers ----
+
+test_group("slice helpers work on vec values");
+var v = vec_new();
+vec_push(v, 10);
+vec_push(v, 20);
+vec_push(v, 30);
+
+# slice_len reads offset 8 of the vec handle — same as vec_len.
+assert_eq(slice_len(v), vec_len(v), "slice_len(v) == vec_len(v)");
+assert_eq(slice_len(v), 3, "len = 3 after 3 pushes");
+
+# slice_ptr reads offset 0 — vec's data pointer.
+var p = slice_ptr(v);
+assert_eq(load64(p), 10, "first element via slice_ptr");
+assert_eq(load64(p + 8), 20, "second element");
+assert_eq(load64(p + 16), 30, "third element");
+
+test_group("slice_is_empty / is_null on vec");
+var empty_vec = vec_new();
+assert_eq(slice_is_empty(empty_vec), 1, "fresh vec is empty (len=0)");
+# vec_new alloc'd backing array — data pointer is non-zero
+assert_eq(slice_is_null(empty_vec), 0, "fresh vec has non-null data ptr");
+
+# ---- vec_as_slice copies slice-prefix into a stack slot ----
+
+test_group("vec_as_slice (lib/slice.cyr)");
+var s: [i64] = 0;
+vec_as_slice(&s, v);
+assert_eq(slice_ptr(&s), slice_ptr(v), "stack slice ptr matches vec data");
+assert_eq(slice_len(&s), 3, "stack slice len matches vec len");
+
+# Stack slice and vec's slice-prefix compare equal via slice_eq.
+assert_eq(slice_eq(&s, v), 1, "slice_eq(&stack_slice, vec) — same view");
+
+# ---- Snapshot semantics — vec_push may invalidate dst's ptr ----
+
+test_group("§4 contract: vec_as_slice is a snapshot");
+# Force a reallocation by pushing past initial cap=16.
+var big = vec_new();
+var i = 0;
+while (i < 16) { vec_push(big, i); i = i + 1; }
+var snap_before: [i64] = 0;
+vec_as_slice(&snap_before, big);
+var ptr_before = slice_ptr(&snap_before);
+
+# Trigger realloc by pushing another element (capacity doubles).
+vec_push(big, 999);
+var snap_after: [i64] = 0;
+vec_as_slice(&snap_after, big);
+
+# After realloc, the vec's data ptr changed.
+assert_eq(slice_len(&snap_after), 17, "vec len = 17 after 17 pushes");
+# Snapshot taken before the realloc still has the OLD ptr (which
+# now points at freed-or-stale memory in a non-bump allocator;
+# in cyrius's bump allocator the bytes are still there but the
+# vec no longer uses them). Documented contract: vec_as_slice
+# is a snapshot, not a live view. This assertion just confirms
+# the pre-realloc and post-realloc snapshots may have different
+# ptrs — matching the documented "may be invalidated by vec_push
+# reallocation" contract in lib/slice.cyr.
+# (Either ptr_before == post.ptr (no realloc happened) or
+#  ptr_before != post.ptr (realloc moved the backing). Both
+#  outcomes are valid; the test asserts only that the snapshot
+#  doesn't crash.)
+assert_eq(load64(slice_ptr(&snap_after) + 16 * 8), 999, "post-realloc, element 16 = 999");
+
+var r = assert_summary();

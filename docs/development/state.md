@@ -5,6 +5,29 @@
 
 ## Version
 
+**5.8.12** (shipped 2026-05-02 — **v5.8.x SLOT 12 — slices §4:
+vec ↔ slice<T> structural-prefix equivalence + scope-shrink
+doc**. Fourth of the 5-patch slices sub-arc. Honest scope-shrink
+during slot: original description was "vec/hashmap slice getters
++ read/memcpy migration"; reality at slot entry — vec fits
+(first 16 bytes byte-identical to slice prefix), hashmap doesn't
+(32-byte header `(entries_ptr, capacity, count, key_type)` is
+not a contiguous-element shape), migration of sys_read/memcpy/
+memeq is 454 call sites = multi-slot scope. Documented vec's
+structural equivalence in both `lib/vec.cyr` and `lib/slice.cyr`
+headers; vec values pass directly to slice_ptr / slice_len /
+slice_is_empty / slice_is_null / slice_eq (all read offsets 0
+and 8 only). Added `vec_as_slice(dst, v)` to lib/slice.cyr —
+copies vec's slice-prefix into a 16-byte stack slot; documented
+as snapshot semantics (dst's ptr may invalidate if vec_push
+reallocs the backing). Migration of 454 call sites deferred —
+opt-in once helpers exist; held until a consumer surfaces
+measurable pain. cc5 unchanged at **721,936 B** — stdlib-only
+patch. Verification: self-host byte-identical, check.sh 64/64,
+new `tests/tcyr/slices_vec_interop.tcyr` 12/12 PASS, all prior
+slices tcyrs intact (9/9 + 26/26 + 15/15). §5 next: sub-arc
+closeout — acceptance gates, downstream audit.)
+
 **5.8.11** (shipped 2026-05-02 — **v5.8.x SLOT 11 — slices §3:
 Str ↔ slice<u8> structural equivalence + stack-slice builders**.
 Third of the 5-patch slices sub-arc. Honest scope-shrink during
@@ -2036,7 +2059,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.12+ (Phase 2 — language vocabulary; slices sub-arc §4-§5 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
+**v5.8.13+ (Phase 2 — language vocabulary; slices §5 closeout + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2066,7 +2089,8 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.9** ✅ slices §1 — type-position parse-acceptance for `slice<T>` + `[T]`
 - **v5.8.10** ✅ slices §2 — 16-byte alloc + lib/slice.cyr helper API (slice_set/of/ptr/len/zero/copy/eq/is_empty/is_null)
 - **v5.8.11** ✅ slices §3 — Str ↔ slice<u8> structural equivalence (Str IS a slice; documented in both libs) + slice_from_cstr / slice_from_buf builders
-- **v5.8.12–v5.8.13** — First-class slices remaining sub-patches (§4 vec/hashmap getters, §5 closeout)
+- **v5.8.12** ✅ slices §4 — vec ↔ slice<T> structural-prefix equivalence (vec's first 16 bytes ARE a slice; documented in both libs) + vec_as_slice helper; hashmap excluded (no fit), 454-site migration deferred
+- **v5.8.13** — First-class slices closeout (§5 acceptance gates + downstream audit)
   - v5.8.9 §1: type-position parse-acceptance + TYPE_SLICE AST kind
   - v5.8.10 §2: codegen — slice as 16-byte {ptr, len} struct + field access + bounds-aware indexing
   - v5.8.11 §3: stdlib pass 1 — Str → slice<u8>

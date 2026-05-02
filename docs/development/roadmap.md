@@ -556,10 +556,19 @@ Allocators. Sub-arc:
   for cases where heap allocation is undesirable. cc5 unchanged
   at 721,936 B (stdlib-only). Tests:
   `tests/tcyr/slices_str_interop.tcyr` 15/15 PASS.
-- **v5.8.12** §4 — Stdlib pass 2: `vec` / `hashmap` slice
-  getters; `read(buf, len)` / `memcpy(dst, src, n)` / `memeq`
-  call sites migrate to slice-typed args. Bounds-aware where
-  beneficial.
+- **v5.8.12** ✅ §4 — vec ↔ slice<T> structural-prefix
+  equivalence + scope-shrink doc. Shipped 2026-05-02. Honest
+  scope-shrink: vec fits naturally (first 16 bytes byte-identical
+  to slice prefix); hashmap doesn't (32-byte header is not a
+  contiguous-element shape, no slice abstraction); 454-site
+  migration of sys_read/memcpy/memeq deferred (multi-slot scope,
+  opt-in once helpers exist). Documented vec's structural
+  equivalence in `lib/vec.cyr` + `lib/slice.cyr` headers; vec
+  values pass directly to slice_ptr/len/is_empty/is_null/eq.
+  Added `vec_as_slice(dst, v)` to lib/slice.cyr — snapshot
+  semantics (dst's ptr may invalidate if vec_push reallocs).
+  cc5 unchanged at 721,936 B (stdlib-only). Tests:
+  `tests/tcyr/slices_vec_interop.tcyr` 12/12 PASS.
 - **v5.8.13** §5 — Closeout. Acceptance gates (`tests/tcyr/
   slices.tcyr`); downstream dep-pointer audit (sigil / mabda /
   yukti rebuild against new Str shape); self-host clean.
