@@ -158,6 +158,16 @@ fn SPSC(S, v) { S64(S + 0x18F890, v); return 0; }
 fn GLTYPE(S, li) { return L64(S + 0x192200 + li * 8); }
 fn SLTYPE(S, li, v) { S64(S + 0x192200 + li * 8, v); return 0; }
 
+# v5.8.14 §6 — TYPE_SLICE element-type tracking.
+# Parallel-array stash for slice-typed locals: 576 entries × 8B,
+# matching fn_local_names / local_types extent. Stores element
+# byte-width per slice local (0 = not a slice, 1=u8, 2=u16,
+# 4=u32, 8=i64/ptr, 16=u128). Read by §7 bounds-aware indexing
+# (`s[i]` lowering picks load*/store* width from this) and §8
+# dot-syntax field access (.ptr returns pointer-to-element type).
+fn GSLICE_W(S, li) { return L64(S + 0x193400 + li * 8); }
+fn SSLICE_W(S, li, w) { S64(S + 0x193400 + li * 8, w); return 0; }
+
 # (TWIDTH type-width helper removed — every call site now inlines
 # the byte-width decision directly for single-dispatch code paths.)
 

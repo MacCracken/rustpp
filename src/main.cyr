@@ -71,7 +71,8 @@
 #   0x191000  fn_local_names              local variable names
 #   0x191800  local_depths  [512]         scope depths per local
 #   0x192000  macro tables                16 macros (names, offsets, bodies)
-#   0x192200  local_types                 local variable type tracking
+#   0x192200  local_types                 local variable type tracking (576 entries × 8B → ends 0x193400)
+#   0x193400  local_slice_widths          v5.8.14 §6 — slice element widths (576 × 8B → ends 0x194600)
 #
 # --- Function tables (relocated v4.7.1 — caps raised 2048 → 4096) ---
 #   0x128A000 fn_names      [32768]       4096 function name offsets

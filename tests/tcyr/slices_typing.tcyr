@@ -1,0 +1,118 @@
+# slices_typing.tcyr — v5.8.14 §6 — TYPE_SLICE element-type
+# tracking infrastructure regression.
+#
+# §6 added per-local element-width tracking (GSLICE_W / SSLICE_W
+# at heap offset 0x193400) populated at PARSE_VAR time from
+# `slice<T>` / `[T]` annotations. The data has no runtime
+# consumer until §7 (bounds-aware indexing) and §8 (dot-syntax
+# field access) read it for sized load*/store* and pointer-type
+# inference.
+#
+# This file regression-floors §6's contract: every element-type
+# variant the parser branches handle MUST still parse + run
+# without error. The semantic verification ("does it correctly
+# treat u8 as 1-byte stride?") lands as part of §7's
+# slices_indexing.tcyr.
+#
+# Variants covered:
+#   - [u8] / [i8] / slice<u8> / slice<i8>          width 1
+#   - [u16] / [i16] / slice<u16> / slice<i16>      width 2
+#   - [u32] / [i32] / slice<u32> / slice<i32>      width 4
+#   - [u64] / [i64] / slice<u64> / slice<i64>      width 8
+#   - [u128] / slice<u128>                         width 16
+#   - [*i64] / [*i32] / slice<*i64>                width 8 (ptr)
+#   - [Foo] (struct element)                       width = struct size
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Helper: each fn declares a slice with a different element type
+# and returns 0 on success. The PARSE_VAR change in §6 must accept
+# all of these without error.
+
+# Width 1
+fn _t_u8()  { var x: [u8]  = 0; return slice_len(&x); }
+fn _t_i8()  { var x: [i8]  = 0; return slice_len(&x); }
+fn _t_su8() { var x: slice<u8> = 0; return slice_len(&x); }
+fn _t_si8() { var x: slice<i8> = 0; return slice_len(&x); }
+
+# Width 2
+fn _t_u16() { var x: [u16] = 0; return slice_len(&x); }
+fn _t_i16() { var x: [i16] = 0; return slice_len(&x); }
+fn _t_su16(){ var x: slice<u16> = 0; return slice_len(&x); }
+fn _t_si16(){ var x: slice<i16> = 0; return slice_len(&x); }
+
+# Width 4
+fn _t_u32() { var x: [u32] = 0; return slice_len(&x); }
+fn _t_i32() { var x: [i32] = 0; return slice_len(&x); }
+fn _t_su32(){ var x: slice<u32> = 0; return slice_len(&x); }
+fn _t_si32(){ var x: slice<i32> = 0; return slice_len(&x); }
+
+# Width 8
+fn _t_u64() { var x: [u64] = 0; return slice_len(&x); }
+fn _t_i64() { var x: [i64] = 0; return slice_len(&x); }
+fn _t_su64(){ var x: slice<u64> = 0; return slice_len(&x); }
+fn _t_si64(){ var x: slice<i64> = 0; return slice_len(&x); }
+
+# Width 16
+fn _t_u128(){ var x: [u128] = 0; return slice_len(&x); }
+fn _t_su128(){ var x: slice<u128> = 0; return slice_len(&x); }
+
+# Pointer element (width 8)
+fn _t_ptr64() { var x: [*i64] = 0; return slice_len(&x); }
+fn _t_ptr32() { var x: [*i32] = 0; return slice_len(&x); }
+fn _t_sptr()  { var x: slice<*i64> = 0; return slice_len(&x); }
+
+test_group("§6 width-1 variants (u8 / i8)");
+assert_eq(_t_u8(),   0, "[u8] declared + zero-init");
+assert_eq(_t_i8(),   0, "[i8] declared + zero-init");
+assert_eq(_t_su8(),  0, "slice<u8> declared + zero-init");
+assert_eq(_t_si8(),  0, "slice<i8> declared + zero-init");
+
+test_group("§6 width-2 variants (u16 / i16)");
+assert_eq(_t_u16(),  0, "[u16] declared");
+assert_eq(_t_i16(),  0, "[i16] declared");
+assert_eq(_t_su16(), 0, "slice<u16> declared");
+assert_eq(_t_si16(), 0, "slice<i16> declared");
+
+test_group("§6 width-4 variants (u32 / i32)");
+assert_eq(_t_u32(),  0, "[u32] declared");
+assert_eq(_t_i32(),  0, "[i32] declared");
+assert_eq(_t_su32(), 0, "slice<u32> declared");
+assert_eq(_t_si32(), 0, "slice<i32> declared");
+
+test_group("§6 width-8 variants (u64 / i64)");
+assert_eq(_t_u64(),  0, "[u64] declared");
+assert_eq(_t_i64(),  0, "[i64] declared");
+assert_eq(_t_su64(), 0, "slice<u64> declared");
+assert_eq(_t_si64(), 0, "slice<i64> declared");
+
+test_group("§6 width-16 variants (u128)");
+assert_eq(_t_u128(),  0, "[u128] declared");
+assert_eq(_t_su128(), 0, "slice<u128> declared");
+
+test_group("§6 pointer-element variants");
+assert_eq(_t_ptr64(), 0, "[*i64] declared");
+assert_eq(_t_ptr32(), 0, "[*i32] declared");
+assert_eq(_t_sptr(),  0, "slice<*i64> declared");
+
+# §6 contract: element-width tracking does NOT change the runtime
+# behavior of existing helpers. slice_set / slice_ptr / slice_len
+# still operate on raw bytes; the typing info is consumer-only
+# (§7 bounds-indexing reads it; pure tcyr can't observe it directly
+# until §7 ships).
+test_group("§6 contract: existing helpers unchanged");
+var data[5];
+store8(&data, 65);
+var s: [u8] = 0;
+slice_set(&s, &data, 5);
+assert_eq(slice_ptr(&s), &data, "slice_set/ptr roundtrip unchanged");
+assert_eq(slice_len(&s), 5, "slice_len unchanged");
+assert_eq(load8(slice_ptr(&s)), 65, "byte load through ptr unchanged");
+
+var r = assert_summary();

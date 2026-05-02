@@ -5,6 +5,62 @@
 
 ## Version
 
+**5.8.14** (shipped 2026-05-02 — **v5.8.x SLOT 14 — slices §6:
+TYPE_SLICE element-type tracking infrastructure**. First slot of
+the **slices true-completion sub-arc** (v5.8.14-v5.8.19) absorbing
+the deferred work the v5.8.9-v5.8.13 foundation sub-arc shipped
+without — per user direction "complete the task as assigned, the
+cycle's backstop was sized for full delivery, not half-shipped
+features". Added per-local element-width tracking via
+parallel-array stash at heap offset 0x193400 (576 entries × 8B,
+matching local_types extent). New helpers `GSLICE_W`/`SSLICE_W`
+in `src/common/util.cyr`. PARSE_VAR's `[T]` and `slice<T>`
+branches restructured to extract T's element-type identifier and
+decode byte width (1/2/4/8/16 + STRUCTSZ for struct elements).
+Local-emission path adds `SSLICE_W(S, li, slice_elt_w)` after
+SLTYPE so element width is recorded per local slot. Why parallel
+array vs packed encoding: packed conflicted with existing `lt > 0`
+/ `lt < 0` consumer checks; parallel array exploits 19KB free
+space between local_types end (0x193400) and gvar_toks start
+(0x198000) — no heap reshuffle. §6 is pure infrastructure (data
+has NO consumer until §7 reads it for sized indexing); semantic
+verification deferred to §7. cc5 grew **721,936 → 724,432 B
+(+2,496 B)** for parser branches + helpers + SSLICE_W call site.
+Verification: self-host two-step byte-identical, check.sh 64/64,
+all 4 prior slices regressions intact (9/9 + 26/26 + 15/15 +
+12/12 = 62/62), new `tests/tcyr/slices_typing.tcyr` 24/24 PASS
+across 7 test groups covering all 22 element-type variants.
+**Slot-map cascade +6 at this ship**: cycle total 35 → 41
+pinned slots, 9-slot → 3-slot headroom against ~.44 backstop.
+§7 next: bounds-aware indexing `s[i]` using §6 element widths.)
+
+**5.8.13** (shipped 2026-05-02 — **v5.8.x SLOT 13 — slices §5
+closeout: sub-arc retrospective + acceptance gates + downstream
+audit**. Fifth and final slot of the 5-patch slices sub-arc.
+Doc-only patch — no code change. **Slices sub-arc COMPLETE
+(v5.8.9-v5.8.13)**: shipped 62 slice assertions across 4 tcyrs
+(slices_parse 9, slices_codegen 26, slices_str_interop 15,
+slices_vec_interop 12), 11 helpers in lib/slice.cyr (slice_set/
+of/ptr/len/zero/copy/eq/is_empty/is_null + slice_from_cstr/
+slice_from_buf + vec_as_slice), 3 doc-blocks (str.cyr, vec.cyr,
+slice.cyr), ~190 LOC, +552 B cc5. Auto-discovered by check.sh's
+`tests/tcyr/*.tcyr` walker — no new gate wiring. Honest scope-
+shrunk during sub-arc: TYPE_SLICE AST kind (no AST tree in main
+parser), bounds-aware indexing (no element-type tracking), dot-
+syntax field access (struct-path unification), Str-API migration
+(Str ALREADY a slice<u8> structurally), hashmap slice getters
+(32-byte header isn't contiguous-element shape), 454-site
+read/memcpy/memeq migration (multi-slot scope) — all pin
+candidates held until consumer pain surfaces. Downstream audit
+2026-05-02: **5 of 7 deps cross-build clean** for aarch64
+(sigil 3.0.0, mabda 2.5.0, sankoch 2.2.3, sakshi 2.2.2, patra
+1.9.2); 2 failures (yukti 2.2.1, vani 0.9.1) hit pre-existing
+patra/aarch64 SYS_OPEN class noted at v5.8.4 audit — NOT a
+slices regression. cc5 unchanged at **721,936 B**. Verification:
+self-host two-step byte-identical, check.sh 64/64, all 4 slices
+tcyrs 62/62 PASS. Phase 2 progress: ✅ slices (5 slots),
+v5.8.20 next = per-fn effect annotations.)
+
 **5.8.12** (shipped 2026-05-02 — **v5.8.x SLOT 12 — slices §4:
 vec ↔ slice<T> structural-prefix equivalence + scope-shrink
 doc**. Fourth of the 5-patch slices sub-arc. Honest scope-shrink
@@ -170,7 +226,7 @@ self-host two-step byte-identical, check.sh 64/64, x86 smoke
 bounds), cyrdoc 60 documented / 0 undocumented. Phylax + agnosys
 can drop their local backfills on next pin bump. Out-of-scope
 finding: api-surface snapshot has drift (null-byte parse abort
-in the tool's distfile scan); pre-existing; pinned for v5.8.31
+in the tool's distfile scan); pre-existing; pinned for v5.8.37
 closeout doc-sync.)
 
 **5.8.5** (shipped 2026-05-01 — **v5.8.x SLOT 5 — aarch64 SSH-gate
@@ -191,9 +247,9 @@ accurate within ulp budget on pi (v5.7.31 + v5.8.4)`); check.sh
 64/64; gate description updated to v5.7.31+v5.8.4. **Phylax #1
 now FULLY closed** — parser dispatch (v5.8.4) + hardware-verified
 polyfill (v5.8.5). Slot map cascades all originally-pinned v5.8.5–
-v5.8.30 by +1 (sys_stat backfill → v5.8.6, _SC_ARITY → v5.8.7,
+v5.8.36 by +1 (sys_stat backfill → v5.8.6, _SC_ARITY → v5.8.7,
 NI-class → v5.8.8, slices → v5.8.9, etc.); 31 pinned slots total
-v5.8.1–v5.8.31 with 13-slot headroom against ~.44 backstop.)
+v5.8.1–v5.8.37 with 13-slot headroom against ~.44 backstop.)
 
 **5.8.4** (shipped 2026-05-01 — **v5.8.x SLOT 4 — `f64_log2`
 aarch64 polyfill (phylax #1 unblock)**. First substantive stdlib
@@ -2059,7 +2115,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.13+ (Phase 2 — language vocabulary; slices §5 closeout + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
+**v5.8.15+ (Phase 2 — language vocabulary; slices true-completion sub-arc §7-§11 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 41 pinned slots, 3-slot headroom against ~.44 backstop). §6 typing infrastructure shipped at v5.8.14; §7 bounds-aware indexing next.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2090,24 +2146,25 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.10** ✅ slices §2 — 16-byte alloc + lib/slice.cyr helper API (slice_set/of/ptr/len/zero/copy/eq/is_empty/is_null)
 - **v5.8.11** ✅ slices §3 — Str ↔ slice<u8> structural equivalence (Str IS a slice; documented in both libs) + slice_from_cstr / slice_from_buf builders
 - **v5.8.12** ✅ slices §4 — vec ↔ slice<T> structural-prefix equivalence (vec's first 16 bytes ARE a slice; documented in both libs) + vec_as_slice helper; hashmap excluded (no fit), 454-site migration deferred
-- **v5.8.13** — First-class slices closeout (§5 acceptance gates + downstream audit)
-  - v5.8.9 §1: type-position parse-acceptance + TYPE_SLICE AST kind
-  - v5.8.10 §2: codegen — slice as 16-byte {ptr, len} struct + field access + bounds-aware indexing
-  - v5.8.11 §3: stdlib pass 1 — Str → slice<u8>
-  - v5.8.12 §4: stdlib pass 2 — vec/hashmap slice getters; read/memcpy migration
-  - v5.8.13 §5: closeout — acceptance gates + downstream dep-pointer audit
-- **v5.8.14** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
-- **v5.8.15–v5.8.19** — Tagged unions + exhaustive match (5 sub-patches)
-- **v5.8.20–v5.8.24** — `Result<T,E>` + `?` propagation (5 sub-patches)
-- **v5.8.25–v5.8.30** — Allocators-as-parameter (6 sub-patches)
+- **v5.8.13** ✅ slices §5 — sub-arc FOUNDATION shipped (62 assertions across 4 tcyrs, auto-discovered by check.sh; downstream audit 5/7 deps clean). True-completion deferred work re-pinned as **v5.8.14–v5.8.19** (TYPE_SLICE typing + bounds-indexing + dot-field-access + Str migration + 454-site migration + true closeout) per user-direction "complete the task as assigned, it was there for a reason".
+- **v5.8.14** ✅ slices §6 — TYPE_SLICE element-type tracking (parallel-array stash at 0x193400; GSLICE_W/SSLICE_W helpers; PARSE_VAR captures element width from `[T]` and `slice<T>` for all 22 variants)
+- **v5.8.15** — slices §7 — Bounds-aware indexing `s[i]` (uses §6 element width; constant-index compile-time guard, runtime guard for vars)
+- **v5.8.16** — slices §8 — Dot-syntax field access `s.ptr` / `s.len` (PARSE_FIELD_LOAD/STORE extension, struct-path unification)
+- **v5.8.17** — slices §9 — Str API migration (str_data/str_len → .data/.len with backward-compat aliases; ~30 stdlib + cyrius src/ call sites)
+- **v5.8.18** — slices §10 — Stdlib 454-site migration (sys_read 53 + memcpy 332 + memeq 69 → slice-typed signatures with `_slice` variants)
+- **v5.8.19** — slices §11 — TRUE sub-arc closeout (downstream rebuild against migrated APIs, gates extended)
+- **v5.8.20** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
+- **v5.8.21–v5.8.25** — Tagged unions + exhaustive match (5 sub-patches)
+- **v5.8.26–v5.8.30** — `Result<T,E>` + `?` propagation (5 sub-patches)
+- **v5.8.31–v5.8.36** — Allocators-as-parameter (6 sub-patches)
 
-Phase 3 — Polish + cycle closeout (slots 31-35):
-- **v5.8.31** — Preprocessor include-pattern in string literals (vidya audit)
-- **v5.8.32** — `cyrlint` multi-line assert false-positive (mabda C5)
-- **v5.8.33** — Vidya cyrius-language audit (annotation pass)
-- **v5.8.34** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
+Phase 3 — Polish + cycle closeout (slots 37-41):
+- **v5.8.37** — Preprocessor include-pattern in string literals (vidya audit)
+- **v5.8.38** — `cyrlint` multi-line assert false-positive (mabda C5)
+- **v5.8.39** — Vidya cyrius-language audit (annotation pass)
+- **v5.8.40** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
   + `var X;` bare-decl error message (mabda C1)
-- **v5.8.35** — v5.8.x closeout backstop
+- **v5.8.41** — v5.8.x closeout backstop
 
 **Held items** (surfacing-ask only; not pinned, no slot consumed):
 - `cyim` regex pattern (mabda C6) — pin when cyim consumer hits it

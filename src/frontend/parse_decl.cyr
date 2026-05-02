@@ -566,6 +566,7 @@ fn PARSE_VAR(S) {
     # Optional type annotation: var x: type = ... or var x: *type = ...
     var pscale = 0;
     var scalar_type = 0;
+    var slice_elt_w = 0;  # v5.8.14 §6: element width for slice<T>/[T] (0 = not a slice)
     if (PEEKT(S) == 49) {
         STI(S, GTI(S) + 1);  # consume :
         if (PEEKT(S) == 8) {
@@ -582,23 +583,81 @@ fn PARSE_VAR(S) {
             SKIP_GENERICS(S);
         } elif (PEEKT(S) == 28) {
             # v5.8.9 §1: `[T]` slice type sugar — `var x: [u8] = ...`.
-            # v5.8.10 §2: now allocates a 16-byte `{ptr, len}` slot
-            # (mirrors u128's 16-byte path). Field access via
-            # lib/slice.cyr's slice_ptr / slice_len helpers (taking
-            # &slice_var). Bounds-aware indexing lands in a follow-up
-            # slot.
+            # v5.8.10 §2: 16-byte {ptr, len} slot (u128 path).
+            # v5.8.14 §6: capture element width for §7 sized indexing.
             STI(S, GTI(S) + 1);  # consume [
-            if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # optional *
-            if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }  # element type ident
-            if (PEEKT(S) == 105) { STI(S, GTI(S) + 1); }  # u128 element
+            if (PEEKT(S) == 8) {
+                # Pointer element: [*T] — width = 8 (pointer size)
+                STI(S, GTI(S) + 1);  # consume *
+                slice_elt_w = 8;
+                if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }  # consume ident
+            } elif (PEEKT(S) == 2) {
+                # Scalar/struct element: [u8], [i32], [Foo]
+                var elt_noff = PEEKV(S);
+                var elt_name = L64(S + 0x60000 + elt_noff);
+                if (elt_name & 0xFFFF == 0x3875)        { slice_elt_w = 1; }   # u8
+                elif (elt_name & 0xFFFF == 0x3869)      { slice_elt_w = 1; }   # i8
+                elif (elt_name & 0xFFFFFF == 0x363175)  { slice_elt_w = 2; }   # u16
+                elif (elt_name & 0xFFFFFF == 0x363169)  { slice_elt_w = 2; }   # i16
+                elif (elt_name & 0xFFFFFF == 0x323375)  { slice_elt_w = 4; }   # u32
+                elif (elt_name & 0xFFFFFF == 0x323369)  { slice_elt_w = 4; }   # i32
+                elif (elt_name & 0xFFFFFF == 0x343675)  { slice_elt_w = 8; }   # u64
+                elif (elt_name & 0xFFFFFF == 0x343669)  { slice_elt_w = 8; }   # i64
+                else {
+                    var elt_sid = FINDSTRUCT(S, elt_noff);
+                    if (elt_sid > 0) { slice_elt_w = STRUCTSZ(S, elt_sid - 1); }
+                    else { slice_elt_w = 8; }  # default to i64-width for unknown
+                }
+                STI(S, GTI(S) + 1);
+            } elif (PEEKT(S) == 105) {
+                slice_elt_w = 16;  # u128 element
+                STI(S, GTI(S) + 1);
+            }
             if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
             STI(S, GTI(S) + 1);  # consume ]
             SKIP_GENERICS(S);
-            scalar_type = 16;  # v5.8.10 §2: 16-byte {ptr, len} slot
+            scalar_type = 16;
         } elif (PEEKT(S) == 105) {
             # u128 type
             scalar_type = 16;
             STI(S, GTI(S) + 1);
+        } elif (PEEKT(S) == 2 && (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFF) == 0x6563696C73) {
+            # v5.8.10 §2: `slice<T>` ident form — 16-byte {ptr,len} slot.
+            # v5.8.14 §6: extract element width from <T> for §7 indexing.
+            # Bytes for "slice" = 0x6563696C73 (little-endian load64
+            # lower 5 bytes; 's'=0x73 'l'=0x6C 'i'=0x69 'c'=0x63 'e'=0x65).
+            # Manual <T> parsing replaces SKIP_GENERICS so we can capture T.
+            scalar_type = 16;
+            STI(S, GTI(S) + 1);  # consume "slice"
+            if (PEEKT(S) == 19) {  # `<`
+                STI(S, GTI(S) + 1);  # consume <
+                if (PEEKT(S) == 8) {
+                    STI(S, GTI(S) + 1);  # consume *
+                    slice_elt_w = 8;
+                    if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
+                } elif (PEEKT(S) == 2) {
+                    var gtt_noff = PEEKV(S);
+                    var gtt_name = L64(S + 0x60000 + gtt_noff);
+                    if (gtt_name & 0xFFFF == 0x3875)        { slice_elt_w = 1; }   # u8
+                    elif (gtt_name & 0xFFFF == 0x3869)      { slice_elt_w = 1; }   # i8
+                    elif (gtt_name & 0xFFFFFF == 0x363175)  { slice_elt_w = 2; }   # u16
+                    elif (gtt_name & 0xFFFFFF == 0x363169)  { slice_elt_w = 2; }   # i16
+                    elif (gtt_name & 0xFFFFFF == 0x323375)  { slice_elt_w = 4; }   # u32
+                    elif (gtt_name & 0xFFFFFF == 0x323369)  { slice_elt_w = 4; }   # i32
+                    elif (gtt_name & 0xFFFFFF == 0x343675)  { slice_elt_w = 8; }   # u64
+                    elif (gtt_name & 0xFFFFFF == 0x343669)  { slice_elt_w = 8; }   # i64
+                    else {
+                        var gtt_sid = FINDSTRUCT(S, gtt_noff);
+                        if (gtt_sid > 0) { slice_elt_w = STRUCTSZ(S, gtt_sid - 1); }
+                        else { slice_elt_w = 8; }
+                    }
+                    STI(S, GTI(S) + 1);
+                } elif (PEEKT(S) == 105) {
+                    slice_elt_w = 16;
+                    STI(S, GTI(S) + 1);
+                }
+                if (PEEKT(S) == 20) { STI(S, GTI(S) + 1); }  # consume >
+            }
         } else {
             if (PEEKT(S) == 2) {
                 var lann = PEEKV(S);
@@ -608,12 +667,6 @@ fn PARSE_VAR(S) {
                 elif (ltname & 0xFFFFFF == 0x363169) { scalar_type = 2; }
                 elif (ltname & 0xFFFFFF == 0x323369) { scalar_type = 4; }
                 elif (ltname & 0xFFFFFF == 0x343669) { scalar_type = 8; }
-                # v5.8.10 §2: `slice<T>` ident-form also gets the
-                # 16-byte slot (matching the `[T]` bracket form
-                # above). Bytes for "slice" = 0x65_63_69_6C_73
-                # ('s'=0x73, 'l'=0x6C, 'i'=0x69, 'c'=0x63, 'e'=0x65;
-                # little-endian load64 lower 5 bytes).
-                elif (ltname & 0xFFFFFFFFFF == 0x6563696C73) { scalar_type = 16; }
                 else {
                     var lsid = FINDSTRUCT(S, lann);
                     if (lsid > 0) { pscale = 0 - lsid; }
@@ -819,6 +872,9 @@ fn PARSE_VAR(S) {
             SLTYPE(S, li, pscale);
             EFLSTORE(S, li);
         }
+        # v5.8.14 §6: record slice element width (0 if not a slice).
+        # §7's bounds-aware indexing reads this to pick load*/store* width.
+        SSLICE_W(S, li, slice_elt_w);
         SFLC(S, li + 1);
     } else {
         var vcnt = GVCNT(S);
