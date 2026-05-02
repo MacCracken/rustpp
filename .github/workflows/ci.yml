@@ -274,7 +274,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install qemu-user
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+        run: |
+          # Swap Azure Ubuntu mirror to canonical — azure.archive.ubuntu.com
+          # has been DNS-flaky on GH-hosted runners (746 B/s, 5min timeouts).
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt 2>/dev/null || true
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static
       - name: Setup compilers
         run: |
           chmod +x build/cc5
