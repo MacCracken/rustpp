@@ -4,6 +4,51 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.3] — 2026-05-01
+
+**v5.8.x slot 3 — `src/frontend/ts/parse.cyr` fmt sweep follow-up**.
+Closes the v5.8.0 fmt-sweep deferral. v5.8.0 swept 24 first-party
+files but couldn't reach `src/frontend/ts/parse.cyr` (195,483 B)
+because cyrlint/cyrfmt's 128 KiB buffer cap (mabda Class A1)
+truncated the output to ~131 KiB / 2952 lines. v5.8.1 raised the
+cap to 524 KiB, making this slot mechanical.
+
+cc5 unchanged at **720,928 B** — fmt of parser source doesn't
+affect emit (whitespace is stripped by the lexer; ts/parse.cyr's
+content is .cyr code paths, not embedded TOK_LITERAL strings).
+
+### Fix
+
+```sh
+cyrius fmt src/frontend/ts/parse.cyr > /tmp/parse_fmt.cyr
+[ "$(wc -l < src/frontend/ts/parse.cyr)" = "$(wc -l < /tmp/parse_fmt.cyr)" ] && \
+    mv /tmp/parse_fmt.cyr src/frontend/ts/parse.cyr
+```
+
+Pre-sweep: 4532 lines / 195,483 B.
+Post-sweep: 4532 lines / 195,173 B (-310 B from canonical
+whitespace normalization; line count preserved per the line-count
+guard pattern carried from v5.8.0's mabda-A1-aware fmt loop).
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 720,928 B (no compiler
+   emit shift — parser-source whitespace doesn't reach lexed
+   TOK_LITERAL surface).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS (baseline holds).
+4. ✅ Line-count preservation confirmed (4532 = 4532).
+
+### Coda
+
+With this slot, all 25 v5.8.0-era drift files are now canonical
+(24 swept at v5.8.0 + 1 here). The remaining file with potential
+drift would be `lib/sandhi.cyr` (vendored byte-identical from
+sandhi v1.0.0 distlib at the v5.7.0 fold) — that's intentionally
+NOT swept because it's a generated artifact whose upstream owns
+formatting. Ditto for `lib/{vani,sigil,patra,sakshi,sankoch,
+yukti,mabda,agnosys}.cyr` (symlinked dep distfiles).
+
 ## [5.8.2] — 2026-05-01
 
 **v5.8.x slot 2 — `cc5_aarch64` packaging fix + `build/cyrc_check`

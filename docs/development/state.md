@@ -5,6 +5,22 @@
 
 ## Version
 
+**5.8.3** (shipped 2026-05-01 — **v5.8.x SLOT 3 —
+`src/frontend/ts/parse.cyr` fmt sweep follow-up**. Closes the
+v5.8.0 fmt-sweep deferral that was blocked by the 128 KiB
+cyrlint/cyrfmt cap (mabda A1) — v5.8.1 raised the cap to
+524 KiB, this slot applied fmt to the file. Pre-sweep: 4532
+lines / 195,483 B. Post-sweep: 4532 lines / 195,173 B (-310 B
+canonical whitespace normalization; line-count preserved per
+the v5.8.0 mabda-A1-aware fmt-loop pattern). cc5 unchanged at
+**720,928 B** — parser-source whitespace doesn't reach lexed
+TOK_LITERAL surface so emit is unaffected. Verification:
+self-host two-step byte-identical, check.sh 64/64, bench 15/15.
+All 25 v5.8.0-era first-party drift files now canonical;
+remaining un-swept files are vendored distlib artifacts —
+`lib/sandhi.cyr` (sandhi v1.0.0 fold), and 8 symlinked dep
+distfiles — owned upstream and intentionally not swept.)
+
 **5.8.2** (shipped 2026-05-01 — **v5.8.x SLOT 2 — `cc5_aarch64`
 release-tarball placement fix + `build/cyrc_check` orphan delete**.
 Paired build-tree hygiene; release.yml + working-tree changes
