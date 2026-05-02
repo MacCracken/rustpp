@@ -528,11 +528,21 @@ Allocators. Sub-arc:
   type-params shape. cc5 +464 B for new branch. Test:
   `tests/tcyr/slices_parse.tcyr` 9/9 PASS across all element-
   type variations.
-- **v5.8.10** §2 — Codegen layer. Slice as 16-byte struct
-  `{ ptr: *T, len: i64 }`; field access (`s.ptr`, `s.len`);
-  bounds-aware indexing `s[i]` lowering to `load*(s.ptr + i*sz)`
-  with optional bounds-check guard; slice literal syntax
-  (or `slice_of(buf, off, len)` builder).
+- **v5.8.10** ✅ §2 — Codegen layer (16-byte alloc + helper API).
+  Shipped 2026-05-02. PARSE_VAR's `[T]` branch sets
+  `scalar_type = 16` (reusing u128's 16-byte stack-slot path);
+  `slice<T>` ident form matched via 5-byte "slice" name-match
+  (0x6563696C73 little-endian). Both forms now allocate 16-byte
+  `{ptr, len}` slots. New `lib/slice.cyr` ships 9 helpers
+  taking slice POINTER (`&s`): slice_set / slice_of / slice_ptr
+  / slice_len / slice_zero / slice_copy / slice_eq /
+  slice_is_empty / slice_is_null. Honest scope-shrink during
+  slot: dot-syntax field access (`s.ptr` / `s.len`) deferred —
+  would require unifying struct-field path with `scalar_type=16`
+  scalar path. Bounds-aware indexing also deferred — needs
+  element-type tracking parser doesn't have. Both pin candidates
+  for follow-up slots if consumers surface concrete pain.
+  cc5 +88 B. Tests: `tests/tcyr/slices_codegen.tcyr` 26/26 PASS.
 - **v5.8.11** §3 — Stdlib pass 1: `Str` → `slice<u8>`. The
   current `Str` (heap-allocated `{data_ptr, len}` header) gets
   re-typed as a slice<u8> wrapper. `Str_data` / `Str_len` etc.

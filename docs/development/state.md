@@ -5,6 +5,29 @@
 
 ## Version
 
+**5.8.10** (shipped 2026-05-02 — **v5.8.x SLOT 10 — slices §2
+codegen: 16-byte alloc + field-access helpers**. Second of the
+5-patch slices sub-arc. Parser change in `parse_decl.cyr`'s
+PARSE_VAR: `[T]` branch now sets `scalar_type = 16` after
+consuming the syntax (reuses u128's existing 16-byte stack-slot
+path); `slice<T>` ident form gets the same treatment via 5-byte
+"slice" name-match (0x6563696C73 little-endian) in the scalar-
+type fallthrough. Both forms now allocate identical 16-byte
+slots. New `lib/slice.cyr` ships 9 helpers: slice_set / slice_of /
+slice_ptr / slice_len / slice_zero / slice_copy / slice_eq /
+slice_is_empty / slice_is_null — all take a slice POINTER (&s)
+mirroring u128/struct-by-pointer convention. Dot-syntax field
+access (s.ptr / s.len) not wired (would require unifying
+struct-field path with scalar_type=16 — separate scope); bounds-
+aware indexing deferred (needs element-type tracking the parser
+doesn't have). Both pin candidates for §X follow-ups if
+consumers ask. cc5 grew **721,848 → 721,936 B (+88 B)**.
+Verification: self-host two-step byte-identical, check.sh 64/64,
+new `tests/tcyr/slices_codegen.tcyr` 26/26 PASS across 8 test
+groups (16-byte alloc, helper roundtrips, copy/eq/empty/null
+semantics, both forms produce identical slices), §1 regression
+intact (9/9). §3 next: Str → slice<u8>.)
+
 **5.8.9** (shipped 2026-05-02 — **v5.8.x SLOT 9 — Phase 2 opens;
 slices §1 parse-acceptance + slot-map cascade +4**. First
 substantive Phase 2 slot. Slot-map re-pin: slices originally
@@ -1990,7 +2013,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.10+ (Phase 2 — language vocabulary; slices sub-arc §2-§5 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
+**v5.8.11+ (Phase 2 — language vocabulary; slices sub-arc §3-§5 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2018,7 +2041,8 @@ Phase 1 — Quick-win unblockers (slots 1-8):
 Phase 2 — Language vocabulary (slots 9-30; cascaded +4 at v5.8.9
 ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.9** ✅ slices §1 — type-position parse-acceptance for `slice<T>` + `[T]`
-- **v5.8.10–v5.8.13** — First-class slices remaining sub-patches
+- **v5.8.10** ✅ slices §2 — 16-byte alloc + lib/slice.cyr helper API (slice_set/of/ptr/len/zero/copy/eq/is_empty/is_null)
+- **v5.8.11–v5.8.13** — First-class slices remaining sub-patches (§3 Str→slice<u8>, §4 vec/hashmap getters, §5 closeout)
   - v5.8.9 §1: type-position parse-acceptance + TYPE_SLICE AST kind
   - v5.8.10 §2: codegen — slice as 16-byte {ptr, len} struct + field access + bounds-aware indexing
   - v5.8.11 §3: stdlib pass 1 — Str → slice<u8>

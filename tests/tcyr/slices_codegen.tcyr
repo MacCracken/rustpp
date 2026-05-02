@@ -1,0 +1,110 @@
+# slices_codegen.tcyr — v5.8.10 §2 — 16-byte alloc + field-access
+# helper coverage.
+#
+# v5.8.9 §1 made slice<T> / [T] parse-accept; §2 makes them
+# actually allocate 16 bytes ({ptr, len}) and provides the
+# slice_ptr / slice_len / slice_set / slice_of / slice_zero /
+# slice_copy / slice_eq / slice_is_empty / slice_is_null helpers
+# in lib/slice.cyr.
+#
+# This file regression-floors §2's two contracts:
+#   (1) `var x: [T] = 0` and `var x: slice<T> = 0` both reserve
+#       16 bytes (verified via load64 at offset 0 and 8).
+#   (2) The lib/slice.cyr helpers correctly read/write the
+#       ptr and len fields in standard-shape patterns.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+include "lib/slice.cyr"
+
+alloc_init();
+
+# ---- §2 contract 1: 16-byte allocation ----
+
+test_group("[T] / slice<T> reserve 16-byte slot");
+var s1: [u8] = 0;
+assert_eq(load64(&s1), 0, "[u8] zero-init: ptr field = 0");
+assert_eq(load64(&s1 + 8), 0, "[u8] zero-init: len field = 0");
+
+var s2: slice<i64> = 0;
+assert_eq(load64(&s2), 0, "slice<i64> zero-init: ptr field = 0");
+assert_eq(load64(&s2 + 8), 0, "slice<i64> zero-init: len field = 0");
+
+# Adjacent vars don't overlap with the slice's len field.
+# Pre-§2, [u8] allocated only 8 bytes — adjacent var's bytes
+# would alias offset 8 of the slice. Post-§2, both are independent.
+var s3: [u8] = 0;
+var sentinel = 42;
+assert_eq(load64(&s3 + 8), 0, "[u8] len field independent of next var (sentinel)");
+assert_eq(sentinel, 42, "next var unaffected by slice's len field");
+
+# ---- §2 contract 2: helper API ----
+
+test_group("slice_set / slice_ptr / slice_len");
+var data[5];
+store8(&data, 65); store8(&data + 1, 66); store8(&data + 2, 67);
+store8(&data + 3, 68); store8(&data + 4, 69);
+var s: [u8] = 0;
+slice_set(&s, &data, 5);
+assert_eq(slice_ptr(&s), &data, "ptr roundtrip via slice_set + slice_ptr");
+assert_eq(slice_len(&s), 5, "len roundtrip via slice_set + slice_len");
+
+# Read-through the slice manually to confirm we're pointing at the
+# right memory.
+var p = slice_ptr(&s);
+assert_eq(load8(p), 65, "byte 0 via slice_ptr (= 'A')");
+assert_eq(load8(p + 4), 69, "byte 4 via slice_ptr (= 'E')");
+
+test_group("slice_of (builder alias)");
+var t: [u8] = 0;
+slice_of(&t, &data, 3);
+assert_eq(slice_ptr(&t), &data, "slice_of: ptr matches");
+assert_eq(slice_len(&t), 3, "slice_of: len matches");
+
+test_group("slice_zero clears both fields");
+slice_zero(&s);
+assert_eq(slice_ptr(&s), 0, "slice_zero: ptr cleared");
+assert_eq(slice_len(&s), 0, "slice_zero: len cleared");
+
+test_group("slice_copy preserves both fields");
+slice_set(&s, &data, 5);
+var dst: [u8] = 0;
+slice_copy(&dst, &s);
+assert_eq(slice_ptr(&dst), &data, "slice_copy: ptr matches src");
+assert_eq(slice_len(&dst), 5, "slice_copy: len matches src");
+
+test_group("slice_eq compares both fields");
+var a: [u8] = 0; slice_set(&a, &data, 5);
+var b: [u8] = 0; slice_set(&b, &data, 5);
+var c: [u8] = 0; slice_set(&c, &data, 4);   # same ptr, different len
+var d: [u8] = 0; slice_set(&d, &data + 1, 5); # different ptr, same len
+assert_eq(slice_eq(&a, &b), 1, "equal slices");
+assert_eq(slice_eq(&a, &c), 0, "different len");
+assert_eq(slice_eq(&a, &d), 0, "different ptr");
+
+test_group("slice_is_empty / slice_is_null distinct");
+var nul: [u8] = 0;
+assert_eq(slice_is_null(&nul), 1, "zero-init slice is null");
+assert_eq(slice_is_empty(&nul), 1, "zero-init slice is also empty");
+
+var alloc_zero: [u8] = 0;
+slice_set(&alloc_zero, &data, 0);
+assert_eq(slice_is_null(&alloc_zero), 0, "non-null ptr → not null");
+assert_eq(slice_is_empty(&alloc_zero), 1, "len=0 → empty");
+
+var nonempty: [u8] = 0;
+slice_set(&nonempty, &data, 5);
+assert_eq(slice_is_null(&nonempty), 0, "non-null ptr → not null");
+assert_eq(slice_is_empty(&nonempty), 0, "len>0 → not empty");
+
+# ---- §2 contract 3: slice<T> ident form behaves identically ----
+
+test_group("slice<T> ident form == [T] bracket form");
+var brk: [u8] = 0;  slice_set(&brk, &data, 5);
+var gen: slice<u8> = 0; slice_set(&gen, &data, 5);
+assert_eq(slice_eq(&brk, &gen), 1, "both forms produce same slice");
+
+var r = assert_summary();

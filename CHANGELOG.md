@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.10] — 2026-05-02
+
+**v5.8.x slot 10 — slices §2 codegen: 16-byte alloc + field-access
+helpers**. Second of the 5-patch slices sub-arc. Builds on §1's
+parse-acceptance to actually allocate a 16-byte `{ptr, len}`
+stack slot and provide the helper API for reading/writing the
+fields.
+
+cc5 grew **721,848 B → 721,936 B (+88 B)** for the new
+`scalar_type = 16` assignment in PARSE_VAR's `[T]` branch +
+the "slice" ident-name match in the existing scalar/struct
+fallthrough.
+
+### What shipped
+
+**Parser (`src/frontend/parse_decl.cyr`):**
+- `[T]` branch (added in §1) now sets `scalar_type = 16` after
+  consuming the syntax — reuses u128's existing 16-byte stack-
+  slot path. No new emit infrastructure; same shape as
+  `var x: u128 = 0`.
+- `slice<T>` ident form: added a 5-byte string-match for
+  `0x6563696C73` ("slice" little-endian) in the scalar-type
+  fallthrough. Sets `scalar_type = 16` before falling through
+  to `SKIP_GENERICS(S)` for the `<T>` arg consumption.
+
+Both forms now produce identical 16-byte stack slots:
+
+```cyrius
+var s: [u8]      = 0;  # 16 bytes: ptr@0, len@8
+var s: slice<u8> = 0;  # same — 16 bytes
+```
+
+**Stdlib (`lib/slice.cyr`, NEW):**
+- `slice_set(s, ptr, len)` — initialize slice in-place
+- `slice_of(s, ptr, len)` — alias for slice_set (builder shape)
+- `slice_ptr(s)` / `slice_len(s)` — field accessors
+- `slice_zero(s)` — clear both fields
+- `slice_copy(dst, src)` — deep-copy 16 bytes
+- `slice_eq(a, b)` — pointer-equality (both ptr AND len match)
+- `slice_is_empty(s)` — len == 0
+- `slice_is_null(s)` — ptr == 0
+
+All helpers take a slice POINTER (`&s`), mirroring the
+u128 / struct-by-pointer convention pervasive in cyrius's
+stdlib. Dot-syntax field access (`s.ptr` / `s.len`) is NOT
+yet wired — that's a future polish slot. Use the `slice_ptr()`
+/ `slice_len()` accessors for now.
+
+### Honest scope-shrink during slot
+
+Original §2 description: "codegen — slice as 16-byte struct
+{ptr, len}; field access (s.ptr, s.len); bounds-aware
+indexing." Honest scope-check during slot:
+
+1. **Bounds-aware indexing deferred**: `s[i]` lowering to
+   `load*(s.ptr + i*sizeof(T))` with optional bounds-check
+   guard requires element-type tracking that §2 doesn't have
+   (the parser doesn't propagate T from `slice<T>` / `[T]`
+   into a runtime type slot — element width is consumer-known).
+   Pin candidate for a §X follow-up if a real consumer asks.
+
+2. **Dot-syntax field access deferred**: `s.ptr` / `s.len`
+   would require teaching PARSE_FIELD_LOAD / PARSE_FIELD_STORE
+   to recognize slice-typed locals. Existing struct-field
+   infrastructure assumes `pscale = -sid` (struct id pointer);
+   slices use `scalar_type = 16` (u128-flavored). Wiring the
+   two paths together is a separate change. For §2, the
+   helper-fn API (slice_ptr/slice_len) is the access surface.
+
+§2 ships the foundation: 16-byte alloc + functional API.
+§3 (Str → slice<u8>) and §4 (vec/hashmap getters) can build
+on this. Bounds-aware indexing + dot-syntax field access become
+explicit pin candidates for v5.8.13 closeout or beyond.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,936 B.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` — 15/15 PASS.
+4. ✅ New `tests/tcyr/slices_codegen.tcyr` — **26 assertions**
+   across 8 test groups: 16-byte alloc verified for both forms
+   (load64 at offset 0 + 8); slice_set/of/ptr/len roundtrip;
+   slice_zero clears both fields; slice_copy preserves both;
+   slice_eq compares both; slice_is_empty vs slice_is_null
+   distinct; slice<T> and [T] forms produce identical slices.
+5. ✅ §1 regression intact: `tests/tcyr/slices_parse.tcyr`
+   9/9 PASS (the §1 contract about non-load-bearing emit
+   technically shifted — both forms now allocate 16 bytes
+   instead of untyped 8 — but the assertions there are
+   value-based not size-based, so still PASS).
+
+### Sub-arc progress
+
+- ✅ **§1 (v5.8.9)**: type-position parse-acceptance
+- ✅ **§2 (v5.8.10, this slot)**: 16-byte alloc + helper API
+- **§3 (v5.8.11)**: stdlib pass 1 — `Str` → `slice<u8>` wrapper
+- **§4 (v5.8.12)**: stdlib pass 2 — `vec`/`hashmap` slice
+  getters; `read`/`memcpy`/`memeq` migration
+- **§5 (v5.8.13)**: closeout — acceptance gates, downstream
+  dep-pointer audit, self-host clean
+
 ## [5.8.9] — 2026-05-02
 
 **v5.8.x slot 9 — Phase 2 opens; slices §1 parse-acceptance + slot-

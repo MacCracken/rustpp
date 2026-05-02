@@ -582,14 +582,11 @@ fn PARSE_VAR(S) {
             SKIP_GENERICS(S);
         } elif (PEEKT(S) == 28) {
             # v5.8.9 §1: `[T]` slice type sugar — `var x: [u8] = ...`.
-            # Parse-acceptance only this slot; codegen + type-tracking
-            # land in v5.8.10 §2 (where slice becomes a 16-byte
-            # `{ptr, len}` struct with field access). For now: consume
-            # the syntax and leave pscale/scalar_type at their default
-            # (untyped) so cc5 emits the same code as `var x = ...`.
-            # `slice<T>` syntax (Rust-like generic form) already
-            # parse-accepts via the ident + SKIP_GENERICS path below.
-            # Both syntaxes are byte-identical at codegen until §2.
+            # v5.8.10 §2: now allocates a 16-byte `{ptr, len}` slot
+            # (mirrors u128's 16-byte path). Field access via
+            # lib/slice.cyr's slice_ptr / slice_len helpers (taking
+            # &slice_var). Bounds-aware indexing lands in a follow-up
+            # slot.
             STI(S, GTI(S) + 1);  # consume [
             if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # optional *
             if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }  # element type ident
@@ -597,6 +594,7 @@ fn PARSE_VAR(S) {
             if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
             STI(S, GTI(S) + 1);  # consume ]
             SKIP_GENERICS(S);
+            scalar_type = 16;  # v5.8.10 §2: 16-byte {ptr, len} slot
         } elif (PEEKT(S) == 105) {
             # u128 type
             scalar_type = 16;
@@ -610,6 +608,12 @@ fn PARSE_VAR(S) {
                 elif (ltname & 0xFFFFFF == 0x363169) { scalar_type = 2; }
                 elif (ltname & 0xFFFFFF == 0x323369) { scalar_type = 4; }
                 elif (ltname & 0xFFFFFF == 0x343669) { scalar_type = 8; }
+                # v5.8.10 §2: `slice<T>` ident-form also gets the
+                # 16-byte slot (matching the `[T]` bracket form
+                # above). Bytes for "slice" = 0x65_63_69_6C_73
+                # ('s'=0x73, 'l'=0x6C, 'i'=0x69, 'c'=0x63, 'e'=0x65;
+                # little-endian load64 lower 5 bytes).
+                elif (ltname & 0xFFFFFFFFFF == 0x6563696C73) { scalar_type = 16; }
                 else {
                     var lsid = FINDSTRUCT(S, lann);
                     if (lsid > 0) { pscale = 0 - lsid; }

@@ -1,0 +1,93 @@
+# slice.cyr — first-class slice (16-byte {ptr, len}) helpers.
+#
+# v5.8.10 §2: complements parser-side slice<T> / [T] type
+# annotations (parse_decl.cyr's PARSE_VAR scalar_type=16 path).
+# A slice is a 16-byte stack-local slot:
+#   offset 0: ptr (i64) — pointer to first element
+#   offset 8: len (i64) — element count
+#
+# All helpers take a slice POINTER (`&s`), mirroring the u128 /
+# struct-by-pointer convention that pervades cyrius's stdlib.
+# Field access via dot syntax (`s.ptr` / `s.len`) is NOT yet
+# wired — that's a future polish slot. For now, use the
+# slice_ptr() / slice_len() accessors.
+#
+# Element-type tracking is intentionally absent in §2: the
+# parser's `slice<T>` / `[T]` annotation accepts any T (i8, i16,
+# i32, i64, u128, *T) but doesn't propagate T to runtime. A
+# slice over u8 looks structurally identical to a slice over
+# i64 — consumers must remember the element width and use
+# load8/load16/load32/load64 accordingly. Element-typed indexing
+# (`s[i]` lowers to load* of correct width) lands in a follow-up
+# slot if a consumer needs it.
+#
+# Usage:
+#   var data[5];
+#   store8(&data, 65);  store8(&data + 1, 66);  ...
+#   var s: [u8] = 0;
+#   slice_set(&s, &data, 5);
+#   var p = slice_ptr(&s);   # &data
+#   var n = slice_len(&s);   # 5
+#   var first = load8(p);    # 65
+#
+# Builder convenience:
+#   var s: [u8] = 0;  slice_of(&s, &data, 5);   # same as slice_set
+
+# Initialize slice in-place. Returns 0.
+fn slice_set(s, ptr, len) {
+    store64(s, ptr);
+    store64(s + 8, len);
+    return 0;
+}
+
+# Builder alias for slice_set — reads as `slice_of(&s, buf, n)`.
+fn slice_of(s, ptr, len) {
+    return slice_set(s, ptr, len);
+}
+
+# Read the ptr field.
+fn slice_ptr(s) {
+    return load64(s);
+}
+
+# Read the len field.
+fn slice_len(s) {
+    return load64(s + 8);
+}
+
+# Zero both fields. Equivalent to slice_set(s, 0, 0).
+fn slice_zero(s) {
+    store64(s, 0);
+    store64(s + 8, 0);
+    return 0;
+}
+
+# Copy src slice into dst (both pointers to 16-byte slots).
+fn slice_copy(dst, src) {
+    store64(dst, load64(src));
+    store64(dst + 8, load64(src + 8));
+    return 0;
+}
+
+# Two slices equal iff both ptr and len match. Note this is
+# pointer-equality, not content-equality — slice_eq_content is
+# a future addition if a consumer needs it.
+fn slice_eq(a, b) {
+    if (load64(a) != load64(b)) { return 0; }
+    if (load64(a + 8) != load64(b + 8)) { return 0; }
+    return 1;
+}
+
+# True iff the slice has zero length. ptr may still be non-null.
+fn slice_is_empty(s) {
+    if (load64(s + 8) == 0) { return 1; }
+    return 0;
+}
+
+# True iff the slice is null-pointer (ptr == 0). Distinct from
+# is_empty: a non-null slice with len=0 is "empty but allocated";
+# a null slice is "no allocation at all".
+fn slice_is_null(s) {
+    if (load64(s) == 0) { return 1; }
+    return 0;
+}
