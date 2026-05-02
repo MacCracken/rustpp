@@ -632,21 +632,37 @@ This sub-arc absorbs that deferred work as proper slots.
   pointer. **§8 SCOPE NOTE**: same as §7 — fn-local slices
   only; top-level vars still need helper-fn API. Var-side
   support reserved as the same follow-up slot.
-- **v5.8.17** §9 — Str API migration. Migrate stdlib's
-  `str_data` / `str_len` callers to use `.data` / `.len`
-  field access (Str struct has those exact names). Backward-
-  compat aliases retained for one cycle so downstream consumers
-  migrate incrementally. ~30 stdlib call sites + cyrius's own
-  src/ usage.
-- **v5.8.18** §10 — Stdlib 454-site migration. `sys_read` (53)
-  + `memcpy` (332) + `memeq` (69) call sites migrate from raw
-  `(ptr, len)` to slice-typed args. Add slice-variant signatures
-  (`sys_read_slice` / `slice_copy_bytes` / `slice_eq_bytes`),
-  migrate stdlib internal callers, document downstream upgrade
-  path. THIS is the migration that compressing v5.8.x into one
-  cycle was supposed to deliver — without it, downstream
-  consumers re-port across v5.9.x → v5.12.x exactly as the
-  cycle-compression argument was meant to prevent.
+- ✅ **v5.8.17** §9 — Pointer-to-struct dot-syntax capability
+  + Str fn-param SLTYPE tagging (shipped 2026-05-02).
+  PARSE_FIELD_LOAD/STORE auto-detects pointer-vs-inline by
+  checking if slot lli-1 has the v5.5.36 sentinel name -1; if
+  yes, inline-mode (`EFLADDR_X1`); else pointer-mode
+  (`EFLLOAD + EMOVCA`). PARSE_FN_DEF tags `: <StructName>`
+  param slots with `SLTYPE = -sid` so `param.field` resolves
+  via the struct-typed-local branch. **Honest scope shift**:
+  pinned scope was ~30-site stdlib migration; empirical scope
+  was 81 sites + a `: Str` annotation per site (most stdlib
+  fns take untyped params). Capability ships now; mass
+  migration moves to v5.8.18 §10 which folds in the
+  str_data/str_len sweep alongside the original 454-site
+  sys_read/memcpy/memeq work. **§9 SCOPE NOTE**: dot-syntax
+  fires only when the local or param has the `: Str` (or other
+  struct) annotation; untyped locals storing Str pointers fall
+  through to the existing error path.
+- **v5.8.18** §10 — Stdlib migration: str_data / str_len AND
+  the original 454-site sweep. The §9 work folded the
+  str_data/str_len migration into this slot — it shares the
+  "type the param, then change the call" mechanic with the
+  bigger sys_read / memcpy / memeq sweep. `sys_read` (53) +
+  `memcpy` (332) + `memeq` (69) call sites migrate from raw
+  `(ptr, len)` to slice-typed args. Add slice-variant
+  signatures (`sys_read_slice` / `slice_copy_bytes` /
+  `slice_eq_bytes`), migrate stdlib internal callers + the ~80
+  str_data/str_len sites identified in §9, document downstream
+  upgrade path. THIS is the migration that compressing v5.8.x
+  into one cycle was supposed to deliver — without it,
+  downstream consumers re-port across v5.9.x → v5.12.x exactly
+  as the cycle-compression argument was meant to prevent.
 - **v5.8.19** §11 — TRUE sub-arc closeout. Downstream
   consumers (sigil/mabda/yukti/etc.) rebuild against migrated
   stdlib; surface migration notes for any that need source

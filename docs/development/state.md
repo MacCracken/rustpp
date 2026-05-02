@@ -5,6 +5,47 @@
 
 ## Version
 
+**5.8.17** (shipped 2026-05-02 — **v5.8.x SLOT 17 — slices §9:
+pointer-to-struct dot-syntax capability + Str fn-param SLTYPE
+tagging**. Fourth slot of the slices true-completion sub-arc.
+Premise-check at slot entry flipped the scope: original pin
+assumed `s.data` / `s.len` already worked on Str-typed locals
+and §9 was just a stdlib migration; empirically dot-syntax
+returned 0 because PARSE_FIELD_LOAD's local-struct branch
+treated every struct-typed local as inline (v5.5.36 path), but
+`var s: Str = str_from(...)` actually stores a heap pointer in
+a single slot. PARSE_FIELD_LOAD/STORE extended to auto-detect
+pointer-vs-inline by checking if slot lli-1 has the sentinel
+name -1 (indicates v5.5.36 inline-struct filler); if yes, use
+`EFLADDR_X1` (lea — slot IS the struct's bytes); otherwise use
+`EFLLOAD + EMOVCA` (mov — slot HOLDS the struct's pointer).
+PARSE_FN_DEF's param-decl loop now calls FINDSTRUCT on every
+`: Type` annotation and tags the slot with SLTYPE = -sid when
+the type resolves to a struct, so `param.field` on a `: Str`
+parameter routes through the struct-typed-local branch instead
+of compile-erroring. Backward-compatible with the existing
+string-literal auto-coerce. **Honest scope shift**: pinned scope
+was 30-site stdlib migration; empirical scope was 81 sites + a
+`: Str` annotation per site (most stdlib fns take untyped
+params). A demo migration of lib/fs.cyr was prepared and
+reverted in-flight per user signal — capability ships now,
+mass migration moves to v5.8.18 §10 which was already pinned
+for the bigger 454-site sys_read/memcpy/memeq sweep. Folding
+the str_data/str_len migration into §10 keeps capability +
+migration cleanly separated and gives §10 a worked example to
+scale up from. cc5 grew **727,368 → 727,960 B (+592 B)** for
+the pointer-vs-inline dispatch and param-decl SLTYPE tagging.
+**§9 SCOPE NOTE**: dot-syntax fires only when the local or
+param has the `: Str` (or other struct) annotation; untyped
+locals storing Str pointers fall through to the existing error
+path. Verification: self-host two-step byte-identical, check.sh
+64/64, all 6 prior slices regressions intact (107 assertions),
+new `tests/tcyr/str_dot_syntax.tcyr` 14/14 across 5 test groups
+(Str local declarations, fn parameters, str_new buffers,
+arithmetic composition, direct heap mutation visibility). §10
+next: stdlib migration of str_data/str_len + the original 454-
+site sweep.)
+
 **5.8.16** (shipped 2026-05-02 — **v5.8.x SLOT 16 — slices §8:
 dot-syntax field access `s.ptr` / `s.len` + 16-byte fn-local
 layout-flip + tail-call escape skip for `&local` args**. Third

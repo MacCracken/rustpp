@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.17] — 2026-05-02
+
+**v5.8.x slot 17 — slices §9: pointer-to-struct dot-syntax
+capability + Str fn-param SLTYPE tagging**. Fourth slot of the
+slices true-completion sub-arc. Premise-check at slot entry
+flipped the scope: the original pin assumed `s.data` / `s.len`
+already worked on `Str`-typed locals and §9 was just a stdlib
+migration. Empirically `s.len` returned 0 — PARSE_FIELD_LOAD's
+local-struct branch treated every struct-typed local as inline
+(v5.5.36 path) and used `&s + offset`, but `var s: Str =
+str_from(...)` actually stores a heap pointer in a single slot,
+so `&s + offset` reads the wrong location. §9 ships the
+capability the migration depends on; the mass migration moves
+to v5.8.18 §10 (which was already pinned for the bigger 454-
+site sweep).
+
+cc5 grew **727,368 B → 727,960 B (+592 B)** for the
+PARSE_FIELD_LOAD/STORE pointer-vs-inline auto-detect and the
+PARSE_FN_DEF param-decl slot tagging.
+
+### What §9 ships
+
+**Pointer-vs-inline auto-detect in PARSE_FIELD_LOAD/STORE:**
+
+`src/frontend/parse_decl.cyr` — both fns extended to look at
+the slot immediately above the named slot. The v5.5.36 inline-
+struct path tags filler slots with the sentinel name `-1`; if
+slot `lli - 1` carries that sentinel (or `lli == 0`, since
+inline structs always reserve at least one filler before the
+named slot when STRUCTSZ > 8 — the no-filler case can only be
+a single-slot pointer), the slot is the named tail of an inline
+allocation and `EFLADDR_X1(lli)` correctly yields field 0's
+address. Otherwise the slot holds a heap pointer and we emit
+`EFLLOAD(lli) + EMOVCA` (load slot value into rax, move into rcx)
+to set rcx to the struct's base.
+
+**`: <StructName>` param annotation now tags the slot:**
+
+`src/frontend/parse_fn.cyr` — PARSE_FN_DEF's param-decl loop
+now calls `FINDSTRUCT(tnoff)` for every `: Type` annotation; if
+the type resolves to a struct, sets `SLTYPE(li, -sid)` on the
+param's slot. Without this tag, `param.field` on a `param: Str`
+would compile-error with "unexpected ',' / ';'" because the
+struct-typed-local branch would never fire. Backward-compatible
+with the existing string-literal auto-coerce — the `str_mask`
+bit and the new SLTYPE tag are independent.
+
+`tests/tcyr/str_dot_syntax.tcyr` — **14 assertions** across 5
+test groups: `.data` / `.len` on Str locals, on str_new buffers,
+on `: Str` parameters, composition with arithmetic (sum bytes
+via `s.data + i`), post-mutation reads (truncate via direct
+heap write). Every test declares `var s: Str = ...` explicitly
+— the type annotation IS the migration's surface contract.
+
+### Why ship as capability-only (no stdlib migration this slot)
+
+Pinned scope was "migrate stdlib's str_data / str_len callers
+to .data / .len field access (~30 stdlib call sites)." Empirical
+scope was 81 sites in lib/ + src/, AND every site requires a
+`: Str` annotation on the receiving param (currently most stdlib
+fns take untyped params: `fn fs_write(path, data, len)` not
+`fn fs_write(path: Str, ...)`).
+
+A demo migration of `lib/fs.cyr` was prepared and reverted in-
+flight — the migration is mechanical but mass-touches stdlib in
+a way that wants its own slot. v5.8.18 §10 was already pinned
+as the BIG migration slot (originally `sys_read` / `memcpy` /
+`memeq` — 454 sites). Folding the str_data / str_len migration
+into §10 keeps capability + migration cleanly separated and
+gives §10 a worked example to scale up from.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **727,960 B**
+   (+592 B from PARSE_FIELD_LOAD/STORE pointer dispatch and
+   param-decl SLTYPE tagging).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 6 prior slices regressions intact (107 assertions
+   total: 9 + 26 + 15 + 12 + 24 + 21).
+4. ✅ New `tests/tcyr/str_dot_syntax.tcyr` — **14 assertions**
+   across 5 test groups covering Str local declarations, fn
+   parameters, str_new buffers, arithmetic composition, direct
+   heap mutation visibility.
+
+### §9 SCOPE NOTE — typed Str locals / params only
+
+Same envelope as §7 / §8: dot-syntax fires only when the local
+or param has the `: Str` (or other struct) annotation. Untyped
+locals storing Str pointers fall through to the existing error
+path. The migration in §10 is what propagates `: Str`
+annotations across stdlib so consumers get the dot-syntax
+ergonomics without per-site annotation work.
+
+### Slices true-completion sub-arc — progress
+
+- ✅ **§6 (v5.8.14)**: TYPE_SLICE element-type tracking
+- ✅ **§7 (v5.8.15)**: Bounds-aware indexing `s[i]`
+- ✅ **§8 (v5.8.16)**: Dot-syntax field access on slices
+- ✅ **§9 (v5.8.17, this slot)**: Pointer-to-struct dot-syntax
+  capability + Str param tagging
+- **§10 (v5.8.18)**: Stdlib migration —
+  str_data / str_len → .data / .len AND the original 454-site
+  sys_read / memcpy / memeq sweep
+- **§11 (v5.8.19)**: TRUE sub-arc closeout
+
 ## [5.8.16] — 2026-05-02
 
 **v5.8.x slot 16 — slices §8: dot-syntax field access `s.ptr` /

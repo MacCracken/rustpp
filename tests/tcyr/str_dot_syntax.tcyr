@@ -43,7 +43,11 @@ fn _data_via_dot(s: Str) {
 
 fn run_tests() {
     test_group("§9 .len / .data on heap Str local");
-    var s = str_from("hello");
+    # `: Str` annotation is required for dot-syntax to fire — without
+    # it the local has no SLTYPE tag and PARSE_FIELD_LOAD's local-
+    # struct branch can't resolve the field. This is the same
+    # ergonomic story §10 will repaint across stdlib call sites.
+    var s: Str = str_from("hello");
     assert_eq(s.len, 5, ".len on Str local");
     assert_eq(s.len, str_len(s), ".len matches str_len helper");
     assert_eq(s.data, str_data(s), ".data matches str_data helper");
@@ -53,18 +57,18 @@ fn run_tests() {
     test_group("§9 .len / .data on str_new (buffer + len)");
     var buf[10];
     store8(&buf, 65); store8(&buf+1, 66); store8(&buf+2, 67);
-    var s2 = str_new(&buf, 3);
+    var s2: Str = str_new(&buf, 3);
     assert_eq(s2.len, 3, ".len on str_new");
     assert_eq(s2.data, &buf, ".data on str_new");
     assert_eq(load8(s2.data), 65, "load8(.data) = 'A'");
 
     test_group("§9 .len / .data on `: Str` parameter");
-    var s3 = str_from("world!");
+    var s3: Str = str_from("world!");
     assert_eq(_len_via_dot(s3), 6, ".len reachable through param");
     assert_eq(_data_via_dot(s3), str_data(s3), ".data reachable through param");
 
     test_group("§9 dot syntax composes with arithmetic");
-    var s4 = str_from("abcdef");
+    var s4: Str = str_from("abcdef");
     assert_eq(s4.len + 1, 7, "s.len + 1");
     assert_eq(s4.len * 2, 12, "s.len * 2");
     # walk via .data + i
@@ -77,11 +81,11 @@ fn run_tests() {
     # 'a'..'f' = 97..102, sum = 97+98+99+100+101+102 = 597
     assert_eq(sum, 597, "byte-sum via .data + i");
 
-    test_group("§9 dot syntax sees post-mutation .data after str_set-equivalent");
-    var s5 = str_from("xyz");
+    test_group("§9 dot syntax sees post-mutation .len after direct heap write");
+    var s5: Str = str_from("xyz");
     assert_eq(s5.len, 3, "initial .len");
-    # Note: cyrius doesn't ship a str_set, but we can mutate the
-    # heap struct directly via the fat-pointer convention:
+    # cyrius doesn't ship a str_set, but the fat-pointer convention
+    # makes direct heap mutation legal:
     store64(s5 + 8, 2);   # truncate len to 2
     assert_eq(s5.len, 2, ".len reflects direct heap mutation");
 
