@@ -580,6 +580,23 @@ fn PARSE_VAR(S) {
             if (pscale == 0) { pscale = 8; }
             STI(S, GTI(S) + 1);
             SKIP_GENERICS(S);
+        } elif (PEEKT(S) == 28) {
+            # v5.8.9 §1: `[T]` slice type sugar — `var x: [u8] = ...`.
+            # Parse-acceptance only this slot; codegen + type-tracking
+            # land in v5.8.10 §2 (where slice becomes a 16-byte
+            # `{ptr, len}` struct with field access). For now: consume
+            # the syntax and leave pscale/scalar_type at their default
+            # (untyped) so cc5 emits the same code as `var x = ...`.
+            # `slice<T>` syntax (Rust-like generic form) already
+            # parse-accepts via the ident + SKIP_GENERICS path below.
+            # Both syntaxes are byte-identical at codegen until §2.
+            STI(S, GTI(S) + 1);  # consume [
+            if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # optional *
+            if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }  # element type ident
+            if (PEEKT(S) == 105) { STI(S, GTI(S) + 1); }  # u128 element
+            if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
+            STI(S, GTI(S) + 1);  # consume ]
+            SKIP_GENERICS(S);
         } elif (PEEKT(S) == 105) {
             # u128 type
             scalar_type = 16;

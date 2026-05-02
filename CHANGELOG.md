@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.9] — 2026-05-02
+
+**v5.8.x slot 9 — Phase 2 opens; slices §1 parse-acceptance + slot-
+map cascade**. First substantive Phase 2 slot. Two coupled
+deliverables:
+
+1. **Slot-map re-pin**: slices originally pinned as a single
+   slot; honest scope-check at slot entry (per project memory's
+   premise-check pattern) surfaced this needs the same 5-patch
+   sub-arc shape as Tagged unions / Result / Allocators. Re-pinned
+   as **v5.8.9–v5.8.13**, cascading effect annotations / tagged
+   unions / Result / allocators / Phase 3 by +4 each. v5.8.x
+   cycle total: 31 → **35 pinned slots**, 13-slot → 9-slot
+   headroom. Below v5.7.x's 51-patch record.
+
+2. **Slices §1 implementation**: type-position parse-acceptance
+   for the `slice<T>` (Rust-like generic) and `[T]` (Go-like
+   bracket) forms. Pure parser change; no codegen, no AST tree
+   (cyrius's main parser doesn't have a TYPE AST tree like the
+   TS frontend does — types are flag side-effects). §1 makes
+   the syntax LEGAL; §2 lands the actual (ptr, len) struct
+   lowering + field access.
+
+cc5 grew **721,384 B → 721,848 B (+464 B)** for the new `[T]`
+parse branch in `parse_decl.cyr`.
+
+### Slices §1 — what shipped
+
+`src/frontend/parse_decl.cyr` — the `var x: TYPE = ...` annotation
+block (PARSE_VAR fn) gained a new `[T]` branch alongside the
+existing pointer / scalar / struct branches:
+
+```cyrius
+} elif (PEEKT(S) == 28) {  # `[`
+    # v5.8.9 §1: `[T]` slice type sugar — `var x: [u8] = ...`.
+    # Parse-acceptance only; codegen + type-tracking land in §2.
+    STI(S, GTI(S) + 1);  # consume [
+    if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }   # optional *
+    if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }   # element type ident
+    if (PEEKT(S) == 105) { STI(S, GTI(S) + 1); } # u128 element
+    if (PEEKT(S) != 29) { ERR_EXPECT(S, 29); }
+    STI(S, GTI(S) + 1);  # consume ]
+    SKIP_GENERICS(S);
+}
+```
+
+`slice<T>` already parse-accepted via the existing ident +
+`SKIP_GENERICS` path in PARSE_VAR — the existing `else` branch
+treats unknown idents (including "slice") + their generic args
+as untyped annotations. No code change needed for that form;
+this slot adds only the bracket form.
+
+### Why "TYPE_SLICE AST kind" was overscope
+
+Slot description originally said "type-position parse-acceptance
++ TYPE_SLICE AST kind". Honest scope-check: cyrius's main parser
+DOES NOT have a type AST tree (only the TS frontend does — see
+`src/frontend/ts/parse.cyr`'s TS_AST_TYPE_REF / TS_AST_TYPE_ARRAY
+/ TS_AST_TYPE_TUPLE family). Main-language types are flag
+side-effects on `pscale` / `scalar_type` locals at PARSE_VAR
+time. Adding a "TYPE_SLICE AST kind" would have required
+designing a type AST tree from scratch — out of scope for §1.
+Adjusted: §1 is pure parse-acceptance (matches v5.7.45 const-
+type-params shape). Type-tracking + lowering lands in §2 where
+codegen genuinely needs to know "this is a slice".
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,848 B.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ New `tests/tcyr/slices_parse.tcyr` — 9 assertions across
+   `[u8]`, `[i32]`, `[i64]`, `[*i64]`, `[u128]`, `slice<u8>`,
+   `slice<i64>`, `slice<*i64>` plus the §1 contract assertion
+   (slice<u8> and [u8] both zero-init byte-identically; slices
+   are non-load-bearing in §1). 9/9 PASS.
+4. ✅ Standalone probes: 4 element-type variations (`[*i64]`,
+   `[i32]`, `[u128]`, `[i8]`) compile + run with exit 0.
+
+### Sub-arc plan (v5.8.9–v5.8.13)
+
+- ✅ **§1 (this slot)**: type-position parse-acceptance.
+- **§2 (v5.8.10)**: codegen — slice as 16-byte `{ptr, len}`
+  struct + field access (`s.ptr`, `s.len`) + bounds-aware
+  indexing.
+- **§3 (v5.8.11)**: stdlib pass 1 — `Str` → `slice<u8>` wrapper
+  (API stays byte-compatible; `Str_data` / `Str_len` become
+  `.ptr` / `.len` field access).
+- **§4 (v5.8.12)**: stdlib pass 2 — `vec` / `hashmap` slice
+  getters; `read(buf, len)` / `memcpy(dst, src, n)` / `memeq`
+  call sites migrate to slice-typed args where beneficial.
+- **§5 (v5.8.13)**: closeout — acceptance gates, downstream
+  dep-pointer audit, self-host clean.
+
+### Cascade ship-list
+
+After v5.8.9 cascade (+4 to all post-slices Phase 2 + Phase 3
+slots):
+
+- v5.8.10–v5.8.13 = slices §2-§5
+- v5.8.14 = effect annotations (was v5.8.10)
+- v5.8.15–v5.8.19 = tagged unions (was v5.8.11–v5.8.15)
+- v5.8.20–v5.8.24 = `Result<T,E>` + `?` (was v5.8.16–v5.8.20)
+- v5.8.25–v5.8.30 = allocators (was v5.8.21–v5.8.26)
+- v5.8.31–v5.8.35 = Phase 3 polish + closeout (was v5.8.27–v5.8.31)
+
 ## [5.8.8] — 2026-05-02
 
 **v5.8.x slot 8 — phylax #4 NI-class duplicate-fn investigation

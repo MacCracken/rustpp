@@ -1,0 +1,84 @@
+# slices_parse.tcyr — v5.8.9 §1 — slice<T> + [T] type-position parse acceptance.
+#
+# v5.8.9 §1 ships pure parse-acceptance for the slice<T> and [T]
+# syntactic forms in type-annotation positions (`var x: slice<u8> = ...`,
+# `var x: [u8] = ...`). No codegen change yet — both forms behave
+# byte-identically to `var x = ...` (untyped) until the v5.8.10 §2
+# slot lands the (ptr, len) struct lowering + field access.
+#
+# This test confirms the syntax PARSES across the variations consumers
+# would write. Once §2 lands, additional assertions cover .ptr / .len /
+# indexing semantics; this file stays as the parse-acceptance regression
+# floor.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Helper: each fn below exists primarily to exercise its type-annotation
+# parsing. Bodies are trivially small; we just want the parser to accept
+# the syntax without erroring.
+
+fn _slice_brk_u8() {
+    var x: [u8] = 0;
+    return x;
+}
+
+fn _slice_brk_i32() {
+    var x: [i32] = 0;
+    return x;
+}
+
+fn _slice_brk_i64() {
+    var x: [i64] = 0;
+    return x;
+}
+
+fn _slice_brk_ptr() {
+    var x: [*i64] = 0;
+    return x;
+}
+
+fn _slice_brk_u128() {
+    var x: [u128] = 0;
+    return x;
+}
+
+fn _slice_gen_u8() {
+    var x: slice<u8> = 0;
+    return x;
+}
+
+fn _slice_gen_i64() {
+    var x: slice<i64> = 0;
+    return x;
+}
+
+fn _slice_gen_ptr() {
+    var x: slice<*i64> = 0;
+    return x;
+}
+
+test_group("slice<T> generic-form parse acceptance");
+assert_eq(_slice_gen_u8(),  0, "slice<u8> parses + zero-init");
+assert_eq(_slice_gen_i64(), 0, "slice<i64> parses + zero-init");
+assert_eq(_slice_gen_ptr(), 0, "slice<*i64> parses + zero-init");
+
+test_group("[T] bracket-form parse acceptance");
+assert_eq(_slice_brk_u8(),   0, "[u8] parses + zero-init");
+assert_eq(_slice_brk_i32(),  0, "[i32] parses + zero-init");
+assert_eq(_slice_brk_i64(),  0, "[i64] parses + zero-init");
+assert_eq(_slice_brk_ptr(),  0, "[*i64] parses + zero-init");
+assert_eq(_slice_brk_u128(), 0, "[u128] parses + zero-init");
+
+# Both forms produce byte-identical code in §1 — slices are pure
+# parse-accepted syntax, no codegen change yet. §2 will alter this.
+# When §2 lands, this assertion becomes "both forms produce a
+# 16-byte slice struct with .ptr and .len fields".
+test_group("§1 contract: slice annotations are non-load-bearing");
+assert_eq(_slice_gen_u8(), _slice_brk_u8(), "slice<u8> and [u8] both zero-init");
+
+var r = assert_summary();

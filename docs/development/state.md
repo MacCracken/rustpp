@@ -5,6 +5,32 @@
 
 ## Version
 
+**5.8.9** (shipped 2026-05-02 — **v5.8.x SLOT 9 — Phase 2 opens;
+slices §1 parse-acceptance + slot-map cascade +4**. First
+substantive Phase 2 slot. Slot-map re-pin: slices originally
+single-slot; honest scope-check at slot entry (premise-check
+pattern) surfaced this needs the same 5-patch sub-arc shape as
+Tagged unions / Result / Allocators. Re-pinned as v5.8.9-v5.8.13;
+cascading effect annotations / tagged unions / Result / allocators
+/ Phase 3 by +4 each. Cycle total 31 → **35 pinned slots**, 9-slot
+headroom against ~.44 backstop. Slices §1 implementation: type-
+position parse-acceptance for `slice<T>` (Rust-like generic) and
+`[T]` (Go-like bracket) forms. Pure parser change in
+`parse_decl.cyr`'s PARSE_VAR type-annotation block — added LBRACKET
+branch alongside existing pointer / scalar / struct branches;
+`slice<T>` already parse-accepted via existing ident +
+SKIP_GENERICS path. No codegen, no type-tracking, no AST tree —
+cyrius's main parser doesn't have type AST kinds (only TS
+frontend does); §1 makes the syntax LEGAL, §2 lands the (ptr, len)
+struct lowering + field access. cc5 grew **721,384 → 721,848 B
+(+464 B)** for the new branch. Verification: self-host two-step
+byte-identical, check.sh 64/64, new `tests/tcyr/slices_parse.tcyr`
+9/9 PASS across `[u8]` / `[i32]` / `[i64]` / `[*i64]` / `[u128]` /
+`slice<u8>` / `slice<i64>` / `slice<*i64>` + §1 contract
+assertion (both forms produce byte-identical untyped emit).
+Sub-arc plan: §2 codegen, §3 Str → slice<u8>, §4 vec/hashmap
+slice getters + memcpy migration, §5 closeout.)
+
 **5.8.8** (shipped 2026-05-02 — **v5.8.x SLOT 8 — phylax #4
 NI-class duplicate-fn investigation: STALE PIN, closed by
 upstream churn**. Last slot of Phase 1. Premise-check at slot
@@ -1964,7 +1990,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.9+ (Phase 2 — language vocabulary; v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
+**v5.8.10+ (Phase 2 — language vocabulary; slices sub-arc §2-§5 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 35 pinned slots, 9-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -1989,20 +2015,27 @@ Phase 1 — Quick-win unblockers (slots 1-8):
 - **v5.8.7** ✅ `_SC_ARITY` cross-arch gate (phylax #3 + sakshi)
 - **v5.8.8** ✅ phylax #4 NI-class investigation (stale pin; closed by sigil 3.0.0)
 
-Phase 2 — Language vocabulary (slots 9-26):
-- **v5.8.9** — First-class slices (`slice<T>` / `[T]`)
-- **v5.8.10** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
-- **v5.8.11–v5.8.15** — Tagged unions + exhaustive match (5 sub-patches)
-- **v5.8.16–v5.8.20** — `Result<T,E>` + `?` propagation (5 sub-patches)
-- **v5.8.21–v5.8.26** — Allocators-as-parameter (6 sub-patches)
+Phase 2 — Language vocabulary (slots 9-30; cascaded +4 at v5.8.9
+ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
+- **v5.8.9** ✅ slices §1 — type-position parse-acceptance for `slice<T>` + `[T]`
+- **v5.8.10–v5.8.13** — First-class slices remaining sub-patches
+  - v5.8.9 §1: type-position parse-acceptance + TYPE_SLICE AST kind
+  - v5.8.10 §2: codegen — slice as 16-byte {ptr, len} struct + field access + bounds-aware indexing
+  - v5.8.11 §3: stdlib pass 1 — Str → slice<u8>
+  - v5.8.12 §4: stdlib pass 2 — vec/hashmap slice getters; read/memcpy migration
+  - v5.8.13 §5: closeout — acceptance gates + downstream dep-pointer audit
+- **v5.8.14** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
+- **v5.8.15–v5.8.19** — Tagged unions + exhaustive match (5 sub-patches)
+- **v5.8.20–v5.8.24** — `Result<T,E>` + `?` propagation (5 sub-patches)
+- **v5.8.25–v5.8.30** — Allocators-as-parameter (6 sub-patches)
 
-Phase 3 — Polish + cycle closeout (slots 27-31):
-- **v5.8.27** — Preprocessor include-pattern in string literals (vidya audit)
-- **v5.8.28** — `cyrlint` multi-line assert false-positive (mabda C5)
-- **v5.8.29** — Vidya cyrius-language audit (annotation pass)
-- **v5.8.30** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
+Phase 3 — Polish + cycle closeout (slots 31-35):
+- **v5.8.31** — Preprocessor include-pattern in string literals (vidya audit)
+- **v5.8.32** — `cyrlint` multi-line assert false-positive (mabda C5)
+- **v5.8.33** — Vidya cyrius-language audit (annotation pass)
+- **v5.8.34** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
   + `var X;` bare-decl error message (mabda C1)
-- **v5.8.31** — v5.8.x closeout backstop
+- **v5.8.35** — v5.8.x closeout backstop
 
 **Held items** (surfacing-ask only; not pinned, no slot consumed):
 - `cyim` regex pattern (mabda C6) — pin when cyim consumer hits it
