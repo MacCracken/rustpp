@@ -543,11 +543,19 @@ Allocators. Sub-arc:
   element-type tracking parser doesn't have. Both pin candidates
   for follow-up slots if consumers surface concrete pain.
   cc5 +88 B. Tests: `tests/tcyr/slices_codegen.tcyr` 26/26 PASS.
-- **v5.8.11** §3 — Stdlib pass 1: `Str` → `slice<u8>`. The
-  current `Str` (heap-allocated `{data_ptr, len}` header) gets
-  re-typed as a slice<u8> wrapper. `Str_data` / `Str_len` etc.
-  become `.ptr` / `.len` field access. API stays
-  byte-compatible.
+- **v5.8.11** ✅ §3 — Str ↔ slice<u8> structural equivalence +
+  stack-slice builders. Shipped 2026-05-02. Honest scope-shrink
+  during slot: investigation surfaced that Str is ALREADY a
+  slice<u8> structurally (`str_new` does `alloc(16); store64(s,
+  data); store64(s + 8, len)` — byte-identical to a 16-byte
+  stack slice). No API migration needed — Str-typed values pass
+  directly to any slice helper. Documented the equivalence in
+  both `lib/str.cyr` and `lib/slice.cyr` headers. Added 2 stack-
+  slice builders to `lib/slice.cyr`: `slice_from_cstr` (analog
+  of `str_from`) and `slice_from_buf` (analog of `str_new`) —
+  for cases where heap allocation is undesirable. cc5 unchanged
+  at 721,936 B (stdlib-only). Tests:
+  `tests/tcyr/slices_str_interop.tcyr` 15/15 PASS.
 - **v5.8.12** §4 — Stdlib pass 2: `vec` / `hashmap` slice
   getters; `read(buf, len)` / `memcpy(dst, src, n)` / `memeq`
   call sites migrate to slice-typed args. Bounds-aware where

@@ -4,6 +4,86 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.11] — 2026-05-02
+
+**v5.8.x slot 11 — slices §3: Str ↔ slice<u8> structural
+equivalence + stack-slice builders**. Third of the 5-patch
+slices sub-arc. Honest scope-shrink during slot — original
+description was "Str → slice<u8> wrapper (API stays byte-
+compatible)", but investigating Str's internal layout surfaced
+that **Str is ALREADY a slice<u8> structurally**: `str_new(data,
+len)` does `alloc(16); store64(s, data); store64(s + 8, len)` —
+byte-identical to a 16-byte stack slice.
+
+cc5 unchanged at **721,936 B** — stdlib-only patch (lib/slice.cyr
+gains 2 builders + a doc-block; lib/str.cyr gains a doc-block
+header note); no compiler change.
+
+### What §3 actually shipped
+
+**Documented the structural equivalence** in both libs' headers.
+Str (heap, lib/str.cyr) and stack-slice (lib/slice.cyr) share
+identical 16-byte field layout (`data`/`ptr` at offset 0, `len`
+at offset 8). Consequence:
+
+- A Str-typed value passes DIRECTLY to any slice helper —
+  `slice_ptr(some_str)`, `slice_len(some_str)`,
+  `slice_is_empty(some_str)`, etc. all work without conversion.
+- The only difference is lifetime: Str heap-allocated (alive
+  until bump-allocator reset); stack-slice fn-frame-scoped.
+- No API migration needed for existing Str consumers — they
+  keep using `str_data` / `str_len`. The slice helpers become
+  available as a parallel access surface.
+
+**Added 2 stack-slice builders to lib/slice.cyr** mirroring the
+str_from / str_new shape but writing into a pre-allocated 16-
+byte slot (no heap alloc):
+
+- `slice_from_cstr(dst, cstr)` — analog of `str_from(cstr)`
+  (inline strlen + write fields). Useful when a fn returns a
+  slice into its caller's stack.
+- `slice_from_buf(dst, buf, len)` — analog of `str_new(data,
+  len)`. Alias for `slice_set` kept for symmetry with the
+  str_* family naming.
+
+### Why not migrate Str's own API?
+
+Considered but rejected — touching `str_from` / `str_new` /
+`str_data` / `str_len` would break every existing consumer's
+call sites across the stdlib + 8 dep repos + downstream
+ecosystem. The structural equivalence makes that migration
+unnecessary: consumers can opt into slice helpers freely; Str
+keeps working untouched. The "Str → slice<u8> wrapper" framing
+in the original §3 description over-implied a breaking change.
+Adjusted at slot entry to non-breaking.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,936 B (no
+   compiler change).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS.
+4. ✅ New `tests/tcyr/slices_str_interop.tcyr` — **15
+   assertions** across 5 test groups: slice helpers work on
+   Str-typed values (slice_ptr/len match str_data/len);
+   slice_is_empty/null behave correctly on Str; slice_from_cstr
+   and slice_from_buf builders write fields correctly; §3
+   contract — same field layout, different lifetimes.
+5. ✅ §1 + §2 regressions intact (slices_parse 9/9,
+   slices_codegen 26/26).
+
+### Sub-arc progress
+
+- ✅ §1 (v5.8.9): type-position parse-acceptance
+- ✅ §2 (v5.8.10): 16-byte alloc + helper API (9 fns)
+- ✅ §3 (v5.8.11, this slot): Str ↔ slice<u8> equivalence +
+  stack-slice builders (2 fns)
+- **§4 (v5.8.12)**: stdlib pass 2 — `vec` / `hashmap` slice
+  getters; `read` / `memcpy` / `memeq` migration where
+  beneficial.
+- **§5 (v5.8.13)**: closeout — acceptance gates, downstream
+  dep-pointer audit, self-host clean.
+
 ## [5.8.10] — 2026-05-02
 
 **v5.8.x slot 10 — slices §2 codegen: 16-byte alloc + field-access

@@ -1,0 +1,69 @@
+# slices_str_interop.tcyr — v5.8.11 §3 — Str ↔ slice<u8> interop.
+#
+# §3 establishes that Str (heap, lib/str.cyr) and slice<u8>
+# (stk, lib/slice.cyr) share the SAME runtime layout: 16 bytes
+# with `data`/`ptr` at offset 0 and `len` at offset 8. Consequence:
+# slice helpers work on Str values directly, and the new
+# slice_from_cstr / slice_from_buf builders mirror the existing
+# str_from / str_new shape but write into stk-allocated 16-byte
+# slots.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- Structural equivalence: slice helpers work on Str ----
+
+test_group("slice helpers work on Str-typed values");
+var s = str_from("hello");
+assert_eq(slice_ptr(s), str_data(s), "slice_ptr(str) == str_data(str)");
+assert_eq(slice_len(s), str_len(s), "slice_len(str) == str_len(str)");
+assert_eq(slice_len(s), 5, "len('hello') = 5");
+
+# Read through slice_ptr to verify it's the actual byte content.
+var p = slice_ptr(s);
+assert_eq(load8(p), 104, "byte 0 = 'h' (104)");
+assert_eq(load8(p + 4), 111, "byte 4 = 'o' (111)");
+
+test_group("slice_is_empty / slice_is_null on Str");
+var empty_str = str_from("");
+assert_eq(slice_is_empty(empty_str), 1, "str_from(\"\") is empty");
+assert_eq(slice_is_null(empty_str), 0, "str_from(\"\") has non-null data ptr");
+
+# ---- New stk-slice builders mirror str_from / str_new ----
+
+test_group("slice_from_cstr (stk analog of str_from)");
+var ss: [u8] = 0;
+slice_from_cstr(&ss, "world");
+assert_eq(slice_len(&ss), 5, "len('world') = 5");
+var sp = slice_ptr(&ss);
+assert_eq(load8(sp), 119, "byte 0 = 'w' (119)");
+assert_eq(load8(sp + 4), 100, "byte 4 = 'd' (100)");
+
+test_group("slice_from_buf (stk analog of str_new)");
+var data[3];
+store8(&data, 65); store8(&data + 1, 66); store8(&data + 2, 67);  # "ABC"
+var sb: [u8] = 0;
+slice_from_buf(&sb, &data, 3);
+assert_eq(slice_len(&sb), 3, "len = 3");
+assert_eq(slice_ptr(&sb), &data, "ptr = &data");
+assert_eq(load8(slice_ptr(&sb)), 65, "byte 0 = 'A'");
+
+# ---- Lifetime contract: stk slice vs heap Str ----
+
+test_group("§3 contract: same field layout, different lifetimes");
+var heap = str_from("foo");                     # heap-allocated 16-byte handle
+var stk: [u8] = 0; slice_from_cstr(&stk, "foo");  # stk-allocated slot
+
+# Both point at the SAME literal "foo" (cyrius doesn't copy literal data),
+# so the field values are identical even though the 16-byte HEADERS live
+# in different memory regions.
+assert_eq(slice_ptr(heap), slice_ptr(&stk), "both point at the literal 'foo'");
+assert_eq(slice_len(heap), slice_len(&stk), "both have len=3");
+
+var r = assert_summary();

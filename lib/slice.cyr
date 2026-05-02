@@ -91,3 +91,39 @@ fn slice_is_null(s) {
     if (load64(s) == 0) { return 1; }
     return 0;
 }
+
+# v5.8.11 §3: Str ↔ slice<u8> structural equivalence.
+#
+# `Str` (lib/str.cyr) is a heap-allocated 16-byte handle with
+# `data` at offset 0 and `len` at offset 8 — byte-identical to
+# this file's stack-slice convention. Consequence: a `Str`-typed
+# value can be passed DIRECTLY to any of the slice helpers above
+# (slice_ptr / slice_len / slice_eq / slice_is_empty / etc.).
+# The semantic difference is lifetime — Str sits in heap (alive
+# until the bump-allocator resets); a stack slice is fn-frame-
+# scoped. Field layouts are identical.
+#
+# This pair of builders writes a slice INTO an existing
+# stack-allocated 16-byte slot, equivalent to the heap-allocating
+# `str_from(cstr)` / `str_new(data, len)` shape but without the
+# allocation:
+
+# Initialize stack slice from a C-style null-terminated string.
+# Mirrors `str_from(cstr)` (lib/str.cyr) but writes into the
+# pre-allocated `dst` slot instead of heap-allocing 16 bytes.
+fn slice_from_cstr(dst, cstr) {
+    # Inline strlen — avoid pulling lib/string.cyr just for this.
+    var n = 0;
+    while (load8(cstr + n) != 0) { n = n + 1; }
+    store64(dst, cstr);
+    store64(dst + 8, n);
+    return 0;
+}
+
+# Initialize stack slice from a (buf, len) pair.
+# Mirrors `str_new(data, len)` (lib/str.cyr) but writes into the
+# pre-allocated `dst` slot. Equivalent to slice_set; alias kept
+# for symmetry with the str_* family.
+fn slice_from_buf(dst, buf, len) {
+    return slice_set(dst, buf, len);
+}
