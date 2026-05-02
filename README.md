@@ -189,12 +189,19 @@ bootstrap/asm (29KB committed binary -- root of trust)
 
 ## Editor Integration
 
-`cyrius-lsp` ships in-tree (`cyrius lsp` to build/install) and the repo
-root carries a [`.lsp.json`](.lsp.json) manifest so editors that read the
-convention (Claude Code, generic `extensionToLanguage` consumers)
-auto-attach to all `.cyr`-family files (`.cyr`, `.tcyr`, `.bcyr`,
-`.fcyr`, `.scyr`, `.smcyr`). See [docs/editor-integration.md](docs/editor-integration.md)
-for usage, capabilities, and per-editor notes.
+`cyrius-lsp` ships in-tree (`cyrius lsp` to build/install). The Claude
+Code wiring lives in the sibling repo
+[`MacCracken/cyrius-plugins`](https://github.com/MacCracken/cyrius-plugins) —
+install once and every Cyrius project on the machine picks up the LSP:
+
+```sh
+/plugin marketplace add MacCracken/cyrius-plugins
+/plugin install cyrius-lsp@cyrius-plugins
+```
+
+See [docs/editor-integration.md](docs/editor-integration.md) for the
+`.lsp.json` shape, supported extensions, capabilities, and per-editor
+notes (Helix / Zed / VS Code / JetBrains).
 
 ## Migration
 

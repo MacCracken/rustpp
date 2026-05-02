@@ -1,6 +1,14 @@
 # Consolidate `cyrius-lsp` config as a user-scope Claude Code plugin
 
 **Filed:** 2026-05-02 during agnosys LSP-availability check
+**Status:** ✅ Implemented 2026-05-02 in sibling repo
+[`MacCracken/cyrius-plugins`](https://github.com/MacCracken/cyrius-plugins)
+(separate repo per "clean separation of tasks" — language stays in
+`MacCracken/cyrius`, Claude Code wiring lives in `cyrius-plugins`).
+Install: `/plugin marketplace add MacCracken/cyrius-plugins` →
+`/plugin install cyrius-lsp@cyrius-plugins`. Per-repo `.lsp.json`
+copies in `cyrius/` and `vidya/` are removed once the plugin is
+verified working.
 **Severity:** Low — ergonomic / DX; LSP works in repos that have `.lsp.json`, fails silently in those that don't
 **Affects:** Every Cyrius-language project consumed via Claude Code
 

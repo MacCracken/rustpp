@@ -139,14 +139,22 @@ in practice ~99% of real subscripting happens inside fns.
 
 ### Editor integration (folded into this slot)
 
-- New `.lsp.json` at repo root — Claude Code-style manifest
-  pointing `cyrius-lsp` at all `.cyr`-family extensions
-  (`.cyr`, `.tcyr`, `.bcyr`, `.fcyr`, `.scyr`, `.smcyr`).
 - New `docs/editor-integration.md` — usage doc covering
   `cyrius-lsp` capabilities, the `.lsp.json` shape, per-editor
   notes (Claude Code / Helix / VS Code), highlighting state
   (TextMate grammar still on roadmap), troubleshooting.
-- README.md "Editor Integration" section linking the doc.
+- README.md "Editor Integration" section pointing at the new
+  sibling repo.
+- Claude Code wiring extracted to its own repo
+  [`MacCracken/cyrius-plugins`](https://github.com/MacCracken/cyrius-plugins)
+  (clean separation: language stays here, editor wiring lives
+  there). Install once at user scope:
+  ```
+  /plugin marketplace add MacCracken/cyrius-plugins
+  /plugin install cyrius-lsp@cyrius-plugins
+  ```
+  See `docs/development/proposals/consolidate-cyrius-lsp-claude-plugin.md`
+  for rationale (drift, scaffold gaps, single edit point).
 
 ## [5.8.14] — 2026-05-02
 

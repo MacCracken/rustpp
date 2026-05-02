@@ -1,9 +1,10 @@
 # Editor Integration
 
-Cyrius ships its own Language Server (`cyrius-lsp`) and a project-root
-`.lsp.json` manifest so editors that follow the convention (Claude Code,
-Helix-style multi-LSP shims, generic `extensionToLanguage` consumers) can
-auto-attach to `.cyr`-family files without per-editor config.
+Cyrius ships its own Language Server (`cyrius-lsp`). The Claude Code
+wiring lives in the sibling repo
+[`MacCracken/cyrius-plugins`](https://github.com/MacCracken/cyrius-plugins) —
+install it once at user scope and every Cyrius project on the
+machine picks up the LSP automatically (no per-repo `.lsp.json`).
 
 ## `cyrius-lsp` (the server)
 
@@ -30,9 +31,9 @@ cyrius lsp           # build programs/cyrius-lsp.cyr → ~/.cyrius/bin/cyrius-ls
 
 `cyriusly setup` also auto-installs it. Confirm with `which cyrius-lsp`.
 
-## `.lsp.json` (project-root manifest)
+## `.lsp.json` wiring
 
-The repo ships a [`.lsp.json`](../.lsp.json) at its root:
+The `.lsp.json` shape Claude Code and similar tools expect:
 
 ```json
 {
@@ -51,9 +52,13 @@ The repo ships a [`.lsp.json`](../.lsp.json) at its root:
 }
 ```
 
-This is the same shape consumers like `gopls` use (`{"go": {"command":
-"gopls", "args": ["serve"], "extensionToLanguage": {".go": "go"}}}`) so
-no additional adapter is needed.
+Same shape `gopls` uses (`{"go": {"command": "gopls", "args":
+["serve"], "extensionToLanguage": {".go": "go"}}}`) — no adapter
+needed.
+
+**Don't drop this file into each Cyrius project.** That was the
+original wiring and it caused silent drift across repos. Use the
+plugin instead — see below.
 
 All `.cyr`-family extensions route to one server:
 
@@ -66,13 +71,30 @@ All `.cyr`-family extensions route to one server:
 | `.scyr`   | soak tests                             |
 | `.smcyr`  | smoke probes                           |
 
+## Claude Code: install the plugin (recommended)
+
+The `.lsp.json` lives in [`MacCracken/cyrius-plugins`](https://github.com/MacCracken/cyrius-plugins),
+a sibling repo serving as a Claude Code marketplace for Cyrius
+toolchain plugins. Install once at user scope:
+
+```sh
+/plugin marketplace add MacCracken/cyrius-plugins
+/plugin install cyrius-lsp@cyrius-plugins
+```
+
+Every Cyrius project on the machine then picks up the LSP
+automatically — no per-repo `.lsp.json` to copy or sync.
+
+See [`docs/development/proposals/consolidate-cyrius-lsp-claude-plugin.md`](development/proposals/consolidate-cyrius-lsp-claude-plugin.md)
+for the full rationale (drift, scaffold gaps, single edit point).
+
 ## Editor-specific notes
 
-- **Claude Code** — reads `.lsp.json` on session start; nothing else to
-  do once `cyrius-lsp` is on `PATH`.
-- **Helix / Zed / generic LSP managers** — most expect their own config
-  file, but the `.lsp.json` shape is portable enough to lift verbatim
-  into per-editor configs.
+- **Claude Code** — install the plugin above; nothing else to do once
+  `cyrius-lsp` is on `PATH`.
+- **Helix / Zed / generic LSP managers** — most expect their own
+  config file, but the `.lsp.json` shape above is portable enough to
+  lift verbatim into per-editor configs.
 - **VS Code / JetBrains** — extension-side wiring lives outside this
   repo; both can spawn `cyrius-lsp` via custom-LSP plugins.
 
