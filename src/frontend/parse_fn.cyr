@@ -889,6 +889,14 @@ fn PARSE_FN_DEF(S) {
             STI(S, GTI(S) + 1);
             # Optional type annotation: fn f(x: Str, y: Vec<i64>, ...)
             # If the type is Str, set bit pc in str_mask for auto-coercion.
+            # v5.8.17 §9: if the type resolves to a struct, ALSO tag the
+            # param's slot with SLTYPE = -sid so PARSE_FIELD_LOAD/STORE
+            # treats `param.field` the same as a struct-typed local
+            # initialized from a heap-alloc fn (pointer-mode dot access).
+            # Without this tag, `s.len` on a `s: Str` parameter would
+            # fall through to the undefined-variable path or read from
+            # the slot's literal value.
+            var pt_sid = 0;
             if (PEEKT(S) == 49) {
                 STI(S, GTI(S) + 1);  # consume :
                 if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); }  # skip * for pointer types
@@ -898,6 +906,7 @@ fn PARSE_FN_DEF(S) {
                     if (L64(S + 0x60000 + tnoff) & 0xFFFFFFFF == 0x00727453) {
                         str_mask = str_mask | (1 << pc);
                     }
+                    pt_sid = FINDSTRUCT(S, tnoff);
                 }
                 STI(S, GTI(S) + 1);  # consume type
                 SKIP_GENERICS(S);    # skip <T> if present
@@ -905,6 +914,7 @@ fn PARSE_FN_DEF(S) {
             var li = GFLC(S);
             S64(S + 0x191000 + li * 8, pnoff);
             SLDEP(S, li, 0);
+            if (pt_sid > 0) { SLTYPE(S, li, 0 - pt_sid); }
             # Only emit register params now (0-5). v5.5.36 Phase 2b:
             # struct-returning fns reserve arg-reg 0 (RDI on SysV, RCX
             # on Win64) for the hidden retptr, so user param 0 arrives

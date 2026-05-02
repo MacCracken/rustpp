@@ -1,0 +1,92 @@
+# str_dot_syntax.tcyr — v5.8.17 §9 — Str dot-syntax field access
+# (`.data` / `.len`) on heap-allocated Str pointers.
+#
+# §9 extends PARSE_FIELD_LOAD/STORE's local-struct branch to
+# distinguish two struct-typed-local layouts:
+#
+#   inline:  `var p: Point;` (no init) — multi-slot stack alloc per
+#            v5.5.36, named slot is the deepest, EFLADDR(named_slot)
+#            yields field 0's address. Sentinel name `-1` in the
+#            filler slot(s) above flags the inline layout.
+#   pointer: `var s: Str = str_from(...)` — single slot, holds the
+#            heap-alloc pointer. No sentinel above (the previous
+#            slot is whatever was declared before, or absent if
+#            slot 0). EFLLOAD(slot) → rax = pointer; EMOVCA → rcx;
+#            then add field offset and load.
+#
+# The dispatch is auto-detect: check if slot lli-1 has the
+# sentinel name -1. If yes, inline-mode; else pointer-mode.
+#
+# Same disambiguation lives in the param-decl path: a
+# `: <StructName>` parameter annotation tags the param's slot
+# with SLTYPE = -sid so `param.field` resolves to the same
+# pointer-mode dot access.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# Helper: reads .len via dot, returns it. Used to verify Str
+# parameters get the SLTYPE tag from the param-decl path.
+fn _len_via_dot(s: Str) {
+    return s.len;
+}
+
+# Helper: reads .data via dot.
+fn _data_via_dot(s: Str) {
+    return s.data;
+}
+
+fn run_tests() {
+    test_group("§9 .len / .data on heap Str local");
+    var s = str_from("hello");
+    assert_eq(s.len, 5, ".len on Str local");
+    assert_eq(s.len, str_len(s), ".len matches str_len helper");
+    assert_eq(s.data, str_data(s), ".data matches str_data helper");
+    # str_data returns a pointer to the C-string bytes; first byte 'h' = 104
+    assert_eq(load8(s.data), 104, "load8(.data) = 'h'");
+
+    test_group("§9 .len / .data on str_new (buffer + len)");
+    var buf[10];
+    store8(&buf, 65); store8(&buf+1, 66); store8(&buf+2, 67);
+    var s2 = str_new(&buf, 3);
+    assert_eq(s2.len, 3, ".len on str_new");
+    assert_eq(s2.data, &buf, ".data on str_new");
+    assert_eq(load8(s2.data), 65, "load8(.data) = 'A'");
+
+    test_group("§9 .len / .data on `: Str` parameter");
+    var s3 = str_from("world!");
+    assert_eq(_len_via_dot(s3), 6, ".len reachable through param");
+    assert_eq(_data_via_dot(s3), str_data(s3), ".data reachable through param");
+
+    test_group("§9 dot syntax composes with arithmetic");
+    var s4 = str_from("abcdef");
+    assert_eq(s4.len + 1, 7, "s.len + 1");
+    assert_eq(s4.len * 2, 12, "s.len * 2");
+    # walk via .data + i
+    var sum = 0;
+    var i = 0;
+    while (i < s4.len) {
+        sum = sum + load8(s4.data + i);
+        i = i + 1;
+    }
+    # 'a'..'f' = 97..102, sum = 97+98+99+100+101+102 = 597
+    assert_eq(sum, 597, "byte-sum via .data + i");
+
+    test_group("§9 dot syntax sees post-mutation .data after str_set-equivalent");
+    var s5 = str_from("xyz");
+    assert_eq(s5.len, 3, "initial .len");
+    # Note: cyrius doesn't ship a str_set, but we can mutate the
+    # heap struct directly via the fat-pointer convention:
+    store64(s5 + 8, 2);   # truncate len to 2
+    assert_eq(s5.len, 2, ".len reflects direct heap mutation");
+
+    return 0;
+}
+
+run_tests();
+var r = assert_summary();

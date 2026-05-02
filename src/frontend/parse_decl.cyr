@@ -202,8 +202,40 @@ fn PARSE_FIELD_LOAD(S, noff) {
     # through EFLADDR_X1 (lea rcx, [rbp - disp]) instead of the global
     # EVADDR_X1 (movabs rcx, abs64 + fixup), which would register a bogus
     # global fixup for the local-encoded negative idx.
-    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
-    else { EVADDR_X1(S, idx); }
+    #
+    # v5.8.17 §9: distinguish pointer-to-struct from inline-struct
+    # locals. The v5.5.36 inline path reserves ceil(STRUCTSZ/8)
+    # consecutive slots and tags all but the last (named) slot
+    # with the sentinel name `-1`. A pointer-to-struct local
+    # (e.g., `var s: Str = str_from(...)` where the RHS returns
+    # a heap pointer) takes a single slot whose value IS the
+    # pointer. The two patterns reach this branch with the same
+    # GLTYPE encoding (`-sid`) but need different addressing:
+    #   inline:  rcx = &slot (lea — slot IS the struct's bytes)
+    #   pointer: rcx = [slot] (mov — slot HOLDS the struct's pointer)
+    # Disambiguate by checking the previous slot: if it carries
+    # the sentinel name -1, this slot is the named tail of an
+    # inline allocation; otherwise it's a single-slot pointer.
+    # Slot 0 has no predecessor, so it's pointer-mode by
+    # construction (inline structs always reserve at least one
+    # filler slot before the named slot when STRUCTSZ > 8).
+    if (idx < 0 - 1) {
+        var lf_lli = 0 - 2 - idx;
+        var lf_is_ptr = 1;
+        if (lf_lli > 0) {
+            if (L64(S + 0x191000 + (lf_lli - 1) * 8) == 0 - 1) { lf_is_ptr = 0; }
+        }
+        if (lf_is_ptr == 1) {
+            # Pointer-to-struct: load the slot's value into rax,
+            # then move into rcx as the struct's base pointer.
+            EFLLOAD(S, lf_lli);
+            EMOVCA(S);
+        } else {
+            # Inline struct: take the slot's address as the
+            # struct's base.
+            EFLADDR_X1(S, lf_lli);
+        }
+    } else { EVADDR_X1(S, idx); }
     if (off > 0) { EADDIMM_X1(S, off); }
     var fld_sz = FIELDSZ(S, ft);
     if (fld_sz < 8) {
@@ -306,10 +338,23 @@ fn PARSE_FIELD_STORE(S, noff) {
     PCMPE(S);
     # Store value to struct field (width-correct). Route to local or
     # global addr-emit based on idx encoding (same convention as
-    # PARSE_FIELD_LOAD; v5.5.36 Phase 2).
+    # PARSE_FIELD_LOAD; v5.5.36 Phase 2). v5.8.17 §9: same
+    # pointer-vs-inline disambiguation as PARSE_FIELD_LOAD —
+    # see that fn for the sentinel-based detection rationale.
     EPUSHR(S);
-    if (idx < 0 - 1) { EFLADDR_X1(S, 0 - 2 - idx); }
-    else { EVADDR_X1(S, idx); }
+    if (idx < 0 - 1) {
+        var fs_lli = 0 - 2 - idx;
+        var fs_is_ptr = 1;
+        if (fs_lli > 0) {
+            if (L64(S + 0x191000 + (fs_lli - 1) * 8) == 0 - 1) { fs_is_ptr = 0; }
+        }
+        if (fs_is_ptr == 1) {
+            EFLLOAD(S, fs_lli);
+            EMOVCA(S);
+        } else {
+            EFLADDR_X1(S, fs_lli);
+        }
+    } else { EVADDR_X1(S, idx); }
     if (off > 0) { EADDIMM_X1(S, off); }
     EPOPR(S);
     var fst_sz = FIELDSZ(S, ft);
