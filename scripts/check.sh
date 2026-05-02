@@ -522,10 +522,10 @@ rm -f /tmp/audit_af64_$$
 echo ""
 
 # ── 4am. aarch64 f64_exp / f64_ln polyfill correctness (v5.7.31) ──
-echo "── aarch64 f64_exp / f64_ln polyfills ──"
+echo "── aarch64 f64_exp / f64_ln / f64_log2 polyfills ──"
 sh "$ROOT/tests/regression-aarch64-f64-polyfill.sh" > /tmp/audit_apf_$$ 2>&1
 apf_result=$?
-check "aarch64 f64_exp / f64_ln polyfills bit-accurate on Pi (v5.7.31; phylax-unblock)" "$apf_result"
+check "aarch64 f64_exp / f64_ln / f64_log2 polyfills bit-accurate on Pi (v5.7.31 + v5.8.4; phylax-unblock)" "$apf_result"
 if [ "$apf_result" -ne 0 ]; then cat /tmp/audit_apf_$$; fi
 rm -f /tmp/audit_apf_$$
 echo ""

@@ -1,26 +1,32 @@
 #!/bin/sh
-# Regression: aarch64 f64_exp / f64_ln polyfill correctness.
+# Regression: aarch64 f64_exp / f64_ln / f64_log2 polyfill correctness.
 #
-# Pinned to v5.7.31 — closes the phylax-blocker. Pre-v5.7.31 the
-# parser hard-rejected f64_exp / f64_ln on aarch64 (x87-only path
-# with `aarch64 has no native exp — needs polyfill` ERR_MSG).
-# v5.7.31 dispatches both keywords to stdlib polyfills in
-# `lib/math.cyr`:
+# Pinned to v5.7.31 (exp/ln) and v5.8.4 (log2) — closes the
+# phylax-blockers. Pre-v5.7.31 the parser hard-rejected f64_exp /
+# f64_ln on aarch64 (x87-only path with `aarch64 has no native exp
+# — needs polyfill` ERR_MSG); pre-v5.8.4 same hard-reject for
+# f64_log2. v5.7.31 + v5.8.4 dispatch all three to stdlib polyfills
+# in `lib/math.cyr`:
 #
-#   _f64_exp_polyfill(x): n*ln(2) + r range reduction;
-#                          11-term Taylor at |r| ≤ ln(2)/2;
-#                          2^n via bit pattern.
-#   _f64_ln_polyfill(x):  mantissa/exponent split; u = (m-1)/(m+1)
-#                          remap to |u| ≤ ~0.171; 8-term inverse-
-#                          tanh series.
+#   _f64_exp_polyfill(x):  n*ln(2) + r range reduction;
+#                           11-term Taylor at |r| ≤ ln(2)/2;
+#                           2^n via bit pattern.
+#   _f64_ln_polyfill(x):   mantissa/exponent split; u = (m-1)/(m+1)
+#                           remap to |u| ≤ ~0.171; 8-term inverse-
+#                           tanh series.
+#   _f64_log2_polyfill(x): change of base — ln(x) * F64_LOG2E
+#                           (1/ln(2)). Inherits ln polyfill's
+#                           accuracy + one extra mul rounding.
 #
-# Both target ~few-ulp accuracy, sufficient for phylax-class
-# statistical work (chi-squared p-values, entropy). Higher
+# All three target ~few-ulp accuracy, sufficient for phylax-class
+# statistical work (chi-squared p-values, Shannon entropy). Higher
 # accuracy via Remez optimization is a future polish slot.
 #
 # This gate cross-builds a smoke test against bit-exact reference
 # values, runs on the configured SSH target (default `pi`).
-# Tolerances are 1024-4096 ulp (~1e-12 to ~1e-11 relative error).
+# Tolerances are 1024-8192 ulp (~1e-12 to ~1e-11 relative error;
+# log2 gets a slightly wider budget — 8192 — because it inherits
+# ln's drift plus the extra F64_LOG2E mul).
 
 set -e
 
@@ -82,6 +88,33 @@ fn main() {
     if (d_neg < 0) { d_neg = 0 - d_neg; }
     if (d_neg > 1024) { return 6; }
 
+    # v5.8.4: f64_log2 polyfill. log2(1) == 0 (m=1 → u=0 → poly=0
+    # → mul by F64_LOG2E = 0).
+    var l2_1 = f64_log2(0x3FF0000000000000);
+    var d_l2_1 = l2_1;
+    if (d_l2_1 < 0) { d_l2_1 = 0 - d_l2_1; }
+    if (d_l2_1 > 1024) { return 7; }
+
+    # log2(8) ≈ 3.0. Bits: 0x4008000000000000. Polyfill drift =
+    # ln_polyfill drift + F64_LOG2E mul rounding; budget 8192 ulp.
+    var l2_8 = f64_log2(0x4020000000000000);
+    var d_l2_8 = l2_8 - 0x4008000000000000;
+    if (d_l2_8 < 0) { d_l2_8 = 0 - d_l2_8; }
+    if (d_l2_8 > 8192) { return 8; }
+
+    # log2(1024) ≈ 10.0. 1024 = 2^10 → bits 0x4090000000000000.
+    # Result 10.0 → bits 0x4024000000000000 (exp=3, mant=0.25).
+    var l2_1024 = f64_log2(0x4090000000000000);
+    var d_l2_1024 = l2_1024 - 0x4024000000000000;
+    if (d_l2_1024 < 0) { d_l2_1024 = 0 - d_l2_1024; }
+    if (d_l2_1024 > 8192) { return 9; }
+
+    # log2(0.5) ≈ -1.0. Bits: 0xBFF0000000000000 (sign + 1.0).
+    var l2_half = f64_log2(0x3FE0000000000000);
+    var d_l2_half = l2_half - 0xBFF0000000000000;
+    if (d_l2_half < 0) { d_l2_half = 0 - d_l2_half; }
+    if (d_l2_half > 8192) { return 10; }
+
     return 99;
 }
 
@@ -105,7 +138,7 @@ EXIT=$(ssh "$SSH_TARGET" "chmod +x $SSH_BIN && $SSH_BIN; echo \$?; rm -f $SSH_BI
 set -e
 
 if [ "$EXIT" = "99" ]; then
-    echo "  PASS: aarch64 f64_exp / f64_ln polyfills bit-accurate within ulp budget on $SSH_TARGET (v5.7.31)"
+    echo "  PASS: aarch64 f64_exp / f64_ln / f64_log2 polyfills bit-accurate within ulp budget on $SSH_TARGET (v5.7.31 + v5.8.4)"
     exit 0
 fi
 
@@ -116,6 +149,10 @@ case "$EXIT" in
     4) msg="f64_ln(e) deviates >1024 ulp from 1.0" ;;
     5) msg="exp(ln(2)) deviates >4096 ulp from 2.0 (round-trip)" ;;
     6) msg="f64_exp(-1) deviates >1024 ulp from 1/e" ;;
+    7) msg="f64_log2(1) deviates >1024 ulp from 0 (v5.8.4)" ;;
+    8) msg="f64_log2(8) deviates >8192 ulp from 3.0 (v5.8.4)" ;;
+    9) msg="f64_log2(1024) deviates >8192 ulp from 10.0 (v5.8.4)" ;;
+    10) msg="f64_log2(0.5) deviates >8192 ulp from -1.0 (v5.8.4)" ;;
     *) msg="unknown failure code $EXIT" ;;
 esac
 echo "  FAIL: $msg (exit=$EXIT)"

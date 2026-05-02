@@ -5,6 +5,28 @@
 
 ## Version
 
+**5.8.5** (shipped 2026-05-01 — **v5.8.x SLOT 5 — aarch64 SSH-gate
+extension for `f64_log2` (phylax #1 hardware verification)**.
+v5.8.4 closed the parser-side phylax-blocker (replaced hard-reject
+with stdlib polyfill dispatch); this slot extends the v5.7.31
+SSH-gate (`tests/regression-aarch64-f64-polyfill.sh`) with 4 new
+log2 assertions and confirms bit-accuracy on real aarch64
+(pi). Carved out from v5.8.4 per user direction after pi-live
+status surfaced post-`79eeae4` commit; rather than amend a
+published commit, the SSH gate ships as its own slot. cc5
+unchanged at **721,352 B**; `build/cc5_aarch64` cross-compiler
+rebuilt at 421,072 B (+424 B matching cc5's v5.8.4 dispatch
+growth) so the regression script's raw cross-build picks up the
+new f64_log2 parser branch. Verification: SSH gate PASS on pi
+(`PASS: aarch64 f64_exp / f64_ln / f64_log2 polyfills bit-
+accurate within ulp budget on pi (v5.7.31 + v5.8.4)`); check.sh
+64/64; gate description updated to v5.7.31+v5.8.4. **Phylax #1
+now FULLY closed** — parser dispatch (v5.8.4) + hardware-verified
+polyfill (v5.8.5). Slot map cascades all originally-pinned v5.8.5–
+v5.8.30 by +1 (sys_stat backfill → v5.8.6, _SC_ARITY → v5.8.7,
+NI-class → v5.8.8, slices → v5.8.9, etc.); 31 pinned slots total
+v5.8.1–v5.8.31 with 13-slot headroom against ~.44 backstop.)
+
 **5.8.4** (shipped 2026-05-01 — **v5.8.x SLOT 4 — `f64_log2`
 aarch64 polyfill (phylax #1 unblock)**. First substantive stdlib
 slot of v5.8.x. Pre-v5.8.4: `cyrius build --aarch64` hard-rejected
@@ -22,10 +44,14 @@ v5.7.31 ln branch). New `F64_LOG2E` global hoisted from
 Verification: self-host two-step byte-identical, check.sh 64/64,
 bench 15/15, x86 smoke (`f64_log2(8) → exit 3`), math.tcyr
 extended +9 assertions for log2 native + polyfill + ulp-tolerance
-comparison (45/45 PASS). Aarch64 hardware verification (SSH gate
-analogous to v5.7.31's regression-aarch64-f64-polyfill.sh) waits
-for v5.8.5/6 to close the separate `SYS_OPEN`-not-defined patra/
-aarch64 cross-build blocker.)
+comparison (45/45 PASS). Aarch64 hardware SSH gate
+(`tests/regression-aarch64-f64-polyfill.sh` on Pi) extended with
+4 new log2 cases — all bit-accurate within budget on real
+hardware; check.sh gate text updated to v5.7.31+v5.8.4. cc5_aarch64
+cross-compiler rebuilt at 421,072 B (+424 B from new dispatch).
+Script bypasses `cyrius build`'s auto-prepend so the separate
+patra/aarch64 `SYS_OPEN`-not-defined blocker (which v5.8.5+
+addresses) doesn't trip this gate.)
 
 **5.8.3** (shipped 2026-05-01 — **v5.8.x SLOT 3 —
 `src/frontend/ts/parse.cyr` fmt sweep follow-up**. Closes the
@@ -1865,7 +1891,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.1+ (v5.8.x cycle slot work — 30 pinned slots, 14-slot headroom against ~.44 backstop).**
+**v5.8.6+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -1876,33 +1902,34 @@ do ONE port pass instead of 4-5. **30 firm pinned slots**, full
 slot map at `docs/development/roadmap.md` §"v5.8.x — pinned slot
 map". Bare-metal arc + RISC-V stay at v5.9.x.
 
-**3-phase pinning** (firm 2026-05-01 at v5.8.0 ship):
+**3-phase pinning** (firm 2026-05-01 at v5.8.0 ship; cascaded +1
+2026-05-01 at v5.8.5 ship to absorb the SSH-gate carve-out):
 
-Phase 1 — Quick-win unblockers (slots 1-7):
-- **v5.8.1** — `lint`/`fmt` 128 KiB cap raise (mabda A1) +
-  `cyrius-prompt-info` redundancy fix (drop `name` from `pkg`
-  output → `ॐ 5.8.0 (cyrius)`)
-- **v5.8.2** — `cc5_aarch64` packaging + `build/cyrc_check` orphan
-- **v5.8.3** — ts/parse.cyr fmt sweep follow-up (unblocked by .1)
-- **v5.8.4** — `f64_log2` aarch64 polyfill (phylax #1)
-- **v5.8.5** — `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
-- **v5.8.6** — `_SC_ARITY` audit on aarch64 stdlib (phylax #3 + sakshi)
-- **v5.8.7** — NI-class duplicate-fn investigation (phylax #4)
+Phase 1 — Quick-win unblockers (slots 1-8):
+- **v5.8.1** ✅ `lint`/`fmt` 128 KiB cap raise (mabda A1) +
+  `cyrius-prompt-info` redundancy fix
+- **v5.8.2** ✅ `cc5_aarch64` packaging + `build/cyrc_check` orphan
+- **v5.8.3** ✅ ts/parse.cyr fmt sweep follow-up (unblocked by .1)
+- **v5.8.4** ✅ `f64_log2` aarch64 polyfill — parser dispatch (phylax #1)
+- **v5.8.5** ✅ aarch64 SSH-gate extension for f64_log2 — hardware verification
+- **v5.8.6** — `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
+- **v5.8.7** — `_SC_ARITY` audit on aarch64 stdlib (phylax #3 + sakshi)
+- **v5.8.8** — NI-class duplicate-fn investigation (phylax #4)
 
-Phase 2 — Language vocabulary (slots 8-25):
-- **v5.8.8** — First-class slices (`slice<T>` / `[T]`)
-- **v5.8.9** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
-- **v5.8.10–v5.8.14** — Tagged unions + exhaustive match (5 sub-patches)
-- **v5.8.15–v5.8.19** — `Result<T,E>` + `?` propagation (5 sub-patches)
-- **v5.8.20–v5.8.25** — Allocators-as-parameter (6 sub-patches)
+Phase 2 — Language vocabulary (slots 9-26):
+- **v5.8.9** — First-class slices (`slice<T>` / `[T]`)
+- **v5.8.10** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
+- **v5.8.11–v5.8.15** — Tagged unions + exhaustive match (5 sub-patches)
+- **v5.8.16–v5.8.20** — `Result<T,E>` + `?` propagation (5 sub-patches)
+- **v5.8.21–v5.8.26** — Allocators-as-parameter (6 sub-patches)
 
-Phase 3 — Polish + cycle closeout (slots 26-30):
-- **v5.8.26** — Preprocessor include-pattern in string literals (vidya audit)
-- **v5.8.27** — `cyrlint` multi-line assert false-positive (mabda C5)
-- **v5.8.28** — Vidya cyrius-language audit (annotation pass)
-- **v5.8.29** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
+Phase 3 — Polish + cycle closeout (slots 27-31):
+- **v5.8.27** — Preprocessor include-pattern in string literals (vidya audit)
+- **v5.8.28** — `cyrlint` multi-line assert false-positive (mabda C5)
+- **v5.8.29** — Vidya cyrius-language audit (annotation pass)
+- **v5.8.30** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
   + `var X;` bare-decl error message (mabda C1)
-- **v5.8.30** — v5.8.x closeout backstop
+- **v5.8.31** — v5.8.x closeout backstop
 
 **Held items** (surfacing-ask only; not pinned, no slot consumed):
 - `cyim` regex pattern (mabda C6) — pin when cyim consumer hits it

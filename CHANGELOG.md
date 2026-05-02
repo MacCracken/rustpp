@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.5] — 2026-05-01
+
+**v5.8.x slot 5 — aarch64 SSH-gate extension for `f64_log2`
+(phylax #1 hardware verification)**. Originally framed as a
+v5.8.4 follow-up; carved out as its own slot per user direction
+("ship 5.8.5 cascade"). v5.8.4 closed the phylax-blocker on the
+parser side (replaced the hard-reject with stdlib polyfill
+dispatch), but the polyfill was unverified on real aarch64
+hardware at v5.8.4 commit time — the audit doc had flagged
+hardware verification as deferred. With pi (the standard
+`SSH_TARGET`) live, this slot extends the v5.7.31 regression
+gate to cover log2 and confirms bit-accuracy on real ARM.
+
+cc5 unchanged at **721,352 B** — gate-extension + check.sh
+description + CHANGELOG/state docs only; no compiler change.
+
+### Fix shape
+
+**`tests/regression-aarch64-f64-polyfill.sh`** — extended the
+v5.7.31 SSH-gate's smoke-test main fn with 4 new f64_log2
+assertions returning exit codes 7-10:
+
+```cyrius
+# log2(1) == 0 (m=1 → u=0 → poly=0 → mul by F64_LOG2E = 0).
+var l2_1 = f64_log2(0x3FF0000000000000);
+# ... (≤1024 ulp from 0)
+
+# log2(8) ≈ 3.0. Bits: 0x4008000000000000.
+var l2_8 = f64_log2(0x4020000000000000);
+# ... (≤8192 ulp from 3.0)
+
+# log2(1024) ≈ 10.0. 1024 = 2^10 → bits 0x4090000000000000.
+var l2_1024 = f64_log2(0x4090000000000000);
+# ... (≤8192 ulp from 10.0)
+
+# log2(0.5) ≈ -1.0.
+var l2_half = f64_log2(0x3FE0000000000000);
+# ... (≤8192 ulp from -1.0)
+```
+
+Header comment updated to document the v5.7.31 + v5.8.4
+inheritance and the 8192-ulp budget for log2 (vs 1024-4096 for
+exp/ln) — log2 = ln × F64_LOG2E inherits ln drift plus one extra
+mul rounding.
+
+**`scripts/check.sh`** — gate description updated:
+- Old: "aarch64 f64_exp / f64_ln polyfills bit-accurate on Pi
+  (v5.7.31; phylax-unblock)"
+- New: "aarch64 f64_exp / f64_ln / f64_log2 polyfills bit-
+  accurate on Pi (v5.7.31 + v5.8.4; phylax-unblock)"
+
+`build/cc5_aarch64` cross-compiler rebuilt at **421,072 B** (+424 B
+matching cc5's v5.8.4 dispatch growth) so the regression script's
+`$CC_AA < $SRC > $BIN` cross-build picks up the new f64_log2
+parser branch.
+
+### Bug fixed during gate authoring
+
+Initial test bit-pattern for log2(1024) was wrong — wrote
+`0x408F400000000000` (which is 1000.0, NOT 1024.0). Polyfill
+correctly computed log2(1000) ≈ 9.965784, deviating ~0.034 from
+10.0 — well outside the 8192-ulp budget. Fixed to
+`0x4090000000000000` (= 1024.0 exactly: exp_biased=1033, mant=0).
+Underscores how easily f64-bit-pattern tests can mis-test if the
+hex literal isn't double-checked.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,352 B (compiler
+   unchanged).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS** (gate count
+   unchanged; description text updated).
+3. ✅ `cyrius bench` 15/15 PASS (baseline holds).
+4. ✅ `sh tests/regression-aarch64-f64-polyfill.sh` standalone
+   on pi:
+   ```
+   PASS: aarch64 f64_exp / f64_ln / f64_log2 polyfills bit-accurate
+   within ulp budget on pi (v5.7.31 + v5.8.4)
+   ```
+5. ✅ `tests/tcyr/math.tcyr` 45/45 PASS (carries the v5.8.4
+   x86-side log2 coverage).
+
+### Why split from v5.8.4
+
+User-directed cascade. v5.8.4 had committed at `79eeae4` before
+pi-live status surfaced; rather than amending a published commit,
+the SSH gate ships as its own slot. Slot map cascades all
+originally-pinned v5.8.5–v5.8.30 by +1 (sys_stat backfill →
+v5.8.6, _SC_ARITY audit → v5.8.7, NI-class investigation →
+v5.8.8, slices → v5.8.9, etc.), totaling **31 pinned slots**
+v5.8.1–v5.8.31. Still well under the ~.44 soft backstop with
+13-slot headroom.
+
+### Coda
+
+Phylax #1 is now FULLY closed — parser-side dispatch (v5.8.4)
+plus hardware-verified polyfill (v5.8.5). Phylax can drop both
+the `continue-on-error: true` aarch64 CI marker AND the comment
+in `phylax/docs/development/issues/2026-04-30-cyrius-stdlib-issues.md`
+§1 marking f64_log2 as blocked.
+
 ## [5.8.4] — 2026-05-01
 
 **v5.8.x slot 4 — `f64_log2` aarch64 polyfill (phylax #1 unblock)**.
@@ -69,16 +170,7 @@ if (ptyp == 87) {
 x86 path is unchanged — line 1190 still emits the native
 `fld1; fxch; fyl2x` for ptyp==87 outside the aarch64 branch.
 
-### Out of scope (deferred to v5.8.4 follow-up gates)
-
-- **Aarch64 hardware verification** via SSH gate (analogous to
-  `tests/regression-aarch64-f64-polyfill.sh` for v5.7.31). Pre-
-  v5.8.5/6 cycle, the aarch64 cross-build is broken by a separate
-  `SYS_OPEN`-not-defined issue in patra/aarch64 (raw syscall
-  refs from patra 1.9.2's partial migration). v5.8.5 (`sys_stat`/
-  `sys_fstat` backfill) + v5.8.6 (`_SC_ARITY` audit) close those
-  blockers; once the cross-build runs clean, an aarch64 SSH gate
-  for log2 lands as a v5.8.x follow-up.
+### Out of scope
 
 - **f64_exp2 polyfill** (ptyp == 88) — still hard-rejects with
   `f64_exp2 is x86-only`. No consumer has surfaced a need;
@@ -94,6 +186,11 @@ x86 path is unchanged — line 1190 still emits the native
 5. ✅ `tests/tcyr/math.tcyr` extended with 9 new f64_log2
    assertions (native + polyfill direct + ulp-tolerance comparison
    between native and polyfill on power-of-2 inputs); 45/45 PASS.
+
+**Aarch64 hardware verification deferred**: at commit time, the
+SSH gate (`tests/regression-aarch64-f64-polyfill.sh` on pi) had
+not been extended to cover log2. Hardware verification lands as
+**v5.8.5** — see entry above.
 
 ### Phylax-side follow-up (consumer-side, not cyrius scope)
 
