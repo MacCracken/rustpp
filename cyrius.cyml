@@ -23,24 +23,28 @@ scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cy
 
 [deps.sakshi]
 git = "https://github.com/MacCracken/sakshi.git"
-tag = "2.0.0"
+tag = "2.2.2"
 modules = ["dist/sakshi.cyr"]
 
 [deps.patra]
 git = "https://github.com/MacCracken/patra.git"
-tag = "1.9.0"
+tag = "1.9.2"
 modules = ["dist/patra.cyr"]
 
 [deps.sigil]
 git = "https://github.com/MacCracken/sigil.git"
-tag = "2.9.3"
+tag = "3.0.0"
 modules = ["dist/sigil.cyr"]
 
 [deps.yukti]
 git = "https://github.com/MacCracken/yukti.git"
-tag = "2.1.1"
+tag = "2.2.1"
 modules = ["dist/yukti.cyr"]
 
+# mabda held at 2.5.0 — v3.0.0-rc.2 is on `main` awaiting rc.3 + soak
+# window. Cyrius doesn't consume mabda's API (lib/mabda.cyr is a
+# preprocessor-cap test fixture), so the hold is cost-free. Bump to
+# 3.0.0 when mabda ships post-soak.
 [deps.mabda]
 git = "https://github.com/MacCracken/mabda.git"
 tag = "2.5.0"
@@ -48,5 +52,5 @@ modules = ["dist/mabda.cyr"]
 
 [deps.sankoch]
 git = "https://github.com/MacCracken/sankoch.git"
-tag = "2.1.0"
+tag = "2.2.3"
 modules = ["dist/sankoch.cyr"]

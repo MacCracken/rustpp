@@ -4,6 +4,85 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.49] — 2026-05-01
+
+**Ecosystem deps refresh — final patch of the v5.7.x cycle.** Five
+of six pinned deps bumped to their latest released tags, including
+sigil's first major (2.9.3 → 3.0.0). Mabda held at 2.5.0 — v3.0.0
+is at rc.2 on `main` awaiting rc.3 + a soak window, and cyrius
+doesn't consume mabda's API (`lib/mabda.cyr` is a preprocessor-cap
+test fixture, same role as sigil/sakshi/etc.), so the hold is
+cost-free. v5.7.x now closes for real at 50 patches across 36 days.
+
+cc5 unchanged at **720,928 B** — patch is dep symlinks +
+`src/version_str.cyr` regen only; no compiler source change.
+
+### Changed — `cyrius.cyml` dep tags
+
+| dep      | 5.7.48 | 5.7.49     | gap                    |
+|----------|--------|------------|------------------------|
+| sakshi   | 2.0.0  | **2.2.2**  | minor×2 + patches      |
+| patra    | 1.9.0  | **1.9.2**  | 2 patches              |
+| sigil    | 2.9.3  | **3.0.0**  | major (audited safe)   |
+| yukti    | 2.1.1  | **2.2.1**  | minor + patch          |
+| mabda    | 2.5.0  | 2.5.0      | held — v3.0.0-rc.2     |
+| sankoch  | 2.1.0  | **2.2.3**  | minor + patches        |
+| agnosys  | (transitive) | **1.0.4** | refreshed via deps resolve |
+
+### Sigil 3.0.0 major-bump audit
+
+Major bumps require breaking-change scrutiny. The audit found
+**zero impact on cyrius**:
+
+1. **`TRUST_COMMUNITY` enum removed** — zero matches in `src/`,
+   `lib/`, `programs/`, `tests/`, `benches/`, `fuzz/`. Cyrius
+   doesn't call sigil's API.
+2. **`alog_append_to_file` → `alog_save`, `alog_load_from_file`
+   → `alog_load`** — same: zero matches.
+3. **`-D SIGIL_BATCH_PARALLEL` flag removed** — zero matches.
+4. **Min cyrius pin: 5.7.48** — sigil 3.0.0 was built targeting
+   the v5.7.x line we just closed, no toolchain conflict.
+5. **`lib/sigil.cyr` size**: 8858 → 8999 lines (~5 KB). Used as
+   a >256KB include fixture in 3 preprocessor-cap regression
+   tests (`preprocessor_past_cap.tcyr`, `large_input.tcyr`,
+   `large_source.tcyr`). The fixtures pull ~50 stdlib files to
+   exceed the 524288 B cap; sigil's delta is negligible against
+   that threshold.
+
+Sigil's documented breaking-change consumers (daimon, kavach,
+ark[external], aegis, phylax, mela, stiva, argonaut, takumi)
+are all downstream of sigil, not part of cyrius itself.
+
+### Mabda hold rationale
+
+Mabda's `main` branch is already at the v3 merge
+(`1a5812f merge v3 into main: 3.0.0-rc.2 cut`) — there is no
+clean 2.5.x line to patch from. 123 commits / 908K insertions
+between 2.5.0 and rc.2, dominated by v3 feature work
+(`backend_native_kms` steps 7.1a–7.7, NativeKmsScanout, DRM
+master ioctls, v3 surface API). Backporting a "language-wise
+only" subset (~5–10 commits of fmt-reflow + toolchain fixes
+out of 123) would be archaeology that 3.0.0 supersedes within
+weeks. Cyrius pin stays at 2.5.0, bumps directly to 3.0.0
+post-soak. **2.5.0 is 10 days old** — comfortably inside the
+cohort age (sakshi 2.2.2 today, patra 1.9.2 1d, sigil 3.0.0
+today, yukti 2.2.1 1d, sankoch 2.2.3 today).
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 720,928 B.
+2. ✅ Full check.sh — **64/64 PASS** (same gate count as v5.7.48).
+3. ✅ `cyrius deps` resolves 7 deps clean; lockfile regenerated.
+4. ✅ `build/cc5 --version` reports `cc5 5.7.49`.
+
+### Coda — v5.7.x final tally
+
+49 patches → **50 patches** across **35 → 36 days** (v5.7.0
+ship 2026-03-26 → v5.7.49 ship 2026-05-01). Still the longest
+minor in cyrius history. The v5.7.48 entry was the protocol
+closeout; v5.7.49 is the ecosystem snapshot — pins frozen for
+v5.8.0's bare-metal arc + vani fold-in.
+
 ## [5.7.48] — 2026-04-30
 
 **TRUE CLOSEOUT BACKSTOP — v5.7.x cycle complete**. Final

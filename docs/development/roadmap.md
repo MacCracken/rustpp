@@ -299,14 +299,18 @@ earned by the cycle's additions, -106 LOC net while preserving
 
 ### Slot cascade post-v5.7.48
 
-- v5.7.48 ✅ this slot — closeout protocol complete
-- v5.7.49 — deps refresh (per user direction; cyrius.cyml
-  `[deps.*]` tag bumps + ecosystem `cyrius.cyml`
-  `cyrius`-field check; no compiler change)
-- v5.7.50 — headroom (unclaimed; only used if v5.7.49 surfaces
-  a follow-up)
-- v5.8.0 — bare-metal AGNOS kernel target + Vani audio
-  distlib fold-in
+- v5.7.48 ✅ closeout protocol complete
+- v5.7.49 ✅ deps refresh — sakshi/patra/sigil/yukti/sankoch
+  bumped to latest releases; mabda held at 2.5.0 (v3.0.0-rc.2
+  on `main` awaiting rc.3 + soak; cyrius doesn't consume
+  mabda's API so the hold is cost-free); sigil 2.9.3 → 3.0.0
+  major audited safe (no breaking-change names referenced in
+  cyrius source); cc5 byte-identical at 720,928 B; check.sh
+  64/64 PASS
+- v5.7.50 — headroom unused (deps refresh landed clean)
+- v5.8.0 — bare-metal AGNOS kernel target + RISC-V rv64
+  groundwork + Vani audio distlib fold-in (P(-1) hardening
+  next; samvada NOT a cyrius dep — downstream of mabda)
 
 
 

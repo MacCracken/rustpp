@@ -5,6 +5,38 @@
 
 ## Version
 
+**5.7.49** (shipped 2026-05-01 — **ECOSYSTEM DEPS REFRESH —
+v5.7.x cycle ends at 50 patches across 36 days**. Final patch
+of the v5.7.x minor; lands the downstream-check §10 work
+deferred from v5.7.48 closeout per user direction. Five of
+six pinned deps bumped to their latest released tags: sakshi
+2.0.0 → **2.2.2** (minor×2 + patches), patra 1.9.0 → **1.9.2**
+(2 patches), sigil 2.9.3 → **3.0.0** (major — audited safe
+against cyrius), yukti 2.1.1 → **2.2.1** (minor + patch),
+sankoch 2.1.0 → **2.2.3** (minor + patches). Plus transitive
+agnosys refreshed to **1.0.4**. **Mabda held at 2.5.0** —
+v3.0.0-rc.2 is on `main` awaiting rc.3 + soak window; cyrius
+doesn't consume mabda's API (`lib/mabda.cyr` is a preprocessor-
+cap test fixture, same role as sigil/sakshi/etc.), so the hold
+is cost-free. **Sigil 3.0.0 audit**: zero impact on cyrius —
+none of the breaking-change names (`TRUST_COMMUNITY`,
+`alog_append_to_file`/`_load_from_file`, `SIGIL_BATCH_PARALLEL`)
+match anywhere in `src/`/`lib/`/`programs/`/`tests/`/`benches/`
+/`fuzz/`; sigil's "consumers" list (daimon, kavach, ark[ext],
+aegis, phylax, mela, stiva, argonaut, takumi) are all
+downstream of sigil, not part of cyrius itself; sigil 3.0.0's
+declared min cyrius pin is 5.7.48 (the one we just closed).
+**Hard cap respected**: cc5 byte-identical at **720,928 B** —
+patch is dep symlinks + `src/version_str.cyr` regen only, no
+compiler source change. **Verification**: self-host two-step
+byte-identical; check.sh **64/64 PASS** (same gate count as
+v5.7.48); `cyrius deps` resolves 7 deps clean; `build/cc5
+--version` reports `cc5 5.7.49`. **Slot cascade**: v5.8.0
+(bare-metal AGNOS kernel + RISC-V rv64 + Vani audio fold-in)
+ahead. **Cycle final**: v5.7.0 ship 2026-03-26 → v5.7.49 ship
+2026-05-01 = **50 patches across 36 days**, still the longest
+minor in cyrius history.)
+
 **5.7.48** (shipped 2026-04-30 — **TRUE CLOSEOUT BACKSTOP —
 v5.7.x cycle complete**. Final patch of the v5.7.x minor —
 **the longest minor in cyrius history at 49 patches across 35
@@ -1702,7 +1734,7 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 49 patches)
+- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 50 patches)
 - **`tests/tcyr/*.tcyr`**: 97 files (advanced.tcyr 197 assertions post-p56 migration to test_each; total TS coverage 1181 assertions across 4 group runners; ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
@@ -1716,24 +1748,26 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.7.49 (deps refresh — no compiler change).** v5.7.48
-closed the v5.7.x minor's CLAUDE.md 11-step closeout protocol
-(longest minor in cyrius history at 49 patches across 35 days).
-v5.7.49 lands the downstream-check §10 work that was deferred
-from closeout per user direction: "5.7.49 will be no code
-updates but possible bringing in updated dists/deps - patra,
-yukti, probably a good point to get all the deps updated to
-5.7.48 if not updating for other work before touch 5.8.0."
-**Bounded scope**: bump `cyrius/cyrius.cyml` `[deps.*]` tags to
-whatever release each dep is at (patra 1.9.0+, sankoch 2.1.0+,
-sigil 2.9.3+, sakshi 2.0.0+, yukti 2.1.1+, mabda 2.5.0+);
-re-resolve via `cyrius deps`; re-bundle stdlib distfiles via
-`cyrius distlib` if any dep cut a new release; check
-ecosystem `cyrius.cyml` `cyrius` fields point to v5.7.48 or
-later. **Hard cap**: cc5 stays byte-identical at 720,928 B
-(zero compiler change — refresh is data-only). Anything beyond
-deps-refresh work forces v5.8.0. **Headroom v5.7.50 still
-available** if any refresh surfaces a follow-up bug.
+**v5.8.0 (bare-metal arc + Vani audio distlib fold-in —
+P(-1) hardening pending).** v5.7.49 shipped the deps refresh
+that closes the v5.7.x cycle; the next slot is the v5.8.0
+P(-1) hardening per CLAUDE.md §"P(-1): Project Hardening"
+(cleanliness + test sweep + benchmark baseline + audit +
+refactor + post-audit benchmarks + doc sync). After P(-1),
+the v5.8.0 cut delivers two coupled themes per
+`docs/development/roadmap.md` §"v5.8.0 — Bare-metal / AGNOS
+kernel target + Vani audio distlib fold-in":
+(1) bare-metal AGNOS kernel target + RISC-V rv64 backend
+groundwork; (2) **vani audio distlib fold-in** — add
+`[deps.vani]` to `cyrius.cyml` (vani 0.9.1+ at cut time),
+delete `cyrius/lib/audio.cyr` (236 LOC), supersede with
+`dist/vani.cyr`'s higher-level `vani_*` API (typed errors,
+ring buffer, XRUN recovery). Vani-side migration already
+landed (lib/audio.cyr → vani/src/, "audio" dropped from
+vani's `[deps].stdlib`). Samvada is **not** on the v5.8.0
+list — it's downstream of mabda's Phase D, not a cyrius
+concern. **Headroom v5.7.50 unused** (no refresh follow-up
+needed; deps bump landed clean).
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr
