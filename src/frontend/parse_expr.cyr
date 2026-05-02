@@ -585,7 +585,28 @@ fn PARSE_FACTOR(S) {
         _cfo = 0;
         # Syscall arity check — warn if arg count doesn't match the
         # well-known arity for common Linux x86_64 syscalls.
-        if (sc_num >= 0) {
+        #
+        # v5.8.7 (phylax #3 + sakshi): gate the check to x86_64 only.
+        # The _SC_ARITY table maps x86_64 syscall numbers to expected
+        # user-arg counts. On aarch64 the SAME numerical values mean
+        # different syscalls with different arities (e.g. aarch64
+        # SYS_NEWFSTATAT = 79 = x86's getcwd; aarch64 SYS_FSTAT = 80 =
+        # x86's chdir; aarch64 SYS_OPENAT = 56 = x86's clone). Stdlib's
+        # at-family wrappers in `lib/syscalls_aarch64_linux.cyr` then
+        # call `syscall(SYS_NEWFSTATAT, AT_FDCWD, path, buf, 0)` (4
+        # user args) and the parser flagged it as mismatching getcwd's
+        # 2-arg expectation — false positive.
+        #
+        # Pre-v5.8.7 phylax + sakshi saw 9-11 spurious warnings on a
+        # 4-line stdlib-only `cyrius build --aarch64` invocation
+        # (sakshi `2026-04-30-cyrius-lang-blockers.md`, phylax
+        # `2026-04-30-cyrius-stdlib-issues.md` §3). Same fix shape as
+        # v5.7.8 SYS_SETSID 1→0 in spirit: pin the check to the arch
+        # the table actually describes. Hand-written aarch64 syscalls
+        # with wrong arity now get the runtime error rather than a
+        # compile warning — acceptable tradeoff; the warning was
+        # best-effort, not load-bearing.
+        if (sc_num >= 0) { if (_AARCH64_BACKEND == 0) {
             var expect = _SC_ARITY(sc_num);
             if (expect >= 0) {
                 var got = argc - 1;
@@ -607,7 +628,7 @@ fn PARSE_FACTOR(S) {
                     }
                 }
             }
-        }
+        } }
         return 0;
     }
     if (typ == 25) {

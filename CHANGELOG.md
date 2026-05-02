@@ -4,6 +4,97 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.7] — 2026-05-02
+
+**v5.8.x slot 7 — `_SC_ARITY` cross-arch false-positive gate
+(phylax #3 + sakshi)**. Closes 11 spurious `syscall arity
+mismatch` warnings on `cyrius build --aarch64` of any stdlib-
+including program. Surfaced in sakshi `2026-04-30-cyrius-lang-
+blockers.md` (Stdlib `--aarch64` cross-build noise) and phylax
+`2026-04-30-cyrius-stdlib-issues.md` §3 (`_SC_ARITY` audit).
+
+cc5 grew **721,352 B → 721,384 B (+32 B)** for the new arch
+gate; cc5_aarch64 grew matching at 421,072 → 421,104 B.
+
+### Root cause
+
+The `_SC_ARITY(n)` table at `src/frontend/parse_expr.cyr:10-53`
+maps **x86_64 syscall numbers** to expected user-arg counts. On
+aarch64 the SAME numerical values denote DIFFERENT syscalls
+with different arities — examples:
+
+| aarch64 SYS_NUM | aarch64 syscall | x86's syscall(N) | x86 arity |
+|---|---|---|---|
+| `SYS_OPENAT = 56` | openat (5 user args) | `clone` | 5 (matches) |
+| `SYS_NEWFSTATAT = 79` | newfstatat (4 user args) | `getcwd` | 2 (mismatch) |
+| `SYS_FSTAT = 80` | fstat (2 user args) | `chdir` | 1 (mismatch) |
+| `SYS_PIPE2 = 59` | pipe2 (2 user args) | `execve` | 3 (mismatch) |
+
+The aarch64 stdlib's at-family wrappers in `lib/syscalls_
+aarch64_linux.cyr` legitimately call e.g. `syscall(SYS_NEWFSTATAT,
+AT_FDCWD, path, buf, 0)` (4 user args) — but the parser looked up
+x86's getcwd arity (2) and warned. Pre-v5.8.7: 11 spurious warnings
+on a 4-line `include "lib/syscalls.cyr"` + main + exit probe.
+
+### Fix
+
+`src/frontend/parse_expr.cyr:589` — single-line gate added:
+`if (sc_num >= 0) { if (_AARCH64_BACKEND == 0) { ... arity check ... } }`.
+
+The arity check now runs only when the parser is x86_64-targeting.
+Hand-written aarch64 syscalls with wrong arity now get the
+runtime error rather than a compile warning — acceptable
+tradeoff; the warning was best-effort, not load-bearing.
+
+`_AARCH64_BACKEND` is set per-backend in
+`src/backend/{x86,aarch64,cx}/emit.cyr` — `cc5_aarch64`
+(built from `src/main_aarch64.cyr`) initializes it to 1; cc5 +
+cc5_cx initialize to 0. Existing infrastructure; no new
+machinery needed.
+
+### Why not pin individual table entries (v5.7.8 SYS_SETSID precedent)?
+
+The v5.7.8 fix corrected SYS_SETSID's arity (1→0) — both x86
+AND aarch64 use number 112 for setsid (same syscall, just
+table was wrong). That fix was arch-neutral. The phylax #3
+warnings come from numbers that mean DIFFERENT syscalls per
+arch — fixing the table for aarch64 would break it for x86.
+The right fix is gating per-arch.
+
+A future polish slot could add `_SC_ARITY_AARCH64(n)` for an
+aarch64-specific table (so aarch64 builds still get arity
+warnings against aarch64 syscall numbers). Pin candidate when
+a consumer surfaces an aarch64 arity bug that would have been
+caught by the warning. Not required for v5.8.x scope.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,384 B.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS.
+4. ✅ Pre-fix probe (`cyrius build --aarch64` of 4-line stdlib
+   probe): 11 `syscall arity mismatch` warnings.
+5. ✅ Post-fix probe: **0 arity warnings**. (The unrelated
+   `SYS_OPEN`-not-defined error from patra remains; that's
+   v5.8.x's later slot work, unrelated to this fix's scope.)
+6. ✅ x86_64 builds still emit arity warnings (table gate's
+   conditional means x86 path is unchanged) — verified by
+   running a deliberate-mismatch x86 probe: warning fires.
+
+### Phylax-side / sakshi-side follow-up
+
+Once consumers pin v5.8.7+:
+- **Phylax**: cross-build emits 0 arity warnings against an
+  empty stdlib program. `phylax/docs/development/issues/2026-04-30-cyrius-stdlib-issues.md`
+  §3 marks closed; the residual 2 phylax-side warnings at
+  preprocessed-unit lines 3477/3509 (audited as legit phylax
+  code) re-evaluate clean.
+- **Sakshi**: `aarch64-cross-build noise` line item in
+  `2026-04-30-cyrius-lang-blockers.md` resolves; the qemu CI
+  lane downgraded from runtime-execution to compile-only at
+  v2.2.2 can re-enable runtime once the broader patra-aarch64
+  blockers (v5.8.x later slots) close.
+
 ## [5.8.6] — 2026-05-01
 
 **v5.8.x slot 6 — `sys_stat` / `sys_fstat` x86_64 wrapper backfill

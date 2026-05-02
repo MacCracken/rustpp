@@ -5,6 +5,34 @@
 
 ## Version
 
+**5.8.7** (shipped 2026-05-02 — **v5.8.x SLOT 7 — `_SC_ARITY`
+cross-arch false-positive gate (phylax #3 + sakshi)**. Closes 11
+spurious `syscall arity mismatch` warnings on `cyrius build
+--aarch64` of any stdlib-including program. Root cause: the
+`_SC_ARITY(n)` table at `src/frontend/parse_expr.cyr:10-53` maps
+**x86_64** syscall numbers to expected arg counts; on aarch64 the
+same numerical values denote DIFFERENT syscalls (e.g. aarch64
+`SYS_NEWFSTATAT=79` == x86 `getcwd`, aarch64 `SYS_FSTAT=80` == x86
+`chdir`, aarch64 `SYS_PIPE2=59` == x86 `execve`). aarch64's
+at-family wrappers call e.g. `syscall(SYS_NEWFSTATAT, AT_FDCWD,
+path, buf, 0)` legitimately with 4 user args; parser checked
+against x86's getcwd arity (2) and warned. Single-line fix in
+`parse_expr.cyr:589`: gate the arity check to `_AARCH64_BACKEND
+== 0`. Hand-written aarch64 syscalls with wrong arity now get
+runtime errors instead of compile warnings — acceptable tradeoff
+(warning was best-effort, not load-bearing). Why not v5.7.8-shape
+table-pin per entry: those corrections would break x86's reading
+of the same numbers; arches need separate tables. Future polish
+slot could add `_SC_ARITY_AARCH64(n)` to restore arity warnings
+on aarch64 numbers — held until a consumer surfaces an aarch64
+arity bug. cc5 grew **721,352 → 721,384 B (+32 B)** for the gate;
+cc5_aarch64 grew matching. Verification: pre-fix `cyrius build
+--aarch64` 4-line probe = 11 arity warnings; post-fix = 0;
+check.sh 64/64; bench 15/15; x86 arity warnings still fire on
+deliberate-mismatch x86 probe (gate's conditional preserves x86
+behavior). Phylax #3 + sakshi cross-arch noise items both close
+when consumers pin v5.8.7+.)
+
 **5.8.6** (shipped 2026-05-01 — **v5.8.x SLOT 6 — `sys_stat` /
 `sys_fstat` x86_64 wrapper backfill (phylax #2)**. Cross-arch
 stdlib surface symmetry. Pre-v5.8.6, `lib/syscalls_x86_64_linux.cyr`
@@ -1915,7 +1943,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.7+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
+**v5.8.8+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -1937,7 +1965,7 @@ Phase 1 — Quick-win unblockers (slots 1-8):
 - **v5.8.4** ✅ `f64_log2` aarch64 polyfill — parser dispatch (phylax #1)
 - **v5.8.5** ✅ aarch64 SSH-gate extension for f64_log2 — hardware verification
 - **v5.8.6** ✅ `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
-- **v5.8.7** — `_SC_ARITY` audit on aarch64 stdlib (phylax #3 + sakshi)
+- **v5.8.7** ✅ `_SC_ARITY` cross-arch gate (phylax #3 + sakshi)
 - **v5.8.8** — NI-class duplicate-fn investigation (phylax #4)
 
 Phase 2 — Language vocabulary (slots 9-26):

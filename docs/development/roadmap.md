@@ -469,15 +469,18 @@ absorbs them within the headroom budget.
   cc5 unchanged at 721,352 B (stdlib-only). Phylax + agnosys
   drop their local backfills on next pin bump.
 
-- **v5.8.7** — `_SC_ARITY` audit pass on aarch64 stdlib at-
-  family wrappers (phylax #3 + sakshi). 9 spurious `syscall
-  arity mismatch` warnings on a 4-line stdlib-only program.
-  Same fix class as v5.7.8 `SYS_SETSID` arity 1→0. Stdlib
-  at-family wrappers (`sys_rmdir`, `sys_unlink`, `sys_chmod`,
-  `sys_fork`, etc.) need their `_SC_ARITY` table entries pinned
-  to what the wrapper actually passes. Closes phylax's residual
-  cross-build noise + likely subsumes sakshi's `--aarch64`
-  cross-build noise item.
+- **v5.8.7** ✅ `_SC_ARITY` cross-arch false-positive gate
+  (phylax #3 + sakshi). Shipped 2026-05-02. Single-line gate in
+  `parse_expr.cyr:589` (`if (_AARCH64_BACKEND == 0) { ... arity
+  check ... }`). The arity table is x86_64-specific by design;
+  on aarch64 the same numerical syscall values denote different
+  operations (e.g. aarch64 SYS_NEWFSTATAT=79 = x86 getcwd; aarch64
+  SYS_FSTAT=80 = x86 chdir). Pre-fix: 11 spurious warnings on
+  4-line stdlib probe. Post-fix: 0. Tradeoff: hand-written aarch64
+  syscalls with wrong arity now surface at runtime instead of
+  compile-time. Future polish slot could add `_SC_ARITY_AARCH64`
+  to restore aarch64-side arity warnings — held until a consumer
+  surfaces an aarch64 arity bug.
 
 - **v5.8.8** — NI-class duplicate-fn aarch64 cross-build
   investigation (phylax #4). `aes_ni_available`,
