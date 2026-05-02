@@ -21,6 +21,28 @@ bins = ["cc5", "cyrius", "cyrfmt", "cyrlint", "cyrdoc", "cyrc", "ark", "cyrld", 
 cross_bins = ["cc5_aarch64"]
 scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cyrius-watch.sh"]
 
+# v5.7.50: stdlib auto-prepend list. Required so cyrius's own `cyrius
+# bench` / `cyrius test` / `cyrius build` runs include the stdlib
+# modules each dep distfile needs in scope. Pre-v5.7.50 this block
+# was missing, so dep distfiles got bundled without lib/syscalls.cyr
+# (et al.) in scope — patra's `syscall(SYS_LSEEK, ...)` references
+# went unresolved at parse time. Surfaced 2026-05-01 in the pre-v5.8.0
+# P(-1) audit (`docs/audit/2026-05-01-pre-5.8.0-audit.md`).
+#
+# Module set is the UNION of what all 6 [deps.*] consumers (sakshi,
+# patra, sigil, yukti, mabda, sankoch) plus the agnosys transitive
+# dep need in scope when their distfile parses. Computed as the
+# union of each dep's own [deps].stdlib list at v5.7.49 pin time.
+# Same convention every consumer uses; cyrius is just the last to
+# adopt it (its own stdlib was always in scope when compiling itself).
+[deps]
+stdlib = [
+    "syscalls", "string", "alloc", "str", "fmt", "vec",
+    "hashmap", "io", "fs", "tagged", "process", "fnptr",
+    "chrono", "args", "freelist", "assert", "bench", "bigint",
+    "json",
+]
+
 [deps.sakshi]
 git = "https://github.com/MacCracken/sakshi.git"
 tag = "2.2.2"

@@ -4,6 +4,101 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.7.50] — 2026-05-01
+
+**Pre-v5.8.0 P(-1) audit unblock — single-issue config-only patch.**
+v5.7.49 closed the v5.7.x cycle in spirit, but the headroom .50 slot
+had been kept open precisely for late-cycle P(-1) findings. The
+2026-05-01 P(-1) pre-audit (`docs/audit/2026-05-01-pre-5.8.0-audit.md`)
+surfaced one **BLOCKER**: `cyrius bench` and `cyrius test` were both
+failing at compile time with `error:lib/patra.cyr:101: undefined
+variable 'SYS_LSEEK'`. Without this fix, no v5.8.x optimization arc
+could measure anything against a baseline. v5.7.x cycle final tally:
+**51 patches across 36 days**, beating the prior v5.6.x record of 45.
+
+cc5 unchanged at **720,928 B** — patch is config-only (cyrius.cyml +
+auto-generated `src/version_str.cyr`); no compiler source change.
+
+### The BLOCKER
+
+`cyrius bench` and `cyrius test` auto-prepend each `[deps.NAME]`
+distfile (e.g. `lib/patra.cyr`) to the source under compile.
+patra's distfile parses raw `syscall(SYS_LSEEK, fd, off, 0)` calls
+at lines 101 / 403 / 2968 — and its own `cyrius.cyml` declares
+`[deps].stdlib = ["syscalls", ...]` so consumers know to provide
+`lib/syscalls.cyr` in scope before the patra distfile is bundled.
+
+**Cyrius's own `cyrius.cyml` was missing the `[deps].stdlib` block.**
+Every other consumer (yukti / patra / sigil / sankoch / sakshi /
+mabda) has had this block since their respective folds. Cyrius
+itself was the last project to need one — its compiler-source
+build never went through the auto-prepend chain (the toolchain
+compiles itself directly via `bootstrap/asm`). The bench / test
+chain DOES go through auto-prepend, so the gap surfaced when
+P(-1) ran `cyrius bench` end-to-end for the first time in the
+v5.7.x cycle.
+
+Latent at v5.7.48 too — patra 1.9.0 had identical `SYS_LSEEK`
+references at the same lines. The v5.7.49 deps bump (1.9.0 →
+1.9.2) did NOT introduce the issue. v5.7.48 closeout used
+`scripts/check.sh` (cc5-direct, no auto-prepend) so the gap
+stayed invisible until P(-1).
+
+### Fix
+
+Single block added to `cyrius/cyrius.cyml`:
+
+```toml
+[deps]
+stdlib = [
+    "syscalls", "string", "alloc", "str", "fmt", "vec",
+    "hashmap", "io", "fs", "tagged", "process", "fnptr",
+    "chrono", "args", "freelist", "assert", "bench", "bigint",
+    "json",
+]
+```
+
+Module set is the **union** of every dep's own `[deps].stdlib`
+list at v5.7.49 pin time (sakshi: 7 modules, patra: 8, sigil: 17,
+yukti: 15, sankoch: 8, mabda: 0 — held at 2.5.0; agnosys
+transitive: 7). Same convention every consumer has had since its
+fold; cyrius is just the last to adopt it.
+
+### Verification
+
+1. ✅ `cyrius bench` — **15 / 15 PASS** (was 2 / 13 at v5.7.49).
+2. ✅ `cyrius test tests/tcyr/advanced.tcyr` — 5 / 5 PASS (was
+   compile-fail at v5.7.49).
+3. ✅ Self-host two-step byte-identical at 720,928 B (compiler
+   unchanged — config + version_str regen only).
+4. ✅ `sh scripts/check.sh` — **64 / 64 PASS** (same gate count as
+   v5.7.49; check.sh doesn't go through auto-prepend so it never
+   surfaced this issue).
+5. ✅ `build/cc5 --version` reports `cc5 5.7.50`.
+6. ✅ `cyrius deps` resolves 7 deps + 19 stdlib modules clean;
+   lockfile regenerated.
+
+### Out of scope (deferred to v5.8.x)
+
+The audit's wrapper-API recommendation (add `sys_lseek` /
+`sys_fdatasync` / `sys_flock` / `sys_fsync` / `sys_stat` /
+`sys_fstat` to stdlib) was reframed during execution. Adding
+wrappers does NOT immediately fix patra 1.9.2's existing raw
+`syscall(SYS_LSEEK, ...)` references — only future patra versions
+that migrate to `sys_lseek(...)` would benefit. The wrapper API
+gap (separate concern from the include-chain blocker) stays
+pinned as a v5.8.x slot candidate alongside phylax #2's
+`sys_stat`/`sys_fstat` x86_64 backfill.
+
+### Coda — v5.7.x final tally
+
+50 patches → **51 patches** across 36 days (v5.7.0 ship 2026-03-26
+→ v5.7.50 ship 2026-05-01). The longest minor in cyrius history
+by a comfortable margin (prior record: v5.6.x at 45 patches). The
+.50 headroom was held open from the v5.7.42 closeout planning for
+exactly this kind of late-cycle P(-1) finding — used once.
+v5.8.x's slot list now opens with a clean `cyrius bench` baseline.
+
 ## [5.7.49] — 2026-05-01
 
 **Ecosystem deps refresh — final patch of the v5.7.x cycle.** Five

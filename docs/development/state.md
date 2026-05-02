@@ -5,6 +5,31 @@
 
 ## Version
 
+**5.7.50** (shipped 2026-05-01 — **PRE-v5.8.0 P(-1) UNBLOCK —
+v5.7.x cycle ends for real at 51 patches across 36 days**. Single-
+issue config-only patch closing the BLOCKER surfaced in the pre-
+v5.8.0 P(-1) audit (`docs/audit/2026-05-01-pre-5.8.0-audit.md`):
+`cyrius bench` and `cyrius test` were both failing at compile
+time with `error:lib/patra.cyr:101: undefined variable 'SYS_LSEEK'`
+because cyrius's own `cyrius.cyml` was missing the `[deps].stdlib`
+auto-prepend block that every other consumer (yukti / patra /
+sigil / sankoch / sakshi / mabda) has had since their respective
+folds. Latent at v5.7.48 too — patra 1.9.0 had identical SYS_LSEEK
+refs at the same lines; v5.7.x's `scripts/check.sh`-based closeout
+never went through the auto-prepend chain so the gap stayed
+invisible until P(-1) ran `cyrius bench` end-to-end. Fix: 19-module
+`[deps].stdlib` block added to cyrius.cyml (union of every dep's
+own stdlib needs at v5.7.49 pin time). cc5 unchanged at **720,928 B**
+(compiler unchanged — config + `src/version_str.cyr` regen only).
+Verification: `cyrius bench` 15/15 PASS (was 2/13); `cyrius test`
+unblocked; check.sh 64/64; self-host two-step byte-identical. **The
+.50 headroom was held open from v5.7.42 closeout planning for
+exactly this kind of late-cycle P(-1) finding — used once.** v5.8.x
+slot list now opens with a clean `cyrius bench` baseline. **Cycle
+final**: v5.7.0 ship 2026-03-26 → v5.7.50 ship 2026-05-01 = 51
+patches across 36 days, longest minor in cyrius history by a
+comfortable margin over v5.6.x's 45-patch prior record.)
+
 **5.7.49** (shipped 2026-05-01 — **ECOSYSTEM DEPS REFRESH —
 v5.7.x cycle ends at 50 patches across 36 days**. Final patch
 of the v5.7.x minor; lands the downstream-check §10 work
@@ -1734,7 +1759,7 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 50 patches)
+- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches)
 - **`tests/tcyr/*.tcyr`**: 97 files (advanced.tcyr 197 assertions post-p56 migration to test_each; total TS coverage 1181 assertions across 4 group runners; ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
@@ -1748,10 +1773,15 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.0 (bare-metal arc + Vani audio distlib fold-in —
-P(-1) hardening pending).** v5.7.49 shipped the deps refresh
-that closes the v5.7.x cycle; the next slot is the v5.8.0
-P(-1) hardening per CLAUDE.md §"P(-1): Project Hardening"
+**v5.8.0 (P(-1) hardening + vani fold-in + cyriusly starship.toml).**
+v5.7.50 shipped the pre-v5.8.0 P(-1) audit unblock (single
+config-only fix to cyrius.cyml that closes the `cyrius bench` /
+`cyrius test` BLOCKER surfaced in the audit). v5.8.0 now opens
+proper with a clean `cyrius bench` baseline. The audit (`docs/
+audit/2026-05-01-pre-5.8.0-audit.md`) catalogued 17 candidate
+slot items (sakshi 2 + mabda 5 + phylax 4 + vidya 1 + audit-
+internal 5); see roadmap §v5.8.x. The v5.8.0 cut delivers the
+P(-1) hardening checklist per CLAUDE.md §"P(-1): Project Hardening"
 (cleanliness + test sweep + benchmark baseline + audit +
 refactor + post-audit benchmarks + doc sync). After P(-1),
 the v5.8.0 cut delivers two coupled themes per
