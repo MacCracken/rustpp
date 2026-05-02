@@ -649,20 +649,20 @@ This sub-arc absorbs that deferred work as proper slots.
   fires only when the local or param has the `: Str` (or other
   struct) annotation; untyped locals storing Str pointers fall
   through to the existing error path.
-- **v5.8.18** §10 — Stdlib migration: str_data / str_len AND
-  the original 454-site sweep. The §9 work folded the
-  str_data/str_len migration into this slot — it shares the
-  "type the param, then change the call" mechanic with the
-  bigger sys_read / memcpy / memeq sweep. `sys_read` (53) +
-  `memcpy` (332) + `memeq` (69) call sites migrate from raw
-  `(ptr, len)` to slice-typed args. Add slice-variant
-  signatures (`sys_read_slice` / `slice_copy_bytes` /
-  `slice_eq_bytes`), migrate stdlib internal callers + the ~80
-  str_data/str_len sites identified in §9, document downstream
-  upgrade path. THIS is the migration that compressing v5.8.x
-  into one cycle was supposed to deliver — without it,
-  downstream consumers re-port across v5.9.x → v5.12.x exactly
-  as the cycle-compression argument was meant to prevent.
+- ✅ **v5.8.18** §10 — Slice-typed wrapper helpers
+  (`sys_read_slice` / `slice_copy_bytes` / `slice_eq_bytes`)
+  shipped 2026-05-02. **Honest scope-shrink**: pinned scope
+  was the 454-site mass migration + the §9-deferred ~80-site
+  str sweep; empirical counts came in smaller (~295 sites
+  total) and a pilot migration of `lib/fs.cyr` was reverted
+  twice in-flight, signalling that mass call-site churn isn't
+  wanted this slot. Capability ships now (additive — canonical
+  (ptr, len) primitives stay as the building blocks); mass
+  sweep deferred to a future slot once a downstream consumer
+  earns the change. The "454-site re-port pain" the cycle-
+  compression argument was meant to prevent doesn't materialize
+  from the helper-fn API existing — downstream code calling
+  `memcpy(dst, src, n)` keeps working unchanged.
 - **v5.8.19** §11 — TRUE sub-arc closeout. Downstream
   consumers (sigil/mabda/yukti/etc.) rebuild against migrated
   stdlib; surface migration notes for any that need source

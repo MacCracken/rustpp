@@ -266,3 +266,62 @@ fn slice_unchecked_get_8(s_addr, idx) {
 fn slice_unchecked_get_16(s_addr, idx) {
     return load64(s_addr) + idx * 16;
 }
+
+# v5.8.18 §10 — slice-typed wrappers around the canonical
+# raw-pointer stdlib helpers (sys_read / memcpy / memeq).
+#
+# These let new code take slice arguments instead of raw
+# `(ptr, len)` pairs WITHOUT requiring a sweep of every
+# existing call site at the moment a fn migrates. The
+# canonical helpers in lib/string.cyr / lib/syscalls.cyr stay
+# as the (ptr, len) primitives — these wrappers just unpack a
+# slice into the (ptr, len) shape and forward.
+#
+# Adoption pattern:
+#   - Stdlib fn that takes a buffer + length and is being
+#     re-typed: change the signature from `(buf, len)` to
+#     `(buf: [u8])` (or `slice<u8>`). Inside the fn,
+#     `slice_len(&buf)` and `slice_data(&buf)` (or `buf.len`
+#     and `buf.ptr` once §8 dot syntax applies) replace the
+#     two args. Calls to memcpy / memeq that were `memcpy(dst,
+#     src, n)` become `slice_copy_bytes(&dst, &src)` (the
+#     wrapper does the min-length picking).
+#   - New stdlib fns can either start with the slice signature
+#     directly (cleaner) or use the (ptr, len) primitive for
+#     parity with neighbouring code — the wrapper is here for
+#     consumers who want the slice shape.
+#
+# All three wrappers take SLICE POINTERS (`&s`) so they
+# compose with the rest of the slice helper API; there's no
+# "by-value slice" calling convention in cyrius.
+
+# Read up to s.len bytes from fd into s.data. Returns the
+# byte count read (or negative errno). Convenience wrapper
+# around sys_read for slice-typed buffers.
+fn sys_read_slice(fd, s) {
+    return sys_read(fd, load64(s), load64(s + 8));
+}
+
+# Copy min(dst.len, src.len) bytes from src.data to dst.data.
+# Returns the byte count copied. Truncates against the
+# shorter slice rather than overrunning (canonical memcpy(n)
+# can't enforce this — caller has to compute min upfront).
+fn slice_copy_bytes(dst, src) {
+    var dn = load64(dst + 8);
+    var sn = load64(src + 8);
+    var n = dn;
+    if (sn < n) { n = sn; }
+    memcpy(load64(dst), load64(src), n);
+    return n;
+}
+
+# Compare two slices' byte contents. Returns 1 on equal, 0
+# otherwise. Length-mismatched slices are unequal by
+# definition (no prefix-match semantics — use a different
+# helper if that's the intent).
+fn slice_eq_bytes(a, b) {
+    var an = load64(a + 8);
+    var bn = load64(b + 8);
+    if (an != bn) { return 0; }
+    return memeq(load64(a), load64(b), an);
+}

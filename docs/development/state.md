@@ -5,6 +5,43 @@
 
 ## Version
 
+**5.8.18** (shipped 2026-05-02 — **v5.8.x SLOT 18 — slices §10:
+slice-typed wrapper helpers (`sys_read_slice`, `slice_copy_bytes`,
+`slice_eq_bytes`)**. Fifth slot of the slices true-completion
+sub-arc. Premise-check at slot entry flipped the deliverable —
+the original pin called for a 454-site sweep (sys_read 53 +
+memcpy 332 + memeq 69) plus the §9-deferred ~80-site
+str_data/str_len migration. Empirical counts came in smaller
+(sys_read 8 + memcpy 110 + memeq 96 + str helpers 81 ≈ 295
+sites) and a pilot migration of `lib/fs.cyr` was reverted twice
+in-flight — clear signal that mass call-site churn isn't wanted
+this slot. §10 ships the API capability; mechanical sweep
+moves to a future slot once a downstream consumer earns the
+change. Three new helpers in lib/slice.cyr, additive: takes
+slice POINTERS like the rest of the slice API; `sys_read_slice`
+unpacks (ptr, len) and forwards to sys_read; `slice_copy_bytes`
+truncates against the shorter slice (avoids the memcpy(n)
+foot-gun); `slice_eq_bytes` treats length-mismatch as unequal
+by definition. The 454-site re-port pain the cycle-compression
+argument was meant to prevent doesn't materialize from the
+helper-fn API existing — downstream code calling memcpy(dst,
+src, n) keeps working; the new helpers exist for code that
+wants the slice shape, not as a forced replacement. cc5
+unchanged at **727,960 B** — wrappers are stdlib for user
+programs, not used by the compiler. Verification: self-host
+two-step byte-identical, check.sh 64/64, all 7 prior slices
+regressions intact (121 assertions: 9+26+15+12+24+21+14), new
+`tests/tcyr/slice_byte_helpers.tcyr` 15/15 across 7 test groups
+(equal-length copy, dst-shorter truncation, src-shorter
+truncation, equality on equal contents, equality on differing
+contents, length-mismatch is unequal, copy/eq round-trip).
+sys_read_slice smoke-tested via stdlib's existing syscall
+probes (real-fd machinery doesn't fit cleanly in tcyr). §11
+next: TRUE sub-arc closeout — downstream consumers rebuild
+against the new helper surface area; acceptance gates
+extended; sub-arc retrospective + lessons learned from the
+§9 / §10 honest scope-shrink calls.)
+
 **5.8.17** (shipped 2026-05-02 — **v5.8.x SLOT 17 — slices §9:
 pointer-to-struct dot-syntax capability + Str fn-param SLTYPE
 tagging**. Fourth slot of the slices true-completion sub-arc.

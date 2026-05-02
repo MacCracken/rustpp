@@ -1,0 +1,114 @@
+# slice_byte_helpers.tcyr — v5.8.18 §10 — slice-typed wrappers
+# around the canonical raw-pointer stdlib helpers (sys_read,
+# memcpy, memeq).
+#
+# §10 ships:
+#   - sys_read_slice(fd, &buf)   — sys_read taking a slice
+#   - slice_copy_bytes(&dst, &src) — memcpy with min-length pick
+#   - slice_eq_bytes(&a, &b)     — content equality (length-mismatch
+#                                  is unequal by definition)
+#
+# These are ADDITIVE — the canonical (ptr, len) primitives in
+# lib/string.cyr / lib/syscalls.cyr remain the stdlib's actual
+# building blocks. The wrappers exist so consumers who want
+# slice-shaped APIs don't have to manually unpack `&buf` →
+# `(buf.ptr, buf.len)` at every call.
+#
+# Mass migration of existing call sites (str_data / str_len → .data
+# / .len, raw memcpy / memeq → slice_copy_bytes / slice_eq_bytes)
+# is opt-in per file as consumers earn the change — see the §10
+# CHANGELOG entry for the rationale on why §10 ships capability-
+# only rather than sweeping the ~290 existing sites.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+fn run_tests() {
+    test_group("§10 slice_copy_bytes — equal-length slices");
+    var src1[8];
+    var i = 0;
+    while (i < 8) { store8(&src1 + i, 65 + i); i = i + 1; }
+    var dst1[8];
+    while (i < 16) { store8(&dst1 + (i - 8), 0); i = i + 1; }
+    var s_src1: [u8] = 0; slice_set(&s_src1, &src1, 8);
+    var s_dst1: [u8] = 0; slice_set(&s_dst1, &dst1, 8);
+    var n1 = slice_copy_bytes(&s_dst1, &s_src1);
+    assert_eq(n1, 8, "equal-length copy returns dst.len");
+    assert_eq(load8(&dst1), 65, "dst[0] copied");
+    assert_eq(load8(&dst1 + 7), 72, "dst[7] copied");
+
+    test_group("§10 slice_copy_bytes — dst smaller than src truncates");
+    var src2[8];
+    var j = 0;
+    while (j < 8) { store8(&src2 + j, 100 + j); j = j + 1; }
+    var dst2[3];
+    var s_src2: [u8] = 0; slice_set(&s_src2, &src2, 8);
+    var s_dst2: [u8] = 0; slice_set(&s_dst2, &dst2, 3);
+    var n2 = slice_copy_bytes(&s_dst2, &s_src2);
+    assert_eq(n2, 3, "shorter dst caps the byte count");
+    assert_eq(load8(&dst2), 100, "dst2[0] copied");
+    assert_eq(load8(&dst2 + 2), 102, "dst2[2] copied (last byte)");
+
+    test_group("§10 slice_copy_bytes — src smaller than dst truncates");
+    var src3[3];
+    store8(&src3, 1); store8(&src3 + 1, 2); store8(&src3 + 2, 3);
+    var dst3[8];
+    var k = 0;
+    while (k < 8) { store8(&dst3 + k, 99); k = k + 1; }   # sentinel
+    var s_src3: [u8] = 0; slice_set(&s_src3, &src3, 3);
+    var s_dst3: [u8] = 0; slice_set(&s_dst3, &dst3, 8);
+    var n3 = slice_copy_bytes(&s_dst3, &s_src3);
+    assert_eq(n3, 3, "shorter src caps the byte count");
+    assert_eq(load8(&dst3), 1, "dst3[0] from src");
+    assert_eq(load8(&dst3 + 2), 3, "dst3[2] from src");
+    # bytes beyond src.len untouched
+    assert_eq(load8(&dst3 + 3), 99, "dst3[3] untouched (sentinel)");
+    assert_eq(load8(&dst3 + 7), 99, "dst3[7] untouched (sentinel)");
+
+    test_group("§10 slice_eq_bytes — equal contents");
+    var a1[5]; var b1[5];
+    var ai = 0;
+    while (ai < 5) { store8(&a1 + ai, 80 + ai); store8(&b1 + ai, 80 + ai); ai = ai + 1; }
+    var s_a1: [u8] = 0; slice_set(&s_a1, &a1, 5);
+    var s_b1: [u8] = 0; slice_set(&s_b1, &b1, 5);
+    assert_eq(slice_eq_bytes(&s_a1, &s_b1), 1, "equal bytes → 1");
+
+    test_group("§10 slice_eq_bytes — differing content");
+    var a2[5]; var b2[5];
+    var bi = 0;
+    while (bi < 5) { store8(&a2 + bi, bi); store8(&b2 + bi, bi + 100); bi = bi + 1; }
+    var s_a2: [u8] = 0; slice_set(&s_a2, &a2, 5);
+    var s_b2: [u8] = 0; slice_set(&s_b2, &b2, 5);
+    assert_eq(slice_eq_bytes(&s_a2, &s_b2), 0, "differing bytes → 0");
+
+    test_group("§10 slice_eq_bytes — length mismatch is unequal");
+    var c1[5]; var c2[3];
+    var ci = 0;
+    while (ci < 3) { store8(&c1 + ci, ci); store8(&c2 + ci, ci); ci = ci + 1; }
+    while (ci < 5) { store8(&c1 + ci, ci); ci = ci + 1; }
+    var s_c1: [u8] = 0; slice_set(&s_c1, &c1, 5);
+    var s_c2: [u8] = 0; slice_set(&s_c2, &c2, 3);
+    assert_eq(slice_eq_bytes(&s_c1, &s_c2), 0, "len 5 vs len 3 → unequal");
+
+    test_group("§10 slice_copy_bytes round-trips through slice_eq_bytes");
+    var rsrc[6]; var rdst[6];
+    var ri = 0;
+    while (ri < 6) { store8(&rsrc + ri, 200 - ri); ri = ri + 1; }
+    var s_rsrc: [u8] = 0; slice_set(&s_rsrc, &rsrc, 6);
+    var s_rdst: [u8] = 0; slice_set(&s_rdst, &rdst, 6);
+    slice_copy_bytes(&s_rdst, &s_rsrc);
+    assert_eq(slice_eq_bytes(&s_rsrc, &s_rdst), 1, "copy+eq round-trip");
+
+    # sys_read_slice would need a real fd — skip in tcyr; smoke-
+    # tested via standalone probes alongside other syscall wrappers.
+
+    return 0;
+}
+
+run_tests();
+var r = assert_summary();

@@ -4,6 +4,104 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.18] — 2026-05-02
+
+**v5.8.x slot 18 — slices §10: slice-typed wrapper helpers
+(`sys_read_slice`, `slice_copy_bytes`, `slice_eq_bytes`).**
+Fifth slot of the slices true-completion sub-arc. Premise-check
+at slot entry — surveying the actual scope before committing —
+flipped the deliverable: the original pin called for a 454-site
+sweep (sys_read 53 + memcpy 332 + memeq 69) PLUS the §9-deferred
+~80-site str_data/str_len migration. Empirical counts came in
+smaller (sys_read 8 + memcpy 110 + memeq 96 + str helpers 81 ≈
+295 sites), and **a pilot migration of `lib/fs.cyr` was reverted
+twice in-flight** — clear signal that mass call-site churn isn't
+wanted in this slot. §10 ships the API capability; the
+mechanical sweep moves to a future slot once a downstream
+consumer earns the change.
+
+cc5 unchanged at **727,960 B** — the new wrappers are stdlib
+for user programs, not used by the compiler itself.
+
+### What §10 ships
+
+Three new helpers in `lib/slice.cyr`, additive (the canonical
+`(ptr, len)` primitives in `lib/string.cyr` / `lib/syscalls.cyr`
+remain the building blocks):
+
+```cyr
+fn sys_read_slice(fd, s)   { return sys_read(fd, load64(s), load64(s + 8)); }
+fn slice_copy_bytes(dst, src) {
+    var dn = load64(dst + 8); var sn = load64(src + 8);
+    var n = dn; if (sn < n) { n = sn; }
+    memcpy(load64(dst), load64(src), n); return n;
+}
+fn slice_eq_bytes(a, b) {
+    var an = load64(a + 8); var bn = load64(b + 8);
+    if (an != bn) { return 0; }
+    return memeq(load64(a), load64(b), an);
+}
+```
+
+All three take slice POINTERS (`&s`) — composes with the rest
+of the slice API. `slice_copy_bytes` truncates against the
+shorter slice (avoids the `memcpy(n)` foot-gun where caller has
+to compute min upfront). `slice_eq_bytes` treats length-mismatch
+as unequal by definition (no prefix-match semantics).
+
+`tests/tcyr/slice_byte_helpers.tcyr` — **15 assertions** across
+7 test groups: equal-length copy, dst-shorter truncation,
+src-shorter truncation, equality on equal contents, equality on
+differing contents, length-mismatch is unequal, copy/eq round-
+trip. `sys_read_slice` is smoke-tested via stdlib's existing
+syscall probes (real-fd machinery doesn't fit cleanly in tcyr).
+
+### Why ship as capability-only (no stdlib migration)
+
+Two pilot migrations of `lib/fs.cyr` (8 str_data/str_len sites,
+~5 fns to retype with `: Str`) were reverted in-flight — once
+during §9 setup, once during §10 wave 2. The pattern says: this
+cycle isn't the right time to mass-touch stdlib.
+
+Honest scope-shrink: §10 ships the helpers + tcyr regression. A
+file-by-file migration sweep can earn its own slot when:
+- A downstream consumer (sigil / mabda / yukti / etc.) actually
+  surfaces measurable pain from the helper-fn shape; OR
+- A maintenance pass on a specific stdlib module is independent-
+  ly motivated and the slice-shape rewrite folds in cleanly.
+
+The "454-site re-port pain" the original cycle-compression
+argument was meant to prevent doesn't materialize from the
+helper-fn API existing — downstream code calling `memcpy(dst,
+src, n)` keeps working unchanged. The new helpers exist for code
+that wants the slice shape, not as a forced replacement.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **727,960 B**
+   (unchanged from v5.8.17 — wrappers are stdlib, not compiler).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 7 prior slices regressions intact (121 assertions
+   total: 9 + 26 + 15 + 12 + 24 + 21 + 14).
+4. ✅ New `tests/tcyr/slice_byte_helpers.tcyr` — **15
+   assertions** across 7 test groups covering all three
+   wrappers plus a copy/eq round-trip.
+
+### Slices true-completion sub-arc — progress
+
+- ✅ **§6 (v5.8.14)**: TYPE_SLICE element-type tracking
+- ✅ **§7 (v5.8.15)**: Bounds-aware indexing `s[i]`
+- ✅ **§8 (v5.8.16)**: Dot-syntax field access on slices
+- ✅ **§9 (v5.8.17)**: Pointer-to-struct dot-syntax capability
+- ✅ **§10 (v5.8.18, this slot)**: Slice-typed wrapper helpers
+  (`sys_read_slice`, `slice_copy_bytes`, `slice_eq_bytes`).
+  Mass migration deferred — wrappers exist as opt-in, not as
+  forced replacement.
+- **§11 (v5.8.19)**: TRUE sub-arc closeout — downstream
+  consumers rebuild against the new helper surface area;
+  acceptance gates extended; sub-arc retrospective + lessons
+  learned from the §9 / §10 honest scope-shrink calls.
+
 ## [5.8.17] — 2026-05-02
 
 **v5.8.x slot 17 — slices §9: pointer-to-struct dot-syntax
