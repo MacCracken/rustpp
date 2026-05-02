@@ -241,76 +241,76 @@ fn FIXUP(S) {
             }
         }
         else { if (ftype == 3) {
-            # Function address. Shared: LEA [rip+disp32] — patch 4-byte
-            # PC-relative (next_instr = coff+4 since coff points at disp32).
-            # Else: MOV imm64 — patch 8-byte absolute.
-            # PE32+ (v5.5.5): function bodies live at
-            # ImageBase + _pe_text_rva + fn_offset instead of the ELF
-            # `entry + fn_offset`. Mirrors the ftype=1 string-address
-            # PE branch a dozen lines below. Without this the
-            # address-of-fn operator (`&fn`) emits an ELF-style VA
-            # that Windows rejects with error 216 at load time.
-            var tgt3 = entry + L64(S + 0x1292000 + idx * 8);
-            if (_TARGET_PE == 1) {
-                tgt3 = 0x140000000 + _pe_text_rva + L64(S + 0x1292000 + idx * 8);
-            }
-            if (kmode == 2) {
-                var rel3 = tgt3 - (entry + coff + 4);
-                var p3 = S + 0x64A000 + coff;
-                S64(p3, (L64(p3) >> 32 << 32) | (rel3 & 0xFFFFFFFF));
-            } else {
-                S64(S + 0x64A000 + coff, tgt3);
-            }
-        }
-        else { if (ftype == 1) {
-            # String address: dbase + totvar + string_offset.
-            # Shared: patch rel32 for LEA; else: patch imm64.
-            # PE32+ (v5.4.8): strings live in .rdata at
-            # ImageBase + _pe_rdata_rva + _pe_rdata_str_off + idx
-            # instead of the ELF `dbase + totvar + idx`.
-            var tgt1 = dbase + totvar + idx;
-            if (_TARGET_PE == 1) {
-                tgt1 = 0x140000000 + _pe_rdata_rva + _pe_rdata_str_off + idx;
-            }
-            if (kmode == 2) {
-                var rel1 = tgt1 - (entry + coff + 4);
-                var p1 = S + 0x64A000 + coff;
-                S64(p1, (L64(p1) >> 32 << 32) | (rel1 & 0xFFFFFFFF));
-            } else {
-                S64(S + 0x64A000 + coff, tgt1);
-            }
-        }
-        else { if (ftype == 4) {
-            # PE IAT reference — patch disp32 for `FF 15 <disp32>`
-            # (call [rip+disp32]) to reach the IAT slot for import
-            # `idx`. IAT_RVA = _pe_idata_rva + _pe_iat_sub_off + idx*8.
-            # RIP at the disp32 read is text_rva + coff + 4 (coff
-            # points at the 4-byte disp32; +4 skips past it).
-            var iat_rva = _pe_idata_rva + _pe_iat_sub_off + idx * 8;
-            var rel4 = iat_rva - (_pe_text_rva + coff + 4);
-            var p4 = S + 0x64A000 + coff;
-            S64(p4, (L64(p4) >> 32 << 32) | (rel4 & 0xFFFFFFFF));
-        }
-        else {
-            # Variable address (type 0) — use prefix sum.
-            # Shared: patch rel32 for LEA; else: patch imm64.
-            # PE32+ (v5.4.8): gvars live in .rdata at
-            # ImageBase + _pe_rdata_rva + prefix_sum[idx]
-            # (_pe_rdata_gvar_off is 0 by construction).
-            if (idx < vcnt) {
-                var tgt0 = dbase + L64(pfx + idx * 8);
+                # Function address. Shared: LEA [rip+disp32] — patch 4-byte
+                # PC-relative (next_instr = coff+4 since coff points at disp32).
+                # Else: MOV imm64 — patch 8-byte absolute.
+                # PE32+ (v5.5.5): function bodies live at
+                # ImageBase + _pe_text_rva + fn_offset instead of the ELF
+                # `entry + fn_offset`. Mirrors the ftype=1 string-address
+                # PE branch a dozen lines below. Without this the
+                # address-of-fn operator (`&fn`) emits an ELF-style VA
+                # that Windows rejects with error 216 at load time.
+                var tgt3 = entry + L64(S + 0x1292000 + idx * 8);
                 if (_TARGET_PE == 1) {
-                    tgt0 = 0x140000000 + _pe_rdata_rva + L64(pfx + idx * 8);
+                    tgt3 = 0x140000000 + _pe_text_rva + L64(S + 0x1292000 + idx * 8);
                 }
                 if (kmode == 2) {
-                    var rel0 = tgt0 - (entry + coff + 4);
-                    var p0 = S + 0x64A000 + coff;
-                    S64(p0, (L64(p0) >> 32 << 32) | (rel0 & 0xFFFFFFFF));
+                    var rel3 = tgt3 - (entry + coff + 4);
+                    var p3 = S + 0x64A000 + coff;
+                    S64(p3, (L64(p3) >> 32 << 32) | (rel3 & 0xFFFFFFFF));
                 } else {
-                    S64(S + 0x64A000 + coff, tgt0);
+                    S64(S + 0x64A000 + coff, tgt3);
                 }
             }
-        } } } }
+            else { if (ftype == 1) {
+                    # String address: dbase + totvar + string_offset.
+                    # Shared: patch rel32 for LEA; else: patch imm64.
+                    # PE32+ (v5.4.8): strings live in .rdata at
+                    # ImageBase + _pe_rdata_rva + _pe_rdata_str_off + idx
+                    # instead of the ELF `dbase + totvar + idx`.
+                    var tgt1 = dbase + totvar + idx;
+                    if (_TARGET_PE == 1) {
+                        tgt1 = 0x140000000 + _pe_rdata_rva + _pe_rdata_str_off + idx;
+                    }
+                    if (kmode == 2) {
+                        var rel1 = tgt1 - (entry + coff + 4);
+                        var p1 = S + 0x64A000 + coff;
+                        S64(p1, (L64(p1) >> 32 << 32) | (rel1 & 0xFFFFFFFF));
+                    } else {
+                        S64(S + 0x64A000 + coff, tgt1);
+                    }
+                }
+                else { if (ftype == 4) {
+                        # PE IAT reference — patch disp32 for `FF 15 <disp32>`
+                        # (call [rip+disp32]) to reach the IAT slot for import
+                        # `idx`. IAT_RVA = _pe_idata_rva + _pe_iat_sub_off + idx*8.
+                        # RIP at the disp32 read is text_rva + coff + 4 (coff
+                        # points at the 4-byte disp32; +4 skips past it).
+                        var iat_rva = _pe_idata_rva + _pe_iat_sub_off + idx * 8;
+                        var rel4 = iat_rva - (_pe_text_rva + coff + 4);
+                        var p4 = S + 0x64A000 + coff;
+                        S64(p4, (L64(p4) >> 32 << 32) | (rel4 & 0xFFFFFFFF));
+                    }
+                    else {
+                        # Variable address (type 0) — use prefix sum.
+                        # Shared: patch rel32 for LEA; else: patch imm64.
+                        # PE32+ (v5.4.8): gvars live in .rdata at
+                        # ImageBase + _pe_rdata_rva + prefix_sum[idx]
+                        # (_pe_rdata_gvar_off is 0 by construction).
+                        if (idx < vcnt) {
+                            var tgt0 = dbase + L64(pfx + idx * 8);
+                            if (_TARGET_PE == 1) {
+                                tgt0 = 0x140000000 + _pe_rdata_rva + L64(pfx + idx * 8);
+                            }
+                            if (kmode == 2) {
+                                var rel0 = tgt0 - (entry + coff + 4);
+                                var p0 = S + 0x64A000 + coff;
+                                S64(p0, (L64(p0) >> 32 << 32) | (rel0 & 0xFFFFFFFF));
+                            } else {
+                                S64(S + 0x64A000 + coff, tgt0);
+                            }
+                        }
+                    } } } }
         fi = fi + 1;
     }
     # Dead-code elimination — mark-and-sweep reachability from entry.
@@ -1411,8 +1411,8 @@ fn EMITELF(S) {
         # kernel SIGILLs at first instruction. Refuse at emit time so
         # users get a clear error pointing at the right compiler.
         syscall(SYS_WRITE, 2,
-            "error: CYRIUS_MACHO_ARM=1 requires the aarch64 backend. Use ./build/cc5_aarch64, not ./build/cc5.\n",
-            103);
+        "error: CYRIUS_MACHO_ARM=1 requires the aarch64 backend. Use ./build/cc5_aarch64, not ./build/cc5.\n",
+        103);
         syscall(SYS_EXIT, 1);
     }
     if (_TARGET_PE == 1) {

@@ -19,7 +19,7 @@ output = "build/cc5"
 [release]
 bins = ["cc5", "cyrius", "cyrfmt", "cyrlint", "cyrdoc", "cyrc", "ark", "cyrld", "cyrius_api_surface", "cyrius-lsp"]
 cross_bins = ["cc5_aarch64"]
-scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cyrius-watch.sh"]
+scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cyrius-watch.sh", "cyrius-prompt-info"]
 
 # v5.7.50: stdlib auto-prepend list. Required so cyrius's own `cyrius
 # bench` / `cyrius test` / `cyrius build` runs include the stdlib
@@ -57,6 +57,19 @@ modules = ["dist/patra.cyr"]
 git = "https://github.com/MacCracken/sigil.git"
 tag = "3.0.0"
 modules = ["dist/sigil.cyr"]
+
+# v5.8.0: vani audio distlib fold-in. `vani` (Sanskrit वाणी, Saraswati's
+# name — "voice / speech") is the audio-domain sibling distlib mirroring
+# the mabda / sankoch / sigil / yukti pattern. Pre-fold, ALSA PCM lived
+# at `lib/audio.cyr` (236 LOC). Post-fold, the same `audio_*` symbol
+# set is provided by `dist/vani.cyr` plus the higher-level `vani_*` API
+# (typed errors, ring buffer, XRUN recovery, mixer, yukti adapter).
+# Vani-side migration completed at vani 0.9.1 cut (2026-04-30 pin).
+# Fold-in plan: vani/docs/development/cyrius-stdlib-fold-in.md.
+[deps.vani]
+git = "https://github.com/MacCracken/vani.git"
+tag = "0.9.1"
+modules = ["dist/vani.cyr"]
 
 [deps.yukti]
 git = "https://github.com/MacCracken/yukti.git"

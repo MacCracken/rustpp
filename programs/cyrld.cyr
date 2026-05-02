@@ -105,9 +105,9 @@ fn read_u16(buf, off) {
 }
 fn read_u32(buf, off) {
     return load8(buf + off)
-         | (load8(buf + off + 1) << 8)
-         | (load8(buf + off + 2) << 16)
-         | (load8(buf + off + 3) << 24);
+    | (load8(buf + off + 1) << 8)
+    | (load8(buf + off + 2) << 16)
+    | (load8(buf + off + 3) << 24);
 }
 fn read_u64(buf, off) {
     return load64(buf + off);
@@ -629,7 +629,7 @@ fn apply_relocations() {
             }
             var host_mod_start = load64(&FN_MOD_OFF + host_fi * 8);
             var patch_merged_off = load64(&FN_MERGED_OFF + host_fi * 8)
-                + (r_off - host_mod_start);
+            + (r_off - host_mod_start);
             var patch_va = ENTRY_VA + patch_merged_off;
             var target_va = resolve_sym_va(mi, r_sym);
             if (target_va < 0) {
@@ -704,9 +704,9 @@ fn apply_relocations() {
 # Read an i32 (signed little-endian) at buf + off.
 fn read_i32(buf, off) {
     var v = load8(buf + off)
-         | (load8(buf + off + 1) << 8)
-         | (load8(buf + off + 2) << 16)
-         | (load8(buf + off + 3) << 24);
+    | (load8(buf + off + 1) << 8)
+    | (load8(buf + off + 2) << 16)
+    | (load8(buf + off + 3) << 24);
     if (v >= 0x80000000) { v = v - 0x100000000; }
     return v;
 }
@@ -852,8 +852,8 @@ fn run_dce() {
         if (load64(&FN_REACHED + fj * 8) == 0) {
             dead_count = dead_count + 1;
             dead_bytes = dead_bytes
-                + (load64(&FN_MERGED_END + fj * 8)
-                - load64(&FN_MERGED_OFF + fj * 8));
+            + (load64(&FN_MERGED_END + fj * 8)
+            - load64(&FN_MERGED_OFF + fj * 8));
         }
         fj = fj + 1;
     }
@@ -946,7 +946,7 @@ fn compact_text() {
             var p = 0;
             while (p < fsz) {
                 store8(NEW_TEXT + fn_new + p,
-                       load8(buf + text_off + mod_start + p));
+                load8(buf + text_off + mod_start + p));
                 p = p + 1;
             }
         }
@@ -960,7 +960,7 @@ fn compact_text() {
     while (fk < FN_COUNT) {
         if (load64(&FN_REACHED + fk * 8) == 1) {
             var fsz2 = load64(&FN_MERGED_END + fk * 8)
-                     - load64(&FN_MERGED_OFF + fk * 8);
+            - load64(&FN_MERGED_OFF + fk * 8);
             var nf = load64(&FN_NEW_OFF + fk * 8);
             store64(&FN_MERGED_OFF + fk * 8, nf);
             store64(&FN_MERGED_END + fk * 8, nf + fsz2);
@@ -1005,7 +1005,7 @@ fn remap_intra_module_calls() {
                                 var tstart = load64(&FN_MOD_OFF + fj * 8);
                                 var tend = load64(&FN_MOD_END + fj * 8);
                                 if (old_target_mod_off >= tstart
-                                    && old_target_mod_off < tend) {
+                                && old_target_mod_off < tend) {
                                     tgt_fi = fj;
                                     fj = FN_COUNT;
                                 }
@@ -1013,10 +1013,10 @@ fn remap_intra_module_calls() {
                             fj = fj + 1;
                         }
                         if (tgt_fi >= 0
-                            && load64(&FN_REACHED + tgt_fi * 8) == 1) {
+                        && load64(&FN_REACHED + tgt_fi * 8) == 1) {
                             var tmod_start = load64(&FN_MOD_OFF + tgt_fi * 8);
                             var new_tgt_off = load64(&FN_MERGED_OFF + tgt_fi * 8)
-                                + (old_target_mod_off - tmod_start);
+                            + (old_target_mod_off - tmod_start);
                             var new_rel = new_tgt_off - (p + 5);
                             store8(MERGED_TEXT + p + 1, new_rel & 0xFF);
                             store8(MERGED_TEXT + p + 2, (new_rel >> 8) & 0xFF);

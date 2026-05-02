@@ -206,7 +206,7 @@ fn _scan_file(filebuf, filelen, module_off, module_len) {
                                             }
                                         }
                                         _push_entry(module_off, module_len,
-                                                    filebuf + np, name_end - np, arity);
+                                        filebuf + np, name_end - np, arity);
                                     }
                                 }
                             }

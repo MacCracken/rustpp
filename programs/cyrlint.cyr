@@ -72,52 +72,52 @@ fn lint_file(buf, total) {
 
         if (skip_line == 0) {
 
-        # === Rule: no trailing whitespace ===
-        if (linelen > 0) {
-            var last = load8(buf + eol - 1);
-            if (last == 32) { warn(lineno, "trailing whitespace"); }
-            if (last == 9) { warn(lineno, "trailing tab"); }
-        }
-
-        # === Rule: no tabs (use spaces) ===
-        var ti = pos;
-        while (ti < eol) {
-            if (load8(buf + ti) == 9) {
-                warn(lineno, "tab character (use 4 spaces)");
-                ti = eol;
+            # === Rule: no trailing whitespace ===
+            if (linelen > 0) {
+                var last = load8(buf + eol - 1);
+                if (last == 32) { warn(lineno, "trailing whitespace"); }
+                if (last == 9) { warn(lineno, "trailing tab"); }
             }
-            ti += 1;
-        }
 
-        # === Rule: line too long (>120 chars) ===
-        if (linelen > 120) { warn(lineno, "line exceeds 120 characters"); }
-
-        # === Rule: is_err naming clash (bote feedback #5) ===
-        # If BOTH syscalls.cyr (is_err for raw ret<0) and tagged.cyr
-        # (is_err_result for Results) are in scope, any plain `is_err(`
-        # call is ambiguous and often silently wrong. Warn on each use.
-        if (is_err_clash == 1) {
-            var ic = pos;
-            while (ic + 7 <= eol) {
-                if (memeq(buf + ic, "is_err(", 7) == 1) {
-                    # Skip if preceded by an identifier char (e.g., `is_err_result`
-                    # happens to start with `is_err` — don't false-flag it).
-                    var preceded = 0;
-                    if (ic > 0) {
-                        var pc = load8(buf + ic - 1);
-                        if (pc == 95) { preceded = 1; }
-                        if (pc >= 48 && pc <= 57) { preceded = 1; }
-                        if (pc >= 65 && pc <= 90) { preceded = 1; }
-                        if (pc >= 97 && pc <= 122) { preceded = 1; }
-                    }
-                    if (preceded == 0) {
-                        warn(lineno, "ambiguous is_err: syscalls.cyr checks ret<0, tagged.cyr has is_err_result for Result — be explicit");
-                        ic = eol;
-                    }
+            # === Rule: no tabs (use spaces) ===
+            var ti = pos;
+            while (ti < eol) {
+                if (load8(buf + ti) == 9) {
+                    warn(lineno, "tab character (use 4 spaces)");
+                    ti = eol;
                 }
-                ic += 1;
+                ti += 1;
             }
-        }
+
+            # === Rule: line too long (>120 chars) ===
+            if (linelen > 120) { warn(lineno, "line exceeds 120 characters"); }
+
+            # === Rule: is_err naming clash (bote feedback #5) ===
+            # If BOTH syscalls.cyr (is_err for raw ret<0) and tagged.cyr
+            # (is_err_result for Results) are in scope, any plain `is_err(`
+            # call is ambiguous and often silently wrong. Warn on each use.
+            if (is_err_clash == 1) {
+                var ic = pos;
+                while (ic + 7 <= eol) {
+                    if (memeq(buf + ic, "is_err(", 7) == 1) {
+                        # Skip if preceded by an identifier char (e.g., `is_err_result`
+                        # happens to start with `is_err` — don't false-flag it).
+                        var preceded = 0;
+                        if (ic > 0) {
+                            var pc = load8(buf + ic - 1);
+                            if (pc == 95) { preceded = 1; }
+                            if (pc >= 48 && pc <= 57) { preceded = 1; }
+                            if (pc >= 65 && pc <= 90) { preceded = 1; }
+                            if (pc >= 97 && pc <= 122) { preceded = 1; }
+                        }
+                        if (preceded == 0) {
+                            warn(lineno, "ambiguous is_err: syscalls.cyr checks ret<0, tagged.cyr has is_err_result for Result — be explicit");
+                            ic = eol;
+                        }
+                    }
+                    ic += 1;
+                }
+            }
 
         }
 

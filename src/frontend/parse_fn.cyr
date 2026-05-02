@@ -164,69 +164,69 @@ fn PARSE_RETURN(S) {
     # Pattern: next token is IDENT, followed by LPAREN
     # Disabled inside inline replay (would emit caller's epilogue)
     if (GINFN(S) == 1) { if (GIDEP(S) == 0) {
-        if (PEEKT(S) == 2) {
-            var ti_after = GTI(S) + 1;
-            if (ti_after < GTCNT(S)) {
-                if (TOKTYP(S, ti_after) == 10) {
-                    # Verify it's actually a tail call: find matching ) and check for ;
-                    var tc_scan = ti_after + 1;
-                    var tc_depth = 1;
-                    var tc_is_tail = 0;
-                    while (tc_scan < GTCNT(S)) {
-                        if (TOKTYP(S, tc_scan) == 10) { tc_depth = tc_depth + 1; }
-                        if (TOKTYP(S, tc_scan) == 11) { tc_depth = tc_depth - 1; if (tc_depth == 0) { break; } }
-                        tc_scan = tc_scan + 1;
-                    }
-                    if (tc_scan + 1 < GTCNT(S)) {
-                        if (TOKTYP(S, tc_scan + 1) == 5) { tc_is_tail = 1; }
-                    }
-                if (tc_is_tail == 1) {
-                    # Tail call: return fn(args); → evaluate args, epilogue, jmp fn
-                    var tcnoff = PEEKV(S);
-                    STI(S, GTI(S) + 1);
-                    # Parse args (same as PARSE_FNCALL arg handling)
-                    STI(S, GTI(S) + 1);  # consume (
-                    var tcargc = 0;
-                    if (PEEKT(S) != 11) {
-                        var tcgo = 1;
-                        while (tcgo == 1) {
-                            PCMPE(S);
-                            EPUSHR(S);
-                            tcargc = tcargc + 1;
-                            if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
-                            else { tcgo = 0; }
+            if (PEEKT(S) == 2) {
+                var ti_after = GTI(S) + 1;
+                if (ti_after < GTCNT(S)) {
+                    if (TOKTYP(S, ti_after) == 10) {
+                        # Verify it's actually a tail call: find matching ) and check for ;
+                        var tc_scan = ti_after + 1;
+                        var tc_depth = 1;
+                        var tc_is_tail = 0;
+                        while (tc_scan < GTCNT(S)) {
+                            if (TOKTYP(S, tc_scan) == 10) { tc_depth = tc_depth + 1; }
+                            if (TOKTYP(S, tc_scan) == 11) { tc_depth = tc_depth - 1; if (tc_depth == 0) { break; } }
+                            tc_scan = tc_scan + 1;
                         }
-                    }
-                    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
-                    STI(S, GTI(S) + 1);  # consume )
-                    # Pop args into registers
-                    ECALLPOPS(S, tcargc);
-                    if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
-                    STI(S, GTI(S) + 1);
-                    # Look up function
-                    var tcfi = FINDFN(S, tcnoff);
-                    if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
-                    if (tcargc > 6) {
-                        # >6 args: normal call (stack args clobbered by tail call epilogue)
-                        var foff2 = L64(S + 0x1292000 + tcfi * 8);
-                        if (foff2 >= 0) { ECALLTO(S, foff2); }
-                        else { ECALLFIX(S, tcfi); }
-                        ECALLCLEAN(S, tcargc);
-                        # Jump to function epilogue (same as normal return)
-                        var rp2 = EJMP0(S);
-                        var rpc2 = GRPC(S);
-                        if (rpc2 >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
-                        S64(S + 0x18DA20 + rpc2 * 8, rp2);
-                        SRPC(S, rpc2 + 1);
-                    } else {
-                        # Emit epilogue + jmp (tail call, ≤6 args only)
-                        ETAILJMP(S, tcfi);
-                    }
-                    return 0;
-                } }
+                        if (tc_scan + 1 < GTCNT(S)) {
+                            if (TOKTYP(S, tc_scan + 1) == 5) { tc_is_tail = 1; }
+                        }
+                        if (tc_is_tail == 1) {
+                            # Tail call: return fn(args); → evaluate args, epilogue, jmp fn
+                            var tcnoff = PEEKV(S);
+                            STI(S, GTI(S) + 1);
+                            # Parse args (same as PARSE_FNCALL arg handling)
+                            STI(S, GTI(S) + 1);  # consume (
+                            var tcargc = 0;
+                            if (PEEKT(S) != 11) {
+                                var tcgo = 1;
+                                while (tcgo == 1) {
+                                    PCMPE(S);
+                                    EPUSHR(S);
+                                    tcargc = tcargc + 1;
+                                    if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                                    else { tcgo = 0; }
+                                }
+                            }
+                            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+                            STI(S, GTI(S) + 1);  # consume )
+                            # Pop args into registers
+                            ECALLPOPS(S, tcargc);
+                            if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+                            STI(S, GTI(S) + 1);
+                            # Look up function
+                            var tcfi = FINDFN(S, tcnoff);
+                            if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
+                            if (tcargc > 6) {
+                                # >6 args: normal call (stack args clobbered by tail call epilogue)
+                                var foff2 = L64(S + 0x1292000 + tcfi * 8);
+                                if (foff2 >= 0) { ECALLTO(S, foff2); }
+                                else { ECALLFIX(S, tcfi); }
+                                ECALLCLEAN(S, tcargc);
+                                # Jump to function epilogue (same as normal return)
+                                var rp2 = EJMP0(S);
+                                var rpc2 = GRPC(S);
+                                if (rpc2 >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+                                S64(S + 0x18DA20 + rpc2 * 8, rp2);
+                                SRPC(S, rpc2 + 1);
+                            } else {
+                                # Emit epilogue + jmp (tail call, ≤6 args only)
+                                ETAILJMP(S, tcfi);
+                            }
+                            return 0;
+                        } }
+                }
             }
-        }
-    } }
+        } }
     # Check for multi-return: return (a, b) → ret2(a, b)
     if (PEEKT(S) == 10) {
         # Scan ahead for comma at depth 1 to distinguish (a, b) from (a + b)
@@ -399,57 +399,57 @@ fn PARSE_FNCALL(S, noff) {
         syscall(SYS_WRITE, 2, "\n", 1);
     }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
-        # INLINE PATH: replay function body tokens at call site
-        var pc = L64(S + 0x129A000 + fi * 8);
-        var saved_flc = GFLC(S);
-        # Allocate fresh frame slots for callee params
-        var p0_slot = saved_flc;
-        var p1_slot = saved_flc + 1;
-        # Evaluate args and store to param slots
-        var iargc = 0;
-        if (PEEKT(S) != 11) {
-            var iago = 1;
-            while (iago == 1) {
-                PCMPE(S);
-                if (iargc == 0) { EFLSTORE(S, p0_slot); }
-                if (iargc == 1) { EFLSTORE(S, p1_slot); }
-                iargc = iargc + 1;
-                if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
-                else { iago = 0; }
-            }
-        }
-        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
-        STI(S, GTI(S) + 1);
-        # Set local count past the param slots
-        SFLC(S, saved_flc + pc);
-        # Register callee param names as temporary locals (packed in fn_inline)
-        var inl_packed = GFINL(S, fi);
-        var pn0 = inl_packed & 0xFFFFFFFF;
-        var pn1 = (inl_packed >> 32) & 0xFFFFFFFF;
-        if (pc >= 1) { S64(S + 0x191000 + p0_slot * 8, pn0); SLDEP(S, p0_slot, GSDEP(S)); }
-        if (pc >= 2) { S64(S + 0x191000 + p1_slot * 8, pn1); SLDEP(S, p1_slot, GSDEP(S)); }
-        # Save state and replay body tokens
-        var saved_ti = GTI(S);
-        var saved_rpc = GRPC(S);
-        SIDEP(S, GIDEP(S) + 1);
-        STI(S, GFBS(S, fi));
-        PARSE_PROG(S);
-        # Patch return jumps from inlined body to here
-        var new_rpc = GRPC(S);
-        var ri = saved_rpc;
-        while (ri < new_rpc) {
-            EPATCH(S, L64(S + 0x18DA20 + ri * 8));
-            ri = ri + 1;
-        }
-        SRPC(S, saved_rpc);
-        SIDEP(S, GIDEP(S) - 1);
-        # Restore token index
-        STI(S, saved_ti);
-        # Invalidate temporary param locals
-        if (pc >= 1) { S64(S + 0x191000 + p0_slot * 8, 0 - 1); }
-        if (pc >= 2) { S64(S + 0x191000 + p1_slot * 8, 0 - 1); }
-        return 0;
-    } } }
+                # INLINE PATH: replay function body tokens at call site
+                var pc = L64(S + 0x129A000 + fi * 8);
+                var saved_flc = GFLC(S);
+                # Allocate fresh frame slots for callee params
+                var p0_slot = saved_flc;
+                var p1_slot = saved_flc + 1;
+                # Evaluate args and store to param slots
+                var iargc = 0;
+                if (PEEKT(S) != 11) {
+                    var iago = 1;
+                    while (iago == 1) {
+                        PCMPE(S);
+                        if (iargc == 0) { EFLSTORE(S, p0_slot); }
+                        if (iargc == 1) { EFLSTORE(S, p1_slot); }
+                        iargc = iargc + 1;
+                        if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                        else { iago = 0; }
+                    }
+                }
+                if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+                STI(S, GTI(S) + 1);
+                # Set local count past the param slots
+                SFLC(S, saved_flc + pc);
+                # Register callee param names as temporary locals (packed in fn_inline)
+                var inl_packed = GFINL(S, fi);
+                var pn0 = inl_packed & 0xFFFFFFFF;
+                var pn1 = (inl_packed >> 32) & 0xFFFFFFFF;
+                if (pc >= 1) { S64(S + 0x191000 + p0_slot * 8, pn0); SLDEP(S, p0_slot, GSDEP(S)); }
+                if (pc >= 2) { S64(S + 0x191000 + p1_slot * 8, pn1); SLDEP(S, p1_slot, GSDEP(S)); }
+                # Save state and replay body tokens
+                var saved_ti = GTI(S);
+                var saved_rpc = GRPC(S);
+                SIDEP(S, GIDEP(S) + 1);
+                STI(S, GFBS(S, fi));
+                PARSE_PROG(S);
+                # Patch return jumps from inlined body to here
+                var new_rpc = GRPC(S);
+                var ri = saved_rpc;
+                while (ri < new_rpc) {
+                    EPATCH(S, L64(S + 0x18DA20 + ri * 8));
+                    ri = ri + 1;
+                }
+                SRPC(S, saved_rpc);
+                SIDEP(S, GIDEP(S) - 1);
+                # Restore token index
+                STI(S, saved_ti);
+                # Invalidate temporary param locals
+                if (pc >= 1) { S64(S + 0x191000 + p0_slot * 8, 0 - 1); }
+                if (pc >= 2) { S64(S + 0x191000 + p1_slot * 8, 0 - 1); }
+                return 0;
+            } } }
     # NORMAL CALL PATH
     # Args pushed left-to-right: arg1 first (bottom), argN last (top).
     # ECALLPOPS pops top 6 into registers: rdi=argN-5, ..., r9=argN.
@@ -1033,27 +1033,27 @@ fn PARSE_FN_DEF(S) {
     while (lase_i + 14 <= lase_cp) {
         # Detect store (7 bytes): 48 89 85 XX XX XX XX
         if (load8(S + 0x64A000 + lase_i) == 0x48) {
-        if (load8(S + 0x64A000 + lase_i + 1) == 0x89) {
-        if (load8(S + 0x64A000 + lase_i + 2) == 0x85) {
-            # Check for load at exactly store+7: 48 8B 85 XX XX XX XX (same offset)
-            var lj = lase_i + 7;
-            if (load8(S + 0x64A000 + lj) == 0x48) {
-            if (load8(S + 0x64A000 + lj + 1) == 0x8B) {
-            if (load8(S + 0x64A000 + lj + 2) == 0x85) {
-                if (load32(S + 0x64A000 + lase_i + 3) == load32(S + 0x64A000 + lj + 3)) {
-                    # Same offset — check if load is a jump target
-                    if (IS_JUMP_TARGET(S, lj) == 0) {
-                        # Safe to eliminate — NOP the 7-byte load
-                        var ln = lj;
-                        while (ln < lj + 7) {
-                            store8(S + 0x64A000 + ln, 0x90);
-                            ln += 1;
-                        }
-                        lase_count += 1;
-                    }
-                }
-            } } }
-        } } }
+            if (load8(S + 0x64A000 + lase_i + 1) == 0x89) {
+                if (load8(S + 0x64A000 + lase_i + 2) == 0x85) {
+                    # Check for load at exactly store+7: 48 8B 85 XX XX XX XX (same offset)
+                    var lj = lase_i + 7;
+                    if (load8(S + 0x64A000 + lj) == 0x48) {
+                        if (load8(S + 0x64A000 + lj + 1) == 0x8B) {
+                            if (load8(S + 0x64A000 + lj + 2) == 0x85) {
+                                if (load32(S + 0x64A000 + lase_i + 3) == load32(S + 0x64A000 + lj + 3)) {
+                                    # Same offset — check if load is a jump target
+                                    if (IS_JUMP_TARGET(S, lj) == 0) {
+                                        # Safe to eliminate — NOP the 7-byte load
+                                        var ln = lj;
+                                        while (ln < lj + 7) {
+                                            store8(S + 0x64A000 + ln, 0x90);
+                                            ln += 1;
+                                        }
+                                        lase_count += 1;
+                                    }
+                                }
+                            } } }
+                } } }
         lase_i += 1;
     }
     # v4.8.4-alpha7/alpha8: #regalloc routing via post-body peephole.
@@ -1111,31 +1111,31 @@ fn PARSE_FN_DEF(S) {
                 var ra_s = ra_start;
                 while (ra_s + 7 <= ra_end) {
                     if (load8(S + 0x64A000 + ra_s) == 0x48) {
-                    var ra_op1 = load8(S + 0x64A000 + ra_s + 1);
-                    if (ra_op1 == 0x8B || ra_op1 == 0x89) {
-                    if (load8(S + 0x64A000 + ra_s + 2) == 0x85) {
-                        # Decode disp32 → local idx. Only [rbp+neg]
-                        # slots are user locals; positive disps are
-                        # stack args above rbp and ignored.
-                        var ra_d = load32(S + 0x64A000 + ra_s + 3);
-                        # Sign-extend the 32-bit signed disp.
-                        if (ra_d >= 0x80000000) { ra_d = ra_d - 0x100000000; }
-                        if (ra_d < 0) {
-                            # disp = -(idx+1+N)*8 where N = _cur_fn_regalloc,
-                            # so idx = -ra_d/8 - 1 - N.
-                            var ra_idx = (0 - ra_d) / 8 - 1 - _cur_fn_regalloc;
-                            if (ra_idx >= pc) {
-                            if (ra_idx < ra_flc) {
-                                var ra_cur = load64(&ra_counts + ra_idx * 8);
-                                store64(&ra_counts + ra_idx * 8, ra_cur + 1);
-                                # v5.6.19 O4a: track first/last CP for this local.
-                                if (load64(&ra_first + ra_idx * 8) == (0 - 1)) {
-                                    store64(&ra_first + ra_idx * 8, ra_s);
+                        var ra_op1 = load8(S + 0x64A000 + ra_s + 1);
+                        if (ra_op1 == 0x8B || ra_op1 == 0x89) {
+                            if (load8(S + 0x64A000 + ra_s + 2) == 0x85) {
+                                # Decode disp32 → local idx. Only [rbp+neg]
+                                # slots are user locals; positive disps are
+                                # stack args above rbp and ignored.
+                                var ra_d = load32(S + 0x64A000 + ra_s + 3);
+                                # Sign-extend the 32-bit signed disp.
+                                if (ra_d >= 0x80000000) { ra_d = ra_d - 0x100000000; }
+                                if (ra_d < 0) {
+                                    # disp = -(idx+1+N)*8 where N = _cur_fn_regalloc,
+                                    # so idx = -ra_d/8 - 1 - N.
+                                    var ra_idx = (0 - ra_d) / 8 - 1 - _cur_fn_regalloc;
+                                    if (ra_idx >= pc) {
+                                        if (ra_idx < ra_flc) {
+                                            var ra_cur = load64(&ra_counts + ra_idx * 8);
+                                            store64(&ra_counts + ra_idx * 8, ra_cur + 1);
+                                            # v5.6.19 O4a: track first/last CP for this local.
+                                            if (load64(&ra_first + ra_idx * 8) == (0 - 1)) {
+                                                store64(&ra_first + ra_idx * 8, ra_s);
+                                            }
+                                            store64(&ra_last + ra_idx * 8, ra_s);
+                                        } }
                                 }
-                                store64(&ra_last + ra_idx * 8, ra_s);
-                            } }
-                        }
-                    } } }
+                            } } }
                     ra_s = ra_s + 1;
                 }
                 # v5.6.19 O4a: dump per-fn intervals when CYRIUS_REGALLOC_DUMP=1.
@@ -1334,16 +1334,16 @@ fn PARSE_FN_DEF(S) {
                         var ps_sp = ra_start;
                         while (ps_sp + 7 <= ra_end) {
                             if (load8(S + 0x64A000 + ps_sp + 2) == 0x85) {
-                            if (load32(S + 0x64A000 + ps_sp + 3) == ps_disp32) {
-                                var ps_px1 = load8(S + 0x64A000 + ps_sp);
-                                var ps_px2 = load8(S + 0x64A000 + ps_sp + 1);
-                                var ps_ok = 0;
-                                if (ps_px1 == 0x48) {
-                                    if (ps_px2 == 0x8B) { ps_ok = 1; }
-                                    if (ps_px2 == 0x89) { ps_ok = 1; }
-                                }
-                                if (ps_ok == 0) { ps_safe = 0; }
-                            } }
+                                if (load32(S + 0x64A000 + ps_sp + 3) == ps_disp32) {
+                                    var ps_px1 = load8(S + 0x64A000 + ps_sp);
+                                    var ps_px2 = load8(S + 0x64A000 + ps_sp + 1);
+                                    var ps_ok = 0;
+                                    if (ps_px1 == 0x48) {
+                                        if (ps_px2 == 0x8B) { ps_ok = 1; }
+                                        if (ps_px2 == 0x89) { ps_ok = 1; }
+                                    }
+                                    if (ps_ok == 0) { ps_safe = 0; }
+                                } }
                             ps_sp = ps_sp + 1;
                         }
                     }
@@ -1406,44 +1406,44 @@ fn PARSE_FN_DEF(S) {
                     if (ra_p_max > ra_end) { ra_p_max = ra_end; }
                     while (ra_p + 7 <= ra_p_max) {
                         if (load8(S + 0x64A000 + ra_p) == 0x48) {
-                        var op1 = load8(S + 0x64A000 + ra_p + 1);
-                        if (load8(S + 0x64A000 + ra_p + 2) == 0x85) {
-                        if (load32(S + 0x64A000 + ra_p + 3) == hot_disp32) {
-                            if (op1 == 0x8B) {
-                                # mov rax,[rbp+disp] → mov rax,REG; 4-byte NOP
-                                store8(S + 0x64A000 + ra_p + 0, lb0);
-                                store8(S + 0x64A000 + ra_p + 1, lb1);
-                                store8(S + 0x64A000 + ra_p + 2, lb2);
-                                store8(S + 0x64A000 + ra_p + 3, 0x0F);
-                                store8(S + 0x64A000 + ra_p + 4, 0x1F);
-                                store8(S + 0x64A000 + ra_p + 5, 0x40);
-                                store8(S + 0x64A000 + ra_p + 6, 0x00);
-                                # v5.6.27: record NOP run at ra_p+3, len 4
-                                var _nrc_l = L64(S + 0x1A2008);
-                                if (_nrc_l < 1024) {
-                                    S64(S + 0x1A2010 + _nrc_l * 16, ra_p + 3);
-                                    S64(S + 0x1A2010 + _nrc_l * 16 + 8, 4);
-                                    S64(S + 0x1A2008, _nrc_l + 1);
-                                }
-                            }
-                            if (op1 == 0x89) {
-                                # mov [rbp+disp],rax → mov REG,rax; 4-byte NOP
-                                store8(S + 0x64A000 + ra_p + 0, sb0);
-                                store8(S + 0x64A000 + ra_p + 1, sb1);
-                                store8(S + 0x64A000 + ra_p + 2, sb2);
-                                store8(S + 0x64A000 + ra_p + 3, 0x0F);
-                                store8(S + 0x64A000 + ra_p + 4, 0x1F);
-                                store8(S + 0x64A000 + ra_p + 5, 0x40);
-                                store8(S + 0x64A000 + ra_p + 6, 0x00);
-                                # v5.6.27: record NOP run at ra_p+3, len 4
-                                var _nrc_s = L64(S + 0x1A2008);
-                                if (_nrc_s < 1024) {
-                                    S64(S + 0x1A2010 + _nrc_s * 16, ra_p + 3);
-                                    S64(S + 0x1A2010 + _nrc_s * 16 + 8, 4);
-                                    S64(S + 0x1A2008, _nrc_s + 1);
-                                }
-                            }
-                        } } }
+                            var op1 = load8(S + 0x64A000 + ra_p + 1);
+                            if (load8(S + 0x64A000 + ra_p + 2) == 0x85) {
+                                if (load32(S + 0x64A000 + ra_p + 3) == hot_disp32) {
+                                    if (op1 == 0x8B) {
+                                        # mov rax,[rbp+disp] → mov rax,REG; 4-byte NOP
+                                        store8(S + 0x64A000 + ra_p + 0, lb0);
+                                        store8(S + 0x64A000 + ra_p + 1, lb1);
+                                        store8(S + 0x64A000 + ra_p + 2, lb2);
+                                        store8(S + 0x64A000 + ra_p + 3, 0x0F);
+                                        store8(S + 0x64A000 + ra_p + 4, 0x1F);
+                                        store8(S + 0x64A000 + ra_p + 5, 0x40);
+                                        store8(S + 0x64A000 + ra_p + 6, 0x00);
+                                        # v5.6.27: record NOP run at ra_p+3, len 4
+                                        var _nrc_l = L64(S + 0x1A2008);
+                                        if (_nrc_l < 1024) {
+                                            S64(S + 0x1A2010 + _nrc_l * 16, ra_p + 3);
+                                            S64(S + 0x1A2010 + _nrc_l * 16 + 8, 4);
+                                            S64(S + 0x1A2008, _nrc_l + 1);
+                                        }
+                                    }
+                                    if (op1 == 0x89) {
+                                        # mov [rbp+disp],rax → mov REG,rax; 4-byte NOP
+                                        store8(S + 0x64A000 + ra_p + 0, sb0);
+                                        store8(S + 0x64A000 + ra_p + 1, sb1);
+                                        store8(S + 0x64A000 + ra_p + 2, sb2);
+                                        store8(S + 0x64A000 + ra_p + 3, 0x0F);
+                                        store8(S + 0x64A000 + ra_p + 4, 0x1F);
+                                        store8(S + 0x64A000 + ra_p + 5, 0x40);
+                                        store8(S + 0x64A000 + ra_p + 6, 0x00);
+                                        # v5.6.27: record NOP run at ra_p+3, len 4
+                                        var _nrc_s = L64(S + 0x1A2008);
+                                        if (_nrc_s < 1024) {
+                                            S64(S + 0x1A2010 + _nrc_s * 16, ra_p + 3);
+                                            S64(S + 0x1A2010 + _nrc_s * 16 + 8, 4);
+                                            S64(S + 0x1A2008, _nrc_s + 1);
+                                        }
+                                    }
+                                } } }
                         ra_p = ra_p + 1;
                     }
                     ra_ai = ra_ai + 1;
@@ -1463,131 +1463,131 @@ fn PARSE_FN_DEF(S) {
     # untracked); no overflow on jump_src_tbl or nop_run_tbl;
     # IR_ENABLED == 0 (DSE/LASE NOPs at IR=3 not tracked).
     if (_AARCH64_BACKEND == 0) {
-    var _kmode = L64(S + 0x18FCA0);
-    if (_kmode <= 1) {
-        if (IR_ENABLED(S) == 0) {
-            var _nrn = L64(S + 0x1A2008);
-            var _jsn = L64(S + 0x1A0000);
-            if (_nrn > 0 && _nrn < 1024 && _jsn < 1024) {
-                # Stage 1: update intra-fn jump disp32s.
-                # For each tracked source CP: decode disp32, compute
-                # target, recompute new disp using shift_at(src) and
-                # shift_at(tgt). shift_at(p) = sum of nop lens where
-                # nop_cp < p (linear scan; runs are emit-order which
-                # may not be CP-sorted, so check all).
-                var _ji = 0;
-                while (_ji < _jsn) {
-                    var _src_cp = L64(S + 0x1A0008 + _ji * 8);
-                    var _da = S + 0x64A000 + _src_cp;
-                    var _disp = load8(_da) | (load8(_da + 1) << 8) | (load8(_da + 2) << 16) | (load8(_da + 3) << 24);
-                    if (_disp >= 0x80000000) { _disp = _disp - 0x100000000; }
-                    var _tgt_cp = _src_cp + 4 + _disp;
-                    var _ssh = 0;
-                    var _tsh = 0;
-                    var _ni = 0;
-                    while (_ni < _nrn) {
-                        var _ncp = L64(S + 0x1A2010 + _ni * 16);
-                        var _nlen = L64(S + 0x1A2010 + _ni * 16 + 8);
-                        if (_ncp < _src_cp) { _ssh = _ssh + _nlen; }
-                        if (_ncp < _tgt_cp) { _tsh = _tsh + _nlen; }
-                        _ni = _ni + 1;
+        var _kmode = L64(S + 0x18FCA0);
+        if (_kmode <= 1) {
+            if (IR_ENABLED(S) == 0) {
+                var _nrn = L64(S + 0x1A2008);
+                var _jsn = L64(S + 0x1A0000);
+                if (_nrn > 0 && _nrn < 1024 && _jsn < 1024) {
+                    # Stage 1: update intra-fn jump disp32s.
+                    # For each tracked source CP: decode disp32, compute
+                    # target, recompute new disp using shift_at(src) and
+                    # shift_at(tgt). shift_at(p) = sum of nop lens where
+                    # nop_cp < p (linear scan; runs are emit-order which
+                    # may not be CP-sorted, so check all).
+                    var _ji = 0;
+                    while (_ji < _jsn) {
+                        var _src_cp = L64(S + 0x1A0008 + _ji * 8);
+                        var _da = S + 0x64A000 + _src_cp;
+                        var _disp = load8(_da) | (load8(_da + 1) << 8) | (load8(_da + 2) << 16) | (load8(_da + 3) << 24);
+                        if (_disp >= 0x80000000) { _disp = _disp - 0x100000000; }
+                        var _tgt_cp = _src_cp + 4 + _disp;
+                        var _ssh = 0;
+                        var _tsh = 0;
+                        var _ni = 0;
+                        while (_ni < _nrn) {
+                            var _ncp = L64(S + 0x1A2010 + _ni * 16);
+                            var _nlen = L64(S + 0x1A2010 + _ni * 16 + 8);
+                            if (_ncp < _src_cp) { _ssh = _ssh + _nlen; }
+                            if (_ncp < _tgt_cp) { _tsh = _tsh + _nlen; }
+                            _ni = _ni + 1;
+                        }
+                        var _nd = _disp - _tsh + _ssh;
+                        store8(_da + 0, _nd & 0xFF);
+                        store8(_da + 1, (_nd >> 8) & 0xFF);
+                        store8(_da + 2, (_nd >> 16) & 0xFF);
+                        store8(_da + 3, (_nd >> 24) & 0xFF);
+                        _ji = _ji + 1;
                     }
-                    var _nd = _disp - _tsh + _ssh;
-                    store8(_da + 0, _nd & 0xFF);
-                    store8(_da + 1, (_nd >> 8) & 0xFF);
-                    store8(_da + 2, (_nd >> 16) & 0xFF);
-                    store8(_da + 3, (_nd >> 24) & 0xFF);
-                    _ji = _ji + 1;
-                }
-                # Stage 2: shift fixup-table CPs added during this fn.
-                # FIXUP later patches via these CPs — they must reflect
-                # post-compaction positions.
-                var _fc0 = L64(S + 0x1A6010);
-                var _fcn = GFCNT(S);
-                var _fi = _fc0;
-                while (_fi < _fcn) {
-                    var _fa = S + 0x190B000 + _fi * 16;
-                    var _fcp = L64(_fa);
-                    var _fsh = 0;
-                    var _ni2 = 0;
-                    while (_ni2 < _nrn) {
-                        var _ncp2 = L64(S + 0x1A2010 + _ni2 * 16);
-                        if (_ncp2 < _fcp) { _fsh = _fsh + L64(S + 0x1A2010 + _ni2 * 16 + 8); }
-                        _ni2 = _ni2 + 1;
+                    # Stage 2: shift fixup-table CPs added during this fn.
+                    # FIXUP later patches via these CPs — they must reflect
+                    # post-compaction positions.
+                    var _fc0 = L64(S + 0x1A6010);
+                    var _fcn = GFCNT(S);
+                    var _fi = _fc0;
+                    while (_fi < _fcn) {
+                        var _fa = S + 0x190B000 + _fi * 16;
+                        var _fcp = L64(_fa);
+                        var _fsh = 0;
+                        var _ni2 = 0;
+                        while (_ni2 < _nrn) {
+                            var _ncp2 = L64(S + 0x1A2010 + _ni2 * 16);
+                            if (_ncp2 < _fcp) { _fsh = _fsh + L64(S + 0x1A2010 + _ni2 * 16 + 8); }
+                            _ni2 = _ni2 + 1;
+                        }
+                        S64(_fa, _fcp - _fsh);
+                        _fi = _fi + 1;
                     }
-                    S64(_fa, _fcp - _fsh);
-                    _fi = _fi + 1;
-                }
-                # Stage 3: shift jump-target table entries (used by LASE
-                # / BB analysis at IR>0; harmless to update at IR=0).
-                var _jtc = L64(S + 0x19E000);
-                if (_jtc > 1024) { _jtc = 1024; }
-                var _jti = 0;
-                while (_jti < _jtc) {
-                    var _jta = S + 0x19E008 + _jti * 8;
-                    var _jcp = L64(_jta);
-                    var _jsh = 0;
-                    var _ni3 = 0;
-                    while (_ni3 < _nrn) {
-                        var _ncp3 = L64(S + 0x1A2010 + _ni3 * 16);
-                        if (_ncp3 < _jcp) { _jsh = _jsh + L64(S + 0x1A2010 + _ni3 * 16 + 8); }
-                        _ni3 = _ni3 + 1;
+                    # Stage 3: shift jump-target table entries (used by LASE
+                    # / BB analysis at IR>0; harmless to update at IR=0).
+                    var _jtc = L64(S + 0x19E000);
+                    if (_jtc > 1024) { _jtc = 1024; }
+                    var _jti = 0;
+                    while (_jti < _jtc) {
+                        var _jta = S + 0x19E008 + _jti * 8;
+                        var _jcp = L64(_jta);
+                        var _jsh = 0;
+                        var _ni3 = 0;
+                        while (_ni3 < _nrn) {
+                            var _ncp3 = L64(S + 0x1A2010 + _ni3 * 16);
+                            if (_ncp3 < _jcp) { _jsh = _jsh + L64(S + 0x1A2010 + _ni3 * 16 + 8); }
+                            _ni3 = _ni3 + 1;
+                        }
+                        S64(_jta, _jcp - _jsh);
+                        _jti = _jti + 1;
                     }
-                    S64(_jta, _jcp - _jsh);
-                    _jti = _jti + 1;
-                }
-                # Stage 4: compact bytes. Sort NOP runs by CP first
-                # (insertion sort; nrn ≤ 1024). Picker emit order isn't
-                # strictly CP-monotone (multiple intervals patched in
-                # interval order, not emit order).
-                var _si = 1;
-                while (_si < _nrn) {
-                    var _kcp = L64(S + 0x1A2010 + _si * 16);
-                    var _klen = L64(S + 0x1A2010 + _si * 16 + 8);
-                    var _sj = _si - 1;
-                    var _sd = 0;
-                    while (_sj >= 0 && _sd == 0) {
-                        var _pcp = L64(S + 0x1A2010 + _sj * 16);
-                        if (_pcp > _kcp) {
-                            S64(S + 0x1A2010 + (_sj + 1) * 16, _pcp);
-                            S64(S + 0x1A2010 + (_sj + 1) * 16 + 8, L64(S + 0x1A2010 + _sj * 16 + 8));
-                            _sj = _sj - 1;
-                        } else { _sd = 1; }
+                    # Stage 4: compact bytes. Sort NOP runs by CP first
+                    # (insertion sort; nrn ≤ 1024). Picker emit order isn't
+                    # strictly CP-monotone (multiple intervals patched in
+                    # interval order, not emit order).
+                    var _si = 1;
+                    while (_si < _nrn) {
+                        var _kcp = L64(S + 0x1A2010 + _si * 16);
+                        var _klen = L64(S + 0x1A2010 + _si * 16 + 8);
+                        var _sj = _si - 1;
+                        var _sd = 0;
+                        while (_sj >= 0 && _sd == 0) {
+                            var _pcp = L64(S + 0x1A2010 + _sj * 16);
+                            if (_pcp > _kcp) {
+                                S64(S + 0x1A2010 + (_sj + 1) * 16, _pcp);
+                                S64(S + 0x1A2010 + (_sj + 1) * 16 + 8, L64(S + 0x1A2010 + _sj * 16 + 8));
+                                _sj = _sj - 1;
+                            } else { _sd = 1; }
+                        }
+                        S64(S + 0x1A2010 + (_sj + 1) * 16, _kcp);
+                        S64(S + 0x1A2010 + (_sj + 1) * 16 + 8, _klen);
+                        _si = _si + 1;
                     }
-                    S64(S + 0x1A2010 + (_sj + 1) * 16, _kcp);
-                    S64(S + 0x1A2010 + (_sj + 1) * 16 + 8, _klen);
-                    _si = _si + 1;
-                }
-                # Now compact: walk fn_start..GCP, skip NOP-run bytes,
-                # copy non-NOP bytes back to write-pointer.
-                var _end = GCP(S);
-                var _wp = fn_start;
-                var _rp = fn_start;
-                var _ri = 0;
-                while (_rp < _end) {
-                    var _skip = 0;
-                    if (_ri < _nrn) {
-                        var _nrcp = L64(S + 0x1A2010 + _ri * 16);
-                        if (_rp == _nrcp) {
-                            _rp = _rp + L64(S + 0x1A2010 + _ri * 16 + 8);
-                            _ri = _ri + 1;
-                            _skip = 1;
+                    # Now compact: walk fn_start..GCP, skip NOP-run bytes,
+                    # copy non-NOP bytes back to write-pointer.
+                    var _end = GCP(S);
+                    var _wp = fn_start;
+                    var _rp = fn_start;
+                    var _ri = 0;
+                    while (_rp < _end) {
+                        var _skip = 0;
+                        if (_ri < _nrn) {
+                            var _nrcp = L64(S + 0x1A2010 + _ri * 16);
+                            if (_rp == _nrcp) {
+                                _rp = _rp + L64(S + 0x1A2010 + _ri * 16 + 8);
+                                _ri = _ri + 1;
+                                _skip = 1;
+                            }
+                        }
+                        if (_skip == 0) {
+                            store8(S + 0x64A000 + _wp, load8(S + 0x64A000 + _rp));
+                            _wp = _wp + 1;
+                            _rp = _rp + 1;
                         }
                     }
-                    if (_skip == 0) {
-                        store8(S + 0x64A000 + _wp, load8(S + 0x64A000 + _rp));
-                        _wp = _wp + 1;
-                        _rp = _rp + 1;
-                    }
+                    SCP(S, _wp);
+                    # Invalidate emit-tracker globals — their CPs are stale.
+                    _last_push_cp = 0 - 1;
+                    _last_emovca_cp = 0 - 1;
+                    _last_movca_popr_cp = 0 - 1;
                 }
-                SCP(S, _wp);
-                # Invalidate emit-tracker globals — their CPs are stale.
-                _last_push_cp = 0 - 1;
-                _last_emovca_cp = 0 - 1;
-                _last_movca_popr_cp = 0 - 1;
             }
         }
-    }
     }
     # Patch frame size
     var flc = GFLC(S);

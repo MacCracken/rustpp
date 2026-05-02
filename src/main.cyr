@@ -484,7 +484,7 @@ if (_ts_parse_only_mode == 1) {
         syscall(SYS_WRITE, 2, " err_idx=", 9);
         _emit_decimal(_tp_etok);
         syscall(SYS_WRITE, 2, "
-", 1);
+        ", 1);
         syscall(SYS_EXIT, 1);
     }
     syscall(SYS_EXIT, 0);
@@ -541,10 +541,10 @@ if (_macho_arm_env_early != 0) {
 if (_is_pe_build == 1) {
     PP_PREDEFINE(S, "CYRIUS_TARGET_WIN");
 } else { if (_is_macho_build == 1) {
-    PP_PREDEFINE(S, "CYRIUS_TARGET_MACOS");
-} else {
-    PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
-} }
+        PP_PREDEFINE(S, "CYRIUS_TARGET_MACOS");
+    } else {
+        PP_PREDEFINE(S, "CYRIUS_TARGET_LINUX");
+    } }
 
 # v5.6.5 O1: total compile-time instrumentation. Gated by the
 # CYRIUS_PROF env var (set to "1" to enable). Reads clock_gettime(
@@ -668,110 +668,110 @@ while (scan == 1) {
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     }
     else { if (PEEKT(S) == 73) {
-        # pub — skip in pass 1 (just consume the keyword, next token is fn/var/struct)
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 74) {
-        # use modname.funcname; — register alias
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 2) {
-            var umod = PEEKV(S);
+            # pub — skip in pass 1 (just consume the keyword, next token is fn/var/struct)
             STI(S, GTI(S) + 1);
-            if (PEEKT(S) == 41) {
+        }
+        else { if (PEEKT(S) == 74) {
+                # use modname.funcname; — register alias
                 STI(S, GTI(S) + 1);
                 if (PEEKT(S) == 2) {
-                    var ufn = PEEKV(S);
+                    var umod = PEEKV(S);
                     STI(S, GTI(S) + 1);
-                    # Build mangled name: mod_fn
-                    # Each alias gets 64 bytes in scratch area (30000 + uc*64)
-                    var uc = GUSEC(S);
-                    S64(S + 0x18FFD0 + uc * 8, ufn);
-                    # Append mangled name to tok_names (after lexing, NPOS is stable)
-                    NPOS_GUARD(S, 256);
-                    var apos = GNPOS(S);
-                    var ri = 0;
-                    var rc = load8(S + 0x60000 + umod + ri);
-                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
-                    store8(S + 0x60000 + apos, 95); apos = apos + 1;
-                    ri = 0; rc = load8(S + 0x60000 + ufn + ri);
-                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
-                    store8(S + 0x60000 + apos, 0); apos = apos + 1;
-                    var alias_noff = GNPOS(S);
-                    SNPOS(S, apos);
-                    S64(S + 0x1901D0 + uc * 8, alias_noff);
-                    SUSEC(S, uc + 1);
+                    if (PEEKT(S) == 41) {
+                        STI(S, GTI(S) + 1);
+                        if (PEEKT(S) == 2) {
+                            var ufn = PEEKV(S);
+                            STI(S, GTI(S) + 1);
+                            # Build mangled name: mod_fn
+                            # Each alias gets 64 bytes in scratch area (30000 + uc*64)
+                            var uc = GUSEC(S);
+                            S64(S + 0x18FFD0 + uc * 8, ufn);
+                            # Append mangled name to tok_names (after lexing, NPOS is stable)
+                            NPOS_GUARD(S, 256);
+                            var apos = GNPOS(S);
+                            var ri = 0;
+                            var rc = load8(S + 0x60000 + umod + ri);
+                            while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
+                            store8(S + 0x60000 + apos, 95); apos = apos + 1;
+                            ri = 0; rc = load8(S + 0x60000 + ufn + ri);
+                            while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
+                            store8(S + 0x60000 + apos, 0); apos = apos + 1;
+                            var alias_noff = GNPOS(S);
+                            SNPOS(S, apos);
+                            S64(S + 0x1901D0 + uc * 8, alias_noff);
+                            SUSEC(S, uc + 1);
+                        }
+                    }
                 }
+                if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
             }
-        }
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
-    else { if (PEEKT(S) == 101) { PARSE_UNION_DEF(S); }
-    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
-    # v4.8.4-alpha1: #regalloc — consume silently in pass 1. Pass 1
-    # doesn't REGFN, so there's no metadata slot to attach to here;
-    # pass 2 re-reads the same token stream and arms the pending flag
-    # then. (v4.8.4-alpha4 kept the pass-1 consume unchanged so a
-    # stale flag can't leak from pass 1 into pass 2.)
-    else { if (PEEKT(S) == 109) { STI(S, GTI(S) + 1); }
-    else { if (PEEKT(S) == 32) {
-        # Skip fn definition (just advance past it)
-        STI(S, GTI(S) + 1);  # consume FN
-        STI(S, GTI(S) + 1);  # consume name
-        # Skip generic params <T> if present
-        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
-        # Skip to matching }
-        var dep = 0;
-        var fsk = 1;
-        while (fsk == 1) {
-            var ft = PEEKT(S);
-            if (ft == 13) { dep = dep + 1; }
-            if (ft == 14) { dep = dep - 1; if (dep == 0) { fsk = 0; } }
-            if (ft == 12) { fsk = 0; }
-            STI(S, GTI(S) + 1);
-        }
-    }
-    else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
-    else { if (PEEKT(S) == 56) {
-        S64(S + 0x18FCA0, 1);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 78) {
-        S64(S + 0x18FCA0, 2);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 79) {
-        S64(S + 0x18FCA0, 3);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 77) {
-        # impl — skip entire block in pass 1 (functions registered in pass 2)
-        STI(S, GTI(S) + 1);  # consume IMPL
-        STI(S, GTI(S) + 1);  # consume trait name
-        STI(S, GTI(S) + 1);  # consume FOR
-        STI(S, GTI(S) + 1);  # consume type name
-        if (PEEKT(S) == 13) {
-            STI(S, GTI(S) + 1);
-            var idep = 0;
-            var isk = 1;
-            while (isk == 1) {
-                var it = PEEKT(S);
-                if (it == 13) { idep = idep + 1; }
-                if (it == 14) { if (idep == 0) { isk = 0; } else { idep = idep - 1; } }
-                if (it == 12) { isk = 0; }
-                STI(S, GTI(S) + 1);
-            }
-        }
-    }
-    else { if (PEEKT(S) == 107) {
-        # #assert — skip in pass 1, evaluated in pass 2 via PARSE_STMT
-        while (PEEKT(S) != 5 && PEEKT(S) != 12) { STI(S, GTI(S) + 1); }
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { scan = 0; } } } } } } } } } } } } } }
+            else { if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
+                else { if (PEEKT(S) == 101) { PARSE_UNION_DEF(S); }
+                    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
+                        # v4.8.4-alpha1: #regalloc — consume silently in pass 1. Pass 1
+                        # doesn't REGFN, so there's no metadata slot to attach to here;
+                        # pass 2 re-reads the same token stream and arms the pending flag
+                        # then. (v4.8.4-alpha4 kept the pass-1 consume unchanged so a
+                        # stale flag can't leak from pass 1 into pass 2.)
+                        else { if (PEEKT(S) == 109) { STI(S, GTI(S) + 1); }
+                            else { if (PEEKT(S) == 32) {
+                                    # Skip fn definition (just advance past it)
+                                    STI(S, GTI(S) + 1);  # consume FN
+                                    STI(S, GTI(S) + 1);  # consume name
+                                    # Skip generic params <T> if present
+                                    if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+                                    # Skip to matching }
+                                    var dep = 0;
+                                    var fsk = 1;
+                                    while (fsk == 1) {
+                                        var ft = PEEKT(S);
+                                        if (ft == 13) { dep = dep + 1; }
+                                        if (ft == 14) { dep = dep - 1; if (dep == 0) { fsk = 0; } }
+                                        if (ft == 12) { fsk = 0; }
+                                        STI(S, GTI(S) + 1);
+                                    }
+                                }
+                                else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
+                                    else { if (PEEKT(S) == 56) {
+                                            S64(S + 0x18FCA0, 1);
+                                            STI(S, GTI(S) + 1);
+                                            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                        }
+                                        else { if (PEEKT(S) == 78) {
+                                                S64(S + 0x18FCA0, 2);
+                                                STI(S, GTI(S) + 1);
+                                                if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                            }
+                                            else { if (PEEKT(S) == 79) {
+                                                    S64(S + 0x18FCA0, 3);
+                                                    STI(S, GTI(S) + 1);
+                                                    if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                                }
+                                                else { if (PEEKT(S) == 77) {
+                                                        # impl — skip entire block in pass 1 (functions registered in pass 2)
+                                                        STI(S, GTI(S) + 1);  # consume IMPL
+                                                        STI(S, GTI(S) + 1);  # consume trait name
+                                                        STI(S, GTI(S) + 1);  # consume FOR
+                                                        STI(S, GTI(S) + 1);  # consume type name
+                                                        if (PEEKT(S) == 13) {
+                                                            STI(S, GTI(S) + 1);
+                                                            var idep = 0;
+                                                            var isk = 1;
+                                                            while (isk == 1) {
+                                                                var it = PEEKT(S);
+                                                                if (it == 13) { idep = idep + 1; }
+                                                                if (it == 14) { if (idep == 0) { isk = 0; } else { idep = idep - 1; } }
+                                                                if (it == 12) { isk = 0; }
+                                                                STI(S, GTI(S) + 1);
+                                                            }
+                                                        }
+                                                    }
+                                                    else { if (PEEKT(S) == 107) {
+                                                            # #assert — skip in pass 1, evaluated in pass 2 via PARSE_STMT
+                                                            while (PEEKT(S) != 5 && PEEKT(S) != 12) { STI(S, GTI(S) + 1); }
+                                                            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                                        }
+                                                        else { scan = 0; } } } } } } } } } } } } } }
 }
 
 # Reset module for pass 2
@@ -842,110 +842,110 @@ while (topgo == 1) {
     # Skip mod/pub/use in pass 2
     if (PEEKT(S) == 72) { STI(S, GTI(S) + 1); if (PEEKT(S) == 2) { SMOD(S, PEEKV(S)); STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
     else { if (PEEKT(S) == 73) { STI(S, GTI(S) + 1); }
-    else { if (PEEKT(S) == 74) { while (PEEKT(S) != 5) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
-    else { if (PEEKT(S) == 40) {
-        # Skip struct (already parsed in pass 1)
-        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        var ssk = 1;
-        while (ssk == 1) { if (PEEKT(S) == 14) { ssk = 0; } else { STI(S, GTI(S) + 1); } }
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 101) {
-        # Skip union (already parsed in pass 1)
-        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        var usk = 1;
-        while (usk == 1) { if (PEEKT(S) == 14) { usk = 0; } else { STI(S, GTI(S) + 1); } }
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 60) {
-        # Emit constructor bodies in function section (before JMP is patched)
-        PARSE_ENUM_DEF(S, 2);
-    }
-    else { if (PEEKT(S) == 56) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    # v4.8.4-alpha4: #regalloc — arm the pending flag so the next `fn`
-    # definition picks it up in REGFN. PARSE_FN_DEF transfers the flag
-    # to fn_regalloc[fi] and clears _regalloc_pending. The DCE stub
-    # path below also clears the flag (dead fns don't need tracking).
-    else { if (PEEKT(S) == 109) { _regalloc_pending = 1; STI(S, GTI(S) + 1); }
-    else { if (PEEKT(S) == 32) {
-        # DCE: check bitmap for reference to this function name.
-        # Skip DCE for module-scoped or underscore-named functions.
-        # Also skip in object mode — externally-referenced functions
-        # don't appear as identifiers in this module's token stream but
-        # still need full bodies for the linker to resolve cross-unit calls.
-        # And in shared mode — exported `.so` functions are called by
-        # dlopen consumers (no in-module reference) and need full bodies.
-        var dce_fnoff = TOKVAL(S, GTI(S) + 1);
-        var dce_reachable = 1;
-        var dce_km = L64(S + 0x18FCA0);
-        if (dce_km == 3 || dce_km == 2) { dce_reachable = 1; }
-        else { if (GMOD(S) == 0) {
-            # Check for underscore in name (mangled — skip DCE)
-            var dce_np = S + 0x60000 + dce_fnoff;
-            var dce_has_us = 0;
-            var dce_ni = 0;
-            while (load8(dce_np + dce_ni) != 0) {
-                if (load8(dce_np + dce_ni) == 95) { dce_has_us = 1; }
-                dce_ni = dce_ni + 1;
-            }
-            if (dce_has_us == 0) {
-                # Check bitmap: is this name offset referenced?
-                if (dce_fnoff < 65536) {
-                    var dce_byte = dce_fnoff >> 3;
-                    var dce_bit = dce_fnoff & 7;
-                    if ((load8(dce_bm + dce_byte) & (1 << dce_bit)) == 0) {
-                        dce_reachable = 0;
-                    }
+        else { if (PEEKT(S) == 74) { while (PEEKT(S) != 5) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+            else { if (PEEKT(S) == 40) {
+                    # Skip struct (already parsed in pass 1)
+                    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+                    if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+                    if (PEEKT(S) != 13) { ERR(S); }
+                    STI(S, GTI(S) + 1);
+                    var ssk = 1;
+                    while (ssk == 1) { if (PEEKT(S) == 14) { ssk = 0; } else { STI(S, GTI(S) + 1); } }
+                    STI(S, GTI(S) + 1);
                 }
-            }
-        } }
-        if (dce_reachable == 1) {
-            PARSE_FN_DEF(S);
-        } else {
-            # Emit stub: set fn_offsets, emit xor eax,eax; ret, skip body
-            STI(S, GTI(S) + 1);  # consume FN
-            var stub_noff = PEEKV(S);
-            STI(S, GTI(S) + 1);  # consume name
-            if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
-            # Register or find function and set its offset to stub
-            var stub_fi = FINDFN(S, stub_noff);
-            if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
-            # v4.8.4-alpha4: clear any pending `#regalloc` — a DCE'd fn
-            # is emitted as a 3-byte stub and has no prologue to attach
-            # callee-saved-reg state to. Leaving the flag armed would
-            # leak it to whichever fn lands next.
-            if (_regalloc_pending == 1) { _regalloc_pending = 0; }
-            S64(S + 0x1292000 + stub_fi * 8, GCP(S));
-            # Emit stub: xor eax, eax; ret (3 bytes)
-            EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
-            # Skip function body tokens
-            var sdep = 0;
-            var ssk2 = 1;
-            while (ssk2 == 1) {
-                var st = PEEKT(S);
-                if (st == 13) { sdep = sdep + 1; }
-                if (st == 14) { sdep = sdep - 1; if (sdep == 0) { ssk2 = 0; } }
-                if (st == 12) { ssk2 = 0; }
-                STI(S, GTI(S) + 1);
-            }
-        }
-    }
-    else { if (PEEKT(S) == 3) {
-        var vsk = 1;
-        while (vsk == 1) { if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); vsk = 0; } else { STI(S, GTI(S) + 1); } }
-    }
-    else { if (PEEKT(S) == 77) { PARSE_IMPL(S); }
-    else { if (PEEKT(S) == 78) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
-    else { if (PEEKT(S) == 79) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
-    else { topgo = 0; } } } } } } } } } } } } }
+                else { if (PEEKT(S) == 101) {
+                        # Skip union (already parsed in pass 1)
+                        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+                        if (PEEKT(S) != 13) { ERR(S); }
+                        STI(S, GTI(S) + 1);
+                        var usk = 1;
+                        while (usk == 1) { if (PEEKT(S) == 14) { usk = 0; } else { STI(S, GTI(S) + 1); } }
+                        STI(S, GTI(S) + 1);
+                    }
+                    else { if (PEEKT(S) == 60) {
+                            # Emit constructor bodies in function section (before JMP is patched)
+                            PARSE_ENUM_DEF(S, 2);
+                        }
+                        else { if (PEEKT(S) == 56) {
+                                STI(S, GTI(S) + 1);
+                                if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                            }
+                            # v4.8.4-alpha4: #regalloc — arm the pending flag so the next `fn`
+                            # definition picks it up in REGFN. PARSE_FN_DEF transfers the flag
+                            # to fn_regalloc[fi] and clears _regalloc_pending. The DCE stub
+                            # path below also clears the flag (dead fns don't need tracking).
+                            else { if (PEEKT(S) == 109) { _regalloc_pending = 1; STI(S, GTI(S) + 1); }
+                                else { if (PEEKT(S) == 32) {
+                                        # DCE: check bitmap for reference to this function name.
+                                        # Skip DCE for module-scoped or underscore-named functions.
+                                        # Also skip in object mode — externally-referenced functions
+                                        # don't appear as identifiers in this module's token stream but
+                                        # still need full bodies for the linker to resolve cross-unit calls.
+                                        # And in shared mode — exported `.so` functions are called by
+                                        # dlopen consumers (no in-module reference) and need full bodies.
+                                        var dce_fnoff = TOKVAL(S, GTI(S) + 1);
+                                        var dce_reachable = 1;
+                                        var dce_km = L64(S + 0x18FCA0);
+                                        if (dce_km == 3 || dce_km == 2) { dce_reachable = 1; }
+                                        else { if (GMOD(S) == 0) {
+                                                # Check for underscore in name (mangled — skip DCE)
+                                                var dce_np = S + 0x60000 + dce_fnoff;
+                                                var dce_has_us = 0;
+                                                var dce_ni = 0;
+                                                while (load8(dce_np + dce_ni) != 0) {
+                                                    if (load8(dce_np + dce_ni) == 95) { dce_has_us = 1; }
+                                                    dce_ni = dce_ni + 1;
+                                                }
+                                                if (dce_has_us == 0) {
+                                                    # Check bitmap: is this name offset referenced?
+                                                    if (dce_fnoff < 65536) {
+                                                        var dce_byte = dce_fnoff >> 3;
+                                                        var dce_bit = dce_fnoff & 7;
+                                                        if ((load8(dce_bm + dce_byte) & (1 << dce_bit)) == 0) {
+                                                            dce_reachable = 0;
+                                                        }
+                                                    }
+                                                }
+                                            } }
+                                        if (dce_reachable == 1) {
+                                            PARSE_FN_DEF(S);
+                                        } else {
+                                            # Emit stub: set fn_offsets, emit xor eax,eax; ret, skip body
+                                            STI(S, GTI(S) + 1);  # consume FN
+                                            var stub_noff = PEEKV(S);
+                                            STI(S, GTI(S) + 1);  # consume name
+                                            if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+                                            # Register or find function and set its offset to stub
+                                            var stub_fi = FINDFN(S, stub_noff);
+                                            if (stub_fi < 0) { stub_fi = REGFN(S, stub_noff); }
+                                            # v4.8.4-alpha4: clear any pending `#regalloc` — a DCE'd fn
+                                            # is emitted as a 3-byte stub and has no prologue to attach
+                                            # callee-saved-reg state to. Leaving the flag armed would
+                                            # leak it to whichever fn lands next.
+                                            if (_regalloc_pending == 1) { _regalloc_pending = 0; }
+                                            S64(S + 0x1292000 + stub_fi * 8, GCP(S));
+                                            # Emit stub: xor eax, eax; ret (3 bytes)
+                                            EB(S, 0x31); EB(S, 0xC0); EB(S, 0xC3);
+                                            # Skip function body tokens
+                                            var sdep = 0;
+                                            var ssk2 = 1;
+                                            while (ssk2 == 1) {
+                                                var st = PEEKT(S);
+                                                if (st == 13) { sdep = sdep + 1; }
+                                                if (st == 14) { sdep = sdep - 1; if (sdep == 0) { ssk2 = 0; } }
+                                                if (st == 12) { ssk2 = 0; }
+                                                STI(S, GTI(S) + 1);
+                                            }
+                                        }
+                                    }
+                                    else { if (PEEKT(S) == 3) {
+                                            var vsk = 1;
+                                            while (vsk == 1) { if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); vsk = 0; } else { STI(S, GTI(S) + 1); } }
+                                        }
+                                        else { if (PEEKT(S) == 77) { PARSE_IMPL(S); }
+                                            else { if (PEEKT(S) == 78) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+                                                else { if (PEEKT(S) == 79) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+                                                    else { topgo = 0; } } } } } } } } } } } } }
 }
 
 # Reset module
@@ -976,7 +976,7 @@ var escan = 1;
 while (escan == 1) {
     if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 1); }
     else { if (PEEKT(S) == 12) { escan = 0; }
-    else { STI(S, GTI(S) + 1); } }
+        else { STI(S, GTI(S) + 1); } }
 }
 # v5.7.19: kmode == 1 needs top-level asm (the multiboot 32→64
 # long-mode boot shim) to run BEFORE any 64-bit gvar-init code.

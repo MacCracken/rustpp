@@ -1,0 +1,76 @@
+#!/bin/sh
+# cyrius-prompt-info — emit prompt-segment info for a cyrius package or toolchain
+#
+# v5.8.0: shipped to support cyriusly's starship.toml + p10k integrations.
+# See `cyriusly cmdtools install starship` / `cyriusly cmdtools install p10k`.
+#
+# Modes:
+#   cyrius-prompt-info pkg     -> prints "name version (repo)" if in a cyrius
+#                                 package (cyrius.cyml [package] block);
+#                                 silent if not in one. Used by the
+#                                 ॐ Om package prompt segment.
+#   cyrius-prompt-info tool    -> prints the active toolchain version;
+#                                 falls back to cc5 --version, then to
+#                                 ~/.cyrius/current. Used by the 🌀 cyclone
+#                                 toolchain segment.
+#   cyrius-prompt-info both    -> prints "ॐ name version (repo) | 🌀 ver"
+#                                 in a single line; convenience for
+#                                 single-segment prompts.
+#
+# Output is one line, no trailing newline issues. Empty exit code = ok.
+#
+# Icon convention (v5.8.0):
+#   🌀 cyclone   — Cyrius toolchain (self-hosting recursion + "cyr-" name shape)
+#   ॐ Om         — Cyrius package (Sanskrit ecosystem alignment)
+#   𝕮            — ASCII fallback for non-emoji terminals (the v5.7.x glyph;
+#                  see comment in scripts/cyriusly's _CYRIUS_STARSHIP block).
+
+mode="${1:-pkg}"
+
+cy_pkg_info() {
+    [ -f cyrius.cyml ] || return 1
+    name=$(sed -n '/^\[package\]/,/^\[/p' cyrius.cyml | sed -n 's/^name *= *"\(.*\)"/\1/p' | head -1)
+    version=$(sed -n '/^\[package\]/,/^\[/p' cyrius.cyml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
+    if [ "$version" = '${file:VERSION}' ]; then
+        version=$(tr -d '[:space:]' < VERSION 2>/dev/null)
+    fi
+    repo="${PWD##*/}"
+    printf '%s %s (%s)' "$name" "$version" "$repo"
+}
+
+cy_tool_info() {
+    if [ -f bootstrap/asm ]; then
+        # In a cyrius compiler-source checkout — VERSION file is authoritative.
+        tr -d '[:space:]' < VERSION 2>/dev/null
+        return
+    fi
+    # Otherwise read cc5 --version output, fall back to ~/.cyrius/current.
+    v=$(cc5 --version 2>/dev/null | awk '{print $2}')
+    if [ -z "$v" ]; then
+        v=$(cat "$HOME/.cyrius/current" 2>/dev/null)
+    fi
+    [ -z "$v" ] && v="?"
+    printf '%s' "$v"
+}
+
+case "$mode" in
+    pkg)
+        cy_pkg_info
+        ;;
+    tool)
+        cy_tool_info
+        ;;
+    both)
+        pkg=$(cy_pkg_info)
+        tool=$(cy_tool_info)
+        if [ -n "$pkg" ]; then
+            printf 'ॐ %s | 🌀 %s' "$pkg" "$tool"
+        else
+            printf '🌀 %s' "$tool"
+        fi
+        ;;
+    *)
+        echo "Usage: cyrius-prompt-info [pkg|tool|both]" >&2
+        exit 1
+        ;;
+esac

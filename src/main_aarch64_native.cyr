@@ -172,84 +172,84 @@ while (scan == 1) {
         if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
     }
     else { if (PEEKT(S) == 73) {
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 74) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 2) {
-            var umod = PEEKV(S);
             STI(S, GTI(S) + 1);
-            if (PEEKT(S) == 41) {
+        }
+        else { if (PEEKT(S) == 74) {
                 STI(S, GTI(S) + 1);
                 if (PEEKT(S) == 2) {
-                    var ufn = PEEKV(S);
+                    var umod = PEEKV(S);
                     STI(S, GTI(S) + 1);
-                    var uc = GUSEC(S);
-                    S64(S + 0x18FFD0 + uc * 8, ufn);
-                    var apos = GNPOS(S);
-                    var ri = 0;
-                    var rc = load8(S + 0x60000 + umod + ri);
-                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
-                    store8(S + 0x60000 + apos, 95); apos = apos + 1;
-                    ri = 0; rc = load8(S + 0x60000 + ufn + ri);
-                    while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
-                    store8(S + 0x60000 + apos, 0); apos = apos + 1;
-                    var alias_noff = GNPOS(S);
-                    SNPOS(S, apos);
-                    S64(S + 0x1901D0 + uc * 8, alias_noff);
-                    SUSEC(S, uc + 1);
+                    if (PEEKT(S) == 41) {
+                        STI(S, GTI(S) + 1);
+                        if (PEEKT(S) == 2) {
+                            var ufn = PEEKV(S);
+                            STI(S, GTI(S) + 1);
+                            var uc = GUSEC(S);
+                            S64(S + 0x18FFD0 + uc * 8, ufn);
+                            var apos = GNPOS(S);
+                            var ri = 0;
+                            var rc = load8(S + 0x60000 + umod + ri);
+                            while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + umod + ri); }
+                            store8(S + 0x60000 + apos, 95); apos = apos + 1;
+                            ri = 0; rc = load8(S + 0x60000 + ufn + ri);
+                            while (rc != 0) { store8(S + 0x60000 + apos, rc); apos = apos + 1; ri = ri + 1; rc = load8(S + 0x60000 + ufn + ri); }
+                            store8(S + 0x60000 + apos, 0); apos = apos + 1;
+                            var alias_noff = GNPOS(S);
+                            SNPOS(S, apos);
+                            S64(S + 0x1901D0 + uc * 8, alias_noff);
+                            SUSEC(S, uc + 1);
+                        }
+                    }
                 }
+                if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
             }
-        }
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
-    else { if (PEEKT(S) == 101) { PARSE_UNION_DEF(S); }
-    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
-    else { if (PEEKT(S) == 32) {
-        STI(S, GTI(S) + 1);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
-        var dep = 0;
-        var fsk = 1;
-        while (fsk == 1) {
-            var ft = PEEKT(S);
-            if (ft == 13) { dep = dep + 1; }
-            if (ft == 14) { dep = dep - 1; if (dep == 0) { fsk = 0; } }
-            if (ft == 12) { fsk = 0; }
-            STI(S, GTI(S) + 1);
-        }
-    }
-    else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
-    else { if (PEEKT(S) == 56) {
-        S64(S + 0x18FCA0, 1);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 78) {
-        S64(S + 0x18FCA0, 2);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 77) {
-        STI(S, GTI(S) + 1);
-        STI(S, GTI(S) + 1);
-        STI(S, GTI(S) + 1);
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 13) {
-            STI(S, GTI(S) + 1);
-            var idep = 0;
-            var isk = 1;
-            while (isk == 1) {
-                var it = PEEKT(S);
-                if (it == 13) { idep = idep + 1; }
-                if (it == 14) { if (idep == 0) { isk = 0; } else { idep = idep - 1; } }
-                if (it == 12) { isk = 0; }
-                STI(S, GTI(S) + 1);
-            }
-        }
-    }
-    else { scan = 0; } } } } } } } } } } }
+            else { if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
+                else { if (PEEKT(S) == 101) { PARSE_UNION_DEF(S); }
+                    else { if (PEEKT(S) == 3) { PARSE_GVAR_REG(S); }
+                        else { if (PEEKT(S) == 32) {
+                                STI(S, GTI(S) + 1);
+                                STI(S, GTI(S) + 1);
+                                if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+                                var dep = 0;
+                                var fsk = 1;
+                                while (fsk == 1) {
+                                    var ft = PEEKT(S);
+                                    if (ft == 13) { dep = dep + 1; }
+                                    if (ft == 14) { dep = dep - 1; if (dep == 0) { fsk = 0; } }
+                                    if (ft == 12) { fsk = 0; }
+                                    STI(S, GTI(S) + 1);
+                                }
+                            }
+                            else { if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 0); }
+                                else { if (PEEKT(S) == 56) {
+                                        S64(S + 0x18FCA0, 1);
+                                        STI(S, GTI(S) + 1);
+                                        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                    }
+                                    else { if (PEEKT(S) == 78) {
+                                            S64(S + 0x18FCA0, 2);
+                                            STI(S, GTI(S) + 1);
+                                            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                                        }
+                                        else { if (PEEKT(S) == 77) {
+                                                STI(S, GTI(S) + 1);
+                                                STI(S, GTI(S) + 1);
+                                                STI(S, GTI(S) + 1);
+                                                STI(S, GTI(S) + 1);
+                                                if (PEEKT(S) == 13) {
+                                                    STI(S, GTI(S) + 1);
+                                                    var idep = 0;
+                                                    var isk = 1;
+                                                    while (isk == 1) {
+                                                        var it = PEEKT(S);
+                                                        if (it == 13) { idep = idep + 1; }
+                                                        if (it == 14) { if (idep == 0) { isk = 0; } else { idep = idep - 1; } }
+                                                        if (it == 12) { isk = 0; }
+                                                        STI(S, GTI(S) + 1);
+                                                    }
+                                                }
+                                            }
+                                            else { scan = 0; } } } } } } } } } } }
 }
 
 # Reset module for pass 2
@@ -262,41 +262,41 @@ var topgo = 1;
 while (topgo == 1) {
     if (PEEKT(S) == 72) { STI(S, GTI(S) + 1); if (PEEKT(S) == 2) { SMOD(S, PEEKV(S)); STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
     else { if (PEEKT(S) == 73) { STI(S, GTI(S) + 1); }
-    else { if (PEEKT(S) == 74) { while (PEEKT(S) != 5) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
-    else { if (PEEKT(S) == 40) {
-        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        var ssk = 1;
-        while (ssk == 1) { if (PEEKT(S) == 14) { ssk = 0; } else { STI(S, GTI(S) + 1); } }
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 101) {
-        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        var usk = 1;
-        while (usk == 1) { if (PEEKT(S) == 14) { usk = 0; } else { STI(S, GTI(S) + 1); } }
-        STI(S, GTI(S) + 1);
-    }
-    else { if (PEEKT(S) == 60) {
-        PARSE_ENUM_DEF(S, 2);
-    }
-    else { if (PEEKT(S) == 56) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
-    }
-    else { if (PEEKT(S) == 32) {
-        PARSE_FN_DEF(S);
-    }
-    else { if (PEEKT(S) == 3) {
-        var vsk = 1;
-        while (vsk == 1) { if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); vsk = 0; } else { STI(S, GTI(S) + 1); } }
-    }
-    else { if (PEEKT(S) == 77) { PARSE_IMPL(S); }
-    else { if (PEEKT(S) == 78) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
-    else { topgo = 0; } } } } } } } } } } }
+        else { if (PEEKT(S) == 74) { while (PEEKT(S) != 5) { if (PEEKT(S) == 12) { break; } STI(S, GTI(S) + 1); } if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+            else { if (PEEKT(S) == 40) {
+                    STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+                    if (PEEKT(S) == 19) { while (PEEKT(S) != 20) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); }
+                    if (PEEKT(S) != 13) { ERR(S); }
+                    STI(S, GTI(S) + 1);
+                    var ssk = 1;
+                    while (ssk == 1) { if (PEEKT(S) == 14) { ssk = 0; } else { STI(S, GTI(S) + 1); } }
+                    STI(S, GTI(S) + 1);
+                }
+                else { if (PEEKT(S) == 101) {
+                        STI(S, GTI(S) + 1); STI(S, GTI(S) + 1);
+                        if (PEEKT(S) != 13) { ERR(S); }
+                        STI(S, GTI(S) + 1);
+                        var usk = 1;
+                        while (usk == 1) { if (PEEKT(S) == 14) { usk = 0; } else { STI(S, GTI(S) + 1); } }
+                        STI(S, GTI(S) + 1);
+                    }
+                    else { if (PEEKT(S) == 60) {
+                            PARSE_ENUM_DEF(S, 2);
+                        }
+                        else { if (PEEKT(S) == 56) {
+                                STI(S, GTI(S) + 1);
+                                if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+                            }
+                            else { if (PEEKT(S) == 32) {
+                                    PARSE_FN_DEF(S);
+                                }
+                                else { if (PEEKT(S) == 3) {
+                                        var vsk = 1;
+                                        while (vsk == 1) { if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); vsk = 0; } else { STI(S, GTI(S) + 1); } }
+                                    }
+                                    else { if (PEEKT(S) == 77) { PARSE_IMPL(S); }
+                                        else { if (PEEKT(S) == 78) { STI(S, GTI(S) + 1); if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); } }
+                                            else { topgo = 0; } } } } } } } } } } }
 }
 
 # Reset module
@@ -312,7 +312,7 @@ var escan = 1;
 while (escan == 1) {
     if (PEEKT(S) == 60) { PARSE_ENUM_DEF(S, 1); }
     else { if (PEEKT(S) == 12) { escan = 0; }
-    else { STI(S, GTI(S) + 1); } }
+        else { STI(S, GTI(S) + 1); } }
 }
 # Emit deferred global var initializations
 EMIT_GVAR_INITS(S);

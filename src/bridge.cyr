@@ -121,7 +121,7 @@ fn GRPC(S) { return L64(S + 0x18DC20); }
 fn SRPC(S, v) { S64(S + 0x18DC20, v); return 0; }
 
 fn ERR(S) {
-    
+
     syscall(1, 2, "syntax error\n", 13); syscall(60, 1);
     return 0;
 }
@@ -598,135 +598,135 @@ fn LEX(S) {
         if (cl == 1) { p = p + 1; }
         # Comment — skip to newline
         else { if (c == 35) {
-            p = p + 1;
-            var cgo = 1;
-            while (cgo == 1) {
-                if (p >= bl) { cgo = 0; }
-                if (cgo == 1) {
-                    if (load8(S + p) == 10) { p = p + 1; cgo = 0; }
-                    else { p = p + 1; }
-                }
-            }
-        }
-        # Digit
-        else { if (cl == 2) { p = LEXNUM(S, p); }
-        # Letter (lower or upper) or underscore
-        else { if (cl >= 3) { p = LEXID(S, p, GNPOS(S)); }
-        # Single/double char tokens
-        else { if (c == 61) {
-            if (p + 1 < bl) {
-                if (load8(S + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
-                else { ADDTOK(S, 4, 0); p = p + 1; }
-            } else { ADDTOK(S, 4, 0); p = p + 1; }
-        }
-        else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
-        else { if (c == 44) { ADDTOK(S, 31, 0); p = p + 1; }
-        else { if (c == 46) { ADDTOK(S, 41, 0); p = p + 1; }
-        else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
-        else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
-        else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
-        else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
-        else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
-        else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }
-        else { if (c == 123) { ADDTOK(S, 13, 0); p = p + 1; }
-        else { if (c == 125) { ADDTOK(S, 14, 0); p = p + 1; }
-        # !=
-        else { if (c == 33) {
-            if (p + 1 < bl) {
-                if (load8(S + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
-                else { p = p + 1; }
-            } else { p = p + 1; }
-        }
-        # < or <= or <<
-        else { if (c == 60) {
-            if (p + 1 < bl) {
-                var nc = load8(S + p + 1);
-                if (nc == 61) { ADDTOK(S, 21, 0); p = p + 2; }
-                else {
-                    if (nc == 60) { ADDTOK(S, 38, 0); p = p + 2; }
-                    else { ADDTOK(S, 19, 0); p = p + 1; }
-                }
-            } else { ADDTOK(S, 19, 0); p = p + 1; }
-        }
-        # > or >= or >>
-        else { if (c == 62) {
-            if (p + 1 < bl) {
-                var gc = load8(S + p + 1);
-                if (gc == 61) { ADDTOK(S, 22, 0); p = p + 2; }
-                else {
-                    if (gc == 62) { ADDTOK(S, 39, 0); p = p + 2; }
-                    else { ADDTOK(S, 20, 0); p = p + 1; }
-                }
-            } else { ADDTOK(S, 20, 0); p = p + 1; }
-        }
-        else { if (c == 38) {
-            if (p + 1 < bl) {
-                if (load8(S + p + 1) == 38) { ADDTOK(S, 53, 0); p = p + 2; }
-                else { ADDTOK(S, 27, 0); p = p + 1; }
-            } else { ADDTOK(S, 27, 0); p = p + 1; }
-        }
-        else { if (c == 91) { ADDTOK(S, 28, 0); p = p + 1; }
-        else { if (c == 93) { ADDTOK(S, 29, 0); p = p + 1; }
-        else { if (c == 124) {
-            if (p + 1 < bl) {
-                if (load8(S + p + 1) == 124) { ADDTOK(S, 54, 0); p = p + 2; }
-                else { ADDTOK(S, 35, 0); p = p + 1; }
-            } else { ADDTOK(S, 35, 0); p = p + 1; }
-        }
-        else { if (c == 94) { ADDTOK(S, 36, 0); p = p + 1; }
-        else { if (c == 126) { ADDTOK(S, 37, 0); p = p + 1; }
-        else { if (c == 37) { ADDTOK(S, 34, 0); p = p + 1; }
-        # << or <
-        # (already handled < and <= above, need << separately)
-        # >> or >
-        # (already handled > and >= above, need >> separately)
-        # String literal
-        else { if (c == 34) {
-            p = p + 1;
-            var spos = GSPOS(S);
-            var sstart = spos;
-            var sgo = 1;
-            while (sgo == 1) {
-                if (p >= bl) { sgo = 0; }
-                if (sgo == 1) {
-                    var sc = load8(S + p);
-                    if (sc == 34) { p = p + 1; sgo = 0; }
-                    else {
-                        if (sc == 92) {
-                            p = p + 1;
-                            var ec = load8(S + p);
-                            p = p + 1;
-                            if (ec == 110) { store8(S + 0x69000 + spos, 10); }
-                            else {
-                                if (ec == 116) { store8(S + 0x69000 + spos, 9); }
-                                else {
-                                    if (ec == 48) { store8(S + 0x69000 + spos, 0); }
-                                    else {
-                                        if (ec == 92) { store8(S + 0x69000 + spos, 92); }
-                                        else {
-                                            if (ec == 34) { store8(S + 0x69000 + spos, 34); }
-                                            else { store8(S + 0x69000 + spos, ec); }
-                                        }
-                                    }
-                                }
-                            }
-                            spos = spos + 1;
-                        } else {
-                            store8(S + 0x69000 + spos, sc);
-                            spos = spos + 1;
-                            p = p + 1;
-                        }
+                p = p + 1;
+                var cgo = 1;
+                while (cgo == 1) {
+                    if (p >= bl) { cgo = 0; }
+                    if (cgo == 1) {
+                        if (load8(S + p) == 10) { p = p + 1; cgo = 0; }
+                        else { p = p + 1; }
                     }
                 }
             }
-            SSPOS(S, spos);
-            var slen = spos - sstart;
-            ADDTOK(S, 30, (sstart << 16) | slen);
-        }
-        else { p = p + 1; }
-        } } } } } } } } }
-        } } } } } } } } }
-        } } } } } } } }
+            # Digit
+            else { if (cl == 2) { p = LEXNUM(S, p); }
+                # Letter (lower or upper) or underscore
+                else { if (cl >= 3) { p = LEXID(S, p, GNPOS(S)); }
+                    # Single/double char tokens
+                    else { if (c == 61) {
+                            if (p + 1 < bl) {
+                                if (load8(S + p + 1) == 61) { ADDTOK(S, 17, 0); p = p + 2; }
+                                else { ADDTOK(S, 4, 0); p = p + 1; }
+                            } else { ADDTOK(S, 4, 0); p = p + 1; }
+                        }
+                        else { if (c == 59) { ADDTOK(S, 5, 0); p = p + 1; }
+                            else { if (c == 44) { ADDTOK(S, 31, 0); p = p + 1; }
+                                else { if (c == 46) { ADDTOK(S, 41, 0); p = p + 1; }
+                                    else { if (c == 43) { ADDTOK(S, 6, 0); p = p + 1; }
+                                        else { if (c == 45) { ADDTOK(S, 7, 0); p = p + 1; }
+                                            else { if (c == 42) { ADDTOK(S, 8, 0); p = p + 1; }
+                                                else { if (c == 47) { ADDTOK(S, 9, 0); p = p + 1; }
+                                                    else { if (c == 40) { ADDTOK(S, 10, 0); p = p + 1; }
+                                                        else { if (c == 41) { ADDTOK(S, 11, 0); p = p + 1; }
+                                                            else { if (c == 123) { ADDTOK(S, 13, 0); p = p + 1; }
+                                                                else { if (c == 125) { ADDTOK(S, 14, 0); p = p + 1; }
+                                                                    # !=
+                                                                    else { if (c == 33) {
+                                                                            if (p + 1 < bl) {
+                                                                                if (load8(S + p + 1) == 61) { ADDTOK(S, 18, 0); p = p + 2; }
+                                                                                else { p = p + 1; }
+                                                                            } else { p = p + 1; }
+                                                                        }
+                                                                        # < or <= or <<
+                                                                        else { if (c == 60) {
+                                                                                if (p + 1 < bl) {
+                                                                                    var nc = load8(S + p + 1);
+                                                                                    if (nc == 61) { ADDTOK(S, 21, 0); p = p + 2; }
+                                                                                    else {
+                                                                                        if (nc == 60) { ADDTOK(S, 38, 0); p = p + 2; }
+                                                                                        else { ADDTOK(S, 19, 0); p = p + 1; }
+                                                                                    }
+                                                                                } else { ADDTOK(S, 19, 0); p = p + 1; }
+                                                                            }
+                                                                            # > or >= or >>
+                                                                            else { if (c == 62) {
+                                                                                    if (p + 1 < bl) {
+                                                                                        var gc = load8(S + p + 1);
+                                                                                        if (gc == 61) { ADDTOK(S, 22, 0); p = p + 2; }
+                                                                                        else {
+                                                                                            if (gc == 62) { ADDTOK(S, 39, 0); p = p + 2; }
+                                                                                            else { ADDTOK(S, 20, 0); p = p + 1; }
+                                                                                        }
+                                                                                    } else { ADDTOK(S, 20, 0); p = p + 1; }
+                                                                                }
+                                                                                else { if (c == 38) {
+                                                                                        if (p + 1 < bl) {
+                                                                                            if (load8(S + p + 1) == 38) { ADDTOK(S, 53, 0); p = p + 2; }
+                                                                                            else { ADDTOK(S, 27, 0); p = p + 1; }
+                                                                                        } else { ADDTOK(S, 27, 0); p = p + 1; }
+                                                                                    }
+                                                                                    else { if (c == 91) { ADDTOK(S, 28, 0); p = p + 1; }
+                                                                                        else { if (c == 93) { ADDTOK(S, 29, 0); p = p + 1; }
+                                                                                            else { if (c == 124) {
+                                                                                                    if (p + 1 < bl) {
+                                                                                                        if (load8(S + p + 1) == 124) { ADDTOK(S, 54, 0); p = p + 2; }
+                                                                                                        else { ADDTOK(S, 35, 0); p = p + 1; }
+                                                                                                    } else { ADDTOK(S, 35, 0); p = p + 1; }
+                                                                                                }
+                                                                                                else { if (c == 94) { ADDTOK(S, 36, 0); p = p + 1; }
+                                                                                                    else { if (c == 126) { ADDTOK(S, 37, 0); p = p + 1; }
+                                                                                                        else { if (c == 37) { ADDTOK(S, 34, 0); p = p + 1; }
+                                                                                                            # << or <
+                                                                                                            # (already handled < and <= above, need << separately)
+                                                                                                            # >> or >
+                                                                                                            # (already handled > and >= above, need >> separately)
+                                                                                                            # String literal
+                                                                                                            else { if (c == 34) {
+                                                                                                                    p = p + 1;
+                                                                                                                    var spos = GSPOS(S);
+                                                                                                                    var sstart = spos;
+                                                                                                                    var sgo = 1;
+                                                                                                                    while (sgo == 1) {
+                                                                                                                        if (p >= bl) { sgo = 0; }
+                                                                                                                        if (sgo == 1) {
+                                                                                                                            var sc = load8(S + p);
+                                                                                                                            if (sc == 34) { p = p + 1; sgo = 0; }
+                                                                                                                            else {
+                                                                                                                                if (sc == 92) {
+                                                                                                                                    p = p + 1;
+                                                                                                                                    var ec = load8(S + p);
+                                                                                                                                    p = p + 1;
+                                                                                                                                    if (ec == 110) { store8(S + 0x69000 + spos, 10); }
+                                                                                                                                    else {
+                                                                                                                                        if (ec == 116) { store8(S + 0x69000 + spos, 9); }
+                                                                                                                                        else {
+                                                                                                                                            if (ec == 48) { store8(S + 0x69000 + spos, 0); }
+                                                                                                                                            else {
+                                                                                                                                                if (ec == 92) { store8(S + 0x69000 + spos, 92); }
+                                                                                                                                                else {
+                                                                                                                                                    if (ec == 34) { store8(S + 0x69000 + spos, 34); }
+                                                                                                                                                    else { store8(S + 0x69000 + spos, ec); }
+                                                                                                                                                }
+                                                                                                                                            }
+                                                                                                                                        }
+                                                                                                                                    }
+                                                                                                                                    spos = spos + 1;
+                                                                                                                                } else {
+                                                                                                                                    store8(S + 0x69000 + spos, sc);
+                                                                                                                                    spos = spos + 1;
+                                                                                                                                    p = p + 1;
+                                                                                                                                }
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                    SSPOS(S, spos);
+                                                                                                                    var slen = spos - sstart;
+                                                                                                                    ADDTOK(S, 30, (sstart << 16) | slen);
+                                                                                                                }
+                                                                                                                else { p = p + 1; }
+                                                                                                            } } } } } } } } }
+                                                                        } } } } } } } } }
+                                    } } } } } } } }
     }
     ADDTOK(S, 12, 0);
     return 0;
@@ -1048,22 +1048,22 @@ fn PARSE_TERM(S) {
             EIMUL(S);
         }
         else { if (typ == 9) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S);
-        }
-        else { if (typ == 34) {
-            # PERCENT — modulo
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S);
-        }
-        else { if (typ == 38) {
-            # SHL
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S);
-        }
-        else { if (typ == 39) {
-            # SHR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S);
-        }
-        else { go = 0; }
-        } } } }
+                STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S);
+            }
+            else { if (typ == 34) {
+                    # PERCENT — modulo
+                    STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ECQO(S); EIDIV(S); EMOVDR(S);
+                }
+                else { if (typ == 38) {
+                        # SHL
+                        STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHLCL(S);
+                    }
+                    else { if (typ == 39) {
+                            # SHR
+                            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_FACTOR(S); EMOVCA(S); EPOPR(S); ESHRCL(S);
+                        }
+                        else { go = 0; }
+                    } } } }
     }
     return 0;
 }
@@ -1077,22 +1077,22 @@ fn PARSE_EXPR(S) {
             STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EADDR(S);
         }
         else { if (typ == 7) {
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); ESUBR(S);
-        }
-        else { if (typ == 27) {
-            # AMPERSAND — binary AND
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S);
-        }
-        else { if (typ == 35) {
-            # PIPE — binary OR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S);
-        }
-        else { if (typ == 36) {
-            # CARET — binary XOR
-            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S);
-        }
-        else { go = 0; }
-        } } } }
+                STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); ESUBR(S);
+            }
+            else { if (typ == 27) {
+                    # AMPERSAND — binary AND
+                    STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S);
+                }
+                else { if (typ == 35) {
+                        # PIPE — binary OR
+                        STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S);
+                    }
+                    else { if (typ == 36) {
+                            # CARET — binary XOR
+                            STI(S, GTI(S) + 1); EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S);
+                        }
+                        else { go = 0; }
+                    } } } }
     }
     return 0;
 }
@@ -1326,18 +1326,18 @@ fn PARSE_ELIF_CHAIN(S, cpatch) {
         STI(S, GTI(S) + 1);
         PARSE_ELIF_CHAIN(S, np);
     } else { if (PEEKT(S) == 23) {
-        STI(S, GTI(S) + 1);
-        var sk2 = EJMP0(S);
-        EPATCH(S, np);
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        PARSE_PROG(S);
-        if (PEEKT(S) != 14) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        EPATCH(S, sk2);
-    } else {
-        EPATCH(S, np);
-    } }
+            STI(S, GTI(S) + 1);
+            var sk2 = EJMP0(S);
+            EPATCH(S, np);
+            if (PEEKT(S) != 13) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            PARSE_PROG(S);
+            if (PEEKT(S) != 14) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            EPATCH(S, sk2);
+        } else {
+            EPATCH(S, np);
+        } }
     EPATCH(S, sk);
     return 0;
 }
@@ -1360,18 +1360,18 @@ fn PARSE_IF(S) {
         STI(S, GTI(S) + 1);
         PARSE_ELIF_CHAIN(S, patch);
     } else { if (PEEKT(S) == 23) {
-        STI(S, GTI(S) + 1);
-        var skip = EJMP0(S);
-        EPATCH(S, patch);
-        if (PEEKT(S) != 13) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        PARSE_PROG(S);
-        if (PEEKT(S) != 14) { ERR(S); }
-        STI(S, GTI(S) + 1);
-        EPATCH(S, skip);
-    } else {
-        EPATCH(S, patch);
-    } }
+            STI(S, GTI(S) + 1);
+            var skip = EJMP0(S);
+            EPATCH(S, patch);
+            if (PEEKT(S) != 13) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            PARSE_PROG(S);
+            if (PEEKT(S) != 14) { ERR(S); }
+            STI(S, GTI(S) + 1);
+            EPATCH(S, skip);
+        } else {
+            EPATCH(S, patch);
+        } }
     SLVAR(S, saved_lv);
     return 0;
 }
@@ -1802,7 +1802,7 @@ fn PARSE_PROG(S) {
         var typ = PEEKT(S);
         if (typ == 12) { go = 0; }
         else { if (typ == 14) { go = 0; }
-        else { PARSE_STMT(S); } }
+            else { PARSE_STMT(S); } }
     }
     return 0;
 }
@@ -1844,19 +1844,19 @@ fn FIXUP(S) {
             S64(pa, (L64(pa) >> 32 << 32) | (rel & 0xFFFFFFFF));
         }
         else { if (ftype == 1) {
-            # String address: dbase + totvar + string_offset
-            S64(S + 0x20000 + coff, dbase + totvar + idx);
-        }
-        else {
-            # Variable address (type 0)
-            var cumul = 0;
-            vi = 0;
-            while (vi < idx) {
-                cumul = cumul + L64(S + 0x58800 + vi * 8);
-                vi = vi + 1;
+                # String address: dbase + totvar + string_offset
+                S64(S + 0x20000 + coff, dbase + totvar + idx);
             }
-            S64(S + 0x20000 + coff, dbase + cumul);
-        } }
+            else {
+                # Variable address (type 0)
+                var cumul = 0;
+                vi = 0;
+                while (vi < idx) {
+                    cumul = cumul + L64(S + 0x58800 + vi * 8);
+                    vi = vi + 1;
+                }
+                S64(S + 0x20000 + coff, dbase + cumul);
+            } }
         fi = fi + 1;
     }
     # Store data_size
@@ -1983,7 +1983,7 @@ var topgo = 1;
 while (topgo == 1) {
     if (PEEKT(S) == 40) { PARSE_STRUCT_DEF(S); }
     else { if (PEEKT(S) == 32) { PARSE_FN_DEF(S); }
-    else { topgo = 0; } }
+        else { topgo = 0; } }
 }
 
 # Patch jmp to land here (start of main code)

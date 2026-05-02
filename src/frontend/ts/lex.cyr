@@ -435,7 +435,7 @@ fn TS_KW_LOOKUP(src, off, len) {
         if (_ts_memeq(name, "extends", 7) == 1) { return TS_TOK_KW_EXTENDS; }
         if (_ts_memeq(name, "private", 7) == 1) { return TS_TOK_KW_PRIVATE; }
         if (_ts_memeq(name, "package", 7) == 1) { return TS_TOK_KW_PACKAGE; }
-                                              # 'declare' falls into len 7
+        # 'declare' falls into len 7
         if (_ts_memeq(name, "declare", 7) == 1) { return TS_TOK_KW_DECLARE; }
         if (_ts_memeq(name, "asserts", 7) == 1) { return TS_TOK_KW_ASSERTS; }
     }
@@ -445,7 +445,7 @@ fn TS_KW_LOOKUP(src, off, len) {
         if (_ts_memeq(name, "readonly", 8) == 1) { return TS_TOK_KW_READONLY; }
         if (_ts_memeq(name, "abstract", 8) == 1) { return TS_TOK_KW_ABSTRACT; }
         if (_ts_memeq(name, "debugger", 8) == 1) { return TS_TOK_KW_DEBUGGER; }
-                                                # 'override' is len 8
+        # 'override' is len 8
         if (_ts_memeq(name, "override", 8) == 1) { return TS_TOK_KW_OVERRIDE; }
     }
     if (len == 9) {
@@ -568,8 +568,8 @@ fn TS_EMIT_INT(ts_base, src, src_len, start) {
     # Only valid for decimal integers (skip 0x/0o/0b).
     var is_float = 0;
     if (c0 != 48 || (p + 1 >= src_len) || (load8(src + p + 1) != 120 && load8(src + p + 1) != 88
-        && load8(src + p + 1) != 111 && load8(src + p + 1) != 79
-        && load8(src + p + 1) != 98 && load8(src + p + 1) != 66)) {
+    && load8(src + p + 1) != 111 && load8(src + p + 1) != 79
+    && load8(src + p + 1) != 98 && load8(src + p + 1) != 66)) {
         # Fractional part: `.\d+`
         if (end < src_len && load8(src + end) == 46) {
             if (end + 1 < src_len && TS_ISDIGIT(load8(src + end + 1)) == 1) {
@@ -1954,143 +1954,143 @@ fn TS_LEX(ts_base, src, src_len) {
             if (jx_p < 0) { return 0 - 1; }
             p = jx_p;
         } else {
-        var c = load8(src + p);
+            var c = load8(src + p);
 
-        # ─── Whitespace ───────────────────────────────────────────
-        if (c == 32) { p = p + 1; }              # space
-        elif (c == 9) { p = p + 1; }             # tab
-        elif (c == 13) { p = p + 1; }            # CR — skip (handle as part of CRLF)
-        elif (c == 10) {                          # LF — track line
-            TS_INCLINE(ts_base);
-            p = p + 1;
-        }
-
-        # ─── Identifier / keyword ─────────────────────────────────
-        elif (TS_ISIDSTART(c) == 1) {
-            var id_start = p;
-            var id_end = TS_SCAN_IDENT(src, src_len, p + 1);
-            TS_EMIT_IDENT_FINISH(ts_base, src, id_start, id_end);
-            p = id_end;
-        }
-
-        # ─── Integer literal ──────────────────────────────────────
-        elif (TS_ISDIGIT(c) == 1) {
-            var int_end = TS_EMIT_INT(ts_base, src, src_len, p);
-            if (int_end < 0) { return 0 - 1; }
-            p = int_end;
-        }
-
-        # ─── String literal (double-quote) ────────────────────────
-        elif (c == 34) {
-            var dq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 34);
-            if (dq_end < 0) { return 0 - 1; }
-            p = dq_end;
-        }
-        # ─── String literal (single-quote) ────────────────────────
-        elif (c == 39) {
-            var sq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 39);
-            if (sq_end < 0) { return 0 - 1; }
-            p = sq_end;
-        }
-
-        # ─── Operators / punctuation (single + multi-char) ───────
-        # Single-char-only structural punctuation stays inline.
-        # Multi-char-extensible ops dispatch to TS_LEX_OP_* helpers
-        # (P1.3) which emit the longest-match token and return new p.
-        elif (c == 40)  { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
-        elif (c == 41)  { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
-        elif (c == 123) {
-            # `{` — emit LBRACE token. If we're currently inside a
-            # template interpolation (top == 2), also push a brace
-            # marker (3) so the closing `}` balances correctly without
-            # closing the interpolation prematurely (e.g., object
-            # literals like `${f({a, b})}`).
-            TS_ADDTOK(ts_base, TS_TOK_LBRACE, 0);
-            var lb_top = TS_TEMPLATE_TOP(ts_base);
-            if (lb_top == 2) {
-                TS_TEMPLATE_PUSH(ts_base, 3);
-            } elif (lb_top == 3) {
-                TS_TEMPLATE_PUSH(ts_base, 3);
-            } elif (lb_top == 8) {
-                TS_TEMPLATE_PUSH(ts_base, 3);
-            }
-            p = p + 1;
-        }
-        # Right brace — usually a normal RBRACE, BUT if we're inside
-        # a template interpolation (top == 2), this `}` closes the
-        # interp. If top == 3 (nested brace inside interp), pop the
-        # marker + emit RBRACE.
-        elif (c == 125) {
-            var rbtop = TS_TEMPLATE_TOP(ts_base);
-            if (rbtop == 2) {
-                TS_TEMPLATE_POP(ts_base);
-                p = p + 1;
-            } elif (rbtop == 3) {
-                TS_TEMPLATE_POP(ts_base);
-                TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
-                p = p + 1;
-            } elif (rbtop == 8) {
-                TS_TEMPLATE_POP(ts_base);
-                TS_ADDTOK(ts_base, TS_TOK_JSX_EXPR_CLOSE, 0);
-                p = p + 1;
-            } else {
-                TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
+            # ─── Whitespace ───────────────────────────────────────────
+            if (c == 32) { p = p + 1; }              # space
+            elif (c == 9) { p = p + 1; }             # tab
+            elif (c == 13) { p = p + 1; }            # CR — skip (handle as part of CRLF)
+            elif (c == 10) {                          # LF — track line
+                TS_INCLINE(ts_base);
                 p = p + 1;
             }
-        }
-        elif (c == 91)  { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
-        elif (c == 93)  { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
-        elif (c == 59)  { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
-        elif (c == 44)  { TS_ADDTOK(ts_base, TS_TOK_COMMA,    0); p = p + 1; }
-        elif (c == 58)  { TS_ADDTOK(ts_base, TS_TOK_COLON,    0); p = p + 1; }
-        elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,    0); p = p + 1; }
-        elif (c == 64)  { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
-        elif (c == 35)  { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
-        # Backtick — start a new template body. Push 0 onto template
-        # stack; next loop iteration's TS_LEX_TEMPLATE_BODY dispatch
-        # scans the body and emits NOSUB/HEAD as appropriate.
-        elif (c == 96)  { TS_TEMPLATE_PUSH(ts_base, 0); p = p + 1; }
-        # Multi-char-extensible: dispatch through helpers
-        elif (c == 33)  { var bp = TS_LEX_OP_BANG    (ts_base, src, src_len, p); if (bp < 0) { return 0 - 1; } p = bp; }
-        elif (c == 37)  { var pp = TS_LEX_OP_PERCENT (ts_base, src, src_len, p); if (pp < 0) { return 0 - 1; } p = pp; }
-        elif (c == 38)  { var ap = TS_LEX_OP_AMP     (ts_base, src, src_len, p); if (ap < 0) { return 0 - 1; } p = ap; }
-        elif (c == 42)  { var sp = TS_LEX_OP_STAR    (ts_base, src, src_len, p); if (sp < 0) { return 0 - 1; } p = sp; }
-        elif (c == 43)  { var lp = TS_LEX_OP_PLUS    (ts_base, src, src_len, p); if (lp < 0) { return 0 - 1; } p = lp; }
-        elif (c == 45)  { var mp = TS_LEX_OP_MINUS   (ts_base, src, src_len, p); if (mp < 0) { return 0 - 1; } p = mp; }
-        elif (c == 46)  { var dp = TS_LEX_OP_DOT     (ts_base, src, src_len, p); if (dp < 0) { return 0 - 1; } p = dp; }
-        elif (c == 47)  { var fp = TS_LEX_OP_SLASH   (ts_base, src, src_len, p); if (fp < 0) { return 0 - 1; } p = fp; }
-        elif (c == 60)  {
-            # JSX detection — only when in expression (regex-allowed)
-            # context. Otherwise fall through to the normal LT op
-            # dispatch (binary <, <=, <<, etc.).
-            var tried_jsx = 0;
-            # JSX is valid only in expression context — use the
-            # token-walk-back IS_PRIMARY check (LAST_TOK_CLASS is a
-            # cached field that doesn't update per-token).
-            if (TS_IS_PRIMARY_CONTEXT(ts_base) == 0) {
-                var jsx_end = TS_LEX_JSX(ts_base, src, src_len, p);
-                if (jsx_end > p) {
-                    p = jsx_end;
-                    tried_jsx = 1;
+
+            # ─── Identifier / keyword ─────────────────────────────────
+            elif (TS_ISIDSTART(c) == 1) {
+                var id_start = p;
+                var id_end = TS_SCAN_IDENT(src, src_len, p + 1);
+                TS_EMIT_IDENT_FINISH(ts_base, src, id_start, id_end);
+                p = id_end;
+            }
+
+            # ─── Integer literal ──────────────────────────────────────
+            elif (TS_ISDIGIT(c) == 1) {
+                var int_end = TS_EMIT_INT(ts_base, src, src_len, p);
+                if (int_end < 0) { return 0 - 1; }
+                p = int_end;
+            }
+
+            # ─── String literal (double-quote) ────────────────────────
+            elif (c == 34) {
+                var dq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 34);
+                if (dq_end < 0) { return 0 - 1; }
+                p = dq_end;
+            }
+            # ─── String literal (single-quote) ────────────────────────
+            elif (c == 39) {
+                var sq_end = TS_EMIT_STRING(ts_base, src, src_len, p, 39);
+                if (sq_end < 0) { return 0 - 1; }
+                p = sq_end;
+            }
+
+            # ─── Operators / punctuation (single + multi-char) ───────
+            # Single-char-only structural punctuation stays inline.
+            # Multi-char-extensible ops dispatch to TS_LEX_OP_* helpers
+            # (P1.3) which emit the longest-match token and return new p.
+            elif (c == 40)  { TS_ADDTOK(ts_base, TS_TOK_LPAREN,   0); p = p + 1; }
+            elif (c == 41)  { TS_ADDTOK(ts_base, TS_TOK_RPAREN,   0); p = p + 1; }
+            elif (c == 123) {
+                # `{` — emit LBRACE token. If we're currently inside a
+                # template interpolation (top == 2), also push a brace
+                # marker (3) so the closing `}` balances correctly without
+                # closing the interpolation prematurely (e.g., object
+                # literals like `${f({a, b})}`).
+                TS_ADDTOK(ts_base, TS_TOK_LBRACE, 0);
+                var lb_top = TS_TEMPLATE_TOP(ts_base);
+                if (lb_top == 2) {
+                    TS_TEMPLATE_PUSH(ts_base, 3);
+                } elif (lb_top == 3) {
+                    TS_TEMPLATE_PUSH(ts_base, 3);
+                } elif (lb_top == 8) {
+                    TS_TEMPLATE_PUSH(ts_base, 3);
+                }
+                p = p + 1;
+            }
+            # Right brace — usually a normal RBRACE, BUT if we're inside
+            # a template interpolation (top == 2), this `}` closes the
+            # interp. If top == 3 (nested brace inside interp), pop the
+            # marker + emit RBRACE.
+            elif (c == 125) {
+                var rbtop = TS_TEMPLATE_TOP(ts_base);
+                if (rbtop == 2) {
+                    TS_TEMPLATE_POP(ts_base);
+                    p = p + 1;
+                } elif (rbtop == 3) {
+                    TS_TEMPLATE_POP(ts_base);
+                    TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
+                    p = p + 1;
+                } elif (rbtop == 8) {
+                    TS_TEMPLATE_POP(ts_base);
+                    TS_ADDTOK(ts_base, TS_TOK_JSX_EXPR_CLOSE, 0);
+                    p = p + 1;
+                } else {
+                    TS_ADDTOK(ts_base, TS_TOK_RBRACE, 0);
+                    p = p + 1;
                 }
             }
-            if (tried_jsx == 0) {
-                var tp = TS_LEX_OP_LT(ts_base, src, src_len, p);
-                if (tp < 0) { return 0 - 1; }
-                p = tp;
+            elif (c == 91)  { TS_ADDTOK(ts_base, TS_TOK_LBRACKET, 0); p = p + 1; }
+            elif (c == 93)  { TS_ADDTOK(ts_base, TS_TOK_RBRACKET, 0); p = p + 1; }
+            elif (c == 59)  { TS_ADDTOK(ts_base, TS_TOK_SEMI,     0); p = p + 1; }
+            elif (c == 44)  { TS_ADDTOK(ts_base, TS_TOK_COMMA,    0); p = p + 1; }
+            elif (c == 58)  { TS_ADDTOK(ts_base, TS_TOK_COLON,    0); p = p + 1; }
+            elif (c == 126) { TS_ADDTOK(ts_base, TS_TOK_TILDE,    0); p = p + 1; }
+            elif (c == 64)  { TS_ADDTOK(ts_base, TS_TOK_AT,       0); p = p + 1; }
+            elif (c == 35)  { TS_ADDTOK(ts_base, TS_TOK_HASH,     0); p = p + 1; }
+            # Backtick — start a new template body. Push 0 onto template
+            # stack; next loop iteration's TS_LEX_TEMPLATE_BODY dispatch
+            # scans the body and emits NOSUB/HEAD as appropriate.
+            elif (c == 96)  { TS_TEMPLATE_PUSH(ts_base, 0); p = p + 1; }
+            # Multi-char-extensible: dispatch through helpers
+            elif (c == 33)  { var bp = TS_LEX_OP_BANG    (ts_base, src, src_len, p); if (bp < 0) { return 0 - 1; } p = bp; }
+            elif (c == 37)  { var pp = TS_LEX_OP_PERCENT (ts_base, src, src_len, p); if (pp < 0) { return 0 - 1; } p = pp; }
+            elif (c == 38)  { var ap = TS_LEX_OP_AMP     (ts_base, src, src_len, p); if (ap < 0) { return 0 - 1; } p = ap; }
+            elif (c == 42)  { var sp = TS_LEX_OP_STAR    (ts_base, src, src_len, p); if (sp < 0) { return 0 - 1; } p = sp; }
+            elif (c == 43)  { var lp = TS_LEX_OP_PLUS    (ts_base, src, src_len, p); if (lp < 0) { return 0 - 1; } p = lp; }
+            elif (c == 45)  { var mp = TS_LEX_OP_MINUS   (ts_base, src, src_len, p); if (mp < 0) { return 0 - 1; } p = mp; }
+            elif (c == 46)  { var dp = TS_LEX_OP_DOT     (ts_base, src, src_len, p); if (dp < 0) { return 0 - 1; } p = dp; }
+            elif (c == 47)  { var fp = TS_LEX_OP_SLASH   (ts_base, src, src_len, p); if (fp < 0) { return 0 - 1; } p = fp; }
+            elif (c == 60)  {
+                # JSX detection — only when in expression (regex-allowed)
+                # context. Otherwise fall through to the normal LT op
+                # dispatch (binary <, <=, <<, etc.).
+                var tried_jsx = 0;
+                # JSX is valid only in expression context — use the
+                # token-walk-back IS_PRIMARY check (LAST_TOK_CLASS is a
+                # cached field that doesn't update per-token).
+                if (TS_IS_PRIMARY_CONTEXT(ts_base) == 0) {
+                    var jsx_end = TS_LEX_JSX(ts_base, src, src_len, p);
+                    if (jsx_end > p) {
+                        p = jsx_end;
+                        tried_jsx = 1;
+                    }
+                }
+                if (tried_jsx == 0) {
+                    var tp = TS_LEX_OP_LT(ts_base, src, src_len, p);
+                    if (tp < 0) { return 0 - 1; }
+                    p = tp;
+                }
             }
-        }
-        elif (c == 61)  { var ep = TS_LEX_OP_EQ      (ts_base, src, src_len, p); if (ep < 0) { return 0 - 1; } p = ep; }
-        elif (c == 62)  { var gp = TS_LEX_OP_GT      (ts_base, src, src_len, p); if (gp < 0) { return 0 - 1; } p = gp; }
-        elif (c == 63)  { var qp = TS_LEX_OP_QUESTION(ts_base, src, src_len, p); if (qp < 0) { return 0 - 1; } p = qp; }
-        elif (c == 94)  { var rp = TS_LEX_OP_CARET   (ts_base, src, src_len, p); if (rp < 0) { return 0 - 1; } p = rp; }
-        elif (c == 124) { var ip = TS_LEX_OP_PIPE    (ts_base, src, src_len, p); if (ip < 0) { return 0 - 1; } p = ip; }
+            elif (c == 61)  { var ep = TS_LEX_OP_EQ      (ts_base, src, src_len, p); if (ep < 0) { return 0 - 1; } p = ep; }
+            elif (c == 62)  { var gp = TS_LEX_OP_GT      (ts_base, src, src_len, p); if (gp < 0) { return 0 - 1; } p = gp; }
+            elif (c == 63)  { var qp = TS_LEX_OP_QUESTION(ts_base, src, src_len, p); if (qp < 0) { return 0 - 1; } p = qp; }
+            elif (c == 94)  { var rp = TS_LEX_OP_CARET   (ts_base, src, src_len, p); if (rp < 0) { return 0 - 1; } p = rp; }
+            elif (c == 124) { var ip = TS_LEX_OP_PIPE    (ts_base, src, src_len, p); if (ip < 0) { return 0 - 1; } p = ip; }
 
-        # ─── Unknown byte ─────────────────────────────────────────
-        else {
-            TS_SETERR(ts_base, 1);
-            return 0 - 1;
-        }
+            # ─── Unknown byte ─────────────────────────────────────────
+            else {
+                TS_SETERR(ts_base, 1);
+                return 0 - 1;
+            }
         }   # close template-mode-else
     }
 

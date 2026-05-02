@@ -356,7 +356,7 @@ fn _pe_gettick_get() { return _pe_gettick_idx; }
 # after placing `ExitProcess` at imp_idx=0.
 fn _pe_pending_imp_add(S, name) {
     S64(&_pe_pending_imp_offs + _pe_pending_imp_count * 8,
-        _pe_pending_imp_pos);
+    _pe_pending_imp_pos);
     var i = 0;
     var c = load8(name);
     while (c != 0) {
@@ -381,7 +381,7 @@ fn _pe_iat_fixup_add(S, coff, imp_idx) {
     var fc = GFCNT(S);
     if (fc >= 262144) {
         syscall(SYS_WRITE, 2,
-            "error: fixup table full (262144)\n", 33);
+        "error: fixup table full (262144)\n", 33);
         syscall(SYS_EXIT, 1);
     }
     var faddr = S + 0x190B000 + fc * 16;
@@ -547,14 +547,14 @@ fn _pe_layout(S) {
             rl_shift = _pe_reloc_count;
             while (rl_shift > rl_k) {
                 S64(S + 0x1DC000 + rl_shift * 8,
-                    L64(S + 0x1DC000 + (rl_shift - 1) * 8));
+                L64(S + 0x1DC000 + (rl_shift - 1) * 8));
                 rl_shift = rl_shift - 1;
             }
             S64(S + 0x1DC000 + rl_k * 8, rl_coff);
             _pe_reloc_count = _pe_reloc_count + 1;
             if (_pe_reloc_count >= 8192) {
                 syscall(SYS_WRITE, 2,
-                    "error: PE reloc table full (8192)\n", 34);
+                "error: PE reloc table full (8192)\n", 34);
                 syscall(SYS_EXIT, 1);
             }
         }

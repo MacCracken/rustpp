@@ -134,20 +134,20 @@ fn PARSE_ELIF(S, cond_patch) {
         STI(S, GTI(S) + 1);
         PARSE_ELIF(S, patch);
     } else { if (PEEKT(S) == 23) {
-        STI(S, GTI(S) + 1);
-        var skip2 = EJMP0(S);
-        PATCHXP(S);
-        EPATCH(S, patch);
-        if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
-        STI(S, GTI(S) + 1);
-        PARSE_PROG(S);
-        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
-        STI(S, GTI(S) + 1);
-        EPATCH(S, skip2);
-    } else {
-        PATCHXP(S);
-        EPATCH(S, patch);
-    } }
+            STI(S, GTI(S) + 1);
+            var skip2 = EJMP0(S);
+            PATCHXP(S);
+            EPATCH(S, patch);
+            if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+            STI(S, GTI(S) + 1);
+            PARSE_PROG(S);
+            if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+            STI(S, GTI(S) + 1);
+            EPATCH(S, skip2);
+        } else {
+            PATCHXP(S);
+            EPATCH(S, patch);
+        } }
     # Patch our skip-to-end
     EPATCH(S, skip);
     return 0;
@@ -173,23 +173,23 @@ fn PARSE_IF(S) {
         STI(S, GTI(S) + 1);
         PARSE_ELIF(S, patch);
     } else { if (PEEKT(S) == 23) {
-        # else
-        STI(S, GTI(S) + 1);
-        var skip = EJMP0(S);
-        PATCHXP(S);
-        EPATCH(S, patch);
-        if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
-        STI(S, GTI(S) + 1);
-        SCOPE_PUSH(S);
-        PARSE_PROG(S);
-        SCOPE_POP(S);
-        if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
-        STI(S, GTI(S) + 1);
-        EPATCH(S, skip);
-    } else {
-        PATCHXP(S);
-        EPATCH(S, patch);
-    } }
+            # else
+            STI(S, GTI(S) + 1);
+            var skip = EJMP0(S);
+            PATCHXP(S);
+            EPATCH(S, patch);
+            if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
+            STI(S, GTI(S) + 1);
+            SCOPE_PUSH(S);
+            PARSE_PROG(S);
+            SCOPE_POP(S);
+            if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
+            STI(S, GTI(S) + 1);
+            EPATCH(S, skip);
+        } else {
+            PATCHXP(S);
+            EPATCH(S, patch);
+        } }
     SLVAR(S, saved_lv);
     return 0;
 }
@@ -477,10 +477,10 @@ fn PARSE_FOR(S) {
         var tok = PEEKT(S);
         if (tok == 10) { dep = dep + 1; STI(S, GTI(S) + 1); }
         else { if (tok == 11) {
-            if (dep == 0) { skg = 0; }
-            else { dep = dep - 1; STI(S, GTI(S) + 1); }
-        }
-        else { STI(S, GTI(S) + 1); } }
+                if (dep == 0) { skg = 0; }
+                else { dep = dep - 1; STI(S, GTI(S) + 1); }
+            }
+            else { STI(S, GTI(S) + 1); } }
     }
     STI(S, GTI(S) + 1);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }

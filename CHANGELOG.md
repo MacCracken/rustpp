@@ -4,6 +4,156 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.0] — 2026-05-01
+
+**v5.8.x cycle opens — optimization + bug-fix theme**. Triple-anchor
+cut: P(-1) fmt-sweep finish + vani audio distlib fold-in + cyriusly
+starship.toml prompt rework. Soft backstop for v5.8.x is ~.44 (firm
+preference; v5.7.x ran 51 patches, tightening this minor). Bare-metal
++ RISC-V deferred to v5.9.x. Most P(-1) hardening was already done
+by v5.7.50 (which closed the bench/test BLOCKER); v5.8.0's P(-1)
+finish is the fmt sweep on the 24 first-party drift files plus
+vidya per-minor refresh.
+
+cc5 at **720,928 B** — net unchanged from v5.7.50. The fmt sweep
+added +8 bytes (whitespace absorbed into TOK_LITERAL strings) and
+the 5.8.0 version-string shortening (5 → 5 chars vs 5.7.50's 6
+chars; `cc5 5.8.0\n` = 10 bytes vs `cc5 5.7.50\n` = 11 bytes × 3
+arch strings + padding) reclaimed the same 8 bytes. Coincidence-
+clean.
+
+### §1 — fmt sweep (P(-1) finish)
+
+24 first-party files reformatted to canonical `cyrius fmt` output.
+Pre-sweep audit (`docs/audit/2026-05-01-pre-5.8.0-audit.md` §1)
+counted 26 first-party drifts; 1 (`lib/sandhi.cyr`) skipped because
+it's vendored byte-identical from sandhi v1.0.0 distlib (per the
+v5.7.0 fold contract); 1 (`src/frontend/ts/parse.cyr`, 195,483 B)
+skipped because the v5.7.x `cyrius fmt` 128 KiB output cap
+(mabda's Class A1 finding) would truncate it. The ts/parse.cyr
+sweep waits for the cap-raise slot in v5.8.x.
+
+All 24 swept files retained line counts (line-count guard pattern
+from mabda's A1 workaround). Self-host two-step byte-identical
+post-sweep at 720,936 B (compiler emit shifted +8 B from
+whitespace-absorbed string literals).
+
+### §2 — Vani audio distlib fold-in
+
+Per [`vani/docs/development/cyrius-stdlib-fold-in.md`](https://github.com/MacCracken/vani/blob/main/docs/development/cyrius-stdlib-fold-in.md).
+`vani` (Sanskrit वाणी, Saraswati's name — "voice / speech") is the
+audio-domain sibling distlib mirroring the mabda / sankoch / sigil /
+yukti pattern.
+
+- Added `[deps.vani]` block to `cyrius.cyml` pinning vani 0.9.1
+  (released 2026-04-30); `cyrius deps` resolved 8 deps total
+  (sakshi / patra / sigil / **vani** / yukti / mabda / sankoch +
+  agnosys transitive).
+- Deleted `cyrius/lib/audio.cyr` (236 LOC). The `audio_*` symbol
+  set is provided by `dist/vani.cyr` plus the higher-level
+  `vani_*` API (typed errors, ring buffer, XRUN recovery, mixer,
+  yukti adapter).
+- Migrated 3 preprocessor-cap regression-test fixtures from
+  `include "lib/audio.cyr"` → `include "lib/vani.cyr"`
+  (`tests/tcyr/preprocessor_past_cap.tcyr`,
+  `tests/tcyr/large_input.tcyr`, `tests/tcyr/large_source.tcyr`).
+  Vani.cyr at 76,124 B is 10× the 7,756 B audio.cyr — fixtures
+  hit the 524288 B cap more reliably.
+- Pre-flight `grep -rn "include.*lib/audio.cyr"` across the
+  ecosystem confirmed zero external consumers; the 3 in-tree
+  fixtures were the only call sites (per vani's fold-in doc:
+  no AGNOS in-tree consumer imported the old path as of vani
+  0.1.0 cut).
+
+### §3 — Cyriusly starship.toml prompt rework
+
+New two-segment prompt format replacing the v5.7.x single `𝕮`
+glyph:
+
+```
+ॐ <pkg-name> <pkg-version> (<repo>) | 🌀 <toolchain-version>
+```
+
+Icons:
+
+- **🌀 cyclone** (U+1F300) — Cyrius toolchain. Self-hosting
+  recursion + the "cyr-" name shape. Replaces `𝕮` (Mathematical
+  Bold Fraktur C) as primary; `𝕮` retained as documented ASCII
+  fallback for emoji-hostile terminals (consumer-side edit to
+  starship.toml / p10k.zsh; no behavior change in cyriusly itself).
+- **ॐ Om** (U+0950) — Cyrius package. Aligns with the ecosystem's
+  Sanskrit naming convention (sigil / mabda / sakshi / sankoch /
+  samvada / vani / yukti / patra). Distinguishes a Cyrius package
+  from rust's 📦 / go's gopher / python's snake at a glance.
+
+Implementation:
+
+- New helper script `scripts/cyrius-prompt-info` (62 LOC, sh):
+  parses `cyrius.cyml` `[package]` block via sed, falls back to
+  `VERSION` for `${file:VERSION}` interpolation, emits one of
+  three modes: `pkg` (`name version (repo)`), `tool` (toolchain
+  version), `both` (combined with separator + icons).
+- `scripts/cyriusly cmdtools install starship` now writes BOTH
+  `[custom.cyrius_pkg]` (ॐ Om, fires on `cyrius.cyml`) and
+  `[custom.cyrius]` (🌀 cyclone, fires on cyrius.cyml or
+  cyrius.toml). Starship's segment ordering renders pkg first,
+  then `|` separator, then toolchain.
+- `cmdtools install/remove starship` updated to clean BOTH
+  segment blocks on re-install / remove (was: only
+  `[custom.cyrius]`).
+- p10k segment `prompt_cyrius` extended to call
+  `cyrius-prompt-info pkg` + `cyrius-prompt-info tool` and
+  format identically.
+- `cyrius-prompt-info` registered in `cyrius.cyml [release].scripts`
+  so fresh installs / `cyriusly setup` ship it alongside
+  `cyriusly` itself.
+
+Smoke-test confirmed across three contexts:
+- Cyrius compiler repo → `ॐ cyrius 5.8.0 (cyrius) | 🌀 5.8.0`
+- Sigil package repo → `ॐ sigil 3.0.0 (sigil) | 🌀 5.8.0`
+- Non-cyrius dir → empty pkg, just `🌀 5.8.0`
+
+### §4 — Verification
+
+1. ✅ Self-host two-step byte-identical at 720,928 B.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS** (same gate count as
+   v5.7.50; v5.8.0 introduces no new gates — vani fold + fmt sweep
+   + starship rework are all data / config / script changes).
+3. ✅ `cyrius bench` — **15 / 15 PASS** (baseline captured for the
+   v5.8.x optimization arc; pre-v5.7.50 was 2/13 BLOCKED, post-
+   v5.7.50 unblocked; v5.8.0 confirms baseline holds across the
+   fmt sweep + vani fold).
+4. ✅ `cyrius deps` resolves **8 deps** clean (was 7 at v5.7.50;
+   vani added).
+5. ✅ Heap audit: 80 regions, 0 overlaps, 0 warnings.
+
+### §5 — Out of scope (deferred to v5.8.1+)
+
+Per the user-stated v5.8.x bug-fix theme, the smaller P(-1)
+finish items split into v5.8.1+ slots:
+
+- **`build/cyrc_check` orphan delete** (audit §4). Trivial; fold
+  with another v5.8.1 patch.
+- **`cc5_aarch64` packaging fix** (sakshi/yukti issue;
+  audit §5). Move `cc5_aarch64` back under `bin/` in
+  `install.sh` / release tarball.
+
+The audit's broader v5.8.x slot list (12 items: lint/fmt 128KB
+cap, f64_log2 polyfill, sys_stat/fstat backfill, _SC_ARITY pass,
+NI-class dupe investigation, preprocessor include-pattern,
+vidya audit, var X; error message, cyrlint multi-line assert,
+cyim regex, cyrius fmt --check exit code, ESTORESTACKPARM stub)
+also opens for v5.8.1+ as consumers surface pain.
+
+### Coda
+
+v5.8.0 cuts cleanly. v5.7.x's 51-patch record stands. The
+v5.8.x cycle opens with a working bench baseline, all fmt drift
+in compiler-source resolved (modulo ts/parse.cyr awaiting the
+cap raise), the vani audio distlib folded matching the v5.7.0
+sandhi-fold precedent, and a fresh prompt identity (🌀 cyclone +
+ॐ Om) anchoring the cyrius ecosystem at the shell level.
+
 ## [5.7.50] — 2026-05-01
 
 **Pre-v5.8.0 P(-1) audit unblock — single-issue config-only patch.**

@@ -107,49 +107,49 @@ fn PARSE_FACTOR(S) {
     if (typ == 61) { var fval = PEEKV(S); STI(S, GTI(S) + 1); EMIT_FLOAT_LIT(S, fval); return 0; }
     # sizeof(Type) — compile-time constant (detected as IDENT "sizeof")
     if (typ == 2) { if (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFFFF == 0x666F657A6973) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
-        STI(S, GTI(S) + 1);
-        var szval = 0;
-        if (PEEKT(S) == 105) {
-            # sizeof(u128) = 16
-            szval = 16;
             STI(S, GTI(S) + 1);
-        } else {
-            if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
-            var szn = PEEKV(S);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
             STI(S, GTI(S) + 1);
-            var szname = L64(S + 0x60000 + szn);
-            if (szname & 0xFFFF == 0x3869) { szval = 1; }
-            elif (szname & 0xFFFFFF == 0x363169) { szval = 2; }
-            elif (szname & 0xFFFFFF == 0x323369) { szval = 4; }
-            elif (szname & 0xFFFFFF == 0x343669) { szval = 8; }
-            else {
-                var szsid = FINDSTRUCT(S, szn);
-                if (szsid > 0) { szval = STRUCTSZ(S, szsid - 1); }
-                else { ERR_MSG(S, "sizeof: unknown type", 20); }
+            var szval = 0;
+            if (PEEKT(S) == 105) {
+                # sizeof(u128) = 16
+                szval = 16;
+                STI(S, GTI(S) + 1);
+            } else {
+                if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                var szn = PEEKV(S);
+                STI(S, GTI(S) + 1);
+                var szname = L64(S + 0x60000 + szn);
+                if (szname & 0xFFFF == 0x3869) { szval = 1; }
+                elif (szname & 0xFFFFFF == 0x363169) { szval = 2; }
+                elif (szname & 0xFFFFFF == 0x323369) { szval = 4; }
+                elif (szname & 0xFFFFFF == 0x343669) { szval = 8; }
+                else {
+                    var szsid = FINDSTRUCT(S, szn);
+                    if (szsid > 0) { szval = STRUCTSZ(S, szsid - 1); }
+                    else { ERR_MSG(S, "sizeof: unknown type", 20); }
+                }
             }
-        }
-        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
-        STI(S, GTI(S) + 1);
-        EMOVI(S, szval);
-        return 0;
-    } }
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            EMOVI(S, szval);
+            return 0;
+        } }
     # mulh64(a, b) — high 64 bits of a 64×64 unsigned multiply
     # Packed LE encoding of "mulh64" = 0x3436686C756D.
     if (typ == 2) { if (L64(S + 0x60000 + PEEKV(S)) & 0xFFFFFFFFFFFF == 0x3436686C756D) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
-        STI(S, GTI(S) + 1);
-        PCMPE(S); EPUSHR(S);
-        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); }
-        STI(S, GTI(S) + 1);
-        PCMPE(S); EPOPC(S); EMULH(S);
-        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
-        STI(S, GTI(S) + 1);
-        _cfo = 0;
-        return 0;
-    } }
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S); EPUSHR(S);
+            if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S); EPOPC(S); EMULH(S);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            _cfo = 0;
+            return 0;
+        } }
     if (typ == 1) {
         var val = PEEKV(S);
         STI(S, GTI(S) + 1);
@@ -434,8 +434,8 @@ fn PARSE_FACTOR(S) {
                 elif (sc_num == 228) { sc_ok = 1; }   # v5.6.6 — _clock_gettime_nsec_np via __got[6]
                 if (sc_ok == 0) {
                     syscall(SYS_WRITE, 2,
-                        "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60,228); runtime call will fault unless a reroute is added.\n",
-                        131);
+                    "warning: syscall not on Mach-O BSD whitelist (0,1,2,3,9,10,11,60,228); runtime call will fault unless a reroute is added.\n",
+                    131);
                 }
             }
         }
@@ -578,8 +578,8 @@ fn PARSE_FACTOR(S) {
             # Windows. Warn now; hard-error once the full
             # syscalls_windows.cyr stdlib lands in v5.5.x.
             syscall(SYS_WRITE, 2,
-                "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 routes n=0,1,2,3,8,9,60 today; others will crash on Windows.\n",
-                109);
+            "warning: syscall(n, ...) on CYRIUS_TARGET_WIN=1 routes n=0,1,2,3,8,9,60 today; others will crash on Windows.\n",
+            109);
         }
         ESCPOPS(S, argc);
         _cfo = 0;
@@ -1192,21 +1192,21 @@ fn PARSE_TERM(S) {
     if (ptyp == 88) { STI(S, GTI(S) + 1); if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1); PCMPE(S); EX87PUSH(S); _IR_REC0(S, IR_RAW_EMIT); EB(S, 0xD9); EB(S, 0xC0); EB(S, 0xD9); EB(S, 0xFC); EB(S, 0xDC); EB(S, 0xE9); EB(S, 0xD9); EB(S, 0xC9); EB(S, 0xD9); EB(S, 0xF0); EB(S, 0xD9); EB(S, 0xE8); EB(S, 0xDE); EB(S, 0xC1); EB(S, 0xD9); EB(S, 0xFD); EB(S, 0xDD); EB(S, 0xD9); EX87POP(S); if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1); return 0; }
     # f64v_add/sub/mul(dst, a, b, n) — SSE2 packed f64 batch operations
     if (ptyp >= 89) { if (ptyp <= 91) {
-        STI(S, GTI(S) + 1);
-        if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
-        var vbase = GFLC(S);
-        PCMPE(S); EFLSTORE(S, vbase);
-        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
-        PCMPE(S); EFLSTORE(S, vbase + 1);
-        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
-        PCMPE(S); EFLSTORE(S, vbase + 2);
-        if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
-        PCMPE(S);
-        SFLC(S, vbase + 3);
-        EMIT_F64V_LOOP(S, ptyp - 89, vbase);
-        if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
-        return 0;
-    } }
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); } STI(S, GTI(S) + 1);
+            var vbase = GFLC(S);
+            PCMPE(S); EFLSTORE(S, vbase);
+            if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+            PCMPE(S); EFLSTORE(S, vbase + 1);
+            if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+            PCMPE(S); EFLSTORE(S, vbase + 2);
+            if (PEEKT(S) != 31) { ERR_EXPECT(S, 31); } STI(S, GTI(S) + 1);
+            PCMPE(S);
+            SFLC(S, vbase + 3);
+            EMIT_F64V_LOOP(S, ptyp - 89, vbase);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); } STI(S, GTI(S) + 1);
+            return 0;
+        } }
     PARSE_FACTOR(S);
     var go = 1;
     while (go == 1) {
@@ -1267,77 +1267,77 @@ fn PARSE_TERM(S) {
             }
         }
         else { if (typ == 9) {
-            var divst = GESTYPE(S);
-            STI(S, GTI(S) + 1);
-            if (divst > 0) { EMIT_OP_DISPATCH(S, divst, "div", 3); }
-            else {
-                if (_cfo == 1) { if (PEEKT(S) == 1) {
-                    var crv = PEEKV(S);
-                    if (crv > 0) { if (crv < 0x10000) {
-                        var cfr = _cfv / crv;
-                        if (cfr > 0) { if (cfr < 0x10000) {
-                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                var divst = GESTYPE(S);
+                STI(S, GTI(S) + 1);
+                if (divst > 0) { EMIT_OP_DISPATCH(S, divst, "div", 3); }
+                else {
+                    if (_cfo == 1) { if (PEEKT(S) == 1) {
+                            var crv = PEEKV(S);
+                            if (crv > 0) { if (crv < 0x10000) {
+                                    var cfr = _cfv / crv;
+                                    if (cfr > 0) { if (cfr < 0x10000) {
+                                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                        } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
+                                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
+                            else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
                         } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
-                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
-                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
-                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); }
-                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); } }
-                else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); _cfo = 0; }
+                    else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); _cfo = 0; }
+                }
             }
-        }
-        else { if (typ == 34) {
-            STI(S, GTI(S) + 1); _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
-        }
-        else { if (typ == 38) {
-            STI(S, GTI(S) + 1);
-            if (_cfo == 1) { if (PEEKT(S) == 1) {
-                var crv = PEEKV(S);
-                if (crv > 0) { if (crv < 0x10000) {
-                    var cfr = _cfv << crv;
-                    if (cfr > 0) { if (cfr < 0x10000) {
-                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
-                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
-                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
-                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
-            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
-            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); _cfo = 0; }
-        }
-        else { if (typ == 39) {
-            STI(S, GTI(S) + 1);
-            if (_cfo == 1) { if (PEEKT(S) == 1) {
-                var crv = PEEKV(S);
-                if (crv > 0) { if (crv < 0x10000) {
-                    var cfr = _cfv >> crv;
-                    if (cfr > 0) { if (cfr < 0x10000) {
-                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
-                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
-                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
-                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
-            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
-            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); _cfo = 0; }
-        }
-        # v5.6.2: *| / *? — saturating / checked mul. Calls into
-        # lib/overflow.cyr. Matches the +|/+? pattern at PEXPR.
-        else { if (typ == 120) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            PARSE_FACTOR(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_sat_mul_i64");
-            _cfo = 0;
-        }
-        else { if (typ == 121) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            PARSE_FACTOR(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_chk_mul_i64");
-            _cfo = 0;
-        }
-        else { go = 0; }
-        } } } } } }
+            else { if (typ == 34) {
+                    STI(S, GTI(S) + 1); _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ECQO(S); EIDIV(S); EMOVDR(S); _cfo = 0;
+                }
+                else { if (typ == 38) {
+                        STI(S, GTI(S) + 1);
+                        if (_cfo == 1) { if (PEEKT(S) == 1) {
+                                var crv = PEEKV(S);
+                                if (crv > 0) { if (crv < 0x10000) {
+                                        var cfr = _cfv << crv;
+                                        if (cfr > 0) { if (cfr < 0x10000) {
+                                                STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                                        else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+                                    } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                                else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); }
+                            } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); } }
+                        else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHLCL(S); _cfo = 0; }
+                    }
+                    else { if (typ == 39) {
+                            STI(S, GTI(S) + 1);
+                            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                                    var crv = PEEKV(S);
+                                    if (crv > 0) { if (crv < 0x10000) {
+                                            var cfr = _cfv >> crv;
+                                            if (cfr > 0) { if (cfr < 0x10000) {
+                                                    STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                                            else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+                                        } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                                    else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); }
+                                } else { _cfo = 0; ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); } }
+                            else { ESPILL(S); PARSE_FACTOR(S); EMOVCA(S); EUNSPILL(S); ESHRCL(S); _cfo = 0; }
+                        }
+                        # v5.6.2: *| / *? — saturating / checked mul. Calls into
+                        # lib/overflow.cyr. Matches the +|/+? pattern at PEXPR.
+                        else { if (typ == 120) {
+                                STI(S, GTI(S) + 1);
+                                EPUSHR(S);
+                                PARSE_FACTOR(S);
+                                EPUSHR(S);
+                                EMIT_OVF_CALL(S, "_sat_mul_i64");
+                                _cfo = 0;
+                            }
+                            else { if (typ == 121) {
+                                    STI(S, GTI(S) + 1);
+                                    EPUSHR(S);
+                                    PARSE_FACTOR(S);
+                                    EPUSHR(S);
+                                    EMIT_OVF_CALL(S, "_chk_mul_i64");
+                                    _cfo = 0;
+                                }
+                                else { go = 0; }
+                            } } } } } }
     }
     return 0;
 }
@@ -1442,11 +1442,11 @@ fn PEXPR(S) {
                 # Fold only if right side is a plain literal (not followed by * / % << >>)
                 var add_can_fold = 0;
                 if (_cfo == 1) { if (PEEKT(S) == 1) {
-                    var nt = TOKTYP(S, GTI(S) + 1);
-                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
-                        add_can_fold = 1;
-                    } } } } }
-                } }
+                        var nt = TOKTYP(S, GTI(S) + 1);
+                        if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                                            add_can_fold = 1;
+                                        } } } } }
+                    } }
                 if (add_can_fold == 1) {
                     var crv = PEEKV(S);
                     if (crv == 0) { STI(S, GTI(S) + 1); }
@@ -1461,143 +1461,143 @@ fn PEXPR(S) {
             }
         }
         else { if (typ == 7) {
-            var subst = GESTYPE(S);
-            STI(S, GTI(S) + 1);
-            if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); _cfo = 0; }
-            else {
-                var sub_can_fold = 0;
-                if (_cfo == 1) { if (PEEKT(S) == 1) {
-                    var nt = TOKTYP(S, GTI(S) + 1);
-                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
-                        sub_can_fold = 1;
-                    } } } } }
-                } }
-                if (sub_can_fold == 1) {
-                    var crv = PEEKV(S);
-                    if (crv == 0) { STI(S, GTI(S) + 1); }
-                    elif (crv > 0) {
-                        var cfr = _cfv - crv;
-                        if (cfr >= 0) {
-                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                        } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
-                    }
-                    else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
-                } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); _cfo = 0; }
+                var subst = GESTYPE(S);
+                STI(S, GTI(S) + 1);
+                if (subst > 0) { EMIT_OP_DISPATCH(S, subst, "sub", 3); _cfo = 0; }
+                else {
+                    var sub_can_fold = 0;
+                    if (_cfo == 1) { if (PEEKT(S) == 1) {
+                            var nt = TOKTYP(S, GTI(S) + 1);
+                            if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                                                sub_can_fold = 1;
+                                            } } } } }
+                        } }
+                    if (sub_can_fold == 1) {
+                        var crv = PEEKV(S);
+                        if (crv == 0) { STI(S, GTI(S) + 1); }
+                        elif (crv > 0) {
+                            var cfr = _cfv - crv;
+                            if (cfr >= 0) {
+                                STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                            } else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                        }
+                        else { _cfo = 0; EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); }
+                    } else { EPUSHR(S); SPSC(S, 0); PARSE_TERM(S); EPTR_SCALE(S, ps); EMOVCA(S); EPOPR(S); ESUBR(S); SPSC(S, ps); _cfo = 0; }
+                }
             }
-        }
-        # v5.6.2: +| / +? / -| / -? — saturating / checked add/sub.
-        # Compiles to a call into lib/overflow.cyr. No constant-fold
-        # path; let the helper handle any corner cases. SPSC(0) during
-        # PARSE_TERM so pointer scaling doesn't apply (overflow ops
-        # are defined on integers only).
-        else { if (typ == 114) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            SPSC(S, 0);
-            PARSE_TERM(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_sat_add_i64");
-            SPSC(S, ps);
-            _cfo = 0;
-        }
-        else { if (typ == 115) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            SPSC(S, 0);
-            PARSE_TERM(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_chk_add_i64");
-            SPSC(S, ps);
-            _cfo = 0;
-        }
-        else { if (typ == 117) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            SPSC(S, 0);
-            PARSE_TERM(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_sat_sub_i64");
-            SPSC(S, ps);
-            _cfo = 0;
-        }
-        else { if (typ == 118) {
-            STI(S, GTI(S) + 1);
-            EPUSHR(S);
-            SPSC(S, 0);
-            PARSE_TERM(S);
-            EPUSHR(S);
-            EMIT_OVF_CALL(S, "_chk_sub_i64");
-            SPSC(S, ps);
-            _cfo = 0;
-        }
-        else { if (typ == 27) {
-            # AMPERSAND — binary AND
-            STI(S, GTI(S) + 1);
-            var and_can_fold = 0;
-            if (_cfo == 1) { if (PEEKT(S) == 1) {
-                var nt = TOKTYP(S, GTI(S) + 1);
-                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
-                    and_can_fold = 1;
-                } } } } }
-            } }
-            if (and_can_fold == 1) {
-                var crv = PEEKV(S);
-                if (crv > 0) { if (crv < 0x10000) {
-                    var cfr = _cfv & crv;
-                    if (cfr > 0) { if (cfr < 0x10000) {
-                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
-                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
-            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); _cfo = 0; }
-        }
-        else { if (typ == 35) {
-            # PIPE — binary OR
-            STI(S, GTI(S) + 1);
-            var or_can_fold = 0;
-            if (_cfo == 1) { if (PEEKT(S) == 1) {
-                var nt = TOKTYP(S, GTI(S) + 1);
-                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
-                    or_can_fold = 1;
-                } } } } }
-            } }
-            if (or_can_fold == 1) {
-                var crv = PEEKV(S);
-                if (crv > 0) { if (crv < 0x10000) {
-                    var cfr = _cfv | crv;
-                    if (cfr > 0) { if (cfr < 0x10000) {
-                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
-                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
-            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); _cfo = 0; }
-        }
-        else { if (typ == 36) {
-            # CARET — binary XOR
-            STI(S, GTI(S) + 1);
-            var xor_can_fold = 0;
-            if (_cfo == 1) { if (PEEKT(S) == 1) {
-                var nt = TOKTYP(S, GTI(S) + 1);
-                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
-                    xor_can_fold = 1;
-                } } } } }
-            } }
-            if (xor_can_fold == 1) {
-                var crv = PEEKV(S);
-                if (crv > 0) { if (crv < 0x10000) {
-                    var cfr = _cfv ^ crv;
-                    if (cfr > 0) { if (cfr < 0x10000) {
-                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
-                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
-                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
-                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
-                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
-            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); _cfo = 0; }
-        }
-        else { go = 0; }
-        } } } } } } } }
+            # v5.6.2: +| / +? / -| / -? — saturating / checked add/sub.
+            # Compiles to a call into lib/overflow.cyr. No constant-fold
+            # path; let the helper handle any corner cases. SPSC(0) during
+            # PARSE_TERM so pointer scaling doesn't apply (overflow ops
+            # are defined on integers only).
+            else { if (typ == 114) {
+                    STI(S, GTI(S) + 1);
+                    EPUSHR(S);
+                    SPSC(S, 0);
+                    PARSE_TERM(S);
+                    EPUSHR(S);
+                    EMIT_OVF_CALL(S, "_sat_add_i64");
+                    SPSC(S, ps);
+                    _cfo = 0;
+                }
+                else { if (typ == 115) {
+                        STI(S, GTI(S) + 1);
+                        EPUSHR(S);
+                        SPSC(S, 0);
+                        PARSE_TERM(S);
+                        EPUSHR(S);
+                        EMIT_OVF_CALL(S, "_chk_add_i64");
+                        SPSC(S, ps);
+                        _cfo = 0;
+                    }
+                    else { if (typ == 117) {
+                            STI(S, GTI(S) + 1);
+                            EPUSHR(S);
+                            SPSC(S, 0);
+                            PARSE_TERM(S);
+                            EPUSHR(S);
+                            EMIT_OVF_CALL(S, "_sat_sub_i64");
+                            SPSC(S, ps);
+                            _cfo = 0;
+                        }
+                        else { if (typ == 118) {
+                                STI(S, GTI(S) + 1);
+                                EPUSHR(S);
+                                SPSC(S, 0);
+                                PARSE_TERM(S);
+                                EPUSHR(S);
+                                EMIT_OVF_CALL(S, "_chk_sub_i64");
+                                SPSC(S, ps);
+                                _cfo = 0;
+                            }
+                            else { if (typ == 27) {
+                                    # AMPERSAND — binary AND
+                                    STI(S, GTI(S) + 1);
+                                    var and_can_fold = 0;
+                                    if (_cfo == 1) { if (PEEKT(S) == 1) {
+                                            var nt = TOKTYP(S, GTI(S) + 1);
+                                            if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                                                                and_can_fold = 1;
+                                                            } } } } }
+                                        } }
+                                    if (and_can_fold == 1) {
+                                        var crv = PEEKV(S);
+                                        if (crv > 0) { if (crv < 0x10000) {
+                                                var cfr = _cfv & crv;
+                                                if (cfr > 0) { if (cfr < 0x10000) {
+                                                        STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                                                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+                                            } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); } }
+                                        else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); }
+                                    } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EANDR(S); _cfo = 0; }
+                                }
+                                else { if (typ == 35) {
+                                        # PIPE — binary OR
+                                        STI(S, GTI(S) + 1);
+                                        var or_can_fold = 0;
+                                        if (_cfo == 1) { if (PEEKT(S) == 1) {
+                                                var nt = TOKTYP(S, GTI(S) + 1);
+                                                if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                                                                    or_can_fold = 1;
+                                                                } } } } }
+                                            } }
+                                        if (or_can_fold == 1) {
+                                            var crv = PEEKV(S);
+                                            if (crv > 0) { if (crv < 0x10000) {
+                                                    var cfr = _cfv | crv;
+                                                    if (cfr > 0) { if (cfr < 0x10000) {
+                                                            STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                                        } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                                                    else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+                                                } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); } }
+                                            else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); }
+                                        } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EORR(S); _cfo = 0; }
+                                    }
+                                    else { if (typ == 36) {
+                                            # CARET — binary XOR
+                                            STI(S, GTI(S) + 1);
+                                            var xor_can_fold = 0;
+                                            if (_cfo == 1) { if (PEEKT(S) == 1) {
+                                                    var nt = TOKTYP(S, GTI(S) + 1);
+                                                    if (nt != 8) { if (nt != 9) { if (nt != 34) { if (nt != 38) { if (nt != 39) {
+                                                                        xor_can_fold = 1;
+                                                                    } } } } }
+                                                } }
+                                            if (xor_can_fold == 1) {
+                                                var crv = PEEKV(S);
+                                                if (crv > 0) { if (crv < 0x10000) {
+                                                        var cfr = _cfv ^ crv;
+                                                        if (cfr > 0) { if (cfr < 0x10000) {
+                                                                STI(S, GTI(S) + 1); SCP(S, _cfp); EMOVI(S, cfr); _cfv = cfr;
+                                                            } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                                                        else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+                                                    } else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); } }
+                                                else { _cfo = 0; EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); }
+                                            } else { EPUSHR(S); PARSE_TERM(S); EMOVCA(S); EPOPR(S); EXORR(S); _cfo = 0; }
+                                        }
+                                        else { go = 0; }
+                                    } } } } } } } }
     }
     return 0;
 }

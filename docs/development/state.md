@@ -5,6 +5,24 @@
 
 ## Version
 
+**5.8.0** (shipped 2026-05-01 — **v5.8.x CYCLE OPENS —
+optimization + bug-fix theme + vani fold-in + cyriusly icon rework**.
+Triple-anchor cut: P(-1) fmt-sweep finish (24 first-party files
+canonicalized; ts/parse.cyr at 195 KB skipped pending the v5.8.x
+lint/fmt 128 KB cap-raise slot) + vani audio distlib fold-in (vani
+0.9.1 added as `[deps.vani]`; `lib/audio.cyr` 236 LOC retired;
+3 preprocessor-cap test fixtures migrated to `lib/vani.cyr`) +
+cyriusly starship.toml two-segment rework (🌀 cyclone for toolchain
++ ॐ Om for packages, format `<pkg-icon> name version (repo) | 🌀 ver`,
+backed by new `scripts/cyrius-prompt-info` helper). cc5 unchanged at
+**720,928 B** — fmt sweep added +8 B (whitespace into TOK_LITERAL),
+5.8.0 version-string shortening (5 vs 6 chars × 3 arch literals + pad)
+reclaimed exactly 8 B; coincidence-clean. Verification: self-host
+two-step byte-identical; check.sh 64/64; `cyrius bench` 15/15 PASS
+(baseline for v5.8.x optimization arc captured); 8 deps resolve
+clean (was 7 at v5.7.50; vani added). v5.7.x final tally stays at
+51 patches; v5.8.x soft backstop ~.44.)
+
 **5.7.50** (shipped 2026-05-01 — **PRE-v5.8.0 P(-1) UNBLOCK —
 v5.7.x cycle ends for real at 51 patches across 36 days**. Single-
 issue config-only patch closing the BLOCKER surfaced in the pre-
@@ -1773,15 +1791,40 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.0 (P(-1) hardening + vani fold-in + cyriusly starship.toml).**
-v5.7.50 shipped the pre-v5.8.0 P(-1) audit unblock (single
-config-only fix to cyrius.cyml that closes the `cyrius bench` /
-`cyrius test` BLOCKER surfaced in the audit). v5.8.0 now opens
-proper with a clean `cyrius bench` baseline. The audit (`docs/
-audit/2026-05-01-pre-5.8.0-audit.md`) catalogued 17 candidate
-slot items (sakshi 2 + mabda 5 + phylax 4 + vidya 1 + audit-
-internal 5); see roadmap §v5.8.x. The v5.8.0 cut delivers the
-P(-1) hardening checklist per CLAUDE.md §"P(-1): Project Hardening"
+**v5.8.1+ (v5.8.x optimization + bug-fix slot work).** v5.8.0 cut
+the cycle open with the triple-anchor (fmt sweep + vani fold-in +
+cyriusly starship.toml). Active slot list inherited from the
+2026-05-01 pre-v5.8.0 P(-1) audit (`docs/audit/2026-05-01-pre-
+5.8.0-audit.md`). Top candidates by impact:
+
+1. **`cyrius lint` / `cyrius fmt` 128 KiB buffer cap raise** (mabda
+   A1; same fix class as v5.7.36 distlib 64K → 256K). Unblocks the
+   ts/parse.cyr fmt sweep that was deferred from v5.8.0.
+2. **`cc5_aarch64` packaging fix** (sakshi / yukti; install.sh
+   change to put binary back under `bin/`).
+3. **`build/cyrc_check` orphan delete** (audit §4 — trivial).
+4. **`f64_log2` aarch64 polyfill** (phylax #1; mirrors v5.7.30/31
+   `f64_exp`/`f64_ln` shape).
+5. **`sys_stat`/`sys_fstat` x86_64 wrapper backfill** (phylax #2
+   — closes cross-arch surface asymmetry).
+6. **`_SC_ARITY` audit pass on aarch64 stdlib at-family wrappers**
+   (phylax #3; same class as v5.7.8 `SYS_SETSID` arity fix).
+7. **NI-class duplicate-fn aarch64 cross-build investigation**
+   (phylax #4).
+8. **Preprocessor include-pattern in string literals** (filed
+   2026-05-01 from vidya audit; cyrlint string-literal awareness
+   v5.7.36 sets the precedent).
+9. **Vidya cyrius-language audit** (annotation pass).
+10-13. **`var X;` error polish, cyrlint multi-line assert, cyim
+    regex, `cyrius fmt --check` exit-code semantics** (mabda A2 / C1
+    / C5 / C6 — pin candidates as consumers surface pain).
+
+Slot policy: single-issue patches (v5.4.x / v5.5.x discipline);
+soft backstop ~.44; want to avoid another 50-count cycle.
+
+Heritage section preserved from the v5.8.0 plan:
+The v5.8.0 cut delivered the P(-1) hardening checklist per
+CLAUDE.md §"P(-1): Project Hardening"
 (cleanliness + test sweep + benchmark baseline + audit +
 refactor + post-audit benchmarks + doc sync). After P(-1),
 the v5.8.0 cut delivers two coupled themes per

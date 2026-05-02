@@ -106,13 +106,13 @@ fn EMOVI(S, v) {
         return 0;
     }
     if (v > 0) { if (v < 0x80000000) {
-        # mov eax, imm32 (5 bytes — zero-extends to rax)
-        EB(S, 0xB8);
-        EB(S, v & 0xFF); EB(S, (v >> 8) & 0xFF);
-        EB(S, (v >> 16) & 0xFF); EB(S, (v >> 24) & 0xFF);
-        _flags_reflect_rax = 0;   # mov doesn't set flags; rax changed
-        return 0;
-    } }
+            # mov eax, imm32 (5 bytes — zero-extends to rax)
+            EB(S, 0xB8);
+            EB(S, v & 0xFF); EB(S, (v >> 8) & 0xFF);
+            EB(S, (v >> 16) & 0xFF); EB(S, (v >> 24) & 0xFF);
+            _flags_reflect_rax = 0;   # mov doesn't set flags; rax changed
+            return 0;
+        } }
     E2(S, 0xB848);
     E8(S, v);
     _flags_reflect_rax = 0;

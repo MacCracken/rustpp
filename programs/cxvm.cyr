@@ -156,14 +156,14 @@ fn cx_run(code, code_len) {
         }
         elif (op == 81) {
             if (cx_reg_get(ra) == 0) {
-                    off = rb | (rc << 8);
+                off = rb | (rc << 8);
                 if (off > 0x7FFF) { off = off - 0x10000; }
                 _cx_pc = _cx_pc - 4 + off * 4;
             }
         }
         elif (op == 82) {
             if (cx_reg_get(ra) != 0) {
-                    off = rb | (rc << 8);
+                off = rb | (rc << 8);
                 if (off > 0x7FFF) { off = off - 0x10000; }
                 _cx_pc = _cx_pc - 4 + off * 4;
             }
