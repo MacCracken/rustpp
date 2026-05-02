@@ -1,0 +1,131 @@
+# slices_field_access.tcyr — v5.8.16 §8 — dot-syntax field access
+# `s.ptr` / `s.len` on slice-typed fn-locals.
+#
+# §8 lowers `s.ptr` and `s.len` to address-based memory access via
+# the slice's canonical-slot address. Both fields go through the
+# `EFLADDR_X1 + EADDIMM_X1 + ELODC/ESTOC` pattern (same as the
+# struct-field-load helper), bypassing direct EFLLOAD/EFLSTORE
+# against the slot number — required because the slice's high-half
+# slot has no user-visible name and would otherwise be miscompiled
+# by the regalloc post-body peephole (which would patch its
+# `mov [rbp+disp], rax` to `mov rbx, rax`, leaving the actual
+# stack slot uninitialized).
+#
+# §8 also flipped the slice's two-slot layout: the canonical (named)
+# slot is now the LOWER-address half, the unnamed high half is the
+# HIGHER-address half. This matches the `slice_set` /
+# `slice_ptr` / `slice_len` convention (`addr+0` = ptr, `addr+8` =
+# len) on the stack — pre-flip the convention silently overflowed
+# into saved-rbp territory and depended on tail-call epilogue
+# coincidence to round-trip correctly.
+#
+# This file regression-floors §8's contract:
+#   (1) `s.ptr` reads the same value `slice_ptr(&s)` returns
+#   (2) `s.len` reads the same value `slice_len(&s)` returns
+#   (3) `s.ptr = expr` writes through to the same slot `slice_set`
+#       would write to, and a subsequent `slice_ptr(&s)` reads the
+#       written value
+#   (4) `s.len = expr` mirrors (3) for the len field — useful for
+#       truncating a slice view without re-running `slice_set`
+#   (5) Composition with §7 subscript: `s[i]` indexes the slice
+#       AFTER `s.len = N` truncation (in-range stays in-range, OOB
+#       trips the bounds-trap helper)
+#   (6) Composition with the helper API: `s.ptr` / `s.len` and
+#       `slice_ptr(&s)` / `slice_len(&s)` are interchangeable
+#       inside the same fn
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/slice.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+fn run_field_access_tests() {
+    # ---- (1) + (2) + (6): dot syntax matches helper API ----
+
+    test_group("§8 .ptr / .len match slice_ptr / slice_len");
+    var d[5];
+    store8(&d, 65); store8(&d+1, 66); store8(&d+2, 67);
+    var s: [u8] = 0;
+    slice_set(&s, &d, 5);
+    assert_eq(s.ptr, slice_ptr(&s), "s.ptr == slice_ptr(&s)");
+    assert_eq(s.ptr, &d, "s.ptr == &d");
+    assert_eq(s.len, slice_len(&s), "s.len == slice_len(&s)");
+    assert_eq(s.len, 5, "s.len == 5");
+
+    # ---- (4): s.len = expr truncates the view ----
+
+    test_group("§8 s.len = N truncates the view");
+    s.len = 3;
+    assert_eq(s.len, 3, "s.len == 3 after assignment");
+    assert_eq(slice_len(&s), 3, "slice_len agrees with .len after truncation");
+    assert_eq(s.ptr, &d, "s.ptr unchanged after .len truncation");
+
+    # ---- (3): s.ptr = expr rewrites the view's start ----
+
+    test_group("§8 s.ptr = expr rewrites view start");
+    s.ptr = &d + 1;
+    assert_eq(s.ptr, &d + 1, "s.ptr == &d+1 after assignment");
+    assert_eq(slice_ptr(&s), &d + 1, "slice_ptr agrees with .ptr after rewrite");
+
+    # ---- (5): composition with §7 subscript ----
+    # After s.ptr = &d+1 and s.len = 3, the slice view is [d[1], d[2], d[3]].
+    # d[1] = 66 (B), d[2] = 67 (C), d[3] = 0 (uninit but in-range).
+
+    test_group("§8 + §7: subscript honors .ptr / .len assignments");
+    assert_eq(s[0], 66, "s[0] = first byte after rewritten ptr");
+    assert_eq(s[1], 67, "s[1] = second byte");
+    # Reset s back to the full view for further tests. Only s[0..2]
+    # are asserted because d[3] / d[4] were never store8'd above.
+    slice_set(&s, &d, 5);
+    assert_eq(s[0], 65, "s[0] = 65 after slice_set restores view");
+    assert_eq(s[2], 67, "s[2] = 67 (last initialized byte)");
+
+    # ---- (1) repeat with slice<T> ident form ----
+
+    test_group("§8 .ptr / .len work on slice<T> ident form too");
+    var d2[3];
+    store64(&d2, 11111111111);
+    var sb: slice<i64> = 0;
+    slice_set(&sb, &d2, 3);
+    assert_eq(sb.ptr, &d2, "slice<i64>.ptr matches");
+    assert_eq(sb.len, 3, "slice<i64>.len matches");
+    sb.len = 1;
+    assert_eq(sb.len, 1, "slice<i64>.len assignment works");
+
+    # ---- Width-aware: .len on different-width slices ----
+
+    test_group("§8 .len value is element COUNT, not byte size");
+    var d4[4];
+    store32(&d4, 100); store32(&d4+4, 200); store32(&d4+8, 300); store32(&d4+12, 400);
+    var s4: [u32] = 0;
+    slice_set(&s4, &d4, 4);
+    assert_eq(s4.len, 4, "u32 slice .len = element count (4 elements, not 16 bytes)");
+    assert_eq(s4[0], 100, "subscript still uses element-width stride");
+    assert_eq(s4[3], 400, "subscript reads last element correctly");
+
+    # ---- Zero-init contract: var s: [T] = 0 zeroes BOTH halves ----
+
+    test_group("§8 var s: [T] = 0 zero-inits BOTH ptr AND len");
+    var s_zero: [u8] = 0;
+    assert_eq(s_zero.ptr, 0, "zero-init .ptr == 0");
+    assert_eq(s_zero.len, 0, "zero-init .len == 0");
+    var s_zero_b: slice<i64> = 0;
+    assert_eq(s_zero_b.ptr, 0, "zero-init slice<i64>.ptr == 0");
+    assert_eq(s_zero_b.len, 0, "zero-init slice<i64>.len == 0");
+
+    return 0;
+}
+
+run_field_access_tests();
+
+# ---- §8 SCOPE NOTE ----
+# Same scope envelope as §7: dot-syntax field access fires only
+# inside the local-ident branch of PARSE_FIELD_LOAD/PARSE_FIELD_STORE
+# — slice-typed FUNCTION LOCALS only. Top-level slice vars still
+# need slice_ptr / slice_len helpers. Var-side support is the
+# same follow-up slot called out in the §7 closeout.
+
+var r = assert_summary();

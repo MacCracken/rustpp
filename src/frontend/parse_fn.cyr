@@ -172,6 +172,30 @@ fn PARSE_RETURN(S) {
                         var tc_scan = ti_after + 1;
                         var tc_depth = 1;
                         var tc_is_tail = 0;
+                        # v5.8.16 §8: skip TCO if any arg passes the address
+                        # of a fn-local. The tail-call epilogue deallocates
+                        # the current frame BEFORE jumping to the callee —
+                        # if the callee reads through `&local`, it sees
+                        # dead stack memory. Pre-§8 this was masked for
+                        # slice fn-locals because the slice's high half
+                        # coincidentally landed on saved rbp (often 0 from
+                        # the C runtime), so reads happened to return 0.
+                        # The §8 layout-flip moves the high half into a
+                        # real stack slot, and the dead-stack value is
+                        # arbitrary — surfaces immediately as a regression
+                        # in any `return helper(&local);` form.
+                        # Scan inside the call's argument list for `&`
+                        # (token type 27); if present, force normal call.
+                        var tc_has_addr = 0;
+                        var tc_addrscan = ti_after + 1;
+                        while (tc_addrscan < GTCNT(S)) {
+                            if (TOKTYP(S, tc_addrscan) == 10) { tc_depth = tc_depth + 1; }
+                            if (TOKTYP(S, tc_addrscan) == 11) { tc_depth = tc_depth - 1; if (tc_depth == 0) { break; } }
+                            if (TOKTYP(S, tc_addrscan) == 27) { tc_has_addr = 1; }
+                            tc_addrscan = tc_addrscan + 1;
+                        }
+                        # Reset tc_depth for the original tail-detect scan below.
+                        tc_depth = 1;
                         while (tc_scan < GTCNT(S)) {
                             if (TOKTYP(S, tc_scan) == 10) { tc_depth = tc_depth + 1; }
                             if (TOKTYP(S, tc_scan) == 11) { tc_depth = tc_depth - 1; if (tc_depth == 0) { break; } }
@@ -180,6 +204,7 @@ fn PARSE_RETURN(S) {
                         if (tc_scan + 1 < GTCNT(S)) {
                             if (TOKTYP(S, tc_scan + 1) == 5) { tc_is_tail = 1; }
                         }
+                        if (tc_has_addr == 1) { tc_is_tail = 0; }
                         if (tc_is_tail == 1) {
                             # Tail call: return fn(args); → evaluate args, epilogue, jmp fn
                             var tcnoff = PEEKV(S);

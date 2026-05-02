@@ -85,6 +85,50 @@ fn PARSE_FIELD_LOAD(S, noff) {
             var lt = GLTYPE(S, lli);
             if (lt < 0) { sid = 0 - lt; }
             idx = 0 - 2 - lli;
+            # v5.8.16 §8: slice dot-syntax field load (s.ptr / s.len).
+            # A slice fn-local has GLTYPE=0 and GSLICE_W>0 (per-local
+            # element width set in §6). The slice occupies a 16-byte
+            # 2-slot block: slot lli (canonical, lower address) holds
+            # `.ptr` at offset 0; slot lli-1 (higher address allocated
+            # ahead of the canonical slot per the §8 layout-flip)
+            # holds `.len` at offset 8.
+            #
+            # Both fields lower to address-based loads (EFLADDR + add
+            # + ELODC) rather than direct EFLLOAD against the slot
+            # number. Reason: the regalloc post-body peephole pins
+            # hot user-locals to callee-saved registers via "time-
+            # sliced sharing" (parse_fn.cyr v5.6.20). The picker
+            # treats any slot accessed only through `mov rax,
+            # [rbp+disp]` / `mov [rbp+disp], rax` as eligible for
+            # register routing — it bars `&local` (lea) accesses,
+            # which is exactly the bar we want here.
+            #
+            # The slice's low slot (canonical) is naturally barred
+            # because slice_set / slice_ptr / etc. take its address
+            # via `&s`. The HIGH slot (lli-1) has no user-visible
+            # name, so no `&` is ever taken against it directly —
+            # but slice_set writes to it via the low-slot address
+            # plus 8 bytes (a memory write the regalloc picker
+            # cannot see). If §8 read the high slot via EFLLOAD
+            # directly, the picker would happily allocate rbx for
+            # it; the EFLLOAD would patch to `mov rax, rbx` and
+            # read the stale rbx value (caller's saved rbx, never
+            # updated by slice_set's memory write). Reading via
+            # &s + 8 keeps the access pattern equivalent to
+            # slice_len's helper-fn path and stays out of the
+            # regalloc patcher's way.
+            var sw = GSLICE_W(S, lli);
+            if (sw > 0) {
+                var fname = L64(S + 0x60000 + fnoff);
+                var fld_off = 0 - 1;
+                if (fname & 0xFFFFFFFF == 0x00727470) { fld_off = 0; }      # "ptr\0"
+                elif (fname & 0xFFFFFFFF == 0x006E656C) { fld_off = 8; }    # "len\0"
+                else { ERR_MSG(S, "slice has only .ptr and .len fields", 36); }
+                EFLADDR_X1(S, lli);
+                if (fld_off > 0) { EADDIMM_X1(S, fld_off); }
+                ELODC(S);
+                return 0;
+            }
         }
     }
     if (idx == 0 - 1) {
@@ -200,6 +244,36 @@ fn PARSE_FIELD_STORE(S, noff) {
             var lt = GLTYPE(S, lli);
             if (lt < 0) { sid = 0 - lt; }
             idx = 0 - 2 - lli;
+            # v5.8.16 §8: slice dot-syntax field store (s.ptr = expr;
+            # s.len = expr;). Mirror of the slice-load path in
+            # PARSE_FIELD_LOAD — both fields use the address-based
+            # store (EFLADDR + add + ESTOC) rather than direct
+            # EFLSTORE against the slot number. See PARSE_FIELD_LOAD
+            # for the regalloc-picker explanation: routing the high
+            # slot through EFLSTORE would let the picker allocate a
+            # callee-saved register for it, and the s.len store would
+            # land in the register only — invisible to slice_set's
+            # subsequent memory reads. Address-based store keeps the
+            # memory write authoritative.
+            var sw = GSLICE_W(S, lli);
+            if (sw > 0) {
+                var fname = L64(S + 0x60000 + fnoff);
+                var fld_off = 0 - 1;
+                if (fname & 0xFFFFFFFF == 0x00727470) { fld_off = 0; }      # "ptr\0"
+                elif (fname & 0xFFFFFFFF == 0x006E656C) { fld_off = 8; }    # "len\0"
+                else { ERR_MSG(S, "slice has only .ptr and .len fields", 36); }
+                if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+                STI(S, GTI(S) + 1);
+                PCMPE(S);
+                EPUSHR(S);
+                EFLADDR_X1(S, lli);
+                if (fld_off > 0) { EADDIMM_X1(S, fld_off); }
+                EPOPR(S);
+                ESTOC(S);
+                if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
+                STI(S, GTI(S) + 1);
+                return 0;
+            }
         }
     }
     if (idx == 0 - 1) {
@@ -858,40 +932,88 @@ fn PARSE_VAR(S) {
             if (GLDEP(S, existing) == GSDEP(S)) { ERRDUPVAR(S); }
         }
         var li = GFLC(S);
-        S64(S + 0x191000 + li * 8, noff);
-        SLDEP(S, li, GSDEP(S));
-        if (scalar_type > 0) {
-            if (scalar_type < 8) {
-                SLTYPE(S, li, scalar_type);
-                EFLSTORE_W(S, li, scalar_type);
+        # v5.8.16 §8: 16-byte locals (slice, u128) layout-flip.
+        # The slice convention puts ptr@offset 0 and len@offset 8
+        # (slice_set / slice_ptr / slice_len all assume this).
+        # On the stack, slot N+1 sits at a LOWER address than slot
+        # N (locals grow down). Pre-fix we wrote the slice's ptr
+        # field to slot li (the higher address) and treated slot
+        # li+1 (the lower address) as the unused "high half" — but
+        # then `slice_set(&s, ...)` issued `store64(&s + 8, len)`,
+        # which lands at saved-rbp position rather than slot li+1.
+        # §7 indexing tests passed by luck — they wrote and read
+        # the corrupted location consistently and exited before
+        # the corrupted rbp surfaced. §8 dot-field access made the
+        # mismatch impossible to ignore (`s.len` reads from a
+        # location slice_set never wrote to).
+        #
+        # Fix: for scalar_type==16, allocate the HIGH-HALF slot
+        # FIRST (slot li, higher address) and the CANONICAL slot
+        # SECOND (slot li+1, lower address). The name + meta live
+        # on slot li+1 so FINDLOCAL returns it; EFLADDR(li+1)
+        # yields the lower address; EFLADDR(li+1) + 8 lands on
+        # slot li (higher address) = the second 8 bytes the
+        # convention expects. Now slice_set / slice_ptr /
+        # slice_len work correctly on fn-local slices, no rbp
+        # corruption, no consumer changes.
+        if (scalar_type == 16) {
+            # High-half slot (allocated first, higher address) —
+            # nameless, tracks no scope. This is where addr+8
+            # lands once we install the canonical slot below.
+            S64(S + 0x191000 + li * 8, 0);
+            SLDEP(S, li, 0);
+            SLTYPE(S, li, 0);
+            SSLICE_W(S, li, 0);
+            # Canonical (lower-address) slot — this is what the
+            # name resolves to; EFLADDR returns its address.
+            var li_canon = li + 1;
+            S64(S + 0x191000 + li_canon * 8, noff);
+            SLDEP(S, li_canon, GSDEP(S));
+            SLTYPE(S, li_canon, 0);
+            SSLICE_W(S, li_canon, slice_elt_w);
+            # Init the high half (slice .len / u128 high u64) via
+            # ADDRESS-based memory store rather than EFLSTORE(li).
+            # Reason: the regalloc post-body peephole counts
+            # `mov [rbp+disp32], rax` patterns per slot to decide
+            # which locals to pin to callee-saved regs. The high
+            # half has no user-visible name, so nothing else takes
+            # its address via `&<ident>` — without addressing it
+            # via &canonical+8 here, the only reference would be
+            # an EFLSTORE the picker would patch to `mov rbx, rax`,
+            # leaving the actual stack slot uninitialized. Address-
+            # based init writes through [rcx], which the picker
+            # doesn't count, so the high slot stays in memory and
+            # subsequent &s+8 reads (slice_len, .len dot-syntax)
+            # see the right value.
+            #
+            # rax holds the RHS expr value at this point (0 for the
+            # canonical `var s: [u8] = 0;` form). PCMPE already
+            # parsed it; EPUSHR / EPOPR around the addr setup keeps
+            # the value while rcx is loaded.
+            EPUSHR(S);                 # save RHS value (rax)
+            EFLADDR_X1(S, li_canon);   # rcx = &slice (canonical slot address)
+            EADDIMM_X1(S, 8);          # rcx = &slice + 8 (high half)
+            EPOPR(S);                  # restore RHS value to rax
+            ESTOC(S);                  # store rax to [rcx] = high half
+            EFLSTORE(S, li_canon);     # init canonical slot (slice .ptr / u128 low u64) — safe from regalloc patching because slice_set / slice_ptr take &s via EFLADDR, marking the canonical slot address-taken
+            SFLC(S, li_canon + 1);
+        } else {
+            S64(S + 0x191000 + li * 8, noff);
+            SLDEP(S, li, GSDEP(S));
+            if (scalar_type > 0) {
+                if (scalar_type < 8) {
+                    SLTYPE(S, li, scalar_type);
+                    EFLSTORE_W(S, li, scalar_type);
+                } else {
+                    SLTYPE(S, li, 0);
+                    EFLSTORE(S, li);
+                }
             } else {
-                SLTYPE(S, li, 0);
+                SLTYPE(S, li, pscale);
                 EFLSTORE(S, li);
             }
-        } else {
-            SLTYPE(S, li, pscale);
-            EFLSTORE(S, li);
-        }
-        # v5.8.14 §6: record slice element width (0 if not a slice).
-        # §7's bounds-aware indexing reads this to pick load*/store* width.
-        SSLICE_W(S, li, slice_elt_w);
-        # v5.8.15 §7: 16-byte locals (slice, u128) need TWO 8-byte
-        # slots to avoid collision with the next local. Pre-fix, two
-        # adjacent fn-local slices/u128s shared the same 8-byte slot,
-        # silently corrupting either's high half on init/store. Bump
-        # SFLC by 2 for scalar_type=16, AND clear the high-slot's
-        # name/depth so FINDLOCAL doesn't trip over stale per-fn
-        # state (the high slot is "owned" by the slice but has no
-        # user-visible name — leaving stale name bytes there would
-        # surface as a spurious "duplicate variable" later in the
-        # same fn).
-        if (scalar_type == 16) {
-            S64(S + 0x191000 + (li + 1) * 8, 0);  # clear high slot's name
-            SLDEP(S, li + 1, 0);                  # clear high slot's depth
-            SLTYPE(S, li + 1, 0);                 # clear high slot's type
-            SSLICE_W(S, li + 1, 0);               # clear high slot's slice-w
-            SFLC(S, li + 2);
-        } else {
+            # v5.8.14 §6: per-local slice element width (0 = not a slice).
+            SSLICE_W(S, li, slice_elt_w);
             SFLC(S, li + 1);
         }
     } else {

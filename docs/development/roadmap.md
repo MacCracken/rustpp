@@ -615,13 +615,23 @@ This sub-arc absorbs that deferred work as proper slots.
   exercised adjacent fn-local 16-byte vars. Editor integration
   folded in: new `.lsp.json` + `docs/editor-integration.md` +
   README section.
-- **v5.8.16** §8 — Dot-syntax field access `s.ptr` / `s.len`.
-  Extends PARSE_FIELD_LOAD / PARSE_FIELD_STORE to recognize
-  slice-typed locals (currently those paths assume struct id
-  via `pscale = -sid`). Unifies struct-field path with
-  scalar_type=16 scalar path. After this, the helper-fn API
-  (slice_ptr / slice_len) becomes secondary; dot-syntax is
-  the primary surface.
+- ✅ **v5.8.16** §8 — Dot-syntax field access `s.ptr` /
+  `s.len` (shipped 2026-05-02). PARSE_FIELD_LOAD/STORE local-
+  ident branch grew a slice short-circuit lowering dot access
+  to address-based memory I/O via the canonical-slot address.
+  Slot also fixed a **pre-existing 16-byte fn-local layout
+  bug**: pre-fix the canonical slot was at the higher address
+  and `&slice + 8` overflowed past the local frame into saved-
+  rbp territory; `slice_set` clobbered saved rbp, `slice_len`
+  read it back. Layout-flip puts the high half at the higher
+  address, canonical at the lower address — `&slice + 8` now
+  correctly hits the high half. Slot also added a **tail-call
+  escape skip**: PARSE_RETURN's TCO detector skips when any
+  arg passes `&local`, since the tail-call epilogue
+  deallocates the frame before the callee reads through the
+  pointer. **§8 SCOPE NOTE**: same as §7 — fn-local slices
+  only; top-level vars still need helper-fn API. Var-side
+  support reserved as the same follow-up slot.
 - **v5.8.17** §9 — Str API migration. Migrate stdlib's
   `str_data` / `str_len` callers to use `.data` / `.len`
   field access (Str struct has those exact names). Backward-

@@ -5,6 +5,57 @@
 
 ## Version
 
+**5.8.16** (shipped 2026-05-02 — **v5.8.x SLOT 16 — slices §8:
+dot-syntax field access `s.ptr` / `s.len` + 16-byte fn-local
+layout-flip + tail-call escape skip for `&local` args**. Third
+slot of the slices true-completion sub-arc; three intertwined
+deliverables that ship together because the regalloc / tail-call
+interactions only surface when all three are in place.
+PARSE_FIELD_LOAD/STORE local-ident branch grew a slice short-
+circuit: when GSLICE_W(lli) > 0 AND field name parses as `ptr` or
+`len`, lower the dot access to address-based memory I/O via the
+canonical-slot address (`EFLADDR_X1` + optional `EADDIMM_X1(8)` +
+`ELODC` / `ESTOC`). Both fields go through this pattern even
+though `.ptr` could have used direct `EFLLOAD` against the slot
+— necessary for symmetry and avoids a regalloc-pinning landmine
+on `.len` (the picker would have allocated rbx for the high half
+and patched `mov [rbp+disp], rax` to `mov rbx, rax`, leaving the
+actual stack slot uninitialized). **Pre-existing 16-byte fn-local
+layout bug fixed**: pre-fix the canonical slot was at the higher
+address and `&slice + 8` overflowed past the local frame into
+saved-rbp territory; `slice_set` clobbered saved rbp, `slice_len`
+read it back. Round-tripped within a fn so §7 indexing worked by
+luck. `slices_typing.tcyr`'s `return slice_len(&x);` form passed
+because main's rbp = 0 from C runtime. Fix flips the allocation:
+high-half slot allocated FIRST (slot li, higher address),
+canonical slot SECOND (slot li+1, lower address). Name + meta on
+li+1 so FINDLOCAL returns the canonical, EFLADDR(li+1) yields the
+lower address, EFLADDR(li+1) + 8 lands on the high half. Init the
+high half via address-based memory store rather than EFLSTORE so
+the regalloc picker doesn't pin rbx to it. **Tail-call escape
+skip**: PARSE_RETURN's TCO detector now scans args for the `&`
+token; if any arg passes `&local`, skip TCO and emit a normal
+call. Required because the tail-call epilogue deallocates the
+current frame BEFORE jumping to the callee, leaving any `&local`
+the callee reads pointing at dead stack. Pre-§8 masked for
+slices because the high half was on saved rbp; the §8 layout-
+flip moves it into a real slot whose post-epilogue value is
+arbitrary. Conservative — disables TCO for any `&` in args
+(false-positive on `&global`, but rare and only loses the
+optimization). cc5 grew **725,704 → 727,368 B (+1,664 B)** for
+PARSE_FIELD_LOAD/STORE branches + layout-flip + tail-call scan.
+**§8 SCOPE NOTE**: same as §7 — dot-syntax fires only inside the
+local-ident branch; top-level slice vars still need slice_ptr /
+slice_len helpers. Var-side support reserved as the same follow-
+up slot. Verification: self-host two-step byte-identical, check.sh
+64/64, all 6 prior slices regressions intact (9+26+15+12+24+21 =
+107 assertions), new `tests/tcyr/slices_field_access.tcyr` 23/23
+across 6 test groups (dot-syntax matches helper API, .len = N
+truncates view, .ptr = expr rewrites view start, composition with
+§7 subscript, both [T] and slice<T> ident forms, width-aware .len
+is element count, zero-init both-halves contract). §9 next: Str
+API migration.)
+
 **5.8.15** (shipped 2026-05-02 — **v5.8.x SLOT 15 — slices §7:
 bounds-aware indexing `s[i]` + fix to a long-latent fn-local
 16-byte slot-collision bug**. Second slot of the slices true-

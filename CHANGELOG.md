@@ -4,6 +4,160 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.16] — 2026-05-02
+
+**v5.8.x slot 16 — slices §8: dot-syntax field access `s.ptr` /
+`s.len` + 16-byte fn-local layout-flip + tail-call escape skip
+for `&local` args**. Third slot of the slices true-completion
+sub-arc. Three intertwined deliverables that ship together
+because the regalloc / tail-call interactions only surface when
+all three are in place:
+
+cc5 grew **725,704 B → 727,368 B (+1,664 B)** for the new
+PARSE_FIELD_LOAD/STORE branches, the layout-flipped slice
+allocation in PARSE_VAR, and the tail-call escape check in
+PARSE_RETURN.
+
+### What §8 ships
+
+**Dot-syntax field access on slice fn-locals:**
+
+`src/frontend/parse_decl.cyr` — PARSE_FIELD_LOAD's local-ident
+branch grew a slice short-circuit: when `GSLICE_W(lli) > 0` (the
+per-local element width recorded in §6) AND the field name parses
+as `ptr` or `len`, lower the dot access to a memory load via the
+canonical-slot address:
+
+```
+EFLADDR_X1(S, lli);              # rcx = &slice
+if (fld_off > 0) { EADDIMM_X1(S, fld_off); }   # rcx = &slice + 8
+ELODC(S);                        # rax = load64([rcx])
+```
+
+PARSE_FIELD_STORE mirrors the load shape (`PCMPE` for the RHS,
+push/pop around the address setup, `ESTOC` for the memory write).
+Both fields go through this address-based pattern even though
+the `.ptr` slot is the canonical slot the name resolves to —
+necessary for symmetry, and avoids a regalloc-pinning landmine
+on the `.len` slot (see "regalloc interaction" below).
+
+`tests/tcyr/slices_field_access.tcyr` — **23 assertions** across
+6 test groups: dot syntax matches helper API, `s.len = N`
+truncates the view, `s.ptr = expr` rewrites view start,
+composition with §7 subscript, both `[T]` and `slice<T>` ident
+forms, width-aware `.len` is element count not byte size,
+zero-init contract zeroes BOTH halves.
+
+### Pre-existing 16-byte fn-local layout bug (fixed)
+
+Surfaced while wiring §8: the slice convention says "ptr at
+offset 0, len at offset 8" (and `slice_set` / `slice_ptr` /
+`slice_len` all encode this). On the stack, where slots grow
+DOWN, the pre-fix slice allocation put the canonical slot at
+the HIGHER address — so `&slice + 8` overflowed past the local
+frame into saved-rbp territory. `slice_set`'s `store64(s+8,
+len)` clobbered the caller's saved rbp; `slice_len`'s
+`load64(s+8)` read it back. The arithmetic round-tripped within
+the same fn (write-then-read consistency), so §7 indexing
+worked by luck. `slices_typing.tcyr`'s
+`return slice_len(&x);` form passed because the C runtime sets
+main's rbp to 0 — the read returned 0 by coincidence.
+
+**Fix in `src/frontend/parse_decl.cyr`** — for `scalar_type==16`,
+allocate the HIGH-HALF slot FIRST (slot `li`, higher address) and
+the CANONICAL slot SECOND (slot `li+1`, lower address). The
+name + meta live on slot `li+1` so `FINDLOCAL` returns it;
+`EFLADDR(li+1)` yields the lower address; `EFLADDR(li+1) + 8`
+lands on slot `li` (higher address) — matching the slice
+convention's "second 8 bytes."
+
+### Regalloc interaction (zero-init via memory store)
+
+The high-half slot has no user-visible name, so nothing takes
+its address via `&<ident>`. The regalloc post-body peephole
+(`parse_fn.cyr` v5.6.20 picker) treats any slot accessed only
+through `mov [rbp+disp], rax` / `mov rax, [rbp+disp]` as
+eligible for callee-saved register pinning ("time-sliced
+sharing"). Without intervention, the picker would allocate
+`rbx` for the high half — and the EFLSTORE we'd emit at
+`var s: [T] = 0;` would patch to `mov rbx, rax`, leaving the
+actual stack slot uninitialized. Subsequent `slice_set`
+memory-writes to that slot would be invisible to the register;
+`s.len` reads (which go through the memory access path) would
+see the uninit stack data.
+
+**Fix:** init the high half via address-based memory store
+(`EFLADDR_X1 + EADDIMM_X1(8) + ESTOC`) rather than `EFLSTORE`.
+The picker doesn't count memory-via-rcx writes, so the high
+slot stays in memory and subsequent `&s + 8` reads see the
+right value. Same pattern §8's `s.ptr` / `s.len` use, for
+consistency.
+
+### Tail-call escape check (TCO skip when `&local` in args)
+
+`src/frontend/parse_fn.cyr` — PARSE_RETURN's tail-call detector
+now scans the argument list of `return helper(args);` for the
+`&` token. If any arg passes the address of a fn-local, skip
+TCO and emit a normal call.
+
+**Why:** the tail-call epilogue deallocates the current frame
+BEFORE jumping to the callee. If the callee reads memory through
+`&local`, it sees dead stack. Pre-§8 this was masked for slice
+fn-locals — the slice's high half coincidentally landed on
+saved rbp (often 0 from the C runtime). The §8 layout-flip
+moves the high half into a real stack slot whose post-epilogue
+value is arbitrary. `slices_typing.tcyr`'s
+`fn _t() { var x: [u8] = 0; return slice_len(&x); }` exposed
+the regression immediately.
+
+The escape check is conservative: any `&` token inside the
+arg-list disables TCO. Doesn't try to distinguish `&local` from
+`&global` (globals are safe under TCO since they live in the
+data section), but the false-positive cost is small —
+`return helper(&global)` patterns are rare and lose only the
+TCO optimization, not correctness.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **727,368 B**
+   (+1,664 B from PARSE_FIELD_LOAD/STORE branches, layout-flip,
+   tail-call scan).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 6 prior slices regressions intact:
+   - slices_parse 9/9
+   - slices_codegen 26/26
+   - slices_str_interop 15/15
+   - slices_vec_interop 12/12
+   - slices_typing 24/24 (the suite that surfaced the layout
+     bug pre-fix; now passes deterministically rather than by
+     coincidence)
+   - slices_indexing 21/21 (§7 subscript still correct after
+     layout-flip)
+4. ✅ New `tests/tcyr/slices_field_access.tcyr` — **23
+   assertions** across 6 test groups covering both load and
+   store paths, both `[T]` and `slice<T>` ident forms,
+   width-aware `.len` semantics, composition with §7 subscript,
+   and the zero-init both-halves contract.
+
+### §8 SCOPE NOTE — fn-local slices only
+
+Same envelope as §7: dot-syntax field access fires only inside
+the local-ident branch of PARSE_FIELD_LOAD / PARSE_FIELD_STORE.
+Top-level slice vars still need `slice_ptr` / `slice_len`
+helpers. Var-side support reserved as the same follow-up slot
+called out in the §7 closeout — in practice ~99% of slice
+manipulation happens inside fns.
+
+### Slices true-completion sub-arc — progress
+
+- ✅ **§6 (v5.8.14)**: TYPE_SLICE element-type tracking
+- ✅ **§7 (v5.8.15)**: Bounds-aware indexing `s[i]`
+- ✅ **§8 (v5.8.16, this slot)**: Dot-syntax field access
+  + layout-flip + tail-call escape skip
+- **§9 (v5.8.17)**: Str API migration
+- **§10 (v5.8.18)**: 454-site stdlib migration
+- **§11 (v5.8.19)**: TRUE sub-arc closeout
+
 ## [5.8.15] — 2026-05-02
 
 **v5.8.x slot 15 — slices §7: bounds-aware indexing `s[i]` +
