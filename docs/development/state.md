@@ -5,6 +5,24 @@
 
 ## Version
 
+**5.8.1** (shipped 2026-05-01 — **v5.8.x SLOT 1 — `cyrlint` /
+`cyrfmt` 128 KiB buffer cap raise + `cyrius-prompt-info`
+redundancy fix**. First patch of the v5.8.x 30-slot cycle.
+Tooling-side bump only — `programs/cyrlint.cyr` +
+`programs/cyrfmt.cyr` raised 131,072 B → 524,288 B (4× distlib
+v5.7.36 precedent shape, 4× scaling for fmt output-growth
+headroom; 6 occurrences total: 2 in cyrlint, 4 in cyrfmt
+covering input read + `--check` _out_buf + `--write` _out_buf).
+Closes mabda Class A1 (mabda `backend_native.cyr` at 137 KiB
+was hitting the truncation), unblocks v5.8.3 ts/parse.cyr fmt
+sweep (195 KiB; verified post-bump fmt round-trips cleanly at
+4532/4532 lines). Plus `scripts/cyrius-prompt-info` pkg-mode
+output cleanup: drop `name` when `name == repo` so segments
+read `ॐ 5.8.0 (cyrius)` instead of redundant `ॐ cyrius 5.8.0
+(cyrius)`. cc5 unchanged at **720,928 B** — compiler untouched,
+self-host two-step byte-identical. Verification: check.sh 64/64,
+bench 15/15, smoke-tested cyrius/vidya/sigil prompt segments.)
+
 **5.8.0** (shipped 2026-05-01 — **v5.8.x CYCLE OPENS —
 optimization + bug-fix theme + vani fold-in + cyriusly icon rework**.
 Triple-anchor cut: P(-1) fmt-sweep finish (24 first-party files

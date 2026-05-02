@@ -520,8 +520,8 @@ fn main() {
     syscall(1, 1, path, strlen(path));
     syscall(1, 1, " ===\n", 5);
 
-    var buf = alloc(131072);
-    var n = file_read_all(path, buf, 131072);
+    var buf = alloc(524288);
+    var n = file_read_all(path, buf, 524288);
     if (n <= 0) {
         println("cyrlint: cannot read file");
         return 1;

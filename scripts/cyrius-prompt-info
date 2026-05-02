@@ -28,6 +28,13 @@
 mode="${1:-pkg}"
 
 cy_pkg_info() {
+    # v5.8.1: dropped `name` from the output. Pre-v5.8.1 emitted
+    # `name version (repo)`, but `name` and `repo` are usually
+    # identical (sigil/sigil, vidya/vidya, cyrius/cyrius), so the
+    # output read redundant: `ॐ vidya 2.3.0 (vidya)`. New shape
+    # is `version (repo)` → `ॐ 2.3.0 (vidya)`. The package name
+    # is still parsed (helps the rare case of name != repo, where
+    # we emit `name version (repo)` to disambiguate).
     [ -f cyrius.cyml ] || return 1
     name=$(sed -n '/^\[package\]/,/^\[/p' cyrius.cyml | sed -n 's/^name *= *"\(.*\)"/\1/p' | head -1)
     version=$(sed -n '/^\[package\]/,/^\[/p' cyrius.cyml | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -1)
@@ -35,7 +42,11 @@ cy_pkg_info() {
         version=$(tr -d '[:space:]' < VERSION 2>/dev/null)
     fi
     repo="${PWD##*/}"
-    printf '%s %s (%s)' "$name" "$version" "$repo"
+    if [ "$name" = "$repo" ] || [ -z "$name" ]; then
+        printf '%s (%s)' "$version" "$repo"
+    else
+        printf '%s %s (%s)' "$name" "$version" "$repo"
+    fi
 }
 
 cy_tool_info() {

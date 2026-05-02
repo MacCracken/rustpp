@@ -4,6 +4,90 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.1] — 2026-05-01
+
+**v5.8.x slot 1 — `cyrlint` / `cyrfmt` 128 KiB buffer cap raise +
+`cyrius-prompt-info` redundancy fix**. First patch of the v5.8.x
+30-slot cycle. Two bundled items per the v5.8.0 ship pinning:
+
+cc5 unchanged at **720,928 B** — both fixes are tooling-side
+(programs/cyrlint.cyr + programs/cyrfmt.cyr + scripts/cyrius-
+prompt-info); compiler source untouched, self-host two-step
+byte-identical.
+
+### §1 — `cyrlint` / `cyrfmt` buffer cap raise (mabda Class A1)
+
+`cyrlint` and `cyrfmt` allocated 131,072 B (128 KiB) input
+buffers and read at most that many bytes via `file_read_all`.
+Files larger than 128 KiB silently truncated on read, which
+broke the canonical `cyrius fmt $f > $f` pattern (output
+shorter than input → data destroyed). mabda's
+`backend_native.cyr` (137 KiB) hit this in production; cyrius's
+own `src/frontend/ts/parse.cyr` (195,483 B) hit this when the
+v5.8.0 fmt sweep tried to canonicalize it (deferred at the
+time precisely because of this cap).
+
+**Fix**: bumped 6 occurrences of `131072` → `524288` (4×
+distlib precedent for fmt's potential output growth):
+
+- `programs/cyrlint.cyr:523-524` — input buffer + read length
+- `programs/cyrfmt.cyr:181-183` — input buffer + read length
+- `programs/cyrfmt.cyr:190` — `_out_buf` allocation in `--check` mode
+- `programs/cyrfmt.cyr:200` — `_out_buf` allocation in `--write` mode
+
+Pattern matches the v5.7.36 distlib bump shape (64K → 256K)
+scaled 4× because fmt output can grow vs input (whitespace
+re-flow expansion).
+
+**Verification**: re-fmt'd `src/frontend/ts/parse.cyr` cleanly:
+4532 lines / 195,173 B output (was 4532 / 195,483 B input —
+pre-bump produced 2952 / 130,830 B truncated). The actual
+ts/parse.cyr fmt sweep is v5.8.3 work; this patch verifies
+the cap raise is sufficient.
+
+### §2 — `cyrius-prompt-info` `pkg`-mode redundancy fix
+
+v5.8.0's `cyrius-prompt-info` `pkg` mode emitted `name version
+(repo)`. In practice `name` and `repo` are usually identical
+(sigil/sigil, vidya/vidya, cyrius/cyrius), so the prompt segment
+read redundant: `ॐ vidya 2.3.0 (vidya)`.
+
+**Fix**: drop `name` from the output when `name == repo` (or
+when `name` is empty). The rare case where `name != repo` (a
+package whose repo dir doesn't match the manifest's
+`[package].name`) still emits `name version (repo)` to
+disambiguate.
+
+New output:
+
+| Repo | Pre-v5.8.1 | Post-v5.8.1 |
+|------|------------|-------------|
+| cyrius | `cyrius 5.8.0 (cyrius)` | `5.8.0 (cyrius)` |
+| vidya | `vidya 2.3.0 (vidya)` | `2.3.0 (vidya)` |
+| sigil | `sigil 3.0.0 (sigil)` | `3.0.0 (sigil)` |
+
+Combined `both` mode: `ॐ 5.8.0 (cyrius) | 🌀 5.8.0` (was
+`ॐ cyrius 5.8.0 (cyrius) | 🌀 5.8.0`). Cleaner.
+
+### §3 — Verification
+
+1. ✅ Self-host two-step byte-identical at 720,928 B (compiler
+   unchanged — tooling-side patches only).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS** (no new gates;
+   v5.8.1 introduces no new functionality).
+3. ✅ `cyrius bench` — **15 / 15 PASS** (baseline holds).
+4. ✅ `src/frontend/ts/parse.cyr` fmt round-trips cleanly
+   (4532/4532 lines).
+5. ✅ Smoke-test `cyrius-prompt-info pkg` from cyrius / vidya /
+   sigil repos — all emit `<version> (<repo>)`, no redundancy.
+
+### §4 — Out of scope (v5.8.3+)
+
+The actual `src/frontend/ts/parse.cyr` fmt sweep stays pinned
+for **v5.8.3** (single-issue patch — the cap raise is what
+enables the sweep, but the sweep itself is data-only and
+deserves its own slot for audit-trail clarity).
+
 ## [5.8.0] — 2026-05-01
 
 **v5.8.x cycle opens — optimization + bug-fix theme**. Triple-anchor

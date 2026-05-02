@@ -178,16 +178,16 @@ fn main() {
         }
     }
 
-    var buf = alloc(131072);
+    var buf = alloc(524288);
     var path = argv(file_arg);
-    var n = file_read_all(path, buf, 131072);
+    var n = file_read_all(path, buf, 524288);
     if (n <= 0) {
         println("cyrfmt: cannot read file");
         return 1;
     }
 
     if (_check_mode == 1) {
-        _out_buf = alloc(131072);
+        _out_buf = alloc(524288);
         _out_pos = 0;
         format_file(buf, n);
         # Compare formatted output against original
@@ -197,7 +197,7 @@ fn main() {
     }
 
     if (_write_mode == 1) {
-        _out_buf = alloc(131072);
+        _out_buf = alloc(524288);
         _out_pos = 0;
         format_file(buf, n);
         # Short-circuit: skip the write if input already matches formatted
