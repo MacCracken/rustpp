@@ -1791,56 +1791,56 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.1+ (v5.8.x optimization + bug-fix slot work).** v5.8.0 cut
-the cycle open with the triple-anchor (fmt sweep + vani fold-in +
-cyriusly starship.toml). Active slot list inherited from the
-2026-05-01 pre-v5.8.0 P(-1) audit (`docs/audit/2026-05-01-pre-
-5.8.0-audit.md`). Top candidates by impact:
+**v5.8.1+ (v5.8.x cycle slot work — 30 pinned slots, 14-slot headroom against ~.44 backstop).**
+v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
+vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
+re-theming compressed the originally-separate v5.10.x / v5.11.x /
+v5.12.x language-feature minors INTO v5.8.x — slices, effect
+annotations, tagged unions, `Result<T,E>` + `?`, allocators-as-
+parameter all ship in this cycle so hisab + downstream consumers
+do ONE port pass instead of 4-5. **30 firm pinned slots**, full
+slot map at `docs/development/roadmap.md` §"v5.8.x — pinned slot
+map". Bare-metal arc + RISC-V stay at v5.9.x.
 
-1. **`cyrius lint` / `cyrius fmt` 128 KiB buffer cap raise** (mabda
-   A1; same fix class as v5.7.36 distlib 64K → 256K). Unblocks the
-   ts/parse.cyr fmt sweep that was deferred from v5.8.0.
-2. **`cc5_aarch64` packaging fix** (sakshi / yukti; install.sh
-   change to put binary back under `bin/`).
-3. **`build/cyrc_check` orphan delete** (audit §4 — trivial).
-4. **`f64_log2` aarch64 polyfill** (phylax #1; mirrors v5.7.30/31
-   `f64_exp`/`f64_ln` shape).
-5. **`sys_stat`/`sys_fstat` x86_64 wrapper backfill** (phylax #2
-   — closes cross-arch surface asymmetry).
-6. **`_SC_ARITY` audit pass on aarch64 stdlib at-family wrappers**
-   (phylax #3; same class as v5.7.8 `SYS_SETSID` arity fix).
-7. **NI-class duplicate-fn aarch64 cross-build investigation**
-   (phylax #4).
-8. **Preprocessor include-pattern in string literals** (filed
-   2026-05-01 from vidya audit; cyrlint string-literal awareness
-   v5.7.36 sets the precedent).
-9. **Vidya cyrius-language audit** (annotation pass).
-10-13. **`var X;` error polish, cyrlint multi-line assert, cyim
-    regex, `cyrius fmt --check` exit-code semantics** (mabda A2 / C1
-    / C5 / C6 — pin candidates as consumers surface pain).
+**3-phase pinning** (firm 2026-05-01 at v5.8.0 ship):
+
+Phase 1 — Quick-win unblockers (slots 1-7):
+- **v5.8.1** — `lint`/`fmt` 128 KiB cap raise (mabda A1) +
+  `cyrius-prompt-info` redundancy fix (drop `name` from `pkg`
+  output → `ॐ 5.8.0 (cyrius)`)
+- **v5.8.2** — `cc5_aarch64` packaging + `build/cyrc_check` orphan
+- **v5.8.3** — ts/parse.cyr fmt sweep follow-up (unblocked by .1)
+- **v5.8.4** — `f64_log2` aarch64 polyfill (phylax #1)
+- **v5.8.5** — `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
+- **v5.8.6** — `_SC_ARITY` audit on aarch64 stdlib (phylax #3 + sakshi)
+- **v5.8.7** — NI-class duplicate-fn investigation (phylax #4)
+
+Phase 2 — Language vocabulary (slots 8-25):
+- **v5.8.8** — First-class slices (`slice<T>` / `[T]`)
+- **v5.8.9** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
+- **v5.8.10–v5.8.14** — Tagged unions + exhaustive match (5 sub-patches)
+- **v5.8.15–v5.8.19** — `Result<T,E>` + `?` propagation (5 sub-patches)
+- **v5.8.20–v5.8.25** — Allocators-as-parameter (6 sub-patches)
+
+Phase 3 — Polish + cycle closeout (slots 26-30):
+- **v5.8.26** — Preprocessor include-pattern in string literals (vidya audit)
+- **v5.8.27** — `cyrlint` multi-line assert false-positive (mabda C5)
+- **v5.8.28** — Vidya cyrius-language audit (annotation pass)
+- **v5.8.29** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
+  + `var X;` bare-decl error message (mabda C1)
+- **v5.8.30** — v5.8.x closeout backstop
+
+**Held items** (surfacing-ask only; not pinned, no slot consumed):
+- `cyim` regex pattern (mabda C6) — pin when cyim consumer hits it
+- `ESTORESTACKPARM` cx >6 args (audit §4) — pin when cx consumer surfaces 7+ args
+- `float.cyr:41` peephole pattern — pin when measured to matter
+
+**Deferred to v5.9.x or later**:
+- Class B FFI/wgpu fncall6 ABI (mabda B1/B2)
 
 Slot policy: single-issue patches (v5.4.x / v5.5.x discipline);
-soft backstop ~.44; want to avoid another 50-count cycle.
-
-Heritage section preserved from the v5.8.0 plan:
-The v5.8.0 cut delivered the P(-1) hardening checklist per
-CLAUDE.md §"P(-1): Project Hardening"
-(cleanliness + test sweep + benchmark baseline + audit +
-refactor + post-audit benchmarks + doc sync). After P(-1),
-the v5.8.0 cut delivers two coupled themes per
-`docs/development/roadmap.md` §"v5.8.0 — Bare-metal / AGNOS
-kernel target + Vani audio distlib fold-in":
-(1) bare-metal AGNOS kernel target + RISC-V rv64 backend
-groundwork; (2) **vani audio distlib fold-in** — add
-`[deps.vani]` to `cyrius.cyml` (vani 0.9.1+ at cut time),
-delete `cyrius/lib/audio.cyr` (236 LOC), supersede with
-`dist/vani.cyr`'s higher-level `vani_*` API (typed errors,
-ring buffer, XRUN recovery). Vani-side migration already
-landed (lib/audio.cyr → vani/src/, "audio" dropped from
-vani's `[deps].stdlib`). Samvada is **not** on the v5.8.0
-list — it's downstream of mabda's Phase D, not a cyrius
-concern. **Headroom v5.7.50 unused** (no refresh follow-up
-needed; deps bump landed clean).
+**soft backstop ~.44** with **14-slot headroom** for surface-during-
+cycle items. Below v5.7.x's 51-patch record.
 
 **v5.7.x slot map (firm as of 2026-04-30, hard upper bound
 v5.7.48 — backstop bumped +1 to absorb the v5.7.43 = lib/test.cyr

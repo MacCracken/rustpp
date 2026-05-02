@@ -185,6 +185,63 @@ plan already exists (`ir_copyprop_recon` and `ir_extdse_recon`
 prototypes lived in `src/common/ir.cyr` during v5.6.19 evaluation,
 and the data structures + gate criteria are documented above).
 
+### Stdlib data-domain distlib carve-out (sibling-repo consolidation)
+
+**Status**: long-term thought captured 2026-05-01 during the
+v5.8.x slot-pinning conversation. Not pinned to any minor; revisit
+post-v5.8.x when the language vocabulary stabilizes and hisab-
+class consumers have ported.
+
+**The idea**: extend the v5.7.0 sandhi-fold precedent (HTTP/RPC
+moved out of stdlib into a sibling distlib) across the rest of
+the data-domain stdlib modules. Cyrius core retains primitives
+(syscalls, alloc, str/string, vec, hashmap, fmt, io, fs); the
+"data offshoots" (json, toml, cyml, csv, base64, regex, math,
+matrix, linalg, bigint, u128) carve out into a new sibling-
+distlib repo. Consumers pull what they need via `[deps.<name>]`:
+
+```
+[deps.core]   = "cyrius-core"   (always — language primitives)
+[deps.json]   = "cyrius-data"   (modules = ["dist/json.cyr"])
+[deps.math]   = "cyrius-data"   (modules = ["dist/math.cyr", "dist/matrix.cyr"])
+[deps.regex]  = "cyrius-data"   (modules = ["dist/regex.cyr"])
+```
+
+**Why the precedent fits**: sandhi proved the model works (clean-
+break fold at minor cut, byte-identical distfile, consumer
+adopts `[deps.<name>]` line, stdlib surface trims). Each carve-
+out shrinks cyrius's stdlib footprint without changing what
+consumers can build with the toolchain. Downstream usage gets
+cleaner — projects pull only what they touch instead of
+inheriting the kitchen-sink.
+
+**Why deferred (not v5.8.x scope)**: the v5.8.x cycle is already
+folding 5 language features forward; adding a 13-module-carve-out
+would blow scope. More importantly, the v5.8.x language-
+vocabulary work (slices / Result / allocators) WILL touch these
+modules' APIs (`json.cyr` parses via `Result<Value, JsonError>`,
+`vec_push` takes an allocator). Carving them out before the API
+shape stabilizes means re-folding right after — wasted motion.
+
+**Trigger to pin**: post-v5.8.30 closeout, once the language-
+vocabulary migration has rippled through stdlib. At that point
+each carve-out is a clean lift-and-shift (no API churn imminent).
+Likely v5.9.x consideration if the carve-out aligns with bare-
+metal needs (kernel target may want NO data-distlib, just
+core), or v6.0.0 cleanup if held longer.
+
+**Out of scope for this entry**: the specific repo split (one
+big "cyrius-data" sibling vs. multiple narrow ones — `cyrius-
+json` / `cyrius-math` / `cyrius-regex`). Pin that decision when
+the trigger fires. Sandhi is one repo with `dist/sandhi.cyr` —
+multiple-modules-per-distlib pattern works.
+
+**Why `dep.core` matters as a primitive**: separating "language
+primitives the compiler needs to see" from "stdlib modules
+consumers may opt into" makes bare-metal targets cleaner —
+the AGNOS kernel target (v5.9.0) only needs the primitives.
+Today there's no clean line; this carve-out draws it.
+
 ---
 
 ## Sigil 3.0 enablers — remaining
@@ -202,19 +259,41 @@ enabler audit trail.
 
 
 
-## v5.8.x — Optimizations + bug fixes (soft backstop ~.44; want to avoid another 50-count cycle)
+## v5.8.x — Optimization + language-vocabulary stabilization (30 pinned slots; soft backstop ~.44; 14-slot headroom)
 
-**Theme**: maintenance-flavored minor focused on dep-surfaced bugs,
-toolchain polish, and optimization opportunities. Plus the vani audio
-distlib fold-in and the `cyriusly` starship.toml prompt rework as the
-v5.8.0 anchor. **Soft backstop ~.44** — firm preference, can flex if
-the optimization arc surfaces meaningful follow-ons; the v5.7.x cycle
-ran 50 patches and we're tightening this minor.
+**Theme** (re-scoped 2026-05-01 at v5.8.0 ship): bug-fix /
+optimization minor that ALSO folds forward the language-feature
+suites originally pinned for v5.10.x / v5.11.x / v5.12.x —
+slices, effect annotations, tagged unions + exhaustive match,
+`Result<T,E>` + `?` propagation, and allocators-as-parameter.
 
-**Bare-metal arc + RISC-V rv64 deferred to v5.9.x** — those are
-arch-port-shaped efforts that don't pair with the bug-fix theme.
+**Strategic re-theming** to compress the original 4-5 separate
+language-feature minors into one cycle: shipping these in v5.8.x
+lets hisab + downstream consumers do ONE port pass instead of
+re-porting across v5.9.x → v5.12.x. Coherent with the
+optimization theme — `Result<T,E>` IS an optimization across
+every -1/0/errno hot path; allocator-parameter convention IS
+the perf-correctness alignment that enables per-request arenas;
+slices replace ptr+len pairs in every crypto / network / I/O
+hot path.
 
-### v5.8.0 — P(-1) hardening + vani fold-in + cyriusly starship.toml
+**30 pinned slots** (v5.8.1 → v5.8.30) across 3 phases:
+- Phase 1 (v5.8.1–v5.8.7): quick-win unblockers — fmt cap raise,
+  packaging fix, ts/parse fmt sweep, f64_log2 polyfill, syscall
+  surface symmetry, _SC_ARITY audit, NI-class investigation.
+- Phase 2 (v5.8.8–v5.8.25): language vocabulary — slices,
+  effects, tagged unions (5), Result<T,E>+? (5), allocators (6).
+- Phase 3 (v5.8.26–v5.8.30): polish + closeout.
+
+Soft backstop ~.44 with 14-slot headroom for surface-during-
+cycle items. Below v5.7.x's 51-patch record.
+
+**Bare-metal arc + RISC-V rv64 stays at v5.9.x** — arch-port
+work better paired after the language vocabulary stabilizes.
+**v5.13.x** then opens for tail-end v5.x work (security
+hardening, polymorphic codegen, `cc5`→`cyc` prep) before v6.0.0.
+
+### v5.8.0 ✅ P(-1) hardening + vani fold-in + cyriusly starship.toml — SHIPPED 2026-05-01
 
 Triple-anchor opener for the minor:
 
@@ -309,93 +388,238 @@ shape variations, version interpolation `${file:VERSION}`) pinned
 during the slot. Mirror the same icon swap into the p10k segment
 (`scripts/cyriusly:198-206`).
 
-### v5.8.x — slot candidates (from 2026-05-01 dep-issue scan)
+### v5.8.x — pinned slot map (30 slots; pinned 2026-05-01)
 
 Surfaced from sakshi `2026-04-30-cyrius-lang-blockers.md`, mabda
-`2026-04-30-toolchain-issues.md`, and phylax
-`2026-04-30-cyrius-stdlib-issues.md`. GitHub issues across all 6 dep
-repos: zero open at scan time (clean issue tracker; in-repo blocker
-docs are the active record). Slot numbers assigned during the cycle
-as work surfaces (v5.4.x / v5.5.x style — single-issue patches, no
-grab-bags).
+`2026-04-30-toolchain-issues.md`, phylax `2026-04-30-cyrius-
+stdlib-issues.md`, and the 2026-05-01 vidya audit. Plus the
+language-vocabulary suites pulled forward from the original
+v5.10.x / v5.11.x / v5.12.x scope per the 2026-05-01 re-theming
+(strategic compression: one ecosystem port pass instead of 4-5).
 
-**High value / small effort:**
+**Pinning policy**: 30 slots pinned firm; soft backstop ~.44
+with 14 slots of headroom for surface-during-cycle items.
+Single-issue patches per the v5.4.x / v5.5.x discipline — no
+grab-bags. Phase boundaries are advisory; if Phase 1 surfaces
+follow-ons or Phase 2 sub-patches need extra slots, the cycle
+absorbs them within the headroom budget.
 
-- **`cyrius lint` / `cyrius fmt` 128 KiB buffer cap raise** (mabda
-  Class A1). Same fix class as v5.7.36 distlib (64K → 256K). Silent
-  truncation past 131,072 bytes — `cyrius fmt $f > $f` destroys
-  data. Bump to ≥524288 B (4× distlib precedent for fmt's potential
-  output growth). Multiple consumers paying workaround tax (mabda
-  `backend_native.cyr` at 137 KiB hits this today).
+#### Phase 1 — Quick-win unblockers (slots 1-7)
 
-- **`cc5_aarch64` packaging fix** (sakshi / yukti issue). 5.7.48
-  ships `cc5_aarch64` at tarball top-level; downstream CI installs
-  that copy `bin/*` silently drop it. Move back under `bin/` in
-  `install.sh` / release tarball, drop the per-repo workaround
-  (currently in sakshi / yukti / patra / mabda CI files). Canonical
-  upstream report: [`yukti/docs/development/issues/2026-04-30-cyrius-cc5-aarch64-packaging.md`](https://github.com/MacCracken/yukti/blob/main/docs/development/issues/2026-04-30-cyrius-cc5-aarch64-packaging.md).
+- **v5.8.1** — `cyrius lint` / `cyrius fmt` 128 KiB buffer cap
+  raise (mabda Class A1). Same fix shape as v5.7.36 distlib
+  (64K → 256K → 524K). Silent truncation past 131,072 B —
+  `cyrius fmt $f > $f` destroys data; mabda `backend_native.cyr`
+  (137 KiB), cyrius's own `src/frontend/ts/parse.cyr` (195 KiB,
+  deferred from v5.8.0 fmt sweep) both hit this. Bump to
+  ≥524288 B (4× distlib precedent for fmt output growth).
+  **Bundles**: `cyrius-prompt-info` redundancy fix (drop
+  `name` from `pkg` mode output — `ॐ vidya 2.3.0 (vidya)` →
+  `ॐ 2.3.0 (vidya)`; one-line edit to `scripts/cyrius-prompt-
+  info`).
 
-- **`f64_log2` aarch64 polyfill** (phylax #1). x86-only builtin
-  hard-rejects on `cyrius build --aarch64`; blocks phylax aarch64
-  cross-build (Shannon entropy calc). Same shape as v5.7.30/31
-  `f64_exp` / `f64_ln` polyfill pair — IEEE-754 bit-extract +
-  small polynomial / lookup. Once shipped, phylax drops its
-  aarch64 `continue-on-error: true` CI marker. **HIGH VALUE** —
-  unblocks a real consumer's cross-arch CI lane.
+- **v5.8.2** — `cc5_aarch64` packaging fix (sakshi / yukti) +
+  `build/cyrc_check` orphan delete (audit §4). Move
+  `cc5_aarch64` back under `bin/` in `install.sh` / release
+  tarball; drop downstream workaround pattern from sakshi /
+  yukti / patra / mabda CI files. Paired with the trivial
+  `build/cyrc_check` orphan delete (zero references in `scripts/`
+  / `.github/` / `tests/`; audit §4). Canonical upstream report:
+  [`yukti/docs/development/issues/2026-04-30-cyrius-cc5-aarch64-packaging.md`](https://github.com/MacCracken/yukti/blob/main/docs/development/issues/2026-04-30-cyrius-cc5-aarch64-packaging.md).
 
-- **`sys_stat` / `sys_fstat` x86_64 wrapper backfill** (phylax #2).
-  `lib/syscalls_x86_64_linux.cyr` exposes `SYS_STAT` / `SYS_FSTAT`
-  enum members but lacks wrapper fns; `lib/syscalls_aarch64_linux.cyr`
-  has both. Trivial backfill closes the cross-arch surface
-  asymmetry; phylax + agnosys's `src/fuse.cyr` drop their local
-  backfill. **SMALL EFFORT.**
+- **v5.8.3** — `src/frontend/ts/parse.cyr` fmt sweep follow-up.
+  Closes the v5.8.0 deferral (file at 195,483 B couldn't fmt
+  without truncation); v5.8.1's cap raise unblocks it. Mechanical
+  patch — single `cyrius fmt` invocation; should produce the
+  ~1500-line idiomatic re-flow.
 
-**Medium value / scoped:**
+- **v5.8.4** — `f64_log2` aarch64 polyfill (phylax #1). x86-only
+  builtin hard-rejects on `cyrius build --aarch64`; blocks
+  phylax aarch64 cross-build (Shannon entropy is load-bearing).
+  Mirror v5.7.30/31 `f64_exp`/`f64_ln` shape — IEEE-754 bit-
+  extract + small polynomial / lookup. Once shipped, phylax
+  drops its `continue-on-error: true` aarch64 CI marker. **HIGH
+  VALUE** — unblocks a real consumer's cross-arch CI.
 
-- **`cyrius fmt --check` exit-code semantics** (mabda A2). Match
-  Rust/Go convention: exit non-zero on drift, silent on no-drift
-  (`gofmt -l`, `cargo fmt --check` precedent).
+- **v5.8.5** — `sys_stat` / `sys_fstat` x86_64 wrapper backfill
+  (phylax #2). `lib/syscalls_x86_64_linux.cyr` exposes
+  `SYS_STAT`/`SYS_FSTAT` enum members but lacks wrapper fns;
+  `lib/syscalls_aarch64_linux.cyr` has both. Trivial backfill
+  closes cross-arch surface asymmetry; phylax + agnosys's
+  `src/fuse.cyr` drop their local backfill.
 
-- **`var X;` (bare decl) error-message polish** (mabda C1). Current
-  diagnostic ("expected expression after `=`") is misleading. New
-  message should explicitly say "uninitialized variable not allowed;
-  use `var X = 0;` or initial value."
+- **v5.8.6** — `_SC_ARITY` audit pass on aarch64 stdlib at-
+  family wrappers (phylax #3 + sakshi). 9 spurious `syscall
+  arity mismatch` warnings on a 4-line stdlib-only program.
+  Same fix class as v5.7.8 `SYS_SETSID` arity 1→0. Stdlib
+  at-family wrappers (`sys_rmdir`, `sys_unlink`, `sys_chmod`,
+  `sys_fork`, etc.) need their `_SC_ARITY` table entries pinned
+  to what the wrapper actually passes. Closes phylax's residual
+  cross-build noise + likely subsumes sakshi's `--aarch64`
+  cross-build noise item.
 
-- **`cyrlint` multi-line assert false-positive** (mabda C5). Has
-  full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).
-  cyrlint expression-walker confused by multi-line bracket matching.
+- **v5.8.7** — NI-class duplicate-fn aarch64 cross-build
+  investigation (phylax #4). `aes_ni_available`,
+  `_aes_ni_cpuid_probe`, `aes256_encrypt_block_ni` duplicate-fn
+  warnings on aarch64 cross-build of sigil 2.9.5+. Sigil's
+  `[lib]` TOML section fix (added in 2.9.5) closed x86 dupes;
+  aarch64 still shows NI-class warnings. **Investigation
+  task** — possibly stdlib auto-prepend interaction with
+  sigil's `src/lib.cyr` chain on aarch64. Scope determined
+  during slot.
 
-- **`cyim` regex pattern parse error** (mabda C6). Has full issue
-  file at [`mabda/docs/development/issues/2026-04-28-cyim-regex-pattern-error.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyim-regex-pattern-error.md).
-  cyim regex engine subset of PCRE missing some lookahead syntax.
+#### Phase 2 — Language vocabulary stabilization (slots 8-25)
 
-- **Stdlib `--aarch64` cross-build noise** (sakshi). 10 syscall
-  arity warnings + unresolved `vec_get`/`vec_len` in stdlib paths.
-  Symbol-resolution issue for cross-arch bundles. Blocks runtime
-  qemu validation in sakshi / yukti CI lanes.
+The 5-feature compression: ship slices + effect annotations
++ tagged unions + `Result<T,E>` + `?` + allocators in one
+cycle so hisab + downstream consumers do ONE port pass. Each
+sub-feature's sub-patch breakdown matches the original
+v5.10.x/v5.11.x/v5.12.x scopes.
 
-- **`_SC_ARITY` audit pass on aarch64 stdlib at-family wrappers**
-  (phylax #3). 9 spurious `syscall arity mismatch` warnings on a
-  4-line stdlib-only program. Same class as v5.7.8 `SYS_SETSID`
-  arity 1→0 fix and the cross-arch openat sentinel false-positive.
-  Stdlib at-family wrappers (`sys_rmdir`, `sys_unlink`, `sys_chmod`,
-  `sys_fork`, etc.) need their `_SC_ARITY` table entries pinned to
-  what the wrapper actually passes. Closes phylax's residual
-  cross-build noise; likely overlaps with sakshi's identical item.
+##### v5.8.8 — First-class slices (`slice<T>` / `[T]` generalizing `Str`)
 
-- **NI-class duplicate-fn aarch64 cross-build investigation**
-  (phylax #4). `aes_ni_available`, `_aes_ni_cpuid_probe`,
-  `aes256_encrypt_block_ni` duplicate-fn warnings on aarch64
-  cross-build of sigil 2.9.5+. Sigil's `[lib]` TOML section fix
-  (added in 2.9.5) closed the x86 dupes but aarch64 still shows
-  the NI-class warnings. Cyrius team's prior reproduction attempt
-  (v5.7.34) couldn't repro before sigil's fix landed; needs a
-  fresh repro recipe in cyrius's own checkout. **Investigation
-  task** — possibly stdlib auto-prepend interaction with sigil's
-  `src/lib.cyr` chain on aarch64.
+A type carrying `(ptr, len)` with bounds-aware APIs. Every
+`read(buf, len)` / `memcpy(dst, src, n)` / `aead_encrypt(pt,
+pt_len, ct, ct_len, tag)` today is a ptr+len pair the compiler
+doesn't check — slices make bounds-aware APIs the default.
+Scope: lex `[T]` in type positions, parse slice literals and
+indexing, stdlib migration (`Str` → concrete instance of
+`slice<u8>`, `vec` / `hashmap` slice getters). Was originally
+pinned at v5.9.0 in the defunct TLS arc; rehomed at v5.7.49,
+re-pinned to v5.8.8 at the 2026-05-01 re-theming. Single-slot
+because the lex/parse work is bounded; stdlib migration
+ripples through Phases 2's tagged-union / Result / allocator
+slots that immediately follow.
 
-- **Preprocessor include-pattern in string literals** (filed
-  2026-05-01 from vidya audit; `docs/development/issues/2026-05-01-preprocessor-include-pattern-in-string-literals.md`).
+##### v5.8.9 — Per-fn effect/purity annotations (`#pure` / `#io` / `#alloc`)
+
+Compiler-checked decorators that catch helpers that silently
+allocate or touch I/O in "pure" crypto paths. Simpler than
+OCaml5 / Koka effects (no polymorphism, no row types) — just
+three decorators the compiler enforces. Annotate `lib/keccak.cyr`,
+X25519 (when sigil-side), AEAD as `#pure` so the compiler
+catches accidental allocation regression. Single-slot;
+annotation ramp happens gradually after the slot ships.
+
+##### v5.8.10–v5.8.14 — Tagged unions + exhaustive pattern match
+
+Algebraic data types — biggest language-ergonomics addition of
+the v5.x line. Every ad-hoc `int tag; union { ... }` struct
+pattern across IR walkers, NSS-strategy dispatch, fdlopen
+result codes, parser state machines, hashmap key-typing folds
+into first-class sum types. **Required by Phase 2's later
+slots** (`Result<T,E>` IS a tagged union; `?` operator pattern-
+matches it).
+
+- **v5.8.10** — Sum-type syntax + constructor parsing.
+  `enum Result<T,E> { Ok(T), Err(E) }` shape. Lex / parse
+  reuses existing `enum`/`struct` infrastructure.
+- **v5.8.11** — Exhaustive pattern match in `switch`. Compiler
+  verifies every variant is covered; missing variants → error;
+  `_ =>` explicitly opts out.
+- **v5.8.12** — Stdlib adoption pass 1: collapse ad-hoc tag+
+  union patterns (hashmap `key_type`, dynlib error codes,
+  json/toml parse state) into sum types. Internal representation
+  swap; no API breakage yet.
+- **v5.8.13** — Stdlib adoption pass 2: public API migration
+  for modules where the sum-typed form is visibly better
+  (parse results, cross-boundary error returns).
+- **v5.8.14** — Tagged unions sub-suite closeout. Downstream
+  dep-pointer audit (sigil, mabda, yukti, kybernet, etc.).
+
+**Acceptance gates**: byte-identical self-host at every patch;
+`tests/tcyr/exhaustive_match.tcyr` (missing variant → error;
+`_ =>` accepted; new variant triggers diagnostic at every
+uncovered site); `cyrius audit` passes with internal-migration-
+only changes visible at v5.8.12.
+
+**Out of scope**: GADTs, higher-kinded types, type-level
+computation. Keep feature surface boringly orthogonal.
+
+##### v5.8.15–v5.8.19 — `Result<T,E>` + `?` propagation operator
+
+Replaces -1/0/errno convention pervasive in stdlib with
+compiler-enforced error handling. Depends on tagged unions
+(v5.8.10-14). The `?` operator: `var x = foo()?;` short-
+circuits on `Err`, unwraps `Ok` — half the LOC of error-
+checking code in practice.
+
+- **v5.8.15** — `Result<T,E>` type in `lib/result.cyr`.
+  Convenience constructors `Ok(v)` / `Err(e)`; pattern-match
+  consumers. Uses v5.8.10-14 sum types directly.
+- **v5.8.16** — `?` propagation operator. Postfix on `Result`-
+  typed expressions; desugars to pattern-match `Err` early-
+  return. Requires enclosing fn to also return `Result`.
+- **v5.8.17** — Stdlib migration pass 1: `lib/io.cyr` (file_
+  open / read / write), `lib/syscalls.cyr` wrappers, `lib/
+  json.cyr` + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc
+  -1 returns → `Result<T, IoError>` or per-module error types.
+- **v5.8.18** — Stdlib migration pass 2: `lib/net.cyr`,
+  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
+  (`pwd.cyr`/`grp.cyr`/`shadow.cyr`/`pam.cyr`). Cleanest wins.
+- **v5.8.19** — Result sub-suite closeout. Cross-repo downstream
+  smoke test (sigil, mabda, yukti, ark compile against
+  migrated stdlib).
+
+**Acceptance gates**: byte-identical self-host every patch;
+`tests/tcyr/result_propagation.tcyr` (`?` on `Err` short-
+circuits, on `Ok` unwraps, outside Result-returning fn is type
+error); cross-repo smoke at v5.8.18.
+
+**Migration policy**: modules migrate one at a time. `-1`-
+return fns stay callable from non-migrated call sites through
+v5.8.x. v6.0.0 closeout fully removes the old convention.
+
+##### v5.8.20–v5.8.25 — Allocators-as-parameter convention
+
+Largest ecosystem-churn item; biggest modern-systems-language
+insight (Zig's contribution). Every allocating fn takes an
+`Allocator`; global `alloc_init()` singleton retires; per-
+request arenas fall out naturally; failing-allocator test
+harness becomes a one-liner. Slotted last in Phase 2 because
+it ripples through every stdlib module that allocates — having
+sum types + Result already in means the migration uses
+`Result<T, AllocError>` for failure returns (cleaner than
+doing it before Result lands).
+
+- **v5.8.20** — `Allocator` interface in `lib/alloc.cyr`.
+  vtable shape: `alloc`, `realloc`, `free`, `reset`. Default
+  implementations: `bump_allocator` (current behavior),
+  `arena_allocator` (scoped), `test_allocator` (tracks every
+  allocation, fails on demand).
+- **v5.8.21** — Failing-allocator test harness. `lib/assert.cyr`
+  extension: `fail_after_n_allocs(n)` helper. Enables
+  `tests/tcyr/oom_handling.tcyr` coverage.
+- **v5.8.22** — Stdlib migration pass 1 core modules:
+  `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
+  `Allocator` as first arg; default-allocator wrapper
+  preserves existing call-sites.
+- **v5.8.23** — Stdlib migration pass 2 peripheral modules:
+  `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
+  `lib/sandhi.cyr`. Per-request arenas benefit most.
+- **v5.8.24** — Retire `alloc_init()` global singleton.
+  Backward compat through `lib/alloc.default()` shim for
+  consumers not ready to migrate.
+- **v5.8.25** — Allocator sub-suite closeout. Downstream
+  ecosystem sweep (every repo's allocator usage audited).
+
+**Acceptance gates**: byte-identical self-host every patch;
+`tests/tcyr/oom_vec_push.tcyr` (`vec_push` returns
+`Err(OutOfMemory)` under `fail_after_n_allocs(1)`) at
+v5.8.21; every internal compiler path uses explicit allocator
+at v5.8.24.
+
+**Migration policy**: allocator parameter is opt-in during
+v5.8.x. Default-allocator wrapper preserves existing
+`vec_push(v, x)` shape as `vec_push(default_alloc(), v, x)`
+syntactic sugar. v6.0.0 closeout removes the shim — every
+fn requires explicit allocator.
+
+#### Phase 3 — Polish + cycle closeout (slots 26-30)
+
+- **v5.8.26** — Preprocessor include-pattern in string literals
+  (filed 2026-05-01 from vidya audit;
+  `docs/development/issues/2026-05-01-preprocessor-include-pattern-in-string-literals.md`).
   `PREPROCESS` in `src/frontend/lex.cyr` scans raw bytes for
   `include "` without string-literal awareness — string literals
   containing the pattern get processed as file inclusions,
@@ -403,63 +627,52 @@ grab-bags).
   Mirror the v5.7.36 cyrlint string-literal fix shape: state-
   machine flag tracking `"` boundaries.
 
-- **Vidya cyrius-language audit + v5.8.x version refresh**.
-  Surfaced 2026-05-01 during v5.7.49 vidya review.
-  `vidya/content/cyrius/` (~15K lines across 13 cyml files) needs:
-  (1) version-ref refresh for v5.8.x (currently lots of v5.7.48
-  references, including `ecosystem.cyml`'s description line and
-  multiple "v5.7.x cycle" anchors); (2) audit pass for open-issue-
-  shaped content that should be filed locally in
-  `cyrius/docs/development/issues/` and cross-referenced from
-  vidya rather than living there as if it's stable knowledge.
-  **Policy**: don't delete vidya entries describing active
-  workarounds — consumers need them — but annotate each with
-  "tracked at: `cyrius/docs/development/issues/<date>-<slug>.md`;
-  pinned for v5.8.x" so users know the workaround is tracked,
-  not orphaned. First example (preprocessor include-pattern)
-  shipped 2026-05-01 as the pattern template. Remaining
-  candidates (initial scan, full audit during slot):
-  `field_notes/language.cyml` lines 121, 215, 294, 945, 972,
-  1008 (multiple WORKAROUND markers); various "not yet
-  implemented" / "blocked by" markers across `ecosystem.cyml`.
-  Touch each: confirm if still active, file locally if so,
-  annotate vidya with cross-ref.
+- **v5.8.27** — `cyrlint` multi-line assert false-positive
+  (mabda C5). Has full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).
+  cyrlint expression-walker confused by multi-line bracket matching.
 
-**Medium language additions (rehomed from defunct v5.9.0 TLS arc; pinned as v5.8.x slot candidates):**
+- **v5.8.28** — Vidya cyrius-language audit (annotation pass).
+  Sweep `vidya/content/cyrius/` (~15K lines across 13 cyml
+  files). For each open-issue-shaped entry: confirm if still
+  active, file locally in `cyrius/docs/development/issues/`
+  if so, annotate vidya entry with cross-ref + status. Policy:
+  preserve consumer-facing workaround text; add the tracking
+  pointer alongside. First example (preprocessor include-
+  pattern) shipped at v5.7.50 as the pattern template.
 
-- **First-class slices** (`slice<T>` / `[T]` generalizing `Str`).
-  A type carrying `(ptr, len)` with bounds-aware APIs. Every
-  `read(buf, len)` / `memcpy(dst, src, n)` / `aead_encrypt(pt,
-  pt_len, ct, ct_len, tag)` today is a ptr+len pair the compiler
-  doesn't check — slices make bounds-aware APIs the default. Scope:
-  lex `[T]` in type positions, parse slice literals and indexing,
-  stdlib migration (`Str` → concrete instance of `slice<u8>`, `vec`
-  / `hashmap` slice getters). Tradeoff: ecosystem-wide rebuild;
-  pays for itself in every crypto/network fn handling buffers.
-  Was pinned at v5.9.0 in the now-defunct TLS arc — moved here at
-  v5.7.49 ship.
+- **v5.8.29** — Paired UX/diagnostic polish: `cyrius fmt
+  --check` exit-code semantics (mabda A2; match Rust/Go —
+  exit non-zero on drift, silent on no-drift) + `var X;`
+  bare-decl error-message polish (mabda C1; current "expected
+  expression after `=`" → "uninitialized variable not allowed;
+  use `var X = 0;` or initial value").
 
-- **Per-fn effect/purity annotations** (`#pure` / `#io` / `#alloc`).
-  Compiler-checked decorators that catch helpers that silently
-  allocate or touch I/O in "pure" crypto paths. Simpler than
-  OCaml5 / Koka effects (no polymorphism, no row types) — just
-  three decorators the compiler enforces. Annotate `lib/keccak.cyr`,
-  X25519 (if/when sigil-side), AEAD as `#pure` so the compiler
-  catches accidental allocation regression. Tradeoff: annotation
-  ramp; stdlib + sigil annotated gradually; no runtime cost. Was
-  pinned at v5.9.1 in the now-defunct TLS arc — moved here at
-  v5.7.49 ship.
+- **v5.8.30** — v5.8.x closeout backstop. CLAUDE.md 11-step
+  closeout protocol + downstream consumer sweep + vidya
+  per-minor refresh + completed-phases.md migration of all
+  v5.8.* sections.
 
-**Deferred to v5.9.x or later:**
+### v5.8.x — held items (surfacing-ask only; not pinned, no slot consumed)
 
-- **Class B FFI/wgpu fncall6 ABI** (mabda B1/B2). Mabda-only blast
-  radius today; complex root-cause work (ABI bug in Cyrius's fncall6
-  vs SysV AMD64 calling convention). Doesn't pair with the v5.8.x
-  bug-fix theme; revisit when bare-metal/RISC-V cycle starts touching
-  ABI invariants.
+- **`cyim` regex pattern parse error** (mabda C6) — pin when a
+  cyim consumer hits it concretely. (Note: a regex-lib
+  scaffold may already exist user-side; defer until cyim
+  surfaces specific use case.)
+- **`ESTORESTACKPARM` cx >6 args** (audit §4) — pin when a cx
+  consumer surfaces a 7+-arg fn. cx backend stub returns 0
+  with `# TODO: >6 args` comment at `src/backend/cx/emit.cyr:385`.
+- **`float.cyr:41` peephole pattern** (audit §4) — pin when
+  measured to matter. 5-instruction sequence `push rax;
+  movabs rax, 0x7FFF...; mov rcx, rax; pop rax; and rax, rcx`
+  may reduce to 3 bytes; preflight with bench delta.
 
-**Pin policy**: items here are guaranteed before v5.8.x closeout if a
-consumer surfaces concrete pain. Speculative items defer.
+### v5.8.x — deferred to v5.9.x or later
+
+- **Class B FFI/wgpu fncall6 ABI** (mabda B1/B2). Mabda-only
+  blast radius today; complex root-cause (ABI bug in Cyrius's
+  fncall6 vs SysV AMD64 calling convention). Pairs naturally
+  with v5.9.x's bare-metal / RISC-V cycle when ABI invariants
+  get touched anyway.
 
 ---
 
@@ -535,197 +748,6 @@ a new architecture port is plenty of work on its own. Bare-metal
 
 ---
 
-## v5.10.x — Tagged unions + exhaustive pattern match
-
-Own minor for algebraic data types. The single biggest language-
-ergonomics addition of the v5.x line — every ad-hoc `int tag;
-union { ... }` struct pattern across IR walkers, NSS-strategy
-dispatch, fdlopen result codes, parser state machines, and
-hashmap key-typing folds into first-class sum types. Pinned to
-concrete patch numbers so it can't drift; slotted **after
-v5.9.x** because the TLS arc closes the last platform-runtime
-gap before language-surface evolution opens.
-
-**Why this, why now:**
-
-- `Result<T,E>` + `?` propagation (v5.11.x) requires sum types.
-  Can't ship ergonomic error handling without this foundation.
-- Every stdlib module that returns `(value, tag)` pairs —
-  `hashmap.key_type` field, `dynlib` result codes, `json`/`toml`
-  parse results — would collapse to a single `enum`.
-- Exhaustive-check gives the compiler another correctness
-  surface: adding a new variant forces every call-site `switch`
-  to handle it or be explicit about `_ =>`.
-
-**Pinned sub-patches:**
-
-- **v5.10.0** — Sum-type syntax + constructor parsing. Likely
-  `enum Result<T,E> { Ok(T), Err(E) }` or cyrius-flavored
-  equivalent. Concrete syntax TBD at design time — aligned with
-  existing `enum` / `struct` shape so lex / parse reuses
-  existing infrastructure where possible.
-- **v5.10.1** — Exhaustive pattern match in `switch`. Compiler
-  verifies every variant is covered; missing variants → error;
-  `_ =>` explicitly opts out.
-- **v5.10.2** — Stdlib adoption pass 1: collapse ad-hoc tag+
-  union patterns (hashmap `key_type`, dynlib error codes, json/
-  toml parse state) into sum types. No API breakage yet —
-  internal representation swap.
-- **v5.10.3** — Stdlib adoption pass 2: public API migration
-  for modules where the sum-typed form is visibly better (parse
-  results, cross-boundary error returns).
-- **v5.10.4** — v5.10.x closeout. Downstream dep-pointer check
-  (sigil, mabda, yukti, kybernet, etc.) since the stdlib surface
-  shifted. Full 11-step closeout.
-
-**Acceptance gates:**
-
-1. Byte-identical self-host at every patch.
-2. v5.10.1 gate: `tests/tcyr/exhaustive_match.tcyr` — missing
-   variant → compile error; `_ =>` accepted; added variant
-   triggers diagnostic at every uncovered site.
-3. v5.10.2 gate: `cyrius audit` passes with internal-migration-
-   only changes visible.
-4. v5.10.4 gate: every downstream consumer builds against the
-   new stdlib without code changes or explicit migration notes
-   where changes are required.
-
-**Out of scope:** GADTs, higher-kinded types, type-level
-computation. Keep the feature surface boringly orthogonal.
-
----
-
-## v5.11.x — `Result<T,E>` + `?` propagation operator
-
-Own minor, depends on v5.10.x sum types. Replaces the -1/0/
-errno convention pervasive in stdlib with compiler-enforced
-error handling.
-
-**Why this, why now:**
-
-- Every stdlib I/O / parse / syscall wrapper today returns -1
-  on error with the caller checking (or silently ignoring —
-  exactly what `#must_use` in v5.6.3 was designed to catch).
-  `Result<T, Error>` makes the error value compiler-visible.
-- `?` operator ergonomic: `var x = foo()?;` short-circuits on
-  `Err`, unwraps `Ok`. Half the length of error-checking code
-  in practice.
-- Slots naturally after v5.10.x — the foundation is built,
-  now use it.
-
-**Pinned sub-patches:**
-
-- **v5.11.0** — `Result<T,E>` type in stdlib. `lib/result.cyr`.
-  Convenience constructors `Ok(v)` / `Err(e)`; pattern-match
-  consumers. Use v5.10.x sum types directly.
-- **v5.11.1** — `?` propagation operator. Parses as postfix
-  operator on `Result`-typed expressions; desugars to
-  pattern-match `Err` early-return. Requires the enclosing fn
-  to also return `Result`.
-- **v5.11.2** — Stdlib migration pass 1: `lib/io.cyr` (file_
-  open / read / write), `lib/syscalls.cyr` wrappers, `lib/json.cyr`
-  + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc -1 return
-  convention → `Result<T, IoError>` or similar per-module error
-  types.
-- **v5.11.3** — Stdlib migration pass 2: `lib/net.cyr`,
-  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
-  (`lib/pwd.cyr` / `lib/grp.cyr` / `lib/shadow.cyr` /
-  `lib/pam.cyr`). These modules had the most elaborate
-  error-code conventions — cleanest win.
-- **v5.11.4** — v5.11.x closeout. Full 11-step + downstream
-  migration sweep.
-
-**Acceptance gates:**
-
-1. Byte-identical self-host at every patch.
-2. v5.11.1 gate: `tests/tcyr/result_propagation.tcyr` — `?` on
-   `Err` short-circuits; on `Ok` unwraps; used outside a
-   `Result`-returning fn is a type error.
-3. v5.11.3 gate: cross-repo downstream smoke test — sigil,
-   mabda, yukti, ark compile against migrated stdlib.
-
-**Migration policy:** modules migrate one at a time. `-1`-
-return fns stay callable from non-migrated call sites through
-v5.11.x. v6.0.0 closeout is when the old convention is fully
-removed.
-
----
-
-## v5.12.x — Allocators-as-parameter convention
-
-Own minor. The largest ecosystem-churn item of the v5.x line
-and the biggest modern-systems-language insight to absorb
-(Zig's contribution). Every allocating fn takes an `Allocator`;
-global `alloc_init()` singleton retires; per-request arenas
-fall out naturally; failing-allocator test harness becomes a
-one-liner.
-
-**Why this, why now:**
-
-- Current `alloc()` is a singleton bump allocator. Tests that
-  want to verify OOM handling can't inject a failing allocator
-  without global mutation.
-- Per-request arenas (HTTP server, compiler passes, parser
-  state) would drastically simplify lifetime management — but
-  only if fns can accept an allocator parameter.
-- Slotted last in the v5.x line because this ripples through
-  every stdlib module that allocates. Rippling through after
-  sum types + Result lands means the migration can use
-  `Result<T, AllocError>` for failure returns — cleaner than
-  doing it before v5.11.x.
-
-**Pinned sub-patches:**
-
-- **v5.12.0** — `Allocator` interface in `lib/alloc.cyr`.
-  vtable shape: `alloc`, `realloc`, `free`, `reset`. Default
-  implementations: `bump_allocator` (current behavior,
-  process-global singleton), `arena_allocator` (scoped),
-  `test_allocator` (tracks every allocation, fails on demand).
-- **v5.12.1** — Failing-allocator test harness. `lib/assert.cyr`
-  extension: `fail_after_n_allocs(n)` helper. Enables
-  `tests/tcyr/oom_handling.tcyr` coverage for stdlib modules.
-- **v5.12.2** — Stdlib migration pass 1 core modules:
-  `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
-  `Allocator` as first argument; default-allocator wrapper
-  preserves current call-sites during migration.
-- **v5.12.3** — Stdlib migration pass 2 peripheral modules:
-  `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
-  `lib/sandhi.cyr` (which now owns `::server` — formerly `lib/
-  http_server.cyr` pre-sandhi-fold). These benefit most from
-  per-request arenas.
-- **v5.12.4** — Retire `alloc_init()` global singleton.
-  Backward compat through a default-allocator shim available as
-  `lib/alloc.default()` for consumers not ready to migrate.
-- **v5.12.5** — v5.12.x closeout. Downstream ecosystem sweep
-  (every repo's allocator usage audited).
-
-**Acceptance gates:**
-
-1. Byte-identical self-host at every patch.
-2. v5.12.1 gate: `tests/tcyr/oom_vec_push.tcyr` — `vec_push`
-   gracefully returns `Err(OutOfMemory)` under `fail_after_n_
-   allocs(1)`.
-3. v5.12.4 gate: every internal compiler path uses an explicit
-   allocator; `alloc_init()` returns the default-allocator shim
-   for one more minor before removal at v6.0.0.
-
-**Migration policy:** allocator parameter is opt-in during
-v5.12.x. Default-allocator wrapper preserves existing
-`vec_push(v, x)` shape as `vec_push(default_alloc(), v, x)`
-syntactic sugar. v6.0.0 closeout is when the default-allocator
-shim is removed and every fn requires explicit allocator.
-
-**Why this is the last *language-feature* v5.x minor:** after v5.12.x
-closes, the language has sum types, exhaustive match, Result+?,
-allocator-parameter convention, slices, effect annotations, overflow
-operators, `#must_use` / `#deprecated`. The language surface is stable.
-v5.13.x then lands polymorphic codegen as the *security-hardening*
-v5.x minor before v6.0.0 opens with the `cc5` → `cyc` rename + the
-cleanup sweep that's been accruing debt across the v5.x line. v5.13.x
-is the last v5.x feature minor; no further v5.x feature work after it.
-
----
-
 ## v5.x — Platform Targets
 
 Each platform is one minor release. cc5 backend-table dispatch
@@ -771,9 +793,9 @@ enables adding new targets without touching the frontend.
 |---------|--------|--------|-------|
 | First-class slices (`slice<T>` / `[T]` generalizing `Str`) | **v5.8.x** | Medium | **Moved from v5.9.0 (defunct TLS arc) at v5.7.49 ship.** Bounds-aware (ptr, len) pair as a first-class type — sandhi / sigil / stdlib net.cyr / fs.cyr all want this; `slice<u8>` collapses the ptr+len pattern repeated across stdlib. Pinned as a v5.8.x slot candidate alongside the dep-surfaced bug fixes. |
 | Per-fn effect annotations (`#pure` / `#io` / `#alloc`) | **v5.8.x** | Medium | **Moved from v5.9.1 (defunct TLS arc) at v5.7.49 ship.** Compiler-checked decorators (`#pure`, `#io`, `#alloc`) catch helpers that silently allocate or touch I/O in "pure" crypto paths; simpler than OCaml5/Koka effects (no polymorphism, no row types). sigil + sankoch want this. Pinned as a v5.8.x slot candidate. |
-| Tagged unions + exhaustive pattern match (own minor) | **v5.10.x** | Large | Biggest single ergonomics win of the v5.x line. Replaces tagged.cyr + manual dispatch across the stdlib. |
-| `Result<T,E>` + `?` propagation (own minor) | **v5.11.x** | Large | Depends on v5.10 ADTs. Replaces -1/0/errno convention across stdlib + ecosystem. |
-| Allocators-as-parameter (own minor) | **v5.12.x** | Large | Per-call-site allocator selection. Last big language addition before v6.0.0 toolchain renames. |
+| Tagged unions + exhaustive pattern match | **v5.8.x** (slots 10-14) | Large | **Moved from v5.10.x at 2026-05-01 v5.8.x re-theming** — folded into the language-vocabulary stabilization phase. Biggest ergonomics win; replaces tagged.cyr + manual dispatch. See v5.8.x §Phase 2 for sub-patch breakdown. |
+| `Result<T,E>` + `?` propagation | **v5.8.x** (slots 15-19) | Large | **Moved from v5.11.x at 2026-05-01 re-theming.** Depends on tagged unions (slots 10-14). Replaces -1/0/errno convention across stdlib + ecosystem. |
+| Allocators-as-parameter | **v5.8.x** (slots 20-25) | Large | **Moved from v5.12.x at 2026-05-01 re-theming.** Per-call-site allocator selection. Last language addition of the compressed v5.8.x cycle. |
 
 **Still unpinned / lower priority** (re-eval'd 2026-04-28):
 
@@ -800,7 +822,7 @@ enables adding new targets without touching the frontend.
 | Data | json, toml, cyml, csv, base64, regex, math, matrix, linalg, bigint, u128 |
 | Network | net, http, ws, tls (+ sandhi at v5.7.0 clean-break fold, absorbing http_server — see [sandhi ADR 0002](https://github.com/MacCracken/sandhi/blob/main/docs/adr/0002-clean-break-fold-at-cyrius-v5-7-0.md)) |
 | Filesystem | fs |
-| Audio | audio (ALSA PCM) |
+| Audio | (vani distlib at v5.8.0; lib/audio.cyr retired into vani's higher-level vani_* API) |
 | Logging | log |
 | Time | chrono |
 | Knowledge | vidya |
