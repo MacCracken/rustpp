@@ -5,6 +5,30 @@
 
 ## Version
 
+**5.8.6** (shipped 2026-05-01 — **v5.8.x SLOT 6 — `sys_stat` /
+`sys_fstat` x86_64 wrapper backfill (phylax #2)**. Cross-arch
+stdlib surface symmetry. Pre-v5.8.6, `lib/syscalls_x86_64_linux.cyr`
+exposed the `SYS_STAT`/`SYS_FSTAT` enum slots but lacked wrapper
+fns; aarch64's stdlib (`lib/syscalls_aarch64_linux.cyr:346-353`)
+had both. Consumers calling `sys_stat(path, buf)` portably hit
+`undefined function` warnings on x86. Phylax + agnosys's
+`src/fuse.cyr` carried local backfills; v5.8.6 lets them drop
+those. Fix: 4 LOC of fn definitions in
+`lib/syscalls_x86_64_linux.cyr` (sys_stat → direct SYS_STAT
+syscall; sys_fstat → direct SYS_FSTAT) plus a one-line doc
+comment to satisfy the per-fn doc-coverage gate. Block comment
+header documents the cross-arch shape (x86 has direct stat/fstat;
+aarch64 routes through newfstatat with AT_FDCWD because the
+direct stat was dropped in favor of the at-family). cc5
+unchanged at **721,352 B** — stdlib-only change. Verification:
+self-host two-step byte-identical, check.sh 64/64, x86 smoke
+(`sys_stat("/etc/hostname", &buf)` → rc=0, st_size in sanity
+bounds), cyrdoc 60 documented / 0 undocumented. Phylax + agnosys
+can drop their local backfills on next pin bump. Out-of-scope
+finding: api-surface snapshot has drift (null-byte parse abort
+in the tool's distfile scan); pre-existing; pinned for v5.8.31
+closeout doc-sync.)
+
 **5.8.5** (shipped 2026-05-01 — **v5.8.x SLOT 5 — aarch64 SSH-gate
 extension for `f64_log2` (phylax #1 hardware verification)**.
 v5.8.4 closed the parser-side phylax-blocker (replaced hard-reject
@@ -1891,7 +1915,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.6+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
+**v5.8.7+ (v5.8.x cycle slot work — 31 pinned slots, 13-slot headroom against ~.44 backstop).**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -1912,7 +1936,7 @@ Phase 1 — Quick-win unblockers (slots 1-8):
 - **v5.8.3** ✅ ts/parse.cyr fmt sweep follow-up (unblocked by .1)
 - **v5.8.4** ✅ `f64_log2` aarch64 polyfill — parser dispatch (phylax #1)
 - **v5.8.5** ✅ aarch64 SSH-gate extension for f64_log2 — hardware verification
-- **v5.8.6** — `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
+- **v5.8.6** ✅ `sys_stat`/`sys_fstat` x86_64 wrapper backfill (phylax #2)
 - **v5.8.7** — `_SC_ARITY` audit on aarch64 stdlib (phylax #3 + sakshi)
 - **v5.8.8** — NI-class duplicate-fn investigation (phylax #4)
 

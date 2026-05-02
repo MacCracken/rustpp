@@ -4,6 +4,87 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.6] — 2026-05-01
+
+**v5.8.x slot 6 — `sys_stat` / `sys_fstat` x86_64 wrapper backfill
+(phylax #2)**. Closes the cross-arch surface asymmetry: pre-v5.8.6,
+`lib/syscalls_x86_64_linux.cyr` exposed the `SYS_STAT` (4) and
+`SYS_FSTAT` (5) enum slots but **lacked the wrapper fns**;
+`lib/syscalls_aarch64_linux.cyr:346-353` had both. Consumers
+calling `sys_stat(path, buf)` portably hit `undefined function
+'sys_stat' (will crash at runtime)` warnings on x86 builds.
+Phylax + agnosys's `src/fuse.cyr` carried local backfills as a
+workaround.
+
+cc5 unchanged at **721,352 B** — stdlib-only change (4 LOC of fn
+definitions); no compiler emit shift.
+
+### Fix
+
+Added two trivial wrappers to `lib/syscalls_x86_64_linux.cyr`
+between `sys_write` and `sys_dup2`:
+
+```cyrius
+fn sys_stat(path, buf) {
+    return syscall(SYS_STAT, path, buf);
+}
+
+# Stat an already-open fd into the caller's struct stat buffer.
+fn sys_fstat(fd, buf) {
+    return syscall(SYS_FSTAT, fd, buf);
+}
+```
+
+Block-comment header above documents the cross-arch shape: x86_64
+has direct `stat`/`fstat` syscalls; aarch64 wrappers route through
+`newfstatat` with `AT_FDCWD` because aarch64 dropped the direct
+`stat` in favor of the at-family. Both arches' wrappers now share
+the same `(path, buf)` / `(fd, buf)` signatures — consumer code
+is portable across arches.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,352 B (compiler
+   unchanged — stdlib-only addition).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS (baseline holds).
+4. ✅ x86 smoke test:
+   ```cyrius
+   var statbuf[18];
+   var rc = sys_stat("/etc/hostname", &statbuf);
+   # rc == 0; load64(&statbuf + 48) (st_size) > 0
+   ```
+   exit 0 (rc=0 + size in 1..1024 sanity bounds).
+5. ✅ `cyrdoc --check lib/syscalls_x86_64_linux.cyr` — 60
+   documented, 0 undocumented (was 59/1 mid-edit; one-line doc
+   added above `sys_fstat` to satisfy the per-fn doc-coverage
+   gate).
+
+### Phylax-side / agnosys-side follow-up
+
+Once consumers pin v5.8.6+:
+- **Phylax**: drop the `sys_stat` / `sys_fstat` workaround in
+  `phylax/src/syscall_x86_64_linux.cyr` (the `#ifdef
+  CYRIUS_ARCH_X86` self-gated peer file containing the local
+  backfills); update `phylax/docs/development/issues/2026-04-30-cyrius-stdlib-issues.md`
+  §2 to mark closed.
+- **Agnosys**: `agnosys/src/fuse.cyr`'s local `sys_stat` calls
+  resolve against stdlib once the pin bumps — no source change
+  needed beyond the version bump.
+
+### Out of scope (noted, not fixed in this slot)
+
+- **`api-surface` snapshot drift** — the `tests/regression-api-
+  surface.sh` gate skips when `build/cyrius_api_surface` is not
+  present (which is the current state). When rebuilt locally,
+  the tool reports drift — primarily false-positive removals of
+  agnosys::bootloader_* fns that DO exist in the current agnosys
+  1.0.4 distfile. Root cause appears to be a null-byte-in-input
+  warning during the tool's distfile scan that aborts mid-parse.
+  Pre-existing (predates v5.8.x); unrelated to this slot's
+  scope. Pin candidate for the v5.8.x closeout (v5.8.31 — full
+  snapshot regen as part of the per-minor doc sync).
+
 ## [5.8.5] — 2026-05-01
 
 **v5.8.x slot 5 — aarch64 SSH-gate extension for `f64_log2`

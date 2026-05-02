@@ -459,12 +459,15 @@ absorbs them within the headroom budget.
   was wrong (0x408F4... = 1000.0, not 1024.0); corrected to
   0x4090000000000000.
 
-- **v5.8.6** — `sys_stat` / `sys_fstat` x86_64 wrapper backfill
-  (phylax #2). `lib/syscalls_x86_64_linux.cyr` exposes
-  `SYS_STAT`/`SYS_FSTAT` enum members but lacks wrapper fns;
-  `lib/syscalls_aarch64_linux.cyr` has both. Trivial backfill
-  closes cross-arch surface asymmetry; phylax + agnosys's
-  `src/fuse.cyr` drop their local backfill.
+- **v5.8.6** ✅ `sys_stat` / `sys_fstat` x86_64 wrapper backfill
+  (phylax #2). Shipped 2026-05-01. 4 LOC fn additions to
+  `lib/syscalls_x86_64_linux.cyr` (sys_stat → SYS_STAT direct
+  syscall; sys_fstat → SYS_FSTAT direct) closing the cross-arch
+  surface asymmetry against `lib/syscalls_aarch64_linux.cyr:346-
+  353`. Block comment documents the divergence (x86 has direct
+  stat/fstat; aarch64 routes through newfstatat with AT_FDCWD).
+  cc5 unchanged at 721,352 B (stdlib-only). Phylax + agnosys
+  drop their local backfills on next pin bump.
 
 - **v5.8.7** — `_SC_ARITY` audit pass on aarch64 stdlib at-
   family wrappers (phylax #3 + sakshi). 9 spurious `syscall
