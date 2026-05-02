@@ -4,6 +4,105 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.4] — 2026-05-01
+
+**v5.8.x slot 4 — `f64_log2` aarch64 polyfill (phylax #1 unblock)**.
+First substantive stdlib slot of the v5.8.x cycle. Phylax #1 was
+the original "HIGH VALUE" pin of the v5.8.x slot map: `f64_log2`
+was x86-only (x87 `fld1; fxch; fyl2x`) and hard-rejected on
+`cyrius build --aarch64` with `f64_log2 is x86-only for v5.6.0`.
+Phylax's Shannon entropy + chi-squared paths (load-bearing for
+every entropy-based detection in the YARA / strings / analyze
+pipeline) couldn't ship on aarch64; phylax CI ran with
+`continue-on-error: true` on the aarch64 lane.
+
+cc5 grew **720,928 B → 721,352 B (+424 B)** for the new aarch64
+dispatch code in `parse_expr.cyr`.
+
+### Fix shape (mirrors v5.7.30/31 f64_exp/f64_ln pattern)
+
+**`lib/math.cyr`** — new polyfill alongside the v5.7.31
+`_f64_exp_polyfill` / `_f64_ln_polyfill` set:
+
+```cyrius
+var F64_LOG2E = 0x3FF7_1547_652B_82FE;   # 1/ln(2) ≈ 1.4426950408889634
+
+fn _f64_log2_polyfill(x) {
+    return f64_mul(f64_ln(x), F64_LOG2E);
+}
+```
+
+Math: change of base `log2(x) = ln(x) / ln(2) = ln(x) * (1/ln(2))`.
+Inside the polyfill, `f64_ln(x)` dispatches via the parser:
+- On x86 (where polyfill is dead code): `f64_ln` emits native
+  x87 (`fldln2; fxch; fyl2x`).
+- On aarch64 (where polyfill actually runs): `f64_ln` dispatches
+  via parse_expr's v5.7.31 aarch64 branch to `_f64_ln_polyfill`.
+
+`F64_LOG2E` hoisted to a global because the bit pattern was
+already a local in `_f64_exp_polyfill` (line 52: `var LOG2E =
+0x3FF71547652B82FE`); now shared between exp and log2 polyfills.
+
+**`src/frontend/parse_expr.cyr`** — replaces the line-1162
+hard-reject for `ptyp == 87` with an aarch64 dispatch block
+mirroring the line 1146-1161 `f64_ln` shape:
+
+```cyrius
+if (ptyp == 87) {
+    STI(S, GTI(S) + 1);
+    if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+    STI(S, GTI(S) + 1);
+    PCMPE(S);
+    if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+    STI(S, GTI(S) + 1);
+    var pf87 = _FINDFN_CSTR(S, "_f64_log2_polyfill", 18);
+    if (pf87 < 0) {
+        ERR_MSG(S, "f64_log2 on aarch64 requires include \"lib/math.cyr\" (provides _f64_log2_polyfill)", 80);
+    }
+    EPUSHR(S);
+    ECALLPOPS(S, 1);
+    ECALLFIX(S, pf87);
+    return 0;
+}
+```
+
+x86 path is unchanged — line 1190 still emits the native
+`fld1; fxch; fyl2x` for ptyp==87 outside the aarch64 branch.
+
+### Out of scope (deferred to v5.8.4 follow-up gates)
+
+- **Aarch64 hardware verification** via SSH gate (analogous to
+  `tests/regression-aarch64-f64-polyfill.sh` for v5.7.31). Pre-
+  v5.8.5/6 cycle, the aarch64 cross-build is broken by a separate
+  `SYS_OPEN`-not-defined issue in patra/aarch64 (raw syscall
+  refs from patra 1.9.2's partial migration). v5.8.5 (`sys_stat`/
+  `sys_fstat` backfill) + v5.8.6 (`_SC_ARITY` audit) close those
+  blockers; once the cross-build runs clean, an aarch64 SSH gate
+  for log2 lands as a v5.8.x follow-up.
+
+- **f64_exp2 polyfill** (ptyp == 88) — still hard-rejects with
+  `f64_exp2 is x86-only`. No consumer has surfaced a need;
+  defer until one does (mirror this slot's shape: `exp2(x) = exp(x * ln(2))`
+  via _f64_exp_polyfill is a one-line poly).
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at 721,352 B.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ `cyrius bench` 15/15 PASS.
+4. ✅ x86 smoke test: `f64_log2(8) = 3.0` exit code 3.
+5. ✅ `tests/tcyr/math.tcyr` extended with 9 new f64_log2
+   assertions (native + polyfill direct + ulp-tolerance comparison
+   between native and polyfill on power-of-2 inputs); 45/45 PASS.
+
+### Phylax-side follow-up (consumer-side, not cyrius scope)
+
+Once phylax pins v5.8.4+, it can drop:
+- `continue-on-error: true` on the aarch64 cross-build CI lane.
+- Notes in `phylax/docs/development/issues/2026-04-30-cyrius-stdlib-issues.md`
+  §1 marking f64_log2 as "blocked aarch64" — replace with
+  "shipped at cyrius v5.8.4".
+
 ## [5.8.3] — 2026-05-01
 
 **v5.8.x slot 3 — `src/frontend/ts/parse.cyr` fmt sweep follow-up**.

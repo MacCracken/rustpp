@@ -5,6 +5,28 @@
 
 ## Version
 
+**5.8.4** (shipped 2026-05-01 — **v5.8.x SLOT 4 — `f64_log2`
+aarch64 polyfill (phylax #1 unblock)**. First substantive stdlib
+slot of v5.8.x. Pre-v5.8.4: `cyrius build --aarch64` hard-rejected
+`f64_log2` with `is x86-only for v5.6.0`; phylax CI ran
+`continue-on-error: true` on the aarch64 lane because Shannon
+entropy is load-bearing across the YARA / strings / analyze
+pipeline. Fix mirrors v5.7.30/31 f64_exp/f64_ln shape: new
+`_f64_log2_polyfill` in `lib/math.cyr` (one-liner via change-of-
+base `log2(x) = ln(x) * F64_LOG2E`, leveraging the v5.7.31
+`_f64_ln_polyfill` underneath); `parse_expr.cyr:1162` hard-reject
+replaced with aarch64 dispatch block (~22 LOC mirroring the
+v5.7.31 ln branch). New `F64_LOG2E` global hoisted from
+`_f64_exp_polyfill`'s local for cross-polyfill reuse. cc5 grew
+**720,928 → 721,352 B (+424 B)** for the new dispatch code.
+Verification: self-host two-step byte-identical, check.sh 64/64,
+bench 15/15, x86 smoke (`f64_log2(8) → exit 3`), math.tcyr
+extended +9 assertions for log2 native + polyfill + ulp-tolerance
+comparison (45/45 PASS). Aarch64 hardware verification (SSH gate
+analogous to v5.7.31's regression-aarch64-f64-polyfill.sh) waits
+for v5.8.5/6 to close the separate `SYS_OPEN`-not-defined patra/
+aarch64 cross-build blocker.)
+
 **5.8.3** (shipped 2026-05-01 — **v5.8.x SLOT 3 —
 `src/frontend/ts/parse.cyr` fmt sweep follow-up**. Closes the
 v5.8.0 fmt-sweep deferral that was blocked by the 128 KiB

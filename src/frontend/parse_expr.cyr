@@ -1159,7 +1159,28 @@ fn PARSE_TERM(S) {
             ECALLFIX(S, pf86);
             return 0;
         }
-        if (ptyp == 87) { ERR_MSG(S, "f64_log2 is x86-only for v5.6.0; aarch64 has no native log2 — needs polyfill", 76); }
+        # v5.8.4: f64_log2 on aarch64 — dispatch to stdlib polyfill
+        # (`_f64_log2_polyfill` defined in lib/math.cyr; uses
+        # _f64_ln_polyfill * F64_LOG2E). Mirrors the v5.7.31
+        # f64_exp / f64_ln pattern. Closes phylax #1 (Shannon
+        # entropy was the load-bearing consumer; previously blocked
+        # aarch64 cross-build via this hard-reject).
+        if (ptyp == 87) {
+            STI(S, GTI(S) + 1);
+            if (PEEKT(S) != 10) { ERR_EXPECT(S, 10); }
+            STI(S, GTI(S) + 1);
+            PCMPE(S);
+            if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+            STI(S, GTI(S) + 1);
+            var pf87 = _FINDFN_CSTR(S, "_f64_log2_polyfill", 18);
+            if (pf87 < 0) {
+                ERR_MSG(S, "f64_log2 on aarch64 requires include \"lib/math.cyr\" (provides _f64_log2_polyfill)", 80);
+            }
+            EPUSHR(S);
+            ECALLPOPS(S, 1);
+            ECALLFIX(S, pf87);
+            return 0;
+        }
         if (ptyp == 88) { ERR_MSG(S, "f64_exp2 is x86-only for v5.6.0; aarch64 has no native exp2 — needs polyfill", 76); }
     }
     # f64 builtins — check before PARSE_FACTOR dispatches

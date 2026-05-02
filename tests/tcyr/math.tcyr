@@ -72,4 +72,36 @@ assert_eq(binomial(10, 10), 1, "C(n,n)");
 assert_eq(binomial(3, 5), 0, "C(3,5) invalid");
 assert_eq(binomial(20, 10), 184756, "C(20,10)");
 
+# v5.8.4: f64_log2 + _f64_log2_polyfill verification (phylax #1 unblock).
+# On x86 the parser dispatches f64_log2 to native x87 (fld1 fxch fyl2x).
+# On aarch64 it dispatches to _f64_log2_polyfill (this slot's contribution).
+# Verify both paths agree on power-of-2 inputs (where log2 is exact).
+test_group("f64 log2 (v5.8.4 phylax #1 unblock)");
+assert_eq(f64_to(f64_log2(f64_from(1))), 0, "log2(1) = 0");
+assert_eq(f64_to(f64_log2(f64_from(2))), 1, "log2(2) = 1");
+assert_eq(f64_to(f64_log2(f64_from(8))), 3, "log2(8) = 3");
+assert_eq(f64_to(f64_log2(f64_from(1024))), 10, "log2(1024) = 10");
+assert_eq(f64_to(f64_log2(f64_from(65536))), 16, "log2(65536) = 16");
+
+# Direct polyfill — exercises the v5.8.4 math regardless of arch.
+# log2(8) = ln(8) * (1/ln(2)) = 2.079... * 1.4427... ≈ 3.0. Two-step
+# FP (ln then mul) costs precision vs native fyl2x's x87-internal
+# 80-bit path, so polyfill output is 2.9999... → f64_to truncates
+# to 2. Round before truncating so the comparison reflects the
+# nearest-integer log2, not the truncation artifact.
+assert_eq(f64_to(f64_round(_f64_log2_polyfill(f64_from(8)))), 3, "polyfill log2(8) ~ 3");
+assert_eq(f64_to(f64_round(_f64_log2_polyfill(f64_from(1024)))), 10, "polyfill log2(1024) ~ 10");
+assert_eq(f64_to(f64_round(_f64_log2_polyfill(f64_from(65536)))), 16, "polyfill log2(65536) ~ 16");
+
+# Polyfill within ulp budget of native. Compute |native_bits - polyfill_bits|
+# treating the f64 representations as raw integers; for results near a
+# clean integer boundary the bit-diff = ulp count. Budget: 4096 ulp
+# (matches the v5.7.31 polyfill regression's exp(ln(2)) round-trip
+# tolerance — generous; typical polyfill drift is <16 ulp).
+var native_8  = f64_log2(f64_from(8));
+var poly_8    = _f64_log2_polyfill(f64_from(8));
+var diff_8    = native_8 - poly_8;
+if (diff_8 < 0) { diff_8 = 0 - diff_8; }
+assert(diff_8 < 4096, "polyfill log2(8) within 4096 ulp of native");
+
 var r = assert_summary();
