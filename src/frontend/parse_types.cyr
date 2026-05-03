@@ -186,14 +186,28 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
             var vnoff = PEEKV(S);
             STI(S, GTI(S) + 1);
-            # Check for constructor syntax: Variant(param)
+            # Check for constructor syntax: Variant(param) | Variant(a, b, ...)
+            # v5.8.21 bite: count arity by consuming param idents until ')'.
+            # Comma (token 31) separates; ident (token 2) bumps arity.
+            # Empty parens `Foo()` collapse to arity-1 to preserve byte-
+            # identity of pre-bite codegen (no stdlib consumer; this is
+            # don't-rock-the-boat — real arity-0 nullary tagged variants
+            # are a follow-up bite).
             var has_ctor = 0;
+            var ctor_arity = 0;
             if (PEEKT(S) == 10) {
                 has_ctor = 1;
                 STI(S, GTI(S) + 1);
-                if (PEEKT(S) == 2) { STI(S, GTI(S) + 1); }
-                if (PEEKT(S) != 11) { ERR_EXPECT(S, 11); }
+                while (PEEKT(S) != 11) {
+                    if (PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
+                    else {
+                        if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
+                        STI(S, GTI(S) + 1);
+                        ctor_arity = ctor_arity + 1;
+                    }
+                }
                 STI(S, GTI(S) + 1);
+                if (ctor_arity == 0) { ctor_arity = 1; }
             }
             if (PEEKT(S) == 4) {
                 STI(S, GTI(S) + 1);
@@ -218,8 +232,17 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         S64(S + 0x129A000 + cfi * 8, 1);
                         EFNPRO(S);
                         var ctor_frame = ESUBRSP(S);
-                        ESTOREPARM(S, 0, 0, 0);
-                        EMOVI(S, 16); EPUSHR(S);
+                        # v5.8.21 bite: store each incoming param into its
+                        # own local slot 0..arity-1. ESTOREPARM(i, i, 0)
+                        # routes through the SysV/Win64 ABI dispatch in
+                        # backend/x86/emit.cyr — args 0-5 (Linux) / 0-3
+                        # (Windows) come from registers, rest from stack.
+                        var ctor_pi = 0;
+                        while (ctor_pi < ctor_arity) {
+                            ESTOREPARM(S, ctor_pi, ctor_pi, 0);
+                            ctor_pi = ctor_pi + 1;
+                        }
+                        EMOVI(S, 8 + ctor_arity * 8); EPUSHR(S);
                         ECALLPOPS(S, 1);
                         NPOS_GUARD(S, 8);
                         var awnp = GNPOS(S);
@@ -232,12 +255,21 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                         var afoff = L64(S + 0x1292000 + afi * 8);
                         if (afoff >= 0) { ECALLTO(S, afoff); } else { ECALLFIX(S, afi); }
                         ECALLCLEAN(S, 1);
-                        EFLSTORE(S, 1);
-                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, val); EPOPC(S); ESTORE64(S);
-                        EFLLOAD(S, 1); EPUSHR(S); EMOVI(S, 8); EMOVCA(S); EPOPR(S); EADDR(S);
-                        EPUSHR(S); EFLLOAD(S, 0); EPOPC(S); ESTORE64(S);
-                        EPATCHFRAME(S, ctor_frame, 32);
-                        EFLLOAD(S, 1);
+                        # v5.8.21 bite: alloc-ptr lives in slot `arity`
+                        # (slots 0..arity-1 hold params). Tag at +0,
+                        # payloads at +8, +16, ... For arity=1 this
+                        # produces byte-identical output to the prior
+                        # hardcoded path: slot 1, EMOVI(8), one store.
+                        EFLSTORE(S, ctor_arity);
+                        EFLLOAD(S, ctor_arity); EPUSHR(S); EMOVI(S, val); EPOPC(S); ESTORE64(S);
+                        var ctor_si = 0;
+                        while (ctor_si < ctor_arity) {
+                            EFLLOAD(S, ctor_arity); EPUSHR(S); EMOVI(S, 8 + ctor_si * 8); EMOVCA(S); EPOPR(S); EADDR(S);
+                            EPUSHR(S); EFLLOAD(S, ctor_si); EPOPC(S); ESTORE64(S);
+                            ctor_si = ctor_si + 1;
+                        }
+                        EPATCHFRAME(S, ctor_frame, (ctor_arity + 1) * 16);
+                        EFLLOAD(S, ctor_arity);
                         EFNEPI(S);
                     }
                 }

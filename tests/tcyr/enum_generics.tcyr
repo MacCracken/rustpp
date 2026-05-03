@@ -31,6 +31,16 @@ enum CommaSep<T, E> { COk(v), CErr(e) }
 # a positive reason; current rule is "either separator anywhere").
 enum MixedSep { MA, MB(v); MC(w), MD }
 
+# v5.8.21 bite — multi-arg variant constructors. Layout: 8 + 8*N bytes,
+# tag at +0, payloads at +8, +16, ... Frame size scales with arity.
+# Mixed-arity variants in one decl autoincrement tags correctly.
+enum Tri<T, U, V> {
+    Triple(a, b, c),
+    Pair(x, y),
+    Single(s),
+    Bare
+}
+
 alloc_init();
 
 test_group("non-generic enum still works (regression floor)");
@@ -74,6 +84,32 @@ assert_eq(load64(mb), 1, "MB tag = 1");
 var mc = MC(8);
 assert_eq(load64(mc), 2, "MC tag = 2");
 assert_eq(MD, 3, "MD = 3");
+
+test_group("multi-arg variants — Triple(a, b, c)");
+var t = Triple(11, 22, 33);
+assert_eq(load64(t), 0, "Triple tag = 0");
+assert_eq(load64(t + 8), 11, "Triple payload[0]");
+assert_eq(load64(t + 16), 22, "Triple payload[1]");
+assert_eq(load64(t + 24), 33, "Triple payload[2]");
+
+test_group("multi-arg variants — Pair(x, y) with auto-incremented tag");
+var p = Pair(7, 99);
+assert_eq(load64(p), 1, "Pair tag = 1");
+assert_eq(load64(p + 8), 7, "Pair payload[0]");
+assert_eq(load64(p + 16), 99, "Pair payload[1]");
+
+test_group("multi-arg variants — Single(s) sharing decl with multi-arg");
+var s2 = Single(42);
+assert_eq(load64(s2), 2, "Single tag = 2");
+assert_eq(load64(s2 + 8), 42, "Single payload");
+
+test_group("multi-arg variants — bare variant in mixed decl");
+assert_eq(Bare, 3, "Bare = 3 (auto-increment past payloaded variants)");
+
+test_group("multi-arg payload roundtrip — negatives and zero");
+var pn = Pair(0, 0 - 1);
+assert_eq(load64(pn + 8), 0, "Pair(0, -1) payload[0] = 0");
+assert_eq(load64(pn + 16), 0 - 1, "Pair(0, -1) payload[1] = -1");
 
 # Note: type parameters are syntactically accepted but not yet bound
 # to anything semantically (no monomorphization, no type-checking on
