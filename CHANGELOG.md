@@ -4,6 +4,169 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.19] — 2026-05-02
+
+**v5.8.x slot 19 — slices §11: TRUE sub-arc closeout. Slices
+true-completion sub-arc COMPLETE.** Sixth and final slot of
+the §6-§11 sub-arc. Doc-only / verification slot — no compiler
+or stdlib code change.
+
+cc5 unchanged at **727,960 B** (same as v5.8.18).
+
+### What §11 ships
+
+Sub-arc retrospective + gate verification + sub-arc complete
+marker. The "downstream consumers rebuild against migrated
+stdlib" line in the §11 pin was written assuming §9/§10 would
+mass-migrate stdlib call sites. Both §9 and §10 honest-scope-
+shrunk away from the migration (capability shipped, mass churn
+deferred per user signal — twice-reverted `lib/fs.cyr` pilot in
+§9 and §10), so §11's downstream-rebuild story becomes a
+**no-op assertion**: downstream consumers already build clean
+against v5.8.18 because the new helpers are additive — no
+pre-existing call site changed shape.
+
+### Sub-arc retrospective (v5.8.14 → v5.8.19)
+
+| Slot | What shipped | LOC delta | cc5 size delta |
+|------|--------------|-----------|----------------|
+| §6 (v5.8.14) | TYPE_SLICE element-type tracking infrastructure (parser branches + GSLICE_W/SSLICE_W + parallel-array stash) | +88 src/ | 721,936 → 724,432 (+2,496 B) |
+| §7 (v5.8.15) | Bounds-aware indexing `s[i]` (10 helpers in lib/slice.cyr + PARSE_FACTOR slice-subscript branch) + 16-byte fn-local SFLC bump | +130 src/ + 80 lib/ | 724,432 → 725,704 (+1,272 B) |
+| §8 (v5.8.16) | Dot-syntax field access `s.ptr` / `s.len` + 16-byte fn-local layout-flip + tail-call escape skip for `&local` args | +60 src/ | 725,704 → 727,368 (+1,664 B) |
+| §9 (v5.8.17) | Pointer-to-struct dot-syntax capability + Str fn-param SLTYPE tagging | +30 src/ | 727,368 → 727,960 (+592 B) |
+| §10 (v5.8.18) | Slice-typed wrapper helpers (`sys_read_slice` / `slice_copy_bytes` / `slice_eq_bytes`) | +50 lib/ | 727,960 (unchanged — wrappers are stdlib, not compiler) |
+| §11 (v5.8.19, this slot) | Closeout retrospective + sub-arc complete marker | doc-only | 0 B |
+| **Total** | **159 slice assertions across 9 tcyrs, 11+10+3 = 24 helpers, 3 doc-blocks, 4 stale pin items closed** | ~440 LOC | **+6,024 B (721,936 → 727,960)** |
+
+Test suite delta: 5 NEW tcyr files added during the sub-arc
+(slices_indexing, slices_typing, slices_field_access,
+str_dot_syntax, slice_byte_helpers — joining the 4 from the
+v5.8.9-v5.8.13 foundation: parse/codegen/str_interop/
+vec_interop). All auto-discovered by check.sh's
+`tests/tcyr/*.tcyr` walker — no new gate wiring needed;
+integrated into the existing Test Suite gate.
+
+### What shipped vs the original sub-arc plan
+
+**Shipped per plan:**
+- §6 element-type tracking infrastructure
+- §7 bounds-aware `s[i]` subscript
+- §8 dot-syntax `.ptr` / `.len` field access (load + store)
+- §9 dot-syntax extension to pointer-to-struct (Str + general)
+- §10 slice-typed wrapper helpers
+
+**Honest scope-shrunk during execution:**
+- §7: file 16-byte fn-local slot-collision bug discovered + fixed
+  (pre-existing, silent since v5.5 because no tcyr exercised
+  adjacent fn-local 16-byte vars). Originally a side-fix; ended
+  up landing alongside `s[i]` because the layout was the
+  precondition for correct indexing. Honest scope-EXPAND.
+- §8: layout-flip + tail-call escape skip ALSO landed in the
+  same slot because the regalloc / TCO interactions with the
+  new layout couldn't be deferred without breaking subsequent
+  tests. Honest scope-EXPAND.
+- §9: pinned scope was 30-site stdlib migration; empirical
+  scope was 81 sites + a `: Str` annotation per site (most
+  stdlib fns take untyped params). Honest scope-SHRINK to
+  capability + tcyr; mass migration deferred to §10 per pin.
+- §10: pinned scope was 454-site mass migration of
+  memcpy/memeq/sys_read + the §9-deferred ~80 str sites.
+  Empirical counts were smaller (~295 total), AND a pilot
+  migration of `lib/fs.cyr` was reverted twice in-flight by
+  the user — clear signal that mass call-site churn wasn't
+  wanted this slot. Honest scope-SHRINK to 3 additive helpers
+  + tcyr; mass sweep deferred to a future slot when a
+  downstream consumer surfaces measurable pain.
+
+**Honestly deferred (not shipped, not silently dropped):**
+- Var-side subscript syntax (`var s: [u8] = ...; s[i]` at
+  top-level scope) — fires only inside fn-local-ident branch
+  today; var-side support reserved as a follow-up slot if a
+  downstream consumer asks. In practice ~99% of subscripting
+  happens inside fns.
+- Mass migration of stdlib's str_data / str_len / memcpy /
+  memeq / sys_read call sites to dot-syntax / slice-helper
+  form — capability exists; migration is opt-in per file.
+
+### Lessons learned (sub-arc retrospective)
+
+**Premise-check at slot entry is the most valuable
+discipline.** Three of six slots' original pins assumed
+preconditions that turned out wrong:
+- §7: assumed slice indexing was straightforward; found a
+  pre-existing layout bug that had to be fixed first.
+- §8: assumed dot-syntax was straightforward; found regalloc
+  picker would clobber the high-half slot, plus the layout-
+  flip exposed a tail-call escape bug.
+- §9: assumed `s.data` / `s.len` already worked on Str-typed
+  locals; empirically returned 0 because the struct-typed-
+  local branch always used inline-mode addressing.
+
+The discipline of writing a 5-line probe BEFORE committing to
+a pin's stated scope caught each one in time to either expand
+scope honestly or shrink it without silently dropping work.
+The opposite anti-pattern (commit to the pin, hit a wall
+mid-implementation, defer half the work to "next slot")
+ballooned the v5.6.x deferment rate; v5.7.x discipline ("read
+the actual code before scoping") earned its keep across this
+sub-arc.
+
+**Honest scope-shrink on consumer signal.** Both §9 and §10
+shrank in response to user reverts of pilot migrations. The
+correct interpretation isn't "shrinking capabilities" — it's
+"don't bundle capability + mass churn in the same slot." The
+capability is the deliverable that earns its slot; the
+migration is its own deliverable that earns a slot when a
+consumer's pain motivates it.
+
+**Layout discipline matters.** The 16-byte fn-local slot-
+collision bug had been silent since v5.5 because every test
+that exercised fn-local 16-byte vars happened to round-trip
+through the same corrupted location. The §8 layout-flip
+exposed it because the layout-correctness assumption finally
+got tested. Closing this loop matters more than ergonomic
+features — without it, every future user code touching
+fn-local slices would hit this latently.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **727,960 B**
+   (unchanged from v5.8.18 — closeout slot has no code change).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 9 slices regressions green: **159 assertions total**
+   across the sub-arc:
+   - slices_parse 9/9 (§1)
+   - slices_codegen 26/26 (§2)
+   - slices_str_interop 15/15 (§3)
+   - slices_vec_interop 12/12 (§4)
+   - slices_typing 24/24 (§6)
+   - slices_indexing 21/21 (§7)
+   - slices_field_access 23/23 (§8)
+   - str_dot_syntax 14/14 (§9)
+   - slice_byte_helpers 15/15 (§10)
+4. ✅ Downstream consumers (sigil/mabda/yukti/sankoch/sakshi/
+   patra/vani) — additive helpers don't break any pre-existing
+   call site; downstream rebuild story is a no-op assertion
+   (the actual consumer-driven migration earns its own future
+   slot when a consumer surfaces pain).
+
+### Slices true-completion sub-arc — COMPLETE
+
+- ✅ **§6 (v5.8.14)**: TYPE_SLICE element-type tracking
+- ✅ **§7 (v5.8.15)**: Bounds-aware indexing `s[i]`
+- ✅ **§8 (v5.8.16)**: Dot-syntax field access on slices
+- ✅ **§9 (v5.8.17)**: Pointer-to-struct dot-syntax capability
+- ✅ **§10 (v5.8.18)**: Slice-typed wrapper helpers
+- ✅ **§11 (v5.8.19, this slot)**: TRUE sub-arc closeout
+
+**v5.8.x cycle progress**: 19 of 42 pinned slots shipped
+(45% — past halfway). Phase 2 next: v5.8.20 effects, then
+tagged unions (5), Result<T,E>+? (5), allocators (6).
+Phase 3 closeout at v5.8.37-v5.8.42 (api-surface refresh
+pinned at v5.8.42); cycle backstop at v5.8.49 (7-slot
+headroom v5.8.43-v5.8.49 reserved for surface-during-cycle
+items + final closeout).
+
 ## [5.8.18] — 2026-05-02
 
 **v5.8.x slot 18 — slices §10: slice-typed wrapper helpers

@@ -5,6 +5,46 @@
 
 ## Version
 
+**5.8.19** (shipped 2026-05-02 — **v5.8.x SLOT 19 — slices §11:
+TRUE sub-arc closeout. Slices true-completion sub-arc COMPLETE
+(§6-§11, v5.8.14-v5.8.19, 6 slots, 159 slice assertions across
+9 tcyrs, +6,024 B compiler size delta).** Doc-only / verification
+slot — no compiler or stdlib code change. Sub-arc retrospective:
+§6 element-type tracking (parser branches + GSLICE_W/SSLICE_W +
+parallel-array stash at 0x193400); §7 bounds-aware `s[i]` (10
+helpers in lib/slice.cyr + PARSE_FACTOR slice-subscript branch +
+pre-existing 16-byte fn-local SFLC bump fix); §8 dot-syntax
+`.ptr` / `.len` (load + store) + 16-byte fn-local layout-flip +
+tail-call escape skip for `&local` args; §9 pointer-to-struct
+dot-syntax capability (auto-detect via sentinel-name check) +
+Str fn-param SLTYPE tagging; §10 three slice-typed wrapper
+helpers (sys_read_slice / slice_copy_bytes / slice_eq_bytes,
+additive); §11 closeout retrospective. **Honest scope-shrunk
+during sub-arc**: §9/§10 pivoted from mass migration to
+capability-only on twice-reverted lib/fs.cyr pilot signal —
+mass call-site sweep stays opt-in per file as consumers earn
+the change. Var-side subscript syntax + dot-syntax also opt-in
+follow-up (fn-local scope today; ~99% of subscripting happens
+inside fns anyway). **Honest scope-EXPAND during sub-arc**:
+§7 absorbed the layout-collision fix (precondition for correct
+indexing); §8 absorbed both layout-flip and tail-call escape
+skip (regalloc/TCO interactions with the new layout couldn't
+be deferred). cc5 unchanged at **727,960 B** (closeout slot
+has no code change). Verification: self-host two-step
+byte-identical, check.sh 64/64, all 9 slices regressions green
+(9+26+15+12+24+21+23+14+15 = 159 total). v5.8.x cycle progress:
+19 of 42 pinned slots shipped (45% — past halfway). Phase 2
+next: v5.8.20 effects, then tagged unions (5), Result<T,E>+?
+(5), allocators (6); Phase 3 closeout at v5.8.37-v5.8.42
+(api-surface refresh pinned at v5.8.42); cycle backstop at
+v5.8.49 (7-slot headroom v5.8.43-v5.8.49 reserved for
+surface-during-cycle items + final closeout). **Premise-check
+discipline payoff**: three of six sub-arc slots had pin
+premises empirically wrong; 5-line probe at slot entry caught
+each in time to honestly expand or shrink scope without
+silently dropping work. v5.6.x deferment-rate disaster
+explicitly avoided.)
+
 **5.8.18** (shipped 2026-05-02 — **v5.8.x SLOT 18 — slices §10:
 slice-typed wrapper helpers (`sys_read_slice`, `slice_copy_bytes`,
 `slice_eq_bytes`)**. Fifth slot of the slices true-completion

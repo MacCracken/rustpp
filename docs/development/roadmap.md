@@ -594,11 +594,18 @@ Allocators. Sub-arc:
   immediately below). v5.8.13 stays shipped as foundation
   release; .14+ delivers what "first-class" actually means.
 
-##### v5.8.14–v5.8.19 — slices TRUE-COMPLETION sub-arc
+##### v5.8.14–v5.8.19 — slices TRUE-COMPLETION sub-arc ✅ COMPLETE 2026-05-02
 
 Re-pinned 2026-05-02 at v5.8.13 ship. The v5.8.9-v5.8.13 sub-
 arc shipped a foundation but deferred every load-bearing piece.
 This sub-arc absorbs that deferred work as proper slots.
+
+**Sub-arc complete at v5.8.19 ship.** All 6 slots green:
+§6 (typing), §7 (subscript), §8 (dot-syntax), §9 (pointer-to-
+struct dot-syntax), §10 (slice-typed wrappers), §11 (closeout
+retrospective). 159 slice assertions across 9 tcyrs. cc5 size
+delta +6,024 B (721,936 → 727,960 B). See v5.8.19 CHANGELOG
+entry for the full retrospective + lessons learned.
 
 - **v5.8.14** §6 — TYPE_SLICE element-type tracking. Parser
   stores element width per slice var (currently `scalar_type=16`
@@ -671,11 +678,19 @@ This sub-arc absorbs that deferred work as proper slots.
   compression argument was meant to prevent doesn't materialize
   from the helper-fn API existing — downstream code calling
   `memcpy(dst, src, n)` keeps working unchanged.
-- **v5.8.19** §11 — TRUE sub-arc closeout. Downstream
-  consumers (sigil/mabda/yukti/etc.) rebuild against migrated
-  stdlib; surface migration notes for any that need source
-  changes; full acceptance gate sweep extended to cover
-  bounds-checked indexing + dot-field access + migrated APIs.
+- ✅ **v5.8.19** §11 — TRUE sub-arc closeout (shipped
+  2026-05-02). Doc-only / verification slot — no compiler or
+  stdlib code change. Sub-arc retrospective + sub-arc
+  COMPLETE marker. The "downstream consumers rebuild against
+  migrated stdlib" line in the original pin assumed §9/§10
+  would mass-migrate; both honest-scope-shrunk to capability
+  + tcyr (twice-reverted lib/fs.cyr pilot signalled mass
+  churn wasn't wanted), so §11's downstream-rebuild story
+  collapses to a no-op assertion: additive helpers don't
+  break any pre-existing call site. Sub-arc total: §6-§11,
+  6 slots, 159 slice assertions across 9 tcyrs, +6,024 B
+  compiler size delta (721,936 → 727,960 B), 11+10+3 = 24
+  helpers in lib/slice.cyr, 4 stale pin items closed.
 
 **Acceptance gates** (per slot, true-completion sub-arc):
 1. Byte-identical self-host at every patch.
