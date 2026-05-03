@@ -231,6 +231,26 @@ fn PARSE_RETURN(S) {
                             # Look up function
                             var tcfi = FINDFN(S, tcnoff);
                             if (tcfi < 0) { tcfi = REGFN(S, tcnoff); }
+                            # v5.8.20: #pure enforcement on the tail-call path —
+                            # `return helper(args);` bypasses PARSE_FNCALL but
+                            # still needs the #io / #alloc check.
+                            if (_cur_fn_is_pure == 1) {
+                                var _tcf = L64(S + 0x1FC000 + tcfi * 8);
+                                if (_tcf & 16 != 0) {
+                                    syscall(SYS_WRITE, 2, "warning:", 8);
+                                    FM_LOOKUP(S, GTLINE(S, GTI(S)));
+                                    syscall(SYS_WRITE, 2, ": #pure fn calls #io fn '", 25);
+                                    PRSTR(S + 0x60000 + tcnoff);
+                                    syscall(SYS_WRITE, 2, "'\n", 2);
+                                }
+                                if (_tcf & 32 != 0) {
+                                    syscall(SYS_WRITE, 2, "warning:", 8);
+                                    FM_LOOKUP(S, GTLINE(S, GTI(S)));
+                                    syscall(SYS_WRITE, 2, ": #pure fn calls #alloc fn '", 28);
+                                    PRSTR(S + 0x60000 + tcnoff);
+                                    syscall(SYS_WRITE, 2, "'\n", 2);
+                                }
+                            }
                             if (tcargc > 6) {
                                 # >6 args: normal call (stack args clobbered by tail call epilogue)
                                 var foff2 = L64(S + 0x1292000 + tcfi * 8);
@@ -422,6 +442,26 @@ fn PARSE_FNCALL(S, noff) {
             syscall(SYS_WRITE, 2, S + 0x14A000 + _dep_off, _dep_len);
         }
         syscall(SYS_WRITE, 2, "\n", 1);
+    }
+    # v5.8.20: #pure caller cannot call #io / #alloc callees. Warning
+    # (not error) for downstream incremental adoption — same shape as
+    # #must_use / #deprecated diagnostics. The annotation ramp happens
+    # gradually; cyrlint --strict will escalate to error in a follow-up.
+    if (_cur_fn_is_pure == 1) {
+        if (_dep_flags & 16 != 0) {
+            syscall(SYS_WRITE, 2, "warning:", 8);
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": #pure fn calls #io fn '", 25);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "'\n", 2);
+        }
+        if (_dep_flags & 32 != 0) {
+            syscall(SYS_WRITE, 2, "warning:", 8);
+            FM_LOOKUP(S, GTLINE(S, GTI(S)));
+            syscall(SYS_WRITE, 2, ": #pure fn calls #alloc fn '", 28);
+            PRSTR(S + 0x60000 + noff);
+            syscall(SYS_WRITE, 2, "'\n", 2);
+        }
     }
     if (GFINL(S, fi) != 0) { if (GIDEP(S) < 3) { if (GINFN(S) == 1) {
                 # INLINE PATH: replay function body tokens at call site
@@ -794,6 +834,26 @@ fn PARSE_FN_DEF(S) {
         _deprecated_pending = 0;
         _deprecated_msg_pending = 0;
     }
+    # v5.8.20: transfer pending #pure / #io / #alloc onto fn_flags bits
+    # 3 / 4 / 5. Same stale-flag discipline. _cur_fn_is_pure mirrors
+    # bit 3 so PARSE_FNCALL can check it without re-loading fn_flags
+    # for every call site (set here, reset at fn end below).
+    if (_pure_pending == 1) {
+        var _prev_p = L64(S + 0x1FC000 + fi * 8);
+        S64(S + 0x1FC000 + fi * 8, _prev_p | 8);
+        _pure_pending = 0;
+    }
+    if (_io_pending == 1) {
+        var _prev_i = L64(S + 0x1FC000 + fi * 8);
+        S64(S + 0x1FC000 + fi * 8, _prev_i | 16);
+        _io_pending = 0;
+    }
+    if (_alloc_pending == 1) {
+        var _prev_a = L64(S + 0x1FC000 + fi * 8);
+        S64(S + 0x1FC000 + fi * 8, _prev_a | 32);
+        _alloc_pending = 0;
+    }
+    _cur_fn_is_pure = (L64(S + 0x1FC000 + fi * 8) >> 3) & 1;
     # v4.8.4-alpha5: mirror fn_regalloc[fi] into _cur_fn_regalloc so
     # codegen (EFNEPI, ETAILJMP) can emit rbx save/restore. Reset at
     # the end of PARSE_FN_DEF.
@@ -1650,5 +1710,7 @@ fn PARSE_FN_DEF(S) {
     # v5.5.36 Phase 2b — same for the ret-stash flag + sid mirror.
     _cur_fn_ret_stash = 0;
     _cur_fn_ret_sid = 0;
+    # v5.8.20 — same for the #pure mirror.
+    _cur_fn_is_pure = 0;
     return 0;
 }

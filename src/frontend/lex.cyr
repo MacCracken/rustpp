@@ -725,6 +725,63 @@ fn LEX(S) {
                                                     continue;
                                                 } } } } } } } }
                 }
+                # v5.8.20: #pure — fn-attribute marking the next fn def as
+                # pure. PARSE_FNCALL inside a #pure body warns when the
+                # callee is #io or #alloc. bytes: 23 70 75 72 65 = "#pure" (5 chars)
+                if (p + 4 < bl) {
+                    if (load8(S + 0x44A000 + p + 1) == 112) {
+                        if (load8(S + 0x44A000 + p + 2) == 117) {
+                            if (load8(S + 0x44A000 + p + 3) == 114) {
+                                if (load8(S + 0x44A000 + p + 4) == 101) {
+                                    ADDTOK(S, 125, 0);   # token 125 = HASH_PURE
+                                    p = p + 5;
+                                    while (p < bl) {
+                                        var wcp = load8(S + 0x44A000 + p);
+                                        if (wcp == 32 || wcp == 9 || wcp == 10 || wcp == 13) {
+                                            if (wcp == 10) { SCLINE(S, GCLINE(S) + 1); }
+                                            p = p + 1;
+                                        }
+                                        else { break; }
+                                    }
+                                    continue;
+                                } } } } }
+                # v5.8.20: #io — fn-attribute marking a fn as performing I/O.
+                # bytes: 23 69 6F = "#io" (3 chars)
+                if (p + 2 < bl) {
+                    if (load8(S + 0x44A000 + p + 1) == 105) {
+                        if (load8(S + 0x44A000 + p + 2) == 111) {
+                            ADDTOK(S, 126, 0);   # token 126 = HASH_IO
+                            p = p + 3;
+                            while (p < bl) {
+                                var wcio = load8(S + 0x44A000 + p);
+                                if (wcio == 32 || wcio == 9 || wcio == 10 || wcio == 13) {
+                                    if (wcio == 10) { SCLINE(S, GCLINE(S) + 1); }
+                                    p = p + 1;
+                                }
+                                else { break; }
+                            }
+                            continue;
+                        } } }
+                # v5.8.20: #alloc — fn-attribute marking a fn as allocating.
+                # bytes: 23 61 6C 6C 6F 63 = "#alloc" (6 chars)
+                if (p + 5 < bl) {
+                    if (load8(S + 0x44A000 + p + 1) == 97) {
+                        if (load8(S + 0x44A000 + p + 2) == 108) {
+                            if (load8(S + 0x44A000 + p + 3) == 108) {
+                                if (load8(S + 0x44A000 + p + 4) == 111) {
+                                    if (load8(S + 0x44A000 + p + 5) == 99) {
+                                        ADDTOK(S, 127, 0);   # token 127 = HASH_ALLOC
+                                        p = p + 6;
+                                        while (p < bl) {
+                                            var wca = load8(S + 0x44A000 + p);
+                                            if (wca == 32 || wca == 9 || wca == 10 || wca == 13) {
+                                                if (wca == 10) { SCLINE(S, GCLINE(S) + 1); }
+                                                p = p + 1;
+                                            }
+                                            else { break; }
+                                        }
+                                        continue;
+                                    } } } } } }
                 # Check for #pe_import (v5.4.6) — PE32+ kernel32 symbol
                 # registration directive. Parser consumes (dll, symbol)
                 # string-literal args and forwards to the pe emitter's

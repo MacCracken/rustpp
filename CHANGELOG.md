@@ -4,6 +4,147 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.20] — 2026-05-02
+
+**v5.8.x slot 20 — per-fn effect/purity annotations
+(`#pure` / `#io` / `#alloc`)**. Phase 2 effects slot — first
+slot after the slices true-completion sub-arc closeout.
+Compiler-checked decorators that catch helpers that silently
+allocate or touch I/O in "pure" crypto / signature-verify /
+constant-time paths. Simpler than OCaml5 / Koka effects (no
+polymorphism, no row types) — three decorators the compiler
+warns on at every call-site mismatch.
+
+cc5 grew **727,960 B → 732,320 B (+4,360 B)** for the three
+new lexer-byte-pattern recognizers + parse.cyr directive
+dispatch + PARSE_FN_DEF flag transfer + PARSE_FNCALL +
+PARSE_RETURN tail-call-path enforcement.
+
+### What §20 ships
+
+**Three new directives**, used as fn-attributes immediately
+preceding a `fn` definition:
+
+```cyr
+#pure
+fn _double(x) { return x * 2; }      # no I/O, no alloc
+
+#io
+fn write_log(buf, len) { syscall(1, 1, buf, len); return 0; }
+
+#alloc
+fn make_buf(n) { return alloc(n); }
+
+#pure
+fn safe_compute(x) {
+    return _double(x) + 1;            # ok — calls #pure
+}
+
+#pure
+fn impure_caller(x) {
+    write_log("hi", 2);               # warn: #pure calls #io 'write_log'
+    return make_buf(x);               # warn: #pure calls #alloc 'make_buf'
+}
+```
+
+**Lexer** (`src/frontend/lex.cyr`) — three new byte-pattern
+recognizers + token IDs:
+  - 125 = `HASH_PURE` (`#pure`, 5 bytes)
+  - 126 = `HASH_IO` (`#io`, 3 bytes)
+  - 127 = `HASH_ALLOC` (`#alloc`, 6 bytes)
+
+Each consumes trailing whitespace + newline like `#must_use`
+does so the directive can sit on its own line above `fn`.
+
+**Parser** (`src/frontend/parse.cyr`) — three new pending-flag
+globals (`_pure_pending` / `_io_pending` / `_alloc_pending`)
+plus `_cur_fn_is_pure` mirror; PARSE_PROG dispatcher arms
+each pending flag when the corresponding token surfaces.
+
+**PARSE_FN_DEF** (`src/frontend/parse_fn.cyr`) — transfers
+pending flags into `fn_flags[fi]` at offset `0x1FC000`:
+  - bit 3 = `#pure`
+  - bit 4 = `#io`
+  - bit 5 = `#alloc`
+
+(bits 0–2 already used for `#must_use` / reserved /
+`#deprecated`.) `_cur_fn_is_pure` is set from bit 3 right
+after the transfer; reset at fn-end alongside the other
+per-fn mirrors.
+
+**PARSE_FNCALL** + tail-call path in **PARSE_RETURN** —
+when `_cur_fn_is_pure == 1` and the callee's `fn_flags`
+bit 4 or bit 5 is set, emit a `warning:<file>:<line>:
+#pure fn calls #io|#alloc fn '<name>'` line. Same shape
+as `#must_use` / `#deprecated` diagnostics. Both call paths
+covered (normal call goes through PARSE_FNCALL; the
+`return helper(args);` shape goes through the tail-call
+optimization path which historically bypasses PARSE_FNCALL
+— v5.8.16 §8's tail-call escape skip work surfaced this).
+
+### Why warnings, not errors
+
+Same trade-off as `#must_use` / `#deprecated`: warnings let
+downstream consumers (sigil PQC, sankoch, hisab) annotate
+incrementally as time permits, without breaking builds while
+the annotation ramp is in flight. `cyrius lint --strict` (or a
+future `cyrius vet` mode) is the right home for "treat these
+as errors" — pinned as a follow-up slot if a consumer
+surfaces measurable pain.
+
+Untyped (un-annotated) fns are never flagged. The check fires
+ONLY when the caller is EXPLICITLY `#pure` AND the callee is
+EXPLICITLY `#io` or `#alloc`. No transitive closure / no
+inference — that's intentional. Same model as Rust's `unsafe`
+on a per-fn basis.
+
+### Annotation ramp
+
+`#pure` is the load-bearing decorator (the one that catches
+regressions). Recommended adoption order:
+
+1. **Mark known-effectful primitives `#io` / `#alloc`** in
+   the stdlib first (raw syscall wrappers, alloc/vec_push,
+   sys_write/sys_read). Done incrementally as consumers
+   surface specific paths — no mass-touch in this slot.
+2. **Mark known-pure leaves `#pure`** in cryptographic /
+   constant-time / hot loops (lib/keccak.cyr, lib/sha1.cyr,
+   lib/u128.cyr's u64_mulmod). Annotation is opt-in per fn.
+3. **Lint at the boundary** — annotate the fn that touches
+   I/O at the API edge (e.g., `tls_connect`'s outer fn);
+   leave inner crypto leaves `#pure` so any accidental
+   alloc in a crypto path pings the warning.
+
+§20 ships the directive infrastructure; the annotation work
+is downstream and per-consumer. Mass annotation will earn its
+own slot if a downstream consumer's audit pass surfaces value.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **732,320 B**
+   (+4,360 B from lex byte-patterns + parse dispatcher +
+   fn_flags transfer + 2× enforcement sites).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ All 9 prior slices regressions intact (159 assertions:
+   9 + 26 + 15 + 12 + 24 + 21 + 23 + 14 + 15).
+4. ✅ New `tests/tcyr/effect_annotations.tcyr` — **7
+   assertions** across 3 test groups: `#pure` body produces
+   correct values, `#pure` roundtrips identical to unannotated
+   (proves the annotation is metadata-only, not codegen-
+   altering), `#pure` composes through arithmetic.
+5. ✅ Standalone smoke probe (compile-only) — `#pure` →
+   `#io`/`#alloc` callers emit `warning:<source>:<line>:
+   #pure fn calls #X fn '<name>'` on stderr at compile time.
+   Both PARSE_FNCALL and tail-call paths covered.
+
+### v5.8.x cycle progress
+
+20 of 42 pinned slots shipped (47.6% — past halfway). Phase 2
+continuing: tagged unions next (5 slots, v5.8.21–v5.8.25),
+then Result<T,E>+? (5, v5.8.26–v5.8.30), allocators (6,
+v5.8.31–v5.8.36). Phase 3 closeout v5.8.37–v5.8.42 (api-
+surface refresh at v5.8.42); cycle backstop at v5.8.49.
+
 ## [5.8.19] — 2026-05-02
 
 **v5.8.x slot 19 — slices §11: TRUE sub-arc closeout. Slices

@@ -5,6 +5,45 @@
 
 ## Version
 
+**5.8.20** (shipped 2026-05-02 — **v5.8.x SLOT 20 — per-fn
+effect/purity annotations (`#pure` / `#io` / `#alloc`)**.
+Phase 2 effects slot — first slot after the slices true-
+completion sub-arc closeout. Three new fn-attribute decorators
+that the parser tags into `fn_flags[fi]` (bits 3 / 4 / 5).
+PARSE_FNCALL + PARSE_RETURN tail-call path enforce: when the
+current fn body is `#pure` AND the callee has bit 4 (#io) or
+bit 5 (#alloc) set, emit a `warning:<file>:<line>: #pure fn
+calls #io|#alloc fn '<name>'` line. Same shape as #must_use /
+#deprecated diagnostics — easy downstream incremental adoption.
+**Lexer**: 3 new byte-pattern recognizers + token IDs (125 =
+HASH_PURE, 126 = HASH_IO, 127 = HASH_ALLOC). **Parser**: 3 new
+pending-flag globals + `_cur_fn_is_pure` mirror set in
+PARSE_FN_DEF and reset at fn-end alongside `_cur_fn_regalloc`.
+**Enforcement**: both call paths covered — PARSE_FNCALL for
+normal calls, PARSE_RETURN's tail-call branch for `return
+helper(args);` (which historically bypasses PARSE_FNCALL —
+v5.8.16 §8's tail-call escape skip work surfaced this code
+path). **Warnings, not errors** — same trade-off as
+#must_use / #deprecated; downstream consumers annotate
+incrementally; `cyrius lint --strict` escalation reserved as
+follow-up. **§20 SCOPE NOTE**: ships the directive
+infrastructure only — annotation ramp across stdlib (mark
+keccak/sha1/u128 leaves `#pure`, mark sys_write/alloc/
+vec_push `#io`/`#alloc`) is opt-in per consumer; mass-touch
+isn't in scope this slot. cc5 grew **727,960 → 732,320 B
+(+4,360 B)** for the lex patterns + dispatch + flag transfer
++ enforcement. Verification: self-host two-step byte-
+identical, check.sh 64/64, all 9 slices regressions intact
+(159 assertions), new `tests/tcyr/effect_annotations.tcyr`
+7/7 across 3 groups (#pure body produces correct values,
+#pure roundtrips identical to unannotated, #pure composes
+through arithmetic), standalone smoke probe confirms warning
+text on both PARSE_FNCALL + tail-call paths. v5.8.x cycle
+progress: 20 of 42 pinned slots shipped (47.6% — past
+halfway). Phase 2 continuing: tagged unions next
+(v5.8.21–v5.8.25), then Result<T,E>+? + allocators.
+Phase 3 closeout v5.8.37–v5.8.42; cycle backstop v5.8.49.)
+
 **5.8.19** (shipped 2026-05-02 — **v5.8.x SLOT 19 — slices §11:
 TRUE sub-arc closeout. Slices true-completion sub-arc COMPLETE
 (§6-§11, v5.8.14-v5.8.19, 6 slots, 159 slice assertions across

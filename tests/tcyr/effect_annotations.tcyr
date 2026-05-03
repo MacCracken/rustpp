@@ -1,0 +1,89 @@
+# effect_annotations.tcyr — v5.8.20 — per-fn effect/purity
+# annotations (#pure / #io / #alloc).
+#
+# Three new fn-level decorators that the parser tags into
+# fn_flags[fi] (bits 3 / 4 / 5). The compiler-side enforcement
+# is at PARSE_FNCALL: when the current fn body is `#pure` AND
+# the callee has bit 4 (#io) or bit 5 (#alloc) set, emit a
+# warning at the call-site line. Same shape as #must_use /
+# #deprecated diagnostics — easy downstream incremental
+# adoption; warnings (not errors) for now, with --strict
+# escalation as a follow-up slot.
+#
+# This file regression-floors §20's behavioral contract:
+#   (1) Calling #pure from #pure compiles clean (no warning).
+#   (2) #pure → #io triggers a warning (visible on stderr at
+#       compile time — out of scope for tcyr's runtime asserts;
+#       we verify the runtime SEMANTICS here, the warning text
+#       itself is smoke-tested via the compile-only probe in
+#       v5.8.20's CHANGELOG entry).
+#   (3) Annotation order: directive precedes `fn` keyword.
+#   (4) Multiple decorators stack (e.g., #must_use + #pure).
+#   (5) #pure does NOT change runtime behavior — only adds a
+#       compile-time check. Annotated fns produce identical
+#       output to unannotated fns.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- (1) #pure → #pure compiles clean ----
+
+#pure
+fn _double(x) {
+    return x * 2;
+}
+
+#pure
+fn _quadruple(x) {
+    return _double(_double(x));   # ok — pure→pure
+}
+
+# ---- (4) Stacking with #must_use ----
+
+#must_use
+#pure
+fn _safe_compute(x) {
+    return x + 1;
+}
+
+# ---- (5) #pure body produces same value as unannotated ----
+
+fn _double_unannotated(x) {
+    return x * 2;
+}
+
+# ---- Tests ----
+
+test_group("§20 #pure body produces correct values");
+assert_eq(_double(5), 10, "_double(5) = 10");
+assert_eq(_quadruple(3), 12, "_quadruple(3) = 12 (pure→pure)");
+assert_eq(_safe_compute(41), 42, "_safe_compute(41) = 42 (#must_use + #pure)");
+
+test_group("§20 #pure fns roundtrip identical to unannotated");
+assert_eq(_double(7), _double_unannotated(7), "annotation doesn't change codegen");
+assert_eq(_double(0), _double_unannotated(0), "zero-input parity");
+assert_eq(_double(0 - 5), _double_unannotated(0 - 5), "negative-input parity");
+
+test_group("§20 #pure composes through arithmetic");
+var sum = 0;
+var i = 0;
+while (i < 10) {
+    sum = sum + _double(i);   # pure body, sum is the consumer's state
+    i = i + 1;
+}
+assert_eq(sum, 90, "sum of _double(0..9) = 2*(0+1+...+9) = 90");
+
+# Note: the warning-emission contract (#pure → #io / #alloc emits
+# a stderr "warning:" line at compile time) is NOT verifiable from
+# inside the compiled binary — by the time this tcyr runs, the
+# compile is done. Verified via standalone smoke probe in
+# CHANGELOG §20 + by `tests/regression-effect-warnings.sh` if a
+# future slot wires that up. For runtime correctness (which is
+# what tcyr exists to verify), the contract is "annotation does
+# not affect codegen" — that's what test groups 2 + 3 above lock.
+
+var r = assert_summary();

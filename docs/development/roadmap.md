@@ -720,15 +720,21 @@ re-expanded to 11-patch sub-arc (foundation 5 + true-completion
 6) at v5.8.13 ship per user direction "complete the task as
 assigned, it was there for a reason".
 
-##### v5.8.20 — Per-fn effect/purity annotations (`#pure` / `#io` / `#alloc`)
+##### v5.8.20 ✅ — Per-fn effect/purity annotations (`#pure` / `#io` / `#alloc`)
 
-Compiler-checked decorators that catch helpers that silently
-allocate or touch I/O in "pure" crypto paths. Simpler than
-OCaml5 / Koka effects (no polymorphism, no row types) — just
-three decorators the compiler enforces. Annotate `lib/keccak.cyr`,
-X25519 (when sigil-side), AEAD as `#pure` so the compiler
-catches accidental allocation regression. Single-slot;
-annotation ramp happens gradually after the slot ships.
+Shipped 2026-05-02. Compiler-checked decorators that catch
+helpers that silently allocate or touch I/O in "pure" crypto
+paths. Simpler than OCaml5 / Koka effects (no polymorphism,
+no row types) — three decorators the compiler warns on at
+every call-site mismatch. **Warnings, not errors** for
+downstream incremental adoption (same shape as #must_use /
+#deprecated). Both PARSE_FNCALL and tail-call (PARSE_RETURN)
+paths enforce. `fn_flags[fi]` bits 3 / 4 / 5; lexer tokens
+125 / 126 / 127. **Annotation ramp opt-in per consumer** —
+mass-touch across stdlib (lib/keccak.cyr, sigil PQC, AEAD)
+not in scope this slot; lands incrementally as consumers
+audit. cc5 grew 727,960 → 732,320 B (+4,360 B). New
+`tests/tcyr/effect_annotations.tcyr` 7/7. check.sh 64/64.
 
 ##### v5.8.21–v5.8.25 — Tagged unions + exhaustive pattern match
 
