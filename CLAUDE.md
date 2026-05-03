@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 5.8.25
+- **Version**: 5.8.27
 
 ## Goal
 
@@ -202,7 +202,41 @@ If you're investigating apparently-spontaneous file corruption in `lib/`:
 ```sh
 find /home/macro/Repos -maxdepth 3 -type l -lname "*cyrius/lib*" 2>/dev/null
 find ~/.cyrius -type l | xargs -I{} sh -c 'readlink -f "{}" | grep -q "Repos/cyrius" && echo "{} -> $(readlink -f \"{}\")"'
+find ~/Repos -maxdepth 2 -type l -name lib  # directory-level lib symlinks (the bad pattern)
 ```
 
 Either command returning a result means a downstream repo is aliasing
-its `lib/` back into this one.
+its `lib/` back into this one. Sakshi was confirmed at v5.8.23 ship
+(its `lib` was a directory-level symlink to `~/.cyrius/lib`); fixed
+by `rm sakshi/lib && (cd sakshi && cyrius deps)`. Other downstream
+repos at audit time had only single-file `lib/<dep>.cyr` symlinks
+(legitimate `cyrius deps` output, not the corruption antipattern).
+
+### Snapshot-ping-pong protection (cyrius-side `lib/*.cyr` edits)
+
+When editing `lib/*.cyr` files in this repo, be aware of the
+**snapshot-ping-pong loop**: `version-bump.sh` runs `install.sh
+--refresh-only` which copies `lib/*.cyr` from the repo into
+`~/.cyrius/versions/<v>/lib/` and `~/.cyrius/lib`. Subsequent
+`cyrius deps` resolution (e.g., during `check.sh`) can copy the
+snapshot version BACK into the repo, overwriting your edit if
+the snapshot is stale.
+
+Mitigation when editing any file in `lib/`:
+
+1. Make the edit in `lib/<file>.cyr`.
+2. **Immediately refresh the install snapshot** before running
+   any tool that triggers `cyrius deps` resolution:
+   ```sh
+   cp lib/<file>.cyr ~/.cyrius/versions/$(cat VERSION)/lib/<file>.cyr
+   cp lib/<file>.cyr ~/.cyrius/lib/<file>.cyr   # if the symlink-target also exists as a file
+   ```
+   Or run `sh scripts/version-bump.sh "$(cat VERSION)"` (same-version
+   regenerate path) which re-runs `install.sh --refresh-only`.
+3. Run `sh scripts/check.sh` to verify; the file should now stick.
+
+Discovery: surfaced at v5.8.23 mid-bite-2 when `lib/tagged.cyr`
+edits reverted between Edit calls during the v5.8.21 sum-type
+migration. Root cause was the v5.8.22 install snapshot still
+containing the pre-migration hand-rolled fns; `check.sh`'s
+`cyrius deps` step copied them back into the repo.

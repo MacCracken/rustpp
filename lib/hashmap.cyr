@@ -54,6 +54,17 @@
 
 include "lib/fnptr.cyr"
 
+# v5.8.26 — key_type symbolic constants. Replaces raw 0/1/2
+# integer literals at the 6 read/write sites in this file.
+# Stored at map header offset 24 (`m + 24`); auto-incremented
+# tags 0/1/2 match the prior raw-int values exactly so all
+# pre-migration call shapes keep working without churn.
+enum KeyType {
+    KeyTypeCstr;
+    KeyTypeStr;
+    KeyTypeU64;
+}
+
 # FNV-1a hash for null-terminated string (cstr keys).
 fn hash_str(s) {
     if (s == 0) { return 0; }
@@ -86,13 +97,13 @@ fn hash_str_v(s) {
 
 # Internal: pick hash based on map's key_type.
 fn _map_hash(m, key) {
-    if (load64(m + 24) == 1) { return hash_str_v(key); }
+    if (load64(m + 24) == KeyTypeStr) { return hash_str_v(key); }
     return hash_str(key);
 }
 
 # Internal: pick equality based on map's key_type.
 fn _map_key_eq(m, a, b) {
-    if (load64(m + 24) == 1) { return str_eq(a, b); }
+    if (load64(m + 24) == KeyTypeStr) { return str_eq(a, b); }
     return streq(a, b);
 }
 
@@ -106,7 +117,7 @@ fn map_new() {
     store64(m, entries);
     store64(m + 8, cap);
     store64(m + 16, 0);
-    store64(m + 24, 0);                # key_type = cstr
+    store64(m + 24, KeyTypeCstr);
     return m;
 }
 
@@ -126,7 +137,7 @@ fn map_new_str() {
     store64(m, entries);
     store64(m + 8, cap);
     store64(m + 16, 0);
-    store64(m + 24, 1);                # key_type = Str
+    store64(m + 24, KeyTypeStr);
     return m;
 }
 
@@ -352,7 +363,7 @@ fn map_u64_new() {
     store64(m, entries);
     store64(m + 8, cap);
     store64(m + 16, 0);
-    store64(m + 24, 2);                # key_type = u64
+    store64(m + 24, KeyTypeU64);
     return m;
 }
 
@@ -491,7 +502,7 @@ fn map_print(m) {
         if (load64(ep + 16) == 1) {
             if (first == 0) { syscall(1, 1, ", ", 2); }
             var pk = load64(ep);
-            if (is_str == 1) {
+            if (is_str == KeyTypeStr) {
                 syscall(1, 1, str_data(pk), str_len(pk));
             } else {
                 syscall(1, 1, pk, strlen(pk));

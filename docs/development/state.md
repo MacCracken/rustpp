@@ -5,6 +5,99 @@
 
 ## Version
 
+**5.8.27** (shipped 2026-05-03 — **v5.8.x SLOT 27 — tagged-
+unions sub-suite closeout. Sub-suite COMPLETE (v5.8.21–v5.8.27,
+7 slots, +5,568 B compiler delta from 732,320 → 737,888 B,
+51 new tcyr assertions across 3 new tcyrs + 14 preexisting
+exercising migrated lib/tagged.cyr).** Doc-only / verification
+slot — no compiler or stdlib code change. Sub-suite delivered
+the language-feature foundation that v5.8.28–v5.8.32 (Result+?)
+builds on directly. **What shipped across the sub-suite**:
+sum-type syntax + generic params + multi-arg constructors
+(v5.8.21); exhaustive `match` coverage + diagnostic (v5.8.22);
+lib/tagged.cyr migration to compiler-generated sum types
+(v5.8.23) — Option/Result/Either replace 6 hand-rolled
+constructor fns; enum table cap bump 256→1024 (v5.8.24); arm-
+tag dedup (v5.8.25); ecosystem hardening — sakshi directory-
+symlink fix + CLAUDE.md snapshot-ping-pong protection doc +
+hashmap key_type migration (v5.8.23/v5.8.26). **Compiler-
+internal infrastructure**: 4 new heap regions (var_enum_id /
+enum_count / enum_variant_count / enum_name) + 8 accessor fns
+in util.cyr. **Codegen unchanged across the sub-suite for
+match** — coverage check is metadata-only; runtime cmp/jcc-
+skip cascade still picks first matching arm. **Downstream pin
+audit**: 10 consumers all pinned at pre-v5.8.21 cyrius
+(mabda/sigil/yukti/phylax/sakshi/vani/patra/cyrius-doom @
+5.7.48; vidya @ 5.8.19; yantra @ 5.6.17 stale). Pin bumps are
+downstream-repo operations (separate git cycles); audit
+identifies the work, doesn't execute it. **Honest scope-
+shrunk items cascaded forward**: bare-name auto-tagging in
+mixed enums (paren-consistent migration sufficient);
+cyrius-vet 80%-cap pre-warn (fail-fast diagnostic adequate).
+cc5 unchanged at **737,888 B**. Verification: self-host two-
+step byte-identical, check.sh 64/64, all sub-suite tcyrs
+green (enum_generics 31/31, exhaustive_match 10/10,
+match_dedup 10/10, tagged 14/14, enums 10/10), 0 false-
+positive coverage/dedup warnings, 0 directory-level lib/
+symlinks across ~/Repos. v5.8.x cycle progress: **27 of 44
+pinned slots shipped (61.4%)**. **Last release in this work
+session — handoff to un-versioned doc/vidya pass next** per
+user direction 2026-05-03 ("we will do a doc and vidya pass
+after not attached to a release. As handoff/wrapup"). Phase 2
+continuing post-handoff: Result<T,E>+? (v5.8.28–v5.8.32),
+allocators (v5.8.33–v5.8.38). Phase 3 closeout v5.8.39–v5.8.44;
+cycle backstop at v5.8.49.)
+
+**Tagged-unions sub-suite (v5.8.21–v5.8.27) — COMPLETE
+2026-05-03**:
+
+| Slot      | Theme                                              | Δ cc5  |
+|-----------|----------------------------------------------------|--------|
+| v5.8.21   | Sum-type syntax + constructor parsing              | +2,272 |
+| v5.8.22   | Exhaustive pattern match in `match`                | +2,568 |
+| v5.8.23   | Stdlib pass 1: lib/tagged.cyr migration            | -48    |
+| v5.8.24   | Cap bump 256 → 1024                                | 0      |
+| v5.8.25   | Arm-tag dedup                                      | +776   |
+| v5.8.26   | Stdlib pass 2 + ecosystem hardening                | 0      |
+| v5.8.27   | Sub-suite closeout                                 | 0      |
+| **Total** |                                                    | **+5,568** |
+
+**5.8.26** (shipped 2026-05-03 — **v5.8.x SLOT 26 — stdlib
+adoption pass 2 + ecosystem hardening**. Phase 2 language-
+vocabulary slot, sixth of the tagged-unions sub-suite
+(v5.8.21–v5.8.27). Ships the cascaded items from v5.8.23.
+**Bite #1 (CLAUDE.md)**: extended "Downstream repo setup
+(ecosystem rule)" section with directory-level `lib/`
+symlink finder + new "Snapshot-ping-pong protection" subsection
+documenting the repo→snapshot→repo loop discovered v5.8.23
+mid-bite-2 (root cause: `install.sh --refresh-only` copies
+lib/*.cyr into ~/.cyrius/versions/<v>/lib/ which then ping-
+pongs back via `cyrius deps`). Mitigation: 3-step recipe
+(edit → manually refresh snapshot → check.sh). **Bite #2
+(lib/hashmap.cyr)**: hashmap key_type migration — replaced
+raw 0/1/2 int literals at map header offset 24 with named
+symbolic constants `enum KeyType { KeyTypeCstr; KeyTypeStr;
+KeyTypeU64; }`. Auto-incremented tag values match prior raw-int
+exactly so pre-migration call shapes keep working. 6 sites
+updated across the file (3 store + 3 load/comparison; pin
+estimated 12, empirically 6). Pure ergonomic — no API or
+runtime behavior change. **Bite #3**: symlink audit
+re-verification — 0 directory-level `lib/` symlinks remain
+(sakshi's v5.8.23 fix holds; all other downstream repos have
+only single-file dep symlinks, which are the legitimate
+`cyrius deps` output). cc5 unchanged at **737,888 B**
+(compiler not touched; only stdlib + CLAUDE.md changed).
+Verification: self-host two-step byte-identical, check.sh
+64/64, hashmap migration survives `version-bump.sh 5.8.26`
+snapshot refresh (protection-doc workflow followed without
+incident — edit → snapshot refresh → check.sh, no
+ping-pong reversion this time). All v5.8.25 + v5.8.24 +
+v5.8.23 + v5.8.22 + v5.8.21 regressions intact. v5.8.x cycle
+progress: **26 of 44 pinned slots shipped (59.1%)**. Phase 2
+continuing: tagged-unions sub-suite closeout (v5.8.27),
+Result<T,E>+? (v5.8.28–v5.8.32), allocators (v5.8.33–v5.8.38).
+Phase 3 closeout v5.8.39–v5.8.44; cycle backstop at v5.8.49.)
+
 **5.8.25** (shipped 2026-05-03 — **v5.8.x SLOT 25 — exhaustive-
 match arm-tag dedup**. Phase 2 language-vocabulary slot, fifth
 of the tagged-unions sub-suite (v5.8.21–v5.8.27). Cascaded from

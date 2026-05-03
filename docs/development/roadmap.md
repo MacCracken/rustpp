@@ -850,39 +850,35 @@ matches it).
   `tests/tcyr/match_dedup.tcyr` 10/10 locks first-match-wins
   on dup-first / dup-middle / triple-dup. 0 false positives
   in self-host or stdlib compile.
-- **v5.8.26** — Stdlib adoption pass 2: public API migration
-  for modules where the sum-typed form is visibly better
-  (parse results, cross-boundary error returns). **Absorbs
-  from v5.8.23 (cascaded 2026-05-03)**:
-    1. **Hashmap `key_type` migration** — `lib/hashmap.cyr`
-       stores `key_type` as raw int constants (0=cstr / 1=Str
-       / 2=u64) at offset 24 of the map header. Internal-only,
-       ~10 LOC change; replace with `enum KeyType { KeyTypeCstr;
-       KeyTypeStr; KeyTypeU64; }` at the top of `lib/hashmap.cyr`
-       and rewrite the 12 raw-integer call sites. Pure
-       ergonomic — no API change; no tcyr regression expected.
-    2. **Downstream cyrius consumer repo `lib/` symlink audit
-       + cleanup** — CLAUDE.md "Downstream repo setup
-       (ecosystem rule)" forbids `lib/` symlinks because they
-       cause silent corruption when the downstream repo runs
-       lint/fmt/etc. (writes propagate through the symlink
-       chain). v5.8.23 mid-slot surfacing confirmed
-       `/home/macro/Repos/sakshi/lib → ~/.cyrius/lib →
-       ~/.cyrius/versions/<v>/lib/` (exact pattern). Audit
-       script: `find ~/Repos -maxdepth 3 -type l -lname
-       "*cyrius/lib*"` + `find ~/.cyrius -type l`. For each
-       affected downstream repo: replace symlink with real
-       `lib/` directory populated via `cyrius deps`. Likely
-       affected (per CLAUDE.md ecosystem rule's example list):
-       mabda, sigil, sakshi (confirmed), yukti, kybernet,
-       hadara — verify each individually.
-    3. **Snapshot-ping-pong protection** — document the
-       repo→snapshot→repo loop in CLAUDE.md or a dev-process
-       file so future `lib/*.cyr` edits know to refresh
-       `~/.cyrius/versions/<v>/lib/` immediately after the
-       repo edit, before any `cyrius deps` step.
-- **v5.8.27** — Tagged unions sub-suite closeout. Downstream
-  dep-pointer audit (sigil, mabda, yukti, kybernet, etc.).
+- ✅ **v5.8.26** — Stdlib adoption pass 2 + ecosystem
+  hardening (shipped 2026-05-03). Three bites: (#1) CLAUDE.md
+  "Snapshot-ping-pong protection" subsection added under the
+  ecosystem-rule section — 3-step edit-then-snapshot-refresh
+  recipe documented + directory-level `lib` symlink finder
+  added to the audit-script block. (#2) `lib/hashmap.cyr`
+  key_type migration — `enum KeyType { KeyTypeCstr; KeyTypeStr;
+  KeyTypeU64; }` replaces raw 0/1/2 literals at 6 sites (pin
+  estimated 12; empirically 6); auto-incremented tags match
+  prior raw-int exactly so call shapes unchanged. (#3) Symlink
+  audit re-verification — 0 directory-level `lib/` symlinks
+  remain (sakshi v5.8.23 fix holds). cc5 unchanged at
+  737,888 B (compiler untouched). Migration survived
+  `version-bump.sh` snapshot refresh without ping-pong
+  reversion — protection-doc workflow validated end-to-end.
+  Pre-existing tcyrs intact.
+- ✅ **v5.8.27** — Tagged unions sub-suite closeout (shipped
+  2026-05-03). Doc-only / verification slot. Sub-suite
+  COMPLETE (v5.8.21–v5.8.27, 7 slots, +5,568 B compiler delta,
+  51 new tcyr assertions across 3 new tcyrs). Downstream
+  pin audit: all 10 consumers (mabda/sigil/yukti/phylax/sakshi/
+  vani/patra/cyrius-doom @ 5.7.48; vidya @ 5.8.19; yantra @
+  5.6.17) pinned at pre-v5.8.21 cyrius — pin bumps to 5.8.27
+  are downstream-repo operations queued for next consumer
+  cycle. **Last release in the v5.8.21–v5.8.27 work session**;
+  handoff to un-versioned doc/vidya pass per user direction
+  2026-05-03 ("doc and vidya pass after not attached to a
+  release. As handoff/wrapup"). Sub-suite arc retrospective +
+  honest scope-shrink ledger captured in CHANGELOG.
 
 **Acceptance gates**: byte-identical self-host at every patch;
 `tests/tcyr/exhaustive_match.tcyr` (missing variant → error;
