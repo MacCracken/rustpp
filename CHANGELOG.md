@@ -4,6 +4,167 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.21] — 2026-05-03
+
+**v5.8.x slot 21 — sum-type syntax + constructor parsing**.
+Phase 2 language-vocabulary slot. Generalizes the existing
+single-arg `enum Foo { A; B(v); }` constructor capability into
+the full pinned canonical shape `enum Result<T, E> { Ok(T),
+Err(E) }` — generic-parameter syntax, comma variant separators,
+and multi-arg variant constructors `Foo(a, b, c)`. Uses the
+existing enum/struct infrastructure (REGFN registration, alloc
+helper call, tag-then-payload heap layout) — the slot extends
+parse loops + scales codegen to arity, no new heap regions.
+
+cc5 grew **732,320 B → 734,592 B (+2,272 B)** across four
+in-flight bites: directive-token tolerance (Pass 1 + Pass 2 top-
+level scanner, +1,792 B), generic-parameter `<T, E>` skip on
+`enum` decls (+16 B), comma variant separator (+80 B), and
+multi-arg variant constructors with arity-scaled codegen
+(+384 B).
+
+### What §21 ships
+
+**Generic-parameter syntax on enum decls** —
+`enum Result<T, E> { ... }` now parses cleanly, mirroring
+`PARSE_STRUCT_DEF` / `PARSE_UNION_DEF`'s `SKIP_GENERICS(S)`
+call. Type parameters are syntactically accepted but not yet
+bound semantically (mono-only, erasure semantics). Unblocks
+the canonical pin shape so consumers can write the typed form
+ahead of generic instantiation landing in a future slot.
+
+**Comma variant separator** — accepts either `;` (token 5) or
+`,` (token 31) between variants. Mixed separators tolerated in
+the same decl (`enum Mixed { A, B(v); C(w), D }` is valid).
+The historical `;` form across stdlib syscalls + lib/tagged.cyr's
+OptionTag/ResultTag/EitherTag keeps working.
+
+**Multi-arg variant constructors** —
+`enum Tri<T, U, V> { Triple(a, b, c), Pair(x, y), Single(s),
+Bare }` now parses + codegens correctly. Layout: 8 + 8N bytes,
+tag at +0, payload[i] at +8 + 8*i. Frame size scales with
+arity: `(arity + 1) * 16`. For arity-1 the new general path
+emits byte-identical output to the prior hardcoded
+single-arg path (slot 1 alloc-ptr, EMOVI(8), one store) —
+preserves the v5.5.2 single-arg corpus exactly.
+
+**Directive-token Pass 1 / Pass 2 tolerance** (cascaded into
+this slot) — fix for v5.8.20's annotation ramp landing.
+Pre-fix, an annotated fn at the top of any stdlib file
+(e.g. `#io fn sys_write`) terminated Pass 1's pre-scan early,
+leaving subsequent enum/fn defs unregistered for Pass 2 — surfaced
+as `unexpected enum` at line ~555 of `lib/syscalls_x86_64_linux.cyr`
+when v5.8.20 marked syscalls `#io`. Both top-level scanner
+loops in `src/main.cyr` now consume tokens 122 (#must_use),
+124 (#deprecated, including its `(STR)` arg in Pass 1), 125
+(#pure), 126 (#io), 127 (#alloc) silently in Pass 1 and arm
+the corresponding pending flag in Pass 2 for `PARSE_FN_DEF`
+to transfer at the next fn definition.
+
+```cyr
+enum Result<T, E> {
+    Ok(v),
+    Err(e)
+}
+
+enum Tri<T, U, V> {
+    Triple(a, b, c),
+    Pair(x, y),
+    Single(s),
+    Bare
+}
+
+var ok = Ok(42);              # tag=0 at +0, payload 42 at +8
+var t  = Triple(11, 22, 33);  # tag=0, [11,22,33] at +8,+16,+24
+var n  = Bare;                # auto-incremented int (3) — bare
+                              # variants stay int-typed (consistency
+                              # follow-up on the bare/payloaded
+                              # mismatch is deferred to v5.8.23)
+```
+
+### Stdlib annotation ramp (cascaded from v5.8.20)
+
+Demo annotations preserved (no longer broken by the Pass 1
+truncation issue):
+- `lib/syscalls_x86_64_linux.cyr`: `#io` on `sys_open`,
+  `sys_close`, `sys_read`, `sys_write`.
+- `lib/u128.cyr`: `#pure` on `u128_eq`, `u128_is_zero`.
+
+Mass annotation across stdlib (lib/keccak.cyr / lib/sha1.cyr
+crypto leaves `#pure`; lib/alloc.cyr's allocator paths `#alloc`)
+remains opt-in per consumer. `lib/alloc.cyr` stayed unannotated
+this round on linter signal — earns its own slot once a downstream
+`#pure` audit pass surfaces value.
+
+### Out of scope (deferred)
+
+- **Bare-variant payload-shape consistency** — `Nothing` is
+  currently auto-increment int (0), inconsistent with
+  `Just(v)`'s heap-allocated tagged shape. Real-world consumers
+  use either bare-only (enum-as-int) or payloaded-only patterns,
+  so the inconsistency hasn't bitten. Unifying so `Nothing`
+  becomes `tagged(0, 0)` is a v5.8.23 stdlib-migration
+  precondition (so `enum Option { None; Some(v); }` can
+  subsume `lib/tagged.cyr`'s hand-rolled `None` / `Some` fns).
+
+- **Stdlib migration** — replacing `lib/tagged.cyr`'s
+  hand-written `Ok` / `Err` / `Some` / `None` /
+  `Left` / `Right` constructor fns with compiler-generated
+  enum decls is **v5.8.23 stdlib adoption pass 1**. The pin
+  always staged this work that way; this slot ships
+  the syntax + codegen capability only.
+
+- **Type-position binding** — `var r: Result<i64, i64> = Ok(42)`
+  is syntactically representable but the type annotation
+  doesn't propagate to call-site arity / type validation.
+  Lands when monomorphization arrives (post-v5.8.x).
+
+- **Arity validation at call sites** — `Triple(1, 2)` (arity
+  mismatch) currently passes silently with the second slot
+  unfilled; cyrius's existing call-site convention is
+  permissive across the language. Tightening for sum-type
+  constructors specifically would be a behavioral change in
+  call-site checking and earns its own slot.
+
+- **Exhaustive `switch` pattern match** — pinned to **v5.8.22**
+  (next slot).
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **734,592 B**
+   (+2,272 B from v5.8.20). Cumulative bite delta:
+   directive-tolerance (+1,792) + generic-skip (+16) + comma-
+   separator (+80) + multi-arg-variants (+384) = +2,272.
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ Pre-existing enum-related tcyrs unchanged: `enums.tcyr`
+   10/10, `tagged.tcyr` 14/14 — no regressions in the
+   library-level tagged-union API.
+4. ✅ New `tests/tcyr/enum_generics.tcyr` — **31 assertions
+   across 9 test groups**:
+   - Non-generic enum (regression floor for the v5.5.2 path).
+   - Single type param `<T>`.
+   - Two type params `<T, E>`.
+   - Payload roundtrip — generics don't alter codegen.
+   - Comma variant separator.
+   - Mixed `,` / `;` separators.
+   - Multi-arg `Triple(a, b, c)` — tag at +0, payloads at
+     +8, +16, +24.
+   - Multi-arg `Pair(x, y)` with auto-incremented tag past the
+     prior multi-arg variant.
+   - Multi-arg payload roundtrip — zero, negative.
+5. ✅ All v5.8.20 regressions intact: `effect_annotations.tcyr`
+   7/7, all 9 slices regressions (159 assertions).
+
+### v5.8.x cycle progress
+
+21 of 42 pinned slots shipped (50% — exactly halfway). Phase 2
+continuing: exhaustive `switch` match next (v5.8.22), then
+stdlib adoption passes (v5.8.23–v5.8.24, including the
+`lib/tagged.cyr` migration deferred from this slot), then
+`Result<T,E>` + `?` (v5.8.26–v5.8.30), allocators (v5.8.31–
+v5.8.36). Phase 3 closeout v5.8.37–v5.8.42 (api-surface refresh
+at v5.8.42); cycle backstop at v5.8.49.
+
 ## [5.8.20] — 2026-05-02
 
 **v5.8.x slot 20 — per-fn effect/purity annotations

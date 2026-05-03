@@ -5,6 +5,63 @@
 
 ## Version
 
+**5.8.21** (shipped 2026-05-03 — **v5.8.x SLOT 21 — sum-type
+syntax + constructor parsing**. Phase 2 language-vocabulary
+slot. Generalizes the existing single-arg `enum Foo { A; B(v); }`
+constructor capability into the full pinned canonical shape
+`enum Result<T, E> { Ok(T), Err(E) }` — generic-parameter syntax,
+comma variant separators, and multi-arg variant constructors
+`Foo(a, b, c)`. Reuses existing enum/struct infrastructure:
+REGFN registration, alloc helper call, tag-then-payload heap
+layout — extends parse loops + scales codegen by arity, no new
+heap regions. **Generics**: `SKIP_GENERICS(S)` after the enum
+name in `PARSE_ENUM_DEF`, mirroring `PARSE_STRUCT_DEF` /
+`PARSE_UNION_DEF`. Type params are syntactically accepted but not
+yet bound semantically (mono-only, erasure semantics — full
+binding lands when monomorphization arrives post-v5.8.x).
+**Comma separator**: separator check `PEEKT(S) == 5` →
+`PEEKT(S) == 5 || PEEKT(S) == 31` (token 31 = `,`). Mixed `,`/`;`
+in same decl tolerated. **Multi-arg variants**: ident-loop
+parses `Foo(a, b, c)`; codegen scales — `8 + 8*arity` byte
+alloc, params stored to slots `0..arity-1`, alloc-ptr to slot
+`arity`, tag at +0, payload[i] at +8 + 8*i; frame size
+`(arity + 1) * 16`. **Byte-identity preserved** for arity-1
+case (matches the v5.5.2 single-arg corpus exactly). **Cascaded
+into this slot** from v5.8.20: directive-token tolerance
+(Pass 1 + Pass 2 top-level scanner) for tokens 122 (#must_use),
+124 (#deprecated), 125 (#pure), 126 (#io), 127 (#alloc) —
+fix for v5.8.20's annotation ramp landing where an annotated
+fn at the top of a stdlib file silently truncated Pass 1's
+pre-scan; plus the demo annotation ramp itself
+(`sys_open/close/read/write` `#io`, `u128_eq/u128_is_zero`
+`#pure`). **§21 SCOPE NOTE**: ships syntax + codegen capability
+only — `lib/tagged.cyr` stdlib migration to compiler-generated
+sum types is **v5.8.23 stdlib adoption pass 1**; bare-variant
+payload-shape consistency (so `Nothing` unifies with
+`Just(v)` shape) is the precondition for that migration and
+pinned to v5.8.23 alongside; arity validation at call sites
++ exhaustive `switch` match are separate slots (v5.8.22 next).
+cc5 grew **732,320 → 734,592 B (+2,272 B)** across four
+in-flight bites: directive-tolerance (+1,792) + generic-skip
+(+16) + comma-separator (+80) + multi-arg-variants (+384).
+Verification: self-host two-step byte-identical, check.sh
+64/64, pre-existing `enums.tcyr` 10/10 + `tagged.tcyr` 14/14
+intact (no regressions in library-level tagged-union API),
+new `tests/tcyr/enum_generics.tcyr` 31/31 across 9 test groups
+(non-generic regression floor, `<T>`, `<T, E>`, payload
+roundtrip, comma separator, mixed separators, `Triple(a,b,c)`,
+`Pair(x,y)` with auto-increment tag, multi-arg payload
+roundtrip with zero/negative). All v5.8.20 regressions intact
+(`effect_annotations.tcyr` 7/7, 9 slices regressions 159/159).
+v5.8.x cycle progress: **21 of 42 pinned slots shipped (50%
+— exactly halfway)**. Phase 2 continuing: exhaustive `switch`
+match (v5.8.22), then stdlib adoption (v5.8.23–v5.8.24,
+absorbing the `lib/tagged.cyr` migration deferred from this
+slot + bare-variant unification precondition), Result<T,E>+?
+(v5.8.26–v5.8.30), allocators (v5.8.31–v5.8.36). Phase 3
+closeout v5.8.37–v5.8.42 (api-surface refresh at v5.8.42);
+cycle backstop v5.8.49.)
+
 **5.8.20** (shipped 2026-05-02 — **v5.8.x SLOT 20 — per-fn
 effect/purity annotations (`#pure` / `#io` / `#alloc`)**.
 Phase 2 effects slot — first slot after the slices true-

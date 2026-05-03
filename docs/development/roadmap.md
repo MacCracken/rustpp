@@ -746,16 +746,44 @@ into first-class sum types. **Required by Phase 2's later
 slots** (`Result<T,E>` IS a tagged union; `?` operator pattern-
 matches it).
 
-- **v5.8.21** — Sum-type syntax + constructor parsing.
-  `enum Result<T,E> { Ok(T), Err(E) }` shape. Lex / parse
-  reuses existing `enum`/`struct` infrastructure.
+- ✅ **v5.8.21** — Sum-type syntax + constructor parsing
+  (shipped 2026-05-03). The pinned canonical shape
+  `enum Result<T, E> { Ok(T), Err(E) }` now lexes + parses +
+  codegens end-to-end. Generic-parameter syntax via
+  `SKIP_GENERICS(S)` after the enum name (mirroring
+  struct/union); comma variant separators (token 31)
+  accepted alongside the legacy `;` (token 5); multi-arg
+  variant constructors `Foo(a, b, c)` with arity-scaled
+  codegen (8 + 8N alloc, payload[i] at +8 + 8*i, frame size
+  `(arity + 1) * 16`). Byte-identical for the arity-1 case
+  preserves the v5.5.2 single-arg corpus. Cascaded into the
+  slot: directive-token Pass 1 / Pass 2 tolerance fix
+  (precondition for v5.8.20's annotation ramp landing) +
+  the demo annotation ramp itself (`sys_open/close/read/write`
+  `#io`; `u128_eq/u128_is_zero` `#pure`). cc5 +2,272 B
+  (732,320 → 734,592). New `tests/tcyr/enum_generics.tcyr`
+  31/31 across 9 groups.
 - **v5.8.22** — Exhaustive pattern match in `switch`. Compiler
   verifies every variant is covered; missing variants → error;
   `_ =>` explicitly opts out.
 - **v5.8.23** — Stdlib adoption pass 1: collapse ad-hoc tag+
   union patterns (hashmap `key_type`, dynlib error codes,
   json/toml parse state) into sum types. Internal representation
-  swap; no API breakage yet.
+  swap; no API breakage yet. **Absorbs from v5.8.21**:
+  `lib/tagged.cyr` migration (replace hand-rolled `Ok` / `Err` /
+  `Some` / `None` / `Left` / `Right` constructor fns with
+  `enum Option { None; Some(v); }` / `enum Result { Ok(v);
+  Err(e); }` / `enum Either { Left(v); Right(v); }` decls).
+  **Precondition** to land before the migration: bare-variant
+  payload-shape consistency — today `Nothing` (no parens) is
+  auto-increment int while `Just(v)` is heap-allocated tagged;
+  unifying so a bare variant in a payloaded-variant decl
+  produces `tagged(N, 0)` instead of int N is needed for
+  `enum Option { None; Some(v); }` to subsume the hand-rolled
+  fns cleanly. Either land the consistency fix as v5.8.23
+  bite #1 (then migration as bite #2+) or split into a
+  v5.8.22.x preceding bite — author's call at slot entry per
+  premise-check.
 - **v5.8.24** — Stdlib adoption pass 2: public API migration
   for modules where the sum-typed form is visibly better
   (parse results, cross-boundary error returns).
