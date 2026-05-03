@@ -24,6 +24,13 @@ enum NonGeneric { A; B(v); }
 enum SingleParam<T> { One(v); }
 enum TwoParams<T, E> { Ok(v); Err(e); }
 
+# v5.8.21 bite — comma variant separator (accept either ';' or ',').
+# Matches the canonical pin shape `enum Result<T,E> { Ok(T), Err(E) }`.
+enum CommaSep<T, E> { COk(v), CErr(e) }
+# Mixed separators tolerated (regression floor — don't tighten without
+# a positive reason; current rule is "either separator anywhere").
+enum MixedSep { MA, MB(v); MC(w), MD }
+
 alloc_init();
 
 test_group("non-generic enum still works (regression floor)");
@@ -51,6 +58,22 @@ var ok2 = Ok(0);
 assert_eq(load64(ok2 + 8), 0, "Ok(0) payload = 0");
 var ok3 = Ok(0 - 1);
 assert_eq(load64(ok3 + 8), 0 - 1, "Ok(-1) payload = -1");
+
+test_group("comma variant separator");
+var co = COk(55);
+assert_eq(load64(co), 0, "COk tag = 0");
+assert_eq(load64(co + 8), 55, "COk payload = 55");
+var ce = CErr(33);
+assert_eq(load64(ce), 1, "CErr tag = 1");
+assert_eq(load64(ce + 8), 33, "CErr payload = 33");
+
+test_group("mixed ',' / ';' separators tolerated");
+assert_eq(MA, 0, "MA = 0");
+var mb = MB(7);
+assert_eq(load64(mb), 1, "MB tag = 1");
+var mc = MC(8);
+assert_eq(load64(mc), 2, "MC tag = 2");
+assert_eq(MD, 3, "MD = 3");
 
 # Note: type parameters are syntactically accepted but not yet bound
 # to anything semantically (no monomorphization, no type-checking on

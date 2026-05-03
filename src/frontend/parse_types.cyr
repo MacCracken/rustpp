@@ -277,7 +277,12 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 if (idx >= 0) { EMOVI(S, val); EVSTORE(S, idx); }
             }
             val = val + 1;
-            if (PEEKT(S) == 5) { STI(S, GTI(S) + 1); }
+            # v5.8.21: accept either ';' (5) or ',' (31) between
+            # variants, mirroring the canonical pin shape
+            # `enum Result<T,E> { Ok(T), Err(E) }`. The historical
+            # ';' form (used across stdlib syscalls + lib/tagged.cyr's
+            # OptionTag/ResultTag/EitherTag) keeps working.
+            if (PEEKT(S) == 5 || PEEKT(S) == 31) { STI(S, GTI(S) + 1); }
         }
     }
     STI(S, GTI(S) + 1);
