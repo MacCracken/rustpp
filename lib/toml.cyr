@@ -31,12 +31,20 @@ enum TomlError {
 }
 
 # TOML entry: { section: Str, pairs: vec of {key: Str, value: Str} }
-# Create a TOML section entry
-fn toml_section_new(name, pairs) {
-    var s = alloc(16);
+
+# v5.8.36 — Allocator-as-first-arg variant of toml_section_new.
+# Allocates the 16-byte section header via `a`. Returns 0 on OOM.
+fn toml_section_new_a(a, name, pairs) {
+    var s = alloc_via(a, 16);
+    if (s == 0) { return 0; }
     store64(s, name);
     store64(s + 8, pairs);
     return s;
+}
+
+# Create a TOML section entry. v5.8.36 wrapper.
+fn toml_section_new(name, pairs) {
+    return toml_section_new_a(default_alloc(), name, pairs);
 }
 
 # Get section name from a TOML section entry
@@ -44,12 +52,19 @@ fn toml_section_name(s) { return load64(s); }
 # Get pairs vec from a TOML section entry
 fn toml_section_pairs(s) { return load64(s + 8); }
 
-# Create a TOML key-value pair
-fn toml_pair_new(key, value) {
-    var p = alloc(16);
+# v5.8.36 — Allocator-as-first-arg variant of toml_pair_new.
+# Allocates the 16-byte pair via `a`. Returns 0 on OOM.
+fn toml_pair_new_a(a, key, value) {
+    var p = alloc_via(a, 16);
+    if (p == 0) { return 0; }
     store64(p, key);
     store64(p + 8, value);
     return p;
+}
+
+# Create a TOML key-value pair. v5.8.36 wrapper.
+fn toml_pair_new(key, value) {
+    return toml_pair_new_a(default_alloc(), key, value);
 }
 
 # Get key from a TOML pair

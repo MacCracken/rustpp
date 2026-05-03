@@ -112,6 +112,38 @@ fn _http_build_request(method, host, path) {
     return buf;
 }
 
+# v5.8.36 — Allocator-as-first-arg variant of _http_parse_response.
+# Allocates the 32-byte response struct via `a`. Returns 0 on OOM.
+fn _http_parse_response_a(a, buf, len) {
+    var result = alloc_via(a, 32);
+    if (result == 0) { return 0; }
+    store64(result, 0);
+    store64(result + 8, 0);
+    store64(result + 16, 0);
+    if (len < 12) { return result; }
+    var code = 0;
+    if (memeq(buf, "HTTP/1.", 7) == 1) {
+        code = (load8(buf + 9) - 48) * 100 + (load8(buf + 10) - 48) * 10 + (load8(buf + 11) - 48);
+    }
+    store64(result, code);
+    var pi = 0;
+    while (pi < len - 3) {
+        if (load8(buf + pi) == 13) {
+            if (load8(buf + pi + 1) == 10) {
+                if (load8(buf + pi + 2) == 13) {
+                    if (load8(buf + pi + 3) == 10) {
+                        store64(result + 8, buf + pi + 4);
+                        store64(result + 16, len - pi - 4);
+                        return result;
+                    }
+                }
+            }
+        }
+        pi = pi + 1;
+    }
+    return result;
+}
+
 # Parse HTTP response: extract status code and body
 fn _http_parse_response(buf, len) {
     var result = alloc(32);
@@ -229,6 +261,67 @@ fn http_get_r(url) {
     if (st < 200) { return Err(HttpNon2xx); }
     if (st >= 300) { return Err(HttpNon2xx); }
     return Ok(resp);
+}
+
+# v5.8.36 — Allocator-as-first-arg variant of http_get. Routes the
+# big allocations (64KB recv buffer + 32B response struct) through
+# the supplied allocator. URL parsing + request-build buffers stay
+# on default_alloc — those are smaller, bounded, and shared between
+# requests in the typical per-request-arena pattern. Returns the
+# response struct (status / body / body_len); status == HTTP_ERROR
+# on bad URL / net failure / OOM (caller checks via http_status).
+#
+# Per-request-arena pattern (cyrius idiom for HTTP):
+#   var req_arena = arena_allocator(96 * 1024);   # 96KB headroom
+#   var resp = http_get_a(req_arena, "http://x.org/y");
+#   ... use resp.status / resp.body ...
+#   reset_via(req_arena);                          # frees recv buf + resp
+fn http_get_a(a, url) {
+    var parsed = _http_parse_url(url);
+    if (parsed == 0) {
+        var bad = alloc_via(a, 24);
+        if (bad == 0) { return 0; }
+        store64(bad, HTTP_ERROR);
+        store64(bad + 8, 0);
+        store64(bad + 16, 0);
+        return bad;
+    }
+    var host = load64(parsed);
+    var port = load64(parsed + 8);
+    var path = load64(parsed + 16);
+    var req = _http_build_request("GET", host, path);
+    var fd_r = tcp_socket();
+    if (is_err_result(fd_r) == 1) {
+        var err = alloc_via(a, 24);
+        if (err == 0) { return 0; }
+        store64(err, HTTP_ERROR);
+        return err;
+    }
+    var fd = payload(fd_r);
+    var c_r = sock_connect(fd, host, port);
+    if (is_err_result(c_r) == 1) {
+        sys_close(fd);
+        var err = alloc_via(a, 24);
+        if (err == 0) { return 0; }
+        store64(err, HTTP_ERROR);
+        return err;
+    }
+    sock_send(fd, req, strlen(req));
+    var rbuf = alloc_via(a, 65536);
+    if (rbuf == 0) { sys_close(fd); return 0; }
+    var total = 0;
+    var rgo = 1;
+    while (rgo == 1) {
+        var rd_r = sock_recv(fd, rbuf + total, 65536 - total);
+        if (is_err_result(rd_r) == 1) { rgo = 0; }
+        else {
+            var n = payload(rd_r);
+            if (n <= 0) { rgo = 0; }
+            else { total = total + n; if (total >= 65536) { rgo = 0; } }
+        }
+    }
+    sys_close(fd);
+    return _http_parse_response_a(a, rbuf, total);
 }
 
 # Get status code from response

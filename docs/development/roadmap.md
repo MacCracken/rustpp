@@ -1098,9 +1098,26 @@ doing it before Result lands).
   byte-identical. Doc-coverage gate caught 1 undocumented
   public fn (map_new_str lost its leading comment when _a
   variant was inserted); fixed inline.
-- **v5.8.36** — Stdlib migration pass 2 peripheral modules:
-  `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
-  `lib/sandhi.cyr`. Per-request arenas benefit most.
+- ✅ **v5.8.36** — Stdlib Allocator migration pass 2 (shipped
+  2026-05-03). 17 new `_a` variants across the peripheral modules:
+  lib/json.cyr (12 — _jv_alloc_a + 5 leaf v_*_new_a + v_arr_new_a +
+  v_obj_new_a + _jv_pair_new_a + json_v_arr_push_a +
+  json_pair_new_a; arr/obj constructors use vec_new_a internally so
+  inner vec also lives in arena); lib/toml.cyr (toml_section_new_a +
+  toml_pair_new_a); lib/cyml.cyr (cyml_entry_new_a + cyml_doc_new_a);
+  lib/http.cyr partial migration (http_get_a routes the 64KB recv
+  buffer + 32B response struct + early-return error responses through
+  the supplied allocator; URL parsing + request-build buffers stay
+  on default_alloc — smaller, bounded, shared between requests in
+  the typical per-request-arena pattern; documented).
+  **lib/sandhi.cyr deferred** — auto-generated bundle from sandhi
+  distrepo via `cyrius distlib`; migration requires upstream sandhi
+  changes + re-bundling. Pinned for next sandhi distlib refresh.
+  cc5 unchanged at 739,672 B (zero compiler delta). New
+  tests/tcyr/alloc_stdlib_pass2.tcyr — 30 assertions across 10
+  groups. check.sh 64/64; self-host two-step byte-identical.
+  **Lint gate caught 2 long-line warnings** in http.cyr (one-liner
+  if-blocks exceeded 120 cols); reformatted before bump.
 - **v5.8.37** — Retire `alloc_init()` global singleton.
   Backward compat through `lib/alloc.default()` shim for
   consumers not ready to migrate.

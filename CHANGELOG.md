@@ -4,6 +4,117 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.36] — 2026-05-03
+
+**v5.8.x slot 36 — stdlib Allocator migration pass 2**. Fourth
+slot of the Phase 2 Allocators sub-suite (v5.8.33–v5.8.38).
+Threads `Allocator` as the first argument across the peripheral
+modules — `lib/json.cyr` (12 new `_a` variants), `lib/toml.cyr`
+(2), `lib/cyml.cyr` (2), `lib/http.cyr` (1 partial migration,
+plus an internal `_a` variant). `lib/sandhi.cyr` is intentionally
+NOT migrated this slot — it's an auto-generated bundle from the
+sandhi distrepo via `cyrius distlib`; migration requires upstream
+sandhi changes + re-bundling. Flagged as deferred.
+
+cc5 unchanged at **739,672 B** (zero compiler delta — pure stdlib
+addition + back-compat refactor).
+
+### Added
+
+- **`lib/json.cyr`** — 12 `_a` variants enabling the per-request-
+  arena pattern that's the slot's headline benefit:
+  - `_jv_alloc_a(a, tag)` — internal jv-cell allocator
+  - `json_v_null_a(a)` / `json_v_bool_new_a(a, b)` /
+    `json_v_int_new_a(a, n)` / `json_v_float_new_a(a, f)` /
+    `json_v_str_new_a(a, s)` — leaf constructors
+  - `json_v_arr_new_a(a)` / `json_v_obj_new_a(a)` — collection
+    constructors (use `vec_new_a` internally so the inner vec
+    also lives in the arena)
+  - `_jv_pair_new_a(a, key, val)` — internal pair builder
+  - `json_v_arr_push_a(a, arr, val)` — routes vec grows through
+    `a`; returns -1 on grow OOM
+  - `json_pair_new_a(a, key, value)` — flat-API helper
+
+- **`lib/toml.cyr`** — `toml_section_new_a` + `toml_pair_new_a`.
+
+- **`lib/cyml.cyr`** — `cyml_entry_new_a` + `cyml_doc_new_a`.
+
+- **`lib/http.cyr`** — partial migration:
+  - `_http_parse_response_a(a, buf, len)` — internal helper that
+    routes the 32-byte response struct through `a`.
+  - `http_get_a(a, url)` — routes the 64KB recv buffer + 32B
+    response struct (and bad-URL / net-failure error responses)
+    through `a`. URL parsing + request-build buffers stay on
+    default_alloc — those are smaller, bounded, and shared across
+    requests in the typical per-request-arena pattern. Documented
+    in the fn doc comment.
+
+- **`tests/tcyr/alloc_stdlib_pass2.tcyr`** — 30 assertions across
+  10 groups covering: json back-compat wrappers; json `_a`
+  variants build a tagged tree inside an arena; arena reset
+  clears all the doc's allocations; OOM via fail_after_n_allocs
+  returns 0 from any json `_a` variant (including the 3-alloc
+  arr_new_a pattern at fail_after=2); json_pair_new_a + cstr
+  pointer dereference; toml + cyml `_a` constructor round-trips;
+  http_get_a routes the bad-URL early-return response through
+  the arena (no real network exercised — the alloc-routing path
+  is the contract).
+
+### Skipped (documented)
+
+- **`lib/sandhi.cyr`** — auto-generated bundle from the sandhi
+  distrepo via `cyrius distlib`. Migration requires upstream
+  sandhi changes + re-bundling, which is a sandhi-side cycle
+  not in this repo's scope. Pinned for v5.8.37 or v5.8.38 if
+  blocking; otherwise deferred to the next sandhi distlib
+  refresh that will rebundle the migrated upstream.
+
+### Sub-suite progress
+
+- v5.8.33 ✅ Allocator vtable interface + 3 default impls.
+- v5.8.34 ✅ Failing-allocator test harness.
+- v5.8.35 ✅ Stdlib migration pass 1 (vec / str / hashmap).
+- v5.8.36 ✅ Stdlib migration pass 2 (json / toml / cyml / http;
+  sandhi deferred).
+- v5.8.37 — Retire alloc_init() global singleton (back-compat
+  shim via `lib/alloc.default()`).
+- v5.8.38 — Sub-suite closeout.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `alloc_stdlib_pass2` tcyr → 30 passed, 0 failed.
+- `alloc_stdlib` tcyr → 33 passed, 0 failed (regression-floored).
+- `alloc_iface` tcyr → 43 passed, 0 failed (regression-floored).
+- `oom_handling` tcyr → 33 passed, 0 failed (regression-floored).
+- All Result+? sub-suite tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Process notes
+
+- **Snapshot-ping-pong protection applied** between every
+  `lib/*.cyr` edit per the v5.8.23 mitigation recipe.
+
+- **Lint gate caught 2 long-line warnings** on first check.sh
+  run after the http.cyr edit (the `if (is_err_result(...)) {
+  ... }` one-liners exceeded 120 cols). Reformatted to
+  multi-line block style; both warnings cleared.
+
+- **Tcyr counter assertion ergonomics**: first draft of the
+  json_pair_new_a check used `load64(pair + 8)` and compared to
+  118 (ASCII 'v'). pair[+8] holds the cstr POINTER, not the byte
+  content. Fixed by `load8(load64(pair + 8))` to deref then read
+  the byte. Cyrius's i64-everything model means a Str-vs-byte
+  type confusion in tests yields a load-the-pointer-as-int
+  rather than a compile error; the symptom is a comparison
+  against an unrelated huge number.
+
+- **Migration policy unchanged**. Allocator parameter is opt-in;
+  legacy fns stay callable through v5.8.x. v6.0.0 closeout
+  removes back-compat wrappers. sandhi.cyr migration tracked
+  separately for the next sandhi distlib refresh.
+
 ## [5.8.35] — 2026-05-03
 
 **v5.8.x slot 35 — stdlib Allocator migration pass 1**. Third

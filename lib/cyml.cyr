@@ -23,15 +23,22 @@ enum CymlError {
     CymlOther;
 }
 
-# CymlEntry: { header_ptr, header_len, body_ptr, body_len }
-# 32 bytes per entry.
-fn cyml_entry_new(hp, hl, bp, bl) {
-    var e = alloc(32);
+# v5.8.36 — Allocator-as-first-arg variant of cyml_entry_new.
+# Allocates the 32-byte entry header via `a`. Returns 0 on OOM.
+fn cyml_entry_new_a(a, hp, hl, bp, bl) {
+    var e = alloc_via(a, 32);
+    if (e == 0) { return 0; }
     store64(e, hp);
     store64(e + 8, hl);
     store64(e + 16, bp);
     store64(e + 24, bl);
     return e;
+}
+
+# CymlEntry: { header_ptr, header_len, body_ptr, body_len }
+# 32 bytes per entry. v5.8.36 wrapper.
+fn cyml_entry_new(hp, hl, bp, bl) {
+    return cyml_entry_new_a(default_alloc(), hp, hl, bp, bl);
 }
 
 # Get TOML header pointer from a CymlEntry
@@ -43,15 +50,22 @@ fn cyml_entry_body(e) { return load64(e + 16); }
 # Get markdown body byte length from a CymlEntry
 fn cyml_entry_body_len(e) { return load64(e + 24); }
 
-# CymlDoc: { file_header_ptr, file_header_len, entries_ptr, entry_count }
-# 32 bytes.
-fn cyml_doc_new() {
-    var d = alloc(32);
+# v5.8.36 — Allocator-as-first-arg variant of cyml_doc_new.
+# Allocates the 32-byte doc struct via `a`. Returns 0 on OOM.
+fn cyml_doc_new_a(a) {
+    var d = alloc_via(a, 32);
+    if (d == 0) { return 0; }
     store64(d, 0);
     store64(d + 8, 0);
     store64(d + 16, 0);
     store64(d + 24, 0);
     return d;
+}
+
+# CymlDoc: { file_header_ptr, file_header_len, entries_ptr, entry_count }
+# 32 bytes. v5.8.36 wrapper.
+fn cyml_doc_new() {
+    return cyml_doc_new_a(default_alloc());
 }
 
 # Get file-level TOML header pointer from a CymlDoc
