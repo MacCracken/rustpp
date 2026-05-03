@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.29] — 2026-05-03
+
+**v5.8.x slot 29 — postfix `?` propagation operator on
+`Result<T, E>`**. Second slot of the Phase 2 Result+? sub-suite
+(v5.8.28–v5.8.32). Compiler addition: lex + parse + emit for
+the `?` operator, the half-LOC-of-error-handling-code win that
+Result enables. Per roadmap line 903.
+
+cc5 **737,888 B → 738,856 B (+968 B)**.
+
+### Added
+
+- **`?` postfix operator** — applied to a `Result`-shaped
+  expression, desugars at the call site to:
+  ```
+  tag = load64(result_ptr)
+  if (tag != Ok)  return result_ptr   // Err: short-circuit
+  rax = load64(result_ptr + 8)        // Ok: unwrap payload
+  ```
+  Highest precedence, binds tighter than `*` / `/` so
+  `foo()? * bar` parses as `(foo()?) * bar`. The early-return
+  path uses the existing fn-epilogue jump table (`0x18DA20` /
+  `GRPC` / `EJMP0`) — same machinery `return expr;` uses.
+
+- **Lex** (`src/frontend/lex.cyr`) — token id **124** for the
+  standalone `?`, distinct from the existing TS-regex compounds
+  `+?` / `-?` / `*?` (115 / 118 / 121) which consume two bytes
+  in their respective add/sub/mul branches. Single-char `?` adds
+  one nesting level to the operator dispatch chain (between
+  `~` at 126 and `@` at 64).
+
+- **Parse + emit** (`src/frontend/parse_expr.cyr`) — postfix `?`
+  hook in `PARSE_TERM` immediately after the first `PARSE_FACTOR`
+  call, before the binary-op `while (go == 1)` loop. Allocates
+  a hidden temp var (same idiom as `PARSE_MATCH`'s `midx`) to
+  hold the Result ptr across the tag-check / unwrap branches.
+  Emits the desugar with `EVSTORE` / `EVLOAD` / `ELOAD64` /
+  `EMOVI` / `EMOVCA` / `ECMPR` / `EJCC(0x84)` / `EJMP0` /
+  `EPATCH` / `EADDR` from the existing emit primitive set —
+  no new x86-encoding hex literals.
+
+- **Outside-fn-body parse error** — `?` outside any fn body
+  emits `?: '?' propagation operator only valid inside a fn
+  body` and bails the compile. Verified via standalone probe
+  `/tmp/probe_q_outside.cyr`. The stricter "outside
+  Result-returning fn is type error" (per roadmap acceptance
+  gate) requires fn return-type tracking that doesn't exist
+  yet — pinned for a future slot per the honest-scope-shrink
+  pattern; current enforcement at the coarser
+  "outside-any-fn-body" granularity is the v5.8.29 floor.
+
+- **`tests/tcyr/result_propagation.tcyr`** — 29 assertions
+  across 11 groups covering: Ok unwrap (single + chained `?`),
+  Err short-circuit (first / second `?` trips), `return expr?;`
+  shape, `?` in binary-op context (`a()? + b()?`), `?` as the
+  first statement in a fn body, `?` inside an `if` body
+  (early-return must escape the whole fn, not just the `if`
+  block), payload roundtrip through `?` for negatives + zero.
+  Auto-discovered by check.sh (no new gate needed).
+
+### Sub-suite progress
+
+- v5.8.28 ✅ `Result<T, E>` carve-out into `lib/result.cyr`.
+- v5.8.29 ✅ `?` propagation operator (this slot).
+- v5.8.30 — Stdlib migration pass 1: `lib/io.cyr`,
+  `lib/syscalls.cyr` wrappers, `lib/json.cyr` /
+  `lib/toml.cyr` / `lib/cyml.cyr` parsers.
+- v5.8.31 — Stdlib migration pass 2: `lib/net.cyr`,
+  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules.
+- v5.8.32 — Result sub-suite closeout + cross-repo
+  downstream smoke test.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `result_propagation` tcyr → 29 passed, 0 failed.
+- `result` tcyr → 24 passed, 0 failed (regression-floored).
+- `tagged` tcyr → 14 passed, 0 failed (transitive Result
+  unaffected).
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 738,856 B.
+- Outside-fn-body `?` parse-error probe: rc != 0, stderr
+  matches the expected diagnostic.
+
+### Process notes
+
+- **Premise-check at slot entry** (per
+  `feedback_premise_check_at_slot_entry.md`): confirmed `?`
+  was NOT a Cyrius-side token pre-slot. Existing `?` handling
+  in lex.cyr was only the TS-regex compounds (`+?` / `-?` /
+  `*?`) at lines 863 / 872 / 881 — those tokenize two bytes
+  and produce ids 115/118/121. The standalone `?` got silently
+  consumed by the lex fallthrough (no diagnostic, no token
+  emitted), which made `var x = Ok(42)?;` compile to a binary
+  that just dropped the `?` — exit 0 with the wrong runtime
+  semantics. Slot delivers a real lex token + real parse hook
+  + real emit so `?` is now load-bearing.
+- **Honest scope-shrink documented**: full "fn must return
+  Result" type check deferred to a future slot when fn
+  return-type tracking lands. Current "outside-fn-body" check
+  is the practical enforcement; the runtime semantics of `?`
+  in a non-Result-returning fn still work correctly (the
+  early-return propagates the Result ptr through rax exactly
+  as for a Result-returning fn — the desugar is uniform).
+
 ## [5.8.28] — 2026-05-03
 
 **v5.8.x slot 28 — `Result<T, E>` carve-out into

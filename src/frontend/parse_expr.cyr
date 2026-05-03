@@ -1287,6 +1287,56 @@ fn PARSE_TERM(S) {
             return 0;
         } }
     PARSE_FACTOR(S);
+    # v5.8.29 — postfix `?` propagation operator. After the primary
+    # factor evaluates (rax = Result heap pointer), `?` desugars to:
+    #   tag = load64(rax)
+    #   if (tag != Ok) { return rax; }   # Err path: short-circuit
+    #   rax = load64(rax + 8)            # Ok path: unwrap payload
+    # Highest precedence — binds tighter than `*`/`/` (handled below)
+    # so `foo()? * bar` is `(foo()?) * bar`. Outside a fn body is a
+    # parse-time error (the early-return jump would have nowhere to
+    # land). The acceptance gate "outside Result-returning fn is type
+    # error" is enforced in this slot at the coarser "outside any fn
+    # body" granularity — strict ret-type tracking is a future slot.
+    if (PEEKT(S) == 124) {
+        STI(S, GTI(S) + 1);
+        if (GINFN(S) == 0) {
+            ERR_MSG(S, "?: '?' propagation operator only valid inside a fn body", 56);
+        }
+        # Hidden temp slot to hold the Result ptr across the
+        # tag-check / unwrap branches (same idiom as PARSE_MATCH).
+        var qidx = GVCNT(S);
+        S64(S + 0x11A000 + qidx * 8, 0);
+        S64(S + 0x12A000 + qidx * 8, 8);
+        SVCNT(S, qidx + 1);
+        EVSTORE(S, qidx);                 # save result_ptr
+        # Load tag and compare to 0 (Ok = 0, Err = 1)
+        EVLOAD(S, qidx);                  # rax = result_ptr
+        ELOAD64(S);                       # rax = [rax] = tag
+        EPUSHR(S);
+        EMOVI(S, 0);
+        EMOVCA(S);                        # rcx = 0 (Ok)
+        EPOPR(S);                         # rax = tag
+        ECMPR(S);                         # cmp rax, rcx
+        var qjcc_ok = EJCC(S, 0x84);      # JE → skip Err branch if Ok
+        # Err path: rax = result_ptr, jmp to fn epilogue (RPC table)
+        EVLOAD(S, qidx);
+        var qrp = EJMP0(S);
+        var qrpc = GRPC(S);
+        if (qrpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+        S64(S + 0x18DA20 + qrpc * 8, qrp);
+        SRPC(S, qrpc + 1);
+        # Ok path landing: rax = [result_ptr + 8] (payload)
+        EPATCH(S, qjcc_ok);
+        EVLOAD(S, qidx);                  # rax = result_ptr
+        EPUSHR(S);
+        EMOVI(S, 8);
+        EMOVCA(S);                        # rcx = 8
+        EPOPR(S);                         # rax = result_ptr
+        EADDR(S);                         # rax = result_ptr + 8
+        ELOAD64(S);                       # rax = [result_ptr + 8] = payload
+        _cfo = 0;                         # invalidate const-fold tracking
+    }
     var go = 1;
     while (go == 1) {
         var typ = PEEKT(S);

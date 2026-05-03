@@ -917,9 +917,28 @@ checking code in practice.
   first check.sh run, recovered per CLAUDE.md mitigation
   recipe. Convenience constructors `Ok(v)` / `Err(e)` and
   pattern-match consumers shipped per pin.
-- **v5.8.29** — `?` propagation operator. Postfix on `Result`-
-  typed expressions; desugars to pattern-match `Err` early-
-  return. Requires enclosing fn to also return `Result`.
+- ✅ **v5.8.29** — `?` propagation operator (shipped 2026-05-03).
+  Lex token 124 (standalone `?`, distinct from TS-regex
+  `+?`/`-?`/`*?` compounds 115/118/121); parse hook in
+  `PARSE_TERM` immediately after the first `PARSE_FACTOR` call;
+  emit desugar via existing primitives (`EVSTORE`/`EVLOAD`/
+  `ELOAD64`/`EMOVI`/`EMOVCA`/`ECMPR`/`EJCC(0x84)`/`EJMP0`/
+  `EPATCH`/`EADDR`) — no new x86 hex literals. Hidden temp var
+  holds the Result ptr across tag-check / unwrap branches (same
+  idiom as `PARSE_MATCH`'s `midx`). Early-return uses the
+  existing fn-epilogue jump table at `0x18DA20`. Highest
+  precedence — binds tighter than `*`/`/`. Outside-fn-body `?`
+  is a parse-time hard error (`?: '?' propagation operator only
+  valid inside a fn body`); the stricter "outside Result-
+  returning fn is type error" requires fn return-type tracking
+  that doesn't exist yet — pinned for a future slot per honest-
+  scope-shrink pattern. cc5 737,888 → 738,856 B (+968 B).
+  `tests/tcyr/result_propagation.tcyr` — 29 assertions across
+  11 groups (Ok unwrap, Err short-circuit at first/second `?`,
+  `return expr?;` shape, `?` in binary-op context, `?` as first
+  fn-body stmt, `?` inside `if` body, payload roundtrip
+  negatives + zero). check.sh 64/64; self-host two-step byte-
+  identical.
 - **v5.8.30** — Stdlib migration pass 1: `lib/io.cyr` (file_
   open / read / write), `lib/syscalls.cyr` wrappers, `lib/
   json.cyr` + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc
