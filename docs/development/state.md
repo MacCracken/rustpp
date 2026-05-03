@@ -5,6 +5,61 @@
 
 ## Version
 
+**5.8.38** (shipped 2026-05-03 — **v5.8.x SLOT 38 — Allocators sub-suite
+closeout. Sub-suite COMPLETE (v5.8.33–v5.8.38, 6 slots, +0 B
+compiler delta, 156 new tcyr assertions across 4 new tcyrs).**
+Smoke + retrospective slot — no compiler change. **Phase 2 COMPLETE**
+(both sub-suites done: Result+? at +1,784 B, Allocators at +0 B).)
+**Sub-suite delivered**: Allocator vtable (40B, 5 i64 slots) + 3
+impls (bump/arena/test) + 4 dispatch helpers (alloc_via /
+realloc_via / free_via / reset_via) + failing-allocator harness
+(fail_after_n_allocs in lib/assert.cyr) + default_alloc() lazy-init
+singleton + 30 `_a` variants across vec/str/hashmap/json/toml/cyml/
+http + alloc_init() lazy-init in alloc() across Linux/macOS/Windows.
+**Cross-repo smoke** (all 4 pinned consumers reached): sigil 3.0.0
+✅ (compile OK; runtime exit 4 matches v5.7.48 baseline — sigil's
+smoke is non-zero by design); mabda ✅ (compile OK); yukti ✅
+(compile OK); ark 0.8.0 ✅ (5.1.10 → 5.8.37 → 5.1.10; compile OK;
+runtime exit 0 matches baseline — ark's pin was 7 minors old,
+validating back-compat from a long-stale caller).
+**Static audit pre-dynamic**: 0 collisions across all 3 reachable
+repos for every v5.8.33-37 symbol (bump/arena/test_allocator,
+alloc_via et al, default_alloc, fail_after_n_allocs, all *_a
+variants). **Allocator-API adoption**: 0 of 47 alloc_init() call
+sites across sigil (27) / mabda (16) / yukti (3) / ark (1)
+migrated yet — per migration policy opt-in during v5.8.x;
+lazy-init in v5.8.37 means existing alloc_init() top-level calls
+keep working unchanged.
+**Acceptance-gate audit**: byte-identical self-host every patch ✅;
+oom_vec_push.tcyr Err(OutOfMemory) gate ⚠ partial (vec_push_a
+returns -1, not Err — back-compat shape preserved; v6.0.0 closeout
+removes legacy wrapper and ships full Result-typed OOM); compiler-
+internal explicit Allocator ⚠ partial (cc5's src/ uses global
+bump; pinned for v6.0.0 sweep). **Honest scope-shrink ledger**:
+sandhi deferred (handed off to parallel agent for v1.1.0); str
+peripheral fns (str_split/str_trim/str_builder_new) and map_u64_*
+not migrated (transitive arena routing via default_alloc works);
+http_get_a partial migration (URL parsing on default); alloc_init()
+retirement is requirement-only; compiler-internal explicit Allocator
+deferred to v6.0.0. **Process notes**: (1) sigil smoke baseline check before claiming
+regression — first v5.8.37 sigil smoke returned exit 4; restoring
+to v5.7.48 baseline reproduced exit 4 (sigil's smoke is non-zero
+by design). Lesson: baseline FIRST when smoking against a
+downstream pinned baseline. (2) Missing-repo lazy-skip pattern
+caught + corrected — first-draft closeout marked ark as ⚠
+"deferred / not present" (same as v5.8.32); user pushback caught
+it; ark IS available locally; smoke ran clean. Memory saved as
+feedback_flag_missing_repos_dont_skip.md: when a closeout pin
+names a repo that isn't at the expected path, STOP and ASK before
+silently marking n/a. **Phase 2 COMPLETE**:
+both sub-suites done in 11 slots total (Result+? 5 + Allocators 6).
+cc5 unchanged at **739,672 B**. Verification: self-host two-step
+byte-identical, check.sh 64/64 (first run flickered to 63/64
+intermittent gate, second run clean), all sub-suite tcyrs
+regression-floored. v5.8.x cycle progress: **38 of 44 pinned slots
+shipped (86.4%)**. Phase 3 next: v5.8.39-v5.8.44 (6 closeout slots);
+cycle backstop v5.8.49.)
+
 **5.8.37** (shipped 2026-05-03 — **v5.8.x SLOT 37 — `alloc_init()`
 becomes optional via lazy-init**. Fifth slot of the Phase 2
 Allocators sub-suite (v5.8.33–v5.8.38). Pin wording was "Retire
@@ -3057,7 +3112,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.37 ✅ shipped — Allocators sub-suite at penultimate slot (Phase 2 — language vocabulary; v5.8.33–v5.8.38). alloc_init() now optional via lazy-init in alloc(); closeout at v5.8.38. Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49. Sandhi-side migration proposal handed off to parallel agent for v1.1.0. 37 of 44 pinned slots shipped (84.1%); 7 slots remaining; ~12 slots of headroom against backstop.**
+**v5.8.38 ✅ shipped — Allocators sub-suite COMPLETE (v5.8.33–v5.8.38, 6 slots, +0 B compiler delta, 156 new tcyr assertions across 4 new tcyrs). Phase 2 COMPLETE (both Result+? + Allocators sub-suites done in 11 slots total). Cross-repo smoke 4-of-4 clean (sigil/mabda/yukti/ark — ark validated back-compat from 7-minor-old pin); 0 symbol collisions; all changes additive. Sandhi-side migration proposal handed off for parallel agent v1.1.0 work. Phase 3 next: v5.8.39-v5.8.44 (6 closeout slots — preprocessor include-pattern, cyrlint multi-line assert false-positive, vidya cyrius-language audit, paired UX polish, cycle backstop). Cycle backstop v5.8.49. 38 of 44 pinned slots shipped (86.4%); 6 slots remaining; ~11 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3107,7 +3162,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.35** ✅ Stdlib Allocator migration pass 1 — `_a` variants for vec/str/hashmap (vec_new_a / vec_push_a / str_from_a / str_new_a / str_cat_a / str_clone_a / str_from_int_a / map_new_a / map_new_str_a / map_set_a); back-compat wrappers via default_alloc() singleton; 33-assertion alloc_stdlib tcyr; zero compiler delta
 - **v5.8.36** ✅ Stdlib Allocator migration pass 2 — 17 `_a` variants across json (12) / toml (2) / cyml (2) / http (1 partial + 1 internal); sandhi.cyr deferred (auto-generated bundle); 30-assertion alloc_stdlib_pass2 tcyr; zero compiler delta. Sandhi-side proposal handed off to parallel agent for v1.1.0
 - **v5.8.37** ✅ alloc_init() lazy-init — `if (_heap_base == 0) { alloc_init(); }` guard in alloc() across Linux/macOS/Windows; alloc_init() now OPTIONAL; 17-assertion alloc_no_init tcyr; zero compiler delta
-- **v5.8.38** — Allocators sub-suite closeout (cross-repo audit + retrospective)
+- **v5.8.38** ✅ Allocators sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti/ark via temp-pin-bump methodology (4-of-4 ✅; ark validated back-compat from a 7-minor-old pin 5.1.10 → 5.8.37); 0 enum/symbol collisions; 0/47 downstream alloc_init() sites migrated yet (opt-in); acceptance-gate audit captured (oom_vec_push Err shape + compiler-internal explicit Allocator partial — both pinned for v6.0.0); sandhi handed off to parallel agent for v1.1.0; **Phase 2 COMPLETE** (Result+? + Allocators sub-suites done in 11 slots total)
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

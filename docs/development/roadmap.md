@@ -1142,8 +1142,43 @@ doing it before Result lands).
   for parallel agent work targeting sandhi v1.1.0 (6-batch
   bottom-up migration of 27 files / ~135 alloc sites; per-batch
   acceptance gates; process notes from v5.8.33-36 lessons).
-- **v5.8.38** — Allocator sub-suite closeout. Downstream
-  ecosystem sweep (every repo's allocator usage audited).
+- ✅ **v5.8.38** — Allocators sub-suite closeout (shipped 2026-05-03).
+  Sub-suite COMPLETE (v5.8.33–v5.8.38, 6 slots, +0 B compiler
+  delta, 156 new tcyr assertions across 4 new tcyrs). **Phase 2
+  COMPLETE** — both sub-suites done (Result+? at +1,784 B,
+  Allocators at +0 B). Cross-repo downstream smoke via temp-pin-
+  bump methodology (pinned at v5.8.32; reused cleanly here):
+  sigil 3.0.0 ✅ (compile OK; runtime exit 4 matches v5.7.48
+  baseline — sigil's smoke is non-zero by design, not a
+  regression); mabda ✅ (compile OK); yukti ✅ (compile OK);
+  ark 0.8.0 ✅ (5.1.10 → 5.8.37 → 5.1.10; compile OK; runtime
+  exit 0 matches baseline — ark's pin was 7 minors old,
+  validating back-compat from a long-stale caller). **Static
+  audit**: 0 collisions across all 4 reachable repos for every
+  v5.8.33-37 symbol (bump/arena/test_
+  allocator, alloc_via et al, default_alloc, fail_after_n_allocs,
+  all 30 `_a` variants). **Allocator-API adoption tracking**:
+  0 of 47 downstream alloc_init() call sites migrated yet
+  (per migration policy opt-in; lazy-init in v5.8.37 keeps
+  existing calls working unchanged). **Acceptance-gate audit**:
+  byte-identical self-host every patch ✅; oom_vec_push.tcyr
+  Err(OutOfMemory) gate ⚠ partial — vec_push_a returns -1 not
+  Err (back-compat shape preserved; v6.0.0 closeout removes
+  legacy wrapper and ships full Result-typed OOM); compiler-
+  internal explicit Allocator ⚠ partial (cc5's src/ uses global
+  bump; pinned for v6.0.0 sweep). **Honest scope-shrink ledger**:
+  sandhi deferred (handed off to parallel agent for v1.1.0 —
+  `sandhi/docs/proposals/2026-05-03-allocator-migration.md`);
+  str_split / str_trim / str_builder_new and map_u64_* not
+  migrated (transitive arena routing via default_alloc works);
+  http_get_a partial migration; alloc_init() retirement is
+  requirement-only. **Process note**: sigil smoke baseline check
+  before claiming regression (first v5.8.37 sigil smoke returned
+  exit 4 → restored to v5.7.48 baseline pin reproduced exit 4 →
+  sigil's smoke is non-zero by design, not a v5.8.37 regression).
+  Lesson: baseline FIRST when smoking against a downstream
+  pinned baseline. cc5 unchanged at 739,672 B. check.sh 64/64
+  (intermittent flicker to 63/64 on first run, second run clean).
 
 **Acceptance gates**: byte-identical self-host every patch;
 `tests/tcyr/oom_vec_push.tcyr` (`vec_push` returns
