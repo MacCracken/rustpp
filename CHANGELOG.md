@@ -4,6 +4,121 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.33] — 2026-05-03
+
+**v5.8.x slot 33 — Allocator vtable interface**. First slot of
+the Phase 2 Allocators sub-suite (v5.8.33–v5.8.38). Foundational:
+adds the `Allocator` vtable shape + 3 default impls (bump / arena
+/ test) to `lib/alloc.cyr` without touching the existing global-
+singleton `alloc()` / `arena_alloc()` callers.
+
+cc5 unchanged at **739,672 B** (zero compiler delta — pure stdlib
+addition).
+
+### Added
+
+- **`Allocator` vtable layout** (40 bytes, 5 i64 slots):
+  ```
+  +0   alloc_fn    fn(state, size) → ptr
+  +8   realloc_fn  fn(state, old_ptr, old_size, new_size) → ptr
+  +16  free_fn     fn(state, ptr) → 0
+  +24  reset_fn    fn(state) → 0
+  +32  state       allocator-private data ptr (or 0)
+  ```
+
+- **Vtable accessors**: `allocator_alloc_fn(a)`,
+  `allocator_realloc_fn(a)`, `allocator_free_fn(a)`,
+  `allocator_reset_fn(a)`, `allocator_state(a)`.
+
+- **Dispatch helpers** (consumers' canonical entry):
+  `alloc_via(a, size)`, `realloc_via(a, p, oldsz, newsz)`,
+  `free_via(a, p)`, `reset_via(a)`. Call through the vtable via
+  `fncall1` / `fncall2` / `fncall4` from `lib/fnptr.cyr`.
+
+- **`bump_allocator()`** — wraps the existing global bump
+  (`alloc` / `alloc_reset`). State is unused (0). `free_via` is
+  a no-op; `realloc_via` allocates new + memcpy old → new (old is
+  leaked, acceptable for bump). `reset_via` calls `alloc_reset()`
+  globally — releases EVERY allocation, use carefully.
+
+- **`arena_allocator(capacity)`** — wraps a fresh arena of the
+  given capacity. State holds the arena pointer. `free_via` is a
+  no-op; `realloc_via` allocates new in-arena + memcpy.
+  `reset_via` clears only THIS arena's allocations (independent
+  of global state and other arenas). Returns 0 on
+  arena-allocation failure.
+
+- **`test_allocator()`** — tracking allocator that delegates to
+  the global bump but counts every `alloc_via` call and can be
+  configured to fail after N successful allocations. State layout
+  (24 bytes): `alloc_count` / `fail_after` / `bytes_total`.
+  Accessors: `test_allocator_alloc_count(a)`,
+  `test_allocator_bytes_total(a)`. Configurator:
+  `test_allocator_fail_after(a, n)` (-1 = never fail; default).
+  `reset_via` clears the counters but does NOT call
+  `alloc_reset()` (would corrupt unrelated state on the global
+  bump).
+
+- **`tests/tcyr/alloc_iface.tcyr`** — 43 assertions across 12
+  groups covering: vtable layout + accessors, bump_allocator
+  alloc / free / realloc-grow, arena_allocator alloc /
+  cap-overflow / reset-returns-to-base, test_allocator
+  alloc_count tracking / fail_after threshold / -1-disables /
+  reset-clears, cross-impl uniformity (same `_alloc_n_words(a, n)`
+  helper drives all three impls).
+
+### Sub-suite arc opened
+
+v5.8.33–v5.8.38 — Allocators-as-parameter convention. Per
+`docs/development/roadmap.md` line 926. Largest ecosystem-churn
+item of the cycle; biggest modern-systems-language insight (Zig's
+contribution). Every allocating fn will eventually take an
+`Allocator` parameter; the global `alloc_init()` singleton retires
+at v5.8.37.
+
+- **v5.8.33 (this slot)** ✅ — Allocator interface + 3 default impls.
+- **v5.8.34** — Failing-allocator test harness
+  (`fail_after_n_allocs(n)` helper) → `tests/tcyr/oom_handling.tcyr`.
+- **v5.8.35** — Stdlib migration pass 1: `lib/vec.cyr`,
+  `lib/str.cyr`, `lib/hashmap.cyr`. Allocator as first arg;
+  default-allocator wrapper preserves call sites.
+- **v5.8.36** — Stdlib migration pass 2: `lib/json.cyr`,
+  `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
+  `lib/sandhi.cyr`. Per-request arenas benefit most.
+- **v5.8.37** — Retire `alloc_init()` global singleton
+  (back-compat shim via `lib/alloc.default()`).
+- **v5.8.38** — Sub-suite closeout + downstream ecosystem audit.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `alloc_iface` tcyr → 43 passed, 0 failed.
+- All Result+? sub-suite tcyrs regression-floored: result 24/24,
+  result_propagation 29/29, result_stdlib 29/29,
+  result_stdlib_pass2 24/24.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Process notes
+
+- **Doc-coverage gate caught 8 undocumented public fns** on the
+  first check.sh run (5 vtable accessors + 3 constructors —
+  `bump_allocator` / `arena_allocator` / `test_allocator`).
+  Fixed inline by adding leading-comment docs to each per the
+  `cyrdoc --check` convention pinned post-v5.7.20. Future
+  stdlib-additions slots: write the leading comment as part of
+  the fn definition, not as a follow-up.
+
+- **Snapshot-ping-pong protection applied**: `cp lib/alloc.cyr
+  ~/.cyrius/lib/` + `~/.cyrius/versions/5.8.32/lib/` after each
+  edit batch.
+
+- **Migration policy**. Allocator parameter is opt-in during
+  v5.8.x; legacy `alloc(size)` / `arena_new(cap)` /
+  `arena_alloc(a, sz)` stay callable. `alloc_init()` global
+  singleton retires at v5.8.37 with a compat shim. v6.0.0
+  closeout removes the shim.
+
 ## [5.8.32] — 2026-05-03
 
 **v5.8.x slot 32 — Result+? sub-suite closeout**. Final slot of

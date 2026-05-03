@@ -1,0 +1,178 @@
+# alloc_iface.tcyr — v5.8.33 — Allocator vtable + 3 default impls.
+#
+# Locks the regression floor for:
+#   (1) Allocator vtable layout: 5 i64 slots at +0/+8/+16/+24/+32
+#       (alloc_fn, realloc_fn, free_fn, reset_fn, state). Accessors
+#       allocator_alloc_fn / realloc_fn / free_fn / reset_fn / state
+#       round-trip the layout.
+#   (2) Dispatch helpers (alloc_via, realloc_via, free_via,
+#       reset_via) call through the vtable via fncall1/fncall2/fncall4
+#       with the Allocator's own state as first arg.
+#   (3) bump_allocator() — alloc_via dispatches to the global bump;
+#       reset_via clears EVERY allocation on the global heap (use
+#       carefully). free_via is a no-op.
+#   (4) arena_allocator(cap) — independent from the global bump;
+#       reset_via clears only this arena's allocations; cap-overflow
+#       returns 0 from alloc_via.
+#   (5) test_allocator() — alloc_count tracks every alloc_via call;
+#       fail_after threshold makes alloc_via return 0 once exceeded;
+#       configurable via test_allocator_fail_after(a, n) and read
+#       via test_allocator_alloc_count(a).
+#   (6) Cross-impl uniformity — same alloc_via(a, sz) call shape
+#       works against bump, arena, and test allocators.
+#
+# This is the foundation for v5.8.34 (failing-allocator harness)
+# and v5.8.35-37 (stdlib migration to thread Allocator parameter
+# through every allocating fn). Legacy `alloc(size)` / `arena_alloc(a, size)`
+# stay callable for back-compat through v5.8.x; v6.0.0 removes the
+# global-singleton calling convention.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/fnptr.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- vtable layout ----
+
+test_group("Allocator vtable layout — 5 i64 slots");
+var b1 = bump_allocator();
+assert(b1 != 0, "bump_allocator() returned non-zero");
+# alloc_fn / realloc_fn / free_fn / reset_fn are all non-zero fn ptrs
+assert(allocator_alloc_fn(b1)   != 0, "alloc_fn populated");
+assert(allocator_realloc_fn(b1) != 0, "realloc_fn populated");
+assert(allocator_free_fn(b1)    != 0, "free_fn populated (no-op for bump)");
+assert(allocator_reset_fn(b1)   != 0, "reset_fn populated");
+# state is 0 for bump (global singleton)
+assert_eq(allocator_state(b1), 0, "bump state is 0 (global singleton)");
+
+# ---- bump_allocator behavior ----
+
+test_group("bump_allocator — alloc_via returns valid ptr");
+var p1 = alloc_via(b1, 64);
+assert(p1 != 0, "alloc_via(b1, 64) returned non-zero");
+# Touch every byte to verify allocation is real
+var i = 0;
+while (i < 64) { store8(p1 + i, i & 255); i = i + 1; }
+assert_eq(load8(p1), 0,    "byte 0 round-trip");
+assert_eq(load8(p1 + 63), 63, "byte 63 round-trip");
+
+test_group("bump_allocator — free_via is no-op");
+assert_eq(free_via(b1, p1), 0, "free_via returns 0 (no-op)");
+# After "free", the pointer is still valid (bump doesn't reclaim)
+store8(p1, 99);
+assert_eq(load8(p1), 99, "ptr still writable after free_via");
+
+test_group("bump_allocator — realloc_via copies + extends");
+var p2 = alloc_via(b1, 16);
+var k = 0;
+while (k < 16) { store8(p2 + k, 100 + k); k = k + 1; }
+var p3 = realloc_via(b1, p2, 16, 64);
+assert(p3 != 0, "realloc_via grew the allocation");
+# First 16 bytes preserved
+assert_eq(load8(p3),      100, "byte 0 of grown alloc preserved");
+assert_eq(load8(p3 + 15), 115, "byte 15 of grown alloc preserved");
+
+# ---- arena_allocator behavior ----
+
+test_group("arena_allocator(cap) — independent from global bump");
+var ar = arena_allocator(4096);
+assert(ar != 0, "arena_allocator(4096) returned non-zero");
+assert(allocator_state(ar) != 0, "arena state populated (the arena itself)");
+
+var ap1 = alloc_via(ar, 128);
+assert(ap1 != 0, "alloc_via on arena returned non-zero");
+store8(ap1, 42);
+assert_eq(load8(ap1), 42, "arena alloc writable");
+
+test_group("arena_allocator — alloc fails on cap overflow");
+var ap_big = alloc_via(ar, 8192);    # > 4096 cap
+assert_eq(ap_big, 0, "alloc_via beyond arena cap returns 0");
+
+test_group("arena_allocator — reset_via clears the arena");
+reset_via(ar);
+# After reset, the arena should be empty — next alloc starts at offset 0
+var ap2 = alloc_via(ar, 128);
+assert(ap2 != 0, "post-reset alloc succeeds");
+# Compare addresses — ap2 should be at the arena's base (same as ap1
+# pre-reset). Don't assert exact equality since the arena alignment
+# might shift; instead verify ap2 != ap1's leaked address by checking
+# they have the same parent arena (same low bits modulo cap).
+assert(ap2 == ap1, "post-reset alloc returned to arena base");
+
+# ---- test_allocator behavior ----
+
+test_group("test_allocator() — alloc_count tracking");
+var t = test_allocator();
+assert(t != 0, "test_allocator() returned non-zero");
+assert_eq(test_allocator_alloc_count(t), 0, "initial alloc_count = 0");
+
+var tp1 = alloc_via(t, 32);
+assert(tp1 != 0, "first test alloc succeeds");
+assert_eq(test_allocator_alloc_count(t), 1, "alloc_count = 1");
+
+var tp2 = alloc_via(t, 64);
+var tp3 = alloc_via(t, 16);
+assert_eq(test_allocator_alloc_count(t), 3, "alloc_count = 3 after 3 allocs");
+
+# bytes_total is the sum of size args (pre-alignment, pre-fail-after)
+assert_eq(test_allocator_bytes_total(t), 32 + 64 + 16,
+    "bytes_total = sum of size args");
+
+test_group("test_allocator — fail_after threshold");
+var t2 = test_allocator();
+test_allocator_fail_after(t2, 2);    # allow 2 allocs, fail the 3rd
+var f1 = alloc_via(t2, 32);
+var f2 = alloc_via(t2, 32);
+assert(f1 != 0, "alloc 1 of 2 allowed succeeds");
+assert(f2 != 0, "alloc 2 of 2 allowed succeeds");
+var f3 = alloc_via(t2, 32);
+assert_eq(f3, 0, "alloc 3 (past fail_after=2) returns 0");
+var f4 = alloc_via(t2, 32);
+assert_eq(f4, 0, "alloc 4 also returns 0 (still past threshold)");
+# alloc_count keeps incrementing even on failed allocs
+assert_eq(test_allocator_alloc_count(t2), 4, "alloc_count tracks failed allocs too");
+
+test_group("test_allocator — fail_after = -1 disables failure");
+var t3 = test_allocator();
+test_allocator_fail_after(t3, 0 - 1);
+var ok1 = alloc_via(t3, 32);
+var ok2 = alloc_via(t3, 32);
+var ok3 = alloc_via(t3, 32);
+assert(ok1 != 0, "alloc 1 OK with fail_after=-1");
+assert(ok2 != 0, "alloc 2 OK with fail_after=-1");
+assert(ok3 != 0, "alloc 3 OK with fail_after=-1");
+
+test_group("test_allocator — reset clears alloc_count");
+reset_via(t3);
+assert_eq(test_allocator_alloc_count(t3), 0, "alloc_count reset to 0");
+assert_eq(test_allocator_bytes_total(t3), 0, "bytes_total reset to 0");
+
+# ---- cross-impl uniformity ----
+
+# Same call shape works for any allocator. Helper that takes an
+# Allocator parameter and uses it via the vtable.
+fn _alloc_n_words(a, n) {
+    var p = alloc_via(a, n * 8);
+    if (p == 0) { return 0; }
+    var i = 0;
+    while (i < n) {
+        store64(p + i * 8, i * 100);
+        i = i + 1;
+    }
+    return p;
+}
+
+test_group("cross-impl — bump / arena / test all dispatch via alloc_via");
+var bp = _alloc_n_words(b1, 4);
+var ap = _alloc_n_words(ar, 4);
+var tp = _alloc_n_words(t, 4);
+assert(bp != 0, "bump path returned non-zero");
+assert(ap != 0, "arena path returned non-zero");
+assert(tp != 0, "test path returned non-zero");
+assert_eq(load64(bp + 24), 300, "bump word[3] = 300");
+assert_eq(load64(ap + 24), 300, "arena word[3] = 300");
+assert_eq(load64(tp + 24), 300, "test word[3] = 300");
+
+var r = assert_summary();

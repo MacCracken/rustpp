@@ -1040,11 +1040,28 @@ sum types + Result already in means the migration uses
 `Result<T, AllocError>` for failure returns (cleaner than
 doing it before Result lands).
 
-- **v5.8.33** — `Allocator` interface in `lib/alloc.cyr`.
-  vtable shape: `alloc`, `realloc`, `free`, `reset`. Default
-  implementations: `bump_allocator` (current behavior),
-  `arena_allocator` (scoped), `test_allocator` (tracks every
-  allocation, fails on demand).
+- ✅ **v5.8.33** — Allocator vtable interface (shipped 2026-05-03).
+  40-byte / 5-slot Allocator layout (alloc_fn / realloc_fn /
+  free_fn / reset_fn / state). 3 default impls: `bump_allocator()`
+  wraps the global bump (state=0; free=no-op; reset=alloc_reset
+  GLOBAL — use carefully); `arena_allocator(cap)` wraps a fresh
+  arena (state=arena ptr; reset clears only this arena);
+  `test_allocator()` tracks alloc_count / bytes_total / fail_after
+  threshold for the v5.8.34 OOM harness (state=24 B counter
+  struct). Dispatch helpers `alloc_via(a, size)` /
+  `realloc_via(a, p, oldsz, newsz)` / `free_via(a, p)` /
+  `reset_via(a)` call through the vtable via fncall1/fncall2/
+  fncall4. Vtable accessors `allocator_alloc_fn` /
+  `allocator_realloc_fn` / `allocator_free_fn` /
+  `allocator_reset_fn` / `allocator_state`. test_allocator extras:
+  `test_allocator_fail_after(a, n)` (-1 = never), 
+  `test_allocator_alloc_count(a)`, `test_allocator_bytes_total(a)`.
+  cc5 unchanged at 739,672 B (zero compiler delta — pure stdlib
+  addition). New `tests/tcyr/alloc_iface.tcyr` — 43 assertions
+  across 12 groups. check.sh 64/64; self-host two-step
+  byte-identical. **Doc-coverage gate caught 8 undocumented
+  public fns** on first check.sh run (5 accessors + 3
+  constructors); fixed inline per `cyrdoc --check` convention.
 - **v5.8.34** — Failing-allocator test harness. `lib/assert.cyr`
   extension: `fail_after_n_allocs(n)` helper. Enables
   `tests/tcyr/oom_handling.tcyr` coverage.
