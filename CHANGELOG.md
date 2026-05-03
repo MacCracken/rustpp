@@ -4,6 +4,75 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.34] — 2026-05-03
+
+**v5.8.x slot 34 — failing-allocator test harness**. Second slot
+of the Phase 2 Allocators sub-suite (v5.8.33–v5.8.38). Adds
+`fail_after_n_allocs(n)` helper to `lib/assert.cyr` — a thin
+wrapper over v5.8.33's `test_allocator()` + 
+`test_allocator_fail_after()`. Foundation for the OOM-handling
+tcyr coverage that the v5.8.35-37 stdlib migration will land
+(vec_push / str_cat / hashmap_set / json_v_arr_push under
+forced allocation failure).
+
+cc5 unchanged at **739,672 B** (zero compiler delta — pure
+stdlib addition).
+
+### Added
+
+- **`lib/assert.cyr`** — `include "lib/alloc.cyr"` near the top
+  (transitive — test consumers get the full assertion +
+  OOM-driving stack from a single `include "lib/assert.cyr"`).
+  New helper `fail_after_n_allocs(n)`: returns an Allocator
+  configured to fail after `n` successful `alloc_via` calls.
+  Pass `n = 0` for "every alloc fails"; `n = -1` to disable
+  (same as bare `test_allocator()`).
+
+- **`tests/tcyr/oom_handling.tcyr`** — 33 assertions across 9
+  groups covering: `fail_after_n_allocs(0)` first-alloc-fails,
+  `fail_after_n_allocs(1)` first-OK-second-fails,
+  `fail_after_n_allocs(3)` threshold-scaling, alloc_count
+  tracking (counts failed allocs too), bytes_total accumulation,
+  reset_via clears counters but preserves threshold,
+  consumer-pattern fallback (a fn that allocates twice and
+  gracefully handles second-alloc OOM with rc=1 vs rc=2 vs
+  rc=0 distinguishing primary-OOM / backup-OOM / both-OK),
+  vtable slot population sanity.
+
+### Sub-suite progress
+
+- v5.8.33 ✅ Allocator vtable interface + 3 default impls.
+- v5.8.34 ✅ Failing-allocator test harness (this slot).
+- v5.8.35 — Stdlib migration pass 1: lib/vec.cyr,
+  lib/str.cyr, lib/hashmap.cyr.
+- v5.8.36 — Stdlib migration pass 2: lib/json.cyr,
+  lib/toml.cyr, lib/cyml.cyr, lib/http.cyr, lib/sandhi.cyr.
+- v5.8.37 — Retire alloc_init() global singleton.
+- v5.8.38 — Sub-suite closeout.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `oom_handling` tcyr → 33 passed, 0 failed.
+- `alloc_iface` tcyr → 43 passed, 0 failed
+  (regression-floored).
+- All Result+? sub-suite tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Process notes
+
+- **Snapshot-ping-pong protection applied**: `cp lib/assert.cyr
+  ~/.cyrius/lib/` + `~/.cyrius/versions/5.8.33/lib/` after the
+  edit.
+- **Doc-coverage gate clean** on first check.sh run (12/12
+  documented). Lesson from v5.8.33 stuck — wrote the leading
+  comment for `fail_after_n_allocs` as part of the fn definition.
+- **Migration policy** unchanged from v5.8.33. The harness is
+  purely additive: existing `assert_*` consumers see no change;
+  new OOM-driving consumers opt in via `fail_after_n_allocs(n)`
+  + `alloc_via(...)`.
+
 ## [5.8.33] — 2026-05-03
 
 **v5.8.x slot 33 — Allocator vtable interface**. First slot of

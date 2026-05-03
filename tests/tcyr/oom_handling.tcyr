@@ -1,0 +1,163 @@
+# oom_handling.tcyr — v5.8.34 — failing-allocator test harness.
+#
+# Locks the regression floor for `fail_after_n_allocs(n)` from
+# lib/assert.cyr — the v5.8.34 OOM-driving helper that wraps
+# v5.8.33's test_allocator.
+#
+# Coverage:
+#   (1) `fail_after_n_allocs(0)` — every alloc fails (returns 0
+#       on the very first alloc_via call).
+#   (2) `fail_after_n_allocs(1)` — first alloc OK, second fails.
+#   (3) `fail_after_n_allocs(N)` — N successful, (N+1) fails.
+#       Tested with N = 3 to verify the threshold scales.
+#   (4) alloc_count tracking — counter increments on every
+#       alloc_via call including the ones that returned 0
+#       (matches v5.8.33 test_allocator semantics).
+#   (5) bytes_total — sum of size args (pre-alignment, includes
+#       failed allocs' size requests).
+#   (6) reset_via — clears alloc_count + bytes_total to 0
+#       without touching the global bump.
+#   (7) Consumer-pattern example — a fn that allocates twice
+#       and gracefully falls back when the second alloc fails.
+#
+# This harness is the foundation for the v5.8.35-37 stdlib
+# migration's OOM-handling tests: vec_push / str_cat / hashmap_set
+# / json_v_arr_push / etc. will all gain Allocator parameters
+# and surface OutOfMemory via Result, with `fail_after_n_allocs`
+# driving the negative-path coverage.
+
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+# alloc.cyr is transitively included by assert.cyr (v5.8.34
+# include-graph addition); explicit include kept for clarity.
+include "lib/alloc.cyr"
+
+alloc_init();
+
+# ---- fail_after_n_allocs(0) — every alloc fails ----
+
+test_group("fail_after_n_allocs(0) — first alloc returns 0");
+var a0 = fail_after_n_allocs(0);
+assert(a0 != 0, "harness allocator constructed");
+assert_eq(test_allocator_alloc_count(a0), 0, "initial alloc_count = 0");
+var p0a = alloc_via(a0, 32);
+assert_eq(p0a, 0, "alloc 1 with n=0 returns 0");
+assert_eq(test_allocator_alloc_count(a0), 1, "alloc_count incremented despite failure");
+var p0b = alloc_via(a0, 64);
+assert_eq(p0b, 0, "alloc 2 with n=0 still returns 0");
+
+# ---- fail_after_n_allocs(1) — first OK, second fails ----
+
+test_group("fail_after_n_allocs(1) — first alloc OK, second fails");
+var a1 = fail_after_n_allocs(1);
+var p1a = alloc_via(a1, 32);
+assert(p1a != 0, "alloc 1 with n=1 succeeds");
+var p1b = alloc_via(a1, 32);
+assert_eq(p1b, 0, "alloc 2 with n=1 returns 0");
+assert_eq(test_allocator_alloc_count(a1), 2,
+    "alloc_count = 2 (counts both successes and failures)");
+
+# ---- fail_after_n_allocs(3) — threshold scales ----
+
+test_group("fail_after_n_allocs(3) — 3 succeed, 4th fails");
+var a3 = fail_after_n_allocs(3);
+var p3a = alloc_via(a3, 16);
+var p3b = alloc_via(a3, 16);
+var p3c = alloc_via(a3, 16);
+assert(p3a != 0, "alloc 1 of 3 succeeds");
+assert(p3b != 0, "alloc 2 of 3 succeeds");
+assert(p3c != 0, "alloc 3 of 3 succeeds");
+var p3d = alloc_via(a3, 16);
+assert_eq(p3d, 0, "alloc 4 (past n=3) returns 0");
+var p3e = alloc_via(a3, 16);
+assert_eq(p3e, 0, "alloc 5 also returns 0 (still past threshold)");
+
+# ---- bytes_total tracking ----
+
+test_group("bytes_total — sums size args including failed");
+var ab = fail_after_n_allocs(2);
+alloc_via(ab, 16);    # ok, +16
+alloc_via(ab, 64);    # ok, +64
+alloc_via(ab, 128);   # fail, +128 (counted)
+alloc_via(ab, 32);    # fail, +32 (counted)
+assert_eq(test_allocator_bytes_total(ab), 16 + 64 + 128 + 32,
+    "bytes_total = sum of all size args, success + failure");
+
+# ---- reset_via clears counters ----
+
+test_group("reset_via — clears alloc_count + bytes_total");
+var ar = fail_after_n_allocs(5);
+alloc_via(ar, 32);
+alloc_via(ar, 32);
+alloc_via(ar, 32);
+assert_eq(test_allocator_alloc_count(ar), 3, "pre-reset alloc_count = 3");
+reset_via(ar);
+assert_eq(test_allocator_alloc_count(ar), 0, "post-reset alloc_count = 0");
+assert_eq(test_allocator_bytes_total(ar), 0, "post-reset bytes_total = 0");
+# After reset, the original fail_after threshold STILL applies
+# (reset only clears counters, not configuration).
+var pr1 = alloc_via(ar, 32);
+var pr2 = alloc_via(ar, 32);
+var pr3 = alloc_via(ar, 32);
+var pr4 = alloc_via(ar, 32);
+var pr5 = alloc_via(ar, 32);
+var pr6 = alloc_via(ar, 32);
+assert(pr5 != 0, "post-reset alloc 5 still succeeds (n=5)");
+assert_eq(pr6, 0, "post-reset alloc 6 still fails (n=5 unchanged)");
+
+# ---- consumer-pattern: graceful fallback on second-alloc failure ----
+
+# Fn that allocates a primary buffer and a backup buffer. Returns
+# whether both allocs succeeded; on first failure returns 0; on
+# second failure (backup OOM) returns 1 with primary still valid.
+fn _two_alloc_consumer(a, primary_sz, backup_sz, out) {
+    var primary = alloc_via(a, primary_sz);
+    if (primary == 0) {
+        store64(out, 0);
+        store64(out + 8, 0);
+        return 0;        # both failed
+    }
+    var backup = alloc_via(a, backup_sz);
+    store64(out, primary);
+    store64(out + 8, backup);
+    if (backup == 0) {
+        return 1;        # primary ok, backup OOM (caller can fall back)
+    }
+    return 2;            # both succeeded
+}
+
+test_group("consumer pattern — both allocs succeed (n=5)");
+var slot[16];
+var ac1 = fail_after_n_allocs(5);
+var rc1 = _two_alloc_consumer(ac1, 64, 32, &slot);
+assert_eq(rc1, 2, "rc=2: both allocs succeeded");
+assert(load64(&slot) != 0, "primary populated");
+assert(load64(&slot + 8) != 0, "backup populated");
+
+test_group("consumer pattern — backup OOM (n=1)");
+var ac2 = fail_after_n_allocs(1);
+var rc2 = _two_alloc_consumer(ac2, 64, 32, &slot);
+assert_eq(rc2, 1, "rc=1: primary ok, backup OOM");
+assert(load64(&slot) != 0, "primary still populated");
+assert_eq(load64(&slot + 8), 0, "backup is 0 (OOM)");
+
+test_group("consumer pattern — primary OOM (n=0)");
+var ac3 = fail_after_n_allocs(0);
+var rc3 = _two_alloc_consumer(ac3, 64, 32, &slot);
+assert_eq(rc3, 0, "rc=0: primary OOM, backup never tried");
+assert_eq(load64(&slot), 0, "primary is 0");
+assert_eq(load64(&slot + 8), 0, "backup is 0 (never reached)");
+
+# ---- fail_after_n_allocs returns valid Allocator ----
+
+# Sanity: the harness allocator is a proper Allocator value with
+# all 5 vtable slots populated.
+test_group("harness Allocator vtable — all slots populated");
+var av = fail_after_n_allocs(2);
+assert(allocator_alloc_fn(av)   != 0, "alloc_fn populated");
+assert(allocator_realloc_fn(av) != 0, "realloc_fn populated");
+assert(allocator_free_fn(av)    != 0, "free_fn populated (no-op)");
+assert(allocator_reset_fn(av)   != 0, "reset_fn populated");
+assert(allocator_state(av)      != 0, "state populated (24-byte counter struct)");
+
+var r = assert_summary();

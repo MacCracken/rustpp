@@ -1062,9 +1062,21 @@ doing it before Result lands).
   byte-identical. **Doc-coverage gate caught 8 undocumented
   public fns** on first check.sh run (5 accessors + 3
   constructors); fixed inline per `cyrdoc --check` convention.
-- **v5.8.34** — Failing-allocator test harness. `lib/assert.cyr`
-  extension: `fail_after_n_allocs(n)` helper. Enables
-  `tests/tcyr/oom_handling.tcyr` coverage.
+- ✅ **v5.8.34** — Failing-allocator test harness (shipped 2026-05-03).
+  `lib/assert.cyr` gains `include "lib/alloc.cyr"` (transitive
+  for test consumers) + `fn fail_after_n_allocs(n)` — a thin
+  wrapper over v5.8.33's `test_allocator()` +
+  `test_allocator_fail_after()`. Returns an Allocator configured
+  to fail after `n` successful `alloc_via` calls (n=0 fails every
+  alloc; n=-1 never fails). New `tests/tcyr/oom_handling.tcyr` —
+  33 assertions across 9 groups covering thresholds 0/1/3,
+  alloc_count tracking through failures, bytes_total accumulation,
+  reset_via behavior, consumer-pattern fallback (rc=0 primary OOM /
+  rc=1 backup OOM / rc=2 both OK), vtable sanity. cc5 unchanged
+  at 739,672 B (zero compiler delta). check.sh 64/64; self-host
+  two-step byte-identical. Doc-coverage gate clean on first run
+  (v5.8.33 lesson stuck). Foundation for v5.8.35-37 stdlib
+  migration's OOM tcyrs.
 - **v5.8.35** — Stdlib migration pass 1 core modules:
   `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
   `Allocator` as first arg; default-allocator wrapper
