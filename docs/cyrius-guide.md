@@ -185,6 +185,66 @@ var b = "\u00e9";     # 4-hex form:               C3 A9
 var c = "\u{e9}";     # braced form:              C3 A9
 ```
 
+## Slices
+
+```
+include "lib/slice.cyr"
+
+# Two equivalent type forms:
+var s: [u8] = 0;          # bracket form
+var t: slice<i64> = 0;    # ident form
+
+# Slice points at backing storage. Convention: ptr@0, len@8.
+var data[5];
+store8(&data, 65); store8(&data + 1, 66);  # ...
+slice_set(&s, &data, 5);
+
+# Bounds-aware indexing — element-width-correct load (v5.8.15).
+# Out-of-range / negative idx → exit 134 + "slice bounds violation\n" to stderr.
+var b = s[0];           # = 65
+var c = s[2];           # = 67
+
+# Dot-syntax field access (v5.8.16). .ptr / .len only — other names error.
+var p = s.ptr;          # = &data
+var n = s.len;          # = 5
+s.len = 3;              # truncate the view
+s.ptr = &data + 1;      # rewrite view start
+
+# Slice-typed wrapper helpers (v5.8.18) — additive, take slice POINTERS.
+sys_read_slice(fd, &s);                 # read up to s.len bytes into s.data
+slice_copy_bytes(&dst, &src);           # memcpy with min-length cap
+slice_eq_bytes(&a, &b);                 # content equality
+```
+
+Subscript and dot-syntax fire on **fn-local** slices only. Top-level
+slice vars still need the helper-fn API (`slice_ptr` / `slice_len` /
+`slice_unchecked_get_W`). See `lib/slice.cyr` for the full helper list.
+
+A `Str` (heap, `lib/str.cyr`) and a `vec`'s first 16 bytes
+(`lib/vec.cyr`) are byte-identical to a slice — they pass directly to
+`slice_ptr` / `slice_len` / `slice_eq` etc. without conversion.
+
+## Pointer-to-struct dot syntax (v5.8.17)
+
+```
+include "lib/str.cyr"
+
+var s: Str = str_from("hello");
+var n = s.len;            # = 5  (heap-pointer auto-deref)
+var d = s.data;           # = pointer to "hello" bytes
+
+# Works on `: <StructName>` fn parameters too:
+fn print_str(s: Str) {
+    syscall(1, 1, s.data, s.len);
+    return 0;
+}
+```
+
+The `: Type` annotation is required — untyped locals storing
+struct pointers fall through to the existing error path.
+PARSE_FIELD_LOAD/STORE auto-detects pointer-vs-inline by checking
+the slot above the named slot for the v5.5.36 sentinel name (-1).
+
 ## Syscalls
 
 ```

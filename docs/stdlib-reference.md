@@ -37,8 +37,8 @@ Fat string type: `{data: ptr, len: i64}`. Requires alloc.cyr + string.cyr.
 |----------|-----------|-------------|
 | `str_from` | `str_from(cstr) → Str` | Wrap C string as Str |
 | `str_new` | `str_new(data, len) → Str` | Create from buffer + length |
-| `str_len` | `str_len(s) → len` | Get length |
-| `str_data` | `str_data(s) → ptr` | Get raw data pointer |
+| `str_len` | `str_len(s) → len` | Get length (also available as `s.len` on `: Str` typed locals — v5.8.17) |
+| `str_data` | `str_data(s) → ptr` | Get raw data pointer (also available as `s.data` on `: Str` typed locals — v5.8.17) |
 | `str_print` | `str_print(s)` | Print to stdout |
 | `str_println` | `str_println(s)` | Print + newline |
 | `str_eq` | `str_eq(a, b) → 0/1` | Compare two Str |
@@ -59,6 +59,37 @@ Fat string type: `{data: ptr, len: i64}`. Requires alloc.cyr + string.cyr.
 | `str_builder_add_cstr` | `str_builder_add_cstr(sb, cstr)` | Append C string |
 | `str_builder_add_int` | `str_builder_add_int(sb, n)` | Append integer |
 | `str_builder_build` | `str_builder_build(sb) → Str` | Finalize to Str |
+
+### slice.cyr
+
+Stack-allocated 16-byte fat pointer (`{ptr@0, len@8}`). The `slice<T>`
+/ `[T]` type annotation reserves the slot at PARSE_VAR time; the
+helper API populates / inspects it. Byte-identical layout to the
+first 16 bytes of `Str` and `vec` (zero-cost interop).
+
+Subscript (`s[i]`, v5.8.15) and dot-syntax (`s.ptr` / `s.len`,
+v5.8.16) work on **fn-local** slices only. Top-level vars use the
+helper API.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `slice_set` | `slice_set(&s, ptr, len) → 0` | Initialize in-place |
+| `slice_of` | `slice_of(&s, ptr, len) → 0` | Builder alias for `slice_set` |
+| `slice_ptr` | `slice_ptr(&s) → ptr` | Read .ptr field |
+| `slice_len` | `slice_len(&s) → len` | Read .len field |
+| `slice_zero` | `slice_zero(&s) → 0` | Set both fields to 0 |
+| `slice_copy` | `slice_copy(&dst, &src) → 0` | Copy ptr+len fields |
+| `slice_eq` | `slice_eq(&a, &b) → 0/1` | Pointer-equality (NOT content) |
+| `slice_is_empty` | `slice_is_empty(&s) → 0/1` | True iff `.len == 0` |
+| `slice_is_null` | `slice_is_null(&s) → 0/1` | True iff `.ptr == 0` |
+| `slice_from_cstr` | `slice_from_cstr(&dst, cstr) → 0` | Init from null-terminated string |
+| `slice_from_buf` | `slice_from_buf(&dst, buf, len) → 0` | Init from `(buf, len)` pair |
+| `vec_as_slice` | `vec_as_slice(&dst, v) → 0` | Snapshot vec's first 16 bytes |
+| `_slice_idx_get_W(&s, i)` | width 1/2/4/8/16 | Bounds-checked sized load (used by `s[i]` lowering) |
+| `slice_unchecked_get_W(&s, i)` | width 1/2/4/8/16 | Same as above, no bounds check |
+| `sys_read_slice` | `sys_read_slice(fd, &s) → n` | `sys_read` taking a slice (v5.8.18) |
+| `slice_copy_bytes` | `slice_copy_bytes(&dst, &src) → n` | `memcpy` with min-length cap (v5.8.18) |
+| `slice_eq_bytes` | `slice_eq_bytes(&a, &b) → 0/1` | Content equality, length-mismatch is unequal (v5.8.18) |
 
 ### vec.cyr
 

@@ -259,7 +259,7 @@ enabler audit trail.
 
 
 
-## v5.8.x — Optimization + language-vocabulary stabilization (41 pinned slots; soft backstop ~.44; 3-slot headroom)
+## v5.8.x — Optimization + language-vocabulary stabilization (42 pinned slots; soft backstop ~.49; 7-slot headroom)
 
 **Theme** (re-scoped 2026-05-01 at v5.8.0 ship): bug-fix /
 optimization minor that ALSO folds forward the language-feature
@@ -277,12 +277,15 @@ the perf-correctness alignment that enables per-request arenas;
 slices replace ptr+len pairs in every crypto / network / I/O
 hot path.
 
-**41 pinned slots** (v5.8.1 → v5.8.41) across 3 phases (cascaded
+**42 pinned slots** (v5.8.1 → v5.8.42) across 3 phases (cascaded
 +1 at v5.8.5 for SSH-gate carve-out, +4 at v5.8.9 for slices
 re-scope to 5-patch sub-arc, **+6 at v5.8.14 to absorb the
 slices true-completion sub-arc** — v5.8.13's "honest scope-
 shrink" deferrals were a bandaid; user-directed re-scope to
-ACTUALLY ship first-class slices instead of typedef + helpers):
+ACTUALLY ship first-class slices instead of typedef + helpers;
+**+1 at v5.8.18 for api-surface refresh + auto-build wiring +
+null-byte-in-shell-substitution fix** — gate has been silently
+skipping since v5.7.50 due to unbuilt binary):
 - Phase 1 (v5.8.1–v5.8.8): quick-win unblockers — fmt cap raise,
   packaging fix, ts/parse fmt sweep, f64_log2 parser dispatch
   (v5.8.4) + f64_log2 SSH-gate hardware verification (v5.8.5),
@@ -292,10 +295,15 @@ ACTUALLY ship first-class slices instead of typedef + helpers):
   slices foundation (5, v5.8.9-13) + slices true-completion
   (6, v5.8.14-19), effects (1), tagged unions (5),
   Result<T,E>+? (5), allocators (6).
-- Phase 3 (v5.8.37–v5.8.41): polish + closeout.
+- Phase 3 (v5.8.37–v5.8.42): polish + closeout — including
+  api-surface refresh as v5.8.42 (pre-closeout backstop
+  sized for fix + snapshot regen + downstream consumer
+  rebuild verification).
 
-Soft backstop ~.44 with 3-slot headroom for surface-during-
-cycle items. Below v5.7.x's 51-patch record.
+Soft backstop pushed from ~.44 to ~.49 (mirroring v5.7.49's
+end-of-cycle backstop pattern). 7-slot headroom (v5.8.43-v5.8.49)
+covers surface-during-cycle items + a final closeout backstop if
+Phase 3 finds late-cycle issues. Below v5.7.x's 51-patch record.
 
 **Bare-metal arc + RISC-V rv64 stays at v5.9.x** — arch-port
 work better paired after the language vocabulary stabilizes.
@@ -853,10 +861,54 @@ fn requires explicit allocator.
   expression after `=`" → "uninitialized variable not allowed;
   use `var X = 0;` or initial value").
 
-- **v5.8.41** — v5.8.x closeout backstop. CLAUDE.md 11-step
-  closeout protocol + downstream consumer sweep + vidya
-  per-minor refresh + completed-phases.md migration of all
-  v5.8.* sections.
+- **v5.8.41** — Phase 3 polish (last pre-closeout polish slot;
+  see Phase 3 description above for the floating slot's
+  surface-during-cycle absorption role).
+
+- **v5.8.42** — api-surface refresh + auto-build wiring +
+  null-byte-in-shell-substitution fix. Pinned 2026-05-02 at
+  v5.8.18 ship. Three-part deliverable:
+
+  1. **`cyrius_api_surface` binary auto-build wiring.** The
+     binary is in `cyrius.cyml`'s `bins = [...]` list but the
+     CI/release pipeline doesn't build it on `sh scripts/check.sh`
+     paths, so `tests/regression-api-surface.sh` has been silently
+     skipping with `skip: build/cyrius_api_surface not built`
+     since v5.7.50. Fix: include the build in the same path that
+     builds cc5/cyrlint/cyrfmt/cyrdoc, OR teach the gate to
+     compile-on-demand from `programs/api_surface.cyr`.
+
+  2. **Snapshot regeneration.** `docs/api-surface.snapshot` was
+     last refreshed 2026-04-29 at 2563 entries. Current code has:
+     additions (slice helpers from §6-§10 — `_slice_idx_get_W`,
+     `slice_unchecked_get_W`, `sys_read_slice`, `slice_copy_bytes`,
+     `slice_eq_bytes`, etc.); some agnosys removals (e.g.
+     `bootloader_config_*` family). Regen via `cyrius
+     api-surface --update`.
+
+  3. **Null-byte-in-shell-substitution fix.** The gate's three
+     test cases produce `command substitution: ignored null
+     byte in input` warnings on the synthetic-snapshot tests
+     (lines 54 + 71 of `tests/regression-api-surface.sh`). Root
+     cause is the tool emitting null bytes in some failure
+     paths that survive the shell capture; either the tool's
+     emit path needs trimming or the shell capture needs
+     `tr -d '\\0'` filtering. Pre-existing — noted in the
+     v5.7.50 P(-1) audit as deferred.
+
+  Acceptance gate: `tests/regression-api-surface.sh` returns 0
+  with all three test cases green and zero null-byte warnings;
+  `sh scripts/check.sh` shows api-surface gate as PASS not skip.
+
+- **v5.8.43-v5.8.49** — Cycle headroom. Reserved for
+  surface-during-cycle items + a final closeout backstop if
+  Phase 3 finds late-cycle issues. Mirrors v5.7.49's
+  end-of-cycle backstop role. The cycle's TRUE closeout
+  protocol (CLAUDE.md 11-step + downstream consumer sweep +
+  vidya per-minor refresh + completed-phases.md migration of
+  all v5.8.* sections) lands in whichever slot in this range
+  ends up the actual end-of-cycle (v5.8.42 if no headroom is
+  consumed, otherwise the last consumed-or-pinned slot).
 
 ### v5.8.x — held items (surfacing-ask only; not pinned, no slot consumed)
 
@@ -886,8 +938,10 @@ fn requires explicit allocator.
 
 Two arch-port-style efforts grouped into one minor since both land at
 the "no libc, direct hardware/different ABI" layer. Moved from v5.8.x
-at 2026-05-01 v5.7.49 ship — v5.8.x reframed as bug-fix/optimization
-minor; arch-port work needs its own dedicated cycle.
+at 2026-05-01 v5.7.49 ship — v5.8.x became the slices true-completion
++ language-feature arc instead (slot-map cascade +6 at v5.8.14 absorbed
+the deferred §6-§11 work; sub-arc through v5.8.18 = halfway mark);
+arch-port work needs its own dedicated cycle.
 
 ### v5.9.0 — Bare-metal / AGNOS kernel target
 

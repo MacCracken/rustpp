@@ -91,10 +91,10 @@ syscall(60, r);
 
 | Metric | Value |
 |--------|-------|
-| Compiler | **~720KB** x86_64, **~412KB** aarch64 cross |
+| Compiler | **~728KB** x86_64 (v5.8.18), **~412KB** aarch64 cross |
 | Seed binary | **29KB** |
 | External dependencies | **0** |
-| Tests | 93 .tcyr (TS suite consolidated 24→4 at v5.7.37), 5 .fcyr fuzz, 15 .bcyr bench, 1 .scyr soak, 1 .smcyr smoke |
+| Tests | 105 .tcyr (TS suite consolidated 24→4 at v5.7.37; v5.8.x slices sub-arc added 8 slice tcyrs + 1 str_dot_syntax), 5 .fcyr fuzz, 15 .bcyr bench, 1 .scyr soak, 1 .smcyr smoke |
 | Architectures | x86_64 + aarch64 (cross + native), Windows PE cross, macOS aarch64 cross, cyrius-x bytecode |
 | Caps | ident buffer 128KB, fn table 4096, fixup table 1M (v5.7.7), input_buf 1MB (v5.7.10), distlib per-module 256KB (v5.7.36), aarch64 codebuf 3MB (v5.7.34) |
 
@@ -183,7 +183,7 @@ src/
 bootstrap/asm (29KB committed binary -- root of trust)
   -> cyrc (12KB compiler)
     -> bridge.cyr (bridge compiler)
-      -> cc5 (modular compiler + IR, ~720KB)
+      -> cc5 (modular compiler + IR, ~728KB at v5.8.18)
         -> cc5_aarch64, cc5_win_cross, cc5_macho_cross, cc5_cx (cross-compilers)
 ```
 

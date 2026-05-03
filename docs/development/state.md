@@ -40,7 +40,18 @@ probes (real-fd machinery doesn't fit cleanly in tcyr). §11
 next: TRUE sub-arc closeout — downstream consumers rebuild
 against the new helper surface area; acceptance gates
 extended; sub-arc retrospective + lessons learned from the
-§9 / §10 honest scope-shrink calls.)
+§9 / §10 honest scope-shrink calls.
+
+**Slot-map cascade +1 at v5.8.18 ship**: 41 → 42 pinned slots,
+soft backstop ~.44 → ~.49 (mirroring v5.7.49's end-of-cycle
+backstop role; per-user 2026-05-02 "include api surface work
+in the 5.8.x workflow; we can backstop with 5.8.49 again").
+New v5.8.42 slot pinned for `cyrius_api_surface` refresh +
+auto-build wiring + null-byte-in-shell-substitution fix —
+the gate has been silently skipping since v5.7.50 because the
+binary stopped getting auto-built and the Apr-29 snapshot is
+2 minor releases stale. v5.8.43-v5.8.49 reserved as headroom
+for surface-during-cycle items + final closeout backstop.)
 
 **5.8.17** (shipped 2026-05-02 — **v5.8.x SLOT 17 — slices §9:
 pointer-to-struct dot-syntax capability + Str fn-param SLTYPE
