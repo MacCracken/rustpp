@@ -259,7 +259,7 @@ enabler audit trail.
 
 
 
-## v5.8.x — Optimization + language-vocabulary stabilization (42 pinned slots; soft backstop ~.49; 7-slot headroom)
+## v5.8.x — Optimization + language-vocabulary stabilization (44 pinned slots; soft backstop ~.49; 5-slot headroom)
 
 **Theme** (re-scoped 2026-05-01 at v5.8.0 ship): bug-fix /
 optimization minor that ALSO folds forward the language-feature
@@ -277,7 +277,7 @@ the perf-correctness alignment that enables per-request arenas;
 slices replace ptr+len pairs in every crypto / network / I/O
 hot path.
 
-**42 pinned slots** (v5.8.1 → v5.8.42) across 3 phases (cascaded
+**44 pinned slots** (v5.8.1 → v5.8.44) across 3 phases (cascaded
 +1 at v5.8.5 for SSH-gate carve-out, +4 at v5.8.9 for slices
 re-scope to 5-patch sub-arc, **+6 at v5.8.14 to absorb the
 slices true-completion sub-arc** — v5.8.13's "honest scope-
@@ -285,25 +285,32 @@ shrink" deferrals were a bandaid; user-directed re-scope to
 ACTUALLY ship first-class slices instead of typedef + helpers;
 **+1 at v5.8.18 for api-surface refresh + auto-build wiring +
 null-byte-in-shell-substitution fix** — gate has been silently
-skipping since v5.7.50 due to unbuilt binary):
+skipping since v5.7.50 due to unbuilt binary;
+**+2 at v5.8.22 for exhaustive-match cap bump (v5.8.24) + arm-
+tag dedup (v5.8.25) follow-ups** — known refinements moved into
+discrete pinned slots after v5.8.23's stdlib migration validates
+real-world consumer pressure):
 - Phase 1 (v5.8.1–v5.8.8): quick-win unblockers — fmt cap raise,
   packaging fix, ts/parse fmt sweep, f64_log2 parser dispatch
   (v5.8.4) + f64_log2 SSH-gate hardware verification (v5.8.5),
   syscall surface symmetry, _SC_ARITY audit, NI-class
   investigation. **Phase 1 complete at v5.8.8 ship.**
-- Phase 2 (v5.8.9–v5.8.36): language vocabulary —
+- Phase 2 (v5.8.9–v5.8.38): language vocabulary —
   slices foundation (5, v5.8.9-13) + slices true-completion
-  (6, v5.8.14-19), effects (1), tagged unions (5),
-  Result<T,E>+? (5), allocators (6).
-- Phase 3 (v5.8.37–v5.8.42): polish + closeout — including
-  api-surface refresh as v5.8.42 (pre-closeout backstop
+  (6, v5.8.14-19), effects (1), tagged unions + exhaustive
+  match (7, v5.8.21-27 — extended +2 by v5.8.22 cap-bump +
+  dedup cascade), Result<T,E>+? (5, v5.8.28-32), allocators
+  (6, v5.8.33-38).
+- Phase 3 (v5.8.39–v5.8.44): polish + closeout — including
+  api-surface refresh as v5.8.44 (pre-closeout backstop
   sized for fix + snapshot regen + downstream consumer
   rebuild verification).
 
-Soft backstop pushed from ~.44 to ~.49 (mirroring v5.7.49's
-end-of-cycle backstop pattern). 7-slot headroom (v5.8.43-v5.8.49)
-covers surface-during-cycle items + a final closeout backstop if
-Phase 3 finds late-cycle issues. Below v5.7.x's 51-patch record.
+Soft backstop holds at ~.49 (mirroring v5.7.49's end-of-cycle
+backstop pattern) through cascades. 5-slot headroom
+(v5.8.45-v5.8.49) covers surface-during-cycle items + a final
+closeout backstop if Phase 3 finds late-cycle issues. Below
+v5.7.x's 51-patch record.
 
 **Bare-metal arc + RISC-V rv64 stays at v5.9.x** — arch-port
 work better paired after the language vocabulary stabilizes.
@@ -736,7 +743,7 @@ not in scope this slot; lands incrementally as consumers
 audit. cc5 grew 727,960 → 732,320 B (+4,360 B). New
 `tests/tcyr/effect_annotations.tcyr` 7/7. check.sh 64/64.
 
-##### v5.8.21–v5.8.25 — Tagged unions + exhaustive pattern match
+##### v5.8.21–v5.8.27 — Tagged unions + exhaustive pattern match (+2 cascade at v5.8.22 ship)
 
 Algebraic data types — biggest language-ergonomics addition of
 the v5.x line. Every ad-hoc `int tag; union { ... }` struct
@@ -763,9 +770,26 @@ matches it).
   `#io`; `u128_eq/u128_is_zero` `#pure`). cc5 +2,272 B
   (732,320 → 734,592). New `tests/tcyr/enum_generics.tcyr`
   31/31 across 9 groups.
-- **v5.8.22** — Exhaustive pattern match in `switch`. Compiler
-  verifies every variant is covered; missing variants → error;
-  `_ =>` explicitly opts out.
+- ✅ **v5.8.22** — Exhaustive pattern match in `match`
+  (shipped 2026-05-03). Compiler-emitted **warning** (not
+  error, per v5.8.x incremental-adoption policy) when a
+  `match` over an enum value misses one or more variants
+  and has no `_ =>` opt-out. Two bites: (#1) per-variant →
+  parent-enum bookkeeping infrastructure — new heap regions
+  `var_enum_id[]` (0x204000), `enum_count` (0x214000),
+  `enum_variant_count[]` (0x214008), `enum_name[]` (0x214808);
+  6 accessor fns in util.cyr; PARSE_ENUM_DEF writes all four
+  in pass 1. (#2) PARSE_MATCH coverage check + diagnostic —
+  pre-PCMPE peek at each arm's first ident, look up parent
+  enum-id; track primary `match_eid`, mixed-enum, default
+  flag, covered count; emit "non-exhaustive match over enum
+  'X' — covers N of M variants" or "match arms span multiple
+  enums" warnings as appropriate. Codegen unchanged
+  (metadata-only check; self-host stays byte-identical). cc5
+  +2,568 B (734,592 → 737,160). New
+  `tests/tcyr/exhaustive_match.tcyr` 10/10 across 3 groups.
+  0 false positives during self-host or stdlib compile.
+  `cyrius lint --strict` escalation reserved for a follow-up.
 - **v5.8.23** — Stdlib adoption pass 1: collapse ad-hoc tag+
   union patterns (hashmap `key_type`, dynlib error codes,
   json/toml parse state) into sum types. Internal representation
@@ -784,10 +808,36 @@ matches it).
   bite #1 (then migration as bite #2+) or split into a
   v5.8.22.x preceding bite — author's call at slot entry per
   premise-check.
-- **v5.8.24** — Stdlib adoption pass 2: public API migration
+- **v5.8.24** — Exhaustive-match table cap bump (cascaded
+  from v5.8.22 follow-ups). Today `enum_count` cap is 256
+  (matches struct cap); `enum_variant_count[]` is keyed by
+  256 × 8 B; `var_enum_id[]` covers the full 8192-var range.
+  Largest stdlib enum today is `Errno` with ~17 variants —
+  plenty of headroom — but a downstream consumer with many
+  ad-hoc `enum FooState` decls could wedge the cap silently
+  (current behavior: SENUMC errors out at 256). Slot:
+  (a) audit cap pressure across stdlib + downstream
+  consumers (sigil, mabda, yukti, kybernet); (b) bump
+  `enum_count` cap to 1024 if usage warrants, OR keep at 256
+  with a clean fail-fast diagnostic if the audit shows we're
+  far from the cap; (c) add a `cyrius vet` check that warns
+  pre-cap when registration count crosses 80% of cap.
+  Bite-1 of post-v5.8.23 to land the audit data first.
+- **v5.8.25** — Exhaustive-match arm-tag dedup (cascaded
+  from v5.8.22 follow-ups). Today `match s { PENDING => ...,
+  PENDING => ... }` counts as 2 covered (false-clean — user
+  adds ACTIVE thinking they're exhaustive). Fix: 256-bit
+  per-match arm-tag bitmap, set per arm-tag from
+  `enum_const_val[]`. PARSE_MATCH stack-allocates a
+  256-element tag-seen array (or 32-byte bitmap), checks
+  bit per arm, errors on duplicate (`warning: duplicate match
+  arm 'PENDING'`) and counts only first occurrence toward
+  coverage. Codegen unchanged. New
+  `tests/tcyr/match_dedup.tcyr` regression-floor.
+- **v5.8.26** — Stdlib adoption pass 2: public API migration
   for modules where the sum-typed form is visibly better
   (parse results, cross-boundary error returns).
-- **v5.8.25** — Tagged unions sub-suite closeout. Downstream
+- **v5.8.27** — Tagged unions sub-suite closeout. Downstream
   dep-pointer audit (sigil, mabda, yukti, kybernet, etc.).
 
 **Acceptance gates**: byte-identical self-host at every patch;
@@ -799,41 +849,41 @@ only changes visible at v5.8.23.
 **Out of scope**: GADTs, higher-kinded types, type-level
 computation. Keep feature surface boringly orthogonal.
 
-##### v5.8.26–v5.8.30 — `Result<T,E>` + `?` propagation operator
+##### v5.8.28–v5.8.32 — `Result<T,E>` + `?` propagation operator (+2 cascade from v5.8.22)
 
 Replaces -1/0/errno convention pervasive in stdlib with
 compiler-enforced error handling. Depends on tagged unions
-(v5.8.21-25). The `?` operator: `var x = foo()?;` short-
+(v5.8.21–v5.8.27). The `?` operator: `var x = foo()?;` short-
 circuits on `Err`, unwraps `Ok` — half the LOC of error-
 checking code in practice.
 
-- **v5.8.26** — `Result<T,E>` type in `lib/result.cyr`.
+- **v5.8.28** — `Result<T,E>` type in `lib/result.cyr`.
   Convenience constructors `Ok(v)` / `Err(e)`; pattern-match
-  consumers. Uses v5.8.21-25 sum types directly.
-- **v5.8.27** — `?` propagation operator. Postfix on `Result`-
+  consumers. Uses v5.8.21–v5.8.27 sum types directly.
+- **v5.8.29** — `?` propagation operator. Postfix on `Result`-
   typed expressions; desugars to pattern-match `Err` early-
   return. Requires enclosing fn to also return `Result`.
-- **v5.8.28** — Stdlib migration pass 1: `lib/io.cyr` (file_
+- **v5.8.30** — Stdlib migration pass 1: `lib/io.cyr` (file_
   open / read / write), `lib/syscalls.cyr` wrappers, `lib/
   json.cyr` + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc
   -1 returns → `Result<T, IoError>` or per-module error types.
-- **v5.8.29** — Stdlib migration pass 2: `lib/net.cyr`,
+- **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`,
   `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
   (`pwd.cyr`/`grp.cyr`/`shadow.cyr`/`pam.cyr`). Cleanest wins.
-- **v5.8.30** — Result sub-suite closeout. Cross-repo downstream
+- **v5.8.32** — Result sub-suite closeout. Cross-repo downstream
   smoke test (sigil, mabda, yukti, ark compile against
   migrated stdlib).
 
 **Acceptance gates**: byte-identical self-host every patch;
 `tests/tcyr/result_propagation.tcyr` (`?` on `Err` short-
 circuits, on `Ok` unwraps, outside Result-returning fn is type
-error); cross-repo smoke at v5.8.29.
+error); cross-repo smoke at v5.8.31.
 
 **Migration policy**: modules migrate one at a time. `-1`-
 return fns stay callable from non-migrated call sites through
 v5.8.x. v6.0.0 closeout fully removes the old convention.
 
-##### v5.8.31–v5.8.36 — Allocators-as-parameter convention
+##### v5.8.33–v5.8.38 — Allocators-as-parameter convention (+2 cascade from v5.8.22)
 
 Largest ecosystem-churn item; biggest modern-systems-language
 insight (Zig's contribution). Every allocating fn takes an
@@ -845,32 +895,32 @@ sum types + Result already in means the migration uses
 `Result<T, AllocError>` for failure returns (cleaner than
 doing it before Result lands).
 
-- **v5.8.31** — `Allocator` interface in `lib/alloc.cyr`.
+- **v5.8.33** — `Allocator` interface in `lib/alloc.cyr`.
   vtable shape: `alloc`, `realloc`, `free`, `reset`. Default
   implementations: `bump_allocator` (current behavior),
   `arena_allocator` (scoped), `test_allocator` (tracks every
   allocation, fails on demand).
-- **v5.8.32** — Failing-allocator test harness. `lib/assert.cyr`
+- **v5.8.34** — Failing-allocator test harness. `lib/assert.cyr`
   extension: `fail_after_n_allocs(n)` helper. Enables
   `tests/tcyr/oom_handling.tcyr` coverage.
-- **v5.8.33** — Stdlib migration pass 1 core modules:
+- **v5.8.35** — Stdlib migration pass 1 core modules:
   `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
   `Allocator` as first arg; default-allocator wrapper
   preserves existing call-sites.
-- **v5.8.34** — Stdlib migration pass 2 peripheral modules:
+- **v5.8.36** — Stdlib migration pass 2 peripheral modules:
   `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
   `lib/sandhi.cyr`. Per-request arenas benefit most.
-- **v5.8.35** — Retire `alloc_init()` global singleton.
+- **v5.8.37** — Retire `alloc_init()` global singleton.
   Backward compat through `lib/alloc.default()` shim for
   consumers not ready to migrate.
-- **v5.8.36** — Allocator sub-suite closeout. Downstream
+- **v5.8.38** — Allocator sub-suite closeout. Downstream
   ecosystem sweep (every repo's allocator usage audited).
 
 **Acceptance gates**: byte-identical self-host every patch;
 `tests/tcyr/oom_vec_push.tcyr` (`vec_push` returns
 `Err(OutOfMemory)` under `fail_after_n_allocs(1)`) at
-v5.8.32; every internal compiler path uses explicit allocator
-at v5.8.35.
+v5.8.34; every internal compiler path uses explicit allocator
+at v5.8.37.
 
 **Migration policy**: allocator parameter is opt-in during
 v5.8.x. Default-allocator wrapper preserves existing
@@ -878,9 +928,9 @@ v5.8.x. Default-allocator wrapper preserves existing
 syntactic sugar. v6.0.0 closeout removes the shim — every
 fn requires explicit allocator.
 
-#### Phase 3 — Polish + cycle closeout (slots 31-35)
+#### Phase 3 — Polish + cycle closeout (+2 cascade from v5.8.22)
 
-- **v5.8.37** — Preprocessor include-pattern in string literals
+- **v5.8.39** — Preprocessor include-pattern in string literals
   (filed 2026-05-01 from vidya audit;
   `docs/development/issues/2026-05-01-preprocessor-include-pattern-in-string-literals.md`).
   `PREPROCESS` in `src/frontend/lex.cyr` scans raw bytes for
@@ -890,11 +940,11 @@ fn requires explicit allocator.
   Mirror the v5.7.36 cyrlint string-literal fix shape: state-
   machine flag tracking `"` boundaries.
 
-- **v5.8.38** — `cyrlint` multi-line assert false-positive
+- **v5.8.40** — `cyrlint` multi-line assert false-positive
   (mabda C5). Has full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).
   cyrlint expression-walker confused by multi-line bracket matching.
 
-- **v5.8.39** — Vidya cyrius-language audit (annotation pass).
+- **v5.8.41** — Vidya cyrius-language audit (annotation pass).
   Sweep `vidya/content/cyrius/` (~15K lines across 13 cyml
   files). For each open-issue-shaped entry: confirm if still
   active, file locally in `cyrius/docs/development/issues/`
@@ -903,20 +953,21 @@ fn requires explicit allocator.
   pointer alongside. First example (preprocessor include-
   pattern) shipped at v5.7.50 as the pattern template.
 
-- **v5.8.40** — Paired UX/diagnostic polish: `cyrius fmt
+- **v5.8.42** — Paired UX/diagnostic polish: `cyrius fmt
   --check` exit-code semantics (mabda A2; match Rust/Go —
   exit non-zero on drift, silent on no-drift) + `var X;`
   bare-decl error-message polish (mabda C1; current "expected
   expression after `=`" → "uninitialized variable not allowed;
   use `var X = 0;` or initial value").
 
-- **v5.8.41** — Phase 3 polish (last pre-closeout polish slot;
+- **v5.8.43** — Phase 3 polish (last pre-closeout polish slot;
   see Phase 3 description above for the floating slot's
   surface-during-cycle absorption role).
 
-- **v5.8.42** — api-surface refresh + auto-build wiring +
+- **v5.8.44** — api-surface refresh + auto-build wiring +
   null-byte-in-shell-substitution fix. Pinned 2026-05-02 at
-  v5.8.18 ship. Three-part deliverable:
+  v5.8.18 ship; shifted v5.8.42 → v5.8.44 by the v5.8.22 +2
+  cascade. Three-part deliverable:
 
   1. **`cyrius_api_surface` binary auto-build wiring.** The
      binary is in `cyrius.cyml`'s `bins = [...]` list but the
@@ -949,15 +1000,17 @@ fn requires explicit allocator.
   with all three test cases green and zero null-byte warnings;
   `sh scripts/check.sh` shows api-surface gate as PASS not skip.
 
-- **v5.8.43-v5.8.49** — Cycle headroom. Reserved for
+- **v5.8.45-v5.8.49** — Cycle headroom. Reserved for
   surface-during-cycle items + a final closeout backstop if
   Phase 3 finds late-cycle issues. Mirrors v5.7.49's
   end-of-cycle backstop role. The cycle's TRUE closeout
   protocol (CLAUDE.md 11-step + downstream consumer sweep +
   vidya per-minor refresh + completed-phases.md migration of
   all v5.8.* sections) lands in whichever slot in this range
-  ends up the actual end-of-cycle (v5.8.42 if no headroom is
+  ends up the actual end-of-cycle (v5.8.44 if no headroom is
   consumed, otherwise the last consumed-or-pinned slot).
+  Headroom is 5 slots after the v5.8.22 +2 cascade (was 7
+  slots v5.8.43-v5.8.49 pre-cascade).
 
 ### v5.8.x — held items (surfacing-ask only; not pinned, no slot consumed)
 

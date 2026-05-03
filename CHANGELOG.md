@@ -4,6 +4,163 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.22] — 2026-05-03
+
+**v5.8.x slot 22 — exhaustive pattern match in `match`**.
+Phase 2 language-vocabulary slot, second of the tagged-unions
+sub-suite (extended to v5.8.21–v5.8.27 via this slot's
+cap-bump + dedup cascade). Compiler-emitted warning when a
+`match` over an enum value misses one or more variants and
+has no `_ =>` opt-out. Same warn-not-error policy as
+v5.6.x's `#must_use` / `#deprecated` and v5.8.20's
+`#pure → #io` — downstream consumers adopt incrementally;
+`cyrius lint --strict` escalation reserved for a follow-up.
+
+cc5 grew **734,592 B → 737,160 B (+2,568 B)** across two
+bites: per-variant → parent-enum bookkeeping infrastructure
+(+1,016 B) and PARSE_MATCH coverage check + diagnostic
+emission (+1,552 B).
+
+### What §22 ships
+
+**Per-variant → parent-enum bookkeeping (bite #1)**. New heap
+regions extending the metadata band past `fn_flags`:
+
+- `0x204000  var_enum_id[8192]` (64 KB) — 1-based; 0 = not a
+  variant; written by PARSE_ENUM_DEF in pass 1 alongside the
+  existing variant registration.
+- `0x214000  enum_count[8]` — total enum decls; cap 256.
+- `0x214008  enum_variant_count[256]` (2 KB) — variants per
+  enum, indexed 0..enum_count-1.
+- `0x214808  enum_name[256]` (2 KB) — enum name offset for
+  diagnostic readability.
+
+Six new accessor fns in `src/common/util.cyr` (`GVENUMID/
+SVENUMID`, `GENUMC/SENUMC`, `GENUMVCNT/SENUMVCNT`,
+`GENUMNM/SENUMNM`).
+
+**PARSE_MATCH coverage check (bite #2)**. Pre-PCMPE peek at
+each arm's first ident; if the ident resolves to a variant
+of an enum (FINDVAR + GVENUMID), record its parent eid.
+First variant arm sets the match's primary `match_eid`;
+subsequent variant arms must share that eid (mismatch →
+"match arms span multiple enums" warning). After all arms
+parsed, if eid is set AND `_ =>` not present AND covered
+count < total variant count → "non-exhaustive match" warning.
+
+```cyr
+enum Status { PENDING; ACTIVE; DONE; }
+
+# Exhaustive — no warning
+match s {
+    PENDING => { ... }
+    ACTIVE  => { ... }
+    DONE    => { ... }
+}
+
+# Non-exhaustive — emits:
+#   warning:<file>:<line>: non-exhaustive match over enum
+#     'Status' — covers 2 of 3 variants; add `_ =>` to opt out
+match s {
+    PENDING => { ... }
+    ACTIVE  => { ... }
+}
+
+# Non-exhaustive WITH `_ =>` — no warning (opt-out)
+match s {
+    PENDING => { ... }
+    _       => { ... }
+}
+
+# Mixed enums — emits:
+#   warning:<file>:<line>: match arms span multiple enums
+#     (exhaustive-coverage check skipped)
+match a {
+    A1 => { ... }
+    B2 => { ... }    # B2 belongs to a different enum
+    _  => { ... }
+}
+```
+
+### Why warnings, not errors
+
+Same trade-off as `#must_use` / `#deprecated` / `#pure → #io` /
+`#deprecated` — v5.8.x's policy is "warn during the cycle so
+downstream consumers (sigil, mabda, yukti, kybernet, …) can
+adopt incrementally without a hard build break". `cyrius lint
+--strict` will escalate the diagnostic to error in a follow-up
+slot once the stdlib + downstream sweep is clean.
+
+### Codegen unchanged
+
+The coverage check is metadata-only — runtime behavior of any
+`match` expression is identical with or without the warning.
+Existing `enums.tcyr` (10/10), `tagged.tcyr` (14/14), and the
+new `exhaustive_match.tcyr` (10/10) verify codegen is
+unaltered. Self-host stays byte-identical (the compiler's own
+match expressions are all exhaustive or use `_ =>`).
+
+### Out of scope (cascaded as new pinned slots)
+
+The pin's headroom absorbs the two known follow-up bites as
+discrete slots after v5.8.23's stdlib migration:
+
+- **v5.8.24 — exhaustive-match table cap bump**. Today the
+  `enum_count` cap is 256 (matches struct cap); largest stdlib
+  enum is `Errno` with ~17 variants. Plenty of headroom today,
+  but a downstream consumer with many ad-hoc `enum FooState`
+  decls could wedge into the cap silently. Slot bumps cap +
+  adds a fail-fast diagnostic with stdlib enum count audit.
+
+- **v5.8.25 — exhaustive-match arm-tag dedup**. Today
+  `match s { PENDING => ..., PENDING => ... }` counts as 2
+  covered (false-clean — user adds ACTIVE thinking they're
+  exhaustive). Fix: 256-bit per-match arm-tag bitmap, set
+  per arm-tag from `enum_const_val[]`. Real bug but uncommon
+  usage; ships when the cap-bump's stdlib audit surfaces a
+  consumer.
+
+These cascade pushes the tagged-unions sub-suite from
+v5.8.21–v5.8.25 to v5.8.21–v5.8.27 (5 slots → 7); downstream
+phases (Result+? at v5.8.28–v5.8.32, allocators at
+v5.8.33–v5.8.38, Phase 3 closeout at v5.8.39–v5.8.44) shift
++2; cycle backstop holds at v5.8.49 (5-slot headroom
+v5.8.45–v5.8.49, was 7-slot v5.8.43–v5.8.49).
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **737,160 B**
+   (+2,568 B from v5.8.21).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ Pre-existing match consumers: `enums.tcyr` 10/10,
+   `tagged.tcyr` 14/14 — runtime correctness intact.
+4. ✅ New `tests/tcyr/exhaustive_match.tcyr` — **10
+   assertions across 3 groups**: exhaustive match (3 arms,
+   no warning, runtime correctness), non-exhaustive with
+   `_ =>` opt-out (4 arms covering 2 of 4 variants + default,
+   runtime correctness), literal-int match (no
+   exhaustiveness check fires for non-enum match values).
+5. ✅ Standalone smoke probe: 3-variant enum with 2-arm
+   match emits `non-exhaustive` warning at correct line;
+   2-enum mixed-arm match emits `span multiple enums`
+   warning; no false positives during self-host or
+   stdlib compile.
+6. ✅ All v5.8.21 regressions intact: `enum_generics.tcyr`
+   31/31; v5.8.20 regressions intact: `effect_annotations.tcyr`
+   7/7, all 9 slices regressions 159/159.
+
+### v5.8.x cycle progress
+
+22 of 44 pinned slots shipped (50% — exactly halfway after
+the +2 cascade). Phase 2 continuing: stdlib adoption pass 1
+(v5.8.23) absorbing the v5.8.21-deferred `lib/tagged.cyr`
+migration + bare-variant payload-shape consistency
+precondition; cap-bump (v5.8.24); arm-tag dedup (v5.8.25);
+stdlib adoption pass 2 (v5.8.26); tagged-unions closeout
+(v5.8.27); Result<T,E>+? (v5.8.28–v5.8.32); allocators
+(v5.8.33–v5.8.38). Phase 3 closeout v5.8.39–v5.8.44
+(api-surface refresh at v5.8.44); cycle backstop at v5.8.49.
+
 ## [5.8.21] — 2026-05-03
 
 **v5.8.x slot 21 — sum-type syntax + constructor parsing**.
