@@ -36,12 +36,21 @@ fn SVCNT(S, v) {
 # enum so PARSE_MATCH can verify all variants are covered.
 # Layout chosen 2026-05-03 — extends the metadata band past
 # fn_flags (0x1FC000+0x8000 = 0x204000); brk reaches 0x368C000.
+# v5.8.24 — enum cap bumped 256 → 1024. Audit data (2026-05-03):
+# stdlib alone has 299 enum decls; downstream vani/yukti/sigil/
+# patra/mabda compose to >250 in realistic multi-dep programs;
+# the prior 256 cap had a 1-2 release runway before tripping.
+# enum_variant_count[] grew 256×8B=2KB → 1024×8B=8KB; enum_name[]
+# same. +12KB total in the metadata band. Layout shifts:
+# enum_name[] moved 0x214808 → 0x216008. var_enum_id[8192] stays
+# at 0x204000 (variant-keyed; the 8192 cap is the variant cap,
+# not the enum cap — different bucket).
 fn GVENUMID(S, vi) { return L64(S + 0x204000 + vi * 8); }
 fn SVENUMID(S, vi, v) { S64(S + 0x204000 + vi * 8, v); return 0; }
 fn GENUMC(S) { return L64(S + 0x214000); }
 fn SENUMC(S, v) {
-    if (v >= 256) {
-        syscall(SYS_WRITE, 2, "error: enum table full (256) — too many enum decls\n", 52);
+    if (v >= 1024) {
+        syscall(SYS_WRITE, 2, "error: enum table full (1024) — too many enum decls\n", 53);
         syscall(SYS_EXIT, 1);
     }
     S64(S + 0x214000, v);
@@ -52,8 +61,10 @@ fn SENUMVCNT(S, eid, v) { S64(S + 0x214008 + eid * 8, v); return 0; }
 # v5.8.22 bite #2 — per-enum name (offset into S+0x60000 ident
 # pool) for diagnostic messages at exhaustive-match check time.
 # Written by PARSE_ENUM_DEF in pass 1 alongside variant tagging.
-fn GENUMNM(S, eid) { return L64(S + 0x214808 + eid * 8); }
-fn SENUMNM(S, eid, v) { S64(S + 0x214808 + eid * 8, v); return 0; }
+# v5.8.24 — moved 0x214808 → 0x216008 to accommodate
+# enum_variant_count[] growing from 256 to 1024 slots.
+fn GENUMNM(S, eid) { return L64(S + 0x216008 + eid * 8); }
+fn SENUMNM(S, eid, v) { S64(S + 0x216008 + eid * 8, v); return 0; }
 fn GTCNT(S) { return L64(S + 0x18C118); }
 fn STCNT(S, v) { S64(S + 0x18C118, v); return 0; }
 fn GTI(S) { return L64(S + 0x18C120); }

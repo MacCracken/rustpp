@@ -4,6 +4,106 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.24] — 2026-05-03
+
+**v5.8.x slot 24 — exhaustive-match table cap bump 256 → 1024**.
+Phase 2 language-vocabulary slot, fourth of the tagged-unions
+sub-suite (v5.8.21–v5.8.27). Cascaded from v5.8.22 follow-ups.
+Single-bite slot: audit + cap bump. The pin's third deliverable
+(`cyrius vet` 80%-cap warning) is honest-scope-shrunk to a
+future slot — cyrius-vet would need a new compile-time
+instrumentation hook to count enum decls, which is a
+non-trivial new feature outside this slot's atomic scope.
+
+cc5 unchanged at **737,112 B** (constants encode at the same
+instruction length whether the literal is `256` or `1024`).
++12 KB metadata-band heap usage (`enum_variant_count[]` and
+`enum_name[]` each grew 2 KB → 8 KB).
+
+### What §24 ships
+
+**Audit data (collected at slot entry, 2026-05-03)**:
+
+| Source                          | enum decls |
+|---------------------------------|------------|
+| cyrius compiler self-source     | 2          |
+| cyrius stdlib (all `lib/*.cyr`) | 299        |
+| Downstream — vani               | 120        |
+| Downstream — yukti              | 91         |
+| Downstream — sigil              | 69         |
+| Downstream — patra              | 46         |
+| Downstream — mabda              | 42         |
+| Downstream — sakshi             | 8          |
+
+cc5 self-host doesn't trip the prior 256 cap because its
+include chain pulls only `lib/math.cyr`, `lib/slice.cyr`,
+`lib/syscalls_macos.cyr` — a small subset of the 299 stdlib
+enums. But a downstream consumer composing 3-4 large libs
+(e.g., vani + yukti + sigil + own program ≈ 280+ enums) is
+1-2 releases from tripping the cap silently. Empirical
+fail-fast confirmed pre-bump: a 300-enum probe correctly errors
+with the diagnostic added in v5.8.22.
+
+**Cap bump 256 → 1024** (`src/common/util.cyr`, `src/main.cyr`):
+
+- `SENUMC` cap check `>= 256` → `>= 1024`; diagnostic text
+  `"error: enum table full (256) — too many enum decls\n"` →
+  `"error: enum table full (1024) — too many enum decls\n"`
+  (53 bytes vs prior 52 — same encoding length).
+- `enum_variant_count[]` grew 2 KB (256 × 8 B) → 8 KB
+  (1024 × 8 B); region stays at 0x214008.
+- `enum_name[]` grew 2 KB → 8 KB; region moved 0x214808 →
+  **0x216008** to accommodate the larger
+  `enum_variant_count[]`. Six accessor fns from v5.8.22
+  (`GENUMNM/SENUMNM`) updated to the new offset.
+- Heap-map comment in `src/main.cyr` updated.
+- `var_enum_id[8192]` at 0x204000 unchanged — the 8192 cap is
+  the variant cap (different bucket; tracks per-variant →
+  parent-enum mapping, not per-enum). No realistic consumer
+  is anywhere near 8192 variants total.
+
+Total metadata-band growth: +12 KB (2 KB → 8 KB × 2 arrays).
+Heap brk reaches 0x368C000 — well past the new 0x218008
+end-of-region.
+
+**Verification**:
+
+1. ✅ Self-host two-step byte-identical at **737,112 B**
+   (instruction encoding identical for `256` vs `1024` —
+   both fit in 32-bit imm at same length).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ Pre-bump 300-enum probe (was failing): now compiles
+   cleanly with `exit 0`.
+4. ✅ Post-bump 1100-enum probe: correctly fails with
+   `error: enum table full (1024) — too many enum decls`.
+5. ✅ All v5.8.23 + v5.8.22 + v5.8.21 regressions intact.
+
+### Honest scope-shrink (per pin)
+
+The pin's three-part deliverable was (a) audit + (b) cap
+bump + (c) `cyrius vet` 80%-cap warning. (a) and (b) ship
+this slot. (c) is **deferred to a future slot** because:
+
+- `cyrius vet` doesn't currently instrument enum-count
+  during compile — would require new infrastructure to
+  expose `enum_count` to the vet tool's reporting layer.
+- The fail-fast diagnostic from v5.8.22 (rewritten this
+  slot) already gives consumers a clear error before
+  silent overflow.
+- 80% pre-cap warning is a polish item, not a correctness
+  one. Earns its slot when a consumer reports the
+  fail-fast diagnostic surprised them.
+
+### v5.8.x cycle progress
+
+24 of 44 pinned slots shipped (54.5%). Phase 2 continuing:
+arm-tag dedup (v5.8.25), stdlib adoption pass 2 (v5.8.26 —
+absorbs hashmap key_type migration + downstream symlink
+audit/cleanup + snapshot-ping-pong protection doc),
+tagged-unions closeout (v5.8.27), Result<T,E>+? (v5.8.28–
+v5.8.32), allocators (v5.8.33–v5.8.38). Phase 3 closeout
+v5.8.39–v5.8.44; cycle backstop at v5.8.49.
+
 ## [5.8.23] — 2026-05-03
 
 **v5.8.x slot 23 — stdlib adoption pass 1: `lib/tagged.cyr`

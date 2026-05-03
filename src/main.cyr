@@ -153,13 +153,27 @@
 #                                        time. Bumped by PARSE_ENUM_DEF in
 #                                        pass 1; eid 1-based so 0 in
 #                                        var_enum_id[] is unambiguous.
-#                                        Cap 256 — same as struct table.
-#   0x214008  enum_variant_count[2048]    256 × 8B — per-enum variant
+#                                        Cap 1024 (v5.8.24 — bumped from
+#                                        256 after audit found stdlib
+#                                        alone at 299 enum decls;
+#                                        composed multi-dep downstream
+#                                        programs were 1-2 releases from
+#                                        tripping).
+#   0x214008  enum_variant_count[8192]    1024 × 8B — per-enum variant
 #                                        count, indexed 0..enum_count-1.
 #                                        Bumped per variant in pass 1.
 #                                        Read at match-check time to
 #                                        compare against arm-coverage set
-#                                        size (v5.8.22 bite #2).
+#                                        size (v5.8.22 bite #2). v5.8.24
+#                                        grew 256→1024 with cap bump.
+#   0x216008  enum_name     [8192]        1024 × 8B — per-enum name
+#                                        offset (into S+0x60000 ident
+#                                        pool) for diagnostic messages.
+#                                        Written by PARSE_ENUM_DEF in
+#                                        pass 1 alongside variant
+#                                        tagging. v5.8.24 moved 0x214808
+#                                        → 0x216008 + grew 256→1024 with
+#                                        the cap bump.
 #   0x104000 fn_deprecated_msg [32768]   4096 × 8B — per-fn deprecation
 #                                        message token value (v5.6.4). 0 =
 #                                        no message; nonzero = (offset<<16)

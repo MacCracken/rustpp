@@ -6,7 +6,7 @@
 
 - **Type**: Self-hosting compiler toolchain
 - **License**: GPL-3.0-only
-- **Version**: 5.8.23
+- **Version**: 5.8.24
 
 ## Goal
 

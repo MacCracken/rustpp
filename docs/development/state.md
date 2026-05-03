@@ -5,6 +5,40 @@
 
 ## Version
 
+**5.8.24** (shipped 2026-05-03 — **v5.8.x SLOT 24 — exhaustive-
+match table cap bump 256 → 1024**. Phase 2 language-vocabulary
+slot, fourth of the tagged-unions sub-suite (v5.8.21–v5.8.27).
+Cascaded from v5.8.22 follow-ups. Single-bite slot. Audit at
+slot entry: cyrius stdlib has 299 enum decls (cc5 self-host
+doesn't trip prior cap because include chain pulls only
+math/slice/syscalls_macos); downstream pressure is real — vani
+120, yukti 91, sigil 69, patra 46, mabda 42 — composed multi-dep
+programs were 1-2 releases from tripping. Empirical fail-fast
+confirmed pre-bump: 300-enum probe correctly errored. **Cap
+bump**: `SENUMC` check `>= 256` → `>= 1024`; diagnostic text
+updated 52→53 bytes (same encoding length); `enum_variant_count[]`
+grew 2KB → 8KB at 0x214008; `enum_name[]` grew 2KB → 8KB and
+moved 0x214808 → **0x216008** to accommodate. Six accessor
+fns from v5.8.22 updated. Heap-map comment in src/main.cyr
+updated. `var_enum_id[8192]` at 0x204000 unchanged (variant
+cap is a separate bucket — no realistic consumer near 8192
+variants). Total metadata-band growth +12 KB; heap brk reaches
+0x368C000. **Honest scope-shrink**: pin's `cyrius vet` 80%-cap
+warning deferred — would need new vet-tool instrumentation hook;
+fail-fast diagnostic already gives clear error before silent
+overflow. cc5 unchanged at **737,112 B** (constants encode at
+same instruction length whether literal is 256 or 1024).
+Verification: self-host two-step byte-identical, check.sh 64/64,
+pre-bump 300-enum probe now passes, post-bump 1100-enum probe
+correctly fails with new diagnostic, all v5.8.23 + v5.8.22 +
+v5.8.21 regressions intact. v5.8.x cycle progress: **24 of 44
+pinned slots shipped (54.5%)**. Phase 2 continuing: arm-tag dedup
+(v5.8.25), stdlib adoption pass 2 (v5.8.26 — absorbs hashmap
+key_type migration + downstream symlink audit/cleanup + snapshot-
+ping-pong protection doc), tagged-unions closeout (v5.8.27),
+Result<T,E>+? (v5.8.28–v5.8.32), allocators (v5.8.33–v5.8.38).
+Phase 3 closeout v5.8.39–v5.8.44; cycle backstop at v5.8.49.)
+
 **5.8.23** (shipped 2026-05-03 — **v5.8.x SLOT 23 — stdlib
 adoption pass 1: `lib/tagged.cyr` migration to compiler-
 generated sum types**. Phase 2 language-vocabulary slot, third

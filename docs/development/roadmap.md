@@ -821,21 +821,22 @@ matches it).
   + cleanup of all downstream cyrius consumer repos
   (sakshi confirmed; mabda / sigil / yukti / kybernet /
   hadara likely affected) queued for v5.8.26.
-- **v5.8.24** — Exhaustive-match table cap bump (cascaded
-  from v5.8.22 follow-ups). Today `enum_count` cap is 256
-  (matches struct cap); `enum_variant_count[]` is keyed by
-  256 × 8 B; `var_enum_id[]` covers the full 8192-var range.
-  Largest stdlib enum today is `Errno` with ~17 variants —
-  plenty of headroom — but a downstream consumer with many
-  ad-hoc `enum FooState` decls could wedge the cap silently
-  (current behavior: SENUMC errors out at 256). Slot:
-  (a) audit cap pressure across stdlib + downstream
-  consumers (sigil, mabda, yukti, kybernet); (b) bump
-  `enum_count` cap to 1024 if usage warrants, OR keep at 256
-  with a clean fail-fast diagnostic if the audit shows we're
-  far from the cap; (c) add a `cyrius vet` check that warns
-  pre-cap when registration count crosses 80% of cap.
-  Bite-1 of post-v5.8.23 to land the audit data first.
+- ✅ **v5.8.24** — Exhaustive-match table cap bump 256 → 1024
+  (shipped 2026-05-03). Single-bite slot. Audit found cyrius
+  stdlib at 299 enum decls; downstream vani/yukti/sigil/patra/
+  mabda compose to >250 in realistic multi-dep programs;
+  empirical 300-enum probe pre-bump correctly fail-fasted via
+  the v5.8.22 diagnostic. Cap bump: `SENUMC >= 256` → `>= 1024`;
+  `enum_variant_count[]` grew 2KB→8KB at 0x214008;
+  `enum_name[]` grew 2KB→8KB and shifted 0x214808 → 0x216008
+  (six accessor fns updated). Total metadata-band +12 KB.
+  cc5 unchanged at 737,112 B (instruction encoding identical
+  for 256 vs 1024 — both fit in 32-bit imm at same length).
+  **Honest scope-shrink**: pin's `cyrius vet` 80%-cap pre-warn
+  deferred — would need new vet-tool compile-time
+  instrumentation; fail-fast diagnostic already gives clear
+  error before silent overflow. Earns its own slot if a
+  consumer reports the fail-fast surprised them.
 - **v5.8.25** — Exhaustive-match arm-tag dedup (cascaded
   from v5.8.22 follow-ups). Today `match s { PENDING => ...,
   PENDING => ... }` counts as 2 covered (false-clean — user
