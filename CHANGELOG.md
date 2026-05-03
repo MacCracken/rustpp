@@ -4,6 +4,165 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.32] — 2026-05-03
+
+**v5.8.x slot 32 — Result+? sub-suite closeout**. Final slot of
+the Phase 2 Result+? sub-suite (v5.8.28–v5.8.32; 5 slots, 1 day,
++1,784 B compiler delta, 106 new tcyr assertions across 4 new
+tcyrs). Smoke + retrospective slot — no compiler change. Plus a
+post-doc-audit fix for the `docs/benchmarks.md` deletion that
+would have broken CI's required-docs check.
+
+cc5 unchanged at **739,672 B**.
+
+### Sub-suite retrospective (v5.8.28 → v5.8.32)
+
+| Slot | Theme | Δ cc5 |
+|------|-------|------:|
+| v5.8.28 | `Result<T, E>` carve-out into `lib/result.cyr` | 0 |
+| v5.8.29 | `?` propagation operator (PARSE_TERM hook) | +968 |
+| v5.8.30 | Stdlib migration pass 1 (io/json/toml/cyml) | 0 |
+| v5.8.31 | Stdlib migration pass 2 (http/dynlib/pwd/grp/shadow/pam) + http_get bug fix + PARSE_STMT `?`-statement | +816 |
+| v5.8.32 | Sub-suite closeout (this slot) | 0 |
+| **Total** |  | **+1,784** |
+
+### What the sub-suite shipped
+
+- **`lib/result.cyr`** as a dedicated module (v5.8.28). `Result<T, E>`
+  uses v5.8.21 generic-parameter syntax; helpers (`is_ok`, `is_err_result`,
+  `result_unwrap`, `result_unwrap_or`, `err_code_of`, `result_print`)
+  inline `load64()` so the module has no circular dep on tagged.cyr.
+  `lib/tagged.cyr` transitively re-includes result.cyr for back-compat.
+- **`?` propagation operator** (v5.8.29 + v5.8.31). Postfix on a
+  Result-shaped expression desugars to `tag = load64(rax); if (tag
+  != Ok) return rax; rax = load64(rax + 8)`. v5.8.29 handled
+  `var x = expr?;` form via PARSE_TERM hook; v5.8.31 closed the
+  PARSE_STMT gap for bare `expr?;` statements (was failing with
+  "expected ';', got unknown" because token 124 has no TOKNAME entry).
+- **10 typed error enums + 19 `*_r` variants** across the I/O surface:
+  IoError + 6 file_*_r, JsonError + json_parse_file_r, TomlError +
+  toml_parse_file_r, CymlError + cyml_parse_file_r (new file-loading
+  helper), HttpError + http_get_r, DynlibError + dynlib_open_r /
+  dynlib_sym_r, PwdError + pwd_getpwuid_r / pwd_getpwnam_r, GrpError
+  + grp_getgrgid_r / grp_getgrnam_r / grp_getgrouplist_r, ShadowError
+  + shadow_getspnam_r, PamError + pam_unix_authenticate_r.
+- **Bug fix in lib/http.cyr**: `http_get` had been treating net.cyr
+  Result heap pointers as raw int fds for the entire v5.8.x cycle.
+  `if (fd < 0)` never fired since heap ptrs are positive; subsequent
+  syscalls passed Result ptrs as kernel fds and silently failed.
+  Fixed at v5.8.31 alongside http_get_r addition.
+- **Bug fix in PARSE_STMT**: bare `expr?;` parse-time error from the
+  v5.8.29 hook only living in PARSE_TERM. Closed at v5.8.31.
+
+### Cross-repo downstream smoke (this slot's main deliverable)
+
+Per pin acceptance gate "cross-repo smoke at v5.8.31" — methodology:
+temporarily bump pin to 5.8.31 in each downstream repo, copy
+v5.8.31's lib/*.cyr over the pinned snapshot (preserving symlinks),
+add the new lib/result.cyr (which the v5.8.28 carve-out introduced),
+run `cyrius build <smoke>`, run the produced binary, then restore
+each repo to its original v5.7.48 pin + lib state.
+
+| Repo | Pin (smoke) | Build target | Result |
+|------|-------------|--------------|--------|
+| sigil 3.0.0 | 5.7.48 → 5.8.31 → 5.7.48 | `programs/smoke.cyr` → `build/sigil_smoke` | ✅ compile OK + runtime exit 0 |
+| mabda     | 5.7.48 → 5.8.31 → 5.7.48 | `programs/smoke.cyr` → `build/mabda_smoke` | ✅ compile OK |
+| yukti     | 5.7.48 → 5.8.31 → 5.7.48 | `programs/core_smoke.cyr` → `build/yukti_smoke` | ✅ compile OK |
+| ark       | n/a | n/a | ⚠ repo not present at `/home/macro/Repos/ark/` — pinned in roadmap §v5.8.32 but the repo doesn't exist locally (and no `cyrius.cyml` `cyrius` field to bump). Flagged for next downstream cycle when ark lands. |
+
+**Static audit findings** (pre-dynamic):
+
+- **Zero enum-variant name collisions** across all 3 reachable
+  repos. Grepped each repo's `src/`, `programs/`, `tests/`, `lib/`
+  for the v5.8.30/.31 variant names (`IoNotFound` / `JsonIoErr` /
+  `TomlIoErr` / `CymlIoErr` / `HttpBadUrl` / `DynlibNotFound` /
+  `PwdNotFound` / `GrpNotFound` / `ShadowNotFound` / `PamAuthFail`
+  + every other variant). Each repo defines its own module-prefixed
+  enums (`SigilError`, `WGPUBlendOp`, `DeviceClass`, etc.) and none
+  use the names introduced in this sub-suite.
+- **All changes additive.** Legacy int-returning fns
+  (`file_open` / `json_parse_file` / `tcp_socket` / `pwd_getpwuid`
+  / etc.) were preserved verbatim. The only signature change in the
+  sub-suite was `lib/http.cyr` `http_get`'s consumer-side use of
+  net.cyr Results — that was a BUG FIX, not a contract change
+  (the public signature `http_get(url) → resp_ptr` is unchanged).
+
+### Honest scope-shrink ledger
+
+- **lib/net.cyr — pre-migrated**. Premise check at v5.8.31 entry
+  found tcp_socket / sock_bind / sock_listen / sock_accept /
+  sock_connect / sock_send / sock_recv already returning
+  `Result<...>` from a pre-cycle migration (`Err(0 - errno)` form).
+  Refactoring to a NetError enum would have broken
+  payload-comparing consumers (lib/ws_server.cyr, lib/sandhi.cyr).
+  Skipped per "cleanest wins"; documented in v5.8.31 CHANGELOG.
+- **`?` outside-Result-returning-fn type check** (v5.8.29 acceptance
+  gate). Currently enforced at the coarser "outside-any-fn-body"
+  granularity. Strict version requires fn return-type tracking that
+  doesn't exist yet — pinned for a future slot. Runtime semantics
+  are correct in any fn (the early-return propagates the Result
+  ptr uniformly).
+
+### `docs/benchmarks.md` post-audit fix
+
+The v5.8.31 doc audit (commit 62eec00, "documentation audit of
+docs toplevel items") deleted `docs/benchmarks.md` after this
+agent recommended it as superseded by `docs/size-comparisons.md`.
+The deletion was caught afterwards: `.github/workflows/ci.yml:882`
+has a "Required docs exist" check that lists `docs/benchmarks.md`
+explicitly, so CI would have failed on the next run.
+
+This slot restores the file as a STUB at the canonical path
+pointing readers to the two real docs (`size-comparisons.md` for
+cross-language exit42; `development/benchmarks.md` for compiler
+internals). The original v3.4.15 / 2026-04-11 content was
+preserved as `docs/development/archive/2026-04-11-benchmarks.md`
+for historical reference.
+
+CLAUDE.md memory updated with the underlying lesson: top-level
+doc audits should default to ARCHIVE over rm; grep
+`.github/workflows/` + `scripts/` for path deps before any move.
+Memory file: `feedback_archive_dont_delete_docs.md`.
+
+### Sub-suite + cycle status
+
+- **Result+? sub-suite COMPLETE** (v5.8.28–v5.8.32; 5 slots).
+- **v5.8.x cycle progress**: 32 of 44 pinned slots shipped (72.7%).
+  Remaining: allocators (v5.8.33–v5.8.38, 6 slots), Phase 3
+  closeout (v5.8.39–v5.8.44, 6 slots).
+- **Cycle backstop**: v5.8.49 (12 slots of headroom against current
+  position).
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B (zero compiler delta — closeout was smoke + docs only).
+- Cross-repo smoke: 3 of 4 pinned downstream consumers (sigil,
+  mabda, yukti) compiled cleanly against v5.8.31 stdlib via
+  temporary-pin-bump methodology; ark documented as missing.
+- All sub-suite tcyrs regression-floored: result 24/24,
+  result_propagation 29/29, result_stdlib 29/29,
+  result_stdlib_pass2 24/24.
+
+### Process notes
+
+- **Cross-repo smoke methodology pinned for future closeouts**.
+  Backup `cyrius.cyml` + `lib/`, bump pin in cyml, copy
+  v<new>/lib/*.cyr over the existing snapshot (preserving
+  symlinks), add NEW files introduced in the new minor (e.g.
+  `lib/result.cyr` from v5.8.28), `cyrius build` + run,
+  restore. The `cyrius deps` resolver does NOT touch
+  cyrius-side stdlib snapshots — it only resolves
+  `[deps.*]`-declared packages — so the manual copy step is
+  required for a real cross-version smoke.
+
+- **ark absence**. Pinned at roadmap §v5.8.28-32 but not present
+  at `/home/macro/Repos/ark/`. Not a slot blocker — the smoke
+  shape is "verify additive migration didn't break consumers"
+  and the 3 reachable consumers proved that. Will catch ark in
+  the next downstream cycle when the repo lands.
+
 ## [5.8.31] — 2026-05-03
 
 **v5.8.x slot 31 — stdlib `Result` migration pass 2**. Fourth

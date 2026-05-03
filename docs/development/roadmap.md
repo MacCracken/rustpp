@@ -987,9 +987,37 @@ checking code in practice.
   ship zero compiler delta). New tests/tcyr/result_stdlib_pass2.tcyr
   — 24 assertions across 12 groups. check.sh 64/64; aarch64 SSH
   gate PASS; self-host two-step byte-identical.
-- **v5.8.32** — Result sub-suite closeout. Cross-repo downstream
-  smoke test (sigil, mabda, yukti, ark compile against
-  migrated stdlib).
+- ✅ **v5.8.32** — Result sub-suite closeout (shipped 2026-05-03).
+  Sub-suite COMPLETE (v5.8.28–v5.8.32, 5 slots, +1,784 B compiler
+  delta, 106 new tcyr assertions across 4 new tcyrs). Cross-repo
+  downstream smoke executed via temporary-pin-bump methodology
+  (backup cyrius.cyml + lib/, bump pin to 5.8.31, copy
+  v5.8.31/lib/*.cyr over snapshot preserving symlinks, add NEW
+  lib/result.cyr, `cyrius build` + run, restore). **Smoke results**:
+  sigil 3.0.0 ✅ compile + runtime exit 0; mabda ✅ compile OK;
+  yukti ✅ compile OK; ark ⚠ repo not present at
+  `/home/macro/Repos/ark/` — flagged for next downstream cycle
+  when ark lands. **Static audit pre-dynamic**: 0 enum-variant
+  name collisions across all 3 reachable repos (each defines
+  module-prefixed enums — SigilError, WGPUBlendOp, DeviceClass —
+  none clash with v5.8.30/.31 Io*/Json*/Toml*/Cyml*/Http*/Dynlib*/
+  Pwd*/Grp*/Shadow*/Pam* variants); all sub-suite changes additive
+  (legacy file_open / json_parse_file / tcp_socket / pwd_getpwuid
+  preserved verbatim). **Honest scope-shrink ledger**: lib/net.cyr
+  pre-migrated (Err(errno) form; refactor would break
+  ws_server/sandhi consumers); strict "?-outside-Result-returning-fn
+  type error" enforcement deferred (needs fn return-type tracking).
+  **Bonus fix**: doc-audit deletion of docs/benchmarks.md (commit
+  62eec00) caught afterwards as breaking ci.yml's required-docs
+  check; restored as a stub redirecting readers to
+  size-comparisons.md + development/benchmarks.md; original v3.4.15
+  content preserved at docs/development/archive/. CLAUDE.md memory
+  updated (feedback_archive_dont_delete_docs.md). **Methodology
+  pinned for future closeouts**: `cyrius deps` does NOT refresh
+  cyrius-side stdlib snapshots — only `[deps.*]`-declared packages.
+  Cross-version smoke needs the manual lib/ overlay step. cc5
+  unchanged at 739,672 B. check.sh 64/64; self-host two-step
+  byte-identical.
 
 **Acceptance gates**: byte-identical self-host every patch;
 `tests/tcyr/result_propagation.tcyr` (`?` on `Err` short-

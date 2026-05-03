@@ -5,6 +5,44 @@
 
 ## Version
 
+**5.8.32** (shipped 2026-05-03 — **v5.8.x SLOT 32 — Result+? sub-suite
+closeout. Sub-suite COMPLETE (v5.8.28–v5.8.32, 5 slots, +1,784 B
+compiler delta from 737,888 → 739,672 B, 106 new tcyr assertions
+across 4 new tcyrs).** Smoke + retrospective slot — no compiler
+change.) Cross-repo downstream smoke executed via temporary-pin-bump
+methodology: backup cyrius.cyml + lib/, bump pin to 5.8.31, copy
+v5.8.31/lib/*.cyr over snapshot (preserve symlinks; add new
+lib/result.cyr that v5.8.28 introduced), `cyrius build` smoke
+target + run, restore. **Results**: sigil 3.0.0 ✅ (compile + runtime
+exit 0); mabda ✅ (compile OK); yukti ✅ (compile OK); ark ⚠ (repo not
+present at /home/macro/Repos/ark/, flagged for next downstream cycle).
+**Static audit pre-dynamic**: 0 enum-variant name collisions across
+all 3 reachable repos (each defines its own module-prefixed enums —
+SigilError, WGPUBlendOp, DeviceClass etc. — none clash with the
+v5.8.30/.31 Io*/Json*/Toml*/Cyml*/Http*/Dynlib*/Pwd*/Grp*/Shadow*/Pam*
+variants); all sub-suite changes additive (legacy file_open /
+json_parse_file / tcp_socket / pwd_getpwuid all preserved verbatim).
+**Honest scope-shrink ledger**: lib/net.cyr was pre-migrated (Err(errno)
+form from a pre-cycle migration; refactor to NetError would have broken
+ws_server/sandhi consumers); strict "?-outside-Result-returning-fn type
+error" enforcement deferred (needs fn return-type tracking). **Bonus
+fix**: doc-audit deletion of docs/benchmarks.md (commit 62eec00) caught
+afterwards as breaking ci.yml's required-docs check; restored as a stub
+at the canonical path pointing readers to size-comparisons.md +
+development/benchmarks.md, with original v3.4.15 content preserved as
+docs/development/archive/2026-04-11-benchmarks.md. CLAUDE.md memory
+updated with the lesson (feedback_archive_dont_delete_docs.md).
+**Methodology pinned for future closeouts**: `cyrius deps` does NOT
+refresh cyrius-side stdlib snapshots in downstream repos — it only
+resolves `[deps.*]`-declared packages — so cross-version smoke needs
+the manual lib/ overlay step. cc5 unchanged at **739,672 B**.
+Verification: self-host two-step byte-identical, check.sh 64/64,
+result 24/24, result_propagation 29/29, result_stdlib 29/29,
+result_stdlib_pass2 24/24. v5.8.x cycle progress: **32 of 44 pinned
+slots shipped (72.7%)**. Remaining: allocators (v5.8.33–v5.8.38, 6
+slots), Phase 3 closeout (v5.8.39–v5.8.44, 6 slots). Cycle backstop
+v5.8.49.)
+
 **5.8.31** (shipped 2026-05-03 — **v5.8.x SLOT 31 — stdlib `Result`
 migration pass 2 + http_get bug fix + PARSE_STMT `?`-statement gap
 close**. Fourth slot of the Phase 2 Result+? sub-suite (v5.8.28–
@@ -2850,7 +2888,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.31 ✅ shipped (Phase 2 — language vocabulary; Result+? sub-suite advancing — stdlib migration pass 2 landed across http/dynlib/pwd/grp/shadow/pam; remaining slot v5.8.32 for sub-suite closeout; allocators v5.8.33–v5.8.38; Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49). 31 of 44 pinned slots shipped (70.5%); 13 slots remaining; ~18 slots of headroom against backstop.**
+**v5.8.32 ✅ shipped — Result+? sub-suite COMPLETE (Phase 2 — language vocabulary; v5.8.28–v5.8.32, 5 slots, +1,784 B compiler delta, 106 new tcyr assertions across 4 new tcyrs). Cross-repo smoke clean on 3 of 3 reachable consumers (sigil/mabda/yukti); ark not present; 0 enum-name collisions; all changes additive. Allocators (v5.8.33–v5.8.38) opens next; Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49). 32 of 44 pinned slots shipped (72.7%); 12 slots remaining; ~17 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2894,7 +2932,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.29** ✅ `?` propagation operator (postfix on Result-typed exprs; lex token 124 + PARSE_TERM hook + tag-check / early-return / unwrap desugar; +968 B; 29-assertion tcyr; outside-fn-body parse error enforced)
 - **v5.8.30** ✅ Stdlib migration pass 1: 4 modules (lib/io.cyr + lib/json.cyr + lib/toml.cyr + lib/cyml.cyr) gain Result-returning `*_r` variants with module-prefixed error enums; zero compiler delta; 29-assertion tcyr; required mid-slot cc5_aarch64 cross-compiler refresh
 - **v5.8.31** ✅ Stdlib migration pass 2: 6 modules (http/dynlib/pwd/grp/shadow/pam) gain *_r variants + error enums; net.cyr skipped (pre-migrated); http_get bug fix (Result-as-fd); PARSE_STMT `?`-statement gap close (+816 B); 24-assertion tcyr
-- **v5.8.32** — Result sub-suite closeout (cross-repo downstream smoke test)
+- **v5.8.32** ✅ Result+? sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti via temp-pin-bump methodology (all ✅); ark not present (flagged); 0 enum-name collisions; bonus benchmarks.md restore-as-stub fix for ci.yml required-docs gate
 - **v5.8.33–v5.8.38** — Allocators-as-parameter (6 sub-patches)
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
