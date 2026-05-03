@@ -269,21 +269,25 @@ enum Stat {
 # ================================================================
 
 # File operations
+#io
 fn sys_open(path, flags, mode) {
     return syscall(SYS_OPEN, path, flags, mode);
 }
 
 # Close a file descriptor.
+#io
 fn sys_close(fd) {
     return syscall(SYS_CLOSE, fd);
 }
 
 # Read bytes from fd into buffer. Returns bytes read.
+#io
 fn sys_read(fd, buf, count) {
     return syscall(SYS_READ, fd, buf, count);
 }
 
 # Write bytes from buffer to fd. Returns bytes written.
+#io
 fn sys_write(fd, buf, count) {
     return syscall(SYS_WRITE, fd, buf, count);
 }
