@@ -1194,15 +1194,23 @@ fn requires explicit allocator.
 
 #### Phase 3 — Polish + cycle closeout (+2 cascade from v5.8.22)
 
-- **v5.8.39** — Preprocessor include-pattern in string literals
-  (filed 2026-05-01 from vidya audit;
-  `docs/development/issues/2026-05-01-preprocessor-include-pattern-in-string-literals.md`).
-  `PREPROCESS` in `src/frontend/lex.cyr` scans raw bytes for
-  `include "` without string-literal awareness — string literals
-  containing the pattern get processed as file inclusions,
-  corrupting source. Affects `cyrc vet`/`deny`-class scanners.
-  Mirror the v5.7.36 cyrlint string-literal fix shape: state-
-  machine flag tracking `"` boundaries.
+- ✅ **v5.8.40** — Preprocessor string-literal awareness (shipped
+  2026-05-03; cascaded from v5.8.39 by sandhi re-slot). Closes
+  the v5.7.49-vidya-audit-filed issue at
+  `docs/development/issues/2026-05-01-preprocessor-include-pattern-
+  in-string-literals.md`. PP_PASS + PP_IFDEF_PASS in
+  src/frontend/lex_pp.cyr now track `"`-bounded string-literal
+  state via in_string + escape_next flags; the
+  `if (bol == 1)` directive-detection block is gated on
+  `&& in_string == 0`. Mirrors the v5.7.36 cyrlint string-literal
+  awareness fix shape. cc5 739,672 → 740,312 B (+640 B; 320 B
+  per pass). Vidya entry at content/cyrius/ecosystem.cyml:685-720
+  flipped from "pinned for v5.8.x" → "✅ FIXED in v5.8.40";
+  workaround text kept for pre-v5.8.40 toolchain users; cross-ref
+  to canonical issue file maintained per v5.7.49 audit policy.
+  New tests/tcyr/preprocessor_string_literal.tcyr — 12 assertions
+  across 5 groups. check.sh 64/64; self-host two-step
+  byte-identical.
 
 - **v5.8.40** — `cyrlint` multi-line assert false-positive
   (mabda C5). Has full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).

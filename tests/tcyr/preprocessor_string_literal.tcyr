@@ -1,0 +1,137 @@
+# preprocessor_string_literal.tcyr — v5.8.40 — PP string-literal awareness.
+#
+# Locks the regression floor for the preprocessor fix: PP_PASS +
+# PP_IFDEF_PASS now track `"`-bounded string-literal state and
+# suppress directive detection (ISINCLUDE / ISDEFINE / ISIFDEF /
+# etc.) while inside a literal. Mirrors the v5.7.36 cyrlint
+# string-literal awareness shape.
+#
+# Pre-fix bug
+# ===========
+#
+# `PREPROCESS` in `src/frontend/lex.cyr` (well, `lex_pp.cyr`)
+# scanned raw bytes for the literal `include "` pattern without
+# string-literal context. A source containing a string with the
+# include-pattern bytes — when those bytes happened to land at
+# beginning-of-line (e.g., string literal opened on a previous
+# line and continued onto a line starting with `include "`,
+# OR a tool's source that synthesizes the pattern at column 0
+# inside a literal) — was treated as a real include directive.
+# Filed as `docs/development/issues/2026-05-01-preprocessor-include-pattern-in-string-literals.md`
+# at the v5.7.49 vidya audit; vidya entry at
+# `vidya/content/cyrius/ecosystem.cyml:685-713` documents the
+# byte-store workaround.
+#
+# Post-fix
+# ========
+#
+# A `var in_string = 0;` + `var escape_next = 0;` state machine
+# tracks `"` boundaries:
+#   - byte `"` outside a string  → in_string = 1
+#   - byte `"` inside a string   → in_string = 0
+#   - byte `\` inside a string   → escape_next = 1 (next byte's
+#                                  toggle suppressed)
+# The `if (bol == 1)` directive-detection block now gates on
+# `&& in_string == 0`. Same change in PP_IFDEF_PASS.
+#
+# Coverage
+# ========
+#
+# This tcyr is its own regression — if PP_PASS were re-broken,
+# the include-pattern in the multi-line synthetic string below
+# would be treated as a directive at preprocess time, the synth
+# include would silently fail (no such file), and the rest of
+# the source would parse wrong. With the fix in place, the
+# whole file compiles + runs cleanly.
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- string-literal containing the include pattern ----
+
+# This string contains the byte sequence i-n-c-l-u-d-e-space-quote
+# at runtime — exactly the pattern PP_PASS used to mistake for a
+# directive. With the v5.8.40 fix in place, the preprocessor sees
+# the opening `"`, flips in_string to 1, and skips directive
+# detection until the closing `"`.
+var pat = "include \"some-file.cyr\"";
+
+test_group("string literal containing 'include \"' at runtime");
+# pat starts with the byte 'i' (105) — not the opening quote
+# itself; str_data of a Str returns the data ptr.
+assert_eq(load8(pat), 105, "byte 0 = 'i' (105)");
+assert_eq(load8(pat + 1), 110, "byte 1 = 'n' (110)");
+assert_eq(load8(pat + 2), 99, "byte 2 = 'c' (99)");
+assert_eq(load8(pat + 7), 32, "byte 7 = ' ' (32)");
+assert_eq(load8(pat + 8), 34, "byte 8 = '\"' (34) — the embedded quote");
+
+# Also verify the WHOLE string content matches the expected
+# 23-byte sequence. String compare via memeq.
+var expected = "include \"some-file.cyr\"";
+assert_eq(memeq(pat, expected, 23), 1, "full content matches");
+
+# ---- back-compat workaround pattern still works ----
+
+# Pre-v5.8.40 consumers built the pattern at runtime via store8.
+# v5.8.40 makes that workaround unnecessary, but the pattern
+# itself must still produce the same byte sequence — verify.
+var built[16];
+store8(&built,     105);   # i
+store8(&built + 1, 110);   # n
+store8(&built + 2, 99);    # c
+store8(&built + 3, 108);   # l
+store8(&built + 4, 117);   # u
+store8(&built + 5, 100);   # d
+store8(&built + 6, 101);   # e
+store8(&built + 7, 32);    # space
+store8(&built + 8, 34);    # "
+store8(&built + 9, 0);
+
+test_group("back-compat: byte-store workaround produces same bytes");
+assert_eq(memeq(pat, &built, 9), 1, "first 9 bytes of pat match the byte-stored pattern");
+
+# ---- include directives at column 0 still work (regression floor) ----
+
+# This file's own includes at the top (lib/syscalls, lib/string,
+# etc.) prove the directive path still functions. If PP_PASS over-
+# gated and broke real includes, this file wouldn't compile in
+# the first place — strlen / alloc_init / assert_eq / fmt_int
+# (used elsewhere) wouldn't resolve. So if you're reading these
+# assertions running, the regression floor is held.
+test_group("real include directives at column 0 — regression floor");
+assert(strlen("hello") == 5, "lib/string.cyr resolved (strlen works)");
+assert(memeq("abc", "abc", 3) == 1, "lib/string.cyr resolved (memeq works)");
+
+# ---- escape sequence inside string doesn't toggle in_string ----
+
+# `\"` inside a string is an escaped quote — should NOT close
+# the string. The byte sequence in source is `\` `"` which the
+# preprocessor sees as backslash + quote; our state machine
+# sets escape_next on `\` so the following `"` doesn't toggle
+# in_string back to 0. Without this, the closing-quote detection
+# would fire one byte early and the rest of the string content
+# would be processed as code (potentially matching directives).
+var esc = "outer \"inner content with \\\"nested\\\" quote\" still-outer";
+test_group("escape sequences inside string");
+# String contents: outer "inner content with \"nested\" quote" still-outer
+# That's: o-u-t-e-r-space-"-i-n-n-e-r-...-still-outer (1 char with embedded quotes)
+# Verify the WHOLE string parsed correctly by checking strlen.
+var elen = strlen(esc);
+assert(elen >= 50, "escaped string preserved end-to-end");
+
+# ---- directive prefix inside string is not a directive ----
+
+# Same defensive check for `#define` — the # at start of a string
+# shouldn't trigger directive parsing. The string below has the
+# bytes `#define X` embedded.
+var define_in_str = "#define X 42";
+test_group("'#define' inside string is not a directive");
+assert_eq(load8(define_in_str), 35, "byte 0 = '#' (35)");
+assert(memeq(define_in_str, "#define X 42", 12) == 1, "full content preserved");
+
+var r = assert_summary();

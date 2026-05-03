@@ -1082,6 +1082,15 @@ fn PP_PASS(S) {
     store8(out + op, 62); op = op + 1;   # '>'
     store8(out + op, 34); op = op + 1;   # '"'
     store8(out + op, 10); op = op + 1;   # '\n'
+    # v5.8.40 — string-literal awareness. `in_string` flips on
+    # unescaped `"`; `escape_next` suppresses the toggle for the
+    # byte immediately following `\` while inside a string. The
+    # directive-detection block below gates on `in_string == 0`
+    # so a string literal containing `include "..."` (or any other
+    # directive prefix) doesn't get mistaken for a real directive.
+    # Mirrors the cyrlint v5.7.36 string-literal fix.
+    var in_string = 0;
+    var escape_next = 0;
     while (ip < bl) {
         var c = load8(S + ip);
         var handled = 0;
@@ -1089,9 +1098,11 @@ fn PP_PASS(S) {
         # `#`-prefixed directives tolerate leading whitespace
         # (cyrfmt indents `#ifdef` inside function bodies); ISINCLUDE
         # stays at `ip` so `    include = 0;` remains an expression,
-        # not a directive.
+        # not a directive. v5.8.40 — also gated on `in_string == 0`
+        # so directive prefixes inside string literals aren't
+        # processed.
         var dip = PP_SKIP_WS(S, ip, bl);
-        if (bol == 1) {
+        if (bol == 1 && in_string == 0) {
             if (ISDEFINE(S, dip, bl) == 1) {
                 if (skip_depth == 0) {
                     # Check for macro with args: #define NAME(
@@ -1335,6 +1346,26 @@ fn PP_PASS(S) {
                 }
                 store8(out + op, c); op = op + 1;
             }
+            # v5.8.40 — string-literal state machine. Track `"`
+            # boundaries so the directive block above can skip
+            # detection while inside a literal. `\` inside a
+            # string sets escape_next so the following byte (a
+            # quote, backslash, n, etc.) doesn't toggle the
+            # in_string flag. Newlines inside literals also
+            # advance escape_next handling — the parser/lex
+            # rejects unescaped LF in strings, but the
+            # preprocessor doesn't, so we tolerate it for tools
+            # that scan source defensively (e.g. cyrlint).
+            if (escape_next == 1) {
+                escape_next = 0;
+            } else {
+                if (in_string == 0) {
+                    if (c == 34) { in_string = 1; }
+                } else {
+                    if (c == 92)      { escape_next = 1; }
+                    elif (c == 34)    { in_string = 0; }
+                }
+            }
             ip = ip + 1;
             if (c == 10) { bol = 1; } else { bol = 0; }
         }
@@ -1474,13 +1505,21 @@ fn PP_IFDEF_PASS(S) {
         # top of each pass rather than carry state across, because each
         # pass walks the full source independently.
         var pp_depth = 0;
+        # v5.8.40 — string-literal awareness mirroring PP_PASS;
+        # see there for the state-machine rationale. The fixpoint
+        # loop scans expanded source again with its own ISINCLUDE
+        # check, so the same string-literal blindness applies and
+        # gets the same in_string + escape_next gate.
+        var in_string = 0;
+        var escape_next = 0;
         while (ip < bl) {
             var c = load8(tmp + ip);
             var handled = 0;
             # `dip` lets `#`-prefixed directives tolerate leading
-            # whitespace — see PP_PASS for the rationale.
+            # whitespace — see PP_PASS for the rationale. v5.8.40 —
+            # also gated on `in_string == 0`.
             var dip = PP_SKIP_WS(tmp, ip, bl);
-            if (bol == 1) {
+            if (bol == 1 && in_string == 0) {
                 if (ISDEFINE(tmp, dip, bl) == 1) {
                     if (skip_depth == 0) { PP_DEFINE(S, tmp, dip + 8); }
                     ip = PP_SKIPLINE(tmp, ip, bl); bol = 1; handled = 1;
@@ -1611,6 +1650,18 @@ fn PP_IFDEF_PASS(S) {
             }
             if (handled == 0) {
                 if (skip_depth == 0) { store8(out + op, c); op = op + 1; }
+                # v5.8.40 — string-literal state machine; mirrors
+                # PP_PASS. See PP_PASS for the rationale.
+                if (escape_next == 1) {
+                    escape_next = 0;
+                } else {
+                    if (in_string == 0) {
+                        if (c == 34) { in_string = 1; }
+                    } else {
+                        if (c == 92)      { escape_next = 1; }
+                        elif (c == 34)    { in_string = 0; }
+                    }
+                }
                 ip = ip + 1;
                 if (c == 10) { bol = 1; } else { bol = 0; }
             }

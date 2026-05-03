@@ -5,6 +5,41 @@
 
 ## Version
 
+**5.8.40** (shipped 2026-05-03 — **v5.8.x SLOT 40 — preprocessor
+string-literal awareness**. Second slot of Phase 3 (cascaded from
+v5.8.39 by sandhi re-slot). Closes the long-standing PP bug where
+source containing string literals with the byte sequence `include "`
+at beginning-of-line was processed as a real include directive,
+silently corrupting source.) Filed at v5.7.49 vidya audit
+(`docs/development/issues/2026-05-01-preprocessor-include-pattern-
+in-string-literals.md`); pinned to v5.8.x bug-fix cycle. **PP_PASS
++ PP_IFDEF_PASS** in src/frontend/lex_pp.cyr now track `"`-bounded
+string-literal state via in_string + escape_next flags; the
+`if (bol == 1)` directive-detection block is gated on
+`&& in_string == 0`. Mirrors the v5.7.36 cyrlint string-literal
+awareness fix shape. State transitions in default-copy branch:
+escape_next clears + skips toggle; outside-string `"` enters string;
+inside-string `\` sets escape_next; inside-string `"` exits.
+**Vidya annotated** at content/cyrius/ecosystem.cyml:685-720 —
+status flipped from "pinned for v5.8.x" to "✅ FIXED in v5.8.40";
+workaround text kept for pre-v5.8.40 toolchain users; cross-ref
+to canonical issue file maintained per v5.7.49 audit policy.
+New tcyr `preprocessor_string_literal.tcyr` — 12 assertions across
+5 groups (string with include pattern preserved byte-by-byte,
+back-compat byte-store workaround still produces same bytes, real
+include directives at col 0 still work as regression floor, escape
+sequences inside strings, '#define' prefix inside string isn't a
+directive). cc5 **739,672 B → 740,312 B (+640 B)** — 320 B per
+pass for the state machine. Verification: self-host two-step
+byte-identical, check.sh 64/64, preprocessor_string_literal 12/12,
+all Phase 2 sub-suite tcyrs regression-floored. **Process note**:
+lex_pp.cyr is in src/ not lib/, so ping-pong path doesn't apply
+(no snapshot refresh needed). v5.8.x cycle progress: **40 of 44
+pinned slots shipped (90.9%)**. Phase 3 remaining (4 slots):
+cyrlint multi-line assert false-positive (v5.8.41), vidya cyrius-
+language audit (v5.8.42), paired UX polish (v5.8.43), cycle
+backstop (v5.8.44). Cycle backstop v5.8.49.)
+
 **5.8.39** (shipped 2026-05-03 — **v5.8.x SLOT 39 — fold sandhi v1.1.0
 dist into stdlib**. First slot of Phase 3. Closes the v5.8.36
 deferral of sandhi from Allocator stdlib pass 2 by vendoring the
@@ -3153,7 +3188,7 @@ throughput win on hosts with hw support).)
 ## Suites
 
 - **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock + v5.8.x slot work introduce no new gates. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches; v5.8.x: 64 unchanged through v5.8.28 — `result.tcyr` added v5.8.28 is auto-discovered by the existing tcyr suite gate, no new gate required)
-- **`tests/tcyr/*.tcyr`**: 106 files (v5.8.37 added `alloc_no_init.tcyr` — 17 assertions across 8 groups verifying alloc/alloc_via/arena_new/vec/str/hashmap all work without explicit alloc_init() (lazy-init proves out). v5.8.36 added `alloc_stdlib_pass2.tcyr` — 30 assertions across 10 groups covering json/toml/cyml/http _a variants, per-request-arena pattern, OOM behavior. v5.8.35 added `alloc_stdlib.tcyr` — 33 assertions across 14 groups covering vec/str/hashmap _a variants, bump/arena/test allocator dispatch, OOM via fail_after_n_allocs, default_alloc singleton consistency. v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
+- **`tests/tcyr/*.tcyr`**: 107 files (v5.8.40 added `preprocessor_string_literal.tcyr` — 12 assertions across 5 groups for the PP string-literal awareness fix. v5.8.37 added `alloc_no_init.tcyr` — 17 assertions across 8 groups verifying alloc/alloc_via/arena_new/vec/str/hashmap all work without explicit alloc_init() (lazy-init proves out). v5.8.36 added `alloc_stdlib_pass2.tcyr` — 30 assertions across 10 groups covering json/toml/cyml/http _a variants, per-request-arena pattern, OOM behavior. v5.8.35 added `alloc_stdlib.tcyr` — 33 assertions across 14 groups covering vec/str/hashmap _a variants, bump/arena/test allocator dispatch, OOM via fail_after_n_allocs, default_alloc singleton consistency. v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -3169,7 +3204,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.39 ✅ shipped — Phase 3 OPENED with sandhi v1.1.0 fold-in (re-slotted from the originally-pinned preprocessor item; sandhi 1.1.0 became available between v5.8.38 ship and Phase 3 start). Displaced preprocessor item cascades to v5.8.40; rest of Phase 3 shifts right by 1. Phase 3 remaining (5 slots): preprocessor include-pattern (v5.8.40), cyrlint multi-line assert false-positive (v5.8.41), vidya cyrius-language audit (v5.8.42), paired UX polish (v5.8.43), cycle backstop (v5.8.44). Cycle backstop v5.8.49. 39 of 44 pinned slots shipped (88.6%); 5 slots remaining; ~10 slots of headroom against backstop.**
+**v5.8.40 ✅ shipped — Preprocessor string-literal awareness; closes the v5.7.49 vidya-audit-filed issue. Phase 3 advancing. Phase 3 remaining (4 slots): cyrlint multi-line assert false-positive (v5.8.41), vidya cyrius-language audit (v5.8.42), paired UX polish (v5.8.43), cycle backstop (v5.8.44). Cycle backstop v5.8.49. 40 of 44 pinned slots shipped (90.9%); 4 slots remaining; ~9 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3221,6 +3256,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.37** ✅ alloc_init() lazy-init — `if (_heap_base == 0) { alloc_init(); }` guard in alloc() across Linux/macOS/Windows; alloc_init() now OPTIONAL; 17-assertion alloc_no_init tcyr; zero compiler delta
 - **v5.8.38** ✅ Allocators sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti/ark via temp-pin-bump methodology (4-of-4 ✅; ark validated back-compat from a 7-minor-old pin 5.1.10 → 5.8.37); 0 enum/symbol collisions; 0/47 downstream alloc_init() sites migrated yet (opt-in); acceptance-gate audit captured (oom_vec_push Err shape + compiler-internal explicit Allocator partial — both pinned for v6.0.0); sandhi handed off to parallel agent for v1.1.0; **Phase 2 COMPLETE** (Result+? + Allocators sub-suites done in 11 slots total)
 - **v5.8.39** ✅ sandhi v1.1.0 fold-in (re-slotted from preprocessor item by user direction at v5.8.38 ship). lib/sandhi.cyr 376,037 → 411,361 B (+35,324 / +9.4%); ~150 new public _a verbs in sandhi src; per-request-arena pattern realized end-to-end; 143 new sandhi alloc tcyrs (792 total assertions green). cyrius-side: zero compiler delta; no internal consumers broken (grep clean); downstream propagation via cyrius deps
+- **v5.8.40** ✅ Preprocessor string-literal awareness (cascaded from v5.8.39). PP_PASS + PP_IFDEF_PASS gain in_string + escape_next state machines; `include "..."` inside string literals no longer mistaken for directives. cc5 +640 B (320 per pass). 12-assertion tcyr. Vidya entry flipped to ✅ FIXED.
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

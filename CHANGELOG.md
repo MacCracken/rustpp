@@ -4,6 +4,112 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.40] — 2026-05-03
+
+**v5.8.x slot 40 — preprocessor string-literal awareness**.
+Second slot of Phase 3 (cascaded from v5.8.39 by the sandhi
+re-slot). Closes the long-standing `PREPROCESS` bug where source
+containing string literals with the byte sequence `i-n-c-l-u-d-e-
+space-quote` would have those bytes mistakenly processed as a
+real include directive whenever they happened to land at
+beginning-of-line. Filed at v5.7.49 vidya audit
+(`docs/development/issues/2026-05-01-preprocessor-include-pattern-
+in-string-literals.md`); pinned to the v5.8.x bug-fix cycle.
+
+cc5 **739,672 B → 740,312 B (+640 B)** — 320 B per pass for the
+in_string + escape_next state machine.
+
+### Fixed
+
+- **`PP_PASS` in `src/frontend/lex_pp.cyr`** — main pre-pass
+  scanning raw source for `#define` / `#ifdef` / `#ifplat` /
+  `#if` / `#derive` / `include "..."` directives. Added
+  `var in_string = 0;` + `var escape_next = 0;` to the main
+  while-loop. The `if (bol == 1)` directive-detection block is
+  gated on `&& in_string == 0`. State transitions in the
+  default-copy branch:
+  - `escape_next == 1`: clear the flag, skip toggle
+  - else if `in_string == 0` and `c == '"'`: enter string
+  - else if `in_string == 1`:
+    - `c == '\\'` → `escape_next = 1`
+    - `c == '"'` → exit string
+
+- **`PP_IFDEF_PASS` in `src/frontend/lex_pp.cyr`** — the
+  fixpoint loop that scans expanded source again for nested
+  includes. Same string-literal blindness; same fix.
+
+- **`vidya/content/cyrius/ecosystem.cyml:685-720`** — annotated
+  the `preprocessor_include_bug` entry with the v5.8.40 fix
+  status. Per the v5.7.49 vidya audit policy: keep the workaround
+  text for pre-v5.8.40 toolchains, mark fixed-in-version, point
+  back at the canonical issue file. Issue file kept as historical
+  reference + workaround documentation.
+
+### Added
+
+- **`tests/tcyr/preprocessor_string_literal.tcyr`** — 12
+  assertions across 5 groups covering: string literal containing
+  the `include "` pattern at runtime (byte-by-byte content
+  preservation); back-compat verification that the pre-fix
+  byte-store workaround produces the same byte sequence as the
+  literal; real `include` directives at column 0 still work
+  (regression floor — if PP_PASS over-gated and broke real
+  includes, this file's own includes wouldn't resolve);
+  escape-sequence handling inside strings (`\"` doesn't close
+  the string); `#define` prefix inside string literal is not
+  a directive.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `preprocessor_string_literal` tcyr → 12 passed, 0 failed.
+- All Phase 2 sub-suite tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 740,312 B.
+
+### Reproduction (the bug, pre-fix)
+
+```cyrius
+include "lib/syscalls.cyr"
+var s = "abc
+include \"definitely_does_not_exist.cyr\""
+syscall(60, 0);
+```
+
+The literal newline inside the string flips the preprocessor's
+`bol` flag to 1, and the next byte (`i` of the synthetic
+`include "..."` content) triggers the ISINCLUDE check. The
+preprocessor then tries to open the (non-existent) file and
+silently swallows the rest of the source line as the include's
+filename, corrupting downstream lex/parse. With v5.8.40, the
+preprocessor sees the opening `"` of the outer string, sets
+`in_string = 1`, and skips directive detection until the
+closing `"` (ignoring the embedded `\"` escapes). The lex
+still rejects the multi-line string literal with its own
+parse error — but the preprocessor no longer corrupts source
+along the way.
+
+### Process notes
+
+- **Snapshot-ping-pong protection**: lex_pp.cyr is in `src/`,
+  not `lib/`, so the `cyrius deps`-driven ping-pong path
+  doesn't apply. No snapshot refresh needed.
+
+- **Mirror of the v5.7.36 cyrlint fix**. cyrlint's expression-
+  walker had the same string-literal blindness; the v5.7.36
+  fix added the same `in_string` + `escape_next` state machine.
+  PP_PASS now uses the same shape; the lesson is reusable for
+  any future bytewise scanner that needs to skip directive-
+  detection in literals.
+
+- **Vidya entry annotation policy.** The vidya
+  `ecosystem.cyml:685-720` entry is the v5.7.49 audit's pattern
+  for "open issue with workaround that consumers may still hit".
+  Now that the issue is fixed, the entry's `**Status**` line
+  flips from "pinned for cyrius v5.8.x bug-fix cycle" to
+  "✅ FIXED in cyrius v5.8.40". The workaround text stays so
+  pre-v5.8.40 toolchain users still find it.
+
 ## [5.8.39] — 2026-05-03
 
 **v5.8.x slot 39 — fold sandhi v1.1.0 dist into stdlib**. First
