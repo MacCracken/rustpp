@@ -1,0 +1,172 @@
+# result_stdlib_pass2.tcyr — v5.8.31 — Result migration pass 2.
+#
+# Locks the regression floor for the *_r variants added across
+# `lib/http.cyr`, `lib/dynlib.cyr`, `lib/pwd.cyr`, `lib/grp.cyr`,
+# `lib/shadow.cyr`, `lib/pam.cyr`. lib/net.cyr is omitted from the
+# pass — premise-check at slot entry found it was already
+# Result-returning (Err(errno) form) from a pre-cycle migration.
+#
+# Coverage:
+#   (1) `dynlib_open_r` / `dynlib_sym_r` — Err(DynlibNotFound)
+#       on missing path; Err(DynlibBadElf) when the file exists
+#       but isn't a valid ELF (use a text file as the probe);
+#       Err(DynlibSymMissing) on null handle.
+#   (2) `pwd_getpwuid_r` — Ok(0) for getuid()'s own uid; Err(
+#       PwdNotFound) for an obviously-bogus uid (2147483647).
+#   (3) `pwd_getpwnam_r` — Err(PwdNotFound) for "nosuchuser".
+#   (4) `grp_getgrgid_r` — Err(GrpNotFound) for bogus gid; Ok(0)
+#       for one known-present gid (gid 0 = root on every Linux).
+#   (5) `shadow_getspnam_r` — Err(ShadowLoadFailed) when the
+#       calling user can't read /etc/shadow (the common case
+#       since the test runs as a non-root user); the strict
+#       Ok-path is impractical to test in tcyr (would need root).
+#   (6) `pam_unix_authenticate_r` — Err(PamHelperMissing) when
+#       /usr/sbin/unix_chkpwd is absent; otherwise the real
+#       authenticate path needs root + a real password and
+#       isn't exercised here. The variant-mapping is the
+#       guarantee.
+#   (7) `?` propagation chain — pwd_getpwuid_r + pwd_uid as
+#       a one-liner using `?`.
+#
+# v5.8.31 ships these *_r variants alongside the back-compat
+# int-returning fns; legacy callers stay green per migration
+# policy (roadmap §v5.8.28-32). v6.0.0 closeout removes the
+# old shape.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/str.cyr"
+include "lib/fmt.cyr"
+include "lib/result.cyr"
+include "lib/io.cyr"
+include "lib/mmap.cyr"
+include "lib/dynlib.cyr"
+include "lib/pwd.cyr"
+include "lib/grp.cyr"
+include "lib/shadow.cyr"
+include "lib/pam.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- dynlib ----
+
+test_group("dynlib_open_r — Err(DynlibNotFound) on missing path");
+var dl_miss = dynlib_open_r("/no/such/library.so");
+assert_eq(is_err_result(dl_miss), 1, "missing .so is Err");
+assert_eq(load64(dl_miss + 8), DynlibNotFound, "payload = DynlibNotFound");
+
+test_group("dynlib_open_r — Err(DynlibBadElf) on text-file probe");
+var fakeso = "/tmp/cyrius_v5_8_31_fake.so";
+file_write_all_r(fakeso, "this is not ELF\n", 16);
+var dl_bad = dynlib_open_r(fakeso);
+assert_eq(is_err_result(dl_bad), 1, "text file is Err");
+assert_eq(load64(dl_bad + 8), DynlibBadElf, "payload = DynlibBadElf");
+sys_unlink(fakeso);
+
+test_group("dynlib_sym_r — Err(DynlibNotFound) on null handle");
+var sm_null = dynlib_sym_r(0, "nope");
+assert_eq(is_err_result(sm_null), 1, "null handle is Err");
+assert_eq(load64(sm_null + 8), DynlibNotFound, "payload = DynlibNotFound");
+
+# ---- pwd ----
+
+# Get the calling uid via syscall(102) = getuid (x86_64) — present
+# on every Linux. Used to drive a self-lookup that's guaranteed Ok.
+var my_uid = syscall(102);
+
+test_group("pwd_getpwuid_r — Ok for caller's own uid");
+var pw1[56];
+var sb1[1024];
+var pw_self = pwd_getpwuid_r(my_uid, &pw1, &sb1, 1024);
+assert_eq(is_ok(pw_self), 1, "self uid is Ok");
+
+test_group("pwd_getpwuid_r — Err(PwdNotFound) on bogus uid");
+var pw2[56];
+var sb2[1024];
+var pw_miss = pwd_getpwuid_r(2147483647, &pw2, &sb2, 1024);
+assert_eq(is_err_result(pw_miss), 1, "bogus uid is Err");
+assert_eq(load64(pw_miss + 8), PwdNotFound, "payload = PwdNotFound");
+
+test_group("pwd_getpwnam_r — Err(PwdNotFound) on bogus name");
+var pw3[56];
+var sb3[1024];
+var pn_miss = pwd_getpwnam_r("nosuchuser_v5_8_31", &pw3, &sb3, 1024);
+assert_eq(is_err_result(pn_miss), 1, "bogus name is Err");
+assert_eq(load64(pn_miss + 8), PwdNotFound, "payload = PwdNotFound");
+
+# ---- grp ----
+
+test_group("grp_getgrgid_r — Ok for gid 0 (root)");
+var g0[24];
+var gsb0[1024];
+var g_root = grp_getgrgid_r(0, &g0, &gsb0, 1024);
+assert_eq(is_ok(g_root), 1, "gid 0 is Ok");
+
+test_group("grp_getgrgid_r — Err(GrpNotFound) on bogus gid");
+var g1[24];
+var gsb1[1024];
+var g_miss = grp_getgrgid_r(2147483647, &g1, &gsb1, 1024);
+assert_eq(is_err_result(g_miss), 1, "bogus gid is Err");
+assert_eq(load64(g_miss + 8), GrpNotFound, "payload = GrpNotFound");
+
+test_group("grp_getgrnam_r — Err(GrpNotFound) on bogus name");
+var g2[24];
+var gsb2[1024];
+var gn_miss = grp_getgrnam_r("nosuchgroup_v5_8_31", &g2, &gsb2, 1024);
+assert_eq(is_err_result(gn_miss), 1, "bogus group is Err");
+assert_eq(load64(gn_miss + 8), GrpNotFound, "payload = GrpNotFound");
+
+# ---- shadow ----
+# The strict Ok-path requires root (read access to /etc/shadow).
+# At non-root, _shadow_load returns 0 and shadow_getspnam returns
+# -1 → Err(ShadowLoadFailed). Either Err(ShadowLoadFailed) (no
+# root) or Ok(0)/Err(ShadowNotFound) (root) is acceptable.
+
+test_group("shadow_getspnam_r — Err on bogus name (load or notfound)");
+var sp1[64];
+var spsb1[1024];
+var sp_miss = shadow_getspnam_r("nosuchuser_v5_8_31_shadow", &sp1, &spsb1, 1024);
+assert_eq(is_err_result(sp_miss), 1, "bogus shadow lookup is Err");
+var sp_payload = load64(sp_miss + 8);
+var sp_ok = 0;
+if (sp_payload == ShadowLoadFailed) { sp_ok = 1; }
+if (sp_payload == ShadowNotFound)   { sp_ok = 1; }
+assert_eq(sp_ok, 1, "payload is ShadowLoadFailed or ShadowNotFound");
+
+# ---- pam ----
+# pam_unix_authenticate_r needs unix_chkpwd + a real password.
+# Without the helper we get Err(PamHelperMissing); with the
+# helper but a wrong password we get Err(PamAuthFail). Either
+# Err is acceptable; the contract is "Err on rejected".
+
+test_group("pam_unix_authenticate_r — Err on wrong-password / missing helper");
+var pa = pam_unix_authenticate_r("nosuchuser_v5_8_31_pam", "definitely-not-the-password");
+assert_eq(is_err_result(pa), 1, "rejected auth is Err");
+var pa_payload = load64(pa + 8);
+var pa_ok = 0;
+if (pa_payload == PamAuthFail)      { pa_ok = 1; }
+if (pa_payload == PamHelperMissing) { pa_ok = 1; }
+assert_eq(pa_ok, 1, "payload is PamAuthFail or PamHelperMissing");
+
+# ---- ? propagation chain ----
+
+# Helper that uses `?` to short-circuit on lookup failure.
+fn _self_uid_via_chain(uid, pwbuf, sbuf, sbufsz) {
+    pwd_getpwuid_r(uid, pwbuf, sbuf, sbufsz)?;
+    return Ok(pwd_uid(pwbuf));
+}
+
+test_group("? chain — pwd_getpwuid_r + accessor");
+var pw_q[56];
+var sb_q[1024];
+var chain_ok = _self_uid_via_chain(my_uid, &pw_q, &sb_q, 1024);
+assert_eq(is_ok(chain_ok), 1, "chain on self uid is Ok");
+assert_eq(load64(chain_ok + 8), my_uid, "chain returns own uid");
+
+var chain_err = _self_uid_via_chain(2147483647, &pw_q, &sb_q, 1024);
+assert_eq(is_err_result(chain_err), 1, "chain on bogus uid is Err");
+assert_eq(load64(chain_err + 8), PwdNotFound, "chain payload = PwdNotFound");
+
+var r = assert_summary();

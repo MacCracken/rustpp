@@ -963,9 +963,30 @@ checking code in practice.
   syntax newly transitively included via `lib/io.cyr`; rebuilt
   from `src/main_aarch64.cyr` via host cc5. check.sh 64/64;
   self-host two-step byte-identical.
-- **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`,
-  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
-  (`pwd.cyr`/`grp.cyr`/`shadow.cyr`/`pam.cyr`). Cleanest wins.
+- ✅ **v5.8.31** — Stdlib migration pass 2 (shipped 2026-05-03).
+  Result-returning `*_r` variants + module-prefixed error enums
+  added to 6 of the 7 pin-named modules: lib/http.cyr (HttpError +
+  http_get_r), lib/dynlib.cyr (DynlibError + dynlib_open_r /
+  dynlib_sym_r), lib/pwd.cyr (PwdError + pwd_getpwuid_r /
+  pwd_getpwnam_r), lib/grp.cyr (GrpError + grp_getgrgid_r /
+  grp_getgrnam_r / grp_getgrouplist_r), lib/shadow.cyr
+  (ShadowError + shadow_getspnam_r), lib/pam.cyr (PamError +
+  pam_unix_authenticate_r). **Premise-check finding:** lib/net.cyr
+  was already Result-returning (Err(errno) form) from a pre-cycle
+  migration — refactor to NetError enum would break payload-
+  comparing consumers (ws_server / sandhi); skipped per honest
+  scope-shrink. **Bug fix:** lib/http.cyr's http_get treated net.cyr
+  Result heap ptrs as raw ints (`var fd = tcp_socket(); if (fd < 0)`
+  — heap ptr always positive, guard never fired); replaced with
+  is_err_result/payload guards in the lib/sandhi.cyr shape.
+  **Compiler fix:** v5.8.29's `?` hook lived only in PARSE_TERM,
+  but PARSE_STMT's IDENT+LPAREN dispatch bypasses PARSE_TERM —
+  bare `expr?;` statements hit "expected ';', got unknown".
+  Replicated `?` desugar inline in PARSE_STMT after PARSE_FNCALL
+  (+816 B). cc5 738,856 → 739,672 B (+816 B; the 6 stdlib modules
+  ship zero compiler delta). New tests/tcyr/result_stdlib_pass2.tcyr
+  — 24 assertions across 12 groups. check.sh 64/64; aarch64 SSH
+  gate PASS; self-host two-step byte-identical.
 - **v5.8.32** — Result sub-suite closeout. Cross-repo downstream
   smoke test (sigil, mabda, yukti, ark compile against
   migrated stdlib).

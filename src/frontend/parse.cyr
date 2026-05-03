@@ -946,6 +946,49 @@ fn PARSE_STMT(S) {
             }
             # fn call statement
             PARSE_FNCALL(S, noff);
+            # v5.8.31 — postfix `?` on a bare fncall-statement
+            # (`expr?;` form). v5.8.29 added `?` in PARSE_TERM but
+            # this path bypasses PARSE_TERM entirely (PARSE_STMT
+            # dispatches IDENT+LPAREN straight to PARSE_FNCALL),
+            # so the `?` was unhandled and the next token check
+            # for `;` reported "expected ';', got unknown" (token
+            # 124 has no TOKNAME entry). Same desugar shape as the
+            # PARSE_TERM hook: tag-check + early-return on Err +
+            # payload-load on Ok. The unwrapped value lands in rax
+            # and is dropped by the bare-statement convention.
+            if (PEEKT(S) == 124) {
+                STI(S, GTI(S) + 1);
+                if (GINFN(S) == 0) {
+                    ERR_MSG(S, "?: '?' propagation operator only valid inside a fn body", 56);
+                }
+                var qsidx = GVCNT(S);
+                S64(S + 0x11A000 + qsidx * 8, 0);
+                S64(S + 0x12A000 + qsidx * 8, 8);
+                SVCNT(S, qsidx + 1);
+                EVSTORE(S, qsidx);
+                EVLOAD(S, qsidx);
+                ELOAD64(S);
+                EPUSHR(S);
+                EMOVI(S, 0);
+                EMOVCA(S);
+                EPOPR(S);
+                ECMPR(S);
+                var qsjcc = EJCC(S, 0x84);
+                EVLOAD(S, qsidx);
+                var qsrp = EJMP0(S);
+                var qsrpc = GRPC(S);
+                if (qsrpc >= 64) { ERR_MSG(S, "too many return statements in function (max 64)", 47); }
+                S64(S + 0x18DA20 + qsrpc * 8, qsrp);
+                SRPC(S, qsrpc + 1);
+                EPATCH(S, qsjcc);
+                EVLOAD(S, qsidx);
+                EPUSHR(S);
+                EMOVI(S, 8);
+                EMOVCA(S);
+                EPOPR(S);
+                EADDR(S);
+                ELOAD64(S);
+            }
             if (PEEKT(S) != 5) { ERR_EXPECT(S, 5); }
             STI(S, GTI(S) + 1);
             return 0;

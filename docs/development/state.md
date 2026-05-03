@@ -5,6 +5,47 @@
 
 ## Version
 
+**5.8.31** (shipped 2026-05-03 — **v5.8.x SLOT 31 — stdlib `Result`
+migration pass 2 + http_get bug fix + PARSE_STMT `?`-statement gap
+close**. Fourth slot of the Phase 2 Result+? sub-suite (v5.8.28–
+v5.8.32). Adds `*_r` variants across 6 modules (http / dynlib /
+pwd / grp / shadow / pam) with module-prefixed error enums.)
+**Premise-check finding:** `lib/net.cyr` was already Result-
+returning (Err(errno) form) from a pre-cycle migration; refactor
+to NetError enum would break payload-comparing consumers
+(ws_server / sandhi). Skipped per honest scope-shrink — only
+gap was sock_close/sock_shutdown returning bare ints (essentially
+infallible). **Fixed:** lib/http.cyr's http_get treated
+tcp_socket()/sock_connect()/sock_send()/sock_recv() Result heap
+ptrs as raw ints — guard `if (fd < 0)` never fired since heap
+ptrs are positive; subsequent syscalls passed the Result ptr as
+a kernel fd and silently failed. Replaced with is_err_result/
+payload guards in the lib/sandhi.cyr shape. Bug predates v5.8.x.
+**Fixed:** v5.8.29's `?` hook lived only in PARSE_TERM, but
+PARSE_STMT's IDENT+LPAREN dispatch bypasses PARSE_TERM, so bare
+`expr?;` statements hit "expected ';', got unknown" (token 124
+has no TOKNAME entry). Added matching desugar inline in
+PARSE_STMT after PARSE_FNCALL. **New error enums:** HttpError
+(HttpBadUrl, HttpNetErr, HttpNon2xx, HttpOther); DynlibError
+(DynlibNotFound, DynlibBadElf, DynlibSymMissing, DynlibOther);
+PwdError (PwdNotFound, PwdLoadFailed, PwdBufTooSmall, PwdOther);
+GrpError (same shape); ShadowError (same shape); PamError
+(PamAuthFail, PamHelperMissing, PamPipeFailed, PamForkFailed,
+PamExecFailed, PamOther). New tcyr `result_stdlib_pass2.tcyr` —
+24 assertions across 12 groups (dynlib NotFound/BadElf,
+pwd_getpwuid_r self-uid Ok + bogus Err, grp gid-0 Ok + bogus
+Err, shadow load-failed-or-not-found Err, pam auth-fail-or-
+helper-missing Err, ?-propagation chain on pwd_getpwuid_r +
+pwd_uid). cc5 **738,856 → 739,672 B (+816 B)** — entirely from
+the PARSE_STMT `?` hook; the 6 stdlib modules ship zero compiler
+delta. Verification: self-host two-step byte-identical, check.sh
+64/64, result_stdlib_pass2 24/24, result_stdlib 29/29,
+result_propagation 29/29, result 24/24, tagged 14/14, aarch64
+SSH gate PASS. v5.8.x cycle progress: **31 of 44 pinned slots
+shipped (70.5%)**. Phase 2 remaining: Result sub-suite closeout
+(v5.8.32), allocators (v5.8.33–v5.8.38). Phase 3 closeout
+v5.8.39–v5.8.44; cycle backstop v5.8.49.)
+
 **5.8.30** (shipped 2026-05-03 — **v5.8.x SLOT 30 — stdlib `Result`
 migration pass 1**. Third slot of the Phase 2 Result+? sub-suite
 (v5.8.28–v5.8.32). Adds `Result`-returning `*_r` variants of the
@@ -2793,7 +2834,7 @@ throughput win on hosts with hw support).)
 ## Suites
 
 - **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock + v5.8.x slot work introduce no new gates. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches; v5.8.x: 64 unchanged through v5.8.28 — `result.tcyr` added v5.8.28 is auto-discovered by the existing tcyr suite gate, no new gate required)
-- **`tests/tcyr/*.tcyr`**: 100 files (v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
+- **`tests/tcyr/*.tcyr`**: 101 files (v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -2809,7 +2850,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.30 ✅ shipped (Phase 2 — language vocabulary; Result+? sub-suite advancing — stdlib migration pass 1 landed across io/json/toml/cyml; remaining slots v5.8.31–v5.8.32 for stdlib pass 2 + sub-suite closeout; allocators v5.8.33–v5.8.38; Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49). 30 of 44 pinned slots shipped (68.2%); 14 slots remaining; ~19 slots of headroom against backstop.**
+**v5.8.31 ✅ shipped (Phase 2 — language vocabulary; Result+? sub-suite advancing — stdlib migration pass 2 landed across http/dynlib/pwd/grp/shadow/pam; remaining slot v5.8.32 for sub-suite closeout; allocators v5.8.33–v5.8.38; Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49). 31 of 44 pinned slots shipped (70.5%); 13 slots remaining; ~18 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2852,7 +2893,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.28** ✅ `Result<T,E>` carve-out into `lib/result.cyr` (typed shape, 24-assertion tcyr; zero compiler delta)
 - **v5.8.29** ✅ `?` propagation operator (postfix on Result-typed exprs; lex token 124 + PARSE_TERM hook + tag-check / early-return / unwrap desugar; +968 B; 29-assertion tcyr; outside-fn-body parse error enforced)
 - **v5.8.30** ✅ Stdlib migration pass 1: 4 modules (lib/io.cyr + lib/json.cyr + lib/toml.cyr + lib/cyml.cyr) gain Result-returning `*_r` variants with module-prefixed error enums; zero compiler delta; 29-assertion tcyr; required mid-slot cc5_aarch64 cross-compiler refresh
-- **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`, `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
+- **v5.8.31** ✅ Stdlib migration pass 2: 6 modules (http/dynlib/pwd/grp/shadow/pam) gain *_r variants + error enums; net.cyr skipped (pre-migrated); http_get bug fix (Result-as-fd); PARSE_STMT `?`-statement gap close (+816 B); 24-assertion tcyr
 - **v5.8.32** — Result sub-suite closeout (cross-repo downstream smoke test)
 - **v5.8.33–v5.8.38** — Allocators-as-parameter (6 sub-patches)
 

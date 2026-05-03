@@ -4,6 +4,156 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.31] — 2026-05-03
+
+**v5.8.x slot 31 — stdlib `Result` migration pass 2**. Fourth
+slot of the Phase 2 Result+? sub-suite (v5.8.28–v5.8.32). Adds
+`Result`-returning `*_r` variants across `lib/http.cyr`,
+`lib/dynlib.cyr`, `lib/pwd.cyr`, `lib/grp.cyr`, `lib/shadow.cyr`,
+`lib/pam.cyr`. Also: fixes a long-standing bug in `lib/http.cyr`
+and patches a v5.8.29 `?`-operator gap in `PARSE_STMT`.
+
+cc5 **738,856 B → 739,672 B (+816 B)** — the +816 B is the new
+PARSE_STMT `?` hook. The 6 stdlib modules ship zero compiler
+delta; only the parse.cyr fix adds bytes.
+
+### Added
+
+- **`lib/http.cyr`** — `enum HttpError { HttpBadUrl; HttpNetErr;
+  HttpNon2xx; HttpOther; }` + `http_get_r(url)` returning
+  `Result<resp_ptr, HttpError>`. Bad URL → `Err(HttpBadUrl)`;
+  net.cyr Err in `tcp_socket` / `sock_connect` →
+  `Err(HttpNetErr)`; status outside 200-299 → `Err(HttpNon2xx)`;
+  2xx → `Ok(resp)`.
+
+- **`lib/dynlib.cyr`** — `enum DynlibError { DynlibNotFound;
+  DynlibBadElf; DynlibSymMissing; DynlibOther; }` +
+  `dynlib_open_r(path)` and `dynlib_sym_r(handle, name)`.
+  `dynlib_open_r` distinguishes "couldn't open file"
+  (`DynlibNotFound`) from "opened but ELF parse failed"
+  (`DynlibBadElf`) by re-probing the path with `open(2)`.
+
+- **`lib/pwd.cyr`** — `enum PwdError { PwdNotFound;
+  PwdLoadFailed; PwdBufTooSmall; PwdOther; }` +
+  `pwd_getpwuid_r` / `pwd_getpwnam_r`. Maps the
+  legacy int-return contract: `1`→`Ok(0)`, `0`→`Err(PwdNotFound)`,
+  `-1`→`Err(PwdLoadFailed)`, `-2`→`Err(PwdBufTooSmall)`.
+
+- **`lib/grp.cyr`** — `enum GrpError { GrpNotFound;
+  GrpLoadFailed; GrpBufTooSmall; GrpOther; }` +
+  `grp_getgrgid_r` / `grp_getgrnam_r` / `grp_getgrouplist_r`.
+  The legacy `grp_getgrouplist`'s overflow-as-`-(n+2)`
+  encoding collapses to `Err(GrpBufTooSmall)`; callers needing
+  the would-have-been count fall back to the int-returning fn.
+
+- **`lib/shadow.cyr`** — `enum ShadowError { ShadowNotFound;
+  ShadowLoadFailed; ShadowBufTooSmall; ShadowOther; }` +
+  `shadow_getspnam_r`. `ShadowLoadFailed` typically signals
+  "no read access to /etc/shadow" (caller is non-root).
+
+- **`lib/pam.cyr`** — `enum PamError { PamAuthFail;
+  PamHelperMissing; PamPipeFailed; PamForkFailed;
+  PamExecFailed; PamOther; }` + `pam_unix_authenticate_r`.
+  `pam_unix_available` stays bool — no `_r` variant needed.
+
+- **`tests/tcyr/result_stdlib_pass2.tcyr`** — 24 assertions
+  across 12 groups covering: `dynlib_open_r` Ok/Err on
+  missing/text-file probes, `dynlib_sym_r` null-handle Err,
+  `pwd_getpwuid_r` self-uid Ok + bogus-uid Err,
+  `pwd_getpwnam_r` bogus-name Err, `grp_getgrgid_r` gid-0 Ok
+  + bogus-gid Err, `grp_getgrnam_r` bogus-name Err,
+  `shadow_getspnam_r` Err (load-failed or not-found,
+  depending on root status), `pam_unix_authenticate_r` Err
+  (auth-fail or helper-missing), `?`-propagation chain on
+  `pwd_getpwuid_r + pwd_uid` accessor.
+
+### Fixed
+
+- **`lib/http.cyr` `http_get`** — long-standing latent bug:
+  `var fd = tcp_socket(); if (fd < 0)` treated the Result heap
+  pointer as a raw int. The pointer is always positive, so the
+  guard never fired; subsequent syscalls passed the Result ptr
+  as a kernel fd and silently failed. Same bug in
+  `sock_connect`, `sock_send`, `sock_recv` consumer paths.
+  Fixed by inserting `is_err_result(...)` + `payload(...)`
+  guards in the same shape as `lib/sandhi.cyr` /
+  `tests/regression-tls-live.sh`. Bug predates v5.8.x — net.cyr
+  was migrated to Result-returning some time ago without
+  updating http.cyr.
+
+- **`PARSE_STMT` bare-fncall `?`-statement** — v5.8.29 added
+  postfix `?` in `PARSE_TERM`, but `PARSE_STMT`'s
+  IDENT-followed-by-LPAREN dispatch (parse.cyr:927-952) calls
+  `PARSE_FNCALL` directly, bypassing PARSE_TERM. So `expr?;`
+  as a bare statement (no `var x = ...` assignment) hit
+  "expected ';', got unknown" because the `?` (token 124)
+  has no TOKNAME entry. Fixed by replicating the PARSE_TERM
+  `?` desugar inline in PARSE_STMT after the PARSE_FNCALL
+  call. The unwrapped value lands in rax and is dropped per
+  the bare-statement convention; Err short-circuits to the
+  fn epilogue via the standard RPC table at `0x18DA20`.
+
+### Premise-check finding (documented)
+
+- **`lib/net.cyr` was already Result-returning.** Slot-entry
+  premise check found `tcp_socket` / `sock_bind` / `sock_listen`
+  / `sock_accept` / `sock_connect` / `sock_send` / `sock_recv`
+  return `Ok(...)` / `Err(0 - errno)` from a pre-cycle migration.
+  Refactoring the existing `Err(errno)` form to a `NetError`
+  enum would break payload-comparing consumers (lib/ws_server.cyr,
+  lib/sandhi.cyr) and is NOT "cleanest wins" per the pin.
+  Skipped per honest scope-shrink — the only true gap in net.cyr
+  was `sock_close` and `sock_shutdown` returning bare ints; both
+  are essentially infallible on a valid fd, so no `_r` variants
+  added.
+
+### Sub-suite progress
+
+- v5.8.28 ✅ `Result<T, E>` carve-out into `lib/result.cyr`.
+- v5.8.29 ✅ `?` propagation operator (PARSE_TERM hook).
+- v5.8.30 ✅ Stdlib migration pass 1 (io / json / toml / cyml).
+- v5.8.31 ✅ Stdlib migration pass 2 (this slot — http /
+  dynlib / pwd / grp / shadow / pam) + http_get bug fix +
+  PARSE_STMT `?`-statement gap close.
+- v5.8.32 — Result sub-suite closeout + cross-repo
+  downstream smoke test.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `result_stdlib_pass2` tcyr → 24 passed, 0 failed.
+- `result_stdlib` tcyr → 29 passed, 0 failed
+  (regression-floored).
+- `result_propagation` tcyr → 29 passed, 0 failed.
+- `result` tcyr → 24 passed, 0 failed.
+- `tagged` tcyr → 14 passed, 0 failed.
+- aarch64 SSH gate → PASS.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Process notes
+
+- **Variant-name namespace discipline maintained**. All new
+  enums use module-prefixed variants
+  (`Http*` / `Dynlib*` / `Pwd*` / `Grp*` / `Shadow*` / `Pam*`)
+  to coexist in the global enum-variant namespace alongside the
+  v5.8.30 enums. Verified by `result_stdlib_pass2.tcyr`
+  including all six modules simultaneously.
+
+- **PARSE_STMT `?`-statement bug surfaced via the slot's tcyr.**
+  v5.8.29's `?` hook in PARSE_TERM caught the
+  `var x = expr?;` form but missed the bare-statement
+  `expr?;` form because PARSE_STMT bypasses PARSE_TERM for
+  IDENT+LPAREN. Caught immediately when writing the pass2
+  tcyr's `?` chain helper. Fixed inline in this slot rather
+  than deferring — it's a one-page replication of the existing
+  desugar and the test relies on it.
+
+- **Snapshot-ping-pong protection applied** between every
+  `lib/*.cyr` edit per CLAUDE.md mitigation. Each module's
+  edit was followed by `cp lib/X.cyr ~/.cyrius/lib/X.cyr` +
+  `cp lib/X.cyr ~/.cyrius/versions/5.8.30/lib/X.cyr`.
+
 ## [5.8.30] — 2026-05-03
 
 **v5.8.x slot 30 — stdlib `Result` migration pass 1**. Third

@@ -4,7 +4,7 @@
 > languages and platforms. Referenced by external articles and the
 > agnosticos project. Updated as new compiler versions ship.
 >
-> **Last measured**: 2026-04-25, at Cyrius v5.6.43.
+> **Last measured**: 2026-05-03, at Cyrius v5.8.31.
 > **Methodology**: `int main() { return 42; }` (or language equivalent — all
 > sources are ≤ 4 lines), no external dependencies, default invocation
 > unless a size-oriented flag is documented. Sizes are raw `wc -c` bytes
@@ -14,7 +14,7 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5 5.6.43 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
+| **Cyrius** | cc5 5.8.31 | `echo 'syscall(60, 42);' \| cc5` | **152** | 1× |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -OReleaseSmall` | 4,840 | 32× |
 | Zig | 0.15.2 `-OReleaseSmall` Windows PE | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 30× |
 | C (GCC) | gcc 15.2.1 `-O2 -s` | `gcc -O2 -s` | 14,248 | 94× |
@@ -32,8 +32,8 @@
 
 | Language | Toolchain | Invocation | Bytes | × Cyrius |
 |----------|-----------|-----------|------:|---------:|
-| **Cyrius** | cc5_win 5.6.43 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
-| **Cyrius** | cc5 5.6.43 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
+| **Cyrius** | cc5_win 5.8.31 native (on Windows) | `cc5_win.exe < exit42.cyr` | **1,536** | 1× |
+| **Cyrius** | cc5 5.8.31 Linux cross-build | `CYRIUS_TARGET_WIN=1 cc5` | 1,536 | 1× (byte-identical to native) |
 | Zig | 0.15.2 `-OReleaseSmall` | `zig build-exe -target x86_64-windows -OReleaseSmall` | 4,608 | 3× |
 | Go | go 1.26.2 `-s -w` | `GOOS=windows GOARCH=amd64 go build -ldflags="-s -w"` | 1,492,992 | 972× |
 | Go | go 1.26.2 default | `GOOS=windows GOARCH=amd64 go build` | 2,265,600 | 1,475× |
@@ -62,18 +62,27 @@
 
 ## Cyrius self-host context
 
-For perspective, the Cyrius v5.6.43 compiler itself (cc5) is **531,888 B**
+For perspective, the Cyrius v5.8.31 compiler itself (cc5) is **739,672 B**
 on Linux ELF. It compiles itself byte-identically. At v5.5.10 it also
 compiles itself byte-identically on Windows (cc5_win.exe native →
 out.exe matches Linux cross-build md5). That's the whole
-self-hosting compiler in less disk than Rust's stripped debug exit42.
+self-hosting compiler — TLS / atomics / dynlib / NSS quartet /
+sum types + match / `?` propagation / Result-shaped stdlib — in
+less disk than Rust's stripped debug exit42.
 
-- Cyrius cc5 (Linux ELF): 531,888 B (v5.6.43)
-- cc5_aarch64 (Linux aarch64 cross): 411,616 B (v5.6.43)
-- cc5_aarch64_macho_cross (Mach-O arm64 cross): 411,040 B (v5.6.43)
-- cc5_win_cross (Windows PE cross): 526,856 B (v5.6.43; PE format overhead + v5.5.35 .reloc + v5.6.31 HIGH_ENTROPY_VA)
+- Cyrius cc5 (Linux ELF): 739,672 B (v5.8.31)
+- cc5_aarch64 (Linux aarch64 cross): 437,592 B (v5.8.31)
+- cc5_win_cross (Windows PE cross): 534,888 B (v5.8.31; PE format
+  overhead + v5.5.35 .reloc + v5.6.31 HIGH_ENTROPY_VA)
 - cc5 compiles itself in milliseconds (no cache, no incremental build —
   just `cat src/main.cyr | cc5 > cc5_new`).
+
+Growth since v5.6.43 (2026-04-25 → 2026-05-03):
++207,784 B / +39% across 1 minor + 31 patches. Drivers: O7 IR pass
++ JSX / TS lex chains (v5.7.x), tagged unions + exhaustive `match`
+infrastructure (v5.8.21–v5.8.27), `?` propagation operator
+(v5.8.29 + v5.8.31 PARSE_STMT extension). The compiler is still
+in the same order of magnitude as a stripped Rust hello-world.
 
 ## What this means
 
@@ -118,3 +127,15 @@ echo 'int main(void) { return 42; }' > /tmp/exit42.c && \
   bumps to patra 1.8.3 / sigil 2.9.3 / sankoch 2.1.0). Exit42 PE/ELF
   numbers unchanged. cc5_aarch64_macho_cross (411,040 B) and
   cc5_aarch64 (411,616 B) added as listed cross-build artifacts.
+- **v5.8.31** (2026-05-03): compiler size refreshed to 739,672 B after
+  the v5.7.x minor closed (49-patch arc: cyrius-ts JSX + advanced TS
+  surface, JSON depth + streaming + pointer + lib/test.cyr testing
+  helper, RISC-V deferred to v5.9.x) and the v5.8.x cycle reached its
+  Result+? sub-suite midpoint (slots 28-31 of 44 pinned). Drivers in
+  v5.8.x specifically: tagged-unions + exhaustive `match` infrastructure
+  (v5.8.21–v5.8.27, +5,568 B), `?` propagation operator (v5.8.29 +968 B
+  + v5.8.31 PARSE_STMT extension +816 B). Stdlib Result migrations at
+  v5.8.30 / v5.8.31 ship zero compiler delta — pure stdlib reorganization.
+  Exit42 PE/ELF numbers unchanged. cc5_win_cross bumped to 534,888 B
+  (was 526,856 — +8,032 from the v5.7.x JSON / TS additions migrating
+  through the cross-build path).
