@@ -137,6 +137,29 @@
 #                                        pending flags from preceding lexer
 #                                        tokens (122 = HASH_MUST_USE, 124 =
 #                                        HASH_DEPRECATED).
+#   0x204000  var_enum_id   [65536]       8192 × 8B — per-variant parent
+#                                        enum id (1-based; 0 = not a
+#                                        variant). Written by PARSE_ENUM_
+#                                        DEF in pass 1 alongside var_noffs
+#                                        / var_sizes. Read by future
+#                                        PARSE_MATCH coverage check
+#                                        (v5.8.22 bite #1 — infrastructure
+#                                        only this slot; consumer in bite
+#                                        #2). Pre-v5.8.22 there was no
+#                                        per-variant → enum mapping; the
+#                                        existing enum_const_val table
+#                                        only stored tag values.
+#   0x214000  enum_count    [8]           total enum decls seen at parse
+#                                        time. Bumped by PARSE_ENUM_DEF in
+#                                        pass 1; eid 1-based so 0 in
+#                                        var_enum_id[] is unambiguous.
+#                                        Cap 256 — same as struct table.
+#   0x214008  enum_variant_count[2048]    256 × 8B — per-enum variant
+#                                        count, indexed 0..enum_count-1.
+#                                        Bumped per variant in pass 1.
+#                                        Read at match-check time to
+#                                        compare against arm-coverage set
+#                                        size (v5.8.22 bite #2).
 #   0x104000 fn_deprecated_msg [32768]   4096 × 8B — per-fn deprecation
 #                                        message token value (v5.6.4). 0 =
 #                                        no message; nonzero = (offset<<16)

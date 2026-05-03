@@ -28,6 +28,27 @@ fn SVCNT(S, v) {
     S64(S + 0x18C110, v);
     return 0;
 }
+# v5.8.22 bite #1 — per-variant → parent-enum bookkeeping for
+# exhaustive-match coverage check (consumer in subsequent bite).
+# var_enum_id[vcnt] is 1-based: 0 = not a variant, N = variant
+# of enum at index N-1. enum_count tracks total enum decls seen
+# at parse time. enum_variant_count[eid] tracks variants per
+# enum so PARSE_MATCH can verify all variants are covered.
+# Layout chosen 2026-05-03 — extends the metadata band past
+# fn_flags (0x1FC000+0x8000 = 0x204000); brk reaches 0x368C000.
+fn GVENUMID(S, vi) { return L64(S + 0x204000 + vi * 8); }
+fn SVENUMID(S, vi, v) { S64(S + 0x204000 + vi * 8, v); return 0; }
+fn GENUMC(S) { return L64(S + 0x214000); }
+fn SENUMC(S, v) {
+    if (v >= 256) {
+        syscall(SYS_WRITE, 2, "error: enum table full (256) — too many enum decls\n", 52);
+        syscall(SYS_EXIT, 1);
+    }
+    S64(S + 0x214000, v);
+    return 0;
+}
+fn GENUMVCNT(S, eid) { return L64(S + 0x214008 + eid * 8); }
+fn SENUMVCNT(S, eid, v) { S64(S + 0x214008 + eid * 8, v); return 0; }
 fn GTCNT(S) { return L64(S + 0x18C118); }
 fn STCNT(S, v) { S64(S + 0x18C118, v); return 0; }
 fn GTI(S) { return L64(S + 0x18C120); }

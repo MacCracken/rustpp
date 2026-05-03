@@ -178,6 +178,16 @@ fn PARSE_ENUM_DEF(S, emit_code) {
     SKIP_GENERICS(S);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
+    # v5.8.22 bite #1 — bump enum_count + capture eid for variant
+    # tagging. Pass 1 only (emit_code == 0); pass 2 reuses the
+    # same eid implicitly via the variant lookup at match-check
+    # time. eid is 1-based so 0 in var_enum_id[] cleanly means
+    # "not a variant".
+    var ee_eid = 0;
+    if (emit_code == 0) {
+        ee_eid = GENUMC(S) + 1;
+        SENUMC(S, ee_eid);
+    }
     var val = 0;
     var ego = 1;
     while (ego == 1) {
@@ -290,6 +300,13 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                 if (vcnt < 1024) {
                     S64(S + 0x1D8000 + vcnt * 8, (1 << 63) | val);
                 }
+                # v5.8.22 bite #1 — tag variant with parent enum-id +
+                # bump per-enum variant count. Both keyed for the future
+                # exhaustive-match consumer; no read site yet so this
+                # ships byte-identical compiler output (DCE keeps the
+                # writer fns alive via this call).
+                SVENUMID(S, vcnt, ee_eid);
+                SENUMVCNT(S, ee_eid - 1, GENUMVCNT(S, ee_eid - 1) + 1);
                 SVCNT(S, vcnt + 1);
                 # Register constructor function if has payload
                 if (has_ctor == 1) {
