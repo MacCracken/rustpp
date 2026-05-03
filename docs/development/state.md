@@ -5,6 +5,63 @@
 
 ## Version
 
+**5.8.39** (shipped 2026-05-03 — **v5.8.x SLOT 39 — fold sandhi v1.1.0
+dist into stdlib**. First slot of Phase 3. Closes the v5.8.36
+deferral of sandhi from Allocator stdlib pass 2 by vendoring the
+just-released sandhi v1.1.0 dist/sandhi.cyr into
+cyrius/lib/sandhi.cyr.) **Re-slotted from preprocessor item** —
+v5.8.39 was originally pinned for "Preprocessor include-pattern in
+string literals (vidya audit)"; user reslotted because sandhi
+v1.1.0 became available between v5.8.38 ship and Phase 3 start.
+Displaced preprocessor item cascades to v5.8.40; rest of Phase 3
+shifts right by 1; backstop unchanged (v5.8.49) with 5 slots of
+headroom. **Sandhi v1.1.0 delivered**: 6 batches bottom-up (URL/
+headers/discovery leaves → TLS+h2 leaves → discovery+RPC → HTTP
+response/request foundation → connection layer → client/streaming/
+SSE/retry/server); ~150 new public `_a` verbs across 27 files
+threading Allocator as first arg per cyrius v5.8.35-36 pattern;
+back-compat wrappers preserve pre-migration API via default_alloc().
+**Singletons pinned to default_alloc** (ALPN wire, HPACK static
+table, Huffman decode tree, server per-process req buf — they
+outlive any per-request arena, corrupting them on reset would
+break in-flight requests). **Daimon ctx grew 16→24 B**; local mDNS
+gained 8B ctx (resolver-fn-pointer callbacks carry the allocator
+on the ctx struct since `(ctx, name)` shape can't take extra arg).
+**Pool struct grew 40→48 B** (Allocator on slot +40 routes pool
+churn through the same arena). **143 new alloc tcyrs** in sandhi
+(tests/alloc.tcyr separate program per fixup-table cap arch ADR);
+total sandhi 792 assertions green (482 sandhi + 167 h2 + 143
+alloc; +143 over v1.0.0). **Headline win** — per-request-arena
+pattern: HTTP server handlers can `arena_allocator(64KB)` at top
+of request, build URL/headers/response/body all into one arena,
+reset_via(a) between requests; zero leakage; deterministic memory
+ceiling; failing-allocator coverage of every handler path via
+fail_after_n_allocs. **Fold-in mechanics**: cp sandhi/dist/
+sandhi.cyr → cyrius/lib/sandhi.cyr (376,037 B → 411,361 B;
++35,324 / +9.4%); snapshot refresh to ~/.cyrius/lib/ + ~/.cyrius/
+versions/5.8.38/lib/ per ping-pong protection. **Cyrius-side
+consumers** — none broken. grep -rln '^include "lib/sandhi.cyr"'
+across cyrius src/lib/tests/programs returned zero; only ref is
+a historical-bug comment in src/backend/x86/emit.cyr:1122. sandhi
+is pure-vendored — downstream consumers (vidya, samvada, etc.)
+pull it via cyrius deps, so fold-in propagates v1.1.0 stdlib to
+every sandhi-using repo on next deps resolution. **Sandhi-side
+toolchain pin** bumped 5.6.41 → 5.8.36 in sandhi's cyrius.cyml.
+**Sandhi-side scope-shrink ledger** (captured in cyrius CHANGELOG):
+str_builder_* lacks _a variants in v5.8.36 stdlib pin sandhi
+worked against — sandhi's _a paths use global bump for builder
+scratch + dup final cstr into a; future cyrius slot adding
+str_builder_new_a will let these dups drop. cc5 unchanged at
+**739,672 B** (zero compiler delta — pure stdlib re-vendor).
+Verification: self-host two-step byte-identical, check.sh 64/64,
+all sub-suite tcyrs regression-floored. v5.8.x cycle progress:
+**39 of 44 pinned slots shipped (88.6%)**. Phase 3 remaining (5
+slots, +1 cascade): preprocessor include-pattern (v5.8.40 — was
+v5.8.39), cyrlint multi-line assert false-positive (v5.8.41 — was
+v5.8.40), vidya cyrius-language audit (v5.8.42 — was v5.8.41),
+paired UX polish (v5.8.43 — was v5.8.42), cycle backstop (v5.8.44
+— was v5.8.43). Cycle backstop v5.8.49.)
+
 **5.8.38** (shipped 2026-05-03 — **v5.8.x SLOT 38 — Allocators sub-suite
 closeout. Sub-suite COMPLETE (v5.8.33–v5.8.38, 6 slots, +0 B
 compiler delta, 156 new tcyr assertions across 4 new tcyrs).**
@@ -3112,7 +3169,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.38 ✅ shipped — Allocators sub-suite COMPLETE (v5.8.33–v5.8.38, 6 slots, +0 B compiler delta, 156 new tcyr assertions across 4 new tcyrs). Phase 2 COMPLETE (both Result+? + Allocators sub-suites done in 11 slots total). Cross-repo smoke 4-of-4 clean (sigil/mabda/yukti/ark — ark validated back-compat from 7-minor-old pin); 0 symbol collisions; all changes additive. Sandhi-side migration proposal handed off for parallel agent v1.1.0 work. Phase 3 next: v5.8.39-v5.8.44 (6 closeout slots — preprocessor include-pattern, cyrlint multi-line assert false-positive, vidya cyrius-language audit, paired UX polish, cycle backstop). Cycle backstop v5.8.49. 38 of 44 pinned slots shipped (86.4%); 6 slots remaining; ~11 slots of headroom against backstop.**
+**v5.8.39 ✅ shipped — Phase 3 OPENED with sandhi v1.1.0 fold-in (re-slotted from the originally-pinned preprocessor item; sandhi 1.1.0 became available between v5.8.38 ship and Phase 3 start). Displaced preprocessor item cascades to v5.8.40; rest of Phase 3 shifts right by 1. Phase 3 remaining (5 slots): preprocessor include-pattern (v5.8.40), cyrlint multi-line assert false-positive (v5.8.41), vidya cyrius-language audit (v5.8.42), paired UX polish (v5.8.43), cycle backstop (v5.8.44). Cycle backstop v5.8.49. 39 of 44 pinned slots shipped (88.6%); 5 slots remaining; ~10 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3163,6 +3220,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.36** ✅ Stdlib Allocator migration pass 2 — 17 `_a` variants across json (12) / toml (2) / cyml (2) / http (1 partial + 1 internal); sandhi.cyr deferred (auto-generated bundle); 30-assertion alloc_stdlib_pass2 tcyr; zero compiler delta. Sandhi-side proposal handed off to parallel agent for v1.1.0
 - **v5.8.37** ✅ alloc_init() lazy-init — `if (_heap_base == 0) { alloc_init(); }` guard in alloc() across Linux/macOS/Windows; alloc_init() now OPTIONAL; 17-assertion alloc_no_init tcyr; zero compiler delta
 - **v5.8.38** ✅ Allocators sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti/ark via temp-pin-bump methodology (4-of-4 ✅; ark validated back-compat from a 7-minor-old pin 5.1.10 → 5.8.37); 0 enum/symbol collisions; 0/47 downstream alloc_init() sites migrated yet (opt-in); acceptance-gate audit captured (oom_vec_push Err shape + compiler-internal explicit Allocator partial — both pinned for v6.0.0); sandhi handed off to parallel agent for v1.1.0; **Phase 2 COMPLETE** (Result+? + Allocators sub-suites done in 11 slots total)
+- **v5.8.39** ✅ sandhi v1.1.0 fold-in (re-slotted from preprocessor item by user direction at v5.8.38 ship). lib/sandhi.cyr 376,037 → 411,361 B (+35,324 / +9.4%); ~150 new public _a verbs in sandhi src; per-request-arena pattern realized end-to-end; 143 new sandhi alloc tcyrs (792 total assertions green). cyrius-side: zero compiler delta; no internal consumers broken (grep clean); downstream propagation via cyrius deps
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

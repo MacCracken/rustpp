@@ -1208,7 +1208,7 @@ fn requires explicit allocator.
   (mabda C5). Has full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).
   cyrlint expression-walker confused by multi-line bracket matching.
 
-- **v5.8.41** — Vidya cyrius-language audit (annotation pass).
+- **v5.8.42** — Vidya cyrius-language audit (annotation pass; cascaded from v5.8.41).
   Sweep `vidya/content/cyrius/` (~15K lines across 13 cyml
   files). For each open-issue-shaped entry: confirm if still
   active, file locally in `cyrius/docs/development/issues/`
