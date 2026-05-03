@@ -517,6 +517,54 @@ var c2 = Color.BLUE;                 # Namespaced access (v1.11.0+)
 
 ```
 
+## Sum Types & Tagged Unions (v5.8.21+)
+
+Variants with payload data — first-class sum types built on the existing enum infrastructure.
+
+```
+enum Result<T, E> {
+    Ok(v),
+    Err(e)
+}
+
+var ok = Ok(42);    # 16-byte heap alloc — tag at +0, payload at +8
+var bad = Err(7);   # 16-byte heap alloc — tag at +0, payload at +8
+
+# Multi-arg variants — alloc(8 + 8*N), payload[i] at +8 + 8*i
+enum Tri<T, U, V> {
+    Triple(a, b, c),
+    Pair(x, y),
+    Single(s),
+    Bare                # no parens → auto-incremented int (3 here)
+}
+
+var t = Triple(11, 22, 33);   # 32-byte alloc; tag, [11, 22, 33]
+
+# Empty parens = nullary tagged variant (8-byte alloc, tag-only)
+enum Option {
+    None();
+    Some(v);
+}
+var n = None();      # 8-byte heap, tag at +0 only
+var s = Some(42);    # 16-byte heap, tag at +0, payload 42 at +8
+```
+
+Generic params (`<T, E>`) are syntactically accepted but not yet semantically bound (mono-only erasure today). Variant separators may be `;` or `,` — mixed in same decl works. In mixed enums, bare names stay as int constants and paren'd names heap-allocate; convention is paren-consistent (`enum Option { None(); Some(v); }`) for sum types you'll match against.
+
+Helper API for tagged values lives in `lib/tagged.cyr`:
+
+```
+include "lib/tagged.cyr"
+
+var opt = Some(42);
+if (is_some(opt) == 1) {
+    var v = unwrap(opt);          # = 42
+}
+var v = unwrap_or(opt, 0);        # 42 if Some, fallback if None
+```
+
+`Option`, `Result`, `Either` are compiler-generated since v5.8.23; helpers (`is_none`/`is_some`/`unwrap`/`unwrap_or`/`is_ok`/`is_err_result`/`result_unwrap`/`err_code_of`/`is_left`/`is_right`) wrap them.
+
 ## Switch
 
 ```
@@ -531,6 +579,61 @@ fn classify(n) {
 ```
 
 Note: case values must be integer literals. No fallthrough — each case is independent.
+
+## Match (Pattern Match, v5.8.22+)
+
+```
+enum Status { PENDING; ACTIVE; DONE; }
+
+fn label(s) {
+    var r = 0;
+    match s {
+        PENDING => { r = 1; }
+        ACTIVE  => { r = 2; }
+        DONE    => { r = 3; }
+    }
+    return r;
+}
+```
+
+The compiler verifies coverage when at least one arm is a variant of an enum. Missing variants emit a warning; opt out with `_ =>`:
+
+```
+match s {
+    PENDING => { ... }
+    ACTIVE  => { ... }
+}
+# warning:<file>:<line>: non-exhaustive match over enum 'Status'
+#   — covers 2 of 3 variants; add `_ =>` to opt out
+
+match s {
+    PENDING => { ... }
+    _       => { ... }    # explicit catch-all — no warning
+}
+```
+
+Duplicate arms (v5.8.25):
+
+```
+match s {
+    PENDING => { ... }
+    PENDING => { ... }   # warning: duplicate match arm 'PENDING'
+}
+```
+
+The runtime `cmp/jcc-skip` cascade picks the FIRST matching arm — duplicate arms are dead at runtime (first wins). The check is metadata-only; codegen unchanged.
+
+Match on a tagged value compares against the heap pointer (always unequal), not the tag. Extract the tag explicitly:
+
+```
+var opt = Some(42);
+match load64(opt) {     # extract tag at +0
+    Some => { var v = load64(opt + 8); ... }
+    None => { ... }
+}
+```
+
+Or use the helper API (`is_some` / `unwrap_or` / etc.) which encapsulates this.
 
 ## Function Pointers
 
