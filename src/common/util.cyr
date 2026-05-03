@@ -49,6 +49,11 @@ fn SENUMC(S, v) {
 }
 fn GENUMVCNT(S, eid) { return L64(S + 0x214008 + eid * 8); }
 fn SENUMVCNT(S, eid, v) { S64(S + 0x214008 + eid * 8, v); return 0; }
+# v5.8.22 bite #2 — per-enum name (offset into S+0x60000 ident
+# pool) for diagnostic messages at exhaustive-match check time.
+# Written by PARSE_ENUM_DEF in pass 1 alongside variant tagging.
+fn GENUMNM(S, eid) { return L64(S + 0x214808 + eid * 8); }
+fn SENUMNM(S, eid, v) { S64(S + 0x214808 + eid * 8, v); return 0; }
 fn GTCNT(S) { return L64(S + 0x18C118); }
 fn STCNT(S, v) { S64(S + 0x18C118, v); return 0; }
 fn GTI(S) { return L64(S + 0x18C120); }

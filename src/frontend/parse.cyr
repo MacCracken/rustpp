@@ -346,6 +346,9 @@ fn PARSE_SWITCH(S) {
 
 # Parse: match expr { val => { stmts } val => { stmts } _ => { stmts } }
 fn PARSE_MATCH(S) {
+    # v5.8.22 bite #2 — capture match-keyword line for exhaustive-
+    # coverage diagnostic before STI consumes it.
+    var match_line = GTLINE(S, GTI(S));
     STI(S, GTI(S) + 1);
     PCMPE(S);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
@@ -358,6 +361,17 @@ fn PARSE_MATCH(S) {
     EVSTORE(S, midx);
     var ends[256];
     var ec = 0;
+    # v5.8.22 bite #2 — exhaustive-match coverage tracking. When the
+    # arm's pattern is a bare-or-payloaded variant of an enum, look
+    # up its parent enum-id (var_enum_id at 0x204000, written by
+    # PARSE_ENUM_DEF in bite #1). First variant arm sets match_eid;
+    # subsequent variant arms must share the same eid (mixed → warn).
+    # had_default tracks whether `_ =>` was present (opt-out). Final
+    # check: if eid != 0 && !had_default && covered < total → warn.
+    var match_eid = 0;
+    var match_covered = 0;
+    var match_mixed = 0;
+    var had_default = 0;
     var mgo = 1;
     while (mgo == 1) {
         if (PEEKT(S) == 14) { mgo = 0; }
@@ -374,6 +388,7 @@ fn PARSE_MATCH(S) {
                 }
             }
             if (is_default == 1) {
+                had_default = 1;
                 # _ => { stmts }
                 STI(S, GTI(S) + 1);
                 # Expect =>
@@ -389,6 +404,27 @@ fn PARSE_MATCH(S) {
                 if (PEEKT(S) != 14) { ERR_EXPECT(S, 14); }
                 STI(S, GTI(S) + 1);
             } else {
+                # v5.8.22 bite #2 — pre-PCMPE peek: if the arm pattern's
+                # first token is a variant-of-enum ident, record its
+                # parent eid. Bare variants (`Ok`) and payload-bearing
+                # variants (`Ok(v)`) both have the variant name as the
+                # first ident. Non-variant arms (literals, regular
+                # const vars, complex exprs) skip the bookkeeping.
+                if (PEEKT(S) == 2) {
+                    var arm_noff = PEEKV(S);
+                    var arm_vi = FINDVAR(S, arm_noff);
+                    if (arm_vi >= 0) {
+                        var arm_eid = GVENUMID(S, arm_vi);
+                        if (arm_eid > 0) {
+                            if (match_eid == 0) { match_eid = arm_eid; }
+                            if (arm_eid == match_eid) {
+                                match_covered = match_covered + 1;
+                            } else {
+                                match_mixed = 1;
+                            }
+                        }
+                    }
+                }
                 # val => { stmts }
                 EVLOAD(S, midx);
                 EPUSHR(S);
@@ -417,6 +453,32 @@ fn PARSE_MATCH(S) {
     }
     STI(S, GTI(S) + 1);
     for (var ei = 0; ei < ec; ei = ei + 1) { EPATCH(S, load64(&ends + ei * 8)); }
+    # v5.8.22 bite #2 — exhaustive-match coverage check. Warning (not
+    # error) so v5.8.x downstream consumers can adopt incrementally —
+    # same trade-off as #must_use / #deprecated / #pure→#io. Promotes
+    # to lint --strict in a follow-up slot.
+    if (match_eid != 0) {
+        if (match_mixed == 1) {
+            syscall(SYS_WRITE, 2, "warning:", 8);
+            FM_LOOKUP(S, match_line);
+            syscall(SYS_WRITE, 2, ": match arms span multiple enums (exhaustive-coverage check skipped)\n", 69);
+        } else {
+            if (had_default == 0) {
+                var match_total = GENUMVCNT(S, match_eid - 1);
+                if (match_covered < match_total) {
+                    syscall(SYS_WRITE, 2, "warning:", 8);
+                    FM_LOOKUP(S, match_line);
+                    syscall(SYS_WRITE, 2, ": non-exhaustive match over enum '", 34);
+                    PRSTR(S + 0x60000 + GENUMNM(S, match_eid - 1));
+                    syscall(SYS_WRITE, 2, "' — covers ", 13);
+                    PRNUM(match_covered);
+                    syscall(SYS_WRITE, 2, " of ", 4);
+                    PRNUM(match_total);
+                    syscall(SYS_WRITE, 2, " variants; add `_ =>` to opt out\n", 33);
+                }
+            }
+        }
+    }
     return 0;
 }
 

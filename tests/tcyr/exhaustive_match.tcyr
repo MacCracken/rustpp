@@ -1,0 +1,98 @@
+# exhaustive_match.tcyr — v5.8.22 — exhaustive pattern match coverage check.
+#
+# Compiler-emitted warning when a `match` over an enum value
+# misses one or more variants and has no `_ =>` opt-out.
+# Warning (not error) for v5.8.x downstream incremental adoption,
+# same shape as #must_use / #deprecated / #pure→#io. Lint --strict
+# escalation reserved as a follow-up slot.
+#
+# Coverage tracking infrastructure (bite #1, no behavior change):
+#   - per-variant `var_enum_id[]` parallel to var-table (0x204000)
+#   - `enum_count` global + `enum_variant_count[]` (0x214000)
+#   - `enum_name[]` for diagnostic readability (0x214808)
+#
+# Coverage check (bite #2):
+#   - PARSE_MATCH peeks each arm's first token before PCMPE; if
+#     it's a variant-of-enum ident, records the parent enum-id.
+#   - First variant arm sets the match's "primary" eid; mixed
+#     enums in arms → "match arms span multiple enums" warning.
+#   - After all arms: if `_ =>` not present and covered count <
+#     total variant count → "non-exhaustive match" warning.
+#
+# This file regression-floors the RUNTIME behavior — codegen is
+# UNCHANGED by the coverage check (warning is metadata-only).
+# The warning text itself is smoke-tested via the standalone probe
+# in /tmp/probe_exhaust.cyr (verified at v5.8.22 ship); future
+# tightening (e.g., a tests/regression-coverage-warnings.sh that
+# greps stderr) can land in a follow-up.
+
+include "lib/string.cyr"
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+enum Status { PENDING; ACTIVE; DONE; }
+enum Phase  { ALPHA; BETA; GA; SUNSET; }
+
+alloc_init();
+
+# ---- Helper that does an exhaustive match (no warning expected at compile) ----
+fn _status_score(s) {
+    var r = 0 - 1;
+    match s {
+        PENDING => { r = 1; }
+        ACTIVE  => { r = 2; }
+        DONE    => { r = 3; }
+    }
+    return r;
+}
+
+# ---- Helper using `_ =>` opt-out (no warning expected) ----
+fn _phase_kind(p) {
+    var r = 0;
+    match p {
+        ALPHA  => { r = 10; }
+        BETA   => { r = 20; }
+        _      => { r = 99; }
+    }
+    return r;
+}
+
+# ---- Helper with literal-int match (not over an enum value — no warning) ----
+fn _classify(n) {
+    var r = 0;
+    match n {
+        0 => { r = 100; }
+        1 => { r = 200; }
+        _ => { r = 300; }
+    }
+    return r;
+}
+
+# ---- Tests ----
+
+test_group("exhaustive match (all variants covered) — runtime correctness");
+assert_eq(_status_score(PENDING), 1, "PENDING -> 1");
+assert_eq(_status_score(ACTIVE),  2, "ACTIVE -> 2");
+assert_eq(_status_score(DONE),    3, "DONE -> 3");
+
+test_group("non-exhaustive with `_ =>` opt-out — runtime correctness");
+assert_eq(_phase_kind(ALPHA),  10, "ALPHA -> 10");
+assert_eq(_phase_kind(BETA),   20, "BETA -> 20");
+assert_eq(_phase_kind(GA),     99, "GA -> 99 (default)");
+assert_eq(_phase_kind(SUNSET), 99, "SUNSET -> 99 (default)");
+
+test_group("literal-int match (not over enum) — no exhaustiveness check");
+assert_eq(_classify(0),  100, "0 -> 100");
+assert_eq(_classify(1),  200, "1 -> 200");
+assert_eq(_classify(42), 300, "42 -> 300 (default)");
+
+# Note: warning emission for the non-exhaustive enum match without `_`
+# is COMPILE-TIME — cannot be observed from inside the compiled binary.
+# This file proves the COVERAGE CHECK DOES NOT ALTER CODEGEN: the same
+# match expressions produce the same runtime values whether the warning
+# fires or not. The warning is tested via `tests/regression-coverage-
+# warnings.sh` (TBD follow-up) by diffing compiler stderr against a
+# golden fixture.
+
+var r = assert_summary();

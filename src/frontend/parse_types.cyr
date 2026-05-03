@@ -187,6 +187,7 @@ fn PARSE_ENUM_DEF(S, emit_code) {
     if (emit_code == 0) {
         ee_eid = GENUMC(S) + 1;
         SENUMC(S, ee_eid);
+        SENUMNM(S, ee_eid - 1, enoff);
     }
     var val = 0;
     var ego = 1;
