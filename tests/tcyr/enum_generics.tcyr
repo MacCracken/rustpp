@@ -1,0 +1,61 @@
+# enum_generics.tcyr — v5.8.21 bite — generic-parameter syntax on enum decls.
+#
+# Pre-bite: `enum Result<T, E> { ... }` rejected at the type-name with
+# "expected '{', got '<'" because PARSE_ENUM_DEF didn't call
+# SKIP_GENERICS the way PARSE_STRUCT_DEF / PARSE_UNION_DEF do.
+#
+# Bite: 1-call SKIP_GENERICS(S) after the enum name, mirroring
+# struct/union. Type params are not yet bound to anything (mono-only,
+# erasure semantics) — accepting the syntax unblocks the canonical
+# `enum Result<T, E> { Ok(v); Err(e); }` shape so downstream consumers
+# can write the typed form even before generic instantiation lands.
+#
+# This file regression-floors:
+#   (1) `enum Foo<T>` with a single type param parses + works.
+#   (2) `enum Foo<T, E>` with multiple type params parses + works.
+#   (3) Non-generic `enum Foo` (the v5.5.x path) still works.
+#   (4) Variant constructor codegen unchanged: tag at +0, payload at +8.
+#   (5) Mixing generics + payload constructors works in one decl.
+
+include "lib/alloc.cyr"
+include "lib/assert.cyr"
+
+enum NonGeneric { A; B(v); }
+enum SingleParam<T> { One(v); }
+enum TwoParams<T, E> { Ok(v); Err(e); }
+
+alloc_init();
+
+test_group("non-generic enum still works (regression floor)");
+assert_eq(A, 0, "bare variant A = 0");
+var nb = B(99);
+assert_eq(load64(nb), 1, "B tag = 1");
+assert_eq(load64(nb + 8), 99, "B payload = 99");
+
+test_group("single type param: enum Foo<T>");
+var s = One(42);
+assert_eq(load64(s), 0, "One tag = 0");
+assert_eq(load64(s + 8), 42, "One payload = 42");
+
+test_group("two type params: enum Result<T, E>");
+var ok = Ok(7);
+assert_eq(load64(ok), 0, "Ok tag = 0");
+assert_eq(load64(ok + 8), 7, "Ok payload = 7");
+
+var err = Err(13);
+assert_eq(load64(err), 1, "Err tag = 1");
+assert_eq(load64(err + 8), 13, "Err payload = 13");
+
+test_group("payload roundtrip — generics don't alter codegen");
+var ok2 = Ok(0);
+assert_eq(load64(ok2 + 8), 0, "Ok(0) payload = 0");
+var ok3 = Ok(0 - 1);
+assert_eq(load64(ok3 + 8), 0 - 1, "Ok(-1) payload = -1");
+
+# Note: type parameters are syntactically accepted but not yet bound
+# to anything semantically (no monomorphization, no type-checking on
+# the payload's value vs declared T). That ramps in subsequent bites
+# when constructor signatures gain type-positional binding. This file
+# locks the parse-acceptance + codegen-unchanged invariant.
+
+var r = assert_summary();

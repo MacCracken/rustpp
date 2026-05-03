@@ -171,6 +171,11 @@ fn PARSE_ENUM_DEF(S, emit_code) {
     if (PEEKT(S) != 2) { ERR_EXPECT(S, 2); }
     var enoff = PEEKV(S);
     STI(S, GTI(S) + 1);
+    # v5.8.21: enum Foo<T, E> { ... } — skip generic params, mirroring
+    # PARSE_STRUCT_DEF / PARSE_UNION_DEF. Type params are not yet
+    # bound to anything (mono-only); accepting the syntax unblocks
+    # `enum Result<T, E> { Ok(v); Err(e); }` source shape.
+    SKIP_GENERICS(S);
     if (PEEKT(S) != 13) { ERR_EXPECT(S, 13); }
     STI(S, GTI(S) + 1);
     var val = 0;
