@@ -6,7 +6,7 @@
 A self-hosting systems language that bootstraps from a 29KB binary. No Rust, no LLVM, no Python. Designed to write the AGNOS operating system kernel.
 
 ### What can I build with it?
-CLI tools, system utilities, kernels, init systems, package managers. Anything that runs on Linux x86_64 or aarch64. See `programs/` for 68 examples.
+CLI tools, system utilities, kernels, init systems, package managers. Anything that runs on Linux x86_64 or aarch64. See `programs/` for 59 examples.
 
 ### How is everything i64?
 Every value is a 64-bit integer. Strings are pointers (which are integers). Structs are contiguous memory (accessed via integer offsets). This simplifies the compiler enormously while still being practical for systems code.
@@ -15,7 +15,7 @@ Every value is a 64-bit integer. Strings are pointers (which are integers). Stru
 Type annotations (`var x: i64 = 42`) are documentation. Generics (`fn foo<T>()`) are parsed but not enforced. The compiler warns on pointer/scalar mismatches at assignment. Full type checking is on the roadmap.
 
 ### Is it fast?
-The compiler self-compiles in ~280ms (cc5 → cc5b two-step fixpoint, ~720KB output). Programs are 10-233x smaller than GNU equivalents. `wc` is 20x faster than GNU on large files. See [benchmarks](benchmarks.md).
+The compiler self-compiles in ~280ms (cc5 → cc5b two-step fixpoint, ~740KB output at v5.8.31). Programs are 10-233x smaller than GNU equivalents. `wc` is 20x faster than GNU on large files. See [size comparisons](size-comparisons.md) for the canonical exit42 numbers across languages and platforms.
 
 ---
 

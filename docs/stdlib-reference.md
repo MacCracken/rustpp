@@ -113,7 +113,7 @@ File I/O wrappers around Linux syscalls.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `file_open` | `file_open(path, flags, mode) → fd` | Open file |
+| `file_open` | `file_open(path, flags, mode) → fd` | Open file (legacy int-return) |
 | `file_close` | `file_close(fd)` | Close file |
 | `file_read` | `file_read(fd, buf, len) → n` | Read bytes |
 | `file_write` | `file_write(fd, buf, len) → n` | Write bytes |
@@ -122,6 +122,25 @@ File I/O wrappers around Linux syscalls.
 | `file_exists` | `file_exists(path) → 0/1` | Check if file exists |
 | `print` | `print(msg, len)` | Write to stdout |
 | `eprint` | `eprint(msg, len)` | Write to stderr |
+
+**Result-returning variants (v5.8.30):** Each `*_r` returns
+`Result<T, IoError>`. The `IoError` enum has variants
+`IoNotFound` (ENOENT), `IoAccessDenied` (EACCES), `IoBadFd`
+(EBADF), `IoFailed` (EIO), `IoOther` (catch-all).
+
+| Function | Signature |
+|----------|-----------|
+| `file_open_r` | `file_open_r(path, flags, mode) → Result<fd, IoError>` |
+| `file_close_r` | `file_close_r(fd) → Result<0, IoError>` |
+| `file_read_r` | `file_read_r(fd, buf, len) → Result<n, IoError>` |
+| `file_write_r` | `file_write_r(fd, buf, len) → Result<n, IoError>` |
+| `file_read_all_r` | `file_read_all_r(path, buf, max) → Result<n, IoError>` |
+| `file_write_all_r` | `file_write_all_r(path, buf, len) → Result<n, IoError>` |
+
+Pair the `_r` variants with the `?` operator (v5.8.29) for clean
+chaining: `var fd = file_open_r(path, 0, 0)?; ...`. Legacy
+int-returning fns stay callable through v5.8.x; v6.0.0 closeout
+removes them.
 
 ### fmt.cyr
 
@@ -166,27 +185,53 @@ Indirect function calls via inline assembly.
 
 ### tagged.cyr
 
-Tagged unions: Option, Result, Either. Requires alloc.cyr.
+Tagged-union primitives + `Option` / `Either` (`Result` carved out
+into its own module — see `result.cyr` below). Requires alloc.cyr,
+fmt.cyr (for `option_print`). Transitively `include`s
+`lib/result.cyr` so legacy callers that include only `tagged.cyr`
+keep getting `Result` symbols.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `tagged_new` | `tagged_new(tag, value) → ptr` | Create tagged value |
 | `tag` | `tag(t) → tag` | Get discriminant |
 | `payload` | `payload(t) → value` | Get payload |
-| `None` | `None() → Option` | Create None |
+| `is_tag` | `is_tag(t, expected) → 0/1` | Tag-equals check |
+| `None` | `None() → Option` | Create None (compiler-generated since v5.8.23) |
 | `Some` | `Some(val) → Option` | Create Some(val) |
 | `is_none` | `is_none(opt) → 0/1` | Check if None |
 | `is_some` | `is_some(opt) → 0/1` | Check if Some |
 | `unwrap` | `unwrap(opt) → val` | Get value or abort |
 | `unwrap_or` | `unwrap_or(opt, fallback) → val` | Get value or fallback |
-| `Ok` | `Ok(val) → Result` | Create Ok(val) |
-| `Err` | `Err(code) → Result` | Create Err(code) |
+| `Left` | `Left(val) → Either` | Create Left variant |
+| `Right` | `Right(val) → Either` | Create Right variant |
+| `is_left` | `is_left(e) → 0/1` | Check if Left |
+| `is_right` | `is_right(e) → 0/1` | Check if Right |
+| `option_print` | `option_print(opt)` | Print "Some(N)" or "None" |
+
+### result.cyr (v5.8.28)
+
+`Result<T, E>` typed sum type plus the Result-specific helpers,
+carved out of `lib/tagged.cyr` so consumers that only need
+`Result` can include just this module. Tag layout matches the
+v5.8.23 compiler-generated form (tag at +0, payload at +8;
+`Ok = 0`, `Err = 1`). Requires alloc.cyr, fmt.cyr.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Ok` | `Ok(val) → Result` | Create Ok(val) (compiler-generated) |
+| `Err` | `Err(code) → Result` | Create Err(code) (compiler-generated) |
 | `is_ok` | `is_ok(res) → 0/1` | Check if Ok |
 | `is_err_result` | `is_err_result(res) → 0/1` | Check if Err |
-| `result_unwrap` | `result_unwrap(res) → val` | Get value or abort |
+| `result_unwrap` | `result_unwrap(res) → val` | Get value or abort with stderr message |
 | `result_unwrap_or` | `result_unwrap_or(res, fb) → val` | Get value or fallback |
-| `option_print` | `option_print(opt)` | Print "Some(N)" or "None" |
+| `err_code_of` | `err_code_of(res) → code` | 0 if Ok, payload if Err |
 | `result_print` | `result_print(res)` | Print "Ok(N)" or "Err(N)" |
+
+The `?` propagation operator (v5.8.29 / v5.8.31) is the language-
+level companion: `expr?` short-circuits the enclosing fn on `Err`
+and unwraps `Ok` to the payload value. See `cyrius-guide.md` for
+the operator's parse + emit shape.
 
 ### hashmap.cyr
 
@@ -282,7 +327,43 @@ Minimal JSON parser and builder.
 | `json_get` | `json_get(pairs, key) → Str/0` | Find value by key |
 | `json_get_int` | `json_get_int(pairs, key) → int` | Get as integer |
 | `json_build` | `json_build(pairs) → Str` | Build JSON string |
-| `json_parse_file` | `json_parse_file(path) → vec` | Parse JSON file |
+| `json_parse_file` | `json_parse_file(path) → vec` | Parse JSON file (legacy: returns empty vec on file error) |
+| `json_parse_file_r` | `json_parse_file_r(path) → Result<vec, JsonError>` | Result variant — file errors surface as `Err(JsonIoErr)` (v5.8.30) |
+
+`enum JsonError { JsonIoErr; JsonParseErr; JsonOther; }` —
+file-read failures land as `JsonIoErr`; `JsonParseErr` is reserved
+for a future slot when the parser tracks structural errors.
+The streaming + tagged-tree + JSON Pointer surfaces (v5.7.20–v5.7.42)
+remain best-effort and don't have `_r` variants yet.
+
+### toml.cyr
+
+Minimal TOML parser for vidya-style content files.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `toml_parse` | `toml_parse(str) → vec` | Parse TOML string |
+| `toml_parse_file` | `toml_parse_file(path) → vec` | Parse TOML file (legacy) |
+| `toml_parse_file_r` | `toml_parse_file_r(path) → Result<vec, TomlError>` | Result variant (v5.8.30) |
+| `toml_get` | `toml_get(pairs, key) → Str/0` | Find value by key |
+| `toml_get_sections` | `toml_get_sections(secs, name) → vec` | Filter `[[section]]` by name |
+
+`enum TomlError { TomlIoErr; TomlParseErr; TomlOther; }`.
+
+### cyml.cyr
+
+CYML parser (TOML header + markdown body) used by vidya for
+content files.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `cyml_parse` | `cyml_parse(data, len) → CymlDoc` | Parse buffer (always returns a doc; entry_count >= 0) |
+| `cyml_parse_file_r` | `cyml_parse_file_r(path) → Result<CymlDoc, CymlError>` | Open + read + parse; file errors → `Err(CymlIoErr)` (v5.8.30) |
+
+`enum CymlError { CymlIoErr; CymlOther; }`. There's no
+`cyml_parse_file` legacy fn — cyml previously required consumers
+to open + read manually; v5.8.30 added the file-loading helper
+in Result-returning form only.
 
 ### process.cyr
 
@@ -311,16 +392,52 @@ Filesystem: paths, directories, tree walking.
 
 ### net.cyr
 
-TCP/UDP sockets.
+TCP/UDP sockets. **Already Result-returning** from a pre-cycle
+migration — Err payload is the negated kernel errno (positive
+int). The v5.8.30/.31 module-prefixed enum convention was NOT
+applied here per honest scope-shrink at v5.8.31 entry: refactoring
+would break payload-comparing consumers (lib/ws_server.cyr,
+lib/sandhi.cyr).
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `tcp_socket` / `udp_socket` | `→ Result(fd)` | Create socket |
-| `sock_bind` | `sock_bind(fd, addr, port) → Result` | Bind |
-| `sock_listen` | `sock_listen(fd, backlog) → Result` | Listen |
-| `sock_accept` | `sock_accept(fd) → Result(client)` | Accept |
-| `sock_connect` | `sock_connect(fd, addr, port) → Result` | Connect |
-| `sock_send` / `sock_recv` | `(fd, buf, len) → Result(n)` | Send/receive |
+| `tcp_socket` / `udp_socket` | `→ Result<fd, errno>` | Create socket |
+| `sock_bind` | `sock_bind(fd, addr, port) → Result<0, errno>` | Bind |
+| `sock_listen` | `sock_listen(fd, backlog) → Result<0, errno>` | Listen |
+| `sock_accept` | `sock_accept(fd) → Result<client_fd, errno>` | Accept |
+| `sock_connect` | `sock_connect(fd, addr, port) → Result<0, errno>` | Connect |
+| `sock_send` / `sock_recv` | `(fd, buf, len) → Result<n, errno>` | Send/receive |
+| `sock_close` / `sock_shutdown` | `(fd, [how]) → int` | Bare int — no Err variant since failure on a valid fd is essentially impossible |
+
+### http.cyr
+
+Minimal HTTP/1.0 client.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `http_get` | `http_get(url) → resp_ptr` | GET request — back-compat shape; failure → resp with `status == HTTP_ERROR` (-1) |
+| `http_get_r` | `http_get_r(url) → Result<resp_ptr, HttpError>` | Result variant (v5.8.31). Bad URL → `Err(HttpBadUrl)`; net failure → `Err(HttpNetErr)`; 200-299 → `Ok(resp)`; non-2xx → `Err(HttpNon2xx)` |
+| `http_status` / `http_body` / `http_body_len` | `(resp) → field` | Response accessors |
+
+`enum HttpError { HttpBadUrl; HttpNetErr; HttpNon2xx; HttpOther; }`.
+
+Note: `http_get` shipped with a long-standing latent bug
+(treated net.cyr Result heap pointers as raw int fds) that was
+fixed alongside the `http_get_r` addition at v5.8.31.
+
+### dynlib.cyr
+
+Pure-cyrius ELF shared-object loader (no libc, no dlopen).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `dynlib_open` | `dynlib_open(path) → handle/0` | Open + parse + relocate |
+| `dynlib_open_r` | `dynlib_open_r(path) → Result<handle, DynlibError>` | Result variant (v5.8.31) — distinguishes `DynlibNotFound` (open failed) from `DynlibBadElf` (open ok, parse failed) |
+| `dynlib_sym` | `dynlib_sym(handle, name) → addr/0` | Symbol lookup (GNU hash if available, else linear scan) |
+| `dynlib_sym_r` | `dynlib_sym_r(handle, name) → Result<addr, DynlibError>` | Result variant; null handle → `Err(DynlibNotFound)`, missing symbol → `Err(DynlibSymMissing)` |
+| `dynlib_close` | `dynlib_close(handle) → 0` | Unmap |
+
+`enum DynlibError { DynlibNotFound; DynlibBadElf; DynlibSymMissing; DynlibOther; }`.
 
 ### regex.cyr
 
@@ -357,12 +474,19 @@ Pure-cyrius parsers for `/etc/passwd`, `/etc/group`, `/etc/shadow` that bypass g
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `pwd_getpwuid` | `(uid, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by uid |
-| `pwd_getpwnam` | `(name, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name |
+| `pwd_getpwuid` | `(uid, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by uid (legacy int-return) |
+| `pwd_getpwnam` | `(name, pwrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name (legacy) |
+| `pwd_getpwuid_r` | `(uid, pwrec, strbuf, strbufsz) → Result<0, PwdError>` | Result variant (v5.8.31) |
+| `pwd_getpwnam_r` | `(name, pwrec, strbuf, strbufsz) → Result<0, PwdError>` | Result variant (v5.8.31) |
 | `pwd_invalidate_cache` | `() → 0` | Force re-read on next call |
 | `pwd_uid` / `pwd_gid` / `pwd_name` / `pwd_passwd` / `pwd_gecos` / `pwd_dir` / `pwd_shell` | `(pwrec) → value` | Accessors |
 
-Returns `1` = found, `0` = not found, `-1` = `/etc/passwd` unreadable, `-2` = strbuf too small.
+Legacy returns: `1` = found, `0` = not found, `-1` = `/etc/passwd`
+unreadable, `-2` = strbuf too small.
+
+`enum PwdError { PwdNotFound; PwdLoadFailed; PwdBufTooSmall; PwdOther; }`.
+`_r` variants map `1`→`Ok(0)`, `0`→`Err(PwdNotFound)`,
+`-1`→`Err(PwdLoadFailed)`, `-2`→`Err(PwdBufTooSmall)`.
 
 ### grp.cyr (v5.5.26)
 
@@ -370,13 +494,19 @@ Returns `1` = found, `0` = not found, `-1` = `/etc/passwd` unreadable, `-2` = st
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `grp_getgrgid` | `(gid, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by gid |
-| `grp_getgrnam` | `(name, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name |
-| `grp_getgrouplist` | `(user, primary_gid, gid_buf, max) → count / -1 / -2` | All gids for user |
+| `grp_getgrgid` | `(gid, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by gid (legacy) |
+| `grp_getgrnam` | `(name, grrec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by name (legacy) |
+| `grp_getgrouplist` | `(user, primary_gid, gid_buf, max) → count / -1 / -2` | All gids for user (legacy) |
+| `grp_getgrgid_r` / `grp_getgrnam_r` | `(...) → Result<0, GrpError>` | Result variants (v5.8.31) |
+| `grp_getgrouplist_r` | `(user, primary_gid, gid_buf, max) → Result<count, GrpError>` | Result variant (v5.8.31) |
 | `grp_invalidate_cache` | `() → 0` | Force re-read on next call |
 | `grp_gid` / `grp_name` / `grp_passwd` | `(grrec) → value` | Accessors |
 
-24 B `grrec`. `grp_getgrouplist` returns the count of gids written (always ≥ 1 if `primary_gid` fit); `-2` means the `gid_buf` was too small.
+24 B `grrec`.
+`enum GrpError { GrpNotFound; GrpLoadFailed; GrpBufTooSmall; GrpOther; }`.
+`grp_getgrouplist_r` collapses the legacy `-(n+2)` overflow encoding
+to `Err(GrpBufTooSmall)`; callers needing the would-have-been count
+fall back to the int-returning fn.
 
 ### shadow.cyr (v5.5.27)
 
@@ -384,11 +514,17 @@ Returns `1` = found, `0` = not found, `-1` = `/etc/passwd` unreadable, `-2` = st
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `shadow_getspnam` | `(name, sprec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by username |
+| `shadow_getspnam` | `(name, sprec, strbuf, strbufsz) → 1/0/-1/-2` | Look up by username (legacy) |
+| `shadow_getspnam_r` | `(name, sprec, strbuf, strbufsz) → Result<0, ShadowError>` | Result variant (v5.8.31) |
 | `shadow_invalidate_cache` | `() → 0` | Force re-read on next call |
 | `shadow_name` / `shadow_hash` / `shadow_last_change` | `(sprec) → value` | Accessors |
 
-24 B `sprec` (name, hash, last_change). The hash is the full crypt(3) encoding (`$6$salt$hash` / `$5$salt$hash` / `*` / `!`).
+24 B `sprec` (name, hash, last_change). The hash is the full crypt(3)
+encoding (`$6$salt$hash` / `$5$salt$hash` / `*` / `!`).
+`enum ShadowError { ShadowNotFound; ShadowLoadFailed; ShadowBufTooSmall; ShadowOther; }`.
+`ShadowLoadFailed` typically signals "no read access to /etc/shadow"
+(caller is non-root); use `pam_unix_authenticate` (below) for the
+non-root authentication path.
 
 ### pam.cyr (v5.5.27)
 
@@ -397,9 +533,10 @@ Non-root password verification via the setuid-root `unix_chkpwd` helper that Lin
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `pam_unix_available` | `() → 0/1` | `1` if `/usr/sbin/unix_chkpwd` or `/usr/bin/unix_chkpwd` is present |
-| `pam_unix_authenticate` | `(user, password) → PAM_AUTH_*` | Verify `password` for `user` |
+| `pam_unix_authenticate` | `(user, password) → PAM_AUTH_*` | Verify `password` for `user` (legacy int-return) |
+| `pam_unix_authenticate_r` | `(user, password) → Result<0, PamError>` | Result variant (v5.8.31) |
 
-Return constants:
+Legacy return constants:
 
 | Constant | Value | Meaning |
 |----------|-------|---------|
@@ -409,6 +546,11 @@ Return constants:
 | `PAM_AUTH_PIPE_FAILED` | `-3` | `sys_pipe` errored |
 | `PAM_AUTH_FORK_FAILED` | `-4` | `sys_fork` errored |
 | `PAM_AUTH_EXEC_FAILED` | `-5` | Helper present but couldn't run |
+
+`enum PamError { PamAuthFail; PamHelperMissing; PamPipeFailed; PamForkFailed; PamExecFailed; PamOther; }`.
+`pam_unix_authenticate_r` maps `PAM_AUTH_OK`→`Ok(0)` and every
+non-zero code to its corresponding variant. `pam_unix_available`
+stays bool-returning — no Err semantics needed.
 
 An inline cyrius SHA-512-crypt implementation (for root consumers that want to skip the subprocess fork) was considered for v5.5.27 but deferred — Drepper's algorithm is ~120 LoC of error-prone interleaved hashing, and `unix_chkpwd` is ~1 ms and covers every crypt type the system supports automatically. Can land as a future patch if a zero-fork consumer needs it.
 

@@ -138,21 +138,69 @@ enum Error { OK = 0; NOT_FOUND = 44; PERM = 13; }
 
 ## Error Handling
 
-Use the tagged union library for Option and Result types:
+`Result<T, E>` lives in `lib/result.cyr` (carved out of
+`lib/tagged.cyr` at v5.8.28). Constructors `Ok(v)` and `Err(e)`
+are compiler-generated since v5.8.23.
 
 ```
-include "lib/tagged.cyr"
+include "lib/alloc.cyr"
+include "lib/result.cyr"
 
 fn divide(a, b) {
     if (b == 0) { return Err(1); }
     return Ok(a / b);
 }
 
+alloc_init();
+
 var r = divide(42, 2);
 if (is_ok(r) == 1) {
     var value = result_unwrap(r);   # 21
 }
 ```
+
+The `?` propagation operator (v5.8.29) makes chained
+Result-returning calls one-liners. It evaluates the expression,
+short-circuits the enclosing fn on `Err`, and unwraps `Ok` to
+the payload value:
+
+```
+fn safe_div(a, b) {
+    if (b == 0) { return Err(1); }
+    return Ok(a / b);
+}
+
+fn chain(a, b, c) {
+    var x = safe_div(a, b)?;       # Err short-circuits chain
+    var y = safe_div(x, c)?;
+    return Ok(y);
+}
+
+var ok    = chain(100, 4, 5);      # Ok(5)
+var miss1 = chain(100, 0, 5);      # Err(1) from first ?
+var miss2 = chain(100, 4, 0);      # Err(1) from second ?
+```
+
+The stdlib's I/O surface ships `Result`-returning `*_r`
+variants alongside the legacy `-1`-on-error fns:
+
+```
+include "lib/io.cyr"            # IoError + file_open_r etc.
+include "lib/json.cyr"          # JsonError + json_parse_file_r
+
+fn read_config(path) {
+    var fd = file_open_r(path, 0, 0)?;     # Err(IoNotFound) / etc.
+    var buf[8192];
+    var n  = file_read_r(fd, &buf, 8192)?;
+    file_close_r(fd);
+    return Ok(n);
+}
+```
+
+Per-module typed errors land alongside the `*_r` variants —
+`IoError`, `JsonError`, `TomlError`, `CymlError`, `HttpError`,
+`DynlibError`, `PwdError`, `GrpError`, `ShadowError`, `PamError`.
+See `docs/stdlib-reference.md` for the variant lists.
 
 ## Using Libraries
 
@@ -204,5 +252,5 @@ syscall(60, exit_code);
 
 - [Language Guide](cyrius-guide.md) — complete reference
 - [Standard Library](stdlib-reference.md) — every function documented
-- [Benchmarks](benchmarks.md) — binary sizes, compile times
-- [Examples](../programs/) — 68 working programs
+- [Size comparisons](size-comparisons.md) — exit42 across languages, compiler footprint
+- [Examples](../programs/) — 59 working programs

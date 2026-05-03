@@ -551,19 +551,118 @@ var s = Some(42);    # 16-byte heap, tag at +0, payload 42 at +8
 
 Generic params (`<T, E>`) are syntactically accepted but not yet semantically bound (mono-only erasure today). Variant separators may be `;` or `,` — mixed in same decl works. In mixed enums, bare names stay as int constants and paren'd names heap-allocate; convention is paren-consistent (`enum Option { None(); Some(v); }`) for sum types you'll match against.
 
-Helper API for tagged values lives in `lib/tagged.cyr`:
+Helper API:
+
+- `lib/tagged.cyr` — `Option` / `Either` + the underlying `tag(t)` /
+  `payload(t)` / `is_tag(t, expected)` / `tagged_new(tag, value)`
+  primitives shared across all sum types.
+- `lib/result.cyr` — `Result<T, E>` + Result-specific helpers
+  (`is_ok` / `is_err_result` / `result_unwrap` / `result_unwrap_or` /
+  `err_code_of` / `result_print`). Carved out of `lib/tagged.cyr`
+  at v5.8.28 so consumers that only want `Result` can include just
+  the dedicated module. `lib/tagged.cyr` transitively includes
+  `lib/result.cyr` for back-compat — old code keeps working.
 
 ```
-include "lib/tagged.cyr"
+include "lib/tagged.cyr"          # for Option / Either + primitives
+# or:
+include "lib/result.cyr"          # for Result alone
 
 var opt = Some(42);
 if (is_some(opt) == 1) {
     var v = unwrap(opt);          # = 42
 }
 var v = unwrap_or(opt, 0);        # 42 if Some, fallback if None
+
+var r = Ok(99);
+if (is_ok(r) == 1) {
+    var v = result_unwrap(r);     # = 99
+}
 ```
 
-`Option`, `Result`, `Either` are compiler-generated since v5.8.23; helpers (`is_none`/`is_some`/`unwrap`/`unwrap_or`/`is_ok`/`is_err_result`/`result_unwrap`/`err_code_of`/`is_left`/`is_right`) wrap them.
+`Option`, `Result`, `Either` are compiler-generated since v5.8.23;
+helpers (`is_none` / `is_some` / `unwrap` / `unwrap_or` / `is_ok` /
+`is_err_result` / `result_unwrap` / `err_code_of` / `is_left` /
+`is_right`) wrap them.
+
+## `?` Propagation Operator (v5.8.29+)
+
+Postfix `?` on a `Result`-shaped expression desugars at the call
+site to: load tag → if `Err`, return the Result heap pointer from
+the enclosing fn → if `Ok`, unwrap the payload (`load64(rax + 8)`)
+into rax. Highest precedence (binds tighter than `*` / `/`), so
+`foo()? * bar` parses as `(foo()?) * bar`.
+
+```
+include "lib/alloc.cyr"
+include "lib/result.cyr"
+
+fn safe_div(a, b) {
+    if (b == 0) { return Err(1); }
+    return Ok(a / b);
+}
+
+fn chain(a, b, c) {
+    var x = safe_div(a, b)?;     # Err short-circuits the chain
+    var y = safe_div(x, c)?;
+    return Ok(y);
+}
+
+alloc_init();
+chain(100, 4, 5);                # Ok(5)
+chain(100, 0, 5);                # Err(1) from first ?
+```
+
+`?` is also valid as a bare statement (`expr?;`) — the unwrapped
+`Ok` value is dropped, but the `Err` early-return still fires
+(v5.8.31 closed the parse-statement gap; v5.8.29 only handled the
+`var x = expr?;` form).
+
+`?` outside any fn body is a parse-time error
+(`?: '?' propagation operator only valid inside a fn body`). The
+stricter "outside Result-returning fn is type error" check is
+pending fn return-type tracking.
+
+## Typed errors in the stdlib (v5.8.30+)
+
+Every Result-returning stdlib fn pairs with a per-module error
+enum. Variant names are module-prefixed to coexist in the global
+enum-variant namespace.
+
+| Module | Enum | Variants |
+|--------|------|----------|
+| `lib/io.cyr` | `IoError` | `IoNotFound` `IoAccessDenied` `IoBadFd` `IoFailed` `IoOther` |
+| `lib/json.cyr` | `JsonError` | `JsonIoErr` `JsonParseErr` `JsonOther` |
+| `lib/toml.cyr` | `TomlError` | `TomlIoErr` `TomlParseErr` `TomlOther` |
+| `lib/cyml.cyr` | `CymlError` | `CymlIoErr` `CymlOther` |
+| `lib/http.cyr` | `HttpError` | `HttpBadUrl` `HttpNetErr` `HttpNon2xx` `HttpOther` |
+| `lib/dynlib.cyr` | `DynlibError` | `DynlibNotFound` `DynlibBadElf` `DynlibSymMissing` `DynlibOther` |
+| `lib/pwd.cyr` | `PwdError` | `PwdNotFound` `PwdLoadFailed` `PwdBufTooSmall` `PwdOther` |
+| `lib/grp.cyr` | `GrpError` | `GrpNotFound` `GrpLoadFailed` `GrpBufTooSmall` `GrpOther` |
+| `lib/shadow.cyr` | `ShadowError` | `ShadowNotFound` `ShadowLoadFailed` `ShadowBufTooSmall` `ShadowOther` |
+| `lib/pam.cyr` | `PamError` | `PamAuthFail` `PamHelperMissing` `PamPipeFailed` `PamForkFailed` `PamExecFailed` `PamOther` |
+
+Result-returning fns use the `_r` suffix:
+
+```
+var fd_r = file_open_r("/etc/hostname", 0, 0);
+if (is_err_result(fd_r) == 1) {
+    if (load64(fd_r + 8) == IoNotFound) { ... }
+}
+
+# With ? propagation:
+fn read_line(path) {
+    var fd  = file_open_r(path, 0, 0)?;
+    var buf[256];
+    var n   = file_read_r(fd, &buf, 256)?;
+    file_close_r(fd);
+    return Ok(n);
+}
+```
+
+The legacy int-returning fns (`file_open` / `json_parse_file` /
+etc.) stay callable through v5.8.x for back-compat. v6.0.0 closeout
+removes the old shape.
 
 ## Switch
 
