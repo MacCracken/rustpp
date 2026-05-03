@@ -4,6 +4,163 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.23] — 2026-05-03
+
+**v5.8.x slot 23 — stdlib adoption pass 1: `lib/tagged.cyr`
+migration to compiler-generated sum types**. Phase 2 language-
+vocabulary slot, third of the tagged-unions sub-suite (v5.8.21–
+v5.8.27 after the v5.8.22 +2 cascade). First real consumer of
+the v5.8.21 sum-type syntax + v5.8.22 exhaustive-match coverage
+machinery. Two bites: empty-parens nullary tagged variant
+(precondition) + `lib/tagged.cyr` migration (Option / Result
+/ Either now compiler-generated).
+
+cc5 grew **737,160 B → 737,112 B (-48 B)** — a slight shrink
+from removing v5.8.21's `if (ctor_arity == 0) { ctor_arity = 1; }`
+collapse + the `EMOVI(8 + 0*8)` constant-folding to `EMOVI(8)`
+on the arity-0 path.
+
+### What §23 ships
+
+**Bite #1 — empty-parens nullary tagged variant**
+(`src/frontend/parse_types.cyr`). Pre-bite, `enum Foo { Nope(); }`
+allocated 16 bytes (tag at +0, garbage payload at +8 from
+unconsumed rdi) — a no-real-consumer landmine the v5.8.21
+slot left intact for byte-identity. Now `Nope()` is a TRUE
+arity-0 nullary tagged variant: `alloc(8)`, tag at +0, no
+payload, no params consumed. Frame size 16 (just alloc-ptr
+slot, 16-byte aligned). Bare-name `Nope` (no parens) stays as
+the auto-incremented int constant — bare-name auto-tagging
+for mixed-enum decls (per the v5.8.21 pin's prescriptive
+example `enum Option { None; Some(v); }`) is **deferred** to
+a future slot if a real consumer surfaces; the empirical
+migration uses paren-consistent shapes and works cleanly
+without it.
+
+**Bite #2 — `lib/tagged.cyr` migration**. Replaced three
+hand-rolled tagged-union types with compiler-generated sum
+types:
+
+```cyr
+# Before (v5.8.22 and earlier):
+enum OptionTag { NONE = 0; SOME = 1; }
+fn None() { return tagged_new(NONE, 0); }
+fn Some(value) { return tagged_new(SOME, value); }
+# (same shape for Result / Either)
+
+# After (v5.8.23):
+enum Option {
+    None();
+    Some(v);
+}
+# (same shape for Result / Either)
+```
+
+The compiler-generated `None()` / `Some(v)` / `Ok(v)` /
+`Err(e)` / `Left(v)` / `Right(v)` constructors replace 6
+hand-written wrappers. Tag values match the prior convention
+(NONE=0/SOME=1, OK=0/ERR=1, LEFT=0/RIGHT=1) so `is_none` /
+`is_ok` / `is_left` and the `unwrap` / `unwrap_or` /
+`result_unwrap` / `result_unwrap_or` / `err_code_of` helpers
+keep working without semantic change. Helper bodies updated
+to reference the new variant names (lowercase `None`/`Some`/
+`Ok`/`Err`/`Left`/`Right` instead of uppercase `NONE`/`SOME`/
+`OK`/`ERR`/`LEFT`/`RIGHT` constants — bare-name resolution via
+`enum_const_val` fold handles both pre- and post-migration
+shapes identically).
+
+`tagged_new` / `tag` / `payload` / `is_tag` primitives stay
+unchanged for direct construction outside the named variants
+(used by `tagged.tcyr`). `option_print` / `result_print` keep
+working (read tag at +0 + payload at +8).
+
+**Shape change** — `None()` is now 8 bytes (tag-only) instead
+of 16 bytes (tag + zero payload). Code that reads `payload(None())`
+directly would now hit OOB (returns whatever's in the byte
+following the alloc — could be anything). Existing helpers
+(`unwrap_or`, `is_none`) check `is_none` first, never call
+`payload()` on a None value, so no runtime regression in the
+helper API. Three downstream tcyr consumers (`tagged.tcyr` 14/14,
+`stdlib.tcyr`, `enum_generics.tcyr` 31/31) all green.
+
+### Symlink corruption discovery (ecosystem-rule reinforcement)
+
+Mid-bite-2, edits to `lib/tagged.cyr` reverted between Edit
+calls — the documented downstream-repo symlink corruption
+pattern (CLAUDE.md "Downstream repo setup (ecosystem rule)").
+
+Root cause for this session: `version-bump.sh`'s `install.sh
+--refresh-only` hook copies `lib/*.cyr` from the repo into
+`~/.cyrius/versions/<v>/lib/` and `~/.cyrius/lib/`. After
+v5.8.22's bump, the install snapshot had pre-v5.8.23
+`lib/tagged.cyr` (hand-rolled). When a `cyrius deps` step in
+`check.sh` re-resolved deps, it copied the snapshot version
+BACK into the repo, overwriting my edit.
+
+Mitigation this slot: copied the migrated `lib/tagged.cyr`
+into both `~/.cyrius/versions/5.8.22/lib/` and `~/.cyrius/lib/`
+manually before re-running `check.sh`. The v5.8.23 bump's
+`install.sh --refresh-only` then locked the migrated file in
+both `~/.cyrius/versions/5.8.23/lib/` and the repo.
+
+**Follow-up work surfaced**: `/home/macro/Repos/sakshi/lib`
+is a symlink to `~/.cyrius/lib` — the exact pattern CLAUDE.md
+warns against. Other older downstream cyrius consumer repos
+likely have similar symlinks. **Audit + cleanup of all
+downstream repos' `lib/` symlinks is queued for v5.8.26's
+stdlib pass 2 / closeout** (see roadmap entry).
+
+### Cascaded forward to v5.8.26
+
+The pin's stated v5.8.23 deliverables included **hashmap
+`key_type` migration** (raw int constants 0/1/2 stored at
+header offset 24 → named `enum KeyType { Cstr; Str; U64; }`)
+and **dynlib error codes** + **json/toml parse state**.
+Empirical premise-check at slot entry surfaced:
+
+- `lib/json.cyr` / `lib/toml.cyr` — **0 ad-hoc tag dispatch
+  hits** (the pin's premise was wrong; these parsers use
+  direct character matching, not tag+union state machines).
+- `lib/fdlopen.cyr` — 2 hits, marginal.
+- `lib/hashmap.cyr` — 12 hits, real.
+
+Hashmap `key_type` migration is **pure ergonomic improvement**
+(internal call-site rename, not API change). The symlink-
+corruption ceremony (manual snapshot refresh per `lib/` edit)
+makes per-file edits costly this slot. **Deferred to v5.8.26
+stdlib pass 2** alongside the symlink audit cleanup. Documented
+in roadmap.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **737,112 B**
+   (-48 B from v5.8.22 — empty-parens collapse removed +
+   constant-fold on arity-0 path).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ Pre-existing tagged-union consumers: `tagged.tcyr` 14/14
+   (full coverage of `None()` / `Some(v)` / `Ok(v)` / `Err(e)`
+   constructors + helper API), `stdlib.tcyr` includes
+   `lib/tagged.cyr` and exercises basic constructor calls.
+4. ✅ Pre-existing exhaustive-match consumers:
+   `exhaustive_match.tcyr` 10/10, `enum_generics.tcyr` 31/31,
+   `enums.tcyr` 10/10.
+5. ✅ Standalone migration probe: `None()` → tag 0 at +0
+   (8-byte alloc); `Some(42)` → tag 1 at +0, payload 42 at +8;
+   `is_none` / `is_some` / `is_ok` / `is_err_result` /
+   `is_left` / `is_right` all return correctly.
+6. ✅ All v5.8.22 regressions intact, all v5.8.21 regressions
+   intact, all v5.8.20 regressions intact.
+
+### v5.8.x cycle progress
+
+23 of 44 pinned slots shipped (52.3% — past halfway). Phase 2
+continuing: cap-bump (v5.8.24), arm-tag dedup (v5.8.25),
+stdlib adoption pass 2 (v5.8.26 — absorbs deferred hashmap
+key_type migration + downstream symlink audit/cleanup),
+tagged-unions closeout (v5.8.27), Result<T,E>+? (v5.8.28–
+v5.8.32), allocators (v5.8.33–v5.8.38). Phase 3 closeout
+v5.8.39–v5.8.44; cycle backstop at v5.8.49.
+
 ## [5.8.22] — 2026-05-03
 
 **v5.8.x slot 22 — exhaustive pattern match in `match`**.

@@ -5,6 +5,64 @@
 
 ## Version
 
+**5.8.23** (shipped 2026-05-03 — **v5.8.x SLOT 23 — stdlib
+adoption pass 1: `lib/tagged.cyr` migration to compiler-
+generated sum types**. Phase 2 language-vocabulary slot, third
+of the tagged-unions sub-suite (v5.8.21–v5.8.27). First real
+consumer of v5.8.21 sum-type syntax + v5.8.22 exhaustive-match
+machinery. **Bite #1 (parse_types.cyr)**: empty-parens nullary
+tagged variant — pre-v5.8.23 `Foo()` collapsed to arity-1
+(16-byte alloc with garbage payload from unconsumed rdi); now
+`alloc(8)`, tag at +0, no payload, no params. Removed v5.8.21's
+`if (ctor_arity == 0) { ctor_arity = 1; }` collapse; codegen
+falls through naturally to arity-0 with `EMOVI(8 + 0*8) =
+EMOVI(8)`, frame size `(0 + 1) * 16 = 16`. **Bite #2
+(lib/tagged.cyr)**: replaced 3 hand-rolled tagged-union types
+with compiler-generated sum types — `enum Option { None();
+Some(v); }`, `enum Result { Ok(v); Err(e); }`, `enum Either
+{ Left(v); Right(v); }`. Tag values match prior NONE=0/SOME=1
+etc. convention; helper bodies (`is_none`/`is_some`/`unwrap`/
+`unwrap_or`/`result_unwrap`/`err_code_of`/`is_left`/`is_right`)
+updated to reference lowercase variant names which fold via
+`enum_const_val` to identical tag values. `tagged_new`/`tag`/
+`payload`/`is_tag` primitives + `option_print`/`result_print`
+unchanged. **Shape change**: `None()` is now 8 bytes (tag-only)
+vs prior 16 bytes (tag + zero payload); `payload(None())`
+direct-call would now read OOB but no helper does this (all
+check `is_none` first). 3 downstream tcyrs intact: `tagged.tcyr`
+14/14, `stdlib.tcyr`, `enum_generics.tcyr` 31/31.
+**Symlink corruption discovery**: mid-bite-2, `lib/tagged.cyr`
+edits reverted between Edit calls — the CLAUDE.md-documented
+ecosystem corruption pattern. Root cause: `version-bump.sh`'s
+`install.sh --refresh-only` hook + `cyrius deps` re-resolution
+in `check.sh` ping-pong files between repo `lib/` and
+`~/.cyrius/versions/<v>/lib/`. Mitigated by manual snapshot
+update mid-bite. Surfaced: `/home/macro/Repos/sakshi/lib`
+is a symlink to `~/.cyrius/lib` — exactly the pattern
+CLAUDE.md warns against. **Audit + cleanup queued for v5.8.26
+stdlib pass 2.** **Honest scope-shrink**: pin's hashmap
+`key_type` migration + dynlib error codes + json/toml parse
+state premise-checked — empirically `lib/json.cyr` /
+`lib/toml.cyr` had **0 ad-hoc tag dispatch hits** (parsers
+use direct char-matching, not tag+union state machines);
+`lib/fdlopen.cyr` 2 hits (marginal); `lib/hashmap.cyr` 12 hits
+(real but pure ergonomic — internal int-const → enum const
+rename, not API change). Symlink-corruption ceremony per `lib/`
+edit makes per-file migrations costly; **hashmap key_type
+migration deferred to v5.8.26** alongside symlink audit. cc5
+**737,160 → 737,112 B (-48 B)** — slight shrink from collapse
+removal + EMOVI constant-fold on arity-0 path. Verification:
+self-host two-step byte-identical, check.sh 64/64, all v5.8.22
++ v5.8.21 + v5.8.20 regressions intact, standalone migration
+probe confirms None/Some/Ok/Err/Left/Right shapes + helpers.
+v5.8.x cycle progress: **23 of 44 pinned slots shipped (52.3%
+— past halfway)**. Phase 2 continuing: cap-bump (v5.8.24),
+arm-tag dedup (v5.8.25), stdlib adoption pass 2 (v5.8.26 —
+absorbs hashmap key_type migration + downstream symlink
+audit/cleanup), tagged-unions closeout (v5.8.27), Result<T,E>+?
+(v5.8.28–v5.8.32), allocators (v5.8.33–v5.8.38). Phase 3
+closeout v5.8.39–v5.8.44; cycle backstop at v5.8.49.)
+
 **5.8.22** (shipped 2026-05-03 — **v5.8.x SLOT 22 — exhaustive
 pattern match in `match`**. Phase 2 language-vocabulary slot, second
 of the tagged-unions sub-suite (extended v5.8.21–v5.8.25 →

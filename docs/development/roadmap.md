@@ -790,24 +790,37 @@ matches it).
   `tests/tcyr/exhaustive_match.tcyr` 10/10 across 3 groups.
   0 false positives during self-host or stdlib compile.
   `cyrius lint --strict` escalation reserved for a follow-up.
-- **v5.8.23** — Stdlib adoption pass 1: collapse ad-hoc tag+
-  union patterns (hashmap `key_type`, dynlib error codes,
-  json/toml parse state) into sum types. Internal representation
-  swap; no API breakage yet. **Absorbs from v5.8.21**:
-  `lib/tagged.cyr` migration (replace hand-rolled `Ok` / `Err` /
-  `Some` / `None` / `Left` / `Right` constructor fns with
-  `enum Option { None; Some(v); }` / `enum Result { Ok(v);
-  Err(e); }` / `enum Either { Left(v); Right(v); }` decls).
-  **Precondition** to land before the migration: bare-variant
-  payload-shape consistency — today `Nothing` (no parens) is
-  auto-increment int while `Just(v)` is heap-allocated tagged;
-  unifying so a bare variant in a payloaded-variant decl
-  produces `tagged(N, 0)` instead of int N is needed for
-  `enum Option { None; Some(v); }` to subsume the hand-rolled
-  fns cleanly. Either land the consistency fix as v5.8.23
-  bite #1 (then migration as bite #2+) or split into a
-  v5.8.22.x preceding bite — author's call at slot entry per
-  premise-check.
+- ✅ **v5.8.23** — Stdlib adoption pass 1: `lib/tagged.cyr`
+  migration (shipped 2026-05-03). Two bites: (#1) empty-parens
+  nullary tagged variant — `Foo()` is now `alloc(8)` tag-only,
+  removing v5.8.21's arity-1 collapse landmine. (#2)
+  `lib/tagged.cyr` migration — `enum OptionTag` + `fn None()`
+  / `fn Some(value)` etc. replaced with compiler-generated
+  `enum Option { None(); Some(v); }` / `enum Result { Ok(v);
+  Err(e); }` / `enum Either { Left(v); Right(v); }`. Helper
+  bodies updated to reference lowercase variant names. cc5
+  -48 B (737,160 → 737,112 — collapse removal + EMOVI
+  constant-fold on arity-0). All downstream tcyr consumers
+  intact: tagged.tcyr 14/14, enum_generics.tcyr 31/31.
+  **Honest scope-shrink** at slot entry: pin's hashmap
+  `key_type` migration + dynlib + json/toml premise empirically
+  partial (json/toml had 0 ad-hoc tag dispatch hits;
+  fdlopen 2 hits; hashmap 12 hits — real but pure ergonomic).
+  Symlink-corruption ceremony per `lib/` edit (CLAUDE.md
+  ecosystem rule) makes per-file migrations costly; hashmap
+  key_type migration **deferred to v5.8.26** alongside
+  downstream symlink audit. **Bare-name auto-tagging in mixed
+  enums** (per pin's prescriptive `enum Option { None; Some(v); }`
+  example) deferred — empirical migration uses paren-consistent
+  shapes (`None()` not bare `None`) and works cleanly without
+  it. **Symlink corruption discovery (this slot)**:
+  `/home/macro/Repos/sakshi/lib` is a symlink to
+  `~/.cyrius/lib` — exactly the pattern CLAUDE.md warns
+  against; mid-bite-2 `lib/tagged.cyr` edits reverted between
+  Edit calls via the install-snapshot ping-pong path. Audit
+  + cleanup of all downstream cyrius consumer repos
+  (sakshi confirmed; mabda / sigil / yukti / kybernet /
+  hadara likely affected) queued for v5.8.26.
 - **v5.8.24** — Exhaustive-match table cap bump (cascaded
   from v5.8.22 follow-ups). Today `enum_count` cap is 256
   (matches struct cap); `enum_variant_count[]` is keyed by
@@ -836,7 +849,35 @@ matches it).
   `tests/tcyr/match_dedup.tcyr` regression-floor.
 - **v5.8.26** — Stdlib adoption pass 2: public API migration
   for modules where the sum-typed form is visibly better
-  (parse results, cross-boundary error returns).
+  (parse results, cross-boundary error returns). **Absorbs
+  from v5.8.23 (cascaded 2026-05-03)**:
+    1. **Hashmap `key_type` migration** — `lib/hashmap.cyr`
+       stores `key_type` as raw int constants (0=cstr / 1=Str
+       / 2=u64) at offset 24 of the map header. Internal-only,
+       ~10 LOC change; replace with `enum KeyType { KeyTypeCstr;
+       KeyTypeStr; KeyTypeU64; }` at the top of `lib/hashmap.cyr`
+       and rewrite the 12 raw-integer call sites. Pure
+       ergonomic — no API change; no tcyr regression expected.
+    2. **Downstream cyrius consumer repo `lib/` symlink audit
+       + cleanup** — CLAUDE.md "Downstream repo setup
+       (ecosystem rule)" forbids `lib/` symlinks because they
+       cause silent corruption when the downstream repo runs
+       lint/fmt/etc. (writes propagate through the symlink
+       chain). v5.8.23 mid-slot surfacing confirmed
+       `/home/macro/Repos/sakshi/lib → ~/.cyrius/lib →
+       ~/.cyrius/versions/<v>/lib/` (exact pattern). Audit
+       script: `find ~/Repos -maxdepth 3 -type l -lname
+       "*cyrius/lib*"` + `find ~/.cyrius -type l`. For each
+       affected downstream repo: replace symlink with real
+       `lib/` directory populated via `cyrius deps`. Likely
+       affected (per CLAUDE.md ecosystem rule's example list):
+       mabda, sigil, sakshi (confirmed), yukti, kybernet,
+       hadara — verify each individually.
+    3. **Snapshot-ping-pong protection** — document the
+       repo→snapshot→repo loop in CLAUDE.md or a dev-process
+       file so future `lib/*.cyr` edits know to refresh
+       `~/.cyrius/versions/<v>/lib/` immediately after the
+       repo edit, before any `cyrius deps` step.
 - **v5.8.27** — Tagged unions sub-suite closeout. Downstream
   dep-pointer audit (sigil, mabda, yukti, kybernet, etc.).
 

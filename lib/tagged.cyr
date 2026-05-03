@@ -37,29 +37,28 @@ fn is_tag(t, expected) {
 }
 
 # ================================================================
-# Option type: None | Some(value)
+# Option type: None() | Some(value)
 # ================================================================
-
-enum OptionTag { NONE = 0; SOME = 1; }
-
-# Create a None option value
-fn None() {
-    return tagged_new(NONE, 0);
-}
-
-# Wrap a value in Some
-fn Some(value) {
-    return tagged_new(SOME, value);
+# v5.8.23 bite #2 — migrated from hand-rolled `enum OptionTag` +
+# `fn None()` + `fn Some(value)` to compiler-generated sum type.
+# `None()` is a true nullary tagged variant (8-byte alloc, tag at
+# +0, no payload). `Some(v)` is a 16-byte alloc (tag at +0,
+# payload at +8). Tag values match the prior NONE = 0 / SOME = 1
+# convention so existing helper logic + downstream tcyr consumers
+# stay functional.
+enum Option {
+    None();
+    Some(v);
 }
 
 # Return 1 if option is None
 fn is_none(opt) {
-    return is_tag(opt, NONE);
+    return is_tag(opt, None);
 }
 
 # Return 1 if option is Some
 fn is_some(opt) {
-    return is_tag(opt, SOME);
+    return is_tag(opt, Some);
 }
 
 # Unwrap: return value or abort if None
@@ -80,27 +79,21 @@ fn unwrap_or(opt, fallback) {
 # ================================================================
 # Result type: Ok(value) | Err(code)
 # ================================================================
-
-enum ResultTag { OK = 0; ERR = 1; }
-
-# Create an Ok result with the given value
-fn Ok(value) {
-    return tagged_new(OK, value);
-}
-
-# Create an Err result with the given error code
-fn Err(code) {
-    return tagged_new(ERR, code);
+# v5.8.23 bite #2 — compiler-generated sum type. Tag values match
+# the prior OK = 0 / ERR = 1 convention.
+enum Result {
+    Ok(v);
+    Err(e);
 }
 
 # Return 1 if result is Ok
 fn is_ok(res) {
-    return is_tag(res, OK);
+    return is_tag(res, Ok);
 }
 
 # Return 1 if result is Err
 fn is_err_result(res) {
-    return is_tag(res, ERR);
+    return is_tag(res, Err);
 }
 
 # Unwrap Result: return value or abort with error
@@ -131,27 +124,21 @@ fn err_code_of(res) {
 # ================================================================
 # Either type: Left(a) | Right(b)
 # ================================================================
-
-enum EitherTag { LEFT = 0; RIGHT = 1; }
-
-# Create a Left either value
-fn Left(value) {
-    return tagged_new(LEFT, value);
-}
-
-# Create a Right either value
-fn Right(value) {
-    return tagged_new(RIGHT, value);
+# v5.8.23 bite #2 — compiler-generated sum type. Tag values match
+# the prior LEFT = 0 / RIGHT = 1 convention.
+enum Either {
+    Left(v);
+    Right(v);
 }
 
 # Return 1 if either is Left
 fn is_left(e) {
-    return is_tag(e, LEFT);
+    return is_tag(e, Left);
 }
 
 # Return 1 if either is Right
 fn is_right(e) {
-    return is_tag(e, RIGHT);
+    return is_tag(e, Right);
 }
 
 # ================================================================

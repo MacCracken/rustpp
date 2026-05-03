@@ -200,10 +200,14 @@ fn PARSE_ENUM_DEF(S, emit_code) {
             # Check for constructor syntax: Variant(param) | Variant(a, b, ...)
             # v5.8.21 bite: count arity by consuming param idents until ')'.
             # Comma (token 31) separates; ident (token 2) bumps arity.
-            # Empty parens `Foo()` collapse to arity-1 to preserve byte-
-            # identity of pre-bite codegen (no stdlib consumer; this is
-            # don't-rock-the-boat — real arity-0 nullary tagged variants
-            # are a follow-up bite).
+            # v5.8.23 bite #1 — empty parens `Foo()` is now a TRUE
+            # nullary tagged variant: alloc(8), tag at +0, no payload,
+            # no params consumed. This is the migration shape for
+            # `enum Option { None(); Some(v); }` — the paren-consistent
+            # form that subsumes lib/tagged.cyr's hand-rolled
+            # `fn None() { return tagged_new(NONE, 0); }`. Pre-v5.8.23
+            # empty parens collapsed to arity-1 (16-byte alloc with
+            # garbage payload) which was a no-real-consumer landmine.
             var has_ctor = 0;
             var ctor_arity = 0;
             if (PEEKT(S) == 10) {
@@ -218,7 +222,6 @@ fn PARSE_ENUM_DEF(S, emit_code) {
                     }
                 }
                 STI(S, GTI(S) + 1);
-                if (ctor_arity == 0) { ctor_arity = 1; }
             }
             if (PEEKT(S) == 4) {
                 STI(S, GTI(S) + 1);
