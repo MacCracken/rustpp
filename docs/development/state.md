@@ -5,6 +5,34 @@
 
 ## Version
 
+**5.8.28** (shipped 2026-05-03 — **v5.8.x SLOT 28 — `Result<T, E>`
+carve-out into `lib/result.cyr`. First slot of the Phase 2
+Result+? sub-suite (v5.8.28–v5.8.32). Stdlib-only / zero compiler
+change**) — `enum Result<T, E> { Ok(v); Err(e); }` (typed shape
+using v5.8.21 generic-parameter syntax) and all six Result
+helpers (`is_ok`, `is_err_result`, `result_unwrap`,
+`result_unwrap_or`, `err_code_of`, `result_print`) moved out of
+`lib/tagged.cyr` into the dedicated `lib/result.cyr` module.
+Helpers inline `load64()` for tag/payload access so the new
+module has no circular dep on tagged.cyr. `lib/tagged.cyr` adds
+`include "lib/result.cyr"` near the top so existing consumers
+(`lib/net.cyr`, `lib/ws_server.cyr`, `lib/sandhi.cyr`,
+`tests/tcyr/tagged.tcyr`) keep working transitively. New
+`tests/tcyr/result.tcyr` — 24 assertions across 9 groups
+covering constructor layout, all six helpers, payload roundtrip,
+`match load64(res)` pattern-match consumer, realistic
+`_safe_div(n, d)` Result-returning fn shape. cc5 unchanged at
+**737,888 B** (zero compiler delta — pure stdlib reorganization).
+Verification: self-host two-step byte-identical, check.sh 64/64,
+result tcyr 24/24, tagged tcyr 14/14. Snapshot-ping-pong
+mitigation fired during first check.sh run (caught the
+documented loop, recovered per CLAUDE.md recipe). v5.8.x cycle
+progress: **28 of 44 pinned slots shipped (63.6%)**. Phase 2
+continuing: `?` operator (v5.8.29), stdlib migrations
+(v5.8.30/.31), Result sub-suite closeout (v5.8.32),
+allocators (v5.8.33–v5.8.38), Phase 3 closeout v5.8.39–v5.8.44;
+cycle backstop at v5.8.49.)
+
 **5.8.27** (shipped 2026-05-03 — **v5.8.x SLOT 27 — tagged-
 unions sub-suite closeout. Sub-suite COMPLETE (v5.8.21–v5.8.27,
 7 slots, +5,568 B compiler delta from 732,320 → 737,888 B,
@@ -2697,21 +2725,24 @@ throughput win on hosts with hw support).)
 
 ## Suites
 
-- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock introduce no new functionality. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches)
-- **`tests/tcyr/*.tcyr`**: 97 files (advanced.tcyr 197 assertions post-p56 migration to test_each; total TS coverage 1181 assertions across 4 group runners; ~3400 total assertions across the cyrius surface)
+- **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock + v5.8.x slot work introduce no new gates. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches; v5.8.x: 64 unchanged through v5.8.28 — `result.tcyr` added v5.8.28 is auto-discovered by the existing tcyr suite gate, no new gate required)
+- **`tests/tcyr/*.tcyr`**: 98 files (v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
 - **`fuzz/*.fcyr`**: 5 harnesses
 - **`benches/*.bcyr`**: 14 benchmarks
-- **Stdlib**: 61 modules (54 first-party + 7 vendored/deps: 6 via `cyrius deps`
+- **Stdlib**: 62 modules (55 first-party + 7 vendored/deps: 6 via `cyrius deps`
   symlinks — sakshi, patra, sigil, yukti, mabda, sankoch — plus
   `lib/sandhi.cyr` vendored from `cyrius distlib` at sandhi v1.0.0;
-  v5.7.43 added `lib/test.cyr` table-driven testing helper)
+  v5.7.43 added `lib/test.cyr` table-driven testing helper;
+  v5.8.28 added `lib/result.cyr` — `Result<T, E>` + 6 helpers
+  carved out of `lib/tagged.cyr`, transitively re-included from
+  tagged.cyr for backward compat)
 
 ## In-flight
 
-**v5.8.15+ (Phase 2 — language vocabulary; slices true-completion sub-arc §7-§11 + effects + tagged unions + Result + allocators; v5.8.x cycle slot work — 41 pinned slots, 3-slot headroom against ~.44 backstop). §6 typing infrastructure shipped at v5.8.14; §7 bounds-aware indexing next.**
+**v5.8.28 ✅ shipped (Phase 2 — language vocabulary; Result+? sub-suite OPENED at v5.8.28; remaining slots v5.8.29–v5.8.32 for `?` + stdlib migration + sub-suite closeout; allocators v5.8.33–v5.8.38; Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49). 28 of 44 pinned slots shipped (63.6%); 16 slots remaining; ~21 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2749,18 +2780,22 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.17** — slices §9 — Str API migration (str_data/str_len → .data/.len with backward-compat aliases; ~30 stdlib + cyrius src/ call sites)
 - **v5.8.18** — slices §10 — Stdlib 454-site migration (sys_read 53 + memcpy 332 + memeq 69 → slice-typed signatures with `_slice` variants)
 - **v5.8.19** — slices §11 — TRUE sub-arc closeout (downstream rebuild against migrated APIs, gates extended)
-- **v5.8.20** — Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
-- **v5.8.21–v5.8.25** — Tagged unions + exhaustive match (5 sub-patches)
-- **v5.8.26–v5.8.30** — `Result<T,E>` + `?` propagation (5 sub-patches)
-- **v5.8.31–v5.8.36** — Allocators-as-parameter (6 sub-patches)
+- **v5.8.20** ✅ Per-fn effect annotations (`#pure` / `#io` / `#alloc`)
+- **v5.8.21–v5.8.27** ✅ Tagged unions + exhaustive match (sub-suite COMPLETE 2026-05-03; +5,568 B compiler delta; cascaded +2 at v5.8.22 ship)
+- **v5.8.28** ✅ `Result<T,E>` carve-out into `lib/result.cyr` (typed shape, 24-assertion tcyr; zero compiler delta)
+- **v5.8.29** — `?` propagation operator (postfix on Result-typed exprs; desugars to early-return on `Err`)
+- **v5.8.30** — Stdlib migration pass 1: `lib/io.cyr`, `lib/syscalls.cyr` wrappers, `lib/json.cyr` / `lib/toml.cyr` / `lib/cyml.cyr` parsers
+- **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`, `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
+- **v5.8.32** — Result sub-suite closeout (cross-repo downstream smoke test)
+- **v5.8.33–v5.8.38** — Allocators-as-parameter (6 sub-patches)
 
-Phase 3 — Polish + cycle closeout (slots 37-41):
-- **v5.8.37** — Preprocessor include-pattern in string literals (vidya audit)
-- **v5.8.38** — `cyrlint` multi-line assert false-positive (mabda C5)
-- **v5.8.39** — Vidya cyrius-language audit (annotation pass)
-- **v5.8.40** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
+Phase 3 — Polish + cycle closeout (slots 39-44):
+- **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)
+- **v5.8.40** — `cyrlint` multi-line assert false-positive (mabda C5)
+- **v5.8.41** — Vidya cyrius-language audit (annotation pass)
+- **v5.8.42** — Paired UX polish: `cyrius fmt --check` exit-code (mabda A2)
   + `var X;` bare-decl error message (mabda C1)
-- **v5.8.41** — v5.8.x closeout backstop
+- **v5.8.43** — v5.8.x closeout backstop
 
 **Held items** (surfacing-ask only; not pinned, no slot consumed):
 - `cyim` regex pattern (mabda C6) — pin when cyim consumer hits it

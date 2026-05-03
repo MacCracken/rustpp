@@ -1,4 +1,4 @@
-# tagged.cyr — tagged unions (enums with data)
+# tagged.cyr — tagged unions (Option / Either + base infrastructure)
 # Usage: include "lib/tagged.cyr"
 # Requires: alloc.cyr, fmt.cyr (for option_print/result_print)
 #
@@ -7,6 +7,17 @@
 # This is the foundation for Option, Result, and error handling.
 #
 # Layout: tag at offset 0, value at offset 8. Total: 16 bytes.
+#
+# v5.8.28 (2026-05-03) — Result<T, E> + its helpers (is_ok,
+# is_err_result, result_unwrap, result_unwrap_or, err_code_of,
+# result_print) carved out into `lib/result.cyr` with the typed
+# generic shape. Transitively included below so existing
+# consumers (lib/net.cyr, lib/ws_server.cyr, lib/sandhi.cyr,
+# tests/tcyr/tagged.tcyr) keep working without an explicit
+# include of lib/result.cyr. New code should `include
+# "lib/result.cyr"` directly when it only needs Result.
+
+include "lib/result.cyr"
 
 # ================================================================
 # Core tagged union operations
@@ -79,47 +90,8 @@ fn unwrap_or(opt, fallback) {
 # ================================================================
 # Result type: Ok(value) | Err(code)
 # ================================================================
-# v5.8.23 bite #2 — compiler-generated sum type. Tag values match
-# the prior OK = 0 / ERR = 1 convention.
-enum Result {
-    Ok(v);
-    Err(e);
-}
-
-# Return 1 if result is Ok
-fn is_ok(res) {
-    return is_tag(res, Ok);
-}
-
-# Return 1 if result is Err
-fn is_err_result(res) {
-    return is_tag(res, Err);
-}
-
-# Unwrap Result: return value or abort with error
-fn result_unwrap(res) {
-    if (is_err_result(res) == 1) {
-        syscall(1, 2, "result_unwrap on Err(", 21);
-        var ebuf[24];
-        var elen = fmt_int_buf(payload(res), &ebuf);
-        syscall(1, 2, &ebuf, elen);
-        syscall(1, 2, ")\n", 2);
-        syscall(60, 1);
-    }
-    return payload(res);
-}
-
-# Unwrap or default
-fn result_unwrap_or(res, fallback) {
-    if (is_err_result(res) == 1) { return fallback; }
-    return payload(res);
-}
-
-# Get error code (0 if Ok)
-fn err_code_of(res) {
-    if (is_ok(res) == 1) { return 0; }
-    return payload(res);
-}
+# v5.8.28 — moved to lib/result.cyr (transitively included above).
+# Result<T, E> uses v5.8.21 generic-parameter syntax there.
 
 # ================================================================
 # Either type: Left(a) | Right(b)
@@ -157,16 +129,4 @@ fn option_print(opt) {
     return 0;
 }
 
-# Print a Result value as "Ok(n)" or "Err(n)"
-fn result_print(res) {
-    if (is_ok(res) == 1) {
-        syscall(1, 1, "Ok(", 3);
-        fmt_int(payload(res));
-        syscall(1, 1, ")", 1);
-    } else {
-        syscall(1, 1, "Err(", 4);
-        fmt_int(payload(res));
-        syscall(1, 1, ")", 1);
-    }
-    return 0;
-}
+# result_print: see lib/result.cyr (v5.8.28 carve-out).

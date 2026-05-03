@@ -4,6 +4,116 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.28] — 2026-05-03
+
+**v5.8.x slot 28 — `Result<T, E>` carve-out into
+`lib/result.cyr`**. First slot of the Phase 2 Result+? sub-
+suite (v5.8.28–v5.8.32). Stdlib-only / zero compiler change —
+the Result type now lives in its own module with the typed
+`Result<T, E>` shape using v5.8.21 generic-parameter syntax.
+
+cc5 unchanged at **737,888 B** (zero compiler delta —
+pure stdlib reorganization).
+
+### Added
+
+- **`lib/result.cyr`** (new module). Declares `enum Result<T, E>
+  { Ok(v); Err(e); }` using v5.8.21 generic-param syntax. Houses
+  all six Result helpers (previously in `lib/tagged.cyr`):
+  `is_ok`, `is_err_result`, `result_unwrap`, `result_unwrap_or`,
+  `err_code_of`, `result_print`. Helpers inline `load64()` for
+  tag/payload access so the module has no dependency on
+  `lib/tagged.cyr` (no circular include). Layout preserved
+  byte-for-byte: tag at +0 (`Ok = 0`, `Err = 1`), payload at
+  +8, 16-byte heap alloc.
+
+- **`tests/tcyr/result.tcyr`** — 24 assertions across 9
+  groups covering: typed `Result<T, E>` constructor layout
+  (Ok/Err tag + payload at canonical offsets), all six helpers
+  (`is_ok`/`is_err_result`/`result_unwrap_or`/`err_code_of`),
+  payload roundtrip (zero, negative ints), pattern-match
+  consumer over `match load64(res) { Ok => ... Err => ... }`,
+  realistic `_safe_div(n, d)` Result-returning fn shape with
+  div-by-zero error path. Auto-discovered by `check.sh` (no
+  new gate needed; tcyr suite picks up the new file).
+
+### Changed
+
+- **`lib/tagged.cyr`** — removed `enum Result` + the six Result
+  helpers (`is_ok`, `is_err_result`, `result_unwrap`,
+  `result_unwrap_or`, `err_code_of`, `result_print`). Added
+  `include "lib/result.cyr"` near the top of the file so
+  existing consumers (`lib/net.cyr`, `lib/ws_server.cyr`,
+  `lib/sandhi.cyr`, `tests/tcyr/tagged.tcyr`) keep working
+  transitively without an explicit `include "lib/result.cyr"`.
+  Tagged.cyr stays the home for `Option`, `Either`, and the
+  `tagged_new` / `tag` / `payload` / `is_tag` primitives + the
+  `option_print` helper.
+
+- **Header docstring** updated to note the carve-out and
+  point new code at `lib/result.cyr` directly when only Result
+  is needed.
+
+### Sub-suite arc opened
+
+v5.8.28–v5.8.32 — `Result<T, E>` + `?` propagation operator.
+Per `docs/development/roadmap.md` line 892:
+
+- **v5.8.28 (this slot)** — `Result<T, E>` type in
+  `lib/result.cyr`. Convenience constructors `Ok(v)` /
+  `Err(e)`; pattern-match consumers. Uses v5.8.21–v5.8.27
+  sum types directly. ✅
+- **v5.8.29** — `?` propagation operator (postfix on Result-
+  typed expressions; desugars to early-return on `Err`).
+- **v5.8.30** — Stdlib migration pass 1: `lib/io.cyr`,
+  `lib/syscalls.cyr` wrappers, `lib/json.cyr` /
+  `lib/toml.cyr` / `lib/cyml.cyr` parsers.
+- **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`,
+  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules.
+- **v5.8.32** — Sub-suite closeout + cross-repo downstream
+  smoke test.
+
+### Migration policy
+
+`-1`-return fns stay callable from non-migrated call sites
+through v5.8.x. v6.0.0 closeout fully removes the old
+convention (per roadmap `Migration policy` line 922).
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `result` tcyr → 24 passed, 0 failed.
+- `tagged` tcyr → 14 passed, 0 failed (transitive Result via
+  `lib/tagged.cyr` → `lib/result.cyr` include works
+  end-to-end).
+- Self-host two-step: `cc5 → cc5_a → cc5_b`, all three
+  byte-identical at 737,888 B.
+- Snapshot-ping-pong mitigation applied: `cp lib/result.cyr
+  lib/tagged.cyr → ~/.cyrius/lib/ + ~/.cyrius/versions/5.8.27/
+  lib/` between Edit calls and check.sh runs (per CLAUDE.md
+  v5.8.23 protection recipe — was caught firing during this
+  slot's first check.sh run; second run with refreshed
+  snapshot stayed clean).
+
+### Process notes
+
+- **Premise-check at slot entry** (per
+  `feedback_premise_check_at_slot_entry.md`): identified that
+  `lib/tagged.cyr` already contained an untyped `enum Result`
+  + helpers from the v5.8.23 stdlib pass 1, so the v5.8.28
+  pin was partially overlapping. The honest-delta scope was
+  the carve-out + typed `Result<T, E>` shape, not a
+  greenfield Result implementation. Roadmap-as-pinned was
+  followed end-to-end; no scope shrink/split.
+
+- **Snapshot-ping-pong loop fired** during the first
+  `check.sh` run after the `lib/tagged.cyr` edit — `cyrius
+  deps` resolution copied the stale `~/.cyrius/lib/
+  tagged.cyr` snapshot back into the repo, reverting the
+  edit. Recovered per CLAUDE.md mitigation recipe; future
+  `lib/*.cyr` edits in this slot pre-refreshed the snapshot
+  before any tool that triggers `cyrius deps`.
+
 ## [5.8.27] — 2026-05-03
 
 **v5.8.x slot 27 — tagged-unions sub-suite closeout**.

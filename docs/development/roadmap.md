@@ -897,9 +897,26 @@ compiler-enforced error handling. Depends on tagged unions
 circuits on `Err`, unwraps `Ok` — half the LOC of error-
 checking code in practice.
 
-- **v5.8.28** — `Result<T,E>` type in `lib/result.cyr`.
-  Convenience constructors `Ok(v)` / `Err(e)`; pattern-match
-  consumers. Uses v5.8.21–v5.8.27 sum types directly.
+- ✅ **v5.8.28** — `Result<T,E>` type in `lib/result.cyr`
+  (shipped 2026-05-03). Carved Result + 6 helpers (`is_ok`,
+  `is_err_result`, `result_unwrap`, `result_unwrap_or`,
+  `err_code_of`, `result_print`) out of `lib/tagged.cyr` into
+  the new dedicated module. Typed shape `enum Result<T, E> {
+  Ok(v); Err(e); }` using v5.8.21 generic-parameter syntax;
+  helpers inline `load64()` so result.cyr has no circular dep
+  on tagged.cyr. `lib/tagged.cyr` adds `include "lib/result.cyr"`
+  near the top so existing consumers (`lib/net.cyr`,
+  `lib/ws_server.cyr`, `lib/sandhi.cyr`, `tests/tcyr/tagged.tcyr`)
+  keep working transitively. New `tests/tcyr/result.tcyr` —
+  24 assertions across 9 groups (constructors, all 6 helpers,
+  payload roundtrip, `match load64(res)` consumer, realistic
+  `_safe_div(n, d)` shape). cc5 unchanged at 737,888 B (zero
+  compiler delta — pure stdlib reorganization). check.sh
+  64/64; self-host two-step byte-identical; tagged tcyr 14/14
+  via transitive include. Snapshot-ping-pong fired during
+  first check.sh run, recovered per CLAUDE.md mitigation
+  recipe. Convenience constructors `Ok(v)` / `Err(e)` and
+  pattern-match consumers shipped per pin.
 - **v5.8.29** — `?` propagation operator. Postfix on `Result`-
   typed expressions; desugars to pattern-match `Err` early-
   return. Requires enclosing fn to also return `Result`.
