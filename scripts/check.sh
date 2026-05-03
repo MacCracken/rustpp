@@ -539,6 +539,15 @@ if [ "$lio_result" -ne 0 ]; then cat /tmp/audit_lio_$$; fi
 rm -f /tmp/audit_lio_$$
 echo ""
 
+# ── 4an2. cyrlint large-file no-false-positive floor (v5.8.41) ──
+echo "── cyrlint large-file ──"
+sh "$ROOT/tests/regression-cyrlint-large-file.sh" > /tmp/audit_clf_$$ 2>&1
+clf_result=$?
+check "cyrlint clean on 7K-line synthetic (mabda 2026-04-28 repro shape; v5.8.41 floor)" "$clf_result"
+if [ "$clf_result" -ne 0 ]; then cat /tmp/audit_clf_$$; fi
+rm -f /tmp/audit_clf_$$
+echo ""
+
 # ── 4ao. cyrius api-surface diff (v5.7.33) ──
 echo "── cyrius api-surface ──"
 sh "$ROOT/tests/regression-api-surface.sh" > /tmp/audit_api_$$ 2>&1

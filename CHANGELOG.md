@@ -4,6 +4,111 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.41] — 2026-05-03
+
+**v5.8.x slot 41 — cyrlint large-file false-positive verification
+slot**. Third slot of Phase 3. Closes the mabda-filed
+`cyrius lint reports phantom "unclosed braces at end of file"
+on large test files` issue
+(`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-
+assert.md`) — which a premise-check at slot entry found NOT
+REPRODUCING at v5.8.40. Likely fixed by intermediate cyrlint
+work (multiple "fixing linter" commits in cyrius git log
+between v5.7.23 filing and v5.8.40); mabda's issue file was
+never updated post-resolution. v5.8.41 ships as a verification
+slot per user direction at slot entry.
+
+cc5 unchanged at **740,312 B** (zero compiler delta — gate is
+shell + uses pre-existing cyrlint).
+
+### Premise-check finding
+
+The pin originally targeted "cyrlint multi-line assert false-
+positive (mabda C5)". Mabda re-bisected at filing (Step 3e)
+and found the real trigger was FILE-SIZE THRESHOLD ~3270 lines,
+not multi-line asserts. At v5.8.41 entry I tried 4 synthetic
+repros at v5.8.40:
+
+| Repro | Lines | Result |
+|-------|------:|--------|
+| `var x_N = N;` × 3500 plain | 3504 | 0 warnings |
+| mabda's actual `tests/tcyr/mabda.tcyr` | 2743 | 0 warnings |
+| Doubled mabda content | 5486 | 0 warnings |
+| 600 fns + multi-line `assert_eq()` + comments | 9007 | 0 warnings |
+
+None reproduced. Cyrius git log shows multiple "fixing linter" /
+"fixing items in linter" commits between v5.7.23 and v5.8.40 —
+likely fixed by intermediate work (probable candidates: the
+v5.7.36 string-literal awareness fix; later brace-tracker
+refactor; v5.8.40's preprocessor string-literal awareness as
+secondary protection).
+
+Per user direction at slot entry: "ship as verification slot;
+if mabda still hits a new variant they can open a new issue
+with more documentation and repo location".
+
+### Added
+
+- **`tests/regression-cyrlint-large-file.sh`** — regression-floor
+  gate. Generates a 7010-line synthetic file matching mabda's
+  repro shape (700 fns each with `test_group()` + multi-line
+  `assert_eq()` + brace-block body + comments) and runs
+  cyrlint. Asserts 0 "unclosed braces at end of file" warnings
+  AND 0 "trailing whitespace" warnings — the two specific
+  false-positive classes from mabda's filing. If a future
+  cyrlint regression reintroduces the file-size threshold
+  (whatever the underlying state-machine cause was), this
+  gate fires.
+
+- **`scripts/check.sh`** — wired the new gate as section 4an2
+  alongside the existing v5.7.32 cyrlint global-init-order
+  gate. Gate count 64 → 65.
+
+### Annotated
+
+- **`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-
+  assert.md`** — status flipped to "✅ RESOLVED in cyrius v5.8.41
+  (verification slot)". Premise-check methodology + 4-repro
+  evidence + regression-floor pointer captured at the top of
+  the file. Workarounds annotated as "no longer needed at
+  cyrius >= 5.8.40; kept for historical reference". Explicit
+  note: if a NEW variant surfaces, file a NEW issue; don't
+  reopen this one.
+
+### Verification
+
+- `sh scripts/check.sh` → **65 passed, 0 failed (65 total)**
+  (gate count +1 from the new cyrlint large-file gate).
+- `regression-cyrlint-large-file.sh` standalone → PASS
+  (cyrlint clean on 7010-line synthetic).
+- `regression-lint-global-init-order.sh` (v5.7.32 floor) →
+  PASS (regression-floored).
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 740,312 B.
+
+### Process notes
+
+- **Per `feedback_premise_check_at_slot_entry.md`**: the pin
+  text described the bug shape one way (multi-line asserts),
+  but mabda's re-bisection in their issue file revised it to
+  "file-size threshold", and v5.8.41's premise check revised
+  it again to "already fixed". Two layers of premise check
+  beat acting on the original pin text. Lesson stands:
+  pins go stale; bisect at slot entry.
+
+- **Verification slots are legitimate slot deliveries.** When
+  premise check finds a bug already resolved by intermediate
+  work, the slot's value is converting "we think it's fixed"
+  into "CI proves it's fixed and will catch any regression".
+  The regression-floor gate is the slot's deliverable, not
+  a placeholder.
+
+- **Per `feedback_flag_missing_repos_dont_skip.md`** (v5.8.32 +
+  v5.8.38 lesson — applied here): mabda's repo IS at
+  `/home/macro/Repos/mabda/`; the issue file is reachable;
+  this slot's annotation went into the right place. No silent
+  "n/a" lazy skip.
+
 ## [5.8.40] — 2026-05-03
 
 **v5.8.x slot 40 — preprocessor string-literal awareness**.

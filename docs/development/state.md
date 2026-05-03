@@ -5,6 +5,55 @@
 
 ## Version
 
+**5.8.41** (shipped 2026-05-03 — **v5.8.x SLOT 41 — cyrlint large-file
+false-positive verification slot**. Third slot of Phase 3. Closes
+the mabda-filed `cyrius lint reports phantom "unclosed braces at
+end of file" on large test files` issue (mabda/docs/development/
+issues/2026-04-28-cyrlint-multi-line-assert.md) which a premise
+check at slot entry found NOT REPRODUCING at v5.8.40 across 4
+synthetic repros — likely fixed by intermediate cyrlint work
+between v5.7.23 filing and v5.8.40.) **Premise check (4 repros
+all clean)**: 3504-line plain-vars (`var x_N = N;` × 3500), mabda's
+actual mabda.tcyr at 2743 lines, doubled mabda content at 5486
+lines, 9007-line synthetic with 600 fns + multi-line assert_eq +
+comments — all returned 0 warnings. Cyrius git log shows multiple
+"fixing linter" commits between v5.7.23 filing and v5.8.40;
+probable resolution candidates: v5.7.36 string-literal awareness
+fix, later brace-tracker refactor, v5.8.40's preprocessor
+string-literal awareness as secondary protection. **Per user
+direction at slot entry**: ship as verification slot; if mabda
+hits a new variant they file a new issue with fresh repro +
+repo location. **New regression-floor gate**:
+tests/regression-cyrlint-large-file.sh generates a 7010-line
+synthetic matching mabda's repro shape (700 fns each with
+test_group + multi-line assert_eq + brace-block body + comments),
+runs cyrlint, asserts 0 "unclosed braces" / 0 "trailing
+whitespace" warnings. Wired into check.sh as section 4an2
+alongside the existing v5.7.32 cyrlint global-init-order gate.
+**Mabda issue annotated** as ✅ RESOLVED in cyrius v5.8.41 with
+premise-check methodology + 4-repro evidence + regression-floor
+pointer + explicit "if NEW variant, file NEW issue, don't reopen"
+note. cc5 unchanged at **740,312 B** (zero compiler delta — gate
+is shell + uses pre-existing cyrlint). **Gate count 64 → 65**
+(check.sh +1). **Process notes**: (1) two layers of premise
+check beat acting on the original pin text — pin said "multi-line
+assert false-positive", mabda's bisection revised to "file-size
+threshold", v5.8.41's premise check revised again to "already
+fixed". Per feedback_premise_check_at_slot_entry.md. (2) Verification
+slots are legitimate slot deliveries — convert "we think it's
+fixed" into "CI proves it's fixed and will catch any regression".
+(3) Per feedback_flag_missing_repos_dont_skip.md applied here:
+mabda repo IS at /home/macro/Repos/mabda/; annotation went into
+the right place; no silent "n/a" lazy skip. v5.8.x cycle progress:
+**41 of 51 pinned slots shipped (80.4%)**. Phase 3 remaining (10
+slots): paired UX polish (v5.8.42), Phase 3 polish absorber
+(v5.8.43), api-surface refresh (v5.8.44), kernel reserved-word
+(v5.8.45), arithmetic in fn args (v5.8.46), starship + vidya
+audit combined (v5.8.47), refactoring + heap-map cleanups
+(v5.8.48), full closeout pass (v5.8.49), deps cleanup +
+post-release propagation (v5.8.50), release-valve (v5.8.51).
+Cycle backstop hard at v5.8.51.)
+
 **5.8.40** (shipped 2026-05-03 — **v5.8.x SLOT 40 — preprocessor
 string-literal awareness**. Second slot of Phase 3 (cascaded from
 v5.8.39 by sandhi re-slot). Closes the long-standing PP bug where
@@ -3204,7 +3253,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.40 ✅ shipped — Preprocessor string-literal awareness; closes the v5.7.49 vidya-audit-filed issue. Phase 3 advancing. Phase 3 remaining (4 slots): cyrlint multi-line assert false-positive (v5.8.41), vidya cyrius-language audit (v5.8.42), paired UX polish (v5.8.43), cycle backstop (v5.8.44). Cycle backstop v5.8.49. 40 of 44 pinned slots shipped (90.9%); 4 slots remaining; ~9 slots of headroom against backstop.**
+**v5.8.41 ✅ shipped — cyrlint large-file false-positive verification slot. Premise check found bug already resolved by intermediate cyrlint work; ships as verification with regression-floor gate. Phase 3 remaining (10 slots): paired UX polish (v5.8.42), Phase 3 polish absorber (v5.8.43), api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya cyrius-language audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 41 of 51 pinned slots shipped (80.4%); 10 slots remaining.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3257,6 +3306,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.38** ✅ Allocators sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti/ark via temp-pin-bump methodology (4-of-4 ✅; ark validated back-compat from a 7-minor-old pin 5.1.10 → 5.8.37); 0 enum/symbol collisions; 0/47 downstream alloc_init() sites migrated yet (opt-in); acceptance-gate audit captured (oom_vec_push Err shape + compiler-internal explicit Allocator partial — both pinned for v6.0.0); sandhi handed off to parallel agent for v1.1.0; **Phase 2 COMPLETE** (Result+? + Allocators sub-suites done in 11 slots total)
 - **v5.8.39** ✅ sandhi v1.1.0 fold-in (re-slotted from preprocessor item by user direction at v5.8.38 ship). lib/sandhi.cyr 376,037 → 411,361 B (+35,324 / +9.4%); ~150 new public _a verbs in sandhi src; per-request-arena pattern realized end-to-end; 143 new sandhi alloc tcyrs (792 total assertions green). cyrius-side: zero compiler delta; no internal consumers broken (grep clean); downstream propagation via cyrius deps
 - **v5.8.40** ✅ Preprocessor string-literal awareness (cascaded from v5.8.39). PP_PASS + PP_IFDEF_PASS gain in_string + escape_next state machines; `include "..."` inside string literals no longer mistaken for directives. cc5 +640 B (320 per pass). 12-assertion tcyr. Vidya entry flipped to ✅ FIXED.
+- **v5.8.41** ✅ cyrlint large-file false-positive verification slot. Premise check (4 repros, all clean) found mabda-filed bug already resolved by intermediate cyrlint work between v5.7.23 and v5.8.40. New regression-floor gate (tests/regression-cyrlint-large-file.sh, 7010-line synthetic) wired into check.sh (gate count 64→65). mabda issue annotated as ✅ RESOLVED. Zero compiler delta.
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

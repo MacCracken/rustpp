@@ -259,7 +259,7 @@ enabler audit trail.
 
 
 
-## v5.8.x — Optimization + language-vocabulary stabilization (44 pinned slots; soft backstop ~.49; 5-slot headroom)
+## v5.8.x — Optimization + language-vocabulary stabilization (51 pinned slots; cycle backstop hard at .51; release-valve slot at .51 absorbs surface-during-deps-update items)
 
 **Theme** (re-scoped 2026-05-01 at v5.8.0 ship): bug-fix /
 optimization minor that ALSO folds forward the language-feature
@@ -277,7 +277,7 @@ the perf-correctness alignment that enables per-request arenas;
 slices replace ptr+len pairs in every crypto / network / I/O
 hot path.
 
-**44 pinned slots** (v5.8.1 → v5.8.44) across 3 phases (cascaded
+**51 pinned slots** (v5.8.1 → v5.8.51) across 3 phases (cascaded
 +1 at v5.8.5 for SSH-gate carve-out, +4 at v5.8.9 for slices
 re-scope to 5-patch sub-arc, **+6 at v5.8.14 to absorb the
 slices true-completion sub-arc** — v5.8.13's "honest scope-
@@ -1212,18 +1212,34 @@ fn requires explicit allocator.
   across 5 groups. check.sh 64/64; self-host two-step
   byte-identical.
 
-- **v5.8.40** — `cyrlint` multi-line assert false-positive
-  (mabda C5). Has full issue file at [`mabda/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md`](https://github.com/MacCracken/mabda/blob/main/docs/development/issues/2026-04-28-cyrlint-multi-line-assert.md).
-  cyrlint expression-walker confused by multi-line bracket matching.
-
-- **v5.8.42** — Vidya cyrius-language audit (annotation pass; cascaded from v5.8.41).
-  Sweep `vidya/content/cyrius/` (~15K lines across 13 cyml
-  files). For each open-issue-shaped entry: confirm if still
-  active, file locally in `cyrius/docs/development/issues/`
-  if so, annotate vidya entry with cross-ref + status. Policy:
-  preserve consumer-facing workaround text; add the tracking
-  pointer alongside. First example (preprocessor include-
-  pattern) shipped at v5.7.50 as the pattern template.
+- ✅ **v5.8.41** — cyrlint large-file false-positive verification slot
+  (shipped 2026-05-03). Pin originally targeted "cyrlint multi-line
+  assert false-positive (mabda C5)" — mabda's re-bisection at filing
+  (Step 3e) had revised the diagnosis to FILE-SIZE THRESHOLD
+  ~3270 lines emitting false-positive "unclosed braces at end of
+  file" + "trailing whitespace" warnings. **Premise check at v5.8.41
+  entry across 4 synthetic repros found the bug NOT reproducing**
+  at v5.8.40: 3504-line plain-vars file, mabda's actual mabda.tcyr
+  at 2743 lines, doubled mabda content at 5486 lines, 9007-line
+  synthetic with 600 fns + multi-line assert_eq + comments — all 0
+  warnings. Cyrius git log shows multiple "fixing linter" commits
+  between v5.7.23 filing and v5.8.40; probable resolution
+  candidates: v5.7.36 string-literal awareness fix, later
+  brace-tracker refactor, v5.8.40 preprocessor string-literal
+  awareness as secondary protection. Per user direction at slot
+  entry: ship as verification slot; if mabda hits a new variant
+  they file a NEW issue with fresh repro + repo location.
+  **Deliverable**: new tests/regression-cyrlint-large-file.sh
+  generates a 7010-line synthetic matching mabda's repro shape
+  (700 fns each with test_group + multi-line assert_eq + brace-
+  block body + comments), runs cyrlint, asserts 0 "unclosed braces"
+  / 0 "trailing whitespace" warnings. Wired into check.sh as
+  section 4an2 alongside the existing v5.7.32 cyrlint global-init-
+  order gate. mabda issue annotated as ✅ RESOLVED in cyrius
+  v5.8.41 with premise-check methodology + 4-repro evidence +
+  regression-floor pointer. cc5 unchanged at 740,312 B (zero
+  compiler delta). check.sh 65/65 (gate count +1). Self-host
+  two-step byte-identical.
 
 - **v5.8.42** — Paired UX/diagnostic polish: `cyrius fmt
   --check` exit-code semantics (mabda A2; match Rust/Go —
@@ -1272,17 +1288,151 @@ fn requires explicit allocator.
   with all three test cases green and zero null-byte warnings;
   `sh scripts/check.sh` shows api-surface gate as PASS not skip.
 
-- **v5.8.45-v5.8.49** — Cycle headroom. Reserved for
-  surface-during-cycle items + a final closeout backstop if
-  Phase 3 finds late-cycle issues. Mirrors v5.7.49's
-  end-of-cycle backstop role. The cycle's TRUE closeout
-  protocol (CLAUDE.md 11-step + downstream consumer sweep +
-  vidya per-minor refresh + completed-phases.md migration of
-  all v5.8.* sections) lands in whichever slot in this range
-  ends up the actual end-of-cycle (v5.8.44 if no headroom is
-  consumed, otherwise the last consumed-or-pinned slot).
-  Headroom is 5 slots after the v5.8.22 +2 cascade (was 7
-  slots v5.8.43-v5.8.49 pre-cascade).
+- **v5.8.45** — `kernel` reserved-word misleading diagnostic
+  (filed 2026-05-03 from vidya audio_dsp 11-lang port at
+  `docs/development/issues/2026-05-03-kernel-reserved-word-misleading-diagnostic.md`).
+  **Severity: Medium** (silent miscompile of error reporter —
+  correct code paths work, but `kernel` as a fn parameter name
+  fires `expected identifier, got unknown` at an unrelated
+  earlier function in the same file, making bugs extremely hard
+  to bisect). Two-part deliverable:
+  1. Investigate where `kernel` collides — likely the lexer
+     keyword table OR a parser-level sentinel value. Bisection
+     candidates: `weights` / `bias` / `tensor` / `layer`
+     (other potentially-reserved DSP/ML names; the issue file
+     notes these weren't bisected and may have the same bug
+     shape).
+  2. Fix per the issue's preferred path: allow `kernel` as a
+     normal identifier (it's a common DSP/graphics/AI name).
+     Fallback: emit a specific diagnostic at the declaration
+     site (`error: 'kernel' is a reserved identifier; please
+     rename`) so the error reporter doesn't drift to a
+     downstream innocent line.
+  Acceptance gate: tcyr that declares `fn f(kernel) {...}` and
+  parses cleanly OR errors with a specific reserved-name
+  diagnostic at the right line. Bisection-sweep results for
+  the other DSP/ML names captured in the slot's CHANGELOG.
+
+- **v5.8.46** — Arithmetic expressions inside fn-call arguments
+  (filed 2026-05-03 from vidya audio_dsp 11-lang port at
+  `docs/development/issues/2026-05-03-arithmetic-in-fn-args-rejected.md`).
+  **Severity: Low** (mechanical workaround exists — hoist to
+  local var; affects ergonomics not correctness). Companion gap
+  to the existing `no_comparisons_in_fn_args` parser
+  restriction (vidya field-notes
+  `content/cyrius/field_notes/language/parser_syntax.cyml`).
+  `f(x - 1, ...)` fires `expected identifier, got unknown` at a
+  downstream construct, not at the call site. Likely applies to
+  other binary arithmetic operators (issue notes addition /
+  multiplication / bitwise / shift not yet bisected).
+  Two-part deliverable:
+  1. Bisect which operators trip the same parser path (`+`,
+     `-`, `*`, `/`, `%`, `|`, `&`, `^`, `<<`, `>>`).
+  2. Fix per the issue's preferred path: allow general
+     expressions in fn-call argument positions, matching the
+     rule for assignment RHS / return values / array-index
+     expressions. Fallback if parser ambiguity prevents this:
+     emit a specific diagnostic at the offending arg
+     (`error: arithmetic expressions not allowed in function
+     arguments — assign to a local first`) at the right line.
+  Acceptance gate: tcyr that compiles `biquad_set(a_q15, 0, 0,
+  a_q15 - ONE, 0)` cleanly OR errors with the specific
+  diagnostic at the offending arg position. Bisection results
+  for the operator sweep captured in the slot's CHANGELOG.
+
+- **v5.8.47** — Combined: starship + p10k prompt color refresh
+  AND vidya cyrius-language audit (combined per user direction
+  2026-05-03 PM — "vidya audit isn't really considered a
+  pinnable release; external docs are external"; rolling both
+  into one slot since each is small).
+
+  **Starship part** (filed 2026-05-03 user direction; "want to
+  update starship / cmd line — ॐ <version> ← forestgreen
+  (cyrius) | 🌀 <version> ← matching light blue"). Edit
+  `scripts/cyriusly`'s `_CYRIUS_STARSHIP` heredoc +
+  `_CYRIUS_P10K` heredoc to differentiate the package side
+  (ॐ Om → forestgreen) from the toolchain side (🌀 cyclone →
+  light blue). Currently both use `bg:teal` with `fg:base`
+  text — the visual collapse hides which side is which when
+  read at a glance. Acceptance gate: fresh `cyriusly cmdtools
+  install starship` rewrites the user's
+  `~/.config/starship.toml` with the new color split; fresh
+  shell renders ॐ/🌀 in distinct colors; existing
+  `cyrius-prompt-info` integration unchanged (the version
+  string still flows from `cyrius.cyml` so version updates
+  per-bump automatically).
+
+  **Vidya audit part** (relocated 2026-05-03 PM from its own
+  pinned slot — vidya audits don't warrant a discrete release
+  since they touch external docs only). Sweep
+  `vidya/content/cyrius/` (~15K lines across 13 cyml files).
+  For each open-issue-shaped entry: confirm if still active,
+  file locally in `cyrius/docs/development/issues/` if so,
+  annotate vidya entry with cross-ref + status. Policy:
+  preserve consumer-facing workaround text; add the tracking
+  pointer alongside. First example (preprocessor include-
+  pattern) shipped at v5.7.50 as the pattern template; v5.8.40
+  flipped that vidya entry from "pinned for v5.8.x" → "✅ FIXED
+  in v5.8.40" — same pattern applies for any v5.8.41-46 fixes
+  that close vidya-tracked open issues.
+
+- **v5.8.48** — Refactoring + heap-map cleanups (per user
+  direction 2026-05-03 PM). Closeout-prep slot for the v5.8.x
+  cycle. Per CLAUDE.md "Closeout Pass" §4 (heap map audit) +
+  §5 (dead code) + §6 (refactor pass) — these are the
+  judgment-call passes that uncover scope for follow-up. Done
+  as their own slot here so v5.8.49 closeout can run the
+  mechanical checks against a clean refactored tree rather
+  than discovering refactor opportunities mid-closeout.
+  Specifically:
+  - **Heap-map audit** — review every region added across
+    v5.8.x (var_enum_id / enum_count / enum_variant_count /
+    enum_name from v5.8.21-27; any v5.8.x slot's new region).
+    Document offsets, look for consolidation opportunities
+    (adjacent regions owned by the same subsystem), grow caps
+    that hit during the cycle.
+  - **Dead-code audit** — `note: N unreachable fns` floor
+    from cc5 self-build. Remove unreachable; record new floor.
+  - **Refactor pass** — review the cycle's additions for
+    consolidation. Phase 2's 30 `_a` variants across vec/str/
+    hashmap/json/toml/cyml/http might collapse helpers. The
+    Result-shaped `_r` variants from v5.8.30/.31 might share
+    common Err-construction paths. Per the v5.7.47 precedent,
+    refactor-as-own-slot is preferred over folding into the
+    closeout.
+
+- **v5.8.49** — Full closeout pass. The cycle's TRUE closeout
+  protocol (CLAUDE.md 11-step). All passes run:
+  §1-3 mechanical (self-host two-step + bootstrap closure +
+  full check.sh — all gates green); §4-8 judgment (heap-map +
+  dead-code + refactor + code-review + cleanup — most of which
+  v5.8.48 already did, so this is the cross-check); §9-10
+  compliance (security re-scan + downstream check); §11 docs
+  sync (CHANGELOG/roadmap/state.md/vidya — vidya done at
+  v5.8.47 so this is the freshness re-verify). Acceptance gate:
+  every CLAUDE.md §1-11 step ticked; completed-phases.md
+  migration of all v5.8.* sections; cc5 byte-identical; no new
+  warnings.
+
+- **v5.8.50** — Deps cleanup + post-.49-release update
+  propagation. Per user direction 2026-05-03 PM. The v5.8.49
+  closeout ships v5.8.x as a stable release; v5.8.50 is the
+  immediate-after-release slot that updates `cyrius/cyrius.cyml`
+  `[deps.*]` fields to whatever new dep tags the v5.8.49
+  release motivated, re-bundles stdlib distfiles via `cyrius
+  distlib` if any dep cut a new release, and propagates the
+  v5.8.49 release tag through the ecosystem (downstream pin
+  bumps queued in the per-repo cycles, not executed here).
+
+- **v5.8.51** — Release-valve slot for any issue surfaced by
+  the v5.8.50 deps update or v5.8.49 release. Mirrors the
+  v5.7.50 P(-1) unblock pattern from the v5.7.x cycle's
+  end-of-cycle. If no issues surface, this slot ships nothing
+  (the cycle ends at v5.8.50). If a downstream consumer files
+  a regression against v5.8.49 within hours of release, it
+  lands here as the canonical patch-on-the-just-shipped-tag.
+  Per user framing: "release valve of any issue surfaced by
+  updates". Cycle backstop hard at v5.8.51.
 
 ### v5.8.x — held items (surfacing-ask only; not pinned, no slot consumed)
 
