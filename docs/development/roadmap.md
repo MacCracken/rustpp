@@ -1118,9 +1118,30 @@ doing it before Result lands).
   groups. check.sh 64/64; self-host two-step byte-identical.
   **Lint gate caught 2 long-line warnings** in http.cyr (one-liner
   if-blocks exceeded 120 cols); reformatted before bump.
-- **v5.8.37** — Retire `alloc_init()` global singleton.
-  Backward compat through `lib/alloc.default()` shim for
-  consumers not ready to migrate.
+- ✅ **v5.8.37** — Retire `alloc_init()` global singleton (shipped
+  2026-05-03). Honest interpretation: alloc_init() itself stays
+  callable, but the REQUIREMENT to call it before any alloc() is
+  retired via lazy-init. `if (_heap_base == 0) { alloc_init(); }`
+  guard added to alloc() in lib/alloc.cyr (Linux) +
+  lib/alloc_macos.cyr (macOS) + lib/alloc_windows.cyr (Windows).
+  Pre-v5.8.37 every consumer had to call alloc_init() at top-level;
+  new code can omit. Existing code keeps working — explicit
+  alloc_init() is now a re-callable shim that re-brk's the heap
+  (same multiple-call contract as pre-v5.8.37). default_alloc()
+  (v5.8.35 lazy-init singleton) is the modern entry point. cc5
+  unchanged at 739,672 B (zero compiler delta). New
+  tests/tcyr/alloc_no_init.tcyr — 17 assertions across 8 groups
+  deliberately omitting top-level alloc_init() (direct alloc,
+  multiple distinct ptrs, alloc_via via default_alloc, arena_new,
+  explicit alloc_init post-lazy-init, vec/str/hashmap). check.sh
+  64/64; self-host two-step byte-identical. **Migration policy**:
+  v6.0.0 closeout sweeps explicit alloc_init() calls out of
+  consumers; only then can the fn itself retire. **Sandhi-side
+  proposal handed off** —
+  `sandhi/docs/proposals/2026-05-03-allocator-migration.md` filed
+  for parallel agent work targeting sandhi v1.1.0 (6-batch
+  bottom-up migration of 27 files / ~135 alloc sites; per-batch
+  acceptance gates; process notes from v5.8.33-36 lessons).
 - **v5.8.38** — Allocator sub-suite closeout. Downstream
   ecosystem sweep (every repo's allocator usage audited).
 

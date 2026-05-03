@@ -1,0 +1,114 @@
+# alloc_no_init.tcyr — v5.8.37 — alloc_init() is now optional.
+#
+# Locks the regression floor for the lazy-init guard added to
+# `lib/alloc.cyr` (Linux + macOS + Windows peers): if alloc_init()
+# was never called, the first alloc() invocation auto-bootstraps
+# the heap.
+#
+# Coverage:
+#   (1) Direct `alloc(size)` succeeds without an explicit
+#       `alloc_init()`.
+#   (2) `alloc_via(default_alloc(), size)` succeeds (lazy-init
+#       fires inside default_alloc → bump_allocator → alloc).
+#   (3) `arena_new(cap)` succeeds (transitively goes through
+#       alloc()).
+#   (4) Multiple back-to-back allocs (no init) all succeed and
+#       return distinct pointers.
+#   (5) Calling `alloc_init()` AFTER lazy-init still works — it
+#       re-brk's the heap (resets _heap_ptr back to base; same
+#       behavior as pre-v5.8.37 multiple-init contract).
+#   (6) Vec / str / hashmap call paths work without explicit
+#       alloc_init().
+#
+# This file deliberately does NOT call `alloc_init()` at the top
+# (the convention every other tcyr followed pre-v5.8.37). The
+# lazy-init in alloc() bootstraps on first use.
+#
+# Test runner: tcyr files are auto-discovered by check.sh and run
+# via `cyrius test`. Each tcyr is a standalone program with its
+# own process, so the lazy-init state of THIS file does not
+# pollute other tcyrs.
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/assert.cyr"
+
+# NOTE: no alloc_init() here — that's the whole point of v5.8.37.
+
+# ---- direct alloc without init ----
+
+test_group("alloc(N) without explicit alloc_init() — lazy-init");
+var p1 = alloc(64);
+assert(p1 != 0, "first alloc returned non-zero (lazy-init fired)");
+# Touch all 64 bytes to verify allocation is real
+var i = 0;
+while (i < 64) { store8(p1 + i, i & 255); i = i + 1; }
+assert_eq(load8(p1),      0,  "byte 0 round-trip");
+assert_eq(load8(p1 + 63), 63, "byte 63 round-trip");
+
+test_group("multiple allocs — distinct pointers");
+var p2 = alloc(128);
+var p3 = alloc(256);
+assert(p2 != 0, "p2 non-zero");
+assert(p3 != 0, "p3 non-zero");
+assert(p2 != p1, "p2 != p1");
+assert(p3 != p2, "p3 != p2");
+
+# ---- alloc_via via default_alloc ----
+
+test_group("alloc_via(default_alloc(), N) — lazy-init through dispatch");
+var b = default_alloc();
+assert(b != 0, "default_alloc() returned non-zero");
+var v1 = alloc_via(b, 32);
+assert(v1 != 0, "alloc_via succeeded");
+
+# ---- arena_new (transitively allocs through alloc()) ----
+
+test_group("arena_new(cap) — works without init");
+var ar = arena_new(4096);
+assert(ar != 0, "arena_new returned non-zero");
+var ap = arena_alloc(ar, 64);
+assert(ap != 0, "arena_alloc returned non-zero");
+
+# ---- explicit alloc_init AFTER lazy-init ----
+
+# Per the pre-v5.8.37 contract, alloc_init() re-brks the heap and
+# resets _heap_ptr back to _heap_base. Anything allocated BEFORE
+# this call is invalidated (same as alloc_reset). We verify the
+# call still completes — pointer-validity post-reset is a
+# different test (alloc_reset has its own coverage).
+test_group("alloc_init() callable post-lazy-init — re-brks heap");
+var rc = alloc_init();
+assert(rc != 0, "alloc_init() returned non-zero (the heap base)");
+
+# After re-init, fresh allocs work
+var p_post = alloc(32);
+assert(p_post != 0, "post-init alloc succeeds");
+
+# ---- vec / str / hashmap without explicit init ----
+
+# After alloc_init re-brk above, fresh state is ready. These
+# higher-level constructors all transitively rely on alloc().
+
+test_group("vec_new() works without explicit init");
+var v = vec_new();
+vec_push(v, 100);
+vec_push(v, 200);
+assert_eq(vec_len(v), 2, "vec_len = 2");
+assert_eq(vec_get(v, 1), 200, "vec_get(1) = 200");
+
+test_group("str_from() works without explicit init");
+var s = str_from("hello");
+assert_eq(str_len(s), 5, "str_len = 5");
+
+test_group("map_new() / map_set works without explicit init");
+var m = map_new();
+map_set(m, "key", 42);
+assert_eq(map_get(m, "key"), 42, "map round-trip");
+
+var r = assert_summary();

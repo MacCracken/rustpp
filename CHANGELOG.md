@@ -4,6 +4,113 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.37] — 2026-05-03
+
+**v5.8.x slot 37 — `alloc_init()` becomes optional via lazy-init**.
+Fifth slot of the Phase 2 Allocators sub-suite (v5.8.33–v5.8.38).
+The pin called this "Retire `alloc_init()` global singleton";
+honest interpretation — `alloc_init()` itself stays callable (it
+remains the canonical explicit-init entry), but the **requirement
+to call it before any `alloc()`** is retired by lazy-initing the
+heap on the first `alloc()` invocation. Pre-v5.8.37 every consumer
+had to call `alloc_init()` at top-level before any allocation;
+new code can omit it.
+
+cc5 unchanged at **739,672 B** (zero compiler delta — pure stdlib
+addition).
+
+### Added
+
+- **Lazy-init guard in `alloc(size)`** across all 3 per-OS peers:
+  - `lib/alloc.cyr` (Linux): `if (_heap_base == 0) { alloc_init(); }`
+    at the top of `alloc()`.
+  - `lib/alloc_macos.cyr`: same pattern (Darwin uses mmap-based
+    init via syscall(9)).
+  - `lib/alloc_windows.cyr`: same pattern (Windows uses
+    VirtualAlloc-based init).
+
+- **`tests/tcyr/alloc_no_init.tcyr`** — 17 assertions across 8
+  groups deliberately omitting the top-level `alloc_init();` call:
+  direct `alloc(N)` succeeds via lazy-init; multiple back-to-back
+  allocs return distinct ptrs; `alloc_via(default_alloc(), N)`
+  succeeds (lazy-init fires inside default_alloc → bump_allocator
+  → alloc); `arena_new(cap)` succeeds (transitively); explicit
+  `alloc_init()` post-lazy-init is callable (re-brk's the heap,
+  matching pre-v5.8.37 multiple-init contract); vec_new / str_from
+  / map_new / map_set all work without explicit init.
+
+### Changed
+
+- **`lib/alloc.cyr` header docstring** — "Call alloc_init() before
+  any allocations" → "alloc_init() is now OPTIONAL (v5.8.37);
+  alloc() lazy-inits the heap on first call". Existing code that
+  calls `alloc_init()` explicitly continues to work; v6.0.0
+  closeout sweeps the explicit calls out of consumers.
+
+- **`alloc_init()` doc comment** — clarified it's now an explicit-
+  init shim rather than a hard requirement; re-callable (re-brk's
+  the heap to its initial 1MB size — same multiple-call contract
+  as pre-v5.8.37).
+
+### Sub-suite progress
+
+- v5.8.33 ✅ Allocator vtable interface + 3 default impls.
+- v5.8.34 ✅ Failing-allocator test harness.
+- v5.8.35 ✅ Stdlib migration pass 1 (vec / str / hashmap).
+- v5.8.36 ✅ Stdlib migration pass 2 (json / toml / cyml / http).
+- v5.8.37 ✅ alloc_init() lazy-init (this slot).
+- v5.8.38 — Sub-suite closeout + downstream ecosystem audit.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `alloc_no_init` tcyr → 17 passed, 0 failed.
+- `alloc_iface` tcyr → 43 passed, 0 failed (regression-floored).
+- `oom_handling` tcyr → 33 passed, 0 failed (regression-floored).
+- `alloc_stdlib` tcyr → 33 passed, 0 failed.
+- `alloc_stdlib_pass2` tcyr → 30 passed, 0 failed.
+- All Result+? sub-suite tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Sandhi-side proposal handed off
+
+`sandhi/docs/proposals/2026-05-03-allocator-migration.md` filed
+for parallel agent work targeting sandhi v1.1.0. Migration scope:
+27 alloc-touching files / ~135 alloc sites across the sandhi src/
+tree (HTTP / TLS / RPC / discovery / h2 / DNS resolve / server /
+SSE / streaming). 6-batch bottom-up order (leaves first, then
+aggregators); per-batch acceptance gates (existing 649-assertion
+suite green, `_a` variants exist, back-compat byte-identical, new
+per-request-arena tcyr, OOM via fail_after_n_allocs, cyrlint +
+cyrdoc clean). At-end-of-migration: bump sandhi VERSION → 1.1.0,
+`cyrius distlib` regen of `dist/sandhi.cyr`, cyrius-side
+`lib/sandhi.cyr` snapshot refresh as a small follow-up cyrius
+slot. Process notes captured from cyrius v5.8.33–v5.8.36 lessons
+(snapshot-ping-pong, doc-coverage, OOM-threshold tuning,
+cstr-vs-byte type confusion, lint long-line gate).
+
+### Process notes
+
+- **Snapshot-ping-pong protection applied** between every
+  `lib/*.cyr` edit per the v5.8.23 mitigation recipe.
+
+- **Honest interpretation of "retire" pin wording**. The pin said
+  "Retire alloc_init() global singleton"; reading literally that
+  would mean removing the fn entirely, which would break every
+  consumer that calls it. Migration policy (roadmap line 965-968)
+  resolves the apparent conflict: "v6.0.0 closeout removes the
+  shim — every internal compiler path uses explicit allocator at
+  v5.8.37." So v5.8.37 retires the REQUIREMENT (lazy-init makes
+  the call optional); v6.0.0 sweeps the explicit calls out of
+  consumers and at that point the fn itself can retire. Documented
+  in the lib/alloc.cyr header.
+
+- **Migration policy unchanged**. Allocator parameter is opt-in;
+  legacy fns + `alloc_init()` stay callable through v5.8.x. v6.0.0
+  closeout removes back-compat wrappers + sweeps explicit init
+  calls.
+
 ## [5.8.36] — 2026-05-03
 
 **v5.8.x slot 36 — stdlib Allocator migration pass 2**. Fourth

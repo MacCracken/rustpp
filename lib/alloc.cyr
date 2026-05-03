@@ -1,6 +1,13 @@
 # alloc.cyr — heap allocator with per-OS dispatch.
 # Usage: include "lib/alloc.cyr"
-# Call alloc_init() before any allocations.
+#
+# v5.8.37: alloc_init() is now OPTIONAL — alloc() lazy-inits the
+# heap on first call if alloc_init() was never invoked. Pre-v5.8.37
+# every consumer had to call alloc_init() at top-level before any
+# alloc() call; new code can omit it. Existing code that calls
+# alloc_init() explicitly continues to work (the explicit call
+# becomes a no-op-equivalent: it re-brk's the heap, same as before).
+# v6.0.0 closeout will sweep the explicit calls out of consumers.
 #
 # Bump allocator: fast, no individual free.
 # alloc(size) returns aligned pointer or 0 on failure.
@@ -28,7 +35,10 @@ var _heap_base = 0;
 var _heap_ptr = 0;
 var _heap_end = 0;
 
-# Initialize the heap allocator (must call before any alloc)
+# Initialize the heap allocator. Pre-v5.8.37 this had to be called
+# before any alloc(); v5.8.37 makes the call optional via lazy-init
+# in alloc() itself. Still callable for explicitness; re-callable
+# (re-brk's the heap to its initial 1MB size).
 fn alloc_init() {
     _heap_base = syscall(12, 0);
     _heap_end = _heap_base + 0x100000;
@@ -42,6 +52,15 @@ var ALLOC_MAX = 0x10000000;
 
 # Allocate size bytes from the heap, 8-byte aligned
 fn alloc(size) {
+    # v5.8.37 — lazy-init the heap if alloc_init() was never called.
+    # Pre-v5.8.37 every consumer had to call alloc_init() explicitly
+    # at top-level; the auto-bootstrap below makes that step
+    # optional. Callers may still invoke alloc_init() for
+    # explicitness; second invocations re-brk the heap (matches
+    # historic behavior — no idempotence guard added because the
+    # cost is one syscall and the prior contract was "callable
+    # once at startup", not "safe to call multiple times").
+    if (_heap_base == 0) { alloc_init(); }
     # Reject oversized or negative allocations
     if (size <= 0) { return 0; }
     if (size > ALLOC_MAX) { return 0; }
