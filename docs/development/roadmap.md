@@ -1077,10 +1077,27 @@ doing it before Result lands).
   two-step byte-identical. Doc-coverage gate clean on first run
   (v5.8.33 lesson stuck). Foundation for v5.8.35-37 stdlib
   migration's OOM tcyrs.
-- **v5.8.35** — Stdlib migration pass 1 core modules:
-  `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`. Pass
-  `Allocator` as first arg; default-allocator wrapper
-  preserves existing call-sites.
+- ✅ **v5.8.35** — Stdlib Allocator migration pass 1 (shipped
+  2026-05-03). 10 new `_a` variants threading Allocator as
+  first arg through vec / str / hashmap. lib/alloc.cyr gains
+  `default_alloc()` lazy-init singleton (returns the same
+  bump_allocator() Allocator on every call). lib/vec.cyr:
+  `vec_new_a(a)` returns 0 on OOM; `vec_push_a(a, v, val)`
+  returns -1 on grow OOM (vs. back-compat vec_push aborts).
+  lib/str.cyr: `str_from_a` / `str_new_a` / `str_cat_a` /
+  `str_clone_a` / `str_from_int_a` all return 0 on OOM (Str-
+  typed sentinel). lib/hashmap.cyr: `map_new_a` /
+  `map_new_str_a` / `_map_grow_a` / `map_set_a` — map_set_a
+  returns -1 on grow OOM. Back-compat wrappers preserved
+  byte-identically. (map_u64_new / map_u64_set / str_split /
+  str_trim deferred to v5.8.36 with json/toml/cyml/http/sandhi.)
+  New tests/tcyr/alloc_stdlib.tcyr — 33 assertions across 14
+  groups (back-compat, bump/arena/test dispatch, OOM behavior,
+  default_alloc singleton). cc5 unchanged at 739,672 B (zero
+  compiler delta). check.sh 64/64; self-host two-step
+  byte-identical. Doc-coverage gate caught 1 undocumented
+  public fn (map_new_str lost its leading comment when _a
+  variant was inserted); fixed inline.
 - **v5.8.36** — Stdlib migration pass 2 peripheral modules:
   `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`, `lib/http.cyr`,
   `lib/sandhi.cyr`. Per-request arenas benefit most.

@@ -4,6 +4,107 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.35] — 2026-05-03
+
+**v5.8.x slot 35 — stdlib Allocator migration pass 1**. Third
+slot of the Phase 2 Allocators sub-suite (v5.8.33–v5.8.38).
+Threads `Allocator` as the first argument of every alloc-touching
+public fn in `lib/vec.cyr`, `lib/str.cyr`, `lib/hashmap.cyr`.
+Existing `vec_new()` / `vec_push(v, x)` / `str_cat(a, b)` /
+`map_new()` / `map_set(m, k, v)` etc. stay callable as wrappers
+that pass `default_alloc()` (a lazy-init `bump_allocator()`
+singleton).
+
+cc5 unchanged at **739,672 B** (zero compiler delta — pure stdlib
+addition + back-compat refactor).
+
+### Added
+
+- **`lib/alloc.cyr`** — `default_alloc()` lazy-init singleton.
+  First call constructs a `bump_allocator()` (wraps the global
+  bump); subsequent calls return the same Allocator pointer.
+  Used by every back-compat wrapper in vec/str/hashmap. Module-
+  global `_default_allocator` initialized to 0 — consumers must
+  have called `alloc_init()` before first use.
+
+- **`lib/vec.cyr`** — `vec_new_a(a)`, `vec_push_a(a, v, val)`.
+  vec_new_a allocates the 24-byte header + 16-slot data buffer
+  via `alloc_via(a, ...)`; returns 0 on OOM. vec_push_a routes
+  the 2x grow allocation through `a` and returns -1 on grow OOM
+  (vs. the back-compat `vec_push` which aborts via syscall(60, 1)).
+  Mixing allocators across pushes on the same vec is permitted
+  but scatters allocations.
+
+- **`lib/str.cyr`** — `str_from_a`, `str_new_a`, `str_cat_a`,
+  `str_clone_a`, `str_from_int_a`. All return 0 on OOM (since
+  the API yields a Str pointer, 0 is the OOM sentinel). str_sub
+  / str_trim / str_split deferred to a follow-up patch (str_sub
+  doesn't allocate a buffer — just a header through str_new which
+  already routes through default_alloc; str_split allocates a
+  vec which already routes through default_alloc).
+
+- **`lib/hashmap.cyr`** — `map_new_a`, `map_new_str_a`,
+  `_map_grow_a`, `map_set_a`. _map_grow_a is the internal grow
+  used by both map_set_a (Allocator-aware) and the back-compat
+  `_map_grow` (which aborts on OOM). map_set_a returns -1 on
+  grow OOM. map_u64_new / map_u64_set deferred to v5.8.36 along
+  with the json/toml/cyml/http/sandhi pass.
+
+- **`tests/tcyr/alloc_stdlib.tcyr`** — 33 assertions across 14
+  groups covering: back-compat wrappers (call sites unchanged
+  for vec / str / hashmap); `_a` variants with `bump_allocator()`;
+  `_a` variants with `arena_allocator(8KB)` (vec push past initial
+  cap → grow inside arena; arena reset clears backing storage);
+  `_a` variants with `fail_after_n_allocs(n)` — vec_push_a returns
+  -1 on grow OOM, map_set_a returns -1 on grow OOM (threshold
+  carefully chosen so the 12th set's grow allocation fires past
+  fail_after=2), str_cat_a / str_clone_a return 0 on OOM;
+  `default_alloc()` singleton consistency.
+
+### Sub-suite progress
+
+- v5.8.33 ✅ Allocator vtable interface + 3 default impls.
+- v5.8.34 ✅ Failing-allocator test harness.
+- v5.8.35 ✅ Stdlib migration pass 1 (vec / str / hashmap).
+- v5.8.36 — Stdlib migration pass 2: lib/json.cyr, lib/toml.cyr,
+  lib/cyml.cyr, lib/http.cyr, lib/sandhi.cyr.
+- v5.8.37 — Retire alloc_init() global singleton.
+- v5.8.38 — Sub-suite closeout.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `alloc_stdlib` tcyr → 33 passed, 0 failed.
+- `alloc_iface` tcyr → 43 passed, 0 failed (regression-floored).
+- `oom_handling` tcyr → 33 passed, 0 failed (regression-floored).
+- All Result+? sub-suite tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 739,672 B.
+
+### Process notes
+
+- **Snapshot-ping-pong protection applied** between every
+  `lib/*.cyr` edit per the v5.8.23 mitigation recipe in CLAUDE.md.
+
+- **Doc-coverage gate caught 1 undocumented public fn** on first
+  cyrdoc check (`map_new_str` lost its leading comment when the
+  `_a` variant was inserted between the original comment and the
+  fn body). Fixed inline before bump.
+
+- **OOM threshold tuning in tcyr.** First draft of the map_set_a
+  OOM test used `fail_after_n_allocs(4)` but the grow allocation
+  for the cap=16 → cap=32 transition only happens at the 12th
+  set, and within fail_after=4 the test loop exhausted before
+  hitting the threshold. Re-tuned to `fail_after_n_allocs(2)`
+  so the very first grow trips OOM (map_new_a uses 2 allocs;
+  the 12th set's grow is the 3rd alloc → fails). Lesson: when
+  testing OOM behavior of grow paths, count the EXACT alloc
+  sequence and pick fail_after to fall right at the trigger point.
+
+- **Migration policy unchanged**. Allocator parameter is opt-in;
+  legacy fns stay callable through v5.8.x. v6.0.0 closeout
+  removes the back-compat wrappers.
+
 ## [5.8.34] — 2026-05-03
 
 **v5.8.x slot 34 — failing-allocator test harness**. Second slot

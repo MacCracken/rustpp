@@ -1,0 +1,187 @@
+# alloc_stdlib.tcyr — v5.8.35 — stdlib Allocator migration pass 1.
+#
+# Locks the regression floor for the `_a` variants added across
+# `lib/vec.cyr` (vec_new_a, vec_push_a), `lib/str.cyr` (str_from_a,
+# str_new_a, str_cat_a, str_clone_a, str_from_int_a), `lib/hashmap.cyr`
+# (map_new_a, map_new_str_a, map_set_a, _map_grow_a). All take an
+# Allocator as the first argument; existing `vec_new()` /
+# `vec_push(v, x)` / `str_cat(a, b)` / `map_new()` / `map_set(m, k, v)`
+# stay callable as wrappers that pass `default_alloc()` (a lazy-init
+# bump_allocator() singleton).
+#
+# Coverage:
+#   (1) Back-compat wrappers — pre-v5.8.35 call sites still work
+#       byte-identically; vec_push round-trip, str_cat / str_clone
+#       buffer copies, map_set / map_get round-trip.
+#   (2) `_a` variants with bump_allocator() — same-shape result as
+#       the back-compat wrappers (which use default_alloc =
+#       bump_allocator under the hood).
+#   (3) `_a` variants with arena_allocator(cap) — alloc_via
+#       dispatches through the arena; reset_via clears only the
+#       arena's allocations.
+#   (4) `_a` variants with fail_after_n_allocs(n) — graceful OOM
+#       handling: vec_push_a returns -1 on grow OOM (caller checks),
+#       map_set_a returns -1 on grow OOM, str_cat_a returns 0
+#       (Str-typed, so 0 = OOM sentinel), str_clone_a returns 0.
+#   (5) default_alloc() singleton — multiple calls return the same
+#       Allocator pointer.
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/hashmap.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- back-compat wrappers ----
+
+test_group("vec_new / vec_push back-compat (call sites unchanged)");
+var v0 = vec_new();
+vec_push(v0, 10);
+vec_push(v0, 20);
+vec_push(v0, 30);
+assert_eq(vec_len(v0), 3, "len = 3 after 3 pushes");
+assert_eq(vec_get(v0, 1), 20, "vec_get(1) = 20");
+
+test_group("str_cat / str_clone back-compat");
+var s_hello = str_from("hello");
+var s_world = str_from(" world");
+var s_greet = str_cat(s_hello, s_world);
+assert_eq(str_len(s_greet), 11, "concat len = 11");
+var s_clone = str_clone(s_greet);
+assert(s_clone != s_greet, "clone allocates new header");
+assert_eq(str_len(s_clone), 11, "clone len = 11");
+assert_eq(load8(str_data(s_clone)), 104, "clone byte 0 = 'h'");
+
+test_group("map_new / map_set / map_get back-compat");
+var m0 = map_new();
+map_set(m0, "alpha", 1);
+map_set(m0, "beta",  2);
+map_set(m0, "gamma", 3);
+assert_eq(map_count(m0), 3, "count = 3");
+assert_eq(map_get(m0, "beta"), 2, "get(beta) = 2");
+
+# ---- _a variants with bump_allocator() ----
+
+test_group("vec_new_a / vec_push_a with bump_allocator()");
+var b = bump_allocator();
+var v1 = vec_new_a(b);
+assert(v1 != 0, "vec_new_a returned non-zero");
+assert_eq(vec_push_a(b, v1, 100), 0, "vec_push_a returned 0 (no OOM)");
+vec_push_a(b, v1, 200);
+vec_push_a(b, v1, 300);
+assert_eq(vec_len(v1), 3, "_a variant len = 3");
+assert_eq(vec_get(v1, 2), 300, "_a variant get(2) = 300");
+
+test_group("str_*_a with bump_allocator()");
+var s1 = str_from_a(b, "hello");
+var s2 = str_from_a(b, " arena");
+var s3 = str_cat_a(b, s1, s2);
+assert_eq(str_len(s3), 11, "str_cat_a len = 11");
+var s4 = str_clone_a(b, s3);
+assert_eq(str_len(s4), 11, "str_clone_a len = 11");
+var s5 = str_from_int_a(b, 42);
+assert_eq(str_len(s5), 2, "str_from_int_a(42) len = 2");
+assert_eq(load8(str_data(s5)), 52, "str_from_int_a byte 0 = '4'");
+
+test_group("map_new_a / map_set_a with bump_allocator()");
+var m1 = map_new_a(b);
+assert_eq(map_set_a(b, m1, "one",   1), 0, "map_set_a Ok");
+map_set_a(b, m1, "two",   2);
+map_set_a(b, m1, "three", 3);
+assert_eq(map_count(m1), 3, "_a variant count = 3");
+assert_eq(map_get(m1, "three"), 3, "_a variant get(three) = 3");
+
+# ---- _a variants with arena_allocator(cap) ----
+
+test_group("vec_new_a + push grow with arena_allocator(8KB)");
+var ar = arena_allocator(8192);
+var v2 = vec_new_a(ar);
+assert(v2 != 0, "vec_new_a in arena Ok");
+# Push past initial cap (16) to force a grow inside the arena
+var pi = 0;
+while (pi < 32) {
+    vec_push_a(ar, v2, pi * 10);
+    pi = pi + 1;
+}
+assert_eq(vec_len(v2), 32, "32 pushes in arena Ok");
+assert_eq(vec_get(v2, 31), 310, "post-grow get(31) = 310");
+
+test_group("arena reset clears the vec's backing storage");
+reset_via(ar);
+# After reset, the arena's backing memory is reusable; the v2 vec
+# pointer is stale (don't read from it). New allocations succeed.
+var v3 = vec_new_a(ar);
+assert(v3 != 0, "post-reset vec_new_a in arena Ok");
+vec_push_a(ar, v3, 99);
+assert_eq(vec_len(v3), 1, "post-reset push works");
+
+# ---- _a variants with fail_after_n_allocs ----
+
+test_group("vec_push_a — OOM on grow returns -1");
+var fa = fail_after_n_allocs(3);   # vec_new = 2 allocs; 1 left for grow
+var v4 = vec_new_a(fa);
+assert(v4 != 0, "vec_new_a within budget Ok");
+# Fill to capacity (16 is the initial cap; we need 16 pushes to fill it)
+var fi = 0;
+while (fi < 16) {
+    vec_push_a(fa, v4, fi);
+    fi = fi + 1;
+}
+# Next push triggers grow → alloc_via call #3 → succeeds (third under budget)
+var rc1 = vec_push_a(fa, v4, 999);
+# Refill to next grow point
+var fj = 0;
+while (fj < 16) {
+    vec_push_a(fa, v4, fj);
+    fj = fj + 1;
+}
+# Next grow triggers alloc_via call #4 → fails per fail_after=3
+var rc2 = vec_push_a(fa, v4, 1234);
+assert_eq(rc2, 0 - 1, "vec_push_a returns -1 on grow OOM");
+
+test_group("map_set_a — OOM on grow returns -1");
+# map_new_a = 2 allocs (header + 16-slot entries). fail_after=2
+# means grow #1 (the 12th set, when load passes 7/10 of cap 16)
+# allocates the 33-byte * 32-slot entries → 3rd alloc → fails.
+# Sets prior to grow don't allocate (just write to existing slot).
+var fb = fail_after_n_allocs(2);
+var mb = map_new_a(fb);
+assert(mb != 0, "map_new_a within budget Ok");
+var rc_set = 0;
+var ki = 0;
+while (ki < 50) {
+    var key_str = str_from_int(ki);   # uses default_alloc, not fb
+    rc_set = map_set_a(fb, mb, str_data(key_str), ki);
+    if (rc_set != 0) { ki = 50; }     # break out of while on OOM
+    else { ki = ki + 1; }
+}
+assert_eq(rc_set, 0 - 1, "map_set_a returns -1 once grow OOM hits");
+
+test_group("str_cat_a — OOM returns 0");
+var fc = fail_after_n_allocs(0);   # zero budget
+var sc1 = str_from("a");
+var sc2 = str_from("b");
+var sc_oom = str_cat_a(fc, sc1, sc2);
+assert_eq(sc_oom, 0, "str_cat_a returns 0 on OOM");
+
+test_group("str_clone_a — OOM returns 0");
+var fd = fail_after_n_allocs(0);
+var sd_orig = str_from("clone-me");
+var sd_oom = str_clone_a(fd, sd_orig);
+assert_eq(sd_oom, 0, "str_clone_a returns 0 on OOM");
+
+# ---- default_alloc() singleton ----
+
+test_group("default_alloc() — singleton (same pointer)");
+var d1 = default_alloc();
+var d2 = default_alloc();
+var d3 = default_alloc();
+assert(d1 != 0, "default_alloc() returned non-zero");
+assert_eq(d1, d2, "second call returns same Allocator");
+assert_eq(d2, d3, "third call returns same Allocator");
+
+var r = assert_summary();

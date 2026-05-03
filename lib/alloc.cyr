@@ -411,3 +411,29 @@ fn test_allocator_alloc_count(a) {
 fn test_allocator_bytes_total(a) {
     return load64(allocator_state(a) + 16);
 }
+
+# ================================================================
+# default_alloc() — process-wide singleton bump Allocator (v5.8.35)
+# ================================================================
+# Used by the back-compat wrappers in lib/vec.cyr / lib/str.cyr /
+# lib/hashmap.cyr that were migrated to the Allocator-as-first-arg
+# convention at v5.8.35. Lazy-initialized on first call (consumers
+# must already have called `alloc_init()` since this builds on the
+# global bump). Subsequent calls return the same Allocator value
+# so consumers can compare with `==` if they need to assert that
+# something used the default. v5.8.37 retires `alloc_init()` itself
+# and folds the default-allocator construction into the new global
+# init shape.
+
+var _default_allocator = 0;
+
+# Return (lazy-init) the process-wide default Allocator. Wraps
+# the global bump (`bump_allocator()`); identical to calling
+# bump_allocator() each time except memoized — every call returns
+# the same Allocator pointer.
+fn default_alloc() {
+    if (_default_allocator == 0) {
+        _default_allocator = bump_allocator();
+    }
+    return _default_allocator;
+}

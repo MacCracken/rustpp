@@ -5,6 +5,41 @@
 
 ## Version
 
+**5.8.35** (shipped 2026-05-03 — **v5.8.x SLOT 35 — stdlib Allocator
+migration pass 1**. Third slot of the Phase 2 Allocators sub-suite
+(v5.8.33–v5.8.38). Threads Allocator as first arg of every alloc-
+touching public fn in lib/vec.cyr / lib/str.cyr / lib/hashmap.cyr;
+existing call sites stay callable via back-compat wrappers that
+pass default_alloc() = lazy-init bump_allocator() singleton.)
+**lib/alloc.cyr**: new default_alloc() — _default_allocator global
++ lazy-init bump_allocator on first call. **lib/vec.cyr**:
+vec_new_a(a) returns 0 on OOM; vec_push_a(a, v, val) returns -1
+on grow OOM (vs. back-compat vec_push which aborts). **lib/str.cyr**:
+str_from_a / str_new_a / str_cat_a / str_clone_a / str_from_int_a
+all return 0 on OOM (Str-typed sentinel). **lib/hashmap.cyr**:
+map_new_a / map_new_str_a / _map_grow_a / map_set_a — map_set_a
+returns -1 on grow OOM. (map_u64_new / map_u64_set / str_split /
+str_trim deferred to v5.8.36 along with json/toml/cyml/http/sandhi.)
+New tcyr `alloc_stdlib.tcyr` — 33 assertions across 14 groups
+(back-compat wrappers, _a variants with bump_allocator,
+_a variants with arena_allocator(8KB), OOM via
+fail_after_n_allocs — vec_push_a/map_set_a return -1, str_cat_a/
+str_clone_a return 0, default_alloc singleton consistency).
+**Doc-coverage gate caught 1 undocumented fn** (map_new_str lost
+its leading comment when _a variant was inserted); fixed inline.
+**OOM-threshold tuning lesson**: when testing grow-path OOM,
+count the exact alloc sequence — first draft used fail_after=4
+but the test loop exhausted before grow #2 fired; re-tuned to
+fail_after=2 so the first grow trips OOM. cc5 unchanged at
+**739,672 B** (zero compiler delta — pure stdlib addition).
+Verification: self-host two-step byte-identical, check.sh 64/64,
+alloc_stdlib 33/33, alloc_iface 43/43, oom_handling 33/33, all
+Result+? tcyrs regression-floored. v5.8.x cycle progress: **35
+of 44 pinned slots shipped (79.5%)**. Allocators sub-suite
+remaining: stdlib pass 2 json/toml/cyml/http/sandhi (v5.8.36),
+retire alloc_init() (v5.8.37), sub-suite closeout (v5.8.38).
+Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49.)
+
 **5.8.34** (shipped 2026-05-03 — **v5.8.x SLOT 34 — failing-allocator
 test harness**. Second slot of the Phase 2 Allocators sub-suite
 (v5.8.33–v5.8.38). Adds `fail_after_n_allocs(n)` helper to
@@ -2934,7 +2969,7 @@ throughput win on hosts with hw support).)
 ## Suites
 
 - **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock + v5.8.x slot work introduce no new gates. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches; v5.8.x: 64 unchanged through v5.8.28 — `result.tcyr` added v5.8.28 is auto-discovered by the existing tcyr suite gate, no new gate required)
-- **`tests/tcyr/*.tcyr`**: 103 files (v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
+- **`tests/tcyr/*.tcyr`**: 104 files (v5.8.35 added `alloc_stdlib.tcyr` — 33 assertions across 14 groups covering vec/str/hashmap _a variants, bump/arena/test allocator dispatch, OOM via fail_after_n_allocs, default_alloc singleton consistency. v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -2950,7 +2985,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.34 ✅ shipped — Allocators sub-suite advancing (Phase 2 — language vocabulary; v5.8.33–v5.8.38). Failing-allocator test harness landed in lib/assert.cyr; foundation for v5.8.35-36 stdlib migration's OOM-handling tcyrs. Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49. 34 of 44 pinned slots shipped (77.3%); 10 slots remaining; ~15 slots of headroom against backstop.**
+**v5.8.35 ✅ shipped — Allocators sub-suite advancing (Phase 2 — language vocabulary; v5.8.33–v5.8.38). Stdlib pass 1 landed across vec/str/hashmap; pass 2 (json/toml/cyml/http/sandhi) at v5.8.36; alloc_init() retirement at v5.8.37; closeout at v5.8.38. Phase 3 closeout v5.8.39–v5.8.44; cycle backstop v5.8.49. 35 of 44 pinned slots shipped (79.5%); 9 slots remaining; ~14 slots of headroom against backstop.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -2997,7 +3032,8 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.32** ✅ Result+? sub-suite COMPLETE — closeout slot. Cross-repo smoke against sigil/mabda/yukti via temp-pin-bump methodology (all ✅); ark not present (flagged); 0 enum-name collisions; bonus benchmarks.md restore-as-stub fix for ci.yml required-docs gate
 - **v5.8.33** ✅ Allocator vtable interface — 5-slot vtable + bump/arena/test impls + dispatch helpers (alloc_via/realloc_via/free_via/reset_via) + 43-assertion tcyr; zero compiler delta; foundation for v5.8.34-38 stdlib migration
 - **v5.8.34** ✅ Failing-allocator test harness — `fail_after_n_allocs(n)` in lib/assert.cyr (thin wrapper over v5.8.33 test_allocator) + 33-assertion oom_handling tcyr; zero compiler delta
-- **v5.8.35–v5.8.38** — Allocators-as-parameter (4 remaining sub-patches: vec/str/hashmap migration, json/toml/http/sandhi migration, alloc_init() retirement, sub-suite closeout)
+- **v5.8.35** ✅ Stdlib Allocator migration pass 1 — `_a` variants for vec/str/hashmap (vec_new_a / vec_push_a / str_from_a / str_new_a / str_cat_a / str_clone_a / str_from_int_a / map_new_a / map_new_str_a / map_set_a); back-compat wrappers via default_alloc() singleton; 33-assertion alloc_stdlib tcyr; zero compiler delta
+- **v5.8.36–v5.8.38** — Allocators-as-parameter (3 remaining sub-patches: json/toml/cyml/http/sandhi migration, alloc_init() retirement, sub-suite closeout)
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)
