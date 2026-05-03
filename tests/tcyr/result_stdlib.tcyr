@@ -1,0 +1,160 @@
+# result_stdlib.tcyr — v5.8.30 — Result migration pass 1.
+# Locks the regression floor for the *_r variants added across
+# `lib/io.cyr`, `lib/json.cyr`, `lib/toml.cyr`, `lib/cyml.cyr`.
+#
+# Coverage:
+#   (1) `file_open_r` — Ok(fd) on existing file; Err(IoNotFound)
+#       on `/no/such/file`.
+#   (2) `file_read_r` / `file_close_r` — Ok with valid fd; Err
+#       with bogus fd (kernel returns -EBADF).
+#   (3) `file_read_all_r` — Ok(bytes) on existing file; Err on
+#       missing path.
+#   (4) `file_write_all_r` round-trip — write tmp → read back →
+#       byte-equal verify; cleanup via unlink.
+#   (5) `?` propagation chain — open + read + close in a
+#       Result-returning helper exits early on the first failure.
+#   (6) `json_parse_file_r` — Err(JsonIoErr) on missing file;
+#       Ok(vec) on a small synthetic JSON file written via
+#       `file_write_all_r`.
+#   (7) `toml_parse_file_r` — Err(TomlIoErr) on missing file;
+#       Ok(sections) on a small synthetic TOML file.
+#   (8) `cyml_parse_file_r` — Err(CymlIoErr) on missing file;
+#       Ok(doc) on a small synthetic CYML file.
+#
+# v5.8.30 ships the *_r variants alongside the back-compat
+# int-returning fns. New code SHOULD prefer the *_r variants;
+# v6.0.0 closeout removes the legacy convention per
+# `Migration policy` in roadmap §v5.8.28-32.
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/string.cyr"
+include "lib/str.cyr"
+include "lib/vec.cyr"
+include "lib/fmt.cyr"
+include "lib/result.cyr"
+include "lib/io.cyr"
+include "lib/json.cyr"
+include "lib/toml.cyr"
+include "lib/cyml.cyr"
+include "lib/assert.cyr"
+
+alloc_init();
+
+# ---- file_open_r ----
+
+test_group("file_open_r — Ok on existing file");
+var ok_fd = file_open_r("/etc/hostname", 0, 0);
+assert_eq(is_ok(ok_fd), 1, "/etc/hostname is Ok");
+assert(load64(ok_fd + 8) >= 0, "fd payload is non-negative");
+sys_close(load64(ok_fd + 8));
+
+test_group("file_open_r — Err(IoNotFound) on missing path");
+var bad_fd = file_open_r("/no/such/file/anywhere", 0, 0);
+assert_eq(is_err_result(bad_fd), 1, "/no/such/file is Err");
+assert_eq(load64(bad_fd + 8), IoNotFound, "Err payload = IoNotFound");
+
+# ---- file_read_r / file_close_r ----
+
+test_group("file_read_r — Ok bytes on valid fd");
+var rfd_r = file_open_r("/etc/hostname", 0, 0);
+assert_eq(is_ok(rfd_r), 1, "open hostname Ok");
+var rfd = load64(rfd_r + 8);
+var rbuf[256];
+var rd_r = file_read_r(rfd, &rbuf, 256);
+assert_eq(is_ok(rd_r), 1, "read Ok");
+assert(load64(rd_r + 8) >= 0, "bytes_read non-negative");
+var close_r = file_close_r(rfd);
+assert_eq(is_ok(close_r), 1, "close Ok");
+
+test_group("file_read_r — Err on bogus fd");
+var bad_rd = file_read_r(0 - 999, &rbuf, 256);
+assert_eq(is_err_result(bad_rd), 1, "read on bogus fd is Err");
+
+# ---- file_read_all_r / file_write_all_r round-trip ----
+
+test_group("file_write_all_r → file_read_all_r round-trip");
+var msg = "hello v5.8.30 result migration\n";
+var msglen = strlen(msg);
+var w_r = file_write_all_r("/tmp/cyrius_v5_8_30_test", msg, msglen);
+assert_eq(is_ok(w_r), 1, "write_all_r Ok");
+assert_eq(load64(w_r + 8), msglen, "bytes_written = msglen");
+
+var rb[64];
+var r_r = file_read_all_r("/tmp/cyrius_v5_8_30_test", &rb, 64);
+assert_eq(is_ok(r_r), 1, "read_all_r Ok");
+assert_eq(load64(r_r + 8), msglen, "bytes_read = msglen");
+assert_eq(load8(&rb), 104, "first byte = 'h' (104)");
+sys_unlink("/tmp/cyrius_v5_8_30_test");
+
+test_group("file_read_all_r — Err on missing path");
+var rb2[16];
+var r_miss = file_read_all_r("/no/such/file/again", &rb2, 16);
+assert_eq(is_err_result(r_miss), 1, "missing path is Err");
+assert_eq(load64(r_miss + 8), IoNotFound, "payload = IoNotFound");
+
+# ---- `?` propagation chain ----
+
+# Open + read + close in a single Result-returning helper.
+# Any failure short-circuits to Err via `?`.
+fn _read_byte_count(path) {
+    var fd = file_open_r(path, 0, 0)?;
+    var hb[256];
+    var n = file_read_r(fd, &hb, 256)?;
+    file_close_r(fd);
+    return Ok(n);
+}
+
+test_group("? chain — Ok path");
+var chain_ok = _read_byte_count("/etc/hostname");
+assert_eq(is_ok(chain_ok), 1, "chain on /etc/hostname is Ok");
+assert(load64(chain_ok + 8) >= 0, "byte count non-negative");
+
+test_group("? chain — Err short-circuits at file_open_r");
+var chain_err = _read_byte_count("/no/such/path/x");
+assert_eq(is_err_result(chain_err), 1, "chain on missing path is Err");
+assert_eq(load64(chain_err + 8), IoNotFound, "Err payload = IoNotFound");
+
+# ---- json_parse_file_r ----
+
+test_group("json_parse_file_r — Err(JsonIoErr) on missing file");
+var jerr = json_parse_file_r("/no/such/json/file");
+assert_eq(is_err_result(jerr), 1, "missing JSON file is Err");
+assert_eq(load64(jerr + 8), JsonIoErr, "payload = JsonIoErr");
+
+test_group("json_parse_file_r — Ok on synthetic file");
+var jsrc = "{\"name\": \"cyrius\"}";
+file_write_all_r("/tmp/cyrius_v5_8_30_test.json", jsrc, strlen(jsrc));
+var jok = json_parse_file_r("/tmp/cyrius_v5_8_30_test.json");
+assert_eq(is_ok(jok), 1, "synthetic JSON file Ok");
+sys_unlink("/tmp/cyrius_v5_8_30_test.json");
+
+# ---- toml_parse_file_r ----
+
+test_group("toml_parse_file_r — Err(TomlIoErr) on missing file");
+var terr = toml_parse_file_r("/no/such/toml/file");
+assert_eq(is_err_result(terr), 1, "missing TOML file is Err");
+assert_eq(load64(terr + 8), TomlIoErr, "payload = TomlIoErr");
+
+test_group("toml_parse_file_r — Ok on synthetic file");
+var tsrc = "[[entries]]\nname = \"cyrius\"\n";
+file_write_all_r("/tmp/cyrius_v5_8_30_test.toml", tsrc, strlen(tsrc));
+var tok = toml_parse_file_r("/tmp/cyrius_v5_8_30_test.toml");
+assert_eq(is_ok(tok), 1, "synthetic TOML file Ok");
+sys_unlink("/tmp/cyrius_v5_8_30_test.toml");
+
+# ---- cyml_parse_file_r ----
+
+test_group("cyml_parse_file_r — Err(CymlIoErr) on missing file");
+var cerr = cyml_parse_file_r("/no/such/cyml/file");
+assert_eq(is_err_result(cerr), 1, "missing CYML file is Err");
+assert_eq(load64(cerr + 8), CymlIoErr, "payload = CymlIoErr");
+
+test_group("cyml_parse_file_r — Ok on synthetic file");
+var csrc = "title = \"hello\"\n---\n# Body markdown\n";
+file_write_all_r("/tmp/cyrius_v5_8_30_test.cyml", csrc, strlen(csrc));
+var cok = cyml_parse_file_r("/tmp/cyrius_v5_8_30_test.cyml");
+assert_eq(is_ok(cok), 1, "synthetic CYML file Ok");
+sys_unlink("/tmp/cyrius_v5_8_30_test.cyml");
+
+var r = assert_summary();

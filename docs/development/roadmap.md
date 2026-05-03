@@ -939,10 +939,30 @@ checking code in practice.
   fn-body stmt, `?` inside `if` body, payload roundtrip
   negatives + zero). check.sh 64/64; self-host two-step byte-
   identical.
-- **v5.8.30** — Stdlib migration pass 1: `lib/io.cyr` (file_
-  open / read / write), `lib/syscalls.cyr` wrappers, `lib/
-  json.cyr` + `lib/toml.cyr` + `lib/cyml.cyr` parsers. Ad-hoc
-  -1 returns → `Result<T, IoError>` or per-module error types.
+- ✅ **v5.8.30** — Stdlib migration pass 1 (shipped 2026-05-03).
+  Ships Result-returning `*_r` variants across four stdlib
+  modules — `lib/io.cyr`, `lib/json.cyr`, `lib/toml.cyr`,
+  `lib/cyml.cyr`. Per-module error enums with module-prefixed
+  variant names: `IoError {IoNotFound, IoAccessDenied, IoBadFd,
+  IoFailed, IoOther}`, `JsonError {JsonIoErr, JsonParseErr,
+  JsonOther}`, `TomlError {TomlIoErr, TomlParseErr, TomlOther}`,
+  `CymlError {CymlIoErr, CymlOther}`. lib/io adds the 6 main
+  file_*_r fns (open/close/read/write/read_all/write_all)
+  mapping the negated kernel errno through `_io_errno_to_iorr`.
+  json/toml add `*_parse_file_r` variants surfacing underlying
+  file-read failures as `Err(...IoErr)` instead of silent empty
+  vecs. cyml gains the brand-new `cyml_parse_file_r` (cyml had
+  no prior file-loading helper). `lib/syscalls.cyr` left
+  unchanged — it's a thin arch-dispatcher; the migration
+  happens at the higher-level lib/io layer instead. Legacy
+  int-returning fns stay callable per migration policy. Zero
+  compiler delta (cc5 unchanged at 738,856 B). New
+  `tests/tcyr/result_stdlib.tcyr` — 29 assertions across 14
+  groups. Required mid-slot cross-compiler refresh:
+  `build/cc5_aarch64` (May 2) choked on `enum Result<T, E>`
+  syntax newly transitively included via `lib/io.cyr`; rebuilt
+  from `src/main_aarch64.cyr` via host cc5. check.sh 64/64;
+  self-host two-step byte-identical.
 - **v5.8.31** — Stdlib migration pass 2: `lib/net.cyr`,
   `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules
   (`pwd.cyr`/`grp.cyr`/`shadow.cyr`/`pam.cyr`). Cleanest wins.

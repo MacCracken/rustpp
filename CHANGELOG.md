@@ -4,6 +4,130 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.30] — 2026-05-03
+
+**v5.8.x slot 30 — stdlib `Result` migration pass 1**. Third
+slot of the Phase 2 Result+? sub-suite (v5.8.28–v5.8.32). Adds
+`Result`-returning `*_r` variants of the file-loading paths
+across `lib/io.cyr`, `lib/json.cyr`, `lib/toml.cyr`,
+`lib/cyml.cyr`. The legacy int-returning fns stay callable per
+the migration policy (back-compat through v5.8.x; v6.0.0
+closeout removes the old convention).
+
+cc5 unchanged at **738,856 B** (zero compiler delta — pure
+stdlib reorganization). check.sh 64/64.
+
+### Added
+
+- **`lib/io.cyr`** — `enum IoError { IoNotFound; IoAccessDenied;
+  IoBadFd; IoFailed; IoOther; }` plus `*_r` variants:
+  `file_open_r`, `file_close_r`, `file_read_r`, `file_write_r`,
+  `file_read_all_r`, `file_write_all_r`. All return
+  `Result<T, IoError>`-shaped values; the Err payload is the
+  IoError variant matching the negated kernel errno.
+  Mapping: ENOENT (2) → IoNotFound; EACCES (13) → IoAccessDenied;
+  EBADF (9) → IoBadFd; EIO (5) → IoFailed; everything else →
+  IoOther. Internal helper `_io_errno_to_iorr(errn)` does the
+  mapping; v5.8.30 keeps it intentionally coarse — full per-
+  errno variant set is a future slot.
+
+- **`lib/json.cyr`** — `enum JsonError { JsonIoErr; JsonParseErr;
+  JsonOther; }` plus `json_parse_file_r(path)` returning
+  `Result<doc_vec, JsonError>`. Surfaces underlying file-read
+  failures as `Err(JsonIoErr)` instead of the back-compat
+  silent-empty-vec behavior of `json_parse_file`. Pure
+  `json_parse(src)` keeps its current shape — no `-1` surface
+  to migrate (best-effort recovery is the contract).
+
+- **`lib/toml.cyr`** — `enum TomlError { TomlIoErr; TomlParseErr;
+  TomlOther; }` plus `toml_parse_file_r(path)` mirroring the
+  JSON shape.
+
+- **`lib/cyml.cyr`** — `enum CymlError { CymlIoErr; CymlOther; }`
+  plus `cyml_parse_file_r(path)` returning
+  `Result<doc, CymlError>`. cyml had no prior file-loading
+  helper at all (consumers passed buffers directly); v5.8.30
+  adds the file path so vidya / downstream cyml consumers
+  don't have to roll their own open + read + parse loop.
+
+- **`tests/tcyr/result_stdlib.tcyr`** — 29 assertions across
+  14 groups covering `file_open_r` Ok/Err, `file_read_r` and
+  `file_close_r` Ok/Err, `file_read_all_r` /
+  `file_write_all_r` round-trip, `?` propagation chain
+  (open + read + close in a single Result-returning helper),
+  `json_parse_file_r` / `toml_parse_file_r` /
+  `cyml_parse_file_r` Err-on-missing + Ok-on-synthetic-file
+  cases. Auto-discovered by check.sh.
+
+### Variant-name namespace discipline
+
+All four error enums use a module-prefixed variant naming
+convention to avoid collisions in the global enum-variant
+namespace:
+
+- `IoError`: `Io*` (IoNotFound, IoAccessDenied, IoBadFd,
+  IoFailed, IoOther)
+- `JsonError`: `Json*` (JsonIoErr, JsonParseErr, JsonOther)
+- `TomlError`: `Toml*` (TomlIoErr, TomlParseErr, TomlOther)
+- `CymlError`: `Cyml*` (CymlIoErr, CymlOther)
+
+Multiple includes coexist without collision — verified by the
+result_stdlib tcyr which includes all four modules
+simultaneously and exercises every variant.
+
+### Sub-suite progress
+
+- v5.8.28 ✅ `Result<T, E>` carve-out into `lib/result.cyr`.
+- v5.8.29 ✅ `?` propagation operator.
+- v5.8.30 ✅ Stdlib migration pass 1 (this slot).
+- v5.8.31 — Stdlib migration pass 2: `lib/net.cyr`,
+  `lib/http.cyr`, `lib/dynlib.cyr`, NSS identity modules.
+- v5.8.32 — Result sub-suite closeout + cross-repo
+  downstream smoke test.
+
+### Verification
+
+- `sh scripts/check.sh` → 64 passed, 0 failed (64 total).
+- `result_stdlib` tcyr → 29 passed, 0 failed.
+- `result_propagation` tcyr → 29 passed, 0 failed
+  (regression-floored).
+- `result` tcyr → 24 passed, 0 failed.
+- `tagged` tcyr → 14 passed, 0 failed.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 738,856 B.
+
+### Process notes
+
+- **Cross-compiler refresh required mid-slot.** The aarch64
+  SSH gate (`tests/regression-aarch64-syscalls.sh` test #4 —
+  `fs_test`) cross-builds a small program that uses
+  `lib/io.cyr` via `build/cc5_aarch64`. After v5.8.30's
+  `include "lib/result.cyr"` was added to `lib/io.cyr`, the
+  stale May 2 cross-compiler choked on the v5.8.21
+  `enum Result<T, E>` generic syntax with
+  `error:743: expected '{', got '<'`. Rebuilt
+  `build/cc5_aarch64` from `src/main_aarch64.cyr` via the
+  current host cc5; gate cleared. This is a recurring pattern
+  whenever stdlib edits depend on a post-cross-compiler-build
+  language feature — catch by running check.sh through, not
+  just the host suite.
+
+- **Snapshot-ping-pong protection applied** between every
+  `lib/*.cyr` edit per the v5.8.23 mitigation recipe in
+  CLAUDE.md. Each module's edit was followed by
+  `cp lib/X.cyr ~/.cyrius/lib/X.cyr` +
+  `cp lib/X.cyr ~/.cyrius/versions/5.8.29/lib/X.cyr` before
+  running any tool that triggers `cyrius deps`.
+
+- **Premise-check at slot entry** (per
+  `feedback_premise_check_at_slot_entry.md`): identified that
+  `cyml.cyr` had no file-loading helper at all (consumers
+  passed buffers directly), so `cyml_parse_file_r` is a NEW
+  capability rather than a migration of an existing fn.
+  json/toml's `*_parse_file` fns return `vec_new()` (silent
+  empty) on file errors — worse signal than `-1`; the *_r
+  variants give the caller a real signal.
+
 ## [5.8.29] — 2026-05-03
 
 **v5.8.x slot 29 — postfix `?` propagation operator on
