@@ -837,17 +837,19 @@ matches it).
   instrumentation; fail-fast diagnostic already gives clear
   error before silent overflow. Earns its own slot if a
   consumer reports the fail-fast surprised them.
-- **v5.8.25** — Exhaustive-match arm-tag dedup (cascaded
-  from v5.8.22 follow-ups). Today `match s { PENDING => ...,
-  PENDING => ... }` counts as 2 covered (false-clean — user
-  adds ACTIVE thinking they're exhaustive). Fix: 256-bit
-  per-match arm-tag bitmap, set per arm-tag from
-  `enum_const_val[]`. PARSE_MATCH stack-allocates a
-  256-element tag-seen array (or 32-byte bitmap), checks
-  bit per arm, errors on duplicate (`warning: duplicate match
-  arm 'PENDING'`) and counts only first occurrence toward
-  coverage. Codegen unchanged. New
-  `tests/tcyr/match_dedup.tcyr` regression-floor.
+- ✅ **v5.8.25** — Exhaustive-match arm-tag dedup (shipped
+  2026-05-03). Single-bite slot. PARSE_MATCH stack-allocates
+  `seen_vcnt[256]` per match; O(N²) linear scan flags
+  duplicate arms with `warning: duplicate match arm 'X'` and
+  skips counting toward `match_covered` so non-exhaustive
+  math stays accurate. **Dedup keyed by `vcnt`** (variant-var-
+  index, unique program-wide) not tag value — avoids the
+  v5.5.2 `enum_const_val` 1024-vcnt cap. Codegen unchanged
+  (runtime cmp/jcc cascade still picks first matching arm).
+  cc5 +776 B (737,112 → 737,888). New
+  `tests/tcyr/match_dedup.tcyr` 10/10 locks first-match-wins
+  on dup-first / dup-middle / triple-dup. 0 false positives
+  in self-host or stdlib compile.
 - **v5.8.26** — Stdlib adoption pass 2: public API migration
   for modules where the sum-typed form is visibly better
   (parse results, cross-boundary error returns). **Absorbs

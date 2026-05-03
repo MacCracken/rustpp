@@ -372,6 +372,16 @@ fn PARSE_MATCH(S) {
     var match_covered = 0;
     var match_mixed = 0;
     var had_default = 0;
+    # v5.8.25 — arm-tag dedup. Stack array of variant vcnts seen
+    # so far; per-arm linear scan flags duplicate arms with
+    # `warning: duplicate match arm 'X'` and skips counting the
+    # dup toward match_covered (so the non-exhaustive check
+    # stays accurate when a user writes the same variant twice).
+    # 256 cap matches the per-match arm budget; beyond that no
+    # dedup (rare-edge tolerated). Linear scan is O(N²) but
+    # typical match has 2-10 arms so cost is negligible.
+    var seen_vcnt[256];
+    var seen_count = 0;
     var mgo = 1;
     while (mgo == 1) {
         if (PEEKT(S) == 14) { mgo = 0; }
@@ -416,11 +426,33 @@ fn PARSE_MATCH(S) {
                     if (arm_vi >= 0) {
                         var arm_eid = GVENUMID(S, arm_vi);
                         if (arm_eid > 0) {
-                            if (match_eid == 0) { match_eid = arm_eid; }
-                            if (arm_eid == match_eid) {
-                                match_covered = match_covered + 1;
+                            # v5.8.25 — dedup: scan seen_vcnt for arm_vi.
+                            # If found, emit duplicate-arm warning + skip
+                            # coverage bump (accurate non-exhaustive math).
+                            # If new, record + bump as before.
+                            var dupe = 0;
+                            var di = 0;
+                            while (di < seen_count) {
+                                if (load64(&seen_vcnt + di * 8) == arm_vi) { dupe = 1; }
+                                di = di + 1;
+                            }
+                            if (dupe == 1) {
+                                syscall(SYS_WRITE, 2, "warning:", 8);
+                                FM_LOOKUP(S, GTLINE(S, GTI(S)));
+                                syscall(SYS_WRITE, 2, ": duplicate match arm '", 23);
+                                PRSTR(S + 0x60000 + arm_noff);
+                                syscall(SYS_WRITE, 2, "'\n", 2);
                             } else {
-                                match_mixed = 1;
+                                if (seen_count < 256) {
+                                    store64(&seen_vcnt + seen_count * 8, arm_vi);
+                                    seen_count = seen_count + 1;
+                                }
+                                if (match_eid == 0) { match_eid = arm_eid; }
+                                if (arm_eid == match_eid) {
+                                    match_covered = match_covered + 1;
+                                } else {
+                                    match_mixed = 1;
+                                }
                             }
                         }
                     }

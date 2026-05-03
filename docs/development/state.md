@@ -5,6 +5,39 @@
 
 ## Version
 
+**5.8.25** (shipped 2026-05-03 — **v5.8.x SLOT 25 — exhaustive-
+match arm-tag dedup**. Phase 2 language-vocabulary slot, fifth
+of the tagged-unions sub-suite (v5.8.21–v5.8.27). Cascaded from
+v5.8.22 follow-ups. Single-bite slot. Fixes the false-clean
+coverage math: pre-bite, `match s { A => ..., A => ... }` over
+a 3-variant enum counted as 2-of-3 covered (false-clean —
+adding any third arm made it 3-of-3 silently); now emits BOTH
+`duplicate match arm 'A'` warning + `non-exhaustive ... covers
+1 of 3` (accurate — only unique arms contribute). **Bite
+(parse.cyr)**: PARSE_MATCH stack-allocates `seen_vcnt[256]` per
+match; per arm, O(N²) linear scan for prior occurrence of
+arm's vcnt. Duplicate emits diagnostic + skips coverage bump;
+new arm appends + bumps as before. **Dedup keyed by `vcnt`**
+(variant-var-index, unique program-wide) instead of tag value —
+avoids the v5.5.2 `enum_const_val` fold table's 1024-vcnt cap.
+**Codegen unchanged** — runtime `cmp/jcc-skip` cascade still
+picks first matching arm. cc5 grew **737,112 → 737,888 B
+(+776 B)** for the scan loop + diagnostic. New
+`tests/tcyr/match_dedup.tcyr` 10/10 locks runtime first-match-
+wins behavior on dup-first / dup-middle / triple-dup. 0
+false-positive duplicate warnings during self-host or stdlib
+compile (no existing match has dups). Verification: self-host
+two-step byte-identical, check.sh 64/64, all v5.8.24 + v5.8.23
++ v5.8.22 + v5.8.21 regressions intact, standalone smoke probe
+confirms both warnings emit on the dup-non-exhaustive case.
+v5.8.x cycle progress: **25 of 44 pinned slots shipped (56.8%)**.
+Phase 2 continuing: stdlib adoption pass 2 (v5.8.26 — absorbs
+hashmap key_type migration + downstream symlink audit/cleanup +
+snapshot-ping-pong protection doc), tagged-unions closeout
+(v5.8.27), Result<T,E>+? (v5.8.28–v5.8.32), allocators (v5.8.33–
+v5.8.38). Phase 3 closeout v5.8.39–v5.8.44; cycle backstop at
+v5.8.49.)
+
 **5.8.24** (shipped 2026-05-03 — **v5.8.x SLOT 24 — exhaustive-
 match table cap bump 256 → 1024**. Phase 2 language-vocabulary
 slot, fourth of the tagged-unions sub-suite (v5.8.21–v5.8.27).

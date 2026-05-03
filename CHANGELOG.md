@@ -4,6 +4,106 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.25] — 2026-05-03
+
+**v5.8.x slot 25 — exhaustive-match arm-tag dedup**.
+Phase 2 language-vocabulary slot, fifth of the tagged-unions
+sub-suite (v5.8.21–v5.8.27). Cascaded from v5.8.22 follow-ups.
+Single-bite slot. Fixes the false-clean coverage math when the
+same variant appears as multiple match arms.
+
+Pre-bite, `match s { A => ..., A => ... }` over a 3-variant
+enum counted as 2-of-3 covered — adding any third arm would
+make it 3-of-3 even though A is duplicated and B/C are missing.
+After this bite, the same match emits BOTH `warning: duplicate
+match arm 'A'` AND `warning: non-exhaustive match over enum
+'Maybe' — covers 1 of 3 variants` (accurate count: only the
+unique arm contributes to coverage).
+
+cc5 grew **737,112 B → 737,888 B (+776 B)** for the dedup
+scan loop + duplicate-arm diagnostic.
+
+### What §25 ships
+
+**Dedup tracking in PARSE_MATCH** (`src/frontend/parse.cyr`).
+Stack-allocated `seen_vcnt[256]` array per match — tracks the
+variant-var-index (`vcnt`) of every variant arm seen. Per arm,
+linear scan of the array; if found, emit duplicate-arm warning
+and skip counting the dup toward `match_covered`. If new, append
+to the array and bump coverage as before. 256 cap on the array
+matches the per-match arm budget; beyond that no dedup
+(rare-edge tolerated). Linear-scan O(N²) is fine for typical
+2-10 arm matches.
+
+**Dedup keyed by `vcnt`, not tag value** — variant-var-index
+uniquely identifies a variant within the program, no encoding
+issues, no 1024 cap (the v5.5.2 `enum_const_val` fold table
+only covers `vcnt < 1024`; using `vcnt` directly avoids that
+limit).
+
+```cyr
+enum Tri { A; B; C; }
+
+# Before v5.8.25:
+match s {
+    A => { ... }
+    A => { ... }   # silently counts as 2-of-3 covered
+}
+# warning: non-exhaustive match over enum 'Tri' — covers 2 of 3
+# (false-clean — A is dup, B/C missing)
+
+# After v5.8.25:
+match s {
+    A => { ... }
+    A => { ... }   # warning: duplicate match arm 'A'
+}
+# warning: duplicate match arm 'A'
+# warning: non-exhaustive match over enum 'Tri' — covers 1 of 3
+# (accurate — only the unique A counts toward coverage)
+```
+
+### Codegen unchanged
+
+The dedup check is metadata-only — runtime `cmp/jcc-skip`
+cascade still picks the FIRST matching arm at runtime. New
+`tests/tcyr/match_dedup.tcyr` (10 assertions across 3 groups)
+locks runtime correctness:
+- Duplicate first arm: `match s { A => 100, A => 200, B => ..., C => ... }`
+  → `s == A` returns 100 (first arm wins, second is dead).
+- Duplicate middle arm: same shape, dup is shadowed by earlier
+  matching arm.
+- Triple duplicate: `A => 1, A => 2, A => 3, B => ..., C => ...`
+  → `A → 1`, `B → 4`, `C → 5`.
+
+### Verification
+
+1. ✅ Self-host two-step byte-identical at **737,888 B**
+   (+776 B from v5.8.24).
+2. ✅ `sh scripts/check.sh` — **64 / 64 PASS**.
+3. ✅ Pre-existing match consumers: `enums.tcyr` 10/10,
+   `tagged.tcyr` 14/14, `exhaustive_match.tcyr` 10/10,
+   `enum_generics.tcyr` 31/31 — codegen unchanged.
+4. ✅ New `tests/tcyr/match_dedup.tcyr` — **10 assertions
+   across 3 groups** locking runtime first-match-wins behavior
+   on duplicate arms (first / middle / triple-dup).
+5. ✅ Standalone smoke probe: 3-variant enum with 2 dup arms
+   emits BOTH `duplicate match arm 'A'` and `non-exhaustive
+   match — covers 1 of 3 variants` (was false-clean 2-of-3
+   pre-bite).
+6. ✅ All v5.8.24 + v5.8.23 + v5.8.22 + v5.8.21 regressions
+   intact. **0 false-positive duplicate warnings during
+   self-host or stdlib compile** — no existing match has
+   duplicate arms.
+
+### v5.8.x cycle progress
+
+25 of 44 pinned slots shipped (56.8%). Phase 2 continuing:
+stdlib adoption pass 2 (v5.8.26 — absorbs hashmap key_type
+migration + downstream symlink audit/cleanup + snapshot-
+ping-pong protection doc), tagged-unions closeout (v5.8.27),
+Result<T,E>+? (v5.8.28–v5.8.32), allocators (v5.8.33–v5.8.38).
+Phase 3 closeout v5.8.39–v5.8.44; cycle backstop at v5.8.49.
+
 ## [5.8.24] — 2026-05-03
 
 **v5.8.x slot 24 — exhaustive-match table cap bump 256 → 1024**.
