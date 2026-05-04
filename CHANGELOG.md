@@ -155,20 +155,121 @@ CHANGELOG inserts the header exactly once at the legitimate
 anchor; body mentions are ignored. Same in-slot resolution
 pattern as the v5.8.48 anchor-restoration fix.
 
-### `install.sh --refresh-only` subdir gap — flagged for v5.8.50
+### `cyrius deps` subdir-resolution — fixed in-slot (release blocker)
 
-`install.sh --refresh-only` does not recursively pick up new
-`lib/<subdir>/*.cyr` files when a stdlib subdirectory is
-added. Manually mirrored at this slot's bump
-(`mkdir + cp lib/unicode/*.cyr ~/.cyrius/versions/5.8.49/lib/unicode/`).
-Likely fix: the install script's lib copy uses a flat glob
-like `lib/*.cyr`; needs to become `lib/**/*.cyr` (or
-equivalent recursive traversal). Will re-surface at v5.8.50
-(case folding adds another file under `lib/unicode/`); fixing
-the script there is in scope. NOT fixed in v5.8.49 because it
-needs `install.sh` review beyond a one-line sed-pattern tweak,
-and the v5.8.49 scope is already at the line "Unicode
-categories + the bump-script gotcha I created in v5.8.48."
+User flagged at slot close that the v5.8.49 Unicode work would not
+actually reach consumers because `cyrius deps` and `cyrius update`
+both treat `lib/` as a flat namespace. Pre-fix, none of the four
+moving parts could see subdirectory-nested stdlib:
+
+1. **`cyrius.cyml [deps] stdlib`** was a flat list of bare names —
+   no syntax for subdir paths, so nothing in cyrius's own manifest
+   asked for `lib/unicode/*` files in the first place.
+2. **`_dep_copy_file()`** in `cbt/deps.cyr` opened `dst` with
+   `O_CREAT` but did NOT mkdir intermediate dirs. A dst path like
+   `lib/unicode/categories.cyr` would fail with `ENOENT` because
+   `lib/unicode/` did not exist in the consumer's working tree.
+3. **`cmd_update()`** in `cbt/deps.cyr` called `dir_list(src_lib)`
+   then filtered for `.cyr` extension, silently dropping
+   directory entries. Plus a 32 KB read buffer that would have
+   silently truncated `_categories_data.cyr` (~59 KB) even if it
+   had been seen.
+4. **`install.sh --refresh-only`** used `for f in lib/*.cyr` flat
+   glob, so the install snapshot at
+   `~/.cyrius/versions/<v>/lib/<subdir>/` never auto-populated —
+   the v5.8.49 mid-slot bump had to mirror it manually.
+
+Real-customer chain blocked by this (per user 2026-05-04):
+**sit (git alternative) → niyama (regex) → cyrius `lib/unicode/*`**.
+sit relies on niyama for regex; niyama relies on Unicode
+categorization for character-class lookup; niyama is pinned to
+fold into `cyrius/lib/niyama.cyr` at v5.9.0. Without the
+deps-recursion fix, `lib/unicode/categories.cyr` would have
+stayed stuck in cyrius's repo and never reached niyama through
+the `cyrius deps` chain — the entire fold path would have been
+dead at the infrastructure layer. **Fixing this is a v5.8.49
+release blocker, not a v5.8.50 follow-up.**
+
+Fixes shipped in-slot:
+
+- **`cbt/deps.cyr` `_dep_copy_file()`** — added a mkdir-p loop
+  walking `dst` char-by-char and creating each `/`-delimited
+  prefix (0o755) before opening. `sys_mkdir` returns `-EEXIST`
+  harmlessly on already-present dirs.
+- **`cbt/deps.cyr` `cmd_update()`** — replaced the flat
+  `dir_list` + extension-filter with a recursive helper
+  `_update_walk(src_dir, rel_prefix)` that descends into
+  subdirs preserving relative path structure. Defers actual
+  copying to `_dep_copy_file` (which already does 32 KB
+  streaming chunks — no truncation cap). Returns total file
+  count, sums recursively.
+- **`scripts/install.sh --refresh-only`** — replaced
+  `for f in lib/*.cyr` flat glob with `find -L lib -type f
+  -name '*.cyr'` heredoc-fed loop that strips `lib/` prefix,
+  mkdir-p's the destination's parent, copies via `cp -L`
+  (dereferences any symlinked stdlib files like the dep-loaded
+  ones).
+- **`cyrius.cyml [deps] stdlib`** — added `"unicode/categories"`
+  + `"unicode/_categories_data"` so cyrius's own manifest
+  declares the subdir-nested modules. Resolves
+  `<stdlib_dir>/unicode/categories.cyr` →
+  `lib/unicode/categories.cyr` correctly through the now-
+  recursive deps machinery.
+
+Verification (the actual customer-flow shape, not a contrived
+test):
+
+```
+TMP=$(mktemp -d); cat > "$TMP/cyrius.cyml" <<'EOF'
+[package]
+name = "uctest"
+version = "0.0.1"
+
+[deps]
+stdlib = ["syscalls", "unicode/categories", "unicode/_categories_data"]
+EOF
+cd "$TMP" && cyrius deps   # → "1 deps resolved"
+find "$TMP/lib" -type f
+# → lib/syscalls.cyr
+# → lib/unicode/categories.cyr            (4799 bytes, byte-identical)
+# → lib/unicode/_categories_data.cyr      (59012 bytes, byte-identical)
+```
+
+Both Unicode files reach the consumer byte-identical to the
+source — including the 59 KB data file that the pre-fix 32 KB
+read buffer would have truncated. This is the exact mechanism
+niyama will use when it adds `"unicode/categories"` to its own
+`[deps] stdlib` list. Until niyama adds those entries (post-
+niyama-v0.8 work), the unicode files don't propagate to niyama
+specifically — but the infrastructure is now ready to deliver
+them when niyama opts in.
+
+### Bad symlink in mabda 2.5.0 dep cache — left in place, documented
+
+A directory-level symlink at `~/.cyrius/deps/mabda/2.5.0/lib →
+~/Repos/cyrius/lib` was found during the deps audit. This is
+the **exact antipattern CLAUDE.md "Downstream repo setup"
+flags** — created because mabda's v2.5.0 git tag itself has
+`lib` as a symlink in its working tree, and the cyrius deps
+clone preserves it.
+
+Per user direction at slot close: **left in place**. Mabda has
+no released tag between v2.5.0 (which has the bad symlink) and
+v3.0.0-rc.1/rc.2 (release-candidates, not stable). Cutting a
+fresh v2.5.1 tag from the v2.5.0 commit would risk muddling
+mabda's in-progress v3.0 work. Since cyrius's
+`[deps.mabda].modules = ["dist/mabda.cyr"]` reads only that
+one bundled file and never walks the cloned `lib/`, the bad
+symlink is **benign during normal cyrius deps resolution** —
+it sits in the cache but doesn't corrupt cyrius's own lib/.
+
+If an agent ever operates inside `~/.cyrius/deps/mabda/2.5.0/`
+directly (cd, format, lint, edit), they could write through
+the symlink into cyrius's lib/. Mitigation: don't operate in
+the dep cache. The CLAUDE.md "investigating apparently-
+spontaneous file corruption in lib/" recipe surfaces this if
+it happens. Moving the cyrius mabda pin off v2.5.0 is parked
+behind mabda's v3.0.0 stable cut.
 
 ## [5.8.48] — 2026-05-04
 

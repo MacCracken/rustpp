@@ -113,17 +113,27 @@ if [ "$REFRESH_ONLY" -eq 1 ]; then
         fi
     done
 
-    # Stdlib refresh (follow symlinks so dep content gets dereferenced)
+    # Stdlib refresh (follow symlinks so dep content gets dereferenced).
+    # v5.8.49: walk subdirs recursively so nested stdlib (e.g.
+    # `lib/unicode/*.cyr`) reaches the snapshot. Pre-fix, the flat
+    # `for f in lib/*.cyr` glob silently dropped subdir files —
+    # surfaced when v5.8.49 added the first lib/ subdirectory and
+    # consumers couldn't find lib/unicode/categories.cyr through
+    # `cyrius deps`. -L on `find` follows symlinks during traversal;
+    # `cp -L` deferences any symlinked files when copying.
     _lib_count=0
-    for f in lib/*.cyr; do
+    while IFS= read -r f; do
         [ -e "$f" ] || continue
-        if [ -L "$f" ]; then
-            cp -L "$f" "$CYRIUS_HOME/versions/$VERSION/lib/"
-        else
-            cp "$f" "$CYRIUS_HOME/versions/$VERSION/lib/"
-        fi
+        # Compute the destination path preserving the lib/-relative
+        # structure: strip leading "lib/", join with snapshot lib dir.
+        rel="${f#lib/}"
+        dst="$CYRIUS_HOME/versions/$VERSION/lib/$rel"
+        mkdir -p "$(dirname "$dst")"
+        cp -L "$f" "$dst"
         _lib_count=$((_lib_count + 1))
-    done
+    done <<EOF_LIB
+$(find -L lib -type f -name '*.cyr')
+EOF_LIB
 
     echo "$VERSION" > "$CYRIUS_HOME/current"
     echo "$VERSION" > "$CYRIUS_HOME/versions/$VERSION/VERSION"

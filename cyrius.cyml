@@ -36,11 +36,18 @@ scripts = ["cyriusly", "cyrius-init.sh", "cyrius-port.sh", "cyrius-repl.sh", "cy
 # Same convention every consumer uses; cyrius is just the last to
 # adopt it (its own stdlib was always in scope when compiling itself).
 [deps]
+# v5.8.49: subdir-nested stdlib paths supported. Items containing `/`
+# resolve as `<stdlib_dir>/<path>.cyr` (e.g. `unicode/categories` →
+# `lib/unicode/categories.cyr`). `_dep_copy_file()` mkdir-p's any
+# intermediate dst dirs. This unblocks Unicode 17.0 fold delivery
+# to consumers — pre-fix, `lib/unicode/*.cyr` stayed in this repo
+# but never propagated through `cyrius deps` to mabda / sigil / etc.
 stdlib = [
     "syscalls", "string", "alloc", "str", "fmt", "vec",
     "hashmap", "io", "fs", "tagged", "process", "fnptr",
     "chrono", "args", "freelist", "assert", "bench", "bigint",
     "json",
+    "unicode/categories", "unicode/_categories_data",
 ]
 
 [deps.sakshi]

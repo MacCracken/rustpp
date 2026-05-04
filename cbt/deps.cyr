@@ -66,6 +66,26 @@ fn _dep_copy_file(src, dst) {
         }
         di += 1;
     }
+    # v5.8.49: mkdir-p any intermediate directories in dst so subdir-
+    # nested stdlib modules (e.g. `lib/unicode/categories.cyr`) can be
+    # written. Before this fix, sys_open with O_CREAT failed with ENOENT
+    # when the parent dir did not exist, silently dropping subdir-stdlib
+    # files at consumer-side `cyrius deps` resolution. Loop walks dst
+    # char-by-char; whenever we hit `/`, mkdir the prefix up to that
+    # slash (0o755). sys_mkdir returns -EEXIST harmlessly on already-
+    # present dirs — same idiom used by sys_mkdir("lib", ...) callers
+    # above and below.
+    var dst_len = strlen(dst);
+    var prefix_buf = alloc(dst_len + 1);
+    var pi = 0;
+    while (pi < dst_len) {
+        if (load8(dst + pi) == 47) {   # '/'
+            memcpy(prefix_buf, dst, pi);
+            store8(prefix_buf + pi, 0);
+            sys_mkdir(prefix_buf, 0x1ED);
+        }
+        pi = pi + 1;
+    }
     var sfd = sys_open(src, O_RDONLY, 0);
     if (sfd < 0) {
         sys_write(STDERR_FD, "  error: cannot read ", 21);
@@ -719,6 +739,61 @@ fn cmd_package() {
     return 0;
 }
 
+# v5.8.49: recursive directory walker for cmd_update.
+# Walks `src_dir` (e.g. ~/.cyrius/versions/<v>/lib) and copies every
+# `.cyr` file to the corresponding `lib/<rel>` path in the consumer's
+# cwd, preserving subdir structure. `rel_prefix == 0` at the root call;
+# recursion appends "<dirname>" / "<rel_prefix>/<dirname>" as we descend.
+# Returns total file count copied.
+fn _update_walk(src_dir, rel_prefix) {
+    var copied = 0;
+    var entries = dir_list(str_from(src_dir));
+    var ei = 0;
+    while (ei < vec_len(entries)) {
+        var name = vec_get(entries, ei);
+        var nd = str_data(name);
+        var nl = str_len(name);
+        ei = ei + 1;
+        # Skip "." and ".."
+        if (nl == 1 && load8(nd) == 46) { continue; }
+        if (nl == 2 && load8(nd) == 46 && load8(nd + 1) == 46) { continue; }
+        var from = make_path(src_dir, nd);
+        if (is_dir(str_from(from)) == 1) {
+            # Recurse — extend rel_prefix.
+            var sub_sb = str_builder_new();
+            if (rel_prefix != 0) {
+                str_builder_add_cstr(sub_sb, rel_prefix);
+                str_builder_add_cstr(sub_sb, "/");
+            }
+            str_builder_add_cstr(sub_sb, nd);
+            var sub_rel = str_data(str_builder_build(sub_sb));
+            copied = copied + _update_walk(from, sub_rel);
+            continue;
+        }
+        # File: only handle *.cyr.
+        if (nl <= 4) { continue; }
+        if (load8(nd + nl - 4) != 46) { continue; }
+        if (load8(nd + nl - 3) != 99) { continue; }
+        if (load8(nd + nl - 2) != 121) { continue; }
+        if (load8(nd + nl - 1) != 114) { continue; }
+        var to_sb = str_builder_new();
+        str_builder_add_cstr(to_sb, "lib/");
+        if (rel_prefix != 0) {
+            str_builder_add_cstr(to_sb, rel_prefix);
+            str_builder_add_cstr(to_sb, "/");
+        }
+        str_builder_add_cstr(to_sb, nd);
+        var to = str_data(str_builder_build(to_sb));
+        # _dep_copy_file streams in 32KB chunks (no size cap) and mkdir-p's
+        # intermediate dst dirs. Returns 0 on copy, 2 on already-resolved.
+        var cr = _dep_copy_file(from, to);
+        if (cr == 0 || cr == 2) {
+            copied = copied + 1;
+        }
+    }
+    return copied;
+}
+
 fn cmd_update() {
     _status("=== cyrius update ===");
     # Find installed stdlib
@@ -742,35 +817,15 @@ fn cmd_update() {
     }
     # Ensure lib/ exists
     sys_mkdir("lib", 0x1ED);
-    # Copy all .cyr files from source to lib/
-    var entries = dir_list(str_from(src_lib));
-    var copied = 0;
-    var ei = 0;
-    while (ei < vec_len(entries)) {
-        var name = vec_get(entries, ei);
-        var nd = str_data(name);
-        var nl = str_len(name);
-        # Check if .cyr file (ends with .cyr)
-        if (nl > 4) {
-            if (load8(nd + nl - 4) == 46) {
-                if (load8(nd + nl - 3) == 99) {
-                    if (load8(nd + nl - 2) == 121) {
-                        if (load8(nd + nl - 1) == 114) {
-                            var from = make_path(src_lib, nd);
-                            var to = make_path("lib", nd);
-                            var fbuf = alloc(32768);
-                            var fn_read = file_read_all(from, fbuf, 32767);
-                            if (fn_read > 0) {
-                                file_write_all(to, fbuf, fn_read);
-                                copied = copied + 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        ei = ei + 1;
-    }
+    # v5.8.49: recursive walk so subdir-nested stdlib (e.g.
+    # `lib/unicode/*.cyr`) reaches the consumer. Pre-fix, the flat
+    # dir_list + extension-filter skipped directory entries entirely
+    # and used a 32KB read buffer that would have silently truncated
+    # files like `lib/unicode/_categories_data.cyr` (~59KB) even if
+    # they had been seen. Helper `_update_walk` defers file copying
+    # to `_dep_copy_file` which handles streaming reads of any size
+    # plus mkdir-p of intermediate destination dirs.
+    var copied = _update_walk(src_lib, 0);
     sys_write(STDOUT_FD, "  updated lib/ from ", 20);
     sys_write(STDOUT_FD, src_lib, strlen(src_lib));
     sys_write(STDOUT_FD, " (", 2);
