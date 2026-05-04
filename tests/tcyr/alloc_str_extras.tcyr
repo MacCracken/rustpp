@@ -1,4 +1,11 @@
-# alloc_stdlib_pass3.tcyr — v5.8.43 — stdlib Allocator migration pass 3.
+# alloc_str_extras.tcyr — Allocator `_a` variant coverage for the
+# peripheral str helpers (str_sub / str_trim / str_split /
+# str_builder_*) plus the u64-keyed map variant (map_u64_*). The
+# map_u64 group is a small carve-out — it lives here because it landed
+# in the same migration sweep as the str peripherals; it could fold
+# into alloc_collections later if reorg is wanted. Originally landed at
+# v5.8.43 as `alloc_stdlib_pass3.tcyr` (migration "pass 3"
+# nomenclature); renamed to its topical name at v5.8.48.
 #
 # Closes the deferred-from-v5.8.35-and-v5.8.36 peripheral _a
 # variants for str (str_sub_a, str_trim_a, str_split_a, _sb_grow_a,

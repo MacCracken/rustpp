@@ -1,4 +1,9 @@
-# alloc_stdlib.tcyr — v5.8.35 — stdlib Allocator migration pass 1.
+# alloc_collections.tcyr — Allocator `_a` variant coverage for the core
+# stdlib collections (vec / str / hashmap). Originally landed at v5.8.35
+# as `alloc_stdlib.tcyr` (migration "pass 1" nomenclature); renamed to
+# its topical name at v5.8.48. CHANGELOG / version-stamped state docs
+# continue to reference the original filename under the version it
+# shipped at — that history is intentionally not retconned.
 #
 # Locks the regression floor for the `_a` variants added across
 # `lib/vec.cyr` (vec_new_a, vec_push_a), `lib/str.cyr` (str_from_a,

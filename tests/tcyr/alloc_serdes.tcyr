@@ -1,4 +1,9 @@
-# alloc_stdlib_pass2.tcyr — v5.8.36 — Allocator migration pass 2.
+# alloc_serdes.tcyr — Allocator `_a` variant coverage for the
+# serialization / protocol stdlib modules (json / toml / cyml / http).
+# Originally landed at v5.8.36 as `alloc_stdlib_pass2.tcyr` (migration
+# "pass 2" nomenclature); renamed to its topical name at v5.8.48.
+# CHANGELOG / version-stamped state docs continue to reference the
+# original filename under the version it shipped at.
 #
 # Locks the regression floor for the `_a` variants added across
 # `lib/json.cyr` (12 fns: _jv_alloc_a + 5 leaf v_*_new_a +
