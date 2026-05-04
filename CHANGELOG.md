@@ -90,6 +90,25 @@ Changed:
 - **`tests/tcyr/kernel_ident.tcyr`** new — 4 assertions
   covering fn-param / underscored-fn-param / single-arg /
   local-var. All green.
+- **Test rework caught pre-ship by CI** — initial test
+  draft wrapped logic in `fn main() { ... }`, but cyrius
+  doesn't auto-invoke `main` (programs use top-level
+  statements; only this test of 122 was wrapped). The
+  binary ran, exited 0, produced no output, and `check.sh`
+  scored it PASS — but the assertions were never executed,
+  so the regression floor was theoretical not enforced. CI
+  surfaced it because the per-test loop runs under `bash
+  -eo pipefail` and parses output via
+  `grep -o '[0-9]* failed' | tail -1 | grep -o '^[0-9]*'`;
+  empty output means the grep finds nothing, exits 1,
+  pipefail propagates, and the loop terminates after the
+  prior `PASS:` line with no diagnostic. Reworked the test
+  to the standard top-level form (`alloc_init();` →
+  `assert_eq(...)` calls → `assert_summary()` →
+  `syscall(60, _exit_code)`) — matches `regalloc.tcyr` /
+  `shadowing.tcyr` and every other test in the suite. Now
+  prints `4 passed, 0 failed (4 total)` and genuinely
+  locks the floor.
 - **cc5 self-host** — two-step byte-identical at 740,976 B.
 - **`scripts/check.sh`** — 65/65 PASS.
 
@@ -132,6 +151,23 @@ Changed:
   new cc5, the right move is to rebuild cbt with the new cc5
   first (`cat cbt/main.cyr | new-cc5 > new-cyrius`) and
   install THAT — not the new cc5 itself.
+
+- **`check.sh` ≠ CI: pipefail divergence is a process gap.**
+  `scripts/check.sh:93-119` runs the test loop without
+  `set -eo pipefail`, but `.github/workflows/ci.yml:178-196`
+  inherits Actions' default `bash -eo pipefail`. The
+  `kernel_ident` no-op slipped past local check.sh because
+  the empty-output grep failure was harmless without
+  pipefail; it only manifested as a hard CI failure. Two
+  options surface for a future patch (NOT folded into
+  v5.8.45 — pin for the v5.8.49 closeout pass): (a) tighten
+  `check.sh` to mirror CI's pipefail so divergence can't
+  ship silently again; (b) make the test runner explicit
+  about requiring an `assert_summary()` line — fail fast
+  with a clear message rather than bash-pipefail
+  catastrophe. Pinning option (a) as the stronger move:
+  parity-with-CI is a mechanical guarantee, content-checks
+  are forever a moving target.
 
 ## [5.8.44] — 2026-05-03
 

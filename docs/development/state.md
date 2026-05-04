@@ -30,7 +30,19 @@ prefixes like `kernels`/`kernel32` don't match). 12 dispatch
 sites updated across 6 main.* files (2 per file: pass-1 mode-
 switch + pass-2 skip). New tcyr `kernel_ident.tcyr` (4 assertions)
 locks the regression floor — fn-param / underscored-fn-param /
-single-arg / local-var. **AGNOS bootstrap re-verified**: agnos
+single-arg / local-var. **Test rework caught pre-ship**:
+initial draft wrapped logic in `fn main()` which cyrius
+doesn't auto-invoke — binary exited 0 with no output and
+local `check.sh` scored PASS while the assertions never ran.
+CI surfaced it under `bash -eo pipefail` (the empty-output
+grep for "N failed" returned nothing → pipeline exit 1 →
+loop terminated after the prior test's `PASS:` line with no
+diagnostic). Reworked to top-level form (`alloc_init();` →
+`assert_eq` calls → `assert_summary()` → `syscall(60, ec)`)
+matching `regalloc.tcyr` / `shadowing.tcyr`; now prints
+`4 passed, 0 failed (4 total)` and genuinely locks the floor.
+Pinned for v5.8.49 closeout: tighten `check.sh` to mirror
+CI's pipefail so this divergence class can't reship. **AGNOS bootstrap re-verified**: agnos
 kernel/agnos.cyr compiles cleanly through the new cc5; full agnos
 build via cbt = byte-identical 249,080-byte kernel (cbt itself
 unchanged, just consumes new cc5). **cbt-vs-cc5 install confusion
