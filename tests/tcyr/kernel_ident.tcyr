@@ -36,10 +36,12 @@ fn make_kernel() {
 # (5) `kernel` as a struct field would also work — covered by the
 #     general ident path; not duplicated here to keep the file focused.
 
-fn main() {
-    assert(fir_step(7, 0, 16, 0) == 15);
-    assert(aa_bb(99, 0, 0, 0) == 99);
-    assert(solo(123) == 123);
-    assert(make_kernel() == 42);
-    return 0;
-}
+alloc_init();
+
+assert_eq(fir_step(7, 0, 16, 0), 15, "kernel as fn parameter");
+assert_eq(aa_bb(99, 0, 0, 0), 99, "kernel as parameter in underscored fn name");
+assert_eq(solo(123), 123, "kernel as single fn parameter");
+assert_eq(make_kernel(), 42, "kernel as local variable");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);
