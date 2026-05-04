@@ -1486,7 +1486,7 @@ at 2026-05-01 v5.7.49 ship — v5.8.x became the slices true-completion
 the deferred §6-§11 work; sub-arc through v5.8.18 = halfway mark);
 arch-port work needs its own dedicated cycle.
 
-### v5.9.0 — Bare-metal / AGNOS kernel target
+### v5.9.0 — Bare-metal / AGNOS kernel target + niyama fold-in
 
 **Bare-metal target.** Bare-metal output (no libc, no syscalls,
 direct hardware). AGNOS kernel is the concrete consumer. Slid through
@@ -1495,6 +1495,39 @@ pinned closer to landing — rough scope: ELF no-libc output format,
 interrupt-handler emit conventions, kernel-mode syscall stubs
 stripped, boot pipeline from `scripts/boot.cyr` landed in genesis
 Phase 13B (v5.6.29 gate).
+
+**niyama fold-in** (pinned 2026-05-03). niyama is the additional-
+regex-engine library — bre / re2 / pcre / fuzzy / vim flavors that
+extend the existing `lib/regex.cyr` Thompson-NFA engine in stdlib.
+Sandhi-pattern fold lifecycle (per niyama ADR 0001 + niyama roadmap
+M5 → v1.0): when niyama hits its v1.0 fold-ready bar (all 5 engines
+shipped, public surface frozen, ≥2 long-horizon AGNOS-lineage
+consumers, security audit, fold ADR drafted), cyrius vendors
+`niyama/dist/niyama.cyr` byte-identical as `lib/niyama.cyr` (same
+mechanics as the v5.7.0 sandhi fold and the v5.8.39 sandhi v1.1.0
+re-fold). niyama-side roadmap at
+[`/home/macro/Repos/niyama/docs/development/roadmap.md`](https://github.com/MacCracken/niyama/blob/main/docs/development/roadmap.md);
+niyama at v0.1.0 (scaffold) as of 2026-05-03 — engine work begins
+at M1 (POSIX BRE → v0.2.0). niyama's own roadmap previously listed
+"Speculative cyrius fold target: 5.8.0" — that target was
+overoptimistic; v5.8.x consumed by Phase 2 (Result+? + Allocators
+sub-suites + Phase 3 polish). v5.9.0 is the new realistic fold
+target conditional on niyama hitting v1.0 first.
+
+**Fold mechanics** (per the v5.7.0 sandhi + v5.8.39 sandhi-v1.1.0
+precedent):
+- niyama upstream ships v1.0 → `dist/niyama.cyr` regenerated via
+  `cyrius distlib`.
+- cyrius v5.9.0 slot does the fold: `cp niyama/dist/niyama.cyr
+  cyrius/lib/niyama.cyr` + snapshot refresh per ping-pong protection
+  + verify cyrius-side consumers (none yet — niyama would be a
+  fresh stdlib add) + downstream propagation via `cyrius deps` on
+  next resolution.
+- Roadmap entry's bare-metal scope is the larger v5.9.0 deliverable;
+  niyama fold rides as a smaller bundled item. If niyama hasn't hit
+  v1.0 by the v5.9.0 cut, the fold cascades to a later v5.9.x patch
+  slot or v5.10.x — bare-metal AGNOS kernel work doesn't block on
+  it.
 
 ### v5.9.x — RISC-V rv64 (3-5 sub-patches)
 
