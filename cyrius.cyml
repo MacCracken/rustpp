@@ -47,7 +47,8 @@ stdlib = [
     "hashmap", "io", "fs", "tagged", "process", "fnptr",
     "chrono", "args", "freelist", "assert", "bench", "bigint",
     "json",
-    "unicode/categories", "unicode/_categories_data",
+    "unicode/_decode", "unicode/categories", "unicode/_categories_data",
+    "unicode/casefold", "unicode/_casefold_data",
 ]
 
 [deps.sakshi]

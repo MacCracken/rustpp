@@ -1584,15 +1584,44 @@ hand-roll incompletely.
     (casefold.cyr) — fixing the script's lib glob is in scope
     there.
 
-- **v5.8.50** — Unicode 17.0.0 case folding (simple + full).
-  Add `lib/unicode/casefold.cyr` with `unicode_to_lower(cp)`,
-  `unicode_to_upper(cp)`, `unicode_to_title(cp)`, plus the
-  full case-folding map for case-insensitive comparison
-  (`unicode_fold(cp) -> [cp, ...]` for one-to-many like
-  ß→ss). Bake the UCD CaseFolding.txt + UnicodeData.txt case
-  columns. Wire through to `lib/str.cyr` as `str_lower_unicode`
-  / `str_upper_unicode` (the existing `str_lower` / `str_upper`
-  stay ASCII-only for back-compat — no rename, additive only).
+- **v5.8.50** ✅ SHIPPED 2026-05-04 — Unicode 17.0.0 case folding
+  (simple + full).
+
+  Delivered:
+  - `lib/unicode/casefold.cyr` — 5 public fns: `unicode_to_upper`
+    / `unicode_to_lower` / `unicode_to_title` (simple 1:1),
+    `unicode_fold(cp, out_buf, cap)` (full 1:n → 1..3 cps),
+    `str_lower_unicode(s)` / `str_upper_unicode(s)` (Str-typed
+    UTF-8 walkers).
+  - `lib/unicode/_decode.cyr` — extracted shared hex decoders
+    (`_uc_hex1` / `_uc_hex2` / `_uc_u24`) so categories.cyr +
+    casefold.cyr share the encoding without duplication.
+  - `lib/unicode/_casefold_data.cyr` — auto-generated; 4 tables
+    (1505 simple upper / 1488 simple lower / 1509 simple title /
+    1585 full fold) across 18 string-literal pieces.
+  - `scripts/gen-unicode-data.py` extended — single offline
+    invocation now regenerates both categories + casefold data.
+  - `tests/tcyr/unicode_casefold.tcyr` — 70 assertions across
+    9 verification categories (ASCII / Latin / Greek+Cyrillic /
+    titlecase Lt / no-mapping / one-to-many full fold / identity
+    fold / out-of-range / Str wrappers).
+  - `cyrius.cyml [deps] stdlib` updated with 3 new entries.
+  - cc5 unchanged at 741,040 B.
+
+  Pin deviation:
+  - Pin specified wiring `str_lower_unicode` / `str_upper_unicode`
+    into `lib/str.cyr`. Shipped in `lib/unicode/casefold.cyr`
+    instead so str.cyr-only consumers don't transitively pull
+    ~100 KB of Unicode data tables. Consumers wanting Str-level
+    case fold include both modules.
+
+  Carried forward to v5.8.51 / v5.8.53:
+  - Snapshot ping-pong corruption recurred during this slot
+    (categories.cyr reverted to pre-extraction state during a
+    customer-flow probe). Mitigated in-slot by re-applying +
+    snapshotting; root cause TBD. Mabda 2.5.0 dep-cache
+    directory symlink remains the leading suspect — may need
+    removal sooner than v5.8.49 closeout indicated.
 
 - **v5.8.51** — Unicode 17.0.0 normalization (NFC/NFD/NFKC/NFKD).
   Add `lib/unicode/normalize.cyr` with the canonical

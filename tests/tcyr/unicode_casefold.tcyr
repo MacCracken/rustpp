@@ -1,0 +1,153 @@
+# unicode_casefold.tcyr — v5.8.50 — Unicode 17.0.0 case folding
+# regression floor.
+#
+# Locks lib/unicode/casefold.cyr behavior across:
+#   (1) ASCII case identity / round-trips
+#   (2) Latin-1 / Latin-Extended simple round-trips
+#   (3) Greek + Cyrillic
+#   (4) Titlecase variants (Lt category boundaries)
+#   (5) Codepoints with NO simple mapping (ß, etc.)
+#   (6) Full case fold one-to-many expansions (ß → ss, İ → i̇,
+#       ŉ → ʼn, Greek dialytika+tonos → 3-cp, ﬃ → ffi)
+#   (7) Identity fold for codepoints outside the fold table
+#   (8) Out-of-range sentinels
+#   (9) Str-level str_lower_unicode / str_upper_unicode round-trips
+#       across ASCII, Latin, Greek mixed input
+#
+# Data sources: Unicode 17.0.0 UnicodeData.txt (simple columns 12/13/14)
+# + CaseFolding.txt (status C+F entries, ~1585 records).
+#
+# All expected mappings cross-checked against Python's str.upper() /
+# str.lower() and str.casefold() (which implements full fold).
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/assert.cyr"
+include "lib/unicode/casefold.cyr"
+
+alloc_init();
+
+# ── (1) ASCII case identity / round-trips ────────────────────────
+assert_eq(unicode_to_upper(0x0041), 0x0041, "ASCII 'A' upper-of-A = A");
+assert_eq(unicode_to_lower(0x0041), 0x0061, "ASCII 'A' lower = a");
+assert_eq(unicode_to_upper(0x0061), 0x0041, "ASCII 'a' upper = A");
+assert_eq(unicode_to_lower(0x0061), 0x0061, "ASCII 'a' lower-of-a = a");
+assert_eq(unicode_to_upper(0x005A), 0x005A, "ASCII 'Z' upper-of-Z = Z");
+assert_eq(unicode_to_lower(0x007A), 0x007A, "ASCII 'z' lower-of-z = z");
+assert_eq(unicode_to_upper(0x0030), 0x0030, "ASCII '0' upper-of-digit = digit");
+assert_eq(unicode_to_lower(0x0030), 0x0030, "ASCII '0' lower-of-digit = digit");
+assert_eq(unicode_to_upper(0x0020), 0x0020, "ASCII space upper = space");
+
+# ── (2) Latin-1 / Latin-Extended simple round-trips ──────────────
+assert_eq(unicode_to_upper(0x00E0), 0x00C0, "à → À");
+assert_eq(unicode_to_lower(0x00C0), 0x00E0, "À → à");
+assert_eq(unicode_to_upper(0x00E9), 0x00C9, "é → É");
+assert_eq(unicode_to_lower(0x00C9), 0x00E9, "É → é");
+assert_eq(unicode_to_upper(0x00FC), 0x00DC, "ü → Ü");
+assert_eq(unicode_to_upper(0x00B5), 0x039C, "µ (micro) → Μ (Greek capital Mu)");
+assert_eq(unicode_to_upper(0x0101), 0x0100, "ā → Ā (Latin Extended-A)");
+assert_eq(unicode_to_lower(0x0100), 0x0101, "Ā → ā");
+
+# ── (3) Greek + Cyrillic ─────────────────────────────────────────
+assert_eq(unicode_to_upper(0x03B1), 0x0391, "α → Α");
+assert_eq(unicode_to_lower(0x0391), 0x03B1, "Α → α");
+assert_eq(unicode_to_upper(0x03C9), 0x03A9, "ω → Ω");
+assert_eq(unicode_to_upper(0x0430), 0x0410, "Cyrillic а → А");
+assert_eq(unicode_to_lower(0x0410), 0x0430, "Cyrillic А → а");
+assert_eq(unicode_to_upper(0x0444), 0x0424, "Cyrillic ф → Ф");
+
+# ── (4) Titlecase variants (Lt) ──────────────────────────────────
+# Ǆ (0x01C4) is Lu, ǅ (0x01C5) is Lt, ǆ (0x01C6) is Ll — same letter, 3 cases.
+assert_eq(unicode_to_title(0x01C4), 0x01C5, "Ǆ → ǅ (titlecase form)");
+assert_eq(unicode_to_title(0x01C5), 0x01C5, "ǅ → ǅ (already titlecase)");
+assert_eq(unicode_to_title(0x01C6), 0x01C5, "ǆ → ǅ (titlecase form)");
+assert_eq(unicode_to_upper(0x01C5), 0x01C4, "ǅ → Ǆ (uppercase from title)");
+assert_eq(unicode_to_lower(0x01C5), 0x01C6, "ǅ → ǆ (lowercase from title)");
+
+# ── (5) Codepoints with NO simple mapping ────────────────────────
+# ß has no simple uppercase (kept as ß); for full fold see (6).
+assert_eq(unicode_to_upper(0x00DF), 0x00DF, "ß has no simple upper → ß");
+assert_eq(unicode_to_lower(0x00DF), 0x00DF, "ß is already lower → ß");
+# Codepoints with no case at all → identity
+assert_eq(unicode_to_upper(0x0030), 0x0030, "digit has no case");
+assert_eq(unicode_to_upper(0x4E2D), 0x4E2D, "CJK has no case");
+assert_eq(unicode_to_lower(0x4E2D), 0x4E2D, "CJK has no case (lower)");
+
+# ── (6) Full case fold one-to-many ───────────────────────────────
+var fb = alloc(24);
+
+# ß → "ss" (s, s) — most famous expansion
+assert_eq(unicode_fold(0x00DF, fb, 3), 2, "ß full fold count = 2");
+assert_eq(load64(fb), 0x73, "ß[0] = s (0x73)");
+assert_eq(load64(fb + 8), 0x73, "ß[1] = s (0x73)");
+
+# İ (LATIN CAPITAL LETTER I WITH DOT ABOVE) → i (0x69) + combining dot above (0x307)
+assert_eq(unicode_fold(0x0130, fb, 3), 2, "İ full fold count = 2");
+assert_eq(load64(fb), 0x69, "İ[0] = i");
+assert_eq(load64(fb + 8), 0x307, "İ[1] = combining dot above");
+
+# ŉ (LATIN SMALL LETTER N PRECEDED BY APOSTROPHE) → ʼ + n
+assert_eq(unicode_fold(0x0149, fb, 3), 2, "ŉ full fold count = 2");
+assert_eq(load64(fb), 0x2BC, "ŉ[0] = ʼ (modifier letter apostrophe)");
+assert_eq(load64(fb + 8), 0x6E, "ŉ[1] = n");
+
+# Greek small letter iota with dialytika and tonos → 3 cps
+assert_eq(unicode_fold(0x0390, fb, 3), 3, "ΐ full fold count = 3");
+assert_eq(load64(fb),      0x3B9, "ΐ[0] = ι");
+assert_eq(load64(fb + 8),  0x308, "ΐ[1] = combining diaeresis");
+assert_eq(load64(fb + 16), 0x301, "ΐ[2] = combining acute");
+
+# ﬃ (LATIN SMALL LIGATURE FFI) → f + f + i
+assert_eq(unicode_fold(0xFB03, fb, 3), 3, "ﬃ full fold count = 3");
+assert_eq(load64(fb),      0x66, "ﬃ[0] = f");
+assert_eq(load64(fb + 8),  0x66, "ﬃ[1] = f");
+assert_eq(load64(fb + 16), 0x69, "ﬃ[2] = i");
+
+# Common 1-cp folds: A → a (count = 1, just regular lowercase semantics)
+assert_eq(unicode_fold(0x0041, fb, 3), 1, "A full fold count = 1");
+assert_eq(load64(fb), 0x61, "A → a via fold");
+
+# ── (7) Identity fold for codepoints outside the fold table ──────
+assert_eq(unicode_fold(0x0061, fb, 3), 1, "a is already folded → 1");
+assert_eq(load64(fb), 0x61, "a fold[0] = a");
+assert_eq(unicode_fold(0x0030, fb, 3), 1, "digit fold count = 1");
+assert_eq(load64(fb), 0x30, "digit fold[0] = digit");
+assert_eq(unicode_fold(0x4E2D, fb, 3), 1, "CJK fold count = 1");
+assert_eq(load64(fb), 0x4E2D, "CJK fold[0] = self");
+
+# ── (8) Out-of-range sentinels ───────────────────────────────────
+assert_eq(unicode_to_upper(-1),         -1,         "negative cp → unchanged");
+assert_eq(unicode_to_lower(-1),         -1,         "negative cp → unchanged");
+assert_eq(unicode_to_upper(0x110000),   0x110000,   "cp > 0x10FFFF → unchanged");
+assert_eq(unicode_to_lower(0x110000),   0x110000,   "cp > 0x10FFFF → unchanged");
+assert_eq(unicode_fold(-1, fb, 3), 1, "negative cp fold → identity");
+assert_eq(load64(fb), -1, "negative cp fold[0] = self");
+
+# ── (9) Str-level wrappers ───────────────────────────────────────
+# NOTE: assert_streq uses cstring streq; Str comparison needs str_eq.
+# We use `assert_eq(str_eq(actual, expected), 1, "...")` throughout.
+var hello_lower = str_lower_unicode(str_from("HELLO"));
+assert_eq(str_eq(hello_lower, str_from("hello")), 1, "str_lower_unicode 'HELLO' → 'hello'");
+
+var hello_upper = str_upper_unicode(str_from("hello"));
+assert_eq(str_eq(hello_upper, str_from("HELLO")), 1, "str_upper_unicode 'hello' → 'HELLO'");
+
+# Mixed-script lowercase: Greek + Latin
+var mixed_lower = str_lower_unicode(str_from("ΑΒΓ Hello"));
+assert_eq(str_eq(mixed_lower, str_from("αβγ hello")), 1, "str_lower_unicode mixed Greek+Latin");
+
+# Mixed-script uppercase
+var mixed_upper = str_upper_unicode(str_from("αβγ hello"));
+assert_eq(str_eq(mixed_upper, str_from("ΑΒΓ HELLO")), 1, "str_upper_unicode mixed Greek+Latin");
+
+# Empty string
+var empty_lower = str_lower_unicode(str_from(""));
+assert_eq(str_len(empty_lower), 0, "str_lower_unicode('') is empty");
+
+# Pure-ASCII passthrough
+var ascii_lower = str_lower_unicode(str_from("AbCdEfG 123"));
+assert_eq(str_eq(ascii_lower, str_from("abcdefg 123")), 1, "str_lower_unicode ASCII passthrough");
+
+var r = assert_summary();

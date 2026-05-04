@@ -1,0 +1,40 @@
+# lib/unicode/_decode.cyr — shared hex-pair decoders for the Unicode
+# stdlib data tables. Both lib/unicode/categories.cyr (v5.8.49) and
+# lib/unicode/casefold.cyr (v5.8.50) bake their UCD data as hex-pair
+# encoded string literals (3 bytes u24 BE start + 3 bytes u24 BE end +
+# 1 byte payload, expanded as 14 ASCII hex chars per record). These
+# helpers decode that encoding; lifting them to a private shared
+# module avoids duplicating the logic across each unicode/*.cyr file.
+#
+# Naming: leading-underscore + `_uc_` prefix marks these as
+# unicode-internal. Consumers should call the public APIs in
+# categories.cyr / casefold.cyr / etc., not these.
+
+# Decode a single hex digit (ASCII) → 0..15.
+fn _uc_hex1(c) {
+    if (c >= 48) {
+        if (c <= 57) { return c - 48; }   # '0'..'9'
+    }
+    if (c >= 97) {
+        if (c <= 102) { return c - 87; }  # 'a'..'f'
+    }
+    if (c >= 65) {
+        if (c <= 70) { return c - 55; }   # 'A'..'F' (defensive — generators emit lowercase)
+    }
+    return 0;
+}
+
+# Decode 2 hex chars at offset → byte (0..255).
+fn _uc_hex2(s, off) {
+    var hi = _uc_hex1(load8(s + off));
+    var lo = _uc_hex1(load8(s + off + 1));
+    return (hi << 4) | lo;
+}
+
+# Decode 6 hex chars (BE u24) at offset → int (0..0xFFFFFF).
+fn _uc_u24(s, off) {
+    var b0 = _uc_hex2(s, off);
+    var b1 = _uc_hex2(s, off + 2);
+    var b2 = _uc_hex2(s, off + 4);
+    return (b0 << 16) | (b1 << 8) | b2;
+}

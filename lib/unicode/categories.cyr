@@ -13,6 +13,7 @@
 #
 # Lookup is binary search across the 4144-range index; ~12 iterations max.
 
+include "lib/unicode/_decode.cyr"
 include "lib/unicode/_categories_data.cyr"
 
 # GeneralCategory leaf categories, indexed 0..29.
@@ -54,34 +55,9 @@ enum GeneralCategory {
     GC_CN = 29;    # Cn — Other, unassigned
 }
 
-# Decode a single hex digit (ASCII) → 0..15.
-fn _uc_hex1(c) {
-    if (c >= 48) {
-        if (c <= 57) { return c - 48; }   # '0'..'9'
-    }
-    if (c >= 97) {
-        if (c <= 102) { return c - 87; }  # 'a'..'f'
-    }
-    if (c >= 65) {
-        if (c <= 70) { return c - 55; }   # 'A'..'F' (defensive — generator emits lowercase)
-    }
-    return 0;
-}
-
-# Decode 2 hex chars at offset → byte (0..255).
-fn _uc_hex2(s, off) {
-    var hi = _uc_hex1(load8(s + off));
-    var lo = _uc_hex1(load8(s + off + 1));
-    return (hi << 4) | lo;
-}
-
-# Decode 6 hex chars (BE u24) at offset → int (0..0xFFFFFF).
-fn _uc_u24(s, off) {
-    var b0 = _uc_hex2(s, off);
-    var b1 = _uc_hex2(s, off + 2);
-    var b2 = _uc_hex2(s, off + 4);
-    return (b0 << 16) | (b1 << 8) | b2;
-}
+# Hex-pair decoders (`_uc_hex1`, `_uc_hex2`, `_uc_u24`) live in
+# lib/unicode/_decode.cyr — shared with lib/unicode/casefold.cyr and
+# any later unicode/* module that bakes UCD data the same way.
 
 # Return the string-literal pointer for piece index 0..8.
 # Hand-dispatched because cyrius doesn't currently support indexed-by-int
