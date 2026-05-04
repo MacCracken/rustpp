@@ -1,4 +1,20 @@
-# Preprocessor scans `include "` pattern inside string literals
+# Preprocessor scans `include "` pattern inside string literals — RESOLVED
+
+**Status:** ✅ **RESOLVED in cyrius v5.8.40** (preprocessor string-
+literal awareness shipped). PP_PASS + PP_IFDEF_PASS in
+`src/frontend/lex_pp.cyr` track `"`-bounded string-literal state
+via `in_string` + `escape_next` flags; the `if (bol == 1)`
+directive-detection block is gated on `&& in_string == 0`.
+Mirrors the v5.7.36 cyrlint string-literal awareness fix shape.
+cc5 +640 B (320 B per pass). Regression gate at
+`tests/tcyr/preprocessor_string_literal.tcyr` — 12 assertions
+across 5 groups (string with include pattern preserved byte-by-
+byte; back-compat byte-store workaround; real include directives
+at col 0; escape-sequence handling; '#define' inside string).
+Vidya entry at `content/cyrius/ecosystem.cyml:685-720` flipped
+from "pinned for v5.8.x" → "✅ FIXED in v5.8.40"; workaround
+text kept for pre-v5.8.40 toolchain users. Archived 2026-05-03
+during the v5.8.41 cyrlint cleanup pass.
 
 **Discovered**: surfaced in vidya `content/cyrius/ecosystem.cyml:685-713`;
 filed as local issue 2026-05-01 during v5.7.49 vidya audit.

@@ -4,6 +4,102 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.42] — 2026-05-03
+
+**v5.8.x slot 42 — paired UX/diagnostic polish**. Fourth slot of
+Phase 3. Two unrelated mabda-surfaced UX bugs combined into one
+release per the pin. cc5 **740,312 → 740,528 B (+216 B)** —
+entirely from half (b)'s diagnostic improvement; half (a) is a
+cbt-only edit.
+
+### Half (a) — `cyrius fmt --check` exit code (mabda A2)
+
+**Bug:** `cyrius fmt --check <file>` always exited 0 + dumped the
+formatted output to stdout, regardless of whether the file
+actually drifted. Drift detection silently broken via the cbt
+wrapper. Mabda's CI gate that depended on this returning non-zero
+on drift never fired.
+
+**Root cause:** `cbt/commands.cyr` `cmd_fmt` invoked
+`run_tool(cyrfmt, file, "--check", 0)` — argv built as
+`[cyrfmt, file, --check]`. But `programs/cyrfmt.cyr` parses
+`--check` ONLY at `argv(1)`. With the file at argv(1) and `--check`
+at argv(2), cyrfmt set `_check_mode = 0` and fell through to the
+default format-to-stdout path.
+
+**Fix:** swap the run_tool args to `run_tool(cyrfmt, "--check",
+file, 0)` — argv now `[cyrfmt, --check, file]`. cyrfmt sees
+`--check` at argv(1), sets `_check_mode = 1`, file_arg = 2,
+compares formatted output to original, returns 0 on match / 1 on
+drift. Matches Rust/Go convention: silent on no-drift, exit
+non-zero on drift.
+
+Verified post-fix:
+- `cyrius fmt <clean-file> --check` → silent, exit 0
+- `cyrius fmt <drifted-file> --check` → silent, exit 1
+
+### Half (b) — `var X;` bare-decl diagnostic (mabda C1)
+
+**Bug:** `var X;` (no initializer) fired the generic
+`expected '=', got ';'` diagnostic. Devs porting from C/Go
+expected `var X;` to declare a zero-init slot and got the
+cryptic generic message; lost time wondering whether the
+language doesn't support uninitialized vars vs whether the syntax
+just differs.
+
+**Root cause:** Two ERR_EXPECT(S, 4) sites in
+`src/frontend/parse_decl.cyr`:
+- Line 953 in `PARSE_VAR` (in-fn `var x = ...;` path).
+- Line 594 in `EMIT_GVAR_INITS` (top-level var-init path).
+
+Both emitted the generic "expected '=', got <token>" via
+`ERR_EXPECT` regardless of whether the token was `;` (bare-decl)
+or some other syntax error.
+
+**Fix:** Special-case the `;` token at both sites. If the actual
+token is `;` (token type 5), emit the specific:
+
+```
+error:<line>: uninitialized variable not allowed; use `var X = 0;` or initial value
+```
+
+Other missing-`=` cases (e.g. `var x 42;`) keep the generic
+ERR_EXPECT path so the diagnostic still names the real offending
+token.
+
+Verified post-fix:
+- `fn f() { var y; ... }` → "uninitialized variable not allowed; use `var X = 0;` or initial value"
+- `var x;` (top-level) → same specific message
+- `var x 42;` → keeps generic "expected '=', got number 42"
+
+### Verification
+
+- `sh scripts/check.sh` → 65 passed, 0 failed (65 total).
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 740,528 B.
+- All Phase 2 sub-suite tcyrs regression-floored.
+- Manual smoke: cyrfmt drift / no-drift / unrelated-syntax-error
+  paths verified.
+
+### Process notes
+
+- **Both halves are mabda-surfaced** (mabda A2 / mabda C1) but
+  the bugs live in different places — cbt arg-passing for (a),
+  parser-side diagnostic for (b). Combining them into one slot
+  per the pin made sense because each is a tiny, isolated edit
+  with no shared surface; bundling avoids two separate
+  closeout-prep passes.
+
+- **Half (a) is cbt-only** — zero compiler delta from that half.
+  All +216 B is from half (b)'s in-place diagnostic improvement
+  in PARSE_VAR + EMIT_GVAR_INITS.
+
+- **The `var x 42;` regression case** (line 953 + 594's else-
+  path) is a deliberate floor: if the parser ever drifts so the
+  generic "expected '=', got <token>" path stops firing on
+  non-`;` cases, that's a regression to catch. The new specific
+  diagnostic ONLY fires when token is `;`.
+
 ## [5.8.41] — 2026-05-03
 
 **v5.8.x slot 41 — cyrlint large-file false-positive verification

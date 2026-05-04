@@ -591,7 +591,15 @@ fn EMIT_GVAR_INITS(S) {
         var noff = PEEKV(S);
         STI(S, GTI(S) + 1);  # consume IDENT
         if (PEEKT(S) == 49) { STI(S, GTI(S) + 1); if (PEEKT(S) == 8) { STI(S, GTI(S) + 1); } STI(S, GTI(S) + 1); SKIP_GENERICS(S); }
-        if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+        # v5.8.42: same bare-decl `var X;` improvement as PARSE_VAR.
+        # Top-level vars hit this path; mirror the diagnostic so the
+        # error text doesn't depend on where the bare-decl appears.
+        if (PEEKT(S) != 4) {
+            if (PEEKT(S) == 5) {
+                ERR_MSG(S, "uninitialized variable not allowed; use `var X = 0;` or initial value", 70);
+            }
+            ERR_EXPECT(S, 4);
+        }
         STI(S, GTI(S) + 1);  # consume =
         # Check for struct init: StructName { ... }
         var idx = FINDVAR(S, noff);
@@ -950,7 +958,20 @@ fn PARSE_VAR(S) {
         return 0;
     }
     # expect EQ
-    if (PEEKT(S) != 4) { ERR_EXPECT(S, 4); }
+    # v5.8.42: special-case the bare-decl `var X;` shape with a
+    # specific diagnostic. Pre-fix the generic ERR_EXPECT emitted
+    # "expected '=', got ';'" which doesn't tell the user what
+    # to do. Mabda C1 surfacing — devs ported from C/Go expected
+    # `var X;` to declare a zero-init slot and got the cryptic
+    # generic message. Now: a clear "uninitialized variable not
+    # allowed; use `var X = 0;` or initial value" pointing at
+    # the specific fix.
+    if (PEEKT(S) != 4) {
+        if (PEEKT(S) == 5) {
+            ERR_MSG(S, "uninitialized variable not allowed; use `var X = 0;` or initial value", 70);
+        }
+        ERR_EXPECT(S, 4);
+    }
     STI(S, GTI(S) + 1);
     # Check for struct init: var p = StructName { expr, expr, ... };
     if (PEEKT(S) == 2) {

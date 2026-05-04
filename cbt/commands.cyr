@@ -367,7 +367,16 @@ fn cmd_clean() {
 fn cmd_fmt(file, check_mode) {
     var cyrfmt = make_path(_tools_dir, "cyrfmt");
     if (check_mode == 1) {
-        return run_tool(cyrfmt, file, "--check", 0);
+        # v5.8.42: cyrfmt main parses `--check` ONLY at argv(1).
+        # Pre-fix this arg order was reversed (file, "--check"),
+        # so cyrfmt saw the file at argv(1), set _check_mode=0,
+        # and silently dumped the formatted output to stdout
+        # — drift never detected, exit 0 regardless. Mabda A2
+        # surfaced via CI gate that depended on `cyrius fmt
+        # --check` returning non-zero on drift; it never did.
+        # Now matches Rust/Go behavior: silent on no-drift,
+        # exit non-zero on drift.
+        return run_tool(cyrfmt, "--check", file, 0);
     }
     return run_tool(cyrfmt, file, 0, 0);
 }

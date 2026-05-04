@@ -5,6 +5,40 @@
 
 ## Version
 
+**5.8.42** (shipped 2026-05-03 — **v5.8.x SLOT 42 — paired UX/diagnostic
+polish** (mabda A2 + mabda C1, combined per pin). Fourth slot of
+Phase 3.) **Half (a) cyrius fmt --check exit code**: cbt's
+cmd_fmt invoked `cyrfmt <file> --check` but cyrfmt parses --check
+only at argv(1); with file at argv(1), _check_mode stayed 0,
+cyrfmt fell through to format-to-stdout, exit 0 regardless of
+drift. Drift detection silently broken via cbt wrapper; mabda's
+CI gate never fired. Fix: swap run_tool args to put --check
+FIRST (`run_tool(cyrfmt, "--check", file, 0)`). Now matches
+Rust/Go: silent on no-drift, exit non-zero on drift. cbt-only
+edit, zero compiler delta. **Half (b) var X; bare-decl diag**:
+two ERR_EXPECT(S, 4) sites in parse_decl.cyr (line 953
+PARSE_VAR; line 594 EMIT_GVAR_INITS) emitted generic "expected
+'=', got ';'" for the bare-decl shape. Devs porting from C/Go
+expected `var X;` to declare a zero-init slot and got the cryptic
+generic message. Fix: special-case the `;` token at both sites
+— if actual token is `;`, emit specific "uninitialized variable
+not allowed; use `var X = 0;` or initial value". Other missing-=
+cases (e.g. `var x 42;`) keep generic ERR_EXPECT path so the
+diagnostic still names the real offending token. cc5 **740,312
+→ 740,528 B (+216 B)** — entirely from half (b)'s diagnostic
+improvement. Verification: self-host two-step byte-identical,
+check.sh 65/65, manual smoke clean (cyrfmt drift/no-drift/
+unrelated-syntax-error all correct; var X; in-fn + top-level
+both produce new message; var x 42; keeps generic). v5.8.x
+cycle progress: **42 of 51 pinned slots shipped (82.4%)**.
+Phase 3 remaining (9 slots): Phase 3 polish absorber (v5.8.43),
+api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45),
+arithmetic in fn args (v5.8.46), combined starship/p10k color
+refresh + vidya cyrius-language audit (v5.8.47), refactoring
++ heap-map cleanups (v5.8.48), full closeout pass (v5.8.49),
+deps cleanup + post-release propagation (v5.8.50), release-valve
+(v5.8.51). Cycle backstop hard at v5.8.51.)
+
 **5.8.41** (shipped 2026-05-03 — **v5.8.x SLOT 41 — cyrlint large-file
 false-positive verification slot**. Third slot of Phase 3. Closes
 the mabda-filed `cyrius lint reports phantom "unclosed braces at
@@ -3253,7 +3287,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.41 ✅ shipped — cyrlint large-file false-positive verification slot. Premise check found bug already resolved by intermediate cyrlint work; ships as verification with regression-floor gate. Phase 3 remaining (10 slots): paired UX polish (v5.8.42), Phase 3 polish absorber (v5.8.43), api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya cyrius-language audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 41 of 51 pinned slots shipped (80.4%); 10 slots remaining.**
+**v5.8.42 ✅ shipped — paired UX polish (mabda A2 + C1, combined). Half (a) cyrius fmt --check cbt arg-order fix (matches Rust/Go); half (b) var X; bare-decl diag improvement. Phase 3 remaining (9 slots): Phase 3 polish absorber (v5.8.43), api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya cyrius-language audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 42 of 51 pinned slots shipped (82.4%); 9 slots remaining.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3307,6 +3341,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.39** ✅ sandhi v1.1.0 fold-in (re-slotted from preprocessor item by user direction at v5.8.38 ship). lib/sandhi.cyr 376,037 → 411,361 B (+35,324 / +9.4%); ~150 new public _a verbs in sandhi src; per-request-arena pattern realized end-to-end; 143 new sandhi alloc tcyrs (792 total assertions green). cyrius-side: zero compiler delta; no internal consumers broken (grep clean); downstream propagation via cyrius deps
 - **v5.8.40** ✅ Preprocessor string-literal awareness (cascaded from v5.8.39). PP_PASS + PP_IFDEF_PASS gain in_string + escape_next state machines; `include "..."` inside string literals no longer mistaken for directives. cc5 +640 B (320 per pass). 12-assertion tcyr. Vidya entry flipped to ✅ FIXED.
 - **v5.8.41** ✅ cyrlint large-file false-positive verification slot. Premise check (4 repros, all clean) found mabda-filed bug already resolved by intermediate cyrlint work between v5.7.23 and v5.8.40. New regression-floor gate (tests/regression-cyrlint-large-file.sh, 7010-line synthetic) wired into check.sh (gate count 64→65). mabda issue annotated as ✅ RESOLVED. Zero compiler delta.
+- **v5.8.42** ✅ Paired UX polish (mabda A2 + C1). Half (a) `cyrius fmt --check` cbt arg-order fix (drift detection silently broken pre-fix; now matches Rust/Go silent-on-no-drift / exit-1-on-drift). Half (b) `var X;` bare-decl diag improvement (special-case ; token in PARSE_VAR + EMIT_GVAR_INITS, emit "uninitialized variable not allowed; use `var X = 0;`"). cc5 +216 B (entirely from half b).
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

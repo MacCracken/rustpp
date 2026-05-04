@@ -1,4 +1,17 @@
-# Issue: Global-init order — silent zero for forward references
+# Issue: Global-init order — silent zero for forward references — RESOLVED
+
+**Status:** ✅ **RESOLVED in cyrius v5.7.32** (cyrlint global-init-
+order forward-ref warning shipped). `lint_globals_init_order` in
+`programs/cyrlint.cyr` walks the file twice: pass 1 collects every
+top-level `var IDENT = ...;` with (name, line); pass 2 walks every
+`var X = expr;` initializer and emits a warning if any IDENT in
+the expr was declared at a line > X's line. v5.7.36 added string-
+literal awareness so identifier-shaped substrings inside `"..."`
+literals don't false-positive. Regression gate at
+`tests/regression-lint-global-init-order.sh` (4 sub-tests: bad-
+fixture warns ≥3 times, lib/math.cyr clean, lib/string.cyr clean,
+string-literal fixture clean). Archived 2026-05-03 during the
+v5.8.41 cyrlint cleanup pass.
 
 **Discovered:** 2026-04-28 (mabda v3 Step 4f.ii — BO page perms tightening)
 **Component:** `cyrius` compiler / runtime — global initializer evaluation

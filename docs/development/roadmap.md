@@ -1241,7 +1241,26 @@ fn requires explicit allocator.
   compiler delta). check.sh 65/65 (gate count +1). Self-host
   two-step byte-identical.
 
-- **v5.8.42** — Paired UX/diagnostic polish: `cyrius fmt
+- ✅ **v5.8.42** — Paired UX/diagnostic polish (shipped 2026-05-03;
+  mabda A2 + C1, combined per pin). **Half (a) cyrius fmt --check
+  exit code** (mabda A2): cbt's cmd_fmt invoked
+  `cyrfmt <file> --check` but cyrfmt parses --check only at argv(1);
+  with file at argv(1), _check_mode stayed 0, cyrfmt fell through
+  to format-to-stdout, exit 0 regardless of drift. Drift detection
+  silently broken via cbt wrapper. Fix: swap run_tool args to put
+  --check FIRST. Matches Rust/Go: silent on no-drift, exit
+  non-zero on drift. cbt-only edit, zero compiler delta. **Half (b)
+  var X; bare-decl diag** (mabda C1): two ERR_EXPECT(S, 4) sites
+  in parse_decl.cyr (PARSE_VAR line 953; EMIT_GVAR_INITS line 594)
+  emitted generic "expected '=', got ';'" for the bare-decl shape.
+  Fix: special-case the `;` token — emit specific "uninitialized
+  variable not allowed; use `var X = 0;` or initial value". Other
+  missing-= cases (e.g. `var x 42;`) keep generic ERR_EXPECT path.
+  cc5 740,312 → 740,528 B (+216 B; entirely from half b's
+  diagnostic improvement). check.sh 65/65; self-host two-step
+  byte-identical. Manual smoke clean across all paths.
+
+- **v5.8.42-orig (superseded)** — Paired UX/diagnostic polish: `cyrius fmt
   --check` exit-code semantics (mabda A2; match Rust/Go —
   exit non-zero on drift, silent on no-drift) + `var X;`
   bare-decl error-message polish (mabda C1; current "expected
