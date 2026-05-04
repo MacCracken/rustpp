@@ -4,16 +4,228 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [5.8.49] — 2026-05-04
+
+**v5.8.x slot 49 — Unicode 17.0.0 character categories +
+general-category lookup**. Eleventh slot of Phase 3. First
+slot of the Unicode 17.0.0 fold (.49 → .52) — the
+categorization layer that the case-folding (.50), normalization
+(.51), and regression-suite (.52) slots build on.
+
+cc5: **741,040 B unchanged** (no compiler change — pure stdlib
+addition; lib/unicode/ is loaded only by consumers that
+include it, so the compiler binary isn't relinked). Test count
+grows by one tcyr (`unicode_categories` 60/60).
+
+### Slot scope (per re-shuffled v5.8.x roadmap)
+
+The cycle re-ordered at v5.8.48 close so closeout (.55 — actual
+last patch) sits behind new feature work, not ahead of it. Per
+that re-pin, Unicode work starts at .49 and the cascaded .48
+refactor work moves to .53 (right before closeout). v5.8.49 is
+the first cycle slot under the corrected order.
+
+### What shipped
+
+**`lib/unicode/categories.cyr`** — public surface for the
+GeneralCategory lookup. New file, first stdlib subdirectory
+under `lib/`. Exports:
+
+- `GeneralCategory` enum — 30 leaf categories (`GC_LU`,
+  `GC_LL`, `GC_LT`, `GC_LM`, `GC_LO`, `GC_MN`, `GC_MC`,
+  `GC_ME`, `GC_ND`, `GC_NL`, `GC_NO`, `GC_PC`, `GC_PD`,
+  `GC_PS`, `GC_PE`, `GC_PI`, `GC_PF`, `GC_PO`, `GC_SM`,
+  `GC_SC`, `GC_SK`, `GC_SO`, `GC_ZS`, `GC_ZL`, `GC_ZP`,
+  `GC_CC`, `GC_CF`, `GC_CS`, `GC_CO`, `GC_CN`). Indexed 0..29
+  to match the data-table category byte. Aggregate categories
+  (L / M / N / P / S / Z / C) are intentionally NOT in the
+  enum — consumers should compose membership tests from leaf
+  categories.
+- `unicode_category(cp)` — int (`GC_*` enum value). Binary
+  search across 4144 sorted ranges (~12 iterations max).
+  Returns `GC_CN` (29 = unassigned) for codepoints outside any
+  defined range, including negative input and `cp > 0x10FFFF`
+  sentinel guards at the top of the fn.
+
+**`lib/unicode/_categories_data.cyr`** — auto-generated data
+file. 9 string-literal pieces of 500 ranges each (last piece
+holds 144), encoded as 14 hex chars per range (3 bytes u24 BE
+start + 3 bytes u24 BE end inclusive + 1 byte category index).
+Total blob: 58 016 hex chars / 4144 merged ranges. Source of
+truth: Unicode 17.0.0
+`extracted/DerivedGeneralCategory.txt`.
+
+**`scripts/gen-unicode-data.py`** — build-time codegen tool
+(NEW; first Python script in scripts/). Fetches
+DerivedGeneralCategory.txt from unicode.org, parses leaf
+categories, sorts + merges adjacent ranges sharing a category,
+emits the cyrius source. Output is committed; the script
+re-runs only on Unicode revision bumps (next: 18.0). Header
+explains the rationale — UCD parsing is offline build
+machinery, same category as the bash scripts in scripts/, not
+part of the runtime. A native cyrius UCD parser is not blocked
+by this script and could land in a later cycle if desired.
+
+**`tests/tcyr/unicode_categories.tcyr`** — 60-assertion
+regression floor. Covers ASCII fundamentals, Latin-1 +
+Latin-Extended boundary, Greek + Cyrillic, Hebrew + Arabic,
+CJK Unified Ideographs (large contiguous Lo block), Hangul +
+Devanagari (Indic + Korean), punctuation dispatch
+(Pi/Pf/Po/Pc/Pd/Ps/Pe), supplementary planes (cp > 0xFFFF —
+Linear B, math symbols, emoji), surrogate Cs, noncharacter Cn,
+out-of-range sentinels (negative, > 0x10FFFF), and the
+Private Use Area (Co). Auto-discovered by check.sh and
+`cyrius test`.
+
+### Encoding decisions
+
+- **Hex-pair encoding over raw bytes:** cyrius has no
+  precedent for binary string literals (embedded NUL or high
+  bytes); printable ASCII is lexer-safe and round-trips
+  through `cyrius fmt` cleanly. Each byte costs 2 chars, so
+  the blob is ~2x raw. For Unicode 17.0 GeneralCategory
+  (~4144 merged ranges) the expanded form is 58 KB —
+  comfortably under cc5's 8 MiB tok_values cap.
+- **9 string pieces vs. 1 giant literal:** chunked at clean
+  range boundaries (500 ranges = 7000 hex chars per piece)
+  so the cyrius-side dispatch can compute (piece_idx,
+  offset_in_piece) from a flat range index without crossing
+  piece edges. The lookup hand-dispatches piece index → string
+  pointer because cyrius doesn't currently support indexed-
+  by-int access into a parallel array of distinct gvar names.
+- **Subdirectory `lib/unicode/`:** first stdlib sub-tree.
+  The `include "lib/unicode/_categories_data.cyr"` path
+  resolves correctly through cc5's include mechanism;
+  verified by smoke probe before committing to the layout.
+  Snapshot ping-pong note: `install.sh --refresh-only` did
+  NOT pick up the new subdirectory at the v5.8.49 bump —
+  manual `mkdir + cp` into
+  `~/.cyrius/versions/5.8.49/lib/unicode/` was required.
+  Filed as a script gap to address when adding a second
+  sub-tree (likely v5.8.50 with `lib/unicode/casefold.cyr`).
+
+### Acceptance gates
+
+- `scripts/check.sh`: **65 passed, 0 failed** (named gates) +
+  `unicode_categories PASS (60 passed, 0 failed)` in the
+  per-tcyr summary.
+- Self-host: cc5 == cc5b byte-identical at 741,040 B (no
+  compiler change — Unicode is stdlib, only loaded by
+  consumers).
+- `cc5 --version` reports `cc5 5.8.49`.
+- 60 codepoints across 11 verification categories all match
+  Python's `unicodedata.category()` reference. Spot checks
+  (smoke probes during development): 'A' = Lu (0), '5' = Nd
+  (8), supplementary plane (Linear B, emoji) all return
+  correct categories.
+
+### Coverage notes for downstream consumers
+
+Consumers wanting "is this a letter?" / "is this a digit?" /
+etc. boolean tests should compose them from `GC_*` constants
+rather than testing aggregate categories directly. Helpers
+like `unicode_is_letter(cp)` are deliberately NOT shipped in
+v5.8.49 — they're trivial one-liners (`var c =
+unicode_category(cp); return c <= GC_LO;`) and shipping them
+in this slot would commit to a specific aggregate-membership
+contract that the case-folding / normalization slots might
+want to refine. Defer to consumer demand.
+
+### `version-bump.sh` sed greediness — fixed in-slot
+
+The CHANGELOG insertion sed at v5.8.48 was anchored on the loose
+pattern `/## \[Unreleased\]/`, which matches any line *containing*
+that substring — including narrative body text. The v5.8.48 entry
+(which was hand-edited to add the `## [Unreleased]` anchor itself)
+quotes `## [Unreleased]` three times in its body for context:
+once in the slot title, twice in the gotcha section. At the
+v5.8.49 bump that loose pattern fired four times — once at the
+legitimate anchor (line 7) and three more inside the v5.8.48
+narrative — inserting three spurious `## [5.8.49]` headers that
+broke the v5.8.48 entry's flow. Caught by `grep "## \[5.8" CHANGELOG.md`
+sanity-check immediately after bump.
+
+Fixed in-slot by tightening the script's pattern to
+`^## \[Unreleased\]$` (start-of-line through end-of-line),
+matching only the literal Unreleased header line. Dry-run
+verified: pretending a v5.8.50 bump against the post-v5.8.49
+CHANGELOG inserts the header exactly once at the legitimate
+anchor; body mentions are ignored. Same in-slot resolution
+pattern as the v5.8.48 anchor-restoration fix.
+
+### `install.sh --refresh-only` subdir gap — flagged for v5.8.50
+
+`install.sh --refresh-only` does not recursively pick up new
+`lib/<subdir>/*.cyr` files when a stdlib subdirectory is
+added. Manually mirrored at this slot's bump
+(`mkdir + cp lib/unicode/*.cyr ~/.cyrius/versions/5.8.49/lib/unicode/`).
+Likely fix: the install script's lib copy uses a flat glob
+like `lib/*.cyr`; needs to become `lib/**/*.cyr` (or
+equivalent recursive traversal). Will re-surface at v5.8.50
+(case folding adds another file under `lib/unicode/`); fixing
+the script there is in scope. NOT fixed in v5.8.49 because it
+needs `install.sh` review beyond a one-line sed-pattern tweak,
+and the v5.8.49 scope is already at the line "Unicode
+categories + the bump-script gotcha I created in v5.8.48."
+
 ## [5.8.48] — 2026-05-04
 
-**v5.8.x slot 48 — alloc tcyr rename: drop temporal "passN"
-suffixes for topical names**. Tenth slot of Phase 3. Pure
-hygiene slot — surfaced during a P(-1) audit user requested
-at slot entry.
+**v5.8.x slot 48 — P(-1) audit + alloc tcyr rename + CHANGELOG
+`## [Unreleased]` anchor restoration**. Tenth slot of Phase 3.
 
 cc5: **741,040 B unchanged** (no compiler change — pure
 test-tree rename + doc; `src/version_str.cyr` regenerated by
 `version-bump.sh` so `cc5 --version` reports `5.8.48`).
+
+### Honest scope-shift — what was pinned vs. what shipped
+
+The roadmap pinned v5.8.48 as a **closeout-prep refactor slot**:
+heap-map deep audit, dead-code-removal attempt, and refactor
+pass across Phase 2's 30 `_a` variants + v5.8.30/.31 `_r`
+variants. **None of that refactor work shipped under v5.8.48.**
+
+What happened: user opened the slot with a P(-1) audit request;
+mid-audit the temporal `_passN` test-naming surfaced as a
+20-yr-QA pet peeve, and the rename became the slot's main
+user-facing deliverable. I declared the audit findings done
+without first reading the roadmap pin to confirm the slot's
+real scope — premise-check failure, exactly the pattern the
+`feedback_premise_check_at_slot_entry` memory pin was meant to
+prevent.
+
+**Per user direction at slot close** the unfinished refactor
+work cascades and the rest of the cycle re-orders. Two
+directives, in order, both at slot-close 2026-05-04:
+
+1. "cascade remaining; .49 picks up the remaining .48 work"
+   — the heap-map deep audit / dead-code-removal attempt /
+   `_a`/`_r` variant consolidation pass moves out of v5.8.48.
+2. ".49 actually belongs before close out as audits do...
+   make it .53 and lets start Unicode categories now" —
+   audit-just-before-closeout is structurally correct, so
+   cascaded refactor lands at .53 (right before .55 closeout)
+   and Unicode work starts at .49.
+
+Final corrected layout (mid-shuffle layout was discarded
+before any code shipped):
+
+| Slot | Inherited pin | Now |
+| --- | --- | --- |
+| v5.8.49 | Full closeout (TRUE 11-step) | Unicode categories (started in this slot's wake) |
+| v5.8.50 | Deps cleanup | Unicode case folding |
+| v5.8.51 | Release valve | Unicode normalization |
+| v5.8.52 | Unicode categories | Unicode regression suite |
+| v5.8.53 | Unicode casefold | Cascaded .48 refactor / closeout-prep audit |
+| v5.8.54 | Unicode normalize | Deps cleanup + release-valve (combined) |
+| v5.8.55 | Unicode regression + closeout (bundled) | Cycle closeout pass (CLAUDE.md 11-step, actual final patch) |
+
+Backstop stays hard at v5.8.55 as user-pinned. The .55 backstop
+IS the cycle closeout — that's the structurally correct
+position; the inherited pin had two "closeouts" (one at .49
+labeled "TRUE closeout", one bundled into .55 "also re-runs
+here"), which was the error.
 
 ### The rename
 
@@ -70,18 +282,21 @@ them. If a file is genuinely "the leftover bits", a deliberate
 broad-but-honest name (`_extras`, `_misc`, `_aux`) is fine —
 but never a sequence number.
 
-### `version-bump.sh` gotcha (filed for v5.9.x cleanup)
+### `version-bump.sh` anchor — fixed in-slot
 
 `scripts/version-bump.sh` inserts the new CHANGELOG header via
 `sed -i "/## \[Unreleased\]/a..."` — relies on a `## [Unreleased]`
-anchor that this CHANGELOG doesn't carry, so the CHANGELOG
-header insertion silently no-op'd at the v5.8.48 bump. VERSION
-/ CLAUDE.md / install.sh / install snapshot / `version_str.cyr`
-all updated correctly; only CHANGELOG.md was missed and had to
-be hand-edited to add this entry. Either re-introduce a
-`## [Unreleased]` placeholder above the latest version, or
-change the script's sed to insert after the `Format: [Keep a
-Changelog]...` line. Out of scope for this slot — flagged.
+anchor that the CHANGELOG had lost at some prior bump (Keep a
+Changelog convention says to keep one; ours had drifted). The
+sed silently no-op'd at the v5.8.48 bump: VERSION / CLAUDE.md
+/ install.sh / install snapshot / `version_str.cyr` all updated,
+but CHANGELOG.md alone had to be hand-edited.
+
+Fixed in this same slot by re-adding `## [Unreleased]`
+immediately under the file header. The script's sed appends
+*after* the Unreleased line, so the anchor stays in place
+across future bumps. No script change needed; the next
+`version-bump.sh X.Y.Z` will insert `## [X.Y.Z]` correctly.
 
 ### Acceptance gates
 

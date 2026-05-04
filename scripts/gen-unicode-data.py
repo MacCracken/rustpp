@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+# scripts/gen-unicode-data.py — build-time codegen for lib/unicode/* data tables.
+#
+# This is a one-shot generator that runs offline to refresh the Unicode tables
+# baked into lib/unicode/. Its output (lib/unicode/_categories_data.cyr) is
+# committed to the repo — users do NOT need to run this script. Re-run only
+# when bumping to a new Unicode revision (current target: 17.0.0, released
+# 2025-09-09).
+#
+# Why Python: this is a one-shot codegen tool, not part of the cyrius runtime
+# or self-hosting chain. The cyrius project ethos ("own the toolchain") applies
+# to the runtime + compiler — UCD parsing is offline build-machinery, the same
+# category as the bash scripts in scripts/. A native cyrius UCD parser is not
+# blocked by this script and could land in a later cycle if desired.
+#
+# Usage:
+#   python3 scripts/gen-unicode-data.py
+#
+# Outputs:
+#   lib/unicode/_categories_data.cyr — packed hex-pair encoded GeneralCategory
+#   range table + range count + category-name table.
+#
+# Encoding format (per range, 14 ASCII hex chars):
+#   bytes 0..2  start codepoint  (u24, big-endian — high byte first)
+#   bytes 3..5  end   codepoint  (u24, big-endian, INCLUSIVE)
+#   byte  6     general-category index (see GC_* enum in categories.cyr)
+#
+# Hex-pair encoding chosen because cyrius has no precedent for binary string
+# literals (embedded NUL / high bytes); printable ASCII is lexer-safe and
+# round-trips through `cyrius fmt` cleanly. Each byte costs 2 chars, so the
+# blob is ~2x raw. For Unicode 17.0 GeneralCategory (~3500 ranges merged) the
+# expanded form is ~50KB — comfortably below cc5's 8 MiB tok_values cap.
+
+import re
+import sys
+import urllib.request
+
+URL = "https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedGeneralCategory.txt"
+
+# Order matches GeneralCategory enum in lib/unicode/categories.cyr.
+# Index = enum value. 30 categories total per Unicode standard.
+CAT_ORDER = [
+    "Lu", "Ll", "Lt", "Lm", "Lo",        # Letter
+    "Mn", "Mc", "Me",                    # Mark
+    "Nd", "Nl", "No",                    # Number
+    "Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po",   # Punctuation
+    "Sm", "Sc", "Sk", "So",              # Symbol
+    "Zs", "Zl", "Zp",                    # Separator
+    "Cc", "Cf", "Cs", "Co", "Cn",        # Other
+]
+CAT_IDX = {c: i for i, c in enumerate(CAT_ORDER)}
+
+
+def fetch():
+    print(f"fetching {URL}", file=sys.stderr)
+    with urllib.request.urlopen(URL, timeout=30) as resp:
+        return resp.read().decode("utf-8")
+
+
+def parse(text):
+    """Parse DerivedGeneralCategory.txt lines.
+
+    Format examples:
+        0030..0039    ; Nd # Nd  [10] DIGIT ZERO..DIGIT NINE
+        0041..005A    ; Lu # L&  [26] LATIN CAPITAL LETTER A..LATIN CAPITAL LETTER Z
+        00B5          ; Ll # L&       MICRO SIGN
+
+    Skips aggregate categories (L, M, N, P, S, Z, C) — we want only the leaf
+    2-char categories that map to enum entries.
+    """
+    rng = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = re.match(
+            r"^([0-9A-Fa-f]+)(?:\.\.([0-9A-Fa-f]+))?\s*;\s*(\w+)\s*$", line
+        )
+        if not m:
+            continue
+        start = int(m.group(1), 16)
+        end = int(m.group(2), 16) if m.group(2) else start
+        cat = m.group(3)
+        if cat not in CAT_IDX:
+            continue  # aggregate (L, M, N, P, S, Z, C)
+        rng.append((start, end, CAT_IDX[cat]))
+    rng.sort()
+    # Merge adjacent ranges sharing a category.
+    merged = []
+    for s, e, c in rng:
+        if merged and merged[-1][1] + 1 == s and merged[-1][2] == c:
+            merged[-1] = (merged[-1][0], e, c)
+        else:
+            merged.append([s, e, c])
+    return merged
+
+
+def emit_packed_hex(ranges):
+    """Emit one big string: 14 hex chars per range, all concatenated.
+
+    Returns (hex_blob, count).
+    """
+    chunks = []
+    for s, e, c in ranges:
+        if s > 0xFFFFFF or e > 0xFFFFFF:
+            raise ValueError(f"codepoint > 24 bits: {s:x}..{e:x}")
+        if c < 0 or c > 0xFF:
+            raise ValueError(f"category index out of byte range: {c}")
+        chunks.append(f"{s:06x}{e:06x}{c:02x}")
+    return "".join(chunks), len(ranges)
+
+
+def emit_cyrius_source(blob, count, category_text_count, source_url):
+    """Emit lib/unicode/_categories_data.cyr."""
+    # Chunk on a clean range boundary (each range is 14 hex chars) so the
+    # cyrius-side dispatch can compute (piece_idx, offset_in_piece) from a
+    # flat range index without crossing piece edges. 500 ranges per piece =
+    # 7000 hex chars; safely under cc5's per-literal limits.
+    RANGES_PER_PIECE = 500
+    CHARS_PER_RANGE = 14
+    CHUNK = RANGES_PER_PIECE * CHARS_PER_RANGE
+    pieces = [blob[i : i + CHUNK] for i in range(0, len(blob), CHUNK)]
+
+    out = []
+    out.append("# lib/unicode/_categories_data.cyr — AUTO-GENERATED by")
+    out.append("# `scripts/gen-unicode-data.py`. Do NOT edit by hand; the next")
+    out.append("# regeneration will overwrite. Source of truth:")
+    out.append(f"#   {source_url}")
+    out.append(f"# Unicode 17.0.0 ({count} merged ranges; {category_text_count}")
+    out.append("# total leaf categories). Encoding: 14 hex chars per range —")
+    out.append("# 6 chars u24 start + 6 chars u24 end (inclusive) + 2 chars cat")
+    out.append("# index. The category index aligns with the GeneralCategory")
+    out.append("# enum in lib/unicode/categories.cyr (Lu=0, Ll=1, ..., Cn=29).")
+    out.append("# Public surface lives in categories.cyr; this file is data.")
+    out.append("")
+    out.append(f"var _UNICODE_CAT_RANGE_COUNT = {count};")
+    out.append(f"var _UNICODE_CAT_PIECE_COUNT = {len(pieces)};")
+    out.append(f"var _UNICODE_CAT_RANGES_PER_PIECE = 500;")
+    out.append("")
+    for i, piece in enumerate(pieces):
+        out.append(f'var _UNICODE_CAT_PIECE_{i} = "{piece}";')
+    return "\n".join(out) + "\n"
+
+
+def main():
+    text = fetch()
+    ranges = parse(text)
+    blob, count = emit_packed_hex(ranges)
+    print(f"merged {count} ranges; blob = {len(blob)} hex chars", file=sys.stderr)
+    out_path = "lib/unicode/_categories_data.cyr"
+    src = emit_cyrius_source(blob, count, len(CAT_ORDER), URL)
+    with open(out_path, "w") as f:
+        f.write(src)
+    print(f"wrote {out_path}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

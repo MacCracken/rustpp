@@ -1482,65 +1482,43 @@ fn requires explicit allocator.
   should grep vidya field_notes/language/ for FIXED-by-side-
   effect entries before declaring scope.
 
-- **v5.8.48** — Refactoring + heap-map cleanups (per user
-  direction 2026-05-03 PM). Closeout-prep slot for the v5.8.x
-  cycle. Per CLAUDE.md "Closeout Pass" §4 (heap map audit) +
-  §5 (dead code) + §6 (refactor pass) — these are the
-  judgment-call passes that uncover scope for follow-up. Done
-  as their own slot here so v5.8.49 closeout can run the
-  mechanical checks against a clean refactored tree rather
-  than discovering refactor opportunities mid-closeout.
-  Specifically:
-  - **Heap-map audit** — review every region added across
-    v5.8.x (var_enum_id / enum_count / enum_variant_count /
-    enum_name from v5.8.21-27; any v5.8.x slot's new region).
-    Document offsets, look for consolidation opportunities
-    (adjacent regions owned by the same subsystem), grow caps
-    that hit during the cycle.
-  - **Dead-code audit** — `note: N unreachable fns` floor
-    from cc5 self-build. Remove unreachable; record new floor.
-  - **Refactor pass** — review the cycle's additions for
-    consolidation. Phase 2's 30 `_a` variants across vec/str/
-    hashmap/json/toml/cyml/http might collapse helpers. The
-    Result-shaped `_r` variants from v5.8.30/.31 might share
-    common Err-construction paths. Per the v5.7.47 precedent,
-    refactor-as-own-slot is preferred over folding into the
-    closeout.
+- **v5.8.48** ✅ SHIPPED 2026-05-04 — P(-1) audit + alloc tcyr
+  rename + CHANGELOG `## [Unreleased]` anchor restoration.
 
-- **v5.8.49** — Full closeout pass. The cycle's TRUE closeout
-  protocol (CLAUDE.md 11-step). All passes run:
-  §1-3 mechanical (self-host two-step + bootstrap closure +
-  full check.sh — all gates green); §4-8 judgment (heap-map +
-  dead-code + refactor + code-review + cleanup — most of which
-  v5.8.48 already did, so this is the cross-check); §9-10
-  compliance (security re-scan + downstream check); §11 docs
-  sync (CHANGELOG/roadmap/state.md/vidya — vidya done at
-  v5.8.47 so this is the freshness re-verify). Acceptance gate:
-  every CLAUDE.md §1-11 step ticked; completed-phases.md
-  migration of all v5.8.* sections; cc5 byte-identical; no new
-  warnings.
+  **Honest scope-shift note:** the originally-pinned scope
+  (refactor pass + heap-map deep audit + dead-code-removal
+  attempt) was NOT what shipped. User opened the slot with a
+  P(-1) audit request; mid-audit the temporal `_passN` test
+  names surfaced as a 20-yr-QA pet peeve and the rename became
+  the slot's main user-facing deliverable. The refactor pass on
+  Phase 2's 30 `_a` variants + v5.8.30/.31 `_r` variants did
+  not happen. Per user direction at slot close ("cascade
+  remaining; .49 picks up the remaining .48 work"), the
+  unfinished refactor / heap-deep-audit / dead-code-removal
+  work cascades to v5.8.49. **Premise-check failed** — should
+  have read this roadmap pin before declaring the audit
+  findings done; flagged for v5.8.x cycle retrospective.
 
-- **v5.8.50** — Deps cleanup + post-.49-release update
-  propagation. Per user direction 2026-05-03 PM. The v5.8.49
-  closeout ships v5.8.x as a stable release; v5.8.50 is the
-  immediate-after-release slot that updates `cyrius/cyrius.cyml`
-  `[deps.*]` fields to whatever new dep tags the v5.8.49
-  release motivated, re-bundles stdlib distfiles via `cyrius
-  distlib` if any dep cut a new release, and propagates the
-  v5.8.49 release tag through the ecosystem (downstream pin
-  bumps queued in the per-repo cycles, not executed here).
+  What actually shipped:
+  - alloc_stdlib*.tcyr → topical names (alloc_collections /
+    alloc_serdes / alloc_str_extras); git mv preserves blame;
+    file headers rewritten with original-name + landing-version
+    breadcrumbs.
+  - `## [Unreleased]` anchor restored above latest version in
+    `CHANGELOG.md` so `version-bump.sh`'s sed insertion stops
+    silently no-op'ing (silent miss caught at v5.8.48 bump
+    itself; VERSION/CLAUDE.md/install.sh/snapshot/version_str.cyr
+    all updated correctly, only CHANGELOG was missed).
+  - P(-1) audit baseline recorded: cc5 = 741,040 B
+    byte-identical self-host; check.sh 65/65; heapmap.sh 84
+    regions / 0 overlaps / 0 warnings; cyrius bench 15/15;
+    dead-code floor = 36 unreachable fns / 22,571 B (all
+    mode-dispatched TS_*/macho_*/IR cross-arch — NOT removable
+    per the dead-code-audit-scope memory pin).
+  - Discipline pin saved to memory:
+    `feedback_no_temporal_test_names`.
 
-- **v5.8.51** — Release-valve slot for any issue surfaced by
-  the v5.8.50 deps update or v5.8.49 release. Mirrors the
-  v5.7.50 P(-1) unblock pattern from the v5.7.x cycle's
-  end-of-cycle. If no issues surface, this slot ships
-  housekeeping (the Unicode work picks up at v5.8.52
-  regardless). If a downstream consumer files a regression
-  against v5.8.49 within hours of release, it lands here as
-  the canonical patch-on-the-just-shipped-tag. Per user
-  framing: "release valve of any issue surfaced by updates".
-
-### v5.8.x — Unicode 17.0.0 fold (v5.8.52 → v5.8.55, backstop extended)
+### v5.8.x — Unicode 17.0.0 fold (v5.8.49 → v5.8.52)
 
 Pinned 2026-05-03 at v5.8.45 ship per user direction
 ("we will make 5.8.55 the new backstop and we will want to
@@ -1553,6 +1531,17 @@ v5.9.x cycle planning. Better to let v5.8.x absorb the full
 Unicode fold and ship v5.9.0 with niyama regex stdlib + bare-
 metal AGNOS arc (per existing pin).
 
+**Slot numbers shifted forward 2026-05-04** (originally pinned
+.52-.55, then briefly .50-.53 mid-shuffle) so:
+1. Closeout sits at the actual cycle backstop (.55) rather
+   than mid-cycle ahead of new feature work — closeout =
+   last patch of current minor per CLAUDE.md.
+2. The cascaded v5.8.48 closeout-prep refactor pass sits
+   immediately BEFORE closeout (at .53), where audits
+   structurally belong — clean tree feeds a clean closeout.
+3. Unicode work starts at .49 (now), not deferred behind the
+   audit/refactor.
+
 Reference: https://www.unicode.org/versions/Unicode17.0.0/.
 Unicode 17.0 (released 2025-09-09) adds 4,803 characters →
 total 159,801 graphemes. Cyrius's v5.7.13 string-literal UTF-8
@@ -1562,20 +1551,40 @@ case-folding** infrastructure that consumer regex (niyama),
 fmt rendering (sigil), and TUI clipping (mabda) currently
 hand-roll incompletely.
 
-- **v5.8.52** — Unicode 17.0.0 character categories +
-  general-category lookup. Add `lib/unicode/categories.cyr`
-  with the GeneralCategory enum (Lu/Ll/Lt/Lm/Lo, Mn/Mc/Me,
-  Nd/Nl/No, Pc/Pd/Ps/Pe/Pi/Pf/Po, Sm/Sc/Sk/So, Zs/Zl/Zp,
-  Cc/Cf/Cs/Co/Cn). Bake the UCD data file (compressed range
-  table, ~30 KB) into the binary as a const blob; lookup via
-  binary search on (codepoint, range_start). API:
-  `unicode_category(cp) -> GeneralCategory`. Verification:
-  `tests/tcyr/unicode_categories.tcyr` walks 100+ codepoints
-  from each major block; per-codepoint match against ICU's
-  reference (cross-checked offline via Python's
-  `unicodedata.category()`).
+- **v5.8.49** ✅ SHIPPED 2026-05-04 — Unicode 17.0.0 character
+  categories + general-category lookup.
 
-- **v5.8.53** — Unicode 17.0.0 case folding (simple + full).
+  Delivered:
+  - `lib/unicode/categories.cyr` — public surface (first stdlib
+    subdirectory). GeneralCategory enum (30 leaf categories,
+    indexed 0..29) + `unicode_category(cp)` binary-search
+    lookup over 4144 sorted ranges.
+  - `lib/unicode/_categories_data.cyr` — auto-generated; 9
+    string-literal pieces × 500 ranges; 58 016 hex chars total
+    encoding (3-byte u24 start + 3-byte u24 end inclusive +
+    1-byte category, hex-pair printable encoding for
+    lexer-safety).
+  - `scripts/gen-unicode-data.py` — build-time codegen
+    (committed; runs offline on Unicode revision bumps; first
+    Python script in scripts/).
+  - `tests/tcyr/unicode_categories.tcyr` — 60 assertions
+    across 11 verification categories (ASCII / Latin / Greek /
+    Cyrillic / Hebrew / Arabic / CJK / Hangul / Devanagari /
+    punctuation dispatch / supplementary planes / surrogate +
+    noncharacter Cs/Cn / out-of-range sentinels / Private Use
+    Area). Auto-discovered by check.sh.
+  - cc5 unchanged at 741,040 B (Unicode is stdlib, only loaded
+    by consumers).
+
+  Follow-ups carried into v5.8.50:
+  - `install.sh --refresh-only` doesn't recursively traverse
+    `lib/<subdir>/*.cyr`; manual mirror to
+    `~/.cyrius/versions/<v>/lib/unicode/` was required at
+    bump. v5.8.50 adds the second file under `lib/unicode/`
+    (casefold.cyr) — fixing the script's lib glob is in scope
+    there.
+
+- **v5.8.50** — Unicode 17.0.0 case folding (simple + full).
   Add `lib/unicode/casefold.cyr` with `unicode_to_lower(cp)`,
   `unicode_to_upper(cp)`, `unicode_to_title(cp)`, plus the
   full case-folding map for case-insensitive comparison
@@ -1585,7 +1594,7 @@ hand-roll incompletely.
   / `str_upper_unicode` (the existing `str_lower` / `str_upper`
   stay ASCII-only for back-compat — no rename, additive only).
 
-- **v5.8.54** — Unicode 17.0.0 normalization (NFC/NFD/NFKC/NFKD).
+- **v5.8.51** — Unicode 17.0.0 normalization (NFC/NFD/NFKC/NFKD).
   Add `lib/unicode/normalize.cyr` with the canonical
   decomposition tables + composition algorithm (Hangul +
   general). API: `str_normalize(s, form)` where form is enum
@@ -1594,21 +1603,139 @@ hand-roll incompletely.
   `str_eq_normalized(a, b, form)` for use cases like filename
   comparison on macOS (NFD on disk vs NFC in code).
 
-- **v5.8.55** — Unicode regression suite + cycle closeout.
+- **v5.8.52** — Unicode 17.0.0 regression suite.
   `tests/tcyr/unicode_*.tcyr` exhaustive coverage: every
   general-category boundary codepoint, NFC↔NFD round-trips
   for ~500 known-tricky strings (Hangul jamo, combining
   marks, ligatures, Arabic shaping), case-folding equivalences
   (ß/SS, ı/I/i, etc.), and the canonical UCD test suite
   (`NormalizationTest.txt` ~25 K test vectors via a
-  conversion-script-emitted tcyr). Cycle closeout pass also
-  re-runs here — full check.sh, heap-map audit (Unicode
-  tables consume new heap regions; size + offset audit),
-  vidya sync (new `lib/unicode/*` entries in
-  `vidya/content/cyrius/language.cyml`), CHANGELOG closeout
-  narrative, security re-scan (UCD data files are read-only
-  blobs but worth confirming no parse-time write paths leak
-  through). **Cycle backstop hard at v5.8.55** (was v5.8.51
+  conversion-script-emitted tcyr). Locks the v5.8.49-51
+  Unicode infrastructure; surfaces any boundary cases for
+  the .54 release-valve to catch.
+
+### v5.8.x — Cycle wind-down (v5.8.53 → v5.8.55)
+
+- **v5.8.53** — Cascaded v5.8.48 refactor work +
+  closeout-prep audit. Pure refactor slot, sitting
+  immediately before closeout per the standard "audit-just-
+  before-closeout" structure (audits feed a clean tree into
+  closeout cross-checks).
+
+  Per user direction 2026-05-04 — originally cascaded into
+  v5.8.49 ("cascade remaining; .49 picks up the remaining
+  .48 work") then re-pinned to .53 ("audits belong before
+  closeout") so Unicode work could start at .49. Originally
+  pinned for v5.8.48 itself.
+
+  - **Heap-map deep audit** — review every region added
+    across v5.8.x (var_enum_id / enum_count /
+    enum_variant_count / enum_name from v5.8.21-27; any
+    v5.8.x slot's new region INCLUDING the v5.8.49-51
+    Unicode bake-in regions for categories / casefold /
+    normalize tables). Document offsets, look for
+    consolidation opportunities (adjacent regions owned by
+    the same subsystem), grow caps that hit during the
+    cycle. The surface-level "84 regions / 0 overlaps" check
+    from v5.8.48 is NOT this audit — this is the per-region
+    consolidation review.
+  - **Dead-code audit** — beyond v5.8.48's recorded floor
+    (36 fns / 22,571 B), check whether any of the 36 truly
+    are removable (cross-check vs. mode-dispatch entry
+    points in `main_*.cyr` / `--parse-ts` / `--target=macho`
+    / etc.). Per the `feedback_dead_code_audit_scope` memory
+    pin, 0-callers-in-grep is NOT safe-to-remove on its own.
+    Re-record the floor with Unicode additions counted.
+  - **Refactor pass** — review the cycle's additions for
+    consolidation. Phase 2's 30 `_a` variants across
+    vec/str/hashmap/json/toml/cyml/http might collapse
+    helpers. The Result-shaped `_r` variants from
+    v5.8.30/.31 might share common Err-construction paths.
+    Unicode 17.0.0 fold (.49-.51) added 3 new lib/unicode/*
+    modules — review for cross-module helper duplication
+    (range-table binary-search, UCD-blob format, etc.).
+    Per the v5.7.47 precedent, refactor-as-own-slot is
+    preferred over folding into the closeout; this slot
+    honors that pattern.
+
+- **v5.8.54** — Deps cleanup + release-valve (combined slot).
+  Two purposes:
+  1. **Deps cleanup** — update `cyrius/cyrius.cyml`
+     `[deps.*]` fields to whatever new dep tags the v5.8.x
+     cycle's stdlib changes motivated; re-bundle stdlib
+     distfiles via `cyrius distlib` if any dep cut a new
+     release. Per user direction 2026-05-03 PM.
+  2. **Release-valve** — buffer slot for any issue surfaced
+     by the Unicode 17.0.0 fold (v5.8.49-52) before
+     closeout commits the cycle. Mirrors the v5.7.50 P(-1)
+     unblock pattern from the v5.7.x cycle's end-of-cycle.
+     If Unicode shipped clean and no consumer flagged
+     anything, this absorbs housekeeping (stale-comment
+     sweep, orphan file cleanup, the small-but-not-urgent
+     items deferred from earlier slots). Per user framing:
+     "release valve of any issue surfaced by updates".
+
+  Note: downstream pin bumps (per-repo `cyrius` field updates
+  in mabda / sigil / sakshi / yukti / kybernet / hadara / …)
+  are NOT executed in this slot — they happen in each
+  downstream repo's own cycle, against the v5.8.55 release
+  tag.
+
+- **v5.8.55** — Cycle closeout pass. **The cycle backstop
+  and the actual final patch of v5.8.x.** Per CLAUDE.md
+  "Closeout Pass" (11-step protocol — mechanical first,
+  judgment-call passes, doc sync):
+
+  §1-3 **Mechanical (fast-fail):**
+  - Self-host verify (cc5 == cc5b byte-identical)
+  - Bootstrap closure (seed → cyrc → asm → cyrc
+    byte-identical)
+  - Full check.sh — all gates green; record the test count
+    (grew from 65 at v5.8.48; expected to reach ~70+ with
+    Unicode tcyrs)
+
+  §4-8 **Judgment (cross-check, since v5.8.53 already did
+  the deep passes):**
+  - §4 Heap-map audit (re-verify Unicode-table regions
+    documented in heap map — Unicode normalize +
+    decomposition tables consume new bake-in regions)
+  - §5 Dead-code audit (record new floor)
+  - §6 Refactor pass (any consolidation v5.8.49 missed +
+    Unicode-specific opportunities)
+  - §7 Code review pass (walk Unicode + late-cycle diffs
+    end-to-end; ABI/PE/macho guards; byte-order typos in
+    UCD-blob hex literals)
+  - §8 Cleanup sweep (stale comments, dead `#ifdef`
+    branches, orphan files in `build/` / `tests/`)
+
+  §9-10 **Compliance / external:**
+  - §9 Security re-scan (UCD data files are read-only blobs
+    but worth confirming no parse-time write paths leak
+    through; full audit was last v5.0.1 — assess whether
+    this closeout warrants a fresh audit per the
+    "every 2-3 minors" rule)
+  - §10 Downstream check (all `cyrius.cyml` `cyrius` fields
+    across ecosystem repos point to released tags; flag any
+    repo behind on bumps for the consumer to catch up)
+
+  §11 **Docs sync (silent-rot prevention):**
+  - CHANGELOG/roadmap/state.md/vidya all reflect v5.8.55
+    state
+  - **Vidya per-minor refresh** — `language.cyml` (Unicode
+    APIs new entries), `field_notes/compiler.cyml` /
+    `field_notes/language.cyml` (cycle gotchas),
+    `implementation.cyml` / `types.cyml` (heap map +
+    structural changes), `dependencies.cyml` /
+    `ecosystem.cyml` (dep refresh from .54)
+  - Cross-check version refs in vidya match VERSION file
+  - Migrate completed v5.8.* slot narratives from roadmap
+    into `docs/development/completed-phases.md`
+
+  Acceptance gate: every CLAUDE.md §1-11 step ticked;
+  completed-phases.md migration of all v5.8.* sections; cc5
+  byte-identical; no new warnings.
+
+  **Cycle backstop hard at v5.8.55** (was v5.8.51
   pre-Unicode-pin; extended +4 slots per user direction
   2026-05-03 PM).
 

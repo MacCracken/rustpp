@@ -1,0 +1,113 @@
+# unicode_categories.tcyr — v5.8.49 — Unicode 17.0.0 GeneralCategory
+# lookup regression floor.
+#
+# Locks lib/unicode/categories.cyr behavior across:
+#   (1) ASCII fundamentals — letters, digits, space, control
+#   (2) Latin-1 supplement + Latin Extended — boundary into multi-byte
+#   (3) Greek + Cyrillic blocks
+#   (4) Hebrew + Arabic (right-to-left scripts)
+#   (5) CJK Unified Ideographs (large contiguous Lo block)
+#   (6) Hangul + Devanagari (Indic + Korean)
+#   (7) Punctuation marks across scripts (Pi/Pf/Po dispatch)
+#   (8) Supplementary planes (cp > 0xFFFF) — Linear B, emoji, math symbols
+#   (9) Noncharacter + surrogate sentinels
+#  (10) Out-of-range sentinels (negative, > 0x10FFFF)
+#  (11) Cn (unassigned) fallthrough behavior
+#
+# Data source: Unicode 17.0.0 DerivedGeneralCategory.txt — locked at
+# 4144 merged ranges across 9 string-literal pieces.
+#
+# All expected category values cross-checked against Python's
+# unicodedata.category() (which tracks Unicode 16.0 in stdlib but the
+# tested codepoints are stable across versions back to ~Unicode 5.0;
+# Unicode 17.0 newness is in additional codepoints, not in
+# recategorizing the codepoints below).
+
+include "lib/syscalls.cyr"
+include "lib/assert.cyr"
+include "lib/unicode/categories.cyr"
+
+# ── (1) ASCII fundamentals ────────────────────────────────────────
+assert_eq(unicode_category(0x0041), GC_LU, "0x0041 'A' = Lu");
+assert_eq(unicode_category(0x005A), GC_LU, "0x005A 'Z' = Lu");
+assert_eq(unicode_category(0x0061), GC_LL, "0x0061 'a' = Ll");
+assert_eq(unicode_category(0x007A), GC_LL, "0x007A 'z' = Ll");
+assert_eq(unicode_category(0x0030), GC_ND, "0x0030 '0' = Nd");
+assert_eq(unicode_category(0x0039), GC_ND, "0x0039 '9' = Nd");
+assert_eq(unicode_category(0x0020), GC_ZS, "0x0020 ' ' = Zs");
+assert_eq(unicode_category(0x0009), GC_CC, "0x0009 TAB = Cc");
+assert_eq(unicode_category(0x000A), GC_CC, "0x000A LF = Cc");
+assert_eq(unicode_category(0x000D), GC_CC, "0x000D CR = Cc");
+assert_eq(unicode_category(0x007F), GC_CC, "0x007F DEL = Cc");
+
+# ── (2) Latin-1 supplement + Latin Extended ───────────────────────
+assert_eq(unicode_category(0x00A0), GC_ZS, "0x00A0 NBSP = Zs");
+assert_eq(unicode_category(0x00A9), GC_SO, "0x00A9 © = So");
+assert_eq(unicode_category(0x00B5), GC_LL, "0x00B5 µ = Ll");
+assert_eq(unicode_category(0x00C0), GC_LU, "0x00C0 À = Lu");
+assert_eq(unicode_category(0x00DF), GC_LL, "0x00DF ß = Ll");
+assert_eq(unicode_category(0x00F7), GC_SM, "0x00F7 ÷ = Sm");
+assert_eq(unicode_category(0x0100), GC_LU, "0x0100 Ā = Lu");
+assert_eq(unicode_category(0x0101), GC_LL, "0x0101 ā = Ll");
+assert_eq(unicode_category(0x01C5), GC_LT, "0x01C5 ǅ = Lt");
+assert_eq(unicode_category(0x02B0), GC_LM, "0x02B0 modifier h = Lm");
+
+# ── (3) Greek + Cyrillic ──────────────────────────────────────────
+assert_eq(unicode_category(0x0391), GC_LU, "0x0391 Α (Greek capital alpha) = Lu");
+assert_eq(unicode_category(0x03B1), GC_LL, "0x03B1 α (Greek small alpha) = Ll");
+assert_eq(unicode_category(0x03C9), GC_LL, "0x03C9 ω (Greek small omega) = Ll");
+assert_eq(unicode_category(0x0410), GC_LU, "0x0410 А (Cyrillic capital A) = Lu");
+assert_eq(unicode_category(0x0430), GC_LL, "0x0430 а (Cyrillic small a) = Ll");
+
+# ── (4) Hebrew + Arabic ───────────────────────────────────────────
+assert_eq(unicode_category(0x05D0), GC_LO, "0x05D0 א (Hebrew aleph) = Lo");
+assert_eq(unicode_category(0x0591), GC_MN, "0x0591 (Hebrew accent) = Mn");
+assert_eq(unicode_category(0x0627), GC_LO, "0x0627 ا (Arabic alef) = Lo");
+assert_eq(unicode_category(0x0660), GC_ND, "0x0660 ٠ (Arabic-Indic 0) = Nd");
+
+# ── (5) CJK Unified Ideographs ────────────────────────────────────
+assert_eq(unicode_category(0x4E00), GC_LO, "0x4E00 一 = Lo");
+assert_eq(unicode_category(0x4E2D), GC_LO, "0x4E2D 中 = Lo");
+assert_eq(unicode_category(0x9FFF), GC_LO, "0x9FFF (CJK Unified end) = Lo");
+
+# ── (6) Hangul + Devanagari ───────────────────────────────────────
+assert_eq(unicode_category(0xAC00), GC_LO, "0xAC00 가 (Hangul) = Lo");
+assert_eq(unicode_category(0x0915), GC_LO, "0x0915 क (Devanagari ka) = Lo");
+assert_eq(unicode_category(0x093C), GC_MN, "0x093C (Devanagari nukta) = Mn");
+assert_eq(unicode_category(0x0966), GC_ND, "0x0966 ० (Devanagari 0) = Nd");
+
+# ── (7) Punctuation dispatch ──────────────────────────────────────
+assert_eq(unicode_category(0x002E), GC_PO, "0x002E . = Po");
+assert_eq(unicode_category(0x002C), GC_PO, "0x002C , = Po");
+assert_eq(unicode_category(0x0028), GC_PS, "0x0028 ( = Ps");
+assert_eq(unicode_category(0x0029), GC_PE, "0x0029 ) = Pe");
+assert_eq(unicode_category(0x005F), GC_PC, "0x005F _ = Pc");
+assert_eq(unicode_category(0x002D), GC_PD, "0x002D - = Pd");
+assert_eq(unicode_category(0x00AB), GC_PI, "0x00AB « = Pi");
+assert_eq(unicode_category(0x00BB), GC_PF, "0x00BB » = Pf");
+
+# ── (8) Supplementary planes (cp > 0xFFFF) ────────────────────────
+assert_eq(unicode_category(0x10000), GC_LO, "0x10000 (Linear B syllable) = Lo");
+assert_eq(unicode_category(0x1D400), GC_LU, "0x1D400 𝐀 (math bold A) = Lu");
+assert_eq(unicode_category(0x1D7CE), GC_ND, "0x1D7CE 𝟎 (math bold 0) = Nd");
+assert_eq(unicode_category(0x1F600), GC_SO, "0x1F600 😀 = So");
+assert_eq(unicode_category(0x1F64F), GC_SO, "0x1F64F 🙏 = So");
+assert_eq(unicode_category(0x20000), GC_LO, "0x20000 (CJK Ext B) = Lo");
+
+# ── (9) Noncharacter + surrogate handling ─────────────────────────
+assert_eq(unicode_category(0xD800), GC_CS, "0xD800 (high surrogate start) = Cs");
+assert_eq(unicode_category(0xDFFF), GC_CS, "0xDFFF (low surrogate end) = Cs");
+assert_eq(unicode_category(0xFFFE), GC_CN, "0xFFFE (noncharacter) = Cn");
+assert_eq(unicode_category(0xFFFF), GC_CN, "0xFFFF (noncharacter) = Cn");
+
+# ── (10) Out-of-range sentinels ───────────────────────────────────
+assert_eq(unicode_category(-1), GC_CN, "negative cp → Cn");
+assert_eq(unicode_category(0x110000), GC_CN, "cp > 0x10FFFF → Cn");
+assert_eq(unicode_category(0x7FFFFFFF), GC_CN, "huge cp → Cn");
+
+# ── (11) Cn fallthrough for assigned-but-Cn codepoints ────────────
+# 0xE000 starts the Private Use Area (Co), 0xF8FF ends it.
+assert_eq(unicode_category(0xE000), GC_CO, "0xE000 (Private Use start) = Co");
+assert_eq(unicode_category(0xF8FF), GC_CO, "0xF8FF (Private Use end) = Co");
+
+assert_summary();

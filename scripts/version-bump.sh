@@ -62,9 +62,19 @@ sed -i "s/VERSION=\"$OLD\"/VERSION=\"$NEW\"/" scripts/install.sh 2>/dev/null || 
 sed -i "s/- \*\*Version\*\*: $OLD/- **Version**: $NEW/" CLAUDE.md 2>/dev/null || true
 
 # 4. CHANGELOG.md — add unreleased section if not present
+#
+# v5.8.49 hardening: anchor on `^## \[Unreleased\]$` (start-of-line
+# through end-of-line) instead of bare `## \[Unreleased\]`. The
+# previous loose pattern matched ANY line containing the substring
+# — including narrative body text in the CHANGELOG that quotes
+# `## [Unreleased]` (e.g. the v5.8.48 entry's anchor-restoration
+# section). At the v5.8.49 bump that loose pattern fired 4 times,
+# inserting 3 spurious version headers inside the v5.8.48 body
+# before being cleaned up by hand. Anchored pattern matches ONLY
+# the literal Unreleased header line.
 if ! grep -q "## \[$NEW\]" CHANGELOG.md 2>/dev/null; then
-    # Insert new version header after [Unreleased]
-    sed -i "/## \[Unreleased\]/a\\
+    # Insert new version header after the [Unreleased] header line
+    sed -i "/^## \[Unreleased\]$/a\\
 \\
 ## [$NEW] — $(date +%Y-%m-%d)" CHANGELOG.md 2>/dev/null || true
 fi
