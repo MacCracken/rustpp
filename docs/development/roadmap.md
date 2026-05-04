@@ -1375,85 +1375,86 @@ fn requires explicit allocator.
   diagnostic at the right line. Bisection-sweep results for
   the other DSP/ML names captured in the slot's CHANGELOG.
 
-- ✅ **v5.8.46** — Arithmetic + comparison expressions in fn-call
-  arguments: regression-floor lock + vidya cleanup (shipped
-  2026-05-03; filed 2026-05-03 from vidya audio_dsp 11-lang port,
-  archived to
-  `docs/development/issues/archived/2026-05-03-arithmetic-in-fn-args-rejected.md`).
-  **Severity: Low** (mechanical workaround existed — hoist to
-  local var; affects ergonomics not correctness). Pin closure as
-  regression-floor lock — the parser fix landed earlier in the
-  v5.8.x cycle as a side-effect of expression-grammar work
+- ✅ **v5.8.46** — Arithmetic-in-fn-args regression-floor lock +
+  vidya cleanup AND token-array cap raised 262144 → 1048576
+  (sit v0.7.2 unblocked) (shipped 2026-05-03). Two coherent
+  deliverables landed in the same slot. **Part A** closes the
+  v5.8.34-filed arithmetic-in-fn-args pin (vidya audio_dsp
+  11-lang port; archived
+  `docs/development/issues/archived/2026-05-03-arithmetic-in-fn-args-rejected.md`)
+  as a regression-floor lock — parser fix landed earlier in the
+  cycle as a side-effect of expression-grammar work
   (`lib/assert.cyr:11` already comment-noted "Now that
   comparisons work in function arguments, assert(x == 42, 'name')
-  works"), but neither the issue file nor the vidya field-note
+  works"), but neither issue nor vidya field-note
   `no_comparisons_in_fn_args` was refreshed until this slot's
-  audit. **Premise-check method that worked**: revert the
-  consumer workaround in `vidya/content/audio_dsp/cyrius.cyr`
-  (`var a1 = a_q15 - ONE; biquad_set(a_q15, 0, 0, a1, 0);` →
-  `biquad_set(a_q15, 0, 0, a_q15 - ONE, 0);`) and recompile
-  against unmodified cyrius — 17/17 audio_dsp tests pass.
-  Initial synthetic-only premise-check missed it because the
-  bug was shape-dependent; the in-context filing-source check
-  was decisive. Deliverables: new
-  `tests/tcyr/expr_in_fn_args.tcyr` (30 assertions × all 18
-  operator shapes × operand-source mix × arg-position variation
-  + biquad inline repro); vidya `audio_dsp/cyrius.cyr` restored
-  to inline form + missing `lib/syscalls.cyr` / `lib/vec.cyr`
-  includes added (port had been silently broken at compile time
-  independent of the arithmetic bug); vidya field-note flipped
-  to ✅ FIXED with workaround preserved for pre-v5.8.46 toolchain
-  users. cc5 unchanged at **740,976 B**. **Stale-pin streak: 2
-  consecutive (v5.8.45 + v5.8.46), 3 total in v5.8.x cycle** —
-  process pin candidate that issue files should ship with a
-  one-line `tests/tcyr/<bug>.tcyr` at filing time so accidental
-  side-effect fixes get caught immediately, not at next
-  premise-check.
-
-- ✅ **v5.8.47** — token-array cap raised 262144 → 1048576;
-  sit v0.7.2 unblocked + every sandhi consumer freed (shipped
-  2026-05-03; closes the 2026-04-25-filed sit issue
-  `docs/development/issues/archived/2026-04-25-cyrius-fixup-table-cap.md`).
-  **DISPLACED the originally-pinned starship/vidya-audit slot
-  by 1** (now v5.8.48) — sit's "build properly" was a
-  consumer-blocking real bug surfaced during a session-handoff
-  review, the kind of work the v5.8.x cycle backstop extension
-  was made to absorb. Two-part deliverable per the issue's
-  preferred path: (1) ADDTOK diagnostic upgraded to print
-  `needed M, cap is N` so future raises target empirical M
-  (REQUIRED before the cap bump per the issue's "Step 1"); (2)
-  cap raise 4× to 1048576 + token arrays relocated from the
-  0x94A000/0xD4A000/0xF4A000 trio (each 2 MiB; tok_types
-  overlapped with output_buf at 0x94A000, undocumented v3.6.2
-  recycling) to a fresh post-TS-region high block at
-  0x368C000/0x3E8C000/0x468C000 (each 8 MiB). Heap brk extended
-  in every main_*.cyr; main_win.cyr MMAP raised 0x2000000 →
-  0x5000000. cc5 740,976 → 741,040 B (+64). Self-host two-step
-  byte-identical. Verification: cyrius check.sh 65/65; sit v0.7.2
-  builds (1.28 MiB) + sit `cyrius test` 127/127. **Premise-check
-  applied v5.8.46 lesson literally** — restored sit's v0.7.2
-  manifest changes, reproduced failure within one `cyrius build`
-  invocation. Original issue conflated two caps (fixup table
-  already raised 32K → 262K → 1M in v5.7.1/v5.7.7; v5.8.45
-  retest's `error: token limit exceeded (262144)` came from a
-  separate site — `lex.cyr:95` ADDTOK — that hadn't moved since
-  pre-v5.7.1). **Stale-pin streak BROKEN at 3** (v5.8.45 +
-  v5.8.46 were regression-floor locks; v5.8.47 ships actual
-  consumer-unblocking work that frees vidya, yantra, hoosh,
-  ifran, daimon, mela, ark, sit). Pin candidates: (a) cap-
-  overflow diagnostics should include source file + line so
-  future cap-site drift is unambiguous (queued for v5.8.50
+  audit. **Premise-check method**: revert the consumer workaround
+  in `vidya/content/audio_dsp/cyrius.cyr` and recompile against
+  unmodified cyrius — 17/17 audio_dsp tests pass. Part-A
+  deliverables: new `tests/tcyr/expr_in_fn_args.tcyr` (30
+  assertions × all 18 operator shapes × operand-source mix ×
+  arg-position variation + biquad inline repro); vidya
+  audio_dsp port restored to inline form + missing
+  `lib/syscalls.cyr` / `lib/vec.cyr` includes added (port had
+  been silently broken at compile time independent of the
+  arithmetic bug); vidya field-note flipped to ✅ FIXED with
+  workaround preserved for pre-v5.8.46 toolchain users. **Part
+  B** closes the 2026-04-25-filed sit cap-overflow issue
+  (sit-side
+  `docs/development/issues/archived/2026-04-25-cyrius-fixup-table-cap.md`,
+  mirrored to cyrius archived/) — surfaced mid-slot when the
+  user named the sit issue file. Originally framed as
+  fixup-table overflow but v5.8.45 retest's `error: token limit
+  exceeded (262144)` came from a separate cap site —
+  `lex.cyr:95` ADDTOK, not the fixup table (fixup caps had
+  moved 32K → 262K → 1M in v5.7.1/v5.7.7; ADDTOK hadn't moved
+  since pre-v5.7.1). Part-B sub-deliverables per the issue's
+  preferred path: (B.1) ADDTOK diagnostic upgraded to print
+  `needed M, cap is N` (REQUIRED before the cap bump per the
+  issue's "Step 1"); (B.2) cap raise 4× to 1048576 + token
+  arrays relocated from the 0x94A000/0xD4A000/0xF4A000 trio
+  (each 2 MiB; tok_types overlapped with output_buf at 0x94A000
+  — undocumented v3.6.2 recycling) to a fresh post-TS-region
+  high block at 0x368C000/0x3E8C000/0x468C000 (each 8 MiB);
+  brk extended in every main_*.cyr; main_win.cyr MMAP raised
+  0x2000000 → 0x5000000. cc5 740,528 → **741,040 B** (+512 from
+  v5.8.45's `_TOK_IS_KERNEL(S)` inheritance + Part B's PRNUM
+  call sequence + relocated-offset literals; Part A added zero
+  compiler bytes). Self-host two-step byte-identical.
+  **Premise-check method memo** (folded into existing memory
+  pin `feedback_premise_check_at_slot_entry`): revert the
+  consumer workaround in the filing repo, recompile against
+  unmodified cyrius — synthetic minimal programs miss
+  shape-dependent bugs. Surfaced first in Part A and applied
+  immediately in Part B — same lesson, two consecutive
+  applications in one slot. **Slot-scope note**: Part B was
+  added to v5.8.46 (rather than cut as a fresh v5.8.47) because
+  v5.8.46 hadn't shipped yet — same fold-in pattern as
+  v5.8.45's `kernel_ident.tcyr` correction. The
+  originally-pinned v5.8.47 starship/vidya-audit slot stays at
+  v5.8.47 (not yet shipped, not displaced). **Stale-pin
+  streak**: 2 consecutive (v5.8.45 + v5.8.46-Part-A) + 3 total
+  in v5.8.x cycle, but Part B ships actual consumer-unblocking
+  work in the same slot freeing vidya, yantra, hoosh, ifran,
+  daimon, mela, ark, sit. Verification: 30/30 expr_in_fn_args
+  pass; CI-shape pipefail loop on 123 tcyr = 123 passed;
+  cyrius `scripts/check.sh` 65/65 PASS; vidya audio_dsp port =
+  17/17 + zero warnings against the post-v5.8.46 cyrius lib;
+  **sit v0.7.2 builds (1,283,232-byte binary; was parked at
+  v0.7.1's ~709 KB) + sit `cyrius test` 127/127 PASS** — the
+  canonical end-to-end gate for Part B. Pin candidates queued:
+  (a) cap-overflow diagnostics should include source file +
+  line so future cap-site drift is unambiguous (v5.8.50
   closeout); (b) heap-map comments should be re-validated
   against actual code at every minor closeout — the
   tok_types-vs-output_buf overlap was a v3.6.2-era recycling
   pattern that the comments never caught up to.
 
-- **v5.8.48** — Combined: starship + p10k prompt color refresh
+- **v5.8.47** — Combined: starship + p10k prompt color refresh
   AND vidya cyrius-language audit (combined per user direction
   2026-05-03 PM — "vidya audit isn't really considered a
   pinnable release; external docs are external"; rolling both
-  into one slot since each is small). **DISPLACED from v5.8.47
-  → v5.8.48 by the sit unblock** (v5.8.47).
+  into one slot since each is small).
 
   **Starship part** (filed 2026-05-03 user direction; "want to
   update starship / cmd line — ॐ <version> ← forestgreen

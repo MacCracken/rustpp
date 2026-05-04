@@ -22,7 +22,7 @@ var S = syscall(SYS_BRK, 0);
 # tok_types region at S+0x94A000 — main_cx.cyr SIGSEGVd at LEX
 # the moment a non-empty input landed any token. Match
 # main_aarch64.cyr's brk extent.
-# v5.8.47: brk extended to S + 0x4E8C000 (~78.5 MB) for the
+# v5.8.46: brk extended to S + 0x4E8C000 (~78.5 MB) for the
 # relocated tok arrays (post-fixup_tbl high block; cap raised
 # 262144 → 1048576). cx skips the TS frontend, so the
 # ~13.5 MiB padding between fixup_tbl-end (0x290B000) and

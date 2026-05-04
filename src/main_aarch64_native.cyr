@@ -45,7 +45,7 @@
 #   0x44A000 preprocess_out[2097152]     2MB expanded source buffer
 #   0x64A000 codebuf       [3145728]     3MB generated machine code (v5.7.27)
 #   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43)
-#   (tok arrays RETIRED here v5.8.47 — see main.cyr for canonical layout;
+#   (tok arrays RETIRED here v5.8.46 — see main.cyr for canonical layout;
 #    relocated to 0x368C000 / 0x3E8C000 / 0x468C000 with cap 1048576)
 #   0x114A000 struct_ftypes [16384]       64 structs × 32 fields
 #   0x11CA000 struct_fnames [16384]
@@ -84,7 +84,7 @@ include "src/backend/aarch64/fixup.cyr"
 # Allocate heap
 # aarch64 syscall numbers (no translation layer — native numbers)
 var S = syscall(SYS_BRK, 0);
-# v5.8.47: brk extended to S + 0x4E8C000 (~78.5 MB) — see
+# v5.8.46: brk extended to S + 0x4E8C000 (~78.5 MB) — see
 # main_aarch64.cyr for rationale (relocated tok arrays).
 syscall(SYS_BRK, S + 0x4E8C000);
 

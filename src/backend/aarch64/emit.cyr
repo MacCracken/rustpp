@@ -911,8 +911,8 @@ fn EPATCHFRAME(S, patch, size) {
 }
 
 # === Token access (arch-independent, same as x86) ===
-fn TOKTYP(S, i) { return L64(S + 0x368C000 + i * 8); }   # v5.8.47: relocated to fresh 8 MiB region post-TS (cap 1048576)
-fn TOKVAL(S, i) { return L64(S + 0x3E8C000 + i * 8); }   # v5.8.47: relocated to fresh 8 MiB region post-TS (cap 1048576)
+fn TOKTYP(S, i) { return L64(S + 0x368C000 + i * 8); }   # v5.8.46: relocated to fresh 8 MiB region post-TS (cap 1048576)
+fn TOKVAL(S, i) { return L64(S + 0x3E8C000 + i * 8); }   # v5.8.46: relocated to fresh 8 MiB region post-TS (cap 1048576)
 fn PEEKT(S) { return TOKTYP(S, GTI(S)); }
 fn PEEKV(S) { return TOKVAL(S, GTI(S)); }
 
