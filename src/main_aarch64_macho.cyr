@@ -57,9 +57,8 @@
 #   0x44A000 preprocess_out[2097152]     2MB expanded source buffer
 #   0x64A000 codebuf       [3145728]     3MB generated machine code (v5.7.27)
 #   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43)
-#   0xB4A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0xD4A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xF4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+#   (tok arrays RETIRED here v5.8.47 — see main.cyr for canonical layout;
+#    relocated to 0x368C000 / 0x3E8C000 / 0x468C000 with cap 1048576)
 #   0x114A000 struct_ftypes [65536]       256 structs × 32 fields (cap 256, v5.7.17)
 #   0x11CA000 struct_fnames [65536]       256 structs × 32 fields (cap 256, v5.7.17)
 #   0x124A000 (legacy fixup-table slot — retired v5.5.37; 256 KB gap)
@@ -101,7 +100,10 @@ include "src/backend/aarch64/fixup.cyr"
 # immediate, so it reaches the kernel unchanged at runtime.
 # Size 0x1D0B000 (~22.5 MB) matches main.cyr's brk (v5.6.40 doubled
 # preprocess_out from 1MB→2MB; brk grew by 1MB to keep regions aligned).
-var S = syscall(9, 0, 0x290B000, 3, 0x1002, 0 - 1, 0);
+# v5.8.47: heap raised 0x290B000 → 0x4E8C000 (~78.5 MB) for the
+# relocated tok arrays (post-fixup_tbl block at 0x368C000 +
+# 24 MiB for typ/val/lines @ 1M-entry cap).
+var S = syscall(9, 0, 0x4E8C000, 3, 0x1002, 0 - 1, 0);
 if (S < 0x100000) {
     syscall(SYS_WRITE, 2, "cc5_macho: mmap heap init failed\n", 33);
     syscall(SYS_EXIT, 1);

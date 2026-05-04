@@ -208,12 +208,19 @@
 #                                        the 1 MB ceiling on
 #                                        large_input.tcyr by ~280 B)
 #   0x64A000 codebuf       [3145728]     3MB generated machine code (v5.7.27 — was 1MB pre-v5.7.27; bumped to absorb cyrius-ts test-compile pressure (94% on ts_parse_p52-54 across v5.7.24-v5.7.26)) (v3.5.2)
-#   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43) (v3.5.2)
+#   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43) (v3.5.2).
+#                                        Pre-v5.8.47 tok_types ALSO lived here (overlap recycled
+#                                        the buffer post-lex for ELF emission); v5.8.47 relocated
+#                                        tok_types to the post-TS high block at 0x368C000 to
+#                                        free the cap for sandhi consumers — see below.
 #
-# --- Relocated token arrays (v3.6.2) ---
-#   0xB4A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0xD4A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xF4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+# --- Token arrays (v3.6.2 layout RETIRED v5.8.47) ---
+#   (was 0xB4A000 tok_types — note: comment was stale, code wrote at 0x94A000)
+#   (was 0xD4A000 tok_values [2097152] 262144 entries × 8 bytes)
+#   (was 0xF4A000 tok_lines  [2097152] 262144 entries × 8 bytes)
+#   (262144-entry cap blocked sit v0.7.2 + every sandhi consumer named in the
+#    cyrius v5.7.0 CHANGELOG — see archived issue
+#    docs/development/issues/archived/2026-04-25-cyrius-fixup-table-cap.md)
 #
 # --- Relocated struct field tables (v3.6.6) ---
 #   0x114A000 struct_ftypes [65536]       256 structs × 32 fields × 8 bytes (cap 256, v5.7.17 — region grew from 16K)
@@ -243,6 +250,18 @@
 #   0x368C000 brk-with-ts-frontend        ~52.5 MB — TS frontend heap
 #                                        adds 0xD81000 (~13.5 MB) past
 #                                        fixup_tbl-end
+#
+# --- Token arrays RELOCATED here (v5.8.47) ---
+#   0x368C000 tok_types     [8388608]     1048576 entries × 8 bytes — was 0x94A000
+#                                        (overlap w/ output_buf, capped at 262144). Cap raise
+#                                        from 262144 → 1048576 (4×) sized to absorb sandhi
+#                                        consumers (sit v0.7.2 with sandhi in [deps].stdlib
+#                                        threshold-aborted at 262144); empirical M from the
+#                                        v5.8.47 `needed M, cap is N` diagnostic.
+#   0x3E8C000 tok_values    [8388608]     1048576 entries × 8 bytes — was 0xD4A000
+#   0x468C000 tok_lines     [8388608]     1048576 entries × 8 bytes — was 0xF4A000
+#   0x4E8C000 brk-final                   ~78.5 MB — heap end after tok-block relocation
+#                                        (was 0x368C000 pre-v5.8.47)
 #
 # Token types:
 #   1=NUM 2=IDENT 3=VAR 4=EQ 5=SEMI 6=PLUS 7=MINUS 8=STAR 9=SLASH
@@ -362,7 +381,7 @@ var S = syscall(SYS_BRK, 0);
 # + 0xD81000 size, per src/frontend/ts/{lex,parse}.cyr design after
 # v5.7.2 P2.1). TS region is only TOUCHED in --lex-ts / --parse-ts
 # modes; the +13.5 MB brk extension is paid unconditionally.
-syscall(SYS_BRK, S + 0x368C000);
+syscall(SYS_BRK, S + 0x4E8C000);
 
 # Zero state
 S64(S + 0x18C100, 0);

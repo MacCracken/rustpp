@@ -1,0 +1,128 @@
+# v5.8.46: Locks the regression floor for the v5.8.34-filed bug
+# `arithmetic-in-fn-args-rejected` (issue: vidya audio_dsp 11-lang
+# port; consumer workaround in
+# vidya/content/audio_dsp/cyrius.cyr's `biquad_lowpass_1pole`).
+#
+# At filing (cyrius 5.8.34), `biquad_set(a_q15, 0, 0, a_q15 - ONE, 0)`
+# failed to parse with a generic `expected identifier, got unknown`
+# diagnostic at a downstream construct. Companion gap was the
+# vidya field-note `no_comparisons_in_fn_args` (`f(x == y, z)`
+# rejected with same generic diagnostic).
+#
+# Premise-check at v5.8.46 slot entry (2026-05-03): the actual
+# audio_dsp port file compiles and runs 17/17 with the workaround
+# REMOVED — bug closed somewhere between v5.8.34 and v5.8.45 as a
+# side-effect of the parser/expression-grammar work in this cycle.
+# `lib/assert.cyr:11` already comment-noted this for comparisons:
+# "Now that comparisons work in function arguments, assert(x == 42,
+# 'name') works."  Neither the slot pin nor the vidya field-note
+# was refreshed, hence this slot ships as the regression-floor lock
+# rather than a compiler change.
+#
+# Coverage: every binary operator the issue/field-note named, in
+# every operand-source combination that mattered (param + global,
+# param + local, local + local, literal RHS), in every argument
+# position (first, middle, last, nested call).
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+var GLOBAL_A = 100;
+var GLOBAL_B = 7;
+
+fn take2(a, b) { return a; }
+fn take5(a, b, c, d, e) { return a + b + c + d + e; }
+fn passthrough(x) { return x; }
+
+# (1) All 10 binary arithmetic ops in fn-arg position
+#     (the issue's named operators: + - * / % | & ^ << >>)
+fn run_arithmetic(p) {
+    assert_eq(take2(p + GLOBAL_B, 0),  107, "add: param + global in fn-arg");
+    assert_eq(take2(p - GLOBAL_B, 0),   93, "sub: param - global in fn-arg (issue repro shape)");
+    assert_eq(take2(p * GLOBAL_B, 0),  700, "mul: param * global in fn-arg");
+    assert_eq(take2(p / GLOBAL_B, 0),   14, "div: param / global in fn-arg");
+    assert_eq(take2(p % GLOBAL_B, 0),    2, "mod: param % global in fn-arg");
+    assert_eq(take2(p | GLOBAL_B, 0),  103, "or:  param | global in fn-arg");
+    assert_eq(take2(p & GLOBAL_B, 0),    4, "and: param & global in fn-arg");
+    assert_eq(take2(p ^ GLOBAL_B, 0),   99, "xor: param ^ global in fn-arg");
+    assert_eq(take2(p << 2, 0),        400, "shl: param << literal in fn-arg");
+    assert_eq(take2(p >> 2, 0),         25, "shr: param >> literal in fn-arg");
+    return 0;
+}
+
+# (2) All 6 comparison ops in fn-arg position
+#     (vidya field-note `no_comparisons_in_fn_args`: `f(x == y, z)`)
+fn run_comparison(p) {
+    assert_eq(take2(p == 100, 0),  1, "eq: param == literal in fn-arg");
+    assert_eq(take2(p != 100, 0),  0, "ne: param != literal in fn-arg");
+    assert_eq(take2(p <  101, 0),  1, "lt: param < literal in fn-arg");
+    assert_eq(take2(p >   99, 0),  1, "gt: param > literal in fn-arg");
+    assert_eq(take2(p <= 100, 0),  1, "le: param <= literal in fn-arg");
+    assert_eq(take2(p >= 100, 0),  1, "ge: param >= literal in fn-arg");
+    return 0;
+}
+
+# (3) Short-circuit ops in fn-arg position
+fn run_shortcircuit(p) {
+    assert_eq(take2(p > 0 && GLOBAL_B > 0, 0), 1, "andand: param-cmp && global-cmp in fn-arg");
+    assert_eq(take2(p < 0 || GLOBAL_B > 0, 0), 1, "oror:   param-cmp || global-cmp in fn-arg");
+    return 0;
+}
+
+# (4) Argument-position variations — first, middle, last
+#     (issue's exact shape was middle-arg of a 5-arg call)
+fn run_position(p) {
+    assert_eq(take5(p - 1, 0, 0, 0, 0),       99, "expr in arg position 1 (first)");
+    assert_eq(take5(0, 0, p - 1, 0, 0),       99, "expr in arg position 3 (middle)");
+    assert_eq(take5(0, 0, 0, 0, p - 1),       99, "expr in arg position 5 (last)");
+    assert_eq(take5(p - 1, p + 1, p * 2, p / 2, p % 7), 99 + 101 + 200 + 50 + 2,
+              "expr in EVERY arg position simultaneously");
+    return 0;
+}
+
+# (5) Nested fn calls — the originally-suspected ambiguity-with-
+#     generics shape
+fn run_nested(p) {
+    assert_eq(take2(passthrough(p - 1), 0),       99, "expr inside nested fn-call arg");
+    assert_eq(take2(passthrough(p) - 1, 0),       99, "expr applied to nested fn-call result");
+    assert_eq(passthrough(p - GLOBAL_B),          93, "expr in single-arg position");
+    return 0;
+}
+
+# (6) Operand-source combinations — param/global/local mix
+fn run_operand_sources(p) {
+    var local_q = 50;
+    assert_eq(take2(local_q - GLOBAL_B, 0),       43, "local - global in fn-arg");
+    assert_eq(take2(p + local_q, 0),             150, "param + local in fn-arg");
+    assert_eq(take2(local_q * 2, 0),             100, "local * literal in fn-arg");
+    assert_eq(take2(GLOBAL_A - GLOBAL_B, 0),      93, "global - global in fn-arg");
+    return 0;
+}
+
+# (7) The exact issue-file repro — biquad-style call with the
+#     consumer's original failing shape.
+var ONE = 32768;
+fn biquad_set(b0, b1, b2, a1, a2) { return b0 + b1 + b2 + a1 + a2; }
+fn biquad_lowpass_1pole(a_q15) {
+    return biquad_set(a_q15, 0, 0, a_q15 - ONE, 0);
+}
+
+alloc_init();
+
+run_arithmetic(100);
+run_comparison(100);
+run_shortcircuit(100);
+run_position(100);
+run_nested(100);
+run_operand_sources(100);
+
+# Original-issue repro — pre-fix this would diagnose at a
+# downstream construct (`return 0;` or the next fn def) with
+# `expected identifier, got unknown`.
+assert_eq(biquad_lowpass_1pole(40000), 40000 + 0 + 0 + (40000 - 32768) + 0,
+          "issue repro: biquad_set(a_q15, 0, 0, a_q15 - ONE, 0) inline form");
+
+var _exit_code = assert_summary();
+syscall(60, _exit_code);

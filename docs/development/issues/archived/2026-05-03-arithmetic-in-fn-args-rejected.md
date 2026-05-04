@@ -1,10 +1,33 @@
-# Issue: Arithmetic expressions inside function-call arguments fail to parse
+# Issue: Arithmetic expressions inside function-call arguments fail to parse — RESOLVED
+
+**Status:** ✅ **RESOLVED in cyrius v5.8.46** (regression-floor
+lock; the actual parser fix landed earlier in the v5.8.x cycle
+as a side-effect of the expression-grammar work). At v5.8.46
+slot entry, the originally-failing form
+`biquad_set(a_q15, 0, 0, a_q15 - ONE, 0)` compiles cleanly and
+the full `vidya/content/audio_dsp/cyrius.cyr` port runs 17/17
+with the workaround removed. Companion gap (vidya field-note
+`no_comparisons_in_fn_args` — `f(x == y, z)`) closed in the same
+slot. `lib/assert.cyr:11` had already comment-noted that
+comparisons-in-fn-args worked ("Now that comparisons work in
+function arguments, assert(x == 42, 'name') works.") — neither
+this issue file nor the vidya field-note was refreshed until the
+v5.8.46 audit caught both. Regression gate at
+`tests/tcyr/expr_in_fn_args.tcyr` (30 assertions × all 18
+operator shapes × operand-source mix × arg-position variation,
+plus the original biquad repro). Vidya port `audio_dsp/cyrius.cyr`
+restored to original inline form + missing `lib/syscalls.cyr` /
+`lib/vec.cyr` includes added (port had been silently broken at
+compile time independent of the arithmetic-in-fn-args bug).
+Vidya field-note `no_comparisons_in_fn_args` flipped to ✅ FIXED
+with workaround text preserved for pre-v5.8.46 toolchain users.
 
 **Discovered:** 2026-05-03 (vidya audio_dsp 11-lang port)
 **Component:** `cyrius` compiler — parser (call argument expression handling)
 **Severity:** Low (mechanical workaround exists; affects ergonomics
 not correctness)
-**Toolchain:** `cyrius 5.8.34`
+**Toolchain at filing:** `cyrius 5.8.34`
+**Resolved at:** `cyrius 5.8.46`
 
 ## Summary
 

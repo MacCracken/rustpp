@@ -104,11 +104,14 @@
 #   0x44A000 preprocess_out[2097152]     2MB expanded source buffer
 #   0x64A000 codebuf       [3145728]     3MB generated machine code (v5.7.27)
 #   0x94A000 output_buf    [2097152]     2MB ELF output (v5.6.43; was 1MB pre-v5.6.43) (v3.5.2)
+#   (tok arrays RETIRED here v5.8.47 — see main.cyr for canonical layout;
+#    relocated to 0x368C000 / 0x3E8C000 / 0x468C000 with cap 1048576)
 #
-# --- Relocated token arrays (v3.6.2) ---
-#   0xB4A000 tok_types     [2097152]     262144 entries × 8 bytes
-#   0xD4A000 tok_values    [2097152]     262144 entries × 8 bytes
-#   0xF4A000 tok_lines     [2097152]     262144 entries × 8 bytes
+# --- Token arrays (v3.6.2 layout RETIRED v5.8.47) ---
+#   (was 0xB4A000 tok_types — code overlapped tok_types with output_buf at 0x94A000)
+#   (was 0xD4A000 tok_values [2097152] 262144 entries × 8 bytes)
+#   (was 0xF4A000 tok_lines  [2097152] 262144 entries × 8 bytes)
+#   See main.cyr for the new layout (high block at 0x368C000, cap 1048576).
 #
 # --- Relocated struct field tables (v3.6.6) ---
 #   0x114A000 struct_ftypes [16384]       64 structs × 32 fields × 8 bytes
@@ -228,7 +231,10 @@ if (_vn > 0) {
 #     VirtualAlloc(0, 32MB, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE).
 #     The prot/flags/fd/offset are ignored by EMMAP_PE.
 # 32 MB covers the 21 MB heap with margin + page-alignment.
-var S = syscall(SYS_MMAP, 0, 0x2000000, 3, 0x22, 0 - 1, 0);
+# v5.8.47: heap raised 0x2000000 (32 MB) → 0x5000000 (80 MB) for
+# the relocated tok arrays (post-fixup_tbl high block at
+# 0x368C000 + 24 MiB for typ/val/lines @ 1M-entry cap).
+var S = syscall(SYS_MMAP, 0, 0x5000000, 3, 0x22, 0 - 1, 0);
 
 # Zero state
 S64(S + 0x18C100, 0);

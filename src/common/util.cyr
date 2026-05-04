@@ -146,8 +146,8 @@ fn ADDXP(S, p) {
 # Line tracking
 fn GCLINE(S) { return L64(S + 0x18FCB8); }
 fn SCLINE(S, v) { S64(S + 0x18FCB8, v); return 0; }
-fn GTLINE(S, ti) { return L64(S + 0xF4A000 + ti * 8); }
-fn STLINE(S, ti, v) { S64(S + 0xF4A000 + ti * 8, v); return 0; }
+fn GTLINE(S, ti) { return L64(S + 0x468C000 + ti * 8); }
+fn STLINE(S, ti, v) { S64(S + 0x468C000 + ti * 8, v); return 0; }
 
 # Block scoping
 fn GSDEP(S) { return L64(S + 0x18FCC0); }

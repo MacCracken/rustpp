@@ -20,10 +20,15 @@ include "src/frontend/parse.cyr"
 var S = syscall(SYS_BRK, 0);
 # v5.7.11: brk was 0x54A000 (5.5 MB) which never reached the
 # tok_types region at S+0x94A000 — main_cx.cyr SIGSEGVd at LEX
-# the moment a non-empty input landed any token. Match main_aarch64.cyrs
-# 0x290B000 (39 MB) — cx skips the TS frontend, so does not need
-# the +13.5 MB main.cyr adds for it.
-syscall(SYS_BRK, S + 0x290B000);
+# the moment a non-empty input landed any token. Match
+# main_aarch64.cyr's brk extent.
+# v5.8.47: brk extended to S + 0x4E8C000 (~78.5 MB) for the
+# relocated tok arrays (post-fixup_tbl high block; cap raised
+# 262144 → 1048576). cx skips the TS frontend, so the
+# ~13.5 MiB padding between fixup_tbl-end (0x290B000) and
+# tok-block-start (0x368C000) is unused — kept aligned with
+# main.cyr for offset parity.
+syscall(SYS_BRK, S + 0x4E8C000);
 
 # Zero state
 S64(S + 0x18C100, 0);
