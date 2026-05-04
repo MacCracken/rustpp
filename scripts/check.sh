@@ -98,11 +98,23 @@ for tfile in "$ROOT"/tests/tcyr/*.tcyr; do
     if cat "$tfile" | "$CC" > "$tmpbin" 2>/dev/null && chmod +x "$tmpbin"; then
         output=$("$tmpbin" 2>&1 | tr -d '\0')
         ec=$?
+        # v5.8.49 hardening: match .github/workflows/ci.yml semantics — a
+        # tcyr fails if EITHER (a) the binary exits non-zero, OR (b) the
+        # "X passed, Y failed" summary reports Y>0. Pre-fix this script
+        # only checked (b), so tcyrs that asserted-pass-internally but
+        # forgot the canonical `var r = assert_summary();` ending (which
+        # leaves the return value in rax for an implicit-zero exit) were
+        # reported PASS locally while CI rejected them. Discovered when
+        # tests/tcyr/unicode_categories.tcyr exited 161 in CI despite
+        # printing "60 passed, 0 failed".
         summary=$(echo "$output" | grep -o '[0-9]* passed, [0-9]* failed' | tail -1)
         if [ -n "$summary" ]; then
             f=$(echo "$summary" | grep -o '[0-9]* failed' | grep -o '^[0-9]*')
             if [ "$f" -gt 0 ]; then
                 echo "FAIL ($summary)"
+                test_fail=$((test_fail + 1))
+            elif [ "$ec" -ne 0 ]; then
+                echo "FAIL (exit $ec, $summary)"
                 test_fail=$((test_fail + 1))
             else
                 echo "PASS ($summary)"

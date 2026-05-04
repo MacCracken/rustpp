@@ -110,4 +110,4 @@ assert_eq(unicode_category(0x7FFFFFFF), GC_CN, "huge cp → Cn");
 assert_eq(unicode_category(0xE000), GC_CO, "0xE000 (Private Use start) = Co");
 assert_eq(unicode_category(0xF8FF), GC_CO, "0xF8FF (Private Use end) = Co");
 
-assert_summary();
+var r = assert_summary();

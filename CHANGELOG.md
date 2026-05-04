@@ -244,6 +244,60 @@ niyama-v0.8 work), the unicode files don't propagate to niyama
 specifically — but the infrastructure is now ready to deliver
 them when niyama opts in.
 
+### tcyr exit-code regression — fixed in-slot (CI release blocker)
+
+User reported CI red after the deps work landed:
+
+```
+PASS: u128
+FAIL: unicode_categories
+PASS: varargs
+PASS: vec
+121 passed, 1 failed
+Error: Process completed with exit code 1.
+```
+
+unicode_categories printed "60 passed, 0 failed" but the binary
+exited **161**. Root cause: my tcyr ended with bare
+`assert_summary();` instead of the canonical `var r =
+assert_summary();`. Cyrius programs without an explicit
+`syscall(60, N)` exit with whatever happens to be in `rax` at
+termination — with `var r = ...`, the return value (0 when no
+failures) lives in `rax` so the implicit exit is zero. Bare
+call left something else there (empirically 161).
+
+**`scripts/check.sh` masked the bug locally** because it only
+parsed the "X passed, Y failed" summary text and never checked
+the exit code. CI's `.github/workflows/ci.yml` test loop checks
+BOTH — exit code AND summary — so it correctly reported FAIL.
+This is exactly the QA antipattern the user flags as
+release-blocking: a check that's strictly weaker than CI gives
+false confidence locally.
+
+Two fixes shipped in-slot:
+
+1. **`tests/tcyr/unicode_categories.tcyr`** — last line changed
+   from `assert_summary();` to `var r = assert_summary();`
+   (matches the convention used by 84 of ~118 tcyrs; the other
+   34 use explicit `var _exit_code = assert_summary(); syscall(60,
+   _exit_code);`). Verified `exit=0` after the fix.
+2. **`scripts/check.sh`** — hardened the tcyr gate to match
+   CI's two-condition logic. A tcyr now fails locally if EITHER
+   the exit code is non-zero OR the summary reports failures.
+   The output format gains an `exit=N` annotation when only the
+   exit-code half fires (`FAIL (exit 161, 60 passed, 0 failed)`)
+   so the diagnostic distinguishes from a content-level failure.
+
+Audit swept after the fix: zero remaining tcyrs use the bare-
+call ending (84 use `var r =`, 34 use explicit `syscall(60)`).
+Convention is well-established; my tcyr was the lone outlier.
+
+Memory pin saved (`feedback_tcyr_ending_pattern`) so future
+sessions don't reintroduce the bare-call shape. The pin
+includes the verification recipe (`cat <tcyr> | build/cc5 >
+/tmp/t && chmod +x /tmp/t && /tmp/t; echo "exit=$?"`) so
+authors check the exit code before committing.
+
 ### Bad symlink in mabda 2.5.0 dep cache — left in place, documented
 
 A directory-level symlink at `~/.cyrius/deps/mabda/2.5.0/lib →
