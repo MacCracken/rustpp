@@ -551,8 +551,14 @@ fn LEXID(S, p, npos) {
         if (kw & 0xFFFFFFFFFFFFFF == 0x323364616F6C) { ADDTOK(S, 43, 0); return p; }
         # "load64" = 0x343664616F6C
         if (kw & 0xFFFFFFFFFFFFFF == 0x343664616F6C) { ADDTOK(S, 44, 0); return p; }
-        # "kernel" = 0x6C656E72656B
-        if (kw & 0xFFFFFFFFFFFFFF == 0x6C656E72656B) { ADDTOK(S, 56, 0); return p; }
+        # v5.8.45: `kernel` demoted from reserved token 56 to plain
+        # ident. Top-level `kernel;` (AGNOS kernel-mode switch) now
+        # detected via _TOK_IS_KERNEL(S) at the dispatch site in
+        # main.cyr / main_*.cyr. Pre-v5.8.45 the lexer always emitted
+        # token 56, which broke `kernel` as a fn parameter or local
+        # variable name everywhere — an issue surfaced from the vidya
+        # audio_dsp 11-lang port where `fn fir_step(kernel, ...)` is
+        # the natural DSP signature.
         # "shared" = 0x646572616873
         if (kw & 0xFFFFFFFFFFFFFF == 0x646572616873) { ADDTOK(S, 78, 0); return p; }
         # "object" = 0x7463656a626f → token 79, sets mode 3 (.o output)

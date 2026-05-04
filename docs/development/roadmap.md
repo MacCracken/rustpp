@@ -259,7 +259,7 @@ enabler audit trail.
 
 
 
-## v5.8.x — Optimization + language-vocabulary stabilization (51 pinned slots; cycle backstop hard at .51; release-valve slot at .51 absorbs surface-during-deps-update items)
+## v5.8.x — Optimization + language-vocabulary stabilization (55 pinned slots; cycle backstop hard at .55 — extended from .51 at v5.8.45 ship to absorb Unicode 17.0.0 fold; release-valve slot at .51 absorbs surface-during-deps-update items, Unicode work occupies .52–.55)
 
 **Theme** (re-scoped 2026-05-01 at v5.8.0 ship): bug-fix /
 optimization minor that ALSO folds forward the language-feature
@@ -1349,8 +1349,9 @@ fn requires explicit allocator.
   with all three test cases green and zero null-byte warnings;
   `sh scripts/check.sh` shows api-surface gate as PASS not skip.
 
-- **v5.8.45** — `kernel` reserved-word misleading diagnostic
-  (filed 2026-05-03 from vidya audio_dsp 11-lang port at
+- ✅ **v5.8.45** — `kernel` reserved-word misleading diagnostic
+  (shipped 2026-05-03; filed 2026-05-03 from vidya audio_dsp
+  11-lang port at
   `docs/development/issues/2026-05-03-kernel-reserved-word-misleading-diagnostic.md`).
   **Severity: Medium** (silent miscompile of error reporter —
   correct code paths work, but `kernel` as a fn parameter name
@@ -1488,12 +1489,84 @@ fn requires explicit allocator.
 - **v5.8.51** — Release-valve slot for any issue surfaced by
   the v5.8.50 deps update or v5.8.49 release. Mirrors the
   v5.7.50 P(-1) unblock pattern from the v5.7.x cycle's
-  end-of-cycle. If no issues surface, this slot ships nothing
-  (the cycle ends at v5.8.50). If a downstream consumer files
-  a regression against v5.8.49 within hours of release, it
-  lands here as the canonical patch-on-the-just-shipped-tag.
-  Per user framing: "release valve of any issue surfaced by
-  updates". Cycle backstop hard at v5.8.51.
+  end-of-cycle. If no issues surface, this slot ships
+  housekeeping (the Unicode work picks up at v5.8.52
+  regardless). If a downstream consumer files a regression
+  against v5.8.49 within hours of release, it lands here as
+  the canonical patch-on-the-just-shipped-tag. Per user
+  framing: "release valve of any issue surfaced by updates".
+
+### v5.8.x — Unicode 17.0.0 fold (v5.8.52 → v5.8.55, backstop extended)
+
+Pinned 2026-05-03 at v5.8.45 ship per user direction
+("we will make 5.8.55 the new backstop and we will want to
+finally add in UNICODE support"). v5.8.x will be the longest
+minor in cyrius history (55 patches, ~36 days). Justification:
+the work fits the existing cycle structurally — it's stdlib
+expansion, not language-feature change — and starting v5.9.0
+with half-built Unicode infrastructure would force premature
+v5.9.x cycle planning. Better to let v5.8.x absorb the full
+Unicode fold and ship v5.9.0 with niyama regex stdlib + bare-
+metal AGNOS arc (per existing pin).
+
+Reference: https://www.unicode.org/versions/Unicode17.0.0/.
+Unicode 17.0 (released 2025-09-09) adds 4,803 characters →
+total 159,801 graphemes. Cyrius's v5.7.13 string-literal UTF-8
+encoder at `lib/string.cyr` already handles bytes-and-encode;
+this fold adds the missing **categorization + normalization +
+case-folding** infrastructure that consumer regex (niyama),
+fmt rendering (sigil), and TUI clipping (mabda) currently
+hand-roll incompletely.
+
+- **v5.8.52** — Unicode 17.0.0 character categories +
+  general-category lookup. Add `lib/unicode/categories.cyr`
+  with the GeneralCategory enum (Lu/Ll/Lt/Lm/Lo, Mn/Mc/Me,
+  Nd/Nl/No, Pc/Pd/Ps/Pe/Pi/Pf/Po, Sm/Sc/Sk/So, Zs/Zl/Zp,
+  Cc/Cf/Cs/Co/Cn). Bake the UCD data file (compressed range
+  table, ~30 KB) into the binary as a const blob; lookup via
+  binary search on (codepoint, range_start). API:
+  `unicode_category(cp) -> GeneralCategory`. Verification:
+  `tests/tcyr/unicode_categories.tcyr` walks 100+ codepoints
+  from each major block; per-codepoint match against ICU's
+  reference (cross-checked offline via Python's
+  `unicodedata.category()`).
+
+- **v5.8.53** — Unicode 17.0.0 case folding (simple + full).
+  Add `lib/unicode/casefold.cyr` with `unicode_to_lower(cp)`,
+  `unicode_to_upper(cp)`, `unicode_to_title(cp)`, plus the
+  full case-folding map for case-insensitive comparison
+  (`unicode_fold(cp) -> [cp, ...]` for one-to-many like
+  ß→ss). Bake the UCD CaseFolding.txt + UnicodeData.txt case
+  columns. Wire through to `lib/str.cyr` as `str_lower_unicode`
+  / `str_upper_unicode` (the existing `str_lower` / `str_upper`
+  stay ASCII-only for back-compat — no rename, additive only).
+
+- **v5.8.54** — Unicode 17.0.0 normalization (NFC/NFD/NFKC/NFKD).
+  Add `lib/unicode/normalize.cyr` with the canonical
+  decomposition tables + composition algorithm (Hangul +
+  general). API: `str_normalize(s, form)` where form is enum
+  `NormalForm { NFC; NFD; NFKC; NFKD; }`. The biggest table —
+  decomposition mappings — is ~80 KB compressed. Wire to
+  `str_eq_normalized(a, b, form)` for use cases like filename
+  comparison on macOS (NFD on disk vs NFC in code).
+
+- **v5.8.55** — Unicode regression suite + cycle closeout.
+  `tests/tcyr/unicode_*.tcyr` exhaustive coverage: every
+  general-category boundary codepoint, NFC↔NFD round-trips
+  for ~500 known-tricky strings (Hangul jamo, combining
+  marks, ligatures, Arabic shaping), case-folding equivalences
+  (ß/SS, ı/I/i, etc.), and the canonical UCD test suite
+  (`NormalizationTest.txt` ~25 K test vectors via a
+  conversion-script-emitted tcyr). Cycle closeout pass also
+  re-runs here — full check.sh, heap-map audit (Unicode
+  tables consume new heap regions; size + offset audit),
+  vidya sync (new `lib/unicode/*` entries in
+  `vidya/content/cyrius/language.cyml`), CHANGELOG closeout
+  narrative, security re-scan (UCD data files are read-only
+  blobs but worth confirming no parse-time write paths leak
+  through). **Cycle backstop hard at v5.8.55** (was v5.8.51
+  pre-Unicode-pin; extended +4 slots per user direction
+  2026-05-03 PM).
 
 ### v5.8.x — held items (surfacing-ask only; not pinned, no slot consumed)
 

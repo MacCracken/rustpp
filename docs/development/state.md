@@ -5,6 +5,57 @@
 
 ## Version
 
+**5.8.45** (shipped 2026-05-03 — **v5.8.x SLOT 45 — `kernel`
+demoted from reserved token to plain ident**. Seventh slot of
+Phase 3. Surfaced from vidya audio_dsp 11-language port at v5.8.34
+(`fn fir_step(kernel, history, n_taps, x_new)` failed; `kernel`
+was reserved as token 56 for AGNOS top-level mode-switch
+`kernel;`). cc5 740,528 → **740,976 B** (+448 from new
+`_TOK_IS_KERNEL(S)` helper). **Premise-check rejected the issue
+file's "lexer-context-sensitive" framing**: bisection focused on
+the underscore-in-fn-name axis turned out to be DCE-related, not
+a real parser asymmetry. Non-underscored fns with no callers get
+DCE-stub'd via `xor eax,eax;ret` without parsing the body, so
+`fn ff(kernel)` "worked" only because the parser was skipped.
+**Pin-bisection-sweep was 4-of-5 stale**: candidates `weights /
+bias / tensor / layer` ALL parse cleanly — only `kernel` (the
+real AGNOS keyword) was reserved. Same pattern as v5.7.44/45/46
+(memory pin `feedback_premise_check_at_slot_entry`). **Fix per
+preferred path** (issue + slot pin both said "allow as normal
+identifier — common DSP/graphics/AI name"): demoted `kernel`
+from token 56 to plain ident in lex.cyr; AGNOS top-level
+`kernel;` now detected via new `_TOK_IS_KERNEL(S)` helper that
+byte-compares the current ident's bytes (no L64 mask, so partial
+prefixes like `kernels`/`kernel32` don't match). 12 dispatch
+sites updated across 6 main.* files (2 per file: pass-1 mode-
+switch + pass-2 skip). New tcyr `kernel_ident.tcyr` (4 assertions)
+locks the regression floor — fn-param / underscored-fn-param /
+single-arg / local-var. **AGNOS bootstrap re-verified**: agnos
+kernel/agnos.cyr compiles cleanly through the new cc5; full agnos
+build via cbt = byte-identical 249,080-byte kernel (cbt itself
+unchanged, just consumes new cc5). **cbt-vs-cc5 install confusion
+worth flagging**: I overwrote `~/.cyrius/bin/cyrius` (cbt
+frontend) with `/tmp/cc5_new` (raw cc5) mid-verification and
+agnos's `cyrius build` subcommand started failing — looked like
+the demotion broke AGNOS but was just front-end confusion.
+Restoring the original cyrius binary + compiling the agnos-prep
+file directly with the new cc5 cleared it. To verify a downstream
+that uses `cyrius build`, rebuild cbt with the new cc5 first —
+don't replace the front-end with raw cc5. cc5 self-host
+two-step byte-identical at 740,976 B; check.sh 65/65 PASS.
+v5.8.x cycle progress: **45 of 51 originally-pinned slots shipped**
+but cycle backstop **extended v5.8.51 → v5.8.55** to absorb
+**Unicode 17.0.0 support** (https://www.unicode.org/versions/Unicode17.0.0/).
+v5.8.x will be the longest minor in cyrius history — and that's
+fine, the work fits the cycle better than starting v5.9.0 with
+half-built Unicode infrastructure. Phase 3 remaining (10 slots):
+arithmetic in fn args (v5.8.46), combined starship/p10k color
+refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups
+(v5.8.48), full closeout pass (v5.8.49), deps cleanup (v5.8.50),
+release-valve (v5.8.51), Unicode 17.0.0 categories+normalization
+(v5.8.52-54), Unicode regression suite + final closeout
+(v5.8.55).)
+
 **5.8.44** (shipped 2026-05-03 — **v5.8.x SLOT 44 — api-surface refresh
 + auto-build wiring + null-byte-in-shell-substitution fix**.
 Sixth slot of Phase 3. Three-part deliverable per the original
@@ -3377,7 +3428,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.44 ✅ shipped — api-surface refresh + auto-build wiring + null-byte-in-shell-substitution fix. Gate flipped from silent-skip-since-v5.7.50 to real PASS validating 2750-entry snapshot. Phase 3 remaining (7 slots): kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 44 of 51 pinned slots shipped (86.3%); 7 slots remaining.**
+**v5.8.45 ✅ shipped — `kernel` demoted from reserved token to plain ident. Premise-check rejected stale "lexer-context-sensitive" framing; bisection-sweep 4-of-5 stale; fix per preferred path with new `_TOK_IS_KERNEL(S)` byte-compare helper at 12 dispatch sites across 6 main.* files. AGNOS bootstrap byte-identical. **Cycle backstop EXTENDED v5.8.51 → v5.8.55** to absorb **Unicode 17.0.0 support** (https://www.unicode.org/versions/Unicode17.0.0/). v5.8.x will be the longest minor in cyrius history — that's fine, work fits the cycle better than starting v5.9.0 with half-built Unicode infrastructure. Phase 3 remaining (10 slots): arithmetic in fn args (v5.8.46), combined starship/p10k + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup (v5.8.50), release-valve (v5.8.51), Unicode 17.0.0 categories+normalization (v5.8.52-54), Unicode regression suite + final closeout (v5.8.55). 45 of 55 pinned slots shipped (81.8%); 10 slots remaining.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3434,6 +3485,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.42** ✅ Paired UX polish (mabda A2 + C1). Half (a) `cyrius fmt --check` cbt arg-order fix (drift detection silently broken pre-fix; now matches Rust/Go silent-on-no-drift / exit-1-on-drift). Half (b) `var X;` bare-decl diag improvement (special-case ; token in PARSE_VAR + EMIT_GVAR_INITS, emit "uninitialized variable not allowed; use `var X = 0;`"). cc5 +216 B (entirely from half b).
 - **v5.8.43** ✅ Phase 3 polish absorber — stdlib Allocator migration pass 3 (peripheral cleanup). 9 new str _a variants (str_sub_a / str_trim_a / str_split_a / 5 str_builder_*_a) + 3 new map_u64 _a variants (map_u64_new_a / map_u64_set_a / _map_u64_grow_a internal). Migration now at ~100% stdlib coverage (45 _a variants + 10 typed-error enums across 11 modules). Unblocks sandhi v1.1.0 dup-elimination. Surfaced str_split pre-existing bug (sep treated as ptr) → filed as new issue for future slot. cc5 +0 B; 33-assertion tcyr.
 - **v5.8.44** ✅ api-surface refresh + auto-build wiring + null-byte fix. 3-part deliverable: check.sh now build-on-demands cyrius_api_surface (was silently skipping since v5.7.50); off-by-one 66→65 length literal in programs/api_surface.cyr (BREAKING-report header was including cstring's trailing \0 in syscall length, triggering shell command-sub null-byte warnings); snapshot regen 2563 → 2750 (+187) reflecting v5.7.x→v5.8.x stdlib growth. Gate now real PASS not silent skip; 0 null-byte warnings; cc5 unchanged.
+- **v5.8.45** ✅ `kernel` demoted from reserved token to plain ident. Surfaced from vidya audio_dsp 11-lang port. Premise-check rejected issue file's "lexer-context-sensitive" framing — actual mechanic was DCE-as-error-shield (non-underscored uncalled fns skip parse). Pin-bisection-sweep `weights/bias/tensor/layer` all parse cleanly — only `kernel` was reserved. Fix per preferred path: lex.cyr keyword check removed; new `_TOK_IS_KERNEL(S)` helper detects AGNOS top-level `kernel;` via byte-compare. 12 dispatch sites across 6 main.* files. AGNOS bootstrap re-verified byte-identical. cc5 +448 B (740,976).
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

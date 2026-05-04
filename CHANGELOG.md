@@ -4,6 +4,135 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.45] — 2026-05-03
+
+**v5.8.x slot 45 — `kernel` demoted from reserved token to plain
+ident**. Seventh slot of Phase 3. Surfaced from the vidya
+`audio_dsp` 11-language port at v5.8.34 (issue file
+`docs/development/issues/2026-05-03-kernel-reserved-word-misleading-diagnostic.md`):
+`fn fir_step(kernel, history, n_taps, x_new)` failed to parse
+because `kernel` was reserved as token 56 (the AGNOS top-level
+kernel-mode mode-switch directive: `kernel;` sets execmode=1).
+
+cc5: 740,528 → **740,976 B** (+448 from the new
+`_TOK_IS_KERNEL(S)` helper). Self-host two-step byte-identical.
+
+### Premise-check (slot entry)
+
+Bisection rejected the issue file's claim that this was lexer-
+context-sensitive. The actual mechanic:
+
+- `kernel` always lex'd as token 56 (lex.cyr:554-555).
+- ALL fns containing `kernel` as a parameter / local should
+  fail. Empirically, `fn ff(kernel) { return kernel; }` PASSED
+  while `fn aa_bb(kernel)` FAILED. Bisection focused on the
+  underscore in fn names — wrong axis.
+- The actual asymmetry: main.cyr:980-1001 — non-underscored
+  fns with no callers are DCE'd via stub path
+  (`xor eax,eax; ret`) without parsing the body. So the param
+  parser never sees `kernel` for those. Underscored fn names
+  bypass DCE (intentionally — they're treated as
+  module-mangled), so PARSE_FN_DEF runs and fails at
+  `if (PEEKT(S) != 2) ERR_EXPECT(2)`.
+- The "downstream innocent line" symptom from the issue file
+  did NOT reproduce: error fires at the actual `fn ...(kernel...)`
+  line. The original bug report's line-drift was likely
+  file-structure-specific to the audio_dsp port file (multiple
+  fns; the parse failure cascaded backward through earlier
+  fns' DCE state).
+- The pin's bisection candidates `weights / bias / tensor /
+  layer` ALL parse cleanly. Only `kernel` (the AGNOS keyword)
+  is reserved. The pin's "DSP/ML names sweep" was over-broad.
+
+### Fix (preferred path per the slot pin)
+
+Per the issue's preferred fix ("allow `kernel` as a normal
+identifier — it's a common DSP/graphics/AI name"), demoted
+`kernel` from token 56 to plain ident in the lexer. Top-level
+`kernel;` (used by AGNOS at `kernel/agnos.cyr`,
+`programs/boot_serial.cyr`, etc.) is now detected by the
+parser checking the ident's bytes via the new
+`_TOK_IS_KERNEL(S)` helper.
+
+Changed:
+
+1. **`src/common/util.cyr`** — added `_TOK_IS_KERNEL(S)`.
+   Returns 1 iff current token is type 2 (ident) AND the
+   ident's bytes are exactly `kernel\0`. Byte-by-byte check
+   (no L64 mask) so partial-prefix names like `kernels` /
+   `kernel32` don't match.
+
+2. **`src/frontend/lex.cyr`** — removed lines 554-555 (the
+   `0x6C656E72656B` keyword check). Replaced with a
+   block-comment explaining the demotion + the AGNOS-side
+   detection path.
+
+3. **`src/main.cyr` + 5 main_*.cyr variants** —
+   `if (PEEKT(S) == 56)` → `if (_TOK_IS_KERNEL(S) == 1)` at
+   12 sites total (2 per file: pass-1 mode-switch + pass-2
+   skip). Files: main.cyr, main_win.cyr, main_aarch64.cyr,
+   main_aarch64_macho.cyr, main_aarch64_native.cyr,
+   main_cx.cyr.
+
+### Verification
+
+- **Original failing case** `fn aa_bb(kernel) { return 0; }` —
+  compiles cleanly.
+- **Original DSP repro** (3 fns including
+  `fn fir_step(kernel, history, n_taps, x_new)`) — compiles.
+- **AGNOS top-level `kernel;`** — still triggers execmode=1
+  via the new ident check. AGNOS kernel/agnos.cyr compiles
+  (post-restore-of-cyrius-cbt — initial agnos check.sh failure
+  was a confused-diagnosis: I'd overwritten ~/.cyrius/bin/cyrius
+  (cbt frontend) with cc5, which can't dispatch `cyrius build`
+  subcommands).
+- **`var kernel = 42;` in fn body** — parses, returns 42.
+- **`tests/tcyr/kernel_ident.tcyr`** new — 4 assertions
+  covering fn-param / underscored-fn-param / single-arg /
+  local-var. All green.
+- **cc5 self-host** — two-step byte-identical at 740,976 B.
+- **`scripts/check.sh`** — 65/65 PASS.
+
+### Process notes
+
+- **Premise-check delivered a 4-of-5 stale-pin reduction.**
+  Per the standing memory pin (`feedback_premise_check_at_slot_entry`):
+  the slot pin's bisection sweep candidates were 5 names
+  (`kernel weights bias tensor layer` plus a `module function
+  class type struct enum match` extension I added). Only
+  `kernel` and `enum` (already a real keyword) tripped. Same
+  pattern as v5.7.44/45/46 cycle — pins go stale; bisect
+  before scoping.
+
+- **Real bug ≠ symptom.** The issue's framing was "kernel
+  reserved word breaks parser at unrelated downstream line".
+  The reserved-word part is real. The "unrelated downstream
+  line" part was a non-reproducible artifact of one specific
+  multi-fn file's structure interacting with DCE — fixing
+  the reserved-word root cause obviates the line-drift
+  question without needing a separate parse-recovery fix.
+
+- **DCE-as-error-shield is a hidden code-path multiplier.**
+  Pre-fix, `fn ff(kernel)` "worked" only because DCE silently
+  emitted a stub instead of parsing the body. That is not
+  the parser working — that's the parser being skipped.
+  Future "X reserved word breaks Y" reports should always
+  test with a CALLED fn before concluding the parser is
+  context-sensitive. Field note candidate for vidya
+  `field_notes/compiler.toml`.
+
+- **The cbt-vs-cc5 install confusion** is worth a memory pin
+  on its own — I overwrote `~/.cyrius/bin/cyrius` (which is
+  the **cbt** front-end, NOT cc5) with the new cc5 binary
+  and AGNOS's `cyrius build` subcommand started failing in
+  ways that initially looked like the demotion broke
+  something. Restoring the original cyrius binary + compiling
+  the agnos-prep file directly with the new cc5 cleared it.
+  To verify a downstream that uses `cyrius build` against a
+  new cc5, the right move is to rebuild cbt with the new cc5
+  first (`cat cbt/main.cyr | new-cc5 > new-cyrius`) and
+  install THAT — not the new cc5 itself.
+
 ## [5.8.44] — 2026-05-03
 
 **v5.8.x slot 44 — api-surface refresh + auto-build wiring +

@@ -289,6 +289,26 @@ fn TOKNAME(typ) {
     return "unknown";
 }
 
+# v5.8.45: returns 1 iff the current token is the bare ident "kernel".
+# Used by main.cyr top-level dispatch to recognize the AGNOS kernel-mode
+# switch (`kernel;`) without making `kernel` a reserved word in the lexer.
+# Pre-v5.8.45 the lexer emitted token 56 unconditionally, which broke
+# any DSP/graphics/AI code using `kernel` as a parameter or local name
+# (vidya audio_dsp 11-lang port, 2026-05-03).
+fn _TOK_IS_KERNEL(S) {
+    if (PEEKT(S) != 2) { return 0; }
+    var noff = PEEKV(S);
+    var p = S + 0x60000 + noff;
+    if (load8(p)     != 107) { return 0; }  # 'k'
+    if (load8(p + 1) != 101) { return 0; }  # 'e'
+    if (load8(p + 2) != 114) { return 0; }  # 'r'
+    if (load8(p + 3) != 110) { return 0; }  # 'n'
+    if (load8(p + 4) != 101) { return 0; }  # 'e'
+    if (load8(p + 5) != 108) { return 0; }  # 'l'
+    if (load8(p + 6) != 0)   { return 0; }  # NUL — full match, not "kernel*"
+    return 1;
+}
+
 # Is this token type a reserved keyword (that a user might mistakenly
 # try to use as an identifier)? Used by ERR_EXPECT to print a clearer
 # diagnostic when a user writes e.g. `var match = 1;`.

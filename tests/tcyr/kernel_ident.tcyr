@@ -1,0 +1,45 @@
+# v5.8.45: `kernel` is no longer a reserved token — usable as a normal
+# identifier (parameter / local / fn name). The AGNOS top-level
+# `kernel;` mode-switch directive is detected via _TOK_IS_KERNEL(S)
+# in the dispatch site, not by lexer keyword reservation.
+#
+# Pre-v5.8.45 these all errored with "expected identifier, got unknown"
+# because the lexer always emitted token 56 for "kernel".
+
+include "lib/syscalls.cyr"
+include "lib/alloc.cyr"
+include "lib/fmt.cyr"
+include "lib/assert.cyr"
+
+# (1) `kernel` as fn parameter (the original DSP repro shape)
+fn fir_step(kernel, history, n_taps, x_new) {
+    return n_taps - 1;
+}
+
+# (2) `kernel` as fn parameter in an underscored fn name (the
+#     case that bisection-bypassed DCE pre-v5.8.45)
+fn aa_bb(kernel, b, c, d) {
+    return kernel;
+}
+
+# (3) `kernel` as fn parameter, single-arg
+fn solo(kernel) {
+    return kernel;
+}
+
+# (4) `kernel` as a local variable
+fn make_kernel() {
+    var kernel = 42;
+    return kernel;
+}
+
+# (5) `kernel` as a struct field would also work — covered by the
+#     general ident path; not duplicated here to keep the file focused.
+
+fn main() {
+    assert(fir_step(7, 0, 16, 0) == 15);
+    assert(aa_bb(99, 0, 0, 0) == 99);
+    assert(solo(123) == 123);
+    assert(make_kernel() == 42);
+    return 0;
+}
