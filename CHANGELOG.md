@@ -4,6 +4,138 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.43] — 2026-05-03
+
+**v5.8.x slot 43 — Phase 3 polish absorber: stdlib Allocator
+migration pass 3 (peripheral cleanup)**. Fifth slot of Phase 3.
+Absorbs the deferred-from-v5.8.35 + v5.8.36 peripheral `_a`
+variants — completes the v5.8.x Allocator-as-parameter migration
+to ~100% stdlib coverage. Unblocks the sandhi v1.1.0
+dup-elimination work parked at sandhi-side.
+
+cc5 unchanged at **740,528 B** (zero compiler delta — pure stdlib
+addition).
+
+### Added — `lib/str.cyr` (9 new fns)
+
+- `str_sub_a(a, s, start, len)` — Str header alloc via `a`;
+  data ptr shared with parent (view, not copy).
+- `str_trim_a(a, s)` — routes the str_sub allocation through `a`.
+- `str_split_a(a, s, sep)` — routes the result vec, every per-part
+  Str header, AND any vec-grow allocations through `a`. Returns 0
+  on OOM at any step.
+- `str_builder_new_a(a)` — initial 24-byte header + 64-byte
+  inline buffer (88 bytes total) via `a`.
+- `_sb_grow_a(a, sb, n)` — internal grow with allocator. Returns
+  -1 on grow OOM (vs back-compat aborts).
+- `str_builder_add_a(a, sb, s)` — Str append; routes grow through `a`.
+- `str_builder_add_cstr_a(a, sb, cstr)` — cstr append.
+- `str_builder_add_int_a(a, sb, n)` — int append.
+- `str_builder_build_a(a, sb)` — final permanent buffer + Str
+  header alloc via `a`.
+
+### Added — `lib/hashmap.cyr` (3 new fns)
+
+- `_map_u64_grow_a(a, m)` — internal grow. Returns -1 on grow OOM
+  (vs back-compat aborts).
+- `map_u64_new_a(a)` — header + initial 16-slot entries array
+  via `a`.
+- `map_u64_set_a(a, m, key, value)` — routes any grow through `a`.
+
+### Added — `tests/tcyr/alloc_stdlib_pass3.tcyr`
+
+33 assertions across 11 groups: str_sub_a / str_trim_a / str_split_a
+with bump_allocator + arena_allocator; full str_builder lifecycle
+through one arena (new → add Str + cstr + int → build → reset);
+str_builder OOM via fail_after_n_allocs(1) at the first grow trip;
+map_u64_new_a + map_u64_set_a with bump + arena (30-entry grow
+inside arena); map_u64_set_a OOM via fail_after_n_allocs(2) at the
+12th-set grow trigger; back-compat wrappers unchanged across all
+three families.
+
+### Migration coverage status (v5.8.x cycle)
+
+After v5.8.43 the cyrius stdlib `_a` Allocator-as-first-arg
+migration is at ~100% coverage:
+
+- v5.8.35 — vec / str (5 fns) / hashmap cstr+Str (10 fns)
+- v5.8.36 — json (12 fns) / toml (2) / cyml (2) / http (1+1)
+- v5.8.43 — str peripheral (9 fns) / map_u64 (3 fns)
+
+Total: 45 `_a` variants + 10 typed-error enums (Io / Json / Toml
+/ Cyml / Http / Dynlib / Pwd / Grp / Shadow / Pam) across 11 stdlib
+modules.
+
+### Surfaced bug — filed for separate fix
+
+While adding `str_split_a` I discovered a pre-existing bug in
+`str_split`: the `sep` parameter is treated as a Str/cstr at the
+API level (`fn str_split(s: Str, sep: Str)`) but the impl
+compares each byte against `sep` directly (`load8(sd + si) ==
+sep`). Since `sep` is a pointer (>255), the byte comparison never
+matches and the split loop never fires — `str_split` always
+returns a 1-element vec containing the whole input. Affects
+`lib/process.cyr:214` (`str_split(str_from(cmdline), " ")`
+silently returns the whole cmdline as one "argument"). Working
+callers like `str_split_cstr` accidentally dodge the bug because
+they pre-extract the byte before calling.
+
+Filed as `docs/development/issues/2026-05-03-str-split-sep-treated-as-pointer.md`.
+The v5.8.43 `str_split_a` variant preserves the existing broken
+behavior end-to-end (out of scope for the absorber — bug fix is
+a separate slot). Test assertions adjusted to reflect actual
+behavior; CHANGELOG flag prevents the bug from getting lost.
+
+### Sandhi-side unblock
+
+Per sandhi v1.1.0 CHANGELOG: "lib/str.cyr str_builder_* lacks _a
+variants in the pinned stdlib — sandhi's _a paths still use the
+global bump for builder scratch and dup the final cstr into a so
+the returned cstr matches arena lifetime
+(`_sandhi_client_host_header_a`, `_sandhi_wd_session_url_a`,
+`sandhi_json_build_a`). When a future cyrius release adds
+str_builder_new_a etc., these dups can drop in a follow-up."
+
+That future release is v5.8.43. Sandhi can now drop the dup
+pattern in its next minor (v1.2.0 or v1.1.x patch). cyrius-side
+nothing to do — the sandhi follow-up is sandhi-side work.
+
+### Verification
+
+- `sh scripts/check.sh` → 65 passed, 0 failed (65 total).
+- `alloc_stdlib_pass3` tcyr → 33 passed, 0 failed.
+- All Phase 2 sub-suite + Phase 3 prior tcyrs regression-floored.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 740,528 B.
+
+### Process notes
+
+- **Doc-coverage gate caught 2 undocumented public fns** on first
+  `cyrdoc --check` run (str_sub + str_builder_new lost their
+  leading comments when `_a` variants were inserted between the
+  comment and the fn body). Same pattern as the v5.8.35 hashmap
+  fix (map_new_str). Lesson stuck imperfectly — write the comment
+  as part of the fn definition, not as a follow-up; when inserting
+  variants between an existing fn and its leading comment, MOVE
+  the comment to stay attached.
+
+- **Tcyr ergonomics — pre-existing semantics matter.** The map_u64
+  test originally started keys from 0 and got 29 entries instead
+  of 30: key 0 is `MAP_U64_EMPTY` (sentinel; can't be a real key).
+  Adjusted to start from 1. Pre-existing map_u64 contract — u64
+  keys can't be 0 or all-Fs.
+
+- **Honest scope-shrink — str_split bug not fixed in absorber.**
+  Per `feedback_premise_check_at_slot_entry.md` + `CLAUDE.md` "ONE
+  change at a time": the absorber slot scope was "complete the
+  v5.8.35/.36 migration", not "fix every bug surfaced along the
+  way". Filed the str_split bug as a new active issue for a
+  future slot. Adjusted tcyr assertions to reflect the actual
+  pre-existing behavior so we have explicit floor coverage of
+  the broken state — when the bug fix lands in a future slot,
+  these assertions flip from "1 part" to "4 parts" + the issue
+  flips to RESOLVED.
+
 ## [5.8.42] — 2026-05-03
 
 **v5.8.x slot 42 — paired UX/diagnostic polish**. Fourth slot of

@@ -5,6 +5,59 @@
 
 ## Version
 
+**5.8.43** (shipped 2026-05-03 — **v5.8.x SLOT 43 — Phase 3 polish
+absorber: stdlib Allocator migration pass 3 (peripheral cleanup)**.
+Fifth slot of Phase 3. Absorbs the deferred-from-v5.8.35 + v5.8.36
+peripheral _a variants — completes the v5.8.x Allocator-as-parameter
+migration to ~100% stdlib coverage. Unblocks sandhi v1.1.0
+dup-elimination work parked at sandhi-side.) **lib/str.cyr (9 new
+fns)**: str_sub_a, str_trim_a, str_split_a, str_builder_new_a,
+_sb_grow_a internal, str_builder_add_a, str_builder_add_cstr_a,
+str_builder_add_int_a, str_builder_build_a. **lib/hashmap.cyr (3
+new fns)**: _map_u64_grow_a internal, map_u64_new_a, map_u64_set_a.
+**Migration status post-v5.8.43**: ~100% stdlib coverage —
+45 `_a` variants + 10 typed-error enums across 11 stdlib modules
+(io/json/toml/cyml/http/dynlib/pwd/grp/shadow/pam errors;
+vec/str/hashmap/json/toml/cyml/http/sandhi `_a` variants). New tcyr
+`alloc_stdlib_pass3.tcyr` — 33 assertions across 11 groups
+(str_sub_a/str_trim_a/str_split_a bump+arena; full str_builder
+lifecycle in arena: new→add→build→reset; str_builder OOM at first
+grow; map_u64_new_a + map_u64_set_a bump+arena; map_u64_set_a
+OOM at 12th-set grow trigger; back-compat unchanged). **Surfaced
+bug filed**: `docs/development/issues/2026-05-03-str-split-sep-
+treated-as-pointer.md` — pre-existing str_split bug where sep
+parameter is treated as Str/cstr at API level but compared as
+byte at impl level (load8 == sep never matches; always returns
+1 part). Affects lib/process.cyr:214 cmdline parsing. v5.8.43
+str_split_a preserves the existing broken behavior end-to-end
+(out of scope for absorber); test assertions adjusted to reflect
+actual state so the floor catches the fix when it lands. **Sandhi
+unblock**: sandhi v1.1.0's `_sandhi_client_host_header_a` /
+`_sandhi_wd_session_url_a` / `sandhi_json_build_a` use global
+bump + dup pattern because v5.8.36 stdlib lacked str_builder_*_a.
+v5.8.43 ships those variants; sandhi can drop the dup pattern in
+v1.1.x or v1.2.0 (sandhi-side follow-up). cc5 unchanged at
+**740,528 B** (zero compiler delta — pure stdlib addition).
+**Process notes**: (1) doc-coverage gate caught 2 undocumented
+fns (str_sub + str_builder_new lost leading comments when _a
+variants were inserted between comment and fn body) — same v5.8.35
+hashmap-fix pattern; lesson: when inserting variants between an
+existing fn and its leading comment, MOVE the comment. (2)
+map_u64 test originally started keys from 0 (MAP_U64_EMPTY
+sentinel) → got 29/30 entries; adjusted to start from 1. Pre-
+existing map_u64 contract. (3) Honest scope-shrink — str_split
+bug NOT fixed in absorber; filed as new issue for future slot.
+Per CLAUDE.md "ONE change at a time" + feedback_premise_check.
+Verification: self-host two-step byte-identical, check.sh 65/65,
+alloc_stdlib_pass3 33/33, all Phase 2 + Phase 3 prior tcyrs
+regression-floored. v5.8.x cycle progress: **43 of 51 pinned
+slots shipped (84.3%)**. Phase 3 remaining (8 slots): api-surface
+refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in
+fn args (v5.8.46), combined starship/p10k color refresh + vidya
+audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full
+closeout pass (v5.8.49), deps cleanup + post-release propagation
+(v5.8.50), release-valve (v5.8.51). Cycle backstop hard at v5.8.51.)
+
 **5.8.42** (shipped 2026-05-03 — **v5.8.x SLOT 42 — paired UX/diagnostic
 polish** (mabda A2 + mabda C1, combined per pin). Fourth slot of
 Phase 3.) **Half (a) cyrius fmt --check exit code**: cbt's
@@ -3271,7 +3324,7 @@ throughput win on hosts with hw support).)
 ## Suites
 
 - **check.sh**: 64/64 PASS (Linux x86_64 daily-driver + cross-platform skip-stubs; unchanged from v5.7.46 — v5.7.47 refactor + v5.7.48 closeout + v5.7.49 deps-refresh + v5.7.50 P(-1) unblock + v5.8.x slot work introduce no new gates. v5.7.x cycle growth: 26 → 64 gates, +38 across 51 patches; v5.8.x: 64 unchanged through v5.8.28 — `result.tcyr` added v5.8.28 is auto-discovered by the existing tcyr suite gate, no new gate required)
-- **`tests/tcyr/*.tcyr`**: 107 files (v5.8.40 added `preprocessor_string_literal.tcyr` — 12 assertions across 5 groups for the PP string-literal awareness fix. v5.8.37 added `alloc_no_init.tcyr` — 17 assertions across 8 groups verifying alloc/alloc_via/arena_new/vec/str/hashmap all work without explicit alloc_init() (lazy-init proves out). v5.8.36 added `alloc_stdlib_pass2.tcyr` — 30 assertions across 10 groups covering json/toml/cyml/http _a variants, per-request-arena pattern, OOM behavior. v5.8.35 added `alloc_stdlib.tcyr` — 33 assertions across 14 groups covering vec/str/hashmap _a variants, bump/arena/test allocator dispatch, OOM via fail_after_n_allocs, default_alloc singleton consistency. v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
+- **`tests/tcyr/*.tcyr`**: 108 files (v5.8.43 added `alloc_stdlib_pass3.tcyr` — 33 assertions across 11 groups covering str/map_u64 peripheral _a variants. v5.8.40 added `preprocessor_string_literal.tcyr` — 12 assertions across 5 groups for the PP string-literal awareness fix. v5.8.37 added `alloc_no_init.tcyr` — 17 assertions across 8 groups verifying alloc/alloc_via/arena_new/vec/str/hashmap all work without explicit alloc_init() (lazy-init proves out). v5.8.36 added `alloc_stdlib_pass2.tcyr` — 30 assertions across 10 groups covering json/toml/cyml/http _a variants, per-request-arena pattern, OOM behavior. v5.8.35 added `alloc_stdlib.tcyr` — 33 assertions across 14 groups covering vec/str/hashmap _a variants, bump/arena/test allocator dispatch, OOM via fail_after_n_allocs, default_alloc singleton consistency. v5.8.34 added `oom_handling.tcyr` — 33 assertions across 9 groups covering fail_after_n_allocs thresholds 0/1/3, alloc_count + bytes_total tracking, reset_via behavior, consumer-pattern fallback, vtable sanity. v5.8.33 added `alloc_iface.tcyr` — 43 assertions across 12 groups covering Allocator vtable layout, 3 default impls (bump/arena/test), dispatch helpers, fail_after threshold, cross-impl uniformity. v5.8.31 added `result_stdlib_pass2.tcyr` — 24 assertions across 12 groups covering the *_r variants of http/dynlib/pwd/grp/shadow/pam + ? propagation chain on pwd_getpwuid_r. v5.8.30 added `result_stdlib.tcyr` — 29 assertions across 14 groups covering the *_r variants of the io/json/toml/cyml modules, `?` propagation chain over open+read+close, round-trip write+read, json/toml/cyml synthetic-file Ok cases. v5.8.29 added `result_propagation.tcyr` — 29 assertions across 11 groups covering Ok unwrap, Err short-circuit at first/second `?`, `return expr?;` shape, `?` in binary-op context, `?` as first fn-body statement, `?` inside `if` body, payload roundtrip negatives + zero. v5.8.28 added `result.tcyr` — 24 assertions across 9 groups covering typed `Result<T, E>` + 6 helpers + match consumer + Result-returning fn shape. Plus v5.8.x sub-suite tcyrs: enum_generics 31/31, exhaustive_match 10/10, match_dedup 10/10, tagged 14/14, enums 10/10. ~3400 total assertions across the cyrius surface)
 - **`tests/scyr/*.scyr`**: 1 file (v5.7.38 added `tests/scyr/alloc_pressure.scyr` — 10,000× alloc(4KB) + sentinel readback; runs via `cyrius soak`)
 - **`tests/smcyr/*.smcyr`**: 1 file (v5.7.38 added `tests/smcyr/compile_minimal.smcyr` — minimal "fn returns literal" smoke; runs via `cyrius smoke`)
 - **Release toolchain**: 10 bins (v5.7.39 promoted `cyrius-lsp` to `[release].bins` so fresh installs ship the navigation-capable language server; pre-v5.7.39 was install-on-demand via `cyrius lsp` subcommand)
@@ -3287,7 +3340,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.42 ✅ shipped — paired UX polish (mabda A2 + C1, combined). Half (a) cyrius fmt --check cbt arg-order fix (matches Rust/Go); half (b) var X; bare-decl diag improvement. Phase 3 remaining (9 slots): Phase 3 polish absorber (v5.8.43), api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya cyrius-language audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 42 of 51 pinned slots shipped (82.4%); 9 slots remaining.**
+**v5.8.43 ✅ shipped — Phase 3 polish absorber: stdlib Allocator migration pass 3 (peripheral cleanup). 12 new _a variants completing the v5.8.x migration to ~100% stdlib coverage. Surfaced str_split pre-existing bug → filed for future slot. Unblocks sandhi v1.1.0 dup-elimination. Phase 3 remaining (8 slots): api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 43 of 51 pinned slots shipped (84.3%); 8 slots remaining.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3342,6 +3395,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.40** ✅ Preprocessor string-literal awareness (cascaded from v5.8.39). PP_PASS + PP_IFDEF_PASS gain in_string + escape_next state machines; `include "..."` inside string literals no longer mistaken for directives. cc5 +640 B (320 per pass). 12-assertion tcyr. Vidya entry flipped to ✅ FIXED.
 - **v5.8.41** ✅ cyrlint large-file false-positive verification slot. Premise check (4 repros, all clean) found mabda-filed bug already resolved by intermediate cyrlint work between v5.7.23 and v5.8.40. New regression-floor gate (tests/regression-cyrlint-large-file.sh, 7010-line synthetic) wired into check.sh (gate count 64→65). mabda issue annotated as ✅ RESOLVED. Zero compiler delta.
 - **v5.8.42** ✅ Paired UX polish (mabda A2 + C1). Half (a) `cyrius fmt --check` cbt arg-order fix (drift detection silently broken pre-fix; now matches Rust/Go silent-on-no-drift / exit-1-on-drift). Half (b) `var X;` bare-decl diag improvement (special-case ; token in PARSE_VAR + EMIT_GVAR_INITS, emit "uninitialized variable not allowed; use `var X = 0;`"). cc5 +216 B (entirely from half b).
+- **v5.8.43** ✅ Phase 3 polish absorber — stdlib Allocator migration pass 3 (peripheral cleanup). 9 new str _a variants (str_sub_a / str_trim_a / str_split_a / 5 str_builder_*_a) + 3 new map_u64 _a variants (map_u64_new_a / map_u64_set_a / _map_u64_grow_a internal). Migration now at ~100% stdlib coverage (45 _a variants + 10 typed-error enums across 11 modules). Unblocks sandhi v1.1.0 dup-elimination. Surfaced str_split pre-existing bug (sep treated as ptr) → filed as new issue for future slot. cc5 +0 B; 33-assertion tcyr.
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

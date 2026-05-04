@@ -1267,9 +1267,33 @@ fn requires explicit allocator.
   expression after `=`" → "uninitialized variable not allowed;
   use `var X = 0;` or initial value").
 
-- **v5.8.43** — Phase 3 polish (last pre-closeout polish slot;
-  see Phase 3 description above for the floating slot's
-  surface-during-cycle absorption role).
+- ✅ **v5.8.43** — Phase 3 polish absorber: stdlib Allocator
+  migration pass 3 (peripheral cleanup) (shipped 2026-05-03).
+  Absorbs the deferred-from-v5.8.35 + v5.8.36 peripheral `_a`
+  variants. **lib/str.cyr** gains 9 new fns (str_sub_a /
+  str_trim_a / str_split_a + str_builder_new_a + _sb_grow_a
+  internal + str_builder_add_a / add_cstr_a / add_int_a /
+  build_a); **lib/hashmap.cyr** gains 3 (_map_u64_grow_a internal
+  + map_u64_new_a / map_u64_set_a). Migration now at ~100%
+  stdlib coverage: 45 `_a` variants + 10 typed-error enums
+  across 11 stdlib modules. Unblocks sandhi v1.1.0
+  dup-elimination work (sandhi's `_sandhi_client_host_header_a`
+  / `_sandhi_wd_session_url_a` / `sandhi_json_build_a` use the
+  global bump + dup pattern because v5.8.36 stdlib lacked
+  str_builder_*_a; v5.8.43 ships those variants — sandhi-side
+  follow-up at v1.1.x or v1.2.0). cc5 unchanged at 740,528 B
+  (zero compiler delta — pure stdlib addition). New
+  tests/tcyr/alloc_stdlib_pass3.tcyr — 33 assertions across 11
+  groups. **Surfaced bug filed**: `str_split` pre-existing —
+  sep treated as ptr at impl level despite Str API annotation;
+  always returns 1 part regardless of separator. Affects
+  lib/process.cyr:214 cmdline parsing. Filed at
+  `docs/development/issues/2026-05-03-str-split-sep-treated-as-
+  pointer.md` for separate slot; out of scope for absorber.
+  v5.8.43 str_split_a preserves the broken behavior end-to-end;
+  tcyr assertions reflect actual state so the floor catches the
+  fix when it lands. check.sh 65/65; self-host two-step
+  byte-identical.
 
 - **v5.8.44** — api-surface refresh + auto-build wiring +
   null-byte-in-shell-substitution fix. Pinned 2026-05-02 at
