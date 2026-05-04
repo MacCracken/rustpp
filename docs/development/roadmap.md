@@ -1450,41 +1450,37 @@ fn requires explicit allocator.
   tok_types-vs-output_buf overlap was a v3.6.2-era recycling
   pattern that the comments never caught up to.
 
-- **v5.8.47** — Combined: starship + p10k prompt color refresh
-  AND vidya cyrius-language audit (combined per user direction
-  2026-05-03 PM — "vidya audit isn't really considered a
-  pinnable release; external docs are external"; rolling both
-  into one slot since each is small).
-
-  **Starship part** (filed 2026-05-03 user direction; "want to
-  update starship / cmd line — ॐ <version> ← forestgreen
-  (cyrius) | 🌀 <version> ← matching light blue"). Edit
-  `scripts/cyriusly`'s `_CYRIUS_STARSHIP` heredoc +
-  `_CYRIUS_P10K` heredoc to differentiate the package side
-  (ॐ Om → forestgreen) from the toolchain side (🌀 cyclone →
-  light blue). Currently both use `bg:teal` with `fg:base`
-  text — the visual collapse hides which side is which when
-  read at a glance. Acceptance gate: fresh `cyriusly cmdtools
-  install starship` rewrites the user's
-  `~/.config/starship.toml` with the new color split; fresh
-  shell renders ॐ/🌀 in distinct colors; existing
-  `cyrius-prompt-info` integration unchanged (the version
-  string still flows from `cyrius.cyml` so version updates
-  per-bump automatically).
-
-  **Vidya audit part** (relocated 2026-05-03 PM from its own
-  pinned slot — vidya audits don't warrant a discrete release
-  since they touch external docs only). Sweep
-  `vidya/content/cyrius/` (~15K lines across 13 cyml files).
-  For each open-issue-shaped entry: confirm if still active,
-  file locally in `cyrius/docs/development/issues/` if so,
-  annotate vidya entry with cross-ref + status. Policy:
-  preserve consumer-facing workaround text; add the tracking
-  pointer alongside. First example (preprocessor include-
-  pattern) shipped at v5.7.50 as the pattern template; v5.8.40
-  flipped that vidya entry from "pinned for v5.8.x" → "✅ FIXED
-  in v5.8.40" — same pattern applies for any v5.8.41-46 fixes
-  that close vidya-tracked open issues.
+- ✅ **v5.8.47** — starship + p10k prompt color split AND vidya
+  cyrius-language audit (shipped 2026-05-03). Two-part slot per
+  the original pin. **Part A** (starship/p10k color refresh):
+  edited `scripts/cyriusly`'s `_CYRIUS_STARSHIP` +
+  `_CYRIUS_P10K` heredocs — package side (ॐ Om) → forestgreen
+  `#228B22` TEXT; toolchain side (🌀 cyclone) → light blue
+  `#87CEEB` TEXT (color on the text, not the background;
+  first-pass attempt put it on bg, corrected after user
+  feedback "not the background the text"). p10k uses 256-color
+  fg codes -f 28/-f 117 for the same split. Pre-fix both
+  shared `bg:teal` / `fg:base` and visually collapsed. Acceptance gate run:
+  `scripts/cyriusly cmdtools install starship` re-installed
+  cleanly via the existing purge-then-write path; both
+  segments now render in distinct colors. **Part B** (vidya
+  audit): swept ~20K lines across 33 cyml files. **3 entries
+  flipped to ✅ FIXED** (`global_init_order_silent_zero`
+  v5.7.32, `no_var_redecl_same_scope` v5.8.x,
+  `multi_line_struct_enum_bodies_dont_parse` v5.8.x — all
+  FIXED-by-side-effect of v5.8.x parser/expression-grammar
+  work). **3 entries refreshed** for stale cap/version refs
+  (`the_gvar_wall` 256→1024 entries, `the_256kb_ceiling`
+  256K→2M output_buf at v5.6.43, `the_preprocessed_line_number_problem`
+  still-active confirmation). **1 new local issue filed** at
+  `docs/development/issues/2026-05-03-parser-cosmetic-limits-bare-return-and-var-bracket.md`
+  for two confirmed-still-active parser cosmetic limits;
+  vidya entries cross-referenced. cc5 unchanged at 741,040 B
+  (no compiler change). **Stale-pin streak now 4 of 6 in
+  v5.8.x cycle** (v5.8.45 4-of-5, v5.8.46-Part-A 18-of-18,
+  v5.8.47 3-of-6); pinned for v5.8.48 — parser-grammar slots
+  should grep vidya field_notes/language/ for FIXED-by-side-
+  effect entries before declaring scope.
 
 - **v5.8.48** — Refactoring + heap-map cleanups (per user
   direction 2026-05-03 PM). Closeout-prep slot for the v5.8.x

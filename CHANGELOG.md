@@ -4,6 +4,183 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.47] — 2026-05-03
+
+**v5.8.x slot 47 — starship + p10k prompt color split AND vidya
+cyrius-language audit**. Ninth slot of Phase 3. Two small
+deliverables combined per the originally-pinned scope (rolled
+together because each is small).
+
+cc5: **741,040 B unchanged** (no compiler change — pure
+ergonomics + docs slot).
+
+### Part A — starship + p10k prompt color refresh
+
+Filed 2026-05-03 user direction: "want to update starship / cmd
+line — ॐ <version> ← forestgreen (cyrius) | 🌀 <version> ←
+matching light blue". Pre-v5.8.47 both segments shared
+`bg:teal` with `fg:base` text — visual collapse hid which side
+was which (package vs toolchain) when read at a glance.
+
+**Color goes on the TEXT, not the background.** First-pass
+attempt at the slot (mid-session) put the color on the bg with
+contrasting white/black text — got pushed back ("not the
+background the text") and corrected. The pin's `← forestgreen`
+/ `← light blue` arrows label the SYMBOL+VERSION text color;
+no background fill, no visual conflict with the rest of the
+prompt.
+
+Edits to `scripts/cyriusly`'s `_CYRIUS_STARSHIP` heredoc +
+`_CYRIUS_P10K` heredoc:
+
+- **starship**: `[custom.cyrius_pkg]` (ॐ Om → package side) now
+  `style = "fg:#228B22"` (forestgreen text). `[custom.cyrius]`
+  (🌀 cyclone → toolchain side) now `style = "fg:#87CEEB"`
+  (light blue text). Divider `" | "` in the cyclone format
+  retained as the visual separator (no bg fill = no other
+  separator).
+- **p10k**: split into two `p10k segment -f` calls — `-f 28`
+  (256-color forest green) for the ॐ pkg side and `-f 117`
+  (256-color light steel blue) for the 🌀 tool side. Pre-fix
+  used a single combined segment with `-f teal`.
+
+Acceptance gate: `scripts/cyriusly cmdtools install starship`
+re-installed the segments cleanly via the existing
+`sed '/\[custom\.cyrius_pkg\]/,/^$/d'` purge-then-write path
+(no duplicates). `cyrius-prompt-info pkg` returns
+`5.8.46 (cyrius)` and `cyrius-prompt-info tool` returns
+`5.8.46`; both now render in distinct color segments with the
+v5.8.47 install.
+
+ASCII fallback path unchanged: emoji-hostile terminals can swap
+ॐ → `[C]` and 🌀 → `𝕮` via inline edits to the user's own
+`starship.toml` / `~/.p10k.zsh`; the colors carry through.
+
+### Part B — vidya cyrius-language audit
+
+Sweep of `vidya/content/cyrius/` (~20K lines across 33 cyml
+files; 35 entries in `field_notes/language/` alone). For each
+open-issue-shaped entry: confirm if still active by empirical
+test, file locally if so, annotate vidya with cross-ref +
+status. Same template as the v5.8.40 closeout's
+preprocessor-string-literal entry flip.
+
+**3 entries flipped to ✅ FIXED** (description line + status
+paragraph at body top; original PRE-FIX text preserved for
+pre-v5.8.x toolchain users):
+
+1. **`global_init_order_silent_zero`** (semantics_runtime) —
+   FIXED in v5.7.32 (`cyrlint`'s `lint_globals_init_order`
+   warning) + v5.7.36 (string-literal awareness so
+   identifier-shaped substrings inside `"..."` don't
+   false-positive). Body already said "Shipped at v5.7.32 +
+   v5.7.36" but the description line was stale. Tracked at
+   `cyrius/docs/development/issues/archived/2026-04-28-global-init-order-forward-ref.md`.
+
+2. **`no_var_redecl_same_scope`** (parser_syntax) — empirically
+   FIXED in v5.8.x (exact slot not bisected). Premise-check at
+   slot entry: `if (x == 1) { var buf[8]; } elif (y == 1) { var
+   buf[16]; }` compiles + runs cleanly at v5.8.46. Same
+   side-effect-of-cycle-work pattern as v5.8.46-Part-A's
+   arithmetic-in-fn-args closure.
+
+3. **`multi_line_struct_enum_bodies_dont_parse`** (parser_syntax)
+   — empirically FIXED in v5.8.x (likely as a side-effect of
+   the v5.8.21+ sum-type / exhaustive-match / enum-generics
+   cluster). Both `struct Point { x: i64; y: i64; }` and
+   `enum Color { Red = 1; Green = 2; Blue = 3; }` parse
+   cleanly across multiple lines at v5.8.46.
+
+**3 entries refreshed for stale cap/version refs** (still
+active or partially mitigated, but cited cap values had
+moved):
+
+4. **`the_gvar_wall`** (diagnostics_caps) — cap moved from
+   `256 entries @ 0x98000` (DOOM-era cc2) to **`1024 entries
+   @ 0x198000`** at v5.8.46. MITIGATION STRATEGIES below
+   remain load-bearing for sandhi-class consumers + AGNOS.
+
+5. **`the_256kb_ceiling`** (diagnostics_caps) — output_buf
+   moved from cc2's `256 KB` to **`2 MiB at S+0x94A000`**
+   (bumped v5.6.43; was 1 MB pre-v5.6.43). The
+   "heap-allocate-anything-over-100-bytes" RULE is still
+   correct. Companion v5.8.46 fixed the adjacent **token-array
+   cap** (262144 → 1048576) which was binding sit/sandhi
+   consumers — see archived issue
+   `2026-04-25-cyrius-fixup-table-cap.md`.
+
+6. **`the_preprocessed_line_number_problem`** (diagnostics_caps)
+   — STILL ACTIVE at v5.8.46. Empirical re-test:
+   `var x = SOME_UNDEFINED;` on line 4 of a 5-line program
+   errors as `error:<source>:2: undefined variable
+   'SOME_UNDEFINED'` — line number wrong AND source filename
+   collapses to literal `<source>` even through `cyrius
+   build`. Partial mitigation infra (`file_map` /
+   `file_map_str` in `src/frontend/lex.cyr`) exists but the
+   common error sites still emit preprocessed-stream line
+   numbers. Pinned for a future closeout slot.
+
+**1 new local issue filed** for two confirmed-still-active
+parser cosmetic limits (filed jointly because both share the
+same root cause: parser-stage rejections where the diagnostic
+fires at the offending token but the workarounds are
+mechanical):
+
+7. **`docs/development/issues/2026-05-03-parser-cosmetic-limits-bare-return-and-var-bracket.md`**
+   covers:
+   - `bare_return_in_if_block_rejected` — `if (x > 0) { return; }`
+     errors `unexpected ';'`; workaround `return 0;` (cyrius
+     has no void; every fn returns int).
+   - `var_bracket_size_must_be_literal` — `var SIZE = 16; var
+     buf[SIZE];` errors `expected number, got identifier
+     'SIZE'`; workaround inline the literal or heap-allocate.
+   Both vidya entries cross-referenced to this issue file with
+   a `**Status (2026-05-03)**: still active at cyrius v5.8.46.
+   Tracked at: ...` paragraph at body top.
+
+### Verification
+
+- Starship install re-run: ~/.config/starship.toml's
+  `[custom.cyrius_pkg]` and `[custom.cyrius]` blocks now show
+  the new color split (forestgreen + light blue with white /
+  black text); `cyrius-prompt-info pkg` / `tool` both return
+  cleanly under the new format.
+- Empirical premise-check passes for the 3 FIXED-flip entries
+  (`var redecl` / `multi-line struct+enum bodies` / `global
+  init order`).
+- Empirical re-test confirms 3 still-active entries (`bare
+  return` / `var bracket const` / `preprocessed line numbers`).
+- `scripts/check.sh` 65/65 PASS (no compiler change; the
+  starship/vidya work doesn't touch cc5).
+- cc5 self-host two-step byte-identical at 741,040 B
+  (unchanged from v5.8.46 — Part A is shell scripts only,
+  Part B is vidya `.cyml` content + a docs/development/issues/
+  file; neither touches cc5 source).
+
+### Process notes
+
+- **Vidya audit pattern matures**. v5.8.40 established the
+  template: `**Status (date)**: ✅ FIXED in cyrius vX.Y.Z` at
+  the body top + workaround text preserved + `Tracked at:`
+  pointer to local issue file. v5.8.46-Part-A applied it for
+  `no_comparisons_in_fn_args`. v5.8.47 applies it three more
+  times (and three refresh-not-FIXED times for stale caps).
+  The audit cost is small per-entry but the cumulative drift
+  is large — running this sweep every minor closeout would
+  catch FIXED-by-side-effect items within one cycle instead
+  of waiting for an explicit pin.
+
+- **Stale-pin streak now 4 of 6** in v5.8.x cycle: v5.8.45
+  (4-of-5 sweep stale), v5.8.46-Part-A (18-of-18 op shapes
+  already passing), v5.8.47 (3-of-6 vidya entries already
+  fixed by side-effect). The cycle-wide pattern holds:
+  parser/expression-grammar work between v5.8.20 and v5.8.40
+  closed three separate vidya-tracked issues without anyone
+  noticing until the audit. Pinned for v5.8.48: when
+  shipping any parser-grammar widening, the slot's CHANGELOG
+  should grep `vidya/content/cyrius/field_notes/language/`
+  for entries that might now be FIXED-by-side-effect.
+
 ## [5.8.46] — 2026-05-03
 
 **v5.8.x slot 46 — arithmetic-in-fn-args regression-floor lock +

@@ -5,6 +5,65 @@
 
 ## Version
 
+**5.8.47** (shipped 2026-05-03 — **v5.8.x SLOT 47 — starship +
+p10k prompt color split AND vidya cyrius-language audit**. Ninth
+slot of Phase 3. cc5 unchanged at **741,040 B** — no compiler
+change; Part A is shell-script edits, Part B is vidya `.cyml`
+content + one new local issue file. **Part A** (starship/p10k
+color refresh): edited `scripts/cyriusly`'s `_CYRIUS_STARSHIP`
++ `_CYRIUS_P10K` heredocs to differentiate the package side
+(ॐ Om → forestgreen `#228B22` TEXT) from the toolchain side
+(🌀 cyclone → light blue `#87CEEB` TEXT). Pre-fix both shared
+`bg:teal` / `fg:base` and visually collapsed; the slot's
+first-pass attempt (mid-session) put color on the bg with
+contrasting white/black text — corrected after user feedback
+("not the background the text"). p10k uses 256-color foreground
+codes (-f 28 / -f 117) for the same split. Divider `" | "`
+retained between segments since there's no bg fill to act as a
+visual separator. Acceptance gate run: `scripts/cyriusly cmdtools install
+starship` re-installed cleanly via the existing purge-then-write
+path; `cyrius-prompt-info pkg` returns `5.8.46 (cyrius)` and
+`cyrius-prompt-info tool` returns `5.8.46`, both rendering in
+the new colored segments. **Part B** (vidya audit of ~20K lines
+across 33 cyml files; 35 entries in field_notes/language/
+alone): **3 entries flipped to ✅ FIXED** with status paragraph
+at body top + PRE-FIX text preserved for pre-v5.8.x toolchain
+users — `global_init_order_silent_zero` (FIXED v5.7.32 cyrlint
+warning + v5.7.36 string-lit awareness; description was stale
+even though body said "Shipped at v5.7.32"),
+`no_var_redecl_same_scope` (empirically FIXED in v5.8.x;
+sibling if/elif `var buf` redecl now compiles), and
+`multi_line_struct_enum_bodies_dont_parse` (empirically FIXED
+in v5.8.x, likely as side-effect of v5.8.21+ sum-type cluster).
+**3 entries refreshed** for stale cap/version refs —
+`the_gvar_wall` (cap moved 256 → 1024 entries),
+`the_256kb_ceiling` (output_buf moved 256 KB → 2 MiB at
+v5.6.43), `the_preprocessed_line_number_problem` (still active
+at v5.8.46; partial mitigation infra exists but errors still
+emit preprocessed-stream line numbers). **1 new local issue
+filed** at
+`docs/development/issues/2026-05-03-parser-cosmetic-limits-bare-return-and-var-bracket.md`
+covering the two confirmed-still-active parser cosmetic limits
+(`bare_return_in_if_block_rejected` + `var_bracket_size_must_be_literal`),
+both vidya entries cross-referenced. **Stale-pin streak now 4
+of 6 in v5.8.x cycle** — v5.8.45 (4-of-5 sweep stale),
+v5.8.46-Part-A (18-of-18 op shapes already passing), v5.8.47
+(3-of-6 vidya entries already FIXED by side-effect). Same root
+pattern: parser/expression-grammar work between v5.8.20 and
+v5.8.40 closed three separate vidya-tracked items without
+anyone noticing until the audit. Pinned for v5.8.48: parser-
+grammar widening slots should grep vidya field_notes/language/
+for FIXED-by-side-effect entries. Verification: scripts/check.sh
+65/65 PASS; cc5 self-host two-step byte-identical at 741,040 B
+(no compiler delta this slot). v5.8.x cycle progress: **47 of
+55 pinned slots shipped (85.5%)**; 8 slots remaining. Phase 3
+remaining: refactoring + heap-map cleanups (v5.8.48 — also
+absorbs v5.8.46-Part-B's heap-map sweep that surfaced the
+tok_types/output_buf overlap), full closeout pass (v5.8.49),
+deps cleanup (v5.8.50), release-valve (v5.8.51), Unicode 17.0.0
+categories+normalization (v5.8.52-54), Unicode regression suite
++ final closeout (v5.8.55).)
+
 **5.8.46** (shipped 2026-05-03 — **v5.8.x SLOT 46 — arithmetic-
 in-fn-args regression-floor lock + token-array cap raised
 262144 → 1048576 (sit v0.7.2 unblocked)**. Eighth slot of Phase
@@ -3516,6 +3575,8 @@ throughput win on hosts with hw support).)
   tagged.cyr for backward compat)
 
 ## In-flight
+
+**v5.8.47 ✅ shipped — starship + p10k prompt color split AND vidya cyrius-language audit. cc5 unchanged at 741,040 B (no compiler change). Part A (starship/p10k): ॐ Om → forestgreen `#228B22` TEXT, 🌀 cyclone → light blue `#87CEEB` TEXT (color on the text, not the background — first-pass attempt put it on bg, corrected after user feedback "not the background the text"); pre-fix both shared bg:teal/fg:base and visually collapsed. p10k uses 256-color fg codes -f 28/-f 117 for the same split. Part B (vidya audit, ~20K lines, 33 cyml files): 3 entries flipped to ✅ FIXED (`global_init_order_silent_zero` v5.7.32, `no_var_redecl_same_scope` v5.8.x, `multi_line_struct_enum_bodies_dont_parse` v5.8.x); 3 entries refreshed for stale cap/version refs (`the_gvar_wall` 256→1024, `the_256kb_ceiling` 256K→2M, `the_preprocessed_line_number_problem` still-active confirmation); 1 new local issue file for confirmed-still-active parser cosmetic limits (`bare_return_in_if_block_rejected` + `var_bracket_size_must_be_literal`). **Stale-pin streak now 4 of 6 in v5.8.x cycle**: parser/expression-grammar work between v5.8.20 and v5.8.40 closed three separate vidya-tracked items without anyone noticing until the audit. Pinned for v5.8.48 — parser-grammar slots should grep vidya field_notes/language/ for FIXED-by-side-effect entries. Verification: scripts/check.sh 65/65 PASS; cc5 self-host two-step byte-identical at 741,040 B; starship install acceptance gate green (cyrius-prompt-info renders in distinct colored segments). 47 of 55 pinned slots shipped (85.5%); 8 slots remaining. Phase 3 remaining: refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup (v5.8.50), release-valve (v5.8.51), Unicode 17.0.0 categories+normalization (v5.8.52-54), Unicode regression suite + final closeout (v5.8.55).**
 
 **v5.8.46 ✅ shipped — arithmetic-in-fn-args regression-floor lock + token-array cap raised 262144 → 1048576 (sit v0.7.2 unblocked). cc5 740,528 → 741,040 B (+512 from v5.8.45's `_TOK_IS_KERNEL(S)` inheritance + Part B's PRNUM call sequence + relocated-offset literals; Part A added zero compiler bytes). Two coherent deliverables landed in the same slot. Part A closes the v5.8.34-filed arithmetic-in-fn-args pin (vidya `audio_dsp` 11-lang port, originally rejected `biquad_set(a_q15, 0, 0, a_q15 - ONE, 0)`) as a regression-floor lock — the parser fix landed earlier in the cycle as a side-effect of expression-grammar work, this part ships the test + vidya cleanup that should have followed; deliverables: new `tests/tcyr/expr_in_fn_args.tcyr` (30 assertions × all 18 operator shapes × operand-source mix × arg-position variation + biquad inline repro), vidya `audio_dsp/cyrius.cyr` workaround removed + missing `lib/syscalls.cyr` / `lib/vec.cyr` includes added, vidya field-note `no_comparisons_in_fn_args` flipped to ✅ FIXED, issue file archived. Part B closes the 2026-04-25-filed sit cap-overflow issue (sit-side, mirrored to cyrius archived/) — surfaced mid-slot when the user named the sit issue file ("`@../sit/docs/development/issues/2026-04-25-cyrius-fixup-table-cap.md` - sit cannot"); originally framed as "fixup-table" overflow but v5.8.45 retest's `error: token limit exceeded (262144)` came from a separate cap site — `lex.cyr:95` ADDTOK, not the fixup table (fixup caps had moved 32K → 262K → 1M in v5.7.x but ADDTOK hadn't moved since pre-v5.7.1). Part B sub-deliverables per the issue's preferred path: (B.1) ADDTOK diagnostic upgraded to print `needed M, cap is N`; (B.2) cap raised 4× to 1048576 + token arrays relocated from the 0x94A000/0xD4A000/0xF4A000 trio (each 2 MiB; tok_types overlapped output_buf at 0x94A000 — undocumented v3.6.2 recycling) to fresh post-TS-region high block at 0x368C000/0x3E8C000/0x468C000 (each 8 MiB). Brk extended in every main_*.cyr (main.cyr: 0x368C000 → 0x4E8C000; main_aarch64/macho/native/cx: 0x290B000 → 0x4E8C000); main_win.cyr MMAP raised 0x2000000 → 0x5000000. Bridge.cyr NOT touched (different bootstrap-chain offsets and its own smaller cap; bridge only compiles cc5 itself, well under 262K tokens). **Premise-check method memo** (folded into existing memory pin `feedback_premise_check_at_slot_entry`): revert the consumer workaround in the filing repo, recompile against unmodified cyrius — synthetic minimal programs miss shape-dependent bugs. Surfaced first in Part A (vidya audio_dsp; user push-back: "won't look at the repo that reported it... I forgot it was YOU IN THE REPO") and applied immediately in Part B (sit) — same lesson, two consecutive applications in one slot. **Slot-scope note**: Part B was added to v5.8.46 (rather than cut as a fresh v5.8.47) because v5.8.46 hadn't shipped yet — same fold-in pattern as v5.8.45's `kernel_ident.tcyr` correction. The originally-pinned v5.8.47 starship/vidya-audit slot stays at v5.8.47 (not yet shipped, not displaced). **Stale-pin streak**: 2 consecutive (v5.8.45 + v5.8.46-Part-A) + 3 total in v5.8.x cycle, but Part B ships actual consumer-unblocking work in the same slot, freeing vidya, yantra, hoosh, ifran, daimon, mela, ark, sit. Verification: 30/30 expr_in_fn_args assertions pass; CI-shape pipefail loop on 123 tcyr = 123 passed; cyrius `scripts/check.sh` 65/65 PASS; vidya audio_dsp port = 17/17 + zero warnings against the post-v5.8.46 cyrius lib; **sit v0.7.2 builds (1,283,232-byte binary; was parked at v0.7.1's ~709 KB) + sit `cyrius test` 127/127 PASS** — the canonical end-to-end gate for Part B. Self-host two-step byte-identical at 741,040 B. Pin candidates queued: cap-overflow diagnostics should include source file + line so future cap-site drift is unambiguous (v5.8.50 closeout); heap-map comments should be re-validated against actual code at every minor closeout — the tok_types-vs-output_buf overlap was a v3.6.2-era recycling pattern the comments never caught up to. Phase 3 remaining (9 slots): combined starship/p10k + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup (v5.8.50), release-valve (v5.8.51), Unicode 17.0.0 categories+normalization (v5.8.52-54), Unicode regression suite + final closeout (v5.8.55). 46 of 55 pinned slots shipped (83.6%); 9 slots remaining.**
 

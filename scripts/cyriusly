@@ -191,6 +191,12 @@ case "${1:-help}" in
         # v5.7.x). Package side (ॐ Om) shows `name version (repo)` from
         # cyrius.cyml [package]; toolchain side (🌀 cyclone) shows the
         # active cyrius version. Same `cyrius-prompt-info` helper backs both.
+        # v5.8.47: colored TEXT on default bg — ॐ Om → forestgreen
+        # (#228B22), 🌀 cyclone → light blue (#87CEEB). Pre-v5.8.47 both
+        # segments shared bg:teal with fg:base text; the bg collapse hid
+        # which side was which. Now the colored TEXT itself differentiates
+        # the segments — no background fill, no visual conflict with the
+        # rest of the prompt.
         # ASCII fallback for emoji-hostile terminals: change `symbol = "🌀"`
         # to `symbol = "𝕮"` in starship.toml and `🌀` → `𝕮` / `ॐ` → `[C]`
         # in p10k.zsh — both are inline edits to the user's own config.
@@ -198,27 +204,29 @@ case "${1:-help}" in
 command = "cyrius-prompt-info pkg"
 when = "test -f cyrius.cyml"
 symbol = "ॐ"
-style = "bg:teal"
-format = '"'"'[[ $symbol $output ](fg:base bg:teal)]($style)'"'"'
+style = "fg:#228B22"
+format = '"'"'[[ $symbol $output ](fg:#228B22)]($style)'"'"'
 detect_files = ["cyrius.cyml"]
 
 [custom.cyrius]
 command = "cyrius-prompt-info tool"
 when = "test -f cyrius.cyml || test -f cyrius.toml"
 symbol = "🌀"
-style = "bg:teal"
-format = '"'"'[[ | $symbol $output ](fg:base bg:teal)]($style)'"'"'
+style = "fg:#87CEEB"
+format = '"'"'[[ | $symbol $output ](fg:#87CEEB)]($style)'"'"'
 detect_files = ["cyrius.cyml", "cyrius.toml"]'
 
-        _CYRIUS_P10K='# Cyrius prompt segment (v5.8.0: ॐ pkg + 🌀 toolchain)
+        _CYRIUS_P10K='# Cyrius prompt segment (v5.8.0: ॐ pkg + 🌀 toolchain;
+# v5.8.47: colored TEXT on default bg — ॐ Om → forestgreen, 🌀 cyclone → light blue)
 function prompt_cyrius() {
   if [[ -f cyrius.cyml ]] || [[ -f cyrius.toml ]]; then
     local pkg=$(cyrius-prompt-info pkg 2>/dev/null)
     local tool=$(cyrius-prompt-info tool 2>/dev/null)
     if [[ -n "$pkg" ]]; then
-      p10k segment -f teal -t "ॐ $pkg | 🌀 $tool"
+      p10k segment -f 28 -t "ॐ $pkg"
+      p10k segment -f 117 -t "| 🌀 $tool"
     elif [[ -n "$tool" ]]; then
-      p10k segment -f teal -t "🌀 $tool"
+      p10k segment -f 117 -t "🌀 $tool"
     fi
   fi
 }'
