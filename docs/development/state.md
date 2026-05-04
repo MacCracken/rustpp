@@ -5,6 +5,43 @@
 
 ## Version
 
+**5.8.44** (shipped 2026-05-03 — **v5.8.x SLOT 44 — api-surface refresh
++ auto-build wiring + null-byte-in-shell-substitution fix**.
+Sixth slot of Phase 3. Three-part deliverable per the original
+roadmap pin: (1) check.sh now build-on-demands cyrius_api_surface
+if missing — pre-fix the gate had silently skipped since v5.7.50;
+(2) off-by-one length literal in programs/api_surface.cyr (lines
+337 + 350: "BREAKING: ...:\n" is 65 bytes; syscall length was 66
+including the cstring's trailing \0; null byte in output triggered
+shell warnings on command substitution); (3) snapshot regen via
+`cyrius_api_surface --update` — 2563 → **2750 entries (+187)**
+reflecting v5.7.x → v5.8.x stdlib growth (slice helpers + Result
++ Allocator `_a` variants + sandhi v1.1.0 fold + 10 typed-error
+enums + alloc_via et al). cc5 unchanged at **740,528 B** (zero
+compiler delta — fixes in tool source + check.sh wiring + snapshot
+regen, none touch the cc5 binary). Gate now runs as a real PASS
+not silent skip; 0 null-byte warnings; all 3 test cases green.
+**Off-by-one byte counts in literals are a recurring foot-gun**:
+cyrius's lack of compile-time `sizeof("string literal")` means
+every `syscall(SYS_WRITE, 2, "literal", N)` site has a hand-
+counted N. Pinned for future cleanup (a `strlen_const("...")`
+compile-time helper would eliminate this entire bug class —
+surface during v5.8.49 closeout refactor pass if it bites again).
+**Lesson reinforced**: gates that "skip clean" can hide regressions
+for many minors (api-surface gate orphaned since v5.7.50; same
+pattern v5.8.41 caught for cyrlint large-file). Build-on-demand
+fallbacks (now applied here + cyrfmt/cyrlint pattern from v5.7.36)
+are the structural fix. Verification: self-host two-step
+byte-identical, check.sh 65/65 (gate count unchanged — was
+counted as PASS while silent-skipping, now actually validates).
+v5.8.x cycle progress: **44 of 51 pinned slots shipped (86.3%)**.
+Phase 3 remaining (7 slots): kernel reserved-word (v5.8.45),
+arithmetic in fn args (v5.8.46), combined starship/p10k color
+refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups
+(v5.8.48), full closeout pass (v5.8.49), deps cleanup +
+post-release propagation (v5.8.50), release-valve (v5.8.51).
+Cycle backstop hard at v5.8.51.)
+
 **5.8.43** (shipped 2026-05-03 — **v5.8.x SLOT 43 — Phase 3 polish
 absorber: stdlib Allocator migration pass 3 (peripheral cleanup)**.
 Fifth slot of Phase 3. Absorbs the deferred-from-v5.8.35 + v5.8.36
@@ -3340,7 +3377,7 @@ throughput win on hosts with hw support).)
 
 ## In-flight
 
-**v5.8.43 ✅ shipped — Phase 3 polish absorber: stdlib Allocator migration pass 3 (peripheral cleanup). 12 new _a variants completing the v5.8.x migration to ~100% stdlib coverage. Surfaced str_split pre-existing bug → filed for future slot. Unblocks sandhi v1.1.0 dup-elimination. Phase 3 remaining (8 slots): api-surface refresh (v5.8.44), kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 43 of 51 pinned slots shipped (84.3%); 8 slots remaining.**
+**v5.8.44 ✅ shipped — api-surface refresh + auto-build wiring + null-byte-in-shell-substitution fix. Gate flipped from silent-skip-since-v5.7.50 to real PASS validating 2750-entry snapshot. Phase 3 remaining (7 slots): kernel reserved-word (v5.8.45), arithmetic in fn args (v5.8.46), combined starship/p10k color refresh + vidya audit (v5.8.47), refactoring + heap-map cleanups (v5.8.48), full closeout pass (v5.8.49), deps cleanup + post-release propagation (v5.8.50), release-valve (v5.8.51). Cycle ships 51 patches; backstop hard at v5.8.51. 44 of 51 pinned slots shipped (86.3%); 7 slots remaining.**
 v5.8.0 cut the cycle open with the triple-anchor (fmt sweep +
 vani fold-in + cyriusly starship.toml). 2026-05-01 strategic
 re-theming compressed the originally-separate v5.10.x / v5.11.x /
@@ -3396,6 +3433,7 @@ ship to absorb slices re-scope from single-slot to 5-patch sub-arc):
 - **v5.8.41** ✅ cyrlint large-file false-positive verification slot. Premise check (4 repros, all clean) found mabda-filed bug already resolved by intermediate cyrlint work between v5.7.23 and v5.8.40. New regression-floor gate (tests/regression-cyrlint-large-file.sh, 7010-line synthetic) wired into check.sh (gate count 64→65). mabda issue annotated as ✅ RESOLVED. Zero compiler delta.
 - **v5.8.42** ✅ Paired UX polish (mabda A2 + C1). Half (a) `cyrius fmt --check` cbt arg-order fix (drift detection silently broken pre-fix; now matches Rust/Go silent-on-no-drift / exit-1-on-drift). Half (b) `var X;` bare-decl diag improvement (special-case ; token in PARSE_VAR + EMIT_GVAR_INITS, emit "uninitialized variable not allowed; use `var X = 0;`"). cc5 +216 B (entirely from half b).
 - **v5.8.43** ✅ Phase 3 polish absorber — stdlib Allocator migration pass 3 (peripheral cleanup). 9 new str _a variants (str_sub_a / str_trim_a / str_split_a / 5 str_builder_*_a) + 3 new map_u64 _a variants (map_u64_new_a / map_u64_set_a / _map_u64_grow_a internal). Migration now at ~100% stdlib coverage (45 _a variants + 10 typed-error enums across 11 modules). Unblocks sandhi v1.1.0 dup-elimination. Surfaced str_split pre-existing bug (sep treated as ptr) → filed as new issue for future slot. cc5 +0 B; 33-assertion tcyr.
+- **v5.8.44** ✅ api-surface refresh + auto-build wiring + null-byte fix. 3-part deliverable: check.sh now build-on-demands cyrius_api_surface (was silently skipping since v5.7.50); off-by-one 66→65 length literal in programs/api_surface.cyr (BREAKING-report header was including cstring's trailing \0 in syscall length, triggering shell command-sub null-byte warnings); snapshot regen 2563 → 2750 (+187) reflecting v5.7.x→v5.8.x stdlib growth. Gate now real PASS not silent skip; 0 null-byte warnings; cc5 unchanged.
 
 Phase 3 — Polish + cycle closeout (slots 39-44):
 - **v5.8.39** — Preprocessor include-pattern in string literals (vidya audit)

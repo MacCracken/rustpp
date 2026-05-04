@@ -334,7 +334,11 @@ fn _diff_against_snapshot(snapshot_bytes) {
                     e_idx = e_idx + 1;
                 } elif (cmp < 0) {
                     if (removed_count == 0) {
-                        syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 66);
+                        # v5.8.44: was 66 — off-by-one included the cstring's
+                    # trailing \0 in the syscall length, producing a stray
+                    # null byte in the output that the shell flagged as
+                    # "ignored null byte in input" on command substitution.
+                    syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 65);
                     }
                     syscall(SYS_WRITE, 2, "  - ", 4);
                     syscall(SYS_WRITE, 2, SNAPSHOT_BUF + s_pos, s_len);
@@ -347,7 +351,9 @@ fn _diff_against_snapshot(snapshot_bytes) {
                 }
             } else {
                 if (removed_count == 0) {
-                    syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 66);
+                    # v5.8.44: was 66 — see line 341 for the off-by-one
+                    # null-byte fix. Two sites with identical literal.
+                    syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 65);
                 }
                 syscall(SYS_WRITE, 2, "  - ", 4);
                 syscall(SYS_WRITE, 2, SNAPSHOT_BUF + s_pos, s_len);

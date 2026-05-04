@@ -4,6 +4,124 @@ All notable changes to Cyrius are documented here.
 This is the **source of truth** for all work done.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.8.44] — 2026-05-03
+
+**v5.8.x slot 44 — api-surface refresh + auto-build wiring +
+null-byte-in-shell-substitution fix**. Sixth slot of Phase 3.
+Three-part deliverable per the original roadmap pin (added
+2026-05-02 at v5.8.18 ship, shifted v5.8.42 → v5.8.44 by the
+v5.8.22 +2 cascade).
+
+cc5 unchanged at **740,528 B** (zero compiler delta — programs/
+api_surface.cyr is a tool, not part of the cc5 binary itself;
+fixes are in the tool source + check.sh wiring + snapshot
+regen).
+
+### Part 1 — auto-build wiring (`scripts/check.sh`)
+
+**Bug**: `cyrius_api_surface` binary is in `cyrius.cyml`'s
+`bins = [...]` list but check.sh's tool-build path didn't include
+it. `tests/regression-api-surface.sh` had been silently skipping
+with `skip: build/cyrius_api_surface not built` since v5.7.50 —
+the gate looked green in CI output but was actually a no-op.
+
+**Fix**: Added a build-on-demand step before the api-surface
+gate in check.sh. If `build/cyrius_api_surface` is missing, the
+gate compiles `programs/api_surface.cyr` via `build/cc5` first.
+Mirrors the cyrfmt/cyrlint fallback pattern at the top of check.sh.
+
+```sh
+if [ ! -x "$ROOT/build/cyrius_api_surface" ]; then
+    if [ -f "$ROOT/programs/api_surface.cyr" ] && [ -x "$ROOT/build/cc5" ]; then
+        cat "$ROOT/programs/api_surface.cyr" | "$ROOT/build/cc5" > "$ROOT/build/cyrius_api_surface" 2>/dev/null
+        chmod +x "$ROOT/build/cyrius_api_surface" 2>/dev/null
+    fi
+fi
+```
+
+The api-surface gate now runs as a real PASS, not a silent skip.
+
+### Part 2 — null-byte-in-shell-substitution fix (`programs/api_surface.cyr`)
+
+**Bug**: The 3 gate test cases produced
+`command substitution: ignored null byte in input` warnings on
+lines 40 / 54 / 71 of `tests/regression-api-surface.sh`. Root
+cause was the BREAKING-report header at lines 337 + 350 of
+`programs/api_surface.cyr`:
+
+```cyrius
+syscall(SYS_WRITE, 2, "BREAKING: public fn removed or signature changed since snapshot:\n", 66);
+```
+
+The literal is **65** bytes (counted: BREAKING:(9) + space + public(6) + space + fn(2) + space + removed(7) + space + or(2) + space + signature(9) + space + changed(7) + space + since(5) + space + snapshot:(9) + \n(1) = 65). The syscall length `66` was off-by-one — wrote one byte past the literal's content into the cstring's trailing `\0` storage. The shell capture (`out=$(...)`) saw the embedded null and emitted the warning.
+
+**Fix**: 66 → 65 at both sites. Verified zero null bytes in tool
+output post-fix.
+
+### Part 3 — snapshot regeneration (`docs/api-surface.snapshot`)
+
+**Bug**: snapshot last refreshed 2026-04-29 at 2563 entries.
+Current code had additions (slice helpers from v5.8.x §6-§10:
+`_slice_idx_get_W`, `slice_unchecked_get_W`, `sys_read_slice`,
+`slice_copy_bytes`, `slice_eq_bytes`, etc.) AND removals (the
+`agnosys::bootloader_config_*` family was dropped from agnosys's
+public surface).
+
+**Fix**: Ran `cyrius_api_surface --update` (post-tool-fix). New
+snapshot: **2750 entries** (+187 vs v5.7.33's 2563). Net add
+of 187 reflects the v5.7.x → v5.8.x stdlib growth (slice
+helpers + Result/Allocator `_a` variants + 10 typed-error enums
++ alloc_via et al + sandhi v1.1.0 fold's ~150 `_a` verbs).
+
+### Verification
+
+- `sh scripts/check.sh` → 65 passed, 0 failed. The api-surface
+  gate output flipped from `skip: build/cyrius_api_surface not
+  built` to `PASS: cyrius api-surface diff (snapshot 2750 entries;
+  +1 added detected; -1 removed detected)`.
+- `regression-api-surface.sh` standalone — all 3 test cases
+  green:
+  1. Committed snapshot matches current API surface (rc=0).
+  2. Synthetic removal flagged BREAKING (rc=1).
+  3. Synthetic addition reported as +1 added (rc=0).
+- Zero `command substitution: ignored null byte in input`
+  warnings.
+- Self-host two-step: cc5 → cc5_a → cc5_b, all byte-identical
+  at 740,528 B.
+
+### Process notes
+
+- **Three independent bugs in one slot.** Per the pin's
+  three-part shape: build wiring (CI infrastructure), tool bug
+  (off-by-one length literal), data refresh (stale snapshot).
+  Combining was correct because all three blocked the same gate
+  from being meaningful — the gate's been silently green-but-
+  broken since v5.7.50. Single slot to flip it from "silently
+  skipping" → "actually validating".
+
+- **Off-by-one byte counts in literals are a recurring foot-gun.**
+  cyrius's lack of compile-time `sizeof("string literal")` means
+  every `syscall(SYS_WRITE, 2, "literal", N)` site has a hand-
+  counted N. Pin-for-future-cleanup: a `strlen_const("...")`
+  compile-time helper would eliminate this entire bug class.
+  Not pinning a slot now — surface during the v5.8.49 closeout
+  refactor pass if it bites again.
+
+- **Snapshot freshness as a CI gate** (the api-surface concept)
+  worked exactly as designed once unwedged: the +187 entry
+  diff between the 2026-04-29 snapshot and today's revealed
+  every public-API change across the v5.7.x → v5.8.x cycles.
+  Future stdlib audits get to grep this snapshot file for "what
+  was added when" without needing git archaeology.
+
+- **Cyrius git log shows multiple "fixing tools" commits** —
+  the api-surface tool got intermittent attention but the
+  snapshot freshness gate was orphaned. Lesson reinforced from
+  v5.8.41: gates that "skip clean" can hide regressions for
+  many minors. Build-on-demand fallbacks (now applied here +
+  the cyrfmt/cyrlint pattern from v5.7.36) are the structural
+  fix.
+
 ## [5.8.43] — 2026-05-03
 
 **v5.8.x slot 43 — Phase 3 polish absorber: stdlib Allocator

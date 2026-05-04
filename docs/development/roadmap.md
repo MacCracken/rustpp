@@ -1295,10 +1295,28 @@ fn requires explicit allocator.
   fix when it lands. check.sh 65/65; self-host two-step
   byte-identical.
 
-- **v5.8.44** — api-surface refresh + auto-build wiring +
-  null-byte-in-shell-substitution fix. Pinned 2026-05-02 at
-  v5.8.18 ship; shifted v5.8.42 → v5.8.44 by the v5.8.22 +2
-  cascade. Three-part deliverable:
+- ✅ **v5.8.44** — api-surface refresh + auto-build wiring +
+  null-byte-in-shell-substitution fix (shipped 2026-05-03).
+  Pinned 2026-05-02 at v5.8.18 ship; shifted v5.8.42 → v5.8.44
+  by the v5.8.22 +2 cascade. Three-part deliverable shipped
+  per the original spec — see CHANGELOG for the full repro/fix
+  details. Headline outcomes: (a) check.sh now build-on-demands
+  cyrius_api_surface if missing (mirrors cyrfmt/cyrlint
+  fallback pattern); (b) off-by-one 66→65 length literal at
+  api_surface.cyr lines 337+350 (BREAKING-report header was
+  including cstring's trailing \0 in syscall length, producing
+  the "command substitution: ignored null byte in input" shell
+  warnings); (c) snapshot regen 2563 → 2750 entries (+187)
+  reflecting v5.7.x→v5.8.x stdlib growth. Gate now real PASS
+  not silent skip; 0 null-byte warnings; all 3 test cases
+  green. cc5 unchanged at 740,528 B (zero compiler delta —
+  tool fix + wiring + snapshot regen). check.sh 65/65; self-
+  host two-step byte-identical. **Surface-during-cycle finding
+  noted in CHANGELOG**: off-by-one byte counts in
+  `syscall(SYS_WRITE, 2, "literal", N)` sites are a recurring
+  foot-gun without compile-time `sizeof("...")`. Surface a
+  `strlen_const("...")` helper proposal during v5.8.49 closeout
+  refactor pass if it bites again. Three-part deliverable:
 
   1. **`cyrius_api_surface` binary auto-build wiring.** The
      binary is in `cyrius.cyml`'s `bins = [...]` list but the

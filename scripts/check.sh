@@ -549,10 +549,22 @@ rm -f /tmp/audit_clf_$$
 echo ""
 
 # ── 4ao. cyrius api-surface diff (v5.7.33) ──
+# v5.8.44: build cyrius_api_surface on-demand if missing — pre-fix
+# the gate was silently skipping with `skip: build/cyrius_api_surface
+# not built` since v5.7.50 because the check.sh tool-build path
+# (cyrfmt/cyrlint/cyrdoc) didn't include it. Mirror the cc5-build
+# pattern: if the binary isn't there, build it from the source the
+# binary corresponds to.
+if [ ! -x "$ROOT/build/cyrius_api_surface" ]; then
+    if [ -f "$ROOT/programs/api_surface.cyr" ] && [ -x "$ROOT/build/cc5" ]; then
+        cat "$ROOT/programs/api_surface.cyr" | "$ROOT/build/cc5" > "$ROOT/build/cyrius_api_surface" 2>/dev/null
+        chmod +x "$ROOT/build/cyrius_api_surface" 2>/dev/null
+    fi
+fi
 echo "── cyrius api-surface ──"
 sh "$ROOT/tests/regression-api-surface.sh" > /tmp/audit_api_$$ 2>&1
 api_result=$?
-check "cyrius api-surface diff: snapshot match + add/remove detection (v5.7.33)" "$api_result"
+check "cyrius api-surface diff: snapshot match + add/remove detection (v5.7.33; auto-build at v5.8.44)" "$api_result"
 if [ "$api_result" -ne 0 ]; then cat /tmp/audit_api_$$; fi
 rm -f /tmp/audit_api_$$
 echo ""
